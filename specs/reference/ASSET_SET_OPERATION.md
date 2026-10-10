@@ -3,7 +3,7 @@ title: Asset Set Operation Specification
 kind: reference
 audience: internal
 area: [core/assets]
-reviewed: 2026-10-09
+reviewed: 2026-10-10
 ---
 # Asset Set Operation Specification
 
@@ -195,7 +195,7 @@ When `set_binary()` or `set_state()` modifies an existing asset:
 
 ## Store Routing
 
-When multiple stores exist in a StoreRouter:
+When multiple stores exist in an `AsyncStoreRouter`:
 - Use standard router logic: first prefix match
 - The store whose prefix matches the key receives the write
 
@@ -386,6 +386,7 @@ Rationale: Validation would require potentially costly de-serialization, adding 
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-10 | §Store Routing names `AsyncStoreRouter`; the synchronous `StoreRouter` was removed. | `CORE-SYNC-STORE-TRAIT-OBSOLETE`, `design/sync-store-removal/` |
 | 2026-10-09 | §In-Flight Asset Handling and §Cancellation Mechanism rewritten: `cancel_for_replacement` discards a replaced run's late result (no `cancelled` flag); `cancel()` is a request the run decides; replacement notifications as sent. | phase-5 (`design/asset-cancellation-outcome/`) |
 | 2026-09-27 | Reviewed against the code for record-streams: the binary operation is `set_binary()` (was written `set()`); both operations honour the supplied metadata's `stored: false`. Repaired this History table's header | phase-5 (`design/record-streams/`) |
 | 2026-08-26 | Corrected the error-state exemption: an errored asset is typed by the value it holds, which is none. There is no `error` identifier. | `design/foreign-value-type-registration/` |

@@ -3,7 +3,7 @@ title: Store Behavioural Semantics
 kind: reference
 audience: internal
 area: [core/store, store/backends, web]
-reviewed: 2026-10-07
+reviewed: 2026-10-10
 ---
 # Store Behavioural Semantics
 
@@ -33,11 +33,12 @@ suite against it.
 rule the code does not follow. One remains: §7's, which is a *parsing* limit rather than a store one.
 §2's `children` question was settled on 2026-09-29.
 
-**This document is trait-neutral where the rule is.** `AsyncStore` is the only store trait that
-must satisfy it today — the synchronous `Store` is obsolete and unreachable
-(`CORE-SYNC-STORE-TRAIT-OBSOLETE`) — but the rules are stated about *a store*, not about one trait,
-so that a synchronous store reintroduced for a realm with synchronous evaluation inherits the
-contract instead of re-deriving it.
+**This document is trait-neutral where the rule is.** `AsyncStore` is the only store trait; a
+synchronous `Store` trait existed and was removed (`CORE-SYNC-STORE-TRAIT-OBSOLETE`) because no
+`Environment` could hold one. The rules are still stated about *a store*, not about one trait, so
+that a synchronous store reintroduced for a realm with synchronous evaluation inherits the contract
+instead of re-deriving it. Such a store would need a synchronous evaluation path as well, not only
+the trait back.
 
 ## 1. The sibling rule
 
@@ -194,7 +195,7 @@ A store is constructed with a `prefix: Key`, and:
   on `key_prefix()` **alone** — unlike `find_store`, which also consults `is_supported` — so a store
   that under-reports its prefix answers for keys belonging to stores listed after it.
 - **The prefix is part of the path under the backend root**, not a mount point that is stripped.
-  `FileStore::key_to_path` pushes the whole key, prefix included, onto its root, and
+  `AsyncFileStore::key_to_path` pushes the whole key, prefix included, onto its root, and
   `AsyncOpenDALStore` does the same. `liquers-web`'s `FetchStore` is the one store that strips its
   prefix, and documents that it is the exception.
 - **`is_supported` answers whether the store supports the key.** The answer is cumulative: the key
@@ -209,7 +210,7 @@ An empty prefix does not mean a store must support every absolute key. For examp
 overlay can have an empty prefix and return true only for its intercepted file. When placed before
 a general store, it handles that file while unsupported keys pass to subsequent stores.
 
-`AsyncMemoryStore` and `MemoryStore` have no narrower exclusions, so their predicate is exactly
+`AsyncMemoryStore` has no narrower exclusions, so its predicate is exactly
 `!key.is_relative() && key.has_key_prefix(&self.prefix)`.
 
 *Enforced by:* `prefix01`, `prefix02`, `prefix03`, `prefix04`, `sibling05`.
@@ -333,6 +334,7 @@ and `AsyncOpenDALStore` already behave as specified here.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-10 | Introduction: the synchronous `Store` was removed, not merely obsolete; the rules stay trait-neutral for a future synchronous realm. §1 cites `AsyncFileStore` / `AsyncMemoryStore` only. | `CORE-SYNC-STORE-TRAIT-OBSOLETE`, `design/sync-store-removal/` |
 | 2026-10-07 | §8: a key with metadata and no data has no data object — `get` and `get_bytes` report `KeyNotFound`, while `set(k, b"", m)` stores an empty one. `AsyncMemoryStore` now behaves so. Enforced by the new rule `sidecar05`. | `design/memory-store-metadata-only-entry/` |
 | 2026-09-30 | §4: a delegating store must let the delegate express absence, with `JsStore`'s `null` sentinel as the example. Reviewed §2, §8 and §9 against the implementation and the final conformance reports: every in-tree store passes `dir07` and `sidecar04`. | phase-5 (`design/store-conformance-backlog/`) |
 | 2026-09-29 | §8: a key with metadata and no data is enumerable — listed by its parent and answered by `contains` — unless the store refuses the write with `KeyNotFound`. The file stores now list the implied key of a sidecar instead of dropping it. Recorded the two consequences for callers. Enforced by the new rule `sidecar04`. | `design/store-conformance-backlog/` step 6 |

@@ -53,7 +53,7 @@ These are enforced project-wide. A violation is a blocking finding.
   Exception: matching on *external* enums you don't own (document why).
 - **Async is the default.** I/O and anything reachable from an async context is
   async (`#[async_trait]`, `AsyncStore`). There is no sync store and no sync
-  wrapper: the sync `Store` trait is obsolete and `AsyncStoreWrapper` no longer
+  wrapper: the sync `Store` trait was removed and `AsyncStoreWrapper` no longer
   exists. Sync code is only for genuinely CPU-bound, I/O-free, sync-called code
   (e.g. a render pass); a sync caller such as a binding drives the async API on a
   runtime. No blocking I/O inside async.

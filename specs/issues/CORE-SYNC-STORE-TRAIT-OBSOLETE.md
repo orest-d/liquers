@@ -2,7 +2,7 @@
 id: CORE-SYNC-STORE-TRAIT-OBSOLETE
 kind: issue
 title: The synchronous Store trait is obsolete and should be removed
-status: draft
+status: closed
 priority: P2
 complexity: M
 area: [core/store, py, docs]
@@ -63,3 +63,14 @@ conformance suite should cover the synchronous trait. It should not; the trait s
 (`BinCache`, `Cache`, `NoCache`, …) obsolete for the same reason as `Store`: its only consumer is
 `liquers-py`'s legacy `Environment` (`cache` field, `with_cache`). It assigns the module's deletion
 to this issue (`covered-by`), so that `liquers-py`'s `Environment` changes once, not twice.
+
+## Resolution (2026-10-10)
+
+Done by `design/sync-store-removal/`. `Store`, `NoStore`, `FileStore`, `MemoryStore`, `StoreRouter`
+and `liquers_core::cache` are removed; `liquers-py`'s `Environment` lost its `store` and `cache`
+fields and the orphans `store.rs` / `cache.rs` are deleted. No Python-visible API changed (the
+wrappers were never compiled or registered). Evidence: `compile_fail,E0432` doctests in
+`liquers-core/src/store.rs` and `lib.rs`; `liquers-core`, `liquers-py`, `liquers-lib` and conformance
+test runs and the build matrix recorded in the design's Phase 5. `STORE_SEMANTICS.md` stays
+trait-neutral for a future synchronous realm.
+

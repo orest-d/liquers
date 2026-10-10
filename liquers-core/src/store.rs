@@ -1,5 +1,34 @@
-//! Key-value stores: the [`Store`] and [`AsyncStore`] traits, the routers that compose them, and
-//! the in-memory and filesystem backends.
+//! Key-value stores: the [`AsyncStore`] trait, the router that composes stores, and the in-memory
+//! and filesystem backends.
+//!
+//! # There is no synchronous store
+//!
+//! [`AsyncStore`] is the only store trait. A synchronous `Store` trait with its own `NoStore`,
+//! `MemoryStore`, `FileStore` and `StoreRouter` existed and was removed
+//! (`specs/issues/CORE-SYNC-STORE-TRAIT-OBSOLETE.md`): no `Environment` could hold one, so it was
+//! unreachable. The rules in `specs/reference/STORE_SEMANTICS.md` are stated trait-neutrally; a
+//! store for a realm that evaluates synchronously would need a synchronous evaluation path, not
+//! only the trait back. None of these names resolves:
+//!
+//! ```compile_fail,E0432
+//! use liquers_core::store::Store;
+//! ```
+//!
+//! ```compile_fail,E0432
+//! use liquers_core::store::NoStore;
+//! ```
+//!
+//! ```compile_fail,E0432
+//! use liquers_core::store::MemoryStore;
+//! ```
+//!
+//! ```compile_fail,E0432
+//! use liquers_core::store::FileStore;
+//! ```
+//!
+//! ```compile_fail,E0432
+//! use liquers_core::store::StoreRouter;
+//! ```
 //!
 //! # A store key is absolute
 //!
@@ -32,21 +61,19 @@
 //!
 //! Writes as well as reads: a read-only guard leaves the write path open.
 //!
-//! [`Store::is_supported`] should *also* reject relative keys, but **it is not the enforcement
-//! point.** Only [`StoreRouter`] and [`AsyncStoreRouter`] consult it, so a store held directly —
+//! [`AsyncStore::is_supported`] should *also* reject relative keys, but **it is not the
+//! enforcement point.** Only [`AsyncStoreRouter`] consults it, so a store held directly —
 //! which is how an `Environment` is often configured, and how store unit tests construct one —
 //! never runs it. A backend guarded only in `is_supported` therefore passes a routed test and is
 //! wide open when used directly.
 //!
 //! A backend that maps keys onto backend paths gets the check structurally as well: the path
-//! builders of [`FileStore`], [`AsyncFileStore`] and the OpenDAL store are fallible, so the
+//! builders of [`AsyncFileStore`] and the OpenDAL store are fallible, so the
 //! backend cannot be reached without passing.
 
 use std::collections::BTreeSet;
-use std::fs::File;
-use std::io::{Read, Write};
 use std::path::PathBuf;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 use async_trait::async_trait;
 
@@ -58,273 +85,6 @@ use crate::store_dir_index::DirectoryIndex;
 #[cfg(not(target_arch = "wasm32"))]
 use tokio::time::{sleep, Duration};
 
-/// A synchronous key-value store.
-///
-/// **Every key must be absolute** — see the [module documentation](self#a-store-key-is-absolute).
-/// Implementors call [`Key::as_absolute`] at the top of each fallible key-taking method;
-/// [`Self::is_supported`] is consulted only by [`StoreRouter`] and is not sufficient on its own.
-pub trait Store: Send + Sync {
-    /// Get store name
-    fn store_name(&self) -> String {
-        format!("{} Store", self.key_prefix())
-    }
-
-    /// Key prefix common to all keys in this store.
-    fn key_prefix(&self) -> Key {
-        Key::new()
-    }
-
-    /// Create default metadata object for a given key
-    fn default_metadata(&self, key: &Key, is_dir: bool) -> MetadataRecord {
-        let mut metadata = MetadataRecord::new();
-        metadata.with_key(key.to_owned());
-        let _ = metadata.set_updated_now();
-        metadata.is_dir = is_dir;
-        if is_dir {
-            metadata.children = self.listdir_asset_info(key).unwrap_or_default();
-        }
-        metadata
-    }
-
-    /// Finalize metadata before storing - when data is available
-    /// This can't be a directory
-    /// If update is true, it is considered a real update of the data,
-    /// not just fixing the metadata - the time of the update gets actualized too
-    fn finalize_metadata(&self, metadata: &mut Metadata, key: &Key, data: &[u8], update: bool) {
-        if update {
-            let _ = metadata.set_updated_now();
-        }
-        let _ = metadata.with_key(key.clone());
-        metadata.with_file_size(data.len() as u64);
-        match metadata.status() {
-            metadata::Status::None => {
-                // If there is data, then the status can't be None - It could be only some state that has data.
-                // Source is the least assuming, but it can create inconsistency if there is a recipe.
-                let _ = metadata.set_status(metadata::Status::Source);
-            }
-            _ => {}
-        }
-    }
-
-    /// Finalize metadata before storing - when data is not available
-    fn finalize_metadata_empty(
-        &self,
-        metadata: &mut Metadata,
-        key: &Key,
-        is_dir: bool,
-        update: bool,
-    ) {
-        if update {
-            let _ = metadata.set_updated_now();
-        }
-        metadata.with_is_dir(is_dir);
-        let _ = metadata.with_key(key.clone());
-        if is_dir {
-            let _ = metadata.set_status(metadata::Status::Directory);
-        }
-    }
-
-    /// Get data and metadata
-    fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
-        Err(Error::key_not_found(key))
-    }
-
-    /// Get data as bytes
-    fn get_bytes(&self, key: &Key) -> Result<Vec<u8>, Error> {
-        Err(Error::key_not_found(key))
-    }
-
-    /// Get metadata
-    fn get_metadata(&self, key: &Key) -> Result<Metadata, Error> {
-        if self.is_dir(key)? {
-            let metadata = self.default_metadata(key, true);
-            return Ok(Metadata::MetadataRecord(metadata));
-        }
-        Err(Error::key_not_found(key))
-    }
-
-    /// Get asset info
-    fn get_asset_info(&self, key: &Key) -> Result<metadata::AssetInfo, Error> {
-        let mut info = self
-            .get_metadata(key)?
-            .get_asset_info()
-            .unwrap_or_else(|_e| AssetInfo::new());
-        info.with_key(key.to_owned());
-        info.is_dir = self.is_dir(key)?;
-        Ok(info)
-    }
-
-    /// Store data and metadata.
-    fn set(&self, key: &Key, _data: &[u8], _metadata: &Metadata) -> Result<(), Error> {
-        key.as_absolute()?;
-        Err(Error::key_not_supported(key, &self.store_name()))
-    }
-
-    /// Store metadata only
-    fn set_metadata(&self, key: &Key, _metadata: &Metadata) -> Result<(), Error> {
-        key.as_absolute()?;
-        Err(Error::key_not_supported(key, &self.store_name()))
-    }
-
-    /// Remove data and metadata associated with the key
-    fn remove(&self, key: &Key) -> Result<(), Error> {
-        key.as_absolute()?;
-        Err(Error::key_not_supported(key, &self.store_name()))
-    }
-
-    /// Remove directory.
-    /// The key must be a directory.
-    /// It depends on the underlying store whether the directory must be empty.    
-    fn removedir(&self, key: &Key) -> Result<(), Error> {
-        key.as_absolute()?;
-        Err(Error::key_not_supported(key, &self.store_name()))
-    }
-
-    /// Returns true if store contains the key.
-    fn contains(&self, key: &Key) -> Result<bool, Error> {
-        key.as_absolute()?;
-        Ok(false)
-    }
-
-    /// Returns true if key points to a directory.
-    fn is_dir(&self, key: &Key) -> Result<bool, Error> {
-        key.as_absolute()?;
-        Ok(false)
-    }
-
-    /// List or iterator of all keys
-    fn keys(&self) -> Result<Vec<Key>, Error> {
-        let mut keys = self.listdir_keys_deep(&self.key_prefix())?;
-        keys.push(self.key_prefix().to_owned());
-        Ok(keys)
-    }
-
-    /// Return names inside a directory specified by key.
-    /// To get a key, names need to be joined with the key (key/name).
-    /// Complete keys can be obtained with the listdir_keys method.
-    fn listdir(&self, key: &Key) -> Result<Vec<String>, Error> {
-        key.as_absolute()?;
-        Ok(vec![])
-    }
-
-    /// Return keys inside a directory specified by key.
-    /// Only keys present directly in the directory are returned,
-    /// subdirectories are not traversed.
-    fn listdir_keys(&self, key: &Key) -> Result<Vec<Key>, Error> {
-        let names = self.listdir(key)?;
-        Ok(names.iter().map(|x| key.join(x)).collect())
-    }
-
-    /// Return asset info of assets inside a directory specified by key.
-    /// Only info of assets present directly in the directory are returned,
-    /// subdirectories are not traversed.
-    fn listdir_asset_info(&self, key: &Key) -> Result<Vec<AssetInfo>, Error> {
-        let keys = self.listdir_keys(key)?;
-        let mut asset_info = Vec::new();
-        for k in keys {
-            let info = self.get_asset_info(&k)?;
-            asset_info.push(info);
-        }
-        asset_info.sort_by(|a, b| {
-            if a.is_dir {
-                if b.is_dir {
-                    a.filename.cmp(&b.filename)
-                } else {
-                    std::cmp::Ordering::Less
-                }
-            } else if b.is_dir {
-                std::cmp::Ordering::Greater
-            } else {
-                a.filename.cmp(&b.filename)
-            }
-        });
-        Ok(asset_info)
-    }
-
-    /// Return keys inside a directory specified by key.
-    /// Keys directly in the directory are returned,
-    /// as well as in all the subdirectories.
-    fn listdir_keys_deep(&self, key: &Key) -> Result<Vec<Key>, Error> {
-        let keys = self.listdir_keys(key)?;
-        let mut keys_deep = keys.clone();
-        for sub_key in keys {
-            // See the async twin: the guard is about the child.
-            if self.is_dir(&sub_key)? {
-                let sub = self.listdir_keys_deep(&sub_key)?;
-                keys_deep.extend(sub.into_iter());
-            }
-        }
-        Ok(keys_deep)
-    }
-
-    /// Make a directory
-    fn makedir(&self, key: &Key) -> Result<(), Error> {
-        key.as_absolute()?;
-        Err(Error::key_not_supported(key, &self.store_name()))
-    }
-
-    // TODO: implement openbin
-    /*
-    def openbin(self, key, mode="r", buffering=-1):
-        """Return a file handle.
-        This is not necessarily always well supported, but it is required to support PyFilesystem2."""
-        raise KeyNotSupportedStoreException(key=key, store=self)
-    */
-
-    /// Returns whether this store supports the supplied key.
-    ///
-    /// A supported key must be absolute, must start with [`Store::key_prefix`], and must pass any
-    /// narrower backend-specific filter. For example, a single-file overlay may have an empty
-    /// prefix but return `true` only for the one file it intercepts, allowing later stores in a
-    /// router to handle every other key. Fallible operations must still enforce absolute keys
-    /// themselves. See the
-    /// [module documentation](self#a-store-key-is-absolute).
-    fn is_supported(&self, _key: &Key) -> bool {
-        false
-    }
-
-    /*
-        def on_data_changed(self, key):
-            """Event handler called when the data is changed."""
-            pass
-
-        def on_metadata_changed(self, key):
-            """Event handler called when the metadata is changed."""
-            pass
-
-        def on_removed(self, key):
-            """Event handler called when the data or directory is removed."""
-            pass
-
-        def to_root_key(self, key):
-            """Convert local store key to a key in a root store.
-            This is can be used e.g. to convert a key valid in a mounted (child) store to
-            a key of a root store.
-            The to_root_key(key) in the root_store() should point to the same object as key in self.
-            """
-            if self.parent_store is None:
-                return key
-            return self.parent_store.to_root_key(key)
-
-        def root_store(self):
-            """Get the root store.
-            Root store is the highest level store in the store system.
-            The to_root_key(key) in the root_store() should point to the same object as key in self.
-            """
-            if self.parent_store is None:
-                return self
-            return self.parent_store.root_store()
-
-        def sync(self):
-            pass
-
-        def __str__(self):
-            return f"Empty store"
-
-        def __repr__(self):
-            return f"Store()"
-    */
-}
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 /// An asynchronous key-value store. This is the trait new backends implement.
@@ -579,18 +339,6 @@ pub trait AsyncStore: crate::maybe_send::MaybeSend + crate::maybe_send::MaybeSyn
         false
     }
 }
-
-/// Trivial store unable to store anything.
-/// Used e.g. in the environment as a default value when the store is not available.
-pub struct NoStore;
-
-impl Clone for NoStore {
-    fn clone(&self) -> Self {
-        NoStore
-    }
-}
-
-impl Store for NoStore {}
 
 /// Trivial store unable to store anything.
 /// Used e.g. in the environment as a default value when the store is not available.
@@ -1374,671 +1122,6 @@ impl AsyncStore for AsyncFileStore {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct FileStore {
-    pub path: PathBuf,
-    pub prefix: Key,
-}
-
-impl FileStore {
-    /// What this store's layout reserves. Unlike [`AsyncFileStore`] it takes **no lock files**, so
-    /// `x.__lock__` is a key it can address and must not refuse — over-reserving is a defect in
-    /// the same family as under-reserving. `reserved04` pins the difference.
-    const RESERVED: ReservedNames = ReservedNames::new(&[METADATA_SUFFIX], &[METADATA_FOLDER]);
-
-    pub fn new(path: &str, prefix: &Key) -> FileStore {
-        FileStore {
-            path: PathBuf::from(path),
-            prefix: prefix.to_owned(),
-        }
-    }
-
-    /// Raises the refusal for a key this store's layout cannot represent. See
-    /// [`AsyncFileStore::reject_reserved`].
-    fn reject_reserved(&self, key: &Key) -> Result<(), Error> {
-        if Self::RESERVED.is_reserved_key(key) {
-            return Err(Error::key_not_supported(key, &self.store_name()));
-        }
-        Ok(())
-    }
-
-    /// Maps a key onto a filesystem path under the store root.
-    ///
-    /// Fallible because this is where a relative key would become a real path traversal — see
-    /// [`AsyncFileStore::key_to_path`] and the
-    /// [module documentation](self#a-store-key-is-absolute).
-    pub fn key_to_path(&self, key: &Key) -> Result<PathBuf, Error> {
-        let key = key.as_absolute()?;
-        self.reject_reserved(&key)?;
-        let mut path = self.path.clone();
-        path.push(key.to_string());
-        Ok(path)
-    }
-
-    /// Maps a key onto the path of its metadata file. Fallible for the same reason as
-    /// [`Self::key_to_path`].
-    pub fn key_to_path_metadata(&self, key: &Key) -> Result<PathBuf, Error> {
-        let key = key.as_absolute()?;
-        self.reject_reserved(&key)?;
-        let mut path = self.path.clone();
-        path.push(format!("{}{}", key, METADATA_SUFFIX));
-        Ok(path)
-    }
-}
-
-impl Store for FileStore {
-    fn store_name(&self) -> String {
-        format!(
-            "{} File store in {}",
-            self.key_prefix(),
-            self.path.display()
-        )
-    }
-
-    fn key_prefix(&self) -> Key {
-        self.prefix.to_owned()
-    }
-
-    fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
-        let data = self.get_bytes(key)?;
-        match self.get_metadata(key) {
-            Ok(metadata) => Ok((data, metadata)),
-            Err(error) => {
-                let mut metadata = self.default_metadata(key, false);
-                metadata.warning(&format!("Can't read metadata: {}", error));
-                metadata.warning("New metadata has been created. (get)");
-                let mut metadata = Metadata::MetadataRecord(metadata);
-                self.finalize_metadata(&mut metadata, key, &data, false);
-                self.set_metadata(key, &metadata)?;
-                Ok((data, metadata))
-            }
-        }
-    }
-
-    fn get_bytes(&self, key: &Key) -> Result<Vec<u8>, Error> {
-        let path = self.key_to_path(key)?;
-        if path.exists() {
-            let mut file =
-                File::open(path).map_err(|e| Error::key_read_error(key, &self.store_name(), &e))?;
-            let mut buffer = Vec::new();
-            file.read_to_end(&mut buffer)
-                .map_err(|e| Error::key_read_error(key, &self.store_name(), &e))?;
-            Ok(buffer)
-        } else {
-            Err(Error::key_not_found(key))
-        }
-    }
-
-    fn get_metadata(&self, key: &Key) -> Result<Metadata, Error> {
-        let path = self.key_to_path_metadata(key)?;
-        if path.exists() {
-            if path.is_dir() {
-                let mut metadata = self.default_metadata(key, true);
-                metadata.children = self.listdir_asset_info(key).unwrap_or_default();
-                return Ok(Metadata::MetadataRecord(metadata));
-            }
-            let mut file =
-                File::open(path).map_err(|e| Error::key_read_error(key, &self.store_name(), &e))?;
-            let mut buffer = Vec::new();
-            file.read_to_end(&mut buffer)
-                .map_err(|e| Error::key_read_error(key, &self.store_name(), &e))?;
-            if let Ok(metadata) = serde_json::from_reader(&buffer[..]) {
-                // TODO: fix metadata, e.g. add the key
-                return Ok(Metadata::MetadataRecord(metadata));
-            }
-            if let Ok(metadata) = serde_json::from_reader(&buffer[..]) {
-                return Ok(Metadata::LegacyMetadata(metadata));
-            }
-            Err(Error::key_read_error(
-                key,
-                &self.store_name(),
-                "Metadata parsing error",
-            ))
-        } else {
-            let path = self.key_to_path(key)?;
-            if path.exists() {
-                if path.is_dir() {
-                    let mut metadata = self.default_metadata(key, true);
-                    metadata.children = self.listdir_asset_info(key).unwrap_or_default();
-                    return Ok(Metadata::MetadataRecord(metadata));
-                } else {
-                    let mut metadata = self.default_metadata(key, false);
-                    metadata.warning(&format!("Metadata file {} does not exist.", path.display()));
-                    metadata.warning("New metadata has been created. (get_metadata)");
-                    let mut metadata = Metadata::MetadataRecord(metadata);
-                    let data = self.get_bytes(key)?;
-                    self.finalize_metadata(&mut metadata, key, &data, false);
-                    self.set_metadata(key, &metadata)?;
-                    return Ok(metadata);
-                }
-            } else {
-                Err(Error::key_not_found(key))
-            }
-        }
-    }
-
-    fn set(&self, key: &Key, data: &[u8], metadata: &Metadata) -> Result<(), Error> {
-        let path = self.key_to_path(key)?;
-        let mut tmp_metadata = metadata.clone();
-        self.finalize_metadata(&mut tmp_metadata, key, data, true);
-        tmp_metadata.set_status(metadata::Status::Storing)?;
-        self.set_metadata(key, &tmp_metadata)?;
-
-        let mut file =
-            File::create(path).map_err(|e| Error::key_write_error(key, &self.store_name(), &e))?;
-        file.write_all(data)
-            .map_err(|e| Error::key_write_error(key, &self.store_name(), &e))?;
-        self.finalize_metadata(&mut tmp_metadata, key, data, true);
-        self.set_metadata(key, metadata)?;
-        Ok(())
-    }
-
-    fn set_metadata(&self, key: &Key, metadata: &Metadata) -> Result<(), Error> {
-        let path = self.key_to_path_metadata(key)?;
-        let file =
-            File::create(path).map_err(|e| Error::key_write_error(key, &self.store_name(), &e))?;
-        match metadata {
-            Metadata::MetadataRecord(metadata) => serde_json::to_writer_pretty(file, metadata)
-                .map_err(|e| Error::key_write_error(key, &self.store_name(), &e))?,
-            Metadata::LegacyMetadata(metadata) => serde_json::to_writer_pretty(file, metadata)
-                .map_err(|e| Error::key_write_error(key, &self.store_name(), &e))?,
-        };
-        Ok(())
-    }
-
-    fn remove(&self, key: &Key) -> Result<(), Error> {
-        let path = self.key_to_path(key)?;
-        if path.exists() {
-            std::fs::remove_file(path)
-                .map_err(|e| Error::key_write_error(key, &self.store_name(), &e))?;
-        }
-        let matadata_path = self.key_to_path_metadata(key)?;
-        if matadata_path.exists() {
-            std::fs::remove_file(matadata_path)
-                .map_err(|e| Error::key_write_error(key, &self.store_name(), &e))?;
-        }
-        Ok(())
-    }
-
-    fn removedir(&self, key: &Key) -> Result<(), Error> {
-        let path = self.key_to_path(key)?;
-        if path.exists() {
-            std::fs::remove_dir_all(path)
-                .map_err(|e| Error::key_write_error(key, &self.store_name(), &e))?;
-        }
-        Ok(())
-    }
-
-    fn contains(&self, key: &Key) -> Result<bool, Error> {
-        let path = self.key_to_path(key)?;
-        if path.exists() {
-            return Ok(true);
-        }
-        let metadata_path = self.key_to_path_metadata(key)?;
-        if metadata_path.exists() {
-            return Ok(true);
-        }
-        Ok(false)
-    }
-
-    fn is_dir(&self, key: &Key) -> Result<bool, Error> {
-        let path = self.key_to_path(key)?;
-        Ok(path.is_dir())
-    }
-
-    fn listdir(&self, key: &Key) -> Result<Vec<String>, Error> {
-        let path = self.key_to_path(key)?;
-        if !path
-            .try_exists()
-            .map_err(|e| Error::key_read_error(key, &self.store_name(), &e))?
-        {
-            // Match AsyncFileStore: absence is empty; a failed existence check is still an error.
-            return Ok(vec![]);
-        }
-        if path
-            .metadata()
-            .map_err(|e| Error::key_read_error(key, &self.store_name(), &e))?
-            .is_dir()
-        {
-            let dir = path
-                .read_dir()
-                .map_err(|e| Error::key_read_error(key, &self.store_name(), &e))?;
-            let names = dir
-                .flat_map(|entry| {
-                    entry
-                        .ok()
-                        .map(|e| e.file_name().to_string_lossy().to_string())
-                })
-                .filter(|name| !Self::RESERVED.is_reserved_name(name))
-                .collect();
-            Ok(names)
-        } else {
-            Ok(vec![])
-        }
-    }
-
-    fn makedir(&self, key: &Key) -> Result<(), Error> {
-        let path = self.key_to_path(key)?;
-        std::fs::create_dir_all(path)
-            .map_err(|e| Error::key_write_error(key, &self.store_name(), &e))?;
-        Ok(())
-    }
-
-    fn is_supported(&self, key: &Key) -> bool {
-        !key.is_relative()
-            && key.has_key_prefix(&self.prefix)
-            && !Self::RESERVED.is_reserved_key(key)
-    }
-}
-
-pub struct MemoryStore {
-    data: Arc<RwLock<std::collections::HashMap<Key, (Vec<u8>, Metadata)>>>,
-    prefix: Key,
-}
-
-impl MemoryStore {
-    pub fn new(prefix: &Key) -> MemoryStore {
-        MemoryStore {
-            data: Arc::new(RwLock::new(std::collections::HashMap::new())),
-            prefix: prefix.to_owned(),
-        }
-    }
-}
-
-impl Store for MemoryStore {
-    fn store_name(&self) -> String {
-        format!("{} Memory store", self.key_prefix())
-    }
-
-    fn key_prefix(&self) -> Key {
-        self.prefix.to_owned()
-    }
-
-    fn default_metadata(&self, _key: &Key, is_dir: bool) -> MetadataRecord {
-        let mut metadata = MetadataRecord::new();
-        metadata.with_key(_key.to_owned());
-        metadata.is_dir = is_dir;
-        metadata
-    }
-
-    fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
-        let key = key.as_absolute()?;
-        let mem = self.data.read().unwrap();
-        match mem.get(key) {
-            Some((data, metadata)) => Ok((data.to_owned(), metadata.to_owned())),
-            None => Err(Error::key_not_found(key)),
-        }
-    }
-
-    fn get_bytes(&self, key: &Key) -> Result<Vec<u8>, Error> {
-        let key = key.as_absolute()?;
-        let mem = self.data.read().unwrap();
-        match mem.get(key) {
-            Some((data, _)) => Ok(data.to_owned()),
-            None => Err(Error::key_not_found(key)),
-        }
-    }
-
-    fn get_metadata(&self, key: &Key) -> Result<Metadata, Error> {
-        let key = key.as_absolute()?;
-        let mem = self.data.read().unwrap();
-        if self.is_dir(key)? {
-            let mut metadata = self.default_metadata(key, true);
-            metadata.children = self.listdir_asset_info(key)?;
-            return Ok(Metadata::MetadataRecord(metadata));
-        }
-        match mem.get(key) {
-            Some((_, metadata)) => Ok(metadata.to_owned()),
-            None => Err(Error::key_not_found(key)),
-        }
-    }
-
-    fn set(&self, key: &Key, data: &[u8], metadata: &Metadata) -> Result<(), Error> {
-        let key = key.as_absolute()?;
-        let mut mem = self.data.write().unwrap();
-
-        mem.insert(key.to_owned(), (data.to_owned(), metadata.to_owned()));
-        Ok(())
-    }
-
-    fn set_metadata(&self, key: &Key, metadata: &Metadata) -> Result<(), Error> {
-        let key = key.as_absolute()?;
-        let res = self.get(key)?;
-        let mut mem = self.data.write().unwrap();
-        mem.insert(key.to_owned(), (res.0, metadata.to_owned()));
-        Ok(())
-    }
-
-    fn remove(&self, key: &Key) -> Result<(), Error> {
-        let key = key.as_absolute()?;
-        let mut mem = self.data.write().unwrap();
-        mem.remove(key);
-        Ok(())
-    }
-
-    fn removedir(&self, key: &Key) -> Result<(), Error> {
-        let key = key.as_absolute()?;
-        let mut mem = self.data.write().unwrap();
-        let keys = mem
-            .keys()
-            .filter(|k| k.has_key_prefix(key))
-            .cloned()
-            .collect::<Vec<_>>();
-        for k in keys {
-            mem.remove(&k);
-        }
-        Ok(())
-    }
-
-    fn contains(&self, key: &Key) -> Result<bool, Error> {
-        let key = key.as_absolute()?;
-        let mem = self.data.read().unwrap();
-        if mem.contains_key(key) {
-            return Ok(true);
-        }
-        Ok(self.is_dir(key)?)
-    }
-
-    fn is_dir(&self, key: &Key) -> Result<bool, Error> {
-        let key = key.as_absolute()?;
-        let mem = self.data.read().unwrap();
-        let keys = mem
-            .keys()
-            .filter(|k| k.has_key_prefix(key))
-            .cloned()
-            .collect::<Vec<_>>();
-        for k in keys {
-            if k.len() > key.len() {
-                return Ok(true);
-            }
-        }
-        Ok(false)
-    }
-
-    fn keys(&self) -> Result<Vec<Key>, Error> {
-        let mem = self.data.read().unwrap();
-        let keys = mem.keys().cloned().collect::<Vec<_>>();
-        Ok(keys)
-    }
-
-    fn listdir(&self, key: &Key) -> Result<Vec<String>, Error> {
-        let key = key.as_absolute()?;
-        let keys = self.listdir_keys(key)?;
-        Ok(keys
-            .iter()
-            .filter_map(|x| x.filename().map(|xx| xx.to_string()))
-            .collect())
-    }
-
-    fn listdir_keys(&self, key: &Key) -> Result<Vec<Key>, Error> {
-        let key = key.as_absolute()?;
-        let mem = self.data.read().unwrap();
-        let n = key.len() + 1;
-        let keys = mem
-            .keys()
-            .filter(|k| k.has_key_prefix(key))
-            .filter_map(|k| k.prefix_of_size(n))
-            .collect::<BTreeSet<_>>();
-        Ok(keys.into_iter().collect())
-    }
-
-    fn listdir_keys_deep(&self, key: &Key) -> Result<Vec<Key>, Error> {
-        let key = key.as_absolute()?;
-        let mem = self.data.read().unwrap();
-        let keys = mem
-            .keys()
-            .filter(|k| k.has_key_prefix(key))
-            .cloned()
-            .collect::<Vec<_>>();
-        Ok(keys)
-    }
-
-    fn makedir(&self, key: &Key) -> Result<(), Error> {
-        let _ = key.as_absolute()?;
-        // TODO: implement correct makedir
-        Ok(())
-    }
-
-    fn is_supported(&self, key: &Key) -> bool {
-        !key.is_relative() && key.has_key_prefix(&self.prefix)
-    }
-}
-
-/// Store that routes requests to multiple stores.
-/// Ideally there should only be one router in the system, therefore the StoreRouter has no key prefix (key prefix is empty).
-/// Stores are evaluated in sequence until the first store that supports the key is found - i.e. prefix is matching and is_supported returns true.
-pub struct StoreRouter {
-    stores: Vec<Box<dyn Store>>,
-}
-
-impl Default for StoreRouter {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl StoreRouter {
-    pub fn new() -> StoreRouter {
-        StoreRouter { stores: Vec::new() }
-    }
-
-    pub fn add_store(&mut self, store: Box<dyn Store>) {
-        self.stores.push(store);
-    }
-
-    pub fn find_store(&self, key: &Key) -> Option<&dyn Store> {
-        for store in &self.stores {
-            if key.has_key_prefix(&store.key_prefix()) && store.is_supported(key) {
-                return Some(store.as_ref());
-            }
-        }
-        None
-    }
-
-    pub fn find_store_mut(&mut self, key: &Key) -> Option<&mut dyn Store> {
-        for store in &mut self.stores {
-            if key.has_key_prefix(&store.key_prefix()) && store.is_supported(key) {
-                return Some(store.as_mut());
-            }
-        }
-        None
-    }
-}
-
-impl Store for StoreRouter {
-    fn store_name(&self) -> String {
-        "Store router".to_string()
-    }
-
-    fn key_prefix(&self) -> Key {
-        Key::new()
-    }
-
-    fn default_metadata(&self, key: &Key, is_dir: bool) -> MetadataRecord {
-        self.find_store(key).map_or(MetadataRecord::new(), |store| {
-            store.default_metadata(key, is_dir)
-        })
-    }
-
-    fn finalize_metadata(&self, metadata: &mut Metadata, key: &Key, data: &[u8], update: bool) {
-        self.find_store(key)
-            .iter()
-            .for_each(|store| store.finalize_metadata(metadata, key, data, update));
-        if update {
-            let _ = metadata.set_updated_now();
-        }
-        let _ = metadata.with_key(key.clone());
-        metadata.with_file_size(data.len() as u64);
-        match metadata.status() {
-            metadata::Status::None => {
-                // If there is data, then the status can't be None - It could be only some state that has data.
-                // Source is the least assuming, but it can create inconsistency if there is a recipe.
-                let _ = metadata.set_status(metadata::Status::Source);
-            }
-            _ => {}
-        }
-    }
-
-    fn finalize_metadata_empty(
-        &self,
-        metadata: &mut Metadata,
-        key: &Key,
-        is_dir: bool,
-        update: bool,
-    ) {
-        self.find_store(key)
-            .iter()
-            .for_each(|store| store.finalize_metadata_empty(metadata, key, is_dir, update));
-        if update {
-            let _ = metadata.set_updated_now();
-        }
-        metadata.with_is_dir(is_dir);
-        let _ = metadata.with_key(key.clone());
-        if is_dir {
-            let _ = metadata.set_status(metadata::Status::Directory);
-        }
-    }
-
-    fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
-        let key = key.as_absolute()?;
-        self.find_store(key)
-            .map_or(Err(Error::key_not_found(key)), |store| store.get(key))
-    }
-
-    fn get_bytes(&self, key: &Key) -> Result<Vec<u8>, Error> {
-        let key = key.as_absolute()?;
-        self.find_store(key)
-            .map_or(Err(Error::key_not_found(key)), |store| store.get_bytes(key))
-    }
-
-    fn get_metadata(&self, key: &Key) -> Result<Metadata, Error> {
-        let key = key.as_absolute()?;
-        self.find_store(key)
-            .map_or(Err(Error::key_not_found(key)), |store| {
-                store.get_metadata(key)
-            })
-    }
-
-    fn set(&self, key: &Key, data: &[u8], metadata: &Metadata) -> Result<(), Error> {
-        let key = key.as_absolute()?;
-        self.find_store(key).map_or(
-            Err(Error::key_not_supported(key, "store router")),
-            |store| store.set(key, data, metadata),
-        )
-    }
-
-    fn set_metadata(&self, key: &Key, _metadata: &Metadata) -> Result<(), Error> {
-        let key = key.as_absolute()?;
-        self.find_store(key).map_or(
-            Err(Error::key_not_supported(key, "store router")),
-            |store| store.set_metadata(key, _metadata),
-        )
-    }
-
-    fn remove(&self, key: &Key) -> Result<(), Error> {
-        let key = key.as_absolute()?;
-        self.find_store(key).map_or(
-            Err(Error::key_not_supported(key, "store router")),
-            |store| store.remove(key),
-        )
-    }
-
-    fn removedir(&self, key: &Key) -> Result<(), Error> {
-        let key = key.as_absolute()?;
-        self.find_store(key).map_or(
-            Err(Error::key_not_supported(key, "store router")),
-            |store| store.removedir(key),
-        )
-    }
-
-    fn contains(&self, key: &Key) -> Result<bool, Error> {
-        let key = key.as_absolute()?;
-        self.find_store(key)
-            .map_or(Ok(false), |store| store.contains(key))
-    }
-
-    fn is_dir(&self, key: &Key) -> Result<bool, Error> {
-        let key = key.as_absolute()?;
-        for store in &self.stores {
-            if key.has_key_prefix(&store.key_prefix()) {
-                return store.is_dir(key);
-            }
-            if store.key_prefix().has_key_prefix(key) {
-                // key is a prefix of store prefix, but smaller - hence it is a directory
-                return Ok(true);
-            }
-        }
-        if key.is_empty() {
-            return Ok(true);
-        }
-        Ok(false)
-    }
-
-    fn keys(&self) -> Result<Vec<Key>, Error> {
-        let mut keys = self.listdir_keys_deep(&self.key_prefix())?;
-        keys.push(self.key_prefix().to_owned());
-        Ok(keys)
-    }
-
-    fn listdir(&self, key: &Key) -> Result<Vec<String>, Error> {
-        let key = key.as_absolute()?;
-        let mut list = Vec::new();
-        for store in &self.stores {
-            if key.has_key_prefix(&store.key_prefix()) {
-                let names = store.listdir(key)?;
-                list.extend(names);
-            }
-            // `key` is a prefix of the store's prefix *and strictly shorter* — so the next
-            // segment of the store's prefix is a directory inside `key`.
-            //
-            // The length check is what makes this safe: `has_key_prefix` is also true when the two
-            // are equal, and indexing `key_prefix[key.len()]` would then be out of bounds. Listing
-            // a store's own prefix — `listdir("data")` for a store mounted at `data` — is the most
-            // ordinary call there is, and it panicked.
-            if store.key_prefix().len() > key.len() && store.key_prefix().has_key_prefix(key) {
-                list.push(store.key_prefix()[key.len()].to_string());
-            }
-        }
-
-        Ok(list)
-    }
-
-    fn listdir_keys(&self, key: &Key) -> Result<Vec<Key>, Error> {
-        let key = key.as_absolute()?;
-        let names = self.listdir(key)?;
-        Ok(names.iter().map(|x| key.join(x)).collect())
-    }
-
-    fn listdir_keys_deep(&self, key: &Key) -> Result<Vec<Key>, Error> {
-        let key = key.as_absolute()?;
-        let keys = self.listdir_keys(key)?;
-        let mut keys_deep = keys.clone();
-        for sub_key in keys {
-            // See the async twin: the guard is about the child.
-            if self.is_dir(&sub_key)? {
-                let sub = self.listdir_keys_deep(&sub_key)?;
-                keys_deep.extend(sub.into_iter());
-            }
-        }
-        Ok(keys_deep)
-    }
-
-    fn makedir(&self, key: &Key) -> Result<(), Error> {
-        let key = key.as_absolute()?;
-        self.find_store(key).map_or(
-            Err(Error::key_not_supported(key, "store router")),
-            |store| store.makedir(key),
-        )
-    }
-
-    fn is_supported(&self, key: &Key) -> bool {
-        !key.is_relative()
-            && self
-                .find_store(key)
-                .is_some_and(|store| store.is_supported(key))
-    }
-}
-
 /// Asunchronous store that routes requests to multiple (asynchronous) stores.
 pub struct AsyncStoreRouter {
     stores: Vec<Box<dyn AsyncStore>>,
@@ -2497,29 +1580,6 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn test_simple_store() -> Result<(), Error> {
-        let store = MemoryStore::new(&Key::new());
-        let key = parse_key("a/b/c").unwrap();
-        let data = b"test data".to_vec();
-        let metadata = Metadata::MetadataRecord(MetadataRecord::new());
-
-        assert!(!store.contains(&key)?);
-        assert!(store.keys().unwrap().is_empty());
-        assert!(!store.is_dir(&parse_key("a/b")?)?);
-
-        store.set(&key, &data, &metadata)?;
-        assert!(store.contains(&key)?);
-        assert!(store.keys()?.contains(&key));
-        assert!(store.is_dir(&parse_key("a/b")?)?);
-        assert_eq!(store.keys().unwrap().len(), 1);
-
-        let (data2, _metadata2) = store.get(&key).unwrap();
-        assert_eq!(data, data2);
-        store.remove(&key).unwrap();
-        assert!(!store.contains(&key)?);
-        Ok(())
-    }
     #[tokio::test]
     async fn test_async_memory_store_basic() -> Result<(), Error> {
         let store = AsyncMemoryStore::new(&Key::new());
@@ -2698,10 +1758,8 @@ mod tests {
         Ok(())
     }
 
-    fn memory_store_support(prefix: &Key, key: &Key) -> (bool, bool) {
-        let sync_store = MemoryStore::new(prefix);
-        let async_store = AsyncMemoryStore::new(prefix);
-        (sync_store.is_supported(key), async_store.is_supported(key))
+    fn memory_store_support(prefix: &Key, key: &Key) -> bool {
+        AsyncMemoryStore::new(prefix).is_supported(key)
     }
 
     #[test]
@@ -2709,7 +1767,7 @@ mod tests {
         let prefix = parse_key("data")?;
         let key = parse_key("data/report.txt")?;
 
-        assert_eq!(memory_store_support(&prefix, &key), (true, true));
+        assert!(memory_store_support(&prefix, &key));
         Ok(())
     }
 
@@ -2718,7 +1776,7 @@ mod tests {
         let prefix = parse_key("data")?;
         let key = parse_key("other/report.txt")?;
 
-        assert_eq!(memory_store_support(&prefix, &key), (false, false));
+        assert!(!memory_store_support(&prefix, &key));
         Ok(())
     }
 
@@ -2729,7 +1787,7 @@ mod tests {
 
         assert!(key.has_key_prefix(&prefix));
         assert!(key.is_relative());
-        assert_eq!(memory_store_support(&prefix, &key), (false, false));
+        assert!(!memory_store_support(&prefix, &key));
         Ok(())
     }
 
@@ -2737,7 +1795,7 @@ mod tests {
     fn memsupport04_root_store_supports_absolute_key() -> Result<(), Error> {
         let key = parse_key("any/report.txt")?;
 
-        assert_eq!(memory_store_support(&Key::new(), &key), (true, true));
+        assert!(memory_store_support(&Key::new(), &key));
         Ok(())
     }
 
@@ -2745,7 +1803,7 @@ mod tests {
     fn memsupport05_key_equal_to_prefix_is_supported() -> Result<(), Error> {
         let prefix = parse_key("data")?;
 
-        assert_eq!(memory_store_support(&prefix, &prefix), (true, true));
+        assert!(memory_store_support(&prefix, &prefix));
         Ok(())
     }
 
@@ -2754,7 +1812,7 @@ mod tests {
         let prefix = parse_key("data")?;
         let key = parse_key("database/report.txt")?;
 
-        assert_eq!(memory_store_support(&prefix, &key), (false, false));
+        assert!(!memory_store_support(&prefix, &key));
         Ok(())
     }
 
@@ -2953,28 +2011,6 @@ mod tests {
         Ok(())
     }
 
-    /// `filestore02` — the synchronous file store shares the absence contract.
-    #[test]
-    fn filestore02_sync_missing_directory_lists_empty() -> Result<(), Error> {
-        let root = std::env::temp_dir().join(format!(
-            "liquers_filestore02_{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("system time")
-                .as_nanos()
-        ));
-        std::fs::create_dir_all(&root).expect("create root");
-        let prefix = parse_key("files")?;
-        let store = FileStore::new(root.to_string_lossy().as_ref(), &prefix);
-
-        assert!(store.listdir(&prefix)?.is_empty());
-        assert!(!store.is_dir(&prefix)?);
-        assert_eq!(store.keys()?, vec![prefix]);
-
-        std::fs::remove_dir_all(&root).expect("remove root");
-        Ok(())
-    }
-
     /// `listdir` on a key that exactly equals a store's prefix must not panic.
     ///
     /// `has_key_prefix` is true for equal keys, so the "next segment of the store's prefix"
@@ -3005,15 +2041,6 @@ mod tests {
         Ok(())
     }
 
-    /// The same guard on the synchronous router, which carries the identical code.
-    #[test]
-    fn sync_router_listdir_at_store_prefix() -> Result<(), Box<dyn std::error::Error>> {
-        let mut router = StoreRouter::new();
-        router.add_store(Box::new(MemoryStore::new(&parse_key("data")?)));
-        assert!(router.listdir(&parse_key("data")?)?.is_empty());
-        assert_eq!(router.listdir(&Key::new())?, vec!["data".to_string()]);
-        Ok(())
-    }
 }
 
 /// Tests for the absolute-key precondition (`specs/design/store-key-guard/`).
@@ -3174,17 +2201,6 @@ mod key_absolute_tests {
                 assert_eq!(error.error_type, ErrorType::KeyNotAbsolute, "{text}");
             }
         }
-
-        let sync_store = MemoryStore::new(&Key::new());
-        for text in RELATIVE {
-            let key = parse_key(text)?;
-            let error = sync_store.get(&key).expect_err("must refuse");
-            assert_eq!(error.error_type, ErrorType::KeyNotAbsolute, "{text}");
-            let error = sync_store
-                .set(&key, b"x", &metadata)
-                .expect_err("must refuse");
-            assert_eq!(error.error_type, ErrorType::KeyNotAbsolute, "{text}");
-        }
         Ok(())
     }
 
@@ -3264,38 +2280,6 @@ mod key_absolute_tests {
         Ok(())
     }
 
-    /// `keyabs09` — the synchronous `FileStore` refuses the same shapes.
-    #[test]
-    fn keyabs09_file_store_refuses_traversal() -> Result<(), Error> {
-        let sandbox = unique_temp_dir("keyabs09");
-        let root = sandbox.join("root");
-        std::fs::create_dir_all(root.join("a")).expect("create root");
-        let secret = sandbox.join("SECRET.txt");
-        let original = b"outside the store root".to_vec();
-        std::fs::write(&secret, &original).expect("write secret");
-
-        let store = FileStore::new(root.to_string_lossy().as_ref(), &Key::new());
-        let metadata = Metadata::MetadataRecord(MetadataRecord::new());
-        for text in ["../SECRET.txt", "a/../../SECRET.txt"] {
-            let key = parse_key(text)?;
-            let error = store.get(&key).expect_err("read must be refused");
-            assert_eq!(error.error_type, ErrorType::KeyNotAbsolute, "read {text}");
-            let error = store
-                .set(&key, b"owned", &metadata)
-                .expect_err("write must be refused");
-            assert_eq!(error.error_type, ErrorType::KeyNotAbsolute, "write {text}");
-            assert!(!store.is_supported(&key), "{text}");
-            assert!(store.key_to_path(&key).is_err(), "path builder {text}");
-        }
-        assert_eq!(
-            std::fs::read(&secret).expect("secret still there"),
-            original
-        );
-
-        std::fs::remove_dir_all(&sandbox).expect("cleanup");
-        Ok(())
-    }
-
     /// `keyabs10` — a router reports the malformed key, not "no store matched".
     ///
     /// Without the check ahead of `find_store`, no store would claim the key and the router would
@@ -3310,15 +2294,6 @@ mod key_absolute_tests {
             let error = router.get(&key).await.expect_err("must refuse");
             assert_eq!(error.error_type, ErrorType::KeyNotAbsolute, "{text}");
             assert!(!router.is_supported(&key), "{text}");
-        }
-
-        let mut sync_router = StoreRouter::new();
-        sync_router.add_store(Box::new(MemoryStore::new(&Key::new())));
-        for text in RELATIVE {
-            let key = parse_key(text)?;
-            let error = sync_router.get(&key).expect_err("must refuse");
-            assert_eq!(error.error_type, ErrorType::KeyNotAbsolute, "{text}");
-            assert!(!sync_router.is_supported(&key), "{text}");
         }
         Ok(())
     }
@@ -3548,8 +2523,8 @@ mod reserved_name_tests {
     ///
     /// `as_absolute()?` runs before the reserved-name check in every path builder, and this pins
     /// that order. A relative key is not a store address at all, so it is the more fundamental
-    /// answer; `keyabs08` and `keyabs09` assert `KeyNotAbsolute` for traversal shapes and would
-    /// start failing if someone reordered the two checks while tidying them into one guard.
+    /// answer; `keyabs08` asserts `KeyNotAbsolute` for traversal shapes and would start failing
+    /// if someone reordered the two checks while tidying them into one guard.
     #[tokio::test]
     async fn reserved05_relative_and_reserved_reports_key_not_absolute() -> Result<(), Error> {
         let sandbox = unique_temp_dir("reserved05");
@@ -3682,80 +2657,6 @@ mod reserved_name_tests {
         assert!(!root.join("report.txt").exists());
 
         tokio::fs::remove_dir_all(&sandbox).await.expect("cleanup");
-        Ok(())
-    }
-
-    /// `reserved04` — the synchronous `FileStore` reserves the metadata name and **not** the lock.
-    ///
-    /// This is the test that pins the reserved set to the store rather than to the crate.
-    /// `FileStore` takes no lock files, so `x.__lock__` is a key it can address, and a single
-    /// global reserved list would refuse it for nothing.
-    #[test]
-    fn reserved04_file_store_reserves_metadata_but_not_lock() -> Result<(), Error> {
-        let sandbox = unique_temp_dir("reserved04");
-        let root = sandbox.join("root");
-        std::fs::create_dir_all(&root).expect("create root");
-        let store = FileStore::new(root.to_string_lossy().as_ref(), &Key::new());
-
-        // Both forms, and an interior segment — `FileStore` is `AsyncFileStore` minus the lock, so
-        // the segment rule has to hold here too and not only in the async twin.
-        for text in [
-            "file.__metadata__",
-            "__metadata__",
-            "data/__metadata__/file.json",
-        ] {
-            let key = parse_key(text)?;
-            assert!(!store.is_supported(&key), "{text}");
-            assert_not_supported(store.key_to_path(&key), text);
-            assert_not_supported(store.key_to_path_metadata(&key), text);
-        }
-
-        // The lock suffix belongs to `AsyncFileStore`'s layout, not this one.
-        let lock_shaped = parse_key("file.__lock__")?;
-        assert!(
-            store.is_supported(&lock_shaped),
-            "FileStore takes no locks — this key is addressable"
-        );
-        assert!(store.key_to_path(&lock_shaped).is_ok());
-
-        std::fs::remove_dir_all(&sandbox).expect("cleanup");
-        Ok(())
-    }
-
-    /// `reserved07` — `FileStore` filters its listing by the same predicate, and by *its own* set.
-    ///
-    /// The synchronous store is obsolete and unreachable (`CORE-SYNC-STORE-TRAIT-OBSOLETE`), and
-    /// that is precisely why it needs its own test rather than being trusted to follow
-    /// `AsyncFileStore`: nothing else exercises it, so a filter updated in one store and forgotten
-    /// in the other would stay invisible until the trait is revived or deleted.
-    ///
-    /// The last assertion is the per-store half: a file genuinely named `x.__lock__` is an ordinary
-    /// asset here and must still be listed.
-    #[test]
-    fn reserved07_file_store_listing_uses_its_own_reserved_set() -> Result<(), Error> {
-        let sandbox = unique_temp_dir("reserved07");
-        let root = sandbox.join("root");
-        std::fs::create_dir_all(root.join("__metadata__")).expect("legacy metadata folder");
-        std::fs::write(root.join("__metadata__").join("report.txt.json"), b"{}")
-            .expect("legacy sidecar");
-        std::fs::write(root.join("report.txt"), b"body").expect("data file");
-        std::fs::write(root.join("report.txt.__metadata__"), b"{}").expect("sidecar");
-        std::fs::write(root.join("notes.__lock__"), b"not a lock here").expect("lock-shaped file");
-
-        let store = FileStore::new(root.to_string_lossy().as_ref(), &Key::new());
-        let names = store.listdir(&Key::new())?;
-
-        // Reserved by this store's layout — dropped.
-        assert!(!names.contains(&"__metadata__".to_owned()), "{names:?}");
-        assert!(
-            !names.contains(&"report.txt.__metadata__".to_owned()),
-            "{names:?}"
-        );
-        // Not reserved by this store's layout — listed.
-        assert!(names.contains(&"report.txt".to_owned()), "{names:?}");
-        assert!(names.contains(&"notes.__lock__".to_owned()), "{names:?}");
-
-        std::fs::remove_dir_all(&sandbox).expect("cleanup");
         Ok(())
     }
 }

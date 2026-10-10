@@ -8,15 +8,14 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 114
-- P2: 57
+Total rows: 113
+- P2: 56
 - P3: 57
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
 | [`CORE-METADATA-TRACEBACK-SUPPORT`](issues/CORE-METADATA-TRACEBACK-SUPPORT.md) | issue | Metadata has no place for an error traceback | accepted | needs-decision | not-eligible | P2 | S | core/value;core/error | [phase1](design/metadata-error-traceback/phase1-high-level-design.md)  [phase2](design/metadata-error-traceback/phase2-architecture.md)  [phase3](design/metadata-error-traceback/phase3-examples.md)  [phase4](design/metadata-error-traceback/phase4-implementation.md)  | 2026-08-08 |
 | [`STATE-ARGUMENT-CONSTRUCTOR-SERDE-DEFAULT-DISAGREE`](issues/STATE-ARGUMENT-CONSTRUCTOR-SERDE-DEFAULT-DISAGREE.md) | issue | Constructing and deserializing the same CommandMetadata give different state arguments | draft | needs-decision | not-eligible | P2 | S | core/commands | [phase1](design/state-argument-serde-default/phase1-high-level-design.md)  [phase2](design/state-argument-serde-default/phase2-architecture.md)  [phase3](design/state-argument-serde-default/phase3-examples.md)  [phase4](design/state-argument-serde-default/phase4-implementation.md)  | 2026-08-29 |
-| [`CORE-SYNC-STORE-TRAIT-OBSOLETE`](issues/CORE-SYNC-STORE-TRAIT-OBSOLETE.md) | issue | The synchronous Store trait is obsolete and should be removed | draft | ready | not-eligible | P2 | M | core/store;py;docs | [design](design/sync-store-removal/DESIGN.md) | 2026-09-02 |
 | [`COMMAND-CANNOT-BE-RUN-WITH-A-RESTRICTED-CONTEXT`](issues/COMMAND-CANNOT-BE-RUN-WITH-A-RESTRICTED-CONTEXT.md) | feature | A command cannot be run with a restricted context | draft |  |  | P2 | M | core/context;core/commands |  | 2026-09-17 |
 | [`CONTEXT-STEP-REPLACES-INPUT-STATE-METADATA`](issues/CONTEXT-STEP-REPLACES-INPUT-STATE-METADATA.md) | issue | A step that only passes the value through replaces the input state's metadata with the context's | draft |  |  | P2 | M | core/plan |  | 2026-10-10 |
 | [`CORE-METADATA-NO-APPLICATION-ATTRIBUTES`](issues/CORE-METADATA-NO-APPLICATION-ATTRIBUTES.md) | feature | Metadata cannot carry application-defined attributes | draft |  |  | P2 | M | core/value |  | 2026-09-15 |
