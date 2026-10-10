@@ -25,7 +25,10 @@ fn declared_media_type(file_name: &str, content_type: Option<&str>) -> Option<St
 ```
 
 `declared_media_type` returns `None` for an absent, empty, or `application/octet-stream` type, or
-for one equal to `file_extension_to_media_type(ext)`. Otherwise it returns `Some`. Capture the
+for one equal to the derived type. Otherwise it returns `Some`. *As implemented:* the signature is
+`declared_media_type(derived: &str, content_type: Option<&str>)`, with `derived` taken from
+`record.get_media_type()` after `with_filename`, so the comparison uses exactly the derivation the
+store will apply (including extension case) rather than a second copy of it. Capture the
 part's content type before consuming the field's bytes.
 
 ## Alternatives

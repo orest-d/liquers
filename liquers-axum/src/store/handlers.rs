@@ -1,4 +1,5 @@
 use crate::api_core::{error_to_detail, ApiResponse, BinaryResponse};
+use crate::assets::common::metadata_json;
 use axum::{
     body::Bytes,
     extract::{Path, Query as AxumQuery, State},
@@ -8,7 +9,7 @@ use axum::{
 use liquers_core::{
     assets::AssetManager,
     context::{EnvRef, Environment},
-    metadata::Metadata,
+    metadata::{Metadata, MetadataRecord},
     parse::parse_key,
     query::Key,
 };
@@ -159,19 +160,12 @@ pub async fn get_metadata_handler<E: Environment>(
     // Retrieve metadata
     match store.get_metadata(&key).await {
         Ok(metadata) => {
-            // Get metadata record (or convert to JSON)
-            if let Some(record) = metadata.metadata_record() {
-                let response: ApiResponse<serde_json::Value> = ApiResponse::ok(
-                    serde_json::to_value(&record).unwrap_or(serde_json::json!({})),
-                    "Metadata retrieved successfully",
-                );
-                response.into_response()
-            } else {
-                // Legacy metadata - return empty object
-                let response: ApiResponse<serde_json::Value> =
-                    ApiResponse::ok(serde_json::json!({}), "No metadata available");
-                response.into_response()
-            }
+            // A legacy document is served as stored, as the Assets API does.
+            let response: ApiResponse<serde_json::Value> = ApiResponse::ok(
+                metadata_json(&metadata),
+                "Metadata retrieved successfully",
+            );
+            response.into_response()
         }
         Err(e) => {
             let error_detail = error_to_detail(&e);
@@ -469,16 +463,9 @@ pub async fn get_entry_handler<E: Environment>(
     // Get both data and metadata
     match store.get(&key).await {
         Ok((data, metadata)) => {
-            // Serialize metadata to JSON
-            let metadata_json = if let Some(record) = metadata.metadata_record() {
-                serde_json::to_value(&record).unwrap_or(serde_json::json!({}))
-            } else {
-                serde_json::json!({})
-            };
-
-            // Create DataEntry
+            // A legacy document is served as stored, as the Assets API does.
             let entry = DataEntry {
-                metadata: metadata_json,
+                metadata: metadata_json(&metadata),
                 data,
             };
 
@@ -648,6 +635,21 @@ pub async fn get_makedir_handler<E: Environment>(
 // Multipart Upload Endpoint (Task #29)
 // ============================================================================
 
+/// The media type an upload declares: the part's `Content-Type` when it differs from `derived`,
+/// the type the filename already implies. `MetadataRecord::media_type` is a declared override, not
+/// a cache of the derived type, so an upload whose type matches its filename declares nothing. An
+/// absent, empty or `application/octet-stream` type (a browser's default for an unknown file)
+/// declares nothing either.
+fn declared_media_type(derived: &str, content_type: Option<&str>) -> Option<String> {
+    let content_type = content_type?.trim();
+    if content_type.is_empty() || content_type == "application/octet-stream" || content_type == derived
+    {
+        None
+    } else {
+        Some(content_type.to_string())
+    }
+}
+
 /// POST /api/store/upload/{*key} - Upload files via multipart/form-data
 /// Uploads are stored under the provided key path, with filenames appended
 /// Returns a list of successfully uploaded file keys
@@ -679,6 +681,15 @@ pub async fn upload_handler<E: Environment>(
                 continue;
             }
         };
+        // The filename lets the data format (and so the effective media type) be derived; the
+        // part's Content-Type is declared only when the filename does not already imply it. Read
+        // before the field is consumed by `bytes()`.
+        let mut record = MetadataRecord::new();
+        record.with_filename(file_name.clone());
+        if let Some(media_type) = declared_media_type(&record.get_media_type(), field.content_type()) {
+            record.with_media_type(media_type);
+        }
+        let metadata = Metadata::MetadataRecord(record);
 
         // Read file data
         let data = match field.bytes().await {
@@ -702,16 +713,6 @@ pub async fn upload_handler<E: Environment>(
             base_key.join(&file_name)
         };
 
-        // Create metadata with media type inferred from extension
-        let mut metadata = Metadata::new();
-        if let Some(extension) = file_name.split('.').last() {
-            let media_type = liquers_core::media_type::file_extension_to_media_type(extension);
-            if !media_type.is_empty() {
-                // Can't call with_media_type on Metadata enum directly
-                // Just create new metadata - the store will handle it
-                metadata = Metadata::new();
-            }
-        }
 
         // Store the file
         match store.set(&file_key, &data, &metadata).await {
@@ -757,5 +758,31 @@ pub async fn upload_handler<E: Environment>(
 
         let response: ApiResponse<UploadResult> = ApiResponse::ok(result, "Upload completed");
         response.into_response()
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn upload_matching_its_extension_declares_nothing() {
+        assert_eq!(declared_media_type("text/csv", Some("text/csv")), None);
+    }
+
+    #[test]
+    fn upload_differing_from_its_extension_declares_its_type() {
+        assert_eq!(
+            declared_media_type("application/octet-stream", Some("image/png")),
+            Some("image/png".to_string())
+        );
+    }
+
+    #[test]
+    fn upload_with_default_or_absent_type_declares_nothing() {
+        assert_eq!(declared_media_type("text/plain", Some("application/octet-stream")), None);
+        assert_eq!(declared_media_type("text/plain", Some("")), None);
+        assert_eq!(declared_media_type("text/plain", None), None);
     }
 }
