@@ -7,6 +7,7 @@ status: complete
 area: [core/commands, macro]
 issues: [COMMAND-CONTEXT-PARAM-ORDER, MACRO-TESTS-PRINT-TO-STDOUT]
 merged: 2026-10-10
+gh_pr: [99]
 affects_docs: [REGISTER_COMMAND_FSD, COMMAND_REGISTRATION_GUIDE, RECORD_STREAM_GUIDE]
 created: 2026-10-10
 ---
