@@ -333,7 +333,9 @@ pub async fn contains_handler<E: Environment>(
     }
 }
 
-/// GET /api/store/keys?prefix={prefix} - List all keys, optionally filtered by prefix
+/// GET /api/store/keys?prefix={prefix} - Every key under `prefix` (default: the whole store), at
+/// any depth, directories included as `AsyncStore::listdir_keys_deep` reports them. For the keys
+/// directly in a directory, use `listdir`.
 pub async fn keys_handler<E: Environment>(
     State(env): State<EnvRef<E>>,
     AxumQuery(params): AxumQuery<HashMap<String, String>>,
@@ -355,12 +357,8 @@ pub async fn keys_handler<E: Environment>(
         None
     };
 
-    // List keys with optional prefix
-    let result = if let Some(prefix) = prefix_key {
-        store.listdir_keys(&prefix).await
-    } else {
-        store.listdir_keys(&Key::new()).await
-    };
+    let prefix = prefix_key.unwrap_or_else(Key::new);
+    let result = store.listdir_keys_deep(&prefix).await;
 
     match result {
         Ok(keys) => {
