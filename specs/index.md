@@ -8,8 +8,8 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 113
-- P2: 58
+Total rows: 114
+- P2: 59
 - P3: 55
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
@@ -18,6 +18,7 @@ Total rows: 113
 | [`STATE-ARGUMENT-CONSTRUCTOR-SERDE-DEFAULT-DISAGREE`](issues/STATE-ARGUMENT-CONSTRUCTOR-SERDE-DEFAULT-DISAGREE.md) | issue | Constructing and deserializing the same CommandMetadata give different state arguments | draft | needs-decision | not-eligible | P2 | S | core/commands | [phase1](design/state-argument-serde-default/phase1-high-level-design.md)  [phase2](design/state-argument-serde-default/phase2-architecture.md)  [phase3](design/state-argument-serde-default/phase3-examples.md)  [phase4](design/state-argument-serde-default/phase4-implementation.md)  | 2026-08-29 |
 | [`COMMAND-CANNOT-BE-RUN-WITH-A-RESTRICTED-CONTEXT`](issues/COMMAND-CANNOT-BE-RUN-WITH-A-RESTRICTED-CONTEXT.md) | feature | A command cannot be run with a restricted context | draft |  |  | P2 | M | core/context;core/commands |  | 2026-09-17 |
 | [`COMMAND-CONTEXT-PARAM-ORDER`](issues/COMMAND-CONTEXT-PARAM-ORDER.md) | issue | The context parameter must come last, as a workaround | accepted |  |  | P2 | M | core/commands;macro | [FINDINGS.md](design/context-param-order/FINDINGS.md)  [SOLUTION.md](design/context-param-order/SOLUTION.md)  | 2026-08-08 |
+| [`CONTEXT-STEP-REPLACES-INPUT-STATE-METADATA`](issues/CONTEXT-STEP-REPLACES-INPUT-STATE-METADATA.md) | issue | A step that only passes the value through replaces the input state's metadata with the context's | draft |  |  | P2 | M | core/plan |  | 2026-10-10 |
 | [`CORE-METADATA-NO-APPLICATION-ATTRIBUTES`](issues/CORE-METADATA-NO-APPLICATION-ATTRIBUTES.md) | feature | Metadata cannot carry application-defined attributes | draft |  |  | P2 | M | core/value |  | 2026-09-15 |
 | [`CORE-PLAN-POLICY-AND-DEFAULTS`](issues/CORE-PLAN-POLICY-AND-DEFAULTS.md) | issue | Plan builder has no configuration and questionable defaults | accepted |  |  | P2 | M | core/plan |  | 2026-08-08 |
 | [`CORE-SYNC-STORE-TRAIT-OBSOLETE`](issues/CORE-SYNC-STORE-TRAIT-OBSOLETE.md) | issue | The synchronous Store trait is obsolete and should be removed | draft |  |  | P2 | M | core/store;py;docs |  | 2026-09-02 |

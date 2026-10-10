@@ -3,7 +3,7 @@ title: Command Design Guide
 kind: guide
 audience: internal
 area: [core/commands]
-reviewed: 2026-10-09
+reviewed: 2026-10-10
 ---
 # Command Design Guide
 
@@ -11,7 +11,9 @@ How a command should behave once it is registered: what it can count on while it
 owes the asset it produces. Registration itself — the `register_command!` DSL, metadata, generic
 environments — is in [`COMMAND_REGISTRATION_GUIDE.md`](COMMAND_REGISTRATION_GUIDE.md).
 
-This first edition covers cancellation. Design: `specs/design/asset-cancellation-outcome/`.
+It covers cooperative cancellation (design: `specs/design/asset-cancellation-outcome/`) and when a
+command should be an alias of another rather than an implementation of its own (design:
+`specs/design/command-alias-contract/`).
 
 ## Cooperative cancellation
 
@@ -114,8 +116,51 @@ A sync command blocks its worker thread, so a test that cancels it needs a multi
 `#[tokio::test(flavor = "multi_thread", worker_threads = 4)]`. Wait for `Status::Processing`, call
 `cancel()`, then assert the terminal status. See `liquers-core/tests/asset_cancellation.rs`.
 
+## Aliases
+
+An **alias** is a command without an implementation: a name and an argument interface bound to
+another command — its target — with some of the target's leading arguments fixed. `ns-pl/head-10`
+runs `pl/slice` with `offset = 0, length = 10`. How to register one is in
+[`COMMAND_REGISTRATION_GUIDE.md`](COMMAND_REGISTRATION_GUIDE.md) §2 *Registering an alias*; the
+exact contract is [`reference/COMMAND_ALIASES.md`](../reference/COMMAND_ALIASES.md).
+
+### When to design a command as an alias
+
+- **A convenience wrapper.** A general command plus a common, fixed choice of its leading arguments
+  deserves its own name. `pl/head(n = 5)` is `pl/slice(offset = 0, length = n)`: one implementation,
+  two names, and no chance of the two drifting apart. Write the general command first; add the
+  convenient names as aliases of it.
+- **A bridge.** Many declared commands are executed by one generic executor, and the head
+  parameters say *which* thing to run. liquers-py declares each Python function as an alias of
+  `pycall` whose heads are the module, the function and how to pass the state. The declared
+  command keeps its own name and arguments; the bridge stays one registered implementation.
+
+### When not to
+
+- **The behaviour differs, not only the arguments.** `rec/head` materializes its rows into a batch;
+  `rec/slice` returns a view over the source. That is a different command, so `rec/head` is
+  implemented, not aliased.
+- **The target's arguments would need reordering, dropping or computing.** An alias passes the
+  heads, then its own arguments, in order. Argument mapping is a later design; until then, write a
+  small command.
+- **The target is itself an alias.** Aliases do not chain; point the new alias at the implementing
+  command.
+
+### Consequences to design for
+
+- **The alias's arguments are its public interface.** Their names, labels and defaults are what
+  users and recipes see (`n`, not `length`); recipe overrides use those names.
+- **Behaviour flags come from the target.** Volatility, payload requirement and expiration of the
+  target always apply; an alias cannot hide them.
+- **Errors name both.** A failure reports the target and adds *"(via alias 'pl/head')"*; the plan
+  records the alias as the action's `origin`.
+- **Caching follows the alias.** Results depend on the alias's metadata as well as the target's, so
+  changing the alias's head or arguments recomputes them. Turning an existing command into an alias
+  recomputes its cached results once.
+
 ## History
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-10 | New §Aliases: what an alias is, when to use one (convenience wrapper, bridge), when not to, and the design consequences. Introduction no longer limited to cancellation. | phase-5, `design/command-alias-contract/` |
 | 2026-10-09 | Created: cooperative cancellation — what `cancel()` guarantees, `is_cancelled` / `check_cancelled`, sync vs async commands, returning and propagating `Error::cancelled`, cascade through dependencies, testing. | phase-5, `design/asset-cancellation-outcome/` |

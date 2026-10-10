@@ -301,6 +301,7 @@ deliberately folded behind a broader line.
 
 <!-- BEGIN generated: unplaced -->
 - `guides/TYPE_SYSTEM_GUIDE.md`
+- `reference/COMMAND_ALIASES.md`
 - `reference/CONFORMANCE_TERMS.md`
 - `reference/api/API_DOCS_GAP_ANALYSIS.md`
 - design `argument-gui-info-default`

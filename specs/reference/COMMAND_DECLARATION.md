@@ -3,7 +3,7 @@ title: Command Declaration Format
 kind: reference
 audience: internal
 area: [core/commands, web, py]
-reviewed: 2026-10-07
+reviewed: 2026-10-10
 ---
 # Command Declaration Format
 
@@ -256,7 +256,7 @@ of its own, so a field added to `CommandMetadata` is declarable immediately with
 | `presets`, `next` | same | UI affordances: ready-made parameter sets, suggested follow-on commands |
 | `state_argument` | `state_argument` | Present means the command transforms an input state; absent means a *source* command |
 | `arguments` | `arguments` | A list; merged by name — §2.1 |
-| `definition` | `definition` | `Registered` (default) or an `Alias` |
+| `definition` | `definition` | `Registered` (default) or an `Alias` of another command — contract and validation in [`COMMAND_ALIASES.md`](COMMAND_ALIASES.md) |
 | `hints` | `hints` | **Usage** hints — how to *use* the command. Metadata; survives export — §6 |
 | `registration` | *(none)* | **Registration** hints — how to *register and call* it. Declaration-only, dropped at build — §6 |
 | `conventions` | *(none)* | Declaration-only; disables conventions — §3.3 |
@@ -510,6 +510,7 @@ so no query parameter is consumed by either — that is conventions.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-10 | §4.1 `definition` links the new alias reference. Only that row was checked. | phase-5, `design/command-alias-contract/` |
 | 2026-10-07 | `cache` removed from the declarable keys and the defaults table: `CommandMetadata.cache` no longer exists (it was never read). A declaration that still carries it loads, and the key is ignored. §2.1's example uses `volatile`. | phase-5, `design/command-cache-flag/` |
 | 2026-09-05 | Defined the query-consuming variadic-tail rule, the injected exception, and rejection of `multiple` combined with `injected`. | `design/variadic-metadata-tail-check` |
 | 2026-08-31 | Reviewed command-version behavior against `CommandMetadataRegistry::refresh_metadata_versions` and the `Environment::to_ref` refresh boundary. | `design/refresh-command-metadata-versions/phase-5` |

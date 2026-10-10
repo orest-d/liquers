@@ -3,7 +3,7 @@ title: Recipes and Plans Reference
 kind: reference
 audience: internal
 area: [core/plan, core/assets, core/context]
-reviewed: 2026-10-08
+reviewed: 2026-10-10
 ---
 # DOC-08: Recipes and Plans
 
@@ -251,6 +251,14 @@ carries no information. It is therefore a `Declared` volatility source and a pla
 containing it is never cut. Making it positional — which would let an author's
 declared volatility boundary and the cache boundary coincide — is
 `V-INSTRUCTION-IS-WHOLE-PLAN-NOT-POSITIONAL`.
+
+A command alias is resolved here, completely: the builder validates it against its
+target, applies the target's volatility, payload requirement and expiration as well
+as the alias's, and emits one `Step::Action` **for the target** whose `origin` is
+`ActionOrigin::Alias { command }` (`origin` is `Direct` for every other action). The
+alias's own parameters keep the alias's names, so recipe overrides by name use them.
+A diagnostic naming the alias goes to `init_steps`. See
+[`../COMMAND_ALIASES.md`](../COMMAND_ALIASES.md).
 
 Recipe value and link overrides affect only the last `Step::Action`. They do not
 provide general substitution across every action in a plan.
@@ -511,7 +519,7 @@ Every item below was observed, not anticipated.
 | `payload_required` | Whether execution requires an evaluation payload; derived during planning |
 | `expires` | Combined expiration estimate; authoritative after finalization |
 | `error` | Structured planning or analysis error |
-| `dependencies` | Static **direct** dependencies discovered during analysis: a keyed read ends the list, `Evaluate` and nested plans pass through (`DEPENDENCIES_STATUS.md` §What a dependency record holds) |
+| `dependencies` | Static **direct** dependencies discovered during analysis: a keyed read ends the list, `Evaluate` and nested plans pass through (`DEPENDENCIES_STATUS.md` §What a dependency record holds). An action contributes its command's metadata and implementation keys, plus the alias's metadata key when its `origin` is an alias |
 | `frozen_cwd` | The working key this plan was frozen against, once frozen |
 | `predecessor`, `predecessor_steps` | The boundary the builder recorded and never cut |
 | `prologue_steps` | Leading steps not emitted by the builder for `query` — a recipe's CWD prefix |
@@ -575,7 +583,9 @@ context seeding and dependency-manager registration performed by `finalize_plan`
 ## Serialization and future plan rewriting
 
 Recipe and plan JSON/YAML preserve source-relative query text, ordered raw
-`SetCwd` steps, links, `QuerySource`, and source positions. Runtime-only cursor
+`SetCwd` steps, links, `QuerySource`, and source positions. `Step::Action.origin` is
+omitted when `Direct` and defaults to `Direct` when absent, so plans without aliases
+serialize as before and older plans load. Runtime-only cursor
 state and root-fallback bookkeeping are not serialized. This is a current data
 contract, not a versioned stable wire-format guarantee.
 
@@ -655,6 +665,7 @@ runtime behavior is unchanged.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-10 | Planning contract: aliases are resolved by the builder into a target `Step::Action` with `origin: ActionOrigin::Alias`; `dependencies` includes the alias's metadata key; `origin` serialization. | phase-5, `design/command-alias-contract/` |
 | 2026-10-08 | §Plan fields: `dependencies` is the direct list. §Finalization: one analysis pass (`analyze_plan_dependencies`) replaces the volatility and expiration passes; `DefaultRecipeProvider` caches parsed `recipes.yaml` per directory, checked against the stored bytes. | phase-5 (`design/dependency-chain-analysis-cost/`) |
 | 2026-10-06 | §Provider contract: `contains` (listed) vs `can_make` (producible), `directory_changed`; chain table; manifest provider lists explicit chunks only. | phase-5 |
 | 2026-09-27 | Reviewed against `design/record-streams/` Phase 5. Recipe contract gains `stored` and `cached`; added §Composing providers: `RecipeProviderChain` (delegation table, `contains` through `recipe_opt`), `with_appended_recipe_provider`, and `liquers-lib`'s `[DefaultRecipeProvider, ManifestRecipeProvider]` default; `has_recipes` answers `false` for a store's `KeyNotSupported`; plan execution records that the next step's state carries the fetched key as metadata `key`. | phase-5 |
