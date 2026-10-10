@@ -3,7 +3,7 @@ title: Store Configuration Functional Specification
 kind: reference
 audience: internal
 area: [store/config]
-reviewed: 2026-10-07
+reviewed: 2026-10-10
 ---
 # Functional Specification Document (FSD): Store Configuration
 
@@ -547,7 +547,7 @@ Though UI is put of scope, the UI should be optionally supported (as a feature) 
 - [egui_struct crate](https://crates.io/crates/egui_struct) - Derive macro for generating egui UIs from structs
 
 ### liquers-core
-- `liquers_core::store` - Store traits (`AsyncStore`, `Store`) and `AsyncStoreRouter` implementation
+- `liquers_core::store` - The `AsyncStore` trait and the `AsyncStoreRouter` implementation
 - `liquers_core::error::Error` - Error type to be used for configuration errors
 - `liquers_core::query::Key` - Key type used for store addressing
 
@@ -768,6 +768,7 @@ its store together. Everything on this page applies unchanged to that document's
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-10 | Related components: `liquers_core::store` has one store trait, `AsyncStore`; the synchronous `Store` was removed. | `CORE-SYNC-STORE-TRAIT-OBSOLETE`, `design/sync-store-removal/` |
 | 2026-10-07 | Recorded that OpenDAL argument lists are derived from the linked service config, with Liquers' hand-written docs merged by name; still `Partial`; a compiled-out service reports the hand-written list. | `design/opendal-derived-store-arguments/` |
 | 2026-09-04 | Corrected the filesystem-store description: `AsyncFileStore` is the built-in implementation, not future work. | `DOCS-STORE-CONFIG-DESCRIBES-ASYNC-FILESTORE-AS-FUTURE-WORK` |
 | 2026-09-04 | Corrected the memory-store description: the built-in `AsyncMemoryStore` is already a native `AsyncStore`, without `AsyncStoreWrapper`. | `DOCS-ASYNC-STORE-WRAPPER-NO-LONGER-EXISTS` |

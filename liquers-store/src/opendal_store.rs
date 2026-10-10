@@ -258,7 +258,7 @@ impl AsyncStore for AsyncOpenDALStore {
 
     /// Key prefix common to all keys in this store.
     ///
-    /// The configured prefix, matching `AsyncFileStore` and `FileStore`. It used to return the
+    /// The configured prefix, matching `AsyncFileStore`. It used to return the
     /// root key, which made `AsyncStoreRouter::is_dir` and `listdir` answer from this store for
     /// *every* key in the router — `find_store` was unaffected because it also consults
     /// `is_supported`, which does check the real prefix.

@@ -81,3 +81,9 @@ rejected-alternatives table.
 `store-key-guard` Phase 2 lists the evidence to gather during implementation that would justify
 promoting this: whether `key.as_absolute()?` at the top of sixty method bodies reads as intended or
 as noise, and whether the check is in fact forgotten anywhere.
+
+## Scope note (2026-10-10)
+
+`design/sync-store-removal/` removes the synchronous `Store` and `StoreRouter`. Once it lands, the
+call sites to convert are `AsyncStore`'s and its implementations' only, and the router in question
+is `AsyncStoreRouter::find_store`.

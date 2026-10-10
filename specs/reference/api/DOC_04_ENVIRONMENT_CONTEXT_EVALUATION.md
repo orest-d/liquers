@@ -473,18 +473,16 @@ legacy JSON metadata.
 
 | Type | Target | Payload | Manager | Recipe-provider fallback | Store configuration |
 |---|---|---|---|---|---|
-| `SimpleEnvironment<V>` | Native only | `()` | Queued `DefaultAssetManager` | `TrivialRecipeProvider` with stderr notice | Async store; legacy sync setter |
+| `SimpleEnvironment<V>` | Native only | `()` | Queued `DefaultAssetManager` | `TrivialRecipeProvider` with stderr notice | Async store |
 | `ImmediateEnvironment<V>` | Native or Wasm | `()` | Inline `ImmediateAssetManager` | `TrivialRecipeProvider` | Async store |
-| `SimpleEnvironmentWithPayload<V, P>` | Native only | `P` | Queued `DefaultAssetManager` | `TrivialRecipeProvider` with stderr notice | Async store; legacy sync setter |
+| `SimpleEnvironmentWithPayload<V, P>` | Native only | `P` | Queued `DefaultAssetManager` | `TrivialRecipeProvider` with stderr notice | Async store |
 | `ImmediateEnvironmentWithPayload<V, P>` | Native or Wasm | `P` | Inline `ImmediateAssetManager` | `TrivialRecipeProvider` | Async store |
 | `liquers_lib::DefaultEnvironment<V, P>` | Native or Wasm | `P` | Queued natively, inline on Wasm | Configured provider; defaults to `DefaultRecipeProvider`, chained with `ManifestRecipeProvider` under `records` | Async store |
 
-`SimpleEnvironment::with_cache` and
-`SimpleEnvironmentWithPayload::with_cache` always panic.
-
-The synchronous `with_store` setters update fields that are not exposed by the
-current `Environment` trait or used by the asset manager. `with_async_store` is the
-effective persistence configuration.
+`with_async_store` is the persistence configuration of `SimpleEnvironment` and
+`SimpleEnvironmentWithPayload`. They have no synchronous `with_store` and no
+`with_cache`: the synchronous store and the `cache` module were removed, and the asset
+manager caches results.
 
 ## Public versus framework APIs
 
@@ -520,7 +518,6 @@ Visibility does not consistently enforce this separation.
 | P3 | Recipe-provider absence diagnostics are not uniform | Native queued core environments write a stderr notice when falling back to trivial recipes; immediate environments stay silent, and `liquers_lib::DefaultEnvironment` has a default provider | Decide whether provider absence should be quiet, logged, or impossible by construction in the future environment builder |
 | P1 | Public context lifecycle methods can break finalization invariants | `take_pending_dependencies` clears records; `set_error` and `set_expires` directly affect the asset | Narrow visibility or split command-facing and engine-facing context traits |
 | P1 | Payload mutability semantics are easy to misread | `payload` is public and cloned by value, while guides describe it as mutable/inherited | Document clone semantics and prefer accessors or an explicit shared payload wrapper |
-| P2 | Synchronous store and cache configuration APIs are nonfunctional | `with_store` is unused by asset evaluation; `with_cache` always panics | Remove, deprecate, or make them operational |
 | P2 | `clone_context` is redundant and unnecessarily async | It performs the same field clones as `Clone::clone` and awaits nothing | Deprecate it in favor of `Clone` |
 | P2 | Context convenience logging always writes to stderr | `debug`, `info`, `warning`, and `error` both print and enqueue structured logs | Route console output through configurable logging instead of unconditional side effects |
 
@@ -541,7 +538,6 @@ The improved reference should prevent:
 - Treating `Context::apply` as dependency-tracked evaluation
 - Mutating one context clone's payload and expecting other clones to see replacement
 - Selecting `SimpleEnvironmentWithPayload` for Wasm
-- Configuring `with_store` or `with_cache` and assuming the asset manager uses it
 
 For coding agents, these distinctions determine correct type selection,
 initialization order, waiting behavior, and generated command code. For human
@@ -581,6 +577,7 @@ methods crate-private), so an asset manager can be implemented outside `liquers-
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-10 | §Built-in environment comparison: no `with_store` / `with_cache` setters (they no longer exist); `with_async_store` is the only store setter. The gap-table row and pitfall about them are removed. | `CORE-SYNC-STORE-TRAIT-OBSOLETE`, `design/sync-store-removal/` |
 | 2026-10-10 | Reviewed against `design/plan-step-state-metadata/`. New §Metadata ownership during evaluation: asset, context and step-state roles; the cut plan as the reference for a step's input state; the per-step table of `do_step_state`; `is_applied`. §Context lifetime no longer describes rebuilding every state from the context's metadata with a `key`-only adjustment (`value_origin_key` removed). | phase-5 |
 | 2026-10-06 | Reviewed against `design/context-title-description/`. §Metadata-writing methods: `Context::set_title` / `set_description`, recipe-wins-per-field, `Ok(())` when the recipe's value is kept, persistence, no effect on `version`, and the predecessor-asset caveat. | phase-5 |
 | 2026-10-02 | Reviewed against `design/dependency-audit-and-expiry-provenance/`. §Dependency and apply methods: `submit` and the now-public `wait_for_dependency` added; `evaluate` = `submit` + drain and `get_dependency_state` = `submit` + `wait_for_dependency`; `submit` is not lazy on either manager; waiting through `AssetRef::get` bypasses the stale-dependency policy and the version upgrade. `submit` also refuses relative queries. Verification note on the `DependencyManager` visibility warning corrected (the type is now public). | phase-5 |

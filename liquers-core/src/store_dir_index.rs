@@ -5,8 +5,8 @@
 //!
 //! Before this module, every store that faced the problem solved it privately, and no two the same:
 //! [`AsyncMemoryStore`](crate::store::AsyncMemoryStore) with a reference-counted concurrent index,
-//! the synchronous `MemoryStore` with no index at all (an O(n) key scan per call), `liquers-web`'s
-//! `FetchStore` with an immutable map built once from a configured key set, and its
+//! the synchronous `MemoryStore` (since removed) with no index at all (an O(n) key scan per call),
+//! `liquers-web`'s `FetchStore` with an immutable map built once from a configured key set, and its
 //! `LocalStorageStore` with a mutable map *plus* a separate set of explicitly created directories.
 //! `AsyncOpenDALStore` had none, which is how a directory could be visible to `listdir` and denied
 //! by `is_dir`. See `CORE-DIRECTORY-INDEX-NOT-SHARED`.

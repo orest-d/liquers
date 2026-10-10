@@ -83,3 +83,8 @@ Raised on 2026-09-03 while designing `SIDECAR-COLLIDING-KEYS`, the fix for
 turned on which metadata layouts have to stay reachable — the legacy `__metadata__` folder among
 them — and that question has no owner in the code. Recorded then rather than answered, because the
 fix needs one reserved-name rule and this needs a subsystem.
+
+## Scope note (2026-10-10)
+
+`design/sync-store-removal/` removes the synchronous `FileStore`; once it lands, `AsyncFileStore` is
+the only filesystem store in the table above.

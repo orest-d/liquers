@@ -32,6 +32,7 @@ AXUM-HANDLER-TEST-COVERAGE,issue,"liquers-axum has no handler test scaffolding, 
 AXUM-QUERY-TIMEOUT-HARDCODED,issue,The query handler's 30-second timeout is hardcoded,closed,local,,,,P2,S,axum,,,,axum-assets-endpoints,,2026-09-16,specs/issues/AXUM-QUERY-TIMEOUT-HARDCODED.md
 AXUM-RECIPES-METADATA-AND-ENTRY-ARE-PLACEHOLDERS,issue,The Recipes API's metadata and entry endpoints return placeholder metadata and ignore the format,closed,local,,ready,eligible,P3,S,axum,,,,axum-recipes-metadata-entry,,2026-09-28,specs/issues/AXUM-RECIPES-METADATA-AND-ENTRY-ARE-PLACEHOLDERS.md
 AXUM-STORE-KEYS-LISTS-ONLY-DIRECT-CHILDREN,issue,"GET /api/store/keys lists only the direct children of the prefix, not all keys",draft,local,,ready,eligible,P3,S,axum,,,,axum-store-keys-deep,,2026-09-28,specs/issues/AXUM-STORE-KEYS-LISTS-ONLY-DIRECT-CHILDREN.md
+AXUM-STORE-MAKEDIR-TEST-IGNORED-FOR-A-FIXED-LIMITATION,issue,An axum store test is ignored for an AsyncMemoryStore limitation that has been fixed,draft,local,,,,P3,S,axum;core/store,,,,,,2026-10-10,specs/issues/AXUM-STORE-MAKEDIR-TEST-IGNORED-FOR-A-FIXED-LIMITATION.md
 AXUM-STORE-UPLOAD-AND-METADATA-DROP-INFORMATION,issue,"Store API uploads carry no media type, and legacy metadata is served as an empty object",draft,local,,needs-decision,not-eligible,P3,S,axum,,,,axum-store-upload-metadata,,2026-09-28,specs/issues/AXUM-STORE-UPLOAD-AND-METADATA-DROP-INFORMATION.md
 AXUM-WEBSOCKET-HARDENING,issue,WebSocket endpoint is not hardened,accepted,local,,,,P3,M,axum,,,,axum-assets-endpoints,,2026-08-08,specs/issues/AXUM-WEBSOCKET-HARDENING.md
 BENCHMARK-SUITE,feature,No reproducible benchmarks for core runtime paths,accepted,local,,,,P3,M,build,,,,,,2026-08-08,specs/issues/BENCHMARK-SUITE.md
@@ -86,7 +87,7 @@ CORE-STORE-KEYS-MEANS-TWO-DIFFERENT-THINGS,issue,keys() returns data keys in one
 CORE-STORE-OPENBIN-MISSING,issue,`openbin` is unimplemented in every store,accepted,local,,,,P3,M,core/store;store/backends,,,,,,2026-08-08,specs/issues/CORE-STORE-OPENBIN-MISSING.md
 CORE-STORE-ROUTER-DIRECTORY-ABOVE-MEMBERS-HAS-NO-METADATA,issue,AsyncStoreRouter reports KeyNotFound for the metadata of a directory above its members' prefixes,closed,local,,ready,,P3,S,core/store,,,,store-router-directory-above-members,,2026-09-30,specs/issues/CORE-STORE-ROUTER-DIRECTORY-ABOVE-MEMBERS-HAS-NO-METADATA.md
 CORE-STORE-ROUTER-KEYS-FAILS-ON-AN-EMPTY-MEMBER,issue,AsyncStoreRouter::keys fails outright when one member's prefix path does not exist,closed,local,,ready,,P2,S,core/store,,,,store-router-empty-prefix,,2026-09-02,specs/issues/CORE-STORE-ROUTER-KEYS-FAILS-ON-AN-EMPTY-MEMBER.md
-CORE-SYNC-STORE-TRAIT-OBSOLETE,issue,The synchronous Store trait is obsolete and should be removed,draft,local,,,,P2,M,core/store;py;docs,,,,,,2026-09-02,specs/issues/CORE-SYNC-STORE-TRAIT-OBSOLETE.md
+CORE-SYNC-STORE-TRAIT-OBSOLETE,issue,The synchronous Store trait is obsolete and should be removed,closed,local,,ready,not-eligible,P2,M,core/store;py;docs,,,,sync-store-removal,,2026-09-02,specs/issues/CORE-SYNC-STORE-TRAIT-OBSOLETE.md
 CORE-TOKIO-REMOVAL,issue,Core still depends on tokio primitives on wasm,accepted,local,,,,P3,XL,core/assets,,,,,,2026-08-08,specs/issues/CORE-TOKIO-REMOVAL.md
 CORE-TRACING-MIGRATION,issue,Diagnostics use `eprintln!` rather than structured logging,accepted,local,,,,P2,M,core/error;build,,,,,,2026-08-08,specs/issues/CORE-TRACING-MIGRATION.md
 CORE-VALUE-ENUM-OVERSIZED,issue,Every Value occupies 704 bytes because three variants are stored unboxed,draft,local,,,,P2,M,core/value;lib/value,,,,,,2026-08-18,specs/issues/CORE-VALUE-ENUM-OVERSIZED.md
@@ -232,6 +233,7 @@ STORE-ASYNC-STORE-NO-BEHAVIOURAL-CONFORMANCE-SUITE,issue,AsyncStore has no writt
 STORE-COMMAND-NAMESPACE-MISSING,feature,Store contents cannot be read or written from a query,accepted,local,,,,P3,M,lib/commands;core/store,,,,,,2026-08-09,specs/issues/STORE-COMMAND-NAMESPACE-MISSING.md
 STORE-CONFIG-FROM-URI,feature,A store cannot be configured from a URI,draft,local,,,,P3,M,store/config,,,,store-config-uri,,2026-08-29,specs/issues/STORE-CONFIG-FROM-URI.md
 STORE-CONFIG-IN-CORE,feature,"Store configuration types live in liquers-store, so liquers-core cannot own an environment configuration",closed,local,,,,P0,L,core/store;store/config;web,,,,store-factories-in-core,,2026-08-27,specs/issues/STORE-CONFIG-IN-CORE.md
+STORE-CONFORMANCE-FEATURE-BUILD-WARNINGS,issue,The store-conformance feature build emits unused-import and dead-code warnings,draft,local,,,,P3,S,core/store;build,,,,,,2026-10-10,specs/issues/STORE-CONFORMANCE-FEATURE-BUILD-WARNINGS.md
 STORE-CONFORMANCE-VALIDATION-TOOL,issue,No way to run the conformance suite against a store outside a test binary,accepted,local,,,,P2,M,store/backends;core/store,,,,,,2026-09-02,specs/issues/STORE-CONFORMANCE-VALIDATION-TOOL.md
 STORE-FILESTORE-PATH-TRAVERSAL,issue,A key containing `..` escapes the file store root,closed,local,,,,P0,M,core/store;store/backends;axum,,,,store-key-guard,,2026-08-09,specs/issues/STORE-FILESTORE-PATH-TRAVERSAL.md
 STORE-GUIDE-STATUS-TABLE-HAS-NO-GENERATOR,issue,"The store guide's status table claims to be generated from the conformance reports, and no generator exists",draft,local,,needs-decision,not-eligible,P3,S,docs;store/backends,,,,store-guide-status-table,,2026-09-30,specs/issues/STORE-GUIDE-STATUS-TABLE-HAS-NO-GENERATOR.md
@@ -431,6 +433,7 @@ COVERED-14,design,Coverage record for STORE-TESTS-PRINT-TO-STDOUT,in_review,loca
 STUBS01-CLASS-DETECTION,design,STUBS01 detects every exported wasm class,complete,local,,ready,,P3,S,web,,,,stubs01-class-detection,,2026-10-06,specs/design/stubs01-class-detection/DESIGN.md
 SUBMIT-EAGERNESS-DOCUMENTATION,design,Document Context::submit's actual scheduling on both managers,complete,local,,ready,,P3,S,core/assets,,,,submit-eagerness-documentation,,2026-10-06,specs/design/submit-eagerness-documentation/DESIGN.md
 SUPPLIED-EXPIRED-STATUS-REASON,design,"A value written already Expired is logged as expired, with after-the-fact diagnostics",complete,local,,ready,,P3,S,core/assets,,,,supplied-expired-status-reason,,2026-10-06,specs/design/supplied-expired-status-reason/DESIGN.md
+SYNC-STORE-REMOVAL,design,Remove the synchronous Store trait and the legacy cache module,complete,local,,ready,not-eligible,P2,M,core/store;py;docs,,101,,sync-store-removal,,2026-10-10,specs/design/sync-store-removal/DESIGN.md
 TEXT-VALUE-MARKDOWN-FORMAT,design,Markdown as a data format of the Text value,in_review,local,documentation,ready,not-eligible,P2,S,core/value,,,,text-value-markdown-format,,2026-10-04,specs/design/text-value-markdown-format/DESIGN.md
 TYPE-INFO-WRITE-ONLY-FORMATS,design,TypeInfo declares write-only data formats,abandoned,local,,,,P3,S,core/value,,,,type-info-write-only-formats,,2026-10-06,specs/design/type-info-write-only-formats/DESIGN.md
 UI-EVENTS,design,UI event delivery to widgets,in_review,local,high-level,,,,,lib/ui,,,,ui-events,,2026-03-02,specs/design/ui-events/DESIGN.md
@@ -448,14 +451,14 @@ COVERED-08,design,Coverage record for WEB-VALUE04-BYTES-IDENTIFIER-CASE-MISMATCH
 WEBUI-FIXES,design,Invalidation tracking for retained-mode rendering,complete,local,,,,,,lib/ui,,12,,webui-fixes,,2026-03-02,specs/design/webui-fixes/DESIGN.md
 WEBUI,design,Web-framework-independent rendering with SSR and wasm,complete,local,,,,,,lib/ui,,10,,webui,,2026-03-02,specs/design/webui/DESIGN.md
 WP2-TERMINAL-OUTCOME,design,Asset terminal outcome contract,complete,local,,,,,,core/assets,,7,,wp2-terminal-outcome,,2026-03-02,specs/design/wp2-terminal-outcome/DESIGN.md
-API_DOCS_GAP_ANALYSIS,reference,API Documentation Gap Analysis,current,local,,,,,,docs,,,,,2026-08-17,,specs/reference/api/API_DOCS_GAP_ANALYSIS.md
+API_DOCS_GAP_ANALYSIS,reference,API Documentation Gap Analysis,current,local,,,,,,docs,,,,,2026-10-10,,specs/reference/api/API_DOCS_GAP_ANALYSIS.md
 DOC_01_ARCHITECTURE_REFERENCE,reference,Architecture Reference,current,local,,,,,,core/query;core/plan;core/assets,,,,,2026-08-09,,specs/reference/api/DOC_01_ARCHITECTURE_REFERENCE.md
 DOC_02_QUERY_LANGUAGE_REFERENCE,reference,Query Language Reference,current,local,,,,,,core/query,,,,,2026-08-17,,specs/reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md
 DOC_03_ASSETS_EXECUTION_LIFECYCLE,reference,Assets and Execution Lifecycle Reference,current,local,,,,,,core/assets,,,,,2026-10-09,,specs/reference/api/DOC_03_ASSETS_EXECUTION_LIFECYCLE.md
 DOC_04_ENVIRONMENT_CONTEXT_EVALUATION,reference,"Environment, Context and Evaluation Reference",current,local,,,,,,core/context;core/plan,,,,,2026-10-10,,specs/reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md
 DOC_08_RECIPES_PLANS,reference,Recipes and Plans Reference,current,local,,,,,,core/plan;core/assets;core/context,,,,,2026-10-10,,specs/reference/api/DOC_08_RECIPES_PLANS.md
 ASSET_LIFECYCLE,reference,Asset Evaluation — Flows and Public Surface,current,local,,,,,,core/assets,,,,,2026-10-09,,specs/reference/ASSET_LIFECYCLE.md
-ASSET_SET_OPERATION,reference,Asset Set Operation Specification,current,local,,,,,,core/assets,,,,,2026-10-09,,specs/reference/ASSET_SET_OPERATION.md
+ASSET_SET_OPERATION,reference,Asset Set Operation Specification,current,local,,,,,,core/assets,,,,,2026-10-10,,specs/reference/ASSET_SET_OPERATION.md
 ASSETS,reference,Assets Specification,current,local,,,,,,core/assets,,,,,2026-10-09,,specs/reference/ASSETS.md
 COMMAND_ALIASES,reference,Command Aliases,current,local,,,,,,core/commands;core/plan,,,,,2026-10-10,,specs/reference/COMMAND_ALIASES.md
 COMMAND_DECLARATION,reference,Command Declaration Format,current,local,,,,,,core/commands;web;py,,,,,2026-10-10,,specs/reference/COMMAND_DECLARATION.md
@@ -465,11 +468,11 @@ ENVIRONMENT_CONFIG,reference,Environment Configuration,current,local,,,,,,core/c
 IMAGE_COMMAND_LIBRARY,reference,Image Command Library Specification,overdue,local,,,,,,lib/image,,,,,2026-03-02,,specs/reference/IMAGE_COMMAND_LIBRARY.md
 PAYLOAD_GUIDE,reference,Payload Specification and Usage,current,local,,,,,,core/context;core/commands,,,,,2026-09-04,,specs/reference/PAYLOAD_GUIDE.md
 POLARS_COMMAND_LIBRARY,reference,Polars Command Library Specification,current,local,,,,,,lib/polars,,,,,2026-10-10,,specs/reference/POLARS_COMMAND_LIBRARY.md
-PROJECT_OVERVIEW,reference,Liquers Project Overview,current,local,,,,,,core/query;core/plan;core/assets;core/store;core/value,,,,,2026-10-06,,specs/reference/PROJECT_OVERVIEW.md
+PROJECT_OVERVIEW,reference,Liquers Project Overview,current,local,,,,,,core/query;core/plan;core/assets;core/store;core/value,,,,,2026-10-10,,specs/reference/PROJECT_OVERVIEW.md
 RECORD_STREAMS,reference,Record Streams,current,local,,,,,,records;lib/value;lib/commands;web,,,,,2026-10-08,,specs/reference/RECORD_STREAMS.md
 REGISTER_COMMAND_FSD,reference,register_command! Macro Functional Specification,current,local,,,,,,macro;core/commands,,,,,2026-10-10,,specs/reference/REGISTER_COMMAND_FSD.md
-STORE_CONFIG_FSD,reference,Store Configuration Functional Specification,current,local,,,,,,store/config,,,,,2026-10-07,,specs/reference/STORE_CONFIG_FSD.md
-STORE_SEMANTICS,reference,Store Behavioural Semantics,current,local,,,,,,core/store;store/backends;web,,,,,2026-10-07,,specs/reference/STORE_SEMANTICS.md
+STORE_CONFIG_FSD,reference,Store Configuration Functional Specification,current,local,,,,,,store/config,,,,,2026-10-10,,specs/reference/STORE_CONFIG_FSD.md
+STORE_SEMANTICS,reference,Store Behavioural Semantics,current,local,,,,,,core/store;store/backends;web,,,,,2026-10-10,,specs/reference/STORE_SEMANTICS.md
 UI_INTERFACE_FSD,reference,UI Interface Specification,overdue,local,,,,,,lib/ui,,,,,2026-03-02,,specs/reference/UI_INTERFACE_FSD.md
 VALUE_TYPE_SYSTEM,reference,Value Type System,current,local,,,,,,core/value;lib/value,,,,,2026-10-10,,specs/reference/VALUE_TYPE_SYSTEM.md
 WEB_API_SPECIFICATION,reference,Liquers Web API Specification,current,local,,,,,,axum;web,,,,,2026-10-09,,specs/reference/WEB_API_SPECIFICATION.md
@@ -480,11 +483,11 @@ COMMAND_DESIGN_GUIDE,guide,Command Design Guide,current,local,,,,,,core/commands
 COMMAND_REGISTRATION_GUIDE,guide,Command Registration Guide,current,local,,,,,,core/commands;macro,,,,,2026-10-10,,specs/guides/COMMAND_REGISTRATION_GUIDE.md
 DEPENDENCY_CONSISTENCY_GUIDE,guide,Dependency Consistency Guide,current,local,,,,,,core/assets,,,,,2026-10-08,,specs/guides/DEPENDENCY_CONSISTENCY_GUIDE.md
 ENVIRONMENT_CONSTRUCTION_GUIDE,guide,Building and Configuring an Environment,current,local,,,,,,core/context;core/assets;core/store,,,,,2026-10-08,,specs/guides/ENVIRONMENT_CONSTRUCTION_GUIDE.md
-LANGUAGE-INTEGRATION_GUIDE,guide,Language Integration Guide,current,local,,,,,,web;py;core/commands;core/plan;core/assets,,,,,2026-10-08,,specs/guides/LANGUAGE-INTEGRATION_GUIDE.md
+LANGUAGE-INTEGRATION_GUIDE,guide,Language Integration Guide,current,local,,,,,,web;py;core/commands;core/plan;core/assets,,,,,2026-10-10,,specs/guides/LANGUAGE-INTEGRATION_GUIDE.md
 QUERY_ESCAPING_GUIDE,guide,Query Escaping Guide,current,local,,,,,,core/query,,,,,2026-10-07,,specs/guides/QUERY_ESCAPING_GUIDE.md
 RECORD_STREAM_GUIDE,guide,Record Stream Guide,current,local,,,,,,records;lib/value,,,,,2026-10-10,,specs/guides/RECORD_STREAM_GUIDE.md
 STORE_FACTORY_GUIDE,guide,Store Factory Guide,current,local,,,,,,core/store;store/config,,,,,2026-10-07,,specs/guides/STORE_FACTORY_GUIDE.md
-STORE_IMPLEMENTATION_GUIDE,guide,Store Implementation Guide,current,local,,,,,,core/store;store/backends;web,,,,,2026-10-07,,specs/guides/STORE_IMPLEMENTATION_GUIDE.md
+STORE_IMPLEMENTATION_GUIDE,guide,Store Implementation Guide,current,local,,,,,,core/store;store/backends;web,,,,,2026-10-10,,specs/guides/STORE_IMPLEMENTATION_GUIDE.md
 TYPE_SYSTEM_GUIDE,guide,Adding and Typing Value Types,current,local,,,,,,core/value;lib/value,,,,,2026-10-09,,specs/guides/TYPE_SYSTEM_GUIDE.md
 UNITTEST_GUIDE,guide,Unit Testing Guide,current,local,,,,,,build;core/assets,,,,,2026-10-02,,specs/guides/UNITTEST_GUIDE.md
 WEB_API_GUIDE,guide,Web API Guide,current,local,,,,,,axum;web,,,,,2026-10-09,,specs/guides/WEB_API_GUIDE.md

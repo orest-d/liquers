@@ -8,9 +8,9 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 111
-- P2: 55
-- P3: 56
+Total rows: 112
+- P2: 54
+- P3: 58
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -19,7 +19,6 @@ Total rows: 111
 | [`COMMAND-CANNOT-BE-RUN-WITH-A-RESTRICTED-CONTEXT`](issues/COMMAND-CANNOT-BE-RUN-WITH-A-RESTRICTED-CONTEXT.md) | feature | A command cannot be run with a restricted context | draft |  |  | P2 | M | core/context;core/commands |  | 2026-09-17 |
 | [`CORE-METADATA-NO-APPLICATION-ATTRIBUTES`](issues/CORE-METADATA-NO-APPLICATION-ATTRIBUTES.md) | feature | Metadata cannot carry application-defined attributes | draft |  |  | P2 | M | core/value |  | 2026-09-15 |
 | [`CORE-PLAN-POLICY-AND-DEFAULTS`](issues/CORE-PLAN-POLICY-AND-DEFAULTS.md) | issue | Plan builder has no configuration and questionable defaults | accepted |  |  | P2 | M | core/plan |  | 2026-08-08 |
-| [`CORE-SYNC-STORE-TRAIT-OBSOLETE`](issues/CORE-SYNC-STORE-TRAIT-OBSOLETE.md) | issue | The synchronous Store trait is obsolete and should be removed | draft |  |  | P2 | M | core/store;py;docs |  | 2026-09-02 |
 | [`CORE-TRACING-MIGRATION`](issues/CORE-TRACING-MIGRATION.md) | issue | Diagnostics use `eprintln!` rather than structured logging | accepted |  |  | P2 | M | core/error;build |  | 2026-08-08 |
 | [`CORE-VALUE-ENUM-OVERSIZED`](issues/CORE-VALUE-ENUM-OVERSIZED.md) | issue | Every Value occupies 704 bytes because three variants are stored unboxed | draft |  |  | P2 | M | core/value;lib/value |  | 2026-08-18 |
 | [`DEFAULT-ASSET-MANAGER-RECIPE-OPT-SKIPS-PAYLOAD-CHECK`](issues/DEFAULT-ASSET-MANAGER-RECIPE-OPT-SKIPS-PAYLOAD-CHECK.md) | issue | DefaultAssetManager's recipe_opt override skips the payload-required rejection | draft |  |  | P2 | M | core/assets |  | 2026-09-25 |
@@ -83,6 +82,8 @@ Total rows: 111
 | [`STORE-GUIDE-STATUS-TABLE-HAS-NO-GENERATOR`](issues/STORE-GUIDE-STATUS-TABLE-HAS-NO-GENERATOR.md) | issue | The store guide's status table claims to be generated from the conformance reports, and no generator exists | draft | needs-decision | not-eligible | P3 | S | docs;store/backends | [phase1](design/store-guide-status-table/phase1-high-level-design.md)  [phase2](design/store-guide-status-table/phase2-architecture.md)  [phase3](design/store-guide-status-table/phase3-examples.md)  [phase4](design/store-guide-status-table/phase4-implementation.md)  | 2026-09-30 |
 | [`STORES-DISAGREE-ON-SEEDING-THE-DATA-FORMAT-FROM-THE-KEY`](issues/STORES-DISAGREE-ON-SEEDING-THE-DATA-FORMAT-FROM-THE-KEY.md) | issue | Some stores derive a file's data format from its key's extension and others do not | draft | needs-decision | not-eligible | P3 | S | core/store;web | [design](design/store-key-format-seeding/DESIGN.md) | 2026-10-07 |
 | [`WEB-LIQUERSERROR-NOT-CONSTRUCTIBLE`](issues/WEB-LIQUERSERROR-NOT-CONSTRUCTIBLE.md) | issue | JavaScript cannot construct a LiquersError, so a page cannot raise a typed error | accepted | needs-decision | not-eligible | P3 | S | web;core/error | [phase1](design/web-liquers-error-constructor/phase1-high-level-design.md)  [phase2](design/web-liquers-error-constructor/phase2-architecture.md)  [phase3](design/web-liquers-error-constructor/phase3-examples.md)  [phase4](design/web-liquers-error-constructor/phase4-implementation.md)  | 2026-08-09 |
+| [`AXUM-STORE-MAKEDIR-TEST-IGNORED-FOR-A-FIXED-LIMITATION`](issues/AXUM-STORE-MAKEDIR-TEST-IGNORED-FOR-A-FIXED-LIMITATION.md) | issue | An axum store test is ignored for an AsyncMemoryStore limitation that has been fixed | draft |  |  | P3 | S | axum;core/store |  | 2026-10-10 |
+| [`STORE-CONFORMANCE-FEATURE-BUILD-WARNINGS`](issues/STORE-CONFORMANCE-FEATURE-BUILD-WARNINGS.md) | issue | The store-conformance feature build emits unused-import and dead-code warnings | draft |  |  | P3 | S | core/store;build |  | 2026-10-10 |
 | [`TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS`](issues/TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS.md) | issue | TypeInfo cannot declare a format a type writes but cannot read back | draft |  |  | P3 | S | core/value |  | 2026-09-24 |
 | [`CONTEXT-TITLE-LOST-ACROSS-PREDECESSOR-BOUNDARY`](issues/CONTEXT-TITLE-LOST-ACROSS-PREDECESSOR-BOUNDARY.md) | issue | A title or description set by a command in a cut predecessor does not reach the final asset | draft | needs-decision | not-eligible | P3 | M | core/context;core/plan | [phase1](design/context-title-predecessor-inheritance/phase1-high-level-design.md)  [phase2](design/context-title-predecessor-inheritance/phase2-architecture.md)  [phase3](design/context-title-predecessor-inheritance/phase3-examples.md)  [phase4](design/context-title-predecessor-inheritance/phase4-implementation.md)  | 2026-10-06 |
 | [`ASSETS-API-ADMIN-OPERATIONS`](issues/ASSETS-API-ADMIN-OPERATIONS.md) | feature | Manager status and a guarded remove have no assets API endpoint | draft |  |  | P3 | M | axum;core/assets |  | 2026-09-27 |

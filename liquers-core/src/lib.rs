@@ -105,6 +105,14 @@
 //! **Action** - a command with parameters; and element of a query.
 //! Action can be represented as a [action request](crate::query::ActionRequest) inside a query,
 //! which can be compiled into an [Action step](crate::plan::Step::Action) inside a plan.
+//!
+//! **Caching** - query results are cached by the asset manager ([assets](crate::assets)). There is
+//! no separate query cache; the legacy `cache` module was removed with the synchronous store
+//! (`specs/issues/CORE-SYNC-STORE-TRAIT-OBSOLETE.md`):
+//!
+//! ```compile_fail,E0432
+//! use liquers_core::cache::BinCache;
+//! ```
 extern crate serde;
 #[macro_use]
 extern crate serde_derive;
@@ -115,7 +123,6 @@ extern crate serde_derive;
 /// against; a hand-maintained string would drift from the manifest exactly when it mattered.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-pub mod cache;
 pub mod command_declaration;
 pub mod command_metadata;
 #[macro_use]
