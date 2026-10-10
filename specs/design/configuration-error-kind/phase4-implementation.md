@@ -1,6 +1,6 @@
 # Phase 4: Implementation plan
 
-1. After the taxonomy decision, and after `web-object06-error-type-exhaustiveness` has landed, add
+1. After `web-object06-error-type-exhaustiveness` has landed, add
    the variant and constructor in `liquers-core/src/error.rs`. Fix every exhaustive match the
    compiler reports in core (`assets.rs` classification). Proof: `cargo check -p liquers-core`; T1, T7.
 2. Migrate `store_config.rs` and `environment_config.rs` call sites (Phase 2 table), and classify

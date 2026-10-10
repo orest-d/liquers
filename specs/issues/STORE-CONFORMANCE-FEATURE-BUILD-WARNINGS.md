@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: S
 area: [core/store, build]
-design: 
+design: store-conformance-warning-cleanup
 created: 2026-10-10
 github:
 ---

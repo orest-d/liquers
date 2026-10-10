@@ -7,8 +7,9 @@
    intent before deserialization and extend convention tests. Do not broaden declaration behaviour.
 3. In `liquers-core/src/plan.rs`, add the behavioural consumption regression using the existing
    PlanBuilder fixture; this depends on step 1 and contains semantic risk in one test.
-4. Run the committed registry round-trip/freshness checks. Regenerate only if the exporter produces
-   a justified change; omission policy alone should not rewrite explicit entries.
+4. Regenerate `specs/command_registry.yaml` (source commands gain `state_argument: null`) with the
+   exporter in `CLAUDE.md`, add a dated CHANGELOG line noting the one-time `metadata_version` change
+   for source commands, and prove with `cargo test -p liquers-lib --test registry_export`.
 5. Update `COMMAND_DECLARATION.md` if raw omission/null is part of its exposed format, plus source
    issue/design lifecycle records during implementation.
 6. Run formatting, `cargo test -p liquers-core --lib`, the registry test,

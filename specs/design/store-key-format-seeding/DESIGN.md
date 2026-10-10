@@ -5,7 +5,7 @@ title: Every store seeds the data format from the key's extension when the metad
 form: compact
 status: in_review
 phase: implementation
-readiness: needs-decision
+readiness: ready
 autofix: not-eligible
 area: [core/store, web]
 issues: [STORES-DISAGREE-ON-SEEDING-THE-DATA-FORMAT-FROM-THE-KEY]
@@ -52,19 +52,17 @@ filename, and the data format is seeded only from the filename.
 
 ### Design Readiness
 
-- **Readiness:** needs-decision
-- **Automatic fixing:** not-eligible — it settles a store contract in `STORE_SEMANTICS.md` (the
-  issue asks for the decision) and the fix spans `liquers-core` and `liquers-web` (rule 6).
-- **Leading issue:** **Open design question — does a store seed the filename from the key?**
-- **Explanation:** A working design is specified around the recommended answer. The alternative
-  (never seed; the HTTP store stops inferring) is a smaller code change but makes hand-placed and
-  uploaded files report `application/octet-stream` everywhere.
-- **Open questions:**
-  1. **Proposed resolution — seed in `finalize_metadata`.** When the metadata has no filename,
-     `finalize_metadata` calls `with_filename(key.filename())`. It is the shared default every
-     store already calls, so one change covers memory, file, OpenDAL and local-storage stores; the
-     HTTP store's `infer_metadata` already does the same. This is level-2 seeding, as `with_filename`
-     defines it, not a declared media-type override.
+- **Readiness:** ready
+- **Automatic fixing:** not-eligible — it settles a store contract in `STORE_SEMANTICS.md` and the
+  conformance suite runs in `liquers-core`, `liquers-store` and `liquers-web` (rule 6).
+- **Leading issue:** None
+- **Explanation:** Decided (Maintainer decision, 2026-10-10): a store seeds the filename from the
+  key. When the metadata has no filename, `finalize_metadata` calls `with_filename(key.filename())`.
+  It is the shared default every store already calls, so one change covers memory, file, OpenDAL and
+  local-storage stores; the HTTP store's `infer_metadata` already does the same. This is level-2
+  seeding, as `with_filename` defines it, not a declared media-type override. A declared filename or
+  data format always wins.
+- **Open questions:** None.
 
 ### Design Dependencies
 
@@ -76,7 +74,7 @@ filename, and the data format is seeded only from the filename.
 
 ### Solution
 
-In `liquers-core/src/store.rs` `AsyncStore::finalize_metadata` (default method, ≈line 356), after
+In `liquers-core/src/store.rs` `AsyncStore::finalize_metadata` (default method, ≈line 116), after
 `with_key`, seed the filename with an explicit match on the `Metadata` variant:
 
 ```rust
@@ -116,8 +114,8 @@ seeding in each backend (duplicates the default).
 ### Risks
 
 Stored metadata changes for files written without a filename; `metadata_version` is not affected.
-`AsyncStoreRouter::finalize_metadata` delegates to the routed store, so it inherits the rule; the
-obsolete sync `Store` trait keeps its own copy and is not changed. A backend overriding
+`AsyncStoreRouter::finalize_metadata` delegates to the routed store, so it inherits the rule (the
+synchronous `Store` trait has since been removed, `CORE-SYNC-STORE-TRAIT-OBSOLETE`). A backend overriding
 `finalize_metadata` would not inherit it; none in-tree does today (re-check at step 1).
 
 ## Phase 3: Examples and Tests

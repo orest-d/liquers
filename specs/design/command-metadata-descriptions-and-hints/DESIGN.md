@@ -5,7 +5,7 @@ title: Command-level hints and per-argument descriptions
 form: compact
 status: in_review
 phase: implementation
-readiness: needs-decision
+readiness: ready
 autofix: not-eligible
 area: [core/commands, macro, lib/ui]
 issues: [COMMAND-METADATA-HAS-NO-COMMAND-LEVEL-HINTS, ARGUMENT-INFO-HAS-NO-DESCRIPTION]
@@ -67,22 +67,22 @@ Out of scope: writing descriptions or hints for existing commands; the parameter
 
 ### Design Readiness
 
-- **Readiness:** needs-decision
+- **Readiness:** ready
 - **Automatic fixing:** not-eligible — adds `pub` fields to `CommandMetadata` and `ArgumentInfo`
   and new `register_command!` syntax (rule 4), across `liquers-core`, `liquers-macro` and
-  `liquers-py` (rule 6); also needs-decision (rule 5)
-- **Leading issue:** **Open design question — the two macro spellings**, a public syntax for every
-  command author.
-- **Explanation:** The fields, serde behaviour and builders are mechanical and fixed by AC-6. Only
-  the spellings remain, and a working design is specified around the recommended ones.
-- **Open questions:**
+  `liquers-py` (rule 6)
+- **Leading issue:** None
+- **Explanation:** All questions are decided; the fields, serde behaviour and builders are
+  mechanical and fixed by AC-6.
+- **Open questions:** None. Decisions:
   1. **Resolved — merge** (maintainer, 2026-10-08, D1).
-  2. **Proposed resolution — command hint spelling:** a command statement `hint key: "value"`,
-     beside `label:` / `doc:`, reusing the parameter statement's grammar; values are strings only.
-  3. **Proposed resolution — argument description spelling:** `description: "…"` inside an
-     argument's existing parenthesized option list (which already holds `label:`, `gui:`, `enum:`).
-  4. **Proposed resolution — field name `description`**, matching `FieldSchema::description` and
-     the command preset's `description:`; the alternative `doc` would mirror `CommandMetadata::doc`.
+  2. **Resolved — command hint spelling** (maintainer, 2026-10-10): a command statement
+     `hint key: "value"`, beside `label:` / `doc:`, reusing the parameter statement's grammar;
+     values are strings only; a duplicate key is a compile error.
+  3. **Resolved — argument description spelling** (maintainer, 2026-10-10): `description: "…"`
+     inside an argument's existing parenthesized option list.
+  4. **Resolved — field name `description`** (maintainer, 2026-10-10), matching
+     `FieldSchema::description` and the command preset's `description:`.
 
 ### Design Dependencies
 
@@ -136,7 +136,7 @@ and argument option tables), `COMMAND_DECLARATION.md` (field lists),
 Struct literals across the workspace need the new fields (`cargo check --workspace --exclude
 liquers-web` lists them). A wrong serde attribute would change every `metadata_version` and expire
 every dependent on the next start; AC-6's test catches it, and the fix is the attribute, never a
-registry regeneration. Certainty: high once the spellings are approved.
+registry regeneration. Certainty: high; spellings approved 2026-10-10.
 
 ## Phase 3: Examples and Tests
 

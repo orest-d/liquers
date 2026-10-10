@@ -4,7 +4,7 @@ kind: design
 title: Replacement and state installation for external asset managers
 status: in_review
 phase: implementation
-readiness: needs-decision
+readiness: ready
 autofix: not-eligible
 area: [core/assets]
 issues: [EXTERNAL-MANAGER-CANNOT-NOTIFY-REPLACED-ASSET]

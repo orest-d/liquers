@@ -2,15 +2,15 @@
 
 ## Design Readiness
 
-- **Readiness:** needs-decision
-- **Automatic fixing:** not-eligible — changes what an omitted serialized field means (rule 4); also
-  needs-decision (rule 5)
-- **Leading issue:** **Proposed resolution - omission semantics:** Omitted `state_argument` should
-  mean the conventional transforming command; source commands must write explicit `null`.
-- **Explanation:** This preserves both constructors and existing registration defaults, but omission
-  changes planning semantics and therefore remains a system-design choice.
-- **Open questions:** **Proposed resolution - omission semantics:** Approve conventional-state
-  omission rather than changing constructors so omission means a source command.
+- **Readiness:** ready
+- **Automatic fixing:** not-eligible — changes what an omitted serialized field means and makes
+  source commands serialize `state_argument: null`, so `specs/command_registry.yaml` changes (rule 4)
+- **Leading issue:** None
+- **Explanation:** Decided (Maintainer decision, 2026-10-10): an omitted `state_argument` means the
+  conventional transforming command (`Some(state)`), matching the constructors; a source command
+  writes explicit `null`, and the serializer writes that `null`. Legacy documents that relied on
+  omission to mean "source" change meaning; `null` is the migration spelling.
+- **Open questions:** None.
 
 ## Problem and Evidence
 
@@ -51,3 +51,9 @@ transforming command. Explicit null must be serialized, not skipped, to preserve
 across round-trips. The principal risk is changing old hand-authored metadata that omitted the
 field; test JSON/YAML omission, null, constructor parity, declaration conventions, registry
 round-trip, and planner consumption.
+
+Found in the 2026-10-10 review: writing `null` changes the serialized metadata of every source
+command, so `CommandMetadataRegistry::calculate_metadata_version` (a hash of the JSON) changes for
+those commands and their stored results are recomputed once after the upgrade, the same one-time
+cost accepted for `command-cache-flag`. `specs/command_registry.yaml` must be regenerated (source
+commands gain `state_argument: null`) with a CHANGELOG line.

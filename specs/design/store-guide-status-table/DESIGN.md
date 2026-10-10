@@ -4,7 +4,7 @@ kind: design
 title: Store guide status table: generator or honest hand maintenance
 status: in_review
 phase: implementation
-readiness: needs-decision
+readiness: ready
 autofix: not-eligible
 area: [docs, store/backends]
 issues: [STORE-GUIDE-STATUS-TABLE-HAS-NO-GENERATOR]

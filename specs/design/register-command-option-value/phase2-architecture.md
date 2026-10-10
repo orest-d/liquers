@@ -1,54 +1,75 @@
 # Phase 2: Solution and Architecture
 
-## Macro
+## Core: the missing conversions
 
-`liquers-macro/src/registration.rs`, where the argument type is parsed (near
-`argument_type_expression` / `is_option_of`):
+`liquers-core/src/value.rs`: `impl TryFrom<Value> for Option<T>` for `T` in `i8 i16 i32 i64 isize
+u8 u16 u32 u64 usize f32 f64 bool` (a small `macro_rules!`): a none value (`ValueInterface::is_none`)
+→ `Ok(None)`, otherwise `T::try_from(value).map(Some)`. Add the missing scalar `TryFrom<Value>` impls
+the macro needs (`i8`, `i16`, `u8`, `u16` if absent). Concrete impls, not a blanket
+`impl<T> TryFrom<Value> for Option<T>`, which risks overlap with core's `TryFrom<U> for T where U:
+Into<T>`.
+
+`liquers-core/src/commands.rs`: `impl_from_parameter_value2_opt!(bool, |p| p.as_bool())`; delete the
+commented-out `Option<i64>`/`Option<f64>` block.
+
+`liquers-lib/src/value/`: the same `Option<T>` impls for `SimpleValue` (`simple.rs`) and
+`CombinedValue<B, E>` (`extended.rs`), beside the existing scalar ones.
+
+## Core: `BooleanOption`
+
+`liquers-core/src/command_metadata.rs` `ArgumentType`: add
 
 ```rust
-const SUPPORTED_OPTION_INNER: &[&str] = &[
-    "i8", "i16", "i32", "i64", "isize", "u8", "u16", "u32", "u64", "usize", "f32", "f64",
-    // + "bool", "String" if question 2 is accepted
-];
+#[serde(rename = "bool_opt")]
+BooleanOption,
 ```
 
-During parsing of `CommandParameter` (not codegen, so the span points at the user's type): if
-`is_option_of(ty) == (true, Some(inner))` and `inner` is not in the list, return
-`syn::Error::new_spanned(ty, format!("register_command!: argument '{name}' has type Option<{inner}>, \
-which cannot be bound; supported Option types are Option<{list}>. For an optional value, use \
-'{name}: String = \"\"' and parse it in the command"))`.
+and the same in `EnumArgumentType` if it mirrors the option variants. `is_option()` returns `true`.
+`liquers-core/src/plan.rs` `ParameterValue::from_string`: a `BooleanOption` arm. Empty → the
+argument's default, else `Value::Null` (as `IntegerOption`); lower-cased `t|true|yes|y|1` →
+`Bool(true)`, `f|false|no|n|0` → `Bool(false)`, `none` → `Value::Null`; else
+`Error::conversion_error_at_position(s, "boolean or none", pos)`. Fix every exhaustive match on
+`ArgumentType` (`liquers-lib/src/commands.rs` ≈89 "Boolean?", `liquers-lib/src/egui/widgets.rs`
+≈653 "bool?", `liquers-py/src/command_metadata.rs`, and any the compiler names). GUI default: the
+same widget as `Boolean` (a three-state widget is out of scope).
 
-## Core (only if question 2 accepted)
+## Macro
 
-`liquers-core/src/commands.rs`: add `impl_from_parameter_value2!(Option<String>, ...)` and
-`Option<bool>` following the explicit `Option<i64>` pattern at the end of the impl list (null →
-`None`, `as_str`/`as_bool` → `Some`, other → conversion error). Add `TryFrom<E::Value>` coverage
-as the macro requires. Inspect how `impl_from_parameter_value2!` generates the `TryFrom` side for
-`Option<i64>`.
+`liquers-macro/src/registration.rs`:
+
+- Fix `ArgumentType::FloatOpt` → `FloatOption` (two arms and the test at ≈2278).
+- Map every supported `Option<T>`: integer widths → `IntegerOption`, `f32`/`f64` → `FloatOption`,
+  `bool` → `BooleanOption`.
+- One `SUPPORTED_OPTION_INNER` list, commented to point at the core impls. At parse time (so the
+  span is the user's type), an `Option<T>` with `T` outside the list returns
+  `syn::Error::new_spanned(ty, "register_command!: argument '{name}' has type Option<{T}>, which is
+  not supported; supported: Option<{list}>. For an optional string, use '{name}: String = \"\"'")`.
+  This includes `Option<String>`, `Option<Value>` and non-ident inners (`Option<Vec<u8>>`).
 
 ## Alternatives
 
-Full `Option<Value>` support (rejected for now, see Phase 1).
+`StringOption` / `Option<Value>` support: rejected by the maintainer. Reusing `Boolean` for
+`Option<bool>`: rejected, `""` would mean `false`. A blanket `TryFrom` impl: rejected (coherence).
 
 ## Known-issue preflight
 
-None.
+`command-metadata-descriptions-and-hints` also edits `registration.rs` argument parsing: different
+arms; either order. No blocker.
 
-## Relevant commands
+## Commands and documents
 
-None changed. `ns-rec` keeps `String = ""`.
-
-## Documentation architecture
-
-FSD table of argument types (supported `Option<…>`), guide sentence, History rows, `reviewed:`.
+No command changes, so `specs/command_registry.yaml` is unchanged (no in-tree command uses an
+option type; verify with the registry test). Documents: `REGISTER_COMMAND_FSD.md` (supported
+`Option<T>`, `bool_opt` spelling, the error), `COMMAND_REGISTRATION_GUIDE.md` (one example),
+`CLAUDE.md` DSL lines if they list types; History rows, `reviewed:`.
 
 ## Risk table
 
 | Area | Assessment |
 |---|---|
-| Likely files | `liquers-macro/src/registration.rs`; maybe `liquers-core/src/commands.rs`; docs |
-| Existing tests | Every in-tree registration must still expand. Run the whole lib test build. |
-| New validation | trybuild-style compile-fail test if the macro crate has one, otherwise a unit test of the parser function on a parsed `syn::Type` |
-| Compatibility | Code that failed with `E0277` now fails earlier with a clear message |
-| Recovery | Revert |
-| Certainty | High for rejection |
+| Likely files | core `value.rs`, `commands.rs`, `command_metadata.rs`, `plan.rs`; macro `registration.rs`; lib `value/simple.rs`, `value/extended.rs`, `commands.rs`, `egui/widgets.rs`; py `command_metadata.rs` |
+| Existing tests | The macro unit test expecting `FloatOpt` changes; all registrations must expand |
+| Compatibility | New wire value `bool_opt`; existing values unchanged |
+| Feature matrix | `egui` match is feature-gated: run `scripts/check-build-matrix.sh` |
+| Recovery | Revert; nothing stored depends on it |
+| Certainty | High (probe compile confirmed the missing bound, 2026-10-10) |

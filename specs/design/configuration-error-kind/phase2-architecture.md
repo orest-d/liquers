@@ -2,7 +2,7 @@
 
 ## Chosen solution
 
-Subject to the taxonomy decision:
+Per the taxonomy decision (maintainer, 2026-10-10):
 
 | File | Change |
 |---|---|

@@ -313,6 +313,7 @@ deliberately folded behind a broader line.
 - design `async-store-wrapper-docs`
 - design `axum-recipes-metadata-entry`
 - design `axum-store-keys-deep`
+- design `axum-store-makedir-test-unignore`
 - design `axum-store-upload-metadata`
 - design `build-matrix-ci`
 - design `build-sysinfo-rustc-compatibility`
@@ -391,6 +392,7 @@ deliberately folded behind a broader line.
 - design `simple-value-untyped-and-scalar-reads`
 - design `state-argument-serde-default`
 - design `store-conformance-suite`
+- design `store-conformance-warning-cleanup`
 - design `store-guide-status-table`
 - design `store-key-format-seeding`
 - design `store-key-guard`

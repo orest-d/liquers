@@ -4,7 +4,7 @@ kind: design
 title: Record Timestamp is a UTC instant in every format
 status: in_review
 phase: implementation
-readiness: needs-decision
+readiness: ready
 autofix: not-eligible
 area: [records, lib/polars]
 issues: [RECORD-TIMESTAMP-TIME-ZONE-DIFFERS-BY-FORMAT]
