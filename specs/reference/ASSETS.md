@@ -3,7 +3,7 @@ title: Assets Specification
 kind: reference
 audience: internal
 area: [core/assets]
-reviewed: 2026-10-09
+reviewed: 2026-10-10
 ---
 # Assets Specification
 
@@ -88,7 +88,8 @@ is itself evaluating, so an evaluating answer re-enters the asset that is asking
 (`CORE-IMMEDIATE-MANAGER-KEYED-RECURSION`).
 
 `None` means no asset is registered, and the caller therefore owns the recipe. Three ways to get
-there: the key is volatile, its recipe declares `cached: false` (see below), or the asset was built
+there: the key is volatile, its recipe's caching strategy keeps no result (`cached: none`, or
+`recipe_cache_strategy: none` for a recipe that states none — see below), or the asset was built
 outside the manager's maps (`apply`, `create_asset`).
 
 #### Volatile assets are never owned
@@ -116,17 +117,21 @@ stored `Ready`, `Source` or `Override`.
 
 #### `stored` and `cached`: opting out of the write and of reuse
 
-Two recipe flags, `stored` and `cached`, are `Option<bool>` on `Recipe`, `MetadataRecord` and
-`AssetInfo`, absent unless set; the accessors `stored()` and `cached()` (also on `Metadata`, where
-legacy metadata answers `true`) read an absent flag as `true`. `get_resource_asset` in both
-`DefaultAssetManager` and `ImmediateAssetManager` copies them from the key's recipe into the new
-asset's metadata **before** anything can persist it, and `evaluate` re-copies them from the
-provider's recipe when it adopts it.
+`stored` is an `Option<bool>` on `Recipe`, `MetadataRecord` and `AssetInfo`. `cached` is an
+`Option<bool>` on `MetadataRecord` and `AssetInfo` — whether *this asset* is kept for reuse — and a
+**caching strategy** (`Option<CacheStrategy>`: `none` \| `result` \| `all`, also read from
+`true`/`false`) on `Recipe`; §When an asset is kept for reuse below gives the whole rule. The
+accessors `stored()` and `cached()` (also on `Metadata`, where legacy metadata answers `true`) read
+an absent flag as `true`. `get_resource_asset` in both `DefaultAssetManager` and
+`ImmediateAssetManager` copies them from the key's recipe into the new asset's metadata **before**
+anything can persist it (an explicit `result`/`all` as `Some(true)`, `none` as `Some(false)`), and
+`evaluate` re-copies them from the provider's recipe when it adopts it — keeping the flag recorded
+at construction when that recipe states no strategy.
 
 | Flag, when `false` | What it skips | What it does not change |
 |---|---|---|
 | `stored` | Every store write for the key: `save_to_store` (value and metadata), the `MetadataSaver`'s status and progress writes, both native and wasm — no metadata-only entry is left either | A stored copy that already exists is still read, and fast-tracked in preference to recomputation: it may be `Override` data |
-| `cached` | Registration: the manager mints a fresh asset per request (`get_uncached_resource_asset`, or the equivalent branch in the immediate manager) and never inserts it in `assets`, so it is evaluated for the request and dropped | The asset is **still the key's node in the dependency graph** — see below |
+| `cached` (a strategy keeping no result) | Registration: the manager mints a fresh asset per request (`get_uncached_resource_asset`, or the equivalent branch in the immediate manager) and never inserts it in `assets`, so it is evaluated for the request and dropped | The asset is **still the key's node in the dependency graph** — see below |
 
 **Neither flag makes an asset volatile**, alone or together. Volatility is contagious and says the
 result is single-use; these flags are about disk and memory, not purity, so a dependent of a
@@ -150,6 +155,39 @@ metadata's `stored` flag, not the recipe's, so a caller may write a `stored: fal
 metadata that says `stored: true` — and one supplying `stored: false` gets no store write, while
 the rest of the operation (the in-memory entry `set_state` creates, the version registration and the
 cascade to dependents) proceeds.
+
+#### When an asset is kept for reuse
+
+Which new assets the manager **registers** — inserts into `assets` or `query_assets` so a later
+request reuses them — is decided by a caching strategy (`liquers-core/src/cache_strategy.rs`), a
+property of each asset recorded when it is created and read with `AssetRef::cache_strategy()` (or
+`Context::cache_strategy()` from a command):
+
+| Asset | Its strategy | Registered when |
+|---|---|---|
+| keyed (a recipe) | the recipe's `cached:`, else `recipe_cache_strategy()` | the strategy keeps the result (`result`, `all`). The last command's flag does not matter |
+| top-level non-keyed query (`get_asset`) | `query_cache_strategy()` | its last command does not declare `cached: false`, **and** the strategy keeps the result |
+| non-keyed dependency (`get_dependency_asset`: a predecessor boundary, a link, a `context.evaluate`) | **the creating asset's** strategy, written into the new asset's recipe | its last command does not declare `cached: false`, **and** the strategy keeps intermediates (`all`) |
+
+- **An asset that already exists is reused whatever the strategy.** The strategy only decides
+  what a *new* asset is registered as; a query whose strategy keeps nothing still reuses an
+  intermediate a recipe cached.
+- **The plan never reads a strategy.** A plan depends on its query, the command metadata and the
+  `cut_predecessors` switch only; the decision is made where `Step::Evaluate` executes, which is
+  `get_dependency_asset` with the parent in hand. `ImmediateAssetManager` overrides
+  `get_dependency_asset` for this (the trait default delegates to `get_asset` and so treats a
+  dependency as a top-level query).
+- An unregistered asset records `cached: Some(false)` in its metadata, and a log entry naming the
+  reason (`Not cached for reuse: command '…' declares cached: false`, `…the query cache strategy
+  'none' keeps no result`, `…it was created under cache strategy 'result', which keeps no
+  intermediates`). It is not volatile.
+- A non-keyed decision reads the query's plan, which the manager already builds to learn its
+  volatility (`make_plan`), for `Plan::uncached_by`.
+- Defaults (`all` / `all`) reproduce the behaviour before strategies existed. The trait provides
+  `recipe_cache_strategy()`, `query_cache_strategy()` and `cut_predecessors()` with those defaults,
+  so a manager written outside core keeps compiling. See
+  [ENVIRONMENT_CONFIG](./ENVIRONMENT_CONFIG.md) for the settings.
+
 
 ## Communication Channels
 
@@ -1182,6 +1220,7 @@ each with an `ExpiryReason` (§Why an asset is `Expired`). The rules are in
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-10 | New §When an asset is kept for reuse: caching strategies (keyed, top-level query, dependency following its creator), reuse of an existing asset under every strategy, the plan independent of strategy, `ImmediateAssetManager::get_dependency_asset`, `cached: Some(false)` and the log reason on an unregistered asset, the trait accessors. §`stored` and `cached`: the recipe's `cached` is a strategy; metadata keeps a bool. | phase-5 (`design/plan-policy/`) |
 | 2026-10-09 | Cancellation is a request decided by the run: `Cancelled` status description, the cancellation path diagram, Scenarios 3-5 (`cancel_for_replacement`), §Terminal outcome (`Cancelled` records its cause in `error_data`; `fail_asset` acts once on an in-flight asset; cascade cancellation through `wait_for_dependency`). | phase-5 (`design/asset-cancellation-outcome/`) |
 | 2026-10-08 | §Content changed outside Liquers: the memory store no longer answers a metadata-only entry with empty bytes; the empty-bytes skip is kept for older stores. | phase-5 (`design/metadata-only-entry-reload/`) |
 | 2026-10-08 | §AssetManager names the dependency checks (`stored_dependency_state`, the per-key audit over the upstream closure, `trigger_dependency_audit_store`) and links §Consistency policies. The `StaleDependency` row gains the audit routes. | phase-5 (`design/dependency-chain-analysis-cost/`) |

@@ -3,7 +3,7 @@ title: Query Language Reference
 kind: reference
 audience: internal
 area: [core/query]
-reviewed: 2026-08-17
+reviewed: 2026-10-10
 ---
 # DOC-02: Query Language, Keys, and Actions
 
@@ -404,8 +404,11 @@ An unrecognized first parameter produces `ErrorType::NotSupported`.
   Namespace parameters must be strings.
 - A terminal `q` removes itself and makes the preceding query a query-valued plan
   step. It rejects parameters.
-- `v` marks the plan volatile, creates no action step, and is intercepted wherever
-  it is processed. The current planner does not reject parameters on `v`.
+- `v` creates no action step, rejects parameters, and is **positional**: the query
+  is volatile from `v` onward while the prefix ahead of it stays pure, so `a/b/v/c`
+  can reuse a cached `a/b` and `a/b/v` serves a cached `a/b` as a volatile value.
+  `v` at the head (`v/a/b/c`) makes the whole query volatile. See DOC-08
+  §Planning contract.
 
 ## Important implementation limitations
 
@@ -446,7 +449,7 @@ documentation can promise.
 | P1 | Realm behavior is limited and partly documented as future work | Medium | High | Define intended multi-segment semantics, implement them, then update reference |
 | P1 | Resource selector error text does not list valid selectors | Medium | High | Return a precise diagnostic with accepted values |
 | P1 | Public constructors allow non-round-trippable values | Medium | High | Add validated constructors or clearly named unchecked constructors |
-| P2 | `v` parameters are silently ignored | Medium | Medium | Decide whether to reject them like `q`, then test and document |
+| ~~P2~~ | ~~`v` parameters are silently ignored~~ — resolved: `v` rejects parameters with a positioned error, like `q` | — | — | — |
 | P2 | Some query helpers return owned clones where borrowing could be clearer | Low | Medium | Consider borrowed accessors in a later API review |
 
 `ActionParameter::set_value` used to appear in this table: it stored
@@ -515,6 +518,7 @@ Completed on 2026-07-26:
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-10 | Planner instructions: `v` is positional (volatile from its position onward; at the head, the whole query) and rejects parameters; the stale "`v` parameters are silently ignored" gap is struck. | phase-5, `design/plan-policy/` |
 | 2026-08-17 | Reviewed against HEAD. Recorded `Key`'s second, store-facing notion of relative — `is_relative`/`as_absolute`/`try_into_absolute` and `KeyNotAbsolute` — and how it diverges from the cursor's narrower "needs a CWD" test on an interior `..`. Query syntax and planning are unchanged. | phase-5 |
 | 2026-08-14 | Rewrote the action-parameter entity table with numeric (`~U ~D ~O ~B`) and named (`~n`) entities, the separator tilde, the encoder's priority order, the `entities-html5` feature and the entity diagnostics; recorded that a string parameter holds the decoded value and that `set_value` no longer double-encodes. | PARAMETER-ESCAPING-INCOMPLETE |
 | 2026-08-11 | Documented ordered logical-CWD resolution, nested link and plan scope, root fallback, and absolute outer-query behavior against the implementation and regression tests. | phase-5 |

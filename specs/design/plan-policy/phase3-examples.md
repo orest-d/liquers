@@ -110,30 +110,32 @@ parses to `Cached(false)`; `cached: "x"` is an error.
 - `cached_false_is_recorded_on_command_metadata` (AC-1, AC-11): `cm.cached == Some(false)` and
   `cm.cached()` is false; an undeclared command has `None`.
 
-**Integration, `liquers-core/tests/cache_strategy.rs` (new):** each test is `<name>_default` and
-`<name>_immediate`, calling one generic scenario.
+**Integration, `liquers-core/tests/cache_strategy.rs` (new):** each scenario runs as
+`<name>_default` (`Queued`) and `<name>_immediate` (`Inline`), 18 tests. Names as implemented.
+Two planned tests were merged into others, and one check was replaced, as noted below.
 - `uncached_command_runs_inline` (AC-1): Example 1, with counts and `query_assets` membership via
   `lookup_query_asset`.
-- `uncached_command_ending_an_adhoc_query_is_not_reused` (AC-2): two requests, two runs, not
-  registered, `is_volatile() == false`.
-- `query_strategy_result_keeps_only_the_result` (AC-3): no boundary registered, the result
-  registered.
-- `query_strategy_none_keeps_nothing` (AC-3): neither.
-- `existing_intermediate_is_reused_and_plan_unchanged` (AC-4): under query strategy `none`, with
-  and without `seed/t1` pre-cached by first evaluating a keyed recipe `seed/t1/t3` (strategy
-  `all`). The same plan steps both times, `t1` runs 0 or 1 times respectively, and no
-  new entry is registered.
-- `recipe_strategy_values` (AC-5): keyed recipes with `result`, `none`, `all`, `default` and
-  absent, under `recipe_cache_strategy: result`. Result and boundary registration match the table.
+- `uncached_command_ending_an_adhoc_query_is_not_reused` (AC-2, AC-10): two requests run twice,
+  the asset is not registered and not volatile, and `AssetInfo::cached == Some(false)` with a log
+  entry naming `wide`.
+- `query_strategy_result_and_none` (AC-3, AC-10): `result` registers the result and no boundary;
+  `none` registers neither, and the asset logs "query cache strategy 'none'". This merges the
+  planned `…_keeps_only_the_result` and `…_keeps_nothing`, and absorbs the planned
+  `unregistered_result_is_visible_in_metadata`.
+- `existing_intermediate_is_reused` (AC-4): under query strategy `none`, `seed/t1` pre-cached by
+  first evaluating a keyed recipe `seed/t1/t3` (strategy `all`) is reused (`t1` runs 0 more
+  times). A cold prefix is computed once and not kept.
+- `recipe_strategy_values` (AC-5): keyed recipes with `all`, `result`, `none` and absent, under
+  `recipe_cache_strategy: result`. Result and boundary registration match the table.
 - `boundary_follows_its_creator` (AC-6): Example 2.
-- `keyed_result_ignores_the_command_flag` (AC-7): a recipe ending in an uncached command, under
-  `all`, is registered.
-- `cut_predecessors_false_expands_and_reuses_nothing` (AC-8): a pre-cached prefix runs again, the
-  plan has no `Evaluate`, and the result is equal.
-- `unregistered_result_is_visible_in_metadata` (AC-10): `MetadataRecord::cached == Some(false)`
-  and `AssetInfo::cached == Some(false)`, with a log entry naming the reason, for AC-2 and AC-3.
+- `keyed_result_ignores_the_command_flag` (AC-7): a recipe ending in an uncached command is
+  registered and reused.
+- `cut_predecessors_false_expands` (AC-8): a pre-cached prefix runs again and the result is equal.
+  The planned check of the switch's log line was replaced by this recomputation check, because
+  planning diagnostics never reach the asset log (`PLANNING-DIAGNOSTICS-NEVER-REACH-THE-ASSET-LOG`,
+  filed). The line itself is pinned on the plan.
 - `uncached_link_is_not_registered` (AC-2): a link parameter whose query ends in an uncached
-  command.
+  command is evaluated for each consumer and not kept.
 
 **Existing suites, unchanged, as the AC-11 proof:**
 - `stored_cached_flags.rs`;

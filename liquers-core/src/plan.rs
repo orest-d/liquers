@@ -2336,7 +2336,7 @@ impl Plan {
                 "is volatile".to_string()
             } else if let Some(command) = &candidate.uncached_by {
                 format!(
-                    "its result is not cached (command '{}/{}/{}' declares cached: false)",
+                    "is not cached (command '{}/{}/{}' declares cached: false)",
                     command.realm, command.namespace, command.name
                 )
             } else {

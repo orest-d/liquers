@@ -8,9 +8,9 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 114
-- P2: 55
-- P3: 59
+Total rows: 112
+- P2: 54
+- P3: 58
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -49,7 +49,6 @@ Total rows: 114
 | [`ASSETS-IMPROVEMENTS`](issues/ASSETS-IMPROVEMENTS.md) | feature | Asset persistence, eviction safety and upload limits | accepted |  |  | P2 | L | core/assets;core/store |  | 2026-08-08 |
 | [`COMBINED-EXPIRES`](issues/COMBINED-EXPIRES.md) | feature | No algebra for combining expiration across dependencies | accepted |  |  | P2 | L | core/assets |  | 2026-08-08 |
 | [`COMMAND-METADATA-ENHANCEMENTS`](issues/COMMAND-METADATA-ENHANCEMENTS.md) | feature | Command metadata lacks enums, specialization and IO typing | accepted |  |  | P2 | L | core/commands;macro |  | 2026-08-08 |
-| [`CORE-PLAN-POLICY-AND-DEFAULTS`](issues/CORE-PLAN-POLICY-AND-DEFAULTS.md) | issue | Plan builder has no configuration and questionable defaults | accepted |  |  | P2 | L | core/plan | [phase1](design/plan-policy/phase1-high-level-design.md)  [phase2](design/plan-policy/phase2-architecture.md)  [phase3](design/plan-policy/phase3-examples.md)  [phase4](design/plan-policy/phase4-implementation.md)  | 2026-08-08 |
 | [`CORE-SESSION-AND-KEY-ACL`](issues/CORE-SESSION-AND-KEY-ACL.md) | issue | No session model, and no way to authorize writes per key | accepted |  |  | P2 | L | core/context;core/store;axum |  | 2026-08-08 |
 | [`CORE-VALUE-INTERFACE-CAPABILITY-SPLIT`](issues/CORE-VALUE-INTERFACE-CAPABILITY-SPLIT.md) | issue | `ValueInterface` bundles capabilities every implementor must provide | accepted |  |  | P2 | L | core/value;lib/value;py |  | 2026-08-08 |
 | [`DATA-FORMAT-CONSTANTS-AND-TOOLING`](issues/DATA-FORMAT-CONSTANTS-AND-TOOLING.md) | feature | Data formats are bare string literals with no constants, validation, or generic serde path | draft |  |  | P2 | L | core/value;lib/value;lib/commands;macro |  | 2026-08-18 |
@@ -113,7 +112,6 @@ Total rows: 114
 | [`STORE-CONFIG-FROM-URI`](issues/STORE-CONFIG-FROM-URI.md) | feature | A store cannot be configured from a URI | draft |  |  | P3 | M | store/config | [phase1](design/store-config-uri/phase1-high-level-design.md)  [phase2](design/store-config-uri/phase2-architecture.md)  | 2026-08-29 |
 | [`UI-VARIADIC-ARGUMENT-LIST-EDITOR`](issues/UI-VARIADIC-ARGUMENT-LIST-EDITOR.md) | feature | A variadic argument cannot be edited as a list in a parameter editor | draft |  |  | P3 | M | lib/ui;lib/egui;web;core/query | [phase1](design/variadic-arguments-declaration/phase1-high-level-design.md)  [phase2](design/variadic-arguments-declaration/phase2-architecture.md)  [phase3](design/variadic-arguments-declaration/phase3-examples.md)  [phase4](design/variadic-arguments-declaration/phase4-implementation.md)  [phase5](design/variadic-arguments-declaration/phase5-documentation.md)  | 2026-08-25 |
 | [`UNCACHED-STORED-COPY-EXPIRY-RACES-AN-INFLIGHT-EVALUATION`](issues/UNCACHED-STORED-COPY-EXPIRY-RACES-AN-INFLIGHT-EVALUATION.md) | issue | Expiring an uncached key's stored copy can be overwritten by an evaluation already in flight | draft |  |  | P3 | M | core/assets | [chunking](design/record-streams/chunking-and-resumability.md)  [engine](design/record-streams/engine-survey.md)  [manifest](design/record-streams/manifest-format.md)  [phase1](design/record-streams/phase1-high-level-design.md)  [phase2](design/record-streams/phase2-architecture.md)  [phase3](design/record-streams/phase3-examples.md)  [phase3](design/record-streams/phase3-tests.md)  [phase4](design/record-streams/phase4-implementation.md)  [phase5](design/record-streams/phase5-documentation.md)  [phase5](design/record-streams/phase5-evidence.md)  [record](design/record-streams/record-model.md)  | 2026-09-27 |
-| [`V-INSTRUCTION-IS-WHOLE-PLAN-NOT-POSITIONAL`](issues/V-INSTRUCTION-IS-WHOLE-PLAN-NOT-POSITIONAL.md) | issue | The `v` instruction marks the whole plan volatile rather than the steps after it | draft |  |  | P3 | M | core/plan;core/query | [phase1](design/plan-policy/phase1-high-level-design.md)  [phase2](design/plan-policy/phase2-architecture.md)  [phase3](design/plan-policy/phase3-examples.md)  [phase4](design/plan-policy/phase4-implementation.md)  | 2026-08-26 |
 | [`VALIDATE-CANNOT-SEE-NON-STANDARD-RECIPE-PROVIDERS`](issues/VALIDATE-CANNOT-SEE-NON-STANDARD-RECIPE-PROVIDERS.md) | feature | liquers-validate cannot validate recipes served by a non-standard or generative recipe provider | draft |  |  | P3 | M | core/commands;core/plan |  | 2026-09-25 |
 | [`WEB-CANCELLATION-INERT`](issues/WEB-CANCELLATION-INERT.md) | issue | Web cancellation surface exists but does nothing | accepted |  |  | P3 | M | web |  | 2026-08-08 |
 | [`WEB-STORE-CONFIG-NOT-APPLIED-THROUGH-ENVIRONMENT-CONFIG`](issues/WEB-STORE-CONFIG-NOT-APPLIED-THROUGH-ENVIRONMENT-CONFIG.md) | issue | liquers-web hand-rolls the environment configuration that EnvironmentConfig will own | draft |  |  | P3 | M | web;core/store;core/context |  | 2026-08-31 |
