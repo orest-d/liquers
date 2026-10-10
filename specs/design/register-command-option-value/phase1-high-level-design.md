@@ -3,25 +3,34 @@
 ## Design Readiness
 
 - **Readiness:** needs-decision
-- **Automatic fixing:** not-eligible — adds `FromParameterValue` impls in `liquers-core` and macro
-  diagnostics in `liquers-macro` (rules 4, 6)
-- **Leading issue:** **Open design question — reject `Option<Value>` or support it.** The issue
-  asks a human to choose. Supporting it is real work in `liquers-core::commands`
-  (`FromParameterValue<Option<V>>`, `TryFrom<E::Value> for Option<V>`, the link-value fast path)
-  and defines new semantics (what `null`/absent mean).
-- **Explanation:** The design specifies the recommended, smaller answer: a clear expansion-time
-  error for every unsupported `Option<T>`. Support is left as a separately filed feature.
+- **Automatic fixing:** not-eligible — adds `TryFrom`/`FromParameterValue` impls in `liquers-core`,
+  an `ArgumentType` variant and macro diagnostics in `liquers-macro` (rules 3, 4, 6)
+- **Leading issue:** **Open design question — scope after the 2026-10-10 finding** (below).
+- **Explanation:** Maintainer decisions of 2026-10-10 fix the semantics; the remaining question is
+  whether the numeric fix and `Option<bool>` share this design (re-sized `M`).
+- **Decided (Maintainer decision, 2026-10-10):**
+  1. `Option<String>` and `Option<Value>` are **not** supported, and there are no plans to: there is
+     no easy way to spell `None` for a string in a query (entities could, later), and `Value` can
+     already be none. `register_command!` rejects them with a clear expansion-time error naming the
+     parameter, the supported types and the `String = ""` workaround. Limits on argument types in
+     the query are acceptable.
+  2. `Option<bool>` **should** be supported. Query text, case-insensitive: `t`, `true`, `yes`, `y`,
+     `1` → `Some(true)`; `f`, `false`, `no`, `n`, `0` → `Some(false)`; `none` → `None`. The empty
+     string means the declared default, or `None` when no default is declared.
+- **Finding (2026-10-10, verified by compiling a probe registration):** no `Option<T>` argument
+  works today, numeric ones included. `register_command!(cr, fn f(state, n: Option<i64>) -> result)`
+  fails with `E0277`/`E0271`: `CommandArguments::get` requires `TryFrom<E::Value, Error = Error>`,
+  and there is no `TryFrom<Value> for Option<T>` for any `T`. The macro also emits the non-existent
+  `ArgumentType::FloatOpt` for `Option<f32>`/`Option<f64>` (the variant is `FloatOption`), and maps
+  `Option<i8|i16|u8|u16|isize>` to `Any`. The `FromParameterValue<Option<T>>` impls and
+  `ArgumentType::IntegerOption`/`FloatOption` parsing exist; only these links are missing.
+  `Option<bool>` needs the same `TryFrom` impls plus a new `ArgumentType::BooleanOption` (parsing as
+  decided above), so nothing fundamental prevents it.
 - **Open questions:**
-  1. **Proposed resolution — reject with a compile error now.** `register_command!` emits
-     `compile_error!`-equivalent `syn::Error` on an `Option<T>` whose `T` has no
-     `FromParameterValue<Option<T>>` impl, naming the supported spellings and the
-     `String = ""` workaround. Today's outcome is a confusing `E0277` in generated code.
-  2. **Open design question — supported set.** Today `Option<i8…i64, isize, u8…u64, usize, f32,
-     f64>` have impls (`impl_from_parameter_value2_opt!` plus explicit `Option<i64>`/`Option<f64>`).
-     The macro must allow exactly these. `Option<bool>` and `Option<String>` have no impls and
-     would be rejected too. Should they instead get impls in this change (two lines each, mirroring
-     the numeric ones)? Recommended: yes for `Option<String>` and `Option<bool>`, which are cheap
-     and unambiguous (JSON `null` → `None`). `Option<Value>` stays rejected.
+  1. **Proposed resolution — one design, re-sized `M`:** fix numeric options (the `TryFrom` impls
+     for `Value` in `liquers-core` and `ExtValue` in `liquers-lib`, `FloatOpt` → `FloatOption`, the
+     missing integer widths), add `Option<bool>` with `ArgumentType::BooleanOption`, and reject every
+     other `Option<T>` with the clear error.
 
 ## Problem
 
