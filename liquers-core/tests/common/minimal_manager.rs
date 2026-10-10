@@ -155,7 +155,7 @@ impl<E: Environment> MinimalInlineAssetManager<E> {
             )
             .to_ref()
         };
-        if self.is_volatile(key).await? || !cached.unwrap_or(CacheStrategy::All).keeps_result() {
+        if self.is_volatile(key).await? || !cached.unwrap_or(self.recipe_cache_strategy()).keeps_result() {
             return Ok(fresh());
         }
         if let Some(existing) = self.lookup_key_asset(key) {

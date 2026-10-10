@@ -5498,6 +5498,18 @@ pub trait AssetManager<E: Environment>:
     fn external_change_policy(&self) -> ExternalChangePolicy {
         ExternalChangePolicy::UserInput
     }
+    /// Caching strategy of a keyed asset whose recipe states none. Default: `All`.
+    fn recipe_cache_strategy(&self) -> CacheStrategy {
+        CacheStrategy::All
+    }
+    /// Caching strategy of a top-level non-keyed query. Default: `All`.
+    fn query_cache_strategy(&self) -> CacheStrategy {
+        CacheStrategy::All
+    }
+    /// Whether predecessor boundaries are cut. Default: `true`; `false` is a debugging aid.
+    fn cut_predecessors(&self) -> bool {
+        true
+    }
 
     /// Resolves a query to an asset.
     ///
@@ -7174,6 +7186,11 @@ pub struct DefaultAssetManager<E: Environment> {
     dependency_audit: DependencyAuditPolicy,
     verify_versions: VersionVerification,
     external_change: ExternalChangePolicy,
+    /// Caching strategies and the cut switch, read by the trait accessors
+    /// (`specs/design/plan-policy/`).
+    recipe_cache_strategy: CacheStrategy,
+    query_cache_strategy: CacheStrategy,
+    cut_predecessors: bool,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -7181,13 +7198,14 @@ impl<E: Environment> DefaultAssetManager<E> {
     /// Sets the policies read by the trait accessors. Called by the builder before sharing.
     pub(crate) fn with_policies(
         mut self,
-        dependency_audit: DependencyAuditPolicy,
-        verify_versions: VersionVerification,
-        external_change: ExternalChangePolicy,
+        options: &crate::environment_builder::AssetManagerOptions,
     ) -> Self {
-        self.dependency_audit = dependency_audit;
-        self.verify_versions = verify_versions;
-        self.external_change = external_change;
+        self.dependency_audit = options.dependency_audit;
+        self.verify_versions = options.verify_versions;
+        self.external_change = options.external_change;
+        self.recipe_cache_strategy = options.recipe_cache_strategy;
+        self.query_cache_strategy = options.query_cache_strategy;
+        self.cut_predecessors = options.cut_predecessors();
         self
     }
 
@@ -7220,6 +7238,9 @@ impl<E: Environment> DefaultAssetManager<E> {
             dependency_audit: DependencyAuditPolicy::default(),
             verify_versions: VersionVerification::default(),
             external_change: ExternalChangePolicy::default(),
+            recipe_cache_strategy: CacheStrategy::default(),
+            query_cache_strategy: CacheStrategy::default(),
+            cut_predecessors: true,
         };
         tokio::spawn(async move {
             job_queue.run().await;
@@ -7742,6 +7763,15 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
     }
     fn external_change_policy(&self) -> ExternalChangePolicy {
         self.external_change
+    }
+    fn recipe_cache_strategy(&self) -> CacheStrategy {
+        self.recipe_cache_strategy
+    }
+    fn query_cache_strategy(&self) -> CacheStrategy {
+        self.query_cache_strategy
+    }
+    fn cut_predecessors(&self) -> bool {
+        self.cut_predecessors
     }
     async fn owned_key_asset(&self, key: &Key) -> Option<AssetRef<E>> {
         let asset = self.lookup_key_asset(key)?;
@@ -9006,19 +9036,25 @@ pub struct ImmediateAssetManager<E: Environment> {
     dependency_audit: DependencyAuditPolicy,
     verify_versions: VersionVerification,
     external_change: ExternalChangePolicy,
+    /// Caching strategies and the cut switch, read by the trait accessors
+    /// (`specs/design/plan-policy/`).
+    recipe_cache_strategy: CacheStrategy,
+    query_cache_strategy: CacheStrategy,
+    cut_predecessors: bool,
 }
 
 impl<E: Environment> ImmediateAssetManager<E> {
     /// Sets the policies read by the trait accessors. Called by the builder before sharing.
     pub(crate) fn with_policies(
         mut self,
-        dependency_audit: DependencyAuditPolicy,
-        verify_versions: VersionVerification,
-        external_change: ExternalChangePolicy,
+        options: &crate::environment_builder::AssetManagerOptions,
     ) -> Self {
-        self.dependency_audit = dependency_audit;
-        self.verify_versions = verify_versions;
-        self.external_change = external_change;
+        self.dependency_audit = options.dependency_audit;
+        self.verify_versions = options.verify_versions;
+        self.external_change = options.external_change;
+        self.recipe_cache_strategy = options.recipe_cache_strategy;
+        self.query_cache_strategy = options.query_cache_strategy;
+        self.cut_predecessors = options.cut_predecessors();
         self
     }
 
@@ -9049,6 +9085,9 @@ impl<E: Environment> ImmediateAssetManager<E> {
             dependency_audit: DependencyAuditPolicy::default(),
             verify_versions: VersionVerification::default(),
             external_change: ExternalChangePolicy::default(),
+            recipe_cache_strategy: CacheStrategy::default(),
+            query_cache_strategy: CacheStrategy::default(),
+            cut_predecessors: true,
         }
     }
 
@@ -9178,6 +9217,15 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
     }
     fn external_change_policy(&self) -> ExternalChangePolicy {
         self.external_change
+    }
+    fn recipe_cache_strategy(&self) -> CacheStrategy {
+        self.recipe_cache_strategy
+    }
+    fn query_cache_strategy(&self) -> CacheStrategy {
+        self.query_cache_strategy
+    }
+    fn cut_predecessors(&self) -> bool {
+        self.cut_predecessors
     }
     async fn owned_key_asset(&self, key: &Key) -> Option<AssetRef<E>> {
         let asset = self.lookup_key_asset(key)?;
