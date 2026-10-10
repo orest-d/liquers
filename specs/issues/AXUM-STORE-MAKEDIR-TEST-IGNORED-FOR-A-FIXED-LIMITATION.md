@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: S
 area: [axum, core/store]
-design: 
+design: axum-store-makedir-test-unignore
 created: 2026-10-10
 github:
 ---
