@@ -6,7 +6,7 @@ status: accepted
 priority: P2
 complexity: M
 area: [core/plan]
-design: 
+design: plan-policy
 created: 2026-08-08
 github:
 ---

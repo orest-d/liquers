@@ -367,6 +367,7 @@ deliberately folded behind a broader line.
 - design `opendal-localfs-assetinfo-test`
 - design `ordered-json-orient-column-order`
 - design `plan-cwd-freeze`
+- design `plan-policy`
 - design `plan-relative-resolution`
 - design `plan-split-predecessor-fields`
 - design `polars-doc-example-namespace`
