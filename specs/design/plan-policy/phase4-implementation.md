@@ -29,7 +29,7 @@ paths are in `liquers-core/src/` unless stated.
 - [x] Step 7: `AssetRef::cache_strategy` and `Context::cache_strategy` — 67d4928
 - [x] Step 8: Registration rules in both managers, with metadata and log — be862b2
 - [x] Step 9: Integration suite `tests/cache_strategy.rs` — 8d453a9
-- [ ] Step 10: Full verification
+- [x] Step 10: Full verification — b2bc356 (core 42 suites, macro, records, lib 35 suites, build matrix 32/32)
 
 ## Implementation Steps
 
@@ -180,6 +180,6 @@ Phase 5 updates every document in Phase 2's Documentation Architecture: `affects
 
 ## Phase 5 Entry Criteria
 
-- [ ] Implementation finished and validated
-- [ ] User and review comments answered
-- [ ] Documentation checkable against implemented and tested behaviour
+- [x] Implementation finished and validated
+- [x] User and review comments answered
+- [x] Documentation checkable against implemented and tested behaviour

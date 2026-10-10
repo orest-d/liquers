@@ -123,5 +123,5 @@ design. The deferred directive and the diagnostics defect are issues.
   `cache_strategy` suite (18 tests).
 - `cargo test -p liquers-macro`, `cargo test -p liquers-records --all-features --lib --tests`, and
   `cargo test -p liquers-lib --lib --tests`, including `registry_export`: no regeneration needed.
-- `bash scripts/check-build-matrix.sh`.
+- `bash scripts/check-build-matrix.sh`: all 32 configurations OK, wasm32 included.
 - `python3 scripts/docs_index.py --check`: 0 errors; `validate_phase.py plan-policy 1–5`.
