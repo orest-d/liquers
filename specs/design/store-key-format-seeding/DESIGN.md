@@ -109,7 +109,13 @@ seeding in each backend (duplicates the default).
   (`liquers-core/tests/store_conformance_CONF.rs`), OpenDAL (`liquers-store/tests/`) and the web
   stores (`liquers-web/tests/`).
 - `specs/reference/STORE_SEMANTICS.md`: the seeding rule; History row.
-- `liquers-web`: none expected beyond running its conformance suite.
+- `liquers-web`: none expected beyond running its conformance suite — **but see the review
+  finding below**.
+
+**Review finding (2026-10-10, automated review of #104; check at step 1):** `JsStore::set`
+(`liquers-web/src/store/js_store.rs`) passes the caller's metadata to JavaScript as given, and may
+not call `finalize_metadata`; if so, it would stay unseeded and fail the new rules in the web
+conformance suite. Either finalize metadata in the adapter or define and test an exception.
 
 ### Risks
 

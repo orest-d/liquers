@@ -73,3 +73,20 @@ option type; verify with the registry test). Documents: `REGISTER_COMMAND_FSD.md
 | Feature matrix | `egui` match is feature-gated: run `scripts/check-build-matrix.sh` |
 | Recovery | Revert; nothing stored depends on it |
 | Certainty | High (probe compile confirmed the missing bound, 2026-10-10) |
+
+## Review findings to resolve before implementation (2026-10-10)
+
+Raised by an automated review of the design PR (#104). The first was checked against the code;
+the others are plausible and must be checked at step 1.
+
+1. **`TryFrom<Value> for bool` rejects `Value::Bool`** (checked: `liquers-core/src/value.rs`
+   matches only `I32` / `I64`). A linked `Option<bool>` argument delegating to `bool::try_from`
+   would fail on a real boolean. Add the `Bool` arm and a link-to-boolean test.
+2. **An omitted optional argument may never reach `from_string`.** For an argument without a
+   default the macro emits `CommandParameterValue::None`, and the plan reports a missing action
+   parameter as `ArgumentMissing` (`plan.rs`) before any parsing. The bare `opt_i` / `opt_b` examples
+   in Phase 3 need the plan to emit a null default for `Option<T>`, or to synthesize null for an
+   optional argument type.
+3. **`SimpleValue` / `CombinedValue` lack scalar conversions** for some promised widths (`i8`,
+   `i16`, `isize`, `u16`, `u64`, `usize`). Add them, implement the option conversions directly, or
+   narrow the supported list.
