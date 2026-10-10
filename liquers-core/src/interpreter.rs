@@ -376,6 +376,15 @@ pub(crate) fn apply_plan_state<E: Environment>(
             resolve_absolute_query_resource_step(plan.steps[step_index].clone());
     }
     async move {
+        // Project the planning diagnostics into the asset's log, once per plan application and
+        // before anything can fail, so a rejected asset still says how it was planned. This is
+        // the projection `Plan::init_steps` documents: why a predecessor boundary was cut or
+        // expanded, an alias resolution, a recipe's CWD, a `cached: false` declaration
+        // (`PLANNING-DIAGNOSTICS-NEVER-REACH-THE-ASSET-LOG`). Appended to the metadata directly,
+        // not sent as `Context` log messages: those persist the metadata at once, which would
+        // leave a metadata-only store entry for a keyed asset mid-evaluation.
+        log_init_steps(&plan, &context).await?;
+
         // A plan declared `payload: required` must not run without one. This is the
         // authoritative gate: it covers every execution path — top-level `EnvRef::evaluate`,
         // keyed evaluation, and nested scheduling alike — where the per-entry-point checks
@@ -417,6 +426,40 @@ pub(crate) fn apply_plan_state<E: Environment>(
         Ok(state)
     }
     .maybe_boxed()
+}
+
+/// Appends a plan's planning diagnostics (`Plan::init_steps`) to the evaluating asset's log.
+///
+/// Only `Info`, `Warning` and `Error` are diagnostics; `init_steps` holds nothing else by
+/// contract, and any other step found there is ignored rather than executed.
+async fn log_init_steps<E: Environment>(plan: &Plan, context: &Context<E>) -> Result<(), Error> {
+    let mut entries = Vec::new();
+    for step in &plan.init_steps {
+        match step {
+            Step::Info(message) => entries.push(LogEntry::info(message.clone())),
+            Step::Warning(message) => entries.push(LogEntry::warning(message.clone())),
+            Step::Error(message) => entries.push(LogEntry::error(message.clone())),
+            Step::GetAsset(_)
+            | Step::GetAssetBinary(_)
+            | Step::GetAssetMetadata(_)
+            | Step::GetAssetRecipe(_)
+            | Step::GetAssetDirectory(_)
+            | Step::GetResource(_)
+            | Step::GetResourceMetadata(_)
+            | Step::GetResourceDirectory(_)
+            | Step::Evaluate(_)
+            | Step::UseQueryValue(_)
+            | Step::Action { .. }
+            | Step::Filename(_)
+            | Step::Plan(_)
+            | Step::SetCwd(_)
+            | Step::UseKeyValue(_) => {}
+        }
+    }
+    if entries.is_empty() {
+        return Ok(());
+    }
+    context.get_asset_ref().append_log_entries(entries).await
 }
 
 fn materialize_link_json<'a, E: Environment>(

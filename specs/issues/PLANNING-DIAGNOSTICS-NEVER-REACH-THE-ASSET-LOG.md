@@ -2,7 +2,7 @@
 id: PLANNING-DIAGNOSTICS-NEVER-REACH-THE-ASSET-LOG
 kind: issue
 title: Planning diagnostics never reach the evaluated asset's log
-status: draft
+status: closed
 priority: P2
 complexity: M
 area: [core/plan, core/assets]
@@ -52,3 +52,21 @@ Found while implementing `plan-policy` Step 9, 2026-10-10. The integration test 
 the `cut_predecessors` diagnostic in the asset log saw an empty log. It asserts the switch's effect
 (recomputation) instead. Not fixed there: every evaluated asset's log would change, which deserves
 its own review.
+
+## Resolution
+
+Closed 2026-10-10. `interpreter::apply_plan_state`, the one entry point every evaluation path goes
+through, now appends the plan's `init_steps` (`Info` / `Warning` / `Error`) to the evaluating
+asset's log once, before the payload gate and the first step. That covers the queued and inline
+managers, keyed and ad-hoc queries, and `apply`.
+
+The lines are appended directly to the asset's metadata (`AssetRef::append_log_entries`), not sent
+as `Context` log messages. A `LogMessage` saves the metadata at once, so for a keyed asset it would
+have left a metadata-only store entry before the value existed. A first version that did so broke
+`test_to_override_skips_store_write_when_nonserializable`. Appending directly keeps persistence
+exactly as before; the lines are written with the asset's ordinary save.
+
+Evidence: `liquers-core/tests/cache_strategy.rs`, where `uncached_command_runs_inline_*` asserts the
+boundary reason and `cut_predecessors_false_expands_*` asserts the switch's line in the asset log,
+on both managers. All 42 `liquers-core` suites pass, including the existing exact-log and
+persistence tests. Reference: `DOC_08_RECIPES_PLANS.md` §Predecessor boundaries.
