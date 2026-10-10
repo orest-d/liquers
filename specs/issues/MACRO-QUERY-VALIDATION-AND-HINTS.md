@@ -29,3 +29,10 @@ The macro validates query literals at expansion time and either implements hints
 ## Discovery
 
 Migration triage, 2026-08-08. Source: `todo20260219.md` #16, work package WP-15. Verified against HEAD: markers present — but **moved** from `lib.rs` to `registration.rs`, so the audit path is stale while the issue is live. See `specs/archive/2026-08-08-docs-migration-plan.md` §4.0c.
+
+## Progress
+
+2026-10-10 — the hint half is planned in `design/context-param-order/` (AC-11): the
+argument-level `hint` option will be rejected at expansion rather than discarded, which the expected
+behaviour above allows. Implementing argument hints belongs with
+`design/command-metadata-descriptions-and-hints/`. Query-literal validation remains open here.
