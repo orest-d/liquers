@@ -100,9 +100,9 @@ Run: `cargo test -p liquers-axum --test store_api_integration`.
 
 ### Steps
 
-- [ ] 1. Confirm the premise — `cargo test -p liquers-axum --test store_api_integration -- --ignored test_store_makedir`. Rollback: if it fails, stop, replace the note with the real reason and file it.
-- [ ] 2. `liquers-axum/tests/store_api_integration.rs` `test_store_makedir` — remove `#[ignore]` and the note, add `assert!(store.is_dir(&dir_key).await.unwrap())` — `cargo test -p liquers-axum --test store_api_integration`
-- [ ] 3. Close `AXUM-STORE-MAKEDIR-TEST-IGNORED-FOR-A-FIXED-LIMITATION` with a resolution note — `python3 scripts/docs_index.py --check`
+- [x] 1. Confirm the premise — `cargo test -p liquers-axum --test store_api_integration -- --ignored test_store_makedir`. Rollback: if it fails, stop, replace the note with the real reason and file it.
+- [x] 2. `liquers-axum/tests/store_api_integration.rs` `test_store_makedir` — remove `#[ignore]` and the note, add `assert!(store.is_dir(&dir_key).await.unwrap())` — `cargo test -p liquers-axum --test store_api_integration`
+- [x] 3. Close `AXUM-STORE-MAKEDIR-TEST-IGNORED-FOR-A-FIXED-LIMITATION` with a resolution note — `python3 scripts/docs_index.py --check`
 
 ### Validation
 
