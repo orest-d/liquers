@@ -27,7 +27,7 @@ paths are in `liquers-core/src/` unless stated.
 - [x] Step 5: `AssetManagerOptions` keys, trait accessors, `with_policies` — acbba81
 - [x] Step 6: `finalize_plan` honours `cut_predecessors` — 13207db
 - [x] Step 7: `AssetRef::cache_strategy` and `Context::cache_strategy` — 67d4928
-- [ ] Step 8: Registration rules in both managers, with metadata and log
+- [x] Step 8: Registration rules in both managers, with metadata and log — be862b2
 - [ ] Step 9: Integration suite `tests/cache_strategy.rs`
 - [ ] Step 10: Full verification
 

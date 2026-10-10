@@ -8,8 +8,8 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 113
-- P2: 54
+Total rows: 114
+- P2: 55
 - P3: 59
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
@@ -30,6 +30,7 @@ Total rows: 113
 | [`JS-STORE-RESOURCE-NOT-FOUND-WITHOUT-A-RECIPE`](issues/JS-STORE-RESOURCE-NOT-FOUND-WITHOUT-A-RECIPE.md) | issue | A resource served by a page-implemented js store fails with "No recipe found" | draft |  |  | P2 | M | web;core/assets |  | 2026-09-27 |
 | [`LANGUAGE-GUIDE-NO-DOCUMENTATION-SECTION`](issues/LANGUAGE-GUIDE-NO-DOCUMENTATION-SECTION.md) | feature | The language integration guide says nothing about writing the integration's own documentation | draft |  |  | P2 | M | docs;web;py |  | 2026-08-30 |
 | [`LANGUAGE-STORE-TYPE-NOT-DEFINABLE`](issues/LANGUAGE-STORE-TYPE-NOT-DEFINABLE.md) | feature | A store type cannot be defined in the integrated language | draft |  |  | P2 | M | web;py;core/store;store/config |  | 2026-08-29 |
+| [`PLANNING-DIAGNOSTICS-NEVER-REACH-THE-ASSET-LOG`](issues/PLANNING-DIAGNOSTICS-NEVER-REACH-THE-ASSET-LOG.md) | issue | Planning diagnostics never reach the evaluated asset's log | draft |  |  | P2 | M | core/plan;core/assets |  | 2026-10-10 |
 | [`POLARS-COMMAND-TESTS-BYPASS-COMMANDS`](issues/POLARS-COMMAND-TESTS-BYPASS-COMMANDS.md) | issue | The polars command integration tests never invoke a polars command | draft |  |  | P2 | M | lib/polars;build |  | 2026-08-25 |
 | [`PY-MODULES-NOT-DECLARED-IN-LIB`](issues/PY-MODULES-NOT-DECLARED-IN-LIB.md) | issue | Half of liquers-py's source files are not declared as modules and never compile | draft |  |  | P2 | M | py |  | 2026-08-25 |
 | [`PY-VALUE-SERIALIZER-IS-A-STUB`](issues/PY-VALUE-SERIALIZER-IS-A-STUB.md) | issue | liquers-py's value serializer writes almost nothing and reads nothing back | draft |  |  | P2 | M | py;core/value |  | 2026-08-26 |
