@@ -2,22 +2,16 @@
 
 ## Design Readiness
 
-- **Readiness:** needs-decision
+- **Readiness:** ready
 - **Automatic fixing:** not-eligible — makes `AssetRef::notify_removed` public and adds a `pub`
   constructor (rule 4)
-- **Leading issue:** **Open design question — widen the external manager surface or stop it
-  here.** `specs/guides/ASSET_MANAGER_IMPLEMENTATION_GUIDE.md` currently lists `notify_removed` as
-  "not exposed, deliberately". Exposing it reverses a recorded decision.
-- **Explanation:** A working design exists for each answer. Phases 3–4 specify the recommended
-  one: expose the two primitives, guarded so they cannot bypass the status authority. The
-  alternative ("document the limit") is a guide-only change, described in Phase 2 so it can be
-  chosen without redesign.
-- **Open questions:**
-  1. **Proposed resolution — expose both:** make `AssetRef::notify_removed` public, and add a
-     public `AssetRef::new_installed(...)` constructor that builds a finished asset from a `State`.
-     It accepts only the statuses a built-in `set_state` can produce (`Source`, `Override`,
-     `Expired`, `Error`). Recommended: neither primitive writes a raw status into a live asset,
-     which was the reason given for keeping the list closed.
+- **Leading issue:** None
+- **Explanation:** Decided (Maintainer decision, 2026-10-10): expose both. Make
+  `AssetRef::notify_removed` public, and add a public `AssetRef::new_installed(...)` constructor that
+  builds a finished asset from a `State`, accepting only the statuses a built-in `set_state` can
+  produce (`Source`, `Override`, `Expired`, `Error`). This reverses the "not exposed, deliberately"
+  line in `specs/guides/ASSET_MANAGER_IMPLEMENTATION_GUIDE.md`, which the implementation updates.
+- **Open questions:** None.
 
 ## Plain-language explanation (for the decision)
 
