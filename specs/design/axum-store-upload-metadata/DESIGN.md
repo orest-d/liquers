@@ -2,8 +2,7 @@
 id: AXUM-STORE-UPLOAD-METADATA
 kind: design
 title: Store API keeps upload media types and serves legacy metadata as stored
-status: in_review
-phase: implementation
+gh_pr: [108]
 readiness: ready
 autofix: eligible
 area: [axum]
