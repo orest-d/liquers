@@ -152,6 +152,50 @@ async fn sar09_keys_root_and_prefix() {
     assert!(keys.iter().all(|k| k.starts_with("data")), "prefix filter applied");
 }
 
+fn result_keys(json: &serde_json::Value) -> Vec<String> {
+    json["result"].as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_string()).collect()
+}
+
+/// `keys?prefix=` lists every key under the prefix, at any depth.
+#[tokio::test]
+async fn store_keys_lists_nested_keys_under_prefix() {
+    let (envref, store) = env_with_store();
+    store.set(&parse_key("data/a.txt").unwrap(), b"a", &Metadata::new()).await.unwrap();
+    store.set(&parse_key("data/sub/b.txt").unwrap(), b"b", &Metadata::new()).await.unwrap();
+    store.set(&parse_key("other/c.txt").unwrap(), b"c", &Metadata::new()).await.unwrap();
+    let (status, json) = send(build_app(envref), "GET", "/api/store/keys?prefix=data", Body::empty()).await;
+    assert_eq!(status, StatusCode::OK);
+    let keys = result_keys(&json);
+    assert!(keys.contains(&"data/a.txt".to_string()), "got {keys:?}");
+    assert!(keys.contains(&"data/sub/b.txt".to_string()), "got {keys:?}");
+    assert!(!keys.iter().any(|k| k.starts_with("other")), "got {keys:?}");
+}
+
+/// `keys` without a prefix lists the whole store, at any depth.
+#[tokio::test]
+async fn store_keys_without_prefix_lists_whole_store() {
+    let (envref, store) = env_with_store();
+    store.set(&parse_key("data/sub/b.txt").unwrap(), b"b", &Metadata::new()).await.unwrap();
+    store.set(&parse_key("other/c.txt").unwrap(), b"c", &Metadata::new()).await.unwrap();
+    let (status, json) = send(build_app(envref), "GET", "/api/store/keys", Body::empty()).await;
+    assert_eq!(status, StatusCode::OK);
+    let keys = result_keys(&json);
+    assert!(keys.contains(&"data/sub/b.txt".to_string()), "got {keys:?}");
+    assert!(keys.contains(&"other/c.txt".to_string()), "got {keys:?}");
+}
+
+/// `listdir` still lists only the keys directly in the directory.
+#[tokio::test]
+async fn store_listdir_still_lists_direct_children_only() {
+    let (envref, store) = env_with_store();
+    store.set(&parse_key("data/a.txt").unwrap(), b"a", &Metadata::new()).await.unwrap();
+    store.set(&parse_key("data/sub/b.txt").unwrap(), b"b", &Metadata::new()).await.unwrap();
+    let (status, json) = send(build_app(envref), "GET", "/api/store/listdir/data", Body::empty()).await;
+    assert_eq!(status, StatusCode::OK);
+    let keys = result_keys(&json);
+    assert!(!keys.iter().any(|k| k.ends_with("b.txt")), "got {keys:?}");
+}
+
 #[tokio::test]
 async fn sar10_makedir_then_removedir() {
     let (envref, _) = env_with_store();

@@ -186,7 +186,7 @@ parsed with `parse_key`.
 | `GET listdir/{*key}` | array of the keys directly in the directory |
 | `GET is_dir/{*key}` | `true` or `false` |
 | `GET contains/{*key}` | `true` or `false` |
-| `GET keys[?prefix=…]` | array of the keys directly in the prefix directory (root by default) — the same as `listdir`, not every key under it (`AXUM-STORE-KEYS-LISTS-ONLY-DIRECT-CHILDREN`) |
+| `GET keys[?prefix=…]` | array of every key under the prefix (root by default), at any depth, directories included (`AsyncStore::listdir_keys_deep`); `listdir` lists only the direct children |
 | `PUT makedir/{*key}` | the key as a string |
 | `DELETE removedir/{*key}` | the key as a string; removes the directory and everything in it (`AsyncStore::removedir`) |
 | `POST upload/{*key}` | `{uploaded: [keys], errors?: [messages]}`; `multipart/form-data`, each file part stored at `{key}/{filename}` with metadata naming its `filename`, plus a declared `media_type` only when the part's `Content-Type` differs from the type the filename implies and is not `application/octet-stream` (the client's type is then served back by the binary routes); if every part fails, 500 `KeyWriteError` with the messages in `error.traceback` |
@@ -591,6 +591,7 @@ Not available at HEAD; listed so that no reader mistakes them for features:
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-10 | Store API `keys` lists every key under the prefix at any depth (`listdir_keys_deep`), no longer a synonym of `listdir`. `AXUM-STORE-KEYS-LISTS-ONLY-DIRECT-CHILDREN` closed. | `design/axum-store-keys-deep/` |
 | 2026-10-10 | Store API: `metadata` and `entry` serve legacy metadata as stored (not `{}`); `upload` records each part's `filename` and declares its `Content-Type` only when the filename does not imply it. `AXUM-STORE-UPLOAD-AND-METADATA-DROP-INFORMATION` closed. | `design/axum-store-upload-metadata/` |
 | 2026-10-09 | §5.3 `q/cancel`: the best-effort outcomes (a completed command stays `Ready`), the cause in `error_data`, cascade attribution; `ASSET-CANCEL-DURING-PROCESSING-FINISHES-READY` closed. | phase-5 (`design/asset-cancellation-outcome/`) |
 | 2026-10-07 | §6: Recipes API `metadata` and `entry` return the recipe's asset info as metadata, and `entry` is negotiated by `?format=` / `Accept`. | phase-5, `design/axum-recipes-metadata-entry/` |
