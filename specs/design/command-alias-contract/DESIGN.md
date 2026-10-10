@@ -123,19 +123,28 @@ Resolved with the user on 2026-10-10:
    Consequence: cached `pl/head` results are invalidated once, because their dependency keys change
    from `pl/head` to `pl/slice` plus the alias.
 
-Open:
+Proposed, awaiting confirmation:
 
-4. **Open design — how the plan records the alias (AC-12).** The dependency list is rebuilt from
-   the steps by the scan (`plan.rs` `scan_plan` → `plan.dependencies`), so whatever records the
-   alias must be in the step list. It should serve two purposes: register the dependency on the
-   alias's metadata, and document that the alias caused the mapping. Candidates, under discussion:
-   - **(a) Provenance on the action** — `Step::Action` gains an optional `origin` (the alias key);
-     the scan derives the dependency from it, and the interpreter names the alias in errors.
-   - **(b) `Step::RegisterDependency`** — a general step carrying a `PlanDependency` and a stated
-     reason; the alias planner emits one before the action; the scan adds it, the interpreter logs
-     the reason. Reusable by any later planner feature that needs a dependency the steps cannot show.
-   - **(c) Both** — (b) for the dependency, (a) for provenance.
-   - **(d) Defer** — drop AC-12 and file it separately.
+4. **Proposed resolution — how the plan records the alias (AC-12).** The plan must be traceable
+   by inspection: reading a plan should show which alias produced which target call, and the
+   dependency on the alias must follow from that. Recommended: **(a) provenance on the action** —
+   `Step::Action` gains `origin: ActionOrigin` (`#[serde(default, skip_serializing_if =
+   "ActionOrigin::is_direct")]`), an enum with `Direct` (default) and `Alias { command: CommandKey }`.
+   The dependency scan adds the alias's command-metadata key for `Alias`; the interpreter names the
+   alias in execution errors. A future argument-mapping alias stays `Alias`: its mapping rules live
+   in the alias's metadata, versioned by `metadata_version`; other rewrites (the type-specialization
+   TODO at `command_metadata.rs` `find_command_in_namespaces`) would add variants. Rejected:
+   - **`Step::RegisterDependency`** — general, but the link to the action is only "the step
+     before", so the plan cannot be reasoned about structurally.
+   - **Builder-populated `plan.dependencies`** — no link to the action; the walk overwrites
+     `plan.dependencies` (`plan.rs`, end of dependency finalization) and nested `Step::Plan`
+     dependencies are found only by scanning steps.
+   - **A `Step::AliasedAction` variant** — exhaustive matches would catch it, but the
+     non-exhaustive "is this an action" tests would silently skip it: `Plan::last_action_index`
+     (`if let`), and through it `Plan::override_value` / `override_link`, which apply recipe
+     arguments; `Step::is_action`; and the `matches!` searches in `recipes.rs`. A recipe over
+     `pl/head` would lose its argument overrides with no compile error.
+   - **Defer** — ships known staleness.
 
 ### Design Dependencies
 
