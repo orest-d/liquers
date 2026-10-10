@@ -8,9 +8,9 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 113
+Total rows: 114
 - P2: 57
-- P3: 56
+- P3: 57
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -104,6 +104,7 @@ Total rows: 113
 | [`MACRO-QUERY-VALIDATION-AND-HINTS`](issues/MACRO-QUERY-VALIDATION-AND-HINTS.md) | issue | `register_command!` does not validate queries or implement hints | accepted |  |  | P3 | M | macro |  | 2026-08-08 |
 | [`POLARS-BRIDGE-VECTOR-COLUMNS-REFUSED`](issues/POLARS-BRIDGE-VECTOR-COLUMNS-REFUSED.md) | issue | The RecordBatch <-> DataFrame bridge cannot convert Vector columns | draft |  |  | P3 | M | records;lib/polars |  | 2026-09-27 |
 | [`POST-INIT-COMMAND-REGISTRATION`](issues/POST-INIT-COMMAND-REGISTRATION.md) | issue | Registering a command after Environment::to_ref requires a rebuild | accepted |  |  | P3 | M | core/commands;web |  | 2026-08-08 |
+| [`QUERY-CANNOT-MARK-CACHED-INTERMEDIATES`](issues/QUERY-CANNOT-MARK-CACHED-INTERMEDIATES.md) | feature | A query cannot mark which of its intermediates are worth caching | draft |  |  | P3 | M | core/plan;core/assets;core/query |  | 2026-10-10 |
 | [`RECIPE-PLAN-ANALYSIS-RUNS-OUTSIDE-PLAN-BUILDING`](issues/RECIPE-PLAN-ANALYSIS-RUNS-OUTSIDE-PLAN-BUILDING.md) | issue | Recipe plan analysis runs outside plan building | draft |  |  | P3 | M | core/plan;core/assets |  | 2026-08-26 |
 | [`RECORD-BATCH-FIELDS-CAN-BE-MUTATED-PAST-VALIDATION`](issues/RECORD-BATCH-FIELDS-CAN-BE-MUTATED-PAST-VALIDATION.md) | issue | RecordBatch validates its columns in new, but its public fields can be changed afterwards; InMemorySource's materialize exposes a placeholder chunk id | draft |  |  | P3 | M | records | [chunking](design/record-streams/chunking-and-resumability.md)  [engine](design/record-streams/engine-survey.md)  [manifest](design/record-streams/manifest-format.md)  [phase1](design/record-streams/phase1-high-level-design.md)  [phase2](design/record-streams/phase2-architecture.md)  [phase3](design/record-streams/phase3-examples.md)  [phase3](design/record-streams/phase3-tests.md)  [phase4](design/record-streams/phase4-implementation.md)  [phase5](design/record-streams/phase5-documentation.md)  [phase5](design/record-streams/phase5-evidence.md)  [record](design/record-streams/record-model.md)  | 2026-09-27 |
 | [`RECORD-SOURCE-WRAPPERS-UNSPECIFIED`](issues/RECORD-SOURCE-WRAPPERS-UNSPECIFIED.md) | issue | Phase 2 names filtering/mapping RecordSource wrappers but gives no signature | draft |  |  | P3 | M | records | [chunking](design/record-streams/chunking-and-resumability.md)  [engine](design/record-streams/engine-survey.md)  [manifest](design/record-streams/manifest-format.md)  [phase1](design/record-streams/phase1-high-level-design.md)  [phase2](design/record-streams/phase2-architecture.md)  [phase3](design/record-streams/phase3-examples.md)  [phase3](design/record-streams/phase3-tests.md)  [phase4](design/record-streams/phase4-implementation.md)  [phase5](design/record-streams/phase5-documentation.md)  [phase5](design/record-streams/phase5-evidence.md)  [record](design/record-streams/record-model.md)  | 2026-09-26 |

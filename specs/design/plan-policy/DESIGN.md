@@ -47,3 +47,15 @@ merged on 2026-10-10 at the user's request.
   only for keyed assets and stays recipe-only: no command keyword, no directive. Under assessment: a
   positional cache switch (`cache-off` / `cache-on` / `cache-this`) instead of per-value
   `cached-<bool>`.
+- 2026-10-10, third round. Deferred the in-query cache directive and filed it as
+  `QUERY-CANNOT-MARK-CACHED-INTERMEDIATES` with the assessment, so no retention directive is in
+  scope. Decided:
+  - A recipe whose `cached` excludes intermediates creates no intermediate assets, but reuses one
+    that already exists. This differs from an expanded plan, which ignores existing ones.
+  - The meaning of the recipe's `cached` beyond a boolean is under discussion (`none` / `result` /
+    `all`).
+  - Command-level `cached` stays: an uncached command's output is never a boundary, so the plan
+    runs it inline (`a/b/c/d` with `c` uncached gives `Evaluate(a/b) c d`).
+  - The default stays `on` / `all`, which is today's behaviour. The disable-cutting switch is kept
+    for debugging.
+  - This supersedes the `stored-<bool>` / `cached-<bool>` directive decision recorded above.
