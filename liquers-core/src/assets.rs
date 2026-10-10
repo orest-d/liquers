@@ -311,6 +311,7 @@ use async_trait::async_trait;
 use scc;
 use tokio::sync::{mpsc, watch, Mutex, Notify, RwLock};
 
+use crate::cache_strategy::CacheStrategy;
 use crate::command_metadata::PayloadRequirement;
 use crate::expiration::ExpirationTime;
 use crate::interpreter::IsVolatile;
@@ -2586,7 +2587,9 @@ impl<E: Environment> AssetRef<E> {
         match manager.owned_key_asset(&candidate).await {
             Some(owner) => Ok((owner.id() == self.id()).then_some(candidate)),
             None => {
-                let unregistered_node = !recipe.cached()
+                let unregistered_node = !recipe
+                    .effective_cache_strategy(manager.recipe_cache_strategy())
+                    .keeps_result()
                     && constructed_key.as_ref() == Some(&candidate)
                     && !is_volatile;
                 Ok(unregistered_node.then_some(candidate))
@@ -2615,6 +2618,33 @@ impl<E: Environment> AssetRef<E> {
     /// (`ASSET-REGISTRATION-OWNERSHIP-CONTRACT`).
     pub async fn key(&self) -> Option<Key> {
         self.data.read().await.key.clone()
+    }
+
+    /// How this asset was created, as far as caching goes: its recipe's `cached` strategy, else
+    /// the manager's default for its kind — `recipe_cache_strategy` for a keyed asset,
+    /// `query_cache_strategy` for a non-keyed one.
+    ///
+    /// A non-keyed dependency the manager constructs (a predecessor boundary, a link, a
+    /// `context.evaluate`) has its creator's strategy written into its recipe, so a boundary
+    /// follows the asset that created it. The strategy decides what this asset registers for
+    /// reuse — its result and the intermediates it creates — and never changes a value. See
+    /// [`crate::cache_strategy`].
+    pub async fn cache_strategy(&self) -> CacheStrategy {
+        let (explicit, keyed) = {
+            let lock = self.data.read().await;
+            (lock.recipe.cached, lock.key.is_some())
+        };
+        match explicit {
+            Some(strategy) => strategy,
+            None => {
+                let manager = self.get_envref().await.get_asset_manager();
+                if keyed {
+                    manager.recipe_cache_strategy()
+                } else {
+                    manager.query_cache_strategy()
+                }
+            }
+        }
     }
 
     /// Whether this asset's plan required an evaluation payload.
@@ -3626,7 +3656,11 @@ impl<E: Environment> AssetRef<E> {
                                 // if the flags read at construction (from a recipe resolved
                                 // slightly earlier, in `get_resource_asset`) differed.
                                 metadata.stored = recipe.stored;
-                                metadata.cached = recipe.cached;
+                                // A recipe stating no strategy leaves the flag the manager
+                                // recorded at construction (`Some(false)` when unregistered).
+                                if let Some(cached) = recipe.explicit_cached_flag() {
+                                    metadata.cached = Some(cached);
+                                }
                             }
                         }
                         eprintln!(
@@ -4891,6 +4925,100 @@ impl<E: Environment> WeakAssetRef<E> {
     }
 }
 
+/// Who asks for a non-keyed query asset, which decides the caching strategy it is created under
+/// (`specs/design/plan-policy/`).
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum QueryAssetOrigin {
+    /// A top-level (ad-hoc) request: the manager's `query_cache_strategy`.
+    TopLevel,
+    /// A dependency of an asset — a predecessor boundary, a link, a `context.evaluate` — created
+    /// under its creator's strategy.
+    Dependency(CacheStrategy),
+}
+
+/// Whether a new non-keyed query asset is registered for reuse, and with which strategy.
+///
+/// Read from the query's own plan, which the manager builds anyway to learn its volatility:
+/// a result whose last command declares `cached: false` is never registered; otherwise a
+/// top-level query needs a strategy that keeps its result, and a dependency one that keeps
+/// intermediates. An asset that already exists is reused whatever this says.
+pub(crate) struct QueryRetention {
+    register: bool,
+    /// Written into the new asset's recipe: the creator's strategy for a dependency, so that
+    /// the boundary's own boundaries follow it; `None` for a top-level query, which then reads
+    /// the manager default.
+    recorded: Option<CacheStrategy>,
+    /// The log line of an asset that is not registered.
+    reason: String,
+}
+
+impl QueryRetention {
+    pub(crate) fn decide(origin: QueryAssetOrigin, query_strategy: CacheStrategy, plan: &crate::plan::Plan) -> Self {
+        let (strategy_keeps, recorded, why) = match origin {
+            QueryAssetOrigin::TopLevel => (
+                query_strategy.keeps_result(),
+                None,
+                format!("the query cache strategy '{query_strategy}' keeps no result"),
+            ),
+            QueryAssetOrigin::Dependency(creator) => (
+                creator.keeps_intermediates(),
+                Some(creator),
+                format!(
+                    "it was created under cache strategy '{creator}', which keeps no intermediates"
+                ),
+            ),
+        };
+        match &plan.uncached_by {
+            Some(command) => QueryRetention {
+                register: false,
+                recorded,
+                reason: format!(
+                    "Not cached for reuse: command '{}/{}/{}' declares cached: false",
+                    command.realm, command.namespace, command.name
+                ),
+            },
+            None => QueryRetention {
+                register: strategy_keeps,
+                recorded,
+                reason: format!("Not cached for reuse: {why}"),
+            },
+        }
+    }
+
+    pub(crate) fn registers(&self) -> bool {
+        self.register
+    }
+
+    /// The recipe a new asset for `query` is constructed with.
+    pub(crate) fn recipe(&self, query: &Query) -> Recipe {
+        let mut recipe: Recipe = query.into();
+        recipe.cached = self.recorded;
+        recipe
+    }
+
+    /// A fresh asset registered nowhere, its metadata saying so and why.
+    pub(crate) async fn unregistered<E: Environment>(
+        &self,
+        id: u64,
+        query: &Query,
+        envref: EnvRef<E>,
+    ) -> AssetRef<E> {
+        let asset = AssetRef::new_from_recipe(id, self.recipe(query), None, envref);
+        mark_unregistered(&asset, &self.reason).await;
+        asset
+    }
+}
+
+/// Records on a fresh asset that it is not registered for reuse: `cached: Some(false)` in its
+/// metadata (so `AssetInfo` shows it) and the reason in its log.
+pub(crate) async fn mark_unregistered<E: Environment>(asset: &AssetRef<E>, reason: &str) {
+    let mut data = asset.data.write().await;
+    if let Metadata::MetadataRecord(record) = &mut data.metadata {
+        record.cached = Some(false);
+        record.info(reason);
+    }
+}
+
 /// Evaluation mode of a manager, not of an individual asset.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EvalMode {
@@ -5494,6 +5622,18 @@ pub trait AssetManager<E: Environment>:
     /// What a mismatch on a recipe-backed value means. Default: `UserInput`.
     fn external_change_policy(&self) -> ExternalChangePolicy {
         ExternalChangePolicy::UserInput
+    }
+    /// Caching strategy of a keyed asset whose recipe states none. Default: `All`.
+    fn recipe_cache_strategy(&self) -> CacheStrategy {
+        CacheStrategy::All
+    }
+    /// Caching strategy of a top-level non-keyed query. Default: `All`.
+    fn query_cache_strategy(&self) -> CacheStrategy {
+        CacheStrategy::All
+    }
+    /// Whether predecessor boundaries are cut. Default: `true`; `false` is a debugging aid.
+    fn cut_predecessors(&self) -> bool {
+        true
     }
 
     /// Resolves a query to an asset.
@@ -7171,6 +7311,11 @@ pub struct DefaultAssetManager<E: Environment> {
     dependency_audit: DependencyAuditPolicy,
     verify_versions: VersionVerification,
     external_change: ExternalChangePolicy,
+    /// Caching strategies and the cut switch, read by the trait accessors
+    /// (`specs/design/plan-policy/`).
+    recipe_cache_strategy: CacheStrategy,
+    query_cache_strategy: CacheStrategy,
+    cut_predecessors: bool,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -7178,13 +7323,14 @@ impl<E: Environment> DefaultAssetManager<E> {
     /// Sets the policies read by the trait accessors. Called by the builder before sharing.
     pub(crate) fn with_policies(
         mut self,
-        dependency_audit: DependencyAuditPolicy,
-        verify_versions: VersionVerification,
-        external_change: ExternalChangePolicy,
+        options: &crate::environment_builder::AssetManagerOptions,
     ) -> Self {
-        self.dependency_audit = dependency_audit;
-        self.verify_versions = verify_versions;
-        self.external_change = external_change;
+        self.dependency_audit = options.dependency_audit;
+        self.verify_versions = options.verify_versions;
+        self.external_change = options.external_change;
+        self.recipe_cache_strategy = options.recipe_cache_strategy;
+        self.query_cache_strategy = options.query_cache_strategy;
+        self.cut_predecessors = options.cut_predecessors();
         self
     }
 
@@ -7217,6 +7363,9 @@ impl<E: Environment> DefaultAssetManager<E> {
             dependency_audit: DependencyAuditPolicy::default(),
             verify_versions: VersionVerification::default(),
             external_change: ExternalChangePolicy::default(),
+            recipe_cache_strategy: CacheStrategy::default(),
+            query_cache_strategy: CacheStrategy::default(),
+            cut_predecessors: true,
         };
         tokio::spawn(async move {
             job_queue.run().await;
@@ -7534,7 +7683,11 @@ impl<E: Environment> DefaultAssetManager<E> {
     /// The asset's authoritative recipe is still adopted later, in `evaluate` — this only makes
     /// sure nothing between construction and that point can persist the asset without the flags
     /// already recorded in its metadata (`Recipe::get_asset_info` copies them through).
-    fn ad_hoc_resource_recipe(key: &Key, stored: Option<bool>, cached: Option<bool>) -> Recipe {
+    fn ad_hoc_resource_recipe(
+        key: &Key,
+        stored: Option<bool>,
+        cached: Option<CacheStrategy>,
+    ) -> Recipe {
         let mut recipe: Recipe = key.into();
         recipe.stored = stored;
         recipe.cached = cached;
@@ -7551,7 +7704,7 @@ impl<E: Environment> DefaultAssetManager<E> {
         &self,
         key: &Key,
         stored: Option<bool>,
-        cached: Option<bool>,
+        cached: Option<CacheStrategy>,
     ) -> Result<AssetRef<E>, Error> {
         eprintln!("Getting non-volatile asset for key {}", key);
 
@@ -7587,15 +7740,22 @@ impl<E: Environment> DefaultAssetManager<E> {
         &self,
         key: &Key,
         stored: Option<bool>,
-        cached: Option<bool>,
+        cached: Option<CacheStrategy>,
     ) -> Result<AssetRef<E>, Error> {
         eprintln!("Getting uncached asset for key {}", key);
-        Ok(AssetRef::new_from_recipe(
+        let asset = AssetRef::new_from_recipe(
             self.next_id(),
             Self::ad_hoc_resource_recipe(key, stored, cached),
             Some(key.clone()),
             self.get_envref(),
-        ))
+        );
+        let strategy = cached.unwrap_or(self.recipe_cache_strategy());
+        mark_unregistered(
+            &asset,
+            &format!("Not cached for reuse: the recipe cache strategy '{strategy}' keeps no result"),
+        )
+        .await;
+        Ok(asset)
     }
 
     /// Returns resource asset assuming it is volatile
@@ -7609,7 +7769,7 @@ impl<E: Environment> DefaultAssetManager<E> {
         &self,
         key: &Key,
         stored: Option<bool>,
-        cached: Option<bool>,
+        cached: Option<CacheStrategy>,
     ) -> Result<AssetRef<E>, Error> {
         eprintln!("Getting volatile asset for key {}", key);
         let asset_ref = AssetRef::new_from_recipe(
@@ -7652,9 +7812,22 @@ impl<E: Environment> DefaultAssetManager<E> {
             Some(recipe) => (recipe.stored, recipe.cached),
             None => (None, None),
         };
+        // The recipe strategy governs a recipe evaluation: a key with no recipe (plain data) is
+        // kept as before.
+        let keeps_result = match &recipe {
+            Some(recipe) => recipe
+                .effective_cache_strategy(self.recipe_cache_strategy())
+                .keeps_result(),
+            None => true,
+        };
         if is_volatile {
             self.get_volatile_resource_asset(key, stored, cached).await
-        } else if !cached.unwrap_or(true) {
+        } else if !keeps_result {
+            // An asset that already exists — a value installed by `set_state`, say — is reused
+            // under every strategy; only a new one goes unregistered.
+            if let Some(existing) = self.lookup_key_asset(key) {
+                return Ok(existing);
+            }
             self.get_uncached_resource_asset(key, stored, cached).await
         } else {
             self.get_nonvolatile_resource_asset(key, stored, cached)
@@ -7667,7 +7840,11 @@ impl<E: Environment> DefaultAssetManager<E> {
     ///
     /// Arguments:
     /// - `query`: Query used to create an asset
-    async fn get_nonvolatile_query_asset(&self, query: &Query) -> Result<AssetRef<E>, Error> {
+    async fn get_nonvolatile_query_asset(
+        &self,
+        query: &Query,
+        recipe: Recipe,
+    ) -> Result<AssetRef<E>, Error> {
         eprintln!("Getting non-volatile asset for query {}", query);
 
         let entry = self
@@ -7675,7 +7852,7 @@ impl<E: Environment> DefaultAssetManager<E> {
             .entry_async(query.clone())
             .await
             .or_insert_with(|| {
-                AssetRef::<E>::new_from_recipe(self.next_id(), query.into(), None, self.get_envref())
+                AssetRef::<E>::new_from_recipe(self.next_id(), recipe, None, self.get_envref())
             });
 
         Ok(entry.get().clone())
@@ -7708,11 +7885,35 @@ impl<E: Environment> DefaultAssetManager<E> {
     /// Arguments:
     /// - `query`: Query used to create an asset
     async fn get_query_asset(&self, query: &Query) -> Result<AssetRef<E>, Error> {
-        if query.is_volatile(self.get_envref()).await? {
-            self.get_volatile_query_asset(query).await
-        } else {
-            self.get_nonvolatile_query_asset(query).await
+        self.get_query_asset_for(query, QueryAssetOrigin::TopLevel).await
+    }
+
+    /// Returns a query asset for `origin` (`specs/design/plan-policy/`).
+    ///
+    /// The query's plan is built once and read for both volatility and the last command's
+    /// `cached` declaration. A volatile query gets a fresh volatile asset; otherwise
+    /// [`QueryRetention`] decides whether a new asset is registered. An unregistered one is still
+    /// served from the map when it is already there — an intermediate that exists is reused by
+    /// everyone.
+    async fn get_query_asset_for(
+        &self,
+        query: &Query,
+        origin: QueryAssetOrigin,
+    ) -> Result<AssetRef<E>, Error> {
+        let plan = crate::interpreter::make_plan(self.get_envref(), query.clone()).await?;
+        if plan.is_volatile {
+            return self.get_volatile_query_asset(query).await;
         }
+        let retention = QueryRetention::decide(origin, self.query_cache_strategy(), &plan);
+        if retention.registers() {
+            return self.get_nonvolatile_query_asset(query, retention.recipe(query)).await;
+        }
+        if let Some(existing) = self.query_assets.read_async(query, |_, v| v.clone()).await {
+            return Ok(existing);
+        }
+        Ok(retention
+            .unregistered(self.next_id(), query, self.get_envref())
+            .await)
     }
 }
 
@@ -7735,6 +7936,15 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
     }
     fn external_change_policy(&self) -> ExternalChangePolicy {
         self.external_change
+    }
+    fn recipe_cache_strategy(&self) -> CacheStrategy {
+        self.recipe_cache_strategy
+    }
+    fn query_cache_strategy(&self) -> CacheStrategy {
+        self.query_cache_strategy
+    }
+    fn cut_predecessors(&self) -> bool {
+        self.cut_predecessors
     }
     async fn owned_key_asset(&self, key: &Key) -> Option<AssetRef<E>> {
         let asset = self.lookup_key_asset(key)?;
@@ -7837,7 +8047,10 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
             let asset = if let Some(key) = query.key() {
                 self.get_resource_asset(&key).await?
             } else {
-                self.get_query_asset(query).await?
+                // A non-keyed dependency is created under its creator's strategy.
+                let creator = parent.cache_strategy().await;
+                self.get_query_asset_for(query, QueryAssetOrigin::Dependency(creator))
+                    .await?
             };
             // Stale-terminal at SCHEDULING time: evict and recompute. Expired, Error and
             // Cancelled are all treated as a cache miss (a failure may be transient), and Volatile
@@ -8999,19 +9212,25 @@ pub struct ImmediateAssetManager<E: Environment> {
     dependency_audit: DependencyAuditPolicy,
     verify_versions: VersionVerification,
     external_change: ExternalChangePolicy,
+    /// Caching strategies and the cut switch, read by the trait accessors
+    /// (`specs/design/plan-policy/`).
+    recipe_cache_strategy: CacheStrategy,
+    query_cache_strategy: CacheStrategy,
+    cut_predecessors: bool,
 }
 
 impl<E: Environment> ImmediateAssetManager<E> {
     /// Sets the policies read by the trait accessors. Called by the builder before sharing.
     pub(crate) fn with_policies(
         mut self,
-        dependency_audit: DependencyAuditPolicy,
-        verify_versions: VersionVerification,
-        external_change: ExternalChangePolicy,
+        options: &crate::environment_builder::AssetManagerOptions,
     ) -> Self {
-        self.dependency_audit = dependency_audit;
-        self.verify_versions = verify_versions;
-        self.external_change = external_change;
+        self.dependency_audit = options.dependency_audit;
+        self.verify_versions = options.verify_versions;
+        self.external_change = options.external_change;
+        self.recipe_cache_strategy = options.recipe_cache_strategy;
+        self.query_cache_strategy = options.query_cache_strategy;
+        self.cut_predecessors = options.cut_predecessors();
         self
     }
 
@@ -9042,6 +9261,9 @@ impl<E: Environment> ImmediateAssetManager<E> {
             dependency_audit: DependencyAuditPolicy::default(),
             verify_versions: VersionVerification::default(),
             external_change: ExternalChangePolicy::default(),
+            recipe_cache_strategy: CacheStrategy::default(),
+            query_cache_strategy: CacheStrategy::default(),
+            cut_predecessors: true,
         }
     }
 
@@ -9070,7 +9292,78 @@ impl<E: Environment> ImmediateAssetManager<E> {
     }
 
     async fn get_query_asset(&self, query: &Query) -> Result<AssetRef<E>, Error> {
-        if query.is_volatile(self.envref()).await? {
+        self.get_query_asset_for(query, QueryAssetOrigin::TopLevel).await
+    }
+
+    /// The query branch of `get_asset`, for `origin`: resolve the asset, evict a stale-terminal
+    /// one, expire one whose deadline passed, and run a fresh one inline.
+    async fn get_query_asset_run(
+        &self,
+        query: &Query,
+        origin: QueryAssetOrigin,
+    ) -> Result<AssetRef<E>, Error> {
+        loop {
+            let assetref = self.get_query_asset_for(query, origin).await?;
+            let status = assetref.status().await;
+            if matches!(
+                status,
+                Status::Expired | Status::Error | Status::Cancelled | Status::Volatile
+            ) {
+                let asset_id = assetref.id();
+                let mut map = self.query_assets.lock().unwrap_or_else(|e| e.into_inner());
+                if let Some(existing) = map.get(query) {
+                    if existing.id() == asset_id {
+                        map.remove(query);
+                    }
+                }
+                drop(map);
+                continue;
+            }
+            if status.is_finished() {
+                // Lazy expiration-on-access (replaces the monitor task).
+                if status == Status::Ready && assetref.expiration_time().await.is_expired() {
+                    // Lazy expiration-on-access: the deadline, not the status, decides
+                    // (`IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-NEVER-FIRES`; this used to test
+                    // `is_expired()`, i.e. the status, which can never be `Expired` here).
+                    // Laziness is how the expiry is discovered; once it is known, the consequences
+                    // follow, so it cascades to dependents as the queued monitor does
+                    // (`IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-DOES-NOT-CASCADE`, fixed). The
+                    // cascade takes no `key_mutation_lock`, so it runs before the lock below.
+                    let expiration_time = assetref.expiration_time().await;
+                    let _ = assetref
+                        .expire_with_reason(ExpiryReason::Direct {
+                            cause: ExpiryCause::Deadline { expiration_time },
+                        })
+                        .await;
+                    let mut map = self.query_assets.lock().unwrap_or_else(|e| e.into_inner());
+                    let asset_id = assetref.id();
+                    if let Some(existing) = map.get(query) {
+                        if existing.id() == asset_id {
+                            map.remove(query);
+                        }
+                    }
+                    drop(map);
+                    continue;
+                }
+                return Ok(assetref);
+            }
+            // Backstop against re-entry: if this asset is already being run inline on this
+            // manager, running it again is the recursion `owned_key_asset` exists to prevent.
+            // Report it instead of exhausting the stack.
+            assetref.run_inline(None).await?;
+            return Ok(assetref);
+        }
+    }
+
+    /// The inline counterpart of `DefaultAssetManager::get_query_asset_for`: the same decision,
+    /// from the same plan, so both managers keep the same assets.
+    async fn get_query_asset_for(
+        &self,
+        query: &Query,
+        origin: QueryAssetOrigin,
+    ) -> Result<AssetRef<E>, Error> {
+        let plan = crate::interpreter::make_plan(self.envref(), query.clone()).await?;
+        if plan.is_volatile {
             return Ok(self.make_volatile(query.into(), None).await);
         }
         {
@@ -9079,7 +9372,12 @@ impl<E: Environment> ImmediateAssetManager<E> {
                 return Ok(existing.clone());
             }
         }
-        let asset_ref = AssetRef::new_from_recipe(self.next_id(), query.into(), None, self.envref());
+        let retention = QueryRetention::decide(origin, self.query_cache_strategy(), &plan);
+        if !retention.registers() {
+            return Ok(retention.unregistered(self.next_id(), query, self.envref()).await);
+        }
+        let asset_ref =
+            AssetRef::new_from_recipe(self.next_id(), retention.recipe(query), None, self.envref());
         let mut map = self.query_assets.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(existing) = map.get(query) {
             return Ok(existing.clone());
@@ -9091,7 +9389,11 @@ impl<E: Environment> ImmediateAssetManager<E> {
     /// Builds the ad-hoc key recipe a fresh resource asset is constructed with, carrying the
     /// `stored`/`cached` flags resolved from the key's real recipe by [`Self::get_resource_asset`].
     /// See [`DefaultAssetManager::ad_hoc_resource_recipe`] for the same construction there.
-    fn ad_hoc_resource_recipe(key: &Key, stored: Option<bool>, cached: Option<bool>) -> Recipe {
+    fn ad_hoc_resource_recipe(
+        key: &Key,
+        stored: Option<bool>,
+        cached: Option<CacheStrategy>,
+    ) -> Recipe {
         let mut recipe: Recipe = key.into();
         recipe.stored = stored;
         recipe.cached = cached;
@@ -9123,15 +9425,37 @@ impl<E: Environment> ImmediateAssetManager<E> {
                 .await);
         }
 
-        if !cached.unwrap_or(true) {
-            // `cached: false`, non-volatile: a fresh, unregistered asset per request, modeled
-            // on the volatile path above but not marked volatile.
-            return Ok(AssetRef::new_from_recipe(
+        // The recipe strategy governs a recipe evaluation: a key with no recipe (plain data) is
+        // kept as before.
+        let keeps_result = match &recipe {
+            Some(recipe) => recipe
+                .effective_cache_strategy(self.recipe_cache_strategy())
+                .keeps_result(),
+            None => true,
+        };
+        if !keeps_result {
+            // An asset that already exists — a value installed by `set_state`, say — is reused
+            // under every strategy; only a new one goes unregistered.
+            if let Some(existing) = self.lookup_key_asset(key) {
+                return Ok(existing);
+            }
+            // A strategy keeping no result, non-volatile: a fresh, unregistered asset per
+            // request, modeled on the volatile path above but not marked volatile.
+            let asset = AssetRef::new_from_recipe(
                 self.next_id(),
                 Self::ad_hoc_resource_recipe(key, stored, cached),
                 Some(key.clone()),
                 self.envref(),
-            ));
+            );
+            let strategy = cached.unwrap_or(self.recipe_cache_strategy());
+            mark_unregistered(
+                &asset,
+                &format!(
+                    "Not cached for reuse: the recipe cache strategy '{strategy}' keeps no result"
+                ),
+            )
+            .await;
+            return Ok(asset);
         }
 
         {
@@ -9167,6 +9491,15 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
     }
     fn external_change_policy(&self) -> ExternalChangePolicy {
         self.external_change
+    }
+    fn recipe_cache_strategy(&self) -> CacheStrategy {
+        self.recipe_cache_strategy
+    }
+    fn query_cache_strategy(&self) -> CacheStrategy {
+        self.query_cache_strategy
+    }
+    fn cut_predecessors(&self) -> bool {
+        self.cut_predecessors
     }
     async fn owned_key_asset(&self, key: &Key) -> Option<AssetRef<E>> {
         let asset = self.lookup_key_asset(key)?;
@@ -9218,57 +9551,23 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
         if let Some(key) = query.key() {
             return self.get(&key).await;
         }
-        loop {
-            let assetref = self.get_query_asset(query).await?;
-            let status = assetref.status().await;
-            if matches!(
-                status,
-                Status::Expired | Status::Error | Status::Cancelled | Status::Volatile
-            ) {
-                let asset_id = assetref.id();
-                let mut map = self.query_assets.lock().unwrap_or_else(|e| e.into_inner());
-                if let Some(existing) = map.get(query) {
-                    if existing.id() == asset_id {
-                        map.remove(query);
-                    }
-                }
-                drop(map);
-                continue;
-            }
-            if status.is_finished() {
-                // Lazy expiration-on-access (replaces the monitor task).
-                if status == Status::Ready && assetref.expiration_time().await.is_expired() {
-                    // Lazy expiration-on-access: the deadline, not the status, decides
-                    // (`IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-NEVER-FIRES`; this used to test
-                    // `is_expired()`, i.e. the status, which can never be `Expired` here).
-                    // Laziness is how the expiry is discovered; once it is known, the consequences
-                    // follow, so it cascades to dependents as the queued monitor does
-                    // (`IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-DOES-NOT-CASCADE`, fixed). The
-                    // cascade takes no `key_mutation_lock`, so it runs before the lock below.
-                    let expiration_time = assetref.expiration_time().await;
-                    let _ = assetref
-                        .expire_with_reason(ExpiryReason::Direct {
-                            cause: ExpiryCause::Deadline { expiration_time },
-                        })
-                        .await;
-                    let mut map = self.query_assets.lock().unwrap_or_else(|e| e.into_inner());
-                    let asset_id = assetref.id();
-                    if let Some(existing) = map.get(query) {
-                        if existing.id() == asset_id {
-                            map.remove(query);
-                        }
-                    }
-                    drop(map);
-                    continue;
-                }
-                return Ok(assetref);
-            }
-            // Backstop against re-entry: if this asset is already being run inline on this
-            // manager, running it again is the recursion `owned_key_asset` exists to prevent.
-            // Report it instead of exhausting the stack.
-            assetref.run_inline(None).await?;
-            return Ok(assetref);
+        self.get_query_asset_run(query, QueryAssetOrigin::TopLevel).await
+    }
+
+    /// Overridden (the trait default delegates to `get_asset`) so that a non-keyed dependency is
+    /// created under its creator's caching strategy, as `DefaultAssetManager`'s override does.
+    /// Runs the dependency inline, exactly as `get_asset` would.
+    async fn get_dependency_asset(
+        &self,
+        parent: &AssetRef<E>,
+        query: &Query,
+    ) -> Result<AssetRef<E>, Error> {
+        if let Some(key) = query.key() {
+            return self.get(&key).await;
         }
+        let creator = parent.cache_strategy().await;
+        self.get_query_asset_run(query, QueryAssetOrigin::Dependency(creator))
+            .await
     }
 
     async fn apply(

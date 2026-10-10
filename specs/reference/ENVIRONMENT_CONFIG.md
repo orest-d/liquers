@@ -3,7 +3,7 @@ title: Environment Configuration
 kind: reference
 audience: both
 area: [core/context, core/store, core/assets]
-reviewed: 2026-10-08
+reviewed: 2026-10-10
 ---
 # Environment Configuration
 
@@ -40,6 +40,9 @@ assets:
   dependency_audit: on_load     # explicit | on_load
   verify_versions: on_read      # off | on_read
   external_change: user_input   # user_input | corrupted
+  recipe_cache_strategy: all    # none | result | all
+  query_cache_strategy: all     # none | result | all
+  cut_predecessors: true        # false: never cut (debugging)
 ```
 
 | Field | Type | Default when absent | Meaning |
@@ -58,8 +61,34 @@ is omitted when the options are serialized.
 | `verify_versions` | `off` \| `on_read` | `on_read` | Whether stored bytes are re-hashed against their recorded version where the manager already reads them (fast track, `*_any_status`, `verify_stored_versions`). `off` never hashes, so outside edits go unnoticed. |
 | `external_change` | `user_input` \| `corrupted` | `user_input` | What a mismatch on a **recipe-backed** stored value means: `user_input` turns it into an `Override`; `corrupted` deletes the stored copy so the recipe recomputes it. A `Source` or `Override` is always kept as input. See [ASSETS §Content changed outside Liquers](./ASSETS.md#content-changed-outside-liquers). |
 
-All three policies apply to both built-in kinds (`Queued`, `Inline`). In code they are
-`AssetManagerOptions::with_dependency_audit`, `with_verify_versions` and `with_external_change`.
+| `recipe_cache_strategy` | `none` \| `result` \| `all` | `all` | How much a **recipe** evaluation keeps for reuse when the recipe's own `cached:` is absent or `default`. `all`: the keyed result and every intermediate (predecessor boundary, link) it creates are registered. `result`: only the keyed result; a missing intermediate is computed unregistered. `none`: nothing new is registered. An intermediate that already exists is reused under every strategy. |
+| `query_cache_strategy` | `none` \| `result` \| `all` | `all` | The same, for a top-level **ad-hoc query** (no key). A query whose last command declares `cached: false` is never registered, whatever this says. |
+| `cut_predecessors` | `true` \| `false` | `true` | `false` never cuts a predecessor boundary, so plans run fully expanded and reuse no intermediate. A debugging aid, to check whether cutting changes a result. |
+
+The strategy is a property of each asset, recorded when it is created: a keyed asset takes its
+recipe's `cached:` or `recipe_cache_strategy`, a top-level query takes `query_cache_strategy`, and
+every non-keyed **dependency** an asset creates (a predecessor boundary, a link parameter, a
+`context.evaluate`) takes **its creator's** strategy. So the two settings are independent: an
+internet-facing service can keep anonymous queries out of the cache while the recipes — the
+approved computations — cache their intermediates, and those queries still reuse them:
+
+```yaml
+assets:
+  recipe_cache_strategy: all    # approved recipes cache results and intermediates
+  query_cache_strategy: none    # ad-hoc queries add nothing, but reuse what recipes cached
+```
+
+The strategies decide **whether** a value is kept, never **how much** memory the cache may use — a
+size limit belongs to `CORE-ASSET-GC`. They change no value and no plan: whether a boundary is
+reused or registered is decided when it executes. See
+[DOC-08 §Predecessor boundaries](./api/DOC_08_RECIPES_PLANS.md) and
+[ASSETS §When an asset is kept for reuse](./ASSETS.md#when-an-asset-is-kept-for-reuse).
+
+All six settings apply to both built-in kinds (`Queued`, `Inline`). In code they are
+`AssetManagerOptions::with_dependency_audit`, `with_verify_versions`, `with_external_change`,
+`with_recipe_cache_strategy`, `with_query_cache_strategy` and `with_cut_predecessors`, and a
+manager reports them through the `AssetManager` accessors of the same names (the trait provides
+defaults equal to today's behaviour, so a custom manager need not implement them).
 
 Every field has a serde default, so a document may configure one section and omit the rest, and a
 field added later does not break an existing document. Unknown keys are currently **ignored**
@@ -185,6 +214,7 @@ yet, so no built-in path calls it today; an application that does must.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-10 | `assets` gains `recipe_cache_strategy`, `query_cache_strategy` (`none` \| `result` \| `all`) and `cut_predecessors`, with the origin rule (a dependency follows its creator), the public-service example, and the accessors. | phase-5 (`design/plan-policy/`) |
 | 2026-10-08 | `dependency_audit` row: the two values described as the trusting and conservative policies; `on_load` resolves upstream recursively; the startup store audit named; links to §Consistency policies and the new guide. | phase-5 (`design/dependency-chain-analysis-cost/`) |
 | 2026-10-02 | Reviewed against `design/dependency-audit-and-expiry-provenance/`. §Format gains the `assets` key table: `dependency_audit` (`explicit` \| `on_load`), `verify_versions` (`off` \| `on_read`) and `external_change` (`user_input` \| `corrupted`), with defaults and meaning, checked against `AssetManagerOptions`' serde names. | phase-5 |
 | 2026-09-27 | Reviewed against `design/record-streams/` Phase 5. Added §The recipe provider chain: `RecipeProviderChain` and its delegation rules, `with_appended_recipe_provider` on the builder and on `GenericEnvironment`, `RecipeProviderChoice` unchanged and selecting only the base, `liquers-lib`'s `[DefaultRecipeProvider, ManifestRecipeProvider]` default with `records`, and `with_records_recipe_provider()` for a build that sets its own base. `recipes: default` answers "no recipes" for a folder the store refuses as unsupported. | phase-5 |

@@ -33,6 +33,7 @@ use async_trait::async_trait;
 use serde_json::Value;
 
 use crate::{
+    cache_strategy::CacheStrategy,
     command_metadata::CommandMetadataRegistry,
     context::{EnvRef, Environment},
     error::{Error, ErrorType},
@@ -136,17 +137,29 @@ pub struct Recipe {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stored: Option<bool>,
 
-    /// When present, controls whether the produced value is registered for reuse.
+    /// The caching strategy of an evaluation of this recipe: how much of it is kept for reuse.
     ///
-    /// `None` (the default) means `true` — the asset is registered in the cache for the key and
-    /// reused on later requests. `Some(false)` means the asset is evaluated for the request and
-    /// dropped; a later request evaluates again or reads the stored copy. A `cached: false` asset
-    /// is not volatile — volatility is contagious (`assets.rs` module docs), and this flag is about
-    /// reuse, not purity.
+    /// - `all` — the result and every intermediate (predecessor boundaries, links) are registered;
+    /// - `result` — the result is registered; a missing intermediate is evaluated unregistered;
+    /// - `none` — nothing new is registered. The result is evaluated for the request and dropped;
+    ///   a later request evaluates again or reads the stored copy.
     ///
-    /// The contract: `specs/design/record-streams/phase2-architecture.md`, §"C. `stored` and `cached`".
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub cached: Option<bool>,
+    /// An intermediate that already exists is reused under every strategy. `true` and `false` are
+    /// accepted as `all` and `none` (the boolean form of this field before strategies existed).
+    /// `None` — the field absent, or `default` — means the asset manager's
+    /// `recipe_cache_strategy` for a keyed asset, and its `query_cache_strategy` for a non-keyed
+    /// one. A strategy is not volatility: an uncached asset is not volatile, since volatility is
+    /// contagious (`assets.rs` module docs) and this is about reuse, not purity.
+    ///
+    /// The asset manager also writes this field on the recipe of a non-keyed dependency it
+    /// constructs, recording the strategy of the asset that created it — a boundary follows its
+    /// creator. See [`crate::cache_strategy`] and `specs/design/plan-policy/`.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::cache_strategy::deserialize_optional_strategy"
+    )]
+    pub cached: Option<CacheStrategy>,
 }
 
 fn is_false(b: &bool) -> bool {
@@ -394,11 +407,18 @@ impl Recipe {
         self.stored.unwrap_or(true)
     }
 
-    /// Returns whether the produced value should be registered for reuse.
-    ///
-    /// Returns `true` when `cached` is absent or `Some(true)`, `false` when `Some(false)`.
-    pub fn cached(&self) -> bool {
-        self.cached.unwrap_or(true)
+    /// This recipe's caching strategy, falling back to `default` (the asset manager's default
+    /// for the asset's kind) when it states none.
+    pub fn effective_cache_strategy(&self, default: CacheStrategy) -> CacheStrategy {
+        self.cached.unwrap_or(default)
+    }
+
+    /// The metadata `cached` flag this recipe alone implies for its own result: `Some(false)` for
+    /// an explicit `none`, `Some(true)` for an explicit `result` or `all`, and `None` when it
+    /// states no strategy, since that depends on the manager's default, which a recipe cannot see.
+    /// The asset manager records `Some(false)` itself on any asset it does not register.
+    pub(crate) fn explicit_cached_flag(&self) -> Option<bool> {
+        self.cached.map(CacheStrategy::keeps_result)
     }
 
     /// Derives the logical storage key from `cwd` and the query filename.
@@ -435,7 +455,7 @@ impl Recipe {
         asset_info.status = Status::Recipe;
         asset_info.unicode_icon = self.unicode_icon();
         asset_info.stored = self.stored;
-        asset_info.cached = self.cached;
+        asset_info.cached = self.explicit_cached_flag();
         Ok(asset_info)
     }
 }
@@ -2082,7 +2102,9 @@ mod default_asset_flags_tests {
     fn recipe_default_stored_and_cached_are_true() {
         let recipe = Recipe::default();
         assert!(recipe.stored());
-        assert!(recipe.cached());
+        assert_eq!(recipe.cached, None);
+        assert_eq!(recipe.effective_cache_strategy(CacheStrategy::All), CacheStrategy::All);
+        assert_eq!(recipe.effective_cache_strategy(CacheStrategy::Result), CacheStrategy::Result);
     }
 
     #[test]
@@ -2090,14 +2112,15 @@ mod default_asset_flags_tests {
         let mut recipe = Recipe::default();
         recipe.stored = Some(false);
         assert!(!recipe.stored());
-        assert!(recipe.cached()); // unrelated field unaffected
+        assert_eq!(recipe.cached, None); // unrelated field unaffected
     }
 
     #[test]
     fn recipe_explicit_cached_false_is_honored() {
         let mut recipe = Recipe::default();
-        recipe.cached = Some(false);
-        assert!(!recipe.cached());
+        recipe.cached = Some(CacheStrategy::None);
+        assert_eq!(recipe.effective_cache_strategy(CacheStrategy::All), CacheStrategy::None);
+        assert_eq!(recipe.get_asset_info().expect("asset info").cached, Some(false));
     }
 
     #[test]
@@ -2134,7 +2157,23 @@ mod default_asset_flags_tests {
     fn recipe_json_without_cached_deserializes_as_true() {
         let json = r#"{"query": "select 1"}"#;
         let recipe: Recipe = serde_json::from_str(json).expect("deserialize");
-        assert!(recipe.cached());
+        assert_eq!(recipe.cached, None);
+    }
+
+    /// plan-policy: a recipe written with the boolean form still loads (`false` is `none`), the
+    /// words load, `default` is the same as absent, and the field is written as the word.
+    #[test]
+    fn recipe_cached_accepts_booleans_words_and_default() {
+        let old: Recipe = serde_yaml::from_str("query: a\ncached: false\n").expect("bool");
+        assert_eq!(old.cached, Some(CacheStrategy::None));
+        let result: Recipe = serde_yaml::from_str("query: a\ncached: result\n").expect("word");
+        assert_eq!(result.cached, Some(CacheStrategy::Result));
+        let default: Recipe = serde_yaml::from_str("query: a\ncached: default\n").expect("default");
+        assert_eq!(default.cached, None);
+        let written = serde_yaml::to_string(&result).expect("serialize");
+        assert!(written.contains("cached: result"), "{written}");
+        let invalid: Result<Recipe, _> = serde_yaml::from_str("query: a\ncached: some\n");
+        assert!(invalid.is_err());
     }
 
     #[test]

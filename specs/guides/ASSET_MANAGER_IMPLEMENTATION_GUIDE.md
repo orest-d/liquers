@@ -4,7 +4,7 @@ title: Asset Manager Implementation Guide
 kind: guide
 audience: both
 area: [core/assets]
-reviewed: 2026-10-09
+reviewed: 2026-10-10
 ---
 # Asset Manager Implementation Guide
 
@@ -148,13 +148,33 @@ impl<E: Environment> AssetManager<E> for MinimalInlineAssetManager<E> {
 
 | Method | Why |
 |---|---|
-| `dependency_audit_policy`, `version_verification`, `external_change_policy` | The defaults return constants and ignore `AssetManagerOptions`. Return what `build` received, or the options are silently lost. |
+| `dependency_audit_policy`, `version_verification`, `external_change_policy`, `recipe_cache_strategy`, `query_cache_strategy`, `cut_predecessors` | The defaults return constants (the last three: `All`, `All`, `true`, which is the behaviour before caching strategies existed) and ignore `AssetManagerOptions`. Return what `build` received, or the options are silently lost. |
 | `get_dependency_asset_with_payload` | The default ignores the payload. Create a fresh query asset, `set_payload_path`, then run it with the payload. |
 | `remove_key_asset_if` | The default is lookup-compare-remove, correct but not atomic. Do it under your map lock. |
 
 **Provided — override only deliberately:** `record_expiry` (§8), and `get_dependency_asset`,
 `drain_dependencies`, `wait_for_dependency` if you add a local dependency queue as
-`DefaultAssetManager` does. The default `wait_for_dependency` already applies the stale-dependency
+`DefaultAssetManager` does.
+
+**Caching strategies** (`liquers-core/src/cache_strategy.rs`, ASSETS §When an asset is kept for
+reuse). A manager decides what it *registers*; three rules keep it consistent with the built-in
+ones:
+
+- A keyed asset is registered when `recipe.effective_cache_strategy(self.recipe_cache_strategy())`
+  keeps the result — `Recipe::cached` is an `Option<CacheStrategy>`, not a bool. A key with **no**
+  recipe (plain data) is not subject to the strategy, and an asset that already exists for the key
+  (one `set_state` installed, say) is returned before any strategy is consulted.
+- A top-level non-keyed query is registered when its plan's `uncached_by` is `None` and
+  `self.query_cache_strategy()` keeps the result.
+- A non-keyed dependency follows its **creator**: in `get_dependency_asset`, read
+  `parent.cache_strategy().await`, write it into the new asset's recipe (`recipe.cached`), and
+  register only when `uncached_by` is `None` and the strategy keeps intermediates. An asset that
+  already exists is reused regardless. The trait default of `get_dependency_asset` delegates to
+  `get_asset`, which treats a dependency as a top-level query — correct only while both
+  strategies are `All`.
+
+Mark an asset you do not register with `cached: Some(false)` in its metadata and a log line giving
+the reason, as the built-in managers do. The default `wait_for_dependency` already applies the stale-dependency
 policy.
 
 **Provided — keep:** everything else. In particular `refresh_command_versions` (its default is the
@@ -475,6 +495,7 @@ store conformance suite: shared scenarios, no rule numbers and no capability mod
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-10 | Provided accessors gain `recipe_cache_strategy`, `query_cache_strategy` and `cut_predecessors`; new caching-strategy rules for a custom manager (keyed, top-level, a dependency following its creator), and `Recipe::cached` is now a strategy. A key with no recipe is not subject to the strategy, and an existing keyed asset is reused before it is consulted (PR #102 review). | phase-5, `design/plan-policy/` |
 | 2026-10-09 | §Primitives: `cancel_for_replacement` for writes and removals (the `cancel()` row says why not); the write example and the known-limits row follow. | phase-5 (`design/asset-cancellation-outcome/`) |
 | 2026-10-08 | `DefaultRecipeProvider` is constructed with `::new()` (it holds a recipe cache). The audit-policy section notes that the stored-records walk and the store audit are inherited provided methods. | phase-5 (`design/dependency-chain-analysis-cost/`) |
 | 2026-10-07 | `remove_expired_from_maps`: the id comparison and the removal must be one atomic map operation. Deadlines: a lazy check that finds the deadline passed must cascade (`expire_without_cascade` then `cascade_expire_dependents`); the known-limit row is removed. | phase-5 (`design/queued-manager-conditional-eviction/`, `design/immediate-lazy-expiry-cascade/`) |

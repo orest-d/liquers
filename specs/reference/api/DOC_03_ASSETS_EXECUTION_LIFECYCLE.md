@@ -3,7 +3,7 @@ title: Assets and Execution Lifecycle Reference
 kind: reference
 audience: internal
 area: [core/assets]
-reviewed: 2026-10-09
+reviewed: 2026-10-10
 ---
 # DOC-03: Assets and Execution Lifecycle
 
@@ -131,7 +131,24 @@ Non-volatile key and query entries can be reused. Volatile requests create fresh
 assets. Manager access treats cached `Expired`, `Error`, and `Cancelled` entries as
 misses and creates a fresh asset.
 
-A key whose recipe declares `cached: false` also gets a fresh, **unregistered**
+Which **new** non-volatile assets are registered — and so reused by a later request —
+follows a **caching strategy** (`none` \| `result` \| `all`), recorded on each asset when it
+is created and read with `AssetRef::cache_strategy()`:
+
+- a keyed asset: its recipe's `cached:`, else the manager's `recipe_cache_strategy`;
+  registered when the strategy keeps the result;
+- a top-level non-keyed query: `query_cache_strategy`; registered when the strategy keeps
+  the result and the query's last command does not declare `cached: false`;
+- a non-keyed dependency (a predecessor boundary, a link, a `context.evaluate`): **its
+  creator's** strategy; registered when that keeps intermediates (`all`) and its last
+  command does not declare `cached: false`.
+
+An asset that already exists is reused whatever the strategy. Defaults are `all`, the
+behaviour before strategies existed. An unregistered asset is not volatile; its metadata
+says `cached: Some(false)` and its log gives the reason. The full rule:
+[`ASSETS.md`](../ASSETS.md) §When an asset is kept for reuse.
+
+A key whose recipe's strategy keeps no result gets a fresh, **unregistered**
 asset per request in both managers, but it is not volatile: it may fast-track an
 existing stored copy, it is stored unless `stored: false` also applies, and it
 remains the key's dependency-graph node (`bound_owner_key` answers for it when no
@@ -450,6 +467,7 @@ implements a manager outside the crate against the shared manager scenarios. See
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-10 | Identity, caching, and fast track: caching strategies decide which new assets are registered (keyed, top-level query, dependency following its creator), an existing asset is reused under every strategy, unregistered assets record `cached: Some(false)` and a reason. | phase-5, `design/plan-policy/` |
 | 2026-10-09 | §Expiration, recovery, and cancellation: cancel is a request the run decides, cooperative checks, cascade, recorded cause. Persistence step 6 and §set: a cancelled/failed/replaced run writes nothing; `cancel_for_replacement`. | phase-5 (`design/asset-cancellation-outcome/`) |
 | 2026-10-08 | §Identity, caching, and fast track: step 2 under `on_load` uses the stored-records walk; records are direct, so step 2 is what reaches upstream. | phase-5 (`design/dependency-chain-analysis-cost/`) |
 | 2026-10-07 | §Persistence contract step 6 and the `PersistenceStatus` row: a write skipped because the asset was cancelled records `None`, as a `stored: false` skip does; it had recorded `Persisted`. The route table: the immediate lazy check cascades as the monitor does. | phase-5 (`design/save-to-store-skip-outcome/`, `design/immediate-lazy-expiry-cascade/`) |

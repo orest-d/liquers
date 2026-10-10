@@ -25,6 +25,7 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use liquers_core::{
+    cache_strategy::CacheStrategy,
     assets::{
         AssetData, AssetManager, AssetRef, DependencyManagerAccess, EvalMode, ExternalChangePolicy,
         KeyMutationAccess,
@@ -128,7 +129,7 @@ impl<E: Environment> MinimalInlineAssetManager<E> {
 
     /// The recipe a fresh resource asset is constructed with, carrying the `stored` / `cached`
     /// flags of the key's real recipe.
-    fn resource_recipe(key: &Key, stored: Option<bool>, cached: Option<bool>) -> Recipe {
+    fn resource_recipe(key: &Key, stored: Option<bool>, cached: Option<CacheStrategy>) -> Recipe {
         let mut recipe: Recipe = key.into();
         recipe.stored = stored;
         recipe.cached = cached;
@@ -137,8 +138,8 @@ impl<E: Environment> MinimalInlineAssetManager<E> {
 
     /// The asset for `key`: the registered one, or a fresh one registered atomically.
     ///
-    /// A volatile key, and a key whose recipe says `cached: false`, get a fresh asset that is
-    /// registered nowhere.
+    /// A volatile key gets a fresh asset registered nowhere; so does a key whose recipe's caching
+    /// strategy keeps no result, unless an asset for it already exists.
     async fn resource_asset(&self, key: &Key) -> Result<AssetRef<E>, Error> {
         let recipe = self.recipe_opt(key).await?;
         let (stored, cached) = match &recipe {
@@ -154,11 +155,22 @@ impl<E: Environment> MinimalInlineAssetManager<E> {
             )
             .to_ref()
         };
-        if self.is_volatile(key).await? || !cached.unwrap_or(true) {
+        if self.is_volatile(key).await? {
             return Ok(fresh());
         }
+        // An existing asset is reused under every caching strategy.
         if let Some(existing) = self.lookup_key_asset(key) {
             return Ok(existing);
+        }
+        // The recipe strategy governs a recipe evaluation; a key with no recipe is kept.
+        let keeps_result = match &recipe {
+            Some(recipe) => recipe
+                .effective_cache_strategy(self.recipe_cache_strategy())
+                .keeps_result(),
+            None => true,
+        };
+        if !keeps_result {
+            return Ok(fresh());
         }
         let candidate = fresh();
         let mut map = self.assets.lock().unwrap_or_else(|e| e.into_inner());

@@ -154,7 +154,9 @@ declared `multiple` consumes every remaining parameter, so a command with one is
 
 The special instructions resolve no command metadata, so each carries its own rule: `v` and `q` take
 no parameters and reject any, while **`ns` is variadic by design** — every parameter names a
-namespace, so `ns-one-two` is correct and must keep working.
+namespace, so `ns-one-two` is correct and must keep working. `v` is **positional**: a query is
+volatile from `v` onward and the prefix ahead of it stays pure and cacheable, so `v` at the head
+(`v/a/b`) is how to make the whole query volatile.
 
 A resource header takes exactly one instruction, and surplus header parameters are an error on the
 same terms. Its *name*, by contrast, is only warned about and then ignored — the name is reserved
@@ -518,6 +520,7 @@ Session (user session - currently minimal)
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-10 | Special instructions: `v` is positional (`design/plan-policy/`). | phase-5, `design/plan-policy/` |
 | 2026-10-10 | Module table, sync/async section and known limitations: the synchronous `Store` and the `cache` module were removed (assets cache results). | `CORE-SYNC-STORE-TRAIT-OBSOLETE`, `design/sync-store-removal/` |
 | 2026-10-06 | Module table: `cache.rs` is a legacy synchronous cache, obsolete since assets cache results; its removal is tracked in `CORE-SYNC-STORE-TRAIT-OBSOLETE`. | `REPO-DEAD-CODE-HYGIENE`, `design/core-dead-code-hygiene/` |
 | 2026-09-27 | Reviewed against `design/record-streams/` Phase 5. Added `liquers-records` to the crate structure with the dependency flow `liquers-core ← liquers-records ← liquers-lib` (feature `records`); records as a `liquers-lib` value family; the `Recipe` struct's `expires`, `stored` and `cached`; recipe providers as a chain with keyed record chunks served by the generative `ManifestRecipeProvider`; and §6: the state handed to the next step carries the fetched key as its metadata `key`. | phase-5 |
