@@ -33,6 +33,15 @@ fn b(state: &State<Value>, context: Context<CommandEnvironment>) -> Result<Value
     Ok(Value::from(format!("{}B", state.try_into_string()?)))
 }
 
+fn boom(_state: &State<Value>) -> Result<Value, Error> {
+    Err(Error::general_error("boom failed".to_owned()))
+}
+
+/// Ignores its input, so it would succeed on a failed one if the plan let it run.
+fn ignore(_state: &State<Value>) -> Result<Value, Error> {
+    Ok(Value::from("ignored"))
+}
+
 fn suffix(state: &State<Value>, text: String) -> Result<Value, Error> {
     Ok(Value::from(format!("{}{text}", state.try_into_string()?)))
 }
@@ -79,6 +88,8 @@ async fn env() -> Result<EnvRef<CommandEnvironment>, Error> {
     register_command!(cr, fn a(state) -> result)?;
     register_command!(cr, fn b(state, context) -> result)?;
     register_command!(cr, fn suffix(state, text: String) -> result)?;
+    register_command!(cr, fn boom(state) -> result)?;
+    register_command!(cr, fn ignore(state) -> result)?;
     register_command!(cr, fn probe(state) -> result)?;
     environment.with_async_store(Box::new(store));
     environment.with_default_recipe_provider();
@@ -363,5 +374,17 @@ async fn applied_plan_is_marked_applied() -> Result<(), Box<dyn std::error::Erro
     let evaluated = envref.evaluate(parse_query("a/b/probe")?).await?;
     assert_eq!(report(&evaluated.get().await?)?["is_applied"], false);
     assert!(!evaluated.get_metadata().await?.is_applied());
+    Ok(())
+}
+
+/// A failed predecessor stops the plan: the boundary's state is handed on only when it holds a
+/// value, so a next command that ignores its input cannot replace the failure (PR #100 review).
+#[tokio::test]
+async fn failed_predecessor_fails_the_plan() -> Result<(), Box<dyn std::error::Error>> {
+    let envref = env().await?;
+    let state = envref.evaluate(parse_query("boom/ignore")?).await?.get().await?;
+    assert_eq!(state.status(), Status::Error, "the asset fails rather than holding 'ignored'");
+    let error = state.value().expect_err("a failed predecessor must fail the plan");
+    assert!(error.to_string().contains("boom failed"), "{error}");
     Ok(())
 }

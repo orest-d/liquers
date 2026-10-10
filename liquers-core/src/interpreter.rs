@@ -849,12 +849,18 @@ pub(crate) fn do_step_state<E: Environment>(
             let query = context.resolve_query_from_cwd(&query)?;
             // Claim-aware wait (drain the parent's local queue + direct-claim before blocking)
             // so an at-capacity dependency never deadlocks the parent.
-            context.get_dependency_state(&query).await
+            let state = context.get_dependency_state(&query).await?;
+            // A terminal Error/Cancelled dependency stops the plan here, as it always has: handed
+            // on, a next command that ignores its input would replace the failure with a value.
+            state.value()?;
+            Ok(state)
         }
         .maybe_boxed(),
         Step::GetAsset(key) => async move {
             let key = context.resolve_key_from_cwd(&key)?;
             let state = context.get_dependency_state(&key.clone().into()).await?;
+            // As for `Evaluate`: a failed dependency is an error, not an input.
+            state.value()?;
             // The state of a keyed asset names its key. A record loaded from a store that never
             // stored one (a file placed by hand) is completed here rather than handed on keyless.
             let mut metadata = (*state.metadata).clone();
