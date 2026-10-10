@@ -3,7 +3,7 @@ title: Liquers Web API Specification
 kind: reference
 audience: internal
 area: [axum, web]
-reviewed: 2026-10-09
+reviewed: 2026-10-10
 ---
 # Liquers Web API Specification
 
@@ -178,18 +178,18 @@ parsed with `parse_key`.
 | `GET data/{*key}` | the bytes (§2.3); metadata from the store, default metadata if it has none |
 | `PUT data/{*key}` | the key as a string; the body is stored with the key's existing metadata (default if none) |
 | `DELETE data/{*key}` | the key as a string |
-| `GET metadata/{*key}` | the `MetadataRecord` as JSON (`{}` for legacy metadata — `AXUM-STORE-UPLOAD-AND-METADATA-DROP-INFORMATION`) |
+| `GET metadata/{*key}` | the `MetadataRecord` as JSON; legacy metadata as the stored document |
 | `PUT metadata/{*key}` | the key as a string; body: a metadata JSON document (`Metadata::from_json_value`; a document that does not parse is a 422 `SerializationError`) |
-| `GET entry/{*key}` | a negotiated `DataEntry` (§2.3; legacy metadata as `{}`) |
+| `GET entry/{*key}` | a negotiated `DataEntry` (§2.3; legacy metadata as the stored document) |
 | `PUT entry/{*key}` | the key as a string; body: a `DataEntry` (422 `SerializationError` when it or its metadata does not decode) |
 | `DELETE entry/{*key}` | as `DELETE data` |
 | `GET listdir/{*key}` | array of the keys directly in the directory |
 | `GET is_dir/{*key}` | `true` or `false` |
 | `GET contains/{*key}` | `true` or `false` |
-| `GET keys[?prefix=…]` | array of the keys directly in the prefix directory (root by default) — the same as `listdir`, not every key under it (`AXUM-STORE-KEYS-LISTS-ONLY-DIRECT-CHILDREN`) |
+| `GET keys[?prefix=…]` | array of every key under the prefix (root by default), at any depth, directories included (`AsyncStore::listdir_keys_deep`); `listdir` lists only the direct children |
 | `PUT makedir/{*key}` | the key as a string |
 | `DELETE removedir/{*key}` | the key as a string; removes the directory and everything in it (`AsyncStore::removedir`) |
-| `POST upload/{*key}` | `{uploaded: [keys], errors?: [messages]}`; `multipart/form-data`, each file part stored at `{key}/{filename}` with default metadata; if every part fails, 500 `KeyWriteError` with the messages in `error.traceback` |
+| `POST upload/{*key}` | `{uploaded: [keys], errors?: [messages]}`; `multipart/form-data`, each file part stored at `{key}/{filename}` with metadata naming its `filename`, plus a declared `media_type` only when the part's `Content-Type` differs from the type the filename implies and is not `application/octet-stream` (the client's type is then served back by the binary routes); if every part fails, 500 `KeyWriteError` with the messages in `error.traceback` |
 
 All successes are 200. Errors are those of the store (§3.1).
 
@@ -591,6 +591,8 @@ Not available at HEAD; listed so that no reader mistakes them for features:
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-10 | Store API `keys` lists every key under the prefix at any depth (`listdir_keys_deep`), no longer a synonym of `listdir`. `AXUM-STORE-KEYS-LISTS-ONLY-DIRECT-CHILDREN` closed. | `design/axum-store-keys-deep/` |
+| 2026-10-10 | Store API: `metadata` and `entry` serve legacy metadata as stored (not `{}`); `upload` records each part's `filename` and declares its `Content-Type` only when the filename does not imply it. `AXUM-STORE-UPLOAD-AND-METADATA-DROP-INFORMATION` closed. | `design/axum-store-upload-metadata/` |
 | 2026-10-09 | §5.3 `q/cancel`: the best-effort outcomes (a completed command stays `Ready`), the cause in `error_data`, cascade attribution; `ASSET-CANCEL-DURING-PROCESSING-FINISHES-READY` closed. | phase-5 (`design/asset-cancellation-outcome/`) |
 | 2026-10-07 | §6: Recipes API `metadata` and `entry` return the recipe's asset info as metadata, and `entry` is negotiated by `?format=` / `Accept`. | phase-5, `design/axum-recipes-metadata-entry/` |
 | 2026-10-06 | Added `key/can_make`; `key/contains` is stored-or-listed; deep listing is complete; Store API writes notify the provider. | phase-5 |

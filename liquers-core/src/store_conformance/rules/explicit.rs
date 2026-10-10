@@ -9,7 +9,6 @@
 //! is an object in its own right and survives its last file. Only a store whose directories are
 //! derived declares [`Capability::DerivedDirectories`](crate::store_conformance::Capability).
 
-use crate::query::Key;
 use crate::store_conformance::rules::support::{create, require_absent};
 use crate::store_conformance::{failed, failed_at, keys_for, Fixture, KeyRequest, RuleOutcome};
 
