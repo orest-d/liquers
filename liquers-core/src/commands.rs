@@ -85,13 +85,17 @@ impl<E: Environment> CommandArguments<E> {
             } else {
                 match p {
                     ParameterValue::Placeholder(n) => Err(Error::general_error(format!(
-                        "Unresolved placeholder parameter {}: {}",
-                        i, n
+                        "Unresolved placeholder in argument #{} '{}': {}",
+                        i + 1,
+                        name,
+                        n
                     ))
                     .with_position(&self.action_position)),
                     _ => Err(Error::general_error(format!(
-                        "Unresolved/unexpected parameter {}: {}",
-                        i, p
+                        "Unresolved or unexpected value in argument #{} '{}': {}",
+                        i + 1,
+                        name,
+                        p
                     ))
                     .with_position(&self.action_position)),
                 }
@@ -110,10 +114,13 @@ impl<E: Environment> CommandArguments<E> {
         let p = self.get_parameter(i, name)?;
 
         if let Some(link) = p.link() {
-            return Err(
-                Error::general_error(format!("Unresolved link parameter {}: {}", i, link))
-                    .with_position(&self.action_position),
-            );
+            return Err(Error::general_error(format!(
+                "Unresolved link in argument #{} '{}': {}",
+                i + 1,
+                name,
+                link
+            ))
+            .with_position(&self.action_position));
         }
         if p.is_injected() {
             return Err(Error::general_error(
@@ -172,8 +179,9 @@ impl<E: Environment> CommandArguments<E> {
             | ParameterValue::Placeholder(_)
             | ParameterValue::Injected(_)
             | ParameterValue::None => Err(Error::general_error(format!(
-                "Argument {} '{}' is declared as multiple, but was not resolved as a parameter list",
-                i, name
+                "Argument #{} '{}' is declared as multiple, but was not resolved as a parameter list",
+                i + 1,
+                name
             ))
             .with_position(&self.action_position)),
         }
@@ -199,27 +207,33 @@ impl<E: Environment> CommandArguments<E> {
             | ParameterValue::ParameterLink(_, query, _)
             | ParameterValue::OverrideLink(_, query)
             | ParameterValue::EnumLink(_, query, _) => Err(Error::general_error(format!(
-                "Unresolved link parameter in multiple argument {} '{}': {}",
-                i,
+                "Unresolved link in multiple argument #{} '{}': {}",
+                i + 1,
                 name,
                 query.encode()
             ))
             .with_position(&element.position())),
             ParameterValue::MultipleParameters(_, _) => Err(Error::unexpected_error(format!(
-                "Nested multiple parameters in argument {} '{}'",
-                i, name
+                "Nested multiple parameters in argument #{} '{}'",
+                i + 1,
+                name
             ))),
             ParameterValue::Injected(injected_name) => Err(Error::unexpected_error(format!(
-                "Injected parameter '{}' inside multiple argument {} '{}'",
-                injected_name, i, name
+                "Injected parameter '{}' inside multiple argument #{} '{}'",
+                injected_name,
+                i + 1,
+                name
             ))),
             ParameterValue::Placeholder(placeholder_name) => Err(Error::unexpected_error(format!(
-                "Unresolved placeholder '{}' inside multiple argument {} '{}'",
-                placeholder_name, i, name
+                "Unresolved placeholder '{}' inside multiple argument #{} '{}'",
+                placeholder_name,
+                i + 1,
+                name
             ))),
             ParameterValue::None => Err(Error::unexpected_error(format!(
-                "Unresolved parameter inside multiple argument {} '{}'",
-                i, name
+                "Unresolved parameter inside multiple argument #{} '{}'",
+                i + 1,
+                name
             ))),
         }
     }
@@ -1198,6 +1212,76 @@ mod unregister_tests {
         assert!(
             !registry.async_executors.contains_key(&key),
             "async executor survived"
+        );
+    }
+}
+
+#[cfg(test)]
+mod argument_number_tests {
+    //! Error messages number command arguments from 1, while the slot index stays 0-based.
+    use super::*;
+    use crate::context::SimpleEnvironment;
+    use crate::plan::{ParameterValue, ResolvedParameterValues};
+    use crate::query::TryToQuery;
+    use crate::value::Value;
+
+    type Arguments = CommandArguments<SimpleEnvironment<Value>>;
+
+    fn arguments(parameters: Vec<ParameterValue>) -> Arguments {
+        CommandArguments::new(ResolvedParameterValues(parameters))
+    }
+
+    #[test]
+    fn missing_argument_is_numbered_from_one() {
+        let error = arguments(vec![])
+            .get::<i64>(0, "limit")
+            .expect_err("an empty argument list has no slot 0");
+        assert_eq!(error.message, "Missing argument #1 'limit'");
+    }
+
+    #[test]
+    fn unresolved_link_names_argument_from_one() {
+        let link = "-R/data/x.txt".try_to_query().expect("valid query");
+        let args = arguments(vec![
+            ParameterValue::DefaultValue("n".to_string(), serde_json::json!(1)),
+            ParameterValue::DefaultLink("path".to_string(), link),
+        ]);
+        let error = args
+            .get::<String>(1, "path")
+            .expect_err("an unresolved link cannot be read as a value");
+        assert!(
+            error
+                .message
+                .starts_with("Unresolved link in argument #2 'path': "),
+            "{}",
+            error.message
+        );
+    }
+
+    #[test]
+    fn unresolved_placeholder_names_argument_from_one() {
+        let args = arguments(vec![ParameterValue::Placeholder("p".to_string())]);
+        let error = args
+            .get_value(0, "limit")
+            .expect_err("a placeholder has no value");
+        assert_eq!(
+            error.message,
+            "Unresolved placeholder in argument #1 'limit': p"
+        );
+    }
+
+    #[test]
+    fn non_list_multiple_argument_is_numbered_from_one() {
+        let args = arguments(vec![ParameterValue::DefaultValue(
+            "xs".to_string(),
+            serde_json::json!("a"),
+        )]);
+        let error = args
+            .get_multiple::<String>(0, "xs")
+            .expect_err("a single value is not a parameter list");
+        assert_eq!(
+            error.message,
+            "Argument #1 'xs' is declared as multiple, but was not resolved as a parameter list"
         );
     }
 }
