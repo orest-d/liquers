@@ -7,7 +7,8 @@ workflow: liquers-project
 status: in_review
 phase: architecture
 area: [core/commands, macro]
-issues: [COMMAND-CONTEXT-PARAM-ORDER]
+issues: [COMMAND-CONTEXT-PARAM-ORDER, MACRO-TESTS-PRINT-TO-STDOUT]
+merged: 2026-10-10
 affects_docs: [REGISTER_COMMAND_FSD, COMMAND_REGISTRATION_GUIDE, RECORD_STREAM_GUIDE]
 created: 2026-03-02
 ---
@@ -79,6 +80,10 @@ prescribe "context last" as a rule. **Should:** it compiles, the wrapper calls
   WHEN the reference and the guide describe where to put `context`
   THEN they recommend it **last**, or **immediately before a `multiple` argument** when there is one, giving the reason: a Python signature cannot take a positional parameter after `*args` (`def f(state, context, *items)`), so this position keeps a command portable to the Python bindings; their examples follow the recommendation except the one that demonstrates `context` first
 
+- **AC-10** The macro's unit tests assert and do not print
+  WHEN `liquers-macro/src/registration.rs`'s test module is run or searched
+  THEN it contains no `println!`, and each test that built tokens only to print them asserts on them instead (`MACRO-TESTS-PRINT-TO-STDOUT`)
+
 **Position rules (decided 2026-10-10).** The state keyword, when present, is the first parameter
 other than `context`. `context` may be anywhere, before the state included; recommended last, or
 just before a `multiple` argument (AC-9). Documentation only: a stable proc-macro cannot warn.
@@ -126,6 +131,8 @@ All resolved by the maintainer on 2026-10-10.
 - 2026-10-10 — AC-5 added (triage case 1): the stateless `value: String` misparse has the same cause
   (keywords recognised by position) and change site.
 - 2026-10-10 — AC-9 added and questions resolved after maintainer feedback.
+- 2026-10-10 — `MACRO-TESTS-PRINT-TO-STDOUT` merged in at the maintainer's request (same test
+  module), as AC-10; fixed ahead of the other steps on this branch.
 
 ## Phase 2: Architecture
 
@@ -155,7 +162,7 @@ leading `context`, becomes a field read only by `wrapper_arguments`.
 **Known-issue preflight.** Nothing blocks or must go first. The open macro designs and issues
 (`REGISTER-COMMAND-OPTION-VALUE`, `REGISTER-COMMAND-ENUM`, `MACRO-QUERY-VALIDATION-AND-HINTS`,
 `ARGUMENT-INFO-HAS-NO-DESCRIPTION`) change argument types and metadata, not the signature parser.
-`MACRO-TESTS-PRINT-TO-STDOUT` (P3, filed from this phase) shares only the test module.
+`MACRO-TESTS-PRINT-TO-STDOUT` (P3, filed from this phase) is merged in and already fixed (AC-10).
 
 **Command namespaces:** none. No command is added or changed.
 
@@ -209,6 +216,9 @@ struct CommandSignature {
   order, and `context` is still moved into the call after injected arguments clone it.
 - **Generated metadata, registry, `impl_version`:** unchanged. `argument_info_expression` already
   skips `context`, and `version: auto` hashes the function body, not the macro invocation (AC-7).
+- **Test hygiene (AC-10, done):** the four `println!` and two commented ones in `mod tests` are
+  removed; `test_nostate_command_registration{1,2}`, `test_config_command_registration` and
+  `test_sync_command_does_not_set_is_async_flag` now assert on the generated tokens.
 - **Documents:** as in Phase 1's documentation intent, plus `rust-best-practices` `SKILL.md`,
   whose hard rule "A `context` parameter must be **last**" becomes the recommendation.
 

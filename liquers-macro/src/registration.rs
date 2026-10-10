@@ -2688,7 +2688,6 @@ mod tests {
         }
         "#;
 
-        println!("Generated tokens: {}", tokens.to_string());
         for (a, b) in fuzzy(&tokens.to_string())
             .split(",")
             .zip(fuzzy(expected).split(","))
@@ -2759,7 +2758,6 @@ mod tests {
         }
         "#;
 
-        println!("Generated tokens: {}", tokens.to_string());
         for (a, b) in fuzzy(&tokens.to_string())
             .split(",")
             .zip(fuzzy(expected).split(","))
@@ -2786,8 +2784,6 @@ mod tests {
         let expected_label = "cm . with_label (\"Test label\") ;";
 
         let tokens_str = tokens.to_string();
-        //println!();
-        //println!("Generated tokens: {}", tokens_str);
 
         assert!(&tokens_str.contains("pub fn REGISTER__test_fn"));
         assert!(&tokens_str.contains(expected_label));
@@ -2853,8 +2849,9 @@ mod tests {
 
         let tokens = sig.command_registration();
 
-        let tokens_str = tokens.to_string();
-        //println!("{}",tokens_str)
+        let tokens = fuzzy(&tokens.to_string());
+        assert!(tokens.contains("letres=nostate();"));
+        assert!(tokens.contains("cm.arguments=vec![];"));
     }
 
     #[test]
@@ -2865,8 +2862,10 @@ mod tests {
 
         let tokens = sig.command_registration();
 
-        let tokens_str = tokens.to_string();
-        println!("{}", tokens_str)
+        // `context` is passed to the function but occupies no argument slot.
+        let tokens = fuzzy(&tokens.to_string());
+        assert!(tokens.contains("letres=nostate(context);"));
+        assert!(tokens.contains("cm.arguments=vec![];"));
     }
 
     #[test]
@@ -2882,8 +2881,10 @@ mod tests {
 
         let tokens = sig.command_registration();
 
-        let tokens_str = tokens.to_string();
-        println!("{}", tokens_str)
+        let tokens = fuzzy(&tokens.to_string());
+        assert!(tokens.contains("letdefault__par=arguments.get_value(0usize,\"default\")?;"));
+        assert!(tokens.contains("letres=config(default__par,context).await;"));
+        assert!(tokens.contains("try_to_query(\"-R/config/config.yaml/-/from_yaml\")"));
     }
 
     #[test]
@@ -2954,6 +2955,10 @@ mod tests {
         // (relying on the default false value)
         // OR they could explicitly call with_async(false) - either is acceptable
         // Just verify the code compiles and doesn't error
+        assert!(
+            !fuzzy(&generated).contains("with_async(true)"),
+            "Sync command must not be registered as async"
+        );
         assert!(
             !sig.is_async,
             "Sync command should have is_async=false in signature"
