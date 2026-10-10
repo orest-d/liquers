@@ -59,3 +59,10 @@ merged on 2026-10-10 at the user's request.
   - The default stays `on` / `all`, which is today's behaviour. The disable-cutting switch is kept
     for debugging.
   - This supersedes the `stored-<bool>` / `cached-<bool>` directive decision recorded above.
+- 2026-10-10, fourth round. A keyed result follows only the effective recipe strategy, not the
+  last command's flag. The strategy settings are named `recipe_cache_strategy` and
+  `query_cache_strategy`. A recipe's `cached:` also accepts `default`, meaning the global recipe
+  strategy; the global settings have no `default`. A size limit on cached data is a requirement for
+  `CORE-ASSET-GC` and is noted there. Strategy propagation into boundaries was reopened by the
+  user's web-service case: guests run ad-hoc queries with a restricted cache, while recipes are
+  "approved" queries whose intermediates should be cached.
