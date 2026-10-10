@@ -5000,7 +5000,11 @@ mod tests {
             &head,
             false,
         )?;
-        assert_eq!(resolved.0.len(), 2, "head followed by the alias's own argument");
+        assert_eq!(
+            resolved.0.len(),
+            2,
+            "head followed by the alias's own argument"
+        );
         assert!(matches!(&resolved.0[0], ParameterValue::DefaultValue(name, _) if name == "head"));
 
         let err = ResolvedParameterValues::from_alias_action(
@@ -5045,7 +5049,10 @@ mod tests {
         let registry = alias_flag_registry();
         let plan = PlanBuilder::new(parse_query("calm")?, &registry).build()?;
 
-        assert!(plan.is_volatile, "a volatile target makes the plan volatile");
+        assert!(
+            plan.is_volatile,
+            "a volatile target makes the plan volatile"
+        );
         assert!(plan.payload_required.is_required());
         assert!(!plan.expires.is_never(), "the target's expiration applies");
         let Some(Step::Action {

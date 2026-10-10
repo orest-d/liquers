@@ -1812,7 +1812,11 @@ mod tests {
         registry
     }
 
-    fn alias_of(name: &str, target: CommandKey, head: Vec<CommandParameterValue>) -> CommandMetadata {
+    fn alias_of(
+        name: &str,
+        target: CommandKey,
+        head: Vec<CommandParameterValue>,
+    ) -> CommandMetadata {
         let mut alias = CommandMetadata::new(name);
         alias.with_namespace("pl");
         alias.definition = CommandDefinition::Alias {
@@ -1834,7 +1838,9 @@ mod tests {
             .expect("slice is registered");
         assert!(registry.alias_target(&slice)?.is_none());
         let head = alias_of("head", CommandKey::new("", "pl", "slice"), vec![zero()]);
-        let target = registry.alias_target(&head)?.expect("an alias has a target");
+        let target = registry
+            .alias_target(&head)?
+            .expect("an alias has a target");
         assert_eq!(target.name, "slice");
         Ok(())
     }
@@ -1844,7 +1850,9 @@ mod tests {
     fn alias_target_rejects_missing_target() {
         let registry = alias_test_registry();
         let alias = alias_of("head", CommandKey::new("", "pl", "nope"), vec![zero()]);
-        let err = registry.alias_target(&alias).expect_err("target is missing");
+        let err = registry
+            .alias_target(&alias)
+            .expect_err("target is missing");
         assert_eq!(err.error_type, crate::error::ErrorType::ActionNotRegistered);
         assert!(err.message.contains("pl/nope"), "{}", err.message);
     }
@@ -1856,11 +1864,15 @@ mod tests {
         let head = alias_of("head", CommandKey::new("", "pl", "slice"), vec![zero()]);
         registry.add_command(&head);
         let top = alias_of("top", CommandKey::new("", "pl", "head"), vec![]);
-        let err = registry.alias_target(&top).expect_err("chains are rejected");
+        let err = registry
+            .alias_target(&top)
+            .expect_err("chains are rejected");
         assert_eq!(err.error_type, crate::error::ErrorType::NotSupported);
 
         let selfish = alias_of("me", CommandKey::new("", "pl", "me"), vec![]);
-        let err = registry.alias_target(&selfish).expect_err("self-alias is rejected");
+        let err = registry
+            .alias_target(&selfish)
+            .expect_err("self-alias is rejected");
         assert_eq!(err.error_type, crate::error::ErrorType::NotSupported);
     }
 
@@ -1873,7 +1885,9 @@ mod tests {
             CommandKey::new("", "pl", "slice"),
             vec![zero(), zero(), zero()],
         );
-        let err = registry.alias_target(&alias).expect_err("head is too long");
+        let err = registry
+            .alias_target(&alias)
+            .expect_err("head is too long");
         assert_eq!(err.error_type, crate::error::ErrorType::ParameterError);
         assert!(err.message.contains("3 head parameters"), "{}", err.message);
     }
@@ -1883,7 +1897,9 @@ mod tests {
     fn alias_target_rejects_head_on_injected_argument() {
         let registry = alias_test_registry();
         let alias = alias_of("say", CommandKey::new("", "ctx", "use"), vec![zero()]);
-        let err = registry.alias_target(&alias).expect_err("context cannot be a head");
+        let err = registry
+            .alias_target(&alias)
+            .expect_err("context cannot be a head");
         assert_eq!(err.error_type, crate::error::ErrorType::ParameterError);
         assert!(err.message.contains("'context'"), "{}", err.message);
     }

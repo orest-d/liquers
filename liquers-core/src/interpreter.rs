@@ -1179,6 +1179,46 @@ mod tests {
     use crate::value::Value;
     use liquers_macro::*;
 
+    /// Phase 3 test 11 (AC-8): a hand-built alias may be volatile when its target is not; the
+    /// step that runs the target still reports volatile. (`IsVolatile` is crate-private, so this
+    /// lives here rather than in `tests/command_alias.rs`.)
+    #[tokio::test]
+    async fn step_is_volatile_when_alias_is_volatile() -> Result<(), Error> {
+        let mut env = SimpleEnvironment::<Value>::new();
+        let registry = &mut env.command_registry.command_metadata_registry;
+        registry.add_command(&crate::command_metadata::CommandMetadata::new("steady"));
+        let mut jumpy = crate::command_metadata::CommandMetadata::new("jumpy");
+        jumpy.volatile = true;
+        jumpy.definition = crate::command_metadata::CommandDefinition::Alias {
+            command: CommandKey::new("", "", "steady"),
+            head_parameters: vec![],
+        };
+        registry.add_command(&jumpy);
+        let envref = env.to_ref();
+
+        let step = |origin: crate::plan::ActionOrigin| Step::Action {
+            realm: String::new(),
+            ns: String::new(),
+            action_name: "steady".to_string(),
+            position: Position::unknown(),
+            parameters: ResolvedParameterValues::new(),
+            origin,
+        };
+        assert!(
+            !step(crate::plan::ActionOrigin::Direct)
+                .is_volatile(envref.clone())
+                .await?
+        );
+        assert!(
+            step(crate::plan::ActionOrigin::Alias {
+                command: CommandKey::new("", "", "jumpy"),
+            })
+            .is_volatile(envref)
+            .await?
+        );
+        Ok(())
+    }
+
     /// A predecessor boundary carries its key when the resource header's step reads the content
     /// or listing at the key (as `value_origin_key` does for the step itself), and not otherwise.
     #[test]
