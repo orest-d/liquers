@@ -89,6 +89,12 @@ field `index` reads correctly today, and must not change — AC-3). With a decla
 
 Rejected: refusing the read (maintainer decision), and keeping today's silent loss.
 
+### Changes
+
+`liquers-records/src/formats/shapes.rs` only: the private `free_index_name` helper and its use in
+`from_json_split`, `from_json_columns`, `from_json_index`. No signature, command or document format
+spelling changes. Document: `specs/reference/RECORD_STREAMS.md` (one sentence).
+
 ### Risks
 
 A schema-less read whose data has a column `index` now yields one more column (`index_1`) and keeps
