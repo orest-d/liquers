@@ -24,9 +24,9 @@ paths are in `liquers-core/src/` unless stated.
 - [x] Step 2: `CommandMetadata::cached` and the `cached:` macro keyword — 2c23880
 - [x] Step 3: Plan — `uncached_by`, the walk's third reason, positional `v`, markers retired — 4cb6a01
 - [x] Step 4: `Recipe::cached` widened to a strategy; callers and records provider — bd9df3a
-- [ ] Step 5: `AssetManagerOptions` keys, trait accessors, `with_policies`
-- [ ] Step 6: `finalize_plan` honours `cut_predecessors`
-- [ ] Step 7: `AssetRef::cache_strategy` and `Context::cache_strategy`
+- [x] Step 5: `AssetManagerOptions` keys, trait accessors, `with_policies` — acbba81
+- [x] Step 6: `finalize_plan` honours `cut_predecessors` — 13207db
+- [x] Step 7: `AssetRef::cache_strategy` and `Context::cache_strategy` — 67d4928
 - [ ] Step 8: Registration rules in both managers, with metadata and log
 - [ ] Step 9: Integration suite `tests/cache_strategy.rs`
 - [ ] Step 10: Full verification
