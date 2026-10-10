@@ -356,8 +356,10 @@ register_command!(cr,
 ```
 
 **DSL Syntax Reference**:
-- State parameter (first): `state`, `value`, `text`, or omit entirely
-- `context` - special parameter for execution context
+- State parameter (first; only `context` may precede it): `state`, `value`, `text`, or omit entirely.
+  Recognised when bare — `value: String` is an argument named `value`
+- `context` - special parameter for execution context; not an argument, allowed at any position.
+  Recommended last, or immediately before a `multiple` argument (Python `*args` parity)
 - Parameters: `name: Type`, optionally `injected` **or** `multiple`, optionally `= default_value`
 - `multiple` — variadic: consumes every remaining action parameter. Requires a container type
   (`Vec<T>`); `ArgumentType` is derived from the element type; takes no default (it defaults to the

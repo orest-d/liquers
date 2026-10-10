@@ -37,6 +37,10 @@ the compiler never sees the orphaned files.
 `pub(crate)` in `liquers-core/src/commands.rs:24`. A cross-crate read of a `pub(crate)` field does
 not compile. That it does not fail is proof the file is not in the build.
 
+A second proof (noted 2026-10-10, `design/context-param-order/`): `commands.rs:189-191` call
+`register_command!(cr, hello())` and `greet(state, who:String)` — no `fn` and no `-> result`, a
+syntax the macro has not accepted for a long time. Declaring the module will need these rewritten.
+
 ## Impact
 
 Two effects, the second worse than the first.

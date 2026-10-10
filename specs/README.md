@@ -123,7 +123,7 @@ serves both. Solve them together.
 - **Command registration** — documented → [`guides/COMMAND_REGISTRATION_GUIDE.md`](guides/COMMAND_REGISTRATION_GUIDE.md)
 - **Command design: cooperative cancellation** — documented → [`guides/COMMAND_DESIGN_GUIDE.md`](guides/COMMAND_DESIGN_GUIDE.md) *(design in [`design/asset-cancellation-outcome/`](design/asset-cancellation-outcome/))*
 - **`register_command!` specification** — documented → [`reference/REGISTER_COMMAND_FSD.md`](reference/REGISTER_COMMAND_FSD.md)
-- **Context parameter position** — designing → [`design/context-param-order/`](design/context-param-order/)
+- **Context parameter position** — documented → [`reference/REGISTER_COMMAND_FSD.md`](reference/REGISTER_COMMAND_FSD.md) §Context Parameter *(design in [`design/context-param-order/`](design/context-param-order/))*
 - **Enum parameters** — designing → [`design/register-command-enum/`](design/register-command-enum/)
 - **Command aliases** — documented → [`reference/COMMAND_ALIASES.md`](reference/COMMAND_ALIASES.md) *(when to use one: [`guides/COMMAND_DESIGN_GUIDE.md`](guides/COMMAND_DESIGN_GUIDE.md) §Aliases; design in [`design/command-alias-contract/`](design/command-alias-contract/))*
 - **Language-neutral command declaration** — documented → [`reference/COMMAND_DECLARATION.md`](reference/COMMAND_DECLARATION.md)

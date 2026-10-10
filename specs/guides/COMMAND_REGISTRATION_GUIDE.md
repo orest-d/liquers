@@ -85,6 +85,22 @@ See `specs/reference/REGISTER_COMMAND_FSD.md` for the complete DSL specification
 - Metadata statements (label, doc, namespace, realm, filename, volatile, payload, expires,
   version, preset, next)
 
+### Where to put `context`
+
+`context` is not an argument, so it can go anywhere in the list; the wrapper passes it to your
+function in the position you declared. **Put it last, or immediately before a `multiple`
+argument.** That order is the one a Python signature can express — nothing positional may follow
+`*args` — so the command maps straight onto the Python bindings:
+
+```rust
+fn join(state: &State<Value>, context: Context<CommandEnvironment>, items: Vec<String>)
+    -> Result<Value, Error> { /* … */ }
+register_command!(cr, fn join(state, context, items: Vec<String> multiple) -> result)?;
+```
+
+`context` first (`fn load(context, state, limit: i64)`) compiles and works, but is not
+recommended. Declaring `context` twice, or giving it a type, is a compile-time error.
+
 ### Commands that need the payload
 
 A command that reads the evaluation payload (directly or through an `injected` parameter built
@@ -332,7 +348,8 @@ if columns.is_empty() {
 
 **It must be the last argument that consumes a query parameter.** Anything declared after it could
 never receive a value, so the macro rejects the declaration. Arguments marked `injected` and the
-`context` parameter may follow it, because neither consumes a query parameter.
+`context` parameter may follow it, because neither consumes a query parameter — but the
+recommended place for `context` is just *before* it (see *Where to put `context`*).
 
 #### Naming a value that contains the separator
 
@@ -975,6 +992,7 @@ fn apply(...) -> Result<...> { ... }
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-10 | New §1 *Where to put `context`*: any position works, the recommended one is last or before a `multiple` argument (Python `*args` parity); §*Accepting a variable number of parameters* points at it. | phase-5, `design/context-param-order/` |
 | 2026-10-10 | Quick Reference row and §2 *Registering an alias*: `register_alias`, the argument layout, inheritance, replacing a registered command, refusals, testing; `pl/head` as the example. | phase-5, `design/command-alias-contract/` |
 | 2026-10-09 | Quick Reference links the new `COMMAND_DESIGN_GUIDE.md` (cooperative cancellation); "Waiting for dependencies" adds the cascade of a cancelled dependency. | phase-5 (`design/asset-cancellation-outcome/`) |
 | 2026-10-07 | §Macro DSL Syntax lists every metadata statement; new sections "Commands that need the payload" (`payload: required`) and "Versioning a command…" (`#[command_version]`, `version: auto`, `expires:`). | phase-5, `design/register-command-payload-docs/` |
