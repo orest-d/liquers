@@ -6,8 +6,8 @@ In the `#[wasm_bindgen(js_class = LiquersError)] impl LiquersError` block
 ```rust
 /// `new LiquersError(errorType, message, query?)`: a typed error a page can throw back at
 /// Liquers. `errorType` is a name as `errorType` reports it (`"key_not_found"`); an unknown name is
-/// a `TypeError`. A key is given as a query (`"-R/data/a.txt"`); one that does not parse is a
-/// `TypeError`.
+/// a `TypeError`. A key is represented as a key query (`"-R/data/a.txt"`); a query that does not
+/// parse is a `TypeError`.
 #[wasm_bindgen(constructor)]
 pub fn construct(
     error_type: &str,
@@ -40,7 +40,8 @@ chosen by the page. Confirm that `LiquersError::new(inner)` leaves `jsClass`/`js
 
 - Accept unknown names as `general`. That silently downgrades and breaks the forward-compatibility
   policy in `error_type_from_name`'s doc.
-- A separate `key` argument: rejected by the maintainer; a key is represented as a query.
+- A separate `key` argument: rejected by the maintainer; a key is represented as a key query
+  (`-R/…`).
 - An options object: one optional positional `query` is enough and maps directly to an optional
   TypeScript parameter.
 

@@ -7,8 +7,9 @@
   (rule 4)
 - **Leading issue:** None
 - **Explanation:** Decided (Maintainer decision, 2026-10-10):
-  `new LiquersError(errorType, message, query?)`. A key is represented as a query, so there is no
-  separate `key` argument. The type name is validated by `error_type_from_name`; an unknown name
+  `new LiquersError(errorType, message, query?)`. There is no separate `key` argument: a key is
+  represented as a **key query**, written with `-R` (`"-R/data/a.txt"`), and travels in `query`.
+  A bare path such as `"data/a.txt"` is not a key query. The type name is validated by `error_type_from_name`; an unknown name
   throws a JavaScript `TypeError` (no silent downgrade to `general`). The optional `query` is parsed
   with `parse_query`; a query that does not parse throws a `TypeError` carrying the parse message.
   `key` stays null (Liquers-populated only). `jsClass`/`jsStack` are left empty: the error was not
