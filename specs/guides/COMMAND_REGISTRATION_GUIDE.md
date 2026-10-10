@@ -658,6 +658,9 @@ feeds `slice`'s `length`, which has no default.
 `payload_required`, `expires` and `is_async`. Set `label` and `doc` on the returned metadata, as for
 any command.
 
+Registering an alias under the key of a registered command replaces that command completely: its
+executors and its `impl_version` are removed. A refused registration changes nothing.
+
 **What it refuses** (each with a typed error naming both commands): a target that is not registered;
 a target that is itself an alias, or the alias itself; more head parameters than the target has
 arguments; a head on an injected or variadic argument; arguments that do not line up.
@@ -972,7 +975,7 @@ fn apply(...) -> Result<...> { ... }
 
 | Date | Change | Source |
 |---|---|---|
-| 2026-10-10 | Quick Reference row and §2 *Registering an alias*: `register_alias`, the argument layout, inheritance, refusals, testing; `pl/head` as the example. | phase-5, `design/command-alias-contract/` |
+| 2026-10-10 | Quick Reference row and §2 *Registering an alias*: `register_alias`, the argument layout, inheritance, replacing a registered command, refusals, testing; `pl/head` as the example. | phase-5, `design/command-alias-contract/` |
 | 2026-10-09 | Quick Reference links the new `COMMAND_DESIGN_GUIDE.md` (cooperative cancellation); "Waiting for dependencies" adds the cascade of a cancelled dependency. | phase-5 (`design/asset-cancellation-outcome/`) |
 | 2026-10-07 | §Macro DSL Syntax lists every metadata statement; new sections "Commands that need the payload" (`payload: required`) and "Versioning a command…" (`#[command_version]`, `version: auto`, `expires:`). | phase-5, `design/register-command-payload-docs/` |
 | 2026-10-06 | New section "Describing the result: title and description" (`context.set_title` / `set_description`, recipe title takes precedence per field). | phase-5 |

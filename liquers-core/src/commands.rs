@@ -660,7 +660,9 @@ impl<E: Environment> CommandRegistry<E> {
     /// The target must already be registered. The alias copies the target's state argument,
     /// volatility, payload requirement, expiration and `is_async`; label and doc are set on the
     /// returned metadata. As with `register_command`, a later registration under the same key
-    /// replaces an earlier one. See `specs/reference/COMMAND_ALIASES.md`.
+    /// replaces an earlier one; replacing a registered command also removes its executors and
+    /// its `impl_version`. Nothing changes when registration fails. See
+    /// `specs/reference/COMMAND_ALIASES.md`.
     pub fn register_alias(
         &mut self,
         alias: CommandKey,
@@ -729,6 +731,10 @@ impl<E: Environment> CommandRegistry<E> {
             }
         }
 
+        // Replacing a registered command: drop its executors and metadata first. Otherwise
+        // `add_command` would carry its `impl_version` over to the alias (which has no
+        // implementation) and its executor would stay callable under the alias's key.
+        self.unregister(alias.clone());
         self.command_metadata_registry.add_command(&metadata);
         self.command_metadata_registry
             .get_mut(alias)

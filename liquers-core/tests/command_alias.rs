@@ -325,3 +325,41 @@ async fn hand_built_alias_is_planned_without_shape_check() -> Result<(), Box<dyn
     assert_eq!(parameters.len(), 1, "only the head: nothing lines it up");
     Ok(())
 }
+
+fn short(state: &State<Value>) -> Result<Value, Error> {
+    Ok(Value::from(format!("old:{}", state.try_into_string()?)))
+}
+
+/// Replacing a registered command with an alias drops the command's implementation: the alias
+/// carries no `impl_version`, and the query runs the target, not the old executor.
+#[tokio::test]
+async fn register_alias_replaces_a_registered_command() -> Result<(), Box<dyn std::error::Error>> {
+    let mut env = environment()?;
+    let cr = &mut env.command_registry;
+    register_command!(cr, fn short(state) -> result version: 7)?;
+    assert!(!cr
+        .command_metadata_registry
+        .get(key("short"))
+        .expect("short is registered")
+        .impl_version
+        .is_unknown());
+
+    cr.register_alias(
+        key("short"),
+        key("pick"),
+        vec![int(0)],
+        vec![ArgumentInfo::integer_argument("n", false).with_default(1)],
+    )?;
+    assert!(
+        cr.command_metadata_registry
+            .get(key("short"))
+            .expect("short is now an alias")
+            .impl_version
+            .is_unknown(),
+        "an alias has no implementation version"
+    );
+
+    let state = evaluate(env.to_ref(), "text-abc/short", None).await?;
+    assert_eq!(state.try_into_string()?, "a");
+    Ok(())
+}

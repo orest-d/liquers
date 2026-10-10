@@ -76,7 +76,9 @@ same rules as one built by `CommandRegistry::register_alias`.
 | No head fills an injected or a `multiple` target argument | `Error::invalid_alias` (`ParameterError`) |
 
 `register_alias` additionally checks the positional shape of §2 (count and flags), and copies the
-target's `state_argument`, `volatile`, `payload_required`, `expires` and `is_async`. A deserialized
+target's `state_argument`, `volatile`, `payload_required`, `expires` and `is_async`. Registered
+under the key of an existing command, it replaces that command entirely, executors and
+`impl_version` included; a refused registration changes nothing. A deserialized
 alias is planned without the shape check; a mismatch then surfaces when the target's executor reads
 its parameters.
 
@@ -126,4 +128,4 @@ arguments) would still be `ActionOrigin::Alias`: its rules live in the alias's m
 
 | Date | Change | Source |
 |---|---|---|
-| 2026-10-10 | Created: the argument contract, validation, planning with `ActionOrigin`, dependencies and execution, as implemented and tested (`liquers-core/tests/command_alias.rs`, `pl/head`). | `design/command-alias-contract/` |
+| 2026-10-10 | Created: the argument contract, validation (including replacement of a registered command), planning with `ActionOrigin`, dependencies and execution, as implemented and tested (`liquers-core/tests/command_alias.rs`, `pl/head`). | `design/command-alias-contract/` |
