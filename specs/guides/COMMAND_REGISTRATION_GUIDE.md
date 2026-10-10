@@ -298,6 +298,20 @@ register_command!(cr, async fn summarize(state, context) -> result)?;
 `set_title` keeps it (and returns `Ok`); a description the recipe left empty is still filled by the
 command. The values never change the asset's `version`. See `reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md`.
 
+### Reading the input's description: `state.metadata` versus `Context`
+
+The input state's metadata describes **the input**: its `data_format`, `filename`, the `key` it
+was read from and the `query` that produced it. Read the input's format there — that is what
+`polars::util::try_to_polars_dataframe` does — and never from the query the command runs in: in
+`-R/data/x.csv/-/ns-pl/slice-0-2/-/out.txt` the input is `csv`, while `out.txt` names the result.
+
+Everything about **the asset you are producing** goes through `Context`: logging, progress,
+`set_title`, `set_filename`, `get_metadata` (a copy of that asset's record). The input's status and
+log belong to the input — in a cut plan, to another asset. When the plan was applied to a supplied
+state, `state.metadata.is_applied` is `true` and its `query` names the computation rather than a
+value it reproduces. See `reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md` §Metadata
+ownership during evaluation.
+
 ### Accepting a variable number of parameters
 
 A command's declared arity is binding: a query that supplies more parameters than the command
@@ -992,6 +1006,7 @@ fn apply(...) -> Result<...> { ... }
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-10 | New §1 *Reading the input's description*: a command reads its input's format, key and origin from `state.metadata`, and its own asset through `Context`. | phase-5, `design/plan-step-state-metadata/` |
 | 2026-10-10 | New §1 *Where to put `context`*: any position works, the recommended one is last or before a `multiple` argument (Python `*args` parity); §*Accepting a variable number of parameters* points at it. | phase-5, `design/context-param-order/` |
 | 2026-10-10 | Quick Reference row and §2 *Registering an alias*: `register_alias`, the argument layout, inheritance, replacing a registered command, refusals, testing; `pl/head` as the example. | phase-5, `design/command-alias-contract/` |
 | 2026-10-09 | Quick Reference links the new `COMMAND_DESIGN_GUIDE.md` (cooperative cancellation); "Waiting for dependencies" adds the cascade of a cancelled dependency. | phase-5 (`design/asset-cancellation-outcome/`) |

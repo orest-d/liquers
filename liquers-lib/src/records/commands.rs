@@ -572,7 +572,7 @@ pub async fn file_records<E: Environment<Value = Value>>(
     ])?);
 
     // The directory's key arrives in the state's metadata: `-R-sdir/<dir>` (the store's listing)
-    // carries it into the next action (interpreter `value_origin_key`).
+    // carries it into the next action (interpreter `do_step_state`: a listing names its key).
     let dir_key = state.metadata.key()?.ok_or_else(|| {
         Error::general_error(
             "file_records needs a directory key in its input; use -R-sdir/<dir>/-/ns-rec/file_records"

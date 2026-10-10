@@ -58,7 +58,7 @@ pub fn display_recipe(ui: &mut egui::Ui, recipe: &Recipe) -> egui::Response {
             }
         }
         // Data format
-        if let Ok(fmt) = recipe.data_format() {
+        if let Ok(Some(fmt)) = recipe.data_format() {
             ui.horizontal(|ui| {
                 ui.colored_label(Color32::LIGHT_GRAY, "Data format:");
                 ui.label(fmt);

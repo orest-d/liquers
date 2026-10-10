@@ -35,18 +35,13 @@ type CommandEnvironment = DefaultEnvironment<Value>;
 
 /// The dependency every probe command evaluates through its resolver.
 ///
-/// A `RecordView`, not a scalar: `ChunkResolver::evaluate` classifies a resolved dependency
-/// through `classify_state` (`liquers-records/src/sources.rs`), which checks
-/// `value.as_record_view()` **before** ever calling `state.as_bytes()`. A scalar such as `I64`
-/// takes the fallback branch instead, and that call fails with `Unsupported format bin`: an
-/// ad-hoc query asset with no filename of its own (`target_value` has none) gets a *declared*
-/// `data_format` of `"bin"` from `Recipe::get_asset_info`/`Recipe::data_format`'s fallback —
-/// unconditionally, not only through the free `evaluate()` function
-/// (`FREE-FUNCTION-EVALUATE-BAKES-A-BIN-DATA-FORMAT`, filed by this step) — and `liquers-lib`'s
-/// `SimpleValue::as_bytes` has no `"bin"` arm at all (its own generic-bytes format is spelled
-/// `"b"`), so every scalar fails the same way regardless of which value is picked. A `RecordView`
-/// sidesteps the whole defect rather than re-demonstrating it: these tests are about dependency
-/// recording, not about the format bug.
+/// A `RecordView`: `ChunkResolver::evaluate` classifies a resolved dependency through
+/// `classify_state` (`liquers-records/src/sources.rs`), which checks `value.as_record_view()`
+/// before it ever serializes the state. The fixture was chosen when an ad-hoc query asset with no
+/// filename (`target_value` has none) declared `data_format: bin`, which no scalar could be
+/// written in (`FREE-FUNCTION-EVALUATE-BAKES-A-BIN-DATA-FORMAT`, closed by
+/// `design/plan-step-state-metadata/`: such an asset now declares no format). These tests are about
+/// dependency recording, so the fixture stays.
 fn target_value() -> Result<Value, Error> {
     let schema = Arc::new(RecordSchema::new(vec![FieldSchema::new("value", FieldType::Int)])?);
     let mut batch = RecordBatchMut::with_capacity(schema, 1);

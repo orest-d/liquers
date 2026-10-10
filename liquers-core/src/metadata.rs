@@ -944,6 +944,17 @@ pub struct AssetInfo {
     #[serde(default)] // Legacy support: old AssetInfo without this field defaults to None
     pub payload_required: PayloadRequirement,
 
+    /// Whether the value was produced by applying a plan to a supplied input state
+    /// (`AssetManager::apply`, `Context::apply`) rather than by evaluating `query` alone.
+    ///
+    /// The query of an applied asset — and of every intermediate state of its plan — names the
+    /// computation, not a reproducible value: the same query evaluated on its own would not
+    /// yield it. Such an asset is never keyed, cached or persisted; this field is where that fact
+    /// appears in metadata. Skipped when `false`, defaulted on load, so records of evaluated
+    /// assets serialize unchanged and older records load.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub is_applied: bool,
+
     /// Expiration specification (human-readable, e.g. "in 5 min", "never")
     #[serde(default)]
     pub expires: Expires,
@@ -1076,6 +1087,7 @@ impl From<AssetInfo> for MetadataRecord {
         metadata.error_data = asset_info.error_data;
         metadata.is_volatile = asset_info.is_volatile;
         metadata.payload_required = asset_info.payload_required;
+        metadata.is_applied = asset_info.is_applied;
         metadata.expires = asset_info.expires;
         metadata.expiration_time = asset_info.expiration_time;
         metadata.stored = asset_info.stored;
@@ -1193,6 +1205,17 @@ pub struct MetadataRecord {
     #[serde(skip_serializing_if = "PayloadRequirement::is_none")]
     #[serde(default)]
     pub payload_required: PayloadRequirement,
+
+    /// Whether the value was produced by applying a plan to a supplied input state
+    /// (`AssetManager::apply`, `Context::apply`) rather than by evaluating `query` alone.
+    ///
+    /// The query of an applied asset — and of every intermediate state of its plan — names the
+    /// computation, not a reproducible value: the same query evaluated on its own would not
+    /// yield it. Such an asset is never keyed, cached or persisted; this field is where that fact
+    /// appears in metadata. Skipped when `false`, defaulted on load, so records of evaluated
+    /// assets serialize unchanged and older records load.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub is_applied: bool,
 
     /// Expiration specification (human-readable, e.g. "in 5 min", "never")
     #[serde(default)]
@@ -1394,6 +1417,7 @@ impl MetadataRecord {
             error_data: self.error_data.clone(),
             is_volatile: self.is_volatile,
             payload_required: self.payload_required,
+            is_applied: self.is_applied,
             expires: self.expires.clone(),
             expiration_time: self.expiration_time.clone(),
             stored: self.stored,
@@ -1905,6 +1929,10 @@ impl Metadata {
                     .get("payload_required")
                     .and_then(|v| serde_json::from_value(v.clone()).ok())
                     .unwrap_or(PayloadRequirement::None);
+                m.is_applied = o
+                    .get("is_applied")
+                    .and_then(serde_json::Value::as_bool)
+                    .unwrap_or(false);
                 // Try to extract expires from JSON, default to Never
                 if let Some(expires_val) = o.get("expires") {
                     if let Some(s) = expires_val.as_str() {
@@ -2745,7 +2773,21 @@ impl Metadata {
         }
     }
 
-    /// Get the expiration specification
+    /// Returns whether the value was produced by applying a plan to a supplied input state, so
+    /// that its query is not self-describing (see [`MetadataRecord::is_applied`]). Legacy
+    /// metadata reads an `is_applied` key, absent = `false`.
+    pub fn is_applied(&self) -> bool {
+        match self {
+            Metadata::MetadataRecord(mr) => mr.is_applied,
+            Metadata::LegacyMetadata(serde_json::Value::Object(o)) => o
+                .get("is_applied")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false),
+            Metadata::LegacyMetadata(_) => false,
+        }
+    }
+
+        /// Get the expiration specification
     pub fn expires(&self) -> Expires {
         match self {
             Metadata::MetadataRecord(mr) => mr.expires.clone(),
@@ -4125,5 +4167,29 @@ mod tests {
 
         metadata.set_status(Status::Ready).unwrap();
         assert!(metadata.expiry_reason().is_none());
+    }
+
+    /// Phase 3 test 26 (AC-12) of `design/plan-step-state-metadata/`: `is_applied` is omitted
+    /// when false, defaults to false on load (records and legacy JSON alike), and survives the
+    /// `MetadataRecord` <-> `AssetInfo` round trip.
+    #[test]
+    fn is_applied_round_trips_and_defaults() -> Result<(), Box<dyn std::error::Error>> {
+        let mut record = MetadataRecord::new();
+        let json = serde_json::to_string(&record)?;
+        assert!(!json.contains("is_applied"), "{json}");
+        let reloaded: MetadataRecord = serde_json::from_str(&json)?;
+        assert!(!reloaded.is_applied);
+
+        record.is_applied = true;
+        let reloaded: MetadataRecord = serde_json::from_str(&serde_json::to_string(&record)?)?;
+        assert!(reloaded.is_applied);
+        let info = record.get_asset_info();
+        assert!(info.is_applied);
+        assert!(MetadataRecord::from(info).is_applied);
+
+        let legacy = Metadata::LegacyMetadata(serde_json::json!({"is_applied": true}));
+        assert!(legacy.is_applied());
+        assert!(!Metadata::LegacyMetadata(serde_json::json!({})).is_applied());
+        Ok(())
     }
 }
