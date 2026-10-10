@@ -1,16 +1,16 @@
 ---
 id: REGISTER-COMMAND-OPTION-VALUE
 kind: design
-title: register_command! rejects unsupported Option<T> argument types at expansion
+title: register_command! supports numeric and bool Option<T> arguments and rejects the rest
 status: in_review
 phase: implementation
-readiness: needs-decision
+readiness: ready
 autofix: not-eligible
-area: [macro]
+area: [macro, core/commands]
 issues: [REGISTER-COMMAND-OPTION-VALUE-CANNOT-BIND]
 created: 2026-10-06
 ---
-# register_command! rejects unsupported Option<T> argument types at expansion
+# register_command! supports numeric and bool Option<T> arguments and rejects the rest
 
 > **Acceptance scenarios not defined.** This design predates acceptance scenarios
 > (`specs/DOCS_STRUCTURE_GUIDE.md` §5.2.1). Consider updating it: state the Phase 1 acceptance

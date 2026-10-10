@@ -2,12 +2,14 @@
 
 ## Design Readiness
 
-- **Readiness:** needs-decision
-- **Automatic fixing:** not-eligible — adds `TryFrom`/`FromParameterValue` impls in `liquers-core`,
-  an `ArgumentType` variant and macro diagnostics in `liquers-macro` (rules 3, 4, 6)
-- **Leading issue:** **Open design question — scope after the 2026-10-10 finding** (below).
-- **Explanation:** Maintainer decisions of 2026-10-10 fix the semantics; the remaining question is
-  whether the numeric fix and `Option<bool>` share this design (re-sized `M`).
+- **Readiness:** ready
+- **Automatic fixing:** not-eligible — adds `TryFrom` impls on `pub` types in `liquers-core` and
+  `liquers-lib`, a serialized `ArgumentType::BooleanOption` variant, and macro diagnostics, across
+  core, macro, lib and py (rules 3, 4, 6)
+- **Leading issue:** None
+- **Explanation:** All questions decided on 2026-10-10. Re-sized from `S` to `M` by maintainer
+  decision: one design fixes numeric options, adds `Option<bool>`, and rejects every other
+  `Option<T>`.
 - **Decided (Maintainer decision, 2026-10-10):**
   1. `Option<String>` and `Option<Value>` are **not** supported, and there are no plans to: there is
      no easy way to spell `None` for a string in a query (entities could, later), and `Value` can
@@ -26,11 +28,10 @@
   `ArgumentType::IntegerOption`/`FloatOption` parsing exist; only these links are missing.
   `Option<bool>` needs the same `TryFrom` impls plus a new `ArgumentType::BooleanOption` (parsing as
   decided above), so nothing fundamental prevents it.
-- **Open questions:**
-  1. **Proposed resolution — one design, re-sized `M`:** fix numeric options (the `TryFrom` impls
-     for `Value` in `liquers-core` and `ExtValue` in `liquers-lib`, `FloatOpt` → `FloatOption`, the
-     missing integer widths), add `Option<bool>` with `ArgumentType::BooleanOption`, and reject every
-     other `Option<T>` with the clear error.
+- **Scope (Maintainer decision, 2026-10-10):** one design, re-sized `M`: fix numeric options (the
+  `TryFrom` impls, `FloatOpt` → `FloatOption`, the missing integer widths), add `Option<bool>` with
+  `ArgumentType::BooleanOption`, and reject every other `Option<T>` with the clear error.
+- **Open questions:** None.
 
 ## Problem
 
@@ -40,15 +41,22 @@ macro output (`CommandArguments::get` requires `FromParameterValue<T> + TryFrom<
 
 ## Expected behaviour and acceptance
 
-1. `fn f(state, x: Option<Value>) -> result` fails at expansion with a message naming the
-   parameter, the type, the supported list, and the workaround.
-2. All existing commands compile unchanged.
-3. (If question 2 is accepted) `Option<String>` and `Option<bool>` work: an absent parameter or a
-   JSON `null` gives `None`, otherwise `Some`. Their `ArgumentType` is decided below.
+1. `fn f(state, n: Option<i64>)` (and every integer width, `f32`, `f64`) registers, and evaluates:
+   `f` → `None`, `f-5` → `Some(5)`, a declared default applies on `""`.
+2. `fn g(state, flag: Option<bool>)` registers with `ArgumentType::BooleanOption` (wire `bool_opt`):
+   `g-t`/`g-TRUE`/`g-yes`/`g-y`/`g-1` → `Some(true)`; `g-f`/`g-no`/`g-n`/`g-0` → `Some(false)`;
+   `g-none`/`g-NONE` → `None`; `g` (empty) → the default, else `None`; anything else → conversion
+   error at the parameter position.
+3. A link argument (`~X~…~E`) resolving to a none value gives `None`, otherwise the converted value.
+4. `fn h(state, x: Option<Value>)`, `Option<String>` or any other `Option<T>` fails at expansion with
+   a message naming the parameter, the type, the supported list and the `String = ""` workaround.
+5. All existing registrations compile unchanged.
 
 ## Scope
 
-Macro validation, and possibly two core impls. No `Option<Value>` support.
+`liquers-core` (`commands.rs`, `value.rs`, `command_metadata.rs`, `plan.rs`), `liquers-macro`
+(`registration.rs`), `liquers-lib` (`TryFrom` for `SimpleValue`/`CombinedValue`, two display
+matches), `liquers-py` (the mirrored enum). No `Option<String>`/`Option<Value>` support.
 
 ## Design Dependencies
 
@@ -65,8 +73,7 @@ None. (`record-streams`, complete, used the `String = ""` workaround in `ns-rec`
 - The supported set must be derived from the core impls. Keep a single list in the macro with a
   comment pointing to `impl_from_parameter_value2_opt!` in `liquers-core/src/commands.rs`. A test
   per spelling (compiling registrations) keeps the two in step.
-- `ArgumentType` for `Option<String>`: there is no `StringOption` variant. The macro falls back to
-  `ArgumentType::Any` for unknown inners today. Recommended: map `Option<String>` → `String` and
-  `Option<bool>` → `Boolean`, and record `None` as the default value. Check how
-  `IntegerOption` differs from `Integer` in validation before finalizing. If the distinction
-  matters there, defer `Option<String>`/`Option<bool>` and only reject.
+- `IntegerOption` differs from `Integer` exactly where it matters: an empty parameter becomes
+  `null` (→ `None`) instead of an error. `Boolean` maps empty to `false`, so `Option<bool>` cannot
+  reuse it; hence `BooleanOption`. A `StringOption` would have no spelling for `None`, which is why
+  `Option<String>` is rejected.
