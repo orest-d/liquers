@@ -83,7 +83,7 @@ consume) and `role: FieldRole` (what a search index consumes) — plus a structu
 |---|---|
 | `RecordSchema` | `fields: Vec<FieldSchema>`, `type_identifier: Option<String>` (Liquers' type of the thing the rows describe), plus a private cached index of full-text fields |
 | `FieldSchema` | `name`, `label` (default: `name` with `_` → space, as `ArgumentInfo`), `description`, `data_type`, `nullable` (default `true`), `key`, `role`, `media_type` (`Option<String>`, omitted when `None`: the format a `Text` cell holds — `application/json` marks a JSON column, whose paths `attr.a.b` search can follow) |
-| `FieldType` | `Bool`, `Int` (i64), `UInt` (u64), `Float` (f64), `Text`, `Binary`, `Date` (days since epoch, i32), `Timestamp` (µs since epoch, i64), `Vector` (fixed-width f32) |
+| `FieldType` | `Bool`, `Int` (i64), `UInt` (u64), `Float` (f64), `Text`, `Binary`, `Date` (days since epoch, i32), `Timestamp` (µs since epoch, i64; a UTC instant in every format and in the polars bridge, decided 2026-10-10), `Vector` (fixed-width f32) |
 | `KeyRole` | `Id`, `Source` (index into the batch's origin dictionary), `None` (default) |
 | `FieldRole` | `indexed: Vec<IndexKind>`, `stored: bool`, `fast: bool`. Constructors `text()` (FullText, `Simple`, positions), `keyword()` (Exact), `numeric()` (Range), `vector(metric)` (Similarity), `stored_only()`, `ignored()` (= `default()`); combinators `and_stored()`, `and_fast()` |
 | `IndexKind` | `Exact`, `Substring`, `FullText { analyzer, positions }`, `Range`, `Similarity { metric }` |
@@ -417,7 +417,7 @@ input reads as clear), `set(i, v)` (**panics** out of range — the crate's only
 | `Text { validity, offsets: Buffer<i32>, data: AlignedBuffer }` | `len + 1` offsets, contiguous UTF-8 | `Utf8` |
 | `Binary { validity, offsets: Buffer<i32>, data: AlignedBuffer }` | as `Text` | `Binary` |
 | `Date { validity, values: Buffer<i32> }` | days since 1970-01-01 | `Date32` |
-| `Timestamp { validity, values: Buffer<i64> }` | µs since the epoch | `Timestamp(Microsecond)` |
+| `Timestamp { validity, values: Buffer<i64> }` | µs since the epoch, a UTC instant | `Timestamp(Microsecond, "UTC")` |
 | `Vector { validity, dim, data: Buffer<f32> }` | `dim × len` contiguous values | `FixedSizeList(Float32, dim)` |
 
 `validity: Option<Bitmap>` is `None` when no row is null. A null slot's value bytes are zero (fixed
@@ -473,13 +473,13 @@ pointer:
 |---|---|
 | `Text` / `Binary` | offsets are `len + 1` **`i32`** entries — Arrow's `Utf8` / `Binary`, not `LargeUtf8` / `Utf8View` |
 | `Vector` | Arrow's `FixedSizeList` is two levels: the list node has validity only, the `f32` values are a child `Float32` array |
-| `Timestamp` | no time zone is carried in the column |
+| `Timestamp` | the column carries no zone; it is always UTC, and the IPC writer declares `"UTC"` |
 
 | Route | Data copied | Status |
 |---|---|---|
 | Arrow IPC file (Feather v2) | yes — serialization | **built**, `liquers-records` `ipc` feature (see Table formats) |
 | typed arrays over wasm memory | none | **built**, `liquers-web` (see Browser sharing) |
-| polars `DataFrame` | yes | **built as Rust API only**: `liquers_lib::records::polars::{record_batch_to_dataframe, dataframe_to_record_batch}` (feature `polars`). No command exposes it. Roles are lost; no `Id` is guessed; `Vector` columns are refused |
+| polars `DataFrame` | yes | **built as Rust API only**: `liquers_lib::records::polars::{record_batch_to_dataframe, dataframe_to_record_batch}` (feature `polars`). No command exposes it. Roles are lost; no `Id` is guessed; `Vector` columns are refused; a `Timestamp` becomes `Datetime(µs, "UTC")`, and a `Datetime` of any unit and zone (naive taken as UTC) becomes a `Timestamp` with its epoch value unshifted |
 | Arrow C Data Interface (`liquers-py`, polars-arrow) | none | **not built** |
 
 ## Browser sharing
@@ -646,7 +646,7 @@ file. The `RecordSchema` travels as JSON under `liquers.schema` in the Arrow sch
 `sources` are not written.
 
 **Supported subset (read):** `Int(64, signed/unsigned)`, `FloatingPoint(Double)`, `Utf8`, `Binary`,
-`Bool`, `Date(Day)`, `Timestamp(Microsecond)` (the zone is ignored), `FixedSizeList<Float32>`, with
+`Bool`, `Date(Day)`, `Timestamp(Microsecond)` (any zone, or none, read as epoch µs without shifting), `FixedSizeList<Float32>`, with
 any number of record-batch messages (concatenated). **Refused, by name:** dictionary encoding, a
 compressed body, `LargeUtf8` / `LargeBinary`, `Utf8View` / `BinaryView`, other integer and float
 widths or time units, and any other nesting. Because polars writes text only as `Utf8View` or
@@ -780,9 +780,6 @@ materializes to an empty batch; without one it is an error.
 - **Arrow subset:** 64-bit integers, `Float64`, 32-bit-offset `Utf8` / `Binary`, `Bool`, `Date32`,
   `Timestamp(µs)`, `FixedSizeList<Float32>`. No dictionaries, compression, large or view types,
   decimals, times, durations, lists, structs or maps.
-- **Time zones:** a `Timestamp` is a UTC instant in the text formats, `table` JSON and Parquet, but
-  written naive in IPC and the polars bridge
-  ([`RECORD-TIMESTAMP-TIME-ZONE-DIFFERS-BY-FORMAT`](../issues/RECORD-TIMESTAMP-TIME-ZONE-DIFFERS-BY-FORMAT.md)).
 - **Interop:** polars-written IPC text is unreadable
   ([`IPC-READER-CANNOT-READ-ANY-POLARS-STRING-COLUMN`](../issues/IPC-READER-CANNOT-READ-ANY-POLARS-STRING-COLUMN.md));
   `Vector` columns cannot cross to polars
@@ -808,6 +805,7 @@ materializes to an empty batch; without one it is an error.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-11 | `Timestamp` is a UTC instant everywhere: IPC writes `Timestamp(Microsecond, "UTC")` and reads any zone without shifting; the polars bridge produces `Datetime(µs, "UTC")` and accepts any `Datetime`. The time-zone limitation is removed. | `design/record-timestamp-utc/` |
 | 2026-10-11 | `FieldSchema::media_type`; `FilteredSource`; roles gain their first consumer, `ns-search/search`. | phase-5, `design/store-and-asset-search/` |
 | 2026-10-10 | JSON: a schema-less `split` / `columns` / `index` read whose data has a column named `index` puts the index first, in the first free `index_<n>`, instead of losing it. | `design/json-orient-index-column-collision/` |
 | 2026-10-08 | JSON: a schema-less `split` / `values` read keeps the document's column order; only unordered shapes sort. | phase-5, `design/ordered-json-orient-column-order/` |

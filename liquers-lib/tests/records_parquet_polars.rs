@@ -210,3 +210,22 @@ fn parquet_uint_column_reads_back_unsigned_in_polars() -> Result<(), Box<dyn std
     assert_eq!(df.column("n")?.get(1)?, AnyValue::UInt64(7));
     Ok(())
 }
+
+#[cfg(feature = "records-ipc")]
+#[test]
+fn timestamp_dtype_agrees_across_parquet_and_ipc() -> Result<(), Box<dyn std::error::Error>> {
+    use polars::prelude::{DataType, IpcReader, TimeZone};
+
+    let batch = sample_batch()?;
+    let parquet = write_table(&batch, TableFormat::Parquet, &WriteOptions::default())?;
+    let ipc = write_table(&batch, TableFormat::Ipc, &WriteOptions::default())?;
+    let from_parquet: DataFrame = ParquetReader::new(Cursor::new(parquet)).finish()?;
+    let from_ipc: DataFrame = IpcReader::new(Cursor::new(ipc)).finish()?;
+    let bridged = record_batch_to_dataframe(&batch)?;
+
+    let utc = DataType::Datetime(TimeUnit::Microseconds, Some(TimeZone::UTC));
+    assert_eq!(from_parquet.column("created_at")?.dtype(), &utc);
+    assert_eq!(from_ipc.column("created_at")?.dtype(), &utc);
+    assert_eq!(bridged.column("created_at")?.dtype(), &utc);
+    Ok(())
+}

@@ -23,7 +23,7 @@ use std::sync::Arc;
 use liquers_core::error::{Error, ErrorType};
 use polars::prelude::{
     Column as PolarsColumn, DataFrame, DataType, IntoColumn, NamedFrom, ParquetReader, PlSmallStr,
-    SerReader, Series, TimeUnit,
+    SerReader, Series, TimeUnit, TimeZone,
 };
 
 use liquers_records::{
@@ -109,9 +109,10 @@ fn column_to_series(name: &str, column: &RecColumn) -> Result<Series, Error> {
             let slice = values.as_slice();
             let data: Vec<Option<i64>> =
                 (0..slice.len()).map(|i| present(validity, i).then(|| slice[i])).collect();
-            Series::new(pl_name, data)
-                .cast(&DataType::Datetime(TimeUnit::Microseconds, None))
-                .map_err(|e| Error::from_error(ErrorType::ConversionError, e))
+            // A `Timestamp` is a UTC instant; the zone says so, as Arrow IPC and Parquet do. The
+            // logical type is set directly: `cast` drops a zone unless polars' `timezones` feature
+            // is on.
+            Ok(Series::new(pl_name, data).into_datetime(TimeUnit::Microseconds, Some(TimeZone::UTC)))
         }
         RecColumn::Vector { .. } => Err(Error::not_supported(format!(
             "polars bridge: column '{name}' is Vector, which this bridge does not convert (needs \
@@ -209,8 +210,15 @@ fn append_series_values(column: &mut ColumnMut, series: &Series, field_type: Fie
             }
         }
         FieldType::Timestamp => {
+            // Only the unit changes: a zoned `Datetime` already holds epoch microseconds, and a
+            // naive one is taken as UTC, so keeping the input's zone keeps the values unshifted.
+            let time_zone = if let DataType::Datetime(_, time_zone) = series.dtype() {
+                time_zone.clone()
+            } else {
+                Some(TimeZone::UTC)
+            };
             let normalized = series
-                .cast(&DataType::Datetime(TimeUnit::Microseconds, None))
+                .cast(&DataType::Datetime(TimeUnit::Microseconds, time_zone))
                 .map_err(|e| Error::from_error(ErrorType::ConversionError, e))?;
             let physical = normalized.to_physical_repr();
             let ca = physical.i64().map_err(|e| Error::from_error(ErrorType::ConversionError, e))?;
