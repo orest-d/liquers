@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: M
 area: [axum]
-design: 
+design: axum-query-named-arguments
 created: 2026-10-10
 github:
 ---

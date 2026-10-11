@@ -14,6 +14,7 @@ Total rows: 109
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
+| [`QUERY-API-ARGUMENTS-ONLY-IN-QUERY-PATH`](issues/QUERY-API-ARGUMENTS-ONLY-IN-QUERY-PATH.md) | feature | Query API arguments cannot be passed as JSON or URL parameters | draft | needs-decision | not-eligible | P2 | M | axum | [design](design/axum-query-named-arguments/DESIGN.md) | 2026-10-10 |
 | [`COMMAND-CANNOT-BE-RUN-WITH-A-RESTRICTED-CONTEXT`](issues/COMMAND-CANNOT-BE-RUN-WITH-A-RESTRICTED-CONTEXT.md) | feature | A command cannot be run with a restricted context | draft |  |  | P2 | M | core/context;core/commands |  | 2026-09-17 |
 | [`CORE-METADATA-NO-APPLICATION-ATTRIBUTES`](issues/CORE-METADATA-NO-APPLICATION-ATTRIBUTES.md) | feature | Metadata cannot carry application-defined attributes | draft |  |  | P2 | M | core/value |  | 2026-09-15 |
 | [`CORE-TRACING-MIGRATION`](issues/CORE-TRACING-MIGRATION.md) | issue | Diagnostics use `eprintln!` rather than structured logging | accepted |  |  | P2 | M | core/error;build |  | 2026-08-08 |
@@ -31,7 +32,6 @@ Total rows: 109
 | [`POLARS-COMMAND-TESTS-BYPASS-COMMANDS`](issues/POLARS-COMMAND-TESTS-BYPASS-COMMANDS.md) | issue | The polars command integration tests never invoke a polars command | draft |  |  | P2 | M | lib/polars;build |  | 2026-08-25 |
 | [`PY-MODULES-NOT-DECLARED-IN-LIB`](issues/PY-MODULES-NOT-DECLARED-IN-LIB.md) | issue | Half of liquers-py's source files are not declared as modules and never compile | draft |  |  | P2 | M | py |  | 2026-08-25 |
 | [`PY-VALUE-SERIALIZER-IS-A-STUB`](issues/PY-VALUE-SERIALIZER-IS-A-STUB.md) | issue | liquers-py's value serializer writes almost nothing and reads nothing back | draft |  |  | P2 | M | py;core/value |  | 2026-08-26 |
-| [`QUERY-API-ARGUMENTS-ONLY-IN-QUERY-PATH`](issues/QUERY-API-ARGUMENTS-ONLY-IN-QUERY-PATH.md) | feature | Query API arguments cannot be passed as JSON or URL parameters | draft |  |  | P2 | M | axum |  | 2026-10-10 |
 | [`RECORDS-PARQUET-POLARS-READ-IGNORES-DECLARED-SCHEMA`](issues/RECORDS-PARQUET-POLARS-READ-IGNORES-DECLARED-SCHEMA.md) | issue | Reading Parquet through the polars bridge ignores a caller-declared schema | draft |  |  | P2 | M | records;lib/polars |  | 2026-09-27 |
 | [`SERIALIZED-BINARY-RETAINED-WITH-NO-DISPOSAL-POLICY`](issues/SERIALIZED-BINARY-RETAINED-WITH-NO-DISPOSAL-POLICY.md) | issue | A serialized binary is cached on the asset forever, with no policy for releasing it | draft |  |  | P2 | M | core/assets |  | 2026-09-05 |
 | [`STORE-CONFORMANCE-VALIDATION-TOOL`](issues/STORE-CONFORMANCE-VALIDATION-TOOL.md) | issue | No way to run the conformance suite against a store outside a test binary | accepted |  |  | P2 | M | store/backends;core/store |  | 2026-09-02 |
