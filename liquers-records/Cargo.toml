@@ -16,6 +16,13 @@ async-trait = "0.1.92"     # ManifestRecipeProvider implements core's #[async_tr
 scc = "3.8.8"              # the provider's manifest cache (Phase 3 §1.2 sketch)
 flatbuffers = { version = "25.12.19", optional = true }
 flate2 = { version = "1", optional = true }
+# Search (`src/search/`): the expression parser uses the same nom / nom_locate as liquers-core's
+# query parser, so `Position` converts from a `LocatedSpan` exactly as it does there; `regex` for
+# `/re/` clauses; `toml` for TOML front-matter in `field_extract`.
+nom = "8.0.0"
+nom_locate = "5.0.0"
+regex = "1.13.1"
+toml = "0.8"
 
 [dev-dependencies]
 tokio = { version = "1.53.1", features = ["macros", "rt"] }   # #[tokio::test], tokio::spawn

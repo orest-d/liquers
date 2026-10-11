@@ -68,5 +68,10 @@ async fn register_all_commands_registers_the_enabled_domains() -> Result<(), Err
         cfg!(feature = "records"),
         "records commands"
     );
+    assert_eq!(
+        has(&registry, "search", "catalog"),
+        cfg!(feature = "records"),
+        "search commands"
+    );
     Ok(())
 }

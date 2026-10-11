@@ -331,6 +331,7 @@ macro_rules! register_all_commands {
         $crate::register_image_commands!($cr)?;
         $crate::register_polars_commands!($cr)?;
         $crate::register_records_commands!($cr)?;
+        $crate::register_search_commands!($cr)?;
         $crate::register_lui_commands!($cr)?;
         Ok::<(), liquers_core::error::Error>(())
     }};
@@ -375,6 +376,16 @@ macro_rules! register_polars_commands {
 #[cfg(not(feature = "records"))]
 #[macro_export]
 macro_rules! register_records_commands {
+    ($cr:expr) => {{
+        let _ = &$cr;
+        Ok::<(), liquers_core::error::Error>(())
+    }};
+}
+
+/// No-op stand-in for `register_search_commands!` when the `records` feature is off.
+#[cfg(not(feature = "records"))]
+#[macro_export]
+macro_rules! register_search_commands {
     ($cr:expr) => {{
         let _ = &$cr;
         Ok::<(), liquers_core::error::Error>(())

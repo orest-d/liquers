@@ -1,5 +1,12 @@
 # Research questions
 
+> **Status at revision 8 (2026-10-10).** Background. §2, §5, §6 and §7 still inform this design.
+> §1's store-trait `select` is superseded: search is a command over records, and
+> `STORE-NO-CONTENT-OR-METADATA-SEARCH` is closed. The engine sections are input to
+> [`external-index-sync`](../external-index-sync/): §3 (Tantivy, decorators), §4 (GlueSQL), §8 (embeddings),
+> §9 (semantic search), §10 (the interoperability layer) and §11 (tinysearch). The Whoosh critique in §3
+> and the three "query language" distinctions in §4 stay here as background.
+
 The questions raised against the Phase 1 drafts, answered — nine from the first round, two more
 (§10, §11) from the scope slice that followed. Evidence is from the codebase
 at HEAD (2026-09-17), from the Python LiQuer prototype, and from the named external projects.
@@ -150,7 +157,7 @@ GlueSQL table**.
 
 **Where it intersects this design.** An *external* SQL database is fed and kept fresh exactly like
 an external search engine or vector store — same version diff, same reconciliation, same staleness
-declaration. That is [`interoperability-layer.md`](./interoperability-layer.md) §6, and it is why
+declaration. That is [`interoperability-layer.md`](../external-index-sync/interoperability-layer.md) §6, and it is why
 splitting SQL off is clean: the layer standardizes the feed and the freshness; each system keeps its
 own query contract.
 
@@ -325,7 +332,7 @@ its shape. A design that treats semantic search as a separate command has to bol
 ## 10. One interoperability layer for search engines, vector stores, RAG and external SQL?
 
 **Yes, and it should not be a hook system.** The analysis has its own document:
-[`interoperability-layer.md`](./interoperability-layer.md). The summary:
+[`interoperability-layer.md`](../external-index-sync/interoperability-layer.md). The summary:
 
 All four are the same thing — a materialized view of a Liquers corpus, living outside Liquers,
 answering what Liquers cannot answer cheaply. Each has three obligations: be fed, answer, stay

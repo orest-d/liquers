@@ -3,7 +3,7 @@ title: Record Stream Guide
 kind: guide
 audience: internal
 area: [records, lib/value]
-reviewed: 2026-10-10
+reviewed: 2026-10-11
 ---
 
 # Record Stream Guide
@@ -90,7 +90,12 @@ A field carries two kinds of information, and they are independent of each other
 - **What the field is**, set with `.with_key(KeyRole::Id | KeyRole::Source)`. The `Id` field is how
   `ns-rec/rec_id` finds a row. The `Source` field indexes the batch's `sources` dictionary (§2.3).
 - **How search indexes it**, set with `.with_role(FieldRole::text() | keyword() | numeric() |
-  vector(metric) | stored_only() | ignored())`.
+  vector(metric) | stored_only() | ignored())`. `ns-search/search` looks for plain words in the
+  `text()` fields by default, so give `text()` to every column a person would search by words
+  (names, titles, descriptions, bodies) and `keyword()` to codes and statuses. Leave the `Id`
+  field's role at its default. A `Text` column that holds JSON should also get
+  `.with_media_type("application/json")`, so that `attr.a.b:value` can reach inside it
+  ([`SEARCH.md`](../reference/SEARCH.md)).
 
 Presentation formats print `.with_label(…)` instead of the name, and `.not_null()` declares that
 the column holds no nulls (checked against a manifest's `uniform_schema`, §3.3). `file_records`
@@ -929,6 +934,7 @@ write-only. Parquet is written here and read back only through polars
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-11 | §2.1: which role to give a field so `ns-search/search` finds it; `with_media_type` for JSON columns. | phase-5, `design/store-and-asset-search/` |
 | 2026-10-10 | "`context` as its last parameter" restated as the recommendation: the macro now accepts `context` at any position. | phase-5, `design/context-param-order/` |
 | 2026-10-07 | §3.2: the directory-of-CSV-files manifest, quoted from its end-to-end test, with the two limits the test found. | `design/manifest-over-stored-csv-test/` |
 | 2026-10-06 | §3: adding or changing a manifest on a running server (event-driven folder listing, `clear_cache`, template chunks are producible not listed). | phase-5 |

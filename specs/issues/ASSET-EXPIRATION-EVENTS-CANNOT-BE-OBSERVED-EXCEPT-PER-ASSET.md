@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: L
 area: [core/assets]
-design: 
+design: external-index-sync
 created: 2026-09-17
 github:
 ---
@@ -111,3 +111,8 @@ HEAD: `AssetNotificationMessage::Expired` is sent at `assets.rs:3237`; the only 
 are at `assets.rs:1236` and `assets.rs:3039`, both on an asset rather than on a manager; the
 channel type is `watch` at `assets.rs:518`; and the cascade's expiry loop is guarded by
 `lookup_key_asset` at `assets.rs:4331`.
+
+## Design link, 2026-10-10
+
+This is the push path of the interoperability layer, which moved from `store-and-asset-search` to
+[`external-index-sync`](../design/external-index-sync/).

@@ -3,7 +3,7 @@ title: Record Streams
 kind: reference
 audience: internal
 area: [records, lib/value, lib/commands, web]
-reviewed: 2026-10-10
+reviewed: 2026-10-11
 ---
 
 # Record Streams
@@ -82,15 +82,16 @@ consume) and `role: FieldRole` (what a search index consumes) — plus a structu
 | Type | Fields / variants |
 |---|---|
 | `RecordSchema` | `fields: Vec<FieldSchema>`, `type_identifier: Option<String>` (Liquers' type of the thing the rows describe), plus a private cached index of full-text fields |
-| `FieldSchema` | `name`, `label` (default: `name` with `_` → space, as `ArgumentInfo`), `description`, `data_type`, `nullable` (default `true`), `key`, `role` |
+| `FieldSchema` | `name`, `label` (default: `name` with `_` → space, as `ArgumentInfo`), `description`, `data_type`, `nullable` (default `true`), `key`, `role`, `media_type` (`Option<String>`, omitted when `None`: the format a `Text` cell holds — `application/json` marks a JSON column, whose paths `attr.a.b` search can follow) |
 | `FieldType` | `Bool`, `Int` (i64), `UInt` (u64), `Float` (f64), `Text`, `Binary`, `Date` (days since epoch, i32), `Timestamp` (µs since epoch, i64), `Vector` (fixed-width f32) |
 | `KeyRole` | `Id`, `Source` (index into the batch's origin dictionary), `None` (default) |
 | `FieldRole` | `indexed: Vec<IndexKind>`, `stored: bool`, `fast: bool`. Constructors `text()` (FullText, `Simple`, positions), `keyword()` (Exact), `numeric()` (Range), `vector(metric)` (Similarity), `stored_only()`, `ignored()` (= `default()`); combinators `and_stored()`, `and_fast()` |
 | `IndexKind` | `Exact`, `Substring`, `FullText { analyzer, positions }`, `Range`, `Similarity { metric }` |
 | `Analyzer` / `VectorMetric` | `Raw`, `Simple`, `Stemming { language }`, `Named(String)` / `Cosine`, `Dot`, `Euclidean` |
 
-Roles are **capabilities the data affords**, not instructions; nothing in the tree consumes them yet
-beyond the Id rule and `text_fields()`.
+Roles are **capabilities the data affords**, not instructions. Beyond the Id rule, their one
+consumer is `ns-search/search`, whose default search fields are `text_fields()` (see
+[`SEARCH.md`](SEARCH.md)); `resolve_field` is how it resolves a field an expression names.
 
 **`RecordSchema::new` is the only constructor, and deserialization goes through it** (a private
 `RecordSchemaSpec`), so a hand-written YAML schema is checked too. It refuses:
@@ -274,6 +275,7 @@ the adapter by which `liquers-records` reads and builds `liquers-lib`'s `Value` 
 |---|---|---|
 | `ManifestSource` | the manifest's explicit chunks, then its template | its `ManifestSpec` |
 | `InMemorySource` | one per view, ids are placeholders (`in_memory_view-<n>`) never evaluated; `schema()` is `Some` only when every view's schema is equal | none |
+| `search::FilteredSource` | the inner source's, filtered lazily by a `Predicate`; the stream ends after `limit` matching rows (exactly `limit`), and the predicate is re-bound whenever a view's schema differs. Built by `ns-search/search` with `rank=false` ([`SEARCH.md`](SEARCH.md)) | none |
 
 A chunk that evaluates to a nested `RecordSource` is refused.
 
@@ -770,10 +772,10 @@ materializes to an empty batch; without one it is an error.
   records and polars; streaming a source over HTTP — a source reaches HTTP only materialized
   ([`VALUE-SERIALIZATION-IS-SYNCHRONOUS-AND-WHOLE-VALUE`](../issues/VALUE-SERIALIZATION-IS-SYNCHRONOUS-AND-WHOLE-VALUE.md),
   [`VALUE-SERIALIZATION-HAS-NO-INCREMENTAL-WRITER`](../issues/VALUE-SERIALIZATION-HAS-NO-INCREMENTAL-WRITER.md));
-  filtering / mapping source wrappers ([`RECORD-SOURCE-WRAPPERS-UNSPECIFIED`](../issues/RECORD-SOURCE-WRAPPERS-UNSPECIFIED.md));
+  a mapping source wrapper — filtering exists only as search's `FilteredSource` ([`RECORD-SOURCE-WRAPPERS-UNSPECIFIED`](../issues/RECORD-SOURCE-WRAPPERS-UNSPECIFIED.md));
   predicate pushdown into a source
   ([`NO-RELATIONAL-DATABASE-ACCESS-LAYER`](../issues/NO-RELATIONAL-DATABASE-ACCESS-LAYER.md)); use
-  of `FieldRole` by any index; producers that fill `ChunkOrigin` / `LocatorRule`; qualified field
+  of `FieldRole` by any index (search reads `text_fields()` only); producers that fill `ChunkOrigin` / `LocatorRule`; qualified field
   names outside `resolve_field`.
 - **Arrow subset:** 64-bit integers, `Float64`, 32-bit-offset `Utf8` / `Binary`, `Bool`, `Date32`,
   `Timestamp(µs)`, `FixedSizeList<Float32>`. No dictionaries, compression, large or view types,
@@ -806,6 +808,7 @@ materializes to an empty batch; without one it is an error.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-11 | `FieldSchema::media_type`; `FilteredSource`; roles gain their first consumer, `ns-search/search`. | phase-5, `design/store-and-asset-search/` |
 | 2026-10-10 | JSON: a schema-less `split` / `columns` / `index` read whose data has a column named `index` puts the index first, in the first free `index_<n>`, instead of losing it. | `design/json-orient-index-column-collision/` |
 | 2026-10-08 | JSON: a schema-less `split` / `values` read keeps the document's column order; only unordered shapes sort. | phase-5, `design/ordered-json-orient-column-order/` |
 | 2026-10-08 | A chunk refused during a manifest traversal is named in the error message by its index and key or query. | phase-5, `design/manifest-chunk-error-identity/` |

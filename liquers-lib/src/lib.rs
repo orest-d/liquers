@@ -7,6 +7,8 @@ pub mod image;
 pub mod polars;
 #[cfg(feature = "records")]
 pub mod records;
+#[cfg(feature = "records")]
+pub mod search;
 pub mod ui;
 pub mod utils;
 pub mod value;

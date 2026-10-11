@@ -3,7 +3,7 @@ title: Command Registration Guide
 kind: guide
 audience: internal
 area: [core/commands, macro]
-reviewed: 2026-10-10
+reviewed: 2026-10-11
 ---
 # Command Registration Guide
 
@@ -966,6 +966,16 @@ fn multiply(state: &State<Value>, factor: i32) -> Result<Value, Error> {
 
 Use `context.info()` or `context.log()` for logging instead of `println!`.
 
+### Commands that list or describe the store must not evaluate it
+
+A command that turns store entries into records — a listing, a catalog, an index — reads what is
+already there and never evaluates a key. Use the asset manager's `listdir` and `get_asset_info`,
+and read bytes only of an asset whose status is `Ready`, `Source` or `Override`. A key that only a
+recipe declares is listed with status `Recipe`; evaluating it would run an arbitrary, possibly
+expensive, command as a side effect of looking. `ns-search/catalog` is the model
+(`liquers-lib/src/search/catalog.rs`), and `liquers-lib/tests/search_commands.rs::
+catalog_never_evaluates_recipe_keys` is the test that pins it.
+
 ### Error Handling
 
 ```rust
@@ -1025,6 +1035,7 @@ fn apply(...) -> Result<...> { ... }
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-11 | New §5 *Commands that list or describe the store must not evaluate it*. | phase-5, `design/store-and-asset-search/` |
 | 2026-10-10 | New §Commands whose output is not worth keeping (`cached: false`); `cached` in the metadata statement list. | phase-5, `design/plan-policy/` |
 | 2026-10-10 | New §1 *Reading the input's description*: a command reads its input's format, key and origin from `state.metadata`, and its own asset through `Context`. | phase-5, `design/plan-step-state-metadata/` |
 | 2026-10-10 | New §1 *Where to put `context`*: any position works, the recommended one is last or before a `multiple` argument (Python `*args` parity); §*Accepting a variable number of parameters* points at it. | phase-5, `design/context-param-order/` |
