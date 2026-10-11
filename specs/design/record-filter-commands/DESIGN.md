@@ -7,7 +7,7 @@ workflow: liquers-project
 status: draft
 phase: high-level
 area: [records, lib/commands]
-issues: []
+issues: [RECORD-AND-POLARS-COMMANDS-NOT-INTEROPERABLE]
 created: 2026-10-11
 ---
 # Simple filter and sort commands for records (`ns-rec`)
@@ -15,6 +15,15 @@ created: 2026-10-11
 Split out of [`store-and-asset-search`](../store-and-asset-search/) on 2026-10-11, where these
 commands were AC-27 of its revision-8 Phase 1. They reuse that design's matching kernels, so they
 are built after it.
+
+**Scope to be widened when Phase 1 starts.** This design carries
+`RECORD-AND-POLARS-COMMANDS-NOT-INTEROPERABLE`, which asks for more than filters:
+- the same names and meanings in `ns-rec` and `ns-pl`;
+- `ns-pl` accepting records, and `ns-rec` accepting DataFrames;
+- `ns-rec`'s other missing operations (`tail`, `drop_columns`, `shape`, …);
+- an investigation of a `RecordSource` as a polars `LazyFrame`.
+
+The draft below covers only the filters and `sort`.
 
 ## Phase 1: High-Level Design
 
@@ -61,9 +70,9 @@ Today there is no `ns-rec` filter, so this needs the search syntax with escapes:
   WHEN the named column does not exist
   THEN the command fails, naming the column and the available ones.
 - **AC-7** Sort
-  WHEN `sort-<column>` is applied, optionally with `descending` true
+  WHEN `sort-<column>` is applied, optionally with `ascending` false
   THEN the rows are ordered by that column, stably, with nulls last. A source is materialized
-  first.
+  first. The signature is `pl/sort`'s.
 - **AC-8** List cells
   WHEN a cell holds a JSON array, as `field_extract` writes lists
   THEN a filter matches when any element matches.
@@ -92,7 +101,7 @@ async fn startswith(state, column: String, text: String, case_sensitive: bool = 
 async fn isin(state, column: String, values: Vec<String> multiple, context) -> result
 async fn isnull(state, column: String, context) -> result              // notnull
 async fn filter(state, query: String = "", context) -> result
-async fn sort(state, column: String, descending: bool = false, context) -> result
+async fn sort(state, column: String, ascending: bool = true, context) -> result
 ```
 
 Names and the `column` argument mirror `ns-pl`. The input is converted as `ns-search/search`

@@ -14,7 +14,7 @@ github:
 
 A coding agent working on a repository navigates source code by symbol: where a function is
 defined, which items a module exports, what a type's methods are, and what its doc comment says.
-Liquers can store and search source files as text (`ns-search/catalog-t-t`, `split-line` and a
+Liquers can store and search source files as text (`ns-search/catalog-t-t`, `md_split-line` and a
 regex, from `store-and-asset-search` revision 8). It has no notion of a symbol, a module, an item,
 or API documentation.
 
@@ -22,7 +22,7 @@ or API documentation.
 
 "Where is `get_asset_info` defined?" works only as a regex over lines (`/fn get_asset_info/`),
 which also finds calls, comments and other crates' items with the same name. Doc comments, item
-kinds and the module tree cannot be queried. The workaround is regex over `split-line`.
+kinds and the module tree cannot be queried. The workaround is regex over `md_split-line`.
 
 ## Expected behaviour
 

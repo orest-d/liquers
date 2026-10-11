@@ -14,7 +14,7 @@
 > - `field_extract`;
 > - simple `ns-rec` filter commands, which later moved to `record-filter-commands`.
 >
-> A third amendment, also on 2026-10-11, adds regular expressions, `split` (a proof of concept) and
+> A third amendment, also on 2026-10-11, adds regular expressions, `md_split` (a proof of concept) and
 > Markdown title fallback. It also simplifies the design:
 > - nested predicates parse JSON only, and the syntax names no formats;
 > - front-matter is `field_extract`'s alone;
@@ -345,7 +345,7 @@ pub async fn search<E>(state: State<Value>, query: String, rank: bool, case_sens
     limit: i64, fields: Vec<String>, context: Context<E>) -> Result<Value, Error>;
 pub async fn field_extract<E>(state: State<Value>, extension: String, prefix: String, flatten: bool,
     fields: Vec<String>, context: Context<E>) -> Result<Value, Error>;
-pub async fn split<E>(state: State<Value>, unit: String, context: Context<E>) -> Result<Value, Error>;
+pub async fn md_split<E>(state: State<Value>, unit: String, context: Context<E>) -> Result<Value, Error>;
 pub async fn folder_of<E>(state: &State<Value>, context: &Context<E>) -> Result<Option<Key>, Error>;
 pub enum SearchInput { View(Arc<dyn RecordView>), Source(Arc<dyn RecordSource>) }
 pub async fn search_input<E>(state: State<Value>, context: &Context<E>) -> Result<SearchInput, Error>;
@@ -389,7 +389,7 @@ Info log entry, and warnings go to `context.warning`.
    (after any front-matter) as `title` (AC-30).
 
 Reading content is one helper, `read_text(key, info, max_bytes)`, shared by `catalog`,
-`field_extract` and `split`.
+`field_extract` and `md_split`.
 
 **`field_extract`** steps. It needs no `catalog` in front of it:
 1. **A folder** (`folder_of` succeeds, as for `-R-key/specs/issues`) is listed recursively, like
@@ -406,7 +406,7 @@ Reading content is one helper, `read_text(key, info, max_bytes)`, shared by `cat
    seen; the schema is the union, and a missing key is null.
 7. Apply `prefix` and `flatten`, unify the types, and apply the replacement rule (AC-26).
 
-**`split` — a proof of concept** (AC-29). It is deliberately minimal, and stands in for a fuller
+**`md_split` — a proof of concept** (AC-29). It is deliberately minimal, and stands in for a fuller
 Markdown tool (`NO-MARKDOWN-NAVIGATION-COMMANDS`).
 - Input: as for `field_extract`, a folder or catalog records. Text comes from `content`, or from
   `read_text` for text media types.
@@ -433,7 +433,7 @@ The simple `ns-rec` filters that reuse these kernels are designed in
 |---|---|---|
 | `liquers-records` | `Cargo.toml` | `nom = "8"`, `nom_locate = "5"`, `toml = "0.8"` and `regex = "1"` |
 | `liquers-records` | `src/search/{mod,predicate,syntax,structure,kernels,rank,source}.rs` (new), `src/lib.rs` | Re-exports |
-| `liquers-lib` | `src/search/{mod,catalog,commands,extract,split}.rs` (new), `src/lib.rs` | Commands, `folder_of`, `search_input`, `register_search_commands!` |
+| `liquers-lib` | `src/search/{mod,catalog,commands,extract,md_split}.rs` (new), `src/lib.rs` | Commands, `folder_of`, `search_input`, `register_search_commands!` |
 | `liquers-lib` | `src/commands.rs`, `src/bin/export_command_registry.rs` | Register the `search` group beside `records`, with a no-op when `records` is off |
 | `specs` | `command_registry.yaml` | Regenerated |
 
@@ -450,7 +450,7 @@ The simple `ns-rec` filters that reuse these kernels are designed in
 | `Nested` on a non-Text column; a `Compare` value that does not parse | `Error::general_error` naming the field and its position |
 | A nested field test on a cell that is not JSON | A non-match, counted in one warning |
 | An invalid regex | `Error::parse_error(..).with_position(..)`; in the command, a warning and a literal search |
-| `field_extract` or `split` given an input that is neither a folder nor records | `Error::conversion_error_with_message` |
+| `field_extract` or `md_split` given an input that is neither a folder nor records | `Error::conversion_error_with_message` |
 | A negative `limit`, `max_bytes` or `max_entries` | `Error::general_error` |
 | `field_extract` with an extension outside the enum | Rejected by the enum argument |
 | `field_extract` with an extracted field named like the Id column | Skipped, with a warning |
@@ -474,7 +474,7 @@ async fn search(state, query: String = "", rank: bool = true, case_sensitive: bo
 async fn field_extract(state, extension: String = "md" (enum: ["md", "json", "yaml", "yml"]),
                        prefix: String = "", flatten: bool = false, fields: Vec<String> multiple,
                        context) -> result
-async fn split(state, unit: String = "section" (enum: ["section", "line"]), context) -> result
+async fn md_split(state, unit: String = "section" (enum: ["section", "line"]), context) -> result
 ```
 
 The results feed `rec` (`to_json`, `head`, `records_schema` for field discovery) and `pl`.
@@ -490,7 +490,7 @@ The trait makes that variant cheap to add later: it would hold an `Arc<dyn Predi
 
 | Path | Kind | Change |
 |---|---|---|
-| `specs/reference/SEARCH.md` | reference (new) | The grammar, including when `/` starts a regex, its semantics and escaping in a query; the trait and how to add a language; default fields; JSON paths; `field_extract` and front-matter; `split`; ranking and evidence; budget messages; schemas; inputs; non-evaluation; field discovery with `ns-rec/records_schema` |
+| `specs/reference/SEARCH.md` | reference (new) | The grammar, including when `/` starts a regex, its semantics and escaping in a query; the trait and how to add a language; default fields; JSON paths; `field_extract` and front-matter; `md_split`; ranking and evidence; budget messages; schemas; inputs; non-evaluation; field discovery with `ns-rec/records_schema` |
 | `specs/reference/RECORD_STREAMS.md` | reference | Roles and `resolve_field` now have a consumer; `FilteredSource` |
 | `specs/guides/COMMAND_REGISTRATION_GUIDE.md` | guide | A record-producing command for search must not evaluate |
 | `specs/README.md` | map | The capability changes from designing to built |
@@ -506,6 +506,6 @@ The trait makes that variant cheap to add later: it would hold an `Arc<dyn Predi
 | Crates and workflows | `liquers-records` and `liquers-lib`; the build matrix, including the wasm32 row (AC-22) |
 | Existing tests likely to change | `registry_export` |
 | New validation | Parser tests with positions; a property that `to_syntax` round-trips through `try_from`; kernel tests; command tests through `evaluate` for each AC |
-| Performance | `catalog` is O(corpus) per search. Nested JSON tests parse each cell once per mask. `split-line` over a large tree makes many rows: about 100 000 for this repository's `specs/`, which is fine in columnar form. Indexes are `external-index-sync`'s job |
+| Performance | `catalog` is O(corpus) per search. Nested JSON tests parse each cell once per mask. `md_split-line` over a large tree makes many rows: about 100 000 for this repository's `specs/`, which is fine in columnar form. Indexes are `external-index-sync`'s job |
 | Compatibility | Additive. The predicate trait is new public API in `liquers-records` |
 | Certainty | High for the commands and kernels. The trait's method set is the part most likely to change, at the Phase 3 tests |

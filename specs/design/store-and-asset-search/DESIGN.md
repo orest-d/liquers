@@ -145,7 +145,7 @@ and simplifications:
 - **Regular expressions** (AC-28): `/re/` and `field:/re/`, using the `regex` crate, whose
   matching time is linear. `/` starts a regex only at the beginning of an atom or a value, and
   only when a closing `/` is followed by a delimiter, so `area:core/store` stays a plain value.
-- **`split`** (AC-29): sections or lines as records. It is a proof of concept for a fuller
+- **`md_split`** (AC-29): sections or lines as records. It is a proof of concept for a fuller
   Markdown tool, `NO-MARKDOWN-NAVIGATION-COMMANDS`.
 - **Title fallback** (AC-30): the first `# ` heading becomes the title of plain Markdown.
 - **`field_extract` reads a folder itself**; records given to it are taken as a catalog.

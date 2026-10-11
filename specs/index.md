@@ -8,8 +8,8 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 113
-- P2: 53
+Total rows: 114
+- P2: 54
 - P3: 60
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
@@ -56,6 +56,7 @@ Total rows: 113
 | [`LIBRARY-CODE-USES-UNWRAP-AND-EXPECT`](issues/LIBRARY-CODE-USES-UNWRAP-AND-EXPECT.md) | issue | Library code uses unwrap and expect despite the no-panic rule | draft |  |  | P2 | L | core/query;lib/commands;axum | [phase1](design/axum-assets-endpoints/phase1-high-level-design.md)  [phase2](design/axum-assets-endpoints/phase2-architecture.md)  [phase3](design/axum-assets-endpoints/phase3-examples.md)  [phase4](design/axum-assets-endpoints/phase4-implementation.md)  | 2026-08-17 |
 | [`NO-SQL-QUERY-CAPABILITY-OVER-STORED-AND-DERIVED-DATA`](issues/NO-SQL-QUERY-CAPABILITY-OVER-STORED-AND-DERIVED-DATA.md) | feature | No SQL query capability over stored and derived data | draft |  |  | P2 | L | core/store;lib/commands |  | 2026-09-17 |
 | [`QUERY-BUILDER-TOOLING`](issues/QUERY-BUILDER-TOOLING.md) | issue | No programmatic builder for constructing queries | accepted |  |  | P2 | L | core/query;core/validate |  | 2026-08-08 |
+| [`RECORD-AND-POLARS-COMMANDS-NOT-INTEROPERABLE`](issues/RECORD-AND-POLARS-COMMANDS-NOT-INTEROPERABLE.md) | feature | Record and polars commands differ in names and inputs, so a query cannot move between them | draft |  |  | P2 | L | records | [design](design/record-filter-commands/DESIGN.md) | 2026-10-11 |
 | [`RESOURCE-NAME-ASCII-ONLY`](issues/RESOURCE-NAME-ASCII-ONLY.md) | issue | Non-ASCII resource names are unaddressable | draft |  |  | P2 | L | core/query;core/store |  | 2026-08-14 |
 | [`STORE-METADATA-LAYOUT-HARDCODED-PER-STORE`](issues/STORE-METADATA-LAYOUT-HARDCODED-PER-STORE.md) | issue | Every writable store hard-codes its own metadata layout | draft |  |  | P2 | L | core/store;store/backends;web;docs |  | 2026-09-03 |
 | [`TYPE-REGISTRY-NOT-REALM-AWARE`](issues/TYPE-REGISTRY-NOT-REALM-AWARE.md) | feature | A query spanning two realms cannot know which types the other realm supports | draft |  |  | P2 | L | core/value;core/commands;core/plan;web;axum |  | 2026-08-18 |

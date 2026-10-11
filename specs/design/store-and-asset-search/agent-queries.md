@@ -115,10 +115,10 @@ and it belongs with the filters.
   `search-~/fn~.~nbsol~w~nplus~_asset_info~/` decodes to `/fn \w+_asset_info/`. That is
   unwritable by hand, so an agent tool builds it.
 
-**P2 — `split`: sub-file records.**
+**P2 — `md_split`: sub-file records.**
 
 ```
-async fn split(state, unit: String = "section" (enum: ["section", "line"]), context) -> result
+async fn md_split(state, unit: String = "section" (enum: ["section", "line"]), context) -> result
 ```
 
 - Input: records with `key` and `content` (from `catalog-t-t`), or a folder.
@@ -130,9 +130,9 @@ async fn split(state, unit: String = "section" (enum: ["section", "line"]), cont
   - `heading`: the section path, `Phase 2 > Data Structures`;
   - `text`.
 - What it provides:
-  - `grep -n` is `catalog-t-t/split-line/search-~/re~/-f-0`;
-  - a retrieval passage is `catalog-t-t/split-section/search-…`;
-  - reading part of a file is `split-line`, then `ns-rec/slice`.
+  - `grep -n` is `catalog-t-t/md_split-line/search-~/re~/-f-0`;
+  - a retrieval passage is `catalog-t-t/md_split-section/search-…`;
+  - reading part of a file is `md_split-line`, then `ns-rec/slice`.
 - No new search machinery: it is a record producer like `catalog`.
 
 **P3 — L0/L1 for plain Markdown.** When `catalog` reads content (`content=true`), a Markdown entry
@@ -160,5 +160,5 @@ The amendments of 2026-10-11 added more than these questions need. The proposed 
 3. **The `ns-rec` filters** have moved to [`record-filter-commands`](../record-filter-commands/).
 
 The resulting surface is five commands in `ns-search`: `catalog`, `commands`, `field_extract`,
-`split` and `search` (with regex). Every question in §§1–3 marked "yes" or "P1–P3" is answered
+`md_split` and `search` (with regex). Every question in §§1–3 marked "yes" or "P1–P3" is answered
 by them alone, except ordering by a column.

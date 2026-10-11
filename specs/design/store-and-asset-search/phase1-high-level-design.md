@@ -160,9 +160,9 @@ carries `key`, `status`, `title`, `score` and `excerpt`. The query was validated
   ordinary text. An invalid pattern produces a warning with its position, and the input is searched
   as plain words.
 - **AC-29** Sections and lines (proof of concept)
-  WHEN `split-section` or `split-line` follows a folder or catalog records
+  WHEN `md_split-section` or `md_split-line` follows a folder or catalog records
   THEN there is one row per Markdown section (with `heading` path, `line`, `end_line` and `text`)
-  or per line, so `split-line/search-/re/` gives matching lines with line numbers.
+  or per line, so `md_split-line/search-/re/` gives matching lines with line numbers.
 - **AC-30** A title for plain Markdown
   WHEN `catalog` reads content and a `.md` entry's metadata has no title
   THEN its first `# ` heading becomes `title`.
@@ -181,7 +181,7 @@ carries `key`, `status`, `title`, `score` and `excerpt`. The query was validated
   is read from content, by `field_extract` (AC-24) or by a nested predicate (AC-17);
 - passing arguments by name over HTTP (`QUERY-API-ARGUMENTS-ONLY-IN-QUERY-PATH`);
 - future extensions, each filed:
-  - a Markdown navigation, filtering and interpretation tool, of which `split` is the proof of
+  - a Markdown navigation, filtering and interpretation tool, of which `md_split` is the proof of
     concept (`NO-MARKDOWN-NAVIGATION-COMMANDS`);
   - navigating and extracting source code and API documentation
     (`NO-SOURCE-CODE-AND-API-DOC-NAVIGATION`);
