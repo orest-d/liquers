@@ -539,3 +539,39 @@ async fn md_split_sections_and_lines() -> Res {
     assert!(!texts(&everything, "key").contains(&"src/lib.rs".to_string()), "sections are .md only");
     Ok(())
 }
+
+// ------------------------------------------------------------------------------------------------
+// guides/SEARCH_GUIDE.md
+// ------------------------------------------------------------------------------------------------
+
+/// Every query in a bare (no language) fenced block of the guide, one per line.
+fn guide_queries() -> Vec<String> {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../specs/guides/SEARCH_GUIDE.md");
+    let guide = std::fs::read_to_string(path).expect("SEARCH_GUIDE.md");
+    let mut queries = Vec::new();
+    let mut in_block = None;
+    for line in guide.lines() {
+        match (in_block, line.trim_end()) {
+            (None, fence) if fence.starts_with("```") => in_block = Some(fence == "```"),
+            (Some(_), "```") => in_block = None,
+            (Some(true), query) if !query.trim().is_empty() => queries.push(query.trim().to_string()),
+            (Some(_), _) | (None, _) => {}
+        }
+    }
+    queries
+}
+
+#[tokio::test]
+async fn guide_queries_run() -> Res {
+    let queries = guide_queries();
+    assert!(queries.len() >= 10, "{queries:?}");
+    let env = fixture("guide_queries_run").await?;
+    for query in &queries {
+        let state = eval(&env, query).await.unwrap_or_else(|e| panic!("{query}: {e}"));
+        let value = state.value().unwrap_or_else(|e| panic!("{query}: {e}"));
+        if let Ok(view) = value.as_record_view() {
+            assert!(view.len() > 0, "{query}: no rows");
+        }
+    }
+    Ok(())
+}
