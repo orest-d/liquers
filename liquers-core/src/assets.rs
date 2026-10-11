@@ -4294,7 +4294,8 @@ impl<E: Environment> AssetRef<E> {
     /// it rather than reading `Cancelled` as a failure.
     ///
     /// Contract for an [`AssetManager`] replacing or removing an asset: call it once, after
-    /// [`Self::cancel_for_replacement`] (or `cancel`), after unmapping the asset, and after the key
+    /// [`Self::cancel_for_replacement`] (not `cancel`, which can return while the run is still
+    /// active and later overwrite this message), after unmapping the asset, and after the key
     /// shows what replaced it (the new asset mapped, the store written). A subscriber woken by it
     /// then re-subscribes to the replacement rather than to this asset again. Nothing is sent to
     /// this asset after it, so it is the last message a subscriber sees. It changes no state; it
@@ -6886,6 +6887,20 @@ pub trait AssetManager<E: Environment>:
             .dependency_manager()
             .register_written_version(dep_key, version)
             .await;
+        self.expire_dependencies_result(expired, ExpiryCause::Updated { version })
+            .await;
+    }
+
+    /// Register an asset a write installed, and the dependency records in its metadata, in the
+    /// dependency graph, so it is expired when one of its dependencies changes later.
+    ///
+    /// The primitive an external manager's `set_state` calls once the installed asset is mapped,
+    /// as the built-in managers do; `version` is the installed version, the cause recorded on
+    /// anything the registration finds stale. Only `Ready`, `Source` and `Override` assets are
+    /// registered. Like [`Self::publish_version`] it touches the graph only and may be called with
+    /// [`KeyMutationAccess::key_mutation_lock`] held.
+    async fn track_installed(&self, asset: &AssetRef<E>, version: Version) {
+        let expired = self.dependency_manager().track_asset(asset).await;
         self.expire_dependencies_result(expired, ExpiryCause::Updated { version })
             .await;
     }

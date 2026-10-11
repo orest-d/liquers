@@ -33,3 +33,9 @@ asset again. A metadata-only `set_state` removes the key's stored object first, 
 value's bytes do not survive beside the new metadata (`scenario_unserializable_state_replaces_stored_bytes`).
 `new_installed` also projects the key into the installed metadata, as `new_ext` does for every
 keyed asset, so `get_metadata()` names the key `AssetRef::key()` reports.
+Further review rounds: the minimal manager maps an installed state only once persisted; the
+`notify_removed` contract requires `cancel_for_replacement`, since `cancel` can return while the
+run is still active; and a third public item, `AssetManager::track_installed`, registers an
+installed asset's dependency records as the built-in `set_state` does with the crate-private
+`track_asset` (`scenario_installed_state_expires_with_its_dependency`, all three managers). The
+surface therefore widened by three items, not two.

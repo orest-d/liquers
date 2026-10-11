@@ -51,3 +51,5 @@ supplied state with `new_installed`, so it serves a value that has no byte form.
 `scenario_set_state_of_unserializable_value_is_served` (the external manager; the built-ins
 validate the declared format and refuse that fixture). `ASSET_MANAGER_IMPLEMENTATION_GUIDE.md`
 §5 and §11 updated. Design: `design/external-manager-replacement-surface/`.
+A third item followed from review: `AssetManager::track_installed` registers an installed asset's
+dependency records, which an external manager could not reach before.

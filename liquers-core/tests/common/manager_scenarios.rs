@@ -1247,6 +1247,53 @@ where
     Ok(())
 }
 
+/// A state installed by `set_state` with dependency records is expired when one of those
+/// dependencies is later written. The key has a recipe (`dash.txt` in [`recipe_store`]), so the
+/// state is an `Override`; a `Source` is an input and is never expired.
+pub async fn scenario_installed_state_expires_with_its_dependency<E>(
+    envref: EnvRef<E>,
+) -> Result<(), Error>
+where
+    E: Environment<Value = Value>,
+{
+    use liquers_core::metadata::{DependencyKey, DependencyRecord, MetadataRecord};
+
+    let m = envref.get_asset_manager();
+    let dependency = parse_key("data/dep.txt")?;
+    let derived = parse_key("dash.txt")?;
+    m.set_state(&dependency, State::new().with_data(Value::from("a")))
+        .await?;
+    let recorded = m
+        .get(&dependency)
+        .await?
+        .get_metadata()
+        .await?
+        .version()
+        .ok_or_else(|| Error::general_error("the dependency has no version".to_string()))?;
+
+    let mut record = MetadataRecord::new();
+    record.dependencies = vec![DependencyRecord::new(
+        DependencyKey::from(&dependency),
+        recorded,
+    )];
+    let state = State::new()
+        .with_data(Value::from("derived from a"))
+        .with_metadata(Metadata::MetadataRecord(record));
+    m.set_state(&derived, state).await?;
+    let installed = m.get(&derived).await?;
+    assert_eq!(installed.status().await, Status::Override);
+
+    m.set_state(&dependency, State::new().with_data(Value::from("b")))
+        .await?;
+    let status = installed.status().await;
+    assert_eq!(
+        status,
+        Status::Expired,
+        "a change to a recorded dependency must expire the installed state"
+    );
+    Ok(())
+}
+
 /// A subscriber of an asset replaced by `set_state` sees the terminal `Removed` as its last
 /// message, so it re-subscribes rather than reading `Cancelled` as a failure (E2/T3).
 pub async fn scenario_replaced_asset_receives_removed_last<E>(

@@ -207,10 +207,12 @@ impl<E: Environment> MinimalInlineAssetManager<E> {
         self.assets
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .insert(key.clone(), asset);
+            .insert(key.clone(), asset.clone());
         if matches!(final_status, Status::Source | Status::Override) {
             if let Some(version) = metadata.version {
                 self.publish_version(&DependencyKey::from(key), version).await;
+                // The state's dependency records, so a later change to one expires it.
+                self.track_installed(&asset, version).await;
             }
         }
         Ok(())
