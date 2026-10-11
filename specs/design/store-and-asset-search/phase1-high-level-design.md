@@ -152,13 +152,8 @@ carries `key`, `status`, `title`, `score` and `excerpt`. The query was validated
   in a catalog)
   THEN the extracted column replaces it, keeping that column's role, and a log entry names the
   replaced columns. The Id column is never replaced; such a field is skipped with a warning.
-- **AC-27** Simple filter commands
-  WHEN `ns-rec` filters are chained on records, as in
-  `…/ns-search-rec/catalog/eq-filename-DESIGN.md/field_extract/eq-phase-architecture`
-  THEN each keeps only the matching rows. The filters are `eq`, `ne`, `gt`, `gte`, `lt`, `lte`
-  (the names and the `column` argument mirror `ns-pl`),
-  `startswith`, `endswith`, `contains`, `glob`, `isin`, `isnull`, `notnull`, and `filter-<expr>`
-  (the search syntax without ranking). Over a record source they filter lazily.
+- ~~**AC-27** Simple filter commands~~ — moved on 2026-10-11 to
+  [`record-filter-commands`](../record-filter-commands/), where it is AC-1 to AC-7.
 - **AC-22** Browser build
   WHEN `liquers-lib` is built for `wasm32` with `records`
   THEN the `search` commands are registered, and the build matrix covers it.
@@ -233,7 +228,13 @@ Answered by the user on 2026-10-11:
      extension, an enum of `md`, `json`, `yaml` and `yml`, defaulting to `md` (AC-24 to AC-26).
      Only `md`, `json` and `yaml` structures are supported, and TOML front-matter is included
      under `md`.
-   - Simple `ns-rec` filters make selection writable without escaping (AC-27).
+   - Simple `ns-rec` filters moved to [`record-filter-commands`](../record-filter-commands/).
+
+7. ~~`field_extract`'s `flatten` default?~~ **False** (user, 2026-10-11).
+8. ~~Roles of extracted columns?~~ Roles do not limit `search`: any column can be named in a field
+   test or in the field list. Roles only choose the *default* free-text fields and matter to an
+   external engine. A command that sets roles belongs to
+   [`external-index-sync`](../external-index-sync/) (user, 2026-10-11).
 
 ## References
 

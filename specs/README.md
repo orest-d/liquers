@@ -359,6 +359,7 @@ deliberately folded behind a broader line.
 - design `queued-manager-conditional-eviction`
 - design `rec-id-iso-date-parsing`
 - design `recipe-plan-declarations`
+- design `record-filter-commands`
 - design `record-timestamp-utc`
 - design `recovery-read-defers-placeholder`
 - design `refresh-command-metadata-versions`

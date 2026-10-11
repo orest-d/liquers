@@ -122,9 +122,8 @@ So:
 Its result is an ordinary, cached asset: the query
 `-R-key/specs/issues/-/ns-search-rec/catalog/field_extract` is `specs/index.csv` as a table.
 
-**Simple `ns-rec` filters** (`eq`, `ne`, `gt`, `gte`, `lt`, `lte`, `startswith`, `endswith`,
-`contains`, `glob`, `isin`, `isnull`, `notnull`, `filter`) make selection writable without
-escaping, since `*` and `:` must be escaped in a query (`~nast~`, `~ncolon~`).
+**Simple `ns-rec` filters** were designed here and then moved to
+[`record-filter-commands`](../record-filter-commands/) on 2026-10-11, at the user's request.
 
 **Design documents and phases.** Only `DESIGN.md` carries front-matter, with `phase:` and
 `status:`. The phase documents have none. So:
@@ -217,6 +216,8 @@ Numbers are those of revision 7.
 - [Phase 3](./phase3-examples.md)
 - [Phase 4](./phase4-implementation.md)
 - [Phase 5](./phase5-documentation.md)
+- [Agent queries](./agent-queries.md): the questions an agent asks, how each is expressed, the
+  gaps, and the proposed simplifications (2026-10-11)
 - Background: [use cases](./use-cases.md), [research questions](./research-questions.md),
   [options analysis](./options-analysis.md)
 - [`external-index-sync`](../external-index-sync/) and [`record-streams`](../record-streams/)

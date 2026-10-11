@@ -12,7 +12,7 @@
 > A second amendment the same day adds:
 > - reliable-only structure recognition, with explicit formats;
 > - `field_extract`;
-> - simple `ns-rec` filter commands.
+> - simple `ns-rec` filter commands, which later moved to `record-filter-commands`.
 
 ## Overview
 
@@ -368,23 +368,8 @@ Info log entry, and warnings go to `context.warning`.
    seen; the schema is the union, and a missing key is null.
 7. Apply `prefix` and `flatten`, unify the types, and apply the replacement rule (AC-26).
 
-**`ns-rec` filters** (`liquers-lib/src/records/filters.rs`). Each one builds a one-node
-`SearchExpr` directly, so nothing is parsed and nothing needs escaping. It then runs the
-`rank = false`, `limit = 0` path of `search`, so it is lazy over a source:
-
-```rust
-pub async fn eq<E>(state: State<Value>, column: String, value: String, context: Context<E>) -> Result<Value, Error>;
-// ne, gt, gte, lt, lte: the same signature; the value is parsed to the column's type
-pub async fn startswith<E>(state: State<Value>, column: String, text: String, case_sensitive: bool, context: Context<E>) -> Result<Value, Error>;
-// endswith, contains, glob: the same signature
-pub async fn isin<E>(state: State<Value>, column: String, values: Vec<String>, context: Context<E>) -> Result<Value, Error>;
-pub async fn isnull<E>(state: State<Value>, column: String, context: Context<E>) -> Result<Value, Error>;
-// notnull: the same signature
-pub async fn filter<E>(state: State<Value>, query: String, context: Context<E>) -> Result<Value, Error>;
-```
-
-On a filter command, an unknown column is an **error**, not a warning: the column is named on its
-own, so a typo should fail.
+The simple `ns-rec` filters that reuse these kernels are designed in
+[`record-filter-commands`](../record-filter-commands/).
 
 **Sync or async:** the kernels are sync; the commands are async.
 
@@ -395,7 +380,6 @@ own, so a typo should fail.
 | `liquers-records` | `Cargo.toml` | `nom = "8"`, `nom_locate = "5"` and `toml = "0.8"` |
 | `liquers-records` | `src/search/{mod,predicate,syntax,structure,kernels,rank,source}.rs` (new), `src/lib.rs` | Re-exports |
 | `liquers-lib` | `src/search/{mod,catalog,commands,extract}.rs` (new), `src/lib.rs` | Commands, `folder_of`, `search_input`, `register_search_commands!` |
-| `liquers-lib` | `src/records/filters.rs` (new), `src/records/commands.rs` | The `ns-rec` filters, registered in `register_records_commands!` |
 | `liquers-lib` | `src/commands.rs`, `src/bin/export_command_registry.rs` | Register the `search` group beside `records`, with a no-op when `records` is off |
 | `specs` | `command_registry.yaml` | Regenerated |
 
@@ -414,7 +398,6 @@ own, so a typo should fail.
 | A negative `limit`, `max_bytes` or `max_entries` | `Error::general_error` |
 | `field_extract` with an extension outside the enum | Rejected by the enum argument |
 | `field_extract` with an extracted field named like the Id column | Skipped, with a warning |
-| A filter command naming an unknown column | `Error::general_error` naming the field and the available ones |
 | A source too large to rank | The `materialize` error, which suggests `rank=false` |
 
 ## Sync vs Async
@@ -435,17 +418,6 @@ async fn search(state, query: String = "", rank: bool = true, case_sensitive: bo
 async fn field_extract(state, extension: String = "md" (enum: ["md", "json", "yaml", "yml"]),
                        prefix: String = "", flatten: bool = false, fields: Vec<String> multiple,
                        context) -> result
-```
-
-Namespace **`rec`**, additions:
-
-```
-async fn eq(state, column: String, value: String, context) -> result        // and ne, gt, gte, lt, lte
-async fn startswith(state, column: String, text: String, case_sensitive: bool = true, context) -> result
-                                                                            // and endswith, contains, glob
-async fn isin(state, column: String, values: Vec<String> multiple, context) -> result
-async fn isnull(state, column: String, context) -> result                    // and notnull
-async fn filter(state, query: String = "", context) -> result
 ```
 
 The results feed `rec` (`to_json`, `head`, `records_schema` for field discovery) and `pl`.
