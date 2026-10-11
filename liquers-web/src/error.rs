@@ -88,6 +88,37 @@ pub struct LiquersError {
 
 #[wasm_bindgen(js_class = LiquersError)]
 impl LiquersError {
+    /// `new LiquersError(errorType, message, query?)`: a typed error a page can throw back at
+    /// Liquers, for example from a `JsStore` delegate. `errorType` is a name as `errorType`
+    /// reports it (`"key_not_found"`); an unknown name is a `TypeError`, never a silent `general`.
+    /// A key is given as a key query (`"-R/data/a.txt"`) in `query`; a query that does not parse is
+    /// a `TypeError`. `key`, `jsClass` and `jsStack` stay null: the page did not throw a JavaScript
+    /// exception, and `key` is filled only by Liquers.
+    #[wasm_bindgen(constructor)]
+    pub fn construct(
+        #[wasm_bindgen(js_name = errorType)] error_type: &str,
+        message: String,
+        query: Option<String>,
+    ) -> Result<LiquersError, JsValue> {
+        let Some(error_type) = error_type_from_name(error_type) else {
+            return Err(js_sys::TypeError::new(&format!(
+                "LiquersError: unknown error type '{error_type}'"
+            ))
+            .into());
+        };
+        let mut error = Error::from_error(error_type, message);
+        if let Some(text) = query {
+            let parsed = liquers_core::parse::parse_query(&text).map_err(|e| {
+                JsValue::from(js_sys::TypeError::new(&format!(
+                    "LiquersError: invalid query '{text}': {}",
+                    e.message
+                )))
+            })?;
+            error = error.with_query(&parsed);
+        }
+        Ok(LiquersError::new(error))
+    }
+
     /// The error type, as a stable string such as `"conversion_error"`.
     #[wasm_bindgen(getter, js_name = errorType)]
     pub fn error_type(&self) -> String {

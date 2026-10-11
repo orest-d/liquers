@@ -120,6 +120,14 @@ async function main(): Promise<void> {
   void assetInfo;
   void metadata;
 
+  // A page raises a typed error, with and without a key query.
+  const notFound = new liquers.LiquersError('key_not_found', 'no such key: a.txt');
+  const keyed = new liquers.LiquersError('key_not_found', 'no such key', '-R/data/a.txt');
+  const errorType: string = notFound.errorType;
+  const errorQuery: string | undefined = keyed.query;
+  void errorType;
+  void errorQuery;
+
   // Parameter encoding, and the module-level odds and ends.
   const param: string = liquers.encodeParam('two words');
   const ready: boolean = liquers.isInitialized();

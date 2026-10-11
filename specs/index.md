@@ -8,9 +8,9 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 102
+Total rows: 101
 - P2: 52
-- P3: 50
+- P3: 49
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -66,7 +66,6 @@ Total rows: 102
 | [`NO-RELATIONAL-DATABASE-ACCESS-LAYER`](issues/NO-RELATIONAL-DATABASE-ACCESS-LAYER.md) | feature | No access layer from Liquers into relational databases | draft |  |  | P2 | XL | lib/value;lib/commands;store/backends |  | 2026-09-20 |
 | [`NO-REMOTE-STORE-OR-ASSET-MANAGER`](issues/NO-REMOTE-STORE-OR-ASSET-MANAGER.md) | feature | A client environment cannot use a server's store or asset manager as its own | draft |  |  | P2 | XL | axum;web;core/assets;core/store |  | 2026-09-27 |
 | [`VALUE-TYPE-DEFINITION-MACRO`](issues/VALUE-TYPE-DEFINITION-MACRO.md) | feature | Value types and their registry entries are hand-written instead of generated | draft |  |  | P2 | XL | macro;lib/value;core/value |  | 2026-08-18 |
-| [`WEB-LIQUERSERROR-NOT-CONSTRUCTIBLE`](issues/WEB-LIQUERSERROR-NOT-CONSTRUCTIBLE.md) | issue | JavaScript cannot construct a LiquersError, so a page cannot raise a typed error | accepted | ready | not-eligible | P3 | S | web;core/error | [phase1](design/web-liquers-error-constructor/phase1-high-level-design.md)  [phase2](design/web-liquers-error-constructor/phase2-architecture.md)  [phase3](design/web-liquers-error-constructor/phase3-examples.md)  [phase4](design/web-liquers-error-constructor/phase4-implementation.md)  | 2026-08-09 |
 | [`COMMAND-REGISTRY-HEADER-NAMES-GROUPS-NOT-FEATURES`](issues/COMMAND-REGISTRY-HEADER-NAMES-GROUPS-NOT-FEATURES.md) | issue | The command_registry.yaml header lists group names under "features" | draft |  |  | P3 | S | lib/commands;build |  | 2026-10-11 |
 | [`LIB-BUILD-EMITS-UNUSED-AND-UNHANDLED-RESULT-WARNINGS`](issues/LIB-BUILD-EMITS-UNUSED-AND-UNHANDLED-RESULT-WARNINGS.md) | issue | A default liquers-lib build emits about 50 warnings, some for discarded Results | draft |  |  | P3 | S | lib/commands;build |  | 2026-10-11 |
 | [`REPLACING-WRITE-KEEPS-DROPPED-DEPENDENCY-EDGES`](issues/REPLACING-WRITE-KEEPS-DROPPED-DEPENDENCY-EDGES.md) | issue | A write that replaces a keyed asset keeps the dependency edges its new metadata no longer lists | draft |  |  | P3 | S | core/assets |  | 2026-10-11 |

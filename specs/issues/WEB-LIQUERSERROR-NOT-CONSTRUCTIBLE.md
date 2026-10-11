@@ -2,7 +2,7 @@
 id: WEB-LIQUERSERROR-NOT-CONSTRUCTIBLE
 kind: issue
 title: JavaScript cannot construct a LiquersError, so a page cannot raise a typed error
-status: accepted
+status: closed
 priority: P3
 complexity: S
 area: [web, core/error]
@@ -59,3 +59,12 @@ Found on 2026-08-09 while writing the `JsStore` conformance tests for
 `specs/design/liquers-web-store/` M5. The Phase 3 example had a page throwing a `LiquersError`;
 writing the test showed it could not be constructed. The example was corrected to return
 `undefined`, which is the better protocol anyway, so the design has no dependency on this fix.
+
+## Resolution (2026-10-11)
+
+Fixed as decided on 2026-10-10: `new LiquersError(errorType, message, query?)`
+(`LiquersError::construct` in `liquers-web/src/error.rs`). An unknown type name, or a query that
+does not parse, throws `TypeError`; a key travels as a key query (`-R/…`); `key`, `jsClass` and
+`jsStack` stay null. A `JsStore` delegate that throws one keeps its type (`ERROR06`, in
+`tests/store_js_STORE.rs`). The declaration is `constructor(errorType: string, message: string,
+query?: string | null)`, and `valid_usage.ts` uses both forms.
