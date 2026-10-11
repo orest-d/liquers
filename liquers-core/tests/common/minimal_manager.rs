@@ -171,6 +171,8 @@ impl<E: Environment> MinimalInlineAssetManager<E> {
         };
         let final_status = self.written_status(key, metadata.status).await?;
         metadata.status = final_status;
+        // Named here, so the persisted copy carries the key as well as the installed one.
+        metadata.with_key(key.clone());
         metadata.set_updated_now();
         metadata.add_log_entry(LogEntry::info("State set externally".to_string()));
         // A value with no byte form is still installed and served; it gets a unique version.

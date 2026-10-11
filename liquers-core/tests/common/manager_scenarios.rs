@@ -1213,6 +1213,9 @@ where
     assert_eq!(asset.status().await, Status::Source);
     let served = asset.get().await?;
     assert_eq!(*served.data_unchecked().as_ref(), Value::I32(7));
+    // The persisted metadata names the key too, so a later fast-track read keeps it.
+    let stored = envref.get_async_store().get_metadata(&key).await?;
+    assert_eq!(stored.key()?, Some(key));
     Ok(())
 }
 
