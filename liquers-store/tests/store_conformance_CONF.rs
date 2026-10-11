@@ -67,27 +67,28 @@ fn check(report: ConformanceReport) {
 }
 
 /// `C6` — the memory service: a flat key space with no directory objects.
-#[tokio::test]
-async fn c6_opendal_memory() {
+async fn c6_report() -> ConformanceReport {
     let op = Operator::new(opendal::services::Memory::default())
         .expect("memory operator")
         .finish();
     let capabilities = opendal_capabilities();
-    check(
-        run_all(&fixture(
-            "AsyncOpenDALStore(memory)",
-            AsyncOpenDALStore::new(op, Key::new()),
-            Key::new(),
-            capabilities,
-        ))
-        .await,
-    );
+    run_all(&fixture(
+        "AsyncOpenDALStore(memory)",
+        AsyncOpenDALStore::new(op, Key::new()),
+        Key::new(),
+        capabilities,
+    ))
+    .await
+}
+
+#[tokio::test]
+async fn c6_opendal_memory() {
+    check(c6_report().await);
 }
 
 /// `C7` — the filesystem service, which does have directory objects.
 #[cfg(feature = "services-fs")]
-#[tokio::test]
-async fn c7_opendal_fs() {
+async fn c7_report() -> ConformanceReport {
     let root = std::env::temp_dir().join(format!(
         "liquers_conf_opendal_{}",
         std::time::SystemTime::now()
@@ -104,15 +105,64 @@ async fn c7_opendal_fs() {
     let mut capabilities = opendal_capabilities();
     // A real directory outlives its last file, so `explicit02` must not be asked of this service.
     capabilities.derived_directories = false;
-    check(
-        run_all(&fixture(
-            "AsyncOpenDALStore(fs)",
-            AsyncOpenDALStore::new(op, Key::new()),
-            Key::new(),
-            capabilities,
-        ))
-        .await,
-    );
+    let report = run_all(&fixture(
+        "AsyncOpenDALStore(fs)",
+        AsyncOpenDALStore::new(op, Key::new()),
+        Key::new(),
+        capabilities,
+    ))
+    .await;
 
     let _ = std::fs::remove_dir_all(&root);
+    report
+}
+
+#[cfg(feature = "services-fs")]
+#[tokio::test]
+async fn c7_opendal_fs() {
+    check(c7_report().await);
+}
+
+/// One row of the `STORE_IMPLEMENTATION_GUIDE.md` §9 status table.
+fn status_row(store: &str, report: &ConformanceReport, notes: &str) -> String {
+    let counts = report.counts();
+    let status = if counts.failed == 0 && counts.errored == 0 {
+        "`CONFORMANT`".to_string()
+    } else {
+        format!(
+            "`NONCONFORMANT` (failed {}, errored {})",
+            counts.failed, counts.errored
+        )
+    };
+    format!("| {store} | {} | {status} | {notes} |", counts.ran())
+}
+
+/// Generator for the OpenDAL rows of `STORE_IMPLEMENTATION_GUIDE.md` §9, printed to **stderr**:
+///
+/// ```text
+/// cargo test -p liquers-store --features store-conformance --test store_conformance_CONF \
+///     -- --ignored --nocapture status_table
+/// ```
+///
+/// The native rows come from the matching generator in `liquers-core`.
+#[tokio::test]
+#[ignore = "generator: prints the STORE_IMPLEMENTATION_GUIDE §9 OpenDAL rows to stderr"]
+async fn status_table() {
+    eprintln!(
+        "{}",
+        status_row(
+            "`AsyncOpenDALStore` (memory)",
+            &c6_report().await,
+            "the widest coverage in tree"
+        )
+    );
+    #[cfg(feature = "services-fs")]
+    eprintln!(
+        "{}",
+        status_row(
+            "`AsyncOpenDALStore` (fs)",
+            &c7_report().await,
+            "`derived_directories: false`"
+        )
+    );
 }

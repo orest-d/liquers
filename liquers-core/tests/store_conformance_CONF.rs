@@ -18,7 +18,8 @@ use liquers_core::parse::parse_key;
 use liquers_core::query::Key;
 use liquers_core::store::{AsyncFileStore, AsyncMemoryStore, AsyncStore, AsyncStoreRouter, NoAsyncStore};
 use liquers_core::store_conformance::{
-    run_all, AllowedFailure, GenericFixture, RuleOutcome, SafetyLevel, StoreCapabilities,
+    rules, run_all, AllowedFailure, ConformanceReport, GenericFixture, RuleOutcome, SafetyLevel,
+    StoreCapabilities,
 };
 
 /// A unique temporary directory, as `store_key_absolute.rs` does it — nanosecond-stamped, because
@@ -64,6 +65,13 @@ fn check(report: liquers_core::store_conformance::ConformanceReport, allowed: &[
 /// `C1` — `AsyncMemoryStore`.
 #[tokio::test]
 async fn c1_async_memory_store() {
+    // No allowed failures. `keys02` was listed here until step 10 made `keys()` return the
+    // directories and the prefix as §9 requires; `H5` then reported the entry as stale, which is
+    // how a fixed issue forces its own bookkeeping out.
+    check(c1_report().await, &[]);
+}
+
+async fn c1_report() -> ConformanceReport {
     let prefix = parse_key("mem").expect("prefix");
     let fixture = GenericFixture::new(
         "AsyncMemoryStore(prefix=mem)",
@@ -74,11 +82,7 @@ async fn c1_async_memory_store() {
     )
     // Its `is_supported` consults the prefix, so a key elsewhere is genuinely refused.
     .with_outside_prefix(parse_key("elsewhere/x.txt").expect("key"));
-
-    // No allowed failures. `keys02` was listed here until step 10 made `keys()` return the
-    // directories and the prefix as §9 requires; `H5` then reported the entry as stale, which is
-    // how a fixed issue forces its own bookkeeping out.
-    check(run_all(&fixture).await, &[]);
+    run_all(&fixture).await
 }
 
 /// `C2` — `AsyncFileStore` over a temporary directory.
@@ -88,6 +92,34 @@ async fn c1_async_memory_store() {
 /// asked of it.
 #[tokio::test]
 async fn c2_async_file_store() {
+    // No allowed failures. `sidecar03` was listed here until the path builders learned to refuse a
+    // reserved key; `H5` then reported the entry as stale, which is how a fixed issue forces its
+    // own bookkeeping out. See CORE-FILE-STORE-WRITES-METADATA-COLLIDING-KEYS.
+    let report = c2_report().await;
+
+    // `assert_conformant` inspects failures and stale allowed-failures; a rule that declined its
+    // precondition is invisible to it, and the report only reaches stderr, which `cargo test`
+    // swallows on success. So a `with_unsupported_shape` that was dropped or mistyped would leave
+    // these two "not run" and this test would still pass — which is exactly how they came to have
+    // never run against a file store in the first place. Assert the outcome, not the absence of a
+    // failure.
+    for rule in ["prefix03", "sibling05"] {
+        let entry = report
+            .entries
+            .iter()
+            .find(|entry| entry.id == rule)
+            .unwrap_or_else(|| panic!("{rule} is not in the report at all"));
+        assert!(
+            matches!(entry.outcome, RuleOutcome::Passed),
+            "{rule} must run and pass for C2, not decline its precondition: {:?}",
+            entry.outcome
+        );
+    }
+
+    check(report, &[]);
+}
+
+async fn c2_report() -> ConformanceReport {
     let root = unique_temp_dir("c2");
     tokio::fs::create_dir_all(&root).await.expect("temp root");
 
@@ -111,33 +143,9 @@ async fn c2_async_file_store() {
     // and nothing failed, which is the quiet way for coverage to be missing.
     .with_unsupported_shape(parse_key("collide.__metadata__").expect("key"));
 
-    // No allowed failures. `sidecar03` was listed here until the path builders learned to refuse a
-    // reserved key; `H5` then reported the entry as stale, which is how a fixed issue forces its
-    // own bookkeeping out. See CORE-FILE-STORE-WRITES-METADATA-COLLIDING-KEYS.
     let report = run_all(&fixture).await;
-
-    // `assert_conformant` inspects failures and stale allowed-failures; a rule that declined its
-    // precondition is invisible to it, and the report only reaches stderr, which `cargo test`
-    // swallows on success. So a `with_unsupported_shape` that was dropped or mistyped would leave
-    // these two "not run" and this test would still pass — which is exactly how they came to have
-    // never run against a file store in the first place. Assert the outcome, not the absence of a
-    // failure.
-    for rule in ["prefix03", "sibling05"] {
-        let entry = report
-            .entries
-            .iter()
-            .find(|entry| entry.id == rule)
-            .unwrap_or_else(|| panic!("{rule} is not in the report at all"));
-        assert!(
-            matches!(entry.outcome, RuleOutcome::Passed),
-            "{rule} must run and pass for C2, not decline its precondition: {:?}",
-            entry.outcome
-        );
-    }
-
-    check(report, &[]);
-
     let _ = tokio::fs::remove_dir_all(&root).await;
+    report
 }
 
 /// `C3` — `AsyncStoreRouter` over a memory store and a file store.
@@ -148,6 +156,14 @@ async fn c2_async_file_store() {
 /// a failure here is the router's own dispatch rather than a disagreement between its members.
 #[tokio::test]
 async fn c3_async_store_router() {
+    // No allowed failures. `keys02` was listed here at first, on the assumption the router would
+    // inherit `AsyncMemoryStore`'s divergence; it does not — the router uses the trait default
+    // `keys()`, which returns directories and the prefix as the contract requires. `H5` reported
+    // the stale entry rather than letting it sit, which is what it is for.
+    check(c3_report().await, &[]);
+}
+
+async fn c3_report() -> ConformanceReport {
     let root = unique_temp_dir("c3");
     tokio::fs::create_dir_all(&root).await.expect("temp root");
 
@@ -177,13 +193,9 @@ async fn c3_async_store_router() {
     // … while keys must be generated under one member's prefix, or nothing routes.
     .with_key_base(mem_prefix);
 
-    // No allowed failures. `keys02` was listed here at first, on the assumption the router would
-    // inherit `AsyncMemoryStore`'s divergence; it does not — the router uses the trait default
-    // `keys()`, which returns directories and the prefix as the contract requires. `H5` reported
-    // the stale entry rather than letting it sit, which is what it is for.
-    check(run_all(&fixture).await, &[]);
-
+    let report = run_all(&fixture).await;
     let _ = tokio::fs::remove_dir_all(&root).await;
+    report
 }
 
 /// A store built from the `AsyncStore` **trait defaults** over a backing map.
@@ -252,6 +264,16 @@ impl AsyncStore for DefaultsStore {
 /// `C4` — the `AsyncStore` trait defaults.
 #[tokio::test]
 async fn c4_trait_defaults() {
+    let report = c4_report().await;
+    eprintln!("{report}");
+    // Not asserted conformant: the defaults are what several of the issue's rows are *about*, and
+    // this suite exists to record which of them still disagree. What is asserted is that every rule
+    // reached a decided outcome and none errored unexpectedly.
+    let counts = report.counts();
+    assert_eq!(counts.errored, 0, "a trait default errored:\n{report}");
+}
+
+async fn c4_report() -> ConformanceReport {
     // Declared honestly, which is the whole point of the capability model. A store built from the
     // defaults alone has **no directory support at all** — `is_dir` returns `Ok(false)`, `listdir`
     // has nothing to list — and cannot enumerate, because `keys()` is built on `listdir_keys_deep`
@@ -275,14 +297,7 @@ async fn c4_trait_defaults() {
         capabilities,
         SafetyLevel::Scratch,
     );
-
-    let report = run_all(&fixture).await;
-    eprintln!("{report}");
-    // Not asserted conformant: the defaults are what several of the issue's rows are *about*, and
-    // this suite exists to record which of them still disagree. What is asserted is that every rule
-    // reached a decided outcome and none errored unexpectedly.
-    let counts = report.counts();
-    assert_eq!(counts.errored, 0, "a trait default errored:\n{report}");
+    run_all(&fixture).await
 }
 
 /// `C5` — `NoAsyncStore`, the environment's default.
@@ -293,6 +308,13 @@ async fn c4_trait_defaults() {
 /// and leaves a report of skips rather than a wall of failures.
 #[tokio::test]
 async fn c5_no_async_store() {
+    // Fully conformant, which is worth stating: a store that does nothing still has to say no
+    // correctly. Absence is Ok(false), reads are KeyNotFound, and a relative key is refused as
+    // KeyNotAbsolute rather than as "not found".
+    check(c5_report().await, &[]);
+}
+
+async fn c5_report() -> ConformanceReport {
     let capabilities = StoreCapabilities {
         write: false,
         remove: false,
@@ -311,13 +333,79 @@ async fn c5_no_async_store() {
         SafetyLevel::ReadOnly,
     )
     .without_supported("NoAsyncStore accepts no key at all — that is what it is for");
+    run_all(&fixture).await
+}
 
-    let report = run_all(&fixture).await;
-    eprintln!("{report}");
-    // Fully conformant, which is worth stating: a store that does nothing still has to say no
-    // correctly. Absence is Ok(false), reads are KeyNotFound, and a relative key is refused as
-    // KeyNotAbsolute rather than as "not found".
-    check(report, &[]);
+/// The `STORE_IMPLEMENTATION_GUIDE.md` §9 row of one report: rules that ran, and a status that is
+/// `CONFORMANT` only when nothing failed or errored.
+fn status_row(store: &str, report: &ConformanceReport, notes: &str) -> String {
+    let counts = report.counts();
+    let status = if counts.failed == 0 && counts.errored == 0 {
+        "`CONFORMANT`".to_string()
+    } else {
+        format!(
+            "`NONCONFORMANT` (failed {}, errored {})",
+            counts.failed, counts.errored
+        )
+    };
+    format!("| {store} | {} | {status} | {notes} |", counts.ran())
+}
+
+/// Generator for the native rows of `STORE_IMPLEMENTATION_GUIDE.md` §9, printed to **stderr**:
+///
+/// ```text
+/// cargo test -p liquers-core --features store-conformance --test store_conformance_CONF \
+///     -- --ignored --nocapture status_table
+/// ```
+///
+/// The OpenDAL rows come from the matching generator in `liquers-store`; the browser rows
+/// (`FetchStore`, `JsStore`, `LocalStorageStore`) from the wasm suites, merged by hand. The notes
+/// are kept here so the rows are reproducible.
+#[tokio::test]
+#[ignore = "generator: prints the STORE_IMPLEMENTATION_GUIDE §9 table to stderr"]
+async fn status_table() {
+    eprintln!(
+        "As of {}, from the suites above: {} rules are registered.\n",
+        chrono::Utc::now().format("%Y-%m-%d"),
+        rules().len()
+    );
+    eprintln!("| Store | Rules run | Status | Notes |");
+    eprintln!("|---|---|---|---|");
+    eprintln!("{}", status_row("`AsyncMemoryStore`", &c1_report().await, ""));
+    eprintln!(
+        "{}",
+        status_row(
+            "`AsyncFileStore`",
+            &c2_report().await,
+            "`derived_directories: false` — real directories persist",
+        )
+    );
+    eprintln!(
+        "{}",
+        status_row(
+            "`AsyncStoreRouter`",
+            &c3_report().await,
+            "needs each member's prefix to exist (`CORE-STORE-ROUTER-KEYS-FAILS-ON-AN-EMPTY-MEMBER`); \
+             a directory above its members answers directory metadata, checked by router unit \
+             tests because no generic fixture requests such a key",
+        )
+    );
+    eprintln!(
+        "{}",
+        status_row(
+            "Trait defaults",
+            &c4_report().await,
+            "no directory support, no enumeration",
+        )
+    );
+    eprintln!(
+        "{}",
+        status_row(
+            "`NoAsyncStore`",
+            &c5_report().await,
+            "accepts no key, and says so correctly",
+        )
+    );
 }
 
 /// The metadata a seeded key carries, kept next to the suites that use it.
