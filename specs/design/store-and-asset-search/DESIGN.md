@@ -8,7 +8,7 @@ phase: high-level
 area: [records, core/assets, lib/commands, docs]
 gh_pr: []
 issues: [STORE-NO-CONTENT-OR-METADATA-SEARCH, RECORD-SOURCE-WRAPPERS-UNSPECIFIED]
-affects_docs: [reference/SEARCH.md, reference/RECORD_STREAMS.md]
+affects_docs: [reference/SEARCH.md, reference/RECORD_STREAMS.md, guides/COMMAND_REGISTRATION_GUIDE.md]
 created: 2026-09-17
 superseded_by:
 ---
@@ -86,6 +86,70 @@ mirrors.
 
 **Archived, so nothing is lost:** the revision-7 `DESIGN.md`, Phase 1, Phase 2 and `roadmap.md`
 are at `specs/archive/2026-10-10-store-and-asset-search-rev7-*.md`.
+
+## Amendment of 2026-10-11
+
+Four changes came from user feedback:
+1. **Nested field predicates.** `field:(…)` applies a predicate to one field's text. If the inner
+   predicate has field tests, the text is parsed first: front-matter, then JSON, then YAML.
+   `field.path:v` is shorthand for `field:(path:v)`.
+2. **`Predicate` is a trait.** Parsing goes through `TryFrom<&str>`, via a `PredicateSyntax`
+   sub-trait, so another query language can be plugged in. The built-in language keeps an AST
+   enum with positions.
+3. **A formal grammar and a `nom` parser** that reports a `Position`.
+4. **Searchable command names.** In the `commands` schema, `realm`, `namespace`, `name` and
+   `module` now have the text role.
+
+## Coverage check, 2026-10-11
+
+Revision 8 was checked against every requirement, use case and invariant of revisions 1–7: the
+archived Phase 1, Phase 2 and roadmap, plus `use-cases.md`, `research-questions.md` and
+`options-analysis.md`. It was also checked against what `agent-memory-mvp` needs.
+
+**Gaps found and closed by the amendment:**
+
+| Gap | Old source | Closed by |
+|---|---|---|
+| No "N of M shown"; the limit cut results silently | A6, RQ §6.5, OA invariant 2 | AC-18 (`set_description` and an Info log entry) |
+| No "why it matched" | A2, RQ §6.3, the revision-7 evidence | AC-19 (`matched` column) |
+| Commands had no callable address, and names were not text | A4, A7, U6 | AC-13 (`query` column; name columns given the text role) |
+| A document's `status` was unreachable (front-matter was a non-goal) | A3, roadmap §3 (72 → 42 → 23 hits) | AC-17 (`content.status:draft`) |
+| An unbounded whole-store catalog | OA invariant 2 | AC-20 (`max_entries`) |
+| No wasm commitment | S3, OA invariant 5 | AC-22 |
+| Ranges, existence, prefix, one-of | U9, the revision-7 `FieldTest` | AC-7 (`f:>v`, `f:*`, `x*`, `\|`) |
+| Order not promised without ranking | OA invariant 4 | AC-15 |
+| Field qualification (`meta.`, `attr.`, `key.`) | revision-7 Phase 1 OQ 22 | Dotted paths (Phase 2 §Semantics); `attr.*` columns wait for `CORE-METADATA-NO-APPLICATION-ATTRIBUTES` |
+| The structured-predicate route over MCP | RQ §7 | Dropped deliberately: the syntax string is the transport form (`to_syntax`), and the MCP surface is `agent-memory-mvp`'s |
+| The purity note in the registration guide | revision-7 Phase 2 docs | Added to `affects_docs` |
+
+**Still not covered, deliberately:**
+- "Why is this key not in my results?" (old Phase 1 OQ 21), beyond the unknown-field warning.
+- Paging with `offset` (Phase 1 OQ 5).
+- Recipe text as records (O3, O4, which were optional).
+- An icon column (U1; the UI maps it from `type_identifier`).
+- Everything listed as moved to `external-index-sync`.
+
+**What agent memory needs.** `agent-memory-mvp` has only Phase 1 written, so it specifies no
+recall interface of its own. Its needs are use cases A1–A8 and the archived roadmap §3, and every
+one of them maps onto this design:
+
+| Priority | Need | Served by |
+|---|---|---|
+| Must | Catalog a folder with recipe-declared keys, without evaluation | AC-1, AC-4 |
+| Must | Key-prefix and glob filtering | AC-7 |
+| Must | Free text with ranking | AC-6 |
+| Must | Honest limits | AC-18 |
+| Must | `title`, `description`, `excerpt` and `key` per hit | AC-6, AC-19 |
+| Must | Command discovery | AC-13 |
+| Must | Document status from front-matter | AC-17 |
+| Should | Negation and OR, for "not closed" | AC-7 |
+| Should | "Why matched" | AC-19 |
+| Should | Excerpts without front-matter | AC-19 |
+| Could | Date comparisons, such as `content.created:>2026-09` | AC-7 together with AC-17 |
+| Could | A semantic clause | `external-index-sync` |
+
+Its `ns-mem` namespace therefore needs no selection or search commands of its own: it builds
+`ns-search` queries.
 
 ## Conclusions that still hold
 

@@ -1,5 +1,9 @@
 # Phase 1: High-Level Design — Store and asset search
 
+> **Revision 8, 2026-10-10; amended 2026-10-11** with nested field predicates, a trait-based
+> predicate with pluggable parsers, and the gaps found by checking revision 8 against revision 7's
+> requirements and agent memory's needs (`DESIGN.md` §"Coverage check").
+>
 > **Revision 8, 2026-10-10.** Refocused on three commands over records. This supersedes the
 > revision-7 Phase 1 approved on 2026-09-18. That version is archived at
 > `specs/archive/2026-10-10-store-and-asset-search-rev7-phase1-high-level-design.md`, and
@@ -64,9 +68,10 @@ carries `key`, `status`, `title`, `score` and `excerpt`. The query was validated
   THEN only rows that match every term in the search fields are kept, sorted by descending
   `score`, at most `limit` (50) rows, with `score` and `excerpt` columns appended.
 - **AC-7** Syntax
-  WHEN the expression uses `"a phrase"`, `-term`, `a | b`, `(…)` or `field:value` (`*` and `?`
-  allowed in the value)
-  THEN each has its usual meaning, and input that is not syntax is taken as a literal term.
+  WHEN the expression uses `"a phrase"`, `-term`, `a | b`, `(…)`, `field:value` (`*` and `?`
+  allowed, so `field:*` means "present"), or `field:>v` / `>=` / `<` / `<=`
+  THEN each has its usual meaning. Input that does not parse is searched as plain words, and a
+  warning gives the position where parsing failed.
 - **AC-8** Case sensitivity
   WHEN `case_sensitive` is true
   THEN terms, phrases and text `field:value` tests match case-sensitively; otherwise they ignore
@@ -90,23 +95,55 @@ carries `key`, `status`, `title`, `score` and `excerpt`. The query was validated
   `score` or `excerpt`, and stopping after `limit` matches.
 - **AC-13** Command catalog
   WHEN `ns-search/commands` or `ns-search/commands-<namespace>` is evaluated
-  THEN the result has one row per registered command (or per command in that namespace), and
-  `ns-search/commands/search-<word>` finds commands by label, signature or documentation with the
-  default fields.
+  THEN the result has one row per registered command (or per command in that namespace). Each row
+  has a `query` column holding the fragment that calls the command (`ns-rec/to_json`), and
+  `ns-search/commands/search-<word>` finds commands by name, namespace, realm, module, label,
+  signature or documentation with no field list.
 - **AC-14** Unknown field in an expression
   WHEN `nosuch:value` appears in an expression
   THEN that clause matches nothing, the search does not fail, and a warning naming the field is
   logged.
-- **AC-15** Filter-only queries keep order
-  WHEN an expression has no free-text terms (only `field:value` tests), or is empty
+- **AC-15** Order is kept unless ranked
+  WHEN `rank` is false, or the expression has no free-text terms (only field tests), or it is
+  empty
   THEN rows keep their input order. For a catalog that is key order.
+- **AC-16** Nested predicate on a text field
+  WHEN the expression has `field:(…)`, such as `content:(expiration -draft)`
+  THEN the inner predicate is applied to that field's text alone.
+- **AC-17** Structured text and front-matter
+  WHEN the inner predicate of `field:(…)` contains field tests, such as `content:(status:draft)`,
+  or a dotted name is used, such as `content.status:draft`
+  THEN the field's text is parsed: a leading `---` YAML block (front-matter) if present, otherwise
+  the whole text as JSON or YAML. The inner tests navigate the parsed value, and a list matches
+  when any of its elements does. Text that does not parse does not match, and is counted in one
+  warning.
+- **AC-18** Budget honesty
+  WHEN `limit` stops a search before every match is returned
+  THEN the result's description says `N of M matches shown` (or `first N matches; more may exist`
+  for a stream), and the same is logged as Info.
+- **AC-19** Match evidence
+  WHEN `rank` is true
+  THEN a `matched` column lists the search fields in which a positive term matched, and `excerpt`
+  skips a leading front-matter block.
+- **AC-20** Catalog size bound
+  WHEN a folder has more than `max_entries` entries (default 100 000)
+  THEN `catalog` stops there, says so in its description, and logs it.
+- **AC-21** Pluggable predicate language
+  WHEN a Rust caller parses an expression with another language (a type implementing the
+  predicate syntax trait) and passes it to the search kernel
+  THEN it filters and ranks exactly as the built-in language does. The built-in parser's error
+  for malformed input carries a `Position`.
+- **AC-22** Browser build
+  WHEN `liquers-lib` is built for `wasm32` with `records`
+  THEN the `search` commands are registered, and the build matrix covers it.
 
 **Non-goals:**
 - a persistent index, an external engine, vector or semantic search; all of these belong to
   [`external-index-sync`](../external-index-sync/);
 - a selection method on `AsyncStore` (`STORE-NO-CONTENT-OR-METADATA-SEARCH` is closed, not
   planned);
-- front-matter fields;
+- front-matter as catalog columns (`attr.*`), which needs `CORE-METADATA-NO-APPLICATION-ATTRIBUTES`;
+  until then front-matter is reached through `content:(…)` (AC-17);
 - passing arguments by name over HTTP (`QUERY-API-ARGUMENTS-ONLY-IN-QUERY-PATH`).
 
 ## Core Interactions
@@ -121,7 +158,9 @@ carries `key`, `status`, `title`, `score` and `excerpt`. The query was validated
     `RecordSource` are added to `liquers-records`.
   - Results are views built with the existing `filter`, `take` and `with_columns`.
   - Search is the first consumer of `FieldRole` and of `RecordSchema::resolve_field`.
-- **Commands:** a new `search` namespace with `catalog`, `commands` and `search`.
+- **Commands:** a new `search` namespace with `catalog`, `commands` and `search`. An MCP tool
+  surface is `agent-memory-mvp`'s; it builds these queries. The predicate's transport form is its
+  syntax string, so no structured-predicate argument is added.
 - **Query and Store:** no change.
 - **Web/API:** no change. Over HTTP the path carries the escaped expression. Passing arguments by
   name is filed separately.
@@ -141,6 +180,8 @@ carries `key`, `status`, `title`, `score` and `excerpt`. The query was validated
   non-evaluation rule.
 - Guide: none. The reference's examples are enough for a syntax this small.
 - Documents to update:
+  - `specs/guides/COMMAND_REGISTRATION_GUIDE.md`: a command that produces records for search must
+    not evaluate other assets;
   - `specs/reference/RECORD_STREAMS.md`, since search is the first consumer of roles and
     `resolve_field`;
   - `specs/command_registry.yaml` (regenerated);
@@ -154,8 +195,13 @@ carries `key`, `status`, `title`, `score` and `excerpt`. The query was validated
 2. Should `catalog` supersede `ns-rec/file_records`, which lists one folder with four columns?
    Recommended: keep `file_records` unchanged and share the listing code.
 3. The `status` column is the **asset** lifecycle (`Ready`, `Recipe`, …), not a document's
-   front-matter status. Recommended: keep the name. Front-matter fields arrive later under an
-   `attr.` prefix, once `CORE-METADATA-NO-APPLICATION-ATTRIBUTES` exists.
+   front-matter status. Recommended: keep the name. A document's status is `content.status`
+   (AC-17), and `attr.*` columns arrive with `CORE-METADATA-NO-APPLICATION-ATTRIBUTES`.
+4. How does a query choose a predicate language other than the built-in one? Recommended: not
+   in this version. The language is a Rust-level extension point (AC-21). A `language` argument,
+   or a prefix such as `lang:` on the expression, is added when a second language exists.
+5. Paging: is an `offset` needed, or is `limit` plus budget honesty (AC-18) enough? Recommended:
+   no offset. A ranked result is recomputed on every query, so pages would not be stable anyway.
 
 ## References
 
