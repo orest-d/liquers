@@ -654,6 +654,7 @@ fn argument_type_label(argument_type: &ArgumentType) -> String {
         ArgumentType::Float => "float".to_string(),
         ArgumentType::FloatOption => "float?".to_string(),
         ArgumentType::Boolean => "bool".to_string(),
+        ArgumentType::BooleanOption => "bool?".to_string(),
         ArgumentType::Any => "any".to_string(),
         ArgumentType::None => "none".to_string(),
         ArgumentType::GlobalEnum(name) => format!("global-enum({})", name),

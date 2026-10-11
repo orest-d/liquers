@@ -2,7 +2,7 @@
 id: REGISTER-COMMAND-OPTION-VALUE-CANNOT-BIND
 kind: issue
 title: register_command! cannot bind an Option<Value> argument
-status: draft
+status: closed
 priority: P3
 complexity: M
 area: [macro]
@@ -70,3 +70,12 @@ also emits the non-existent `ArgumentType::FloatOpt`). Maintainer decision: one 
 options, adds `Option<bool>` (`t/true/yes/y/1`, `f/false/no/n/0`, `none`; empty = default, else
 `None`), and rejects `Option<String>`, `Option<Value>` and every other `Option<T>` with a clear
 error. See `design/register-command-option-value/`.
+
+## Resolution (2026-10-11)
+
+Fixed as designed in `design/register-command-option-value/`: `register_command!` binds
+`Option<T>` for every integer width, `f32`, `f64` and `bool` (`ArgumentType::IntegerOption`,
+`FloatOption`, the new `BooleanOption` / `bool_opt`). An omitted optional argument is `None`;
+`Option<bool>` reads `none` as `None`. `Option<Value>` and `Option<String>` remain deliberately
+unsupported, as the maintainer decided: the macro now rejects them, and any other `Option<T>`, with
+an error naming the argument and suggesting `String = ""` for an optional string.

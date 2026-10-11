@@ -389,22 +389,7 @@ impl_from_parameter_value2_opt!(usize, |p: &serde_json::Value| p
 impl_from_parameter_value2_opt!(f64, |p: &serde_json::Value| p.as_f64());
 impl_from_parameter_value2_opt!(f32, |p: &serde_json::Value| p.as_f64().map(|x| x as f32));
 impl_from_parameter_value2!(bool, |p: &serde_json::Value| p.as_bool());
-/*
-impl_from_parameter_value2!(Option<i64>, |p: &serde_json::Value| {
-    if p.is_null() {
-        Some(None)
-    } else {
-        p.as_i64().map(Some)
-    }
-});
-impl_from_parameter_value2!(Option<f64>, |p: &serde_json::Value| {
-    if p.is_null() {
-        Some(None)
-    } else {
-        p.as_f64().map(Some)
-    }
-});
-*/
+impl_from_parameter_value2_opt!(bool, |p: &serde_json::Value| p.as_bool());
 
 impl<V: ValueInterface> FromParameterValue<Vec<V>> for Vec<V> {
     fn from_parameter_value(param: &ParameterValue) -> Result<Vec<V>, Error> {

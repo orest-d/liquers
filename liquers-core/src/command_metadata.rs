@@ -81,6 +81,8 @@ pub enum EnumArgumentType {
     FloatOption,
     #[serde(rename = "bool", alias = "boolean")]
     Boolean,
+    #[serde(rename = "bool_opt")]
+    BooleanOption,
     #[serde(rename = "any")]
     Any,
 }
@@ -180,6 +182,8 @@ pub enum ArgumentType {
     FloatOption,
     #[serde(rename = "bool", alias = "boolean")]
     Boolean,
+    #[serde(rename = "bool_opt")]
+    BooleanOption,
     Enum(EnumArgument),
     GlobalEnum(String),
     #[serde(rename = "any")]
@@ -194,7 +198,15 @@ impl ArgumentType {
         match self {
             ArgumentType::IntegerOption => true,
             ArgumentType::FloatOption => true,
-            _ => false,
+            ArgumentType::BooleanOption => true,
+            ArgumentType::String
+            | ArgumentType::Integer
+            | ArgumentType::Float
+            | ArgumentType::Boolean
+            | ArgumentType::Enum(_)
+            | ArgumentType::GlobalEnum(_)
+            | ArgumentType::Any
+            | ArgumentType::None => false,
         }
     }
     pub fn resolve_global_enums(&self, cmr: &CommandMetadataRegistry) -> Result<Self, Error> {
@@ -2104,5 +2116,16 @@ mod tests {
             .expect_err("context cannot be a head");
         assert_eq!(err.error_type, crate::error::ErrorType::ParameterError);
         assert!(err.message.contains("'context'"), "{}", err.message);
+    }
+
+    #[test]
+    fn bool_opt_serializes() {
+        let json = serde_json::to_string(&ArgumentType::BooleanOption).expect("serialize");
+        assert_eq!(json, "\"bool_opt\"");
+        let back: ArgumentType = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(back, ArgumentType::BooleanOption);
+        assert!(back.is_option());
+        let json = serde_json::to_string(&EnumArgumentType::BooleanOption).expect("serialize");
+        assert_eq!(json, "\"bool_opt\"");
     }
 }

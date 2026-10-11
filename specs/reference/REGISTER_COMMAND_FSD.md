@@ -143,14 +143,35 @@ The macro recognizes these types for metadata generation:
 |------|----------------------|
 | `i8`, `i16`, `i32`, `i64`, `isize` | `Integer` |
 | `u8`, `u16`, `u32`, `u64`, `usize` | `Integer` |
-| `Option<i32>`, `Option<i64>`, etc. | `IntegerOption` |
+| `Option<i8>` … `Option<i64>`, `Option<isize>`, `Option<u8>` … `Option<u64>`, `Option<usize>` | `IntegerOption` |
 | `f32`, `f64` | `Float` |
-| `Option<f32>`, `Option<f64>` | `FloatOpt` |
+| `Option<f32>`, `Option<f64>` | `FloatOption` |
 | `bool` | `Boolean` |
+| `Option<bool>` | `BooleanOption` |
 | `String` | `String` |
 | `Value`, `Any`, `CommandValue` | `Any` |
 | `Vec<T>` with `multiple` | whatever `T` maps to — see [Variadic Parameters](#variadic-parameters) |
 | Other types | `Any` |
+
+#### Optional arguments: `Option<T>`
+
+`T` must be one of `i8 i16 i32 i64 isize u8 u16 u32 u64 usize f32 f64 bool`. Any other
+`Option<T>` (`Option<String>`, `Option<Value>`, `Option<Vec<u8>>`, …) is a compile-time error
+naming the argument and the supported list. For an optional string, declare `name: String = ""`.
+An `injected` argument is not checked: it is not converted from a `Value`.
+
+| Query text | `Option<i64>` / `Option<f64>` | `Option<bool>` |
+|---|---|---|
+| parameter omitted, or empty (`cmd-`) | the declared default, else `None` | the declared default, else `None` |
+| a number | `Some(n)` | — |
+| `t` `true` `yes` `y` `1` (any case) | — | `Some(true)` |
+| `f` `false` `no` `n` `0` (any case) | — | `Some(false)` |
+| `none` (any case) | — | `None` |
+| anything else | conversion error | conversion error ("boolean or none") |
+| a link (`~X~…~E`) to a none value | `None` | `None` |
+
+An optional argument with no declared default is never `ArgumentMissing`: the plan supplies
+`None`. Its `ArgumentType` serializes as `int_opt`, `float_opt` or `bool_opt`.
 
 ### Default Values
 
@@ -269,6 +290,7 @@ Enum type keywords supported in `enum(type: ...)`:
 - `float`
 - `float_opt`
 - `bool`
+- `bool_opt`
 - `any`
 
 Validation rules:
@@ -684,6 +706,7 @@ pub fn register_commands(mut env: DefaultEnvironment<Value>) -> Result<DefaultEn
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-11 | §Supported Types: every integer width maps to `Integer` / `IntegerOption`, `Option<bool>` to `BooleanOption`, `FloatOpt` corrected to `FloatOption`; new §Optional arguments (supported inner types, the compile-time rejection, query spellings, `None` when omitted); `bool_opt` enum type keyword. | `design/register-command-option-value/` |
 | 2026-10-11 | §Parameter Metadata: argument `description:`; §Metadata Statements: command `hint <key>: "..."`, duplicate-key error. | `design/command-metadata-descriptions-and-hints/` |
 | 2026-10-10 | Metadata statements: `cached: true/false` (`design/plan-policy/`). | phase-5, `design/plan-policy/` |
 | 2026-10-10 | §Context Parameter rewritten: `context` at any position, the recommended position (last or before `multiple`, for Python `*args` parity), its compile-time errors; §State Parameter: keywords recognised by form, state before every argument; §Parameter Metadata: argument `hint` rejected; §Error Handling: new diagnostics, 1-based argument numbers; §References: implementation file. | phase-5, `design/context-param-order/` |

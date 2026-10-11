@@ -441,6 +441,69 @@ enum ArgumentGUIInfo {
     None,
 }
 
+/// The inner types an `Option<T>` argument may have.
+///
+/// Each one needs `TryFrom<Value> for Option<T>` on every value type a command can be registered
+/// for: `liquers-core/src/value.rs` (`impl_try_from_value_option!`), and `SimpleValue` /
+/// `CombinedValue` in `liquers-lib/src/value/`. Extend those impls before extending this list.
+const SUPPORTED_OPTION_INNER: &[&str] = &[
+    "i8", "i16", "i32", "i64", "isize", "u8", "u16", "u32", "u64", "usize", "f32", "f64", "bool",
+];
+
+/// If `ty` is `Option<…>`, returns the generic argument; otherwise `None`.
+fn option_inner_type(ty: &syn::Type) -> Option<&syn::Type> {
+    let syn::Type::Path(type_path) = ty else {
+        return None;
+    };
+    if type_path.qself.is_some() || type_path.path.segments.len() != 1 {
+        return None;
+    }
+    let segment = &type_path.path.segments[0];
+    if segment.ident != "Option" {
+        return None;
+    }
+    let syn::PathArguments::AngleBracketed(ref args) = segment.arguments else {
+        return None;
+    };
+    if args.args.len() != 1 {
+        return None;
+    }
+    match args.args.first() {
+        Some(syn::GenericArgument::Type(inner)) => Some(inner),
+        _ => None,
+    }
+}
+
+/// Rejects an `Option<T>` argument whose `T` is not in [`SUPPORTED_OPTION_INNER`].
+///
+/// Without this, the registration expands but the generated code fails to compile with an
+/// unsatisfied `TryFrom<Value>` bound, which names neither the argument nor the remedy.
+fn check_option_argument(name: &str, ty: &syn::Type) -> syn::Result<()> {
+    let Some(inner) = option_inner_type(ty) else {
+        return Ok(());
+    };
+    let supported = match inner {
+        syn::Type::Path(p) => p
+            .path
+            .get_ident()
+            .is_some_and(|ident| SUPPORTED_OPTION_INNER.contains(&ident.to_string().as_str())),
+        _ => false,
+    };
+    if supported {
+        return Ok(());
+    }
+    let rendered = quote! { #inner }.to_string().replace(' ', "");
+    let list = SUPPORTED_OPTION_INNER.join(", ");
+    Err(syn::Error::new_spanned(
+        ty,
+        format!(
+            "register_command!: argument '{name}' has type Option<{rendered}>, which is not \
+             supported; supported: Option<{list}>. For an optional string, use \
+             '{name}: String = \"\"'"
+        ),
+    ))
+}
+
 /// Returns the element type of a container that a `multiple` argument may be declared as.
 ///
 /// Recognises `Vec<T>` today. This is the single place a future container type
@@ -660,47 +723,32 @@ impl CommandParameter {
                 };
                 let (is_option, inner) = is_option_of(effective_ty);
                 match (is_option, inner.as_deref()) {
-                    (false, Some("isize")) => {
+                    (
+                        false,
+                        Some(
+                            "i8" | "i16" | "i32" | "i64" | "isize" | "u8" | "u16" | "u32" | "u64"
+                            | "usize",
+                        ),
+                    ) => {
                         quote! { liquers_core::command_metadata::ArgumentType::Integer }
                     }
-                    (true, Some("usize")) => {
+                    (
+                        true,
+                        Some(
+                            "i8" | "i16" | "i32" | "i64" | "isize" | "u8" | "u16" | "u32" | "u64"
+                            | "usize",
+                        ),
+                    ) => {
                         quote! { liquers_core::command_metadata::ArgumentType::IntegerOption }
                     }
-                    (false, Some("i32")) => {
-                        quote! { liquers_core::command_metadata::ArgumentType::Integer }
-                    }
-                    (true, Some("i32")) => {
-                        quote! { liquers_core::command_metadata::ArgumentType::IntegerOption }
-                    }
-                    (false, Some("i64")) => {
-                        quote! { liquers_core::command_metadata::ArgumentType::Integer }
-                    }
-                    (true, Some("i64")) => {
-                        quote! { liquers_core::command_metadata::ArgumentType::IntegerOption }
-                    }
-                    (false, Some("u32")) => {
-                        quote! { liquers_core::command_metadata::ArgumentType::Integer }
-                    }
-                    (true, Some("u32")) => {
-                        quote! { liquers_core::command_metadata::ArgumentType::IntegerOption }
-                    }
-                    (false, Some("u64")) => {
-                        quote! { liquers_core::command_metadata::ArgumentType::Integer }
-                    }
-                    (true, Some("u64")) => {
-                        quote! { liquers_core::command_metadata::ArgumentType::IntegerOption }
-                    }
-                    (false, Some("f32")) => {
+                    (false, Some("f32" | "f64")) => {
                         quote! { liquers_core::command_metadata::ArgumentType::Float }
                     }
-                    (true, Some("f32")) => {
-                        quote! { liquers_core::command_metadata::ArgumentType::FloatOpt }
+                    (true, Some("f32" | "f64")) => {
+                        quote! { liquers_core::command_metadata::ArgumentType::FloatOption }
                     }
-                    (false, Some("f64")) => {
-                        quote! { liquers_core::command_metadata::ArgumentType::Float }
-                    }
-                    (true, Some("f64")) => {
-                        quote! { liquers_core::command_metadata::ArgumentType::FloatOpt }
+                    (true, Some("bool")) => {
+                        quote! { liquers_core::command_metadata::ArgumentType::BooleanOption }
                     }
                     (false, Some("bool")) => {
                         quote! { liquers_core::command_metadata::ArgumentType::Boolean }
@@ -1743,6 +1791,17 @@ impl Parse for CommandParameter {
                     ));
                 }
 
+                // Injected arguments come from the context, not from a `Value`, so the option
+                // conversions do not apply to them.
+                if !injected {
+                    let effective_ty = if multiple {
+                        variadic_element_type(&ty).unwrap_or(&ty)
+                    } else {
+                        &ty
+                    };
+                    check_option_argument(&name.to_string(), effective_ty)?;
+                }
+
                 let default_value = if input.peek(syn::Token![=]) {
                     let eq: syn::Token![=] = input.parse()?;
                     // A variadic argument defaults to the empty list and cannot carry another
@@ -2332,7 +2391,7 @@ mod tests {
     }
 
     #[test]
-    fn test_argument_type_expression_option_f64() {
+    fn option_f64_maps_to_float_option() {
         let param = CommandParameter::Param {
             name: parse_quote! { a },
             ty: parse_quote! { Option<f64> },
@@ -2346,7 +2405,7 @@ mod tests {
             enum_spec: None,
         };
         let tokens = param.argument_type_expression();
-        let expected = quote! { liquers_core::command_metadata::ArgumentType::FloatOpt };
+        let expected = quote! { liquers_core::command_metadata::ArgumentType::FloatOption };
         assert_eq!(tokens.to_string(), expected.to_string());
     }
 
@@ -2663,6 +2722,57 @@ mod tests {
 
     /// Tests for variadic (`multiple`) argument declarations.
     ///
+    /// See `specs/design/register-command-option-value/`.
+    mod option_arguments {
+        use super::*;
+
+        fn parse_err(ts: proc_macro2::TokenStream) -> String {
+            match syn::parse2::<CommandSignature>(ts) {
+                Ok(_) => panic!("declaration must not parse"),
+                Err(e) => e.to_string(),
+            }
+        }
+
+        fn registration_of(ts: proc_macro2::TokenStream) -> String {
+            let mut sig: CommandSignature = syn::parse2(ts).expect("declaration must parse");
+            sig.wrapper_version = WrapperVersion::V2;
+            fuzzy(&sig.command_registration().to_string())
+        }
+
+        #[test]
+        fn option_unsupported_inner_is_rejected() {
+            for (decl, rendered) in [
+                (quote! { fn f(state, x: Option<Value>) -> result }, "Option<Value>"),
+                (quote! { fn f(state, x: Option<String>) -> result }, "Option<String>"),
+                (quote! { fn f(state, x: Option<Vec<u8>>) -> result }, "Option<Vec<u8>>"),
+            ] {
+                let message = parse_err(decl);
+                assert!(message.contains("argument 'x'"), "message: {message}");
+                assert!(message.contains(rendered), "message: {message}");
+                assert!(message.contains("x: String = \"\""), "message: {message}");
+            }
+        }
+
+        #[test]
+        fn option_widths_and_bool_map_to_option_types() {
+            for (decl, expected) in [
+                (quote! { fn f(state, x: Option<i8>) -> result }, "ArgumentType::IntegerOption"),
+                (quote! { fn f(state, x: Option<u16>) -> result }, "ArgumentType::IntegerOption"),
+                (quote! { fn f(state, x: Option<usize>) -> result }, "ArgumentType::IntegerOption"),
+                (quote! { fn f(state, x: Option<f32>) -> result }, "ArgumentType::FloatOption"),
+                (quote! { fn f(state, x: Option<bool>) -> result }, "ArgumentType::BooleanOption"),
+            ] {
+                let tokens = registration_of(decl);
+                assert!(tokens.contains(expected), "expected {expected}: {tokens}");
+            }
+        }
+
+        #[test]
+        fn injected_option_is_not_checked() {
+            registration_of(quote! { fn f(state, x: Option<String> injected) -> result });
+        }
+    }
+
     /// See `specs/design/variadic-arguments-declaration/`. Every check lives in `impl Parse`,
     /// so `syn::parse2` reaches it and the messages can be asserted directly - no `trybuild`
     /// dependency and no `.stderr` fixtures to keep in sync.

@@ -502,9 +502,13 @@ impl ParameterValue {
                     )?,
                 )
             }
-            EnumArgumentType::Boolean => match raw_value.to_lowercase().as_str() {
-                "true" | "t" | "yes" | "y" | "1" => Value::Bool(true),
-                "false" | "f" | "no" | "n" | "0" => Value::Bool(false),
+            EnumArgumentType::Boolean | EnumArgumentType::BooleanOption => match (
+                raw_value.to_lowercase().as_str(),
+                enum_type,
+            ) {
+                ("true" | "t" | "yes" | "y" | "1", _) => Value::Bool(true),
+                ("false" | "f" | "no" | "n" | "0", _) => Value::Bool(false),
+                ("none", EnumArgumentType::BooleanOption) => Value::Null,
                 _ => {
                     return Err(Error::conversion_error_with_message(
                         raw_value.to_owned(),
@@ -561,6 +565,9 @@ impl ParameterValue {
                 CommandParameterValue::None => {
                     if arginfo.injected {
                         ParameterValue::Injected(arginfo.name.clone())
+                    } else if arginfo.argument_type.is_option() {
+                        // An optional argument without a declared default is absent, not missing.
+                        ParameterValue::DefaultValue(arginfo.name.clone(), Value::Null)
                     } else {
                         ParameterValue::None
                     }
@@ -709,6 +716,37 @@ impl ParameterValue {
                         pos,
                     )),
                 }
+            }
+            ArgumentType::BooleanOption => {
+                if s.is_empty() {
+                    let res = Self::from_arginfo(arginfo);
+                    if res.is_none() {
+                        return Ok(Self::ParameterValue(
+                            arginfo.name.clone(),
+                            Value::Null,
+                            pos.to_owned(),
+                        ));
+                    } else {
+                        return Ok(res);
+                    }
+                }
+                let value = match s.to_lowercase().as_str() {
+                    "true" | "t" | "yes" | "y" | "1" => Value::Bool(true),
+                    "false" | "f" | "no" | "n" | "0" => Value::Bool(false),
+                    "none" => Value::Null,
+                    _ => {
+                        return Err(Error::conversion_error_at_position(
+                            s.to_owned(),
+                            "boolean or none",
+                            pos,
+                        ))
+                    }
+                };
+                Ok(ParameterValue::ParameterValue(
+                    arginfo.name.clone(),
+                    value,
+                    pos.to_owned(),
+                ))
             }
             ArgumentType::Enum(ref e) => match e.expand_alias(s) {
                 CommandParameterValue::Value(x) => Ok(ParameterValue::ParameterValue(

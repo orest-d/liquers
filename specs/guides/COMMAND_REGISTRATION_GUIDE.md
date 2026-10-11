@@ -481,6 +481,18 @@ register_command!(cr,
 )?;
 ```
 
+**Optional argument:** `Option<T>` for a numeric `T` or `bool`. Omitted or empty is `None` (or the
+declared default); `Option<bool>` also reads `none` as `None`. There is no `Option<String>`: declare
+`name: String = ""` and treat the empty string as absent.
+```rust
+fn head(_state: &State<Value>, rows: Option<usize>, header: Option<bool>) -> Result<Value, Error> {
+    // `head` → "None None"; `head-10` → "Some(10) None"; `head-10-n` → "Some(10) Some(false)"
+    Ok(Value::from(format!("{rows:?} {header:?}")))
+}
+
+register_command!(cr, fn head(state, rows: Option<usize>, header: Option<bool>) -> result)?;
+```
+
 **Async command:**
 ```rust
 async fn fetch_data(state: State<Value>, url: String) -> Result<Value, Error> {
@@ -1064,3 +1076,4 @@ fn apply(...) -> Result<...> { ... }
 | 2026-08-12 | Added "Accepting a variable number of parameters": declared arity is binding, `multiple` is the only variadic mechanism and is not yet declarable, and the `~_` escape is the interim spelling. | design/excess-action-parameters-error |
 | 2026-08-16 | Added "Passing the working directory (or any relative query) into a command": `-R-key/.` as a default link argument, why the working key is not readable from `Context`, building absolute queries from it, and the argument-order pitfall. | PLAN-CWD-FREEZE |
 | 2026-08-25 | Rewrote "Accepting a variable number of parameters": `multiple` is now declarable. Added the flag's grammar slot, the container-type and element-type rules, the empty-list default, the last-argument rule and its `injected`/`context` exemptions, the compile-time rejection table, the `a-b` vs `a~_b` distinction, and `get_multiple` for manual registration. | design/variadic-arguments-declaration |
+| 2026-10-11 | §Common Examples: an optional-argument example (`Option<usize>`, `Option<bool>`) and the `String = ""` substitute for `Option<String>`. | `design/register-command-option-value/` |
