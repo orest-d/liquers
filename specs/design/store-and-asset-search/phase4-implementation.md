@@ -35,9 +35,9 @@ Builds follow `CLAUDE.md`: `CARGO_INCREMENTAL=0`, and no `--workspace`.
 - [x] Step 10: `md_split` — b70227a
 - [x] Step 11: `search` — b70227a
 - [x] Step 12: `commands` — b70227a
-- [ ] Step 13: exporter group, `full_registry`, regenerated `command_registry.yaml`
+- [x] Step 13: exporter group, `full_registry`, regenerated `command_registry.yaml` — 1a52fcf
 - [ ] Step 14: build matrix
-- [ ] Step 15: documentation
+- [x] Step 15: documentation — ea6cf01
 
 ## Implementation Steps
 
