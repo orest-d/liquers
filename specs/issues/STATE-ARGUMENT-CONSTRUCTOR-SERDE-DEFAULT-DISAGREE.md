@@ -2,7 +2,7 @@
 id: STATE-ARGUMENT-CONSTRUCTOR-SERDE-DEFAULT-DISAGREE
 kind: issue
 title: Constructing and deserializing the same CommandMetadata give different state arguments
-status: draft
+status: closed
 priority: P2
 complexity: S
 area: [core/commands]
@@ -76,3 +76,18 @@ Note the related `TODO: state argument should be optional` already in the source
 
 A test asserting that `CommandMetadata::new("x")` and the deserialization of its own serialized form
 with `state_argument` omitted agree on `state_argument`.
+
+## Resolution (2026-10-11)
+
+Option 2, as decided on 2026-10-10. `CommandMetadata.state_argument`
+(`liquers-core/src/command_metadata.rs`) now uses `#[serde(default = "default_state_argument")]`,
+the same helper `CommandMetadata::new` and `from_key` call, so an omitted field is the conventional
+`state` argument. `skip_serializing_if` was removed: a source command serializes explicit
+`state_argument: null`, which deserializes back to `None`. A command declaration still means
+"source" when it omits the field: `CommandDeclaration::build` writes the absent field as `null`
+before conversion. `specs/command_registry.yaml` is unchanged, because all 108 exported commands
+take a state, so no exported `metadata_version` changes.
+
+Correction to "Why it matters": at `HEAD` the planner (`plan.rs`) does not read `state_argument`;
+it is consumed by UIs, bindings and alias resolution (`commands.rs`), so no planning test was
+added. Design: `design/state-argument-serde-default/`.

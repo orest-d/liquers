@@ -691,9 +691,23 @@ impl CommandDeclaration {
     ///
     /// `registration` and `conventions` are declaration-only and do not reach the metadata; nor,
     /// today, does a command-level `hints`, which warns instead.
+    ///
+    /// In a declaration an absent `state_argument` means a *source* command, whereas raw
+    /// `CommandMetadata` reads an omitted field as the conventional `state` argument; the
+    /// declaration's intent is therefore written as an explicit `null` before conversion.
     pub fn build(&self) -> Result<CommandMetadata, Error> {
         let command = self.command_name();
-        let metadata: CommandMetadata = CommandMetadata::deserialize(&self.doc).map_err(|e| {
+        let source_doc;
+        let doc = match self.doc.as_object() {
+            Some(map) if !map.contains_key("state_argument") => {
+                let mut map = map.clone();
+                map.insert("state_argument".to_string(), Value::Null);
+                source_doc = Value::Object(map);
+                &source_doc
+            }
+            _ => &self.doc,
+        };
+        let metadata: CommandMetadata = CommandMetadata::deserialize(doc).map_err(|e| {
             parameter_error(if command.is_empty() {
                 format!("command declaration: {e}")
             } else {
