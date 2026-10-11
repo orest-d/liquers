@@ -7,7 +7,7 @@
 > **Revision 8, 2026-10-10.** Refocused on three commands over records. This supersedes the
 > revision-7 Phase 1 approved on 2026-09-18. That version is archived at
 > `specs/archive/2026-10-10-store-and-asset-search-rev7-phase1-high-level-design.md`, and
-> `DESIGN.md` §"Revision 8" records what changed. Needs re-approval.
+> `DESIGN.md` §"Revision 8" records what changed. **Approved 2026-10-11.**
 
 ## Feature Name
 
