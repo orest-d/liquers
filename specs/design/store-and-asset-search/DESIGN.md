@@ -4,7 +4,7 @@ kind: design
 title: Search over stores and assets
 workflow: liquers-project
 status: in_review
-phase: architecture
+phase: examples
 area: [records, core/assets, lib/commands, docs]
 gh_pr: []
 issues: [STORE-NO-CONTENT-OR-METADATA-SEARCH, RECORD-SOURCE-WRAPPERS-UNSPECIFIED]
@@ -20,9 +20,9 @@ superseded_by:
 
 - [x] Phase 1: High-Level Design — revision 8 approved 2026-10-11 (amended the same day). Revision
   7, approved on 2026-09-18, is superseded.
-- [ ] Phase 2: Solution & Architecture — revision 8, in review; two independent reviews done and
-  fixed on 2026-10-11
-- [ ] Phase 3: Examples & Testing
+- [x] Phase 2: Solution & Architecture — revision 8 approved 2026-10-11, after two independent
+  reviews
+- [ ] Phase 3: Examples & Testing — written 2026-10-11, in review
 - [ ] Phase 4: Implementation Plan
 - [ ] Phase 5: Documentation
 - [ ] Implementation Complete

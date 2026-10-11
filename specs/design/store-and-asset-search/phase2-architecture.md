@@ -1,6 +1,6 @@
 # Phase 2: Solution & Architecture — Store and asset search
 
-> **Revision 8. In review; Phase 1 was approved on 2026-10-11.** This replaces revision 7, archived
+> **Revision 8. Approved 2026-10-11.** This replaces revision 7, archived
 > at `specs/archive/2026-10-10-store-and-asset-search-rev7-phase2-architecture.md`. The amendments
 > of 2026-10-11 are recorded in `DESIGN.md`.
 >
