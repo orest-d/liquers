@@ -188,10 +188,6 @@ impl<E: Environment> MinimalInlineAssetManager<E> {
             final_status,
             self.envref.clone(),
         )?;
-        self.assets
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .insert(key.clone(), asset);
         if metadata.stored() {
             let store = self.get_envref().get_async_store();
             let stored = Metadata::MetadataRecord(metadata.clone());
@@ -207,6 +203,11 @@ impl<E: Environment> MinimalInlineAssetManager<E> {
                 }
             }
         }
+        // Mapped only once persisted: a failed write leaves the key without the rejected value.
+        self.assets
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(key.clone(), asset);
         if matches!(final_status, Status::Source | Status::Override) {
             if let Some(version) = metadata.version {
                 self.publish_version(&DependencyKey::from(key), version).await;
