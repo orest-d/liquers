@@ -3,7 +3,7 @@ title: Command Declaration Format
 kind: reference
 audience: internal
 area: [core/commands, web, py]
-reviewed: 2026-10-10
+reviewed: 2026-10-11
 ---
 # Command Declaration Format
 
@@ -255,7 +255,7 @@ of its own, so a field added to `CommandMetadata` is declarable immediately with
 | `expires` | `expires` | Expiration specification; defaults to `never` |
 | `payload_required` | `payload_required` | `none` or `required` |
 | `presets`, `next` | same | UI affordances: ready-made parameter sets, suggested follow-on commands |
-| `state_argument` | `state_argument` | Present means the command transforms an input state; absent means a *source* command |
+| `state_argument` | `state_argument` | Present means the command transforms an input state; absent means a *source* command. Raw `CommandMetadata` reads an omitted field the other way (the conventional `state` argument) and `null` as a source command, so the build stage writes an absent one as `null` |
 | `arguments` | `arguments` | A list; merged by name — §2.1 |
 | `definition` | `definition` | `Registered` (default) or an `Alias` of another command — contract and validation in [`COMMAND_ALIASES.md`](COMMAND_ALIASES.md) |
 | `hints` | `hints` | **Usage** hints — how to *use* the command. Metadata; survives export — §6 |
@@ -512,6 +512,7 @@ so no query parameter is consumed by either — that is conventions.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-11 | §4.1 `state_argument`: raw `CommandMetadata` now reads an omitted field as the conventional `state` argument and always writes a source command's `null`; a declaration keeps "absent means source" by building with explicit `null`. | `design/state-argument-serde-default` |
 | 2026-10-10 | §4.1 and §5.2: `cached` (declarable with no pipeline change, as every metadata field is). | phase-5, `design/plan-policy/` |
 | 2026-10-10 | §4.1 `definition` links the new alias reference. Only that row was checked. | phase-5, `design/command-alias-contract/` |
 | 2026-10-07 | `cache` removed from the declarable keys and the defaults table: `CommandMetadata.cache` no longer exists (it was never read). A declaration that still carries it loads, and the key is ignored. §2.1's example uses `volatile`. | phase-5, `design/command-cache-flag/` |

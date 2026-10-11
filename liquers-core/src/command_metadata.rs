@@ -992,9 +992,13 @@ pub struct CommandMetadata {
     pub filename: String,
 
     /// Describes the state argument of the command, if any.
-    //TODO: state argument should be optional
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(default)]
+    ///
+    /// `None` marks a source command, which does not consume the state of its predecessor.
+    /// An omitted field deserializes to the conventional `state` argument, the same value
+    /// [CommandMetadata::new] and [CommandMetadata::from_key] create; a source command is
+    /// written as explicit `null`, which is always serialized so that a round-trip cannot
+    /// turn it into a transforming command.
+    #[serde(default = "default_state_argument")]
     pub state_argument: Option<ArgumentInfo>,
 
     /// List of arguments of the command. See [ArgumentInfo].
@@ -1068,6 +1072,12 @@ pub struct CommandMetadata {
     pub impl_version: Version,
 }
 
+/// The state argument of a conventional (transforming) command: what the constructors create
+/// and what an omitted `state_argument` field deserializes to.
+fn default_state_argument() -> Option<ArgumentInfo> {
+    Some(ArgumentInfo::any_argument("state"))
+}
+
 impl CommandMetadata {
     pub fn new(name: &str) -> Self {
         CommandMetadata {
@@ -1078,7 +1088,7 @@ impl CommandMetadata {
             module: "".to_string(),
             doc: "".to_string(),
             presets: Vec::new(),
-            state_argument: Some(ArgumentInfo::any_argument("state")),
+            state_argument: default_state_argument(),
             arguments: Vec::new(),
             volatile: false,
             payload_required: PayloadRequirement::None,
@@ -1110,7 +1120,7 @@ impl CommandMetadata {
             module: "".to_string(),
             doc: "".to_string(),
             presets: Vec::new(),
-            state_argument: Some(ArgumentInfo::any_argument("state")),
+            state_argument: default_state_argument(),
             arguments: Vec::new(),
             volatile: false,
             payload_required: PayloadRequirement::None,
@@ -1806,6 +1816,60 @@ mod tests {
         assert_eq!(cm.cached, None);
         assert!(cm.cached());
         assert!(!json.contains("\"cached\""), "an undeclared flag is not serialized: {json}");
+        Ok(())
+    }
+
+    /// `STATE-ARGUMENT-CONSTRUCTOR-SERDE-DEFAULT-DISAGREE`: an omitted `state_argument` means the
+    /// conventional state argument, exactly as the constructors create it.
+    #[test]
+    fn omitted_state_argument_matches_constructors() -> Result<(), Box<dyn std::error::Error>> {
+        let json = r#"{"realm":"","namespace":"root","name":"test","label":"test",
+            "module":"","doc":"","definition":"Registered","filename":""}"#;
+        let from_json: CommandMetadata = serde_json::from_str(json)?;
+        let yaml = "realm: ''\nnamespace: root\nname: test\nlabel: test\n";
+        let from_yaml: CommandMetadata = serde_yaml::from_str(yaml)?;
+        let constructed = CommandMetadata::new("test");
+        assert_eq!(from_json.state_argument, constructed.state_argument);
+        assert_eq!(from_yaml.state_argument, constructed.state_argument);
+        assert_eq!(
+            CommandMetadata::from_key(CommandKey::new("", "root", "test")).state_argument,
+            constructed.state_argument
+        );
+        assert_eq!(
+            constructed.state_argument,
+            Some(ArgumentInfo::any_argument("state"))
+        );
+        Ok(())
+    }
+
+    /// Explicit `null` marks a source command, and is written back so a round-trip cannot turn
+    /// the source command into a transforming one.
+    #[test]
+    fn null_state_argument_is_a_source_command_and_round_trips(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let json = r#"{"realm":"","namespace":"root","name":"test","label":"test",
+            "module":"","doc":"","state_argument":null,"definition":"Registered","filename":""}"#;
+        let from_json: CommandMetadata = serde_json::from_str(json)?;
+        assert_eq!(from_json.state_argument, None);
+        let from_yaml: CommandMetadata =
+            serde_yaml::from_str("namespace: root\nname: test\nstate_argument: null\n")?;
+        assert_eq!(from_yaml.state_argument, None);
+
+        let mut source = CommandMetadata::new("test");
+        source.no_state_argument();
+        let written = serde_json::to_string(&source)?;
+        assert!(
+            written.contains("\"state_argument\":null"),
+            "a source command must serialize explicit null, got: {written}"
+        );
+        let back: CommandMetadata = serde_json::from_str(&written)?;
+        assert_eq!(back, source);
+        let back_yaml: CommandMetadata = serde_yaml::from_str(&serde_yaml::to_string(&source)?)?;
+        assert_eq!(back_yaml, source);
+
+        let transforming = CommandMetadata::new("test");
+        let back: CommandMetadata = serde_json::from_str(&serde_json::to_string(&transforming)?)?;
+        assert_eq!(back, transforming);
         Ok(())
     }
 
