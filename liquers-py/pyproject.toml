@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "liquers-py"
-requires-python = ">=3.8"
+requires-python = ">=3.8,<3.13"  # PyO3 0.21 supports Python up to 3.12; see README.md
 classifiers = [
     "Programming Language :: Rust",
     "Programming Language :: Python :: Implementation :: CPython",

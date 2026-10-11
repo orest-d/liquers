@@ -4,7 +4,7 @@ kind: issue
 title: register_command! cannot bind an Option<Value> argument
 status: draft
 priority: P3
-complexity: S
+complexity: M
 area: [macro]
 design: register-command-option-value
 created: 2026-09-26
@@ -61,3 +61,12 @@ Verified against `liquers-core/src/commands.rs`'s `impl_from_parameter_value2*!`
 `argument_type_expression` (its `is_option_of` match has no `(true, Some("Value"))` arm) while
 settling `ns-rec`'s `schema` argument spelling in record-streams Phase 4 Step 5.5. Not compiled as
 a standalone repro; the reasoning above is read directly off both files' current source.
+
+## Update 2026-10-10 — re-sized to M
+
+Verified by a probe compile: no `Option<T>` argument binds today, numeric ones included
+(`CommandArguments::get` needs `TryFrom<E::Value>` for `Option<T>`, which does not exist; the macro
+also emits the non-existent `ArgumentType::FloatOpt`). Maintainer decision: one design fixes numeric
+options, adds `Option<bool>` (`t/true/yes/y/1`, `f/false/no/n/0`, `none`; empty = default, else
+`None`), and rejects `Option<String>`, `Option<Value>` and every other `Option<T>` with a clear
+error. See `design/register-command-option-value/`.

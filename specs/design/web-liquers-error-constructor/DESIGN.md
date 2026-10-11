@@ -4,7 +4,7 @@ kind: design
 title: Design for WEB-LIQUERSERROR-NOT-CONSTRUCTIBLE
 status: in_review
 phase: implementation
-readiness: needs-decision
+readiness: ready
 autofix: not-eligible
 area: [web, core/error]
 issues: [WEB-LIQUERSERROR-NOT-CONSTRUCTIBLE]

@@ -154,6 +154,10 @@ mod tests {
 
 **Minimum Rust: 1.95** (`[workspace.package] rust-version` in `Cargo.toml`, set by the egui 0.36 / sysinfo 0.39 dependencies; a minimum, not a pin — on an older toolchain run `rustup update stable`).
 
+**`liquers-py` supports CPython 3.8–3.12 and PyPy 3.8–3.10** (PyO3 0.21). With CPython 3.13 or
+newer, prefix its builds with `PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1` (no such override exists for
+PyPy) — see `liquers-py/README.md`.
+
 Rust debug builds of this workspace are large — large enough that a full build does not fit in a
 cloud dev environment (Claude Code on the web caps sessions at **30 GB of disk**, and `df` reports
 the allowance, not the machine). The settings below are already applied; this section records what

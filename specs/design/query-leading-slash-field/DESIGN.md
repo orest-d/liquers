@@ -4,7 +4,7 @@ kind: design
 title: Design for QUERY-ABSOLUTE-FIELD-NAME-AMBIGUOUS
 status: in_review
 phase: implementation
-readiness: needs-decision
+readiness: ready
 autofix: not-eligible
 area: [core/query]
 issues: [QUERY-ABSOLUTE-FIELD-NAME-AMBIGUOUS]

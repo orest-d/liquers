@@ -2,22 +2,18 @@
 
 ## Design Readiness
 
-- **Readiness:** needs-decision
-- **Automatic fixing:** not-eligible — needs-decision (rule 5): the upload half sets the stored
-  `media_type` contract. Once decided it is a bug fix in `liquers-axum` and would be eligible
-- **Leading issue:** **Open design question — what an upload declares as `media_type`.** Under the
-  metadata level model, `MetadataRecord.media_type` holds only a *declared override*. The effective
-  media type is derived from the data format (`MetadataRecord::get_media_type`). Writing the
-  extension's media type would make every upload look like an override.
-- **Explanation:** The legacy-metadata half is unambiguous (serve the document as stored, as the
-  Assets API's `metadata_json` does). The upload half is specified around the recommended rule.
-- **Open questions:**
-  1. **Proposed resolution — declare only what the extension cannot tell.** For each multipart
-     part: let `derived = file_extension_to_media_type(ext)`. If the part's `Content-Type` is
-     present, not `application/octet-stream`, and differs from `derived`, declare it
-     (`with_media_type(content_type)`). Otherwise declare nothing, and the effective type comes
-     from the filename/data format. Always set `filename` (the part's file name), so the data
-     format is derivable on every store.
+- **Readiness:** ready
+- **Automatic fixing:** eligible — bug fix in `liquers-axum/src/store/handlers.rs` restoring the
+  intended Store API behaviour; no new structure, no `pub` change in core/store/lib/records, no
+  route or command change, one crate
+- **Leading issue:** None
+- **Explanation:** Decided (Maintainer decision, 2026-10-10): an upload declares only what the
+  extension cannot tell. For each multipart part: let `derived = file_extension_to_media_type(ext)`.
+  If the part's `Content-Type` is present, not `application/octet-stream`, and differs from
+  `derived`, declare it (`with_media_type(content_type)`); otherwise declare nothing, and the
+  effective type comes from the filename/data format. Always set `filename`. The legacy-metadata
+  half serves the document as stored, as the Assets API's `metadata_json` does.
+- **Open questions:** None.
 
 ## Problem
 
@@ -54,8 +50,8 @@ Store API only. The Assets API already serves legacy metadata correctly.
 ## Consolidated Findings
 
 - `Metadata` is an enum. Build a `MetadataRecord`, call `with_filename`/`with_media_type`, and
-  wrap it in `Metadata::MetadataRecord`. Check the `filename` setter name on `MetadataRecord`
-  (`with_filename` or `set_filename`).
+  wrap it in `Metadata::MetadataRecord`. The setters are
+  `MetadataRecord::with_filename(String)` and `with_media_type(String)` (`liquers-core/src/metadata.rs`).
 - Reuse `crate::assets::common::metadata_json` in both metadata-serving handlers instead of the
   local `metadata_record()` match. That also removes duplicated code.
 - `put_data_handler`'s `get_metadata().unwrap_or_else(Metadata::new)` is not in scope.

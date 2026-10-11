@@ -4,7 +4,7 @@ kind: design
 title: Consistent state argument default in command metadata
 status: in_review
 phase: implementation
-readiness: needs-decision
+readiness: ready
 autofix: not-eligible
 area: [core/commands]
 issues: [STATE-ARGUMENT-CONSTRUCTOR-SERDE-DEFAULT-DISAGREE]

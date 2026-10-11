@@ -293,6 +293,7 @@ deliberately folded behind a broader line.
 - design `async-store-wrapper-docs`
 - design `axum-recipes-metadata-entry`
 - design `axum-store-keys-deep`
+- design `axum-store-makedir-test-unignore`
 - design `axum-store-upload-metadata`
 - design `build-matrix-ci`
 - design `build-sysinfo-rustc-compatibility`
@@ -372,6 +373,7 @@ deliberately folded behind a broader line.
 - design `simple-value-untyped-and-scalar-reads`
 - design `state-argument-serde-default`
 - design `store-conformance-suite`
+- design `store-conformance-warning-cleanup`
 - design `store-guide-status-table`
 - design `store-key-format-seeding`
 - design `store-key-guard`
@@ -406,6 +408,7 @@ deliberately folded behind a broader line.
 - feature `NO-RELATIONAL-DATABASE-ACCESS-LAYER`
 - feature `NO-REMOTE-STORE-OR-ASSET-MANAGER`
 - feature `NO-SOURCE-CODE-AND-API-DOC-NAVIGATION`
+- feature `PY-PYO3-0-21-CANNOT-TARGET-PYTHON-3-13`
 - feature `QUERY-API-ARGUMENTS-ONLY-IN-QUERY-PATH`
 - feature `QUERY-CANNOT-MARK-CACHED-INTERMEDIATES`
 - feature `RECORD-AND-POLARS-COMMANDS-NOT-INTEROPERABLE`

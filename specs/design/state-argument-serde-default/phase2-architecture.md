@@ -33,9 +33,9 @@ Centralization prevents constructor/serde drift. No unwrap or default match arm 
 | Concern | Assessment and control |
 |---|---|
 | Files/crates | Primarily `command_metadata.rs`; declaration, web, plan are validation callers. |
-| Existing tests | Source declaration tests must keep explicit `None`; registry output should not drift. |
+| Existing tests | Source declaration tests must keep explicit `None`; `specs/command_registry.yaml` gains `state_argument: null` for source commands and is regenerated (`registry_export` test). |
 | New validation | JSON/YAML omission and null, constructor equality, planning source/transform cases. |
-| Compatibility/data | Omitted legacy metadata changes semantics; source serialization gains explicit null. |
+| Compatibility/data | Omitted legacy metadata changes semantics; source serialization gains explicit null, so source commands' `metadata_version` changes once and their stored results are recomputed (accepted, as for `command-cache-flag`). |
 | Concurrency/performance/security | None. |
 | Recovery | Restore `#[serde(default)]`; no stored data rewrite is performed. |
-| Certainty | High technically; omission policy remains a proposed decision. |
+| Certainty | High; omission policy decided by the maintainer on 2026-10-10. |

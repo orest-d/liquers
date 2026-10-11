@@ -2,22 +2,28 @@
 
 ## Design Readiness
 
-- **Readiness:** needs-decision
-- **Automatic fixing:** not-eligible — the recommended answer renames the `pub` field
-  `Query::absolute` (rule 4); the alternative (document the meaning) is a documentation fix and
-  would be eligible once chosen
-- **Leading issue:** **Open design question — rename the public field `Query::absolute`.** Since
-  the issue was filed, the leading `/` has gained meaning: it roots the query's resource segments
-  at the logical root, independent of the live CWD. The name collision with `Key::as_absolute` /
-  `Key::to_absolute` remains, but the field is no longer a mere syntactic flag.
-- **Explanation:** Both answers are small. The documentation correction is needed under either
-  answer and is specified as a separate first step.
-- **Open questions:**
-  1. **Proposed resolution — rename to `rooted`, keep the wire name.** The Rust field becomes
-     `rooted` with `#[serde(rename = "absolute")]`, so stored and transmitted queries are
-     unchanged (they are persisted inside metadata, e.g. `MetadataRecord.query`). Python keeps an
-     `absolute` getter as a deprecated alias of a new `rooted` getter.
-  2. **Alternative — keep the name, document the meaning.** No API change. The collision stays.
+- **Readiness:** ready
+- **Automatic fixing:** not-eligible — renames the `pub` field `Query::absolute` and its serialized
+  name (rule 4), in `liquers-core` and `liquers-py` (rule 6)
+- **Leading issue:** None
+- **Explanation:** Decided (Maintainer decision, 2026-10-10): rename the field to `rooted`, **including
+  the serialized (wire) name**, with no `serde(rename)` and no Python alias. Backward compatibility
+  is not required at this stage. The documentation correction is still the first step.
+- **Open questions:** None.
+
+## What the leading `/` does (corrected 2026-10-10)
+
+A resource key without `.` or `..` is already absolute: `-R/data/x.csv` and `/-R/data/x.csv` both
+read the key `data/x.csv`, wherever the query runs. The leading `/` only matters for a resource key
+that **is** relative. Inside a recipe folder `reports` (live CWD `reports`):
+
+| Query | Resource key read |
+|---|---|
+| `-R/./data/x.csv/-/to_text` | `reports/data/x.csv` (`.` is the live CWD) |
+| `/-R/./data/x.csv/-/to_text` | `data/x.csv` (`.` is the root, because the query is rooted) |
+
+Links inside the query (`~X~-R/./linked~E`) keep resolving against the live CWD in both cases
+(`query.rs` test `cwd_cursor_absolute_query_uses_private_root_without_fallback`).
 
 ## Problem (at HEAD)
 
@@ -37,10 +43,9 @@ resolution") are stale. They describe the flag as meaningless.
 1. Documentation (both answers): the module doc and the field doc state that a leading `/` roots
    the query's resource segments at `/`, and that child links keep using the live CWD (as
    `PROJECT_OVERVIEW.md` says).
-2. If renamed: the Rust field is `rooted`. Serialized form is unchanged (`"absolute"`), proven by a
-   test that deserializes a stored legacy plan (`plan.rs` ≈4952 already has such JSON). Equality,
-   hashing and `encode` are unchanged.
-3. If renamed: `liquers-py` exposes `rooted`, and keeps `absolute` returning the same value.
+2. The Rust field is `rooted` and serializes as `"rooted"`. Equality, hashing and `encode` (the
+   leading `/` in query text) are unchanged.
+3. `liquers-py` exposes `rooted`; the `absolute` getter is removed.
 4. `liquers-web` is unaffected (it exposes no such field; verified: `objects.rs` has none).
 
 ## Scope
@@ -62,4 +67,10 @@ not change, so only the name is updated.
 
 - The meaning now exists, so `had_leading_slash` (the issue's first proposal) would describe syntax
   rather than semantics. `rooted` names the semantics.
-- Keeping the wire name avoids any stored-query migration, independent of the decision.
+- Stored metadata is not affected by the wire rename: `MetadataRecord.query`, `LogEntry.query` and
+  `AssetInfo.query` serialize the query as encoded text (`query_format` / `option_query_format`).
+  Only struct-serialized queries change shape, chiefly serialized `Plan`s (the legacy plan JSON in
+  `plan.rs` tests). A stored plan JSON written before the change no longer deserializes; accepted
+  by the maintainer decision.
+- The earlier example of this design wrongly implied that `/-R/data/x.csv` differs from
+  `-R/data/x.csv`; it does not (corrected above, maintainer review 2026-10-10).

@@ -2,14 +2,13 @@
 
 ## Design Readiness
 
-- **Readiness:** needs-decision
+- **Readiness:** ready
 - **Automatic fixing:** not-eligible — adds a serialized field to `ErrorPayload` (rule 4)
-- **Leading issue:** **Proposed resolution - traceback representation:** Store one optional UTF-8
-  traceback string on `ErrorPayload` and copy it to the existing `LogEntry.traceback` field.
-- **Explanation:** The additive string solution is implementable and backward compatible, but it
-  establishes a public serialized error contract that later language bindings must follow.
-- **Open questions:** **Proposed resolution - traceback representation:** Approve a rendered string
-  for this S-sized change; structured frames remain with `LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT`.
+- **Leading issue:** None
+- **Explanation:** Decided (Maintainer decision, 2026-10-10): one optional UTF-8 traceback string on
+  `ErrorPayload`, serde-defaulted, copied to the existing `LogEntry.traceback`. Bindings render their
+  stack to text; structured frames stay with `LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT`.
+- **Open questions:** None.
 
 ## Problem and Evidence
 

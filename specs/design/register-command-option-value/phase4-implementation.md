@@ -1,12 +1,34 @@
 # Phase 4: Implementation Plan
 
-Preconditions: questions 1–2 decided.
+## Progress
 
-1. Add the supported list and the parse-time check in `registration.rs`. Proof: T1
-   (`cargo test -p liquers-macro`). Agent: sonnet tier; knowledge: REGISTER_COMMAND_FSD.
-2. Confirm no in-tree registration is rejected: `cargo test -p liquers-lib --lib --tests --no-run`
-   and `bash scripts/check-build-matrix.sh`.
-3. (If accepted) Add the `Option<String>`/`Option<bool>` impls and the `ArgumentType` mapping. Proof: T3.
-4. T2 if trybuild is available. Otherwise document E1 in the FSD only.
-5. Docs, issue resolution (record that `Option<Value>` support was not pursued). If wanted, file a
-   feature `REGISTER-COMMAND-OPTION-VALUE-SUPPORT` (§4.8). Index. Diff review.
+- [ ] 1. Core conversions
+- [ ] 2. `BooleanOption`
+- [ ] 3. Macro mapping and rejection
+- [ ] 4. Lib conversions and matches
+- [ ] 5. Python mirror
+- [ ] 6. Tests
+- [ ] 7. Documents and records
+
+## Steps
+
+1. `liquers-core/src/value.rs` `TryFrom<Value> for Option<T>` (and missing scalar widths);
+   `commands.rs` `impl_from_parameter_value2_opt!(bool, …)`, remove the dead comment block. Proof:
+   `cargo check -p liquers-core`.
+2. `command_metadata.rs` `ArgumentType::BooleanOption` (`bool_opt`), `is_option`; `plan.rs`
+   `from_string` arm. Proof: `bool_opt_serializes`, `cargo test -p liquers-core --lib`.
+3. `liquers-macro/src/registration.rs`: `FloatOpt` → `FloatOption`, full option mapping,
+   `SUPPORTED_OPTION_INNER` and the parse-time error. Proof: `cargo test -p liquers-macro`.
+4. `liquers-lib`: `Option<T>` impls for `SimpleValue`/`CombinedValue`; the two `ArgumentType`
+   display matches. Proof: `cargo test -p liquers-lib --lib --tests`.
+5. `liquers-py/src/command_metadata.rs` mirrored variant. Proof: `cargo check -p liquers-py`.
+6. `liquers-core/tests/register_command_option.rs` (Phase 3). Proof:
+   `cargo test -p liquers-core --test register_command_option`; then
+   `cargo test -p liquers-lib --test registry_export` (registry unchanged) and
+   `bash scripts/check-build-matrix.sh`.
+7. `REGISTER_COMMAND_FSD.md`, `COMMAND_REGISTRATION_GUIDE.md`, `CLAUDE.md` DSL lines (History,
+   `reviewed:`); close the issue noting that `Option<String>`/`Option<Value>` are deliberately
+   unsupported; `python3 scripts/docs_index.py --check`. Diff review.
+
+Rollback: each step is a revert; nothing persisted depends on the new variant until a command uses
+it.

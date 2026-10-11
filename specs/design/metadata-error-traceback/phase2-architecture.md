@@ -48,7 +48,7 @@ structured frame arrays; useful later, too large for this issue.
 | New validation | Unit test: error with traceback becomes `LogEntry.traceback`; old JSON without it deserializes. |
 | Behavioural risk | Compatibility low due optional/default field; no persistence migration; no concurrency/performance/security concern. |
 | Recovery | Revert the field and `from_error` copy; old metadata remains readable either way. |
-| Certainty | High technically; the serialized representation remains a visible proposed decision. |
+| Certainty | High; representation decided by the maintainer on 2026-10-10 (one optional string). |
 
 ## Rust Review
 

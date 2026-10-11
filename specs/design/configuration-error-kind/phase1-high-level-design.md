@@ -2,23 +2,18 @@
 
 ## Design Readiness
 
-- **Readiness:** needs-decision
+- **Readiness:** ready
 - **Automatic fixing:** not-eligible — adds an `ErrorType` variant observed by every binding (rules
   3-4) across five crates (rule 6)
-- **Leading issue:** **Open design question - public error taxonomy:** every binding observes
-  `ErrorType` (JavaScript names, Python, HTTP status), so adding `ConfigurationError` is a
-  cross-language compatibility commitment.
-- **Explanation:** Semantic configuration failures can be isolated and tested. The recommended
-  taxonomy keeps `ParseError` for malformed documents and `NotSupported` for unavailable store
-  types, and uses the new variant only where configuration is semantically incomplete or invalid.
-- **Open questions:**
-  - **Proposed resolution - taxonomy boundary:** add `ErrorType::ConfigurationError` and
-    `Error::configuration_error`. Migrate missing required keys, unset environment variables and
-    rejected keys. Keep parse and capability kinds.
-  - **Proposed resolution - environment documents:** `EnvironmentConfig::from_yaml/json/toml`
-    report malformed documents as `ParseError` (today `General`), consistent with store documents.
-  - **Proposed resolution - HTTP:** `ConfigurationError` maps to 500 (a server-side setup fault),
-    not 400.
+- **Leading issue:** None
+- **Explanation:** Decided (Maintainer decision, 2026-10-10), all three as recommended:
+  - **Taxonomy boundary:** add `ErrorType::ConfigurationError` and `Error::configuration_error`.
+    Migrate missing required keys, unset environment variables and rejected keys. Keep `ParseError`
+    for malformed documents and `NotSupported` for unavailable or unknown store types.
+  - **Environment documents:** `EnvironmentConfig::from_yaml/json/toml` report malformed documents
+    as `ParseError` (today `General`), consistent with store documents.
+  - **HTTP:** `ConfigurationError` maps to 500 (a server-side setup fault), not 400.
+- **Open questions:** None.
 
 ## Problem and outcome
 

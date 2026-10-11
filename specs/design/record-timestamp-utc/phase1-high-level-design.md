@@ -2,24 +2,18 @@
 
 ## Design Readiness
 
-- **Readiness:** needs-decision
+- **Readiness:** ready
 - **Automatic fixing:** not-eligible — changes the IPC serialized type and the polars dtype (rule
   4), in two crates (rule 6)
-- **Leading issue:** **Open design question — Timestamp is a UTC instant everywhere (change IPC
-  and the polars bridge), or a naive date-time everywhere (change Parquet and the text formats).**
-  It changes a frozen design's IPC table (`record-streams` Phase 2) and the dtype users see in
-  polars.
-- **Explanation:** The issue and the 2026-09-27 update show four of six forms already agree on
-  UTC: text formats with `Z`, Parquet `isAdjustedToUTC = true`, and the JSON `table` orient with
-  `"tz": "UTC"`. The recommended answer changes the two outliers and keeps reading tolerant.
-- **Open questions:**
-  1. **Proposed resolution — UTC everywhere.** IPC writes `Timestamp(Microsecond, "UTC")`. The IPC
-     reader accepts `"UTC"`, an empty zone (treated as UTC, for files written before the change),
-     and any other zone (values are epoch-based instants in Arrow regardless of zone, so they are
-     taken as they are). The polars bridge produces `Datetime(us, Some("UTC"))`, and reading
-     accepts any `Datetime` time zone the same way.
-  2. **Implementation detail:** the frozen design is not edited. The decision is recorded in
-     `specs/reference/RECORD_STREAMS.md`, which becomes the authority for the IPC type mapping.
+- **Leading issue:** None
+- **Explanation:** Decided (Maintainer decision, 2026-10-10): Timestamp is a UTC instant everywhere.
+  IPC writes `Timestamp(Microsecond, "UTC")`. The IPC reader accepts `"UTC"`, an empty zone (treated
+  as UTC, for files written before the change) and any other zone (epoch-based instants, taken as
+  they are). The polars bridge produces `Datetime(us, Some("UTC"))`, and reading accepts any
+  `Datetime` time zone the same way. Text, JSON and Parquet are unchanged.
+- **Open questions:** None. Implementation detail: the frozen `record-streams` design is not edited;
+  the decision is recorded in `specs/reference/RECORD_STREAMS.md`, which becomes the authority for
+  the IPC type mapping.
 
 ## Problem
 

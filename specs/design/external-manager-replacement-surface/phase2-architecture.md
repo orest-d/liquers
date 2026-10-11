@@ -1,6 +1,6 @@
 # Phase 2: Solution and Architecture
 
-## Recommended solution
+## Chosen solution (maintainer decision, 2026-10-10)
 
 `liquers-core/src/assets.rs`:
 
@@ -75,4 +75,4 @@ deliberately", delete the §11 limitation row, and add a History row and a `revi
 | Concurrency | `notify_removed` takes a read lock and sends on a `watch` channel, which is safe from any task |
 | Security | None |
 | Recovery | Revert. Nothing else depends on it. |
-| Certainty | High, once the decision is made |
+| Certainty | High; decided 2026-10-10 |

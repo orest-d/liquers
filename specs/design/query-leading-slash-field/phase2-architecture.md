@@ -1,43 +1,46 @@
 # Phase 2: Solution and Architecture
 
-## Step A (both answers): documentation
+## Step A: documentation
 
 - `liquers-core/src/query.rs` module doc (≈67): replace "It currently has no semantic meaning" with
-  "A leading `/` roots the query's resource segments at the logical root, independent of the
-  current working directory; links inside the query keep resolving against the live CWD
-  (see `CwdState::resolve_query_scoped`)."
+  "A leading `/` makes the query rooted: relative (`.`/`..`) keys in its resource segments resolve
+  against the logical root instead of the current working directory; links inside the query keep
+  resolving against the live CWD (see `CwdCursor::resolve_query_scoped`)."
 - Field doc (≈2220): the same meaning, in one sentence.
 
-## Step B (rename answer)
+## Step B: rename, wire name included (maintainer decision, 2026-10-10)
 
 ```rust
 pub struct Query {
     pub segments: Vec<QuerySegment>,
-    /// The text had a leading `/`: resource segments are rooted at `/`, independent of the CWD.
-    #[serde(rename = "absolute")]
+    /// The text had a leading `/`: relative keys in resource segments resolve against `/`, not the CWD.
     pub rooted: bool,
     pub source: QuerySource,
 }
 ```
 
-Then update every use (`rg "\.absolute\b|absolute:" liquers-*/src --type rust` lists them:
-`query.rs` constructors ≈1692/1702/2383/2458/2619–2643/2746/2799 and logic ≈2295/2769–2854,
-`plan.rs` ≈1632/2215, and tests in `parse.rs`/`context.rs`). Rename the local
-`absolute_resource_cursor` to `rooted_resource_cursor` for consistency.
+No `#[serde(rename)]`. Update every use (`rg "\.absolute\b|absolute:" liquers-*/src --type rust`
+lists them: `query.rs` constructors and logic, `plan.rs` including
+`absolute_query_resource_step_index` → `rooted_query_resource_step_index` and the legacy plan JSON
+in its tests, and tests in `parse.rs`/`context.rs`). Rename the local `absolute_resource_cursor` to
+`rooted_resource_cursor`.
 
-`liquers-py/src/query.rs`: add `#[getter] fn rooted(&self) -> bool`, and keep `absolute` with a
-doc comment "deprecated alias of `rooted`".
+`liquers-py/src/query.rs`: replace the `absolute` getter with `rooted`.
+
+`Key::to_absolute`, `Key::as_absolute`, `Query::to_absolute` keep their names: they are about
+resolution and assertion, and the rename removes the collision.
 
 ## Rejected alternatives
 
-- Rename the wire name too. It would break stored queries in metadata, for a cosmetic gain.
-- `had_leading_slash`. It describes syntax, not the meaning the flag now has.
+- Keep the wire name with `serde(rename = "absolute")`: rejected by the maintainer; no compatibility
+  is required yet.
+- `had_leading_slash`: describes syntax, not the meaning.
 
 ## Risk Review
 
 | Risk | Validation and recovery |
 |---|---|
-| Wire compatibility | Test: deserialize the legacy plan JSON (`plan.rs` ≈4952) and a serialized query; assert the key is still `absolute`. |
-| Python API | Both getters exist; `cargo check -p liquers-py` |
+| Stored plan JSON | Struct-serialized plans written before the change fail to deserialize. Accepted. Metadata stores queries as encoded text and is unaffected (T3). |
+| Python API | `absolute` getter removed; `cargo check -p liquers-py` |
 | Missed use site | The compiler (public field) |
 | Recovery | Revert the rename; Step A stands alone |

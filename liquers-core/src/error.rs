@@ -70,6 +70,11 @@ pub struct ErrorPayload {
     pub key: Option<String>,
     #[serde(skip)]
     pub command_key: Option<CommandKey>,
+    /// A rendered traceback (for example a Python or JavaScript stack), when the code that raised
+    /// the error had one. Plain UTF-8 text; omitted from the wire when absent, so the serialized
+    /// form of an error without a traceback is unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub traceback: Option<String>,
 }
 
 impl ErrorPayload {
@@ -82,6 +87,7 @@ impl ErrorPayload {
             query: None,
             key: None,
             command_key: None,
+            traceback: None,
         }
     }
 }
@@ -156,6 +162,12 @@ impl Error {
     }
     pub fn with_key(mut self, key: &crate::query::Key) -> Self {
         self.query = Some(key.encode());
+        self
+    }
+    /// Attaches a rendered traceback. `LogEntry::from_error` copies it into the error log entry,
+    /// so it survives into the asset's metadata.
+    pub fn with_traceback(mut self, traceback: impl Into<String>) -> Self {
+        self.traceback = Some(traceback.into());
         self
     }
     /// Enriches an error with command execution context.
@@ -654,6 +666,33 @@ mod tests {
 
         let restored: Error = serde_json::from_value(json).expect("round-trips");
         assert_eq!(restored, err);
+    }
+
+    /// A traceback is serialized as one more key of the flat object and restored on the way back.
+    #[test]
+    fn traceback_round_trips_as_a_flat_key() {
+        let traceback = "Traceback (most recent call last):\n  File \"x.py\", line 1";
+        let err =
+            Error::general_error("Python command failed".to_string()).with_traceback(traceback);
+        let json: serde_json::Value = serde_json::to_value(&err).expect("serializes");
+        assert_eq!(json["traceback"], serde_json::json!(traceback));
+        let restored: Error = serde_json::from_value(json).expect("round-trips");
+        assert_eq!(restored, err);
+    }
+
+    /// An error serialized before the field existed carries no `traceback` key and still loads.
+    #[test]
+    fn error_without_traceback_key_deserializes() {
+        let json = serde_json::json!({
+            "error_type": "General",
+            "message": "boom",
+            "position": {"offset": 0, "line": 0, "column": 0},
+            "query": serde_json::Value::Null,
+            "key": serde_json::Value::Null,
+        });
+        let restored: Error = serde_json::from_value(json).expect("deserializes");
+        assert_eq!(restored.traceback, None);
+        assert_eq!(restored.message, "boom");
     }
 
     /// `command_key` was and remains `#[serde(skip)]`: it survives in memory but not on the wire.

@@ -2,7 +2,7 @@
 id: AXUM-STORE-KEYS-LISTS-ONLY-DIRECT-CHILDREN
 kind: issue
 title: GET /api/store/keys lists only the direct children of the prefix, not all keys
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [axum]
@@ -28,3 +28,11 @@ corrected.
 
 Found 2026-09-28 during the `WEB_API_SPECIFICATION.md` audit of `specs/design/axum-assets-endpoints/`
 (Step 13); the specification now documents the current behaviour.
+
+## Resolution (2026-10-10)
+
+Maintainer decision (2026-10-08, D2): deep. `keys_handler` (`liquers-axum/src/store/handlers.rs`)
+now returns `listdir_keys_deep(prefix)`, root by default. Tests
+`store_keys_lists_nested_keys_under_prefix`, `store_keys_without_prefix_lists_whole_store` and
+`store_listdir_still_lists_direct_children_only` in `tests/store_api_routes.rs`;
+`WEB_API_SPECIFICATION.md` updated. Design: `design/axum-store-keys-deep/`.

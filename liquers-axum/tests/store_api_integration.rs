@@ -205,16 +205,18 @@ async fn test_store_set_metadata() {
 // Test 3: Directory Operations
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Test makedir creates directory
-/// NOTE: Ignored because MemoryStore doesn't support directory operations
+/// Test makedir creates a directory that exists afterwards
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[ignore]
 async fn test_store_makedir() {
     let store = create_test_store();
     let dir_key = parse_key("test/newdir").expect("Valid key");
 
     let makedir_result = store.makedir(&dir_key).await;
     assert!(makedir_result.is_ok(), "Makedir should succeed");
+    assert!(
+        store.is_dir(&dir_key).await.expect("is_dir should work"),
+        "The directory should exist after makedir"
+    );
 }
 
 /// Test is_dir checks directory

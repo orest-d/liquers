@@ -2,7 +2,7 @@
 id: SCHEMA-LESS-JSON-ORIENT-INDEX-COLUMN-OVERWRITTEN
 kind: issue
 title: A schema-less read of an indexed JSON orient silently drops the index when a data column is named index
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [records]
@@ -42,3 +42,13 @@ fixing: not-eligible.
 Found 2026-10-08 while implementing `design/ordered-json-orient-column-order/` (branch
 `claude/ordered-json-orient-column-order`, PR #90). A probe test against the `split` and `columns`
 orients reproduced it. The behaviour predates that change.
+
+## Resolution (2026-10-10)
+
+Maintainer decision: rename the index. A schema-less `split` / `columns` / `index` read whose data
+has a column `index` puts the index in the first free `index_<n>` (private `index_column_name` in
+`liquers-records/src/formats/shapes.rs`); a declared schema reads as before. Tests
+`split_without_schema_renames_the_index_on_clash`, `split_without_schema_skips_taken_index_names`,
+`columns_and_index_without_schema_rename_the_index_on_clash`, `split_without_clash_keeps_index_name`
+and the two declared-schema tests; `RECORD_STREAMS.md` updated. Design:
+`design/json-orient-index-column-collision/`.

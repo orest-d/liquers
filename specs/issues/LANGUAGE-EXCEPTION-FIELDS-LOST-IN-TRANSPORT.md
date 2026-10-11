@@ -58,3 +58,10 @@ exercise the route production traffic takes, not the most convenient entry point
 **Fixed alongside it:** the message contained its first line twice ("TypeError: bang\nTypeError:
 bang\n at ..."), because a JavaScript `stack` conventionally begins with the "Name: message" line
 that had already been prepended.
+
+## Progress (2026-10-11)
+
+`design/metadata-error-traceback/` added the traceback half of the core field: `Error` now carries
+an optional rendered `traceback` string (`Error::with_traceback`), which reaches the metadata log
+and the axum error body. What remains here is the exception class and having `liquers-web` and
+`liquers-py` fill the traceback on the way in instead of appending the stack to `message`.

@@ -2,13 +2,11 @@
 id: METADATA-ERROR-TRACEBACK
 kind: design
 title: Error traceback in metadata log entries
-status: in_review
-phase: implementation
-readiness: needs-decision
+readiness: ready
 autofix: not-eligible
 area: [core/value, core/error]
 issues: [CORE-METADATA-TRACEBACK-SUPPORT]
-gh_pr: []
+gh_pr: [113]
 created: 2026-08-29
 superseded_by:
 ---
@@ -27,7 +25,7 @@ This simplified autonomous four-phase design covers `CORE-METADATA-TRACEBACK-SUP
 - [x] Phase 1: High-Level Design
 - [x] Phase 2: Solution & Architecture
 - [x] Phase 3: Examples and Tests
-- [x] Phase 4: Implementation
+- [x] Phase 4: Implementation (PR #113)
 - [ ] Phase 5: Documentation
 
 ## Links
