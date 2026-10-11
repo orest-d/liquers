@@ -2,7 +2,7 @@
 id: CORE-METADATA-TRACEBACK-SUPPORT
 kind: issue
 title: Metadata has no place for an error traceback
-status: accepted
+status: closed
 priority: P2
 complexity: S
 area: [core/value, core/error]
@@ -31,3 +31,13 @@ design serves both.
 ## Discovery
 
 Migration triage, 2026-08-08. Source: `todo20260219.md` #14, work package WP-2. Verified against HEAD: marker present at `metadata.rs:473`. See `specs/archive/2026-08-08-docs-migration-plan.md` §4.0c.
+
+## Resolution (2026-10-11)
+
+`ErrorPayload` (`liquers-core/src/error.rs`) gained `traceback: Option<String>`, serde-defaulted and
+skipped when absent, set with `Error::with_traceback`. `LogEntry::from_error`
+(`liquers-core/src/metadata.rs`) copies it into the log entry, and `MetadataRecord::with_error` now
+logs through `LogEntry::from_error`, so the entry also keeps the error's position and query. The
+axum `error_to_detail` returns it as `error.traceback`, one string per line. Structured frames and
+the language exception class stay with `LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT`. Design:
+`design/metadata-error-traceback/`.

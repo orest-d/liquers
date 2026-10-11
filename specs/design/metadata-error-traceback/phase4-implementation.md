@@ -1,5 +1,10 @@
 # Phase 4: Implementation Plan
 
+All steps done on branch `claude/metadata-error-traceback-o27ook` (2026-10-11). Two additions in
+scope: `MetadataRecord::with_error` now logs through `LogEntry::from_error` (otherwise
+`MetadataRecord::from_error` — Phase 3 test 3 — would not carry the traceback), and the axum
+`error_to_detail` fills `error.traceback`, whose comment the new field made false.
+
 1. Extend `ErrorPayload` in `liquers-core/src/error.rs` with serde-defaulted
    `traceback: Option<String>`, initialize it in `ErrorPayload::new`, and add a consuming
    `Error::with_traceback`. Add Phase 3 wire/size tests; rollback removes only the additive field.
