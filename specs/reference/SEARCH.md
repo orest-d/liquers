@@ -236,4 +236,4 @@ stop. Bind and evaluation warnings are kept; `warnings()` reads them.
 
 | Date | Change | Source |
 |---|---|---|
-| 2026-10-11 | Created with the `ns-search` commands and `liquers-records` search. | `design/store-and-asset-search/` |
+| 2026-10-11 | Created with the `ns-search` commands and `liquers-records` search. | phase-5, `design/store-and-asset-search/` |

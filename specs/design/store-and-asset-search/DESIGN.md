@@ -4,11 +4,11 @@ kind: design
 title: Search over stores and assets
 workflow: liquers-project
 status: in_review
-phase: implementation
+phase: documentation
 area: [records, core/assets, lib/commands, docs]
 gh_pr: []
 issues: [STORE-NO-CONTENT-OR-METADATA-SEARCH, RECORD-SOURCE-WRAPPERS-UNSPECIFIED]
-affects_docs: [guides/SEARCH_GUIDE.md, reference/SEARCH.md, reference/RECORD_STREAMS.md, guides/COMMAND_REGISTRATION_GUIDE.md]
+affects_docs: [guides/SEARCH_GUIDE.md, reference/SEARCH.md, reference/RECORD_STREAMS.md, guides/COMMAND_REGISTRATION_GUIDE.md, guides/RECORD_STREAM_GUIDE.md]
 created: 2026-09-17
 superseded_by:
 ---
@@ -27,9 +27,9 @@ implementation run without a gate. Decisions met along the way are logged in Pha
 - [x] Phase 2: Solution & Architecture — revision 8 approved 2026-10-11, after two independent
   reviews
 - [x] Phase 3: Examples & Testing — approved 2026-10-11, after two independent reviews
-- [ ] Phase 4: Implementation Plan
-- [ ] Phase 5: Documentation
-- [ ] Implementation Complete
+- [x] Phase 4: Implementation Plan — implemented 2026-10-11, Steps 1–15
+- [ ] Phase 5: Documentation — [summary](./phase5-documentation.md) written 2026-10-11, presented for review
+- [x] Implementation Complete
 
 ## What this design builds
 

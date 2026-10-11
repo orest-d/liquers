@@ -67,3 +67,12 @@ The filtering wrapper is specified as `FilteredSource` in
 (revision 8), because `ns-search/search` with `rank=false` streams through it. It will be closed
 when that design is built. The asynchronously mapping wrapper is not needed there and remains open
 here.
+
+## Filtering half built, 2026-10-11
+
+`liquers_records::search::FilteredSource` is built and tested
+(`liquers-records/src/search/source.rs`; `filtered_source_*` tests, and
+`liquers-lib/tests/search_commands.rs::search_unranked_source_stays_source`), and documented in
+[`reference/RECORD_STREAMS.md`](../reference/RECORD_STREAMS.md) §`RecordSource`. It filters rows
+within each chunk, lazily, and keeps no `chunks()` of its own. It is specific to a search
+`Predicate`; a general filtering wrapper and the asynchronously mapping one remain open here.

@@ -195,4 +195,4 @@ cargo run -p liquers-core --features cli --bin liquers-validate -- -- '<query>'
 
 | Date | Change | Source |
 |---|---|---|
-| 2026-10-11 | Created with the `ns-search` commands. | `design/store-and-asset-search/` |
+| 2026-10-11 | Created with the `ns-search` commands. | phase-5, `design/store-and-asset-search/` |

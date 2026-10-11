@@ -1035,7 +1035,7 @@ fn apply(...) -> Result<...> { ... }
 
 | Date | Change | Source |
 |---|---|---|
-| 2026-10-11 | New §5 *Commands that list or describe the store must not evaluate it*. | `design/store-and-asset-search/` |
+| 2026-10-11 | New §5 *Commands that list or describe the store must not evaluate it*. | phase-5, `design/store-and-asset-search/` |
 | 2026-10-10 | New §Commands whose output is not worth keeping (`cached: false`); `cached` in the metadata statement list. | phase-5, `design/plan-policy/` |
 | 2026-10-10 | New §1 *Reading the input's description*: a command reads its input's format, key and origin from `state.metadata`, and its own asset through `Context`. | phase-5, `design/plan-step-state-metadata/` |
 | 2026-10-10 | New §1 *Where to put `context`*: any position works, the recommended one is last or before a `multiple` argument (Python `*args` parity); §*Accepting a variable number of parameters* points at it. | phase-5, `design/context-param-order/` |

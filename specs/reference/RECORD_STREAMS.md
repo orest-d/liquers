@@ -808,7 +808,7 @@ materializes to an empty batch; without one it is an error.
 
 | Date | Change | Source |
 |---|---|---|
-| 2026-10-11 | `FieldSchema::media_type`; `FilteredSource`; roles gain their first consumer, `ns-search/search`. | `design/store-and-asset-search/` |
+| 2026-10-11 | `FieldSchema::media_type`; `FilteredSource`; roles gain their first consumer, `ns-search/search`. | phase-5, `design/store-and-asset-search/` |
 | 2026-10-10 | JSON: a schema-less `split` / `columns` / `index` read whose data has a column named `index` puts the index first, in the first free `index_<n>`, instead of losing it. | `design/json-orient-index-column-collision/` |
 | 2026-10-08 | JSON: a schema-less `split` / `values` read keeps the document's column order; only unordered shapes sort. | phase-5, `design/ordered-json-orient-column-order/` |
 | 2026-10-08 | A chunk refused during a manifest traversal is named in the error message by its index and key or query. | phase-5, `design/manifest-chunk-error-identity/` |

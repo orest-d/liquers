@@ -8,9 +8,9 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 107
+Total rows: 109
 - P2: 52
-- P3: 55
+- P3: 57
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -75,6 +75,8 @@ Total rows: 107
 | [`STORE-GUIDE-STATUS-TABLE-HAS-NO-GENERATOR`](issues/STORE-GUIDE-STATUS-TABLE-HAS-NO-GENERATOR.md) | issue | The store guide's status table claims to be generated from the conformance reports, and no generator exists | draft | ready | not-eligible | P3 | S | docs;store/backends | [phase1](design/store-guide-status-table/phase1-high-level-design.md)  [phase2](design/store-guide-status-table/phase2-architecture.md)  [phase3](design/store-guide-status-table/phase3-examples.md)  [phase4](design/store-guide-status-table/phase4-implementation.md)  | 2026-09-30 |
 | [`STORES-DISAGREE-ON-SEEDING-THE-DATA-FORMAT-FROM-THE-KEY`](issues/STORES-DISAGREE-ON-SEEDING-THE-DATA-FORMAT-FROM-THE-KEY.md) | issue | Some stores derive a file's data format from its key's extension and others do not | draft | ready | not-eligible | P3 | S | core/store;web | [design](design/store-key-format-seeding/DESIGN.md) | 2026-10-07 |
 | [`WEB-LIQUERSERROR-NOT-CONSTRUCTIBLE`](issues/WEB-LIQUERSERROR-NOT-CONSTRUCTIBLE.md) | issue | JavaScript cannot construct a LiquersError, so a page cannot raise a typed error | accepted | ready | not-eligible | P3 | S | web;core/error | [phase1](design/web-liquers-error-constructor/phase1-high-level-design.md)  [phase2](design/web-liquers-error-constructor/phase2-architecture.md)  [phase3](design/web-liquers-error-constructor/phase3-examples.md)  [phase4](design/web-liquers-error-constructor/phase4-implementation.md)  | 2026-08-09 |
+| [`COMMAND-REGISTRY-HEADER-NAMES-GROUPS-NOT-FEATURES`](issues/COMMAND-REGISTRY-HEADER-NAMES-GROUPS-NOT-FEATURES.md) | issue | The command_registry.yaml header lists group names under "features" | draft |  |  | P3 | S | lib/commands;build |  | 2026-10-11 |
+| [`LIB-BUILD-EMITS-UNUSED-AND-UNHANDLED-RESULT-WARNINGS`](issues/LIB-BUILD-EMITS-UNUSED-AND-UNHANDLED-RESULT-WARNINGS.md) | issue | A default liquers-lib build emits about 50 warnings, some for discarded Results | draft |  |  | P3 | S | lib/commands;build |  | 2026-10-11 |
 | [`TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS`](issues/TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS.md) | issue | TypeInfo cannot declare a format a type writes but cannot read back | draft |  |  | P3 | S | core/value |  | 2026-09-24 |
 | [`REGISTER-COMMAND-OPTION-VALUE-CANNOT-BIND`](issues/REGISTER-COMMAND-OPTION-VALUE-CANNOT-BIND.md) | issue | register_command! cannot bind an Option<Value> argument | draft | ready | not-eligible | P3 | M | macro | [phase1](design/register-command-option-value/phase1-high-level-design.md)  [phase2](design/register-command-option-value/phase2-architecture.md)  [phase3](design/register-command-option-value/phase3-examples.md)  [phase4](design/register-command-option-value/phase4-implementation.md)  | 2026-09-26 |
 | [`CONTEXT-TITLE-LOST-ACROSS-PREDECESSOR-BOUNDARY`](issues/CONTEXT-TITLE-LOST-ACROSS-PREDECESSOR-BOUNDARY.md) | issue | A title or description set by a command in a cut predecessor does not reach the final asset | draft | needs-decision | not-eligible | P3 | M | core/context;core/plan | [phase1](design/context-title-predecessor-inheritance/phase1-high-level-design.md)  [phase2](design/context-title-predecessor-inheritance/phase2-architecture.md)  [phase3](design/context-title-predecessor-inheritance/phase3-examples.md)  [phase4](design/context-title-predecessor-inheritance/phase4-implementation.md)  | 2026-10-06 |
