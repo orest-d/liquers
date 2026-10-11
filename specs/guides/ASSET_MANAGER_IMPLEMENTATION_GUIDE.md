@@ -132,7 +132,7 @@ impl<E: Environment> AssetManager<E> for MinimalInlineAssetManager<E> {
 | `get(key)` | Reuse a usable registered asset, or create one, register it (§7), try `fast_track`, and evaluate if that refuses. Evict and retry on an unusable status. |
 | `apply(recipe, to, payload)` | Build an unregistered, non-keyed asset with `AssetData::new_ext(.., to, None, ..)` and evaluate it before returning, on both modes. |
 | `set_binary(key, binary, metadata)` | Under the key-mutation lock: replace the live asset, decide the status, set the version, write the store, `publish_version`. Then `refresh_listing_version(&key.parent())` (§6). |
-| `set_state(key, state)` | Install a state. An external manager can only store one that has bytes (§11). |
+| `set_state(key, state)` | Under the key-mutation lock: replace the live asset, build the new one with `AssetRef::new_installed`, write the store (its bytes, or for a value with no byte form remove the old object and write metadata only), map it, `publish_version` and `track_installed`, then notify the replaced asset. Serializable or not, the state is served from memory. |
 | `eval_mode` | The constant from §2. |
 | `lookup_key_asset`, `lookup_query_asset` | Read the maps. Never create, never evaluate. A pure key query in `lookup_query_asset` reads the key map. |
 | `remove_key_asset` | Drop the key's entry. |
@@ -499,7 +499,7 @@ store conformance suite: shared scenarios, no rule numbers and no capability mod
 
 | Date | Change | Source |
 |---|---|---|
-| 2026-10-11 | §Primitives: `notify_removed`, `new_installed` and `track_installed` are public (rows added, removed from "not exposed"); the write example notifies the replaced asset once the key holds its replacement (or the write has failed), and a metadata-only write removes the stored object first; the known-limits row for both is removed. | `design/external-manager-replacement-surface/` |
+| 2026-10-11 | §Primitives: `notify_removed`, `new_installed` and `track_installed` are public (rows added, removed from "not exposed"); the write example notifies the replaced asset once the key holds its replacement (or the write has failed), and a metadata-only write removes the stored object first; the known-limits row for both is removed; §4's `set_state` row describes installing any state. | `design/external-manager-replacement-surface/` |
 | 2026-10-10 | Provided accessors gain `recipe_cache_strategy`, `query_cache_strategy` and `cut_predecessors`; new caching-strategy rules for a custom manager (keyed, top-level, a dependency following its creator), and `Recipe::cached` is now a strategy. A key with no recipe is not subject to the strategy, and an existing keyed asset is reused before it is consulted (PR #102 review). | phase-5, `design/plan-policy/` |
 | 2026-10-09 | §Primitives: `cancel_for_replacement` for writes and removals (the `cancel()` row says why not); the write example and the known-limits row follow. | phase-5 (`design/asset-cancellation-outcome/`) |
 | 2026-10-08 | `DefaultRecipeProvider` is constructed with `::new()` (it holds a recipe cache). The audit-policy section notes that the stored-records walk and the store audit are inherited provided methods. | phase-5 (`design/dependency-chain-analysis-cost/`) |
