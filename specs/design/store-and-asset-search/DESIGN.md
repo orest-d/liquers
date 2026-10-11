@@ -3,8 +3,7 @@ id: STORE-AND-ASSET-SEARCH
 kind: design
 title: Search over stores and assets
 workflow: liquers-project
-status: in_review
-phase: documentation
+status: complete
 area: [records, core/assets, lib/commands, docs]
 gh_pr: []
 issues: [STORE-NO-CONTENT-OR-METADATA-SEARCH, RECORD-SOURCE-WRAPPERS-UNSPECIFIED]
@@ -28,7 +27,7 @@ implementation run without a gate. Decisions met along the way are logged in Pha
   reviews
 - [x] Phase 3: Examples & Testing — approved 2026-10-11, after two independent reviews
 - [x] Phase 4: Implementation Plan — implemented 2026-10-11, Steps 1–15
-- [ ] Phase 5: Documentation — [summary](./phase5-documentation.md) written 2026-10-11, presented for review
+- [x] Phase 5: Documentation — [summary](./phase5-documentation.md), approved 2026-10-11
 - [x] Implementation Complete
 
 ## What this design builds
