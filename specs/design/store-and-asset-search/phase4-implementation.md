@@ -29,12 +29,12 @@ Builds follow `CLAUDE.md`: `CARGO_INCREMENTAL=0`, and no `--workspace`.
 - [x] Step 4: ranking, `search_view` and `SearchReport` — e1cb4a7
 - [x] Step 5: structure parsing — e1cb4a7
 - [x] Step 6: `FilteredSource` — e1cb4a7
-- [ ] Step 7: `liquers-lib` search module and shared helpers
-- [ ] Step 8: `catalog`, and registration
-- [ ] Step 9: `field_extract`
-- [ ] Step 10: `md_split`
-- [ ] Step 11: `search`
-- [ ] Step 12: `commands`
+- [x] Step 7: `liquers-lib` search module and shared helpers — b70227a
+- [x] Step 8: `catalog`, and registration — b70227a
+- [x] Step 9: `field_extract` — b70227a
+- [x] Step 10: `md_split` — b70227a
+- [x] Step 11: `search` — b70227a
+- [x] Step 12: `commands` — b70227a
 - [ ] Step 13: exporter group, `full_registry`, regenerated `command_registry.yaml`
 - [ ] Step 14: build matrix
 - [ ] Step 15: documentation
