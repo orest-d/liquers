@@ -189,19 +189,23 @@ carries `key`, `status`, `title`, `score` and `excerpt`. The query was validated
 
 ## Open Questions
 
-1. When `search` receives a folder, should its implicit catalog read content? Recommended: **no**.
-   Reading content costs a store read per entry, so asking for it should be explicit
-   (`catalog-t-t/search-…`), and the reference says so.
-2. Should `catalog` supersede `ns-rec/file_records`, which lists one folder with four columns?
-   Recommended: keep `file_records` unchanged and share the listing code.
-3. The `status` column is the **asset** lifecycle (`Ready`, `Recipe`, …), not a document's
-   front-matter status. Recommended: keep the name. A document's status is `content.status`
-   (AC-17), and `attr.*` columns arrive with `CORE-METADATA-NO-APPLICATION-ATTRIBUTES`.
-4. How does a query choose a predicate language other than the built-in one? Recommended: not
-   in this version. The language is a Rust-level extension point (AC-21). A `language` argument,
-   or a prefix such as `lang:` on the expression, is added when a second language exists.
-5. Paging: is an `offset` needed, or is `limit` plus budget honesty (AC-18) enough? Recommended:
-   no offset. A ranked result is recomputed on every query, so pages would not be stable anyway.
+Answered by the user on 2026-10-11:
+
+1. ~~Should the implicit catalog read content?~~ **No.** Content is read only when asked for with
+   `catalog-t-t/search-…`.
+2. ~~Should `catalog` supersede `ns-rec/file_records`?~~ **Keep `file_records` for now.**
+3. ~~Rename `status`?~~ **Keep it** as the asset lifecycle; a document's status is reached
+   through its parsed content.
+4. ~~Selecting a predicate language?~~ **Not yet.** In future it may be a `search` argument naming
+   a query-language dialect.
+5. ~~Paging with `offset`?~~ **Not for now.**
+
+Still open, under discussion:
+
+6. How is the format of a structured text field recognised (JSON, YAML, Markdown front-matter, or
+   the first fenced YAML block of a Markdown document), and how reliable must that be? An
+   alternative, or a complement, is a command that extracts fields from JSON, YAML and Markdown
+   files into columns. AC-17 depends on the answer.
 
 ## References
 
