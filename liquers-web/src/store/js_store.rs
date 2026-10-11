@@ -258,7 +258,9 @@ impl AsyncStore for JsStore {
         let args = js_sys::Array::new();
         args.push(&JsValue::from_str(&key.encode()));
         args.push(&js_sys::Uint8Array::from(data).into());
-        args.push(&self.metadata_to_js(key, metadata)?);
+        let mut metadata = metadata.clone();
+        liquers_core::store::seed_filename_from_key(&mut metadata, key);
+        args.push(&self.metadata_to_js(key, &metadata)?);
         self.call(function, &args).await.map(|_| ())
     }
 

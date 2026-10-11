@@ -245,7 +245,10 @@ impl AsyncStore for DefaultsStore {
             .lock()
             .map_err(|_| Error::general_error("poisoned".to_owned()))?;
         data.retain(|(k, _, _)| k != key);
-        data.push((key.clone(), Some(bytes.to_vec()), metadata.clone()));
+        // `set` is this store's own, not a default, so it seeds as every store must (§10).
+        let mut metadata = metadata.clone();
+        liquers_core::store::seed_filename_from_key(&mut metadata, key);
+        data.push((key.clone(), Some(bytes.to_vec()), metadata));
         Ok(())
     }
 

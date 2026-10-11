@@ -143,12 +143,30 @@ store_conformance_CONF`, then the liquers-web Node loop (`CLAUDE.md`, "liquers-w
 
 ### Steps
 
-- [ ] 1. `liquers-core/src/store.rs` `finalize_metadata` — seeding — `cargo test -p liquers-core --lib`
-- [ ] 2. Conformance rules — `cargo test -p liquers-core --test store_conformance_CONF`
-- [ ] 3. `STORE_SEMANTICS.md` rule and History row; store guide status table counts
-- [ ] 4. liquers-web conformance loop; issue resolution; `python3 scripts/docs_index.py --check`
+- [x] 1. `liquers-core/src/store.rs` `finalize_metadata` — seeding — `cargo test -p liquers-core --lib`
+- [x] 2. Conformance rules — `cargo test -p liquers-core --test store_conformance_CONF`
+- [x] 3. `STORE_SEMANTICS.md` rule and History row; store guide status table counts
+- [x] 4. liquers-web conformance loop; issue resolution; `python3 scripts/docs_index.py --check`
 
 ### Validation
 
 `cargo test -p liquers-core --lib --tests`, `cargo test -p liquers-lib --lib --tests`, the web loop.
 Rollback: revert the commit.
+
+### Outcome (2026-10-11)
+
+Every step done; the rules are `seed01` and `seed02`, the ids the suite's families use, in place of
+the Phase 3 test names. Two differences from Phase 2:
+
+- **Not one call site.** `finalize_metadata` does not shape the persisted record everywhere:
+  `AsyncMemoryStore::set` never calls it, `AsyncFileStore::set` writes the caller's record once the
+  data is in place, and `JsStore::set` passes it to JavaScript as given (the review finding). The
+  seeding is therefore a free function, `seed_filename_from_key`, which `finalize_metadata` and those
+  three `set`s call.
+- **`finalize_metadata` no longer calls `MetadataRecord::with_key`**, which overwrote a declared
+  filename with the key's, so OpenDAL and `LocalStorageStore` failed AC-2. It sets the key alone.
+
+Two store unit tests that asserted an unseeded filename now assert the seeded one, and the test
+store behind the "Trait defaults" row seeds in its own `set`. All stores remain conformant at 46
+rules; `LocalStorageStore` was run in Chromium with `NO_HEADLESS=1`, since the installed
+chromedriver does not match the browser.
