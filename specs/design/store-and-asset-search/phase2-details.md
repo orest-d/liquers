@@ -77,6 +77,9 @@ The regex token is a hand-written scanner inside the `nom` parser, tried before 
 
 **`commands`:**
 
+`query` is `ns-<namespace>/<name>`, or the bare `name` when the namespace is empty or `root`; the
+realm is not shown. (*Decision D5, 2026-10-11, pending confirmation.*)
+
 | Column | Type | Roles | Source |
 |---|---|---|---|
 | `id` | Text | Id | `CommandKey` display, `realm-namespace-name` |
@@ -116,6 +119,13 @@ The regex token is a hand-written scanner inside the `nom` parser, tried before 
 | `heading` | Text, nullable (sections only) | text: the path `H1 > H2 > H3` |
 | `level` | Int, nullable | numeric |
 | `text` | Text | text |
+
+## D2. Compares and limits (decisions of 2026-10-11, pending confirmation)
+
+- **D4.** A compare on a Text column (`created:>2026-09`) is lexicographic on the raw text, and
+  unaffected by `case_sensitive`. ISO dates compare correctly this way.
+- **D6.** When `FilteredSource` reaches `limit` part-way through a chunk, it cuts that view to
+  exactly `limit` rows.
 
 ## D. Ranking constants
 

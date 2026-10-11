@@ -77,8 +77,8 @@ rejects the call. The single row has `key = src/lib.rs` and the 1-based `line`.
 
 ## Example 3: Which commands handle records?
 
-`ns-search/commands/search-record` finds `ns-rec/to_record` and `ns-rec/to_record_source` with no
-field list. `name` and `title` are text-role fields, and roles come first. Each row's `query` is the
+`ns-search/commands/search-record` finds, among others, `ns-rec/to_record` and
+`ns-rec/to_record_source` with no field list. `name` and `title` are text-role fields, and roles come first. Each row's `query` is the
 fragment that calls the command. Restricted to the namespace: `ns-search/commands-rec`.
 
 With the `polars` feature, and `register_polars_commands!` added to that test's environment,
@@ -107,7 +107,8 @@ assertion.
 
 **`liquers-records/src/search/kernels.rs`**
 - `terms_match_case_insensitively_by_default` and `case_sensitive_flag_is_respected` (AC-8):
-  terms, phrases and regexes.
+  terms, phrases, regexes and text `field:value` globs.
+- `text_compare_is_lexicographic` (AC-7): `created:>2026-09` on a Text column.
 - `explicit_fields_restrict_terms` and `explicit_unknown_search_field_is_error` (AC-9).
 - `default_fields_prefer_roles_then_names_then_text` (AC-10).
 - `unknown_field_test_warns_and_matches_nothing` (AC-14): the bind warning names the field.
@@ -189,9 +190,9 @@ following `TestSource` and `FixtureResolver` in `liquers-records/src/value.rs`.
   the guide cannot drift from the commands.
 
 **Registration (AC-22):**
-- In `liquers-lib/tests/register_all_commands.rs` and
-  `registry_export.rs::exported_registry_is_nonempty`, assert that
-  `registry.find_command("", "search", "catalog")` is `Some`, under `#[cfg(feature = "records")]`.
+- In `liquers-lib/tests/register_all_commands.rs`, assert
+  `has("search", "catalog") == cfg!(feature = "records")`, following that file's pattern. In
+  `registry_export.rs::exported_registry_is_nonempty`, assert the same for the exported registry.
 - `registry_export.rs::full_registry` calls `register_search_commands!`.
 - The wasm32 rows of `scripts/check-build-matrix.sh` compile it, and the registration carries no
   `target_arch` cfg.
