@@ -8,9 +8,9 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 111
+Total rows: 113
 - P2: 53
-- P3: 58
+- P3: 60
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -118,6 +118,8 @@ Total rows: 111
 | [`ASSET-MANAGER-CANNOT-BE-SYNCHRONIZED-WITH-THE-STORE`](issues/ASSET-MANAGER-CANNOT-BE-SYNCHRONIZED-WITH-THE-STORE.md) | feature | The asset and dependency managers cannot be explicitly synchronized with the store | draft |  |  | P3 | L | core/assets |  | 2026-10-08 |
 | [`COMMAND-COMPOSITE-VARIADIC-ARGUMENTS`](issues/COMMAND-COMPOSITE-VARIADIC-ARGUMENTS.md) | feature | A variadic argument cannot carry composite elements such as pairs or tuples | draft |  |  | P3 | L | core/commands;macro;lib/ui | [phase1](design/variadic-arguments-declaration/phase1-high-level-design.md)  [phase2](design/variadic-arguments-declaration/phase2-architecture.md)  [phase3](design/variadic-arguments-declaration/phase3-examples.md)  [phase4](design/variadic-arguments-declaration/phase4-implementation.md)  [phase5](design/variadic-arguments-declaration/phase5-documentation.md)  | 2026-08-25 |
 | [`CORE-ASSET-GC`](issues/CORE-ASSET-GC.md) | issue | Assets are never garbage collected | accepted |  |  | P3 | L | core/assets;core/store |  | 2026-08-08 |
+| [`NO-MARKDOWN-NAVIGATION-COMMANDS`](issues/NO-MARKDOWN-NAVIGATION-COMMANDS.md) | feature | Markdown documents cannot be navigated, filtered or interpreted by structure | draft |  |  | P3 | L | lib/commands |  | 2026-10-11 |
+| [`NO-SOURCE-CODE-AND-API-DOC-NAVIGATION`](issues/NO-SOURCE-CODE-AND-API-DOC-NAVIGATION.md) | feature | Source code and API documentation cannot be navigated or extracted | draft |  |  | P3 | L | lib/commands |  | 2026-10-11 |
 | [`QUERY-AST-DISCARDS-ENTITIES`](issues/QUERY-AST-DISCARDS-ENTITIES.md) | issue | Parsed entities are decoded away, so the AST cannot show them | draft |  |  | P3 | L | core/query |  | 2026-08-14 |
 | [`RECORDS-ARROW-C-DATA-EXPORT-NOT-BUILT`](issues/RECORDS-ARROW-C-DATA-EXPORT-NOT-BUILT.md) | feature | Record batches cannot be handed to Arrow consumers in place; every route copies | draft |  |  | P3 | L | records;py | [chunking](design/record-streams/chunking-and-resumability.md)  [engine](design/record-streams/engine-survey.md)  [manifest](design/record-streams/manifest-format.md)  [phase1](design/record-streams/phase1-high-level-design.md)  [phase2](design/record-streams/phase2-architecture.md)  [phase3](design/record-streams/phase3-examples.md)  [phase3](design/record-streams/phase3-tests.md)  [phase4](design/record-streams/phase4-implementation.md)  [phase5](design/record-streams/phase5-documentation.md)  [phase5](design/record-streams/phase5-evidence.md)  [record](design/record-streams/record-model.md)  | 2026-09-27 |
 | [`STORE-ABSOLUTE-KEY-NOT-TYPE-ENFORCED`](issues/STORE-ABSOLUTE-KEY-NOT-TYPE-ENFORCED.md) | issue | Store key absoluteness is enforced by convention rather than by the type system | draft |  |  | P3 | L | core/store;store/backends;core/query |  | 2026-08-17 |

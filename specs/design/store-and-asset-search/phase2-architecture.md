@@ -13,6 +13,13 @@
 > - reliable-only structure recognition, with explicit formats;
 > - `field_extract`;
 > - simple `ns-rec` filter commands, which later moved to `record-filter-commands`.
+>
+> A third amendment, also on 2026-10-11, adds regular expressions, `split` (a proof of concept) and
+> Markdown title fallback. It also simplifies the design:
+> - nested predicates parse JSON only, and the syntax names no formats;
+> - front-matter is `field_extract`'s alone;
+> - the trait loses its run-time language registry;
+> - `field_extract` reads a folder itself.
 
 ## Overview
 
@@ -62,11 +69,12 @@ pub trait Predicate: Debug + MaybeSend + MaybeSync + 'static {
     /// Resolve names against one schema. Called once per distinct schema; a `FilteredSource`
     /// re-binds when a chunk's schema differs. Unknown field names are warnings, not errors.
     fn bind(&self, schema: &RecordSchema, options: &SearchOptions) -> Result<Bound, Error>;
-    /// Test one field value, seen as a document. This is what makes a predicate usable *inside*
-    /// a field test (`content:(…)`).
-    fn matches_value(&self, value: &DocValue<'_>, options: &SearchOptions) -> Result<bool, Error>;
-    /// Whether any clause needs a structured value. If none does, a text field is never parsed.
-    fn needs_structure(&self) -> bool;
+    /// Test one JSON value. Used when this predicate has field tests and is nested in a field
+    /// holding JSON text (`attr:(status:draft)`).
+    fn matches_json(&self, value: &serde_json::Value, options: &SearchOptions) -> Result<bool, Error>;
+    /// Whether any clause is a field test. If none is, a nested predicate is evaluated as a
+    /// search restricted to that one column, and nothing is parsed.
+    fn has_field_tests(&self) -> bool;
     /// Positive terms and phrases (not under a negation), for BM25 and excerpts.
     fn rank_terms(&self) -> Vec<RankTerm>;
     /// The predicate in its own language's syntax. This is the transport form: what is logged,
@@ -80,12 +88,8 @@ pub trait PredicateSyntax: Predicate + Sized + for<'a> TryFrom<&'a str, Error = 
     const LANGUAGE: &'static str;
 }
 
-/// Object-safe face of a language, for choosing one at run time (a later `language` argument).
-pub trait PredicateLanguage: MaybeSend + MaybeSync {
-    fn name(&self) -> &str;
-    fn parse(&self, text: &str) -> Result<Arc<dyn Predicate>, Error>;
-}
-pub struct Language<P: PredicateSyntax>(PhantomData<P>); // impl PredicateLanguage for Language<P>
+// A run-time language registry (`PredicateLanguage`) is deferred until `search` gains the
+// dialect argument (Phase 1, open question 4).
 
 /// A predicate resolved against one schema.
 pub struct Bound { pub matcher: Box<dyn BoundPredicate>, pub warnings: Vec<String> }
@@ -95,9 +99,7 @@ pub trait BoundPredicate: MaybeSend + MaybeSync {
     fn evidence(&self, view: &dyn RecordView) -> Result<Vec<(usize, Bitmap)>, Error> { Ok(vec![]) }
 }
 
-/// One field value, as a nested predicate sees it.
-pub enum DocValue<'a> { Text(&'a str), Structured(&'a serde_json::Value) }
-pub struct RankTerm { pub text: String, pub phrase: bool }
+pub enum RankTerm { Term(String), Phrase(String), Regex(String) }
 
 #[derive(Debug, Clone)]
 pub struct SearchOptions { pub case_sensitive: bool, pub fields: Vec<String>, pub limit: Option<usize> }
@@ -120,6 +122,7 @@ pub enum Node {
     Not(Box<SearchExpr>),
     Term(String),
     Phrase(String),
+    Regex(String),                            // `/re/`
     Field { path: Vec<String>, test: FieldTest },
 }
 
@@ -127,7 +130,8 @@ pub enum Node {
 pub enum FieldTest {
     Glob(String),                // `f:v`, exact unless `*` or `?`; `f:*` means present
     Compare(CompareOp, String),  // `f:>v` and the like; the value is parsed at bind time
-    Nested(Option<StructFormat>, Box<SearchExpr>), // `f:( … )`, `f:yaml( … )`, …
+    Regex(String),               // `f:/re/`
+    Nested(Box<SearchExpr>),     // `f:( … )`
 }
 
 impl Predicate for SearchExpr { /* … */ }
@@ -147,18 +151,40 @@ expr       = ws , or_expr , ws ;
 or_expr    = and_expr , { ws , "|" , ws , and_expr } ;
 and_expr   = unary , { ws1 , unary } ;
 unary      = [ "-" ] , atom ;
-atom       = group | field_test | phrase | term ;
+atom       = group | field_test | phrase | regex | term ;
 group      = "(" , expr , ")" ;
-field_test = field_path , ":" , ( [ format ] , group | [ cmp_op ] , ( phrase | value ) ) ;
-format     = "yaml" | "json" | "frontmatter" | "fenced_yaml" | "fenced_json" ;  (* only directly before "(" *)
+field_test = field_path , ":" , ( group | regex | [ cmp_op ] , ( phrase | value ) ) ;
 field_path = name , { "." , name } ;
 name       = ( letter | "_" ) , { letter | digit | "_" } ;
 cmp_op     = ">=" | "<=" | ">" | "<" ;
 phrase     = '"' , { ( char - '"' - "\" ) | '\"' | "\\" } , '"' ;
-term       = term_char , { term_char | "-" } ;
-value      = { term_char | "-" | ":" | "/" } ;   (* `key:specs/issues/*` *)
-term_char  = char - ws - "(" - ")" - "|" - '"' - "-" ;
+regex      = "/" , re_body , "/" , & delimiter ;   (* the closing "/" must be followed by a delimiter *)
+re_body    = re_char , { re_char } ;
+re_char    = ( char - "/" - "\" ) | "\" , char | "/" ;   (* see the regex rule below *)
+delimiter  = ws | ")" | "|" | end ;
+term       = term_char , { term_char | "-" | "/" } ;
+value      = { term_char | "-" | ":" | "/" } ;   (* `key:specs/issues/*`, `area:core/store` *)
+term_char  = char - ws - "(" - ")" - "|" - '"' - "-" - "/" ;
 ```
+
+**When `/` starts a regular expression.** Only an atom or a field value that *begins* with `/`
+can be a regex. It is one only if a later unescaped `/` is immediately followed by a delimiter
+(whitespace, `)`, `|` or the end); the body runs to the **last** such `/`. Otherwise the text is an
+ordinary term or value. So:
+
+| Input | Parsed as |
+|---|---|
+| `area:core/store` | a field test with the value `core/store`; the value does not begin with `/` |
+| `key:specs/issues/*` | a glob value |
+| `a/b` | the term `a/b` |
+| `/fn \w+_info/` | a regex term, `fn \w+_info` |
+| `title:/^Phase [12]/` | a field regex |
+| `path:/usr/bin` | the value `/usr/bin`: its only inner `/` is followed by `b`, and nothing closes it |
+| `/a/b/` | the regex `a/b`; an inner `/` needs no escape |
+
+These cases are Phase 3 parser tests.
+
+`field_test` is tried```
 
 `field_test` is tried before `term`, so `a:b` is a field test. Inside a `term`, `:` is an ordinary
 character. Precedence from tightest to loosest: `-`, then juxtaposition (AND), then `|`.
@@ -179,30 +205,36 @@ in this order:
 `catalog` and `commands` declare their roles, so step 2 is what applies to them. An inferred CSV
 schema has no roles and falls through to step 3 or 4.
 
-**Field paths.** For `a.b.c`, the longest prefix that names a column is the column, and the rest
-is a path inside the parsed value. So `content.status:draft` ≡ `content:(status:draft)`. An exact
-column name always wins, which keeps dotted column names working.
-
 **Matching** produces one mask per leaf, combined with `and`, `or` and `not`. A null never matches.
 - **Terms and phrases:** a substring test per search field, ORed. It is lowercased on both sides
   unless `case_sensitive` is set.
+- **Regex:** the `regex` crate, whose matching time is linear, so a pattern cannot make a search
+  hang. It is wasm-clean. `case_sensitive=false` compiles the pattern with `(?i)`. As a term it is
+  tested per search field; as a field test, against that field. An invalid pattern is a parse
+  error with its position.
 - **Glob on a Text column:** the same substring kernel with wildcards, anchored at both ends.
 - **Glob or compare on any other column:** the value is parsed to the column's `FieldType`, then
   tested with `Column::compare`.
-- **`Nested` on a Text column:** applied row by row through `matches_value`.
-  - If the inner predicate does not `needs_structure`, it sees `DocValue::Text`.
-  - Otherwise the text goes through `parse_structure` once per row and column, and the inner
-    predicate sees `DocValue::Structured`.
-  - On the parsed value, a `Field` path walks object keys, a list matches when any element does,
-    and a `Term` matches any string leaf.
-  - Text that yields no structure is a non-match, counted in one warning.
+- **`Nested` on a Text column:**
+  - Without field tests (`content:(a -b)`), the inner predicate is bound with that column as its
+    only search field and masked like any search. Nothing is parsed.
+  - With field tests (`attr:(status:draft)`), each cell is parsed as JSON: the trimmed text must
+    start with `{` or `[` and parse whole. The inner predicate runs through `matches_json`, where
+    a `Field` path walks object keys, a list matches when any element does, and a term matches any
+    string leaf.
+  - A cell that is not JSON does not match, and is counted in one warning. Other formats are
+    **not** parsed here: front-matter, YAML and TOML are `field_extract`'s job.
 - **A Glob or Compare on a Text cell holding a JSON array** (`[` first, and it parses) matches when
   any element matches. This is how list columns written by `field_extract` work.
 - **`Nested` on a non-Text column:** a bind error.
 
+**Field paths.** For `a.b`, the longest prefix that names a column is the column, and the rest is a
+JSON path inside it: `attr.status:draft` ≡ `attr:(status:draft)`. An exact column name always
+wins.
+
 **Ranking** is BM25 (k1 = 1.2, b = 0.75) over the rows that survive the mask.
 - The statistics come from those rows. Tokens are split on non-alphanumerics, and term frequency is
-  the substring occurrence count.
+  the substring occurrence count, or the match count for a regex.
 - Field weights: `title` 3, `filename` 2, `name` 2, `description` 2, all others 1. A phrase counts
   double.
 - The sort is stable and descending.
@@ -214,28 +246,27 @@ column name always wins, which keeps dotted column names working.
 - `excerpt` (Text, nullable): about 160 characters around the first match in the first matching
   field, skipping a leading front-matter block.
 
-### Structure recognition — `liquers-records/src/search/structure.rs`
+### Structure parsing for `field_extract` — `liquers-records/src/search/structure.rs`
 
 ```rust
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum StructFormat { Json, Yaml, FrontMatter, FencedYaml, FencedJson }
-/// `None` selects automatic recognition. Returns `None` when the text has no structure.
-pub fn parse_structure(text: &str, format: Option<StructFormat>) -> Option<serde_json::Value>;
+pub enum StructFormat { Json, Yaml, FrontMatter }
+/// The parsed structure, or `None` when the text has none in that format.
+pub fn parse_structure(text: &str, format: StructFormat) -> Option<serde_json::Value>;
 ```
 
-| Format | Rule | Reliable |
-|---|---|---|
-| automatic | JSON if the trimmed text starts with `{` or `[` and parses whole; otherwise front-matter; otherwise none | yes |
-| `Json` | the whole text | — |
-| `Yaml` | the whole text; a result that is a scalar counts as no structure | explicit only: YAML accepts most prose |
-| `FrontMatter` | the first line is `---`, then a line `---` or `...`, and the block is YAML; or the first line is `+++`, then a line `+++`, and the block is TOML. The result must be a map | yes |
-| `FencedYaml`, `FencedJson` | the first fence of that language (```` ```yaml ````/```` ```yml ````, ```` ```json ````), up to its closing fence | explicit only: it catches examples |
+| Format | Rule |
+|---|---|
+| `Json` | the whole text |
+| `Yaml` | the whole text; the result must be a map |
+| `FrontMatter` | the first line is `---`, then a line `---` or `...`, and the block is YAML; or the first line is `+++`, then a line `+++`, and the block is TOML. The result must be a map |
 
-YAML and TOML are converted to `serde_json::Value`, so one navigation code path serves all three.
-TOML needs `toml = "0.8"`, already used optionally by `liquers-core`, as a plain dependency of
-`liquers-records`.
+The format is never guessed: `field_extract` takes it from the file extension. YAML and TOML are
+converted to `serde_json::Value`, and the extracted columns hold scalars or JSON text, so the
+search side only ever needs to recognise JSON, which is reliable. TOML needs `toml = "0.8"`,
+already used optionally by `liquers-core`, as a plain dependency of `liquers-records`.
 
-### Record schemas
+### Record schemas### Record schemas
 
 **`catalog`:**
 
@@ -314,6 +345,7 @@ pub async fn search<E>(state: State<Value>, query: String, rank: bool, case_sens
     limit: i64, fields: Vec<String>, context: Context<E>) -> Result<Value, Error>;
 pub async fn field_extract<E>(state: State<Value>, extension: String, prefix: String, flatten: bool,
     fields: Vec<String>, context: Context<E>) -> Result<Value, Error>;
+pub async fn split<E>(state: State<Value>, unit: String, context: Context<E>) -> Result<Value, Error>;
 pub async fn folder_of<E>(state: &State<Value>, context: &Context<E>) -> Result<Option<Key>, Error>;
 pub enum SearchInput { View(Arc<dyn RecordView>), Source(Arc<dyn RecordSource>) }
 pub async fn search_input<E>(state: State<Value>, context: &Context<E>) -> Result<SearchInput, Error>;
@@ -353,20 +385,42 @@ Info log entry, and warnings go to `context.warning`.
 5. With `content = true`, read the stored bytes, under the rules from AC-5. Stored bytes come only
    from `Ready`, `Source` or `Override` entries with a text media type, and are cut at a UTF-8
    boundary after `max_bytes`.
+6. With `content = true`, a `.md` entry whose metadata title is empty takes its first `# ` heading
+   (after any front-matter) as `title` (AC-30).
 
-**`field_extract`** steps:
-1. Turn the input into a view with `search_input`, rank-free. A folder becomes its catalog without
-   content.
+Reading content is one helper, `read_text(key, info, max_bytes)`, shared by `catalog`,
+`field_extract` and `split`.
+
+**`field_extract`** steps. It needs no `catalog` in front of it:
+1. **A folder** (`folder_of` succeeds, as for `-R-key/specs/issues`) is listed recursively, like
+   `catalog` without content. **Records** are taken to be a catalog: rows with `key`, and
+   optionally `filename` and `content`. Anything else is an error. For one folder level, put
+   `catalog-f` first.
 2. Keep the rows whose `filename` (or, failing that, `key`) ends in `.<extension>`.
-3. Take each row's text from its `content` column when there is one. Otherwise read the stored
-   bytes of `key`, under the same rules and `max_bytes` cap as `catalog`. Only the selected files
-   are read.
+3. Take each row's text from `content` when the input has it; otherwise read it with `read_text`.
+   Only the selected files are read.
 4. Parse with the extension's format: `md` as `FrontMatter`, `json` as `Json`, `yaml` and `yml`
-   as `Yaml`, where the result must be a map.
+   as `Yaml`.
 5. Drop the rows with no fields, and count them in an Info log entry.
 6. With `fields` given, extract only those, as dotted paths. Otherwise extract every top-level key
    seen; the schema is the union, and a missing key is null.
 7. Apply `prefix` and `flatten`, unify the types, and apply the replacement rule (AC-26).
+
+**`split` — a proof of concept** (AC-29). It is deliberately minimal, and stands in for a fuller
+Markdown tool (`NO-MARKDOWN-NAVIGATION-COMMANDS`).
+- Input: as for `field_extract`, a folder or catalog records. Text comes from `content`, or from
+  `read_text` for text media types.
+- `unit = "line"`: one row per line.
+- `unit = "section"`: one row per Markdown heading and its body, up to the next heading of the
+  same or a higher level. Text before the first heading is section 0. Lines inside fenced code
+  blocks are never headings.
+- Columns:
+  - `id` (the Id): `key#n`;
+  - `key`: keyword;
+  - `n`, `line`, `end_line`: Int; lines are 1-based;
+  - `heading` (sections only): text, the path `H1 > H2 > H3`;
+  - `level`: Int;
+  - `text`: text.
 
 The simple `ns-rec` filters that reuse these kernels are designed in
 [`record-filter-commands`](../record-filter-commands/).
@@ -377,9 +431,9 @@ The simple `ns-rec` filters that reuse these kernels are designed in
 
 | Crate | File | Change |
 |---|---|---|
-| `liquers-records` | `Cargo.toml` | `nom = "8"`, `nom_locate = "5"` and `toml = "0.8"` |
+| `liquers-records` | `Cargo.toml` | `nom = "8"`, `nom_locate = "5"`, `toml = "0.8"` and `regex = "1"` |
 | `liquers-records` | `src/search/{mod,predicate,syntax,structure,kernels,rank,source}.rs` (new), `src/lib.rs` | Re-exports |
-| `liquers-lib` | `src/search/{mod,catalog,commands,extract}.rs` (new), `src/lib.rs` | Commands, `folder_of`, `search_input`, `register_search_commands!` |
+| `liquers-lib` | `src/search/{mod,catalog,commands,extract,split}.rs` (new), `src/lib.rs` | Commands, `folder_of`, `search_input`, `register_search_commands!` |
 | `liquers-lib` | `src/commands.rs`, `src/bin/export_command_registry.rs` | Register the `search` group beside `records`, with a no-op when `records` is off |
 | `specs` | `command_registry.yaml` | Regenerated |
 
@@ -394,7 +448,9 @@ The simple `ns-rec` filters that reuse these kernels are designed in
 | An explicit field the schema lacks; an ambiguous name | `Error::general_error`, or `resolve_field`'s error |
 | A `Field` path whose column is missing | A warning; the clause matches nothing |
 | `Nested` on a non-Text column; a `Compare` value that does not parse | `Error::general_error` naming the field and its position |
-| Text that does not parse as JSON or YAML | A non-match, counted in one warning |
+| A nested field test on a cell that is not JSON | A non-match, counted in one warning |
+| An invalid regex | `Error::parse_error(..).with_position(..)`; in the command, a warning and a literal search |
+| `field_extract` or `split` given an input that is neither a folder nor records | `Error::conversion_error_with_message` |
 | A negative `limit`, `max_bytes` or `max_entries` | `Error::general_error` |
 | `field_extract` with an extension outside the enum | Rejected by the enum argument |
 | `field_extract` with an extracted field named like the Id column | Skipped, with a warning |
@@ -418,6 +474,7 @@ async fn search(state, query: String = "", rank: bool = true, case_sensitive: bo
 async fn field_extract(state, extension: String = "md" (enum: ["md", "json", "yaml", "yml"]),
                        prefix: String = "", flatten: bool = false, fields: Vec<String> multiple,
                        context) -> result
+async fn split(state, unit: String = "section" (enum: ["section", "line"]), context) -> result
 ```
 
 The results feed `rec` (`to_json`, `head`, `records_schema` for field discovery) and `pl`.
@@ -433,7 +490,7 @@ The trait makes that variant cheap to add later: it would hold an `Arc<dyn Predi
 
 | Path | Kind | Change |
 |---|---|---|
-| `specs/reference/SEARCH.md` | reference (new) | The grammar, its semantics and escaping in a query; the trait and how to add a language; default fields; paths and front-matter; ranking and evidence; budget messages; schemas; inputs; non-evaluation; field discovery with `ns-rec/records_schema` |
+| `specs/reference/SEARCH.md` | reference (new) | The grammar, including when `/` starts a regex, its semantics and escaping in a query; the trait and how to add a language; default fields; JSON paths; `field_extract` and front-matter; `split`; ranking and evidence; budget messages; schemas; inputs; non-evaluation; field discovery with `ns-rec/records_schema` |
 | `specs/reference/RECORD_STREAMS.md` | reference | Roles and `resolve_field` now have a consumer; `FilteredSource` |
 | `specs/guides/COMMAND_REGISTRATION_GUIDE.md` | guide | A record-producing command for search must not evaluate |
 | `specs/README.md` | map | The capability changes from designing to built |
@@ -449,6 +506,6 @@ The trait makes that variant cheap to add later: it would hold an `Arc<dyn Predi
 | Crates and workflows | `liquers-records` and `liquers-lib`; the build matrix, including the wasm32 row (AC-22) |
 | Existing tests likely to change | `registry_export` |
 | New validation | Parser tests with positions; a property that `to_syntax` round-trips through `try_from`; kernel tests; command tests through `evaluate` for each AC |
-| Performance | `catalog` is O(corpus) per search. Nested structured tests parse each row's text, which matters on large `content`; the parse is cached per row and column within one mask. Indexes are `external-index-sync`'s job |
+| Performance | `catalog` is O(corpus) per search. Nested JSON tests parse each cell once per mask. `split-line` over a large tree makes many rows: about 100 000 for this repository's `specs/`, which is fine in columnar form. Indexes are `external-index-sync`'s job |
 | Compatibility | Additive. The predicate trait is new public API in `liquers-records` |
 | Certainty | High for the commands and kernels. The trait's method set is the part most likely to change, at the Phase 3 tests |

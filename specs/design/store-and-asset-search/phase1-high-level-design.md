@@ -110,17 +110,15 @@ carries `key`, `status`, `title`, `score` and `excerpt`. The query was validated
 - **AC-16** Nested predicate on a text field
   WHEN the expression has `field:(…)`, such as `content:(expiration -draft)`
   THEN the inner predicate is applied to that field's text alone.
-- **AC-17** Structured text inside a field
-  WHEN `field:(…)` contains field tests, or a dotted name such as `content.status:draft` is used
-  THEN the field's text is parsed only where that is reliable: as JSON (whole text, verified by
-  parsing) or as Markdown front-matter (a leading `---` YAML or `+++` TOML block, closed and parsed
-  to a map). The inner tests navigate the parsed value, and a list matches when any of its
-  elements does. Anything else does not match, and is counted in one warning.
-- **AC-23** Explicit structure format
-  WHEN the format is named, as in `field:yaml(…)`, `field:json(…)`, `field:frontmatter(…)`,
-  `field:fenced_yaml(…)` or `field:fenced_json(…)`
-  THEN the text is parsed that way only. `fenced_*` means the first fenced code block of that
-  language in a Markdown document.
+- **AC-17** Nested predicates
+  WHEN `field:(…)` holds only words, phrases or regexes, such as `content:(expiration -draft)`
+  THEN it is a search restricted to that field. When it holds field tests, or a dotted name such
+  as `attr.status:draft` is used, the field must hold JSON text: the inner tests navigate it, and a
+  list matches when any element does. A cell that is not JSON does not match, and is counted in
+  one warning. No other format is recognised here; front-matter, YAML and TOML are
+  `field_extract`'s job (AC-24).
+- ~~**AC-23** Explicit structure format~~: withdrawn on 2026-10-11 in favour of `field_extract`.
+  The formats are now the `field_extract` extension enum, so nothing in the syntax names one.
 - **AC-18** Budget honesty
   WHEN `limit` stops a search before every match is returned
   THEN the result's description says `N of M matches shown` (or `first N matches; more may exist`
@@ -138,10 +136,13 @@ carries `key`, `status`, `title`, `score` and `excerpt`. The query was validated
   THEN it filters and ranks exactly as the built-in language does. The built-in parser's error
   for malformed input carries a `Position`.
 - **AC-24** Extracting fields from documents
-  WHEN `…/ns-search/field_extract` is evaluated (extension `md` by default)
-  THEN only rows whose file has that extension are kept. Each file's structure is parsed by its
-  format: `md` as front-matter (YAML `---` or TOML `+++`), `json` as JSON, `yaml` or `yml` as YAML.
-  Its top-level fields (or the ones named) become columns, and files with no fields are dropped.
+  WHEN `-R-key/<folder>/-/ns-search/field_extract` is evaluated (extension `md` by default), with
+  no `catalog` in front of it
+  THEN the folder is listed recursively, and only files with that extension are kept and read.
+  Each file is parsed in the extension's format: `md` as front-matter (YAML between `---` lines or
+  TOML between `+++` lines), `json` as JSON, `yaml` or `yml` as YAML. Its top-level fields (or the
+  ones named) become columns, and files with no fields are dropped. When the input is records, they
+  are taken to be a catalog (`key`, and optionally `filename` and `content`).
 - **AC-25** Extraction options
   WHEN `prefix` is set, or `flatten` is true
   THEN the extracted column names start with the prefix, and nested maps become `parent_child`
@@ -152,6 +153,19 @@ carries `key`, `status`, `title`, `score` and `excerpt`. The query was validated
   in a catalog)
   THEN the extracted column replaces it, keeping that column's role, and a log entry names the
   replaced columns. The Id column is never replaced; such a field is skipped with a warning.
+- **AC-28** Regular expressions
+  WHEN the expression has `/re/` as a term or `field:/re/`
+  THEN rows match where the pattern matches the search fields or that field (with `(?i)` unless
+  `case_sensitive`). A `/` inside a value that does not begin with `/`, as in `area:core/store`, is
+  ordinary text. An invalid pattern produces a warning with its position, and the input is searched
+  as plain words.
+- **AC-29** Sections and lines (proof of concept)
+  WHEN `split-section` or `split-line` follows a folder or catalog records
+  THEN there is one row per Markdown section (with `heading` path, `line`, `end_line` and `text`)
+  or per line, so `split-line/search-/re/` gives matching lines with line numbers.
+- **AC-30** A title for plain Markdown
+  WHEN `catalog` reads content and a `.md` entry's metadata has no title
+  THEN its first `# ` heading becomes `title`.
 - ~~**AC-27** Simple filter commands~~ — moved on 2026-10-11 to
   [`record-filter-commands`](../record-filter-commands/), where it is AC-1 to AC-7.
 - **AC-22** Browser build
@@ -165,7 +179,13 @@ carries `key`, `status`, `title`, `score` and `excerpt`. The query was validated
   planned);
 - front-matter stored as asset metadata (`CORE-METADATA-NO-APPLICATION-ATTRIBUTES`). Front-matter
   is read from content, by `field_extract` (AC-24) or by a nested predicate (AC-17);
-- passing arguments by name over HTTP (`QUERY-API-ARGUMENTS-ONLY-IN-QUERY-PATH`).
+- passing arguments by name over HTTP (`QUERY-API-ARGUMENTS-ONLY-IN-QUERY-PATH`);
+- future extensions, each filed:
+  - a Markdown navigation, filtering and interpretation tool, of which `split` is the proof of
+    concept (`NO-MARKDOWN-NAVIGATION-COMMANDS`);
+  - navigating and extracting source code and API documentation
+    (`NO-SOURCE-CODE-AND-API-DOC-NAVIGATION`);
+  - semantic search (`external-index-sync`).
 
 ## Core Interactions
 
@@ -221,13 +241,11 @@ Answered by the user on 2026-10-11:
    a query-language dialect.
 5. ~~Paging with `offset`?~~ **Not for now.**
 
-6. ~~How is a structured text field recognised?~~ **Layered, decided 2026-10-11.**
-   - Automatic recognition is used only where it is reliable: JSON and front-matter (AC-17).
-   - The format can be named explicitly, including `fenced_yaml` and `fenced_json` (AC-23).
-   - Document collections go through `field_extract`. It takes the format from the file
+6. ~~How is a structured text field recognised?~~ **Decided 2026-10-11, then simplified.**
+   - In the search syntax, nested predicates recognise JSON only, which is reliable (AC-17).
+   - Every other format is read by `field_extract`, which takes the format from the file
      extension, an enum of `md`, `json`, `yaml` and `yml`, defaulting to `md` (AC-24 to AC-26).
-     Only `md`, `json` and `yaml` structures are supported, and TOML front-matter is included
-     under `md`.
+     `md` means front-matter, either YAML or TOML.
    - Simple `ns-rec` filters moved to [`record-filter-commands`](../record-filter-commands/).
 
 7. ~~`field_extract`'s `flatten` default?~~ **False** (user, 2026-10-11).

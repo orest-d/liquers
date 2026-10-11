@@ -1,5 +1,9 @@
 # Agent queries — what an agent asks, and how it is expressed
 
+> **Accepted 2026-10-11.** Proposals P1–P3 and both simplifications are now in Phase 1 (AC-17,
+> AC-28 to AC-30) and Phase 2. `field_extract` also reads a folder directly, so the forms below no
+> longer need a `catalog` in front of it, except where content is also wanted (L1).
+
 Companion to Phase 1 revision 8, written 2026-10-11. It tests the design against the questions an
 agent actually asks, from three angles:
 1. this repository's `specs/`;
@@ -30,7 +34,7 @@ Escapes used in the encoded forms:
 | # | Question | Decoded query | Works today (in design)? |
 |---|---|---|---|
 | L1 | Open issues about expiration | `-R-key/specs/issues/-/ns-search/catalog-t-t/field_extract/search-<expr>` with `expiration -status:closed*` | yes |
-| L2 | Designs in the architecture phase | `…/specs/design/-/ns-search/catalog/field_extract/search-<expr>-f-0` with `filename:DESIGN.md phase:architecture` | yes |
+| L2 | Designs in the architecture phase | `…/specs/design/-/ns-search/field_extract/search-<expr>-f-0` with `filename:DESIGN.md phase:architecture` | yes |
 | L3 | P0/P1 issues in `core/store` | `area:core/store (priority:P0 \| priority:P1)`, after `field_extract`, with `rank=false` | yes; `area` is a list, which matches any element |
 | L4 | Is there already an issue for this? (duplicate check before filing) | `search-store metadata search-t-f-5-title`, after `field_extract` | yes; BM25 over titles |
 | L5 | Which documents mention `STORE-NO-CONTENT-OR-METADATA-SEARCH`? | `-R-key/specs/-/ns-search/catalog-t-t/search-<id>-f-0` | yes |
