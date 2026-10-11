@@ -7,8 +7,7 @@ readiness: ready
 autofix: not-eligible
 area: [core/commands, macro, lib/ui]
 issues: [COMMAND-METADATA-HAS-NO-COMMAND-LEVEL-HINTS, ARGUMENT-INFO-HAS-NO-DESCRIPTION]
-status: in_review
-phase: implementation
+gh_pr: [116]
 merged: 2026-10-08
 created: 2026-10-08
 ---
