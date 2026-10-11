@@ -1,11 +1,11 @@
 # Phase 3: Examples & Use-cases — Store and asset search
 
 > Written 2026-10-11, and revised the same day after two independent reviews. Every query is
-> validated with `liquers-validate` against the real signatures:
-> `--registry-file specs/command_registry.yaml --registry-file search-commands.registry.yaml`.
-> [`search-commands.registry.yaml`](./search-commands.registry.yaml) declares the five proposed
-> commands. (`--command` would accept any arguments, which hid wrong argument counts in the first
-> draft.)
+> validated with `liquers-validate` against the real signatures. Until Phase 4 Step 13 that was
+> an overlay, `search-commands.registry.yaml`, declaring the five proposed commands (`--command`
+> would accept any arguments, which hid wrong argument counts in the first draft). Since Step 13
+> the commands are in `specs/command_registry.yaml`, every query validates with no flags, and the
+> overlay is deleted.
 
 ## Overview Table
 

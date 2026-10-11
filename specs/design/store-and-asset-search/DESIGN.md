@@ -246,8 +246,6 @@ Numbers are those of revision 7.
 
 - [Phase 1](./phase1-high-level-design.md)
 - [Phase 2](./phase2-architecture.md)
-- [`search-commands.registry.yaml`](./search-commands.registry.yaml): the proposed signatures, as a
-  `liquers-validate` overlay
 - [Phase 2 details](./phase2-details.md): query encodings, `/` cases, schemas, ranking constants,
   structure parsing and command steps
 - [Phase 3](./phase3-examples.md)

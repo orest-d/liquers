@@ -49,6 +49,7 @@ enum Group {
     Image,
     Polars,
     Records,
+    Search,
 }
 
 impl Group {
@@ -60,6 +61,7 @@ impl Group {
             Group::Image => "image",
             Group::Polars => "polars",
             Group::Records => "records",
+            Group::Search => "search",
         }
     }
 
@@ -71,10 +73,11 @@ impl Group {
             Group::Image => cfg!(feature = "image-support"),
             Group::Polars => cfg!(feature = "polars"),
             Group::Records => cfg!(feature = "records"),
+            Group::Search => cfg!(feature = "records"),
         }
     }
 
-    fn all() -> [Group; 6] {
+    fn all() -> [Group; 7] {
         [
             Group::Core,
             Group::Lui,
@@ -82,6 +85,7 @@ impl Group {
             Group::Image,
             Group::Polars,
             Group::Records,
+            Group::Search,
         ]
     }
 }
@@ -252,6 +256,10 @@ fn build_registry(groups: &[Group]) -> Result<CommandMetadataRegistry, Error> {
                     #[cfg(feature = "records")]
                     liquers_lib::register_records_commands!(cr)?;
                 }
+                Group::Search => {
+                    #[cfg(feature = "records")]
+                    liquers_lib::register_search_commands!(cr)?;
+                }
             }
         }
     }
@@ -266,9 +274,10 @@ fn build_registry(groups: &[Group]) -> Result<CommandMetadataRegistry, Error> {
 /// verbatim — that is the whole mechanism keeping a human-edited history across regeneration.
 fn header(groups: &[Group], command_count: usize, path: &Path) -> String {
     let group_names: Vec<&str> = groups.iter().map(|g| g.name()).collect();
+    // `search` is compiled in by the `records` feature, so it adds no feature name of its own.
     let features: Vec<&str> = Group::all()
         .into_iter()
-        .filter(|g| !matches!(g, Group::Core | Group::Lui) && g.is_compiled_in())
+        .filter(|g| !matches!(g, Group::Core | Group::Lui | Group::Search) && g.is_compiled_in())
         .map(|g| g.name())
         .collect();
 
