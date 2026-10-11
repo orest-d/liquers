@@ -53,6 +53,7 @@ error_types!(
     DependencyCycle,
     StatusConflict,
     Cancelled,
+    ConfigurationError,
 );
 
 /// OBJECT01 — query parse/encode round-trips.

@@ -49,6 +49,11 @@ pub enum ErrorType {
     /// requested (the root cause); a cancelled asset records it in its metadata's `error_data`,
     /// with `is_error` false, since a cancellation is not a failure.
     Cancelled,
+    /// A configuration is well-formed but semantically unusable: a required key is missing, or a
+    /// `${VAR}` names an unset environment variable. A document that does not parse is
+    /// [`ErrorType::ParseError`]; an unknown or unavailable store type is
+    /// [`ErrorType::NotSupported`].
+    ConfigurationError,
 }
 
 /// The payload of an [`Error`], held behind a single [`Box`].
@@ -351,6 +356,10 @@ impl Error {
     pub fn general_error(message: String) -> Self {
         Error::new(ErrorType::General, message)
     }
+    /// A semantic configuration failure ([`ErrorType::ConfigurationError`]).
+    pub fn configuration_error(message: String) -> Self {
+        Error::new(ErrorType::ConfigurationError, message)
+    }
     pub fn unexpected_error(message: String) -> Self {
         Error::new(ErrorType::UnexpectedError, message)
     }
@@ -516,6 +525,14 @@ impl error::Error for Error {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// T1 (`design/configuration-error-kind`).
+    #[test]
+    fn configuration_error_has_its_type() {
+        let error = Error::configuration_error("bucket is missing".to_string());
+        assert_eq!(error.error_type, ErrorType::ConfigurationError);
+        assert_eq!(error.message, "bucket is missing");
+    }
 
     #[test]
     fn alias_errors_name_both_commands_and_carry_their_types() {

@@ -38,6 +38,7 @@ pub fn error_type_name(t: ErrorType) -> &'static str {
         ErrorType::DependencyCycle => "dependency_cycle",
         ErrorType::StatusConflict => "status_conflict",
         ErrorType::Cancelled => "cancelled",
+        ErrorType::ConfigurationError => "configuration_error",
     }
 }
 
@@ -71,6 +72,7 @@ pub fn error_type_from_name(name: &str) -> Option<ErrorType> {
         "dependency_cycle" => ErrorType::DependencyCycle,
         "status_conflict" => ErrorType::StatusConflict,
         "cancelled" => ErrorType::Cancelled,
+        "configuration_error" => ErrorType::ConfigurationError,
         _ => return None,
     };
     Some(t)

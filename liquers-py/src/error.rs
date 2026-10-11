@@ -29,6 +29,7 @@ pub enum ErrorType {
     DependencyCycle,
     StatusConflict,
     Cancelled,
+    ConfigurationError,
 }
 
 impl From<ErrorType> for liquers_core::error::ErrorType {
@@ -62,6 +63,7 @@ impl From<ErrorType> for liquers_core::error::ErrorType {
             ErrorType::DependencyCycle => liquers_core::error::ErrorType::DependencyCycle,
             ErrorType::StatusConflict => liquers_core::error::ErrorType::StatusConflict,
             ErrorType::Cancelled => liquers_core::error::ErrorType::Cancelled,
+            ErrorType::ConfigurationError => liquers_core::error::ErrorType::ConfigurationError,
         }
     }
 }
@@ -97,6 +99,7 @@ impl From<liquers_core::error::ErrorType> for ErrorType {
             liquers_core::error::ErrorType::DependencyCycle => ErrorType::DependencyCycle,
             liquers_core::error::ErrorType::StatusConflict => ErrorType::StatusConflict,
             liquers_core::error::ErrorType::Cancelled => ErrorType::Cancelled,
+            liquers_core::error::ErrorType::ConfigurationError => ErrorType::ConfigurationError,
         }
     }
 }

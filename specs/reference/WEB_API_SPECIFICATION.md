@@ -127,13 +127,15 @@ An error's HTTP status follows its `liquers_core::error::ErrorType`
 | 409 | `StatusConflict`, `CommandAlreadyRegistered`, `DependencyVersionMismatch`, `DependencyCycle` |
 | 422 | `ConversionError`, `SerializationError` |
 | 499 | `Cancelled` (client closed request; 503 where 499 cannot be represented) |
-| 500 | `General`, `ExecutionError`, `UnexpectedError`, `KeyReadError`, `KeyWriteError` |
+| 500 | `General`, `ExecutionError`, `UnexpectedError`, `KeyReadError`, `KeyWriteError`, `ConfigurationError` |
 | 501 | `NotSupported`, `CacheNotSupported` |
 
 - `KeyNotAbsolute` (400) and `KeyNotSupported` (404) are deliberately distinct: a key containing
   `.` or `..` is a malformed address, a key no store serves is an unrouted one.
 - `StatusConflict` (409) means the operation exists but not for the asset's current status:
   removing a directory, expiring a `Source`, describing a computed value.
+- `ConfigurationError` (500) is a server-side setup fault (a missing required store key, an unset
+  `${VAR}`), not something the caller sent.
 - The status is derived from the `error.type` string (`parse_error_type`); a type string that does
   not name an `ErrorType` gives 500. When a variant is added to `ErrorType`, both functions in
   `api_core/error.rs` gain an arm; the test `keyabs15b` round-trips every variant.
@@ -591,6 +593,7 @@ Not available at HEAD; listed so that no reader mistakes them for features:
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-11 | §3.1: `ConfigurationError` → 500. | `design/configuration-error-kind/` |
 | 2026-10-11 | §3.2: `error.traceback` carries the `Error`'s own traceback, split into lines, whenever it has one. `CORE-METADATA-TRACEBACK-SUPPORT` closed. | `design/metadata-error-traceback/` |
 | 2026-10-10 | Store API `keys` lists every key under the prefix at any depth (`listdir_keys_deep`), no longer a synonym of `listdir`. `AXUM-STORE-KEYS-LISTS-ONLY-DIRECT-CHILDREN` closed. | `design/axum-store-keys-deep/` |
 | 2026-10-10 | Store API: `metadata` and `entry` serve legacy metadata as stored (not `{}`); `upload` records each part's `filename` and declares its `Content-Type` only when the filename does not imply it. `AXUM-STORE-UPLOAD-AND-METADATA-DROP-INFORMATION` closed. | `design/axum-store-upload-metadata/` |

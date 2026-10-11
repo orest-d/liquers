@@ -3089,7 +3089,8 @@ impl<E: Environment> AssetRef<E> {
             | ErrorType::DependencyVersionMismatch
             | ErrorType::DependencyCycle
             | ErrorType::StatusConflict
-            | ErrorType::Cancelled => PersistenceStatus::NotPersisted,
+            | ErrorType::Cancelled
+            | ErrorType::ConfigurationError => PersistenceStatus::NotPersisted,
         }
     }
 
@@ -9959,6 +9960,16 @@ mod tests {
     use crate::value::{Value, ValueInterface};
 
     struct FailingSetStore;
+
+    /// T7: a configuration failure while persisting is a failure, not "cannot be serialized".
+    #[test]
+    fn configuration_error_is_not_persisted() {
+        let error = Error::configuration_error("bucket is missing".to_string());
+        assert!(matches!(
+            AssetRef::<SimpleEnvironment<Value>>::classify_persistence_error(&error),
+            PersistenceStatus::NotPersisted
+        ));
+    }
 
     #[async_trait]
     impl AsyncStore for FailingSetStore {

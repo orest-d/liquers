@@ -3,7 +3,7 @@ title: Building and Configuring an Environment
 kind: guide
 audience: both
 area: [core/context, core/assets, core/store]
-reviewed: 2026-10-10
+reviewed: 2026-10-11
 ---
 # Building and Configuring an Environment
 
@@ -208,6 +208,11 @@ Store construction and `${VAR}` expansion are deferred to `build()`, which is wh
 setters infallible: a malformed configuration, an unset variable or a store type no factory claims
 all surface there, with the error naming the store types the chain does support.
 
+Their error types tell a host which kind of fault it is: a document that does not parse is
+`ParseError` (store and environment documents alike), a missing required store key or an unset
+`${VAR}` is `ConfigurationError`, and a store type that is unknown or unavailable in this build is
+`NotSupported`.
+
 Which backends exist is a build fact, so the factory chain is an argument rather than a field:
 `liquers-core` supplies `default_store_factory()` (memory, plus filesystem off wasm),
 `liquers-store` chains OpenDAL onto it, `liquers-web` chains its own.
@@ -385,6 +390,7 @@ is the moment when that is safe: it runs before anything else can observe the re
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-11 | §Configuration documents: the error type of each configuration fault (`ParseError`, `ConfigurationError`, `NotSupported`). | `design/configuration-error-kind/` |
 | 2026-10-10 | New §Choosing caching strategies: `with_recipe_cache_strategy`, `with_query_cache_strategy`, `with_cut_predecessors`, the strategy table, the public-service and memory-constrained setups; the configuration example gains the three keys. | phase-5, `design/plan-policy/` |
 | 2026-10-08 | §Manager options links the new dependency consistency guide (choosing `dependency_audit`, the startup store audit). | phase-5 (`design/dependency-chain-analysis-cost/`) |
 | 2026-10-02 | Reviewed against `design/dependency-audit-and-expiry-provenance/`. New §Manager options: the `AssetManagerOptions` setters `with_job_capacity`, `with_dependency_audit`, `with_verify_versions`, `with_external_change`; the configuration example shows the three policy keys. §Choosing an execution model links the new asset-manager guide for a custom kind. §The readiness guarantee: `register_plan_dependencies` no longer skips a dependency with no version, so the account of the old defect is now in the past tense. | phase-5 |

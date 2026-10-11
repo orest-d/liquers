@@ -169,7 +169,7 @@ impl StoreConfig {
     /// Get a required config value as a string.
     pub fn require_config_string(&self, key: &str) -> Result<String, Error> {
         self.get_config_string(key).ok_or_else(|| {
-            Error::general_error(format!(
+            Error::configuration_error(format!(
                 "Missing required configuration '{}' for store type '{}'",
                 key, self.store_type
             ))
@@ -289,7 +289,10 @@ pub fn expand_env_vars(input: &str) -> Result<String, Error> {
                 }
             }
             let value = std::env::var(&var_name).map_err(|_| {
-                Error::general_error(format!("Environment variable '{}' is not set", var_name))
+                Error::configuration_error(format!(
+                    "Environment variable '{}' is not set",
+                    var_name
+                ))
             })?;
             result.push_str(&value);
         } else {
@@ -303,6 +306,33 @@ pub fn expand_env_vars(input: &str) -> Result<String, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::error::ErrorType;
+
+    /// T2: a missing required key is a semantic configuration failure.
+    #[test]
+    fn missing_required_config_is_configuration_error() {
+        let error = StoreConfig::new("s3")
+            .require_config_string("bucket")
+            .expect_err("bucket is not configured");
+        assert_eq!(error.error_type, ErrorType::ConfigurationError);
+        assert!(error.message.contains("'bucket'"), "{}", error.message);
+    }
+
+    /// T3: so is an unset environment variable.
+    #[test]
+    fn unset_env_var_is_configuration_error() {
+        std::env::remove_var("LIQUERS_TEST_MISSING_CONFIG");
+        let error = expand_env_vars("${LIQUERS_TEST_MISSING_CONFIG}")
+            .expect_err("the variable is unset");
+        assert_eq!(error.error_type, ErrorType::ConfigurationError);
+    }
+
+    /// T4: an unclosed reference is malformed text, and stays a parse error.
+    #[test]
+    fn unclosed_env_var_is_parse_error() {
+        let error = expand_env_vars("${X").expect_err("unclosed");
+        assert_eq!(error.error_type, ErrorType::ParseError);
+    }
 
     #[test]
     fn test_expand_env_vars_simple() {
