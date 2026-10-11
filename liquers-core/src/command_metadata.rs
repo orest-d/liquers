@@ -515,6 +515,11 @@ pub struct ArgumentInfo {
     #[serde(default)]
     pub label: String,
 
+    /// Prose explaining the argument, e.g. for a tooltip or help text; the argument-level
+    /// counterpart of [CommandMetadata::doc]. Empty when not given, and then not serialized.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub description: String,
+
     /// Default value of the argument - or None.
     #[serde(skip_serializing_if = "CommandParameterValue::is_null")]
     #[serde(default)]
@@ -562,6 +567,7 @@ impl ArgumentInfo {
         ArgumentInfo {
             name: name.to_string(),
             label: name.replace("_", " ").to_string(),
+            description: String::new(),
             default: CommandParameterValue::None,
             argument_type: ArgumentType::Any,
             multiple: false,
@@ -607,6 +613,7 @@ impl ArgumentInfo {
         ArgumentInfo {
             name: name.to_string(),
             label: name.replace("_", " ").to_string(),
+            description: String::new(),
             default: CommandParameterValue::None,
             argument_type: ArgumentType::Any,
             multiple: false,
@@ -620,6 +627,7 @@ impl ArgumentInfo {
         ArgumentInfo {
             name: name.to_string(),
             label: name.replace("_", " ").to_string(),
+            description: String::new(),
             default: CommandParameterValue::None,
             argument_type: ArgumentType::String,
             multiple: false,
@@ -633,6 +641,7 @@ impl ArgumentInfo {
         ArgumentInfo {
             name: name.to_string(),
             label: name.replace("_", " ").to_string(),
+            description: String::new(),
             default: if option {
                 CommandParameterValue::null()
             } else {
@@ -654,6 +663,7 @@ impl ArgumentInfo {
         ArgumentInfo {
             name: name.to_string(),
             label: name.replace("_", " ").to_string(),
+            description: String::new(),
             default: if option {
                 CommandParameterValue::null()
             } else {
@@ -675,6 +685,7 @@ impl ArgumentInfo {
         ArgumentInfo {
             name: name.to_string(),
             label: name.replace("_", " ").to_string(),
+            description: String::new(),
             default: CommandParameterValue::None,
             argument_type: ArgumentType::Boolean,
             multiple: false,
@@ -709,6 +720,10 @@ impl ArgumentInfo {
 
     pub fn with_label(mut self, label: &str) -> Self {
         self.label = label.to_string();
+        self
+    }
+    pub fn with_description(mut self, description: &str) -> Self {
+        self.description = description.to_string();
         self
     }
     pub fn set_injected(mut self) -> Self {
@@ -971,6 +986,11 @@ pub struct CommandMetadata {
     #[serde(default)]
     pub doc: String,
 
+    /// Free dictionary of hints for the command, e.g. for a UI (`icon`, `toolbar`); the
+    /// command-level counterpart of [ArgumentInfo::hints]. Not serialized when empty.
+    #[serde(default, skip_serializing_if = "serde_json::Map::is_empty")]
+    pub hints: serde_json::Map<String, serde_json::Value>,
+
     /// Presets for the command, see [CommandPreset].
     /// This gives a quick way to fill in all the parameters of the command for common use cases.
     /// It can serve as an example or in a UI to quickly create a command with predefined parameters.
@@ -1089,6 +1109,7 @@ impl Default for CommandMetadata {
             label: String::default(),
             module: String::default(),
             doc: String::default(),
+            hints: serde_json::Map::default(),
             presets: Vec::default(),
             state_argument: default_state_argument(),
             arguments: Vec::default(),
@@ -1115,6 +1136,7 @@ impl CommandMetadata {
             label: name.replace("_", " ").to_string(),
             module: "".to_string(),
             doc: "".to_string(),
+            hints: serde_json::Map::new(),
             presets: Vec::new(),
             state_argument: default_state_argument(),
             arguments: Vec::new(),
@@ -1147,6 +1169,7 @@ impl CommandMetadata {
             label: key.name.clone().replace("_", " "),
             module: "".to_string(),
             doc: "".to_string(),
+            hints: serde_json::Map::new(),
             presets: Vec::new(),
             state_argument: default_state_argument(),
             arguments: Vec::new(),
@@ -1228,6 +1251,11 @@ impl CommandMetadata {
 
     pub fn with_doc(&mut self, doc: &str) -> &mut Self {
         self.doc = doc.to_string();
+        self
+    }
+    /// Sets the command-level hint `key` to `value`, replacing an earlier value.
+    pub fn with_hint(&mut self, key: &str, value: serde_json::Value) -> &mut Self {
+        self.hints.insert(key.to_string(), value);
         self
     }
     pub fn with_realm(&mut self, realm: &str) -> &mut Self {
@@ -1834,7 +1862,10 @@ mod tests {
     #[test]
     fn command_metadata_ignores_legacy_cache_field() -> Result<(), Box<dyn std::error::Error>> {
         let json = serde_json::to_string(&CommandMetadata::new("test"))?;
-        assert!(!json.contains("\"cache\""), "cache must not be serialized: {json}");
+        assert!(
+            !json.contains("\"cache\""),
+            "cache must not be serialized: {json}"
+        );
         let legacy = r#"{"realm":"","namespace":"root","name":"test","label":"test",
             "module":"","doc":"","state_argument":null,"cache":false,"volatile":false,
             "definition":"Registered","filename":""}"#;
@@ -1843,7 +1874,10 @@ mod tests {
         // The legacy key is not read as the new `cached` field.
         assert_eq!(cm.cached, None);
         assert!(cm.cached());
-        assert!(!json.contains("\"cached\""), "an undeclared flag is not serialized: {json}");
+        assert!(
+            !json.contains("\"cached\""),
+            "an undeclared flag is not serialized: {json}"
+        );
         Ok(())
     }
 
@@ -1871,6 +1905,55 @@ mod tests {
             constructed.state_argument,
             Some(ArgumentInfo::any_argument("state"))
         );
+        Ok(())
+    }
+
+    /// `ARGUMENT-INFO-HAS-NO-DESCRIPTION` / `COMMAND-METADATA-HAS-NO-COMMAND-LEVEL-HINTS`, AC-1.
+    #[test]
+    fn command_hints_round_trip() -> Result<(), Box<dyn std::error::Error>> {
+        let mut cm = CommandMetadata::new("export");
+        cm.with_hint("toolbar", serde_json::Value::Bool(true))
+            .with_hint("icon", serde_json::Value::String("download".to_string()));
+        let back: CommandMetadata = serde_json::from_str(&serde_json::to_string(&cm)?)?;
+        assert_eq!(back.hints["toolbar"], serde_json::Value::Bool(true));
+        assert_eq!(back, cm);
+        let back_yaml: CommandMetadata = serde_yaml::from_str(&serde_yaml::to_string(&cm)?)?;
+        assert_eq!(back_yaml, cm);
+        Ok(())
+    }
+
+    /// AC-4: a description round-trips, and an entry without one reads as empty.
+    #[test]
+    fn argument_description_round_trips() -> Result<(), Box<dyn std::error::Error>> {
+        let arg = ArgumentInfo::integer_argument("width", false)
+            .with_description("Maximum line width in characters");
+        let back: ArgumentInfo = serde_json::from_str(&serde_json::to_string(&arg)?)?;
+        assert_eq!(back.description, "Maximum line width in characters");
+        assert_eq!(back, arg);
+        let back_yaml: ArgumentInfo = serde_yaml::from_str(&serde_yaml::to_string(&arg)?)?;
+        assert_eq!(back_yaml, arg);
+        let bare: ArgumentInfo = serde_json::from_str(r#"{"name":"width"}"#)?;
+        assert_eq!(bare.description, "");
+        Ok(())
+    }
+
+    /// AC-6: unused, neither field is serialized, so existing metadata is byte-for-byte unchanged.
+    #[test]
+    fn empty_hints_and_description_are_omitted() -> Result<(), Box<dyn std::error::Error>> {
+        let mut cm = CommandMetadata::new("wrap");
+        cm.arguments = vec![ArgumentInfo::integer_argument("width", false)];
+        let json = serde_json::to_value(&cm)?;
+        assert!(
+            json.get("hints").is_none(),
+            "empty hints serialized: {json}"
+        );
+        assert!(
+            json["arguments"][0].get("description").is_none(),
+            "empty description serialized: {json}"
+        );
+        let yaml = serde_yaml::to_string(&cm)?;
+        assert!(!yaml.contains("hints"), "{yaml}");
+        assert!(!yaml.contains("description"), "{yaml}");
         Ok(())
     }
 
@@ -2006,9 +2089,7 @@ mod tests {
             CommandKey::new("", "pl", "slice"),
             vec![zero(), zero(), zero()],
         );
-        let err = registry
-            .alias_target(&alias)
-            .expect_err("head is too long");
+        let err = registry.alias_target(&alias).expect_err("head is too long");
         assert_eq!(err.error_type, crate::error::ErrorType::ParameterError);
         assert!(err.message.contains("3 head parameters"), "{}", err.message);
     }

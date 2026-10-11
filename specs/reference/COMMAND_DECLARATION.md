@@ -236,8 +236,8 @@ normatively, as §3.2.1 does for the three that exist, or two integrations will 
 
 ## 4. Mapping to `CommandMetadata`
 
-Every declaration key is a `CommandMetadata` field, with **one exception**: `hints` (§5), which is
-declaration-only and does not reach the metadata, plus `registration` and `conventions` (§3, §6). Apart from those the declaration adds no vocabulary
+Every declaration key is a `CommandMetadata` field except `registration` and `conventions`
+(§3, §6), which are declaration-only. Apart from those the declaration adds no vocabulary
 of its own, so a field added to `CommandMetadata` is declarable immediately with no change here.
 
 ### 4.1 Command level
@@ -258,7 +258,7 @@ of its own, so a field added to `CommandMetadata` is declarable immediately with
 | `state_argument` | `state_argument` | Present means the command transforms an input state; absent means a *source* command. Raw `CommandMetadata` reads an omitted field the other way (the conventional `state` argument) and `null` as a source command, so the build stage writes an absent one as `null` |
 | `arguments` | `arguments` | A list; merged by name — §2.1 |
 | `definition` | `definition` | `Registered` (default) or an `Alias` of another command — contract and validation in [`COMMAND_ALIASES.md`](COMMAND_ALIASES.md) |
-| `hints` | `hints` | **Usage** hints — how to *use* the command. Metadata; survives export — §6 |
+| `hints` | `hints` | **Usage** hints — how to *use* the command. Metadata; survives export; omitted when empty — §6 |
 | `registration` | *(none)* | **Registration** hints — how to *register and call* it. Declaration-only, dropped at build — §6 |
 | `conventions` | *(none)* | Declaration-only; disables conventions — §3.3 |
 
@@ -273,6 +273,7 @@ shared. `impl_version` is supplied at registration.
 |---|---|---|
 | `name` | `name` | **Required.** Also the merge key |
 | `label` | `label` | Derived from `name` when absent — §4 |
+| `description` | `description` | Prose explaining the argument (tooltip, help text); empty when absent and then not serialized |
 | `type` | `argument_type` | `type` is an accepted spelling of `argument_type` |
 | `default` | `default` | §3.3 |
 | `multiple` | `multiple` | Variadic: consumes every remaining action parameter. Must be the last query-consuming argument; it cannot be injected |
@@ -382,9 +383,9 @@ arguments:
     hints: { placeholder: "how many times" }
 ```
 
-**Note a gap:** only `ArgumentInfo` has a `hints` field. `CommandMetadata` has none, so a *command-level*
-usage hint cannot be expressed at all. This predates the declaration format and is not created by it;
-filed as `COMMAND-METADATA-HAS-NO-COMMAND-LEVEL-HINTS`.
+Both levels carry them: `ArgumentInfo::hints` and `CommandMetadata::hints`, the same free map, so a
+command with no arguments (an `export` with a toolbar `icon`) can be hinted too. A command-level
+`hints` key is ordinary metadata and reaches the built command without a warning.
 
 ### 6.2 Registration hints — `registration`
 
@@ -512,6 +513,7 @@ so no query parameter is consumed by either — that is conventions.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-11 | §4 intro, §4.1 `hints`, §4.2 `description`, §6.1: command-level `hints` and argument `description` reach the metadata; the dropped-key warning for command `hints` (`WarningKind::DroppedKey`) is removed. | `design/command-metadata-descriptions-and-hints/` |
 | 2026-10-11 | §4.1 `state_argument`: raw `CommandMetadata` now reads an omitted field as the conventional `state` argument and always writes a source command's `null`; a declaration keeps "absent means source" by building with explicit `null`. | `design/state-argument-serde-default` |
 | 2026-10-10 | §4.1 and §5.2: `cached` (declarable with no pipeline change, as every metadata field is). | phase-5, `design/plan-policy/` |
 | 2026-10-10 | §4.1 `definition` links the new alias reference. Only that row was checked. | phase-5, `design/command-alias-contract/` |
