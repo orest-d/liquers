@@ -31,3 +31,5 @@ Review (Codex, PR #118): the contract now says to notify **after** unmapping, on
 its replacement, as the built-in managers do; notifying before let a woken subscriber find the old
 asset again. A metadata-only `set_state` removes the key's stored object first, so a replaced
 value's bytes do not survive beside the new metadata (`scenario_unserializable_state_replaces_stored_bytes`).
+`new_installed` also projects the key into the installed metadata, as `new_ext` does for every
+keyed asset, so `get_metadata()` names the key `AssetRef::key()` reports.

@@ -2548,7 +2548,7 @@ impl<E: Environment> AssetRef<E> {
     /// (`set_state`), including one that cannot be serialized.
     ///
     /// `status` must be one a write produces: `Source`, `Override`, `Expired` or `Error`; any
-    /// other is `ErrorType::General` naming the status. The state's metadata gets `status`; the
+    /// other is `ErrorType::General` naming the status. The state's metadata gets `key` and `status`; the
     /// value is shared, not copied. No service loop is started and nothing is written to the
     /// store: persisting, publishing the version and, for `Expired`, recording the reason
     /// (`AssetManager::record_expiry`) stay with the caller.
@@ -2578,6 +2578,9 @@ impl<E: Environment> AssetRef<E> {
             }
         }
         let mut metadata = state.metadata.as_ref().clone();
+        // A keyed asset's metadata names its key, as `new_ext` projects it; a supplied state
+        // usually has none.
+        metadata.with_key(key.clone())?;
         metadata.set_status(status)?;
         let recipe: Recipe = (&key).into();
         let mut asset_data = AssetData::new_ext(id, recipe, State::new(), Some(key), envref);
@@ -10031,7 +10034,10 @@ mod tests {
                 envref.clone(),
             )?;
             assert_eq!(asset.status().await, status);
-            assert_eq!(asset.get_metadata().await?.status(), status);
+            let metadata = asset.get_metadata().await?;
+            assert_eq!(metadata.status(), status);
+            // The key is projected into the metadata, as for every keyed asset.
+            assert_eq!(metadata.key()?, Some(key.clone()));
         }
         for status in [
             Status::None,
