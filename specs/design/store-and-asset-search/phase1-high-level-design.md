@@ -266,6 +266,15 @@ Answered by the user on 2026-10-11:
    external engine. A command that sets roles belongs to
    [`external-index-sync`](../external-index-sync/) (user, 2026-10-11).
 
+## Design Readiness
+
+The decision log for the pre-approved work (`proceed all`, 2026-10-11). Each item is tiered as
+**blocking**, **needs decision** (taken on a stated assumption) or **noted**.
+
+| # | Decision | Tier | Taken as |
+|---|---|---|---|
+| D1 | Order of implementation: `liquers-records` kernels first, then the `liquers-lib` commands, then the documentation | noted | Phase 4 |
+
 ## References
 
 - `specs/issues/STORE-NO-CONTENT-OR-METADATA-SEARCH.md`, closed as superseded by this design
