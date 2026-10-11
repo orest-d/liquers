@@ -40,7 +40,8 @@ the manager guide.
 ## Resolution (2026-10-11)
 
 Both doors opened, as decided on 2026-10-10. `AssetRef::notify_removed` is `pub`, documented as
-"once, after `cancel_for_replacement`, before unmapping", and `AssetRef::new_installed(id, key,
+"once, after `cancel_for_replacement`, after unmapping and once the key holds its replacement",
+and `AssetRef::new_installed(id, key,
 state, status, envref)` builds a finished keyed asset from a `State`, accepting only `Source`,
 `Override`, `Expired` and `Error` (any other status is `General`). The minimal external manager
 (`liquers-core/tests/common/minimal_manager.rs`) now notifies a replaced asset and installs a

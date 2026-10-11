@@ -1216,6 +1216,37 @@ where
     Ok(())
 }
 
+/// A value with no byte form replacing one that was stored leaves a metadata-only entry: the old
+/// bytes do not survive beside the new metadata, where a later fast-track read would find them.
+pub async fn scenario_unserializable_state_replaces_stored_bytes<E>(
+    envref: EnvRef<E>,
+) -> Result<(), Error>
+where
+    E: Environment<Value = Value>,
+{
+    let m = envref.get_asset_manager();
+    let store = envref.get_async_store();
+    let key = parse_key("data/r.bin")?;
+    m.set_binary(&key, b"old", liquers_core::metadata::MetadataRecord::new())
+        .await?;
+    assert_eq!(store.get_bytes(&key).await?, b"old".to_vec(), "the fixture must store bytes");
+
+    let mut record = liquers_core::metadata::MetadataRecord::new();
+    record.data_format = Some("bin".to_string());
+    let state = State::new()
+        .with_data(Value::I32(7))
+        .with_metadata(Metadata::MetadataRecord(record));
+    m.set_state(&key, state).await?;
+
+    assert!(
+        store.get_bytes(&key).await.is_err(),
+        "the replaced value's bytes must not survive a metadata-only write"
+    );
+    let served = m.get(&key).await?.get().await?;
+    assert_eq!(*served.data_unchecked().as_ref(), Value::I32(7));
+    Ok(())
+}
+
 /// A subscriber of an asset replaced by `set_state` sees the terminal `Removed` as its last
 /// message, so it re-subscribes rather than reading `Cancelled` as a failure (E2/T3).
 pub async fn scenario_replaced_asset_receives_removed_last<E>(

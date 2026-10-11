@@ -199,7 +199,7 @@ rustdoc; the summary:
 | `AssetRef::set_payload_path(path)` | On a freshly built payload-evaluated asset, before running it, to carry cycle detection down the payload path. |
 | `AssetRef::expire_without_cascade(reason)` | Expire this asset alone. `Ready` and `Override` become `Expired` and the reason is recorded through `record_expiry`; already `Expired` is a no-op; any other status is an error. Persists the `Expired` status for a stored keyed asset. Does not touch the graph or your maps — the cascade and the eviction are the caller's. |
 | `AssetRef::cancel_for_replacement()` | Retire the asset a write or removal replaces. An in-flight one ends `Cancelled` at once (releasing its waiters with `JobFinished`), its run's late result is discarded, and it writes nothing more to the store; a finished one is left as it is. Call it before writing the key's new entry. |
-| `AssetRef::notify_removed()` | Send the replaced or removed asset's subscribers the terminal `Removed`, so they re-subscribe instead of reading `Cancelled` as a failure. Once, after `cancel_for_replacement`, before unmapping the asset. Changes no state. |
+| `AssetRef::notify_removed()` | Send the replaced or removed asset's subscribers the terminal `Removed`, so they re-subscribe instead of reading `Cancelled` as a failure. Once, after `cancel_for_replacement`, after unmapping the asset and writing its replacement, so a woken subscriber finds the new asset. Changes no state. |
 | `AssetRef::new_installed(id, key, state, status, envref)` | A finished keyed asset holding a supplied `state` (`set_state`), serializable or not; the value is shared, not copied. `status` must be one a write produces (`Source`, `Override`, `Expired`, `Error`), anything else is an error. Starts no service loop and writes nothing: persisting, `publish_version` and, for `Expired`, `record_expiry` stay yours. |
 | `AssetRef::cancel()` | A client's best-effort cancel: a request the run decides (a completed command still ends ready and is stored). Not for replacement — its late result could overwrite your write. |
 | `AssetManager::publish_version(dep_key, version)` | Publish a written key's new version and cascade-expire dependents that recorded another (`Updated`). Graph only: no store write, no lock, safe under the key-mutation lock. Unchanged version, no cascade. |
@@ -263,26 +263,26 @@ The shape of a write, from the minimal manager's `set_binary` (status decision e
 
 ```rust
 let mutation = self.mutation_lock.lock().await;
-if let Some(old) = self.lookup_key_asset(key) {
+let replaced = self.lookup_key_asset(key);
+if let Some(old) = &replaced {
     old.cancel_for_replacement().await?;
-    old.notify_removed().await;
     self.remove_key_asset(key).await;
 }
-// … decide `final_status`, set `metadata.version = Some(Version::from_content(binary))` …
-if metadata.stored() {
-    self.get_envref()
-        .get_async_store()
-        .set(key, stored_bytes, &Metadata::MetadataRecord(metadata.clone()))
-        .await?;
-}
-if matches!(final_status, Status::Ready | Status::Source | Status::Override) {
-    if let Some(version) = metadata.version {
-        self.publish_version(&DependencyKey::from(key), version).await;
-    }
+// `write_binary`: decide `final_status`, set `metadata.version = Some(Version::from_content(binary))`,
+// write the store when `metadata.stored()`, and `publish_version` for Ready/Source/Override.
+let result = self.write_binary(key, binary, metadata).await;
+// Only now, with the key showing its new value, so a woken subscriber does not find `old` again.
+if let Some(old) = &replaced {
+    old.notify_removed().await;
 }
 drop(mutation);
+result?;
 self.refresh_listing_version(&key.parent()).await;
 ```
+
+A `set_state` whose value has no byte form writes a metadata-only entry (`set_metadata`). Remove the
+key's stored object first: `set_metadata` keeps an existing data object, and the old bytes beside
+the new metadata would be read back after eviction.
 
 The version is the content hash (`Version::from_content`), so outside-change detection can verify it
 later. `publish_version` runs after the store write, so a dependent recomputed after the cascade
@@ -497,7 +497,7 @@ store conformance suite: shared scenarios, no rule numbers and no capability mod
 
 | Date | Change | Source |
 |---|---|---|
-| 2026-10-11 | §Primitives: `notify_removed` and `new_installed` are public (rows added, removed from "not exposed"); the write example notifies the replaced asset; the known-limits row for both is removed. | `design/external-manager-replacement-surface/` |
+| 2026-10-11 | §Primitives: `notify_removed` and `new_installed` are public (rows added, removed from "not exposed"); the write example notifies the replaced asset once the key holds its replacement, and a metadata-only write removes the stored object first; the known-limits row for both is removed. | `design/external-manager-replacement-surface/` |
 | 2026-10-10 | Provided accessors gain `recipe_cache_strategy`, `query_cache_strategy` and `cut_predecessors`; new caching-strategy rules for a custom manager (keyed, top-level, a dependency following its creator), and `Recipe::cached` is now a strategy. A key with no recipe is not subject to the strategy, and an existing keyed asset is reused before it is consulted (PR #102 review). | phase-5, `design/plan-policy/` |
 | 2026-10-09 | §Primitives: `cancel_for_replacement` for writes and removals (the `cancel()` row says why not); the write example and the known-limits row follow. | phase-5 (`design/asset-cancellation-outcome/`) |
 | 2026-10-08 | `DefaultRecipeProvider` is constructed with `::new()` (it holds a recipe cache). The audit-policy section notes that the stored-records walk and the store audit are inherited provided methods. | phase-5 (`design/dependency-chain-analysis-cost/`) |

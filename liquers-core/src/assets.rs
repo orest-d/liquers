@@ -4291,8 +4291,11 @@ impl<E: Environment> AssetRef<E> {
     /// it rather than reading `Cancelled` as a failure.
     ///
     /// Contract for an [`AssetManager`] replacing or removing an asset: call it once, after
-    /// [`Self::cancel_for_replacement`] (or `cancel`), and before unmapping the asset, so it is
-    /// the last message a subscriber sees. It changes no state; it only sends the notification.
+    /// [`Self::cancel_for_replacement`] (or `cancel`), after unmapping the asset, and after the key
+    /// shows what replaced it (the new asset mapped, the store written). A subscriber woken by it
+    /// then re-subscribes to the replacement rather than to this asset again. Nothing is sent to
+    /// this asset after it, so it is the last message a subscriber sees. It changes no state; it
+    /// only sends the notification.
     pub async fn notify_removed(&self) {
         let lock = self.data.read().await;
         let _ = lock

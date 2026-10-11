@@ -45,6 +45,7 @@ use common::manager_scenarios::{
     register_lazy_expiry_chain, scenario_lazy_deadline_expiry_cascade,
     scenario_replaced_asset_receives_removed_last,
     scenario_set_state_of_unserializable_value_is_served,
+    scenario_unserializable_state_replaces_stored_bytes,
 };
 use common::minimal_manager::{
     MinimalEnv, MinimalInlineAssetManager, MinimalKind, AUDIT_TRAIL_PREFIX,
@@ -167,6 +168,11 @@ async fn external_manager_passes_shared_scenarios() -> TestResult {
     scenario(
         "set_state_of_unserializable_value_is_served",
         scenario_set_state_of_unserializable_value_is_served(keyed(recipe_store().await?)),
+    )
+    .await?;
+    scenario(
+        "unserializable_state_replaces_stored_bytes",
+        scenario_unserializable_state_replaces_stored_bytes(keyed(recipe_store().await?)),
     )
     .await?;
     scenario(

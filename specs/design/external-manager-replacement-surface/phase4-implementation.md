@@ -26,3 +26,8 @@ against the type registry and refuse `Value::I32` declared as `bin` with `Serial
 they accept a value with no byte form only when its type declares no formats (a UI element), and
 core's `Value` has no such type. The replacement scenario (T3) runs against all three managers.
 The built-in managers do not adopt `new_installed` (optional per Phase 1).
+
+Review (Codex, PR #118): the contract now says to notify **after** unmapping, once the key holds
+its replacement, as the built-in managers do; notifying before let a woken subscriber find the old
+asset again. A metadata-only `set_state` removes the key's stored object first, so a replaced
+value's bytes do not survive beside the new metadata (`scenario_unserializable_state_replaces_stored_bytes`).
