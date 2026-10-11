@@ -21,7 +21,7 @@ survey (§3 there).
 | P1 | **Files are the truth.** A memory is a document in a store — Markdown with front-matter by default — readable and editable without the service | A database of facts (mem0, Zep) | Review. This repository's whole process is that a human or an agent can read, diff and correct what is known. Every file-based system in the survey keeps that property; no database-based one does |
 | P2 | **The calling agent does the thinking; the service does the bookkeeping.** The MVP service calls no language model | Service-side extraction (mem0, OpenViking) | No credentials, deterministic tests, and the agent already holds the context the extraction needs. mem0's 2026 retreat from model-driven updates is evidence that service-side consolidation is the riskiest part. A model-backed command is NEXT, and never writes a tier that looks hand-written (`tiers-and-storage.md` §4) |
 | P3 | **Derived content is an asset.** Indexes, catalogues, folder overviews and generated tiers are recipes, recomputed when a source's content-hash version changes | Regenerate-and-diff (`docs_index.py`), freshness queues (OpenViking) | It is what Liquers is for, and no surveyed system has general derived-data invalidation |
-| P4 | **Supersede, do not destroy.** Edits are recorded; replacing a memory links old to new; forgetting archives rather than deletes, unless asked to purge | In-place mutation (mem0 v2) | Survey §3.3: lossy consolidation is the most consistent failure. This is also `specs/`' own rule (archive, `superseded_by`) |
+| P4 | **Supersede, do not destroy.** Edits are recorded; replacing a memory links old to new; forgetting (NEXT) will archive rather than delete, unless asked to purge | In-place mutation (mem0 v2) | Survey §3.3: lossy consolidation is the most consistent failure. This is also `specs/`' own rule (archive, `superseded_by`) |
 | P5 | **Search never evaluates.** Reading and searching memory never starts a recipe | Evaluate-on-read | Inherited from `store-and-asset-search` (conclusion 1): one query must not recompute a corpus |
 | P6 | **Schema is data in the memory.** Collections, fields, vocabularies, templates and check rules are documents under `_schema/`, not code | Hard-coded rules (`docs_index.py`) | One service serves this repository's `specs/`, an agent's notes and an unrelated project; the LLM-wiki "schema" layer becomes machine-readable |
 | P7 | **A small fixed tool surface; the query language carries composition** | One tool per command | `store-and-asset-search/research-questions.md` §6; every surveyed MCP surface is 3–20 tools |
@@ -43,9 +43,13 @@ mem/
   <collection>/…       documents; a collection is a folder with a schema
 ```
 
-For this repository the collections are the existing genres, mounted read-mostly: `specs/issues`,
-`specs/design`, `specs/reference`, `specs/guides`, `specs/archive` (read-only), and
-`.claude/skills` as `skills`. Agent-written memory goes to collections in a **separate, writable
+Keys given to and returned by the tools are **relative to the memory root**: `specs/issues/X.md`,
+not `mem/specs/issues/X.md`.
+
+For this repository the collections are the existing genres: `specs/issues`, `specs/design`,
+`specs/reference`, `specs/guides` — writable, but **only through the service's write commands**
+(which validate, stamp and log) — `specs/archive`, mounted read-only, and `.claude/skills` as
+`skills`. Agent-written memory goes to collections in a **separate, writable
 mount** — `notes/` (semantic: entities, concepts, decisions), `episodes/` (dated session
 summaries), `inbox/` (raw captures awaiting consolidation). Whether agent notes are committed to
 git is a deployment choice (Open question 4 in Phase 1).
@@ -107,22 +111,22 @@ over `specs/` are expressible in it (AC-9), with any residue written as a named 
 | R3 | **Search** — words, phrases, regex, field filters, scoped to a folder, ranked, with `matched`, `excerpt`, and an "N of M" truncation signal | MVP | `ns-search` (`catalog` / `field_extract` / `search`) |
 | R4 | **Section-level search** — return the passage, not the file | MVP | `ns-search/md_split` |
 | R5 | **Read** at a tier — L0, L1, full; one section by heading; a line range | MVP | `-R/<key>`, metadata, `md_split` / `ns-mem/section` |
-| R6 | **Hide superseded and expired** memories from list and search unless asked | MVP | A default filter `-superseded_by:* -expired` applied by the tool, not by `search` |
+| R6 | **Hide superseded** memories from list and search unless asked; hiding **expired** ones is NEXT | MVP / NEXT | A filter the tool adds, not `search`: `-superseded_by:*`, and later `-expires:<` today's date. Not a bare `-expired`, which in the search grammar is a negated *word*. How an empty YAML `superseded_by:` evaluates under `field:*` is checked in Phase 3 |
 | R7 | **Links** — outgoing links of a document, documents linking to it | NEXT | `ns-mem/links` (overlaps `NO-MARKDOWN-NAVIGATION-COMMANDS`) |
 | R8 | **Semantic search** | NEXT | `external-index-sync` (vector store as a materialized view) |
-| R9 | **Recency / importance ranking** | NEXT | `sort` from `record-filter-commands`; a scoring policy is not a search primitive |
+| R9 | **Recency / importance ranking** | NEXT | `sort` from `record-filter-commands` (search branch); a scoring policy is not a search primitive |
 | R10 | **Describe** — collections, fields, vocabularies, templates: what an agent may filter on and write | MVP | `ns-mem/describe` over `_schema/` |
 
 ### 3.2 Write
 
 | # | Capability | Level | Mechanism |
 |---|---|---|---|
-| W1 | **Write** a memory: key, body, `title`, `description`, fields. Refuses a Markdown memory without L0/L1, an unknown field value, a key outside a writable mount | MVP | `ns-mem/write` (a command with `Context` store access) |
+| W1 | **Write** a memory: key, body, `title`, `description`, fields. Refuses to create a Markdown memory without L0/L1, an unknown field value, a key outside a writable mount | MVP | `ns-mem/write`. Writes go through the asset manager (under its per-key lock), not straight to the store, so live assets and their dependents see them; write commands are volatile, the body is the payload rather than a query parameter, so an identical repeated write is not answered from cache |
 | W2 | **Edit** in place: replace an exact string (the memory tool's `str_replace`), set a front-matter field, append a table row to a named section | MVP | `ns-mem/edit`, `set_field`, `append_row` |
 | W3 | **Precondition** — every write may carry the version it was based on, and is refused if the memory changed since | MVP (single process) | Check-then-write in the command; atomic only with `STORE-WRITE-HAS-NO-PRECONDITION` fixed |
 | W4 | **New from a collection** — id from the title, template instantiated, fields validated; **duplicate candidates returned first**, created only when none or when forced | MVP | `ns-mem/similar` + `ns-mem/new` |
 | W5 | **Supersede** — write a new memory and set `superseded_by` on the old one in one call | MVP | `ns-mem/write` argument |
-| W6 | **Forget** — move to an archive collection with a reason (default), or purge on explicit request | MVP | `ns-mem/forget` |
+| W6 | **Forget** — move to an archive collection with a reason (default), or purge on explicit request | NEXT | `ns-mem/forget`, once the archive convention is fixed; in the MVP, supersession (W5) or a status |
 | W7 | **Write log** — every service write appends a line to `_log/YYYY-MM.md`: date, operation, key, version before and after, one-line reason | MVP | Inside the write commands; OpenViking's `memory_diff.json` and the LLM-wiki `log.md` |
 | W8 | **Stamp** `created` / `updated` on write | MVP | Inside the write commands |
 | W9 | **Ingest** a raw source (URL, file) into `inbox/` unchanged, with provenance | NEXT | A command around existing resource loading |
@@ -134,8 +138,8 @@ over `specs/` are expressible in it (AC-9), with any residue written as a named 
 | # | Capability | Level | Mechanism |
 |---|---|---|---|
 | M1 | **Check** — schema rules, required sections, dead links, reciprocal links, L0/L1 present and within length, `reviewed:` age; results as records `(rule, key, severity, message)` | MVP | `ns-mem/check` |
-| M2 | **Derived indexes** — `specs/index.csv`, `index.md`, README generated blocks as recipes | MVP | `ns-mem/render_index` in a `recipes.yaml`; the asset layer keeps them fresh |
-| M3 | **Generated tiers** for documents and folders without front-matter (deterministic rule) | MVP | First heading / first paragraph; folder L0/L1 from `README.md` |
+| M2 | **Derived indexes** — `specs/index.csv` as a recipe (MVP); `index.md` and README generated blocks (NEXT) | MVP | `ns-mem/render_index` in a `recipes.yaml`. Byte equality with `docs_index.py` means re-implementing its computed columns (`status_source`; `readiness`/`autofix` joined across issues and designs; one design row per `DESIGN.md`), not only projecting front-matter |
+| M3 | **Generated tiers** for documents and folders without front-matter (deterministic rule) | MVP | First heading / first paragraph, or a section the collection names; folder L0/L1 from `README.md`. This is where `specs/` gets its L1 today: no document there has `description:` |
 | M4 | **Consolidation candidates** — near-duplicates and unlinked related memories, for the agent to merge | NEXT | `similar` over a collection; the merge is judgement |
 | M5 | **Staleness report** — superseded-but-referenced, expired, overdue `reviewed:` | MVP (as `check` rules) | M1 |
 | M6 | **Contradiction detection** | OUT | Needs a model and is unreliable; LLM-wiki lint leaves it to the agent too |
@@ -145,7 +149,7 @@ over `specs/` are expressible in it (AC-9), with any residue written as a named 
 | # | Capability | Level |
 |---|---|---|
 | O1 | Run embedded in one process: CLI and stdio MCP open the stores directly, no server needed | MVP |
-| O2 | Run as a server: the assets API plus MCP over Streamable HTTP in one `liquers-axum` router | MVP (HTTP MCP may slip to NEXT; see `interfaces-and-mcp.md` §6) |
+| O2 | Run as a server: the assets API plus MCP over Streamable HTTP in one `liquers-axum` router | NEXT (Phase 1 question 5; `interfaces-and-mcp.md` §7) |
 | O3 | Read-only corpus mount that never writes a sidecar | MVP prerequisite (`STORE-NO-READ-ONLY-ADAPTER`) |
 | O4 | Scopes per user / agent / session, ACL | OUT (P8) |
 | O5 | Retrieval trace (why these hits, which scope, how many read) | NEXT; MVP returns `matched`, `excerpt`, totals |
@@ -172,6 +176,8 @@ The survey splits evenly. The arguments specific to Liquers:
 | `STORE-NO-READ-ONLY-ADAPTER` | Draft, P2 | O3 needs it; must be fixed first or worked around by a read-only wrapper inside this design |
 | `STORE-WRITE-HAS-NO-PRECONDITION` | Draft, P2 | W3 is racy across processes until fixed; acceptable under P8 |
 | `CORE-METADATA-NO-APPLICATION-ATTRIBUTES` | Draft, P2 | Fields other than L0/L1 reach clients as records, not metadata; not blocking |
-| `NO-MARKDOWN-NAVIGATION-COMMANDS` | Draft, P3 | R5's section read, R7; this design may absorb the minimum it needs |
-| `external-index-sync` | Phase 1 not started | R8 |
+| `NO-MARKDOWN-NAVIGATION-COMMANDS` | Draft, P3 (search branch only) | R5's section read, R7; this design may absorb the minimum it needs |
+| `external-index-sync` | Phase 1 not started (search branch only) | R8 |
+| `STORE-ROUTER-DOES-NOT-FORWARD-ASSET-INFO` | Draft, P2 (filed 2026-10-11) | Folder tiers through a router member; worked around by wrapping the router |
+| `ARGUMENT-INFO-HAS-NO-DESCRIPTION` | Draft, P3 | MCP argument descriptions cannot all come from `CommandMetadata` until fixed; tool declarations supply them meanwhile |
 | `COMMAND-CANNOT-BE-RUN-WITH-A-RESTRICTED-CONTEXT` | Draft, P2 | Needed before a general `query` tool may be offered over MCP to an untrusted client |

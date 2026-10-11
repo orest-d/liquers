@@ -5,7 +5,7 @@ title: A memory service for agents, built on the liquers stack
 status: draft
 priority: P2
 complexity: XL
-area: [axum, lib/commands, docs]
+area: [axum, lib/commands, core/store, docs]
 design: agent-memory-mvp
 created: 2026-09-15
 github:

@@ -60,18 +60,39 @@ recomputed when any file changes); Markdown only (T6 ✗); and nothing a Liquers
 
 An `AsyncStore` adapter wrapping any backend. For an entry whose media type is Markdown it parses
 the front-matter on read and **projects** `title` and `description` into the `MetadataRecord` it
-returns from `get_metadata` / `get_asset_info`; everything else is passed through. The file stays
+returns from `get` and `get_metadata` (and into `get_asset_info`); everything else is passed
+through. The file stays
 the single source of truth; the metadata is a view of it.
 
 ```
-FrontMatterStore<S: AsyncStore>   // liquers-lib (needs a YAML parser); wraps the corpus mount
-  get_metadata(key)  = inner.get_metadata(key) ⊕ project(front_matter(inner.get(key)))
-  get_asset_info(key)= same projection
-  set(key, data, md) = inner.set(key, data, md)   // MVP: front-matter in data wins on next read
+// Illustrative only — Phase 2 owns the shape.
+FrontMatterStore<S: AsyncStore>
+  get(key)           = (data, inner metadata ⊕ project(front_matter(data)))
+  get_metadata(key)  = inner.get_metadata(key) ⊕ project(front_matter(inner.get_bytes(key)))
+  get_asset_info(key)= the same projection; for a directory, from its README.md
+  set_metadata(key,m)= rewrite the front-matter from m's title/description, then inner.set
+  everything else    = forwarded to inner
 ```
 
+Two placement facts constrain where it sits (codebase review, 2026-10-11):
+
+- **`get` must project, not only `get_metadata`.** `AssetManager::get_asset_info` answers from the
+  live asset whenever one is loaded (`liquers-core/src/assets.rs` around line 6141), and that
+  asset's metadata came from `store.get`. A projection only in `get_metadata` would vanish as soon
+  as the document is read once. A loaded asset still holds the projection of the bytes it loaded;
+  how it learns of an outside edit is the question below.
+- **It must wrap the router, or the router must forward.** `AsyncStoreRouter` forwards `get` and
+  `get_metadata` to its members but not `get_asset_info` or `listdir_asset_info`; those run the
+  trait defaults on the router itself, whose directory case reads nothing
+  (`STORE-ROUTER-DOES-NOT-FORWARD-ASSET-INFO`, filed 2026-10-11). So folder tiers work only with the
+  adapter wrapping the whole router (`FrontMatterStore<AsyncStoreRouter>`), or after that issue is
+  fixed. File tiers work either way, because they ride `get_metadata`.
+- **It must forward the whole trait.** Most `AsyncStore` defaults are wrong for a wrapper
+  (`key_prefix` empty, `is_supported` false, `listdir` empty, `set`/`remove`/`makedir` refusing), and
+  the router calls `default_metadata` and `finalize_metadata*` on its members.
+
 For: T1 ✔ through every existing interface (assets API `listdir`, `AssetInfo`, the UI, `catalog`),
-T2 ✔ by construction (the projection is recomputed from the bytes, cached by the inner version),
+T2 ✔ provided the cache notices outside edits (below),
 T3 ✔ (the file is the truth), T6 ✔ (non-Markdown passes through with ordinary metadata — option A
 for everything that is not Markdown). This bridges A and B: *Markdown documents keep their tiers in
 the text, and every client still reads them as metadata*.
@@ -79,10 +100,17 @@ the text, and every client still reads them as metadata*.
 Against, and what has to be decided:
 - **A store that parses content** crosses a line every existing store keeps: none of them
   interprets the bytes it holds (`STORE_SEMANTICS.md` specifies storage and metadata, not content;
-  the nearest exception is `get` repairing an unparseable *sidecar*). The adapter is therefore not a backend but an explicit, opt-in decorator, like a
-  router mount — and it lives in `liquers-lib`, not `liquers-core`.
-- **Cost on listing:** projecting a folder's metadata reads every Markdown file once; after that a
-  cache keyed by `(key, inner version)` makes it a metadata read. On a backend that synthesizes
+  the nearest exception is `get` repairing an unparseable *sidecar*). The adapter is therefore not
+  a backend but an explicit, opt-in decorator. It lives in `liquers-lib` with the rest of `ns-mem`
+  because it is a memory policy, not a storage primitive (a YAML parser is available in both crates).
+- **Freshness after outside edits.** A cache keyed by `(key, inner version)` is unsound: the version
+  in a sidecar does not change when a file is edited by another program, and it is re-hashed only
+  when bytes are read (`VersionVerification::OnRead`; the precedent is
+  `STORE-VERSION-BLIND-TO-CHANGES-MADE-OUTSIDE-LIQUERS`). The projection cache must key on cheap
+  file facts (size and modification time) or re-hash, and a loaded asset whose bytes changed must be
+  refreshed on the next `key/info` (AC-11).
+- **Cost on listing:** projecting a folder's metadata reads every Markdown file once; after that
+  the cache above makes it a metadata read. On a backend that synthesizes
   versions lazily the first listing is a scan. Acceptable at the scale of `specs/`; measured in
   Phase 3.
 - **Write-back:** what happens when a client sets `title` through metadata (`POST key/description`
@@ -99,7 +127,8 @@ Against, and what has to be decided:
 ### D. Derived tiers: L0/L1 computed by a command, cached as assets
 
 For entries with no front-matter (T4), a recipe derives the tiers — deterministically (first `# `
-heading as title, first paragraph as description; the search design's P3 rule) or with a language
+heading as title, first paragraph as description — proposal P3 of `store-and-asset-search`'s
+`agent-queries.md`; or a section the collection names, such as an issue's `## Problem`) or with a language
 model (OpenViking's approach). As recipes they are assets: versioned, cached, and recomputed when
 the source's content hash changes (T2 ✔). Folder tiers (T5) are a derivation too: an overview of
 a folder is a recipe over its children's L0s.
@@ -114,7 +143,7 @@ into front-matter (B), which is the right promotion path anyway.
 Separate `.abstract.md` / `.overview.md` files per folder (OpenViking) or per document. For: no parsing, cheap
 listing. Against: three files per memory, which drift independently (T2 ✗) and triple what a human
 reviews; Liquers already has a sidecar for exactly this purpose (A), so E is A with worse
-consistency. Rejected; its one strength — a per-folder overview — is covered by T5 below.
+consistency. Rejected; its one strength — a per-folder overview — is requirement T5 (§1), met in §3.
 
 ## 3. Recommendation
 
@@ -126,14 +155,21 @@ consistency. Rejected; its one strength — a per-folder overview — is covered
 | Filtering on other fields | `status`, `kind`, `area`, dates | `ns-search/field_extract` records until `CORE-METADATA-NO-APPLICATION-ATTRIBUTES` lands |
 
 **Folder tiers (T5):** a folder's L0/L1 come from the front-matter of its `README.md` (or
-`_index.md`) when present — the convention `specs/README.md` already follows and the LLM-wiki
-pattern uses — projected onto the folder's `AssetInfo` by the same adapter (the default `AsyncStore::get_asset_info` builds a directory's info from `default_metadata` without reading anything, so the adapter overrides the directory case); otherwise from a derived
+`_index.md`) when present — the LLM-wiki pattern's convention; `specs/README.md` has no front-matter
+today and would gain it — projected onto the folder's `AssetInfo` by the
+same adapter wrapping the router (§2 C); otherwise from a derived
 overview (D).
 
 **Tier lengths** are conventions checked by `ns-mem/check`, not types: L0 one line (≤ 120
 characters), L1 ≤ ~500 characters. OpenViking's budgets (256 and 4,000 characters) are for
-generated text covering a whole folder; hand-written per-document front-matter is shorter, and
-`specs/` titles already meet the L0 rule.
+generated text covering a whole folder; hand-written per-document front-matter is shorter.
+
+**The existing corpus has no L1.** At HEAD, no document under `specs/` has a `description:` field
+(the issue template written by `docs_index.py new` has none), and 6 issue titles exceed 120
+characters. So for `specs/` the L1 comes from a **per-collection fallback** declared in the schema —
+the first paragraph of an issue's `## Problem`, of a design's Phase 1 `## Purpose`, of a reference's
+first section — until descriptions are backfilled (Phase 1 open question 3). The over-long titles are
+`check` warnings, not errors.
 
 **Escalation path:** C is the only part that is new code in the storage path. If Phase 2 finds it
 crosses that storage/interpretation line too far, the fallback is to keep B as truth and serve tiers only

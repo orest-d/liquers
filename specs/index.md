@@ -8,12 +8,13 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 104
-- P2: 51
+Total rows: 105
+- P2: 52
 - P3: 53
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
+| [`STORE-ROUTER-DOES-NOT-FORWARD-ASSET-INFO`](issues/STORE-ROUTER-DOES-NOT-FORWARD-ASSET-INFO.md) | issue | AsyncStoreRouter does not forward get_asset_info to its member stores | draft |  |  | P2 | S | core/store |  | 2026-10-11 |
 | [`COMMAND-CANNOT-BE-RUN-WITH-A-RESTRICTED-CONTEXT`](issues/COMMAND-CANNOT-BE-RUN-WITH-A-RESTRICTED-CONTEXT.md) | feature | A command cannot be run with a restricted context | draft |  |  | P2 | M | core/context;core/commands |  | 2026-09-17 |
 | [`CORE-METADATA-NO-APPLICATION-ATTRIBUTES`](issues/CORE-METADATA-NO-APPLICATION-ATTRIBUTES.md) | feature | Metadata cannot carry application-defined attributes | draft |  |  | P2 | M | core/value |  | 2026-09-15 |
 | [`CORE-TRACING-MIGRATION`](issues/CORE-TRACING-MIGRATION.md) | issue | Diagnostics use `eprintln!` rather than structured logging | accepted |  |  | P2 | M | core/error;build |  | 2026-08-08 |
@@ -61,7 +62,7 @@ Total rows: 104
 | [`VALUE-CONVERSION-CAPABILITY`](issues/VALUE-CONVERSION-CAPABILITY.md) | feature | Values cannot be converted between types, automatically or explicitly | draft |  |  | P2 | L | core/value;core/commands;lib/value |  | 2026-08-18 |
 | [`VALUE-SERIALIZATION-IS-SYNCHRONOUS-AND-WHOLE-VALUE`](issues/VALUE-SERIALIZATION-IS-SYNCHRONOUS-AND-WHOLE-VALUE.md) | feature | Serialization is synchronous and whole-value, so a large or lazy value cannot be served or stored as it is produced | draft |  |  | P2 | L | core/value;core/store;core/assets;axum |  | 2026-09-24 |
 | [`WORKSPACE-SERDE-DERIVE-UNDECLARED`](issues/WORKSPACE-SERDE-DERIVE-UNDECLARED.md) | issue | Three crates use serde derive macros without declaring the `derive` feature | accepted |  |  | P2 | L | build;core/value;lib/ui;axum |  | 2026-08-09 |
-| [`AGENT-MEMORY-SERVICE`](issues/AGENT-MEMORY-SERVICE.md) | feature | A memory service for agents, built on the liquers stack | draft |  |  | P2 | XL | axum;lib/commands;docs | [interfaces](design/agent-memory-mvp/interfaces-and-mcp.md)  [memory](design/agent-memory-mvp/memory-systems-survey.md)  [phase1](design/agent-memory-mvp/phase1-high-level-design.md)  [phase2](design/agent-memory-mvp/phase2-architecture.md)  [phase3](design/agent-memory-mvp/phase3-examples.md)  [phase4](design/agent-memory-mvp/phase4-implementation.md)  [phase5](design/agent-memory-mvp/phase5-documentation.md)  [service](design/agent-memory-mvp/service-specification.md)  [tiers](design/agent-memory-mvp/tiers-and-storage.md)  [workflow](design/agent-memory-mvp/workflow-porting.md)  | 2026-09-15 |
+| [`AGENT-MEMORY-SERVICE`](issues/AGENT-MEMORY-SERVICE.md) | feature | A memory service for agents, built on the liquers stack | draft |  |  | P2 | XL | axum;lib/commands;core/store;docs | [interfaces](design/agent-memory-mvp/interfaces-and-mcp.md)  [memory](design/agent-memory-mvp/memory-systems-survey.md)  [phase1](design/agent-memory-mvp/phase1-high-level-design.md)  [phase2](design/agent-memory-mvp/phase2-architecture.md)  [phase3](design/agent-memory-mvp/phase3-examples.md)  [phase4](design/agent-memory-mvp/phase4-implementation.md)  [phase5](design/agent-memory-mvp/phase5-documentation.md)  [service](design/agent-memory-mvp/service-specification.md)  [tiers](design/agent-memory-mvp/tiers-and-storage.md)  [workflow](design/agent-memory-mvp/workflow-porting.md)  | 2026-09-15 |
 | [`NO-RELATIONAL-DATABASE-ACCESS-LAYER`](issues/NO-RELATIONAL-DATABASE-ACCESS-LAYER.md) | feature | No access layer from Liquers into relational databases | draft |  |  | P2 | XL | lib/value;lib/commands;store/backends |  | 2026-09-20 |
 | [`NO-REMOTE-STORE-OR-ASSET-MANAGER`](issues/NO-REMOTE-STORE-OR-ASSET-MANAGER.md) | feature | A client environment cannot use a server's store or asset manager as its own | draft |  |  | P2 | XL | axum;web;core/assets;core/store |  | 2026-09-27 |
 | [`VALUE-TYPE-DEFINITION-MACRO`](issues/VALUE-TYPE-DEFINITION-MACRO.md) | feature | Value types and their registry entries are hand-written instead of generated | draft |  |  | P2 | XL | macro;lib/value;core/value |  | 2026-08-18 |

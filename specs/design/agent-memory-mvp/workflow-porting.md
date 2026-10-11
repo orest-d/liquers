@@ -21,7 +21,7 @@ The repository runs a memory system by hand. Mapped onto the vocabulary of the s
 | `guides/` | 15 | **Procedural** — how to do things | Same `reviewed:` rule |
 | `design/<slug>/` | 169 folders | **Episodic / rationale** — why a change was made | Frozen once `complete`; `superseded_by` links forward |
 | `issues/` | 290 | **Prospective** — what is wrong or wanted | `status` lifecycle (§4.3 of `DOCS_STRUCTURE_GUIDE.md`) |
-| `archive/` | 41 | **Episodic snapshot** — what was true on a date | Never edited |
+| `archive/` | 40 | **Episodic snapshot** — what was true on a date | Never edited |
 | `.claude/skills/*/SKILL.md` | 4 (+1 adapter) | **Procedural**, tiered: `description` always loaded, body on demand | None |
 | `CLAUDE.md` | 1 | **Core memory** — always in context (Letta's "core block") | None |
 | `specs/index.csv`, `index.md`, README generated blocks | 3 | **Index / catalog** (LLM-wiki `index.md`) | Regenerated; `--check` fails when stale |
@@ -36,7 +36,7 @@ provide them and most do not:
    lightweight version of what Zep/Graphiti does with bi-temporal edges, and it is the part
    naive vector memories lack: they cannot tell a current fact from a historical one.
 3. **Every rule is mechanically checkable or explicitly judgement.** `docs_index.py --check` checks
-   ~25 rules over 499 documents (0 errors, 32 warnings at HEAD); everything else is written as a
+   ~25 rules over 499 indexed documents (the archive is not indexed; 0 errors, 32 warnings at HEAD); everything else is written as a
    procedure for an agent. That line between bookkeeping and judgement is the line between
    *commands* and *the agent* in the service.
 
@@ -46,13 +46,14 @@ provide them and most do not:
 
 | Script | Size | What it does | Memory service | Port to |
 |---|---|---|---|---|
-| `scripts/docs_index.py` (default mode) | 1344 lines | Parses front-matter of every document; writes `index.csv`, `index.md`, `index.html`, README generated blocks | **Catalog / index generation** | A recipe: `specs/index.csv` = `ns-search/field_extract` over the collections, projected to the CSV columns. The file becomes a derived asset, recomputed when a source's version changes |
+| `scripts/docs_index.py` (default mode) | 1344 lines | Parses front-matter of every document; writes `index.csv`, `index.md`, `index.html`, README generated blocks | **Catalog / index generation** | A recipe: `specs/index.csv` = `ns-search/field_extract` over the collections, then `ns-mem/render_index`, which must re-implement the computed columns (`status_source`, `readiness` and `autofix` joined across issues and designs, one row per `DESIGN.md`). The file becomes a derived asset, recomputed when a source's version changes |
 | `docs_index.py --check` | — | ~25 rules: vocabularies, required fields, id = filename, reference resolution, phase/status coupling, readiness reciprocity, AC coverage, History rows, dead links, stale index | **Lint / integrity** (LLM-wiki *lint*) | `ns-mem/check`: schema-driven rules over front-matter records, plus a link graph; output is a record table of violations |
-| `docs_index.py new` | — | Near-duplicate search on title words, derives the id, validates `area`, writes the template, regenerates | **Capture with deduplication** (mem0's ADD-vs-NOOP decision, made by the agent) | `ns-mem/similar` (BM25 over titles, `ns-search/search-…-title`) + `ns-mem/new` (id rule + template + schema validation) |
-| `docs_index.py --sort` | — | Queue order: priority, complexity, readiness, autofix | **Ranking by policy** | A saved query using `sort` from `record-filter-commands` |
+| `docs_index.py new` | — | Near-duplicate search on title and area words, **refusing (exit 1) unless `--force`**; derives the id, validates `area`, writes the template, regenerates | **Capture with deduplication** (mem0's ADD-vs-NOOP decision, made by the agent) | `ns-mem/similar` (BM25 over titles, `ns-search/search-…-title`) + `ns-mem/new` (id rule + template + schema validation) |
+| `docs_index.py --sort` | — | Queue order: priority, complexity, live before finished | **Ranking by policy** | A saved query using `sort` from `record-filter-commands` |
 | `liquers-project/scripts/init_feature.py` | 169 lines | Creates a design folder from templates | **Capture from a multi-file template** | `ns-mem/new` with a folder template |
 | `liquers-project/scripts/validate_phase.py` | 311 lines | Required sections per phase, leftover placeholders, size limits, AC coverage | **Lint, section-level** | `ns-mem/check` rules of kind `required_sections`, `no_placeholder`, `max_size` |
-| `liquers-validate/scripts/lqv.py` | 282 lines | Wraps `liquers-validate`, renders the plan compactly | Not memory — **query validation** | A tool of the *general* Liquers MCP (`validate_query`); the memory MCP needs it only to explain a malformed `memory_query` |
+| `liquers-validate/scripts/lqv.py` | 282 lines | Wraps `liquers-validate`, renders the plan compactly | Not memory — **query validation** | A tool of the *general* Liquers MCP (`validate_query`); the memory MCP builds its queries itself and does not expose it |
+| `scripts/test_docs_index.py` | 601 lines | Unit tests of the indexer | — | Its fixtures are the seeded-violation fixture for AC-9 |
 
 The Python scripts are not to be deleted by this work. They are the **oracle**: a port is done when
 its output equals the script's on the real corpus (Phase 1 AC-9 and AC-10).
@@ -96,16 +97,17 @@ Every row below is **deterministic bookkeeping**; nothing in it calls a language
 | `set_field` | hand edits of `status:`, `phase:` | key, field, value → updated document; validates vocabulary and transition |
 | `append_row` | hand edits of `## History` | key, section, cells → updated document |
 | `check` | `docs_index.py --check`, `validate_phase.py` | folder or collection → violation records (`rule`, `key`, `severity`, `message`) |
-| `links` | dead-link check; "incoming references" by grep | folder → link records (`from`, `to`, `kind`, `resolved`) |
-| `render_index` | `index.csv`, `index.md`, README blocks | records → CSV / Markdown text; used by recipes, not by agents directly |
-| `outline`, `section` | `Read` with offsets; `sed -n` | key → heading tree / one section (overlaps `NO-MARKDOWN-NAVIGATION-COMMANDS`) |
+| `links` (NEXT) | dead-link check; "incoming references" by grep | folder → link records (`from`, `to`, `kind`, `resolved`); the MVP's dead-link rule is inside `check` |
+| `render_index` | `index.csv` (MVP), `index.md`, README blocks (NEXT) | records → CSV / Markdown text; used by recipes, not by agents directly |
+| `section` (MVP), `outline` (NEXT) | `Read` with offsets; `sed -n` | key → one section / heading tree (overlaps `NO-MARKDOWN-NAVIGATION-COMMANDS`, search branch) |
 
 Generated files become **recipes**, not command output written by a script. `specs/index.csv` is
 declared once in a `recipes.yaml`, and the asset layer recomputes it when any source's content-hash
 version changes — the property `docs_index.py --check`'s "index is stale" rule approximates by
 regenerating and diffing.
 
-Proposed signatures (not yet registered; validated with `liquers-validate --command`):
+Proposed query forms (not yet registered; parsed and planned with `liquers-validate --command
+mem/check --command mem/similar --command mem/describe`):
 
 ```
 -R-key/specs/issues/-/ns-mem/check

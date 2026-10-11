@@ -29,7 +29,8 @@ of them ends in **the same `ns-mem` and `ns-search` commands** evaluated in a Li
 | **MCP only** | The interface agents are built to discover: typed tools with schemas and descriptions; resources; prompts | Needs a client; MCP-specific code; for CI it is the wrong shape |
 | **One binary, three faces** (recommended) | One library core, one configuration; `mcp` (stdio), `serve` (HTTP: assets API + MCP at `/mcp`), and one-shot subcommands | Three adapters to test — mitigated by all three calling the same command set |
 
-**Recommendation:** a binary `liquers-mem` with subcommands, the MCP stdio face first.
+**Recommendation:** a binary `liquers-mem` with subcommands, the MCP stdio face first and `serve`
+after the MVP.
 
 ```
 liquers-mem mcp      --config mem.yaml          # MCP over stdio — the MVP's primary face
@@ -62,7 +63,7 @@ Yes, for three reasons the CLI cannot meet:
 
 It is not *sufficient*: an agent must still be told when to use memory and what the conventions are.
 That remains a skill (`.claude/skills/liquers-memory/`, Phase 1 Documentation intent) — and the MCP
-server can serve the skill text itself as a prompt (§5).
+server can serve the skill text itself as a prompt (§4.3).
 
 ## 4. The memory MCP server
 
@@ -86,7 +87,8 @@ prefixed `memory_` so that they cannot collide with a general Liquers MCP (§6).
 `memory_forget` (W6) is the tenth, added when the archive collection convention is fixed in
 Phase 2; until then forgetting is `memory_edit … set_field superseded_by` or a status.
 
-Design rules for the tool set, from the survey and `research-questions.md` §6:
+Design rules for the tool set, from the survey and
+`../store-and-asset-search/research-questions.md` §6 (search branch):
 
 - **Every hit is addressable.** `key` is a Liquers key, readable with `memory_read` and citable in
   another memory.
@@ -142,11 +144,15 @@ decisions keep the two combinable:
    depends on `liquers-core` for queries and command metadata, and on an MCP SDK — `rmcp`, the official Rust SDK, which provides stdio and
    Streamable HTTP server transports; its version and MSRV are checked in Phase 2.
 2. **A tool is a declared query.** Every tool is `(name, description, argument schema, query
-   template, result projection)`. The argument schema is generated from the command's
-   `CommandMetadata` — names, types, defaults, enum values, documentation — so a tool cannot drift
-   from the command it wraps; the query is built with `ActionRequest`, never by string
-   concatenation (`SEARCH_GUIDE.md` §6). A *tool set* is a list of such declarations, data in the
-   configuration.
+   template, result projection)`. For a tool that wraps one command, the argument schema is
+   generated from its `CommandMetadata` — names, types, defaults, enum values — so it cannot drift
+   from the command. Two things the metadata cannot supply come from the declaration: per-argument
+   descriptions (`ArgumentInfo` has none — `ARGUMENT-INFO-HAS-NO-DESCRIPTION`), and tool-level
+   arguments of composite tools (`memory_new` is `similar` then `new`; `memory_edit` chooses among
+   `edit`, `set_field` and `append_row`; `include_superseded` adds a filter). A write tool's `body`
+   travels as the command's payload, not as a query parameter. Queries are built with
+   `ActionRequest`, never by string concatenation (`SEARCH_GUIDE.md` §6, search branch). A *tool
+   set* is a list of such declarations, data in the configuration.
 3. **A server hosts several tool sets**, each with a name prefix (`memory_`, `liquers_`). Combining
    the memory MCP and a general one is listing two tool sets in one configuration; a name collision
    is a configuration error at start-up.
@@ -162,4 +168,4 @@ restricted-context work it needs.
 | 1 | Library: `ns-mem` commands + `liquers-mcp` engine | Everything else is an adapter over it |
 | 2 | `liquers-mem mcp` (stdio) | Serves the primary user — a coding agent in this repository — with no server to run |
 | 3 | `liquers-mem check` / `index` / `search` / `read` / `new` | CI and shell-only agents; the oracle comparison against `docs_index.py` (AC-9, AC-10) runs here |
-| 4 | `liquers-mem serve` (assets API + `/mcp`) | Sharing and agents without a shell; the assets API exists already, so the new part is mounting the MCP service in the router |
+| 4 | `liquers-mem serve` (assets API + `/mcp`) — **NEXT** (Phase 1 question 5) | Sharing and agents without a shell; the assets API exists already, so the new part is mounting the MCP service in the router |
