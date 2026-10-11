@@ -937,7 +937,7 @@ impl std::fmt::Display for PayloadRequirement {
 /// command.with_doc("This is a test command")
 ///    .with_argument(ArgumentInfo::string_argument("arg1"));
 /// ```
-#[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct CommandMetadata {
     /// Realm of the command, used to group commands in different domains.
     #[serde(skip_serializing_if = "String::is_empty")]
@@ -1076,6 +1076,34 @@ pub struct CommandMetadata {
 /// and what an omitted `state_argument` field deserializes to.
 fn default_state_argument() -> Option<ArgumentInfo> {
     Some(ArgumentInfo::any_argument("state"))
+}
+
+/// Every field takes its type's default except `state_argument`, which is the conventional state
+/// argument, so `Default`, the constructors and an omitted serialized field agree.
+impl Default for CommandMetadata {
+    fn default() -> Self {
+        CommandMetadata {
+            realm: String::default(),
+            namespace: String::default(),
+            name: String::default(),
+            label: String::default(),
+            module: String::default(),
+            doc: String::default(),
+            presets: Vec::default(),
+            state_argument: default_state_argument(),
+            arguments: Vec::default(),
+            volatile: bool::default(),
+            payload_required: PayloadRequirement::default(),
+            cached: None,
+            expires: Expires::default(),
+            is_async: bool::default(),
+            definition: CommandDefinition::default(),
+            next: Vec::default(),
+            filename: String::default(),
+            metadata_version: Version::default(),
+            impl_version: Version::default(),
+        }
+    }
 }
 
 impl CommandMetadata {
@@ -1833,6 +1861,10 @@ mod tests {
         assert_eq!(from_yaml.state_argument, constructed.state_argument);
         assert_eq!(
             CommandMetadata::from_key(CommandKey::new("", "root", "test")).state_argument,
+            constructed.state_argument
+        );
+        assert_eq!(
+            CommandMetadata::default().state_argument,
             constructed.state_argument
         );
         assert_eq!(
