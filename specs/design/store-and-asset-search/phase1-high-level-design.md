@@ -1,10 +1,17 @@
 # Phase 1: High-Level Design — Store and asset search
 
-> **Revision 8, 2026-10-10; amended 2026-10-11** with nested field predicates, a trait-based
-> predicate with pluggable parsers, and the gaps found by checking revision 8 against revision 7's
-> requirements and agent memory's needs (`DESIGN.md` §"Coverage check").
+> **Revision 8, 2026-10-10; amended three times on 2026-10-11** (details in `DESIGN.md`):
+> 1. nested field predicates, a trait-based predicate with pluggable parsers, and the coverage gaps
+>    (AC-16 to AC-22);
+> 2. `field_extract` (AC-24 to AC-26); the filters later moved to `record-filter-commands`
+>    (AC-27);
+> 3. regex (AC-28), `md_split` (AC-29) and the title fallback (AC-30). Nested predicates were
+>    simplified to JSON only (AC-17), and AC-23 was withdrawn.
 >
-> **Revision 8, 2026-10-10.** Refocused on three commands over records. This supersedes the
+> The Phase 2 review corrected AC-10 to Phase 2's order: roles first, which AC-13 needs.
+>
+> **Revision 8, 2026-10-10.** Refocused on commands over records: three at first, five after the
+> amendments (`catalog`, `commands`, `search`, `field_extract`, `md_split`). This supersedes the
 > revision-7 Phase 1 approved on 2026-09-18. That version is archived at
 > `specs/archive/2026-10-10-store-and-asset-search-rev7-phase1-high-level-design.md`, and
 > `DESIGN.md` §"Revision 8" records what changed. **Approved 2026-10-11.**
@@ -81,8 +88,8 @@ carries `key`, `status`, `title`, `score` and `excerpt`. The query was validated
   THEN free-text terms are matched only in those columns, and a name the schema lacks is an error.
 - **AC-10** Default fields
   WHEN no fields are given
-  THEN terms are matched in whichever of `filename`, `title`, `description`, `doc` and `content`
-  exist. If none exist, they are matched in the schema's text-role fields, and failing those, in
+  THEN terms are matched in the schema's text-role fields. If there are none, they are matched in
+  whichever of `filename`, `title`, `description`, `doc` and `content` exist, and failing those, in
   every Text column.
 - **AC-11** Inputs search accepts
   WHEN `search` receives a `RecordView` or `RecordSource`, a folder key (or no input), a key or
@@ -113,8 +120,9 @@ carries `key`, `status`, `title`, `score` and `excerpt`. The query was validated
 - **AC-17** Nested predicates
   WHEN `field:(…)` holds only words, phrases or regexes, such as `content:(expiration -draft)`
   THEN it is a search restricted to that field. When it holds field tests, or a dotted name such
-  as `attr.status:draft` is used, the field must hold JSON text: the inner tests navigate it, and a
-  list matches when any element does. A cell that is not JSON does not match, and is counted in
+  as `attr.status:draft` is used, the field must be a column declared as JSON text, as
+  `field_extract` declares its list and map columns. The inner tests navigate it, and a list
+  matches when any element does. A cell that is not JSON does not match, and is counted in
   one warning. No other format is recognised here; front-matter, YAML and TOML are
   `field_extract`'s job (AC-24).
 - ~~**AC-23** Explicit structure format~~: withdrawn on 2026-10-11 in favour of `field_extract`.
@@ -162,7 +170,8 @@ carries `key`, `status`, `title`, `score` and `excerpt`. The query was validated
 - **AC-29** Sections and lines (proof of concept)
   WHEN `md_split-section` or `md_split-line` follows a folder or catalog records
   THEN there is one row per Markdown section (with `heading` path, `line`, `end_line` and `text`)
-  or per line, so `md_split-line/search-/re/` gives matching lines with line numbers.
+  or per line, so `md_split-line` followed by a search for `/re/` gives matching lines with line
+  numbers. In a query the expression is escaped: `md_split-line/search-~/re~/`.
 - **AC-30** A title for plain Markdown
   WHEN `catalog` reads content and a `.md` entry's metadata has no title
   THEN its first `# ` heading becomes `title`.
@@ -211,7 +220,7 @@ carries `key`, `status`, `title`, `score` and `excerpt`. The query was validated
 - **`liquers-records`** gets the search engine itself: syntax, predicate, kernels, scoring and the
   filtering source. It is pure, depends on `liquers-core` only, and builds for wasm, so the
   browser build gets search too.
-- **`liquers-lib`**, behind the `records` feature, gets the three commands and the state-to-records
+- **`liquers-lib`**, behind the `records` feature, gets the five commands and the state-to-records
   conversion. They need `Value`, `Context` and the asset manager.
 
 ## Documentation Intent

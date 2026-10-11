@@ -20,7 +20,8 @@ superseded_by:
 
 - [x] Phase 1: High-Level Design — revision 8 approved 2026-10-11 (amended the same day). Revision
   7, approved on 2026-09-18, is superseded.
-- [ ] Phase 2: Solution & Architecture — revision 8, in review
+- [ ] Phase 2: Solution & Architecture — revision 8, in review; two independent reviews done and
+  fixed on 2026-10-11
 - [ ] Phase 3: Examples & Testing
 - [ ] Phase 4: Implementation Plan
 - [ ] Phase 5: Documentation
@@ -28,7 +29,8 @@ superseded_by:
 
 ## What this design builds
 
-Three commands in a new `search` namespace, over records (`liquers-records`):
+Five commands in a new `search` namespace, over records (`liquers-records`). The first three
+were the revision-8 brief; `field_extract` and `md_split` came with the amendments (below).
 
 | Command | What it does |
 |---|---|
@@ -91,6 +93,7 @@ are at `specs/archive/2026-10-10-store-and-asset-search-rev7-*.md`.
 Four changes came from user feedback:
 1. **Nested field predicates.** `field:(…)` applies a predicate to one field's text. If the inner
    predicate has field tests, the text is parsed first: front-matter, then JSON, then YAML.
+   *Simplified by the third amendment:* JSON only, and front-matter belongs to `field_extract`.
    `field.path:v` is shorthand for `field:(path:v)`.
 2. **`Predicate` is a trait.** Parsing goes through `TryFrom<&str>`, via a `PredicateSyntax`
    sub-trait, so another query language can be plugged in. The built-in language keeps an AST
@@ -199,11 +202,11 @@ one of them maps onto this design:
 | Must | Honest limits | AC-18 |
 | Must | `title`, `description`, `excerpt` and `key` per hit | AC-6, AC-19 |
 | Must | Command discovery | AC-13 |
-| Must | Document status from front-matter | AC-17 |
+| Must | Document status from front-matter | AC-24 (`field_extract`) |
 | Should | Negation and OR, for "not closed" | AC-7 |
 | Should | "Why matched" | AC-19 |
 | Should | Excerpts without front-matter | AC-19 |
-| Could | Date comparisons, such as `content.created:>2026-09` | AC-7 together with AC-17 |
+| Could | Date comparisons, such as `created:>2026-09` after `field_extract` | AC-7, AC-24 |
 | Could | A semantic clause | `external-index-sync` |
 
 Its `ns-mem` namespace therefore needs no selection or search commands of its own: it builds
@@ -223,8 +226,8 @@ Numbers are those of revision 7.
 11. **Key-prefix filtering carries more weight than metadata filtering.** This was measured on this
     repository: 72 text hits, 42 within `specs/issues/`, 23 still open. Hence `key` with globs, and
     a folder-scoped `catalog`.
-12. **`status` means two things.** The catalog's `status` column is the asset lifecycle.
-    Front-matter fields will get an `attr.` prefix.
+12. **`status` means two things.** The catalog's `status` column is the asset lifecycle. After
+    `field_extract`, a front-matter `status` replaces it (AC-26), unless a `prefix` keeps both.
 14. **The danger is starting an asset, not projecting one.** `get_asset_info` is the safe describe.
 
 ## Relationship to other work
@@ -239,6 +242,8 @@ Numbers are those of revision 7.
 
 - [Phase 1](./phase1-high-level-design.md)
 - [Phase 2](./phase2-architecture.md)
+- [Phase 2 details](./phase2-details.md): query encodings, `/` cases, schemas, ranking constants,
+  structure parsing and command steps
 - [Phase 3](./phase3-examples.md)
 - [Phase 4](./phase4-implementation.md)
 - [Phase 5](./phase5-documentation.md)
