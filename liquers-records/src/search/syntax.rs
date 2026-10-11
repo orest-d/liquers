@@ -80,13 +80,16 @@ impl SearchExpr {
     }
 
     /// Parse leniently, for a search box: when the strict parse fails, the text is searched as
-    /// whitespace-separated words, and the error (with its position) is returned for a warning.
+    /// whitespace-separated words (operator characters stripped), and the error (with its position) is returned for a warning.
     pub fn parse_lenient(text: &str) -> (SearchExpr, Option<Error>) {
         match SearchExpr::try_from(text) {
             Ok(expr) => (expr, None),
             Err(error) => {
+                // Operator characters are stripped, so `(expiration` searches for `expiration`.
                 let words: Vec<SearchExpr> = text
                     .split_whitespace()
+                    .map(|word| word.trim_matches(|c| matches!(c, '(' | ')' | '"' | '|' | '-')))
+                    .filter(|word| !word.is_empty())
                     .map(|word| SearchExpr::new(Node::Term(word.to_string()), Position::unknown()))
                     .collect();
                 let node = match words.len() {
@@ -763,7 +766,7 @@ mod tests {
         }
         let (expr, error) = SearchExpr::parse_lenient("x (a");
         assert!(error.is_some());
-        assert_eq!(kinds(&expr), vec![term("x"), term("(a")]);
+        assert_eq!(kinds(&expr), vec![term("x"), term("a")]);
     }
 
     #[test]
