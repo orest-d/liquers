@@ -22,7 +22,8 @@ superseded_by:
   7, approved on 2026-09-18, is superseded.
 - [x] Phase 2: Solution & Architecture — revision 8 approved 2026-10-11, after two independent
   reviews
-- [ ] Phase 3: Examples & Testing — written 2026-10-11, in review
+- [ ] Phase 3: Examples & Testing — written 2026-10-11; two independent reviews done and fixed; in
+  review at the gate
 - [ ] Phase 4: Implementation Plan
 - [ ] Phase 5: Documentation
 - [ ] Implementation Complete
@@ -242,6 +243,8 @@ Numbers are those of revision 7.
 
 - [Phase 1](./phase1-high-level-design.md)
 - [Phase 2](./phase2-architecture.md)
+- [`search-commands.registry.yaml`](./search-commands.registry.yaml): the proposed signatures, as a
+  `liquers-validate` overlay
 - [Phase 2 details](./phase2-details.md): query encodings, `/` cases, schemas, ranking constants,
   structure parsing and command steps
 - [Phase 3](./phase3-examples.md)

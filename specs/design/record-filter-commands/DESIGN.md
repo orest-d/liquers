@@ -33,7 +33,7 @@ Select rows of a record view or source with one condition per command, written w
 The search syntax can express every one of these filters. But in a query, `*`, `:`, `(`, `)` and
 `|` must be escaped (`~nast~`, `~ncolon~`, …), so a person writing a URL by hand, or a recipe
 author, is better served by `eq-phase-architecture` than by
-`search-phase~ncolon~architecture-f-0`. `ns-pl` already offers `eq`, `ne`, `gt`, `gte`, `lt` and
+`search-phase~ncolon~architecture-f-f-0`. `ns-pl` already offers `eq`, `ne`, `gt`, `gte`, `lt` and
 `lte` over DataFrames. This design gives records the same vocabulary.
 
 ### Problem Example
@@ -45,7 +45,7 @@ Select the designs that are in the architecture phase:
 ```
 
 Today there is no `ns-rec` filter, so this needs the search syntax with escapes:
-`…/search-filename~ncolon~DESIGN.md~.phase~ncolon~architecture-f-0`. Both forms are validated with
+`…/search-filename~ncolon~DESIGN.md~.phase~ncolon~architecture-f-f-0`. Both forms are validated with
 `liquers-validate`.
 
 ### Scope and Acceptance Criteria

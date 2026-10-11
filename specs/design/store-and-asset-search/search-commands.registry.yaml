@@ -1,0 +1,172 @@
+# Proposed signatures of the ns-search commands (store-and-asset-search, Phase 2).
+# Overlay for liquers-validate, so examples are checked against the real argument lists:
+#   liquers-validate --registry-file specs/command_registry.yaml \
+#     --registry-file specs/design/store-and-asset-search/search-commands.registry.yaml -- '<query>'
+# Delete when the commands exist and specs/command_registry.yaml is regenerated.
+commands:
+- namespace: search
+  name: catalog
+  label: catalog
+  doc: Proposed by store-and-asset-search Phase 2
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: recursive
+    label: recursive
+    default: !Value true
+    argument_type: bool
+    gui_info: !TextField 40
+  - name: content
+    label: content
+    default: !Value false
+    argument_type: bool
+    gui_info: !TextField 40
+  - name: max_bytes
+    label: max_bytes
+    default: !Value 262144
+    argument_type: integer
+    gui_info: !TextField 40
+  - name: max_entries
+    label: max_entries
+    default: !Value 100000
+    argument_type: integer
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: search
+  name: commands
+  label: commands
+  doc: Proposed by store-and-asset-search Phase 2
+  arguments:
+  - name: namespace
+    label: namespace
+    default: !Value ''
+    argument_type: string
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: search
+  name: search
+  label: search
+  doc: Proposed by store-and-asset-search Phase 2
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: query
+    label: query
+    default: !Value ''
+    argument_type: string
+    gui_info: !TextField 40
+  - name: rank
+    label: rank
+    default: !Value true
+    argument_type: bool
+    gui_info: !TextField 40
+  - name: case_sensitive
+    label: case_sensitive
+    default: !Value false
+    argument_type: bool
+    gui_info: !TextField 40
+  - name: limit
+    label: limit
+    default: !Value 50
+    argument_type: integer
+    gui_info: !TextField 40
+  - name: fields
+    label: fields
+    default: None
+    argument_type: string
+    multiple: true
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: search
+  name: field_extract
+  label: field_extract
+  doc: Proposed by store-and-asset-search Phase 2
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: extension
+    label: extension
+    default: !Value md
+    argument_type: !Enum
+      name: extension
+      values:
+      - alias: md
+        value: !Value md
+      - alias: json
+        value: !Value json
+      - alias: yaml
+        value: !Value yaml
+      - alias: yml
+        value: !Value yml
+      others_allowed: false
+      value_type: string
+    gui_info: EnumSelector
+  - name: prefix
+    label: prefix
+    default: !Value ''
+    argument_type: string
+    gui_info: !TextField 40
+  - name: flatten
+    label: flatten
+    default: !Value false
+    argument_type: bool
+    gui_info: !TextField 40
+  - name: fields
+    label: fields
+    default: None
+    argument_type: string
+    multiple: true
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: search
+  name: md_split
+  label: md_split
+  doc: Proposed by store-and-asset-search Phase 2
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: unit
+    label: unit
+    default: !Value section
+    argument_type: !Enum
+      name: unit
+      values:
+      - alias: section
+        value: !Value section
+      - alias: line
+        value: !Value line
+      others_allowed: false
+      value_type: string
+    gui_info: EnumSelector
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+default_namespaces:
+- ''
+- root
+global_enums: {}

@@ -34,10 +34,10 @@ Escapes used in the encoded forms:
 | # | Question | Decoded query | Works today (in design)? |
 |---|---|---|---|
 | L1 | Open issues about expiration | `-R-key/specs/issues/-/ns-search/catalog-t-t/field_extract/search-<expr>` with `expiration -status:closed*` | yes |
-| L2 | Designs in the architecture phase | `…/specs/design/-/ns-search/field_extract/search-<expr>-f-0` with `filename:DESIGN.md phase:architecture` | yes |
+| L2 | Designs in the architecture phase | `…/specs/design/-/ns-search/field_extract/search-<expr>-f-f-0` with `filename:DESIGN.md phase:architecture` | yes |
 | L3 | P0/P1 issues in `core/store` | `area:core/store (priority:P0 \| priority:P1)`, after `field_extract`, with `rank=false` | yes; `area` is a list, which matches any element |
 | L4 | Is there already an issue for this? (duplicate check before filing) | `search-store metadata search-t-f-5-title`, after `field_extract` | yes; BM25 over titles |
-| L5 | Which documents mention `STORE-NO-CONTENT-OR-METADATA-SEARCH`? | `-R-key/specs/-/ns-search/catalog-t-t/search-<id>-f-0` | yes |
+| L5 | Which documents mention `STORE-NO-CONTENT-OR-METADATA-SEARCH`? | `-R-key/specs/-/ns-search/catalog-t-t/search-<id>-f-f-0` | yes |
 | L6 | What was filed recently? | `created:>2026-10-01`, after `field_extract` | yes, with ISO dates compared as text. Ordering by date needs `sort` ([`record-filter-commands`](../record-filter-commands/)) |
 | L7 | Issues belonging to a design | `design:store-and-asset-search`, after `field_extract` | yes |
 | L8 | Which reference explains predecessor boundaries? | `-R-key/specs/reference/-/ns-search/catalog-t-t/search-"predecessor boundary"` | yes, at file level |
@@ -74,7 +74,7 @@ These are the operations used in this session, and in most sessions on this repo
 | Tool use | Expression | Status |
 |---|---|---|
 | `Glob specs/**/*.md` | `catalog`, then `key:specs/*.md` (`*` crosses `/`) | yes |
-| `Grep -l pattern`: which files contain a literal | `search-<literal>-f-0` over `catalog-t-t` | yes |
+| `Grep -l pattern`: which files contain a literal | `search-<literal>-f-f-0` over `catalog-t-t` | yes |
 | `Grep -l` with a **regex** (`fn \w+_asset_info`) | — | **no**: P1 |
 | `Grep -n`: the matching *lines*, with line numbers | — | **no**: P2 |
 | `Grep -A3 -B3`: lines around each match | Line records, then a slice around the match | partly, with P2 and `ns-rec/slice` |
@@ -130,7 +130,7 @@ async fn md_split(state, unit: String = "section" (enum: ["section", "line"]), c
   - `heading`: the section path, `Phase 2 > Data Structures`;
   - `text`.
 - What it provides:
-  - `grep -n` is `catalog-t-t/md_split-line/search-~/re~/-f-0`;
+  - `grep -n` is `catalog-t-t/md_split-line/search-~/re~/-f-f-0`;
   - a retrieval passage is `catalog-t-t/md_split-section/search-…`;
   - reading part of a file is `md_split-line`, then `ns-rec/slice`.
 - No new search machinery: it is a record producer like `catalog`.

@@ -159,9 +159,13 @@ Conversion to `serde_json::Value`:
    `max_entries`, so the bound also limits the walk. Describe each entry with `get_asset_info`,
    with up to 16 calls in flight (`futures::stream::buffer_unordered`, which needs no tokio).
 3. Sort the rows by key.
-4. With `content`, read text through `read_text` (stored bytes only, from `Ready`, `Source` or
-   `Override` entries with a text media type, cut at a UTF-8 boundary after `max_bytes`). Then
-   apply the Markdown title fallback (AC-30).
+4. With `content`, read text through `read_text`. That reads stored bytes only, from `Ready`,
+   `Source` or `Override` entries with a **text media type**, and cuts them at a UTF-8 boundary
+   after `max_bytes`. Then apply the Markdown title fallback (AC-30).
+
+   A **text media type** is `text/*`, `application/json`, `application/x-yaml`,
+   `application/x-toml` or `application/xml`, or any type with a `+json` or `+xml` suffix. These are
+   the types `liquers-core/src/media_type.rs` assigns from file extensions.
 
 **`field_extract`:**
 1. The input is a folder (walked as `catalog` walks it, without content), or records taken to be a
@@ -171,7 +175,11 @@ Conversion to `serde_json::Value`:
 4. Parse it (§E), and drop the files with no fields.
 5. Build the columns (§C).
 
-**`md_split`:** the same input rules as `field_extract`.
+**`md_split`** takes the same inputs as `field_extract`, but has no extension argument. *Clarified
+2026-10-11 by the Phase 3 review, pending confirmation at the Phase 3 gate:*
+- `unit = "section"` keeps `.md` files only;
+- `unit = "line"` keeps every entry `read_text` can read, which includes source code (`.rs` maps to
+  `text/x-rustsrc`).
 - A section is a heading plus its body, up to the next heading of the same or a higher level. Text
   before the first heading is section 0.
 - Lines inside fenced code blocks are never headings.
