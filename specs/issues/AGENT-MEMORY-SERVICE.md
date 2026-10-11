@@ -55,8 +55,8 @@ A memory service composed of existing Liquers parts:
   `AsyncStoreRouter`. Storage only — not the interface a client talks to.
 - **The assets API is the client interface.** It answers about assets rather than about stored
   bytes, so it can report evaluation status, volatility and expiration, and can address a computed
-  query. Six of its ten endpoints are 501 stubs today, `listdir` included, which makes
-  `AXUM-ASSETS-API-ENDPOINTS-NOT-IMPLEMENTED` (P0) this feature's first prerequisite.
+  query. (When this was filed, six of its endpoints were 501 stubs; `AXUM-ASSETS-API-ENDPOINTS-NOT-IMPLEMENTED`
+  has since been closed, so that prerequisite is met.)
 - **The tiers already exist in metadata.** `MetadataRecord` and `AssetInfo` both carry `title` and
   `description` — L0 and L1 respectively, with the data as L2 — so one `listdir` describes a whole
   directory without reading any of it. What is needed is a way to *populate* those fields for
@@ -68,10 +68,12 @@ A memory service composed of existing Liquers parts:
 - An MCP adapter and a skill make the service reachable by an agent.
 
 The design is in [`design/agent-memory-mvp/`](../design/agent-memory-mvp/), following the
-`liquers-project` five-phase workflow. Phase 1 is written and awaiting approval; it names the
-blocker above and the three gaps the MVP is meant to work around without fixing
-(`CORE-METADATA-NO-APPLICATION-ATTRIBUTES`, `STORE-NO-CONTENT-OR-METADATA-SEARCH`,
-`STORE-WRITE-HAS-NO-PRECONDITION`).
+`liquers-project` five-phase workflow. Phase 1 revision 2 (2026-10-11) is written and awaiting
+approval, with a survey of existing memory systems, a capability specification, and analyses of
+tier storage, of porting this repository's workflows into commands, and of the CLI / server / MCP
+interfaces. It builds on `store-and-asset-search` (the `ns-search` commands) and depends on
+`STORE-NO-READ-ONLY-ADAPTER`; it works around `CORE-METADATA-NO-APPLICATION-ATTRIBUTES` and
+`STORE-WRITE-HAS-NO-PRECONDITION` without fixing them.
 
 ## Discovery
 

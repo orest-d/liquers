@@ -5,7 +5,7 @@ title: MVP for an agent memory service on the liquers stack
 workflow: liquers-project
 status: in_review
 phase: high-level
-area: [axum, lib/commands, core/assets, docs]
+area: [axum, lib/commands, core/store, docs]
 gh_pr: []
 issues: [AGENT-MEMORY-SERVICE]
 affects_docs: []
@@ -13,11 +13,6 @@ created: 2026-09-15
 superseded_by:
 ---
 # Agent memory service (MVP) — design tracking
-
-> **Acceptance scenarios not defined.** This design predates acceptance scenarios
-> (`specs/DOCS_STRUCTURE_GUIDE.md` §5.2.1). Consider updating it: state the Phase 1 acceptance
-> criteria as `AC-<n>` WHEN/THEN scenarios and cite each from the Phase 3 test that proves it. Remove
-> this note when you do; until then `docs_index.py --check` counts this design in its warning.
 
 **Created:** 2026-09-15
 
@@ -29,6 +24,44 @@ superseded_by:
 - [ ] Phase 4: Implementation Plan
 - [ ] Phase 5: Documentation
 - [ ] Implementation Complete
+
+## Revision 2 — 2026-10-11
+
+Phase 1 was rewritten from a second brief: specify what an agent memory service must do, survey the
+established systems (mem0, the LLM-wiki pattern, OpenViking and others), analyse how this
+repository's own skills, documentation system, issues and Python scripts map onto it, decide how
+the L0/L1/L2 tiers are stored, and decide between CLI, server and MCP. The analysis is five
+companion documents:
+
+- [`memory-systems-survey.md`](./memory-systems-survey.md) — eleven systems, their data models,
+  write and read paths and MCP tools, and the 22 services a memory system provides (S1–S22).
+- [`service-specification.md`](./service-specification.md) — eight principles and the capability
+  list (read, write, maintain, operate) at MVP / NEXT / OUT levels.
+- [`workflow-porting.md`](./workflow-porting.md) — `specs/` as an existing memory, and which
+  script or convention becomes which `ns-mem` command.
+- [`tiers-and-storage.md`](./tiers-and-storage.md) — metadata, front-matter, a front-matter store
+  that projects one into the other, derived tiers, and OpenViking's tier files; recommends the
+  bridge.
+- [`interfaces-and-mcp.md`](./interfaces-and-mcp.md) — one binary with MCP (stdio first), HTTP and
+  CLI faces; the nine-tool memory MCP; how a general Liquers MCP combines with it.
+
+What changed from revision 1, and why:
+
+1. **The blocker is gone.** `AXUM-ASSETS-API-ENDPOINTS-NOT-IMPLEMENTED` was closed by
+   `axum-assets-endpoints`; revision 1's dependency on it is removed.
+2. **Search exists.** `store-and-asset-search` is implemented on its branch (`ns-search`), which
+   answers revision 1's open question 3; this design now builds on it and waits for its merge.
+3. **Tiers come from front-matter, projected into metadata** (revision 1: metadata only). Revision
+   1's open question 2 — what populates `title` and `description` for existing documents — is
+   answered by the front-matter store rather than by generated recipes.
+4. **The service calls no model** (principle P2): the agent writes and consolidates; the service
+   validates, logs, indexes and checks.
+5. **Acceptance scenarios AC-1 to AC-14** are defined. Revision 1's open question 5 (the
+   `docs_index.py` oracle) is kept, narrowed to `index.csv` and `--check` (AC-9, AC-10), and
+   balanced by retrieval scenarios (AC-1 to AC-3).
+
+Revision 1's open question 1 (an asset listing is the union of live assets, store and recipes) was
+settled by `axum-assets-endpoints` and is relied on by AC-12.
 
 ## Notes
 
@@ -79,6 +112,7 @@ need identity, that is a finding to report, not a decision to make inside this f
 ## Links
 
 - [Phase 1](./phase1-high-level-design.md)
+- [Survey](./memory-systems-survey.md) · [Specification](./service-specification.md) · [Workflow porting](./workflow-porting.md) · [Tiers and storage](./tiers-and-storage.md) · [Interfaces and MCP](./interfaces-and-mcp.md)
 - [Phase 2](./phase2-architecture.md)
 - [Phase 3](./phase3-examples.md)
 - [Phase 4](./phase4-implementation.md)
