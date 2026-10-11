@@ -135,7 +135,8 @@ above; nothing is partially done here.
 - `cargo test -p liquers-lib --test search_commands` passes 22 tests, `guide_queries_run`
   included. `register_all_commands` and `registry_export` (registry fresh, 113 commands) also
   pass.
-- The default loop `cargo test -p liquers-lib --lib --tests` and `scripts/check-build-matrix.sh`
-  (Phase 4 Step 14) were run; the results are in Phase 4 Progress.
+- The default loop `cargo test -p liquers-lib --lib --tests` passes with no failures.
+  `scripts/check-build-matrix.sh` reports all 32 configurations OK, wasm32 included. The
+  `records`-only configuration passes `search_commands` 22/22.
 - `liquers-validate` with no flags reports all 11 guide queries and all 13 Phase 3 queries Ok.
 - `python3 scripts/docs_index.py --check` reports 0 errors.

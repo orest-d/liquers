@@ -36,7 +36,7 @@ Builds follow `CLAUDE.md`: `CARGO_INCREMENTAL=0`, and no `--workspace`.
 - [x] Step 11: `search` — b70227a
 - [x] Step 12: `commands` — b70227a
 - [x] Step 13: exporter group, `full_registry`, regenerated `command_registry.yaml` — 1a52fcf
-- [ ] Step 14: build matrix
+- [x] Step 14: build matrix — all 32 configurations OK; `records`-only `search_commands` 22/22; default loop green (2026-10-11)
 - [x] Step 15: documentation — ea6cf01
 
 ## Implementation Steps
@@ -188,6 +188,6 @@ describe exactly those commands, and the rest become an issue (§5.6).
 
 ## Phase 5 Entry Criteria
 
-- [ ] Implementation finished and validated
-- [ ] User and review comments answered
-- [ ] Documentation checkable against implemented and tested behaviour
+- [x] Implementation finished and validated
+- [x] User and review comments answered
+- [x] Documentation checkable against implemented and tested behaviour
