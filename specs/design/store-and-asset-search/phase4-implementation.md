@@ -23,7 +23,7 @@ Builds follow `CLAUDE.md`: `CARGO_INCREMENTAL=0`, and no `--workspace`.
 
 ## Progress
 
-- [ ] Step 1: `liquers-records` dependencies and `FieldSchema::media_type`
+- [x] Step 1: `liquers-records` dependencies and `FieldSchema::media_type` — 0ff76d2
 - [ ] Step 2: predicate trait, AST, grammar and parser
 - [ ] Step 3: matching kernels and binding
 - [ ] Step 4: ranking, `search_view` and `SearchReport`
