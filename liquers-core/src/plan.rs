@@ -1753,7 +1753,7 @@ impl<'c> PlanBuilder<'c> {
 
                 return Query {
                     segments: new_segments,
-                    absolute: query.absolute,
+                    rooted: query.rooted,
                     source: query.source.clone(),
                 };
             }
@@ -2175,7 +2175,7 @@ impl Plan {
     pub(crate) fn freeze_cwd_with(&mut self, cursor: &mut CwdCursor) -> Result<(), Error> {
         // Read before any rewriting: the index is derived by matching the source query's resource
         // segments against steps, which only holds while the operands are still source-relative.
-        let absolute_resource_step = self.absolute_query_resource_step_index();
+        let rooted_resource_step = self.rooted_query_resource_step_index();
         let mut root_cursor = CwdCursor::new(Some(Key::new()));
 
         // The predecessor is the leading steps, so it resolves from the entry state of this
@@ -2205,7 +2205,7 @@ impl Plan {
         }
 
         for (index, step) in self.steps.iter_mut().enumerate() {
-            let at_absolute_resource = absolute_resource_step == Some(index);
+            let at_absolute_resource = rooted_resource_step == Some(index);
             let step_cursor = if at_absolute_resource {
                 &mut root_cursor
             } else {
@@ -2422,8 +2422,8 @@ impl Plan {
     /// resource segments from the end keeps that prefix distinct even when it is identical to a
     /// query-authored `cwd` instruction. The returned index is runtime provenance only: callers
     /// resolve a consumed copy and leave this raw, serializable plan unchanged.
-    pub(crate) fn absolute_query_resource_step_index(&self) -> Option<usize> {
-        if !self.query.absolute {
+    pub(crate) fn rooted_query_resource_step_index(&self) -> Option<usize> {
+        if !self.query.rooted {
             return None;
         }
         let resources: Vec<&ResourceQuerySegment> = self
@@ -3092,11 +3092,11 @@ impl<E: Environment> DependencyWalk<E> {
         cursor: &mut CwdCursor,
         scan: &mut PlanScan,
     ) -> Result<(), Error> {
-        let absolute_resource_step = plan.absolute_query_resource_step_index();
+        let rooted_resource_step = plan.rooted_query_resource_step_index();
         for (step_index, step) in plan.steps.iter().enumerate() {
             match step {
                 Step::GetAsset(key) | Step::GetAssetBinary(key) | Step::GetAssetMetadata(key) => {
-                    let resolved_key = if absolute_resource_step == Some(step_index) {
+                    let resolved_key = if rooted_resource_step == Some(step_index) {
                         key.to_absolute(&Key::new())
                     } else {
                         cursor.resolve_key(key)
@@ -3112,7 +3112,7 @@ impl<E: Environment> DependencyWalk<E> {
                     });
                 }
                 Step::GetAssetDirectory(key) => {
-                    let resolved_key = if absolute_resource_step == Some(step_index) {
+                    let resolved_key = if rooted_resource_step == Some(step_index) {
                         key.to_absolute(&Key::new())
                     } else {
                         cursor.resolve_key(key)
@@ -3128,7 +3128,7 @@ impl<E: Environment> DependencyWalk<E> {
                     });
                 }
                 Step::GetAssetRecipe(key) => {
-                    let resolved_key = if absolute_resource_step == Some(step_index) {
+                    let resolved_key = if rooted_resource_step == Some(step_index) {
                         key.to_absolute(&Key::new())
                     } else {
                         cursor.resolve_key(key)
@@ -3144,7 +3144,7 @@ impl<E: Environment> DependencyWalk<E> {
                     });
                 }
                 Step::SetCwd(key) => {
-                    if absolute_resource_step == Some(step_index) {
+                    if rooted_resource_step == Some(step_index) {
                         let resolved = key.to_absolute(&Key::new());
                         cursor.set_cwd_from(&resolved);
                     } else {
@@ -3602,7 +3602,7 @@ mod tests {
                     filename: Some(ResourceName::new("data.txt".to_string())),
                 },
             )],
-            absolute: false,
+            rooted: false,
             source: crate::query::QuerySource::Unspecified,
         };
 
@@ -5473,7 +5473,7 @@ mod tests {
     /// deserializes — and reads as "not frozen" rather than as frozen against the root.
     #[test]
     fn frozen_plan_serde_defaults_on_legacy() -> Result<(), Error> {
-        let legacy = r#"{"query":{"segments":[],"absolute":false,"source":"Unspecified"},
+        let legacy = r#"{"query":{"segments":[],"rooted":false,"source":"Unspecified"},
             "steps":[],"is_volatile":false}"#;
         let plan: Plan = serde_json::from_str(legacy)
             .map_err(|e| Error::general_error(format!("legacy plan must deserialize: {e}")))?;

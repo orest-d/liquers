@@ -732,7 +732,7 @@ fn simple_transform_query(text: Span) -> IResult<Span, Query> {
         text,
         Query {
             segments: vec![QuerySegment::Transform(tqs)],
-            absolute: abs.is_some(),
+            rooted: abs.is_some(),
             ..Default::default()
         },
     ))
@@ -755,7 +755,7 @@ fn resource_transform_query(text: Span) -> IResult<Span, Query> {
                 }),
                 QuerySegment::Transform(tqs),
             ],
-            absolute: abs.is_some(),
+            rooted: abs.is_some(),
             ..Default::default()
         },
     ))
@@ -774,7 +774,7 @@ fn general_query(text: Span) -> IResult<Span, Query> {
         text,
         Query {
             segments,
-            absolute: abs.is_some(),
+            rooted: abs.is_some(),
             ..Default::default()
         },
     ))
@@ -786,7 +786,7 @@ fn empty_query(text: Span) -> IResult<Span, Query> {
         text,
         Query {
             segments: vec![],
-            absolute: abs.is_some(),
+            rooted: abs.is_some(),
             ..Default::default()
         },
     ))
@@ -1612,7 +1612,7 @@ mod tests {
         );
 
         let absolute = parse_query("/--R-meta-extra/data/input.csv")?;
-        assert!(absolute.absolute);
+        assert!(absolute.rooted);
         let resource = absolute.resource_query().unwrap();
         let header = resource.header.unwrap();
         assert_eq!(header.level, 1);

@@ -7,3 +7,8 @@
 3. **Python:** replace the `absolute` getter with `rooted`. Proof: `cargo check -p liquers-py`.
 4. `PROJECT_OVERVIEW.md` sentence naming the field (History, `reviewed:`), issue resolution, index.
    Diff review: no change to query text encoding (T1, T3).
+
+Done on 2026-10-11, as planned. Beyond the plan: the local `absolute_resource_step` variables in
+`plan.rs` and `interpreter.rs` are renamed `rooted_resource_step`; `liquers-py/tests/test_parser.py`
+asserts `q.rooted`; `DOC_02_QUERY_LANGUAGE_REFERENCE.md` and `DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md`
+name the field too and were updated with `PROJECT_OVERVIEW.md`.

@@ -587,7 +587,7 @@ fn in_memory_chunk_id(index: usize) -> ChunkId {
             query: vec![action],
             filename: None,
         })],
-        absolute: false,
+        rooted: false,
         source: liquers_core::query::QuerySource::Unspecified,
     })
 }

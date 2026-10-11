@@ -502,8 +502,8 @@ impl Query {
     }
 
     #[getter]
-    pub fn absolute(&self) -> bool {
-        self.0.absolute
+    pub fn rooted(&self) -> bool {
+        self.0.rooted
     }
 
     #[getter]

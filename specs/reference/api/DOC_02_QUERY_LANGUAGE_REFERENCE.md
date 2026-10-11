@@ -3,7 +3,7 @@ title: Query Language Reference
 kind: reference
 audience: internal
 area: [core/query]
-reviewed: 2026-10-10
+reviewed: 2026-10-11
 ---
 # DOC-02: Query Language, Keys, and Actions
 
@@ -265,7 +265,7 @@ This precedence has important consequences:
 - `file.txt` is a filename-only transform query.
 - A pure textual resource query requires `-R/path`; `parse_key("path")` is the
   headerless key parser.
-- `/` sets `Query::absolute`. At runtime it roots the outer query's source
+- `/` sets `Query::rooted`. At runtime it roots the outer query's source
   resource at the empty logical key; it never denotes an operating-system path.
 
 ## Verified semantic contract
@@ -298,7 +298,7 @@ header, parameter, and parse-precedence rules.
   parameters, action requests, or segment headers.
 - `QuerySource` records provenance only. It is not encoded and is ignored by
   `Query` equality and hashing.
-- `Query::absolute` is encoded as a leading slash and does participate in equality
+- `Query::rooted` is encoded as a leading slash and does participate in equality
   and hashing.
 
 ### Encoding versus canonicalization
@@ -323,7 +323,7 @@ header, parameter, and parse-precedence rules.
 - Resolution does not move above an empty root key.
 
 `Query::to_absolute` applies the same operation independently to every resource
-segment. It neither reads nor changes `Query::absolute`.
+segment. It neither reads nor changes `Query::rooted`.
 
 Runtime resolution is ordered and non-destructive. Plans retain their parsed keys
 and queries, while dependency analysis and the interpreter resolve copies against
@@ -345,7 +345,7 @@ logical root and records exactly one warning for the shared evaluation context:
 `Relative key/query has no CWD; using logical root '/'.` Context clones observe
 that installed root, so later relative operands do not warn again.
 
-`Query::absolute` is scoped to the outer query, not inherited by linked queries.
+`Query::rooted` is scoped to the outer query, not inherited by linked queries.
 The outer query's own source resource is resolved from logical root even when a
 recipe-added `SetCwd` precedes it in the plan. A relative link inside that query
 still uses the active CWD (or the root fallback), while a link with its own leading
@@ -518,6 +518,7 @@ Completed on 2026-07-26:
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-11 | `Query::absolute` renamed `Query::rooted`, wire name included (no alias); its meaning is unchanged. | `design/query-leading-slash-field/` |
 | 2026-10-10 | Planner instructions: `v` is positional (volatile from its position onward; at the head, the whole query) and rejects parameters; the stale "`v` parameters are silently ignored" gap is struck. | phase-5, `design/plan-policy/` |
 | 2026-08-17 | Reviewed against HEAD. Recorded `Key`'s second, store-facing notion of relative — `is_relative`/`as_absolute`/`try_into_absolute` and `KeyNotAbsolute` — and how it diverges from the cursor's narrower "needs a CWD" test on an interior `..`. Query syntax and planning are unchanged. | phase-5 |
 | 2026-08-14 | Rewrote the action-parameter entity table with numeric (`~U ~D ~O ~B`) and named (`~n`) entities, the separator tilde, the encoder's priority order, the `entities-html5` feature and the entity diagnostics; recorded that a string parameter holds the decoded value and that `set_value` no longer double-encodes. | PARAMETER-ESCAPING-INCOMPLETE |
