@@ -172,6 +172,7 @@ async fn fixture(tag: &str) -> Result<EnvRef<CommandEnvironment>, Error> {
     put(&store, "data/config.json", br#"{"name": "demo", "size": 3}"#).await?;
     put(&store, "data/settings.yaml", b"mode: fast\nlevel: 2\n").await?;
     put(&store, "data/blob.bin", &[0u8, 159, 146, 150, 255, 1, 2]).await?;
+    put(&store, "extra/collide.json", br#"{"a-b": 1, "a_b": 2, "big": 18446744073709551615}"#).await?;
 
     let mut env = CommandEnvironment::new();
     {
@@ -513,6 +514,28 @@ async fn field_extract_replaces_columns_keeps_id() -> Res {
     assert!(view.schema().text_fields().contains(&title), "title keeps the text role");
     assert!(log_messages(&state, LogEntryKind::Warning).iter().any(|m| m.contains("'key'")));
     assert!(log_messages(&state, LogEntryKind::Info).iter().any(|m| m.contains("replaced columns")));
+    Ok(())
+}
+
+#[tokio::test]
+async fn field_extract_drops_files_without_requested_fields() -> Res {
+    let env = fixture("field_extract_drops_files_without_requested_fields").await?;
+    let state = eval(&env, "-R-key/specs/issues/-/ns-search/field_extract-md--f-priority").await?;
+    let view = state.value()?.as_record_view()?;
+    assert_eq!(texts(&view, "key"), vec!["specs/issues/A-EXPIRY.md"]);
+    // B, C and D lack `priority`; the recipe-only `derived.md` is never read.
+    assert!(log_messages(&state, LogEntryKind::Info).iter().any(|m| m.contains("4 file(s) without fields")));
+    Ok(())
+}
+
+#[tokio::test]
+async fn field_extract_name_collisions_and_large_integers() -> Res {
+    let env = fixture("field_extract_name_collisions_and_large_integers").await?;
+    let state = eval(&env, "-R-key/extra/-/ns-search/field_extract-json").await?;
+    let view = state.value()?.as_record_view()?;
+    assert_eq!(column(&view, "a_b"), vec![FieldValue::Int(1)], "the first in key order is kept");
+    assert!(log_messages(&state, LogEntryKind::Warning).iter().any(|m| m.contains("a_b")));
+    assert_eq!(column(&view, "big"), vec![FieldValue::UInt(u64::MAX)]);
     Ok(())
 }
 

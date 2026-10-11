@@ -1,6 +1,6 @@
 //! `ns-search/field_extract`: document fields as columns.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use liquers_core::context::{Context, Environment};
@@ -148,9 +148,16 @@ fn unify(values: &[Option<serde_json::Value>]) -> (FieldType, bool) {
     if structured {
         return (FieldType::Text, true);
     }
+    // An integer above i64::MAX is exact only as UInt or text, never as a float.
+    let beyond_i64 = |v: &&serde_json::Value| v.is_u64() && !v.is_i64();
     if !present.is_empty() && present.iter().all(|v| v.is_i64()) {
         (FieldType::Int, false)
-    } else if !present.is_empty() && present.iter().all(|v| v.is_number()) {
+    } else if !present.is_empty() && present.iter().all(|v| v.is_u64()) {
+        (FieldType::UInt, false)
+    } else if !present.is_empty()
+        && present.iter().all(|v| v.is_number())
+        && !present.iter().any(beyond_i64)
+    {
         (FieldType::Float, false)
     } else if !present.is_empty() && present.iter().all(|v| v.is_boolean()) {
         (FieldType::Bool, false)
@@ -163,10 +170,10 @@ fn cell(value: Option<&serde_json::Value>, data_type: FieldType) -> FieldValue {
     let Some(value) = value.filter(|v| !v.is_null()) else { return FieldValue::Null };
     match data_type {
         FieldType::Int => value.as_i64().map(FieldValue::Int).unwrap_or(FieldValue::Null),
+        FieldType::UInt => value.as_u64().map(FieldValue::UInt).unwrap_or(FieldValue::Null),
         FieldType::Float => value.as_f64().map(FieldValue::Float).unwrap_or(FieldValue::Null),
         FieldType::Bool => value.as_bool().map(FieldValue::Bool).unwrap_or(FieldValue::Null),
         FieldType::Text
-        | FieldType::UInt
         | FieldType::Binary
         | FieldType::Date
         | FieldType::Timestamp
@@ -203,6 +210,7 @@ pub async fn field_extract<E: Environment<Value = Value>>(
     let view = document_rows(state, &context).await?;
     let mut kept: Vec<(usize, Vec<(String, serde_json::Value)>)> = Vec::new();
     let (mut without_fields, mut skipped_keys) = (0usize, 0usize);
+    let mut collided: BTreeSet<String> = BTreeSet::new();
     for document in documents(&view)? {
         if !document.filename.ends_with(&suffix) {
             continue;
@@ -241,7 +249,28 @@ pub async fn field_extract<E: Environment<Value = Value>>(
                 }
             }
         }
+        if row_fields.is_empty() {
+            // None of the requested fields is in this document.
+            without_fields += 1;
+            continue;
+        }
+        // Two fields can sanitize to one name (`a-b` and `a_b`, or `a.b` flattened and `a_b`):
+        // the first, in key order, is kept and the collision is reported.
+        let mut seen: BTreeSet<String> = BTreeSet::new();
+        row_fields.retain(|(name, _)| {
+            let first = seen.insert(name.clone());
+            if !first {
+                collided.insert(name.clone());
+            }
+            first
+        });
         kept.push((document.row, row_fields));
+    }
+    if !collided.is_empty() {
+        context.warning(&format!(
+            "field_extract: fields with the same sanitized name; the first is kept for {}",
+            collided.into_iter().collect::<Vec<_>>().join(", ")
+        ))?;
     }
     if without_fields > 0 || skipped_keys > 0 {
         context.info(&format!(
@@ -355,5 +384,10 @@ mod tests {
         assert_eq!(unify(&[v("true")]), (FieldType::Bool, false));
         assert_eq!(unify(&[v("1"), v("\"x\"")]), (FieldType::Text, false));
         assert_eq!(unify(&[v("[1]")]), (FieldType::Text, true));
+        let big = "18446744073709551615";
+        assert_eq!(unify(&[v(big), v("1")]), (FieldType::UInt, false));
+        assert_eq!(unify(&[v(big), v("-1")]), (FieldType::Text, false), "no exact numeric type");
+        assert_eq!(unify(&[v(big), v("2.5")]), (FieldType::Text, false), "a float would round it");
+        assert_eq!(cell(Some(&serde_json::json!(u64::MAX)), FieldType::UInt), FieldValue::UInt(u64::MAX));
     }
 }

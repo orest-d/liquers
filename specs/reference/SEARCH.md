@@ -168,13 +168,18 @@ so); `get_asset_info` runs 16 calls at a time.
 plus `volatile` (Bool) and `output_filename`.
 
 **`field_extract`**: the input's columns for the files kept, then one column per field:
-- files without the extension, or without fields, are dropped (counted in an Info entry);
+- files without the extension, or without fields (with `fields`: without any of them), are dropped
+  (counted in an Info entry);
 - `md` reads front-matter — YAML between `---` and `---`/`...`, or TOML between `+++` lines;
   `json` and `yaml`/`yml` read the whole file; the result must be a non-empty map;
 - with `fields`, only those dotted paths (named with `_` for `.`); otherwise every top-level key;
-- names keep `[A-Za-z0-9_]` (others become `_`; a leading digit gets `_`), after `prefix`;
+- names keep `[A-Za-z0-9_]` (others become `_`; a leading digit gets `_`), after `prefix`; when two
+  fields of a file get the same name (`a-b` and `a_b`), the first in key order is kept and a
+  warning names the column;
 - `flatten` turns nested maps into `parent_child` columns; lists stay JSON;
-- types unify per column: Int, Float, Bool when every value is one, else Text;
+- types unify per column: Int, UInt (integers above `i64::MAX`), Float, Bool when every value is
+  one, else Text — a column mixing an integer above `i64::MAX` with negatives or floats is Text, so
+  no value is rounded;
 - a field named like an input column **replaces** it, keeping its role (an Info entry names the
   replaced columns); the Id column is never replaced (a warning names the skipped field);
 - YAML keys that are not scalars are skipped and counted; TOML datetimes become ISO strings.
@@ -236,4 +241,5 @@ stop. Bind and evaluation warnings are kept; `warnings()` reads them.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-11 | `field_extract`: a file with none of the requested fields is dropped; same-name collisions keep the first and warn; integers above `i64::MAX` are UInt or Text, never rounded (PR review). | phase-5, `design/store-and-asset-search/` |
 | 2026-10-11 | Created with the `ns-search` commands and `liquers-records` search. | phase-5, `design/store-and-asset-search/` |
