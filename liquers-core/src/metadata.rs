@@ -738,10 +738,9 @@ impl LogEntry {
                 log_entry.message = format!("{} (unparseable query: {})", log_entry.message, query);
             }
         }
-        // TODO: Set/support traceback somehow
-        //if let Some(e) = error.source(){
-        //    log_entry = log_entry.with_traceback(e.to_string());
-        //}
+        if let Some(traceback) = error.traceback.as_ref() {
+            log_entry = log_entry.with_traceback(traceback.clone());
+        }
         log_entry
     }
     pub fn info(message: String) -> LogEntry {
@@ -1498,7 +1497,10 @@ impl MetadataRecord {
     }
 
     pub fn with_error(&mut self, error: Error) -> &mut Self {
-        self.error(&error.to_string());
+        // `LogEntry::from_error` rather than a bare message, so the log entry keeps the error's
+        // position, query and traceback.
+        self.add_log_entry(LogEntry::from_error(&error));
+        self.with_status(Status::Error);
         self.is_error = true;
         self.error_data = Some(error);
         self.set_updated_now();
@@ -2994,6 +2996,64 @@ impl From<MetadataRecord> for Metadata {
 
 #[cfg(test)]
 mod tests {
+    /// Tracebacks in error log entries (`design/metadata-error-traceback/`).
+    mod error_traceback {
+        use crate::error::Error;
+        use crate::metadata::{LogEntry, LogEntryKind, MetadataRecord};
+        use crate::parse::parse_query;
+        use crate::query::Position;
+
+        type TestResult = Result<(), Box<dyn std::error::Error>>;
+
+        const TRACEBACK: &str = "Traceback (most recent call last):\n  File \"cmd.py\", line 3";
+
+        #[test]
+        fn log_entry_from_error_copies_traceback_query_and_position() -> TestResult {
+            let query = parse_query("data/x.csv/-/to_text")?;
+            let position = Position::new(5, 1, 6);
+            let err = Error::general_error("Python command failed".to_string())
+                .with_query(&query)
+                .with_position(&position)
+                .with_traceback(TRACEBACK);
+
+            let entry = LogEntry::from_error(&err);
+            assert_eq!(entry.kind, LogEntryKind::Error);
+            assert_eq!(entry.traceback.as_deref(), Some(TRACEBACK));
+            assert_eq!(entry.position, position);
+            let logged = entry.query.ok_or("query not copied")?;
+            assert_eq!(logged.encode(), query.encode());
+            Ok(())
+        }
+
+        #[test]
+        fn log_entry_from_error_without_traceback_leaves_it_absent() {
+            let err = Error::general_error("plain failure".to_string());
+            let entry = LogEntry::from_error(&err);
+            assert_eq!(entry.traceback, None);
+            assert!(entry.message.contains("plain failure"));
+        }
+
+        #[test]
+        fn metadata_record_from_error_persists_traceback_in_json_and_yaml() -> TestResult {
+            let err =
+                Error::general_error("Python command failed".to_string()).with_traceback(TRACEBACK);
+            let record = MetadataRecord::from_error(err);
+            let last = record.log.last().ok_or("no log entry")?;
+            assert_eq!(last.traceback.as_deref(), Some(TRACEBACK));
+
+            let from_json: MetadataRecord = serde_json::from_str(&serde_json::to_string(&record)?)?;
+            let last = from_json.log.last().ok_or("no log entry")?;
+            assert_eq!(last.traceback.as_deref(), Some(TRACEBACK));
+            let error_data = from_json.error_data.as_ref().ok_or("no error data")?;
+            assert_eq!(error_data.traceback.as_deref(), Some(TRACEBACK));
+
+            let from_yaml: MetadataRecord = serde_yaml::from_str(&serde_yaml::to_string(&record)?)?;
+            let last = from_yaml.log.last().ok_or("no log entry")?;
+            assert_eq!(last.traceback.as_deref(), Some(TRACEBACK));
+            Ok(())
+        }
+    }
+
     /// Serde and equality for `Metadata` (`design/metadata-serde-partialeq/`).
     mod metadata_serde {
         use crate::metadata::{LogEntry, Metadata, MetadataRecord, Status};

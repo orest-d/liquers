@@ -46,7 +46,11 @@ pub fn error_to_detail(error: &Error) -> ErrorDetail {
         message: error.message.clone(),
         query: error.query.clone(), // Already encoded in Error
         key: error.key.clone(),     // Already encoded in Error
-        traceback: None,            // Error struct doesn't have traceback field
+        // One string per line, the shape the Store API's `upload` already uses.
+        traceback: error
+            .traceback
+            .as_ref()
+            .map(|t| t.lines().map(str::to_string).collect()),
         metadata: None,
     }
 }
@@ -284,6 +288,22 @@ mod tests {
         assert_eq!(detail.message, "Test error");
         assert_eq!(detail.query, None);
         assert_eq!(detail.key, None);
+        assert_eq!(detail.traceback, None);
+    }
+
+    #[test]
+    fn error_to_detail_splits_traceback_into_lines() {
+        let error = Error::general_error("Python command failed".to_string())
+            .with_traceback("Traceback (most recent call last):\n  File \"cmd.py\", line 3");
+
+        let detail = error_to_detail(&error);
+        assert_eq!(
+            detail.traceback,
+            Some(vec![
+                "Traceback (most recent call last):".to_string(),
+                "  File \"cmd.py\", line 3".to_string(),
+            ])
+        );
     }
 
     #[test]

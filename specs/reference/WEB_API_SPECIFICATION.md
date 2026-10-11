@@ -3,7 +3,7 @@ title: Liquers Web API Specification
 kind: reference
 audience: internal
 area: [axum, web]
-reviewed: 2026-10-10
+reviewed: 2026-10-11
 ---
 # Liquers Web API Specification
 
@@ -161,7 +161,7 @@ Routes that are not registered, or methods a registered path does not serve, get
 | `error.type` | the `ErrorType` name | yes |
 | `error.message` | string | yes |
 | `error.query`, `error.key` | string | when the error names one |
-| `error.traceback` | array of strings | only the Store API's `upload` fills it |
+| `error.traceback` | array of strings, one per line | when the `Error` carries a traceback (`Error::with_traceback`), and the Store API's `upload` messages |
 | `error.metadata` | object | never filled today |
 
 The top-level `message` says what the route was doing; `error.message` says what went wrong.
@@ -591,6 +591,7 @@ Not available at HEAD; listed so that no reader mistakes them for features:
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-11 | §3.2: `error.traceback` carries the `Error`'s own traceback, split into lines, whenever it has one. `CORE-METADATA-TRACEBACK-SUPPORT` closed. | `design/metadata-error-traceback/` |
 | 2026-10-10 | Store API `keys` lists every key under the prefix at any depth (`listdir_keys_deep`), no longer a synonym of `listdir`. `AXUM-STORE-KEYS-LISTS-ONLY-DIRECT-CHILDREN` closed. | `design/axum-store-keys-deep/` |
 | 2026-10-10 | Store API: `metadata` and `entry` serve legacy metadata as stored (not `{}`); `upload` records each part's `filename` and declares its `Content-Type` only when the filename does not imply it. `AXUM-STORE-UPLOAD-AND-METADATA-DROP-INFORMATION` closed. | `design/axum-store-upload-metadata/` |
 | 2026-10-09 | §5.3 `q/cancel`: the best-effort outcomes (a completed command stays `Ready`), the cause in `error_data`, cascade attribution; `ASSET-CANCEL-DURING-PROCESSING-FINISHES-READY` closed. | phase-5 (`design/asset-cancellation-outcome/`) |
