@@ -13,3 +13,12 @@
 5. Update the guides named in Phase 1, the issue status, and the index
    (`python3 scripts/docs_index.py` and `--check`). Format, and inspect the diff for accidental
    taxonomy broadening.
+
+## Outcome (2026-10-11)
+
+All steps done. Step 2: the two remaining `general_error`s in `environment_config.rs` are
+serialization failures, not configuration faults, and stay `General`; `store_factory.rs` has no
+semantic argument-validation failure at `HEAD` (rejected keys are not implemented), so nothing there
+changed. Step 3: `liquers-lib/src/polars/util.rs` has no exhaustive `ErrorType` match. Documents:
+`WEB_API_SPECIFICATION.md` §3.1, `ENVIRONMENT_CONSTRUCTION_GUIDE.md`. The web Node loop was checked
+by `cargo check -p liquers-web --target wasm32-unknown-unknown --tests`, not run.
