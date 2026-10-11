@@ -4297,9 +4297,11 @@ impl<E: Environment> AssetRef<E> {
     /// [`Self::cancel_for_replacement`] (not `cancel`, which can return while the run is still
     /// active and later overwrite this message), after unmapping the asset, and after the key
     /// shows what replaced it (the new asset mapped, the store written). A subscriber woken by it
-    /// then re-subscribes to the replacement rather than to this asset again. Nothing is sent to
-    /// this asset after it, so it is the last message a subscriber sees. It changes no state; it
-    /// only sends the notification.
+    /// then re-subscribes to the replacement rather than to this asset again. Send it when the
+    /// replacing write fails as well: the asset is cancelled and unmapped either way, so it has no
+    /// further messages to send, and a subscriber's next `get` resolves the key afresh. Nothing is
+    /// sent to this asset after it, so it is the last message a subscriber sees. It changes no
+    /// state; it only sends the notification.
     pub async fn notify_removed(&self) {
         let lock = self.data.read().await;
         let _ = lock
