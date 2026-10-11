@@ -71,8 +71,8 @@ returns `A-EXPIRY`: `area` is a JSON list column, and `core/assets` matches one 
 ```
 
 Decoded: `/fn get_asset_info/`, `rank=false`, `case_sensitive=false`, `limit=0`,
-`fields=[text]`. `md_split-line` reads every text file. `.rs` is `text/x-rustsrc`; this
-clarification of Phase 2 is to be confirmed at this gate. The regex keeps the definition and
+`fields=[text]`. `md_split-line` reads every text file (`.rs` is `text/x-rustsrc`), as the user
+confirmed on 2026-10-11. The regex keeps the definition and
 rejects the call. The single row has `key = src/lib.rs` and the 1-based `line`.
 
 ## Example 3: Which commands handle records?
@@ -181,7 +181,12 @@ following `TestSource` and `FixtureResolver` in `liquers-records/src/value.rs`.
   `title` keeps the text role. The front-matter `key` is skipped with a warning. The log names the
   replaced columns.
 - `md_split_sections_and_lines` (AC-28, AC-29): Example 2, plus the section headings of
-  `phase1-high-level-design.md`.
+  `phase1-high-level-design.md`. Every row carries `key`, `filename`, `n` (the section or line
+  number), `line` and `end_line`. `md_split-line` reads `src/lib.rs` (any text file), while
+  `md_split-section` skips it (`.md` only).
+- `guide_queries_run` (AC-1, AC-6, AC-13, AC-24, AC-29): each query quoted in
+  `specs/guides/SEARCH_GUIDE.md` is listed in this test and evaluated against the fixture store, so
+  the guide cannot drift from the commands.
 
 **Registration (AC-22):**
 - In `liquers-lib/tests/register_all_commands.rs` and

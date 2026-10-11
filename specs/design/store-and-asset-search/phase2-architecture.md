@@ -341,13 +341,20 @@ simple `ns-rec` filters are designed in [`record-filter-commands`](../record-fil
 
 | Path | Kind | Change |
 |---|---|---|
+| `specs/guides/SEARCH_GUIDE.md` | guide (new), `audience: both` | How to search, task first, for people and agents alike: copy-ready recipes (find files by folder or name; ranked full text; filter by front-matter; matching lines by regex; a section; commands; a CSV); writing an expression, and encoding it into a query; reading results (`score`, `matched`, `excerpt`, `N of M`, fetching a hit by `key`, line numbers); a section **for agents and tool builders** (build queries with `encode_token`, validate with `liquers-validate`, small limits, load title/description/excerpt first and fetch only what is chosen, `rank=false` with `limit=0` for exhaustive filters, the cost of `content=true` on large trees); limits and pitfalls. Every query in it runs in a test |
 | `specs/reference/SEARCH.md` | reference (new) | The grammar, the `/` rule and the query encodings; semantics; the trait and how to add a language; default fields; JSON columns and paths; the five commands and their schemas; ranking and evidence; budget messages; `FilteredSource` warnings and `chunks`; non-evaluation; field discovery with `ns-rec/records_schema`. Most of `phase2-details.md` moves here |
 | `specs/reference/RECORD_STREAMS.md` | reference | `FieldSchema::media_type`; roles and `resolve_field` gain a consumer; `FilteredSource` |
 | `specs/guides/COMMAND_REGISTRATION_GUIDE.md` | guide | A record-producing command for search must not evaluate |
 | `specs/README.md` | map | The capability changes from designing to built |
 
-`affects_docs`: `reference/SEARCH.md`, `reference/RECORD_STREAMS.md`,
+`affects_docs`: `guides/SEARCH_GUIDE.md`, `reference/SEARCH.md`, `reference/RECORD_STREAMS.md`,
 `guides/COMMAND_REGISTRATION_GUIDE.md`.
+
+**One guide, not a separate agent guide** (user, 2026-10-11). People and agents run the same
+queries and need the same rules, so a second document would duplicate the first and drift from it.
+Agent-specific advice is a section of the guide. A future agent-memory skill (`agent-memory-mvp`)
+points to the guide rather than restating it. The guide is about search in general, not a memory
+system.
 
 ## Risks
 

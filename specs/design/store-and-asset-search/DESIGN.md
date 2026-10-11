@@ -8,7 +8,7 @@ phase: examples
 area: [records, core/assets, lib/commands, docs]
 gh_pr: []
 issues: [STORE-NO-CONTENT-OR-METADATA-SEARCH, RECORD-SOURCE-WRAPPERS-UNSPECIFIED]
-affects_docs: [reference/SEARCH.md, reference/RECORD_STREAMS.md, guides/COMMAND_REGISTRATION_GUIDE.md]
+affects_docs: [guides/SEARCH_GUIDE.md, reference/SEARCH.md, reference/RECORD_STREAMS.md, guides/COMMAND_REGISTRATION_GUIDE.md]
 created: 2026-09-17
 superseded_by:
 ---

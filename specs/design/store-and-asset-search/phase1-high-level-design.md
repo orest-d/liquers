@@ -228,7 +228,10 @@ carries `key`, `status`, `title`, `score` and `excerpt`. The query was validated
 - Reference: new `specs/reference/SEARCH.md`. It covers the syntax, the matching and ranking
   rules, the default fields, the catalog and command-catalog schemas, the accepted inputs, and the
   non-evaluation rule.
-- Guide: none. The reference's examples are enough for a syntax this small.
+- Guide: new `specs/guides/SEARCH_GUIDE.md` (`audience: both`). It is one task-first guide for
+  people and agents, with a section for agents and tool builders. A separate agent guide would
+  duplicate it. It covers general search, not a memory system. *Changed 2026-10-11 at the user's
+  request; this replaces "Guide: none".*
 - Documents to update:
   - `specs/guides/COMMAND_REGISTRATION_GUIDE.md`: a command that produces records for search must
     not evaluate other assets;

@@ -109,8 +109,10 @@ The regex token is a hand-written scanner inside the `nom` parser, tried before 
 | Column | Type | Roles |
 |---|---|---|
 | `id` (`key#n`) | Text | Id |
-| `key` | Text | keyword |
-| `n`, `line`, `end_line` | Int | numeric |
+| `key` | Text | keyword: the source's full key |
+| `filename` | Text | text + keyword: the source's file name |
+| `n` | Int | numeric: the section number (0 = text before the first heading) or the line number |
+| `line`, `end_line` | Int | numeric: 1-based; equal for a line |
 | `heading` | Text, nullable (sections only) | text: the path `H1 > H2 > H3` |
 | `level` | Int, nullable | numeric |
 | `text` | Text | text |
@@ -176,7 +178,7 @@ Conversion to `serde_json::Value`:
 5. Build the columns (§C).
 
 **`md_split`** takes the same inputs as `field_extract`, but has no extension argument. *Clarified
-2026-10-11 by the Phase 3 review, pending confirmation at the Phase 3 gate:*
+2026-10-11 by the Phase 3 review, and confirmed by the user:*
 - `unit = "section"` keeps `.md` files only;
 - `unit = "line"` keeps every entry `read_text` can read, which includes source code (`.rs` maps to
   `text/x-rustsrc`).
