@@ -1184,3 +1184,147 @@ where
     assert_eq!(calls.load(Ordering::SeqCst), 2, "recomputed, not served stale");
     Ok(())
 }
+
+/// `set_state` of a value that has no byte form is installed and served from memory, without an
+/// evaluation (`design/external-manager-replacement-surface`, E1/T2).
+///
+/// `Value::as_bytes` refuses an integer for the `bin` data format, so `Value::I32` declared as
+/// `bin` is a non-serializable value with no extra value type. Run against the external manager
+/// only: the built-in managers validate the declared format against the type registry and refuse
+/// this pairing, accepting a value with no byte form only when its type declares no formats at all
+/// (a UI element), which core's `Value` has none of.
+pub async fn scenario_set_state_of_unserializable_value_is_served<E>(
+    envref: EnvRef<E>,
+) -> Result<(), Error>
+where
+    E: Environment<Value = Value>,
+{
+    let m = envref.get_asset_manager();
+    let key = parse_key("data/n.bin")?;
+    let mut record = liquers_core::metadata::MetadataRecord::new();
+    record.data_format = Some("bin".to_string());
+    let state = State::new()
+        .with_data(Value::I32(7))
+        .with_metadata(Metadata::MetadataRecord(record));
+    assert!(state.as_bytes().is_err(), "the fixture must not serialize");
+
+    m.set_state(&key, state).await?;
+    let asset = m.get(&key).await?;
+    assert_eq!(asset.status().await, Status::Source);
+    let served = asset.get().await?;
+    assert_eq!(*served.data_unchecked().as_ref(), Value::I32(7));
+    // The persisted metadata names the key too, so a later fast-track read keeps it.
+    let stored = envref.get_async_store().get_metadata(&key).await?;
+    assert_eq!(stored.key()?, Some(key));
+    Ok(())
+}
+
+/// A value with no byte form replacing one that was stored leaves a metadata-only entry: the old
+/// bytes do not survive beside the new metadata, where a later fast-track read would find them.
+pub async fn scenario_unserializable_state_replaces_stored_bytes<E>(
+    envref: EnvRef<E>,
+) -> Result<(), Error>
+where
+    E: Environment<Value = Value>,
+{
+    let m = envref.get_asset_manager();
+    let store = envref.get_async_store();
+    let key = parse_key("data/r.bin")?;
+    m.set_binary(&key, b"old", liquers_core::metadata::MetadataRecord::new())
+        .await?;
+    assert_eq!(store.get_bytes(&key).await?, b"old".to_vec(), "the fixture must store bytes");
+
+    let mut record = liquers_core::metadata::MetadataRecord::new();
+    record.data_format = Some("bin".to_string());
+    let state = State::new()
+        .with_data(Value::I32(7))
+        .with_metadata(Metadata::MetadataRecord(record));
+    m.set_state(&key, state).await?;
+
+    assert!(
+        store.get_bytes(&key).await.is_err(),
+        "the replaced value's bytes must not survive a metadata-only write"
+    );
+    let served = m.get(&key).await?.get().await?;
+    assert_eq!(*served.data_unchecked().as_ref(), Value::I32(7));
+    Ok(())
+}
+
+/// A state installed by `set_state` with dependency records is expired when one of those
+/// dependencies is later written. The key has a recipe (`dash.txt` in [`recipe_store`]), so the
+/// state is an `Override`; a `Source` is an input and is never expired.
+pub async fn scenario_installed_state_expires_with_its_dependency<E>(
+    envref: EnvRef<E>,
+) -> Result<(), Error>
+where
+    E: Environment<Value = Value>,
+{
+    use liquers_core::metadata::{DependencyKey, DependencyRecord, MetadataRecord};
+
+    let m = envref.get_asset_manager();
+    let dependency = parse_key("data/dep.txt")?;
+    let derived = parse_key("dash.txt")?;
+    m.set_state(&dependency, State::new().with_data(Value::from("a")))
+        .await?;
+    let recorded = m
+        .get(&dependency)
+        .await?
+        .get_metadata()
+        .await?
+        .version()
+        .ok_or_else(|| Error::general_error("the dependency has no version".to_string()))?;
+
+    let mut record = MetadataRecord::new();
+    record.dependencies = vec![DependencyRecord::new(
+        DependencyKey::from(&dependency),
+        recorded,
+    )];
+    let state = State::new()
+        .with_data(Value::from("derived from a"))
+        .with_metadata(Metadata::MetadataRecord(record));
+    m.set_state(&derived, state).await?;
+    let installed = m.get(&derived).await?;
+    assert_eq!(installed.status().await, Status::Override);
+
+    m.set_state(&dependency, State::new().with_data(Value::from("b")))
+        .await?;
+    let status = installed.status().await;
+    assert_eq!(
+        status,
+        Status::Expired,
+        "a change to a recorded dependency must expire the installed state"
+    );
+    Ok(())
+}
+
+/// A subscriber of an asset replaced by `set_state` sees the terminal `Removed` as its last
+/// message, so it re-subscribes rather than reading `Cancelled` as a failure (E2/T3).
+pub async fn scenario_replaced_asset_receives_removed_last<E>(
+    envref: EnvRef<E>,
+) -> Result<(), Error>
+where
+    E: Environment<Value = Value>,
+{
+    use liquers_core::assets::AssetNotificationMessage;
+
+    let m = envref.get_asset_manager();
+    let key = parse_key("data/replaced.txt")?;
+    m.set_state(&key, State::new().with_data(Value::from("one"))).await?;
+    let old = m.get(&key).await?;
+    let mut notifications = old.subscribe_to_notifications().await;
+
+    m.set_state(&key, State::new().with_data(Value::from("two"))).await?;
+    tokio::time::timeout(std::time::Duration::from_secs(1), notifications.changed())
+        .await
+        .map_err(|_| Error::general_error("no notification after replacement".to_string()))?
+        .map_err(|e| Error::general_error(format!("notification channel closed: {e}")))?;
+    let last = notifications.borrow().clone();
+    assert!(
+        matches!(last, AssetNotificationMessage::Removed),
+        "the replaced asset's last message must be Removed, got {last:?}"
+    );
+
+    let current = m.get(&key).await?.get().await?;
+    assert_eq!(current.try_into_string()?, "two");
+    Ok(())
+}

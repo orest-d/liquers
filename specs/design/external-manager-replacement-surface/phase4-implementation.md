@@ -17,3 +17,25 @@ step 5.
 5. **Records.** Close the issue, set this design's lifecycle, then run `docs_index.py` and
    `--check`.
 6. **Diff review.** Confirm that the surface widened by exactly two items.
+
+## Outcome (2026-10-11)
+
+Steps 1–6 done. Difference from Phase 3: the unserializable-value scenario (T2) runs against the
+external manager only. The built-in managers validate a supplied state's declared data format
+against the type registry and refuse `Value::I32` declared as `bin` with `SerializationError`;
+they accept a value with no byte form only when its type declares no formats (a UI element), and
+core's `Value` has no such type. The replacement scenario (T3) runs against all three managers.
+The built-in managers do not adopt `new_installed` (optional per Phase 1).
+
+Review (Codex, PR #118): the contract now says to notify **after** unmapping, once the key holds
+its replacement, as the built-in managers do; notifying before let a woken subscriber find the old
+asset again. A metadata-only `set_state` removes the key's stored object first, so a replaced
+value's bytes do not survive beside the new metadata (`scenario_unserializable_state_replaces_stored_bytes`).
+`new_installed` also projects the key into the installed metadata, as `new_ext` does for every
+keyed asset, so `get_metadata()` names the key `AssetRef::key()` reports.
+Further review rounds: the minimal manager maps an installed state only once persisted; the
+`notify_removed` contract requires `cancel_for_replacement`, since `cancel` can return while the
+run is still active; and a third public item, `AssetManager::track_installed`, registers an
+installed asset's dependency records as the built-in `set_state` does with the crate-private
+`track_asset` (`scenario_installed_state_expires_with_its_dependency`, all three managers). The
+surface therefore widened by three items, not two.

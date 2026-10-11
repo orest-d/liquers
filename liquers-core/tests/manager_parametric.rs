@@ -37,6 +37,8 @@ use common::manager_scenarios::{
     scenario_persist_keyed_volatile, scenario_persist_query_writes_nothing, scenario_ready_on_return,
     scenario_stored_value, scenario_volatile_keyed_eval, stored_text_store,
     volatile_recipe_store,
+    scenario_replaced_asset_receives_removed_last,
+    scenario_installed_state_expires_with_its_dependency,
 };
 
 fn q(s: &str) -> Query {
@@ -664,4 +666,42 @@ async fn lazy_dependent_read_first_immediate() -> Result<(), Error> {
     env.with_async_store(Box::new(lazy_expiry_chain_store().await?));
     env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
     scenario_lazy_dependent_read_first(env.to_ref(), calls).await
+}
+
+// ============================================================================
+// Writes: the replaced asset's last message (`design/external-manager-replacement-surface`)
+// ============================================================================
+
+#[tokio::test]
+async fn replaced_asset_receives_removed_last_default() -> Result<(), Error> {
+    let mut env = SimpleEnvironment::<Value>::new();
+    env.with_async_store(Box::new(recipe_store().await?));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
+    scenario_replaced_asset_receives_removed_last(env.to_ref()).await
+}
+
+#[tokio::test]
+async fn replaced_asset_receives_removed_last_immediate() -> Result<(), Error> {
+    let mut env = ImmediateEnvironment::<Value>::new();
+    env.with_async_store(Box::new(recipe_store().await?));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
+    scenario_replaced_asset_receives_removed_last(env.to_ref()).await
+}
+
+#[tokio::test]
+async fn installed_state_expires_with_its_dependency_default() -> Result<(), Error> {
+    let mut env = SimpleEnvironment::<Value>::new();
+    register_greet(&mut env.command_registry);
+    env.with_async_store(Box::new(recipe_store().await?));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
+    scenario_installed_state_expires_with_its_dependency(env.to_ref()).await
+}
+
+#[tokio::test]
+async fn installed_state_expires_with_its_dependency_immediate() -> Result<(), Error> {
+    let mut env = ImmediateEnvironment::<Value>::new();
+    register_greet(&mut env.command_registry);
+    env.with_async_store(Box::new(recipe_store().await?));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
+    scenario_installed_state_expires_with_its_dependency(env.to_ref()).await
 }
