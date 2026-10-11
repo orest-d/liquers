@@ -8,13 +8,12 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 108
-- P2: 53
+Total rows: 107
+- P2: 52
 - P3: 55
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
-| [`STATE-ARGUMENT-CONSTRUCTOR-SERDE-DEFAULT-DISAGREE`](issues/STATE-ARGUMENT-CONSTRUCTOR-SERDE-DEFAULT-DISAGREE.md) | issue | Constructing and deserializing the same CommandMetadata give different state arguments | draft | ready | not-eligible | P2 | S | core/commands | [phase1](design/state-argument-serde-default/phase1-high-level-design.md)  [phase2](design/state-argument-serde-default/phase2-architecture.md)  [phase3](design/state-argument-serde-default/phase3-examples.md)  [phase4](design/state-argument-serde-default/phase4-implementation.md)  | 2026-08-29 |
 | [`COMMAND-CANNOT-BE-RUN-WITH-A-RESTRICTED-CONTEXT`](issues/COMMAND-CANNOT-BE-RUN-WITH-A-RESTRICTED-CONTEXT.md) | feature | A command cannot be run with a restricted context | draft |  |  | P2 | M | core/context;core/commands |  | 2026-09-17 |
 | [`CORE-METADATA-NO-APPLICATION-ATTRIBUTES`](issues/CORE-METADATA-NO-APPLICATION-ATTRIBUTES.md) | feature | Metadata cannot carry application-defined attributes | draft |  |  | P2 | M | core/value |  | 2026-09-15 |
 | [`CORE-TRACING-MIGRATION`](issues/CORE-TRACING-MIGRATION.md) | issue | Diagnostics use `eprintln!` rather than structured logging | accepted |  |  | P2 | M | core/error;build |  | 2026-08-08 |
