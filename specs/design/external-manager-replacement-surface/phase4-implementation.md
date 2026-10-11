@@ -17,3 +17,12 @@ step 5.
 5. **Records.** Close the issue, set this design's lifecycle, then run `docs_index.py` and
    `--check`.
 6. **Diff review.** Confirm that the surface widened by exactly two items.
+
+## Outcome (2026-10-11)
+
+Steps 1–6 done. Difference from Phase 3: the unserializable-value scenario (T2) runs against the
+external manager only. The built-in managers validate a supplied state's declared data format
+against the type registry and refuse `Value::I32` declared as `bin` with `SerializationError`;
+they accept a value with no byte form only when its type declares no formats (a UI element), and
+core's `Value` has no such type. The replacement scenario (T3) runs against all three managers.
+The built-in managers do not adopt `new_installed` (optional per Phase 1).

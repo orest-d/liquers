@@ -1184,3 +1184,66 @@ where
     assert_eq!(calls.load(Ordering::SeqCst), 2, "recomputed, not served stale");
     Ok(())
 }
+
+/// `set_state` of a value that has no byte form is installed and served from memory, without an
+/// evaluation (`design/external-manager-replacement-surface`, E1/T2).
+///
+/// `Value::as_bytes` refuses an integer for the `bin` data format, so `Value::I32` declared as
+/// `bin` is a non-serializable value with no extra value type. Run against the external manager
+/// only: the built-in managers validate the declared format against the type registry and refuse
+/// this pairing, accepting a value with no byte form only when its type declares no formats at all
+/// (a UI element), which core's `Value` has none of.
+pub async fn scenario_set_state_of_unserializable_value_is_served<E>(
+    envref: EnvRef<E>,
+) -> Result<(), Error>
+where
+    E: Environment<Value = Value>,
+{
+    let m = envref.get_asset_manager();
+    let key = parse_key("data/n.bin")?;
+    let mut record = liquers_core::metadata::MetadataRecord::new();
+    record.data_format = Some("bin".to_string());
+    let state = State::new()
+        .with_data(Value::I32(7))
+        .with_metadata(Metadata::MetadataRecord(record));
+    assert!(state.as_bytes().is_err(), "the fixture must not serialize");
+
+    m.set_state(&key, state).await?;
+    let asset = m.get(&key).await?;
+    assert_eq!(asset.status().await, Status::Source);
+    let served = asset.get().await?;
+    assert_eq!(*served.data_unchecked().as_ref(), Value::I32(7));
+    Ok(())
+}
+
+/// A subscriber of an asset replaced by `set_state` sees the terminal `Removed` as its last
+/// message, so it re-subscribes rather than reading `Cancelled` as a failure (E2/T3).
+pub async fn scenario_replaced_asset_receives_removed_last<E>(
+    envref: EnvRef<E>,
+) -> Result<(), Error>
+where
+    E: Environment<Value = Value>,
+{
+    use liquers_core::assets::AssetNotificationMessage;
+
+    let m = envref.get_asset_manager();
+    let key = parse_key("data/replaced.txt")?;
+    m.set_state(&key, State::new().with_data(Value::from("one"))).await?;
+    let old = m.get(&key).await?;
+    let mut notifications = old.subscribe_to_notifications().await;
+
+    m.set_state(&key, State::new().with_data(Value::from("two"))).await?;
+    tokio::time::timeout(std::time::Duration::from_secs(1), notifications.changed())
+        .await
+        .map_err(|_| Error::general_error("no notification after replacement".to_string()))?
+        .map_err(|e| Error::general_error(format!("notification channel closed: {e}")))?;
+    let last = notifications.borrow().clone();
+    assert!(
+        matches!(last, AssetNotificationMessage::Removed),
+        "the replaced asset's last message must be Removed, got {last:?}"
+    );
+
+    let current = m.get(&key).await?.get().await?;
+    assert_eq!(current.try_into_string()?, "two");
+    Ok(())
+}

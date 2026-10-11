@@ -43,6 +43,8 @@ use common::manager_scenarios::{
     scenario_stored_value, scenario_volatile_keyed_eval, stale_dependency_store,
     stored_text_store, volatile_recipe_store, StaleGate, lazy_expiry_chain_store,
     register_lazy_expiry_chain, scenario_lazy_deadline_expiry_cascade,
+    scenario_replaced_asset_receives_removed_last,
+    scenario_set_state_of_unserializable_value_is_served,
 };
 use common::minimal_manager::{
     MinimalEnv, MinimalInlineAssetManager, MinimalKind, AUDIT_TRAIL_PREFIX,
@@ -160,6 +162,18 @@ async fn external_manager_passes_shared_scenarios() -> TestResult {
     };
     scenario("keyed_delegation", scenario_keyed_delegation(envref, calls)).await?;
     assert_eq!(value_writes.load(Ordering::SeqCst), 1);
+
+    // --- writes: installing a supplied state, replacing an asset ---
+    scenario(
+        "set_state_of_unserializable_value_is_served",
+        scenario_set_state_of_unserializable_value_is_served(keyed(recipe_store().await?)),
+    )
+    .await?;
+    scenario(
+        "replaced_asset_receives_removed_last",
+        scenario_replaced_asset_receives_removed_last(keyed(recipe_store().await?)),
+    )
+    .await?;
 
     // --- persistence ---
     scenario(

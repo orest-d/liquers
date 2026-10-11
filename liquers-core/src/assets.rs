@@ -2544,6 +2544,50 @@ impl<E: Environment> AssetRef<E> {
         assetref
     }
 
+    /// A finished keyed asset holding `state`, for an [`AssetManager`] installing a supplied value
+    /// (`set_state`), including one that cannot be serialized.
+    ///
+    /// `status` must be one a write produces: `Source`, `Override`, `Expired` or `Error`; any
+    /// other is `ErrorType::General` naming the status. The state's metadata gets `status`; the
+    /// value is shared, not copied. No service loop is started and nothing is written to the
+    /// store: persisting, publishing the version and, for `Expired`, recording the reason
+    /// (`AssetManager::record_expiry`) stay with the caller.
+    pub fn new_installed(
+        id: u64,
+        key: Key,
+        state: State<E::Value>,
+        status: Status,
+        envref: EnvRef<E>,
+    ) -> Result<Self, Error> {
+        match status {
+            Status::Source | Status::Override | Status::Expired | Status::Error => {}
+            Status::None
+            | Status::Directory
+            | Status::Recipe
+            | Status::Submitted
+            | Status::Dependencies
+            | Status::Processing
+            | Status::Partial
+            | Status::Storing
+            | Status::Ready
+            | Status::Cancelled
+            | Status::Volatile => {
+                return Err(Error::general_error(format!(
+                    "new_installed: status {status:?} is not a written status"
+                )));
+            }
+        }
+        let mut metadata = state.metadata.as_ref().clone();
+        metadata.set_status(status)?;
+        let recipe: Recipe = (&key).into();
+        let mut asset_data = AssetData::new_ext(id, recipe, State::new(), Some(key), envref);
+        asset_data.data = Some(state.data_unchecked().clone());
+        asset_data.metadata = metadata;
+        asset_data.status = status;
+        asset_data.binary = None;
+        Ok(asset_data.to_ref())
+    }
+
     /// Returns the runtime-unique asset id assigned by its manager.
     pub fn id(&self) -> u64 {
         self.id
@@ -4243,9 +4287,13 @@ impl<E: Environment> AssetRef<E> {
     }
 
     /// Announce that the manager has removed this asset: the terminal
-    /// [`AssetNotificationMessage::Removed`]. Sent after `cancel` and before the asset is
-    /// unmapped, so it is the last message a subscriber sees.
-    pub(crate) async fn notify_removed(&self) {
+    /// [`AssetNotificationMessage::Removed`], so a subscriber re-subscribes to whatever replaces
+    /// it rather than reading `Cancelled` as a failure.
+    ///
+    /// Contract for an [`AssetManager`] replacing or removing an asset: call it once, after
+    /// [`Self::cancel_for_replacement`] (or `cancel`), and before unmapping the asset, so it is
+    /// the last message a subscriber sees. It changes no state; it only sends the notification.
+    pub async fn notify_removed(&self) {
         let lock = self.data.read().await;
         let _ = lock
             .notification_tx
@@ -9958,6 +10006,58 @@ mod tests {
     use crate::query::Key;
     use crate::store::{AsyncMemoryStore, AsyncStore};
     use crate::value::{Value, ValueInterface};
+
+    /// T1 (`design/external-manager-replacement-surface`): only the statuses a write produces
+    /// are installable, and an installed asset is finished and holds the state.
+    #[tokio::test]
+    async fn new_installed_accepts_only_written_statuses() -> Result<(), Error> {
+        let env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        let envref = env.to_ref();
+        let key = parse_key("data/x.txt")?;
+        for status in [
+            Status::Source,
+            Status::Override,
+            Status::Expired,
+            Status::Error,
+        ] {
+            let asset = AssetRef::new_installed(
+                1,
+                key.clone(),
+                State::new().with_data(Value::from("hi")),
+                status,
+                envref.clone(),
+            )?;
+            assert_eq!(asset.status().await, status);
+            assert_eq!(asset.get_metadata().await?.status(), status);
+        }
+        for status in [
+            Status::None,
+            Status::Directory,
+            Status::Recipe,
+            Status::Submitted,
+            Status::Dependencies,
+            Status::Processing,
+            Status::Partial,
+            Status::Storing,
+            Status::Ready,
+            Status::Cancelled,
+            Status::Volatile,
+        ] {
+            let error = match AssetRef::new_installed(
+                2,
+                key.clone(),
+                State::new(),
+                status,
+                envref.clone(),
+            ) {
+                Ok(_) => panic!("{status:?} must be refused"),
+                Err(e) => e,
+            };
+            assert_eq!(error.error_type, ErrorType::General);
+            assert!(error.message.contains(&format!("{status:?}")), "{}", error.message);
+        }
+        Ok(())
+    }
 
     struct FailingSetStore;
 

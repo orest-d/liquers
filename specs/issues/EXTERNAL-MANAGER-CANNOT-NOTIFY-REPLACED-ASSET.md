@@ -2,7 +2,7 @@
 id: EXTERNAL-MANAGER-CANNOT-NOTIFY-REPLACED-ASSET
 kind: issue
 title: An AssetManager implemented outside liquers-core cannot tell a replaced asset it was removed, or store a non-serializable state
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [core/assets]
@@ -36,3 +36,17 @@ needs in-memory-only states or exact waiter semantics on replacement would hit t
 Either make `notify_removed` public with a contract doc, and add an `AssetData` constructor that
 takes a ready value and metadata, or decide that the external surface stops here and document it in
 the manager guide.
+
+## Resolution (2026-10-11)
+
+Both doors opened, as decided on 2026-10-10. `AssetRef::notify_removed` is `pub`, documented as
+"once, after `cancel_for_replacement`, before unmapping", and `AssetRef::new_installed(id, key,
+state, status, envref)` builds a finished keyed asset from a `State`, accepting only `Source`,
+`Override`, `Expired` and `Error` (any other status is `General`). The minimal external manager
+(`liquers-core/tests/common/minimal_manager.rs`) now notifies a replaced asset and installs a
+supplied state with `new_installed`, so it serves a value that has no byte form. Tests:
+`new_installed_accepts_only_written_statuses` (`assets.rs`), the shared scenario
+`scenario_replaced_asset_receives_removed_last` (all three managers), and
+`scenario_set_state_of_unserializable_value_is_served` (the external manager; the built-ins
+validate the declared format and refuse that fixture). `ASSET_MANAGER_IMPLEMENTATION_GUIDE.md`
+§5 and §11 updated. Design: `design/external-manager-replacement-surface/`.

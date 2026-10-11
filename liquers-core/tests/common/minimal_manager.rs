@@ -15,9 +15,9 @@
 //! - publish new versions of written keys with `AssetManager::publish_version`;
 //! - override `record_expiry` and record every call.
 //!
-//! Limits, deliberately: `set_state` stores a state that has bytes (a value that cannot be
-//! serialized is an error), and the asset replaced by a write is cancelled but not told it was
-//! removed (`AssetRef::notify_removed` is crate-private).
+//! - replace an asset on a write with `AssetRef::cancel_for_replacement`, then tell its
+//!   subscribers with `AssetRef::notify_removed` before unmapping it;
+//! - install a supplied state, serializable or not, with `AssetRef::new_installed`.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -121,6 +121,45 @@ impl<E: Environment> MinimalInlineAssetManager<E> {
     /// The number of registered keyed assets.
     pub fn registered_key_count(&self) -> usize {
         self.assets.lock().unwrap_or_else(|e| e.into_inner()).len()
+    }
+
+    /// Replace the asset registered for `key`, if any: end it at once, send its subscribers the
+    /// terminal `Removed`, then unmap it. The caller holds the mutation lock.
+    async fn replace_key_asset(&self, key: &Key) -> Result<(), Error> {
+        if let Some(old) = self.lookup_key_asset(key) {
+            old.cancel_for_replacement().await?;
+            old.notify_removed().await;
+            self.remove_key_asset(key).await;
+        }
+        Ok(())
+    }
+
+    /// The status a supplied value is written with: `Expired` and `Error` are kept, anything else
+    /// is `Override` when the key has a recipe and `Source` otherwise.
+    async fn written_status(&self, key: &Key, supplied: Status) -> Result<Status, Error> {
+        Ok(match supplied {
+            Status::Expired => Status::Expired,
+            Status::Error => Status::Error,
+            Status::None
+            | Status::Directory
+            | Status::Recipe
+            | Status::Submitted
+            | Status::Dependencies
+            | Status::Processing
+            | Status::Partial
+            | Status::Storing
+            | Status::Ready
+            | Status::Cancelled
+            | Status::Source
+            | Status::Override
+            | Status::Volatile => {
+                if self.recipe_opt(key).await?.is_some() {
+                    Status::Override
+                } else {
+                    Status::Source
+                }
+            }
+        })
     }
 
     fn new_id(&self) -> u64 {
@@ -364,19 +403,8 @@ impl<E: Environment> AssetManager<E> for MinimalInlineAssetManager<E> {
         mut metadata: MetadataRecord,
     ) -> Result<(), Error> {
         let mutation = self.mutation_lock.lock().await;
-        if let Some(old) = self.lookup_key_asset(key) {
-            old.cancel_for_replacement().await?;
-            self.remove_key_asset(key).await;
-        }
-        let final_status = if metadata.status == Status::Expired {
-            Status::Expired
-        } else if metadata.status == Status::Error {
-            Status::Error
-        } else if self.recipe_opt(key).await?.is_some() {
-            Status::Override
-        } else {
-            Status::Source
-        };
+        self.replace_key_asset(key).await?;
+        let final_status = self.written_status(key, metadata.status).await?;
         metadata.status = final_status;
         metadata.set_updated_now();
         metadata.add_log_entry(LogEntry::info("Data set externally".to_string()));
@@ -401,17 +429,52 @@ impl<E: Environment> AssetManager<E> for MinimalInlineAssetManager<E> {
     }
 
     async fn set_state(&self, key: &Key, state: State<E::Value>) -> Result<(), Error> {
-        let binary = state.as_bytes().map_err(|e| {
-            Error::general_error(format!(
-                "the minimal manager can only store a state that has bytes: {e}"
-            ))
-        })?;
+        let mutation = self.mutation_lock.lock().await;
+        self.replace_key_asset(key).await?;
         let mut metadata = match state.metadata.as_ref().clone() {
             Metadata::MetadataRecord(record) => record,
             Metadata::LegacyMetadata(_) => MetadataRecord::new(),
         };
+        let final_status = self.written_status(key, metadata.status).await?;
+        metadata.status = final_status;
+        metadata.set_updated_now();
         metadata.add_log_entry(LogEntry::info("State set externally".to_string()));
-        self.set_binary(key, &binary, metadata).await
+        // A value with no byte form is still installed and served; it gets a unique version.
+        let binary = state.as_bytes().ok();
+        if final_status != Status::Error {
+            metadata.version = Some(match &binary {
+                Some(bytes) => Version::from_content(bytes),
+                None => Version::new_unique(),
+            });
+        }
+        let asset = AssetRef::new_installed(
+            self.new_id(),
+            key.clone(),
+            state.with_metadata(Metadata::MetadataRecord(metadata.clone())),
+            final_status,
+            self.envref.clone(),
+        )?;
+        self.assets
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(key.clone(), asset);
+        if metadata.stored() {
+            let store = self.get_envref().get_async_store();
+            let stored = Metadata::MetadataRecord(metadata.clone());
+            match (&binary, final_status) {
+                (_, Status::Error) => store.set(key, &[], &stored).await?,
+                (Some(bytes), _) => store.set(key, bytes, &stored).await?,
+                (None, _) => store.set_metadata(key, &stored).await?,
+            }
+        }
+        if matches!(final_status, Status::Source | Status::Override) {
+            if let Some(version) = metadata.version {
+                self.publish_version(&DependencyKey::from(key), version).await;
+            }
+        }
+        drop(mutation);
+        self.refresh_listing_version(&key.parent()).await;
+        Ok(())
     }
 
     // --- primitives ---
