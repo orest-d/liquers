@@ -78,7 +78,7 @@ The regex token is a hand-written scanner inside the `nom` parser, tried before 
 **`commands`:**
 
 `query` is `ns-<namespace>/<name>`, or the bare `name` when the namespace is empty or `root`; the
-realm is not shown. (*Decision D5, 2026-10-11, pending confirmation.*)
+realm is not shown. (*Decision D5, confirmed 2026-10-11.*)
 
 | Column | Type | Roles | Source |
 |---|---|---|---|
@@ -120,7 +120,7 @@ realm is not shown. (*Decision D5, 2026-10-11, pending confirmation.*)
 | `level` | Int, nullable | numeric |
 | `text` | Text | text |
 
-## D2. Compares and limits (decisions of 2026-10-11, pending confirmation)
+## D2. Compares and limits (decisions of 2026-10-11, confirmed)
 
 - **D4.** A compare on a Text column (`created:>2026-09`) is lexicographic on the raw text, and
   unaffected by `case_sensitive`. ISO dates compare correctly this way.

@@ -240,8 +240,7 @@ fn render_word(text: &str, out: &mut String) {
 }
 
 fn looks_like_field_test(text: &str) -> bool {
-    let span = Span::new(text);
-    matches!(field_path(span), Some((rest, _)) if rest.fragment().starts_with(':'))
+    matches!(field_test(Span::new(text)), Some(Ok(_)))
 }
 
 fn render_phrase(text: &str, out: &mut String) {

@@ -276,9 +276,9 @@ The decision log for the pre-approved work (`proceed all`, 2026-10-11). Each ite
 | D1 | Order of implementation: `liquers-records` kernels first, then the `liquers-lib` commands, then the documentation | noted | Phase 4 |
 | D2 | `BoundPredicate` gains a default method `take_warnings`, so that evaluation can report invalid JSON cells (Phase 2 requires counting them); `parse_structure_with_report` returns the count of skipped YAML keys | noted | Additive to the approved trait |
 | D3 | The Phase 4 steps are reordered (catalog, field_extract, md_split, search, commands), and the exporter group and `full_registry` change together with the YAML | noted | Phase 4 review |
-| D4 | A compare on a Text column is lexicographic, unaffected by `case_sensitive` | needs decision | Lexicographic |
-| D5 | The `commands` `query` column for the root namespace and for realms | needs decision | The bare name for root; realm not shown |
-| D6 | `FilteredSource` reaching `limit` part-way through a chunk | needs decision | Cut to exactly `limit` |
+| D4 | A compare on a Text column is lexicographic, unaffected by `case_sensitive` | decided (user, 2026-10-11) | Lexicographic |
+| D5 | The `commands` `query` column for the root namespace and for realms | decided (user, 2026-10-11) | The bare name for root; realm not shown |
+| D6 | `FilteredSource` reaching `limit` part-way through a chunk | decided (user, 2026-10-11) | Cut to exactly `limit` |
 
 ## References
 
