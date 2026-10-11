@@ -110,13 +110,17 @@ carries `key`, `status`, `title`, `score` and `excerpt`. The query was validated
 - **AC-16** Nested predicate on a text field
   WHEN the expression has `field:(…)`, such as `content:(expiration -draft)`
   THEN the inner predicate is applied to that field's text alone.
-- **AC-17** Structured text and front-matter
-  WHEN the inner predicate of `field:(…)` contains field tests, such as `content:(status:draft)`,
-  or a dotted name is used, such as `content.status:draft`
-  THEN the field's text is parsed: a leading `---` YAML block (front-matter) if present, otherwise
-  the whole text as JSON or YAML. The inner tests navigate the parsed value, and a list matches
-  when any of its elements does. Text that does not parse does not match, and is counted in one
-  warning.
+- **AC-17** Structured text inside a field
+  WHEN `field:(…)` contains field tests, or a dotted name such as `content.status:draft` is used
+  THEN the field's text is parsed only where that is reliable: as JSON (whole text, verified by
+  parsing) or as Markdown front-matter (a leading `---` YAML or `+++` TOML block, closed and parsed
+  to a map). The inner tests navigate the parsed value, and a list matches when any of its
+  elements does. Anything else does not match, and is counted in one warning.
+- **AC-23** Explicit structure format
+  WHEN the format is named, as in `field:yaml(…)`, `field:json(…)`, `field:frontmatter(…)`,
+  `field:fenced_yaml(…)` or `field:fenced_json(…)`
+  THEN the text is parsed that way only. `fenced_*` means the first fenced code block of that
+  language in a Markdown document.
 - **AC-18** Budget honesty
   WHEN `limit` stops a search before every match is returned
   THEN the result's description says `N of M matches shown` (or `first N matches; more may exist`
@@ -133,6 +137,28 @@ carries `key`, `status`, `title`, `score` and `excerpt`. The query was validated
   predicate syntax trait) and passes it to the search kernel
   THEN it filters and ranks exactly as the built-in language does. The built-in parser's error
   for malformed input carries a `Position`.
+- **AC-24** Extracting fields from documents
+  WHEN `…/ns-search/field_extract` is evaluated (extension `md` by default)
+  THEN only rows whose file has that extension are kept. Each file's structure is parsed by its
+  format: `md` as front-matter (YAML `---` or TOML `+++`), `json` as JSON, `yaml` or `yml` as YAML.
+  Its top-level fields (or the ones named) become columns, and files with no fields are dropped.
+- **AC-25** Extraction options
+  WHEN `prefix` is set, or `flatten` is true
+  THEN the extracted column names start with the prefix, and nested maps become `parent_child`
+  columns. Without `flatten`, a nested map is one column of JSON text, reachable as
+  `column.child:value`. A list is JSON text, and a field test on it matches any element.
+- **AC-26** Extracted columns replace same-named ones
+  WHEN an extracted field has the same name as an input column (front-matter `status` or `title`
+  in a catalog)
+  THEN the extracted column replaces it, keeping that column's role, and a log entry names the
+  replaced columns. The Id column is never replaced; such a field is skipped with a warning.
+- **AC-27** Simple filter commands
+  WHEN `ns-rec` filters are chained on records, as in
+  `…/ns-search-rec/catalog/eq-filename-DESIGN.md/field_extract/eq-phase-architecture`
+  THEN each keeps only the matching rows. The filters are `eq`, `ne`, `gt`, `gte`, `lt`, `lte`
+  (the names and the `column` argument mirror `ns-pl`),
+  `startswith`, `endswith`, `contains`, `glob`, `isin`, `isnull`, `notnull`, and `filter-<expr>`
+  (the search syntax without ranking). Over a record source they filter lazily.
 - **AC-22** Browser build
   WHEN `liquers-lib` is built for `wasm32` with `records`
   THEN the `search` commands are registered, and the build matrix covers it.
@@ -142,8 +168,8 @@ carries `key`, `status`, `title`, `score` and `excerpt`. The query was validated
   [`external-index-sync`](../external-index-sync/);
 - a selection method on `AsyncStore` (`STORE-NO-CONTENT-OR-METADATA-SEARCH` is closed, not
   planned);
-- front-matter as catalog columns (`attr.*`), which needs `CORE-METADATA-NO-APPLICATION-ATTRIBUTES`;
-  until then front-matter is reached through `content:(…)` (AC-17);
+- front-matter stored as asset metadata (`CORE-METADATA-NO-APPLICATION-ATTRIBUTES`). Front-matter
+  is read from content, by `field_extract` (AC-24) or by a nested predicate (AC-17);
 - passing arguments by name over HTTP (`QUERY-API-ARGUMENTS-ONLY-IN-QUERY-PATH`).
 
 ## Core Interactions
@@ -200,12 +226,14 @@ Answered by the user on 2026-10-11:
    a query-language dialect.
 5. ~~Paging with `offset`?~~ **Not for now.**
 
-Still open, under discussion:
-
-6. How is the format of a structured text field recognised (JSON, YAML, Markdown front-matter, or
-   the first fenced YAML block of a Markdown document), and how reliable must that be? An
-   alternative, or a complement, is a command that extracts fields from JSON, YAML and Markdown
-   files into columns. AC-17 depends on the answer.
+6. ~~How is a structured text field recognised?~~ **Layered, decided 2026-10-11.**
+   - Automatic recognition is used only where it is reliable: JSON and front-matter (AC-17).
+   - The format can be named explicitly, including `fenced_yaml` and `fenced_json` (AC-23).
+   - Document collections go through `field_extract`. It takes the format from the file
+     extension, an enum of `md`, `json`, `yaml` and `yml`, defaulting to `md` (AC-24 to AC-26).
+     Only `md`, `json` and `yaml` structures are supported, and TOML front-matter is included
+     under `md`.
+   - Simple `ns-rec` filters make selection writable without escaping (AC-27).
 
 ## References
 

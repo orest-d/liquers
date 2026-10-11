@@ -100,6 +100,39 @@ Four changes came from user feedback:
 4. **Searchable command names.** In the `commands` schema, `realm`, `namespace`, `name` and
    `module` now have the text role.
 
+### Second amendment, 2026-10-11: documents with front-matter
+
+**Structure recognition is layered.** Plain YAML cannot be recognised from text: a YAML parser
+reads `Note: remember the milk` as a map, `# Title` as a comment, and a bullet list as a sequence.
+So:
+- automatic recognition covers only JSON (verified by parsing) and front-matter (closed `---` YAML
+  or `+++` TOML at the start);
+- every other format is named explicitly (`yaml`, `json`, `frontmatter`, `fenced_yaml`,
+  `fenced_json`).
+
+**`field_extract`** is the main route for document collections.
+- Its `extension` argument is an enum (`md`, `json`, `yaml`, `yml`; default `md`). It both selects
+  the files and fixes their format, so nothing is guessed.
+- It turns each file's fields into columns. `prefix` defaults to none, and `flatten` turns nested
+  maps into `parent_child` columns.
+- Files with no fields are dropped.
+- An extracted `status` or `title` replaces the catalog's own, which is what a search over issues
+  wants.
+
+Its result is an ordinary, cached asset: the query
+`-R-key/specs/issues/-/ns-search-rec/catalog/field_extract` is `specs/index.csv` as a table.
+
+**Simple `ns-rec` filters** (`eq`, `ne`, `gt`, `gte`, `lt`, `lte`, `startswith`, `endswith`,
+`contains`, `glob`, `isin`, `isnull`, `notnull`, `filter`) make selection writable without
+escaping, since `*` and `:` must be escaped in a query (`~nast~`, `~ncolon~`).
+
+**Design documents and phases.** Only `DESIGN.md` carries front-matter, with `phase:` and
+`status:`. The phase documents have none. So:
+- selecting designs by phase is a filter on `DESIGN.md`:
+  `-R-key/specs/design/-/ns-search-rec/catalog/eq-filename-DESIGN.md/field_extract/eq-phase-architecture`;
+- selecting one phase's documents is a filename filter:
+  `…/catalog/startswith-filename-phase1`.
+
 ## Coverage check, 2026-10-11
 
 Revision 8 was checked against every requirement, use case and invariant of revisions 1–7: the

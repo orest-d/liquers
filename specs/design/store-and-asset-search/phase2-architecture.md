@@ -8,6 +8,11 @@
 > - a formal grammar and a `nom` parser that reports positions;
 > - nested and structured field predicates;
 > - evidence, budget and size-bound columns and messages.
+>
+> A second amendment the same day adds:
+> - reliable-only structure recognition, with explicit formats;
+> - `field_extract`;
+> - simple `ns-rec` filter commands.
 
 ## Overview
 
@@ -122,7 +127,7 @@ pub enum Node {
 pub enum FieldTest {
     Glob(String),                // `f:v`, exact unless `*` or `?`; `f:*` means present
     Compare(CompareOp, String),  // `f:>v` and the like; the value is parsed at bind time
-    Nested(Box<SearchExpr>),     // `f:( … )`
+    Nested(Option<StructFormat>, Box<SearchExpr>), // `f:( … )`, `f:yaml( … )`, …
 }
 
 impl Predicate for SearchExpr { /* … */ }
@@ -144,7 +149,8 @@ and_expr   = unary , { ws1 , unary } ;
 unary      = [ "-" ] , atom ;
 atom       = group | field_test | phrase | term ;
 group      = "(" , expr , ")" ;
-field_test = field_path , ":" , ( group | [ cmp_op ] , ( phrase | value ) ) ;
+field_test = field_path , ":" , ( [ format ] , group | [ cmp_op ] , ( phrase | value ) ) ;
+format     = "yaml" | "json" | "frontmatter" | "fenced_yaml" | "fenced_json" ;  (* only directly before "(" *)
 field_path = name , { "." , name } ;
 name       = ( letter | "_" ) , { letter | digit | "_" } ;
 cmp_op     = ">=" | "<=" | ">" | "<" ;
@@ -185,13 +191,13 @@ column name always wins, which keeps dotted column names working.
   tested with `Column::compare`.
 - **`Nested` on a Text column:** applied row by row through `matches_value`.
   - If the inner predicate does not `needs_structure`, it sees `DocValue::Text`.
-  - Otherwise the text is parsed once per row and column:
-    - a leading `---`…`---` block is parsed as YAML (front-matter);
-    - otherwise text starting with `{` or `[` is parsed as JSON;
-    - otherwise the whole text is parsed as YAML.
-  - On the parsed value, a `Field` path walks object keys, and an array matches when any of its
-    elements does. A `Term` matches any string leaf. A parse failure is a non-match, counted in
-    one warning.
+  - Otherwise the text goes through `parse_structure` once per row and column, and the inner
+    predicate sees `DocValue::Structured`.
+  - On the parsed value, a `Field` path walks object keys, a list matches when any element does,
+    and a `Term` matches any string leaf.
+  - Text that yields no structure is a non-match, counted in one warning.
+- **A Glob or Compare on a Text cell holding a JSON array** (`[` first, and it parses) matches when
+  any element matches. This is how list columns written by `field_extract` work.
 - **`Nested` on a non-Text column:** a bind error.
 
 **Ranking** is BM25 (k1 = 1.2, b = 0.75) over the rows that survive the mask.
@@ -207,6 +213,27 @@ column name always wins, which keeps dotted column names working.
 - `matched` (Text): the comma-separated search fields that matched, from `evidence`;
 - `excerpt` (Text, nullable): about 160 characters around the first match in the first matching
   field, skipping a leading front-matter block.
+
+### Structure recognition — `liquers-records/src/search/structure.rs`
+
+```rust
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum StructFormat { Json, Yaml, FrontMatter, FencedYaml, FencedJson }
+/// `None` selects automatic recognition. Returns `None` when the text has no structure.
+pub fn parse_structure(text: &str, format: Option<StructFormat>) -> Option<serde_json::Value>;
+```
+
+| Format | Rule | Reliable |
+|---|---|---|
+| automatic | JSON if the trimmed text starts with `{` or `[` and parses whole; otherwise front-matter; otherwise none | yes |
+| `Json` | the whole text | — |
+| `Yaml` | the whole text; a result that is a scalar counts as no structure | explicit only: YAML accepts most prose |
+| `FrontMatter` | the first line is `---`, then a line `---` or `...`, and the block is YAML; or the first line is `+++`, then a line `+++`, and the block is TOML. The result must be a map | yes |
+| `FencedYaml`, `FencedJson` | the first fence of that language (```` ```yaml ````/```` ```yml ````, ```` ```json ````), up to its closing fence | explicit only: it catches examples |
+
+YAML and TOML are converted to `serde_json::Value`, so one navigation code path serves all three.
+TOML needs `toml = "0.8"`, already used optionally by `liquers-core`, as a plain dependency of
+`liquers-records`.
 
 ### Record schemas
 
@@ -234,6 +261,17 @@ column name always wins, which keeps dotted column names working.
 | `doc` | Text | text | `doc` |
 | `volatile` | Bool | keyword | — |
 | `output_filename` | Text | keyword | the metadata's `filename` |
+
+**`field_extract` output:**
+- The input's columns, minus the rows it drops.
+- Extracted columns, named `prefix + name`. Nested maps become `parent_child` columns with
+  `flatten`, and one JSON-text column otherwise. Lists are JSON text.
+- Each column's type is unified over its rows: Int if every value is an integer, Float if every
+  value is a number, Bool if every value is a boolean, otherwise Text (values written as strings;
+  ISO dates compare correctly as text).
+- A column that replaces an input column keeps that column's role. Every other extracted column is
+  keyword, so it filters but is not a default free-text field.
+- Characters outside `[A-Za-z0-9_]` in a key become `_`.
 
 `FilteredSource` (`liquers-records/src/search/source.rs`) holds
 `{ inner: Arc<dyn RecordSource>, predicate: Arc<dyn Predicate>, options: SearchOptions }`.
@@ -274,6 +312,8 @@ pub async fn catalog<E>(state: State<Value>, recursive: bool, content: bool, max
 pub async fn commands<E>(namespace: String, context: Context<E>) -> Result<Value, Error>;
 pub async fn search<E>(state: State<Value>, query: String, rank: bool, case_sensitive: bool,
     limit: i64, fields: Vec<String>, context: Context<E>) -> Result<Value, Error>;
+pub async fn field_extract<E>(state: State<Value>, extension: String, prefix: String, flatten: bool,
+    fields: Vec<String>, context: Context<E>) -> Result<Value, Error>;
 pub async fn folder_of<E>(state: &State<Value>, context: &Context<E>) -> Result<Option<Key>, Error>;
 pub enum SearchInput { View(Arc<dyn RecordView>), Source(Arc<dyn RecordSource>) }
 pub async fn search_input<E>(state: State<Value>, context: &Context<E>) -> Result<SearchInput, Error>;
@@ -314,15 +354,48 @@ Info log entry, and warnings go to `context.warning`.
    from `Ready`, `Source` or `Override` entries with a text media type, and are cut at a UTF-8
    boundary after `max_bytes`.
 
+**`field_extract`** steps:
+1. Turn the input into a view with `search_input`, rank-free. A folder becomes its catalog without
+   content.
+2. Keep the rows whose `filename` (or, failing that, `key`) ends in `.<extension>`.
+3. Take each row's text from its `content` column when there is one. Otherwise read the stored
+   bytes of `key`, under the same rules and `max_bytes` cap as `catalog`. Only the selected files
+   are read.
+4. Parse with the extension's format: `md` as `FrontMatter`, `json` as `Json`, `yaml` and `yml`
+   as `Yaml`, where the result must be a map.
+5. Drop the rows with no fields, and count them in an Info log entry.
+6. With `fields` given, extract only those, as dotted paths. Otherwise extract every top-level key
+   seen; the schema is the union, and a missing key is null.
+7. Apply `prefix` and `flatten`, unify the types, and apply the replacement rule (AC-26).
+
+**`ns-rec` filters** (`liquers-lib/src/records/filters.rs`). Each one builds a one-node
+`SearchExpr` directly, so nothing is parsed and nothing needs escaping. It then runs the
+`rank = false`, `limit = 0` path of `search`, so it is lazy over a source:
+
+```rust
+pub async fn eq<E>(state: State<Value>, column: String, value: String, context: Context<E>) -> Result<Value, Error>;
+// ne, gt, gte, lt, lte: the same signature; the value is parsed to the column's type
+pub async fn startswith<E>(state: State<Value>, column: String, text: String, case_sensitive: bool, context: Context<E>) -> Result<Value, Error>;
+// endswith, contains, glob: the same signature
+pub async fn isin<E>(state: State<Value>, column: String, values: Vec<String>, context: Context<E>) -> Result<Value, Error>;
+pub async fn isnull<E>(state: State<Value>, column: String, context: Context<E>) -> Result<Value, Error>;
+// notnull: the same signature
+pub async fn filter<E>(state: State<Value>, query: String, context: Context<E>) -> Result<Value, Error>;
+```
+
+On a filter command, an unknown column is an **error**, not a warning: the column is named on its
+own, so a typo should fail.
+
 **Sync or async:** the kernels are sync; the commands are async.
 
 ## Integration Points
 
 | Crate | File | Change |
 |---|---|---|
-| `liquers-records` | `Cargo.toml` | `nom = "8"` and `nom_locate = "5"` |
-| `liquers-records` | `src/search/{mod,predicate,syntax,kernels,rank,source}.rs` (new), `src/lib.rs` | Re-exports |
-| `liquers-lib` | `src/search/{mod,catalog,commands}.rs` (new), `src/lib.rs` | Commands, `folder_of`, `search_input`, `register_search_commands!` |
+| `liquers-records` | `Cargo.toml` | `nom = "8"`, `nom_locate = "5"` and `toml = "0.8"` |
+| `liquers-records` | `src/search/{mod,predicate,syntax,structure,kernels,rank,source}.rs` (new), `src/lib.rs` | Re-exports |
+| `liquers-lib` | `src/search/{mod,catalog,commands,extract}.rs` (new), `src/lib.rs` | Commands, `folder_of`, `search_input`, `register_search_commands!` |
+| `liquers-lib` | `src/records/filters.rs` (new), `src/records/commands.rs` | The `ns-rec` filters, registered in `register_records_commands!` |
 | `liquers-lib` | `src/commands.rs`, `src/bin/export_command_registry.rs` | Register the `search` group beside `records`, with a no-op when `records` is off |
 | `specs` | `command_registry.yaml` | Regenerated |
 
@@ -339,6 +412,9 @@ Info log entry, and warnings go to `context.warning`.
 | `Nested` on a non-Text column; a `Compare` value that does not parse | `Error::general_error` naming the field and its position |
 | Text that does not parse as JSON or YAML | A non-match, counted in one warning |
 | A negative `limit`, `max_bytes` or `max_entries` | `Error::general_error` |
+| `field_extract` with an extension outside the enum | Rejected by the enum argument |
+| `field_extract` with an extracted field named like the Id column | Skipped, with a warning |
+| A filter command naming an unknown column | `Error::general_error` naming the field and the available ones |
 | A source too large to rank | The `materialize` error, which suggests `rank=false` |
 
 ## Sync vs Async
@@ -356,6 +432,20 @@ async fn catalog(state, recursive: bool = true, content: bool = false, max_bytes
 async fn commands(namespace: String = "", context) -> result
 async fn search(state, query: String = "", rank: bool = true, case_sensitive: bool = false,
                 limit: i64 = 50, fields: Vec<String> multiple, context) -> result
+async fn field_extract(state, extension: String = "md" (enum: ["md", "json", "yaml", "yml"]),
+                       prefix: String = "", flatten: bool = false, fields: Vec<String> multiple,
+                       context) -> result
+```
+
+Namespace **`rec`**, additions:
+
+```
+async fn eq(state, column: String, value: String, context) -> result        // and ne, gt, gte, lt, lte
+async fn startswith(state, column: String, text: String, case_sensitive: bool = true, context) -> result
+                                                                            // and endswith, contains, glob
+async fn isin(state, column: String, values: Vec<String> multiple, context) -> result
+async fn isnull(state, column: String, context) -> result                    // and notnull
+async fn filter(state, query: String = "", context) -> result
 ```
 
 The results feed `rec` (`to_json`, `head`, `records_schema` for field discovery) and `pl`.
