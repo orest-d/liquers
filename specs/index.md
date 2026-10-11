@@ -8,9 +8,9 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 109
+Total rows: 107
 - P2: 52
-- P3: 57
+- P3: 55
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -66,8 +66,6 @@ Total rows: 109
 | [`NO-RELATIONAL-DATABASE-ACCESS-LAYER`](issues/NO-RELATIONAL-DATABASE-ACCESS-LAYER.md) | feature | No access layer from Liquers into relational databases | draft |  |  | P2 | XL | lib/value;lib/commands;store/backends |  | 2026-09-20 |
 | [`NO-REMOTE-STORE-OR-ASSET-MANAGER`](issues/NO-REMOTE-STORE-OR-ASSET-MANAGER.md) | feature | A client environment cannot use a server's store or asset manager as its own | draft |  |  | P2 | XL | axum;web;core/assets;core/store |  | 2026-09-27 |
 | [`VALUE-TYPE-DEFINITION-MACRO`](issues/VALUE-TYPE-DEFINITION-MACRO.md) | feature | Value types and their registry entries are hand-written instead of generated | draft |  |  | P2 | XL | macro;lib/value;core/value |  | 2026-08-18 |
-| [`ARGUMENT-INFO-HAS-NO-DESCRIPTION`](issues/ARGUMENT-INFO-HAS-NO-DESCRIPTION.md) | issue | ArgumentInfo has no per-argument description | draft | ready | not-eligible | P3 | S | core/commands;macro | [design](design/command-metadata-descriptions-and-hints/DESIGN.md) | 2026-09-24 |
-| [`COMMAND-METADATA-HAS-NO-COMMAND-LEVEL-HINTS`](issues/COMMAND-METADATA-HAS-NO-COMMAND-LEVEL-HINTS.md) | feature | A usage hint can be attached to an argument but not to a command | in_progress | ready | not-eligible | P3 | S | core/commands;lib/ui | [design](design/command-metadata-descriptions-and-hints/DESIGN.md) | 2026-08-30 |
 | [`CORE-CONFIGURATION-ERROR-KIND`](issues/CORE-CONFIGURATION-ERROR-KIND.md) | issue | Configuration errors are indistinguishable from general errors | in_progress | ready | not-eligible | P3 | S | core/error;store/config | [phase1](design/configuration-error-kind/phase1-high-level-design.md)  [phase2](design/configuration-error-kind/phase2-architecture.md)  [phase3](design/configuration-error-kind/phase3-examples.md)  [phase4](design/configuration-error-kind/phase4-implementation.md)  | 2026-08-29 |
 | [`EXTERNAL-MANAGER-CANNOT-NOTIFY-REPLACED-ASSET`](issues/EXTERNAL-MANAGER-CANNOT-NOTIFY-REPLACED-ASSET.md) | issue | An AssetManager implemented outside liquers-core cannot tell a replaced asset it was removed, or store a non-serializable state | draft | ready | not-eligible | P3 | S | core/assets | [phase1](design/external-manager-replacement-surface/phase1-high-level-design.md)  [phase2](design/external-manager-replacement-surface/phase2-architecture.md)  [phase3](design/external-manager-replacement-surface/phase3-examples.md)  [phase4](design/external-manager-replacement-surface/phase4-implementation.md)  | 2026-10-02 |
 | [`QUERY-ABSOLUTE-FIELD-NAME-AMBIGUOUS`](issues/QUERY-ABSOLUTE-FIELD-NAME-AMBIGUOUS.md) | issue | Query::absolute names a leading slash, colliding with two other meanings of absolute | draft | ready | not-eligible | P3 | S | core/query | [phase1](design/query-leading-slash-field/phase1-high-level-design.md)  [phase2](design/query-leading-slash-field/phase2-architecture.md)  [phase3](design/query-leading-slash-field/phase3-examples.md)  [phase4](design/query-leading-slash-field/phase4-implementation.md)  | 2026-08-17 |

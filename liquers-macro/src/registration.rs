@@ -482,6 +482,8 @@ enum CommandParameter {
         multiple: bool,
         default_value: Option<DefaultValue>,
         label: Option<String>,
+        /// `description: "..."` in the parenthesised options; `None` when not given.
+        description: Option<String>,
         gui: ArgumentGUIInfo,
         gui_explicit: bool,
         enum_spec: Option<EnumParameterSpec>,
@@ -726,6 +728,7 @@ impl CommandParameter {
                 multiple,
                 default_value: _default_value,
                 label,
+                description,
                 gui,
                 gui_explicit,
                 enum_spec,
@@ -736,6 +739,10 @@ impl CommandParameter {
                     .as_ref()
                     .map(|s| s.as_str())
                     .unwrap_or(default_label.as_str());
+                let description_field = match description {
+                    Some(d) => quote! { description: #d.to_string(), },
+                    None => quote! {},
+                };
                 let argument_type = self.argument_type_expression();
                 let default_value_expression = self.default_value_expression();
                 let gui_expr = if !*gui_explicit {
@@ -767,6 +774,7 @@ impl CommandParameter {
                     liquers_core::command_metadata::ArgumentInfo{
                         name: #name_str.to_string(),
                         label: #label_str.to_string(),
+                        #description_field
                         default: #default_value_expression,
                         argument_type: #argument_type,
                         multiple: #multiple,
@@ -808,6 +816,9 @@ enum CommandSignatureStatement {
     Version(CommandImplVersionSpec),
     Label(String),
     Doc(String),
+    /// `hint <key>: "<value>"` — a command-level hint; the key is kept for its span, so that a
+    /// duplicate can be reported where it occurs.
+    Hint(syn::Ident, String),
     Namespace(String),
     Realm(String),
     Preset(CommandPreset),
@@ -826,6 +837,13 @@ enum CommandImplVersionSpec {
 impl Parse for CommandSignatureStatement {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let ident: syn::Ident = input.parse()?;
+        // `hint` names its key before the colon: `hint icon: "download"`.
+        if ident == "hint" && !input.peek(syn::Token![:]) {
+            let key: syn::Ident = input.call(syn::Ident::parse_any)?;
+            input.parse::<syn::Token![:]>()?;
+            let lit: syn::LitStr = input.parse()?;
+            return Ok(CommandSignatureStatement::Hint(key, lit.value()));
+        }
         if !input.peek(syn::Token![:]) {
             return Err(input.error(format!(
                 "colon expected after '{ident}' in command signature statement"
@@ -1057,6 +1075,7 @@ fn default_value_fits_enum(
 
 enum CommandParameterStatement {
     Label(String),
+    Description(String),
     Gui(ArgumentGUIInfo),
     Enum(EnumParameterSpec),
     EnumRef(String),
@@ -1070,6 +1089,11 @@ impl Parse for CommandParameterStatement {
                 input.parse::<syn::Token![:]>()?;
                 let lit: syn::LitStr = input.parse()?;
                 Ok(CommandParameterStatement::Label(lit.value()))
+            }
+            "description" => {
+                input.parse::<syn::Token![:]>()?;
+                let lit: syn::LitStr = input.parse()?;
+                Ok(CommandParameterStatement::Description(lit.value()))
             }
             "gui" => {
                 input.parse::<syn::Token![:]>()?;
@@ -1109,6 +1133,8 @@ struct CommandSignature {
     pub name: syn::Ident,
     pub label: Option<String>,
     pub doc: Option<String>,
+    /// Command-level hints in declaration order, keys unique.
+    pub hints: Vec<(String, String)>,
     pub state_parameter: StateParameter,
     pub parameters: Vec<CommandParameter>,
     pub result_type: ResultType,
@@ -1282,6 +1308,12 @@ impl CommandSignature {
         } else {
             quote! { cm.with_doc(#doc); }
         };
+        let hints_code: Vec<proc_macro2::TokenStream> = self
+            .hints
+            .iter()
+            .map(|(key, value)| quote! { cm.hints.insert(#key.to_string(), #value.into()); })
+            .collect();
+        let hints_code = quote! { #(#hints_code)* };
         let arguments = self.command_arguments_expression();
         let presets_code = if self.presets.is_empty() {
             // If no presets are defined, we can use an empty vector
@@ -1372,6 +1404,7 @@ impl CommandSignature {
                 let mut cm = #reg_command;
                 cm.with_label(#label);
                 #doc_cmd
+                #hints_code
                 cm.arguments = #arguments;
                 #presets_code
                 #next_code
@@ -1727,6 +1760,7 @@ impl Parse for CommandParameter {
                 };
 
                 let mut label = None;
+                let mut description: Option<String> = None;
                 let mut gui = ArgumentGUIInfo::TextField(40);
                 let mut gui_explicit = false;
                 let mut enum_spec: Option<EnumParameterSpec> = None;
@@ -1737,6 +1771,7 @@ impl Parse for CommandParameter {
                         let stmt: CommandParameterStatement = content.parse()?;
                         match stmt {
                             CommandParameterStatement::Label(l) => label = Some(l),
+                            CommandParameterStatement::Description(d) => description = Some(d),
                             CommandParameterStatement::Gui(g) => {
                                 gui = g;
                                 gui_explicit = true;
@@ -1778,6 +1813,7 @@ impl Parse for CommandParameter {
                     multiple,
                     default_value,
                     label,
+                    description,
                     gui,
                     gui_explicit,
                     enum_spec,
@@ -1894,6 +1930,7 @@ impl Parse for CommandSignature {
         let mut realm = String::new();
         let mut label = None;
         let mut doc = None;
+        let mut hints: Vec<(String, String)> = Vec::new();
         let mut presets = Vec::new();
         let mut next = Vec::new();
         let mut filename = String::new();
@@ -1908,6 +1945,16 @@ impl Parse for CommandSignature {
                 CommandSignatureStatement::Realm(r) => realm = r.clone(),
                 CommandSignatureStatement::Label(l) => label = Some(l.clone()),
                 CommandSignatureStatement::Doc(d) => doc = Some(d.clone()),
+                CommandSignatureStatement::Hint(key, value) => {
+                    let key_str = key.to_string();
+                    if hints.iter().any(|(k, _)| *k == key_str) {
+                        return Err(syn::Error::new(
+                            key.span(),
+                            format!("duplicate command hint `{key_str}`"),
+                        ));
+                    }
+                    hints.push((key_str, value.clone()));
+                }
                 CommandSignatureStatement::Preset(command_preset) => {
                     presets.push(command_preset.clone());
                 }
@@ -1938,6 +1985,7 @@ impl Parse for CommandSignature {
             name,
             label,
             doc,
+            hints,
             state_parameter,
             parameters,
             result_type,
@@ -2236,6 +2284,7 @@ mod tests {
             default_value: None,
             label: None,
             gui: ArgumentGUIInfo::TextField(20),
+            description: None,
             gui_explicit: false,
             enum_spec: None,
         };
@@ -2254,6 +2303,7 @@ mod tests {
             default_value: None,
             label: None,
             gui: ArgumentGUIInfo::TextField(20),
+            description: None,
             gui_explicit: false,
             enum_spec: None,
         };
@@ -2272,6 +2322,7 @@ mod tests {
             default_value: None,
             label: None,
             gui: ArgumentGUIInfo::TextField(20),
+            description: None,
             gui_explicit: false,
             enum_spec: None,
         };
@@ -2290,6 +2341,7 @@ mod tests {
             default_value: None,
             label: None,
             gui: ArgumentGUIInfo::TextField(20),
+            description: None,
             gui_explicit: false,
             enum_spec: None,
         };
@@ -2308,6 +2360,7 @@ mod tests {
             default_value: None,
             label: None,
             gui: ArgumentGUIInfo::TextField(20),
+            description: None,
             gui_explicit: false,
             enum_spec: None,
         };
@@ -2326,6 +2379,7 @@ mod tests {
             default_value: None,
             label: None,
             gui: ArgumentGUIInfo::TextField(20),
+            description: None,
             gui_explicit: false,
             enum_spec: None,
         };
@@ -2358,6 +2412,61 @@ mod tests {
         };
 
         assert_eq!(sig.label, Some("Test label".to_string()));
+    }
+
+    #[test]
+    fn test_command_signature_with_hints() {
+        let sig: CommandSignature = syn::parse_quote! {
+            fn export(state) -> result
+            label: "Export"
+            hint icon: "download"
+            hint toolbar: "main"
+        };
+        assert_eq!(
+            sig.hints,
+            vec![
+                ("icon".to_string(), "download".to_string()),
+                ("toolbar".to_string(), "main".to_string())
+            ]
+        );
+        let code = sig.command_registration().to_string();
+        assert!(
+            code.contains("cm . hints . insert (\"icon\" . to_string () , \"download\" . into ())"),
+            "{code}"
+        );
+    }
+
+    /// AC-3: a repeated command hint key is a compile error, reported at the second key.
+    #[test]
+    fn register_command_rejects_duplicate_command_hint() {
+        let parsed: syn::Result<CommandSignature> = syn::parse2(quote! {
+            fn export(state) -> result
+            hint icon: "download"
+            hint icon: "upload"
+        });
+        let err = match parsed {
+            Ok(_) => panic!("a duplicate hint key must be rejected"),
+            Err(e) => e,
+        };
+        assert!(
+            err.to_string().contains("duplicate command hint `icon`"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn test_command_parameter_with_description() {
+        let parsed: CommandParameter = syn::parse_quote! {
+            width: i32 = 80 (label: "Width", description: "Maximum line width in characters")
+        };
+        let code = parsed
+            .argument_info_expression()
+            .map(|t| t.to_string())
+            .unwrap_or_default();
+        assert!(
+            code.contains("description : \"Maximum line width in characters\" . to_string ()"),
+            "{code}"
+        );
     }
 
     #[test]

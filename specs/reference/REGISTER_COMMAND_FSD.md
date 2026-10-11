@@ -3,7 +3,7 @@ title: register_command! Macro Functional Specification
 kind: reference
 audience: internal
 area: [macro, core/commands]
-reviewed: 2026-10-10
+reviewed: 2026-10-11
 ---
 # register_command! Macro Functional Specification
 
@@ -123,7 +123,7 @@ Parameters are specified after the state parameter, separated by commas.
 ### Syntax
 
 ```
-<name>: <Type> [injected | multiple] [= <default_value>] [(label: "...", gui: ..., enum: ..., enum_ref: ...)]
+<name>: <Type> [injected | multiple] [= <default_value>] [(label: "...", description: "...", gui: ..., enum: ..., enum_ref: ...)]
 ```
 
 | Part | Required | Description |
@@ -234,7 +234,8 @@ Additional parameter configuration in parentheses:
 ```rust
 register_command!(cr,
     fn cmd(state,
-        width: i32 = 80 (label: "Width", gui: IntegerSlider(10, 200, 1))
+        width: i32 = 80 (label: "Width", description: "Maximum line width in characters",
+                         gui: IntegerSlider(10, 200, 1))
     ) -> result
 )?;
 ```
@@ -242,13 +243,14 @@ register_command!(cr,
 | Statement | Description |
 |-----------|-------------|
 | `label: "..."` | Human-readable label for UI |
+| `description: "..."` | Prose explaining the argument (tooltip, help text); sets `ArgumentInfo::description`, which is omitted from serialized metadata when empty |
 | `gui: <GuiInfo>` | UI rendering hint |
 | `enum: <EnumSpec>` | Inline enum alternatives and mapping |
 | `enum_ref: "..."` | Reference a global enum by name |
 
 `hint key: "..."` is rejected with *argument hints are not supported; `hint` would be ignored*.
-It used to be parsed and silently dropped. Argument hints are planned in
-`design/command-metadata-descriptions-and-hints/`.
+It used to be parsed and silently dropped. Argument-level hints remain open
+(`MACRO-QUERY-VALIDATION-AND-HINTS`); command-level hints are a metadata statement (below).
 
 Enum metadata syntax:
 
@@ -383,6 +385,7 @@ register_command!(cr,
     fn my_cmd(state, arg: String) -> result
     label: "My Command"
     doc: "Does something useful"
+    hint icon: "download"
     namespace: "utils"
     realm: "backend"
     filename: "output.txt"
@@ -402,6 +405,7 @@ string that is checked only when the command is registered, and `version:` one o
 |-----------|------|-------------|
 | `label: "..."` | String | Human-readable command name |
 | `doc: "..."` | String | Documentation/description |
+| `hint <key>: "..."` | String | A command-level hint, e.g. for a UI (`hint icon: "download"`). Emits `cm.hints.insert("<key>", "...".into())`; values are strings. Repeatable with different keys; the same key twice is a compile error (*duplicate command hint*). `CommandMetadata::hints` is omitted from serialized metadata when empty |
 | `namespace: "..."` or `ns: "..."` | String | Command namespace |
 | `realm: "..."` | String | Command realm |
 | `filename: "..."` | String | Default output filename |
@@ -578,6 +582,7 @@ Common compile-time errors:
 - Parameter name starts with `_` or contains `__`
 - `context` declared twice or given a type; the state keyword declared twice or after an argument
 - An argument `hint` option (not supported)
+- A command `hint` key given twice
 - Unknown metadata statement
 - Invalid default value type
 - Type mismatch between function and DSL — including parameter *order*: the wrapper calls the
@@ -679,6 +684,7 @@ pub fn register_commands(mut env: DefaultEnvironment<Value>) -> Result<DefaultEn
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-11 | §Parameter Metadata: argument `description:`; §Metadata Statements: command `hint <key>: "..."`, duplicate-key error. | `design/command-metadata-descriptions-and-hints/` |
 | 2026-10-10 | Metadata statements: `cached: true/false` (`design/plan-policy/`). | phase-5, `design/plan-policy/` |
 | 2026-10-10 | §Context Parameter rewritten: `context` at any position, the recommended position (last or before `multiple`, for Python `*args` parity), its compile-time errors; §State Parameter: keywords recognised by form, state before every argument; §Parameter Metadata: argument `hint` rejected; §Error Handling: new diagnostics, 1-based argument numbers; §References: implementation file. | phase-5, `design/context-param-order/` |
 | 2026-10-07 | §Metadata Statements: rows for `payload:`, `expires:` and `version:`, the example block shows them, new §Implementation versions (`#[command_version]`); §Injected Parameters links `payload: required`. | phase-5, `design/register-command-payload-docs/` |

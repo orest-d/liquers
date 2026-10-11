@@ -469,6 +469,18 @@ register_command!(cr,
 )?;
 ```
 
+**Explaining an argument and hinting the command:** `description:` in an argument's parentheses
+explains it (a UI tooltip, and what an agent reads in `command_registry.yaml`); `hint <key>: "..."`
+after the signature attaches a free command-level hint, e.g. for a toolbar. Both are omitted from the
+metadata when not given.
+```rust
+register_command!(cr,
+    fn wrap(state, width: i32 = 80 (label: "Width", description: "Maximum line width in characters")) -> result
+    label: "Wrap"
+    hint icon: "wrap-text"
+)?;
+```
+
 **Async command:**
 ```rust
 async fn fetch_data(state: State<Value>, url: String) -> Result<Value, Error> {
@@ -1035,6 +1047,7 @@ fn apply(...) -> Result<...> { ... }
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-11 | §Common Examples: argument `description:` and command `hint <key>:`. | `design/command-metadata-descriptions-and-hints/` |
 | 2026-10-11 | New §5 *Commands that list or describe the store must not evaluate it*. | phase-5, `design/store-and-asset-search/` |
 | 2026-10-10 | New §Commands whose output is not worth keeping (`cached: false`); `cached` in the metadata statement list. | phase-5, `design/plan-policy/` |
 | 2026-10-10 | New §1 *Reading the input's description*: a command reads its input's format, key and origin from `state.metadata`, and its own asset through `Context`. | phase-5, `design/plan-step-state-metadata/` |
