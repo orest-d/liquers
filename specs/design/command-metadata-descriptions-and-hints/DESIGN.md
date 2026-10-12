@@ -3,12 +3,11 @@ id: COMMAND-METADATA-DESCRIPTIONS-AND-HINTS
 kind: design
 title: Command-level hints and per-argument descriptions
 form: compact
-status: in_review
-phase: implementation
 readiness: ready
 autofix: not-eligible
 area: [core/commands, macro, lib/ui]
 issues: [COMMAND-METADATA-HAS-NO-COMMAND-LEVEL-HINTS, ARGUMENT-INFO-HAS-NO-DESCRIPTION]
+gh_pr: [116]
 merged: 2026-10-08
 created: 2026-10-08
 ---
@@ -159,12 +158,18 @@ The Problem Example's `wrap` registration (AC-5) and an `export` command with `h
 
 ### Steps
 
-- [ ] 1. `command_metadata.rs` — both fields, builders, constructors; fix literals — `cargo test -p liquers-core --lib command_metadata`
-- [ ] 2. `registration.rs` — command `hint` statement with duplicate rejection — `cargo test -p liquers-macro`
-- [ ] 3. `registration.rs` — argument `description` option — `cargo test -p liquers-lib --lib --tests register_command`
-- [ ] 4. `liquers-py` getters if applicable — `cargo check -p liquers-py --lib`
-- [ ] 5. Registry check — `cargo test -p liquers-lib --test registry_export` (no regeneration)
-- [ ] 6. Documents above; both issues' resolutions; `python3 scripts/docs_index.py --check`
+- [x] 1. `command_metadata.rs` — both fields, builders, constructors; fix literals — `cargo test -p liquers-core --lib command_metadata`
+- [x] 2. `registration.rs` — command `hint` statement with duplicate rejection — `cargo test -p liquers-macro`
+- [x] 3. `registration.rs` — argument `description` option — `cargo test -p liquers-lib --lib --tests register_command`
+- [x] 4. `liquers-py` getters if applicable — not applicable: the wrappers expose no `doc`, `label` or
+  `hints` getters, and both fields travel through their `to_json` / `from_json`
+- [x] 5. Registry check — `cargo test -p liquers-lib --test registry_export` (no regeneration)
+- [x] 6. Documents above; both issues' resolutions; `python3 scripts/docs_index.py --check`
+
+Done on 2026-10-11. Beyond the plan: `command_declaration.rs` dropped a command-level `hints` key
+with a `DroppedKey` warning because the field did not exist; the warning and its variant are
+removed and the key now reaches the metadata (`COMMAND_DECLARATION.md` §4, §6.1). The macro emits
+`description:` only when one is given, so generated code for existing commands is unchanged.
 
 ### Validation
 

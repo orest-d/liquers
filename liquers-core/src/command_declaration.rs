@@ -151,8 +151,6 @@ pub enum WarningKind {
     /// No introspection ran, the declaration supplied arguments, and no `state_argument` was
     /// declared — so this is a source command by omission.
     NoIntrospection,
-    /// A declared key cannot reach the metadata and was dropped.
-    DroppedKey,
 }
 
 /// A non-fatal diagnostic from the pipeline.
@@ -689,8 +687,7 @@ impl CommandDeclaration {
 
     /// Stage 5. Converts to metadata and validates, or reports what is wrong.
     ///
-    /// `registration` and `conventions` are declaration-only and do not reach the metadata; nor,
-    /// today, does a command-level `hints`, which warns instead.
+    /// `registration` and `conventions` are declaration-only and do not reach the metadata.
     ///
     /// In a declaration an absent `state_argument` means a *source* command, whereas raw
     /// `CommandMetadata` reads an omitted field as the conventional `state` argument; the
@@ -721,14 +718,6 @@ impl CommandDeclaration {
     /// Stages 3-5 in order. The normal entry point once a declaration has been enhanced.
     pub fn finish(&mut self) -> Result<CommandMetadata, Error> {
         self.apply_conventions()?;
-        if self.doc.get("hints").is_some() {
-            self.warn(
-                WarningKind::DroppedKey,
-                "`hints` at command level is dropped: CommandMetadata has no command-level hints \
-                 field, so the key cannot reach the metadata"
-                    .to_string(),
-            );
-        }
         self.fill_defaults();
         self.build()
     }
@@ -1437,14 +1426,15 @@ mod tests {
         );
     }
 
+    /// A command-level usage hint is ordinary metadata: it reaches the built command, silently.
     #[test]
-    fn warn04_a_dropped_command_level_hints_key_warns() {
+    fn warn04_a_command_level_hints_key_reaches_the_metadata() {
         let mut d = CommandDeclaration::from_document(json!({"name":"f"}));
         d.enhance(&json!({ "hints": { "category": "text" } }))
             .unwrap();
         let m = finish(&mut d);
-        assert!(kinds(&d).contains(&WarningKind::DroppedKey));
-        assert_eq!(serde_json::to_value(&m).unwrap().get("hints"), None);
+        assert!(d.warnings().is_empty());
+        assert_eq!(m.hints["category"], json!("text"));
     }
 
     #[test]
@@ -1519,6 +1509,18 @@ mod tests {
             { "name": "a", "hints": { "placeholder": "how many times" } }
         ]}));
         assert_eq!(m.arguments[0].hints["placeholder"], json!("how many times"));
+    }
+
+    /// An argument's `description` is ordinary metadata too.
+    #[test]
+    fn hint05_argument_description_reaches_the_metadata() {
+        let m = build(json!({ "name": "f", "arguments": [
+            { "name": "width", "description": "Maximum line width in characters" }
+        ]}));
+        assert_eq!(
+            m.arguments[0].description,
+            "Maximum line width in characters"
+        );
     }
 
     /// Resolving one needs a registry, so it stays where it happens today.

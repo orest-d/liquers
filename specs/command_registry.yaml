@@ -23,6 +23,8 @@
 #             IntegerField. design/command-alias-contract
 # 2026-10-11  Adds the `search` namespace: catalog, commands, search, field_extract, md_split
 #             (113 commands total: +5). design/store-and-asset-search Phase 4, Step 13
+# 2026-10-11  img/to_jpeg `quality: u8` is `argument_type: int` (was any): every integer width now
+#             maps to Integer. design/register-command-option-value
 # CHANGELOG-END
 commands:
 - name: to_text
@@ -539,6 +541,7 @@ commands:
   - name: quality
     label: quality
     default: !Value 85
+    argument_type: int
     gui_info: !TextField 40
   volatile: false
   expires: never

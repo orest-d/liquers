@@ -1273,6 +1273,7 @@ fn argument_type_name(argument_type: &ArgumentType) -> String {
         ArgumentType::Float => "float".to_string(),
         ArgumentType::FloatOption => "float_opt".to_string(),
         ArgumentType::Boolean => "bool".to_string(),
+        ArgumentType::BooleanOption => "bool_opt".to_string(),
         ArgumentType::Enum(e) => format!("enum {}", e.name),
         ArgumentType::GlobalEnum(name) => format!("enum {name}"),
         ArgumentType::Any => "any".to_string(),
@@ -1371,9 +1372,12 @@ fn convert_scalar(arg: &ArgumentInfo, value: &Value) -> Result<ConvertedOverride
             }
             Value::Null | Value::Bool(_) | Value::Array(_) | Value::Object(_) => Err(refuse()),
         },
-        ArgumentType::Boolean => match value {
+        ArgumentType::Boolean | ArgumentType::BooleanOption => match value {
             Value::Bool(_) => Ok(ConvertedOverride::Value(value.clone(), None)),
             Value::String(s) => converted(from_text(s)?),
+            Value::Null if arg.argument_type == ArgumentType::BooleanOption => {
+                Ok(ConvertedOverride::Value(Value::Null, None))
+            }
             Value::Null | Value::Number(_) | Value::Array(_) | Value::Object(_) => Err(refuse()),
         },
         ArgumentType::Enum(e) => match value {

@@ -2,8 +2,7 @@
 id: ACTIVE-12
 kind: design
 title: Design for WEB-LIQUERSERROR-NOT-CONSTRUCTIBLE
-status: in_review
-phase: implementation
+gh_pr: [123]
 readiness: ready
 autofix: not-eligible
 area: [web, core/error]

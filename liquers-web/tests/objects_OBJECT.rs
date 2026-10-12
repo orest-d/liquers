@@ -53,6 +53,7 @@ error_types!(
     DependencyCycle,
     StatusConflict,
     Cancelled,
+    ConfigurationError,
 );
 
 /// OBJECT01 — query parse/encode round-trips.
@@ -278,6 +279,65 @@ fn error04_non_error_throw_has_safe_fallback() {
         ErrorType::ConversionError,
         "the fallback type must be honoured; a conversion failure is not an execution failure"
     );
+}
+
+/// A page constructs a typed error: its type and message are what was passed, and the fields only
+/// Liquers fills stay null.
+#[wasm_bindgen_test]
+fn error_constructor_builds_a_typed_error() {
+    let err = LiquersError::construct("key_not_found", "m".to_string(), None).expect("constructs");
+    assert_eq!(err.error_type(), "key_not_found");
+    assert_eq!(err.message(), "m");
+    assert_eq!(err.key(), None);
+    assert_eq!(err.query(), None);
+    assert_eq!(err.js_class(), None);
+    assert_eq!(err.js_stack(), None);
+    assert_eq!(err.inner().error_type, ErrorType::KeyNotFound);
+}
+
+/// An unknown type name is a `TypeError`, not a silent `general`.
+#[wasm_bindgen_test]
+fn error_constructor_refuses_an_unknown_type() {
+    let thrown = match LiquersError::construct("no_such_type", "m".to_string(), None) {
+        Ok(_) => panic!("an unknown type must be refused"),
+        Err(thrown) => thrown,
+    };
+    let type_error = thrown
+        .dyn_ref::<js_sys::TypeError>()
+        .expect("the refusal is a TypeError");
+    let text: String = type_error.message().into();
+    assert!(text.contains("no_such_type"), "the bad name is reported: {text}");
+}
+
+/// A key travels as a key query; `key` stays null.
+#[wasm_bindgen_test]
+fn error_constructor_keeps_a_key_query() {
+    let err = LiquersError::construct(
+        "key_not_found",
+        "m".to_string(),
+        Some("-R/data/a.txt".to_string()),
+    )
+    .expect("constructs");
+    assert_eq!(err.query().as_deref(), Some("-R/data/a.txt"));
+    assert_eq!(err.key(), None);
+}
+
+/// A query that does not parse is a `TypeError` carrying the parse message.
+#[wasm_bindgen_test]
+fn error_constructor_refuses_an_unparseable_query() {
+    let thrown = match LiquersError::construct(
+        "key_not_found",
+        "m".to_string(),
+        Some("hello/a:b".to_string()),
+    ) {
+        Ok(_) => panic!("an unparseable query must be refused"),
+        Err(thrown) => thrown,
+    };
+    let type_error = thrown
+        .dyn_ref::<js_sys::TypeError>()
+        .expect("the refusal is a TypeError");
+    let text: String = type_error.message().into();
+    assert!(text.contains("hello/a:b"), "the query is reported: {text}");
 }
 
 /// ERROR05 — no panic crosses the boundary.

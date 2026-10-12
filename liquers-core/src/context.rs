@@ -1901,7 +1901,7 @@ mod tests {
     }
 
     #[test]
-    fn absolute_outer_query_keeps_relative_link_independent() {
+    fn rooted_outer_query_keeps_relative_link_independent() {
         let (context, mut receiver) = test_context();
         let query =
             parse_query("/-R/./outer.txt/-/action-~X~-R/./relative.txt~E-~X~/-R/./absolute.txt~E")
@@ -1910,7 +1910,7 @@ mod tests {
         let resolved = context
             .resolve_query_from_cwd(&query)
             .expect("scoped resolution without an entry cwd");
-        assert!(resolved.absolute);
+        assert!(resolved.rooted);
         assert_eq!(first_resource_key(&resolved).encode(), "outer.txt");
         let QuerySegment::Transform(transform) = &resolved.segments[1] else {
             std::panic!("expected transform segment");
@@ -1921,9 +1921,9 @@ mod tests {
         let ActionParameter::Link(absolute_link, _) = &transform.query[0].parameters[1] else {
             std::panic!("expected absolute linked query");
         };
-        assert!(!relative_link.absolute);
+        assert!(!relative_link.rooted);
         assert_eq!(first_resource_key(relative_link).encode(), "relative.txt");
-        assert!(absolute_link.absolute);
+        assert!(absolute_link.rooted);
         assert_eq!(first_resource_key(absolute_link).encode(), "absolute.txt");
         assert_eq!(context.get_cwd_key(), Some(Key::new()));
 

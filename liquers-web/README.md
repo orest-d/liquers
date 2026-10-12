@@ -151,6 +151,18 @@ so a half-written store says so.
 A directory has no data, so `get` reports it absent; implement `isDir` and `listdir` and the store
 answers directory metadata listing its children. A thrown error is never treated as a directory.
 
+To report a specific failure rather than `key_read_error`, throw a `LiquersError` built by the
+page: `new liquers.LiquersError(errorType, message, query?)`. `errorType` is a name as `errorType`
+reports it (`'key_not_found'`, `'key_read_error'`, …); an unknown name throws `TypeError` rather than
+falling back to `general`. A key travels as a key query in `query` (`'-R/data/a.txt'`, not the bare
+`'data/a.txt'`), and a query that does not parse throws `TypeError`. The error keeps its type when
+Liquers receives it. It is a wasm-bindgen class, not a subclass of `Error`, so it carries no
+JavaScript stack, and `key`, `jsClass` and `jsStack` stay `null`.
+
+```js
+throw new liquers.LiquersError('key_read_error', 'permission denied', '-R/private/notes.txt');
+```
+
 ```js
 env.registerStoreObject('mine', {
   get(key) { return files.has(key) ? { data: files.get(key) } : null; },  // null: absent

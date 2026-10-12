@@ -31,6 +31,7 @@ fn type_name(argument_type: &ArgumentType) -> String {
         ArgumentType::Float => "Float".to_string(),
         ArgumentType::FloatOption => "Float?".to_string(),
         ArgumentType::Boolean => "Boolean".to_string(),
+        ArgumentType::BooleanOption => "Boolean?".to_string(),
         ArgumentType::Enum(e) => {
             let aliases: Vec<&str> = e.values.iter().map(|v| v.alias.as_str()).collect();
             format!("Enum({})", aliases.join("|"))

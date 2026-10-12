@@ -132,7 +132,7 @@ impl<E: Environment> AssetManager<E> for MinimalInlineAssetManager<E> {
 | `get(key)` | Reuse a usable registered asset, or create one, register it (§7), try `fast_track`, and evaluate if that refuses. Evict and retry on an unusable status. |
 | `apply(recipe, to, payload)` | Build an unregistered, non-keyed asset with `AssetData::new_ext(.., to, None, ..)` and evaluate it before returning, on both modes. |
 | `set_binary(key, binary, metadata)` | Under the key-mutation lock: replace the live asset, decide the status, set the version, write the store, `publish_version`. Then `refresh_listing_version(&key.parent())` (§6). |
-| `set_state(key, state)` | Install a state. An external manager can only store one that has bytes (§11). |
+| `set_state(key, state)` | Under the key-mutation lock: replace the live asset, build the new one with `AssetRef::new_installed`, write the store (its bytes, or for a value with no byte form remove the old object and write metadata only), map it, `publish_version` and `track_installed`, then notify the replaced asset. Serializable or not, the state is served from memory. |
 | `eval_mode` | The constant from §2. |
 | `lookup_key_asset`, `lookup_query_asset` | Read the maps. Never create, never evaluate. A pure key query in `lookup_query_asset` reads the key map. |
 | `remove_key_asset` | Drop the key's entry. |
@@ -200,13 +200,16 @@ rustdoc; the summary:
 | `AssetRef::set_payload_path(path)` | On a freshly built payload-evaluated asset, before running it, to carry cycle detection down the payload path. |
 | `AssetRef::expire_without_cascade(reason)` | Expire this asset alone. `Ready` and `Override` become `Expired` and the reason is recorded through `record_expiry`; already `Expired` is a no-op; any other status is an error. Persists the `Expired` status for a stored keyed asset. Does not touch the graph or your maps — the cascade and the eviction are the caller's. |
 | `AssetRef::cancel_for_replacement()` | Retire the asset a write or removal replaces. An in-flight one ends `Cancelled` at once (releasing its waiters with `JobFinished`), its run's late result is discarded, and it writes nothing more to the store; a finished one is left as it is. Call it before writing the key's new entry. |
+| `AssetRef::notify_removed()` | Send the replaced or removed asset's subscribers the terminal `Removed`, so they re-subscribe instead of reading `Cancelled` as a failure. Once, after `cancel_for_replacement` (not `cancel`, which can return while the run is still active), after unmapping the asset and writing its replacement, so a woken subscriber finds the new asset. Also when that write fails: the asset is retired either way, and the next `get` resolves the key afresh. Changes no state. |
+| `AssetRef::new_installed(id, key, state, status, envref)` | A finished keyed asset holding a supplied `state` (`set_state`), serializable or not; the value is shared, not copied. `status` must be one a write produces (`Source`, `Override`, `Expired`, `Error`), anything else is an error. Names `key` in the metadata. Starts no service loop and writes nothing: persisting, mapping it once persisted, `publish_version`, `track_installed` and, for `Expired`, `record_expiry` stay yours. |
 | `AssetRef::cancel()` | A client's best-effort cancel: a request the run decides (a completed command still ends ready and is stored). Not for replacement — its late result could overwrite your write. |
 | `AssetManager::publish_version(dep_key, version)` | Publish a written key's new version and cascade-expire dependents that recorded another (`Updated`). Graph only: no store write, no lock, safe under the key-mutation lock. Unchanged version, no cascade. |
+| `AssetManager::track_installed(asset, version)` | Register an installed asset and the dependency records in its metadata in the graph, so a later change to a dependency expires it (an `Override`; a `Source` is never expired). Call it after `publish_version`, once the asset is mapped. Graph only, safe under the key-mutation lock. |
 | `AssetManager::refresh_listing_version(dir)` | Call it with the written key's parent after every write or removal. First tells the recipe provider (`directory_changed`, so a caching provider such as the manifest provider drops its folder listing), then re-hashes a directory listing that something depends on. |
 | `AssetManager::is_volatile(key)`, `is_volatile_query(query)` | Volatility **without evaluating**, asked before registering (§7). |
 
-Not exposed, deliberately: the run claims, the job queue, `set_status`, `set_value`, `fail_asset`
-and `notify_removed`. Raw status writes would bypass the status authority; the claims are taken
+Not exposed, deliberately: the run claims, the job queue, `set_status`, `set_value` and
+`fail_asset`. Raw status writes would bypass the status authority; the claims are taken
 inside `run` / `run_inline`.
 
 A `get` loop built from these, from the minimal manager:
@@ -262,25 +265,27 @@ The shape of a write, from the minimal manager's `set_binary` (status decision e
 
 ```rust
 let mutation = self.mutation_lock.lock().await;
-if let Some(old) = self.lookup_key_asset(key) {
+let replaced = self.lookup_key_asset(key);
+if let Some(old) = &replaced {
     old.cancel_for_replacement().await?;
     self.remove_key_asset(key).await;
 }
-// … decide `final_status`, set `metadata.version = Some(Version::from_content(binary))` …
-if metadata.stored() {
-    self.get_envref()
-        .get_async_store()
-        .set(key, stored_bytes, &Metadata::MetadataRecord(metadata.clone()))
-        .await?;
-}
-if matches!(final_status, Status::Ready | Status::Source | Status::Override) {
-    if let Some(version) = metadata.version {
-        self.publish_version(&DependencyKey::from(key), version).await;
-    }
+// `write_binary`: decide `final_status`, set `metadata.version = Some(Version::from_content(binary))`,
+// write the store when `metadata.stored()`, and `publish_version` for Ready/Source/Override.
+let result = self.write_binary(key, binary, metadata).await;
+// Only now, with the key showing its new value, so a woken subscriber does not find `old` again.
+// Also on a failed write: `old` is cancelled and unmapped either way.
+if let Some(old) = &replaced {
+    old.notify_removed().await;
 }
 drop(mutation);
+result?;
 self.refresh_listing_version(&key.parent()).await;
 ```
+
+A `set_state` whose value has no byte form writes a metadata-only entry (`set_metadata`). Remove the
+key's stored object first: `set_metadata` keeps an existing data object, and the old bytes beside
+the new metadata would be read back after eviction.
 
 The version is the content hash (`Version::from_content`), so outside-change detection can verify it
 later. `publish_version` runs after the store write, so a dependent recomputed after the cascade
@@ -476,7 +481,6 @@ store conformance suite: shared scenarios, no rule numbers and no capability mod
 
 | Limit | Issue |
 |---|---|
-| A write cannot send the replaced asset its `Removed` notification (`notify_removed` is crate-private); a waiter is released by `cancel_for_replacement`'s `JobFinished` only. `set_state` can only store a state that has bytes, and the next `get` fast-tracks it; a non-serializable value is refused. | `EXTERNAL-MANAGER-CANNOT-NOTIFY-REPLACED-ASSET` |
 | An inline run dropped mid-flight can strand callers already waiting on it. | `INLINE-DROP-REPAIR-STRANDS-EXISTING-WAITERS` |
 | Ownership is read from your map; what registration guarantees beyond §7 is open. | `ASSET-REGISTRATION-OWNERSHIP-CONTRACT` |
 | The manager and the environment hold each other strongly. | `ENVIRONMENT-MANAGER-REFERENCE-CYCLE` |
@@ -497,6 +501,7 @@ store conformance suite: shared scenarios, no rule numbers and no capability mod
 | Date | Change | Source |
 |---|---|---|
 | 2026-10-12 | §4: the provided `apply_queued` — what to return on a queued and on an inline manager. | phase-5, `design/axum-query-named-arguments/` |
+| 2026-10-11 | §Primitives: `notify_removed`, `new_installed` and `track_installed` are public (rows added, removed from "not exposed"); the write example notifies the replaced asset once the key holds its replacement (or the write has failed), and a metadata-only write removes the stored object first; the known-limits row for both is removed; §4's `set_state` row describes installing any state. | `design/external-manager-replacement-surface/` |
 | 2026-10-10 | Provided accessors gain `recipe_cache_strategy`, `query_cache_strategy` and `cut_predecessors`; new caching-strategy rules for a custom manager (keyed, top-level, a dependency following its creator), and `Recipe::cached` is now a strategy. A key with no recipe is not subject to the strategy, and an existing keyed asset is reused before it is consulted (PR #102 review). | phase-5, `design/plan-policy/` |
 | 2026-10-09 | §Primitives: `cancel_for_replacement` for writes and removals (the `cancel()` row says why not); the write example and the known-limits row follow. | phase-5 (`design/asset-cancellation-outcome/`) |
 | 2026-10-08 | `DefaultRecipeProvider` is constructed with `::new()` (it holds a recipe cache). The audit-policy section notes that the stored-records walk and the store audit are inherited provided methods. | phase-5 (`design/dependency-chain-analysis-cost/`) |

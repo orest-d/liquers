@@ -225,11 +225,11 @@ fn schedule_plan_dependencies_from<'a, E: Environment>(
     seen: &'a mut HashSet<Key>,
 ) -> crate::maybe_send::BoxFuture<'a, Result<(), Error>> {
     Box::pin(async move {
-        let absolute_resource_step = plan.absolute_query_resource_step_index();
+        let rooted_resource_step = plan.rooted_query_resource_step_index();
         for (step_index, step) in plan.steps.iter().enumerate() {
             match step {
                 Step::GetAsset(key) | Step::GetAssetBinary(key) | Step::GetAssetMetadata(key) => {
-                    let resolved = if absolute_resource_step == Some(step_index) {
+                    let resolved = if rooted_resource_step == Some(step_index) {
                         key.to_absolute(&Key::new())
                     } else {
                         cursor.resolve_key(key)
@@ -261,7 +261,7 @@ fn schedule_plan_dependencies_from<'a, E: Environment>(
                     schedule_plan_dependencies_from(nested_plan, context, cursor, seen).await?;
                 }
                 Step::SetCwd(key) => {
-                    if absolute_resource_step == Some(step_index) {
+                    if rooted_resource_step == Some(step_index) {
                         let resolved = key.to_absolute(&Key::new());
                         cursor.set_cwd_from(&resolved);
                     } else {
@@ -371,7 +371,7 @@ pub(crate) fn apply_plan_state<E: Environment>(
     context: Context<E>,
     envref: EnvRef<E>,
 ) -> crate::maybe_send::BoxFuture<'static, Result<State<E::Value>, Error>> {
-    if let Some(step_index) = plan.absolute_query_resource_step_index() {
+    if let Some(step_index) = plan.rooted_query_resource_step_index() {
         plan.steps[step_index] =
             resolve_absolute_query_resource_step(plan.steps[step_index].clone());
     }
@@ -1620,7 +1620,7 @@ mod tests {
         recipe.cwd = Some("../recipe".to_owned());
         let plan = recipe.to_plan(envref.get_command_metadata_registry())?;
 
-        assert_eq!(plan.absolute_query_resource_step_index(), Some(1));
+        assert_eq!(plan.rooted_query_resource_step_index(), Some(1));
         assert!(matches!(
             &plan.steps[0],
             Step::SetCwd(key) if key.encode() == "../recipe"
@@ -1688,7 +1688,7 @@ mod tests {
 
         // The index maps source query segments onto steps positionally, so it is meaningful only
         // while the operands are still source-relative. Freezing consumes it.
-        assert_eq!(plan.absolute_query_resource_step_index(), Some(1));
+        assert_eq!(plan.rooted_query_resource_step_index(), Some(1));
 
         finalize_plan(envref.clone(), &mut plan, &context, &State::new()).await?;
 

@@ -89,6 +89,7 @@ fn argument_type_name(at: &ArgumentType) -> &str {
         ArgumentType::Float => "Float",
         ArgumentType::IntegerOption => "Integer?",
         ArgumentType::FloatOption => "Float?",
+        ArgumentType::BooleanOption => "Boolean?",
         ArgumentType::Enum(e) => &e.name,
         ArgumentType::Any => "Any",
         ArgumentType::None => "None",

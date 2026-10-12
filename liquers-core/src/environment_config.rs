@@ -89,14 +89,14 @@ impl EnvironmentConfig {
     /// Parses a YAML document.
     pub fn from_yaml(yaml: &str) -> Result<Self, Error> {
         serde_yaml::from_str(yaml).map_err(|e| {
-            Error::general_error(format!("Failed to parse environment configuration YAML: {e}"))
+            Error::parse_error(format!("Failed to parse environment configuration YAML: {e}"))
         })
     }
 
     /// Parses a JSON document.
     pub fn from_json(json: &str) -> Result<Self, Error> {
         serde_json::from_str(json).map_err(|e| {
-            Error::general_error(format!("Failed to parse environment configuration JSON: {e}"))
+            Error::parse_error(format!("Failed to parse environment configuration JSON: {e}"))
         })
     }
 
@@ -104,7 +104,7 @@ impl EnvironmentConfig {
     #[cfg(feature = "toml")]
     pub fn from_toml(toml_str: &str) -> Result<Self, Error> {
         toml::from_str(toml_str).map_err(|e| {
-            Error::general_error(format!("Failed to parse environment configuration TOML: {e}"))
+            Error::parse_error(format!("Failed to parse environment configuration TOML: {e}"))
         })
     }
 
@@ -166,6 +166,21 @@ recipes: trivial
 assets:
   job_capacity: 8
 "#;
+
+    /// T5: a malformed environment document is a parse error, as a malformed store document is.
+    #[test]
+    fn malformed_environment_document_is_parse_error() {
+        use crate::error::ErrorType;
+        let yaml = EnvironmentConfig::from_yaml("store: [unclosed").expect_err("bad yaml");
+        assert_eq!(yaml.error_type, ErrorType::ParseError);
+        let json = EnvironmentConfig::from_json("{").expect_err("bad json");
+        assert_eq!(json.error_type, ErrorType::ParseError);
+        #[cfg(feature = "toml")]
+        {
+            let toml = EnvironmentConfig::from_toml("=").expect_err("bad toml");
+            assert_eq!(toml.error_type, ErrorType::ParseError);
+        }
+    }
 
     /// T15: a document round-trips through YAML and JSON, and reaches the builder.
     #[test]
