@@ -20,8 +20,8 @@ describe the behaviour as built and tested). Prerequisites: none — the preflig
 - [x] Step 6: Assets API `q/data`, `q/entry`, `q/submit` with overrides; managed reporting (axum) — 3d2f799
 - [x] Step 7: Query API with overrides (axum) — a3d6696
 - [x] Step 8: WebSocket `arguments`, subscription ids, `cancel` (axum) — 5fa37e0, ba4fd7e (Q16 acknowledgement)
-- [ ] Step 9: README and examples (axum)
-- [ ] Step 10: final validation
+- [x] Step 9: README and examples (axum) — 1d5f5b6
+- [x] Step 10: final validation — core 44 suites, axum 14, liquers-lib 36 and registry_export green; wasm32 and liquers-py check clean (2026-10-12)
 
 ## Implementation Steps
 
@@ -184,6 +184,6 @@ gets a `## History` row and a `reviewed:` bump. Regenerated: `specs/index.csv` /
 
 ## Phase 5 Entry Criteria
 
-- [ ] Implementation finished and validated (every Progress item ticked with its commit)
+- [x] Implementation finished and validated (every Progress item ticked with its commit)
 - [ ] User and review comments answered
 - [ ] Documentation checkable against implemented and tested behaviour
