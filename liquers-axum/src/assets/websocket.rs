@@ -16,8 +16,21 @@
 //! A subscription follows one asset and **ends** with that asset's lifecycle: after the
 //! notification whose snapshot status is `Error`, `Cancelled`, `Expired` or `Volatile`, or after
 //! `Removed`. Subscribing again requests a fresh asset.
+//!
+//! **Argument overrides** (`specs/design/axum-query-named-arguments/`): on `ws/q`, a `subscribe`
+//! with a non-empty `arguments` object evaluates the query with them, ad hoc, as an **unmanaged**
+//! asset — one the asset manager does not hold, so nothing but this subscription can see it.
+//! Every notification says whether its asset is managed. An unmanaged subscription is named by a
+//! `subscription_id` (a UUID, valid on this connection only), by which it can be unsubscribed or
+//! cancelled; a managed one is addressed by its query or key as before. The id is acknowledged
+//! at once in a `Subscribed` message (echoing the subscribe's optional `request_id`), before any
+//! notification. `arguments` absent or `{}` is an ordinary subscription.
 
 use std::collections::HashMap;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, OnceLock,
+};
 
 use axum::{
     extract::{
@@ -32,17 +45,23 @@ use futures::{
     stream::{SplitSink, StreamExt},
 };
 use liquers_core::{
-    assets::{AssetManager, AssetNotificationMessage, AssetRef},
+    assets::{AssetManager, AssetNotificationMessage, AssetRef, EvalMode},
     context::{EnvRef, Environment},
     error::{Error, ErrorType},
     metadata::{AssetInfo, ProgressEntry, Status},
     parse::{parse_key, parse_query},
-    query::Key,
+    query::{Key, Query},
+    state::State as AssetState,
 };
 use serde::{Deserialize, Serialize};
 use tokio::{sync::mpsc, task::JoinHandle};
 
-use crate::api_core::{error::error_to_detail, ErrorDetail};
+use crate::api_core::{
+    error::error_to_detail,
+    overrides::{OverrideRequest, RouteOptions},
+    ErrorDetail,
+};
+use crate::assets::common::is_managed;
 
 /// Limits of the WebSocket endpoints (`AssetsApiBuilder::with_websocket_limits`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -71,20 +90,32 @@ const OUTGOING_QUEUE: usize = 64;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case")]
 pub enum ClientMessage {
-    /// Request the asset and follow its notifications.
+    /// Request the asset and follow its notifications. A non-empty `arguments` object (`ws/q`
+    /// only) holds argument overrides of the query's last action; the evaluation is then
+    /// unmanaged and named by the `subscription_id` its notifications carry.
     Subscribe {
         #[serde(default)]
         query: Option<String>,
         #[serde(default)]
         key: Option<String>,
+        #[serde(default)]
+        arguments: Option<serde_json::Map<String, serde_json::Value>>,
+        /// Echoed in the `Subscribed` acknowledgement of an override subscription, so a client
+        /// can tell which `subscribe` an id answers.
+        #[serde(default)]
+        request_id: Option<String>,
     },
-    /// Stop following an asset.
+    /// Stop following an asset: by its address, or an unmanaged one by its `subscription_id`.
     Unsubscribe {
         #[serde(default)]
         query: Option<String>,
         #[serde(default)]
         key: Option<String>,
+        #[serde(default)]
+        subscription_id: Option<String>,
     },
+    /// Cancel the evaluation of an unmanaged subscription (the only way to reach it).
+    Cancel { subscription_id: String },
     /// Stop following every asset.
     UnsubscribeAll,
     /// Answered with `Pong`.
@@ -104,6 +135,11 @@ pub struct Head {
     pub timestamp: String,
     /// The asset's state re-read after the change.
     pub info: Option<Box<AssetInfo>>,
+    /// Whether the asset is managed — held by the asset manager under its address.
+    pub managed: bool,
+    /// The subscription's id, for an unmanaged asset only.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub subscription_id: Option<String>,
 }
 
 /// Server messages: one per `AssetNotificationMessage`, plus the protocol replies.
@@ -164,6 +200,17 @@ pub enum NotificationMessage {
         #[serde(flatten)]
         head: Head,
     },
+    /// Sent at once for a `subscribe` with `arguments`, before any notification of it: the id
+    /// of the unmanaged subscription, by which it can be cancelled even while its evaluation is
+    /// still being set up.
+    Subscribed {
+        timestamp: String,
+        subscription_id: String,
+        query: String,
+        managed: bool,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        request_id: Option<String>,
+    },
     Pong {
         timestamp: String,
     },
@@ -173,6 +220,9 @@ pub enum NotificationMessage {
     Error {
         timestamp: String,
         error: ErrorDetail,
+        /// The unmanaged subscription the error belongs to, if any.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        subscription_id: Option<String>,
     },
 }
 
@@ -181,10 +231,21 @@ fn now() -> String {
 }
 
 fn error_message(error: &Error) -> NotificationMessage {
+    error_message_for(error, None)
+}
+
+fn error_message_for(error: &Error, subscription_id: Option<String>) -> NotificationMessage {
     NotificationMessage::Error {
         timestamp: now(),
         error: error_to_detail(error),
+        subscription_id,
     }
+}
+
+/// The one answer to an id that does not name an unmanaged subscription of this connection: it
+/// says nothing about other connections, or about whether the id exists elsewhere.
+fn unknown_subscription_id() -> NotificationMessage {
+    parameter_error("unknown subscription id".to_string())
 }
 
 fn parameter_error(message: String) -> NotificationMessage {
@@ -243,6 +304,42 @@ struct Subscribed<E: Environment> {
     asset: AssetRef<E>,
     query: Option<String>,
     key: Option<Key>,
+}
+
+/// How a subscription is reported: whether its asset is managed, and its id when it is not.
+#[derive(Clone)]
+struct Reporting {
+    managed: bool,
+    subscription_id: Option<String>,
+}
+
+/// Evaluate `address` (a query) with argument overrides, ad hoc: the unmanaged asset is returned
+/// without waiting for it (`AssetManager::apply_queued`).
+async fn request_overridden<E: Environment>(
+    env: &EnvRef<E>,
+    address: &str,
+    overrides: &OverrideRequest,
+) -> Result<Subscribed<E>, Error> {
+    let query = parse_query(address)?;
+    let recipe = overrides.to_recipe(&query, env.get_command_metadata_registry())?;
+    let asset = env
+        .get_asset_manager()
+        .apply_queued(recipe, AssetState::new())
+        .await?;
+    Ok(Subscribed {
+        asset,
+        query: Some(address.to_string()),
+        key: None,
+    })
+}
+
+/// The query whose address `subscribed` was requested under, for the managed check.
+fn subscribed_query<E: Environment>(subscribed: &Subscribed<E>) -> Option<Query> {
+    match (&subscribed.key, &subscribed.query) {
+        (Some(key), _) => Some(Query::from(key)),
+        (None, Some(query)) => parse_query(query).ok(),
+        (None, None) => None,
+    }
 }
 
 /// Request the addressed asset: `get_asset` for a query, `get` for a key (which must be stored or
@@ -335,6 +432,7 @@ fn convert_notification(head: Head, notification: AssetNotificationMessage) -> N
 async fn subscription_task<E: Environment>(
     env: EnvRef<E>,
     subscribed: Subscribed<E>,
+    reporting: Reporting,
     tx: mpsc::Sender<NotificationMessage>,
 ) {
     let Subscribed { asset, query, key } = subscribed;
@@ -351,6 +449,8 @@ async fn subscription_task<E: Environment>(
         key: key_text.clone(),
         timestamp: now(),
         info: info.map(Box::new),
+        managed: reporting.managed,
+        subscription_id: reporting.subscription_id.clone(),
     };
 
     let info = asset.get_asset_info().await.ok();
@@ -423,13 +523,32 @@ async fn writer_task(
     let _ = sink.close().await;
 }
 
-/// One socket's subscriptions, keyed by address.
+/// A running subscription, as its session holds it.
+struct SubscriptionHandle<E: Environment> {
+    task: JoinHandle<()>,
+    /// Set by the task once the asset has been requested.
+    asset: Arc<OnceLock<AssetRef<E>>>,
+    /// Set by the task (at once for an override subscription); an id is usable only when false.
+    managed: Arc<OnceLock<bool>>,
+    /// A `cancel` that arrived before the asset existed; the task applies it once it has it.
+    cancel_requested: Arc<AtomicBool>,
+}
+
+impl<E: Environment> SubscriptionHandle<E> {
+    fn is_unmanaged(&self) -> bool {
+        self.managed.get() == Some(&false)
+    }
+}
+
+/// One socket's subscriptions, by subscription id; subscriptions without overrides are also
+/// indexed by address, so re-subscribing to an address replaces the previous one.
 struct Session<E: Environment> {
     env: EnvRef<E>,
     family: Family,
     limits: WebSocketLimits,
     tx: mpsc::Sender<NotificationMessage>,
-    subscriptions: HashMap<String, JoinHandle<()>>,
+    subscriptions: HashMap<String, SubscriptionHandle<E>>,
+    by_address: HashMap<String, String>,
 }
 
 impl<E: Environment> Session<E> {
@@ -438,14 +557,49 @@ impl<E: Environment> Session<E> {
     }
 
     fn prune(&mut self) {
-        self.subscriptions.retain(|_, task| !task.is_finished());
+        self.subscriptions.retain(|_, handle| !handle.task.is_finished());
+        let live = &self.subscriptions;
+        self.by_address.retain(|_, id| live.contains_key(id));
     }
 
-    async fn subscribe(&mut self, address: String) {
+    /// The argument overrides of a `subscribe`; `None` when there are none (absent or `{}`).
+    fn overrides(
+        &self,
+        arguments: Option<serde_json::Map<String, serde_json::Value>>,
+    ) -> Result<Option<OverrideRequest>, Error> {
+        let Some(arguments) = arguments.filter(|a| !a.is_empty()) else {
+            return Ok(None);
+        };
+        match self.family {
+            Family::Query => {}
+            Family::Key => {
+                return Err(Error::from_error(
+                    ErrorType::ParameterError,
+                    "ws/key subscriptions take no arguments: a key's asset is defined by its \
+                     recipe; use ws/q"
+                        .to_string(),
+                ))
+            }
+        }
+        let body = serde_json::to_vec(&serde_json::Value::Object(arguments))
+            .map_err(|e| Error::from_error(ErrorType::ParameterError, e.to_string()))?;
+        let overrides = OverrideRequest::parse(Vec::new(), &body, RouteOptions::None)?;
+        Ok((!overrides.is_empty()).then_some(overrides))
+    }
+
+    async fn subscribe(
+        &mut self,
+        address: String,
+        arguments: Option<serde_json::Map<String, serde_json::Value>>,
+        request_id: Option<String>,
+    ) {
         self.prune();
-        if !self.subscriptions.contains_key(&address)
-            && self.subscriptions.len() >= self.limits.max_subscriptions
-        {
+        let overrides = match self.overrides(arguments) {
+            Ok(overrides) => overrides,
+            Err(e) => return self.reply(error_message(&e)).await,
+        };
+        let replacing = overrides.is_none() && self.by_address.contains_key(&address);
+        if !replacing && self.subscriptions.len() >= self.limits.max_subscriptions {
             self.reply(parameter_error(format!(
                 "subscription limit reached ({} per connection)",
                 self.limits.max_subscriptions
@@ -453,36 +607,125 @@ impl<E: Environment> Session<E> {
             .await;
             return;
         }
+        let id = uuid::Uuid::new_v4().to_string();
+        let asset = Arc::new(OnceLock::new());
+        let managed = Arc::new(OnceLock::new());
+        let cancel_requested = Arc::new(AtomicBool::new(false));
+        if overrides.is_some() {
+            // Known up front: an override subscription is unmanaged, so its id works at once —
+            // and is acknowledged now, before the task can send any notification of it.
+            let _ = managed.set(false);
+            self.reply(NotificationMessage::Subscribed {
+                timestamp: now(),
+                subscription_id: id.clone(),
+                query: address.clone(),
+                managed: false,
+                request_id,
+            })
+            .await;
+        }
         // The request runs in the subscription's own task: with an inline manager
-        // (`EvalMode::Inline`) `get`/`get_asset` evaluate before returning, and the session must
-        // keep answering `ping` and `unsubscribe` meanwhile.
+        // (`EvalMode::Inline`) `get`/`get_asset`/`apply_queued` evaluate before returning, and the
+        // session must keep answering `ping`, `unsubscribe` and `cancel` meanwhile.
         let env = self.env.clone();
         let family = self.family;
         let tx = self.tx.clone();
         let target = address.clone();
+        let (task_asset, task_managed, task_cancel, task_id) =
+            (asset.clone(), managed.clone(), cancel_requested.clone(), id.clone());
         let task = tokio::spawn(async move {
-            match request(&env, family, &target).await {
-                Ok(subscribed) => subscription_task(env, subscribed, tx).await,
+            let overridden = overrides.is_some();
+            let requested = match &overrides {
+                Some(overrides) => request_overridden(&env, &target, overrides).await,
+                None => request(&env, family, &target).await,
+            };
+            let subscribed = match requested {
+                Ok(subscribed) => subscribed,
                 Err(e) => {
-                    let _ = tx.send(error_message(&e)).await;
+                    let id = overridden.then(|| task_id.clone());
+                    let _ = tx.send(error_message_for(&e, id)).await;
+                    return;
+                }
+            };
+            let _ = task_asset.set(subscribed.asset.clone());
+            let is_managed = match (overridden, subscribed_query(&subscribed)) {
+                (true, _) | (false, None) => false,
+                (false, Some(query)) => is_managed(&env, &query, &subscribed.asset, false).await,
+            };
+            let _ = task_managed.set(is_managed);
+            if task_cancel.load(Ordering::SeqCst) {
+                let _ = subscribed.asset.cancel().await;
+            }
+            let reporting = Reporting {
+                managed: is_managed,
+                subscription_id: (!is_managed).then_some(task_id),
+            };
+            subscription_task(env, subscribed, reporting, tx).await;
+        });
+        let handle = SubscriptionHandle {
+            task,
+            asset,
+            managed,
+            cancel_requested,
+        };
+        if handle.managed.get().is_none() {
+            if let Some(previous) = self.by_address.insert(address, id.clone()) {
+                if let Some(previous) = self.subscriptions.remove(&previous) {
+                    previous.task.abort();
                 }
             }
-        });
-        if let Some(previous) = self.subscriptions.insert(address, task) {
-            previous.abort();
         }
+        self.subscriptions.insert(id, handle);
     }
 
     fn unsubscribe(&mut self, address: &str) {
-        if let Some(task) = self.subscriptions.remove(address) {
-            task.abort();
+        if let Some(id) = self.by_address.remove(address) {
+            if let Some(handle) = self.subscriptions.remove(&id) {
+                handle.task.abort();
+            }
+        }
+    }
+
+    async fn unsubscribe_id(&mut self, id: &str) {
+        match self.subscriptions.get(id) {
+            Some(handle) if handle.is_unmanaged() => {
+                if let Some(handle) = self.subscriptions.remove(id) {
+                    handle.task.abort();
+                }
+                self.by_address.retain(|_, v| v != id);
+            }
+            Some(_) | None => self.reply(unknown_subscription_id()).await,
+        }
+    }
+
+    async fn cancel(&mut self, id: &str) {
+        let Some(handle) = self.subscriptions.get(id).filter(|h| h.is_unmanaged()) else {
+            return self.reply(unknown_subscription_id()).await;
+        };
+        match handle.asset.get() {
+            Some(asset) => {
+                if let Err(e) = asset.cancel().await {
+                    self.reply(error_message_for(&e, Some(id.to_string()))).await;
+                }
+            }
+            None => {
+                // The asset does not exist yet: the task cancels it as soon as it has it. An
+                // inline manager is evaluating inside the task (`apply_queued` returns only after
+                // the evaluation), so stopping the task is what stops it there.
+                handle.cancel_requested.store(true, Ordering::SeqCst);
+                match self.env.get_asset_manager().eval_mode() {
+                    EvalMode::Inline => handle.task.abort(),
+                    EvalMode::Queued => {}
+                }
+            }
         }
     }
 
     fn unsubscribe_all(&mut self) {
-        for (_, task) in self.subscriptions.drain() {
-            task.abort();
+        for (_, handle) in self.subscriptions.drain() {
+            handle.task.abort();
         }
+        self.by_address.clear();
     }
 
     async fn handle_text(&mut self, text: &str) {
@@ -495,14 +738,38 @@ impl<E: Environment> Session<E> {
             }
         };
         match message {
-            ClientMessage::Subscribe { query, key } => match self.family.address(query, key) {
-                Ok(address) => self.subscribe(address).await,
+            ClientMessage::Subscribe {
+                query,
+                key,
+                arguments,
+                request_id,
+            } => match self.family.address(query, key) {
+                Ok(address) => self.subscribe(address, arguments, request_id).await,
                 Err(e) => self.reply(error_message(&e)).await,
             },
-            ClientMessage::Unsubscribe { query, key } => match self.family.address(query, key) {
+            ClientMessage::Unsubscribe {
+                query: None,
+                key: None,
+                subscription_id: Some(id),
+            } => self.unsubscribe_id(&id).await,
+            ClientMessage::Unsubscribe {
+                query,
+                key,
+                subscription_id: None,
+            } => match self.family.address(query, key) {
                 Ok(address) => self.unsubscribe(&address),
                 Err(e) => self.reply(error_message(&e)).await,
             },
+            ClientMessage::Unsubscribe {
+                subscription_id: Some(_),
+                ..
+            } => {
+                self.reply(parameter_error(
+                    "unsubscribe by `subscription_id` or by address, not both".to_string(),
+                ))
+                .await
+            }
+            ClientMessage::Cancel { subscription_id } => self.cancel(&subscription_id).await,
             ClientMessage::UnsubscribeAll => {
                 self.unsubscribe_all();
                 self.reply(NotificationMessage::UnsubscribedAll { timestamp: now() })
@@ -534,9 +801,10 @@ async fn handle_socket<E: Environment>(
         limits,
         tx,
         subscriptions: HashMap::new(),
+        by_address: HashMap::new(),
     };
     if let Some(address) = initial {
-        session.subscribe(address).await;
+        session.subscribe(address, None, None).await;
     }
     while let Some(incoming) = stream.next().await {
         match incoming {
@@ -621,7 +889,7 @@ mod tests {
             serde_json::from_str(r#"{"action":"subscribe","key":"a/b.txt"}"#).unwrap();
         assert!(matches!(
             message,
-            ClientMessage::Subscribe { query: None, key: Some(_) }
+            ClientMessage::Subscribe { query: None, key: Some(_), .. }
         ));
         assert!(serde_json::from_str::<ClientMessage>(r#"{"action":"Subscribe"}"#).is_err());
     }
@@ -648,6 +916,8 @@ mod tests {
             key: None,
             timestamp: "t".to_string(),
             info: None,
+            managed: true,
+            subscription_id: None,
         };
         let json = serde_json::to_value(convert_notification(
             head,
@@ -657,5 +927,7 @@ mod tests {
         assert_eq!(json["type"], "Removed");
         assert_eq!(json["asset_id"], 7);
         assert_eq!(json["query"], "make_text");
+        assert_eq!(json["managed"], true);
+        assert!(json.get("subscription_id").is_none(), "a managed subscription shows no id");
     }
 }

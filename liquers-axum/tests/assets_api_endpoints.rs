@@ -158,7 +158,7 @@ async fn post_entry_json(app: axum::Router, key: &str, entry: serde_json::Value)
     send_json(
         app,
         "POST",
-        &format!("/api/assets/key/entry/{}?format=json", key),
+        &format!("/api/assets/key/entry/{}?_entry_format=json", key),
         &serde_json::to_string(&entry).unwrap(),
     )
     .await
@@ -1156,7 +1156,7 @@ async fn aae37_q_entry_json_format_gives_data_entry_with_base64_data() {
     let envref = env_with(&[]).await;
     let app = build_app(envref);
     use base64::prelude::*;
-    let (status, json) = send(app, "GET", "/api/assets/q/entry/make_text?format=json", Body::empty()).await;
+    let (status, json) = send(app, "GET", "/api/assets/q/entry/make_text?_entry_format=json", Body::empty()).await;
     assert_eq!(status, StatusCode::OK);
     assert!(json["metadata"].is_object(), "negotiated DataEntry carries metadata, no result wrapper");
     let data = json["data"].as_str().expect("data is a base64 string");

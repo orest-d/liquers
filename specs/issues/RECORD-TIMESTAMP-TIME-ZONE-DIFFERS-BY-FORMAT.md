@@ -2,7 +2,7 @@
 id: RECORD-TIMESTAMP-TIME-ZONE-DIFFERS-BY-FORMAT
 kind: issue
 title: A record Timestamp column is a UTC instant in Parquet and a naive date-time in IPC and polars
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [records, lib/polars]
@@ -48,3 +48,12 @@ pandas 3 refuses a document whose values end in `Z` while the field declares no 
 formats, Parquet and the `table` orient agree on UTC, and IPC and the polars bridge are the two
 left to change.
 
+## Resolution (2026-10-11)
+
+Fixed as decided on 2026-10-10: a `Timestamp` is a UTC instant everywhere. The IPC writer
+declares `Timestamp(Microsecond, "UTC")`; the reader accepts `"UTC"`, an empty zone (files written
+before the change) and any other zone, taking the values as epoch microseconds without shifting.
+The polars bridge produces `Datetime(µs, "UTC")` and reads a `Datetime` of any unit and zone by
+changing the unit only. `liquers-lib` now enables polars' `timezones` feature, without which polars
+reads Parquet's UTC timestamps as zone `+00:00` instead of `UTC` and its `cast` drops a zone.
+Text, JSON and Parquet are unchanged.

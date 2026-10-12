@@ -502,9 +502,13 @@ impl ParameterValue {
                     )?,
                 )
             }
-            EnumArgumentType::Boolean => match raw_value.to_lowercase().as_str() {
-                "true" | "t" | "yes" | "y" | "1" => Value::Bool(true),
-                "false" | "f" | "no" | "n" | "0" => Value::Bool(false),
+            EnumArgumentType::Boolean | EnumArgumentType::BooleanOption => match (
+                raw_value.to_lowercase().as_str(),
+                enum_type,
+            ) {
+                ("true" | "t" | "yes" | "y" | "1", _) => Value::Bool(true),
+                ("false" | "f" | "no" | "n" | "0", _) => Value::Bool(false),
+                ("none", EnumArgumentType::BooleanOption) => Value::Null,
                 _ => {
                     return Err(Error::conversion_error_with_message(
                         raw_value.to_owned(),
@@ -561,6 +565,9 @@ impl ParameterValue {
                 CommandParameterValue::None => {
                     if arginfo.injected {
                         ParameterValue::Injected(arginfo.name.clone())
+                    } else if arginfo.argument_type.is_option() {
+                        // An optional argument without a declared default is absent, not missing.
+                        ParameterValue::DefaultValue(arginfo.name.clone(), Value::Null)
                     } else {
                         ParameterValue::None
                     }
@@ -709,6 +716,37 @@ impl ParameterValue {
                         pos,
                     )),
                 }
+            }
+            ArgumentType::BooleanOption => {
+                if s.is_empty() {
+                    let res = Self::from_arginfo(arginfo);
+                    if res.is_none() {
+                        return Ok(Self::ParameterValue(
+                            arginfo.name.clone(),
+                            Value::Null,
+                            pos.to_owned(),
+                        ));
+                    } else {
+                        return Ok(res);
+                    }
+                }
+                let value = match s.to_lowercase().as_str() {
+                    "true" | "t" | "yes" | "y" | "1" => Value::Bool(true),
+                    "false" | "f" | "no" | "n" | "0" => Value::Bool(false),
+                    "none" => Value::Null,
+                    _ => {
+                        return Err(Error::conversion_error_at_position(
+                            s.to_owned(),
+                            "boolean or none",
+                            pos,
+                        ))
+                    }
+                };
+                Ok(ParameterValue::ParameterValue(
+                    arginfo.name.clone(),
+                    value,
+                    pos.to_owned(),
+                ))
             }
             ArgumentType::Enum(ref e) => match e.expand_alias(s) {
                 CommandParameterValue::Value(x) => Ok(ParameterValue::ParameterValue(
@@ -1753,7 +1791,7 @@ impl<'c> PlanBuilder<'c> {
 
                 return Query {
                     segments: new_segments,
-                    absolute: query.absolute,
+                    rooted: query.rooted,
                     source: query.source.clone(),
                 };
             }
@@ -2175,7 +2213,7 @@ impl Plan {
     pub(crate) fn freeze_cwd_with(&mut self, cursor: &mut CwdCursor) -> Result<(), Error> {
         // Read before any rewriting: the index is derived by matching the source query's resource
         // segments against steps, which only holds while the operands are still source-relative.
-        let absolute_resource_step = self.absolute_query_resource_step_index();
+        let rooted_resource_step = self.rooted_query_resource_step_index();
         let mut root_cursor = CwdCursor::new(Some(Key::new()));
 
         // The predecessor is the leading steps, so it resolves from the entry state of this
@@ -2205,7 +2243,7 @@ impl Plan {
         }
 
         for (index, step) in self.steps.iter_mut().enumerate() {
-            let at_absolute_resource = absolute_resource_step == Some(index);
+            let at_absolute_resource = rooted_resource_step == Some(index);
             let step_cursor = if at_absolute_resource {
                 &mut root_cursor
             } else {
@@ -2422,8 +2460,8 @@ impl Plan {
     /// resource segments from the end keeps that prefix distinct even when it is identical to a
     /// query-authored `cwd` instruction. The returned index is runtime provenance only: callers
     /// resolve a consumed copy and leave this raw, serializable plan unchanged.
-    pub(crate) fn absolute_query_resource_step_index(&self) -> Option<usize> {
-        if !self.query.absolute {
+    pub(crate) fn rooted_query_resource_step_index(&self) -> Option<usize> {
+        if !self.query.rooted {
             return None;
         }
         let resources: Vec<&ResourceQuerySegment> = self
@@ -2595,6 +2633,31 @@ impl Plan {
                 | Step::SetCwd(_)
                 | Step::UseKeyValue(_) => {}
             }
+        }
+    }
+
+    /// Metadata of the command the query named for its last action.
+    ///
+    /// For an alias this is the alias (`ActionOrigin::Alias { command }`), not its target: the
+    /// alias's own arguments are the ones a caller may name. Its head slots carry the target's
+    /// argument names and are fixed by the alias definition, so they are deliberately not among
+    /// the returned arguments. `None` when the plan has no action or the command is unknown.
+    pub fn last_action_command(&self, cmr: &CommandMetadataRegistry) -> Option<CommandMetadata> {
+        let i = self.last_action_index()?;
+        if let Step::Action {
+            realm,
+            ns,
+            action_name,
+            origin,
+            ..
+        } = &self.steps[i]
+        {
+            match origin {
+                ActionOrigin::Direct => cmr.find_command(realm, ns, action_name),
+                ActionOrigin::Alias { command } => cmr.get(command.clone()).cloned(),
+            }
+        } else {
+            None
         }
     }
 
@@ -3092,11 +3155,11 @@ impl<E: Environment> DependencyWalk<E> {
         cursor: &mut CwdCursor,
         scan: &mut PlanScan,
     ) -> Result<(), Error> {
-        let absolute_resource_step = plan.absolute_query_resource_step_index();
+        let rooted_resource_step = plan.rooted_query_resource_step_index();
         for (step_index, step) in plan.steps.iter().enumerate() {
             match step {
                 Step::GetAsset(key) | Step::GetAssetBinary(key) | Step::GetAssetMetadata(key) => {
-                    let resolved_key = if absolute_resource_step == Some(step_index) {
+                    let resolved_key = if rooted_resource_step == Some(step_index) {
                         key.to_absolute(&Key::new())
                     } else {
                         cursor.resolve_key(key)
@@ -3112,7 +3175,7 @@ impl<E: Environment> DependencyWalk<E> {
                     });
                 }
                 Step::GetAssetDirectory(key) => {
-                    let resolved_key = if absolute_resource_step == Some(step_index) {
+                    let resolved_key = if rooted_resource_step == Some(step_index) {
                         key.to_absolute(&Key::new())
                     } else {
                         cursor.resolve_key(key)
@@ -3128,7 +3191,7 @@ impl<E: Environment> DependencyWalk<E> {
                     });
                 }
                 Step::GetAssetRecipe(key) => {
-                    let resolved_key = if absolute_resource_step == Some(step_index) {
+                    let resolved_key = if rooted_resource_step == Some(step_index) {
                         key.to_absolute(&Key::new())
                     } else {
                         cursor.resolve_key(key)
@@ -3144,7 +3207,7 @@ impl<E: Environment> DependencyWalk<E> {
                     });
                 }
                 Step::SetCwd(key) => {
-                    if absolute_resource_step == Some(step_index) {
+                    if rooted_resource_step == Some(step_index) {
                         let resolved = key.to_absolute(&Key::new());
                         cursor.set_cwd_from(&resolved);
                     } else {
@@ -3602,7 +3665,7 @@ mod tests {
                     filename: Some(ResourceName::new("data.txt".to_string())),
                 },
             )],
-            absolute: false,
+            rooted: false,
             source: crate::query::QuerySource::Unspecified,
         };
 
@@ -5473,7 +5536,7 @@ mod tests {
     /// deserializes — and reads as "not frozen" rather than as frozen against the root.
     #[test]
     fn frozen_plan_serde_defaults_on_legacy() -> Result<(), Error> {
-        let legacy = r#"{"query":{"segments":[],"absolute":false,"source":"Unspecified"},
+        let legacy = r#"{"query":{"segments":[],"rooted":false,"source":"Unspecified"},
             "steps":[],"is_volatile":false}"#;
         let plan: Plan = serde_json::from_str(legacy)
             .map_err(|e| Error::general_error(format!("legacy plan must deserialize: {e}")))?;
@@ -6651,4 +6714,39 @@ mod tests {
         assert!(matches!(chain.steps.first(), Some(Step::Evaluate(_))));
         Ok(())
     }
+
+    /// `last_action_command` names the command the query named: the alias itself for an alias
+    /// (whose own arguments are the overridable ones), the command for a direct action.
+    #[test]
+    fn last_action_command_returns_alias_metadata() -> Result<(), Box<dyn std::error::Error>> {
+        let mut cmr = CommandMetadataRegistry::new();
+        let mut slice = CommandMetadata::new("slice");
+        slice
+            .with_namespace("pl")
+            .with_argument(ArgumentInfo::integer_argument("offset", false))
+            .with_argument(ArgumentInfo::integer_argument("length", false));
+        cmr.add_command(&slice);
+        let mut head = CommandMetadata::new("head");
+        head.with_namespace("pl")
+            .with_argument(ArgumentInfo::integer_argument("n", false));
+        head.definition = CommandDefinition::Alias {
+            command: CommandKey::new("", "pl", "slice"),
+            head_parameters: vec![CommandParameterValue::Value(serde_json::Value::from(0))],
+        };
+        cmr.add_command(&head);
+
+        let plan = PlanBuilder::new(parse_query("ns-pl/head-5")?, &cmr).build()?;
+        let command = plan.last_action_command(&cmr).ok_or("no command")?;
+        assert_eq!(command.name, "head");
+        let names: Vec<&str> = command.arguments.iter().map(|a| a.name.as_str()).collect();
+        assert_eq!(names, vec!["n"]);
+
+        let plan = PlanBuilder::new(parse_query("ns-pl/slice-1-2")?, &cmr).build()?;
+        assert_eq!(plan.last_action_command(&cmr).ok_or("no command")?.name, "slice");
+
+        let plan = PlanBuilder::new(parse_query("-R/a/b.txt")?, &cmr).build()?;
+        assert!(plan.last_action_command(&cmr).is_none());
+        Ok(())
+    }
+
 }

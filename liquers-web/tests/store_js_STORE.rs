@@ -400,6 +400,30 @@ async fn store12b_thrown_error_is_not_a_directory() {
     }
 }
 
+/// ERROR06 — a delegate that throws a page-constructed `LiquersError` reports its type, not the
+/// adapter's `KeyReadError` fallback.
+#[wasm_bindgen_test]
+async fn store_delegate_throwing_a_constructed_error_keeps_its_type() {
+    let error = liquers_web::error::LiquersError::construct(
+        "key_not_found",
+        "no such key: a.txt".to_string(),
+        None,
+    )
+    .expect("constructs");
+    let factory = js_sys::Function::new_with_args("err", "return { get(key) { throw err; } };");
+    let delegate = factory
+        .call1(&JsValue::NULL, &JsValue::from(error))
+        .expect("builds the delegate");
+    let store = JsStore::new(&key("d"), "typed", delegate.unchecked_into()).expect("adapts");
+    match store.get(&key("d/a.txt")).await {
+        Err(e) => {
+            assert_eq!(e.error_type, ErrorType::KeyNotFound, "{}", e.message);
+            assert_eq!(e.message, "no such key: a.txt");
+        }
+        Ok(_) => panic!("a thrown error gave data"),
+    }
+}
+
 /// STORE12c — documented break: `getMetadata` returning `null` now means absent, even when
 /// `get` has data. It used to yield an empty record.
 #[wasm_bindgen_test]

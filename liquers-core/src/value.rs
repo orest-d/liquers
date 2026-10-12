@@ -824,6 +824,7 @@ impl TryFrom<Value> for bool {
     type Error = Error;
     fn try_from(value: Value) -> Result<Self, Self::Error> {
         match value {
+            Value::Bool(x) => Ok(x),
             Value::I32(x) => Ok(x != 0),
             Value::I64(x) => Ok(x != 0),
             _ => Err(Error::conversion_error(value.type_name(), "bool")),
@@ -835,9 +836,11 @@ impl TryFrom<Value> for isize {
     type Error = Error;
     fn try_from(value: Value) -> Result<Self, Self::Error> {
         match value {
-            Value::I32(x) => Ok(x as isize),
-            Value::I64(x) => Ok(x as isize),
-            _ => Err(Error::conversion_error(value.type_name(), "bool")),
+            Value::I32(x) => isize::try_from(x)
+                .map_err(|e| Error::conversion_error_with_message("I32", "isize", &e.to_string())),
+            Value::I64(x) => isize::try_from(x)
+                .map_err(|e| Error::conversion_error_with_message("I64", "isize", &e.to_string())),
+            _ => Err(Error::conversion_error(value.type_name(), "isize")),
         }
     }
 }
@@ -846,9 +849,11 @@ impl TryFrom<Value> for u32 {
     type Error = Error;
     fn try_from(value: Value) -> Result<Self, Self::Error> {
         match value {
-            Value::I32(x) => Ok(x as u32),
-            Value::I64(x) => Ok(x as u32),
-            _ => Err(Error::conversion_error(value.type_name(), "bool")),
+            Value::I32(x) => u32::try_from(x)
+                .map_err(|e| Error::conversion_error_with_message("I32", "u32", &e.to_string())),
+            Value::I64(x) => u32::try_from(x)
+                .map_err(|e| Error::conversion_error_with_message("I64", "u32", &e.to_string())),
+            _ => Err(Error::conversion_error(value.type_name(), "u32")),
         }
     }
 }
@@ -857,9 +862,11 @@ impl TryFrom<Value> for u64 {
     type Error = Error;
     fn try_from(value: Value) -> Result<Self, Self::Error> {
         match value {
-            Value::I32(x) => Ok(x as u64),
-            Value::I64(x) => Ok(x as u64),
-            _ => Err(Error::conversion_error(value.type_name(), "bool")),
+            Value::I32(x) => u64::try_from(x)
+                .map_err(|e| Error::conversion_error_with_message("I32", "u64", &e.to_string())),
+            Value::I64(x) => u64::try_from(x)
+                .map_err(|e| Error::conversion_error_with_message("I64", "u64", &e.to_string())),
+            _ => Err(Error::conversion_error(value.type_name(), "u64")),
         }
     }
 }
@@ -868,9 +875,11 @@ impl TryFrom<Value> for usize {
     type Error = Error;
     fn try_from(value: Value) -> Result<Self, Self::Error> {
         match value {
-            Value::I32(x) => Ok(x as usize),
-            Value::I64(x) => Ok(x as usize),
-            _ => Err(Error::conversion_error(value.type_name(), "bool")),
+            Value::I32(x) => usize::try_from(x)
+                .map_err(|e| Error::conversion_error_with_message("I32", "usize", &e.to_string())),
+            Value::I64(x) => usize::try_from(x)
+                .map_err(|e| Error::conversion_error_with_message("I64", "usize", &e.to_string())),
+            _ => Err(Error::conversion_error(value.type_name(), "usize")),
         }
     }
 }
@@ -880,6 +889,42 @@ impl From<bool> for Value {
         Value::Bool(value)
     }
 }
+
+/// The narrow integer widths, through `i64`: an out-of-range value is refused, not truncated.
+macro_rules! impl_try_from_value_narrowed {
+    ($($t:ty),*) => {$(
+        impl TryFrom<Value> for $t {
+            type Error = Error;
+            fn try_from(value: Value) -> Result<Self, Self::Error> {
+                let wide = i64::try_from(value)?;
+                <$t>::try_from(wide).map_err(|_| Error::conversion_error(wide, stringify!($t)))
+            }
+        }
+    )*};
+}
+impl_try_from_value_narrowed!(i8, i16, u8, u16);
+
+/// `Option<T>` for the scalar types a `register_command!` argument may declare as optional: a none
+/// value is `None`, anything else converts as `T` does. A linked argument arrives this way.
+///
+/// The list is the one `register_command!` accepts (`SUPPORTED_OPTION_INNER` in
+/// `liquers-macro/src/registration.rs`), matching `impl_from_parameter_value2_opt!` in
+/// `commands.rs`; the value types in `liquers-lib` repeat it.
+macro_rules! impl_try_from_value_option {
+    ($($t:ty),*) => {$(
+        impl TryFrom<Value> for Option<$t> {
+            type Error = Error;
+            fn try_from(value: Value) -> Result<Self, Self::Error> {
+                if value.is_none() {
+                    Ok(None)
+                } else {
+                    <$t>::try_from(value).map(Some)
+                }
+            }
+        }
+    )*};
+}
+impl_try_from_value_option!(i8, i16, i32, i64, isize, u8, u16, u32, u64, usize, f32, f64, bool);
 
 /// A key-valued link argument, produced by a `-R-key/<key>` query.
 ///

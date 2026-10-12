@@ -3,7 +3,7 @@ title: Record Streams
 kind: reference
 audience: internal
 area: [records, lib/value, lib/commands, web]
-reviewed: 2026-10-10
+reviewed: 2026-10-11
 ---
 
 # Record Streams
@@ -82,15 +82,16 @@ consume) and `role: FieldRole` (what a search index consumes) — plus a structu
 | Type | Fields / variants |
 |---|---|
 | `RecordSchema` | `fields: Vec<FieldSchema>`, `type_identifier: Option<String>` (Liquers' type of the thing the rows describe), plus a private cached index of full-text fields |
-| `FieldSchema` | `name`, `label` (default: `name` with `_` → space, as `ArgumentInfo`), `description`, `data_type`, `nullable` (default `true`), `key`, `role` |
-| `FieldType` | `Bool`, `Int` (i64), `UInt` (u64), `Float` (f64), `Text`, `Binary`, `Date` (days since epoch, i32), `Timestamp` (µs since epoch, i64), `Vector` (fixed-width f32) |
+| `FieldSchema` | `name`, `label` (default: `name` with `_` → space, as `ArgumentInfo`), `description`, `data_type`, `nullable` (default `true`), `key`, `role`, `media_type` (`Option<String>`, omitted when `None`: the format a `Text` cell holds — `application/json` marks a JSON column, whose paths `attr.a.b` search can follow) |
+| `FieldType` | `Bool`, `Int` (i64), `UInt` (u64), `Float` (f64), `Text`, `Binary`, `Date` (days since epoch, i32), `Timestamp` (µs since epoch, i64; a UTC instant in every format and in the polars bridge, decided 2026-10-10), `Vector` (fixed-width f32) |
 | `KeyRole` | `Id`, `Source` (index into the batch's origin dictionary), `None` (default) |
 | `FieldRole` | `indexed: Vec<IndexKind>`, `stored: bool`, `fast: bool`. Constructors `text()` (FullText, `Simple`, positions), `keyword()` (Exact), `numeric()` (Range), `vector(metric)` (Similarity), `stored_only()`, `ignored()` (= `default()`); combinators `and_stored()`, `and_fast()` |
 | `IndexKind` | `Exact`, `Substring`, `FullText { analyzer, positions }`, `Range`, `Similarity { metric }` |
 | `Analyzer` / `VectorMetric` | `Raw`, `Simple`, `Stemming { language }`, `Named(String)` / `Cosine`, `Dot`, `Euclidean` |
 
-Roles are **capabilities the data affords**, not instructions; nothing in the tree consumes them yet
-beyond the Id rule and `text_fields()`.
+Roles are **capabilities the data affords**, not instructions. Beyond the Id rule, their one
+consumer is `ns-search/search`, whose default search fields are `text_fields()` (see
+[`SEARCH.md`](SEARCH.md)); `resolve_field` is how it resolves a field an expression names.
 
 **`RecordSchema::new` is the only constructor, and deserialization goes through it** (a private
 `RecordSchemaSpec`), so a hand-written YAML schema is checked too. It refuses:
@@ -274,6 +275,7 @@ the adapter by which `liquers-records` reads and builds `liquers-lib`'s `Value` 
 |---|---|---|
 | `ManifestSource` | the manifest's explicit chunks, then its template | its `ManifestSpec` |
 | `InMemorySource` | one per view, ids are placeholders (`in_memory_view-<n>`) never evaluated; `schema()` is `Some` only when every view's schema is equal | none |
+| `search::FilteredSource` | the inner source's, filtered lazily by a `Predicate`; the stream ends after `limit` matching rows (exactly `limit`), and the predicate is re-bound whenever a view's schema differs. Built by `ns-search/search` with `rank=false` ([`SEARCH.md`](SEARCH.md)) | none |
 
 A chunk that evaluates to a nested `RecordSource` is refused.
 
@@ -415,7 +417,7 @@ input reads as clear), `set(i, v)` (**panics** out of range — the crate's only
 | `Text { validity, offsets: Buffer<i32>, data: AlignedBuffer }` | `len + 1` offsets, contiguous UTF-8 | `Utf8` |
 | `Binary { validity, offsets: Buffer<i32>, data: AlignedBuffer }` | as `Text` | `Binary` |
 | `Date { validity, values: Buffer<i32> }` | days since 1970-01-01 | `Date32` |
-| `Timestamp { validity, values: Buffer<i64> }` | µs since the epoch | `Timestamp(Microsecond)` |
+| `Timestamp { validity, values: Buffer<i64> }` | µs since the epoch, a UTC instant | `Timestamp(Microsecond, "UTC")` |
 | `Vector { validity, dim, data: Buffer<f32> }` | `dim × len` contiguous values | `FixedSizeList(Float32, dim)` |
 
 `validity: Option<Bitmap>` is `None` when no row is null. A null slot's value bytes are zero (fixed
@@ -471,13 +473,13 @@ pointer:
 |---|---|
 | `Text` / `Binary` | offsets are `len + 1` **`i32`** entries — Arrow's `Utf8` / `Binary`, not `LargeUtf8` / `Utf8View` |
 | `Vector` | Arrow's `FixedSizeList` is two levels: the list node has validity only, the `f32` values are a child `Float32` array |
-| `Timestamp` | no time zone is carried in the column |
+| `Timestamp` | the column carries no zone; it is always UTC, and the IPC writer declares `"UTC"` |
 
 | Route | Data copied | Status |
 |---|---|---|
 | Arrow IPC file (Feather v2) | yes — serialization | **built**, `liquers-records` `ipc` feature (see Table formats) |
 | typed arrays over wasm memory | none | **built**, `liquers-web` (see Browser sharing) |
-| polars `DataFrame` | yes | **built as Rust API only**: `liquers_lib::records::polars::{record_batch_to_dataframe, dataframe_to_record_batch}` (feature `polars`). No command exposes it. Roles are lost; no `Id` is guessed; `Vector` columns are refused |
+| polars `DataFrame` | yes | **built as Rust API only**: `liquers_lib::records::polars::{record_batch_to_dataframe, dataframe_to_record_batch}` (feature `polars`). No command exposes it. Roles are lost; no `Id` is guessed; `Vector` columns are refused; a `Timestamp` becomes `Datetime(µs, "UTC")`, and a `Datetime` of any unit and zone (naive taken as UTC) becomes a `Timestamp` with its epoch value unshifted |
 | Arrow C Data Interface (`liquers-py`, polars-arrow) | none | **not built** |
 
 ## Browser sharing
@@ -644,7 +646,7 @@ file. The `RecordSchema` travels as JSON under `liquers.schema` in the Arrow sch
 `sources` are not written.
 
 **Supported subset (read):** `Int(64, signed/unsigned)`, `FloatingPoint(Double)`, `Utf8`, `Binary`,
-`Bool`, `Date(Day)`, `Timestamp(Microsecond)` (the zone is ignored), `FixedSizeList<Float32>`, with
+`Bool`, `Date(Day)`, `Timestamp(Microsecond)` (any zone, or none, read as epoch µs without shifting), `FixedSizeList<Float32>`, with
 any number of record-batch messages (concatenated). **Refused, by name:** dictionary encoding, a
 compressed body, `LargeUtf8` / `LargeBinary`, `Utf8View` / `BinaryView`, other integer and float
 widths or time units, and any other nesting. Because polars writes text only as `Utf8View` or
@@ -770,17 +772,14 @@ materializes to an empty batch; without one it is an error.
   records and polars; streaming a source over HTTP — a source reaches HTTP only materialized
   ([`VALUE-SERIALIZATION-IS-SYNCHRONOUS-AND-WHOLE-VALUE`](../issues/VALUE-SERIALIZATION-IS-SYNCHRONOUS-AND-WHOLE-VALUE.md),
   [`VALUE-SERIALIZATION-HAS-NO-INCREMENTAL-WRITER`](../issues/VALUE-SERIALIZATION-HAS-NO-INCREMENTAL-WRITER.md));
-  filtering / mapping source wrappers ([`RECORD-SOURCE-WRAPPERS-UNSPECIFIED`](../issues/RECORD-SOURCE-WRAPPERS-UNSPECIFIED.md));
+  a mapping source wrapper — filtering exists only as search's `FilteredSource` ([`RECORD-SOURCE-WRAPPERS-UNSPECIFIED`](../issues/RECORD-SOURCE-WRAPPERS-UNSPECIFIED.md));
   predicate pushdown into a source
   ([`NO-RELATIONAL-DATABASE-ACCESS-LAYER`](../issues/NO-RELATIONAL-DATABASE-ACCESS-LAYER.md)); use
-  of `FieldRole` by any index; producers that fill `ChunkOrigin` / `LocatorRule`; qualified field
+  of `FieldRole` by any index (search reads `text_fields()` only); producers that fill `ChunkOrigin` / `LocatorRule`; qualified field
   names outside `resolve_field`.
 - **Arrow subset:** 64-bit integers, `Float64`, 32-bit-offset `Utf8` / `Binary`, `Bool`, `Date32`,
   `Timestamp(µs)`, `FixedSizeList<Float32>`. No dictionaries, compression, large or view types,
   decimals, times, durations, lists, structs or maps.
-- **Time zones:** a `Timestamp` is a UTC instant in the text formats, `table` JSON and Parquet, but
-  written naive in IPC and the polars bridge
-  ([`RECORD-TIMESTAMP-TIME-ZONE-DIFFERS-BY-FORMAT`](../issues/RECORD-TIMESTAMP-TIME-ZONE-DIFFERS-BY-FORMAT.md)).
 - **Interop:** polars-written IPC text is unreadable
   ([`IPC-READER-CANNOT-READ-ANY-POLARS-STRING-COLUMN`](../issues/IPC-READER-CANNOT-READ-ANY-POLARS-STRING-COLUMN.md));
   `Vector` columns cannot cross to polars
@@ -806,6 +805,8 @@ materializes to an empty batch; without one it is an error.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-11 | `Timestamp` is a UTC instant everywhere: IPC writes `Timestamp(Microsecond, "UTC")` and reads any zone without shifting; the polars bridge produces `Datetime(µs, "UTC")` and accepts any `Datetime`. The time-zone limitation is removed. | `design/record-timestamp-utc/` |
+| 2026-10-11 | `FieldSchema::media_type`; `FilteredSource`; roles gain their first consumer, `ns-search/search`. | phase-5, `design/store-and-asset-search/` |
 | 2026-10-10 | JSON: a schema-less `split` / `columns` / `index` read whose data has a column named `index` puts the index first, in the first free `index_<n>`, instead of losing it. | `design/json-orient-index-column-collision/` |
 | 2026-10-08 | JSON: a schema-less `split` / `values` read keeps the document's column order; only unordered shapes sort. | phase-5, `design/ordered-json-orient-column-order/` |
 | 2026-10-08 | A chunk refused during a manifest traversal is named in the error message by its index and key or query. | phase-5, `design/manifest-chunk-error-identity/` |

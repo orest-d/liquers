@@ -2,7 +2,7 @@
 id: ARGUMENT-INFO-HAS-NO-DESCRIPTION
 kind: issue
 title: ArgumentInfo has no per-argument description
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [core/commands, macro]
@@ -68,3 +68,14 @@ Each level has exactly what the other lacks. That issue is `in_progress` with a 
 (`command-metadata-command-hints`), so whoever is working it is already in this code and holding the
 symmetry question. **These should be settled together**, and the answer is probably that both levels
 carry both — a description and a hint bag — rather than each carrying one.
+
+## Resolution (2026-10-11)
+
+`ArgumentInfo::description` (`liquers-core/src/command_metadata.rs`), `#[serde(default)]` and
+omitted when empty, with a consuming `with_description` builder beside `with_label`.
+`register_command!` sets it with `description: "…"` in the argument's parenthesized options; a
+command declaration's argument `description` reaches the metadata. `specs/command_registry.yaml`
+needed no regeneration. Tests: `argument_description_round_trips`,
+`empty_hints_and_description_are_omitted`, `register_command_sets_argument_description`,
+`hint05_argument_description_reaches_the_metadata`. Design:
+`design/command-metadata-descriptions-and-hints/`.

@@ -136,11 +136,19 @@ impl<E: Environment> AssetsApiBuilder<E> {
 
         // ---- query family: parse_query
         router = router
-            .route(&format!("{b}/q/data/{{*query}}"), get(qh::q_get_data_handler::<E>))
-            .route(&format!("{b}/q/entry/{{*query}}"), get(qh::q_get_entry_handler::<E>))
+            // `POST q/data` and `POST q/entry` are reads carrying argument overrides in a body:
+            // always served, whatever `read_only()` says.
+            .route(
+                &format!("{b}/q/data/{{*query}}"),
+                get(qh::q_get_data_handler::<E>).post(qh::q_post_data_handler::<E>),
+            )
+            .route(
+                &format!("{b}/q/entry/{{*query}}"),
+                get(qh::q_get_entry_handler::<E>).post(qh::q_post_entry_handler::<E>),
+            )
             .route(
                 &format!("{b}/q/submit/{{*query}}"),
-                get(qh::q_submit_handler::<E>).post(qh::q_submit_handler::<E>),
+                get(qh::q_get_submit_handler::<E>).post(qh::q_submit_handler::<E>),
             )
             .route(&format!("{b}/q/info/{{*query}}"), get(qh::q_info_handler::<E>))
             .route(&format!("{b}/q/metadata/{{*query}}"), get(qh::q_get_metadata_handler::<E>))

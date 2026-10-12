@@ -15,6 +15,7 @@ pub mod manifest;
 pub mod mutable;
 pub mod provider;
 pub mod schema;
+pub mod search;
 pub mod sources;
 pub mod value;
 pub mod views;

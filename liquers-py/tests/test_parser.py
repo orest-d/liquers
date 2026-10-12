@@ -163,29 +163,29 @@ class TestParser:
 
     def test_absolute_resource_bug(self):
         q = parse("/-R/a")
-        assert q.absolute
+        assert q.rooted
         assert q.is_resource_query()
         assert q.encode() == "/-R/a"
 
     def test_parse_dot(self):
         q = parse("/-R/.")
-        assert q.absolute
+        assert q.rooted
         assert q.is_resource_query()
         assert q.encode() == "/-R/."
 
         q = parse("/-R/././x")
-        assert q.absolute
+        assert q.rooted
         assert q.is_resource_query()
         assert q.encode() == "/-R/././x"
 
     def test_parse_doubledot(self):
         q = parse("/-R/..")
-        assert q.absolute
+        assert q.rooted
         assert q.is_resource_query()
         assert q.encode() == "/-R/.."
 
         q = parse("/-R/../../x")
-        assert q.absolute
+        assert q.rooted
         assert q.is_resource_query()
         assert q.encode() == "/-R/../../x"
 

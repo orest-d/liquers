@@ -54,6 +54,8 @@ fn full_registry() -> Result<CommandMetadataRegistry, Error> {
         liquers_lib::register_polars_commands!(cr)?;
         #[cfg(feature = "records")]
         liquers_lib::register_records_commands!(cr)?;
+        #[cfg(feature = "records")]
+        liquers_lib::register_search_commands!(cr)?;
     }
     Ok(env.get_command_metadata_registry().clone())
 }
@@ -101,6 +103,11 @@ async fn exported_registry_is_nonempty() -> Result<(), Error> {
     assert!(
         registry.find_command("", "rec", "head").is_some(),
         "the records group exported nothing"
+    );
+    #[cfg(feature = "records")]
+    assert!(
+        registry.find_command("", "search", "catalog").is_some(),
+        "the search group exported nothing"
     );
     Ok(())
 }

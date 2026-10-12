@@ -3,7 +3,7 @@ title: Liquers Project Overview
 kind: reference
 audience: internal
 area: [core/query, core/plan, core/assets, core/store, core/value]
-reviewed: 2026-10-10
+reviewed: 2026-10-11
 ---
 # Liquers Project Overview
 
@@ -331,9 +331,10 @@ Assets are handles that represent the whole process and get progress updates.
 During plan finalization, dependency analysis simulates ordered CWD changes without changing the
 live execution Context. During execution, each relative operand is normalized against the current
 logical CWD immediately before use. Thus recipe CWD and later `-R-cwd` instructions compose in
-order, while an absolute outer query's source resource remains rooted independently of that live
-CWD. Relative child links still use the live CWD. With no CWD, the first relative operand installs
-logical root `/` and records one warning for the shared evaluation Context.
+order, while a rooted outer query (leading `/`, `Query::rooted`) resolves its relative source
+resource against the logical root, independently of that live CWD. Relative child links still use
+the live CWD. With no CWD, the first relative operand installs logical root `/` and records one
+warning for the shared evaluation Context.
 
 ### 7. Context Hierarchy
 
@@ -520,6 +521,7 @@ Session (user session - currently minimal)
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-11 | `Query::absolute` renamed `Query::rooted`, wire name included (no alias); its meaning is unchanged. | `design/query-leading-slash-field/` |
 | 2026-10-10 | Special instructions: `v` is positional (`design/plan-policy/`). | phase-5, `design/plan-policy/` |
 | 2026-10-10 | Module table, sync/async section and known limitations: the synchronous `Store` and the `cache` module were removed (assets cache results). | `CORE-SYNC-STORE-TRAIT-OBSOLETE`, `design/sync-store-removal/` |
 | 2026-10-06 | Module table: `cache.rs` is a legacy synchronous cache, obsolete since assets cache results; its removal is tracked in `CORE-SYNC-STORE-TRAIT-OBSOLETE`. | `REPO-DEAD-CODE-HYGIENE`, `design/core-dead-code-hygiene/` |

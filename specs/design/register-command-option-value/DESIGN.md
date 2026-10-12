@@ -2,8 +2,7 @@
 id: REGISTER-COMMAND-OPTION-VALUE
 kind: design
 title: register_command! supports numeric and bool Option<T> arguments and rejects the rest
-status: in_review
-phase: implementation
+gh_pr: [124]
 readiness: ready
 autofix: not-eligible
 area: [macro, core/commands]

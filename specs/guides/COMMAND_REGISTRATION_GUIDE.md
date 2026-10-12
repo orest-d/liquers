@@ -3,7 +3,7 @@ title: Command Registration Guide
 kind: guide
 audience: internal
 area: [core/commands, macro]
-reviewed: 2026-10-10
+reviewed: 2026-10-11
 ---
 # Command Registration Guide
 
@@ -467,6 +467,30 @@ register_command!(cr,
     label: "Greet"
     doc: "Greet the input with a customizable greeting"
 )?;
+```
+
+**Explaining an argument and hinting the command:** `description:` in an argument's parentheses
+explains it (a UI tooltip, and what an agent reads in `command_registry.yaml`); `hint <key>: "..."`
+after the signature attaches a free command-level hint, e.g. for a toolbar. Both are omitted from the
+metadata when not given.
+```rust
+register_command!(cr,
+    fn wrap(state, width: i32 = 80 (label: "Width", description: "Maximum line width in characters")) -> result
+    label: "Wrap"
+    hint icon: "wrap-text"
+)?;
+```
+
+**Optional argument:** `Option<T>` for a numeric `T` or `bool`. Omitted or empty is `None` (or the
+declared default); `Option<bool>` also reads `none` as `None`. There is no `Option<String>`: declare
+`name: String = ""` and treat the empty string as absent.
+```rust
+fn head(_state: &State<Value>, rows: Option<usize>, header: Option<bool>) -> Result<Value, Error> {
+    // `head` → "None None"; `head-10` → "Some(10) None"; `head-10-n` → "Some(10) Some(false)"
+    Ok(Value::from(format!("{rows:?} {header:?}")))
+}
+
+register_command!(cr, fn head(state, rows: Option<usize>, header: Option<bool>) -> result)?;
 ```
 
 **Async command:**
@@ -966,6 +990,16 @@ fn multiply(state: &State<Value>, factor: i32) -> Result<Value, Error> {
 
 Use `context.info()` or `context.log()` for logging instead of `println!`.
 
+### Commands that list or describe the store must not evaluate it
+
+A command that turns store entries into records — a listing, a catalog, an index — reads what is
+already there and never evaluates a key. Use the asset manager's `listdir` and `get_asset_info`,
+and read bytes only of an asset whose status is `Ready`, `Source` or `Override`. A key that only a
+recipe declares is listed with status `Recipe`; evaluating it would run an arbitrary, possibly
+expensive, command as a side effect of looking. `ns-search/catalog` is the model
+(`liquers-lib/src/search/catalog.rs`), and `liquers-lib/tests/search_commands.rs::
+catalog_never_evaluates_recipe_keys` is the test that pins it.
+
 ### Error Handling
 
 ```rust
@@ -1025,6 +1059,8 @@ fn apply(...) -> Result<...> { ... }
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-11 | §Common Examples: argument `description:` and command `hint <key>:`. | `design/command-metadata-descriptions-and-hints/` |
+| 2026-10-11 | New §5 *Commands that list or describe the store must not evaluate it*. | phase-5, `design/store-and-asset-search/` |
 | 2026-10-10 | New §Commands whose output is not worth keeping (`cached: false`); `cached` in the metadata statement list. | phase-5, `design/plan-policy/` |
 | 2026-10-10 | New §1 *Reading the input's description*: a command reads its input's format, key and origin from `state.metadata`, and its own asset through `Context`. | phase-5, `design/plan-step-state-metadata/` |
 | 2026-10-10 | New §1 *Where to put `context`*: any position works, the recommended one is last or before a `multiple` argument (Python `*args` parity); §*Accepting a variable number of parameters* points at it. | phase-5, `design/context-param-order/` |
@@ -1040,3 +1076,4 @@ fn apply(...) -> Result<...> { ... }
 | 2026-08-12 | Added "Accepting a variable number of parameters": declared arity is binding, `multiple` is the only variadic mechanism and is not yet declarable, and the `~_` escape is the interim spelling. | design/excess-action-parameters-error |
 | 2026-08-16 | Added "Passing the working directory (or any relative query) into a command": `-R-key/.` as a default link argument, why the working key is not readable from `Context`, building absolute queries from it, and the argument-order pitfall. | PLAN-CWD-FREEZE |
 | 2026-08-25 | Rewrote "Accepting a variable number of parameters": `multiple` is now declarable. Added the flag's grammar slot, the container-type and element-type rules, the empty-list default, the last-argument rule and its `injected`/`context` exemptions, the compile-time rejection table, the `a-b` vs `a~_b` distinction, and `get_multiple` for manual registration. | design/variadic-arguments-declaration |
+| 2026-10-11 | §Common Examples: an optional-argument example (`Option<usize>`, `Option<bool>`) and the `String = ""` substitute for `Option<String>`. | `design/register-command-option-value/` |

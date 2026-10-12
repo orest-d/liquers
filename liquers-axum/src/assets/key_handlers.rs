@@ -28,7 +28,7 @@ use super::common::{
 };
 use super::value_description::ValueDescription;
 use crate::api_core::{
-    format::{deserialize_data_entry, format_from_content_type},
+    format::{deserialize_data_entry, entry_format_param, format_from_content_type},
     SerializationFormat,
 };
 
@@ -80,8 +80,12 @@ pub async fn key_get_entry_handler<E: Environment>(
     AxumQuery(params): AxumQuery<HashMap<String, String>>,
 ) -> Response {
     let key = parse_key_or_return!(key_path);
+    let entry_format = match entry_format_param(&params) {
+        Ok(format) => format,
+        Err(e) => return error_response(&e, "Invalid request"),
+    };
     match env.get_asset_manager().get(&key).await {
-        Ok(asset) => asset_entry(&asset, &headers, &params).await,
+        Ok(asset) => asset_entry(&asset, &headers, entry_format).await,
         Err(e) => error_response(&e, "Failed to get asset"),
     }
 }
@@ -171,8 +175,12 @@ pub async fn key_recover_handler<E: Environment>(
     AxumQuery(params): AxumQuery<HashMap<String, String>>,
 ) -> Response {
     let key = parse_key_or_return!(key_path);
+    let entry_format = match entry_format_param(&params) {
+        Ok(format) => format,
+        Err(e) => return error_response(&e, "Invalid request"),
+    };
     match env.get_asset_manager().get_binary_any_status(&key).await {
-        Ok(Some((data, metadata))) => entry_response(&data, &metadata, &headers, &params),
+        Ok(Some((data, metadata))) => entry_response(&data, &metadata, &headers, entry_format),
         Ok(None) => error_response(&Error::key_not_found(&key), "No value to recover"),
         Err(e) => error_response(&e, "Failed to recover the value"),
     }
@@ -290,11 +298,11 @@ pub async fn key_post_entry_handler<E: Environment>(
     body: Bytes,
 ) -> Response {
     let key = parse_key_or_return!(key_path);
-    let format = match params.get("format").map(|s| s.to_lowercase()).as_deref() {
-        Some("cbor") => SerializationFormat::Cbor,
-        Some("bincode") => SerializationFormat::Bincode,
-        Some("json") => SerializationFormat::Json,
-        Some(_) | None => format_from_content_type(&headers).unwrap_or(SerializationFormat::Cbor),
+    // The body's encoding: `_entry_format`, then `Content-Type`, then CBOR.
+    let format = match entry_format_param(&params) {
+        Ok(Some(format)) => format,
+        Ok(None) => format_from_content_type(&headers).unwrap_or(SerializationFormat::Cbor),
+        Err(e) => return error_response(&e, "Invalid request"),
     };
     let entry = match deserialize_data_entry(&body, format) {
         Ok(entry) => entry,

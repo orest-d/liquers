@@ -2,7 +2,7 @@
 id: COMMAND-METADATA-HAS-NO-COMMAND-LEVEL-HINTS
 kind: feature
 title: A usage hint can be attached to an argument but not to a command
-status: in_progress
+status: closed
 priority: P3
 complexity: S
 area: [core/commands, lib/ui]
@@ -75,3 +75,14 @@ assuming, since the exported file is committed.
 A command registered with a command-level hint round-trips it through
 `CommandMetadataRegistry`, and `specs/command_registry.yaml` is byte-identical for the existing
 command set.
+
+## Resolution (2026-10-11)
+
+`CommandMetadata::hints` (`liquers-core/src/command_metadata.rs`), a free
+`serde_json::Map` like `ArgumentInfo::hints`, omitted from serialization when empty, with a
+`with_hint` builder. `register_command!` sets it with the command statement `hint <key>: "<value>"`;
+a key given twice is a compile error at the second key. A command declaration's `hints` now reaches
+the metadata instead of warning (`WarningKind::DroppedKey` removed). `specs/command_registry.yaml`
+needed no regeneration. Tests: `command_hints_round_trip`, `register_command_sets_command_hint`,
+`register_command_rejects_duplicate_command_hint`, `warn04_a_command_level_hints_key_reaches_the_metadata`.
+Design: `design/command-metadata-descriptions-and-hints/`.

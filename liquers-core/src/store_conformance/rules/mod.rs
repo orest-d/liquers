@@ -12,6 +12,7 @@ pub mod explicit;
 pub mod keyshape;
 pub mod prefix;
 pub mod removal;
+pub mod seeding;
 pub mod sibling;
 pub mod sidecar;
 pub(crate) mod support;
@@ -276,6 +277,11 @@ static RULES: &[Rule] = &[
         "STORE_SEMANTICS.md §8", [Directories, StoredMetadata, Write], CreateOnly, sidecar::sidecar04),
     rule!("sidecar05", "a key holding only metadata has no data object",
         "STORE_SEMANTICS.md §8", [StoredMetadata, Write], CreateOnly, sidecar::sidecar05),
+    // §10 — the data format of a written key.
+    rule!("seed01", "data written with no filename takes the key's last segment as its filename",
+        "STORE_SEMANTICS.md §10", [StoredMetadata, Write], CreateOnly, seeding::seed01),
+    rule!("seed02", "a declared filename or data format is kept",
+        "STORE_SEMANTICS.md §10", [StoredMetadata, Write], CreateOnly, seeding::seed02),
     // §9 — what keys() returns.
     rule!("keys01", "every key keys() returns starts with the store's prefix",
         "STORE_SEMANTICS.md §9", [EnumerateKeys], ReadOnly, enumerate::keys01),

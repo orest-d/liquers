@@ -2,7 +2,7 @@
 id: CORE-CONFIGURATION-ERROR-KIND
 kind: issue
 title: Configuration errors are indistinguishable from general errors
-status: in_progress
+status: closed
 priority: P3
 complexity: S
 area: [core/error, store/config]
@@ -72,3 +72,14 @@ maintainer authorized adding a new `ErrorType` if one were needed; assessment co
 needed *for the parse case* — `ParseError` is exact — but that the adjacent configuration paths have
 a real gap. Recorded rather than folded in, because it is an error-taxonomy change touching code
 this design does not otherwise modify.
+
+## Resolution (2026-10-11)
+
+`ErrorType::ConfigurationError` and `Error::configuration_error` (`liquers-core/src/error.rs`), as
+decided on 2026-10-10. A missing required store key (`StoreConfig::require_config_string`) and an
+unset `${VAR}` (`expand_env_vars`) now report it; an unclosed `${` stays `ParseError`, an unknown or
+unavailable store type stays `NotSupported`, and a malformed environment document
+(`EnvironmentConfig::from_yaml/json/toml`) is now `ParseError` instead of `General`. No rejected-key
+path exists at `HEAD`, so none was migrated. Persistence classifies the variant as `NotPersisted`;
+the JavaScript name is `configuration_error`; Python mirrors it; axum maps it to 500. Design:
+`design/configuration-error-kind/`.

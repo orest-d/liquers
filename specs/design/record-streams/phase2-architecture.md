@@ -1014,7 +1014,7 @@ a `Metadata` per record.
 pairs against a fresh `chunks()` and re-opens what differs. Correctness comes from the set
 difference; any notification mechanism is a latency optimization on top, never the thing correctness
 depends on. This is what the search design's
-[`interoperability-layer.md`](../store-and-asset-search/interoperability-layer.md) §3 builds on, and
+[`interoperability-layer.md`](../external-index-sync/interoperability-layer.md) §3 builds on, and
 why `chunks()` must not produce records.
 
 ### Value extension — `ExtValue`, not core's `Value`

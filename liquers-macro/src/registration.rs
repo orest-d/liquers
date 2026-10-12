@@ -54,6 +54,7 @@ enum EnumTypeSpec {
     Float,
     FloatOption,
     Boolean,
+    BooleanOption,
     Any,
 }
 
@@ -66,11 +67,33 @@ impl EnumTypeSpec {
             "float" => Ok(EnumTypeSpec::Float),
             "float_opt" => Ok(EnumTypeSpec::FloatOption),
             "bool" => Ok(EnumTypeSpec::Boolean),
+            "bool_opt" => Ok(EnumTypeSpec::BooleanOption),
             "any" => Ok(EnumTypeSpec::Any),
             other => Err(syn::Error::new(
                 ident.span(),
                 format!("Unknown enum type '{}'", other),
             )),
+        }
+    }
+
+    /// Whether a literal of type `value` may appear in an enum declared as `self`: its own
+    /// type, or the base type of an `_opt` type (`enum(type: int_opt): {"low" => 1}`).
+    fn accepts(&self, value: &EnumTypeSpec) -> bool {
+        match self {
+            EnumTypeSpec::IntegerOption => {
+                matches!(value, EnumTypeSpec::IntegerOption | EnumTypeSpec::Integer)
+            }
+            EnumTypeSpec::FloatOption => {
+                matches!(value, EnumTypeSpec::FloatOption | EnumTypeSpec::Float)
+            }
+            EnumTypeSpec::BooleanOption => {
+                matches!(value, EnumTypeSpec::BooleanOption | EnumTypeSpec::Boolean)
+            }
+            EnumTypeSpec::String
+            | EnumTypeSpec::Integer
+            | EnumTypeSpec::Float
+            | EnumTypeSpec::Boolean
+            | EnumTypeSpec::Any => self == value,
         }
     }
 
@@ -93,6 +116,9 @@ impl EnumTypeSpec {
             }
             EnumTypeSpec::Boolean => {
                 quote! { liquers_core::command_metadata::EnumArgumentType::Boolean }
+            }
+            EnumTypeSpec::BooleanOption => {
+                quote! { liquers_core::command_metadata::EnumArgumentType::BooleanOption }
             }
             EnumTypeSpec::Any => quote! { liquers_core::command_metadata::EnumArgumentType::Any },
         }
@@ -238,7 +264,7 @@ impl EnumParameterSpec {
                         if *value_type == EnumTypeSpec::Any {
                             continue;
                         }
-                        if inferred != *value_type {
+                        if !value_type.accepts(&inferred) {
                             return Err(syn::Error::new(
                                 proc_macro2::Span::call_site(),
                                 "enum value type does not match enum(type: ...)",
@@ -441,6 +467,69 @@ enum ArgumentGUIInfo {
     None,
 }
 
+/// The inner types an `Option<T>` argument may have.
+///
+/// Each one needs `TryFrom<Value> for Option<T>` on every value type a command can be registered
+/// for: `liquers-core/src/value.rs` (`impl_try_from_value_option!`), and `SimpleValue` /
+/// `CombinedValue` in `liquers-lib/src/value/`. Extend those impls before extending this list.
+const SUPPORTED_OPTION_INNER: &[&str] = &[
+    "i8", "i16", "i32", "i64", "isize", "u8", "u16", "u32", "u64", "usize", "f32", "f64", "bool",
+];
+
+/// If `ty` is `Option<…>`, returns the generic argument; otherwise `None`.
+fn option_inner_type(ty: &syn::Type) -> Option<&syn::Type> {
+    let syn::Type::Path(type_path) = ty else {
+        return None;
+    };
+    if type_path.qself.is_some() || type_path.path.segments.len() != 1 {
+        return None;
+    }
+    let segment = &type_path.path.segments[0];
+    if segment.ident != "Option" {
+        return None;
+    }
+    let syn::PathArguments::AngleBracketed(ref args) = segment.arguments else {
+        return None;
+    };
+    if args.args.len() != 1 {
+        return None;
+    }
+    match args.args.first() {
+        Some(syn::GenericArgument::Type(inner)) => Some(inner),
+        _ => None,
+    }
+}
+
+/// Rejects an `Option<T>` argument whose `T` is not in [`SUPPORTED_OPTION_INNER`].
+///
+/// Without this, the registration expands but the generated code fails to compile with an
+/// unsatisfied `TryFrom<Value>` bound, which names neither the argument nor the remedy.
+fn check_option_argument(name: &str, ty: &syn::Type) -> syn::Result<()> {
+    let Some(inner) = option_inner_type(ty) else {
+        return Ok(());
+    };
+    let supported = match inner {
+        syn::Type::Path(p) => p
+            .path
+            .get_ident()
+            .is_some_and(|ident| SUPPORTED_OPTION_INNER.contains(&ident.to_string().as_str())),
+        _ => false,
+    };
+    if supported {
+        return Ok(());
+    }
+    let rendered = quote! { #inner }.to_string().replace(' ', "");
+    let list = SUPPORTED_OPTION_INNER.join(", ");
+    Err(syn::Error::new_spanned(
+        ty,
+        format!(
+            "register_command!: argument '{name}' has type Option<{rendered}>, which is not \
+             supported; supported: Option<{list}>. For an optional string, use \
+             '{name}: String = \"\"'"
+        ),
+    ))
+}
+
 /// Returns the element type of a container that a `multiple` argument may be declared as.
 ///
 /// Recognises `Vec<T>` today. This is the single place a future container type
@@ -482,6 +571,8 @@ enum CommandParameter {
         multiple: bool,
         default_value: Option<DefaultValue>,
         label: Option<String>,
+        /// `description: "..."` in the parenthesised options; `None` when not given.
+        description: Option<String>,
         gui: ArgumentGUIInfo,
         gui_explicit: bool,
         enum_spec: Option<EnumParameterSpec>,
@@ -658,47 +749,32 @@ impl CommandParameter {
                 };
                 let (is_option, inner) = is_option_of(effective_ty);
                 match (is_option, inner.as_deref()) {
-                    (false, Some("isize")) => {
+                    (
+                        false,
+                        Some(
+                            "i8" | "i16" | "i32" | "i64" | "isize" | "u8" | "u16" | "u32" | "u64"
+                            | "usize",
+                        ),
+                    ) => {
                         quote! { liquers_core::command_metadata::ArgumentType::Integer }
                     }
-                    (true, Some("usize")) => {
+                    (
+                        true,
+                        Some(
+                            "i8" | "i16" | "i32" | "i64" | "isize" | "u8" | "u16" | "u32" | "u64"
+                            | "usize",
+                        ),
+                    ) => {
                         quote! { liquers_core::command_metadata::ArgumentType::IntegerOption }
                     }
-                    (false, Some("i32")) => {
-                        quote! { liquers_core::command_metadata::ArgumentType::Integer }
-                    }
-                    (true, Some("i32")) => {
-                        quote! { liquers_core::command_metadata::ArgumentType::IntegerOption }
-                    }
-                    (false, Some("i64")) => {
-                        quote! { liquers_core::command_metadata::ArgumentType::Integer }
-                    }
-                    (true, Some("i64")) => {
-                        quote! { liquers_core::command_metadata::ArgumentType::IntegerOption }
-                    }
-                    (false, Some("u32")) => {
-                        quote! { liquers_core::command_metadata::ArgumentType::Integer }
-                    }
-                    (true, Some("u32")) => {
-                        quote! { liquers_core::command_metadata::ArgumentType::IntegerOption }
-                    }
-                    (false, Some("u64")) => {
-                        quote! { liquers_core::command_metadata::ArgumentType::Integer }
-                    }
-                    (true, Some("u64")) => {
-                        quote! { liquers_core::command_metadata::ArgumentType::IntegerOption }
-                    }
-                    (false, Some("f32")) => {
+                    (false, Some("f32" | "f64")) => {
                         quote! { liquers_core::command_metadata::ArgumentType::Float }
                     }
-                    (true, Some("f32")) => {
-                        quote! { liquers_core::command_metadata::ArgumentType::FloatOpt }
+                    (true, Some("f32" | "f64")) => {
+                        quote! { liquers_core::command_metadata::ArgumentType::FloatOption }
                     }
-                    (false, Some("f64")) => {
-                        quote! { liquers_core::command_metadata::ArgumentType::Float }
-                    }
-                    (true, Some("f64")) => {
-                        quote! { liquers_core::command_metadata::ArgumentType::FloatOpt }
+                    (true, Some("bool")) => {
+                        quote! { liquers_core::command_metadata::ArgumentType::BooleanOption }
                     }
                     (false, Some("bool")) => {
                         quote! { liquers_core::command_metadata::ArgumentType::Boolean }
@@ -726,6 +802,7 @@ impl CommandParameter {
                 multiple,
                 default_value: _default_value,
                 label,
+                description,
                 gui,
                 gui_explicit,
                 enum_spec,
@@ -736,6 +813,10 @@ impl CommandParameter {
                     .as_ref()
                     .map(|s| s.as_str())
                     .unwrap_or(default_label.as_str());
+                let description_field = match description {
+                    Some(d) => quote! { description: #d.to_string(), },
+                    None => quote! {},
+                };
                 let argument_type = self.argument_type_expression();
                 let default_value_expression = self.default_value_expression();
                 let gui_expr = if !*gui_explicit {
@@ -767,6 +848,7 @@ impl CommandParameter {
                     liquers_core::command_metadata::ArgumentInfo{
                         name: #name_str.to_string(),
                         label: #label_str.to_string(),
+                        #description_field
                         default: #default_value_expression,
                         argument_type: #argument_type,
                         multiple: #multiple,
@@ -808,6 +890,9 @@ enum CommandSignatureStatement {
     Version(CommandImplVersionSpec),
     Label(String),
     Doc(String),
+    /// `hint <key>: "<value>"` — a command-level hint; the key is kept for its span, so that a
+    /// duplicate can be reported where it occurs.
+    Hint(syn::Ident, String),
     Namespace(String),
     Realm(String),
     Preset(CommandPreset),
@@ -826,6 +911,13 @@ enum CommandImplVersionSpec {
 impl Parse for CommandSignatureStatement {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let ident: syn::Ident = input.parse()?;
+        // `hint` names its key before the colon: `hint icon: "download"`.
+        if ident == "hint" && !input.peek(syn::Token![:]) {
+            let key: syn::Ident = input.call(syn::Ident::parse_any)?;
+            input.parse::<syn::Token![:]>()?;
+            let lit: syn::LitStr = input.parse()?;
+            return Ok(CommandSignatureStatement::Hint(key, lit.value()));
+        }
         if !input.peek(syn::Token![:]) {
             return Err(input.error(format!(
                 "colon expected after '{ident}' in command signature statement"
@@ -1057,6 +1149,7 @@ fn default_value_fits_enum(
 
 enum CommandParameterStatement {
     Label(String),
+    Description(String),
     Gui(ArgumentGUIInfo),
     Enum(EnumParameterSpec),
     EnumRef(String),
@@ -1070,6 +1163,11 @@ impl Parse for CommandParameterStatement {
                 input.parse::<syn::Token![:]>()?;
                 let lit: syn::LitStr = input.parse()?;
                 Ok(CommandParameterStatement::Label(lit.value()))
+            }
+            "description" => {
+                input.parse::<syn::Token![:]>()?;
+                let lit: syn::LitStr = input.parse()?;
+                Ok(CommandParameterStatement::Description(lit.value()))
             }
             "gui" => {
                 input.parse::<syn::Token![:]>()?;
@@ -1109,6 +1207,8 @@ struct CommandSignature {
     pub name: syn::Ident,
     pub label: Option<String>,
     pub doc: Option<String>,
+    /// Command-level hints in declaration order, keys unique.
+    pub hints: Vec<(String, String)>,
     pub state_parameter: StateParameter,
     pub parameters: Vec<CommandParameter>,
     pub result_type: ResultType,
@@ -1282,6 +1382,12 @@ impl CommandSignature {
         } else {
             quote! { cm.with_doc(#doc); }
         };
+        let hints_code: Vec<proc_macro2::TokenStream> = self
+            .hints
+            .iter()
+            .map(|(key, value)| quote! { cm.hints.insert(#key.to_string(), #value.into()); })
+            .collect();
+        let hints_code = quote! { #(#hints_code)* };
         let arguments = self.command_arguments_expression();
         let presets_code = if self.presets.is_empty() {
             // If no presets are defined, we can use an empty vector
@@ -1372,6 +1478,7 @@ impl CommandSignature {
                 let mut cm = #reg_command;
                 cm.with_label(#label);
                 #doc_cmd
+                #hints_code
                 cm.arguments = #arguments;
                 #presets_code
                 #next_code
@@ -1710,6 +1817,17 @@ impl Parse for CommandParameter {
                     ));
                 }
 
+                // Injected arguments come from the context, not from a `Value`, so the option
+                // conversions do not apply to them.
+                if !injected {
+                    let effective_ty = if multiple {
+                        variadic_element_type(&ty).unwrap_or(&ty)
+                    } else {
+                        &ty
+                    };
+                    check_option_argument(&name.to_string(), effective_ty)?;
+                }
+
                 let default_value = if input.peek(syn::Token![=]) {
                     let eq: syn::Token![=] = input.parse()?;
                     // A variadic argument defaults to the empty list and cannot carry another
@@ -1727,6 +1845,7 @@ impl Parse for CommandParameter {
                 };
 
                 let mut label = None;
+                let mut description: Option<String> = None;
                 let mut gui = ArgumentGUIInfo::TextField(40);
                 let mut gui_explicit = false;
                 let mut enum_spec: Option<EnumParameterSpec> = None;
@@ -1737,6 +1856,7 @@ impl Parse for CommandParameter {
                         let stmt: CommandParameterStatement = content.parse()?;
                         match stmt {
                             CommandParameterStatement::Label(l) => label = Some(l),
+                            CommandParameterStatement::Description(d) => description = Some(d),
                             CommandParameterStatement::Gui(g) => {
                                 gui = g;
                                 gui_explicit = true;
@@ -1778,6 +1898,7 @@ impl Parse for CommandParameter {
                     multiple,
                     default_value,
                     label,
+                    description,
                     gui,
                     gui_explicit,
                     enum_spec,
@@ -1894,6 +2015,7 @@ impl Parse for CommandSignature {
         let mut realm = String::new();
         let mut label = None;
         let mut doc = None;
+        let mut hints: Vec<(String, String)> = Vec::new();
         let mut presets = Vec::new();
         let mut next = Vec::new();
         let mut filename = String::new();
@@ -1908,6 +2030,16 @@ impl Parse for CommandSignature {
                 CommandSignatureStatement::Realm(r) => realm = r.clone(),
                 CommandSignatureStatement::Label(l) => label = Some(l.clone()),
                 CommandSignatureStatement::Doc(d) => doc = Some(d.clone()),
+                CommandSignatureStatement::Hint(key, value) => {
+                    let key_str = key.to_string();
+                    if hints.iter().any(|(k, _)| *k == key_str) {
+                        return Err(syn::Error::new(
+                            key.span(),
+                            format!("duplicate command hint `{key_str}`"),
+                        ));
+                    }
+                    hints.push((key_str, value.clone()));
+                }
                 CommandSignatureStatement::Preset(command_preset) => {
                     presets.push(command_preset.clone());
                 }
@@ -1938,6 +2070,7 @@ impl Parse for CommandSignature {
             name,
             label,
             doc,
+            hints,
             state_parameter,
             parameters,
             result_type,
@@ -2236,6 +2369,7 @@ mod tests {
             default_value: None,
             label: None,
             gui: ArgumentGUIInfo::TextField(20),
+            description: None,
             gui_explicit: false,
             enum_spec: None,
         };
@@ -2254,6 +2388,7 @@ mod tests {
             default_value: None,
             label: None,
             gui: ArgumentGUIInfo::TextField(20),
+            description: None,
             gui_explicit: false,
             enum_spec: None,
         };
@@ -2272,6 +2407,7 @@ mod tests {
             default_value: None,
             label: None,
             gui: ArgumentGUIInfo::TextField(20),
+            description: None,
             gui_explicit: false,
             enum_spec: None,
         };
@@ -2281,7 +2417,7 @@ mod tests {
     }
 
     #[test]
-    fn test_argument_type_expression_option_f64() {
+    fn option_f64_maps_to_float_option() {
         let param = CommandParameter::Param {
             name: parse_quote! { a },
             ty: parse_quote! { Option<f64> },
@@ -2290,11 +2426,12 @@ mod tests {
             default_value: None,
             label: None,
             gui: ArgumentGUIInfo::TextField(20),
+            description: None,
             gui_explicit: false,
             enum_spec: None,
         };
         let tokens = param.argument_type_expression();
-        let expected = quote! { liquers_core::command_metadata::ArgumentType::FloatOpt };
+        let expected = quote! { liquers_core::command_metadata::ArgumentType::FloatOption };
         assert_eq!(tokens.to_string(), expected.to_string());
     }
 
@@ -2308,6 +2445,7 @@ mod tests {
             default_value: None,
             label: None,
             gui: ArgumentGUIInfo::TextField(20),
+            description: None,
             gui_explicit: false,
             enum_spec: None,
         };
@@ -2326,6 +2464,7 @@ mod tests {
             default_value: None,
             label: None,
             gui: ArgumentGUIInfo::TextField(20),
+            description: None,
             gui_explicit: false,
             enum_spec: None,
         };
@@ -2358,6 +2497,61 @@ mod tests {
         };
 
         assert_eq!(sig.label, Some("Test label".to_string()));
+    }
+
+    #[test]
+    fn test_command_signature_with_hints() {
+        let sig: CommandSignature = syn::parse_quote! {
+            fn export(state) -> result
+            label: "Export"
+            hint icon: "download"
+            hint toolbar: "main"
+        };
+        assert_eq!(
+            sig.hints,
+            vec![
+                ("icon".to_string(), "download".to_string()),
+                ("toolbar".to_string(), "main".to_string())
+            ]
+        );
+        let code = sig.command_registration().to_string();
+        assert!(
+            code.contains("cm . hints . insert (\"icon\" . to_string () , \"download\" . into ())"),
+            "{code}"
+        );
+    }
+
+    /// AC-3: a repeated command hint key is a compile error, reported at the second key.
+    #[test]
+    fn register_command_rejects_duplicate_command_hint() {
+        let parsed: syn::Result<CommandSignature> = syn::parse2(quote! {
+            fn export(state) -> result
+            hint icon: "download"
+            hint icon: "upload"
+        });
+        let err = match parsed {
+            Ok(_) => panic!("a duplicate hint key must be rejected"),
+            Err(e) => e,
+        };
+        assert!(
+            err.to_string().contains("duplicate command hint `icon`"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn test_command_parameter_with_description() {
+        let parsed: CommandParameter = syn::parse_quote! {
+            width: i32 = 80 (label: "Width", description: "Maximum line width in characters")
+        };
+        let code = parsed
+            .argument_info_expression()
+            .map(|t| t.to_string())
+            .unwrap_or_default();
+        assert!(
+            code.contains("description : \"Maximum line width in characters\" . to_string ()"),
+            "{code}"
+        );
     }
 
     #[test]
@@ -2554,6 +2748,81 @@ mod tests {
 
     /// Tests for variadic (`multiple`) argument declarations.
     ///
+    /// See `specs/design/register-command-option-value/`.
+    mod option_arguments {
+        use super::*;
+
+        fn parse_err(ts: proc_macro2::TokenStream) -> String {
+            match syn::parse2::<CommandSignature>(ts) {
+                Ok(_) => panic!("declaration must not parse"),
+                Err(e) => e.to_string(),
+            }
+        }
+
+        fn registration_of(ts: proc_macro2::TokenStream) -> String {
+            let mut sig: CommandSignature = syn::parse2(ts).expect("declaration must parse");
+            sig.wrapper_version = WrapperVersion::V2;
+            fuzzy(&sig.command_registration().to_string())
+        }
+
+        #[test]
+        fn option_unsupported_inner_is_rejected() {
+            for (decl, rendered) in [
+                (
+                    quote! { fn f(state, x: Option<Value>) -> result },
+                    "Option<Value>",
+                ),
+                (
+                    quote! { fn f(state, x: Option<String>) -> result },
+                    "Option<String>",
+                ),
+                (
+                    quote! { fn f(state, x: Option<Vec<u8>>) -> result },
+                    "Option<Vec<u8>>",
+                ),
+            ] {
+                let message = parse_err(decl);
+                assert!(message.contains("argument 'x'"), "message: {message}");
+                assert!(message.contains(rendered), "message: {message}");
+                assert!(message.contains("x: String = \"\""), "message: {message}");
+            }
+        }
+
+        #[test]
+        fn option_widths_and_bool_map_to_option_types() {
+            for (decl, expected) in [
+                (
+                    quote! { fn f(state, x: Option<i8>) -> result },
+                    "ArgumentType::IntegerOption",
+                ),
+                (
+                    quote! { fn f(state, x: Option<u16>) -> result },
+                    "ArgumentType::IntegerOption",
+                ),
+                (
+                    quote! { fn f(state, x: Option<usize>) -> result },
+                    "ArgumentType::IntegerOption",
+                ),
+                (
+                    quote! { fn f(state, x: Option<f32>) -> result },
+                    "ArgumentType::FloatOption",
+                ),
+                (
+                    quote! { fn f(state, x: Option<bool>) -> result },
+                    "ArgumentType::BooleanOption",
+                ),
+            ] {
+                let tokens = registration_of(decl);
+                assert!(tokens.contains(expected), "expected {expected}: {tokens}");
+            }
+        }
+
+        #[test]
+        fn injected_option_is_not_checked() {
+            registration_of(quote! { fn f(state, x: Option<String> injected) -> result });
+        }
+    }
+
     /// See `specs/design/variadic-arguments-declaration/`. Every check lives in `impl Parse`,
     /// so `syn::parse2` reaches it and the messages can be asserted directly - no `trybuild`
     /// dependency and no `.stderr` fixtures to keep in sync.

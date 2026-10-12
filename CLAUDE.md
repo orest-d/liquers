@@ -364,14 +364,18 @@ register_command!(cr,
   Recognised when bare — `value: String` is an argument named `value`
 - `context` - special parameter for execution context; not an argument, allowed at any position.
   Recommended last, or immediately before a `multiple` argument (Python `*args` parity)
-- Parameters: `name: Type`, optionally `injected` **or** `multiple`, optionally `= default_value`
+- Parameters: `name: Type`, optionally `injected` **or** `multiple`, optionally `= default_value`,
+  optionally `(label: "…", description: "…", gui: …)`
+- `Option<T>` — optional: `T` is an integer width, `f32`/`f64` or `bool`, anything else is a compile
+  error (for a string use `String = ""`). Omitted or empty → the default, else `None`;
+  `Option<bool>` also reads `none`
 - `multiple` — variadic: consumes every remaining action parameter. Requires a container type
   (`Vec<T>`); `ArgumentType` is derived from the element type; takes no default (it defaults to the
   empty list); must be the last argument that consumes a query parameter (`injected` arguments and
   `context` may follow)
 - Default value types: string `"foo"`, bool `true`, int `42`, float `3.14`, query `query "path/to/query"`
 - Return: `-> result` (returns `Result<V, Error>`) or `-> value` (returns `V`)
-- Metadata: `label:`, `doc:`, `namespace:`, `realm:`, `preset:`, `next:`, `filename:`, `volatile:`,
+- Metadata: `label:`, `doc:`, `hint <key>: "…"` (a command-level hint; a key at most once), `namespace:`, `realm:`, `preset:`, `next:`, `filename:`, `volatile:`,
   `cached:` (`false` for a cheap command with a large output: it runs inline and its output is
   never kept as an intermediate), `payload:` (bare `required` / `none`; `required` also makes the command volatile), `expires:`
   (a string, checked when the command is registered), `version:` (`auto`, which needs

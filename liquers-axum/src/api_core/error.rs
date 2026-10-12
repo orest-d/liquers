@@ -24,6 +24,8 @@ pub fn error_to_status_code(error_type: ErrorType) -> StatusCode {
         ErrorType::ExecutionError => StatusCode::INTERNAL_SERVER_ERROR,
         ErrorType::UnexpectedError => StatusCode::INTERNAL_SERVER_ERROR,
         ErrorType::General => StatusCode::INTERNAL_SERVER_ERROR,
+        // A server-side setup fault, not something the caller sent.
+        ErrorType::ConfigurationError => StatusCode::INTERNAL_SERVER_ERROR,
         ErrorType::CommandAlreadyRegistered => StatusCode::CONFLICT,
         ErrorType::CacheNotSupported => StatusCode::NOT_IMPLEMENTED,
         ErrorType::NotSupported => StatusCode::NOT_IMPLEMENTED,
@@ -88,6 +90,7 @@ pub fn parse_error_type(type_str: &str) -> Result<ErrorType, String> {
         "DependencyCycle" => Ok(ErrorType::DependencyCycle),
         "StatusConflict" => Ok(ErrorType::StatusConflict),
         "Cancelled" => Ok(ErrorType::Cancelled),
+        "ConfigurationError" => Ok(ErrorType::ConfigurationError),
         _ => Err(format!("Unknown error type: {}", type_str)),
     }
 }
@@ -128,6 +131,7 @@ mod tests {
             ErrorType::DependencyCycle,
             ErrorType::StatusConflict,
             ErrorType::Cancelled,
+            ErrorType::ConfigurationError,
         ];
         for error_type in &all {
             match error_type {
@@ -154,7 +158,8 @@ mod tests {
                 | ErrorType::DependencyVersionMismatch
                 | ErrorType::DependencyCycle
                 | ErrorType::StatusConflict
-                | ErrorType::Cancelled => {}
+                | ErrorType::Cancelled
+                | ErrorType::ConfigurationError => {}
             }
         }
         all
@@ -255,6 +260,11 @@ mod tests {
         );
         assert_eq!(
             error_to_status_code(ErrorType::UnexpectedError),
+            StatusCode::INTERNAL_SERVER_ERROR
+        );
+        // T9 (`design/configuration-error-kind`): a setup fault on the server, not a bad request.
+        assert_eq!(
+            error_to_status_code(ErrorType::ConfigurationError),
             StatusCode::INTERNAL_SERVER_ERROR
         );
     }

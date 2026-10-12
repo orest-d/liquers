@@ -1,8 +1,8 @@
 # Liquers command registry — GENERATED, do not edit by hand.
 # Regenerate: cargo run -p liquers-lib --features cli --bin export-command-registry -- \
 #               --format yaml -o specs/command_registry.yaml
-# Origin:   groups=core,lui,egui,image,polars,records  features=egui,image,polars,records
-# Commands: 108
+# Origin:   groups=core,lui,egui,image,polars,records,search  features=egui,image,polars,records
+# Commands: 113
 # CHANGELOG-BEGIN
 # 2026-08-02  initial export (95 commands: img 47, pl 26, lui 14, root 6, dep 2)
 # 2026-08-25  pl/select_columns and pl/drop_columns take a variadic `columns` argument
@@ -21,6 +21,10 @@
 # 2026-10-10  pl/head is an alias of pl/slice (head parameter 0, own argument n = 5): first
 #             `definition: !Alias` in the registry; no impl_version; n's gui_info becomes
 #             IntegerField. design/command-alias-contract
+# 2026-10-11  Adds the `search` namespace: catalog, commands, search, field_extract, md_split
+#             (113 commands total: +5). design/store-and-asset-search Phase 4, Step 13
+# 2026-10-11  img/to_jpeg `quality: u8` is `argument_type: int` (was any): every integer width now
+#             maps to Integer. design/register-command-option-value
 # CHANGELOG-END
 commands:
 - name: to_text
@@ -537,6 +541,7 @@ commands:
   - name: quality
     label: quality
     default: !Value 85
+    argument_type: int
     gui_info: !TextField 40
   volatile: false
   expires: never
@@ -2197,6 +2202,173 @@ commands:
     label: state
     default: None
     gui_info: !TextField 40
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: search
+  name: catalog
+  label: Catalog
+  doc: 'A folder (from the input; the whole store without one) as records: key, filename, extension, parent, is_dir, status, type_identifier, media_type, title, description, size, updated, and with content=true the stored text. Never evaluates anything'
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: recursive
+    label: recursive
+    default: !Value true
+    argument_type: bool
+    gui_info: !TextField 40
+  - name: content
+    label: content
+    default: !Value false
+    argument_type: bool
+    gui_info: !TextField 40
+  - name: max_bytes
+    label: max bytes
+    default: !Value 262144
+    argument_type: int
+    gui_info: !TextField 40
+  - name: max_entries
+    label: max entries
+    default: !Value 100000
+    argument_type: int
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: search
+  name: commands
+  label: Commands
+  doc: 'The command registry (or one namespace) as records: id, query, realm, namespace, name, module, title, description (the signature), doc, volatile, output_filename'
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: namespace
+    label: namespace
+    default: !Value ''
+    argument_type: string
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: search
+  name: search
+  label: Search
+  doc: Filter records with the search syntax (terms, "phrases", -negation, a | b, ( ), field:value, field:>v, /regex/, field:( )); rank=true sorts by BM25 and adds score, matched and excerpt; limit=0 means no limit; trailing arguments name the fields free text is matched in
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: query
+    label: query
+    default: !Value ''
+    argument_type: string
+    gui_info: !TextField 40
+  - name: rank
+    label: rank
+    default: !Value true
+    argument_type: bool
+    gui_info: !TextField 40
+  - name: case_sensitive
+    label: case sensitive
+    default: !Value false
+    argument_type: bool
+    gui_info: !TextField 40
+  - name: limit
+    label: limit
+    default: !Value 50
+    argument_type: int
+    gui_info: !TextField 40
+  - name: fields
+    label: fields
+    default: None
+    argument_type: string
+    multiple: true
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: search
+  name: field_extract
+  label: Extract fields
+  doc: 'Files with the extension (md: front-matter; json; yaml/yml) under a folder, or rows of a catalog, with their fields as columns; files without fields are dropped'
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: extension
+    label: extension
+    default: !Value md
+    argument_type: !Enum
+      name: extension
+      values:
+      - alias: md
+        value: !Value md
+      - alias: json
+        value: !Value json
+      - alias: yaml
+        value: !Value yaml
+      - alias: yml
+        value: !Value yml
+      others_allowed: false
+      value_type: string
+    gui_info: EnumSelector
+  - name: prefix
+    label: prefix
+    default: !Value ''
+    argument_type: string
+    gui_info: !TextField 40
+  - name: flatten
+    label: flatten
+    default: !Value false
+    argument_type: bool
+    gui_info: !TextField 40
+  - name: fields
+    label: fields
+    default: None
+    argument_type: string
+    multiple: true
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: search
+  name: md_split
+  label: Split Markdown
+  doc: Markdown sections (unit=section, .md files) or lines of any text file (unit=line) as records with key, filename, n, line, end_line, heading, level and text
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: unit
+    label: unit
+    default: !Value section
+    argument_type: !Enum
+      name: unit
+      values:
+      - alias: section
+        value: !Value section
+      - alias: line
+        value: !Value line
+      others_allowed: false
+      value_type: string
+    gui_info: VerticalRadioEnum
   volatile: false
   expires: never
   is_async: true

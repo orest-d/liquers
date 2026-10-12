@@ -2,8 +2,7 @@
 id: RECORD-TIMESTAMP-UTC
 kind: design
 title: Record Timestamp is a UTC instant in every format
-status: in_review
-phase: implementation
+gh_pr: [121]
 readiness: ready
 autofix: not-eligible
 area: [records, lib/polars]

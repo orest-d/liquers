@@ -205,6 +205,12 @@ pub struct FieldSchema {
     pub key: KeyRole,
     /// What an index should do with this field. Portable *intent*; engines translate it.
     pub role: FieldRole,
+    /// The media type of a Text column's content, when it is structured text rather than prose —
+    /// `application/json` for a column whose cells are JSON documents. Search applies its JSON
+    /// rules (any-element matching on arrays, nested field tests) only to columns declaring it,
+    /// so it never has to guess from cell contents. `None` for ordinary columns.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub media_type: Option<String>,
 }
 
 /// The wire shape `FieldSchema` deserializes through, so an omitted `label` can be filled in from
@@ -224,6 +230,8 @@ struct FieldSchemaSpec {
     key: KeyRole,
     #[serde(default)]
     role: FieldRole,
+    #[serde(default)]
+    media_type: Option<String>,
 }
 
 impl From<FieldSchemaSpec> for FieldSchema {
@@ -237,6 +245,7 @@ impl From<FieldSchemaSpec> for FieldSchema {
             nullable: spec.nullable,
             key: spec.key,
             role: spec.role,
+            media_type: spec.media_type,
         }
     }
 }
@@ -254,7 +263,14 @@ impl FieldSchema {
             nullable: true,
             key: KeyRole::None,
             role: FieldRole::default(),
+            media_type: None,
         }
+    }
+
+    /// Declares the media type of the column's content — `application/json` for JSON cells.
+    pub fn with_media_type(mut self, media_type: impl Into<String>) -> Self {
+        self.media_type = Some(media_type.into());
+        self
     }
 
     pub fn with_label(mut self, label: impl Into<String>) -> Self {
@@ -507,6 +523,22 @@ impl RecordSchema {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn field_schema_media_type_round_trips() {
+        let field = FieldSchema::new("attr", FieldType::Text).with_media_type("application/json");
+        let json = serde_json::to_string(&field).expect("serialize");
+        let back: FieldSchema = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(back.media_type.as_deref(), Some("application/json"));
+
+        // A schema written before the field existed reads unchanged, and an absent media type is
+        // not written out.
+        let old: FieldSchema =
+            serde_json::from_str(r#"{"name":"title","data_type":"Text"}"#).expect("old form");
+        assert_eq!(old.media_type, None);
+        let plain = serde_json::to_string(&old).expect("serialize");
+        assert!(!plain.contains("media_type"), "{plain}");
+    }
 
     #[test]
     fn schema_new_single_id_field_succeeds() {
