@@ -6,7 +6,7 @@ status: draft
 priority: P1
 complexity: M
 area: [core/assets]
-design: 
+design: dependency-resolved-once-per-evaluation
 created: 2026-10-12
 github:
 ---
