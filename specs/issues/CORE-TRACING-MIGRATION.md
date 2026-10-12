@@ -6,7 +6,7 @@ status: accepted
 priority: P2
 complexity: M
 area: [core/error, build]
-design: 
+design: core-tracing-migration
 created: 2026-08-08
 github:
 ---
@@ -15,6 +15,15 @@ github:
 Half of this is already done. The `println!` → `eprintln!` conversion landed with
 `query-validation`, and `CLAUDE.md` now forbids `println!` in library code — so stdout is no longer
 corrupted. What remains is the other half of WP-6: `eprintln!` is not structured logging.
+
+## Problem Example
+
+Evaluating `-R/data/a.txt` from a store that holds it writes, unconditionally, the fast-track lines
+of `liquers-core/src/assets.rs` `AssetData::try_fast_track` (`Trying fast track for asset 7`, ...,
+`Asset 7 loaded successfully`) and `Applying step 1/1: GetResource(...)` to stderr. A real failure
+such as `Metadata save failed for key data/a.txt: ...` is indistinguishable from that chatter and
+cannot be kept while hiding it. It should be a `WARN liquers_core::assets` event that a subscriber
+shows at its default level, with the chatter available at `debug` for that module only.
 
 ## Impact
 

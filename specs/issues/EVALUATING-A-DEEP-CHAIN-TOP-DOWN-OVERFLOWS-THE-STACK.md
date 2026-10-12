@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: M
 area: [core/assets]
-design:
+design: deep-chain-evaluation-stack-depth
 created: 2026-10-08
 github:
 ---
@@ -19,8 +19,23 @@ debug build on the default 2 MB test-thread stack, with `SimpleEnvironment`. Eac
 evaluation waits on its dependency's evaluation inside the same task, so the poll recursion
 depth grows with the chain. Evaluating the links one at a time, bottom-up, works for any length.
 
+Re-measured at HEAD on 2026-10-12 (debug, `current_thread` runtime on a 2 MiB thread): the queued
+`SimpleEnvironment` (job capacity 4) works up to 26 links and aborts at 27; `ImmediateEnvironment`
+works up to 9 and aborts at 10. In a release build: 190 / 200 (queued) and 35 / 40 (inline). At job
+capacity 1000, where every dependency runs as its own task, 200 links pass. Locally queued
+dependencies are run with `Box::pin(dep.run(None)).await` inside the dependent
+(`DefaultAssetManager::drain_dependencies`, `wait_for_dependency`), and the inline manager nests
+`run_inline` per link (`ImmediateAssetManager::get`).
+
 The dependency *analysis* is not involved: since `dependency-chain-analysis-cost` it is iterative
 (a 2 000-link analysis runs on the default stack), and so is the stored-records walk.
+
+## Problem Example
+
+`data/recipes.yaml` holds `l0.txt = make_text` and `l{i}.txt = -R/data/l{i-1}.txt/-/upper`. With
+nothing evaluated, `envref.evaluate("-R/data/l30.txt").await?.get().await` under `SimpleEnvironment`
+aborts with `has overflowed its stack`. It should return `"TEXT"`, as evaluating `l0` to `l30` one
+at a time does.
 
 ## Impact
 
