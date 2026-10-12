@@ -69,7 +69,8 @@ server can serve the skill text itself as a prompt (§4.3).
 
 ### 4.1 Tools
 
-Nine tools in the MVP, each a thin wrapper over one `ns-mem` or `ns-search` query. Names are
+Ten tools in the MVP, each a thin wrapper over one `ns-mem` or `ns-search` query (`memory_context`
+added in Phase 1 revision 3, from `brainstorm-workflow-improvements.md` §3 W4). Names are
 prefixed `memory_` so that they cannot collide with a general Liquers MCP (§6).
 
 | Tool | Annotations | Arguments | Returns | Capability |
@@ -83,12 +84,13 @@ prefixed `memory_` so that they cannot collide with a general Liquers MCP (§6).
 | `memory_write` | write | `key`, `body`, `title`, `description`, `fields`, `expected_version`, `supersedes`, `reason` | key, new version | W1, W3, W5, W7 |
 | `memory_edit` | write | `key`, one of: `replace {old, new}` \| `set_field {field, value}` \| `append_row {section, cells}`; `expected_version`, `reason` | key, new version | W2, W3, W7 |
 | `memory_check` | read-only | `path` | violations: `rule`, `key`, `severity`, `message`; counts | M1, M5 |
+| `memory_context` | read-only | `key` \| `topic` \| `files`, `budget` (tokens) | one Markdown context pack: L1 of the subject, matching reference sections, open issues and designs, code items; an "omitted" tail | AC-21 |
 
 `memory_forget` (W6) is the tenth, added when the archive collection convention is fixed in
 Phase 2; until then forgetting is `memory_edit … set_field superseded_by` or a status.
 
 Design rules for the tool set, from the survey and
-`../store-and-asset-search/research-questions.md` §6 (search branch):
+`../store-and-asset-search/research-questions.md` §6:
 
 - **Every hit is addressable.** `key` is a Liquers key, readable with `memory_read` and citable in
   another memory.
@@ -151,7 +153,7 @@ decisions keep the two combinable:
    arguments of composite tools (`memory_new` is `similar` then `new`; `memory_edit` chooses among
    `edit`, `set_field` and `append_row`; `include_superseded` adds a filter). A write tool's `body`
    travels as the command's payload, not as a query parameter. Queries are built with
-   `ActionRequest`, never by string concatenation (`SEARCH_GUIDE.md` §6, search branch). A *tool
+   `ActionRequest`, never by string concatenation (`SEARCH_GUIDE.md` §6). A *tool
    set* is a list of such declarations, data in the configuration.
 3. **A server hosts several tool sets**, each with a name prefix (`memory_`, `liquers_`). Combining
    the memory MCP and a general one is listing two tool sets in one configuration; a name collision

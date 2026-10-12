@@ -49,8 +49,8 @@ What `specs/` does, what Claude skills, Basic Memory, Obsidian, Jekyll/Hugo and 
 pattern do. `title` and `description` (or `summary`) are front-matter fields; anything else is too.
 
 For: human- and git-native (T3 ✔), the abstract changes in the same edit as the text, so drift is
-visible in the diff (T2 ✔ in practice), arbitrary fields (T7 ✔). The search branch already parses
-it (`ns-search/field_extract`).
+visible in the diff (T2 ✔ in practice), arbitrary fields (T7 ✔). `ns-search/field_extract` already parses
+it.
 
 Against: a listing must open every file (T1 ✗ — `field_extract` is a scan, cached as an asset but
 recomputed when any file changes); Markdown only (T6 ✗); and nothing a Liquers *client* sees —

@@ -6,9 +6,8 @@ templates — and asks, for each mechanism, what memory service it is, and which
 (tool) could replace or serve it.
 
 Counts and behaviour are taken at `main` `df2d5ee`. The search commands cited here
-(`ns-search/*`) are implemented on the `store-and-asset-search` branch
-(`claude/relaxed-brahmagupta-1tadmg`), not yet merged; their contract is
-`specs/reference/SEARCH.md` and `specs/guides/SEARCH_GUIDE.md` on that branch.
+(`ns-search/*`) were on the `store-and-asset-search` branch when this was written and were merged
+on 2026-10-12; their contract is `specs/reference/SEARCH.md` and `specs/guides/SEARCH_GUIDE.md`.
 
 ## 1. `specs/` is already an agent memory
 

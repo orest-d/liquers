@@ -114,7 +114,7 @@ over `specs/` are expressible in it (AC-9), with any residue written as a named 
 | R6 | **Hide superseded** memories from list and search unless asked; hiding **expired** ones is NEXT | MVP / NEXT | A filter the tool adds, not `search`: `-superseded_by:*`, and later `-expires:<` today's date. Not a bare `-expired`, which in the search grammar is a negated *word*. How an empty YAML `superseded_by:` evaluates under `field:*` is checked in Phase 3 |
 | R7 | **Links** — outgoing links of a document, documents linking to it | NEXT | `ns-mem/links` (overlaps `NO-MARKDOWN-NAVIGATION-COMMANDS`) |
 | R8 | **Semantic search** | NEXT | `external-index-sync` (vector store as a materialized view) |
-| R9 | **Recency / importance ranking** | NEXT | `sort` from `record-filter-commands` (search branch); a scoring policy is not a search primitive |
+| R9 | **Recency / importance ranking** | NEXT | `sort` from `record-filter-commands`; a scoring policy is not a search primitive |
 | R10 | **Describe** — collections, fields, vocabularies, templates: what an agent may filter on and write | MVP | `ns-mem/describe` over `_schema/` |
 
 ### 3.2 Write
@@ -172,12 +172,12 @@ The survey splits evenly. The arguments specific to Liquers:
 | Item | State at `main` `df2d5ee` | Effect here |
 |---|---|---|
 | `AXUM-ASSETS-API-ENDPOINTS-NOT-IMPLEMENTED` | **Closed** (design `axum-assets-endpoints`, PR 73) | The blocker named by the first Phase 1 is gone; `key/listdir` and `key/info` exist |
-| `store-and-asset-search` | Implemented on its branch, not merged | R3, R4, M1's field records and W4's similarity all build on `ns-search`; **this design follows it** |
+| `store-and-asset-search` | Merged 2026-10-12 (complete) | R3, R4, M1's field records and W4's similarity all build on `ns-search`; **this design follows it** |
 | `STORE-NO-READ-ONLY-ADAPTER` | Draft, P2 | O3 needs it; must be fixed first or worked around by a read-only wrapper inside this design |
 | `STORE-WRITE-HAS-NO-PRECONDITION` | Draft, P2 | W3 is racy across processes until fixed; acceptable under P8 |
 | `CORE-METADATA-NO-APPLICATION-ATTRIBUTES` | Draft, P2 | Fields other than L0/L1 reach clients as records, not metadata; not blocking |
-| `NO-MARKDOWN-NAVIGATION-COMMANDS` | Draft, P3 (search branch only) | R5's section read, R7; this design may absorb the minimum it needs |
-| `external-index-sync` | Phase 1 not started (search branch only) | R8 |
+| `NO-MARKDOWN-NAVIGATION-COMMANDS` | Draft, P3 | R5's section read, R7; this design may absorb the minimum it needs |
+| `external-index-sync` | Phase 1 not started | R8 |
 | `STORE-ROUTER-DOES-NOT-FORWARD-ASSET-INFO` | Draft, P2 (filed 2026-10-11) | Folder tiers through a router member; worked around by wrapping the router |
 | `ARGUMENT-INFO-HAS-NO-DESCRIPTION` | Draft, P3 | MCP argument descriptions cannot all come from `CommandMetadata` until fixed; tool declarations supply them meanwhile |
 | `COMMAND-CANNOT-BE-RUN-WITH-A-RESTRICTED-CONTEXT` | Draft, P2 | Needed before a general `query` tool may be offered over MCP to an untrusted client |

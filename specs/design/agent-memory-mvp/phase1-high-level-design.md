@@ -2,17 +2,20 @@
 
 ## Feature Name
 
-Agent memory service (MVP), revision 2 (2026-10-11; revision 1 summarized in `DESIGN.md`).
+Agent memory service (MVP), revision 3 (2026-10-12; earlier revisions in `DESIGN.md`).
 Companion analyses: [survey](./memory-systems-survey.md) ·
 [specification](./service-specification.md) · [workflow porting](./workflow-porting.md) ·
-[tiers and storage](./tiers-and-storage.md) · [interfaces and MCP](./interfaces-and-mcp.md).
+[tiers and storage](./tiers-and-storage.md) · [interfaces and MCP](./interfaces-and-mcp.md) ·
+[brainstorm: workflow improvements](./brainstorm-workflow-improvements.md).
 
 ## Purpose
 
-Give coding agents a memory they can browse in tiers, search, write safely and check — first
-`specs/` and the skills, then any corpus — as Liquers commands behind an MCP server and a CLI. This
-repository already runs such a memory by hand; the design turns its bookkeeping into commands and its
-derived files into assets, and leaves judgement with the agent.
+An MVP of a **competitive agent memory system**: a memory agents browse in tiers, search, write
+safely, check, and draw assembled context packs from — served as Liquers commands behind an MCP
+server and a CLI. It is **configurable**: one configuration document (stores, collections, tiers,
+views, tools) shapes it like this repository's manual system over the unchanged `specs/`, or like
+OpenViking's context database, on local directories or remote stores such as S3. The bookkeeping
+becomes commands, derived files become assets, judgement stays with the agent.
 
 ## Problem Example
 
@@ -26,10 +29,9 @@ Three tools, two of them hand-written Python, and several full documents read to
 decision. An agent without a shell cannot do it at all.
 
 **With the service:** one MCP call, `memory_new(collection="issues", title="Markdown sections cannot
-be addressed", …)`, returns ranked candidates — once the search branch is merged, its
+be addressed", …)`, returns ranked candidates — first among them the existing
 `NO-MARKDOWN-NAVIGATION-COMMANDS` — each with `title`, `description` and an excerpt, and writes
-nothing. The agent reads one L1, sees a duplicate, and is done. The same check as a query
-(`ns-search` registry from the search branch):
+nothing. The agent reads one L1, sees a duplicate, and is done. The same check as a query:
 
 ```
 -R-key/specs/issues/-/ns-search/field_extract/search-markdown~.section-t-f-5-title
@@ -37,7 +39,8 @@ nothing. The agent reads one L1, sees a duplicate, and is done. The same check a
 
 ## Scope and Acceptance Criteria
 
-Tool keys are relative to the memory root. Collections under `specs/` are writable through the
+The configuration profiles are sketched in the brainstorm §2. Tool keys are relative to the memory
+root. Collections under `specs/` are writable through the
 service only, except `archive`, which is mounted read-only; agent notes live in a separate mount.
 
 - **AC-1** Tiered listing
@@ -92,7 +95,7 @@ service only, except `archive`, which is mounted read-only; agent notes live in 
   THEN the reads create no sidecar files and the write is refused
 - **AC-14** MCP discovery and use
   WHEN an MCP client starts `liquers-mem mcp` over stdio and lists tools
-  THEN the nine `memory_` tools of `interfaces-and-mcp.md` §4.1 are offered with argument schemas
+  THEN the `memory_` tools of `interfaces-and-mcp.md` §4.1 are offered with argument schemas
   as tabulated there, and a `memory_search` call returns structured hits
 - **AC-15** Orientation
   WHEN an agent calls `memory_overview`, then `memory_describe` for `issues`
@@ -107,8 +110,27 @@ service only, except `archive`, which is mounted read-only; agent notes live in 
   THEN the memory's `title` is its first heading and `description` its first paragraph, and the
   folder's tiers are the README's
 
+- **AC-18** The "liquers-specs" profile
+  WHEN the service starts with a configuration mounting this repository's `specs/` and skills
+  unchanged
+  THEN AC-1 to AC-17 hold without moving or rewriting any file
+- **AC-19** An OpenViking-shaped profile
+  WHEN the service starts with a configuration declaring category collections (profile,
+  preferences, entities, events) and folder overviews, and no code change
+  THEN `memory_overview`, `memory_list`, `memory_new` and `memory_search` work over that layout
+- **AC-20** A remote mount
+  WHEN a collection is mounted from an S3-compatible store (OpenDAL; an in-process or local
+  S3-compatible endpoint in tests)
+  THEN writes and reads through the tools behave as on a local mount, and the memory survives a
+  restart of the service
+- **AC-21** Context pack
+  WHEN an agent calls `memory_context` for an issue with a token budget
+  THEN it receives one Markdown document with the issue's L1, the reference sections, open issues
+  and designs matching its area and the symbols it names, within the budget, ending with what was
+  omitted; evaluated again after one embedded document changes, the pack is recomputed
+
 Non-goals: identity, sessions and ACL (`CORE-SESSION-AND-KEY-ACL`); a language model inside the
-service; semantic search; `memory_forget` and the archive convention (NEXT); the general Liquers
+service; semantic search and vector indexes (brainstorm §5.3); `memory_forget` and the archive convention (NEXT); the general Liquers
 MCP (only kept combinable, `interfaces-and-mcp.md` §6); git commits by the service; retiring
 `docs_index.py` before AC-9 and AC-10 pass.
 
@@ -117,9 +139,13 @@ MCP (only kept combinable, `interfaces-and-mcp.md` §6); git commits by the serv
 - **Query:** no grammar change.
 - **Store:** a front-matter store adapter (`tiers-and-storage.md` §2 C); a read-only mount.
 - **Commands:** new `ns-mem` (`describe`, `similar`, `new`, `write`, `edit`, `set_field`,
-  `append_row`, `check`, `render_index`, `section`), built on `ns-search`.
+  `append_row`, `check`, `render_index`, `section`, `context`), built on `ns-search`; `expand` and
+  record-to-Markdown converters (`SIMPLE-TEMPLATE-HAS-NO-COMMAND`); templates (brainstorm §4).
+- **Configuration:** the existing store-router configuration, extended with collections, tiers,
+  views and tool sets.
 - **Assets:** writes go through the asset manager; recipes for indexes and folder tiers.
-- **Web/API:** the existing assets API; MCP over HTTP is NEXT (question 5).
+- **Web/API:** the existing assets API; MCP tool arguments map onto argument overrides; MCP over
+  HTTP is NEXT (question 5).
 
 ## Crate Placement
 
@@ -139,19 +165,20 @@ the binary, over `liquers-lib`, `liquers-axum` and `liquers-mcp`.
 
 ## Design Dependencies
 
-- **Requires** `store-and-asset-search` (on branch `claude/relaxed-brahmagupta-1tadmg`, unmerged;
-  `ns-search`, `SEARCH_GUIDE.md`) and `STORE-NO-READ-ONLY-ADAPTER` (AC-13).
-- **Overlaps** `NO-MARKDOWN-NAVIGATION-COMMANDS` (search branch; AC-3, AC-17),
+- **Requires** `store-and-asset-search` (merged; `ns-search`, `SEARCH_GUIDE.md`),
+  `axum-query-named-arguments` (merged; argument overrides) and `STORE-NO-READ-ONLY-ADAPTER` (AC-13).
+- **Overlaps** `NO-MARKDOWN-NAVIGATION-COMMANDS` (AC-3, AC-17, AC-21),
+  `SIMPLE-TEMPLATE-HAS-NO-COMMAND` (AC-21), `NO-SOURCE-CODE-AND-API-DOC-NAVIGATION` (question 6),
   `STORE-ROUTER-DOES-NOT-FORWARD-ASSET-INFO` (folder tiers), `ARGUMENT-INFO-HAS-NO-DESCRIPTION` (tool
   schemas), `CORE-METADATA-NO-APPLICATION-ATTRIBUTES`, `STORE-WRITE-HAS-NO-PRECONDITION` (AC-6 is
   single-process until it is fixed).
-- **Required by** `external-index-sync` (search branch) for semantic memory search.
+- **Feeds** `external-index-sync`, where semantic memory search belongs.
 
 ## Open Questions
 
 **Blocking**
 
-1. *Sequencing.* Phase 2 starts when `store-and-asset-search` is on `main`. *Recommended: yes.*
+1. ~~*Sequencing* — wait for `store-and-asset-search`.~~ Resolved 2026-10-12: merged.
 2. *`STORE-NO-READ-ONLY-ADAPTER`* fixed first as its own change, or wrapped here? *Recommended: first.*
 
 **Open design**
@@ -163,13 +190,20 @@ the binary, over `liquers-lib`, `liquers-axum` and `liquers-mcp`.
    `field_extract`? And does setting `description` through the assets API rewrite the front-matter
    or get refused? *Recommended: C, and rewrite* (`tiers-and-storage.md` §3).
 5. *HTTP MCP (`serve`) in the MVP?* *Recommended: NEXT*; stdio and CLI first.
+6. *Rust item records* (`syn`; brainstorm §5.2) in the MVP? They make context packs and the
+   doc-to-code reference check much better at ~1 s per session and no new dependency, but widen
+   the MVP. *Recommended: yes, item records only; references (SCIP) later.*
+7. *Template engine* — `expand` plus minijinja-backed `render`, rather than porting `mustache`?
+   *Recommended: yes* (brainstorm §4).
 
 **Proposed resolutions** (accept or amend)
 
-6. Agent-written memory in a separate writable mount; promotion into `specs/` by filing.
-7. Schema language: a small own YAML, exported as JSON Schema for MCP.
-8. The oracle covers `index.csv` and `--check`; `index.md` and README blocks follow later.
-9. Nine tools; `memory_forget` waits for the archive convention.
+8. Agent-written memory in a separate writable mount — committed `notes/` by default, S3 when the
+   environment's network policy allows it; promotion into `specs/` by filing.
+9. Schema language: a small own YAML, exported as JSON Schema for MCP.
+10. The oracle covers `index.csv` and `--check`; `index.md` and README blocks follow later.
+11. Ten tools (the nine of `interfaces-and-mcp.md` §4.1 plus `memory_context`); `memory_forget`
+    waits for the archive convention.
 
 ## References
 

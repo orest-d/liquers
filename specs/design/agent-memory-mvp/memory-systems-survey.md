@@ -159,7 +159,7 @@ supersession cheap to record.
 
 Who provides each (OV OpenViking, KW LLM wiki, M0 mem0, LT Letta, ZG Zep/Graphiti, AMT memory tool,
 CC Claude Code, BM Basic Memory, LM LangMem, CG Cognee, SM Supermemory, MR MCP reference server).
-The **Liquers** column says what already exists at `main` or on the search branch.
+The **Liquers** column says what already exists at `main` (search merged 2026-10-12).
 
 | # | Service | Provided by | Liquers today |
 |---|---|---|---|
@@ -187,6 +187,6 @@ The **Liquers** column says what already exists at `main` or on the search branc
 | S22 | **Background processing** so memory work adds no latency | OV, LT, LM, CG, ZG | Asset job queue |
 
 Liquers is unusually strong on S15 (no other system has general derived-data invalidation), S5
-(once the search branch merges), S11/S16 (versions plus git) and S13/S14 (this repository's own
+(merged 2026-10-12), S11/S16 (versions plus git) and S13/S14 (this repository's own
 practice). It is missing S2, S6, S7, S19's write log, and an MCP surface (S21) — which, with a
 specification of S3, S8 and S9 as conventions, is what this design is for.

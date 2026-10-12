@@ -64,6 +64,21 @@ What changed from revision 1, and why:
 Revision 1's open question 1 (an asset listing is the union of live assets, store and recipes) was
 settled by `axum-assets-endpoints` and is relied on by AC-12.
 
+## Revision 3 — 2026-10-12
+
+`store-and-asset-search` and `axum-query-named-arguments` (argument overrides) were merged. The
+brief was sharpened: the MVP is a **competitive** agent memory system, **configurable** to serve this
+repository's manual system or an OpenViking-style layout, on local or remote (S3) stores. A sixth
+companion, [`brainstorm-workflow-improvements.md`](./brainstorm-workflow-improvements.md), measures
+today's workflow costs, sketches the configuration profiles, walks ten workflow improvements,
+compares templating (`simple_template`/`expand`, ranees' `mustache`, minijinja), ranks further
+features (Markdown navigation, context packs, Rust item records via `syn`, hybrid semantic search
+with vendored static embeddings, why no vector database), and checks each against the Claude Code
+cloud container (network policy, build size, ephemeral state). Phase 1 gained AC-18 to AC-21
+(profiles, a remote mount, context packs), a tenth tool (`memory_context`), and open questions 6–7
+(Rust item records in the MVP; the template engine); the sequencing question is resolved. Filed:
+`SIMPLE-TEMPLATE-HAS-NO-COMMAND`, `VALUE-TO-JSON-PANICS-ON-NON-FINITE-FLOAT`.
+
 ## Phase 1 review, 2026-10-11
 
 Two independent reviews (conformity and records; codebase and soundness) were applied before the
@@ -124,7 +139,7 @@ need identity, that is a finding to report, not a decision to make inside this f
 ## Links
 
 - [Phase 1](./phase1-high-level-design.md)
-- [Survey](./memory-systems-survey.md) · [Specification](./service-specification.md) · [Workflow porting](./workflow-porting.md) · [Tiers and storage](./tiers-and-storage.md) · [Interfaces and MCP](./interfaces-and-mcp.md)
+- [Survey](./memory-systems-survey.md) · [Specification](./service-specification.md) · [Workflow porting](./workflow-porting.md) · [Tiers and storage](./tiers-and-storage.md) · [Interfaces and MCP](./interfaces-and-mcp.md) · [Brainstorm: workflow improvements](./brainstorm-workflow-improvements.md)
 - [Phase 2](./phase2-architecture.md)
 - [Phase 3](./phase3-examples.md)
 - [Phase 4](./phase4-implementation.md)
