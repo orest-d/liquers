@@ -3,8 +3,7 @@ id: AXUM-QUERY-NAMED-ARGUMENTS
 kind: design
 title: Argument overrides over HTTP and WebSocket
 workflow: liquers-project
-status: in_review
-phase: documentation
+status: complete
 readiness: ready
 autofix: not-eligible
 area: [axum, core/assets, core/plan]
@@ -27,7 +26,7 @@ Pre-approved after Phase 4 on 2026-10-12 (`proceed all`): implementation and Pha
 - [x] Phase 2: Architecture (approved 2026-10-12)
 - [x] Phase 3: Examples and Tests (approved 2026-10-12)
 - [x] Phase 4: Implementation Plan (approved 2026-10-12)
-- [ ] Phase 5: Documentation (in review)
+- [x] Phase 5: Documentation (approved 2026-10-12)
 
 ## Links
 
