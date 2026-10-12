@@ -77,10 +77,10 @@ and follow it.
 ## Scope and Acceptance Criteria
 
 Names beginning with `_` are reserved for options. Two are defined, each with one meaning wherever
-it appears: `_link_<name>` (a link override) and `_format` (the encoding of a `DataEntry` envelope —
+it appears: `_link_<name>` (a link override) and `_entry_format` (the encoding of a `DataEntry` envelope —
 `cbor`, `json` or `bincode` — on every route that reads or writes one; it replaces today's `format`,
 AC-22). The value's own format stays where it is: the query's filename extension, and the
-`data_format` metadata field. Scenarios AC-1 to AC-12 hold on every route in scope that evaluates:
+`data_format` metadata field. Option names say what they apply to, so a later option for another purpose gets its own name rather than a second meaning. Scenarios AC-1 to AC-12 hold on every route in scope that evaluates:
 `{base}` (Query API), `q/data`, `q/entry`, `q/submit` and WebSocket `subscribe`.
 
 - **AC-1** URL query parameters are overrides
@@ -107,7 +107,7 @@ AC-22). The value's own format stays where it is: the query's filename extension
   - THEN `422 ConversionError`, and nothing is evaluated
 - **AC-7** No overrides, no change — and no accidental unmanaged evaluation
   - WHEN a request carries no override: no query string, an empty `?`, an empty body, `{}`, or
-    options only (`_format`)
+    options only (`_entry_format`)
   - THEN it is served exactly as today, as a managed asset where today's rules make it one
 - **AC-8** Different overrides are not shared
   - WHEN two requests for one query carry different overrides
@@ -130,7 +130,7 @@ AC-22). The value's own format stays where it is: the query's filename extension
 - **AC-13** The entry route answers value and metadata
   - WHEN `q/entry` is requested, with or without overrides
   - THEN the answer is a `DataEntry` — data plus metadata, log included — negotiated by
-    `_format`, then `Accept`, then CBOR
+    `_entry_format`, then `Accept`, then CBOR
 - **AC-14** The entry route keeps the log of a failure
   - WHEN the evaluation behind `q/entry` fails
   - THEN the error envelope carries the failed asset's metadata in `error.metadata`
@@ -164,12 +164,12 @@ AC-22). The value's own format stays where it is: the query's filename extension
 - **AC-21** Recipe overrides keep their keyed asset managed
   - WHEN a keyed recipe with `arguments` is requested by key (HTTP, WebSocket)
   - THEN its asset is managed — found by `key/info`, joined by a later `key/submit` — as today
-- **AC-22** `_format` replaces `format`
+- **AC-22** `_entry_format` replaces `format`
   - WHEN a route that reads or writes a `DataEntry` (Store `entry`, Assets `q/entry`, `key/entry`,
-    `key/recover`, Recipes `entry`) is given `_format=json` — or the old `format=json`
-  - THEN `_format` selects the encoding as `format` did; `format` is not an alias: on `q/entry` it is
+    `key/recover`, Recipes `entry`) is given `_entry_format=json` — or the old `format=json`
+  - THEN `_entry_format` selects the encoding as `format` did; `format` is not an alias: on `q/entry` it is
     an override like any other name, and on routes without overrides it is `400 ParameterError`
-    naming `_format`, so a stale client fails loudly instead of silently getting CBOR
+    naming `_entry_format`, so a stale client fails loudly instead of silently getting CBOR
 
 Non-goals: overrides on the `key/` family (a key's asset is defined by its recipe and globally
 shared; overrides would give one key two values); caching or sharing an asset with overrides;
@@ -179,7 +179,7 @@ an overridden evaluation never is); a plan-preview route.
 ## Core Interactions
 
 - **Web/API**: Query API route; Assets API `q/data`, `q/entry` (gain `POST`), `q/submit`; every
-  entry route (`_format`); WebSocket protocol (`arguments` on `subscribe`, `cancel`, ids).
+  entry route (`_entry_format`); WebSocket protocol (`arguments` on `subscribe`, `cancel`, ids).
 - **Assets**: `AssetManager::apply` for overridden evaluations; `get_asset` otherwise.
 - **Plans / recipes**: `Recipe::to_plan` gains type conversion with `Plan::init_warning` (AC-12;
   the only route into the asset's log).
@@ -209,11 +209,11 @@ updated in the implementation PR — `reference/` must be true at HEAD.
   `cached: false`): it cannot be subscribed to or polled, so there is no way to get its result —
   it is still useful when the query has a side effect (writing to a database, a store, a file);
   to get a result, use `q/data` (waits) or WebSocket `subscribe` with `arguments` (follows). §8
-  (WebSocket) `arguments`, ids and `cancel`. Every `?format=` example becomes `?_format=`.
+  (WebSocket) `arguments`, ids and `cancel`. Every `?format=` example becomes `?_entry_format=`.
 - Reference, recipe documentation (`api/DOC_08_RECIPES_PLANS.md`): mismatched JSON types in
   `arguments` convert, with a warning.
 - Other: `liquers-axum/README.md` endpoint list and its `?format=` lines;
-  `liquers-axum/examples/WEBSOCKET_EXAMPLE.md` and `examples/assets_recipes_basic.rs` (`_format`).
+  `liquers-axum/examples/WEBSOCKET_EXAMPLE.md` and `examples/assets_recipes_basic.rs` (`_entry_format`).
 
 ## Design Readiness
 
@@ -225,7 +225,7 @@ conversion moves into `Recipe::to_plan`, ~60–80 lines, one registry lookup per
 `q/data`, `q/entry`, `q/submit` in scope and following an overridden evaluation solved here
 (AC-15 to AC-19); Q7 no separate Query API entry route — `q/entry` serves (AC-13, AC-14); Q8
 `q/submit` accepts overrides, for side effects (AC-16); Q9 overrides go on `subscribe` as
-`arguments`, no separate submit action (AC-17); Q11 cancel by id (AC-19); Q12 `_format`, no alias,
+`arguments`, no separate submit action (AC-17); Q11 cancel by id (AC-19); Q12 `_entry_format` (named for what it applies to — `_format` was too generic for an option allowed one meaning), no alias,
 one meaning everywhere (AC-22); Q13 `"managed": bool` in the `q/submit` answer, the `subscribe`
 reply and notifications, and an `x-liquers-managed` header on value answers (AC-20); Q14 the terms
 above; A1 a name in both query string and body is an error (AC-9).
@@ -269,7 +269,7 @@ designs overrides on the Assets API or the WebSocket.
 - **Q15 (needs decision)** (a) or (b). Recommended: **(a)** here, and (b) filed as a follow-up
   issue carrying this analysis, to be designed once sessions exist so an id can be checked against
   its owner.
-- **A3 (assumption)** Replacing `format` by `_format` on every entry route breaks clients that send
+- **A3 (assumption)** Replacing `format` by `_entry_format` on every entry route breaks clients that send
   `?format=`. In this repository only tests, the README, the guide and two examples do; no binding
   (`liquers-web`, `liquers-py`) sends it. Taken as intended by "no need to keep the alias"; AC-22
   makes a stale `format` a loud error rather than a silent default.
@@ -279,7 +279,7 @@ designs overrides on the Assets API or the WebSocket.
 - **2026-10-12 — Assets API and WebSocket submit.** The design started as the Query API only
   (issue `QUERY-API-ARGUMENTS-ONLY-IN-QUERY-PATH`, complexity M). The user extended it to `q/data`,
   `q/entry`, `q/submit`, and to following an overridden evaluation through WebSocket `subscribe`;
-  the `qe` entry route came with Q5 and went with Q7; `_format` replaces `format` on every entry
+  the `qe` entry route came with Q5 and went with Q7; `_entry_format` replaces `format` on every entry
   route (Q12). Added AC-13 to AC-22, the
   terminology, and documentation in four documents. Size: L; converted from the compact to the
   full form (each phase in its own file). Approval: pending at this gate.
