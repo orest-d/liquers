@@ -357,35 +357,59 @@ impl_from_parameter_value2!(
     (|p: &serde_json::Value| p.as_str().map(|s| s.to_owned()))
 );
 impl_from_parameter_value2!(i64, |p: &serde_json::Value| p.as_i64());
-impl_from_parameter_value2!(i32, |p: &serde_json::Value| p.as_i64().map(|x| x as i32));
-impl_from_parameter_value2!(i16, |p: &serde_json::Value| p.as_i64().map(|x| x as i16));
-impl_from_parameter_value2!(i8, |p: &serde_json::Value| p.as_i64().map(|x| x as i8));
+impl_from_parameter_value2!(i32, |p: &serde_json::Value| p
+    .as_i64()
+    .and_then(|x| i32::try_from(x).ok()));
+impl_from_parameter_value2!(i16, |p: &serde_json::Value| p
+    .as_i64()
+    .and_then(|x| i16::try_from(x).ok()));
+impl_from_parameter_value2!(i8, |p: &serde_json::Value| p
+    .as_i64()
+    .and_then(|x| i8::try_from(x).ok()));
 impl_from_parameter_value2!(isize, |p: &serde_json::Value| p
     .as_i64()
-    .map(|x| x as isize));
-impl_from_parameter_value2!(u64, |p: &serde_json::Value| p.as_i64().map(|x| x as u64));
-impl_from_parameter_value2!(u32, |p: &serde_json::Value| p.as_i64().map(|x| x as u32));
-impl_from_parameter_value2!(u16, |p: &serde_json::Value| p.as_i64().map(|x| x as u16));
-impl_from_parameter_value2!(u8, |p: &serde_json::Value| p.as_i64().map(|x| x as u8));
+    .and_then(|x| isize::try_from(x).ok()));
+impl_from_parameter_value2!(u64, |p: &serde_json::Value| p.as_u64());
+impl_from_parameter_value2!(u32, |p: &serde_json::Value| p
+    .as_i64()
+    .and_then(|x| u32::try_from(x).ok()));
+impl_from_parameter_value2!(u16, |p: &serde_json::Value| p
+    .as_i64()
+    .and_then(|x| u16::try_from(x).ok()));
+impl_from_parameter_value2!(u8, |p: &serde_json::Value| p
+    .as_i64()
+    .and_then(|x| u8::try_from(x).ok()));
 impl_from_parameter_value2!(usize, |p: &serde_json::Value| p
     .as_i64()
-    .map(|x| x as usize));
+    .and_then(|x| usize::try_from(x).ok()));
 impl_from_parameter_value2!(f64, |p: &serde_json::Value| p.as_f64());
 impl_from_parameter_value2!(f32, |p: &serde_json::Value| p.as_f64().map(|x| x as f32));
 impl_from_parameter_value2_opt!(i64, |p: &serde_json::Value| p.as_i64());
-impl_from_parameter_value2_opt!(i32, |p: &serde_json::Value| p.as_i64().map(|x| x as i32));
-impl_from_parameter_value2_opt!(i16, |p: &serde_json::Value| p.as_i64().map(|x| x as i16));
-impl_from_parameter_value2_opt!(i8, |p: &serde_json::Value| p.as_i64().map(|x| x as i8));
+impl_from_parameter_value2_opt!(i32, |p: &serde_json::Value| p
+    .as_i64()
+    .and_then(|x| i32::try_from(x).ok()));
+impl_from_parameter_value2_opt!(i16, |p: &serde_json::Value| p
+    .as_i64()
+    .and_then(|x| i16::try_from(x).ok()));
+impl_from_parameter_value2_opt!(i8, |p: &serde_json::Value| p
+    .as_i64()
+    .and_then(|x| i8::try_from(x).ok()));
 impl_from_parameter_value2_opt!(isize, |p: &serde_json::Value| p
     .as_i64()
-    .map(|x| x as isize));
-impl_from_parameter_value2_opt!(u64, |p: &serde_json::Value| p.as_i64().map(|x| x as u64));
-impl_from_parameter_value2_opt!(u32, |p: &serde_json::Value| p.as_i64().map(|x| x as u32));
-impl_from_parameter_value2_opt!(u16, |p: &serde_json::Value| p.as_i64().map(|x| x as u16));
-impl_from_parameter_value2_opt!(u8, |p: &serde_json::Value| p.as_i64().map(|x| x as u8));
+    .and_then(|x| isize::try_from(x).ok()));
+impl_from_parameter_value2_opt!(u64, |p: &serde_json::Value| p.as_u64());
+impl_from_parameter_value2_opt!(u32, |p: &serde_json::Value| p
+    .as_i64()
+    .and_then(|x| u32::try_from(x).ok()));
+impl_from_parameter_value2_opt!(u16, |p: &serde_json::Value| p
+    .as_i64()
+    .and_then(|x| u16::try_from(x).ok()));
+impl_from_parameter_value2_opt!(u8, |p: &serde_json::Value| p
+    .as_i64()
+    .and_then(|x| u8::try_from(x).ok()));
 impl_from_parameter_value2_opt!(usize, |p: &serde_json::Value| p
     .as_i64()
-    .map(|x| x as usize));
+    .and_then(|x| usize::try_from(x).ok()));
 impl_from_parameter_value2_opt!(f64, |p: &serde_json::Value| p.as_f64());
 impl_from_parameter_value2_opt!(f32, |p: &serde_json::Value| p.as_f64().map(|x| x as f32));
 impl_from_parameter_value2!(bool, |p: &serde_json::Value| p.as_bool());

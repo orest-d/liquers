@@ -194,3 +194,59 @@ async fn option_from_link_none_and_value() -> Result<(), Error> {
     assert_eq!(run("opt_b-~X~yes~E").await?, "Some(true)");
     Ok(())
 }
+
+#[tokio::test]
+async fn query_integer_out_of_range_is_an_error_not_a_wrap() -> Result<(), Error> {
+    fn small(a: Option<u8>) -> Result<Value, Error> {
+        Ok(Value::from(format!("{a:?}")))
+    }
+    fn plain(a: u8) -> Result<Value, Error> {
+        Ok(Value::from(format!("{a}")))
+    }
+    type CommandEnvironment = SimpleEnvironment<Value>;
+    let mut env = SimpleEnvironment::<Value>::new();
+    let cr = &mut env.command_registry;
+    register_command!(cr, fn small(a: Option<u8>) -> result)?;
+    register_command!(cr, fn plain(a: u8) -> result)?;
+    let envref = env.to_ref();
+    assert_eq!(
+        evaluate(envref.clone(), "small-255", None).await?.try_into_string()?,
+        "Some(255)"
+    );
+    for query in ["small-300", "small--1", "plain-256", "plain--1"] {
+        assert!(
+            evaluate(envref.clone(), query, None).await.is_err(),
+            "{query} must be refused, not wrapped"
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn core_value_wide_integers_refuse_out_of_range() {
+    assert!(u32::try_from(Value::from(-1i64)).is_err());
+    assert!(u32::try_from(Value::from(5_000_000_000i64)).is_err());
+    assert!(u64::try_from(Value::from(-1i64)).is_err());
+    assert!(usize::try_from(Value::from(-1i64)).is_err());
+    assert_eq!(u32::try_from(Value::from(7i64)).ok(), Some(7));
+}
+
+#[test]
+fn enum_type_bool_opt_registers() -> Result<(), Error> {
+    fn pick(x: Option<bool>) -> Result<Value, Error> {
+        Ok(Value::from(format!("{x:?}")))
+    }
+    type CommandEnvironment = SimpleEnvironment<Value>;
+    let mut env = SimpleEnvironment::<Value>::new();
+    let cr = &mut env.command_registry;
+    register_command!(cr,
+        fn pick(x: Option<bool> (enum(type: bool_opt): {"on" => true, "off" => false})) -> result
+    )?;
+    let metadata = cr
+        .command_metadata_registry
+        .get(CommandKey::new_name("pick"))
+        .ok_or(Error::general_error("pick not registered".to_string()))?;
+    let argument_type = format!("{:?}", metadata.arguments[0].argument_type);
+    assert!(argument_type.contains("BooleanOption"), "{argument_type}");
+    Ok(())
+}

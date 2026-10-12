@@ -836,8 +836,10 @@ impl TryFrom<Value> for isize {
     type Error = Error;
     fn try_from(value: Value) -> Result<Self, Self::Error> {
         match value {
-            Value::I32(x) => Ok(x as isize),
-            Value::I64(x) => Ok(x as isize),
+            Value::I32(x) => isize::try_from(x)
+                .map_err(|e| Error::conversion_error_with_message("I32", "isize", &e.to_string())),
+            Value::I64(x) => isize::try_from(x)
+                .map_err(|e| Error::conversion_error_with_message("I64", "isize", &e.to_string())),
             _ => Err(Error::conversion_error(value.type_name(), "isize")),
         }
     }
@@ -847,8 +849,10 @@ impl TryFrom<Value> for u32 {
     type Error = Error;
     fn try_from(value: Value) -> Result<Self, Self::Error> {
         match value {
-            Value::I32(x) => Ok(x as u32),
-            Value::I64(x) => Ok(x as u32),
+            Value::I32(x) => u32::try_from(x)
+                .map_err(|e| Error::conversion_error_with_message("I32", "u32", &e.to_string())),
+            Value::I64(x) => u32::try_from(x)
+                .map_err(|e| Error::conversion_error_with_message("I64", "u32", &e.to_string())),
             _ => Err(Error::conversion_error(value.type_name(), "u32")),
         }
     }
@@ -858,8 +862,10 @@ impl TryFrom<Value> for u64 {
     type Error = Error;
     fn try_from(value: Value) -> Result<Self, Self::Error> {
         match value {
-            Value::I32(x) => Ok(x as u64),
-            Value::I64(x) => Ok(x as u64),
+            Value::I32(x) => u64::try_from(x)
+                .map_err(|e| Error::conversion_error_with_message("I32", "u64", &e.to_string())),
+            Value::I64(x) => u64::try_from(x)
+                .map_err(|e| Error::conversion_error_with_message("I64", "u64", &e.to_string())),
             _ => Err(Error::conversion_error(value.type_name(), "u64")),
         }
     }
@@ -869,8 +875,10 @@ impl TryFrom<Value> for usize {
     type Error = Error;
     fn try_from(value: Value) -> Result<Self, Self::Error> {
         match value {
-            Value::I32(x) => Ok(x as usize),
-            Value::I64(x) => Ok(x as usize),
+            Value::I32(x) => usize::try_from(x)
+                .map_err(|e| Error::conversion_error_with_message("I32", "usize", &e.to_string())),
+            Value::I64(x) => usize::try_from(x)
+                .map_err(|e| Error::conversion_error_with_message("I64", "usize", &e.to_string())),
             _ => Err(Error::conversion_error(value.type_name(), "usize")),
         }
     }

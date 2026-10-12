@@ -54,6 +54,7 @@ enum EnumTypeSpec {
     Float,
     FloatOption,
     Boolean,
+    BooleanOption,
     Any,
 }
 
@@ -66,11 +67,33 @@ impl EnumTypeSpec {
             "float" => Ok(EnumTypeSpec::Float),
             "float_opt" => Ok(EnumTypeSpec::FloatOption),
             "bool" => Ok(EnumTypeSpec::Boolean),
+            "bool_opt" => Ok(EnumTypeSpec::BooleanOption),
             "any" => Ok(EnumTypeSpec::Any),
             other => Err(syn::Error::new(
                 ident.span(),
                 format!("Unknown enum type '{}'", other),
             )),
+        }
+    }
+
+    /// Whether a literal of type `value` may appear in an enum declared as `self`: its own
+    /// type, or the base type of an `_opt` type (`enum(type: int_opt): {"low" => 1}`).
+    fn accepts(&self, value: &EnumTypeSpec) -> bool {
+        match self {
+            EnumTypeSpec::IntegerOption => {
+                matches!(value, EnumTypeSpec::IntegerOption | EnumTypeSpec::Integer)
+            }
+            EnumTypeSpec::FloatOption => {
+                matches!(value, EnumTypeSpec::FloatOption | EnumTypeSpec::Float)
+            }
+            EnumTypeSpec::BooleanOption => {
+                matches!(value, EnumTypeSpec::BooleanOption | EnumTypeSpec::Boolean)
+            }
+            EnumTypeSpec::String
+            | EnumTypeSpec::Integer
+            | EnumTypeSpec::Float
+            | EnumTypeSpec::Boolean
+            | EnumTypeSpec::Any => self == value,
         }
     }
 
@@ -93,6 +116,9 @@ impl EnumTypeSpec {
             }
             EnumTypeSpec::Boolean => {
                 quote! { liquers_core::command_metadata::EnumArgumentType::Boolean }
+            }
+            EnumTypeSpec::BooleanOption => {
+                quote! { liquers_core::command_metadata::EnumArgumentType::BooleanOption }
             }
             EnumTypeSpec::Any => quote! { liquers_core::command_metadata::EnumArgumentType::Any },
         }
@@ -238,7 +264,7 @@ impl EnumParameterSpec {
                         if *value_type == EnumTypeSpec::Any {
                             continue;
                         }
-                        if inferred != *value_type {
+                        if !value_type.accepts(&inferred) {
                             return Err(syn::Error::new(
                                 proc_macro2::Span::call_site(),
                                 "enum value type does not match enum(type: ...)",
@@ -2742,9 +2768,18 @@ mod tests {
         #[test]
         fn option_unsupported_inner_is_rejected() {
             for (decl, rendered) in [
-                (quote! { fn f(state, x: Option<Value>) -> result }, "Option<Value>"),
-                (quote! { fn f(state, x: Option<String>) -> result }, "Option<String>"),
-                (quote! { fn f(state, x: Option<Vec<u8>>) -> result }, "Option<Vec<u8>>"),
+                (
+                    quote! { fn f(state, x: Option<Value>) -> result },
+                    "Option<Value>",
+                ),
+                (
+                    quote! { fn f(state, x: Option<String>) -> result },
+                    "Option<String>",
+                ),
+                (
+                    quote! { fn f(state, x: Option<Vec<u8>>) -> result },
+                    "Option<Vec<u8>>",
+                ),
             ] {
                 let message = parse_err(decl);
                 assert!(message.contains("argument 'x'"), "message: {message}");
@@ -2756,11 +2791,26 @@ mod tests {
         #[test]
         fn option_widths_and_bool_map_to_option_types() {
             for (decl, expected) in [
-                (quote! { fn f(state, x: Option<i8>) -> result }, "ArgumentType::IntegerOption"),
-                (quote! { fn f(state, x: Option<u16>) -> result }, "ArgumentType::IntegerOption"),
-                (quote! { fn f(state, x: Option<usize>) -> result }, "ArgumentType::IntegerOption"),
-                (quote! { fn f(state, x: Option<f32>) -> result }, "ArgumentType::FloatOption"),
-                (quote! { fn f(state, x: Option<bool>) -> result }, "ArgumentType::BooleanOption"),
+                (
+                    quote! { fn f(state, x: Option<i8>) -> result },
+                    "ArgumentType::IntegerOption",
+                ),
+                (
+                    quote! { fn f(state, x: Option<u16>) -> result },
+                    "ArgumentType::IntegerOption",
+                ),
+                (
+                    quote! { fn f(state, x: Option<usize>) -> result },
+                    "ArgumentType::IntegerOption",
+                ),
+                (
+                    quote! { fn f(state, x: Option<f32>) -> result },
+                    "ArgumentType::FloatOption",
+                ),
+                (
+                    quote! { fn f(state, x: Option<bool>) -> result },
+                    "ArgumentType::BooleanOption",
+                ),
             ] {
                 let tokens = registration_of(decl);
                 assert!(tokens.contains(expected), "expected {expected}: {tokens}");
