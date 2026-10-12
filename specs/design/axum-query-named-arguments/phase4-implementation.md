@@ -12,9 +12,9 @@ describe the behaviour as built and tested). Prerequisites: none — the preflig
 
 ## Progress
 
-- [ ] Step 1: `Plan::last_action_command` (core)
-- [ ] Step 2: `Recipe::to_plan` conversion, warnings, sorted order, typed errors (core)
-- [ ] Step 3: `AssetManager::apply_queued` on both managers (core)
+- [x] Step 1: `Plan::last_action_command` (core) — 6c89948
+- [x] Step 2: `Recipe::to_plan` conversion, warnings, sorted order, typed errors (core) — eec639f
+- [x] Step 3: `AssetManager::apply_queued` on both managers (core) — dcc4519
 - [ ] Step 4: override parser and shared test helpers (axum)
 - [ ] Step 5: `_entry_format` on every entry route (axum)
 - [ ] Step 6: Assets API `q/data`, `q/entry`, `q/submit` with overrides; managed reporting (axum)
