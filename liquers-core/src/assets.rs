@@ -5744,10 +5744,16 @@ pub trait AssetManager<E: Environment>:
     ///
     /// Unlike `apply` this takes a job-queue slot, so it must not be called from inside an
     /// evaluation (the deadlock shape of `ASSETS-FIX1` #17); it is for top-level callers such
-    /// as a web request. The default evaluates before returning, which is correct for any
-    /// manager whose `get_asset` does the same.
+    /// as a web request. The default builds the asset itself and evaluates it inline before
+    /// returning it — failed or not — which is correct for an inline manager; a queued manager
+    /// overrides it to queue instead (as `DefaultAssetManager` does).
     async fn apply_queued(&self, recipe: Recipe, to: State<E::Value>) -> Result<AssetRef<E>, Error> {
-        self.apply(recipe, to, None).await
+        let asset_ref =
+            AssetData::new_ext(self.next_id_for_asset(), recipe, to, None, self.get_envref())
+                .to_ref();
+        // An error is already recorded in the asset's status and metadata.
+        let _ = asset_ref.run_inline(None).await;
+        Ok(asset_ref)
     }
     /// Applies a recipe to a supplied state and evaluates it before returning.
     ///

@@ -459,3 +459,20 @@ async fn external_manager_lazy_deadline_expiry_cascades() -> TestResult {
     )
     .await
 }
+
+/// `apply_queued`'s default returns the failed asset, not the error, for a manager that does not
+/// override it (Codex review, PR #125): the web API's override paths need the asset's metadata.
+#[tokio::test]
+async fn external_manager_apply_queued_returns_failed_asset() -> TestResult {
+    let envref = env_over(AsyncMemoryStore::new(&liquers_core::query::Key::new()), |cr| {
+        cr.register_command(liquers_core::command_metadata::CommandKey::new_name("fail_with"), |_, _, _| {
+            Err(liquers_core::error::Error::general_error("failed on purpose".to_string()))
+        })
+        .expect("register");
+    });
+    let recipe = liquers_core::recipes::Recipe::new("fail_with".to_string(), String::new(), String::new())?;
+    let asset = within(manager(&envref).apply_queued(recipe, liquers_core::state::State::new())).await?;
+    assert_eq!(asset.status().await, liquers_core::metadata::Status::Error);
+    assert!(asset.get_asset_info().await?.is_error);
+    Ok(())
+}

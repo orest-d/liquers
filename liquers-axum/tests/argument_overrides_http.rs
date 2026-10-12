@@ -391,3 +391,14 @@ async fn aoh23_timeout_answer_reports_managed() {
     assert_eq!(answer.managed().as_deref(), Some("true"));
     fixtures.open_gate();
 }
+
+/// A GET's body is not an override source (Codex review, PR #125): only POST carries one.
+#[tokio::test]
+async fn aoh24_get_body_is_ignored() {
+    let app = app().await;
+    for route in ["q/data", "q/entry", "q/submit"] {
+        let answer = request(&app, "GET", &format!("{A}/{route}/echo_args"), Some(r#"{"nope":1}"#), &[]).await;
+        assert_eq!(answer.status, StatusCode::OK, "{route}: {}", answer.text());
+        assert_eq!(answer.managed().as_deref(), Some("true"), "{route}: the body was ignored");
+    }
+}

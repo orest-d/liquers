@@ -134,7 +134,7 @@ sets `limit`).
 | Variadic (`multiple`) arguments | a repeated URL key (`?f=a&f=b`) or a JSON array; a scalar argument given twice is 400 |
 | Required arguments | an override may supply one the path leaves out; one still without a value is 400 `ArgumentMissing` |
 | Both sources | a name in both the query string and the body is 400 `ParameterError`; otherwise they combine |
-| Body | optional; a zero-length body carries nothing whatever its `Content-Type`; a non-empty one must be a JSON object (else 400) |
+| Body | `POST` only (a `GET`'s body is ignored, so a GET's answer depends only on its URL); optional; a zero-length body carries nothing whatever its `Content-Type`; a non-empty one must be a JSON object (else 400) |
 | Reserved names | names beginning with `_` are **options**, not overrides: `_link_<argument>=<query>` gives the argument as a link (its query is evaluated for the value, as `~X~…~E` in a path; an unparsable query is 400 `ParseError`; the same argument as a value and a link is 400), and `_entry_format` on `q/entry` (§2.3). Any other `_` name, or an option the route does not take, is 400 `ParameterError` |
 
 A request **carries overrides** when at least one override (value or `_link_`) is present. One
@@ -687,6 +687,7 @@ Not available at HEAD; listed so that no reader mistakes them for features:
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-12 | §2.4: a `GET`'s body is ignored; only `POST` carries body overrides (Codex review of PR #125). | review fix |
 | 2026-10-12 | §7: the timeout answer carries `x-liquers-managed`, and with overrides its message points to a `ws/q` subscribe with `arguments` (Codex review of PR #125). | review fix |
 | 2026-10-12 | §2.4 argument overrides and options, §2.5 managed and unmanaged assets (with the table of what cannot follow an unmanaged asset and the workaround); §2.3 and §6 `_entry_format` replaces `format`; §5.3 `q/data`, `q/entry` (GET and POST) and `q/submit` take overrides, `x-liquers-managed`, `SubmitResult`, failure metadata on `q/entry`; §5.8 `arguments`, `request_id`, `Subscribed`, `subscription_id`, `cancel`, `managed`, and the inline-manager disconnect exception; §7 the Query API takes overrides. `QUERY-API-ARGUMENTS-ONLY-IN-QUERY-PATH` closed. | phase-5, `design/axum-query-named-arguments/` |
 | 2026-10-11 | §3.1: `ConfigurationError` → 500. | `design/configuration-error-kind/` |

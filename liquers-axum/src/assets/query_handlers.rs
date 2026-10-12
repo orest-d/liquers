@@ -41,10 +41,20 @@ fn parse_request(
     Ok((query, overrides))
 }
 
-/// `GET|POST q/data/{*query}` — mode (a): evaluate if needed, wait, serve the bytes. Argument
-/// overrides come from the query string and (POST) a JSON object body; with any, the value is
+/// `GET q/data/{*query}` — mode (a): evaluate if needed, wait, serve the bytes. Argument
+/// overrides come from the query string; a GET's body is ignored (only `POST` carries one, so a
+/// GET's answer depends on nothing a cache key leaves out). With any override, the value is
 /// evaluated ad hoc as an unmanaged asset (`x-liquers-managed: false`).
 pub async fn q_get_data_handler<E: Environment>(
+    state: State<EnvRef<E>>,
+    path: Path<String>,
+    query: AxumQuery<Vec<(String, String)>>,
+) -> Response {
+    q_post_data_handler(state, path, query, Bytes::new()).await
+}
+
+/// `POST q/data/{*query}` — as `GET`, with further overrides in a JSON object body.
+pub async fn q_post_data_handler<E: Environment>(
     State(env): State<EnvRef<E>>,
     Path(query_path): Path<String>,
     AxumQuery(pairs): AxumQuery<Vec<(String, String)>>,
@@ -64,9 +74,20 @@ pub async fn q_get_data_handler<E: Environment>(
     }
 }
 
-/// `GET|POST q/entry/{*query}` — mode (a), as a negotiated `DataEntry` (`_entry_format`, then
-/// `Accept`, then CBOR). Overrides as for `data`; a failure carries the asset's metadata.
+/// `GET q/entry/{*query}` — mode (a), as a negotiated `DataEntry` (`_entry_format`, then
+/// `Accept`, then CBOR). Overrides as for `data` (a GET's body is ignored); a failure carries the
+/// asset's metadata.
 pub async fn q_get_entry_handler<E: Environment>(
+    state: State<EnvRef<E>>,
+    path: Path<String>,
+    headers: HeaderMap,
+    query: AxumQuery<Vec<(String, String)>>,
+) -> Response {
+    q_post_entry_handler(state, path, headers, query, Bytes::new()).await
+}
+
+/// `POST q/entry/{*query}` — as `GET`, with further overrides in a JSON object body.
+pub async fn q_post_entry_handler<E: Environment>(
     State(env): State<EnvRef<E>>,
     Path(query_path): Path<String>,
     headers: HeaderMap,
@@ -100,6 +121,7 @@ pub async fn q_get_entry_handler<E: Environment>(
 /// `AssetInfo` at once, plus whether it is managed. A pure-key query must name a stored or
 /// recipe-declared key. With argument overrides the evaluation is unmanaged: it runs, but no
 /// route can read it later — the note says so (useful for a query run for its side effect).
+/// The `GET` form ignores a body ([`q_get_submit_handler`]).
 pub async fn q_submit_handler<E: Environment>(
     State(env): State<EnvRef<E>>,
     Path(query_path): Path<String>,
@@ -140,6 +162,15 @@ pub async fn q_submit_handler<E: Environment>(
         }
         Err(e) => error_response(&e, "Failed to submit"),
     }
+}
+
+/// `GET q/submit/{*query}` — as `POST`, from the query string only: a GET's body is ignored.
+pub async fn q_get_submit_handler<E: Environment>(
+    state: State<EnvRef<E>>,
+    path: Path<String>,
+    query: AxumQuery<Vec<(String, String)>>,
+) -> Response {
+    q_submit_handler(state, path, query, Bytes::new()).await
 }
 
 /// `GET q/info/{*query}` — mode (c): the cached asset's current `AssetInfo`, or 404
