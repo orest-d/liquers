@@ -16,7 +16,7 @@
 use liquers_core::parse::parse_key;
 use liquers_core::query::Key;
 use liquers_core::store_conformance::{
-    run_all, ConformanceReport, GenericFixture, SafetyLevel, StoreCapabilities,
+    run_all, AllowedFailure, ConformanceReport, GenericFixture, SafetyLevel, StoreCapabilities,
 };
 use liquers_store::opendal_store::AsyncOpenDALStore;
 use opendal::Operator;
@@ -59,12 +59,15 @@ fn fixture(
     .with_metadata_collision(parse_key("collide.__metadata__").expect("key"))
 }
 
-fn check(report: ConformanceReport) {
+fn check(report: ConformanceReport, allowed: &[AllowedFailure]) {
     eprintln!("{report}");
-    if let Err(e) = report.assert_conformant(&[]) {
+    if let Err(e) = report.assert_conformant(allowed) {
         panic!("{}", e.message);
     }
 }
+
+/// Known divergences of `C6`, shared with the [`status_table`] generator.
+const C6_ALLOWED: &[AllowedFailure] = &[];
 
 /// `C6` — the memory service: a flat key space with no directory objects.
 async fn c6_report() -> ConformanceReport {
@@ -83,8 +86,12 @@ async fn c6_report() -> ConformanceReport {
 
 #[tokio::test]
 async fn c6_opendal_memory() {
-    check(c6_report().await);
+    check(c6_report().await, C6_ALLOWED);
 }
+
+/// Known divergences of `C7`, shared with the [`status_table`] generator.
+#[cfg(feature = "services-fs")]
+const C7_ALLOWED: &[AllowedFailure] = &[];
 
 /// `C7` — the filesystem service, which does have directory objects.
 #[cfg(feature = "services-fs")]
@@ -120,19 +127,34 @@ async fn c7_report() -> ConformanceReport {
 #[cfg(feature = "services-fs")]
 #[tokio::test]
 async fn c7_opendal_fs() {
-    check(c7_report().await);
+    check(c7_report().await, C7_ALLOWED);
 }
 
 /// One row of the `STORE_IMPLEMENTATION_GUIDE.md` §9 status table.
-fn status_row(store: &str, report: &ConformanceReport, notes: &str) -> String {
+///
+/// `allowed` is the list the suite passes to `assert_conformant`: a failure it names is a known
+/// divergence, so it makes the row `BLOCKED` rather than `NONCONFORMANT`, as does a `Blocked`
+/// outcome.
+fn status_row(
+    store: &str,
+    report: &ConformanceReport,
+    allowed: &[AllowedFailure],
+    notes: &str,
+) -> String {
     let counts = report.counts();
-    let status = if counts.failed > 0 || counts.errored > 0 {
+    let allowed_failures = report
+        .failures()
+        .filter(|entry| allowed.iter().any(|a| a.rule == entry.id))
+        .count();
+    let unexpected = counts.failed + counts.errored - allowed_failures;
+    let blocked = counts.blocked + allowed_failures;
+    let status = if unexpected > 0 {
         format!(
             "`NONCONFORMANT` (failed {}, errored {})",
             counts.failed, counts.errored
         )
-    } else if counts.blocked > 0 {
-        format!("`BLOCKED` ({} rules)", counts.blocked)
+    } else if blocked > 0 {
+        format!("`BLOCKED` ({blocked} rules)")
     } else {
         "`CONFORMANT`".to_string()
     };
@@ -155,6 +177,7 @@ async fn status_table() {
         status_row(
             "`AsyncOpenDALStore` (memory)",
             &c6_report().await,
+            C6_ALLOWED,
             "the widest coverage in tree"
         )
     );
@@ -164,6 +187,7 @@ async fn status_table() {
         status_row(
             "`AsyncOpenDALStore` (fs)",
             &c7_report().await,
+            C7_ALLOWED,
             "`derived_directories: false`"
         )
     );

@@ -70,8 +70,11 @@ async fn c1_async_memory_store() {
     // No allowed failures. `keys02` was listed here until step 10 made `keys()` return the
     // directories and the prefix as §9 requires; `H5` then reported the entry as stale, which is
     // how a fixed issue forces its own bookkeeping out.
-    check(c1_report().await, &[]);
+    check(c1_report().await, C1_ALLOWED);
 }
+
+/// Known divergences of `C1`, shared with the [`status_table`] generator.
+const C1_ALLOWED: &[AllowedFailure] = &[];
 
 async fn c1_report() -> ConformanceReport {
     let prefix = parse_key("mem").expect("prefix");
@@ -118,8 +121,11 @@ async fn c2_async_file_store() {
         );
     }
 
-    check(report, &[]);
+    check(report, C2_ALLOWED);
 }
+
+/// Known divergences of `C2`, shared with the [`status_table`] generator.
+const C2_ALLOWED: &[AllowedFailure] = &[];
 
 async fn c2_report() -> ConformanceReport {
     let root = unique_temp_dir("c2");
@@ -162,8 +168,11 @@ async fn c3_async_store_router() {
     // inherit `AsyncMemoryStore`'s divergence; it does not — the router uses the trait default
     // `keys()`, which returns directories and the prefix as the contract requires. `H5` reported
     // the stale entry rather than letting it sit, which is what it is for.
-    check(c3_report().await, &[]);
+    check(c3_report().await, C3_ALLOWED);
 }
+
+/// Known divergences of `C3`, shared with the [`status_table`] generator.
+const C3_ALLOWED: &[AllowedFailure] = &[];
 
 async fn c3_report() -> ConformanceReport {
     let root = unique_temp_dir("c3");
@@ -313,8 +322,11 @@ async fn c5_no_async_store() {
     // Fully conformant, which is worth stating: a store that does nothing still has to say no
     // correctly. Absence is Ok(false), reads are KeyNotFound, and a relative key is refused as
     // KeyNotAbsolute rather than as "not found".
-    check(c5_report().await, &[]);
+    check(c5_report().await, C5_ALLOWED);
 }
+
+/// Known divergences of `C5`, shared with the [`status_table`] generator.
+const C5_ALLOWED: &[AllowedFailure] = &[];
 
 async fn c5_report() -> ConformanceReport {
     let capabilities = StoreCapabilities {
@@ -340,15 +352,30 @@ async fn c5_report() -> ConformanceReport {
 
 /// The `STORE_IMPLEMENTATION_GUIDE.md` §9 row of one report: rules that ran, and a status that is
 /// `CONFORMANT` only when nothing failed or errored.
-fn status_row(store: &str, report: &ConformanceReport, notes: &str) -> String {
+///
+/// `allowed` is the list the suite passes to `assert_conformant`: a failure it names is a known
+/// divergence, so it makes the row `BLOCKED` rather than `NONCONFORMANT`, as does a `Blocked`
+/// outcome.
+fn status_row(
+    store: &str,
+    report: &ConformanceReport,
+    allowed: &[AllowedFailure],
+    notes: &str,
+) -> String {
     let counts = report.counts();
-    let status = if counts.failed > 0 || counts.errored > 0 {
+    let allowed_failures = report
+        .failures()
+        .filter(|entry| allowed.iter().any(|a| a.rule == entry.id))
+        .count();
+    let unexpected = counts.failed + counts.errored - allowed_failures;
+    let blocked = counts.blocked + allowed_failures;
+    let status = if unexpected > 0 {
         format!(
             "`NONCONFORMANT` (failed {}, errored {})",
             counts.failed, counts.errored
         )
-    } else if counts.blocked > 0 {
-        format!("`BLOCKED` ({} rules)", counts.blocked)
+    } else if blocked > 0 {
+        format!("`BLOCKED` ({blocked} rules)")
     } else {
         "`CONFORMANT`".to_string()
     };
@@ -377,13 +404,14 @@ async fn status_table() {
     eprintln!("|---|---|---|---|");
     eprintln!(
         "{}",
-        status_row("`AsyncMemoryStore`", &c1_report().await, "")
+        status_row("`AsyncMemoryStore`", &c1_report().await, C1_ALLOWED, "")
     );
     eprintln!(
         "{}",
         status_row(
             "`AsyncFileStore`",
             &c2_report().await,
+            C2_ALLOWED,
             "`derived_directories: false` — real directories persist",
         )
     );
@@ -392,6 +420,7 @@ async fn status_table() {
         status_row(
             "`AsyncStoreRouter`",
             &c3_report().await,
+            C3_ALLOWED,
             "needs each member's prefix to exist (`CORE-STORE-ROUTER-KEYS-FAILS-ON-AN-EMPTY-MEMBER`); \
              a directory above its members answers directory metadata, checked by router unit \
              tests because no generic fixture requests such a key",
@@ -402,6 +431,7 @@ async fn status_table() {
         status_row(
             "Trait defaults",
             &c4_report().await,
+            &[],
             "no directory support, no enumeration",
         )
     );
@@ -410,6 +440,7 @@ async fn status_table() {
         status_row(
             "`NoAsyncStore`",
             &c5_report().await,
+            C5_ALLOWED,
             "accepts no key, and says so correctly",
         )
     );
