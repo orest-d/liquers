@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: M
 area: [core/assets]
-design: deep-chain-evaluation-stack-depth
+design: dependency-resolved-once-per-evaluation
 created: 2026-10-08
 github:
 ---

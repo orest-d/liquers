@@ -3,16 +3,22 @@ id: DEEP-CHAIN-EVALUATION-STACK-DEPTH
 kind: design
 title: Evaluation stack depth independent of recipe-chain length
 form: compact
-status: in_review
-phase: implementation
-readiness: ready
-autofix: not-eligible
+status: superseded
 area: [core/assets, core/plan]
 issues: [EVALUATING-A-DEEP-CHAIN-TOP-DOWN-OVERFLOWS-THE-STACK]
 affects_docs: [reference/DEPENDENCIES_STATUS.md, reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md, guides/ASSET_MANAGER_IMPLEMENTATION_GUIDE.md]
 created: 2026-10-12
+superseded_by: dependency-resolved-once-per-evaluation
 ---
 # Evaluation stack depth independent of recipe-chain length
+
+> **Superseded on 2026-10-12** by [`dependency-resolved-once-per-evaluation`](../dependency-resolved-once-per-evaluation/DESIGN.md).
+> The maintainer merged the two designs: decision 1 below was refined to cover a whole top-level
+> evaluation, and an *evaluation session* now carries it. The session is the mechanism both designs
+> share. This design's AC-1, AC-2, AC-3, AC-5 and AC-6 are AC-9 to AC-13 there. Its AC-4 is replaced
+> by AC-1 to AC-3, and decisions 2 and 3 are that design's decision 4. The merged design owns
+> `EVALUATING-A-DEEP-CHAIN-TOP-DOWN-OVERFLOWS-THE-STACK`. This folder is kept for the reasoning; do
+> not implement from it.
 
 Bulk design (`specs/guides/autonomous_bulk_design.md`): Phases 1-4 written, not approved, not
 implemented.
