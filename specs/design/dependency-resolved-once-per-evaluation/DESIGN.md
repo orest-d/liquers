@@ -6,7 +6,7 @@ form: compact
 workflow: liquers-project
 status: in_review
 phase: high-level
-readiness: ready
+readiness: needs-decision
 autofix: not-eligible
 area: [core/assets]
 issues: [FAILING-UPSTREAM-RERUNS-EXPONENTIALLY-AT-QUEUE-CAPACITY, REFUSED-DEPENDENCY-RECOMPUTED-TWICE-DURING-A-DEPENDENT-EVALUATION]
@@ -70,6 +70,17 @@ first resolution returned), consulted by `schedule_dependency_asset_with_key` be
 runs to 2. With it applied, `cargo test -p liquers-core --lib --tests` passed in full. The probe was
 reverted; Phase 2 designs the change properly.
 
+**A per-asset memo is not enough (found 2026-10-12, after the draft).** A second probe built a
+diamond lattice: `r = fail`, `a0`/`b0 = -R/data/r.txt/-/upper`, and
+`a{i}`/`b{i} = -R/data/a{i-1}.txt/-/join-~X~-R/data/b{i-1}.txt~E`, then evaluated `a{n}` at default
+capacity. At HEAD `fail` ran 3, 9 and 15 times for n = 1..3, and n = 4 did not finish in 60 s.
+With the per-`Context` memo, it ran 2-3 times for every n up to 10. That bounds the growth, but it
+does not reach "once": sibling dependents (`a_i`, `b_i`) each have their own `Context`, so the
+second one to resolve a shared failed upstream evicts it and runs it again. Satisfying the rule for
+shared upstreams needs state that spans the whole top-level request, not one asset's run. This
+reopens the Phase 2 approach and the relation to `deep-chain-evaluation-stack-depth`; see the
+discussion of 2026-10-12, pending a maintainer decision.
+
 ### Scope and Acceptance Criteria
 
 - **AC-1** A failing upstream runs once at queue capacity
@@ -109,7 +120,7 @@ such a dependency is refreshed") becomes true per evaluation and is reworded.
 
 ### Design Readiness
 
-- **Readiness:** ready
+- **Readiness:** needs-decision (the diamond finding above: per-asset or per-request scope)
 - **Automatic fixing:** not-eligible. The change is small and verified, but it sets a contract
   (what a second request for a dependency returns within one evaluation) that AC-5 makes visible to
   commands, so it needs this review.
