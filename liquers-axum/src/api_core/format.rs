@@ -20,8 +20,36 @@ pub fn parse_entry_format(value: &str) -> Result<SerializationFormat, Error> {
     }
 }
 
+/// `_entry_format` from the query parameters of a route that takes no argument overrides.
+///
+/// `format`, the option's former name, is refused with a message naming `_entry_format`, so a
+/// client that still sends it fails loudly instead of silently getting CBOR.
+pub fn entry_format_param(
+    params: &std::collections::HashMap<String, String>,
+) -> Result<Option<SerializationFormat>, Error> {
+    if params.contains_key("format") {
+        return Err(Error::from_error(
+            ErrorType::ParameterError,
+            format!("'format' is no longer accepted: use '{ENTRY_FORMAT_OPTION}'"),
+        ));
+    }
+    params
+        .get(ENTRY_FORMAT_OPTION)
+        .map(|value| parse_entry_format(value))
+        .transpose()
+}
+
+/// The encoding of an answered `DataEntry`: the explicit option, then the `Accept` header, then
+/// CBOR.
+pub fn negotiate_format(explicit: Option<SerializationFormat>, headers: &HeaderMap) -> SerializationFormat {
+    match explicit {
+        Some(format) => format,
+        None => select_format(None, headers),
+    }
+}
+
 /// Select serialization format from query parameter or Accept header
-/// Priority: ?format query param > Accept header > default (CBOR)
+/// Priority: the given format text > Accept header > default (CBOR)
 pub fn select_format(query_format: Option<&str>, headers: &HeaderMap) -> SerializationFormat {
     // Priority 1: Query parameter
     if let Some(format_str) = query_format {

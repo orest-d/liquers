@@ -19,6 +19,8 @@ use liquers_core::{
     metadata::Version,
 };
 
+use crate::api_core::entry_format_param;
+
 use super::common::{
     asset_bytes, asset_entry, error_response, key_metadata, key_version, metadata_json,
     not_requested, ok_query, query_from_path, submit_key, VersionResult,
@@ -50,8 +52,12 @@ pub async fn q_get_entry_handler<E: Environment>(
         Ok(query) => query,
         Err(e) => return error_response(&e, "Failed to parse query"),
     };
+    let entry_format = match entry_format_param(&params) {
+        Ok(format) => format,
+        Err(e) => return error_response(&e, "Invalid request"),
+    };
     match env.get_asset_manager().get_asset(&query).await {
-        Ok(asset) => asset_entry(&asset, &headers, &params).await,
+        Ok(asset) => asset_entry(&asset, &headers, entry_format).await,
         Err(e) => error_response(&e, "Failed to get asset"),
     }
 }

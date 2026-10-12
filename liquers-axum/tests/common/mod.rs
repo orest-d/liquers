@@ -63,7 +63,8 @@ impl Fixtures {
 /// - `make_text`, `fail_with`;
 /// - `gated(tag: string = "")` and the volatile `gated_volatile` — wait for the gate, increment
 ///   the counter, return `"<tag>:<count>"`;
-/// - `echo_alias` — an alias of `echo_args` with the head `query = "fixed"`, own argument `flag`.
+/// - `echo_alias` — an alias of `echo_args` with the head `query = "fixed"`; its own arguments
+///   rename `rank` to `flag` and keep the rest.
 pub fn register_fixtures<E: Environment<Value = Value>>(
     cr: &mut CommandRegistry<E>,
     fixtures: &Fixtures,
@@ -113,7 +114,13 @@ pub fn register_fixtures<E: Environment<Value = Value>>(
         CommandKey::new_name("echo_alias"),
         CommandKey::new_name("echo_args"),
         vec![CommandParameterValue::Value(JsonValue::from("fixed"))],
-        vec![ArgumentInfo::boolean_argument("flag").with_default(true)],
+        vec![
+            ArgumentInfo::boolean_argument("flag").with_default(true),
+            ArgumentInfo::boolean_argument("case_sensitive").with_default(false),
+            ArgumentInfo::integer_argument("limit", false).with_default(50),
+            ArgumentInfo::string_argument("fields").set_multiple(),
+            ArgumentInfo::argument("ctx").set_injected(),
+        ],
     )?;
     Ok(())
 }

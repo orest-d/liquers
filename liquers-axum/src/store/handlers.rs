@@ -438,20 +438,27 @@ pub async fn removedir_handler<E: Environment>(
 // ============================================================================
 
 /// GET /api/store/entry/{*key} - Retrieve data and metadata as unified entry
-/// Supports CBOR, bincode, and JSON formats via ?format= or Accept header
+/// Supports CBOR, bincode, and JSON formats via ?_entry_format= or Accept header
 pub async fn get_entry_handler<E: Environment>(
     State(env): State<EnvRef<E>>,
     Path(key_path): Path<String>,
     headers: axum::http::HeaderMap,
     AxumQuery(params): AxumQuery<HashMap<String, String>>,
 ) -> Response {
-    use crate::api_core::{select_format, serialize_data_entry, DataEntry};
+    use crate::api_core::{entry_format_param, negotiate_format, serialize_data_entry, DataEntry};
 
     let key = match parse_key(&key_path) {
         Ok(k) => k,
         Err(e) => {
             let error_detail = error_to_detail(&e);
             let response: ApiResponse<()> = ApiResponse::error(error_detail, "Failed to parse key");
+            return response.into_response();
+        }
+    };
+    let entry_format = match entry_format_param(&params) {
+        Ok(format) => format,
+        Err(e) => {
+            let response: ApiResponse<()> = ApiResponse::error(error_to_detail(&e), "Invalid request");
             return response.into_response();
         }
     };
@@ -467,8 +474,8 @@ pub async fn get_entry_handler<E: Environment>(
                 data,
             };
 
-            // Select format based on query param or Accept header
-            let format = select_format(params.get("format").map(|s| s.as_str()), &headers);
+            // `_entry_format`, then the Accept header, then CBOR
+            let format = negotiate_format(entry_format, &headers);
 
             // Serialize and return
             match serialize_data_entry(&entry, format) {
@@ -503,7 +510,7 @@ pub async fn get_entry_handler<E: Environment>(
 }
 
 /// PUT /api/store/entry/{*key} - Store data and metadata as unified entry
-/// Supports CBOR, bincode, and JSON formats via ?format= or Content-Type header
+/// Supports CBOR, bincode, and JSON formats via ?_entry_format= or Content-Type header
 pub async fn put_entry_handler<E: Environment>(
     State(env): State<EnvRef<E>>,
     Path(key_path): Path<String>,
@@ -511,7 +518,7 @@ pub async fn put_entry_handler<E: Environment>(
     AxumQuery(params): AxumQuery<HashMap<String, String>>,
     body: Bytes,
 ) -> Response {
-    use crate::api_core::{deserialize_data_entry, format_from_content_type};
+    use crate::api_core::{deserialize_data_entry, entry_format_param, format_from_content_type};
 
     let key = match parse_key(&key_path) {
         Ok(k) => k,
@@ -522,17 +529,15 @@ pub async fn put_entry_handler<E: Environment>(
         }
     };
 
-    // Determine format from query param or Content-Type header
-    let format = if let Some(format_str) = params.get("format") {
-        match format_str.to_lowercase().as_str() {
-            "cbor" => crate::api_core::SerializationFormat::Cbor,
-            "bincode" => crate::api_core::SerializationFormat::Bincode,
-            "json" => crate::api_core::SerializationFormat::Json,
-            _ => format_from_content_type(&headers)
-                .unwrap_or(crate::api_core::SerializationFormat::Cbor),
+    // `_entry_format`, then the Content-Type header, then CBOR
+    let format = match entry_format_param(&params) {
+        Ok(Some(format)) => format,
+        Ok(None) => format_from_content_type(&headers)
+            .unwrap_or(crate::api_core::SerializationFormat::Cbor),
+        Err(e) => {
+            let response: ApiResponse<()> = ApiResponse::error(error_to_detail(&e), "Invalid request");
+            return response.into_response();
         }
-    } else {
-        format_from_content_type(&headers).unwrap_or(crate::api_core::SerializationFormat::Cbor)
     };
 
     // Deserialize DataEntry

@@ -4,7 +4,6 @@
 //! Endpoints". Every status output is an [`ApiResponse`]; only the value transfers (`data`,
 //! `entry`, `recover`) are not.
 
-use std::collections::HashMap;
 
 use axum::{
     http::{header::CONTENT_TYPE, HeaderMap, HeaderValue, StatusCode},
@@ -22,8 +21,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::api_core::{
     error::error_to_detail,
-    format::{select_format, serialize_data_entry},
-    ApiResponse, BinaryResponse, DataEntry,
+    format::{negotiate_format, serialize_data_entry},
+    ApiResponse, BinaryResponse, DataEntry, SerializationFormat,
 };
 
 /// `GET key/listdir`: the assets directly in a directory.
@@ -204,18 +203,19 @@ pub(crate) async fn asset_bytes<E: Environment>(asset: &AssetRef<E>) -> Response
     }
 }
 
-/// A negotiated `DataEntry`: `?format=` first, then `Accept`, then CBOR.
+/// A negotiated `DataEntry`: the resolved `_entry_format` first, then `Accept`, then CBOR. Each
+/// caller resolves the option itself (`entry_format_param`, or the override parser on `q/entry`).
 pub(crate) fn entry_response(
     data: &[u8],
     metadata: &Metadata,
     headers: &HeaderMap,
-    params: &HashMap<String, String>,
+    entry_format: Option<SerializationFormat>,
 ) -> Response {
     let entry = DataEntry {
         data: data.to_vec(),
         metadata: metadata_json(metadata),
     };
-    let format = select_format(params.get("format").map(|s| s.as_str()), headers);
+    let format = negotiate_format(entry_format, headers);
     match serialize_data_entry(&entry, format) {
         Ok(bytes) => {
             let mut response_headers = HeaderMap::new();
@@ -233,10 +233,10 @@ pub(crate) fn entry_response(
 pub(crate) async fn asset_entry<E: Environment>(
     asset: &AssetRef<E>,
     headers: &HeaderMap,
-    params: &HashMap<String, String>,
+    entry_format: Option<SerializationFormat>,
 ) -> Response {
     match asset.get_binary().await {
-        Ok((data, metadata)) => entry_response(&data, &metadata, headers, params),
+        Ok((data, metadata)) => entry_response(&data, &metadata, headers, entry_format),
         Err(e) => error_response(&e, "Failed to retrieve asset value"),
     }
 }

@@ -152,7 +152,7 @@ async fn recipe_metadata_returns_recipe_asset_info() {
 async fn recipe_entry_honours_format_parameter() {
     let app = build_app(env_with(&[REPORT]).await);
     let (status, content_type, body) =
-        get_raw(app, "/api/recipes/entry/report.txt?format=json", None).await;
+        get_raw(app, "/api/recipes/entry/report.txt?_entry_format=json", None).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(content_type, "application/json");
     // `data` is base64 in JSON; `DataEntry`'s own deserializer decodes it.
