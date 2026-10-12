@@ -158,7 +158,7 @@
 //! # Query forms and parse precedence
 //!
 //! A query may start with `/`. The parser records this in
-//! [`crate::query::Query::absolute`].
+//! [`crate::query::Query::rooted`].
 //!
 //! The parser recognizes these forms in order:
 //!

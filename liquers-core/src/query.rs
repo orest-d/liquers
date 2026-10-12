@@ -105,7 +105,7 @@
 //!
 //! [`Key::to_absolute`] interprets `.` and `..` relative to a supplied current
 //! working-directory key. [`Query::to_absolute`] applies that operation to every
-//! resource segment. It does not change or consult [`Query::absolute`].
+//! resource segment. It does not change or consult [`Query::rooted`].
 //! [`Query::to_absolute`] can only be meaningfully applied when a current working
 //! directory (CWD) is known. This is typically the case when a query is part of a
 //! [`crate::recipes::Recipe`] located in a particular directory. In many contexts,
@@ -2215,7 +2215,7 @@ impl Display for QuerySource {
 ///
 /// Accepted text and parse precedence are defined by
 /// [`crate::parse::parse_query`] and the [`crate::parse`] module reference.
-/// Equality and hashing include `segments` and `absolute`, but ignore `source` and
+/// Equality and hashing include `segments` and `rooted`, but ignore `source` and
 /// all nested source positions.
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct Query {
@@ -2568,7 +2568,7 @@ impl Query {
     /// parameters.
     ///
     /// This is the test that decides whether a query can name an asset on its own. It asks about
-    /// **operand form**, not about [`Query::absolute`]: a query with no key operand at all, such as
+    /// **operand form**, not about [`Query::rooted`]: a query with no key operand at all, such as
     /// `greet-Hello`, means the same thing in every directory and is therefore not relative.
     pub fn has_relative_operand(&self) -> bool {
         self.segments.iter().any(|segment| match segment {
@@ -2795,7 +2795,7 @@ impl Query {
     /// Removes ambiguity from the query by creating a standard form.
     /// The standard form has the same meaning as the original query.
     /// If a query is used as a key (for example, for assets), use the canonical
-    /// form to prevent duplicates. The absolute flag and source are copied;
+    /// form to prevent duplicates. The rooted flag and source are copied;
     /// effectively, only the segments are transformed.
     pub fn canonical(self) -> Self {
         Self {
