@@ -48,8 +48,12 @@ expected: the error is returned after `fail` has run once
 
 ## Expected behaviour
 
-A dependency that finished in `Error` during this evaluation is not recomputed by the same
-evaluation; each failing recipe runs once per top-level request.
+The rule the maintainer set on 2026-10-12 (recorded in `deep-chain-evaluation-stack-depth`,
+decision 1): within one evaluation of an asset, each dependency is evaluated **at most once**, and
+when a dependency fails its dependents fail as quickly as possible without re-running it. An asset
+in `Error` may be evaluated again by a *later* evaluation (non-deterministic commands such as an LLM
+call, network errors), so the failure is not remembered across evaluations. Here: `fail` runs once
+per top-level request, at any chain length and queue capacity.
 
 ## Discovery
 

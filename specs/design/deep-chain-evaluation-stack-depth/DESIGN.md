@@ -5,7 +5,7 @@ title: Evaluation stack depth independent of recipe-chain length
 form: compact
 status: in_review
 phase: implementation
-readiness: needs-decision
+readiness: ready
 autofix: not-eligible
 area: [core/assets, core/plan]
 issues: [EVALUATING-A-DEEP-CHAIN-TOP-DOWN-OVERFLOWS-THE-STACK]
@@ -79,18 +79,26 @@ syntax, format or `pub` signature changes.
 
 ### Design Readiness
 
-- **Readiness:** needs-decision
+- **Readiness:** ready
 - **Automatic fixing:** not-eligible — the inline half adds an evaluation phase rather than restoring
-  behaviour (rule 2), and a decision is open (rule 5).
-- **Leading issue:** the in-memory outcome of a cold inline evaluation whose upstream fails.
-- **Explanation:** Both mechanisms fit the inspected code (the queued one is measured); Phases 3-4
-  are complete under the recommended answer below, which changes no caller-visible error.
-- **Open questions:**
-  1. **Proposed resolution - inline failure outcome:** when priming fails at `l_k`, the top-level
-     call returns `l_k`'s error at once; `l_{k+1}..l_n` stay unevaluated in the map instead of
-     `Error`. Errors are memory-only and evicted on access, and the caller's error is the same.
-     Falling back to the normal run instead reruns `l_k` and nests `n-k` deep. **Recommended:** return.
-  2. **Implementation detail - two mechanisms:** a task per dependency (queued, keeps parallelism),
+  behaviour (rule 2).
+- **Leading issue:** None
+- **Explanation:** Both mechanisms fit the inspected code (the queued one is measured); the one
+  observable choice was decided by the maintainer on 2026-10-12, and it is what Phases 3-4 assume.
+- **Open questions:** None.
+- **Decided 2026-10-12 (maintainer):**
+  1. **Dependency evaluation rule.** Within one evaluation of an asset, each dependency is
+     evaluated **at most once**. When a dependency fails, its dependents fail as quickly as
+     possible, without re-running it. An asset in status `Error` may be evaluated again by a
+     *later* evaluation (a command can be acceptably non-deterministic without being volatile, such
+     as an LLM call, or fail on a network error), so a failure is not remembered across
+     evaluations. Re-running failing commands, as the Python reference implementation did, is the
+     behaviour to avoid.
+  2. **Inline failure outcome (follows from 1).** When priming fails at `l_k`, the top-level call
+     returns `l_k`'s error at once; no fallback to the normal run, which would run `l_k` again
+     and nest `n-k` deep. `l_{k+1}..l_n` stay unevaluated in memory; for the next evaluation that
+     is equivalent to `Error`, since both are evaluated afresh.
+  3. **Implementation detail - two mechanisms:** a task per dependency (queued, keeps parallelism),
      bottom-up priming (inline, cannot spawn). Resolved in Phase 2.
 
 ### Design Dependencies
@@ -104,7 +112,11 @@ syntax, format or `pub` signature changes.
 - `core-value-enum-oversized` (draft) — **overlaps**: smaller frames raise the limit by a constant.
 
 No strong overlap (T1-T4): no open design edits `drain_dependencies`, `wait_for_dependency` or
-`ImmediateAssetManager::get`. The unfiled defect below is weak overlap (different cause).
+`ImmediateAssetManager::get`. - `FAILING-UPSTREAM-RERUNS-EXPONENTIALLY-AT-QUEUE-CAPACITY` (issue, P1, no design yet) —
+  **overlaps** (T2, shared contract: decision 1 is its expected behaviour). Not merged: its cause
+  sits in `DefaultAssetManager::get_dependency_asset` and needs its own root-cause analysis, and
+  this design neither fixes nor worsens it. Once it is fixed, AC-4's queued chain is lengthened
+  and gains the run-once count.
 
 ### Consolidated Findings
 
@@ -113,11 +125,11 @@ No strong overlap (T1-T4): no open design edits `drain_dependencies`, `wait_for_
   the queue is full (`JobQueue::try_to_start_immediately` spawns only below capacity), so every link
   after the fourth nests. Inline: `ImmediateAssetManager::get` → `run_inline` → plan pre-pass
   (`interpreter.rs` `schedule_plan_dependencies`) → `get_dependency_asset` → `get` → `run_inline`.
-- **New defect, not yet filed:** at queue capacity a failing upstream reruns exponentially: with
+- **New defect, filed as `FAILING-UPSTREAM-RERUNS-EXPONENTIALLY-AT-QUEUE-CAPACITY`:** at queue capacity a failing upstream reruns exponentially: with
   `l0 = fail`, `fail` ran 2, 4, 8, 16, 29, 54, 240 times for n = 3..8, 10 (n = 20: over 60 s); once
   at capacity 1000 and inline. Likely cause: the plan pre-pass drains the dependency to `Error`, the
   `GetAsset` step re-resolves it, and `DefaultAssetManager::get_dependency_asset` evicts the fresh
-  `Error` and recomputes. Suggested `FAILING-UPSTREAM-RERUNS-EXPONENTIALLY-AT-QUEUE-CAPACITY` (P1, M).
+  `Error` and recomputes. It violates decision 1.
   Not fixed here; AC-4 keeps the queued chain at 2 links because of it.
 - **Residual limit:** dynamic and volatile inline chains still nest (Phase 4 steps 6-7).
 
@@ -145,7 +157,7 @@ run finds every dependency finished and nests one level:
    `fast_track`, is *available* and not entered; any other is *needed* and its children are examined.
    So a warm `l99` stops the walk and nothing is loaded that today's run would not load (AC-3).
 3. Evaluate the needed keys in post-order, unprimed; each finds its dependencies available. Return
-   the first error (open question 1).
+   the first error (decision 2).
 4. A walk error (cycle, bad plan) skips priming; the normal run reports it unchanged (AC-5).
 
 Rejected: a task per dependency for the inline manager (no executor natively; wasm `spawn_local`
@@ -183,7 +195,7 @@ None blocks or must go first.
 | Concurrency (queued) | Same slot accounting, sequential drain; regression: `dependency_scheduling`, `asset_cancellation`, `assets.rs` `test_jobqueue_*` |
 | Cancellation | Detached child instead of re-park; same outcome. AC-6 plus `asset_cancellation` `ac03`, `ac09` |
 | Inline cost | One extra walk per cold top-level evaluation (analysis already walks three times) |
-| Inline failure | Intermediate links stay unevaluated in memory (open question 1) |
+| Inline failure | Intermediate links stay unevaluated in memory (decision 2) |
 | wasm | No spawn on the inline path: AC-2 runs without a runtime; `liquers-web` Node loop |
 | Recovery | Halves revert separately; certainty high (queued), medium-high (inline) |
 
@@ -225,7 +237,7 @@ liquers-core --lib --tests` and the `liquers-web` Node loop.
 - [ ] 4. `assets.rs` `ImmediateAssetManager::settle`, `get_unprimed`, `prime_upstream`; prime in `get`, top-level `get_query_asset_run`, `apply`; route `get_dependency_asset` and any other internal `self.get(` to `get_unprimed` — `cargo test -p liquers-core --test deep_chain_evaluation --test manager_parametric`. Depends on 3. Rollback: drop the priming calls.
 - [ ] 5. Core and wasm — `cargo test -p liquers-core --lib --tests`; after `cargo clean`, `cargo test -p liquers-web --target wasm32-unknown-unknown --features debug-handles`.
 - [ ] 6. Docs — the three Phase 2 documents — `python3 scripts/docs_index.py --check`.
-- [ ] 7. Records — file the exponential-rerun defect unless filed already, and the residual `INLINE-MANAGER-DYNAMIC-DEPENDENCY-CHAIN-NESTS`; close the source issue; update the link-by-link comment in `dependency_audit_integration.rs` `chain_first_process` — `python3 scripts/docs_index.py --check`.
+- [ ] 7. Records — file the residual `INLINE-MANAGER-DYNAMIC-DEPENDENCY-CHAIN-NESTS`; close the source issue; update the link-by-link comment in `dependency_audit_integration.rs` `chain_first_process` — `python3 scripts/docs_index.py --check`.
 
 ### Validation
 

@@ -5,8 +5,8 @@ title: DefaultAssetManager rejects a payload-requiring keyed recipe in recipe_op
 form: compact
 status: in_review
 phase: implementation
-readiness: needs-decision
-autofix: not-eligible
+readiness: ready
+autofix: eligible
 area: [core/assets]
 issues: [DEFAULT-ASSET-MANAGER-RECIPE-OPT-SKIPS-PAYLOAD-CHECK]
 created: 2026-10-12
@@ -44,7 +44,7 @@ Recipe `needs_payload/dash.txt` at key `dash.txt`, where `needs_payload` is regi
 | `manager.remove(&key)` | `Ok(())` | `Err(…)` |
 
 Should be: the first three rows are `Err` on both managers, before any asset is constructed; the
-last two rows agree on both managers (proposed: `Ok`, see the open question).
+last two rows are `Ok` on both managers (decided, Q1).
 
 ### Scope and Acceptance Criteria
 
@@ -61,7 +61,7 @@ last two rows agree on both managers (proposed: `Ok`, see the open question).
 - **AC-4** Valid keyed recipes are unaffected
   - WHEN `recipe_opt` and `evaluate` run on either manager for a keyed recipe that needs no payload
   - THEN they return the recipe and the evaluated value as before
-- **AC-5** Key mutations only ask whether a recipe exists (proposed resolution, Q1)
+- **AC-5** Key mutations only ask whether a recipe exists (decided, Q1)
   - WHEN `set_binary`, `set_state` or `remove` is called on either manager for that key
   - THEN it succeeds; a written value gets status `Override`, because a recipe exists
 
@@ -71,24 +71,20 @@ Non-goals: the recipes HTTP API and recipe listing (`liquers-axum/src/recipes/ha
 
 ### Design Readiness
 
-- **Readiness:** needs-decision
-- **Automatic fixing:** not-eligible — rule 5, readiness is `needs-decision` (Q1). Every other rule
-  holds: `M`, a bug fix in `liquers-core/src/assets.rs` alone, removes two trait-method overrides
-  (not `pub` items) and uses the existing `AsyncRecipeProvider::can_make`; it becomes eligible
-  once Q1 is answered.
-- **Leading issue:** Q1, whether key mutations should refuse a key whose recipe requires a payload.
+- **Readiness:** ready
+- **Automatic fixing:** eligible — `M`, a bug fix restoring the documented `recipe_opt` contract in
+  `liquers-core/src/assets.rs` alone; it removes two trait-method overrides (not `pub` items) and
+  uses the existing `AsyncRecipeProvider::can_make`, so no interface changes.
+- **Leading issue:** None
 - **Explanation:** The fix is fully specified and the rejection site is already the documented
-  contract; one observable choice about mutations remains, with a recommended answer under which
-  Phases 3-4 are written.
-- **Open questions:**
-  1. **Proposed resolution - mutations under an invalid keyed recipe:** `set_binary`, `set_state`,
-     the trait-default `remove`/`expire` and `decide_external_change` call `self.recipe_opt(key)`
-     only to ask "is there a recipe" (Override vs Source status, which removal branch). Deleting the
-     override alone makes them fail on the native manager, as they already do on the immediate one:
-     a user could neither overwrite nor delete data at `dash.txt` until `recipes.yaml` is fixed.
-     **Recommended:** route them through the provider's `can_make` (unchecked existence), so both
-     managers accept the mutation. The alternative (both refuse) is one step shorter but regresses
-     the manager behind `liquers-axum`.
+  contract; the one observable choice (Q1) was decided by the maintainer on 2026-10-12.
+- **Open questions:** None.
+- **Decided 2026-10-12 (maintainer):**
+  1. **Q1 - mutations under an invalid keyed recipe: not refused.** A keyed recipe may never
+     require a payload, but overriding and deleting are independent of that: for now any recipe
+     can be overridden and any override deleted. `set_binary`, `set_state`, the trait-default
+     `remove`/`expire` and `decide_external_change` therefore ask only whether a recipe exists,
+     through the provider's `can_make` (AC-5), on both managers.
 
 ### Design Dependencies
 
@@ -117,7 +113,7 @@ Non-goals: the recipes HTTP API and recipe listing (`liquers-axum/src/recipes/ha
   `get_resource_asset` (both managers), `interpreter.rs` `Step::GetAssetRecipe` and the
   `IsVolatile` arms for `GetAsset*`; existence-only — `decide_external_change`, trait-default
   `remove` and `expire`, both managers' `set_binary`/`set_state`. Only the second group needs the
-  unchecked answer (Q1).
+  unchecked answer (Q1, decided: mutations are never refused for this reason).
 - **Observable change on the native manager:** `EnvRef::evaluate("-R/dash.txt")` returns `Err`
   instead of an asset in `Error`. In `liquers-axum/src/query/handlers.rs` that changes only the
   response message prefix ("Query evaluation failed" instead of "Query execution failed"); the
@@ -134,7 +130,7 @@ Non-goals: the recipes HTTP API and recipe listing (`liquers-axum/src/recipes/ha
    `ImmediateAssetManager` and `MinimalInlineAssetManager` do.
 2. Replace the existence-only `self.recipe_opt(key).await?.is_some()` (and
    `manager.recipe_opt(key)`) with `self.get_recipe_provider().can_make(key, self.get_envref())`
-   in the seven call sites listed below (Q1's recommended answer).
+   in the seven call sites listed below (Q1, decided).
 
 Rejected: adding `to_plan_for_key` to the override (keeps two copies of one contract, the cause of
 this issue); a new unchecked `AssetManager::has_recipe` method (a new `pub` trait item, when
@@ -171,7 +167,7 @@ every asset manager" (History row, `reviewed:` bump).
 | Existing tests | `test_keyed_recipe_requiring_payload_is_rejected` fails (`evaluate` now `Err`) | rewritten in step 3 | high |
 | Other suites | a test relying on `Ok(asset)` for an invalid keyed recipe | none found by grep; full `liquers-core` run | high |
 | Compatibility | native `evaluate` errors earlier; axum message prefix changes | documented behaviour; noted | high |
-| Behaviour (Q1) | immediate-manager mutations start succeeding on an invalid keyed recipe | AC-5 test; the decision is visible | medium |
+| Behaviour (Q1) | immediate-manager mutations start succeeding on an invalid keyed recipe | AC-5 test; decided 2026-10-12 | high |
 | Performance | `can_make` is the same provider lookup as before, minus plan building | none needed | high |
 | Recovery | revert the one commit | — | high |
 

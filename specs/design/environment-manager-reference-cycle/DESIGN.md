@@ -84,26 +84,30 @@ values holding an `EnvRef` or `Context` (none are cached today).
 
 - **Readiness:** needs-decision
 - **Automatic fixing:** not-eligible — adds `pub` `try_get_envref` methods in `liquers-core`
-  (rule 4) and has open decisions (rule 5).
-- **Leading issue:** **Open design — accessor failure contract:** `get_envref()` keeps returning
-  `EnvRef<E>` and panics after teardown, or every accessor returns `Result`.
+  (rule 4) and has an open decision (rule 5).
+- **Leading issue:** **Open design — explicit shutdown:** whether an `Environment::shutdown()`
+  belongs in this design, and what it promises.
 - **Explanation:** all three paths are confirmed and each has a local `liquers-core` fix with no
-  signature change; the open choices affect only teardown behaviour, and Phases 3-4 assume the
-  recommended answers.
+  signature change; the accessor and in-flight-work contracts were decided on 2026-10-12, and only
+  the shutdown question remains (Phases 3-4 assume it is a follow-up).
 - **Open questions:**
-  1. **Open design — accessor failure contract.** Recommended: keep the asset and manager
-     `get_envref()` accessors infallible (panic with a message naming teardown, documented under `# Panics`), add
-     `try_get_envref() -> Result<EnvRef<E>, Error>` on `AssetData`, `AssetRef` and `AssetManager`
-     (default method), and use it at every site in `assets.rs` already inside a `Result` function.
-     The alternative (`Result` everywhere) touches ~100 sites in five crates and makes this `L`.
-  2. **Open design — teardown with work in flight.** Recommended: queued and running work pins the
-     environment until it finishes (AC-5; matches today). Alternative: pending work fails with
-     "environment dropped", which makes teardown immediate but breaks `evaluate` → drop → `get`.
-  3. **Proposed resolution — no explicit `Environment::shutdown()`.** Drop is enough once the
-     cycles are gone; `DefaultAssetManager::shutdown` stays for an orderly stop. A soft-reboot API,
-     if wanted, is a follow-up.
-  4. **Proposed resolution — temporary-asset loop fix in scope (AC-7).** It is the third retention
-     path's task half; splitting it off would leave a per-call task leak.
+  1. **Open design — explicit `Environment::shutdown()`.** The maintainer considers it potentially
+     useful for services that need an orderly stop (none exist today) and wants to discuss it.
+     Phases 3-4 assume it is **not** part of this design: once the cycles are gone, dropping the
+     last `EnvRef` releases everything synchronously, and `DefaultAssetManager::shutdown` remains
+     for stopping the queue and the expiration monitor. A shutdown API has its own contract to
+     settle (wait for or cancel in-flight work; whether the environment is usable afterwards;
+     idempotence; an async hook for services, since `Drop` cannot await) and would get its own
+     issue and design, which builds on `try_get_envref` from this one.
+- **Decided 2026-10-12 (maintainer):**
+  1. **Accessor failure contract: panic.** The asset and manager `get_envref()` accessors stay
+     infallible and panic with a message naming teardown, documented under `# Panics`;
+     `try_get_envref() -> Result<EnvRef<E>, Error>` is added on `AssetData`, `AssetRef` and
+     `AssetManager` (default method) and used at every site in `assets.rs` already inside a
+     `Result` function.
+  2. **Work in flight keeps the environment alive.** Queued and running work pins the environment
+     until it finishes (AC-5; matches today), so `evaluate` → drop → `get` keeps working.
+  3. **Temporary-asset loop fix in scope (AC-7),** as proposed.
 
 ### Design Dependencies
 
@@ -154,7 +158,7 @@ Make both owning back-edges weak; give evaluation a scoped strong pin.
 
 Rejected: `Arc::new_cyclic` (the `OnceLock` slot already breaks construction); weakly held cached
 assets (the cache empties itself); a status-driven `AssetData` pin (~20 status writers);
-`Environment::shutdown()` alone (opt-in; AC-1 fails); `Result` everywhere (question 1). A
+`Environment::shutdown()` alone (opt-in; AC-1 fails); `Result` everywhere (decision 1). A
 `Weak::upgrade` is one CAS, the same order as the `Arc::clone` it replaces.
 
 Known-issue preflight: `INLINE-DROP-REPAIR-STRANDS-EXISTING-WAITERS` touches `InlineRunClaim`

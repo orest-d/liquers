@@ -35,7 +35,10 @@ observed.
 
 ## Expected behaviour
 
-Each refused dependency is recomputed once per evaluation.
+Each refused dependency is recomputed once per evaluation. This is an instance of the general rule
+the maintainer set on 2026-10-12 (`deep-chain-evaluation-stack-depth`, decision 1): within one
+evaluation of an asset, each dependency is evaluated at most once. See also
+`FAILING-UPSTREAM-RERUNS-EXPONENTIALLY-AT-QUEUE-CAPACITY`, which may share the cause.
 
 ## Discovery
 

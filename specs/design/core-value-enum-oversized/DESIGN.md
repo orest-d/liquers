@@ -87,17 +87,31 @@ payloads, same problem, not reachable through this change); `Query`; new accesso
   has a recommended answer, so Phases 3-4 are complete under it. The choices change public enum
   shapes, so they stay visible for review.
 - **Open questions:**
-  1. **Proposed resolution - variant set and bound:** `Arc` exactly `Metadata`, `Recipe`,
-     `CommandMetadata`; the rule is "a payload over 64 bytes goes behind `Arc`", and the guard is
-     `<= 64`. `Query` (exactly 64) stays inline: `Arc<Query>` would reach 32 but touches the
-     query paths (`from_query`, `try_into_query`, the `txt` reader), for a gain only `Vec<Value>`
-     notices. Recommend: three variants, bound 64.
-  2. **Proposed resolution - Arc versus Box:** `Arc`. Both are 8 bytes; `Box` deep-copies on every
+  1. **Proposed resolution - variant set and bound (re-opened 2026-10-12).** The maintainer accepted
+     `Arc` for `Metadata`, `Recipe`, `CommandMetadata`, and asked whether the bound should be below
+     64 bytes. Analysis: after those three, `Query` (64) is the largest payload; with `Arc<Query>`
+     too the largest are `String`, `Vec`, `BTreeMap` and `Key` (24 each), so `Value` is **32**
+     bytes. Going below 32 means boxing `Text`/`Array`/`Object`, a second indirection on the
+     commonest values, so 32 is the floor worth having. For comparison, CPython stores a list
+     element as an 8-byte pointer to an object of at least 16 bytes (an `int` is 28, a `float` 24),
+     about 36 bytes per number in a list; 32 matches it and 64 is about twice. `Arc<Query>` costs
+     ~28 binding sites (`value.rs` 10, `simple.rs` 14, four in `liquers-lib`), mostly matched by
+     reference; `from_query` and `try_into_query` already clone. **Recommended:** four variants
+     (adding `Query`), guard `<= 32` for `Value` and `SimpleValue`; the lib `Value` is measured and
+     guarded at its own figure during implementation. Phases 3-4 currently describe the 64-byte
+     variant and are updated when this is decided.
+  2. **Arc versus Box: `Arc`** (accepted 2026-10-12). Both are 8 bytes; `Box` deep-copies on every
      `Clone`, which is what `Value` does constantly, and `ExtValue` already uses `Arc`.
-  3. **Proposed resolution - trait signatures:** keep `ValueInterface`'s owned `T` in and out
-     (`Arc::new` inside `from_*`, `(*arc).clone()` in `try_into_command_metadata`). Returning
-     `Arc<T>` would break the `liquers-py` implementor and every caller for no current consumer;
-     an additive `Arc` accessor can come later.
+  3. **Proposed resolution - trait signatures (analysed 2026-10-12 at the maintainer's request).**
+     Where would `Arc<T>` in or out of `ValueInterface` avoid a copy today? Nowhere:
+     `try_into_command_metadata` has no production caller (only delegations and tests); there is no
+     `try_into_metadata` / `try_into_recipe`; readers match on the enum by reference (eight sites
+     per variant), which costs nothing either way; producers (`interpreter.rs` `GetResourceMetadata`
+     twice, `liquers-lib` `to_metadata`) own or clone a `MetadataRecord` taken out of
+     `Arc<Metadata>`, an enum over record and legacy JSON, so an `Arc<MetadataRecord>` parameter
+     could not share it without also changing `State::metadata`, a separate and larger change.
+     **Recommended:** keep the owned `T` in and out; add `Arc` accessors only when a caller needs
+     to share a payload.
   4. **Proposed resolution - scope across crates:** `SimpleValue` is in scope (it is the base of the
      lib `Value`, so AC-2 fails without it). `liquers-py`'s `Value` is out of scope and gets its own
      issue, because it is a separate enum of pyclass wrappers built only with PyO3.
