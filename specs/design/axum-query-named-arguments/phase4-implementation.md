@@ -15,8 +15,8 @@ describe the behaviour as built and tested). Prerequisites: none — the preflig
 - [x] Step 1: `Plan::last_action_command` (core) — 6c89948
 - [x] Step 2: `Recipe::to_plan` conversion, warnings, sorted order, typed errors (core) — eec639f
 - [x] Step 3: `AssetManager::apply_queued` on both managers (core) — dcc4519
-- [ ] Step 4: override parser and shared test helpers (axum)
-- [ ] Step 5: `_entry_format` on every entry route (axum)
+- [x] Step 4: override parser and shared test helpers (axum) — fe5d285
+- [x] Step 5: `_entry_format` on every entry route (axum) — ef44bd2
 - [ ] Step 6: Assets API `q/data`, `q/entry`, `q/submit` with overrides; managed reporting (axum)
 - [ ] Step 7: Query API with overrides (axum)
 - [ ] Step 8: WebSocket `arguments`, subscription ids, `cancel` (axum)
