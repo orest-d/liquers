@@ -22,8 +22,9 @@
 //! asset — one the asset manager does not hold, so nothing but this subscription can see it.
 //! Every notification says whether its asset is managed. An unmanaged subscription is named by a
 //! `subscription_id` (a UUID, valid on this connection only), by which it can be unsubscribed or
-//! cancelled; a managed one is addressed by its query or key as before. `arguments` absent or
-//! `{}` is an ordinary subscription.
+//! cancelled; a managed one is addressed by its query or key as before. The id is acknowledged
+//! at once in a `Subscribed` message (echoing the subscribe's optional `request_id`), before any
+//! notification. `arguments` absent or `{}` is an ordinary subscription.
 
 use std::collections::HashMap;
 use std::sync::{
@@ -99,6 +100,10 @@ pub enum ClientMessage {
         key: Option<String>,
         #[serde(default)]
         arguments: Option<serde_json::Map<String, serde_json::Value>>,
+        /// Echoed in the `Subscribed` acknowledgement of an override subscription, so a client
+        /// can tell which `subscribe` an id answers.
+        #[serde(default)]
+        request_id: Option<String>,
     },
     /// Stop following an asset: by its address, or an unmanaged one by its `subscription_id`.
     Unsubscribe {
@@ -194,6 +199,17 @@ pub enum NotificationMessage {
     Removed {
         #[serde(flatten)]
         head: Head,
+    },
+    /// Sent at once for a `subscribe` with `arguments`, before any notification of it: the id
+    /// of the unmanaged subscription, by which it can be cancelled even while its evaluation is
+    /// still being set up.
+    Subscribed {
+        timestamp: String,
+        subscription_id: String,
+        query: String,
+        managed: bool,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        request_id: Option<String>,
     },
     Pong {
         timestamp: String,
@@ -575,6 +591,7 @@ impl<E: Environment> Session<E> {
         &mut self,
         address: String,
         arguments: Option<serde_json::Map<String, serde_json::Value>>,
+        request_id: Option<String>,
     ) {
         self.prune();
         let overrides = match self.overrides(arguments) {
@@ -595,8 +612,17 @@ impl<E: Environment> Session<E> {
         let managed = Arc::new(OnceLock::new());
         let cancel_requested = Arc::new(AtomicBool::new(false));
         if overrides.is_some() {
-            // Known up front: an override subscription is unmanaged, so its id works at once.
+            // Known up front: an override subscription is unmanaged, so its id works at once —
+            // and is acknowledged now, before the task can send any notification of it.
             let _ = managed.set(false);
+            self.reply(NotificationMessage::Subscribed {
+                timestamp: now(),
+                subscription_id: id.clone(),
+                query: address.clone(),
+                managed: false,
+                request_id,
+            })
+            .await;
         }
         // The request runs in the subscription's own task: with an inline manager
         // (`EvalMode::Inline`) `get`/`get_asset`/`apply_queued` evaluate before returning, and the
@@ -716,8 +742,9 @@ impl<E: Environment> Session<E> {
                 query,
                 key,
                 arguments,
+                request_id,
             } => match self.family.address(query, key) {
-                Ok(address) => self.subscribe(address, arguments).await,
+                Ok(address) => self.subscribe(address, arguments, request_id).await,
                 Err(e) => self.reply(error_message(&e)).await,
             },
             ClientMessage::Unsubscribe {
@@ -777,7 +804,7 @@ async fn handle_socket<E: Environment>(
         by_address: HashMap::new(),
     };
     if let Some(address) = initial {
-        session.subscribe(address, None).await;
+        session.subscribe(address, None, None).await;
     }
     while let Some(incoming) = stream.next().await {
         match incoming {

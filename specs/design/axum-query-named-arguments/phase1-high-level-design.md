@@ -220,7 +220,7 @@ updated in the implementation PR — `reference/` must be true at HEAD.
 
 ## Design Readiness
 
-One open decision (Q16, found during implementation). Readiness, assessed at the Phase 4 consistency pass (2026-10-12): `ready`; Q16 suspends the pre-approval until it is answered.
+No open decision. Readiness, assessed at the Phase 4 consistency pass (2026-10-12): `ready`. Q16, found during implementation, was decided on 2026-10-12.
 
 **Decided by the user (2026-10-12):** Q1 an override replaces the path value (AC-5); Q2 `_` names
 reserved (AC-10); Q3 links as `_link_<name>` (AC-11); Q5 convert and warn (AC-12; cost: the
@@ -277,9 +277,9 @@ designs overrides on the Assets API or the WebSocket.
   (`liquers-web`, `liquers-py`) sends it. Taken as intended by "no need to keep the alias"; AC-22
   makes a stale `format` a loud error rather than a silent default.
 
-**Found during implementation (Step 8, 2026-10-12) — pre-approval suspended until answered:**
+**Found during implementation (Step 8, 2026-10-12):**
 
-- **Q16 (needs decision)** A client learns an override subscription's `subscription_id` only from
+- **Q16 (decided by the user, 2026-10-12: the acknowledgement)** A client learns an override subscription's `subscription_id` only from
   its first notification (`Initial`), which the server sends once the asset exists. Two effects:
   (1) a client that sends two `subscribe`s of one query with different `arguments` cannot tell
   which `Initial` answers which until it waits between them (AC-18 is met only that way); (2) on

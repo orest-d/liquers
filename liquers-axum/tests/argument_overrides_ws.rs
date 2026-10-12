@@ -53,17 +53,26 @@ fn for_id<'a>(id: &'a str) -> impl Fn(&JsonValue) -> bool + 'a {
     move |m: &JsonValue| id_of(m).as_deref() == Some(id)
 }
 
-/// Subscribe with `arguments` and return the id from its `Initial` notification.
+/// Subscribe with `arguments` and return the id from its `Subscribed` acknowledgement, matched
+/// by a fresh `request_id`.
 async fn subscribe_overridden(inbox: &mut Inbox, query: &str, arguments: JsonValue) -> String {
+    let request_id = format!("r{}", rand_suffix());
     inbox
-        .send(json!({"action": "subscribe", "query": query, "arguments": arguments}))
+        .send(json!({"action": "subscribe", "query": query, "arguments": arguments, "request_id": request_id}))
         .await;
-    let initial = inbox
-        .recv_matching(|m| has_type(m, "Initial") && id_of(m).is_some())
+    let ack = inbox
+        .recv_matching(|m| has_type(m, "Subscribed") && m["request_id"] == request_id.as_str())
         .await
-        .expect("Initial of the override subscription");
-    assert_eq!(initial["managed"], false);
-    id_of(&initial).expect("id")
+        .expect("Subscribed acknowledgement");
+    assert_eq!(ack["managed"], false);
+    assert_eq!(ack["query"], query);
+    id_of(&ack).expect("id")
+}
+
+fn rand_suffix() -> u64 {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: AtomicU64 = AtomicU64::new(1);
+    NEXT.fetch_add(1, Ordering::SeqCst)
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -71,6 +80,11 @@ async fn aow01_subscribe_with_arguments_follows_to_ready() {
     let fixtures = Fixtures::default();
     let mut inbox = open_inbox::<Queued>(&fixtures, "/ws/q").await;
     let id = subscribe_overridden(&mut inbox, "echo_args", json!({"query": "a", "limit": 3})).await;
+    let initial = inbox
+        .recv_matching(|m| for_id(&id)(m) && has_type(m, "Initial"))
+        .await
+        .expect("Initial after the acknowledgement");
+    assert_eq!(initial["managed"], false);
     let ready = inbox
         .recv_matching(|m| for_id(&id)(m) && status_of(m) == Some("Ready"))
         .await
@@ -83,8 +97,11 @@ async fn aow01_subscribe_with_arguments_follows_to_ready() {
 async fn aow02_two_subscriptions_same_query_different_arguments() {
     let fixtures = Fixtures::default();
     let mut inbox = open_inbox::<Queued>(&fixtures, "/ws/q").await;
-    let first = subscribe_overridden(&mut inbox, "gated", json!({"tag": "x"})).await;
-    let second = subscribe_overridden(&mut inbox, "gated", json!({"tag": "y"})).await;
+    // Both sent before reading anything: the acknowledgements' `request_id` tells them apart.
+    inbox.send(json!({"action": "subscribe", "query": "gated", "arguments": {"tag": "x"}, "request_id": "x"})).await;
+    inbox.send(json!({"action": "subscribe", "query": "gated", "arguments": {"tag": "y"}, "request_id": "y"})).await;
+    let first = id_of(&inbox.recv_matching(|m| has_type(m, "Subscribed") && m["request_id"] == "x").await.expect("ack x")).expect("id");
+    let second = id_of(&inbox.recv_matching(|m| has_type(m, "Subscribed") && m["request_id"] == "y").await.expect("ack y")).expect("id");
     assert_ne!(first, second);
     fixtures.open_gate();
     let a = inbox
@@ -169,8 +186,6 @@ async fn aow07_cancel_before_asset_exists_is_not_lost() {
     // Queued: `subscribe` and `cancel` in one burst. Whichever branch runs — the asset already
     // set, or `cancel_requested` applied when the task gets it — the outcome is the same. Which
     // branch ran is not observable, so coverage of the `cancel_requested` branch is probabilistic.
-    // The inline case is pending a design decision (an early `Subscribed` acknowledgement; see
-    // the design's decision log).
     let fixtures = Fixtures::default();
     let mut inbox = open_inbox::<Queued>(&fixtures, "/ws/q").await;
     let id = subscribe_overridden(&mut inbox, "gated", json!({"tag": "q"})).await;
@@ -183,15 +198,15 @@ async fn aow07_cancel_before_asset_exists_is_not_lost() {
     tokio::time::sleep(Duration::from_millis(200)).await;
     assert_eq!(fixtures.count(), 0, "queued: the cancelled command did not complete");
 
-    // Inline: the evaluation runs inside the subscription task, so stopping the task stops it.
-    // (Here through `unsubscribe_all`, which the client can always send; a cancel by id is not
-    // reachable yet, because the id arrives only with `Initial`, after the evaluation.)
+    // Inline: `apply_queued` evaluates inside the subscription task and waits at the gate, so the
+    // asset does not exist yet; the id comes from the acknowledgement, and the cancel stops the
+    // task and with it the evaluation. Deterministic: the ping is answered after the cancel.
     let fixtures = Fixtures::default();
     let mut inbox = open_inbox::<Inline>(&fixtures, "/ws/q").await;
-    inbox.send(json!({"action": "subscribe", "query": "gated", "arguments": {"tag": "i"}})).await;
-    tokio::time::sleep(Duration::from_millis(100)).await;
-    inbox.send(json!({"action": "unsubscribe_all"})).await;
-    inbox.recv_matching(|m| has_type(m, "UnsubscribedAll")).await.expect("UnsubscribedAll");
+    let id = subscribe_overridden(&mut inbox, "gated", json!({"tag": "i"})).await;
+    inbox.send(json!({"action": "cancel", "subscription_id": id})).await;
+    inbox.send(json!({"action": "ping"})).await;
+    inbox.recv_matching(|m| has_type(m, "Pong")).await.expect("Pong");
     fixtures.open_gate();
     tokio::time::sleep(Duration::from_millis(200)).await;
     assert_eq!(fixtures.count(), 0, "inline: stopping the task stopped the evaluation");
@@ -202,6 +217,7 @@ async fn aow08_unsubscribe_by_id_stops_notifications() {
     let fixtures = Fixtures::default();
     let mut inbox = open_inbox::<Queued>(&fixtures, "/ws/q").await;
     let id = subscribe_overridden(&mut inbox, "gated", json!({"tag": "u"})).await;
+    inbox.recv_matching(|m| for_id(&id)(m) && has_type(m, "Initial")).await.expect("Initial");
     inbox.send(json!({"action": "unsubscribe", "subscription_id": id})).await;
     tokio::time::sleep(Duration::from_millis(100)).await;
     fixtures.open_gate();
