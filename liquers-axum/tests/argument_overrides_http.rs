@@ -366,3 +366,28 @@ async fn aoh22_required_argument_given_only_by_name() {
     let answer = get(&app, &format!("{A}/q/submit/greet-~X~make_text~E/greet?other=1")).await;
     assert_eq!(answer.status, StatusCode::BAD_REQUEST, "{}", answer.text());
 }
+
+/// A timed-out Query API answer still says whether its asset is managed (Codex review, PR #125):
+/// with overrides it is unmanaged by construction, and the message points to the WebSocket rather
+/// than to polling; without, the manager holds the query, so it is managed.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn aoh23_timeout_answer_reports_managed() {
+    let fixtures = Fixtures::default();
+    let envref = env_with::<Queued>(&fixtures, &[]).await;
+    let app = Router::new()
+        .merge(
+            QueryApiBuilder::<GenericEnvironment<Value, (), Queued>>::new("/q/")
+                .with_timeout(std::time::Duration::from_millis(100))
+                .build(),
+        )
+        .with_state(envref);
+    let answer = get(&app, &format!("{B}/gated?tag=t")).await;
+    assert_eq!(error_type(&answer), "ExecutionError", "{}", answer.text());
+    assert_eq!(answer.managed().as_deref(), Some("false"));
+    assert!(answer.text().contains("ws/q"), "{}", answer.text());
+
+    let answer = get(&app, &format!("{B}/gated")).await;
+    assert_eq!(error_type(&answer), "ExecutionError", "{}", answer.text());
+    assert_eq!(answer.managed().as_deref(), Some("true"));
+    fixtures.open_gate();
+}

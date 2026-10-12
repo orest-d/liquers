@@ -361,6 +361,20 @@ pub(crate) async fn is_managed<E: Environment>(
     mapped.is_some_and(|m| m.id() == asset.id()) && !asset.is_volatile().await
 }
 
+/// Whether the manager holds a usable (non-volatile) asset under `query`'s address — for an
+/// answer that has no `AssetRef` in hand, such as a timed-out request without overrides.
+pub(crate) async fn address_is_managed<E: Environment>(env: &EnvRef<E>, query: &Query) -> bool {
+    let manager = env.get_asset_manager();
+    let mapped = match query.key() {
+        Some(key) => manager.lookup_key_asset(&key),
+        None => manager.lookup_query_asset(query),
+    };
+    match mapped {
+        Some(asset) => !asset.is_volatile().await,
+        None => false,
+    }
+}
+
 /// `response` with the [`MANAGED_HEADER`].
 pub(crate) fn with_managed(mut response: Response, managed: bool) -> Response {
     response.headers_mut().insert(

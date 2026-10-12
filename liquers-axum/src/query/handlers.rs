@@ -14,7 +14,7 @@ use std::time::Duration;
 
 use crate::api_core::overrides::{OverrideRequest, RouteOptions};
 use crate::api_core::{error_to_detail, ApiResponse, BinaryResponse};
-use crate::assets::common::{is_managed, request_with_overrides, with_managed};
+use crate::assets::common::{address_is_managed, is_managed, request_with_overrides, with_managed};
 use axum::{
     body::Bytes,
     extract::{Path, Query as AxumQuery, State},
@@ -96,12 +96,26 @@ async fn serve_query<E: Environment>(
         Ok(Ok((Err((e, message)), managed))) => with_managed(error_response(&e, message), managed),
         Ok(Err((e, message))) => error_response(&e, message),
         Err(_) => {
+            // The answer still says whether the asset can be found again: one with overrides is
+            // unmanaged by construction; otherwise ask the manager about the address.
+            let (managed, advice) = if overrides.is_empty() {
+                (
+                    address_is_managed(env, &query).await,
+                    "To follow a long evaluation, use the Assets API: POST {assets}/q/submit, then \
+                     poll GET {assets}/q/info or subscribe on {assets}/ws/q",
+                )
+            } else {
+                (
+                    false,
+                    "This request carries argument overrides, so its evaluation is unmanaged and \
+                     cannot be polled: follow it with a WebSocket subscribe with arguments on \
+                     {assets}/ws/q",
+                )
+            };
             let error_detail = crate::api_core::ErrorDetail {
                 error_type: "ExecutionError".to_string(),
                 message: format!(
-                    "Query execution did not finish within {:?}. To follow a long evaluation, use \
-                     the Assets API: POST {{assets}}/q/submit, then poll GET {{assets}}/q/info or \
-                     subscribe on {{assets}}/ws/q",
+                    "Query execution did not finish within {:?}. {advice}",
                     config.timeout
                 ),
                 query: Some(query.encode()),
@@ -111,7 +125,7 @@ async fn serve_query<E: Environment>(
             };
             let response: ApiResponse<()> =
                 ApiResponse::error(error_detail, "Query execution timeout");
-            response.into_response()
+            with_managed(response.into_response(), managed)
         }
     }
 }

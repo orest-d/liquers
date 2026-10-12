@@ -587,7 +587,10 @@ serialized in its effective format, and an `Error`, `Cancelled`, `Expired` or `D
 answers that asset's own error. The whole wait — evaluation included, which matters for an
 inline manager — is bounded by `QueryApiBuilder::with_timeout(Duration)`
 (default 30 s); on timeout the answer is 500 `ExecutionError`, whose message names the duration and
-points to the Assets API's `q/submit`, `q/info` and `ws/q` for long evaluations.
+points to the Assets API's `q/submit`, `q/info` and `ws/q` for long evaluations — or, for a request
+with argument overrides, whose evaluation cannot be polled, to a `ws/q` subscribe with `arguments`.
+The timeout answer carries `x-liquers-managed` too: `false` with overrides; otherwise whether the
+manager holds the query.
 
 ---
 
@@ -684,6 +687,7 @@ Not available at HEAD; listed so that no reader mistakes them for features:
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-12 | §7: the timeout answer carries `x-liquers-managed`, and with overrides its message points to a `ws/q` subscribe with `arguments` (Codex review of PR #125). | review fix |
 | 2026-10-12 | §2.4 argument overrides and options, §2.5 managed and unmanaged assets (with the table of what cannot follow an unmanaged asset and the workaround); §2.3 and §6 `_entry_format` replaces `format`; §5.3 `q/data`, `q/entry` (GET and POST) and `q/submit` take overrides, `x-liquers-managed`, `SubmitResult`, failure metadata on `q/entry`; §5.8 `arguments`, `request_id`, `Subscribed`, `subscription_id`, `cancel`, `managed`, and the inline-manager disconnect exception; §7 the Query API takes overrides. `QUERY-API-ARGUMENTS-ONLY-IN-QUERY-PATH` closed. | phase-5, `design/axum-query-named-arguments/` |
 | 2026-10-11 | §3.1: `ConfigurationError` → 500. | `design/configuration-error-kind/` |
 | 2026-10-11 | §3.2: `error.traceback` carries the `Error`'s own traceback, split into lines, whenever it has one. `CORE-METADATA-TRACEBACK-SUPPORT` closed. | `design/metadata-error-traceback/` |
