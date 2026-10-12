@@ -3,8 +3,7 @@ id: STORE-KEY-FORMAT-SEEDING
 kind: design
 title: Every store seeds the data format from the key's extension when the metadata names none
 form: compact
-status: in_review
-phase: implementation
+gh_pr: [122]
 readiness: ready
 autofix: not-eligible
 area: [core/store, web]
