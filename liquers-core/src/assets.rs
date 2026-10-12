@@ -314,6 +314,7 @@ use tokio::sync::{mpsc, watch, Mutex, Notify, RwLock};
 use crate::cache_strategy::CacheStrategy;
 use crate::command_metadata::PayloadRequirement;
 use crate::expiration::ExpirationTime;
+use crate::evaluation_session::{EvaluationSession, EvaluationSessionRef};
 use crate::interpreter::IsVolatile;
 
 // psm-task join error: a real `JoinError` on native (spawned task), but the inline path never
@@ -771,6 +772,11 @@ pub struct AssetData<E: Environment> {
     /// *before* asset locks. [`AssetRef::fast_track`] takes it after dropping the lock.
     pending_external_change: Option<PendingExternalChange>,
 
+    /// The evaluation session this asset was scheduled into, or that its run began
+    /// (`crate::evaluation_session`). Weak: a session pins its assets, so a strong reference here
+    /// would be a cycle. Running `Context`s hold the session strongly.
+    evaluation_session: std::sync::Weak<EvaluationSession<E>>,
+
     _marker: std::marker::PhantomData<E>,
 }
 
@@ -1149,6 +1155,7 @@ impl<E: Environment> AssetData<E> {
             recipe_sets_title: false,
             recipe_sets_description: false,
             pending_external_change: None,
+            evaluation_session: std::sync::Weak::new(),
             _marker: std::marker::PhantomData,
             status: Status::None,
         };
@@ -2768,6 +2775,52 @@ impl<E: Environment> AssetRef<E> {
             }
         }
         result
+    }
+
+    /// The evaluation session this asset belongs to, if that session is still alive.
+    pub(crate) async fn evaluation_session(&self) -> Option<EvaluationSessionRef<E>> {
+        self.data.read().await.evaluation_session.upgrade()
+    }
+
+    /// Schedules this asset into `session`, unless it already belongs to a live session or its
+    /// evaluation has started: an asset being evaluated for another session is joined, not
+    /// restarted (rule 5 of the evaluation session). A manager calls this before the asset can
+    /// start, so that the run, and every dependency it resolves, belongs to `session`.
+    pub(crate) async fn adopt_evaluation_session(&self, session: &EvaluationSessionRef<E>) {
+        let mut lock = self.data.write().await;
+        if lock.evaluation_session.upgrade().is_some() {
+            return;
+        }
+        let pre_run = match lock.status {
+            Status::None | Status::Recipe | Status::Submitted => true,
+            Status::Dependencies
+            | Status::Processing
+            | Status::Partial
+            | Status::Storing
+            | Status::Ready
+            | Status::Expired
+            | Status::Error
+            | Status::Cancelled
+            | Status::Source
+            | Status::Override
+            | Status::Volatile
+            | Status::Directory => false,
+        };
+        if pre_run {
+            lock.evaluation_session = std::sync::Arc::downgrade(session);
+        }
+    }
+
+    /// The live session of this asset, or a new one recorded on it: a run that starts without a
+    /// session begins one (rule 1 of the evaluation session).
+    pub(crate) async fn evaluation_session_or_begin(&self) -> EvaluationSessionRef<E> {
+        let mut lock = self.data.write().await;
+        if let Some(session) = lock.evaluation_session.upgrade() {
+            return session;
+        }
+        let session = EvaluationSession::new();
+        lock.evaluation_session = std::sync::Arc::downgrade(&session);
+        session
     }
 
     /// Creates the execution context used by the interpreter and commands.
@@ -5818,6 +5871,17 @@ pub trait AssetManager<E: Environment>:
     /// dependency queue (local-only parking — NOT parked in the global jobs list here).
     /// Does NOT record dependency facts or cycle-check — `Context` does that.
     ///
+    /// `Context` calls this at most once per dependency per evaluation session and pins the
+    /// result, so the stale-terminal refresh done here happens only on a session's first request.
+    /// An implementation should:
+    /// - return the asset even when evaluating it failed (the failure is recorded in the asset,
+    ///   and the session pins it); return `Err` only when no asset could be produced;
+    /// - give the asset `parent`'s evaluation session before it can start
+    ///   (`AssetRef::adopt_evaluation_session`), so its own dependencies resolve in that session.
+    ///
+    /// A manager that does neither still works; its dependencies' upstream then resolves in
+    /// sessions of their own.
+    ///
     /// Default: plain `get_asset` (global submit) — a safe fallback for managers without a
     /// JobQueue; `DefaultAssetManager` overrides.
     async fn get_dependency_asset(
@@ -5827,6 +5891,22 @@ pub trait AssetManager<E: Environment>:
     ) -> Result<AssetRef<E>, Error> {
         let _ = parent;
         self.get_asset(query).await
+    }
+
+    /// Evaluate an ad-hoc asset for a command of `parent` (`Context::apply`), inside `parent`'s
+    /// evaluation session, so the dependencies it resolves are the ones `parent`'s evaluation
+    /// uses.
+    ///
+    /// Default: [`Self::apply`], which evaluates it in a session of its own.
+    async fn apply_for(
+        &self,
+        parent: &AssetRef<E>,
+        recipe: Recipe,
+        to: State<E::Value>,
+        payload: Option<E::Payload>,
+    ) -> Result<AssetRef<E>, Error> {
+        let _ = parent;
+        self.apply(recipe, to, payload).await
     }
 
     /// Resolve the asset for `query` as a dependency of `parent`, forwarding `payload` to
@@ -8195,6 +8275,11 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
             if fast_tracked {
                 return Ok(asset);
             }
+            // The dependency belongs to its parent's evaluation session, so its own upstream
+            // resolves in the same session. Adopted before it can start.
+            if let Some(session) = parent.evaluation_session().await {
+                asset.adopt_evaluation_session(&session).await;
+            }
             // Schedule: start now if capacity allows, else enqueue on the parent's LOCAL queue
             // (Status::Submitted here means "queued on a local queue", not the global jobs list).
             if !self.job_queue.try_to_start_immediately(&asset).await? {
@@ -8403,6 +8488,24 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         let asset_ref =
             AssetData::new_ext(self.next_id(), recipe, initial_state, None, self.get_envref())
                 .to_ref();
+        asset_ref.run(payload).await?;
+        Ok(asset_ref)
+    }
+
+    /// As [`Self::apply`], inside `parent`'s evaluation session.
+    async fn apply_for(
+        &self,
+        parent: &AssetRef<E>,
+        recipe: Recipe,
+        initial_state: State<E::Value>,
+        payload: Option<E::Payload>,
+    ) -> Result<AssetRef<E>, Error> {
+        let asset_ref =
+            AssetData::new_ext(self.next_id(), recipe, initial_state, None, self.get_envref())
+                .to_ref();
+        if let Some(session) = parent.evaluation_session().await {
+            asset_ref.adopt_evaluation_session(&session).await;
+        }
         asset_ref.run(payload).await?;
         Ok(asset_ref)
     }
@@ -15442,6 +15545,33 @@ recipes:
         assert!(manager.can_make(&key).await.expect("can_make"));
         assert!(!manager.can_make(&parse_key("a/x.txt").expect("key")).await.expect("can_make"));
         assert!(manager.get_asset_info(&key).await.is_ok());
+    }
+
+    /// The evaluation session (`crate::evaluation_session`) is held only by running contexts: once
+    /// the last run in it ends, nothing keeps it alive, so the asset's weak reference is dead.
+    #[tokio::test]
+    async fn evaluation_session_ends_with_its_last_run() {
+        let mut env = SimpleEnvironment::<Value>::new();
+        env.command_registry
+            .register_command(CommandKey::new_name("hello"), |_state, _args, _ctx| {
+                Ok(Value::from("hi"))
+            })
+            .expect("register hello");
+        let envref = env.to_ref();
+        let asset = envref
+            .get_asset_manager()
+            .get_asset(&parse_query("hello").expect("query"))
+            .await
+            .expect("asset");
+        asset.get().await.expect("state");
+        // The run may still be finishing after the value is visible.
+        for _ in 0..200 {
+            if asset.evaluation_session().await.is_none() {
+                return;
+            }
+            sleep(Duration::from_millis(5)).await;
+        }
+        panic!("the evaluation session outlived its last run");
     }
 }
 

@@ -135,6 +135,7 @@ pub mod entities;
 pub mod environment_builder;
 pub mod environment_config;
 pub mod error;
+pub(crate) mod evaluation_session;
 pub mod escape;
 pub mod expiration;
 pub mod icons;

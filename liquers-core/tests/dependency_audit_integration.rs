@@ -1485,9 +1485,9 @@ async fn restart_upstream_command_change_on_load_refuses() -> TestResult {
     let snapshot = chain_first_process(3).await?;
     let (envref, upper_calls) = chain_second_process(&snapshot, NEW, DependencyAuditPolicy::OnLoad).await?;
     assert_eq!(chain_value(&envref, 2).await?, "NEW");
-    // At least l1 and l2; a refused dependency recomputed inside a dependent's evaluation may run
-    // its recipe twice (`REFUSED-DEPENDENCY-RECOMPUTED-TWICE-DURING-A-DEPENDENT-EVALUATION`).
-    assert!(upper_calls.load(Ordering::SeqCst) >= 2, "l1 and l2 recomputed");
+    // Exactly l1 and l2: within one evaluation a refused dependency is resolved, and so
+    // recomputed, once (`dependency-resolved-once-per-evaluation`, AC-4).
+    assert_eq!(upper_calls.load(Ordering::SeqCst), 2, "l1 and l2 recomputed once each");
     Ok(())
 }
 
@@ -1498,7 +1498,7 @@ async fn restart_deep_expired_status_on_load_refuses() -> TestResult {
     let snapshot = set_stored_status(&chain_first_process(3).await?, "data/l0.txt", Status::Expired).await?;
     let (envref, upper_calls) = chain_second_process(&snapshot, OLD, DependencyAuditPolicy::OnLoad).await?;
     assert_eq!(chain_value(&envref, 2).await?, "OLD");
-    assert!(upper_calls.load(Ordering::SeqCst) >= 2, "l1 and l2 recomputed, not served");
+    assert_eq!(upper_calls.load(Ordering::SeqCst), 2, "l1 and l2 recomputed once each, not served");
     Ok(())
 }
 
