@@ -217,7 +217,7 @@ updated in the implementation PR — `reference/` must be true at HEAD.
 
 ## Design Readiness
 
-`needs-decision` — Q15 and A3 remain.
+No open decision. (`readiness` is assessed once Phases 1–4 exist.)
 
 **Decided by the user (2026-10-12):** Q1 an override replaces the path value (AC-5); Q2 `_` names
 reserved (AC-10); Q3 links as `_link_<name>` (AC-11); Q5 convert and warn (AC-12; cost: the
@@ -266,10 +266,10 @@ designs overrides on the Assets API or the WebSocket.
     override values (search terms, parameters) can be more sensitive than the query. It also needs
     a retention policy (TTL after the terminal status, a capacity cap against memory exhaustion),
     which stretches what "unmanaged" and "volatile: used once" mean.
-- **Q15 (needs decision)** (a) or (b). Recommended: **(a)** here, and (b) filed as a follow-up
-  issue carrying this analysis, to be designed once sessions exist so an id can be checked against
-  its owner.
-- **A3 (assumption)** Replacing `format` by `_entry_format` on every entry route breaks clients that send
+- **Q15 (decided by the user, 2026-10-12): (a)**, connection-scoped ids, to be extended to a
+  session once sessions are supported. (b) is filed as
+  `issues/UNMANAGED-ASSET-NOT-FOLLOWABLE-ACROSS-CONNECTIONS.md`, carrying this analysis.
+- **A3 (accepted by the user, 2026-10-12: backwards compatibility is not a concern yet)** Replacing `format` by `_entry_format` on every entry route breaks clients that send
   `?format=`. In this repository only tests, the README, the guide and two examples do; no binding
   (`liquers-web`, `liquers-py`) sends it. Taken as intended by "no need to keep the alias"; AC-22
   makes a stale `format` a loud error rather than a silent default.
