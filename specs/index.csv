@@ -408,7 +408,7 @@ PREDECESSOR-CUT-EQUIVALENCE,design,Make cutting a predecessor boundary observabl
 PYO3-PYTHON-3-13-SUPPORT,design,liquers-py builds against the current Python,,github,,ready,eligible,P3,S,py;build,,110,,pyo3-python-3-13-support,,2026-10-08,specs/design/pyo3-python-3-13-support/DESIGN.md
 PYTHON-WRAPPER,design,Python wrapper architecture for liquers-py,complete,local,,,,,,py,,,,python-wrapper,,2026-03-02,specs/design/python-wrapper/DESIGN.md
 QUERY-CONSOLE-ELEMENT,design,Query console UI element,complete,local,,,,,,lib/ui,,,,query-console-element,,2026-03-02,specs/design/query-console-element/DESIGN.md
-ACTIVE-08,design,Design for QUERY-ABSOLUTE-FIELD-NAME-AMBIGUOUS,in_review,local,implementation,ready,not-eligible,P3,S,core/query,,,,query-leading-slash-field,,2026-09-03,specs/design/query-leading-slash-field/DESIGN.md
+ACTIVE-08,design,Design for QUERY-ABSOLUTE-FIELD-NAME-AMBIGUOUS,,github,,ready,not-eligible,P3,S,core/query,,119,,query-leading-slash-field,,2026-09-03,specs/design/query-leading-slash-field/DESIGN.md
 QUERY-LINK-PARSER,design,Action-parameter link parsing (~X~~E),complete,local,,,,,,core/query,,17,,query-link-parser,,2026-03-02,specs/design/query-link-parser/DESIGN.md
 QUERY-VALIDATION,design,Offline query and recipe validation,complete,local,,,,,,core/validate,,15,,query-validation,,2026-03-02,specs/design/query-validation/DESIGN.md
 QUEUED-MANAGER-CONDITIONAL-EVICTION,design,Conditional queued-manager cache eviction,complete,local,,ready,,P2,S,core/assets,,,,queued-manager-conditional-eviction,,2026-08-29,specs/design/queued-manager-conditional-eviction/DESIGN.md

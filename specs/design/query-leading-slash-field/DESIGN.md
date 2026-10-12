@@ -2,8 +2,7 @@
 id: ACTIVE-08
 kind: design
 title: Design for QUERY-ABSOLUTE-FIELD-NAME-AMBIGUOUS
-status: in_review
-phase: implementation
+gh_pr: [119]
 readiness: ready
 autofix: not-eligible
 area: [core/query]
