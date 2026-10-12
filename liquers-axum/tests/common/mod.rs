@@ -66,6 +66,7 @@ impl Fixtures {
 /// Register the Phase 3 fixtures:
 /// - `echo_args(query: string = "", rank: bool = true, case_sensitive: bool = false,
 ///   limit: int = 50, fields: multiple string, ctx: injected)` — the shape of `ns-search/search`;
+/// - `greet(name: string)` — a required argument, no default — returning `"hello <name>"`;
 /// - `make_text`; `fail_with(reason: string = "")`, which always fails;
 /// - `gated(tag: string = "")` and the volatile `gated_volatile` — wait for the gate, increment
 ///   the counter, return `"<tag>:<count>"`;
@@ -92,6 +93,11 @@ pub fn register_fixtures<E: Environment<Value = Value>>(
     .with_argument(ArgumentInfo::integer_argument("limit", false).with_default(50))
     .with_argument(ArgumentInfo::string_argument("fields").set_multiple())
     .with_argument(ArgumentInfo::argument("ctx").set_injected());
+    cr.register_command(CommandKey::new_name("greet"), |_, args, _| {
+        let name: String = args.get(0, "name")?;
+        Ok(Value::from(format!("hello {name}")))
+    })?
+    .with_argument(ArgumentInfo::string_argument("name"));
     cr.register_command(CommandKey::new_name("make_text"), |_, _, _| {
         Ok(Value::from("generated"))
     })?;

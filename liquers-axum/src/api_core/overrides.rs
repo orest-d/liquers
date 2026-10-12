@@ -16,7 +16,7 @@ use liquers_core::{
     command_metadata::{ArgumentInfo, CommandMetadataRegistry},
     error::{Error, ErrorType},
     parse::parse_query,
-    plan::{ParameterValue, PlanBuilder},
+    plan::{ParameterValue, Plan, PlanBuilder, Step},
     query::{Position, Query},
     recipes::Recipe,
 };
@@ -171,7 +171,11 @@ impl OverrideRequest {
     /// (`ParameterValue::from_string`), without a warning; a JSON value is passed through and
     /// converted, with a warning in the log when its type does not match, by `Recipe::to_plan`.
     pub fn to_recipe(&self, query: &Query, cmr: &CommandMetadataRegistry) -> Result<Recipe, Error> {
-        let plan = PlanBuilder::new(query.clone(), cmr).build()?;
+        // Placeholders allowed, as `Recipe::to_plan` does: a required argument the path leaves
+        // out is exactly what an override may supply.
+        let plan = PlanBuilder::new(query.clone(), cmr)
+            .with_placeholders_allowed()
+            .build()?;
         let command = plan.last_action_command(cmr);
         let mut recipe = Recipe::new(query.encode(), String::new(), String::new())?;
         for (name, input) in &self.values {
@@ -203,9 +207,35 @@ impl OverrideRequest {
             parse_query(link).map_err(|e| e.with_query(query))?;
             recipe.links.insert(name.clone(), link.clone());
         }
-        recipe.to_plan(cmr)?;
+        let plan = recipe.to_plan(cmr)?;
+        if let Some(name) = unfilled_placeholder(&plan) {
+            return Err(Error::from_error(
+                ErrorType::ArgumentMissing,
+                format!(
+                    "argument '{name}' has no value: give it in the query or as an override"
+                ),
+            )
+            .with_query(query));
+        }
         Ok(recipe)
     }
+}
+
+/// The first required argument that neither the query nor an override gave a value.
+fn unfilled_placeholder(plan: &Plan) -> Option<String> {
+    plan.steps.iter().find_map(|step| {
+        if let Step::Action { parameters, .. } = step {
+            parameters.iter().find_map(|p| {
+                if let ParameterValue::Placeholder(name) = p {
+                    Some(name.clone())
+                } else {
+                    None
+                }
+            })
+        } else {
+            None
+        }
+    })
 }
 
 fn reserved(name: &str) -> Error {

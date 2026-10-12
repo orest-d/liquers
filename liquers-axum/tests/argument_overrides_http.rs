@@ -349,3 +349,20 @@ async fn aoh21_q_data_post_query_string_and_body_combined() {
     assert_eq!(answer.text(), "query=a;rank=true;case_sensitive=false;limit=3;fields=");
 }
 
+
+/// Found running the example server: an argument with no default, absent from the path, must be
+/// fillable by an override — and still missing without one.
+#[tokio::test]
+async fn aoh22_required_argument_given_only_by_name() {
+    let app = app().await;
+    let answer = get(&app, &format!("{B}/greet?name=you")).await;
+    assert_eq!(answer.status, StatusCode::OK, "{}", answer.text());
+    assert_eq!(answer.text(), "hello you");
+    let answer = post(&app, &format!("{A}/q/data/greet"), r#"{"name":"body"}"#).await;
+    assert_eq!(answer.text(), "hello body");
+    // An override of another name leaves `name` missing: refused before anything runs.
+    let answer = get(&app, &format!("{A}/q/data/greet?_link_x=make_text")).await;
+    assert_eq!(answer.status, StatusCode::BAD_REQUEST, "{}", answer.text());
+    let answer = get(&app, &format!("{A}/q/submit/greet-~X~make_text~E/greet?other=1")).await;
+    assert_eq!(answer.status, StatusCode::BAD_REQUEST, "{}", answer.text());
+}
