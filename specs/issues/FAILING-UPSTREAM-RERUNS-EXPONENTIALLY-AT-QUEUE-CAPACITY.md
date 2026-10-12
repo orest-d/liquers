@@ -62,3 +62,8 @@ Found on 2026-10-12 while verifying `EVALUATING-A-DEEP-CHAIN-TOP-DOWN-OVERFLOWS-
 failure chain at two links because of it). Possibly the same root cause as
 `REFUSED-DEPENDENCY-RECOMPUTED-TWICE-DURING-A-DEPENDENT-EVALUATION` (a dependency re-run inside one
 dependent evaluation); not merged because that one was observed on the refusal path at any capacity.
+
+**Rule refined on 2026-10-12** (`dependency-resolved-once-per-evaluation`, decision 1): the rule
+quoted above covers the whole top-level evaluation, not one asset's run. Within it, each dependency,
+direct or transitive, is evaluated at most once and has one version; it is carried by an
+*evaluation session*.

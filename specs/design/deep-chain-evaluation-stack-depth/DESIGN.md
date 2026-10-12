@@ -16,7 +16,7 @@ superseded_by: dependency-resolved-once-per-evaluation
 > The maintainer merged the two designs: decision 1 below was refined to cover a whole top-level
 > evaluation, and an *evaluation session* now carries it. The session is the mechanism both designs
 > share. This design's AC-1, AC-2, AC-3, AC-5 and AC-6 are AC-9 to AC-13 there. Its AC-4 is replaced
-> by AC-1 to AC-3, and decisions 2 and 3 are that design's decision 4. The merged design owns
+> by AC-1 to AC-3 and AC-14, and decisions 2 and 3 are that design's decision 4. The merged design owns
 > `EVALUATING-A-DEEP-CHAIN-TOP-DOWN-OVERFLOWS-THE-STACK`. This folder is kept for the reasoning; do
 > not implement from it.
 

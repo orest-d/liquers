@@ -45,3 +45,8 @@ evaluation of an asset, each dependency is evaluated at most once. See also
 Found on 2026-10-08 in `restart_upstream_command_change_on_load_refuses`
 (`liquers-core/tests/dependency_audit_integration.rs`, `dependency-chain-analysis-cost` Phase 4,
 Step 5). That test asserts "at least" the expected number of recomputations because of this.
+
+**Rule refined on 2026-10-12** (`dependency-resolved-once-per-evaluation`, decision 1): the rule
+quoted above covers the whole top-level evaluation, not one asset's run. Within it, each dependency,
+direct or transitive, is evaluated at most once and has one version; it is carried by an
+*evaluation session*.
