@@ -2,11 +2,11 @@
 id: QUERY-API-ARGUMENTS-ONLY-IN-QUERY-PATH
 kind: feature
 title: Query API arguments cannot be passed as JSON or URL parameters
-status: draft
+status: closed
 priority: P2
-complexity: M
+complexity: L
 area: [axum]
-design: 
+design: axum-query-named-arguments
 created: 2026-10-10
 github:
 ---
@@ -60,3 +60,17 @@ last action, and recipes use them for `Recipe.arguments` / `links`. What needs d
 Checked while designing `store-and-asset-search` revision 8 (2026-10-10), where calling
 `ns-search/search` over HTTP was the motivating case. Verified against `liquers-axum/src/query/`
 at HEAD: no route maps a JSON body or URL query string onto action arguments.
+
+## Resolution (2026-10-12)
+
+Implemented by `design/axum-query-named-arguments/`. **Argument overrides** of the last action are
+accepted from the URL query string and a POST JSON object body on the Query API and the Assets
+API's `q/data`, `q/entry` and `q/submit`, and from `arguments` on a WebSocket `subscribe`; an
+override replaces a positional value; links are `_link_<argument>`; other `_` names are reserved;
+`_entry_format` replaces `format`. A request with overrides is evaluated ad hoc as an **unmanaged**
+asset (not cached, reported by `x-liquers-managed` / `managed`), which answers the caching question;
+`Recipe::to_plan` converts mismatched JSON types with a warning in the log. Evidence:
+`liquers-axum/tests/argument_overrides_http.rs` (AOH01–AOH22), `argument_overrides_ws.rs`
+(AOW01–AOW13), `entry_format_option.rs` (EFO01–EFO06), `liquers-core/tests/recipe_override_conversion.rs`,
+`apply_queued.rs`. Reference: `reference/WEB_API_SPECIFICATION.md` §2.4–2.5. Follow-up:
+`UNMANAGED-ASSET-NOT-FOLLOWABLE-ACROSS-CONNECTIONS`.

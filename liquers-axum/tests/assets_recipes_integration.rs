@@ -236,7 +236,7 @@ async fn test_assets_api_get_entry_cbor() {
     // Store
     let _set = store.set(&key, &data, &metadata).await;
 
-    // Simulate GET /api/assets/entry/assets/entry_cbor.bin?format=cbor
+    // Simulate GET /api/assets/entry/assets/entry_cbor.bin?_entry_format=cbor
     let retrieved = store.get(&key).await;
     assert!(retrieved.is_ok(), "Get should succeed");
 
@@ -258,7 +258,7 @@ async fn test_assets_api_get_entry_json() {
     // Store
     let _set = store.set(&key, &data, &metadata).await;
 
-    // Simulate GET /api/assets/entry/assets/entry_json.txt?format=json
+    // Simulate GET /api/assets/entry/assets/entry_json.txt?_entry_format=json
     let retrieved = store.get(&key).await;
     assert!(retrieved.is_ok(), "Get should succeed");
 
@@ -360,7 +360,7 @@ async fn test_assets_api_cancel_evaluation() {
 // Test 7: Format Negotiation - Accept Header Precedence
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Test format selection: query param ?format=cbor takes precedence
+/// Test format selection: query param ?_entry_format=cbor takes precedence
 ///
 /// Setup: Store entry, request with both query param and Accept header
 /// Expected: Query param (CBOR) is used, not Accept header (JSON)
@@ -375,7 +375,7 @@ async fn test_format_negotiation_query_param_precedence() {
     // Store
     let _set = store.set(&key, &data, &metadata).await;
 
-    // Would request: GET /api/assets/entry/...?format=cbor
+    // Would request: GET /api/assets/entry/...?_entry_format=cbor
     // With header: Accept: application/json
     // Expected: CBOR format is used (query param has precedence)
 

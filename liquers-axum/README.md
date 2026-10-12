@@ -52,8 +52,13 @@ The full specification, with result shapes and status codes, is
 
 ### Query Execution API
 
-- **GET `/q/{*query}`** - Execute query, return binary result
-- **POST `/q/{*query}`** - Execute query with optional JSON body
+- **GET `/q/{*query}`** - Execute query, return binary result; URL query parameters are
+  *argument overrides* of the last action (`/q/ns-search/search?query=expiration%20safety&limit=20`)
+- **POST `/q/{*query}`** - The same, with further overrides in an optional JSON object body
+  (`{"query": "expiration safety", "limit": 20}`)
+- A request carrying overrides is evaluated ad hoc as an *unmanaged* asset — not cached, not
+  findable later; `x-liquers-managed: true|false` says which. `_link_<argument>=<query>` gives an
+  argument as a link; other names starting with `_` are reserved. See the reference §7.1
 - `QueryApiBuilder::with_timeout(Duration)` bounds the wait (default 30 s)
 
 ### Assets API (`AssetsApiBuilder`)
@@ -63,13 +68,16 @@ Two families: `q/…` takes any query (`parse_query`), `key/…` takes a bare ke
 status at once; observe routes (`info`, `metadata`, `version`, `contains`, `recover`, `listdir`)
 never evaluate.
 
-- **GET `q/data|entry/{*query}`**, **POST|GET `q/submit/{*query}`**, **GET `q/info|metadata|version/{*query}`**, **POST `q/cancel/{*query}`**
+- **GET|POST `q/data|entry/{*query}`**, **POST|GET `q/submit/{*query}`**, **GET `q/info|metadata|version/{*query}`**, **POST `q/cancel/{*query}`**
+- `q/data`, `q/entry` and `q/submit` take argument overrides as the Query API does; `q/submit` of
+  an unmanaged asset answers `managed: false` and a note — its result cannot be read later (useful
+  for a query run for a side effect)
 - **GET `key/data|entry/{*key}`**, **POST|GET `key/submit/{*key}`**, **GET `key/info|metadata|version|contains|recover/{*key}`**, **GET `key/listdir[/{*key}][?deep=true]`**
 - **POST `key/data|entry/{*key}`** (201) - write a `Source` / `Override`; only `type_identifier`, `data_format`, `media_type`, `title`, `description` are client-settable
 - **DELETE `key/data|entry/{*key}`** - status-aware remove; **DELETE `key/removedir/{*key}`**; **PUT `key/makedir/{*key}`** (201)
 - **POST `key/description|expire|override|cancel/{*key}`**
 - **POST `admin/audit[/{*key}]`**, **POST `admin/refresh_command_versions`**
-- **WebSocket `ws/q[/{*query}]`, `ws/key[/{*key}]`** - notifications with an `AssetInfo` snapshot; see `examples/WEBSOCKET_EXAMPLE.md`
+- **WebSocket `ws/q[/{*query}]`, `ws/key[/{*key}]`** - notifications with an `AssetInfo` snapshot and `managed`; on `ws/q`, `subscribe` with `arguments` follows an overridden (unmanaged) evaluation, acknowledged at once with a `subscription_id` for `unsubscribe` / `cancel`; see `examples/WEBSOCKET_EXAMPLE.md`
 
 Builder options:
 
@@ -97,8 +105,8 @@ These switches are a stop-gap: there is no access control yet (`CORE-SESSION-AND
 
 ### Store API - Unified Entry (CBOR/bincode/JSON)
 
-- **GET `/api/store/entry/{*key}?format=cbor|bincode|json`** - Get data + metadata
-- **PUT `/api/store/entry/{*key}?format=cbor|bincode|json`** - Set data + metadata atomically
+- **GET `/api/store/entry/{*key}?_entry_format=cbor|bincode|json`** - Get data + metadata
+- **PUT `/api/store/entry/{*key}?_entry_format=cbor|bincode|json`** - Set data + metadata atomically
 - **DELETE `/api/store/entry/{*key}`** - Delete entry
 
 ### Store API - Directory Operations
@@ -180,7 +188,7 @@ The unified entry endpoints support three serialization formats:
 3. **JSON** - Human-readable, uses base64 for data field
 
 Format selection priority:
-1. `?format=cbor|bincode|json` query parameter
+1. `?_entry_format=cbor|bincode|json` query parameter (the former `format` is a 400)
 2. `Accept` header (for GET) or `Content-Type` (for PUT)
 3. Default: CBOR
 

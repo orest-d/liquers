@@ -4,8 +4,6 @@
 //! Endpoints". Every status output is an [`ApiResponse`]; only the value transfers (`data`,
 //! `entry`, `recover`) are not.
 
-use std::collections::HashMap;
-
 use axum::{
     http::{header::CONTENT_TYPE, HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
@@ -17,13 +15,15 @@ use liquers_core::{
     metadata::{AssetInfo, Metadata, MetadataRecord, Status, Version},
     parse::{parse_key, parse_query},
     query::{Key, Query},
+    state::State,
 };
 use serde::{Deserialize, Serialize};
 
 use crate::api_core::{
     error::error_to_detail,
-    format::{select_format, serialize_data_entry},
-    ApiResponse, BinaryResponse, DataEntry,
+    overrides::OverrideRequest,
+    format::{negotiate_format, serialize_data_entry},
+    ApiResponse, BinaryResponse, DataEntry, SerializationFormat,
 };
 
 /// `GET key/listdir`: the assets directly in a directory.
@@ -204,18 +204,19 @@ pub(crate) async fn asset_bytes<E: Environment>(asset: &AssetRef<E>) -> Response
     }
 }
 
-/// A negotiated `DataEntry`: `?format=` first, then `Accept`, then CBOR.
+/// A negotiated `DataEntry`: the resolved `_entry_format` first, then `Accept`, then CBOR. Each
+/// caller resolves the option itself (`entry_format_param`, or the override parser on `q/entry`).
 pub(crate) fn entry_response(
     data: &[u8],
     metadata: &Metadata,
     headers: &HeaderMap,
-    params: &HashMap<String, String>,
+    entry_format: Option<SerializationFormat>,
 ) -> Response {
     let entry = DataEntry {
         data: data.to_vec(),
         metadata: metadata_json(metadata),
     };
-    let format = select_format(params.get("format").map(|s| s.as_str()), headers);
+    let format = negotiate_format(entry_format, headers);
     match serialize_data_entry(&entry, format) {
         Ok(bytes) => {
             let mut response_headers = HeaderMap::new();
@@ -233,11 +234,15 @@ pub(crate) fn entry_response(
 pub(crate) async fn asset_entry<E: Environment>(
     asset: &AssetRef<E>,
     headers: &HeaderMap,
-    params: &HashMap<String, String>,
+    entry_format: Option<SerializationFormat>,
 ) -> Response {
     match asset.get_binary().await {
-        Ok((data, metadata)) => entry_response(&data, &metadata, headers, params),
-        Err(e) => error_response(&e, "Failed to retrieve asset value"),
+        Ok((data, metadata)) => entry_response(&data, &metadata, headers, entry_format),
+        // The entry route keeps the log of a failure: the asset's metadata travels with the error.
+        Err(e) => {
+            let metadata = asset.get_metadata().await.ok().map(|m| metadata_json(&m));
+            error_with_metadata(&e, metadata, "Failed to retrieve asset value")
+        }
     }
 }
 
@@ -280,12 +285,140 @@ pub(crate) async fn submit_key<E: Environment>(
     env: &EnvRef<E>,
     key: &Key,
 ) -> Result<AssetInfo, Error> {
+    submit_key_asset(env, key).await?.get_asset_info().await
+}
+
+/// [`submit_key`], returning the requested asset.
+pub(crate) async fn submit_key_asset<E: Environment>(
+    env: &EnvRef<E>,
+    key: &Key,
+) -> Result<AssetRef<E>, Error> {
     let manager = env.get_asset_manager();
     if !manager.can_make(key).await? {
         return Err(Error::key_not_found(key));
     }
-    let asset = manager.get(key).await?;
-    asset.get_asset_info().await
+    manager.get(key).await
+}
+
+// ------------------------------------------------- argument overrides and managed assets
+
+/// The header telling whether the asset behind an answer is **managed** — held by the asset
+/// manager, so it can be found again by its query or key — or unmanaged (evaluated with argument
+/// overrides, volatile, from a `cached: false` command, or not retained by the cache strategy).
+/// `specs/design/axum-query-named-arguments/`.
+pub const MANAGED_HEADER: &str = "x-liquers-managed";
+
+/// The note on a `q/submit` answer about an unmanaged asset.
+pub const UNMANAGED_NOTE: &str = "This evaluation is unmanaged: its status and result cannot be \
+     read later. Use q/data, or WebSocket subscribe with arguments, to get a result.";
+
+/// The asset a query-family request asked for, and whether argument overrides made it ad hoc.
+pub(crate) struct Requested<E: Environment> {
+    pub asset: AssetRef<E>,
+    pub overridden: bool,
+}
+
+/// Request `query` with `overrides`. With none, this is the route's ordinary request
+/// (`AssetManager::get_asset`). With any, the query is evaluated ad hoc —
+/// `AssetManager::apply_queued` of a recipe carrying them — after the overrides were validated,
+/// so a naming or conversion error fails before anything runs.
+pub(crate) async fn request_with_overrides<E: Environment>(
+    env: &EnvRef<E>,
+    query: &Query,
+    overrides: &OverrideRequest,
+) -> Result<Requested<E>, Error> {
+    let manager = env.get_asset_manager();
+    if overrides.is_empty() {
+        return Ok(Requested {
+            asset: manager.get_asset(query).await?,
+            overridden: false,
+        });
+    }
+    let recipe = overrides.to_recipe(query, env.get_command_metadata_registry())?;
+    Ok(Requested {
+        asset: manager.apply_queued(recipe, State::new()).await?,
+        overridden: true,
+    })
+}
+
+/// Whether `asset` is managed: not evaluated with overrides, held by the manager under its
+/// address (the key map for a pure-key query, else the query map), and not volatile — a volatile
+/// asset that is still mapped is evicted by the next request. Read when answering.
+pub(crate) async fn is_managed<E: Environment>(
+    env: &EnvRef<E>,
+    query: &Query,
+    asset: &AssetRef<E>,
+    overridden: bool,
+) -> bool {
+    if overridden {
+        return false;
+    }
+    let manager = env.get_asset_manager();
+    let mapped = match query.key() {
+        Some(key) => manager.lookup_key_asset(&key),
+        None => manager.lookup_query_asset(query),
+    };
+    mapped.is_some_and(|m| m.id() == asset.id()) && !asset.is_volatile().await
+}
+
+/// Whether the manager holds a usable (non-volatile) asset under `query`'s address — for an
+/// answer that has no `AssetRef` in hand, such as a timed-out request without overrides.
+pub(crate) async fn address_is_managed<E: Environment>(env: &EnvRef<E>, query: &Query) -> bool {
+    let manager = env.get_asset_manager();
+    let mapped = match query.key() {
+        Some(key) => manager.lookup_key_asset(&key),
+        None => manager.lookup_query_asset(query),
+    };
+    match mapped {
+        Some(asset) => !asset.is_volatile().await,
+        None => false,
+    }
+}
+
+/// `response` with the [`MANAGED_HEADER`].
+pub(crate) fn with_managed(mut response: Response, managed: bool) -> Response {
+    response.headers_mut().insert(
+        MANAGED_HEADER,
+        HeaderValue::from_static(if managed { "true" } else { "false" }),
+    );
+    response
+}
+
+/// The metadata of the asset the manager holds under `query`'s address, if any — what a failed
+/// request can still report when the manager returned an error instead of the asset.
+pub(crate) async fn mapped_metadata<E: Environment>(
+    env: &EnvRef<E>,
+    query: &Query,
+) -> Option<serde_json::Value> {
+    let manager = env.get_asset_manager();
+    let asset = match query.key() {
+        Some(key) => manager.lookup_key_asset(&key),
+        None => manager.lookup_query_asset(query),
+    }?;
+    asset.get_metadata().await.ok().map(|m| metadata_json(&m))
+}
+
+/// An error envelope carrying the failed asset's metadata (its log included) in
+/// `error.metadata`.
+pub(crate) fn error_with_metadata(
+    e: &Error,
+    metadata: Option<serde_json::Value>,
+    message: impl Into<String>,
+) -> Response {
+    let mut detail = error_to_detail(e);
+    detail.metadata = metadata;
+    ApiResponse::<()>::error(detail, message).into_response()
+}
+
+/// The `q/submit` answer: the asset's state, whether it is managed, and — when it is not — a
+/// note that nothing can read it later.
+#[derive(Debug, Clone, Serialize)]
+pub struct SubmitResult {
+    #[serde(flatten)]
+    pub info: AssetInfo,
+    pub managed: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
 }
 
 /// What a key is after `remove`: `Recipe` if something still describes it, otherwise `None`.

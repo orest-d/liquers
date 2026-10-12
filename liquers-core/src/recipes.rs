@@ -34,16 +34,18 @@ use serde_json::Value;
 
 use crate::{
     cache_strategy::CacheStrategy,
-    command_metadata::CommandMetadataRegistry,
+    command_metadata::{
+        ArgumentInfo, ArgumentType, CommandMetadata, CommandMetadataRegistry, CommandParameterValue,
+    },
     context::{EnvRef, Environment},
     error::{Error, ErrorType},
     expiration::Expires,
     metadata::{AssetInfo, Status},
     parse::{parse_key, parse_query},
     plan::{
-        analyze_plan_dependencies, Plan, PlanBuilder, Step, VolatilitySource,
+        analyze_plan_dependencies, ParameterValue, Plan, PlanBuilder, Step, VolatilitySource,
     },
-    query::{Key, Query, ResourceName},
+    query::{Key, Position, Query, ResourceName},
 };
 
 /// Declarative instructions and metadata for producing an asset.
@@ -296,22 +298,40 @@ impl Recipe {
         let mut planbuilder = PlanBuilder::new(query.clone(), cmr).with_placeholders_allowed();
         let mut plan = planbuilder.build()?;
 
-        for (name, value) in &self.arguments {
-            if !(plan.override_value(name, value.clone())) {
-                return Err(Error::general_error(format!(
-                    "Argument {} not found in last action",
-                    name
-                ))
-                .with_query(&query));
+        // Overrides apply in name order, so warnings and the first reported error do not depend
+        // on `HashMap` iteration order. A name must be one of the arguments of the command the
+        // query named (for an alias, the alias's own arguments: its head slots are fixed).
+        let command = plan.last_action_command(cmr);
+        let mut names: Vec<&String> = self.arguments.keys().collect();
+        names.sort();
+        for name in names {
+            let value = &self.arguments[name];
+            let arg = overridable_argument(command.as_ref(), name, &query)?;
+            match convert_override(arg, value).map_err(|e| e.with_query(&query))? {
+                ConvertedOverride::Value(converted, note) => {
+                    if let Some(note) = note {
+                        plan.init_warning(note);
+                    }
+                    if !(plan.override_value(name, converted)) {
+                        return Err(not_in_last_action("Argument", name, &query));
+                    }
+                }
+                ConvertedOverride::Link(link, note) => {
+                    if let Some(note) = note {
+                        plan.init_warning(note);
+                    }
+                    if !(plan.override_link(name, link)) {
+                        return Err(not_in_last_action("Argument", name, &query));
+                    }
+                }
             }
         }
-        for (name, link) in &self.links {
-            if !(plan.override_link(name, parse_query(link)?)) {
-                return Err(Error::general_error(format!(
-                    "Link {} not found in last action",
-                    name
-                ))
-                .with_query(&query));
+        let mut link_names: Vec<&String> = self.links.keys().collect();
+        link_names.sort();
+        for name in link_names {
+            overridable_argument(command.as_ref(), name, &query)?;
+            if !(plan.override_link(name, parse_query(&self.links[name])?)) {
+                return Err(not_in_last_action("Link", name, &query));
             }
         }
         if self.has_arguments() {
@@ -1186,6 +1206,203 @@ impl<E: Environment> AsyncRecipeProvider<E> for RecipeProviderChain<E> {
         match self.provider_index_for(key, envref.clone()).await? {
             Some(index) => self.providers[index].get_asset_info(key, envref).await,
             None => Err(Self::no_recipe_error(key)),
+        }
+    }
+}
+
+
+/// An override value converted to its argument's type: a value, or a link (an enum alias whose
+/// alternative is a query). The note, when present, becomes a planning warning.
+enum ConvertedOverride {
+    Value(Value, Option<String>),
+    Link(Query, Option<String>),
+}
+
+fn not_in_last_action(what: &str, name: &str, query: &Query) -> Error {
+    Error::from_error(
+        ErrorType::ParameterError,
+        format!("{what} '{name}' is not an argument of the last action"),
+    )
+    .with_query(query)
+}
+
+/// The argument an override may name: declared by the command the query named for its last
+/// action, and not injected.
+fn overridable_argument<'a>(
+    command: Option<&'a CommandMetadata>,
+    name: &str,
+    query: &Query,
+) -> Result<&'a ArgumentInfo, Error> {
+    let Some(command) = command else {
+        return Err(Error::from_error(
+            ErrorType::ParameterError,
+            format!("Argument '{name}' cannot be set: the query has no known last action"),
+        )
+        .with_query(query));
+    };
+    match command.arguments.iter().find(|a| a.name == name) {
+        Some(arg) if arg.injected => Err(Error::from_error(
+            ErrorType::ParameterError,
+            format!(
+                "Argument '{name}' of '{}' is injected and cannot be set",
+                command.name
+            ),
+        )
+        .with_query(query)),
+        Some(arg) => Ok(arg),
+        None => Err(not_in_last_action("Argument", name, query)),
+    }
+}
+
+fn json_kind(value: &Value) -> &'static str {
+    match value {
+        Value::Null => "null",
+        Value::Bool(_) => "bool",
+        Value::Number(_) => "number",
+        Value::String(_) => "string",
+        Value::Array(_) => "array",
+        Value::Object(_) => "object",
+    }
+}
+
+fn argument_type_name(argument_type: &ArgumentType) -> String {
+    match argument_type {
+        ArgumentType::String => "string".to_string(),
+        ArgumentType::Integer => "int".to_string(),
+        ArgumentType::IntegerOption => "int_opt".to_string(),
+        ArgumentType::Float => "float".to_string(),
+        ArgumentType::FloatOption => "float_opt".to_string(),
+        ArgumentType::Boolean => "bool".to_string(),
+        ArgumentType::BooleanOption => "bool_opt".to_string(),
+        ArgumentType::Enum(e) => format!("enum {}", e.name),
+        ArgumentType::GlobalEnum(name) => format!("enum {name}"),
+        ArgumentType::Any => "any".to_string(),
+        ArgumentType::None => "none".to_string(),
+    }
+}
+
+/// Converts an override to its argument's type (`design/axum-query-named-arguments/`, Phase 2
+/// table). A variadic argument converts element-wise; a scalar stays a scalar (one element).
+fn convert_override(arg: &ArgumentInfo, value: &Value) -> Result<ConvertedOverride, Error> {
+    if arg.multiple {
+        if let Value::Array(elements) = value {
+            let mut converted = Vec::with_capacity(elements.len());
+            let mut notes = Vec::new();
+            for element in elements {
+                let (v, note) = convert_scalar(arg, element)?.into_value(arg)?;
+                converted.push(v);
+                notes.extend(note);
+            }
+            let note = (!notes.is_empty()).then(|| notes.join("; "));
+            return Ok(ConvertedOverride::Value(Value::Array(converted), note));
+        }
+    }
+    convert_scalar(arg, value)
+}
+
+impl ConvertedOverride {
+    /// Inside a variadic list only values are supported; a link alias there is refused.
+    fn into_value(self, arg: &ArgumentInfo) -> Result<(Value, Option<String>), Error> {
+        match self {
+            ConvertedOverride::Value(v, note) => Ok((v, note)),
+            ConvertedOverride::Link(link, _) => Err(Error::conversion_error_with_message(
+                link.encode(),
+                argument_type_name(&arg.argument_type),
+                &format!("argument '{}': a link alias inside a variadic override", arg.name),
+            )),
+        }
+    }
+}
+
+fn convert_scalar(arg: &ArgumentInfo, value: &Value) -> Result<ConvertedOverride, Error> {
+    let expected = argument_type_name(&arg.argument_type);
+    let refuse = || {
+        Error::conversion_error_with_message(
+            value,
+            &expected,
+            &format!("argument '{}' ({} given)", arg.name, json_kind(value)),
+        )
+    };
+    let converted = |v: Value| {
+        let note = format!(
+            "Argument '{}': {} {} converted to {} {}",
+            arg.name,
+            json_kind(value),
+            value,
+            expected,
+            v
+        );
+        Ok(ConvertedOverride::Value(v, Some(note)))
+    };
+    // Text converts exactly as a path parameter would.
+    let from_text = |s: &str| -> Result<Value, Error> {
+        ParameterValue::from_string(arg, s, &Position::unknown())
+            .ok()
+            .and_then(|p| p.value())
+            .ok_or_else(refuse)
+    };
+    match &arg.argument_type {
+        ArgumentType::String => match value {
+            Value::String(_) => Ok(ConvertedOverride::Value(value.clone(), None)),
+            Value::Number(n) => converted(Value::String(n.to_string())),
+            Value::Bool(b) => converted(Value::String(b.to_string())),
+            Value::Null | Value::Array(_) | Value::Object(_) => Err(refuse()),
+        },
+        ArgumentType::Integer | ArgumentType::IntegerOption => match value {
+            Value::Number(n) if n.as_i64().is_some() => {
+                Ok(ConvertedOverride::Value(value.clone(), None))
+            }
+            Value::Number(n) => match n.as_f64() {
+                Some(x) if x.fract() == 0.0 && x.abs() < 9.0e15 => {
+                    converted(Value::from(x as i64))
+                }
+                Some(_) | None => Err(refuse()),
+            },
+            Value::String(s) => converted(from_text(s)?),
+            Value::Null if arg.argument_type == ArgumentType::IntegerOption => {
+                Ok(ConvertedOverride::Value(Value::Null, None))
+            }
+            Value::Null | Value::Bool(_) | Value::Array(_) | Value::Object(_) => Err(refuse()),
+        },
+        ArgumentType::Float | ArgumentType::FloatOption => match value {
+            Value::Number(_) => Ok(ConvertedOverride::Value(value.clone(), None)),
+            Value::String(s) => converted(from_text(s)?),
+            Value::Null if arg.argument_type == ArgumentType::FloatOption => {
+                Ok(ConvertedOverride::Value(Value::Null, None))
+            }
+            Value::Null | Value::Bool(_) | Value::Array(_) | Value::Object(_) => Err(refuse()),
+        },
+        ArgumentType::Boolean | ArgumentType::BooleanOption => match value {
+            Value::Bool(_) => Ok(ConvertedOverride::Value(value.clone(), None)),
+            Value::String(s) => converted(from_text(s)?),
+            Value::Null if arg.argument_type == ArgumentType::BooleanOption => {
+                Ok(ConvertedOverride::Value(Value::Null, None))
+            }
+            Value::Null | Value::Number(_) | Value::Array(_) | Value::Object(_) => Err(refuse()),
+        },
+        ArgumentType::Enum(e) => match value {
+            Value::String(s) => match e.expand_alias(s) {
+                CommandParameterValue::Value(v) if &v == value => {
+                    Ok(ConvertedOverride::Value(v, None))
+                }
+                CommandParameterValue::Value(v) => converted(v),
+                CommandParameterValue::Query(q) => {
+                    let note = format!(
+                        "Argument '{}': enum alias '{}' expanded to the link {}",
+                        arg.name,
+                        s,
+                        q.encode()
+                    );
+                    Ok(ConvertedOverride::Link(q, Some(note)))
+                }
+                CommandParameterValue::None => Ok(ConvertedOverride::Value(value.clone(), None)),
+            },
+            Value::Null | Value::Bool(_) | Value::Number(_) | Value::Array(_) | Value::Object(_) => {
+                Ok(ConvertedOverride::Value(value.clone(), None))
+            }
+        },
+        ArgumentType::GlobalEnum(_) | ArgumentType::Any | ArgumentType::None => {
+            Ok(ConvertedOverride::Value(value.clone(), None))
         }
     }
 }

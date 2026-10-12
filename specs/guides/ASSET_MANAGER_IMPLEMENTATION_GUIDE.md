@@ -4,7 +4,7 @@ title: Asset Manager Implementation Guide
 kind: guide
 audience: both
 area: [core/assets]
-reviewed: 2026-10-11
+reviewed: 2026-10-12
 ---
 # Asset Manager Implementation Guide
 
@@ -151,6 +151,7 @@ impl<E: Environment> AssetManager<E> for MinimalInlineAssetManager<E> {
 | `dependency_audit_policy`, `version_verification`, `external_change_policy`, `recipe_cache_strategy`, `query_cache_strategy`, `cut_predecessors` | The defaults return constants (the last three: `All`, `All`, `true`, which is the behaviour before caching strategies existed) and ignore `AssetManagerOptions`. Return what `build` received, or the options are silently lost. |
 | `get_dependency_asset_with_payload` | The default ignores the payload. Create a fresh query asset, `set_payload_path`, then run it with the payload. |
 | `remove_key_asset_if` | The default is lookup-compare-remove, correct but not atomic. Do it under your map lock. |
+| `apply_queued(recipe, to)` | The default builds the unregistered asset (`AssetData::new_ext(next_id_for_asset(), .., to, None, get_envref())`), evaluates it inline and returns `Ok(asset)` even when the evaluation failed (the failure is in the asset) — correct for an inline manager, so keep it there. A **queued** manager overrides it to submit the asset to its job queue and return **without waiting**, as `DefaultAssetManager` does. Callers follow the returned asset — the web API's argument overrides depend on this. |
 
 **Provided — override only deliberately:** `record_expiry` (§8), and `get_dependency_asset`,
 `drain_dependencies`, `wait_for_dependency` if you add a local dependency queue as
@@ -499,6 +500,8 @@ store conformance suite: shared scenarios, no rule numbers and no capability mod
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-12 | §4 `apply_queued`: the default now builds and evaluates the asset itself and returns it even when it failed, so an inline manager keeps it; only a queued manager overrides it (Codex review of PR #125). | review fix |
+| 2026-10-12 | §4: the provided `apply_queued` — what to return on a queued and on an inline manager. | phase-5, `design/axum-query-named-arguments/` |
 | 2026-10-11 | §Primitives: `notify_removed`, `new_installed` and `track_installed` are public (rows added, removed from "not exposed"); the write example notifies the replaced asset once the key holds its replacement (or the write has failed), and a metadata-only write removes the stored object first; the known-limits row for both is removed; §4's `set_state` row describes installing any state. | `design/external-manager-replacement-surface/` |
 | 2026-10-10 | Provided accessors gain `recipe_cache_strategy`, `query_cache_strategy` and `cut_predecessors`; new caching-strategy rules for a custom manager (keyed, top-level, a dependency following its creator), and `Recipe::cached` is now a strategy. A key with no recipe is not subject to the strategy, and an existing keyed asset is reused before it is consulted (PR #102 review). | phase-5, `design/plan-policy/` |
 | 2026-10-09 | §Primitives: `cancel_for_replacement` for writes and removals (the `cancel()` row says why not); the write example and the known-limits row follow. | phase-5 (`design/asset-cancellation-outcome/`) |
