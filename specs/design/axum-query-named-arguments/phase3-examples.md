@@ -137,7 +137,7 @@ gate opens the counter rises, though no route can read the asset.
   - `aoh21_q_data_post_query_string_and_body_combined` (AC-1, AC-2, AC-15): `?limit=3` with `{"query":"a"}`.
 - `argument_overrides_ws.rs`:
   - `aow01_subscribe_with_arguments_follows_to_ready` (AC-17, AC-20): every message carries `subscription_id`, `managed: false`.
-  - `aow02_two_subscriptions_same_query_different_arguments` (AC-18): `recv_matching` by id; each `Ready` with its own value.
+  - `aow02_two_subscriptions_same_query_different_arguments` (AC-18): both sent at once, told apart by the `Subscribed` acknowledgements' `request_id` (Q16); two distinct `asset_id`s each reach `Ready`.
   - `aow03_empty_arguments_is_managed_without_id` (AC-7, AC-20).
   - `aow04_cancel_by_id` (AC-19): `gated`; `Cancelled`; counter unchanged after the gate opens.
   - `aow05_unknown_or_managed_id_is_generic_error` (AC-19): a made-up id and a guessed id give the same `Error` text.

@@ -143,6 +143,9 @@ pub enum ClientMessage {
     Cancel { subscription_id: String },
     UnsubscribeAll, Ping,
 }
+// Amended at Step 8 (Q16): `Subscribe` also takes `request_id: Option<String>`, and a new server
+// message `Subscribed { timestamp, subscription_id, query, managed: false, request_id }` is sent
+// at once for a subscribe with `arguments`, before any notification of it.
 pub struct Head { /* existing */ pub managed: bool,
     #[serde(skip_serializing_if = "Option::is_none")] pub subscription_id: Option<String> }
 struct SubscriptionHandle<E: Environment> {
