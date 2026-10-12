@@ -6,7 +6,8 @@ Agent memory service (MVP), revision 3 (2026-10-12; earlier revisions in `DESIGN
 Companion analyses: [survey](./memory-systems-survey.md) ·
 [specification](./service-specification.md) · [workflow porting](./workflow-porting.md) ·
 [tiers and storage](./tiers-and-storage.md) · [interfaces and MCP](./interfaces-and-mcp.md) ·
-[brainstorm: workflow improvements](./brainstorm-workflow-improvements.md).
+[brainstorm: workflow improvements](./brainstorm-workflow-improvements.md) ·
+[template language evaluation](./template-language-evaluation.md).
 
 ## Purpose
 
@@ -128,6 +129,10 @@ service only, except `archive`, which is mounted read-only; agent notes live in 
   THEN it receives one Markdown document with the issue's L1, the reference sections, open issues
   and designs matching its area and the symbols it names, within the budget, ending with what was
   omitted; evaluated again after one embedded document changes, the pack is recomputed
+- **AC-22** `index.md` as a recipe
+  WHEN the `specs/index.md` recipe — active issues filtered, sorted, counted by priority and rendered
+  through a template — is evaluated
+  THEN its bytes equal `docs_index.py`'s output, and each step is a separate command usable on its own
 
 Non-goals: identity, sessions and ACL (`CORE-SESSION-AND-KEY-ACL`); a language model inside the
 service; semantic search and vector indexes (brainstorm §5.3); `memory_forget` and the archive convention (NEXT); the general Liquers
@@ -139,8 +144,9 @@ MCP (only kept combinable, `interfaces-and-mcp.md` §6); git commits by the serv
 - **Query:** no grammar change.
 - **Store:** a front-matter store adapter (`tiers-and-storage.md` §2 C); a read-only mount.
 - **Commands:** new `ns-mem` (`describe`, `similar`, `new`, `write`, `edit`, `set_field`,
-  `append_row`, `check`, `render_index`, `section`, `context`), built on `ns-search`; `expand` and
-  record-to-Markdown converters (`SIMPLE-TEMPLATE-HAS-NO-COMMAND`); templates (brainstorm §4).
+  `append_row`, `check`, `section`, `context`), built on `ns-search`; small record commands for
+  indexes (`count_by`, `to_md_table`, `to_md_list`) beside `ns-rec`'s filters and `sort`; `expand` and
+  `render` templates (`SIMPLE-TEMPLATE-HAS-NO-COMMAND`, `template-language-evaluation.md`).
 - **Configuration:** the existing store-router configuration, extended with collections, tiers,
   views and tool sets.
 - **Assets:** writes go through the asset manager; recipes for indexes and folder tiers.
@@ -167,7 +173,8 @@ the binary, over `liquers-lib`, `liquers-axum` and `liquers-mcp`.
 
 - **Requires** `store-and-asset-search` (merged; `ns-search`, `SEARCH_GUIDE.md`),
   `axum-query-named-arguments` (merged; argument overrides) and `STORE-NO-READ-ONLY-ADAPTER` (AC-13).
-- **Overlaps** `NO-MARKDOWN-NAVIGATION-COMMANDS` (AC-3, AC-17, AC-21),
+- **Overlaps** `STORE-METADATA-HANDLING-NOT-COMPOSABLE` (decision 4; the front-matter adapter is one
+  instance), `NO-MARKDOWN-NAVIGATION-COMMANDS` (AC-3, AC-17, AC-21),
   `SIMPLE-TEMPLATE-HAS-NO-COMMAND` (AC-21), `NO-SOURCE-CODE-AND-API-DOC-NAVIGATION` (question 6),
   `STORE-ROUTER-DOES-NOT-FORWARD-ASSET-INFO` (folder tiers), `ARGUMENT-INFO-HAS-NO-DESCRIPTION` (tool
   schemas), `CORE-METADATA-NO-APPLICATION-ATTRIBUTES`, `STORE-WRITE-HAS-NO-PRECONDITION` (AC-6 is
@@ -176,34 +183,38 @@ the binary, over `liquers-lib`, `liquers-axum` and `liquers-mcp`.
 
 ## Open Questions
 
-**Blocking**
+Answered by the user on 2026-10-12; the answers are decisions of this phase.
 
-1. ~~*Sequencing* — wait for `store-and-asset-search`.~~ Resolved 2026-10-12: merged.
-2. *`STORE-NO-READ-ONLY-ADAPTER`* fixed first as its own change, or wrapped here? *Recommended: first.*
-
-**Open design**
-
-3. *L1 for the existing corpus.* No `specs/` document has `description:` front-matter today. Rely on
-   per-collection fallbacks (an issue's first `Problem` paragraph, a design's `Purpose`), backfill
-   descriptions once, or both? *Recommended: fallbacks now (AC-1), backfill by agents over time.*
-4. *Tier storage* — front-matter projected into metadata (C), or reached only through
-   `field_extract`? And does setting `description` through the assets API rewrite the front-matter
-   or get refused? *Recommended: C, and rewrite* (`tiers-and-storage.md` §3).
-5. *HTTP MCP (`serve`) in the MVP?* *Recommended: NEXT*; stdio and CLI first.
-6. *Rust item records* (`syn`; brainstorm §5.2) in the MVP? They make context packs and the
-   doc-to-code reference check much better at ~1 s per session and no new dependency, but widen
-   the MVP. *Recommended: yes, item records only; references (SCIP) later.*
-7. *Template engine* — `expand` plus minijinja-backed `render`, rather than porting `mustache`?
-   *Recommended: yes* (brainstorm §4).
-
-**Proposed resolutions** (accept or amend)
-
-8. Agent-written memory in a separate writable mount — committed `notes/` by default, S3 when the
-   environment's network policy allows it; promotion into `specs/` by filing.
-9. Schema language: a small own YAML, exported as JSON Schema for MCP.
-10. The oracle covers `index.csv` and `--check`; `index.md` and README blocks follow later.
-11. Ten tools (the nine of `interfaces-and-mcp.md` §4.1 plus `memory_context`); `memory_forget`
-    waits for the archive convention.
+1. ~~*Sequencing.*~~ Resolved: `store-and-asset-search` is merged.
+2. **`STORE-NO-READ-ONLY-ADAPTER` is fixed first**, as its own change, before Phase 2 relies on it.
+3. **L1 for the existing corpus:** per-collection fallbacks now (AC-1, AC-17); descriptions are
+   backfilled by agents over time.
+4. **Tiers:** a store adapter projects front-matter into metadata, and setting `title` /
+   `description` through metadata rewrites the front-matter. This adapter and the read-only one are
+   instances of a general, configurable metadata pipeline (create, enhance, store, policy), filed as
+   `STORE-METADATA-HANDLING-NOT-COMPOSABLE`; this design builds the front-matter adapter so that it
+   fits that model, and does not design the model.
+5. **HTTP MCP (`serve`)** is NEXT; stdio MCP and the CLI first.
+6. **Rust item records** (`syn`) are in the MVP; references and call graphs (SCIP) later.
+7. **Templates must understand queries** (parse errors at template positions; evaluation through the
+   asset layer), so the long-term language will be reimplemented. Recommended in
+   [`template-language-evaluation.md`](./template-language-evaluation.md): reimplement **Mustache with
+   query tags** (logic-less like Liquers, small specified language with a conformance suite, partials
+   as the built-in extension point); the interim is a Mustache engine followed by an `expand` pass over
+   `$query$` spans, not minijinja, so interim templates survive. *Awaiting confirmation.*
+8. **Agent-written memory** is a separate writable mount — committed `notes/` by default, S3 when the
+   network policy allows. A **separate repository** works today as a second clone mounted with the
+   `filesystem` type (in a cloud session: added to the session and cloned; git push by the agent).
+   OpenDAL has no generic git service; its `github` service reads and writes through the GitHub
+   Contents API (one commit per write; needs API access, which this container's policy blocks). A git
+   store over a local clone (commit on write) would be a new backend — NEXT.
+9. **Schemas** are a small YAML format of our own; the tool converts between formats (YAML, JSON,
+   TOML, JSON Schema for MCP) itself.
+10. **Indexes are recipes over separate, simple commands** — filtering, sorting, counting by a field,
+    rendering records as a Markdown table — and a template for the page. Both `index.csv` (AC-10) and
+    `index.md` (AC-22) are in scope.
+11. **Ten tools**, `memory_forget` later.
+12. **Splitting** the design is decided after Phase 1 is approved.
 
 ## References
 

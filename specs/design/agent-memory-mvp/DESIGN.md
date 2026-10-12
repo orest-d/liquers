@@ -64,6 +64,17 @@ What changed from revision 1, and why:
 Revision 1's open question 1 (an asset listing is the union of live assets, store and recipes) was
 settled by `axum-assets-endpoints` and is relied on by AC-12.
 
+## Phase 1 decisions — 2026-10-12
+
+The user answered the open questions; Phase 1 records them as decisions. Read-only adapter first;
+fallback summaries; the front-matter store adapter with write-back, as one instance of a general
+metadata pipeline (filed `STORE-METADATA-HANDLING-NOT-COMPOSABLE`); HTTP MCP later; Rust item
+records in the MVP; indexes as recipes over separate simple commands, `index.md` in scope (AC-22);
+a separate repository as an extra mount; no split until Phase 1 is approved. The template question
+became a language evaluation —
+[`template-language-evaluation.md`](./template-language-evaluation.md) recommends reimplementing
+Mustache with query tags — awaiting confirmation.
+
 ## Revision 3 — 2026-10-12
 
 `store-and-asset-search` and `axum-query-named-arguments` (argument overrides) were merged. The
@@ -139,7 +150,7 @@ need identity, that is a finding to report, not a decision to make inside this f
 ## Links
 
 - [Phase 1](./phase1-high-level-design.md)
-- [Survey](./memory-systems-survey.md) · [Specification](./service-specification.md) · [Workflow porting](./workflow-porting.md) · [Tiers and storage](./tiers-and-storage.md) · [Interfaces and MCP](./interfaces-and-mcp.md) · [Brainstorm: workflow improvements](./brainstorm-workflow-improvements.md)
+- [Survey](./memory-systems-survey.md) · [Specification](./service-specification.md) · [Workflow porting](./workflow-porting.md) · [Tiers and storage](./tiers-and-storage.md) · [Interfaces and MCP](./interfaces-and-mcp.md) · [Brainstorm: workflow improvements](./brainstorm-workflow-improvements.md) · [Template language evaluation](./template-language-evaluation.md)
 - [Phase 2](./phase2-architecture.md)
 - [Phase 3](./phase3-examples.md)
 - [Phase 4](./phase4-implementation.md)

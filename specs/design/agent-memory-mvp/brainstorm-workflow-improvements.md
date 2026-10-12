@@ -84,7 +84,7 @@ collections:
   skills:  { folder: skills, entry: SKILL.md, l0: name, l1: description }
   notes:   { folder: notes, schema: _schema/notes.yaml }       # agent-written, survives sessions
 views:
-  index.csv:      "-R-key/specs/-/ns-mem/render_index-csv"
+  index.csv:      "-R-key/specs/-/ns-mem/index_records/ns-rec/to_csv"
   open-by-area:   "-R-key/specs/issues/-/ns-search/field_extract/search-…"
 tools: [memory]
 ```
@@ -252,6 +252,11 @@ Candidates:
 | **`mustache`** (ranees-liquers, crate `mustache` 0.9) | Command: state = data model, template by name; then optionally `expand` | ✔ logic-less | ✔ via second pass | ✔ loops | Rendering first and expanding second lets data *generate* queries — powerful. The crate is old and unmaintained; numbers become strings; no store-backed partials |
 | **minijinja** (new) | Jinja-like engine, pure Rust, wasm-compatible, serde data model | ✔ conditionals, filters, `default`, strict undefined | ✔ two-pass, or pre-evaluated queries in the context | ✔ loops, `join`, custom filters | A store-backed loader gives includes; maintained; moderate weight. Its rendering is synchronous, so queries are evaluated before or after, not during |
 
+> **Superseded 2026-10-12** by [`template-language-evaluation.md`](./template-language-evaluation.md):
+> the user asked for the most *suitable* language to reimplement (query-aware), not the most
+> powerful. The evaluation recommends Mustache with query tags, and a Mustache-compatible interim
+> instead of minijinja. The proposal below is kept as written.
+
 **Proposal: two layers, as ranees had, with a modern engine.**
 
 1. **`expand`** in `liquers-lib`: `simple_template` evaluated through the environment's asset
@@ -285,7 +290,7 @@ container (§6).
 | F3 | **Saved views** as recipes | High — W5, W7, W10 | S | ✔ | MVP |
 | F4 | **Rust item records** (`syn`) — §5.2 | High — W4, W6 | M | ✔ (~1 s, no compile) | MVP or right after |
 | F5 | **Code-reference check** (doc ↔ code drift) on F4 | High — W6 | S on F4 | ✔ | With F4 |
-| F6 | **Templates** (`render`, minijinja) | Medium — W2, W5 | S–M | ✔ | MVP for instantiation |
+| F6 | **Templates** (`render`; language per `template-language-evaluation.md`) | Medium — W2, W5 | S–M | ✔ | MVP for instantiation |
 | F7 | **Durable notes mount** (S3 or committed) | Medium — W8 | S | Needs network policy for S3 | MVP as configuration |
 | F8 | **Hybrid semantic search** (static embeddings + BM25, RRF) — §5.3 | Medium — W3, W4 | M | ✔ only with vendored weights | NEXT |
 | F9 | **Write log and recent activity** | Medium — W1, W8 | S | ✔ | MVP |

@@ -45,7 +45,7 @@ provide them and most do not:
 
 | Script | Size | What it does | Memory service | Port to |
 |---|---|---|---|---|
-| `scripts/docs_index.py` (default mode) | 1344 lines | Parses front-matter of every document; writes `index.csv`, `index.md`, `index.html`, README generated blocks | **Catalog / index generation** | A recipe: `specs/index.csv` = `ns-search/field_extract` over the collections, then `ns-mem/render_index`, which must re-implement the computed columns (`status_source`, `readiness` and `autofix` joined across issues and designs, one row per `DESIGN.md`). The file becomes a derived asset, recomputed when a source's version changes |
+| `scripts/docs_index.py` (default mode) | 1344 lines | Parses front-matter of every document; writes `index.csv`, `index.md`, `index.html`, README generated blocks | **Catalog / index generation** | A recipe: `specs/index.csv` = `ns-search/field_extract` over the collections, then commands that re-implement the computed columns (`status_source`, `readiness` and `autofix` joined across issues and designs, one row per `DESIGN.md`). The file becomes a derived asset, recomputed when a source's version changes |
 | `docs_index.py --check` | — | ~25 rules: vocabularies, required fields, id = filename, reference resolution, phase/status coupling, readiness reciprocity, AC coverage, History rows, dead links, stale index | **Lint / integrity** (LLM-wiki *lint*) | `ns-mem/check`: schema-driven rules over front-matter records, plus a link graph; output is a record table of violations |
 | `docs_index.py new` | — | Near-duplicate search on title and area words, **refusing (exit 1) unless `--force`**; derives the id, validates `area`, writes the template, regenerates | **Capture with deduplication** (mem0's ADD-vs-NOOP decision, made by the agent) | `ns-mem/similar` (BM25 over titles, `ns-search/search-…-title`) + `ns-mem/new` (id rule + template + schema validation) |
 | `docs_index.py --sort` | — | Queue order: priority, complexity, live before finished | **Ranking by policy** | A saved query using `sort` from `record-filter-commands` |
@@ -97,7 +97,7 @@ Every row below is **deterministic bookkeeping**; nothing in it calls a language
 | `append_row` | hand edits of `## History` | key, section, cells → updated document |
 | `check` | `docs_index.py --check`, `validate_phase.py` | folder or collection → violation records (`rule`, `key`, `severity`, `message`) |
 | `links` (NEXT) | dead-link check; "incoming references" by grep | folder → link records (`from`, `to`, `kind`, `resolved`); the MVP's dead-link rule is inside `check` |
-| `render_index` | `index.csv` (MVP), `index.md`, README blocks (NEXT) | records → CSV / Markdown text; used by recipes, not by agents directly |
+| `count_by`, `to_md_table`, `to_md_list` + a page template | `index.csv`, `index.md` (MVP), README blocks (NEXT) | small record commands composed in recipes (Phase 1 decision 10); `index.csv` is `to_csv` over the joined records |
 | `section` (MVP), `outline` (NEXT) | `Read` with offsets; `sed -n` | key → one section / heading tree (overlaps `NO-MARKDOWN-NAVIGATION-COMMANDS`, search branch) |
 
 Generated files become **recipes**, not command output written by a script. `specs/index.csv` is
