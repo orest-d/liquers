@@ -35,8 +35,9 @@ be fixed first (Phase 2 preflight). Everything is in `liquers-core`, plus docume
   (the Phase 3 lists).
 - Proof: `cargo test -p liquers-core --test evaluation_session --test deep_chain_evaluation`
   compiles. The failing tests are recorded here, with deep tests run one by name because an abort
-  stops the binary. Expected to fail at HEAD: AC-1 to AC-3, AC-6 to AC-10, AC-14. Expected to pass:
-  AC-5, AC-11 (probably), AC-12, AC-13, AC-15.
+  stops the binary. Gated tests use latches and run under `tokio::time::timeout`, so they fail
+  rather than hang at HEAD. Expected to fail at HEAD: AC-1 to AC-3, AC-6 to AC-10, AC-13 (the gated
+  command enters twice), AC-14. Expected to pass: AC-5, AC-11 (probably), AC-12, AC-15, AC-16.
 - Rollback: delete the two files.
 
 ### Step 2: `EvaluationSession`
@@ -64,7 +65,8 @@ be fixed first (Phase 2 preflight). Everything is in `liquers-core`, plus docume
 
 ### Step 5: Queued adoption and `apply_for`
 - Files: `assets.rs` `DefaultAssetManager::get_dependency_asset` (adopt before
-  `try_to_start_immediately` / `push_local_dependency`); `AssetManager::apply_for` (provided);
+  `try_to_start_immediately` / `push_local_dependency`); the doc comment of the trait's
+  `get_dependency_asset` (return failed assets, adopt the session); `AssetManager::apply_for` (provided);
   `DefaultAssetManager::apply_for`; `context.rs` `Context::apply` → `apply_for`.
 - Depends on: 4. Proof: `cargo test -p liquers-core --test evaluation_session` (queued tests:
   AC-1, AC-2, AC-3, AC-5 to AC-8).
@@ -85,8 +87,10 @@ be fixed first (Phase 2 preflight). Everything is in `liquers-core`, plus docume
     settles, adopts, runs, and returns a failed asset; `apply_for`.
   - `interpreter.rs` `schedule_plan_dependencies_from`: the early exit for an already-failed
     dependency.
-- Depends on: 4. Proof: `cargo test -p liquers-core --test evaluation_session inline` (AC-7 inline,
-  AC-15), `--test manager_parametric --test asset_failure_contract --test payload_inheritance`.
+- Depends on: 5 (`apply_for`). Proof: `cargo test -p liquers-core --test evaluation_session inline`
+  (AC-7 inline, AC-15), `dynamic_cycle` (AC-16), and `--test manager_parametric --test
+  asset_failure_contract --test payload_inheritance --test external_asset_manager` (the trait default
+  is what `MinimalInlineAssetManager` uses).
 - Rollback: revert the three files' hunks together (they are one contract).
 
 ### Step 8: Queued spawn
@@ -94,7 +98,8 @@ be fixed first (Phase 2 preflight). Everything is in `liquers-core`, plus docume
   `wait_for_dependency`: spawn run + `claim.complete()` + re-park of the child's undrained local
   queue; await the handle.
 - Depends on: none (parallel with 4-7). Proof:
-  `cargo test -p liquers-core --test deep_chain_evaluation queued` (AC-9, AC-13) and
+  `cargo test -p liquers-core --test deep_chain_evaluation queued` (AC-9, AC-13: the gated command
+  enters once) and
   `--test asset_cancellation --test dependency_scheduling`.
 - Rollback: restore `Box::pin(dep.run(None)).await`.
 
@@ -116,6 +121,9 @@ be fixed first (Phase 2 preflight). Everything is in `liquers-core`, plus docume
 - Proof:
   - `cargo test -p liquers-core --lib --tests`
   - `cargo test -p liquers-lib --lib --tests`
+  - `cargo check -p liquers-core --all-features --lib --tests` (the `cli` rows of
+    `check-build-matrix.sh`), `cargo check -p liquers-axum`, and `cargo check -p liquers-py` where a
+    Python interpreter is available
   - `cargo check -p liquers-core --target wasm32-unknown-unknown`
   - after `cargo clean`: `cargo test -p liquers-web --target wasm32-unknown-unknown --features debug-handles`
   - `chain_20_links_smoke` within its bound.
@@ -127,8 +135,8 @@ be fixed first (Phase 2 preflight). Everything is in `liquers-core`, plus docume
 - Proof: `python3 scripts/docs_index.py --check`.
 
 ### Step 13: Records
-- File `INLINE-MANAGER-DYNAMIC-DEPENDENCY-CHAIN-NESTS` (residual limit, with design or readiness
-  per the backlog rule).
+- `INLINE-MANAGER-DYNAMIC-DEPENDENCY-CHAIN-NESTS` (the residual limit) was filed at the Phase 4
+  review; confirm that its text matches what was built.
 - Update the link-by-link comment in `dependency_audit_integration.rs` `chain_first_process`.
 - `specs/command_registry.yaml` is unaffected (no command changes).
 - Proof: `python3 scripts/docs_index.py --check`.

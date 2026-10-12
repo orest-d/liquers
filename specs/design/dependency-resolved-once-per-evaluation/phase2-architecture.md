@@ -122,12 +122,13 @@ It returns, in post-order, the non-volatile `State`/`Link` reads that a recipe s
 - **`context.rs` `schedule_dependency_asset_with_key`:**
   - Wrap the `get_dependency_asset` call in `self.evaluation_session.resolve(query_dep_key.clone(), || …)`.
   - `register_scheduled_dependency` stays *before* the cell, so a cycle is reported before a
-    resolver can wait on its own cell (AC-12).
+    resolver can wait on its own cell (AC-16). A recipe cycle never gets this far: the plan walk
+    rejects it (AC-12).
   - The recording after the cell is idempotent.
   - The payload path is untouched.
   - `Context::apply` calls `apply_for`.
-- **`interpreter.rs` `schedule_plan_dependencies_from`** (AC-15, decision 1 "fail as quickly as
-  possible"): if a scheduled dependency is already `Error`/`Cancelled`, return
+- **`interpreter.rs` `schedule_plan_dependencies_from`** (AC-15, decision 1: dependents fail as
+  quickly as possible): if a scheduled dependency is already `Error`/`Cancelled`, return
   `context.wait_for_dependency(&asset)`'s `Err`. This keeps the inline manager's HEAD fail-fast,
   now that it returns failed assets. The queued manager exits only for a dependency that is already
   failed at scheduling time. Siblings already started are unaffected.
@@ -146,10 +147,15 @@ It returns, in post-order, the non-volatile `State`/`Link` reads that a recipe s
   - `get_dependency_asset`, both branches: settle, adopt the parent's session, then `run_inline`.
     On `Err`, return `Ok(asset)` if the asset's status is `Error` or `Cancelled`, and propagate the
     error otherwise (re-entry backstop, infrastructure).
-  - `prime_upstream(session, plan, cwd)`: walk `upstream_graph` from the root's children. A key
-    that settles to a finished or fast-tracked asset is available and not entered; a key with
-    `is_volatile(key)` is skipped. Every other key is adopted, pinned and run in post-order. Return
-    the first failure's stored error (decision 4).
+  - `prime_upstream(session, plan, cwd)`: walk `upstream_graph` **top-down** from the root's
+    children. Settle each key:
+    - one that settles to a finished or fast-tracked asset is available, and its upstream is not
+      entered (AC-11);
+    - a key with `is_volatile(key)` is skipped;
+    - every other key is collected.
+
+    Then run the collected keys in post-order, each adopted and pinned. Return the first failure's
+    stored error (decision 4). Settling creates the asset of a collected key without running it.
   - Top-level entries (`get`, `get_query_asset_run` with `TopLevel`, `apply`, `apply_queued`;
     `apply_immediately` forwards to `apply`) settle first. Only a root that is neither finished
     nor fast-trackable gets a session, priming, adoption and `run_inline`. A walk error skips
@@ -159,8 +165,9 @@ It returns, in post-order, the non-volatile `State`/`Link` reads that a recipe s
 ## Error Handling
 
 No new constructors. A pinned failed dependency gives its own stored error through
-`wait_for_dependency`, so callers see HEAD's message (`leaf failed` in AC-1, AC-2, AC-14). Cycle
-errors stay `register_scheduled_dependency`'s. A `resolve` closure error (plan, recipe or store
+`wait_for_dependency`, so callers see HEAD's message (`leaf failed` in AC-1, AC-2, AC-14). A recipe
+cycle is still rejected by the plan walk (`Circular dependency detected`, AC-12); a dynamic cycle
+still gets `register_scheduled_dependency`'s `DependencyCycle` error, raised before the cell (AC-16). A `resolve` closure error (plan, recipe or store
 lookup) propagates and pins nothing.
 
 ## Relevant Commands

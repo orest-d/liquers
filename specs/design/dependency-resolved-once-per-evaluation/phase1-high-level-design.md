@@ -80,8 +80,8 @@ at any depth; example 3 returns `"TEXT"` at any length with each `upper` run onc
   WHEN a command calls `Context::get_dependency_state` twice for the same query in one evaluation, and that dependency fails
   THEN both calls return the dependency's error and the dependency's command has run once
 - **AC-7** A volatile dependency has one value per evaluation
-  WHEN `c = join(a, b)`, where `a` and `b` both read `v` and `v`'s recipe is a volatile command that counts its runs, and `c` is evaluated
-  THEN `v`'s, `a`'s and `b`'s commands have each run once, and `a` and `b` received the same value of `v`; a second evaluation of `c` runs them again
+  WHEN `c = join(a, b)`, where `a` and `b` both read `v`, `v`'s recipe is volatile and its command counts its runs, and `c` is evaluated
+  THEN `v`'s, `a`'s and `b`'s commands have each run once and `a` and `b` received the same value of `v`; a later evaluation that needs `v` again runs its command again
 - **AC-8** A concurrent request joins the first request's work
   WHEN, with `l0 = fail` gated so it cannot finish yet, two evaluations of `-R/data/l5.txt` start on the queued manager and the gate is then released
   THEN `fail` has run exactly once and both evaluations end `Error` with `leaf failed`
@@ -106,6 +106,9 @@ at any depth; example 3 returns `"TEXT"` at any length with each `upper` run onc
 - **AC-15** A dependency that has already failed stops the rest of the plan (added at the Phase 2 review)
   WHEN under `ImmediateEnvironment` a query reads `-R/data/l0.txt` (`fail`) and then a link to `y`, whose command counts its runs
   THEN it fails with `leaf failed` and `y`'s command has not run, as at HEAD
+- **AC-16** A dynamic cycle is reported without hanging (added at the Phase 4 review)
+  WHEN a command of `k`'s recipe requests `-R/data/k.txt` through `Context::get_dependency_state`, under either manager
+  THEN the evaluation fails with a dependency-cycle error within 10 s
 
 Non-goals: payload-path dependencies (`Context::schedule_payload_dependency_asset`), which are
 volatile by construction, in no map, and evaluated inline once per call; remembering a failure
@@ -154,7 +157,7 @@ behaviour unchanged; the Phase 2 preflight confirms that no `pub` signature they
 
 ## Documentation Intent
 
-- Reference: extend `specs/reference/DEPENDENCIES_STATUS.md` with the evaluation session (the five
+- Reference: extend `specs/reference/DEPENDENCIES_STATUS.md` with the evaluation session (the six
   rules above), and correct its description of locally queued runs (step 5 "invokes `B.run()`
   inline", Flow D item 2).
 - Reference: extend `specs/reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md`. Beside the
@@ -170,18 +173,29 @@ behaviour unchanged; the Phase 2 preflight confirms that no `pub` signature they
 
 ## Design Readiness
 
-- **Readiness:** not assessed until Phase 4 (§5.1.1 needs Phases 1-4). The compact draft's
-  `ready`, then `needs-decision`, was cleared at the merge.
+- **Readiness:** ready (reassessed at the Phase 4 review, 2026-10-12). Phases 1-4 are reviewed; no
+  blocking or open design question remains. The compact draft's `ready`, then `needs-decision`, was
+  cleared at the merge.
 - **Automatic fixing:** not-eligible: `L`, a new internal data structure, and a contract change that
   commands can observe (AC-6, AC-7).
 - **Leading issue:** `FAILING-UPSTREAM-RERUNS-EXPONENTIALLY-AT-QUEUE-CAPACITY` (P1, `M` on its own;
   the merged scope is `L`).
+- **Decision log (pre-approval of 2026-10-12):** no item needs a decision.
+  - *Proposed resolution, taken:* the trait-level behaviour visible to external managers. The
+    default `wait_for_dependency` turns an `Error` dependency into `Err`, and `get_dependency_asset`
+    is documented to return failed assets and adopt the session. It was presented in the Phase 2
+    summary before `proceed all`, so it is recorded as decision 6.
+  - *Implementation detail:* a spawned child of a dropped dependent finishes without a slot, so job
+    capacity can be briefly exceeded. HEAD's re-park has the same effect.
+  - *Implementation detail:* priming creates (but does not run) assets for the keys it settles on a
+    cold chain. AC-14 asserts "unevaluated", not "absent".
 - **Open questions:** none. The maintainer's decisions, which the later phases build on:
 
 1. **Evaluation rule** (2026-10-12, from `deep-chain-evaluation-stack-depth` decision 1, refined the
    same day). Within one evaluation, each dependency is evaluated at most once, and a failed
    dependency fails its dependents without re-running. The scope is the **whole top-level
-   evaluation**, not one asset's run (example 2). A failed or volatile asset may be evaluated again
+   evaluation**, not one asset's run (example 2). Dependents of a failed dependency fail as quickly as
+   possible. A failed or volatile asset may be evaluated again
    by a *later* evaluation: a command can be acceptably non-deterministic without being volatile,
    such as an LLM call, or fail on a network error. The same dependency never has two versions
    within one evaluation.
@@ -198,6 +212,8 @@ behaviour unchanged; the Phase 2 preflight confirms that no `pub` signature they
    `l_{k+1}..l_n` stay unevaluated.
 5. **Merge** (2026-10-12): this design absorbs `deep-chain-evaluation-stack-depth` (superseded),
    because the session is the mechanism both halves share.
+6. **Manager contract** (2026-10-12, approved with Phase 2): the trait-level behaviour described in
+   the decision log above.
 
 ## Design Dependencies
 
