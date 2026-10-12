@@ -16,7 +16,9 @@ use liquers_core::error::Error;
 use liquers_core::metadata::{Metadata, MetadataRecord};
 use liquers_core::parse::parse_key;
 use liquers_core::query::Key;
-use liquers_core::store::{AsyncFileStore, AsyncMemoryStore, AsyncStore, AsyncStoreRouter, NoAsyncStore};
+use liquers_core::store::{
+    AsyncFileStore, AsyncMemoryStore, AsyncStore, AsyncStoreRouter, NoAsyncStore,
+};
 use liquers_core::store_conformance::{
     rules, run_all, AllowedFailure, ConformanceReport, GenericFixture, RuleOutcome, SafetyLevel,
     StoreCapabilities,
@@ -340,13 +342,15 @@ async fn c5_report() -> ConformanceReport {
 /// `CONFORMANT` only when nothing failed or errored.
 fn status_row(store: &str, report: &ConformanceReport, notes: &str) -> String {
     let counts = report.counts();
-    let status = if counts.failed == 0 && counts.errored == 0 {
-        "`CONFORMANT`".to_string()
-    } else {
+    let status = if counts.failed > 0 || counts.errored > 0 {
         format!(
             "`NONCONFORMANT` (failed {}, errored {})",
             counts.failed, counts.errored
         )
+    } else if counts.blocked > 0 {
+        format!("`BLOCKED` ({} rules)", counts.blocked)
+    } else {
+        "`CONFORMANT`".to_string()
     };
     format!("| {store} | {} | {status} | {notes} |", counts.ran())
 }
@@ -371,7 +375,10 @@ async fn status_table() {
     );
     eprintln!("| Store | Rules run | Status | Notes |");
     eprintln!("|---|---|---|---|");
-    eprintln!("{}", status_row("`AsyncMemoryStore`", &c1_report().await, ""));
+    eprintln!(
+        "{}",
+        status_row("`AsyncMemoryStore`", &c1_report().await, "")
+    );
     eprintln!(
         "{}",
         status_row(

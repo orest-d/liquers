@@ -126,13 +126,15 @@ async fn c7_opendal_fs() {
 /// One row of the `STORE_IMPLEMENTATION_GUIDE.md` §9 status table.
 fn status_row(store: &str, report: &ConformanceReport, notes: &str) -> String {
     let counts = report.counts();
-    let status = if counts.failed == 0 && counts.errored == 0 {
-        "`CONFORMANT`".to_string()
-    } else {
+    let status = if counts.failed > 0 || counts.errored > 0 {
         format!(
             "`NONCONFORMANT` (failed {}, errored {})",
             counts.failed, counts.errored
         )
+    } else if counts.blocked > 0 {
+        format!("`BLOCKED` ({} rules)", counts.blocked)
+    } else {
+        "`CONFORMANT`".to_string()
     };
     format!("| {store} | {} | {status} | {notes} |", counts.ran())
 }
