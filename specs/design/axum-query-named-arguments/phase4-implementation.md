@@ -19,7 +19,7 @@ describe the behaviour as built and tested). Prerequisites: none — the preflig
 - [x] Step 5: `_entry_format` on every entry route (axum) — ef44bd2
 - [x] Step 6: Assets API `q/data`, `q/entry`, `q/submit` with overrides; managed reporting (axum) — 3d2f799
 - [x] Step 7: Query API with overrides (axum) — a3d6696
-- [ ] Step 8: WebSocket `arguments`, subscription ids, `cancel` (axum)
+- [ ] Step 8: WebSocket `arguments`, subscription ids, `cancel` (axum) — implemented in 5fa37e0; one decision open (Q16, Phase 1 Design Readiness)
 - [ ] Step 9: README and examples (axum)
 - [ ] Step 10: final validation
 

@@ -220,7 +220,7 @@ updated in the implementation PR — `reference/` must be true at HEAD.
 
 ## Design Readiness
 
-No open decision. Readiness, assessed at the Phase 4 consistency pass (2026-10-12): `ready`.
+One open decision (Q16, found during implementation). Readiness, assessed at the Phase 4 consistency pass (2026-10-12): `ready`; Q16 suspends the pre-approval until it is answered.
 
 **Decided by the user (2026-10-12):** Q1 an override replaces the path value (AC-5); Q2 `_` names
 reserved (AC-10); Q3 links as `_link_<name>` (AC-11); Q5 convert and warn (AC-12; cost: the
@@ -276,6 +276,24 @@ designs overrides on the Assets API or the WebSocket.
   `?format=`. In this repository only tests, the README, the guide and two examples do; no binding
   (`liquers-web`, `liquers-py`) sends it. Taken as intended by "no need to keep the alias"; AC-22
   makes a stale `format` a loud error rather than a silent default.
+
+**Found during implementation (Step 8, 2026-10-12) — pre-approval suspended until answered:**
+
+- **Q16 (needs decision)** A client learns an override subscription's `subscription_id` only from
+  its first notification (`Initial`), which the server sends once the asset exists. Two effects:
+  (1) a client that sends two `subscribe`s of one query with different `arguments` cannot tell
+  which `Initial` answers which until it waits between them (AC-18 is met only that way); (2) on
+  the inline manager the asset exists only after its evaluation, so a `cancel` by id cannot reach
+  it in flight — AC-19's "cancel before the asset exists" is implemented but unreachable there.
+  Recommended: **an immediate acknowledgement** — on a `subscribe` with `arguments`, the session
+  replies at once with `{"type": "Subscribed", "subscription_id": …, "query": …, "managed": false,
+  "request_id": …}`, echoing an optional client-chosen `request_id` from the `subscribe` for
+  correlation. Additive to the protocol; no other behaviour changes. Alternative: no
+  acknowledgement; document that ids arrive with `Initial` and that in-flight cancel is
+  unavailable on the inline manager.
+- **Corrected assumption (no decision):** a disconnect on the inline manager does stop an
+  override evaluation, because it runs inside the subscription task — as Phase 2 says. An
+  earlier test run that seemed to show otherwise was a race (fixed in AOW07/AOW09).
 
 ## Scope Changes
 
