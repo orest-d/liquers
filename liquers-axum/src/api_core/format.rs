@@ -1,5 +1,24 @@
 use crate::api_core::response::{DataEntry, SerializationFormat};
 use axum::http::header::{HeaderMap, ACCEPT, CONTENT_TYPE};
+use liquers_core::error::{Error, ErrorType};
+
+/// The option naming the encoding of a `DataEntry` envelope, on every route that reads or writes
+/// one. It has this one meaning everywhere (`specs/design/axum-query-named-arguments/`).
+pub const ENTRY_FORMAT_OPTION: &str = "_entry_format";
+
+/// Parse an `_entry_format` value: `cbor`, `bincode` or `json`, in any case. Anything else is a
+/// `ParameterError`, rather than silently falling back to another encoding.
+pub fn parse_entry_format(value: &str) -> Result<SerializationFormat, Error> {
+    match value.to_lowercase().as_str() {
+        "cbor" => Ok(SerializationFormat::Cbor),
+        "bincode" => Ok(SerializationFormat::Bincode),
+        "json" => Ok(SerializationFormat::Json),
+        _ => Err(Error::from_error(
+            ErrorType::ParameterError,
+            format!("{ENTRY_FORMAT_OPTION} must be cbor, bincode or json, not '{value}'"),
+        )),
+    }
+}
 
 /// Select serialization format from query parameter or Accept header
 /// Priority: ?format query param > Accept header > default (CBOR)
