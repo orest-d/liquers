@@ -103,6 +103,9 @@ at any depth; example 3 returns `"TEXT"` at any length with each `upper` run onc
 - **AC-14** A deep failing chain on the inline manager fails at once
   WHEN `l0 = fail` and a 100-link chain is evaluated cold under `ImmediateEnvironment` on a 1 MiB stack
   THEN it returns `leaf failed`, `fail` has run once, nothing overflows, and `l1..l100` stay unevaluated
+- **AC-15** A dependency that has already failed stops the rest of the plan (added at the Phase 2 review)
+  WHEN under `ImmediateEnvironment` a query reads `-R/data/l0.txt` (`fail`) and then a link to `y`, whose command counts its runs
+  THEN it fails with `leaf failed` and `y`'s command has not run, as at HEAD
 
 Non-goals: payload-path dependencies (`Context::schedule_payload_dependency_asset`), which are
 volatile by construction, in no map, and evaluated inline once per call; remembering a failure
@@ -157,10 +160,13 @@ behaviour unchanged; the Phase 2 preflight confirms that no `pub` signature they
 - Reference: extend `specs/reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md`. Beside the
   `submit` / `get_dependency_state` table, say that a repeated request in one evaluation returns the
   first asset, and drop "may inline-run locally queued work".
+- Reference: qualify by the session the re-evaluation rule in `specs/reference/ASSETS.md`
+  §Re-evaluation and the cache-miss text in `specs/reference/api/DOC_03_ASSETS_EXECUTION_LIFECYCLE.md`
+  (added at the Phase 2 review).
 - Guide: extend `specs/guides/ASSET_MANAGER_IMPLEMENTATION_GUIDE.md` §11. A manager must honour the
   session and must not nest per chain link. Record the residual limit.
 - Other documents: none.
-- Documents to update: the three above (`affects_docs`); `specs/README.md` when the design completes.
+- Documents to update: the five above (`affects_docs`); `specs/README.md` when the design completes.
 
 ## Design Readiness
 

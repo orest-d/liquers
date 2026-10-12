@@ -8,7 +8,7 @@ phase: architecture
 area: [core/assets, core/plan]
 issues: [FAILING-UPSTREAM-RERUNS-EXPONENTIALLY-AT-QUEUE-CAPACITY, EVALUATING-A-DEEP-CHAIN-TOP-DOWN-OVERFLOWS-THE-STACK, REFUSED-DEPENDENCY-RECOMPUTED-TWICE-DURING-A-DEPENDENT-EVALUATION]
 merged: 2026-10-12
-affects_docs: [reference/DEPENDENCIES_STATUS.md, reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md, guides/ASSET_MANAGER_IMPLEMENTATION_GUIDE.md]
+affects_docs: [reference/DEPENDENCIES_STATUS.md, reference/ASSETS.md, reference/api/DOC_03_ASSETS_EXECUTION_LIFECYCLE.md, reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md, guides/ASSET_MANAGER_IMPLEMENTATION_GUIDE.md]
 created: 2026-10-12
 ---
 # dependency-resolved-once-per-evaluation Design Tracking
@@ -30,7 +30,7 @@ the merge and is reassessed after Phase 4.
 
 ## Phase Status
 
-- [x] Phase 1: High-Level Design (approved 2026-10-12, with the review fixes: AC-14, session rules 1-6)
+- [x] Phase 1: High-Level Design (approved 2026-10-12, with the review fixes: AC-14, session rules 1-6; amended at the Phase 2 review: AC-15, two more reference documents)
 - [ ] Phase 2: Architecture (in review)
 - [ ] Phase 3: Examples and Tests
 - [ ] Phase 4: Implementation Plan
