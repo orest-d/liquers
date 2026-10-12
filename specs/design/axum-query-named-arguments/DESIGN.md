@@ -3,8 +3,8 @@ id: AXUM-QUERY-NAMED-ARGUMENTS
 kind: design
 title: Argument overrides over HTTP and WebSocket
 workflow: liquers-project
-status: in_review
-phase: high-level
+status: draft
+phase: architecture
 area: [axum, core/assets]
 issues: [QUERY-API-ARGUMENTS-ONLY-IN-QUERY-PATH]
 created: 2026-10-11
@@ -18,8 +18,8 @@ and the WebSocket (see Phase 1, Scope Changes).
 
 ## Phase Status
 
-- [ ] Phase 1: High-Level Design (in review)
-- [ ] Phase 2: Architecture
+- [x] Phase 1: High-Level Design (approved 2026-10-12)
+- [ ] Phase 2: Architecture (draft)
 - [ ] Phase 3: Examples and Tests
 - [ ] Phase 4: Implementation Plan
 - [ ] Phase 5: Documentation
@@ -27,3 +27,4 @@ and the WebSocket (see Phase 1, Scope Changes).
 ## Links
 
 - [Phase 1](./phase1-high-level-design.md)
+- [Phase 2](./phase2-architecture.md)
