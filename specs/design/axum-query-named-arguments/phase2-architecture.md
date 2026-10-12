@@ -60,7 +60,9 @@ async fn apply_queued(&self, recipe: Recipe, to: State<E::Value>) -> Result<Asse
 
 // plan.rs
 impl Plan {
-    /// Metadata of the command the last action runs (the alias target for an alias).
+    /// Metadata of the command the query named for its last action — the alias for an alias
+    /// (`ActionOrigin::Alias { command }`), whose own arguments are the overridable ones: an
+    /// alias's head slots carry the target's names and are fixed by the alias definition.
     pub fn last_action_command(&self, cmr: &CommandMetadataRegistry) -> Option<CommandMetadata>;
 }
 ```
@@ -69,7 +71,9 @@ impl Plan {
 **sorted** order (deterministic warnings and errors), converts each value against the last
 action's `ArgumentInfo` (private `fn convert_override(arg, value) -> Result<(Value, Option<String>), Error>`),
 adds each note with `plan.init_warning`, and reports an unknown, injected or action-less name as
-`ErrorType::ParameterError` (today `general_error`, HTTP 500).
+`ErrorType::ParameterError` (today `general_error`, HTTP 500). A name must be among
+`last_action_command`'s arguments, which also refuses an alias's head slots (amended at the Phase 3
+review, 2026-10-12: Phase 2 first said "the alias target").
 
 | `ArgumentType` | As is | Converted, with a warning | `ConversionError` |
 |---|---|---|---|
