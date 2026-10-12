@@ -3,7 +3,7 @@ title: Asset Evaluation — Flows and Public Surface
 kind: reference
 audience: internal
 area: [core/assets]
-reviewed: 2026-10-09
+reviewed: 2026-10-12
 ---
 # Asset Evaluation — Flows and Public Surface
 
@@ -34,6 +34,7 @@ crate-internal. A caller obtains a handle from a manager, then reads from it.
 | Evaluate a query with a payload | `EnvRef::evaluate_immediately` → `AssetManager::apply` |
 | Fetch a keyed resource | `AssetManager::get` |
 | Apply a recipe to a supplied state | `AssetManager::apply` |
+| Start an ad-hoc recipe and follow it (a top-level caller, e.g. a web request with argument overrides) | `AssetManager::apply_queued` |
 | Evaluate a nested query from inside a command | `Context::get_dependency_state`, or `Context::submit` then `Context::wait_for_dependency` (`Context::evaluate` = `submit` + drain) |
 | Apply a query to a state from inside a command | `Context::apply` |
 | Wait for a value | `AssetRef::get`; from inside a command, for a dependency, `Context::wait_for_dependency` |
@@ -64,6 +65,7 @@ Environment::apply_recipe → interpreter::apply_plan → commands
 | `AssetManager::get_asset(query)` | public | resolve a query through the maps, fast-track or schedule | delegates to `get` for a pure key |
 | `AssetManager::get(key)` | public | resolve a keyed asset | builds a **keyed** asset |
 | `AssetManager::apply(recipe, state, payload)` | public | ad-hoc evaluation against a supplied state | builds a **non-keyed** asset; always evaluates before returning |
+| `AssetManager::apply_queued(recipe, state)` | public | ad-hoc evaluation that can be followed | builds the same **non-keyed** asset as `apply`, but returns without waiting: the default manager queues it; an inline manager evaluates it and returns it even when it failed. No payload; takes a job-queue slot, so never call it from inside an evaluation |
 | `AssetManager::apply_immediately(…)` | **deprecated** | compatibility shim | forwards to `apply` |
 | `AssetRef::run(payload)` | crate | spawning harness | `#[cfg(not(wasm32))]`; wraps `evaluate` |
 | `AssetRef::run_inline(payload)` | crate | spawn-free harness | wraps `evaluate`; used by inline managers and on wasm |
@@ -121,6 +123,36 @@ thin *in evaluation logic*; construction still decides what an asset is, and con
 decides whether two concurrent callers converge on one asset. Two `apply` calls build two separate
 ad-hoc assets and legitimately run the body twice; two `get_asset` calls for one query converge on
 one mapped asset and run it once.
+
+### Managed and unmanaged assets; argument overrides
+
+Three terms used across the asset layer and its web API:
+
+- A **managed** asset is held by its manager in the key map or the query map, so it can be found
+  again by its address: a later `get_asset`, `get`, `lookup_query_asset` or `lookup_key_asset`
+  returns it, and a second request joins it instead of building another.
+- An **unmanaged** asset is in neither map. Only the holder of its `AssetRef` can see it. An asset
+  is unmanaged when
+  1. it was built ad hoc by `apply` or `apply_queued` (an initial state, a payload, or **argument
+     overrides** from a web request);
+  2. its plan is volatile (a volatile asset is used once and never mapped);
+  3. a command in it declares `cached: false`;
+  4. the query cache strategy does not retain it (`query_cache_strategy: none`, or a dependency
+     whose creator keeps no intermediates).
+
+  Whether a given asset is managed is answered, as the web API does, by asking the manager:
+  `lookup_*_asset` for its address returns this very asset (same `AssetRef::id`), and it is not
+  volatile.
+- An **argument override** is a value, or a link, for a named argument of a query's **last
+  action** given outside the query text: a recipe's `arguments` / `links`, or a web request's query
+  string, JSON body or WebSocket `arguments` (`WEB_API_SPECIFICATION.md` §2.4). `Recipe::to_plan`
+  applies them, resolving names against the command the query named (for an alias, the alias's own
+  arguments — its head slots cannot be overridden) and converting a mismatched JSON type with a
+  planning warning (`api/DOC_08_RECIPES_PLANS.md`).
+
+**Recipes are the edge case.** A keyed recipe with `arguments` produces a *managed* keyed asset —
+it is in the key map under the recipe's key — although its query-with-overrides has no query
+identity of its own; the prefix before its last action is still a shared, cached query asset.
 
 ## 5. Keyed assets, storing, and persistence
 
@@ -307,6 +339,7 @@ arrives mid-evaluation and must join the first rather than be turned away.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-12 | §1–2 `AssetManager::apply_queued`; §4 the terms managed / unmanaged asset (four causes, how to tell) and argument override, and the keyed-recipe edge case. | phase-5, `design/axum-query-named-arguments/` |
 | 2026-10-09 | §Persistence outcomes: the cancelled, cancelled-after-completion, replaced-while-running and failed rows. | phase-5 (`design/asset-cancellation-outcome/`) |
 | 2026-10-08 | §Reusing a stored asset: a metadata-only entry is recomputed from its recipe without a corruption report, and answers like an absent key when there is none. | phase-5 (`design/metadata-only-entry-reload/`) |
 | 2026-10-08 | §Reusing a stored asset: under `on_load` the version question is answered by the stored-records walk, recursively (records are direct since `design/dependency-chain-analysis-cost/`). `AuditPolicy::OnLoad` corrected to `DependencyAuditPolicy::OnLoad`. | phase-5 (`design/dependency-chain-analysis-cost/`) |

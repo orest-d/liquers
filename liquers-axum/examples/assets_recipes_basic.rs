@@ -278,7 +278,7 @@ fn print_usage_examples() {
     println!("     - Status values: Recipe, Submitted, Processing, Ready, Error, Cancelled");
     println!("     - Returns: {{\"status\": \"OK\", \"result\": {{\"status\": \"Ready\", ...}}}}");
 
-    println!("\n  3. GET /api/assets/q/entry/{{query}}?format=json");
+    println!("\n  3. GET /api/assets/q/entry/{{query}}?_entry_format=json");
     println!("     - Unified data+metadata response (DataEntry)");
     println!("     - Supports multiple formats: json, cbor (default), bincode");
     println!("     - Returns: {{\"data\": \"...\", \"metadata\": {{...}}}}");

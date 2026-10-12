@@ -312,7 +312,7 @@ async fn sar20_legacy_metadata_is_served_as_stored() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(json["result"]["x"], 1, "got {json}");
 
-    let (status, json) = send(app, "GET", "/api/store/entry/data/legacy.txt?format=json", Body::empty()).await;
+    let (status, json) = send(app, "GET", "/api/store/entry/data/legacy.txt?_entry_format=json", Body::empty()).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(json["metadata"]["x"], 1, "got {json}");
 }

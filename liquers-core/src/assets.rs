@@ -5735,6 +5735,26 @@ pub trait AssetManager<E: Environment>:
         to: State<E::Value>,
         payload: Option<E::Payload>,
     ) -> Result<AssetRef<E>, Error>;
+    /// As [`Self::apply`], but returns the ad-hoc asset without waiting for its evaluation, so
+    /// that its progress can be followed (`specs/design/axum-query-named-arguments/`).
+    ///
+    /// A queued manager queues the asset and returns at once. An inline manager evaluates it and
+    /// returns it even when the evaluation failed — the failure is recorded in the asset — where
+    /// `apply` would return the error. There is no payload: the job queue runs `run(None)`.
+    ///
+    /// Unlike `apply` this takes a job-queue slot, so it must not be called from inside an
+    /// evaluation (the deadlock shape of `ASSETS-FIX1` #17); it is for top-level callers such
+    /// as a web request. The default builds the asset itself and evaluates it inline before
+    /// returning it — failed or not — which is correct for an inline manager; a queued manager
+    /// overrides it to queue instead (as `DefaultAssetManager` does).
+    async fn apply_queued(&self, recipe: Recipe, to: State<E::Value>) -> Result<AssetRef<E>, Error> {
+        let asset_ref =
+            AssetData::new_ext(self.next_id_for_asset(), recipe, to, None, self.get_envref())
+                .to_ref();
+        // An error is already recorded in the asset's status and metadata.
+        let _ = asset_ref.run_inline(None).await;
+        Ok(asset_ref)
+    }
     /// Applies a recipe to a supplied state and evaluates it before returning.
     ///
     /// Superseded by [`Self::apply`], which now carries the payload and always evaluates before
@@ -8387,6 +8407,19 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         Ok(asset_ref)
     }
 
+    /// Queue an ad-hoc asset and return it at once (see the trait method).
+    async fn apply_queued(
+        &self,
+        recipe: Recipe,
+        initial_state: State<E::Value>,
+    ) -> Result<AssetRef<E>, Error> {
+        let asset_ref =
+            AssetData::new_ext(self.next_id(), recipe, initial_state, None, self.get_envref())
+                .to_ref();
+        self.job_queue.submit(asset_ref.clone()).await?;
+        Ok(asset_ref)
+    }
+
     /// Get resource asset
     async fn get(&self, key: &Key) -> Result<AssetRef<E>, Error> {
         loop {
@@ -9667,6 +9700,15 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
     ) -> Result<AssetRef<E>, Error> {
         let asset_ref = AssetData::new_ext(self.next_id(), recipe, to, None, self.envref()).to_ref();
         asset_ref.run_inline(payload).await?;
+        Ok(asset_ref)
+    }
+
+    /// Inline: evaluate, and return the asset even when the evaluation failed (the failure is
+    /// recorded in the asset, which is what a caller following it needs).
+    async fn apply_queued(&self, recipe: Recipe, to: State<E::Value>) -> Result<AssetRef<E>, Error> {
+        let asset_ref = AssetData::new_ext(self.next_id(), recipe, to, None, self.envref()).to_ref();
+        // An error is already recorded in the asset's status and metadata.
+        let _ = asset_ref.run_inline(None).await;
         Ok(asset_ref)
     }
 

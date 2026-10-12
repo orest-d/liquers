@@ -16,7 +16,14 @@ cargo run -p liquers-axum --example websocket_client
    the note is written with `POST key/data`, deleted with `DELETE key/data`, and the subscription
    receives `Removed` and ends.
 3. **Ping / pong.**
-4. **Entry format negotiation:** the same value from `GET q/entry?format=cbor` and `?format=json`.
+4. **Entry format negotiation:** the same value from `GET q/entry?_entry_format=cbor` and
+   `?_entry_format=json`.
+
+Not shown, but available on `ws/q`: `{"action":"subscribe","query":"…","arguments":{…},
+"request_id":"r1"}` evaluates the query with argument overrides as an unmanaged asset. The server
+acknowledges it at once with `{"type":"Subscribed","subscription_id":"…","request_id":"r1",…}`;
+every notification then carries that `subscription_id` and `"managed": false`, and
+`{"action":"cancel","subscription_id":"…"}` cancels it.
 
 Expected output (asset ids, timestamps and sizes vary):
 

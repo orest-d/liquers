@@ -163,7 +163,7 @@ pub async fn get_metadata_handler<E: Environment>(
 /// GET /entry/{*key} - Get recipe entry (data + metadata)
 ///
 /// The data is the recipe's YAML; the metadata is what [`get_metadata_handler`] returns. The
-/// entry is negotiated like the Assets API's: `?format=` first, then `Accept`, then CBOR.
+/// entry is negotiated like the Assets API's: `?_entry_format=` first, then `Accept`, then CBOR.
 pub async fn get_entry_handler<E: Environment>(
     State(env): State<EnvRef<E>>,
     Path(key_path): Path<String>,
@@ -176,6 +176,14 @@ pub async fn get_entry_handler<E: Environment>(
         Err(e) => {
             let error_detail = error_to_detail(&e);
             let response: ApiResponse<()> = ApiResponse::error(error_detail, "Failed to parse key");
+            return response.into_response();
+        }
+    };
+
+    let entry_format = match crate::api_core::entry_format_param(&params) {
+        Ok(format) => format,
+        Err(e) => {
+            let response: ApiResponse<()> = ApiResponse::error(error_to_detail(&e), "Invalid request");
             return response.into_response();
         }
     };
@@ -201,7 +209,7 @@ pub async fn get_entry_handler<E: Environment>(
         }
     };
 
-    entry_response(recipe.to_string().as_bytes(), &metadata, &headers, &params)
+    entry_response(recipe.to_string().as_bytes(), &metadata, &headers, entry_format)
 }
 
 /// GET /resolve/{*key} - Resolve recipe to execution plan

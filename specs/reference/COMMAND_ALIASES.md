@@ -3,7 +3,7 @@ title: Command Aliases
 kind: reference
 audience: internal
 area: [core/commands, core/plan]
-reviewed: 2026-10-10
+reviewed: 2026-10-12
 ---
 # Command Aliases
 
@@ -57,7 +57,9 @@ positions the heads fill.
 
 - Heads are named by the target's leading arguments (`offset`); the alias's own parameters keep the
   alias's names (`n`), labels, defaults and query positions. Recipe overrides by name therefore use
-  the alias's names.
+  the alias's names, and so do the web API's argument overrides. The heads are fixed by the alias:
+  an override naming one (`offset`) is refused with a `ParameterError`, because overrides resolve
+  against the alias's own arguments (`Plan::last_action_command`).
 - The target's executor reads parameters **by position**, so an alias's arguments must line up with
   the target's arguments after the heads: same count, same `injected` and `multiple` flags.
 - Too-many-parameters errors count the alias's own non-injected arguments and name the alias.
@@ -128,4 +130,5 @@ arguments) would still be `ActionOrigin::Alias`: its rules live in the alias's m
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-12 | Overrides by name resolve against the alias's own arguments; a head slot cannot be overridden (`ParameterError`). | phase-5, `design/axum-query-named-arguments/` |
 | 2026-10-10 | Created: the argument contract, validation (including replacement of a registered command), planning with `ActionOrigin`, dependencies and execution, as implemented and tested (`liquers-core/tests/command_alias.rs`, `pl/head`). | `design/command-alias-contract/` |

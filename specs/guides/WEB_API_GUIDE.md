@@ -3,7 +3,7 @@ title: Web API Guide
 kind: guide
 audience: both
 area: [axum, web]
-reviewed: 2026-10-09
+reviewed: 2026-10-12
 ---
 # Using the Liquers web API
 
@@ -102,8 +102,9 @@ anything that may take longer, submit it instead (§5).
 
 ## 4. Parameters
 
-Parameters are part of the query, not of the URL's query string: an action's parameters follow its
-name, separated by `-`.
+Parameters are part of the query: an action's parameters follow its name, separated by `-`. (The
+arguments of the last action can also be named in the URL's query string or a JSON body — see
+"Naming arguments" below.)
 
 ```bash
 curl $B/q/text-hello/wait-1/upper     # text("hello"), wait(1), upper
@@ -123,8 +124,71 @@ should not escape by hand: build the query and encode it (the Rust `ActionReques
 [Query Escaping Guide](QUERY_ESCAPING_GUIDE.md)). To check what a query means without running it,
 use `liquers-validate` (see `CLAUDE.md`, "Validating queries").
 
-A `?name=value` query string is **not** passed to commands; the Query API's `POST` accepts a JSON
-body but does not use it yet.
+### Naming arguments instead of escaping them
+
+Arguments of the query's **last action** can also be given by name — as URL query parameters, or
+as a JSON object in a `POST` body. These are **argument overrides**: nothing needs escaping, and
+earlier positional arguments need not be repeated to reach a later one.
+
+```bash
+curl -i "$B/q/text?text=hello%20world"
+# HTTP/1.1 200 OK
+# x-liquers-managed: false
+#
+# hello world
+
+curl -X POST -H 'Content-Type: application/json' -d '{"text": "Hello, (world): 2026"}' $B/q/text
+# Hello, (world): 2026
+
+curl "$B/q/text-ignored?text=used"           # an override replaces the path's value
+# used
+
+curl "$B/q/text?_link_text=text-linked/upper" # _link_<argument>: the argument is a query's value
+# LINKED
+```
+
+The same in Python, with `requests`'s own `params=` and `json=`:
+
+```python
+"""Pass arguments by name instead of escaping them into the query path."""
+import requests  # pip install requests
+
+B = "http://localhost:3000/liquer"
+
+# GET: URL query parameters name arguments of the query's last action.
+r = requests.get(f"{B}/q/text", params={"text": "Hello, (world): 2026"})
+print(r.status_code, r.headers["x-liquers-managed"], r.text)
+
+# POST: a JSON object body does the same, with typed values.
+r = requests.post(f"{B}/q/text-ignored", json={"text": "from the body"})
+print(r.status_code, r.headers["x-liquers-managed"], r.text)
+```
+
+```text
+$ python3 overrides.py
+200 false Hello, (world): 2026
+200 false from the body
+```
+
+What to know:
+
+- **They make the evaluation unmanaged.** A request with overrides is evaluated on its own: it is
+  not cached, is not shared with anyone, and cannot be found again by `q/info` or a later request
+  — the `x-liquers-managed: false` header says so. Without overrides (no query string, an empty
+  `?`, an empty body or `{}`) a request is served exactly as before, with `x-liquers-managed: true`
+  where the server keeps the asset. See [§2.5 of the specification](../reference/WEB_API_SPECIFICATION.md#25-managed-and-unmanaged-assets).
+- **Where they work:** the Query API (`$B/q/…`), the Assets API's `q/data`, `q/entry` and
+  `q/submit` (§5), and WebSocket `subscribe` (§8). Not on `key/…` routes: a key's asset is defined
+  by its recipe.
+- **Mistakes are refused before anything runs:** a name that is not an argument of the last action
+  (`?nope=1`), or a reserved one (any name starting with `_` other than `_link_…`), is a 400; a
+  value that does not convert (`?limit=abc` for a number) is a 422.
+- **Types:** URL text converts as a path parameter would. A JSON value of the wrong type that
+  still converts (`{"limit": "20"}`, or `{"seconds": 1}` for a text argument) is converted, and a
+  warning naming the argument is added to the evaluation's log — read it with `q/entry`
+  (`?_entry_format=json`), whose `metadata.log` lists it.
+- Use the path form for values you want shared and cached (`$B/q/text-hello`), overrides for free
+  text and one-off requests.
 
 ## 5. Long evaluations: submit, then poll
 
@@ -209,6 +273,26 @@ b'POLLING'
 Keyed assets work the same way under `key/`: `POST $A/key/submit/notes/shout.txt`, then
 `GET $A/key/info/notes/shout.txt`.
 
+### Submitting what cannot be polled
+
+Polling works only for an asset the server keeps — a **managed** one. An evaluation with argument
+overrides is unmanaged, and so is a volatile query or one whose command declares `cached: false`.
+`submit` still starts it and answers its status, but says so, and nothing can read it afterwards:
+
+```bash
+curl -X POST "$A/q/submit/text-hi/wait?seconds=2"
+# {"status":"OK","result":{"query":"text-hi/wait","status":"Processing", …,"managed":false,
+#   "note":"This evaluation is unmanaged: its status and result cannot be read later. Use q/data,
+#   or WebSocket subscribe with arguments, to get a result."},"message":"Submitted", …}
+curl $A/q/info/text-hi/wait
+# {"status":"ERROR", …,"error":{"type":"NotAvailable","message":"Query 'text-hi/wait' is not cached: …"}}
+```
+
+There is no way to get that evaluation's result. Submitting it is still useful when the query is
+run for its **side effect** — writing to a database, a store or a file. To get a result instead,
+wait for it with `q/data` (or the Query API), or start and follow it in one step with a WebSocket
+`subscribe` carrying `arguments` (§8).
+
 ## 6. Files: the Store API
 
 The Store API reads and writes the store exactly as stored, with no evaluation.
@@ -233,7 +317,7 @@ curl -X DELETE $B/api/store/removedir/tmp      # removes everything in it
 
 # metadata, and data + metadata together
 curl $B/api/store/metadata/docs/readme.txt
-curl "$B/api/store/entry/docs/readme.txt?format=json"
+curl "$B/api/store/entry/docs/readme.txt?_entry_format=json"
 # {"metadata":{ … },"data":"SGVsbG8gZnJvbSB0aGUgc3RvcmU="}   (base64 in JSON; CBOR by default)
 
 # upload files (multipart)
@@ -322,7 +406,7 @@ When a value changes, whatever was computed from it expires, and the next read r
 ```bash
 curl -X POST --data-binary 'Buy bread' "$A/key/data/notes/todo.txt?type_identifier=Text"
 curl $A/key/info/notes/shout.txt          # "status":"Expired"
-curl "$A/key/recover/notes/shout.txt?format=json"   # the last value anyway: "BUY MILK" (base64)
+curl "$A/key/recover/notes/shout.txt?_entry_format=json"   # the last value anyway: "BUY MILK" (base64)
 curl $A/key/data/notes/shout.txt          # recomputes (two seconds): BUY BREAD
 ```
 
@@ -361,7 +445,10 @@ Send JSON messages:
 ```json
 {"action": "subscribe", "query": "text-hello/wait-2/upper"}
 {"action": "subscribe", "key": "notes/todo.txt"}
+{"action": "subscribe", "query": "text-hello/wait", "arguments": {"seconds": "2"}, "request_id": "r1"}
 {"action": "unsubscribe", "query": "text-hello/wait-2/upper"}
+{"action": "unsubscribe", "subscription_id": "9d538916-…"}
+{"action": "cancel", "subscription_id": "9d538916-…"}
 {"action": "unsubscribe_all"}
 {"action": "ping"}
 ```
@@ -424,12 +511,67 @@ Notifications are a convenience, not a guarantee: for a definitive answer, `GET 
 runnable Rust client that also follows a key through its deletion is
 `liquers-axum/examples/websocket_client.rs`.
 
+### Following an evaluation with overrides
+
+A `subscribe` with `arguments` (on `ws/q`) evaluates the query with those argument overrides and
+follows it — the one way to watch an unmanaged evaluation, since nothing else can find it. The
+server acknowledges it at once with `Subscribed`, carrying a `subscription_id` (and your
+`request_id`, to tell several subscribes apart); every notification then carries the same id and
+`"managed": false`. Use the id to `unsubscribe` or `cancel`. `arguments` absent or `{}` is an
+ordinary subscription. Disconnecting stops following but does not cancel the evaluation.
+
+```python
+"""Start an evaluation with argument overrides and follow it over the WebSocket."""
+import asyncio
+import json
+import sys
+
+import websockets  # pip install websockets
+
+WS = "ws://localhost:3000/liquer/api/assets/ws"
+TERMINAL = {"Error", "Cancelled", "Expired", "Volatile"}
+
+
+async def follow(query: str, arguments: dict) -> None:
+    async with websockets.connect(f"{WS}/q") as ws:
+        await ws.send(json.dumps(
+            {"action": "subscribe", "query": query, "arguments": arguments, "request_id": "r1"}
+        ))
+        async for text in ws:
+            msg = json.loads(text)
+            if msg["type"] == "Subscribed":  # sent at once, before any notification
+                print(f'Subscribed               id={msg["subscription_id"][:8]}… managed={msg["managed"]}')
+                continue
+            if msg["type"] == "Error":
+                print(msg["error"])
+                return
+            info = msg.get("info") or {}
+            print(f'{msg["type"]:<24} status={info.get("status")} managed={msg["managed"]}')
+            if msg["type"] in ("JobFinished", "Removed") or info.get("status") in TERMINAL:
+                return
+
+
+asyncio.run(follow("text-hello/wait", {"seconds": "2"}))
+```
+
+```text
+$ python3 follow_overrides.py
+Subscribed               id=9d538916… managed=False
+Initial                  status=Processing managed=False
+StatusChanged            status=Dependencies managed=False
+StatusChanged            status=Processing managed=False
+JobFinished              status=Ready managed=False
+```
+
 ## 9. Things to know
 
 - There is no authentication or access control in the server; put it in front of the routers, or
   build them `read_only()`. See [§9 of the specification](../reference/WEB_API_SPECIFICATION.md#9-access-control).
 - The Query API's timeout ends the request, not the need for the value: submit long work through
-  the Assets API.
+  the Assets API — or, when it carries argument overrides, follow it with a WebSocket `subscribe`
+  with `arguments`, since a submitted unmanaged evaluation cannot be polled.
+- `DataEntry` routes choose their encoding with `?_entry_format=cbor|json|bincode` (or the
+  `Accept` header); the former `?format=` is refused with a 400.
 - With an inline asset manager (`EvalMode::Inline`, not the default server setup), `submit`
   evaluates before it answers and returns the final status.
 - Known gaps are filed under `specs/issues/`: the Recipes API's `metadata` is a placeholder
@@ -440,6 +582,7 @@ runnable Rust client that also follows a key through its deletion is
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-12 | §4 naming arguments: argument overrides from the query string and a JSON body, `_link_`, the managed/unmanaged distinction, errors and type warnings; §5 submitting what cannot be polled (unmanaged assets: no result, still useful for side effects); §8 subscribe with `arguments`, `Subscribed`, `subscription_id`, `cancel`; `?format=` → `?_entry_format=`. Examples run against `examples/assets_recipes_basic.rs`. | phase-5, `design/axum-query-named-arguments/` |
 | 2026-10-09 | `q/cancel` is best-effort (a completed command stays `Ready`), the cause in `error_data`; the cancel-ends-`Ready` known gap removed. | phase-5 (`design/asset-cancellation-outcome/`) |
 | 2026-10-06 | Added a `key/can_make` example beside `key/contains`. | phase-5 |
 | 2026-09-29 | Created: organization and conventions, short queries, parameters, submit and poll, the Store API, the Assets API (writing, navigating, recipes, dependencies, removal), and the WebSocket, with curl and Python examples run against `examples/assets_recipes_basic.rs`. | `design/axum-assets-endpoints/` |

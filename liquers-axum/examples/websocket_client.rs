@@ -138,7 +138,7 @@ async fn compare_entry_formats(http_base: &str) {
     let client = reqwest::Client::new();
     for format in ["cbor", "json"] {
         let response = client
-            .get(format!("{http_base}/q/entry/hello?format={format}"))
+            .get(format!("{http_base}/q/entry/hello?_entry_format={format}"))
             .send()
             .await
             .expect("GET q/entry");
