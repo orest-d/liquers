@@ -125,3 +125,14 @@ async fn efo05_post_key_entry_decodes_by_entry_format_then_content_type() {
     let answer = request(&app, "POST", "/api/assets/key/entry/notes/c.txt?format=json", Some(&entry), &[]).await;
     assert_eq!(answer.status, StatusCode::BAD_REQUEST);
 }
+
+#[tokio::test]
+async fn efo06_format_on_q_entry_is_an_override() {
+    let (app, _) = app().await;
+    // `format` is not an option any more: on `q/entry` it is an argument override like any
+    // other name, and `echo_args` has no `format` argument.
+    let answer = get(&app, "/api/assets/q/entry/echo_args?format=json").await;
+    assert_eq!(answer.status, StatusCode::BAD_REQUEST, "{}", answer.text());
+    assert_eq!(answer.json()["error"]["type"], "ParameterError");
+    assert!(answer.text().contains("'format'"), "{}", answer.text());
+}

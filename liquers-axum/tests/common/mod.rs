@@ -60,7 +60,7 @@ impl Fixtures {
 /// Register the Phase 3 fixtures:
 /// - `echo_args(query: string = "", rank: bool = true, case_sensitive: bool = false,
 ///   limit: int = 50, fields: multiple string, ctx: injected)` — the shape of `ns-search/search`;
-/// - `make_text`, `fail_with`;
+/// - `make_text`; `fail_with(reason: string = "")`, which always fails;
 /// - `gated(tag: string = "")` and the volatile `gated_volatile` — wait for the gate, increment
 ///   the counter, return `"<tag>:<count>"`;
 /// - `echo_alias` — an alias of `echo_args` with the head `query = "fixed"`; its own arguments
@@ -89,9 +89,11 @@ pub fn register_fixtures<E: Environment<Value = Value>>(
     cr.register_command(CommandKey::new_name("make_text"), |_, _, _| {
         Ok(Value::from("generated"))
     })?;
-    cr.register_command(CommandKey::new_name("fail_with"), |_, _, _| {
-        Err(Error::general_error("failed on purpose".to_string()))
-    })?;
+    cr.register_command(CommandKey::new_name("fail_with"), |_, args, _| {
+        let reason: String = args.get(0, "reason")?;
+        Err(Error::general_error(format!("failed on purpose: {reason}")))
+    })?
+    .with_argument(ArgumentInfo::string_argument("reason").with_default(""));
     for (name, volatile) in [("gated", false), ("gated_volatile", true)] {
         let gate = fixtures.gate.clone();
         let counter = fixtures.counter.clone();
