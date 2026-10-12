@@ -22,6 +22,10 @@ it:
   `submit`, `evaluate`);
 - a **volatile** key.
 
+A third case was left out at implementation: `ImmediateAssetManager::apply_queued` is not primed.
+It must return its ad-hoc asset even when the evaluation fails, and that asset records a failure
+only by running, so a failed priming would leave it unevaluated.
+
 Everything upstream of such a link is still evaluated inside its dependent's run, one nested
 `run_inline` per link (`ImmediateAssetManager::get_dependency_asset`). A long enough chain through
 such links can still overflow the stack. The queued manager is not affected, because it spawns every

@@ -155,7 +155,29 @@ impl<E: Environment> AssetManager<E> for MinimalInlineAssetManager<E> {
 
 **Provided — override only deliberately:** `record_expiry` (§8), and `get_dependency_asset`,
 `drain_dependencies`, `wait_for_dependency` if you add a local dependency queue as
-`DefaultAssetManager` does.
+`DefaultAssetManager` does. Also `apply_for`, which `Context::apply` calls. Its default is `apply`.
+
+**One evaluation, one asset per dependency.** `Context` calls `get_dependency_asset` at most once
+per dependency per evaluation session and pins the result
+(`reference/DEPENDENCIES_STATUS.md` §Evaluation session). Your stale-terminal refresh in it
+therefore runs only on a session's first request, which is correct. Two consequences for an
+override:
+
+- **Return a failed dependency as the asset, not as `Err`.** The failure is recorded in the asset,
+  the session pins it, and every dependent gets its error through `wait_for_dependency` without
+  running it again. Return `Err` only when no asset could be produced (a lookup or plan error);
+  that pins nothing, so the next request tries again.
+- **Do not evaluate a dependency's chain inside its dependent's stack.** A queued manager should
+  run a locally queued dependency in a task of its own, as `DefaultAssetManager` does. An inline
+  manager should evaluate a cold chain bottom-up, as `ImmediateAssetManager::prime_upstream`
+  does. Otherwise the evaluation depth grows by one level per link.
+
+The built-in managers also give each dependency its parent's session before it starts, so the
+dependency's own upstream is resolved in the same session. That method,
+`AssetRef::adopt_evaluation_session`, is crate-private. An external manager's dependencies
+therefore resolve their own upstream in sessions of their own: each dependency is still requested
+once per dependent evaluation, but an upstream shared by two of them may run once for each
+(`EXTERNAL-MANAGER-CANNOT-SHARE-AN-EVALUATION-SESSION`).
 
 **Caching strategies** (`liquers-core/src/cache_strategy.rs`, ASSETS §When an asset is kept for
 reuse). A manager decides what it *registers*; three rules keep it consistent with the built-in
@@ -485,6 +507,9 @@ store conformance suite: shared scenarios, no rule numbers and no capability mod
 | Ownership is read from your map; what registration guarantees beyond §7 is open. | `ASSET-REGISTRATION-OWNERSHIP-CONTRACT` |
 | The manager and the environment hold each other strongly. | `ENVIRONMENT-MANAGER-REFERENCE-CYCLE` |
 | `run` spawns on Tokio, so a queued manager is native-only. | `CORE-TOKIO-REMOVAL` |
+| An external manager cannot hand a dependency its parent's evaluation session (§4), so an upstream shared by two dependencies may run once for each. | `EXTERNAL-MANAGER-CANNOT-SHARE-AN-EVALUATION-SESSION` |
+| On the inline manager, the part of a chain upstream of a dynamic or volatile dependency is not primed and still nests one level per link. | `INLINE-MANAGER-DYNAMIC-DEPENDENCY-CHAIN-NESTS` |
+| A session keeps the assets it pinned alive until its last run ends. | `CORE-ASSET-GC` |
 | A manager on another machine needs manager-owned metadata to travel between peers. | `NO-REMOTE-STORE-OR-ASSET-MANAGER` |
 
 ## Related
@@ -500,6 +525,7 @@ store conformance suite: shared scenarios, no rule numbers and no capability mod
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-12 | §4: the evaluation session and what it asks of `get_dependency_asset` (return a failed asset; no per-link nesting); `apply_for`. §11: three limits (external managers cannot share a session; inline chains through dynamic or volatile links still nest; pinned assets live per session). | phase-5 (`design/dependency-resolved-once-per-evaluation/`) |
 | 2026-10-12 | §4 `apply_queued`: the default now builds and evaluates the asset itself and returns it even when it failed, so an inline manager keeps it; only a queued manager overrides it (Codex review of PR #125). | review fix |
 | 2026-10-12 | §4: the provided `apply_queued` — what to return on a queued and on an inline manager. | phase-5, `design/axum-query-named-arguments/` |
 | 2026-10-11 | §Primitives: `notify_removed`, `new_installed` and `track_installed` are public (rows added, removed from "not exposed"); the write example notifies the replaced asset once the key holds its replacement (or the write has failed), and a metadata-only write removes the stored object first; the known-limits row for both is removed; §4's `set_state` row describes installing any state. | `design/external-manager-replacement-surface/` |

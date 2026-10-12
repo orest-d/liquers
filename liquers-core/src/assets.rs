@@ -5876,11 +5876,13 @@ pub trait AssetManager<E: Environment>:
     /// An implementation should:
     /// - return the asset even when evaluating it failed (the failure is recorded in the asset,
     ///   and the session pins it); return `Err` only when no asset could be produced;
-    /// - give the asset `parent`'s evaluation session before it can start
-    ///   (`AssetRef::adopt_evaluation_session`), so its own dependencies resolve in that session.
+    /// - not evaluate the dependency's own chain inside the caller's stack (the built-in managers
+    ///   spawn a task per locally queued run, or prime a cold chain bottom-up).
     ///
-    /// A manager that does neither still works; its dependencies' upstream then resolves in
-    /// sessions of their own.
+    /// The built-in managers also give the asset `parent`'s evaluation session before it can
+    /// start (the crate-private `AssetRef::adopt_evaluation_session`), so its own dependencies
+    /// resolve in that session. An external manager cannot; its dependencies' upstream then
+    /// resolves in sessions of their own (`EXTERNAL-MANAGER-CANNOT-SHARE-AN-EVALUATION-SESSION`).
     ///
     /// Default: plain `get_asset` (global submit) — a safe fallback for managers without a
     /// JobQueue; `DefaultAssetManager` overrides.

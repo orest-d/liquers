@@ -134,6 +134,7 @@ EXT-VALUE-DESCRIPTION-COMPLETENESS-TEST-SAMPLES-TWO-VARIANTS,issue,The ExtValue 
 EXTENDED-FAST-TRACK,feature,Fast-track covers only simple loading,accepted,local,,,,P2,L,core/assets,,,,,,2026-08-08,specs/issues/EXTENDED-FAST-TRACK.md
 EXTENDED-VALUES-CANNOT-BIND-TO-SCALAR-ARGUMENTS,issue,"An extended value can never bind to a scalar command argument, even one it can convert to",closed,local,,,,P2,S,lib/value;core/commands,,,,record-streams,,2026-09-24,specs/issues/EXTENDED-VALUES-CANNOT-BIND-TO-SCALAR-ARGUMENTS.md
 EXTERNAL-MANAGER-CANNOT-NOTIFY-REPLACED-ASSET,issue,"An AssetManager implemented outside liquers-core cannot tell a replaced asset it was removed, or store a non-serializable state",closed,local,,ready,not-eligible,P3,S,core/assets,,,,external-manager-replacement-surface,,2026-10-02,specs/issues/EXTERNAL-MANAGER-CANNOT-NOTIFY-REPLACED-ASSET.md
+EXTERNAL-MANAGER-CANNOT-SHARE-AN-EVALUATION-SESSION,issue,An external asset manager cannot hand a dependency its parent's evaluation session,draft,local,,,,P3,S,core/assets,,,,,,2026-10-12,specs/issues/EXTERNAL-MANAGER-CANNOT-SHARE-AN-EVALUATION-SESSION.md
 FAILING-UPSTREAM-RERUNS-EXPONENTIALLY-AT-QUEUE-CAPACITY,issue,A failing upstream link re-runs exponentially often when the queue is at capacity,draft,local,,ready,not-eligible,P1,M,core/assets,,,,dependency-resolved-once-per-evaluation,,2026-10-12,specs/issues/FAILING-UPSTREAM-RERUNS-EXPONENTIALLY-AT-QUEUE-CAPACITY.md
 FAST-TRACK-FAILS-ON-METADATA-ONLY-FILE-STORE-ENTRY,issue,Requesting a key stored metadata-only on a file store fails instead of recomputing,closed,local,,,,P2,S,core/assets;core/store,,,,,,2026-10-06,specs/issues/FAST-TRACK-FAILS-ON-METADATA-ONLY-FILE-STORE-ENTRY.md
 FOREIGN-VALUE-TYPES-NOT-REGISTERED,issue,A foreign language value cannot be registered in the type registry,closed,local,,,,P1,M,core/value;lib/value;web;py,,,,foreign-value-type-registration,,2026-08-18,specs/issues/FOREIGN-VALUE-TYPES-NOT-REGISTERED.md
@@ -486,16 +487,16 @@ WP2-TERMINAL-OUTCOME,design,Asset terminal outcome contract,complete,local,,,,,,
 API_DOCS_GAP_ANALYSIS,reference,API Documentation Gap Analysis,current,local,,,,,,docs,,,,,2026-10-10,,specs/reference/api/API_DOCS_GAP_ANALYSIS.md
 DOC_01_ARCHITECTURE_REFERENCE,reference,Architecture Reference,current,local,,,,,,core/query;core/plan;core/assets,,,,,2026-08-09,,specs/reference/api/DOC_01_ARCHITECTURE_REFERENCE.md
 DOC_02_QUERY_LANGUAGE_REFERENCE,reference,Query Language Reference,current,local,,,,,,core/query,,,,,2026-10-11,,specs/reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md
-DOC_03_ASSETS_EXECUTION_LIFECYCLE,reference,Assets and Execution Lifecycle Reference,current,local,,,,,,core/assets,,,,,2026-10-10,,specs/reference/api/DOC_03_ASSETS_EXECUTION_LIFECYCLE.md
-DOC_04_ENVIRONMENT_CONTEXT_EVALUATION,reference,"Environment, Context and Evaluation Reference",current,local,,,,,,core/context;core/plan,,,,,2026-10-11,,specs/reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md
+DOC_03_ASSETS_EXECUTION_LIFECYCLE,reference,Assets and Execution Lifecycle Reference,current,local,,,,,,core/assets,,,,,2026-10-12,,specs/reference/api/DOC_03_ASSETS_EXECUTION_LIFECYCLE.md
+DOC_04_ENVIRONMENT_CONTEXT_EVALUATION,reference,"Environment, Context and Evaluation Reference",current,local,,,,,,core/context;core/plan,,,,,2026-10-12,,specs/reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md
 DOC_08_RECIPES_PLANS,reference,Recipes and Plans Reference,current,local,,,,,,core/plan;core/assets;core/context,,,,,2026-10-12,,specs/reference/api/DOC_08_RECIPES_PLANS.md
 ASSET_LIFECYCLE,reference,Asset Evaluation — Flows and Public Surface,current,local,,,,,,core/assets,,,,,2026-10-12,,specs/reference/ASSET_LIFECYCLE.md
 ASSET_SET_OPERATION,reference,Asset Set Operation Specification,current,local,,,,,,core/assets,,,,,2026-10-10,,specs/reference/ASSET_SET_OPERATION.md
-ASSETS,reference,Assets Specification,current,local,,,,,,core/assets,,,,,2026-10-10,,specs/reference/ASSETS.md
+ASSETS,reference,Assets Specification,current,local,,,,,,core/assets,,,,,2026-10-12,,specs/reference/ASSETS.md
 COMMAND_ALIASES,reference,Command Aliases,current,local,,,,,,core/commands;core/plan,,,,,2026-10-12,,specs/reference/COMMAND_ALIASES.md
 COMMAND_DECLARATION,reference,Command Declaration Format,current,local,,,,,,core/commands;web;py,,,,,2026-10-11,,specs/reference/COMMAND_DECLARATION.md
 CONFORMANCE_TERMS,reference,Conformance Terms,current,local,,,,,,docs,,,,,2026-09-02,,specs/reference/CONFORMANCE_TERMS.md
-DEPENDENCIES_STATUS,reference,Status::Dependencies Specification,current,local,,,,,,core/assets,,,,,2026-10-09,,specs/reference/DEPENDENCIES_STATUS.md
+DEPENDENCIES_STATUS,reference,Status::Dependencies Specification,current,local,,,,,,core/assets,,,,,2026-10-12,,specs/reference/DEPENDENCIES_STATUS.md
 ENVIRONMENT_CONFIG,reference,Environment Configuration,current,local,,,,,,core/context;core/store;core/assets,,,,,2026-10-10,,specs/reference/ENVIRONMENT_CONFIG.md
 IMAGE_COMMAND_LIBRARY,reference,Image Command Library Specification,overdue,local,,,,,,lib/image,,,,,2026-03-02,,specs/reference/IMAGE_COMMAND_LIBRARY.md
 PAYLOAD_GUIDE,reference,Payload Specification and Usage,current,local,,,,,,core/context;core/commands,,,,,2026-09-04,,specs/reference/PAYLOAD_GUIDE.md

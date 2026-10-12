@@ -3,7 +3,7 @@ title: Assets Specification
 kind: reference
 audience: internal
 area: [core/assets]
-reviewed: 2026-10-10
+reviewed: 2026-10-12
 ---
 # Assets Specification
 
@@ -1155,7 +1155,10 @@ own failure or cancellation is recorded in memory only, never as a metadata-only
 boundary**: `get(key)`/`get_asset(query)` drop such a stale-terminal asset and rebuild a fresh one
 (a failure may be transient — hardware/volatile). `AssetRef::get()` itself does not re-evaluate, so
 awaiting a completed evaluation reports the same outcome repeatably. Dependencies: a stale
-`Error`/`Cancelled` dependency re-evaluates; a fresh error propagates as a dependency failure; a
+`Error`/`Cancelled` dependency re-evaluates when an evaluation first requests it; within that
+evaluation it is not requested again (the evaluation session pins the asset its first request
+returned, see `DEPENDENCIES_STATUS.md` §Evaluation session), so a dependency that fails in it is not
+re-run, and a fresh error propagates as a dependency failure; a
 fresh or mid-flight cancellation cascade-cancels the parent: `wait_for_dependency` returns the
 dependency's recorded cancellation unchanged, logs `Dependency <dep> was cancelled; root cause:
 <root>` on the parent (unless the parent's own cancel was requested, which then wins as the cause),
@@ -1220,6 +1223,7 @@ each with an `ExpiryReason` (§Why an asset is `Expired`). The rules are in
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-12 | §Re-evaluation: a stale dependency re-evaluates at an evaluation's first request only; within the evaluation the session pins it. | phase-5 (`design/dependency-resolved-once-per-evaluation/`) |
 | 2026-10-10 | New §When an asset is kept for reuse: caching strategies (keyed, top-level query, dependency following its creator), reuse of an existing asset under every strategy, the plan independent of strategy, `ImmediateAssetManager::get_dependency_asset`, `cached: Some(false)` and the log reason on an unregistered asset, the trait accessors. §`stored` and `cached`: the recipe's `cached` is a strategy; metadata keeps a bool. A key with no recipe is not subject to the strategy, and an existing keyed asset is reused before it is consulted (PR #102 review). | phase-5 (`design/plan-policy/`) |
 | 2026-10-09 | Cancellation is a request decided by the run: `Cancelled` status description, the cancellation path diagram, Scenarios 3-5 (`cancel_for_replacement`), §Terminal outcome (`Cancelled` records its cause in `error_data`; `fail_asset` acts once on an in-flight asset; cascade cancellation through `wait_for_dependency`). | phase-5 (`design/asset-cancellation-outcome/`) |
 | 2026-10-08 | §Content changed outside Liquers: the memory store no longer answers a metadata-only entry with empty bytes; the empty-bytes skip is kept for older stores. | phase-5 (`design/metadata-only-entry-reload/`) |

@@ -62,6 +62,7 @@ impl<T: Clone> PinMap<T> {
         cell.get_or_init(|| async move { value }).await.clone()
     }
 
+    #[cfg(test)]
     fn get(&self, id: &DependencyKey) -> Option<T> {
         let cells = self.cells.lock().unwrap_or_else(|e| e.into_inner());
         cells.get(id).and_then(|cell| cell.get().cloned())
@@ -97,11 +98,6 @@ impl<E: Environment> EvaluationSession<E> {
     /// the asset already pinned for `id`, if there is one.
     pub(crate) async fn pin(&self, id: DependencyKey, asset: AssetRef<E>) -> AssetRef<E> {
         self.resolved.pin(id, asset).await
-    }
-
-    /// The asset pinned for `id`, if any.
-    pub(crate) fn pinned(&self, id: &DependencyKey) -> Option<AssetRef<E>> {
-        self.resolved.get(id)
     }
 }
 

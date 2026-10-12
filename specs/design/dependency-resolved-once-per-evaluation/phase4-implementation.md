@@ -14,16 +14,16 @@ be fixed first (Phase 2 preflight). Everything is in `liquers-core`, plus docume
 
 ## Progress
 
-- [ ] Step 1: Phase 3 integration tests written; HEAD failures recorded
-- [ ] Step 2: `evaluation_session.rs` module and unit tests
-- [ ] Step 3: session field on `AssetData` / `AssetRef`, carried by `Context`
-- [ ] Step 4: pinning in `Context::schedule_dependency_asset_with_key`
-- [ ] Step 5: queued manager adopts the session; `apply_for`
-- [ ] Step 6: AC-4 assertion tightened
-- [ ] Step 7: inline manager returns failed assets; default `wait_for_dependency` `Error` arm; pre-pass fail-fast
-- [ ] Step 8: queued spawn of locally queued runs
-- [ ] Step 9: `plan.rs` `upstream_graph`
-- [ ] Step 10: inline priming
+- [x] Step 1: Phase 3 integration tests written; HEAD failures recorded — f551590 (at HEAD: 9 of 11 session tests failed, 5 deep tests aborted on overflow, AC-13 timed out; AC-12, AC-15, AC-16 passed; AC-5 was timing-dependent)
+- [x] Step 2: `evaluation_session.rs` module and unit tests — f551590
+- [x] Step 3: session field on `AssetData` / `AssetRef`, carried by `Context` — f551590
+- [x] Step 4: pinning in `Context::schedule_dependency_asset_with_key` — f551590
+- [x] Step 5: queued manager adopts the session; `apply_for` — f551590
+- [x] Step 6: AC-4 assertion tightened (both audit tests: exactly 2) — f551590
+- [x] Step 7: inline manager returns failed assets; default `wait_for_dependency` `Error` arm; pre-pass fail-fast — aa5f222
+- [x] Step 8: queued spawn of locally queued runs — 3b398d5
+- [x] Step 9: `plan.rs` `upstream_graph` (and `key_upstream_graph`) — 982af64
+- [x] Step 10: inline priming (`get`, top-level query, `apply`; not `apply_queued`, see Phase 5) — 982af64
 - [ ] Step 11: full regression (native, wasm)
 - [ ] Step 12: documentation
 - [ ] Step 13: records

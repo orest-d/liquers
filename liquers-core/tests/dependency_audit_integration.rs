@@ -1424,8 +1424,9 @@ async fn chain_first_process(n: usize) -> Result<StoreSnapshot, Box<dyn std::err
         DependencyAuditPolicy::Explicit,
         Arc::new(AtomicUsize::new(0)),
     )?;
-    // Link by link: evaluating the last link first recurses through the whole chain, which a
-    // long chain cannot afford (`EVALUATING-A-DEEP-CHAIN-TOP-DOWN-OVERFLOWS-THE-STACK`).
+    // Link by link. This was needed while evaluating the last link first nested one stack frame per
+    // link (fixed by `dependency-resolved-once-per-evaluation`); it is kept because it fixes the
+    // order in which the links are first written, which the scenarios below compare against.
     for i in 0..=n {
         chain_value(&envref, i).await?;
     }
