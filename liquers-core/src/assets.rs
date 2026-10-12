@@ -9558,6 +9558,17 @@ impl<E: Environment> ImmediateAssetManager<E> {
         match self.settle_query(query, origin).await? {
             Settled::Available(assetref) => Ok(assetref),
             Settled::NeedsRun(assetref) => {
+                let session = assetref.evaluation_session_or_begin().await;
+                match origin {
+                    QueryAssetOrigin::TopLevel => {
+                        let graph = match crate::interpreter::make_plan(self.envref(), query.clone()).await {
+                            Ok(plan) => crate::plan::upstream_graph(self.envref(), &plan, None).await,
+                            Err(error) => Err(error),
+                        };
+                        self.prime_upstream(&session, graph).await?;
+                    }
+                    QueryAssetOrigin::Dependency(_) => {}
+                }
                 // Backstop against re-entry: if this asset is already being run inline on this
                 // manager, running it again is the recursion `owned_key_asset` exists to prevent.
                 // Report it instead of exhausting the stack.
@@ -9565,6 +9576,98 @@ impl<E: Environment> ImmediateAssetManager<E> {
                 Ok(assetref)
             }
         }
+    }
+
+    /// Evaluates the static upstream of a top-level asset bottom-up, in `session`, before the asset
+    /// itself runs, so the evaluation of a cold chain nests one level instead of one per link
+    /// (`dependency-resolved-once-per-evaluation`). The inline manager cannot give each
+    /// dependency a task of its own, as the queued manager does.
+    ///
+    /// The walk goes top-down from what the asset reads and settles each key: a key that is
+    /// finished or fast-tracked from the store is available, and nothing upstream of it is
+    /// touched; a volatile key is left to the normal run; every other key is collected. The
+    /// collected keys then run in post-order, each pinned in `session`, so each finds what it
+    /// reads already evaluated. A failure stops the evaluation at once with that key's own error,
+    /// leaving the keys downstream of it unevaluated (decision 4). A `graph` that could not be
+    /// built (a recipe cycle, a plan error) primes nothing: the normal run reports the problem.
+    async fn prime_upstream(
+        &self,
+        session: &EvaluationSessionRef<E>,
+        graph: Result<crate::plan::UpstreamGraph, Error>,
+    ) -> Result<(), Error> {
+        let Ok(graph) = graph else {
+            return Ok(());
+        };
+        let nodes: HashMap<Key, crate::plan::UpstreamNode> = graph
+            .nodes
+            .into_iter()
+            .map(|node| (node.key.clone(), node))
+            .collect();
+        let mut visited: HashSet<Key> = HashSet::new();
+        let mut order: Vec<(Key, AssetRef<E>)> = Vec::new();
+        // `Some(asset)` marks a key whose reads have all been pushed above it: it is emitted
+        // once they are done, which gives the post-order.
+        let mut stack: Vec<(Key, Option<AssetRef<E>>)> =
+            graph.roots.into_iter().rev().map(|key| (key, None)).collect();
+        while let Some((key, settled)) = stack.pop() {
+            if let Some(asset) = settled {
+                order.push((key, asset));
+                continue;
+            }
+            if !visited.insert(key.clone()) {
+                continue;
+            }
+            let Some(node) = nodes.get(&key) else {
+                continue; // no recipe serves it: nothing to evaluate ahead
+            };
+            if node.volatile {
+                continue;
+            }
+            match self.settle(&key).await? {
+                Settled::Available(_) => {}
+                Settled::NeedsRun(asset) => {
+                    stack.push((key.clone(), Some(asset)));
+                    for read in node.reads.iter().rev() {
+                        stack.push((read.clone(), None));
+                    }
+                }
+            }
+        }
+        for (key, asset) in order {
+            asset.adopt_evaluation_session(session).await;
+            let asset = session
+                .pin(DependencyKey::from(&Query::from(&key)), asset)
+                .await;
+            let run = asset.run_inline(None).await;
+            match asset.status().await {
+                Status::Error | Status::Cancelled => {
+                    let cause = asset.stored_error().await;
+                    return Err(match (cause, run) {
+                        (Some(cause), _) => cause,
+                        (None, Err(error)) => error,
+                        (None, Ok(())) => Error::general_error(format!(
+                            "Dependency {} did not produce a value",
+                            key
+                        ))
+                        .with_key(&key),
+                    });
+                }
+                Status::None
+                | Status::Directory
+                | Status::Recipe
+                | Status::Submitted
+                | Status::Dependencies
+                | Status::Processing
+                | Status::Partial
+                | Status::Storing
+                | Status::Ready
+                | Status::Expired
+                | Status::Source
+                | Status::Override
+                | Status::Volatile => run?,
+            }
+        }
+        Ok(())
     }
 
     /// Run a dependency of `parent` that settled as [`Settled::NeedsRun`], inside `parent`'s
@@ -9933,7 +10036,13 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
         to: State<E::Value>,
         payload: Option<E::Payload>,
     ) -> Result<AssetRef<E>, Error> {
+        let graph = match recipe.to_plan(self.envref().get_command_metadata_registry()) {
+            Ok(plan) => crate::plan::upstream_graph(self.envref(), &plan, None).await,
+            Err(error) => Err(error),
+        };
         let asset_ref = AssetData::new_ext(self.next_id(), recipe, to, None, self.envref()).to_ref();
+        let session = asset_ref.evaluation_session_or_begin().await;
+        self.prime_upstream(&session, graph).await?;
         asset_ref.run_inline(payload).await?;
         Ok(asset_ref)
     }
@@ -10002,6 +10111,9 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
         match self.settle(key).await? {
             Settled::Available(asset_ref) => Ok(asset_ref),
             Settled::NeedsRun(asset_ref) => {
+                let session = asset_ref.evaluation_session_or_begin().await;
+                let graph = crate::plan::key_upstream_graph(self.envref(), key).await;
+                self.prime_upstream(&session, graph).await?;
                 // Backstop against re-entry — see the note in `get_asset`.
                 asset_ref.run_inline(None).await?;
                 Ok(asset_ref)

@@ -2924,6 +2924,33 @@ struct DependencyWalk<E: Environment> {
     /// `None` for a key no recipe serves. The CWD is part of the key because a recipe without its
     /// own `cwd` resolves relative operands against the caller's cursor.
     done: HashMap<(Key, Option<Key>), Option<DependencySummary>>,
+    /// When set, every finished recipe frame is recorded here, in post-order ([`upstream_graph`]).
+    recorder: Option<Vec<UpstreamNode>>,
+}
+
+/// A keyed recipe reachable from a plan, as recorded by [`upstream_graph`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct UpstreamNode {
+    pub(crate) key: Key,
+    /// The keys its plan reads as state or as a link, in plan order.
+    pub(crate) reads: Vec<Key>,
+    /// Whether the recipe itself is volatile.
+    pub(crate) volatile: bool,
+}
+
+/// The static upstream of a plan: the keys it reads as state or as a link (`roots`), and every
+/// keyed recipe reachable from them, in post-order (a recipe after everything it reads).
+#[derive(Debug, Clone, Default)]
+pub(crate) struct UpstreamGraph {
+    pub(crate) roots: Vec<Key>,
+    pub(crate) nodes: Vec<UpstreamNode>,
+}
+
+fn is_value_read(kind: ReadKind) -> bool {
+    match kind {
+        ReadKind::State | ReadKind::Link => true,
+        ReadKind::Recipe | ReadKind::Directory => false,
+    }
 }
 
 fn circular_dependency_error(key: &Key) -> Error {
@@ -2996,6 +3023,7 @@ impl<E: Environment> DependencyWalk<E> {
             envref,
             on_path: HashSet::new(),
             done: HashMap::new(),
+            recorder: None,
         }
     }
 
@@ -3079,6 +3107,18 @@ impl<E: Environment> DependencyWalk<E> {
                 };
                 self.on_path.remove(&memo_key.0);
                 self.done.insert(memo_key.clone(), Some(frame.summary.clone()));
+                if let Some(recorder) = self.recorder.as_mut() {
+                    recorder.push(UpstreamNode {
+                        key: memo_key.0.clone(),
+                        reads: frame
+                            .reads
+                            .iter()
+                            .filter(|read| is_value_read(read.kind))
+                            .map(|read| read.key.clone())
+                            .collect(),
+                        volatile: frame.summary.self_volatile,
+                    });
+                }
                 if let Some(parent) = stack.last_mut() {
                     if parent.key.is_none() {
                         parent.served.push(frame.kind == ReadKind::State);
@@ -3337,6 +3377,77 @@ fn dependency_check_error(plan: &mut Plan, error: &Error) {
 ///
 /// On error (a cycle, a recipe whose plan cannot be built) the error is set on the plan and
 /// returned, and nothing else is applied.
+/// The static upstream of `plan`, evaluated with `initial_cwd`: what it reads, and every keyed
+/// recipe reachable from that, in post-order.
+///
+/// It is the same walk as [`analyze_plan_dependencies`], recorded: iterative, so its depth does
+/// not follow the length of a chain, and failing on a recipe cycle. Dynamic dependencies (those a
+/// command requests while it runs) are not visible to it. Used by the inline asset manager to
+/// evaluate a cold chain bottom-up (`dependency-resolved-once-per-evaluation`).
+pub(crate) async fn upstream_graph<E: Environment>(
+    envref: EnvRef<E>,
+    plan: &Plan,
+    initial_cwd: Option<Key>,
+) -> Result<UpstreamGraph, Error> {
+    let mut cursor = CwdCursor::new(initial_cwd);
+    let mut walk = DependencyWalk::new(envref);
+    walk.recorder = Some(Vec::new());
+    let mut scan = PlanScan::default();
+    walk.scan_plan(plan, &mut cursor, &mut scan)?;
+    let roots = scan
+        .reads
+        .iter()
+        .filter(|read| is_value_read(read.kind))
+        .map(|read| read.key.clone())
+        .collect();
+    let root = Frame {
+        key: None,
+        kind: ReadKind::State,
+        served: Vec::with_capacity(scan.reads.len()),
+        reads: scan.reads,
+        next: 0,
+        summary: DependencySummary::default(),
+    };
+    walk.run(root).await?;
+    Ok(UpstreamGraph {
+        roots,
+        nodes: walk.recorder.take().unwrap_or_default(),
+    })
+}
+
+/// The static upstream of the keyed asset `key`, evaluated as a top-level request: its recipe's
+/// reads (`roots`), and every keyed recipe reachable from them, in post-order. The node of `key`
+/// itself comes last. Empty when no recipe serves `key`.
+pub(crate) async fn key_upstream_graph<E: Environment>(
+    envref: EnvRef<E>,
+    key: &Key,
+) -> Result<UpstreamGraph, Error> {
+    let mut walk = DependencyWalk::new(envref);
+    walk.recorder = Some(Vec::new());
+    let root = Frame {
+        key: None,
+        kind: ReadKind::State,
+        served: Vec::with_capacity(1),
+        reads: vec![Read {
+            key: key.clone(),
+            cursor: CwdCursor::new(None),
+            kind: ReadKind::State,
+        }],
+        next: 0,
+        summary: DependencySummary::default(),
+    };
+    walk.run(root).await?;
+    let mut nodes = walk.recorder.take().unwrap_or_default();
+    let roots = match nodes.last() {
+        Some(last) if &last.key == key => last.reads.clone(),
+        Some(_) | None => Vec::new(),
+    };
+    if matches!(nodes.last(), Some(last) if &last.key == key) {
+        nodes.pop();
+    }
+    Ok(UpstreamGraph { roots, nodes })
+}
+
 pub(crate) async fn analyze_plan_dependencies<E: Environment>(
     envref: EnvRef<E>,
     plan: &mut Plan,
@@ -4914,6 +5025,51 @@ mod tests {
         assert!(!plan.init_steps.iter().any(
             |step| matches!(step, Step::Warning(message) if message == RELATIVE_WITHOUT_CWD_WARNING)
         ));
+        Ok(())
+    }
+
+    /// `upstream_graph` records every recipe reachable from a plan, each after everything it
+    /// reads, and marks a volatile recipe so the inline manager's priming can leave it out.
+    #[tokio::test]
+    async fn upstream_graph_is_post_order_without_volatile_keys() -> Result<(), Error> {
+        let key = |k: &str| parse_key(k);
+        let recipe = |query: &str| Recipe::new(query.to_owned(), String::new(), String::new());
+        let mut volatile_v = recipe("tick")?;
+        volatile_v.volatile = true;
+        let provider = CountingRecipeProvider::new([
+            (key("d/v.txt")?, volatile_v),
+            (key("d/l0.txt")?, recipe("make_text")?),
+            (key("d/l1.txt")?, recipe("-R/d/l0.txt/-/upper")?),
+            (key("d/l2.txt")?, recipe("-R/d/l1.txt/-/join-~X~-R/d/v.txt~E")?),
+        ]);
+        let mut env = ImmediateEnvironment::<crate::value::Value>::new();
+        for name in ["make_text", "upper", "tick"] {
+            env.command_registry
+                .command_metadata_registry
+                .add_command(&CommandMetadata::new(name));
+        }
+        env.command_registry.command_metadata_registry.add_command(
+            &CommandMetadata::new("join").with_argument(ArgumentInfo::any_argument("other")),
+        );
+        env.with_recipe_provider(Box::new(provider));
+        let envref = env.to_ref();
+
+        let graph = key_upstream_graph(envref.clone(), &key("d/l2.txt")?).await?;
+        assert_eq!(graph.roots, vec![key("d/l1.txt")?, key("d/v.txt")?]);
+        let order: Vec<String> = graph.nodes.iter().map(|n| n.key.encode()).collect();
+        let position = |k: &str| order.iter().position(|o| o == k);
+        assert!(position("d/l0.txt") < position("d/l1.txt"), "{order:?}");
+        assert!(position("d/l2.txt").is_none(), "the requested key itself is not a node: {order:?}");
+        let v = graph.nodes.iter().find(|n| n.key == key("d/v.txt").unwrap_or_default());
+        assert!(v.is_some_and(|n| n.volatile), "{:?}", graph.nodes);
+        assert!(graph.nodes.iter().filter(|n| n.key != key("d/v.txt").unwrap_or_default()).all(|n| !n.volatile));
+
+        let mut plan = Plan::new();
+        plan.steps.push(Step::GetAsset(key("d/l1.txt")?));
+        let graph = upstream_graph(envref, &plan, None).await?;
+        assert_eq!(graph.roots, vec![key("d/l1.txt")?]);
+        let order: Vec<String> = graph.nodes.iter().map(|n| n.key.encode()).collect();
+        assert_eq!(order, vec!["d/l0.txt".to_owned(), "d/l1.txt".to_owned()]);
         Ok(())
     }
 
