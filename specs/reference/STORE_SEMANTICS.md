@@ -3,7 +3,7 @@ title: Store Behavioural Semantics
 kind: reference
 audience: internal
 area: [core/store, store/backends, web]
-reviewed: 2026-10-10
+reviewed: 2026-10-11
 ---
 # Store Behavioural Semantics
 
@@ -330,10 +330,35 @@ and `AsyncOpenDALStore` already behave as specified here.
 
 *Enforced by:* `keys01`, `keys02`, `nokeys01`.
 
+## 10. The data format of a written key
+
+> **Data written with no filename is stored with the key's last segment as its filename, and the
+> data format follows its extension. A declared filename or data format is kept.**
+
+So the same bytes written under `data/input.csv` with empty metadata report `csv` and `text/csv` on
+every store. Setting the filename is level-2 seeding (`MetadataRecord::set_filename`): it fills the
+data format only when none was declared, and it writes no media type, so an ordinary filename stays
+distinguishable from a deliberate media-type override. A key whose last segment has no extension
+gets a filename and no data format. Legacy metadata is an opaque document with no filename field
+and is stored as written.
+
+Every in-tree store seeds through one function, `liquers_core::store::seed_filename_from_key`,
+which the default `finalize_metadata` calls and which the stores that persist the caller's record
+as given (`AsyncMemoryStore`, `AsyncFileStore`, `JsStore`) call in `set`. `finalize_metadata` sets
+the record's key without `MetadataRecord::with_key`, which would overwrite a declared filename with
+the key's. A new store gets it by
+calling `finalize_metadata` on the record it persists, or the function directly. The HTTP store's
+`infer_metadata` already reported the same. Until 2026-10-11 only the stores whose persisted record
+went through `finalize_metadata` (OpenDAL, `LocalStorageStore`) did this, so `AsyncMemoryStore`
+reported `application/octet-stream` for the example above.
+
+*Enforced by:* `seed01`, `seed02`.
+
 ## History
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-11 | §10 added: a store seeds a written record's filename, and so its data format, from the key; a declared filename or data format is kept. Rules `seed01`, `seed02`. | `design/store-key-format-seeding/` |
 | 2026-10-10 | Introduction: the synchronous `Store` was removed, not merely obsolete; the rules stay trait-neutral for a future synchronous realm. §1 cites `AsyncFileStore` / `AsyncMemoryStore` only. | `CORE-SYNC-STORE-TRAIT-OBSOLETE`, `design/sync-store-removal/` |
 | 2026-10-07 | §8: a key with metadata and no data has no data object — `get` and `get_bytes` report `KeyNotFound`, while `set(k, b"", m)` stores an empty one. `AsyncMemoryStore` now behaves so. Enforced by the new rule `sidecar05`. | `design/memory-store-metadata-only-entry/` |
 | 2026-09-30 | §4: a delegating store must let the delegate express absence, with `JsStore`'s `null` sentinel as the example. Reviewed §2, §8 and §9 against the implementation and the final conformance reports: every in-tree store passes `dir07` and `sidecar04`. | phase-5 (`design/store-conformance-backlog/`) |

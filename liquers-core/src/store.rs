@@ -85,6 +85,26 @@ use crate::store_dir_index::DirectoryIndex;
 #[cfg(not(target_arch = "wasm32"))]
 use tokio::time::{sleep, Duration};
 
+/// Seed a written record's filename from `key` when it names none (`STORE_SEMANTICS.md` §10).
+///
+/// The filename is the key's last segment, and setting it seeds the data format from its
+/// extension unless one was declared — level-2 seeding, not a media-type override — so the same
+/// bytes under the same key report the same format on every store. A declared filename is kept.
+/// [`Metadata::LegacyMetadata`] is an opaque document with no filename field and is left as
+/// written.
+pub fn seed_filename_from_key(metadata: &mut Metadata, key: &Key) {
+    match metadata {
+        Metadata::MetadataRecord(record) => {
+            if record.filename.is_none() {
+                if let Some(name) = key.filename() {
+                    record.set_filename(name.encode());
+                }
+            }
+        }
+        Metadata::LegacyMetadata(_) => {}
+    }
+}
+
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 /// An asynchronous key-value store. This is the trait new backends implement.
@@ -117,7 +137,15 @@ pub trait AsyncStore: crate::maybe_send::MaybeSend + crate::maybe_send::MaybeSyn
         if update {
             let _ = metadata.set_updated_now();
         }
-        let _ = metadata.with_key(key.clone());
+        // `MetadataRecord::with_key` would also overwrite a declared filename with the key's;
+        // §10 keeps a declared one, so the key is set alone and the filename only seeded.
+        match metadata {
+            Metadata::MetadataRecord(record) => record.key = Some(key.clone()),
+            Metadata::LegacyMetadata(_) => {
+                let _ = metadata.with_key(key.clone());
+            }
+        }
+        seed_filename_from_key(metadata, key);
         metadata.with_file_size(data.len() as u64);
         match metadata.status() {
             metadata::Status::None => {
@@ -461,11 +489,13 @@ impl AsyncStore for AsyncMemoryStore {
 
     async fn set(&self, key: &Key, data: &[u8], metadata: &Metadata) -> Result<(), Error> {
         let key = key.as_absolute()?;
+        let mut metadata = metadata.clone();
+        seed_filename_from_key(&mut metadata, &key);
         let was_new = self
             .data
             .upsert_async(
                 key.to_owned(),
-                (Some(Arc::<[u8]>::from(data.to_vec())), metadata.clone()),
+                (Some(Arc::<[u8]>::from(data.to_vec())), metadata),
             )
             .await
             .is_none();
@@ -977,7 +1007,9 @@ impl AsyncStore for AsyncFileStore {
             .await
             .map_err(|e| Error::key_write_error(key, &self.store_name(), &e))?;
 
-        self.write_metadata_file(key, metadata).await
+        let mut metadata = metadata.clone();
+        seed_filename_from_key(&mut metadata, key);
+        self.write_metadata_file(key, &metadata).await
     }
 
     async fn set_metadata(&self, key: &Key, metadata: &Metadata) -> Result<(), Error> {
@@ -1612,7 +1644,8 @@ mod tests {
 
         let (data2, metadata2) = store.get(&key).await?;
         assert_eq!(data, data2);
-        assert!(metadata2.filename().is_none());
+        // Seeded from the key (STORE_SEMANTICS §10); `c` has no extension, so no data format.
+        assert_eq!(metadata2.filename().as_deref(), Some("c"));
 
         let mut updated_metadata = metadata.clone();
         updated_metadata.set_filename("c.bin")?;
@@ -1977,7 +2010,9 @@ mod tests {
 
         let (stored_data, stored_metadata) = store.get(&key).await?;
         assert_eq!(stored_data, data);
-        assert!(stored_metadata.filename().is_none());
+        // Seeded from the key (STORE_SEMANTICS §10).
+        assert_eq!(stored_metadata.filename().as_deref(), Some("test.txt"));
+        assert_eq!(stored_metadata.get_data_format(), "txt");
 
         let dir_names = store.listdir(&parse_key("dir")?).await?;
         assert!(dir_names.contains(&"test.txt".to_string()));

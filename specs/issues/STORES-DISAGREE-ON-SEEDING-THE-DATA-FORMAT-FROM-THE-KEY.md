@@ -2,7 +2,7 @@
 id: STORES-DISAGREE-ON-SEEDING-THE-DATA-FORMAT-FROM-THE-KEY
 kind: issue
 title: Some stores derive a file's data format from its key's extension and others do not
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [core/store, web]
@@ -39,3 +39,12 @@ when the written metadata has none, and make the stores agree, with a conformanc
 
 Found 2026-10-07 implementing `design/js-store-effective-media-type/`: its Phase 3 example E1 writes
 `{}` and expects `text/csv`, which the memory-store test could not reproduce.
+
+## Resolution (2026-10-11)
+
+Fixed as decided on 2026-10-10 (`STORE_SEMANTICS.md` §10): a store seeds a written record's
+filename from the key when it names none, so the data format follows the extension; a declared
+filename or data format is kept. One function, `liquers_core::store::seed_filename_from_key`, is
+called by the default `finalize_metadata` and by the `set` of the stores that persist the caller's
+record as given (`AsyncMemoryStore`, `AsyncFileStore`, `JsStore`). Conformance rules `seed01` and
+`seed02` hold on every store that accepts writes with stored metadata.
