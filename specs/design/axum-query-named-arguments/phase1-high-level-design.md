@@ -276,13 +276,19 @@ designs overrides on the Assets API or the WebSocket.
 
 ## Scope Changes
 
-- **2026-10-12 — Assets API and WebSocket submit.** The design started as the Query API only
+- **2026-10-12 — Assets API and WebSocket subscribe with overrides.** The design started as the Query API only
   (issue `QUERY-API-ARGUMENTS-ONLY-IN-QUERY-PATH`, complexity M). The user extended it to `q/data`,
   `q/entry`, `q/submit`, and to following an overridden evaluation through WebSocket `subscribe`;
   the `qe` entry route came with Q5 and went with Q7; `_entry_format` replaces `format` on every entry
   route (Q12). Added AC-13 to AC-22, the
   terminology, and documentation in four documents. Size: L; converted from the compact to the
   full form (each phase in its own file). Approval: pending at this gate.
+
+- **2026-10-12 — Crate placement refined at Phase 2.** Phase 2 found that `AssetManager::apply`
+  waits for the evaluation, so core also gains a provided trait method `AssetManager::apply_queued`
+  (overridden by both managers) and `Plan::last_action_command`; and `liquers-axum` takes a direct
+  `uuid` dependency (already in the lock file) for subscription ids. No acceptance criterion
+  changes. Approval: at the Phase 2 gate.
 
 ## References
 
