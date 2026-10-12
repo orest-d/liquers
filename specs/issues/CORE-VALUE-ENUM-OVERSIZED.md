@@ -66,6 +66,7 @@ Large variants hold `Arc<T>` rather than `T`:
 Metadata(Arc<MetadataRecord>),
 CommandMetadata(Arc<CommandMetadata>),
 Recipe(Arc<Recipe>),
+Query(Arc<Query>),      // added 2026-10-12: brings Value to 32 bytes
 ```
 
 `Arc` rather than `Box` because these are cloned far more often than mutated, and `Arc::clone` is a

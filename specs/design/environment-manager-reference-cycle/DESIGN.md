@@ -5,7 +5,7 @@ title: Environment teardown without reference cycles
 form: compact
 status: in_review
 phase: implementation
-readiness: needs-decision
+readiness: ready
 autofix: not-eligible
 area: [core/assets, core/context]
 issues: [ENVIRONMENT-MANAGER-REFERENCE-CYCLE]
@@ -82,23 +82,13 @@ values holding an `EnvRef` or `Context` (none are cached today).
 
 ### Design Readiness
 
-- **Readiness:** needs-decision
+- **Readiness:** ready
 - **Automatic fixing:** not-eligible — adds `pub` `try_get_envref` methods in `liquers-core`
-  (rule 4) and has an open decision (rule 5).
-- **Leading issue:** **Open design — explicit shutdown:** whether an `Environment::shutdown()`
-  belongs in this design, and what it promises.
+  (rule 4).
+- **Leading issue:** None
 - **Explanation:** all three paths are confirmed and each has a local `liquers-core` fix with no
-  signature change; the accessor and in-flight-work contracts were decided on 2026-10-12, and only
-  the shutdown question remains (Phases 3-4 assume it is a follow-up).
-- **Open questions:**
-  1. **Open design — explicit `Environment::shutdown()`.** The maintainer considers it potentially
-     useful for services that need an orderly stop (none exist today) and wants to discuss it.
-     Phases 3-4 assume it is **not** part of this design: once the cycles are gone, dropping the
-     last `EnvRef` releases everything synchronously, and `DefaultAssetManager::shutdown` remains
-     for stopping the queue and the expiration monitor. A shutdown API has its own contract to
-     settle (wait for or cancel in-flight work; whether the environment is usable afterwards;
-     idempotence; an async hook for services, since `Drop` cannot await) and would get its own
-     issue and design, which builds on `try_get_envref` from this one.
+  existing signature change; every contract question was decided by the maintainer on 2026-10-12.
+- **Open questions:** None.
 - **Decided 2026-10-12 (maintainer):**
   1. **Accessor failure contract: panic.** The asset and manager `get_envref()` accessors stay
      infallible and panic with a message naming teardown, documented under `# Panics`;
@@ -108,6 +98,10 @@ values holding an `EnvRef` or `Context` (none are cached today).
   2. **Work in flight keeps the environment alive.** Queued and running work pins the environment
      until it finishes (AC-5; matches today), so `evaluate` → drop → `get` keeps working.
   3. **Temporary-asset loop fix in scope (AC-7),** as proposed.
+  4. **No explicit `Environment::shutdown()` here.** Split off as the feature
+     `ENVIRONMENT-ORDERLY-SHUTDOWN` (P3, M), which requires this design and settles its own contract
+     (in-flight work, use after shutdown, idempotence, an async hook for services). Dropping the
+     last `EnvRef` is the teardown this design delivers; `DefaultAssetManager::shutdown` stays.
 
 ### Design Dependencies
 
