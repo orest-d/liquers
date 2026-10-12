@@ -91,22 +91,16 @@ sharing a `MetadataRecord` between a state and a value (filed as
 - **Open questions:** None.
 - **Decided 2026-10-12 (maintainer):**
   1. **Variant set and bound: four variants, 32 bytes.** `Metadata`, `Recipe`, `CommandMetadata`
-     and `Query` hold `Arc<T>`; the guard is `<= 32`. After the first three, `Query` (64) is the
-     largest payload; with it the largest are `String`, `Vec`, `BTreeMap` and `Key` (24 each).
-     Going below 32 means boxing `Text`/`Array`/`Object`, a second indirection on the commonest
-     values, so 32 is the floor worth having. CPython stores a list element as an 8-byte pointer to
-     an object of at least 16 bytes (an `int` is 28), about 36 bytes per number; 32 matches it.
+     and `Query` hold `Arc<T>`; the guard is `<= 32`. The largest remaining payloads are `String`,
+     `Vec`, `BTreeMap` and `Key` (24); going lower would box the commonest values. CPython pays
+     about 36 bytes per number in a list.
   2. **Arc versus Box: `Arc`.** Both are 8 bytes; `Box` deep-copies on every
      `Clone`, which is what `Value` does constantly, and `ExtValue` already uses `Arc`.
-  3. **Trait signatures: kept owned.** Analysed at the maintainer's request: where would `Arc<T>` in or out of `ValueInterface` avoid a copy today? Nowhere:
-     `try_into_command_metadata` has no production caller (only delegations and tests); there is no
-     `try_into_metadata` / `try_into_recipe`; readers match on the enum by reference (eight sites
-     per variant), which costs nothing either way; producers (`interpreter.rs` `GetResourceMetadata`
-     twice, `liquers-lib` `to_metadata`) own or clone a `MetadataRecord` taken out of
-     `Arc<Metadata>`, an enum over record and legacy JSON, so an `Arc<MetadataRecord>` parameter
-     could not share it without also changing `State::metadata`, a separate and larger change.
-     Kept: owned `T` in and out. The maintainer noted that `MetadataRecord` can benefit from sharing;
-     that refactoring (and a shared byte type from the store) is `SHAREABLE-METADATA-AND-BYTES-ARE-DEEP-COPIED`.
+  3. **Trait signatures: kept owned.** No caller would avoid a copy with `Arc` in or out today:
+     `try_into_command_metadata` has no production caller, readers match by reference, and the
+     producers clone a record out of `State::metadata` (`Arc<Metadata>`, not
+     `Arc<MetadataRecord>`). Sharing records and store bytes is
+     `SHAREABLE-METADATA-AND-BYTES-ARE-DEEP-COPIED`.
   4. **Scope across crates (proposed, not questioned):** `SimpleValue` is in scope (it is the base of
      the lib `Value`, so AC-2 fails without it). `liquers-py`'s `Value` is out of scope, filed as
      `PY-VALUE-ENUM-OVERSIZED`: a separate enum of pyclass wrappers built only with PyO3.
