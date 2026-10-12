@@ -15,7 +15,7 @@ use std::sync::Arc;
 
 use polars::prelude::{
     AnyValue, Column as PolarsColumn, DataFrame, DataType, IpcReader, IpcWriter, NamedFrom, SerReader, SerWriter,
-    Series, TimeUnit,
+    Series, TimeUnit, TimeZone,
 };
 
 use liquers_lib::records::{
@@ -23,6 +23,7 @@ use liquers_lib::records::{
     RecordSchema, RecordView, RecordViewMut, TableFormat, WriteOptions,
 };
 use liquers_core::error::Error;
+use liquers_lib::records::polars::{dataframe_to_record_batch, record_batch_to_dataframe};
 
 /// The six scalar types `write_ipc`/`read_ipc` map onto Arrow's `Int64`/`Float64`/`Utf8`/`Bool`/
 /// `Date32`/`Timestamp(µs)` (phase2-architecture.md §"Where our layout meets Arrow's"), each with
@@ -93,8 +94,10 @@ fn ipc_written_by_records_reads_in_polars() -> Result<(), Box<dyn std::error::Er
     assert_eq!(df.column("joined")?.get(1)?, AnyValue::Null);
     assert_eq!(df.column("joined")?.get(2)?, AnyValue::Date(19_800));
 
-    assert_eq!(df.column("created_at")?.get(0)?, AnyValue::Datetime(123_456_789, TimeUnit::Microseconds, None));
-    assert_eq!(df.column("created_at")?.get(1)?, AnyValue::Datetime(99, TimeUnit::Microseconds, None));
+    // A `Timestamp` is written as `Timestamp(Microsecond, "UTC")`, so polars sees a UTC instant.
+    let utc = TimeZone::UTC;
+    assert_eq!(df.column("created_at")?.get(0)?, AnyValue::Datetime(123_456_789, TimeUnit::Microseconds, Some(&utc)));
+    assert_eq!(df.column("created_at")?.get(1)?, AnyValue::Datetime(99, TimeUnit::Microseconds, Some(&utc)));
     assert_eq!(df.column("created_at")?.get(2)?, AnyValue::Null);
 
     Ok(())
@@ -183,5 +186,61 @@ fn generate_dictionary_and_compressed_fixtures() -> Result<(), Box<dyn std::erro
     IpcWriter::new(&mut buf).finish(&mut df)?;
     std::fs::write(fixtures_dir.join("dictionary_encoded.ipc"), &buf)?;
 
+    Ok(())
+}
+
+fn timestamp_batch(values: &[i64]) -> Result<liquers_lib::records::RecordBatch, Error> {
+    let schema = Arc::new(RecordSchema::new(vec![FieldSchema::new("t", FieldType::Timestamp)])?);
+    let mut batch = RecordBatchMut::with_capacity(schema, values.len());
+    for value in values {
+        batch.append_row(&[FieldValue::Timestamp(*value)])?;
+    }
+    batch.freeze()
+}
+
+#[test]
+fn polars_bridge_timestamp_is_utc() -> Result<(), Box<dyn std::error::Error>> {
+    let batch = timestamp_batch(&[1_700_000_000_123_456])?;
+    let utc = DataType::Datetime(TimeUnit::Microseconds, Some(TimeZone::UTC));
+
+    let bridged = record_batch_to_dataframe(&batch)?;
+    assert_eq!(bridged.column("t")?.dtype(), &utc);
+
+    let bytes = write_table(&batch, TableFormat::Ipc, &WriteOptions::default())?;
+    let from_ipc: DataFrame = IpcReader::new(Cursor::new(bytes)).finish()?;
+    assert_eq!(from_ipc.column("t")?.dtype(), &utc);
+    Ok(())
+}
+
+#[test]
+fn polars_zoned_and_naive_datetimes_keep_epoch_values() -> Result<(), Box<dyn std::error::Error>> {
+    let values = [Some(1_700_000_000_123_456i64), None, Some(-86_400_000_000)];
+    let column = |name: &str, time_zone: Option<TimeZone>| -> Result<PolarsColumn, Box<dyn std::error::Error>> {
+        Ok(Series::new(name.into(), values)
+            .cast(&DataType::Datetime(TimeUnit::Microseconds, time_zone))?
+            .into())
+    };
+    let millis: PolarsColumn = Series::new("millis".into(), values.map(|v| v.map(|v| v / 1000)))
+        .cast(&DataType::Datetime(TimeUnit::Milliseconds, Some(TimeZone::UTC)))?
+        .into();
+    let df = DataFrame::new(
+        3,
+        vec![
+            column("naive", None)?,
+            column("utc", Some(TimeZone::UTC))?,
+            column("prague", TimeZone::opt_try_new(Some("Europe/Prague"))?)?,
+            millis,
+        ],
+    )?;
+
+    let batch = dataframe_to_record_batch(&df)?;
+    for field in 0..3 {
+        assert_eq!(batch.value(0, field)?, FieldValue::Timestamp(1_700_000_000_123_456), "field {field}");
+        assert_eq!(batch.value(1, field)?, FieldValue::Null, "field {field}");
+        assert_eq!(batch.value(2, field)?, FieldValue::Timestamp(-86_400_000_000), "field {field}");
+    }
+    // A millisecond column changes unit, not instant.
+    assert_eq!(batch.value(0, 3)?, FieldValue::Timestamp(1_700_000_000_123_000));
+    assert_eq!(batch.value(2, 3)?, FieldValue::Timestamp(-86_400_000_000));
     Ok(())
 }

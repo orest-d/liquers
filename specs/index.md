@@ -8,9 +8,9 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 104
+Total rows: 103
 - P2: 52
-- P3: 52
+- P3: 51
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -66,7 +66,6 @@ Total rows: 104
 | [`NO-RELATIONAL-DATABASE-ACCESS-LAYER`](issues/NO-RELATIONAL-DATABASE-ACCESS-LAYER.md) | feature | No access layer from Liquers into relational databases | draft |  |  | P2 | XL | lib/value;lib/commands;store/backends |  | 2026-09-20 |
 | [`NO-REMOTE-STORE-OR-ASSET-MANAGER`](issues/NO-REMOTE-STORE-OR-ASSET-MANAGER.md) | feature | A client environment cannot use a server's store or asset manager as its own | draft |  |  | P2 | XL | axum;web;core/assets;core/store |  | 2026-09-27 |
 | [`VALUE-TYPE-DEFINITION-MACRO`](issues/VALUE-TYPE-DEFINITION-MACRO.md) | feature | Value types and their registry entries are hand-written instead of generated | draft |  |  | P2 | XL | macro;lib/value;core/value |  | 2026-08-18 |
-| [`RECORD-TIMESTAMP-TIME-ZONE-DIFFERS-BY-FORMAT`](issues/RECORD-TIMESTAMP-TIME-ZONE-DIFFERS-BY-FORMAT.md) | issue | A record Timestamp column is a UTC instant in Parquet and a naive date-time in IPC and polars | draft | ready | not-eligible | P3 | S | records;lib/polars | [phase1](design/record-timestamp-utc/phase1-high-level-design.md)  [phase2](design/record-timestamp-utc/phase2-architecture.md)  [phase3](design/record-timestamp-utc/phase3-examples.md)  [phase4](design/record-timestamp-utc/phase4-implementation.md)  | 2026-09-27 |
 | [`STORES-DISAGREE-ON-SEEDING-THE-DATA-FORMAT-FROM-THE-KEY`](issues/STORES-DISAGREE-ON-SEEDING-THE-DATA-FORMAT-FROM-THE-KEY.md) | issue | Some stores derive a file's data format from its key's extension and others do not | draft | ready | not-eligible | P3 | S | core/store;web | [design](design/store-key-format-seeding/DESIGN.md) | 2026-10-07 |
 | [`WEB-LIQUERSERROR-NOT-CONSTRUCTIBLE`](issues/WEB-LIQUERSERROR-NOT-CONSTRUCTIBLE.md) | issue | JavaScript cannot construct a LiquersError, so a page cannot raise a typed error | accepted | ready | not-eligible | P3 | S | web;core/error | [phase1](design/web-liquers-error-constructor/phase1-high-level-design.md)  [phase2](design/web-liquers-error-constructor/phase2-architecture.md)  [phase3](design/web-liquers-error-constructor/phase3-examples.md)  [phase4](design/web-liquers-error-constructor/phase4-implementation.md)  | 2026-08-09 |
 | [`COMMAND-REGISTRY-HEADER-NAMES-GROUPS-NOT-FEATURES`](issues/COMMAND-REGISTRY-HEADER-NAMES-GROUPS-NOT-FEATURES.md) | issue | The command_registry.yaml header lists group names under "features" | draft |  |  | P3 | S | lib/commands;build |  | 2026-10-11 |
