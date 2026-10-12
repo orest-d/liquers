@@ -8,9 +8,9 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 110
+Total rows: 111
 - P2: 52
-- P3: 58
+- P3: 59
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -52,7 +52,7 @@ Total rows: 110
 | [`EXTENDED-FAST-TRACK`](issues/EXTENDED-FAST-TRACK.md) | feature | Fast-track covers only simple loading | accepted |  |  | P2 | L | core/assets |  | 2026-08-08 |
 | [`LIBRARY-CODE-USES-UNWRAP-AND-EXPECT`](issues/LIBRARY-CODE-USES-UNWRAP-AND-EXPECT.md) | issue | Library code uses unwrap and expect despite the no-panic rule | draft |  |  | P2 | L | core/query;lib/commands;axum | [phase1](design/axum-assets-endpoints/phase1-high-level-design.md)  [phase2](design/axum-assets-endpoints/phase2-architecture.md)  [phase3](design/axum-assets-endpoints/phase3-examples.md)  [phase4](design/axum-assets-endpoints/phase4-implementation.md)  | 2026-08-17 |
 | [`NO-SQL-QUERY-CAPABILITY-OVER-STORED-AND-DERIVED-DATA`](issues/NO-SQL-QUERY-CAPABILITY-OVER-STORED-AND-DERIVED-DATA.md) | feature | No SQL query capability over stored and derived data | draft |  |  | P2 | L | core/store;lib/commands |  | 2026-09-17 |
-| [`QUERY-API-ARGUMENTS-ONLY-IN-QUERY-PATH`](issues/QUERY-API-ARGUMENTS-ONLY-IN-QUERY-PATH.md) | feature | Query API arguments cannot be passed as JSON or URL parameters | draft |  |  | P2 | L | axum | [phase1](design/axum-query-named-arguments/phase1-high-level-design.md)  [phase2](design/axum-query-named-arguments/phase2-architecture.md)  | 2026-10-10 |
+| [`QUERY-API-ARGUMENTS-ONLY-IN-QUERY-PATH`](issues/QUERY-API-ARGUMENTS-ONLY-IN-QUERY-PATH.md) | feature | Query API arguments cannot be passed as JSON or URL parameters | draft |  |  | P2 | L | axum | [phase1](design/axum-query-named-arguments/phase1-high-level-design.md)  [phase2](design/axum-query-named-arguments/phase2-architecture.md)  [phase3](design/axum-query-named-arguments/phase3-examples.md)  | 2026-10-10 |
 | [`QUERY-BUILDER-TOOLING`](issues/QUERY-BUILDER-TOOLING.md) | issue | No programmatic builder for constructing queries | accepted |  |  | P2 | L | core/query;core/validate |  | 2026-08-08 |
 | [`RECORD-AND-POLARS-COMMANDS-NOT-INTEROPERABLE`](issues/RECORD-AND-POLARS-COMMANDS-NOT-INTEROPERABLE.md) | feature | Record and polars commands differ in names and inputs, so a query cannot move between them | draft |  |  | P2 | L | records | [design](design/record-filter-commands/DESIGN.md) | 2026-10-11 |
 | [`RESOURCE-NAME-ASCII-ONLY`](issues/RESOURCE-NAME-ASCII-ONLY.md) | issue | Non-ASCII resource names are unaddressable | draft |  |  | P2 | L | core/query;core/store |  | 2026-08-14 |
@@ -78,6 +78,7 @@ Total rows: 110
 | [`COMMAND-REGISTRY-HEADER-NAMES-GROUPS-NOT-FEATURES`](issues/COMMAND-REGISTRY-HEADER-NAMES-GROUPS-NOT-FEATURES.md) | issue | The command_registry.yaml header lists group names under "features" | draft |  |  | P3 | S | lib/commands;build |  | 2026-10-11 |
 | [`LIB-BUILD-EMITS-UNUSED-AND-UNHANDLED-RESULT-WARNINGS`](issues/LIB-BUILD-EMITS-UNUSED-AND-UNHANDLED-RESULT-WARNINGS.md) | issue | A default liquers-lib build emits about 50 warnings, some for discarded Results | draft |  |  | P3 | S | lib/commands;build |  | 2026-10-11 |
 | [`TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS`](issues/TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS.md) | issue | TypeInfo cannot declare a format a type writes but cannot read back | draft |  |  | P3 | S | core/value |  | 2026-09-24 |
+| [`VALIDATE-COMMAND-STUB-REJECTS-POSITIONAL-EMPTIES`](issues/VALIDATE-COMMAND-STUB-REJECTS-POSITIONAL-EMPTIES.md) | issue | A liquers-validate --command stub rejects a query with empty positional parameters | draft |  |  | P3 | S | core/validate |  | 2026-10-12 |
 | [`REGISTER-COMMAND-OPTION-VALUE-CANNOT-BIND`](issues/REGISTER-COMMAND-OPTION-VALUE-CANNOT-BIND.md) | issue | register_command! cannot bind an Option<Value> argument | draft | ready | not-eligible | P3 | M | macro | [phase1](design/register-command-option-value/phase1-high-level-design.md)  [phase2](design/register-command-option-value/phase2-architecture.md)  [phase3](design/register-command-option-value/phase3-examples.md)  [phase4](design/register-command-option-value/phase4-implementation.md)  | 2026-09-26 |
 | [`CONTEXT-TITLE-LOST-ACROSS-PREDECESSOR-BOUNDARY`](issues/CONTEXT-TITLE-LOST-ACROSS-PREDECESSOR-BOUNDARY.md) | issue | A title or description set by a command in a cut predecessor does not reach the final asset | draft | needs-decision | not-eligible | P3 | M | core/context;core/plan | [phase1](design/context-title-predecessor-inheritance/phase1-high-level-design.md)  [phase2](design/context-title-predecessor-inheritance/phase2-architecture.md)  [phase3](design/context-title-predecessor-inheritance/phase3-examples.md)  [phase4](design/context-title-predecessor-inheritance/phase4-implementation.md)  | 2026-10-06 |
 | [`ASSETS-API-ADMIN-OPERATIONS`](issues/ASSETS-API-ADMIN-OPERATIONS.md) | feature | Manager status and a guarded remove have no assets API endpoint | draft |  |  | P3 | M | axum;core/assets |  | 2026-09-27 |
