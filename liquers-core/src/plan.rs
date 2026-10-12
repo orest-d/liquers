@@ -2598,6 +2598,31 @@ impl Plan {
         }
     }
 
+    /// Metadata of the command the query named for its last action.
+    ///
+    /// For an alias this is the alias (`ActionOrigin::Alias { command }`), not its target: the
+    /// alias's own arguments are the ones a caller may name. Its head slots carry the target's
+    /// argument names and are fixed by the alias definition, so they are deliberately not among
+    /// the returned arguments. `None` when the plan has no action or the command is unknown.
+    pub fn last_action_command(&self, cmr: &CommandMetadataRegistry) -> Option<CommandMetadata> {
+        let i = self.last_action_index()?;
+        if let Step::Action {
+            realm,
+            ns,
+            action_name,
+            origin,
+            ..
+        } = &self.steps[i]
+        {
+            match origin {
+                ActionOrigin::Direct => cmr.find_command(realm, ns, action_name),
+                ActionOrigin::Alias { command } => cmr.get(command.clone()).cloned(),
+            }
+        } else {
+            None
+        }
+    }
+
     /// Find index of the last action in the plan
     fn last_action_index(&self) -> Option<usize> {
         for (i, s) in self.steps.iter().enumerate().rev() {
@@ -6651,4 +6676,39 @@ mod tests {
         assert!(matches!(chain.steps.first(), Some(Step::Evaluate(_))));
         Ok(())
     }
+
+    /// `last_action_command` names the command the query named: the alias itself for an alias
+    /// (whose own arguments are the overridable ones), the command for a direct action.
+    #[test]
+    fn last_action_command_returns_alias_metadata() -> Result<(), Box<dyn std::error::Error>> {
+        let mut cmr = CommandMetadataRegistry::new();
+        let mut slice = CommandMetadata::new("slice");
+        slice
+            .with_namespace("pl")
+            .with_argument(ArgumentInfo::integer_argument("offset", false))
+            .with_argument(ArgumentInfo::integer_argument("length", false));
+        cmr.add_command(&slice);
+        let mut head = CommandMetadata::new("head");
+        head.with_namespace("pl")
+            .with_argument(ArgumentInfo::integer_argument("n", false));
+        head.definition = CommandDefinition::Alias {
+            command: CommandKey::new("", "pl", "slice"),
+            head_parameters: vec![CommandParameterValue::Value(serde_json::Value::from(0))],
+        };
+        cmr.add_command(&head);
+
+        let plan = PlanBuilder::new(parse_query("ns-pl/head-5")?, &cmr).build()?;
+        let command = plan.last_action_command(&cmr).ok_or("no command")?;
+        assert_eq!(command.name, "head");
+        let names: Vec<&str> = command.arguments.iter().map(|a| a.name.as_str()).collect();
+        assert_eq!(names, vec!["n"]);
+
+        let plan = PlanBuilder::new(parse_query("ns-pl/slice-1-2")?, &cmr).build()?;
+        assert_eq!(plan.last_action_command(&cmr).ok_or("no command")?.name, "slice");
+
+        let plan = PlanBuilder::new(parse_query("-R/a/b.txt")?, &cmr).build()?;
+        assert!(plan.last_action_command(&cmr).is_none());
+        Ok(())
+    }
+
 }
