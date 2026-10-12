@@ -2,8 +2,7 @@
 id: STORE-GUIDE-STATUS-TABLE
 kind: design
 title: Store guide status table: generator or honest hand maintenance
-status: in_review
-phase: implementation
+gh_pr: [120]
 readiness: ready
 autofix: not-eligible
 area: [docs, store/backends]

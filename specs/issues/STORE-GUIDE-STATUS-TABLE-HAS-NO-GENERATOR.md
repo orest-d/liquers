@@ -2,7 +2,7 @@
 id: STORE-GUIDE-STATUS-TABLE-HAS-NO-GENERATOR
 kind: issue
 title: The store guide's status table claims to be generated from the conformance reports, and no generator exists
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [docs, store/backends]
@@ -38,3 +38,12 @@ it when a rule or a store changes".
 
 Found 2026-09-29 while planning Phase 4 of `design/store-conformance-backlog/`, which had to
 edit the table and looked for the generator it names.
+
+## Resolution (2026-10-11)
+
+Built, as decided on 2026-10-10. The core and store conformance tests are refactored into
+report-returning functions, and an ignored `status_table` test in each
+(`liquers-core/tests/store_conformance_CONF.rs`, `liquers-store/tests/store_conformance_CONF.rs`)
+prints the native and OpenDAL rows of `STORE_IMPLEMENTATION_GUIDE.md` §9, with each store's notes
+kept beside its row. The guide gives the regeneration commands and says the browser rows are still
+merged by hand. The regenerated rows equal the previous ones.
