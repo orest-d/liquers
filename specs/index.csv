@@ -29,6 +29,7 @@ AXUM-ASSETS-API-SERVES-ONLY-BYTES-AND-TEXT,issue,"The assets data and entry endp
 AXUM-ASSETS-CANCEL-STARTS-EVALUATION,issue,POST /api/assets/cancel starts an evaluation before cancelling it,closed,local,,,,P3,S,axum,,,,axum-assets-endpoints,,2026-09-27,specs/issues/AXUM-ASSETS-CANCEL-STARTS-EVALUATION.md
 AXUM-ASSETS-WEBSOCKET-ROUTE-PANICS,issue,AssetsApiBuilder::build panics whenever the WebSocket route is enabled,closed,local,,,,P1,S,axum,,,,axum-assets-endpoints,,2026-09-27,specs/issues/AXUM-ASSETS-WEBSOCKET-ROUTE-PANICS.md
 AXUM-HANDLER-TEST-COVERAGE,issue,"liquers-axum has no handler test scaffolding, so handler behaviour is verified only by review",closed,local,,,,P2,M,axum,,,,axum-assets-endpoints,,2026-08-08,specs/issues/AXUM-HANDLER-TEST-COVERAGE.md
+AXUM-QUERY-API-QUERY-KEEPS-LEADING-SLASH,issue,The Query API mounted without a trailing slash evaluates the query with a leading slash,draft,local,,,,P3,S,axum,,,,,,2026-10-12,specs/issues/AXUM-QUERY-API-QUERY-KEEPS-LEADING-SLASH.md
 AXUM-QUERY-TIMEOUT-HARDCODED,issue,The query handler's 30-second timeout is hardcoded,closed,local,,,,P2,S,axum,,,,axum-assets-endpoints,,2026-09-16,specs/issues/AXUM-QUERY-TIMEOUT-HARDCODED.md
 AXUM-RECIPES-METADATA-AND-ENTRY-ARE-PLACEHOLDERS,issue,The Recipes API's metadata and entry endpoints return placeholder metadata and ignore the format,closed,local,,ready,eligible,P3,S,axum,,,,axum-recipes-metadata-entry,,2026-09-28,specs/issues/AXUM-RECIPES-METADATA-AND-ENTRY-ARE-PLACEHOLDERS.md
 AXUM-STORE-KEYS-LISTS-ONLY-DIRECT-CHILDREN,issue,"GET /api/store/keys lists only the direct children of the prefix, not all keys",closed,local,,ready,eligible,P3,S,axum,,,,axum-store-keys-deep,,2026-09-28,specs/issues/AXUM-STORE-KEYS-LISTS-ONLY-DIRECT-CHILDREN.md
@@ -198,7 +199,7 @@ PY-PYO3-REJECTS-PYTHON-3-13,issue,liquers-py does not build against Python 3.13 
 PY-VALUE-SERIALIZER-IS-A-STUB,issue,liquers-py's value serializer writes almost nothing and reads nothing back,draft,local,,,,P2,M,py;core/value,,,,,,2026-08-26,specs/issues/PY-VALUE-SERIALIZER-IS-A-STUB.md
 PY-VALUE-TYPE-DESCRIPTIONS-MISSING,issue,"liquers-py's Value describes no types, so its registry would refuse every write",closed,local,,,,P2,M,py;core/value,,,,foreign-value-type-registration,,2026-08-26,specs/issues/PY-VALUE-TYPE-DESCRIPTIONS-MISSING.md
 QUERY-ABSOLUTE-FIELD-NAME-AMBIGUOUS,issue,"Query::absolute names a leading slash, colliding with two other meanings of absolute",draft,local,,ready,not-eligible,P3,S,core/query,,,,query-leading-slash-field,,2026-08-17,specs/issues/QUERY-ABSOLUTE-FIELD-NAME-AMBIGUOUS.md
-QUERY-API-ARGUMENTS-ONLY-IN-QUERY-PATH,feature,Query API arguments cannot be passed as JSON or URL parameters,draft,local,,ready,not-eligible,P2,L,axum,,,,axum-query-named-arguments,,2026-10-10,specs/issues/QUERY-API-ARGUMENTS-ONLY-IN-QUERY-PATH.md
+QUERY-API-ARGUMENTS-ONLY-IN-QUERY-PATH,feature,Query API arguments cannot be passed as JSON or URL parameters,closed,local,,ready,not-eligible,P2,L,axum,,,,axum-query-named-arguments,,2026-10-10,specs/issues/QUERY-API-ARGUMENTS-ONLY-IN-QUERY-PATH.md
 QUERY-AST-DISCARDS-ENTITIES,issue,"Parsed entities are decoded away, so the AST cannot show them",draft,local,,,,P3,L,core/query,,,,,,2026-08-14,specs/issues/QUERY-AST-DISCARDS-ENTITIES.md
 QUERY-BUILDER-TOOLING,issue,No programmatic builder for constructing queries,accepted,local,,,,P2,L,core/query;core/validate,,,,,,2026-08-08,specs/issues/QUERY-BUILDER-TOOLING.md
 QUERY-CANNOT-MARK-CACHED-INTERMEDIATES,feature,A query cannot mark which of its intermediates are worth caching,draft,local,,,,P3,M,core/plan;core/assets;core/query,,,,,,2026-10-10,specs/issues/QUERY-CANNOT-MARK-CACHED-INTERMEDIATES.md
@@ -308,7 +309,7 @@ ACTIVE-04,design,Design for DOCS-ASYNC-STORE-WRAPPER-NO-LONGER-EXISTS,complete,l
 ASYNC-WASM-REFACTOR,design,Async evaluation on wasm,complete,local,,,,,,core/assets;web,,,,async-wasm-refactor,,2026-03-02,specs/design/async-wasm-refactor/DESIGN.md
 AXUM-ASSETS-ENDPOINTS,design,A working web and WebSocket interface for the asset manager,,github,implementation,,,,,axum;core/assets;core/error;docs,,73,,axum-assets-endpoints,,2026-09-27,specs/design/axum-assets-endpoints/DESIGN.md
 AXUM-ASSETS-RECIPES-API,design,Assets and recipes HTTP API,complete,local,,,,,,axum,,,,axum-assets-recipes-api,,2026-03-02,specs/design/axum-assets-recipes-api/DESIGN.md
-AXUM-QUERY-NAMED-ARGUMENTS,design,Argument overrides over HTTP and WebSocket,approved,local,implementation,ready,not-eligible,P2,L,axum;core/assets;core/plan,,,,axum-query-named-arguments,,2026-10-11,specs/design/axum-query-named-arguments/DESIGN.md
+AXUM-QUERY-NAMED-ARGUMENTS,design,Argument overrides over HTTP and WebSocket,in_review,local,documentation,ready,not-eligible,P2,L,axum;core/assets;core/plan,,,,axum-query-named-arguments,,2026-10-11,specs/design/axum-query-named-arguments/DESIGN.md
 AXUM-RECIPES-METADATA-ENTRY,design,Recipes API metadata and entry return real recipe metadata and negotiate format,complete,local,,ready,eligible,P3,S,axum,,,,axum-recipes-metadata-entry,,2026-10-06,specs/design/axum-recipes-metadata-entry/DESIGN.md
 AXUM-STORE-KEYS-DEEP,design,Store API keys route enumerates every key under the prefix,,github,,ready,eligible,P3,S,axum,,109,,axum-store-keys-deep,,2026-10-06,specs/design/axum-store-keys-deep/DESIGN.md
 AXUM-STORE-MAKEDIR-TEST-UNIGNORE,design,Run the axum store makedir test that is ignored for a fixed limitation,,github,,ready,eligible,P3,S,axum;core/store,,105,,axum-store-makedir-test-unignore,,2026-10-10,specs/design/axum-store-makedir-test-unignore/DESIGN.md
@@ -474,11 +475,11 @@ DOC_01_ARCHITECTURE_REFERENCE,reference,Architecture Reference,current,local,,,,
 DOC_02_QUERY_LANGUAGE_REFERENCE,reference,Query Language Reference,current,local,,,,,,core/query,,,,,2026-10-10,,specs/reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md
 DOC_03_ASSETS_EXECUTION_LIFECYCLE,reference,Assets and Execution Lifecycle Reference,current,local,,,,,,core/assets,,,,,2026-10-10,,specs/reference/api/DOC_03_ASSETS_EXECUTION_LIFECYCLE.md
 DOC_04_ENVIRONMENT_CONTEXT_EVALUATION,reference,"Environment, Context and Evaluation Reference",current,local,,,,,,core/context;core/plan,,,,,2026-10-10,,specs/reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md
-DOC_08_RECIPES_PLANS,reference,Recipes and Plans Reference,current,local,,,,,,core/plan;core/assets;core/context,,,,,2026-10-10,,specs/reference/api/DOC_08_RECIPES_PLANS.md
-ASSET_LIFECYCLE,reference,Asset Evaluation — Flows and Public Surface,current,local,,,,,,core/assets,,,,,2026-10-09,,specs/reference/ASSET_LIFECYCLE.md
+DOC_08_RECIPES_PLANS,reference,Recipes and Plans Reference,current,local,,,,,,core/plan;core/assets;core/context,,,,,2026-10-12,,specs/reference/api/DOC_08_RECIPES_PLANS.md
+ASSET_LIFECYCLE,reference,Asset Evaluation — Flows and Public Surface,current,local,,,,,,core/assets,,,,,2026-10-12,,specs/reference/ASSET_LIFECYCLE.md
 ASSET_SET_OPERATION,reference,Asset Set Operation Specification,current,local,,,,,,core/assets,,,,,2026-10-10,,specs/reference/ASSET_SET_OPERATION.md
 ASSETS,reference,Assets Specification,current,local,,,,,,core/assets,,,,,2026-10-10,,specs/reference/ASSETS.md
-COMMAND_ALIASES,reference,Command Aliases,current,local,,,,,,core/commands;core/plan,,,,,2026-10-10,,specs/reference/COMMAND_ALIASES.md
+COMMAND_ALIASES,reference,Command Aliases,current,local,,,,,,core/commands;core/plan,,,,,2026-10-12,,specs/reference/COMMAND_ALIASES.md
 COMMAND_DECLARATION,reference,Command Declaration Format,current,local,,,,,,core/commands;web;py,,,,,2026-10-11,,specs/reference/COMMAND_DECLARATION.md
 CONFORMANCE_TERMS,reference,Conformance Terms,current,local,,,,,,docs,,,,,2026-09-02,,specs/reference/CONFORMANCE_TERMS.md
 DEPENDENCIES_STATUS,reference,Status::Dependencies Specification,current,local,,,,,,core/assets,,,,,2026-10-09,,specs/reference/DEPENDENCIES_STATUS.md
@@ -494,8 +495,8 @@ STORE_CONFIG_FSD,reference,Store Configuration Functional Specification,current,
 STORE_SEMANTICS,reference,Store Behavioural Semantics,current,local,,,,,,core/store;store/backends;web,,,,,2026-10-10,,specs/reference/STORE_SEMANTICS.md
 UI_INTERFACE_FSD,reference,UI Interface Specification,overdue,local,,,,,,lib/ui,,,,,2026-03-02,,specs/reference/UI_INTERFACE_FSD.md
 VALUE_TYPE_SYSTEM,reference,Value Type System,current,local,,,,,,core/value;lib/value,,,,,2026-10-10,,specs/reference/VALUE_TYPE_SYSTEM.md
-WEB_API_SPECIFICATION,reference,Liquers Web API Specification,current,local,,,,,,axum;web,,,,,2026-10-11,,specs/reference/WEB_API_SPECIFICATION.md
-ASSET_MANAGER_IMPLEMENTATION_GUIDE,guide,Asset Manager Implementation Guide,current,local,,,,,,core/assets,,,,,2026-10-10,,specs/guides/ASSET_MANAGER_IMPLEMENTATION_GUIDE.md
+WEB_API_SPECIFICATION,reference,Liquers Web API Specification,current,local,,,,,,axum;web,,,,,2026-10-12,,specs/reference/WEB_API_SPECIFICATION.md
+ASSET_MANAGER_IMPLEMENTATION_GUIDE,guide,Asset Manager Implementation Guide,current,local,,,,,,core/assets,,,,,2026-10-12,,specs/guides/ASSET_MANAGER_IMPLEMENTATION_GUIDE.md
 autonomous_bulk_design,guide,Autonomous Bulk Design Procedure,current,local,,,,,,docs;build,,,,,2026-10-08,,specs/guides/autonomous_bulk_design.md
 autonomous_issue_fixing,guide,Autonomous Issue Fixing Procedure,current,local,,,,,,docs;build,,,,,2026-10-08,,specs/guides/autonomous_issue_fixing.md
 COMMAND_DESIGN_GUIDE,guide,Command Design Guide,current,local,,,,,,core/commands,,,,,2026-10-10,,specs/guides/COMMAND_DESIGN_GUIDE.md
@@ -510,4 +511,4 @@ STORE_FACTORY_GUIDE,guide,Store Factory Guide,current,local,,,,,,core/store;stor
 STORE_IMPLEMENTATION_GUIDE,guide,Store Implementation Guide,current,local,,,,,,core/store;store/backends;web,,,,,2026-10-10,,specs/guides/STORE_IMPLEMENTATION_GUIDE.md
 TYPE_SYSTEM_GUIDE,guide,Adding and Typing Value Types,current,local,,,,,,core/value;lib/value,,,,,2026-10-09,,specs/guides/TYPE_SYSTEM_GUIDE.md
 UNITTEST_GUIDE,guide,Unit Testing Guide,current,local,,,,,,build;core/assets,,,,,2026-10-02,,specs/guides/UNITTEST_GUIDE.md
-WEB_API_GUIDE,guide,Web API Guide,current,local,,,,,,axum;web,,,,,2026-10-09,,specs/guides/WEB_API_GUIDE.md
+WEB_API_GUIDE,guide,Web API Guide,current,local,,,,,,axum;web,,,,,2026-10-12,,specs/guides/WEB_API_GUIDE.md

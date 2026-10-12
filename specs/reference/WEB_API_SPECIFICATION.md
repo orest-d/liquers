@@ -3,14 +3,15 @@ title: Liquers Web API Specification
 kind: reference
 audience: internal
 area: [axum, web]
-reviewed: 2026-10-11
+reviewed: 2026-10-12
 ---
 # Liquers Web API Specification
 
 The HTTP and WebSocket interface of `liquers-axum`, as implemented at HEAD. Every route, shape and
 status code below is checked against the code and exercised by the route suites in
 `liquers-axum/tests/` (`store_api_routes.rs`, `assets_api_endpoints.rs`, `assets_websocket.rs`,
-`recipes_api_routes.rs`, `query_api_routes.rs`). The design of the Assets API is
+`recipes_api_routes.rs`, `query_api_routes.rs`, and for argument overrides `argument_overrides_http.rs`,
+`argument_overrides_ws.rs`, `entry_format_option.rs`). The design of the Assets API is
 `specs/design/axum-assets-endpoints/`.
 
 For a task-oriented introduction with curl and Python examples, see
@@ -106,10 +107,64 @@ pub struct DataEntry {
 }
 ```
 
-The format is chosen by `?format=cbor|bincode|json` first, then the `Accept` header
+The format is chosen by `?_entry_format=cbor|bincode|json` first, then the `Accept` header
 (`application/cbor`, `application/x-bincode`, `application/json`; no quality values), then CBOR.
 The response `Content-Type` names the format. A request carrying a `DataEntry` is decoded by
-`?format=` first, then its `Content-Type`, then CBOR.
+`?_entry_format=` first, then its `Content-Type`, then CBOR. `_entry_format` has this one meaning —
+the encoding of a `DataEntry` envelope — on every route that has it; the value's own format is the
+query's filename extension or the `data_format` metadata field. The former name `format` is
+refused with a 400 `ParameterError` naming `_entry_format` (on `q/entry`, where names are argument
+overrides, `format` is an override like any other, §2.4), and so is an unknown value.
+
+### 2.4 Argument overrides and options
+
+An **argument override** gives a named argument of the query's **last action** outside the query
+text. Over HTTP it is a URL query parameter (`?limit=20`) or a member of a `POST` JSON object body
+(`{"limit": 20}`); on the WebSocket, a member of a `subscribe`'s `arguments` (§5.8); in a recipe,
+an entry of its `arguments` / `links`. The routes that take overrides are the Query API (§7) and
+the Assets API's `q/data`, `q/entry` and `q/submit` (§5.3). A positional parameter written in the
+query is not an override; an override replaces it (`…/search----20?query=x` sets `query`, the path
+sets `limit`).
+
+| Rule | Behaviour |
+|---|---|
+| Names | an argument of the command the query named for its last action — for an alias, the alias's own arguments (its fixed head slots cannot be overridden); not an `injected` one. Otherwise 400 `ParameterError`, before anything runs; so is a query with no action |
+| URL text | converted exactly as a path parameter of that argument would be (`?limit=20` is the integer 20), with no warning |
+| JSON values | passed as they are; a mismatched type that converts (`"20"` for an `int`, `20` for a `string`, `"yes"` for a `bool`, `3.0` for an `int`) is converted and a **warning naming the argument** is added to the evaluation's log; one that does not is 422 `ConversionError` |
+| Variadic (`multiple`) arguments | a repeated URL key (`?f=a&f=b`) or a JSON array; a scalar argument given twice is 400 |
+| Required arguments | an override may supply one the path leaves out; one still without a value is 400 `ArgumentMissing` |
+| Both sources | a name in both the query string and the body is 400 `ParameterError`; otherwise they combine |
+| Body | optional; a zero-length body carries nothing whatever its `Content-Type`; a non-empty one must be a JSON object (else 400) |
+| Reserved names | names beginning with `_` are **options**, not overrides: `_link_<argument>=<query>` gives the argument as a link (its query is evaluated for the value, as `~X~…~E` in a path; an unparsable query is 400 `ParseError`; the same argument as a value and a link is 400), and `_entry_format` on `q/entry` (§2.3). Any other `_` name, or an option the route does not take, is 400 `ParameterError` |
+
+A request **carries overrides** when at least one override (value or `_link_`) is present. One
+that carries none — no query string, an empty `?`, an empty body, `{}`, or options alone — is
+served exactly as it would be without them. One that carries any is evaluated **ad hoc**, as an
+unmanaged asset (§2.5), with the overrides applied through a recipe exactly as a stored recipe's
+`arguments` are.
+
+### 2.5 Managed and unmanaged assets
+
+A **managed** asset is held by the asset manager in its key map or query map, so it can be found
+again by its address: `q/info`, `key/info`, `q/cancel`, or a later `submit`, `data` or subscription
+join it instead of starting another evaluation. An **unmanaged** asset is in neither map; only the
+request evaluating it, or the WebSocket subscription that requested it, can see it. Every answer
+about an asset says which: the `x-liquers-managed: true|false` header on `data` / `entry` and the
+Query API (also on an evaluation error), `managed` in the `q/submit` result, and `managed` on every
+WebSocket notification.
+
+| An asset is unmanaged when | Because | What then cannot reach it | Workaround |
+|---|---|---|---|
+| the request carries argument overrides | it is evaluated ad hoc (`AssetManager::apply_queued`) | `q/info`, `q/metadata`, `q/version`, `q/cancel`, a later `data` or subscription of the same query | `q/data` / `q/entry` / the Query API to wait for the value; WebSocket `subscribe` with `arguments` to follow it |
+| its plan is volatile | a volatile asset is used once and never kept | as above | `data` to wait; WebSocket `subscribe` (it holds the asset it requests) to follow |
+| a command in it declares `cached: false` | it is never retained | as above | as above |
+| `query_cache_strategy` is `none` | a top-level query is not retained | as above | as above |
+
+`q/submit` of an unmanaged asset still starts it and answers its status, with `managed: false`
+and a `note`, but **no route can read its status or result afterwards**. That is still useful for
+a query run for its side effect (writing to a database, a store or a file). A keyed recipe with
+`arguments` is the edge case: its asset is managed in the key map, though its query-with-overrides
+has no query identity.
 
 ---
 
@@ -245,7 +300,8 @@ Each family offers three modes, and **only the first two can start an evaluation
   `cached: false`, get a fresh asset per request that is not kept in the manager's maps. `submit`
   still answers with its `AssetInfo`, but the query-family observe routes and `q/cancel` answer 404
   for it, `key/info` reports the stored or recipe state, and a later `data` evaluates again. Follow
-  such an asset on the WebSocket (the subscription holds it) or read it with `data`.
+  such an asset on the WebSocket (the subscription holds it) or read it with `data`. A request with
+  argument overrides is unmanaged in the same way; see §2.5 for the whole picture.
 - **Inline expiry.** `ImmediateAssetManager` has no expiration monitor; it expires lazily inside
   `get_asset`/`get`. `q/info` does not apply that check, so on the inline manager it can report
   `Ready` for an entry whose expiration time has passed, which `q/data` then recomputes.
@@ -254,13 +310,17 @@ Each family offers three modes, and **only the first two can start an evaluation
 
 | Method and path | Mode | Result | Errors |
 |---|---|---|---|
-| `GET q/data/{*query}` | a | the bytes (§2.3) | 400 parse; the evaluation's error |
-| `GET q/entry/{*query}` | a | a negotiated `DataEntry` | as `data` |
-| `POST q/submit/{*query}`, `GET q/submit/{*query}` | b | `AssetInfo` | 400 parse or plan; 404 for an unknown key |
+| `GET q/data/{*query}`, `POST q/data/{*query}` | a | the bytes (§2.3), `x-liquers-managed` | 400 parse or overrides (§2.4); 422 conversion; the evaluation's error |
+| `GET q/entry/{*query}`, `POST q/entry/{*query}` | a | a negotiated `DataEntry`, `x-liquers-managed` | as `data`; an evaluation error carries the failed asset's metadata (its log included) in `error.metadata` |
+| `POST q/submit/{*query}`, `GET q/submit/{*query}` | b | `AssetInfo` flattened with `managed` and, when unmanaged, a `note` | 400 parse, plan or overrides; 404 for an unknown key |
 | `GET q/info/{*query}` | c | `AssetInfo` (with progress while `Processing`) | 400 parse; 404 `NotAvailable` |
 | `GET q/metadata/{*query}` | c | the metadata record | as `info` |
 | `GET q/version/{*query}` | c | `{"version": "<32 hex digits>"}`, all zeros until the asset has finished | as `info` |
 | `POST q/cancel/{*query}` | — | `AssetInfo` after the cancel | 404 `NotAvailable` when the query is not cached |
+
+`q/data`, `q/entry` and `q/submit` take argument overrides (§2.4); with any, the asset is
+unmanaged (§2.5). The `POST` forms of `q/data` and `q/entry` are reads and are served whatever
+`read_only()` says.
 
 `q/cancel` looks the asset up without creating one, so it never starts the evaluation it cancels.
 Cancellation is best-effort and always answers 200: a queued asset ends `Cancelled`; a running
@@ -394,7 +454,7 @@ A version is 32 hexadecimal digits; all zeros means unknown.
 | `GET ws/q`, `GET ws/q/{*query}` | queries (`parse_query`) | `AssetManager::get_asset` (a pure-key query must be stored or recipe-declared) |
 | `GET ws/key`, `GET ws/key/{*key}` | keys (`parse_key`) | `AssetManager::get` (the key must be stored or recipe-declared) |
 
-A path in the URL is subscribed on connect. `read_only()` does not affect the endpoints:
+A path in the URL is subscribed on connect (without overrides). `read_only()` does not affect the endpoints:
 subscribing changes no data. Subscribing *requests* the asset; there is no observe-only
 subscription.
 
@@ -408,7 +468,10 @@ no intermediate progress is seen.
 ```json
 {"action": "subscribe", "query": "make_text/upper"}
 {"action": "subscribe", "key": "notes/a.txt"}
+{"action": "subscribe", "query": "ns-search/search", "arguments": {"query": "a b", "limit": 20}, "request_id": "r1"}
 {"action": "unsubscribe", "query": "make_text/upper"}
+{"action": "unsubscribe", "subscription_id": "7c9e…"}
+{"action": "cancel", "subscription_id": "7c9e…"}
 {"action": "unsubscribe_all"}
 {"action": "ping"}
 ```
@@ -417,6 +480,25 @@ The address field must match the endpoint (`query` on `ws/q`, `key` on `ws/key`)
 does not parse, names the wrong field, addresses an unknown key, or exceeds the subscription limit
 is answered with an `Error` message. Subscribing to an address already subscribed replaces the
 subscription.
+
+**Argument overrides.** On `ws/q`, a non-empty `arguments` object holds argument overrides (§2.4,
+JSON values) of the query's last action: the query is evaluated ad hoc as an **unmanaged** asset
+(§2.5) that only this subscription can see. The server answers at once — before any notification
+of it — with `Subscribed`, carrying the subscription's `subscription_id` (a UUID valid on this
+connection only) and echoing the optional `request_id`, so concurrent subscribes can be told apart.
+`arguments` absent or `{}` is an ordinary subscription; `arguments` on `ws/key` is an `Error`
+(`ParameterError`). Each such subscription is separate: subscribing twice with overrides follows
+two evaluations, and both count against `max_subscriptions`.
+
+**Subscription ids.** Only an unmanaged subscription has an id — one with overrides, or one whose
+asset turns out unmanaged (volatile, `cached: false`, not retained); a managed subscription is
+addressed by its query or key, because its address names the asset. `unsubscribe` with
+`subscription_id` stops following it; `cancel` cancels its evaluation (best-effort, as `q/cancel`)
+— the only way to reach an unmanaged asset. A cancel that arrives before the asset exists is
+applied as soon as it does; on an inline manager, where the evaluation runs inside the
+subscription's task, it stops that task. An id this connection does not hold as an unmanaged
+subscription gets one generic `Error`, "unknown subscription id", which says nothing about other
+connections.
 
 **Server messages** (JSON text, tagged by `type`). Every asset notification is flat and carries:
 
@@ -427,6 +509,8 @@ subscription.
 | `key` | the key as subscribed (`ws/key`), or the asset's key if it is keyed |
 | `timestamp` | RFC 3339 |
 | `info` | the asset's `AssetInfo` **re-read after the change** (`null` after a delete) |
+| `managed` | whether the asset is managed (§2.5) |
+| `subscription_id` | the subscription's id, for an unmanaged asset only |
 
 | `type` | Extra fields | Cause |
 |---|---|---|
@@ -438,8 +522,9 @@ subscription.
 | `PrimaryProgressUpdated`, `SecondaryProgressUpdated` | `progress` (`message`, `done`, `total`, `timestamp`, `eta`) | progress |
 | `Expired` | — | the asset expired |
 | `Removed` | — | the asset was removed (`DELETE key/…`) or replaced (`POST key/data|entry`) |
+| `Subscribed` | `timestamp`, `subscription_id`, `query`, `managed` (`false`), `request_id` if given | acknowledges a `subscribe` with `arguments` |
 | `Pong`, `UnsubscribedAll` | `timestamp` | replies |
-| `Error` | `timestamp`, `error` (`ErrorDetail`) | a client message could not be handled |
+| `Error` | `timestamp`, `error` (`ErrorDetail`), `subscription_id` when it concerns an unmanaged subscription | a client message, or an override subscription's request, could not be handled |
 
 The core notification channel keeps only the latest message, so notifications may be coalesced;
 `info` always reflects the current state, and `q/info` / `key/info` remain the authoritative
@@ -456,7 +541,9 @@ asset.
 closes the connection; `max_subscriptions` (default 256) per connection. Intermediate notifications
 that find the connection's outgoing queue full are dropped (the next one carries a fresh `info`);
 replies and terminal notifications wait. Disconnecting ends every subscription of the connection
-but does not cancel the evaluations, which other clients may share.
+but does not cancel the evaluations, which other clients may share — except on an inline manager,
+where an evaluation still running inside a subscription's task (before its `Initial`) stops with
+it.
 
 ---
 
@@ -470,7 +557,7 @@ Keys are parsed with `parse_key`.
 | `GET listdir` | array of the resource names that have a recipe **in the root directory** (`AsyncRecipeProvider::assets_with_recipes`) |
 | `GET data/{*key}` | the recipe as text (`text/plain`), not enveloped |
 | `GET metadata/{*key}` | the recipe's metadata: `AsyncRecipeProvider::get_asset_info` as a `MetadataRecord` (title, description, filename, planning diagnostics) — what the Assets API's `key/metadata` returns for a recipe key |
-| `GET entry/{*key}` | a `DataEntry` with the recipe text as `data` and the same metadata, negotiated like the Assets API's: `?format=` (`cbor`, `json`, `bincode`), then `Accept`, then CBOR; `data` is base64 in JSON |
+| `GET entry/{*key}` | a `DataEntry` with the recipe text as `data` and the same metadata, negotiated like the Assets API's: `?_entry_format=` (`cbor`, `json`, `bincode`), then `Accept`, then CBOR; `data` is base64 in JSON |
 | `GET resolve/{*key}` | `{"key": …, "query": …, "plan": {…}}`, the recipe's execution plan (`AsyncRecipeProvider::recipe_plan`); a recipe whose commands are not registered is 400 `ActionNotRegistered` |
 
 A key with no recipe answers the recipe provider's error; its type, and so the HTTP status,
@@ -486,8 +573,12 @@ whatever follows the base path (`QueryApiBuilder::new("/liquer/q")` serves
 
 | Method | Behaviour |
 |---|---|
-| `GET {base}{*query}` | evaluates the query (`Environment::evaluate`) and answers the value (§2.3) |
-| `POST {base}{*query}` | the same; an optional JSON body is accepted and logged but not used; a non-JSON body is 400 |
+| `GET {base}{*query}` | evaluates the query and answers the value (§2.3) with `x-liquers-managed`; URL query parameters are argument overrides (§2.4) |
+| `POST {base}{*query}` | the same, with further overrides in an optional JSON object body; a body that is not a JSON object is 400 |
+
+Without overrides the query is evaluated with `Environment::evaluate`, as a managed asset where
+the manager's rules make it one; with any, ad hoc as an unmanaged one (§2.5). The Query API takes
+no options: any `_` name except `_link_<argument>` is 400.
 
 The value is read with `AssetRef::get_binary`: the request waits for the evaluation, the value is
 serialized in its effective format, and an `Error`, `Cancelled`, `Expired` or `Directory` result
@@ -591,6 +682,7 @@ Not available at HEAD; listed so that no reader mistakes them for features:
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-12 | §2.4 argument overrides and options, §2.5 managed and unmanaged assets (with the table of what cannot follow an unmanaged asset and the workaround); §2.3 and §6 `_entry_format` replaces `format`; §5.3 `q/data`, `q/entry` (GET and POST) and `q/submit` take overrides, `x-liquers-managed`, `SubmitResult`, failure metadata on `q/entry`; §5.8 `arguments`, `request_id`, `Subscribed`, `subscription_id`, `cancel`, `managed`, and the inline-manager disconnect exception; §7 the Query API takes overrides. `QUERY-API-ARGUMENTS-ONLY-IN-QUERY-PATH` closed. | phase-5, `design/axum-query-named-arguments/` |
 | 2026-10-11 | §3.2: `error.traceback` carries the `Error`'s own traceback, split into lines, whenever it has one. `CORE-METADATA-TRACEBACK-SUPPORT` closed. | `design/metadata-error-traceback/` |
 | 2026-10-10 | Store API `keys` lists every key under the prefix at any depth (`listdir_keys_deep`), no longer a synonym of `listdir`. `AXUM-STORE-KEYS-LISTS-ONLY-DIRECT-CHILDREN` closed. | `design/axum-store-keys-deep/` |
 | 2026-10-10 | Store API: `metadata` and `entry` serve legacy metadata as stored (not `{}`); `upload` records each part's `filename` and declares its `Content-Type` only when the filename does not imply it. `AXUM-STORE-UPLOAD-AND-METADATA-DROP-INFORMATION` closed. | `design/axum-store-upload-metadata/` |

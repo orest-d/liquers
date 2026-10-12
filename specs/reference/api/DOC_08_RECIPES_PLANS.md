@@ -3,7 +3,7 @@ title: Recipes and Plans Reference
 kind: reference
 audience: internal
 area: [core/plan, core/assets, core/context]
-reviewed: 2026-10-10
+reviewed: 2026-10-12
 ---
 # DOC-08: Recipes and Plans
 
@@ -85,10 +85,25 @@ fields and Serde deserialization do not validate strings eagerly, so
 | `cached` | `Option<CacheStrategy>` — the **caching strategy** of an evaluation of this recipe: `all` (the keyed result and every intermediate it creates are registered), `result` (only the result; a missing intermediate is computed unregistered), `none` (nothing new is registered; the keyed asset still stays the key's dependency-graph node). `true`/`false` are read as `all`/`none`; absent or `default` means the asset manager's `recipe_cache_strategy`. An intermediate that already exists is reused under every strategy. Read through `effective_cache_strategy(default)`. Neither this nor `stored` makes the recipe volatile — see §Predecessor boundaries, "What is kept" |
 
 `Recipe::to_plan` enables placeholders, builds the query, and applies overrides to
-the last action step only. An override whose name is not present on that action is
-an error. Because an override patches that action, its recorded prefix query
-(`Step::Action::query`) no longer describes what runs and is cleared; earlier
-actions keep theirs.
+the last action step only, in **sorted name order** (so warnings and the first
+reported error do not depend on `HashMap` order). Each name must be an argument of
+the command the query named for that action (`Plan::last_action_command`): for an
+alias, the alias's own arguments — its head slots carry the target's names and are
+fixed, so they cannot be overridden. A name that is not such an argument, an
+`injected` argument, or a query with no action is a `ParameterError`.
+
+A value override is converted to its argument's type first. A matching JSON type
+passes unchanged. A mismatched one that converts — a numeric or boolean string for
+an `int`, `float` or `bool` argument (parsed as a path parameter would be), a number
+or boolean for a `string` argument (its JSON text), an integral float such as `3.0`
+for an `int` — is converted, and a `Step::Warning` naming the argument, the given
+and the expected type goes to `init_steps`, from where it reaches the asset's log. A
+`null` is accepted only for the optional types. One that does not convert is a
+`ConversionError`. An enum alias string expands to its value (a query alternative
+becomes a link override). A `multiple` argument converts element-wise. `any`,
+`none` and global-enum arguments take any value unchanged. Because an override
+patches that action, its recorded prefix query (`Step::Action::query`) no longer
+describes what runs and is cleared; earlier actions keep theirs.
 
 `Recipe::data_format` is the query's filename extension, `None` without a filename,
 and `Recipe::get_asset_info` declares exactly that. An unnamed query therefore
@@ -725,6 +740,7 @@ runtime behavior is unchanged.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-12 | Recipe contract: overrides apply in sorted order, resolve against `Plan::last_action_command` (an alias's own arguments; head slots refused), convert a mismatched JSON type with a planning warning or fail with `ConversionError`, and report an unknown or injected name as `ParameterError`. | phase-5, `design/axum-query-named-arguments/` |
 | 2026-10-10 | Predecessor boundaries: planning diagnostics (`init_steps`) now reach the evaluated asset's log, appended once when the plan is applied (`PLANNING-DIAGNOSTICS-NEVER-REACH-THE-ASSET-LOG`). | `issues/PLANNING-DIAGNOSTICS-NEVER-REACH-THE-ASSET-LOG.md` |
 | 2026-10-10 | Reviewed against `design/plan-policy/`. Recipe contract: `cached` is a caching strategy (`none` \| `result` \| `all`, booleans read as `all`/`none`, absent or `default` = `recipe_cache_strategy`). Planning contract: `v` is positional (`a/b/v/c` cuts `a/b`, `a/b/v` is `Evaluate(a/b)`, `v/…` recomputes everything); `Plan::uncached_by`. Predecessor boundaries: cutting is recursive (corrects "one cut retains one intermediate"); new "What is kept" (the command flag, strategies following the origin, the plan independent of strategy and manager state, `cut_predecessors`); a fourth condition, not cached; `Declared` is recipe-level only; the stable-plan empty-tail rule; two pitfalls updated or added; planning diagnostics do not reach the asset log (`PLANNING-DIAGNOSTICS-NEVER-REACH-THE-ASSET-LOG`). | phase-5, `design/plan-policy/` |
 | 2026-10-10 | Reviewed against `design/plan-step-state-metadata/`. Recipe contract: `Recipe::data_format` is `None` without a filename (no `bin`); an override clears the patched action's prefix query. Predecessor boundaries: no boundary over a bare key read. Plan fields: `Step::Action::query`. Execution: each step produces the state it hands on (table in DOC-04); the `key`-only adjustment and `fetched_key` are gone. | phase-5, `design/plan-step-state-metadata/` |

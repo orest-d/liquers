@@ -4,7 +4,7 @@ title: Asset Manager Implementation Guide
 kind: guide
 audience: both
 area: [core/assets]
-reviewed: 2026-10-10
+reviewed: 2026-10-12
 ---
 # Asset Manager Implementation Guide
 
@@ -151,6 +151,7 @@ impl<E: Environment> AssetManager<E> for MinimalInlineAssetManager<E> {
 | `dependency_audit_policy`, `version_verification`, `external_change_policy`, `recipe_cache_strategy`, `query_cache_strategy`, `cut_predecessors` | The defaults return constants (the last three: `All`, `All`, `true`, which is the behaviour before caching strategies existed) and ignore `AssetManagerOptions`. Return what `build` received, or the options are silently lost. |
 | `get_dependency_asset_with_payload` | The default ignores the payload. Create a fresh query asset, `set_payload_path`, then run it with the payload. |
 | `remove_key_asset_if` | The default is lookup-compare-remove, correct but not atomic. Do it under your map lock. |
+| `apply_queued(recipe, to)` | The default calls `apply(recipe, to, None)`, which is correct for an inline manager except that `apply` returns the evaluation's error and loses the asset. Return the same unregistered asset as `apply` **without waiting**: a queued manager builds it with `AssetData::new_ext(.., to, None, ..)` and submits it to its job queue; an inline manager evaluates it and returns `Ok(asset)` even when the evaluation failed (the failure is in the asset). Callers follow it — the web API's argument overrides depend on this. |
 
 **Provided — override only deliberately:** `record_expiry` (§8), and `get_dependency_asset`,
 `drain_dependencies`, `wait_for_dependency` if you add a local dependency queue as
@@ -495,6 +496,7 @@ store conformance suite: shared scenarios, no rule numbers and no capability mod
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-12 | §4: the provided `apply_queued` — what to return on a queued and on an inline manager. | phase-5, `design/axum-query-named-arguments/` |
 | 2026-10-10 | Provided accessors gain `recipe_cache_strategy`, `query_cache_strategy` and `cut_predecessors`; new caching-strategy rules for a custom manager (keyed, top-level, a dependency following its creator), and `Recipe::cached` is now a strategy. A key with no recipe is not subject to the strategy, and an existing keyed asset is reused before it is consulted (PR #102 review). | phase-5, `design/plan-policy/` |
 | 2026-10-09 | §Primitives: `cancel_for_replacement` for writes and removals (the `cancel()` row says why not); the write example and the known-limits row follow. | phase-5 (`design/asset-cancellation-outcome/`) |
 | 2026-10-08 | `DefaultRecipeProvider` is constructed with `::new()` (it holds a recipe cache). The audit-policy section notes that the stored-records walk and the store audit are inherited provided methods. | phase-5 (`design/dependency-chain-analysis-cost/`) |

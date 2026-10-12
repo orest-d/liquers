@@ -185,5 +185,5 @@ gets a `## History` row and a `reviewed:` bump. Regenerated: `specs/index.csv` /
 ## Phase 5 Entry Criteria
 
 - [x] Implementation finished and validated (every Progress item ticked with its commit)
-- [ ] User and review comments answered
-- [ ] Documentation checkable against implemented and tested behaviour
+- [x] User and review comments answered
+- [x] Documentation checkable against implemented and tested behaviour

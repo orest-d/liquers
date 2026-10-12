@@ -251,7 +251,7 @@ submit, and submitted query state is not preserved.
 - **Executor-agnostic core** — planned → [`issues/CORE-TOKIO-REMOVAL.md`](issues/CORE-TOKIO-REMOVAL.md)
 - **Browser stores (localStorage, fetch, JS, routing)** — built → [`design/liquers-web-store/`](design/liquers-web-store/)
 - **Browser-native store and command backend** — planned → [`issues/WEB-NATIVE-IO-TIER2.md`](issues/WEB-NATIVE-IO-TIER2.md)
-- **Argument overrides over HTTP and WebSocket (URL parameters, JSON body, WebSocket subscribe)** — designing → [`design/axum-query-named-arguments/`](design/axum-query-named-arguments/)
+- **Argument overrides over HTTP and WebSocket; managed and unmanaged assets** — documented → [`reference/WEB_API_SPECIFICATION.md` §2.4–2.5](reference/WEB_API_SPECIFICATION.md#24-argument-overrides-and-options) (how to use them: [`guides/WEB_API_GUIDE.md`](guides/WEB_API_GUIDE.md) §4; design: [`design/axum-query-named-arguments/`](design/axum-query-named-arguments/))
 - **Agent memory service** — designing → [`design/agent-memory-mvp/`](design/agent-memory-mvp/)
 
 The memory service is the first line here that is an *application* of Liquers rather than a way
@@ -413,7 +413,6 @@ deliberately folded behind a broader line.
 - feature `NO-REMOTE-STORE-OR-ASSET-MANAGER`
 - feature `NO-SOURCE-CODE-AND-API-DOC-NAVIGATION`
 - feature `PY-PYO3-0-21-CANNOT-TARGET-PYTHON-3-13`
-- feature `QUERY-API-ARGUMENTS-ONLY-IN-QUERY-PATH`
 - feature `QUERY-CANNOT-MARK-CACHED-INTERMEDIATES`
 - feature `RECORD-AND-POLARS-COMMANDS-NOT-INTEROPERABLE`
 - feature `RECORDS-ARROW-C-DATA-EXPORT-NOT-BUILT`
