@@ -4,7 +4,7 @@ kind: design
 title: Evaluation session — each dependency evaluated once per evaluation, at any chain depth
 workflow: liquers-project
 status: in_review
-phase: architecture
+phase: implementation
 area: [core/assets, core/plan]
 issues: [FAILING-UPSTREAM-RERUNS-EXPONENTIALLY-AT-QUEUE-CAPACITY, EVALUATING-A-DEEP-CHAIN-TOP-DOWN-OVERFLOWS-THE-STACK, REFUSED-DEPENDENCY-RECOMPUTED-TWICE-DURING-A-DEPENDENT-EVALUATION]
 merged: 2026-10-12
@@ -28,15 +28,20 @@ Converted from the compact to the full form at the merge: the combined scope is 
 leading issue alone is `M`. `readiness` (the draft's `ready`, then `needs-decision`) was cleared at
 the merge and is reassessed after Phase 4.
 
+Pre-approved after Phase 2 on 2026-10-12 (`proceed all`): Phases 3 and 4, the implementation and
+Phase 5. The decision log is Phase 1's Design Readiness section.
+
 ## Phase Status
 
 - [x] Phase 1: High-Level Design (approved 2026-10-12, with the review fixes: AC-14, session rules 1-6; amended at the Phase 2 review: AC-15, two more reference documents)
-- [ ] Phase 2: Architecture (in review)
-- [ ] Phase 3: Examples and Tests
-- [ ] Phase 4: Implementation Plan
+- [x] Phase 2: Architecture (approved 2026-10-12)
+- [ ] Phase 3: Examples and Tests (pre-approved; in review)
+- [ ] Phase 4: Implementation Plan (pre-approved; in review)
 - [ ] Phase 5: Documentation
 
 ## Links
 
 - [Phase 1](./phase1-high-level-design.md)
 - [Phase 2](./phase2-architecture.md)
+- [Phase 3](./phase3-examples.md)
+- [Phase 4](./phase4-implementation.md)
