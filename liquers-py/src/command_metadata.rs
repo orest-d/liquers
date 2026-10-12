@@ -33,6 +33,8 @@ pub enum EnumArgumentType {
     FloatOption,
     #[serde(rename = "bool")]
     Boolean,
+    #[serde(rename = "bool_opt")]
+    BooleanOption,
     #[serde(rename = "any")]
     Any,
 }
@@ -122,6 +124,9 @@ impl From<EnumArgumentType> for liquers_core::command_metadata::EnumArgumentType
                 liquers_core::command_metadata::EnumArgumentType::FloatOption
             }
             EnumArgumentType::Boolean => liquers_core::command_metadata::EnumArgumentType::Boolean,
+            EnumArgumentType::BooleanOption => {
+                liquers_core::command_metadata::EnumArgumentType::BooleanOption
+            }
             EnumArgumentType::Any => liquers_core::command_metadata::EnumArgumentType::Any,
         }
     }
@@ -140,6 +145,9 @@ impl From<liquers_core::command_metadata::EnumArgumentType> for EnumArgumentType
                 EnumArgumentType::FloatOption
             }
             liquers_core::command_metadata::EnumArgumentType::Boolean => EnumArgumentType::Boolean,
+            liquers_core::command_metadata::EnumArgumentType::BooleanOption => {
+                EnumArgumentType::BooleanOption
+            }
             liquers_core::command_metadata::EnumArgumentType::Any => EnumArgumentType::Any,
         }
     }

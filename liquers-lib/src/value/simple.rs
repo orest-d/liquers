@@ -800,6 +800,40 @@ impl TryFrom<SimpleValue> for u8 {
     }
 }
 
+/// The remaining integer widths, through `i64`: an out-of-range value is refused, not truncated.
+macro_rules! impl_try_from_simple_value_narrowed {
+    ($($t:ty),*) => {$(
+        impl TryFrom<SimpleValue> for $t {
+            type Error = Error;
+            fn try_from(value: SimpleValue) -> Result<Self, Self::Error> {
+                let wide = i64::try_from(value)?;
+                <$t>::try_from(wide).map_err(|_| Error::conversion_error(wide, stringify!($t)))
+            }
+        }
+    )*};
+}
+impl_try_from_simple_value_narrowed!(i8, i16, isize, u16, u64, usize);
+
+/// `Option<T>` for the scalar types a `register_command!` argument may declare as optional; the
+/// same list as `impl_try_from_value_option!` in `liquers-core/src/value.rs`.
+macro_rules! impl_try_from_simple_value_option {
+    ($($t:ty),*) => {$(
+        impl TryFrom<SimpleValue> for Option<$t> {
+            type Error = Error;
+            fn try_from(value: SimpleValue) -> Result<Self, Self::Error> {
+                if value.is_none() {
+                    Ok(None)
+                } else {
+                    <$t>::try_from(value).map(Some)
+                }
+            }
+        }
+    )*};
+}
+impl_try_from_simple_value_option!(
+    i8, i16, i32, i64, isize, u8, u16, u32, u64, usize, f32, f64, bool
+);
+
 #[cfg(test)]
 mod tests {
     use super::*;
