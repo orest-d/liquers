@@ -24,9 +24,9 @@ be fixed first (Phase 2 preflight). Everything is in `liquers-core`, plus docume
 - [x] Step 8: queued spawn of locally queued runs — 3b398d5
 - [x] Step 9: `plan.rs` `upstream_graph` (and `key_upstream_graph`) — 982af64
 - [x] Step 10: inline priming (`get`, top-level query, `apply`; not `apply_queued`, see Phase 5) — 982af64
-- [ ] Step 11: full regression (native, wasm)
-- [ ] Step 12: documentation
-- [ ] Step 13: records
+- [x] Step 11: full regression (native, wasm) — results in Phase 5 §Validation
+- [x] Step 12: documentation — 62e8243
+- [x] Step 13: records (`EXTERNAL-MANAGER-CANNOT-SHARE-AN-EVALUATION-SESSION` filed; residual issue updated; audit-test comment updated)
 
 ## Implementation Steps
 

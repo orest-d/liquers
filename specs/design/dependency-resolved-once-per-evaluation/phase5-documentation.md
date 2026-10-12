@@ -126,4 +126,23 @@ Closed by this work:
 
 ## Validation
 
-To be completed with the final regression results (Phase 4, step 11).
+Run on 2026-10-12, at the commits listed in Phase 4 §Progress:
+
+- `cargo test --no-fail-fast -p liquers-core --lib --tests`: **1604 passed, 0 failed**, including
+  `evaluation_session` (11), `deep_chain_evaluation` (8, every deep test also run alone),
+  `dependency_audit_integration` (42), `external_asset_manager`, `asset_cancellation`,
+  `dependency_scheduling` and `manager_parametric`. After that run, only doc comments, a test
+  comment and the removal of an unused helper changed; the `evaluation_session` unit tests and
+  the core build (no warnings) were re-run after them.
+- `cargo test --no-fail-fast -p liquers-lib --lib --tests`: **592 passed, 0 failed**.
+- `cargo check -p liquers-core --all-features --lib --tests` and `cargo check -p liquers-axum`: clean.
+- `cargo check -p liquers-py`: clean with `PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1` (the container
+  has CPython 3.13; see CLAUDE.md).
+- `cargo check -p liquers-core --target wasm32-unknown-unknown`: clean apart from five warnings
+  that are identical at the pre-implementation commit `24a674d`.
+- After `cargo clean`: `cargo test -p liquers-web --target wasm32-unknown-unknown --features debug-handles`
+  (Node): **161 passed, 0 failed** in 18 suites.
+- `python3 scripts/docs_index.py --check`: 0 errors. `validate_phase.py` passes for Phases 1-4.
+- Not run: the browser-only `liquers-web` loops (`--features browser-tests`, Playwright e2e) and
+  `scripts/check-build-matrix.sh`. No `cfg(feature)` or optional dependency changed, and the
+  inline manager's wasm behaviour is covered by the Node loop.
