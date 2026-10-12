@@ -95,8 +95,19 @@ the HTTP request (`command-declaration` decision C3 is untouched).
 
 Systems touched: `liquers-axum` only (`src/query/handlers.rs`, tests). No core change is expected;
 Phase 2 confirms that `ParameterValue::from_string`, `Recipe::to_plan` and `AssetManager::apply`
-suffice. Documentation: `specs/reference/WEB_API_SPECIFICATION.md` §Query API (replaces "logged but
-not used"); the source issue is closed at Phase 5.
+suffice.
+
+Documentation intent (checked against HEAD on 2026-10-12; each statement below becomes false when
+this ships, so all are updated in the implementation PR, not before — `reference/` must be true at
+HEAD):
+
+| Document | Today | Change |
+|---|---|---|
+| `specs/reference/WEB_API_SPECIFICATION.md` §7 | `POST` row: body "accepted and logged but not used" | Both rows name the argument sources; a new §7.1 *Named arguments* states sources, conversion, variadics, conflicts, reserved `_` names, the error table, and that a request with named arguments is evaluated ad hoc (not cached, not visible to `q/info`); `## History` row and `reviewed:` |
+| `specs/guides/WEB_API_GUIDE.md` §4 *Parameters* | "A `?name=value` query string is **not** passed to commands; … `POST` … does not use it yet" | Replace with a short "naming arguments" part: the curl `?query=…&limit=…` and `-d '{…}'` forms, Python `requests.get(…, params=…)` / `requests.post(…, json=…)`, when to prefer them over path escaping, and the §5 limitation (Q6); every example run against the example server; `## History` row and `reviewed:` |
+| `liquers-axum/README.md` §Query Execution API | "Execute query with optional JSON body" | One line each on named arguments from the query string and the body, linking §7.1 |
+
+The source issue is closed at Phase 5.
 
 ### Design Readiness
 
@@ -121,3 +132,10 @@ not used"); the source issue is closed at Phase 5.
 - **Q5 (recommended, low stakes)** JSON strings for typed arguments are converted (AC-2), so a form
   that posts every field as a string works; a JSON number for a string argument is a
   `ConversionError` rather than stringified.
+- **Q6 (needs decision; found in the documentation check)** The Query API's timeout message sends
+  long evaluations to the Assets API (`q/submit`, `q/info`, `ws/q`), and the guide's §5 teaches
+  that route — but the Assets API takes no named arguments, and an ad-hoc evaluation is in no cache
+  `q/info` could find. A long search with named arguments therefore has no submit-and-poll route.
+  Recommended: **out of scope**; the guide and reference say so, and a follow-up issue is filed
+  (named arguments on `q/submit` need an asset identity for the overrides, which is Q4's question
+  again). Alternative: widen this design to the Assets API's `q/` family.
