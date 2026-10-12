@@ -28,7 +28,7 @@
 | `gated_volatile` | as `gated`, `.volatile = true` | as `gated` |
 | `echo_alias` | alias of `echo_args` with head `query = "fixed"`; own arguments `flag: bool` (fills `rank`) | — |
 
-Shared helpers move to a new `liquers-axum/tests/common/mod.rs`: `env_with` generic over
+Shared helpers for the new suites go in a new `liquers-axum/tests/common/mod.rs`: `env_with` generic over
 `SimpleEnvironment` / `ImmediateEnvironment` and able to set `Recipe.arguments`; `start_server`,
 `connect`, `send_json`; and `recv_matching(ws, predicate)`, which keeps unmatched messages
 (today's `recv_by_type` drops them, `assets_websocket.rs:101`). Gated commands make every
@@ -144,7 +144,8 @@ gate opens the counter rises, though no route can read the asset.
   - `aow06_ws_key_subscribe_recipe_managed` (AC-21).
   - `aow07_cancel_before_asset_exists_is_not_lost` (AC-19): inline — `gated` holds `apply_queued`, `cancel` aborts, gate opens, counter unchanged (deterministic); queued — `subscribe` and `cancel` sent in one burst, outcome asserted whichever branch ran (`Cancelled`, counter unchanged); coverage of the `cancel_requested` branch there is probabilistic, and stated so in the test.
   - `aow08_unsubscribe_by_id_stops_notifications` (AC-19).
-  - `aow09_disconnect_does_not_cancel` (AC-19): close the socket, open the gate, counter rises.
+  - `aow09_disconnect_does_not_cancel` (AC-19), queued manager: close the socket, open the gate,
+    counter rises (on the inline manager the evaluation runs in the aborted task — Phase 2).
   - `aow10_arguments_on_ws_key_rejected` (AC-17): `Error`, `ParameterError`.
   - `aow11_volatile_subscribe_without_arguments_gets_id` (AC-20): `gated_volatile`; `managed: false`, `subscription_id`; `cancel` by it works.
   - `aow12_resubscribe_same_address_replaces` (AC-7): one stream of notifications remains.
@@ -155,7 +156,7 @@ gate opens the counter rises, though no route can read the asset.
   - `efo03_store_and_recipes_entry_accept_entry_format` (AC-22); `efo04_unknown_entry_format_value_400` (AC-22).
   - `efo05_post_key_entry_decodes_by_entry_format_then_content_type` (AC-22).
   - `efo06_format_on_q_entry_is_an_override` (AC-22): on `echo_args` (no `format` argument) → 400 `ParameterError` unknown name.
-- Existing suites updated, not weakened: every `?format=` → `?_entry_format=`; `query_api_routes.rs` POST-body case now expects the body used.
+- Existing suites updated, not weakened: every `?format=` → `?_entry_format=`. (`query_api_routes.rs` has no POST-with-body case; AOH03 is the first.) New suites use `tests/common`; existing suites keep their private helpers.
 
 ## Learning Log
 

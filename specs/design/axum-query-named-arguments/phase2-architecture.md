@@ -122,7 +122,7 @@ pub fn entry_format_param(params: &HashMap<String, String>) -> Result<Option<Ser
 pub(crate) struct Requested<E: Environment> { pub asset: AssetRef<E>, pub overridden: bool }
 pub(crate) async fn request_with_overrides<E: Environment>(
     env: &EnvRef<E>, query: &Query, overrides: &OverrideRequest) -> Result<Requested<E>, Error>;
-/// `!overridden && lookup returns this asset (by AssetRef::id) && !asset.is_volatile()`; the lookup
+/// `!overridden && lookup returns this asset (by AssetRef::id) && !asset.is_volatile().await`; the lookup
 /// is `lookup_key_asset` for a pure-key query, else `lookup_query_asset`. Read when answering.
 pub(crate) async fn is_managed<E: Environment>(env: &EnvRef<E>, query: &Query, r: &Requested<E>) -> bool;
 pub const MANAGED_HEADER: &str = "x-liquers-managed";
@@ -203,8 +203,9 @@ on `submit` when answering.
   it has the asset (a queued job may already be running, so aborting would lose the cancel); on an
   inline manager still evaluating inside `apply_queued`, the task is also aborted.
 - **Limits**: one table, so `max_subscriptions` counts every subscription (`AXUM-WEBSOCKET-HARDENING`).
-- **Disconnect** aborts every task and cancels nothing, as today; an unmanaged asset then runs to
-  completion and is dropped.
+- **Disconnect** aborts every task and cancels nothing, as today; on the queued manager an
+  unmanaged asset then runs to completion and is dropped. On `ImmediateAssetManager` the evaluation
+  runs inside the subscription task, so aborting it stops the evaluation — the inline exception.
 - **AC-21**: a keyed recipe requested by key goes through `get` / `get_asset`, never
   `apply_queued`; the key-map lookup returns it, so `managed: true`. The `to_plan` change does not
   alter that path.

@@ -19,7 +19,7 @@ and "unmanaged" appears once, undefined (`api/DOC_08_RECIPES_PLANS.md:259`).
 
 - **Argument override** (*override*): a value, or a link, for a named argument of the query's
   last action, supplied outside the query text — by an HTTP request (URL query string, POST JSON
-  body), a WebSocket `submit`, or a recipe's `arguments` / `links`. A positional parameter written
+  body), a WebSocket `subscribe` with `arguments`, or a recipe's `arguments` / `links`. A positional parameter written
   in the query is not an override. A request **carries overrides** when at least one override name
   is present; options (names beginning with `_`, other than `_link_<name>`) are not overrides.
   Over HTTP and the WebSocket an override applies to that request only; in a recipe it is part of
@@ -107,7 +107,7 @@ AC-22). The value's own format stays where it is: the query's filename extension
   - THEN `422 ConversionError`, and nothing is evaluated
 - **AC-7** No overrides, no change — and no accidental unmanaged evaluation
   - WHEN a request carries no override: no query string, an empty `?`, an empty body, `{}`, or
-    options only (`_entry_format`)
+    only options of that route (`_entry_format` on `q/entry`)
   - THEN it is served exactly as today, as a managed asset where today's rules make it one
 - **AC-8** Different overrides are not shared
   - WHEN two requests for one query carry different overrides
@@ -116,7 +116,8 @@ AC-22). The value's own format stays where it is: the query's filename extension
   - WHEN a non-empty body is not a JSON object, or a name is in both the query string and the body
   - THEN `400 ParameterError`
 - **AC-10** Reserved names
-  - WHEN a name begins with `_` and is not a defined option
+  - WHEN a name begins with `_` and is not an option of that route (`_link_<name>` everywhere
+    overrides are accepted; `_entry_format` on `q/entry` only)
   - THEN `400 ParameterError` stating the name is reserved
 - **AC-11** Link overrides
   - WHEN `_link_a=<query>` is given
@@ -198,11 +199,11 @@ updated in the implementation PR — `reference/` must be true at HEAD.
 - Reference, `reference/ASSET_LIFECYCLE.md`: define *argument override*, *managed* and
   *unmanaged asset* (the four causes, the recipe edge case).
 - Reference, `reference/WEB_API_SPECIFICATION.md`: §2 a convention section on overrides and
-  options; §5.3 `q/data`, `q/entry` (POST), `q/submit` with overrides and AC-16; §5.8 the `submit`
-  and `cancel` messages and ids; §7 rows no longer "logged but not used"; one table of **when an
+  options; §5.3 `q/data`, `q/entry` (POST), `q/submit` with overrides and AC-16; §5.8 `arguments` on
+  `subscribe`, `cancel`, subscription ids and `managed`; §7 rows no longer "logged but not used"; one table of **when an
   asset is managed** and what cannot then follow it (overrides, volatility, `cached: false`,
-  `query_cache_strategy: none`) with the workaround — WebSocket `submit` (or `subscribe` without
-  overrides).
+  `query_cache_strategy: none`) with the workaround — `q/data` to wait for a result, WebSocket
+  `subscribe` with `arguments` to follow one.
 - Guide, `guides/WEB_API_GUIDE.md`: §4 replaces "`?name=value` is **not** passed to commands"
   with overrides (curl, Python `params=` / `json=`, `_link_`), and says plainly that overrides make
   the evaluation unmanaged. §5 explains `submit` of an unmanaged asset (overrides, volatile,
@@ -210,6 +211,8 @@ updated in the implementation PR — `reference/` must be true at HEAD.
   it is still useful when the query has a side effect (writing to a database, a store, a file);
   to get a result, use `q/data` (waits) or WebSocket `subscribe` with `arguments` (follows). §8
   (WebSocket) `arguments`, ids and `cancel`. Every `?format=` example becomes `?_entry_format=`.
+- Guide, `guides/ASSET_MANAGER_IMPLEMENTATION_GUIDE.md`: `apply_queued` — what an implementation
+  must return.
 - Reference, recipe documentation (`api/DOC_08_RECIPES_PLANS.md`): mismatched JSON types in
   `arguments` convert, with a warning.
 - Other: `liquers-axum/README.md` endpoint list and its `?format=` lines;
@@ -217,7 +220,7 @@ updated in the implementation PR — `reference/` must be true at HEAD.
 
 ## Design Readiness
 
-No open decision. (`readiness` is assessed once Phases 1–4 exist.)
+No open decision. Readiness, assessed at the Phase 4 consistency pass (2026-10-12): `ready`.
 
 **Decided by the user (2026-10-12):** Q1 an override replaces the path value (AC-5); Q2 `_` names
 reserved (AC-10); Q3 links as `_link_<name>` (AC-11); Q5 convert and warn (AC-12; cost: the
@@ -281,7 +284,7 @@ designs overrides on the Assets API or the WebSocket.
   `q/entry`, `q/submit`, and to following an overridden evaluation through WebSocket `subscribe`;
   the `qe` entry route came with Q5 and went with Q7; `_entry_format` replaces `format` on every entry
   route (Q12). Added AC-13 to AC-22, the
-  terminology, and documentation in four documents. Size: L; converted from the compact to the
+  terminology, and documentation in five documents. Size: L; converted from the compact to the
   full form (each phase in its own file). Approval: pending at this gate.
 
 - **2026-10-12 — Crate placement refined at Phase 2.** Phase 2 found that `AssetManager::apply`
@@ -295,4 +298,4 @@ designs overrides on the Assets API or the WebSocket.
 - Issue `specs/issues/QUERY-API-ARGUMENTS-ONLY-IN-QUERY-PATH.md`
 - `specs/design/axum-assets-endpoints/` — unmapped assets, the WebSocket subscription model
 - `specs/reference/WEB_API_SPECIFICATION.md` §5.3, §5.8, §7; `specs/reference/ASSET_LIFECYCLE.md`
-- `specs/issues/AXUM-WEBSOCKET-HARDENING.md` — limits that also bound `submit`
+- `specs/issues/AXUM-WEBSOCKET-HARDENING.md` — limits that also bound override subscriptions

@@ -5,6 +5,8 @@ title: Argument overrides over HTTP and WebSocket
 workflow: liquers-project
 status: in_review
 phase: implementation
+readiness: ready
+autofix: not-eligible
 area: [axum, core/assets, core/plan]
 affects_docs: [reference/ASSET_LIFECYCLE.md, reference/WEB_API_SPECIFICATION.md, guides/WEB_API_GUIDE.md, guides/ASSET_MANAGER_IMPLEMENTATION_GUIDE.md, reference/api/DOC_08_RECIPES_PLANS.md]
 issues: [QUERY-API-ARGUMENTS-ONLY-IN-QUERY-PATH]

@@ -251,7 +251,7 @@ submit, and submitted query state is not preserved.
 - **Executor-agnostic core** — planned → [`issues/CORE-TOKIO-REMOVAL.md`](issues/CORE-TOKIO-REMOVAL.md)
 - **Browser stores (localStorage, fetch, JS, routing)** — built → [`design/liquers-web-store/`](design/liquers-web-store/)
 - **Browser-native store and command backend** — planned → [`issues/WEB-NATIVE-IO-TIER2.md`](issues/WEB-NATIVE-IO-TIER2.md)
-- **Argument overrides over HTTP and WebSocket (URL parameters, JSON body, WebSocket submit)** — designing → [`design/axum-query-named-arguments/`](design/axum-query-named-arguments/)
+- **Argument overrides over HTTP and WebSocket (URL parameters, JSON body, WebSocket subscribe)** — designing → [`design/axum-query-named-arguments/`](design/axum-query-named-arguments/)
 - **Agent memory service** — designing → [`design/agent-memory-mvp/`](design/agent-memory-mvp/)
 
 The memory service is the first line here that is an *application* of Liquers rather than a way
