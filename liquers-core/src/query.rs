@@ -64,8 +64,12 @@
 //!   when resource names, parameters, actions, and headers are compared or hashed.
 //! - [`QuerySource`] is provenance metadata: [`Query`] equality and hashing ignore it,
 //!   and [`Query::encode`] does not include it.
-//! - The [`Query::absolute`] flag is part of equality and hashing and is rendered
-//!   as a leading `/`. It currently has no semantic meaning.
+//! - The [`Query::rooted`] flag is part of equality and hashing and is rendered
+//!   as a leading `/`. A leading `/` makes the query rooted: relative (`.`/`..`) keys in its
+//!   resource segments resolve against the logical root instead of the current working
+//!   directory, while links inside the query keep resolving against the live CWD (see
+//!   `CwdCursor::resolve_query_scoped`). A key with no `.` or `..` is absolute either way, so
+//!   `-R/data/x.csv` and `/-R/data/x.csv` read the same key.
 //!
 //! Constructors in this module do not validate parser grammar. Use
 //! [`crate::parse::parse_query`] or [`crate::parse::parse_key`] when untrusted text
@@ -101,7 +105,7 @@
 //!
 //! [`Key::to_absolute`] interprets `.` and `..` relative to a supplied current
 //! working-directory key. [`Query::to_absolute`] applies that operation to every
-//! resource segment. It does not change or consult [`Query::absolute`].
+//! resource segment. It does not change or consult [`Query::rooted`].
 //! [`Query::to_absolute`] can only be meaningfully applied when a current working
 //! directory (CWD) is known. This is typically the case when a query is part of a
 //! [`crate::recipes::Recipe`] located in a particular directory. In many contexts,
@@ -1689,7 +1693,7 @@ impl From<Key> for Query {
         Query {
             segments: vec![value.into()],
             source: QuerySource::Unspecified,
-            absolute: false,
+            rooted: false,
         }
     }
 }
@@ -1699,7 +1703,7 @@ impl From<&Key> for Query {
         Query {
             segments: vec![value.clone().into()],
             source: QuerySource::Unspecified,
-            absolute: false,
+            rooted: false,
         }
     }
 }
@@ -2211,17 +2215,16 @@ impl Display for QuerySource {
 ///
 /// Accepted text and parse precedence are defined by
 /// [`crate::parse::parse_query`] and the [`crate::parse`] module reference.
-/// Equality and hashing include `segments` and `absolute`, but ignore `source` and
+/// Equality and hashing include `segments` and `rooted`, but ignore `source` and
 /// all nested source positions.
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct Query {
     /// Segments in evaluation order.
     pub segments: Vec<QuerySegment>,
-    /// Whether the textual form had a leading `/`.
-    ///
-    /// This is stored and encoded; it is independent of relative `.` and `..`
-    /// resolution by [`Self::to_absolute`].
-    pub absolute: bool,
+    /// The text had a leading `/`: relative (`.`/`..`) keys in resource segments resolve against
+    /// the logical root `/`, not the CWD. Links inside the query still use the live CWD.
+    /// Stored, encoded as the leading `/`, and part of equality and hashing.
+    pub rooted: bool,
     /// Non-semantic provenance metadata.
     pub source: QuerySource,
 }
@@ -2297,13 +2300,13 @@ impl CwdCursor {
     pub(crate) fn resolve_query_scoped(&mut self, query: &Query) -> Query {
         let mut resolved = query.clone();
         let mut scoped = self.clone();
-        let mut absolute_resource_cursor = query.absolute.then(|| CwdCursor::new(Some(Key::new())));
+        let mut rooted_resource_cursor = query.rooted.then(|| CwdCursor::new(Some(Key::new())));
 
         for segment in &mut resolved.segments {
             match segment {
                 QuerySegment::Resource(resource) => {
                     let is_cwd = Self::is_cwd_resource(resource);
-                    if let Some(resource_cursor) = &mut absolute_resource_cursor {
+                    if let Some(resource_cursor) = &mut rooted_resource_cursor {
                         let key = if is_cwd {
                             resource_cursor.set_cwd_from(&resource.key)
                         } else {
@@ -2341,7 +2344,7 @@ impl CwdCursor {
         // Resolution runs on clones, so consumption observed by either the scoped cursor or the
         // absolute-resource cursor has to be reported back to the caller.
         self.consumed_cwd |= scoped.consumed_cwd
-            || absolute_resource_cursor
+            || rooted_resource_cursor
                 .as_ref()
                 .is_some_and(|cursor| cursor.consumed_cwd);
 
@@ -2385,7 +2388,7 @@ impl Query {
     pub fn new() -> Query {
         Query {
             segments: vec![],
-            absolute: false,
+            rooted: false,
             source: QuerySource::Unspecified,
         }
     }
@@ -2460,7 +2463,7 @@ impl Query {
                 .iter()
                 .map(|x| x.to_absolute(cwd_key))
                 .collect(),
-            absolute: self.absolute,
+            rooted: self.rooted,
             source: self.source.clone(),
         }
     }
@@ -2565,7 +2568,7 @@ impl Query {
     /// parameters.
     ///
     /// This is the test that decides whether a query can name an asset on its own. It asks about
-    /// **operand form**, not about [`Query::absolute`]: a query with no key operand at all, such as
+    /// **operand form**, not about [`Query::rooted`]: a query with no key operand at all, such as
     /// `greet-Hello`, means the same thing in every directory and is therefore not relative.
     pub fn has_relative_operand(&self) -> bool {
         self.segments.iter().any(|segment| match segment {
@@ -2621,7 +2624,7 @@ impl Query {
                     (
                         Some(Query {
                             segments: self.up_to_last_segment(),
-                            absolute: self.absolute,
+                            rooted: self.rooted,
                             ..Default::default()
                         }),
                         Some(QuerySegment::Resource(rqs.clone())),
@@ -2634,7 +2637,7 @@ impl Query {
                     (
                         Some(Query {
                             segments: self.up_to_last_segment(),
-                            absolute: self.absolute,
+                            rooted: self.rooted,
                             ..Default::default()
                         }),
                         r.map(QuerySegment::Transform),
@@ -2645,7 +2648,7 @@ impl Query {
                     (
                         Some(Query {
                             segments: seg,
-                            absolute: self.absolute,
+                            rooted: self.rooted,
                             ..Default::default()
                         }),
                         r.map(QuerySegment::Transform),
@@ -2748,7 +2751,7 @@ impl Query {
         } else {
             Query {
                 segments: vec![],
-                absolute: self.absolute,
+                rooted: self.rooted,
                 ..Default::default()
             }
         }
@@ -2771,7 +2774,7 @@ impl Query {
     /// Encodes the query as a string.
     pub fn encode(&self) -> String {
         if self.segments.is_empty() {
-            if self.absolute {
+            if self.rooted {
                 return "/".to_owned();
             } else {
                 return "".to_owned();
@@ -2782,7 +2785,7 @@ impl Query {
             .iter()
             .map(|x| x.encode_with_header())
             .join("/");
-        if self.absolute {
+        if self.rooted {
             format!("/{q}")
         } else {
             q
@@ -2792,7 +2795,7 @@ impl Query {
     /// Removes ambiguity from the query by creating a standard form.
     /// The standard form has the same meaning as the original query.
     /// If a query is used as a key (for example, for assets), use the canonical
-    /// form to prevent duplicates. The absolute flag and source are copied;
+    /// form to prevent duplicates. The rooted flag and source are copied;
     /// effectively, only the segments are transformed.
     pub fn canonical(self) -> Self {
         Self {
@@ -2801,7 +2804,7 @@ impl Query {
                 .into_iter()
                 .map(|seg| seg.canonical())
                 .collect(),
-            absolute: self.absolute,
+            rooted: self.rooted,
             source: self.source,
         }
     }
@@ -2814,7 +2817,7 @@ impl Query {
 impl QueryRenderer for Query {
     fn render<S: QueryRenderStyle>(&self, style: &S) -> String {
         if self.segments.is_empty() {
-            if self.absolute {
+            if self.rooted {
                 style.separator("/", &Position::unknown())
             } else {
                 "".to_owned()
@@ -2834,7 +2837,7 @@ impl QueryRenderer for Query {
                 })
                 .collect::<Vec<_>>()
                 .join("");
-            if self.absolute {
+            if self.rooted {
                 format!(
                     "{}{}{}",
                     style.separator("/", &Position::unknown()),
@@ -2856,7 +2859,7 @@ impl QueryRenderer for Query {
             std::iter::once(StyledQueryToken::Separator("/".to_owned()))
                 .chain(x.styled_tokens(position))
         });
-        if self.absolute {
+        if self.rooted {
             Either::Left(
                 std::iter::once(StyledQueryToken::Separator("/".to_owned()))
                     .chain(first_tokens)
@@ -2937,7 +2940,7 @@ impl Display for Query {
 
 impl PartialEq for Query {
     fn eq(&self, other: &Self) -> bool {
-        self.segments == other.segments && self.absolute == other.absolute
+        self.segments == other.segments && self.rooted == other.rooted
     }
 }
 
@@ -2946,7 +2949,7 @@ impl Eq for Query {}
 impl Hash for Query {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.segments.hash(state);
-        self.absolute.hash(state);
+        self.rooted.hash(state);
     }
 }
 
@@ -2970,6 +2973,36 @@ mod tests {
     use crate::parse::{self, parse_key, parse_query};
 
     use super::*;
+
+    /// T1 (`design/query-leading-slash-field`): the leading `/` is the `rooted` flag.
+    #[test]
+    fn leading_slash_sets_rooted() -> Result<(), Error> {
+        assert!(parse_query("/-R/a.txt")?.rooted);
+        assert!(!parse_query("-R/a.txt")?.rooted);
+        assert_eq!(parse_query("/-R/a.txt")?.encode(), "/-R/a.txt");
+        Ok(())
+    }
+
+    /// T2: the serialized field is `rooted`, with no `absolute` left behind.
+    #[test]
+    fn rooted_is_the_wire_name() -> Result<(), Box<dyn std::error::Error>> {
+        let json = serde_json::to_value(parse_query("/-R/a.txt")?)?;
+        assert_eq!(json["rooted"], serde_json::Value::Bool(true));
+        assert!(json.get("absolute").is_none(), "{json}");
+        Ok(())
+    }
+
+    /// T3: metadata stores a query as its text, so the rename does not reach stored metadata.
+    #[test]
+    fn metadata_query_stays_encoded_text() -> Result<(), Box<dyn std::error::Error>> {
+        let mut record = crate::metadata::MetadataRecord::new();
+        record.query = parse_query("/-R/a.txt")?;
+        let json = serde_json::to_value(&record)?;
+        assert_eq!(json["query"], serde_json::Value::String("/-R/a.txt".to_string()));
+        let back: crate::metadata::MetadataRecord = serde_json::from_value(json)?;
+        assert_eq!(back.query, record.query);
+        Ok(())
+    }
 
     fn resource_key(query: &Query, segment: usize) -> &Key {
         match &query.segments[segment] {
@@ -3058,14 +3091,14 @@ mod tests {
     }
 
     #[test]
-    fn cwd_cursor_absolute_query_uses_private_root_without_fallback(
+    fn cwd_cursor_rooted_query_uses_private_root_without_fallback(
     ) -> Result<(), Box<dyn std::error::Error>> {
         let query = parse_query("/-R/./data/-/action-~X~-R/./linked~E")?;
         let mut cursor = CwdCursor::new(Some(parse_key("a/b")?));
 
         let resolved = cursor.resolve_query_scoped(&query);
 
-        assert!(resolved.absolute);
+        assert!(resolved.rooted);
         assert_eq!(resource_key(&resolved, 0).encode(), "data");
         assert_eq!(
             resource_key(link_query(&resolved, 1, 0, 0), 0).encode(),
@@ -3127,7 +3160,7 @@ mod tests {
         let resolved = cursor.resolve_query_scoped(&query);
 
         assert_eq!(resolved.source, query.source);
-        assert!(resolved.absolute);
+        assert!(resolved.rooted);
         assert_eq!(
             resource_key(&resolved, 0)
                 .filename()
@@ -3231,7 +3264,7 @@ mod tests {
                 query: vec![ActionRequest::new("hello".to_owned())],
                 ..Default::default()
             })],
-            absolute: false,
+            rooted: false,
             ..Default::default()
         };
         let ap = ActionParameter::Link(q, Position::unknown());
@@ -3264,7 +3297,7 @@ mod tests {
                 query: vec![ActionRequest::new("hello".to_owned())],
                 ..Default::default()
             })],
-            absolute: false,
+            rooted: false,
             ..Default::default()
         };
         let a = ActionRequest {
@@ -3293,7 +3326,7 @@ mod tests {
                 query: vec![ActionRequest::new("hello".to_owned())],
                 ..Default::default()
             })],
-            absolute: false,
+            rooted: false,
             ..Default::default()
         };
         let a = ActionRequest::new("action1".to_owned()).with_parameters(vec![

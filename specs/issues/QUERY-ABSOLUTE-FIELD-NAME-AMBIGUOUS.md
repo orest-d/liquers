@@ -2,7 +2,7 @@
 id: QUERY-ABSOLUTE-FIELD-NAME-AMBIGUOUS
 kind: issue
 title: Query::absolute names a leading slash, colliding with two other meanings of absolute
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [core/query]
@@ -61,3 +61,16 @@ Alternatively, decide the field should carry meaning after all and document that
 Recorded 2026-08-17 while designing `specs/design/store-key-guard/`, which introduces
 `Key::as_absolute` and had to state explicitly in its Phase 2 document that this is not the same
 concept as `Query::absolute`. Filed so the observation survives that design folder.
+
+## Resolution (2026-10-11)
+
+`Query::absolute` is now `Query::rooted` (`liquers-core/src/query.rs`), serialized as `"rooted"`
+with no alias, as decided on 2026-10-10; `Plan::absolute_query_resource_step_index` became
+`rooted_query_resource_step_index`, and `liquers-py` exposes a `rooted` getter in place of
+`absolute`. The module and field docs now state the meaning: a leading `/` roots the relative keys
+of the query's resource segments at `/`, while links keep the live CWD. `Key::to_absolute`,
+`Key::as_absolute` and `Query::to_absolute` keep their names. Encoding, equality and hashing are
+unchanged; stored metadata keeps queries as text, so only struct-serialized plans written before
+the change stop deserializing (accepted). Tests: `leading_slash_sets_rooted`,
+`rooted_is_the_wire_name`, `metadata_query_stays_encoded_text`. Design:
+`design/query-leading-slash-field/`.

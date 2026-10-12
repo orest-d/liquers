@@ -197,7 +197,7 @@ PY-PYO3-0-21-CANNOT-TARGET-PYTHON-3-13,feature,"liquers-py pins PyO3 0.21, which
 PY-PYO3-REJECTS-PYTHON-3-13,issue,liquers-py does not build against Python 3.13 without an environment override,closed,local,,ready,eligible,P3,S,py;build,,,,pyo3-python-3-13-support,,2026-10-06,specs/issues/PY-PYO3-REJECTS-PYTHON-3-13.md
 PY-VALUE-SERIALIZER-IS-A-STUB,issue,liquers-py's value serializer writes almost nothing and reads nothing back,draft,local,,,,P2,M,py;core/value,,,,,,2026-08-26,specs/issues/PY-VALUE-SERIALIZER-IS-A-STUB.md
 PY-VALUE-TYPE-DESCRIPTIONS-MISSING,issue,"liquers-py's Value describes no types, so its registry would refuse every write",closed,local,,,,P2,M,py;core/value,,,,foreign-value-type-registration,,2026-08-26,specs/issues/PY-VALUE-TYPE-DESCRIPTIONS-MISSING.md
-QUERY-ABSOLUTE-FIELD-NAME-AMBIGUOUS,issue,"Query::absolute names a leading slash, colliding with two other meanings of absolute",draft,local,,ready,not-eligible,P3,S,core/query,,,,query-leading-slash-field,,2026-08-17,specs/issues/QUERY-ABSOLUTE-FIELD-NAME-AMBIGUOUS.md
+QUERY-ABSOLUTE-FIELD-NAME-AMBIGUOUS,issue,"Query::absolute names a leading slash, colliding with two other meanings of absolute",closed,local,,ready,not-eligible,P3,S,core/query,,,,query-leading-slash-field,,2026-08-17,specs/issues/QUERY-ABSOLUTE-FIELD-NAME-AMBIGUOUS.md
 QUERY-API-ARGUMENTS-ONLY-IN-QUERY-PATH,feature,Query API arguments cannot be passed as JSON or URL parameters,draft,local,,,,P2,M,axum,,,,,,2026-10-10,specs/issues/QUERY-API-ARGUMENTS-ONLY-IN-QUERY-PATH.md
 QUERY-AST-DISCARDS-ENTITIES,issue,"Parsed entities are decoded away, so the AST cannot show them",draft,local,,,,P3,L,core/query,,,,,,2026-08-14,specs/issues/QUERY-AST-DISCARDS-ENTITIES.md
 QUERY-BUILDER-TOOLING,issue,No programmatic builder for constructing queries,accepted,local,,,,P2,L,core/query;core/validate,,,,,,2026-08-08,specs/issues/QUERY-BUILDER-TOOLING.md
@@ -408,7 +408,7 @@ PREDECESSOR-CUT-EQUIVALENCE,design,Make cutting a predecessor boundary observabl
 PYO3-PYTHON-3-13-SUPPORT,design,liquers-py builds against the current Python,,github,,ready,eligible,P3,S,py;build,,110,,pyo3-python-3-13-support,,2026-10-08,specs/design/pyo3-python-3-13-support/DESIGN.md
 PYTHON-WRAPPER,design,Python wrapper architecture for liquers-py,complete,local,,,,,,py,,,,python-wrapper,,2026-03-02,specs/design/python-wrapper/DESIGN.md
 QUERY-CONSOLE-ELEMENT,design,Query console UI element,complete,local,,,,,,lib/ui,,,,query-console-element,,2026-03-02,specs/design/query-console-element/DESIGN.md
-ACTIVE-08,design,Design for QUERY-ABSOLUTE-FIELD-NAME-AMBIGUOUS,in_review,local,implementation,ready,not-eligible,P3,S,core/query,,,,query-leading-slash-field,,2026-09-03,specs/design/query-leading-slash-field/DESIGN.md
+ACTIVE-08,design,Design for QUERY-ABSOLUTE-FIELD-NAME-AMBIGUOUS,,github,,ready,not-eligible,P3,S,core/query,,119,,query-leading-slash-field,,2026-09-03,specs/design/query-leading-slash-field/DESIGN.md
 QUERY-LINK-PARSER,design,Action-parameter link parsing (~X~~E),complete,local,,,,,,core/query,,17,,query-link-parser,,2026-03-02,specs/design/query-link-parser/DESIGN.md
 QUERY-VALIDATION,design,Offline query and recipe validation,complete,local,,,,,,core/validate,,15,,query-validation,,2026-03-02,specs/design/query-validation/DESIGN.md
 QUEUED-MANAGER-CONDITIONAL-EVICTION,design,Conditional queued-manager cache eviction,complete,local,,ready,,P2,S,core/assets,,,,queued-manager-conditional-eviction,,2026-08-29,specs/design/queued-manager-conditional-eviction/DESIGN.md
@@ -469,9 +469,9 @@ WEBUI,design,Web-framework-independent rendering with SSR and wasm,complete,loca
 WP2-TERMINAL-OUTCOME,design,Asset terminal outcome contract,complete,local,,,,,,core/assets,,7,,wp2-terminal-outcome,,2026-03-02,specs/design/wp2-terminal-outcome/DESIGN.md
 API_DOCS_GAP_ANALYSIS,reference,API Documentation Gap Analysis,current,local,,,,,,docs,,,,,2026-10-10,,specs/reference/api/API_DOCS_GAP_ANALYSIS.md
 DOC_01_ARCHITECTURE_REFERENCE,reference,Architecture Reference,current,local,,,,,,core/query;core/plan;core/assets,,,,,2026-08-09,,specs/reference/api/DOC_01_ARCHITECTURE_REFERENCE.md
-DOC_02_QUERY_LANGUAGE_REFERENCE,reference,Query Language Reference,current,local,,,,,,core/query,,,,,2026-10-10,,specs/reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md
+DOC_02_QUERY_LANGUAGE_REFERENCE,reference,Query Language Reference,current,local,,,,,,core/query,,,,,2026-10-11,,specs/reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md
 DOC_03_ASSETS_EXECUTION_LIFECYCLE,reference,Assets and Execution Lifecycle Reference,current,local,,,,,,core/assets,,,,,2026-10-10,,specs/reference/api/DOC_03_ASSETS_EXECUTION_LIFECYCLE.md
-DOC_04_ENVIRONMENT_CONTEXT_EVALUATION,reference,"Environment, Context and Evaluation Reference",current,local,,,,,,core/context;core/plan,,,,,2026-10-10,,specs/reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md
+DOC_04_ENVIRONMENT_CONTEXT_EVALUATION,reference,"Environment, Context and Evaluation Reference",current,local,,,,,,core/context;core/plan,,,,,2026-10-11,,specs/reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md
 DOC_08_RECIPES_PLANS,reference,Recipes and Plans Reference,current,local,,,,,,core/plan;core/assets;core/context,,,,,2026-10-10,,specs/reference/api/DOC_08_RECIPES_PLANS.md
 ASSET_LIFECYCLE,reference,Asset Evaluation — Flows and Public Surface,current,local,,,,,,core/assets,,,,,2026-10-09,,specs/reference/ASSET_LIFECYCLE.md
 ASSET_SET_OPERATION,reference,Asset Set Operation Specification,current,local,,,,,,core/assets,,,,,2026-10-10,,specs/reference/ASSET_SET_OPERATION.md
@@ -484,7 +484,7 @@ ENVIRONMENT_CONFIG,reference,Environment Configuration,current,local,,,,,,core/c
 IMAGE_COMMAND_LIBRARY,reference,Image Command Library Specification,overdue,local,,,,,,lib/image,,,,,2026-03-02,,specs/reference/IMAGE_COMMAND_LIBRARY.md
 PAYLOAD_GUIDE,reference,Payload Specification and Usage,current,local,,,,,,core/context;core/commands,,,,,2026-09-04,,specs/reference/PAYLOAD_GUIDE.md
 POLARS_COMMAND_LIBRARY,reference,Polars Command Library Specification,current,local,,,,,,lib/polars,,,,,2026-10-10,,specs/reference/POLARS_COMMAND_LIBRARY.md
-PROJECT_OVERVIEW,reference,Liquers Project Overview,current,local,,,,,,core/query;core/plan;core/assets;core/store;core/value,,,,,2026-10-10,,specs/reference/PROJECT_OVERVIEW.md
+PROJECT_OVERVIEW,reference,Liquers Project Overview,current,local,,,,,,core/query;core/plan;core/assets;core/store;core/value,,,,,2026-10-11,,specs/reference/PROJECT_OVERVIEW.md
 RECORD_STREAMS,reference,Record Streams,current,local,,,,,,records;lib/value;lib/commands;web,,,,,2026-10-11,,specs/reference/RECORD_STREAMS.md
 REGISTER_COMMAND_FSD,reference,register_command! Macro Functional Specification,current,local,,,,,,macro;core/commands,,,,,2026-10-11,,specs/reference/REGISTER_COMMAND_FSD.md
 SEARCH,reference,Search,current,local,,,,,,records;lib/commands,,,,,2026-10-11,,specs/reference/SEARCH.md

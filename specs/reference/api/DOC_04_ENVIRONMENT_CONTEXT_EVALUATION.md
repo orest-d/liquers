@@ -3,7 +3,7 @@ title: Environment, Context and Evaluation Reference
 kind: reference
 audience: internal
 area: [core/context, core/plan]
-reviewed: 2026-10-10
+reviewed: 2026-10-11
 ---
 # DOC-04: Environment, Context, and End-to-End Evaluation
 
@@ -331,7 +331,7 @@ query carrying a CWD-relative resource operand, recursively including link
 parameters, with `ErrorType::NotSupported`. The error names the offending segment's
 position and points at `-R-key/.`.
 
-The test is **operand form**, not `Query::absolute`. A query with no key operand at
+The test is **operand form**, not `Query::rooted`. A query with no key operand at
 all — `greet-Hello` — means the same thing in every directory and stays valid. A
 command that needs a sibling takes the directory as a link argument and builds an
 absolute query from it.
@@ -585,6 +585,7 @@ methods crate-private), so an asset manager can be implemented outside `liquers-
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-11 | `Query::absolute` renamed `Query::rooted`, wire name included (no alias); its meaning is unchanged. | `design/query-leading-slash-field/` |
 | 2026-10-10 | Dependency and apply methods: a non-keyed dependency is created under the current asset's caching strategy; `Context::cache_strategy()`. | phase-5, `design/plan-policy/` |
 | 2026-10-10 | §Built-in environment comparison: no `with_store` / `with_cache` setters (they no longer exist); `with_async_store` is the only store setter. The gap-table row and pitfall about them are removed. | `CORE-SYNC-STORE-TRAIT-OBSOLETE`, `design/sync-store-removal/` |
 | 2026-10-10 | Reviewed against `design/plan-step-state-metadata/`. New §Metadata ownership during evaluation: asset, context and step-state roles; the cut plan as the reference for a step's input state; the per-step table of `do_step_state`; `is_applied`. §Context lifetime no longer describes rebuilding every state from the context's metadata with a `key`-only adjustment (`value_origin_key` removed). | phase-5 |
