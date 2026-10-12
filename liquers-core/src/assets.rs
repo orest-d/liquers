@@ -7520,6 +7520,28 @@ pub struct DefaultAssetManager<E: Environment> {
 
 #[cfg(not(target_arch = "wasm32"))]
 impl<E: Environment> DefaultAssetManager<E> {
+    /// Runs a dependency claimed from a local queue in a task of its own, and waits for it.
+    ///
+    /// The run borrows the waiting dependent's job slot, as an inline run did, so slot accounting
+    /// is unchanged. Running it in its own task keeps each link of a dependency chain on its own
+    /// stack, so evaluation depth does not grow with the chain
+    /// (`dependency-resolved-once-per-evaluation`). If the dependent is dropped while waiting, the
+    /// child is detached and finishes on its own, instead of being interrupted and re-parked. A
+    /// panic in the run is ignored as an inline run's result was; the claim's `Drop` re-parks the
+    /// asset. Like a job started by `JobQueue::try_to_start_immediately`, the child's undrained
+    /// local dependencies are re-parked when it finishes.
+    async fn run_claimed_in_own_task(&self, dependency: AssetRef<E>, claim: RunClaim<E>) {
+        let queue = self.job_queue.clone();
+        let handle = tokio::spawn(async move {
+            let _ = dependency.run(None).await;
+            claim.complete();
+            for child in queue.take_local_dependencies(dependency.id()).await {
+                let _ = queue.repark_as_submitted(&child).await;
+            }
+        });
+        let _ = handle.await;
+    }
+
     /// Sets the policies read by the trait accessors. Called by the builder before sharing.
     pub(crate) fn with_policies(
         mut self,
@@ -8347,11 +8369,8 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
                 Some(claim) => {
                     parent.enter_dependencies(&dep).await?;
                     entered = true;
-                    // Inline, recursive: dep.run() may itself schedule and drain dep's own
-                    // local queue in this same task. Box::pin bounds the future type; depth
-                    // is bounded by the (cycle-free) dependency DAG.
-                    let _ = Box::pin(dep.run(None)).await;
-                    claim.complete();
+                    // In a task of its own, so the stack does not grow with the chain.
+                    self.run_claimed_in_own_task(dep, claim).await;
                 }
                 None => {
                     // Running or finished elsewhere — skip.
@@ -8462,8 +8481,7 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
             match dependency.try_claim_for_run(&self.job_queue).await? {
                 Some(claim) => {
                     parent.enter_dependencies(dependency).await?;
-                    let _ = Box::pin(dependency.run(None)).await;
-                    claim.complete();
+                    self.run_claimed_in_own_task(dependency.clone(), claim).await;
                 }
                 None => {
                     parent.enter_dependencies(dependency).await?;
