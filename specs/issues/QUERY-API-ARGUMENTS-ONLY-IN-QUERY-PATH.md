@@ -4,7 +4,7 @@ kind: feature
 title: Query API arguments cannot be passed as JSON or URL parameters
 status: draft
 priority: P2
-complexity: M
+complexity: L
 area: [axum]
 design: axum-query-named-arguments
 created: 2026-10-10
