@@ -3,7 +3,7 @@ id: AXUM-QUERY-NAMED-ARGUMENTS
 kind: design
 title: Argument overrides over HTTP and WebSocket
 workflow: liquers-project
-status: in_review
+status: approved
 phase: implementation
 readiness: ready
 autofix: not-eligible
@@ -19,12 +19,14 @@ and WebSocket `subscribe` with `arguments`, which follows the unmanaged evaluati
 compact to the full form on 2026-10-12, when the scope grew from the Query API to the Assets API
 and the WebSocket (see Phase 1, Scope Changes).
 
+Pre-approved after Phase 4 on 2026-10-12 (`proceed all`): implementation and Phase 5.
+
 ## Phase Status
 
 - [x] Phase 1: High-Level Design (approved 2026-10-12)
 - [x] Phase 2: Architecture (approved 2026-10-12)
 - [x] Phase 3: Examples and Tests (approved 2026-10-12)
-- [ ] Phase 4: Implementation Plan (in review)
+- [x] Phase 4: Implementation Plan (approved 2026-10-12)
 - [ ] Phase 5: Documentation
 
 ## Links
