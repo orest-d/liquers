@@ -16,6 +16,7 @@ use liquers_core::{
 use serde_json::{json, Value as JsonValue};
 
 const A: &str = "/api/assets";
+const B: &str = "/q";
 
 fn build_app<K: AssetManagerKind>(envref: EnvRef<GenericEnvironment<Value, (), K>>) -> Router
 where
@@ -56,6 +57,51 @@ fn log_messages(metadata: &JsonValue) -> Vec<String> {
                 .collect()
         })
         .unwrap_or_default()
+}
+
+#[tokio::test]
+async fn aoh01_query_api_get_query_string() {
+    let app = app().await;
+    let answer = get(&app, &format!("{B}/echo_args?query=a%20b&limit=20&fields=x&fields=y")).await;
+    assert_eq!(answer.status, StatusCode::OK, "{}", answer.text());
+    assert_eq!(answer.text(), "query=a b;rank=true;case_sensitive=false;limit=20;fields=x,y");
+    assert_eq!(answer.managed().as_deref(), Some("false"));
+}
+
+#[tokio::test]
+async fn aoh03_query_api_post_json_body() {
+    let app = app().await;
+    let answer = post(&app, &format!("{B}/echo_args"), r#"{"query": "expiration safety", "limit": 20}"#).await;
+    assert_eq!(answer.status, StatusCode::OK, "{}", answer.text());
+    assert_eq!(answer.text(), "query=expiration safety;rank=true;case_sensitive=false;limit=20;fields=");
+    assert_eq!(answer.managed().as_deref(), Some("false"));
+}
+
+#[tokio::test]
+async fn aoh07_override_replaces_path_value() {
+    let app = app().await;
+    // Empty path slots leave `query` as "" and `rank`, `case_sensitive` at their defaults; the
+    // path gives `limit`; the override gives `query`.
+    let answer = get(&app, &format!("{B}/echo_args----20?query=a")).await;
+    assert_eq!(answer.text(), "query=a;rank=true;case_sensitive=false;limit=20;fields=");
+    // An override also replaces a value the path did give.
+    let answer = get(&app, &format!("{B}/echo_args-hello-f-f-3?query=a&limit=4")).await;
+    assert_eq!(answer.text(), "query=a;rank=false;case_sensitive=false;limit=4;fields=");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn aoh10_different_overrides_not_shared() {
+    let fixtures = Fixtures::default();
+    let app = app_with(&fixtures, &[]).await;
+    let (uri_a, uri_b) = (format!("{B}/echo_args?query=a"), format!("{B}/echo_args?query=b"));
+    let (a, b) = tokio::join!(get(&app, &uri_a), get(&app, &uri_b));
+    assert!(a.text().starts_with("query=a;"), "{}", a.text());
+    assert!(b.text().starts_with("query=b;"), "{}", b.text());
+    // The same overrides twice are evaluated twice: an unmanaged asset is never reused.
+    fixtures.open_gate();
+    let first = get(&app, &format!("{B}/gated?tag=t")).await;
+    let second = get(&app, &format!("{B}/gated?tag=t")).await;
+    assert_eq!((first.text(), second.text()), ("t:1".to_string(), "t:2".to_string()));
 }
 
 #[tokio::test]
@@ -126,6 +172,10 @@ async fn aoh09_no_override_forms_stay_managed() {
         request(&app, "POST", &format!("{A}/q/data/echo_args"), Some(""), &[]).await,
         request(&app, "POST", &format!("{A}/q/data/echo_args"), Some("{}"), &[]).await,
         request(&app, "GET", &format!("{A}/q/entry/echo_args?_entry_format=json"), None, &[]).await,
+        request(&app, "GET", &format!("{B}/echo_args"), None, &[]).await,
+        request(&app, "GET", &format!("{B}/echo_args?"), None, &[]).await,
+        request(&app, "POST", &format!("{B}/echo_args"), Some(""), &[]).await,
+        request(&app, "POST", &format!("{B}/echo_args"), Some("{}"), &[]).await,
     ];
     for (i, answer) in forms.iter().enumerate() {
         assert_eq!(answer.status, StatusCode::OK, "form {i}: {}", answer.text());
@@ -162,6 +212,8 @@ async fn aoh12_reserved_name_400() {
         // `_entry_format` is an option of the entry route only.
         format!("{A}/q/data/echo_args?_entry_format=json"),
         format!("{A}/q/submit/echo_args?_entry_format=json"),
+        format!("{B}/echo_args?_foo=1"),
+        format!("{B}/echo_args?_entry_format=json"),
     ] {
         let answer = get(&app, &uri).await;
         assert_eq!(answer.status, StatusCode::BAD_REQUEST, "{uri}");

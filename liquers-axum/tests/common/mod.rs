@@ -29,19 +29,28 @@ use liquers_core::{
     value::Value,
 };
 use serde_json::Value as JsonValue;
-use tokio::sync::Notify;
+use tokio::sync::Semaphore;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 use tower::ServiceExt;
 
 pub type Ws =
     tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
 
-/// The shared state of the fixture commands: the gate `gated` waits for, and the counter it
-/// increments after passing it.
-#[derive(Clone, Default)]
+/// The shared state of the fixture commands: the gate `gated` waits for (closed until
+/// [`Fixtures::open_gate`]), and the counter it increments after passing it.
+#[derive(Clone)]
 pub struct Fixtures {
-    pub gate: Arc<Notify>,
+    pub gate: Arc<Semaphore>,
     pub counter: Arc<AtomicUsize>,
+}
+
+impl Default for Fixtures {
+    fn default() -> Self {
+        Fixtures {
+            gate: Arc::new(Semaphore::new(0)),
+            counter: Arc::new(AtomicUsize::new(0)),
+        }
+    }
 }
 
 impl Fixtures {
@@ -50,10 +59,7 @@ impl Fixtures {
     }
     /// Let every gated evaluation through, now and later.
     pub fn open_gate(&self) {
-        for _ in 0..64 {
-            self.gate.notify_one();
-        }
-        self.gate.notify_waiters();
+        self.gate.add_permits(Semaphore::MAX_PERMITS / 2);
     }
 }
 
@@ -103,7 +109,10 @@ pub fn register_fixtures<E: Environment<Value = Value>>(
                 let counter = counter.clone();
                 Box::pin(async move {
                     let tag: String = args.get(0, "tag")?;
-                    gate.notified().await;
+                    let _passed = gate
+                        .acquire()
+                        .await
+                        .map_err(|e| Error::general_error(format!("gate closed: {e}")))?;
                     let count = counter.fetch_add(1, Ordering::SeqCst) + 1;
                     Ok(Value::from(format!("{tag}:{count}")))
                 })
