@@ -218,6 +218,37 @@ fn collect_parameter_dependency_queries(
     }
 }
 
+/// Schedules one dependency for the pre-pass and stops the pre-pass if it has already failed.
+///
+/// Within an evaluation session a dependency resolves to one asset, which may already be `Error`
+/// or `Cancelled` when it is scheduled: the inline manager evaluates it in place, and a pinned
+/// asset may have failed earlier in the session. Its dependents fail as quickly as possible
+/// (`dependency-resolved-once-per-evaluation`, decision 1), so the rest of the plan is not
+/// scheduled; the dependency's own error is returned, as the step that reads it would return it.
+async fn schedule_prepass_dependency<E: Environment>(
+    context: &Context<E>,
+    query: &Query,
+) -> Result<(), Error> {
+    use crate::metadata::Status;
+    let asset = context.schedule_dependency_asset(query).await?;
+    match asset.status().await {
+        Status::Error | Status::Cancelled => context.wait_for_dependency(&asset).await.map(|_| ()),
+        Status::None
+        | Status::Directory
+        | Status::Recipe
+        | Status::Submitted
+        | Status::Dependencies
+        | Status::Processing
+        | Status::Partial
+        | Status::Storing
+        | Status::Ready
+        | Status::Expired
+        | Status::Source
+        | Status::Override
+        | Status::Volatile => Ok(()),
+    }
+}
+
 fn schedule_plan_dependencies_from<'a, E: Environment>(
     plan: &'a Plan,
     context: &'a Context<E>,
@@ -235,14 +266,14 @@ fn schedule_plan_dependencies_from<'a, E: Environment>(
                         cursor.resolve_key(key)
                     };
                     if seen.insert(resolved.clone()) {
-                        context.schedule_dependency_asset(&resolved.into()).await?;
+                        schedule_prepass_dependency(context, &resolved.into()).await?;
                     }
                 }
                 Step::Evaluate(query) => {
                     let resolved = cursor.resolve_query_scoped(query);
                     if let Some(key) = resolved.key() {
                         if seen.insert(key) {
-                            context.schedule_dependency_asset(&resolved).await?;
+                            schedule_prepass_dependency(context, &resolved).await?;
                         }
                     }
                 }
@@ -253,7 +284,7 @@ fn schedule_plan_dependencies_from<'a, E: Environment>(
                     }
                     for (key, query) in queries {
                         if seen.insert(key) {
-                            context.schedule_dependency_asset(&query).await?;
+                            schedule_prepass_dependency(context, &query).await?;
                         }
                     }
                 }

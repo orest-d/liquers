@@ -5954,6 +5954,17 @@ pub trait AssetManager<E: Environment>:
             Ok(state) if state.status() == Status::Cancelled => {
                 Err(parent.cancelled_dependency_cause(dependency).await)
             }
+            // A failed dependency is the dependent's error, as on `DefaultAssetManager`: `get`
+            // hands back the failure as a no-value state, which a dependent must not receive as a
+            // value. The dependency's own error is carried up unchanged.
+            Ok(state) if state.status() == Status::Error => Err(match dependency.stored_error().await {
+                Some(cause) => cause,
+                None => Error::general_error(format!(
+                    "Dependency {} did not produce a value (status {:?})",
+                    dependency.expiry_subject().await,
+                    Status::Error
+                )),
+            }),
             Ok(state) => Ok(state),
             Err(error) => {
                 // The stale-dependency policy (see `DefaultAssetManager::wait_for_dependency`):
@@ -9520,13 +9531,48 @@ impl<E: Environment> ImmediateAssetManager<E> {
         self.get_query_asset_for(query, QueryAssetOrigin::TopLevel).await
     }
 
-    /// The query branch of `get_asset`, for `origin`: resolve the asset, evict a stale-terminal
-    /// one, expire one whose deadline passed, and run a fresh one inline.
+    /// The query branch of `get_asset`, for `origin`: settle the asset, and run a fresh one inline.
     async fn get_query_asset_run(
         &self,
         query: &Query,
         origin: QueryAssetOrigin,
     ) -> Result<AssetRef<E>, Error> {
+        match self.settle_query(query, origin).await? {
+            Settled::Available(assetref) => Ok(assetref),
+            Settled::NeedsRun(assetref) => {
+                // Backstop against re-entry: if this asset is already being run inline on this
+                // manager, running it again is the recursion `owned_key_asset` exists to prevent.
+                // Report it instead of exhausting the stack.
+                assetref.run_inline(None).await?;
+                Ok(assetref)
+            }
+        }
+    }
+
+    /// Run a dependency of `parent` that settled as [`Settled::NeedsRun`], inside `parent`'s
+    /// evaluation session. A failed evaluation is returned as the asset, which records the
+    /// failure, so the session pins it and the dependent receives its error through
+    /// `wait_for_dependency`. Any other error (the re-entry backstop, infrastructure) propagates.
+    async fn run_dependency(&self, parent: &AssetRef<E>, asset: AssetRef<E>) -> Result<AssetRef<E>, Error> {
+        if let Some(session) = parent.evaluation_session().await {
+            asset.adopt_evaluation_session(&session).await;
+        }
+        match asset.run_inline(None).await {
+            Ok(()) => Ok(asset),
+            Err(error) => {
+                if matches!(asset.status().await, Status::Error | Status::Cancelled) {
+                    Ok(asset)
+                } else {
+                    Err(error)
+                }
+            }
+        }
+    }
+
+    /// The query half of `get_asset` up to running, for `origin`: resolve the asset, evict a
+    /// stale-terminal one, expire one whose deadline passed, and serve a finished one. A fresh
+    /// asset that has to run comes back as [`Settled::NeedsRun`], not yet run.
+    async fn settle_query(&self, query: &Query, origin: QueryAssetOrigin) -> Result<Settled<E>, Error> {
         loop {
             let assetref = self.get_query_asset_for(query, origin).await?;
             let status = assetref.status().await;
@@ -9570,13 +9616,66 @@ impl<E: Environment> ImmediateAssetManager<E> {
                     drop(map);
                     continue;
                 }
-                return Ok(assetref);
+                return Ok(Settled::Available(assetref));
             }
-            // Backstop against re-entry: if this asset is already being run inline on this
-            // manager, running it again is the recursion `owned_key_asset` exists to prevent.
-            // Report it instead of exhausting the stack.
-            assetref.run_inline(None).await?;
-            return Ok(assetref);
+            return Ok(Settled::NeedsRun(assetref));
+        }
+    }
+
+    /// The keyed half of `get` up to running: resolve the asset, evict a stale-terminal one,
+    /// expire one whose deadline passed, and serve a finished or fast-tracked one. A fresh asset
+    /// that has to run comes back as [`Settled::NeedsRun`], not yet run.
+    async fn settle(&self, key: &Key) -> Result<Settled<E>, Error> {
+        loop {
+            let asset_ref = self.get_resource_asset(key).await?;
+            let status = asset_ref.status().await;
+            if matches!(
+                status,
+                Status::Expired | Status::Error | Status::Cancelled | Status::Volatile
+            ) {
+                let asset_id = asset_ref.id();
+                let _mutation = self.key_mutation_lock.lock().await;
+                let mut map = self.assets.lock().unwrap_or_else(|e| e.into_inner());
+                if let Some(existing) = map.get(key) {
+                    if existing.id() == asset_id {
+                        map.remove(key);
+                    }
+                }
+                drop(map);
+                continue;
+            }
+            if status.is_finished() {
+                if status == Status::Ready && asset_ref.expiration_time().await.is_expired() {
+                    // Lazy expiration-on-access: the deadline, not the status, decides
+                    // (`IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-NEVER-FIRES`; this used to test
+                    // `is_expired()`, i.e. the status, which can never be `Expired` here).
+                    // Laziness is how the expiry is discovered; once it is known, the consequences
+                    // follow, so it cascades to dependents as the queued monitor does
+                    // (`IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-DOES-NOT-CASCADE`, fixed). The
+                    // cascade takes no `key_mutation_lock`, so it runs before the lock below.
+                    let expiration_time = asset_ref.expiration_time().await;
+                    let _ = asset_ref
+                        .expire_with_reason(ExpiryReason::Direct {
+                            cause: ExpiryCause::Deadline { expiration_time },
+                        })
+                        .await;
+                    let asset_id = asset_ref.id();
+                    let _mutation = self.key_mutation_lock.lock().await;
+                    let mut map = self.assets.lock().unwrap_or_else(|e| e.into_inner());
+                    if let Some(existing) = map.get(key) {
+                        if existing.id() == asset_id {
+                            map.remove(key);
+                        }
+                    }
+                    drop(map);
+                    continue;
+                }
+                return Ok(Settled::Available(asset_ref));
+            }
+            if asset_ref.fast_track().await? {
+                return Ok(Settled::Available(asset_ref));
+            }
+            return Ok(Settled::NeedsRun(asset_ref));
         }
     }
 
@@ -9705,6 +9804,14 @@ impl<E: Environment> ImmediateAssetManager<E> {
     }
 }
 
+/// What [`ImmediateAssetManager`] found for a requested asset before running anything.
+enum Settled<E: Environment> {
+    /// Finished, or fast-tracked from the store: nothing to run.
+    Available(AssetRef<E>),
+    /// A fresh asset that has to be evaluated.
+    NeedsRun(AssetRef<E>),
+}
+
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
@@ -9781,18 +9888,25 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
 
     /// Overridden (the trait default delegates to `get_asset`) so that a non-keyed dependency is
     /// created under its creator's caching strategy, as `DefaultAssetManager`'s override does.
-    /// Runs the dependency inline, exactly as `get_asset` would.
+    /// Runs the dependency inline in `parent`'s evaluation session, and returns it even when its
+    /// evaluation failed (see the trait method).
     async fn get_dependency_asset(
         &self,
         parent: &AssetRef<E>,
         query: &Query,
     ) -> Result<AssetRef<E>, Error> {
-        if let Some(key) = query.key() {
-            return self.get(&key).await;
+        let settled = match query.key() {
+            Some(key) => self.settle(&key).await?,
+            None => {
+                let creator = parent.cache_strategy().await;
+                self.settle_query(query, QueryAssetOrigin::Dependency(creator))
+                    .await?
+            }
+        };
+        match settled {
+            Settled::Available(asset) => Ok(asset),
+            Settled::NeedsRun(asset) => self.run_dependency(parent, asset).await,
         }
-        let creator = parent.cache_strategy().await;
-        self.get_query_asset_run(query, QueryAssetOrigin::Dependency(creator))
-            .await
     }
 
     async fn apply(
@@ -9802,6 +9916,22 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
         payload: Option<E::Payload>,
     ) -> Result<AssetRef<E>, Error> {
         let asset_ref = AssetData::new_ext(self.next_id(), recipe, to, None, self.envref()).to_ref();
+        asset_ref.run_inline(payload).await?;
+        Ok(asset_ref)
+    }
+
+    /// As [`Self::apply`], inside `parent`'s evaluation session.
+    async fn apply_for(
+        &self,
+        parent: &AssetRef<E>,
+        recipe: Recipe,
+        to: State<E::Value>,
+        payload: Option<E::Payload>,
+    ) -> Result<AssetRef<E>, Error> {
+        let asset_ref = AssetData::new_ext(self.next_id(), recipe, to, None, self.envref()).to_ref();
+        if let Some(session) = parent.evaluation_session().await {
+            asset_ref.adopt_evaluation_session(&session).await;
+        }
         asset_ref.run_inline(payload).await?;
         Ok(asset_ref)
     }
@@ -9851,58 +9981,13 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
     }
 
     async fn get(&self, key: &Key) -> Result<AssetRef<E>, Error> {
-        loop {
-            let asset_ref = self.get_resource_asset(key).await?;
-            let status = asset_ref.status().await;
-            if matches!(
-                status,
-                Status::Expired | Status::Error | Status::Cancelled | Status::Volatile
-            ) {
-                let asset_id = asset_ref.id();
-                let _mutation = self.key_mutation_lock.lock().await;
-                let mut map = self.assets.lock().unwrap_or_else(|e| e.into_inner());
-                if let Some(existing) = map.get(key) {
-                    if existing.id() == asset_id {
-                        map.remove(key);
-                    }
-                }
-                drop(map);
-                continue;
+        match self.settle(key).await? {
+            Settled::Available(asset_ref) => Ok(asset_ref),
+            Settled::NeedsRun(asset_ref) => {
+                // Backstop against re-entry — see the note in `get_asset`.
+                asset_ref.run_inline(None).await?;
+                Ok(asset_ref)
             }
-            if status.is_finished() {
-                if status == Status::Ready && asset_ref.expiration_time().await.is_expired() {
-                    // Lazy expiration-on-access: the deadline, not the status, decides
-                    // (`IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-NEVER-FIRES`; this used to test
-                    // `is_expired()`, i.e. the status, which can never be `Expired` here).
-                    // Laziness is how the expiry is discovered; once it is known, the consequences
-                    // follow, so it cascades to dependents as the queued monitor does
-                    // (`IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-DOES-NOT-CASCADE`, fixed). The
-                    // cascade takes no `key_mutation_lock`, so it runs before the lock below.
-                    let expiration_time = asset_ref.expiration_time().await;
-                    let _ = asset_ref
-                        .expire_with_reason(ExpiryReason::Direct {
-                            cause: ExpiryCause::Deadline { expiration_time },
-                        })
-                        .await;
-                    let asset_id = asset_ref.id();
-                    let _mutation = self.key_mutation_lock.lock().await;
-                    let mut map = self.assets.lock().unwrap_or_else(|e| e.into_inner());
-                    if let Some(existing) = map.get(key) {
-                        if existing.id() == asset_id {
-                            map.remove(key);
-                        }
-                    }
-                    drop(map);
-                    continue;
-                }
-                return Ok(asset_ref);
-            }
-            if asset_ref.fast_track().await? {
-                return Ok(asset_ref);
-            }
-            // Backstop against re-entry — see the note in `get_asset`.
-            asset_ref.run_inline(None).await?;
-            return Ok(asset_ref);
         }
     }
 
