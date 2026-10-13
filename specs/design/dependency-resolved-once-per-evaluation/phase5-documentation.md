@@ -49,6 +49,9 @@ The pieces:
   Ad-hoc queued applies of deep cold chains are left to
   `INLINE-MANAGER-DYNAMIC-DEPENDENCY-CHAIN-NESTS`, which already covers inline nesting that
   priming does not reach.
+- **One review fix (PR 127, Codex):** `upstream_graph` records a recipe only when its reads
+  cannot depend on the caller (its own `cwd`, or no caller CWD). Priming therefore never
+  evaluates reads that a run may not make; any other key is evaluated by the ordinary run.
 - **One correction:** Phase 2 asked managers to adopt the session. `adopt_evaluation_session` is
   crate-private, so only the built-in managers can, and the trait documentation says so. The gap is
   filed as `EXTERNAL-MANAGER-CANNOT-SHARE-AN-EVALUATION-SESSION`, because closing it widens the
@@ -89,6 +92,11 @@ evaluation, stack depth independent of chain length" points at this design and m
   still nest one level per link.
 - `EXTERNAL-MANAGER-CANNOT-SHARE-AN-EVALUATION-SESSION` (P3): an external manager cannot give a
   dependency its parent's session, so a shared upstream may run once per dependency.
+- `DEPENDENCY-ANALYSIS-USES-CALLER-CWD-FOR-A-CWD-LESS-RECIPE` (P3, found answering a review on PR
+  127): the dependency walk analyses a recipe without its own `cwd` against its caller's cursor,
+  while its run resolves against the root. Priming now records only caller-independent recipes,
+  so it is not affected (unit test `upstream_graph_leaves_out_caller_dependent_recipes`). The
+  analysis's own metadata still is.
 
 Closed by this work:
 - `FAILING-UPSTREAM-RERUNS-EXPONENTIALLY-AT-QUEUE-CAPACITY`;
@@ -128,7 +136,8 @@ Closed by this work:
 
 Run on 2026-10-12, at the commits listed in Phase 4 §Progress:
 
-- `cargo test --no-fail-fast -p liquers-core --lib --tests`: **1604 passed, 0 failed**, including
+- `cargo test --no-fail-fast -p liquers-core --lib --tests`: **1604 passed, 0 failed** (1605
+  after the review fix and its unit test), including
   `evaluation_session` (11), `deep_chain_evaluation` (8, every deep test also run alone),
   `dependency_audit_integration` (42), `external_asset_manager`, `asset_cancellation`,
   `dependency_scheduling` and `manager_parametric`. After that run, only doc comments, a test

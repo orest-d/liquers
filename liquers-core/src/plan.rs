@@ -3001,6 +3001,9 @@ struct Frame {
     /// For the plan being analysed only, one entry per read in order: whether it is a `State`
     /// read served by a recipe.
     served: Vec<bool>,
+    /// Whether the recipe sets its own `cwd`, so that its reads do not depend on the caller's
+    /// cursor. `false` for the plan being analysed.
+    own_cwd: bool,
 }
 
 fn merge_read(target: &mut DependencySummary, read: &Read, summary: &DependencySummary) {
@@ -3047,6 +3050,7 @@ impl<E: Environment> DependencyWalk<E> {
             reads,
             next: 0,
             summary: DependencySummary::default(),
+            own_cwd: false,
         };
         let root = match self.run(root).await {
             Ok(root) => root,
@@ -3107,7 +3111,14 @@ impl<E: Environment> DependencyWalk<E> {
                 };
                 self.on_path.remove(&memo_key.0);
                 self.done.insert(memo_key.clone(), Some(frame.summary.clone()));
-                if let Some(recorder) = self.recorder.as_mut() {
+                // Only a recipe whose reads cannot depend on its caller is recorded: one that sets
+                // its own `cwd`, or one reached with no caller CWD. The walk analyses a recipe
+                // without a `cwd` once per caller cursor, but its keyed asset is one asset whose
+                // run resolves its operands in its own context, so any other variant may name
+                // reads the run never makes. An unrecorded key is not primed; it is evaluated by
+                // the ordinary run.
+                let caller_independent = frame.own_cwd || memo_key.1.is_none();
+                if let (Some(recorder), true) = (self.recorder.as_mut(), caller_independent) {
                     recorder.push(UpstreamNode {
                         key: memo_key.0.clone(),
                         reads: frame
@@ -3184,6 +3195,7 @@ impl<E: Environment> DependencyWalk<E> {
             next: 0,
             summary,
             served: Vec::new(),
+            own_cwd: recipe.cwd.is_some(),
         }))
     }
 
@@ -3407,6 +3419,7 @@ pub(crate) async fn upstream_graph<E: Environment>(
         reads: scan.reads,
         next: 0,
         summary: DependencySummary::default(),
+        own_cwd: false,
     };
     walk.run(root).await?;
     Ok(UpstreamGraph {
@@ -3435,6 +3448,7 @@ pub(crate) async fn key_upstream_graph<E: Environment>(
         }],
         next: 0,
         summary: DependencySummary::default(),
+        own_cwd: false,
     };
     walk.run(root).await?;
     let mut nodes = walk.recorder.take().unwrap_or_default();
@@ -5070,6 +5084,41 @@ mod tests {
         assert_eq!(graph.roots, vec![key("d/l1.txt")?]);
         let order: Vec<String> = graph.nodes.iter().map(|n| n.key.encode()).collect();
         assert_eq!(order, vec!["d/l0.txt".to_owned(), "d/l1.txt".to_owned()]);
+        Ok(())
+    }
+
+    /// A recipe without its own `cwd`, reached through a caller with a CWD, is analysed against
+    /// that caller's cursor, which its keyed asset's own run does not use. `upstream_graph`
+    /// therefore leaves it, and what it reads, out, so priming never evaluates reads the run may
+    /// not make (PR 127 review).
+    #[tokio::test]
+    async fn upstream_graph_leaves_out_caller_dependent_recipes() -> Result<(), Error> {
+        let key = |k: &str| parse_key(k);
+        let recipe = |query: &str| Recipe::new(query.to_owned(), String::new(), String::new());
+        let mut top = recipe("-R/d/r.txt/-/upper")?;
+        top.cwd = Some("d".to_owned());
+        let provider = CountingRecipeProvider::new([
+            (key("d/top.txt")?, top),
+            (key("d/r.txt")?, recipe("-R/d/s.txt/-/upper")?),
+            (key("d/s.txt")?, recipe("make_text")?),
+        ]);
+        let mut env = ImmediateEnvironment::<crate::value::Value>::new();
+        for name in ["make_text", "upper"] {
+            env.command_registry
+                .command_metadata_registry
+                .add_command(&CommandMetadata::new(name));
+        }
+        env.with_recipe_provider(Box::new(provider));
+        let envref = env.to_ref();
+
+        let graph = key_upstream_graph(envref, &key("d/top.txt")?).await?;
+        assert_eq!(graph.roots, vec![key("d/r.txt")?]);
+        assert!(
+            graph.nodes.iter().all(|n| n.key != key("d/r.txt").unwrap_or_default()
+                && n.key != key("d/s.txt").unwrap_or_default()),
+            "caller-dependent recipes are not primed: {:?}",
+            graph.nodes
+        );
         Ok(())
     }
 

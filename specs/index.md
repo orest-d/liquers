@@ -8,10 +8,10 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 109
+Total rows: 110
 - P1: 1
 - P2: 51
-- P3: 57
+- P3: 58
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -69,6 +69,7 @@ Total rows: 109
 | [`VALUE-TYPE-DEFINITION-MACRO`](issues/VALUE-TYPE-DEFINITION-MACRO.md) | feature | Value types and their registry entries are hand-written instead of generated | draft |  |  | P2 | XL | macro;lib/value;core/value |  | 2026-08-18 |
 | [`AXUM-QUERY-API-QUERY-KEEPS-LEADING-SLASH`](issues/AXUM-QUERY-API-QUERY-KEEPS-LEADING-SLASH.md) | issue | The Query API mounted without a trailing slash evaluates the query with a leading slash | draft |  |  | P3 | S | axum |  | 2026-10-12 |
 | [`COMMAND-REGISTRY-HEADER-NAMES-GROUPS-NOT-FEATURES`](issues/COMMAND-REGISTRY-HEADER-NAMES-GROUPS-NOT-FEATURES.md) | issue | The command_registry.yaml header lists group names under "features" | draft |  |  | P3 | S | lib/commands;build |  | 2026-10-11 |
+| [`DEPENDENCY-ANALYSIS-USES-CALLER-CWD-FOR-A-CWD-LESS-RECIPE`](issues/DEPENDENCY-ANALYSIS-USES-CALLER-CWD-FOR-A-CWD-LESS-RECIPE.md) | issue | Dependency analysis resolves a cwd-less recipe against its caller's cursor, but its run resolves against the root | draft |  |  | P3 | S | core/plan |  | 2026-10-13 |
 | [`EXTERNAL-MANAGER-CANNOT-SHARE-AN-EVALUATION-SESSION`](issues/EXTERNAL-MANAGER-CANNOT-SHARE-AN-EVALUATION-SESSION.md) | issue | An external asset manager cannot hand a dependency its parent's evaluation session | draft |  |  | P3 | S | core/assets |  | 2026-10-12 |
 | [`LIB-BUILD-EMITS-UNUSED-AND-UNHANDLED-RESULT-WARNINGS`](issues/LIB-BUILD-EMITS-UNUSED-AND-UNHANDLED-RESULT-WARNINGS.md) | issue | A default liquers-lib build emits about 50 warnings, some for discarded Results | draft |  |  | P3 | S | lib/commands;build |  | 2026-10-11 |
 | [`PY-VALUE-ENUM-OVERSIZED`](issues/PY-VALUE-ENUM-OVERSIZED.md) | issue | liquers-py's own Value enum is over 700 bytes because large variants are stored inline | draft |  |  | P3 | S | py |  | 2026-10-12 |
