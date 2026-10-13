@@ -1,5 +1,7 @@
 # Phase 1: High-Level Design — Record and polars command interoperability
 
+> **Approved 2026-10-13 (Revision 4).**
+>
 > **Revision 4, 2026-10-13.** The point of an async, lazy `ns-pl` was to avoid materializing a
 > whole stream, for example so that a column selection materializes only the selected columns.
 > polars 0.55 cannot do that over an async stream. So, by the maintainer's rule, `ns-pl` stays
@@ -181,26 +183,22 @@ zero-copy question; `EXTERNAL-INDEX-SYNC`, which owns pushdown.
 
 ## Design Readiness
 
-- **Readiness:** needs-decision
+- **Readiness:** ready
 - **Automatic fixing:** not-eligible. The source is size L, and the fix adds public commands and
   changes command contracts.
-- **Leading issue:** Question 1 (`pl/schema`'s output form; see §Schema Example)
-- **Explanation:** Each criterion has a working answer, built on kernels that already exist. The
-  questions below change command contracts, so they are listed for the gate rather than decided
-  silently.
-- **Open questions:**
-  1. *Open design.* `pl/schema` today returns `{column: "<polars dtype>"}`, while `rec/schema`
-     returns a `RecordSchema` document (§Schema Example). **Recommendation:** keep both forms,
-     because each feeds its own namespace, and document the difference (AC-9). Alternative: make
-     `pl/schema` return a `RecordSchema` derived by the bridge, which changes an existing output.
-  2. *Proposed resolution.* The new commands take polars names (`is_in`, `is_null`,
-     `is_not_null`, `starts_with`, `ends_with`), following the polars-first rule. These replace the
-     pandas-style names (`isin`, `isnull`, `startswith`) proposed in Revision 2.
-  3. *Proposed resolution.* `ns-pl/sort` becomes stable (`maintain_order`) and gains
-     `nulls_last: bool = false`, so that both namespaces give identical order (AC-7, AC-9).
-  4. *Proposed resolution.* AC-18 makes `select_columns` and `head` lazy over a source, where
-     today they refuse one. A query that relied on the refusal does not exist, so nothing breaks.
-     `materialize` stays the only point where a stream becomes one table.
+- **Leading issue:** None
+- **Explanation:** Phase 1 was approved on 2026-10-13. Every question is resolved (see the tables
+  below), and each criterion builds on code that exists (search kernels, views, the polars bridge).
+- **Open questions:** None.
+
+### Decisions at the Revision 4 gate (2026-10-13, approved)
+
+| # | Question | Decision |
+|---|---|---|
+| 1 | `pl/schema` output | Stays the polars schema (`{column: dtype}`). `rec/schema` returns a `RecordSchema`, and the difference is documented (AC-9, AC-14) |
+| 2 | Polars names for new commands | Accepted: `is_in`, `is_null`, `is_not_null`, `starts_with`, `ends_with` |
+| 3 | `ns-pl/sort` | Becomes stable and gains `nulls_last: bool = false` |
+| 4 | Lazy `ns-rec` over sources | Accepted (AC-18) |
 
 ### Decisions at the Revision 2 gate (2026-10-13)
 

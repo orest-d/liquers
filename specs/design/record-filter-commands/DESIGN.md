@@ -3,9 +3,9 @@ id: RECORD-FILTER-COMMANDS
 kind: design
 title: Record and polars command interoperability (ns-rec filters, sort, shared vocabulary)
 workflow: liquers-project
-status: in_review
-phase: high-level
-readiness: needs-decision
+status: draft
+phase: architecture
+readiness: ready
 autofix: not-eligible
 area: [records, lib/commands, lib/polars]
 issues: [RECORD-AND-POLARS-COMMANDS-NOT-INTEROPERABLE, RECORD-SOURCE-WRAPPERS-UNSPECIFIED]
@@ -29,8 +29,8 @@ Supporting notes: [`conventions.md`](./conventions.md) (polars-first naming, mai
 
 | Phase | State |
 |---|---|
-| 1 High-level | Revision 4 (ns-pl stays sync; lazy ns-rec over sources) 2026-10-13; **awaiting `proceed`** |
-| 2 Architecture | Skeleton plus carried-over draft notes |
+| 1 High-level | **Approved 2026-10-13** (Revision 4) |
+| 2 Architecture | In progress |
 | 3 Examples | Not started |
 | 4 Implementation | Not started |
 | 5 Documentation | Not started |
