@@ -3,14 +3,14 @@ id: RECORD-FILTER-COMMANDS
 kind: design
 title: Record and polars command interoperability (ns-rec filters, sort, shared vocabulary)
 workflow: liquers-project
-status: draft
+status: in_review
 phase: architecture
 readiness: ready
 autofix: not-eligible
 area: [records, lib/commands, lib/polars]
 issues: [RECORD-AND-POLARS-COMMANDS-NOT-INTEROPERABLE, RECORD-SOURCE-WRAPPERS-UNSPECIFIED]
 merged: 2026-10-13
-affects_docs: [reference/RECORD_STREAMS.md, reference/POLARS_COMMAND_LIBRARY.md, guides/RECORD_STREAM_GUIDE.md]
+affects_docs: [reference/RECORD_STREAMS.md, reference/POLARS_COMMAND_LIBRARY.md, guides/RECORD_STREAM_GUIDE.md, reference/SEARCH.md, reference/COMMAND_ALIASES.md]
 created: 2026-10-11
 ---
 # Record and polars command interoperability
@@ -30,7 +30,7 @@ Supporting notes: [`conventions.md`](./conventions.md) (polars-first naming, mai
 | Phase | State |
 |---|---|
 | 1 High-level | **Approved 2026-10-13** (Revision 4) |
-| 2 Architecture | In progress |
+| 2 Architecture | Written and reviewed 2026-10-13; **awaiting `proceed` / `proceed all`** |
 | 3 Examples | Not started |
 | 4 Implementation | Not started |
 | 5 Documentation | Not started |
