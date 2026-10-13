@@ -2,7 +2,7 @@
 id: FAILING-UPSTREAM-RERUNS-EXPONENTIALLY-AT-QUEUE-CAPACITY
 kind: issue
 title: A failing upstream link re-runs exponentially often when the queue is at capacity
-status: draft
+status: closed
 priority: P1
 complexity: M
 area: [core/assets]
@@ -67,3 +67,19 @@ dependent evaluation); not merged because that one was observed on the refusal p
 quoted above covers the whole top-level evaluation, not one asset's run. Within it, each dependency,
 direct or transitive, is evaluated at most once and has one version; it is carried by an
 *evaluation session*.
+
+## Resolution
+
+Fixed 2026-10-13 by `design/dependency-resolved-once-per-evaluation/` (orest-d/liquers#127). The
+cause was a double resolution: the plan pre-pass resolved a dependency, ran it to `Error` at queue
+capacity, and the step that reads it resolved it again; `DefaultAssetManager::get_dependency_asset`
+then evicted the failed asset and ran it again, doubling the work per link. An evaluation session
+(`liquers-core/src/evaluation_session.rs`) now pins the asset of each dependency's first resolution
+for the whole top-level evaluation, so a failed dependency fails its dependents without running
+again; a later evaluation runs it afresh.
+
+Evidence: `liquers-core/tests/evaluation_session.rs` — `failing_chain_runs_root_once_at_default_capacity`
+and `…_at_capacity_one` (10 links: `fail` once; 240 and 1024 runs before),
+`shared_failing_root_runs_once_in_lattice`, `long_failing_chain_finishes_promptly` (20 links),
+`failure_reruns_in_a_later_evaluation`; `deep_chain_evaluation.rs`
+`queued_failing_root_of_100_link_chain_runs_once`.

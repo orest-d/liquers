@@ -2,7 +2,7 @@
 id: EVALUATING-A-DEEP-CHAIN-TOP-DOWN-OVERFLOWS-THE-STACK
 kind: issue
 title: Evaluating the last link of a deep recipe chain overflows the thread stack
-status: draft
+status: closed
 priority: P2
 complexity: M
 area: [core/assets]
@@ -57,3 +57,20 @@ Found on 2026-10-08 while implementing `dependency-chain-analysis-cost` (Phase 4
 evaluating a 50-link chain top-down overflowed. A probe over a fresh chain environment passed at 10
 and 20 links and overflowed before 30. The tests in `liquers-core/tests/dependency_audit_integration.rs`
 evaluate link by link for this reason.
+
+## Resolution
+
+Fixed 2026-10-13 by `design/dependency-resolved-once-per-evaluation/` (orest-d/liquers#127), which
+superseded `deep-chain-evaluation-stack-depth`. The queued manager now runs every locally queued
+dependency in a task of its own (`DefaultAssetManager::run_claimed_in_own_task`), so each link
+holds its own stack; the inline manager primes a cold top-level asset's static upstream bottom-up
+(`ImmediateAssetManager::prime_upstream` over `plan.rs` `upstream_graph`), so the chain nests one
+level instead of one per link.
+
+Evidence: `liquers-core/tests/deep_chain_evaluation.rs` — 100-link cold chains on a 1 MiB stack:
+`queued_cold_100_link_chain_on_1mib_stack`, `queued_capacity_one_cold_100_link_chain_on_1mib_stack`,
+`immediate_cold_100_link_chain_without_runtime_on_1mib_stack` (no tokio runtime),
+`immediate_warm_upstream_is_not_reloaded`, `immediate_failing_root_of_100_link_chain_runs_once`
+(HEAD overflowed at 27 links queued and 10 inline on 2 MiB). Residual limit, filed:
+`INLINE-MANAGER-DYNAMIC-DEPENDENCY-CHAIN-NESTS` (inline chains through a dynamic or volatile link,
+and `apply_queued`).

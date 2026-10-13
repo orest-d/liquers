@@ -72,7 +72,7 @@ volatility work all landed in `assets.rs`.
 - **`Status::Dependencies` semantics** — documented → [`reference/DEPENDENCIES_STATUS.md`](reference/DEPENDENCIES_STATUS.md)
 - **Dependency-wait lifecycle and deadlock-safe delegation** — built → [`design/dependency-management/`](design/dependency-management/)
 - **Non-blocking dependency scheduling** — built → [`design/dependency-scheduling/`](design/dependency-scheduling/)
-- **Evaluation session: each dependency evaluated once per evaluation, stack depth independent of chain length** — designing → [`design/dependency-resolved-once-per-evaluation/`](design/dependency-resolved-once-per-evaluation/)
+- **Evaluation session: each dependency evaluated once per evaluation, stack depth independent of chain length** — built → [`design/dependency-resolved-once-per-evaluation/`](design/dependency-resolved-once-per-evaluation/)
 - **Expiration mechanism** — built → [`design/expiration-mechanism/`](design/expiration-mechanism/)
 - **Expiration timing and race safety** — built → [`design/expiration-safety/`](design/expiration-safety/)
 - **Weak references in the expiration monitor** — built → [`design/expiration-monitor-assetref/`](design/expiration-monitor-assetref/)
@@ -279,9 +279,7 @@ question are both measure-first items.
 ## Open issues attached to live design work
 
 <!-- BEGIN generated: issues -->
-| Issue | Pri | Cx | Design |
-|---|---|---|---|
-| [`FAILING-UPSTREAM-RERUNS-EXPONENTIALLY-AT-QUEUE-CAPACITY`](issues/FAILING-UPSTREAM-RERUNS-EXPONENTIALLY-AT-QUEUE-CAPACITY.md) | P1 | M | `dependency-resolved-once-per-evaluation` |
+*None.*
 <!-- END generated: issues -->
 
 ## Not yet placed

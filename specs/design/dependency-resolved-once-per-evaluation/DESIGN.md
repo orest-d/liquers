@@ -3,7 +3,7 @@ id: DEPENDENCY-RESOLVED-ONCE-PER-EVALUATION
 kind: design
 title: Evaluation session — each dependency evaluated once per evaluation, at any chain depth
 workflow: liquers-project
-phase: documentation
+status: complete
 readiness: ready
 autofix: not-eligible
 area: [core/assets, core/plan]
@@ -39,7 +39,7 @@ Phase 5. The decision log is Phase 1's Design Readiness section.
 - [x] Phase 2: Architecture (approved 2026-10-12)
 - [x] Phase 3: Examples and Tests (pre-approved; reviewed 2026-10-12)
 - [x] Phase 4: Implementation Plan (pre-approved; reviewed 2026-10-12; adds AC-16 to Phase 1)
-- [ ] Phase 5: Documentation (written 2026-10-12; awaiting the maintainer before `complete`)
+- [x] Phase 5: Documentation (approved 2026-10-13; design complete, source issues closed)
 
 ## Links
 

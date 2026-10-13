@@ -98,7 +98,7 @@ evaluation, stack depth independent of chain length" points at this design and m
   so it is not affected (unit test `upstream_graph_leaves_out_caller_dependent_recipes`). The
   analysis's own metadata still is.
 
-Closed by this work:
+Closed by this work (`status: closed`, each with a Resolution section naming its tests):
 - `FAILING-UPSTREAM-RERUNS-EXPONENTIALLY-AT-QUEUE-CAPACITY`;
 - `REFUSED-DEPENDENCY-RECOMPUTED-TWICE-DURING-A-DEPENDENT-EVALUATION`;
 - `EVALUATING-A-DEEP-CHAIN-TOP-DOWN-OVERFLOWS-THE-STACK`.
