@@ -8,7 +8,8 @@ phase: high-level
 readiness: needs-decision
 autofix: not-eligible
 area: [records, lib/commands, lib/polars]
-issues: [RECORD-AND-POLARS-COMMANDS-NOT-INTEROPERABLE]
+issues: [RECORD-AND-POLARS-COMMANDS-NOT-INTEROPERABLE, RECORD-SOURCE-WRAPPERS-UNSPECIFIED]
+merged: 2026-10-13
 affects_docs: [reference/RECORD_STREAMS.md, reference/POLARS_COMMAND_LIBRARY.md, guides/RECORD_STREAM_GUIDE.md]
 created: 2026-10-11
 ---
@@ -22,13 +23,13 @@ the full form. The compact draft's Phase 1 is now AC-1 to AC-8 of
 [Phase 2](./phase2-architecture.md).
 
 Supporting notes: [`conventions.md`](./conventions.md) (polars-first naming, maintainer decision
-2026-10-13), [`lazyframe-investigation.md`](./lazyframe-investigation.md) (AC-16).
+2026-10-13), [`lazyframe-investigation.md`](./lazyframe-investigation.md) (AC-16), [`schema-example.md`](./schema-example.md) (AC-14).
 
 ## Phase Status
 
 | Phase | State |
 |---|---|
-| 1 High-level | Revision 3 (gate decisions applied) 2026-10-13; **awaiting `proceed`** |
+| 1 High-level | Revision 4 (ns-pl stays sync; lazy ns-rec over sources) 2026-10-13; **awaiting `proceed`** |
 | 2 Architecture | Skeleton plus carried-over draft notes |
 | 3 Examples | Not started |
 | 4 Implementation | Not started |

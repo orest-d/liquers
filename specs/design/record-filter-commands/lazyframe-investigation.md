@@ -25,7 +25,7 @@ in `Cargo.lock`.
    runtime, which is blocking in an async context (forbidden by `CLAUDE.md`, and it panics on a
    current-thread runtime). Even if that worked, `scan` returns the whole frame, so nothing is
    gained over loading the chunks first.
-2. **Chosen route: async commands that build the `LazyFrame` themselves.** An `ns-pl` command
+2. **Considered and not taken: async commands that build the `LazyFrame` themselves.** An `ns-pl` command
    becomes `async fn …(state, …, context)`. Its input becomes a `LazyFrame` in three ways:
    - a `DataFrame` with `.lazy()`;
    - a `RecordView` through `record_batch_to_dataframe`, then `.lazy()`;
@@ -36,7 +36,7 @@ in `Cargo.lock`.
    The command applies its operation to the `LazyFrame`, then `collect`s and returns a
    `PolarsDataFrame` value. **The result is always an eager DataFrame.** No `LazyFrame` value
    type is added.
-3. **Possible optimization, for Phase 2 to decide.** A row-local operation (filters,
+3. **Possible, but it would duplicate `ns-rec`.** A row-local operation (filters,
    `select_columns`, `drop_columns`) can run its lazy plan on each chunk and concatenate the
    results, so peak memory is one chunk plus the output. `sort`, `tail` and the aggregations need
    the whole input.
@@ -45,6 +45,15 @@ in `Cargo.lock`.
 
 ## Outcome
 
-The lazy route works with an async record stream, using async loading plus a lazy `concat`. A
-pull-based scan backed by polars does not work at 0.55. No follow-up issue is filed. Revisit if a
-polars release exposes a batch-yielding scan to Rust.
+The aim was for a `LazyFrame` to avoid materializing an incoming stream, so that a column selection
+would hold only the selected columns. **At polars 0.55 that is not possible**, because a
+`LazyFrame` cannot pull an async stream or push a projection into it. Consequence 2's route
+(async loading, then a lazy `concat`) still loads every chunk in full, so it gains nothing over
+`ns-rec/materialize`.
+
+**Maintainer decision, 2026-10-13:** `ns-pl` stays synchronous and eager. A stream reaches it
+through `ns-rec/materialize` and the bridge. Streaming laziness lives in `ns-rec` (Phase 1 AC-18):
+`select_columns`, `drop_columns`, the filters and `head` wrap a source, so whatever is
+materialized afterwards holds only what was selected.
+
+Revisit if a polars release exposes a batch-yielding scan to Rust. No issue is filed for that.

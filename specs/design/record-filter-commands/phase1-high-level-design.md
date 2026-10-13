@@ -1,7 +1,13 @@
 # Phase 1: High-Level Design — Record and polars command interoperability
 
-> **Revision 3, 2026-10-13.** This revision applies the gate decisions on Revision 2. `ns-pl`
-> commands become async over a `LazyFrame` and return a DataFrame. Text filters are
+> **Revision 4, 2026-10-13.** The point of an async, lazy `ns-pl` was to avoid materializing a
+> whole stream, for example so that a column selection materializes only the selected columns.
+> polars 0.55 cannot do that over an async stream. So, by the maintainer's rule, `ns-pl` stays
+> synchronous and takes a stream only after `ns-rec/materialize`. The laziness moves to `ns-rec`
+> instead: `select_columns`, `drop_columns`, the filters and `head` become lazy over a source
+> (AC-18). `RECORD-SOURCE-WRAPPERS-UNSPECIFIED` is attached as a second source.
+>
+> **Revision 3, 2026-10-13.** This revision applies the gate decisions on Revision 2. Text filters are
 > case-insensitive by default. polars sets the naming and argument conventions
 > ([`conventions.md`](./conventions.md)). The LazyFrame question is answered in
 > [`lazyframe-investigation.md`](./lazyframe-investigation.md).
@@ -80,10 +86,10 @@ AC-1 to AC-8 are unchanged from the compact draft. Ids are never renumbered.
   Every deliberate difference (for example, `select_columns` keeping Id columns) is stated in the
   command's `doc:` and in a comparison table in the reference documentation.
 - **AC-10** `ns-pl` accepts records
-  WHEN an `ns-pl` command receives a `DataFrame`, a `RecordView` or a `RecordSource`
-  THEN it runs on a `LazyFrame` built from that input, and returns the collected result as a
-  `PolarsDataFrame` value. A source is read chunk by chunk without blocking. A source larger
-  than the materialization limit is refused, and the error names the limit.
+  WHEN a (synchronous) `ns-pl` command receives a `RecordView`
+  THEN it runs on the DataFrame the bridge converts it to, and the result is the same as on that
+  DataFrame directly. A `RecordSource` is refused, and the error names `ns-rec/materialize`,
+  which is how a stream reaches `ns-pl`.
 - **AC-11** `ns-rec` accepts DataFrames
   WHEN an `ns-rec` command receives a `PolarsDataFrame` (feature `polars` on)
   THEN it runs on the converted record batch.
@@ -97,25 +103,33 @@ AC-1 to AC-8 are unchanged from the compact draft. Ids are never renumbered.
   chunk without concatenating the chunks.
 - **AC-14** Schema naming
   WHEN a user asks for a table's schema with `schema` in either namespace
-  THEN both namespaces answer. `rec/schema` returns the `RecordSchema` document (§Schema
-  Example) that a `schema` argument or a manifest's `uniform_schema` accepts.
+  THEN both namespaces answer. `rec/schema` returns the `RecordSchema` document ([`schema-example.md`](./schema-example.md)) that a `schema` argument or a manifest's `uniform_schema` accepts.
   `rec/records_schema` remains as an alias. **The round trip holds:** linking `rec/schema`'s
   output into a `schema` argument gives back an equal schema for every field role. That includes
-  the `FullText` roles `catalog` writes, and a hand-written `role` that omits `stored` or `fast`.
-  Neither holds today (see §Schema Example).
+  the `FullText` roles `catalog` writes, a hand-written `role` that omits `stored` or `fast`, and a
+  schema stored as a `.yaml` or `.json` file. None of these holds today (see [`schema-example.md`](./schema-example.md)).
 - **AC-15** Without polars
   WHEN `liquers-lib` is built with `records` but without `polars` (including wasm32)
   THEN every `ns-rec` command in AC-1 to AC-14 is available and its tests pass.
 - **AC-16** LazyFrame investigation
   WHEN the design is reviewed
   THEN [`lazyframe-investigation.md`](./lazyframe-investigation.md) records the outcome. It is
-  done: polars' `AnonymousScan` is synchronous and returns one whole frame, so the commands build
-  the `LazyFrame` themselves (AC-10). No `LazyFrame` value type is added.
+  done: polars' `AnonymousScan` is synchronous and returns one whole frame, so a `LazyFrame`
+  cannot pull an async stream and push a projection into it. `ns-pl` stays synchronous and
+  eager, and no `LazyFrame` value type is added.
 - **AC-17** Conventions
   WHEN a command exists, or is added, in `ns-rec` or `ns-pl`
   THEN its name, argument names and defaults follow [`conventions.md`](./conventions.md):
   polars first, `ns-rec` copies `ns-pl`, and a future pandas namespace adapts to them. The
   reference documentation states where pandas differs.
+- **AC-18** Lazy row-local operations over sources
+  WHEN `ns-rec/select_columns`, `drop_columns`, a filter (AC-1 to AC-4) or `head` receives a
+  `RecordSource`
+  THEN the result is a `RecordSource` that applies the operation to each chunk as it is read.
+  Nothing is materialized until a consumer asks. So
+  `…/ns-rec/select_columns-region-amount/materialize/ns-pl/sum` holds only `region`, `amount`
+  (and the Id column) for the whole stream, plus one full chunk at a time while it is read.
+  Reading only the selected columns from storage (format-level projection) is out of scope.
 
 Non-goals: aggregations, `describe` and grouping in `ns-rec` (they stay polars-only); joins; a new
 expression language; predicate pushdown into an external engine (`EXTERNAL-INDEX-SYNC`); keeping
@@ -123,14 +137,14 @@ record roles through a round trip through polars (the bridge drops them, as docu
 
 ## Core Interactions
 
-- **Commands:** new `ns-rec` commands. Every `ns-pl` command becomes `async` with `context`,
-  so every `ns-pl` signature and `impl_version` changes. The input conversion
-  (`try_to_polars_dataframe`) gains an async counterpart that returns a `LazyFrame`.
-  `specs/command_registry.yaml` is regenerated. Query spellings stay valid, because `ascending`
-  becomes a `bool`, which still reads `t` and `f`.
+- **Commands:** new `ns-rec` commands, and existing `ns-rec` row operations made source-aware
+  (AC-18). `ns-pl` stays synchronous. Its input conversion (`try_to_polars_dataframe`) accepts a
+  `RecordView` through the bridge. `ns-pl/sort` changes signature: `ascending` becomes a `bool`,
+  which still reads `t` and `f`, and `nulls_last` is added. `specs/command_registry.yaml` is
+  regenerated.
 - **Value types:** `ExtValue::RecordView`, `RecordSource` and `PolarsDataFrame` (no new variant)
   are converted through the existing bridge, `liquers-lib/src/records/polars.rs`.
-- **Records:** the search kernels (`SearchExpr`, `search_view`, `FilteredSource` in
+- **Records:** a projecting `RecordSource` wrapper beside `FilteredSource` (AC-18), and the search kernels (`SearchExpr`, `search_view`, `FilteredSource` in
   `liquers-records/src/search/`) and the `RecordView` views (`take`, `filter`).
 - **Query:** no syntax change.
 
@@ -170,7 +184,7 @@ zero-copy question; `EXTERNAL-INDEX-SYNC`, which owns pushdown.
 - **Readiness:** needs-decision
 - **Automatic fixing:** not-eligible. The source is size L, and the fix adds public commands and
   changes command contracts.
-- **Leading issue:** Question 1 (`pl/schema`'s output form)
+- **Leading issue:** Question 1 (`pl/schema`'s output form; see §Schema Example)
 - **Explanation:** Each criterion has a working answer, built on kernels that already exist. The
   questions below change command contracts, so they are listed for the gate rather than decided
   silently.
@@ -184,15 +198,15 @@ zero-copy question; `EXTERNAL-INDEX-SYNC`, which owns pushdown.
      pandas-style names (`isin`, `isnull`, `startswith`) proposed in Revision 2.
   3. *Proposed resolution.* `ns-pl/sort` becomes stable (`maintain_order`) and gains
      `nulls_last: bool = false`, so that both namespaces give identical order (AC-7, AC-9).
-  4. *Implementation detail.* Phase 2 decides whether `collect` runs on `spawn_blocking`, and
-     whether row-local commands are applied chunk by chunk
-     ([`lazyframe-investigation.md`](./lazyframe-investigation.md) §Consequences).
+  4. *Proposed resolution.* AC-18 makes `select_columns` and `head` lazy over a source, where
+     today they refuse one. A query that relied on the refusal does not exist, so nothing breaks.
+     `materialize` stays the only point where a stream becomes one table.
 
 ### Decisions at the Revision 2 gate (2026-10-13)
 
 | # | Question | Decision |
 |---|---|---|
-| 1 | Records into `ns-pl` | `ns-pl` becomes async over a `LazyFrame`, and always returns a collected DataFrame (AC-10, AC-16) |
+| 1 | Records into `ns-pl` | Async only if a `LazyFrame` avoids materializing the stream. It cannot, so `ns-pl` stays synchronous, and a stream goes through `ns-rec/materialize` (AC-10, AC-16). Laziness lives in `ns-rec` (AC-18). *Revision 4* |
 | 2 | Case sensitivity | `case_sensitive` flag, default `false`, as in `search` (AC-2) |
 | 3 | Sort | One column with an `ascending` flag. polars sets the conventions, and pandas will adapt (AC-7, AC-17) |
 | 4 | `schema` | Added to `ns-rec`, with `records_schema` kept as an alias. Its form is shown in §Schema Example |
@@ -200,65 +214,19 @@ zero-copy question; `EXTERNAL-INDEX-SYNC`, which owns pushdown.
 
 ## Schema Example
 
-A schema is a `RecordSchema` document in YAML or JSON. It is what `rec/schema` returns, what the
-`schema` argument of `to_record` and `from_json` accepts, and what a manifest holds under
-`uniform_schema:`. Below is an order table with one field of each kind:
+[`schema-example.md`](./schema-example.md) shows what `schema` returns for one CSV in three cases.
+The outputs come from real runs:
+1. inferred, where types and nulls are found but there are no keys or roles;
+2. declared and linked in, with an Id key, roles, a label and a JSON column;
+3. `ns-pl/schema`, which gives polars type names only and reads the timestamp as a string.
 
-```yaml
-type_identifier: shop.Order          # optional: what each row describes
-fields:
-  - name: order_id
-    data_type: Text
-    nullable: false
-    key: Id                          # at most one; gets role {indexed: [Exact], stored: true}
-  - name: placed_at
-    data_type: Timestamp             # µs since epoch, UTC
-    nullable: false
-    role: { indexed: [Range], stored: true, fast: true }
-  - name: customer
-    label: Customer name             # default would be "customer"
-    data_type: Text
-    role: { indexed: [Exact, !FullText { analyzer: Simple, positions: true }], stored: true, fast: false }
-  - name: amount
-    data_type: Float
-    description: Order total in EUR
-    role: { indexed: [Range], stored: true, fast: true }
-  - name: tags
-    data_type: Text
-    media_type: application/json     # cells hold JSON arrays; filters match any element (AC-8)
-  - name: origin
-    data_type: UInt
-    key: Source                      # index into the batch's origin dictionary
-```
-
-In YAML, an index kind with settings is written as a tag (`!FullText { … }`), as `serde_yaml`
-0.9 requires. Omitted keys take defaults: `nullable` is `true`, `key` is `None`, `role` is not indexed, and
-`label` is `name` with `_` replaced by a space. A `role`, when given,
-must currently list `indexed`, `stored` and `fast`. `RecordSchema::new` checks the document, and
-refuses a duplicate name or a second `Id` or `Source` field.
-
-In a query, a stored schema is linked into the `schema` argument. A schema can also be read back
-from either namespace:
-
-```
--R/data/orders.csv/-/ns-rec/to_record-csv-t-~X~-R/data/orders.schema.yaml~E/schema
--R/data/orders.csv/-/ns-rec/to_record-csv-t-~X~-R/data/orders.schema.yaml~E/ns-pl/schema
-```
-
-The first query returns the document above. The second returns `pl/schema`'s current form, with
-roles lost through the bridge: `{order_id: "String", placed_at: "Datetime(…, UTC)", amount:
-"Float64", …}`. See Open Question 1.
-
-**Checked on 2026-10-13** by deserializing the document above into `RecordSchema` with a scratch
-test. It parses. Two defects surfaced, and AC-14 now covers both:
-
-- `records_schema` writes JSON, where `FullText` is the map `{"FullText": {…}}`. The `schema`
-  argument is parsed with `serde_yaml`, which refuses that map ("expected a YAML tag starting
-  with '!'"). So the documented "links into a `schema` argument" fails for any schema with a
-  full-text, stemming, named-analyzer or similarity role, including every `catalog` output.
-- `FieldRole` has no per-field serde defaults, so a `role` without `fast` is refused.
+It also records the three schema round-trip defects that AC-14 covers.
 
 ## Scope Changes
+
+- **2026-10-13, Revision 4: AC-10 and AC-16 revised, and AC-18 added.**
+  `RECORD-SOURCE-WRAPPERS-UNSPECIFIED` (a projecting/mapping source wrapper) is now a source issue
+  under overlap test T4: AC-18 needs exactly that wrapper. Size stays L. Approval: pending.
 
 - **2026-10-13, Revision 3: gate decisions applied.** AC-2, AC-3, AC-7, AC-10, AC-14 and AC-16
   were revised, and AC-17 was added. AC-14 also took the schema round-trip defect found while

@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: M
 area: [records]
-design: store-and-asset-search
+design: record-filter-commands
 created: 2026-09-26
 github:
 ---
@@ -76,3 +76,8 @@ here.
 [`reference/RECORD_STREAMS.md`](../reference/RECORD_STREAMS.md) §`RecordSource`. It filters rows
 within each chunk, lazily, and keeps no `chunks()` of its own. It is specific to a search
 `Predicate`; a general filtering wrapper and the asynchronously mapping one remain open here.
+
+## Triage (2026-10-13)
+
+Moved from `store-and-asset-search` (complete; its `FilteredSource` built the filtering wrapper)
+to `record-filter-commands`, whose AC-18 needs the projecting wrapper (overlap test T4).
