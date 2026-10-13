@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: L
 area: [core/store, store/backends, web, docs]
-design:
+design: store-adapters
 created: 2026-09-03
 github:
 ---
@@ -88,3 +88,6 @@ fix needs one reserved-name rule and this needs a subsystem.
 
 `design/sync-store-removal/` removes the synchronous `FileStore`; once it lands, `AsyncFileStore` is
 the only filesystem store in the table above.
+
+See also `STORE-METADATA-HANDLING-NOT-COMPOSABLE` (filed 2026-10-12), which treats the layout as
+one stage of a configurable metadata pipeline.

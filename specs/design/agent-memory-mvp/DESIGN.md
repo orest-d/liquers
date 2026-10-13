@@ -5,7 +5,7 @@ title: MVP for an agent memory service on the liquers stack
 workflow: liquers-project
 status: in_review
 phase: high-level
-area: [axum, lib/commands, core/assets, docs]
+area: [axum, lib/commands, core/store, docs]
 gh_pr: []
 issues: [AGENT-MEMORY-SERVICE]
 affects_docs: []
@@ -13,11 +13,6 @@ created: 2026-09-15
 superseded_by:
 ---
 # Agent memory service (MVP) — design tracking
-
-> **Acceptance scenarios not defined.** This design predates acceptance scenarios
-> (`specs/DOCS_STRUCTURE_GUIDE.md` §5.2.1). Consider updating it: state the Phase 1 acceptance
-> criteria as `AC-<n>` WHEN/THEN scenarios and cite each from the Phase 3 test that proves it. Remove
-> this note when you do; until then `docs_index.py --check` counts this design in its warning.
 
 **Created:** 2026-09-15
 
@@ -30,13 +25,108 @@ superseded_by:
 - [ ] Phase 5: Documentation
 - [ ] Implementation Complete
 
+## Revision 2 — 2026-10-11
+
+Phase 1 was rewritten from a second brief: specify what an agent memory service must do, survey the
+established systems (mem0, the LLM-wiki pattern, OpenViking and others), analyse how this
+repository's own skills, documentation system, issues and Python scripts map onto it, decide how
+the L0/L1/L2 tiers are stored, and decide between CLI, server and MCP. The analysis is five
+companion documents:
+
+- [`memory-systems-survey.md`](./memory-systems-survey.md) — thirteen systems, their data models,
+  write and read paths and MCP tools, and the 22 services a memory system provides (S1–S22).
+- [`service-specification.md`](./service-specification.md) — eight principles and the capability
+  list (read, write, maintain, operate) at MVP / NEXT / OUT levels.
+- [`workflow-porting.md`](./workflow-porting.md) — `specs/` as an existing memory, and which
+  script or convention becomes which `ns-mem` command.
+- [`tiers-and-storage.md`](./tiers-and-storage.md) — metadata, front-matter, a front-matter store
+  that projects one into the other, derived tiers, and OpenViking's tier files; recommends the
+  bridge.
+- [`interfaces-and-mcp.md`](./interfaces-and-mcp.md) — one binary with MCP (stdio first), HTTP and
+  CLI faces; the nine-tool memory MCP; how a general Liquers MCP combines with it.
+
+What changed from revision 1, and why:
+
+1. **The blocker is gone.** `AXUM-ASSETS-API-ENDPOINTS-NOT-IMPLEMENTED` was closed by
+   `axum-assets-endpoints`; revision 1's dependency on it is removed.
+2. **Search exists.** `store-and-asset-search` is implemented on its branch (`ns-search`), which
+   answers revision 1's open question 3; this design now builds on it and waits for its merge.
+3. **Tiers come from front-matter, projected into metadata** (revision 1: metadata only). Revision
+   1's open question 2 — what populates `title` and `description` for existing documents — is
+   answered by the front-matter store, with per-collection fallbacks for the L1 — no `specs/`
+   document has a `description:` field today.
+4. **The service calls no model** (principle P2): the agent writes and consolidates; the service
+   validates, logs, indexes and checks.
+5. **Acceptance scenarios AC-1 to AC-17** are defined. Revision 1's open question 5 (the
+   `docs_index.py` oracle) is kept, narrowed to `index.csv` and `--check` (AC-9, AC-10), and
+   balanced by retrieval scenarios (AC-1 to AC-3).
+
+Revision 1's open question 1 (an asset listing is the union of live assets, store and recipes) was
+settled by `axum-assets-endpoints` and is relied on by AC-12.
+
+## Execution plan — 2026-10-13
+
+[`execution-plan.md`](./execution-plan.md) orders the work this design depends on into waves: small
+fixes first (`STORE-ROUTER-DOES-NOT-FORWARD-ASSET-INFO`, `VALUE-TO-JSON-PANICS-ON-NON-FINITE-FLOAT`),
+the three Phase 1 gates, then three parallel tracks (store adapters, the template language, record
+filters), with the memory service's core and MCP server first because they need only the read-only
+adapter. It also records that `ARGUMENT-INFO-HAS-NO-DESCRIPTION` and
+`STORE-VERSION-BLIND-TO-CHANGES-MADE-OUTSIDE-LIQUERS` were closed after the analyses were written.
+
+## Spin-off designs — 2026-10-13
+
+Two decisions became designs of their own, at the user's request:
+[`store-adapters`](../store-adapters/) (the read-only and front-matter adapters as instances of a
+configurable metadata pipeline; merges `STORE-METADATA-LAYOUT-HARDCODED-PER-STORE`,
+`STORE-NO-READ-ONLY-ADAPTER`, `STORE-METADATA-HANDLING-NOT-COMPOSABLE`) and
+[`liquers-mustache`](../liquers-mustache/) (the query-aware template language;
+`NO-QUERY-AWARE-TEMPLATE-LANGUAGE`, with `SIMPLE-TEMPLATE-HAS-NO-COMMAND` moved there). This design
+requires both.
+
+## Phase 1 decisions — 2026-10-12
+
+The user answered the open questions; Phase 1 records them as decisions. Read-only adapter first;
+fallback summaries; the front-matter store adapter with write-back, as one instance of a general
+metadata pipeline (filed `STORE-METADATA-HANDLING-NOT-COMPOSABLE`); HTTP MCP later; Rust item
+records in the MVP; indexes as recipes over separate simple commands, `index.md` in scope (AC-22);
+a separate repository as an extra mount; no split until Phase 1 is approved. The template question
+became a language evaluation —
+[`template-language-evaluation.md`](./template-language-evaluation.md) recommends reimplementing
+Mustache with query tags — awaiting confirmation.
+
+## Revision 3 — 2026-10-12
+
+`store-and-asset-search` and `axum-query-named-arguments` (argument overrides) were merged. The
+brief was sharpened: the MVP is a **competitive** agent memory system, **configurable** to serve this
+repository's manual system or an OpenViking-style layout, on local or remote (S3) stores. A sixth
+companion, [`brainstorm-workflow-improvements.md`](./brainstorm-workflow-improvements.md), measures
+today's workflow costs, sketches the configuration profiles, walks ten workflow improvements,
+compares templating (`simple_template`/`expand`, ranees' `mustache`, minijinja), ranks further
+features (Markdown navigation, context packs, Rust item records via `syn`, hybrid semantic search
+with vendored static embeddings, why no vector database), and checks each against the Claude Code
+cloud container (network policy, build size, ephemeral state). Phase 1 gained AC-18 to AC-21
+(profiles, a remote mount, context packs), a tenth tool (`memory_context`), and open questions 6–7
+(Rust item records in the MVP; the template engine); the sequencing question is resolved. Filed:
+`SIMPLE-TEMPLATE-HAS-NO-COMMAND`, `VALUE-TO-JSON-PANICS-ON-NON-FINITE-FLOAT`.
+
+## Phase 1 review, 2026-10-11
+
+Two independent reviews (conformity and records; codebase and soundness) were applied before the
+gate. The findings that changed substance: the corpus has no `description:` front-matter (L1 now
+comes from declared fallbacks, open question 3); the front-matter projection must happen in `get`
+as well as `get_metadata`, must notice outside edits by file facts rather than the sidecar version,
+and reaches folders only when wrapping the router (`STORE-ROUTER-DOES-NOT-FORWARD-ASSET-INFO`,
+filed); writes go through the asset manager as volatile, payload-carrying commands; MCP argument
+descriptions cannot all come from `CommandMetadata` (`ARGUMENT-INFO-HAS-NO-DESCRIPTION`); `forget`
+and HTTP `serve` moved to NEXT; AC-15 to AC-17 added for orientation, edits and fallback tiers.
+
 ## Notes
 
 Phase 1 written 2026-09-15 from a brainstorming question: what would it take to turn Liquers into
 a memory system for coding agents, in the role OpenViking fills, with `liquers-axum` as the
 interface, stores for storage and commands as the tool layer.
 
-Three corrections from the first draft shaped the current Phase 1, and each is load-bearing:
+Three corrections from the first draft shaped revision 1 of Phase 1 (history; revision 2 above supersedes the third):
 
 1. **The design structure is this skill's**, not an ad-hoc folder. The earlier 300-line "phase 1"
    was Phase 2 material wearing a Phase 1 label.
@@ -56,7 +146,7 @@ statement about the codebase, verified independently at HEAD, and Phase 2 must n
 
 | Finding | Status |
 |---|---|
-| Mounting `specs/` through a raw `AsyncFileStore` is not read-only: `get` persists synthesized metadata, and `StoreApiBuilder` exposes `PUT`/`DELETE` on every mounted key | Filed as `STORE-NO-READ-ONLY-ADAPTER`. Blocks the "no `specs/` write path" non-goal |
+| Mounting `specs/` through a raw `AsyncFileStore` is not read-only: `get` persists synthesized metadata, and `StoreApiBuilder` exposes `PUT`/`DELETE` on every mounted key | Filed as `STORE-NO-READ-ONLY-ADAPTER`. Blocked revision 1's "no `specs/` write path" non-goal; in revision 2 it blocks AC-13 (read-only mount) |
 | `recipes.yaml` deserializes as `RecipeList`, whose root is a **mapping with a `recipes:` key**, not a bare sequence | Carried here. Phase 2 must write the mapping form |
 | The store entry write is `PUT`, not `POST` | Filed as `WEB-API-SPECIFICATION-DIVERGES-FROM-IMPLEMENTATION` |
 | `FullApiBuilder` does not exist; the four builders are merged by the caller | Same issue |
@@ -79,6 +169,7 @@ need identity, that is a finding to report, not a decision to make inside this f
 ## Links
 
 - [Phase 1](./phase1-high-level-design.md)
+- [Survey](./memory-systems-survey.md) · [Specification](./service-specification.md) · [Workflow porting](./workflow-porting.md) · [Tiers and storage](./tiers-and-storage.md) · [Interfaces and MCP](./interfaces-and-mcp.md) · [Brainstorm: workflow improvements](./brainstorm-workflow-improvements.md) · [Template language evaluation](./template-language-evaluation.md) · [Execution plan](./execution-plan.md)
 - [Phase 2](./phase2-architecture.md)
 - [Phase 3](./phase3-examples.md)
 - [Phase 4](./phase4-implementation.md)
