@@ -43,3 +43,10 @@ a timing dependency the test does not control.
 ## Discovery
 
 Full `liquers-core` test runs during `design/store-router-forwards-asset-info/` Step 5, 2026-10-13.
+
+## Update 2026-10-13: still failing, now most of the time
+
+Reproduced on a clean `origin/main` worktree at `2bc4228`. On this machine it fails in most runs:
+4 of 6 runs of the single test on the merged branch, and 2 of 4 on clean main. The failure is the
+same assertion at line 113 (`left: 1, right: 2`). Seen while validating the unrelated
+`design/value-to-json-non-finite-float/` branch, whose changes do not touch evaluation.
