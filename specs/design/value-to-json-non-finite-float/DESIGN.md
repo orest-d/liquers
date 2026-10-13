@@ -5,7 +5,9 @@ title: Non-finite floats in JSON — no panic, and one documented encoding
 form: compact
 workflow: liquers-project
 status: in_review
-phase: architecture
+phase: implementation
+readiness: ready
+autofix: not-eligible
 area: [core/value, lib/value, py]
 issues: [VALUE-TO-JSON-PANICS-ON-NON-FINITE-FLOAT]
 affects_docs: [specs/reference/VALUE_TYPE_SYSTEM.md, specs/guides/LANGUAGE-INTEGRATION_GUIDE.md, specs/guides/TYPE_SYSTEM_GUIDE.md]
@@ -158,8 +160,10 @@ Overlap triage: `specs/index.csv` searched for `json`, `float`, `nan`, `serializ
 
 ### Open Questions
 
-Readiness is assessed after Phase 4. Automatic fixing is expected to be `not-eligible`: three
-crates, a new public module, a changed serialized format, and `P0`.
+**Readiness:** `ready`. Phases 1-4 are reviewed, and every question is decided.
+**Automatic fixing:** `not-eligible`, because the work spans three crates, adds a new public module,
+changes a serialized format, and is `P0`.
+Pre-approved after Phase 2 on 2026-10-13.
 
 1. **Q1, decided 2026-10-13:** the policy above, with nested untagged floats written as `null`.
 2. **Q2, decided 2026-10-13:** `try_into_json_value` refuses at every depth.
@@ -271,4 +275,93 @@ Changed:
 
 ## Phase 3: Examples and Tests
 
+### Examples
+
+**Primary, the problem example after the fix:**
+
+```rust
+use liquers_core::value::{DefaultValueSerializer, Value, ValueInterface};
+let v = Value::from_f64(f64::NAN);
+assert!(v.try_into_json_value().is_err());                          // ConversionError, no panic
+let b = v.as_bytes("json")?;                                        // b"\"NaN\""
+assert!(matches!(Value::deserialize_from_bytes(&b, "F64", "json")?, Value::F64(x) if x.is_nan()));
+let a = Value::Array(vec![Value::F64(1.0), Value::F64(f64::NAN)]);
+assert_eq!(a.as_bytes("json")?, b"[1.0,null]");                     // the documented loss
+```
+
+**Secondary, `liquers-lib`:** `SimpleValue::Array[F64(1.0), F64(-inf)]` is written as
+`{"Array":{"value":[{"F64":{"value":1.0}},{"F64":{"value":"-Infinity"}}]}}` and reads back equal.
+
+**Edge cases:** `-0.0` stays `-0.0`; a JSON integer read as `F64` gives a float; the token is
+case-sensitive (`"nan"` is an error); `"NaN"` read as `Text` stays text; a bare `NaN` (not JSON) is
+an error.
+
+### Tests
+
+Each test is synchronous and needs no environment. Core and `liquers-lib` tests go in the files'
+`mod tests`; AC-6 goes in `liquers-lib/tests/record_scalar_reading.rs`, which is already gated on
+`records`.
+
+| Test | File | Cites |
+|---|---|---|
+| `json_f64_to_number_refuses_nan` | core `value.rs` | AC-1 |
+| `json_f64_to_number_refuses_infinities` | core `value.rs` | AC-2 |
+| `value_try_into_json_value_refuses_non_finite` | core `value.rs` | AC-1, AC-2 |
+| `value_try_into_json_value_refuses_nested_non_finite` | core `value.rs` | AC-3 |
+| `value_json_finite_floats_unchanged` | core `value.rs` | AC-4 |
+| `value_json_bytes_top_level_non_finite_round_trip` | core `value.rs` | AC-8 |
+| `value_json_f64_reader_accepts_every_encoding` | core `value.rs` | AC-9 |
+| `value_json_nested_non_finite_written_as_null` | core `value.rs` | AC-10 |
+| `simple_value_try_into_json_value_refuses_non_finite` (direct and through `liquers_lib::value::Value`) | `simple.rs` | AC-5 |
+| `simple_value_json_finite_floats_unchanged` | `simple.rs` | AC-4 |
+| `simple_value_json_non_finite_round_trip` (scalar and inside `Array`) | `simple.rs` | AC-8, AC-11 |
+| `simple_value_json_reads_legacy_null_float_in_array` | `simple.rs` | AC-11 |
+| `simple_value_json_f64_reader_accepts_every_encoding` | `simple.rs` | AC-9 |
+| `single_nan_float_cell_refuses_json_conversion` | `tests/record_scalar_reading.rs` | AC-6 |
+| `try_into_json_value_refuses_non_finite` | `liquers-py/src/value.rs` | AC-7 |
+
+Run them with:
+
+```bash
+cargo test -p liquers-core --lib value::tests
+cargo test -p liquers-lib --lib value::simple
+cargo test -p liquers-lib --test record_scalar_reading
+PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1 cargo test -p liquers-py --lib value::tests
+```
+
+The Python unit tests are GIL-free, as the file's tests already are. The environment variable is
+needed for CPython 3.13 (`CLAUDE.md`).
+
 ## Phase 4: Implementation Plan
+
+### Steps
+
+- [ ] 1. `liquers-core/src/value.rs` `json_f64`: the module, plus the AC-1 and AC-2 tests. Proof:
+  `cargo test -p liquers-core --lib value::tests`.
+- [ ] 2. `liquers-core/src/value.rs` `Value`: `try_into_json_value`, and the `as_bytes` /
+  `deserialize_from_bytes` `json` arms, plus the remaining core tests (AC-3, AC-4, AC-8, AC-9,
+  AC-10) and doc comments. Proof: as in step 1, plus `cargo test -p liquers-core --lib --tests`.
+- [ ] 3. `liquers-core/src/command_metadata.rs`: delete `CommandParameterValue::from_float`. Proof:
+  `cargo check -p liquers-core` with no new warnings.
+- [ ] 4. `liquers-lib/src/value/simple.rs`: the serde attribute, `try_into_json_value`, and the
+  `json` arms, plus their tests (AC-4, AC-5, AC-8, AC-9, AC-11). Proof:
+  `cargo test -p liquers-lib --lib value::simple`.
+- [ ] 5. `liquers-lib/tests/record_scalar_reading.rs`: the AC-6 test. Proof:
+  `cargo test -p liquers-lib --test record_scalar_reading`.
+- [ ] 6. `liquers-py/src/value.rs`: `try_into_json_value`, plus the AC-7 test. Proof: the
+  `liquers-py` command in Phase 3, falling back to `cargo check -p liquers-py --tests` if the test
+  binary cannot link against this Python.
+
+Each step is one commit, so rolling back a step means reverting its commit. Steps 4–6 depend on
+step 1; step 3 is independent.
+
+### Validation
+
+- `cargo test -p liquers-lib --lib --tests`, the default loop. It includes `registry_export`, which
+  must stay green because no command changes.
+- `cargo test -p liquers-lib --no-default-features --lib --tests`, because the tests sit in files
+  shared by every configuration. The feature matrix script is not needed, since no `cfg` or
+  optional dependency changes.
+- `python3 scripts/docs_index.py --check`.
+- Phase 5: the documents listed in Phase 2, the source issue closed, and this design set to
+  `complete`.
