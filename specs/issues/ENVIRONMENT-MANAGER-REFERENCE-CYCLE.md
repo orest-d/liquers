@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: M
 area: [core/assets, core/context]
-design: environment-builder
+design: environment-manager-reference-cycle
 created: 2026-08-27
 github:
 ---
@@ -15,12 +15,14 @@ github:
 An `Environment` owns its asset manager with a strong `Arc`, and the manager owns the environment
 back with a strong `Arc`. Neither is ever dropped.
 
-- `SimpleEnvironment` (and each of the other three built-in environments) holds
-  `asset_store: Arc<DefaultAssetManager<Self>>`.
-- `DefaultAssetManager` holds `envref: std::sync::OnceLock<EnvRef<E>>`, and
+- `GenericEnvironment` (of which `SimpleEnvironment`, `ImmediateEnvironment` and their payload
+  variants are aliases) holds `asset_store: OnceLock<Arc<K::Manager<Self>>>`.
+- `DefaultAssetManager` and `ImmediateAssetManager` hold `envref: EnvRef<E>`, and
   `EnvRef<E>(pub Arc<E>)` is a **strong** reference.
-- `ImmediateAssetManager` holds the same `OnceLock<EnvRef<E>>`.
-- `Environment::init_with_envref` closes the cycle by calling `AssetManager::set_envref(envref)`.
+- `GenericEnvironment::init_with_envref` closes the cycle by passing its `EnvRef` to
+  `AssetManagerKind::build`, which constructs the manager with it.
+  *(Corrected 2026-10-12: this list described the pre-`environment-builder` `OnceLock` /
+  `set_envref` shape; see the status section at the end.)*
 
 Observed on `SimpleEnvironment<Value>`:
 
@@ -46,6 +48,30 @@ cached, whether or not the manager's own back-reference is fixed. **Weakening on
 back-reference does not fix the leak.** Both edges have to be addressed. The environment, its command registry, its type registry, its store handle, the asset
 manager, and every asset cached in the manager's `assets` / `query_assets` maps are all retained
 for the lifetime of the process.
+
+## Problem Example
+
+Probe at HEAD (2026-10-12), `SimpleEnvironment<Value>` and `ImmediateEnvironment<Value>` alike:
+
+```rust
+let envref = SimpleEnvironment::<Value>::new().to_ref();
+assert_eq!(Arc::strong_count(&envref.0), 2);     // caller + manager back-reference
+// evaluate a registered command, drop the AssetRef: 3 (the cached asset)
+// interpreter::evaluate(envref.clone(), "hello", None): 4, and it stays
+let weak = Arc::downgrade(&envref.0);
+drop(envref);
+assert!(weak.upgrade().is_some());               // the environment leaked
+```
+
+Expected: a count of 1 throughout, and `weak.upgrade()` is `None` after the drop.
+
+**A third retention path** (found 2026-10-12): `AssetRef::new_temporary` spawns the asset's
+service-message loop on a strong clone, and that loop ends only on `JobFinishing` /
+`ErrorOccurred`, which no temporary-asset user (`interpreter::evaluate`,
+`AssetManager::create_temporary_asset`) sends. The task keeps the asset and, through
+`AssetData.envref`, the environment alive. Separately, `Drop for DefaultAssetManager` stops the
+expiration monitor but not the `JobQueue::run` task. Both are in scope of
+`design/environment-manager-reference-cycle`.
 
 ## Impact
 
@@ -76,12 +102,14 @@ Both edges must become non-owning:
    `Weak<E>` in `AssetData` with upgrade at use; or the manager holding its cached assets weakly
    and reconstructing on demand.
 
-There are 78 `get_envref()` call sites (68 in `assets.rs`) plus 16 `ImmediateAssetManager::envref()`
-sites, so whether the accessor keeps returning `EnvRef<E>` (panicking at teardown) or starts
+There are 100 `get_envref()` call sites (76 in `assets.rs`, the rest in `context.rs`,
+`liquers-lib`, `liquers-records`, `liquers-py` and core tests; counted 2026-10-12, previously
+recorded as 78) plus 18 `ImmediateAssetManager::envref()` sites, so whether the accessor keeps returning `EnvRef<E>` (panicking at teardown) or starts
 returning `Option`/`Result` is the main cost driver.
 
-This is entangled with how the environment/manager construction cycle is resolved in general, so
-it is recorded against the `environment-builder` design, which is building an
+*(Superseded 2026-10-12: `environment-builder` is complete and frozen; this issue now has its own
+design, `environment-manager-reference-cycle`.)* This is entangled with how the environment/manager
+construction cycle is resolved in general, so it was recorded against the `environment-builder` design, which is building an
 environment builder that owns that construction. Fixing it there is preferable to a separate
 change; fixing it separately is possible if the builder work does not land.
 

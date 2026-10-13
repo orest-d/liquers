@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: M
 area: [core/assets]
-design:
+design: default-asset-manager-recipe-opt-payload-check
 created: 2026-09-25
 github:
 ---
@@ -48,6 +48,20 @@ everything that runs in between: an asset is created and registered before `Defa
 discovers the recipe is invalid, `is_volatile()` is computed from a doomed recipe, and (as of Step
 1.2 of `record-streams` Phase 4) `get_resource_asset` reads `stored`/`cached` from that same
 unchecked recipe before the later, correct rejection fires.
+
+## Problem Example
+
+With the recipe `needs_payload/dash.txt` at key `dash.txt` (`needs_payload` registered with
+`payload: required`, as in `liquers-core/tests/payload_inheritance.rs`):
+
+- `env.get_asset_manager().is_volatile(&key)` returns `Ok(true)` on `DefaultAssetManager`
+  (`SimpleEnvironmentWithPayload`) but `Err(… keyed recipes cannot receive one …)` on
+  `ImmediateAssetManager`; `recipe_opt(&key)` likewise returns `Ok(Some(_))` versus `Err`.
+- `envref.evaluate("-R/dash.txt")` returns `Ok(asset)` on the default manager, with the error only
+  in `asset.get()`, but `Err` with no asset on the immediate one.
+
+Expected: both managers return the `Err` from `recipe_opt` / `is_volatile` / `evaluate`, before an
+asset exists.
 
 ## Impact
 

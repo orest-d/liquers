@@ -315,7 +315,11 @@ deliberately folded behind a broader line.
 - design `core-error-payload-size`
 - design `core-no-default-features-compatibility`
 - design `core-no-default-features`
+- design `core-tracing-migration`
+- design `core-value-enum-oversized`
 - design `csv-physical-lines-short-rows`
+- design `deep-chain-evaluation-stack-depth`
+- design `default-asset-manager-recipe-opt-payload-check`
 - design `delegated-value-persistence`
 - design `delegated-value-repersisted`
 - design `dependency-edge-superseded-version`
@@ -326,6 +330,7 @@ deliberately folded behind a broader line.
 - design `docs-index-phase-link-targets`
 - design `docs-link-check-code-spans`
 - design `documentation-currentness-small-fixes`
+- design `environment-manager-reference-cycle`
 - design `error-store-name-payload`
 - design `error-with-key-field`
 - design `expiration-integration-suite-failing-at-head`
@@ -403,6 +408,7 @@ deliberately folded behind a broader line.
 - feature `COMMAND-COMPOSITE-VARIADIC-ARGUMENTS`
 - feature `DATA-FORMAT-CONSTANTS-AND-TOOLING`
 - feature `DEPENDENCY-ANALYSIS-REWALKS-UPSTREAM-PER-EVALUATION`
+- feature `ENVIRONMENT-ORDERLY-SHUTDOWN`
 - feature `ISSUE-REPORT-PLAN-AND-METADATA-LOGGING`
 - feature `JS-COMMAND-CANNOT-ACCESS-CONTEXT`
 - feature `LANGUAGE-GUIDE-NO-DOCUMENTATION-SECTION`
