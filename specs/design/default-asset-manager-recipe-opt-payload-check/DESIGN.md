@@ -5,6 +5,7 @@ title: DefaultAssetManager rejects a payload-requiring keyed recipe in recipe_op
 form: compact
 readiness: ready
 autofix: eligible
+gh_pr: [132]
 area: [core/assets]
 issues: [DEFAULT-ASSET-MANAGER-RECIPE-OPT-SKIPS-PAYLOAD-CHECK]
 created: 2026-10-12
