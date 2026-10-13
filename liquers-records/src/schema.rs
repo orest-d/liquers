@@ -55,7 +55,11 @@ pub enum KeyRole {
 
 /// Portable analyzer intent. An engine maps it to its own tokenizer; `Named` is the escape hatch
 /// for one this vocabulary cannot describe.
+///
+/// Deserializes leniently ([`lenient`]): the unit-variant string, the single-key map JSON writes
+/// (`{"Stemming": {"language": "en"}}`), and a YAML tag (`!Stemming { language: en }`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(remote = "Self")]
 pub enum Analyzer {
     Raw,
     Simple,
@@ -75,7 +79,14 @@ pub enum VectorMetric {
 /// field routinely has several (a B-tree *and* a trigram index in Postgres, a `text` field with a
 /// `keyword` sub-field in Elasticsearch). See phase2-architecture.md
 /// §"Access paths, not data structures — and what that excludes".
+///
+/// Serializes as before (serde's external tagging). Deserializes leniently ([`lenient`]): the
+/// single-key map JSON writes (`{"FullText": {…}}`) is accepted from YAML too, where `serde_yaml`
+/// alone wants a tag (`!FullText {…}`) — so a schema `ns-rec/schema` printed can be pasted into a
+/// manifest or linked into a `schema` argument. Specified in
+/// `specs/design/record-filter-commands/phase2-architecture.md` §Interfaces.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(remote = "Self")]
 pub enum IndexKind {
     /// Not tokenized: exact term match and faceting.
     Exact,
@@ -97,7 +108,10 @@ pub enum IndexKind {
 /// [`FieldRole::ignored`] — composing with [`FieldRole::and_stored`] and [`FieldRole::and_fast`].
 /// `FieldRole::text().and_stored()` is the searchable-and-displayable title case that motivated
 /// the whole design (phase2-architecture.md §"RecordSchema — three axes").
+///
+/// Every field defaults when omitted (`{indexed: [Range]}` is a valid role), as [`FieldRole::default`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(default)]
 pub struct FieldRole {
     /// How the field can be searched. Empty — not searchable at all.
     pub indexed: Vec<IndexKind>,
@@ -520,6 +534,91 @@ impl RecordSchema {
     }
 }
 
+/// Lenient deserialization for the externally tagged schema enums ([`IndexKind`], [`Analyzer`]).
+///
+/// Their derives use `#[serde(remote = "Self")]`, which turns the derived (de)serializers into
+/// inherent functions; the trait impls below call them. Serialization is therefore unchanged.
+/// Deserialization goes through `deserialize_any` and accepts three spellings of one variant:
+/// a bare string (a unit variant), a single-key map (what JSON has, and what a YAML map gives),
+/// and a YAML tag (`serde_yaml`'s enum form). Every schema format Liquers reads is
+/// self-describing, so `deserialize_any` is available.
+mod lenient {
+    use std::fmt;
+    use std::marker::PhantomData;
+
+    use serde::de::value::{EnumAccessDeserializer, MapAccessDeserializer, StrDeserializer};
+    use serde::de::{self, EnumAccess, MapAccess, Visitor};
+    use serde::{Deserialize, Deserializer};
+
+    /// The derived deserializer of an enum declared with `#[serde(remote = "Self")]`.
+    pub(super) trait Derived<'de>: Sized {
+        fn derived<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error>;
+    }
+
+    /// Adapts [`Derived`] to `Deserialize`, so serde's value deserializers can drive it.
+    struct Wire<T>(T);
+
+    impl<'de, T: Derived<'de>> Deserialize<'de> for Wire<T> {
+        fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+            T::derived(deserializer).map(Wire)
+        }
+    }
+
+    struct LenientVisitor<T>(PhantomData<T>);
+
+    impl<'de, T: Derived<'de>> Visitor<'de> for LenientVisitor<T> {
+        type Value = T;
+
+        fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.write_str("a variant name, a single-key map, or a tagged value")
+        }
+
+        fn visit_str<E: de::Error>(self, value: &str) -> Result<T, E> {
+            Wire::<T>::deserialize(StrDeserializer::<E>::new(value)).map(|wire| wire.0)
+        }
+
+        fn visit_map<A: MapAccess<'de>>(self, map: A) -> Result<T, A::Error> {
+            Wire::<T>::deserialize(MapAccessDeserializer::new(map)).map(|wire| wire.0)
+        }
+
+        fn visit_enum<A: EnumAccess<'de>>(self, data: A) -> Result<T, A::Error> {
+            Wire::<T>::deserialize(EnumAccessDeserializer::new(data)).map(|wire| wire.0)
+        }
+    }
+
+    pub(super) fn deserialize<'de, D: Deserializer<'de>, T: Derived<'de>>(
+        deserializer: D,
+    ) -> Result<T, D::Error> {
+        deserializer.deserialize_any(LenientVisitor(PhantomData))
+    }
+}
+
+macro_rules! lenient_enum {
+    ($ty:ident) => {
+        impl Serialize for $ty {
+            fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+                $ty::serialize(self, serializer)
+            }
+        }
+
+        impl<'de> lenient::Derived<'de> for $ty {
+            fn derived<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+                $ty::deserialize(deserializer)
+            }
+        }
+
+        impl<'de> Deserialize<'de> for $ty {
+            fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+                lenient::deserialize(deserializer)
+            }
+        }
+    };
+}
+
+lenient_enum!(Analyzer);
+lenient_enum!(IndexKind);
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -694,5 +793,51 @@ mod tests {
         ];
         let error = RecordSchema::new(fields).expect_err("duplicate names refused");
         assert!(format!("{error}").contains("price"));
+    }
+
+    // --- lenient deserialization (record-filter-commands, Phase 3) ---
+
+    #[test]
+    fn index_kind_accepts_map_and_tag_forms() -> Result<(), Box<dyn std::error::Error>> {
+        let expected = vec![
+            IndexKind::Exact,
+            IndexKind::FullText { analyzer: Analyzer::Stemming { language: "en".to_string() }, positions: true },
+        ];
+        let json = r#"["Exact", {"FullText": {"analyzer": {"Stemming": {"language": "en"}}, "positions": true}}]"#;
+        let from_json: Vec<IndexKind> = serde_json::from_str(json)?;
+        let from_yaml_map: Vec<IndexKind> = serde_yaml::from_str(json)?;
+        let from_yaml_tag: Vec<IndexKind> =
+            serde_yaml::from_str("[Exact, !FullText { analyzer: !Stemming { language: en }, positions: true }]")?;
+        assert_eq!(from_json, expected);
+        assert_eq!(from_yaml_map, expected);
+        assert_eq!(from_yaml_tag, expected);
+        assert!(serde_json::from_str::<IndexKind>(r#""Nope""#).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn field_role_defaults_omitted_fields() -> Result<(), Box<dyn std::error::Error>> {
+        let role: FieldRole = serde_yaml::from_str("indexed: [Range]")?;
+        assert_eq!(role, FieldRole { indexed: vec![IndexKind::Range], stored: false, fast: false });
+        let role: FieldRole = serde_json::from_str("{}")?;
+        assert_eq!(role, FieldRole::default());
+        Ok(())
+    }
+
+    #[test]
+    fn index_kind_serialization_is_unchanged() -> Result<(), Box<dyn std::error::Error>> {
+        let kinds = vec![
+            IndexKind::Exact,
+            IndexKind::FullText { analyzer: Analyzer::Simple, positions: true },
+            IndexKind::Similarity { metric: VectorMetric::Cosine },
+            IndexKind::FullText { analyzer: Analyzer::Named("x".to_string()), positions: false },
+        ];
+        assert_eq!(
+            serde_json::to_string(&kinds)?,
+            r#"["Exact",{"FullText":{"analyzer":"Simple","positions":true}},{"Similarity":{"metric":"Cosine"}},{"FullText":{"analyzer":{"Named":"x"},"positions":false}}]"#
+        );
+        let round: Vec<IndexKind> = serde_json::from_str(&serde_json::to_string(&kinds)?)?;
+        assert_eq!(round, kinds);
+        Ok(())
     }
 }
