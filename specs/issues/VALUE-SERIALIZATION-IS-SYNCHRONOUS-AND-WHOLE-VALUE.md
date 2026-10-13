@@ -255,3 +255,16 @@ Still open. `record-streams` serializes a table through the existing synchronous
 `as_bytes`, as its Phase 2 chose. A `RecordSource` is lazy, and its only byte form is its manifest;
 `ns-rec/materialize` is the explicit way to get its data. Streaming a source's rows as bytes needs
 the pattern this record describes.
+
+## Update 2026-10-13: serialization also needs to report, not only stream
+
+[`SERIALIZATION-CANNOT-REPORT-A-LOSSY-WRITE`](SERIALIZATION-CANNOT-REPORT-A-LOSSY-WRITE.md) shows a
+second limitation of the same interface. Serialization has two outcomes, bytes or an error, and
+nowhere to put a warning. Its first case comes from `design/value-to-json-non-finite-float/`: a NaN
+nested in a core `Value` container is written to JSON as `null`, a lossy but accepted write that
+nothing records. Per the maintainer, the serialization redesign this feature calls for should cover
+reporting as well as streaming. The sketched `SerializedBytes` is the natural carrier: alongside
+`chunks` and `length`, it would carry warnings, collected once the stream ends because a lazy value
+may only discover a loss mid-stream. The asset layer would then write them to the stored metadata
+log. Whichever of the two is designed first should take the other into account. The interim
+default-method sketch in that issue is only worth doing if this redesign is far off.

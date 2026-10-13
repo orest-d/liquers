@@ -107,6 +107,21 @@ fn single_float_cell_answers_f64_and_refuses_mismatched_hooks() -> Result<(), Bo
     Ok(())
 }
 
+/// AC-6 of `specs/design/value-to-json-non-finite-float/`: a single NaN cell is refused as JSON
+/// (a `ConversionError`), not a panic.
+#[test]
+fn single_nan_float_cell_refuses_json_conversion() -> Result<(), Box<dyn std::error::Error>> {
+    let batch = one_row_one_float_column_batch(f64::NAN)?;
+    let view: Arc<dyn RecordView> = Arc::new(batch);
+    let value = Value::from_record_view(view);
+
+    match value.try_into_json_value() {
+        Err(e) => assert_eq!(e.error_type, liquers_core::error::ErrorType::ConversionError),
+        Ok(json) => panic!("a NaN cell converted to {json}"),
+    }
+    Ok(())
+}
+
 /// A multi-row view is not a scalar shape, and both ways of asking for a scalar out of it —
 /// `ValueInterface::try_into_f64` and the `TryFrom` path a linked argument binds through — refuse
 /// with an error naming that shape.

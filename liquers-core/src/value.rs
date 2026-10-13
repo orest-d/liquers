@@ -37,6 +37,130 @@ pub enum Value {
     Key(crate::query::Key),
 }
 
+/// How Liquers writes an `f64` to JSON, which has no representation for NaN or ±infinity.
+///
+/// Two conversions, used in different places:
+/// - [`to_number`] is strict: a non-finite float is a `ConversionError`. `try_into_json_value`
+///   uses it, because a `serde_json::Value` cannot hold the float and any stand-in (`null`, a
+///   string) would bind as a different value.
+/// - [`to_json`] / [`from_json`] are lossless: a non-finite float is written as one of the strings
+///   [`NAN`], [`INFINITY`], [`NEG_INFINITY`] (the protobuf JSON mapping's tokens), and reading also
+///   accepts `null` as NaN. The JSON byte path uses them wherever the value is known to be a float.
+///
+/// [`serialize`] / [`deserialize`] make this a serde `with`-module for a field that is always a
+/// float: `#[serde(with = "liquers_core::value::json_f64")]`. Do not put it on a variant of an
+/// untagged enum — a token would read back as text. See `specs/guides/SERIALIZATION_GUIDE.md`.
+pub mod json_f64 {
+    use crate::error::{Error, ErrorType};
+
+    pub const NAN: &str = "NaN";
+    pub const INFINITY: &str = "Infinity";
+    pub const NEG_INFINITY: &str = "-Infinity";
+
+    const EXPECTED: &str = "a number, \"NaN\", \"Infinity\", \"-Infinity\" or null";
+
+    /// A finite float as a JSON number; NaN and ±infinity are a `ConversionError`.
+    pub fn to_number(n: f64) -> Result<serde_json::Number, Error> {
+        serde_json::Number::from_f64(n).ok_or_else(|| {
+            Error::conversion_error_with_message(
+                n,
+                "JSON number",
+                "JSON has no representation for NaN or infinity",
+            )
+        })
+    }
+
+    /// The token for a non-finite float, `None` for a finite one.
+    fn token(n: f64) -> Option<&'static str> {
+        if n.is_nan() {
+            Some(NAN)
+        } else if n == f64::INFINITY {
+            Some(INFINITY)
+        } else if n == f64::NEG_INFINITY {
+            Some(NEG_INFINITY)
+        } else {
+            None
+        }
+    }
+
+    fn from_token(s: &str) -> Option<f64> {
+        match s {
+            NAN => Some(f64::NAN),
+            INFINITY => Some(f64::INFINITY),
+            NEG_INFINITY => Some(f64::NEG_INFINITY),
+            _ => None,
+        }
+    }
+
+    /// Lossless: a number when finite, otherwise the token string.
+    pub fn to_json(n: f64) -> serde_json::Value {
+        match serde_json::Number::from_f64(n) {
+            Some(number) => serde_json::Value::Number(number),
+            None => serde_json::Value::String(token(n).unwrap_or(NAN).to_owned()),
+        }
+    }
+
+    /// Reads what [`to_json`] writes, plus `null` as NaN (what serde_json, JavaScript and pandas
+    /// write for a non-finite float). Anything else is a `SerializationError`.
+    pub fn from_json(value: &serde_json::Value) -> Result<f64, Error> {
+        let refuse = || {
+            Error::from_error(
+                ErrorType::SerializationError,
+                format!("Can't read {value} as f64: expected {EXPECTED}"),
+            )
+        };
+        match value {
+            serde_json::Value::Number(number) => number.as_f64().ok_or_else(refuse),
+            serde_json::Value::String(s) => from_token(s).ok_or_else(refuse),
+            serde_json::Value::Null => Ok(f64::NAN),
+            serde_json::Value::Bool(_)
+            | serde_json::Value::Array(_)
+            | serde_json::Value::Object(_) => Err(refuse()),
+        }
+    }
+
+    /// serde `with` support: writes as [`to_json`].
+    pub fn serialize<S: serde::Serializer>(n: &f64, serializer: S) -> Result<S::Ok, S::Error> {
+        match token(*n) {
+            None => serializer.serialize_f64(*n),
+            Some(t) => serializer.serialize_str(t),
+        }
+    }
+
+    /// serde `with` support: reads as [`from_json`].
+    pub fn deserialize<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<f64, D::Error> {
+        deserializer.deserialize_any(F64Visitor)
+    }
+
+    struct F64Visitor;
+
+    impl<'de> serde::de::Visitor<'de> for F64Visitor {
+        type Value = f64;
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str(EXPECTED)
+        }
+        fn visit_f64<E: serde::de::Error>(self, v: f64) -> Result<f64, E> {
+            Ok(v)
+        }
+        fn visit_i64<E: serde::de::Error>(self, v: i64) -> Result<f64, E> {
+            Ok(v as f64)
+        }
+        fn visit_u64<E: serde::de::Error>(self, v: u64) -> Result<f64, E> {
+            Ok(v as f64)
+        }
+        fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<f64, E> {
+            from_token(v).ok_or_else(|| E::invalid_value(serde::de::Unexpected::Str(v), &self))
+        }
+        fn visit_unit<E: serde::de::Error>(self) -> Result<f64, E> {
+            Ok(f64::NAN)
+        }
+        fn visit_none<E: serde::de::Error>(self) -> Result<f64, E> {
+            Ok(f64::NAN)
+        }
+    }
+}
+
 // TODO: Remove the serialization and deserialization from ValueInterface (is it there?)
 /// ValueInterface is a trait that must be implemented by the value type.
 /// This is a central trait that defines the minimum set of operations
@@ -262,7 +386,10 @@ pub trait ValueInterface:
     /// Default mime type - must be consistent with the default_extension
     fn default_media_type(&self) -> Cow<'static, str>;
 
-    /// Try to get a JSON-serializable value
+    /// Try to get a JSON-serializable value.
+    ///
+    /// A NaN or infinite float, at any depth, is a `ConversionError`: `serde_json::Value` cannot
+    /// hold it ([`json_f64::to_number`]). Unlike `as_bytes("json")`, this never substitutes `null`.
     fn try_into_json_value(&self) -> Result<serde_json::Value, Error>;
 
     /// Construct list value from child values.
@@ -366,9 +493,7 @@ impl ValueInterface for Value {
             Value::Bool(b) => Ok(serde_json::Value::Bool(*b)),
             Value::I32(n) => Ok(serde_json::Value::Number(serde_json::Number::from(*n))),
             Value::I64(n) => Ok(serde_json::Value::Number(serde_json::Number::from(*n))),
-            Value::F64(n) => Ok(serde_json::Value::Number(
-                serde_json::Number::from_f64(*n).unwrap(),
-            )),
+            Value::F64(n) => Ok(serde_json::Value::Number(json_f64::to_number(*n)?)),
             Value::Text(t) => Ok(serde_json::Value::String(t.to_owned())),
             Value::Array(a) => {
                 let mut v = Vec::new();
@@ -971,6 +1096,10 @@ where
     /// Serialize to bytes using the specified data format
     /// data format typically is a file extension like "json", "txt",
     /// but it can be more specific like "csv:comma"
+    ///
+    /// In `json`, a float known to be one is written losslessly ([`json_f64::to_json`]); a value
+    /// with no type of its own in JSON (a float nested in an untagged container) may be written as
+    /// `null`. See `specs/guides/SERIALIZATION_GUIDE.md`.
     fn as_bytes(&self, data_format: &str) -> Result<Vec<u8>, Error>;
 
     /// Deserialize from bytes using the specified data format and type identifier
@@ -986,9 +1115,15 @@ where
 impl DefaultValueSerializer for Value {
     fn as_bytes(&self, data_format: &str) -> Result<Vec<u8>, Error> {
         match data_format {
-            "json" => serde_json::to_vec(self).map_err(|e| {
-                Error::new(ErrorType::SerializationError, format!("JSON error {}", e))
-            }),
+            // A top-level float is known to be one, so a non-finite value is written losslessly as
+            // a `json_f64` token. Nested in an untagged `Array` / `Object` it is not: serde writes
+            // `null` there, which reads back as `None` — a documented compromise
+            // (`specs/guides/SERIALIZATION_GUIDE.md`), preferred to a write that stores nothing.
+            "json" => match self {
+                Value::F64(x) => serde_json::to_vec(&json_f64::to_json(*x)),
+                _ => serde_json::to_vec(self),
+            }
+            .map_err(|e| Error::from_error(ErrorType::SerializationError, format!("JSON error {}", e))),
             "txt" | "html" | "rs" | "py" | "css" | "js" => match self {
                 // TODO: handle various extensions better, rs is only to test assets
                 Value::None => Ok("none".as_bytes().to_vec()),
@@ -1049,6 +1184,16 @@ impl DefaultValueSerializer for Value {
             // lacks, so it is consulted for the ambiguous variants before falling back to shape
             // inference. See `specs/issues/COMBINED-VALUE-DISCRIMINATION.md`.
             "json" => match type_identifier {
+                // A number, a `json_f64` token, or `null` (NaN): the identifier says it is a float.
+                "F64" => serde_json::from_slice::<serde_json::Value>(b)
+                    .map_err(|e| {
+                        Error::from_error(
+                            ErrorType::SerializationError,
+                            format!("JSON error reading F64 in from_bytes: {}", e),
+                        )
+                    })
+                    .and_then(|v| json_f64::from_json(&v))
+                    .map(Value::F64),
                 "Bytes" => serde_json::from_slice::<Vec<u8>>(b)
                     .map(Value::Bytes)
                     .map_err(|e| {
@@ -1338,5 +1483,127 @@ mod tests {
             Value::Query(crate::query::Query::new()),
             Value::Key(crate::query::Key::new()),
         ]
+    }
+
+    // Non-finite floats in JSON (`specs/design/value-to-json-non-finite-float/`).
+
+    fn assert_non_finite_refusal(result: Result<serde_json::Value, Error>, shown: &str) {
+        match result {
+            Ok(json) => panic!("expected a refusal naming {shown}, got {json}"),
+            Err(e) => {
+                assert_eq!(e.error_type, ErrorType::ConversionError);
+                assert!(e.message.contains(shown), "message {:?} lacks {shown}", e.message);
+            }
+        }
+    }
+
+    /// AC-1
+    #[test]
+    fn json_f64_to_number_refuses_nan() {
+        let e = json_f64::to_number(f64::NAN).err();
+        assert!(matches!(e, Some(ref e) if e.error_type == ErrorType::ConversionError));
+        assert!(e.map(|e| e.message.contains("NaN")).unwrap_or(false));
+    }
+
+    /// AC-2
+    #[test]
+    fn json_f64_to_number_refuses_infinities() {
+        for (n, shown) in [(f64::INFINITY, "inf"), (f64::NEG_INFINITY, "-inf")] {
+            let e = json_f64::to_number(n).err();
+            assert!(matches!(e, Some(ref e) if e.error_type == ErrorType::ConversionError));
+            assert!(e.map(|e| e.message.contains(shown)).unwrap_or(false));
+        }
+    }
+
+    /// AC-1, AC-2
+    #[test]
+    fn value_try_into_json_value_refuses_non_finite() {
+        assert_non_finite_refusal(Value::F64(f64::NAN).try_into_json_value(), "NaN");
+        assert_non_finite_refusal(Value::F64(f64::INFINITY).try_into_json_value(), "inf");
+        assert_non_finite_refusal(Value::F64(f64::NEG_INFINITY).try_into_json_value(), "-inf");
+    }
+
+    /// AC-3
+    #[test]
+    fn value_try_into_json_value_refuses_nested_non_finite() {
+        let array = Value::Array(vec![Value::F64(1.0), Value::F64(f64::NAN)]);
+        assert_non_finite_refusal(array.try_into_json_value(), "NaN");
+        let mut map = BTreeMap::new();
+        map.insert("ok".to_owned(), Value::F64(2.0));
+        map.insert("bad".to_owned(), Value::F64(f64::INFINITY));
+        assert_non_finite_refusal(Value::Object(map).try_into_json_value(), "inf");
+    }
+
+    /// AC-4
+    #[test]
+    fn value_json_finite_floats_unchanged() -> Result<(), Box<dyn std::error::Error>> {
+        for x in [1.5, -0.0, f64::MAX] {
+            let v = Value::F64(x);
+            assert_eq!(v.try_into_json_value()?, serde_json::json!(x));
+            assert_eq!(v.as_bytes("json")?, serde_json::to_vec(&x)?);
+            match Value::deserialize_from_bytes(&v.as_bytes("json")?, "F64", "json")? {
+                Value::F64(y) => assert_eq!(y.to_bits(), x.to_bits()),
+                other => panic!("expected F64, got {other:?}"),
+            }
+        }
+        Ok(())
+    }
+
+    /// AC-8
+    #[test]
+    fn value_json_bytes_top_level_non_finite_round_trip() -> Result<(), Box<dyn std::error::Error>> {
+        for (x, bytes) in [
+            (f64::NAN, &b"\"NaN\""[..]),
+            (f64::INFINITY, &b"\"Infinity\""[..]),
+            (f64::NEG_INFINITY, &b"\"-Infinity\""[..]),
+        ] {
+            let written = Value::F64(x).as_bytes("json")?;
+            assert_eq!(written, bytes);
+            match Value::deserialize_from_bytes(&written, "F64", "json")? {
+                Value::F64(y) if x.is_nan() => assert!(y.is_nan()),
+                Value::F64(y) => assert_eq!(y, x),
+                other => panic!("expected F64, got {other:?}"),
+            }
+        }
+        Ok(())
+    }
+
+    /// AC-9
+    #[test]
+    fn value_json_f64_reader_accepts_every_encoding() -> Result<(), Box<dyn std::error::Error>> {
+        let read = |b: &[u8]| Value::deserialize_from_bytes(b, "F64", "json");
+        assert_eq!(read(b"1.5")?, Value::F64(1.5));
+        assert_eq!(read(b"1")?, Value::F64(1.0));
+        assert!(matches!(read(b"\"NaN\"")?, Value::F64(y) if y.is_nan()));
+        assert_eq!(read(b"\"Infinity\"")?, Value::F64(f64::INFINITY));
+        assert_eq!(read(b"\"-Infinity\"")?, Value::F64(f64::NEG_INFINITY));
+        assert!(matches!(read(b"null")?, Value::F64(y) if y.is_nan()));
+        for bad in [&b"\"nan\""[..], b"\"abc\"", b"true", b"[1.0]", b"NaN"] {
+            match read(bad) {
+                Err(e) => assert_eq!(e.error_type, ErrorType::SerializationError),
+                Ok(v) => panic!("{} read as {v:?}", String::from_utf8_lossy(bad)),
+            }
+        }
+        assert_eq!(
+            Value::deserialize_from_bytes(b"\"NaN\"", "Text", "json")?,
+            Value::Text("NaN".to_owned())
+        );
+        Ok(())
+    }
+
+    /// AC-10
+    #[test]
+    fn value_json_nested_non_finite_written_as_null() -> Result<(), Box<dyn std::error::Error>> {
+        let array = Value::Array(vec![Value::F64(1.0), Value::F64(f64::NAN)]);
+        let written = array.as_bytes("json")?;
+        assert_eq!(written, b"[1.0,null]");
+        assert_eq!(
+            Value::deserialize_from_bytes(&written, "Array", "json")?,
+            Value::Array(vec![Value::F64(1.0), Value::None])
+        );
+        let mut map = BTreeMap::new();
+        map.insert("x".to_owned(), Value::F64(f64::NEG_INFINITY));
+        assert_eq!(Value::Object(map).as_bytes("json")?, b"{\"x\":null}");
+        Ok(())
     }
 }

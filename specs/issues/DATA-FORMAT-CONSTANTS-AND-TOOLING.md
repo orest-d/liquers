@@ -147,3 +147,23 @@ By maintainer decision (backlog compaction D8), this feature's design also cover
 [`TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS`](TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS.md): a type
 must be able to declare a format it writes but cannot read back (today `RecordView` lists `html`).
 The abandoned `design/type-info-write-only-formats/` Phase 2 (a subset list on `TypeInfo`) is input.
+
+## Update 2026-10-13 — non-finite floats need a lossless format
+
+`design/value-to-json-non-finite-float/` gives JSON a policy for NaN and ±∞. Floats whose type is
+known are written as `"NaN"` / `"Infinity"` / `"-Infinity"`. A float nested in a core
+`Value::Array` / `Value::Object` is written as `null` and reads back as `None`, which is a
+documented compromise. After that design, **a core container holding a non-finite float has no
+lossless format**, and the planned `SERIALIZATION_GUIDE.md` will say "use CBOR (or pickle)" only
+once they exist. Concretely, for this feature's generic serde path (point 3):
+
+- CBOR and MessagePack represent NaN and ±∞ natively. They are the formats to recommend when float
+  fidelity matters. The media types and icons already exist (`liquers-core/src/media_type.rs`,
+  `icons.rs`), but no `as_bytes` arm writes them.
+- `SimpleValue`'s `yaml` read (`liquers-lib/src/value/simple.rs`, `deserialize_from_bytes`) parses
+  into `serde_json::Value` first, so `.nan` / `.inf` become `None`, and there is no `yaml` writer.
+  A generic path that deserializes the value type directly keeps them. A test against
+  `liquers-lib` on 2026-10-13 confirmed both: reading `.nan` with `F64` gave `None`, and writing
+  `yaml` gave "Unsupported format yaml".
+- An untagged core `Value` gains nothing from a self-describing format: inside a container it still
+  needs a tagged form (as `SimpleValue` uses) to tell `F64(NaN)` from `None`.

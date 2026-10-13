@@ -394,7 +394,7 @@ impl ValueInterface for Value {
             Value::I32 { value: n } => Ok(serde_json::Value::Number(serde_json::Number::from(*n))),
             Value::I64 { value: n } => Ok(serde_json::Value::Number(serde_json::Number::from(*n))),
             Value::F64 { value: n } => Ok(serde_json::Value::Number(
-                serde_json::Number::from_f64(*n).unwrap(),
+                liquers_core::value::json_f64::to_number(*n)?,
             )),
             Value::Text { value: t } => Ok(serde_json::Value::String(t.to_owned())),
             Value::Array { value: a } => {
@@ -1065,5 +1065,15 @@ mod tests {
             !registry.contains("generic"),
             "the collapsed identifier is gone"
         );
+    }
+
+    /// AC-7 of `specs/design/value-to-json-non-finite-float/`: refused, not a panic.
+    #[test]
+    fn try_into_json_value_refuses_non_finite() {
+        use liquers_core::error::ErrorType;
+        for x in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            let result = Value::F64 { value: x }.try_into_json_value();
+            assert!(matches!(result, Err(ref e) if e.error_type == ErrorType::ConversionError));
+        }
     }
 }

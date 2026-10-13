@@ -3,7 +3,7 @@ title: Adding and Typing Value Types
 kind: guide
 audience: both
 area: [core/value, lib/value]
-reviewed: 2026-10-09
+reviewed: 2026-10-13
 ---
 
 # Adding and Typing Value Types
@@ -224,6 +224,11 @@ value's default applies, and that remains visible to anyone reasoning about the 
 The same extension can be valid on several types, each with its own meaning: `md` on a `Text`
 writes the text as is (plain markdown), while `md` on a `RecordView` renders a markdown table.
 
+Formats differ in what survives a round trip. JSON in particular cannot hold NaN or infinity, and a
+type that writes floats to JSON uses `liquers_core::value::json_f64`. See
+[`SERIALIZATION_GUIDE.md`](SERIALIZATION_GUIDE.md) for the policy and for which format to choose
+when a value must come back exactly.
+
 ## Naming a type in Rust code
 
 Use Rust types in Rust code; identifiers belong in the registries, which exist for other languages
@@ -240,6 +245,7 @@ This resolves at compile time and cannot drift from the registration.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-13 | §Choosing a data format: formats differ in fidelity. A type writing floats to JSON uses `json_f64`; see `SERIALIZATION_GUIDE.md`. | phase-5, `design/value-to-json-non-finite-float/` |
 | 2026-10-09 | §4 Describe it: the `TypeInfo` also routes reading — an extension identifier is read by the extension only, and an undeclared one is offered to the base value first. | phase-5, `design/combined-value-identifier-dispatch/` |
 | 2026-10-07 | §Verifying it: `ext_value_type_descriptions_complete` samples every variant but `Foreign`, fails to compile when a variant has no sample, and has a reverse (no stale description) sibling. | phase-5, `design/ext-value-description-completeness/` |
 | 2026-10-07 | §Choosing a data format: `md` is declared on `Text` (plain markdown) as well as on `RecordView` (a markdown table). | phase-5, `design/text-value-markdown-format/` |

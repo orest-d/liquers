@@ -9,13 +9,11 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
 Total rows: 113
-- P0: 1
-- P2: 54
+- P2: 55
 - P3: 58
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
-| [`VALUE-TO-JSON-PANICS-ON-NON-FINITE-FLOAT`](issues/VALUE-TO-JSON-PANICS-ON-NON-FINITE-FLOAT.md) | issue | Value::try_into_json_value panics on a non-finite float | draft |  |  | P0 | S | core/value |  | 2026-10-12 |
 | [`EVALUATION-SESSION-VOLATILE-TEST-INTERMITTENT`](issues/EVALUATION-SESSION-VOLATILE-TEST-INTERMITTENT.md) | issue | volatile_dependency_has_one_value_per_evaluation fails intermittently: a later evaluation sometimes reuses the volatile value | draft |  |  | P2 | S | core/assets |  | 2026-10-13 |
 | [`DEFAULT-ASSET-MANAGER-RECIPE-OPT-SKIPS-PAYLOAD-CHECK`](issues/DEFAULT-ASSET-MANAGER-RECIPE-OPT-SKIPS-PAYLOAD-CHECK.md) | issue | DefaultAssetManager's recipe_opt override skips the payload-required rejection | draft | ready | eligible | P2 | M | core/assets | [design](design/default-asset-manager-recipe-opt-payload-check/DESIGN.md) | 2026-09-25 |
 | [`CORE-VALUE-ENUM-OVERSIZED`](issues/CORE-VALUE-ENUM-OVERSIZED.md) | issue | Every Value occupies over 700 bytes because three variants are stored unboxed | draft | ready | not-eligible | P2 | M | core/value;lib/value | [design](design/core-value-enum-oversized/DESIGN.md) | 2026-08-18 |
@@ -34,6 +32,7 @@ Total rows: 113
 | [`PY-MODULES-NOT-DECLARED-IN-LIB`](issues/PY-MODULES-NOT-DECLARED-IN-LIB.md) | issue | Half of liquers-py's source files are not declared as modules and never compile | draft |  |  | P2 | M | py |  | 2026-08-25 |
 | [`PY-VALUE-SERIALIZER-IS-A-STUB`](issues/PY-VALUE-SERIALIZER-IS-A-STUB.md) | issue | liquers-py's value serializer writes almost nothing and reads nothing back | draft |  |  | P2 | M | py;core/value |  | 2026-08-26 |
 | [`RECORDS-PARQUET-POLARS-READ-IGNORES-DECLARED-SCHEMA`](issues/RECORDS-PARQUET-POLARS-READ-IGNORES-DECLARED-SCHEMA.md) | issue | Reading Parquet through the polars bridge ignores a caller-declared schema | draft |  |  | P2 | M | records;lib/polars |  | 2026-09-27 |
+| [`SERIALIZATION-CANNOT-REPORT-A-LOSSY-WRITE`](issues/SERIALIZATION-CANNOT-REPORT-A-LOSSY-WRITE.md) | issue | Serialization cannot report a lossy write, so a value silently loses data on its way to the store | draft |  |  | P2 | M | core/value |  | 2026-10-13 |
 | [`SERIALIZED-BINARY-RETAINED-WITH-NO-DISPOSAL-POLICY`](issues/SERIALIZED-BINARY-RETAINED-WITH-NO-DISPOSAL-POLICY.md) | issue | A serialized binary is cached on the asset forever, with no policy for releasing it | draft |  |  | P2 | M | core/assets |  | 2026-09-05 |
 | [`SIMPLE-TEMPLATE-HAS-NO-COMMAND`](issues/SIMPLE-TEMPLATE-HAS-NO-COMMAND.md) | feature | Simple templates have no command and lose their sub-queries' dependencies | draft |  |  | P2 | M | core/query;lib/commands | [phase1](design/liquers-mustache/phase1-high-level-design.md)  [phase2](design/liquers-mustache/phase2-architecture.md)  [phase3](design/liquers-mustache/phase3-examples.md)  [phase4](design/liquers-mustache/phase4-implementation.md)  [phase5](design/liquers-mustache/phase5-documentation.md)  | 2026-10-12 |
 | [`STORE-CONFORMANCE-VALIDATION-TOOL`](issues/STORE-CONFORMANCE-VALIDATION-TOOL.md) | issue | No way to run the conformance suite against a store outside a test binary | accepted |  |  | P2 | M | store/backends;core/store |  | 2026-09-02 |
