@@ -131,8 +131,6 @@ async fn fixture() -> Result<EnvRef<CommandEnvironment>, Error> {
     let store = AsyncMemoryStore::new(&Key::new());
     put(&store, "data/orders.csv", ORDERS).await?;
     put(&store, "data/orders.schema.yaml", ORDERS_SCHEMA.as_bytes()).await?;
-    put(&store, "data/star_smith.txt", b"*smith").await?;
-    put(&store, "data/bob_star.txt", b"Bob*").await?;
     let mut env = environment()?;
     env.with_async_store(Box::new(store));
     Ok(env.to_ref())
@@ -225,8 +223,8 @@ async fn timestamp_compares_with_an_iso_date() -> Res {
 #[tokio::test]
 async fn eq_value_with_wildcards_is_literal() -> Res {
     let env = fixture().await?;
-    // A query cannot spell `*`; the value arrives through a link to a stored text.
-    assert!(ids_of(&env, &q(CSV, "eq-customer-~X~-R/data/bob_star.txt~E")).await?.is_empty());
+    // `*` is spelled with the named entity `~nast~`; eq takes it literally.
+    assert!(ids_of(&env, &q(CSV, "eq-customer-Bob~nast~")).await?.is_empty());
     assert_eq!(ids_of(&env, &q(CSV, "eq-customer-Bob~.Jones")).await?, ["A-2"]);
     assert!(ids_of(&env, &q(CSV, "eq-customer-bob~.jones")).await?.is_empty(), "exact, so case matters");
     Ok(())
@@ -239,8 +237,8 @@ async fn text_filters_are_case_insensitive_by_default() -> Res {
     assert!(ids_of(&env, &q(CSV, "contains-customer-SMITH-t")).await?.is_empty());
     assert_eq!(ids_of(&env, &q(CSV, "starts_with-customer-bob")).await?, ["A-2"]);
     assert_eq!(ids_of(&env, &q(CSV, "ends_with-customer-JONES")).await?, ["A-2"]);
-    // A query cannot spell `*` (no escape exists); the pattern arrives through a link.
-    let glob = "glob-customer-~X~-R/data/star_smith.txt~E";
+    // A raw `*` does not parse in a query; it is the named entity `~nast~`.
+    let glob = "glob-customer-~nast~smith";
     assert_eq!(ids_of(&env, &q(CSV, glob)).await?, ["A-1"]);
     assert!(ids_of(&env, &q(CSV, &format!("{glob}-t"))).await?.is_empty());
     // Regex metacharacters are literal.

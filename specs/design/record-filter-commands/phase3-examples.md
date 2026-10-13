@@ -50,7 +50,7 @@ for the manifest.
 
 | Symptom | Expected | Test |
 |---|---|---|
-| `eq-customer-a*` | literal match, not a glob | `eq_value_with_wildcards_is_literal` |
+| `eq-customer-Bob~nast~` (`*` is the entity `~nast~`) | literal match, not a glob | `eq_value_with_wildcards_is_literal` |
 | Unknown column, on a view and on a source without a declared schema | error naming it and listing the available ones; on a source, when it is first streamed | `unknown_column_is_refused_naming_available` |
 | `is_in` with no values, `drop_columns` of the Id | refused with the command's name | `is_in_without_values_is_refused`, `drop_columns_refuses_the_id_field` |
 | `sort` on a Vector column | refused naming the type | `sort_indices_refuses_binary_and_vector` |
@@ -67,7 +67,7 @@ for the manifest.
 
 - `comparison_filters_parse_to_the_column_type` (AC-1): `gt-amount-50` gives A-1 and A-3; `eq-amount-35` gives A-2; `ne`, `lt`, `lte` and `gte` behave the same way.
 - `timestamp_compares_with_an_iso_date` (AC-1): `gte-placed_at-2026~_10~_02` gives A-2 and A-3.
-- `eq_value_with_wildcards_is_literal` (AC-1): `eq-customer-Bob*` gives no rows.
+- `eq_value_with_wildcards_is_literal` (AC-1): `eq-customer-Bob~nast~` gives no rows.
 - `text_filters_are_case_insensitive_by_default` (AC-2): `starts_with`, `ends_with`, `contains` and `glob` work without the flag; with `-t` the case must match.
 - `is_in_and_null_filters` (AC-3): `is_in-order_id-A~_1-A~_3` gives two rows; `is_null-customer` gives A-3; `is_not_null-customer` gives the other two.
 - `is_in_without_values_is_refused` (AC-3): `is_in-order_id` is an error.
@@ -124,5 +124,7 @@ bash scripts/check-build-matrix.sh
   "Can't parse query completely".
 - `ns-pl` has no `to_record`. Going back to records from polars is `ns-rec/…` on the DataFrame,
   which is AC-11.
+- A raw `*` or `?` does not parse in a query; they are the named entities `~nast~` and
+  `~nquest~` (`glob-customer-~nast~smith`).
 - `Glob("*")` binds to the cheap `Present` node (kernels.rs:265), so `is_null` costs one null-mask
   pass.
