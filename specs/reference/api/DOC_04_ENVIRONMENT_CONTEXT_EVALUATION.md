@@ -3,7 +3,7 @@ title: Environment, Context and Evaluation Reference
 kind: reference
 audience: internal
 area: [core/context, core/plan]
-reviewed: 2026-10-11
+reviewed: 2026-10-12
 ---
 # DOC-04: Environment, Context, and End-to-End Evaluation
 
@@ -378,9 +378,9 @@ as keyed owners.
 |---|---:|---:|---:|---|
 | `submit` | Yes; the dependency starts at once (see below) | No | Yes | Inherits only when the nested plan requires it |
 | `wait_for_dependency` | No | Yes; applies the stale-dependency policy | Upgrades the record `submit` wrote to the settled version | N/A |
-| `evaluate` | `submit`, then drains the local queue | No direct state wait; may inline-run locally queued work | Yes | Inherits only when the nested plan requires it |
+| `evaluate` | `submit`, then drains the local queue | No direct state wait; runs locally queued work (the queued manager gives each run a task of its own) | Yes | Inherits only when the nested plan requires it |
 | `get_dependency_state` | `submit` + `wait_for_dependency` | Yes | Yes | Inherits only when the nested plan requires it |
-| `apply` | According to manager mode | According to manager mode | No | Inherits for payload-required plans and evaluates them immediately |
+| `apply` | According to manager mode, in this evaluation's session (`AssetManager::apply_for`) | According to manager mode | No | Inherits for payload-required plans and evaluates them immediately |
 | `evaluate_local_queue` | Previously scheduled local dependencies | Runs locally queued work; does not wait for work already running elsewhere | Records were created during scheduling | N/A |
 
 `Context::evaluate` does more than `EnvRef::evaluate`: it cycle-checks and
@@ -392,6 +392,13 @@ the observed version, and drains the local dependency queue. It still returns an
 interpreter for linked and resource dependencies. It is exactly `submit` followed by
 `wait_for_dependency`, and a command that needs several dependencies can call those two
 itself: submit each, then wait for each.
+
+**One asset per dependency per evaluation.** A repeated `submit`, `evaluate` or
+`get_dependency_state` for the same query within one evaluation (including the interpreter's own
+pre-pass and steps) returns the asset the first request returned, whatever its status. A dependency
+that failed is therefore not run again: the second request gets the same error. A volatile
+dependency has one value within the evaluation. A *later* evaluation requests it afresh. See
+`specs/reference/DEPENDENCIES_STATUS.md` §Evaluation session.
 
 **`submit` is not lazy.** It returns the dependency's `AssetRef` without waiting for its
 value, but the dependency has already started: the queued manager starts it immediately
@@ -585,6 +592,7 @@ methods crate-private), so an asset manager can be implemented outside `liquers-
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-12 | Context methods: one asset per dependency per evaluation; `evaluate` runs locally queued work in tasks of its own on the queued manager; `apply` stays in the evaluation's session. | phase-5 (`design/dependency-resolved-once-per-evaluation/`) |
 | 2026-10-11 | `Query::absolute` renamed `Query::rooted`, wire name included (no alias); its meaning is unchanged. | `design/query-leading-slash-field/` |
 | 2026-10-10 | Dependency and apply methods: a non-keyed dependency is created under the current asset's caching strategy; `Context::cache_strategy()`. | phase-5, `design/plan-policy/` |
 | 2026-10-10 | §Built-in environment comparison: no `with_store` / `with_cache` setters (they no longer exist); `with_async_store` is the only store setter. The gap-table row and pitfall about them are removed. | `CORE-SYNC-STORE-TRAIT-OBSOLETE`, `design/sync-store-removal/` |

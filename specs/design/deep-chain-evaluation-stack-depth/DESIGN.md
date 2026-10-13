@@ -3,16 +3,22 @@ id: DEEP-CHAIN-EVALUATION-STACK-DEPTH
 kind: design
 title: Evaluation stack depth independent of recipe-chain length
 form: compact
-status: in_review
-phase: implementation
-readiness: ready
-autofix: not-eligible
+status: superseded
 area: [core/assets, core/plan]
 issues: [EVALUATING-A-DEEP-CHAIN-TOP-DOWN-OVERFLOWS-THE-STACK]
 affects_docs: [reference/DEPENDENCIES_STATUS.md, reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md, guides/ASSET_MANAGER_IMPLEMENTATION_GUIDE.md]
 created: 2026-10-12
+superseded_by: dependency-resolved-once-per-evaluation
 ---
 # Evaluation stack depth independent of recipe-chain length
+
+> **Superseded on 2026-10-12** by [`dependency-resolved-once-per-evaluation`](../dependency-resolved-once-per-evaluation/DESIGN.md).
+> The maintainer merged the two designs: decision 1 below was refined to cover a whole top-level
+> evaluation, and an *evaluation session* now carries it. The session is the mechanism both designs
+> share. This design's AC-1, AC-2, AC-3, AC-5 and AC-6 are AC-9 to AC-13 there. Its AC-4 is replaced
+> by AC-1 to AC-3 and AC-14, and decisions 2 and 3 are that design's decision 4. The merged design owns
+> `EVALUATING-A-DEEP-CHAIN-TOP-DOWN-OVERFLOWS-THE-STACK`. This folder is kept for the reasoning; do
+> not implement from it.
 
 Bulk design (`specs/guides/autonomous_bulk_design.md`): Phases 1-4 written, not approved, not
 implemented.
@@ -112,7 +118,7 @@ syntax, format or `pub` signature changes.
 - `core-value-enum-oversized` (draft) — **overlaps**: smaller frames raise the limit by a constant.
 
 No strong overlap (T1-T4): no open design edits `drain_dependencies`, `wait_for_dependency` or
-`ImmediateAssetManager::get`. - `FAILING-UPSTREAM-RERUNS-EXPONENTIALLY-AT-QUEUE-CAPACITY` (issue, P1, no design yet) —
+`ImmediateAssetManager::get`. - `FAILING-UPSTREAM-RERUNS-EXPONENTIALLY-AT-QUEUE-CAPACITY` (issue, P1; design `dependency-resolved-once-per-evaluation`, which this design is required-by for AC-4) —
   **overlaps** (T2, shared contract: decision 1 is its expected behaviour). Not merged: its cause
   sits in `DefaultAssetManager::get_dependency_asset` and needs its own root-cause analysis, and
   this design neither fixes nor worsens it. Once it is fixed, AC-4's queued chain is lengthened

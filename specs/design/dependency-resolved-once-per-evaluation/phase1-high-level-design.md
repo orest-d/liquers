@@ -1,0 +1,229 @@
+# Phase 1: High-Level Design — dependency-resolved-once-per-evaluation
+
+## Purpose
+
+A top-level request for an asset (an *evaluation*) can run the same upstream asset many times,
+exponentially often in the worst case, and on a long chain it can overflow the thread stack. Give
+every evaluation an **evaluation session**: within it, each dependency resolves to one asset and is
+evaluated at most once, a failure reaches its dependents without being re-run, and the depth of the
+call stack does not grow with the length of the chain.
+
+## Problem Example
+
+All examples use `data/recipes.yaml` over a memory store and `SimpleEnvironment` (the queued
+`DefaultAssetManager`, default capacity 4) unless they name another manager. They were measured at
+HEAD on 2026-10-12 with throwaway probe tests that are not committed.
+
+**1. A failing chain re-runs its root.** `l0.txt = fail`, `l{i}.txt = -R/data/l{i-1}.txt/-/upper`:
+
+```rust
+let asset = envref.evaluate("-R/data/l8.txt").await?;
+asset.get().await?;      // a no-value state; asset.status() is Error
+```
+
+| Links n | 3 | 4 | 5 | 6 | 7 | 8 | 10 | 20 |
+|---|---|---|---|---|---|---|---|---|
+| `current_thread` (the issue) | 2 | 4 | 8 | 16 | 29 | 54 | 240 | not finished in 60 s |
+| `multi_thread` (this design's probe) | 2 | 4 | 6 | 14 | — | 49 | — | — |
+
+The interpreter's pre-pass (`interpreter.rs` `schedule_plan_dependencies`) resolves `l_{k-1}`. At
+capacity, the dependent's own task runs it to `Error` (`evaluate_local_queue`). Then the
+`Step::GetAsset` arm of `do_step_state` resolves it again (`Context::get_dependency_state`); a link
+parameter takes the same double path. The second resolution
+(`DefaultAssetManager::get_dependency_asset`) treats `Error` as stale, evicts the asset and runs it
+again, and every level repeats this for the level below. Below capacity the first run is spawned
+and is usually still running when the step resolves it, so the re-run happens only when it has
+already reached `Error`. `REFUSED-DEPENDENCY-RECOMPUTED-TWICE-…` is
+the same double resolution on the refusal path: the second one fast-tracks the not yet finished
+asset again, is refused again, and schedules a second run.
+
+**2. A shared failing root re-runs once per dependent.** `r.txt = fail`,
+`a0`/`b0 = -R/data/r.txt/-/upper`, `a{i}`/`b{i} = -R/data/a{i-1}.txt/-/join-~X~-R/data/b{i-1}.txt~E`,
+evaluating `-R/data/a{n}.txt`:
+
+| Depth n | 1 | 2 | 3 | 4 | 10 |
+|---|---|---|---|---|---|
+| HEAD | 3 | 9 | 15 | not finished in 60 s | — |
+| with a memo per asset run (the first proposal) | 2 | 2 | 2 | 3 | 3 |
+
+A memo per asset run is not enough: `a_i` and `b_i` are separate runs, so the second to reach `r`
+evicts and re-runs it. Only state spanning the whole request reaches "once".
+
+**3. A deep cold chain overflows the stack** (`EVALUATING-A-DEEP-CHAIN-TOP-DOWN-OVERFLOWS-THE-STACK`).
+With `l0.txt = make_text`, evaluating `-R/data/l30.txt` cold aborts with `has overflowed its stack`
+(debug, 2 MiB stack). The queued manager works up to 26 links, or up to 200 at capacity 1000, where
+every dependency is its own task. The inline `ImmediateAssetManager` works up to 9. A locally queued
+dependency runs inside its dependent's future (`DefaultAssetManager::drain_dependencies`,
+`wait_for_dependency`), and the inline manager nests `run_inline` per link.
+
+**Should:** example 1 runs `fail` once and returns its error (`leaf failed`); example 2 runs it once
+at any depth; example 3 returns `"TEXT"` at any length with each `upper` run once.
+
+## Scope and Acceptance Criteria
+
+- **AC-1** A failing chain runs its root once
+  WHEN `l0 = fail` and `-R/data/l10.txt` is evaluated cold on the queued manager, at default capacity and at capacity 1
+  THEN `fail` has run exactly once and the asset ends `Error` with `leaf failed`
+- **AC-2** A shared failing root runs once
+  WHEN `-R/data/a10.txt` of example 2 is evaluated cold at default capacity
+  THEN `fail` has run exactly once and `a10` ends `Error` with `leaf failed`
+- **AC-3** A long failing chain finishes promptly
+  WHEN example 1 is run with 20 links at default capacity
+  THEN it finishes within 10 s and `fail` has run exactly once
+- **AC-4** A refused dependency is recomputed once
+  WHEN `restart_upstream_command_change_on_load_refuses` evaluates `l2` after `l0`'s command changed (on-load audit)
+  THEN `upper` has run exactly twice (`l1`, `l2`) and `l0`'s command once
+- **AC-5** A failure is not remembered across evaluations
+  WHEN an evaluation of `-R/data/l3.txt` has failed with `fail` run once, and the same query is then evaluated again
+  THEN `fail` runs again, once (two in total)
+- **AC-6** A command reading one dependency twice gets one asset
+  WHEN a command calls `Context::get_dependency_state` twice for the same query in one evaluation, and that dependency fails
+  THEN both calls return the dependency's error and the dependency's command has run once
+- **AC-7** A volatile dependency has one value per evaluation
+  WHEN `c = join(a, b)`, where `a` and `b` both read `v`, `v`'s recipe is volatile and its command counts its runs, and `c` is evaluated
+  THEN `v`'s, `a`'s and `b`'s commands have each run once and `a` and `b` received the same value of `v`; a later evaluation that needs `v` again runs its command again
+- **AC-8** A concurrent request joins the first request's work
+  WHEN, with `l0 = fail` gated so it cannot finish yet, two evaluations of `-R/data/l5.txt` start on the queued manager and the gate is then released
+  THEN `fail` has run exactly once and both evaluations end `Error` with `leaf failed`
+- **AC-9** A deep cold chain does not overflow, queued manager
+  WHEN a 100-link chain's last link is evaluated cold on a 1 MiB stack, at default capacity and at capacity 1
+  THEN it returns `"TEXT"`, each link's command runs once, and nothing overflows
+- **AC-10** A deep cold chain does not overflow, inline manager without a runtime
+  WHEN the same runs under `ImmediateEnvironment` in `futures::executor::block_on` (no tokio) on a 1 MiB stack
+  THEN it returns `"TEXT"`, each link's command runs once, and nothing overflows
+- **AC-11** A warm upstream is not reloaded
+  WHEN `l0..l99` are persisted and a fresh `ImmediateEnvironment` over that store evaluates `-R/data/l100.txt`
+  THEN only `l100`'s command runs, and no link before `l99` becomes a live asset
+- **AC-12** Cycles are still reported
+  WHEN a link of a 40-link recipe cycle is evaluated, under either manager
+  THEN it fails with HEAD's `Circular dependency detected` error, without hanging or overflowing
+- **AC-13** Cancellation keeps its contract
+  WHEN, at job capacity 1, a dependent waiting for a locally queued dependency is cancelled
+  THEN the dependent ends `Cancelled` and the dependency still finishes `Ready` (`DEPENDENCIES_STATUS.md` Flow D)
+- **AC-14** A deep failing chain on the inline manager fails at once
+  WHEN `l0 = fail` and a 100-link chain is evaluated cold under `ImmediateEnvironment` on a 1 MiB stack
+  THEN it returns `leaf failed`, `fail` has run once, nothing overflows, and `l1..l100` stay unevaluated
+- **AC-15** A dependency that has already failed stops the rest of the plan (added at the Phase 2 review)
+  WHEN under `ImmediateEnvironment` a query reads `-R/data/l0.txt` (`fail`) and then a link to `y`, whose command counts its runs
+  THEN it fails with `leaf failed` and `y`'s command has not run, as at HEAD
+- **AC-16** A dynamic cycle is reported without hanging (added at the Phase 4 review)
+  WHEN a command of `k`'s recipe requests `-R/data/k.txt` through `Context::get_dependency_state`, under either manager
+  THEN the evaluation fails with a dependency-cycle error within 10 s
+
+Non-goals: payload-path dependencies (`Context::schedule_payload_dependency_asset`), which are
+volatile by construction, in no map, and evaluated inline once per call; remembering a failure
+across evaluations (decision 1 forbids it); a public API for sessions (none is planned); analysis
+cost (`DEPENDENCY-ANALYSIS-REWALKS-UPSTREAM-PER-EVALUATION`); on the inline manager, the part of a
+chain upstream of a dynamic or volatile dependency, which priming cannot see and which still nests
+(to be filed as `INLINE-MANAGER-DYNAMIC-DEPENDENCY-CHAIN-NESTS`).
+
+## The evaluation session (observable contract)
+
+How a session is represented and carried is Phase 2. What callers can observe:
+
+1. **Begins** when an asset's run starts without belonging to a session. That happens for work
+   requested from outside any evaluation: `EnvRef::evaluate` / `evaluate_immediately` and the
+   manager's `get`, `get_asset`, `apply`, `apply_queued`. A manager call made while resolving a
+   dependency, and a command's `Context::submit`, `evaluate`, `get_dependency_state` and `apply`,
+   stay in the caller's session.
+2. **Belongs:** a run belongs to the session that scheduled its asset, whoever starts it: a spawned
+   task, the queue's worker loop or a drain.
+3. **Pins:** the first resolution of a dependency in a session fixes the asset, for any asset,
+   whether it is in a manager map or not (volatile and uncached results included). Every later
+   request for that dependency in the session gets that asset, whatever its status. A dependency is
+   identified by its resolved key when it is a key, otherwise by its CWD-resolved query.
+4. **Refreshes only at first resolution:** an `Error`, `Cancelled`, `Volatile` or `Expired` asset
+   found in the manager is replaced only when a session first resolves that dependency. A
+   dependency that expires later in the session is used stale, and its dependent is marked expired
+   (today's execution-time policy in `wait_for_dependency`).
+5. **Joining:** an asset already being evaluated in another session is waited for, not restarted;
+   its upstream belongs to that session. Accepted limit: a session that joins `a` and also resolves
+   `a`'s failed upstream `r` itself refreshes `r`, so it can see a failed `a` next to a fresh `r`.
+6. **Ends** when its last run finishes. Nothing about it outlives that, so a later evaluation may
+   run a failed or volatile dependency again (AC-5, AC-7).
+
+## Core Interactions
+
+- **Assets** (`assets.rs`): dependency resolution and local queues of both managers; the top-level entries.
+- **Context** (`context.rs`): carries the session, so `submit` and `get_dependency_state` use it.
+- **Interpreter and plan** (`interpreter.rs` pre-pass, `plan.rs` `DependencyWalk` for inline priming).
+- Commands, query syntax, store and formats: untouched.
+
+## Crate Placement
+
+`liquers-core` only: sessions belong to the asset lifecycle and the `Context`, both core. No
+dependency on `liquers-lib`. `liquers-web` (inline manager on wasm) and `liquers-py` inherit the
+behaviour unchanged; the Phase 2 preflight confirms that no `pub` signature they use changes.
+
+## Documentation Intent
+
+- Reference: extend `specs/reference/DEPENDENCIES_STATUS.md` with the evaluation session (the six
+  rules above), and correct its description of locally queued runs (step 5 "invokes `B.run()`
+  inline", Flow D item 2).
+- Reference: extend `specs/reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md`. Beside the
+  `submit` / `get_dependency_state` table, say that a repeated request in one evaluation returns the
+  first asset, and drop "may inline-run locally queued work".
+- Reference: qualify by the session the re-evaluation rule in `specs/reference/ASSETS.md`
+  §Re-evaluation and the cache-miss text in `specs/reference/api/DOC_03_ASSETS_EXECUTION_LIFECYCLE.md`
+  (added at the Phase 2 review).
+- Guide: extend `specs/guides/ASSET_MANAGER_IMPLEMENTATION_GUIDE.md` §11. A manager must honour the
+  session and must not nest per chain link. Record the residual limit.
+- Other documents: none.
+- Documents to update: the five above (`affects_docs`); `specs/README.md` when the design completes.
+
+## Design Readiness
+
+- **Readiness:** ready (reassessed at the Phase 4 review, 2026-10-12). Phases 1-4 are reviewed; no
+  blocking or open design question remains. The compact draft's `ready`, then `needs-decision`, was
+  cleared at the merge.
+- **Automatic fixing:** not-eligible: `L`, a new internal data structure, and a contract change that
+  commands can observe (AC-6, AC-7).
+- **Leading issue:** `FAILING-UPSTREAM-RERUNS-EXPONENTIALLY-AT-QUEUE-CAPACITY` (P1, `M` on its own;
+  the merged scope is `L`).
+- **Decision log (pre-approval of 2026-10-12):** no item needs a decision.
+  - *Proposed resolution, taken:* the trait-level behaviour visible to external managers. The
+    default `wait_for_dependency` turns an `Error` dependency into `Err`, and `get_dependency_asset`
+    is documented to return failed assets and adopt the session. It was presented in the Phase 2
+    summary before `proceed all`, so it is recorded as decision 6.
+  - *Implementation detail:* a spawned child of a dropped dependent finishes without a slot, so job
+    capacity can be briefly exceeded. HEAD's re-park has the same effect.
+  - *Implementation detail:* priming creates (but does not run) assets for the keys it settles on a
+    cold chain. AC-14 asserts "unevaluated", not "absent".
+- **Open questions:** none. The maintainer's decisions, which the later phases build on:
+
+1. **Evaluation rule** (2026-10-12, from `deep-chain-evaluation-stack-depth` decision 1, refined the
+   same day). Within one evaluation, each dependency is evaluated at most once, and a failed
+   dependency fails its dependents without re-running. The scope is the **whole top-level
+   evaluation**, not one asset's run (example 2). Dependents of a failed dependency fail as quickly as
+   possible. A failed or volatile asset may be evaluated again
+   by a *later* evaluation: a command can be acceptably non-deterministic without being volatile,
+   such as an LLM call, or fail on a network error. The same dependency never has two versions
+   within one evaluation.
+2. **Mechanism: an evaluation session** (2026-10-12, option A). Rejected: a memo per asset run
+   (example 2); a request id stamped on assets (cannot reach volatile assets, which are in no map,
+   and an asset shared by two requests carries one stamp); settling once up front and never evicting
+   afterwards (volatile and dynamic dependencies still get two versions). That up-front walk survives
+   as the way the inline manager fills the session (decision 4).
+3. **Joining** (2026-10-12, part of option A): rule 5 above, with its accepted limit.
+4. **Stack depth, from `deep-chain-evaluation-stack-depth`** (decisions 2-3, 2026-10-12). The queued
+   manager runs every locally queued dependency as its own task, which the dependent awaits. The
+   inline manager cannot spawn: it primes the static upstream bottom-up before the top-level run.
+   When priming fails at `l_k`, the evaluation returns `l_k`'s error at once, and
+   `l_{k+1}..l_n` stay unevaluated.
+5. **Merge** (2026-10-12): this design absorbs `deep-chain-evaluation-stack-depth` (superseded),
+   because the session is the mechanism both halves share.
+6. **Manager contract** (2026-10-12, approved with Phase 2): the trait-level behaviour described in
+   the decision log above.
+
+## Design Dependencies
+
+- `deep-chain-evaluation-stack-depth`: **superseded** by this design. Its Phase 1 scenarios are
+  AC-9 to AC-13 here; its AC-4 is replaced by AC-1 to AC-3 (queued) and AC-14 (inline). Its Phase 2 to 4 are input to this
+  design's Phases 2 to 4, not a plan to follow.
+- `dependency-chain-analysis-cost` (complete): **requires**. Priming reuses its iterative
+  `DependencyWalk`. AC-4 tightens its `restart_upstream_command_change_on_load_refuses`.
+- `dependency-scheduling` (complete): **overlaps**. The pre-pass and local queues stay; the session
+  removes the second resolution they made possible, and spawning changes where a local run executes.
+- `asset-cancellation-outcome` (`in_review`): **overlaps**. AC-13 re-checks its Flow D promise.
+- `core-value-enum-oversized` (draft): **overlaps**. Smaller futures raise the depth limit only by a
+  constant.
