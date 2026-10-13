@@ -4,8 +4,7 @@ kind: design
 title: Non-finite floats in JSON — no panic, and one documented encoding
 form: compact
 workflow: liquers-project
-status: in_review
-phase: documentation
+status: complete
 readiness: ready
 autofix: not-eligible
 area: [core/value, lib/value, py]

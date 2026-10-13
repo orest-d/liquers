@@ -3,7 +3,7 @@ title: Store Behavioural Semantics
 kind: reference
 audience: internal
 area: [core/store, store/backends, web]
-reviewed: 2026-10-11
+reviewed: 2026-10-13
 ---
 # Store Behavioural Semantics
 
@@ -191,9 +191,10 @@ postcondition resolves it without changing any code.
 
 A store is constructed with a `prefix: Key`, and:
 
-- **`key_prefix()` reports the configured prefix.** `AsyncStoreRouter::is_dir` and `listdir` select
-  on `key_prefix()` **alone** — unlike `find_store`, which also consults `is_supported` — so a store
-  that under-reports its prefix answers for keys belonging to stores listed after it.
+- **`key_prefix()` reports the configured prefix.** `AsyncStoreRouter::is_dir` and `listdir` ask
+  every member whose `key_prefix()` covers the key — unlike `find_store`, which also consults
+  `is_supported` and takes the first — so a store that under-reports its prefix is consulted about
+  every directory in the router.
 - **The prefix is part of the path under the backend root**, not a mount point that is stripped.
   `AsyncFileStore::key_to_path` pushes the whole key, prefix included, onto its root, and
   `AsyncOpenDALStore` does the same. `liquers-web`'s `FetchStore` is the one store that strips its
@@ -210,6 +211,23 @@ An empty prefix does not mean a store must support every absolute key. For examp
 overlay can have an empty prefix and return true only for its intercepted file. When placed before
 a general store, it handles that file while unsupported keys pass to subsequent stores.
 
+**How the router answers.** Data has one owner, directories are a union:
+
+- *Data* — `get`, `get_metadata`, `get_asset_info`, `set`, `remove` and the rest — goes to the
+  **owner**, the first member whose prefix covers the key and whose `is_supported` is true. First
+  match wins, so a member mounted inside another is added before it.
+- *A directory* exists if the key is the root, lies above a member's prefix, is reported as a
+  directory by **any** covering member, or is a member's own prefix at which the owner holds no data
+  (an empty or not-yet-created member is still a directory; a member mounted at a single file is
+  still a file). `contains` is the owner's `contains` or that rule, and is `Ok(false)` — not an
+  error — for a key no member owns (§4).
+- *Whole-directory questions* — `listdir_asset_info`, and `children` in directory metadata — are
+  forwarded to a member when it is the only contributor (the only member covering the key or mounted
+  beneath it, and the owner), so its own answer is used. Otherwise the router composes them: one
+  entry per name `listdir` gives, each described by its own owner's `get_asset_info`.
+- A member's override of `get_asset_info` or `listdir_asset_info` is therefore heard through the
+  router, as its `get_metadata` always was.
+
 `AsyncMemoryStore` has no narrower exclusions, so its predicate is exactly
 `!key.is_relative() && key.has_key_prefix(&self.prefix)`.
 
@@ -218,7 +236,8 @@ a general store, it handles that file while unsupported keys pass to subsequent 
 assert `is_supported` is *false*, and the trait default returns `false` unconditionally, so without
 it a store that refuses every key passes both and looks conformant while being unusable in a
 layering. `AsyncMemoryStore` keeps its own `memsupport01`-`memsupport06` unit tests, and the router
-its `router01`.
+its `router01` and `routerfwd01`-`routerfwd11`; conformance suite `C6` runs a router whose every
+directory answer is composed.
 
 ## 7. Key shape
 
@@ -358,6 +377,7 @@ reported `application/octet-stream` for the example above.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-13 | §6: how the router answers — data by owner, directories as a union of covering members (and an empty member's prefix), `contains` `Ok(false)` for unowned keys, `get_asset_info` / `listdir_asset_info` forwarded to a sole contributor and composed otherwise. Tests `routerfwd01`-`routerfwd11`, suite `C6`. | `design/store-router-forwards-asset-info/` |
 | 2026-10-11 | §10 added: a store seeds a written record's filename, and so its data format, from the key; a declared filename or data format is kept. Rules `seed01`, `seed02`. | `design/store-key-format-seeding/` |
 | 2026-10-10 | Introduction: the synchronous `Store` was removed, not merely obsolete; the rules stay trait-neutral for a future synchronous realm. §1 cites `AsyncFileStore` / `AsyncMemoryStore` only. | `CORE-SYNC-STORE-TRAIT-OBSOLETE`, `design/sync-store-removal/` |
 | 2026-10-07 | §8: a key with metadata and no data has no data object — `get` and `get_bytes` report `KeyNotFound`, while `set(k, b"", m)` stores an empty one. `AsyncMemoryStore` now behaves so. Enforced by the new rule `sidecar05`. | `design/memory-store-metadata-only-entry/` |

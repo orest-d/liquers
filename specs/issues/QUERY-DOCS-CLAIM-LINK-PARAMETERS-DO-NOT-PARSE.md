@@ -2,7 +2,7 @@
 id: QUERY-DOCS-CLAIM-LINK-PARAMETERS-DO-NOT-PARSE
 kind: issue
 title: query.rs module docs say link parameters do not parse, but they do
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [core/query, docs]
@@ -32,3 +32,14 @@ dangling id is removed.
 
 Noticed on 2026-10-13 while listing what the template grammar of `design/liquers-mustache/` would
 extend; the stale id was about to be cited as an overlap.
+
+## Resolution
+
+Fixed 2026-10-13. The paragraph in the `liquers-core/src/query.rs` module docs now states that link
+parameters parse and round-trip through `parse_query`, pointing at the `link-parameter` production
+documented in `liquers-core/src/parse.rs`, and gives `text-~X~-R/a.txt~E/upper` as an example
+(checked with `liquers-validate --no-registry`: status `Ok`, `encoded` unchanged, parameter is a
+`Link`). The id it cited, `QUERY-ACTION-PARAMETER-LINK-PARSER`, did exist (now in
+`specs/archive/2026-08-08-issues.md`, resolved 2026-08-06 by `design/query-link-parser/`); the
+sentence citing it as open was removed rather than repointed. Round-trip coverage:
+`liquers-core/tests/action_parameter_link.rs`.

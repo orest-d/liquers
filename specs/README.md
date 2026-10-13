@@ -394,6 +394,7 @@ deliberately folded behind a broader line.
 - design `store-keys-contract`
 - design `store-router-directory-above-members`
 - design `store-router-empty-prefix`
+- design `store-router-forwards-asset-info`
 - design `store-test-output-hygiene`
 - design `stubs01-class-detection`
 - design `submit-eagerness-documentation`

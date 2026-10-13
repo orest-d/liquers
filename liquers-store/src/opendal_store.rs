@@ -997,9 +997,10 @@ mod tests {
 
     /// `ROUTER01` — a prefixed OpenDAL store no longer answers for keys outside its prefix.
     ///
-    /// `AsyncStoreRouter::is_dir` consults **only** `key_prefix()`, unlike `find_store`, which also
-    /// requires `is_supported`. So a store claiming the root prefix answered `is_dir` for every key
-    /// in the router, including keys belonging to a store listed after it.
+    /// `AsyncStoreRouter::is_dir` selected on `key_prefix()` alone and asked only the first match,
+    /// so a store claiming the root prefix answered `is_dir` for every key in the router, including
+    /// keys belonging to a store listed after it. It now asks every covering member
+    /// (`design/store-router-forwards-asset-info/`); this test keeps the original case.
     #[tokio::test]
     async fn router01_a_prefixed_store_does_not_claim_the_whole_router() -> Result<(), Error> {
         use liquers_core::store::{AsyncMemoryStore, AsyncStoreRouter};
@@ -1345,9 +1346,9 @@ mod tests {
 
     /// The router's `is_dir` reaches a prefixed OpenDAL store's directory.
     ///
-    /// The half of `ROUTER01` that had to wait for this commit: `AsyncStoreRouter::is_dir`
-    /// delegates on `key_prefix()`, and the store it delegates to could not answer for a directory
-    /// with no directory object.
+    /// The half of `ROUTER01` that had to wait for this commit: `AsyncStoreRouter::is_dir` asks the
+    /// members covering the key, and this store could not answer for a directory with no directory
+    /// object.
     #[tokio::test]
     async fn opendal_router_is_dir_reaches_a_prefixed_store() -> Result<(), Error> {
         use liquers_core::store::{AsyncMemoryStore, AsyncStoreRouter};

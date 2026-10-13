@@ -125,3 +125,42 @@ fn core_router05_unknown_type_names_the_supported_set() -> Result<(), Box<dyn st
     let _: Option<Error> = None;
     Ok(())
 }
+
+/// core_router06 — the asset manager describes a directory above two members, and a key no member
+/// owns is absent rather than an error (`design/store-router-forwards-asset-info/`, AC-7).
+///
+/// `AssetManager::get_asset_info` asks the store `contains` first, so a router that answered
+/// `KeyNotSupported` there failed the whole call before any member or the recipe provider was
+/// consulted.
+#[tokio::test]
+async fn core_router06_asset_manager_describes_a_directory_above_members(
+) -> Result<(), Box<dyn std::error::Error>> {
+    use liquers_core::assets::AssetManager;
+    use liquers_core::context::{Environment, SimpleEnvironment};
+    use liquers_core::store::{AsyncMemoryStore, AsyncStoreRouter};
+    use liquers_core::value::Value;
+
+    let mut router = AsyncStoreRouter::new();
+    router.add_store(Box::new(AsyncMemoryStore::new(&parse_key("memory/a")?)));
+    router.add_store(Box::new(AsyncMemoryStore::new(&parse_key("memory/b")?)));
+    router
+        .set(&parse_key("memory/a/note.md")?, b"n", &Metadata::new())
+        .await?;
+    assert!(!router.contains(&parse_key("elsewhere/x")?).await?);
+
+    let mut env = SimpleEnvironment::<Value>::new();
+    env.with_async_store(Box::new(router));
+    let envref = env.to_ref();
+    let manager = envref.get_asset_manager();
+
+    let info = manager.get_asset_info(&parse_key("memory")?).await?;
+    assert!(info.is_dir);
+    let names: Vec<String> = manager
+        .listdir_asset_info(&parse_key("memory")?)
+        .await?
+        .into_iter()
+        .filter_map(|i| i.filename)
+        .collect();
+    assert_eq!(names, vec!["a".to_string(), "b".to_string()]);
+    Ok(())
+}
