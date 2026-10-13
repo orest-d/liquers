@@ -3,13 +3,13 @@ id: DEPENDENCY-RESOLVED-ONCE-PER-EVALUATION
 kind: design
 title: Evaluation session — each dependency evaluated once per evaluation, at any chain depth
 workflow: liquers-project
-status: in_review
 phase: documentation
 readiness: ready
 autofix: not-eligible
 area: [core/assets, core/plan]
 issues: [FAILING-UPSTREAM-RERUNS-EXPONENTIALLY-AT-QUEUE-CAPACITY, EVALUATING-A-DEEP-CHAIN-TOP-DOWN-OVERFLOWS-THE-STACK, REFUSED-DEPENDENCY-RECOMPUTED-TWICE-DURING-A-DEPENDENT-EVALUATION]
 merged: 2026-10-12
+gh_pr: [127]
 affects_docs: [reference/DEPENDENCIES_STATUS.md, reference/ASSETS.md, reference/api/DOC_03_ASSETS_EXECUTION_LIFECYCLE.md, reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md, guides/ASSET_MANAGER_IMPLEMENTATION_GUIDE.md]
 created: 2026-10-12
 ---
