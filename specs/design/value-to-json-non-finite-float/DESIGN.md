@@ -5,12 +5,12 @@ title: Non-finite floats in JSON — no panic, and one documented encoding
 form: compact
 workflow: liquers-project
 status: in_review
-phase: implementation
+phase: documentation
 readiness: ready
 autofix: not-eligible
 area: [core/value, lib/value, py]
 issues: [VALUE-TO-JSON-PANICS-ON-NON-FINITE-FLOAT]
-affects_docs: [specs/reference/VALUE_TYPE_SYSTEM.md, specs/guides/LANGUAGE-INTEGRATION_GUIDE.md, specs/guides/TYPE_SYSTEM_GUIDE.md]
+affects_docs: [specs/reference/VALUE_TYPE_SYSTEM.md, specs/reference/RECORD_STREAMS.md, specs/guides/LANGUAGE-INTEGRATION_GUIDE.md, specs/guides/TYPE_SYSTEM_GUIDE.md]
 created: 2026-10-13
 ---
 # Non-finite floats in JSON — no panic, and one documented encoding
@@ -326,7 +326,7 @@ Run them with:
 cargo test -p liquers-core --lib value::tests
 cargo test -p liquers-lib --lib value::simple
 cargo test -p liquers-lib --test record_scalar_reading
-PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1 cargo test -p liquers-py --lib value::tests
+PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1 cargo test -p liquers-py --lib --no-default-features --features async_store value::tests
 ```
 
 The Python unit tests are GIL-free, as the file's tests already are. The environment variable is
@@ -336,21 +336,21 @@ needed for CPython 3.13 (`CLAUDE.md`).
 
 ### Steps
 
-- [ ] 1. `liquers-core/src/value.rs` `json_f64`: the module, plus the AC-1 and AC-2 tests. Proof:
-  `cargo test -p liquers-core --lib value::tests`.
-- [ ] 2. `liquers-core/src/value.rs` `Value`: `try_into_json_value`, and the `as_bytes` /
+- [x] 1. `liquers-core/src/value.rs` `json_f64`: the module, plus the AC-1 and AC-2 tests. Proof:
+  `cargo test -p liquers-core --lib value::tests`. (7718183)
+- [x] 2. `liquers-core/src/value.rs` `Value`: `try_into_json_value`, and the `as_bytes` /
   `deserialize_from_bytes` `json` arms, plus the remaining core tests (AC-3, AC-4, AC-8, AC-9,
-  AC-10) and doc comments. Proof: as in step 1, plus `cargo test -p liquers-core --lib --tests`.
-- [ ] 3. `liquers-core/src/command_metadata.rs`: delete `CommandParameterValue::from_float`. Proof:
-  `cargo check -p liquers-core` with no new warnings.
-- [ ] 4. `liquers-lib/src/value/simple.rs`: the serde attribute, `try_into_json_value`, and the
+  AC-10) and doc comments. Proof: as in step 1, plus `cargo test -p liquers-core --lib --tests`. (7718183)
+- [x] 3. `liquers-core/src/command_metadata.rs`: delete `CommandParameterValue::from_float`. Proof:
+  `cargo check -p liquers-core` with no new warnings. (7718183)
+- [x] 4. `liquers-lib/src/value/simple.rs`: the serde attribute, `try_into_json_value`, and the
   `json` arms, plus their tests (AC-4, AC-5, AC-8, AC-9, AC-11). Proof:
-  `cargo test -p liquers-lib --lib value::simple`.
-- [ ] 5. `liquers-lib/tests/record_scalar_reading.rs`: the AC-6 test. Proof:
-  `cargo test -p liquers-lib --test record_scalar_reading`.
-- [ ] 6. `liquers-py/src/value.rs`: `try_into_json_value`, plus the AC-7 test. Proof: the
+  `cargo test -p liquers-lib --lib value::simple`. (4e22ff4)
+- [x] 5. `liquers-lib/tests/record_scalar_reading.rs`: the AC-6 test. Proof:
+  `cargo test -p liquers-lib --test record_scalar_reading`. (54f7b7e)
+- [x] 6. `liquers-py/src/value.rs`: `try_into_json_value`, plus the AC-7 test. Proof: the
   `liquers-py` command in Phase 3, falling back to `cargo check -p liquers-py --tests` if the test
-  binary cannot link against this Python.
+  binary cannot link against this Python. (ae04ac2)
 
 Each step is one commit, so rolling back a step means reverting its commit. Steps 4–6 depend on
 step 1; step 3 is independent.
@@ -365,3 +365,47 @@ step 1; step 3 is independent.
 - `python3 scripts/docs_index.py --check`.
 - Phase 5: the documents listed in Phase 2, the source issue closed, and this design set to
   `complete`.
+
+## Phase 5: Documentation
+
+**What was built matches what was approved.** The `json_f64` module is in `liquers-core`.
+`try_into_json_value` refuses non-finite floats in core, `liquers-lib` and `liquers-py`. JSON bytes
+are lossless for a known float, and nested core floats are written as `null`. `from_float` is gone.
+All 15 planned tests pass. The full suites pass too: `liquers-core --lib --tests`, `liquers-lib
+--lib --tests` (598 passed), and `liquers-lib --no-default-features --lib --tests` (351 passed).
+
+**Deviations from Phase 4:**
+- Steps 1-3 landed in one commit (`7718183`), not three. They are small, and they are rolled back
+  together.
+- The Python test needs `--no-default-features --features async_store`: with the default
+  `extension-module` feature, the test binary cannot link `libpython`. That is the repository's
+  documented way to run these tests (see `liquers-py/Cargo.toml`), so it is not a new defect. The
+  Phase 3 command is corrected.
+- The `as_bytes` `json` arm touched by this design now uses `Error::from_error` instead of
+  `Error::new`.
+
+**Documents.**
+- Created `specs/guides/SERIALIZATION_GUIDE.md`.
+- Reviewed against the code, each with a History row and a `reviewed:` bump:
+  - `VALUE_TYPE_SYSTEM.md`: the `F64` in `json` paragraph.
+  - `RECORD_STREAMS.md`: a NaN cell is refused. This document was added to `affects_docs` when the
+    candidates were reviewed.
+  - `LANGUAGE-INTEGRATION_GUIDE.md`: design question 4.
+  - `TYPE_SYSTEM_GUIDE.md`: data formats.
+- Considered and left unchanged: `COMMAND_DECLARATION.md`, `PROJECT_OVERVIEW.md` and
+  `RECORD_STREAM_GUIDE.md`. None of them makes a claim about JSON floats.
+
+**Issues.**
+- Closed: `VALUE-TO-JSON-PANICS-ON-NON-FINITE-FLOAT`.
+- Filed during the work: `SERIALIZATION-CANNOT-REPORT-A-LOSSY-WRITE` (P2). Not eligible for
+  automatic fixing, because it changes an API; its preferred home is the serialization redesign.
+- Updated: `DATA-FORMAT-CONSTANTS-AND-TOOLING` (lossless formats) and
+  `VALUE-SERIALIZATION-IS-SYNCHRONOUS-AND-WHOLE-VALUE` (reporting).
+- No other problem was found.
+
+**Learning.**
+- Measure serialization behaviour; don't infer it. A standalone serde test suggested YAML was
+  lossless, and the real `SimpleValue` path showed it was not. The same probe also found the silent
+  `Object` misread.
+- A serde attribute on a variant of an untagged enum leaks into nested values. For core `Value`, the
+  identifier-aware read arm is the right place for type-specific handling.

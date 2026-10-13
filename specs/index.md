@@ -8,14 +8,12 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 115
-- P0: 1
+Total rows: 114
 - P2: 55
 - P3: 59
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
-| [`VALUE-TO-JSON-PANICS-ON-NON-FINITE-FLOAT`](issues/VALUE-TO-JSON-PANICS-ON-NON-FINITE-FLOAT.md) | issue | Value::try_into_json_value panics on a non-finite float | draft | ready | not-eligible | P0 | M | core/value | [design](design/value-to-json-non-finite-float/DESIGN.md) | 2026-10-12 |
 | [`STORE-ROUTER-DOES-NOT-FORWARD-ASSET-INFO`](issues/STORE-ROUTER-DOES-NOT-FORWARD-ASSET-INFO.md) | issue | AsyncStoreRouter does not forward get_asset_info to its member stores | draft |  |  | P2 | S | core/store |  | 2026-10-11 |
 | [`DEFAULT-ASSET-MANAGER-RECIPE-OPT-SKIPS-PAYLOAD-CHECK`](issues/DEFAULT-ASSET-MANAGER-RECIPE-OPT-SKIPS-PAYLOAD-CHECK.md) | issue | DefaultAssetManager's recipe_opt override skips the payload-required rejection | draft | ready | eligible | P2 | M | core/assets | [design](design/default-asset-manager-recipe-opt-payload-check/DESIGN.md) | 2026-09-25 |
 | [`CORE-VALUE-ENUM-OVERSIZED`](issues/CORE-VALUE-ENUM-OVERSIZED.md) | issue | Every Value occupies over 700 bytes because three variants are stored unboxed | draft | ready | not-eligible | P2 | M | core/value;lib/value | [design](design/core-value-enum-oversized/DESIGN.md) | 2026-08-18 |

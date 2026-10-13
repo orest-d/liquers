@@ -116,6 +116,7 @@ simply stop being wanted.
 - **Application-defined metadata attributes** — planned → [`issues/CORE-METADATA-NO-APPLICATION-ATTRIBUTES.md`](issues/CORE-METADATA-NO-APPLICATION-ATTRIBUTES.md)
 - **Setting title and description from a command** — planned → [`issues/CONTEXT-CANNOT-SET-TITLE-OR-DESCRIPTION.md`](issues/CONTEXT-CANNOT-SET-TITLE-OR-DESCRIPTION.md)
 - **Base/extended value discrimination** — built → [`reference/VALUE_TYPE_SYSTEM.md`](reference/VALUE_TYPE_SYSTEM.md) §Reading *(design: [`combined-value-identifier-dispatch`](design/combined-value-identifier-dispatch/))*
+- **Serialization format choice and non-finite floats in JSON** — documented → [`guides/SERIALIZATION_GUIDE.md`](guides/SERIALIZATION_GUIDE.md) *(design: [`value-to-json-non-finite-float`](design/value-to-json-non-finite-float/))*
 
 `CORE-METADATA-TRACEBACK-SUPPORT` and `LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT` are one defect
 seen from two directions — `Error` has nowhere to put structured context — and one field design
@@ -283,9 +284,7 @@ question are both measure-first items.
 ## Open issues attached to live design work
 
 <!-- BEGIN generated: issues -->
-| Issue | Pri | Cx | Design |
-|---|---|---|---|
-| [`VALUE-TO-JSON-PANICS-ON-NON-FINITE-FLOAT`](issues/VALUE-TO-JSON-PANICS-ON-NON-FINITE-FLOAT.md) | P0 | M | `value-to-json-non-finite-float` |
+*None.*
 <!-- END generated: issues -->
 
 ## Not yet placed
@@ -402,7 +401,6 @@ deliberately folded behind a broader line.
 - design `text-value-markdown-format`
 - design `type-info-write-only-formats`
 - design `ui-query-console-error-highlight`
-- design `value-to-json-non-finite-float`
 - design `value-type-system`
 - design `variadic-metadata-tail-check`
 - design `web-liquers-error-constructor`
@@ -455,6 +453,7 @@ deliberately folded behind a broader line.
 - [`QUERY_ESCAPING_GUIDE.md`](guides/QUERY_ESCAPING_GUIDE.md) — A Liquers query is text with structure: `/` separates path segments, `-` separates action
 - [`RECORD_STREAM_GUIDE.md`](guides/RECORD_STREAM_GUIDE.md) — How to produce records from a new source: a command that returns a table, a manifest that stitches
 - [`SEARCH_GUIDE.md`](guides/SEARCH_GUIDE.md) — How to find things in a Liquers store with the `ns-search` commands: files by folder or name,
+- [`SERIALIZATION_GUIDE.md`](guides/SERIALIZATION_GUIDE.md) — This guide covers what each data format preserves when a value is written to a store and read back,
 - [`STORE_FACTORY_GUIDE.md`](guides/STORE_FACTORY_GUIDE.md) — > This guide covers **declaring a store type** so a configuration document can name it. For
 - [`STORE_IMPLEMENTATION_GUIDE.md`](guides/STORE_IMPLEMENTATION_GUIDE.md) — How to implement an `AsyncStore` that satisfies
 - [`TYPE_SYSTEM_GUIDE.md`](guides/TYPE_SYSTEM_GUIDE.md) — How to add a value type so the system can describe it, store it and read it back. For *why* the

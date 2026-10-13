@@ -2,7 +2,7 @@
 id: VALUE-TO-JSON-PANICS-ON-NON-FINITE-FLOAT
 kind: issue
 title: Value::try_into_json_value panics on a non-finite float
-status: draft
+status: closed
 priority: P0
 complexity: M
 area: [core/value]
@@ -41,3 +41,13 @@ answers the same question the opposite way (overlap test T2). There, `serde_json
 every non-finite float. A core `F64` therefore reads back as `None`, and a `liquers-lib`
 `SimpleValue::Array` holding a NaN reads back as an unrelated `Object`. Complexity raised from `S`
 to `M` accordingly. The maintainer decided the policy, which is recorded in that design's Phase 1.
+
+## Resolution 2026-10-13
+
+Fixed by `design/value-to-json-non-finite-float/`. `try_into_json_value` refuses NaN and ±infinity
+with a `ConversionError` in `liquers-core`, `liquers-lib` (`SimpleValue`, and so `ExtValue` and
+record cells) and `liquers-py`, through `liquers_core::value::json_f64::to_number`. The JSON byte
+path follows the policy in `specs/guides/SERIALIZATION_GUIDE.md`. Evidence: the tests citing AC-1 to
+AC-11 in `liquers-core/src/value.rs`, `liquers-lib/src/value/simple.rs`,
+`liquers-lib/tests/record_scalar_reading.rs` and `liquers-py/src/value.rs`, in commits `7718183`,
+`4e22ff4`, `54f7b7e` and `ae04ac2`.

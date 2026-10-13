@@ -298,7 +298,7 @@ VALUE-CONVERSION-CAPABILITY,feature,"Values cannot be converted between types, a
 VALUE-DESCRIPTION,feature,Value types have no auto-generated description,accepted,local,,,,P3,L,core/value;lib/value,,,,,,2026-08-08,specs/issues/VALUE-DESCRIPTION.md
 VALUE-SERIALIZATION-HAS-NO-INCREMENTAL-WRITER,feature,Value serialization has no incremental writer,draft,local,,,,P2,M,core/value,,,,record-streams,,2026-09-17,specs/issues/VALUE-SERIALIZATION-HAS-NO-INCREMENTAL-WRITER.md
 VALUE-SERIALIZATION-IS-SYNCHRONOUS-AND-WHOLE-VALUE,feature,"Serialization is synchronous and whole-value, so a large or lazy value cannot be served or stored as it is produced",draft,local,,,,P2,L,core/value;core/store;core/assets;axum,,,,,,2026-09-24,specs/issues/VALUE-SERIALIZATION-IS-SYNCHRONOUS-AND-WHOLE-VALUE.md
-VALUE-TO-JSON-PANICS-ON-NON-FINITE-FLOAT,issue,Value::try_into_json_value panics on a non-finite float,draft,local,,ready,not-eligible,P0,M,core/value,,,,value-to-json-non-finite-float,,2026-10-12,specs/issues/VALUE-TO-JSON-PANICS-ON-NON-FINITE-FLOAT.md
+VALUE-TO-JSON-PANICS-ON-NON-FINITE-FLOAT,issue,Value::try_into_json_value panics on a non-finite float,closed,local,,ready,not-eligible,P0,M,core/value,,,,value-to-json-non-finite-float,,2026-10-12,specs/issues/VALUE-TO-JSON-PANICS-ON-NON-FINITE-FLOAT.md
 VALUE-TYPE-DEFINITION-MACRO,feature,Value types and their registry entries are hand-written instead of generated,draft,local,,,,P2,XL,macro;lib/value;core/value,,,,,,2026-08-18,specs/issues/VALUE-TYPE-DEFINITION-MACRO.md
 VARIADIC-ARGUMENT-STARVES-LATER-ARGUMENTS,issue,An argument declared after a multiple argument is unreachable and unchecked,closed,local,,,,P2,S,core/commands;core/plan;macro,,,,variadic-metadata-tail-check,,2026-08-12,specs/issues/VARIADIC-ARGUMENT-STARVES-LATER-ARGUMENTS.md
 VOLATILE-KEYED-RECIPE-SELF-DELEGATION,issue,Volatile keyed recipe delegates to itself,closed,local,,,,P1,M,core/assets,,,,keyed-recipe-ownership,,2026-08-08,specs/issues/VOLATILE-KEYED-RECIPE-SELF-DELEGATION.md
@@ -484,7 +484,7 @@ UI-EVENTS,design,UI event delivery to widgets,in_review,local,high-level,,,,,lib
 UI-QUERY-CONSOLE-ERROR-HIGHLIGHT,design,Query console highlights positioned errors,complete,local,,ready,,P2,S,lib/ui;core/query,,,,ui-query-console-error-highlight,,2026-08-29,specs/design/ui-query-console-error-highlight/DESIGN.md
 VALUE-ACCESSOR,design,Value accessor abstraction,draft,local,high-level,,,,,core/value,,,,value-accessor,,2026-03-02,specs/design/value-accessor/DESIGN.md
 VALUE-LIST-SUPPORT,design,Typed list values for lui/children and lui/roots,draft,local,architecture,,,,,lib/ui,,,,value-list-support,,2026-03-02,specs/design/value-list-support/DESIGN.md
-VALUE-TO-JSON-NON-FINITE-FLOAT,design,"Non-finite floats in JSON — no panic, and one documented encoding",in_review,local,implementation,ready,not-eligible,P0,M,core/value;lib/value;py,,,,value-to-json-non-finite-float,,2026-10-13,specs/design/value-to-json-non-finite-float/DESIGN.md
+VALUE-TO-JSON-NON-FINITE-FLOAT,design,"Non-finite floats in JSON — no panic, and one documented encoding",in_review,local,documentation,ready,not-eligible,P0,M,core/value;lib/value;py,,,,value-to-json-non-finite-float,,2026-10-13,specs/design/value-to-json-non-finite-float/DESIGN.md
 VALUE-TYPE-SYSTEM,design,Liquers value type system,complete,local,,,,,,core/value;lib/value;py;web,,37,,value-type-system,,2026-08-18,specs/design/value-type-system/DESIGN.md
 VARIADIC-ARGUMENTS-DECLARATION,design,Declarable variadic command arguments,complete,local,,,,,,macro;core/commands;lib/polars,,,,variadic-arguments-declaration,,2026-08-25,specs/design/variadic-arguments-declaration/DESIGN.md
 VARIADIC-METADATA-TAIL-CHECK,design,Runtime validation of variadic command metadata,complete,local,,,,P2,S,core/commands;core/context;core/validate,,,,variadic-metadata-tail-check,,2026-08-29,specs/design/variadic-metadata-tail-check/DESIGN.md
@@ -514,13 +514,13 @@ IMAGE_COMMAND_LIBRARY,reference,Image Command Library Specification,overdue,loca
 PAYLOAD_GUIDE,reference,Payload Specification and Usage,current,local,,,,,,core/context;core/commands,,,,,2026-09-04,,specs/reference/PAYLOAD_GUIDE.md
 POLARS_COMMAND_LIBRARY,reference,Polars Command Library Specification,current,local,,,,,,lib/polars,,,,,2026-10-10,,specs/reference/POLARS_COMMAND_LIBRARY.md
 PROJECT_OVERVIEW,reference,Liquers Project Overview,current,local,,,,,,core/query;core/plan;core/assets;core/store;core/value,,,,,2026-10-11,,specs/reference/PROJECT_OVERVIEW.md
-RECORD_STREAMS,reference,Record Streams,current,local,,,,,,records;lib/value;lib/commands;web,,,,,2026-10-11,,specs/reference/RECORD_STREAMS.md
+RECORD_STREAMS,reference,Record Streams,current,local,,,,,,records;lib/value;lib/commands;web,,,,,2026-10-13,,specs/reference/RECORD_STREAMS.md
 REGISTER_COMMAND_FSD,reference,register_command! Macro Functional Specification,current,local,,,,,,macro;core/commands,,,,,2026-10-12,,specs/reference/REGISTER_COMMAND_FSD.md
 SEARCH,reference,Search,current,local,,,,,,records;lib/commands,,,,,2026-10-11,,specs/reference/SEARCH.md
 STORE_CONFIG_FSD,reference,Store Configuration Functional Specification,current,local,,,,,,store/config,,,,,2026-10-10,,specs/reference/STORE_CONFIG_FSD.md
 STORE_SEMANTICS,reference,Store Behavioural Semantics,current,local,,,,,,core/store;store/backends;web,,,,,2026-10-11,,specs/reference/STORE_SEMANTICS.md
 UI_INTERFACE_FSD,reference,UI Interface Specification,overdue,local,,,,,,lib/ui,,,,,2026-03-02,,specs/reference/UI_INTERFACE_FSD.md
-VALUE_TYPE_SYSTEM,reference,Value Type System,current,local,,,,,,core/value;lib/value,,,,,2026-10-10,,specs/reference/VALUE_TYPE_SYSTEM.md
+VALUE_TYPE_SYSTEM,reference,Value Type System,current,local,,,,,,core/value;lib/value,,,,,2026-10-13,,specs/reference/VALUE_TYPE_SYSTEM.md
 WEB_API_SPECIFICATION,reference,Liquers Web API Specification,current,local,,,,,,axum;web,,,,,2026-10-12,,specs/reference/WEB_API_SPECIFICATION.md
 ASSET_MANAGER_IMPLEMENTATION_GUIDE,guide,Asset Manager Implementation Guide,current,local,,,,,,core/assets,,,,,2026-10-12,,specs/guides/ASSET_MANAGER_IMPLEMENTATION_GUIDE.md
 autonomous_bulk_design,guide,Autonomous Bulk Design Procedure,current,local,,,,,,docs;build,,,,,2026-10-08,,specs/guides/autonomous_bulk_design.md
@@ -529,12 +529,13 @@ COMMAND_DESIGN_GUIDE,guide,Command Design Guide,current,local,,,,,,core/commands
 COMMAND_REGISTRATION_GUIDE,guide,Command Registration Guide,current,local,,,,,,core/commands;macro,,,,,2026-10-11,,specs/guides/COMMAND_REGISTRATION_GUIDE.md
 DEPENDENCY_CONSISTENCY_GUIDE,guide,Dependency Consistency Guide,current,local,,,,,,core/assets,,,,,2026-10-08,,specs/guides/DEPENDENCY_CONSISTENCY_GUIDE.md
 ENVIRONMENT_CONSTRUCTION_GUIDE,guide,Building and Configuring an Environment,current,local,,,,,,core/context;core/assets;core/store,,,,,2026-10-11,,specs/guides/ENVIRONMENT_CONSTRUCTION_GUIDE.md
-LANGUAGE-INTEGRATION_GUIDE,guide,Language Integration Guide,current,local,,,,,,web;py;core/commands;core/plan;core/assets,,,,,2026-10-10,,specs/guides/LANGUAGE-INTEGRATION_GUIDE.md
+LANGUAGE-INTEGRATION_GUIDE,guide,Language Integration Guide,current,local,,,,,,web;py;core/commands;core/plan;core/assets,,,,,2026-10-13,,specs/guides/LANGUAGE-INTEGRATION_GUIDE.md
 QUERY_ESCAPING_GUIDE,guide,Query Escaping Guide,current,local,,,,,,core/query,,,,,2026-10-07,,specs/guides/QUERY_ESCAPING_GUIDE.md
 RECORD_STREAM_GUIDE,guide,Record Stream Guide,current,local,,,,,,records;lib/value,,,,,2026-10-11,,specs/guides/RECORD_STREAM_GUIDE.md
 SEARCH_GUIDE,guide,Search Guide,current,local,,,,,,lib/commands;records,,,,,2026-10-11,,specs/guides/SEARCH_GUIDE.md
+SERIALIZATION_GUIDE,guide,Choosing a Serialization Format,current,local,,,,,,core/value;lib/value,,,,,2026-10-13,,specs/guides/SERIALIZATION_GUIDE.md
 STORE_FACTORY_GUIDE,guide,Store Factory Guide,current,local,,,,,,core/store;store/config,,,,,2026-10-07,,specs/guides/STORE_FACTORY_GUIDE.md
 STORE_IMPLEMENTATION_GUIDE,guide,Store Implementation Guide,current,local,,,,,,core/store;store/backends;web,,,,,2026-10-11,,specs/guides/STORE_IMPLEMENTATION_GUIDE.md
-TYPE_SYSTEM_GUIDE,guide,Adding and Typing Value Types,current,local,,,,,,core/value;lib/value,,,,,2026-10-09,,specs/guides/TYPE_SYSTEM_GUIDE.md
+TYPE_SYSTEM_GUIDE,guide,Adding and Typing Value Types,current,local,,,,,,core/value;lib/value,,,,,2026-10-13,,specs/guides/TYPE_SYSTEM_GUIDE.md
 UNITTEST_GUIDE,guide,Unit Testing Guide,current,local,,,,,,build;core/assets,,,,,2026-10-02,,specs/guides/UNITTEST_GUIDE.md
 WEB_API_GUIDE,guide,Web API Guide,current,local,,,,,,axum;web,,,,,2026-10-12,,specs/guides/WEB_API_GUIDE.md

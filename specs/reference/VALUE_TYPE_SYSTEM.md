@@ -3,7 +3,7 @@ title: Value Type System
 kind: reference
 audience: internal
 area: [core/value, lib/value]
-reviewed: 2026-10-10
+reviewed: 2026-10-13
 ---
 
 # Value Type System
@@ -359,6 +359,16 @@ The lowercase `bytes`/`binary`/`bin`/`b` identifiers are read but never produced
 accommodation for older stores, not an alias, and the write path refuses them because they are not
 registered.
 
+**`F64` in `json`.** The identifier is also what lets a float round-trip although JSON has no NaN
+and no infinity. A top-level `F64` is written as a number, or as `"NaN"` / `"Infinity"` /
+`"-Infinity"` when it is not finite, and read with identifier `F64` from a number, one of those
+strings, or `null` (as NaN). `"NaN"` read as `Text` stays text. A float nested in a core
+`Value::Array` / `Value::Object` has no identifier of its own, so a non-finite one is written as
+`null` and reads back as `None`. `liquers-lib`'s tagged form keeps the tokens at any depth.
+`try_into_json_value` refuses a non-finite float (a `ConversionError`) instead. The rules live in
+`liquers_core::value::json_f64`. Why the policy is what it is, and which format to choose when
+floats must survive exactly: [`guides/SERIALIZATION_GUIDE.md`](../guides/SERIALIZATION_GUIDE.md).
+
 ## Compatibility
 
 Identifiers changed outright in this design — `Value::I32.identifier()` was `"generic"`, and five
@@ -370,6 +380,7 @@ degrades on read.
 
 | Date | Change |
 |---|---|
+| 2026-10-13 | §Reading: `F64` in `json`. Non-finite floats are written as tokens and read back by identifier, nested core floats become `null`, and `try_into_json_value` refuses (`design/value-to-json-non-finite-float/`, closing `VALUE-TO-JSON-PANICS-ON-NON-FINITE-FLOAT`). |
 | 2026-10-10 | §Seeding: a query with no filename seeds no format — the recipe no longer declares `bin` (`design/plan-step-state-metadata/`, closing `FREE-FUNCTION-EVALUATE-BAKES-A-BIN-DATA-FORMAT`). |
 | 2026-10-09 | §Reading: a combined value picks the half that reads the bytes by the declared identifier; an extension identifier is never read by the base value (`design/combined-value-identifier-dispatch/`, closing `COMBINED-VALUE-DISCRIMINATION`). |
 | 2026-09-27 | Reviewed against `design/record-streams/` Phase 5 (phase-5). Added `RecordView` and `RecordSource` to the registered identifiers, and §The record identifiers: `records`-gated trait-object variants, their `TypeInfo`s (formats and aliases, `ipc`/`parquet` behind `records-ipc`/`records-parquet`, `html` write-only, Parquet read only through polars), manifest-only serialization of a source, single-cell scalar reading by delegation to the base value, and `try_into_json_value`. |
