@@ -8,15 +8,15 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 114
+Total rows: 115
 - P0: 1
 - P2: 54
-- P3: 59
+- P3: 60
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
 | [`VALUE-TO-JSON-PANICS-ON-NON-FINITE-FLOAT`](issues/VALUE-TO-JSON-PANICS-ON-NON-FINITE-FLOAT.md) | issue | Value::try_into_json_value panics on a non-finite float | draft |  |  | P0 | S | core/value |  | 2026-10-12 |
-| [`STORE-ROUTER-DOES-NOT-FORWARD-ASSET-INFO`](issues/STORE-ROUTER-DOES-NOT-FORWARD-ASSET-INFO.md) | issue | AsyncStoreRouter does not forward get_asset_info to its member stores | draft |  |  | P2 | S | core/store |  | 2026-10-11 |
+| [`STORE-ROUTER-DOES-NOT-FORWARD-ASSET-INFO`](issues/STORE-ROUTER-DOES-NOT-FORWARD-ASSET-INFO.md) | issue | AsyncStoreRouter does not forward get_asset_info to its member stores | draft |  |  | P2 | S | core/store | [design](design/store-router-forwards-asset-info/DESIGN.md) | 2026-10-11 |
 | [`DEFAULT-ASSET-MANAGER-RECIPE-OPT-SKIPS-PAYLOAD-CHECK`](issues/DEFAULT-ASSET-MANAGER-RECIPE-OPT-SKIPS-PAYLOAD-CHECK.md) | issue | DefaultAssetManager's recipe_opt override skips the payload-required rejection | draft | ready | eligible | P2 | M | core/assets | [design](design/default-asset-manager-recipe-opt-payload-check/DESIGN.md) | 2026-09-25 |
 | [`CORE-VALUE-ENUM-OVERSIZED`](issues/CORE-VALUE-ENUM-OVERSIZED.md) | issue | Every Value occupies over 700 bytes because three variants are stored unboxed | draft | ready | not-eligible | P2 | M | core/value;lib/value | [design](design/core-value-enum-oversized/DESIGN.md) | 2026-08-18 |
 | [`ENVIRONMENT-MANAGER-REFERENCE-CYCLE`](issues/ENVIRONMENT-MANAGER-REFERENCE-CYCLE.md) | issue | Environment and asset manager hold each other with strong Arcs, so every environment leaks | draft | ready | not-eligible | P2 | M | core/assets;core/context | [design](design/environment-manager-reference-cycle/DESIGN.md) | 2026-08-27 |
@@ -79,6 +79,7 @@ Total rows: 114
 | [`QUERY-DOCS-CLAIM-LINK-PARAMETERS-DO-NOT-PARSE`](issues/QUERY-DOCS-CLAIM-LINK-PARAMETERS-DO-NOT-PARSE.md) | issue | query.rs module docs say link parameters do not parse, but they do | draft |  |  | P3 | S | core/query;docs |  | 2026-10-13 |
 | [`REPLACING-WRITE-KEEPS-DROPPED-DEPENDENCY-EDGES`](issues/REPLACING-WRITE-KEEPS-DROPPED-DEPENDENCY-EDGES.md) | issue | A write that replaces a keyed asset keeps the dependency edges its new metadata no longer lists | draft |  |  | P3 | S | core/assets |  | 2026-10-11 |
 | [`RESOURCE-STEP-VOLATILITY-IS-NEVER-CHECKED`](issues/RESOURCE-STEP-VOLATILITY-IS-NEVER-CHECKED.md) | issue | Resource plan steps always report non-volatile, behind a TODO that prints at runtime | draft |  |  | P3 | S | core/plan |  | 2026-10-12 |
+| [`STORE-ROUTER-IS-DIR-IGNORES-IS-SUPPORTED`](issues/STORE-ROUTER-IS-DIR-IGNORES-IS-SUPPORTED.md) | issue | AsyncStoreRouter::is_dir routes by prefix alone while other methods also require is_supported | draft |  |  | P3 | S | core/store |  | 2026-10-13 |
 | [`TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS`](issues/TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS.md) | issue | TypeInfo cannot declare a format a type writes but cannot read back | draft |  |  | P3 | S | core/value |  | 2026-09-24 |
 | [`VALIDATE-COMMAND-STUB-REJECTS-POSITIONAL-EMPTIES`](issues/VALIDATE-COMMAND-STUB-REJECTS-POSITIONAL-EMPTIES.md) | issue | A liquers-validate --command stub rejects a query with empty positional parameters | draft |  |  | P3 | S | core/validate |  | 2026-10-12 |
 | [`CONTEXT-TITLE-LOST-ACROSS-PREDECESSOR-BOUNDARY`](issues/CONTEXT-TITLE-LOST-ACROSS-PREDECESSOR-BOUNDARY.md) | issue | A title or description set by a command in a cut predecessor does not reach the final asset | draft | needs-decision | not-eligible | P3 | M | core/context;core/plan | [phase1](design/context-title-predecessor-inheritance/phase1-high-level-design.md)  [phase2](design/context-title-predecessor-inheritance/phase2-architecture.md)  [phase3](design/context-title-predecessor-inheritance/phase3-examples.md)  [phase4](design/context-title-predecessor-inheritance/phase4-implementation.md)  | 2026-10-06 |
