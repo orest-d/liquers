@@ -11,7 +11,7 @@ owner first and composes directory answers from all contributors.
 
 | Method | New behaviour | AC |
 |---|---|---|
-| `is_dir` | `true` if `k` is the root or lies strictly above a member's prefix (today's rule), else `true` if **any** covering member's `is_dir` is `true` (first `true` wins, errors propagate), else `false` | AC-10, AC-3 |
+| `is_dir` | `true` if `k` is the root or lies strictly above a member's prefix (today's rule), else `true` if **any** covering member's `is_dir` is `true` (first `true` wins, errors propagate), else, when `k` is a member's prefix, `true` unless the owner's `contains(k)` is `true` (it then holds data there), else `false` | AC-10, AC-11, AC-3 |
 | `contains` | owner's `contains` if `true`, else `self.is_dir(k)`; never `KeyNotSupported` | AC-7 |
 | `get_asset_info` | owner's `get_asset_info`; on `KeyNotFound` (or no owner) a router-built directory `AssetInfo` if `self.is_dir(k)`, else `KeyNotFound` | AC-1–AC-4 |
 | `listdir_asset_info` | sole contributor: forwarded; otherwise per child of `self.listdir_keys(k)` through `self.get_asset_info`, sorted as the trait default sorts | AC-5, AC-6 |
@@ -25,10 +25,12 @@ Decisions and rejected alternatives:
   other methods; that would make `is_dir("cfg")` false when an overlay lists `cfg` but does not
   support the directory key, and `listdir` — which merges every covering member and ignores
   `is_supported` — would still list it. A directory exists if any member says so; data has one owner.
-- **A member's own prefix is the member's to answer**, as today. Declaring every mount point a
-  directory would make a member mounted at a single file (`config.yaml`, supported for that key only)
-  a directory too. The cost stays as it is: an uncreated `AsyncFileStore` prefix is listed by its
-  parent but not contained — filed as `STORE-ROUTER-LISTS-AN-UNCREATED-MEMBER-PREFIX`.
+- **A member's own prefix is a directory unless its owner holds data there** (decision 6, option A,
+  revised in Step 4). Composition asks each child's owner, and an empty member does not report its
+  own prefix as a directory, so a parent containing an empty nested mount failed `get_metadata`.
+  Declaring every mount point a directory unconditionally would make a member mounted at a single
+  file a directory too; the `contains` check keeps it a file. One extra `contains`, only for a key
+  equal to a member's prefix.
 - **Fallback on `KeyNotFound` only.** Any other member error is a backend failure (§4) and propagates.
 - **Data wins over a derived directory.** If the owner holds data at `k` and another member is mounted
   beneath `k`, `get_metadata` / `get_asset_info` return the owner's data answer, as today; `is_dir`
@@ -44,7 +46,7 @@ Decisions and rejected alternatives:
 |---|---|---|---|---|---|---|
 | `STORE-ROUTER-DOES-NOT-FORWARD-ASSET-INFO` | draft | P2 | Source issue | — | No | Closed by this design |
 | `STORE-ROUTER-IS-DIR-IGNORES-IS-SUPPORTED` | draft | P3 | Folded in (AC-10) | — | No | Closed by this design |
-| `STORE-ROUTER-LISTS-AN-UNCREATED-MEMBER-PREFIX` | draft | P3 | Neighbouring case left as is | No | No | Stays open |
+| `STORE-ROUTER-LISTS-AN-UNCREATED-MEMBER-PREFIX` | draft | P3 | Blocks AC-9 for empty nested mounts (found in Step 4) | Folded in | Yes, resolved | Closed by this design (AC-11) |
 | `design/store-adapters/` | in review | — | Assumes this (its AC-8) | — | No | Unblocked by this |
 | `STORE-NO-READ-ONLY-ADAPTER`, `STORE-METADATA-HANDLING-NOT-COMPOSABLE` | open | P2 | Stores, not the router's dispatch | No | No | None |
 

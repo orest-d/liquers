@@ -17,7 +17,8 @@
 | 11 | Test | `tests/store_conformance_CONF.rs::c6_router_with_a_decorated_member_and_a_nested_mount` | Whole suite, no allowed failure | AC-8 |
 | 12 | Test | `tests/store_conformance_CONF.rs::c3_async_store_router` (existing) | Still passes | AC-8 |
 | 13 | Test | `store::tests::routerfwd09_directory_metadata_children_include_a_nested_mount` | `children` = router listing | AC-9 |
-| 14 | Test | `store::tests::routerfwd10_is_dir_asks_every_covering_member` | Overlay first or last, same answers | AC-10 |
+| 14 | Test | `store::tests::routerfwd10_is_dir_asks_every_covering_member` | Overlay first or last, same directory answers | AC-10 |
+| 15 | Test | `store::tests::routerfwd11_empty_member_prefix_is_a_directory` | Empty member is a directory, single-file member a file | AC-11 |
 
 ## Example 1: A titled folder through the router
 
@@ -70,8 +71,9 @@ No serialization, persistence, binding or feature-flag case: nothing stored or e
 
 ## Test Plan
 
-- Unit, `liquers-core/src/store.rs` `mod tests`: `routerfwd01`–`routerfwd07`, `routerfwd09`,
-  `routerfwd10` as in the table. A test-only `DecoratedStore` (inner `AsyncMemoryStore`, optional
+- Unit, `liquers-core/src/store.rs` `mod tests`: `routerfwd01`–`routerfwd07`, `routerfwd09`–
+  `routerfwd11` as in the table. Members are added nested-first: the router's owner is the first
+  covering member, so a parent listed first would take the nested member's writes. A test-only `DecoratedStore` (inner `AsyncMemoryStore`, optional
   `only: Option<Key>` narrowing `is_supported` to one key, a call log) supplies member overrides.
   `routerfwd06` asserts the log records the member's `listdir_asset_info` call.
 - Integration, `liquers-core/tests/store_router_STORE.rs`: `core_router06_…` builds a
@@ -88,5 +90,10 @@ No serialization, persistence, binding or feature-flag case: nothing stored or e
 
 - `AssetManager::get_asset_info` asks `contains` before anything else, so a store's `contains`
   error is a client-visible failure, not an internal one. Phase 5 should say so in the guide.
+- Written test-first, the nested-mount tests failed on member order before they failed on anything
+  in the design: first match wins, so the nested member must be added first. An overlay intercepts
+  only when listed first; listed last it is shadowed for data but still contributes directories.
+- An empty `AsyncMemoryStore` does not report its own prefix as a directory, any more than an
+  uncreated `AsyncFileStore` folder does — that is what decision 6 is about.
 - The router has two routing rules — "owner" (`find_store`, needs `is_supported`) for data, "every
   covering member" (`listdir`) for directories. This design makes `is_dir` follow the second.

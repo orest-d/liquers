@@ -91,10 +91,10 @@ crate or command. Tests in the same file and in `liquers-core/tests/store_confor
 
 Pre-approved after Phase 2 on 2026-10-13 (`proceed all`); this section is the decision log.
 
-- **Readiness:** needs-decision (decision 6, found in implementation; pre-approval voided)
+- **Readiness:** ready
 - **Automatic fixing:** not-eligible — `is_dir` changes from the selection `STORE_SEMANTICS.md` §6
   documents (first member by prefix) to a union: a contract change, not a restoration (rule 4).
-- **Leading issue:** decision 6 — an empty member's own prefix
+- **Leading issue:** None
 - **Explanation:** every method's answer is fixed by Phase 2's table; the tests in Phase 3 pin each
   scenario, and the existing router, conformance and OpenDAL router tests guard what stays.
 - **Open questions:** None. Proposed resolutions, all shown to the user at the Phase 2 gate and
@@ -104,12 +104,12 @@ Pre-approved after Phase 2 on 2026-10-13 (`proceed all`); this section is the de
      (AC-5), or children from other members would be dropped.
   3. `is_dir` is a union of covering members, not routed through `find_store`: `listdir` merges every
      covering member and ignores `is_supported`, so routing would make them disagree.
-  4. A member's own prefix stays the member's to answer; the uncreated-prefix inconsistency is filed
-     as `STORE-ROUTER-LISTS-AN-UNCREATED-MEMBER-PREFIX`.
+  4. ~~A member's own prefix stays the member's to answer~~ — superseded by decision 6.
   5. `contains` returning `Ok(false)` instead of `Err(KeyNotSupported)` for unowned keys is an
      observable change (callers reach the recipe provider), accepted as §4 behaviour.
 
-**Needs decision** (found in Step 4, 2026-10-13; it changes decision 4 and AC-10's `Ok(false)`):
+**Decided by the user on 2026-10-13: option A** (found in Step 4; it changed decision 4 and added
+AC-11, so the pre-approval was voided and the user re-approved with `proceed`):
 
 6. **An empty member's own prefix.** An empty `AsyncMemoryStore` reports its own prefix as not a
    directory, as an uncreated `AsyncFileStore` folder does (`STORE-ROUTER-LISTS-AN-UNCREATED-MEMBER-PREFIX`).
@@ -137,3 +137,6 @@ the full form (one file per phase), which this folder now uses.
 - **AC-10** One directory rule for the whole router (was open question 2, `STORE-ROUTER-IS-DIR-IGNORES-IS-SUPPORTED`)
   - WHEN the router is asked `is_dir` for a key that any member covering it reports as a directory (not only the first such member), or for a key above a member's mount point
   - THEN it answers `Ok(true)` whatever the members' order and `is_supported` filters, and `Ok(false)` otherwise, so `is_dir`, `contains` and `listdir` agree
+- **AC-11** An empty member's prefix is a directory (decision 6, 2026-10-13, `STORE-ROUTER-LISTS-AN-UNCREATED-MEMBER-PREFIX`)
+  - WHEN the router is asked about a member's own prefix at which the owning member holds no data (an empty memory store, a file store whose folder does not exist yet)
+  - THEN `is_dir` and `contains` answer `Ok(true)` and it is described as a directory; a member mounted at a single file it holds is still a file

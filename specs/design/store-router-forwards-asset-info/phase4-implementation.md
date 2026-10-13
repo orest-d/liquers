@@ -11,8 +11,8 @@ change calls `is_dir`), then the two asset-info methods, then `get_metadata` (wh
 - [x] Step 1: extract `sort_asset_info` and the router helpers — 52773a3
 - [x] Step 2: union `is_dir` and §4 `contains` — 52773a3
 - [x] Step 3: forward `get_asset_info` and `listdir_asset_info` — 52773a3
-- [ ] Step 4: compose `get_metadata` children — code in 52773a3; `routerfwd09` fails, see Phase 1 decision 6
-- [ ] Step 5: `AssetManager` and conformance tests
+- [x] Step 4: compose `get_metadata` children — 52773a3; decision 6 (option A, AC-11) — 91354e7
+- [x] Step 5: `AssetManager` and conformance tests — 47928a5
 - [ ] Step 6: comments and documents
 
 ## Implementation Steps
