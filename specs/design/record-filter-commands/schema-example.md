@@ -13,21 +13,28 @@ A-2,2026-10-02T14:00:00Z,Bob Jones,35.0,[]
 A-3,2026-10-03T08:30:00Z,,99.9,"[""bulk"",""b2b""]"
 ```
 
-**1. Inferred.** `-R/data/orders.csv/-/ns-rec/to_record-csv/schema` returns this schema (the
-command emits it as JSON text; it is shown here as YAML):
+**1. Inferred.** `-R/data/orders.csv/-/ns-rec/to_record-csv/schema` returns this JSON text. It
+is the actual output, with one field per line:
 
-```
-fields:
-  - { name: order_id,  data_type: Text,      nullable: false }
-  - { name: placed_at, data_type: Timestamp, nullable: false }   # ISO text recognised
-  - { name: customer,  data_type: Text,      nullable: true }    # row A-3 is empty
-  - { name: amount,    data_type: Float,     nullable: false }
-  - { name: tags,      data_type: Text,      nullable: false }
-type_identifier: null
+```json
+{
+  "fields": [
+    {"name": "order_id",  "label": "order id",  "description": "", "data_type": "Text",      "nullable": false, "key": "None", "role": {"indexed": [], "stored": false, "fast": false}},
+    {"name": "placed_at", "label": "placed at", "description": "", "data_type": "Timestamp", "nullable": false, "key": "None", "role": {"indexed": [], "stored": false, "fast": false}},
+    {"name": "customer",  "label": "customer",  "description": "", "data_type": "Text",      "nullable": true,  "key": "None", "role": {"indexed": [], "stored": false, "fast": false}},
+    {"name": "amount",    "label": "amount",    "description": "", "data_type": "Float",     "nullable": false, "key": "None", "role": {"indexed": [], "stored": false, "fast": false}},
+    {"name": "tags",      "label": "tags",      "description": "", "data_type": "Text",      "nullable": false, "key": "None", "role": {"indexed": [], "stored": false, "fast": false}}
+  ],
+  "type_identifier": null
+}
 ```
 
-Every field has `key: None` and an empty role. Inference finds types and nulls. It cannot know
-which column is the Id, what is searchable, or that `tags` holds JSON.
+Every field always carries all eight attributes, `key` and `role` included. Inference fills in
+the type (`placed_at` is recognised as a Timestamp), the nullability (`customer` is empty in
+row A-3) and the label. It assigns no key and no role: `FieldRole::default()` means "not indexed,
+not stored, not fast". Roles state what the data affords, so inference does not guess them. They
+come from a declared schema (case 2) or from the command that built the records (`catalog`
+declares `key` as Id and `filename` as full-text).
 
 **2. Declared.** A person writes what inference cannot know, and links it in:
 
@@ -59,8 +66,17 @@ fields:
 -R/data/orders.csv/-/ns-rec/to_record-csv-t-~X~-R/data/orders.schema.txt~E/schema
 ```
 
-This returns the declared schema back, with defaults filled in: `label: order id`,
-`description: ""`, `nullable: true` where omitted, and the Id's role. It is the form that
+This returns the declared schema back in the same eight-attribute JSON form as case 1, with
+defaults filled in: `label: order id`, `description: ""`, `nullable: true` where omitted,
+`role: {indexed: [], stored: false, fast: false}` for `tags`, and the Id's role
+`{indexed: [Exact], stored: true, fast: false}`. For `customer`, for example:
+
+```json
+{"name": "customer", "label": "Customer name", "description": "", "data_type": "Text", "nullable": true, "key": "None",
+ "role": {"indexed": ["Exact", {"FullText": {"analyzer": "Simple", "positions": true}}], "stored": true, "fast": false}}
+```
+
+That `{"FullText": …}` map is exactly what cannot be linked back today (see Defects). It is the form that
 `to_record`, `from_json` and a manifest's `uniform_schema` accept. In YAML, an index kind with
 settings is a tag (`!FullText { … }`), and a `role` must currently list `indexed`, `stored` and
 `fast`. `RecordSchema::new` refuses a duplicate name, or a second `Id` or `Source` field.

@@ -216,7 +216,7 @@ zero-copy question; `EXTERNAL-INDEX-SYNC`, which owns pushdown.
 
 [`schema-example.md`](./schema-example.md) shows what `schema` returns for one CSV in three cases.
 The outputs come from real runs:
-1. inferred, where types and nulls are found but there are no keys or roles;
+1. inferred, where types and nulls are found, and every field carries a `key` and a `role` left at their defaults (no key, not indexed);
 2. declared and linked in, with an Id key, roles, a label and a JSON column;
 3. `ns-pl/schema`, which gives polars type names only and reads the timestamp as a string.
 
