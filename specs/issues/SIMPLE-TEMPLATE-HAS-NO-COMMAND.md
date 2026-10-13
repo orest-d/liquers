@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: M
 area: [core/query, lib/commands]
-design: agent-memory-mvp
+design: liquers-mustache
 created: 2026-10-12
 github:
 ---

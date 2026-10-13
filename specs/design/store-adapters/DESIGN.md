@@ -1,0 +1,37 @@
+---
+id: STORE-ADAPTERS
+kind: design
+title: Modular store configuration — metadata layouts and store adapters
+workflow: liquers-project
+status: in_review
+phase: high-level
+area: [core/store, store/config, store/backends, web, docs]
+issues: [STORE-METADATA-LAYOUT-HARDCODED-PER-STORE, STORE-NO-READ-ONLY-ADAPTER, STORE-METADATA-HANDLING-NOT-COMPOSABLE]
+merged: 2026-10-13
+affects_docs: []
+created: 2026-10-13
+---
+# Modular store configuration — metadata layouts and store adapters
+
+## Phases
+
+- [Phase 1](./phase1-high-level-design.md) — written 2026-10-13, awaiting approval
+- [Phase 2](./phase2-architecture.md)
+- [Phase 3](./phase3-examples.md)
+- [Phase 4](./phase4-implementation.md)
+- [Phase 5](./phase5-documentation.md)
+
+## Notes
+
+Created 2026-10-13 at the user's request, merging three issues into one design:
+
+| Source | Stage it covers |
+|---|---|
+| `STORE-METADATA-LAYOUT-HARDCODED-PER-STORE` (leading: the oldest of three P2 sources) | *store* — where metadata is persisted, and which keys that reserves |
+| `STORE-NO-READ-ONLY-ADAPTER` | *policy* — reads that do not write, writes refused |
+| `STORE-METADATA-HANDLING-NOT-COMPOSABLE` | the whole pipeline — *create*, *enhance*, *store*, *policy* — and its configuration |
+
+The merge makes the design `XL` from an `L` and an `M` (overlap exclusion E2 would normally stop
+that); it was the user's decision, and Phase 1 open question 5 keeps a split available at the
+Phase 2 gate. The user's earlier decision that the read-only adapter is fixed first
+(`agent-memory-mvp` Phase 1 decision 2) becomes this design's first milestone (open question 3).

@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: L
 area: [core/store, store/config, store/backends]
-design: 
+design: store-adapters
 created: 2026-10-12
 github:
 ---

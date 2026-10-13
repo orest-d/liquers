@@ -64,6 +64,16 @@ What changed from revision 1, and why:
 Revision 1's open question 1 (an asset listing is the union of live assets, store and recipes) was
 settled by `axum-assets-endpoints` and is relied on by AC-12.
 
+## Spin-off designs — 2026-10-13
+
+Two decisions became designs of their own, at the user's request:
+[`store-adapters`](../store-adapters/) (the read-only and front-matter adapters as instances of a
+configurable metadata pipeline; merges `STORE-METADATA-LAYOUT-HARDCODED-PER-STORE`,
+`STORE-NO-READ-ONLY-ADAPTER`, `STORE-METADATA-HANDLING-NOT-COMPOSABLE`) and
+[`liquers-mustache`](../liquers-mustache/) (the query-aware template language;
+`NO-QUERY-AWARE-TEMPLATE-LANGUAGE`, with `SIMPLE-TEMPLATE-HAS-NO-COMMAND` moved there). This design
+requires both.
+
 ## Phase 1 decisions — 2026-10-12
 
 The user answered the open questions; Phase 1 records them as decisions. Read-only adapter first;

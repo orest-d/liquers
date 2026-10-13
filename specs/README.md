@@ -127,6 +127,7 @@ serves both. Solve them together.
 - **`register_command!` specification** — documented → [`reference/REGISTER_COMMAND_FSD.md`](reference/REGISTER_COMMAND_FSD.md)
 - **Context parameter position** — documented → [`reference/REGISTER_COMMAND_FSD.md`](reference/REGISTER_COMMAND_FSD.md) §Context Parameter *(design in [`design/context-param-order/`](design/context-param-order/))*
 - **Enum parameters** — designing → [`design/register-command-enum/`](design/register-command-enum/)
+- **Query-aware templates (`liquers-mustache`: Mustache with query tags, parametrized queries, evaluate and apply modes)** — designing → [`design/liquers-mustache/`](design/liquers-mustache/)
 - **Command aliases** — documented → [`reference/COMMAND_ALIASES.md`](reference/COMMAND_ALIASES.md) *(when to use one: [`guides/COMMAND_DESIGN_GUIDE.md`](guides/COMMAND_DESIGN_GUIDE.md) §Aliases; design in [`design/command-alias-contract/`](design/command-alias-contract/))*
 - **Language-neutral command declaration** — documented → [`reference/COMMAND_DECLARATION.md`](reference/COMMAND_DECLARATION.md)
 - **Command metadata enhancements** — planned → [`issues/COMMAND-METADATA-ENHANCEMENTS.md`](issues/COMMAND-METADATA-ENHANCEMENTS.md)
@@ -144,6 +145,7 @@ expansion time rather than at runtime. That is the cheapest item here.
 - **Store factories: defining, contributing and overriding store types** — documented → [`guides/STORE_FACTORY_GUIDE.md`](guides/STORE_FACTORY_GUIDE.md) *(design in [`design/store-factories-in-core/`](design/store-factories-in-core/))*
 - **Configuring an environment and its store from one document** — documented → [`reference/ENVIRONMENT_CONFIG.md`](reference/ENVIRONMENT_CONFIG.md)
 - **Configuring a store from a URI** — designing → [`design/store-config-uri/`](design/store-config-uri/)
+- **Store adapters and configurable metadata handling (read-only mounts, metadata layouts, enhancers such as front-matter)** — designing → [`design/store-adapters/`](design/store-adapters/)
 - **Type-enforced key absoluteness** — planned → [`issues/STORE-ABSOLUTE-KEY-NOT-TYPE-ENFORCED.md`](issues/STORE-ABSOLUTE-KEY-NOT-TYPE-ENFORCED.md)
 - **OpenDAL path normalization** — documented → [`reference/STORE_SEMANTICS.md`](reference/STORE_SEMANTICS.md) *(design in [`design/opendal-path-mapping/`](design/opendal-path-mapping/))*
 - **Store behavioural semantics** — documented → [`reference/STORE_SEMANTICS.md`](reference/STORE_SEMANTICS.md); implementing and testing a store: [`guides/STORE_IMPLEMENTATION_GUIDE.md`](guides/STORE_IMPLEMENTATION_GUIDE.md) *(every in-tree store passes the conformance suite as of 2026-09-30; see [`design/store-conformance-backlog/`](design/store-conformance-backlog/))*
@@ -257,7 +259,9 @@ submit, and submitted query state is not preserved.
 The memory service is the first line here that is an *application* of Liquers rather than a way
 into it: a store router holding the corpus, a `ns-mem` command namespace, and the assets API as the
 client interface serving `specs/` as tiered, searchable agent memory — where the tiers are
-`AssetInfo`'s existing `title` and `description`. Phase 1 of `liquers-project`, awaiting approval.
+`AssetInfo`'s existing `title` and `description`, configurable to serve this repository's manual
+system or an OpenViking-style layout. Phase 1 (revision 3, with decisions recorded) awaits approval;
+it requires `store-adapters` and `liquers-mustache`.
 
 Designing it found that six of the assets API's ten endpoints returned 501. `axum-assets-endpoints`
 replaced them with a complete interface to the asset manager: a key family (`key/…`, bare keys) and a
@@ -414,9 +418,11 @@ deliberately folded behind a broader line.
 - feature `LANGUAGE-GUIDE-NO-DOCUMENTATION-SECTION`
 - feature `LANGUAGE-STORE-TYPE-NOT-DEFINABLE`
 - feature `NO-MARKDOWN-NAVIGATION-COMMANDS`
+- feature `NO-QUERY-AWARE-TEMPLATE-LANGUAGE`
 - feature `NO-RELATIONAL-DATABASE-ACCESS-LAYER`
 - feature `NO-REMOTE-STORE-OR-ASSET-MANAGER`
 - feature `NO-SOURCE-CODE-AND-API-DOC-NAVIGATION`
+- feature `NO-TEMPLATE-EDITOR-UI`
 - feature `PY-PYO3-0-21-CANNOT-TARGET-PYTHON-3-13`
 - feature `QUERY-CANNOT-MARK-CACHED-INTERMEDIATES`
 - feature `RECORD-AND-POLARS-COMMANDS-NOT-INTEROPERABLE`

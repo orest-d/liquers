@@ -172,7 +172,8 @@ the binary, over `liquers-lib`, `liquers-axum` and `liquers-mcp`.
 ## Design Dependencies
 
 - **Requires** `store-and-asset-search` (merged; `ns-search`, `SEARCH_GUIDE.md`),
-  `axum-query-named-arguments` (merged; argument overrides) and `STORE-NO-READ-ONLY-ADAPTER` (AC-13).
+  `axum-query-named-arguments` (merged; argument overrides), `store-adapters` (read-only mount AC-13,
+  front-matter adapter AC-11) and `liquers-mustache` (templates for AC-21, AC-22).
 - **Overlaps** `STORE-METADATA-HANDLING-NOT-COMPOSABLE` (decision 4; the front-matter adapter is one
   instance), `NO-MARKDOWN-NAVIGATION-COMMANDS` (AC-3, AC-17, AC-21),
   `SIMPLE-TEMPLATE-HAS-NO-COMMAND` (AC-21), `NO-SOURCE-CODE-AND-API-DOC-NAVIGATION` (question 6),
@@ -186,14 +187,15 @@ the binary, over `liquers-lib`, `liquers-axum` and `liquers-mcp`.
 Answered by the user on 2026-10-12; the answers are decisions of this phase.
 
 1. ~~*Sequencing.*~~ Resolved: `store-and-asset-search` is merged.
-2. **`STORE-NO-READ-ONLY-ADAPTER` is fixed first**, as its own change, before Phase 2 relies on it.
+2. **`STORE-NO-READ-ONLY-ADAPTER` is fixed first**, before Phase 2 relies on it — since 2026-10-13 as
+   the first milestone of [`store-adapters`](../store-adapters/), into which it was merged.
 3. **L1 for the existing corpus:** per-collection fallbacks now (AC-1, AC-17); descriptions are
    backfilled by agents over time.
 4. **Tiers:** a store adapter projects front-matter into metadata, and setting `title` /
    `description` through metadata rewrites the front-matter. This adapter and the read-only one are
    instances of a general, configurable metadata pipeline (create, enhance, store, policy), filed as
-   `STORE-METADATA-HANDLING-NOT-COMPOSABLE`; this design builds the front-matter adapter so that it
-   fits that model, and does not design the model.
+   `STORE-METADATA-HANDLING-NOT-COMPOSABLE` and designed in [`store-adapters`](../store-adapters/)
+   (2026-10-13); this design supplies the front-matter adapter as one of its adapters.
 5. **HTTP MCP (`serve`)** is NEXT; stdio MCP and the CLI first.
 6. **Rust item records** (`syn`) are in the MVP; references and call graphs (SCIP) later.
 7. **Templates must understand queries** (parse errors at template positions; evaluation through the
@@ -201,7 +203,8 @@ Answered by the user on 2026-10-12; the answers are decisions of this phase.
    [`template-language-evaluation.md`](./template-language-evaluation.md): reimplement **Mustache with
    query tags** (logic-less like Liquers, small specified language with a conformance suite, partials
    as the built-in extension point); the interim is a Mustache engine followed by an `expand` pass over
-   `$query$` spans, not minijinja, so interim templates survive. *Awaiting confirmation.*
+   `$query$` spans, not minijinja, so interim templates survive. Since 2026-10-13 the language is
+   its own design, [`liquers-mustache`](../liquers-mustache/) (`NO-QUERY-AWARE-TEMPLATE-LANGUAGE`).
 8. **Agent-written memory** is a separate writable mount — committed `notes/` by default, S3 when the
    network policy allows. A **separate repository** works today as a second clone mounted with the
    `filesystem` type (in a cloud session: added to the session and cloned; git push by the agent).
