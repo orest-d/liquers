@@ -8,15 +8,16 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 115
+Total rows: 116
 - P0: 1
-- P2: 54
+- P2: 55
 - P3: 60
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
 | [`VALUE-TO-JSON-PANICS-ON-NON-FINITE-FLOAT`](issues/VALUE-TO-JSON-PANICS-ON-NON-FINITE-FLOAT.md) | issue | Value::try_into_json_value panics on a non-finite float | draft |  |  | P0 | S | core/value |  | 2026-10-12 |
 | [`STORE-ROUTER-DOES-NOT-FORWARD-ASSET-INFO`](issues/STORE-ROUTER-DOES-NOT-FORWARD-ASSET-INFO.md) | issue | AsyncStoreRouter does not forward get_asset_info to its member stores | draft | needs-decision | not-eligible | P2 | S | core/store | [phase1](design/store-router-forwards-asset-info/phase1-high-level-design.md)  [phase2](design/store-router-forwards-asset-info/phase2-architecture.md)  [phase3](design/store-router-forwards-asset-info/phase3-examples.md)  [phase4](design/store-router-forwards-asset-info/phase4-implementation.md)  | 2026-10-11 |
+| [`EVALUATION-SESSION-VOLATILE-TEST-INTERMITTENT`](issues/EVALUATION-SESSION-VOLATILE-TEST-INTERMITTENT.md) | issue | volatile_dependency_has_one_value_per_evaluation fails intermittently: a later evaluation sometimes reuses the volatile value | draft |  |  | P2 | S | core/assets |  | 2026-10-13 |
 | [`DEFAULT-ASSET-MANAGER-RECIPE-OPT-SKIPS-PAYLOAD-CHECK`](issues/DEFAULT-ASSET-MANAGER-RECIPE-OPT-SKIPS-PAYLOAD-CHECK.md) | issue | DefaultAssetManager's recipe_opt override skips the payload-required rejection | draft | ready | eligible | P2 | M | core/assets | [design](design/default-asset-manager-recipe-opt-payload-check/DESIGN.md) | 2026-09-25 |
 | [`CORE-VALUE-ENUM-OVERSIZED`](issues/CORE-VALUE-ENUM-OVERSIZED.md) | issue | Every Value occupies over 700 bytes because three variants are stored unboxed | draft | ready | not-eligible | P2 | M | core/value;lib/value | [design](design/core-value-enum-oversized/DESIGN.md) | 2026-08-18 |
 | [`ENVIRONMENT-MANAGER-REFERENCE-CYCLE`](issues/ENVIRONMENT-MANAGER-REFERENCE-CYCLE.md) | issue | Environment and asset manager hold each other with strong Arcs, so every environment leaks | draft | ready | not-eligible | P2 | M | core/assets;core/context | [design](design/environment-manager-reference-cycle/DESIGN.md) | 2026-08-27 |
