@@ -5648,7 +5648,10 @@ where
         VersionCheck::Verified => return Ok(None),
         VersionCheck::Mismatch { actual, .. } => actual,
     };
-    let has_recipe = manager.recipe_opt(key).await?.is_some();
+    let has_recipe = manager
+        .get_recipe_provider()
+        .can_make(key, manager.get_envref())
+        .await?;
     let status = external_change_status(metadata.status(), recorded, has_recipe);
     Ok(
         external_change_action(status, has_recipe, manager.external_change_policy(), actual)
@@ -5836,7 +5839,13 @@ pub trait AssetManager<E: Environment>:
     ///
     /// A recipe that requires an evaluation payload is rejected here: keys are a payload
     /// boundary. This is the earliest funnel where a recipe is resolved *for a key*, so the
-    /// rejection precedes asset creation and volatility resolution.
+    /// rejection precedes asset creation and volatility resolution. Implementations should not
+    /// override it without keeping that check.
+    ///
+    /// A caller that only needs to know whether a recipe *exists* — to decide that a written value
+    /// is an `Override`, or what removing or expiring a key does — asks the provider's
+    /// [`AsyncRecipeProvider::can_make`] instead: overriding and deleting are independent of the
+    /// payload boundary, so they must not fail on a recipe evaluation would refuse.
     async fn recipe_opt(&self, key: &Key) -> Result<Option<Recipe>, Error> {
         let recipe = self
             .get_recipe_provider()
@@ -6024,7 +6033,10 @@ pub trait AssetManager<E: Environment>:
         } else {
             None
         };
-        let has_recipe = self.recipe_opt(key).await?.is_some();
+        let has_recipe = self
+            .get_recipe_provider()
+            .can_make(key, self.get_envref())
+            .await?;
 
         let decisive = match live_status {
             Some(status) if !live_status_defers_to_store(status) => Some(status),
@@ -6171,7 +6183,11 @@ pub trait AssetManager<E: Environment>:
                 | Status::Volatile => Err(Error::status_conflict(key, status, "expire")),
             };
         }
-        if self.recipe_opt(key).await?.is_some() {
+        if self
+            .get_recipe_provider()
+            .can_make(key, self.get_envref())
+            .await?
+        {
             Err(Error::status_conflict(key, Status::Recipe, "expire"))
         } else {
             Err(Error::key_not_found(key))
@@ -8593,27 +8609,6 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         }
     }
 
-    /// Get recipe option for a resource asset
-    async fn recipe_opt(&self, key: &Key) -> Result<Option<Recipe>, Error> {
-        self.get_recipe_provider()
-            .recipe_opt(key, self.get_envref())
-            .await
-    }
-
-    /// Computes and returns a boolean volatility check for a resource asset
-    /// Used by: `get_query_asset`, `get_resource_asset`, `resolve_volatility_before_evaluation` in this module.
-    ///
-    /// Arguments:
-    /// - `key`: Store key identifying the target asset/resource.
-    async fn is_volatile(&self, key: &Key) -> Result<bool, Error> {
-        if let Some(recipe) = self.recipe_opt(key).await? {
-            let env = self.get_envref();
-            Ok(recipe.is_volatile(env).await?)
-        } else {
-            Ok(false)
-        }
-    }
-
     /// Set binary value ot the asset
     /// Equivalent of store set method.
     /// For assets with recipes, this can be considered an Override, and the status is set accordingly.
@@ -8654,7 +8649,11 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
             let input_status = metadata.status;
             let final_status = match written_status(input_status) {
                 Some(status) => status,
-                None => written_status_with_recipe(self.recipe_opt(key).await?.is_some()),
+                None => written_status_with_recipe(
+                    self.get_recipe_provider()
+                        .can_make(key, self.get_envref())
+                        .await?,
+                ),
             };
             metadata.status = final_status;
             validate_required_metadata_fields(key, &metadata, self.get_envref().get_type_registry())?;
@@ -8756,7 +8755,11 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
             let input_status = state.metadata.status();
             let final_status = match written_status(input_status) {
                 Some(status) => status,
-                None => written_status_with_recipe(self.recipe_opt(key).await?.is_some()),
+                None => written_status_with_recipe(
+                    self.get_recipe_provider()
+                        .can_make(key, self.get_envref())
+                        .await?,
+                ),
             };
 
             // 3. Create metadata record with updated status, timestamp, and log entry
@@ -10140,7 +10143,11 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
         let result = async {
             let final_status = match written_status(metadata.status) {
                 Some(status) => status,
-                None => written_status_with_recipe(self.recipe_opt(key).await?.is_some()),
+                None => written_status_with_recipe(
+                    self.get_recipe_provider()
+                        .can_make(key, self.get_envref())
+                        .await?,
+                ),
             };
             metadata.status = final_status;
             validate_required_metadata_fields(key, &metadata, self.envref().get_type_registry())?;
@@ -10200,7 +10207,11 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
         let result = async {
             let final_status = match written_status(state.metadata.status()) {
                 Some(status) => status,
-                None => written_status_with_recipe(self.recipe_opt(key).await?.is_some()),
+                None => written_status_with_recipe(
+                    self.get_recipe_provider()
+                        .can_make(key, self.get_envref())
+                        .await?,
+                ),
             };
             let mut metadata = state.metadata.as_ref().clone();
             metadata.set_status(final_status)?;

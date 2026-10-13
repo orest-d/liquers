@@ -3,8 +3,6 @@ id: DEFAULT-ASSET-MANAGER-RECIPE-OPT-PAYLOAD-CHECK
 kind: design
 title: DefaultAssetManager rejects a payload-requiring keyed recipe in recipe_opt
 form: compact
-status: in_review
-phase: implementation
 readiness: ready
 autofix: eligible
 area: [core/assets]
@@ -13,8 +11,8 @@ created: 2026-10-12
 ---
 # DefaultAssetManager rejects a payload-requiring keyed recipe in recipe_opt
 
-Bulk design (`specs/guides/autonomous_bulk_design.md`). Phases 1-4 are written but not approved, and
-nothing is implemented.
+Bulk design (`specs/guides/autonomous_bulk_design.md`). Implemented through the autonomous fixing
+procedure (`specs/guides/autonomous_issue_fixing.md`) on 2026-10-13.
 
 ## Phase 1: High-Level Design
 
@@ -201,19 +199,19 @@ Run: `CARGO_INCREMENTAL=0 cargo test -p liquers-core --test payload_inheritance 
 
 ### Steps
 
-- [ ] 1. `liquers-core/tests/payload_inheritance.rs` — add the three test pairs; confirm the
+- [x] 1. `liquers-core/tests/payload_inheritance.rs` — add the three test pairs; confirm the
   `_default` ones fail and the AC-5 `_immediate` one fails — `cargo test -p liquers-core --test payload_inheritance`. Rollback: none, tests only.
-- [ ] 2. `liquers-core/src/assets.rs` — switch the seven existence-only call sites to
+- [x] 2. `liquers-core/src/assets.rs` — switch the seven existence-only call sites to
   `get_recipe_provider().can_make(...)` (Phase 2 table) — AC-5 pair passes. Rollback: revert the
   hunk; it is independent of step 3.
-- [ ] 3. `liquers-core/src/assets.rs` `impl AssetManager<E> for DefaultAssetManager<E>` — delete
+- [x] 3. `liquers-core/src/assets.rs` `impl AssetManager<E> for DefaultAssetManager<E>` — delete
   `recipe_opt` and `is_volatile`; extend the trait `recipe_opt` doc; update
   `test_keyed_recipe_requiring_payload_is_rejected` — AC-1..AC-3 pairs pass —
   `cargo test -p liquers-core --test payload_inheritance`. Rollback: restore the override (then
   the `_default` tests fail, which documents the gap).
-- [ ] 4. `specs/reference/PAYLOAD_GUIDE.md` — the boundary sentence, History row, `reviewed:` —
+- [x] 4. `specs/reference/PAYLOAD_GUIDE.md` — the boundary sentence, History row, `reviewed:` —
   `python3 scripts/docs_index.py --check`
-- [ ] 5. Close `DEFAULT-ASSET-MANAGER-RECIPE-OPT-SKIPS-PAYLOAD-CHECK` with a resolution note; set
+- [x] 5. Close `DEFAULT-ASSET-MANAGER-RECIPE-OPT-SKIPS-PAYLOAD-CHECK` with a resolution note; set
   this design's lifecycle — `python3 scripts/docs_index.py && python3 scripts/docs_index.py --check`
 
 ### Validation
