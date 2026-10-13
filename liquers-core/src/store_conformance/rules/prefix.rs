@@ -1,8 +1,9 @@
 //! §6 — keys, prefixes and routing.
 //!
-//! A store is constructed with a `prefix: Key`. `AsyncStoreRouter::is_dir` and `listdir` select on
-//! `key_prefix()` **alone** — unlike `find_store`, which also consults `is_supported` — so a store
-//! that under-reports its prefix answers for keys belonging to stores listed after it.
+//! A store is constructed with a `prefix: Key`. `AsyncStoreRouter::is_dir` and `listdir` ask every
+//! member whose `key_prefix()` covers the key — unlike `find_store`, which also consults
+//! `is_supported` and takes the first — so a store that under-reports its prefix is asked about,
+//! and lists into, every directory in the router.
 //!
 //! `is_supported` is a *separate* question from the prefix test the router already performs: it is
 //! what makes layering (`with_overlay`, `with_fallback`) work, and a store answering "yes" to every
