@@ -283,7 +283,9 @@ question are both measure-first items.
 ## Open issues attached to live design work
 
 <!-- BEGIN generated: issues -->
-*None.*
+| Issue | Pri | Cx | Design |
+|---|---|---|---|
+| [`VALUE-TO-JSON-PANICS-ON-NON-FINITE-FLOAT`](issues/VALUE-TO-JSON-PANICS-ON-NON-FINITE-FLOAT.md) | P0 | S | `value-to-json-non-finite-float` |
 <!-- END generated: issues -->
 
 ## Not yet placed
@@ -400,6 +402,7 @@ deliberately folded behind a broader line.
 - design `text-value-markdown-format`
 - design `type-info-write-only-formats`
 - design `ui-query-console-error-highlight`
+- design `value-to-json-non-finite-float`
 - design `value-type-system`
 - design `variadic-metadata-tail-check`
 - design `web-liquers-error-constructor`

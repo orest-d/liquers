@@ -6,7 +6,7 @@ status: draft
 priority: P0
 complexity: S
 area: [core/value]
-design: 
+design: value-to-json-non-finite-float
 created: 2026-10-12
 github:
 ---
