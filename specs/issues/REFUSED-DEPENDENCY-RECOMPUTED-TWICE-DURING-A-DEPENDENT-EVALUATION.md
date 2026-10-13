@@ -2,11 +2,11 @@
 id: REFUSED-DEPENDENCY-RECOMPUTED-TWICE-DURING-A-DEPENDENT-EVALUATION
 kind: issue
 title: A dependency refused on the fast track runs its recipe twice while a dependent is evaluated
-status: draft
+status: closed
 priority: P3
 complexity: M
 area: [core/assets]
-design:
+design: dependency-resolved-once-per-evaluation
 created: 2026-10-08
 github:
 ---
@@ -45,3 +45,20 @@ evaluation of an asset, each dependency is evaluated at most once. See also
 Found on 2026-10-08 in `restart_upstream_command_change_on_load_refuses`
 (`liquers-core/tests/dependency_audit_integration.rs`, `dependency-chain-analysis-cost` Phase 4,
 Step 5). That test asserts "at least" the expected number of recomputations because of this.
+
+**Rule refined on 2026-10-12** (`dependency-resolved-once-per-evaluation`, decision 1): the rule
+quoted above covers the whole top-level evaluation, not one asset's run. Within it, each dependency,
+direct or transitive, is evaluated at most once and has one version; it is carried by an
+*evaluation session*.
+
+## Resolution
+
+Fixed 2026-10-13 by `design/dependency-resolved-once-per-evaluation/` (orest-d/liquers#127), which
+merged this issue as a second source: the same double resolution (plan pre-pass, then the step)
+re-ran `fast_track` on the not yet finished refused asset, which refused it again and scheduled a
+second run. The evaluation session pins the first resolution, so a refused dependency is resolved,
+and recomputed, once per evaluation.
+
+Evidence: `liquers-core/tests/dependency_audit_integration.rs`
+`restart_upstream_command_change_on_load_refuses` and `restart_deep_expired_status_on_load_refuses`
+now assert exactly two `upper` runs (they asserted "at least two").

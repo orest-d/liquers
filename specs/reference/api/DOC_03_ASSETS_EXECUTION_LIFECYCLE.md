@@ -3,7 +3,7 @@ title: Assets and Execution Lifecycle Reference
 kind: reference
 audience: internal
 area: [core/assets]
-reviewed: 2026-10-10
+reviewed: 2026-10-12
 ---
 # DOC-03: Assets and Execution Lifecycle
 
@@ -129,7 +129,10 @@ Asset identity has three relevant forms:
 
 Non-volatile key and query entries can be reused. Volatile requests create fresh
 assets. Manager access treats cached `Expired`, `Error`, and `Cancelled` entries as
-misses and creates a fresh asset.
+misses and creates a fresh asset. Inside one evaluation a dependency is requested from the manager
+only once: the evaluation session keeps the asset its first request returned, so a dependency that
+failed, or a volatile one, is not evaluated again within that evaluation
+(`specs/reference/DEPENDENCIES_STATUS.md` §Evaluation session).
 
 Which **new** non-volatile assets are registered — and so reused by a later request —
 follows a **caching strategy** (`none` \| `result` \| `all`), recorded on each asset when it
@@ -467,6 +470,7 @@ implements a manager outside the crate against the shared manager scenarios. See
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-12 | Manager cache misses are qualified by the evaluation session: one request per dependency per evaluation. | phase-5 (`design/dependency-resolved-once-per-evaluation/`) |
 | 2026-10-10 | Identity, caching, and fast track: caching strategies decide which new assets are registered (keyed, top-level query, dependency following its creator), an existing asset is reused under every strategy, unregistered assets record `cached: Some(false)` and a reason. | phase-5, `design/plan-policy/` |
 | 2026-10-09 | §Expiration, recovery, and cancellation: cancel is a request the run decides, cooperative checks, cascade, recorded cause. Persistence step 6 and §set: a cancelled/failed/replaced run writes nothing; `cancel_for_replacement`. | phase-5 (`design/asset-cancellation-outcome/`) |
 | 2026-10-08 | §Identity, caching, and fast track: step 2 under `on_load` uses the stored-records walk; records are direct, so step 2 is what reaches upstream. | phase-5 (`design/dependency-chain-analysis-cost/`) |

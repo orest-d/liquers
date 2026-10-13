@@ -3,7 +3,7 @@ title: Status::Dependencies Specification
 kind: reference
 audience: internal
 area: [core/assets]
-reviewed: 2026-10-09
+reviewed: 2026-10-12
 ---
 # Dependencies Status Specification
 
@@ -35,8 +35,8 @@ machinery:
   the delegation case**. See "Delegation is a hand-off, not a dependency" below.
 - `AssetRef::enter_dependencies(&child)` moves the parent to `Status::Dependencies` and notifies
   observers that the parent is blocked on the child.
-- If the delegated child is still only queued, the parent path runs that child job inline. This is
-  the current deadlock guard: the child no longer needs to wait for another queue slot before it can
+- If the delegated child is still only queued, the parent path runs that child job itself (on the
+  queued manager in a task of its own, which the parent awaits). This is the current deadlock guard: the child no longer needs to wait for another queue slot before it can
   make progress.
 - When the delegated child fails, `wait_for_dependency` returns its error and the parent's run
   records it (`Error`, or `Cancelled` for a cancelled child); the wait does not set the parent's
@@ -379,7 +379,9 @@ This is the F-1 path.
      present.
 
 5. **Deadlock guard for queued child**
-   - If `B.status()` is `Submitted` or `Dependencies`, the parent path invokes `B.run()` inline.
+   - If `B.status()` is `Submitted` or `Dependencies`, the parent path claims `B` and runs it. The
+     queued manager runs it in a task of its own and awaits it, so a chain of such runs does not
+     nest on one stack; the inline manager runs it in place.
    - This step is skipped when `B` is already ready, already processing elsewhere, or already
      terminal.
    - This is the concrete F-1 fix for queue-capacity deadlocks: a child that could not acquire a
@@ -392,7 +394,7 @@ This is the F-1 path.
    - On failure, `B.run()` returns an error.
 
 7. **Propagate child result**
-   - If the inline child run failed, the wait returns the child's error to `A`'s evaluation; `A`'s
+   - If the child run failed, the wait returns the child's error to `A`'s evaluation; `A`'s
      run then fails (`Error`) or, for a cancellation, ends `Cancelled` — unless `A`'s command
      handles the error.
    - Otherwise `A` calls `B.get()` and obtains the child state. If `get()` returns an error,
@@ -485,9 +487,10 @@ This path handles dependencies known before command execution.
 
 1. Cancellation of an asset in `Dependencies` is handled like cancellation from `Processing`: the
    request drops the asset's suspended evaluation and it transitions to `Cancelled`.
-2. The dependency asset is not cancelled; it may be needed by other assets. If the cancelled parent
-   had claimed the dependency's run inline, the claim's `Drop` re-parks the dependency, which
-   finishes normally.
+2. The dependency asset is not cancelled; it may be needed by other assets. On the queued manager a
+   claimed dependency runs in a task of its own, so dropping the cancelled parent detaches it and it
+   finishes normally, without running again. A claim that is dropped mid-run (a panic, or a run
+   driven in place by a dropped future) still re-parks the dependency through its `Drop`.
 3. Dependency failures propagate as errors returned from `wait_for_dependency` (the delegation path,
    `context.wait_for_dependency(&child)`, `context.get_dependency_state`). The wait restores the
    parent from `Dependencies` to `Processing` and returns; the parent's run decides its status.
@@ -569,17 +572,61 @@ Dependency evaluation is now non-blocking and deadlock-free (see
   dropped mid-run (cancelled parent) re-parks the asset as `Submitted` and re-submits it.
 - Dependencies are scheduled without occupying a parent's queue slot: they start
   immediately when capacity allows, else park on the parent's local queue and are
-  drained inline from the parent's own future (`AssetManager::wait_for_dependency`
-  drains + direct-claims before ever blocking). Cancelling a parent never cancels its
+  drained from the parent's own future, each in a task of its own that the parent awaits
+  (`AssetManager::wait_for_dependency` drains + direct-claims before ever blocking). Cancelling a parent never cancels its
   dependencies.
 - Schedule-time cycle detection (`DependencyManager::register_scheduled_dependency`,
   keyed-expansion model) rejects dependency cycles with `Error::dependency_cycle`
   instead of hanging.
 
+## Evaluation session (2026-10-12)
+
+One evaluation runs each dependency at most once (`specs/design/dependency-resolved-once-per-evaluation/`,
+`liquers-core/src/evaluation_session.rs`). Every request for a dependency goes through
+`Context::schedule_dependency_asset_with_key`, which resolves it through the evaluation session of
+the run that asks. The plan pre-pass, the step that reads the dependency, and a command's `submit`,
+`evaluate` and `get_dependency_state` all go through it.
+
+1. **Begins** when an asset's run starts without belonging to a session: work requested from
+   outside any evaluation (`EnvRef::evaluate`, `AssetManager::get`, `get_asset`, `apply`,
+   `apply_queued`). A dependency resolved for a run, and an ad-hoc `Context::apply` (through
+   `AssetManager::apply_for`), stay in the caller's session.
+2. **Belongs:** a run belongs to the session that scheduled its asset, whoever starts it: a spawned
+   task, the queue's worker loop or a drain. The built-in managers hand the parent's session to a
+   dependency before it can start (`AssetRef::adopt_evaluation_session`).
+3. **Pins:** the first resolution of a dependency in a session fixes the asset, whether or not it is
+   in a manager map. Every later request for that dependency in the session gets that asset,
+   whatever its status: a failed dependency fails its dependents without running again, and a
+   volatile dependency has one value. Identity is the `DependencyKey` of the CWD-resolved query.
+4. **Refreshes only at first resolution:** the stale-terminal refresh of `get_dependency_asset`
+   (`Error`, `Cancelled`, `Volatile`, `Expired` → a fresh asset) happens on a session's first
+   request. A dependency that expires later in the session is used stale, and the dependent is
+   marked expired (Flow B's execution-time policy).
+5. **Joining:** an asset already being evaluated in another session is waited for, not restarted.
+   Accepted limit: a session that joins `a` and also resolves `a`'s failed upstream itself
+   refreshes that upstream, so it can see a failed `a` next to a fresh upstream.
+6. **Ends** when its last run finishes. Running `Context`s hold it strongly; assets hold it weakly.
+   A later evaluation therefore runs a failed or volatile dependency again.
+
+The plan pre-pass stops at a dependency that has already failed when it is scheduled. The rest of
+the plan is not scheduled, and the dependency's own error is returned.
+
+**Depth.** The queued manager runs every locally queued dependency in a task of its own (step 5).
+The inline manager, which cannot spawn, primes a cold top-level asset's static upstream bottom-up
+before running it (`ImmediateAssetManager::prime_upstream`):
+- the walk goes top-down and stops at keys that are already available;
+- it evaluates the rest in post-order, each pinned in the session;
+- a failure stops the evaluation with that key's own error.
+
+Either way, the depth of a cold chain's evaluation no longer grows with the chain. Still open: on
+the inline manager, the part of a chain upstream of a dynamic or volatile dependency, which
+priming cannot see (`INLINE-MANAGER-DYNAMIC-DEPENDENCY-CHAIN-NESTS`).
+
 ## History
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-12 | New §Evaluation session (one asset per dependency per evaluation; the pre-pass stops at a failed dependency; depth independent of chain length). F-1 bullet, Flow A step 5 and step 7, Flow D item 2 and §Non-blocking dependency scheduling: a locally queued dependency runs in a task of its own on the queued manager. | phase-5 (`design/dependency-resolved-once-per-evaluation/`) |
 | 2026-10-09 | Flow D: cascade cancellation, the wait no longer sets the parent's status (`fail_due_to_dependency` removed); the delegation description and glossary follow. | phase-5 (`design/asset-cancellation-outcome/`) |
 | 2026-10-08 | New §What a dependency record holds (records are direct; analysis summary versus record; what a fast-track load contributes) and §Consistency policies (`Explicit` / `OnLoad` compared, the stored-records walk, the startup store audit, the restart example). Current contract: `OnLoad` resolves unknown dependencies with the walk, recursively; audits resolve gaps through the walk and the per-key audit covers the upstream closure; `register_version` expires an edge recording a concrete, other version on a first registration. Flow C step 2 and the glossary updated. | phase-5 (`design/dependency-chain-analysis-cost/`) |
 | 2026-10-07 | §Current contract: an edge recorded against a version the map has already replaced marks the dependent stale (the stale-dependency route); the folder-listing bullet no longer names the window as uncaught. Flow B step 2: what `submit` leaves behind on each manager, including the saturated queued manager, which parks the dependency on the local queue. | phase-5 (`design/dependency-edge-superseded-version/`, `design/submit-eagerness-documentation/`) |

@@ -25,7 +25,9 @@
 //!
 //! [`Session`] and [`User`] are currently minimal identity abstractions.
 //! `Environment::create_session` constructs a session, but `Context` does not
-//! currently contain or expose a session or user.
+//! currently contain or expose a user session or user. (It does carry an *evaluation* session,
+//! `crate::evaluation_session`, which groups the asset runs of one evaluation; that is unrelated
+//! to users.)
 //! This is by design: Assets are shared for all the users. Asset evaluation should not depend on the user.
 //! Only the access rights will (in the future) depend on the user.
 //!
@@ -100,6 +102,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use crate::maybe_send::MaybeBoxed;
+use crate::evaluation_session::EvaluationSessionRef;
 
 use crate::{
     assets::{AssetManager, AssetRef, AssetServiceMessage, CancellationRequest, DependencyManagerAccess},
@@ -430,6 +433,11 @@ pub struct Context<E: Environment> {
     /// `pending_dependencies`.
     submitted_dependencies: Arc<tokio::sync::Mutex<HashMap<u64, DependencyKey>>>,
 
+    /// The evaluation session this context's run belongs to (`crate::evaluation_session`): every
+    /// dependency it requests resolves through it, so one evaluation sees one asset per
+    /// dependency. Shared across context clones; holding it keeps the session alive.
+    evaluation_session: EvaluationSessionRef<E>,
+
     /// Queries currently being evaluated with an inherited payload, along this evaluation path.
     ///
     /// Payload-evaluated assets are not registered in the dependency graph — a payload is not
@@ -455,6 +463,7 @@ impl<E: Environment> Context<E> {
         let service_tx = assetref.service_sender().await;
         let envref = assetref.get_envref().await;
         let cancellation = assetref.cancellation().await;
+        let evaluation_session = assetref.evaluation_session_or_begin().await;
         Context {
             assetref,
             envref,
@@ -464,6 +473,7 @@ impl<E: Environment> Context<E> {
             is_volatile, // Initialize from parameter
             pending_dependencies: Arc::new(tokio::sync::Mutex::new(Vec::new())),
             submitted_dependencies: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+            evaluation_session,
             active_payload_queries: Arc::new(tokio::sync::Mutex::new(Vec::new())),
             cancellation,
         }
@@ -611,8 +621,17 @@ impl<E: Environment> Context<E> {
                 .await?;
         }
 
-        // Capture the AssetRef exactly once (volatile-safe) and schedule it.
-        let asset = manager.get_dependency_asset(&self.assetref, &query).await?;
+        // Capture the AssetRef exactly once (volatile-safe) and schedule it. Within one evaluation
+        // session the first resolution is pinned, and every later request for this dependency gets
+        // the same asset, whatever its status: a failed dependency is not run again, and a volatile
+        // one has one value (`crate::evaluation_session`). The cycle check above runs first, so a
+        // resolver never waits on its own pin.
+        let asset = self
+            .evaluation_session
+            .resolve(query_dep_key.clone(), || {
+                manager.get_dependency_asset(&self.assetref, &query)
+            })
+            .await?;
 
         // Record the runtime dependency (path-independent capture) as evaluate did.
         if owner_key.is_some() {
@@ -818,7 +837,7 @@ impl<E: Environment> Context<E> {
         let envref = self.assetref.get_envref().await;
         envref
             .get_asset_manager()
-            .apply((&query).into(), to, self.payload.clone())
+            .apply_for(&self.assetref, (&query).into(), to, self.payload.clone())
             .await
     }
 
@@ -897,6 +916,7 @@ impl<E: Environment> Context<E> {
             is_volatile: volatile || self.is_volatile, // Propagate if parent is volatile
             pending_dependencies: self.pending_dependencies.clone(),
             submitted_dependencies: self.submitted_dependencies.clone(),
+            evaluation_session: self.evaluation_session.clone(),
             active_payload_queries: self.active_payload_queries.clone(),
             cancellation: self.cancellation.clone(),
         }
@@ -977,6 +997,7 @@ impl<E: Environment> Context<E> {
             is_volatile: self.is_volatile,
             pending_dependencies: self.pending_dependencies.clone(),
             submitted_dependencies: self.submitted_dependencies.clone(),
+            evaluation_session: self.evaluation_session.clone(),
             active_payload_queries: self.active_payload_queries.clone(),
             cancellation: self.cancellation.clone(),
         }
@@ -1164,6 +1185,7 @@ impl<E: Environment> Clone for Context<E> {
             is_volatile: self.is_volatile,
             pending_dependencies: self.pending_dependencies.clone(),
             submitted_dependencies: self.submitted_dependencies.clone(),
+            evaluation_session: self.evaluation_session.clone(),
             active_payload_queries: self.active_payload_queries.clone(),
             cancellation: self.cancellation.clone(),
         }
@@ -1682,6 +1704,7 @@ mod tests {
                 is_volatile: false,
                 pending_dependencies: Arc::new(tokio::sync::Mutex::new(Vec::new())),
             submitted_dependencies: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
+                evaluation_session: crate::evaluation_session::EvaluationSession::new(),
                 active_payload_queries: Arc::new(tokio::sync::Mutex::new(Vec::new())),
                 cancellation: Arc::new(CancellationRequest::new()),
             },

@@ -314,6 +314,7 @@ use tokio::sync::{mpsc, watch, Mutex, Notify, RwLock};
 use crate::cache_strategy::CacheStrategy;
 use crate::command_metadata::PayloadRequirement;
 use crate::expiration::ExpirationTime;
+use crate::evaluation_session::{EvaluationSession, EvaluationSessionRef};
 use crate::interpreter::IsVolatile;
 
 // psm-task join error: a real `JoinError` on native (spawned task), but the inline path never
@@ -771,6 +772,11 @@ pub struct AssetData<E: Environment> {
     /// *before* asset locks. [`AssetRef::fast_track`] takes it after dropping the lock.
     pending_external_change: Option<PendingExternalChange>,
 
+    /// The evaluation session this asset was scheduled into, or that its run began
+    /// (`crate::evaluation_session`). Weak: a session pins its assets, so a strong reference here
+    /// would be a cycle. Running `Context`s hold the session strongly.
+    evaluation_session: std::sync::Weak<EvaluationSession<E>>,
+
     _marker: std::marker::PhantomData<E>,
 }
 
@@ -1149,6 +1155,7 @@ impl<E: Environment> AssetData<E> {
             recipe_sets_title: false,
             recipe_sets_description: false,
             pending_external_change: None,
+            evaluation_session: std::sync::Weak::new(),
             _marker: std::marker::PhantomData,
             status: Status::None,
         };
@@ -2768,6 +2775,52 @@ impl<E: Environment> AssetRef<E> {
             }
         }
         result
+    }
+
+    /// The evaluation session this asset belongs to, if that session is still alive.
+    pub(crate) async fn evaluation_session(&self) -> Option<EvaluationSessionRef<E>> {
+        self.data.read().await.evaluation_session.upgrade()
+    }
+
+    /// Schedules this asset into `session`, unless it already belongs to a live session or its
+    /// evaluation has started: an asset being evaluated for another session is joined, not
+    /// restarted (rule 5 of the evaluation session). A manager calls this before the asset can
+    /// start, so that the run, and every dependency it resolves, belongs to `session`.
+    pub(crate) async fn adopt_evaluation_session(&self, session: &EvaluationSessionRef<E>) {
+        let mut lock = self.data.write().await;
+        if lock.evaluation_session.upgrade().is_some() {
+            return;
+        }
+        let pre_run = match lock.status {
+            Status::None | Status::Recipe | Status::Submitted => true,
+            Status::Dependencies
+            | Status::Processing
+            | Status::Partial
+            | Status::Storing
+            | Status::Ready
+            | Status::Expired
+            | Status::Error
+            | Status::Cancelled
+            | Status::Source
+            | Status::Override
+            | Status::Volatile
+            | Status::Directory => false,
+        };
+        if pre_run {
+            lock.evaluation_session = std::sync::Arc::downgrade(session);
+        }
+    }
+
+    /// The live session of this asset, or a new one recorded on it: a run that starts without a
+    /// session begins one (rule 1 of the evaluation session).
+    pub(crate) async fn evaluation_session_or_begin(&self) -> EvaluationSessionRef<E> {
+        let mut lock = self.data.write().await;
+        if let Some(session) = lock.evaluation_session.upgrade() {
+            return session;
+        }
+        let session = EvaluationSession::new();
+        lock.evaluation_session = std::sync::Arc::downgrade(&session);
+        session
     }
 
     /// Creates the execution context used by the interpreter and commands.
@@ -5818,6 +5871,19 @@ pub trait AssetManager<E: Environment>:
     /// dependency queue (local-only parking — NOT parked in the global jobs list here).
     /// Does NOT record dependency facts or cycle-check — `Context` does that.
     ///
+    /// `Context` calls this at most once per dependency per evaluation session and pins the
+    /// result, so the stale-terminal refresh done here happens only on a session's first request.
+    /// An implementation should:
+    /// - return the asset even when evaluating it failed (the failure is recorded in the asset,
+    ///   and the session pins it); return `Err` only when no asset could be produced;
+    /// - not evaluate the dependency's own chain inside the caller's stack (the built-in managers
+    ///   spawn a task per locally queued run, or prime a cold chain bottom-up).
+    ///
+    /// The built-in managers also give the asset `parent`'s evaluation session before it can
+    /// start (the crate-private `AssetRef::adopt_evaluation_session`), so its own dependencies
+    /// resolve in that session. An external manager cannot; its dependencies' upstream then
+    /// resolves in sessions of their own (`EXTERNAL-MANAGER-CANNOT-SHARE-AN-EVALUATION-SESSION`).
+    ///
     /// Default: plain `get_asset` (global submit) — a safe fallback for managers without a
     /// JobQueue; `DefaultAssetManager` overrides.
     async fn get_dependency_asset(
@@ -5827,6 +5893,22 @@ pub trait AssetManager<E: Environment>:
     ) -> Result<AssetRef<E>, Error> {
         let _ = parent;
         self.get_asset(query).await
+    }
+
+    /// Evaluate an ad-hoc asset for a command of `parent` (`Context::apply`), inside `parent`'s
+    /// evaluation session, so the dependencies it resolves are the ones `parent`'s evaluation
+    /// uses.
+    ///
+    /// Default: [`Self::apply`], which evaluates it in a session of its own.
+    async fn apply_for(
+        &self,
+        parent: &AssetRef<E>,
+        recipe: Recipe,
+        to: State<E::Value>,
+        payload: Option<E::Payload>,
+    ) -> Result<AssetRef<E>, Error> {
+        let _ = parent;
+        self.apply(recipe, to, payload).await
     }
 
     /// Resolve the asset for `query` as a dependency of `parent`, forwarding `payload` to
@@ -5874,6 +5956,17 @@ pub trait AssetManager<E: Environment>:
             Ok(state) if state.status() == Status::Cancelled => {
                 Err(parent.cancelled_dependency_cause(dependency).await)
             }
+            // A failed dependency is the dependent's error, as on `DefaultAssetManager`: `get`
+            // hands back the failure as a no-value state, which a dependent must not receive as a
+            // value. The dependency's own error is carried up unchanged.
+            Ok(state) if state.status() == Status::Error => Err(match dependency.stored_error().await {
+                Some(cause) => cause,
+                None => Error::general_error(format!(
+                    "Dependency {} did not produce a value (status {:?})",
+                    dependency.expiry_subject().await,
+                    Status::Error
+                )),
+            }),
             Ok(state) => Ok(state),
             Err(error) => {
                 // The stale-dependency policy (see `DefaultAssetManager::wait_for_dependency`):
@@ -7429,6 +7522,28 @@ pub struct DefaultAssetManager<E: Environment> {
 
 #[cfg(not(target_arch = "wasm32"))]
 impl<E: Environment> DefaultAssetManager<E> {
+    /// Runs a dependency claimed from a local queue in a task of its own, and waits for it.
+    ///
+    /// The run borrows the waiting dependent's job slot, as an inline run did, so slot accounting
+    /// is unchanged. Running it in its own task keeps each link of a dependency chain on its own
+    /// stack, so evaluation depth does not grow with the chain
+    /// (`dependency-resolved-once-per-evaluation`). If the dependent is dropped while waiting, the
+    /// child is detached and finishes on its own, instead of being interrupted and re-parked. A
+    /// panic in the run is ignored as an inline run's result was; the claim's `Drop` re-parks the
+    /// asset. Like a job started by `JobQueue::try_to_start_immediately`, the child's undrained
+    /// local dependencies are re-parked when it finishes.
+    async fn run_claimed_in_own_task(&self, dependency: AssetRef<E>, claim: RunClaim<E>) {
+        let queue = self.job_queue.clone();
+        let handle = tokio::spawn(async move {
+            let _ = dependency.run(None).await;
+            claim.complete();
+            for child in queue.take_local_dependencies(dependency.id()).await {
+                let _ = queue.repark_as_submitted(&child).await;
+            }
+        });
+        let _ = handle.await;
+    }
+
     /// Sets the policies read by the trait accessors. Called by the builder before sharing.
     pub(crate) fn with_policies(
         mut self,
@@ -8195,6 +8310,11 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
             if fast_tracked {
                 return Ok(asset);
             }
+            // The dependency belongs to its parent's evaluation session, so its own upstream
+            // resolves in the same session. Adopted before it can start.
+            if let Some(session) = parent.evaluation_session().await {
+                asset.adopt_evaluation_session(&session).await;
+            }
             // Schedule: start now if capacity allows, else enqueue on the parent's LOCAL queue
             // (Status::Submitted here means "queued on a local queue", not the global jobs list).
             if !self.job_queue.try_to_start_immediately(&asset).await? {
@@ -8251,11 +8371,8 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
                 Some(claim) => {
                     parent.enter_dependencies(&dep).await?;
                     entered = true;
-                    // Inline, recursive: dep.run() may itself schedule and drain dep's own
-                    // local queue in this same task. Box::pin bounds the future type; depth
-                    // is bounded by the (cycle-free) dependency DAG.
-                    let _ = Box::pin(dep.run(None)).await;
-                    claim.complete();
+                    // In a task of its own, so the stack does not grow with the chain.
+                    self.run_claimed_in_own_task(dep, claim).await;
                 }
                 None => {
                     // Running or finished elsewhere — skip.
@@ -8366,8 +8483,7 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
             match dependency.try_claim_for_run(&self.job_queue).await? {
                 Some(claim) => {
                     parent.enter_dependencies(dependency).await?;
-                    let _ = Box::pin(dependency.run(None)).await;
-                    claim.complete();
+                    self.run_claimed_in_own_task(dependency.clone(), claim).await;
                 }
                 None => {
                     parent.enter_dependencies(dependency).await?;
@@ -8403,6 +8519,24 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         let asset_ref =
             AssetData::new_ext(self.next_id(), recipe, initial_state, None, self.get_envref())
                 .to_ref();
+        asset_ref.run(payload).await?;
+        Ok(asset_ref)
+    }
+
+    /// As [`Self::apply`], inside `parent`'s evaluation session.
+    async fn apply_for(
+        &self,
+        parent: &AssetRef<E>,
+        recipe: Recipe,
+        initial_state: State<E::Value>,
+        payload: Option<E::Payload>,
+    ) -> Result<AssetRef<E>, Error> {
+        let asset_ref =
+            AssetData::new_ext(self.next_id(), recipe, initial_state, None, self.get_envref())
+                .to_ref();
+        if let Some(session) = parent.evaluation_session().await {
+            asset_ref.adopt_evaluation_session(&session).await;
+        }
         asset_ref.run(payload).await?;
         Ok(asset_ref)
     }
@@ -9417,13 +9551,151 @@ impl<E: Environment> ImmediateAssetManager<E> {
         self.get_query_asset_for(query, QueryAssetOrigin::TopLevel).await
     }
 
-    /// The query branch of `get_asset`, for `origin`: resolve the asset, evict a stale-terminal
-    /// one, expire one whose deadline passed, and run a fresh one inline.
+    /// The query branch of `get_asset`, for `origin`: settle the asset, and run a fresh one inline.
     async fn get_query_asset_run(
         &self,
         query: &Query,
         origin: QueryAssetOrigin,
     ) -> Result<AssetRef<E>, Error> {
+        match self.settle_query(query, origin).await? {
+            Settled::Available(assetref) => Ok(assetref),
+            Settled::NeedsRun(assetref) => {
+                let session = assetref.evaluation_session_or_begin().await;
+                match origin {
+                    QueryAssetOrigin::TopLevel => {
+                        let graph = match crate::interpreter::make_plan(self.envref(), query.clone()).await {
+                            Ok(plan) => crate::plan::upstream_graph(self.envref(), &plan, None).await,
+                            Err(error) => Err(error),
+                        };
+                        self.prime_upstream(&session, graph).await?;
+                    }
+                    QueryAssetOrigin::Dependency(_) => {}
+                }
+                // Backstop against re-entry: if this asset is already being run inline on this
+                // manager, running it again is the recursion `owned_key_asset` exists to prevent.
+                // Report it instead of exhausting the stack.
+                assetref.run_inline(None).await?;
+                Ok(assetref)
+            }
+        }
+    }
+
+    /// Evaluates the static upstream of a top-level asset bottom-up, in `session`, before the asset
+    /// itself runs, so the evaluation of a cold chain nests one level instead of one per link
+    /// (`dependency-resolved-once-per-evaluation`). The inline manager cannot give each
+    /// dependency a task of its own, as the queued manager does.
+    ///
+    /// The walk goes top-down from what the asset reads and settles each key: a key that is
+    /// finished or fast-tracked from the store is available, and nothing upstream of it is
+    /// touched; a volatile key is left to the normal run; every other key is collected. The
+    /// collected keys then run in post-order, each pinned in `session`, so each finds what it
+    /// reads already evaluated. A failure stops the evaluation at once with that key's own error,
+    /// leaving the keys downstream of it unevaluated (decision 4). A `graph` that could not be
+    /// built (a recipe cycle, a plan error) primes nothing: the normal run reports the problem.
+    async fn prime_upstream(
+        &self,
+        session: &EvaluationSessionRef<E>,
+        graph: Result<crate::plan::UpstreamGraph, Error>,
+    ) -> Result<(), Error> {
+        let Ok(graph) = graph else {
+            return Ok(());
+        };
+        let nodes: HashMap<Key, crate::plan::UpstreamNode> = graph
+            .nodes
+            .into_iter()
+            .map(|node| (node.key.clone(), node))
+            .collect();
+        let mut visited: HashSet<Key> = HashSet::new();
+        let mut order: Vec<(Key, AssetRef<E>)> = Vec::new();
+        // `Some(asset)` marks a key whose reads have all been pushed above it: it is emitted
+        // once they are done, which gives the post-order.
+        let mut stack: Vec<(Key, Option<AssetRef<E>>)> =
+            graph.roots.into_iter().rev().map(|key| (key, None)).collect();
+        while let Some((key, settled)) = stack.pop() {
+            if let Some(asset) = settled {
+                order.push((key, asset));
+                continue;
+            }
+            if !visited.insert(key.clone()) {
+                continue;
+            }
+            let Some(node) = nodes.get(&key) else {
+                continue; // no recipe serves it: nothing to evaluate ahead
+            };
+            if node.volatile {
+                continue;
+            }
+            match self.settle(&key).await? {
+                Settled::Available(_) => {}
+                Settled::NeedsRun(asset) => {
+                    stack.push((key.clone(), Some(asset)));
+                    for read in node.reads.iter().rev() {
+                        stack.push((read.clone(), None));
+                    }
+                }
+            }
+        }
+        for (key, asset) in order {
+            asset.adopt_evaluation_session(session).await;
+            let asset = session
+                .pin(DependencyKey::from(&Query::from(&key)), asset)
+                .await;
+            let run = asset.run_inline(None).await;
+            match asset.status().await {
+                Status::Error | Status::Cancelled => {
+                    let cause = asset.stored_error().await;
+                    return Err(match (cause, run) {
+                        (Some(cause), _) => cause,
+                        (None, Err(error)) => error,
+                        (None, Ok(())) => Error::general_error(format!(
+                            "Dependency {} did not produce a value",
+                            key
+                        ))
+                        .with_key(&key),
+                    });
+                }
+                Status::None
+                | Status::Directory
+                | Status::Recipe
+                | Status::Submitted
+                | Status::Dependencies
+                | Status::Processing
+                | Status::Partial
+                | Status::Storing
+                | Status::Ready
+                | Status::Expired
+                | Status::Source
+                | Status::Override
+                | Status::Volatile => run?,
+            }
+        }
+        Ok(())
+    }
+
+    /// Run a dependency of `parent` that settled as [`Settled::NeedsRun`], inside `parent`'s
+    /// evaluation session. A failed evaluation is returned as the asset, which records the
+    /// failure, so the session pins it and the dependent receives its error through
+    /// `wait_for_dependency`. Any other error (the re-entry backstop, infrastructure) propagates.
+    async fn run_dependency(&self, parent: &AssetRef<E>, asset: AssetRef<E>) -> Result<AssetRef<E>, Error> {
+        if let Some(session) = parent.evaluation_session().await {
+            asset.adopt_evaluation_session(&session).await;
+        }
+        match asset.run_inline(None).await {
+            Ok(()) => Ok(asset),
+            Err(error) => {
+                if matches!(asset.status().await, Status::Error | Status::Cancelled) {
+                    Ok(asset)
+                } else {
+                    Err(error)
+                }
+            }
+        }
+    }
+
+    /// The query half of `get_asset` up to running, for `origin`: resolve the asset, evict a
+    /// stale-terminal one, expire one whose deadline passed, and serve a finished one. A fresh
+    /// asset that has to run comes back as [`Settled::NeedsRun`], not yet run.
+    async fn settle_query(&self, query: &Query, origin: QueryAssetOrigin) -> Result<Settled<E>, Error> {
         loop {
             let assetref = self.get_query_asset_for(query, origin).await?;
             let status = assetref.status().await;
@@ -9467,13 +9739,66 @@ impl<E: Environment> ImmediateAssetManager<E> {
                     drop(map);
                     continue;
                 }
-                return Ok(assetref);
+                return Ok(Settled::Available(assetref));
             }
-            // Backstop against re-entry: if this asset is already being run inline on this
-            // manager, running it again is the recursion `owned_key_asset` exists to prevent.
-            // Report it instead of exhausting the stack.
-            assetref.run_inline(None).await?;
-            return Ok(assetref);
+            return Ok(Settled::NeedsRun(assetref));
+        }
+    }
+
+    /// The keyed half of `get` up to running: resolve the asset, evict a stale-terminal one,
+    /// expire one whose deadline passed, and serve a finished or fast-tracked one. A fresh asset
+    /// that has to run comes back as [`Settled::NeedsRun`], not yet run.
+    async fn settle(&self, key: &Key) -> Result<Settled<E>, Error> {
+        loop {
+            let asset_ref = self.get_resource_asset(key).await?;
+            let status = asset_ref.status().await;
+            if matches!(
+                status,
+                Status::Expired | Status::Error | Status::Cancelled | Status::Volatile
+            ) {
+                let asset_id = asset_ref.id();
+                let _mutation = self.key_mutation_lock.lock().await;
+                let mut map = self.assets.lock().unwrap_or_else(|e| e.into_inner());
+                if let Some(existing) = map.get(key) {
+                    if existing.id() == asset_id {
+                        map.remove(key);
+                    }
+                }
+                drop(map);
+                continue;
+            }
+            if status.is_finished() {
+                if status == Status::Ready && asset_ref.expiration_time().await.is_expired() {
+                    // Lazy expiration-on-access: the deadline, not the status, decides
+                    // (`IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-NEVER-FIRES`; this used to test
+                    // `is_expired()`, i.e. the status, which can never be `Expired` here).
+                    // Laziness is how the expiry is discovered; once it is known, the consequences
+                    // follow, so it cascades to dependents as the queued monitor does
+                    // (`IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-DOES-NOT-CASCADE`, fixed). The
+                    // cascade takes no `key_mutation_lock`, so it runs before the lock below.
+                    let expiration_time = asset_ref.expiration_time().await;
+                    let _ = asset_ref
+                        .expire_with_reason(ExpiryReason::Direct {
+                            cause: ExpiryCause::Deadline { expiration_time },
+                        })
+                        .await;
+                    let asset_id = asset_ref.id();
+                    let _mutation = self.key_mutation_lock.lock().await;
+                    let mut map = self.assets.lock().unwrap_or_else(|e| e.into_inner());
+                    if let Some(existing) = map.get(key) {
+                        if existing.id() == asset_id {
+                            map.remove(key);
+                        }
+                    }
+                    drop(map);
+                    continue;
+                }
+                return Ok(Settled::Available(asset_ref));
+            }
+            if asset_ref.fast_track().await? {
+                return Ok(Settled::Available(asset_ref));
+            }
+            return Ok(Settled::NeedsRun(asset_ref));
         }
     }
 
@@ -9602,6 +9927,14 @@ impl<E: Environment> ImmediateAssetManager<E> {
     }
 }
 
+/// What [`ImmediateAssetManager`] found for a requested asset before running anything.
+enum Settled<E: Environment> {
+    /// Finished, or fast-tracked from the store: nothing to run.
+    Available(AssetRef<E>),
+    /// A fresh asset that has to be evaluated.
+    NeedsRun(AssetRef<E>),
+}
+
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
@@ -9678,18 +10011,25 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
 
     /// Overridden (the trait default delegates to `get_asset`) so that a non-keyed dependency is
     /// created under its creator's caching strategy, as `DefaultAssetManager`'s override does.
-    /// Runs the dependency inline, exactly as `get_asset` would.
+    /// Runs the dependency inline in `parent`'s evaluation session, and returns it even when its
+    /// evaluation failed (see the trait method).
     async fn get_dependency_asset(
         &self,
         parent: &AssetRef<E>,
         query: &Query,
     ) -> Result<AssetRef<E>, Error> {
-        if let Some(key) = query.key() {
-            return self.get(&key).await;
+        let settled = match query.key() {
+            Some(key) => self.settle(&key).await?,
+            None => {
+                let creator = parent.cache_strategy().await;
+                self.settle_query(query, QueryAssetOrigin::Dependency(creator))
+                    .await?
+            }
+        };
+        match settled {
+            Settled::Available(asset) => Ok(asset),
+            Settled::NeedsRun(asset) => self.run_dependency(parent, asset).await,
         }
-        let creator = parent.cache_strategy().await;
-        self.get_query_asset_run(query, QueryAssetOrigin::Dependency(creator))
-            .await
     }
 
     async fn apply(
@@ -9698,7 +10038,29 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
         to: State<E::Value>,
         payload: Option<E::Payload>,
     ) -> Result<AssetRef<E>, Error> {
+        let graph = match recipe.to_plan(self.envref().get_command_metadata_registry()) {
+            Ok(plan) => crate::plan::upstream_graph(self.envref(), &plan, None).await,
+            Err(error) => Err(error),
+        };
         let asset_ref = AssetData::new_ext(self.next_id(), recipe, to, None, self.envref()).to_ref();
+        let session = asset_ref.evaluation_session_or_begin().await;
+        self.prime_upstream(&session, graph).await?;
+        asset_ref.run_inline(payload).await?;
+        Ok(asset_ref)
+    }
+
+    /// As [`Self::apply`], inside `parent`'s evaluation session.
+    async fn apply_for(
+        &self,
+        parent: &AssetRef<E>,
+        recipe: Recipe,
+        to: State<E::Value>,
+        payload: Option<E::Payload>,
+    ) -> Result<AssetRef<E>, Error> {
+        let asset_ref = AssetData::new_ext(self.next_id(), recipe, to, None, self.envref()).to_ref();
+        if let Some(session) = parent.evaluation_session().await {
+            asset_ref.adopt_evaluation_session(&session).await;
+        }
         asset_ref.run_inline(payload).await?;
         Ok(asset_ref)
     }
@@ -9748,58 +10110,16 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
     }
 
     async fn get(&self, key: &Key) -> Result<AssetRef<E>, Error> {
-        loop {
-            let asset_ref = self.get_resource_asset(key).await?;
-            let status = asset_ref.status().await;
-            if matches!(
-                status,
-                Status::Expired | Status::Error | Status::Cancelled | Status::Volatile
-            ) {
-                let asset_id = asset_ref.id();
-                let _mutation = self.key_mutation_lock.lock().await;
-                let mut map = self.assets.lock().unwrap_or_else(|e| e.into_inner());
-                if let Some(existing) = map.get(key) {
-                    if existing.id() == asset_id {
-                        map.remove(key);
-                    }
-                }
-                drop(map);
-                continue;
+        match self.settle(key).await? {
+            Settled::Available(asset_ref) => Ok(asset_ref),
+            Settled::NeedsRun(asset_ref) => {
+                let session = asset_ref.evaluation_session_or_begin().await;
+                let graph = crate::plan::key_upstream_graph(self.envref(), key).await;
+                self.prime_upstream(&session, graph).await?;
+                // Backstop against re-entry — see the note in `get_asset`.
+                asset_ref.run_inline(None).await?;
+                Ok(asset_ref)
             }
-            if status.is_finished() {
-                if status == Status::Ready && asset_ref.expiration_time().await.is_expired() {
-                    // Lazy expiration-on-access: the deadline, not the status, decides
-                    // (`IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-NEVER-FIRES`; this used to test
-                    // `is_expired()`, i.e. the status, which can never be `Expired` here).
-                    // Laziness is how the expiry is discovered; once it is known, the consequences
-                    // follow, so it cascades to dependents as the queued monitor does
-                    // (`IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-DOES-NOT-CASCADE`, fixed). The
-                    // cascade takes no `key_mutation_lock`, so it runs before the lock below.
-                    let expiration_time = asset_ref.expiration_time().await;
-                    let _ = asset_ref
-                        .expire_with_reason(ExpiryReason::Direct {
-                            cause: ExpiryCause::Deadline { expiration_time },
-                        })
-                        .await;
-                    let asset_id = asset_ref.id();
-                    let _mutation = self.key_mutation_lock.lock().await;
-                    let mut map = self.assets.lock().unwrap_or_else(|e| e.into_inner());
-                    if let Some(existing) = map.get(key) {
-                        if existing.id() == asset_id {
-                            map.remove(key);
-                        }
-                    }
-                    drop(map);
-                    continue;
-                }
-                return Ok(asset_ref);
-            }
-            if asset_ref.fast_track().await? {
-                return Ok(asset_ref);
-            }
-            // Backstop against re-entry — see the note in `get_asset`.
-            asset_ref.run_inline(None).await?;
-            return Ok(asset_ref);
         }
     }
 
@@ -15442,6 +15762,33 @@ recipes:
         assert!(manager.can_make(&key).await.expect("can_make"));
         assert!(!manager.can_make(&parse_key("a/x.txt").expect("key")).await.expect("can_make"));
         assert!(manager.get_asset_info(&key).await.is_ok());
+    }
+
+    /// The evaluation session (`crate::evaluation_session`) is held only by running contexts: once
+    /// the last run in it ends, nothing keeps it alive, so the asset's weak reference is dead.
+    #[tokio::test]
+    async fn evaluation_session_ends_with_its_last_run() {
+        let mut env = SimpleEnvironment::<Value>::new();
+        env.command_registry
+            .register_command(CommandKey::new_name("hello"), |_state, _args, _ctx| {
+                Ok(Value::from("hi"))
+            })
+            .expect("register hello");
+        let envref = env.to_ref();
+        let asset = envref
+            .get_asset_manager()
+            .get_asset(&parse_query("hello").expect("query"))
+            .await
+            .expect("asset");
+        asset.get().await.expect("state");
+        // The run may still be finishing after the value is visible.
+        for _ in 0..200 {
+            if asset.evaluation_session().await.is_none() {
+                return;
+            }
+            sleep(Duration::from_millis(5)).await;
+        }
+        panic!("the evaluation session outlived its last run");
     }
 }
 
