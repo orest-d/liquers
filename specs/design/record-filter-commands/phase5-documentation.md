@@ -129,9 +129,11 @@ Nothing remains in scope. The two new issues are outside it.
   - `records_table_ops`: 27 passed by default, and 20 under `--no-default-features --features
     records` (AC-15).
   - `registry_export`: 7 passed.
-- **Build matrix:** `bash scripts/check-build-matrix.sh` — result recorded in `DESIGN.md` §Phase
-  Status. The wasm32 rows need `rustup target add wasm32-unknown-unknown`, which this environment
-  does not have.
+- **Build matrix:** `bash scripts/check-build-matrix.sh` (after `cargo clean`). Every native
+  configuration passed: liquers-lib's 12 feature rows with tests, liquers-records, liquers-core,
+  liquers-store, liquers-axum and the store-conformance rows. The 7 wasm32 rows first failed only
+  because the target was not installed ("can't find crate for `core`"). After `rustup target add
+  wasm32-unknown-unknown`, all 7 passed when re-run individually.
 - **Docs and queries:** `python3 scripts/docs_index.py --check` reports 0 errors.
   `validate_phase.py` passes for Phases 1–5. Every query in the updated documents was checked with
   `liquers-validate`.

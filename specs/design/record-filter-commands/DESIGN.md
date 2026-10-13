@@ -35,7 +35,7 @@ Phase 5. Decision log at the pre-implementation stop: empty.
 | 1 High-level | **Approved 2026-10-13** (Revision 4) |
 | 2 Architecture | **Approved 2026-10-13** |
 | 3 Examples | Written and reviewed 2026-10-13 (pre-approved) |
-| 4 Implementation | Implemented 2026-10-13 (c20a625 … b4da9ee); Steps 1–11 ticked, Step 12 (matrix) running |
+| 4 Implementation | Implemented 2026-10-13 (c20a625 … b4da9ee); all 12 steps ticked; build matrix green |
 | 5 Documentation | Written 2026-10-13; presented for confirmation before `status: complete` |
 
 ## Phases

@@ -20,7 +20,7 @@ and the registry. Each step compiles and tests on its own. No prerequisite issue
 - [x] Step 9: `ns-pl` record input, `sort`, new filters, `i64` counts — d0f8e3c
 - [x] Step 10: Integration tests `records_table_ops.rs` — 7428608, b4da9ee
 - [x] Step 11: Regenerate `specs/command_registry.yaml` — f52a4d2
-- [ ] Step 12: Final checks
+- [x] Step 12: Final checks — all suites pass; build matrix: every native row passed, and the 7 wasm32 rows passed once `wasm32-unknown-unknown` was installed
 
 ## Implementation Steps
 
