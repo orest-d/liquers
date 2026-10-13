@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: S
 area: [core/store]
-design: 
+design: store-router-forwards-asset-info
 created: 2026-10-13
 github:
 ---

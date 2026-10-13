@@ -8,10 +8,10 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 115
+Total rows: 116
 - P0: 1
 - P2: 54
-- P3: 60
+- P3: 61
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -79,7 +79,8 @@ Total rows: 115
 | [`QUERY-DOCS-CLAIM-LINK-PARAMETERS-DO-NOT-PARSE`](issues/QUERY-DOCS-CLAIM-LINK-PARAMETERS-DO-NOT-PARSE.md) | issue | query.rs module docs say link parameters do not parse, but they do | draft |  |  | P3 | S | core/query;docs |  | 2026-10-13 |
 | [`REPLACING-WRITE-KEEPS-DROPPED-DEPENDENCY-EDGES`](issues/REPLACING-WRITE-KEEPS-DROPPED-DEPENDENCY-EDGES.md) | issue | A write that replaces a keyed asset keeps the dependency edges its new metadata no longer lists | draft |  |  | P3 | S | core/assets |  | 2026-10-11 |
 | [`RESOURCE-STEP-VOLATILITY-IS-NEVER-CHECKED`](issues/RESOURCE-STEP-VOLATILITY-IS-NEVER-CHECKED.md) | issue | Resource plan steps always report non-volatile, behind a TODO that prints at runtime | draft |  |  | P3 | S | core/plan |  | 2026-10-12 |
-| [`STORE-ROUTER-IS-DIR-IGNORES-IS-SUPPORTED`](issues/STORE-ROUTER-IS-DIR-IGNORES-IS-SUPPORTED.md) | issue | AsyncStoreRouter::is_dir routes by prefix alone while other methods also require is_supported | draft |  |  | P3 | S | core/store |  | 2026-10-13 |
+| [`STORE-ROUTER-IS-DIR-IGNORES-IS-SUPPORTED`](issues/STORE-ROUTER-IS-DIR-IGNORES-IS-SUPPORTED.md) | issue | AsyncStoreRouter::is_dir routes by prefix alone while other methods also require is_supported | draft |  |  | P3 | S | core/store | [design](design/store-router-forwards-asset-info/DESIGN.md) | 2026-10-13 |
+| [`STORE-ROUTER-LISTS-AN-UNCREATED-MEMBER-PREFIX`](issues/STORE-ROUTER-LISTS-AN-UNCREATED-MEMBER-PREFIX.md) | issue | AsyncStoreRouter lists an uncreated member prefix that it does not contain | draft |  |  | P3 | S | core/store |  | 2026-10-13 |
 | [`TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS`](issues/TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS.md) | issue | TypeInfo cannot declare a format a type writes but cannot read back | draft |  |  | P3 | S | core/value |  | 2026-09-24 |
 | [`VALIDATE-COMMAND-STUB-REJECTS-POSITIONAL-EMPTIES`](issues/VALIDATE-COMMAND-STUB-REJECTS-POSITIONAL-EMPTIES.md) | issue | A liquers-validate --command stub rejects a query with empty positional parameters | draft |  |  | P3 | S | core/validate |  | 2026-10-12 |
 | [`CONTEXT-TITLE-LOST-ACROSS-PREDECESSOR-BOUNDARY`](issues/CONTEXT-TITLE-LOST-ACROSS-PREDECESSOR-BOUNDARY.md) | issue | A title or description set by a command in a cut predecessor does not reach the final asset | draft | needs-decision | not-eligible | P3 | M | core/context;core/plan | [phase1](design/context-title-predecessor-inheritance/phase1-high-level-design.md)  [phase2](design/context-title-predecessor-inheritance/phase2-architecture.md)  [phase3](design/context-title-predecessor-inheritance/phase3-examples.md)  [phase4](design/context-title-predecessor-inheritance/phase4-implementation.md)  | 2026-10-06 |
