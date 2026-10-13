@@ -3,7 +3,7 @@ id: VALUE-TO-JSON-PANICS-ON-NON-FINITE-FLOAT
 kind: issue
 title: Value::try_into_json_value panics on a non-finite float
 status: draft
-priority: P2
+priority: P0
 complexity: S
 area: [core/value]
 design: 
@@ -19,7 +19,8 @@ in library code" — instead of returning an `Error`.
 
 ## Impact
 
-Any path that turns a value into JSON — serialization, the records → JSON bridge, a template data
+P0 under `DOCS_STRUCTURE_GUIDE.md` §4.4 — a panic on a supported path: `Value::from_f64` accepts a
+non-finite value, and the documented `try_into_json_value` then panics. Any path that turns a value into JSON — serialization, the records → JSON bridge, a template data
 model, an HTTP response — can crash on a computed NaN (0/0, a failed parse, an empty mean). The
 signature already returns `Result`, so the fix needs no API change.
 

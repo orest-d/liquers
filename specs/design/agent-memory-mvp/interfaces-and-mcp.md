@@ -86,8 +86,9 @@ prefixed `memory_` so that they cannot collide with a general Liquers MCP (§6).
 | `memory_check` | read-only | `path` | violations: `rule`, `key`, `severity`, `message`; counts | M1, M5 |
 | `memory_context` | read-only | `key` \| `topic` \| `files`, `budget` (tokens) | one Markdown context pack: L1 of the subject, matching reference sections, open issues and designs, code items; an "omitted" tail | AC-21 |
 
-`memory_forget` (W6) is the tenth, added when the archive collection convention is fixed in
-Phase 2; until then forgetting is `memory_edit … set_field superseded_by` or a status.
+`memory_forget` (W6) is not one of the ten: it is NEXT, added when the archive collection
+convention is fixed (Phase 1 decision 11); until then forgetting is `memory_edit … set_field
+superseded_by` or a status.
 
 Design rules for the tool set, from the survey and
 `../store-and-asset-search/research-questions.md` §6:

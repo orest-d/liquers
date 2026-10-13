@@ -9,15 +9,16 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
 Total rows: 114
+- P0: 1
 - P1: 1
-- P2: 56
+- P2: 55
 - P3: 57
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
+| [`VALUE-TO-JSON-PANICS-ON-NON-FINITE-FLOAT`](issues/VALUE-TO-JSON-PANICS-ON-NON-FINITE-FLOAT.md) | issue | Value::try_into_json_value panics on a non-finite float | draft |  |  | P0 | S | core/value |  | 2026-10-12 |
 | [`FAILING-UPSTREAM-RERUNS-EXPONENTIALLY-AT-QUEUE-CAPACITY`](issues/FAILING-UPSTREAM-RERUNS-EXPONENTIALLY-AT-QUEUE-CAPACITY.md) | issue | A failing upstream link re-runs exponentially often when the queue is at capacity | draft |  |  | P1 | M | core/assets |  | 2026-10-12 |
 | [`STORE-ROUTER-DOES-NOT-FORWARD-ASSET-INFO`](issues/STORE-ROUTER-DOES-NOT-FORWARD-ASSET-INFO.md) | issue | AsyncStoreRouter does not forward get_asset_info to its member stores | draft |  |  | P2 | S | core/store |  | 2026-10-11 |
-| [`VALUE-TO-JSON-PANICS-ON-NON-FINITE-FLOAT`](issues/VALUE-TO-JSON-PANICS-ON-NON-FINITE-FLOAT.md) | issue | Value::try_into_json_value panics on a non-finite float | draft |  |  | P2 | S | core/value |  | 2026-10-12 |
 | [`DEFAULT-ASSET-MANAGER-RECIPE-OPT-SKIPS-PAYLOAD-CHECK`](issues/DEFAULT-ASSET-MANAGER-RECIPE-OPT-SKIPS-PAYLOAD-CHECK.md) | issue | DefaultAssetManager's recipe_opt override skips the payload-required rejection | draft | ready | eligible | P2 | M | core/assets | [design](design/default-asset-manager-recipe-opt-payload-check/DESIGN.md) | 2026-09-25 |
 | [`CORE-VALUE-ENUM-OVERSIZED`](issues/CORE-VALUE-ENUM-OVERSIZED.md) | issue | Every Value occupies over 700 bytes because three variants are stored unboxed | draft | ready | not-eligible | P2 | M | core/value;lib/value | [design](design/core-value-enum-oversized/DESIGN.md) | 2026-08-18 |
 | [`ENVIRONMENT-MANAGER-REFERENCE-CYCLE`](issues/ENVIRONMENT-MANAGER-REFERENCE-CYCLE.md) | issue | Environment and asset manager hold each other with strong Arcs, so every environment leaks | draft | ready | not-eligible | P2 | M | core/assets;core/context | [design](design/environment-manager-reference-cycle/DESIGN.md) | 2026-08-27 |

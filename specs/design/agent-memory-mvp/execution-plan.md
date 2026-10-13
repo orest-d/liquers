@@ -25,7 +25,7 @@ gates; nothing below is implemented before its design's Phase 4 is approved.
 | # | Item | Kind / state | P · size | Unblocks (agent-memory AC) |
 |---|---|---|---|---|
 | D1 | `STORE-ROUTER-DOES-NOT-FORWARD-ASSET-INFO` | issue, no design | P2 · S | Folder tiers through the router: AC-1, AC-17; `store-adapters` AC-8 |
-| D2 | `VALUE-TO-JSON-PANICS-ON-NON-FINITE-FLOAT` | issue, no design | P2 · S | Values → JSON for MCP results and template data: AC-14, `liquers-mustache` AC-7 |
+| D2 | `VALUE-TO-JSON-PANICS-ON-NON-FINITE-FLOAT` | issue, no design | **P0** · S (a panic on a supported path, §4.4) | Values → JSON for MCP results and template data: AC-14, `liquers-mustache` AC-7 |
 | D3 | `store-adapters` M1 — read-only adapter (`STORE-NO-READ-ONLY-ADAPTER`) | design, Phase 1 in review | P2 · M | AC-13; decision 2 ("fixed first") |
 | D4 | `store-adapters` M2–M3 — adapter configuration, registry, enhancers | same design | part of XL | Front-matter adapter: AC-1, AC-5 (creation), AC-11, AC-17; profiles AC-18, AC-19 |
 | D5 | `liquers-mustache` M1–M3 — public parser surface, template parser and diagnostics, renderer with *apply* | design, Phase 1 in review (`NO-QUERY-AWARE-TEMPLATE-LANGUAGE`) | P2 · XL | Templates for `memory_new`: AC-4 |
@@ -102,7 +102,7 @@ module, with an obvious test — label them `eligible` when triaged.
 
 | Track | Steps | Delivers | Unblocks |
 |---|---|---|---|
-| **Stores** | `store-adapters` Phases 2–4, then **M1** read-only adapter with a forwarding base and a runtime read-only accessor | D3 | AC-13; memory A can mount `specs/` safely |
+| **Stores** | `store-adapters` Phases 2–4, then **M1** read-only adapter with a forwarding base, a runtime read-only accessor and a non-persisting metadata read in the backends (a wrapper alone cannot stop `AsyncFileStore` writing on read) | D3 | AC-13; memory A can mount `specs/` safely |
 | **Templates** | `liquers-mustache` Phases 2–4, then **M1** public parser surface in `liquers-core`, **M2** template parser, AST, positioned diagnostics, highlighting, **M3** renderer with the Mustache conformance suite and *apply* | D5 | AC-4 (templates for `new`) |
 | **Records** | `record-filter-commands` Phases 2–4 and implementation | D7 | AC-10, AC-22 ordering and counts |
 

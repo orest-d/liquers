@@ -67,9 +67,12 @@ illustrative; Phase 2 fixes the format.)
   THEN metadata is written where each layout says, and a key the layout makes unrepresentable is
   refused by `is_supported` and by `set` with the same error, whichever layout is configured
 - **AC-4** Change detection
-  WHEN a file is changed by another program and the mount's hash policy is `on_change`
-  THEN the next metadata read — including a listing — reports a new `version` (detected from cheap
-  file facts, size and modification time, then re-hashed)
+  WHEN a file is changed by another program and the mount's hash policy is `always`
+  THEN the next metadata read — including a listing — re-hashes the bytes and reports a new `version`;
+  and with the cheaper policy `on_change`, a change visible in the backend's change facts (size and
+  modification time, or a generation id / ETag where the backend has one) does the same, while a
+  rewrite those facts cannot see (same size, preserved timestamp, `cp -p`) is documented as missed by
+  that policy and caught by `always` or by `verify_stored_versions`
 - **AC-5** Front-matter enhancer with write-back
   WHEN a Markdown entry with front-matter is read, and then its `description` is set through the
   metadata API on a mount with `write_back: true`
@@ -102,6 +105,11 @@ layouts (reading the legacy folder layout is enough).
 
 - **Store:** an adapter wraps any `AsyncStore` and forwards what it does not change; a layout decides
   where a file-like backend keeps metadata and which keys it reserves (`STORE_SEMANTICS.md` §8).
+  **A decorator alone cannot make reads non-writing:** `AsyncFileStore::get` and `get_metadata` repair
+  missing metadata by calling their own `set_metadata` inside the backend, which a wrapper never sees.
+  So the backends need a **non-persisting read** — a store-level "do not write on read" policy, or a
+  trait method that reads stored metadata without repairing it (`Ok(None)` when absent), on which the
+  wrapper builds the synthesized record itself. Which of the two is open question 6; M1 includes it.
 - **Configuration:** `StoreConfig` gains its per-mount metadata and adapter sections; the store
   factories resolve them (`STORE_CONFIG_FSD.md`).
 - **Assets:** unaffected, except that versions change when the enhancer detects outside edits.
@@ -159,6 +167,11 @@ amend.
 5. **[open design] Size.** Three issues merged make this `XL`. Split the layouts (store stage) from the adapters
    (create, enhance, policy) if Phase 2 confirms they are independent? *Recommended: decide at the
    Phase 2 gate.*
+6. **[open design] The non-persisting read.** A per-backend policy flag (`persist_repaired_metadata`,
+   off on read-only mounts) — small, but every backend must honour it — or a new `AsyncStore` method
+   returning stored metadata without repair, with a default that preserves today's behaviour, on which
+   the create stage is built? *Recommended: the trait method* — it makes "create missing metadata" a
+   stage the adapters own, which is this design's model, instead of a flag each backend reimplements.
 
 ## References
 
