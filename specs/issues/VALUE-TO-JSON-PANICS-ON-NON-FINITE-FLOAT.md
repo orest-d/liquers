@@ -4,7 +4,7 @@ kind: issue
 title: Value::try_into_json_value panics on a non-finite float
 status: draft
 priority: P0
-complexity: S
+complexity: M
 area: [core/value]
 design: value-to-json-non-finite-float
 created: 2026-10-12
@@ -33,3 +33,11 @@ document it; either way no panic. A unit test covers NaN, +∞ and −∞.
 
 Templating research for `agent-memory-mvp`, 2026-10-12, reading the conversion a template engine's
 data model would go through.
+
+## Update 2026-10-13 — scope widened by the design
+
+`design/value-to-json-non-finite-float/` covers this panic and also the JSON *byte* path, which
+answers the same question the opposite way (overlap test T2). There, `serde_json` writes `null` for
+every non-finite float. A core `F64` therefore reads back as `None`, and a `liquers-lib`
+`SimpleValue::Array` holding a NaN reads back as an unrelated `Object`. Complexity raised from `S`
+to `M` accordingly. The maintainer decided the policy, which is recorded in that design's Phase 1.

@@ -285,7 +285,7 @@ question are both measure-first items.
 <!-- BEGIN generated: issues -->
 | Issue | Pri | Cx | Design |
 |---|---|---|---|
-| [`VALUE-TO-JSON-PANICS-ON-NON-FINITE-FLOAT`](issues/VALUE-TO-JSON-PANICS-ON-NON-FINITE-FLOAT.md) | P0 | S | `value-to-json-non-finite-float` |
+| [`VALUE-TO-JSON-PANICS-ON-NON-FINITE-FLOAT`](issues/VALUE-TO-JSON-PANICS-ON-NON-FINITE-FLOAT.md) | P0 | M | `value-to-json-non-finite-float` |
 <!-- END generated: issues -->
 
 ## Not yet placed
