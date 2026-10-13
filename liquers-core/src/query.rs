@@ -95,11 +95,12 @@
 //! and normalizes the basename of a terminal transform filename to `data` while
 //! preserving its extension.
 //!
-//! String action parameters are escaped by [`encode_token`]. Link parameters can
-//! be constructed with [`ActionParameter::Link`] and encode as `~X~<query>~E`.
-//! This is intended supported syntax, but the current parser has no production for
-//! it, so links do not yet round-trip through [`crate::parse::parse_query`]. The
-//! omission is tracked as `QUERY-ACTION-PARAMETER-LINK-PARSER`.
+//! String action parameters are escaped by [`encode_token`]. Link parameters are
+//! represented by [`ActionParameter::Link`] and encode as `~X~<query>~E`. The
+//! parser reads the same syntax (the `link-parameter` production documented in
+//! [`crate::parse`]), so links round-trip through [`crate::parse::parse_query`]:
+//! `text-~X~-R/a.txt~E/upper` parses to an action whose parameter is the embedded
+//! query `-R/a.txt`.
 //!
 //! # Relative resource names
 //!
