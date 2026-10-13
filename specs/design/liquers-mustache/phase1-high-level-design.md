@@ -54,11 +54,14 @@ it renders the same.
 - **AC-4** Positioned diagnostics
   WHEN a template contains a malformed query, an unclosed section or a bad delimiter change
   THEN parsing reports an error with the template's line and column at the fault — inside the query
-  for a query error — and nothing is evaluated
+  for a query error — and nothing is evaluated; a query tag containing `{{…}}` (as in the problem
+  example) is lexed as one tag, by the nesting rule of open question 9
 - **AC-5** Parametrized query, hygienic
-  WHEN `{{name}}` appears in a parameter or resource-segment position of a query and `name` holds a
-  value containing `-`, `/`, `~` or spaces
-  THEN it becomes exactly one encoded parameter or segment, and the query's plan shows it as such
+  WHEN `{{name}}` appears in a parameter or resource-segment position of a query — as the whole
+  parameter or segment, or as a fragment inside one (`search-area~ncolon~{{area}}`) — and `name` holds
+  a value containing `-`, `/`, `~` or spaces
+  THEN the value is encoded into that one parameter or segment, the query's structure is unchanged,
+  and its plan shows the parameter with the value in place
 - **AC-6** Parametrized query, raw
   WHEN `{{{name}}}` appears inside a query
   THEN its value is spliced as query text before parsing, may add actions or segments, and the
@@ -87,8 +90,9 @@ it renders the same.
   THEN the referenced text is loaded through the asset layer, rendered as a template, and recorded as
   a dependency; a cycle of partials is an error, not a hang
 - **AC-13** Portable build
-  WHEN `liquers-mustache` is built for `wasm32-unknown-unknown`
-  THEN it compiles and its parser and renderer tests pass under Node
+  WHEN `liquers-mustache`, and `liquers-lib` with its `templates` feature, are built for
+  `wasm32-unknown-unknown` (`scripts/check-build-matrix.sh`)
+  THEN both compile, and `liquers-mustache`'s parser and renderer tests pass under Node
 
 Non-goals: a template editor (`NO-TEMPLATE-EDITOR-UI`); Mustache's optional modules (lambdas,
 inheritance) — lambdas may later map to commands; logic beyond Mustache (comparisons, arithmetic):
@@ -110,8 +114,10 @@ New crate **`liquers-mustache`**, depending on `liquers-core` only (nom and nom_
 core dependencies): grammar, AST, positions, diagnostics, highlighter, data model over core `Value`,
 and both evaluation modes over the `Environment` / asset-manager traits. **`liquers-lib`**: the
 commands (feature `templates`), the mapping of `ExtValue` (records, polars frames) into template data,
-and the egui rendering of highlighted templates. `liquers-core` changes only where the query AST
-needs a placeholder node (open question 1).
+and the egui rendering of highlighted templates. **`liquers-core` changes in two places:** the query
+AST gains a placeholder node (open question 1), and the parser gains a **public, span-based surface**
+— today every combinator in `parse.rs` is private (only `resource_path` is `pub(crate)`), so another
+crate cannot extend it (open question 8).
 
 ## Documentation Intent
 
@@ -129,14 +135,17 @@ needs a placeholder node (open question 1).
 - **Required by** `agent-memory-mvp` (context packs AC-21, `index.md` AC-22, issue and design
   templates).
 - **Covers** `SIMPLE-TEMPLATE-HAS-NO-COMMAND` (attached as a source).
-- **Overlaps** design `QUERY-LINK-PARSER` (complete; link parameters `~X~…~E` are the precedent for a
+- **Overlaps** design [`query-link-parser`](../query-link-parser/) (complete; link parameters `~X~…~E` are the precedent for a
   query nested in a query), `VALUE-TO-JSON-PANICS-ON-NON-FINITE-FLOAT` (the data model converts values),
   `COMMAND-CANNOT-BE-RUN-WITH-A-RESTRICTED-CONTEXT` (templates from untrusted sources).
 - **Spun off** `NO-TEMPLATE-EDITOR-UI`.
 
 ## Open Questions
 
-1. **How `{{…}}` expands inside a query.** (a) *String*: expand the whole query as text, then parse;
+Tiers: **[open design]** needs the user's decision; **[proposed]** has a recommendation to accept or
+amend; **[detail]** can be settled in Phase 2.
+
+1. **[open design] How `{{…}}` expands inside a query.** (a) *String*: expand the whole query as text, then parse;
    simple, but a value containing `/` or `-` silently changes the query's structure (injection), and
    errors point into the expanded text. (b) *Syntactic*: placeholders allowed only in certain
    positions — a parameter value, a resource segment, perhaps a whole action — parsed into the query
@@ -144,23 +153,33 @@ needs a placeholder node (open question 1).
    macro). (c) *Both*. *Recommended: (c), mapped onto Mustache's own escaped/unescaped distinction*:
    `{{x}}` is syntactic and encoded (hygienic), `{{{x}}}` is a raw splice before parsing, for the rare
    query that must add structure — documented as unsafe for untrusted data.
-2. **Which positions are syntactic in (b)?** *Recommended:* action parameter values and resource
-   segments in the MVP; action and namespace names later if needed.
-3. **Escaping of interpolation in text.** Mustache HTML-escapes `{{x}}` by default; Liquers documents
+2. **[open design] Which positions are syntactic in (b)?** *Recommended:* action parameter values and
+   resource segments, whole or as fragments inside them (encoded piecewise), in the MVP; action and
+   namespace names later if needed.
+3. **[proposed] Escaping of interpolation in text.** Mustache HTML-escapes `{{x}}` by default; Liquers documents
    are mostly Markdown and text. *Recommended:* escaping follows the template's output media type —
    none for text and Markdown, HTML for HTML — with `{{{x}}}` always raw.
-4. **Template data from Liquers values.** Records iterate as rows of objects; should an entry's
+4. **[proposed] Template data from Liquers values.** Records iterate as rows of objects; should an entry's
    metadata (title, description, key) be reachable, e.g. as `{{_meta.title}}`? *Recommended: yes,
    under one reserved name*, since tiers live in metadata.
-5. **Query tag syntax.** `{{$ query}}`, `{{#$ query}}…{{/$}}`, `{{> key or query}}` as proposed in
+5. **[proposed] Query tag syntax.** `{{$ query}}`, `{{#$ query}}…{{/$}}`, `{{> key or query}}` as proposed in
    `design/agent-memory-mvp/template-language-evaluation.md` §5, or another sigil?
    *Recommended: as proposed*; Mustache's inheritance module also uses `$`, which this design does not
    adopt.
-6. **`simple_template`.** Keep `$query$` as a compatibility syntax inside templates, or convert
+6. **[proposed] `simple_template`.** Keep `$query$` as a compatibility syntax inside templates, or convert
    existing templates and deprecate it? *Recommended: convert* — no command uses it today, and `$`
    collides with Markdown.
-7. **Command namespace and names** — e.g. `ns-tpl/render`, `apply`, `validate`. *Recommended:* `tpl`,
-   confirmed at the Phase 2 gate with the other namespaces.
+7. **[detail] Command namespace and names** — e.g. `ns-tpl/render`, `apply`, `validate`.
+   *Recommended:* `tpl`, confirmed at the Phase 2 gate with the other namespaces.
+8. **[open design] The public parser surface of `liquers-core`.** Expose the `Span` type and the query,
+   action, parameter and segment combinators, or one span-based entry point that parses a query
+   starting at a given offset and returns its end and positioned diagnostics? *Recommended:* the entry
+   point plus a small set of combinators — a narrower public API that keeps `parse.rs` free to change.
+9. **[open design] Nested braces in query tags.** In `{{#$ …search-{{area}}…}}` the inner `}}` closes
+   the outer tag under plain Mustache lexing. Balance braces inside query tags (the query parser decides
+   where the tag ends), or require a set-delimiter change for such tags? *Recommended: balance* — the
+   template parser hands the tag body to the query parser, which consumes nested `{{…}}` as
+   placeholders, so the tag ends at the first unbalanced `}}`.
 
 ## References
 

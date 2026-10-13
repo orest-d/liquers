@@ -31,7 +31,8 @@ Created 2026-10-13 at the user's request, merging three issues into one design:
 | `STORE-NO-READ-ONLY-ADAPTER` | *policy* — reads that do not write, writes refused |
 | `STORE-METADATA-HANDLING-NOT-COMPOSABLE` | the whole pipeline — *create*, *enhance*, *store*, *policy* — and its configuration |
 
-The merge makes the design `XL` from an `L` and an `M` (overlap exclusion E2 would normally stop
-that); it was the user's decision, and Phase 1 open question 5 keeps a split available at the
+The merge makes the scope `XL` from two `L` sources and an `M` (overlap exclusion E2 would normally
+stop that); the leading source keeps `L` until the split decision below is taken. The merge was the
+user's decision, and Phase 1 open question 5 keeps a split available at the
 Phase 2 gate. The user's earlier decision that the read-only adapter is fixed first
 (`agent-memory-mvp` Phase 1 decision 2) becomes this design's first milestone (open question 3).
