@@ -244,6 +244,124 @@ pub fn lte(state: &State<Value>, column: String, value: String) -> Result<Value,
     Ok(Value::from_polars_dataframe(result))
 }
 
+/// Applies `predicate` as a row filter.
+fn filter_rows(df: &DataFrame, predicate: Expr) -> Result<Value, Error> {
+    let result = df
+        .clone()
+        .lazy()
+        .filter(predicate)
+        .collect()
+        .map_err(|e| Error::general_error(format!("Filter failed: {}", e)))?;
+    Ok(Value::from_polars_dataframe(result))
+}
+
+/// Rows whose column equals one of `values` (each parsed to the column's type). An OR of
+/// equalities, so it needs no polars `is_in` feature and matches `ns-rec/is_in` exactly.
+#[liquers_macro::command_version]
+pub fn is_in(state: &State<Value>, column: String, values: Vec<String>) -> Result<Value, Error> {
+    let df = try_to_polars_dataframe(state)?;
+    check_column_exists(&df, &column)?;
+    let mut predicate: Option<Expr> = None;
+    for value in &values {
+        let test = col(&column).eq(parse_comparison_value(&df, &column, value)?);
+        predicate = Some(match predicate {
+            Some(previous) => previous.or(test),
+            None => test,
+        });
+    }
+    let predicate = predicate.ok_or_else(|| {
+        Error::general_error("ns-pl/is_in requires at least one value".to_string())
+    })?;
+    filter_rows(&df, predicate)
+}
+
+#[liquers_macro::command_version]
+pub fn is_null(state: &State<Value>, column: String) -> Result<Value, Error> {
+    let df = try_to_polars_dataframe(state)?;
+    check_column_exists(&df, &column)?;
+    filter_rows(&df, col(&column).is_null())
+}
+
+#[liquers_macro::command_version]
+pub fn is_not_null(state: &State<Value>, column: String) -> Result<Value, Error> {
+    let df = try_to_polars_dataframe(state)?;
+    check_column_exists(&df, &column)?;
+    filter_rows(&df, col(&column).is_not_null())
+}
+
+/// Which literal text test a text filter applies.
+#[derive(Debug, Clone, Copy)]
+enum TextTest {
+    StartsWith,
+    EndsWith,
+    Contains,
+}
+
+/// A literal text test on a String column; case-insensitive (both sides lowercased) unless
+/// `case_sensitive` — the `ns-rec` default, deliberately unlike polars (conventions.md).
+fn text_filter(
+    state: &State<Value>,
+    column: &str,
+    text: &str,
+    case_sensitive: bool,
+    test: TextTest,
+) -> Result<Value, Error> {
+    let df = try_to_polars_dataframe(state)?;
+    check_column_exists(&df, column)?;
+    let dtype = df
+        .schema()
+        .get(column)
+        .cloned()
+        .ok_or_else(|| Error::general_error(format!("Column '{}' not found", column)))?;
+    if dtype != DataType::String {
+        return Err(Error::general_error(format!(
+            "Column '{}' is {:?}; a text filter needs a String column",
+            column, dtype
+        )));
+    }
+    let (subject, pattern) = if case_sensitive {
+        (col(column), text.to_string())
+    } else {
+        (col(column).str().to_lowercase(), text.to_lowercase())
+    };
+    let predicate = match test {
+        TextTest::StartsWith => subject.str().starts_with(lit(pattern)),
+        TextTest::EndsWith => subject.str().ends_with(lit(pattern)),
+        TextTest::Contains => subject.str().contains_literal(lit(pattern)),
+    };
+    filter_rows(&df, predicate)
+}
+
+#[liquers_macro::command_version]
+pub fn starts_with(
+    state: &State<Value>,
+    column: String,
+    text: String,
+    case_sensitive: bool,
+) -> Result<Value, Error> {
+    text_filter(state, &column, &text, case_sensitive, TextTest::StartsWith)
+}
+
+#[liquers_macro::command_version]
+pub fn ends_with(
+    state: &State<Value>,
+    column: String,
+    text: String,
+    case_sensitive: bool,
+) -> Result<Value, Error> {
+    text_filter(state, &column, &text, case_sensitive, TextTest::EndsWith)
+}
+
+#[liquers_macro::command_version]
+pub fn contains(
+    state: &State<Value>,
+    column: String,
+    text: String,
+    case_sensitive: bool,
+) -> Result<Value, Error> {
+    text_filter(state, &column, &text, case_sensitive, TextTest::Contains)
+}
+
 /// Register polars filtering commands via macro.
 ///
 /// The caller must define `type CommandEnvironment = ...` in scope before invoking.
@@ -303,6 +421,60 @@ macro_rules! register_polars_filtering_commands {
             namespace: "pl"
             label: "Less than or equal"
             doc: "Filter rows where column is less than or equal to value"
+
+        version: auto
+        )?;
+
+        register_command!($cr,
+            fn is_in(state, column: String, values: Vec<String> multiple) -> result
+            namespace: "pl"
+            label: "Is in"
+            doc: "Filter rows where column equals one of the values"
+
+        version: auto
+        )?;
+
+        register_command!($cr,
+            fn is_null(state, column: String) -> result
+            namespace: "pl"
+            label: "Is null"
+            doc: "Filter rows where column is null"
+
+        version: auto
+        )?;
+
+        register_command!($cr,
+            fn is_not_null(state, column: String) -> result
+            namespace: "pl"
+            label: "Is not null"
+            doc: "Filter rows where column is not null"
+
+        version: auto
+        )?;
+
+        register_command!($cr,
+            fn starts_with(state, column: String, text: String, case_sensitive: bool = false) -> result
+            namespace: "pl"
+            label: "Starts with"
+            doc: "Filter rows whose text starts with the given text, taken literally; case-insensitive unless case_sensitive"
+
+        version: auto
+        )?;
+
+        register_command!($cr,
+            fn ends_with(state, column: String, text: String, case_sensitive: bool = false) -> result
+            namespace: "pl"
+            label: "Ends with"
+            doc: "Filter rows whose text ends with the given text, taken literally; case-insensitive unless case_sensitive"
+
+        version: auto
+        )?;
+
+        register_command!($cr,
+            fn contains(state, column: String, text: String, case_sensitive: bool = false) -> result
+            namespace: "pl"
+            label: "Contains"
+            doc: "Filter rows whose text contains the given text, taken literally; case-insensitive unless case_sensitive"
 
         version: auto
         )?;

@@ -24,6 +24,26 @@ pub fn try_to_polars_dataframe<V: ValueInterface + ExtValueInterface>(
         return Ok(df);
     }
 
+    // Records cross through the bridge (roles are dropped, as the bridge documents). A source is
+    // a stream, not a table: ns-pl is synchronous and eager, so it must be materialized first
+    // (specs/design/record-filter-commands/lazyframe-investigation.md).
+    #[cfg(feature = "records")]
+    match value.identifier().as_ref() {
+        "RecordView" => {
+            let batch = value.as_record_view()?.materialize()?;
+            let df = crate::records::polars::record_batch_to_dataframe(&batch)?;
+            return Ok(Arc::new(df));
+        }
+        "RecordSource" => {
+            return Err(Error::conversion_error_with_message(
+                "RecordSource",
+                "polars.DataFrame",
+                "a source is not a table; materialize it first with ns-rec/materialize",
+            ))
+        }
+        _ => {}
+    }
+
     let mut format = state.metadata.get_data_format();
     let source_bytes = if let Ok(text) = value.try_into_string() {
         if format.is_empty() {
