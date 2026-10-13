@@ -947,6 +947,10 @@ impl TryFrom<Value> for String {
             Value::I32(x) => Ok(format!("{}", x)),
             Value::I64(x) => Ok(format!("{}", x)),
             Value::F64(x) => Ok(format!("{}", x)),
+            // A linked resource read from a store arrives as bytes (a `.yaml` schema file, say);
+            // it is text when it is valid UTF-8. Invalid UTF-8 is refused rather than replaced.
+            Value::Bytes(bytes) => String::from_utf8(bytes)
+                .map_err(|_| Error::conversion_error("bytes (not UTF-8)", "string")),
             _ => Err(Error::conversion_error(value.type_name(), "string")),
         }
     }
@@ -1102,6 +1106,12 @@ impl DefaultValueSerializer for Value {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn utf8_bytes_convert_to_string() {
+        assert_eq!(String::try_from(Value::Bytes(b"fields: []".to_vec())).ok(), Some("fields: []".to_string()));
+        assert!(String::try_from(Value::Bytes(vec![0xff, 0xfe])).is_err());
+    }
+
     use super::*;
 
     #[test]

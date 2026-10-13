@@ -34,6 +34,9 @@ use liquers_records::{
 use crate::value::{ExtValueInterface, Value};
 
 use super::convert::ToRecordOptions;
+use super::table_ops::{table_input, TableInput};
+use liquers_records::search::{FilteredSource, SearchExpr, SearchOptions};
+use liquers_records::{MappedSource, ViewMap};
 
 // ---------------------------------------------------------------------------------------------
 // Small helpers shared by several commands
@@ -41,7 +44,7 @@ use super::convert::ToRecordOptions;
 
 /// A query argument declared `i64` (the DSL has no unsigned/`usize` integer type) turned into a
 /// `usize` index/count. Negative is refused rather than silently truncated.
-fn non_negative_usize(n: i64, name: &str) -> Result<usize, Error> {
+pub(crate) fn non_negative_usize(n: i64, name: &str) -> Result<usize, Error> {
     usize::try_from(n)
         .map_err(|_| Error::general_error(format!("{name} must not be negative, got {n}")))
 }
@@ -53,13 +56,21 @@ fn non_negative_u64(n: i64, name: &str) -> Result<u64, Error> {
 }
 
 /// `schema`'s spelling (Step 5.5's decision): `String`, empty meaning "no schema" (infer), a
-/// non-empty string a YAML or JSON [`RecordSchema`] document — `register_command!` has no
+/// non-empty string a JSON or YAML [`RecordSchema`] document — `register_command!` has no
 /// `FromParameterValue`/`TryFrom<Value>` impl for `Option<Value>`, so that spelling cannot bind
 /// (checked against `liquers-core/src/commands.rs`'s `impl_from_parameter_value2*!` list before
 /// choosing this one).
 fn parse_schema_argument(schema: &str) -> Result<Option<RecordSchema>, Error> {
     if schema.is_empty() {
         return Ok(None);
+    }
+    // JSON first when it looks like JSON: that is what `ns-rec/schema` prints, and serde_json's
+    // error names the JSON problem. YAML (a superset) for everything else — the schema
+    // deserializer accepts the JSON map spelling of an index kind from YAML too.
+    if schema.trim_start().starts_with('{') {
+        return serde_json::from_str(schema)
+            .map(Some)
+            .map_err(|error| Error::from_error(ErrorType::SerializationError, error));
     }
     serde_yaml::from_str(schema)
         .map(Some)
@@ -290,19 +301,14 @@ pub async fn row<E: Environment<Value = Value>>(
 }
 
 /// Column projection. Keeps the `Id`/`Source` columns whether named or not
-/// (`RecordView::select_columns`'s own contract).
+/// (`RecordView::select_columns`'s own contract). Over a source, lazy: each chunk is projected as
+/// it streams, so materializing the result holds only the selected columns
+/// (`specs/design/record-filter-commands/`, AC-18).
 pub async fn select_columns<E: Environment<Value = Value>>(
     state: State<Value>,
     columns: Vec<String>,
     context: Context<E>,
 ) -> Result<Value, Error> {
-    let view = super::convert::to_record(
-        state.data_unchecked(),
-        &state.metadata,
-        &ToRecordOptions::default(),
-        &context,
-    )
-    .await?;
     // A variadic argument defaults to the empty list, so an empty selection is well-formed at
     // plan level (see `pl/select_columns`) — only the command knows it needs at least one column.
     if columns.is_empty() {
@@ -310,29 +316,42 @@ pub async fn select_columns<E: Environment<Value = Value>>(
             "ns-rec/select_columns requires at least one column name".to_string(),
         ));
     }
-    let names: Vec<&str> = columns.iter().map(String::as_str).collect();
-    let projected = view.select_columns(&names)?;
-    Ok(Value::from_record_view(projected))
+    let map: ViewMap = Arc::new(move |view: Arc<dyn RecordView>| {
+        let names: Vec<&str> = columns.iter().map(String::as_str).collect();
+        view.select_columns(&names)
+    });
+    match table_input(&state, &context).await? {
+        TableInput::View(view) => Ok(Value::from_record_view(map(view)?)),
+        TableInput::Source(source) => {
+            Ok(Value::from_record_source(Arc::new(MappedSource::new(source, map)?)))
+        }
+    }
 }
 
-/// The first `n` rows (default 5), materialized for inspection.
+/// The first `n` rows (default 5), materialized for inspection. Over a source, lazy: a source
+/// that stops after `n` rows, so only the chunks holding them are ever read (AC-18).
 pub async fn head<E: Environment<Value = Value>>(
     state: State<Value>,
     n: i64,
     context: Context<E>,
 ) -> Result<Value, Error> {
-    let view = super::convert::to_record(
-        state.data_unchecked(),
-        &state.metadata,
-        &ToRecordOptions::default(),
-        &context,
-    )
-    .await?;
     let requested = non_negative_usize(n, "n")?;
-    let take = requested.min(view.len());
-    let sliced = view.slice(0, take)?;
-    let batch = sliced.materialize()?;
-    Ok(Value::from_record_view(batch as Arc<dyn RecordView>))
+    match table_input(&state, &context).await? {
+        TableInput::View(view) => {
+            let take = requested.min(view.len());
+            let batch = view.slice(0, take)?.materialize()?;
+            Ok(Value::from_record_view(batch as Arc<dyn RecordView>))
+        }
+        TableInput::Source(source) => {
+            let options = SearchOptions {
+                case_sensitive: false,
+                fields: Vec::new(),
+                limit: Some(requested),
+            };
+            let limited = FilteredSource::new(source, Arc::new(SearchExpr::always()), options);
+            Ok(Value::from_record_source(Arc::new(limited)))
+        }
+    }
 }
 
 /// A row range, as a view (not materialized). Clamped to the rows that exist, as `head` is: a range
@@ -459,25 +478,6 @@ pub async fn materialize<E: Environment<Value = Value>>(
     let max_rows = non_negative_usize(max_rows, "max_rows")?;
     let batch = source.materialize(resolver, max_rows).await?;
     Ok(Value::from_record_view(batch as Arc<dyn RecordView>))
-}
-
-/// The schema, as a value a `schema` argument can be linked to: a YAML/JSON `RecordSchema`
-/// document, serialized to text (`schema: String` cannot bind to a structured JSON value — see
-/// `parse_schema_argument`'s doc comment — so the round trip goes through text both ways).
-pub async fn records_schema<E: Environment<Value = Value>>(
-    state: State<Value>,
-    context: Context<E>,
-) -> Result<Value, Error> {
-    let view = super::convert::to_record(
-        state.data_unchecked(),
-        &state.metadata,
-        &ToRecordOptions::default(),
-        &context,
-    )
-    .await?;
-    let text = serde_json::to_string_pretty(view.schema().as_ref())
-        .map_err(|error| Error::from_error(ErrorType::SerializationError, error))?;
-    Ok(Value::from_string(text))
 }
 
 /// A view as one of the seven JSON table shapes.
@@ -617,6 +617,7 @@ macro_rules! register_records_commands {
     ($cr:expr) => {{
         use liquers_macro::register_command;
         use $crate::records::commands::*;
+        use $crate::records::table_ops::*;
 
         register_command!($cr,
             async fn rec_id(state, id: String, context) -> result
@@ -674,11 +675,146 @@ macro_rules! register_records_commands {
             doc: "The one step from a source to a table"
         )?;
 
+        // The table operations (`records/table_ops.rs`): names and arguments follow `ns-pl`.
         register_command!($cr,
-            async fn records_schema(state, context) -> result
+            async fn schema(state, context) -> result
             namespace: "rec"
             label: "Schema"
-            doc: "The schema, as a value a schema argument can be linked to"
+            doc: "The schema as JSON text: what a schema argument or a manifest's uniform_schema accepts"
+        )?;
+        $cr.register_alias(
+            liquers_core::command_metadata::CommandKey::new("", "rec", "records_schema"),
+            liquers_core::command_metadata::CommandKey::new("", "rec", "schema"),
+            vec![],
+            vec![],
+        )?
+        .with_label("Schema")
+        .with_doc("Alias of ns-rec/schema");
+        register_command!($cr,
+            async fn eq(state, column: String, value: String, context) -> result
+            namespace: "rec"
+            label: "Equal to"
+            doc: "Rows where the column compares equal to the value, parsed to the column's type"
+        )?;
+        register_command!($cr,
+            async fn ne(state, column: String, value: String, context) -> result
+            namespace: "rec"
+            label: "Not equal to"
+            doc: "Rows where the column compares not equal to the value, parsed to the column's type"
+        )?;
+        register_command!($cr,
+            async fn gt(state, column: String, value: String, context) -> result
+            namespace: "rec"
+            label: "Greater than"
+            doc: "Rows where the column compares greater than the value, parsed to the column's type"
+        )?;
+        register_command!($cr,
+            async fn gte(state, column: String, value: String, context) -> result
+            namespace: "rec"
+            label: "Greater than or equal"
+            doc: "Rows where the column compares greater than or equal the value, parsed to the column's type"
+        )?;
+        register_command!($cr,
+            async fn lt(state, column: String, value: String, context) -> result
+            namespace: "rec"
+            label: "Less than"
+            doc: "Rows where the column compares less than the value, parsed to the column's type"
+        )?;
+        register_command!($cr,
+            async fn lte(state, column: String, value: String, context) -> result
+            namespace: "rec"
+            label: "Less than or equal"
+            doc: "Rows where the column compares less than or equal the value, parsed to the column's type"
+        )?;
+        register_command!($cr,
+            async fn starts_with(state, column: String, text: String, case_sensitive: bool = false, context) -> result
+            namespace: "rec"
+            label: "Starts with"
+            doc: "Rows whose text starts with the given text, taken literally; case-insensitive unless case_sensitive"
+        )?;
+        register_command!($cr,
+            async fn ends_with(state, column: String, text: String, case_sensitive: bool = false, context) -> result
+            namespace: "rec"
+            label: "Ends with"
+            doc: "Rows whose text ends with the given text, taken literally; case-insensitive unless case_sensitive"
+        )?;
+        register_command!($cr,
+            async fn contains(state, column: String, text: String, case_sensitive: bool = false, context) -> result
+            namespace: "rec"
+            label: "Contains"
+            doc: "Rows whose text contains the given text, taken literally; case-insensitive unless case_sensitive"
+        )?;
+        register_command!($cr,
+            async fn glob(state, column: String, pattern: String, case_sensitive: bool = false, context) -> result
+            namespace: "rec"
+            label: "Glob"
+            doc: "Rows whose text matches a * / ? pattern; case-insensitive unless case_sensitive"
+        )?;
+        register_command!($cr,
+            async fn is_in(state, column: String, values: Vec<String> multiple, context) -> result
+            namespace: "rec"
+            label: "Is in"
+            doc: "Rows whose column equals one of the values"
+        )?;
+        register_command!($cr,
+            async fn is_null(state, column: String, context) -> result
+            namespace: "rec"
+            label: "Is null"
+            doc: "Rows where the column is null"
+        )?;
+        register_command!($cr,
+            async fn is_not_null(state, column: String, context) -> result
+            namespace: "rec"
+            label: "Is not null"
+            doc: "Rows where the column is not null"
+        )?;
+        register_command!($cr,
+            async fn filter(state, query: String = "", context) -> result
+            namespace: "rec"
+            label: "Filter"
+            doc: "Rows matching a search expression: ns-search/search with rank=false and no limit"
+        )?;
+        register_command!($cr,
+            async fn sort(state, column: String, ascending: bool = true, nulls_last: bool = false, context) -> result
+            namespace: "rec"
+            label: "Sort by column"
+            doc: "Stable sort by one column; nulls first unless nulls_last (as ns-pl/sort)"
+        )?;
+        register_command!($cr,
+            async fn tail(state, n: i64 = 5, context) -> result
+            namespace: "rec"
+            label: "Last rows"
+            doc: "The last n rows, materialized"
+        )?;
+        register_command!($cr,
+            async fn drop_columns(state, columns: Vec<String> multiple, context) -> result
+            namespace: "rec"
+            label: "Drop columns"
+            doc: "Every column but the named ones; the Id and Source columns cannot be dropped"
+        )?;
+        register_command!($cr,
+            async fn nrows(state, context) -> result
+            namespace: "rec"
+            label: "Number of rows"
+            doc: "The row count; over a source, counted chunk by chunk"
+        )?;
+        register_command!($cr,
+            async fn ncols(state, context) -> result
+            namespace: "rec"
+            label: "Number of columns"
+            doc: "The column count"
+        )?;
+        register_command!($cr,
+            async fn shape(state, context) -> result
+            namespace: "rec"
+            label: "Shape"
+            doc: "{nrows, ncols}, as ns-pl/shape"
+        )?;
+        register_command!($cr,
+            async fn count(state, context) -> result
+            namespace: "rec"
+            label: "Count"
+            doc: "One row: the non-null count of every column, as ns-pl/count"
         )?;
 
         register_command!($cr,
