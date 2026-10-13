@@ -13,18 +13,18 @@
 //! `EnvRef` is not — needs `liquers-lib`'s `Value: RecordValue`, so it is tested there
 //! (`liquers-lib/tests/resolver_dependency_recording.rs`).
 //!
-//! **Wrapping sources.** Phase 2's Trait Implementations table names "a filtering source and an
-//! asynchronously mapping one" as further `RecordSource` reference implementations, but neither
-//! §"The types" nor §"Function Signatures" gives either a struct, a field list or a constructor —
-//! there is nothing concrete to implement yet. Filed as
-//! `RECORD-SOURCE-WRAPPERS-UNSPECIFIED` rather than guessed at here.
+//! **Wrapping sources.** Two wrappers compose over any source without materializing it:
+//! [`MappedSource`] here (a view-to-view function applied to every chunk — projection, `head` per
+//! chunk) and `search::FilteredSource` (a predicate). Specified in
+//! `specs/design/record-filter-commands/phase2-architecture.md` §Interfaces, which resolved
+//! `RECORD-SOURCE-WRAPPERS-UNSPECIFIED`.
 
 use std::sync::Arc;
 
 use futures::stream;
 use liquers_core::context::{Context, EnvRef, Environment};
 use liquers_core::error::{Error, ErrorType};
-use liquers_core::maybe_send::BoxFuture;
+use liquers_core::maybe_send::{BoxFuture, MaybeSend, MaybeSync};
 use liquers_core::metadata::{DependencyKey, DependencyRecord, Metadata, Version};
 use liquers_core::query::{
     ActionParameter, ActionRequest, Key, Query, QuerySegment, SegmentHeader, TransformQuerySegment,
@@ -853,6 +853,90 @@ where
     }
 }
 
+/// A view-to-view function that may be shared across tasks. `MaybeSend`/`MaybeSync` are not auto
+/// traits, so they cannot be added to `dyn Fn` directly; this trait bundles them, and every
+/// suitable closure implements it.
+pub trait ViewMapFn:
+    Fn(Arc<dyn RecordView>) -> Result<Arc<dyn RecordView>, Error> + MaybeSend + MaybeSync + 'static
+{
+}
+
+impl<F> ViewMapFn for F where
+    F: Fn(Arc<dyn RecordView>) -> Result<Arc<dyn RecordView>, Error> + MaybeSend + MaybeSync + 'static
+{
+}
+
+/// The function a [`MappedSource`] applies to each chunk's view.
+pub type ViewMap = Arc<dyn ViewMapFn>;
+
+/// A source whose every chunk is `map(chunk)`, applied lazily as the inner source streams — so a
+/// projection over a manifest of many chunks holds one chunk at a time, never the whole stream.
+/// The chunk list and descriptors are the inner source's: mapping does not change which chunks
+/// exist, only what each one shows.
+#[derive(Clone)]
+pub struct MappedSource {
+    inner: Arc<dyn RecordSource>,
+    map: ViewMap,
+    /// The inner schema mapped through `map` (on an empty batch), when the inner one is declared.
+    schema: Option<Arc<RecordSchema>>,
+}
+
+impl MappedSource {
+    /// Fails when `map` refuses the inner source's declared schema (for instance a projection
+    /// naming a column that does not exist), so the error surfaces before any chunk is read.
+    pub fn new(inner: Arc<dyn RecordSource>, map: ViewMap) -> Result<MappedSource, Error> {
+        let schema = match inner.schema() {
+            Some(schema) => {
+                let empty: Arc<dyn RecordView> = Arc::new(RecordBatch::empty(schema)?);
+                Some(map(empty)?.schema().clone())
+            }
+            None => None,
+        };
+        Ok(MappedSource { inner, map, schema })
+    }
+}
+
+impl std::fmt::Debug for MappedSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MappedSource").field("inner", &self.inner).finish_non_exhaustive()
+    }
+}
+
+impl RecordSource for MappedSource {
+    fn stream(
+        self: Arc<Self>,
+        resolver: Arc<dyn ChunkResolver>,
+    ) -> BoxFuture<'static, Result<BoxRecordStream, Error>> {
+        Box::pin(async move {
+            use futures::StreamExt;
+            let inner = self.inner.clone().stream(resolver).await?;
+            let map = self.map.clone();
+            let mapped = inner.map(move |item| item.and_then(|view| map(view)));
+            Ok(record_stream(mapped, self.schema.clone()))
+        })
+    }
+
+    fn chunks(&self) -> ChunkList<'_> {
+        self.inner.chunks()
+    }
+
+    fn describe_chunk<'a>(
+        &'a self,
+        id: &'a ChunkId,
+        resolver: &'a dyn ChunkResolver,
+    ) -> BoxFuture<'a, Result<ChunkDescriptor, Error>> {
+        self.inner.describe_chunk(id, resolver)
+    }
+
+    fn schema(&self) -> Option<Arc<RecordSchema>> {
+        self.schema.clone()
+    }
+
+    fn truncated(&self) -> bool {
+        self.inner.truncated()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1566,6 +1650,74 @@ mod tests {
         };
         assert_eq!(error.error_type, unprefixed.error_type);
         assert_eq!(error.message, format!("chunk 0 (data/sales/data.csv): {}", unprefixed.message));
+        Ok(())
+    }
+
+    // --- MappedSource (record-filter-commands, Phase 3) ---------------------------------------
+
+    fn two_column_view(ids: &[&str], amounts: &[i64]) -> Arc<dyn RecordView> {
+        use crate::buffer::{AlignedBuffer, Buffer};
+        use crate::column::Column;
+        use crate::schema::{FieldSchema, FieldType, KeyRole};
+        let schema = Arc::new(
+            RecordSchema::new(vec![
+                FieldSchema::new("id", FieldType::Text).with_key(KeyRole::Id),
+                FieldSchema::new("amount", FieldType::Int),
+            ])
+            .expect("schema"),
+        );
+        let mut offsets = vec![0i32];
+        let mut data = Vec::new();
+        for id in ids {
+            data.extend_from_slice(id.as_bytes());
+            offsets.push(data.len() as i32);
+        }
+        let columns = vec![
+            Column::Text { validity: None, offsets: Buffer::from_slice(&offsets), data: AlignedBuffer::from_slice(&data) },
+            Column::Int { validity: None, values: Buffer::from_slice(amounts) },
+        ];
+        Arc::new(RecordBatch::new(schema, columns, None, None, vec![]).expect("batch"))
+    }
+
+    #[tokio::test]
+    async fn mapped_source_maps_each_chunk_and_its_schema() -> Result<(), Box<dyn std::error::Error>> {
+        use futures::StreamExt;
+        let inner: Arc<dyn RecordSource> = Arc::new(InMemorySource::new(vec![
+            two_column_view(&["a", "b"], &[1, 2]),
+            two_column_view(&["c"], &[3]),
+        ]));
+        let map: ViewMap = Arc::new(|view: Arc<dyn RecordView>| view.select_columns(&["amount"]));
+        let source = Arc::new(MappedSource::new(inner, map)?);
+        let names = |schema: &RecordSchema| schema.fields.iter().map(|f| f.name.clone()).collect::<Vec<_>>();
+        let declared = source.schema().ok_or("schema")?;
+        // select_columns keeps the Id field, after the named ones.
+        assert_eq!(names(&declared), vec!["amount", "id"]);
+        assert!(matches!(source.chunks(), ChunkList::Known(ids) if ids.len() == 2));
+
+        struct NoResolver;
+        impl ChunkResolver for NoResolver {
+            fn evaluate(&self, _q: Query) -> BoxFuture<'static, Result<ChunkValue, Error>> {
+                Box::pin(async { Err(Error::general_error("unused".to_string())) })
+            }
+            fn metadata(&self, _q: Query) -> BoxFuture<'static, Result<Metadata, Error>> {
+                Box::pin(async { Err(Error::general_error("unused".to_string())) })
+            }
+            fn read_resource(&self, _k: Key) -> BoxFuture<'static, Result<(Vec<u8>, Metadata), Error>> {
+                Box::pin(async { Err(Error::general_error("unused".to_string())) })
+            }
+        }
+        let mut stream = source.clone().stream(Arc::new(NoResolver)).await?;
+        let mut lens = Vec::new();
+        while let Some(view) = stream.next().await {
+            let view = view?;
+            assert_eq!(names(view.schema()), vec!["amount", "id"]);
+            lens.push(view.len());
+        }
+        assert_eq!(lens, vec![2, 1]);
+
+        let bad: ViewMap = Arc::new(|view: Arc<dyn RecordView>| view.select_columns(&["nope"]));
+        let inner: Arc<dyn RecordSource> = Arc::new(InMemorySource::new(vec![two_column_view(&["a"], &[1])]));
+        assert!(MappedSource::new(inner, bad).is_err());
         Ok(())
     }
 }
