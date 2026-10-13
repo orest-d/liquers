@@ -3,7 +3,7 @@ title: Record Streams
 kind: reference
 audience: internal
 area: [records, lib/value, lib/commands, web]
-reviewed: 2026-10-11
+reviewed: 2026-10-13
 ---
 
 # Record Streams
@@ -92,6 +92,13 @@ consume) and `role: FieldRole` (what a search index consumes) — plus a structu
 Roles are **capabilities the data affords**, not instructions. Beyond the Id rule, their one
 consumer is `ns-search/search`, whose default search fields are `text_fields()` (see
 [`SEARCH.md`](SEARCH.md)); `resolve_field` is how it resolves a field an expression names.
+
+**Deserialization is lenient where JSON and YAML differ.** `IndexKind` and `Analyzer` serialize with
+serde's external tagging (unchanged, so stored IPC schemas are unaffected) but accept three
+spellings: a bare variant name, the single-key map JSON writes (`{"FullText": {"analyzer": "Simple",
+"positions": true}}`), and a YAML tag (`!FullText { analyzer: Simple, positions: true }`) — so the
+JSON `ns-rec/schema` prints is accepted by a `schema` argument and pasted into a manifest. A
+`FieldRole` may omit any of `indexed`, `stored`, `fast` (each defaults as `FieldRole::default()`).
 
 **`RecordSchema::new` is the only constructor, and deserialization goes through it** (a private
 `RecordSchemaSpec`), so a hand-written YAML schema is checked too. It refuses:
@@ -275,7 +282,8 @@ the adapter by which `liquers-records` reads and builds `liquers-lib`'s `Value` 
 |---|---|---|
 | `ManifestSource` | the manifest's explicit chunks, then its template | its `ManifestSpec` |
 | `InMemorySource` | one per view, ids are placeholders (`in_memory_view-<n>`) never evaluated; `schema()` is `Some` only when every view's schema is equal | none |
-| `search::FilteredSource` | the inner source's, filtered lazily by a `Predicate`; the stream ends after `limit` matching rows (exactly `limit`), and the predicate is re-bound whenever a view's schema differs. Built by `ns-search/search` with `rank=false` ([`SEARCH.md`](SEARCH.md)) | none |
+| `search::FilteredSource` | the inner source's, filtered lazily by a `Predicate`; the stream ends after `limit` matching rows (exactly `limit`), and the predicate is re-bound whenever a view's schema differs. Built by `ns-search/search` with `rank=false` ([`SEARCH.md`](SEARCH.md)), by the `ns-rec` filters, and by `ns-rec/head` (`SearchExpr::always()` with `limit = n`) | none |
+| `MappedSource` | the inner source's; each chunk's view is `map(view)` as it streams (`ViewMap = Arc<dyn ViewMapFn>`, a `Fn(Arc<dyn RecordView>) -> Result<Arc<dyn RecordView>, Error>`). `schema()` is the inner declared schema mapped through `map` on `RecordBatch::empty`, so `MappedSource::new` fails early when `map` refuses it. Built by `ns-rec/select_columns` and `drop_columns` over a source | none |
 
 A chunk that evaluates to a nested `RecordSource` is refused.
 
@@ -697,6 +705,7 @@ Every `ns-rec` command that takes an input converts it through one of two async 
 |---|---|---|
 | `RecordView` | itself | `InMemorySource` of it |
 | `RecordSource` | **refused**, naming `ns-rec/materialize` | itself; a manifest source is re-keyed when the state's key ends in `.manifest.yaml` |
+| `polars.DataFrame` (feature `polars`) | `dataframe_to_record_batch` — roles are not carried | the batch in an `InMemorySource` |
 | `Bytes`, `Text` | read as a table in `ToRecordOptions::format`, else the metadata's data format; `schema` makes it schema-aware | a `ManifestSource` when the parsed YAML has `manifest: record-stream`, else the table in an `InMemorySource` |
 | `Array`, `Object` (structured JSON) | `from_json(.., Auto, ..)` | a manifest when it has the discriminator, else as `to_record` |
 | `Key` | the key's state, fetched through the context (a recorded dependency), converted recursively | the same |
@@ -704,27 +713,75 @@ Every `ns-rec` command that takes an input converts it through one of two async 
 
 ### `ns-rec` commands
 
-Thirteen commands, namespace `rec`, registered by `register_records_commands!`
-(`liquers-lib/src/records/commands.rs`); signatures as in `specs/command_registry.yaml`. **Every one
-is `async … context`**, because the conversion helpers are async.
+Thirty-four commands and one alias, namespace `rec`, registered by `register_records_commands!`
+(`liquers-lib/src/records/commands.rs` and `records/table_ops.rs`); signatures as in
+`specs/command_registry.yaml`. **Every one is `async … context`**, because the conversion helpers
+are async.
 
 | Command | Signature | Returns |
 |---|---|---|
 | `rec_id` | `(state, id: String)` | the first row, walking chunks in order, whose declared `Id` equals `id` — a **materialized** one-row batch. Needs the source's declared schema (`uniform_schema` for a manifest) and an `Id` field, else refuses naming `rowid`. `id` is parsed as the `Id` field's type; a `Date` id is ISO 8601, `20260927` or `2026-09-27` (written `2026~09~27` in a query); a `Timestamp` id is `20260927T100000Z` or RFC 3339 `2026-09-27T10:00:00Z` (written `2026~09~27T10~ncolon~00~ncolon~00Z`); raw day or µs counts are refused; a `Binary` or `Vector` id is refused |
 | `row` | `(state, n: i64)` | row `n` of a view, materialized. A source is refused |
-| `select_columns` | `(state, columns: Vec<String> multiple)` | a `ColumnsView` (not materialized); keeps `Id` / `Source`; refuses an empty list |
-| `head` | `(state, n: i64 = 5)` | the first `min(n, len)` rows, materialized |
+| `select_columns` | `(state, columns: Vec<String> multiple)` | over a view, a `ColumnsView` (not materialized); over a source, a `MappedSource` projecting each chunk. Keeps `Id` / `Source`; refuses an empty list |
+| `head` | `(state, n: i64 = 5)` | over a view, the first `min(n, len)` rows, materialized; over a source, a `FilteredSource` that stops after `n` rows, so only the chunks holding them are read |
 | `slice` | `(state, offset: i64, length: i64)` | a `RowRangeView`, clamped to the rows that exist (a range past the end comes back short) |
 | `rowid` | `(state, chunk: i64, row: i64)` | the row with that implicit id, materialized. Over a manifest source: only that chunk is opened (`describe_chunk`, evaluate, `uniform_schema` checked, placed at its index with no row number); a template chunk beyond the known prefix is refused. Over another source: the stream is walked up to that chunk. Over a view: a scan of `row_id` |
 | `to_record_source` | `(state, format: String = "")` | the input as a source |
 | `materialize` | `(state, max_rows: i64 = 1000000)` | every row as one batch; refused past `max_rows` or when chunk schemas differ |
-| `records_schema` | `(state)` | the schema as pretty JSON **text** (so it links into a `schema` argument) |
+| `schema` | `(state)` | the schema as pretty JSON **text** (so it links into a `schema` argument); a source answers with its declared schema, else its first chunk's. `records_schema` is an alias |
 | `to_json` | `(state, orient: String = "records")` | a structured JSON value |
 | `from_json` | `(state, orient: String = "auto", schema: String = "")` | a batch; the input may be JSON, text, bytes or a key |
 | `to_record` | `(state, format: String = "", header: bool = true, schema: String = "")` | the input as a view |
 | `file_records` | `(state)` | one row per file directly under the state's directory key: `file_id` (`Id`, the key), `file_name`, `size_bytes`, `modified_timestamp` |
 
-`schema` arguments are text: empty for none, else a YAML or JSON `RecordSchema` document
+**Table operations** (`records/table_ops.rs`, `specs/design/record-filter-commands/`). Names,
+arguments and defaults are `ns-pl`'s (polars first, see the comparison below). A filter over a view
+is a lazy `RowIndexView`; over a source, a `FilteredSource` — nothing is materialized. Every
+single-column filter refuses an unknown column, naming the available ones (`StrictPredicate`), at
+once on a view or a source with a declared schema, else when the first chunk streams.
+
+| Command | Signature | Rows kept / result |
+|---|---|---|
+| `eq` `ne` `gt` `gte` `lt` `lte` | `(state, column: String, value: String)` | the comparison holds. `value` is parsed to the column's type; a 10-character ISO date is widened on a `Timestamp` column; Text compares by bytes, exactly — `*` is literal and case matters. A null never matches |
+| `starts_with` `ends_with` `contains` | `(state, column: String, text: String, case_sensitive: bool = false)` | `text` taken literally (regex metacharacters escaped); case-insensitive by default, as `ns-search/search` |
+| `glob` | `(state, column: String, pattern: String, case_sensitive: bool = false)` | `*` / `?` wildcards, else an exact match. In a query, `*` is the entity `~nast~` and `?` is `~nquest~` (`glob-customer-~nast~smith`) |
+| `is_in` | `(state, column: String, values: Vec<String> multiple)` | equals one of the values; an empty list is refused. A linked list arrives as one value ([`LINK-IN-VARIADIC-DOES-NOT-EXPAND`](../issues/LINK-IN-VARIADIC-DOES-NOT-EXPAND.md)) |
+| `is_null` `is_not_null` | `(state, column: String)` | the column is (not) null |
+| `filter` | `(state, query: String = "")` | `ns-search/search-<query>` with `rank=false` and no limit: unknown fields warn and match nothing |
+| `sort` | `(state, column: String, ascending: bool = true, nulls_last: bool = false)` | stable; nulls first unless `nulls_last`; a Float NaN above every number; Text by bytes; Binary and Vector refused (`Column::sort_indices`). A source is materialized first |
+| `tail` | `(state, n: i64 = 5)` | the last `n` rows, materialized. A source is materialized first |
+| `drop_columns` | `(state, columns: Vec<String> multiple)` | every other column, in schema order; dropping an unknown, `Id` or `Source` field is refused. Lazy over a source (`MappedSource`) |
+| `nrows` `ncols` | `(state)` | an `i64`. Over a source, counted chunk by chunk, never concatenated |
+| `shape` | `(state)` | `{nrows, ncols}` (`i64`), as `ns-pl/shape` |
+| `count` | `(state)` | one row: the non-null count of each column, as an `Int` column of the same name |
+
+A cell of a JSON column (`media_type: application/json`) holding an array matches a filter when any
+element does.
+
+**`ns-rec` and `ns-pl`.** A query moves between them: every `ns-pl` command accepts a `RecordView`
+(through `record_batch_to_dataframe`; roles are dropped) and refuses a `RecordSource`, naming
+`ns-rec/materialize`; every `ns-rec` command accepts a `polars.DataFrame`. `ns-pl` is synchronous
+and eager, so laziness over a stream lives in `ns-rec`: `…/ns-rec/select_columns-a-b/materialize/ns-pl/sum`
+holds only `a`, `b` (and the `Id`) of the whole stream. Commands in both namespaces have the same
+arguments and give the same rows on the same data (`records_table_ops.rs`
+`shared_commands_have_the_same_arguments`, `rec_and_pl_filters_and_sort_agree`). Deliberate
+differences:
+
+| Command | `ns-rec` | `ns-pl` |
+|---|---|---|
+| `select_columns`, `drop_columns` | keep the `Id` / `Source` fields | no roles exist |
+| `schema` | a `RecordSchema` document (types, keys, roles) | `{column: "<polars dtype>"}` |
+| `filter`, `glob` | present (the search language) | absent |
+| filters on a JSON array cell | any element matches | the cell's text |
+| text read from CSV | ISO timestamps become `Timestamp` | the polars CSV reader keeps `String` |
+| aggregations, `describe` | absent | present |
+
+The conventions behind the names — polars first, with pandas noted for a future pandas
+namespace — are in `specs/design/record-filter-commands/conventions.md` and
+[`POLARS_COMMAND_LIBRARY.md`](POLARS_COMMAND_LIBRARY.md).
+
+`schema` arguments are text: empty for none, else a JSON (tried first when the text starts with
+`{`) or YAML `RecordSchema` document; a linked file read as bytes is accepted when it is UTF-8
 (`Option<Value>` cannot bind — [`REGISTER-COMMAND-OPTION-VALUE-CANNOT-BIND`](../issues/REGISTER-COMMAND-OPTION-VALUE-CANNOT-BIND.md)).
 Negative counts are refused.
 
@@ -738,6 +795,8 @@ Queries (all validated with `liquers-validate`):
 -R/data/orders.feather/-/ns-rec/rec_id-42/select_columns-price    one cell, by Id (IPC keeps the Id)
 -R/data/daily.feather/-/ns-rec/rec_id-2026~09~27                   one record, by a Date Id (also rec_id-20260927)
 -R/data/orders.csv/-/ns-rec/head-10                               first ten rows, schema inferred
+-R/data/orders.csv/-/ns-rec/to_record-csv/contains-customer-smith/sort-amount-f   filter, then order
+-R/data/sales/daily.manifest.yaml/-/ns-rec/select_columns-amount/materialize/ns-pl/sum   a stream, projected lazily, into polars
 -R/data/orders.csv/-/ns-rec/select_columns-price-qty/orders.feather   a projection, written as IPC
 -R/data/orders.csv/-/ns-rec/to_json-split                         a JSON shape
 ```
@@ -805,6 +864,7 @@ materializes to an empty batch; without one it is an error.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-13 | `ns-rec` table operations (filters, `sort`, `tail`, `drop_columns`, counts, `schema` with `records_schema` as alias); `select_columns` / `head` lazy over sources; `MappedSource`, `RecordBatch::empty`, `Column::sort_indices`, `StrictPredicate`; DataFrame input; lenient `IndexKind` / `Analyzer` / `FieldRole` deserialization; JSON-first `schema` argument; the `ns-rec` ↔ `ns-pl` comparison. | `design/record-filter-commands/` |
 | 2026-10-11 | `Timestamp` is a UTC instant everywhere: IPC writes `Timestamp(Microsecond, "UTC")` and reads any zone without shifting; the polars bridge produces `Datetime(µs, "UTC")` and accepts any `Datetime`. The time-zone limitation is removed. | `design/record-timestamp-utc/` |
 | 2026-10-11 | `FieldSchema::media_type`; `FilteredSource`; roles gain their first consumer, `ns-search/search`. | phase-5, `design/store-and-asset-search/` |
 | 2026-10-10 | JSON: a schema-less `split` / `columns` / `index` read whose data has a column named `index` puts the index first, in the first free `index_<n>`, instead of losing it. | `design/json-orient-index-column-collision/` |

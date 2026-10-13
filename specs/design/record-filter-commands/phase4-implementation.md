@@ -9,17 +9,17 @@ and the registry. Each step compiles and tests on its own. No prerequisite issue
 
 ## Progress
 
-- [ ] Step 1: Enable and verify the polars features
-- [ ] Step 2: `Column::sort_indices`
-- [ ] Step 3: `RecordBatch::empty` and `MappedSource`
-- [ ] Step 4: Search constructors and `StrictPredicate`
-- [ ] Step 5: Lenient schema deserialization
-- [ ] Step 6: UTF-8 bytes as a `String` argument
-- [ ] Step 7: Schema argument JSON-first; DataFrame into `ns-rec` converters
-- [ ] Step 8: `ns-rec` table operations and registration
-- [ ] Step 9: `ns-pl` record input, `sort`, new filters, `i64` counts
-- [ ] Step 10: Integration tests `records_table_ops.rs`
-- [ ] Step 11: Regenerate `specs/command_registry.yaml`
+- [x] Step 1: Enable and verify the polars features — c20a625, d0f8e3c (`strings`, `regex`; `is_in` not needed)
+- [x] Step 2: `Column::sort_indices` — c20a625
+- [x] Step 3: `RecordBatch::empty` and `MappedSource` — 40a0d7a
+- [x] Step 4: Search constructors and `StrictPredicate` — e02af0a
+- [x] Step 5: Lenient schema deserialization — 20169c9
+- [x] Step 6: UTF-8 bytes as a `String` argument — 56584d7
+- [x] Step 7: Schema argument JSON-first; DataFrame into `ns-rec` converters — 56584d7
+- [x] Step 8: `ns-rec` table operations and registration — 56584d7
+- [x] Step 9: `ns-pl` record input, `sort`, new filters, `i64` counts — d0f8e3c
+- [x] Step 10: Integration tests `records_table_ops.rs` — 7428608, b4da9ee
+- [x] Step 11: Regenerate `specs/command_registry.yaml` — f52a4d2
 - [ ] Step 12: Final checks
 
 ## Implementation Steps

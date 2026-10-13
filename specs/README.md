@@ -217,6 +217,7 @@ revision-7 documents are archived under `archive/2026-10-10-store-and-asset-sear
 
 - **Polars commands** — documented → [`reference/POLARS_COMMAND_LIBRARY.md`](reference/POLARS_COMMAND_LIBRARY.md)
 - **Image commands** — documented → [`reference/IMAGE_COMMAND_LIBRARY.md`](reference/IMAGE_COMMAND_LIBRARY.md)
+- **Record table operations and `ns-rec` ↔ `ns-pl` interoperability** — built → [`reference/RECORD_STREAMS.md`](reference/RECORD_STREAMS.md) §"`ns-rec` commands"; conventions in [`reference/POLARS_COMMAND_LIBRARY.md`](reference/POLARS_COMMAND_LIBRARY.md) *(design in [`design/record-filter-commands/`](design/record-filter-commands/))*
 
 Both are internal specifications. The user-facing command reference is expected to be generated
 from `command_registry.yaml` rather than written by hand.
@@ -373,7 +374,6 @@ deliberately folded behind a broader line.
 - design `queued-manager-conditional-eviction`
 - design `rec-id-iso-date-parsing`
 - design `recipe-plan-declarations`
-- design `record-filter-commands`
 - design `record-timestamp-utc`
 - design `recovery-read-defers-placeholder`
 - design `refresh-command-metadata-versions`
@@ -425,7 +425,6 @@ deliberately folded behind a broader line.
 - feature `NO-TEMPLATE-EDITOR-UI`
 - feature `PY-PYO3-0-21-CANNOT-TARGET-PYTHON-3-13`
 - feature `QUERY-CANNOT-MARK-CACHED-INTERMEDIATES`
-- feature `RECORD-AND-POLARS-COMMANDS-NOT-INTEROPERABLE`
 - feature `RECORDS-ARROW-C-DATA-EXPORT-NOT-BUILT`
 - feature `SIMPLE-TEMPLATE-HAS-NO-COMMAND`
 - feature `STORE-COMMAND-NAMESPACE-MISSING`

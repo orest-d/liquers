@@ -3,7 +3,7 @@ title: Record Stream Guide
 kind: guide
 audience: internal
 area: [records, lib/value]
-reviewed: 2026-10-11
+reviewed: 2026-10-13
 ---
 
 # Record Stream Guide
@@ -541,9 +541,11 @@ The full set of operations:
 
 | Operation | Call | Query-level command |
 |---|---|---|
-| Projection | `select_columns(&[..])`, which keeps `Id` / `Source` and appends them after the named columns | `ns-rec/select_columns-a-b` |
-| Row window | `slice(offset, len)`, `row(n)` | `ns-rec/slice-1-2`, `ns-rec/row-1`, `ns-rec/head-5` |
-| Filter / gather | `filter(&mask)`, `take(&[u32])` | none (use Rust) |
+| Projection | `select_columns(&[..])`, which keeps `Id` / `Source` and appends them after the named columns | `ns-rec/select_columns-a-b`, `ns-rec/drop_columns-c` |
+| Row window | `slice(offset, len)`, `row(n)` | `ns-rec/slice-1-2`, `ns-rec/row-1`, `ns-rec/head-5`, `ns-rec/tail-5` |
+| Filter / gather | `filter(&mask)`, `take(&[u32])` | `ns-rec/eq-region-west`, `gt`, `contains`, `is_in`, `is_null`, … and `ns-rec/filter-<search expression>` |
+| Sort | `Column::sort_indices(ascending, nulls_last)`, then `take` | `ns-rec/sort-amount-f` |
+| Counts | `len()`, `schema().fields.len()` | `ns-rec/nrows`, `ncols`, `shape`, `count` |
 | Derived / precomputed column | `with_column`, `with_columns` | none |
 | One cell | `cell(row, "col")`, then `single_cell()` | `…/-/ns-rec/rec_id-42/select_columns-price` |
 | Concatenate | `RecordBatch::concat(&[..])` (batches, not views; the schemas must match) | `ns-rec/materialize` on a source |
@@ -553,7 +555,23 @@ access. Materialize when you will read the result many times, before handing it 
 (the web binding materializes non-batch views itself), and before exporting it. `materialize` on a
 `RecordBatch` is a shallow clone.
 
-**What is deliberately absent:** group-by, join and sort. They belong to a query engine. On
+**Filter, sort, then hand over to polars.** The `ns-rec` table operations use `ns-pl`'s names and
+arguments, so a query reads the same in either namespace:
+
+```text
+-R/data/orders.csv/-/ns-rec/to_record-csv/contains-customer-smith/sort-amount-f
+-R/data/sales/daily.manifest.yaml/-/ns-rec/select_columns-amount/materialize/ns-pl/sum
+```
+
+Over a **source**, the filters, `select_columns`, `drop_columns` and `head` are lazy — each chunk is
+narrowed as it streams — while `sort` and `tail` materialize first. So narrow a stream in `ns-rec`,
+then `materialize`, then use `ns-pl`: `ns-pl` accepts a view but refuses a source, because it is
+eager. Text filters are case-insensitive unless `case_sensitive` is `t`; `*` in a `glob` pattern is
+written `~nast~`. The command list and the `ns-rec` ↔ `ns-pl` differences are in
+[`RECORD_STREAMS.md`](../reference/RECORD_STREAMS.md) §"`ns-rec` commands"; the end-to-end tests
+are `liquers-lib/tests/records_table_ops.rs`.
+
+**What is deliberately absent:** group-by, join and aggregation. They belong to a query engine. On
 native builds, convert to a polars `DataFrame` (§6.5) and use `ns-pl`.
 
 ---
@@ -766,7 +784,7 @@ and there is no `polars-arrow` hand-off. Three routes exist, and each one copies
 
 | Route | How | Limits |
 |---|---|---|
-| polars, in process | `liquers_lib::records::polars::{record_batch_to_dataframe, dataframe_to_record_batch}` (feature `polars`) | Copies per column. Roles are lost, and no `Id` is guessed on the way back. `Vector` is refused (`POLARS-BRIDGE-VECTOR-COLUMNS-REFUSED`) |
+| polars, in process | `liquers_lib::records::polars::{record_batch_to_dataframe, dataframe_to_record_batch}` (feature `polars`); at query level, any `ns-pl` command on a view, and any `ns-rec` command on a DataFrame | Copies per column. Roles are lost, and no `Id` is guessed on the way back. `Vector` is refused (`POLARS-BRIDGE-VECTOR-COLUMNS-REFUSED`) |
 | Parquet bytes | Write with a `.parquet` filename, e.g. `…/ns-rec/materialize/daily.parquet`, or call `write_table(…, TableFormat::Parquet, …)`. Read in pandas or pyarrow | `Vector` is refused. Reading in Liquers goes through polars, and a declared schema is ignored (`RECORDS-PARQUET-POLARS-READ-IGNORES-DECLARED-SCHEMA`) |
 | Arrow IPC / Feather bytes | `TableFormat::Ipc` (feature `records-ipc`). The filename aliases are `ipc`, `feather`, `arrow`, `arrow_ipc` | This crate's reader cannot read any polars **string** column (§7.11) |
 
@@ -934,6 +952,7 @@ write-only. Parquet is written here and read back only through polars
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-13 | §5: the `ns-rec` table operations (filters, `sort`, `tail`, `drop_columns`, counts), laziness over sources, and handing over to `ns-pl`; sort is no longer absent. §6.5: query-level bridge. | `design/record-filter-commands/` |
 | 2026-10-11 | §2.1: which role to give a field so `ns-search/search` finds it; `with_media_type` for JSON columns. | phase-5, `design/store-and-asset-search/` |
 | 2026-10-10 | "`context` as its last parameter" restated as the recommendation: the macro now accepts `context` at any position. | phase-5, `design/context-param-order/` |
 | 2026-10-07 | §3.2: the directory-of-CSV-files manifest, quoted from its end-to-end test, with the two limits the test found. | `design/manifest-over-stored-csv-test/` |

@@ -3,8 +3,8 @@ id: RECORD-FILTER-COMMANDS
 kind: design
 title: Record and polars command interoperability (ns-rec filters, sort, shared vocabulary)
 workflow: liquers-project
-status: approved
-phase: implementation
+status: in_review
+phase: documentation
 readiness: ready
 autofix: not-eligible
 area: [records, lib/commands, lib/polars]
@@ -35,8 +35,8 @@ Phase 5. Decision log at the pre-implementation stop: empty.
 | 1 High-level | **Approved 2026-10-13** (Revision 4) |
 | 2 Architecture | **Approved 2026-10-13** |
 | 3 Examples | Written and reviewed 2026-10-13 (pre-approved) |
-| 4 Implementation | Plan written and reviewed 2026-10-13 (pre-approved); executing |
-| 5 Documentation | Not started |
+| 4 Implementation | Implemented 2026-10-13 (c20a625 … b4da9ee); Steps 1–11 ticked, Step 12 (matrix) running |
+| 5 Documentation | Written 2026-10-13; presented for confirmation before `status: complete` |
 
 ## Phases
 
