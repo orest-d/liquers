@@ -240,6 +240,18 @@ fn validate_offsets(offsets: &Buffer<i32>, data: &AlignedBuffer, utf8: bool) -> 
     Ok(())
 }
 
+/// Stable sort of row indices by `keys[i]` (indices are in range: they come from `0..len`).
+fn sort_by_key_slice<T: Ord>(
+    rows: &mut [u32],
+    keys: &[T],
+    direct: impl Fn(std::cmp::Ordering) -> std::cmp::Ordering,
+) {
+    rows.sort_by(|&a, &b| match (keys.get(a as usize), keys.get(b as usize)) {
+        (Some(x), Some(y)) => direct(x.cmp(y)),
+        (x, y) => x.is_some().cmp(&y.is_some()),
+    });
+}
+
 fn apply_op<T: PartialOrd>(a: T, b: T, op: CompareOp) -> bool {
     match op {
         CompareOp::Eq => a == b,
@@ -1224,6 +1236,74 @@ impl Column {
         }
     }
 
+    /// The row order that sorts this column: a permutation of `0..len`, for
+    /// [`RecordView::take`](crate::RecordView). Stable — equal values keep their input order in
+    /// both directions. Nulls are placed first unless `nulls_last` (polars' defaults); a `Float`
+    /// NaN orders above every number, as in polars; `Text` compares by bytes and `Bool` puts
+    /// `false` first. `Binary` and `Vector` have no ordering and are refused.
+    pub fn sort_indices(&self, ascending: bool, nulls_last: bool) -> Result<Vec<u32>, Error> {
+        let len = u32::try_from(self.len()).map_err(|_| {
+            Error::general_error(format!("Column::sort_indices: {} rows exceed u32", self.len()))
+        })?;
+        let nulls = self.null_mask();
+        let (mut valid, null_rows): (Vec<u32>, Vec<u32>) =
+            (0..len).partition(|&i| !nulls.get(i as usize));
+        let direct = |ordering: std::cmp::Ordering| {
+            if ascending {
+                ordering
+            } else {
+                ordering.reverse()
+            }
+        };
+        match self {
+            Column::Bool { values, .. } => {
+                valid.sort_by(|&a, &b| direct(values.get(a as usize).cmp(&values.get(b as usize))))
+            }
+            Column::Int { values, .. } => sort_by_key_slice(&mut valid, values.as_slice(), direct),
+            Column::UInt { values, .. } => sort_by_key_slice(&mut valid, values.as_slice(), direct),
+            Column::Float { values, .. } => {
+                let keys = values.as_slice();
+                // One NaN, positive: total_cmp would put a negative NaN below every number.
+                let key = |i: u32| {
+                    let v = keys.get(i as usize).copied().unwrap_or(f64::NAN);
+                    if v.is_nan() {
+                        f64::NAN
+                    } else {
+                        v
+                    }
+                };
+                valid.sort_by(|&a, &b| direct(key(a).total_cmp(&key(b))));
+            }
+            Column::Text { offsets, data, .. } => {
+                let mut keyed = valid
+                    .iter()
+                    .map(|&i| Ok((i, cell_bytes(offsets.as_slice(), data.as_bytes(), i as usize)?)))
+                    .collect::<Result<Vec<(u32, &[u8])>, Error>>()?;
+                keyed.sort_by(|a, b| direct(a.1.cmp(b.1)));
+                valid = keyed.into_iter().map(|(i, _)| i).collect();
+            }
+            Column::Date { values, .. } => sort_by_key_slice(&mut valid, values.as_slice(), direct),
+            Column::Timestamp { values, .. } => {
+                sort_by_key_slice(&mut valid, values.as_slice(), direct)
+            }
+            Column::Binary { .. } => {
+                return Err(Error::general_error(
+                    "Column::sort_indices: Binary columns have no ordering".to_string(),
+                ))
+            }
+            Column::Vector { .. } => {
+                return Err(Error::general_error(
+                    "Column::sort_indices: Vector columns have no ordering".to_string(),
+                ))
+            }
+        }
+        Ok(if nulls_last {
+            valid.into_iter().chain(null_rows).collect()
+        } else {
+            null_rows.into_iter().chain(valid).collect()
+        })
+    }
+
     /// Fails when the columns are not all the same variant, naming both types.
     pub fn concat(columns: &[Column]) -> Result<Column, Error> {
         let first = columns
@@ -1667,5 +1747,40 @@ mod tests {
         assert_eq!(offset_from_len(0).expect("0"), 0);
         assert_eq!(offset_from_len(i32::MAX as usize).expect("max"), i32::MAX);
         assert!(offset_from_len(i32::MAX as usize + 1).is_err());
+    }
+
+    // --- record-filter-commands, Phase 3 ---
+
+    #[test]
+    fn sort_indices_is_stable_with_nan_and_nulls() -> Result<(), Error> {
+        // rows: 0:2.0 1:NaN 2:null 3:1.0 4:2.0
+        let mut validity = Bitmap::new(5);
+        for i in [0, 1, 3, 4] {
+            validity.set(i, true);
+        }
+        let column = Column::Float {
+            validity: Some(validity),
+            values: Buffer::from_slice(&[2.0, f64::NAN, 0.0, 1.0, 2.0]),
+        };
+        assert_eq!(column.sort_indices(true, false)?, vec![2, 3, 0, 4, 1]);
+        assert_eq!(column.sort_indices(true, true)?, vec![3, 0, 4, 1, 2]);
+        // Descending keeps ties (rows 0 and 4) in input order.
+        assert_eq!(column.sort_indices(false, true)?, vec![1, 0, 4, 3, 2]);
+        let text = Column::Text {
+            validity: None,
+            offsets: Buffer::from_slice(&[0i32, 1, 2, 3, 4]),
+            data: AlignedBuffer::from_slice(b"bBab"),
+        };
+        assert_eq!(text.sort_indices(true, false)?, vec![1, 2, 0, 3]);
+        Ok(())
+    }
+
+    #[test]
+    fn sort_indices_refuses_binary_and_vector() {
+        let binary = Column::empty(FieldType::Binary);
+        let vector = Column::empty(FieldType::Vector);
+        assert!(binary.sort_indices(true, false).is_err());
+        let message = vector.sort_indices(true, false).err().map(|e| e.to_string()).unwrap_or_default();
+        assert!(message.contains("Vector"), "{message}");
     }
 }
