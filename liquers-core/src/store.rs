@@ -1439,6 +1439,13 @@ impl AsyncStore for AsyncStoreRouter {
     /// first let a member listed earlier (an overlay supporting one file) hide a directory a later
     /// member holds (STORE-ROUTER-IS-DIR-IGNORES-IS-SUPPORTED). Data has one owner (`find_store`);
     /// directories are a union. The root and keys above a member's prefix are directories here.
+    ///
+    /// A member's own prefix is a directory unless its owner holds data there. The parent's
+    /// `listdir` names every mount point, and an empty member — an `AsyncMemoryStore` with nothing
+    /// in it, an `AsyncFileStore` whose folder is not created yet — does not report its own prefix
+    /// as a directory, so the name was listed and could not be described
+    /// (STORE-ROUTER-LISTS-AN-UNCREATED-MEMBER-PREFIX). A member mounted at a single file holds
+    /// data at its prefix and stays a file.
     async fn is_dir(&self, key: &Key) -> Result<bool, Error> {
         let key = key.as_absolute()?;
         if self.is_above_members(key) {
@@ -1448,6 +1455,13 @@ impl AsyncStore for AsyncStoreRouter {
             if key.has_key_prefix(&store.key_prefix()) && store.is_dir(key).await? {
                 return Ok(true);
             }
+        }
+        if self.stores.iter().any(|store| store.key_prefix() == *key) {
+            return match self.find_store(key) {
+                // Not a directory by any member (above), so `contains` is true only for data.
+                Some(owner) => Ok(!owner.contains(key).await?),
+                None => Ok(true),
+            };
         }
         Ok(false)
     }
@@ -2128,6 +2142,36 @@ mod tests {
             assert_eq!(router.contains(&parse_key("cfg.yaml")?).await?, overlay_first);
             assert!(!router.is_dir(&parse_key("nothing")?).await?);
         }
+        Ok(())
+    }
+
+    /// routerfwd11 (AC-11): an empty member's prefix is a directory; a member mounted at a single
+    /// file is a file.
+    #[tokio::test]
+    async fn routerfwd11_empty_member_prefix_is_a_directory() -> Result<(), Error> {
+        let mut router = AsyncStoreRouter::new();
+        router.add_store(Box::new(AsyncMemoryStore::new(&parse_key("memory/inbox")?)));
+        let config = parse_key("memory/config.yaml")?;
+        let single = AsyncMemoryStore::new(&config);
+        single.set(&config, b"c", &data()).await?;
+        router.add_store(Box::new(single));
+        router.add_store(Box::new(AsyncMemoryStore::new(&parse_key("memory")?)));
+
+        let inbox = parse_key("memory/inbox")?;
+        assert!(router.is_dir(&inbox).await?);
+        assert!(router.contains(&inbox).await?);
+        assert!(router.get_asset_info(&inbox).await?.is_dir);
+        assert!(child_names(&router.get_metadata(&inbox).await?).is_empty());
+
+        assert!(!router.is_dir(&config).await?);
+        assert!(router.contains(&config).await?);
+        assert!(!router.get_asset_info(&config).await?.is_dir);
+
+        let memory = router.get_metadata(&parse_key("memory")?).await?;
+        assert_eq!(
+            child_names(&memory),
+            vec!["config.yaml".to_string(), "inbox".to_string()]
+        );
         Ok(())
     }
 
