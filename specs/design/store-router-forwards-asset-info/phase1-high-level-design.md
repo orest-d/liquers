@@ -91,10 +91,10 @@ crate or command. Tests in the same file and in `liquers-core/tests/store_confor
 
 Pre-approved after Phase 2 on 2026-10-13 (`proceed all`); this section is the decision log.
 
-- **Readiness:** ready
+- **Readiness:** needs-decision (decision 6, found in implementation; pre-approval voided)
 - **Automatic fixing:** not-eligible — `is_dir` changes from the selection `STORE_SEMANTICS.md` §6
   documents (first member by prefix) to a union: a contract change, not a restoration (rule 4).
-- **Leading issue:** None
+- **Leading issue:** decision 6 — an empty member's own prefix
 - **Explanation:** every method's answer is fixed by Phase 2's table; the tests in Phase 3 pin each
   scenario, and the existing router, conformance and OpenDAL router tests guard what stays.
 - **Open questions:** None. Proposed resolutions, all shown to the user at the Phase 2 gate and
@@ -108,6 +108,22 @@ Pre-approved after Phase 2 on 2026-10-13 (`proceed all`); this section is the de
      as `STORE-ROUTER-LISTS-AN-UNCREATED-MEMBER-PREFIX`.
   5. `contains` returning `Ok(false)` instead of `Err(KeyNotSupported)` for unowned keys is an
      observable change (callers reach the recipe provider), accepted as §4 behaviour.
+
+**Needs decision** (found in Step 4, 2026-10-13; it changes decision 4 and AC-10's `Ok(false)`):
+
+6. **An empty member's own prefix.** An empty `AsyncMemoryStore` reports its own prefix as not a
+   directory, as an uncreated `AsyncFileStore` folder does (`STORE-ROUTER-LISTS-AN-UNCREATED-MEMBER-PREFIX`).
+   Composing a parent's `children` (AC-9) asks each child's owner, so a parent containing an empty
+   nested mount now fails `get_metadata` with `KeyNotFound` — before this design the owner alone
+   answered and silently omitted the mount. `routerfwd09` shows it. Options:
+   - **A (recommended):** a member's prefix is a directory unless the owning member holds data at
+     that key (`contains` is `true` there). Closes `STORE-ROUTER-LISTS-AN-UNCREATED-MEMBER-PREFIX`
+     too, adds AC-11, keeps a member mounted at a single file a file. One extra `contains` call,
+     only for a key equal to a member's prefix.
+   - **B:** in a composed listing, describe a child the owner does not hold as a router-built
+     directory without changing `is_dir`. Listing and `is_dir` then disagree.
+   - **C:** omit such a child from composed `children`. `children` then differ from `listdir`
+     (`dir07` fails).
 
 ## Scope Changes
 

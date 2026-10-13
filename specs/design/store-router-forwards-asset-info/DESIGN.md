@@ -3,9 +3,9 @@ id: STORE-ROUTER-FORWARDS-ASSET-INFO
 kind: design
 title: Store router forwards asset info to its members
 workflow: liquers-project
-status: approved
-phase: implementation
-readiness: ready
+status: in_review
+phase: architecture
+readiness: needs-decision
 autofix: not-eligible
 area: [core/store]
 issues: [STORE-ROUTER-DOES-NOT-FORWARD-ASSET-INFO, STORE-ROUTER-IS-DIR-IGNORES-IS-SUPPORTED]
