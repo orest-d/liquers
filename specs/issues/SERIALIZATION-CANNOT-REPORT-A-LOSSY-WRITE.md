@@ -42,9 +42,14 @@ so it is visible in the asset info and the UI. One shape that avoids changing `a
 `fn serialization_warnings(&self, data_format: &str) -> Vec<String> { Vec::new() }`. The asset
 layer calls it beside `as_bytes` and adds each result with `MetadataRecord::warning` before
 `store.set`. Core `Value` overrides it to report nested non-finite floats in `json`. The design
-owns the final signature. It should consider the pull-based stream of
-`VALUE-SERIALIZATION-IS-SYNCHRONOUS-AND-WHOLE-VALUE`, which could carry warnings alongside its
-chunks (weak overlap: same API, independent change).
+owns the final signature.
+
+**Preferred home: the serialization redesign.** The maintainer's view (2026-10-13) is that
+serialization may need a redesign to handle reporting and warnings, not only streaming.
+`VALUE-SERIALIZATION-IS-SYNCHRONOUS-AND-WHOLE-VALUE` already proposes one (`SerializedBytes`), and
+its 2026-10-13 update records this issue there. Whichever is designed first must account for the
+other (overlap test T2, shared contract). The default-method sketch above is the interim fallback,
+worth doing only if that redesign is far off.
 
 ## Discovery
 
@@ -52,5 +57,5 @@ Phase 1 of `design/value-to-json-non-finite-float/`, 2026-10-13. The maintainer 
 nested non-finite floats and noted that the right companion would be a warning, which cannot be
 logged from `as_bytes` without widening its interface. Duplicate search: `docs_index.py new`
 suggested `STORE-WRITE-HAS-NO-PRECONDITION` (a concurrency problem, unrelated) and
-`VALUE-SERIALIZATION-IS-SYNCHRONOUS-AND-WHOLE-VALUE` (weak overlap, noted above). Neither covers this
-issue.
+`VALUE-SERIALIZATION-IS-SYNCHRONOUS-AND-WHOLE-VALUE` (does not cover it, but shares the contract; see
+above).

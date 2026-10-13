@@ -96,7 +96,7 @@ cannot be written at all. All three belong to the generic serde path of
 **Why the in-memory conversion still errors.** `serde_json::Value` cannot hold a non-finite float.
 The token string would be bound as text, and `null` would bind a parameter link to `None`. A refused
 conversion is cheap to recover from: nothing is lost, and the caller can map the value itself.
-This is Q2; it is a proposed resolution and can be changed at the gate.
+This is Q2, now decided.
 
 ### Scope and Acceptance Criteria
 
@@ -227,9 +227,9 @@ fix spans three crates, adds public helpers to `liquers-core`, changes a seriali
 
 1. **Q1, decided 2026-10-13 by the maintainer:** the policy above. Nested untagged floats are
    written as `null`.
-2. **Q2, proposed resolution:** `try_into_json_value` refuses non-finite floats at every depth,
-   rather than mapping nested ones to `null` the way the byte path does. The reasoning is in "Why
-   the in-memory conversion still errors" above.
+2. **Q2, decided 2026-10-13 by the maintainer:** `try_into_json_value` refuses non-finite floats at
+   every depth, rather than mapping nested ones to `null` the way the byte path does. The reasoning
+   is in "Why the in-memory conversion still errors" above.
 3. **Q3, proposed resolution:** leave `CommandParameterValue::from_float` in
    `liquers-core/src/command_metadata.rs` as it is. It is private and nothing calls it. Its inputs
    are compile-time literals, and the macro already guards them with `unwrap_or`.
