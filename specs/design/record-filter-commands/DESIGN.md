@@ -21,11 +21,14 @@ the full form. The compact draft's Phase 1 is now AC-1 to AC-8 of
 [Phase 1](./phase1-high-level-design.md). Its Phase 2 notes are kept, unreviewed, at the top of
 [Phase 2](./phase2-architecture.md).
 
+Supporting notes: [`conventions.md`](./conventions.md) (polars-first naming, maintainer decision
+2026-10-13), [`lazyframe-investigation.md`](./lazyframe-investigation.md) (AC-16).
+
 ## Phase Status
 
 | Phase | State |
 |---|---|
-| 1 High-level | Revision 2 written 2026-10-13; **awaiting `proceed`** |
+| 1 High-level | Revision 3 (gate decisions applied) 2026-10-13; **awaiting `proceed`** |
 | 2 Architecture | Skeleton plus carried-over draft notes |
 | 3 Examples | Not started |
 | 4 Implementation | Not started |
