@@ -13,7 +13,7 @@ change calls `is_dir`), then the two asset-info methods, then `get_metadata` (wh
 - [x] Step 3: forward `get_asset_info` and `listdir_asset_info` — 52773a3
 - [x] Step 4: compose `get_metadata` children — 52773a3; decision 6 (option A, AC-11) — 91354e7
 - [x] Step 5: `AssetManager` and conformance tests — 47928a5
-- [ ] Step 6: comments and documents
+- [x] Step 6: comments and documents — 2120707
 
 ## Implementation Steps
 
@@ -98,6 +98,6 @@ keeps documents unchanged until Step 6.
 
 ## Phase 5 Entry Criteria
 
-- [ ] Implementation finished and validated
-- [ ] User and review comments answered
-- [ ] Documentation checkable against implemented and tested behaviour
+- [x] Implementation finished and validated
+- [x] User and review comments answered
+- [x] Documentation checkable against implemented and tested behaviour

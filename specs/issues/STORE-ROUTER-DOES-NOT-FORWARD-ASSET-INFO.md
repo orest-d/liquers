@@ -2,7 +2,7 @@
 id: STORE-ROUTER-DOES-NOT-FORWARD-ASSET-INFO
 kind: issue
 title: AsyncStoreRouter does not forward get_asset_info to its member stores
-status: draft
+status: closed
 priority: P2
 complexity: S
 area: [core/store]
@@ -43,3 +43,7 @@ is observed through the router.
 
 Codebase review of `agent-memory-mvp` Phase 1 revision 2, 2026-10-11, checking whether a store
 adapter mounted in `AsyncStoreRouter` could project folder tiers.
+
+## Resolution (2026-10-13)
+
+Fixed by design `store-router-forwards-asset-info` (commits 52773a3, 91354e7). `AsyncStoreRouter` now overrides `get_asset_info` (the owner's answer; a router-built directory when the owner does not hold the key and `is_dir` says it is one; otherwise `KeyNotFound`) and `listdir_asset_info` (forwarded to a directory's only contributor, otherwise composed from each child's owner). Tests `routerfwd01`-`routerfwd06` in `liquers-core/src/store.rs` and conformance suite `C6`, whose member overrides `get_asset_info`. Behaviour is in `reference/STORE_SEMANTICS.md` §6.

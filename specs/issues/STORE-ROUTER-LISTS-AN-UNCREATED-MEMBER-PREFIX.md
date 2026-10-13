@@ -2,7 +2,7 @@
 id: STORE-ROUTER-LISTS-AN-UNCREATED-MEMBER-PREFIX
 kind: issue
 title: AsyncStoreRouter lists an uncreated member prefix that it does not contain
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [core/store]
@@ -41,3 +41,7 @@ member mounted at a file key is the case the first must not break.
 
 Phase 2 review of `design/store-router-forwards-asset-info/`, 2026-10-13, which rejected making
 every mount point a directory for that single-file case.
+
+## Resolution (2026-10-13)
+
+Fixed by design `store-router-forwards-asset-info` (decision 6, option A; commit 91354e7), the first of the two expected behaviours: the router treats a member's own prefix as a directory unless the owning member holds data at that key, so an empty memory store or an uncreated file-store folder is a directory and a member mounted at a single file stays a file. Found to block the design's AC-9 for empty nested mounts. Test `routerfwd11_empty_member_prefix_is_a_directory`; suites `C3` and `C6`.

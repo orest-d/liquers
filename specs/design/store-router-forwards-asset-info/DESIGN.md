@@ -3,8 +3,8 @@ id: STORE-ROUTER-FORWARDS-ASSET-INFO
 kind: design
 title: Store router forwards asset info to its members
 workflow: liquers-project
-status: approved
-phase: implementation
+status: in_review
+phase: documentation
 readiness: ready
 autofix: not-eligible
 area: [core/store]
@@ -38,3 +38,4 @@ compact form to one file per phase at the user's request at the Phase 2 gate.
 - [Phase 2](./phase2-architecture.md)
 - [Phase 3](./phase3-examples.md)
 - [Phase 4](./phase4-implementation.md)
+- [Phase 5](./phase5-documentation.md)

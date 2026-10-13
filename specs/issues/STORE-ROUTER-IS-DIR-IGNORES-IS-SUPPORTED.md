@@ -2,7 +2,7 @@
 id: STORE-ROUTER-IS-DIR-IGNORES-IS-SUPPORTED
 kind: issue
 title: AsyncStoreRouter::is_dir routes by prefix alone while other methods also require is_supported
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [core/store]
@@ -39,3 +39,7 @@ an overlay listed first checks `is_dir`, `contains` and `listdir` agree.
 
 Codebase review for `design/store-router-forwards-asset-info/` (Phase 1, open question 2),
 2026-10-13.
+
+## Resolution (2026-10-13)
+
+Fixed by design `store-router-forwards-asset-info` (commit 52773a3), differently from the expected behaviour above: `is_dir` does not route through `find_store` but asks **every** member covering the key, matching `listdir`, which merges every covering member and ignores `is_supported`. A narrowing member listed first can no longer hide a directory a later member holds. Test `routerfwd10_is_dir_asks_every_covering_member` (both member orders).
