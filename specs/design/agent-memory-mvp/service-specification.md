@@ -179,5 +179,5 @@ The survey splits evenly. The arguments specific to Liquers:
 | `NO-MARKDOWN-NAVIGATION-COMMANDS` | Draft, P3 | R5's section read, R7; this design may absorb the minimum it needs |
 | `external-index-sync` | Phase 1 not started | R8 |
 | `STORE-ROUTER-DOES-NOT-FORWARD-ASSET-INFO` | Draft, P2 (filed 2026-10-11) | Folder tiers through a router member; worked around by wrapping the router |
-| `ARGUMENT-INFO-HAS-NO-DESCRIPTION` | Draft, P3 | MCP argument descriptions cannot all come from `CommandMetadata` until fixed; tool declarations supply them meanwhile |
+| `ARGUMENT-INFO-HAS-NO-DESCRIPTION` | Closed 2026-10-11 | MCP argument descriptions come from `ArgumentInfo::description` |
 | `COMMAND-CANNOT-BE-RUN-WITH-A-RESTRICTED-CONTEXT` | Draft, P2 | Needed before a general `query` tool may be offered over MCP to an untrusted client |

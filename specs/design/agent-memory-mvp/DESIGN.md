@@ -64,6 +64,15 @@ What changed from revision 1, and why:
 Revision 1's open question 1 (an asset listing is the union of live assets, store and recipes) was
 settled by `axum-assets-endpoints` and is relied on by AC-12.
 
+## Execution plan — 2026-10-13
+
+[`execution-plan.md`](./execution-plan.md) orders the work this design depends on into waves: small
+fixes first (`STORE-ROUTER-DOES-NOT-FORWARD-ASSET-INFO`, `VALUE-TO-JSON-PANICS-ON-NON-FINITE-FLOAT`),
+the three Phase 1 gates, then three parallel tracks (store adapters, the template language, record
+filters), with the memory service's core and MCP server first because they need only the read-only
+adapter. It also records that `ARGUMENT-INFO-HAS-NO-DESCRIPTION` and
+`STORE-VERSION-BLIND-TO-CHANGES-MADE-OUTSIDE-LIQUERS` were closed after the analyses were written.
+
 ## Spin-off designs — 2026-10-13
 
 Two decisions became designs of their own, at the user's request:
@@ -160,7 +169,7 @@ need identity, that is a finding to report, not a decision to make inside this f
 ## Links
 
 - [Phase 1](./phase1-high-level-design.md)
-- [Survey](./memory-systems-survey.md) · [Specification](./service-specification.md) · [Workflow porting](./workflow-porting.md) · [Tiers and storage](./tiers-and-storage.md) · [Interfaces and MCP](./interfaces-and-mcp.md) · [Brainstorm: workflow improvements](./brainstorm-workflow-improvements.md) · [Template language evaluation](./template-language-evaluation.md)
+- [Survey](./memory-systems-survey.md) · [Specification](./service-specification.md) · [Workflow porting](./workflow-porting.md) · [Tiers and storage](./tiers-and-storage.md) · [Interfaces and MCP](./interfaces-and-mcp.md) · [Brainstorm: workflow improvements](./brainstorm-workflow-improvements.md) · [Template language evaluation](./template-language-evaluation.md) · [Execution plan](./execution-plan.md)
 - [Phase 2](./phase2-architecture.md)
 - [Phase 3](./phase3-examples.md)
 - [Phase 4](./phase4-implementation.md)

@@ -147,10 +147,10 @@ decisions keep the two combinable:
    Streamable HTTP server transports; its version and MSRV are checked in Phase 2.
 2. **A tool is a declared query.** Every tool is `(name, description, argument schema, query
    template, result projection)`. For a tool that wraps one command, the argument schema is
-   generated from its `CommandMetadata` — names, types, defaults, enum values — so it cannot drift
-   from the command. Two things the metadata cannot supply come from the declaration: per-argument
-   descriptions (`ArgumentInfo` has none — `ARGUMENT-INFO-HAS-NO-DESCRIPTION`), and tool-level
-   arguments of composite tools (`memory_new` is `similar` then `new`; `memory_edit` chooses among
+   generated from its `CommandMetadata` — names, types, defaults, enum values and per-argument
+   descriptions (`ArgumentInfo::description`, added 2026-10-11 by `ARGUMENT-INFO-HAS-NO-DESCRIPTION`)
+   — so it cannot drift from the command. What the metadata cannot supply comes from the declaration:
+   tool-level arguments of composite tools (`memory_new` is `similar` then `new`; `memory_edit` chooses among
    `edit`, `set_field` and `append_row`; `include_superseded` adds a filter). A write tool's `body`
    travels as the command's payload, not as a query parameter. Queries are built with
    `ActionRequest`, never by string concatenation (`SEARCH_GUIDE.md` §6). A *tool

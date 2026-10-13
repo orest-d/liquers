@@ -177,8 +177,8 @@ the binary, over `liquers-lib`, `liquers-axum` and `liquers-mcp`.
 - **Overlaps** `STORE-METADATA-HANDLING-NOT-COMPOSABLE` (decision 4; the front-matter adapter is one
   instance), `NO-MARKDOWN-NAVIGATION-COMMANDS` (AC-3, AC-17, AC-21),
   `SIMPLE-TEMPLATE-HAS-NO-COMMAND` (AC-21), `NO-SOURCE-CODE-AND-API-DOC-NAVIGATION` (question 6),
-  `STORE-ROUTER-DOES-NOT-FORWARD-ASSET-INFO` (folder tiers), `ARGUMENT-INFO-HAS-NO-DESCRIPTION` (tool
-  schemas), `CORE-METADATA-NO-APPLICATION-ATTRIBUTES`, `STORE-WRITE-HAS-NO-PRECONDITION` (AC-6 is
+  `STORE-ROUTER-DOES-NOT-FORWARD-ASSET-INFO` (folder tiers), `record-filter-commands` (sorting and
+  counting for AC-10, AC-22), `CORE-METADATA-NO-APPLICATION-ATTRIBUTES`, `STORE-WRITE-HAS-NO-PRECONDITION` (AC-6 is
   single-process until it is fixed).
 - **Feeds** `external-index-sync`, where semantic memory search belongs.
 
