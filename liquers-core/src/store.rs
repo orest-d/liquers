@@ -77,7 +77,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 
-use crate::error::Error;
+use crate::error::{Error, ErrorType};
 use crate::metadata::{self, AssetInfo, Metadata, MetadataRecord};
 use crate::query::Key;
 use crate::store_dir_index::DirectoryIndex;
@@ -103,6 +103,26 @@ pub fn seed_filename_from_key(metadata: &mut Metadata, key: &Key) {
         }
         Metadata::LegacyMetadata(_) => {}
     }
+}
+
+/// The order `listdir_asset_info` returns: directories first, then by filename.
+///
+/// Shared by the `AsyncStore` default and [`AsyncStoreRouter`], which composes a listing from
+/// several members and must order it the same way.
+fn sort_asset_info(info: &mut [AssetInfo]) {
+    info.sort_by(|a, b| {
+        if a.is_dir {
+            if b.is_dir {
+                a.filename.cmp(&b.filename)
+            } else {
+                std::cmp::Ordering::Less
+            }
+        } else if b.is_dir {
+            std::cmp::Ordering::Greater
+        } else {
+            a.filename.cmp(&b.filename)
+        }
+    });
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
@@ -307,19 +327,7 @@ pub trait AsyncStore: crate::maybe_send::MaybeSend + crate::maybe_send::MaybeSyn
             let info = self.get_asset_info(&k).await?;
             asset_info.push(info);
         }
-        asset_info.sort_by(|a, b| {
-            if a.is_dir {
-                if b.is_dir {
-                    a.filename.cmp(&b.filename)
-                } else {
-                    std::cmp::Ordering::Less
-                }
-            } else if b.is_dir {
-                std::cmp::Ordering::Greater
-            } else {
-                a.filename.cmp(&b.filename)
-            }
-        });
+        sort_asset_info(&mut asset_info);
         Ok(asset_info)
     }
 
@@ -1172,6 +1180,51 @@ impl AsyncStoreRouter {
             .iter()
             .find(|&store| key.has_key_prefix(&store.key_prefix()) && store.is_supported(key))
     }
+
+    /// The root, or a key strictly above a member's prefix: a directory because a member is
+    /// mounted beneath it, whatever the members hold. A member's own prefix is not included; the
+    /// member answers for it (a member may be mounted at a single file).
+    fn is_above_members(&self, key: &Key) -> bool {
+        key.is_empty()
+            || self.stores.iter().any(|store| {
+                let prefix = store.key_prefix();
+                prefix.len() > key.len() && prefix.has_key_prefix(key)
+            })
+    }
+
+    /// The one member that can answer for everything inside `key`, if there is one.
+    ///
+    /// The contributors to `key` are the members `listdir` consults: those whose prefix covers
+    /// `key` and those mounted strictly beneath it. When there is exactly one and it also owns
+    /// `key` (`find_store`), the router forwards whole-directory questions to it, so the member's
+    /// own answer — an override, or a cheaper listing — is the router's. Otherwise the router
+    /// composes the answer from all of them.
+    fn sole_contributor(&self, key: &Key) -> Option<&dyn AsyncStore> {
+        let mut contributors = self.stores.iter().filter(|store| {
+            let prefix = store.key_prefix();
+            key.has_key_prefix(&prefix) || (prefix.len() > key.len() && prefix.has_key_prefix(key))
+        });
+        let only = contributors.next()?;
+        if contributors.next().is_some() {
+            return None;
+        }
+        let owner = self.find_store(key)?;
+        if std::ptr::eq(only.as_ref(), owner.as_ref()) {
+            Some(owner.as_ref())
+        } else {
+            None
+        }
+    }
+
+    /// A directory record built by the router, for a directory no member describes.
+    ///
+    /// Built here rather than with `default_metadata`, which delegates to a member.
+    fn directory_record(key: &Key) -> MetadataRecord {
+        let mut metadata = MetadataRecord::new();
+        metadata.with_key(key.to_owned());
+        metadata.is_dir = true;
+        metadata
+    }
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
@@ -1237,24 +1290,78 @@ impl AsyncStore for AsyncStoreRouter {
     }
 
     /// Get metadata
+    ///
+    /// The owner's metadata. For a directory with several contributors — another member mounted
+    /// beneath it, or also listing inside it — `children` are replaced by the router's listing, the
+    /// names `listdir` gives; the owner alone would omit the other members' entries.
     async fn get_metadata(&self, key: &Key) -> Result<Metadata, Error> {
         let key = key.as_absolute()?;
         if let Some(store) = self.find_store(key) {
-            return store.get_metadata(key).await;
+            match store.get_metadata(key).await {
+                Ok(Metadata::MetadataRecord(mut record)) => {
+                    if record.is_dir && self.sole_contributor(key).is_none() {
+                        record.children = self.listdir_asset_info(key).await?;
+                    }
+                    return Ok(Metadata::MetadataRecord(record));
+                }
+                // No typed `children` to compose.
+                Ok(legacy @ Metadata::LegacyMetadata(_)) => return Ok(legacy),
+                // Not the owner's: it may still be a directory another member holds.
+                Err(e) if e.error_type == ErrorType::KeyNotFound => {}
+                Err(e) => return Err(e),
+            }
         }
-        // Above the members: a directory that exists because a member is mounted below it.
-        // `is_dir` already says so, and STORE_SEMANTICS §2 requires directory metadata with its
+        // Above the members (or held by a member other than the owner): `is_dir` says so, and STORE_SEMANTICS §2 requires directory metadata with its
         // children for any key `is_dir` answers. A child above a deeper member recurses into
         // this branch; one a member owns dispatches to it.
         if self.is_dir(key).await? {
-            // Built here: `default_metadata` delegates to a member, and none owns this key.
-            let mut metadata = MetadataRecord::new();
-            metadata.with_key(key.to_owned());
-            metadata.is_dir = true;
+            let mut metadata = Self::directory_record(key);
             metadata.children = self.listdir_asset_info(key).await?;
             return Ok(Metadata::MetadataRecord(metadata));
         }
         Err(Error::key_not_found(key))
+    }
+
+    /// Get asset info: the owner's, so a member that describes its entries (a folder from its
+    /// README, a cheaper directory record) is heard through the router.
+    ///
+    /// Without this override the trait default ran on the router itself and never called the
+    /// member (STORE-ROUTER-DOES-NOT-FORWARD-ASSET-INFO). A key the owner does not hold is a
+    /// router-built directory if `is_dir` says so, otherwise `KeyNotFound`.
+    async fn get_asset_info(&self, key: &Key) -> Result<AssetInfo, Error> {
+        let key = key.as_absolute()?;
+        if let Some(store) = self.find_store(key) {
+            match store.get_asset_info(key).await {
+                Ok(info) => return Ok(info),
+                Err(e) if e.error_type == ErrorType::KeyNotFound => {}
+                Err(e) => return Err(e),
+            }
+        }
+        if self.is_dir(key).await? {
+            let mut info = Self::directory_record(key).get_asset_info();
+            info.with_key(key.to_owned());
+            info.is_dir = true;
+            return Ok(info);
+        }
+        Err(Error::key_not_found(key))
+    }
+
+    /// Asset info of the direct children of `key`.
+    ///
+    /// Forwarded to the member when it is the only contributor, so its own listing is used;
+    /// otherwise one entry per name `listdir` gives, each from its own owner through
+    /// [`Self::get_asset_info`], in the trait default's order.
+    async fn listdir_asset_info(&self, key: &Key) -> Result<Vec<AssetInfo>, Error> {
+        let key = key.as_absolute()?;
+        if let Some(store) = self.sole_contributor(key) {
+            return store.listdir_asset_info(key).await;
+        }
+        let mut asset_info = Vec::new();
+        for child in self.listdir_keys(key).await? {
+            asset_info.push(self.get_asset_info(&child).await?);
+        }
+        sort_asset_info(&mut asset_info);
+        Ok(asset_info)
     }
 
     /// Store data and metadata.
@@ -1309,30 +1416,38 @@ impl AsyncStore for AsyncStoreRouter {
         }
     }
 
-    /// Returns true if store contains the key.
+    /// Returns true if store contains the key: the owner holds it, or it is a directory.
+    ///
+    /// A key no member owns is simply absent, `Ok(false)` (STORE_SEMANTICS §4), unless it is a
+    /// directory — above the members, or held by a member other than the owner. It used to be
+    /// `KeyNotSupported`, which failed `AssetManager::get_asset_info` for a directory above two
+    /// mounts before it could answer.
     async fn contains(&self, key: &Key) -> Result<bool, Error> {
         let key = key.as_absolute()?;
         if let Some(store) = self.find_store(key) {
-            store.contains(key).await
-        } else {
-            Err(Error::key_not_supported(key, "store router"))
-        }
-    }
-
-    /// Returns true if key points to a directory.
-    async fn is_dir(&self, key: &Key) -> Result<bool, Error> {
-        let key = key.as_absolute()?;
-        for store in &self.stores {
-            if key.has_key_prefix(&store.key_prefix()) {
-                return store.is_dir(key).await;
-            }
-            if store.key_prefix().has_key_prefix(key) {
-                // key is a prefix of store prefix, but smaller - hence it is a directory
+            if store.contains(key).await? {
                 return Ok(true);
             }
         }
-        if key.is_empty() {
+        self.is_dir(key).await
+    }
+
+    /// Returns true if key points to a directory.
+    ///
+    /// A directory exists if **any** member covering the key reports it, as `listdir` merges every
+    /// covering member — not only the first, and regardless of `is_supported`. Asking only the
+    /// first let a member listed earlier (an overlay supporting one file) hide a directory a later
+    /// member holds (STORE-ROUTER-IS-DIR-IGNORES-IS-SUPPORTED). Data has one owner (`find_store`);
+    /// directories are a union. The root and keys above a member's prefix are directories here.
+    async fn is_dir(&self, key: &Key) -> Result<bool, Error> {
+        let key = key.as_absolute()?;
+        if self.is_above_members(key) {
             return Ok(true);
+        }
+        for store in &self.stores {
+            if key.has_key_prefix(&store.key_prefix()) && store.is_dir(key).await? {
+                return Ok(true);
+            }
         }
         Ok(false)
     }
@@ -1761,6 +1876,303 @@ mod tests {
         let error = router.get_metadata(&parse_key("zzz")?).await.unwrap_err();
         assert_eq!(error.error_type, crate::error::ErrorType::KeyNotFound);
         Ok(())
+    }
+
+    /// A member that describes its own entries, standing in for the front-matter adapter of
+    /// `design/store-adapters/`: an `AsyncMemoryStore` with every method forwarded, except that
+    /// `get_asset_info` titles each entry `Decorated <key>` and `listdir_asset_info` is logged.
+    /// `only` narrows `is_supported` to one key, which makes it an overlay.
+    struct DecoratedStore {
+        inner: AsyncMemoryStore,
+        only: Option<Key>,
+        listed: std::sync::Mutex<Vec<String>>,
+    }
+
+    impl DecoratedStore {
+        fn new(prefix: &Key) -> Self {
+            DecoratedStore {
+                inner: AsyncMemoryStore::new(prefix),
+                only: None,
+                listed: std::sync::Mutex::new(Vec::new()),
+            }
+        }
+        fn only(prefix: &Key, key: &Key) -> Self {
+            DecoratedStore {
+                only: Some(key.clone()),
+                ..DecoratedStore::new(prefix)
+            }
+        }
+        fn listed(&self) -> Vec<String> {
+            self.listed.lock().expect("log").clone()
+        }
+    }
+
+    #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+    #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+    impl AsyncStore for DecoratedStore {
+        fn key_prefix(&self) -> Key {
+            self.inner.key_prefix()
+        }
+        fn default_metadata(&self, key: &Key, is_dir: bool) -> MetadataRecord {
+            self.inner.default_metadata(key, is_dir)
+        }
+        async fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
+            self.inner.get(key).await
+        }
+        async fn get_metadata(&self, key: &Key) -> Result<Metadata, Error> {
+            self.inner.get_metadata(key).await
+        }
+        async fn get_asset_info(&self, key: &Key) -> Result<AssetInfo, Error> {
+            let mut info = self.inner.get_asset_info(key).await?;
+            info.title = format!("Decorated {}", key.encode());
+            Ok(info)
+        }
+        async fn listdir_asset_info(&self, key: &Key) -> Result<Vec<AssetInfo>, Error> {
+            self.listed.lock().expect("log").push(key.encode());
+            let mut info = Vec::new();
+            for child in self.inner.listdir_keys(key).await? {
+                info.push(self.get_asset_info(&child).await?);
+            }
+            sort_asset_info(&mut info);
+            Ok(info)
+        }
+        async fn set(&self, key: &Key, data: &[u8], metadata: &Metadata) -> Result<(), Error> {
+            self.inner.set(key, data, metadata).await
+        }
+        async fn set_metadata(&self, key: &Key, metadata: &Metadata) -> Result<(), Error> {
+            self.inner.set_metadata(key, metadata).await
+        }
+        async fn contains(&self, key: &Key) -> Result<bool, Error> {
+            self.inner.contains(key).await
+        }
+        async fn is_dir(&self, key: &Key) -> Result<bool, Error> {
+            self.inner.is_dir(key).await
+        }
+        async fn listdir(&self, key: &Key) -> Result<Vec<String>, Error> {
+            self.inner.listdir(key).await
+        }
+        async fn makedir(&self, key: &Key) -> Result<(), Error> {
+            self.inner.makedir(key).await
+        }
+        fn is_supported(&self, key: &Key) -> bool {
+            self.inner.is_supported(key) && self.only.as_ref().map_or(true, |only| only == key)
+        }
+    }
+
+    fn data() -> Metadata {
+        Metadata::MetadataRecord(MetadataRecord::new())
+    }
+
+    /// routerfwd01 (AC-1): a member's description of a data key survives mounting.
+    #[tokio::test]
+    async fn routerfwd01_member_file_asset_info_is_forwarded() -> Result<(), Error> {
+        let mut router = AsyncStoreRouter::new();
+        router.add_store(Box::new(DecoratedStore::new(&parse_key("memory")?)));
+        let key = parse_key("memory/decisions/a.md")?;
+        router.set(&key, b"# A", &data()).await?;
+
+        let info = router.get_asset_info(&key).await?;
+        assert_eq!(info.title, "Decorated memory/decisions/a.md");
+        assert!(!info.is_dir);
+        Ok(())
+    }
+
+    /// routerfwd02 (AC-2): a member's description of a directory survives mounting.
+    #[tokio::test]
+    async fn routerfwd02_member_directory_asset_info_is_forwarded() -> Result<(), Error> {
+        let mut router = AsyncStoreRouter::new();
+        router.add_store(Box::new(DecoratedStore::new(&parse_key("memory")?)));
+        router
+            .set(&parse_key("memory/decisions/a.md")?, b"# A", &data())
+            .await?;
+
+        let info = router.get_asset_info(&parse_key("memory/decisions")?).await?;
+        assert_eq!(info.title, "Decorated memory/decisions");
+        assert!(info.is_dir);
+        Ok(())
+    }
+
+    /// routerfwd03 (AC-3): a directory above the members is described by the router.
+    #[tokio::test]
+    async fn routerfwd03_directory_above_members_has_directory_asset_info() -> Result<(), Error> {
+        let router = router_over(&["memory/a", "memory/b"]).await?;
+        for key in [Key::new(), parse_key("memory")?] {
+            let info = router.get_asset_info(&key).await?;
+            assert!(info.is_dir, "{key}");
+            assert_eq!(info.key, Some(key.clone()));
+        }
+        Ok(())
+    }
+
+    /// routerfwd04 (AC-4): a key nobody owns and that is not above a member is not found.
+    #[tokio::test]
+    async fn routerfwd04_unowned_key_asset_info_not_found() -> Result<(), Error> {
+        let router = router_over(&["memory/a"]).await?;
+        for key in ["zzz", "memory/zzz", "memory/a/zzz"] {
+            let error = router
+                .get_asset_info(&parse_key(key)?)
+                .await
+                .expect_err(key);
+            assert_eq!(error.error_type, ErrorType::KeyNotFound, "{key}");
+        }
+        Ok(())
+    }
+
+    /// routerfwd05 (AC-5): a directory with several contributors lists each child once, each
+    /// described by its own owner, in the trait default's order.
+    #[tokio::test]
+    async fn routerfwd05_listing_composes_children_from_their_owners() -> Result<(), Error> {
+        let mut router = AsyncStoreRouter::new();
+        let decorated = std::sync::Arc::new(DecoratedStore::new(&parse_key("memory")?));
+        // First match wins, so the nested mount goes first.
+        router.add_store(Box::new(AsyncMemoryStore::new(&parse_key("memory/inbox")?)));
+        router.add_store(Box::new(ArcStore(decorated.clone())));
+        router.set(&parse_key("memory/notes.md")?, b"n", &data()).await?;
+        router.set(&parse_key("memory/decisions/a.md")?, b"a", &data()).await?;
+        router.set(&parse_key("memory/inbox/new.md")?, b"i", &data()).await?;
+
+        let listing = router.listdir_asset_info(&parse_key("memory")?).await?;
+        let rows: Vec<(String, bool, String)> = listing
+            .iter()
+            .map(|i| (i.filename.clone().unwrap_or_default(), i.is_dir, i.title.clone()))
+            .collect();
+        assert_eq!(
+            rows,
+            vec![
+                ("decisions".to_string(), true, "Decorated memory/decisions".to_string()),
+                ("inbox".to_string(), true, String::new()),
+                ("notes.md".to_string(), false, "Decorated memory/notes.md".to_string()),
+            ]
+        );
+        assert!(decorated.listed().is_empty(), "two contributors: composed, not forwarded");
+        Ok(())
+    }
+
+    /// routerfwd06 (AC-6): with one contributor the member's own listing is the router's.
+    #[tokio::test]
+    async fn routerfwd06_sole_contributor_listing_is_forwarded() -> Result<(), Error> {
+        let mut router = AsyncStoreRouter::new();
+        let decorated = std::sync::Arc::new(DecoratedStore::new(&parse_key("memory")?));
+        router.add_store(Box::new(ArcStore(decorated.clone())));
+        router.add_store(Box::new(AsyncMemoryStore::new(&parse_key("other")?)));
+        router.set(&parse_key("memory/decisions/a.md")?, b"a", &data()).await?;
+
+        let listing = router.listdir_asset_info(&parse_key("memory/decisions")?).await?;
+        assert_eq!(listing.len(), 1);
+        assert_eq!(listing[0].title, "Decorated memory/decisions/a.md");
+        assert_eq!(decorated.listed(), vec!["memory/decisions".to_string()]);
+        Ok(())
+    }
+
+    /// routerfwd07 (AC-7): `contains` answers above and outside the members instead of failing.
+    #[tokio::test]
+    async fn routerfwd07_contains_above_and_outside_members() -> Result<(), Error> {
+        let router = router_over(&["memory/a", "memory/b"]).await?;
+        assert!(router.contains(&Key::new()).await?);
+        assert!(router.contains(&parse_key("memory")?).await?);
+        assert!(router.contains(&parse_key("memory/a/file.txt")?).await?);
+        assert!(!router.contains(&parse_key("zzz")?).await?);
+        assert!(!router.contains(&parse_key("memory/zzz")?).await?);
+        assert!(!router.contains(&parse_key("memory/a/zzz")?).await?);
+        assert!(router.contains(&parse_key("../x")?).await.is_err());
+        Ok(())
+    }
+
+    /// routerfwd09 (AC-9): directory metadata names the member mounted beneath it.
+    #[tokio::test]
+    async fn routerfwd09_directory_metadata_children_include_a_nested_mount() -> Result<(), Error> {
+        let mut router = AsyncStoreRouter::new();
+        // First match wins, so the nested mount goes first.
+        router.add_store(Box::new(AsyncMemoryStore::new(&parse_key("memory/inbox")?)));
+        router.add_store(Box::new(AsyncMemoryStore::new(&parse_key("memory")?)));
+        router.set(&parse_key("memory/notes.md")?, b"n", &data()).await?;
+
+        let key = parse_key("memory")?;
+        let metadata = router.get_metadata(&key).await?;
+        assert_eq!(
+            child_names(&metadata),
+            vec!["inbox".to_string(), "notes.md".to_string()]
+        );
+        let mut listed = router.listdir(&key).await?;
+        listed.sort();
+        assert_eq!(child_names(&metadata), listed);
+        Ok(())
+    }
+
+    /// routerfwd10 (AC-10): a directory is one whichever covering member holds it, in either
+    /// order, and `is_dir`, `contains` and `listdir` agree.
+    #[tokio::test]
+    async fn routerfwd10_is_dir_asks_every_covering_member() -> Result<(), Error> {
+        for overlay_first in [true, false] {
+            let overlay = DecoratedStore::only(&Key::new(), &parse_key("cfg.yaml")?);
+            overlay.set(&parse_key("cfg.yaml")?, b"c", &data()).await?;
+            let main = AsyncMemoryStore::new(&Key::new());
+            main.set(&parse_key("data/x.csv")?, b"x", &data()).await?;
+            let mut router = AsyncStoreRouter::new();
+            if overlay_first {
+                router.add_store(Box::new(overlay));
+                router.add_store(Box::new(main));
+            } else {
+                router.add_store(Box::new(main));
+                router.add_store(Box::new(overlay));
+            }
+
+            let dir = parse_key("data")?;
+            assert!(router.is_dir(&dir).await?, "overlay_first={overlay_first}");
+            assert!(router.contains(&dir).await?, "overlay_first={overlay_first}");
+            assert!(router.listdir(&Key::new()).await?.contains(&"data".to_string()));
+            assert!(router.get_asset_info(&dir).await?.is_dir);
+            assert!(!router.is_dir(&parse_key("cfg.yaml")?).await?);
+            // Data has one owner: listed first, the overlay intercepts its file; listed last, it is
+            // shadowed by the general member.
+            assert_eq!(router.contains(&parse_key("cfg.yaml")?).await?, overlay_first);
+            assert!(!router.is_dir(&parse_key("nothing")?).await?);
+        }
+        Ok(())
+    }
+
+    /// Lets a test keep a handle on a member after giving the router its box.
+    struct ArcStore(std::sync::Arc<DecoratedStore>);
+
+    #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+    #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+    impl AsyncStore for ArcStore {
+        fn key_prefix(&self) -> Key {
+            self.0.key_prefix()
+        }
+        fn default_metadata(&self, key: &Key, is_dir: bool) -> MetadataRecord {
+            self.0.default_metadata(key, is_dir)
+        }
+        async fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
+            self.0.get(key).await
+        }
+        async fn get_metadata(&self, key: &Key) -> Result<Metadata, Error> {
+            self.0.get_metadata(key).await
+        }
+        async fn get_asset_info(&self, key: &Key) -> Result<AssetInfo, Error> {
+            self.0.get_asset_info(key).await
+        }
+        async fn listdir_asset_info(&self, key: &Key) -> Result<Vec<AssetInfo>, Error> {
+            self.0.listdir_asset_info(key).await
+        }
+        async fn set(&self, key: &Key, data: &[u8], metadata: &Metadata) -> Result<(), Error> {
+            self.0.set(key, data, metadata).await
+        }
+        async fn set_metadata(&self, key: &Key, metadata: &Metadata) -> Result<(), Error> {
+            self.0.set_metadata(key, metadata).await
+        }
+        async fn contains(&self, key: &Key) -> Result<bool, Error> {
+            self.0.contains(key).await
+        }
+        async fn is_dir(&self, key: &Key) -> Result<bool, Error> {
+            self.0.is_dir(key).await
+        }
+        async fn listdir(&self, key: &Key) -> Result<Vec<String>, Error> {
+            self.0.listdir(key).await
+        }
+        fn is_supported(&self, key: &Key) -> bool {
+            self.0.is_supported(key)
+        }
     }
 
     #[tokio::test]
