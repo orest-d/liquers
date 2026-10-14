@@ -160,6 +160,13 @@ pub async fn to_record(
             ))
             .await
         }
+        // A polars DataFrame crosses through the bridge; roles are lost, as the bridge documents.
+        #[cfg(feature = "polars")]
+        "polars.DataFrame" => {
+            let df = value.as_polars_dataframe()?;
+            let batch = super::polars::dataframe_to_record_batch(&df)?;
+            Ok(Arc::new(batch) as Arc<dyn RecordView>)
+        }
         other => Err(Error::conversion_error(other.to_string(), "RecordView")),
     }
 }
@@ -229,6 +236,11 @@ pub async fn to_record_source(
                 context,
             ))
             .await
+        }
+        #[cfg(feature = "polars")]
+        "polars.DataFrame" => {
+            let view = to_record(value, metadata, options, context).await?;
+            Ok(Arc::new(InMemorySource::new(vec![view])) as Arc<dyn RecordSource>)
         }
         other => Err(Error::conversion_error(other.to_string(), "RecordSource")),
     }

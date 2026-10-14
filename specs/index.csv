@@ -54,6 +54,7 @@ COMMAND-CONTEXT-PARAM-ORDER,issue,"The context parameter must come last, as a wo
 COMMAND-DECLARATION-FORMAT,feature,"No language-neutral command declaration format, so every binding hand-parses its own",closed,local,,,,P0,L,core/commands;web;py,,,,command-declaration,,2026-08-27,specs/issues/COMMAND-DECLARATION-FORMAT.md
 COMMAND-METADATA-ENHANCEMENTS,feature,"Command metadata lacks enums, specialization and IO typing",accepted,local,,,,P2,L,core/commands;macro,,,,,,2026-08-08,specs/issues/COMMAND-METADATA-ENHANCEMENTS.md
 COMMAND-METADATA-HAS-NO-COMMAND-LEVEL-HINTS,feature,A usage hint can be attached to an argument but not to a command,closed,local,,ready,not-eligible,P3,S,core/commands;lib/ui,,,,command-metadata-descriptions-and-hints,,2026-08-30,specs/issues/COMMAND-METADATA-HAS-NO-COMMAND-LEVEL-HINTS.md
+COMMAND-PANIC-HANGS-EVALUATION,issue,"A command that panics leaves its asset unfinished, so evaluation waits forever instead of failing",draft,local,,,,P1,M,core/assets,,,,,,2026-10-13,specs/issues/COMMAND-PANIC-HANGS-EVALUATION.md
 COMMAND-REGISTRY-HEADER-NAMES-GROUPS-NOT-FEATURES,issue,"The command_registry.yaml header lists group names under ""features""",draft,local,,,,P3,S,lib/commands;build,,,,,,2026-10-11,specs/issues/COMMAND-REGISTRY-HEADER-NAMES-GROUPS-NOT-FEATURES.md
 COMMAND-REGISTRY-ISSUE-NAMESPACE-NAME-SWAPPED,issue,CommandRegistryIssue constructors transpose namespace and name,closed,local,,covered,not-eligible,P3,S,core/commands,,,,command-registry-issue-fields-coverage,,2026-08-12,specs/issues/COMMAND-REGISTRY-ISSUE-NAMESPACE-NAME-SWAPPED.md
 COMMAND-VARIADIC-ARGUMENTS-NOT-DECLARABLE,issue,Variadic command arguments cannot be declared or retrieved,closed,local,,,,P1,M,macro;core/commands;lib/commands,,,,variadic-arguments-declaration,,2026-08-12,specs/issues/COMMAND-VARIADIC-ARGUMENTS-NOT-DECLARABLE.md
@@ -197,6 +198,7 @@ PLAN-EXCESS-ACTION-PARAMETERS-DROPPED,issue,Plan builder silently drops excess a
 PLAN-SPLIT-DROPS-PREDECESSOR-FIELDS,issue,Plan split drops predecessor fields,closed,local,,covered,not-eligible,P2,S,core/plan,,,,plan-split-predecessor-fields,,2026-08-26,specs/issues/PLAN-SPLIT-DROPS-PREDECESSOR-FIELDS.md
 PLANNING-DIAGNOSTICS-NEVER-REACH-THE-ASSET-LOG,issue,Planning diagnostics never reach the evaluated asset's log,closed,local,,,,P2,M,core/plan;core/assets,,,,,,2026-10-10,specs/issues/PLANNING-DIAGNOSTICS-NEVER-REACH-THE-ASSET-LOG.md
 POLARS-BRIDGE-VECTOR-COLUMNS-REFUSED,issue,The RecordBatch <-> DataFrame bridge cannot convert Vector columns,draft,local,,,,P3,M,records;lib/polars,,,,,,2026-09-27,specs/issues/POLARS-BRIDGE-VECTOR-COLUMNS-REFUSED.md
+POLARS-COLLECT-PANICS-ON-CURRENT-THREAD-RUNTIME,issue,ns-pl commands panic inside LazyFrame::collect on a current-thread tokio runtime,draft,local,,,,P2,M,lib/polars,,,,,,2026-10-13,specs/issues/POLARS-COLLECT-PANICS-ON-CURRENT-THREAD-RUNTIME.md
 POLARS-COMMAND-TESTS-BYPASS-COMMANDS,issue,The polars command integration tests never invoke a polars command,draft,local,,,,P2,M,lib/polars;build,,,,,,2026-08-25,specs/issues/POLARS-COMMAND-TESTS-BYPASS-COMMANDS.md
 POLARS-DOC-EXAMPLES-OMIT-NAMESPACE,issue,Polars reference example queries omit the ns-pl namespace and do not resolve,closed,local,,ready,,P2,S,docs;lib/commands,,,,polars-doc-example-namespace,,2026-08-12,specs/issues/POLARS-DOC-EXAMPLES-OMIT-NAMESPACE.md
 POST-INIT-COMMAND-REGISTRATION,issue,Registering a command after Environment::to_ref requires a rebuild,accepted,local,,,,P3,M,core/commands;web,,,,,,2026-08-08,specs/issues/POST-INIT-COMMAND-REGISTRATION.md
@@ -221,10 +223,10 @@ RECIPE-PLAN-ANALYSIS-RUNS-OUTSIDE-PLAN-BUILDING,issue,Recipe plan analysis runs 
 RECIPE-PROVIDER-BY-NAME,feature,"Recipe providers cannot be selected by name, so a configuration document cannot choose one",closed,local,,,,P0,S,core/assets;web,,,,recipe-provider-selection,,2026-08-27,specs/issues/RECIPE-PROVIDER-BY-NAME.md
 RECIPE-PROVIDERS-FAIL-ON-A-KEY-THE-STORE-DOES-NOT-SUPPORT,issue,Recipe providers fail a query when the store refuses the recipes.yaml or manifest key as unsupported,closed,local,,,,P1,S,core/assets;records;web,,,,record-streams,,2026-09-27,specs/issues/RECIPE-PROVIDERS-FAIL-ON-A-KEY-THE-STORE-DOES-NOT-SUPPORT.md
 RECIPE-TO-PLAN-IGNORES-RECIPE-LEVEL-VOLATILE-AND-EXPIRES,issue,Recipe to_plan ignores recipe level volatile and expires,closed,local,,covered,not-eligible,P2,S,core/plan;core/assets,,,,recipe-plan-declarations,,2026-08-26,specs/issues/RECIPE-TO-PLAN-IGNORES-RECIPE-LEVEL-VOLATILE-AND-EXPIRES.md
-RECORD-AND-POLARS-COMMANDS-NOT-INTEROPERABLE,feature,"Record and polars commands differ in names and inputs, so a query cannot move between them",draft,local,,,,P2,L,records,,,,record-filter-commands,,2026-10-11,specs/issues/RECORD-AND-POLARS-COMMANDS-NOT-INTEROPERABLE.md
+RECORD-AND-POLARS-COMMANDS-NOT-INTEROPERABLE,feature,"Record and polars commands differ in names and inputs, so a query cannot move between them",closed,local,,ready,not-eligible,P2,L,records,,,,record-filter-commands,,2026-10-11,specs/issues/RECORD-AND-POLARS-COMMANDS-NOT-INTEROPERABLE.md
 RECORD-BATCH-FIELDS-CAN-BE-MUTATED-PAST-VALIDATION,issue,"RecordBatch validates its columns in new, but its public fields can be changed afterwards; InMemorySource's materialize exposes a placeholder chunk id",draft,local,,,,P3,M,records,,,,record-streams,,2026-09-27,specs/issues/RECORD-BATCH-FIELDS-CAN-BE-MUTATED-PAST-VALIDATION.md
 RECORD-SELECTION-IS-EAGER-NOT-A-VIEW,feature,Selecting records from a stream is eager; there is no view that a source can push down,closed,local,,,,P2,L,lib/value;lib/commands,,,,record-streams,,2026-09-21,specs/issues/RECORD-SELECTION-IS-EAGER-NOT-A-VIEW.md
-RECORD-SOURCE-WRAPPERS-UNSPECIFIED,issue,Phase 2 names filtering/mapping RecordSource wrappers but gives no signature,draft,local,,,,P3,M,records,,,,store-and-asset-search,,2026-09-26,specs/issues/RECORD-SOURCE-WRAPPERS-UNSPECIFIED.md
+RECORD-SOURCE-WRAPPERS-UNSPECIFIED,issue,Phase 2 names filtering/mapping RecordSource wrappers but gives no signature,closed,local,,ready,not-eligible,P3,M,records,,,,record-filter-commands,,2026-09-26,specs/issues/RECORD-SOURCE-WRAPPERS-UNSPECIFIED.md
 RECORD-TIMESTAMP-TIME-ZONE-DIFFERS-BY-FORMAT,issue,A record Timestamp column is a UTC instant in Parquet and a naive date-time in IPC and polars,closed,local,,ready,not-eligible,P3,S,records;lib/polars,,,,record-timestamp-utc,,2026-09-27,specs/issues/RECORD-TIMESTAMP-TIME-ZONE-DIFFERS-BY-FORMAT.md
 RECORDS-ARROW-C-DATA-EXPORT-NOT-BUILT,feature,Record batches cannot be handed to Arrow consumers in place; every route copies,draft,local,,,,P3,L,records;py,,,,record-streams,,2026-09-27,specs/issues/RECORDS-ARROW-C-DATA-EXPORT-NOT-BUILT.md
 RECORDS-PARQUET-POLARS-READ-IGNORES-DECLARED-SCHEMA,issue,Reading Parquet through the polars bridge ignores a caller-declared schema,draft,local,,,,P2,M,records;lib/polars,,,,,,2026-09-27,specs/issues/RECORDS-PARQUET-POLARS-READ-IGNORES-DECLARED-SCHEMA.md
@@ -447,7 +449,7 @@ RECIPE-CONTAINS-ADDRESSABILITY,design,Separate listed (contains) and producible 
 COVERED-07,design,Coverage record for RECIPE-TO-PLAN-IGNORES-RECIPE-LEVEL-VOLATILE-AND-EXPIRES,in_review,local,architecture,covered,not-eligible,P2,S,docs,,,,recipe-plan-declarations,,2026-09-03,specs/design/recipe-plan-declarations/DESIGN.md
 RECIPE-PROVIDER-LISTING-CONTRACT,design,"Recipe-provider listing contract — listed vs producible keys, folder-cache invalidation, complete deep listings",complete,local,,ready,,P2,S,core/assets;records;axum,,79,,recipe-provider-listing-contract,,2026-10-05,specs/design/recipe-provider-listing-contract/DESIGN.md
 RECIPE-PROVIDER-SELECTION,design,Selecting a recipe provider by name,complete,local,,,,P0,S,core/assets;web,,48,,recipe-provider-selection,,2026-08-29,specs/design/recipe-provider-selection/DESIGN.md
-RECORD-FILTER-COMMANDS,design,Simple filter and sort commands for records (ns-rec),draft,local,high-level,,,P2,L,records;lib/commands,,,,record-filter-commands,,2026-10-11,specs/design/record-filter-commands/DESIGN.md
+RECORD-FILTER-COMMANDS,design,"Record and polars command interoperability (ns-rec filters, sort, shared vocabulary)",complete,local,,ready,not-eligible,P2,L,records;lib/commands;lib/polars,,,,record-filter-commands,,2026-10-11,specs/design/record-filter-commands/DESIGN.md
 RECORD-STREAMS,design,"Record streams — a lightweight, chunked, Arrow-interoperable tabular abstraction",complete,local,,,,,,records;lib/value;lib/commands;core/assets;web,,,,record-streams,,2026-09-19,specs/design/record-streams/DESIGN.md
 RECORD-TIMESTAMP-UTC,design,Record Timestamp is a UTC instant in every format,,github,,ready,not-eligible,P3,S,records;lib/polars,,121,,record-timestamp-utc,,2026-10-06,specs/design/record-timestamp-utc/DESIGN.md
 RECOVERY-READ-DEFERS-PLACEHOLDER,design,Recovery reads defer a not-yet-loaded live asset to the store,complete,local,,ready,,P3,S,core/assets,,,,recovery-read-defers-placeholder,,2026-10-06,specs/design/recovery-read-defers-placeholder/DESIGN.md
@@ -509,18 +511,18 @@ DOC_08_RECIPES_PLANS,reference,Recipes and Plans Reference,current,local,,,,,,co
 ASSET_LIFECYCLE,reference,Asset Evaluation — Flows and Public Surface,current,local,,,,,,core/assets,,,,,2026-10-12,,specs/reference/ASSET_LIFECYCLE.md
 ASSET_SET_OPERATION,reference,Asset Set Operation Specification,current,local,,,,,,core/assets,,,,,2026-10-10,,specs/reference/ASSET_SET_OPERATION.md
 ASSETS,reference,Assets Specification,current,local,,,,,,core/assets,,,,,2026-10-12,,specs/reference/ASSETS.md
-COMMAND_ALIASES,reference,Command Aliases,current,local,,,,,,core/commands;core/plan,,,,,2026-10-12,,specs/reference/COMMAND_ALIASES.md
+COMMAND_ALIASES,reference,Command Aliases,current,local,,,,,,core/commands;core/plan,,,,,2026-10-13,,specs/reference/COMMAND_ALIASES.md
 COMMAND_DECLARATION,reference,Command Declaration Format,current,local,,,,,,core/commands;web;py,,,,,2026-10-11,,specs/reference/COMMAND_DECLARATION.md
 CONFORMANCE_TERMS,reference,Conformance Terms,current,local,,,,,,docs,,,,,2026-09-02,,specs/reference/CONFORMANCE_TERMS.md
 DEPENDENCIES_STATUS,reference,Status::Dependencies Specification,current,local,,,,,,core/assets,,,,,2026-10-12,,specs/reference/DEPENDENCIES_STATUS.md
 ENVIRONMENT_CONFIG,reference,Environment Configuration,current,local,,,,,,core/context;core/store;core/assets,,,,,2026-10-10,,specs/reference/ENVIRONMENT_CONFIG.md
 IMAGE_COMMAND_LIBRARY,reference,Image Command Library Specification,overdue,local,,,,,,lib/image,,,,,2026-03-02,,specs/reference/IMAGE_COMMAND_LIBRARY.md
 PAYLOAD_GUIDE,reference,Payload Specification and Usage,current,local,,,,,,core/context;core/commands,,,,,2026-09-04,,specs/reference/PAYLOAD_GUIDE.md
-POLARS_COMMAND_LIBRARY,reference,Polars Command Library Specification,current,local,,,,,,lib/polars,,,,,2026-10-10,,specs/reference/POLARS_COMMAND_LIBRARY.md
+POLARS_COMMAND_LIBRARY,reference,Polars Command Library Specification,current,local,,,,,,lib/polars,,,,,2026-10-13,,specs/reference/POLARS_COMMAND_LIBRARY.md
 PROJECT_OVERVIEW,reference,Liquers Project Overview,current,local,,,,,,core/query;core/plan;core/assets;core/store;core/value,,,,,2026-10-11,,specs/reference/PROJECT_OVERVIEW.md
 RECORD_STREAMS,reference,Record Streams,current,local,,,,,,records;lib/value;lib/commands;web,,,,,2026-10-13,,specs/reference/RECORD_STREAMS.md
 REGISTER_COMMAND_FSD,reference,register_command! Macro Functional Specification,current,local,,,,,,macro;core/commands,,,,,2026-10-12,,specs/reference/REGISTER_COMMAND_FSD.md
-SEARCH,reference,Search,current,local,,,,,,records;lib/commands,,,,,2026-10-11,,specs/reference/SEARCH.md
+SEARCH,reference,Search,current,local,,,,,,records;lib/commands,,,,,2026-10-13,,specs/reference/SEARCH.md
 STORE_CONFIG_FSD,reference,Store Configuration Functional Specification,current,local,,,,,,store/config,,,,,2026-10-10,,specs/reference/STORE_CONFIG_FSD.md
 STORE_SEMANTICS,reference,Store Behavioural Semantics,current,local,,,,,,core/store;store/backends;web,,,,,2026-10-13,,specs/reference/STORE_SEMANTICS.md
 UI_INTERFACE_FSD,reference,UI Interface Specification,overdue,local,,,,,,lib/ui,,,,,2026-03-02,,specs/reference/UI_INTERFACE_FSD.md
@@ -535,7 +537,7 @@ DEPENDENCY_CONSISTENCY_GUIDE,guide,Dependency Consistency Guide,current,local,,,
 ENVIRONMENT_CONSTRUCTION_GUIDE,guide,Building and Configuring an Environment,current,local,,,,,,core/context;core/assets;core/store,,,,,2026-10-11,,specs/guides/ENVIRONMENT_CONSTRUCTION_GUIDE.md
 LANGUAGE-INTEGRATION_GUIDE,guide,Language Integration Guide,current,local,,,,,,web;py;core/commands;core/plan;core/assets,,,,,2026-10-13,,specs/guides/LANGUAGE-INTEGRATION_GUIDE.md
 QUERY_ESCAPING_GUIDE,guide,Query Escaping Guide,current,local,,,,,,core/query,,,,,2026-10-07,,specs/guides/QUERY_ESCAPING_GUIDE.md
-RECORD_STREAM_GUIDE,guide,Record Stream Guide,current,local,,,,,,records;lib/value,,,,,2026-10-11,,specs/guides/RECORD_STREAM_GUIDE.md
+RECORD_STREAM_GUIDE,guide,Record Stream Guide,current,local,,,,,,records;lib/value,,,,,2026-10-13,,specs/guides/RECORD_STREAM_GUIDE.md
 SEARCH_GUIDE,guide,Search Guide,current,local,,,,,,lib/commands;records,,,,,2026-10-11,,specs/guides/SEARCH_GUIDE.md
 SERIALIZATION_GUIDE,guide,Choosing a Serialization Format,current,local,,,,,,core/value;lib/value,,,,,2026-10-13,,specs/guides/SERIALIZATION_GUIDE.md
 STORE_FACTORY_GUIDE,guide,Store Factory Guide,current,local,,,,,,core/store;store/config,,,,,2026-10-07,,specs/guides/STORE_FACTORY_GUIDE.md

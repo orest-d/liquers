@@ -20,7 +20,9 @@ pub mod structure;
 pub mod syntax;
 
 pub use kernels::{is_json_column, search_fields, DEFAULT_SEARCH_FIELDS};
-pub use predicate::{Bound, BoundPredicate, Predicate, PredicateSyntax, RankTerm, SearchOptions};
+pub use predicate::{
+    Bound, BoundPredicate, Predicate, PredicateSyntax, RankTerm, SearchOptions, StrictPredicate,
+};
 pub use rank::{search_view, SearchReport};
 pub use source::FilteredSource;
 pub use structure::{front_matter_end, parse_structure, parse_structure_with_report, StructFormat};

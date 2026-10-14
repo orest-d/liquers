@@ -38,7 +38,8 @@ pub use schema::{
     Analyzer, FieldRole, FieldSchema, FieldType, IndexKind, KeyRole, RecordSchema, VectorMetric,
 };
 pub use sources::{
-    view_from_chunk_value, ContextResolver, EnvResolver, InMemorySource, ManifestSource,
+    view_from_chunk_value, ContextResolver, EnvResolver, InMemorySource, ManifestSource, MappedSource,
+    ViewMap, ViewMapFn,
 };
 pub use value::{
     ChunkResolver, ChunkValue, RecordSource, RecordValue, DEFAULT_MATERIALIZE_MAX_ROWS,

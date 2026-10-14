@@ -74,9 +74,55 @@ pub enum FieldTest {
     Nested(Box<SearchExpr>),
 }
 
+impl FieldTest {
+    /// Text starting with `text` taken literally (regex metacharacters escaped).
+    pub fn prefix(text: &str) -> FieldTest {
+        FieldTest::Regex(format!("^{}", regex::escape(text)))
+    }
+
+    /// Text ending with `text` taken literally.
+    pub fn suffix(text: &str) -> FieldTest {
+        FieldTest::Regex(format!("{}$", regex::escape(text)))
+    }
+
+    /// Text containing `text` taken literally.
+    pub fn substring(text: &str) -> FieldTest {
+        FieldTest::Regex(regex::escape(text))
+    }
+}
+
 impl SearchExpr {
     fn new(node: Node, position: Position) -> Self {
         SearchExpr { node, position }
+    }
+
+    // Programmatic construction — what `ns-rec`'s filter commands build, so a value is never
+    // written as query text and never needs escaping. The position is unknown: there is no text.
+
+    /// A test on one column: `column:<test>`.
+    pub fn field(column: &str, test: FieldTest) -> SearchExpr {
+        SearchExpr::new(
+            Node::Field {
+                path: vec![column.to_string()],
+                test,
+            },
+            Position::unknown(),
+        )
+    }
+
+    /// Matches when any item does (`a | b`).
+    pub fn any(items: Vec<SearchExpr>) -> SearchExpr {
+        SearchExpr::new(Node::Any(items), Position::unknown())
+    }
+
+    /// Matches when `inner` does not (`-a`).
+    pub fn not(inner: SearchExpr) -> SearchExpr {
+        SearchExpr::new(Node::Not(Box::new(inner)), Position::unknown())
+    }
+
+    /// Matches every row.
+    pub fn always() -> SearchExpr {
+        SearchExpr::new(Node::Always, Position::unknown())
     }
 
     /// Parse leniently, for a search box: when the strict parse fails, the text is searched as
@@ -830,5 +876,16 @@ mod tests {
         assert!(parse("status:x").rank_terms().is_empty());
         assert!(parse("status:x").has_field_tests());
         assert!(!parse("a -b").has_field_tests());
+    }
+
+    // --- programmatic construction (record-filter-commands, Phase 3) ---
+
+    #[test]
+    fn field_test_constructors_escape_regex_metacharacters() {
+        assert_eq!(FieldTest::prefix("a.b"), FieldTest::Regex("^a\\.b".to_string()));
+        assert_eq!(FieldTest::suffix("x$"), FieldTest::Regex("x\\$$".to_string()));
+        assert_eq!(FieldTest::substring("(1)"), FieldTest::Regex("\\(1\\)".to_string()));
+        let expr = SearchExpr::field("name", FieldTest::prefix("a.b"));
+        assert!(matches!(&expr.node, Node::Field { path, .. } if path == &vec!["name".to_string()]));
     }
 }

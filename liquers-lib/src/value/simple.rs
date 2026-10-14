@@ -526,6 +526,10 @@ impl TryFrom<SimpleValue> for String {
             SimpleValue::I32 { value: x } => Ok(format!("{}", x)),
             SimpleValue::I64 { value: x } => Ok(format!("{}", x)),
             SimpleValue::F64 { value: x } => Ok(format!("{}", x)),
+            // A linked resource read from a store arrives as bytes (a `.yaml` schema file, say);
+            // it is text when it is valid UTF-8. Invalid UTF-8 is refused rather than replaced.
+            SimpleValue::Bytes { value: bytes } => String::from_utf8(bytes)
+                .map_err(|_| Error::conversion_error("bytes (not UTF-8)", "string")),
             _ => Err(Error::conversion_error(value.type_name(), "string")),
         }
     }
@@ -847,6 +851,13 @@ impl_try_from_simple_value_option!(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn utf8_bytes_convert_to_string() {
+        let text = SimpleValue::Bytes { value: b"fields: []".to_vec() };
+        assert_eq!(String::try_from(text).ok(), Some("fields: []".to_string()));
+        assert!(String::try_from(SimpleValue::Bytes { value: vec![0xff, 0xfe] }).is_err());
+    }
+
     use super::*;
     use serde_json;
     use serde_yaml;

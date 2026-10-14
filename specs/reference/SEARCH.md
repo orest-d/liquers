@@ -3,7 +3,7 @@ title: Search
 kind: reference
 audience: internal
 area: [records, lib/commands]
-reviewed: 2026-10-11
+reviewed: 2026-10-13
 ---
 
 # Search
@@ -32,6 +32,13 @@ md_split(state, unit: String = "section" (section|line))
 ```
 
 `limit = 0`, `max_bytes = 0` and `max_entries = 0` mean no limit; negative values are errors.
+
+**`ns-rec/filter-<expr>`** is `search-<expr>` with `rank=false` and no limit, over any record input.
+The `ns-rec` single-column filters (`eq`, `starts_with`, `is_in`, `is_null`, …) build one node of
+this language in code — `SearchExpr::field(column, FieldTest::…)`, with the literal constructors
+`FieldTest::prefix` / `suffix` / `substring` (regex-escaped) — so nothing is parsed or escaped; they
+wrap it in `StrictPredicate`, which turns a missing column into an error instead of a warning
+([`RECORD_STREAMS.md`](RECORD_STREAMS.md) §"`ns-rec` commands").
 
 ## Inputs
 
@@ -222,7 +229,8 @@ A `RecordSource` filtering an inner source lazily: each view passes through `fil
 (zero-copy), empty views are skipped, and the stream stops after `limit` rows — a stop part-way
 through a chunk cuts that view. The predicate is re-bound when a view's schema differs. `chunks`
 and `describe_chunk` describe the **unfiltered** input. `truncated()` is the inner value or a limit
-stop. Bind and evaluation warnings are kept; `warnings()` reads them.
+stop. Bind and evaluation warnings are kept; `warnings()` reads them. `ns-rec/head` over a source
+is a `FilteredSource` with `SearchExpr::always()` and `limit = n`.
 
 ## Errors and warnings
 
@@ -232,7 +240,7 @@ stop. Bind and evaluation warnings are kept; `warnings()` reads them.
 | The same in `search` | a warning; the words are searched |
 | Input that is not a folder (`catalog`) or not records (`field_extract`, `md_split`) | `Error::conversion_error_with_message` |
 | Explicit search field missing; ambiguous field name | `Error::general_error`, or `resolve_field`'s error |
-| Field test on a missing column | a warning; no match |
+| Field test on a missing column | a warning; no match (under `StrictPredicate`, as the `ns-rec` filters use: `Error::general_error` naming the available fields) |
 | Wildcard or regex on a non-Text column; nested field tests on a non-JSON column; unparseable compare value | `Error::general_error` naming the field and position |
 | Invalid cell in a JSON column | no match; one warning with the count |
 | Negative `limit` / `max_bytes` / `max_entries` | `Error::general_error` |
@@ -241,5 +249,6 @@ stop. Bind and evaluation warnings are kept; `warnings()` reads them.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-13 | `ns-rec/filter` as the unranked form; programmatic `SearchExpr` / `FieldTest` constructors and `StrictPredicate` used by the `ns-rec` filters; `FilteredSource` behind `ns-rec/head`. | `design/record-filter-commands/` |
 | 2026-10-11 | `field_extract`: a file with none of the requested fields is dropped; same-name collisions keep the first and warn; integers above `i64::MAX` are UInt or Text, never rounded (PR review). | phase-5, `design/store-and-asset-search/` |
 | 2026-10-11 | Created with the `ns-search` commands and `liquers-records` search. | phase-5, `design/store-and-asset-search/` |

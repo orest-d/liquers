@@ -2,7 +2,7 @@
 # Regenerate: cargo run -p liquers-lib --features cli --bin export-command-registry -- \
 #               --format yaml -o specs/command_registry.yaml
 # Origin:   groups=core,lui,egui,image,polars,records,search  features=egui,image,polars,records
-# Commands: 113
+# Commands: 141
 # CHANGELOG-BEGIN
 # 2026-08-02  initial export (95 commands: img 47, pl 26, lui 14, root 6, dep 2)
 # 2026-08-25  pl/select_columns and pl/drop_columns take a variadic `columns` argument
@@ -25,6 +25,11 @@
 #             (113 commands total: +5). design/store-and-asset-search Phase 4, Step 13
 # 2026-10-11  img/to_jpeg `quality: u8` is `argument_type: int` (was any): every integer width now
 #             maps to Integer. design/register-command-option-value
+# 2026-10-13  rec gains eq ne gt gte lt lte starts_with ends_with contains glob is_in is_null
+#             is_not_null filter sort tail drop_columns nrows ncols shape count schema
+#             (records_schema becomes an alias of schema); pl gains is_in is_null is_not_null
+#             starts_with ends_with contains; pl/sort takes `ascending: bool` and `nulls_last`;
+#             pl shape/nrows/ncols bodies changed (i64). design/record-filter-commands
 # CHANGELOG-END
 commands:
 - name: to_text
@@ -1766,9 +1771,159 @@ commands:
   definition: Registered
   impl_version: cfc59a652b34030ae94f0e0c09daa021
 - namespace: pl
+  name: is_in
+  label: Is in
+  doc: Filter rows where column equals one of the values
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: column
+    label: column
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  - name: values
+    label: values
+    default: None
+    argument_type: string
+    multiple: true
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: e2f58aecddbf11716513aee509d658da
+- namespace: pl
+  name: is_null
+  label: Is null
+  doc: Filter rows where column is null
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: column
+    label: column
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: 76c3e31da16517f0f928fb109e6e44f7
+- namespace: pl
+  name: is_not_null
+  label: Is not null
+  doc: Filter rows where column is not null
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: column
+    label: column
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: bb9c1ef42146220ca9b7c392d70da22b
+- namespace: pl
+  name: starts_with
+  label: Starts with
+  doc: Filter rows whose text starts with the given text, taken literally; case-insensitive unless case_sensitive
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: column
+    label: column
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  - name: text
+    label: text
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  - name: case_sensitive
+    label: case sensitive
+    default: !Value false
+    argument_type: bool
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: b004076f5dd55d188b5b1d1d58ee5392
+- namespace: pl
+  name: ends_with
+  label: Ends with
+  doc: Filter rows whose text ends with the given text, taken literally; case-insensitive unless case_sensitive
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: column
+    label: column
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  - name: text
+    label: text
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  - name: case_sensitive
+    label: case sensitive
+    default: !Value false
+    argument_type: bool
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: 39f8863b62601c75d00d7f058bb193c1
+- namespace: pl
+  name: contains
+  label: Contains
+  doc: Filter rows whose text contains the given text, taken literally; case-insensitive unless case_sensitive
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: column
+    label: column
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  - name: text
+    label: text
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  - name: case_sensitive
+    label: case sensitive
+    default: !Value false
+    argument_type: bool
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: 838950637ba262fd98f1adde6591709c
+- namespace: pl
   name: sort
   label: Sort by column
-  doc: Sort DataFrame by column. Use 't'/'true' for ascending (default), 'f'/'false' for descending
+  doc: Stable sort by one column; ascending unless ascending=f, nulls first unless nulls_last
   state_argument:
     name: state
     label: state
@@ -1782,13 +1937,18 @@ commands:
     gui_info: !TextField 40
   - name: ascending
     label: ascending
-    default: !Value t
-    argument_type: string
+    default: !Value true
+    argument_type: bool
+    gui_info: !TextField 40
+  - name: nulls_last
+    label: nulls last
+    default: !Value false
+    argument_type: bool
     gui_info: !TextField 40
   volatile: false
   expires: never
   definition: Registered
-  impl_version: 8824c3d4e188eed6b26583c4725b28ca
+  impl_version: 03e5fe236b0a67a04341d3e8bac4e247
 - namespace: pl
   name: sum
   label: Sum
@@ -1905,7 +2065,7 @@ commands:
   volatile: false
   expires: never
   definition: Registered
-  impl_version: 242f8ea79bc0983ed7aa0422ed72d496
+  impl_version: 7de5432a83d682d652c2a0144a90bfee
 - namespace: pl
   name: nrows
   label: Number of rows
@@ -1918,7 +2078,7 @@ commands:
   volatile: false
   expires: never
   definition: Registered
-  impl_version: 96ec1fd476b7c2b2c065a1661ac7f12e
+  impl_version: a09714f84a50f9f50321d29803231721
 - namespace: pl
   name: ncols
   label: Number of columns
@@ -1931,7 +2091,7 @@ commands:
   volatile: false
   expires: never
   definition: Registered
-  impl_version: 04112291f2adbcc0cca33c11c6fe7634
+  impl_version: c8a991efd6569d6cf88064878b63881d
 - namespace: pl
   name: schema
   label: Schema
@@ -2109,9 +2269,489 @@ commands:
   is_async: true
   definition: Registered
 - namespace: rec
+  name: schema
+  label: Schema
+  doc: 'The schema as JSON text: what a schema argument or a manifest''s uniform_schema accepts'
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: rec
   name: records_schema
   label: Schema
-  doc: The schema, as a value a schema argument can be linked to
+  doc: Alias of ns-rec/schema
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  is_async: true
+  definition: !Alias
+    command:
+      realm: ''
+      namespace: rec
+      name: schema
+    head_parameters: []
+- namespace: rec
+  name: eq
+  label: Equal to
+  doc: Rows where the column compares equal to the value, parsed to the column's type
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: column
+    label: column
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  - name: value
+    label: value
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: rec
+  name: ne
+  label: Not equal to
+  doc: Rows where the column compares not equal to the value, parsed to the column's type
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: column
+    label: column
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  - name: value
+    label: value
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: rec
+  name: gt
+  label: Greater than
+  doc: Rows where the column compares greater than the value, parsed to the column's type
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: column
+    label: column
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  - name: value
+    label: value
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: rec
+  name: gte
+  label: Greater than or equal
+  doc: Rows where the column compares greater than or equal the value, parsed to the column's type
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: column
+    label: column
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  - name: value
+    label: value
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: rec
+  name: lt
+  label: Less than
+  doc: Rows where the column compares less than the value, parsed to the column's type
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: column
+    label: column
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  - name: value
+    label: value
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: rec
+  name: lte
+  label: Less than or equal
+  doc: Rows where the column compares less than or equal the value, parsed to the column's type
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: column
+    label: column
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  - name: value
+    label: value
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: rec
+  name: starts_with
+  label: Starts with
+  doc: Rows whose text starts with the given text, taken literally; case-insensitive unless case_sensitive
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: column
+    label: column
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  - name: text
+    label: text
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  - name: case_sensitive
+    label: case sensitive
+    default: !Value false
+    argument_type: bool
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: rec
+  name: ends_with
+  label: Ends with
+  doc: Rows whose text ends with the given text, taken literally; case-insensitive unless case_sensitive
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: column
+    label: column
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  - name: text
+    label: text
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  - name: case_sensitive
+    label: case sensitive
+    default: !Value false
+    argument_type: bool
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: rec
+  name: contains
+  label: Contains
+  doc: Rows whose text contains the given text, taken literally; case-insensitive unless case_sensitive
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: column
+    label: column
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  - name: text
+    label: text
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  - name: case_sensitive
+    label: case sensitive
+    default: !Value false
+    argument_type: bool
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: rec
+  name: glob
+  label: Glob
+  doc: Rows whose text matches a * / ? pattern; case-insensitive unless case_sensitive
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: column
+    label: column
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  - name: pattern
+    label: pattern
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  - name: case_sensitive
+    label: case sensitive
+    default: !Value false
+    argument_type: bool
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: rec
+  name: is_in
+  label: Is in
+  doc: Rows whose column equals one of the values
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: column
+    label: column
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  - name: values
+    label: values
+    default: None
+    argument_type: string
+    multiple: true
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: rec
+  name: is_null
+  label: Is null
+  doc: Rows where the column is null
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: column
+    label: column
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: rec
+  name: is_not_null
+  label: Is not null
+  doc: Rows where the column is not null
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: column
+    label: column
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: rec
+  name: filter
+  label: Filter
+  doc: 'Rows matching a search expression: ns-search/search with rank=false and no limit'
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: query
+    label: query
+    default: !Value ''
+    argument_type: string
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: rec
+  name: sort
+  label: Sort by column
+  doc: Stable sort by one column; nulls first unless nulls_last (as ns-pl/sort)
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: column
+    label: column
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  - name: ascending
+    label: ascending
+    default: !Value true
+    argument_type: bool
+    gui_info: !TextField 40
+  - name: nulls_last
+    label: nulls last
+    default: !Value false
+    argument_type: bool
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: rec
+  name: tail
+  label: Last rows
+  doc: The last n rows, materialized
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: n
+    label: n
+    default: !Value 5
+    argument_type: int
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: rec
+  name: drop_columns
+  label: Drop columns
+  doc: Every column but the named ones; the Id and Source columns cannot be dropped
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: columns
+    label: columns
+    default: None
+    argument_type: string
+    multiple: true
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: rec
+  name: nrows
+  label: Number of rows
+  doc: The row count; over a source, counted chunk by chunk
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: rec
+  name: ncols
+  label: Number of columns
+  doc: The column count
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: rec
+  name: shape
+  label: Shape
+  doc: '{nrows, ncols}, as ns-pl/shape'
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: rec
+  name: count
+  label: Count
+  doc: 'One row: the non-null count of every column, as ns-pl/count'
   state_argument:
     name: state
     label: state

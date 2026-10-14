@@ -16,8 +16,8 @@ pub fn shape(state: &State<Value>) -> Result<Value, Error> {
     let (nrows, ncols) = df.shape();
 
     let mut map = BTreeMap::new();
-    map.insert("nrows".to_string(), SimpleValue::from(nrows as i32));
-    map.insert("ncols".to_string(), SimpleValue::from(ncols as i32));
+    map.insert("nrows".to_string(), SimpleValue::from(nrows as i64));
+    map.insert("ncols".to_string(), SimpleValue::from(ncols as i64));
 
     Ok(Value::Base(SimpleValue::Object { value: map }))
 }
@@ -26,16 +26,16 @@ pub fn shape(state: &State<Value>) -> Result<Value, Error> {
 #[liquers_macro::command_version]
 pub fn nrows(state: &State<Value>) -> Result<Value, Error> {
     let df = try_to_polars_dataframe(state)?;
-    let nrows = df.height() as i32;
-    Ok(Value::from(nrows))
+    let nrows = df.height() as i64;
+    Ok(Value::Base(SimpleValue::from(nrows)))
 }
 
 /// Get number of columns
 #[liquers_macro::command_version]
 pub fn ncols(state: &State<Value>) -> Result<Value, Error> {
     let df = try_to_polars_dataframe(state)?;
-    let ncols = df.width() as i32;
-    Ok(Value::from(ncols))
+    let ncols = df.width() as i64;
+    Ok(Value::Base(SimpleValue::from(ncols)))
 }
 
 /// Get DataFrame schema (column names and types)

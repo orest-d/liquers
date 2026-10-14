@@ -242,6 +242,13 @@ fn rebase_source_column(column: &Column, offset: usize) -> Result<Column, Error>
 }
 
 impl RecordBatch {
+    /// Zero rows of `schema` — a mapped source's schema is derived by mapping one, and an empty
+    /// stream with a declared schema materializes to one.
+    pub fn empty(schema: Arc<RecordSchema>) -> Result<RecordBatch, Error> {
+        let columns = schema.fields.iter().map(|field| Column::empty(field.data_type)).collect();
+        RecordBatch::new(schema, columns, None, Some(Vec::new()), Vec::new())
+    }
+
     /// Validates column count, lengths and types against `schema`, and each column's internal
     /// structure ([`Column::validate`]). `rows` defaults to one run of chunk 0 from row 0 — a
     /// standalone table, per phase2-architecture.md's Function Signatures.
@@ -648,10 +655,7 @@ impl RecordStreamExt for BoxRecordStream {
                 batches.push(batch);
             }
             match (batches.is_empty(), schema) {
-                (true, Some(schema)) => {
-                    let columns = schema.fields.iter().map(|field| Column::empty(field.data_type)).collect();
-                    RecordBatch::new(schema, columns, None, Some(Vec::new()), Vec::new()).map(Arc::new)
-                }
+                (true, Some(schema)) => RecordBatch::empty(schema).map(Arc::new),
                 (true, None) => Err(Error::general_error(
                     "RecordStreamExt::materialize: empty stream with no declared schema".to_string(),
                 )),
