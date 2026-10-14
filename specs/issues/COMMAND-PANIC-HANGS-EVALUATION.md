@@ -2,7 +2,7 @@
 id: COMMAND-PANIC-HANGS-EVALUATION
 kind: issue
 title: A command that panics leaves its asset unfinished, so evaluation waits forever instead of failing
-status: draft
+status: closed
 priority: P1
 complexity: M
 area: [core/assets]
@@ -10,6 +10,24 @@ design:
 created: 2026-10-13
 github:
 ---
+## Resolution
+
+Fixed 2026-10-14. The root cause was more specific than first described. The panic unwound the
+spawned job past its armed `RunClaim`, whose `Drop` repair (meant for a cancelled runner)
+re-submitted the asset. The command then ran and panicked again, forever, and `JobFinished` never
+came. On the inline manager the panic unwound out of `get_asset` into the caller.
+
+`AssetRef::compute` (`liquers-core/src/assets.rs`), the single evaluation body, now catches the
+unwind (`catch_unwind`) and returns `Error::general_error("evaluation panicked: <message>")`. Both
+run harnesses then take their ordinary error path: the asset ends `Error`, its waiters are
+released, and the claim is disarmed.
+
+Tests: `liquers-core/tests/asset_failure_contract.rs`
+`test_panicking_command_fails_its_asset_default_manager` and `…_immediate_manager` (sync and async
+commands). Each checks the error arrives within a timeout, names the panic, the command ran
+once, and a second request answers. Both tests fail without the fix. Documented in
+`specs/reference/ASSETS.md` §Terminal Outcome Contract.
+
 ## Problem
 
 When a command function panics during evaluation, the asset that was evaluating it is never moved

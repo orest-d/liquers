@@ -3,7 +3,7 @@ title: Assets Specification
 kind: reference
 audience: internal
 area: [core/assets]
-reviewed: 2026-10-12
+reviewed: 2026-10-14
 ---
 # Assets Specification
 
@@ -1151,6 +1151,12 @@ mutating the existing metadata (`with_error`, preserving the log/query/type audi
 it is not a failure: the asset ends `Status::Cancelled` (`with_cancellation`), not `Error`. A run's
 own failure or cancellation is recorded in memory only, never as a metadata-only store entry.
 
+**A panic is a failure.** A command that panics during evaluation fails its asset like any other
+error: `AssetRef::compute` catches the unwind and returns `Error::general_error("evaluation panicked:
+<message>")`, so the asset ends `Status::Error` and its waiters are released. (Unwinding past the run
+harness would leave the run claim armed, and its `Drop` repair would re-submit the asset to panic
+again.) Where panics abort — wasm32 by default — there is nothing to catch.
+
 **Re-evaluation.** `Error`, `Cancelled` and `Expired` are a **cache miss at the manager request
 boundary**: `get(key)`/`get_asset(query)` drop such a stale-terminal asset and rebuild a fresh one
 (a failure may be transient — hardware/volatile). `AssetRef::get()` itself does not re-evaluate, so
@@ -1223,6 +1229,7 @@ each with an `ExpiryReason` (§Why an asset is `Expired`). The rules are in
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-14 | §Terminal outcome: a panicking command fails its asset (`evaluation panicked: …`) instead of hanging its waiters. | `COMMAND-PANIC-HANGS-EVALUATION` |
 | 2026-10-12 | §Re-evaluation: a stale dependency re-evaluates at an evaluation's first request only; within the evaluation the session pins it. | phase-5 (`design/dependency-resolved-once-per-evaluation/`) |
 | 2026-10-10 | New §When an asset is kept for reuse: caching strategies (keyed, top-level query, dependency following its creator), reuse of an existing asset under every strategy, the plan independent of strategy, `ImmediateAssetManager::get_dependency_asset`, `cached: Some(false)` and the log reason on an unregistered asset, the trait accessors. §`stored` and `cached`: the recipe's `cached` is a strategy; metadata keeps a bool. A key with no recipe is not subject to the strategy, and an existing keyed asset is reused before it is consulted (PR #102 review). | phase-5 (`design/plan-policy/`) |
 | 2026-10-09 | Cancellation is a request decided by the run: `Cancelled` status description, the cancellation path diagram, Scenarios 3-5 (`cancel_for_replacement`), §Terminal outcome (`Cancelled` records its cause in `error_data`; `fail_asset` acts once on an in-flight asset; cascade cancellation through `wait_for_dependency`). | phase-5 (`design/asset-cancellation-outcome/`) |

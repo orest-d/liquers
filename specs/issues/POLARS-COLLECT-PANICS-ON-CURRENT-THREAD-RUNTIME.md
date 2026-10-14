@@ -30,8 +30,10 @@ possibly a wasm-like inline manager) panics. `DataFrame`-only commands such as `
 
 ## Impact
 
-`ns-pl` queries cannot be evaluated in a current-thread runtime. The panic then hangs the
-evaluation rather than failing it (`COMMAND-PANIC-HANGS-EVALUATION`). The existing
+`ns-pl` queries cannot be evaluated in a current-thread runtime. Since
+`COMMAND-PANIC-HANGS-EVALUATION` was fixed (2026-10-14), the panic fails the asset with
+`evaluation panicked: can call blocking only when running on the multi-threaded runtime` instead of
+hanging it. The existing
 `polars_commands.rs` tests avoid it only because they call polars directly instead of the
 commands (`POLARS-COMMAND-TESTS-BYPASS-COMMANDS`). Workaround: evaluate on a multi-threaded
 runtime (`#[tokio::test(flavor = "multi_thread")]`, as `liquers-lib/tests/records_table_ops.rs`

@@ -160,3 +160,102 @@ fn test_error_cancelled_constructor() {
     assert!(e.is_cancelled());
     assert!(!Error::general_error("x".to_string()).is_cancelled());
 }
+
+// ------------------------------------------------------------------------------------------------
+// A panicking command fails its asset (COMMAND-PANIC-HANGS-EVALUATION)
+// ------------------------------------------------------------------------------------------------
+
+use std::sync::Arc;
+
+use liquers_core::commands::CommandRegistry;
+use liquers_core::context::{EnvRef, ImmediateEnvironment};
+
+/// Registers `panic_sync` and `panic_async`, which panic with "kaboom", counting their calls.
+fn register_panicking<E: Environment<Value = Value>>(
+    cr: &mut CommandRegistry<E>,
+    calls: Arc<AtomicUsize>,
+) {
+    let sync_calls = calls.clone();
+    cr.register_command(
+        liquers_core::command_metadata::CommandKey::new_name("panic_sync"),
+        move |_state, _args, _ctx| -> Result<Value, Error> {
+            sync_calls.fetch_add(1, Ordering::SeqCst);
+            panic!("kaboom (sync)");
+        },
+    )
+    .expect("register panic_sync");
+    cr.register_async_command(
+        liquers_core::command_metadata::CommandKey::new_name("panic_async"),
+        move |_state, _args, _ctx| {
+            let calls = calls.clone();
+            Box::pin(async move {
+                calls.fetch_add(1, Ordering::SeqCst);
+                tokio::task::yield_now().await;
+                panic!("kaboom (async)");
+            })
+        },
+    )
+    .expect("register panic_async");
+}
+
+/// The error one request for `query` ends in. The queued manager returns the asset and
+/// `get()` gives `Ok(error_state)` (I1); the inline manager evaluates inside `get_asset` and
+/// returns the failure from it. Either way it must arrive, not hang.
+async fn requested_error<E: Environment<Value = Value>>(envref: &EnvRef<E>, query: &str) -> Error {
+    let request = async {
+        match envref.get_asset_manager().get_asset(&q(query)).await {
+            Err(error) => error,
+            Ok(asset) => {
+                let state = asset.get().await.expect("get() must be Ok(error_state)");
+                assert_eq!(state.status(), Status::Error, "{query}");
+                state.value_state().expect_err("value_state must be Err")
+            }
+        }
+    };
+    tokio::time::timeout(std::time::Duration::from_secs(10), request)
+        .await
+        .unwrap_or_else(|_| panic!("{query}: evaluation hung after the command panicked"))
+}
+
+/// The panic becomes the asset's error, promptly and naming the panic; the command ran once (no
+/// re-run loop); and a later request is still answered.
+async fn scenario_panic_fails_the_asset<E: Environment<Value = Value>>(
+    envref: EnvRef<E>,
+    calls: Arc<AtomicUsize>,
+) {
+    for (query, text) in [
+        ("panic_sync", "kaboom (sync)"),
+        ("panic_async", "kaboom (async)"),
+    ] {
+        let before = calls.load(Ordering::SeqCst);
+        let error = requested_error(&envref, query).await;
+        assert!(
+            error.message.contains("panicked") && error.message.contains(text),
+            "{query}: {}",
+            error.message
+        );
+        assert_eq!(
+            calls.load(Ordering::SeqCst) - before,
+            1,
+            "{query}: the command must run once"
+        );
+        let again = requested_error(&envref, query).await;
+        assert!(again.message.contains(text), "{query}: {}", again.message);
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_panicking_command_fails_its_asset_default_manager() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let mut env = SimpleEnvironment::<Value>::new();
+    register_panicking(&mut env.command_registry, calls.clone());
+    scenario_panic_fails_the_asset(env.to_ref(), calls).await;
+}
+
+#[tokio::test]
+async fn test_panicking_command_fails_its_asset_immediate_manager() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let mut env = ImmediateEnvironment::<Value>::new();
+    register_panicking(&mut env.command_registry, calls.clone());
+    scenario_panic_fails_the_asset(env.to_ref(), calls).await;
+}
