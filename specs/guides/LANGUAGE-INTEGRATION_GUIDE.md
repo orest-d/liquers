@@ -3,7 +3,7 @@ title: Language Integration Guide
 kind: guide
 audience: internal
 area: [web, py, core/commands, core/plan, core/assets]
-reviewed: 2026-10-10
+reviewed: 2026-10-13
 ---
 # Liquers Language Integration Guide
 
@@ -350,7 +350,7 @@ Three things follow, and they generalize to any *integration*:
 1. Does the *integrated language* have a universal value representation, such as JavaScript `JsValue`, Starlark `Value<'v>`, a JSON value, or Python `Py<PyAny>`? Can it safely be retained inside the *value type*?
 2. Which *language values* receive *structural conversion*, which are exposed as *wrappers* around existing Rust values, and which must remain *opaque language values*? Provide a bidirectional mapping table for all supported types.
 3. Is the *value type* a new implementation, a generic composition such as `CombinedValue`, or an extension of an existing Liquers value? How are *upcast* and *downcast* operations exposed, checked, and reported on failure? **Before answering, see “Retaining an opaque language value” below — the shared mechanism usually makes a bespoke variant unnecessary.**
-4. Are conversions strict, permissive, or configurable? How are integer range, NaN/infinity, cycles, shared identity, mutation, and unknown objects handled?
+4. Are conversions strict, permissive, or configurable? How are integer range, NaN/infinity, cycles, shared identity, mutation, and unknown objects handled? For NaN/infinity, whatever crosses into JSON must follow Liquers' policy (`liquers_core::value::json_f64`; see [`SERIALIZATION_GUIDE.md`](SERIALIZATION_GUIDE.md)): `try_into_json_value` refuses, and the JSON byte path writes `"NaN"` / `"Infinity"` / `"-Infinity"` where the value is known to be a float.
 5. Can an *opaque language value* cross stores, threads, processes, Wasm boundaries, or another *language runtime*? Which codecs are supported and trusted?
 6. Does the *integrated language* support function pointers, bound methods, closures, or callable objects? May they be retained as *opaque language values*? Are they serializable? Are they accepted as *language commands* through `COMMAND`, even when they are not ordinary data values?
 7. Can users operate conveniently on a *value type* *wrapper* or *State* as if it were a language scalar? Which conversions are implicit versus explicit? Can arithmetic, comparison, indexing, iteration, truthiness, and display operators be defined without hiding conversion errors or metadata loss?
@@ -2799,6 +2799,7 @@ def test_PACKAGE07_artifact_carries_declarations_license_and_metadata():
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-13 | §Design questions, question 4: NaN/infinity follows the JSON policy in `SERIALIZATION_GUIDE.md`. | phase-5, `design/value-to-json-non-finite-float/` |
 | 2026-10-10 | §4 *Out of scope: cache*: the cache module and `liquers-py`'s wrapper were removed, not scheduled for removal. | `CORE-SYNC-STORE-TRAIT-OBSOLETE`, `design/sync-store-removal/` |
 | 2026-10-08 | §7: the design workflow is the `liquers-project` skill (the `liquers-designer` skill was removed), and design folders live under `specs/design/`. | skill consolidation |
 | 2026-09-30 | STORE: a *language*-defined store needs a way to express absence as distinct from failure, with `JsStore`'s sentinel as the example. | phase-5 (`design/store-conformance-backlog/`) |

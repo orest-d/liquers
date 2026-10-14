@@ -194,7 +194,9 @@ So an `Int` cell reads as `i64` and `f64` but not `i32`, exactly as a base `I64`
 ([`VALUE-CONVERSION-CAPABILITY`](../issues/VALUE-CONVERSION-CAPABILITY.md)). This is what lets a
 recipe link bind a one-cell view into a scalar argument. `try_into_json_value` gives the cell's
 base JSON for a one-row view with exactly one payload column (or a single column), and otherwise the
-`records`-orient array of row objects. A `RecordSource` refuses every scalar conversion.
+`records`-orient array of row objects. Either way a non-finite `Float` is refused, not mapped to
+`null`: the cell goes through the base value's strict conversion, and the array through the JSON
+writer below ([`guides/SERIALIZATION_GUIDE.md`](../guides/SERIALIZATION_GUIDE.md)). A `RecordSource` refuses every scalar conversion.
 
 ## Identity and retrieval
 
@@ -865,6 +867,7 @@ materializes to an empty batch; without one it is an error.
 | Date | Change | Source |
 |---|---|---|
 | 2026-10-13 | `ns-rec` table operations (filters, `sort`, `tail`, `drop_columns`, counts, `schema` with `records_schema` as alias); `select_columns` / `head` lazy over sources; `MappedSource`, `RecordBatch::empty`, `Column::sort_indices`, `StrictPredicate`; DataFrame input; lenient `IndexKind` / `Analyzer` / `FieldRole` deserialization; JSON-first `schema` argument; the `ns-rec` ↔ `ns-pl` comparison. | `design/record-filter-commands/` |
+| 2026-10-13 | §Scalar reading: a single NaN or infinite cell is refused by `try_into_json_value` (a `ConversionError`), consistent with the JSON writer. | phase-5, `design/value-to-json-non-finite-float/` |
 | 2026-10-11 | `Timestamp` is a UTC instant everywhere: IPC writes `Timestamp(Microsecond, "UTC")` and reads any zone without shifting; the polars bridge produces `Datetime(µs, "UTC")` and accepts any `Datetime`. The time-zone limitation is removed. | `design/record-timestamp-utc/` |
 | 2026-10-11 | `FieldSchema::media_type`; `FilteredSource`; roles gain their first consumer, `ns-search/search`. | phase-5, `design/store-and-asset-search/` |
 | 2026-10-10 | JSON: a schema-less `split` / `columns` / `index` read whose data has a column named `index` puts the index first, in the first free `index_<n>`, instead of losing it. | `design/json-orient-index-column-collision/` |

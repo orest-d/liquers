@@ -116,6 +116,7 @@ simply stop being wanted.
 - **Application-defined metadata attributes** — planned → [`issues/CORE-METADATA-NO-APPLICATION-ATTRIBUTES.md`](issues/CORE-METADATA-NO-APPLICATION-ATTRIBUTES.md)
 - **Setting title and description from a command** — planned → [`issues/CONTEXT-CANNOT-SET-TITLE-OR-DESCRIPTION.md`](issues/CONTEXT-CANNOT-SET-TITLE-OR-DESCRIPTION.md)
 - **Base/extended value discrimination** — built → [`reference/VALUE_TYPE_SYSTEM.md`](reference/VALUE_TYPE_SYSTEM.md) §Reading *(design: [`combined-value-identifier-dispatch`](design/combined-value-identifier-dispatch/))*
+- **Serialization format choice and non-finite floats in JSON** — documented → [`guides/SERIALIZATION_GUIDE.md`](guides/SERIALIZATION_GUIDE.md) *(design: [`value-to-json-non-finite-float`](design/value-to-json-non-finite-float/))*
 
 `CORE-METADATA-TRACEBACK-SUPPORT` and `LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT` are one defect
 seen from two directions — `Error` has nowhere to put structured context — and one field design
@@ -393,6 +394,7 @@ deliberately folded behind a broader line.
 - design `store-keys-contract`
 - design `store-router-directory-above-members`
 - design `store-router-empty-prefix`
+- design `store-router-forwards-asset-info`
 - design `store-test-output-hygiene`
 - design `stubs01-class-detection`
 - design `submit-eagerness-documentation`
@@ -451,6 +453,7 @@ deliberately folded behind a broader line.
 - [`QUERY_ESCAPING_GUIDE.md`](guides/QUERY_ESCAPING_GUIDE.md) — A Liquers query is text with structure: `/` separates path segments, `-` separates action
 - [`RECORD_STREAM_GUIDE.md`](guides/RECORD_STREAM_GUIDE.md) — How to produce records from a new source: a command that returns a table, a manifest that stitches
 - [`SEARCH_GUIDE.md`](guides/SEARCH_GUIDE.md) — How to find things in a Liquers store with the `ns-search` commands: files by folder or name,
+- [`SERIALIZATION_GUIDE.md`](guides/SERIALIZATION_GUIDE.md) — This guide covers what each data format preserves when a value is written to a store and read back,
 - [`STORE_FACTORY_GUIDE.md`](guides/STORE_FACTORY_GUIDE.md) — > This guide covers **declaring a store type** so a configuration document can name it. For
 - [`STORE_IMPLEMENTATION_GUIDE.md`](guides/STORE_IMPLEMENTATION_GUIDE.md) — How to implement an `AsyncStore` that satisfies
 - [`TYPE_SYSTEM_GUIDE.md`](guides/TYPE_SYSTEM_GUIDE.md) — How to add a value type so the system can describe it, store it and read it back. For *why* the

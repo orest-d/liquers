@@ -1,4 +1,4 @@
-//! `C1`–`C5` — the conformance suite applied to `liquers-core`'s stores and to the trait defaults.
+//! `C1`–`C6` — the conformance suite applied to `liquers-core`'s stores and to the trait defaults.
 //!
 //! This file is the **divergence census** the issue
 //! `STORE-ASYNC-STORE-NO-BEHAVIOURAL-CONFORMANCE-SUITE` asked for: the first time these
@@ -13,7 +13,7 @@
 #![cfg(feature = "store-conformance")]
 
 use liquers_core::error::Error;
-use liquers_core::metadata::{Metadata, MetadataRecord};
+use liquers_core::metadata::{AssetInfo, Metadata, MetadataRecord};
 use liquers_core::parse::parse_key;
 use liquers_core::query::Key;
 use liquers_core::store::{
@@ -207,6 +207,107 @@ async fn c3_report() -> ConformanceReport {
     let report = run_all(&fixture).await;
     let _ = tokio::fs::remove_dir_all(&root).await;
     report
+}
+
+/// `C6` — `AsyncStoreRouter` with a member that describes its own entries and a member mounted
+/// inside it.
+///
+/// The router composes every directory answer here instead of forwarding it: the fixture's
+/// namespace `mem` has two contributors. `dir07` (directory `children` are the listing) is the rule
+/// this exercises hardest — before `design/store-router-forwards-asset-info/` the owner alone filled
+/// `children` and omitted the nested mount. The decorating member stands in for the front-matter
+/// adapter of `design/store-adapters/`, whose `get_asset_info` override the router must not bypass.
+#[tokio::test]
+async fn c6_router_with_a_decorated_member_and_a_nested_mount() {
+    check(c6_report().await, C6_ALLOWED);
+}
+
+/// Known divergences of `C6`.
+const C6_ALLOWED: &[AllowedFailure] = &[];
+
+async fn c6_report() -> ConformanceReport {
+    let mem_prefix = parse_key("mem").expect("prefix");
+    let mut router = AsyncStoreRouter::new();
+    // First match wins, so the nested mount goes first.
+    router.add_store(Box::new(AsyncMemoryStore::new(
+        &parse_key("mem/nested").expect("prefix"),
+    )));
+    router.add_store(Box::new(DecoratingStore(AsyncMemoryStore::new(&mem_prefix))));
+    let fixture = GenericFixture::new(
+        "AsyncStoreRouter(decorated mem + nested mem)",
+        Box::new(router),
+        Key::new(),
+        index_backed(),
+        SafetyLevel::Scratch,
+    )
+    .with_key_base(mem_prefix);
+    run_all(&fixture).await
+}
+
+/// An `AsyncMemoryStore` with every method forwarded, whose `get_asset_info` adds a title.
+struct DecoratingStore(AsyncMemoryStore);
+
+#[async_trait::async_trait]
+impl AsyncStore for DecoratingStore {
+    fn store_name(&self) -> String {
+        self.0.store_name()
+    }
+    fn key_prefix(&self) -> Key {
+        self.0.key_prefix()
+    }
+    fn default_metadata(&self, key: &Key, is_dir: bool) -> MetadataRecord {
+        self.0.default_metadata(key, is_dir)
+    }
+    async fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
+        self.0.get(key).await
+    }
+    async fn get_bytes(&self, key: &Key) -> Result<Vec<u8>, Error> {
+        self.0.get_bytes(key).await
+    }
+    async fn get_metadata(&self, key: &Key) -> Result<Metadata, Error> {
+        self.0.get_metadata(key).await
+    }
+    async fn get_asset_info(&self, key: &Key) -> Result<AssetInfo, Error> {
+        let mut info = self.0.get_asset_info(key).await?;
+        info.title = format!("Decorated {}", key.encode());
+        Ok(info)
+    }
+    async fn set(&self, key: &Key, data: &[u8], metadata: &Metadata) -> Result<(), Error> {
+        self.0.set(key, data, metadata).await
+    }
+    async fn set_metadata(&self, key: &Key, metadata: &Metadata) -> Result<(), Error> {
+        self.0.set_metadata(key, metadata).await
+    }
+    async fn remove(&self, key: &Key) -> Result<(), Error> {
+        self.0.remove(key).await
+    }
+    async fn removedir(&self, key: &Key) -> Result<(), Error> {
+        self.0.removedir(key).await
+    }
+    async fn contains(&self, key: &Key) -> Result<bool, Error> {
+        self.0.contains(key).await
+    }
+    async fn is_dir(&self, key: &Key) -> Result<bool, Error> {
+        self.0.is_dir(key).await
+    }
+    async fn keys(&self) -> Result<Vec<Key>, Error> {
+        self.0.keys().await
+    }
+    async fn listdir(&self, key: &Key) -> Result<Vec<String>, Error> {
+        self.0.listdir(key).await
+    }
+    async fn listdir_keys(&self, key: &Key) -> Result<Vec<Key>, Error> {
+        self.0.listdir_keys(key).await
+    }
+    async fn listdir_keys_deep(&self, key: &Key) -> Result<Vec<Key>, Error> {
+        self.0.listdir_keys_deep(key).await
+    }
+    async fn makedir(&self, key: &Key) -> Result<(), Error> {
+        self.0.makedir(key).await
+    }
+    fn is_supported(&self, key: &Key) -> bool {
+        self.0.is_supported(key)
+    }
 }
 
 /// A store built from the `AsyncStore` **trait defaults** over a backing map.
@@ -427,6 +528,16 @@ async fn status_table() {
             "needs each member's prefix to exist (`CORE-STORE-ROUTER-KEYS-FAILS-ON-AN-EMPTY-MEMBER`); \
              a directory above its members answers directory metadata, checked by router unit \
              tests because no generic fixture requests such a key",
+        )
+    );
+    eprintln!(
+        "{}",
+        status_row(
+            "`AsyncStoreRouter` (nested)",
+            &c6_report().await,
+            C6_ALLOWED,
+            "a decorating member with a member mounted inside it: every directory answer is \
+             composed by the router (`design/store-router-forwards-asset-info/`)",
         )
     );
     eprintln!(

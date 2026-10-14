@@ -27,6 +27,9 @@ pub enum SimpleValue {
         value: i64,
     },
     F64 {
+        // Tagged, so a non-finite float is written as a `json_f64` token and read back losslessly
+        // at any depth; `null` (an earlier writer's form) reads as NaN.
+        #[serde(with = "liquers_core::value::json_f64")]
         value: f64,
     },
     Text {
@@ -122,7 +125,7 @@ impl ValueInterface for SimpleValue {
                 Ok(serde_json::Value::Number(serde_json::Number::from(*n)))
             }
             SimpleValue::F64 { value: n } => Ok(serde_json::Value::Number(
-                serde_json::Number::from_f64(*n).unwrap(),
+                liquers_core::value::json_f64::to_number(*n)?,
             )),
             SimpleValue::Text { value: t } => Ok(serde_json::Value::String(t.to_owned())),
             SimpleValue::Array { value: a } => {
@@ -622,7 +625,10 @@ impl DefaultValueSerializer for SimpleValue {
                         format!("Failed to serialize i64 to JSON: {}", e),
                     )
                 }),
-                SimpleValue::F64 { value } => serde_json::to_vec(value).map_err(|e| {
+                SimpleValue::F64 { value } => serde_json::to_vec(
+                    &liquers_core::value::json_f64::to_json(*value),
+                )
+                .map_err(|e| {
                     Error::new(
                         ErrorType::SerializationError,
                         format!("Failed to serialize f64 to JSON: {}", e),
@@ -737,6 +743,11 @@ impl DefaultValueSerializer for SimpleValue {
             // (`{"Array": {"value": …}}`) are read in that form, and otherwise as plain JSON, which
             // is what a hand-written file holds. Everything else is plain JSON.
             "json" => match type_identifier {
+                // As core: a number, a `json_f64` token, or `null` (NaN).
+                "F64" => serde_json::from_slice::<serde_json::Value>(b)
+                    .map_err(|e| Error::from_error(ErrorType::SerializationError, e))
+                    .and_then(|v| liquers_core::value::json_f64::from_json(&v))
+                    .map(|value| SimpleValue::F64 { value }),
                 "Metadata" => serde_json::from_slice::<MetadataRecord>(b)
                     .map(|value| SimpleValue::Metadata { value })
                     .map_err(|e| Error::from_error(ErrorType::ParseError, e)),
@@ -1308,6 +1319,128 @@ mod tests {
         assert_eq!(bytes, b"# Notes\n- one\n");
         assert_eq!(SimpleValue::deserialize_from_bytes(&bytes, "Text", "md")?, text);
         assert!(SimpleValue::I32 { value: 7 }.as_bytes("md").is_err());
+        Ok(())
+    }
+
+    // Non-finite floats in JSON (`specs/design/value-to-json-non-finite-float/`).
+
+    fn same_float(a: f64, b: f64) -> bool {
+        (a.is_nan() && b.is_nan()) || a.to_bits() == b.to_bits()
+    }
+
+    fn same_floats(a: &SimpleValue, b: &SimpleValue) -> bool {
+        match (a, b) {
+            (SimpleValue::F64 { value: x }, SimpleValue::F64 { value: y }) => same_float(*x, *y),
+            (SimpleValue::Array { value: xs }, SimpleValue::Array { value: ys }) => {
+                xs.len() == ys.len() && xs.iter().zip(ys).all(|(x, y)| same_floats(x, y))
+            }
+            (x, y) => x == y,
+        }
+    }
+
+    /// AC-5
+    #[test]
+    fn simple_value_try_into_json_value_refuses_non_finite() {
+        use liquers_core::error::ErrorType;
+        for x in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            let direct = SimpleValue::F64 { value: x }.try_into_json_value();
+            assert!(matches!(direct, Err(ref e) if e.error_type == ErrorType::ConversionError));
+            let nested = SimpleValue::Array {
+                value: vec![SimpleValue::F64 { value: x }],
+            }
+            .try_into_json_value();
+            assert!(matches!(nested, Err(ref e) if e.error_type == ErrorType::ConversionError));
+            // Through the library's `Value` (`CombinedValue<SimpleValue, ExtValue>`).
+            let combined = crate::value::Value::from_f64(x).try_into_json_value();
+            assert!(matches!(combined, Err(ref e) if e.error_type == ErrorType::ConversionError));
+        }
+    }
+
+    /// AC-4
+    #[test]
+    fn simple_value_json_finite_floats_unchanged() -> Result<(), Box<dyn std::error::Error>> {
+        for x in [1.5, -0.0, f64::MAX] {
+            let v = SimpleValue::F64 { value: x };
+            assert_eq!(v.try_into_json_value()?, serde_json::json!(x));
+            assert_eq!(v.as_bytes("json")?, serde_json::to_vec(&x)?);
+            let array = SimpleValue::Array { value: vec![v] };
+            let written = String::from_utf8(array.as_bytes("json")?)?;
+            assert!(written.contains(&serde_json::to_string(&x)?), "{written}");
+        }
+        Ok(())
+    }
+
+    /// AC-8, AC-11
+    #[test]
+    fn simple_value_json_non_finite_round_trip() -> Result<(), Box<dyn std::error::Error>> {
+        for (x, token) in [
+            (f64::NAN, "\"NaN\""),
+            (f64::INFINITY, "\"Infinity\""),
+            (f64::NEG_INFINITY, "\"-Infinity\""),
+        ] {
+            let scalar = SimpleValue::F64 { value: x };
+            let written = scalar.as_bytes("json")?;
+            assert_eq!(written, token.as_bytes());
+            let back = SimpleValue::deserialize_from_bytes(&written, "F64", "json")?;
+            assert!(same_floats(&scalar, &back), "{back:?}");
+
+            let array = SimpleValue::Array {
+                value: vec![SimpleValue::F64 { value: 1.0 }, scalar],
+            };
+            let written = array.as_bytes("json")?;
+            assert!(String::from_utf8(written.clone())?.contains(token));
+            let back = SimpleValue::deserialize_from_bytes(&written, "Array", "json")?;
+            assert!(same_floats(&array, &back), "{back:?}");
+        }
+        Ok(())
+    }
+
+    /// AC-11: the form written before the fix reads as the array it was, not as its tag structure.
+    #[test]
+    fn simple_value_json_reads_legacy_null_float_in_array() -> Result<(), Box<dyn std::error::Error>> {
+        let legacy = br#"{"Array":{"value":[{"F64":{"value":1.0}},{"F64":{"value":null}}]}}"#;
+        let back = SimpleValue::deserialize_from_bytes(legacy, "Array", "json")?;
+        let expected = SimpleValue::Array {
+            value: vec![
+                SimpleValue::F64 { value: 1.0 },
+                SimpleValue::F64 { value: f64::NAN },
+            ],
+        };
+        assert!(same_floats(&expected, &back), "{back:?}");
+        Ok(())
+    }
+
+    /// AC-9
+    #[test]
+    fn simple_value_json_f64_reader_accepts_every_encoding() -> Result<(), Box<dyn std::error::Error>> {
+        use liquers_core::error::ErrorType;
+        let read = |b: &[u8]| SimpleValue::deserialize_from_bytes(b, "F64", "json");
+        for (bytes, expected) in [
+            (&b"1.5"[..], 1.5),
+            (b"1", 1.0),
+            (b"\"NaN\"", f64::NAN),
+            (b"\"Infinity\"", f64::INFINITY),
+            (b"\"-Infinity\"", f64::NEG_INFINITY),
+            (b"null", f64::NAN),
+        ] {
+            match read(bytes)? {
+                SimpleValue::F64 { value } => assert!(same_float(value, expected)),
+                other => panic!("{} read as {other:?}", String::from_utf8_lossy(bytes)),
+            }
+        }
+        for bad in [&b"\"nan\""[..], b"\"abc\"", b"true", b"NaN"] {
+            assert!(
+                matches!(read(bad), Err(ref e) if e.error_type == ErrorType::SerializationError),
+                "{}",
+                String::from_utf8_lossy(bad)
+            );
+        }
+        assert_eq!(
+            SimpleValue::deserialize_from_bytes(b"\"NaN\"", "Text", "json")?,
+            SimpleValue::Text {
+                value: "NaN".to_owned()
+            }
+        );
         Ok(())
     }
 }

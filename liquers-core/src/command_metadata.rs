@@ -481,9 +481,6 @@ impl CommandParameterValue {
     fn from_integer(value: i64) -> Self {
         CommandParameterValue::Value(Value::Number(serde_json::Number::from(value)))
     }
-    fn from_float(value: f64) -> Self {
-        CommandParameterValue::Value(Value::Number(serde_json::Number::from_f64(value).unwrap()))
-    }
 }
 
 /// ParameterPreset defines and describes a preset for a command parameter.
