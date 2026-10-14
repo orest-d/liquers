@@ -346,9 +346,7 @@ async fn sort_over_a_source_materializes_first() -> Res {
     Ok(())
 }
 
-// ns-pl's lazy collect needs a multi-threaded runtime (POLARS-COLLECT-PANICS-ON-CURRENT-THREAD-RUNTIME).
-#[cfg_attr(feature = "polars", tokio::test(flavor = "multi_thread", worker_threads = 2))]
-#[cfg_attr(not(feature = "polars"), tokio::test)]
+#[tokio::test]
 async fn tail_and_drop_columns_match_polars() -> Res {
     let env = fixture().await?;
     assert_eq!(ids_of(&env, &q(CSV, "tail-2")).await?, ["A-2", "A-3"]);
@@ -393,8 +391,7 @@ async fn counts_over_a_source_are_chunkwise() -> Res {
 }
 
 #[cfg(feature = "polars")]
-// ns-pl's lazy collect needs a multi-threaded runtime (POLARS-COLLECT-PANICS-ON-CURRENT-THREAD-RUNTIME).
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test]
 async fn shape_and_count_match_polars() -> Res {
     let env = fixture().await?;
     let rec = eval(&env, &q(CSV, "shape")).await?.value()?.try_into_json_value()?;
@@ -501,8 +498,7 @@ async fn table_ops_need_no_polars() -> Res {
 // ------------------------------------------------------------------------------------------------
 
 #[cfg(feature = "polars")]
-// ns-pl's lazy collect needs a multi-threaded runtime (POLARS-COLLECT-PANICS-ON-CURRENT-THREAD-RUNTIME).
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test]
 async fn rec_and_pl_filters_and_sort_agree() -> Res {
     let env = fixture().await?;
     for op in [
@@ -528,8 +524,7 @@ async fn rec_and_pl_filters_and_sort_agree() -> Res {
 }
 
 #[cfg(feature = "polars")]
-// ns-pl's lazy collect needs a multi-threaded runtime (POLARS-COLLECT-PANICS-ON-CURRENT-THREAD-RUNTIME).
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test]
 async fn pl_commands_accept_a_record_view() -> Res {
     let env = fixture().await?;
     assert_eq!(identifier_of(&env, &q(CSV, "ns-pl/sort-amount-f")).await?, "polars.DataFrame");
@@ -541,8 +536,7 @@ async fn pl_commands_accept_a_record_view() -> Res {
 }
 
 #[cfg(feature = "polars")]
-// ns-pl's lazy collect needs a multi-threaded runtime (POLARS-COLLECT-PANICS-ON-CURRENT-THREAD-RUNTIME).
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test]
 async fn pl_refuses_a_source_naming_materialize() -> Res {
     let env = fixture().await?;
     let message = error_of(&env, &q(CSV, "ns-fixture/split_rows-pl/ns-pl/shape")).await;
@@ -553,8 +547,7 @@ async fn pl_refuses_a_source_naming_materialize() -> Res {
 }
 
 #[cfg(feature = "polars")]
-// ns-pl's lazy collect needs a multi-threaded runtime (POLARS-COLLECT-PANICS-ON-CURRENT-THREAD-RUNTIME).
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test]
 async fn pl_sort_accepts_old_flag_spelling() -> Res {
     let env = fixture().await?;
     assert_eq!(ids_of(&env, &q(CSV, "ns-pl/sort-amount-t")).await?, ["A-2", "A-3", "A-1"]);
@@ -562,8 +555,7 @@ async fn pl_sort_accepts_old_flag_spelling() -> Res {
 }
 
 #[cfg(feature = "polars")]
-// ns-pl's lazy collect needs a multi-threaded runtime (POLARS-COLLECT-PANICS-ON-CURRENT-THREAD-RUNTIME).
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::test]
 async fn rec_commands_accept_a_dataframe() -> Res {
     let env = fixture().await?;
     let query = "-R/data/orders.csv/-/ns-pl/sort-amount/ns-rec/eq-order_id-A~_2";

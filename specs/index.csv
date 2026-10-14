@@ -198,7 +198,7 @@ PLAN-EXCESS-ACTION-PARAMETERS-DROPPED,issue,Plan builder silently drops excess a
 PLAN-SPLIT-DROPS-PREDECESSOR-FIELDS,issue,Plan split drops predecessor fields,closed,local,,covered,not-eligible,P2,S,core/plan,,,,plan-split-predecessor-fields,,2026-08-26,specs/issues/PLAN-SPLIT-DROPS-PREDECESSOR-FIELDS.md
 PLANNING-DIAGNOSTICS-NEVER-REACH-THE-ASSET-LOG,issue,Planning diagnostics never reach the evaluated asset's log,closed,local,,,,P2,M,core/plan;core/assets,,,,,,2026-10-10,specs/issues/PLANNING-DIAGNOSTICS-NEVER-REACH-THE-ASSET-LOG.md
 POLARS-BRIDGE-VECTOR-COLUMNS-REFUSED,issue,The RecordBatch <-> DataFrame bridge cannot convert Vector columns,draft,local,,,,P3,M,records;lib/polars,,,,,,2026-09-27,specs/issues/POLARS-BRIDGE-VECTOR-COLUMNS-REFUSED.md
-POLARS-COLLECT-PANICS-ON-CURRENT-THREAD-RUNTIME,issue,ns-pl commands panic inside LazyFrame::collect on a current-thread tokio runtime,draft,local,,,,P2,M,lib/polars,,,,,,2026-10-13,specs/issues/POLARS-COLLECT-PANICS-ON-CURRENT-THREAD-RUNTIME.md
+POLARS-COLLECT-PANICS-ON-CURRENT-THREAD-RUNTIME,issue,ns-pl commands panic inside LazyFrame::collect on a current-thread tokio runtime,closed,local,,,,P2,M,lib/polars,,,,,,2026-10-13,specs/issues/POLARS-COLLECT-PANICS-ON-CURRENT-THREAD-RUNTIME.md
 POLARS-COMMAND-TESTS-BYPASS-COMMANDS,issue,The polars command integration tests never invoke a polars command,draft,local,,,,P2,M,lib/polars;build,,,,,,2026-08-25,specs/issues/POLARS-COMMAND-TESTS-BYPASS-COMMANDS.md
 POLARS-DOC-EXAMPLES-OMIT-NAMESPACE,issue,Polars reference example queries omit the ns-pl namespace and do not resolve,closed,local,,ready,,P2,S,docs;lib/commands,,,,polars-doc-example-namespace,,2026-08-12,specs/issues/POLARS-DOC-EXAMPLES-OMIT-NAMESPACE.md
 POST-INIT-COMMAND-REGISTRATION,issue,Registering a command after Environment::to_ref requires a rebuild,accepted,local,,,,P3,M,core/commands;web,,,,,,2026-08-08,specs/issues/POST-INIT-COMMAND-REGISTRATION.md
@@ -518,7 +518,7 @@ DEPENDENCIES_STATUS,reference,Status::Dependencies Specification,current,local,,
 ENVIRONMENT_CONFIG,reference,Environment Configuration,current,local,,,,,,core/context;core/store;core/assets,,,,,2026-10-10,,specs/reference/ENVIRONMENT_CONFIG.md
 IMAGE_COMMAND_LIBRARY,reference,Image Command Library Specification,overdue,local,,,,,,lib/image,,,,,2026-03-02,,specs/reference/IMAGE_COMMAND_LIBRARY.md
 PAYLOAD_GUIDE,reference,Payload Specification and Usage,current,local,,,,,,core/context;core/commands,,,,,2026-09-04,,specs/reference/PAYLOAD_GUIDE.md
-POLARS_COMMAND_LIBRARY,reference,Polars Command Library Specification,current,local,,,,,,lib/polars,,,,,2026-10-13,,specs/reference/POLARS_COMMAND_LIBRARY.md
+POLARS_COMMAND_LIBRARY,reference,Polars Command Library Specification,current,local,,,,,,lib/polars,,,,,2026-10-14,,specs/reference/POLARS_COMMAND_LIBRARY.md
 PROJECT_OVERVIEW,reference,Liquers Project Overview,current,local,,,,,,core/query;core/plan;core/assets;core/store;core/value,,,,,2026-10-11,,specs/reference/PROJECT_OVERVIEW.md
 RECORD_STREAMS,reference,Record Streams,current,local,,,,,,records;lib/value;lib/commands;web,,,,,2026-10-13,,specs/reference/RECORD_STREAMS.md
 REGISTER_COMMAND_FSD,reference,register_command! Macro Functional Specification,current,local,,,,,,macro;core/commands,,,,,2026-10-12,,specs/reference/REGISTER_COMMAND_FSD.md

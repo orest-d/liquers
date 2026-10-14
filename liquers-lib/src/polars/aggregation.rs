@@ -5,7 +5,7 @@ use liquers_core::{
 };
 use liquers_macro::register_command;
 
-use super::util::try_to_polars_dataframe;
+use super::util::{try_to_polars_dataframe, CollectOnAnyRuntime};
 
 /// Sum of all numeric columns
 #[liquers_macro::command_version]
@@ -18,7 +18,7 @@ pub fn sum(state: &State<Value>) -> Result<Value, Error> {
         .clone()
         .lazy()
         .select([col("*").sum()])
-        .collect()
+        .collect_on_any_runtime()
         .map_err(|e| Error::general_error(format!("Failed to compute sum: {}", e)))?;
 
     Ok(Value::from_polars_dataframe(result))
@@ -35,7 +35,7 @@ pub fn mean(state: &State<Value>) -> Result<Value, Error> {
         .clone()
         .lazy()
         .select([col("*").mean()])
-        .collect()
+        .collect_on_any_runtime()
         .map_err(|e| Error::general_error(format!("Failed to compute mean: {}", e)))?;
 
     Ok(Value::from_polars_dataframe(result))
@@ -52,7 +52,7 @@ pub fn median(state: &State<Value>) -> Result<Value, Error> {
         .clone()
         .lazy()
         .select([col("*").median()])
-        .collect()
+        .collect_on_any_runtime()
         .map_err(|e| Error::general_error(format!("Failed to compute median: {}", e)))?;
 
     Ok(Value::from_polars_dataframe(result))
@@ -69,7 +69,7 @@ pub fn min(state: &State<Value>) -> Result<Value, Error> {
         .clone()
         .lazy()
         .select([col("*").min()])
-        .collect()
+        .collect_on_any_runtime()
         .map_err(|e| Error::general_error(format!("Failed to compute min: {}", e)))?;
 
     Ok(Value::from_polars_dataframe(result))
@@ -86,7 +86,7 @@ pub fn max(state: &State<Value>) -> Result<Value, Error> {
         .clone()
         .lazy()
         .select([col("*").max()])
-        .collect()
+        .collect_on_any_runtime()
         .map_err(|e| Error::general_error(format!("Failed to compute max: {}", e)))?;
 
     Ok(Value::from_polars_dataframe(result))
@@ -103,7 +103,7 @@ pub fn std(state: &State<Value>) -> Result<Value, Error> {
         .clone()
         .lazy()
         .select([col("*").std(1)]) // ddof=1 for sample std dev
-        .collect()
+        .collect_on_any_runtime()
         .map_err(|e| Error::general_error(format!("Failed to compute std: {}", e)))?;
 
     Ok(Value::from_polars_dataframe(result))
@@ -166,7 +166,7 @@ pub fn describe(state: &State<Value>) -> Result<Value, Error> {
         .clone()
         .lazy()
         .select(exprs)
-        .collect()
+        .collect_on_any_runtime()
         .map_err(|e| Error::general_error(format!("Failed to compute describe: {}", e)))?;
 
     Ok(Value::from_polars_dataframe(result))

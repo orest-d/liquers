@@ -2,7 +2,7 @@
 id: POLARS-COLLECT-PANICS-ON-CURRENT-THREAD-RUNTIME
 kind: issue
 title: ns-pl commands panic inside LazyFrame::collect on a current-thread tokio runtime
-status: draft
+status: closed
 priority: P2
 complexity: M
 area: [lib/polars]
@@ -10,6 +10,24 @@ design:
 created: 2026-10-13
 github:
 ---
+## Resolution
+
+Fixed 2026-10-14 with the first option below. `liquers-lib/src/polars/util.rs` adds
+`CollectOnAnyRuntime::collect_on_any_runtime` for `LazyFrame`:
+- on a current-thread Tokio runtime it runs `collect` on a scoped OS thread, which has no Tokio
+  context, so polars' `block_in_place` just runs the closure;
+- on a multi-threaded runtime, or outside any runtime, it is `collect()` unchanged;
+- a panic inside polars is re-raised on the calling thread.
+
+All 16 lazy `collect` calls in `liquers-lib/src/polars/` (aggregation, filtering, sorting, serde)
+use it. The registry's `impl_version`s were refreshed.
+
+Tests:
+- `polars::util::tests::collect_on_any_runtime_works_on_a_current_thread_runtime`, and the same
+  on a multi-threaded runtime and with no runtime;
+- `liquers-lib/tests/records_table_ops.rs`: its `ns-pl` tests now run on the default
+  current-thread `#[tokio::test]`. They hung before the fix.
+
 ## Problem
 
 Every `ns-pl` command that goes through a `LazyFrame` (`filter`, `sort`, the comparison

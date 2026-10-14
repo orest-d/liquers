@@ -3,7 +3,7 @@ title: Polars Command Library Specification
 kind: reference
 audience: internal
 area: [lib/polars]
-reviewed: 2026-10-13
+reviewed: 2026-10-14
 ---
 # Polars Command Library Specification
 
@@ -88,10 +88,12 @@ stream at polars 0.55: `specs/design/record-filter-commands/lazyframe-investigat
 reverse direction — `ns-rec` on a DataFrame — and the full `ns-rec` ↔ `ns-pl` comparison are in
 [`RECORD_STREAMS.md`](RECORD_STREAMS.md) §"`ns-rec` commands".
 
-**Runtime.** Commands that build a lazy plan (`filter`s, `sort`, …) call `LazyFrame::collect`,
-which panics on a current-thread Tokio runtime
-([`POLARS-COLLECT-PANICS-ON-CURRENT-THREAD-RUNTIME`](../issues/POLARS-COLLECT-PANICS-ON-CURRENT-THREAD-RUNTIME.md));
-evaluate `ns-pl` queries on a multi-threaded runtime (in tests, `#[tokio::test(flavor = "multi_thread")]`).
+**Runtime.** Commands that build a lazy plan (`filter`s, `sort`, the aggregations) collect it with
+`CollectOnAnyRuntime::collect_on_any_runtime` (`liquers-lib/src/polars/util.rs`), never with a bare
+`LazyFrame::collect`. polars 0.55's `collect` calls `tokio::task::block_in_place`, which panics on a
+current-thread Tokio runtime; on such a runtime the helper collects on a scoped OS thread instead, and
+everywhere else it is `collect()` unchanged. So `ns-pl` works on any runtime, including
+`#[tokio::test]`'s default. New lazy code in this library uses the helper.
 
 ## Conventions: polars first
 
@@ -901,6 +903,7 @@ To minimize dependencies and enable incremental testing:
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-14 | §Inputs, runtime: lazy commands collect through `collect_on_any_runtime`, so `ns-pl` works on a current-thread runtime. | `POLARS-COLLECT-PANICS-ON-CURRENT-THREAD-RUNTIME` |
 | 2026-10-13 | Inputs (record views accepted, sources refused) and runtime note; polars-first conventions table with pandas; `sort` takes `ascending: bool`, `nulls_last` and is stable; implemented string predicates (`starts_with`, `ends_with`, `contains`, case-insensitive by default), `is_in`, `is_null`, `is_not_null` replace the planned `startswith` / `isnull` / `notnull`; counts are `i64`. Only these sections were checked against the code. | `design/record-filter-commands/` |
 | 2026-10-10 | `head` is an alias of `slice` (`offset = 0`) rather than its own implementation; the implementation-pattern example uses `tail`, which still is one. Only the slicing rows were checked against the code. | phase-5, `design/command-alias-contract/` |
 | 2026-09-04 | Qualified every complete Polars resource pipeline with `ns-pl` and documented the namespace selection rule. | `POLARS-DOC-EXAMPLES-OMIT-NAMESPACE` |

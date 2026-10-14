@@ -7,6 +7,7 @@ use liquers_macro::register_command;
 use polars::prelude::*;
 
 use super::util::{
+    CollectOnAnyRuntime,
     check_column_exists, parse_boolean, parse_date, parse_datetime, try_to_polars_dataframe,
 };
 
@@ -177,7 +178,7 @@ pub fn eq(state: &State<Value>, column: String, value: String) -> Result<Value, 
         .clone()
         .lazy()
         .filter(filter_expr)
-        .collect()
+        .collect_on_any_runtime()
         .map_err(|e| Error::general_error(format!("Filter failed: {}", e)))?;
 
     Ok(Value::from_polars_dataframe(result))
@@ -196,7 +197,7 @@ pub fn ne(state: &State<Value>, column: String, value: String) -> Result<Value, 
         .clone()
         .lazy()
         .filter(filter_expr)
-        .collect()
+        .collect_on_any_runtime()
         .map_err(|e| Error::general_error(format!("Filter failed: {}", e)))?;
 
     Ok(Value::from_polars_dataframe(result))
@@ -215,7 +216,7 @@ pub fn gt(state: &State<Value>, column: String, value: String) -> Result<Value, 
         .clone()
         .lazy()
         .filter(filter_expr)
-        .collect()
+        .collect_on_any_runtime()
         .map_err(|e| Error::general_error(format!("Filter failed: {}", e)))?;
 
     Ok(Value::from_polars_dataframe(result))
@@ -234,7 +235,7 @@ pub fn gte(state: &State<Value>, column: String, value: String) -> Result<Value,
         .clone()
         .lazy()
         .filter(filter_expr)
-        .collect()
+        .collect_on_any_runtime()
         .map_err(|e| Error::general_error(format!("Filter failed: {}", e)))?;
 
     Ok(Value::from_polars_dataframe(result))
@@ -253,7 +254,7 @@ pub fn lt(state: &State<Value>, column: String, value: String) -> Result<Value, 
         .clone()
         .lazy()
         .filter(filter_expr)
-        .collect()
+        .collect_on_any_runtime()
         .map_err(|e| Error::general_error(format!("Filter failed: {}", e)))?;
 
     Ok(Value::from_polars_dataframe(result))
@@ -272,7 +273,7 @@ pub fn lte(state: &State<Value>, column: String, value: String) -> Result<Value,
         .clone()
         .lazy()
         .filter(filter_expr)
-        .collect()
+        .collect_on_any_runtime()
         .map_err(|e| Error::general_error(format!("Filter failed: {}", e)))?;
 
     Ok(Value::from_polars_dataframe(result))
@@ -284,7 +285,7 @@ fn filter_rows(df: &DataFrame, predicate: Expr) -> Result<Value, Error> {
         .clone()
         .lazy()
         .filter(predicate)
-        .collect()
+        .collect_on_any_runtime()
         .map_err(|e| Error::general_error(format!("Filter failed: {}", e)))?;
     Ok(Value::from_polars_dataframe(result))
 }
