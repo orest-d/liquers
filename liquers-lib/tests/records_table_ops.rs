@@ -103,6 +103,18 @@ fn split_rows(state: &State<Value>, tag: String) -> Result<Value, Error> {
     Ok(Value::from_record_source(Arc::new(MappedSource::new(inner, counting)?)))
 }
 
+/// Two chunks whose schemas differ: `a` (Int, 2 rows), then `b` (Int, 1 row). Undeclared.
+fn mixed_source() -> Result<Value, Error> {
+    use liquers_lib::records::{Buffer, Column, FieldSchema, FieldType, RecordBatch, RecordSchema};
+    let one = |name: &str, values: &[i64]| -> Result<Arc<dyn RecordView>, Error> {
+        let schema = Arc::new(RecordSchema::new(vec![FieldSchema::new(name, FieldType::Int)])?);
+        let column = Column::Int { validity: None, values: Buffer::from_slice(values) };
+        Ok(Arc::new(RecordBatch::new(schema, vec![column], None, None, vec![])?))
+    };
+    let views = vec![one("a", &[1, 2])?, one("b", &[3])?];
+    Ok(Value::from_record_source(Arc::new(InMemorySource::new(views))))
+}
+
 async fn put(store: &AsyncMemoryStore, key: &str, data: &[u8]) -> Result<(), Error> {
     let key = parse_key(key)?;
     let mut metadata = Metadata::new();
@@ -123,6 +135,7 @@ fn environment() -> Result<CommandEnvironment, Error> {
         liquers_lib::register_polars_commands!(cr)?;
         liquers_lib::register_search_commands!(cr)?;
         register_command!(cr, fn split_rows(state, tag: String) -> result namespace: "fixture")?;
+        register_command!(cr, fn mixed_source() -> result namespace: "fixture")?;
     }
     Ok(env)
 }
@@ -421,6 +434,33 @@ async fn schema_round_trips_through_the_schema_argument() -> Res {
     Ok(())
 }
 
+#[tokio::test]
+async fn counts_need_one_schema_but_nrows_does_not() -> Res {
+    let env = fixture().await?;
+    let nrows = eval(&env, "ns-fixture/mixed_source/ns-rec/nrows").await?.value()?.try_into_i64()?;
+    assert_eq!(nrows, 3, "row counts ignore differing columns");
+    for command in ["count", "ncols", "shape"] {
+        let message = error_of(&env, &format!("ns-fixture/mixed_source/ns-rec/{command}")).await;
+        assert!(message.contains("differ in schema") && message.contains("'a' vs 'b'"), "{command}: {message}");
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn count_of_an_empty_declared_source_is_zero_per_column() -> Res {
+    let env = fixture().await?;
+    let query = q(DECLARED, "ns-fixture/split_rows-empty/ns-rec/head-0/count");
+    let counted = view_of(&env, &query).await?;
+    assert_eq!(counted.len(), 1);
+    assert_eq!(names(&counted).len(), 5);
+    for c in 0..5 {
+        assert_eq!(as_i64(counted.value(0, c)?), 0);
+    }
+    let shape = eval(&env, &q(DECLARED, "ns-fixture/split_rows-empty2/ns-rec/head-0/shape")).await?;
+    assert_eq!(shape.value()?.try_into_json_value()?, serde_json::json!({"nrows": 0, "ncols": 5}));
+    Ok(())
+}
+
 // ------------------------------------------------------------------------------------------------
 // Lazy row-local operations over sources (AC-18), and the build without polars (AC-15)
 // ------------------------------------------------------------------------------------------------
@@ -468,6 +508,8 @@ async fn rec_and_pl_filters_and_sort_agree() -> Res {
     for op in [
         "eq-amount-35",
         "gt-amount-50",
+        "gte-placed_at-2026~_10~_02",
+        "lt-placed_at-2026~_10~_02T14~ncolon~00~ncolon~00Z",
         "contains-customer-SMITH",
         "starts_with-customer-bob",
         "is_in-order_id-A~_1-A~_3",

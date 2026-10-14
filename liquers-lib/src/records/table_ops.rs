@@ -388,24 +388,67 @@ struct Tally {
     non_null: Vec<usize>,
 }
 
-fn tally_view(tally: &mut Tally, view: &Arc<dyn RecordView>) -> Result<(), Error> {
-    if tally.schema.is_none() {
-        tally.schema = Some(view.schema().clone());
+/// What a count needs: `Rows` reads only lengths (so chunks may disagree on columns), `Columns`
+/// also needs one schema and the per-column non-null counts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TallyMode {
+    Rows,
+    Columns,
+}
+
+impl Tally {
+    /// Adopts `schema` as the one every chunk must match, with a zero count per field — so a
+    /// declared source with no chunks still counts zero for each column.
+    fn adopt(&mut self, schema: Arc<RecordSchema>) {
+        self.non_null = vec![0; schema.fields.len()];
+        self.schema = Some(schema);
     }
-    if tally.non_null.len() < view.schema().fields.len() {
-        tally.non_null.resize(view.schema().fields.len(), 0);
+}
+
+/// Chunks of an undeclared source may differ; counting by position across them would put one
+/// chunk's counts under another's names. Same names and types in order, or refused.
+fn check_same_columns(expected: &RecordSchema, actual: &RecordSchema) -> Result<(), Error> {
+    let differing = expected
+        .fields
+        .iter()
+        .zip(actual.fields.iter())
+        .position(|(e, a)| e.name != a.name || e.data_type != a.data_type);
+    if expected.fields.len() == actual.fields.len() && differing.is_none() {
+        return Ok(());
+    }
+    let at = differing.unwrap_or(expected.fields.len().min(actual.fields.len()));
+    let name = |schema: &RecordSchema| {
+        schema.fields.get(at).map(|f| f.name.clone()).unwrap_or_else(|| "(none)".to_string())
+    };
+    Err(Error::general_error(format!(
+        "the input's chunks differ in schema at field {at} ('{}' vs '{}'); column counts need one \
+         schema (nrows does not)",
+        name(expected),
+        name(actual)
+    )))
+}
+
+fn tally_view(tally: &mut Tally, view: &Arc<dyn RecordView>, mode: TallyMode) -> Result<(), Error> {
+    tally.rows += view.len();
+    match mode {
+        TallyMode::Rows => return Ok(()),
+        TallyMode::Columns => {}
+    }
+    match &tally.schema {
+        Some(schema) => check_same_columns(schema, view.schema())?,
+        None => tally.adopt(view.schema().clone()),
     }
     for (index, count) in tally.non_null.iter_mut().enumerate() {
         let nulls = view.column(index)?.null_mask().count_ones();
         *count += view.len() - nulls;
     }
-    tally.rows += view.len();
     Ok(())
 }
 
 async fn tally<E: Environment<Value = Value>>(
     state: &State<Value>,
     context: &Context<E>,
+    mode: TallyMode,
 ) -> Result<Tally, Error> {
     let mut tally = Tally {
         rows: 0,
@@ -413,14 +456,16 @@ async fn tally<E: Environment<Value = Value>>(
         non_null: Vec::new(),
     };
     match table_input(state, context).await? {
-        TableInput::View(view) => tally_view(&mut tally, &view)?,
+        TableInput::View(view) => tally_view(&mut tally, &view, mode)?,
         TableInput::Source(source) => {
             use futures::StreamExt;
-            tally.schema = source.schema();
+            if let Some(schema) = source.schema() {
+                tally.adopt(schema);
+            }
             let resolver: Arc<dyn ChunkResolver> = Arc::new(ContextResolver::new(context.clone()));
             let mut stream = source.stream(resolver).await?;
             while let Some(view) = stream.next().await {
-                tally_view(&mut tally, &view?)?;
+                tally_view(&mut tally, &view?, mode)?;
             }
         }
     }
@@ -435,14 +480,14 @@ pub async fn nrows<E: Environment<Value = Value>>(
     state: State<Value>,
     context: Context<E>,
 ) -> Result<Value, Error> {
-    Ok(Value::Base(SimpleValue::from(count_i64(tally(&state, &context).await?.rows)?)))
+    Ok(Value::Base(SimpleValue::from(count_i64(tally(&state, &context, TallyMode::Rows).await?.rows)?)))
 }
 
 pub async fn ncols<E: Environment<Value = Value>>(
     state: State<Value>,
     context: Context<E>,
 ) -> Result<Value, Error> {
-    let tally = tally(&state, &context).await?;
+    let tally = tally(&state, &context, TallyMode::Columns).await?;
     let ncols = tally.schema.map(|schema| schema.fields.len()).unwrap_or(0);
     Ok(Value::Base(SimpleValue::from(count_i64(ncols)?)))
 }
@@ -452,7 +497,7 @@ pub async fn shape<E: Environment<Value = Value>>(
     state: State<Value>,
     context: Context<E>,
 ) -> Result<Value, Error> {
-    let tally = tally(&state, &context).await?;
+    let tally = tally(&state, &context, TallyMode::Columns).await?;
     let ncols = tally.schema.map(|schema| schema.fields.len()).unwrap_or(0);
     let mut map = std::collections::BTreeMap::new();
     map.insert("nrows".to_string(), SimpleValue::from(count_i64(tally.rows)?));
@@ -466,7 +511,7 @@ pub async fn count<E: Environment<Value = Value>>(
     state: State<Value>,
     context: Context<E>,
 ) -> Result<Value, Error> {
-    let tally = tally(&state, &context).await?;
+    let tally = tally(&state, &context, TallyMode::Columns).await?;
     let schema = tally.schema.ok_or_else(|| {
         Error::general_error("ns-rec/count: the input declares no schema and has no rows".to_string())
     })?;

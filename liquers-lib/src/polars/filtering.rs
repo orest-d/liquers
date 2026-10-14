@@ -6,7 +6,24 @@ use liquers_core::{
 use liquers_macro::register_command;
 use polars::prelude::*;
 
-use super::util::{check_column_exists, parse_boolean, parse_date, try_to_polars_dataframe};
+use super::util::{
+    check_column_exists, parse_boolean, parse_date, parse_datetime, try_to_polars_dataframe,
+};
+
+/// A UTC instant from RFC 3339 (`2026-10-02T14:00:00Z`), a zone-less ISO date-time (read as UTC),
+/// or a date (midnight UTC).
+fn parse_utc_instant(value: &str) -> Result<chrono::DateTime<chrono::Utc>, Error> {
+    if let Ok(instant) = chrono::DateTime::parse_from_rfc3339(value) {
+        return Ok(instant.with_timezone(&chrono::Utc));
+    }
+    if let Ok(naive) = parse_datetime(value) {
+        return Ok(naive.and_utc());
+    }
+    let date = parse_date(value)?;
+    date.and_hms_opt(0, 0, 0)
+        .map(|naive| naive.and_utc())
+        .ok_or_else(|| Error::general_error(format!("Invalid date '{}'", value)))
+}
 
 /// Parse comparison value based on column data type
 fn parse_comparison_value(df: &DataFrame, column: &str, value_str: &str) -> Result<Expr, Error> {
@@ -122,6 +139,23 @@ fn parse_comparison_value(df: &DataFrame, column: &str, value_str: &str) -> Resu
             let unix_epoch = chrono::NaiveDate::from_ymd_opt(1970, 1, 1).unwrap();
             let days_since_epoch = date.signed_duration_since(unix_epoch).num_days() as i32;
             Ok(lit(days_since_epoch))
+        }
+        // A record Timestamp crosses the bridge as Datetime(µs, "UTC"). The value is RFC 3339, an
+        // ISO date-time (read as UTC), or a date (midnight UTC) — as `ns-rec` widens a date. It
+        // becomes an epoch count in the column's unit, cast to the column's type.
+        DataType::Datetime(unit, _) => {
+            let instant = parse_utc_instant(value_str)?;
+            let count = match unit {
+                TimeUnit::Nanoseconds => instant.timestamp_nanos_opt().ok_or_else(|| {
+                    Error::general_error(format!(
+                        "'{}' is outside the nanosecond range for column '{}'",
+                        value_str, column
+                    ))
+                })?,
+                TimeUnit::Microseconds => instant.timestamp_micros(),
+                TimeUnit::Milliseconds => instant.timestamp_millis(),
+            };
+            Ok(lit(count).cast(dtype.clone()))
         }
         _ => Err(Error::general_error(format!(
             "Comparison not supported for column '{}' of type {:?}",
