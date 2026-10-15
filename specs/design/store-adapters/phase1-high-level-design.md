@@ -117,7 +117,7 @@ either stores none or keeps its own copy as a backup.
   `verify_stored_versions`
 - **AC-5** Front-matter handler with write-back
   WHEN a Markdown entry with front-matter is read, and then its `description` is set through the
-  metadata API on a mount with `write_back: true`
+  metadata API on a mount whose write chain includes write-back (`front_matter_sync`)
   THEN `title` and `description` come from the front-matter, and after the write the file's
   front-matter carries the new description and both views agree; a Markdown file without
   front-matter is read with the other handlers' metadata and no error
@@ -141,7 +141,7 @@ either stores none or keeps its own copy as a backup.
   chain resolves store types only; the form is Phase 2's)
   THEN configurations can name it like a built-in one
 - **AC-11** Grouped metadata
-  WHEN a mount uses `storage: { model: grouped, file: __metadata__.json }` and several entries of a
+  WHEN a mount uses `storage: grouped-__metadata__.json` and several entries of a
   folder are written, one entry's metadata is changed, and one entry is removed
   THEN the folder holds one `__metadata__.json` with a record per remaining entry, changing one
   record leaves the others intact, a folder listing reads the group file once rather than once per
@@ -160,9 +160,10 @@ either stores none or keeps its own copy as a backup.
   it; the second writes nothing and returns the same record each time
 - **AC-14** Validation of supplied metadata
   WHEN `set` or `set_metadata` is called with metadata a configured validator rejects (for example a
-  required field missing, or a media type contradicting the extension under a strict policy)
-  THEN the call fails with an error naming the field and nothing is written; a validator configured
-  to normalize corrects the field instead and the write succeeds
+  required field missing, or a media type contradicting the extension, checked by `media_type` in
+  the validate chain)
+  THEN the call fails with an error naming the field and nothing is written; with `media_type` in
+  the write chain instead, the field is corrected and the write succeeds
 - **AC-15** Filling on write and on read
   WHEN data is written with caller metadata, and later a file written by another program is read
   THEN on write the handlers fill or overwrite their fields as configured (content hash, file size,
@@ -316,6 +317,9 @@ go in `liquers-store` behind features.
   whether a store written in another language can use the configuration and the new parts, run
   the compiled chains, or define a `store_config` command (Phase 2 §Language Integration);
   `LANGUAGE-INTEGRATION_GUIDE.md` added to the documents to update.
+- **2026-10-15, Phase 2 approved** (`proceed all`). AC-5, AC-11 and AC-14 reworded to Phase 2's
+  configuration syntax (`front_matter_sync`, `grouped-__metadata__.json`, `media_type` per stage);
+  their meaning is unchanged.
 
 ## Open Questions
 

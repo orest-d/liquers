@@ -3,12 +3,12 @@ id: STORE-ADAPTERS
 kind: design
 title: Modular store configuration — metadata layouts and store adapters
 workflow: liquers-project
-status: in_review
-phase: architecture
+status: draft
+phase: examples
 area: [core/store, store/config, store/backends, web, docs]
 issues: [STORE-METADATA-LAYOUT-HARDCODED-PER-STORE, STORE-NO-READ-ONLY-ADAPTER, STORE-METADATA-HANDLING-NOT-COMPOSABLE]
 merged: 2026-10-13
-affects_docs: []
+affects_docs: [specs/reference/STORE_SEMANTICS.md, specs/reference/STORE_CONFIG_FSD.md, specs/guides/STORE_IMPLEMENTATION_GUIDE.md, specs/guides/STORE_FACTORY_GUIDE.md, specs/reference/ASSETS.md, specs/reference/PROJECT_OVERVIEW.md, specs/guides/LANGUAGE-INTEGRATION_GUIDE.md]
 created: 2026-10-13
 ---
 # Modular store configuration — metadata layouts and store adapters
@@ -16,7 +16,7 @@ created: 2026-10-13
 ## Phases
 
 - [Phase 1](./phase1-high-level-design.md) — written 2026-10-13, revised 2026-10-15, **approved 2026-10-15**
-- [Phase 2](./phase2-architecture.md) — written 2026-10-15, in review
+- [Phase 2](./phase2-architecture.md) — written 2026-10-15, **approved 2026-10-15** (`proceed all`)
 - [Phase 3](./phase3-examples.md)
 - [Phase 4](./phase4-implementation.md)
 - [Phase 5](./phase5-documentation.md)
@@ -64,3 +64,7 @@ documents to update.
 **2026-10-15, Phase 2 review.** The language integration guide's update is planned in Phase 2
 §Documentation Architecture: the four questions become "design must answer" questions for every
 integration, plus `STORE14`–`STORE18`; §Language Integration is reframed as the facts they rely on.
+
+**Pre-approved after Phase 2 on 2026-10-15** (`proceed all`). Phases 3 and 4, the implementation and
+Phase 5 run without gates; reviews still run, and decisions only the user can make go to the decision
+log in Phase 1 `## Design Readiness`, presented before implementation starts.
