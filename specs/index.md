@@ -9,13 +9,11 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
 Total rows: 112
-- P1: 1
-- P2: 54
+- P2: 55
 - P3: 57
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
-| [`AGENT-WORKBENCH-SURFACE`](issues/AGENT-WORKBENCH-SURFACE.md) | feature | Agents get only memory tools — no general surface to evaluate, validate, inspect or propose | draft |  |  | P1 | L | lib/commands;core/commands;py;docs |  | 2026-10-15 |
 | [`EVALUATION-SESSION-VOLATILE-TEST-INTERMITTENT`](issues/EVALUATION-SESSION-VOLATILE-TEST-INTERMITTENT.md) | issue | volatile_dependency_has_one_value_per_evaluation fails intermittently: a later evaluation sometimes reuses the volatile value | draft |  |  | P2 | S | core/assets |  | 2026-10-13 |
 | [`DEFAULT-ASSET-MANAGER-RECIPE-OPT-SKIPS-PAYLOAD-CHECK`](issues/DEFAULT-ASSET-MANAGER-RECIPE-OPT-SKIPS-PAYLOAD-CHECK.md) | issue | DefaultAssetManager's recipe_opt override skips the payload-required rejection | draft | ready | eligible | P2 | M | core/assets | [design](design/default-asset-manager-recipe-opt-payload-check/DESIGN.md) | 2026-09-25 |
 | [`CORE-VALUE-ENUM-OVERSIZED`](issues/CORE-VALUE-ENUM-OVERSIZED.md) | issue | Every Value occupies over 700 bytes because three variants are stored unboxed | draft | ready | not-eligible | P2 | M | core/value;lib/value | [design](design/core-value-enum-oversized/DESIGN.md) | 2026-08-18 |
@@ -44,6 +42,7 @@ Total rows: 112
 | [`WEBUI-QUERY-CONSOLE-ENTER-KEY-SUBMIT`](issues/WEBUI-QUERY-CONSOLE-ENTER-KEY-SUBMIT.md) | issue | Enter key does not submit in the browser query console | accepted |  |  | P2 | M | lib/ui | [phase1](design/ui-events/phase1-high-level-design.md)  [phase2](design/ui-events/phase2-architecture.md)  [phase3](design/ui-events/phase3-examples.md)  [phase4](design/ui-events/phase4-implementation.md)  | 2026-08-08 |
 | [`WEBUI-SUBMIT-QUERY-STATE-NOT-PRESERVED`](issues/WEBUI-SUBMIT-QUERY-STATE-NOT-PRESERVED.md) | issue | Submitted query state is not preserved in the browser | accepted |  |  | P2 | M | lib/ui | [phase1](design/ui-events/phase1-high-level-design.md)  [phase2](design/ui-events/phase2-architecture.md)  [phase3](design/ui-events/phase3-examples.md)  [phase4](design/ui-events/phase4-implementation.md)  | 2026-08-08 |
 | [`ERROR-WITH-KEY-SETS-QUERY-FIELD`](issues/ERROR-WITH-KEY-SETS-QUERY-FIELD.md) | issue | Error context cannot distinguish asset keys from nested queries | draft | phase2-blocked | not-eligible | P2 | L | core/error;core/query;core/assets;core/store;web;py;axum | [phase1](design/error-with-key-field/phase1-high-level-design.md)  [phase2](design/error-with-key-field/phase2-architecture.md)  [phase3](design/error-with-key-field/phase3-examples.md)  [phase4](design/error-with-key-field/phase4-implementation.md)  | 2026-08-25 |
+| [`AGENT-WORKBENCH-SURFACE`](issues/AGENT-WORKBENCH-SURFACE.md) | feature | Agents get only memory tools — no general surface to evaluate, validate, inspect or propose | draft |  |  | P2 | L | lib/commands;core/commands;py;docs |  | 2026-10-15 |
 | [`ASSET-EXPIRATION-EVENTS-CANNOT-BE-OBSERVED-EXCEPT-PER-ASSET`](issues/ASSET-EXPIRATION-EVENTS-CANNOT-BE-OBSERVED-EXCEPT-PER-ASSET.md) | feature | Asset expiration events cannot be observed except per asset | draft |  |  | P2 | L | core/assets | [indexation](design/external-index-sync/indexation-policy.md)  [interoperability](design/external-index-sync/interoperability-layer.md)  [phase1](design/external-index-sync/phase1-high-level-design.md)  [phase2](design/external-index-sync/phase2-architecture.md)  [phase3](design/external-index-sync/phase3-examples.md)  [phase4](design/external-index-sync/phase4-implementation.md)  [phase5](design/external-index-sync/phase5-documentation.md)  | 2026-09-17 |
 | [`ASSET-REGISTRATION-OWNERSHIP-CONTRACT`](issues/ASSET-REGISTRATION-OWNERSHIP-CONTRACT.md) | feature | Registration of a keyed asset is a manager convenience, not a contract anything can rely on | draft |  |  | P2 | L | core/assets |  | 2026-09-03 |
 | [`ASSETS-FIX1`](issues/ASSETS-FIX1.md) | feature | Unresolved TODO and FIXME markers in the asset lifecycle | accepted |  |  | P2 | L | core/assets |  | 2026-08-08 |

@@ -18,7 +18,9 @@ across sessions and agents, provenance-tracked after the fact.
 `interfaces-and-mcp.md` §6 already made the three decisions that keep this open: the MCP plumbing
 lives in a generic `liquers-mcp` crate; a tool is a *declared query* generated from
 `CommandMetadata`; a server hosts several named tool sets. The memory MVP builds the engine; the
-workbench is further tool sets and the governance around them.
+workbench is further tool sets and the governance around them. The agent-facing crate is
+**`liquers-agent`** (decided 2026-10-15; Phase 1 §Crate Placement) — named for its audience rather
+than for memory, precisely so the workbench tool sets join it without a rename.
 
 ## 2. What the MVP must not foreclose
 

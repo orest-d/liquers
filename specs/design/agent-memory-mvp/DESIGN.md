@@ -166,6 +166,14 @@ are recorded on `CORE-SESSION-AND-KEY-ACL`. **None of them is in scope here**: t
 a single writer and no identity, and must not drift into choosing one. If the MVP turns out to
 need identity, that is a finding to report, not a decision to make inside this folder.
 
+## Decision — 2026-10-15: binary crate named `liquers-agent`
+
+The user renamed the binary crate from the working name `liquers-mem` to **`liquers-agent`**:
+named for its audience, so the workbench tool sets (`AGENT-WORKBENCH-SURFACE`) can join it later
+without a rename. Applied across Phase 1 (Crate Placement, AC-11/AC-14 invocations),
+`interfaces-and-mcp.md` (CLI examples), the execution plan and the brainstorm. `liquers-mcp`
+(the generic engine) and the `mem` feature/`src/mem/` module in `liquers-lib` are unchanged.
+
 ## Direction note — 2026-10-15
 
 The memory service is now read as the first application of a broader direction: Liquers as an

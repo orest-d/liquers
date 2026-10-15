@@ -3,7 +3,7 @@ id: AGENT-WORKBENCH-SURFACE
 kind: feature
 title: Agents get only memory tools — no general surface to evaluate, validate, inspect or propose
 status: draft
-priority: P1
+priority: P2
 complexity: L
 area: [lib/commands, core/commands, py, docs]
 design:
@@ -45,6 +45,10 @@ exactly the "teach the agent to build URLs" interface the MVP's interface analys
 A continuation of the memory system, scoped to realistic goals with minimum additional
 dependencies (the MVP engine itself; `liquers-py` command registration and the query-UI prototype
 are accepted external dependencies, nothing else):
+
+Crate placement (decided 2026-10-15): the tool sets land in **`liquers-agent`** — the MVP's
+agent-facing crate (renamed from the working name `liquers-mem`) — over the generic `liquers-mcp`
+engine.
 
 - **G1 General tool set** (`liquers_` prefix, a tool-set declaration on the MVP engine —
   `interfaces-and-mcp.md` §6 prices this at "only its tool-set declaration"): evaluate a query;
