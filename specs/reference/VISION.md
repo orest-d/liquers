@@ -94,6 +94,44 @@ deployed as:
 How these answers are told to each audience — pitches, demos, objections — is in
 [`POSITIONING.md`](POSITIONING.md).
 
+## The agent workbench
+
+A product direction, not yet a shipped product: Liquers as **the layer where AI agents do
+deterministic work** — distinct from the orchestration layer (LangChain/LangGraph, agent SDKs),
+which manages the reasoning loop, and anchored to **MCP**, the protocol layer agents converge on.
+In one line: *MCP gives agents hands; Liquers gives them a workbench and a lab notebook.*
+
+**The missing middle.** Today an agent's tools come in two flavors: a fixed list of tool
+definitions (safe and auditable, but rigid — the fifty-first request needs a developer) or
+arbitrary code in a sandbox (infinitely flexible, but unauditable, uncacheable, and unreviewable).
+Liquers is the middle: one tool — *evaluate this query* — over a typed command registry. The agent
+composes freely, yet every call is **validatable before execution** (`liquers-validate`, no side
+effects), **cached** (same query, same asset — across sessions and across agents), and **auditable
+after the fact** (provenance, dependencies, metadata). Flexible like code, governed like an API —
+and one tool schema in the context window instead of fifty.
+
+**Toolsmithing — agents coin verbs, people govern the vocabulary.** Once Python command
+registration lands in `liquers-py`, an agent can *propose* a new command in Python when the
+registry lacks a verb it needs. The proposal is ordinary code a human can read, landing in a
+staging namespace or realm with provenance (who proposed it, when, from which session), and a
+person promotes it into the governed registry. Agent flexibility, human-controlled blast radius.
+
+**Inspectable work.** Queries are short strings a person can read, and they are planned to have a
+**visual representation** (a prototype exists in a separate repository): an agent-proposed query
+can be rendered, inspected and *modified* by a human in a UI before or after it runs. Oversight of
+agent work becomes looking at a diagram, not reading a transcript.
+
+**The ladder.** The agent-memory service is the first application — memory is the asset store
+wearing a use case — and its design keeps the general surface separable
+(`design/agent-memory-mvp/interfaces-and-mcp.md` §6: a generic MCP engine, tool sets as data). The
+steps beyond the MVP are collected in
+[`design/agent-memory-mvp/workbench-direction.md`](../design/agent-memory-mvp/workbench-direction.md).
+
+**The hedge, stated plainly.** The workbench is Liquers' wedge and best distribution channel, not
+a replacement identity. The durable identity remains the addressable computation substrate above —
+which serves humans whether or not the agent ecosystem reshapes. Liquers complements orchestration
+frameworks; it does not compete with them, and it is not marketed as one.
+
 ## Who it is for, and what it is used for
 
 - **Data services.** Register a command library, mount `liquers-axum`, and every reachable
@@ -110,7 +148,7 @@ How these answers are told to each audience — pitches, demos, objections — i
 - **Agent and LLM infrastructure.** Queries are cheap, auditable, cache-friendly tool calls:
   a plan can be validated offline before anything runs, and results carry metadata and
   provenance. The agent-memory service (`specs/design/agent-memory-mvp/`) is the first design
-  deliberately aimed at this audience.
+  deliberately aimed at this audience; the larger direction is §The agent workbench below.
 
 ## Vision
 
@@ -168,19 +206,26 @@ How the workspace is organized to deliver that vision:
 
 ### Priority areas
 
-1. **DataFrames and records** — the highest-priority data domain (Polars in `liquers-lib`,
+1. **The agent workbench** (§above) — the agent-memory MVP and its MCP surface, with **Python
+   command registration** in `liquers-py` and **wasm support** as its enablers; the current top
+   priority.
+2. **DataFrames and records** — the highest-priority data domain (Polars in `liquers-lib`,
    record streams in `liquers-records`).
-2. **More storage backends** — databases and cloud services, through the store factory model.
-3. **Better Python integration** — tighter data-science ecosystem fit.
-4. **Web UI / dashboards** — an interactive interface for queries.
-5. **Extended value library** — images, matrices/tensors, ML models.
+3. **More storage backends** — databases and cloud services, through the store factory model.
+4. **Better Python integration** — tighter data-science ecosystem fit (and the toolsmithing
+   prerequisite above).
+5. **Web UI / dashboards** — an interactive interface for queries.
+6. **Extended value library** — images, matrices/tensors, ML models.
 
 ### UI roadmap
 
 1. Desktop egui application (reference backend).
 2. WASM egui (the desktop UI in the browser).
 3. Framework-independent HTML backend (`webui`; see `specs/design/webui/`).
-4. Also planned: a terminal UI.
+4. **Visual query representation** (prototype in a separate repository): render a query as an
+   editable structure, so queries — agent-proposed ones included — can be inspected and modified
+   in a UI rather than as strings.
+5. Also planned: a terminal UI.
 
 ## Non-goals
 
@@ -215,5 +260,6 @@ is authoritative only about direction. Current maturity per capability:
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-15 | Added §The agent workbench (the missing middle, toolsmithing, inspectable queries, the hedge); the workbench leads the priority areas with Python command registration and wasm as enablers; visual query representation added to the UI roadmap. | user direction; `design/agent-memory-mvp/workbench-direction.md` |
 | 2026-10-15 | Added §What Liquers is (application shapes), §Problems it solves, §Where it shines — and where it does not; linked `POSITIONING.md`. | user request |
 | 2026-10-15 | Created: purpose, uses, vision, strategy, crate roles, non-goals. Priority areas and UI roadmap moved here from `PROJECT_OVERVIEW.md` §Future Plans. | documentation-gap review |

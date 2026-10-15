@@ -166,10 +166,20 @@ are recorded on `CORE-SESSION-AND-KEY-ACL`. **None of them is in scope here**: t
 a single writer and no identity, and must not drift into choosing one. If the MVP turns out to
 need identity, that is a finding to report, not a decision to make inside this folder.
 
+## Direction note — 2026-10-15
+
+The memory service is now read as the first application of a broader direction: Liquers as an
+**agent workbench** (validated, cached, provenance-tracked tool calls over a governed registry;
+`reference/VISION.md` §The agent workbench). This adds **no scope** to the MVP. It adds one
+standing check at each phase gate — the MVP must not foreclose the general surface — recorded with
+the planned follow-on features (general tool set, Python command registration, toolsmithing, query
+inspection UI) in [`workbench-direction.md`](./workbench-direction.md). The separability itself
+was already decided in [`interfaces-and-mcp.md`](./interfaces-and-mcp.md) §6.
+
 ## Links
 
 - [Phase 1](./phase1-high-level-design.md)
-- [Survey](./memory-systems-survey.md) · [Specification](./service-specification.md) · [Workflow porting](./workflow-porting.md) · [Tiers and storage](./tiers-and-storage.md) · [Interfaces and MCP](./interfaces-and-mcp.md) · [Brainstorm: workflow improvements](./brainstorm-workflow-improvements.md) · [Template language evaluation](./template-language-evaluation.md) · [Execution plan](./execution-plan.md)
+- [Survey](./memory-systems-survey.md) · [Specification](./service-specification.md) · [Workflow porting](./workflow-porting.md) · [Tiers and storage](./tiers-and-storage.md) · [Interfaces and MCP](./interfaces-and-mcp.md) · [Brainstorm: workflow improvements](./brainstorm-workflow-improvements.md) · [Template language evaluation](./template-language-evaluation.md) · [Execution plan](./execution-plan.md) · [Workbench direction](./workbench-direction.md)
 - [Phase 2](./phase2-architecture.md)
 - [Phase 3](./phase3-examples.md)
 - [Phase 4](./phase4-implementation.md)
