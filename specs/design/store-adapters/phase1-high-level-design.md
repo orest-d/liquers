@@ -267,7 +267,7 @@ go in `liquers-store` behind features.
 - New guide: `specs/guides/STORE_CONFIG_GUIDE.md` — how the `store_config` commands work and how a
   new one is registered.
 - Documents to update: `specs/guides/STORE_FACTORY_GUIDE.md`, `specs/guides/LANGUAGE-INTEGRATION_GUIDE.md`
-  (§STORE: what a store written in another language can configure and define), `specs/README.md`
+  (§STORE design questions and tests for configured stores; §COMMAND foreign realms; §ENVIRON), `specs/README.md`
   capability map.
 
 ## Design Dependencies

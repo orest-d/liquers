@@ -60,3 +60,7 @@ language store takes `read_only` and `metadata` like any store, through optional
 compiled chains stay in Rust; language-defined handlers filed as
 `LANGUAGE-STORE-CONFIG-FUNCTION-NOT-DEFINABLE`. `LANGUAGE-INTEGRATION_GUIDE.md` added to the
 documents to update.
+
+**2026-10-15, Phase 2 review.** The language integration guide's update is planned in Phase 2
+§Documentation Architecture: the four questions become "design must answer" questions for every
+integration, plus `STORE14`–`STORE18`; §Language Integration is reframed as the facts they rely on.

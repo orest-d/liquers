@@ -486,9 +486,10 @@ every read instead of at build time.
 
 ## Language Integration
 
-The four questions the user raised at the Phase 2 review, answered for any integration
-(`liquers-web` today, `liquers-py` later). The answers go into `LANGUAGE-INTEGRATION_GUIDE.md`
-§STORE.
+What this design gives a language integration (`liquers-web` today, `liquers-py` later), as four
+facts. The guide does not copy them as answers. It turns them into questions every integration
+design must answer for its own language (§Documentation Architecture, "Language integration guide
+update"); the facts below are what such a design can rely on.
 
 **1. Can a store implemented in another language use the configuration? Yes, both new fields.**
 A language store reaches a document as an instance behind a Rust type (`type: js, config: {object:
@@ -585,10 +586,95 @@ CHANGELOG line; `registry_export` keeps it honest.
 | `specs/reference/ASSETS.md` | reference | `created`; `Storing` under the write strategies (added here; Phase 1 listed no other documents) |
 | `specs/reference/PROJECT_OVERVIEW.md` | reference | `AsyncStore` data-only methods; the pipeline in the store layer |
 | `CLAUDE.md` | instructions | "Adding a Store Backend": implement data-only access to take a `metadata` section |
-| `specs/guides/LANGUAGE-INTEGRATION_GUIDE.md` | guide | §STORE: the four answers of §Language Integration — configuration of a language store, the optional data-only methods and the capability each part needs, why compiled chains are not exposed, and what defining a `store_config` command in a language would take |
+| `specs/guides/LANGUAGE-INTEGRATION_GUIDE.md` | guide | §STORE, §COMMAND, §ENVIRON, tests and Appendix A — planned below |
 | `liquers-web/README.md` | crate doc | `isReadOnly`; the optional data-only methods of a store object |
 | `.claude/skills/liquers-validate/SKILL.md` | skill | validating store specs (realm `store_config`; give the tool the filled form `-store_config/…`) |
 | `specs/reference/PROJECT_OVERVIEW.md` §Realm | reference | the first foreign realm: addressable, plannable, not executable; pointer to `REALMS.md` |
+
+### Language integration guide update
+
+The guide's §STORE predates configured stores. It knows a store as an instance, a router and a
+factory chain, and it has nothing to say about a store that is wrapped by configuration. The update
+adds questions to the guide's "The design must answer" lists and adds tests; this design's answers
+appear only as the facts a question relies on. Changes, in guide order:
+
+1. **§4 Feature Overview.** No new feature ID. Configured stores belong to `STORE` direction 3
+   (composition and configuration), and a new ID would let a design select configuration without
+   the store contract it depends on. The `STORE` row is unchanged.
+2. **§STORE Contract.** Direction 3 is widened from "a router built from a declarative document" to
+   also cover the mount's *access policy and metadata handling* (`read_only`, `metadata`). Both apply
+   to every mount, a language-defined one included.
+3. **§STORE Objects/API to map or implement.** Added:
+   - the optional data-only methods of the language store protocol;
+   - `DataCapabilities`, `DataFacts` and `BackendTime`;
+   - `is_read_only` and `sync`;
+   - `MetadataRecord`'s new `created` and `etag` fields;
+   - `MetadataConfig`, its defaults and `StoreConfigFunctions`, *normally reused unchanged*, as the
+     router is.
+4. **§STORE The design must answer.** New questions, generalized from the four raised at this
+   review:
+   - Can a store written in the language be named in a configuration document? Do `read_only` and
+     `metadata` reach it there, or only stores the integration provides?
+   - Which configured parts can each store take: which storage models, which write strategies,
+     which handlers? Which data-only methods does the language protocol expose, and which are
+     optional? How does the adapter learn the store's data capabilities without inferring them from
+     a method that has side effects? When a part is refused, how is it reported? (At build, naming
+     the mount and the missing capability, is the target.)
+   - How do backend facts (size, modification time, ETag) cross the bridge, and with what time
+     precision, so that `created` compares equal after a round trip?
+   - Can the language run a compiled `store_config` chain itself, or are chains applied only in Rust
+     around the store? If they are exposed, what is the call surface, and how does a
+     `MetadataRecord` cross?
+   - Can the language define its own `store_config` entry: a handler, a storage model or a write
+     strategy? If so:
+     - how is it declared (Command Declaration Format, realm `store_config`)?
+     - is it synchronous?
+     - must it be registered before the store is built?
+     - what does it cost per call on a listing?
+     - how does an exception map under each stage's rules?
+
+     If not, record `NA` and link `LANGUAGE-STORE-CONFIG-FUNCTION-NOT-DEFINABLE`.
+   - Can the language see that a store is read-only, run `sync`, and read a recovery warning?
+   - For direction 2: do the integration's own backends implement data-only access, so a
+     `metadata` section can wrap them? If they do not, say so per store.
+5. **§STORE, new subsection "Configured stores: access policy, metadata and write strategies"**,
+   after "Configuration":
+   - what an integration inherits unchanged (the pipeline, the defaults, refusal at build);
+   - the capability table of §Language Integration, as the reference a design checks its stores
+     against;
+   - the handler counterpart of "What the *language* cannot contribute", with the same three
+     consequences restated for handlers: an entry invisible to the registry export, arguments that
+     cannot be declared, and a document that leaks how the handler is provided.
+6. **§COMMAND The design must answer.** "Realm" already appears in the metadata mapping question. It
+   gains one clause: whether a language command may be declared in a foreign realm, which is
+   addressable but not executable. Link `REALMS.md`.
+7. **§ENVIRON.** One line: an environment built from a configuration with `metadata` sections
+   compiles its chains against the environment's command registry, so language registrations that
+   such a configuration names must happen before the environment is built.
+8. **Tests.** `STORE14`–`STORE18`, a new column in the disposition table, and Appendix A pseudocode
+   with real, validated specs:
+   - `STORE14`: `read_only` on a configured mount refuses every write to a language-defined store,
+     and `is_read_only` reports it.
+   - `STORE15`: a `metadata` section on a store without data-only access fails at build, naming the
+     mount and the missing capability.
+   - `STORE16`: a language store with data-only methods under `per_entry` and `grouped` storage
+     round-trips records, applies the default `on_read` chain, and never has its own `get` called
+     for metadata.
+   - `STORE17`: `created` from the language's backend time compares equal after a write and a
+     re-read.
+   - `STORE18`: a language-defined `store_config` handler runs in its stage, becomes a warning on
+     read and aborts on validate, and is refused if registered after build. `NA` unless the design
+     selects language handlers.
+
+   Disposition: `STORE14` is required whenever direction 3 is selected. `STORE15`–`STORE17` are
+   required when any store in the integration takes a `metadata` section. `STORE18` follows the
+   design's answer to the handler question.
+9. **§6 Language-Specific Guidance.**
+   - Browser JavaScript: `JsStore`'s optional methods, and that the built-in browser stores refuse
+     data access for now.
+   - Python: the GIL cost of a per-entry handler.
+10. **§8 References.** Add `REALMS.md` and `STORE_CONFIG_GUIDE.md`. Add a `## History` row and bump
+    `reviewed:` (§9.2).
 
 Proposed `affects_docs`: the first eight (the two new documents included) and `LANGUAGE-INTEGRATION_GUIDE.md`. `specs/README.md`: capability map entry for store adapters.
 
