@@ -391,6 +391,18 @@ impl MetadataRecord {
         self.inner.file_size = file_size;
     }
 
+    /// When the backend wrote the data object (RFC 3339, UTC), if it reported one.
+    #[getter]
+    pub fn created(&self) -> Option<String> {
+        self.inner.created.as_ref().map(|t| t.as_str().to_string())
+    }
+
+    /// The backend's ETag of the data object, if it reported one.
+    #[getter]
+    pub fn etag(&self) -> Option<String> {
+        self.inner.etag.clone()
+    }
+
     #[getter]
     pub fn is_dir(&self) -> bool {
         self.inner.is_dir
@@ -637,6 +649,18 @@ impl AssetInfo {
     #[setter]
     pub fn set_file_size(&mut self, file_size: Option<u64>) {
         self.inner.file_size = file_size;
+    }
+
+    /// When the backend wrote the data object (RFC 3339, UTC), if it reported one.
+    #[getter]
+    pub fn created(&self) -> Option<String> {
+        self.inner.created.as_ref().map(|t| t.as_str().to_string())
+    }
+
+    /// The backend's ETag of the data object, if it reported one.
+    #[getter]
+    pub fn etag(&self) -> Option<String> {
+        self.inner.etag.clone()
     }
 
     #[getter]
