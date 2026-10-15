@@ -43,3 +43,7 @@ grouped records in a folder file or a database, central storage on a store or ro
 per-entry templates and the grouped `__metadata__.json` are built; and composable metadata handlers
 for four stages (create defaults, stored or not; validate; fill on write; fill on read). See Phase 1
 `## Scope Changes`; AC-11 to AC-16 were added.
+
+**2026-10-15, second revision.** A member's own metadata under a central router is a backup, not an
+error; write strategies (direct, atomic, transactional with recovery) are the fourth concern
+(AC-17 to AC-20); the user decided to keep everything in one design.

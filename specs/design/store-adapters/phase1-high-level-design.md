@@ -2,9 +2,9 @@
 
 ## Purpose
 
-Make what a store does with **access** and **metadata** configurable per mount, instead of
-hard-coded in every backend. Three concerns become separate, composable parts chosen in the store
-configuration:
+Make what a store does with **access**, **metadata** and **writes** configurable per mount,
+instead of hard-coded in every backend. Four concerns become separate, composable parts chosen in
+the store configuration:
 
 1. **Access policy** — any store, of any type, can be made read-only.
 2. **Metadata storage model** — *where* metadata is kept: one record per entry under a configurable
@@ -12,6 +12,8 @@ configuration:
 3. **Metadata handlers** — *what* metadata is: an ordered list of pluggable handlers that create
    default metadata, validate what a caller supplies, and fill or overwrite fields on write and on
    read.
+4. **Write strategy** — *how safely* data and metadata are written: directly in place (today), each
+   object atomically, or as one all-or-nothing transaction with recovery after a crash.
 
 The read-only policy is delivered first; the front-matter handler of `agent-memory-mvp` is one of
 the handlers.
@@ -33,7 +35,9 @@ stores:
 nobody asked for; the store API offers `PUT` and `DELETE` on every key; the content hash is
 recomputed only when bytes are read, so an edit made by another program goes unnoticed in a listing;
 the media type is whatever was recorded, even after a rename; the title is the file name, because
-nothing reads front-matter; and choosing a different metadata layout — a `__metadata__` folder, one
+nothing reads front-matter; a crash between the three writes of `set` (metadata marked `Storing`,
+then data in place, then the final metadata) leaves a truncated file or data and metadata that
+disagree; and choosing a different metadata layout — a `__metadata__` folder, one
 file per folder, a database, none — needs a new store type. None of this can be said in the
 configuration; the `metadata` field of `StoreConfig` (`liquers-core/src/store_config.rs`) is
 "reserved for future use".
@@ -59,7 +63,7 @@ stores:
 Reads write nothing, writes are refused with `NotSupported`, a changed file gets a new version on
 the next listing, the media type follows the extension, and `AssetInfo.title` is the document's
 front-matter title. A writable mount of generated data would instead choose, for example,
-`storage: { model: grouped, file: __metadata__.json }`. (Field names are illustrative; Phase 2 fixes
+`storage: { model: grouped, file: __metadata__.json }` and `writes: transactional`. (Field names are illustrative; Phase 2 fixes
 the format.)
 
 ### Metadata storage models
@@ -81,7 +85,8 @@ implements the rows marked **built**.
 Models (a) and (b) keep their records **in the same backend** as the data, under keys the model
 reserves; a template's reserved names follow from the template (`STORE_SEMANTICS.md` §8). Model (c)
 removes the duplication today's contract implies when a router fronts its members: with central
-storage, **the router decides the metadata**, and the members store none.
+storage, **the router decides the metadata**: the central record is authoritative, and a member
+either stores none or keeps its own copy as a backup.
 
 ## Scope and Acceptance Criteria
 
@@ -121,7 +126,7 @@ storage, **the router decides the metadata**, and the members store none.
   THEN it behaves exactly as today: the store conformance suite passes unchanged for every backend
 - **AC-7** Adapted stores are checked
   WHEN the conformance suite runs over adapted stores (read-only, `storage: none`, each per-entry
-  template, grouped, central, front-matter)
+  template, grouped, central, front-matter, each write strategy)
   THEN each passes the rule families its declared capabilities claim
 - **AC-8** Through the router
   WHEN an adapted store is a member of `AsyncStoreRouter`
@@ -144,9 +149,10 @@ storage, **the router decides the metadata**, and the members store none.
 - **AC-12** Central metadata on a router
   WHEN a router is configured with central metadata storage (in the test, an in-memory
   implementation standing in for a database) over two members
-  THEN metadata written and read through the router goes to the central storage only, no member
-  stores a record of its own, a member configured with its own storage model under such a router is
-  a configuration error naming that member, and the members' data is unaffected
+  THEN metadata written through the router goes to the central storage, and reads are answered
+  from it; a member with no storage model of its own stores nothing, while a member configured with
+  one keeps a backup copy written with every central write, from which a record missing centrally
+  is restored (with a warning); the members' data is unaffected
 - **AC-13** Default metadata, stored or not
   WHEN an entry that has no stored metadata is read on a writable mount with `persist_defaults:
   true`, and on another with `persist_defaults: false`
@@ -167,12 +173,37 @@ storage, **the router decides the metadata**, and the members store none.
   WHEN two handlers in a mount's list both set the same field
   THEN the later handler in the list wins, on write and on read alike, and reordering the list in
   the configuration reverses the outcome
+- **AC-17** Write strategy is configurable
+  WHEN a mount configures `writes: direct`, `atomic` or `transactional`
+  THEN `set`, `set_metadata` and `remove` follow that strategy; `direct` is the default and is
+  today's behaviour (AC-6), and a strategy whose guarantee the backend cannot give (for example
+  `atomic` on a backend with neither atomic object writes nor rename) is a configuration error
+  naming the mount
+- **AC-18** Atomic objects
+  WHEN a write under `atomic` fails or is interrupted part-way (the test injects a failure into the
+  backend at each step)
+  THEN the object being written is either wholly its old content or wholly its new content, never
+  truncated, and no staging key appears in a listing
+- **AC-19** All-or-nothing data and metadata
+  WHEN a `set` or `remove` under `transactional` is interrupted after any one of its steps, under
+  each storage model (per entry, grouped, central)
+  THEN after recovery the key reads either the old data with the old metadata or the new data with
+  the new metadata, never a mix — and for the grouped model the other records of the group are
+  unchanged
+- **AC-20** Recovery
+  WHEN a store is opened, or a key is read, with the staged objects or the journal record of an
+  interrupted transactional write left in the backend
+  THEN the write is completed or rolled back, the staged objects are removed, the outcome is
+  recorded as a warning in the key's metadata log, and an explicit recovery pass over a whole store
+  reports what it repaired
 
 Non-goals: database (sqlite, sled, fjall) storage models and a production central storage beyond
 the interface and the test implementation of AC-12; migrating stored metadata between models
 (reading today's sidecars and the legacy folder layout is enough); models for `liquers-web`'s stores
 (a later milestone); identity, users and per-key ACL (`CORE-SESSION-AND-KEY-ACL`); conditional
-writes (`STORE-WRITE-HAS-NO-PRECONDITION`); new data backends.
+writes and isolation between concurrent writers (`STORE-WRITE-HAS-NO-PRECONDITION`) — the write
+strategy is about crashes and failures, not about two writers racing; transactions spanning more
+than one key; new data backends.
 
 ## Core Interactions
 
@@ -184,8 +215,12 @@ writes (`STORE-WRITE-HAS-NO-PRECONDITION`); new data backends.
   without touching metadata — on which the layer keeps metadata through its storage model. Today's
   behaviour becomes the default model (the `{key}.__metadata__` template) and the default handler
   chain (today's `default_metadata` and `finalize_metadata`), which is how AC-6 holds.
+  The write strategy sits under the layer: it turns one logical write (data plus its metadata
+  record, or a group file) into backend operations — in place, staged then renamed, or staged with a
+  journal record that recovery reads.
 - **Router:** forwards to the member's layer as today, or, with central storage (AC-12), runs the
-  layer itself over data-only members.
+  layer itself over data-only members, writing a member's backup copy where one is configured.
+  A transaction then spans the central storage and a member; AC-19 covers that case.
 - **Configuration:** `StoreConfig` gains `read_only` and its `metadata` section, the router
   configuration the same; the store factories resolve them (`STORE_CONFIG_FSD.md`).
 - **Assets:** unaffected, except that versions change when a handler detects outside edits.
@@ -197,10 +232,13 @@ writes (`STORE-WRITE-HAS-NO-PRECONDITION`); new data backends.
 
 `liquers-core`: the policy wrapper, the metadata layer, the storage-model and handler abstractions,
 the built-in models (per-entry templates, grouped, none, the test central storage) and handlers
-(defaults, validation, media type, file facts, content hash, in-memory cache), and the
+(defaults, validation, media type, file facts, content hash, in-memory cache), the write strategies
+and recovery, and the
 configuration fields, because configuration and construction already live there
 (`store_factory.rs`, `store_config.rs`). `liquers-store`: `PathMap` and the OpenDAL store provide
-data-only access and consult the model's reserved names. `liquers-web`: its stores adopt the policy
+data-only access, consult the model's reserved names, and declare which write guarantees they can
+give (OpenDAL's `fs` service already has an `atomic_write_dir` option; object stores write single
+objects atomically but have no rename). `liquers-web`: its stores adopt the policy
 and the handlers. `liquers-lib`: the front-matter handler, registered through the factory chain,
 since front-matter is a document convention rather than a storage one. Database models, when built,
 go in `liquers-store` behind features.
@@ -223,7 +261,8 @@ go in `liquers-store` behind features.
 - **Overlaps** `STORE-VERSION-BLIND-TO-CHANGES-MADE-OUTSIDE-LIQUERS` (AC-4, closed),
   `CORE-METADATA-NO-APPLICATION-ATTRIBUTES` (where projected fields beyond title and description
   go), `STORE-WRITE-HAS-NO-PRECONDITION` (a grouped file is read-modify-write),
-  `CORE-SESSION-AND-KEY-ACL` (excluded).
+  `CORE-SESSION-AND-KEY-ACL` (excluded); the `Storing` status (`ASSETS.md`), which today is the
+  only trace an interrupted write leaves.
 
 ## Scope Changes
 
@@ -235,6 +274,11 @@ go in `liquers-store` behind features.
   stages — create defaults (stored or not), validate supplied metadata, fill on write, fill on read
   (AC-13 to AC-16 added). "Adapters" for metadata became *storage models* and *handlers*; open
   question 6 folded into question 1. Size stays XL (question 5).
+- **2026-10-15, second revision, at the user's request.** A member's own storage under a central
+  router is allowed as a backup, not an error (AC-12 rewritten, question 7). A fourth concern added:
+  configurable write strategies — direct, atomic per object, transactional with recovery — so that
+  data and metadata change together or not at all (AC-17 to AC-20, questions 11 to 13). Timestamps
+  reconsidered (question 8). The user decided to keep everything in one design (question 5).
 
 ## Open Questions
 
@@ -253,28 +297,52 @@ amend.
 3. **[proposed] Delivery order.** The user decided (2026-10-12, `agent-memory-mvp` decision 2) that
    the read-only policy comes first. *Recommended:* M1 read-only with data-only reads; M2 the
    metadata layer with the default model and chain, then per-entry templates and grouped; M3 the
-   handlers (media type, file facts, content hash, validation, front-matter); M4 central storage on
-   the router.
+   handlers (media type, file facts, content hash, validation, front-matter); M4 write strategies
+   and recovery; M5 central storage on the router.
 4. **[proposed] Where the hash policy lives.** Today `VersionVerification` is an environment setting
    (`environment_builder.rs`). Per mount, per environment, or both with the mount winning?
    *Recommended: both, mount wins* — the mount's setting is the `content_hash` handler's option.
-5. **[open design] Size.** Now clearly `XL`. Split into (i) read-only with data-only access, (ii) the
-   metadata layer and storage models, (iii) the handlers? *Recommended: decide at the Phase 2
-   gate*, once the interfaces show how independent they are.
+5. ~~**Size.**~~ **Decided 2026-10-15 by the user: one design**, delivered in milestones
+   (question 3). It stays `XL`, and Phase 1 is over the one-page target because of it.
 6. ~~**The non-persisting read.**~~ Folded into question 1 on 2026-10-15: data-only access is the
    non-persisting read.
-7. **[proposed] Central storage and member storage together.** A member that configures its own
-   model under a router with central storage: a configuration error, or ignored with a warning?
-   *Recommended: an error* (AC-12) — silently ignoring it would hide where metadata goes.
-8. **[proposed] Timestamps.** `MetadataRecord` has `updated` and `file_size` but no creation time
-   and no record of the backend's modification time, which `on_change` detection (AC-4) and the
-   `file_facts` handler need. *Recommended:* add both as optional fields in Phase 2.
+7. **[proposed] Central storage and member storage together.** Decided by the user: allowed, as a
+   backup. *Recommended:* the central record is authoritative; the member copy is written with every
+   central write (in the same transaction under `transactional`), is never read while the central
+   record exists, and restores a record missing centrally (AC-12). A member copy that disagrees
+   with the central one is overwritten, not merged.
+8. **[proposed] Timestamps.** `MetadataRecord` has `updated` and `file_size`. `updated` is *not*
+   "data last written": `set_updated_now` runs on every metadata change — each status transition and
+   progress entry during an evaluation, every `set_metadata` — so it moves while the data does not.
+   What `on_change` detection (AC-4) and the `file_facts` handler need is a third thing: the
+   **backend's** modification time (or ETag) recorded when the hash was computed, compared with the
+   backend's current one; a file edited by another program changes that and not `updated`.
+   *Recommended:* add **`data_modified`** (the backend fact, set by `file_facts`) in Phase 2. A
+   **`created`** time is a separate, smaller question: since a write replaces the whole record,
+   `created` survives an overwrite only if the write keeps it from the old record, and so far its
+   one use is ordering and filtering notes by creation date in `agent-memory-mvp`, which front-matter
+   can supply. *Recommended:* leave `created` out of core; let the front-matter handler project it
+   like any other front-matter field.
 9. **[proposed] Handler failure.** A read-stage handler that fails (malformed front-matter):
    *recommended* — the entry stays readable, the failure is a warning in the metadata log;
    validators on write fail the write (AC-14).
 10. **[proposed] Grouped writes.** A grouped file is read-modify-write. *Recommended:* serialize
     writes per group inside one process; atomicity across processes waits for
     `STORE-WRITE-HAS-NO-PRECONDITION`, as for the rest of the MVP.
+11. **[open design] How `transactional` commits.** (a) Stage the data and the metadata under
+    reserved staging keys, write a small journal record naming them and the targets, move both into
+    place, delete the journal — recovery rolls a write forward when its journal is complete and back
+    otherwise; or (b) versioned objects with a pointer record that is switched last (no moves, suits
+    object stores without rename, but every read follows the pointer). *Recommended: (a)*, with the
+    move done by rename where the backend has one and by copy-then-delete where it has not; (b)
+    changes the storage layout of every key and is left as a later strategy.
+12. **[proposed] When recovery runs.** On store construction (a scan for journals), lazily when a key
+    with a journal is read or listed, or only on an explicit call? *Recommended:* lazily per key plus
+    an explicit whole-store pass (AC-20); a scan on construction is too slow for large buckets.
+13. **[proposed] Default strategy.** *Recommended:* `direct` stays the default so that AC-6 holds;
+    `atomic` is recommended in the configuration guide for file stores, and `transactional` for
+    mounts written by agents (`agent-memory-mvp`) and for the grouped model, where one failed write
+    could otherwise damage a whole folder's metadata.
 
 ## References
 
