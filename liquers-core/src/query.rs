@@ -2450,6 +2450,17 @@ impl Query {
     }
 
     /// Returns the final transform query name, if available.
+    /// The realm an action appended to this query belongs to: the header name of the last segment
+    /// when it is a transform segment, otherwise `""` (a new segment has no header).
+    ///
+    /// Unlike [`Query::last_transform_query_name`], this does not require a single-segment query.
+    pub fn last_transform_realm(&self) -> String {
+        match self.segments.last() {
+            Some(QuerySegment::Transform(tqs)) => tqs.name(),
+            Some(QuerySegment::Resource(_)) | None => String::new(),
+        }
+    }
+
     pub fn last_transform_query_name(&self) -> Option<String> {
         self.transform_query().map(|x| x.name())
     }
