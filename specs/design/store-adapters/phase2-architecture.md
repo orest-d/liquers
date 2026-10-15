@@ -6,8 +6,8 @@ Option (C) of Phase 1 question 1. The **access policy** is a decorator, `ReadOnl
 `AsyncStore`. **Metadata and writes** go through one generic store, `MetadataPipelineStore`, built
 from four parts: a backend reached through new **data-only methods** of `AsyncStore` (default:
 refuse), a **storage model**, **handler chains** for the four stages, and a **write strategy**.
-Every part is named in the configuration by one mechanism (§Configuration, two alternatives for
-discussion). A mount with no `metadata` section is not wrapped at all, so today's behaviour is
+Every part is named in the configuration by one mechanism: `meta`-realm commands in the shared
+registry, composed as queries (§Configuration). A mount with no `metadata` section is not wrapped at all, so today's behaviour is
 untouched (AC-6). A router with central storage wraps itself in the same pipeline, its members
 reached through their data-only methods (AC-12).
 
@@ -123,43 +123,77 @@ templates of Phase 1), `GroupedStorage { file: String }` (`__metadata__.json`, a
 record), `NoStorage`, and a test-only `MemoryCentralStorage`. A database model implements the same
 trait and returns `plan` empty, committing in its own transaction (interface only).
 
-### 4. Handlers
+### 4. Handlers — metadata functions in the `meta` realm
+
+Decided 2026-10-15 (question 2, alternative b, refined by the user): a handler is a **command of a
+special realm**, `meta`, registered in the **same** `CommandMetadataRegistry` as every other
+command, so it has a `CommandMetadata` (arguments, defaults, docs), appears in
+`specs/command_registry.yaml` and is checked by `liquers-validate` with no second registry. A command
+of that realm differs from an ordinary one in its call shape: no `State`, no `Context`, no store
+access and no `async` — a pure function of the record and, optionally, the data.
 
 ```rust
+// liquers-core/src/store/metadata_functions.rs
+pub struct MetadataInput<'a> { pub bytes: Option<&'a [u8]>, pub facts: Option<&'a DataFacts> }
+pub enum MetadataOutput {
+    Record(MetadataRecord),
+    RecordAndData(MetadataRecord, Vec<u8>), // write stage only: replacement bytes (front-matter write-back, AC-5)
+    NeedBytes,                              // "call me again with the bytes" (hash on_change after facts differ)
+}
+pub type MetadataFn = dyn Fn(MetadataRecord, &MetadataInput<'_>, &ResolvedParameterValues)
+    -> Result<MetadataOutput, Error> + Send + Sync;
+
+/// Non-generic, so the store layer can hold it without knowing the environment's value type.
+#[derive(Default, Clone)]
+pub struct MetadataFunctionRegistry { functions: HashMap<CommandKey, Arc<MetadataFn>> }
+
+// CommandRegistry<E> (commands.rs) gains
+pub metadata_functions: MetadataFunctionRegistry,
+pub fn register_metadata_function(&mut self, metadata: CommandMetadata, f: Arc<MetadataFn>)
+    -> Result<(), Error>; // metadata.realm must be "meta"; also adds it to command_metadata_registry
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Stage { Default, Validate, Write, Read }
-
-#[maybe_async_trait] // the cfg_attr pair of AsyncStore (store.rs): async_trait / async_trait(?Send) on wasm32
-pub trait MetadataHandler: MaybeSend + MaybeSync {
-    fn name(&self) -> String;
-    async fn apply(&self, record: MetadataRecord, input: &HandlerInput<'_>) -> Result<HandlerOutput, Error>;
+/// A chain compiled once from a spec: the planned actions with their resolved parameters.
+pub struct HandlerChain { steps: Vec<(CommandKey, Arc<MetadataFn>, ResolvedParameterValues)> }
+impl HandlerChain {
+    pub fn compile(spec: &str, registry: &CommandMetadataRegistry, functions: &MetadataFunctionRegistry)
+        -> Result<Self, Error>;
 }
-pub struct HandlerOutput { pub record: MetadataRecord, pub data: Option<Vec<u8>> } // data: write-stage only
-pub struct HandlerInput<'a> { pub stage: Stage, pub key: &'a Key, pub data: DataView<'a>,
-                              pub facts: Option<&'a DataFacts>, pub previous: Option<&'a MetadataRecord> }
-pub enum DataView<'a> { Bytes(&'a [u8]), OnDemand(&'a dyn AsyncStore), Absent }
-pub struct HandlerChain(Vec<Arc<dyn MetadataHandler>>); // itself a MetadataHandler: chains compose
 ```
 
-A handler is the user's function shape, `(MetadataRecord[, data]) -> Result<MetadataRecord>`; a
-write-stage handler may also return replacement bytes, which is how `front_matter` with
-`write_back` rewrites the file when `description` changes (AC-5), and those bytes then go through
-the same commit as the record. Every handler that sets fields takes the common parameter
-`mode` — `fill` (keep a value already present) or `overwrite` (the default) — so AC-15's two
-behaviours are one option, not two handlers.
-`OnDemand` lets a read-stage handler fetch bytes only when it needs them (hash `on_change` after the
-facts differ; front-matter on a cache miss), so a listing does not read every file. A
-`LegacyMetadata` record bypasses the chains and is stored and returned untouched, with a warning:
+`register_command!` gains `record` as a state form, with an optional `data` parameter, allowed only
+with `realm: "meta"`; the function returns `MetadataRecord`, `(MetadataRecord, Vec<u8>)` or
+`MetadataOutput`. The generated wrapper converts arguments with the existing `FromParameterValue`
+(`commands.rs`), which is not generic over the environment, so it needs no `CommandArguments<E>`:
+
+```rust
+register_command!(cr,
+    fn media_type(record, data, from: String = "extension", mode: String = "overwrite") -> result
+    realm: "meta" namespace: "meta" doc: "Set media_type from the key's extension")?;
+```
+
+**Why the call shape is enough.** The record carries its key; the data is passed in, not fetched,
+because the function has no store; `MetadataInput::facts` gives size, modification time and ETag
+without the bytes, so a listing reads no file whose facts are unchanged; a function that needs the
+bytes only sometimes (`content_hash-on_change`, `front_matter` on a cache miss) returns `NeedBytes`,
+and the pipeline — which is async and has the store — fetches them and calls it again. Sync is
+right for pure CPU work; hashing a large file blocks one executor thread, which can move to a
+blocking pool later without changing the shape. A validator is a function that returns `Err`
+(AC-14). Every function that sets fields takes the common parameter `mode` — `fill` keeps a value
+already present, `overwrite` (default) replaces it (AC-15). Chains compose: a step is a function,
+and a chain of steps applies them in order, each receiving the previous output (AC-16, AC-21).
+
+A `LegacyMetadata` record bypasses the chains and is stored and returned untouched, with a warning:
 `Metadata::metadata_record` has no lossless conversion, and the legacy branch exists to keep
 unknown fields. Hashing reuses `Version::from_bytes`; `front_matter` reuses
-`liquers_records::search::front_matter_end`. Built-in:
-`defaults`, `require`, `media_type`, `file_facts` (size, `created` from `DataFacts`), `content_hash`
-(`off`/`always`/`on_change`; it keeps `version` current in listings, and its mount's policy is what
-`version_verification` reports; a change it detects is then handled as `verify_stored_versions`
-handles one, by the asset manager's `ExternalChangePolicy`, and
-`verify_stored_versions` stays the whole-store check that catches what `on_change` misses — AC-4),
-`updated`. `front_matter`
-lives in `liquers-lib`.
+`liquers_records::search::front_matter_end`. Built-in, in `liquers-core`: `defaults`, `require`,
+`media_type`, `file_facts` (size, `created`, ETag from the facts), `content_hash`
+(`off`/`always`/`on_change`; it keeps `version` current in listings, its mount's policy is what
+`version_verification` reports, a change it detects is handled as `verify_stored_versions` handles
+one — by the asset manager's `ExternalChangePolicy` — and `verify_stored_versions` stays the
+whole-store check that catches what `on_change` misses, AC-4), `updated`. `front_matter` is
+registered by `liquers-lib` like its other commands.
 
 ### 5. Write strategy
 
@@ -227,9 +261,9 @@ for one key would be ambiguous.
 `set(k, data, m)`: Validate chain on `m` → Write chain with `Bytes(data)` → `storage.plan` under the
 group lock → `writes.commit` with the data object and the planned objects → cache. `get_metadata(k)`:
 `writes.recover(k)` → cache hit if `data_facts` unchanged → `storage.get` or, if absent, Default
-chain (persisted only if `persist_defaults`) → Read chain with `OnDemand`. Listings use
+chain (persisted only if `persist_defaults`) → Read chain with the facts, fetching the bytes only for a step that answers `NeedBytes`. Listings use
 `get_folder` when the model offers it. `set_metadata(k, m)`: Validate → Write chain with
-`OnDemand` (a handler that returns bytes turns it into a data write too) → plan → commit.
+the facts (a step that returns `RecordAndData` turns it into a data write too) → plan → commit.
 `remove(k)`: plan with `None`, commit with the data object deleted. `get`, `get_metadata`,
 `listdir` and `listdir_asset_info` each call `writes.recover` first for the key or the folder (and
 the folder's group file), and a recovery appends a warning to the record's log (AC-20); `sync`
@@ -271,62 +305,44 @@ Every `Option<String>` component is a **spec** in the one mechanism below; a pre
 fields left `None`. `metadata: {}` counts as no section (AC-6). The old reserved map was never
 written by anything; a non-empty one now fails with the field named.
 
-## Configuration: two alternatives (Phase 1 question 2, for discussion)
-
-The same mount under each:
+## Configuration (Phase 1 question 2 — decided: alternative b, as a realm)
 
 ```yaml
 - type: filesystem
   prefix: specs
   config: { path: ./specs }
-  read_only: true
   metadata:
     preset: source
     on_read: media_type-extension/file_facts/content_hash-on_change/front_matter-title-description
 ```
 
-A chain is written as a query: actions separated by `/`, parameters by `-`, parsed by
-`parse_query`, so positions, escaping and `liquers-validate` come for free. The alternatives
-differ in what the actions *are*.
+A chain is a query: actions separated by `/`, parameters by `-`, parsed by `parse_query` and planned
+**once, when the store is built**, by the existing `PlanBuilder` against the shared
+`CommandMetadataRegistry`. `PlanBuilder::new` needs only the registry — no environment, recipe
+provider or store (`plan.rs`). The realm comes from a transform segment header (`plan.rs`,
+`last_transform_query_name`), so a spec may be written `-meta/media_type-extension/…`; the compiler
+also plans a headerless spec in realm `meta` (a `PlanBuilder::with_default_realm` option), which is
+the form shown. Each `Step::Action` becomes a step of the `HandlerChain`; the compiler matches every
+`Step` and `ParameterValue` variant explicitly and refuses anything else (resources, links,
+placeholders) with `configuration_error`, positioned. The spec is checked before anything runs, so a
+misspelt function fails the store build, not a read.
 
-**(a) Commands.** Metadata functions are commands, registered with `register_command!` in a
-namespace `meta`, taking `Value::Metadata(record)` as state, the data as an injected argument. The
-pipeline runs a chain with the environment's `CommandExecutor`, bypassing the asset manager.
-- *For:* one registry for everything; docs, defaults, `ArgumentInfo` descriptions and
-  `specs/command_registry.yaml` already exist; a handler can reuse any command (front-matter
-  parsing, records).
-- *Against:* a **construction cycle** — `EnvironmentBuilder::build` builds the store from its
-  configuration before `GenericEnvironment::assemble`, and a command needs a `Context` over the
-  environment that holds the store, so the store needs a late-bound `Weak` environment and cannot
-  run before it exists (tests that build a bare store, `liquers-web`'s builder). Commands are
-  generic over `E::Value` while the store layer is value-agnostic. A per-entry read chain would
-  build a `Context` per call. A command that reads the store from inside a store read can deadlock
-  on a group lock. Error positions are as good as (b)'s — the same query parser — but a failing
-command is reported at evaluation, per read, rather than when the store is built.
+**Where the registry comes from.** `EnvironmentBuilder::build` already holds its `CommandRegistry`
+when it builds the store (`environment_builder.rs`), so it passes `command_metadata_registry` and
+`metadata_functions` to `StoreRouterBuilder` — no construction cycle, because a metadata function
+never needs the environment. A bare `StoreRouterBuilder` (tests, `liquers-store`'s `create_router*`,
+`liquers-web`) uses `MetadataFunctionRegistry::builtin()`, or one it is given.
 
-**(b) A query compiled to a function.** The chain is planned once, at build time, by the existing
-`PlanBuilder` against a separate `CommandMetadataRegistry` of **metadata functions** (realm
-`store`); each `Step::Action` is turned into an `Arc<dyn MetadataHandler>` by a factory registered
-beside it. The result is a `HandlerChain`, the function `(MetadataRecord[, data]) ->
-Result<MetadataRecord>` the user described.
-- *For:* no environment, no cycle — built in `StoreRouterBuilder` from the factory chain, so it
-  works for a bare store and in `liquers-web`; parameters parsed and defaulted once, nothing per
-  call but the handlers; `CommandMetadata` declarations give docs, defaults and validation; storage
-  models, write strategies, adapters and presets use the same registry, so a new component needs
-  no configuration design (AC-21); crates above core register through `StoreFactory` (AC-10).
-- *Against:* a second registry, so a metadata function cannot call an arbitrary command;
-  `liquers-validate` needs that registry exported (the same YAML format, realm `store`).
+**The other components.** Storage models, write strategies, adapters and presets are named by the
+same mechanism — `per_entry-folder`, `grouped-__metadata__.json`, `transactional` — as
+`meta`-realm entries in namespace `store`, whose constructor returns a component instead of a
+record. So a new component of any kind is one registration and no configuration design (AC-10,
+AC-21). Specs above were checked with `liquers-validate`; with `meta` functions exported to
+`specs/command_registry.yaml` they validate against the real registry.
 
-*Recommended: (b)*, keeping (a)'s strength through a later bridge handler that runs a named command
-once an environment is available. Under (b) `StoreFactory` gains `fn metadata_functions(&self) ->
-Vec<MetadataFunctionInfo> { vec![] }` (a `CommandMetadata` plus a constructor
-`Arc<dyn Fn(&ResolvedParameterValues) -> Result<Component, Error> + Send + Sync>`, so a registration
-can capture state), with `Component` an enum of `Handler`, `Storage`, `Writes`, `Adapter` and
-`Preset`. Metadata functions are registered in realm `""` of their own registry, so a spec needs
-no header; the translator matches every `Step` and `ParameterValue` variant explicitly and refuses
-anything but `Step::Action` with literal parameters (links, placeholders, resources) with
-`configuration_error`. `PlanBuilder::new` needs only the registry — no environment, recipe
-provider or store (`plan.rs`).
+Rejected, alternative (a): ordinary commands run through the `CommandExecutor` — the store is built
+before the environment exists, so it would need a late-bound environment, and a misspelt handler
+would fail on every read instead of at build time.
 
 ## Integration Points
 
@@ -341,7 +357,12 @@ provider or store (`plan.rs`).
   depend on the type) and wraps each mount (`Arc::from` the factory's `Box`, then pipeline, then
   `ReadOnlyStore`); a new `build_store(self) -> Result<Arc<dyn AsyncStore>, Error>` also applies
   the router-level `read_only` and `metadata`, and `EnvironmentBuilder::build` switches to it;
-  `metadata_functions` on `StoreFactory` and `ChainedStoreFactory`.
+  `StoreRouterBuilder::with_metadata_functions(&CommandMetadataRegistry, MetadataFunctionRegistry)`,
+  called by `EnvironmentBuilder::build` with its command registry.
+- `liquers-core/src/commands.rs`: `CommandRegistry::metadata_functions` and
+  `register_metadata_function`; `plan.rs`: `PlanBuilder::with_default_realm`.
+- `liquers-macro`: the `record` state form and optional `data` parameter, valid only with
+  `realm: "meta"`; it generates a `register_metadata_function` call.
 - `liquers-core/src/metadata.rs`: `MetadataRecord` and `AssetInfo` gain `created:
   Option<BackendTime>` and `etag: Option<String>` (serde default, skipped when `None`).
 - `liquers-core/src/environment_builder.rs`: `VersionVerification` stays the environment default;
@@ -367,9 +388,27 @@ provider or store (`plan.rs`).
 
 ## Relevant Commands
 
-None new under the recommended alternative (b). Under (a): a namespace `meta` with one command per
-metadata function. Namespaces interacting: none. `specs/command_registry.yaml` is unchanged under
-(b); the metadata-function registry gets its own export.
+A new realm, `meta`, with two namespaces: `meta` for metadata functions and `store` for component
+constructors. Built in `liquers-core` (signatures as `register_command!` lines; Phase 3 fixes the
+parameter lists):
+
+```rust
+register_command!(cr, fn defaults(record, data) -> result realm: "meta" namespace: "meta")?;
+register_command!(cr, fn require(record, field: String) -> result realm: "meta" namespace: "meta")?;
+register_command!(cr, fn media_type(record, data, from: String = "extension", mode: String = "overwrite") -> result realm: "meta" namespace: "meta")?;
+register_command!(cr, fn file_facts(record, data, mode: String = "overwrite") -> result realm: "meta" namespace: "meta")?;
+register_command!(cr, fn content_hash(record, data, when: String = "always") -> result realm: "meta" namespace: "meta")?;
+register_command!(cr, fn updated(record) -> result realm: "meta" namespace: "meta")?;
+// liquers-lib:
+register_command!(cr, fn front_matter(record, data, fields: Vec<String> multiple) -> result realm: "meta" namespace: "meta")?;
+```
+
+`write_back` for `front_matter` is the same function placed in the write chain, where it returns
+`RecordAndData`. Storage models (`native`, `per_entry`, `grouped`, `none`), write strategies
+(`direct`, `atomic`, `transactional`), the adapter `read_only` and the presets are `store`-namespace
+entries. No existing namespace (`pl`, `lui`, `rec`, …) is touched. **`specs/command_registry.yaml`
+must be regenerated** (the new realm's entries appear in it), with a CHANGELOG line, and
+`registry_export` keeps it honest.
 
 ## Documentation Architecture
 
@@ -383,7 +422,8 @@ metadata function. Namespaces interacting: none. `specs/command_registry.yaml` i
 | `specs/reference/PROJECT_OVERVIEW.md` | reference | `AsyncStore` data-only methods; the pipeline in the store layer |
 | `CLAUDE.md` | instructions | "Adding a Store Backend": implement data-only access to take a `metadata` section |
 | `liquers-web/README.md` | crate doc | `isReadOnly` |
-| `.claude/skills/liquers-validate/SKILL.md` | skill | validating metadata specs against the exported metadata-function registry (alternative b) |
+| `.claude/skills/liquers-validate/SKILL.md` | skill | validating metadata specs (realm `meta`, the default-realm form) |
+| `specs/reference/REGISTER_COMMAND_FSD.md` | reference | the `record` state form, `data`, and the `meta` realm restriction |
 
 Proposed `affects_docs`: the first six. `specs/README.md`: capability map entry for store adapters.
 
@@ -397,8 +437,8 @@ Proposed `affects_docs`: the first six. `specs/README.md`: capability map entry 
 | New validation | conformance fixtures per adapted store; failure injection for strategies |
 | Compatibility | **`MetadataRecord` is `deny_unknown_fields`**: an older build reading a record with `created` fails to parse it as a record and falls back to `Metadata::LegacyMetadata`, which keeps every field (`store.rs`, `opendal_store.rs`); nothing is lost, but that build's typed accessors degrade on new records. Recorded in `STORE_SEMANTICS.md`; a `metadata: {...}` section is refused by an older build, as an unknown field shape |
 | Concurrency | group locks are per process (Q10); recovery on read costs one `contains` per read for the journal, cached after a clean `sync` |
-| Performance | read chains run per entry in listings; `OnDemand` data and the facts-keyed cache keep a listing free of byte reads on unchanged entries |
+| Performance | read chains run per entry in listings; `MetadataInput::facts`, `NeedBytes` and the facts-keyed cache keep a listing free of byte reads on unchanged entries; functions are sync, so a large hash blocks one thread (a blocking pool later, same shape) |
 | Bindings | `liquers-py` (`context.rs`) holds stores as `Arc<dyn AsyncStore>` only; defaulted methods do not break it. Its `MetadataRecord` wrapper gains getters for `created` and `etag` |
 | Security | none new; read-only enforced in the decorator and reported through `is_read_only` |
 | Recovery | journal roll-forward/back (AC-20); `DirectWrite` keeps today's `Storing` marker |
-| Certainty and open questions | Question 2 (configuration alternative) is the user's; the rest follows Phase 1 decisions |
+| Certainty and open questions | All Phase 1 questions decided; the macro extension (`record` state form) is the least certain step, since `liquers-macro` hard-codes the state forms |

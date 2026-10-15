@@ -334,7 +334,10 @@ amend.
    pipeline (`AsyncFileStore`, `AsyncMemoryStore`, the OpenDAL store); no other store changes, and a
    store without it can still be read-only, just not take a `metadata` section. Phase 2 confirms that
    this is a handful of methods and not a second store trait.
-2. **[open design] Configuration — moved to Phase 2 as alternatives for discussion.** The user
+2. **Decided 2026-10-15 by the user at the Phase 2 gate: alternative (b), as a realm** — metadata
+   functions are commands of a special realm `meta` in the shared registry, with a record and
+   optional data instead of a state, no context, no store access, synchronous (Phase 2 §4). The
+   question as asked: The user
    rejected a configuration format designed per adapter: every new adapter or handler would need its
    own configuration design. Requirements: adapters are **stacked**; metadata components are both
    **stackable** (on write, a modification and a validation pass the record through a chain of
