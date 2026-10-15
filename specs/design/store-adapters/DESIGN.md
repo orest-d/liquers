@@ -54,3 +54,9 @@ the query before planning (no `PlanBuilder` change); every `store_config` comman
 
 **2026-10-15, Phase 2 review.** Presets removed at the user's request; each `metadata` field has one
 fixed default instead (AC-22 rewritten, Phase 1 Q13 revised, Phase 2 §7 defaults table).
+
+**2026-10-15, Phase 2 review.** Language integration answered (Phase 2 §Language Integration): a
+language store takes `read_only` and `metadata` like any store, through optional data-only methods;
+compiled chains stay in Rust; language-defined handlers filed as
+`LANGUAGE-STORE-CONFIG-FUNCTION-NOT-DEFINABLE`. `LANGUAGE-INTEGRATION_GUIDE.md` added to the
+documents to update.

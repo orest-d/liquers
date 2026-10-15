@@ -8,9 +8,9 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 111
+Total rows: 112
 - P2: 54
-- P3: 57
+- P3: 58
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -94,6 +94,7 @@ Total rows: 111
 | [`INLINE-MANAGER-DYNAMIC-DEPENDENCY-CHAIN-NESTS`](issues/INLINE-MANAGER-DYNAMIC-DEPENDENCY-CHAIN-NESTS.md) | issue | On the inline manager, a chain through a dynamic or volatile dependency still nests one stack level per link | draft |  |  | P3 | M | core/assets |  | 2026-10-12 |
 | [`ISSUE-REPORT-PLAN-AND-METADATA-LOGGING`](issues/ISSUE-REPORT-PLAN-AND-METADATA-LOGGING.md) | feature | Reuse structured issue reports for plan validation and metadata logging | draft |  |  | P3 | M | core/validate;core/plan;core/commands | [phase1](design/variadic-metadata-tail-check/phase1-high-level-design.md)  [phase2](design/variadic-metadata-tail-check/phase2-architecture.md)  [phase3](design/variadic-metadata-tail-check/phase3-examples.md)  [phase4](design/variadic-metadata-tail-check/phase4-implementation.md)  [phase5](design/variadic-metadata-tail-check/phase5-documentation.md)  | 2026-09-05 |
 | [`LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT`](issues/LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT.md) | issue | Language exception class and stack are lost in transport | accepted |  |  | P3 | M | core/error;web;py |  | 2026-08-08 |
+| [`LANGUAGE-STORE-CONFIG-FUNCTION-NOT-DEFINABLE`](issues/LANGUAGE-STORE-CONFIG-FUNCTION-NOT-DEFINABLE.md) | feature | A store_config handler cannot be defined in the integrated language | draft |  |  | P3 | M | web;py;core/store;store/config |  | 2026-10-15 |
 | [`LINK-IN-VARIADIC-DOES-NOT-EXPAND`](issues/LINK-IN-VARIADIC-DOES-NOT-EXPAND.md) | issue | A link inside a variadic argument yields one element even when it resolves to an array | draft |  |  | P3 | M | core/plan;core/commands | [phase1](design/variadic-arguments-declaration/phase1-high-level-design.md)  [phase2](design/variadic-arguments-declaration/phase2-architecture.md)  [phase3](design/variadic-arguments-declaration/phase3-examples.md)  [phase4](design/variadic-arguments-declaration/phase4-implementation.md)  [phase5](design/variadic-arguments-declaration/phase5-documentation.md)  | 2026-08-25 |
 | [`MACRO-QUERY-VALIDATION-AND-HINTS`](issues/MACRO-QUERY-VALIDATION-AND-HINTS.md) | issue | `register_command!` does not validate queries or implement hints | accepted |  |  | P3 | M | macro |  | 2026-08-08 |
 | [`POLARS-BRIDGE-VECTOR-COLUMNS-REFUSED`](issues/POLARS-BRIDGE-VECTOR-COLUMNS-REFUSED.md) | issue | The RecordBatch <-> DataFrame bridge cannot convert Vector columns | draft |  |  | P3 | M | records;lib/polars |  | 2026-09-27 |

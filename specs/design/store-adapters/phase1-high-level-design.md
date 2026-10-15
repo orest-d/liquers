@@ -266,7 +266,9 @@ go in `liquers-store` behind features.
   before planning), with `store_config` as the first worked case.
 - New guide: `specs/guides/STORE_CONFIG_GUIDE.md` — how the `store_config` commands work and how a
   new one is registered.
-- Documents to update: `specs/guides/STORE_FACTORY_GUIDE.md`, `specs/README.md` capability map.
+- Documents to update: `specs/guides/STORE_FACTORY_GUIDE.md`, `specs/guides/LANGUAGE-INTEGRATION_GUIDE.md`
+  (§STORE: what a store written in another language can configure and define), `specs/README.md`
+  capability map.
 
 ## Design Dependencies
 
@@ -310,6 +312,10 @@ go in `liquers-store` behind features.
 - **2026-10-15, at the user's request, during Phase 2 review.** Presets removed (AC-22 rewritten
   as fixed defaults, question 13 revised): they made a section's meaning depend on definitions
   elsewhere.
+- **2026-10-15, at the user's request, during Phase 2 review.** Language integration added:
+  whether a store written in another language can use the configuration and the new parts, run
+  the compiled chains, or define a `store_config` command (Phase 2 §Language Integration);
+  `LANGUAGE-INTEGRATION_GUIDE.md` added to the documents to update.
 
 ## Open Questions
 

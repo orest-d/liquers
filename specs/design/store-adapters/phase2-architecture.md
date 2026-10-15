@@ -24,7 +24,7 @@ reimplements it, and the storage model stays inside the backend).
 | `STORE-WRITE-HAS-NO-PRECONDITION` | draft | P2 | Locks are per process; two processes writing one group or key still race | No | No | Documented limit (Phase 1 Q10) |
 | `CORE-STORE-OPENBIN-MISSING` | accepted | P3 | `created` under a streaming writer (Phase 1 Q8); no method to wrap today | No | No | Note in `STORE_SEMANTICS.md` |
 | `STORE-COMMAND-NAMESPACE-MISSING` | accepted | P3 | Alternative (a) of §Configuration would put metadata functions in a command namespace | No | No | Decided with question 2 |
-| `LANGUAGE-STORE-TYPE-NOT-DEFINABLE` | draft | P2 | A handler defined in JavaScript or Python needs the same registry as a store type | No | No | Registry is `dyn`, so the issue can extend it later |
+| `LANGUAGE-STORE-TYPE-NOT-DEFINABLE` | draft | P2 | A language store is mounted as an instance under a Rust type; `read_only` and `metadata` still apply to it (§Language Integration) | No | No | Unchanged; its handler counterpart filed as `LANGUAGE-STORE-CONFIG-FUNCTION-NOT-DEFINABLE` |
 | `SHAREABLE-METADATA-AND-BYTES-ARE-DEEP-COPIED` | draft | P3 | Handler chains pass `MetadataRecord` by value; one copy per stage | No | No | Accepted cost; records are small |
 | `CORE-METADATA-NO-APPLICATION-ATTRIBUTES` | — | P2 | Front-matter fields beyond title/description have nowhere to go | No | No | Out of scope (Phase 1 non-goals) |
 
@@ -480,9 +480,74 @@ every read instead of at build time.
 - `liquers-store/src/opendal_store.rs`: data-only methods, capabilities per OpenDAL service.
 - `liquers-lib`: `front_matter` handler, registered in `liquers-lib`'s store factory.
 - `liquers-axum/src/store/handlers.rs`: nothing new — `NotSupported` already maps to 501.
-- `liquers-web`: `LiquersStore` exposes `isReadOnly`; its stores keep refusing data access (later).
+- `liquers-web`: `LiquersStore` exposes `isReadOnly`; `JsStore` maps the optional data-only methods of a store object (§Language Integration); the built-in browser stores keep refusing data access (later).
 - Conformance: `liquers-core/src/store_conformance/` gains fixtures for adapted stores (AC-7) and a
   failure-injecting backend for AC-18 to AC-20.
+
+## Language Integration
+
+The four questions the user raised at the Phase 2 review, answered for any integration
+(`liquers-web` today, `liquers-py` later). The answers go into `LANGUAGE-INTEGRATION_GUIDE.md`
+§STORE.
+
+**1. Can a store implemented in another language use the configuration? Yes, both new fields.**
+A language store reaches a document as an instance behind a Rust type (`type: js, config: {object:
+…}`), and `read_only` and `metadata` sit on `StoreConfig`, beside `type`, not inside `config`. The
+builder applies them to whatever the factory returned, so they work for a store whatever language
+it is written in. `read_only` needs nothing from the store: `ReadOnlyStore` refuses writes before
+they reach it. `metadata` needs the store's **data-only methods** (§1). The adapter (`JsStore`, a
+future Python adapter) implements them by calling optional methods of the language object
+(`getData`, `setData`, `removeData`, `renameData`, `listdirData`, `dataFacts`), and reports in
+`data_capabilities` which ones it found. A missing method is not guessed from `get`, whose metadata
+side effects the adapter cannot see. An object with none of them reports no data access, so a
+`metadata` section on its mount is a `configuration_error` naming the mount and the missing
+capability, raised at build (AC-9). This is the same rule a Rust backend follows.
+
+**2. To what extent can it use the new configuration methods? All of them, within its
+capabilities.** Everything configured runs in Rust, around the store. The language store only
+supplies bytes and facts, so nothing is reimplemented per language.
+
+| Part | What the language store must provide |
+|---|---|
+| `read_only` | nothing |
+| storage `per_entry`, `grouped`, `none` | the data-only methods (the models keep records as data objects) |
+| storage `native` | also `getStoredMetadata` / `setMetadata`, if the store keeps its own metadata |
+| writes `direct`, `transactional` | `setData` (and `removeData` for a delete) |
+| writes `atomic` | also `renameData`, or a declared atomic write |
+| every built-in handler | nothing: it runs on the record in Rust; `dataFacts` makes `file_facts` and `content_hash-on_change` cheap |
+
+`dataFacts` returns size, modification time and ETag. Its time crosses the bridge as an RFC 3339
+string with a declared precision, so `BackendTime` round-trips the same way from every language
+(Phase 1 Q8).
+
+**3. Can it execute the compiled closures? Not in this design, and it does not need to.** A
+compiled chain is owned by the `MetadataPipelineStore` that wraps the language store, so the chains
+already run on every access to that store, in Rust. Handing a chain *to* the language (say,
+`compileStoreConfig(spec, stage)` returning a function from record to record, for a store that
+wants to apply configured handlers itself) would be possible. A `CompiledChain` needs no
+environment and is `Send + Sync`, and the STORE bridge already converts `MetadataRecord`. But
+nothing needs it, and it would invite a second place where handlers run. Not built.
+
+**4. Can it define its own `store_config` command? Not in this design. The obstacles are known,
+and none of them is in the realm itself.**
+- **Declaration:** solved already. A language handler is a `CommandMetadata` in realm
+  `store_config`, declared in the [Command Declaration Format](../../reference/COMMAND_DECLARATION.md)
+  like any language command.
+- **Builder type:** `StepBuilder` is a plain `fn` pointer, which cannot capture a language callable.
+  A language entry needs a boxed builder in `StoreConfigFunctions`' table. The closure types
+  (`CompiledFn`, `NeedsBytesFn`) already capture whatever they need, so only the table changes.
+- **Synchronous:** a chain is synchronous (§4). An async JavaScript function cannot be awaited
+  inside it, so a language handler must be synchronous.
+- **Cost per call:** a Python handler takes the GIL on every call, and a listing runs the read chain
+  once per entry. That is a measurable cost to document, not a blocker.
+- **Timing:** chains compile at store build, so a language handler must be registered before the
+  store is built. This is the same constraint as `POST-INIT-COMMAND-REGISTRATION`.
+- **Errors:** a language exception crosses through the ERROR bridge and follows the stage rules of
+  §4 (a warning on read, abort on validate).
+
+Recorded as `LANGUAGE-STORE-CONFIG-FUNCTION-NOT-DEFINABLE` (draft, filed with this revision). It is
+the handler counterpart of `LANGUAGE-STORE-TYPE-NOT-DEFINABLE`, and the two will likely be
+designed together.
 
 ## Error Handling
 
@@ -520,11 +585,12 @@ CHANGELOG line; `registry_export` keeps it honest.
 | `specs/reference/ASSETS.md` | reference | `created`; `Storing` under the write strategies (added here; Phase 1 listed no other documents) |
 | `specs/reference/PROJECT_OVERVIEW.md` | reference | `AsyncStore` data-only methods; the pipeline in the store layer |
 | `CLAUDE.md` | instructions | "Adding a Store Backend": implement data-only access to take a `metadata` section |
-| `liquers-web/README.md` | crate doc | `isReadOnly` |
+| `specs/guides/LANGUAGE-INTEGRATION_GUIDE.md` | guide | §STORE: the four answers of §Language Integration — configuration of a language store, the optional data-only methods and the capability each part needs, why compiled chains are not exposed, and what defining a `store_config` command in a language would take |
+| `liquers-web/README.md` | crate doc | `isReadOnly`; the optional data-only methods of a store object |
 | `.claude/skills/liquers-validate/SKILL.md` | skill | validating store specs (realm `store_config`; give the tool the filled form `-store_config/…`) |
 | `specs/reference/PROJECT_OVERVIEW.md` §Realm | reference | the first foreign realm: addressable, plannable, not executable; pointer to `REALMS.md` |
 
-Proposed `affects_docs`: the first eight (the two new documents included). `specs/README.md`: capability map entry for store adapters.
+Proposed `affects_docs`: the first eight (the two new documents included) and `LANGUAGE-INTEGRATION_GUIDE.md`. `specs/README.md`: capability map entry for store adapters.
 
 ## Risks
 
