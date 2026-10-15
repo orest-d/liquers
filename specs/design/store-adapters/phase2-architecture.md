@@ -135,7 +135,7 @@ not need to coexist with realm `""`. (If that is ever needed, `Value` can be ext
 realm is a study of how a quite foreign realm sits beside the rest.) Evaluating a `store_config`
 query through the asset manager fails with `Error::not_supported` naming the realm.
 
-**Realm name.** *Proposed:* `store_config` — the realm exists only inside store configuration, its
+**Realm name.** *Confirmed 2026-10-15:* `store_config` — the realm exists only inside store configuration, its
 queries configure rather than compute, and the name reads as what it is in a header
 (`-store_config/…`). Considered: `storeconf` (shorter, less obvious), `store_handlers` (too
 narrow: the realm also names storage models, write strategies and presets), `store` (collides in
@@ -165,8 +165,16 @@ pub type NeedsBytesFn = Box<dyn Fn(&FactsIn<'_>) -> bool + Send + Sync>; // same
 
 pub struct CompiledChain { pub needs_bytes: NeedsBytesFn, pub run: CompiledFn }
 
-/// One step's builder: hard-coded where the handler is defined, a plain `fn` pointer.
-pub type StepBuilder = fn(&ResolvedParameterValues) -> Result<CompiledStep, Error>;
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Stage { Default, Validate, Write, Read }
+
+/// One step's builder: hard-coded where the handler is defined, a plain `fn` pointer. It is given
+/// the stage so one handler can mean the right thing in each (`media_type` fills in Write and
+/// checks in Validate) and refuse a stage it has no meaning in.
+pub type StepBuilder = fn(Stage, &ResolvedParameterValues) -> Result<CompiledStep, Error>;
+/// A component's builder (storage model, write strategy): same registration, different product.
+pub type ComponentBuilder = fn(&ResolvedParameterValues) -> Result<StoreComponent, Error>;
+pub enum StoreComponent { Storage(Arc<dyn MetadataStorage>), Writes(Arc<dyn WriteStrategy>) }
 pub struct CompiledStep { pub needs_bytes: NeedsBytesFn, pub run: CompiledFn }
 
 #[derive(Default)]
@@ -218,17 +226,73 @@ one key); how several guarded chains combine (first match or all, in order); and
 with presets (a preset could carry guarded chains, e.g. `front_matter` only under `*.md`, which
 would need a pattern, not a key). Recorded as an issue at Phase 5 if not implemented.
 
-**Built-in handlers** (in `liquers-core`): `defaults`, `require`, `media_type`, `file_facts` (size,
-`created`, ETag from the facts), `content_hash` (`off`/`always`/`on_change`; hashing reuses
-`Version::from_bytes`; it keeps `version` current in listings, its mount's policy is what
-`version_verification` reports, a change it detects is handled as `verify_stored_versions` handles
-one — by the asset manager's `ExternalChangePolicy` — and `verify_stored_versions` stays the
-whole-store check that catches what `on_change` misses, AC-4), `updated`. `front_matter`, in
-`liquers-lib`, reuses `liquers_records::search::front_matter_end`; in the write chain it sets
-`StepOut::data` (write-back). Every handler that sets fields takes `mode` — `fill` keeps a value
-already present, `overwrite` (default) replaces it (AC-15). A `LegacyMetadata` record bypasses the
-chains and is stored and returned untouched, with a warning: `Metadata::metadata_record` has no
-lossless conversion, and the legacy branch exists to keep unknown fields.
+**Namespace.** Every built-in entry is in namespace `""` of realm `store_config`. The realm already
+keeps them apart from ordinary commands, and `PlanBuilder` searches only the registry's
+`default_namespaces` (`""`, `"root"`) unless the query says `ns-…` (`plan.rs`
+`namespaces_for_query`), so a spec needs no `ns` instruction. An entry's *kind* — handler, storage
+model, write strategy — is checked against the configuration field it is written in
+(`storage: transactional` is a `configuration_error`), so one namespace is not ambiguous. Entries
+from another crate may use their own namespace and be reached with `ns-<name>/…`. (This revises the
+`meta` / `store` split proposed before the realm was named.)
+
+**Messages.** `Info`, `Warning` and `Error` are plan steps the planner emits (a deprecated
+parameter, a fallback it took); compiled, each appends its message to the record's `log` every time
+the chain runs, so what the planner noticed at build stays visible on every record it shaped.
+
+#### Command catalogue — realm `store_config`
+
+Parameters are positional in a spec (`media_type-fill`), with the defaults shown; `multiple`
+consumes the rest. *Stages* are where an entry may appear; any other stage is a
+`configuration_error` at build. `mode` is `overwrite` (replace the field) or `fill` (set it only
+where it is empty), AC-15. Every handler compares against `previous` where it says "changed", so
+step order does not matter.
+
+**Handlers** (`StepBuilder`; written in `on_default`, `on_validate`, `on_write`, `on_read`):
+
+| Entry | Parameters | Stages | Effect | Needs bytes |
+|---|---|---|---|---|
+| `defaults` | — | Default | The record today's stores synthesize for an entry with no stored metadata: `key`, `filename`, `data_format` and `media_type` from the extension, `status: Source`, `is_dir` | no |
+| `set` | `field: String`, `value: String`, `mode = overwrite` | Default, Write, Read | Sets one text field: `title`, `description`, `media_type`, `data_format`, `type_identifier`, `unicode_icon`; any other name fails at build | no |
+| `require` | `fields: Vec<String>` (multiple) | Validate | Refuses a record whose named fields are empty, naming the first (AC-14); the fields `set` accepts | no |
+| `media_type` | `mode = overwrite` | Default, Validate, Write, Read | Default/Write/Read: sets `media_type` from the extension (`media_type.rs` `file_extension_to_media_type`), leaving it alone for an unknown extension. Validate: refuses a supplied `media_type` that disagrees with a known extension (Phase 1's "corrected media type") | no |
+| `file_facts` | `mode = overwrite` | Default, Write, Read | Default/Read: `file_size`, `created`, `etag` from `DataFacts`. Write: `file_size` from the bytes; `created` and `etag` are set after the commit from the backend's facts, by the pipeline, whatever the chain says (§6) | no |
+| `content_hash` | `when = on_change` (`off` · `always` · `on_change`) | Default, Write, Read | Sets `version` to `Version::from_bytes`. Write: always hashes (the bytes are at hand) unless `off`. Read: `always` hashes every read; `on_change` only when `size`, `created` or `etag` differ from `previous` or `previous` has no `version`. A detected change is handled as `verify_stored_versions` handles one (AC-4); the entry's presence is what the mount's `version_verification` reports | `always`; `on_change` when changed |
+| `updated` | — | Write | Sets `updated` to the current time in the record's existing format; the one time Liquers rather than the backend owns (Phase 1 Q8) | no |
+| `front_matter` *(liquers-lib)* | `mode = overwrite`, `fields: Vec<String> = [title, description]` (multiple) | Default, Write, Read | For a `text/markdown` entry, parses the YAML front matter (`liquers_records::search::front_matter_end`) and projects the named fields; a field outside the `set` list is refused at build until `CORE-METADATA-NO-APPLICATION-ATTRIBUTES` gives it a home. Other media types: no effect | Markdown only, and on Read only when changed |
+| `front_matter_sync` *(liquers-lib)* | `fields: Vec<String> = [title, description]` (multiple) | Write | Rewrites the front matter of the bytes from the record's fields, setting `StepOut::data`; turns `set_metadata` into a data write (AC-5) | yes |
+
+**Storage models** (`ComponentBuilder`; written in `storage`):
+
+| Entry | Parameters | Model | MVP |
+|---|---|---|---|
+| `native` | — | The backend's own sidecar through `get_stored_metadata` / `set_metadata` (today's behaviour) | built |
+| `per_entry` | `layout = sidecar` (`sidecar` · `root` · `prefix` · `folder`) | `{key}.__metadata__` · `__metadata__/{key}` · `{folder}/__metadata__{name}.json` · `{folder}/__metadata__/{name}.json` (the Phase 1 table, named because a template's `/` cannot be a query literal) | built |
+| `grouped` | `file = __metadata__.json` | One JSON map name → record per folder | built |
+| `none` | — | Nothing stored; handlers synthesize every record, cached by facts | built |
+| `central` | `mount: String` | Records kept in another mount of the router, by key (AC-12) | interface; `memory_central` (no parameters) is the test implementation, registered only under `cfg(test)` and the conformance feature |
+
+A database model (sqlite, sled, fjall) registers here when it exists; none is registered now.
+
+**Write strategies** (`ComponentBuilder`; written in `writes`):
+
+| Entry | Parameters | Strategy | Requires |
+|---|---|---|---|
+| `direct` | — | `DirectWrite`, as today | `data_access` |
+| `atomic` | — | `AtomicWrite` | `atomic_write` or `rename` (AC-17) |
+| `transactional` | — | `JournalWrite` | `data_access` |
+
+Reserved names (`.__staged__`, `.__txn__`) are fixed by the strategy, not parameters, so the
+reserved-name check (AC-3) never depends on a configuration value.
+
+**Not entries.** `read_only` is the mount's boolean, not an entry: it needs no parameters, and a
+query for "do nothing" would only be a second spelling. Presets are configuration data
+(`PresetConfig`, §7), not entries: a preset is a bundle of specs, not a function, and keeping it
+data lets a configuration define one without code. The built-in presets are a constant table beside
+`register_builtin_store_config`; `liquers-lib` adds `docs` the same way.
+
+A `LegacyMetadata` record bypasses the chains and is stored and returned untouched, with a warning:
+`Metadata::metadata_record` has no lossless conversion, and the legacy branch exists to keep unknown
+fields.
 
 ### 5. Write strategy
 
@@ -354,10 +418,16 @@ written by anything; a non-empty one now fails with the field named.
 A chain is a query: actions separated by `/`, parameters by `-`, parsed by `parse_query` and planned
 **once, at store build**, by the existing `PlanBuilder` against the shared `CommandMetadataRegistry`
 (`PlanBuilder::new` needs only the registry — no environment, recipe provider or store), then
-compiled (§4). The realm comes from a transform segment header (`plan.rs`,
-`last_transform_query_name`), so a spec may be written `-store_config/media_type-extension/…`; the
-compiler also plans a headerless spec in realm `store_config` (`PlanBuilder::with_default_realm`),
-the form shown.
+compiled (§4). `PlanBuilder` takes the realm from the transform segment's header (`plan.rs`,
+`last_transform_query_name`), so a spec may be written `-store_config/media_type/…`. **In a
+configuration the realm prefix may be omitted**, and `PlanBuilder` is not changed for it: the
+compiler fills the realm into the parsed query before planning. If the query's transform segment has
+no header, it gets `SegmentHeader { name: "store_config", level: 0, parameters: [] }`; a header with
+an empty name has the name set; a header naming any other realm is a `configuration_error` (a
+handler spec cannot run in realm `""`). The filled query is what the compiler plans, what an error
+message quotes, and what `liquers-validate` should be given, so validation and configuration see the
+same text. Filling happens on the AST, never by prefixing the string, so a spec that begins with a
+resource segment (`-R-key/…`, below) keeps its shape.
 
 **Where the registry comes from.** `EnvironmentBuilder::build` holds its `CommandRegistry` when it
 builds the store (`environment_builder.rs`), so it passes the `command_metadata_registry` and the
@@ -365,11 +435,11 @@ builds the store (`environment_builder.rs`), so it passes the `command_metadata_
 needs the environment. A bare `StoreRouterBuilder` (tests, `liquers-store`'s `create_router*`,
 `liquers-web`) uses `StoreConfigFunctions::builtin()` with its metadata, or the pair it is given.
 
-**The other components.** Storage models, write strategies, the adapter `read_only` and presets
-are `store_config` entries too, in namespace `store`, with a `ComponentBuilder`
-(`fn(&ResolvedParameterValues) -> Result<StoreComponent, Error>`) instead of a `StepBuilder` — e.g.
-`per_entry-folder`, `grouped-__metadata__.json`, `transactional`. A new component of any kind is
-one hard-coded registration and no configuration design (AC-10, AC-21).
+**The other components.** Storage models and write strategies are `store_config` entries too
+(§4 catalogue), with a `ComponentBuilder` instead of a `StepBuilder` — e.g. `per_entry-folder`,
+`grouped-__metadata__.json`, `transactional`. A `storage` or `writes` spec is one action: a second
+step is a `configuration_error`. A new component of any kind is one hard-coded registration and no
+configuration design (AC-10, AC-21).
 
 Specs above were checked with `liquers-validate` (parse and plan; the `-R-key` form as well). Once
 the realm is exported to `specs/command_registry.yaml` they validate against the real registry.
@@ -395,7 +465,7 @@ every read instead of at build time.
   called by `EnvironmentBuilder::build` with its command registry.
 - `liquers-core/src/commands.rs`: `CommandRegistry` carries a `StoreConfigFunctions` beside its
   metadata registry (data only — never executed); the executor refuses the `store_config` realm with
-  `not_supported`. `plan.rs`: `PlanBuilder::with_default_realm`.
+  `not_supported`. `plan.rs`: unchanged — the compiler fills the realm into the query (§Configuration).
 - `liquers-macro`: unchanged.
 - `liquers-core/src/metadata.rs`: `MetadataRecord` and `AssetInfo` gain `created:
   Option<BackendTime>` and `etag: Option<String>` (serde default, skipped when `None`).
@@ -422,12 +492,12 @@ every read instead of at build time.
 
 ## Relevant Commands
 
-A new realm, `store_config`, with two namespaces: `meta` (handlers) and `store` (components). No
-`register_command!` lines: each entry is a `CommandMetadata` plus a builder, registered in code by
-`register_builtin_store_config` (core: `defaults`, `require`, `media_type`, `file_facts`,
-`content_hash`, `updated`; `native`, `per_entry`, `grouped`, `none`; `direct`, `atomic`,
-`transactional`; `read_only`; the presets) and by `liquers-lib`'s counterpart (`front_matter`).
-Phase 3 fixes the parameter lists. No existing namespace (`pl`, `lui`, `rec`, …) is touched.
+A new realm, `store_config`, all built-in entries in namespace `""` (§4 catalogue, which fixes the
+parameter lists). No `register_command!` lines: each entry is a `CommandMetadata` plus a builder,
+registered in code by `register_builtin_store_config` (core: `defaults`, `set`, `require`,
+`media_type`, `file_facts`, `content_hash`, `updated`; `native`, `per_entry`, `grouped`, `none`,
+`central`; `direct`, `atomic`, `transactional`) and by `liquers-lib`'s counterpart (`front_matter`,
+`front_matter_sync`). No existing namespace (`pl`, `lui`, `rec`, …) is touched.
 **`specs/command_registry.yaml` must be regenerated** — the realm's entries appear in it — with a
 CHANGELOG line; `registry_export` keeps it honest.
 
@@ -438,15 +508,17 @@ CHANGELOG line; `registry_export` keeps it honest.
 | `specs/reference/STORE_SEMANTICS.md` | reference | New sections: data-only access, read-only, storage models and reserved names, handler stages, write strategies and recovery, grouped-write guarantees |
 | `specs/reference/STORE_CONFIG_FSD.md` | reference | `read_only`, `metadata`, presets, the spec mechanism |
 | `specs/guides/STORE_IMPLEMENTATION_GUIDE.md` | guide | Implementing data-only access; writing a handler, a storage model or a write strategy |
-| `specs/guides/STORE_FACTORY_GUIDE.md` | guide | Registering metadata functions |
+| `specs/reference/REALMS.md` | reference (**new**) | What a realm is today (a `CommandKey` component chosen by the segment header), the default realm `""`, and the issues a foreign realm raises: addressable vs executable, a subject that is not a `Value`, filling an omitted realm before planning, which plan steps a realm accepts, namespaces inside a realm, registry export; `store_config` as the first worked case; the open ones linked to `CORE-MULTI-REALM-INTERPRETER` and `TYPE-REGISTRY-NOT-REALM-AWARE` |
+| `specs/guides/STORE_CONFIG_GUIDE.md` | guide (**new**) | Writing `metadata` sections: stages, the command catalogue, presets, validating specs; then defining and registering a new handler, storage model or write strategy (`CommandMetadata` + builder, hard-coded registration, the closure type, `needs_bytes`, stage refusal, tests) |
+| `specs/guides/STORE_FACTORY_GUIDE.md` | guide | Passing `StoreConfigFunctions` to the builder; pointer to `STORE_CONFIG_GUIDE.md` |
 | `specs/reference/ASSETS.md` | reference | `created`; `Storing` under the write strategies (added here; Phase 1 listed no other documents) |
 | `specs/reference/PROJECT_OVERVIEW.md` | reference | `AsyncStore` data-only methods; the pipeline in the store layer |
 | `CLAUDE.md` | instructions | "Adding a Store Backend": implement data-only access to take a `metadata` section |
 | `liquers-web/README.md` | crate doc | `isReadOnly` |
-| `.claude/skills/liquers-validate/SKILL.md` | skill | validating store specs (realm `store_config`, the default-realm form) |
-| `specs/reference/PROJECT_OVERVIEW.md` §Realm | reference | the first foreign realm: addressable, plannable, not executable |
+| `.claude/skills/liquers-validate/SKILL.md` | skill | validating store specs (realm `store_config`; give the tool the filled form `-store_config/…`) |
+| `specs/reference/PROJECT_OVERVIEW.md` §Realm | reference | the first foreign realm: addressable, plannable, not executable; pointer to `REALMS.md` |
 
-Proposed `affects_docs`: the first six. `specs/README.md`: capability map entry for store adapters.
+Proposed `affects_docs`: the first eight (the two new documents included). `specs/README.md`: capability map entry for store adapters.
 
 ## Risks
 
@@ -462,4 +534,4 @@ Proposed `affects_docs`: the first six. `specs/README.md`: capability map entry 
 | Bindings | `liquers-py` (`context.rs`) holds stores as `Arc<dyn AsyncStore>` only; defaulted methods do not break it. Its `MetadataRecord` wrapper gains getters for `created` and `etag` |
 | Security | none new; read-only enforced in the decorator and reported through `is_read_only` |
 | Recovery | journal roll-forward/back (AC-20); `DirectWrite` keeps today's `Storing` marker |
-| Certainty and open questions | All Phase 1 questions decided; to confirm: the realm name (`store_config` proposed). Least certain: how much of `PlanBuilder`'s default-namespace and realm handling a headerless spec needs |
+| Certainty and open questions | All Phase 1 questions decided; realm name `store_config` confirmed 2026-10-15. Least certain: whether `PlanBuilder`'s default-link promotion and parameter resolution behave identically in a non-empty realm (only `plan.rs` unit tests with a test realm `r` have planned outside `""`); Phase 4 tests it first |

@@ -261,7 +261,11 @@ go in `liquers-store` behind features.
   handler stages).
 - Guide: extend `specs/guides/STORE_IMPLEMENTATION_GUIDE.md` with writing a handler or a storage
   model and running the conformance suite over it.
-- Other documents: none.
+- New reference: `specs/reference/REALMS.md` — realms and the issues a foreign realm raises
+  (addressable but not executable, a subject that is not a `Value`, an omitted realm filled in
+  before planning), with `store_config` as the first worked case.
+- New guide: `specs/guides/STORE_CONFIG_GUIDE.md` — how the `store_config` commands work and how a
+  new one is registered.
 - Documents to update: `specs/guides/STORE_FACTORY_GUIDE.md`, `specs/README.md` capability map.
 
 ## Design Dependencies
@@ -300,6 +304,9 @@ go in `liquers-store` behind features.
   presets (AC-22). Questions 3 and 9 accepted; 10 and 12 explained further.
 - **2026-10-15, Phase 1 approved** (`proceed`), with questions 8, 10 and 12 decided as recorded
   below. Data-only access as default `AsyncStore` methods (question 1) stood unopposed at approval.
+- **2026-10-15, at the user's request, during Phase 2 review.** Two new documents added to the
+  Documentation Intent: `REALMS.md` (reference) and `STORE_CONFIG_GUIDE.md` (guide). The design
+  now specifies every `store_config` command (Phase 2 §4 catalogue).
 
 ## Open Questions
 

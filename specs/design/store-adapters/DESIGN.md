@@ -47,3 +47,7 @@ for four stages (create defaults, stored or not; validate; fill on write; fill o
 **2026-10-15, second revision.** A member's own metadata under a central router is a backup, not an
 error; write strategies (direct, atomic, transactional with recovery) are the fourth concern
 (AC-17 to AC-20); the user decided to keep everything in one design.
+
+**2026-10-15, Phase 2 review.** Realm name `store_config` confirmed. An omitted realm is filled into
+the query before planning (no `PlanBuilder` change); every `store_config` command is specified
+(Phase 2 §4 catalogue); new documents `REALMS.md` and `STORE_CONFIG_GUIDE.md` are planned.
