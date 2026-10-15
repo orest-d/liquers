@@ -25,8 +25,8 @@ is approved.
 
 | # | Item | Kind / state | P · size | Unblocks (agent-memory AC) |
 |---|---|---|---|---|
-| D1 | `STORE-ROUTER-DOES-NOT-FORWARD-ASSET-INFO` | **closed 2026-10-15** (PR #130, design `store-router-forwards-asset-info`) | P2 · S | Folder tiers through the router: AC-1, AC-17; `store-adapters` AC-8 |
-| D2 | `VALUE-TO-JSON-PANICS-ON-NON-FINITE-FLOAT` | **closed 2026-10-15** (PR #131, design `value-to-json-non-finite-float`) | **P0** · M (re-sized from S; a panic on a supported path, §4.4) | Values → JSON for MCP results and template data: AC-14, `liquers-mustache` AC-7 |
+| D1 | `STORE-ROUTER-DOES-NOT-FORWARD-ASSET-INFO` | **closed 2026-10-13** (PR #130, design `store-router-forwards-asset-info`) | P2 · S | Folder tiers through the router: AC-1, AC-17; `store-adapters` AC-8 |
+| D2 | `VALUE-TO-JSON-PANICS-ON-NON-FINITE-FLOAT` | **closed 2026-10-13** (PR #131, design `value-to-json-non-finite-float`) | **P0** · M (re-sized from S; a panic on a supported path, §4.4) | Values → JSON for MCP results and template data: AC-14, `liquers-mustache` AC-7 |
 | D3 | `store-adapters` M1 — read-only adapter (`STORE-NO-READ-ONLY-ADAPTER`) | design, Phase 1 in review | P2 · M | AC-13; decision 2 ("fixed first") |
 | D4 | `store-adapters` M2–M3 — adapter configuration, registry, enhancers | same design | part of XL | Front-matter adapter: AC-1, AC-5 (creation), AC-11, AC-17; profiles AC-18, AC-19 |
 | D5 | `liquers-mustache` M1–M3 — public parser surface, template parser and diagnostics, renderer with *apply* | design, Phase 1 in review (`NO-QUERY-AWARE-TEMPLATE-LANGUAGE`) | P2 · XL | Templates for `memory_new`: AC-4 |
