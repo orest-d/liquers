@@ -33,8 +33,8 @@ Prerequisites: none outside this design. The planner defect, fixed in step 0, is
 - [x] Step 6: storage models (da5bdec)
 - [x] Step 7: write strategies (66b611f)
 - [x] Step 8: `MetadataPipelineStore` (b693d68)
-- [ ] Step 9: the asset manager reads `version_verification`
-- [ ] Step 10: configuration types, defaults, `build_store`
+- [x] Step 9: the asset manager reads `version_verification` (c82afdc)
+- [x] Step 10: configuration types, defaults, `build_store` (this commit)
 - [ ] Step 11: conformance suites `A1`–`A7`
 - [ ] Step 12: `front_matter` and `front_matter_sync` in `liquers-lib`
 - [ ] Step 13: OpenDAL data-only access

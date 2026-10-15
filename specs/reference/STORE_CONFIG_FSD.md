@@ -3,7 +3,7 @@ title: Store Configuration Functional Specification
 kind: reference
 audience: internal
 area: [store/config]
-reviewed: 2026-10-10
+reviewed: 2026-10-15
 ---
 # Functional Specification Document (FSD): Store Configuration
 
@@ -98,7 +98,49 @@ The configuration describes an `AsyncStoreRouter` as a list of store definitions
 - **type**: Store type (e.g., `memory`, `filesystem`, `s3`) Store type imples an implementation, e.g. s3 is implemented as an OpenDAL store 
 - **prefix**: Key prefix for routing (string, optional - empty string matches all keys)
 - **config**: (not required for some store types, e.g. memory) Store-specific configuration parameters
-- **metadata**: (optional) Reserved. In he future this will decide how metadata are stored. For now, a fixed convention is used.
+- **read_only**: (optional, default `false`) Refuse every write to the mount, with `not_supported`.
+- **metadata**: (optional) How the mount's metadata is stored and shaped — see
+  [Metadata section](#metadata-section). No section, or `metadata: {}`, keeps the store unwrapped.
+
+The router itself may carry `read_only` (every mount) and `metadata` (central storage). Only
+`StoreRouterBuilder::build_store` applies them; `build`, which returns the bare router, refuses
+them rather than dropping them.
+
+### Metadata section
+
+Every value is a `store_config` spec: a query of the realm `store_config`, whose realm prefix may
+be omitted (`media_type-fill/file_facts`). A spec is planned and compiled once, when the store is
+built; an unknown entry or a bad parameter fails the build, naming the mount and the field. A field
+left out takes the default below; a field that is set replaces its default whole, and `""` means
+no steps.
+
+| Field | Default |
+|---|---|
+| `storage` | `native` |
+| `writes` | `direct` |
+| `persist_defaults` | `false` |
+| `on_default` | `defaults/media_type-fill/file_facts` |
+| `on_validate` | `""` |
+| `on_write` | `defaults/media_type-fill/file_facts` |
+| `on_read` | `media_type-fill/file_facts` |
+
+The defaults are `liquers_core::store_config::METADATA_DEFAULTS`; a test in
+`liquers-core/tests/store_adapters.rs` compares that constant with this table. The entries, their
+parameters and how to register a new one are in `specs/design/store-adapters/` until the
+reference documents of that design are written.
+
+```yaml
+- type: filesystem
+  prefix: specs
+  config: { path: ./specs }
+  read_only: true
+  metadata:
+    storage: none
+    on_read: media_type/file_facts/content_hash-on_change
+```
+
+The section is checked strictly: an unknown field is refused, so the free-form map this field
+reserved before is an error rather than silently ignored.
 
 ### Example Configuration (YAML)
 ```yaml
@@ -768,6 +810,7 @@ its store together. Everything on this page applies unchanged to that document's
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-15 | `read_only` and the typed `metadata` section replace the reserved map; the defaults table; router-level sections need `build_store`. | `design/store-adapters/` Phase 4 step 10 |
 | 2026-10-10 | Related components: `liquers_core::store` has one store trait, `AsyncStore`; the synchronous `Store` was removed. | `CORE-SYNC-STORE-TRAIT-OBSOLETE`, `design/sync-store-removal/` |
 | 2026-10-07 | Recorded that OpenDAL argument lists are derived from the linked service config, with Liquers' hand-written docs merged by name; still `Partial`; a compiled-out service reports the hand-written list. | `design/opendal-derived-store-arguments/` |
 | 2026-09-04 | Corrected the filesystem-store description: `AsyncFileStore` is the built-in implementation, not future work. | `DOCS-STORE-CONFIG-DESCRIBES-ASYNC-FILESTORE-AS-FUTURE-WORK` |

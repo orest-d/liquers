@@ -13,6 +13,7 @@
 //! [`ComponentBuilder`] (a storage model or a write strategy).
 
 use crate::command_metadata::{CommandKey, CommandMetadata, CommandMetadataRegistry};
+use crate::environment_builder::VersionVerification;
 use crate::error::Error;
 use crate::metadata::{LogEntryKind, MetadataRecord};
 use crate::parse::parse_query;
@@ -326,6 +327,37 @@ impl StoreConfigFunctions {
                 Ok(())
             }),
         })
+    }
+
+    /// The version-verification policy a Read spec declares (Phase 2 §1, AC-4): `Some(Off)` for
+    /// `content_hash-off`, `Some(OnRead)` for any other `content_hash`, `None` without one, which
+    /// keeps the environment's policy.
+    pub fn version_verification(
+        &self,
+        spec: &str,
+        registry: &CommandMetadataRegistry,
+    ) -> Result<Option<VersionVerification>, Error> {
+        let (_, plan) = plan_spec(spec, Stage::Read.field(), registry)?;
+        let mut policy = None;
+        for step in plan.steps.iter() {
+            if let Step::Action {
+                realm,
+                ns,
+                action_name,
+                parameters,
+                ..
+            } = step
+            {
+                if realm == STORE_CONFIG_REALM && ns.is_empty() && action_name == "content_hash" {
+                    policy = Some(if string_parameter(parameters, "when")? == "off" {
+                        VersionVerification::Off
+                    } else {
+                        VersionVerification::OnRead
+                    });
+                }
+            }
+        }
+        Ok(policy)
     }
 
     /// Compiles a component spec: exactly one entry, of `kind`.
@@ -1164,6 +1196,20 @@ mod tests {
             serde_json::to_value(&record).ok(),
             serde_json::to_value(&written).ok()
         );
+        Ok(())
+    }
+
+    #[test]
+    fn content_hash_in_on_read_sets_version_verification() -> Result<(), Error> {
+        let (cmr, functions) = StoreConfigFunctions::builtin();
+        let policy = |spec: &str| functions.version_verification(spec, &cmr);
+        assert_eq!(policy("media_type-fill/file_facts")?, None);
+        assert_eq!(policy("")?, None);
+        assert_eq!(
+            policy("file_facts/content_hash")?,
+            Some(VersionVerification::OnRead)
+        );
+        assert_eq!(policy("content_hash-off")?, Some(VersionVerification::Off));
         Ok(())
     }
 
