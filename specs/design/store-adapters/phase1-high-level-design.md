@@ -196,6 +196,17 @@ either stores none or keeps its own copy as a backup.
   THEN the write is completed or rolled back, the staged objects are removed, the outcome is
   recorded as a warning in the key's metadata log, and an explicit recovery pass over a whole store
   reports what it repaired
+- **AC-21** One configuration mechanism
+  WHEN a handler chain for a stage is configured — built-in handlers, a registered one, and two of
+  them stacked so that the second receives the first one's output
+  THEN all are named in the same form, with no configuration syntax specific to any handler, and
+  the chain applies them in order (the form is a Phase 2 decision between commands and a query
+  compiled to a function, question 2)
+- **AC-22** Presets
+  WHEN a mount selects a preset and overrides one of its fields, and an application defines a
+  preset of its own in the configuration
+  THEN the mount behaves as the preset with that one field changed, the application's preset is
+  usable like a built-in one, and an unknown preset is a configuration error naming the mount
 
 Non-goals: database (sqlite, sled, fjall) storage models and a production central storage beyond
 the interface and the test implementation of AC-12; migrating stored metadata between models
@@ -280,13 +291,20 @@ go in `liquers-store` behind features.
   data and metadata change together or not at all (AC-17 to AC-20, questions 11 to 13; question 11 decided: the journal, with versioned objects as a
   possible later strategy). Timestamps
   reconsidered (question 8). The user decided to keep everything in one design (question 5).
+- **2026-10-15, third revision: the user's answers.** Question 1 decided (C), with data-only access
+  as default methods implemented by three backends only. Question 2: a per-adapter configuration
+  format rejected; a single stackable, composable mechanism required (AC-21), with two alternatives
+  — the command system, or a query compiled to a metadata function — to be compared in Phase 2.
+  Question 4: the hash policy is a handler. Question 8: the field is `created`, meaning when the
+  data was written; `Partial` and `openbin` raised for discussion. Question 13: defaults come from
+  presets (AC-22). Questions 3 and 9 accepted; 10 and 12 explained further.
 
 ## Open Questions
 
 Tiers: **[open design]** needs the user's decision; **[proposed]** has a recommendation to accept or
 amend.
 
-1. **[open design] Wrapper or pipeline?**
+1. **Decided 2026-10-15 by the user: (C).** The options as presented:
    - *(A) Decorators.* Every concern is a struct that implements `AsyncStore` around an inner one
      (`ReadOnly<S>`, `FrontMatter<S>`, …) and the configuration stacks them. Each is small and
      independent, and it works over any store, the router and third-party stores included. But the
@@ -307,17 +325,34 @@ amend.
      data-only access is a configuration error (AC-9). A per-backend "do not write on read" flag
      (the former question 6) is rejected: every backend would reimplement it, and it leaves the
      storage model inside each backend.
-2. **[proposed] Configuration shape.** `read_only: bool` beside `type`, and the reserved `metadata`
-   field holding `storage`, `persist_defaults` and `handlers`, on a mount and on the router.
-   *Recommended: as in the problem example.*
-3. **[proposed] Delivery order.** The user decided (2026-10-12, `agent-memory-mvp` decision 2) that
+
+   The user's concern, recorded with the decision: a new storage abstraction that every store must
+   implement is too much. So data-only access is **an extension of `AsyncStore` with default
+   methods that refuse** (`NotSupported`), implemented only by the backends that offer the metadata
+   pipeline (`AsyncFileStore`, `AsyncMemoryStore`, the OpenDAL store); no other store changes, and a
+   store without it can still be read-only, just not take a `metadata` section. Phase 2 confirms that
+   this is a handful of methods and not a second store trait.
+2. **[open design] Configuration — moved to Phase 2 as alternatives for discussion.** The user
+   rejected a configuration format designed per adapter: every new adapter or handler would need its
+   own configuration design. Requirements: adapters are **stacked**; metadata components are both
+   **stackable** (on write, a modification and a validation pass the record through a chain of
+   functions) and **composable**; one generic mechanism configures all of them, built-in and
+   registered alike (AC-10, AC-21). Phase 2 presents two alternatives:
+   (a) *the command system* — handlers are registered commands (`register_command!`, in a metadata
+   namespace) and a chain is a query over them, evaluated through the existing machinery;
+   (b) *a query as a function* — a query "compiles" into a function of one or two arguments,
+   `MetadataRecord` or `MetadataRecord` and the data, returning `Result<MetadataRecord, Error>`; its
+   actions are metadata functions, not commands over states, and the chain is the query's action
+   sequence. Phase 2 compares them on extensibility, error positions, async, the cost per read (a
+   listing runs the read chain once per entry) and what a configuration file looks like.
+3. **Accepted 2026-10-15.** Delivery order. The user decided (2026-10-12, `agent-memory-mvp` decision 2) that
    the read-only policy comes first. *Recommended:* M1 read-only with data-only reads; M2 the
    metadata layer with the default model and chain, then per-entry templates and grouped; M3 the
    handlers (media type, file facts, content hash, validation, front-matter); M4 write strategies
    and recovery; M5 central storage on the router.
-4. **[proposed] Where the hash policy lives.** Today `VersionVerification` is an environment setting
-   (`environment_builder.rs`). Per mount, per environment, or both with the mount winning?
-   *Recommended: both, mount wins* — the mount's setting is the `content_hash` handler's option.
+4. **Decided 2026-10-15 by the user: the hash policy is configurable, as a metadata handler.**
+   `VersionVerification` (`environment_builder.rs`) remains the environment default; a mount that
+   configures a content-hash handler overrides it.
 5. ~~**Size.**~~ **Decided 2026-10-15 by the user: one design**, delivered in milestones
    (question 3). It stays `XL`, and Phase 1 is over the one-page target because of it.
 6. ~~**The non-persisting read.**~~ Folded into question 1 on 2026-10-15: data-only access is the
@@ -327,24 +362,41 @@ amend.
    central write (in the same transaction under `transactional`), is never read while the central
    record exists, and restores a record missing centrally (AC-12). A member copy that disagrees
    with the central one is overwritten, not merged.
-8. **[proposed] Timestamps.** `MetadataRecord` has `updated` and `file_size`. `updated` is *not*
-   "data last written": `set_updated_now` runs on every metadata change — each status transition and
-   progress entry during an evaluation, every `set_metadata` — so it moves while the data does not.
-   What `on_change` detection (AC-4) and the `file_facts` handler need is a third thing: the
-   **backend's** modification time (or ETag) recorded when the hash was computed, compared with the
-   backend's current one; a file edited by another program changes that and not `updated`.
-   *Recommended:* add **`data_modified`** (the backend fact, set by `file_facts`) in Phase 2. A
-   **`created`** time is a separate, smaller question: since a write replaces the whole record,
-   `created` survives an overwrite only if the write keeps it from the old record, and so far its
-   one use is ordering and filtering notes by creation date in `agent-memory-mvp`, which front-matter
-   can supply. *Recommended:* leave `created` out of core; let the front-matter handler project it
-   like any other front-matter field.
-9. **[proposed] Handler failure.** A read-stage handler that fails (malformed front-matter):
+8. **[open design] `created` — decided name, meaning to settle.** The user decided: a field
+   `created` meaning *when the data was created, i.e. written*. It differs from `updated`, which
+   `set_updated_now` moves on every metadata change (each status transition and progress entry of
+   an evaluation, every `set_metadata`) while the data stays the same. *Proposed meaning:* the time
+   the **current bytes were committed** — set by `set` (at commit, under `transactional`), never by
+   `set_metadata`, and taken from the backend's modification time when the record is created for a
+   file nobody wrote through Liquers. Points to discuss:
+   - **`Partial`.** A checkpoint or preview writes data, and the final result writes it again; under
+     the proposed meaning `created` moves at each write, and `status` says which one it is.
+   - **`openbin`** (`CORE-STORE-OPENBIN-MISSING`, unimplemented). With a streaming writer, `created`
+     is the moment the writer is closed and the bytes complete, not when it opened; the record is
+     `Storing` meanwhile. If `openbin` ever allows modification in place or appending, `created`
+     becomes "last completed write", and the name reads oddly — but the meaning stays one.
+   - **Change detection.** Comparing `created` with the backend's modification time mixes two
+     clocks (Liquers' and the backend's, e.g. an S3 server), and an ETag is not a time. *Proposed:*
+     the content-hash handler compares the backend's own facts (size, modification time or ETag)
+     recorded at hashing time, kept by the `file_facts` handler; `created` is for people and
+     queries (sorting notes by creation, for instance).
+9. **Accepted 2026-10-15.** Handler failure. A read-stage handler that fails (malformed front-matter):
    *recommended* — the entry stays readable, the failure is a warning in the metadata log;
    validators on write fail the write (AC-14).
-10. **[proposed] Grouped writes.** A grouped file is read-modify-write. *Recommended:* serialize
-    writes per group inside one process; atomicity across processes waits for
-    `STORE-WRITE-HAS-NO-PRECONDITION`, as for the rest of the MVP.
+10. **[open design] Grouped writes and the store contract.** The `AsyncStore` API does not change:
+    `set_metadata` is still per key. What changes is what one call touches: under the grouped model
+    a write to `docs/a.md` is a read-modify-write of `docs/__metadata__.json`, which also holds
+    `docs/b.md`. That adds to the contract (`STORE_SEMANTICS.md`), as the user suspected:
+    - **Concurrency between siblings.** Today writes to two keys are independent; grouped, two
+      concurrent writes in one folder can lose one record. *Proposed:* the store serializes writes
+      per group inside one process and documents that two processes writing one folder are unsafe
+      until `STORE-WRITE-HAS-NO-PRECONDITION`.
+    - **Failure radius.** A failed or interrupted group write can damage the records of the whole
+      folder, not only the key written. *Proposed:* recommend `atomic` at least for grouped mounts.
+    - **Reserved name** `__metadata__.json` in every folder, and **enumeration**: a record in the
+      group file with no data object is a metadata-only key, which §8 requires to be listed.
+    - **Batch reads.** A listing reads the group file once; the per-key `get_metadata` reads it too,
+      so a cache keyed by the group file's own version is part of the model.
 11. **Decided 2026-10-15 by the user: the journal.** `transactional` stages the data and the metadata
     under reserved staging keys, writes a journal record naming them and the targets, moves both into
     place (rename where the backend has one, copy-then-delete where it has not) and deletes the
@@ -352,13 +404,22 @@ amend.
     write strategy is a pluggable part chosen in the configuration, so a **versioned-object**
     strategy (objects written under new names, a pointer record switched last) can be added later
     without changing the other parts; it is not built in this design.
-12. **[proposed] When recovery runs.** On store construction (a scan for journals), lazily when a key
-    with a journal is read or listed, or only on an explicit call? *Recommended:* lazily per key plus
-    an explicit whole-store pass (AC-20); a scan on construction is too slow for large buckets.
-13. **[proposed] Default strategy.** *Recommended:* `direct` stays the default so that AC-6 holds;
-    `atomic` is recommended in the configuration guide for file stores, and `transactional` for
-    mounts written by agents (`agent-memory-mvp`) and for the grouped model, where one failed write
-    could otherwise damage a whole folder's metadata.
+12. **[proposed] When an interrupted write is repaired.** The question: after a crash, a
+    `transactional` write leaves staged objects and a journal record in the backend; *when* does
+    the store notice them and complete or roll back the write? (a) When the store is built, by
+    scanning the whole backend for journals; (b) lazily, when a key with a pending journal is read
+    or its folder is listed; (c) only when someone calls an explicit recovery operation.
+    *Recommended:* (b) plus (c): the reader of a key always sees a consistent state, and an
+    operator can repair a whole store at once; (a) is too slow for a large bucket and runs on every
+    start.
+13. **Decided 2026-10-15 by the user: defaults depend on the application, so they come from
+    presets.** A preset is a named bundle of policy, storage model, handlers and write strategy that
+    a mount selects and overrides field by field (AC-22). *Proposed built-in presets:*
+    `default` (today's behaviour: sidecar, today's handlers, `direct`; what a mount without a
+    `metadata` section gets, so AC-6 holds), `source` (read-only, no stored metadata, media type,
+    file facts, hash on change, front-matter), `generated` (sidecar, `atomic`), `memory` (grouped,
+    `transactional`, for `agent-memory-mvp`). An application can define its own presets in its
+    configuration, and a crate can register them (AC-10).
 
 ## References
 
