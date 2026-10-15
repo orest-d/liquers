@@ -10,6 +10,7 @@ use liquers_core::metadata::{Metadata, MetadataRecord};
 use liquers_core::parse::parse_key;
 use liquers_core::query::Key;
 use liquers_core::store::realm::{register_test_store_config, StoreConfigFunctions};
+use liquers_core::store::test_support::register_front_matter_stand_in;
 use liquers_core::store::{AsyncMemoryStore, AsyncStore, NoAsyncStore, SharedStore};
 use liquers_core::store_config::{
     MetadataConfig, StoreConfig, StoreRouterConfig, METADATA_DEFAULTS,
@@ -70,6 +71,7 @@ fn test_entries() -> (
 ) {
     let (mut cmr, mut functions) = StoreConfigFunctions::builtin();
     register_test_store_config(&mut cmr, &mut functions).expect("test entries register");
+    register_front_matter_stand_in(&mut cmr, &mut functions).expect("stand-in registers");
     (cmr, functions)
 }
 
@@ -405,4 +407,34 @@ fn central_member_with_handlers_is_refused() {
     let message = error_of(build(yaml, &[]));
     assert!(message.contains("Mount 'm'"), "{message}");
     assert!(message.contains("central storage"), "{message}");
+}
+
+/// AC-5: after `set_metadata`, the file's front matter and `get_metadata` agree. Uses the core
+/// stand-in for liquers-lib's `front_matter` / `front_matter_sync`.
+#[tokio::test]
+async fn front_matter_write_back_through_the_pipeline() -> TestResult {
+    let member = memory("m");
+    let yaml = "stores:\n  - type: shared\n    prefix: m\n    config: { name: m }\n    metadata: { on_write: defaults/media_type-fill/test_front_matter_sync, on_read: media_type-fill/test_front_matter }\n";
+    let store = build(yaml, &[("m", member.clone())])?;
+    let k = key("m/note.md");
+    store
+        .set(
+            &k,
+            b"---\ntitle: Old\n---\nBody\n",
+            &record("text/markdown"),
+        )
+        .await?;
+    let mut metadata = store.get_metadata(&k).await?;
+    assert_eq!(metadata.title(), "Old");
+    if let Metadata::MetadataRecord(record) = &mut metadata {
+        record.title = "New".to_string();
+    }
+    store.set_metadata(&k, &metadata).await?;
+    assert_eq!(
+        member.get_data(&k).await?,
+        b"---\ntitle: New\n---\nBody\n".to_vec()
+    );
+    assert_eq!(store.get_metadata(&k).await?.title(), "New");
+    assert_eq!(store.get_asset_info(&k).await?.title, "New");
+    Ok(())
 }

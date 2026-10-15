@@ -281,6 +281,31 @@ impl MetadataPipelineStore {
 
     /// Plans and commits `data` (`Some(None)` deletes it, `None` leaves it) with `record` for
     /// `key`, under the group lock.
+    /// Removes every entry under `folder`, records included, leaving the folders themselves.
+    async fn remove_entries(&self, folder: &Key) -> Result<(), Error> {
+        let mut pending = vec![folder.clone()];
+        while let Some(current) = pending.pop() {
+            let names = match self.listdir(&current).await {
+                Ok(names) => names,
+                Err(error) if error.error_type == ErrorType::KeyNotFound => continue,
+                Err(error) => return Err(error),
+            };
+            for name in names {
+                let child = current.join(&name);
+                if self.backend.is_dir(&child).await? {
+                    pending.push(child);
+                } else {
+                    match self.commit(&child, Some(None), None).await {
+                        Ok(()) => {}
+                        Err(error) if error.error_type == ErrorType::KeyNotFound => {}
+                        Err(error) => return Err(error),
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
     async fn commit(
         &self,
         key: &Key,
@@ -652,7 +677,12 @@ impl AsyncStore for MetadataPipelineStore {
 
     async fn removedir(&self, key: &Key) -> Result<(), Error> {
         let key = self.check_key(key)?;
-        let result = self.backend.removedir(key).await;
+        // Records kept outside the folder (the `root` layout, central storage) or of keys with no
+        // data go with it: each entry is removed through the write strategy first.
+        let result = match self.remove_entries(key).await {
+            Ok(()) => self.backend.removedir(key).await,
+            Err(error) => Err(error),
+        };
         let mut stale = Vec::new();
         let _ = self
             .cache
@@ -669,9 +699,17 @@ impl AsyncStore for MetadataPipelineStore {
         result
     }
 
+    /// A key with a record and no data is held too (`STORE_SEMANTICS.md` §8).
     async fn contains(&self, key: &Key) -> Result<bool, Error> {
         let key = self.check_key(key)?;
-        self.backend.contains(key).await
+        if self.backend.contains(key).await? {
+            return Ok(true);
+        }
+        Ok(self
+            .storage
+            .get(self.metadata_store().as_ref(), key)
+            .await?
+            .is_some())
     }
 
     async fn is_dir(&self, key: &Key) -> Result<bool, Error> {
@@ -679,14 +717,29 @@ impl AsyncStore for MetadataPipelineStore {
         self.backend.is_dir(key).await
     }
 
-    /// The backend's names, without the ones the parts reserve.
+    /// The backend's names, without the ones the parts reserve, and the names that have only a
+    /// record (`STORE_SEMANTICS.md` §8).
     async fn listdir(&self, key: &Key) -> Result<Vec<String>, Error> {
         let key = self.check_key(key)?;
-        let names = self.backend.listdir(key).await?;
-        Ok(names
-            .into_iter()
-            .filter(|name| !self.reserved.is_reserved_name(name))
-            .collect())
+        let recorded = self
+            .storage
+            .record_names(self.metadata_store().as_ref(), key)
+            .await?;
+        let mut names: Vec<String> = match self.backend.listdir(key).await {
+            Ok(names) => names,
+            // A folder holding only records has no data objects for the backend to list.
+            Err(error) if error.error_type == ErrorType::KeyNotFound && !recorded.is_empty() => {
+                Vec::new()
+            }
+            Err(error) => return Err(error),
+        };
+        names.retain(|name| !self.reserved.is_reserved_name(name));
+        for name in recorded {
+            if !self.reserved.is_reserved_name(&name) && !names.contains(&name) {
+                names.push(name);
+            }
+        }
+        Ok(names)
     }
 
     /// One read of the group file for a grouped model; one record per entry otherwise.

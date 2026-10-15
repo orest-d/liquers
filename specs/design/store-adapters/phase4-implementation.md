@@ -35,11 +35,33 @@ Prerequisites: none outside this design. The planner defect, fixed in step 0, is
 - [x] Step 8: `MetadataPipelineStore` (b693d68)
 - [x] Step 9: the asset manager reads `version_verification` (c82afdc)
 - [x] Step 10: configuration types, defaults, `build_store` (dd34bb3)
-- [ ] Step 11: conformance suites `A1`–`A7`
+- [x] Step 11: conformance suites `A1`–`A7` (next commit after 194e7fc)
 - [ ] Step 12: `front_matter` and `front_matter_sync` in `liquers-lib`
 - [ ] Step 13: OpenDAL data-only access
 - [ ] Step 14: HTTP 501 test and Python getters
 - [ ] Step 15: `liquers-web`: `isReadOnly`, the optional data-only methods, declarations
+
+## Deviations found while implementing
+
+Recorded as they arise, for Phase 5 to fold into the design and the reference documents.
+
+- `FactsIn` carries `operation` (the store method), for messages that name it and for handlers that
+  act on one operation only.
+- `MetadataStorage::get` returns `Option<Metadata>`, not a record, so a `LegacyMetadata` record
+  survives storage untouched.
+- `WriteStrategy::check(&DataCapabilities)` replaces `requires()`; `PreparedWrite` (the database
+  interface) is not implemented.
+- The step 9 tests live in `liquers-core/tests/external_change_integration.rs`, beside the asset
+  manager's other verification tests, not in `assets.rs`.
+- `StoreComponent` gained its variants step by step (storage in step 6, writes in step 7).
+- Step 11: the conformance suites showed that the pipeline hid keys with metadata and no data
+  (`sidecar04`) and that `removedir` left records stored outside the folder (`remove02`, `root`
+  layout and central storage). `MetadataStorage` gained `record_names(backend, folder)`; the
+  pipeline's `contains` and `listdir` consult it, and `removedir` removes each entry through the
+  write strategy before the backend removes the folder.
+- Step 11: a front-matter write-back handler rewrites the bytes only in `set_metadata`; in `set`
+  the caller's bytes are the source of truth (otherwise an empty record field would overwrite the
+  file's front matter). The lib's `front_matter_sync` follows the same rule.
 
 ## Implementation Steps
 

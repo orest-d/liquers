@@ -57,6 +57,17 @@ pub trait MetadataStorage: crate::maybe_send::MaybeSend + crate::maybe_send::May
         record: Option<&Metadata>,
     ) -> Result<Vec<ObjectWrite>, Error>;
 
+    /// The names in `folder` that have a record in this model, data or not: what makes a key with
+    /// metadata and no data enumerable (`STORE_SEMANTICS.md` §8). Empty for a model whose records
+    /// the backend already lists (`native`) or that keeps none (`none`).
+    async fn record_names(
+        &self,
+        _backend: &dyn AsyncStore,
+        _folder: &Key,
+    ) -> Result<Vec<String>, Error> {
+        Ok(Vec::new())
+    }
+
     /// The unit of locking and caching a key belongs to: its folder for a grouped model, `None`
     /// when each key stands alone.
     fn group_of(&self, _key: &Key) -> Option<Key> {
@@ -117,6 +128,15 @@ async fn read_object(backend: &dyn AsyncStore, key: &Key) -> Result<Option<Vec<u
     match backend.get_data(key).await {
         Ok(bytes) => Ok(Some(bytes)),
         Err(error) if error.error_type == ErrorType::KeyNotFound => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
+/// The data-only listing of `folder`, empty when it does not exist.
+async fn list_objects(backend: &dyn AsyncStore, folder: &Key) -> Result<Vec<String>, Error> {
+    match backend.listdir_data(folder).await {
+        Ok(names) => Ok(names),
+        Err(error) if error.error_type == ErrorType::KeyNotFound => Ok(Vec::new()),
         Err(error) => Err(error),
     }
 }
@@ -282,6 +302,45 @@ impl MetadataStorage for PerEntryStorage {
     fn object_keys(&self, key: &Key) -> Vec<Key> {
         self.metadata_key(key).into_iter().collect()
     }
+
+    async fn record_names(
+        &self,
+        backend: &dyn AsyncStore,
+        folder: &Key,
+    ) -> Result<Vec<String>, Error> {
+        let suffix = super::METADATA_SUFFIX;
+        Ok(match self.layout {
+            Layout::Sidecar => list_objects(backend, folder)
+                .await?
+                .into_iter()
+                .filter_map(|name| name.strip_suffix(suffix).map(str::to_string))
+                .filter(|name| !name.is_empty())
+                .collect(),
+            Layout::Root => {
+                let mut root = Key::new().join(METADATA_SEGMENT);
+                for segment in folder.iter() {
+                    root = root.join(&segment.name);
+                }
+                list_objects(backend, &root).await?
+            }
+            Layout::Prefix => list_objects(backend, folder)
+                .await?
+                .into_iter()
+                .filter_map(|name| {
+                    name.strip_prefix(METADATA_SEGMENT)
+                        .and_then(|n| n.strip_suffix(".json"))
+                        .map(str::to_string)
+                })
+                .filter(|name| !name.is_empty())
+                .collect(),
+            Layout::Folder => list_objects(backend, &folder.join(METADATA_SEGMENT))
+                .await?
+                .into_iter()
+                .filter_map(|name| name.strip_suffix(".json").map(str::to_string))
+                .filter(|name| !name.is_empty())
+                .collect(),
+        })
+    }
 }
 
 /// One JSON map, name → record, per folder.
@@ -400,6 +459,19 @@ impl MetadataStorage for GroupedStorage {
         Some(key.parent())
     }
 
+    async fn record_names(
+        &self,
+        backend: &dyn AsyncStore,
+        folder: &Key,
+    ) -> Result<Vec<String>, Error> {
+        Ok(self
+            .read_group(backend, folder)
+            .await?
+            .unwrap_or_default()
+            .into_keys()
+            .collect())
+    }
+
     fn object_keys(&self, key: &Key) -> Vec<Key> {
         vec![self.group_key(&key.parent())]
     }
@@ -492,6 +564,14 @@ impl MetadataStorage for MemoryCentralStorage {
 
     fn object_keys(&self, key: &Key) -> Vec<Key> {
         vec![key.clone()]
+    }
+
+    async fn record_names(
+        &self,
+        _backend: &dyn AsyncStore,
+        folder: &Key,
+    ) -> Result<Vec<String>, Error> {
+        list_objects(self.store.as_ref(), folder).await
     }
 
     fn object_store(&self) -> Option<Arc<dyn AsyncStore>> {

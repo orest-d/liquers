@@ -272,6 +272,102 @@ impl FailingStore {
 
 forward_with_hook!(FailingStore);
 
+/// Registers `test_front_matter` and `test_front_matter_sync`: stand-ins for liquers-lib's
+/// `front_matter` and `front_matter_sync`, since core cannot depend on the lib. They read and
+/// write a `title:` line in a leading `---` block of a `.md` key, and nothing else.
+pub fn register_front_matter_stand_in(
+    cmr: &mut crate::command_metadata::CommandMetadataRegistry,
+    functions: &mut super::realm::StoreConfigFunctions,
+) -> Result<(), Error> {
+    let entry = |name: &str| {
+        let mut metadata = crate::command_metadata::CommandMetadata::new(name);
+        metadata
+            .with_namespace("")
+            .with_doc("Test stand-in for the liquers-lib front-matter handlers.");
+        metadata
+    };
+    functions.register_step(cmr, entry("test_front_matter"), build_front_matter)?;
+    functions.register_step(
+        cmr,
+        entry("test_front_matter_sync"),
+        build_front_matter_sync,
+    )
+}
+
+fn is_markdown(key: &Key) -> bool {
+    key.filename()
+        .is_some_and(|name| name.encode().ends_with(".md"))
+}
+
+/// The front-matter title and the body after the block, if the text starts with one.
+fn split_front_matter(text: &str) -> Option<(Option<String>, &str)> {
+    let rest = text.strip_prefix("---\n")?;
+    let end = rest.find("\n---\n")?;
+    let title = rest[..end]
+        .lines()
+        .find_map(|line| line.strip_prefix("title:"))
+        .map(|t| t.trim().to_string());
+    Some((title, &rest[end + 5..]))
+}
+
+fn build_front_matter(
+    _stage: super::realm::Stage,
+    _parameters: &crate::plan::ResolvedParameterValues,
+) -> Result<super::realm::CompiledStep, Error> {
+    let run: super::realm::CompiledFn = Box::new(|record, facts, _out| {
+        if !is_markdown(facts.key) {
+            return Ok(());
+        }
+        if let Some(bytes) = facts.bytes {
+            let text = String::from_utf8_lossy(bytes);
+            if let Some((Some(title), _)) = split_front_matter(&text) {
+                record.title = title;
+            }
+        }
+        Ok(())
+    });
+    let needs_bytes: super::realm::NeedsBytesFn =
+        Box::new(|facts| facts.bytes.is_none() && is_markdown(facts.key));
+    Ok(super::realm::CompiledStep::with_needs_bytes(
+        run,
+        needs_bytes,
+    ))
+}
+
+fn build_front_matter_sync(
+    stage: super::realm::Stage,
+    _parameters: &crate::plan::ResolvedParameterValues,
+) -> Result<super::realm::CompiledStep, Error> {
+    if stage != super::realm::Stage::Write {
+        return Err(Error::configuration_error(
+            "test_front_matter_sync runs only in on_write".to_string(),
+        ));
+    }
+    // Only `set_metadata` rewrites: in `set` the caller's bytes are the source of truth.
+    let run: super::realm::CompiledFn = Box::new(|record, facts, out| {
+        if !is_markdown(facts.key) || facts.operation != "set_metadata" {
+            return Ok(());
+        }
+        let Some(bytes) = facts.bytes else {
+            return Ok(());
+        };
+        let text = String::from_utf8_lossy(bytes);
+        let body = match split_front_matter(&text) {
+            Some((_, body)) => body.to_string(),
+            None => text.to_string(),
+        };
+        out.data = Some(format!("---\ntitle: {}\n---\n{}", record.title, body).into_bytes());
+        Ok(())
+    });
+    let needs_bytes: super::realm::NeedsBytesFn = Box::new(|facts| {
+        facts.bytes.is_none() && is_markdown(facts.key) && facts.operation == "set_metadata"
+    });
+    Ok(super::realm::CompiledStep::with_needs_bytes(
+        run,
+        needs_bytes,
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
