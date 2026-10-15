@@ -89,6 +89,9 @@ pub mod handlers;
 pub mod storage;
 /// Write strategies of the metadata pipeline.
 pub mod writes;
+/// The metadata pipeline store.
+pub mod pipeline;
+pub use pipeline::{MetadataPipelineStore, PipelineParts};
 
 /// Store decorators for tests of the store adapters.
 #[cfg(any(test, feature = "store-conformance"))]
