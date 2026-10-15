@@ -2,7 +2,7 @@
 id: STORE-METADATA-LAYOUT-HARDCODED-PER-STORE
 kind: issue
 title: Every writable store hard-codes its own metadata layout
-status: draft
+status: closed
 priority: P2
 complexity: L
 area: [core/store, store/backends, web, docs]
@@ -91,3 +91,7 @@ the only filesystem store in the table above.
 
 See also `STORE-METADATA-HANDLING-NOT-COMPOSABLE` (filed 2026-10-12), which treats the layout as
 one stage of a configurable metadata pipeline.
+
+## Resolution (2026-10-15)
+
+Fixed by design `store-adapters` (PR #137). The layout is a storage model in the `metadata` section of a mount: `native`, `per_entry` (sidecar and folder layouts), `grouped` and `none`, plus an in-memory central storage (`liquers-core/src/store/storage.rs`, commit da5bdec). Each declares its reserved names through `ReservedNames`, which the pipeline consults in `is_supported` and on every write. It is configured through `StoreConfig` / `StoreRouterBuilder` (commit dd34bb3) over any store with data-only access, and checked by conformance suites `a3_per_entry_each_layout`, `a4_grouped`, `a5_memory_central` and `a3_opendal_fs_per_entry`. See `specs/guides/STORE_CONFIG_GUIDE.md`.

@@ -36,6 +36,7 @@ where a store that "works" turns out to be unreachable:
 | Does an existing factory already build types like yours? | Add a `StoreTypeInfo` to it. |
 | Do you need a bespoke `resolve` — inferring the type from a URI, say? | Implement `StoreFactory`. |
 | Must a configuration document be able to name your type? | Chain your factory into the relevant `default_store_factory()`. **Order matters: first to resolve wins.** |
+| Must a mount of your type take a `metadata` section (handlers, a storage model, a write strategy) or be truly read-only? | Implement data-only access (§4a). Without it the build refuses `metadata`, and `read_only` cannot stop your reads from writing. |
 
 `guides/STORE_FACTORY_GUIDE.md` owns the factory procedure and
 `reference/STORE_CONFIG_FSD.md` the configuration format; neither is repeated here. What this guide
@@ -223,6 +224,54 @@ how a `makedir` that records nothing would escape `explicit01`.
 
 Declare what your store is meant to do, then let the report tell you whether it does.
 
+## 4a. Data-only access: what lets a mount take a `metadata` section
+
+`read_only` and `metadata` sit on the mount, not inside `config`, and are applied *around* your
+store by the builder ([`reference/STORE_SEMANTICS.md`](../reference/STORE_SEMANTICS.md) §11–§16).
+They need nothing from your store except the **data-only methods** of `AsyncStore`. All of them have
+refusing defaults, so a store that skips them still compiles and works unadapted — but a `metadata`
+section on its mount fails the build ("does not offer data-only access", naming the mount), and
+`ReadOnlyStore` can only forward its reads.
+
+| Method | Implement as |
+|---|---|
+| `get_data(key)` | the bytes of the data object; `KeyNotFound` when there is none. Never read, repair or synthesize metadata |
+| `set_data(key, bytes)` | write the data object alone; create parents as your backend needs |
+| `remove_data(key)` | remove the data object; absent is `Ok(())` |
+| `rename_data(from, to)` | an atomic move, if the backend has one; otherwise leave the default and declare `rename: false` |
+| `listdir_data(key)` | the raw names in the directory, sidecars included; only names *your backend itself* needs (a lock file) are left out |
+| `data_facts(key)` | `Some(DataFacts { size, modified, etag })` without reading the bytes; `Ok(None)` for no data object |
+| `get_stored_metadata(key)` | your own stored record exactly as stored, `Ok(None)` when there is none; never repair it. Return `Ok(None)` always if the store keeps no metadata of its own |
+| `data_capabilities()` | `DataCapabilities { data_access: true, atomic_write, rename, modified_time, etag }`, honestly |
+
+Rules that matter:
+
+- **Reserve less in data-only mode.** A metadata layer stores its records as ordinary data objects
+  (a sidecar is one), so the data-only path builders reserve only what the backend itself uses —
+  `AsyncFileStore::DATA_RESERVED` is `.__lock__` alone, beside its ordinary `RESERVED`. The
+  pipeline enforces the storage model's reserved names.
+- **Times go through `BackendTime`** at your backend's real precision
+  (`BackendTime::new(t, TimePrecision::Nanos)` for a filesystem, `BackendTime::parse` for text).
+  A time reported at a finer precision than the backend keeps will not compare equal after a round
+  trip, and every `content_hash-on_change` read will rehash.
+- **Declare `atomic_write` and `rename` only when they hold.** `writes: atomic` is refused at build
+  on a backend with neither; a false claim makes it write torn objects instead.
+  `modified_time` and `etag` are promises: if your backend reports them only sometimes
+  (`AsyncOpenDALStore`), declare `false` and report them in `data_facts` when present.
+- **A wrapper forwards these too** (§1): `SharedStore` and `ReadOnlyStore` are the worked examples.
+  `is_read_only`, `sync` and `version_verification` should be forwarded by a transparent wrapper as
+  well.
+- **A language adapter** looks the optional methods up on the foreign object once and reports what
+  it found; never infer data access from `get`, whose metadata side effects it cannot see (`JsStore`,
+  `liquers-web/src/store/`).
+
+Worked examples: `AsyncMemoryStore`, `AsyncFileStore` (`liquers-core/src/store.rs`) and
+`AsyncOpenDALStore` (`liquers-store/src/opendal_store.rs`). To check them, add a suite like `A3`
+(§7): your store under a `metadata` section, built from configuration, through the generic fixture.
+
+Writing a new **handler, storage model or write strategy** — rather than a store — is
+[`STORE_CONFIG_GUIDE.md`](STORE_CONFIG_GUIDE.md).
+
 ## 5. Testing your store
 
 ### Write a fixture
@@ -367,8 +416,8 @@ reason, in the report, where a reviewer sees it.
 ## 7. Running the suites
 
 ```bash
-cargo test -p liquers-core  --features store-conformance      # C1–C5
-cargo test -p liquers-store --features store-conformance      # C6–C7 (OpenDAL, two services)
+cargo test -p liquers-core  --features store-conformance      # C1–C6, A1–A7 (adapted stores)
+cargo test -p liquers-store --features store-conformance      # C6–C7 (OpenDAL, two services), A3 over OpenDAL fs
 cargo test -p liquers-web --target wasm32-unknown-unknown     # C8, C10, under Node
 CHROMEDRIVER=$(which chromedriver) cargo test -p liquers-web \
   --target wasm32-unknown-unknown --features browser-tests    # C9 (localStorage)
@@ -448,7 +497,7 @@ result changes.
 
 | Date | Change | Source |
 |---|---|---|
-| 2026-10-15 | §9: suites `A1`–`A7`, adapted stores built from configuration (read-only, each storage model and layout, central storage, each write strategy, a front-matter read chain), and `A3` over OpenDAL fs through its new data-only methods; all conformant. | `design/store-adapters/` Phase 4 step 11 |
+| 2026-10-15 | §9: suites `A1`–`A7`, adapted stores built from configuration (read-only, each storage model and layout, central storage, each write strategy, a front-matter read chain), and `A3` over OpenDAL fs through its new data-only methods; all conformant. Phase 5: new §4a, implementing data-only access so a mount can take `read_only` / `metadata`, with a pointer to `STORE_CONFIG_GUIDE.md` for handlers, storage models and write strategies; §1 table row; §7 suite list. | `design/store-adapters/` Phase 4 step 11, phase-5 |
 | 2026-10-13 | §Prefix: the router asks every covering member for `is_dir` and `listdir`, and forwards `get_asset_info` / `listdir_asset_info` to members; `AssetManager` asks `contains` first. §9: suite `C6`, a router composing every directory answer. | `design/store-router-forwards-asset-info/` |
 | 2026-10-11 | §8 rule table: `seed01`, `seed02` (STORE_SEMANTICS §10). §9: 46 rules; every store that accepts writes with stored metadata runs two more, and all remain conformant (`LocalStorageStore` checked in Chromium through the `NO_HEADLESS` runner). | `design/store-key-format-seeding/` |
 | 2026-10-11 | §9: the native and OpenDAL rows are generated by the `status_table` tests in `liquers-core` and `liquers-store`; regeneration commands added; the browser rows stay hand-merged. Table re-run: unchanged at 44 rules. | `design/store-guide-status-table/` |

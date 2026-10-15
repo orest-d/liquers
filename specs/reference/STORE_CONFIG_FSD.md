@@ -31,6 +31,8 @@ configuration can embed one. See `specs/design/store-factories-in-core/`.
 |---|---|---|
 | `StoreRouterConfig`, `StoreConfig`, `${VAR}` expansion | `liquers-core` | `store_config` |
 | `StoreFactory`, chaining, `StoreRouterBuilder`, `memory`, `filesystem` | `liquers-core` | `store_factory` |
+| `ReadOnlyStore`, `MetadataPipelineStore`, the `store_config` realm (built-in entries) | `liquers-core` | `store::read_only`, `store::pipeline`, `store::realm` |
+| `front_matter`, `front_matter_sync` entries (feature `records`) | `liquers-lib` | `store_config` |
 | OpenDAL backends and their factory | `liquers-store` | `store_factory`, `opendal_store` |
 | `localstorage`, `js`, `http`/`https` via `fetch` | `liquers-web` | `store::builder` |
 
@@ -98,13 +100,20 @@ The configuration describes an `AsyncStoreRouter` as a list of store definitions
 - **type**: Store type (e.g., `memory`, `filesystem`, `s3`) Store type imples an implementation, e.g. s3 is implemented as an OpenDAL store 
 - **prefix**: Key prefix for routing (string, optional - empty string matches all keys)
 - **config**: (not required for some store types, e.g. memory) Store-specific configuration parameters
-- **read_only**: (optional, default `false`) Refuse every write to the mount, with `not_supported`.
+- **read_only**: (optional, default `false`) Refuse every write to the mount, with `not_supported`
+  (HTTP 501), and write nothing on read. The mount is wrapped in `ReadOnlyStore`; over a store
+  without data-only access its reads are forwarded and may still write, which the builder reports
+  on stderr ([`STORE_SEMANTICS.md` §12](STORE_SEMANTICS.md#12-read-only-stores)).
 - **metadata**: (optional) How the mount's metadata is stored and shaped — see
   [Metadata section](#metadata-section). No section, or `metadata: {}`, keeps the store unwrapped.
+  The store must offer data-only access, or the build fails naming the mount.
 
-The router itself may carry `read_only` (every mount) and `metadata` (central storage). Only
-`StoreRouterBuilder::build_store` applies them; `build`, which returns the bare router, refuses
-them rather than dropping them.
+The router itself may carry `read_only` (every mount) and `metadata` (**central storage**: one
+pipeline over the whole router; a member's own section may then name only `storage`, which keeps the
+member's backup copy). Only `StoreRouterBuilder::build_store` (and
+`build_store_without_env_expansion`), which return `Arc<dyn AsyncStore>`, apply them; `build`, which
+returns the bare `AsyncStoreRouter`, refuses them with a configuration error naming `build_store`
+rather than dropping them. `EnvironmentBuilder` uses `build_store`.
 
 ### Metadata section
 
@@ -125,9 +134,27 @@ no steps.
 | `on_read` | `media_type-fill/file_facts` |
 
 The defaults are `liquers_core::store_config::METADATA_DEFAULTS`; a test in
-`liquers-core/tests/store_adapters.rs` compares that constant with this table. The entries, their
-parameters and how to register a new one are in `specs/design/store-adapters/` until the
-reference documents of that design are written.
+`liquers-core/tests/store_adapters.rs` compares that constant with this table.
+`MetadataConfig::resolved` applies them. `storage` and `writes` name a component; the four `on_*`
+fields name handler chains; `persist_defaults` is a boolean (store a record `on_default`
+synthesized the first time it is read). The entries, their parameters and how to register a new one
+are in [`guides/STORE_CONFIG_GUIDE.md`](../guides/STORE_CONFIG_GUIDE.md); what each stage and
+component does at run time is [`STORE_SEMANTICS.md` §13–§16](STORE_SEMANTICS.md#13-configured-metadata-the-pipeline-storage-models-and-reserved-names).
+
+**The spec mechanism.** A spec is a query of the realm `store_config`
+([`REALMS.md`](REALMS.md)): actions separated by `/`, parameters by `-`, a `/` inside a literal
+escaped (`set-media_type-text~Imarkdown`). It is parsed with `parse_query`, and the realm is filled
+into the parsed query before planning (`store::realm::fill_realm`): a transform segment with no
+header gets `-store_config`, an empty header name gets the name, and a header naming another realm
+or carrying a level or parameters is refused. `-store_config/media_type-fill/file_facts` and
+`media_type-fill/file_facts` are therefore the same spec; give `liquers-validate` the filled form.
+The filled query is planned once, at build, by `PlanBuilder` against the command metadata registry
+the builder holds, and compiled (`StoreConfigFunctions::compile` for a chain,
+`compile_component` for `storage` / `writes`, which must name exactly one entry of the right kind).
+`""` compiles to no steps. Nothing is looked up on the read or write path.
+
+Errors are raised at build, as `configuration_error`, and name where they come from:
+`Mount '<prefix>' (type <type>): …` for a mount's section, `Router metadata: …` for the router's.
 
 ```yaml
 - type: filesystem
@@ -539,7 +566,11 @@ structured `serde_json::Value` configuration and do not use this conversion.
 The system should:
 1. Parse and validate the configuration
 2. Instantiate the appropriate store objects based on type
-3. Compose them into an `AsyncStoreRouter` with stores added in configuration order
+3. Wrap each mount by its own sections: the factory's store, then a `MetadataPipelineStore` when
+   `metadata` is not empty, then a `ReadOnlyStore` when `read_only` is set
+4. Compose them into an `AsyncStoreRouter` with stores added in configuration order
+5. With `build_store` only: wrap the router in the central pipeline and then `ReadOnlyStore`, as the
+   router-level sections say
 
 NOTE: `AsyncStoreRouter`is implemented in liquers_core::store.
 
@@ -810,7 +841,7 @@ its store together. Everything on this page applies unchanged to that document's
 
 | Date | Change | Source |
 |---|---|---|
-| 2026-10-15 | `read_only` and the typed `metadata` section replace the reserved map; the defaults table; router-level sections need `build_store`. | `design/store-adapters/` Phase 4 step 10 |
+| 2026-10-15 | `read_only` and the typed `metadata` section replace the reserved map; the defaults table; router-level sections need `build_store`. Phase 5: the spec mechanism (a `store_config` query, realm prefix optional and filled before planning, compiled at build), build-time error formats, central storage and member backups, the wrapping order in §Store Instantiation; the entry catalogue now points to `STORE_CONFIG_GUIDE.md`. | `design/store-adapters/` Phase 4 step 10, phase-5 |
 | 2026-10-10 | Related components: `liquers_core::store` has one store trait, `AsyncStore`; the synchronous `Store` was removed. | `CORE-SYNC-STORE-TRAIT-OBSOLETE`, `design/sync-store-removal/` |
 | 2026-10-07 | Recorded that OpenDAL argument lists are derived from the linked service config, with Liquers' hand-written docs merged by name; still `Partial`; a compiled-out service reports the hand-written list. | `design/opendal-derived-store-arguments/` |
 | 2026-09-04 | Corrected the filesystem-store description: `AsyncFileStore` is the built-in implementation, not future work. | `DOCS-STORE-CONFIG-DESCRIBES-ASYNC-FILESTORE-AS-FUTURE-WORK` |

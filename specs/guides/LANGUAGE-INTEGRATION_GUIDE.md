@@ -2,8 +2,8 @@
 title: Language Integration Guide
 kind: guide
 audience: internal
-area: [web, py, core/commands, core/plan, core/assets]
-reviewed: 2026-10-13
+area: [web, py, core/commands, core/plan, core/assets, core/store]
+reviewed: 2026-10-15
 ---
 # Liquers Language Integration Guide
 
@@ -242,6 +242,11 @@ Recommended minimum profiles:
 `STUBS` and `PACKAGE` are delivery features rather than capabilities: they describe how the *integration* is declared to tooling and shipped to users, not what it can do. Any *integration* consumed outside this repository should select `PACKAGE`, and `STUBS` wherever the *integrated language* has a stub format at all.
 
 **Out of scope: cache.** There is deliberately no cache feature. The legacy `liquers_core::cache` module (`BinCache`, `Cache`) was removed, with `liquers-py`'s wrapper of it — assets provide caching, as noted in [PROJECT_OVERVIEW.md](../reference/PROJECT_OVERVIEW.md). An *integration* should not reintroduce a separate result cache. This is a scope decision for the guide as a whole, so it does not need a per-design `NA` entry.
+
+**No separate ID for configured stores.** A mount's access policy and metadata handling
+(`read_only`, `metadata`) belong to `STORE` direction 3, composition and configuration. They have
+no feature ID of their own: a separate ID would let a design select configuration without the store
+contract it depends on.
 
 ## 5. Feature Guidance
 
@@ -728,6 +733,8 @@ def test_VALUE05_unknown_object_uses_opaque_value():
 
 **Issues and patterns.** Avoid hidden creation of multiple incompatible environments. Builders are preferable before publication; after publication, either reject mutation or define atomic replacement. A global Python environment may be ergonomic, while embedders and tests still need explicit instances. Browser startup should return a `Promise`; do not expose a blocking initializer.
 
+**Store configuration compiles against the registry.** An environment built from a store configuration with `metadata` sections compiles their chains against the environment's own command registry, so a *language* registration that such a configuration names must happen before the environment, or its store, is built. (Only Rust code registers `store_config` entries today; see §STORE "Configured stores". `liquers-web` builds the store with `build_store` from the environment's registry, and its rebuild path re-applies the store after replaying the retained registrations.)
+
 **Validation reports are part of the integration boundary.** Before publishing an environment,
 an integration using `EnvironmentBuilder` must make the builder's `validate()` result available to
 the host language. It may wrap `IssueReport` directly or map each `Issue` into a language-native
@@ -795,7 +802,7 @@ interpreting.
   metadata registry *and* both executor maps together, because planning consults the metadata while
   execution consults the executors, so a partial removal leaves a command that plans and then fails
 
-**The design must answer:** What is the most natural, small, and readable declaration in this *integrated language*: a decorator/annotation, function call, builder, module scan, callable object, or data object containing a function and metadata? Show minimal and complete examples. How do signature, annotations, defaults, variadics, documentation, namespace, realm, volatility, and async status map to metadata? Which fields require explicit metadata? How is callable identity retained? Which state-passing modes exist? Is registration reversible?
+**The design must answer:** What is the most natural, small, and readable declaration in this *integrated language*: a decorator/annotation, function call, builder, module scan, callable object, or data object containing a function and metadata? Show minimal and complete examples. How do signature, annotations, defaults, variadics, documentation, namespace, realm, volatility, and async status map to metadata? May a *language command* be declared in a foreign realm, such as `store_config`, whose actions are addressable in a query but not executable by the executor (see [Realms](../reference/REALMS.md))? Which fields require explicit metadata? How is callable identity retained? Which state-passing modes exist? Is registration reversible?
 
 **Issues and patterns.** Optimize the common declaration without making metadata invisible. Python decorators can derive metadata from annotations and docstrings. A JavaScript declaration can naturally be an object whose `run`/`execute` property is a function or closure and whose other properties contain metadata:
 
@@ -911,7 +918,9 @@ method does, and at what moment the *language* object is inspected.
    listing/creation/removal, and capability reporting.
 2. **Stores the *integration itself* provides**, backed by whatever storage the host offers.
 3. **Composition and configuration** — a *router* that dispatches a key to one of several stores,
-   built from a declarative document rather than assembled in code.
+   built from a declarative document rather than assembled in code, together with each mount's
+   *access policy and metadata handling* (`read_only`, `metadata`). Both apply to every mount, a
+   language-defined one included.
 
 Directions 2 and 3 are easy to leave out of a design, because direction 1 is what the word
 "language-defined" suggests — and together they are usually the larger half of the delivered work.
@@ -934,6 +943,17 @@ in another, described by a document it can edit. Decide explicitly which directi
 - An extension seam on that builder, if the *integration* contributes store types the shared crate
   does not know — implement `StoreFactory` and chain it (see "Taking only part of the store support
   crate", and `guides/STORE_FACTORY_GUIDE.md`)
+- The optional **data-only methods** of the language store protocol, where a `metadata` section
+  may wrap a language-defined store: `get_data`, `set_data`, `remove_data`, `rename_data`,
+  `listdir_data`, `data_facts` and `get_stored_metadata` on the Rust side. They read and write the
+  data object alone and never touch metadata
+- `DataCapabilities`, `DataFacts`, `BackendTime` and `TimePrecision` (`liquers-core/src/store.rs`,
+  `liquers-core/src/metadata.rs`)
+- `AsyncStore::is_read_only` and `AsyncStore::sync` (with its `SyncReport`)
+- `MetadataRecord`'s and `AssetInfo`'s `created` and `etag` fields
+- `MetadataConfig`, its defaults (`METADATA_DEFAULTS`) and `StoreConfigFunctions`, where direction
+  3 is selected. These are *normally reused unchanged*, as the router is: the configured parts run
+  in Rust, around the store
 
 **A limitation worth knowing before you design around it:** the seam is for the *integration* — Rust
 code — not for the *language*. A store type contributed from JavaScript or Python is **not
@@ -959,6 +979,37 @@ at length, along with the conformance suite that checks the answers:
 - **How are bytes represented if the backend cannot store them?** A text-only backend needs an
   encoding, and the choice must be **recorded with the data**, never re-derived on read from a
   metadata hint that may be wrong.
+
+For configured stores (direction 3, a mount with `read_only` or a `metadata` section), additionally
+— "Configured stores: access policy, metadata and write strategies" below has the facts these
+questions rely on:
+
+- **Can a store written in the *language* be named in a configuration document?** Do `read_only`
+  and `metadata` reach it there, or only the stores the *integration* provides?
+- **Which configured parts can each store take?** Which storage models, which write strategies,
+  which handlers? Which data-only methods does the *language* protocol expose, and which of them
+  are optional? How does the adapter learn the store's data capabilities without inferring them
+  from a method that has side effects, such as `get`? When a part is refused, how is it reported?
+  The target is at build, naming the mount and the missing capability.
+- **How do backend facts (size, modification time, ETag) cross the bridge, and with what time
+  precision**, so that `created` compares equal after a round trip?
+- **Can the *language* run a compiled `store_config` chain itself, or are chains applied only in
+  Rust around the store?** If chains are exposed, what is the call surface, and how does a
+  `MetadataRecord` cross?
+- **Can the *language* define its own `store_config` entry**: a handler, a storage model or a write
+  strategy? If so:
+  - how is it declared (the [Command Declaration Format](../reference/COMMAND_DECLARATION.md), realm
+    `store_config`)?
+  - is it synchronous?
+  - must it be registered before the store is built?
+  - what does it cost per call on a listing?
+  - how does an exception map under each stage's rules?
+
+  If not, record `NA` and link
+  [`LANGUAGE-STORE-CONFIG-FUNCTION-NOT-DEFINABLE`](../issues/LANGUAGE-STORE-CONFIG-FUNCTION-NOT-DEFINABLE.md).
+- **Can the *language* see that a store is read-only, run `sync`, and read a recovery warning?**
+- **For direction 2: do the *integration*'s own backends implement data-only access**, so that a
+  `metadata` section can wrap them? If they do not, say so per store.
 
 #### What the *language* cannot contribute: a store *type*
 
@@ -1039,6 +1090,84 @@ store it provides needs behaviour the router cannot express.
 - **Is the configuration re-appliable?** Reconfiguring a live environment is an ordinary request,
   and the *integration* has to say what happens to work already derived from the previous store.
 
+#### Configured stores: access policy, metadata and write strategies
+
+A configuration entry may carry two fields beside `type`, not inside `config`: `read_only` and a
+`metadata` section. The section chooses a storage model, a write strategy and the handler chains of
+each stage (`on_default`, `on_validate`, `on_write`, `on_read`), each written as a `store_config`
+spec. The builder applies both fields to whatever the factory returned, so they reach a
+*language*-defined store reached through `type: js` (or its counterpart) exactly as they reach a
+Rust backend. The format is in [Store configuration](STORE_CONFIG_GUIDE.md) and
+[`STORE_CONFIG_FSD.md` §"Metadata section"](../reference/STORE_CONFIG_FSD.md#metadata-section); the realm the specs are written in is in
+[Realms](../reference/REALMS.md).
+
+**What an *integration* inherits unchanged:**
+
+- **The pipeline.** `read_only` wraps the store in a `ReadOnlyStore`, which refuses every write
+  with `NotSupported` before it reaches the store. A `metadata` section wraps it in a
+  `MetadataPipelineStore`, which owns the compiled chains and runs them on every access, in Rust.
+  The *language* store supplies bytes and facts only, so nothing is reimplemented per *language*.
+- **The defaults.** A field left out of the section takes its value from `METADATA_DEFAULTS`:
+  storage `native`, writes `direct`, `on_default` and `on_write`
+  `defaults/media_type-fill/file_facts`, `on_read` `media_type-fill/file_facts`, `on_validate`
+  empty.
+- **Refusal at build.** A part the store cannot take is a `configuration_error` raised when the
+  store is built, naming the mount and the missing capability. A `metadata` section on a store
+  without data-only access is refused this way, whatever the storage model; a Rust backend follows
+  the same rule.
+- **The command registry.** The chains compile against the environment's command metadata
+  registry and its `StoreConfigFunctions`, so the specs are checked when the store is built, not at
+  first use.
+
+A store reports what it can take in `data_capabilities()`. An adapter fills it in from the methods
+it found on the *language* object at construction (the second rule of "Service adapters" above).
+It never infers data access from `get`, because the adapter cannot see `get`'s metadata side
+effects.
+
+What each configured part needs from the store. Check a design's stores against this table:
+
+| Part | What the store must provide |
+|---|---|
+| `read_only` | nothing. Over a store without data-only access its own reads may still write default metadata, and the builder warns |
+| any `metadata` section | data-only access: `get_data`, `set_data`, `remove_data`, `listdir_data`, `data_facts` (the pipeline refuses a store without it) |
+| storage `per_entry`, `grouped`, `none` | nothing more: the models keep records as data objects of the store |
+| storage `native` (the default) | also `get_stored_metadata` and `set_metadata`, for a store that keeps its own metadata |
+| writes `direct`, `transactional` | nothing more (`transactional` renames staged objects where it can, else copies and deletes) |
+| writes `atomic` | also `rename_data`, or a declared atomic write (`DataCapabilities::atomic_write`) |
+| every built-in handler | nothing: it runs on the record in Rust. `data_facts` is what makes `file_facts` and `content_hash-on_change` cheap |
+
+`data_facts` returns size, modification time and ETag. The time is a `BackendTime`: RFC 3339, UTC,
+truncated to the backend's `TimePrecision`. A bridge that receives the time as text converts it with
+`BackendTime::parse(text, precision)`, which brings it to that canonical form; without a precision,
+the precision is the one the text is written in. So a `created` written into a record and read back
+compares equal with a fresh reading, from every *language*.
+
+**Compiled chains are not handed to the *language*.** A chain is owned by the pipeline that wraps
+the *language* store, so it already runs on every access to that store. Exposing a chain (say, a
+`compileStoreConfig(spec, stage)` returning a function from record to record) would be possible,
+but nothing needs it, and it would make a second place where handlers run.
+
+**What the *language* cannot contribute: a `store_config` entry.** This is the handler counterpart
+of "What the *language* cannot contribute: a store *type*" above. A handler, storage model or write
+strategy is a `CommandMetadata` in realm `store_config` plus a builder, and the builder is a plain
+`fn` pointer that cannot capture a *language* callable. The same three consequences apply:
+
+- **A *language*-provided entry would be invisible to the registry export.** The Rust-registered
+  entries are exported to `specs/command_registry.yaml` as group `store_config`, so
+  `liquers-validate` checks a spec that names them. One registered from a page or a module would
+  not be there, and a spec naming it would validate nowhere but in the running host.
+- **Its arguments cannot be declared** beyond what the declaration carries, so the spec is checked
+  only when the store is built.
+- **The document leaks how the handler is provided.** A configuration naming a page-defined
+  handler cannot be read on a native build as naming the same handler.
+
+Supporting it needs a boxed builder in `StoreConfigFunctions`' table, a synchronous callable (a
+chain cannot await), registration before the store is built, a per-call cost on every entry of a
+listing, and exceptions mapped through `ERROR` under the stage rules: a warning on read, an abort on
+validate. That is
+[`LANGUAGE-STORE-CONFIG-FUNCTION-NOT-DEFINABLE`](../issues/LANGUAGE-STORE-CONFIG-FUNCTION-NOT-DEFINABLE.md),
+and it will likely be designed together with `LANGUAGE-STORE-TYPE-NOT-DEFINABLE`.
+
 #### Taking only part of the store support crate
 
 **Resolved, and the recommendation reversed.** This section used to recommend option 3 below and
@@ -1100,16 +1229,23 @@ store; an *integration* shipping three must run them against all three, and say 
 test does not apply and why. A suite that exercises only the first store leaves the others
 unasserted while reporting full coverage.
 
-**Meaningful tests:** `STORE01` set/get data and metadata; `STORE02` missing key error; `STORE03` directory listing invariants; `STORE04` remove/removedir behavior; `STORE05` a relative key is refused as `KeyNotAbsolute`, on direct calls and not only through a router (`STORE05b` guards the ENOENT trap that makes this test lie); `STORE06` concurrent update policy; `STORE07` store works in end-to-end evaluation; `STORE08` an *integration*-provided store satisfies the same contract as a *language*-defined one; `STORE09` a read-only store refuses every write with the documented error, and composition does not fall through to a writable store; `STORE10` metadata inference follows the documented precedence; `STORE11` a store router built from a configuration document routes by prefix, first match wins for overlapping prefixes, and an unmatched key is reported absent; `STORE12` the *integration*'s own store types are constructible from a configuration document, and where two factories in one chain claim a type name, the one chained **earlier** resolves it — restated in terms of chain order, because store construction is now first-wins over a composed chain rather than "factories before built-ins"; an *integration* that composes its own chain and shares no type name with another factory in it may record `STORE12`'s override half as `NA` with that reason; `STORE13` a store type that exists but is unavailable in this build is refused with a message naming the feature or target responsible.
+**Meaningful tests:** `STORE01` set/get data and metadata; `STORE02` missing key error; `STORE03` directory listing invariants; `STORE04` remove/removedir behavior; `STORE05` a relative key is refused as `KeyNotAbsolute`, on direct calls and not only through a router (`STORE05b` guards the ENOENT trap that makes this test lie); `STORE06` concurrent update policy; `STORE07` store works in end-to-end evaluation; `STORE08` an *integration*-provided store satisfies the same contract as a *language*-defined one; `STORE09` a read-only store refuses every write with the documented error, and composition does not fall through to a writable store; `STORE10` metadata inference follows the documented precedence; `STORE11` a store router built from a configuration document routes by prefix, first match wins for overlapping prefixes, and an unmatched key is reported absent; `STORE12` the *integration*'s own store types are constructible from a configuration document, and where two factories in one chain claim a type name, the one chained **earlier** resolves it — restated in terms of chain order, because store construction is now first-wins over a composed chain rather than "factories before built-ins"; an *integration* that composes its own chain and shares no type name with another factory in it may record `STORE12`'s override half as `NA` with that reason; `STORE13` a store type that exists but is unavailable in this build is refused with a message naming the feature or target responsible; `STORE14` `read_only` on a configured mount refuses every write to a *language*-defined store, and `is_read_only` reports it; `STORE15` a `metadata` section on a store without data-only access fails at build, naming the mount and the missing capability; `STORE16` a *language* store with data-only methods round-trips records under `per_entry` and `grouped` storage, applies the default `on_read` chain, and never has its own `get` called for metadata; `STORE17` `created` from the *language*'s backend time compares equal after a write and a re-read; `STORE18` a *language*-defined `store_config` handler runs in its stage, becomes a warning on read and aborts on validate, and is refused if registered after the store is built.
 
 Dispositions by direction, each stated with its reason so that selecting a direction later makes
 the tests required again:
 
-| Selected | `STORE01`–`STORE07` | `STORE08`, `STORE10` | `STORE09`, `STORE11`, `STORE12` | `STORE13` |
-|---|---|---|---|---|
-| 1 only — a *language*-defined store | required | `NA` | `NA` | `NA` |
-| 1 + 2 — plus *integration* backends | required, **per store** | required | `NA` without composition | required if any backend is optional |
-| 1 + 2 + 3 — plus composition | required, **per store** | required | required | required if any backend is optional |
+| Selected | `STORE01`–`STORE07` | `STORE08`, `STORE10` | `STORE09`, `STORE11`, `STORE12` | `STORE13` | `STORE14`–`STORE18` |
+|---|---|---|---|---|---|
+| 1 only — a *language*-defined store | required | `NA` | `NA` | `NA` | `NA` without configuration |
+| 1 + 2 — plus *integration* backends | required, **per store** | required | `NA` without composition | required if any backend is optional | `NA` without configuration |
+| 1 + 2 + 3 — plus composition | required, **per store** | required | required | required if any backend is optional | see below |
+
+With direction 3 selected, `STORE14` is required. `STORE15`–`STORE17` are required when any store
+in the *integration* takes a `metadata` section; run `STORE16` and `STORE17` against each such
+store. `STORE18` follows the design's answer to the handler question: `NA` unless the design lets
+the *language* define `store_config` entries, linking
+[`LANGUAGE-STORE-CONFIG-FUNCTION-NOT-DEFINABLE`](../issues/LANGUAGE-STORE-CONFIG-FUNCTION-NOT-DEFINABLE.md)
+as the reason.
 
 `STORE13` is a build-configuration check rather than a runtime one for most *integrations*, and
 that does not make it `NA` — §3 is explicit that the harness a check runs in says nothing about
@@ -1325,6 +1461,33 @@ Four things cost real time in `specs/design/liquers-web/` and are worth knowing 
 - **`#[serde(skip_serializing_if)]` is right for a config file and wrong for an API.** `CommandMetadata` skips empty vectors, so `describeCommand(n).arguments` was `undefined` for a zero-argument command — working for every command except the ones the caller was least likely to special-case. Normalize the shape at the boundary.
 - **Structural conversion is cheaper than it sounds.** Measured round trip, `--release`: an object with 10 properties costs 78 µs, 1 000 properties 5.2 ms, and a 1 MB `Uint8Array` 0.87 ms. Opaque retention is flat (~6 µs), so the *ratio* grows without bound and is the wrong number to quote. Justify an opaque path by **identity**, not by speed, unless the *integrated language* genuinely passes very large structures.
 
+**Configured stores in the browser** (`specs/design/store-adapters/`). A page-implemented store
+reached through `type: js` takes `read_only` and a `metadata` section like any other mount, and
+`LiquersStore.isReadOnly()` reports whether every write is refused. The section reaches the object
+only through optional `JsStore` methods, resolved once at construction like the rest of the
+protocol:
+
+- `getData`, `setData`, `removeData`, `listdirData` and `dataFacts` — all five, or the object
+  reports no data-only access and a `metadata` section on its mount is refused when the store is
+  built, naming the mount. A partial set is treated as none, so a section is never built over a
+  store that can read but not list.
+- `renameData(from, to)` and an `atomicWrite: true` property — optional; one of them is needed for
+  `writes: atomic`.
+- `getStoredMetadata(key)` — needed only by `storage: native` (the default), together with the
+  base protocol's `setMetadata`. It is not among the five, so a store that keeps no metadata of its
+  own takes `per_entry`, `grouped` or `none` without it.
+- `dataFacts` returns `{size, modified?, precision?, etag?}`, or `null` when absent. `modified` is
+  an RFC 3339 string and `precision` one of `seconds`, `millis`, `micros`, `nanos`; the adapter
+  converts it with `BackendTime::parse`, and without `precision` the string's own precision is used.
+
+The adapter does not promise a modification time or an ETag in `data_capabilities()`
+(`modified_time` and `etag` are false), but passes on whatever `dataFacts` reports. The built-in
+browser stores (`localstorage`, `http`) do not offer data-only access yet, so a `metadata` section
+on them is refused at build; only `read_only` applies to them. `build_store` (in
+`liquers-web/src/store/builder.rs`) compiles the sections against the environment's own command
+registry and `StoreConfigFunctions`, mirroring the native builder. `sync` is not exposed to pages.
+See `liquers-web/README.md` "Read-only stores and metadata sections".
+
 ### Starlark
 
 Treat sandboxing and determinism as product requirements. Prefer copied Liquers primitives for ordinary *language values*. `starlark::values::Value<'v>` belongs to a `Heap`; values retained after evaluation must be frozen/owned or converted. Host functions registered through Starlark globals are a natural `COMMAND` adapter. Document whether evaluation budgets, cancellation, filesystem/network access, and async features are intentionally unavailable.
@@ -1332,6 +1495,12 @@ Treat sandboxing and determinism as product requirements. Prefer copied Liquers 
 ### Python
 
 Modernize `liquers-py` rather than treating its current behavior as normative. Prefer owned `Py<T>` handles across async/thread boundaries, short explicit interpreter-lock scopes, permissive `VALUE` conversion with an *opaque language value* fallback, and explicit typed exceptions. Pickle may be an opt-in codec, never an implicit trusted interchange format. Organize pytest suites using the IDs in this guide.
+
+`MetadataRecord` and `AssetInfo` expose the backend's `created` (an RFC 3339 string) and `etag` as
+read-only properties. A configured store's handlers run in Rust, so they cost no interpreter lock.
+That changes if Python handlers are ever allowed (`LANGUAGE-STORE-CONFIG-FUNCTION-NOT-DEFINABLE`):
+each call would take the GIL, and a listing runs the read chain once per entry, so the cost grows
+with the size of a folder. Measure it before allowing them on a listing path.
 
 ## 7. Design and Review Checklist
 
@@ -1378,6 +1547,9 @@ Every language-specific design should contain:
 - A worked *integration* design following this guide: [`specs/design/liquers-web/`](../design/liquers-web/) — browser JavaScript, phases 1-4 with the full 83-test disposition
 - [Command Declaration Format](../reference/COMMAND_DECLARATION.md) — the shared declaration vocabulary, composition over introspection, and the defaulting rules every *language* guide builds on
 - [Command Registration Guide](COMMAND_REGISTRATION_GUIDE.md)
+- [Realms](../reference/REALMS.md) — what a realm is, and why `store_config` actions are addressable but not executable
+- [Store configuration guide](STORE_CONFIG_GUIDE.md) — `read_only`, `metadata` sections, storage models, write strategies and handlers
+- Configured stores: `liquers-core/src/store/` (`read_only.rs`, `realm.rs`, `storage.rs`, `writes.rs`, `pipeline.rs`); the browser adapter's data-only methods in `liquers-web/src/store/js_store.rs`; design in [`specs/design/store-adapters/`](../design/store-adapters/)
 - [Async/Wasm Refactor Design](../design/async-wasm-refactor/DESIGN.md)
 - [Liquers Web API Specification](../reference/WEB_API_SPECIFICATION.md)
 - [Liquers UI Payload Design](../archive/2026-03-02-ui-payload-design.md)
@@ -2323,6 +2495,128 @@ def test_STORE13_unavailable_store_type_names_the_reason(build_router):
     message = str(e.value)
     assert "opendal" in message or "not available" in message   # names feature or target
     assert "Unknown store type" not in message
+
+# --- STORE14-STORE18: configured stores (direction 3) wrapping a language-defined store. The
+# specs in `metadata:` sections are store_config specs, real and validated like the queries:
+# `-store_config/<spec>` plans against the registry (STORE18's handler with an overlay).
+
+# A language store offering data-only access. `get` is counted so STORE16 can assert it is never
+# called for metadata; `data_facts` reports a fixed time at millisecond precision.
+class DataStore(lq.LanguageStore):
+    def __init__(self):
+        self.data, self.gets = {}, 0
+    def get(self, key):
+        self.gets += 1
+        return None if key not in self.data else (self.data[key], {})
+    def get_data(self, key): return self.data.get(key)
+    def set_data(self, key, data): self.data[key] = data
+    def remove_data(self, key): self.data.pop(key, None)
+    def listdir_data(self, key): return children(self.data, key)
+    def data_facts(self, key):
+        if key not in self.data:
+            return None
+        b = self.data[key]
+        return {"size": len(b), "modified": "2026-10-15T12:00:00.123Z", "etag": f"e{len(b)}"}
+
+async def test_STORE14_read_only_mount_refuses_writes(build_store, register_object):
+    register_object("ro", FixedStore({"fixed.txt": b"hi"}))
+    store = build_store("""
+    stores:
+      - {type: language, prefix: ro, config: {object: ro}, read_only: true}
+    """)
+    assert await store.get(lq.parse_key("ro/fixed.txt")) == b"hi"      # reads pass through
+    with pytest.raises(lq.Error) as e:
+        await store.set(lq.parse_key("ro/new.txt"), b"x", lq.Metadata())
+    # The configured refusal is NotSupported, raised before the write reaches the language object;
+    # STORE09's own read-only backend may document a different type.
+    assert e.value.error_type == lq.ErrorType.NotSupported
+    assert store.is_read_only()
+
+def test_STORE15_metadata_without_data_access_fails_at_build(build_store, register_object):
+    register_object("full", FullStore())             # the complete store protocol, no data methods
+    with pytest.raises(lq.Error) as e:
+        build_store("""
+        stores:
+          - {type: language, prefix: d, config: {object: full}, metadata: {storage: grouped}}
+        """)
+    # At build, not at first use, and the message says which mount and what is missing.
+    assert "'d'" in str(e.value) and "data-only access" in str(e.value)
+
+@pytest.mark.parametrize("storage", ["per_entry", "grouped"])
+async def test_STORE16_records_round_trip_as_data_objects(build_store, register_object, storage):
+    source = DataStore()
+    register_object("notes", source)
+    store = build_store(f"""
+    stores:
+      - type: language
+        prefix: n
+        config: {{object: notes}}
+        metadata: {{storage: {storage}}}
+    """)
+    await store.set(lq.parse_key("n/a.md"), b"# A", lq.MetadataRecord(title="First"))
+    await store.set(lq.parse_key("n/b.txt"), b"bee", lq.Metadata())
+    a = await store.get_metadata(lq.parse_key("n/a.md"))
+    assert a.title == "First"
+    assert a.media_type == "text/markdown"           # the default chains fill it
+    # The storage model's objects are hidden from the listing...
+    assert sorted(await store.listdir(lq.parse_key("n"))) == ["a.md", "b.txt"]
+    # ...the default on_read chain, media_type-fill/file_facts, applies...
+    assert (await store.get_asset_info(lq.parse_key("n/b.txt"))).file_size == 3
+    # ...the records are data objects of the language store, where the model puts them...
+    present, absent = (("n/__metadata__.json", "n/a.md.__metadata__") if storage == "grouped"
+                       else ("n/a.md.__metadata__", "n/__metadata__.json"))
+    assert present in source.data and absent not in source.data
+    # ...and the language store's own `get` is never called: its metadata side effects, if any,
+    # are invisible to the adapter, which is why data access is not inferred from it.
+    assert source.gets == 0
+
+async def test_STORE17_created_round_trips_from_backend_time(build_store, register_object):
+    register_object("notes", DataStore())
+    store = build_store("""
+    stores:
+      - {type: language, prefix: n, config: {object: notes}, metadata: {storage: per_entry}}
+    """)
+    await store.set(lq.parse_key("n/a.txt"), b"abc", lq.Metadata())
+    record = await store.get_metadata(lq.parse_key("n/a.txt"))
+    # The canonical form, at the precision the language reported. A bridge that re-formats the
+    # time (another precision, a local zone) makes this differ, and change detection with it.
+    assert record.created == "2026-10-15T12:00:00.123Z"
+    assert record.etag == "e3"
+    assert (await store.get_asset_info(lq.parse_key("n/a.txt"))).created == record.created
+
+async def test_STORE18_language_store_config_handler(env, build_store, register_object):
+    # NA unless the design lets the language define store_config entries; record the NA with a
+    # link to LANGUAGE-STORE-CONFIG-FUNCTION-NOT-DEFINABLE. Validated with an overlay:
+    # --command store_config//page_tag.
+    @env.store_config_handler(name="page_tag")
+    def page_tag(record):
+        if record.title == "boom":
+            raise ValueError("boom")
+        record.tags.append("page")
+        return record
+    register_object("notes", DataStore())
+    store = build_store("""
+    stores:
+      - type: language
+        prefix: n
+        config: {object: notes}
+        metadata: {storage: per_entry, on_read: media_type-fill/page_tag, on_validate: page_tag}
+    """)
+    await store.set(lq.parse_key("n/a.txt"), b"abc", lq.Metadata())
+    assert "page" in (await store.get_metadata(lq.parse_key("n/a.txt"))).tags   # runs in its stage
+    with pytest.raises(lq.Error):                                                # aborts on validate
+        await store.set(lq.parse_key("n/b.txt"), b"x", lq.MetadataRecord(title="boom"))
+    # A failing read step becomes a warning on the record, not an error. (Fixture: a record whose
+    # title is "boom" written directly into the language store's per_entry object.)
+    plant_record(store, "n/c.txt", title="boom")
+    assert (await store.get_metadata(lq.parse_key("n/c.txt"))).has_warnings()
+    # Chains compile at build, so a registration after build is too late: a store whose document
+    # names a handler not yet registered (late_tag) is refused when it is built, not at first read.
+    with pytest.raises(lq.Error):
+        build_store("""
+        stores:
+          - {type: language, prefix: m, config: {object: notes}, metadata: {on_read: late_tag}}
+        """)
 ```
 
 ### RECIPE
@@ -2799,6 +3093,7 @@ def test_PACKAGE07_artifact_carries_declarations_license_and_metadata():
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-15 | Configured stores. §4: `read_only` and `metadata` belong to `STORE` direction 3, with no feature ID of their own. §STORE: direction 3 covers a mount's access policy and metadata handling; the inventory adds the data-only methods, `DataCapabilities`, `DataFacts`, `BackendTime`, `is_read_only`, `sync`, `created`/`etag` and `MetadataConfig`/`StoreConfigFunctions`; new design questions for configured stores; new subsection "Configured stores: access policy, metadata and write strategies" with the capability table and the `store_config` counterpart of "What the *language* cannot contribute"; tests `STORE14`–`STORE18` with a disposition column and Appendix A blueprints. §COMMAND asks about foreign realms; §ENVIRON states that chains compile against the environment's registry. §6: `JsStore`'s optional data methods and the built-in browser stores' refusal; Python's GIL cost for a per-entry handler. | phase-5, `design/store-adapters/` |
 | 2026-10-13 | §Design questions, question 4: NaN/infinity follows the JSON policy in `SERIALIZATION_GUIDE.md`. | phase-5, `design/value-to-json-non-finite-float/` |
 | 2026-10-10 | §4 *Out of scope: cache*: the cache module and `liquers-py`'s wrapper were removed, not scheduled for removal. | `CORE-SYNC-STORE-TRAIT-OBSOLETE`, `design/sync-store-removal/` |
 | 2026-10-08 | §7: the design workflow is the `liquers-project` skill (the `liquers-designer` skill was removed), and design folders live under `specs/design/`. | skill consolidation |

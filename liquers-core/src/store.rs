@@ -474,8 +474,8 @@ fn data_access_not_supported(key: &Key, store_name: &str) -> Error {
 /// Which data-only methods of [`AsyncStore`] a store implements, and what they guarantee.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DataCapabilities {
-    /// `get_data`, `set_data`, `remove_data`, `listdir_data`, `data_facts` and
-    /// `get_stored_metadata` are implemented.
+    /// `get_data`, `set_data`, `remove_data`, `listdir_data` and `data_facts` are implemented.
+    /// `get_stored_metadata` is not implied: only the `native` storage model calls it.
     pub data_access: bool,
     /// `set_data` replaces an object atomically: a reader sees the old or the new bytes, never a
     /// mix (object stores).

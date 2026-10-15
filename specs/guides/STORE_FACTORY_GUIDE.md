@@ -3,7 +3,7 @@ title: Store Factory Guide
 kind: guide
 audience: internal
 area: [core/store, store/config]
-reviewed: 2026-10-07
+reviewed: 2026-10-15
 ---
 # Store Factory Guide
 
@@ -31,6 +31,43 @@ let router = StoreRouterBuilder::from_yaml(yaml, Box::new(default_store_factory(
 
 If you take one thing from this guide: **reach for your crate's `default_store_factory()`**.
 Compose a chain by hand only when you want a different order or a subset.
+
+## `build` or `build_store`, and where `store_config` entries come from
+
+A configuration may carry `read_only` and `metadata` sections
+([`reference/STORE_CONFIG_FSD.md`](../reference/STORE_CONFIG_FSD.md)). The builder applies them
+around what your factory returns — your `create` never sees them — and offers two products:
+
+| Call | Returns | Router-level `read_only` / `metadata` |
+|---|---|---|
+| `build()`, `build_without_env_expansion()` | `AsyncStoreRouter` | refused with a configuration error naming `build_store` |
+| `build_store()`, `build_store_without_env_expansion()` | `Arc<dyn AsyncStore>` | applied: central pipeline over the router, then `ReadOnlyStore` |
+
+Mount-level sections work with both. Use `build_store` unless you need the concrete router type;
+`EnvironmentBuilder` does. `liquers-store`'s `create_router*` and `liquers-web`'s `build_router` call
+`build`; `liquers-web` also has a `build_store`.
+
+A `metadata` section is compiled at build against a command metadata registry and the matching
+`StoreConfigFunctions` (`liquers_core::store::realm`). Without further calls the builder uses
+`StoreConfigFunctions::builtin()`, which has only `liquers-core`'s entries. To make another crate's
+entries available (`liquers-lib`'s `front_matter`, a test entry), pass both by value:
+
+```rust
+use liquers_core::store::realm::StoreConfigFunctions;
+
+let (mut registry, mut functions) = StoreConfigFunctions::builtin();
+liquers_lib::store_config::register_lib_store_config(&mut registry, &mut functions)?;  // feature `records`
+let store = StoreRouterBuilder::from_yaml(yaml, Box::new(default_store_factory()))?
+    .with_store_config(registry, functions)
+    .build_store()?;
+```
+
+`EnvironmentBuilder::build` does this with its own `CommandRegistry`
+(`command_metadata_registry` and `store_config`), so an entry registered there before the
+environment is built is available to the configuration. A store built with plain `build` or
+`create_router*` sees the built-ins only. Writing a new entry is
+[`STORE_CONFIG_GUIDE.md`](STORE_CONFIG_GUIDE.md); a store that can take a section at all needs
+data-only access ([`STORE_IMPLEMENTATION_GUIDE.md`](STORE_IMPLEMENTATION_GUIDE.md) §4a).
 
 ## Which factory do I want?
 
@@ -212,11 +249,13 @@ feature that has not been designed. Document exclusivity in an argument's `doc` 
 | Resolution, including inference | `resolve01`–`resolve04` |
 | `Partial` accepting an undescribed key | `coverage02` in `liquers-store/src/store_factory.rs` |
 | The gated-feature message | `factory04` — runs **only** under `--no-default-features` |
+| Sections applied by the builder; `build` refusing router-level ones; `with_store_config` | `liquers-core/tests/store_adapters.rs` (`bare_router_build_refuses_router_sections`, `central_storage_answers_reads_and_writes`) |
 
 ## History
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-15 | New § "`build` or `build_store`": the builder applies `read_only` / `metadata` around the factory's store; `build` returns the bare router and refuses router-level sections, `build_store` returns `Arc<dyn AsyncStore>`; `with_store_config` passes the registry and `StoreConfigFunctions` (built-ins by default, `EnvironmentBuilder` passes its own); pointers to `STORE_CONFIG_GUIDE.md` and data-only access. | phase-5 (`design/store-adapters/`) |
 | 2026-10-07 | §"Describing arguments you do not own": derive the list from a `Default + Serialize` backend config and merge hand docs by name, with the OpenDAL factory as the worked example. | `design/opendal-derived-store-arguments/` |
 | 2026-09-02 | Cross-linked `STORE_IMPLEMENTATION_GUIDE.md`, which covers implementing the store a factory builds, so the two halves of the job point at each other. | `design/store-conformance-suite/` Phase 4 step 14 |
 | 2026-08-29 | Added "ask, do not infer" to §"Say a type exists but cannot be built here", after a review found `OpendalStoreFactory` conflating its own `opendal` feature with OpenDAL's per-service ones. | `design/store-factories-in-core/` PR review |

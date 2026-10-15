@@ -4,13 +4,13 @@ kind: design
 title: Modular store configuration — metadata layouts and store adapters
 workflow: liquers-project
 status: approved
-phase: implementation
+phase: documentation
 readiness: ready
 autofix: not-eligible
 area: [core/store, store/config, store/backends, web, docs]
 issues: [STORE-METADATA-LAYOUT-HARDCODED-PER-STORE, STORE-NO-READ-ONLY-ADAPTER, STORE-METADATA-HANDLING-NOT-COMPOSABLE]
 merged: 2026-10-13
-affects_docs: [specs/reference/STORE_SEMANTICS.md, specs/reference/STORE_CONFIG_FSD.md, specs/guides/STORE_IMPLEMENTATION_GUIDE.md, specs/guides/STORE_FACTORY_GUIDE.md, specs/reference/ASSETS.md, specs/reference/PROJECT_OVERVIEW.md, specs/guides/LANGUAGE-INTEGRATION_GUIDE.md]
+affects_docs: [specs/reference/STORE_SEMANTICS.md, specs/reference/STORE_CONFIG_FSD.md, specs/guides/STORE_IMPLEMENTATION_GUIDE.md, specs/guides/STORE_FACTORY_GUIDE.md, specs/reference/ASSETS.md, specs/reference/PROJECT_OVERVIEW.md, specs/guides/LANGUAGE-INTEGRATION_GUIDE.md, specs/reference/REALMS.md, specs/guides/STORE_CONFIG_GUIDE.md]
 created: 2026-10-13
 ---
 # Modular store configuration — metadata layouts and store adapters
@@ -20,8 +20,8 @@ created: 2026-10-13
 - [Phase 1](./phase1-high-level-design.md) — written 2026-10-13, revised 2026-10-15, **approved 2026-10-15**
 - [Phase 2](./phase2-architecture.md) — written 2026-10-15, **approved 2026-10-15** (`proceed all`)
 - [Phase 3](./phase3-examples.md) — written 2026-10-15, reviewed (pre-approved)
-- [Phase 4](./phase4-implementation.md) — written 2026-10-15, reviewed; approved 2026-10-15 (`proceed all`); implementing
-- [Phase 5](./phase5-documentation.md)
+- [Phase 4](./phase4-implementation.md) — written 2026-10-15, reviewed; approved 2026-10-15 (`proceed all`); implemented (commits a8e457f–9022a38)
+- [Phase 5](./phase5-documentation.md) — written 2026-10-15, awaiting review
 
 ## Notes
 

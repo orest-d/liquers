@@ -436,6 +436,8 @@ impl MetadataPipelineStore {
             Some(stored) => stored,
             None => self.stored_record(key).await?,
         };
+        // Bytes fetched for the on_default chain, reused by on_read.
+        let mut fetched_default: Option<Vec<u8>> = None;
         let (mut record, previous) = match stored {
             Some(Metadata::LegacyMetadata(value)) => {
                 // No lossless conversion exists: returned untouched, chains bypassed.
@@ -447,10 +449,20 @@ impl MetadataPipelineStore {
                     return Err(Error::key_not_found(key));
                 }
                 let mut record = MetadataRecord::new();
-                let facts_in = FactsIn {
+                let probe = FactsIn {
                     key,
                     facts: facts.as_ref(),
                     bytes,
+                    previous: None,
+                    operation,
+                };
+                if bytes.is_none() && self.chains.default.needs_bytes(&probe) {
+                    fetched_default = Some(self.backend.get_data(key).await?);
+                }
+                let facts_in = FactsIn {
+                    key,
+                    facts: facts.as_ref(),
+                    bytes: bytes.or(fetched_default.as_deref()),
                     previous: None,
                     operation,
                 };
@@ -467,7 +479,7 @@ impl MetadataPipelineStore {
         let mut facts_in = FactsIn {
             key,
             facts: facts.as_ref(),
-            bytes,
+            bytes: bytes.or(fetched_default.as_deref()),
             previous: previous.as_ref(),
             operation,
         };
@@ -1244,6 +1256,26 @@ mod tests {
         Ok(())
     }
 
+    /// An on_default step that needs bytes gets them through `get_metadata` too, so the default
+    /// record does not depend on which call came first.
+    #[tokio::test]
+    async fn on_default_gets_bytes_through_get_metadata() -> Result<(), Error> {
+        let raw = memory();
+        let key = parse_key("a.txt")?;
+        raw.set_data(&key, b"abc").await?;
+        let store = pipeline(
+            raw,
+            &Spec {
+                on_default: "defaults/content_hash-always",
+                on_read: "",
+                ..Spec::default()
+            },
+        )?;
+        let record = as_record(store.get_metadata(&key).await?)?;
+        assert_eq!(record.version, Some(Version::from_bytes(b"abc")));
+        Ok(())
+    }
+
     #[tokio::test]
     async fn listing_reads_no_bytes_for_unchanged_entries() -> Result<(), Error> {
         let raw = memory();
@@ -1332,6 +1364,46 @@ mod tests {
             Metadata::LegacyMetadata(value) => assert_eq!(value, legacy),
             Metadata::MetadataRecord(_) => return Err(Error::general_error("not legacy".into())),
         }
+        Ok(())
+    }
+
+    /// Under `native` storage a key colliding with the backend's sidecar is refused before any
+    /// byte is written (the file store's data paths refuse it), so the colliding key's record
+    /// survives.
+    #[tokio::test]
+    async fn native_storage_refuses_a_key_the_backend_reserves() -> Result<(), Error> {
+        let root = std::env::temp_dir().join(format!(
+            "lq-pipeline-native-reserved-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or_default()
+        ));
+        std::fs::create_dir_all(&root).map_err(|e| Error::general_error(e.to_string()))?;
+        let backend: Arc<dyn AsyncStore> = Arc::new(AsyncFileStore::new(
+            root.to_string_lossy().as_ref(),
+            &Key::new(),
+        ));
+        let store = pipeline(
+            backend,
+            &Spec {
+                storage: "native",
+                persist_defaults: true,
+                ..Spec::default()
+            },
+        )?;
+        let foo = parse_key("foo")?;
+        store.set(&foo, b"data", &record("x")).await?;
+        let before = std::fs::read(root.join("foo.__metadata__"))
+            .map_err(|e| Error::general_error(e.to_string()))?;
+        let colliding = parse_key("foo.__metadata__")?;
+        assert!(!store.is_supported(&colliding));
+        let refused = store.set(&colliding, b"garbage", &record("x")).await;
+        assert!(matches!(refused, Err(e) if e.error_type == ErrorType::KeyNotSupported));
+        let after = std::fs::read(root.join("foo.__metadata__"))
+            .map_err(|e| Error::general_error(e.to_string()))?;
+        assert_eq!(before, after);
+        let _ = std::fs::remove_dir_all(&root);
         Ok(())
     }
 

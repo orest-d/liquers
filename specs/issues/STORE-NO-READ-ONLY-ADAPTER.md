@@ -2,7 +2,7 @@
 id: STORE-NO-READ-ONLY-ADAPTER
 kind: feature
 title: No read-only store adapter, so reading a file store writes to it
-status: draft
+status: closed
 priority: P2
 complexity: M
 area: [core/store]
@@ -65,3 +65,7 @@ Reported by Codex review on PR #70, 2026-09-15, as a P1 against `design/agent-me
 Verified at HEAD on 2026-09-16 by reading `AsyncFileStore::get` in `liquers-core/src/store.rs` and
 the routes in `liquers-axum/src/store/builder.rs`. The sidecar-on-read behaviour is deliberate and
 documented in its own warnings; what is missing is the ability to decline it.
+
+## Resolution (2026-10-15)
+
+Fixed by design `store-adapters` (PR #137), as both a wrapper and a mount property. `ReadOnlyStore` (`liquers-core/src/store/read_only.rs`, commit 5df8b02) refuses `set`, `set_metadata`, `remove`, `removedir`, `makedir` and the data-only writes with `ErrorType::NotSupported`, keeps synthesized metadata in memory and reports `is_read_only()`. A configuration mount sets it with `read_only: true` (commit dd34bb3); a pipeline under it never persists records. The conformance suite checks it (`a1_read_only_file_store`, `a3_opendal_fs_per_entry`), the API boundary returns 501 (`liquers-axum/tests/store_api_routes.rs` `read_only_store_write_is_501`), and the browser integration exposes `isReadOnly` (`store14_read_only_js_store_refuses_writes`). Other tests: `read_only_file_store_creates_nothing`, `read_only_mount_from_config`, `read_only_pipeline_never_persists`.

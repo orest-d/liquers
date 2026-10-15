@@ -72,6 +72,18 @@ Recorded as they arise, for Phase 5 to fold into the design and the reference do
   (`getData`, `setData`, `removeData`, `listdirData`, `dataFacts`); `getStoredMetadata` is not
   among them, because only `storage: native` needs it. A text time from the bridge is parsed by a
   new `BackendTime::parse`, and the web builder gained `build_store` mirroring the native one.
+- Every `metadata` section, `storage: native` included, requires data-only access: the pipeline
+  reads and writes bytes through the data-only methods. Phase 2's language table implied `native`
+  needed only `getStoredMetadata` / `setMetadata`; the guides follow the code.
+- Phase 5 review: `DirectWrite` does not write the `Storing` marker (only the unwrapped file and
+  OpenDAL stores do); `WriteTarget::Native` stages `<key>.__native__.__staged__`; validate
+  refusals are `Error::general_error`, not `conversion_error_with_message`;
+  `version_verification` returns `Some(Off)` for `content_hash-off` and reads top-level steps
+  only; a `LegacyMetadata` record is returned untouched, with no warning; `content_hash-on_change`
+  hashes whenever bytes are at hand; the cache is per key (`STORE-PIPELINE-CACHE-MISSES-EXTERNAL-RECORD-EDITS`);
+  `register_lib_store_config` is called from `liquers-lib/src/records/commands.rs`, not
+  `commands.rs`. Fixed in Phase 5: an `on_default` step that needs bytes now gets them through
+  `get_metadata` and listings too (`on_default_gets_bytes_through_get_metadata`).
 
 ## Implementation Steps
 
