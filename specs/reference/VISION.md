@@ -21,7 +21,7 @@ Liquers makes derived data **addressable**: every transformation result has a sh
 URL-compatible name — a *query* — that completely describes how to produce it.
 
 ```
--R/data/sales.csv/-/ns-pl/filter-region-EU/group_by-month/report.html
+-R/data/sales.csv/-/ns-rec/to_record/eq-region-EU/sort-month/report.html
 ```
 
 One string is at once a **recipe** (fetch this, apply these commands, serialize to this format), a
@@ -34,6 +34,65 @@ in the browser, from Python, or inside a desktop application.
 The animating idea: the gap between "I computed this" and "others can get this" should be zero.
 A transformation that works in an analyst's session is, with no extra packaging step, a stable URL
 in a web service, a cell in a report, and a cached, dependency-audited asset.
+
+## What Liquers is
+
+Liquers is a **framework, not an application**: you supply the commands (typed functions) and the
+stores; Liquers supplies the query language, the planner, the asynchronous evaluator, the asset
+manager with caching and dependency tracking, serialization, and the serving surfaces. It is
+deliberately universal across application shapes — the same command library, unchanged, can be
+deployed as:
+
+| Shape | Built from | What it looks like |
+|---|---|---|
+| **Server / data service** | `liquers-core` + `liquers-axum` (+ `liquers-lib`) | A REST service where every reachable query is an endpoint, with store CRUD and asset APIs included |
+| **Client/server** | `liquers-axum` server + `liquers-web` client | The server holds the store and heavy commands; the browser evaluates its own queries and adds JavaScript commands — one language, computation on whichever side it belongs |
+| **Browser-only** | `liquers-web` (wasm32) | A static page with no backend at all: environment, evaluation and commands run in the tab |
+| **Desktop application** | `liquers-lib` (`egui`) | An interactive data application where every view is a query — shareable, restorable, cacheable |
+| **Embedded library** | `liquers-core`/`liquers-lib`, `liquers-py` | Inside another Rust application, or a Python process via bindings |
+
+## Problems it solves
+
+1. **The last mile of data work.** A computed result normally needs an app, an API or a pipeline
+   built around it before anyone else can use it. In Liquers the transformation *is* the URL — no
+   packaging step between "it works" and "it is served".
+2. **Glue-code proliferation.** N transformations × M output formats × K delivery channels
+   normally means hand-written handlers, serializers and caches for each. Here they compose
+   combinatorially from one registered command library: `eq-…/sort-…/report.html` is not an
+   endpoint anyone wrote.
+3. **Cache invalidation and freshness.** Derived files silently go stale. Assets carry
+   dependencies, versions and expiration; they are reused while valid and recomputed when not —
+   *make*, for data, with configurable consistency policies.
+4. **Reproducibility and provenance.** "Which script produced this file, from what inputs?" The
+   query answers it by construction; metadata and dependency records keep the audit trail.
+5. **Platform duplication.** The same logic otherwise gets rewritten for the server, the browser,
+   the desktop and Python. One core, compiled everywhere it runs, bound where it does not.
+
+## Where it shines — and where it does not
+
+**Shines:**
+
+- Many small-to-medium transformations over shared data, consumed by many people and views —
+  internal data services, reporting, dashboards.
+- Wherever freshness and provenance matter more than raw throughput: derived data that must be
+  current, explainable and recomputable.
+- Mixed-skill teams: developers write and register commands; analysts, front-ends and agents
+  compose them into queries without touching the code.
+- Low-ops settings: a single-binary server, or no server at all (a static page with wasm).
+- Demo-to-production continuity: the query from the prototype is the query in production.
+- As an agent tool surface: calls that are validatable offline, cached, and auditable.
+
+**Not the right tool (today, and mostly by design):**
+
+- Distributed big-data batch processing — Liquers schedules assets inside one environment; it is
+  not Spark.
+- Transactional/OLTP applications — the model is derived, cacheable data, not concurrent mutation.
+- Hard-real-time or sub-millisecond hot paths — evaluation is planned and metadata-tracked.
+- Continuous stream processing — record *streams* exist, but as re-openable chunked sources, not
+  an unbounded streaming engine.
+
+How these answers are told to each audience — pitches, demos, objections — is in
+[`POSITIONING.md`](POSITIONING.md).
 
 ## Who it is for, and what it is used for
 
@@ -156,4 +215,5 @@ is authoritative only about direction. Current maturity per capability:
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-15 | Added §What Liquers is (application shapes), §Problems it solves, §Where it shines — and where it does not; linked `POSITIONING.md`. | user request |
 | 2026-10-15 | Created: purpose, uses, vision, strategy, crate roles, non-goals. Priority areas and UI roadmap moved here from `PROJECT_OVERVIEW.md` §Future Plans. | documentation-gap review |
