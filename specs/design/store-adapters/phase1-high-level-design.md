@@ -202,11 +202,11 @@ either stores none or keeps its own copy as a backup.
   THEN all are named in the same form, with no configuration syntax specific to any handler, and
   the chain applies them in order (the form is a Phase 2 decision between commands and a query
   compiled to a function, question 2)
-- **AC-22** Presets
-  WHEN a mount selects a preset and overrides one of its fields, and an application defines a
-  preset of its own in the configuration
-  THEN the mount behaves as the preset with that one field changed, the application's preset is
-  usable like a built-in one, and an unknown preset is a configuration error naming the mount
+- **AC-22** Defaults
+  WHEN a mount has a `metadata` section that sets only some of its fields
+  THEN every field left out takes one fixed, documented default, a field set to an empty spec means
+  "no steps", a field that is set replaces its default whole (nothing is merged), and the same
+  section always means the same behaviour, whatever else the configuration contains
 
 Non-goals: database (sqlite, sled, fjall) storage models and a production central storage beyond
 the interface and the test implementation of AC-12; migrating stored metadata between models
@@ -307,6 +307,9 @@ go in `liquers-store` behind features.
 - **2026-10-15, at the user's request, during Phase 2 review.** Two new documents added to the
   Documentation Intent: `REALMS.md` (reference) and `STORE_CONFIG_GUIDE.md` (guide). The design
   now specifies every `store_config` command (Phase 2 §4 catalogue).
+- **2026-10-15, at the user's request, during Phase 2 review.** Presets removed (AC-22 rewritten
+  as fixed defaults, question 13 revised): they made a section's meaning depend on definitions
+  elsewhere.
 
 ## Open Questions
 
@@ -407,14 +410,13 @@ amend.
 12. **Decided 2026-10-15 by the user: on read by default, and on sync for a whole store.** An
     interrupted `transactional` write is completed or rolled back when an affected key is read or
     its folder listed, and by a whole-store sync operation; no scan when the store is built (AC-20).
-13. **Decided 2026-10-15 by the user: defaults depend on the application, so they come from
-    presets.** A preset is a named bundle of policy, storage model, handlers and write strategy that
-    a mount selects and overrides field by field (AC-22). *Proposed built-in presets:*
-    `default` (today's behaviour: sidecar, today's handlers, `direct`; what a mount without a
-    `metadata` section gets, so AC-6 holds), `source` (read-only, no stored metadata, media type,
-    file facts, hash on change, front-matter), `generated` (sidecar, `atomic`), `memory` (grouped,
-    `transactional`, for `agent-memory-mvp`). An application can define its own presets in its
-    configuration, and a crate can register them (AC-10).
+13. **Decided 2026-10-15 by the user, revised the same day: no presets; fixed, meaningful
+    defaults.** Presets (named bundles a mount selects and overrides field by field) were adopted and
+    then dropped at the Phase 2 review: a section whose meaning depends on a bundle defined
+    elsewhere, possibly by another crate, is harder to read than one that says what it does. Each
+    field of a `metadata` section has one default instead (AC-22, values in Phase 2 §7); a mount
+    with no section is not wrapped at all (AC-6). Use cases that needed a preset — the read-only
+    source mount, the agent memory store — write their sections out in full.
 
 ## References
 

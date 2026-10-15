@@ -138,7 +138,7 @@ query through the asset manager fails with `Error::not_supported` naming the rea
 **Realm name.** *Confirmed 2026-10-15:* `store_config` — the realm exists only inside store configuration, its
 queries configure rather than compute, and the name reads as what it is in a header
 (`-store_config/…`). Considered: `storeconf` (shorter, less obvious), `store_handlers` (too
-narrow: the realm also names storage models, write strategies and presets), `store` (collides in
+narrow: the realm also names storage models and write strategies), `store` (collides in
 the reader's mind with the planned `store` command namespace, `STORE-COMMAND-NAMESPACE-MISSING`).
 
 **No interpreter: a plan compiler.** A chain is planned once by the existing `PlanBuilder` and then
@@ -222,9 +222,8 @@ mean "these steps apply to this key or folder", e.g. `-R-key/docs/notes/-store_c
 segment). It compiles naturally into a guard: `if facts.key.has_prefix(k) { steps }` — which is why
 `FactsIn` carries the key now, so the shape need not change later. Open points for when it is
 needed: whether a guard matches the key exactly or as a prefix (the `key` instruction today names
-one key); how several guarded chains combine (first match or all, in order); and how it interacts
-with presets (a preset could carry guarded chains, e.g. `front_matter` only under `*.md`, which
-would need a pattern, not a key). Recorded as an issue at Phase 5 if not implemented.
+one key); how several guarded chains combine (first match or all, in order); and whether a guard
+needs a pattern rather than a key (`front_matter` only under `*.md`). Recorded as an issue at Phase 5 if not implemented.
 
 **Namespace.** Every built-in entry is in namespace `""` of realm `store_config`. The realm already
 keeps them apart from ordinary commands, and `PlanBuilder` searches only the registry's
@@ -251,7 +250,7 @@ step order does not matter.
 
 | Entry | Parameters | Stages | Effect | Needs bytes |
 |---|---|---|---|---|
-| `defaults` | — | Default | The record today's stores synthesize for an entry with no stored metadata: `key`, `filename`, `data_format` and `media_type` from the extension, `status: Source`, `is_dir` | no |
+| `defaults` | — | Default, Write | Default: the record today's stores synthesize for an entry with no stored metadata (`default_metadata`): `key`, `filename`, `is_dir`, `status: Source` for data. Write: what `finalize_metadata` does today — `key` set, `filename` seeded, `status: Source` where it is `None` | no |
 | `set` | `field: String`, `value: String`, `mode = overwrite` | Default, Write, Read | Sets one text field: `title`, `description`, `media_type`, `data_format`, `type_identifier`, `unicode_icon`; any other name fails at build | no |
 | `require` | `fields: Vec<String>` (multiple) | Validate | Refuses a record whose named fields are empty, naming the first (AC-14); the fields `set` accepts | no |
 | `media_type` | `mode = overwrite` | Default, Validate, Write, Read | Default/Write/Read: sets `media_type` from the extension (`media_type.rs` `file_extension_to_media_type`), leaving it alone for an unknown extension. Validate: refuses a supplied `media_type` that disagrees with a known extension (Phase 1's "corrected media type") | no |
@@ -284,11 +283,8 @@ A database model (sqlite, sled, fjall) registers here when it exists; none is re
 Reserved names (`.__staged__`, `.__txn__`) are fixed by the strategy, not parameters, so the
 reserved-name check (AC-3) never depends on a configuration value.
 
-**Not entries.** `read_only` is the mount's boolean, not an entry: it needs no parameters, and a
-query for "do nothing" would only be a second spelling. Presets are configuration data
-(`PresetConfig`, §7), not entries: a preset is a bundle of specs, not a function, and keeping it
-data lets a configuration define one without code. The built-in presets are a constant table beside
-`register_builtin_store_config`; `liquers-lib` adds `docs` the same way.
+**Not an entry.** `read_only` is the mount's boolean: it needs no parameters, and a query for "do
+nothing" would only be a second spelling.
 
 A `LegacyMetadata` record bypasses the chains and is stored and returned untouched, with a warning:
 `Metadata::metadata_record` has no lossless conversion, and the legacy branch exists to keep unknown
@@ -382,26 +378,35 @@ the write strategy, with the same `key_not_supported` error as `set` (AC-3). `cr
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)] // an old, non-empty free-form map is refused, not silently accepted
 pub struct MetadataConfig {
-    pub preset: Option<String>, pub storage: Option<String>, pub writes: Option<String>,
+    pub storage: Option<String>, pub writes: Option<String>,
     pub persist_defaults: Option<bool>, pub on_default: Option<String>, pub on_validate: Option<String>,
     pub on_write: Option<String>, pub on_read: Option<String>,
 }
-// StoreRouterConfig also gains #[serde(default)] pub presets: Vec<PresetConfig> (AC-22): presets
-// are defined once for the whole configuration, not per mount.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PresetConfig { pub name: String, #[serde(default)] pub read_only: Option<bool>,
-                          #[serde(flatten)] pub metadata: MetadataConfig } // a preset may name a base preset
 ```
 
-A preset sets `read_only` too, so `source` makes a mount read-only by itself; an explicit
-`read_only` on the mount wins. Built-in presets (Phase 1 Q13): `default` (native storage, today's
-handlers, `direct` — what a mount without `metadata` behaves as), `source` (read-only, `none`,
-`media_type`, `file_facts`, `content_hash-on_change`), `generated` (native, `atomic`), `memory`
-(grouped, `transactional`). `front_matter` is added to `source` by `liquers-lib`'s registration of
-its own `source` variant, `docs`.
+**Defaults (AC-22, Phase 1 Q13 revised: no presets).** A field left out of a section takes the
+value below; a field that is set replaces its default whole, and `""` means no steps. Nothing is
+merged, so a section reads as what it does. The defaults are today's behaviour made explicit, plus
+the facts that cost no extra read; anything that reads bytes, writes on read or refuses a write is
+opt-in.
 
-Every `Option<String>` component is a **spec** in the one mechanism below; a preset fills the
-fields left `None`. `metadata: {}` counts as no section (AC-6). The old reserved map was never
+| Field | Default | Why |
+|---|---|---|
+| `read_only` | `false` | today |
+| `storage` | `native` | byte-identical to today's sidecars |
+| `writes` | `direct` | today; works on every backend, reserves no names |
+| `persist_defaults` | `false` | a read never writes (the git-checkout complaint of Phase 1); with no section the store is unwrapped and keeps today's write-on-read (AC-6) |
+| `on_default` | `defaults/media_type-fill/file_facts` | today's synthesized record, plus media type and facts |
+| `on_validate` | `""` | nothing refused unless asked |
+| `on_write` | `defaults/media_type-fill/file_facts/updated` | today's `finalize_metadata`, plus media type |
+| `on_read` | `media_type-fill/file_facts` | facts come with the read; no bytes, no hash |
+
+A router-level section has the same defaults. The values live in one `const` beside
+`MetadataConfig` and are documented in `STORE_CONFIG_FSD.md`, so the table and the code cannot
+drift apart unnoticed (a test compares them).
+
+Every `Option<String>` component is a **spec** in the one mechanism below. `metadata: {}` counts
+as no section (AC-6). The old reserved map was never
 written by anything; a non-empty one now fails with the field named.
 
 ## Configuration (Phase 1 question 2 — decided: alternative b, the `store_config` realm)
@@ -410,9 +415,10 @@ written by anything; a non-empty one now fails with the field named.
 - type: filesystem
   prefix: specs
   config: { path: ./specs }
+  read_only: true
   metadata:
-    preset: source
-    on_read: media_type-extension/file_facts/content_hash-on_change/front_matter-title-description
+    storage: none
+    on_read: media_type/file_facts/content_hash-on_change/front_matter
 ```
 
 A chain is a query: actions separated by `/`, parameters by `-`, parsed by `parse_query` and planned
@@ -455,7 +461,7 @@ every read instead of at build time.
 - `liquers-core/src/store/` (new, declared as `mod …;` inside `store.rs`, as `escape.rs` does with
   `escape/`): `read_only.rs` (patterned on the test decorators `DecoratedStore` / `ArcStore`), `pipeline.rs`, `storage.rs`, `handlers.rs`,
   `writes.rs`, `metadata_functions.rs`.
-- `liquers-core/src/store_config.rs`: `read_only`, `MetadataConfig`, `PresetConfig`;
+- `liquers-core/src/store_config.rs`: `read_only`, `MetadataConfig` and its defaults;
   `store_factory.rs`: `build_without_env_expansion` keeps returning `AsyncStoreRouter` (its callers
   in `liquers-store`'s `create_router*`, `liquers-web`'s `build_router` and `EnvironmentBuilder`
   depend on the type) and wraps each mount (`Arc::from` the factory's `Box`, then pipeline, then
@@ -483,7 +489,7 @@ every read instead of at build time.
 | Failure | Constructor |
 |---|---|
 | Write on a read-only store; data-only method on a backend without it | `Error::not_supported` |
-| Unknown component, bad parameter, preset not found, capability missing, reserved-name clash | `Error::configuration_error` naming the mount and the field (AC-9, AC-17) |
+| Unknown component, bad parameter, capability missing, reserved-name clash | `Error::configuration_error` naming the mount and the field (AC-9, AC-17) |
 | A spec that does not parse | the `parse_query` error, with its position |
 | Validator rejects supplied metadata | `Error::conversion_error_with_message` naming the field (AC-14) |
 | Key reserved by the model or the strategy | `Error::key_not_supported` (existing §8 behaviour) |
@@ -506,10 +512,10 @@ CHANGELOG line; `registry_export` keeps it honest.
 | Path | Kind | Change |
 |---|---|---|
 | `specs/reference/STORE_SEMANTICS.md` | reference | New sections: data-only access, read-only, storage models and reserved names, handler stages, write strategies and recovery, grouped-write guarantees |
-| `specs/reference/STORE_CONFIG_FSD.md` | reference | `read_only`, `metadata`, presets, the spec mechanism |
+| `specs/reference/STORE_CONFIG_FSD.md` | reference | `read_only`, `metadata`, the defaults table, the spec mechanism |
 | `specs/guides/STORE_IMPLEMENTATION_GUIDE.md` | guide | Implementing data-only access; writing a handler, a storage model or a write strategy |
 | `specs/reference/REALMS.md` | reference (**new**) | What a realm is today (a `CommandKey` component chosen by the segment header), the default realm `""`, and the issues a foreign realm raises: addressable vs executable, a subject that is not a `Value`, filling an omitted realm before planning, which plan steps a realm accepts, namespaces inside a realm, registry export; `store_config` as the first worked case; the open ones linked to `CORE-MULTI-REALM-INTERPRETER` and `TYPE-REGISTRY-NOT-REALM-AWARE` |
-| `specs/guides/STORE_CONFIG_GUIDE.md` | guide (**new**) | Writing `metadata` sections: stages, the command catalogue, presets, validating specs; then defining and registering a new handler, storage model or write strategy (`CommandMetadata` + builder, hard-coded registration, the closure type, `needs_bytes`, stage refusal, tests) |
+| `specs/guides/STORE_CONFIG_GUIDE.md` | guide (**new**) | Writing `metadata` sections: stages, the command catalogue, the defaults, validating specs; then defining and registering a new handler, storage model or write strategy (`CommandMetadata` + builder, hard-coded registration, the closure type, `needs_bytes`, stage refusal, tests) |
 | `specs/guides/STORE_FACTORY_GUIDE.md` | guide | Passing `StoreConfigFunctions` to the builder; pointer to `STORE_CONFIG_GUIDE.md` |
 | `specs/reference/ASSETS.md` | reference | `created`; `Storing` under the write strategies (added here; Phase 1 listed no other documents) |
 | `specs/reference/PROJECT_OVERVIEW.md` | reference | `AsyncStore` data-only methods; the pipeline in the store layer |

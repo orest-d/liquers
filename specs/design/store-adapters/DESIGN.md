@@ -51,3 +51,6 @@ error; write strategies (direct, atomic, transactional with recovery) are the fo
 **2026-10-15, Phase 2 review.** Realm name `store_config` confirmed. An omitted realm is filled into
 the query before planning (no `PlanBuilder` change); every `store_config` command is specified
 (Phase 2 §4 catalogue); new documents `REALMS.md` and `STORE_CONFIG_GUIDE.md` are planned.
+
+**2026-10-15, Phase 2 review.** Presets removed at the user's request; each `metadata` field has one
+fixed default instead (AC-22 rewritten, Phase 1 Q13 revised, Phase 2 §7 defaults table).
