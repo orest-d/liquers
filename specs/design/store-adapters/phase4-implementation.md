@@ -2,275 +2,307 @@
 
 ## Overview
 
-The work is built bottom-up, so every step compiles and keeps today's tests green on its own. No
-existing behaviour changes until step 9 wires configuration into the builder, and even then only for
-mounts that have a `read_only` or `metadata` section (AC-6).
+The work is built bottom-up, so each step compiles and keeps the default loop green. Until step 10
+wires configuration into the builder, no observable behaviour changes. Two exceptions:
+- the planner fix of step 0;
+- realm `store_config` appearing in registries and listings from step 5, which is regenerated in
+  that same step.
+
+Even after step 10, only mounts with `read_only` or `metadata` change (AC-6).
 
 The order:
-1. Record fields and data-only access (steps 1–3).
-2. The four parts, each unit-tested in isolation: decorator, realm compiler, storage models, write
-   strategies (steps 4–7).
-3. The pipeline that joins them (step 8).
-4. Configuration (step 9), then conformance (step 10).
-5. Crates above core (steps 11–15).
+1. The planner fix and the record and trait foundations (steps 0–3).
+2. The parts: decorator, realm compiler, storage models (steps 4–6).
+3. Write strategies and the pipeline that joins the parts (steps 7–8).
+4. The asset-manager hook (step 9), configuration (step 10), then conformance (step 11).
+5. The crates above core (steps 12–15).
 
-Steps 4–7 depend only on steps 1–3 and can run in parallel. Steps 13–15 depend on step 9 and can
-also run in parallel.
+Steps 4 and 5 can run in parallel after step 3. Steps 13, 14 and 15 can run in parallel after
+step 10.
 
-Prerequisites: none. The preflight (Phase 2) found no blocking issue.
+Prerequisites: none outside this design. The planner defect, fixed in step 0, is part of it (Phase 2
+§Configuration).
 
 ## Progress
-- [ ] Step 1: `created` and `etag` on records, `BackendTime`
-- [ ] Step 2: data-only access on `AsyncStore`, with refusing defaults
+- [ ] Step 0: the planner applies a segment's realm to every action
+- [ ] Step 1: `created`, `etag` and `BackendTime` on records
+- [ ] Step 2: data-only access on `AsyncStore`, `ReservedNames` prefixes, test support
 - [ ] Step 3: data-only access in the memory, file and router stores
 - [ ] Step 4: `ReadOnlyStore`
-- [ ] Step 5: realm `store_config`: compiler and built-in handlers
+- [ ] Step 5: realm `store_config`: compiler, built-in handlers, registry export
 - [ ] Step 6: storage models
-- [ ] Step 7: write strategies and failure injection
+- [ ] Step 7: write strategies
 - [ ] Step 8: `MetadataPipelineStore`
-- [ ] Step 9: configuration types, defaults, `build_store`
-- [ ] Step 10: conformance suites `C7`–`C12`
-- [ ] Step 11: `front_matter` and `front_matter_sync` in `liquers-lib`
-- [ ] Step 12: realm entries in `specs/command_registry.yaml`
+- [ ] Step 9: the asset manager reads `version_verification`
+- [ ] Step 10: configuration types, defaults, `build_store`
+- [ ] Step 11: conformance suites `A1`–`A7`
+- [ ] Step 12: `front_matter` and `front_matter_sync` in `liquers-lib`
 - [ ] Step 13: OpenDAL data-only access
 - [ ] Step 14: HTTP 501 test and Python getters
-- [ ] Step 15: `liquers-web`: `isReadOnly` and the optional data-only methods
+- [ ] Step 15: `liquers-web`: `isReadOnly`, the optional data-only methods, declarations
 
 ## Implementation Steps
 
-### Step 1: `created` and `etag` on records, `BackendTime`
-- Files / symbols: `liquers-core/src/metadata.rs`: `MetadataRecord`, `AssetInfo`, new
-  `BackendTime`, `TimePrecision`.
-- Change:
-  - Add `pub created: Option<BackendTime>` and `pub etag: Option<String>`, each with
-    `#[serde(default, skip_serializing_if = "Option::is_none")]`.
-  - `BackendTime { time: chrono::DateTime<Utc>, precision: TimePrecision }` serializes as one RFC
-    3339 string truncated to its precision.
-  - `AssetInfo` copies both fields.
+### Step 0: the planner applies a segment's realm to every action
+- Files / symbols: `liquers-core/src/plan.rs`: `PlanBuilder` (`process_query`, `process_action`,
+  `get_command_metadata`, `promote_relative_default_links`).
+- Change: when the builder splits a query into predecessor and action, it carries the realm of the
+  transform segment the action came from, instead of re-deriving it from the reduced query.
 - Depends on: none.
-- Proof: `cargo test -p liquers-core --lib metadata`. Then
-  `older_build_reads_new_record_as_legacy` (written now, against a fixture parsed with the
-  pre-change `MetadataRecord` shape) and a round-trip test, `backend_time_round_trips_at_its_precision`.
-- Rollback: revert the commit. The fields are additive and skipped when `None`.
+- Proof: the four `plan.rs` tests of Phase 3. All `liquers-core` tests and the default loop stay
+  green, so realm `""` plans unchanged. `liquers-validate` plans `-r/a/b` against an overlay with
+  realm `r`.
+- Rollback: revert. Nothing else depends on it until step 5.
 
-### Step 2: data-only access on `AsyncStore`, with refusing defaults
-- Files / symbols: `liquers-core/src/store.rs`: `AsyncStore`; new `DataCapabilities`, `DataFacts`,
-  `ReservedNameSet`.
+### Step 1: `created`, `etag` and `BackendTime` on records
+- Files / symbols: `liquers-core/src/metadata.rs`: `MetadataRecord`, `AssetInfo`; new
+  `BackendTime(String)` and `TimePrecision`, as in Phase 2 §1.
 - Change:
-  - Add the Phase 2 §1 methods, each defaulting to `Error::not_supported`, or `false` / empty for
-    the query methods: `get_data`, `set_data`, `remove_data`, `rename_data`, `listdir_data`,
-    `data_facts`, `get_stored_metadata`, `data_capabilities`, `is_read_only`, `sync`,
-    `version_verification`.
-  - Add `ReservedNameSet`, with the predicate it shares with `ReservedNames`.
+  - Add `created: Option<BackendTime>` and `etag: Option<String>`, both `#[serde(default,
+    skip_serializing_if = "Option::is_none")]`. `AssetInfo` copies them.
+  - `BackendTime::new` formats an RFC 3339 UTC string truncated to the given precision.
+  - Commit the pre-change field list as the test fixture `tests/fixtures/metadata_record_fields_v1.txt`.
+- Depends on: none.
+- Proof: `cargo test -p liquers-core --lib metadata::` runs the three `metadata.rs` tests.
+- Rollback: revert. Both fields are additive.
+
+### Step 2: data-only access on `AsyncStore`, `ReservedNames` prefixes, test support
+- Files / symbols:
+  - `store.rs`: `AsyncStore`; new `DataCapabilities`, `DataFacts`, `SyncReport`; `ReservedNames`
+    gains `prefixes` and `reserves(segment)`; new owned `ReservedNameSet`; new public
+    `SharedStore`.
+  - New `store/test_support.rs`: `RecordingStore`, `FailingStore`.
+- Change:
+  - The Phase 2 §1 methods, all defaulted.
+  - `version_verification` returns `None`, and `assets.rs` is untouched until step 9.
 - Depends on: step 1.
-- Proof: `cargo test -p liquers-lib --lib --tests` (unchanged); `C1`–`C6` unchanged
-  (`cargo test -p liquers-core --features store-conformance --test store_conformance_CONF`);
-  `bash scripts/check-build-matrix.sh` for the wasm32 trait bounds.
-- Rollback: revert. All methods are defaulted, so no implementor changes.
+- Proof:
+  - `cargo test -p liquers-lib --lib --tests`.
+  - `C1`–`C6` unchanged: `cargo test -p liquers-core --features store-conformance --test store_conformance_CONF`.
+  - `bash scripts/check-build-matrix.sh`, for the wasm32 bounds.
+- Rollback: revert. No implementor has to change.
 
 ### Step 3: data-only access in the memory, file and router stores
 - Files / symbols: `store.rs` `AsyncMemoryStore`, `AsyncFileStore`, `AsyncStoreRouter`.
 - Change:
-  - The file store's data-only methods read and write the file alone: no sidecar, no repair on read.
-    `rename_data` is `tokio::fs::rename`, and `data_facts` comes from `metadata()`, at nanosecond
-    precision where the platform gives it.
-  - The memory store keeps an etag counter.
-  - The router forwards each data-only method to the selected member, with the existing
-    `find_store`.
+  - The file store reads and writes the file alone: no sidecar, no repair.
+    - `rename_data` uses `tokio::fs::rename`.
+    - `data_facts` comes from `tokio::fs::metadata`, at nanosecond precision.
+    - `get_stored_metadata` reads the sidecar without repairing it.
+  - The memory store keeps a modification time and an ETag counter.
+  - The router forwards to the member it selects, answers `is_read_only` as "it has members and
+    all of them are", and reports the intersection of its members' capabilities.
 - Depends on: step 2.
-- Proof: unit tests `data_only_get_does_not_create_sidecar`,
-  `data_facts_change_when_file_is_rewritten`, `router_forwards_data_only_methods`.
+- Proof: the five `store.rs` tests of Phase 3.
 - Rollback: revert. Nothing calls these methods yet.
 
 ### Step 4: `ReadOnlyStore`
-- Files / symbols: new `liquers-core/src/store/read_only.rs`, declared from `store.rs` the way
-  `escape/` is.
-- Change: `pub struct ReadOnlyStore { inner: Arc<dyn AsyncStore> }`. It implements every
-  `AsyncStore` method:
-  - writes return `not_supported`;
-  - reads forward to `inner`, metadata through `inner`'s data-only path where it has one, so that a
-    read cannot create a sidecar (AC-1);
-  - `is_read_only` returns `true`.
-- Depends on: step 3. Parallel with 5–7.
-- Proof: the three `read_only.rs` tests in Phase 3.
+- Files / symbols: new `store/read_only.rs`, declared from `store.rs` the way `escape/` is.
+- Change: Phase 2 §2.
+  - Over a store with data access, a missing record is synthesized by today's `default_metadata`
+    plus `finalize_metadata(update = false)`, with no chain.
+  - Any other store is forwarded unchanged.
+- Depends on: step 3. Can run in parallel with step 5.
+- Proof: `cargo test -p liquers-core --lib store::read_only` runs the three `read_only.rs` tests.
 - Rollback: delete the module.
 
-### Step 5: realm `store_config`: compiler and built-in handlers
-- Files / symbols: new `liquers-core/src/store/store_config.rs` (the Phase 2 §4 types, `fill_realm`,
-  `StoreConfigFunctions::compile`, `register_builtin_store_config`) and `store/handlers.rs` (the
-  catalogue's handlers); `commands.rs` `CommandRegistry`, which gains `store_config:
-  StoreConfigFunctions`; the executor, which refuses realm `store_config` with `not_supported`.
-- Change: as Phase 2 §4.
-  - Every `Step` variant is matched explicitly.
-  - Read-stage steps are wrapped so an error becomes a log warning.
-  - The `CommandMetadata` of each entry is built in code next to its builder.
-- Depends on: step 1. Parallel with 4, 6 and 7.
-- Proof: `cargo test -p liquers-core --lib store::store_config`, which runs every `store_config.rs`
-  test of Phase 3.
-- Rollback: revert. Registration is additive and the executor change affects only the new realm.
+### Step 5: realm `store_config`: compiler, built-in handlers, registry export
+- Files / symbols:
+  - New `store/realm.rs`: the Phase 2 §4 types, `fill_realm`, `StoreConfigFunctions::{builtin,
+    compile}`, `register_builtin_store_config` and `register_test_store_config`.
+  - New `store/handlers.rs`: the handler builders.
+  - `commands.rs`: `CommandRegistry` gains `store_config: StoreConfigFunctions`, `new()` calls
+    `register_builtin_store_config`, and the executor refuses the realm with `not_supported`.
+  - `liquers-lib/src/bin/export_command_registry.rs` `build_registry` and
+    `liquers-lib/tests/registry_export.rs` `full_registry`: the built-in entries, as group
+    `store_config`.
+  - `specs/command_registry.yaml`, regenerated with a CHANGELOG line.
+- Change: Phase 2 §4.
+  - Every `Step` variant is matched explicitly, `init_steps` included.
+  - In the Read stage, a failing step leaves a warning instead of an error.
+  - Each entry's `CommandMetadata` is built in code next to its builder.
+- Depends on: steps 0 and 2. Can run in parallel with step 4.
+- Proof:
+  - `cargo test -p liquers-core --lib store::realm` runs the `realm.rs` tests except the storage
+    model half of `registered_entry_is_named_like_a_builtin`, which comes in step 6.
+  - `cargo test -p liquers-lib --test registry_export`.
+  - `liquers-validate -- '-store_config/defaults/media_type-fill/file_facts'` exits 0.
+- Rollback: revert, then regenerate the registry.
 
 ### Step 6: storage models
 - Files / symbols: new `store/storage.rs`: `MetadataStorage`, `NativeStorage`, `PerEntryStorage`,
-  `Layout`, `GroupedStorage`, `NoStorage`, `MemoryCentralStorage` (under `cfg(any(test, feature =
-  "store-conformance"))`). Their `ComponentBuilder`s are registered in
-  `register_builtin_store_config`.
-- Change: Phase 2 §3. The grouped file is a `BTreeMap<String, MetadataRecord>`, serialized as JSON,
-  so writes are deterministic.
+  `Layout`, `GroupedStorage`, `NoStorage`, `MemoryCentralStorage` (test-only). Builders are
+  registered in `register_builtin_store_config`, and in `register_test_store_config` for
+  `memory_central`.
+- Change: Phase 2 §3. The group file is a JSON `BTreeMap<String, MetadataRecord>`, so its bytes are
+  deterministic.
 - Depends on: steps 3 and 5.
-- Proof: the `storage.rs` tests.
+- Proof: `cargo test -p liquers-core --lib store::storage`; regenerate the registry
+  (`registry_export`).
 - Rollback: revert the module and its registrations.
 
-### Step 7: write strategies and failure injection
+### Step 7: write strategies
 - Files / symbols: new `store/writes.rs`: `WriteStrategy`, `WriteSet`, `ObjectWrite`, `WriteTarget`,
-  `PreparedWrite`, `Recovery`, `SyncReport`, `DirectWrite`, `AtomicWrite`, `JournalWrite`.
-  `store_conformance/failing.rs` holds `FailingStore` (fails the *n*-th data-only call, then stops),
-  behind the same cfg.
-- Change: Phase 2 §5. The journal is JSON listing every object with its staged key.
-- Depends on: steps 3 and 5. Parallel with 6.
-- Proof: the `writes.rs` tests, with each strategy over `FailingStore` for every *n* up to the
-  number of calls a commit makes.
+  `PreparedWrite`, `Recovery`, `DirectWrite`, `AtomicWrite`, `JournalWrite`, and their builders.
+- Change: Phase 2 §5. The journal is a JSON list of objects, each with its staged key.
+- Depends on: step 6, which the transactional tests run over.
+- Proof:
+  - `cargo test -p liquers-core --features store-conformance --lib store::writes` runs the
+    `writes.rs` tests except `each_strategy_follows_its_protocol`, which needs the pipeline and
+    moves to step 8.
+  - Regenerate the registry.
 - Rollback: revert.
 
 ### Step 8: `MetadataPipelineStore`
-- Files / symbols: new `store/pipeline.rs`: `MetadataPipelineStore`, `PipelineParts`,
-  `MetadataCache`, `GroupLocks`; central storage with backups.
+- Files / symbols: new `store/pipeline.rs`: `MetadataPipelineStore`, `PipelineParts` (with
+  `read_only`), `MetadataCache`, `GroupLocks`, central storage with backups.
 - Change: the Phase 2 §6 flows.
-  - Locks are an `scc::HashMap<Key, Arc<tokio::sync::Mutex<()>>>`, evicted when `Arc::strong_count`
-    is 1 after release.
-  - The cache is keyed by key and stores `(MetadataRecord, DataFacts)`.
+  - The pipeline reports no data access.
+  - Locks are taken through `scc::HashMap::entry`, and evicted with `remove_if(|l|
+    Arc::strong_count(l) == 1)` after release, so taking and evicting a lock cannot race.
 - Depends on: steps 4–7.
-- Proof: the `pipeline.rs` tests.
-- Rollback: revert. Nothing builds it until step 9.
+- Proof: `cargo test -p liquers-core --features store-conformance --lib store::pipeline` and
+  `each_strategy_follows_its_protocol`.
+- Rollback: revert. Nothing builds a pipeline until step 10.
 
-### Step 9: configuration types, defaults, `build_store`
-- Files / symbols:
-  - `store_config.rs` (the configuration file at the crate root): `StoreConfig` and
-    `StoreRouterConfig` gain `read_only` and `metadata`; new `MetadataConfig` and
-    `METADATA_DEFAULTS`.
-  - `store_factory.rs`: `StoreRouterBuilder::with_store_config(&CommandMetadataRegistry,
-    &StoreConfigFunctions)` and `build_store`. `build_without_env_expansion` wraps each mount.
-  - `environment_builder.rs` `build` calls `build_store` with its command registry.
-  - `liquers-store`'s `create_router*` and `liquers-web`'s `build_router` use
-    `StoreConfigFunctions::builtin()`.
-- Change: Phase 2 §7 and §Configuration. A non-empty old `metadata` map is refused, naming the
-  field.
+### Step 9: the asset manager reads `version_verification`
+- Files / symbols: `liquers-core/src/assets.rs` `decide_external_change` and its callers.
+- Change: `store.version_verification(&key)` overrides `AssetManagerOptions` when it is `Some`.
+  The pipeline answers `Some(OnRead)` for a mount whose read chain contains `content_hash`.
 - Depends on: step 8.
-- Proof: `cargo test -p liquers-core --features store-conformance --test store_adapters`, then the
-  default loop `cargo test -p liquers-lib --lib --tests`.
+- Proof: the two `assets.rs` tests;
+  `cargo test -p liquers-core --test external_change_integration` unchanged.
+- Rollback: revert. Every store answers `None` again.
+
+### Step 10: configuration types, defaults, `build_store`
+- Files / symbols:
+  - `liquers-core/src/store_config.rs`: `StoreConfig` and `StoreRouterConfig` gain `read_only` and
+    `metadata`; new `MetadataConfig` and `METADATA_DEFAULTS`.
+  - `store_factory.rs`: `StoreRouterBuilder::with_store_config(CommandMetadataRegistry,
+    StoreConfigFunctions)`, `build_store` and `build_store_without_env_expansion`. The existing
+    `build` and `build_without_env_expansion` wrap mounts and refuse router-level sections.
+  - `environment_builder.rs` `build` uses its own command registry.
+  - New `liquers-core/tests/store_adapters.rs`.
+- Change: Phase 2 §7, §Configuration and Integration Points. A non-empty old `metadata` map is
+  refused.
+- Depends on: step 9.
+- Proof:
+  - `cargo test -p liquers-core --features store-conformance --test store_adapters`, except the
+    front-matter stand-in test, which comes with step 11.
+  - `cargo test -p liquers-store`, since `create_router*` changes.
+  - `cargo test -p liquers-lib --lib --tests`.
+  - `bash scripts/check-build-matrix.sh`.
 - Rollback: revert. Configurations without the new fields are unaffected.
 
-### Step 10: conformance suites `C7`–`C12`
-- Files / symbols: `liquers-core/tests/store_conformance_CONF.rs`; `specs/reference/STORE_SEMANTICS.md`'s
-  status table, if it is generated from the suites.
-- Change: add the fixtures listed in Phase 3. A suite that fails a rule because of a known issue
-  lists it as `AllowedFailure` naming the issue.
-- Depends on: step 9.
-- Proof: `cargo test -p liquers-core --features store-conformance --test store_conformance_CONF`.
+### Step 11: conformance suites `A1`–`A7`
+- Files / symbols: `liquers-core/tests/store_conformance_CONF.rs` and its `status_table`
+  generator; the conformance table in `STORE_IMPLEMENTATION_GUIDE.md` §9.
+- Change: the Phase 3 fixtures, each over `SharedStore`. A known divergence is an `AllowedFailure`
+  naming its issue.
+- Depends on: step 10.
+- Proof: `cargo test -p liquers-core --features store-conformance --test store_conformance_CONF`;
+  `front_matter_write_back_through_the_pipeline`.
 - Rollback: remove the suites.
 
-### Step 11: `front_matter` and `front_matter_sync` in `liquers-lib`
-- Files / symbols: new `liquers-lib/src/store_config.rs`: the handlers and
-  `register_lib_store_config`, called from `liquers-lib/src/environment.rs` wherever it builds its
-  command registry.
-- Change: the catalogue rows. The parse reuses `liquers_records::search::front_matter_end` behind
-  feature `records`. Without that feature the two entries are not registered, and naming them is
-  the ordinary unknown-entry error.
-- Depends on: step 9.
-- Proof: `cargo test -p liquers-lib --lib store_config`; `bash scripts/check-build-matrix.sh`.
-- Rollback: revert.
-
-### Step 12: realm entries in `specs/command_registry.yaml`
-- Files / symbols: `liquers-lib` `export-command-registry`; `specs/command_registry.yaml`;
-  `liquers-validate` (`liquers-core/src/validate/`), only if a realm other than `""` needs a change
-  there.
-- Change: regenerate, with a CHANGELOG line. Check that `liquers-validate` plans
-  `-store_config/front_matter` against the exported registry.
-- Depends on: step 11.
-- Proof: `cargo test -p liquers-lib --test registry_export`; `liquers-validate -- '-store_config/media_type/file_facts'`
-  exits 0.
-- Rollback: regenerate from the previous commit.
+### Step 12: `front_matter` and `front_matter_sync` in `liquers-lib`
+- Files / symbols:
+  - New `liquers-lib/src/store_config.rs`: the handlers and `register_lib_store_config`.
+  - Callers: `liquers-lib/src/commands.rs` `register_commands`, the exporter's `build_registry`
+    and `full_registry`.
+  - `liquers-records`: a public front-matter block parser, if `parse_structure` does not already
+    expose one.
+- Change: the catalogue rows, behind feature `records`.
+- Depends on: step 10.
+- Proof:
+  - `cargo test -p liquers-lib --lib store_config`.
+  - `cargo test -p liquers-lib --test registry_export`, after regenerating the registry.
+  - `bash scripts/check-build-matrix.sh`.
+  - Re-validate every Phase 3 spec against the exported registry (Examples 1 and 2, and the §7
+    defaults).
+- Rollback: revert, then regenerate.
 
 ### Step 13: OpenDAL data-only access
-- Files / symbols: `liquers-store/src/opendal_store.rs`.
-- Change: the data-only methods over `opendal::Operator`. `rename_data` is offered where the
-  service supports rename, `data_facts` comes from `stat`, and the etag comes from the service where
-  it has one.
-- Depends on: step 2. Parallel with 14 and 15.
-- Proof: `cargo test -p liquers-store`, plus a `C9` variant over `opendal_fs` if the suite runs it
-  today.
+- Files / symbols: `liquers-store/src/opendal_store.rs`;
+  `liquers-store/tests/store_conformance_CONF.rs`.
+- Change:
+  - The data-only methods over `opendal::Operator`.
+  - `rename` only where the service has it.
+  - `data_facts` comes from `stat`, with the service's ETag.
+- Depends on: step 10. Can run in parallel with steps 14 and 15.
+- Proof: `cargo test -p liquers-store --test store_conformance_CONF` runs `a3_opendal_fs_per_entry`.
 - Rollback: revert. The trait defaults refuse again.
 
 ### Step 14: HTTP 501 test and Python getters
-- Files / symbols: `liquers-axum/tests/store_api_integration.rs`; `liquers-py/src/` (the
-  `MetadataRecord` wrapper).
-- Change: the test `read_only_store_write_is_501`; getters for `created` and `etag`.
-- Depends on: step 9.
+- Files / symbols: `liquers-axum/tests/store_api_integration.rs`; the `MetadataRecord` wrapper in
+  `liquers-py/src/`.
+- Change: `read_only_store_write_is_501`; getters for `created` and `etag`.
+- Depends on: step 10.
 - Proof: `cargo test -p liquers-axum --test store_api_integration`; `cargo check -p liquers-py`.
 - Rollback: revert.
 
-### Step 15: `liquers-web`: `isReadOnly` and the optional data-only methods
-- Files / symbols: `liquers-web/src/store/` (`JsStore`, `LiquersStore`); `liquers-web/README.md`;
-  the stub declarations.
-- Change:
-  - `JsStore` looks up `getData`, `setData`, `removeData`, `renameData`, `listdirData` and
-    `dataFacts` once, at adaptation, and reports `data_capabilities` from what it finds.
-  - `LiquersStore.isReadOnly()`.
-  - The built-in browser stores keep refusing data access.
-- Depends on: step 9.
-- Proof: the four `store_js_STORE.rs` tests;
-  `cargo test -p liquers-web --target wasm32-unknown-unknown --features debug-handles`; then
-  `./liquers-web/scripts/check-stubs.sh` (after `cargo clean`, per `CLAUDE.md`).
-- Rollback: revert. A store object without the methods behaves as before.
+### Step 15: `liquers-web`: `isReadOnly`, the optional data-only methods, declarations
+- Files / symbols:
+  - `liquers-web/src/store/`: `JsStore` and `LiquersStore`.
+  - `liquers-web/src/typescript.rs`: `LiquersStoreEntry` gains `read_only` and `metadata`.
+  - The stubs and `liquers-web/README.md`.
+- Change: `JsStore` looks the optional methods up once, when it adapts the object, and reports
+  `data_capabilities` from what it found. The built-in browser stores keep refusing data access.
+- Depends on: step 10.
+- Proof (after `cargo clean`, per `CLAUDE.md`):
+  - the four `store_js_STORE.rs` tests;
+  - `cargo test -p liquers-web --target wasm32-unknown-unknown --features debug-handles`;
+  - `./liquers-web/scripts/check-stubs.sh`.
+- Rollback: revert. If the step cannot be finished, it becomes an issue (Phase 1 readiness item 5).
 
 ## Testing Plan
 
-Each step runs its own proof and then the default loop (`cargo test -p liquers-lib --lib --tests`),
-so a step that breaks something elsewhere stops there.
+Each step runs its own proof, then the default loop (`cargo test -p liquers-lib --lib --tests`), so
+a breakage stops at its step.
 
-Additional runs:
-- `bash scripts/check-build-matrix.sh` after steps 2, 9 and 11, which touch trait bounds, `cfg`
-  features and optional dependencies.
-- After step 15: the whole of `liquers-core` with `--features store-conformance`, `liquers-store`,
-  `liquers-lib`, `liquers-axum`, and the `liquers-web` Node loop, each separately and with `cargo
-  clean` between where disk requires.
+- **Feature matrix:** `bash scripts/check-build-matrix.sh` runs after steps 2, 10 and 12. Those
+  touch trait bounds, `cfg` features and optional dependencies.
+- **Final check, after step 15:**
+  - `liquers-core` with `--features store-conformance`;
+  - `liquers-store`, `liquers-lib`, `liquers-axum`;
+  - the `liquers-web` Node loop.
 
-The known flaky test `volatile_dependency_has_one_value_per_evaluation`
-(`EVALUATION-SESSION-VOLATILE-TEST-INTERMITTENT`) is re-run once if it fails, and is not treated as a
-regression.
+  Each runs separately, with `cargo clean` between runs if disk requires it.
+- **Known flake:** `volatile_dependency_has_one_value_per_evaluation`
+  (`EVALUATION-SESSION-VOLATILE-TEST-INTERMITTENT`) is re-run once if it fails.
 
 ## Rollback Plan
 
-Every step is a separate commit and reverts on its own. Until step 9 nothing is reachable from
-configuration. If only steps 1–8 land, the code is unused but tested, and the remainder becomes an
-issue (§5.6). If step 15 cannot be finished, the JavaScript half is filed as an issue and Phase 5
-records it; the Rust stores are complete without it.
+Every step is one commit and reverts on its own; the registry is regenerated after reverting
+step 5, 6, 7 or 12. Until step 10, nothing is reachable from configuration. If the work stops
+partway:
+- the landed steps stay, tested;
+- the remainder becomes an issue (§5.6), and Phase 5 records it.
 
 ## Documentation Updates
 
 Create:
 - `specs/reference/REALMS.md`.
-- `specs/guides/STORE_CONFIG_GUIDE.md`.
+- `specs/guides/STORE_CONFIG_GUIDE.md`, including the `/` escaping and the empty-list meanings.
 
 Update:
 - `STORE_SEMANTICS.md`.
-- `STORE_CONFIG_FSD.md` (the defaults table).
-- `STORE_IMPLEMENTATION_GUIDE.md`.
+- `STORE_CONFIG_FSD.md`, with the defaults table.
+- `STORE_IMPLEMENTATION_GUIDE.md`, with the conformance table.
 - `STORE_FACTORY_GUIDE.md`.
 - `ASSETS.md`.
-- `PROJECT_OVERVIEW.md` (its realm section points to `REALMS.md`).
-- `LANGUAGE-INTEGRATION_GUIDE.md`, following the Phase 2 plan, with `STORE14`–`STORE18` in
-  Appendix A.
-- `CLAUDE.md` "Adding a Store Backend".
+- `PROJECT_OVERVIEW.md`. Its realm section now holds true, and points to `REALMS.md`.
+- `LANGUAGE-INTEGRATION_GUIDE.md`, following the Phase 2 plan, with `STORE14`–`STORE18`.
+- `CLAUDE.md`.
 - `liquers-web/README.md`.
 - `.claude/skills/liquers-validate/SKILL.md`.
 
-Every updated `reference/` or `guides/` document gets a `## History` row and a bumped `reviewed:`.
+Each updated `reference/` or `guides/` document gets a `## History` row and a bumped `reviewed:`.
 
 Regenerate and register:
-- `specs/command_registry.yaml` (step 12).
-- `specs/index.csv` after every front-matter change.
-- `specs/README.md`: a capability-map entry, and the design marked complete at Phase 5.
-- Add the two new documents to `affects_docs` when they exist.
+- `specs/command_registry.yaml`, in steps 5–7 and 12.
+- `specs/index.csv`.
+- `specs/README.md`.
+- `affects_docs` gains the two new documents when they exist.
 
 ## Phase 5 Entry Criteria
 - [ ] Implementation finished and validated

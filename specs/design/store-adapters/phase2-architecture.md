@@ -81,7 +81,7 @@ verifying (`decide_external_change` in `assets.rs`), ask the store for a mount's
 a mount with a `content_hash` handler overrides `AssetManagerOptions`, `None` keeps the environment
 default. `get_stored_metadata` is what makes M1 possible
 before the pipeline exists: `ReadOnlyStore` reads data and stored metadata through it and
-synthesizes the rest without writing.
+synthesizes the rest without writing, with no dependency on the realm compiler.
 
 ### 2. Access policy
 
@@ -90,7 +90,10 @@ pub struct ReadOnlyStore { inner: Arc<dyn AsyncStore> }
 impl ReadOnlyStore { pub fn new(inner: Arc<dyn AsyncStore>) -> Self; }
 impl AsyncStore for ReadOnlyStore { /* set, set_metadata, remove, removedir, makedir, set_data,
     remove_data, rename_data → Error::not_supported; is_read_only → true; reads: if the inner store
-    has data access, get_data + get_stored_metadata + the default chain in memory, else forward */ }
+    has data access, get_data + get_stored_metadata, and a missing record synthesized in memory by
+    the hard-coded default_metadata + finalize_metadata(update = false) of today (no chain: a
+    read-only mount with a `metadata` section gets its chains from the pipeline below it); else
+    forward unchanged — which is what happens over a pipeline, since it reports no data access */ }
 ```
 
 A store **without** data-only access is forwarded as it is; if it writes on read, `ReadOnlyStore`
@@ -148,7 +151,7 @@ configuration time and owned by the store, so there is no `Arc`, lock or registr
 read or write path, and the record is passed by `&mut`:
 
 ```rust
-// liquers-core/src/store/store_config.rs
+// liquers-core/src/store/realm.rs (named apart from the configuration module crate::store_config)
 pub struct FactsIn<'a> {
     pub key: &'a Key,                         // a fact, so key-specific steps are possible later
     pub facts: Option<&'a DataFacts>,         // size, backend time, ETag — no bytes needed
@@ -178,17 +181,24 @@ pub type ComponentBuilder = fn(&ResolvedParameterValues) -> Result<StoreComponen
 pub enum StoreComponent { Storage(Arc<dyn MetadataStorage>), Writes(Arc<dyn WriteStrategy>) }
 pub struct CompiledStep { pub needs_bytes: NeedsBytesFn, pub run: CompiledFn }
 
-#[derive(Default)]
+#[derive(Default, Clone)] // fn pointers only, so cloning is cheap and needs no Arc
 pub struct StoreConfigFunctions { steps: HashMap<CommandKey, StepBuilder>,
                                   components: HashMap<CommandKey, ComponentBuilder> }
 impl StoreConfigFunctions {
-    pub fn builtin() -> Self;
+    /// The built-in entries with the registry that declares them, for a builder with no environment.
+    pub fn builtin() -> (CommandMetadataRegistry, Self);
     pub fn compile(&self, spec: &str, stage: Stage, registry: &CommandMetadataRegistry)
         -> Result<CompiledChain, Error>;
 }
-/// Hard-coded registration, next to the handlers it registers (no macro):
+/// Hard-coded registration, next to the handlers it registers (no macro). Called by
+/// `CommandRegistry::new()`, so every environment can name the built-ins, and by the exporter.
 pub fn register_builtin_store_config(cmr: &mut CommandMetadataRegistry, f: &mut StoreConfigFunctions)
-    -> Result<(), Error>;   // liquers-lib has its own, for `front_matter`
+    -> Result<(), Error>;   // liquers-lib has `register_lib_store_config`, for `front_matter`
+/// Test-only entries (`memory_central`), never called by the above: the exported registry must
+/// not depend on whether some crate enabled a test feature.
+#[cfg(any(test, feature = "store-conformance"))]
+pub fn register_test_store_config(cmr: &mut CommandMetadataRegistry, f: &mut StoreConfigFunctions)
+    -> Result<(), Error>;
 ```
 
 `Fn`, not `FnMut`: the store calls a chain from many tasks at once through `&self`. `Send + Sync`
@@ -379,7 +389,14 @@ the folder's group file), and a recovery appends a warning to the record's log (
 calls `writes.sync`. `is_supported` and every path refuse a name reserved by the storage model or
 the write strategy, with the same `key_not_supported` error as `set` (AC-3). `created` is set from
 `data_facts` after each data commit, so a `Partial` checkpoint and the final write each move it
-(Phase 1 Q8). All other methods forward to the backend's data-only ones.
+(Phase 1 Q8). All other methods forward to the backend.
+
+**The pipeline is not a data backend.** It reports `DataCapabilities::default()` (no data access)
+and refuses the data-only methods, because they belong to the store *under* it. That makes the
+nesting order of §2 safe: `ReadOnlyStore` over a pipeline forwards every read to the pipeline, so the
+configured chains run. A pipeline built for a read-only mount (`PipelineParts::read_only`) never
+persists defaults and never writes on read, whatever `persist_defaults` says; only the caller's
+writes are refused, by the decorator above it.
 
 ### 7. Configuration types
 
@@ -465,7 +482,9 @@ resource segment (`-R-key/…`, below) keeps its shape.
 builds the store (`environment_builder.rs`), so it passes the `command_metadata_registry` and the
 `StoreConfigFunctions` to `StoreRouterBuilder` — no construction cycle, since a compiled chain never
 needs the environment. A bare `StoreRouterBuilder` (tests, `liquers-store`'s `create_router*`,
-`liquers-web`) uses `StoreConfigFunctions::builtin()` with its metadata, or the pair it is given.
+`liquers-web`) uses the pair `StoreConfigFunctions::builtin()` returns, or the pair it is given.
+`with_store_config` takes both by value (`CommandMetadataRegistry` is `Clone`), since
+`StoreRouterBuilder` holds no borrows.
 
 **The other components.** Storage models and write strategies are `store_config` entries too
 (§4 catalogue), with a `ComponentBuilder` instead of a `StepBuilder` — e.g. `per_entry-folder`,
@@ -487,14 +506,19 @@ every read instead of at build time.
   `AsyncMemoryStore`, `AsyncStoreRouter`; `ReservedNames` prefix form.
 - `liquers-core/src/store/` (new, declared as `mod …;` inside `store.rs`, as `escape.rs` does with
   `escape/`): `read_only.rs` (patterned on the test decorators `DecoratedStore` / `ArcStore`), `pipeline.rs`, `storage.rs`,
-  `writes.rs`, `store_config.rs` (§4 types, compiler, `register_builtin_store_config`), `handlers.rs`
+  `writes.rs`, `realm.rs` (§4 types, compiler, `register_builtin_store_config`), `handlers.rs`
   (the built-in handlers' builders).
 - `liquers-core/src/store_config.rs`: `read_only`, `MetadataConfig` and its defaults;
   `store_factory.rs`: `build_without_env_expansion` keeps returning `AsyncStoreRouter` (its callers
   in `liquers-store`'s `create_router*`, `liquers-web`'s `build_router` and `EnvironmentBuilder`
   depend on the type) and wraps each mount (`Arc::from` the factory's `Box`, then pipeline, then
-  `ReadOnlyStore`); a new `build_store(self) -> Result<Arc<dyn AsyncStore>, Error>` also applies
-  the router-level `read_only` and `metadata`, and `EnvironmentBuilder::build` switches to it;
+  `ReadOnlyStore`); new `build_store(self)` and `build_store_without_env_expansion(self)`, both
+  `-> Result<Arc<dyn AsyncStore>, Error>`, also apply the router-level `read_only` and `metadata`
+  and, under central storage, collect the members' own sections as backups instead of wrapping
+  them. `EnvironmentBuilder::build` switches to them, keeping its choice between the two. Because
+  `build` and `build_without_env_expansion` return the bare router, they **refuse** a router-level
+  section or a central configuration with a `configuration_error` naming `build_store`, rather than
+  silently dropping it (`liquers-store`'s `create_router*`, `liquers-web`'s `build_router`);
   `StoreRouterBuilder::with_store_config(&CommandMetadataRegistry, &StoreConfigFunctions)`,
   called by `EnvironmentBuilder::build` with its command registry.
 - `liquers-core/src/commands.rs`: `CommandRegistry` carries a `StoreConfigFunctions` beside its
@@ -506,7 +530,7 @@ every read instead of at build time.
 - `liquers-core/src/environment_builder.rs`: `VersionVerification` stays the environment default;
   a mount's `content_hash` handler overrides it.
 - `liquers-store/src/opendal_store.rs`: data-only methods, capabilities per OpenDAL service.
-- `liquers-lib`: `liquers-lib/src/store_config.rs` with `front_matter` and `front_matter_sync`, registered by `register_lib_store_config` where `liquers-lib` builds its command registry (`environment.rs`).
+- `liquers-lib`: `liquers-lib/src/store_config.rs` with `front_matter` and `front_matter_sync`, registered by `register_lib_store_config`, called from `liquers-lib/src/commands.rs` `register_commands` and by the registry exporter; behind feature `records`, since it reuses the records crate's front-matter parser.
 - `liquers-axum/src/store/handlers.rs`: nothing new — `NotSupported` already maps to 501.
 - `liquers-web`: `LiquersStore` exposes `isReadOnly`; `JsStore` maps the optional data-only methods of a store object (§Language Integration); the built-in browser stores keep refusing data access (later).
 - Conformance: `liquers-core/src/store_conformance/` gains fixtures for adapted stores (AC-7) and a
@@ -612,12 +636,11 @@ CHANGELOG line; `registry_export` keeps it honest.
 | `specs/guides/STORE_CONFIG_GUIDE.md` | guide (**new**) | Writing `metadata` sections: stages, the command catalogue, the defaults, validating specs; then defining and registering a new handler, storage model or write strategy (`CommandMetadata` + builder, hard-coded registration, the closure type, `needs_bytes`, stage refusal, tests) |
 | `specs/guides/STORE_FACTORY_GUIDE.md` | guide | Passing `StoreConfigFunctions` to the builder; pointer to `STORE_CONFIG_GUIDE.md` |
 | `specs/reference/ASSETS.md` | reference | `created`; `Storing` under the write strategies (added here; Phase 1 listed no other documents) |
-| `specs/reference/PROJECT_OVERVIEW.md` | reference | `AsyncStore` data-only methods; the pipeline in the store layer |
 | `CLAUDE.md` | instructions | "Adding a Store Backend": implement data-only access to take a `metadata` section |
 | `specs/guides/LANGUAGE-INTEGRATION_GUIDE.md` | guide | §STORE, §COMMAND, §ENVIRON, tests and Appendix A — planned below |
 | `liquers-web/README.md` | crate doc | `isReadOnly`; the optional data-only methods of a store object |
 | `.claude/skills/liquers-validate/SKILL.md` | skill | validating store specs (realm `store_config`; give the tool the filled form `-store_config/…`) |
-| `specs/reference/PROJECT_OVERVIEW.md` §Realm | reference | the first foreign realm: addressable, plannable, not executable; pointer to `REALMS.md` |
+| `specs/reference/PROJECT_OVERVIEW.md` | reference | `AsyncStore` data-only methods; the pipeline in the store layer; §Realm: the first foreign realm (addressable, plannable, not executable), pointer to `REALMS.md` |
 
 ### Language integration guide update
 
@@ -704,13 +727,13 @@ appear only as the facts a question relies on. Changes, in guide order:
 10. **§8 References.** Add `REALMS.md` and `STORE_CONFIG_GUIDE.md`. Add a `## History` row and bump
     `reviewed:` (§9.2).
 
-Proposed `affects_docs`: the first eight (the two new documents included) and `LANGUAGE-INTEGRATION_GUIDE.md`. `specs/README.md`: capability map entry for store adapters.
+Proposed `affects_docs`: the `specs/` documents above; the two new ones are added when Phase 5 creates them. `specs/README.md`: capability map entry for store adapters.
 
 ## Risks
 
 | Assessment | Finding |
 |---|---|
-| Files likely to change | `store.rs`, `store_config.rs`, `store_factory.rs`, `metadata.rs`, new `store/` module, `opendal_store.rs`, one `liquers-lib` module |
+| Files likely to change | `store.rs`, `store_config.rs`, `store_factory.rs`, `metadata.rs`, `plan.rs`, `assets.rs`, `commands.rs`, new `store/` module, `opendal_store.rs`, one `liquers-lib` module, the registry exporter |
 | Crates and workflows affected | core, store, lib; web and axum only for `is_read_only` |
 | Existing tests likely to change | none by AC-6; `store_config` serde tests for the typed `metadata` field |
 | New validation | conformance fixtures per adapted store; failure injection for strategies |

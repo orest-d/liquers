@@ -2,11 +2,11 @@
 
 ## Completion Preconditions
 
-- [x] Implementation is finished and validated
-- [x] All user comments are answered or incorporated
-- [x] All review comments are answered or incorporated
-- [x] Documentation is consistent with the implemented and tested behavior
-- [x] Documentation is included in the implementation PR when practical
+- [ ] Implementation is finished and validated
+- [ ] All user comments are answered or incorporated
+- [ ] All review comments are answered or incorporated
+- [ ] Documentation is consistent with the implemented and tested behavior
+- [ ] Documentation is included in the implementation PR when practical
 
 ## Implementation Summary
 

@@ -1,5 +1,31 @@
 # Phase 1: High-Level Design — Modular store configuration and adapters
 
+## Design Readiness
+
+- **Readiness:** `needs-decision`
+- **Automatic fixing:** `not-eligible` — complexity XL; new traits, a configuration schema change and
+  registry changes across five crates.
+- **Leading issue:** the planner fix in Phase 2 §Configuration — a change to `plan.rs`, which the
+  user had preferred not to extend.
+- **Explanation:** Phases 1–4 specify a working solution and were reviewed. The items below are
+  proposals taken as assumptions under the Phase 2 pre-approval (`proceed all`); none blocks, but
+  each changes something a user can observe, so each is shown before implementation.
+- **Open questions:**
+  1. **Proposed resolution — planner realm defect.** `PlanBuilder` applies a segment's realm header
+     only to the last action of a one-segment query, so `-store_config/defaults` cannot be planned.
+     Proposed: fix it in this design (Phase 4 step 0) as a bug fix — no new option, and realm `""`
+     plans unchanged. Alternative: an option on `PlanBuilder`, which the user rejected.
+  2. **Proposed resolution — `defaults` is not byte-identical to today.** The synthesized record
+     no longer carries `updated = now` (the `updated` handler owns it) or the two "New metadata
+     has been created" warnings. Applies only to mounts with a `metadata` section (AC-6 holds).
+  3. **Proposed resolution — the realm is visible.** Built-in `store_config` entries are registered
+     in every `CommandRegistry`, so they appear in `specs/command_registry.yaml` and in command
+     listings over HTTP and Python (realm `store_config`, never executable).
+  4. **Proposed resolution — `front_matter` needs feature `records`** of `liquers-lib` (on by
+     default), since it reuses the records crate's front-matter parser.
+  5. **Proposed resolution — JavaScript store data-only methods** stay in scope as the last step;
+     if that step cannot be finished they become an issue and the Rust stores ship without them.
+
 ## Purpose
 
 Make what a store does with **access**, **metadata** and **writes** configurable per mount,
@@ -59,8 +85,7 @@ stores:
 Reads write nothing, writes are refused with `NotSupported`, a changed file gets a new version on
 the next listing, the media type follows the extension, and `AssetInfo.title` is the document's
 front-matter title. A writable mount of generated data would instead choose, for example,
-`storage: { model: grouped, file: __metadata__.json }` and `writes: transactional`. (Field names are illustrative; Phase 2 fixes
-the format.)
+`storage: grouped-__metadata__.json` and `writes: transactional` (Phase 2 syntax).
 
 ### Metadata storage models
 
@@ -263,7 +288,10 @@ go in `liquers-store` behind features.
   before planning), with `store_config` as the first worked case.
 - New guide: `specs/guides/STORE_CONFIG_GUIDE.md` — how the `store_config` commands work and how a
   new one is registered.
-- Documents to update: `specs/guides/STORE_FACTORY_GUIDE.md`, `specs/guides/LANGUAGE-INTEGRATION_GUIDE.md`
+- Documents to update (the last five added by Phase 2): `specs/guides/STORE_FACTORY_GUIDE.md`,
+  `specs/reference/ASSETS.md`, `specs/reference/PROJECT_OVERVIEW.md`, `CLAUDE.md`,
+  `liquers-web/README.md`, `.claude/skills/liquers-validate/SKILL.md`,
+  `specs/guides/LANGUAGE-INTEGRATION_GUIDE.md`
   (§STORE design questions and tests for configured stores; §COMMAND foreign realms; §ENVIRON), `specs/README.md`
   capability map.
 
