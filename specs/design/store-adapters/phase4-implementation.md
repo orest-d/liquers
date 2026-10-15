@@ -61,7 +61,9 @@ Prerequisites: none outside this design. The planner defect, fixed in step 0, is
   - Add `created: Option<BackendTime>` and `etag: Option<String>`, both `#[serde(default,
     skip_serializing_if = "Option::is_none")]`. `AssetInfo` copies them.
   - `BackendTime::new` formats an RFC 3339 UTC string truncated to the given precision.
-  - Commit the pre-change field list as the test fixture `tests/fixtures/metadata_record_fields_v1.txt`.
+  - The compatibility check compares a record's serialized keys with and without the new
+    fields, rather than a committed fixture: both fields are skipped when `None`, so a record
+    without them serializes exactly as before.
 - Depends on: none.
 - Proof: `cargo test -p liquers-core --lib metadata::` runs the three `metadata.rs` tests.
 - Rollback: revert. Both fields are additive.
