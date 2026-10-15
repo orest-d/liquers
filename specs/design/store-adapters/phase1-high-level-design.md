@@ -277,7 +277,8 @@ go in `liquers-store` behind features.
 - **2026-10-15, second revision, at the user's request.** A member's own storage under a central
   router is allowed as a backup, not an error (AC-12 rewritten, question 7). A fourth concern added:
   configurable write strategies — direct, atomic per object, transactional with recovery — so that
-  data and metadata change together or not at all (AC-17 to AC-20, questions 11 to 13). Timestamps
+  data and metadata change together or not at all (AC-17 to AC-20, questions 11 to 13; question 11 decided: the journal, with versioned objects as a
+  possible later strategy). Timestamps
   reconsidered (question 8). The user decided to keep everything in one design (question 5).
 
 ## Open Questions
@@ -285,12 +286,27 @@ go in `liquers-store` behind features.
 Tiers: **[open design]** needs the user's decision; **[proposed]** has a recommendation to accept or
 amend.
 
-1. **[open design] Wrapper or pipeline?** *Recommended:* a decorator for the access policy; for
-   metadata, one **metadata layer** — a storage model plus an ordered list of handlers (trait
-   objects, each implementing any of the four stages) — over **data-only access** that every
-   backend gains, with a default preserving today's behaviour. A per-backend "do not write on read"
-   flag (the alternative of the former question 6) is rejected: every backend would reimplement it,
-   and it leaves the storage model inside each backend.
+1. **[open design] Wrapper or pipeline?**
+   - *(A) Decorators.* Every concern is a struct that implements `AsyncStore` around an inner one
+     (`ReadOnly<S>`, `FrontMatter<S>`, …) and the configuration stacks them. Each is small and
+     independent, and it works over any store, the router and third-party stores included. But the
+     order of a stack is implicit in every method; a wrapper never sees what the backend does
+     inside (the sidecar written on read); a listing pays one `get_asset_info` per entry per layer,
+     so a grouped model cannot read its folder file once; and no single layer sees the data and the
+     metadata write together, which `transactional` needs.
+   - *(B) Pipeline.* One generic store — the metadata layer — built from four parts: a data-only
+     backend, a storage model, an ordered list of handlers (trait objects with a default no-op for
+     each of the four stages) and a write strategy. The stage order is defined once; handlers stay
+     small; the storage model gets whole folders (AC-11); the write strategy sees data and metadata
+     as one write (AC-19); the configuration maps onto the parts one to one. The cost is a larger
+     new abstraction and data-only access in every backend that takes part.
+   - *(C) Both.* *Recommended:* (B) for metadata and writes; (A) for the access policy, a pure filter
+     that must also work over the router and over stores without data-only access. With no
+     `metadata` section a store is not wrapped in the layer at all, so AC-6 holds without relying on
+     the default parts reproducing today's behaviour; a `metadata` section on a backend without
+     data-only access is a configuration error (AC-9). A per-backend "do not write on read" flag
+     (the former question 6) is rejected: every backend would reimplement it, and it leaves the
+     storage model inside each backend.
 2. **[proposed] Configuration shape.** `read_only: bool` beside `type`, and the reserved `metadata`
    field holding `storage`, `persist_defaults` and `handlers`, on a mount and on the router.
    *Recommended: as in the problem example.*
@@ -329,13 +345,13 @@ amend.
 10. **[proposed] Grouped writes.** A grouped file is read-modify-write. *Recommended:* serialize
     writes per group inside one process; atomicity across processes waits for
     `STORE-WRITE-HAS-NO-PRECONDITION`, as for the rest of the MVP.
-11. **[open design] How `transactional` commits.** (a) Stage the data and the metadata under
-    reserved staging keys, write a small journal record naming them and the targets, move both into
-    place, delete the journal — recovery rolls a write forward when its journal is complete and back
-    otherwise; or (b) versioned objects with a pointer record that is switched last (no moves, suits
-    object stores without rename, but every read follows the pointer). *Recommended: (a)*, with the
-    move done by rename where the backend has one and by copy-then-delete where it has not; (b)
-    changes the storage layout of every key and is left as a later strategy.
+11. **Decided 2026-10-15 by the user: the journal.** `transactional` stages the data and the metadata
+    under reserved staging keys, writes a journal record naming them and the targets, moves both into
+    place (rename where the backend has one, copy-then-delete where it has not) and deletes the
+    journal; recovery rolls a write forward when its journal is complete and back otherwise. The
+    write strategy is a pluggable part chosen in the configuration, so a **versioned-object**
+    strategy (objects written under new names, a pointer record switched last) can be added later
+    without changing the other parts; it is not built in this design.
 12. **[proposed] When recovery runs.** On store construction (a scan for journals), lazily when a key
     with a journal is read or listed, or only on an explicit call? *Recommended:* lazily per key plus
     an explicit whole-store pass (AC-20); a scan on construction is too slow for large buckets.
