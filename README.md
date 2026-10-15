@@ -34,6 +34,7 @@ Current supporting references:
 
 | Subject | Reference |
 |---|---|
+| Purpose, vision and strategy | [Vision and strategy](specs/reference/VISION.md) |
 | Architecture and terminology | [Project overview](specs/reference/PROJECT_OVERVIEW.md) |
 | Command registration API | [Command registration guide](specs/guides/COMMAND_REGISTRATION_GUIDE.md) |
 | Asset model and lifecycle | [Assets specification](specs/reference/ASSETS.md), [lifecycle map](specs/reference/ASSET_LIFECYCLE.md) |
