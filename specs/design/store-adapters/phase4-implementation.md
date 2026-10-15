@@ -38,8 +38,8 @@ Prerequisites: none outside this design. The planner defect, fixed in step 0, is
 - [x] Step 11: conformance suites `A1`–`A7` (7903239)
 - [x] Step 12: `front_matter` and `front_matter_sync` in `liquers-lib` (3a1b333)
 - [x] Step 13: OpenDAL data-only access (a3b3652)
-- [x] Step 14: HTTP 501 test and Python getters (next commit after a3b3652)
-- [ ] Step 15: `liquers-web`: `isReadOnly`, the optional data-only methods, declarations
+- [x] Step 14: HTTP 501 test and Python getters (88f12ac)
+- [x] Step 15: `liquers-web`: `isReadOnly`, the optional data-only methods, declarations
 
 ## Deviations found while implementing
 
@@ -68,6 +68,10 @@ Recorded as they arise, for Phase 5 to fold into the design and the reference do
 - Step 11: a front-matter write-back handler rewrites the bytes only in `set_metadata`; in `set`
   the caller's bytes are the source of truth (otherwise an empty record field would overwrite the
   file's front matter). The lib's `front_matter_sync` follows the same rule.
+- Step 15: a `JsStore` reports `data_access` when the object has the five data methods
+  (`getData`, `setData`, `removeData`, `listdirData`, `dataFacts`); `getStoredMetadata` is not
+  among them, because only `storage: native` needs it. A text time from the bridge is parsed by a
+  new `BackendTime::parse`, and the web builder gained `build_store` mirroring the native one.
 
 ## Implementation Steps
 

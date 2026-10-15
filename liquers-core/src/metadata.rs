@@ -910,6 +910,48 @@ impl BackendTime {
     pub fn as_str(&self) -> &str {
         &self.0
     }
+
+    /// Reads an RFC 3339 time from a language bridge or a backend that reports text, and brings
+    /// it to the canonical form. Without `precision`, the precision is the one the text is
+    /// written in (no fraction: seconds; up to 3, 6 or 9 digits: millis, micros, nanos).
+    pub fn parse(text: &str, precision: Option<TimePrecision>) -> Result<Self, crate::error::Error> {
+        let time = chrono::DateTime::parse_from_rfc3339(text).map_err(|e| {
+            crate::error::Error::conversion_error_with_message(
+                "text",
+                "BackendTime",
+                &format!("'{text}' is not an RFC 3339 time: {e}"),
+            )
+        })?;
+        let precision = precision.unwrap_or_else(|| TimePrecision::of_rfc3339(text));
+        Ok(Self::new(time.with_timezone(&chrono::Utc), precision))
+    }
+}
+
+impl TimePrecision {
+    /// The precision an RFC 3339 text is written in, from the digits of its fraction.
+    pub fn of_rfc3339(text: &str) -> TimePrecision {
+        let digits = text
+            .split_once('.')
+            .map(|(_, rest)| rest.chars().take_while(|c| c.is_ascii_digit()).count())
+            .unwrap_or(0);
+        match digits {
+            0 => TimePrecision::Seconds,
+            1..=3 => TimePrecision::Millis,
+            4..=6 => TimePrecision::Micros,
+            _ => TimePrecision::Nanos,
+        }
+    }
+
+    /// Reads `seconds`, `millis`, `micros` or `nanos`.
+    pub fn from_name(name: &str) -> Option<TimePrecision> {
+        match name {
+            "seconds" => Some(TimePrecision::Seconds),
+            "millis" => Some(TimePrecision::Millis),
+            "micros" => Some(TimePrecision::Micros),
+            "nanos" => Some(TimePrecision::Nanos),
+            _ => None,
+        }
+    }
 }
 
 impl std::fmt::Display for BackendTime {
@@ -3068,6 +3110,19 @@ mod tests {
     mod backend_facts {
         use crate::metadata::{BackendTime, Metadata, MetadataRecord, TimePrecision};
         use chrono::TimeZone;
+
+        #[test]
+        fn backend_time_parses_text_from_a_bridge() {
+            let parsed = BackendTime::parse("2026-10-15T14:30:45.123+02:00", None).unwrap();
+            assert_eq!(parsed.as_str(), "2026-10-15T12:30:45.123Z");
+            let seconds = BackendTime::parse("2026-10-15T12:30:45.999Z", Some(TimePrecision::Seconds));
+            assert_eq!(seconds.unwrap().as_str(), "2026-10-15T12:30:45Z");
+            assert_eq!(
+                BackendTime::parse("2026-10-15T12:30:45Z", None).unwrap().as_str(),
+                "2026-10-15T12:30:45Z"
+            );
+            assert!(BackendTime::parse("yesterday", None).is_err());
+        }
 
         #[test]
         fn backend_time_round_trips_at_its_precision() {

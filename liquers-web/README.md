@@ -171,6 +171,31 @@ env.registerStoreObject('mine', {
 });
 ```
 
+### Read-only stores and metadata sections
+
+Any entry may carry `read_only: true`, which refuses every write with `not_supported` before it
+reaches the backend (HTTP 501 through the native server), and a
+`metadata` section, which decides how the store's metadata is stored and shaped
+(`specs/reference/STORE_CONFIG_FSD.md`, "Metadata section"). `store.isReadOnly()` reports whether
+every write is refused.
+
+```js
+await env.configureStore({
+  stores: [
+    { type: 'js', prefix: 'notes', config: { object: 'notes' },
+      metadata: { storage: 'grouped', on_read: 'media_type-fill/file_facts' } },
+  ],
+});
+```
+
+The section runs in Rust, around the store, and reaches a page-implemented store only through its
+**data-only methods**: `getData`, `setData`, `removeData`, `listdirData` and `dataFacts`, all five
+or none, plus optional `renameData` and an `atomicWrite: true` property. `dataFacts` returns
+`{ size, modified?, precision?, etag? }` (or `null` when absent), `modified` as an RFC 3339 string.
+`getStoredMetadata` is needed only by the default `native` storage model. A `metadata` section on
+an object without the five methods is refused when the store is configured, naming the entry.
+The built-in `localstorage` and `http` stores do not offer data-only access yet.
+
 ## Known limitations
 
 **`-R/` queries do not evaluate in the browser yet.** The stores work and are reachable through
