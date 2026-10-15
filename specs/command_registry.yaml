@@ -2,7 +2,7 @@
 # Regenerate: cargo run -p liquers-lib --features cli --bin export-command-registry -- \
 #               --format yaml -o specs/command_registry.yaml
 # Origin:   groups=core,lui,egui,image,polars,records,search,store_config  features=egui,image,polars,records
-# Commands: 153
+# Commands: 156
 # CHANGELOG-BEGIN
 # 2026-08-02  initial export (95 commands: img 47, pl 26, lui 14, root 6, dep 2)
 # 2026-08-25  pl/select_columns and pl/drop_columns take a variadic `columns` argument
@@ -36,6 +36,7 @@
 # 2026-10-15  realm store_config (new group store_config): defaults, set, require,
 #             media_type, file_facts, content_hash, updated. design/store-adapters
 # 2026-10-15  store_config storage models: native, per_entry, grouped, none, central.
+# 2026-10-15  store_config write strategies: direct, atomic, transactional.
 # CHANGELOG-END
 commands:
 - realm: store_config
@@ -310,6 +311,48 @@ commands:
     label: mount
     default: None
     argument_type: string
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  definition: Registered
+- realm: store_config
+  name: direct
+  label: Direct
+  doc: 'Every object written in place, in order: today''s behaviour.'
+  hints:
+    store_config: writes
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  definition: Registered
+- realm: store_config
+  name: atomic
+  label: Atomic
+  doc: 'Each object written atomically: in place on a backend that writes atomically, else staged as <key>.__staged__ and renamed. Needs atomic writes or rename.'
+  hints:
+    store_config: writes
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  definition: Registered
+- realm: store_config
+  name: transactional
+  label: Transactional
+  doc: 'All or nothing: objects staged, a journal <key>.__txn__ written, then the moves. Interrupted writes are rolled forward or back on the next read or sync.'
+  hints:
+    store_config: writes
+  state_argument:
+    name: state
+    label: state
+    default: None
     gui_info: !TextField 40
   volatile: false
   expires: never

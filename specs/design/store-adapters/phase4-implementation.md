@@ -30,7 +30,7 @@ Prerequisites: none outside this design. The planner defect, fixed in step 0, is
 - [x] Step 3: data-only access in the memory, file and router stores (98c4329)
 - [x] Step 4: `ReadOnlyStore` (5df8b02)
 - [x] Step 5: realm `store_config`: compiler, built-in handlers, registry export (0fe4ef4)
-- [ ] Step 6: storage models
+- [x] Step 6: storage models (da5bdec)
 - [ ] Step 7: write strategies
 - [ ] Step 8: `MetadataPipelineStore`
 - [ ] Step 9: the asset manager reads `version_verification`

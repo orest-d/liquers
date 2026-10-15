@@ -63,6 +63,13 @@ pub trait MetadataStorage: crate::maybe_send::MaybeSend + crate::maybe_send::May
         None
     }
 
+    /// The keys of the objects that hold `key`'s record, in the model's object store; what a write
+    /// strategy looks for when it recovers an interrupted write. Empty for a model with no
+    /// objects of its own.
+    fn object_keys(&self, _key: &Key) -> Vec<Key> {
+        Vec::new()
+    }
+
     /// The store this model's objects live in when it is not the backend (central storage).
     fn object_store(&self) -> Option<Arc<dyn AsyncStore>> {
         None
@@ -271,6 +278,10 @@ impl MetadataStorage for PerEntryStorage {
             None => vec![ObjectWrite::delete(WriteTarget::Metadata, metadata_key)],
         })
     }
+
+    fn object_keys(&self, key: &Key) -> Vec<Key> {
+        self.metadata_key(key).into_iter().collect()
+    }
 }
 
 /// One JSON map, name → record, per folder.
@@ -388,6 +399,10 @@ impl MetadataStorage for GroupedStorage {
     fn group_of(&self, key: &Key) -> Option<Key> {
         Some(key.parent())
     }
+
+    fn object_keys(&self, key: &Key) -> Vec<Key> {
+        vec![self.group_key(&key.parent())]
+    }
 }
 
 /// Nothing is stored; the handlers synthesize every record.
@@ -473,6 +488,10 @@ impl MetadataStorage for MemoryCentralStorage {
             )],
             None => vec![ObjectWrite::delete(WriteTarget::Metadata, key.clone())],
         })
+    }
+
+    fn object_keys(&self, key: &Key) -> Vec<Key> {
+        vec![key.clone()]
     }
 
     fn object_store(&self) -> Option<Arc<dyn AsyncStore>> {
@@ -854,6 +873,7 @@ mod tests {
     fn storage_name(component: Result<StoreComponent, Error>) -> Result<String, Error> {
         match component? {
             StoreComponent::Storage(model) => Ok(model.name()),
+            StoreComponent::Writes(strategy) => Ok(format!("writes {}", strategy.name())),
         }
     }
 

@@ -187,6 +187,7 @@ impl ComponentKind {
 /// A built component.
 pub enum StoreComponent {
     Storage(std::sync::Arc<dyn super::storage::MetadataStorage>),
+    Writes(std::sync::Arc<dyn super::writes::WriteStrategy>),
 }
 
 /// A component's builder: same registration as a handler, different product.
@@ -652,6 +653,7 @@ pub fn register_builtin_store_config(
 ) -> Result<(), Error> {
     super::handlers::register_builtin_handlers(cmr, functions)?;
     super::storage::register_builtin_storage(cmr, functions)?;
+    super::writes::register_builtin_writes(cmr, functions)?;
     Ok(())
 }
 
