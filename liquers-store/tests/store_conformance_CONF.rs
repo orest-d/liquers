@@ -1,4 +1,5 @@
-//! `C6`–`C7` — the conformance suite applied to `AsyncOpenDALStore`.
+//! `C6`–`C7` — the conformance suite applied to `AsyncOpenDALStore`; `A3` — the same store under
+//! a metadata pipeline and read-only, built from configuration (`specs/design/store-adapters/`).
 //!
 //! Two backends, because they differ in exactly the way that matters: the memory service has **no
 //! directory objects**, which is the object-store shape, while the filesystem service has real
@@ -130,6 +131,101 @@ async fn c7_opendal_fs() {
     check(c7_report().await, C7_ALLOWED);
 }
 
+/// A store built from configuration with liquers-store's factory, as an environment builds it.
+#[cfg(feature = "services-fs")]
+fn configured(yaml: &str) -> Box<dyn liquers_core::store::AsyncStore> {
+    let store = liquers_core::store_factory::StoreRouterBuilder::from_yaml(
+        yaml,
+        Box::new(liquers_store::store_factory::default_store_factory()),
+    )
+    .expect("configuration parses")
+    .build_store()
+    .expect("store builds");
+    Box::new(liquers_core::store::SharedStore(store))
+}
+
+#[cfg(feature = "services-fs")]
+fn temp_root(label: &str) -> std::path::PathBuf {
+    let root = std::env::temp_dir().join(format!(
+        "liquers_conf_opendal_{label}_{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos()
+    ));
+    std::fs::create_dir_all(&root).expect("temp root");
+    root
+}
+
+/// Known divergences of `A3` over OpenDAL, shared with the [`status_table`] generator.
+#[cfg(feature = "services-fs")]
+const A3_OPENDAL_ALLOWED: &[AllowedFailure] = &[];
+
+/// `A3` over OpenDAL — the fs service under a `per_entry` pipeline, which reaches it only through
+/// its data-only methods.
+#[cfg(feature = "services-fs")]
+async fn a3_opendal_report() -> ConformanceReport {
+    let root = temp_root("a3");
+    let yaml = format!(
+        "stores:\n  - type: fs\n    prefix: mem\n    config: {{ root: \"{}\" }}\n    metadata: {{ storage: per_entry-folder, writes: atomic }}\n",
+        root.to_string_lossy()
+    );
+    let mut capabilities = opendal_capabilities();
+    capabilities.derived_directories = false;
+    let fixture = GenericFixture::new(
+        "MetadataPipelineStore(AsyncOpenDALStore(fs), per_entry-folder, atomic)",
+        configured(&yaml),
+        Key::new(),
+        capabilities,
+        SafetyLevel::Scratch,
+    )
+    .with_key_base(parse_key("mem").expect("prefix"));
+    let report = run_all(&fixture).await;
+    let _ = std::fs::remove_dir_all(&root);
+    report
+}
+
+/// The same backend read-only, over a seeded directory.
+#[cfg(feature = "services-fs")]
+async fn a3_opendal_read_only_report() -> ConformanceReport {
+    let root = temp_root("a3ro");
+    std::fs::create_dir_all(root.join("dir")).expect("seed dir");
+    std::fs::write(root.join("dir/existing.txt"), b"hello").expect("seed file");
+    let yaml = format!(
+        "stores:\n  - type: fs\n    prefix: \"\"\n    config: {{ root: \"{}\" }}\n    read_only: true\n    metadata: {{ storage: none }}\n",
+        root.to_string_lossy()
+    );
+    let capabilities = StoreCapabilities {
+        write: false,
+        remove: false,
+        directories: true,
+        derived_directories: false,
+        explicit_directories: false,
+        remove_directories: false,
+        stored_metadata: false,
+        enumerate_keys: true,
+    };
+    let fixture = GenericFixture::new(
+        "ReadOnlyStore(MetadataPipelineStore(AsyncOpenDALStore(fs), none))",
+        configured(&yaml),
+        Key::new(),
+        capabilities,
+        SafetyLevel::ReadOnly,
+    )
+    .with_existing(parse_key("dir/existing.txt").expect("key"))
+    .with_existing_directory(parse_key("dir").expect("key"));
+    let report = run_all(&fixture).await;
+    let _ = std::fs::remove_dir_all(&root);
+    report
+}
+
+#[cfg(feature = "services-fs")]
+#[tokio::test]
+async fn a3_opendal_fs_per_entry() {
+    check(a3_opendal_report().await, A3_OPENDAL_ALLOWED);
+    check(a3_opendal_read_only_report().await, A3_OPENDAL_ALLOWED);
+}
+
 /// One row of the `STORE_IMPLEMENTATION_GUIDE.md` §9 status table.
 ///
 /// `allowed` is the list the suite passes to `assert_conformant`: a failure it names is a known
@@ -189,6 +285,26 @@ async fn status_table() {
             &c7_report().await,
             C7_ALLOWED,
             "`derived_directories: false`"
+        )
+    );
+    #[cfg(feature = "services-fs")]
+    eprintln!(
+        "{}",
+        status_row(
+            "Pipeline over `AsyncOpenDALStore` (fs), `per_entry-folder`, `atomic`",
+            &a3_opendal_report().await,
+            A3_OPENDAL_ALLOWED,
+            "data-only access through OpenDAL"
+        )
+    );
+    #[cfg(feature = "services-fs")]
+    eprintln!(
+        "{}",
+        status_row(
+            "`ReadOnlyStore` over OpenDAL (fs), `storage: none`",
+            &a3_opendal_read_only_report().await,
+            A3_OPENDAL_ALLOWED,
+            "read-only mount from configuration"
         )
     );
 }

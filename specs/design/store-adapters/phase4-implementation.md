@@ -36,8 +36,8 @@ Prerequisites: none outside this design. The planner defect, fixed in step 0, is
 - [x] Step 9: the asset manager reads `version_verification` (c82afdc)
 - [x] Step 10: configuration types, defaults, `build_store` (dd34bb3)
 - [x] Step 11: conformance suites `A1`–`A7` (7903239)
-- [x] Step 12: `front_matter` and `front_matter_sync` in `liquers-lib` (next commit after 7903239)
-- [ ] Step 13: OpenDAL data-only access
+- [x] Step 12: `front_matter` and `front_matter_sync` in `liquers-lib` (3a1b333)
+- [x] Step 13: OpenDAL data-only access (next commit after 3a1b333)
 - [ ] Step 14: HTTP 501 test and Python getters
 - [ ] Step 15: `liquers-web`: `isReadOnly`, the optional data-only methods, declarations
 
@@ -59,6 +59,9 @@ Recorded as they arise, for Phase 5 to fold into the design and the reference do
   layout and central storage). `MetadataStorage` gained `record_names(backend, folder)`; the
   pipeline's `contains` and `listdir` consult it, and `removedir` removes each entry through the
   write strategy before the backend removes the folder.
+- Step 13: OpenDAL 0.55 cannot say in advance whether a service's `stat` reports a time or an
+  ETag, so `AsyncOpenDALStore` promises neither (`modified_time`/`etag` false) but reports both in
+  `data_facts` when present; `atomic_write` is a fixed list of object services.
 - Step 11: a front-matter write-back handler rewrites the bytes only in `set_metadata`; in `set`
   the caller's bytes are the source of truth (otherwise an empty record field would overwrite the
   file's front matter). The lib's `front_matter_sync` follows the same rule.
