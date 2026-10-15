@@ -77,6 +77,10 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 
+/// The read-only access policy (`specs/design/store-adapters/`).
+mod read_only;
+pub use read_only::ReadOnlyStore;
+
 /// Store decorators for tests of the store adapters.
 #[cfg(any(test, feature = "store-conformance"))]
 pub mod test_support;
