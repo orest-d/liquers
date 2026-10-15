@@ -335,8 +335,11 @@ amend.
    store without it can still be read-only, just not take a `metadata` section. Phase 2 confirms that
    this is a handful of methods and not a second store trait.
 2. **Decided 2026-10-15 by the user at the Phase 2 gate: alternative (b), as a realm** — metadata
-   functions are commands of a special realm `meta` in the shared registry, with a record and
-   optional data instead of a state, no context, no store access, synchronous (Phase 2 §4). The
+   functions are actions of a foreign realm (`store_config` proposed) declared in the shared
+   registry — addressable and plannable, never executed by the interpreter — over a record and
+   optional data, no context, no store access, synchronous; a plan compiler turns each chain into
+   one closure at configuration time; registration is hard-coded beside the handlers, without
+   `register_command!` (Phase 2 §4). The
    question as asked: The user
    rejected a configuration format designed per adapter: every new adapter or handler would need its
    own configuration design. Requirements: adapters are **stacked**; metadata components are both
