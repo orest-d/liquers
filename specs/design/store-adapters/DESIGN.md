@@ -3,7 +3,7 @@ id: STORE-ADAPTERS
 kind: design
 title: Modular store configuration — metadata layouts and store adapters
 workflow: liquers-project
-status: draft
+status: in_review
 phase: architecture
 area: [core/store, store/config, store/backends, web, docs]
 issues: [STORE-METADATA-LAYOUT-HARDCODED-PER-STORE, STORE-NO-READ-ONLY-ADAPTER, STORE-METADATA-HANDLING-NOT-COMPOSABLE]
