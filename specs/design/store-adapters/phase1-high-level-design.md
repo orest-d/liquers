@@ -191,11 +191,11 @@ either stores none or keeps its own copy as a backup.
   the new metadata, never a mix — and for the grouped model the other records of the group are
   unchanged
 - **AC-20** Recovery
-  WHEN a store is opened, or a key is read, with the staged objects or the journal record of an
-  interrupted transactional write left in the backend
+  WHEN a key is read or its folder listed, or the store is synced, with the staged objects or the
+  journal record of an interrupted transactional write left in the backend
   THEN the write is completed or rolled back, the staged objects are removed, the outcome is
-  recorded as a warning in the key's metadata log, and an explicit recovery pass over a whole store
-  reports what it repaired
+  recorded as a warning in the key's metadata log, and a sync of the whole store reports what it
+  repaired
 - **AC-21** One configuration mechanism
   WHEN a handler chain for a stage is configured — built-in handlers, a registered one, and two of
   them stacked so that the second receives the first one's output
@@ -298,6 +298,8 @@ go in `liquers-store` behind features.
   Question 4: the hash policy is a handler. Question 8: the field is `created`, meaning when the
   data was written; `Partial` and `openbin` raised for discussion. Question 13: defaults come from
   presets (AC-22). Questions 3 and 9 accepted; 10 and 12 explained further.
+- **2026-10-15, Phase 1 approved** (`proceed`), with questions 8, 10 and 12 decided as recorded
+  below. Data-only access as default `AsyncStore` methods (question 1) stood unopposed at approval.
 
 ## Open Questions
 
@@ -362,41 +364,26 @@ amend.
    central write (in the same transaction under `transactional`), is never read while the central
    record exists, and restores a record missing centrally (AC-12). A member copy that disagrees
    with the central one is overwritten, not merged.
-8. **[open design] `created` — decided name, meaning to settle.** The user decided: a field
-   `created` meaning *when the data was created, i.e. written*. It differs from `updated`, which
-   `set_updated_now` moves on every metadata change (each status transition and progress entry of
-   an evaluation, every `set_metadata`) while the data stays the same. *Proposed meaning:* the time
-   the **current bytes were committed** — set by `set` (at commit, under `transactional`), never by
-   `set_metadata`, and taken from the backend's modification time when the record is created for a
-   file nobody wrote through Liquers. Points to discuss:
-   - **`Partial`.** A checkpoint or preview writes data, and the final result writes it again; under
-     the proposed meaning `created` moves at each write, and `status` says which one it is.
-   - **`openbin`** (`CORE-STORE-OPENBIN-MISSING`, unimplemented). With a streaming writer, `created`
-     is the moment the writer is closed and the bytes complete, not when it opened; the record is
-     `Storing` meanwhile. If `openbin` ever allows modification in place or appending, `created`
-     becomes "last completed write", and the name reads oddly — but the meaning stays one.
-   - **Change detection.** Comparing `created` with the backend's modification time mixes two
-     clocks (Liquers' and the backend's, e.g. an S3 server), and an ETag is not a time. *Proposed:*
-     the content-hash handler compares the backend's own facts (size, modification time or ETag)
-     recorded at hashing time, kept by the `file_facts` handler; `created` is for people and
-     queries (sorting notes by creation, for instance).
+8. **Decided 2026-10-15 by the user: `created`, from the backend's time.** `created` means *when
+   the current bytes were written*: it differs from `updated`, which `set_updated_now` moves on
+   every metadata change (status transitions, progress, `set_metadata`). It is the **backend's**
+   modification time where the backend has one — the Liquers clock only for a backend without one,
+   such as `AsyncMemoryStore` — written in one standardized form (RFC 3339, UTC, at the backend's
+   own precision), so that the value read back compares exactly with the backend's current one and
+   the content-hash handler can use it for `on_change` detection (AC-4); an ETag or generation id,
+   where present, is kept beside it. A `Partial` checkpoint and the final write each move it;
+   under a future streaming `openbin` it is set when the writer is closed.
 9. **Accepted 2026-10-15.** Handler failure. A read-stage handler that fails (malformed front-matter):
    *recommended* — the entry stays readable, the failure is a warning in the metadata log;
    validators on write fail the write (AC-14).
-10. **[open design] Grouped writes and the store contract.** The `AsyncStore` API does not change:
-    `set_metadata` is still per key. What changes is what one call touches: under the grouped model
-    a write to `docs/a.md` is a read-modify-write of `docs/__metadata__.json`, which also holds
-    `docs/b.md`. That adds to the contract (`STORE_SEMANTICS.md`), as the user suspected:
-    - **Concurrency between siblings.** Today writes to two keys are independent; grouped, two
-      concurrent writes in one folder can lose one record. *Proposed:* the store serializes writes
-      per group inside one process and documents that two processes writing one folder are unsafe
-      until `STORE-WRITE-HAS-NO-PRECONDITION`.
-    - **Failure radius.** A failed or interrupted group write can damage the records of the whole
-      folder, not only the key written. *Proposed:* recommend `atomic` at least for grouped mounts.
-    - **Reserved name** `__metadata__.json` in every folder, and **enumeration**: a record in the
-      group file with no data object is a metadata-only key, which §8 requires to be listed.
-    - **Batch reads.** A listing reads the group file once; the per-key `get_metadata` reads it too,
-      so a cache keyed by the group file's own version is part of the model.
+10. **Decided 2026-10-15 by the user: grouped storage caches and locks, and sibling writes are
+    safe.** The `AsyncStore` API is unchanged, but the contract grows (`STORE_SEMANTICS.md`): a
+    write to one key of a group is a locked read-modify-write of the group file, so concurrent
+    writes to siblings never lose a record; the group file is cached, keyed by its own version; the
+    group file name is reserved in every folder; a record with no data object is a metadata-only key
+    and is listed (§8); and because an interrupted group write can damage the whole folder, grouped
+    mounts are recommended `atomic` or `transactional`. Safety across processes waits for
+    `STORE-WRITE-HAS-NO-PRECONDITION`.
 11. **Decided 2026-10-15 by the user: the journal.** `transactional` stages the data and the metadata
     under reserved staging keys, writes a journal record naming them and the targets, moves both into
     place (rename where the backend has one, copy-then-delete where it has not) and deletes the
@@ -404,14 +391,9 @@ amend.
     write strategy is a pluggable part chosen in the configuration, so a **versioned-object**
     strategy (objects written under new names, a pointer record switched last) can be added later
     without changing the other parts; it is not built in this design.
-12. **[proposed] When an interrupted write is repaired.** The question: after a crash, a
-    `transactional` write leaves staged objects and a journal record in the backend; *when* does
-    the store notice them and complete or roll back the write? (a) When the store is built, by
-    scanning the whole backend for journals; (b) lazily, when a key with a pending journal is read
-    or its folder is listed; (c) only when someone calls an explicit recovery operation.
-    *Recommended:* (b) plus (c): the reader of a key always sees a consistent state, and an
-    operator can repair a whole store at once; (a) is too slow for a large bucket and runs on every
-    start.
+12. **Decided 2026-10-15 by the user: on read by default, and on sync for a whole store.** An
+    interrupted `transactional` write is completed or rolled back when an affected key is read or
+    its folder listed, and by a whole-store sync operation; no scan when the store is built (AC-20).
 13. **Decided 2026-10-15 by the user: defaults depend on the application, so they come from
     presets.** A preset is a named bundle of policy, storage model, handlers and write strategy that
     a mount selects and overrides field by field (AC-22). *Proposed built-in presets:*
