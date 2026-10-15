@@ -100,7 +100,8 @@ cannot stop it. That limit of AC-1 is documented, and the factory warns when it 
 ### 3. Storage model
 
 ```rust
-#[maybe_async_trait] // the cfg_attr pair of AsyncStore (store.rs): async_trait / async_trait(?Send) on wasm32
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 pub trait MetadataStorage: MaybeSend + MaybeSync {
     fn name(&self) -> String;
     fn reserved_names(&self) -> ReservedNameSet;         // owned: names come from configuration
@@ -234,31 +235,41 @@ model, write strategy — is checked against the configuration field it is writt
 from another crate may use their own namespace and be reached with `ns-<name>/…`. (This revises the
 `meta` / `store` split proposed before the realm was named.)
 
-**Messages.** `Info`, `Warning` and `Error` are plan steps the planner emits (a deprecated
-parameter, a fallback it took); compiled, each appends its message to the record's `log` every time
-the chain runs, so what the planner noticed at build stays visible on every record it shaped.
+**Messages.** `Info`, `Warning` and `Error` are plan steps. The planner emits its own
+diagnostics into `Plan::init_steps` (`plan.rs` `init_info` / `init_warning`), not into `steps`, so
+the compiler compiles `init_steps` first, then `steps`. Each message step compiles to a closure that
+appends its message to the record's `log` **unless that entry is already there**. Without that check,
+a stored record would gain a copy with every `set_metadata`; with it, what the planner noticed at
+build stays visible on every record the chain shaped, exactly once.
 
 #### Command catalogue — realm `store_config`
 
 Parameters are positional in a spec (`media_type-fill`), with the defaults shown; `multiple`
 consumes the rest. *Stages* are where an entry may appear; any other stage is a
 `configuration_error` at build. `mode` is `overwrite` (replace the field) or `fill` (set it only
-where it is empty), AC-15. Every handler compares against `previous` where it says "changed", so
-step order does not matter.
+where it is empty), AC-15. When two steps set the same field, the later one wins (AC-16). Change
+detection is the exception to order: a handler that says "changed" compares the facts with
+`previous`, the record as stored, not with the record being built, so where `file_facts` sits in the
+chain cannot hide a change from `content_hash`.
+
+`multiple` takes no default (`CLAUDE.md`), so a handler with a field list states its meaning when the
+list is empty: `front_matter` and `front_matter_sync` treat it as `[title, description]`, and
+`require` refuses it at build. A literal containing `/` is escaped, because `/` separates actions:
+`set-media_type-text~Imarkdown` sets `text/markdown`. The same applies to `central`'s mount key.
 
 **Handlers** (`StepBuilder`; written in `on_default`, `on_validate`, `on_write`, `on_read`):
 
 | Entry | Parameters | Stages | Effect | Needs bytes |
 |---|---|---|---|---|
-| `defaults` | — | Default, Write | Default: the record today's stores synthesize for an entry with no stored metadata (`default_metadata`): `key`, `filename`, `is_dir`, `status: Source` for data. Write: what `finalize_metadata` does today — `key` set, `filename` seeded, `status: Source` where it is `None` | no |
+| `defaults` | — | Default, Write | Default: what the file store synthesizes today for an entry with no stored metadata, `default_metadata` followed by `finalize_metadata(update = false)`: `key`, `is_dir`, `filename` seeded from the key, `file_size`, `status: Source` where it is `None`. Two differences from today, both deliberate: `updated` is not set (the `updated` handler owns it), and the two "New metadata has been created" warnings are not added. Write: `finalize_metadata` without the timestamp — `key` set, `filename` seeded, `file_size`, `status: Source` where it is `None` | no |
 | `set` | `field: String`, `value: String`, `mode = overwrite` | Default, Write, Read | Sets one text field: `title`, `description`, `media_type`, `data_format`, `type_identifier`, `unicode_icon`; any other name fails at build | no |
-| `require` | `fields: Vec<String>` (multiple) | Validate | Refuses a record whose named fields are empty, naming the first (AC-14); the fields `set` accepts | no |
+| `require` | `fields: Vec<String>` (multiple; empty is a build error) | Validate | Refuses a record whose named fields are empty, naming the first (AC-14); the fields `set` accepts | no |
 | `media_type` | `mode = overwrite` | Default, Validate, Write, Read | Default/Write/Read: sets `media_type` from the extension (`media_type.rs` `file_extension_to_media_type`), leaving it alone for an unknown extension. Validate: refuses a supplied `media_type` that disagrees with a known extension (Phase 1's "corrected media type") | no |
 | `file_facts` | `mode = overwrite` | Default, Write, Read | Default/Read: `file_size`, `created`, `etag` from `DataFacts`. Write: `file_size` from the bytes; `created` and `etag` are set after the commit from the backend's facts, by the pipeline, whatever the chain says (§6) | no |
-| `content_hash` | `when = on_change` (`off` · `always` · `on_change`) | Default, Write, Read | Sets `version` to `Version::from_bytes`. Write: always hashes (the bytes are at hand) unless `off`. Read: `always` hashes every read; `on_change` only when `size`, `created` or `etag` differ from `previous` or `previous` has no `version`. A detected change is handled as `verify_stored_versions` handles one (AC-4); the entry's presence is what the mount's `version_verification` reports | `always`; `on_change` when changed |
+| `content_hash` | `when = on_change` (`off` · `always` · `on_change`) | Default, Write, Read | Sets `version` to `Version::from_bytes`. Write: in `set` the bytes are at hand and it always hashes unless `off`; in `set_metadata` there are no bytes, and it behaves as Read. Read: `always` hashes every read; `on_change` only when `size`, `created` or `etag` differ from `previous` or `previous` has no `version`. A detected change is handled as `verify_stored_versions` handles one (AC-4); the entry's presence is what the mount's `version_verification` reports | `always`; `on_change` when changed; never in `set` (bytes supplied) |
 | `updated` | — | Write | Sets `updated` to the current time in the record's existing format; the one time Liquers rather than the backend owns (Phase 1 Q8) | no |
-| `front_matter` *(liquers-lib)* | `mode = overwrite`, `fields: Vec<String> = [title, description]` (multiple) | Default, Write, Read | For a `text/markdown` entry, parses the YAML front matter (`liquers_records::search::front_matter_end`) and projects the named fields; a field outside the `set` list is refused at build until `CORE-METADATA-NO-APPLICATION-ATTRIBUTES` gives it a home. Other media types: no effect | Markdown only, and on Read only when changed |
-| `front_matter_sync` *(liquers-lib)* | `fields: Vec<String> = [title, description]` (multiple) | Write | Rewrites the front matter of the bytes from the record's fields, setting `StepOut::data`; turns `set_metadata` into a data write (AC-5) | yes |
+| `front_matter` *(liquers-lib)* | `mode = overwrite`, `fields: Vec<String>` (multiple; empty means `[title, description]`) | Default, Write, Read | For a `text/markdown` entry, parses the YAML front matter (`liquers_records::search::front_matter_end`) and projects the named fields; a field outside the `set` list is refused at build until `CORE-METADATA-NO-APPLICATION-ATTRIBUTES` gives it a home. Other media types: no effect | Markdown only, and on Read only when changed |
+| `front_matter_sync` *(liquers-lib)* | `fields: Vec<String>` (multiple; empty means `[title, description]`) | Write | Rewrites the front matter of the bytes from the record's fields, setting `StepOut::data`; turns `set_metadata` into a data write (AC-5) | yes |
 
 **Storage models** (`ComponentBuilder`; written in `storage`):
 
@@ -293,7 +304,8 @@ fields.
 ### 5. Write strategy
 
 ```rust
-#[maybe_async_trait] // the cfg_attr pair of AsyncStore (store.rs): async_trait / async_trait(?Send) on wasm32
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 pub trait WriteStrategy: MaybeSend + MaybeSync {
     fn name(&self) -> String;
     fn requires(&self) -> DataCapabilities;               // checked at build: AC-17 error
@@ -351,9 +363,11 @@ disagrees with the central record is overwritten at the next write, never merged
 storage the router's section governs handlers and the write strategy for every member; a member's
 own `metadata` section may name only its storage model (its backup) — a member section that also
 names handlers or a write strategy is a configuration error naming the member, since two chains
-for one key would be ambiguous.
+for one key would be ambiguous. A member with **no** `metadata` section keeps no backup (AC-12's "member with no storage model of its
+own"); a member section of `metadata: { storage: per_entry }` keeps one. The `native` default of §7
+does not apply to a member under central storage: there an omitted `storage` means no backup.
 
-`set(k, data, m)`: Validate chain on `m` → Write chain with `Bytes(data)` → `storage.plan` under the
+`set(k, data, m)`: Validate chain on `m` → Write chain with `FactsIn::bytes = Some(data)` → `storage.plan` under the
 group lock → `writes.commit` with the data object and the planned objects → cache. `get_metadata(k)`:
 `writes.recover(k)` → cache hit if `data_facts` unchanged → `storage.get` or, if absent, Default
 chain (persisted only if `persist_defaults`) → Read chain with the facts, the bytes fetched first only when its `needs_bytes` says so. Listings use
@@ -424,13 +438,25 @@ written by anything; a non-empty one now fails with the field named.
 A chain is a query: actions separated by `/`, parameters by `-`, parsed by `parse_query` and planned
 **once, at store build**, by the existing `PlanBuilder` against the shared `CommandMetadataRegistry`
 (`PlanBuilder::new` needs only the registry — no environment, recipe provider or store), then
-compiled (§4). `PlanBuilder` takes the realm from the transform segment's header (`plan.rs`,
-`last_transform_query_name`), so a spec may be written `-store_config/media_type/…`. **In a
-configuration the realm prefix may be omitted**, and `PlanBuilder` is not changed for it: the
+compiled (§4). A spec may be written with its realm, `-store_config/media_type/…`. **In a
+configuration the realm prefix may be omitted**, and `PlanBuilder` gets no option for it: the
 compiler fills the realm into the parsed query before planning. If the query's transform segment has
-no header, it gets `SegmentHeader { name: "store_config", level: 0, parameters: [] }`; a header with
-an empty name has the name set; a header naming any other realm is a `configuration_error` (a
-handler spec cannot run in realm `""`). The filled query is what the compiler plans, what an error
+no header, it gets `SegmentHeader { name: "store_config", ..Default::default() }`; a header with an
+empty name has the name set; a header naming any other realm, or carrying a level above 0 or header
+parameters, is a `configuration_error`.
+
+**A planner defect this depends on.** `PlanBuilder` does not apply a segment's realm to every action
+in it, as `PROJECT_OVERVIEW.md` says it should ("Realm applies to the whole segment"). The realm
+comes from `Query::last_transform_query_name` (`plan.rs` `get_command_metadata`), which is `None`
+unless the query has exactly one segment. And `process_query` hands a segment's single action to
+`process_action` with an empty query (`plan.rs` `query.segments = Vec::new()`). So only the last
+action of a one-segment, multi-action query is looked up in its realm. Every other action falls
+back to realm `""`: `-store_config/defaults` fails with "Action 'defaults' not registered"
+(reproduced with `liquers-validate` and a registry overlay). The defect belongs to this design
+(triage case 1: the design cannot work without the fix), so it is fixed here, in Phase 4 step 0,
+rather than filed separately; Phase 5 records it. The fix makes `PlanBuilder` carry the realm of the segment it is splitting. It is a
+bug fix, not the extension the user rejected: no new option, and realm `""` queries plan as
+before. The filled query is what the compiler plans, what an error
 message quotes, and what `liquers-validate` should be given, so validation and configuration see the
 same text. Filling happens on the AST, never by prefixing the string, so a spec that begins with a
 resource segment (`-R-key/…`, below) keeps its shape.
@@ -447,8 +473,9 @@ needs the environment. A bare `StoreRouterBuilder` (tests, `liquers-store`'s `cr
 step is a `configuration_error`. A new component of any kind is one hard-coded registration and no
 configuration design (AC-10, AC-21).
 
-Specs above were checked with `liquers-validate` (parse and plan; the `-R-key` form as well). Once
-the realm is exported to `specs/command_registry.yaml` they validate against the real registry.
+Specs above were checked with `liquers-validate` at **parse** level only (`--no-registry`; the
+`-R-key` form as well). Planning them needs the defect fix above and the realm exported to
+`specs/command_registry.yaml` (Phase 4 steps 0 and 12).
 
 Rejected, alternative (a): ordinary commands run through the `CommandExecutor` — the record is not a
 `Value`, the store is built before the environment exists, and a misspelt handler would fail on
@@ -459,26 +486,27 @@ every read instead of at build time.
 - `liquers-core/src/store.rs`: the `AsyncStore` additions; implementations in `AsyncFileStore`,
   `AsyncMemoryStore`, `AsyncStoreRouter`; `ReservedNames` prefix form.
 - `liquers-core/src/store/` (new, declared as `mod …;` inside `store.rs`, as `escape.rs` does with
-  `escape/`): `read_only.rs` (patterned on the test decorators `DecoratedStore` / `ArcStore`), `pipeline.rs`, `storage.rs`, `handlers.rs`,
-  `writes.rs`, `metadata_functions.rs`.
+  `escape/`): `read_only.rs` (patterned on the test decorators `DecoratedStore` / `ArcStore`), `pipeline.rs`, `storage.rs`,
+  `writes.rs`, `store_config.rs` (§4 types, compiler, `register_builtin_store_config`), `handlers.rs`
+  (the built-in handlers' builders).
 - `liquers-core/src/store_config.rs`: `read_only`, `MetadataConfig` and its defaults;
   `store_factory.rs`: `build_without_env_expansion` keeps returning `AsyncStoreRouter` (its callers
   in `liquers-store`'s `create_router*`, `liquers-web`'s `build_router` and `EnvironmentBuilder`
   depend on the type) and wraps each mount (`Arc::from` the factory's `Box`, then pipeline, then
   `ReadOnlyStore`); a new `build_store(self) -> Result<Arc<dyn AsyncStore>, Error>` also applies
   the router-level `read_only` and `metadata`, and `EnvironmentBuilder::build` switches to it;
-  `StoreRouterBuilder::with_metadata_functions(&CommandMetadataRegistry, MetadataFunctionRegistry)`,
+  `StoreRouterBuilder::with_store_config(&CommandMetadataRegistry, &StoreConfigFunctions)`,
   called by `EnvironmentBuilder::build` with its command registry.
 - `liquers-core/src/commands.rs`: `CommandRegistry` carries a `StoreConfigFunctions` beside its
   metadata registry (data only — never executed); the executor refuses the `store_config` realm with
-  `not_supported`. `plan.rs`: unchanged — the compiler fills the realm into the query (§Configuration).
+  `not_supported`. `plan.rs`: the realm-header defect fix only (§Configuration); the compiler fills the realm into the query.
 - `liquers-macro`: unchanged.
 - `liquers-core/src/metadata.rs`: `MetadataRecord` and `AssetInfo` gain `created:
   Option<BackendTime>` and `etag: Option<String>` (serde default, skipped when `None`).
 - `liquers-core/src/environment_builder.rs`: `VersionVerification` stays the environment default;
   a mount's `content_hash` handler overrides it.
 - `liquers-store/src/opendal_store.rs`: data-only methods, capabilities per OpenDAL service.
-- `liquers-lib`: `front_matter` handler, registered in `liquers-lib`'s store factory.
+- `liquers-lib`: `liquers-lib/src/store_config.rs` with `front_matter` and `front_matter_sync`, registered by `register_lib_store_config` where `liquers-lib` builds its command registry (`environment.rs`).
 - `liquers-axum/src/store/handlers.rs`: nothing new — `NotSupported` already maps to 501.
 - `liquers-web`: `LiquersStore` exposes `isReadOnly`; `JsStore` maps the optional data-only methods of a store object (§Language Integration); the built-in browser stores keep refusing data access (later).
 - Conformance: `liquers-core/src/store_conformance/` gains fixtures for adapted stores (AC-7) and a
@@ -692,4 +720,4 @@ Proposed `affects_docs`: the first eight (the two new documents included) and `L
 | Bindings | `liquers-py` (`context.rs`) holds stores as `Arc<dyn AsyncStore>` only; defaulted methods do not break it. Its `MetadataRecord` wrapper gains getters for `created` and `etag` |
 | Security | none new; read-only enforced in the decorator and reported through `is_read_only` |
 | Recovery | journal roll-forward/back (AC-20); `DirectWrite` keeps today's `Storing` marker |
-| Certainty and open questions | All Phase 1 questions decided; realm name `store_config` confirmed 2026-10-15. Least certain: whether `PlanBuilder`'s default-link promotion and parameter resolution behave identically in a non-empty realm (only `plan.rs` unit tests with a test realm `r` have planned outside `""`); Phase 4 tests it first |
+| Certainty and open questions | All Phase 1 questions decided; realm name `store_config` confirmed 2026-10-15. Known change: the planner's realm-header defect (§Configuration), fixed first in Phase 4 step 0. No test plans a query outside realm `""` today (the `plan.rs` tests with realm `r` build steps by hand), so default-link promotion and parameter resolution in a non-empty realm are untested; step 0's tests cover them |

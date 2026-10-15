@@ -51,13 +51,9 @@ stores:
     config: { path: ./specs }
     read_only: true
     metadata:
-      storage: none                  # per_entry | grouped | central | none
+      storage: none                  # native | per_entry | grouped | central | none
       persist_defaults: false        # derived metadata is cached in memory, never written
-      handlers:
-        - media_type: { from: extension }
-        - file_facts                 # size and the backend's modification time
-        - content_hash: { when: on_change }
-        - front_matter: { fields: [title, description], write_back: false }
+      on_read: media_type/file_facts/content_hash-on_change/front_matter
 ```
 
 Reads write nothing, writes are refused with `NotSupported`, a changed file gets a new version on
