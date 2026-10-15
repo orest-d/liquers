@@ -32,7 +32,7 @@ Prerequisites: none outside this design. The planner defect, fixed in step 0, is
 - [x] Step 5: realm `store_config`: compiler, built-in handlers, registry export (0fe4ef4)
 - [x] Step 6: storage models (da5bdec)
 - [x] Step 7: write strategies (66b611f)
-- [ ] Step 8: `MetadataPipelineStore`
+- [x] Step 8: `MetadataPipelineStore` (b693d68)
 - [ ] Step 9: the asset manager reads `version_verification`
 - [ ] Step 10: configuration types, defaults, `build_store`
 - [ ] Step 11: conformance suites `A1`–`A7`

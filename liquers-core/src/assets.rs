@@ -5643,6 +5643,20 @@ fn adopt_external_change(
     }
 }
 
+/// The version-verification policy for `key`: the store's, when the mount configured one (a
+/// `content_hash` handler, `specs/design/store-adapters/`), otherwise the manager's.
+fn effective_version_verification<E, M>(manager: &M, key: &Key) -> VersionVerification
+where
+    E: Environment,
+    M: AssetManager<E> + ?Sized,
+{
+    manager
+        .get_envref()
+        .get_async_store()
+        .version_verification(key)
+        .unwrap_or_else(|| manager.version_verification())
+}
+
 /// Re-hash `bytes` against the version recorded in `metadata` and decide what to do about a
 /// mismatch. `Ok(None)`: verified, not checked, or verification is `Off`. Changes nothing.
 async fn decide_external_change<E, M>(
@@ -5655,7 +5669,7 @@ where
     E: Environment,
     M: AssetManager<E> + ?Sized,
 {
-    match manager.version_verification() {
+    match effective_version_verification(manager, key) {
         VersionVerification::Off => return Ok(None),
         VersionVerification::OnRead => {}
     }
@@ -7216,11 +7230,9 @@ pub trait AssetManager<E: Environment>:
         mode: AuditMode,
     ) -> Result<VersionVerificationReport, Error> {
         let mut report = VersionVerificationReport::default();
-        match self.version_verification() {
-            VersionVerification::Off => return Ok(report),
-            VersionVerification::OnRead => {}
-        }
         let store = self.get_envref().get_async_store();
+        // A mount may configure its own policy, so the manager's `Off` cannot end the sweep here;
+        // each key is checked against its own policy below.
         let keys = if store.is_dir(key).await? {
             if deep {
                 store.listdir_keys_deep(key).await?
@@ -7233,6 +7245,10 @@ pub trait AssetManager<E: Environment>:
         for key in keys {
             if store.is_dir(&key).await? {
                 continue;
+            }
+            match effective_version_verification(self, &key) {
+                VersionVerification::Off => continue,
+                VersionVerification::OnRead => {}
             }
             if !store.contains(&key).await? {
                 report.skipped.push(key);
