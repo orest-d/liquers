@@ -519,7 +519,7 @@ ENVIRONMENT_CONFIG,reference,Environment Configuration,current,local,,,,,,core/c
 IMAGE_COMMAND_LIBRARY,reference,Image Command Library Specification,overdue,local,,,,,,lib/image,,,,,2026-03-02,,specs/reference/IMAGE_COMMAND_LIBRARY.md
 PAYLOAD_GUIDE,reference,Payload Specification and Usage,current,local,,,,,,core/context;core/commands,,,,,2026-09-04,,specs/reference/PAYLOAD_GUIDE.md
 POLARS_COMMAND_LIBRARY,reference,Polars Command Library Specification,current,local,,,,,,lib/polars,,,,,2026-10-14,,specs/reference/POLARS_COMMAND_LIBRARY.md
-PROJECT_OVERVIEW,reference,Liquers Project Overview,current,local,,,,,,core/query;core/plan;core/assets;core/store;core/value,,,,,2026-10-11,,specs/reference/PROJECT_OVERVIEW.md
+PROJECT_OVERVIEW,reference,Liquers Project Overview,current,local,,,,,,core/query;core/plan;core/assets;core/store;core/value,,,,,2026-10-15,,specs/reference/PROJECT_OVERVIEW.md
 RECORD_STREAMS,reference,Record Streams,current,local,,,,,,records;lib/value;lib/commands;web,,,,,2026-10-13,,specs/reference/RECORD_STREAMS.md
 REGISTER_COMMAND_FSD,reference,register_command! Macro Functional Specification,current,local,,,,,,macro;core/commands,,,,,2026-10-12,,specs/reference/REGISTER_COMMAND_FSD.md
 SEARCH,reference,Search,current,local,,,,,,records;lib/commands,,,,,2026-10-13,,specs/reference/SEARCH.md
@@ -527,6 +527,7 @@ STORE_CONFIG_FSD,reference,Store Configuration Functional Specification,current,
 STORE_SEMANTICS,reference,Store Behavioural Semantics,current,local,,,,,,core/store;store/backends;web,,,,,2026-10-13,,specs/reference/STORE_SEMANTICS.md
 UI_INTERFACE_FSD,reference,UI Interface Specification,overdue,local,,,,,,lib/ui,,,,,2026-03-02,,specs/reference/UI_INTERFACE_FSD.md
 VALUE_TYPE_SYSTEM,reference,Value Type System,current,local,,,,,,core/value;lib/value,,,,,2026-10-13,,specs/reference/VALUE_TYPE_SYSTEM.md
+VISION,reference,Liquers Vision and Strategy,current,local,,,,,,docs,,,,,2026-10-15,,specs/reference/VISION.md
 WEB_API_SPECIFICATION,reference,Liquers Web API Specification,current,local,,,,,,axum;web,,,,,2026-10-12,,specs/reference/WEB_API_SPECIFICATION.md
 ASSET_MANAGER_IMPLEMENTATION_GUIDE,guide,Asset Manager Implementation Guide,current,local,,,,,,core/assets,,,,,2026-10-12,,specs/guides/ASSET_MANAGER_IMPLEMENTATION_GUIDE.md
 autonomous_bulk_design,guide,Autonomous Bulk Design Procedure,current,local,,,,,,docs;build,,,,,2026-10-08,,specs/guides/autonomous_bulk_design.md

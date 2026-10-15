@@ -23,7 +23,7 @@ specs/            # Internal documentation — see specs/README.md
 `liquers-core` ← `liquers-records` ← `liquers-lib` (feature `records`). `liquers-records` depends on
 `liquers-core` only, so a crate built on records need not pull in `liquers-lib`.
 
-**Key specs**: See `specs/reference/PROJECT_OVERVIEW.md` for architecture, `specs/reference/REGISTER_COMMAND_FSD.md` for macro details, `specs/reference/ASSETS.md` for asset lifecycle.
+**Key specs**: See `specs/reference/VISION.md` for the project's purpose, vision and strategy (background for design and review work), `specs/reference/PROJECT_OVERVIEW.md` for architecture, `specs/reference/REGISTER_COMMAND_FSD.md` for macro details, `specs/reference/ASSETS.md` for asset lifecycle.
 
 ## Documentation
 

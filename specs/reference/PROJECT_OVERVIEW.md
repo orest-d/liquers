@@ -3,7 +3,7 @@ title: Liquers Project Overview
 kind: reference
 audience: internal
 area: [core/query, core/plan, core/assets, core/store, core/value]
-reviewed: 2026-10-11
+reviewed: 2026-10-15
 ---
 # Liquers Project Overview
 
@@ -435,23 +435,13 @@ Session (user session - currently minimal)
 
 ## Future Plans
 
-### Priority Areas
-1. **DataFrames (Polars)** - Highest priority data type for liquers-lib
-2. **More storage backends** - Database integrations, cloud services
-3. **Better Python integration** - Tighter data science ecosystem integration
-4. **Web UI/Dashboard** - Interactive interface for queries
-5. **Extended library** - Images, matrices/tensors, ML models
-
-### UI Roadmap
-1. **Phase 1**: Desktop egui application (current focus)
-2. **Phase 2**: WASM egui (port desktop to browser)
-3. **Phase 3**: HTML GUI (likely Dioxus-based)
-4. **Also planned**: Terminal UI (TUI)
+Priority areas and the UI roadmap are owned by [`VISION.md`](VISION.md), together with the
+project's purpose, intended uses and per-crate strategy. This document describes what the system
+*is*; that one, where it is going.
 
 ### Technical Debt / Gaps
 
 **Implementation Gaps**:
-- Dependency checking: Designed in `dependencies.rs` but not implemented
 - Multi-realm interpreter: Design exists but no implementation yet
 - Asset garbage collection: Not designed; strategy should be configurable (reference counting likely)
 - First command metadata: Commands that generate data need better metadata support
@@ -476,6 +466,7 @@ Session (user session - currently minimal)
 ## References
 
 ### Documentation
+- [Vision and strategy](./VISION.md) — purpose, intended uses, direction, crate roles
 - [Python LiQuer docs](https://orest-d.github.io/liquer/site/index.html) (obsolete but relevant)
 - [Query language spec](https://raw.githubusercontent.com/orest-d/liquer/refs/heads/master/docs/query.md)
 - [Store Config FSD](./STORE_CONFIG_FSD.md)
@@ -521,6 +512,7 @@ Session (user session - currently minimal)
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-15 | Priority areas and the UI roadmap moved to the new `VISION.md` (purpose, uses, vision, strategy); dropped the stale claim that dependency checking is unimplemented — it landed (see `DEPENDENCIES_STATUS.md` and the dependency designs). | documentation-gap review |
 | 2026-10-11 | `Query::absolute` renamed `Query::rooted`, wire name included (no alias); its meaning is unchanged. | `design/query-leading-slash-field/` |
 | 2026-10-10 | Special instructions: `v` is positional (`design/plan-policy/`). | phase-5, `design/plan-policy/` |
 | 2026-10-10 | Module table, sync/async section and known limitations: the synchronous `Store` and the `cache` module were removed (assets cache results). | `CORE-SYNC-STORE-TRAIT-OBSOLETE`, `design/sync-store-removal/` |
