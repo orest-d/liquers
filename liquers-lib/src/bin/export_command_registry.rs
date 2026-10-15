@@ -266,8 +266,14 @@ fn build_registry(groups: &[Group]) -> Result<CommandMetadataRegistry, Error> {
                     liquers_lib::register_search_commands!(cr)?;
                 }
                 // Every command registry declares the realm's built-ins when it is created;
-                // the group decides only whether they are kept, below.
-                Group::StoreConfig => {}
+                // the group adds liquers-lib's own entries and decides whether they are kept.
+                Group::StoreConfig => {
+                    #[cfg(feature = "records")]
+                    liquers_lib::store_config::register_lib_store_config(
+                        &mut cr.command_metadata_registry,
+                        &mut cr.store_config,
+                    )?;
+                }
             }
         }
     }

@@ -2,7 +2,7 @@
 # Regenerate: cargo run -p liquers-lib --features cli --bin export-command-registry -- \
 #               --format yaml -o specs/command_registry.yaml
 # Origin:   groups=core,lui,egui,image,polars,records,search,store_config  features=egui,image,polars,records
-# Commands: 156
+# Commands: 158
 # CHANGELOG-BEGIN
 # 2026-08-02  initial export (95 commands: img 47, pl 26, lui 14, root 6, dep 2)
 # 2026-08-25  pl/select_columns and pl/drop_columns take a variadic `columns` argument
@@ -37,6 +37,8 @@
 #             media_type, file_facts, content_hash, updated. design/store-adapters
 # 2026-10-15  store_config storage models: native, per_entry, grouped, none, central.
 # 2026-10-15  store_config write strategies: direct, atomic, transactional.
+# 2026-10-15  store_config front_matter, front_matter_sync (liquers-lib, feature records);
+#             commands_doc and ns-search/commands omit the store_config realm.
 # CHANGELOG-END
 commands:
 - realm: store_config
@@ -406,7 +408,7 @@ commands:
   volatile: false
   expires: never
   definition: Registered
-  impl_version: 9c6f7aca873c0cfeffee7427043353e5
+  impl_version: 6423aef87ab655cc24ce07768723b144
 - namespace: dep
   name: command_metadata
   label: Command Metadata
@@ -2430,6 +2432,62 @@ commands:
   expires: never
   definition: Registered
   impl_version: 96923ef5d3d15b5f97d7669db6315345
+- realm: store_config
+  name: front_matter
+  label: Front matter
+  doc: 'For a Markdown entry, sets the named text fields (default title and description) from the document''s YAML or TOML front matter. Other media types: no effect. on_read reads the bytes only when the entry changed since its record was stored.'
+  hints:
+    store_config: handler
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: mode
+    label: mode
+    description: overwrite replaces the field; fill sets it only where it is empty
+    default: !Value overwrite
+    argument_type: !Enum
+      name: mode
+      values:
+      - alias: overwrite
+        value: !Value overwrite
+      - alias: fill
+        value: !Value fill
+      others_allowed: false
+      value_type: string
+    gui_info: !TextField 40
+  - name: fields
+    label: fields
+    default: None
+    argument_type: string
+    multiple: true
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  definition: Registered
+- realm: store_config
+  name: front_matter_sync
+  label: Front matter write-back
+  doc: 'on_write: in set_metadata, rewrites a Markdown entry''s YAML front matter from the named record fields (default title and description), turning the metadata write into a data write. In set the caller''s bytes are kept as they are.'
+  hints:
+    store_config: handler
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: fields
+    label: fields
+    default: None
+    argument_type: string
+    multiple: true
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  definition: Registered
 - namespace: rec
   name: rec_id
   label: Record by id

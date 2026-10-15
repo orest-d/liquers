@@ -35,8 +35,8 @@ Prerequisites: none outside this design. The planner defect, fixed in step 0, is
 - [x] Step 8: `MetadataPipelineStore` (b693d68)
 - [x] Step 9: the asset manager reads `version_verification` (c82afdc)
 - [x] Step 10: configuration types, defaults, `build_store` (dd34bb3)
-- [x] Step 11: conformance suites `A1`–`A7` (next commit after 194e7fc)
-- [ ] Step 12: `front_matter` and `front_matter_sync` in `liquers-lib`
+- [x] Step 11: conformance suites `A1`–`A7` (7903239)
+- [x] Step 12: `front_matter` and `front_matter_sync` in `liquers-lib` (next commit after 7903239)
 - [ ] Step 13: OpenDAL data-only access
 - [ ] Step 14: HTTP 501 test and Python getters
 - [ ] Step 15: `liquers-web`: `isReadOnly`, the optional data-only methods, declarations

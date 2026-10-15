@@ -619,6 +619,15 @@ macro_rules! register_records_commands {
         use $crate::records::commands::*;
         use $crate::records::table_ops::*;
 
+        // The `store_config` handlers that need the records crate (`front_matter`, …).
+        {
+            let registry = &mut *$cr;
+            $crate::store_config::register_lib_store_config(
+                &mut registry.command_metadata_registry,
+                &mut registry.store_config,
+            )?;
+        }
+
         register_command!($cr,
             async fn rec_id(state, id: String, context) -> result
             namespace: "rec"
