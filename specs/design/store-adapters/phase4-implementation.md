@@ -26,7 +26,7 @@ Prerequisites: none outside this design. The planner defect, fixed in step 0, is
 ## Progress
 - [x] Step 0: the planner applies a segment's realm to every action (a8e457f)
 - [x] Step 1: `created`, `etag` and `BackendTime` on records (9b6bfdc)
-- [ ] Step 2: data-only access on `AsyncStore`, `ReservedNames` prefixes, test support
+- [x] Step 2: data-only access on `AsyncStore`, `ReservedNames` prefixes, test support (bcc3928)
 - [ ] Step 3: data-only access in the memory, file and router stores
 - [ ] Step 4: `ReadOnlyStore`
 - [ ] Step 5: realm `store_config`: compiler, built-in handlers, registry export
