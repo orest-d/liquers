@@ -50,6 +50,9 @@ enum Group {
     Polars,
     Records,
     Search,
+    /// The `store_config` realm: store configuration entries, declared but never executed.
+    #[value(name = "store_config")]
+    StoreConfig,
 }
 
 impl Group {
@@ -62,13 +65,14 @@ impl Group {
             Group::Polars => "polars",
             Group::Records => "records",
             Group::Search => "search",
+            Group::StoreConfig => "store_config",
         }
     }
 
     /// Whether this binary was compiled with the group's cargo feature.
     fn is_compiled_in(self) -> bool {
         match self {
-            Group::Core | Group::Lui => true,
+            Group::Core | Group::Lui | Group::StoreConfig => true,
             Group::Egui => cfg!(feature = "egui"),
             Group::Image => cfg!(feature = "image-support"),
             Group::Polars => cfg!(feature = "polars"),
@@ -77,7 +81,7 @@ impl Group {
         }
     }
 
-    fn all() -> [Group; 7] {
+    fn all() -> [Group; 8] {
         [
             Group::Core,
             Group::Lui,
@@ -86,6 +90,7 @@ impl Group {
             Group::Polars,
             Group::Records,
             Group::Search,
+            Group::StoreConfig,
         ]
     }
 }
@@ -260,11 +265,20 @@ fn build_registry(groups: &[Group]) -> Result<CommandMetadataRegistry, Error> {
                     #[cfg(feature = "records")]
                     liquers_lib::register_search_commands!(cr)?;
                 }
+                // Every command registry declares the realm's built-ins when it is created;
+                // the group decides only whether they are kept, below.
+                Group::StoreConfig => {}
             }
         }
     }
 
-    Ok(env.get_command_metadata_registry().clone())
+    let mut registry = env.get_command_metadata_registry().clone();
+    if !groups.contains(&Group::StoreConfig) {
+        registry
+            .commands
+            .retain(|command| command.realm != liquers_core::store::realm::STORE_CONFIG_REALM);
+    }
+    Ok(registry)
 }
 
 /// The generated provenance header.
@@ -274,10 +288,14 @@ fn build_registry(groups: &[Group]) -> Result<CommandMetadataRegistry, Error> {
 /// verbatim — that is the whole mechanism keeping a human-edited history across regeneration.
 fn header(groups: &[Group], command_count: usize, path: &Path) -> String {
     let group_names: Vec<&str> = groups.iter().map(|g| g.name()).collect();
-    // `search` is compiled in by the `records` feature, so it adds no feature name of its own.
+    // `search` is compiled in by the `records` feature, and `store_config` is always present, so
+    // neither adds a feature name of its own.
     let features: Vec<&str> = Group::all()
         .into_iter()
-        .filter(|g| !matches!(g, Group::Core | Group::Lui | Group::Search) && g.is_compiled_in())
+        .filter(|g| {
+            !matches!(g, Group::Core | Group::Lui | Group::Search | Group::StoreConfig)
+                && g.is_compiled_in()
+        })
         .map(|g| g.name())
         .collect();
 

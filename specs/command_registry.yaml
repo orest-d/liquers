@@ -1,8 +1,8 @@
 # Liquers command registry — GENERATED, do not edit by hand.
 # Regenerate: cargo run -p liquers-lib --features cli --bin export-command-registry -- \
 #               --format yaml -o specs/command_registry.yaml
-# Origin:   groups=core,lui,egui,image,polars,records,search  features=egui,image,polars,records
-# Commands: 141
+# Origin:   groups=core,lui,egui,image,polars,records,search,store_config  features=egui,image,polars,records
+# Commands: 148
 # CHANGELOG-BEGIN
 # 2026-08-02  initial export (95 commands: img 47, pl 26, lui 14, root 6, dep 2)
 # 2026-08-25  pl/select_columns and pl/drop_columns take a variadic `columns` argument
@@ -33,8 +33,186 @@
 # 2026-10-14  pl lazy commands (filters, sort, aggregations) collect through
 #             collect_on_any_runtime: impl_versions refreshed, signatures unchanged.
 #             POLARS-COLLECT-PANICS-ON-CURRENT-THREAD-RUNTIME
+# 2026-10-15  realm store_config (new group store_config): defaults, set, require,
+#             media_type, file_facts, content_hash, updated. design/store-adapters
 # CHANGELOG-END
 commands:
+- realm: store_config
+  name: defaults
+  label: Defaults
+  doc: 'The record today''s stores produce. on_default: a new record with updated, key, filename, file size, status Source and the ''New metadata has been created'' warning. on_write: updated, key, filename, file size and status Source where unset.'
+  hints:
+    store_config: handler
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  definition: Registered
+- realm: store_config
+  name: set
+  label: Set a field
+  doc: Sets one text field (title, description, media_type, data_format, type_identifier, unicode_icon). A value containing '/' is written with '~I'.
+  hints:
+    store_config: handler
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: field
+    label: field
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  - name: value
+    label: value
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  - name: mode
+    label: mode
+    description: overwrite replaces the field; fill sets it only where it is empty
+    default: !Value overwrite
+    argument_type: !Enum
+      name: mode
+      values:
+      - alias: overwrite
+        value: !Value overwrite
+      - alias: fill
+        value: !Value fill
+      others_allowed: false
+      value_type: string
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  definition: Registered
+- realm: store_config
+  name: require
+  label: Require fields
+  doc: 'on_validate: refuses a record whose named text fields are empty, naming the first.'
+  hints:
+    store_config: handler
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: fields
+    label: fields
+    default: None
+    argument_type: string
+    multiple: true
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  definition: Registered
+- realm: store_config
+  name: media_type
+  label: Media type from extension
+  doc: 'Sets media_type from the key''s extension, leaving it alone for an unknown extension. on_validate: refuses a media_type that disagrees with a known extension.'
+  hints:
+    store_config: handler
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: mode
+    label: mode
+    description: overwrite replaces the field; fill sets it only where it is empty
+    default: !Value overwrite
+    argument_type: !Enum
+      name: mode
+      values:
+      - alias: overwrite
+        value: !Value overwrite
+      - alias: fill
+        value: !Value fill
+      others_allowed: false
+      value_type: string
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  definition: Registered
+- realm: store_config
+  name: file_facts
+  label: Backend facts
+  doc: 'Sets file_size, created and etag from what the backend reports. on_write: file_size from the bytes; created and etag are set after the commit.'
+  hints:
+    store_config: handler
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: mode
+    label: mode
+    description: overwrite replaces the field; fill sets it only where it is empty
+    default: !Value overwrite
+    argument_type: !Enum
+      name: mode
+      values:
+      - alias: overwrite
+        value: !Value overwrite
+      - alias: fill
+        value: !Value fill
+      others_allowed: false
+      value_type: string
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  definition: Registered
+- realm: store_config
+  name: content_hash
+  label: Content hash
+  doc: 'Sets version to the hash of the bytes: always, off, or on_change (when size, created or etag differ from the stored record, or it has no version).'
+  hints:
+    store_config: handler
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: when
+    label: when
+    default: !Value on_change
+    argument_type: !Enum
+      name: when
+      values:
+      - alias: on_change
+        value: !Value on_change
+      - alias: always
+        value: !Value always
+      - alias: off
+        value: !Value off
+      others_allowed: false
+      value_type: string
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  definition: Registered
+- realm: store_config
+  name: updated
+  label: Updated now
+  doc: 'on_write: sets updated to the current time. defaults already does this.'
+  hints:
+    store_config: handler
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  definition: Registered
 - name: to_text
   label: To text
   doc: Convert input state to string

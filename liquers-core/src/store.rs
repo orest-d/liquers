@@ -81,6 +81,11 @@ use async_trait::async_trait;
 mod read_only;
 pub use read_only::ReadOnlyStore;
 
+/// The `store_config` realm and its plan compiler (`specs/design/store-adapters/`).
+pub mod realm;
+/// The built-in `store_config` handlers.
+pub mod handlers;
+
 /// Store decorators for tests of the store adapters.
 #[cfg(any(test, feature = "store-conformance"))]
 pub mod test_support;
