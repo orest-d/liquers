@@ -77,6 +77,10 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 
+/// Store decorators for tests of the store adapters.
+#[cfg(any(test, feature = "store-conformance"))]
+pub mod test_support;
+
 use crate::error::{Error, ErrorType};
 use crate::metadata::{self, AssetInfo, Metadata, MetadataRecord};
 use crate::query::Key;
@@ -373,6 +377,281 @@ pub trait AsyncStore: crate::maybe_send::MaybeSend + crate::maybe_send::MaybeSyn
     /// [module documentation](self#a-store-key-is-absolute).
     fn is_supported(&self, _key: &Key) -> bool {
         false
+    }
+
+    // --- Data-only access (`specs/design/store-adapters/`, Phase 2 §1) ---------------------
+    //
+    // The methods below read and write a store's *data objects* without touching metadata: no
+    // sidecar is read, written or repaired. They are what a metadata layer above the store
+    // (`MetadataPipelineStore`) and the read-only decorator build on. Every one defaults to a
+    // refusal, so no existing implementation changes and a store that does not offer data-only
+    // access says so through [`AsyncStore::data_capabilities`] rather than failing later.
+
+    /// The bytes of a data object, never touching metadata.
+    async fn get_data(&self, key: &Key) -> Result<Vec<u8>, Error> {
+        Err(data_access_not_supported(key, &self.store_name()))
+    }
+
+    /// Writes a data object's bytes, never touching metadata.
+    async fn set_data(&self, key: &Key, _data: &[u8]) -> Result<(), Error> {
+        Err(data_access_not_supported(key, &self.store_name()))
+    }
+
+    /// Removes a data object, never touching metadata.
+    async fn remove_data(&self, key: &Key) -> Result<(), Error> {
+        Err(data_access_not_supported(key, &self.store_name()))
+    }
+
+    /// Moves a data object; atomic where [`DataCapabilities::rename`] says so.
+    async fn rename_data(&self, from: &Key, _to: &Key) -> Result<(), Error> {
+        Err(data_access_not_supported(from, &self.store_name()))
+    }
+
+    /// The raw names in a directory, with no filtering of sidecars or reserved names.
+    async fn listdir_data(&self, key: &Key) -> Result<Vec<String>, Error> {
+        Err(data_access_not_supported(key, &self.store_name()))
+    }
+
+    /// Facts about a data object the backend can report without reading it; `Ok(None)` when no
+    /// data object exists at `key`.
+    async fn data_facts(&self, key: &Key) -> Result<Option<DataFacts>, Error> {
+        Err(data_access_not_supported(key, &self.store_name()))
+    }
+
+    /// The metadata the backend itself stores for `key`, exactly as stored: never synthesized,
+    /// repaired or written. `Ok(None)` when it stores none.
+    async fn get_stored_metadata(&self, key: &Key) -> Result<Option<Metadata>, Error> {
+        Err(data_access_not_supported(key, &self.store_name()))
+    }
+
+    /// Which of the data-only methods this store implements. All `false` by default.
+    fn data_capabilities(&self) -> DataCapabilities {
+        DataCapabilities::default()
+    }
+
+    /// True when every write is refused by policy (the read-only adapter, or a router whose
+    /// members all are). The runtime counterpart of a conformance fixture's declared capabilities.
+    fn is_read_only(&self) -> bool {
+        false
+    }
+
+    /// Completes or rolls back interrupted writes across the whole store, reporting what it
+    /// repaired. Nothing to do by default.
+    async fn sync(&self) -> Result<SyncReport, Error> {
+        Ok(SyncReport::default())
+    }
+
+    /// The version-verification policy a mount configured for `key`, overriding the asset
+    /// manager's default; `None` keeps that default.
+    fn version_verification(&self, _key: &Key) -> Option<crate::environment_builder::VersionVerification> {
+        None
+    }
+}
+
+/// The refusal of a data-only method by a store that does not implement it.
+fn data_access_not_supported(key: &Key, store_name: &str) -> Error {
+    Error::not_supported(format!(
+        "Store '{store_name}' does not offer data-only access (key '{key}')"
+    ))
+}
+
+/// Which data-only methods of [`AsyncStore`] a store implements, and what they guarantee.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DataCapabilities {
+    /// `get_data`, `set_data`, `remove_data`, `listdir_data`, `data_facts` and
+    /// `get_stored_metadata` are implemented.
+    pub data_access: bool,
+    /// `set_data` replaces an object atomically: a reader sees the old or the new bytes, never a
+    /// mix (object stores).
+    pub atomic_write: bool,
+    /// `rename_data` is implemented and atomic.
+    pub rename: bool,
+    /// `data_facts` reports a modification time.
+    pub modified_time: bool,
+    /// `data_facts` reports an ETag.
+    pub etag: bool,
+}
+
+impl DataCapabilities {
+    /// What two stores both offer — what a router over them can promise.
+    pub fn intersection(&self, other: &DataCapabilities) -> DataCapabilities {
+        DataCapabilities {
+            data_access: self.data_access && other.data_access,
+            atomic_write: self.atomic_write && other.atomic_write,
+            rename: self.rename && other.rename,
+            modified_time: self.modified_time && other.modified_time,
+            etag: self.etag && other.etag,
+        }
+    }
+}
+
+/// What a backend reports about a data object without reading it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DataFacts {
+    pub size: u64,
+    pub modified: Option<metadata::BackendTime>,
+    pub etag: Option<String>,
+}
+
+/// How an interrupted write was settled.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RecoveryOutcome {
+    /// The write was completed from its journal.
+    RolledForward,
+    /// The write was abandoned and its staged objects removed.
+    RolledBack,
+}
+
+/// One settled interrupted write.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Recovery {
+    pub key: Key,
+    pub outcome: RecoveryOutcome,
+}
+
+/// What [`AsyncStore::sync`] did.
+#[derive(Debug, Clone, Default)]
+pub struct SyncReport {
+    pub repaired: Vec<Recovery>,
+    pub errors: Vec<(Key, Error)>,
+}
+
+impl SyncReport {
+    /// Adds another report's findings to this one.
+    pub fn merge(&mut self, other: SyncReport) {
+        self.repaired.extend(other.repaired);
+        self.errors.extend(other.errors);
+    }
+}
+
+/// A store shared behind an [`Arc`], usable wherever an owned [`AsyncStore`] is expected.
+///
+/// `build_store` returns `Arc<dyn AsyncStore>`; wrapping it in `SharedStore` lets the same store
+/// enter a decorator, a router or a conformance fixture. Every method forwards unchanged.
+#[derive(Clone)]
+pub struct SharedStore(pub Arc<dyn AsyncStore>);
+
+impl SharedStore {
+    pub fn new(store: Arc<dyn AsyncStore>) -> Self {
+        SharedStore(store)
+    }
+
+    /// The shared store itself.
+    pub fn inner(&self) -> &Arc<dyn AsyncStore> {
+        &self.0
+    }
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+impl AsyncStore for SharedStore {
+    fn store_name(&self) -> String {
+        self.0.store_name()
+    }
+    fn key_prefix(&self) -> Key {
+        self.0.key_prefix()
+    }
+    fn default_metadata(&self, key: &Key, is_dir: bool) -> MetadataRecord {
+        self.0.default_metadata(key, is_dir)
+    }
+    fn finalize_metadata(&self, metadata: &mut Metadata, key: &Key, data: &[u8], update: bool) {
+        self.0.finalize_metadata(metadata, key, data, update)
+    }
+    fn finalize_metadata_empty(
+        &self,
+        metadata: &mut Metadata,
+        key: &Key,
+        is_dir: bool,
+        update: bool,
+    ) {
+        self.0.finalize_metadata_empty(metadata, key, is_dir, update)
+    }
+    async fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
+        self.0.get(key).await
+    }
+    async fn get_bytes(&self, key: &Key) -> Result<Vec<u8>, Error> {
+        self.0.get_bytes(key).await
+    }
+    async fn get_metadata(&self, key: &Key) -> Result<Metadata, Error> {
+        self.0.get_metadata(key).await
+    }
+    async fn get_asset_info(&self, key: &Key) -> Result<metadata::AssetInfo, Error> {
+        self.0.get_asset_info(key).await
+    }
+    async fn set(&self, key: &Key, data: &[u8], metadata: &Metadata) -> Result<(), Error> {
+        self.0.set(key, data, metadata).await
+    }
+    async fn set_metadata(&self, key: &Key, metadata: &Metadata) -> Result<(), Error> {
+        self.0.set_metadata(key, metadata).await
+    }
+    async fn remove(&self, key: &Key) -> Result<(), Error> {
+        self.0.remove(key).await
+    }
+    async fn removedir(&self, key: &Key) -> Result<(), Error> {
+        self.0.removedir(key).await
+    }
+    async fn contains(&self, key: &Key) -> Result<bool, Error> {
+        self.0.contains(key).await
+    }
+    async fn is_dir(&self, key: &Key) -> Result<bool, Error> {
+        self.0.is_dir(key).await
+    }
+    async fn keys(&self) -> Result<Vec<Key>, Error> {
+        self.0.keys().await
+    }
+    async fn listdir(&self, key: &Key) -> Result<Vec<String>, Error> {
+        self.0.listdir(key).await
+    }
+    async fn listdir_keys(&self, key: &Key) -> Result<Vec<Key>, Error> {
+        self.0.listdir_keys(key).await
+    }
+    async fn listdir_asset_info(&self, key: &Key) -> Result<Vec<AssetInfo>, Error> {
+        self.0.listdir_asset_info(key).await
+    }
+    async fn listdir_keys_deep(&self, key: &Key) -> Result<Vec<Key>, Error> {
+        self.0.listdir_keys_deep(key).await
+    }
+    async fn makedir(&self, key: &Key) -> Result<(), Error> {
+        self.0.makedir(key).await
+    }
+    fn is_supported(&self, key: &Key) -> bool {
+        self.0.is_supported(key)
+    }
+    async fn get_data(&self, key: &Key) -> Result<Vec<u8>, Error> {
+        self.0.get_data(key).await
+    }
+    async fn set_data(&self, key: &Key, data: &[u8]) -> Result<(), Error> {
+        self.0.set_data(key, data).await
+    }
+    async fn remove_data(&self, key: &Key) -> Result<(), Error> {
+        self.0.remove_data(key).await
+    }
+    async fn rename_data(&self, from: &Key, to: &Key) -> Result<(), Error> {
+        self.0.rename_data(from, to).await
+    }
+    async fn listdir_data(&self, key: &Key) -> Result<Vec<String>, Error> {
+        self.0.listdir_data(key).await
+    }
+    async fn data_facts(&self, key: &Key) -> Result<Option<DataFacts>, Error> {
+        self.0.data_facts(key).await
+    }
+    async fn get_stored_metadata(&self, key: &Key) -> Result<Option<Metadata>, Error> {
+        self.0.get_stored_metadata(key).await
+    }
+    fn data_capabilities(&self) -> DataCapabilities {
+        self.0.data_capabilities()
+    }
+    fn is_read_only(&self) -> bool {
+        self.0.is_read_only()
+    }
+    async fn sync(&self) -> Result<SyncReport, Error> {
+        self.0.sync().await
+    }
+    fn version_verification(
+        &self,
+        key: &Key,
+    ) -> Option<crate::environment_builder::VersionVerification> {
+        self.0.version_verification(key)
     }
 }
 
@@ -727,6 +1006,22 @@ pub struct ReservedNames {
     /// layout has ever used a `__lock__` directory, so the store would refuse a key for no reason
     /// and the contract would claim a layout that does not exist.
     exact: &'static [&'static str],
+    /// Reserved as a prefix: any segment *starting* with one of these (a per-entry layout such as
+    /// `{folder}/__metadata__{name}.json`).
+    prefixes: &'static [&'static str],
+}
+
+/// The one predicate [`ReservedNames`] and [`ReservedNameSet`] share, so the "is this segment
+/// reserved" rule is written once.
+fn name_is_reserved<'a>(
+    name: &str,
+    suffixes: impl IntoIterator<Item = &'a str>,
+    exact: impl IntoIterator<Item = &'a str>,
+    prefixes: impl IntoIterator<Item = &'a str>,
+) -> bool {
+    suffixes.into_iter().any(|suffix| name.ends_with(suffix))
+        || exact.into_iter().any(|reserved| name == reserved)
+        || prefixes.into_iter().any(|prefix| name.starts_with(prefix))
 }
 
 impl ReservedNames {
@@ -736,7 +1031,25 @@ impl ReservedNames {
         suffixes: &'static [&'static str],
         exact: &'static [&'static str],
     ) -> Self {
-        Self { suffixes, exact }
+        Self {
+            suffixes,
+            exact,
+            prefixes: &[],
+        }
+    }
+
+    /// As [`ReservedNames::new`], also reserving every segment that starts with one of
+    /// `prefixes`.
+    pub const fn with_prefixes(
+        suffixes: &'static [&'static str],
+        exact: &'static [&'static str],
+        prefixes: &'static [&'static str],
+    ) -> Self {
+        Self {
+            suffixes,
+            exact,
+            prefixes,
+        }
     }
 
     /// True when one directory-entry name is reserved.
@@ -744,8 +1057,21 @@ impl ReservedNames {
     /// Takes `&str` because the listing filters have a name and no key, and building a key per
     /// entry in order to ask would allocate for nothing.
     pub fn is_reserved_name(&self, name: &str) -> bool {
-        self.suffixes.iter().any(|suffix| name.ends_with(suffix))
-            || self.exact.iter().any(|reserved| name == *reserved)
+        name_is_reserved(
+            name,
+            self.suffixes.iter().copied(),
+            self.exact.iter().copied(),
+            self.prefixes.iter().copied(),
+        )
+    }
+
+    /// The owned form, for a reservation that is combined with others.
+    pub fn to_set(&self) -> ReservedNameSet {
+        ReservedNameSet {
+            suffixes: self.suffixes.iter().map(|s| s.to_string()).collect(),
+            exact: self.exact.iter().map(|s| s.to_string()).collect(),
+            prefixes: self.prefixes.iter().map(|s| s.to_string()).collect(),
+        }
     }
 
     /// True when **any** segment of the key is reserved.
@@ -756,6 +1082,47 @@ impl ReservedNames {
     /// original check missed this shape.
     pub fn is_reserved_key(&self, key: &Key) -> bool {
         key.iter().any(|segment| self.is_reserved_name(&segment.name))
+    }
+}
+
+/// The owned counterpart of [`ReservedNames`], for reservations that come from configuration — a
+/// storage model's file name, a write strategy's staging suffix — rather than from a constant.
+///
+/// Same rule as [`ReservedNames`]: a key is reserved when **any** of its segments is.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ReservedNameSet {
+    pub suffixes: Vec<String>,
+    pub exact: Vec<String>,
+    pub prefixes: Vec<String>,
+}
+
+impl ReservedNameSet {
+    /// True when one directory-entry name is reserved.
+    pub fn is_reserved_name(&self, name: &str) -> bool {
+        name_is_reserved(
+            name,
+            self.suffixes.iter().map(String::as_str),
+            self.exact.iter().map(String::as_str),
+            self.prefixes.iter().map(String::as_str),
+        )
+    }
+
+    /// True when any segment of `key` is reserved.
+    pub fn is_reserved_key(&self, key: &Key) -> bool {
+        key.iter().any(|segment| self.is_reserved_name(&segment.name))
+    }
+
+    /// Both reservations at once.
+    pub fn union(mut self, other: &ReservedNameSet) -> ReservedNameSet {
+        self.suffixes.extend(other.suffixes.iter().cloned());
+        self.exact.extend(other.exact.iter().cloned());
+        self.prefixes.extend(other.prefixes.iter().cloned());
+        self
+    }
+
+    /// True when nothing is reserved.
+    pub fn is_empty(&self) -> bool {
+        self.suffixes.is_empty() && self.exact.is_empty() && self.prefixes.is_empty()
     }
 }
 
