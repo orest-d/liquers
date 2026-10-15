@@ -271,13 +271,13 @@ list is empty: `front_matter` and `front_matter_sync` treat it as `[title, descr
 
 | Entry | Parameters | Stages | Effect | Needs bytes |
 |---|---|---|---|---|
-| `defaults` | — | Default, Write | Default: what the file store synthesizes today for an entry with no stored metadata, `default_metadata` followed by `finalize_metadata(update = false)`: `key`, `is_dir`, `filename` seeded from the key, `file_size`, `status: Source` where it is `None`. Two differences from today, both deliberate: `updated` is not set (the `updated` handler owns it), and the two "New metadata has been created" warnings are not added. Write: `finalize_metadata` without the timestamp — `key` set, `filename` seeded, `file_size`, `status: Source` where it is `None` | no |
+| `defaults` | — | Default, Write | The record today's stores produce, exactly (decided 2026-10-15: today's timestamp and warnings stay). Default: `default_metadata` followed by `finalize_metadata(update = false)` — `updated` = now, `key`, `is_dir`, `filename` seeded from the key, `file_size`, `status: Source` where it is `None` — plus today's "New metadata has been created." warning naming the operation (`get`, `get_metadata`). Write: `finalize_metadata(update = true)` — `updated` = now, `key`, `filename` seeded, `file_size`, `status: Source` where it is `None` | no |
 | `set` | `field: String`, `value: String`, `mode = overwrite` | Default, Write, Read | Sets one text field: `title`, `description`, `media_type`, `data_format`, `type_identifier`, `unicode_icon`; any other name fails at build | no |
 | `require` | `fields: Vec<String>` (multiple; empty is a build error) | Validate | Refuses a record whose named fields are empty, naming the first (AC-14); the fields `set` accepts | no |
 | `media_type` | `mode = overwrite` | Default, Validate, Write, Read | Default/Write/Read: sets `media_type` from the extension (`media_type.rs` `file_extension_to_media_type`), leaving it alone for an unknown extension. Validate: refuses a supplied `media_type` that disagrees with a known extension (Phase 1's "corrected media type") | no |
 | `file_facts` | `mode = overwrite` | Default, Write, Read | Default/Read: `file_size`, `created`, `etag` from `DataFacts`. Write: `file_size` from the bytes; `created` and `etag` are set after the commit from the backend's facts, by the pipeline, whatever the chain says (§6) | no |
 | `content_hash` | `when = on_change` (`off` · `always` · `on_change`) | Default, Write, Read | Sets `version` to `Version::from_bytes`. Write: in `set` the bytes are at hand and it always hashes unless `off`; in `set_metadata` there are no bytes, and it behaves as Read. Read: `always` hashes every read; `on_change` only when `size`, `created` or `etag` differ from `previous` or `previous` has no `version`. A detected change is handled as `verify_stored_versions` handles one (AC-4); the entry's presence is what the mount's `version_verification` reports | `always`; `on_change` when changed; never in `set` (bytes supplied) |
-| `updated` | — | Write | Sets `updated` to the current time in the record's existing format; the one time Liquers rather than the backend owns (Phase 1 Q8) | no |
+| `updated` | — | Write | Sets `updated` to the current time in the record's existing format; the one time Liquers rather than the backend owns (Phase 1 Q8). `defaults` already does this; `updated` is for a chain without `defaults` | no |
 | `front_matter` *(liquers-lib)* | `mode = overwrite`, `fields: Vec<String>` (multiple; empty means `[title, description]`) | Default, Write, Read | For a `text/markdown` entry, parses the YAML front matter (`liquers_records::search::front_matter_end`) and projects the named fields; a field outside the `set` list is refused at build until `CORE-METADATA-NO-APPLICATION-ATTRIBUTES` gives it a home. Other media types: no effect | Markdown only, and on Read only when changed |
 | `front_matter_sync` *(liquers-lib)* | `fields: Vec<String>` (multiple; empty means `[title, description]`) | Write | Rewrites the front matter of the bytes from the record's fields, setting `StepOut::data`; turns `set_metadata` into a data write (AC-5) | yes |
 
@@ -429,7 +429,7 @@ opt-in.
 | `persist_defaults` | `false` | a read never writes (the git-checkout complaint of Phase 1); with no section the store is unwrapped and keeps today's write-on-read (AC-6) |
 | `on_default` | `defaults/media_type-fill/file_facts` | today's synthesized record, plus media type and facts |
 | `on_validate` | `""` | nothing refused unless asked |
-| `on_write` | `defaults/media_type-fill/file_facts/updated` | today's `finalize_metadata`, plus media type |
+| `on_write` | `defaults/media_type-fill/file_facts` | today's `finalize_metadata` (with its timestamp), plus media type |
 | `on_read` | `media_type-fill/file_facts` | facts come with the read; no bytes, no hash |
 
 A router-level section has the same defaults. The values live in one `const` beside
@@ -624,6 +624,17 @@ registered in code by `register_builtin_store_config` (core: `defaults`, `set`, 
 `front_matter_sync`). No existing namespace (`pl`, `lui`, `rec`, …) is touched.
 **`specs/command_registry.yaml` must be regenerated** — the realm's entries appear in it — with a
 CHANGELOG line; `registry_export` keeps it honest.
+
+**Overviews leave the realm out** (decided 2026-10-15). The entries are documentation in the
+registry, but a consumer asking "what can I run" — the agent memory service, a UI — must not see
+them. `CommandMetadataRegistry` gains `executable_commands()`, which skips realms listed in
+`NON_EXECUTABLE_REALMS` (`["store_config"]`, in `command_metadata.rs`). The overviews use it:
+- `commands_doc` (`liquers-lib/src/commands.rs`; `version: auto`, so its `impl_version` changes and
+  the registry is regenerated);
+- `ns-search/commands` (`liquers-lib/src/search/command_catalog.rs`);
+- `commandNames` (`liquers-web/src/environment.rs`).
+
+The exporter, the planner and `liquers-validate` keep using the full registry.
 
 ## Documentation Architecture
 

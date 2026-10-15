@@ -81,7 +81,7 @@ The agent memory store keeps one record per folder and must never show a half-wr
       storage: grouped-__metadata__.json
       writes: transactional
       on_validate: require-title/media_type
-      on_write: defaults/media_type-fill/file_facts/content_hash/updated
+      on_write: defaults/media_type-fill/file_facts/content_hash
 ```
 
 What this adds beyond Example 1:
@@ -180,8 +180,8 @@ What this adds beyond Example 1:
 - `needs_bytes_only_when_a_step_needs_them` (AC-4).
 - `content_hash_on_change_follows_size_time_and_etag` (AC-4).
 - `content_hash_on_change_misses_cp_p_rewrite` (AC-4).
-- `defaults_matches_the_documented_record` (AC-22): today's fields, without `updated` or the
-  warnings.
+- `defaults_matches_today` (AC-6): the Default and Write records equal what `default_metadata` and
+  `finalize_metadata` produce today, `updated` and the warning included.
 - `metadata_config_defaults_match_the_documented_table` (AC-22).
 - `set_field_replaces_its_default_whole` (AC-22): `on_read: file_facts` drops the default
   `media_type-fill`.
@@ -189,6 +189,7 @@ What this adds beyond Example 1:
 - `registered_entry_is_named_like_a_builtin` (AC-10, AC-21): a handler and a storage model
   registered by a test.
 - `executor_refuses_the_store_config_realm` (AC-9).
+- `executable_commands_skip_the_store_config_realm` (AC-9), in `command_metadata.rs`.
 
 **`liquers-core/src/store/storage.rs`:**
 - `per_entry_layouts_write_under_their_template` (AC-3).
@@ -278,6 +279,8 @@ named apart from `C1`–`C6` and from `liquers-store`'s `c6`/`c7`:
 - `front_matter_sync_rewrites_the_description` (AC-5).
 - `markdown_without_front_matter_reads_without_error` (AC-5).
 - `lib_registration_makes_front_matter_nameable` (AC-10).
+- `commands_doc_omits_the_store_config_realm` and, in `search/command_catalog.rs`,
+  `command_catalog_omits_the_store_config_realm` (AC-9).
 
 **Bindings:**
 - `liquers-axum/tests/store_api_integration.rs` `read_only_store_write_is_501` (AC-1).

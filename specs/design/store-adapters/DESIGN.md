@@ -3,9 +3,9 @@ id: STORE-ADAPTERS
 kind: design
 title: Modular store configuration — metadata layouts and store adapters
 workflow: liquers-project
-status: in_review
+status: approved
 phase: implementation
-readiness: needs-decision
+readiness: ready
 autofix: not-eligible
 area: [core/store, store/config, store/backends, web, docs]
 issues: [STORE-METADATA-LAYOUT-HARDCODED-PER-STORE, STORE-NO-READ-ONLY-ADAPTER, STORE-METADATA-HANDLING-NOT-COMPOSABLE]
@@ -20,7 +20,7 @@ created: 2026-10-13
 - [Phase 1](./phase1-high-level-design.md) — written 2026-10-13, revised 2026-10-15, **approved 2026-10-15**
 - [Phase 2](./phase2-architecture.md) — written 2026-10-15, **approved 2026-10-15** (`proceed all`)
 - [Phase 3](./phase3-examples.md) — written 2026-10-15, reviewed (pre-approved)
-- [Phase 4](./phase4-implementation.md) — written 2026-10-15, reviewed; waiting at the pre-implementation stop
+- [Phase 4](./phase4-implementation.md) — written 2026-10-15, reviewed; implementation started 2026-10-15
 - [Phase 5](./phase5-documentation.md)
 
 ## Notes
@@ -76,3 +76,8 @@ realm-header defect (new step 0), `ReadOnlyStore` over a pipeline (the pipeline 
 access), step order, test placement under `store-conformance`, registry export per step, the
 asset-manager hook (step 9), `build_store` variants and bare-router refusal, and the AC coverage
 gaps. Decision log: Phase 1 `## Design Readiness`.
+
+**2026-10-15, pre-implementation stop passed.** The user decided the five proposals (Phase 1
+`## Design Readiness`): the planner fix is part of this design; `defaults` keeps today's `updated`
+and warning; command overviews omit realm `store_config`; `front_matter` stays in `liquers-lib`;
+the JavaScript step stays last.

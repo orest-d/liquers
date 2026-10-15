@@ -113,6 +113,8 @@ Prerequisites: none outside this design. The planner defect, fixed in step 0, is
   - New `store/handlers.rs`: the handler builders.
   - `commands.rs`: `CommandRegistry` gains `store_config: StoreConfigFunctions`, `new()` calls
     `register_builtin_store_config`, and the executor refuses the realm with `not_supported`.
+  - `command_metadata.rs`: `NON_EXECUTABLE_REALMS` and
+    `CommandMetadataRegistry::executable_commands()`.
   - `liquers-lib/src/bin/export_command_registry.rs` `build_registry` and
     `liquers-lib/tests/registry_export.rs` `full_registry`: the built-in entries, as group
     `store_config`.
@@ -209,12 +211,15 @@ Prerequisites: none outside this design. The planner defect, fixed in step 0, is
   - New `liquers-lib/src/store_config.rs`: the handlers and `register_lib_store_config`.
   - Callers: `liquers-lib/src/commands.rs` `register_commands`, the exporter's `build_registry`
     and `full_registry`.
+  - The overviews use `executable_commands()`: `commands_doc` in `liquers-lib/src/commands.rs`, and
+    `liquers-lib/src/search/command_catalog.rs`.
   - `liquers-records`: a public front-matter block parser, if `parse_structure` does not already
     expose one.
 - Change: the catalogue rows, behind feature `records`.
 - Depends on: step 10.
 - Proof:
-  - `cargo test -p liquers-lib --lib store_config`.
+  - `cargo test -p liquers-lib --lib store_config`, plus `commands_doc_omits_the_store_config_realm` and
+    `command_catalog_omits_the_store_config_realm`.
   - `cargo test -p liquers-lib --test registry_export`, after regenerating the registry.
   - `bash scripts/check-build-matrix.sh`.
   - Re-validate every Phase 3 spec against the exported registry (Examples 1 and 2, and the §7
@@ -244,6 +249,7 @@ Prerequisites: none outside this design. The planner defect, fixed in step 0, is
 - Files / symbols:
   - `liquers-web/src/store/`: `JsStore` and `LiquersStore`.
   - `liquers-web/src/typescript.rs`: `LiquersStoreEntry` gains `read_only` and `metadata`.
+  - `liquers-web/src/environment.rs`: `commandNames` uses `executable_commands()`.
   - The stubs and `liquers-web/README.md`.
 - Change: `JsStore` looks the optional methods up once, when it adapts the object, and reports
   `data_capabilities` from what it found. The built-in browser stores keep refusing data access.

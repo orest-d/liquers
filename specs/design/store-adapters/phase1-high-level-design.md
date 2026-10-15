@@ -2,29 +2,23 @@
 
 ## Design Readiness
 
-- **Readiness:** `needs-decision`
-- **Automatic fixing:** `not-eligible` — complexity XL; new traits, a configuration schema change and
-  registry changes across five crates.
-- **Leading issue:** the planner fix in Phase 2 §Configuration — a change to `plan.rs`, which the
-  user had preferred not to extend.
-- **Explanation:** Phases 1–4 specify a working solution and were reviewed. The items below are
-  proposals taken as assumptions under the Phase 2 pre-approval (`proceed all`); none blocks, but
-  each changes something a user can observe, so each is shown before implementation.
-- **Open questions:**
-  1. **Proposed resolution — planner realm defect.** `PlanBuilder` applies a segment's realm header
-     only to the last action of a one-segment query, so `-store_config/defaults` cannot be planned.
-     Proposed: fix it in this design (Phase 4 step 0) as a bug fix — no new option, and realm `""`
-     plans unchanged. Alternative: an option on `PlanBuilder`, which the user rejected.
-  2. **Proposed resolution — `defaults` is not byte-identical to today.** The synthesized record
-     no longer carries `updated = now` (the `updated` handler owns it) or the two "New metadata
-     has been created" warnings. Applies only to mounts with a `metadata` section (AC-6 holds).
-  3. **Proposed resolution — the realm is visible.** Built-in `store_config` entries are registered
-     in every `CommandRegistry`, so they appear in `specs/command_registry.yaml` and in command
-     listings over HTTP and Python (realm `store_config`, never executable).
-  4. **Proposed resolution — `front_matter` needs feature `records`** of `liquers-lib` (on by
-     default), since it reuses the records crate's front-matter parser.
-  5. **Proposed resolution — JavaScript store data-only methods** stay in scope as the last step;
-     if that step cannot be finished they become an issue and the Rust stores ship without them.
+- **Readiness:** `ready`
+- **Automatic fixing:** `not-eligible`. The design is XL, adds new traits, changes the configuration
+  schema, and changes registries across five crates.
+- **Leading issue:** None.
+- **Explanation:** Phases 1–4 have been reviewed. The user decided all five proposals at the
+  pre-implementation stop on 2026-10-15; they are recorded below.
+- **Open questions:** None. Decisions taken at the pre-implementation stop:
+  1. **Planner realm defect:** fixed in this design, in Phase 4 step 0.
+  2. **`defaults`:** it keeps today's record exactly, including `updated` and the "New metadata has
+     been created" warning. It sets them in the Default and the Write stage, so the default
+     `on_write` no longer lists `updated`.
+  3. **Realm visibility:** the realm stays in the registry as documentation. Command overviews
+     (`commands_doc`, `ns-search/commands`, `commandNames`) leave it out through
+     `executable_commands()`, since the agent memory service has no use for it.
+  4. **`front_matter`:** stays in `liquers-lib`, behind its `records` feature.
+  5. **JavaScript data-only methods:** stay as the last step, to be discussed if they become a
+     problem.
 
 ## Purpose
 
