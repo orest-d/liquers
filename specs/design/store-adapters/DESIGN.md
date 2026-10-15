@@ -3,7 +3,7 @@ id: STORE-ADAPTERS
 kind: design
 title: Modular store configuration — metadata layouts and store adapters
 workflow: liquers-project
-status: approved
+status: in_review
 phase: implementation
 readiness: ready
 autofix: not-eligible
@@ -20,7 +20,7 @@ created: 2026-10-13
 - [Phase 1](./phase1-high-level-design.md) — written 2026-10-13, revised 2026-10-15, **approved 2026-10-15**
 - [Phase 2](./phase2-architecture.md) — written 2026-10-15, **approved 2026-10-15** (`proceed all`)
 - [Phase 3](./phase3-examples.md) — written 2026-10-15, reviewed (pre-approved)
-- [Phase 4](./phase4-implementation.md) — written 2026-10-15, reviewed; implementation started 2026-10-15
+- [Phase 4](./phase4-implementation.md) — written 2026-10-15, reviewed; decisions recorded, waiting for `proceed` to implement
 - [Phase 5](./phase5-documentation.md)
 
 ## Notes
