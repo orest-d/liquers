@@ -3,6 +3,8 @@ use std::io::{Cursor, Write};
 use liquers_core::error::{Error, ErrorType};
 use polars::prelude::*;
 
+use super::util::CollectOnAnyRuntime;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PolarsDataFormat {
     Csv { separator: u8 },
@@ -132,7 +134,7 @@ pub fn serialize_lazyframe_to_writer<W: Write>(
     data_format: &str,
     writer: W,
 ) -> Result<(), Error> {
-    let df = lf.collect().map_err(|e| {
+    let df = lf.collect_on_any_runtime().map_err(|e| {
         serialization_error(format!(
             "Failed to materialize LazyFrame for serialization: {}",
             e

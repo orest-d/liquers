@@ -30,6 +30,9 @@
 #             (records_schema becomes an alias of schema); pl gains is_in is_null is_not_null
 #             starts_with ends_with contains; pl/sort takes `ascending: bool` and `nulls_last`;
 #             pl shape/nrows/ncols bodies changed (i64). design/record-filter-commands
+# 2026-10-14  pl lazy commands (filters, sort, aggregations) collect through
+#             collect_on_any_runtime: impl_versions refreshed, signatures unchanged.
+#             POLARS-COLLECT-PANICS-ON-CURRENT-THREAD-RUNTIME
 # CHANGELOG-END
 commands:
 - name: to_text
@@ -1649,7 +1652,7 @@ commands:
   volatile: false
   expires: never
   definition: Registered
-  impl_version: 96c298b9f96bc0f981db1a0cf19ebb79
+  impl_version: 207d9e961c1055b2258d9212d83d0dcf
 - namespace: pl
   name: ne
   label: Not equal to
@@ -1673,7 +1676,7 @@ commands:
   volatile: false
   expires: never
   definition: Registered
-  impl_version: cdd853bd36ffffbd622de28a23d81bc1
+  impl_version: 2b3ef9b1fbb2ffa4d0664beaf122bdc3
 - namespace: pl
   name: gt
   label: Greater than
@@ -1697,7 +1700,7 @@ commands:
   volatile: false
   expires: never
   definition: Registered
-  impl_version: f3433d07b23c47be0b6b4d99d6b13b06
+  impl_version: b725d2ad40f9d766e54696dfd2dc2494
 - namespace: pl
   name: gte
   label: Greater than or equal
@@ -1721,7 +1724,7 @@ commands:
   volatile: false
   expires: never
   definition: Registered
-  impl_version: 51613168e612e274399e9a75acafba65
+  impl_version: 736eff2fe97d16c9a073164b44f81ef0
 - namespace: pl
   name: lt
   label: Less than
@@ -1745,7 +1748,7 @@ commands:
   volatile: false
   expires: never
   definition: Registered
-  impl_version: 307d0f70cc1fa3c31b1ca965e76b12bf
+  impl_version: 0ee68af6d8aa79bf9c4052383383a1ef
 - namespace: pl
   name: lte
   label: Less than or equal
@@ -1769,7 +1772,7 @@ commands:
   volatile: false
   expires: never
   definition: Registered
-  impl_version: cfc59a652b34030ae94f0e0c09daa021
+  impl_version: c04c8078944b970707843dd97a5f520d
 - namespace: pl
   name: is_in
   label: Is in
@@ -1948,7 +1951,7 @@ commands:
   volatile: false
   expires: never
   definition: Registered
-  impl_version: 03e5fe236b0a67a04341d3e8bac4e247
+  impl_version: 5c13c62bd12e2f297c2332a7d227ebea
 - namespace: pl
   name: sum
   label: Sum
@@ -1961,7 +1964,7 @@ commands:
   volatile: false
   expires: never
   definition: Registered
-  impl_version: 53ad89df330ef10c96afd64d6bc7daf6
+  impl_version: 03fd8a7d8ac5fea8eee027cfaf8b4cb4
 - namespace: pl
   name: mean
   label: Mean
@@ -1974,7 +1977,7 @@ commands:
   volatile: false
   expires: never
   definition: Registered
-  impl_version: e77b8e1836c40cdab8e2624d1b51fc8d
+  impl_version: 7ba40c2a8e544165c0736e252a2cfc2e
 - namespace: pl
   name: median
   label: Median
@@ -1987,7 +1990,7 @@ commands:
   volatile: false
   expires: never
   definition: Registered
-  impl_version: 3bfdfc39454cc9d16e78e17ec6f6f5cf
+  impl_version: dc035e29699c9190e3b8b7ef6c16b48c
 - namespace: pl
   name: min
   label: Minimum
@@ -2000,7 +2003,7 @@ commands:
   volatile: false
   expires: never
   definition: Registered
-  impl_version: a95954a4aece2b69be007f68b1131de3
+  impl_version: e4e898504874c61f65ffc453353adf1c
 - namespace: pl
   name: max
   label: Maximum
@@ -2013,7 +2016,7 @@ commands:
   volatile: false
   expires: never
   definition: Registered
-  impl_version: 290b47f4dc9d6582c3fa7e66bfabf39b
+  impl_version: 0e5bcaf43cbf0a24a54955454ad9b59d
 - namespace: pl
   name: std
   label: Standard Deviation
@@ -2026,7 +2029,7 @@ commands:
   volatile: false
   expires: never
   definition: Registered
-  impl_version: 3e88c1d328246815ffc0efd91494ed25
+  impl_version: 9dffa599925e1cd238159b34667f2f95
 - namespace: pl
   name: count
   label: Count
@@ -2052,7 +2055,7 @@ commands:
   volatile: false
   expires: never
   definition: Registered
-  impl_version: e04d3fc5361e303672e86ab8957e2ab0
+  impl_version: ed254c47bca1ccecbe7af292d4113a39
 - namespace: pl
   name: shape
   label: Shape

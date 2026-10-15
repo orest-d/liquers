@@ -54,7 +54,7 @@ COMMAND-CONTEXT-PARAM-ORDER,issue,"The context parameter must come last, as a wo
 COMMAND-DECLARATION-FORMAT,feature,"No language-neutral command declaration format, so every binding hand-parses its own",closed,local,,,,P0,L,core/commands;web;py,,,,command-declaration,,2026-08-27,specs/issues/COMMAND-DECLARATION-FORMAT.md
 COMMAND-METADATA-ENHANCEMENTS,feature,"Command metadata lacks enums, specialization and IO typing",accepted,local,,,,P2,L,core/commands;macro,,,,,,2026-08-08,specs/issues/COMMAND-METADATA-ENHANCEMENTS.md
 COMMAND-METADATA-HAS-NO-COMMAND-LEVEL-HINTS,feature,A usage hint can be attached to an argument but not to a command,closed,local,,ready,not-eligible,P3,S,core/commands;lib/ui,,,,command-metadata-descriptions-and-hints,,2026-08-30,specs/issues/COMMAND-METADATA-HAS-NO-COMMAND-LEVEL-HINTS.md
-COMMAND-PANIC-HANGS-EVALUATION,issue,"A command that panics leaves its asset unfinished, so evaluation waits forever instead of failing",draft,local,,,,P1,M,core/assets,,,,,,2026-10-13,specs/issues/COMMAND-PANIC-HANGS-EVALUATION.md
+COMMAND-PANIC-HANGS-EVALUATION,issue,"A command that panics leaves its asset unfinished, so evaluation waits forever instead of failing",closed,local,,,,P1,M,core/assets,,,,,,2026-10-13,specs/issues/COMMAND-PANIC-HANGS-EVALUATION.md
 COMMAND-REGISTRY-HEADER-NAMES-GROUPS-NOT-FEATURES,issue,"The command_registry.yaml header lists group names under ""features""",draft,local,,,,P3,S,lib/commands;build,,,,,,2026-10-11,specs/issues/COMMAND-REGISTRY-HEADER-NAMES-GROUPS-NOT-FEATURES.md
 COMMAND-REGISTRY-ISSUE-NAMESPACE-NAME-SWAPPED,issue,CommandRegistryIssue constructors transpose namespace and name,closed,local,,covered,not-eligible,P3,S,core/commands,,,,command-registry-issue-fields-coverage,,2026-08-12,specs/issues/COMMAND-REGISTRY-ISSUE-NAMESPACE-NAME-SWAPPED.md
 COMMAND-VARIADIC-ARGUMENTS-NOT-DECLARABLE,issue,Variadic command arguments cannot be declared or retrieved,closed,local,,,,P1,M,macro;core/commands;lib/commands,,,,variadic-arguments-declaration,,2026-08-12,specs/issues/COMMAND-VARIADIC-ARGUMENTS-NOT-DECLARABLE.md
@@ -198,7 +198,7 @@ PLAN-EXCESS-ACTION-PARAMETERS-DROPPED,issue,Plan builder silently drops excess a
 PLAN-SPLIT-DROPS-PREDECESSOR-FIELDS,issue,Plan split drops predecessor fields,closed,local,,covered,not-eligible,P2,S,core/plan,,,,plan-split-predecessor-fields,,2026-08-26,specs/issues/PLAN-SPLIT-DROPS-PREDECESSOR-FIELDS.md
 PLANNING-DIAGNOSTICS-NEVER-REACH-THE-ASSET-LOG,issue,Planning diagnostics never reach the evaluated asset's log,closed,local,,,,P2,M,core/plan;core/assets,,,,,,2026-10-10,specs/issues/PLANNING-DIAGNOSTICS-NEVER-REACH-THE-ASSET-LOG.md
 POLARS-BRIDGE-VECTOR-COLUMNS-REFUSED,issue,The RecordBatch <-> DataFrame bridge cannot convert Vector columns,draft,local,,,,P3,M,records;lib/polars,,,,,,2026-09-27,specs/issues/POLARS-BRIDGE-VECTOR-COLUMNS-REFUSED.md
-POLARS-COLLECT-PANICS-ON-CURRENT-THREAD-RUNTIME,issue,ns-pl commands panic inside LazyFrame::collect on a current-thread tokio runtime,draft,local,,,,P2,M,lib/polars,,,,,,2026-10-13,specs/issues/POLARS-COLLECT-PANICS-ON-CURRENT-THREAD-RUNTIME.md
+POLARS-COLLECT-PANICS-ON-CURRENT-THREAD-RUNTIME,issue,ns-pl commands panic inside LazyFrame::collect on a current-thread tokio runtime,closed,local,,,,P2,M,lib/polars,,,,,,2026-10-13,specs/issues/POLARS-COLLECT-PANICS-ON-CURRENT-THREAD-RUNTIME.md
 POLARS-COMMAND-TESTS-BYPASS-COMMANDS,issue,The polars command integration tests never invoke a polars command,draft,local,,,,P2,M,lib/polars;build,,,,,,2026-08-25,specs/issues/POLARS-COMMAND-TESTS-BYPASS-COMMANDS.md
 POLARS-DOC-EXAMPLES-OMIT-NAMESPACE,issue,Polars reference example queries omit the ns-pl namespace and do not resolve,closed,local,,ready,,P2,S,docs;lib/commands,,,,polars-doc-example-namespace,,2026-08-12,specs/issues/POLARS-DOC-EXAMPLES-OMIT-NAMESPACE.md
 POST-INIT-COMMAND-REGISTRATION,issue,Registering a command after Environment::to_ref requires a rebuild,accepted,local,,,,P3,M,core/commands;web,,,,,,2026-08-08,specs/issues/POST-INIT-COMMAND-REGISTRATION.md
@@ -510,7 +510,7 @@ DOC_04_ENVIRONMENT_CONTEXT_EVALUATION,reference,"Environment, Context and Evalua
 DOC_08_RECIPES_PLANS,reference,Recipes and Plans Reference,current,local,,,,,,core/plan;core/assets;core/context,,,,,2026-10-12,,specs/reference/api/DOC_08_RECIPES_PLANS.md
 ASSET_LIFECYCLE,reference,Asset Evaluation — Flows and Public Surface,current,local,,,,,,core/assets,,,,,2026-10-12,,specs/reference/ASSET_LIFECYCLE.md
 ASSET_SET_OPERATION,reference,Asset Set Operation Specification,current,local,,,,,,core/assets,,,,,2026-10-10,,specs/reference/ASSET_SET_OPERATION.md
-ASSETS,reference,Assets Specification,current,local,,,,,,core/assets,,,,,2026-10-12,,specs/reference/ASSETS.md
+ASSETS,reference,Assets Specification,current,local,,,,,,core/assets,,,,,2026-10-14,,specs/reference/ASSETS.md
 COMMAND_ALIASES,reference,Command Aliases,current,local,,,,,,core/commands;core/plan,,,,,2026-10-13,,specs/reference/COMMAND_ALIASES.md
 COMMAND_DECLARATION,reference,Command Declaration Format,current,local,,,,,,core/commands;web;py,,,,,2026-10-11,,specs/reference/COMMAND_DECLARATION.md
 CONFORMANCE_TERMS,reference,Conformance Terms,current,local,,,,,,docs,,,,,2026-09-02,,specs/reference/CONFORMANCE_TERMS.md
@@ -518,7 +518,7 @@ DEPENDENCIES_STATUS,reference,Status::Dependencies Specification,current,local,,
 ENVIRONMENT_CONFIG,reference,Environment Configuration,current,local,,,,,,core/context;core/store;core/assets,,,,,2026-10-10,,specs/reference/ENVIRONMENT_CONFIG.md
 IMAGE_COMMAND_LIBRARY,reference,Image Command Library Specification,overdue,local,,,,,,lib/image,,,,,2026-03-02,,specs/reference/IMAGE_COMMAND_LIBRARY.md
 PAYLOAD_GUIDE,reference,Payload Specification and Usage,current,local,,,,,,core/context;core/commands,,,,,2026-09-04,,specs/reference/PAYLOAD_GUIDE.md
-POLARS_COMMAND_LIBRARY,reference,Polars Command Library Specification,current,local,,,,,,lib/polars,,,,,2026-10-13,,specs/reference/POLARS_COMMAND_LIBRARY.md
+POLARS_COMMAND_LIBRARY,reference,Polars Command Library Specification,current,local,,,,,,lib/polars,,,,,2026-10-14,,specs/reference/POLARS_COMMAND_LIBRARY.md
 PROJECT_OVERVIEW,reference,Liquers Project Overview,current,local,,,,,,core/query;core/plan;core/assets;core/store;core/value,,,,,2026-10-11,,specs/reference/PROJECT_OVERVIEW.md
 RECORD_STREAMS,reference,Record Streams,current,local,,,,,,records;lib/value;lib/commands;web,,,,,2026-10-13,,specs/reference/RECORD_STREAMS.md
 REGISTER_COMMAND_FSD,reference,register_command! Macro Functional Specification,current,local,,,,,,macro;core/commands,,,,,2026-10-12,,specs/reference/REGISTER_COMMAND_FSD.md

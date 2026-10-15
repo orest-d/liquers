@@ -6,7 +6,7 @@ use liquers_core::{
 use liquers_macro::register_command;
 use polars::prelude::*;
 
-use super::util::{check_column_exists, try_to_polars_dataframe};
+use super::util::{check_column_exists, try_to_polars_dataframe, CollectOnAnyRuntime};
 
 /// Sort DataFrame by column — stable, nulls first unless `nulls_last` (polars' default placement),
 /// so `ns-pl/sort` and `ns-rec/sort` order every table identically.
@@ -27,7 +27,7 @@ pub fn sort(
         .clone()
         .lazy()
         .sort([column.as_str()], options)
-        .collect()
+        .collect_on_any_runtime()
         .map_err(|e| Error::general_error(format!("Failed to sort: {}", e)))?;
 
     Ok(Value::from_polars_dataframe(result))

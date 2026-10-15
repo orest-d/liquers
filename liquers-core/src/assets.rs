@@ -3848,12 +3848,31 @@ impl<E: Environment> AssetRef<E> {
     ///
     /// `payload` carries per-call caller context. It is deliberately not part of an asset's
     /// identity, so an asset evaluated with one is never shared, reused, or persisted as loadable.
+    ///
+    /// **A panic is an error.** A command that panics (a bug in it, an `unwrap` in a library it
+    /// calls) yields `Err` here, naming the panic, so both run harnesses take their ordinary error
+    /// path: the asset becomes `Error` and its waiters are released. Unwinding past the harness
+    /// would instead leave the run claim armed, and its `Drop` repair would re-submit the asset to
+    /// run — and panic — again, forever (`COMMAND-PANIC-HANGS-EVALUATION`). Where panics abort
+    /// (wasm32 by default) there is nothing to catch, and this changes nothing.
     async fn compute(
         &self,
         payload: Option<E::Payload>,
     ) -> Result<RecipeEvaluation<E::Value>, Error> {
-        self.resolve_volatility_before_evaluation().await;
-        self.evaluate_recipe_outcome(payload).await
+        use futures::FutureExt;
+        let body = async {
+            self.resolve_volatility_before_evaluation().await;
+            self.evaluate_recipe_outcome(payload).await
+        };
+        // AssertUnwindSafe: after a panic the evaluation's partial state is discarded — the asset
+        // is failed through the same path as any other error — so no broken invariant is observed.
+        match std::panic::AssertUnwindSafe(body).catch_unwind().await {
+            Ok(result) => result,
+            Err(panic) => Err(Error::general_error(format!(
+                "evaluation panicked: {}",
+                panic_message(panic.as_ref())
+            ))),
+        }
     }
 
     /// The evaluation body without the run harness, for tests that evaluate an asset directly.
@@ -7529,8 +7548,8 @@ impl<E: Environment> DefaultAssetManager<E> {
     /// stack, so evaluation depth does not grow with the chain
     /// (`dependency-resolved-once-per-evaluation`). If the dependent is dropped while waiting, the
     /// child is detached and finishes on its own, instead of being interrupted and re-parked. A
-    /// panic in the run is ignored as an inline run's result was; the claim's `Drop` re-parks the
-    /// asset. Like a job started by `JobQueue::try_to_start_immediately`, the child's undrained
+    /// panicking command does not unwind here — [`AssetRef::compute`] turns it into the asset's
+    /// error — so the claim's `Drop` re-park covers only a panic in the harness itself. Like a job started by `JobQueue::try_to_start_immediately`, the child's undrained
     /// local dependencies are re-parked when it finishes.
     async fn run_claimed_in_own_task(&self, dependency: AssetRef<E>, claim: RunClaim<E>) {
         let queue = self.job_queue.clone();
@@ -8946,6 +8965,17 @@ impl<E: Environment> DependencyManagerAccess<E> for DefaultAssetManager<E> {
 impl<E: Environment> KeyMutationAccess for DefaultAssetManager<E> {
     fn key_mutation_lock(&self) -> &tokio::sync::Mutex<()> {
         &self.key_mutation_lock
+    }
+}
+
+/// The text of a panic payload: the `&str` or `String` a `panic!` carries, else a placeholder.
+fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
+    if let Some(text) = payload.downcast_ref::<&str>() {
+        (*text).to_string()
+    } else if let Some(text) = payload.downcast_ref::<String>() {
+        text.clone()
+    } else {
+        "a non-text panic payload".to_string()
     }
 }
 
