@@ -85,6 +85,10 @@ pub use read_only::ReadOnlyStore;
 pub mod realm;
 /// The built-in `store_config` handlers.
 pub mod handlers;
+/// Storage models of the metadata pipeline.
+pub mod storage;
+/// Write strategies of the metadata pipeline.
+pub mod writes;
 
 /// Store decorators for tests of the store adapters.
 #[cfg(any(test, feature = "store-conformance"))]

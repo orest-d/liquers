@@ -2,7 +2,7 @@
 # Regenerate: cargo run -p liquers-lib --features cli --bin export-command-registry -- \
 #               --format yaml -o specs/command_registry.yaml
 # Origin:   groups=core,lui,egui,image,polars,records,search,store_config  features=egui,image,polars,records
-# Commands: 148
+# Commands: 153
 # CHANGELOG-BEGIN
 # 2026-08-02  initial export (95 commands: img 47, pl 26, lui 14, root 6, dep 2)
 # 2026-08-25  pl/select_columns and pl/drop_columns take a variadic `columns` argument
@@ -35,6 +35,7 @@
 #             POLARS-COLLECT-PANICS-ON-CURRENT-THREAD-RUNTIME
 # 2026-10-15  realm store_config (new group store_config): defaults, set, require,
 #             media_type, file_facts, content_hash, updated. design/store-adapters
+# 2026-10-15  store_config storage models: native, per_entry, grouped, none, central.
 # CHANGELOG-END
 commands:
 - realm: store_config
@@ -209,6 +210,106 @@ commands:
     name: state
     label: state
     default: None
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  definition: Registered
+- realm: store_config
+  name: native
+  label: Native
+  doc: The backend's own metadata (today's sidecars), through get_stored_metadata and set_metadata.
+  hints:
+    store_config: storage
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  definition: Registered
+- realm: store_config
+  name: per_entry
+  label: Per entry
+  doc: 'One metadata object per key: sidecar {key}.__metadata__, root __metadata__/{key}, prefix {folder}/__metadata__{name}.json, folder {folder}/__metadata__/{name}.json.'
+  hints:
+    store_config: storage
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: layout
+    label: layout
+    default: !Value sidecar
+    argument_type: !Enum
+      name: layout
+      values:
+      - alias: sidecar
+        value: !Value sidecar
+      - alias: root
+        value: !Value root
+      - alias: prefix
+        value: !Value prefix
+      - alias: folder
+        value: !Value folder
+      others_allowed: false
+      value_type: string
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  definition: Registered
+- realm: store_config
+  name: grouped
+  label: Grouped
+  doc: One JSON map, name to record, per folder, in the named file.
+  hints:
+    store_config: storage
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: file
+    label: file
+    default: !Value __metadata__.json
+    argument_type: string
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  definition: Registered
+- realm: store_config
+  name: none
+  label: None
+  doc: 'Nothing stored: the handlers synthesize every record.'
+  hints:
+    store_config: storage
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  definition: Registered
+- realm: store_config
+  name: central
+  label: Central
+  doc: Records kept in another mount of the router, by key. Declared; not implemented yet.
+  hints:
+    store_config: storage
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: mount
+    label: mount
+    default: None
+    argument_type: string
     gui_info: !TextField 40
   volatile: false
   expires: never

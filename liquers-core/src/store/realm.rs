@@ -184,8 +184,10 @@ impl ComponentKind {
     }
 }
 
-/// A built component. The storage models and write strategies add their variants.
-pub enum StoreComponent {}
+/// A built component.
+pub enum StoreComponent {
+    Storage(std::sync::Arc<dyn super::storage::MetadataStorage>),
+}
 
 /// A component's builder: same registration as a handler, different product.
 pub type ComponentBuilder = fn(&ResolvedParameterValues) -> Result<StoreComponent, Error>;
@@ -649,7 +651,18 @@ pub fn register_builtin_store_config(
     functions: &mut StoreConfigFunctions,
 ) -> Result<(), Error> {
     super::handlers::register_builtin_handlers(cmr, functions)?;
+    super::storage::register_builtin_storage(cmr, functions)?;
     Ok(())
+}
+
+/// Test-only entries (`memory_central`). Never called by [`register_builtin_store_config`]: the
+/// exported registry must not depend on whether some crate enabled a test feature.
+#[cfg(any(test, feature = "store-conformance"))]
+pub fn register_test_store_config(
+    cmr: &mut CommandMetadataRegistry,
+    functions: &mut StoreConfigFunctions,
+) -> Result<(), Error> {
+    super::storage::register_test_storage(cmr, functions)
 }
 
 /// Reads a string parameter by name; a missing or non-string parameter is an error.

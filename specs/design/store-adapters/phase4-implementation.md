@@ -29,7 +29,7 @@ Prerequisites: none outside this design. The planner defect, fixed in step 0, is
 - [x] Step 2: data-only access on `AsyncStore`, `ReservedNames` prefixes, test support (bcc3928)
 - [x] Step 3: data-only access in the memory, file and router stores (98c4329)
 - [x] Step 4: `ReadOnlyStore` (5df8b02)
-- [ ] Step 5: realm `store_config`: compiler, built-in handlers, registry export
+- [x] Step 5: realm `store_config`: compiler, built-in handlers, registry export (0fe4ef4)
 - [ ] Step 6: storage models
 - [ ] Step 7: write strategies
 - [ ] Step 8: `MetadataPipelineStore`
