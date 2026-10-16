@@ -213,13 +213,22 @@ impl Error {
     pub fn not_supported(message: String) -> Self {
         Error::new(ErrorType::NotSupported, message)
     }
-    pub fn action_not_registered(action: &ActionRequest, namespaces: &Vec<String>) -> Self {
+    /// No command `action` in any of `namespaces` of `realm`. The message names every command
+    /// key tried, as `realm/namespace/name`, so a wrong realm is as visible as a missing namespace.
+    pub fn action_not_registered(
+        action: &ActionRequest,
+        realm: &str,
+        namespaces: &Vec<String>,
+    ) -> Self {
         Error::new(
             ErrorType::ActionNotRegistered,
             format!(
-                "Action '{}' not registered in namespaces {}",
+                "Action '{}' not registered; command keys tried (realm/namespace/name): {}",
                 action.name,
-                namespaces.iter().map(|ns| format!("'{}'", ns)).join(", ")
+                namespaces
+                    .iter()
+                    .map(|ns| format!("'{}/{}/{}'", realm, ns, action.name))
+                    .join(", ")
             ),
         )
         .with_position(&action.position)
@@ -525,6 +534,19 @@ impl error::Error for Error {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn action_not_registered_names_every_command_key_tried() {
+        let action = crate::query::ActionRequest::new("to_text".to_string());
+        let error = Error::action_not_registered(
+            &action,
+            "foo",
+            &vec!["".to_string(), "root".to_string()],
+        );
+        assert_eq!(error.error_type, ErrorType::ActionNotRegistered);
+        assert!(error.message.contains("'foo//to_text'"), "{}", error.message);
+        assert!(error.message.contains("'foo/root/to_text'"), "{}", error.message);
+    }
 
     /// T1 (`design/configuration-error-kind`).
     #[test]

@@ -3,7 +3,7 @@ title: Realms
 kind: reference
 audience: internal
 area: [core/plan, core/commands, store/config]
-reviewed: 2026-10-15
+reviewed: 2026-10-16
 ---
 # Realms
 
@@ -60,9 +60,10 @@ Consequences:
   The planner accepts this. Whether it can *run* depends on the executor (below).
 - **Namespaces work the same in every realm.** The registry's `default_namespaces` (`""`, `"root"`)
   and any `ns-…` instruction are searched inside the segment's realm (`namespaces_for_query`).
-- **An action missing from the realm is an ordinary "not registered" error**, and the message does
-  not name the realm: `-foo/to_text` reports `Action 'to_text' not registered in namespaces '',
-  'root'`, although `to_text` exists in realm `""`.
+- **An action missing from the realm is an ordinary "not registered" error** that names every
+  command key it tried: `-foo/to_text` reports `Action 'to_text' not registered; command keys tried
+  (realm/namespace/name): 'foo//to_text', 'foo/root/to_text'`, so a wrong realm shows as plainly as
+  a missing namespace.
 
 ## How a realm is executed
 
@@ -197,4 +198,5 @@ The planner, the exporter and `liquers-validate` use the full `commands` list. T
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-16 | The not-registered error names the full command keys tried (realm/namespace/name). | `design/store-adapters/` phase-5 review |
 | 2026-10-15 | Created by store-adapters: realms as a `CommandKey` component, the planner applying a segment's realm to every action, execution, the foreign-realm questions with `store_config` as the worked case, overviews via `executable_commands()`. | `design/store-adapters/` phase-5 |

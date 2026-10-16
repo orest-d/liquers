@@ -446,3 +446,22 @@ async fn front_matter_write_back_through_the_pipeline() -> TestResult {
     assert_eq!(store.get_asset_info(&k).await?.title, "New");
     Ok(())
 }
+
+/// AC-12 (`central-<mount>`): a router-level section's storage builder sees the router's mounts,
+/// so the model can resolve the mount it names; the model itself is not implemented yet
+/// (`STORE-CENTRAL-STORAGE-MODEL-NOT-IMPLEMENTED`), and a member section cannot name it.
+#[test]
+fn central_storage_resolves_its_mount_through_the_router() {
+    let present = "metadata: { storage: central-meta }\nstores:\n  - type: memory\n    prefix: m\n  - type: memory\n    prefix: meta\n";
+    let message = error_of(build(present, &[]));
+    assert!(message.contains("not implemented yet"), "{message}");
+
+    let absent = "metadata: { storage: central-nope }\nstores:\n  - type: memory\n    prefix: m\n";
+    let message = error_of(build(absent, &[]));
+    assert!(message.contains("does not have"), "{message}");
+
+    let member = "stores:\n  - type: memory\n    prefix: m\n    metadata: { storage: central-meta }\n";
+    let message = error_of(build(member, &[]));
+    assert!(message.contains("Mount 'm'"), "{message}");
+    assert!(message.contains("router-level"), "{message}");
+}

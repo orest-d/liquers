@@ -1522,7 +1522,7 @@ impl<'c> PlanBuilder<'c> {
         ) {
             Ok(command_metadata.resolve_global_enums(self.command_registry)?)
         } else {
-            Err(Error::action_not_registered(action_request, &namespaces)
+            Err(Error::action_not_registered(action_request, realm, &namespaces)
                 .with_query(query)
                 .with_position(&action_request.position))
         }

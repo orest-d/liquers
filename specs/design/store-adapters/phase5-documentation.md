@@ -70,14 +70,15 @@ Closed by this work: `STORE-METADATA-LAYOUT-HARDCODED-PER-STORE`, `STORE-NO-READ
 Filed, each a scope the design deferred or a limit found while implementing, and triaged with the
 user on 2026-10-16 (the rest stay draft):
 - `STORE-CONFIG-SPEC-CANNOT-SCOPE-HANDLERS-TO-A-KEY` — `-R-key/…` guards, analysed in Phase 2.
-- `STORE-CENTRAL-STORAGE-MODEL-NOT-IMPLEMENTED` — `central(mount)` is declared, refuses to build.
+- `STORE-CENTRAL-STORAGE-MODEL-NOT-IMPLEMENTED` — `central(mount)` refuses to build; the interface is in place
+  (`ComponentContext` gives a router-level storage builder the router's mounts).
 - `STORE-NO-DATABASE-STORAGE-MODEL` — no database model and no `PreparedWrite`.
 - `WEB-BUILT-IN-STORES-HAVE-NO-DATA-ACCESS` — **closed**: `localstorage` and `http` now take a section.
 - `STORE-OPENDAL-DATA-FACTS-CAPABILITIES-UNKNOWN` — **known limitation**; `created` falls back to the write time.
 - `STORE-BUILD-WARNINGS-LOST-IN-THE-BROWSER` — **closed**: warnings returned, shown in the console.
 - `STORE-PIPELINE-CACHE-MISSES-EXTERNAL-RECORD-EDITS` — **known limitation**: Liquers is the only metadata writer.
 - `STORE-CONFIG-COMPONENT-SPEC-DROPS-PLANNER-DIAGNOSTICS` — **closed**: warnings reported, errors fail.
-- `PLAN-ERRORS-DO-NOT-NAME-THE-REALM` — not-found messages and mixed-realm queries.
+- `PLAN-ERRORS-DO-NOT-NAME-THE-REALM` — **closed**: not-found errors name the command keys tried.
 - `STORE-CONFORMANCE-SUITE-NAME-C6-USED-TWICE` — **closed**: the core router suite is `C8`.
 
 Fixed during Phase 5 review: an `on_default` handler that needs bytes (`content_hash`,

@@ -151,7 +151,7 @@ Catalogue and messages: `specs/guides/STORE_CONFIG_GUIDE.md`.
 | Message | Cause |
 |---|---|
 | `Can't parse query '…': Can't parse query completely` | Syntax — a space, a stray `#`, or a flag that reached the positional slot. `error.position` gives line and column. |
-| `Action 'x' not registered in namespaces '', 'root'` | Missing namespace prefix (`ns-pl/`, `ns-img/`), a genuine typo, or a command that does not exist yet — use `--command x` if you are designing it. |
+| `Action 'x' not registered; command keys tried (realm/namespace/name): '//x', '/root/x'` | Missing namespace prefix (`ns-pl/`, `ns-img/`), a genuine typo, or a command that does not exist yet — use `--command x` if you are designing it. |
 | `Can't convert 'notanumber' to integer` | Argument *type*. Only plan level finds this; parsing cannot. |
 | `--cwd applies to recipes only` (exit 2) | `--cwd` without `--recipes`. Nothing in a bare query's plan consumes a cwd. |
 | Empty stdout, exit 2 | Bad invocation. The reason is on stderr. |

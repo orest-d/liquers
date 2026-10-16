@@ -13,7 +13,7 @@ use crate::error::{Error, ErrorType};
 use crate::plan::ResolvedParameterValues;
 use crate::query::Key;
 
-use super::realm::{ComponentKind, StoreComponent, StoreConfigFunctions};
+use super::realm::{ComponentContext, ComponentKind, StoreComponent, StoreConfigFunctions};
 use super::storage::decode_metadata;
 use super::{AsyncStore, DataCapabilities, Recovery, RecoveryOutcome, ReservedNames, SyncReport};
 
@@ -557,15 +557,24 @@ fn writes_entry(name: &str, label: &str, doc: &str) -> CommandMetadata {
     metadata
 }
 
-fn build_direct(_parameters: &ResolvedParameterValues) -> Result<StoreComponent, Error> {
+fn build_direct(
+    _parameters: &ResolvedParameterValues,
+    _components: &ComponentContext<'_>,
+) -> Result<StoreComponent, Error> {
     Ok(StoreComponent::Writes(Arc::new(DirectWrite)))
 }
 
-fn build_atomic(_parameters: &ResolvedParameterValues) -> Result<StoreComponent, Error> {
+fn build_atomic(
+    _parameters: &ResolvedParameterValues,
+    _components: &ComponentContext<'_>,
+) -> Result<StoreComponent, Error> {
     Ok(StoreComponent::Writes(Arc::new(AtomicWrite)))
 }
 
-fn build_transactional(_parameters: &ResolvedParameterValues) -> Result<StoreComponent, Error> {
+fn build_transactional(
+    _parameters: &ResolvedParameterValues,
+    _components: &ComponentContext<'_>,
+) -> Result<StoreComponent, Error> {
     Ok(StoreComponent::Writes(Arc::new(JournalWrite)))
 }
 

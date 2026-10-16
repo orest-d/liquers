@@ -31,7 +31,9 @@ use crate::command_metadata::CommandMetadataRegistry;
 use crate::error::Error;
 use crate::parse::parse_key;
 use crate::store::pipeline::{Backup, StageChains};
-use crate::store::realm::{ComponentKind, Stage, StoreComponent, StoreConfigFunctions};
+use crate::store::realm::{
+    ComponentContext, ComponentKind, Stage, StoreComponent, StoreConfigFunctions,
+};
 use crate::store::{
     AsyncStore, AsyncStoreRouter, MetadataPipelineStore, PipelineParts, ReadOnlyStore, SharedStore,
 };
@@ -617,7 +619,7 @@ impl StoreRouterBuilder {
         }
         let (registry, functions) = self.entries();
         let mut warnings = Vec::new();
-        let router = self.build_router(&registry, &functions, false, &mut warnings)?;
+        let (router, _) = self.build_router(&registry, &functions, false, &mut warnings)?;
         print_warnings(&warnings);
         Ok(router)
     }
@@ -653,7 +655,8 @@ impl StoreRouterBuilder {
         let (registry, functions) = self.entries();
         let central = has_section(&self.config.metadata);
         let mut warnings = Vec::new();
-        let router = self.build_router(&registry, &functions, central, &mut warnings)?;
+        let (router, mounts) = self.build_router(&registry, &functions, central, &mut warnings)?;
+        let components = ComponentContext::with_mounts(&mounts);
         let mut store: Arc<dyn AsyncStore> = Arc::new(router);
         if let Some(section) = self.config.metadata.as_ref().filter(|m| !m.is_empty()) {
             let mut backups = Vec::new();
@@ -661,8 +664,14 @@ impl StoreRouterBuilder {
                 if let Some(member_section) = member.metadata.as_ref().filter(|m| !m.is_empty()) {
                     if let Some(storage) = member_section.storage.as_ref() {
                         let mut notes = Vec::new();
-                        let storage = compile_storage(storage, &registry, &functions, &mut notes)
-                            .map_err(|e| mount_error(member, &e))?;
+                        let storage = compile_storage(
+                            storage,
+                            &registry,
+                            &functions,
+                            &ComponentContext::none(),
+                            &mut notes,
+                        )
+                        .map_err(|e| mount_error(member, &e))?;
                         warnings.extend(notes.iter().map(|n| mount_message(member, n)));
                         backups.push(Backup {
                             prefix: parse_key(&member.prefix)
@@ -681,6 +690,7 @@ impl StoreRouterBuilder {
                     backups,
                     &registry,
                     &functions,
+                    &components,
                     &mut notes,
                 )
                 .map_err(|e| {
@@ -710,8 +720,9 @@ impl StoreRouterBuilder {
         functions: &StoreConfigFunctions,
         central: bool,
         warnings: &mut Vec<String>,
-    ) -> Result<AsyncStoreRouter, Error> {
+    ) -> Result<(AsyncStoreRouter, Vec<(crate::query::Key, Arc<dyn AsyncStore>)>), Error> {
         let mut router = AsyncStoreRouter::new();
+        let mut mounts = Vec::new();
         for store_config in &self.config.stores {
             let mut store: Arc<dyn AsyncStore> = Arc::from(self.factory.create(store_config)?);
             if let Some(section) = store_config.metadata.as_ref().filter(|m| !m.is_empty()) {
@@ -737,6 +748,7 @@ impl StoreRouterBuilder {
                             Vec::new(),
                             registry,
                             functions,
+                            &ComponentContext::none(),
                             &mut notes,
                         )
                         .map_err(|e| mount_error(store_config, &e))?,
@@ -757,9 +769,13 @@ impl StoreRouterBuilder {
                 }
                 store = Arc::new(ReadOnlyStore::new(store));
             }
+            mounts.push((
+                parse_key(&store_config.prefix).map_err(|e| mount_error(store_config, &e))?,
+                store.clone(),
+            ));
             router.add_store(Box::new(SharedStore(store)));
         }
-        Ok(router)
+        Ok((router, mounts))
     }
 }
 
@@ -800,9 +816,10 @@ fn compile_storage(
     spec: &str,
     registry: &CommandMetadataRegistry,
     functions: &StoreConfigFunctions,
+    components: &ComponentContext<'_>,
     notes: &mut Vec<String>,
 ) -> Result<Arc<dyn crate::store::storage::MetadataStorage>, Error> {
-    match functions.compile_component(spec, ComponentKind::Storage, registry, notes)? {
+    match functions.compile_component(spec, ComponentKind::Storage, registry, components, notes)? {
         StoreComponent::Storage(storage) => Ok(storage),
         StoreComponent::Writes(_) => Err(Error::configuration_error(format!(
             "storage: '{spec}' is a write strategy, not a storage model"
@@ -814,9 +831,10 @@ fn compile_writes(
     spec: &str,
     registry: &CommandMetadataRegistry,
     functions: &StoreConfigFunctions,
+    components: &ComponentContext<'_>,
     notes: &mut Vec<String>,
 ) -> Result<Arc<dyn crate::store::writes::WriteStrategy>, Error> {
-    match functions.compile_component(spec, ComponentKind::Writes, registry, notes)? {
+    match functions.compile_component(spec, ComponentKind::Writes, registry, components, notes)? {
         StoreComponent::Writes(writes) => Ok(writes),
         StoreComponent::Storage(_) => Err(Error::configuration_error(format!(
             "writes: '{spec}' is a storage model, not a write strategy"
@@ -832,11 +850,12 @@ fn pipeline(
     backups: Vec<Backup>,
     registry: &CommandMetadataRegistry,
     functions: &StoreConfigFunctions,
+    components: &ComponentContext<'_>,
     notes: &mut Vec<String>,
 ) -> Result<MetadataPipelineStore, Error> {
     let resolved = section.resolved();
-    let storage = compile_storage(&resolved.storage, registry, functions, notes)?;
-    let writes = compile_writes(&resolved.writes, registry, functions, notes)?;
+    let storage = compile_storage(&resolved.storage, registry, functions, components, notes)?;
+    let writes = compile_writes(&resolved.writes, registry, functions, components, notes)?;
     let mut parts = PipelineParts::new(backend, storage, writes);
     parts.chains = StageChains {
         default: functions.compile(&resolved.on_default, Stage::Default, registry)?,

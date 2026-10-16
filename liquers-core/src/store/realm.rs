@@ -192,7 +192,41 @@ pub enum StoreComponent {
 }
 
 /// A component's builder: same registration as a handler, different product.
-pub type ComponentBuilder = fn(&ResolvedParameterValues) -> Result<StoreComponent, Error>;
+pub type ComponentBuilder =
+    fn(&ResolvedParameterValues, &ComponentContext<'_>) -> Result<StoreComponent, Error>;
+
+/// What a component builder can see of the store being built: the router's members, by mount
+/// prefix, when the component is a router-level (central) one; nothing for a member's own section.
+/// It is what lets a storage model keep its records in another mount (`central-<mount>`).
+#[derive(Clone, Copy, Default)]
+pub struct ComponentContext<'a> {
+    mounts: &'a [(Key, std::sync::Arc<dyn super::AsyncStore>)],
+}
+
+impl<'a> ComponentContext<'a> {
+    /// No mounts: a member's own section, or a component compiled outside a router.
+    pub fn none() -> Self {
+        ComponentContext { mounts: &[] }
+    }
+
+    /// The router's members, each with its mount prefix, in configuration order.
+    pub fn with_mounts(mounts: &'a [(Key, std::sync::Arc<dyn super::AsyncStore>)]) -> Self {
+        ComponentContext { mounts }
+    }
+
+    /// The member mounted at `prefix`, if the context has one.
+    pub fn mount(&self, prefix: &Key) -> Option<&'a std::sync::Arc<dyn super::AsyncStore>> {
+        self.mounts
+            .iter()
+            .find(|(key, _)| key == prefix)
+            .map(|(_, store)| store)
+    }
+
+    /// Whether the context carries any mounts (a router-level section).
+    pub fn has_mounts(&self) -> bool {
+        !self.mounts.is_empty()
+    }
+}
 
 /// The builders of the `store_config` entries, by key. Plain `fn` pointers, so cloning is cheap and
 /// needs no `Arc`.
@@ -370,10 +404,11 @@ impl StoreConfigFunctions {
         spec: &str,
         kind: ComponentKind,
         registry: &CommandMetadataRegistry,
+        components: &ComponentContext<'_>,
         notes: &mut Vec<String>,
     ) -> Result<StoreComponent, Error> {
         let (filled, plan) = plan_spec(spec, kind.field(), registry)?;
-        self.component_from_plan(&filled, &plan, kind, notes)
+        self.component_from_plan(&filled, &plan, kind, components, notes)
     }
 
     fn component_from_plan(
@@ -381,6 +416,7 @@ impl StoreConfigFunctions {
         filled: &str,
         plan: &Plan,
         kind: ComponentKind,
+        components: &ComponentContext<'_>,
         notes: &mut Vec<String>,
     ) -> Result<StoreComponent, Error> {
         let context = CompileContext {
@@ -462,7 +498,7 @@ impl StoreConfigFunctions {
                 )
             }
         };
-        builder(parameters).map_err(|e| context.error(&e.message, Some(position)))
+        builder(parameters, components).map_err(|e| context.error(&e.message, Some(position)))
     }
 
     fn compile_plan(
@@ -1015,13 +1051,24 @@ mod tests {
         plan.init_steps
             .push(Step::Warning("planner noticed".to_string()));
         let mut notes = Vec::new();
-        functions.component_from_plan(spec, &plan, ComponentKind::Storage, &mut notes)?;
+        functions.component_from_plan(
+            spec,
+            &plan,
+            ComponentKind::Storage,
+            &ComponentContext::none(),
+            &mut notes,
+        )?;
         assert_eq!(notes.len(), 1, "{notes:?}");
         assert!(notes[0].contains("storage"), "{notes:?}");
         assert!(notes[0].contains("planner noticed"), "{notes:?}");
         plan.init_steps.push(Step::Error("planner refused".to_string()));
-        let refused =
-            functions.component_from_plan(spec, &plan, ComponentKind::Storage, &mut Vec::new());
+        let refused = functions.component_from_plan(
+            spec,
+            &plan,
+            ComponentKind::Storage,
+            &ComponentContext::none(),
+            &mut Vec::new(),
+        );
         assert!(matches!(refused, Err(e) if e.message.contains("planner refused")));
         Ok(())
     }

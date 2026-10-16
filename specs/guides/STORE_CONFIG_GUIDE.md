@@ -3,7 +3,7 @@ title: Store Configuration Guide
 kind: guide
 audience: internal
 area: [store/config, core/store]
-reviewed: 2026-10-15
+reviewed: 2026-10-16
 ---
 # Store Configuration Guide
 
@@ -176,7 +176,7 @@ environment cannot name them.
 | `per_entry` | `layout = sidecar` (`sidecar` · `root` · `prefix` · `folder`) | one object per key: `{key}.__metadata__` · `__metadata__/{key}` · `{folder}/__metadata__{name}.json` · `{folder}/__metadata__/{name}.json` | the suffix, the `__metadata__` segment or the `__metadata__` prefix |
 | `grouped` | `file = __metadata__.json` (a plain file name) | one JSON map, name → record, per folder | that file name in every folder |
 | `none` | none | nothing; every record comes from `on_default` and `on_read` | nothing |
-| `central` | `mount` | declared only: the build fails with "declared but not implemented yet" ([`STORE-CENTRAL-STORAGE-MODEL-NOT-IMPLEMENTED`](../issues/STORE-CENTRAL-STORAGE-MODEL-NOT-IMPLEMENTED.md)) | — |
+| `central` | `mount` | declared only: in a router-level section the builder resolves the mount (an unknown one, or a member section, is a configuration error), then the build fails with "declared but not implemented yet" ([`STORE-CENTRAL-STORAGE-MODEL-NOT-IMPLEMENTED`](../issues/STORE-CENTRAL-STORAGE-MODEL-NOT-IMPLEMENTED.md)) | — |
 | `memory_central` | none | **test only** (`register_test_store_config`, under `cfg(test)` / feature `store-conformance`); an in-memory central store | nothing |
 
 `per_entry` takes a layout *name* rather than a template, because a `/` in a template would have to
@@ -359,8 +359,15 @@ empty list means.
 A component's builder is a `ComponentBuilder`:
 
 ```rust
-pub type ComponentBuilder = fn(&ResolvedParameterValues) -> Result<StoreComponent, Error>;
+pub type ComponentBuilder =
+    fn(&ResolvedParameterValues, &ComponentContext<'_>) -> Result<StoreComponent, Error>;
 ```
+
+`ComponentContext` is what the builder can see of the store being built. For a router-level
+(central) section it holds the router's members by mount prefix (`mount(&prefix)`,
+`has_mounts()`); for a member's own section it is empty. A storage model that keeps its records in
+another mount resolves it here and returns that member from `MetadataStorage::object_store`, which
+is where the pipeline then writes and reads records. Most builders ignore it.
 
 It returns `StoreComponent::Storage(Arc<dyn MetadataStorage>)` or
 `StoreComponent::Writes(Arc<dyn WriteStrategy>)`. Register it with
@@ -431,4 +438,5 @@ Language-defined entries (Python, JavaScript) are not possible yet:
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-16 | §11: `ComponentBuilder` takes a `ComponentContext` holding the router's mounts for a router-level section, so a storage model can keep records in another mount; `central` resolves its mount. | `design/store-adapters/` phase-5 review |
 | 2026-10-15 | Created by store-adapters: writing `metadata` sections (fields and defaults, spec syntax and escaping, stages, the `store_config` catalogue, router-level sections, validation, error messages) and defining a new handler, storage model or write strategy. | `design/store-adapters/` phase-5 |

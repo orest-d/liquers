@@ -843,8 +843,8 @@ mod tests {
     use crate::metadata::Version;
     use crate::parse::parse_key;
     use crate::store::realm::{
-        register_builtin_store_config, register_test_store_config, ComponentKind, Stage,
-        StoreComponent, StoreConfigFunctions,
+        register_builtin_store_config, register_test_store_config, ComponentContext, ComponentKind,
+        Stage, StoreComponent, StoreConfigFunctions,
     };
     use crate::store::test_support::{FailingStore, RecordingStore};
     use crate::store::{AsyncFileStore, AsyncMemoryStore};
@@ -893,13 +893,20 @@ mod tests {
             spec.storage,
             ComponentKind::Storage,
             &cmr,
+            &ComponentContext::none(),
             &mut Vec::new(),
         )? {
             StoreComponent::Storage(storage) => storage,
             StoreComponent::Writes(_) => return Err(Error::general_error("storage".into())),
         };
         let writes =
-            match f.compile_component(spec.writes, ComponentKind::Writes, &cmr, &mut Vec::new())? {
+            match f.compile_component(
+                spec.writes,
+                ComponentKind::Writes,
+                &cmr,
+                &ComponentContext::none(),
+                &mut Vec::new(),
+            )? {
                 StoreComponent::Writes(writes) => writes,
                 StoreComponent::Storage(_) => return Err(Error::general_error("writes".into())),
             };

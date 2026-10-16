@@ -20,7 +20,9 @@ use crate::metadata::Metadata;
 use crate::plan::ResolvedParameterValues;
 use crate::query::Key;
 
-use super::realm::{string_parameter, ComponentKind, StoreComponent, StoreConfigFunctions};
+use super::realm::{
+    string_parameter, ComponentContext, ComponentKind, StoreComponent, StoreConfigFunctions,
+};
 use super::writes::{ObjectWrite, WriteTarget};
 use super::{AsyncStore, ReservedNameSet};
 
@@ -594,34 +596,68 @@ fn storage(model: impl MetadataStorage + 'static) -> StoreComponent {
     StoreComponent::Storage(Arc::new(model))
 }
 
-fn build_native(_parameters: &ResolvedParameterValues) -> Result<StoreComponent, Error> {
+fn build_native(
+    _parameters: &ResolvedParameterValues,
+    _components: &ComponentContext<'_>,
+) -> Result<StoreComponent, Error> {
     Ok(storage(NativeStorage))
 }
 
-fn build_per_entry(parameters: &ResolvedParameterValues) -> Result<StoreComponent, Error> {
+fn build_per_entry(
+    parameters: &ResolvedParameterValues,
+    _components: &ComponentContext<'_>,
+) -> Result<StoreComponent, Error> {
     let layout = Layout::from_name(&string_parameter(parameters, "layout")?)?;
     Ok(storage(PerEntryStorage::new(layout)))
 }
 
-fn build_grouped(parameters: &ResolvedParameterValues) -> Result<StoreComponent, Error> {
+fn build_grouped(
+    parameters: &ResolvedParameterValues,
+    _components: &ComponentContext<'_>,
+) -> Result<StoreComponent, Error> {
     Ok(storage(GroupedStorage::new(&string_parameter(
         parameters, "file",
     )?)?))
 }
 
-fn build_none(_parameters: &ResolvedParameterValues) -> Result<StoreComponent, Error> {
+fn build_none(
+    _parameters: &ResolvedParameterValues,
+    _components: &ComponentContext<'_>,
+) -> Result<StoreComponent, Error> {
     Ok(storage(NoStorage))
 }
 
-fn build_central(parameters: &ResolvedParameterValues) -> Result<StoreComponent, Error> {
+/// `central-<mount>`: records kept in another member of the router. The builder resolves the mount
+/// through the [`ComponentContext`], which only a router-level section has, so the interface a
+/// real implementation needs is in place; the model itself (key mapping into the mount, its
+/// reserved names, listing) is not implemented yet (`STORE-CENTRAL-STORAGE-MODEL-NOT-IMPLEMENTED`).
+fn build_central(
+    parameters: &ResolvedParameterValues,
+    components: &ComponentContext<'_>,
+) -> Result<StoreComponent, Error> {
     let mount = string_parameter(parameters, "mount")?;
+    if !components.has_mounts() {
+        return Err(Error::configuration_error(format!(
+            "central storage in mount '{mount}' belongs in the router-level metadata section, \
+             where the router's mounts are known"
+        )));
+    }
+    let prefix = crate::parse::parse_key(&mount)?;
+    if components.mount(&prefix).is_none() {
+        return Err(Error::configuration_error(format!(
+            "central storage names mount '{mount}', which the router does not have"
+        )));
+    }
     Err(Error::not_supported(format!(
         "central storage in mount '{mount}' is declared but not implemented yet"
     )))
 }
 
 #[cfg(any(test, feature = "store-conformance"))]
-fn build_memory_central(_parameters: &ResolvedParameterValues) -> Result<StoreComponent, Error> {
+fn build_memory_central(
+    _parameters: &ResolvedParameterValues,
+    _components: &ComponentContext<'_>,
+) -> Result<StoreComponent, Error> {
     Ok(storage(MemoryCentralStorage::new()))
 }
 
@@ -947,7 +983,13 @@ mod tests {
         if test_entries {
             register_test_store_config(&mut cmr, &mut functions)?;
         }
-        functions.compile_component(spec, ComponentKind::Storage, &cmr, &mut Vec::new())
+        functions.compile_component(
+            spec,
+            ComponentKind::Storage,
+            &cmr,
+            &ComponentContext::none(),
+            &mut Vec::new(),
+        )
     }
 
     fn storage_name(component: Result<StoreComponent, Error>) -> Result<String, Error> {
@@ -1014,7 +1056,10 @@ mod tests {
         let mut cmr = CommandMetadataRegistry::new();
         let mut functions = StoreConfigFunctions::new();
         register_builtin_store_config(&mut cmr, &mut functions)?;
-        fn build(_p: &ResolvedParameterValues) -> Result<StoreComponent, Error> {
+        fn build(
+            _p: &ResolvedParameterValues,
+            _c: &ComponentContext<'_>,
+        ) -> Result<StoreComponent, Error> {
             Ok(StoreComponent::Storage(Arc::new(NoStorage)))
         }
         let mut metadata = CommandMetadata::new("mine");
@@ -1025,6 +1070,7 @@ mod tests {
                 "mine",
                 ComponentKind::Storage,
                 &cmr,
+                &ComponentContext::none(),
                 &mut Vec::new()
             ))?,
             "none"

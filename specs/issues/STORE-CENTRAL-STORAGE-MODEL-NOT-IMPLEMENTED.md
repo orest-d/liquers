@@ -33,3 +33,15 @@ following the `MemoryCentralStorage` behaviour that conformance suite `a5_memory
 ## Discovery
 
 Deferred by `design/store-adapters/` (Phase 2 §3, AC-12 implemented with the test model only).
+
+## Interface in place (2026-10-16)
+
+At the user's request the design now guarantees the model can be built. The root cause of the
+refusal was that a component builder was a plain function of its parameters and could not reach
+the router's members. `ComponentBuilder` now also receives a `ComponentContext`
+(`liquers-core/src/store/realm.rs`), which holds the router's members by mount prefix for a
+router-level section and nothing for a member's own section. `build_central` resolves the mount
+through it (unknown mount, or use in a member section: a configuration error) before refusing;
+test `central_storage_resolves_its_mount_through_the_router`. What remains is the model itself:
+`MetadataStorage` with `object_store` returning the mount, a key mapping into it (records under the
+mount's prefix), its reserved names and listing, run through conformance suite `A5`.
