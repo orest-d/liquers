@@ -37,8 +37,8 @@ Found while writing `specs/reference/REALMS.md` (store-adapters Phase 5).
 ## Resolution (2026-10-16)
 
 The first half is fixed in PR #137, at the user's request: `Error::action_not_registered` takes the
-realm and names every command key tried, as `realm/namespace/name` (`-foo/to_text` reports
-`'foo//to_text', 'foo/root/to_text'`); test `action_not_registered_names_every_command_key_tried`.
+realm and names every `CommandKey` tried, in its `Display` form (`-foo/to_text` reports
+`'foo--to_text'`); test `action_not_registered_names_every_command_key_tried`.
 The second half (mixed-realm queries plan without a warning) is not planned for now: inside a store
 configuration it cannot arise, because the realm is filled into every segment, so it affects only
 hand-written queries in `liquers-validate`.

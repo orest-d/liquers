@@ -213,8 +213,9 @@ impl Error {
     pub fn not_supported(message: String) -> Self {
         Error::new(ErrorType::NotSupported, message)
     }
-    /// No command `action` in any of `namespaces` of `realm`. The message names every command
-    /// key tried, as `realm/namespace/name`, so a wrong realm is as visible as a missing namespace.
+    /// No command `action` in any of `namespaces` of `realm`. The message names every
+    /// [`CommandKey`] tried, in its `Display` form, so a wrong realm is as visible as a missing
+    /// namespace.
     pub fn action_not_registered(
         action: &ActionRequest,
         realm: &str,
@@ -223,11 +224,12 @@ impl Error {
         Error::new(
             ErrorType::ActionNotRegistered,
             format!(
-                "Action '{}' not registered; command keys tried (realm/namespace/name): {}",
+                "Action '{}' not registered; command keys tried: {}",
                 action.name,
                 namespaces
                     .iter()
-                    .map(|ns| format!("'{}/{}/{}'", realm, ns, action.name))
+                    .map(|ns| format!("'{}'", CommandKey::new(realm, ns, &action.name)))
+                    .unique()
                     .join(", ")
             ),
         )
@@ -544,8 +546,12 @@ mod tests {
             &vec!["".to_string(), "root".to_string()],
         );
         assert_eq!(error.error_type, ErrorType::ActionNotRegistered);
-        assert!(error.message.contains("'foo//to_text'"), "{}", error.message);
-        assert!(error.message.contains("'foo/root/to_text'"), "{}", error.message);
+        // `root` is the default namespace, so both name the same key, listed once.
+        let tried = format!("'{}'", CommandKey::new("foo", "", "to_text"));
+        assert_eq!(error.message.matches(&tried).count(), 1, "{}", error.message);
+        let other = Error::action_not_registered(&action, "", &vec!["pl".to_string()]);
+        let tried = format!("'{}'", CommandKey::new("", "pl", "to_text"));
+        assert!(other.message.contains(&tried), "{}", other.message);
     }
 
     /// T1 (`design/configuration-error-kind`).

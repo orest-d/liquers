@@ -69,7 +69,7 @@ An error has `"status":"ERROR"`, a matching HTTP status code, and an `error` obj
 names the problem:
 
 ```json
-{"status":"ERROR","message":"Query evaluation failed","error":{"type":"ActionNotRegistered","message":"Action 'nosuch' not registered; command keys tried (realm/namespace/name): '//nosuch', '/root/nosuch'"}}
+{"status":"ERROR","message":"Query evaluation failed","error":{"type":"ActionNotRegistered","message":"Action 'nosuch' not registered; command keys tried: '--nosuch'"}}
 ```
 
 The common codes: 400 for a malformed query, key or parameter; 404 for something that does not
@@ -504,7 +504,7 @@ JobFinished              status=Ready
 
 $ python3 follow.py 'nosuch'
 Error                    status=None
-{'type': 'ActionNotRegistered', 'message': "Action 'nosuch' not registered; command keys tried (realm/namespace/name): '//nosuch', '/root/nosuch'", 'query': ''}
+{'type': 'ActionNotRegistered', 'message': "Action 'nosuch' not registered; command keys tried: '--nosuch'", 'query': ''}
 ```
 
 Notifications are a convenience, not a guarantee: for a definitive answer, `GET …/info`. A
