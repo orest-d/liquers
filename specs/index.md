@@ -8,9 +8,9 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 119
+Total rows: 113
 - P2: 51
-- P3: 68
+- P3: 62
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -74,14 +74,8 @@ Total rows: 119
 | [`PY-VALUE-ENUM-OVERSIZED`](issues/PY-VALUE-ENUM-OVERSIZED.md) | issue | liquers-py's own Value enum is over 700 bytes because large variants are stored inline | draft |  |  | P3 | S | py |  | 2026-10-12 |
 | [`REPLACING-WRITE-KEEPS-DROPPED-DEPENDENCY-EDGES`](issues/REPLACING-WRITE-KEEPS-DROPPED-DEPENDENCY-EDGES.md) | issue | A write that replaces a keyed asset keeps the dependency edges its new metadata no longer lists | draft |  |  | P3 | S | core/assets |  | 2026-10-11 |
 | [`RESOURCE-STEP-VOLATILITY-IS-NEVER-CHECKED`](issues/RESOURCE-STEP-VOLATILITY-IS-NEVER-CHECKED.md) | issue | Resource plan steps always report non-volatile, behind a TODO that prints at runtime | draft |  |  | P3 | S | core/plan |  | 2026-10-12 |
-| [`STORE-BUILD-WARNINGS-LOST-IN-THE-BROWSER`](issues/STORE-BUILD-WARNINGS-LOST-IN-THE-BROWSER.md) | issue | Store build warnings go to stderr, which a browser build discards | draft |  |  | P3 | S | core/store;store/config;web |  | 2026-10-15 |
-| [`STORE-CONFIG-COMPONENT-SPEC-DROPS-PLANNER-DIAGNOSTICS`](issues/STORE-CONFIG-COMPONENT-SPEC-DROPS-PLANNER-DIAGNOSTICS.md) | issue | A storage or writes spec loses the planner's info and warning steps | draft |  |  | P3 | S | core/store;store/config |  | 2026-10-15 |
-| [`STORE-CONFORMANCE-SUITE-NAME-C6-USED-TWICE`](issues/STORE-CONFORMANCE-SUITE-NAME-C6-USED-TWICE.md) | issue | Conformance suite name C6 names two different suites | draft |  |  | P3 | S | core/store;store/backends;docs |  | 2026-10-15 |
-| [`STORE-OPENDAL-DATA-FACTS-CAPABILITIES-UNKNOWN`](issues/STORE-OPENDAL-DATA-FACTS-CAPABILITIES-UNKNOWN.md) | issue | An OpenDAL store under-reports its data capabilities because OpenDAL does not say what stat returns | draft |  |  | P3 | S | store/backends |  | 2026-10-15 |
-| [`STORE-PIPELINE-CACHE-MISSES-EXTERNAL-RECORD-EDITS`](issues/STORE-PIPELINE-CACHE-MISSES-EXTERNAL-RECORD-EDITS.md) | issue | The metadata pipeline's cache ignores a record object edited outside the process | draft |  |  | P3 | S | core/store |  | 2026-10-15 |
 | [`TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS`](issues/TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS.md) | issue | TypeInfo cannot declare a format a type writes but cannot read back | draft |  |  | P3 | S | core/value |  | 2026-09-24 |
 | [`VALIDATE-COMMAND-STUB-REJECTS-POSITIONAL-EMPTIES`](issues/VALIDATE-COMMAND-STUB-REJECTS-POSITIONAL-EMPTIES.md) | issue | A liquers-validate --command stub rejects a query with empty positional parameters | draft |  |  | P3 | S | core/validate |  | 2026-10-12 |
-| [`WEB-BUILT-IN-STORES-HAVE-NO-DATA-ACCESS`](issues/WEB-BUILT-IN-STORES-HAVE-NO-DATA-ACCESS.md) | issue | The browser's built-in stores refuse data-only access, so they cannot take a metadata section | draft |  |  | P3 | S | web;core/store |  | 2026-10-15 |
 | [`CONTEXT-TITLE-LOST-ACROSS-PREDECESSOR-BOUNDARY`](issues/CONTEXT-TITLE-LOST-ACROSS-PREDECESSOR-BOUNDARY.md) | issue | A title or description set by a command in a cut predecessor does not reach the final asset | draft | needs-decision | not-eligible | P3 | M | core/context;core/plan | [phase1](design/context-title-predecessor-inheritance/phase1-high-level-design.md)  [phase2](design/context-title-predecessor-inheritance/phase2-architecture.md)  [phase3](design/context-title-predecessor-inheritance/phase3-examples.md)  [phase4](design/context-title-predecessor-inheritance/phase4-implementation.md)  | 2026-10-06 |
 | [`ASSETS-API-ADMIN-OPERATIONS`](issues/ASSETS-API-ADMIN-OPERATIONS.md) | feature | Manager status and a guarded remove have no assets API endpoint | draft |  |  | P3 | M | axum;core/assets |  | 2026-09-27 |
 | [`AXUM-WEBSOCKET-HARDENING`](issues/AXUM-WEBSOCKET-HARDENING.md) | issue | WebSocket endpoint is not hardened | accepted |  |  | P3 | M | axum | [phase1](design/axum-assets-endpoints/phase1-high-level-design.md)  [phase2](design/axum-assets-endpoints/phase2-architecture.md)  [phase3](design/axum-assets-endpoints/phase3-examples.md)  [phase4](design/axum-assets-endpoints/phase4-implementation.md)  | 2026-08-08 |

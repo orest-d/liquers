@@ -2,7 +2,7 @@
 id: STORE-CONFIG-COMPONENT-SPEC-DROPS-PLANNER-DIAGNOSTICS
 kind: issue
 title: A storage or writes spec loses the planner's info and warning steps
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [core/store, store/config]
@@ -29,3 +29,7 @@ warnings (see `STORE-BUILD-WARNINGS-LOST-IN-THE-BROWSER`).
 ## Discovery
 
 Found while documenting `design/store-adapters/` (Phase 5).
+
+## Resolution (2026-10-16)
+
+Fixed in PR #137 (store-adapters Phase 5 review). `StoreConfigFunctions::compile_component` now reads the plan's `init_steps` and `steps`: a `Warning` is appended to the caller's notes, which the store builder returns as build warnings naming the mount (`StoreRouterBuilder::build_store_reporting`); an `Error` fails the build; an `Info` (volatility, expiry and similar plan facts) is dropped, since a component has no record to carry it. Test `component_spec_reports_planner_warnings_and_errors`.

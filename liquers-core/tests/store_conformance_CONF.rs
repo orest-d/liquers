@@ -1,4 +1,4 @@
-//! `C1`–`C6` — the conformance suite applied to `liquers-core`'s stores and to the trait defaults;
+//! `C1`–`C5`, `C8` — the conformance suite applied to `liquers-core`'s stores and trait defaults;
 //! `A1`–`A7` — the same suite applied to adapted stores built from configuration
 //! (`specs/design/store-adapters/`).
 //!
@@ -211,8 +211,8 @@ async fn c3_report() -> ConformanceReport {
     report
 }
 
-/// `C6` — `AsyncStoreRouter` with a member that describes its own entries and a member mounted
-/// inside it.
+/// `C8` — `AsyncStoreRouter` with a member that describes its own entries and a member mounted
+/// inside it. (Named `C6` until 2026-10-16; `C6`–`C7` are `liquers-store`'s OpenDAL suites.)
 ///
 /// The router composes every directory answer here instead of forwarding it: the fixture's
 /// namespace `mem` has two contributors. `dir07` (directory `children` are the listing) is the rule
@@ -220,14 +220,14 @@ async fn c3_report() -> ConformanceReport {
 /// `children` and omitted the nested mount. The decorating member stands in for the front-matter
 /// adapter of `design/store-adapters/`, whose `get_asset_info` override the router must not bypass.
 #[tokio::test]
-async fn c6_router_with_a_decorated_member_and_a_nested_mount() {
-    check(c6_report().await, C6_ALLOWED);
+async fn c8_router_with_a_decorated_member_and_a_nested_mount() {
+    check(c8_report().await, C8_ALLOWED);
 }
 
-/// Known divergences of `C6`.
-const C6_ALLOWED: &[AllowedFailure] = &[];
+/// Known divergences of `C8`.
+const C8_ALLOWED: &[AllowedFailure] = &[];
 
-async fn c6_report() -> ConformanceReport {
+async fn c8_report() -> ConformanceReport {
     let mem_prefix = parse_key("mem").expect("prefix");
     let mut router = AsyncStoreRouter::new();
     // First match wins, so the nested mount goes first.
@@ -746,8 +746,8 @@ async fn status_table() {
         "{}",
         status_row(
             "`AsyncStoreRouter` (nested)",
-            &c6_report().await,
-            C6_ALLOWED,
+            &c8_report().await,
+            C8_ALLOWED,
             "a decorating member with a member mounted inside it: every directory answer is \
              composed by the router (`design/store-router-forwards-asset-info/`)",
         )

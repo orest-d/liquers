@@ -2,7 +2,7 @@
 id: STORE-OPENDAL-DATA-FACTS-CAPABILITIES-UNKNOWN
 kind: issue
 title: An OpenDAL store under-reports its data capabilities because OpenDAL does not say what stat returns
-status: draft
+status: closed_not_planned
 priority: P3
 complexity: S
 area: [store/backends]
@@ -34,3 +34,7 @@ from a maintained per-scheme table checked by a test against a live `stat`.
 ## Discovery
 
 Found implementing step 13 of `design/store-adapters/`.
+
+## Resolution (2026-10-16)
+
+Accepted as a known limitation (the user's decision): OpenDAL does not say what `stat` returns, so `AsyncOpenDALStore` keeps reporting `modified_time` and `etag` as false while passing real values through `data_facts`. Added as a fallback: when a backend reports no modification time, the pipeline records the time of the write as Liquers saw it as `created` (`MetadataPipelineStore::record_backend_facts`, test `created_falls_back_to_the_write_time`); `updated` is already the current time. Documented in `STORE_SEMANTICS.md` §13.

@@ -947,7 +947,7 @@ mod tests {
         if test_entries {
             register_test_store_config(&mut cmr, &mut functions)?;
         }
-        functions.compile_component(spec, ComponentKind::Storage, &cmr)
+        functions.compile_component(spec, ComponentKind::Storage, &cmr, &mut Vec::new())
     }
 
     fn storage_name(component: Result<StoreComponent, Error>) -> Result<String, Error> {
@@ -1021,7 +1021,12 @@ mod tests {
         metadata.with_namespace("");
         functions.register_component(&mut cmr, metadata, ComponentKind::Storage, build)?;
         assert_eq!(
-            storage_name(functions.compile_component("mine", ComponentKind::Storage, &cmr))?,
+            storage_name(functions.compile_component(
+                "mine",
+                ComponentKind::Storage,
+                &cmr,
+                &mut Vec::new()
+            ))?,
             "none"
         );
         Ok(())

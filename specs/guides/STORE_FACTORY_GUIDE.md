@@ -3,7 +3,7 @@ title: Store Factory Guide
 kind: guide
 audience: internal
 area: [core/store, store/config]
-reviewed: 2026-10-15
+reviewed: 2026-10-16
 ---
 # Store Factory Guide
 
@@ -42,10 +42,16 @@ around what your factory returns — your `create` never sees them — and offer
 |---|---|---|
 | `build()`, `build_without_env_expansion()` | `AsyncStoreRouter` | refused with a configuration error naming `build_store` |
 | `build_store()`, `build_store_without_env_expansion()` | `Arc<dyn AsyncStore>` | applied: central pipeline over the router, then `ReadOnlyStore` |
+| `build_store_reporting()`, `build_store_reporting_without_env_expansion()` | `BuiltStore { store, warnings }` | as `build_store`, returning the build warnings instead of printing them |
 
 Mount-level sections work with both. Use `build_store` unless you need the concrete router type;
 `EnvironmentBuilder` does. `liquers-store`'s `create_router*` and `liquers-web`'s `build_router` call
 `build`; `liquers-web` also has a `build_store`.
+
+Build warnings (a `read_only` mount over a store without data-only access, a planner warning on
+a `storage` or `writes` spec) name their mount. `build_store` prints them to stderr; an integration
+whose stderr goes nowhere uses `build_store_reporting` and shows them itself, as `liquers-web` does
+in the page console.
 
 A `metadata` section is compiled at build against a command metadata registry and the matching
 `StoreConfigFunctions` (`liquers_core::store::realm`). Without further calls the builder uses
@@ -255,6 +261,7 @@ feature that has not been designed. Document exclusivity in an argument's `doc` 
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-16 | `build_store_reporting`: build warnings returned to the caller, which `liquers-web` writes to the console. | `design/store-adapters/` phase-5 review |
 | 2026-10-15 | New § "`build` or `build_store`": the builder applies `read_only` / `metadata` around the factory's store; `build` returns the bare router and refuses router-level sections, `build_store` returns `Arc<dyn AsyncStore>`; `with_store_config` passes the registry and `StoreConfigFunctions` (built-ins by default, `EnvironmentBuilder` passes its own); pointers to `STORE_CONFIG_GUIDE.md` and data-only access. | phase-5 (`design/store-adapters/`) |
 | 2026-10-07 | §"Describing arguments you do not own": derive the list from a `Default + Serialize` backend config and merge hand docs by name, with the OpenDAL factory as the worked example. | `design/opendal-derived-store-arguments/` |
 | 2026-09-02 | Cross-linked `STORE_IMPLEMENTATION_GUIDE.md`, which covers implementing the store a factory builds, so the two halves of the job point at each other. | `design/store-conformance-suite/` Phase 4 step 14 |

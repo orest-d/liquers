@@ -3,7 +3,7 @@ title: Language Integration Guide
 kind: guide
 audience: internal
 area: [web, py, core/commands, core/plan, core/assets, core/store]
-reviewed: 2026-10-15
+reviewed: 2026-10-16
 ---
 # Liquers Language Integration Guide
 
@@ -1482,8 +1482,9 @@ protocol:
 
 The adapter does not promise a modification time or an ETag in `data_capabilities()`
 (`modified_time` and `etag` are false), but passes on whatever `dataFacts` reports. The built-in
-browser stores (`localstorage`, `http`) do not offer data-only access yet, so a `metadata` section
-on them is refused at build; only `read_only` applies to them. `build_store` (in
+browser stores offer data-only access too: `localstorage` fully (atomic writes and rename, an ETag
+hashed from the entry, no modification time), `http` for reads only (`set_data` and `remove_data`
+refuse; facts from a HEAD request), so either can take a `metadata` section. `build_store` (in
 `liquers-web/src/store/builder.rs`) compiles the sections against the environment's own command
 registry and `StoreConfigFunctions`, mirroring the native builder. `sync` is not exposed to pages.
 See `liquers-web/README.md` "Read-only stores and metadata sections".
@@ -3093,6 +3094,7 @@ def test_PACKAGE07_artifact_carries_declarations_license_and_metadata():
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-16 | §6 Browser JavaScript: `localstorage` and `http` now offer data-only access and can take a `metadata` section. | `design/store-adapters/` phase-5 review |
 | 2026-10-15 | Configured stores. §4: `read_only` and `metadata` belong to `STORE` direction 3, with no feature ID of their own. §STORE: direction 3 covers a mount's access policy and metadata handling; the inventory adds the data-only methods, `DataCapabilities`, `DataFacts`, `BackendTime`, `is_read_only`, `sync`, `created`/`etag` and `MetadataConfig`/`StoreConfigFunctions`; new design questions for configured stores; new subsection "Configured stores: access policy, metadata and write strategies" with the capability table and the `store_config` counterpart of "What the *language* cannot contribute"; tests `STORE14`–`STORE18` with a disposition column and Appendix A blueprints. §COMMAND asks about foreign realms; §ENVIRON states that chains compile against the environment's registry. §6: `JsStore`'s optional data methods and the built-in browser stores' refusal; Python's GIL cost for a per-entry handler. | phase-5, `design/store-adapters/` |
 | 2026-10-13 | §Design questions, question 4: NaN/infinity follows the JSON policy in `SERIALIZATION_GUIDE.md`. | phase-5, `design/value-to-json-non-finite-float/` |
 | 2026-10-10 | §4 *Out of scope: cache*: the cache module and `liquers-py`'s wrapper were removed, not scheduled for removal. | `CORE-SYNC-STORE-TRAIT-OBSOLETE`, `design/sync-store-removal/` |

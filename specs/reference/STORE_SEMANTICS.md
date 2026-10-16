@@ -3,7 +3,7 @@ title: Store Behavioural Semantics
 kind: reference
 audience: internal
 area: [core/store, store/backends, web]
-reviewed: 2026-10-15
+reviewed: 2026-10-16
 ---
 # Store Behavioural Semantics
 
@@ -33,6 +33,16 @@ shared suite that holds every implementation to it is `liquers_core::store_confo
 *Enforced by* line under each section names the rules that check it. [`guides/STORE_IMPLEMENTATION_GUIDE.md`](../guides/STORE_IMPLEMENTATION_GUIDE.md)
 is the operational counterpart — how to implement a store that satisfies this, and how to run the
 suite against it.
+
+**Liquers assumes it is the only writer of a store's metadata while it runs.** A store's *data*
+may be changed by other programs: a configured mount notices through the backend's facts (size,
+modification time, ETag; §13) and the handlers that compare them. Its *metadata* may not. A record
+object (sidecar, folder record, grouped file, native record) edited by another program, or by hand,
+while Liquers runs is at the editor's own risk: a record has no hash or time of its own, so the
+change cannot be detected, and a cached copy (§13) or a later write may silently replace it. Two
+Liquers processes writing one store are outside the contract for the same reason, since grouped
+writes lock within one process only (§16). The safe way to change metadata is through Liquers
+(`set_metadata`), or with Liquers stopped.
 
 **Rows marked ⚠ are known to be unsettled.** They name the issue tracking them rather than stating a
 rule the code does not follow. One remains: §7's, which is a *parsing* limit rather than a store one.
@@ -241,7 +251,7 @@ a general store, it handles that file while unsupported keys pass to subsequent 
 assert `is_supported` is *false*, and the trait default returns `false` unconditionally, so without
 it a store that refuses every key passes both and looks conformant while being unusable in a
 layering. `AsyncMemoryStore` keeps its own `memsupport01`-`memsupport06` unit tests, and the router
-its `router01` and `routerfwd01`-`routerfwd11`; conformance suite `C6` runs a router whose every
+its `router01` and `routerfwd01`-`routerfwd11`; conformance suite `C8` runs a router whose every
 directory answer is composed.
 
 ## 7. Key shape
@@ -410,7 +420,14 @@ names in `is_supported` but not in `set_data`), refuses a `rename_data` across m
 **intersection** of its members' capabilities, is read-only when it has members and all are, merges
 its members' `sync` reports, and answers `version_verification` from the member that owns the key.
 `liquers-web`'s `JsStore` reports `data_access` when the page object has `getData`, `setData`,
-`removeData`, `listdirData` and `dataFacts`; the built-in browser stores refuse data access.
+`removeData`, `listdirData` and `dataFacts`. `LocalStorageStore` implements every data-only method
+(`atomic_write`, `rename` and `etag` — a hash of the stored entry — but no `modified_time`).
+`FetchStore` implements the read half: `get_data`, `listdir_data` over its configured keys, and
+`data_facts` from a HEAD request (size, and the server's ETag and `Last-Modified` when sent, never
+promised); `set_data` and `remove_data` refuse. Its `get_stored_metadata` returns the record it
+builds from the response headers (media type, `Source` status), the one exception to "never
+synthesized" above: an HTTP server has no stored record to return, and without it a read-only
+mount would lose the media type.
 
 **Data-only reserved names are the backend's own.** In data-only mode a store reserves only what it
 needs itself — `AsyncFileStore` reserves `.__lock__`, not `.__metadata__` — because a metadata
@@ -507,8 +524,14 @@ says.
 **`created` and `etag`.** After every write that changes the data object, the pipeline reads
 `data_facts` and stores the backend's modification time as `created` and its ETag as `etag`,
 whatever the chain set — a second commit when they moved. So every write, a `Partial` checkpoint
-included, moves `created`. A streaming write path would need the same hook
+included, moves `created`. A backend that reports no modification time (OpenDAL services whose
+`stat` has none, a JavaScript store without `modified`) gets the time of the write as Liquers saw
+it, at millisecond precision; it is informative only, since change detection compares `created`
+only with a backend time and there is none (`created_falls_back_to_the_write_time`). A streaming write path would need the same hook
 (`CORE-STORE-OPENBIN-MISSING`).
+
+**The record cache** keeps each key's record while the key's *data* facts are unchanged, so a
+record object edited outside Liquers is not re-read (see the assumption in the introduction).
 
 **Central storage** (a router-level `metadata` section, `build_store` only): one pipeline over the
 whole router, whose section governs handlers and the write strategy for every member. A member's own
@@ -616,6 +639,8 @@ commits. So:
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-16 | §11: `LocalStorageStore` and `FetchStore` (read half) offer data-only access; `FetchStore::get_stored_metadata` returns its header-derived record. | `design/store-adapters/` phase-5 review |
+| 2026-10-16 | Introduction: Liquers assumes it is the only writer of a store's metadata while it runs (outside data edits are detected, outside metadata edits are not). §13: `created` falls back to the write time on a backend without modification times; the record cache's limit stated. | `design/store-adapters/` phase-5 review |
 | 2026-10-15 | §11–§16 added: data-only access and `DataCapabilities` per store; `ReadOnlyStore`; the metadata pipeline, storage models and their reserved names, enumerable record-only keys, the facts-keyed cache, `persist_defaults`, `created`/`etag` from backend facts, central storage and backups, record compatibility; handler stages and their error rules; write strategies, recovery on read and `sync`, the `Storing` marker not written under the pipeline; grouped-write guarantees (per-process locks only). Introduction names the adapters and suites `A1`–`A7`. | `design/store-adapters/` |
 | 2026-10-13 | §6: how the router answers — data by owner, directories as a union of covering members (and an empty member's prefix), `contains` `Ok(false)` for unowned keys, `get_asset_info` / `listdir_asset_info` forwarded to a sole contributor and composed otherwise. Tests `routerfwd01`-`routerfwd11`, suite `C6`. | `design/store-router-forwards-asset-info/` |
 | 2026-10-11 | §10 added: a store seeds a written record's filename, and so its data format, from the key; a declared filename or data format is kept. Rules `seed01`, `seed02`. | `design/store-key-format-seeding/` |

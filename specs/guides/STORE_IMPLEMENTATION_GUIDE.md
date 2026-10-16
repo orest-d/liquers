@@ -3,7 +3,7 @@ title: Store Implementation Guide
 kind: guide
 audience: internal
 area: [core/store, store/backends, web]
-reviewed: 2026-10-15
+reviewed: 2026-10-16
 ---
 # Store Implementation Guide
 
@@ -416,7 +416,7 @@ reason, in the report, where a reviewer sees it.
 ## 7. Running the suites
 
 ```bash
-cargo test -p liquers-core  --features store-conformance      # C1–C6, A1–A7 (adapted stores)
+cargo test -p liquers-core  --features store-conformance      # C1–C5, C8, A1–A7 (adapted stores)
 cargo test -p liquers-store --features store-conformance      # C6–C7 (OpenDAL, two services), A3 over OpenDAL fs
 cargo test -p liquers-web --target wasm32-unknown-unknown     # C8, C10, under Node
 CHROMEDRIVER=$(which chromedriver) cargo test -p liquers-web \
@@ -497,6 +497,7 @@ result changes.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-16 | §7: the core router suite is renamed `C6` → `C8`, since `C6`–`C7` are `liquers-store`'s OpenDAL suites. | `design/store-adapters/` phase-5 review |
 | 2026-10-15 | §9: suites `A1`–`A7`, adapted stores built from configuration (read-only, each storage model and layout, central storage, each write strategy, a front-matter read chain), and `A3` over OpenDAL fs through its new data-only methods; all conformant. Phase 5: new §4a, implementing data-only access so a mount can take `read_only` / `metadata`, with a pointer to `STORE_CONFIG_GUIDE.md` for handlers, storage models and write strategies; §1 table row; §7 suite list. | `design/store-adapters/` Phase 4 step 11, phase-5 |
 | 2026-10-13 | §Prefix: the router asks every covering member for `is_dir` and `listdir`, and forwards `get_asset_info` / `listdir_asset_info` to members; `AssetManager` asks `contains` first. §9: suite `C6`, a router composing every directory answer. | `design/store-router-forwards-asset-info/` |
 | 2026-10-11 | §8 rule table: `seed01`, `seed02` (STORE_SEMANTICS §10). §9: 46 rules; every store that accepts writes with stored metadata runs two more, and all remain conformant (`LocalStorageStore` checked in Chromium through the `NO_HEADLESS` runner). | `design/store-key-format-seeding/` |

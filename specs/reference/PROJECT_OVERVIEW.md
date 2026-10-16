@@ -3,7 +3,7 @@ title: Liquers Project Overview
 kind: reference
 audience: internal
 area: [core/query, core/plan, core/assets, core/store, core/value]
-reviewed: 2026-10-15
+reviewed: 2026-10-16
 ---
 # Liquers Project Overview
 
@@ -428,6 +428,15 @@ Session (user session - currently minimal)
 - Queries and recipes are stateless - if the commands are stateless and the data stored in the store is constant. This should integrate well with a REST API.
 - In practice commands may interact with non-static systems, e.g. databases and data in the store may be modified by the user. Such issues will partly be mitigated by dependency checking.  
 
+### Liquers is the only writer of store metadata while it runs
+- Other programs may change the *data* in a store: configured mounts detect it from the backend's
+  size, modification time and ETag, and dependency checks follow the recorded versions.
+- Other programs may not change the *metadata*. A metadata record has no hash or time of its own,
+  so an outside edit cannot be detected and may be cached over or overwritten; editing it while
+  Liquers runs is at the editor's own risk. Change metadata through Liquers, or with it stopped.
+  Two Liquers processes writing one store are outside the contract too (locks are per process).
+  See `STORE_SEMANTICS.md`, introduction.
+
 ### Keys identify named resources
 - Keys form a natural hierarchical structure
 - Keys allow for a unified access to both data available from store and assets created on demand.
@@ -538,6 +547,7 @@ project's purpose, intended uses and per-crate strategy. This document describes
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-16 | Key Design Decisions: Liquers is the only writer of store metadata while it runs. | `design/store-adapters/` phase-5 review |
 | 2026-10-15 | Reviewed against `design/store-adapters/`. Added `AsyncStore` data-only access and the configured-store layer (`ReadOnlyStore`, `MetadataPipelineStore`, storage models, write strategies, handler chains) to §5. The module table gains `store/`, `store_config.rs` and `store_factory.rs`. "Realm applies to the whole segment" is now true of the planner. §3 adds foreign realms: `store_config` is addressable, plannable, not executable. Pointers to `REALMS.md` and `STORE_CONFIG_GUIDE.md`. | phase-5, `design/store-adapters/` |
 | 2026-10-15 | Priority areas and the UI roadmap moved to the new `VISION.md` (purpose, uses, vision, strategy); dropped the stale claim that dependency checking is unimplemented — it landed (see `DEPENDENCIES_STATUS.md` and the dependency designs). | documentation-gap review |
 | 2026-10-11 | `Query::absolute` renamed `Query::rooted`, wire name included (no alias); its meaning is unchanged. | `design/query-leading-slash-field/` |

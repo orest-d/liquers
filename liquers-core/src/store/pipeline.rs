@@ -15,7 +15,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 
 use crate::error::{Error, ErrorType};
-use crate::metadata::{AssetInfo, Metadata, MetadataRecord};
+use crate::metadata::{AssetInfo, BackendTime, Metadata, MetadataRecord, TimePrecision};
 use crate::query::Key;
 
 use super::realm::{CompiledChain, FactsIn, StepOut};
@@ -538,7 +538,10 @@ impl MetadataPipelineStore {
     }
 
     /// Sets `created` and `etag` from the backend's facts after a data commit, rewriting the
-    /// record when they moved.
+    /// record when they moved. A backend that reports no modification time (some OpenDAL
+    /// services, a JavaScript store without one) gets the time of this write as Liquers saw it,
+    /// so `created` is never left unset or stale after new data; change detection does not use it
+    /// for such a backend, since there is no backend time to compare.
     async fn record_backend_facts(
         &self,
         key: &Key,
@@ -547,7 +550,12 @@ impl MetadataPipelineStore {
         let Some(facts) = self.backend.data_facts(key).await? else {
             return Ok(());
         };
-        let created = facts.modified.clone().or_else(|| record.created.clone());
+        let created = Some(
+            facts
+                .modified
+                .clone()
+                .unwrap_or_else(|| BackendTime::now(TimePrecision::Millis)),
+        );
         let etag = facts.etag.clone().or_else(|| record.etag.clone());
         if created == record.created && etag == record.etag {
             return Ok(());
@@ -881,14 +889,20 @@ mod tests {
         spec: &Spec<'_>,
     ) -> Result<MetadataPipelineStore, Error> {
         let (cmr, f) = registry()?;
-        let storage = match f.compile_component(spec.storage, ComponentKind::Storage, &cmr)? {
+        let storage = match f.compile_component(
+            spec.storage,
+            ComponentKind::Storage,
+            &cmr,
+            &mut Vec::new(),
+        )? {
             StoreComponent::Storage(storage) => storage,
             StoreComponent::Writes(_) => return Err(Error::general_error("storage".into())),
         };
-        let writes = match f.compile_component(spec.writes, ComponentKind::Writes, &cmr)? {
-            StoreComponent::Writes(writes) => writes,
-            StoreComponent::Storage(_) => return Err(Error::general_error("writes".into())),
-        };
+        let writes =
+            match f.compile_component(spec.writes, ComponentKind::Writes, &cmr, &mut Vec::new())? {
+                StoreComponent::Writes(writes) => writes,
+                StoreComponent::Storage(_) => return Err(Error::general_error("writes".into())),
+            };
         let mut parts = PipelineParts::new(backend, storage, writes);
         parts.chains = StageChains {
             default: f.compile(spec.on_default, Stage::Default, &cmr)?,
@@ -1404,6 +1418,62 @@ mod tests {
             .map_err(|e| Error::general_error(e.to_string()))?;
         assert_eq!(before, after);
         let _ = std::fs::remove_dir_all(&root);
+        Ok(())
+    }
+
+    /// A backend whose data facts carry no modification time (some OpenDAL services).
+    struct NoTimes(Arc<dyn AsyncStore>);
+
+    #[async_trait]
+    impl AsyncStore for NoTimes {
+        fn store_name(&self) -> String {
+            "no-times".to_string()
+        }
+        async fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
+            self.0.get(key).await
+        }
+        async fn set_metadata(&self, key: &Key, metadata: &Metadata) -> Result<(), Error> {
+            self.0.set_metadata(key, metadata).await
+        }
+        async fn get_data(&self, key: &Key) -> Result<Vec<u8>, Error> {
+            self.0.get_data(key).await
+        }
+        async fn set_data(&self, key: &Key, data: &[u8]) -> Result<(), Error> {
+            self.0.set_data(key, data).await
+        }
+        async fn remove_data(&self, key: &Key) -> Result<(), Error> {
+            self.0.remove_data(key).await
+        }
+        async fn listdir_data(&self, key: &Key) -> Result<Vec<String>, Error> {
+            self.0.listdir_data(key).await
+        }
+        async fn data_facts(&self, key: &Key) -> Result<Option<DataFacts>, Error> {
+            Ok(self.0.data_facts(key).await?.map(|facts| DataFacts {
+                modified: None,
+                ..facts
+            }))
+        }
+        fn data_capabilities(&self) -> super::super::DataCapabilities {
+            super::super::DataCapabilities {
+                modified_time: false,
+                ..self.0.data_capabilities()
+            }
+        }
+    }
+
+    /// Without a backend time, `created` is the time of the write, and a later write moves it.
+    #[tokio::test]
+    async fn created_falls_back_to_the_write_time() -> Result<(), Error> {
+        let store = pipeline(Arc::new(NoTimes(memory())), &Spec::default())?;
+        let key = parse_key("a.txt")?;
+        store.set(&key, b"one", &record("x")).await?;
+        let first = as_record(store.get_metadata(&key).await?)?.created;
+        assert!(first.is_some());
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        store.set(&key, b"two", &record("x")).await?;
+        let second = as_record(store.get_metadata(&key).await?)?.created;
+        assert!(second.is_some());
+        assert_ne!(first, second);
         Ok(())
     }
 

@@ -2,7 +2,7 @@
 id: STORE-PIPELINE-CACHE-MISSES-EXTERNAL-RECORD-EDITS
 kind: issue
 title: The metadata pipeline's cache ignores a record object edited outside the process
-status: draft
+status: closed_not_planned
 priority: P3
 complexity: S
 area: [core/store]
@@ -31,3 +31,7 @@ compares both, or the limitation is chosen deliberately and documented as such.
 ## Discovery
 
 Found while documenting `design/store-adapters/` (Phase 5).
+
+## Resolution (2026-10-16)
+
+A known limitation, not a defect: Liquers assumes it is the only writer of a store's metadata while it runs (the user's decision). Outside changes to *data* are detected through the backend facts; outside edits to *metadata* are at the editor's own risk, since a record has no hash or time of its own to detect them by. The assumption is stated in `STORE_SEMANTICS.md` (introduction, §13) and `PROJECT_OVERVIEW.md` (Key Design Decisions).

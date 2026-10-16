@@ -361,19 +361,34 @@ impl StoreConfigFunctions {
     }
 
     /// Compiles a component spec: exactly one entry, of `kind`.
+    ///
+    /// A component runs no chain, so the planner's diagnostics have no record to go into: a
+    /// `Warning` is appended to `notes` (the build warnings), an `Error` fails the compilation,
+    /// and an `Info` (volatility, expiry and similar plan facts) is dropped.
     pub fn compile_component(
         &self,
         spec: &str,
         kind: ComponentKind,
         registry: &CommandMetadataRegistry,
+        notes: &mut Vec<String>,
     ) -> Result<StoreComponent, Error> {
         let (filled, plan) = plan_spec(spec, kind.field(), registry)?;
+        self.component_from_plan(&filled, &plan, kind, notes)
+    }
+
+    fn component_from_plan(
+        &self,
+        filled: &str,
+        plan: &Plan,
+        kind: ComponentKind,
+        notes: &mut Vec<String>,
+    ) -> Result<StoreComponent, Error> {
         let context = CompileContext {
-            spec: &filled,
+            spec: filled,
             field: kind.field(),
         };
         let mut actions = Vec::new();
-        for step in plan.steps.iter() {
+        for step in plan.init_steps.iter().chain(plan.steps.iter()) {
             match step {
                 Step::Action {
                     realm,
@@ -383,7 +398,11 @@ impl StoreConfigFunctions {
                     parameters,
                     ..
                 } => actions.push((realm, ns, action_name, position, parameters)),
-                Step::Info(_) | Step::Warning(_) | Step::Error(_) => {}
+                Step::Info(_) => {}
+                Step::Warning(message) => {
+                    notes.push(format!("{}: {filled}: {message}", kind.field()))
+                }
+                Step::Error(message) => return Err(context.error(message, None)),
                 Step::GetAsset(_)
                 | Step::GetAssetBinary(_)
                 | Step::GetAssetMetadata(_)
@@ -984,6 +1003,26 @@ mod tests {
             &facts,
         )?;
         assert_eq!(record.title, "T");
+        Ok(())
+    }
+
+    #[test]
+    fn component_spec_reports_planner_warnings_and_errors() -> Result<(), Error> {
+        let (cmr, functions) = builtin();
+        let spec = "-store_config/per_entry";
+        let mut plan = PlanBuilder::new(parse_query(spec)?, &cmr).build()?;
+        plan.init_steps.push(Step::Info("plan fact".to_string()));
+        plan.init_steps
+            .push(Step::Warning("planner noticed".to_string()));
+        let mut notes = Vec::new();
+        functions.component_from_plan(spec, &plan, ComponentKind::Storage, &mut notes)?;
+        assert_eq!(notes.len(), 1, "{notes:?}");
+        assert!(notes[0].contains("storage"), "{notes:?}");
+        assert!(notes[0].contains("planner noticed"), "{notes:?}");
+        plan.init_steps.push(Step::Error("planner refused".to_string()));
+        let refused =
+            functions.component_from_plan(spec, &plan, ComponentKind::Storage, &mut Vec::new());
+        assert!(matches!(refused, Err(e) if e.message.contains("planner refused")));
         Ok(())
     }
 

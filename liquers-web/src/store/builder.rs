@@ -256,9 +256,14 @@ pub fn build_store(
     let chain = ChainedStoreFactory::new()
         .chain(Box::new(core_store_factory()))
         .chain(Box::new(factory));
-    StoreRouterBuilder::new(config.clone(), Box::new(chain))
+    let built = StoreRouterBuilder::new(config.clone(), Box::new(chain))
         .with_store_config(registry, functions)
-        .build_store_without_env_expansion()
+        .build_store_reporting_without_env_expansion()?;
+    // stderr goes nowhere in a browser: the page's console is where a warning is seen.
+    for warning in &built.warnings {
+        warn(&format!("liquers: {warning}"));
+    }
+    Ok(built.store)
 }
 
 /// A browser has no environment variables, so `${VAR}` is left verbatim. Saying so is better than

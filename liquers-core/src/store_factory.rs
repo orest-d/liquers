@@ -616,13 +616,25 @@ impl StoreRouterBuilder {
             ));
         }
         let (registry, functions) = self.entries();
-        self.build_router(&registry, &functions, false)
+        let mut warnings = Vec::new();
+        let router = self.build_router(&registry, &functions, false, &mut warnings)?;
+        print_warnings(&warnings);
+        Ok(router)
     }
 
     /// Expand `${VAR}` references, then build the whole store, router-level sections included.
-    pub fn build_store(mut self) -> Result<Arc<dyn AsyncStore>, Error> {
+    /// Build warnings go to stderr; [`Self::build_store_reporting`] returns them instead.
+    pub fn build_store(self) -> Result<Arc<dyn AsyncStore>, Error> {
+        let built = self.build_store_reporting()?;
+        print_warnings(&built.warnings);
+        Ok(built.store)
+    }
+
+    /// [`Self::build_store`], returning the build warnings instead of printing them, for an
+    /// integration whose stderr goes nowhere (a browser page).
+    pub fn build_store_reporting(mut self) -> Result<BuiltStore, Error> {
         self.config.expand_env_vars()?;
-        self.build_store_without_env_expansion()
+        self.build_store_reporting_without_env_expansion()
     }
 
     /// [`Self::build_store`] without expanding `${VAR}` references.
@@ -631,35 +643,56 @@ impl StoreRouterBuilder {
     /// members keep, as a backup, the storage model their own section names. A router-level
     /// `read_only` wraps everything.
     pub fn build_store_without_env_expansion(self) -> Result<Arc<dyn AsyncStore>, Error> {
+        let built = self.build_store_reporting_without_env_expansion()?;
+        print_warnings(&built.warnings);
+        Ok(built.store)
+    }
+
+    /// [`Self::build_store_without_env_expansion`], returning the build warnings.
+    pub fn build_store_reporting_without_env_expansion(self) -> Result<BuiltStore, Error> {
         let (registry, functions) = self.entries();
         let central = has_section(&self.config.metadata);
-        let router = self.build_router(&registry, &functions, central)?;
+        let mut warnings = Vec::new();
+        let router = self.build_router(&registry, &functions, central, &mut warnings)?;
         let mut store: Arc<dyn AsyncStore> = Arc::new(router);
         if let Some(section) = self.config.metadata.as_ref().filter(|m| !m.is_empty()) {
             let mut backups = Vec::new();
             for member in &self.config.stores {
                 if let Some(member_section) = member.metadata.as_ref().filter(|m| !m.is_empty()) {
                     if let Some(storage) = member_section.storage.as_ref() {
-                        let storage = compile_storage(storage, &registry, &functions)
+                        let mut notes = Vec::new();
+                        let storage = compile_storage(storage, &registry, &functions, &mut notes)
                             .map_err(|e| mount_error(member, &e))?;
+                        warnings.extend(notes.iter().map(|n| mount_message(member, n)));
                         backups.push(Backup {
-                            prefix: parse_key(&member.prefix).map_err(|e| mount_error(member, &e))?,
+                            prefix: parse_key(&member.prefix)
+                                .map_err(|e| mount_error(member, &e))?,
                             storage,
                         });
                     }
                 }
             }
+            let mut notes = Vec::new();
             store = Arc::new(
-                pipeline(store, section, self.config.read_only, backups, &registry, &functions)
-                    .map_err(|e| {
-                        Error::configuration_error(format!("Router metadata: {}", e.message))
-                    })?,
+                pipeline(
+                    store,
+                    section,
+                    self.config.read_only,
+                    backups,
+                    &registry,
+                    &functions,
+                    &mut notes,
+                )
+                .map_err(|e| {
+                    Error::configuration_error(format!("Router metadata: {}", e.message))
+                })?,
             );
+            warnings.extend(notes.iter().map(|n| format!("Router metadata: {n}")));
         }
         if self.config.read_only {
             store = Arc::new(ReadOnlyStore::new(store));
         }
-        Ok(store)
+        Ok(BuiltStore { store, warnings })
     }
 
     fn entries(&self) -> (CommandMetadataRegistry, StoreConfigFunctions) {
@@ -676,6 +709,7 @@ impl StoreRouterBuilder {
         registry: &CommandMetadataRegistry,
         functions: &StoreConfigFunctions,
         central: bool,
+        warnings: &mut Vec<String>,
     ) -> Result<AsyncStoreRouter, Error> {
         let mut router = AsyncStoreRouter::new();
         for store_config in &self.config.stores {
@@ -694,6 +728,7 @@ impl StoreRouterBuilder {
                         ));
                     }
                 } else {
+                    let mut notes = Vec::new();
                     store = Arc::new(
                         pipeline(
                             store,
@@ -702,19 +737,23 @@ impl StoreRouterBuilder {
                             Vec::new(),
                             registry,
                             functions,
+                            &mut notes,
                         )
                         .map_err(|e| mount_error(store_config, &e))?,
                     );
+                    warnings.extend(notes.iter().map(|n| mount_message(store_config, n)));
                 }
             }
             if store_config.read_only {
                 if !store.data_capabilities().data_access {
-                    eprintln!(
-                        "Warning: mount '{}' is read_only over store '{}', which has no data-only \
-                         access: the store's own reads may still write (default metadata)",
-                        store_config.prefix,
-                        store.store_name()
-                    );
+                    warnings.push(mount_message(
+                        store_config,
+                        &format!(
+                            "read_only over store '{}', which has no data-only access: the \
+                             store's own reads may still write (default metadata)",
+                            store.store_name()
+                        ),
+                    ));
                 }
                 store = Arc::new(ReadOnlyStore::new(store));
             }
@@ -729,6 +768,26 @@ fn has_section(section: &Option<MetadataConfig>) -> bool {
     section.as_ref().is_some_and(|m| !m.is_empty())
 }
 
+/// A built store and the warnings its build produced, each naming its mount.
+pub struct BuiltStore {
+    pub store: Arc<dyn AsyncStore>,
+    pub warnings: Vec<String>,
+}
+
+fn print_warnings(warnings: &[String]) {
+    for warning in warnings {
+        eprintln!("Warning: {warning}");
+    }
+}
+
+/// Names the mount in a build warning.
+fn mount_message(store_config: &StoreConfig, message: &str) -> String {
+    format!(
+        "Mount '{}' (type {}): {message}",
+        store_config.prefix, store_config.store_type
+    )
+}
+
 /// Names the mount in a configuration error.
 fn mount_error(store_config: &StoreConfig, error: &Error) -> Error {
     Error::configuration_error(format!(
@@ -741,8 +800,9 @@ fn compile_storage(
     spec: &str,
     registry: &CommandMetadataRegistry,
     functions: &StoreConfigFunctions,
+    notes: &mut Vec<String>,
 ) -> Result<Arc<dyn crate::store::storage::MetadataStorage>, Error> {
-    match functions.compile_component(spec, ComponentKind::Storage, registry)? {
+    match functions.compile_component(spec, ComponentKind::Storage, registry, notes)? {
         StoreComponent::Storage(storage) => Ok(storage),
         StoreComponent::Writes(_) => Err(Error::configuration_error(format!(
             "storage: '{spec}' is a write strategy, not a storage model"
@@ -754,8 +814,9 @@ fn compile_writes(
     spec: &str,
     registry: &CommandMetadataRegistry,
     functions: &StoreConfigFunctions,
+    notes: &mut Vec<String>,
 ) -> Result<Arc<dyn crate::store::writes::WriteStrategy>, Error> {
-    match functions.compile_component(spec, ComponentKind::Writes, registry)? {
+    match functions.compile_component(spec, ComponentKind::Writes, registry, notes)? {
         StoreComponent::Writes(writes) => Ok(writes),
         StoreComponent::Storage(_) => Err(Error::configuration_error(format!(
             "writes: '{spec}' is a storage model, not a write strategy"
@@ -771,10 +832,11 @@ fn pipeline(
     backups: Vec<Backup>,
     registry: &CommandMetadataRegistry,
     functions: &StoreConfigFunctions,
+    notes: &mut Vec<String>,
 ) -> Result<MetadataPipelineStore, Error> {
     let resolved = section.resolved();
-    let storage = compile_storage(&resolved.storage, registry, functions)?;
-    let writes = compile_writes(&resolved.writes, registry, functions)?;
+    let storage = compile_storage(&resolved.storage, registry, functions, notes)?;
+    let writes = compile_writes(&resolved.writes, registry, functions, notes)?;
     let mut parts = PipelineParts::new(backend, storage, writes);
     parts.chains = StageChains {
         default: functions.compile(&resolved.on_default, Stage::Default, registry)?,

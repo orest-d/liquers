@@ -226,13 +226,21 @@ async fn read_only_mount_from_config() -> TestResult {
     Ok(())
 }
 
-/// AC-1: `read_only` over a store without data access is built (with a warning on stderr).
+/// AC-1: `read_only` over a store without data access is built, and the build reports a warning
+/// naming the mount (returned, so an integration without stderr can show it).
 #[tokio::test]
 async fn read_only_over_store_without_data_access_warns() -> TestResult {
-    let store = build(
+    let (cmr, functions) = test_entries();
+    let built = StoreRouterBuilder::from_yaml(
         "stores:\n  - type: nodata\n    prefix: n\n    read_only: true\n",
-        &[],
-    )?;
+        factory(&[]),
+    )?
+    .with_store_config(cmr, functions)
+    .build_store_reporting()?;
+    assert_eq!(built.warnings.len(), 1, "{:?}", built.warnings);
+    assert!(built.warnings[0].contains("Mount 'n'"), "{:?}", built.warnings);
+    assert!(built.warnings[0].contains("no data-only access"), "{:?}", built.warnings);
+    let store = built.store;
     assert!(store.is_read_only());
     assert!(store
         .set(&key("n/a.txt"), b"x", &record("text/plain"))

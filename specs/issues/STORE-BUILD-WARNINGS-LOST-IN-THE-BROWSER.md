@@ -2,7 +2,7 @@
 id: STORE-BUILD-WARNINGS-LOST-IN-THE-BROWSER
 kind: issue
 title: Store build warnings go to stderr, which a browser build discards
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [core/store, store/config, web]
@@ -31,3 +31,7 @@ the browser.
 ## Discovery
 
 Found while documenting `design/store-adapters/` (language integration guide update).
+
+## Resolution (2026-10-16)
+
+Fixed in PR #137 (store-adapters Phase 5 review). Root cause: the builder printed warnings with `eprintln!` and had no way to return them; on `wasm32-unknown-unknown` stderr is discarded. `StoreRouterBuilder::build_store_reporting` (and `…_without_env_expansion`) now return a `BuiltStore { store, warnings }`; `build_store` prints the warnings to stderr as before, and `liquers-web`'s `build_store` writes them to the page console. Test `read_only_over_store_without_data_access_warns` asserts the returned warning.
