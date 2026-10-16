@@ -29,17 +29,17 @@ of them ends in **the same `ns-mem` and `ns-search` commands** evaluated in a Li
 | **MCP only** | The interface agents are built to discover: typed tools with schemas and descriptions; resources; prompts | Needs a client; MCP-specific code; for CI it is the wrong shape |
 | **One binary, three faces** (recommended) | One library core, one configuration; `mcp` (stdio), `serve` (HTTP: assets API + MCP at `/mcp`), and one-shot subcommands | Three adapters to test — mitigated by all three calling the same command set |
 
-**Recommendation:** a binary `liquers-mem` with subcommands, the MCP stdio face first and `serve`
+**Recommendation:** a binary `liquers-agent` with subcommands, the MCP stdio face first and `serve`
 after the MVP.
 
 ```
-liquers-mem mcp      --config mem.yaml          # MCP over stdio — the MVP's primary face
-liquers-mem serve    --config mem.yaml --port N # assets API + MCP over Streamable HTTP at /mcp
-liquers-mem check    [PATH]                     # violations as JSON/YAML on stdout; exit 1 on errors
-liquers-mem index                               # (re)materialize derived indexes (index.csv, …)
-liquers-mem search   TEXT [--in PATH] [--limit N]
-liquers-mem read     KEY [--tier title|description|full] [--section HEADING]
-liquers-mem new      COLLECTION TITLE [--field k=v …] [--force]
+liquers-agent mcp      --config mem.yaml          # MCP over stdio — the MVP's primary face
+liquers-agent serve    --config mem.yaml --port N # assets API + MCP over Streamable HTTP at /mcp
+liquers-agent check    [PATH]                     # violations as JSON/YAML on stdout; exit 1 on errors
+liquers-agent index                               # (re)materialize derived indexes (index.csv, …)
+liquers-agent search   TEXT [--in PATH] [--limit N]
+liquers-agent read     KEY [--tier title|description|full] [--section HEADING]
+liquers-agent new      COLLECTION TITLE [--field k=v …] [--force]
 ```
 
 The CLI's one-shot subcommands are the MCP tools under another name, so a skill can document both
@@ -169,6 +169,6 @@ restricted-context work it needs.
 | Step | Face | Why this order |
 |---|---|---|
 | 1 | Library: `ns-mem` commands + `liquers-mcp` engine | Everything else is an adapter over it |
-| 2 | `liquers-mem mcp` (stdio) | Serves the primary user — a coding agent in this repository — with no server to run |
-| 3 | `liquers-mem check` / `index` / `search` / `read` / `new` | CI and shell-only agents; the oracle comparison against `docs_index.py` (AC-9, AC-10) runs here |
-| 4 | `liquers-mem serve` (assets API + `/mcp`) — **NEXT** (Phase 1 question 5) | Sharing and agents without a shell; the assets API exists already, so the new part is mounting the MCP service in the router |
+| 2 | `liquers-agent mcp` (stdio) | Serves the primary user — a coding agent in this repository — with no server to run |
+| 3 | `liquers-agent check` / `index` / `search` / `read` / `new` | CI and shell-only agents; the oracle comparison against `docs_index.py` (AC-9, AC-10) runs here |
+| 4 | `liquers-agent serve` (assets API + `/mcp`) — **NEXT** (Phase 1 question 5) | Sharing and agents without a shell; the assets API exists already, so the new part is mounting the MCP service in the router |

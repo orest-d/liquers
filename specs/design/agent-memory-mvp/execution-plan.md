@@ -117,7 +117,7 @@ the three tracks.
 | Step | Work | Needs | ACs |
 |---|---|---|---|
 | 3.1 (memory A) | `ns-mem` core: schema, `describe`, `similar`, `new` (without templates), `write`, `edit`, `set_field`, `append_row`, write log, `check` with the `docs_index.py` oracle | Wave 2 Stores M1 | AC-2, 5, 6, 7, 8, 9, 12, 13, 15, 16 |
-| 3.2 (memory B) | `liquers-mcp` engine (tools as declared queries, schemas from `CommandMetadata` including argument descriptions) and `liquers-mem mcp` over stdio | 3.1 | AC-14 |
+| 3.2 (memory B) | `liquers-mcp` engine (tools as declared queries, schemas from `CommandMetadata` including argument descriptions) and `liquers-agent mcp` over stdio | 3.1 | AC-14 |
 | 3.3 | `store-adapters` **M2–M3**: adapter configuration and registry, hash-on-change and front-matter enhancers (the front-matter adapter in `liquers-lib`) | D1, M1 | — |
 | 3.4 | `liquers-mustache` **M4–M5**: query tags through the asset layer, dependencies, partials; `tpl` commands | D5 | — |
 | 3.5 | D8 minimum: `section` by heading path (absorbed into `ns-mem`, or a compact design under `NO-MARKDOWN-NAVIGATION-COMMANDS`) | — | AC-3 |
