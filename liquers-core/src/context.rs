@@ -841,6 +841,42 @@ impl<E: Environment> Context<E> {
             .await
     }
 
+    /// Applies a recipe to a supplied state as an ad-hoc asset, waits for it, and passes its
+    /// dependencies on to the current asset.
+    ///
+    /// The ad-hoc asset itself is not a dependency, for the reason [`Self::apply`] gives, but what
+    /// it read is: each record of its settled metadata is added to this context's pending
+    /// dependencies, so the current asset is invalidated when any of them changes. The recipe's
+    /// query is resolved as `apply` resolves a query (absolute, or against this context's cwd);
+    /// `recipe.cwd` is left as it is. Legacy metadata contributes nothing. A failed ad-hoc
+    /// evaluation is returned as its error, not as a failed asset.
+    ///
+    /// Volatility is not passed on, exactly as [`Self::get_dependency_state`] does not pass it on:
+    /// it is fixed before evaluation starts (`design/volatility-system`, decision 4). A volatile
+    /// ad-hoc plan records no dependencies, so a caller that applies a volatile query declares its
+    /// own command `volatile`, or the query that reaches it ends in `v`.
+    pub async fn apply_ad_hoc(
+        &self,
+        recipe: Recipe,
+        to: State<E::Value>,
+    ) -> Result<AssetRef<E>, Error> {
+        let query = recipe.get_query()?;
+        Self::reject_relative_query(&query)?;
+        let query = self.resolve_query_from_cwd(&query)?;
+        let mut recipe = recipe;
+        recipe.query = query.encode();
+        let envref = self.assetref.get_envref().await;
+        let asset = envref
+            .get_asset_manager()
+            .apply_for(&self.assetref, recipe, to, self.payload.clone())
+            .await?;
+        asset.get().await?.error_result()?;
+        for record in asset.get_metadata().await?.get_dependencies() {
+            self.add_dependency(record.clone()).await;
+        }
+        Ok(asset)
+    }
+
     /// Returns a copy of the current asset's structured metadata record.
     ///
     /// The context holds no metadata of its own: the asset's record is the authoritative one, and

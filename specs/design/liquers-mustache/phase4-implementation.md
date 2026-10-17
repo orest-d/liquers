@@ -22,8 +22,8 @@ Disk: every proof is a single-crate `cargo test`; no step runs `--workspace`. Ru
 before the wasm32 step.
 
 ## Progress
-- [ ] Step 1: `DataNode` in liquers-core
-- [ ] Step 2: `Context::apply_ad_hoc`
+- [x] Step 1: `DataNode` in liquers-core (8fde04a)
+- [x] Step 2: `Context::apply_ad_hoc` (see the commit adding `tests/apply_ad_hoc.rs`; D6)
 - [ ] Step 3: `ArgumentInfo::with_default_link` and link heads in aliases
 - [ ] Step 4: Deprecate `simple_template`
 - [ ] Step 5: Records adapters
@@ -58,12 +58,12 @@ before the wasm32 step.
 - Files / symbols: `liquers-core/src/context.rs` `Context::apply_ad_hoc(&self, recipe: Recipe, to:
   State<E::Value>) -> Result<AssetRef<E>, Error>`: `reject_relative_query`, `resolve_query_from_cwd`,
   `apply_for`, then the ad-hoc asset's dependencies (`AssetRef::get_metadata`,
-  `Metadata::get_dependencies`) through `add_dependency`; a volatile ad-hoc result makes the parent
-  volatile (find the path `get_dependency_state` uses for a volatile dependency; add one if none).
+  `Metadata::get_dependencies`) through `add_dependency`. Volatility is not passed on, as
+  `get_dependency_state` does not pass it on (D6); a failed ad-hoc evaluation is returned as its error.
   `liquers-core/tests/apply_ad_hoc.rs` (new)
 - Depends on: none (parallel with Step 1)
 - Proof: `cargo test -p liquers-core --test apply_ad_hoc` (`apply_ad_hoc_propagates_dependencies`,
-  `apply_ad_hoc_rejects_relative_query`, `apply_ad_hoc_volatile_makes_parent_volatile`)
+  `apply_ad_hoc_rejects_relative_query`, `apply_ad_hoc_volatility_is_static`)
 - Rollback: remove the method and the test file
 
 ### Step 3: `ArgumentInfo::with_default_link` and link heads in aliases

@@ -169,9 +169,11 @@ is async. It resolves the recipe's query as `apply` does (`reject_relative_query
 `resolve_query_from_cwd`), leaves `recipe.cwd` alone, and calls `apply_for`. It then adds the
 ad-hoc asset's `MetadataRecord::dependencies` to the parent through `add_dependency` (open
 question 12, accepted). Legacy metadata contributes nothing. Plan dependencies are recorded only
-for a non-volatile plan (`interpreter.rs`), so a volatile ad-hoc result contributes no records;
-`apply_ad_hoc` then makes the parent volatile, as a volatile dependency does through
-`get_dependency_state` (Step 2 confirms the mechanism and adds it if missing).
+for a non-volatile plan (`interpreter.rs`), so a volatile ad-hoc result contributes no records.
+Volatility is not passed on: `get_dependency_state` does not pass it on either, because volatility
+is fixed before evaluation (`design/volatility-system`, decision 4). A template whose queries are
+volatile is rendered by a query that says so (`…/v`), or by a template command declared
+`volatile` (decision D6). A failed ad-hoc evaluation is returned as its error.
 
 **Renderer** (`liquers-template`). Rendering and `instantiate` are async; everything else is sync.
 

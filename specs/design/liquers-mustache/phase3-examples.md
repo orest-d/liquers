@@ -154,7 +154,7 @@ The cases Phase 2's risks and error table name:
 | A partial that includes itself, or dynamic partials nested past 32 | A cycle or depth error, not a hang (preflight `INLINE-MANAGER-DYNAMIC-DEPENDENCY-CHAIN-NESTS`) | `partial_cycle_is_error`, `partial_depth_capped` |
 | An async-only node given to a sync consumer | `not_supported`, never `block_on` | `sync_consumer_refuses_async_node` |
 | A frame or record source as data (performance risk) | Rows built one at a time, no whole-value conversion | `frame_rows_as_data`, `record_source_streams_rows` |
-| The facts Phase 2 rated medium | A linked `.md` arrives as text; the filename is known when `render` runs; the template key is visible in the state's metadata; dynamically found dependencies keep the result's volatility | `linked_template_arrives_as_text`, `media_type_follows_filename`, `template_key_in_state_metadata`, `volatile_query_makes_result_volatile` |
+| The facts Phase 2 rated medium | A linked `.md` arrives as text; the filename is known when `render` runs; the template key is visible in the state's metadata; a volatile query does not make the result volatile unless the render query says so (D6) | `linked_template_arrives_as_text`, `media_type_follows_filename`, `template_key_in_state_metadata`, `volatile_query_needs_declared_volatility` |
 | `cwd` link does not yield a key | Conversion error before the command runs | `cwd_not_a_key_fails` |
 | `data` is a list or a scalar | Error before rendering, naming `data` | `data_must_be_a_map` |
 | An alias head that is a link (no alias used one before) | Planned as a `DefaultLink` and evaluated as a dependency | `alias_head_link_is_evaluated` |
@@ -200,7 +200,7 @@ The cases Phase 2's risks and error table name:
 - `src/data_node.rs` — `value_as_data_node`, `metadata_record_as_data_node`,
   `json_as_data_node`, `sync_consumer_refuses_async_node` (AC-15).
 - `tests/apply_ad_hoc.rs` — `apply_ad_hoc_propagates_dependencies` (AC-7, AC-16),
-  `apply_ad_hoc_rejects_relative_query`, `apply_ad_hoc_volatile_makes_parent_volatile` (AC-7).
+  `apply_ad_hoc_rejects_relative_query`, `apply_ad_hoc_volatility_is_static` (AC-7, D6).
 - `tests/command_alias.rs` — `alias_head_link_is_evaluated` (AC-19): an alias whose head is a
   `CommandParameterValue::Query` plans a `DefaultLink`, evaluates it, and records its dependency;
   `src/command_metadata.rs` — `with_default_link_sets_query_default` (AC-19).
@@ -214,7 +214,7 @@ The cases Phase 2's risks and error table name:
 - `template_command_alias_renders`, `template_command_invalidates_on_template_edit` (AC-19):
   Example 4.
 - `query_dependency_recomputes`, `linked_template_arrives_as_text`, `media_type_follows_filename`,
-  `template_key_in_state_metadata`, `volatile_query_makes_result_volatile`,
+  `template_key_in_state_metadata`, `volatile_query_needs_declared_volatility`,
   `expand_renders_state_as_template` (`-R/templates/hello.md/-/ns-template/expand`) (AC-2, AC-11).
 - `partial_from_store_is_dependency`, `dynamic_partial_is_dependency`,
   `relative_partial_uses_cwd_link` (AC-11, AC-12): under `-R-cwd/templates/-/…`, `{{> ./header.md}}`
