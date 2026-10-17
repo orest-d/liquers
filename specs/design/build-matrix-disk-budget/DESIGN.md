@@ -2,8 +2,8 @@
 id: BUILD-MATRIX-DISK-BUDGET
 kind: design
 title: The build-matrix script keeps its target directory within the free disk
+gh_pr: [144]
 form: compact
-status: in_review
 phase: implementation
 readiness: ready
 autofix: eligible
