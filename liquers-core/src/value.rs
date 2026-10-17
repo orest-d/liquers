@@ -406,6 +406,18 @@ pub trait ValueInterface:
         ))
     }
 
+    /// The value seen as template data ([`crate::data_node`]).
+    ///
+    /// The default is a JSON snapshot through [`Self::try_into_json_value`], or an opaque node when
+    /// the value has no JSON form. A value type with a cheaper or richer view (records, frames)
+    /// overrides it.
+    fn data_node(value: std::sync::Arc<Self>) -> crate::data_node::AnyNode {
+        match value.try_into_json_value() {
+            Ok(json) => crate::data_node::AnyNode::from_json(json),
+            Err(_) => crate::data_node::AnyNode::opaque(),
+        }
+    }
+
     /// Try to convert JSON value to value type
     fn try_from_json_value(value: &serde_json::Value) -> Result<Self, Error> {
         match value {
@@ -444,6 +456,10 @@ pub trait ValueInterface:
 }
 
 impl ValueInterface for Value {
+    fn data_node(value: std::sync::Arc<Self>) -> crate::data_node::AnyNode {
+        crate::data_node::AnyNode::Sync(value)
+    }
+
     fn try_into_query(&self) -> Result<crate::query::Query, Error> {
         match self {
             Value::Query(q) => Ok(q.clone()),
@@ -1072,6 +1088,10 @@ impl TryFrom<Value> for String {
             Value::I32(x) => Ok(format!("{}", x)),
             Value::I64(x) => Ok(format!("{}", x)),
             Value::F64(x) => Ok(format!("{}", x)),
+            // A linked resource read from a store arrives as bytes (a `.yaml` schema file, say);
+            // it is text when it is valid UTF-8. Invalid UTF-8 is refused rather than replaced.
+            Value::Bytes(bytes) => String::from_utf8(bytes)
+                .map_err(|_| Error::conversion_error("bytes (not UTF-8)", "string")),
             _ => Err(Error::conversion_error(value.type_name(), "string")),
         }
     }
@@ -1247,6 +1267,12 @@ impl DefaultValueSerializer for Value {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn utf8_bytes_convert_to_string() {
+        assert_eq!(String::try_from(Value::Bytes(b"fields: []".to_vec())).ok(), Some("fields: []".to_string()));
+        assert!(String::try_from(Value::Bytes(vec![0xff, 0xfe])).is_err());
+    }
+
     use super::*;
 
     #[test]

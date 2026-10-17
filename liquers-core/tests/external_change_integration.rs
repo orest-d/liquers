@@ -1152,3 +1152,99 @@ async fn concurrent_reads_apply_external_change_once() -> TestResult {
     assert_eq!(expiry_lines, 1, "one cascade: {:?}", log_of(&b));
     Ok(())
 }
+
+// ---------------------------------------------------------------------------------------------
+// The mount's own policy (`specs/design/store-adapters/`)
+// ---------------------------------------------------------------------------------------------
+
+/// A pipeline over `backend` with native storage and the given chains and policy.
+fn pipeline_over(
+    backend: Arc<dyn AsyncStore>,
+    on_read: &str,
+    policy: Option<VersionVerification>,
+) -> Result<Arc<dyn AsyncStore>, Error> {
+    use liquers_core::store::pipeline::{PipelineParts, StageChains};
+    use liquers_core::store::realm::{Stage, StoreConfigFunctions};
+    use liquers_core::store::storage::NativeStorage;
+    use liquers_core::store::writes::DirectWrite;
+    use liquers_core::store::MetadataPipelineStore;
+    let (cmr, functions) = StoreConfigFunctions::builtin();
+    let mut parts = PipelineParts::new(backend, Arc::new(NativeStorage), Arc::new(DirectWrite));
+    parts.chains = StageChains {
+        default: functions.compile("defaults/file_facts", Stage::Default, &cmr)?,
+        validate: functions.compile("", Stage::Validate, &cmr)?,
+        write: functions.compile("defaults/file_facts", Stage::Write, &cmr)?,
+        read: functions.compile(on_read, Stage::Read, &cmr)?,
+    };
+    parts.version_verification = policy;
+    Ok(Arc::new(MetadataPipelineStore::new(parts)?))
+}
+
+/// AC-4: a mount with a `content_hash` handler verifies versions even where the environment
+/// turned verification off.
+#[tokio::test]
+async fn mount_content_hash_overrides_version_verification() -> TestResult {
+    let snapshot = computed_chain(A_V1).await?;
+    let backend: Arc<dyn AsyncStore> = Arc::new(replayed(&snapshot, &[("data/a.txt", A_V2)]).await?);
+    let store = pipeline_over(backend, "content_hash-off", Some(VersionVerification::OnRead))?;
+    let off = AssetManagerOptions::default().with_verify_versions(VersionVerification::Off);
+    let envref = env_with(store, off)?;
+    let am = envref.get_asset_manager();
+    let report =
+        within(am.verify_stored_versions(&key("data"), true, AuditMode::ReportOnly)).await?;
+    assert!(
+        report.changed.iter().any(|(k, _)| *k == key("data/a.txt")),
+        "{report:?}"
+    );
+    Ok(())
+}
+
+/// AC-4: an edit that keeps size and modification time (`cp -p`) is missed by
+/// `content_hash-on_change`, which compares facts, and caught by the sweep, which hashes.
+#[tokio::test]
+async fn verify_stored_versions_catches_cp_p_rewrite() -> TestResult {
+    let root = std::env::temp_dir().join(format!(
+        "lq-cp-p-{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or_default()
+    ));
+    let file: Arc<dyn AsyncStore> = Arc::new(AsyncFileStore::new(
+        root.to_string_lossy().as_ref(),
+        &Key::new(),
+    ));
+    let store = pipeline_over(file, "file_facts/content_hash", Some(VersionVerification::OnRead))?;
+    let envref = env_with(store.clone(), AssetManagerOptions::default())?;
+    let am = envref.get_asset_manager();
+    within(am.set_binary(&key("data/a.txt"), A_V1, provenance_text_metadata())).await?;
+    let recorded = store.get_metadata(&key("data/a.txt")).await?.version();
+    assert_eq!(recorded, Some(Version::from_content(A_V1)));
+
+    // The same number of bytes, and the modification time put back.
+    let path = root.join("data/a.txt");
+    let modified = std::fs::metadata(&path)?.modified()?;
+    std::fs::write(&path, b"HELLO")?;
+    std::fs::File::options().write(true).open(&path)?.set_modified(modified)?;
+
+    // A fresh process reads the stale version: the facts did not move.
+    let restarted = pipeline_over(
+        Arc::new(AsyncFileStore::new(root.to_string_lossy().as_ref(), &Key::new())),
+        "file_facts/content_hash",
+        Some(VersionVerification::OnRead),
+    )?;
+    assert_eq!(restarted.get_metadata(&key("data/a.txt")).await?.version(), recorded);
+    let envref = env_with(restarted, AssetManagerOptions::default())?;
+    let report = within(envref.get_asset_manager().verify_stored_versions(
+        &key("data"),
+        true,
+        AuditMode::ReportOnly,
+    ))
+    .await?;
+    assert!(
+        report.changed.iter().any(|(k, _)| *k == key("data/a.txt")),
+        "{report:?}"
+    );
+    let _ = std::fs::remove_dir_all(&root);
+    Ok(())
+}

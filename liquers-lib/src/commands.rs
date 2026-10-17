@@ -125,7 +125,8 @@ pub fn commands_doc<E: Environment>(
     // Group commands by namespace, applying filters
     let mut by_namespace: BTreeMap<String, Vec<&liquers_core::command_metadata::CommandMetadata>> =
         BTreeMap::new();
-    for cmd in &registry.commands {
+    // Declared-only realms (`store_config`) are configuration, not commands a query can run.
+    for cmd in registry.executable_commands() {
         let ns = if cmd.namespace.is_empty() {
             "root".to_string()
         } else {
@@ -333,6 +334,7 @@ macro_rules! register_all_commands {
         $crate::register_polars_commands!($cr)?;
         $crate::register_records_commands!($cr)?;
         $crate::register_search_commands!($cr)?;
+        $crate::register_template_commands!($cr)?;
         $crate::register_lui_commands!($cr)?;
         Ok::<(), liquers_core::error::Error>(())
     }};
@@ -377,6 +379,16 @@ macro_rules! register_polars_commands {
 #[cfg(not(feature = "records"))]
 #[macro_export]
 macro_rules! register_records_commands {
+    ($cr:expr) => {{
+        let _ = &$cr;
+        Ok::<(), liquers_core::error::Error>(())
+    }};
+}
+
+/// No-op stand-in for `register_template_commands!` when the `templates` feature is off.
+#[cfg(not(feature = "templates"))]
+#[macro_export]
+macro_rules! register_template_commands {
     ($cr:expr) => {{
         let _ = &$cr;
         Ok::<(), liquers_core::error::Error>(())

@@ -10,6 +10,11 @@
 //! `Value`, `Context` and the asset manager. **Nothing here evaluates an asset** except an explicit
 //! key or query value handed to `search`: listings describe entries through `get_asset_info`, and
 //! content is read from stored bytes only. Design: `specs/design/store-and-asset-search/`.
+//!
+//! **Everything read is recorded** as a dependency of the evaluation: each folder walked as
+//! `-R-dir/<folder>` (`Context::record_listing`), each file listed or read as `-R/<key>`, so a
+//! result expires when what it was built from changes through the asset manager
+//! (`specs/design/search-read-dependencies/`).
 
 use std::sync::Arc;
 
@@ -17,7 +22,7 @@ use liquers_core::assets::AssetManager;
 use liquers_core::context::{Context, Environment};
 use liquers_core::error::Error;
 use liquers_core::media_type::file_extension_to_media_type;
-use liquers_core::metadata::{AssetInfo, Status};
+use liquers_core::metadata::{AssetInfo, DependencyKey, DependencyRecord, Status, Version};
 use liquers_core::query::Key;
 use liquers_core::state::State;
 use liquers_core::value::ValueInterface;
@@ -137,7 +142,70 @@ pub(crate) async fn read_text<E: Environment<Value = Value>>(
     if info.is_dir {
         return None;
     }
-    let stored = match info.status {
+    let stored = holds_stored_value(info.status);
+    let filename = info.filename.clone().unwrap_or_default();
+    if !stored || !is_text_media_type(&media_type_of(info, &filename)) {
+        return None;
+    }
+    let bytes = read_recorded(key, context).await?;
+    let cut = if max_bytes > 0 && bytes.len() > max_bytes { &bytes[..max_bytes] } else { &bytes[..] };
+    match std::str::from_utf8(cut) {
+        Ok(text) => Some(text.to_string()),
+        // Cut mid-character: keep the valid prefix. Any other invalid byte means it is not text.
+        Err(error) if error.error_len().is_none() => {
+            std::str::from_utf8(&cut[..error.valid_up_to()]).ok().map(str::to_string)
+        }
+        Err(_) => None,
+    }
+}
+
+/// How many times [`read_recorded`] reads a file whose version moves while it is read.
+const READS: usize = 3;
+
+/// The stored bytes of `key`, recorded as a dependency of this evaluation with the version they
+/// were read at (`specs/design/search-read-dependencies/`).
+///
+/// A live asset holding a value is read from memory, bytes and version from one snapshot: it can
+/// be `Ready` before its background write reaches the store, and the store would then give the
+/// previous bytes under the new version. Otherwise the store is read, and the version is read
+/// before and after the bytes; if it moved, a write landed in between, and the file is read
+/// again, at most [`READS`] times. A version that never settles is recorded as unknown, so the
+/// next change of the file expires the result. `None` when the file cannot be read, which is
+/// still recorded.
+pub(crate) async fn read_recorded<E: Environment<Value = Value>>(
+    key: &Key,
+    context: &Context<E>,
+) -> Option<Vec<u8>> {
+    if let Some(asset) = context.get_envref().get_asset_manager().lookup_key_asset(key) {
+        if holds_stored_value(asset.status().await) {
+            if let Ok(Some((bytes, metadata))) = asset.get_binary_any_status().await {
+                let version = metadata.version().unwrap_or_else(Version::unknown);
+                record_read(key, version, context).await;
+                return Some(bytes.as_ref().clone());
+            }
+        }
+    }
+    let store = context.get_envref().get_async_store();
+    let mut version = file_version(key, context).await;
+    let mut bytes = None;
+    let mut settled = false;
+    for _ in 0..READS {
+        bytes = store.get(key).await.ok().map(|(bytes, _)| bytes);
+        let after = file_version(key, context).await;
+        if after == version {
+            settled = true;
+            break;
+        }
+        version = after;
+    }
+    record_read(key, if settled { version } else { Version::unknown() }, context).await;
+    bytes
+}
+
+/// Whether an asset in `status` holds a value whose bytes `read_text` may use: the same statuses
+/// it accepts from an `AssetInfo`.
+fn holds_stored_value(status: Status) -> bool {
+    match status {
         Status::Ready | Status::Source | Status::Override => true,
         Status::None
         | Status::Directory
@@ -151,21 +219,31 @@ pub(crate) async fn read_text<E: Environment<Value = Value>>(
         | Status::Error
         | Status::Cancelled
         | Status::Volatile => false,
-    };
-    let filename = info.filename.clone().unwrap_or_default();
-    if !stored || !is_text_media_type(&media_type_of(info, &filename)) {
-        return None;
     }
-    let (bytes, _) = context.get_envref().get_async_store().get(key).await.ok()?;
-    let cut = if max_bytes > 0 && bytes.len() > max_bytes { &bytes[..max_bytes] } else { &bytes[..] };
-    match std::str::from_utf8(cut) {
-        Ok(text) => Some(text.to_string()),
-        // Cut mid-character: keep the valid prefix. Any other invalid byte means it is not text.
-        Err(error) if error.error_len().is_none() => {
-            std::str::from_utf8(&cut[..error.valid_up_to()]).ok().map(str::to_string)
-        }
-        Err(_) => None,
-    }
+}
+
+/// The version the asset manager holds for `key`, read from metadata: it never evaluates. A
+/// store error answers `Version::unknown()`, which only makes invalidation more eager.
+pub(crate) async fn file_version<E: Environment<Value = Value>>(
+    key: &Key,
+    context: &Context<E>,
+) -> Version {
+    context
+        .get_envref()
+        .get_asset_manager()
+        .version(key)
+        .await
+        .unwrap_or_else(|_| Version::unknown())
+}
+
+/// Records `-R/<key>` at `version` on this evaluation: a later write or removal of `key` through
+/// the asset manager expires the result.
+pub(crate) async fn record_read<E: Environment<Value = Value>>(
+    key: &Key,
+    version: Version,
+    context: &Context<E>,
+) {
+    context.add_dependency(DependencyRecord::new(DependencyKey::from(key), version)).await;
 }
 
 /// The asset info of `key`, through the asset manager — which never starts the asset.

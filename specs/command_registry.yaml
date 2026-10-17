@@ -1,8 +1,8 @@
 # Liquers command registry — GENERATED, do not edit by hand.
 # Regenerate: cargo run -p liquers-lib --features cli --bin export-command-registry -- \
 #               --format yaml -o specs/command_registry.yaml
-# Origin:   groups=core,lui,egui,image,polars,records,search  features=egui,image,polars,records
-# Commands: 113
+# Origin:   groups=core,lui,egui,image,polars,records,search,template,store_config  features=egui,image,polars,records,template
+# Commands: 161
 # CHANGELOG-BEGIN
 # 2026-08-02  initial export (95 commands: img 47, pl 26, lui 14, root 6, dep 2)
 # 2026-08-25  pl/select_columns and pl/drop_columns take a variadic `columns` argument
@@ -25,8 +25,342 @@
 #             (113 commands total: +5). design/store-and-asset-search Phase 4, Step 13
 # 2026-10-11  img/to_jpeg `quality: u8` is `argument_type: int` (was any): every integer width now
 #             maps to Integer. design/register-command-option-value
+# 2026-10-13  rec gains eq ne gt gte lt lte starts_with ends_with contains glob is_in is_null
+#             is_not_null filter sort tail drop_columns nrows ncols shape count schema
+#             (records_schema becomes an alias of schema); pl gains is_in is_null is_not_null
+#             starts_with ends_with contains; pl/sort takes `ascending: bool` and `nulls_last`;
+#             pl shape/nrows/ncols bodies changed (i64). design/record-filter-commands
+# 2026-10-14  pl lazy commands (filters, sort, aggregations) collect through
+#             collect_on_any_runtime: impl_versions refreshed, signatures unchanged.
+#             POLARS-COLLECT-PANICS-ON-CURRENT-THREAD-RUNTIME
+# 2026-10-15  realm store_config (new group store_config): defaults, set, require,
+#             media_type, file_facts, content_hash, updated. design/store-adapters
+# 2026-10-15  store_config storage models: native, per_entry, grouped, none, central.
+# 2026-10-15  store_config write strategies: direct, atomic, transactional.
+# 2026-10-15  store_config front_matter, front_matter_sync (liquers-lib, feature records);
+#             commands_doc and ns-search/commands omit the store_config realm.
+# 2026-10-17  template group: template/render, template/expand, template/validate
+#             (liquers-lib, feature templates; design/liquers-mustache).
 # CHANGELOG-END
 commands:
+- realm: store_config
+  name: defaults
+  label: Defaults
+  doc: 'The record today''s stores produce. on_default: a new record with updated, key, filename, file size, status Source and the ''New metadata has been created'' warning. on_write: updated, key, filename, file size and status Source where unset.'
+  hints:
+    store_config: handler
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  definition: Registered
+- realm: store_config
+  name: set
+  label: Set a field
+  doc: Sets one text field (title, description, media_type, data_format, type_identifier, unicode_icon). A value containing '/' is written with '~I'.
+  hints:
+    store_config: handler
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: field
+    label: field
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  - name: value
+    label: value
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  - name: mode
+    label: mode
+    description: overwrite replaces the field; fill sets it only where it is empty
+    default: !Value overwrite
+    argument_type: !Enum
+      name: mode
+      values:
+      - alias: overwrite
+        value: !Value overwrite
+      - alias: fill
+        value: !Value fill
+      others_allowed: false
+      value_type: string
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  definition: Registered
+- realm: store_config
+  name: require
+  label: Require fields
+  doc: 'on_validate: refuses a record whose named text fields are empty, naming the first.'
+  hints:
+    store_config: handler
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: fields
+    label: fields
+    default: None
+    argument_type: string
+    multiple: true
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  definition: Registered
+- realm: store_config
+  name: media_type
+  label: Media type from extension
+  doc: 'Sets media_type from the key''s extension, leaving it alone for an unknown extension. on_validate: refuses a media_type that disagrees with a known extension.'
+  hints:
+    store_config: handler
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: mode
+    label: mode
+    description: overwrite replaces the field; fill sets it only where it is empty
+    default: !Value overwrite
+    argument_type: !Enum
+      name: mode
+      values:
+      - alias: overwrite
+        value: !Value overwrite
+      - alias: fill
+        value: !Value fill
+      others_allowed: false
+      value_type: string
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  definition: Registered
+- realm: store_config
+  name: file_facts
+  label: Backend facts
+  doc: 'Sets file_size, created and etag from what the backend reports. on_write: file_size from the bytes; created and etag are set after the commit.'
+  hints:
+    store_config: handler
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: mode
+    label: mode
+    description: overwrite replaces the field; fill sets it only where it is empty
+    default: !Value overwrite
+    argument_type: !Enum
+      name: mode
+      values:
+      - alias: overwrite
+        value: !Value overwrite
+      - alias: fill
+        value: !Value fill
+      others_allowed: false
+      value_type: string
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  definition: Registered
+- realm: store_config
+  name: content_hash
+  label: Content hash
+  doc: 'Sets version to the hash of the bytes: always, off, or on_change (when size, created or etag differ from the stored record, or it has no version).'
+  hints:
+    store_config: handler
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: when
+    label: when
+    default: !Value on_change
+    argument_type: !Enum
+      name: when
+      values:
+      - alias: on_change
+        value: !Value on_change
+      - alias: always
+        value: !Value always
+      - alias: off
+        value: !Value off
+      others_allowed: false
+      value_type: string
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  definition: Registered
+- realm: store_config
+  name: updated
+  label: Updated now
+  doc: 'on_write: sets updated to the current time. defaults already does this.'
+  hints:
+    store_config: handler
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  definition: Registered
+- realm: store_config
+  name: native
+  label: Native
+  doc: The backend's own metadata (today's sidecars), through get_stored_metadata and set_metadata.
+  hints:
+    store_config: storage
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  definition: Registered
+- realm: store_config
+  name: per_entry
+  label: Per entry
+  doc: 'One metadata object per key: sidecar {key}.__metadata__, root __metadata__/{key}, prefix {folder}/__metadata__{name}.json, folder {folder}/__metadata__/{name}.json.'
+  hints:
+    store_config: storage
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: layout
+    label: layout
+    default: !Value sidecar
+    argument_type: !Enum
+      name: layout
+      values:
+      - alias: sidecar
+        value: !Value sidecar
+      - alias: root
+        value: !Value root
+      - alias: prefix
+        value: !Value prefix
+      - alias: folder
+        value: !Value folder
+      others_allowed: false
+      value_type: string
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  definition: Registered
+- realm: store_config
+  name: grouped
+  label: Grouped
+  doc: One JSON map, name to record, per folder, in the named file.
+  hints:
+    store_config: storage
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: file
+    label: file
+    default: !Value __metadata__.json
+    argument_type: string
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  definition: Registered
+- realm: store_config
+  name: none
+  label: None
+  doc: 'Nothing stored: the handlers synthesize every record.'
+  hints:
+    store_config: storage
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  definition: Registered
+- realm: store_config
+  name: central
+  label: Central
+  doc: Records kept in another mount of the router, by key. Declared; not implemented yet.
+  hints:
+    store_config: storage
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: mount
+    label: mount
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  definition: Registered
+- realm: store_config
+  name: direct
+  label: Direct
+  doc: 'Every object written in place, in order: today''s behaviour.'
+  hints:
+    store_config: writes
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  definition: Registered
+- realm: store_config
+  name: atomic
+  label: Atomic
+  doc: 'Each object written atomically: in place on a backend that writes atomically, else staged as <key>.__staged__ and renamed. Needs atomic writes or rename.'
+  hints:
+    store_config: writes
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  definition: Registered
+- realm: store_config
+  name: transactional
+  label: Transactional
+  doc: 'All or nothing: objects staged, a journal <key>.__txn__ written, then the moves. Interrupted writes are rolled forward or back on the next read or sync.'
+  hints:
+    store_config: writes
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  definition: Registered
 - name: to_text
   label: To text
   doc: Convert input state to string
@@ -76,7 +410,7 @@ commands:
   volatile: false
   expires: never
   definition: Registered
-  impl_version: 9c6f7aca873c0cfeffee7427043353e5
+  impl_version: 6423aef87ab655cc24ce07768723b144
 - namespace: dep
   name: command_metadata
   label: Command Metadata
@@ -1644,7 +1978,7 @@ commands:
   volatile: false
   expires: never
   definition: Registered
-  impl_version: 96c298b9f96bc0f981db1a0cf19ebb79
+  impl_version: 207d9e961c1055b2258d9212d83d0dcf
 - namespace: pl
   name: ne
   label: Not equal to
@@ -1668,7 +2002,7 @@ commands:
   volatile: false
   expires: never
   definition: Registered
-  impl_version: cdd853bd36ffffbd622de28a23d81bc1
+  impl_version: 2b3ef9b1fbb2ffa4d0664beaf122bdc3
 - namespace: pl
   name: gt
   label: Greater than
@@ -1692,7 +2026,7 @@ commands:
   volatile: false
   expires: never
   definition: Registered
-  impl_version: f3433d07b23c47be0b6b4d99d6b13b06
+  impl_version: b725d2ad40f9d766e54696dfd2dc2494
 - namespace: pl
   name: gte
   label: Greater than or equal
@@ -1716,7 +2050,7 @@ commands:
   volatile: false
   expires: never
   definition: Registered
-  impl_version: 51613168e612e274399e9a75acafba65
+  impl_version: 736eff2fe97d16c9a073164b44f81ef0
 - namespace: pl
   name: lt
   label: Less than
@@ -1740,7 +2074,7 @@ commands:
   volatile: false
   expires: never
   definition: Registered
-  impl_version: 307d0f70cc1fa3c31b1ca965e76b12bf
+  impl_version: 0ee68af6d8aa79bf9c4052383383a1ef
 - namespace: pl
   name: lte
   label: Less than or equal
@@ -1764,11 +2098,161 @@ commands:
   volatile: false
   expires: never
   definition: Registered
-  impl_version: cfc59a652b34030ae94f0e0c09daa021
+  impl_version: c04c8078944b970707843dd97a5f520d
+- namespace: pl
+  name: is_in
+  label: Is in
+  doc: Filter rows where column equals one of the values
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: column
+    label: column
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  - name: values
+    label: values
+    default: None
+    argument_type: string
+    multiple: true
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: e2f58aecddbf11716513aee509d658da
+- namespace: pl
+  name: is_null
+  label: Is null
+  doc: Filter rows where column is null
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: column
+    label: column
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: 76c3e31da16517f0f928fb109e6e44f7
+- namespace: pl
+  name: is_not_null
+  label: Is not null
+  doc: Filter rows where column is not null
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: column
+    label: column
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: bb9c1ef42146220ca9b7c392d70da22b
+- namespace: pl
+  name: starts_with
+  label: Starts with
+  doc: Filter rows whose text starts with the given text, taken literally; case-insensitive unless case_sensitive
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: column
+    label: column
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  - name: text
+    label: text
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  - name: case_sensitive
+    label: case sensitive
+    default: !Value false
+    argument_type: bool
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: b004076f5dd55d188b5b1d1d58ee5392
+- namespace: pl
+  name: ends_with
+  label: Ends with
+  doc: Filter rows whose text ends with the given text, taken literally; case-insensitive unless case_sensitive
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: column
+    label: column
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  - name: text
+    label: text
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  - name: case_sensitive
+    label: case sensitive
+    default: !Value false
+    argument_type: bool
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: 39f8863b62601c75d00d7f058bb193c1
+- namespace: pl
+  name: contains
+  label: Contains
+  doc: Filter rows whose text contains the given text, taken literally; case-insensitive unless case_sensitive
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: column
+    label: column
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  - name: text
+    label: text
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  - name: case_sensitive
+    label: case sensitive
+    default: !Value false
+    argument_type: bool
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  definition: Registered
+  impl_version: 838950637ba262fd98f1adde6591709c
 - namespace: pl
   name: sort
   label: Sort by column
-  doc: Sort DataFrame by column. Use 't'/'true' for ascending (default), 'f'/'false' for descending
+  doc: Stable sort by one column; ascending unless ascending=f, nulls first unless nulls_last
   state_argument:
     name: state
     label: state
@@ -1782,13 +2266,18 @@ commands:
     gui_info: !TextField 40
   - name: ascending
     label: ascending
-    default: !Value t
-    argument_type: string
+    default: !Value true
+    argument_type: bool
+    gui_info: !TextField 40
+  - name: nulls_last
+    label: nulls last
+    default: !Value false
+    argument_type: bool
     gui_info: !TextField 40
   volatile: false
   expires: never
   definition: Registered
-  impl_version: 8824c3d4e188eed6b26583c4725b28ca
+  impl_version: 5c13c62bd12e2f297c2332a7d227ebea
 - namespace: pl
   name: sum
   label: Sum
@@ -1801,7 +2290,7 @@ commands:
   volatile: false
   expires: never
   definition: Registered
-  impl_version: 53ad89df330ef10c96afd64d6bc7daf6
+  impl_version: 03fd8a7d8ac5fea8eee027cfaf8b4cb4
 - namespace: pl
   name: mean
   label: Mean
@@ -1814,7 +2303,7 @@ commands:
   volatile: false
   expires: never
   definition: Registered
-  impl_version: e77b8e1836c40cdab8e2624d1b51fc8d
+  impl_version: 7ba40c2a8e544165c0736e252a2cfc2e
 - namespace: pl
   name: median
   label: Median
@@ -1827,7 +2316,7 @@ commands:
   volatile: false
   expires: never
   definition: Registered
-  impl_version: 3bfdfc39454cc9d16e78e17ec6f6f5cf
+  impl_version: dc035e29699c9190e3b8b7ef6c16b48c
 - namespace: pl
   name: min
   label: Minimum
@@ -1840,7 +2329,7 @@ commands:
   volatile: false
   expires: never
   definition: Registered
-  impl_version: a95954a4aece2b69be007f68b1131de3
+  impl_version: e4e898504874c61f65ffc453353adf1c
 - namespace: pl
   name: max
   label: Maximum
@@ -1853,7 +2342,7 @@ commands:
   volatile: false
   expires: never
   definition: Registered
-  impl_version: 290b47f4dc9d6582c3fa7e66bfabf39b
+  impl_version: 0e5bcaf43cbf0a24a54955454ad9b59d
 - namespace: pl
   name: std
   label: Standard Deviation
@@ -1866,7 +2355,7 @@ commands:
   volatile: false
   expires: never
   definition: Registered
-  impl_version: 3e88c1d328246815ffc0efd91494ed25
+  impl_version: 9dffa599925e1cd238159b34667f2f95
 - namespace: pl
   name: count
   label: Count
@@ -1892,7 +2381,7 @@ commands:
   volatile: false
   expires: never
   definition: Registered
-  impl_version: e04d3fc5361e303672e86ab8957e2ab0
+  impl_version: ed254c47bca1ccecbe7af292d4113a39
 - namespace: pl
   name: shape
   label: Shape
@@ -1905,7 +2394,7 @@ commands:
   volatile: false
   expires: never
   definition: Registered
-  impl_version: 242f8ea79bc0983ed7aa0422ed72d496
+  impl_version: 7de5432a83d682d652c2a0144a90bfee
 - namespace: pl
   name: nrows
   label: Number of rows
@@ -1918,7 +2407,7 @@ commands:
   volatile: false
   expires: never
   definition: Registered
-  impl_version: 96ec1fd476b7c2b2c065a1661ac7f12e
+  impl_version: a09714f84a50f9f50321d29803231721
 - namespace: pl
   name: ncols
   label: Number of columns
@@ -1931,7 +2420,7 @@ commands:
   volatile: false
   expires: never
   definition: Registered
-  impl_version: 04112291f2adbcc0cca33c11c6fe7634
+  impl_version: c8a991efd6569d6cf88064878b63881d
 - namespace: pl
   name: schema
   label: Schema
@@ -1945,6 +2434,62 @@ commands:
   expires: never
   definition: Registered
   impl_version: 96923ef5d3d15b5f97d7669db6315345
+- realm: store_config
+  name: front_matter
+  label: Front matter
+  doc: 'For a Markdown entry, sets the named text fields (default title and description) from the document''s YAML or TOML front matter. Other media types: no effect. on_read reads the bytes only when the entry changed since its record was stored.'
+  hints:
+    store_config: handler
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: mode
+    label: mode
+    description: overwrite replaces the field; fill sets it only where it is empty
+    default: !Value overwrite
+    argument_type: !Enum
+      name: mode
+      values:
+      - alias: overwrite
+        value: !Value overwrite
+      - alias: fill
+        value: !Value fill
+      others_allowed: false
+      value_type: string
+    gui_info: !TextField 40
+  - name: fields
+    label: fields
+    default: None
+    argument_type: string
+    multiple: true
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  definition: Registered
+- realm: store_config
+  name: front_matter_sync
+  label: Front matter write-back
+  doc: 'on_write: in set_metadata, rewrites a Markdown entry''s YAML front matter from the named record fields (default title and description), turning the metadata write into a data write. In set the caller''s bytes are kept as they are.'
+  hints:
+    store_config: handler
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: fields
+    label: fields
+    default: None
+    argument_type: string
+    multiple: true
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  definition: Registered
 - namespace: rec
   name: rec_id
   label: Record by id
@@ -2109,9 +2654,489 @@ commands:
   is_async: true
   definition: Registered
 - namespace: rec
+  name: schema
+  label: Schema
+  doc: 'The schema as JSON text: what a schema argument or a manifest''s uniform_schema accepts'
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: rec
   name: records_schema
   label: Schema
-  doc: The schema, as a value a schema argument can be linked to
+  doc: Alias of ns-rec/schema
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  is_async: true
+  definition: !Alias
+    command:
+      realm: ''
+      namespace: rec
+      name: schema
+    head_parameters: []
+- namespace: rec
+  name: eq
+  label: Equal to
+  doc: Rows where the column compares equal to the value, parsed to the column's type
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: column
+    label: column
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  - name: value
+    label: value
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: rec
+  name: ne
+  label: Not equal to
+  doc: Rows where the column compares not equal to the value, parsed to the column's type
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: column
+    label: column
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  - name: value
+    label: value
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: rec
+  name: gt
+  label: Greater than
+  doc: Rows where the column compares greater than the value, parsed to the column's type
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: column
+    label: column
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  - name: value
+    label: value
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: rec
+  name: gte
+  label: Greater than or equal
+  doc: Rows where the column compares greater than or equal the value, parsed to the column's type
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: column
+    label: column
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  - name: value
+    label: value
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: rec
+  name: lt
+  label: Less than
+  doc: Rows where the column compares less than the value, parsed to the column's type
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: column
+    label: column
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  - name: value
+    label: value
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: rec
+  name: lte
+  label: Less than or equal
+  doc: Rows where the column compares less than or equal the value, parsed to the column's type
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: column
+    label: column
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  - name: value
+    label: value
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: rec
+  name: starts_with
+  label: Starts with
+  doc: Rows whose text starts with the given text, taken literally; case-insensitive unless case_sensitive
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: column
+    label: column
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  - name: text
+    label: text
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  - name: case_sensitive
+    label: case sensitive
+    default: !Value false
+    argument_type: bool
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: rec
+  name: ends_with
+  label: Ends with
+  doc: Rows whose text ends with the given text, taken literally; case-insensitive unless case_sensitive
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: column
+    label: column
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  - name: text
+    label: text
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  - name: case_sensitive
+    label: case sensitive
+    default: !Value false
+    argument_type: bool
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: rec
+  name: contains
+  label: Contains
+  doc: Rows whose text contains the given text, taken literally; case-insensitive unless case_sensitive
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: column
+    label: column
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  - name: text
+    label: text
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  - name: case_sensitive
+    label: case sensitive
+    default: !Value false
+    argument_type: bool
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: rec
+  name: glob
+  label: Glob
+  doc: Rows whose text matches a * / ? pattern; case-insensitive unless case_sensitive
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: column
+    label: column
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  - name: pattern
+    label: pattern
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  - name: case_sensitive
+    label: case sensitive
+    default: !Value false
+    argument_type: bool
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: rec
+  name: is_in
+  label: Is in
+  doc: Rows whose column equals one of the values
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: column
+    label: column
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  - name: values
+    label: values
+    default: None
+    argument_type: string
+    multiple: true
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: rec
+  name: is_null
+  label: Is null
+  doc: Rows where the column is null
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: column
+    label: column
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: rec
+  name: is_not_null
+  label: Is not null
+  doc: Rows where the column is not null
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: column
+    label: column
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: rec
+  name: filter
+  label: Filter
+  doc: 'Rows matching a search expression: ns-search/search with rank=false and no limit'
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: query
+    label: query
+    default: !Value ''
+    argument_type: string
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: rec
+  name: sort
+  label: Sort by column
+  doc: Stable sort by one column; nulls first unless nulls_last (as ns-pl/sort)
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: column
+    label: column
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  - name: ascending
+    label: ascending
+    default: !Value true
+    argument_type: bool
+    gui_info: !TextField 40
+  - name: nulls_last
+    label: nulls last
+    default: !Value false
+    argument_type: bool
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: rec
+  name: tail
+  label: Last rows
+  doc: The last n rows, materialized
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: n
+    label: n
+    default: !Value 5
+    argument_type: int
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: rec
+  name: drop_columns
+  label: Drop columns
+  doc: Every column but the named ones; the Id and Source columns cannot be dropped
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: columns
+    label: columns
+    default: None
+    argument_type: string
+    multiple: true
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: rec
+  name: nrows
+  label: Number of rows
+  doc: The row count; over a source, counted chunk by chunk
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: rec
+  name: ncols
+  label: Number of columns
+  doc: The column count
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: rec
+  name: shape
+  label: Shape
+  doc: '{nrows, ncols}, as ns-pl/shape'
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: rec
+  name: count
+  label: Count
+  doc: 'One row: the non-null count of every column, as ns-pl/count'
   state_argument:
     name: state
     label: state
@@ -2369,6 +3394,126 @@ commands:
       others_allowed: false
       value_type: string
     gui_info: VerticalRadioEnum
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: template
+  name: render
+  label: Render template
+  doc: Render the template given as the first argument; the state and `data` are its data
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: template
+    label: template
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  - name: data
+    label: data
+    default: !Value ''
+    gui_info: !TextField 40
+  - name: errors
+    label: errors
+    default: !Value strict
+    argument_type: string
+    gui_info: !TextField 40
+  - name: cwd
+    label: cwd
+    default: !Query
+      segments:
+      - !Resource
+        header:
+          name: ''
+          level: 0
+          parameters:
+          - value: key
+            position:
+              offset: 3
+              line: 1
+              column: 4
+          resource: true
+          position:
+            offset: 0
+            line: 1
+            column: 1
+        key:
+        - name: .
+          position:
+            offset: 7
+            line: 1
+            column: 8
+      rooted: false
+      source: Unspecified
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: template
+  name: expand
+  label: Expand template
+  doc: Render the state as a template; `data` is its data
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: data
+    label: data
+    default: !Value ''
+    gui_info: !TextField 40
+  - name: errors
+    label: errors
+    default: !Value strict
+    argument_type: string
+    gui_info: !TextField 40
+  - name: cwd
+    label: cwd
+    default: !Query
+      segments:
+      - !Resource
+        header:
+          name: ''
+          level: 0
+          parameters:
+          - value: key
+            position:
+              offset: 3
+              line: 1
+              column: 4
+          resource: true
+          position:
+            offset: 0
+            line: 1
+            column: 1
+        key:
+        - name: .
+          position:
+            offset: 7
+            line: 1
+            column: 8
+      rooted: false
+      source: Unspecified
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: template
+  name: validate
+  label: Validate template
+  doc: Positioned errors and warnings for the state as a template; runs nothing
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
   volatile: false
   expires: never
   is_async: true

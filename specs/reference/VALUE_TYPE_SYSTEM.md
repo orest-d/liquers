@@ -3,7 +3,7 @@ title: Value Type System
 kind: reference
 audience: internal
 area: [core/value, lib/value]
-reviewed: 2026-10-13
+reviewed: 2026-10-17
 ---
 
 # Value Type System
@@ -305,6 +305,19 @@ values by content, a payload that mutates in place can leave a cached asset whos
 matches its version. `ExtValue::Widget` does this deliberately, because live mutation is a widget's
 purpose.
 
+## Reading a value by name: `DataNode`
+
+`ValueInterface::data_node(value: Arc<Self>) -> AnyNode` exposes a value as a tree of maps, lists
+and scalars (`liquers-core/src/data_node.rs`), read in place: `AnyNode::Sync` holds a `DataNode`,
+`AnyNode::Async` an `AsyncDataNode` for data read on demand. Templates read their data through it
+([`TEMPLATE_LANGUAGE.md`](TEMPLATE_LANGUAGE.md) §3); so can anything that looks a field up by name.
+The default is a JSON snapshot through `try_into_json_value`, or `Opaque`. Core `Value`,
+liquers-lib's `SimpleValue`, `MetadataRecord` and `serde_json::Value` implement `DataNode`
+themselves; `ValueExtension::data_node` gives an extension the same hook, and `ExtValue` overrides
+it for record views and polars frames (a row at a time). A record source has no node of its own,
+because it streams only through a `Context`. `CombinedValue` delegates by arm, cloning a base
+value into its own `Arc` (an extension's payloads are `Arc`s already).
+
 ## Enforcement
 
 Checks run at `AssetManager::set_binary` and `set_state`, in two tiers.
@@ -380,6 +393,7 @@ degrades on read.
 
 | Date | Change |
 |---|---|
+| 2026-10-17 | §Reading a value by name: `DataNode` and `ValueInterface::data_node`. | `design/liquers-mustache/` |
 | 2026-10-13 | §Reading: `F64` in `json`. Non-finite floats are written as tokens and read back by identifier, nested core floats become `null`, and `try_into_json_value` refuses (`design/value-to-json-non-finite-float/`, closing `VALUE-TO-JSON-PANICS-ON-NON-FINITE-FLOAT`). |
 | 2026-10-10 | §Seeding: a query with no filename seeds no format — the recipe no longer declares `bin` (`design/plan-step-state-metadata/`, closing `FREE-FUNCTION-EVALUATE-BAKES-A-BIN-DATA-FORMAT`). |
 | 2026-10-09 | §Reading: a combined value picks the half that reads the bytes by the declared identifier; an extension identifier is never read by the base value (`design/combined-value-identifier-dispatch/`, closing `COMBINED-VALUE-DISCRIMINATION`). |

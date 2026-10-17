@@ -869,6 +869,97 @@ impl Default for ProgressEntry {
     }
 }
 
+/// How finely a backend reports modification times.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum TimePrecision {
+    Seconds,
+    Millis,
+    Micros,
+    Nanos,
+}
+
+/// A time reported by a storage backend — when its data object was last written.
+///
+/// Held in one canonical form: RFC 3339, UTC, truncated to the backend's own precision. A value
+/// written into metadata and read back therefore compares *exactly* with a fresh reading from the
+/// backend, which is what change detection relies on (`store-adapters` Phase 1 question 8).
+/// Construct it with [`BackendTime::new`]; the inner string is never parsed for comparison.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct BackendTime(String);
+
+impl BackendTime {
+    /// The canonical form of `time` at `precision`.
+    pub fn new(time: chrono::DateTime<chrono::Utc>, precision: TimePrecision) -> Self {
+        use chrono::SecondsFormat;
+        let format = match precision {
+            TimePrecision::Seconds => SecondsFormat::Secs,
+            TimePrecision::Millis => SecondsFormat::Millis,
+            TimePrecision::Micros => SecondsFormat::Micros,
+            TimePrecision::Nanos => SecondsFormat::Nanos,
+        };
+        BackendTime(time.to_rfc3339_opts(format, true))
+    }
+
+    /// The current time at `precision` — for backends that stamp their own writes (memory).
+    pub fn now(precision: TimePrecision) -> Self {
+        Self::new(chrono::Utc::now(), precision)
+    }
+
+    /// The canonical text.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    /// Reads an RFC 3339 time from a language bridge or a backend that reports text, and brings
+    /// it to the canonical form. Without `precision`, the precision is the one the text is
+    /// written in (no fraction: seconds; up to 3, 6 or 9 digits: millis, micros, nanos).
+    pub fn parse(text: &str, precision: Option<TimePrecision>) -> Result<Self, crate::error::Error> {
+        let time = chrono::DateTime::parse_from_rfc3339(text).map_err(|e| {
+            crate::error::Error::conversion_error_with_message(
+                "text",
+                "BackendTime",
+                &format!("'{text}' is not an RFC 3339 time: {e}"),
+            )
+        })?;
+        let precision = precision.unwrap_or_else(|| TimePrecision::of_rfc3339(text));
+        Ok(Self::new(time.with_timezone(&chrono::Utc), precision))
+    }
+}
+
+impl TimePrecision {
+    /// The precision an RFC 3339 text is written in, from the digits of its fraction.
+    pub fn of_rfc3339(text: &str) -> TimePrecision {
+        let digits = text
+            .split_once('.')
+            .map(|(_, rest)| rest.chars().take_while(|c| c.is_ascii_digit()).count())
+            .unwrap_or(0);
+        match digits {
+            0 => TimePrecision::Seconds,
+            1..=3 => TimePrecision::Millis,
+            4..=6 => TimePrecision::Micros,
+            _ => TimePrecision::Nanos,
+        }
+    }
+
+    /// Reads `seconds`, `millis`, `micros` or `nanos`.
+    pub fn from_name(name: &str) -> Option<TimePrecision> {
+        match name {
+            "seconds" => Some(TimePrecision::Seconds),
+            "millis" => Some(TimePrecision::Millis),
+            "micros" => Some(TimePrecision::Micros),
+            "nanos" => Some(TimePrecision::Nanos),
+            _ => None,
+        }
+    }
+}
+
+impl std::fmt::Display for BackendTime {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, Default, PartialEq)]
 
 /// Structure containing the most important information about the asset
@@ -988,6 +1079,13 @@ pub struct AssetInfo {
     /// `Metadata::expiry_reason()`, which enforces that.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expiry_reason: Option<ExpiryReason>,
+    /// When the backend last wrote the data object, in its own clock and precision. `None` for a
+    /// value that is not stored, or a store that cannot tell.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created: Option<BackendTime>,
+    /// The backend's version tag of the data object (an object store's ETag), where it has one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub etag: Option<String>,
 }
 
 impl AssetInfo {
@@ -1092,6 +1190,8 @@ impl From<AssetInfo> for MetadataRecord {
         metadata.stored = asset_info.stored;
         metadata.cached = asset_info.cached;
         metadata.expiry_reason = asset_info.expiry_reason;
+        metadata.created = asset_info.created;
+        metadata.etag = asset_info.etag;
         metadata
     }
 }
@@ -1261,6 +1361,14 @@ pub struct MetadataRecord {
     /// `Metadata::expiry_reason()`, which enforces that.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expiry_reason: Option<ExpiryReason>,
+
+    /// When the backend last wrote the data object, in its own clock and precision. `None` for a
+    /// value that is not stored, or a store that cannot tell.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created: Option<BackendTime>,
+    /// The backend's version tag of the data object (an object store's ETag), where it has one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub etag: Option<String>,
 }
 
 mod query_format {
@@ -1422,6 +1530,8 @@ impl MetadataRecord {
             stored: self.stored,
             cached: self.cached,
             expiry_reason: self.expiry_reason.clone(),
+            created: self.created.clone(),
+            etag: self.etag.clone(),
         }
     }
 
@@ -1797,6 +1907,27 @@ impl MetadataRecord {
             existing.version = record.version;
         } else {
             self.dependencies.push(record);
+        }
+    }
+
+    /// [`Self::add_dependency`] for each record, through one key index: linear in the total
+    /// rather than quadratic, for an evaluation that recorded thousands of dependencies
+    /// (`specs/design/search-read-dependencies/performance.md`).
+    pub(crate) fn merge_dependencies(&mut self, records: impl IntoIterator<Item = DependencyRecord>) {
+        let mut index: std::collections::HashMap<DependencyKey, usize> = self
+            .dependencies
+            .iter()
+            .enumerate()
+            .map(|(position, d)| (d.key.clone(), position))
+            .collect();
+        for record in records {
+            match index.get(&record.key) {
+                Some(&position) => self.dependencies[position].version = record.version,
+                None => {
+                    index.insert(record.key.clone(), self.dependencies.len());
+                    self.dependencies.push(record);
+                }
+            }
         }
     }
 
@@ -2996,6 +3127,98 @@ impl From<MetadataRecord> for Metadata {
 
 #[cfg(test)]
 mod tests {
+    /// `created` and `etag` (`design/store-adapters/`, Phase 4 step 1).
+    mod backend_facts {
+        use crate::metadata::{BackendTime, Metadata, MetadataRecord, TimePrecision};
+        use chrono::TimeZone;
+
+        #[test]
+        fn backend_time_parses_text_from_a_bridge() {
+            let parsed = BackendTime::parse("2026-10-15T14:30:45.123+02:00", None).unwrap();
+            assert_eq!(parsed.as_str(), "2026-10-15T12:30:45.123Z");
+            let seconds = BackendTime::parse("2026-10-15T12:30:45.999Z", Some(TimePrecision::Seconds));
+            assert_eq!(seconds.unwrap().as_str(), "2026-10-15T12:30:45Z");
+            assert_eq!(
+                BackendTime::parse("2026-10-15T12:30:45Z", None).unwrap().as_str(),
+                "2026-10-15T12:30:45Z"
+            );
+            assert!(BackendTime::parse("yesterday", None).is_err());
+        }
+
+        #[test]
+        fn backend_time_round_trips_at_its_precision() {
+            let t = chrono::Utc
+                .with_ymd_and_hms(2026, 10, 15, 12, 30, 45)
+                .unwrap()
+                + chrono::Duration::nanoseconds(123_456_789);
+            assert_eq!(
+                BackendTime::new(t, TimePrecision::Seconds).as_str(),
+                "2026-10-15T12:30:45Z"
+            );
+            assert_eq!(
+                BackendTime::new(t, TimePrecision::Millis).as_str(),
+                "2026-10-15T12:30:45.123Z"
+            );
+            assert_eq!(
+                BackendTime::new(t, TimePrecision::Nanos).as_str(),
+                "2026-10-15T12:30:45.123456789Z"
+            );
+            // Stored and read back, it compares equal to a fresh reading at the same precision.
+            let fresh = BackendTime::new(t, TimePrecision::Micros);
+            let json = serde_json::to_string(&fresh).unwrap();
+            assert_eq!(json, "\"2026-10-15T12:30:45.123456Z\"");
+            let back: BackendTime = serde_json::from_str(&json).unwrap();
+            assert_eq!(back, fresh);
+        }
+
+        fn keys(record: &MetadataRecord) -> std::collections::BTreeSet<String> {
+            match serde_json::to_value(record).unwrap() {
+                serde_json::Value::Object(o) => o.keys().cloned().collect(),
+                other => panic!("record serialized as {other}"),
+            }
+        }
+
+        /// A record without the new fields serializes exactly as before (both are skipped when
+        /// `None`), and with them it adds exactly these two keys.
+        #[test]
+        fn new_record_adds_only_created_and_etag() {
+            let plain = MetadataRecord::new();
+            let mut with_facts = MetadataRecord::new();
+            with_facts.created = Some(BackendTime::now(TimePrecision::Millis));
+            with_facts.etag = Some("e1".to_string());
+            let before = keys(&plain);
+            let after = keys(&with_facts);
+            assert!(!before.contains("created") && !before.contains("etag"));
+            let added: Vec<String> = after.difference(&before).cloned().collect();
+            assert_eq!(added, vec!["created".to_string(), "etag".to_string()]);
+            // And a current build reads it back as a record, with both fields.
+            let json = serde_json::to_string(&with_facts).unwrap();
+            match Metadata::from_json(&json).unwrap() {
+                Metadata::MetadataRecord(r) => {
+                    assert_eq!(r.created, with_facts.created);
+                    assert_eq!(r.etag, with_facts.etag);
+                }
+                Metadata::LegacyMetadata(v) => panic!("read as legacy: {v}"),
+            }
+        }
+
+        /// What an older build does with a record carrying fields it does not know: the record
+        /// type refuses unknown fields, so the document is kept whole as legacy metadata.
+        #[test]
+        fn unknown_field_falls_back_to_legacy_losslessly() {
+            let mut value = serde_json::to_value(MetadataRecord::new()).unwrap();
+            value
+                .as_object_mut()
+                .unwrap()
+                .insert("field_from_a_newer_build".into(), serde_json::json!({"a": 1}));
+            let json = serde_json::to_string(&value).unwrap();
+            match Metadata::from_json(&json).unwrap() {
+                Metadata::LegacyMetadata(v) => assert_eq!(v, value),
+                Metadata::MetadataRecord(_) => panic!("an unknown field was accepted and dropped"),
+            }
+        }
+    }
+
     /// Tracebacks in error log entries (`design/metadata-error-traceback/`).
     mod error_traceback {
         use crate::error::Error;

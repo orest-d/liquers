@@ -3,7 +3,7 @@ title: Status::Dependencies Specification
 kind: reference
 audience: internal
 area: [core/assets]
-reviewed: 2026-10-12
+reviewed: 2026-10-17
 ---
 # Dependencies Status Specification
 
@@ -249,7 +249,15 @@ direct.
 | `GetAssetDirectory` of `D` | `-R-dir/D` |
 | `GetAssetRecipe` of `K` | `-R-recipe/K` |
 | an action | its command's metadata and implementation keys, and each link parameter's query |
-| `Evaluate(query)`, nested `Step::Plan` | what *their* steps record (no key of their own; `Evaluate` children relabelled `StateArgument`) |
+| `Evaluate(query)`, nested `Step::Plan` | what *their* steps record (no key of their own; `Evaluate` children relabelled `StateArgument`), and the records its run added |
+| a command, at run time | what it records: `Context::get_dependency_state` / `submit` record the query, `Context::record_listing` records `-R-dir/D`, `Context::add_dependency` anything |
+
+**Run-time records cross non-keyed boundaries.** When `Context::wait_for_dependency_recording`
+receives the state of a **non-keyed** dependency (a cut predecessor's `Evaluate`, a link, a query a
+command evaluates), it merges that state's records into the dependent's, so a cut plan records what
+the expanded plan records, and expires when any of it changes. A keyed dependency is a node, and is
+not inherited: recording stops at the nearest addressable dependency, as above. Records merge
+through a key index, linear in the number of records (`design/search-read-dependencies/`).
 
 Stored values written before 2026-10-08 keep their transitive records. They are read as they are:
 extra edges only make invalidation more eager, and they disappear at the next recomputation.
@@ -626,6 +634,7 @@ priming cannot see (`INLINE-MANAGER-DYNAMIC-DEPENDENCY-CHAIN-NESTS`).
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-17 | §What a dependency record holds: a non-keyed dependency's run-time records are inherited by its dependent; row for records a command adds at run time. | `design/search-read-dependencies/` |
 | 2026-10-12 | New §Evaluation session (one asset per dependency per evaluation; the pre-pass stops at a failed dependency; depth independent of chain length). F-1 bullet, Flow A step 5 and step 7, Flow D item 2 and §Non-blocking dependency scheduling: a locally queued dependency runs in a task of its own on the queued manager. | phase-5 (`design/dependency-resolved-once-per-evaluation/`) |
 | 2026-10-09 | Flow D: cascade cancellation, the wait no longer sets the parent's status (`fail_due_to_dependency` removed); the delegation description and glossary follow. | phase-5 (`design/asset-cancellation-outcome/`) |
 | 2026-10-08 | New §What a dependency record holds (records are direct; analysis summary versus record; what a fast-track load contributes) and §Consistency policies (`Explicit` / `OnLoad` compared, the stored-records walk, the startup store audit, the restart example). Current contract: `OnLoad` resolves unknown dependencies with the walk, recursively; audits resolve gaps through the walk and the per-key audit covers the upstream closure; `register_version` expires an edge recording a concrete, other version on a first registration. Flow C step 2 and the glossary updated. | phase-5 (`design/dependency-chain-analysis-cost/`) |

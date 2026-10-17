@@ -7,6 +7,7 @@ liquers-core/     # Core abstractions (Query, Key, Store, Assets, Commands)
 liquers-macro/    # register_command! function-like proc-macro
 liquers-store/    # Storage backends (OpenDAL integration, config)
 liquers-records/  # Record streams: columnar tables, views, sources, manifests, table formats
+liquers-template/ # Query-aware Mustache templates (parser, renderer, query templates)
 liquers-lib/      # Command library, Rich value types (Polars DataFrames, egui UI, images)
 liquers-axum/     # HTTP REST API server
 liquers-web/      # Browser/JavaScript bindings (wasm32-only)
@@ -21,9 +22,10 @@ specs/            # Internal documentation — see specs/README.md
 
 **Dependency flow**: `liquers-core` ← `liquers-macro` ← `liquers-store` ← `liquers-lib` ← `liquers-axum` / `liquers-web`;
 `liquers-core` ← `liquers-records` ← `liquers-lib` (feature `records`). `liquers-records` depends on
-`liquers-core` only, so a crate built on records need not pull in `liquers-lib`.
+`liquers-core` only, so a crate built on records need not pull in `liquers-lib`. Likewise
+`liquers-core` ← `liquers-template` ← `liquers-lib` (feature `templates`).
 
-**Key specs**: See `specs/reference/PROJECT_OVERVIEW.md` for architecture, `specs/reference/REGISTER_COMMAND_FSD.md` for macro details, `specs/reference/ASSETS.md` for asset lifecycle.
+**Key specs**: See `specs/reference/VISION.md` for the project's purpose, vision and strategy (background for design and review work), `specs/reference/PROJECT_OVERVIEW.md` for architecture, `specs/reference/REGISTER_COMMAND_FSD.md` for macro details, `specs/reference/ASSETS.md` for asset lifecycle.
 
 ## Documentation
 
@@ -67,6 +69,9 @@ Also:
   provider: `liquers-records/src/`. The glue that needs `liquers-lib`'s `Value` — `ExtValue::RecordView`
   / `RecordSource`, `to_record` / `to_record_source`, the `ns-rec` commands, the polars bridge:
   `liquers-lib/src/records/` (design: `specs/design/record-streams/`)
+- Template language (parser, renderer, query templates, hosts): `liquers-template/src/`; the
+  `ns-template` commands, `ContextHost` and the store folder node: `liquers-lib/src/template/`
+  (reference: `specs/reference/TEMPLATE_LANGUAGE.md`)
 
 ### Key Types
 - `Query`, `Key`, `ActionRequest` - query DSL (`liquers-core/src/query.rs`)
@@ -185,7 +190,7 @@ crate's test binaries at once, which is what exhausts the allowance.
 ### Feature matrix
 
 The default loop builds one feature configuration. `egui`, `image-support`, `polars`, `webui`,
-`records`, `records-ipc` and `records-parquet` are all optional (the last three on by default), and a missing `#[cfg]` compiles fine with the defaults on while breaking a
+`records`, `records-ipc`, `records-parquet` and `templates` are all optional (all but `webui` on by default), and a missing `#[cfg]` compiles fine with the defaults on while breaking a
 minimal or wasm build. `scripts/check-build-matrix.sh` checks every configuration, library **and
 test targets**, plus the wasm32 target, `liquers-store`'s feature split and `liquers-records`' own
 `ipc` / `parquet` features:
@@ -206,6 +211,7 @@ cargo test -p liquers-lib --no-default-features --features egui --lib --tests
 cargo test -p liquers-lib --no-default-features --features image-support --lib --tests
 cargo test -p liquers-lib --no-default-features --features webui --lib --tests
 cargo test -p liquers-lib --no-default-features --features records --lib --tests
+cargo test -p liquers-lib --no-default-features --features templates --lib --tests
 cargo test -p liquers-records --lib --tests                 # no formats beyond the built-in ones
 ```
 
@@ -213,7 +219,7 @@ Each test file that needs an optional dependency is gated — `#![cfg(feature = 
 when the whole file needs it, `#[cfg(feature = "…")]` on the single test when it does not — so a
 reduced configuration runs the subset that applies instead of failing to compile. Tests comparing
 against `specs/command_registry.yaml`, which is exported with the default features, are gated on
-all four groups (`egui`, `image-support`, `polars`, `records`).
+all five groups (`egui`, `image-support`, `polars`, `records`, `templates`).
 
 ### liquers-web
 
@@ -325,10 +331,14 @@ is broken.
 The `register_command!` macro is a **function-like macro** (not an attribute macro) with a custom DSL.
 The actual function must be defined SEPARATELY, then registered via the macro.
 
-**See `specs/guides/COMMAND_REGISTRATION_GUIDE.md` for comprehensive guidelines** covering:
-- Using the `register_command!` macro (recommended)
-- Manual registration (fine-grained control)
+**Read `specs/guides/COMMAND_REGISTRATION_GUIDE.md` whenever you create, change or design a
+command** — in code, in a design document's signatures, or in a review. The summary below is not a
+substitute: the guide holds the patterns a signature has to follow, among them:
+- Using the `register_command!` macro (recommended), and manual registration (fine-grained control)
 - Generic Environment commands (library reusability)
+- Passing the working directory or any relative query in as a default link argument
+  (`dir: Key = query "-R-key/."`) — a command cannot read the cwd from its `Context`
+- Waiting for dependencies from inside a command (`context.wait_for_dependency`)
 - Best practices and examples
 
 For macro syntax details, see `specs/reference/REGISTER_COMMAND_FSD.md`.
@@ -383,6 +393,10 @@ register_command!(cr,
   or an integer)
 
 See examples in `liquers-lib/src/commands.rs` and `liquers-core/tests/async_hellow_world.rs`.
+
+A command whose result is text assembled from other queries can be a **template command**: an
+alias of `template/render` with the template link as its head, no Rust function needed
+(`specs/guides/TEMPLATE_GUIDE.md` §3).
 
 ### Validating queries
 
@@ -471,11 +485,18 @@ Configuration and construction live in `liquers-core`; only the backends live ab
    add the matching `services-<scheme>` feature** to `liquers-store/Cargo.toml` — a type with no
    service feature behind it is advertised but unconstructible, which
    `availability02_advertised_types_match_the_enabled_features` will fail on
-5. **Run the conformance suite against it.** Write a `Fixture` (usually `GenericFixture`), declare
+5. **Implement data-only access** (`get_data`, `set_data`, `remove_data`, `listdir_data`,
+   `data_facts`, `get_stored_metadata`, optionally `rename_data`, and an honest
+   `data_capabilities`), so a mount of the store can take a `metadata` section and `read_only`
+   can keep its reads from writing. The defaults refuse, and a `metadata` section on such a mount
+   fails the build. See `specs/guides/STORE_IMPLEMENTATION_GUIDE.md` §4a; new handlers, storage
+   models and write strategies are `specs/guides/STORE_CONFIG_GUIDE.md`
+6. **Run the conformance suite against it.** Write a `Fixture` (usually `GenericFixture`), declare
    its `StoreCapabilities` honestly, and add a suite beside the others in
-   `tests/store_conformance_CONF.rs`. A store that is not in the suite is a store nobody has
-   checked. See `specs/guides/STORE_IMPLEMENTATION_GUIDE.md` §5
-6. See `specs/reference/STORE_CONFIG_FSD.md` §"Building stores: the factory model"
+   `tests/store_conformance_CONF.rs` — plain, and under a `metadata` section like `A3`. A store
+   that is not in the suite is a store nobody has checked. See
+   `specs/guides/STORE_IMPLEMENTATION_GUIDE.md` §5
+7. See `specs/reference/STORE_CONFIG_FSD.md` §"Building stores: the factory model"
 
 ### Adding a Value Type
 

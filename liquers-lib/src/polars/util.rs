@@ -24,6 +24,26 @@ pub fn try_to_polars_dataframe<V: ValueInterface + ExtValueInterface>(
         return Ok(df);
     }
 
+    // Records cross through the bridge (roles are dropped, as the bridge documents). A source is
+    // a stream, not a table: ns-pl is synchronous and eager, so it must be materialized first
+    // (specs/design/record-filter-commands/lazyframe-investigation.md).
+    #[cfg(feature = "records")]
+    match value.identifier().as_ref() {
+        "RecordView" => {
+            let batch = value.as_record_view()?.materialize()?;
+            let df = crate::records::polars::record_batch_to_dataframe(&batch)?;
+            return Ok(Arc::new(df));
+        }
+        "RecordSource" => {
+            return Err(Error::conversion_error_with_message(
+                "RecordSource",
+                "polars.DataFrame",
+                "a source is not a table; materialize it first with ns-rec/materialize",
+            ))
+        }
+        _ => {}
+    }
+
     let mut format = state.metadata.get_data_format();
     let source_bytes = if let Ok(text) = value.try_into_string() {
         if format.is_empty() {
@@ -156,6 +176,33 @@ pub fn parse_separator(s: &str) -> Result<u8, Error> {
     }
 }
 
+/// `LazyFrame::collect` that works on every Tokio runtime flavor.
+///
+/// polars 0.55 plans a query through its own async runtime with
+/// `tokio::task::block_in_place`, which panics on a current-thread runtime
+/// (`#[tokio::test]`'s default, a `current_thread` binary). On such a runtime the collect runs on
+/// a scoped OS thread instead, which has no Tokio context, so `block_in_place` simply runs the
+/// closure. Everywhere else — a multi-threaded runtime, or no runtime — it is `collect()`
+/// unchanged. A panic inside polars is re-raised on the calling thread, where evaluation turns it
+/// into the asset's error. Resolves `POLARS-COLLECT-PANICS-ON-CURRENT-THREAD-RUNTIME`.
+pub trait CollectOnAnyRuntime {
+    fn collect_on_any_runtime(self) -> PolarsResult<DataFrame>;
+}
+
+impl CollectOnAnyRuntime for LazyFrame {
+    fn collect_on_any_runtime(self) -> PolarsResult<DataFrame> {
+        let on_current_thread_runtime = matches!(
+            tokio::runtime::Handle::try_current().map(|handle| handle.runtime_flavor()),
+            Ok(tokio::runtime::RuntimeFlavor::CurrentThread)
+        );
+        if !on_current_thread_runtime {
+            return self.collect();
+        }
+        std::thread::scope(|scope| scope.spawn(move || self.collect()).join())
+            .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+    }
+}
+
 /// Check if column exists in DataFrame, return error if not
 pub fn check_column_exists(df: &DataFrame, column: &str) -> Result<(), Error> {
     let column_names: Vec<String> = df
@@ -174,6 +221,41 @@ pub fn check_column_exists(df: &DataFrame, column: &str) -> Result<(), Error> {
 
 #[cfg(test)]
 mod tests {
+
+    fn lazy_sort() -> LazyFrame {
+        df!("x" => [3i64, 1, 2])
+            .expect("frame")
+            .lazy()
+            .sort(["x"], SortMultipleOptions::default())
+    }
+
+    fn sorted(df: DataFrame) -> Vec<i64> {
+        df.column("x")
+            .expect("x")
+            .i64()
+            .expect("i64")
+            .into_no_null_iter()
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn collect_on_any_runtime_works_on_a_current_thread_runtime() {
+        let df = lazy_sort().collect_on_any_runtime().expect("collect");
+        assert_eq!(sorted(df), vec![1, 2, 3]);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn collect_on_any_runtime_works_on_a_multi_thread_runtime() {
+        let df = lazy_sort().collect_on_any_runtime().expect("collect");
+        assert_eq!(sorted(df), vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn collect_on_any_runtime_works_outside_a_runtime() {
+        let df = lazy_sort().collect_on_any_runtime().expect("collect");
+        assert_eq!(sorted(df), vec![1, 2, 3]);
+    }
+
     use super::*;
 
     use crate::value::Value;

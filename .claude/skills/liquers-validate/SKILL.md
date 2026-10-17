@@ -6,7 +6,8 @@ description: >-
   debugged — in a doc example, a spec, a design document, a test fixture, a `recipes.yaml`, a
   code comment, an axum route example or a chat answer — and before any such query is committed.
   Trigger on anything shaped like a query (`-R/…`, `/-/`, `ns-pl/`, `ns-img/`, a dash-separated
-  action chain, a trailing filename segment), on "does this query work / why doesn't this query
+  action chain, a trailing filename segment, a store `metadata` spec such as
+  `defaults/media_type-fill/file_facts`), on "does this query work / why doesn't this query
   work", on writing recipes, on designing commands that do not exist yet, and on suspicion that
   `specs/command_registry.yaml` is stale. Cheap and offline: it never opens a store or runs a
   command. Not for evaluating queries or debugging command *implementations*.
@@ -111,23 +112,46 @@ These pass validation. Only reading the plan catches them.
 
 - **`-R/` swallows actions into the key** unless `/-/` separates them. The example above. The
   status cannot distinguish the two; the steps can.
-- **Excess action parameters are silently dropped.** `to_text-extra-args` validates `Ok` as
-  `action to_text()`, and `ns-pl/select_columns-name-price` resolves to `columns="name"` —
-  `price` is gone, even though the command's own doc says "separated by dashes". This is a gap in
-  the plan builder, tracked in `specs/issues/PLAN-EXCESS-ACTION-PARAMETERS-DROPPED.md`.
-  Until it warns, check that every parameter you wrote appears in the digest's `action …(…)` line.
+- **A `multiple` argument swallows everything after it.** Surplus parameters are an error
+  (`to_text-extra` fails with "Too many parameters"), but a variadic argument takes the rest of the
+  action, so a parameter meant for something else silently joins the list. Check the digest's
+  `action …(…)` line.
 - **`--cwd` never changes the plan.** It only changes the storage key a recipe result lands
   under. The same recipe under `--cwd reports` and `--cwd archive` produces byte-identical steps.
 - **A missing namespace is an error, not a mis-plan** — `head-5` fails with `Action 'head' not
   registered in namespaces '', 'root'` because it needs `ns-pl/head-5`. Easy to fix, easy to
   misread as "the command doesn't exist".
 
+## Store configuration specs (realm `store_config`)
+
+A mount's `metadata` fields (`storage`, `writes`, `on_default`, `on_validate`, `on_write`,
+`on_read`) are queries of the realm `store_config`. In a configuration the realm prefix may be left
+out, and the store builder fills it in. **The tool does not fill it in**, so give it the filled
+form:
+
+```bash
+cargo run -p liquers-core --features cli --bin liquers-validate -- --detail summary -- \
+  '-store_config/defaults/media_type-fill/file_facts' '-store_config/grouped-__metadata__.json'
+```
+
+Without the header, the actions plan in realm `""` and fail with "Action 'defaults' not
+registered". The tool checks entry names, parameter counts and option values, for example
+`content_hash-sometimes` and `front_matter-title`, where `title` is not a `mode`. It does not check
+what the store builder checks:
+- the stage an entry may appear in (`require` only in `on_validate`);
+- the field names `set` and `require` accept;
+- whether a component is in the right field (`storage: transactional`);
+- refused steps: a `-R…` segment validates `Ok` but fails the build.
+
+`/` inside a value is `~I` (`set-media_type-text~Imarkdown`), and `~.` is a space, not a dot.
+Catalogue and messages: `specs/guides/STORE_CONFIG_GUIDE.md`.
+
 ## When something fails
 
 | Message | Cause |
 |---|---|
 | `Can't parse query '…': Can't parse query completely` | Syntax — a space, a stray `#`, or a flag that reached the positional slot. `error.position` gives line and column. |
-| `Action 'x' not registered in namespaces '', 'root'` | Missing namespace prefix (`ns-pl/`, `ns-img/`), a genuine typo, or a command that does not exist yet — use `--command x` if you are designing it. |
+| `Action 'x' not registered; command keys tried: '--x'` (a `CommandKey`, `realm-namespace-name`) | Missing namespace prefix (`ns-pl/`, `ns-img/`), a genuine typo, or a command that does not exist yet — use `--command x` if you are designing it. |
 | `Can't convert 'notanumber' to integer` | Argument *type*. Only plan level finds this; parsing cannot. |
 | `--cwd applies to recipes only` (exit 2) | `--cwd` without `--recipes`. Nothing in a bare query's plan consumes a cwd. |
 | Empty stdout, exit 2 | Bad invocation. The reason is on stderr. |

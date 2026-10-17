@@ -21,6 +21,7 @@ pub use crate::value::extended::{CombinedValue, ValueExtension};
 pub use crate::value::simple::SimpleValue;
 use std::io::Cursor;
 
+pub mod data_node;
 pub mod extended;
 pub mod foreign;
 pub mod simple;
@@ -529,6 +530,30 @@ impl ValueExtension for ExtValue {
                 } else {
                     liquers_records::to_json(value.as_ref(), liquers_records::JsonOrient::Records)
                 }
+            }
+        }
+    }
+
+    /// Record views and polars frames read in place, a row at a time; a record source streams only
+    /// through a `Context` (`template::ContextHost::node_of`), so here it is opaque. Everything
+    /// else is its JSON snapshot.
+    fn data_node(value: Arc<Self>) -> liquers_core::data_node::AnyNode {
+        use liquers_core::data_node::AnyNode;
+        match value.as_ref() {
+            #[cfg(feature = "records")]
+            ExtValue::RecordView { value } => {
+                AnyNode::Sync(Arc::new(liquers_records::RecordViewNode::new(value.clone())))
+            }
+            #[cfg(feature = "records")]
+            ExtValue::RecordSource { .. } => AnyNode::opaque(),
+            #[cfg(feature = "polars")]
+            ExtValue::PolarsDataFrame { value } => {
+                AnyNode::Sync(Arc::new(crate::polars::data_node::DataFrameNode::new(value.clone())))
+            }
+            #[cfg(feature = "egui")]
+            ExtValue::UiCommand { .. } | ExtValue::Widget { .. } => AnyNode::opaque(),
+            ExtValue::Image { .. } | ExtValue::UIElement { .. } | ExtValue::Foreign { .. } => {
+                AnyNode::opaque()
             }
         }
     }

@@ -4,10 +4,9 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 
 use futures::StreamExt;
-use liquers_core::assets::AssetManager;
 use liquers_core::context::{Context, Environment};
 use liquers_core::error::Error;
-use liquers_core::metadata::AssetInfo;
+use liquers_core::metadata::{AssetInfo, DependencyKey, DependencyRecord, Version};
 use liquers_core::query::Key;
 use liquers_core::state::State;
 use liquers_core::value::ValueInterface;
@@ -18,7 +17,9 @@ use crate::records::{
 };
 use crate::value::{ExtValueInterface, Value};
 
-use super::{extension_of, folder_of, info_of, media_type_of, non_negative, read_text};
+use super::{
+    extension_of, file_version, folder_of, info_of, media_type_of, non_negative, read_text,
+};
 
 /// How many `get_asset_info` calls run at once.
 const CONCURRENCY: usize = 16;
@@ -55,20 +56,19 @@ pub async fn catalog<E: Environment<Value = Value>>(
 }
 
 /// The keys under `folder`, breadth first, at most `max_entries` of them (0: no limit). The
-/// boolean says whether the walk stopped early.
+/// boolean says whether the walk stopped early. Every folder walked is recorded as a dependency
+/// (`Context::record_listing`), so an entry added or removed expires the result.
 pub(crate) async fn walk<E: Environment<Value = Value>>(
     folder: &Key,
     recursive: bool,
     max_entries: usize,
     context: &Context<E>,
 ) -> Result<(Vec<Key>, bool), Error> {
-    let envref = context.get_envref();
-    let assets = envref.get_asset_manager();
-    let store = envref.get_async_store();
+    let store = context.get_envref().get_async_store();
     let mut keys = Vec::new();
     let mut pending = VecDeque::from([folder.clone()]);
     while let Some(dir) = pending.pop_front() {
-        let mut names = assets.listdir(&dir).await?;
+        let mut names = context.record_listing(&dir).await?;
         names.sort();
         for name in names {
             if max_entries > 0 && keys.len() >= max_entries {
@@ -84,24 +84,30 @@ pub(crate) async fn walk<E: Environment<Value = Value>>(
     Ok((keys, false))
 }
 
-/// The asset info of every key, in key order, `CONCURRENCY` at a time.
+/// The asset info of every key, in key order, `CONCURRENCY` at a time, with the version of each
+/// file (`None` for a folder, which its listing records).
 pub(crate) async fn infos<E: Environment<Value = Value>>(
     keys: Vec<Key>,
     context: &Context<E>,
-) -> Result<Vec<(Key, AssetInfo)>, Error> {
-    let mut out: Vec<(Key, AssetInfo)> = futures::stream::iter(keys.into_iter().map(|key| {
-        let context = context.clone();
-        async move {
-            let info = info_of(&key, &context).await?;
-            Ok::<_, Error>((key, info))
-        }
-    }))
-    .buffer_unordered(CONCURRENCY)
-    .collect::<Vec<_>>()
-    .await
-    .into_iter()
-    .collect::<Result<_, _>>()?;
-    out.sort_by_key(|(key, _)| key.encode());
+) -> Result<Vec<(Key, AssetInfo, Option<Version>)>, Error> {
+    let mut out: Vec<(Key, AssetInfo, Option<Version>)> =
+        futures::stream::iter(keys.into_iter().map(|key| {
+            let context = context.clone();
+            async move {
+                // The version is read first: a write that lands after it registers a newer one,
+                // so the recorded version is never newer than the info it is recorded with.
+                let version = file_version(&key, &context).await;
+                let info = info_of(&key, &context).await?;
+                let version = if info.is_dir { None } else { Some(version) };
+                Ok::<_, Error>((key, info, version))
+            }
+        }))
+        .buffer_unordered(CONCURRENCY)
+        .collect::<Vec<_>>()
+        .await
+        .into_iter()
+        .collect::<Result<_, _>>()?;
+    out.sort_by_key(|(key, _, _)| key.encode());
     Ok(out)
 }
 
@@ -168,9 +174,17 @@ pub(crate) async fn catalog_view<E: Environment<Value = Value>>(
 ) -> Result<(Arc<dyn RecordView>, bool), Error> {
     let (keys, stopped) = walk(folder, recursive, max_entries, context).await?;
     let entries = infos(keys, context).await?;
+    // Every file listed is a dependency, its text read or not: `size`, `updated`, `status` and
+    // `title` come from it. Recorded before any text is read, so a file whose text is read is
+    // left recorded at the version its text was read at (`read_text`).
+    context
+        .add_dependencies(entries.iter().filter_map(|(key, _, version)| {
+            version.map(|version| DependencyRecord::new(DependencyKey::from(key), version))
+        }))
+        .await;
     let schema = schema(content)?;
     let mut batch = RecordBatchMut::with_capacity(schema, entries.len());
-    for (key, info) in entries {
+    for (key, info, _) in entries {
         let filename = info
             .filename
             .clone()

@@ -10,6 +10,7 @@ extern crate self as liquers_records;
 pub mod batch;
 pub mod buffer;
 pub mod column;
+pub mod data_node;
 pub mod formats;
 pub mod manifest;
 pub mod mutable;
@@ -26,6 +27,7 @@ pub use batch::{
 };
 pub use buffer::{AlignedBuffer, Bitmap, Buffer};
 pub use column::{Column, CompareOp, FieldValue};
+pub use data_node::{RecordSourceNode, RecordViewNode};
 pub use formats::{
     read_table, read_table_with_report, write_table, ReadOptions, ReadReport, ReadSchema,
     TableFormat, WriteOptions,
@@ -38,7 +40,8 @@ pub use schema::{
     Analyzer, FieldRole, FieldSchema, FieldType, IndexKind, KeyRole, RecordSchema, VectorMetric,
 };
 pub use sources::{
-    view_from_chunk_value, ContextResolver, EnvResolver, InMemorySource, ManifestSource,
+    view_from_chunk_value, ContextResolver, EnvResolver, InMemorySource, ManifestSource, MappedSource,
+    ViewMap, ViewMapFn,
 };
 pub use value::{
     ChunkResolver, ChunkValue, RecordSource, RecordValue, DEFAULT_MATERIALIZE_MAX_ROWS,

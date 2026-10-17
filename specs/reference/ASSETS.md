@@ -3,7 +3,7 @@ title: Assets Specification
 kind: reference
 audience: internal
 area: [core/assets]
-reviewed: 2026-10-12
+reviewed: 2026-10-15
 ---
 # Assets Specification
 
@@ -270,7 +270,7 @@ pub enum Status {
   - **Preview mode**: Quick low-quality result while full computation continues
   - **Checkpointing**: Saving intermediate state for recovery in long computations
 - **Error**: Computation finished with an error
-- **Storing**: Transient state during store write; if loaded from store with this status, treat as corrupted/Error
+- **Storing**: Transient state during store write; if loaded from store with this status, treat as corrupted/Error. The marker is written by the *store*, not the manager: the unwrapped `AsyncFileStore` and `AsyncOpenDALStore` write the sidecar as `Storing`, then the data, then the final record. A mount with a `metadata` section writes through a write strategy instead and never writes the marker: under `direct` an interrupted write can leave data and record disagreeing with nothing marked, `atomic` leaves no torn object, and `transactional` is all-or-nothing, completed or rolled back on the next read or `sync` ([`STORE_SEMANTICS.md` §15](STORE_SEMANTICS.md#15-write-strategies-and-recovery))
 - **Ready**: Successfully computed, data available
 - **Expired**: The data is stale — see §The one meaning of `Expired` below
 - **Cancelled**: The evaluation was interrupted before it produced a value: its own cancel was
@@ -521,6 +521,14 @@ dependents are, with `UpdatedInStore { actual }`. The version map is updated thr
 `audit_version`, not `register_version`, because after a restart `actual` is the first version the
 map sees for the key.
 
+**Per-mount policy.** The policy is the manager's (`AssetManager::version_verification`, from
+`verify_versions`) unless the store has one for the key: `AsyncStore::version_verification(key)`
+returning `Some` overrides it (`effective_version_verification` in `assets.rs`, consulted by
+`decide_external_change` and `verify_stored_versions`). A mount whose `on_read` chain contains
+`content_hash` answers `Some(OnRead)` (`Some(Off)` for `content_hash-off`); every other store answers
+`None`. Such a mount also re-hashes in its read chain, so `version` in a listing is current without
+the manager reading the bytes (`STORE_SEMANTICS.md` §14).
+
 **When the check runs.** Under `verify_versions: on_read` (default), wherever the manager already
 holds the bytes: the fast track (`try_fast_track`, before the dependency checks; a `Delete`
 refuses the fast track and the key is recomputed), and the store branch of `get_any_status` /
@@ -537,8 +545,18 @@ and `verify_stored_versions` then returns an empty report. A recorded-version au
 **Read-only stores.** `apply_external_change` runs under `key_mutation_lock` and is a no-op when
 the change was already applied, by a concurrent reader or earlier in this process. A store write
 that fails is reported on stderr and the result is kept in memory: the version map and the cascade
-still happen, and the next process detects the change again. (`AsyncFileStore` itself writes a
-sidecar for a bare file on first read; `STORE-NO-READ-ONLY-ADAPTER`.)
+still happen, and the next process detects the change again. (The unwrapped `AsyncFileStore` writes a
+sidecar for a bare file on first read; a mount with `read_only: true` refuses the write with
+`NotSupported` and writes nothing on read, so there the adoption stays in memory —
+`STORE_SEMANTICS.md` §12.)
+
+**`created` and `etag`.** `MetadataRecord` and `AssetInfo` carry `created: Option<BackendTime>` —
+when the backend last wrote the data object, in its own clock and precision — and `etag:
+Option<String>`, the backend's version tag. Both are `None` for a value that is not stored and for
+an unwrapped store; a mount with a `metadata` section sets them from the backend's `data_facts`
+after every data write, a `Partial` checkpoint included, and `file_facts` fills them on read.
+`content_hash-on_change` compares them (with the size) against the stored record to decide whether
+to re-hash. Neither field is a `Version`, and the manager does not read them.
 
 ## State Machine Diagram
 
@@ -1027,6 +1045,7 @@ The following issues were identified and resolved through discussion:
 **Problem**: How to handle Storing status on load after crash?
 
 **Resolution**: Treat as corrupted/Error. If an asset is loaded from store with `Storing` status, it indicates incomplete write and should be treated as an error.
+Under a configured write strategy the marker is not written; `transactional` recovers the write instead (§Status Descriptions, `Storing`).
 
 ### 9. Volatile + Override (RESOLVED)
 **Problem**: Should original volatility be tracked?
@@ -1151,6 +1170,12 @@ mutating the existing metadata (`with_error`, preserving the log/query/type audi
 it is not a failure: the asset ends `Status::Cancelled` (`with_cancellation`), not `Error`. A run's
 own failure or cancellation is recorded in memory only, never as a metadata-only store entry.
 
+**A panic is a failure.** A command that panics during evaluation fails its asset like any other
+error: `AssetRef::compute` catches the unwind and returns `Error::general_error("evaluation panicked:
+<message>")`, so the asset ends `Status::Error` and its waiters are released. (Unwinding past the run
+harness would leave the run claim armed, and its `Drop` repair would re-submit the asset to panic
+again.) Where panics abort — wasm32 by default — there is nothing to catch.
+
 **Re-evaluation.** `Error`, `Cancelled` and `Expired` are a **cache miss at the manager request
 boundary**: `get(key)`/`get_asset(query)` drop such a stale-terminal asset and rebuild a fresh one
 (a failure may be transient — hardware/volatile). `AssetRef::get()` itself does not re-evaluate, so
@@ -1223,6 +1248,8 @@ each with an `ExpiryReason` (§Why an asset is `Expired`). The rules are in
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-15 | `Storing`: written by the unwrapped file and OpenDAL stores, never under a configured write strategy (`direct` / `atomic` / `transactional` and their crash behaviour). §Content changed outside Liquers: per-mount `version_verification` overrides the manager's policy (`content_hash` in `on_read`); a `read_only` mount writes nothing on read; `created` and `etag` on records. | phase-5 (`design/store-adapters/`) |
+| 2026-10-14 | §Terminal outcome: a panicking command fails its asset (`evaluation panicked: …`) instead of hanging its waiters. | `COMMAND-PANIC-HANGS-EVALUATION` |
 | 2026-10-12 | §Re-evaluation: a stale dependency re-evaluates at an evaluation's first request only; within the evaluation the session pins it. | phase-5 (`design/dependency-resolved-once-per-evaluation/`) |
 | 2026-10-10 | New §When an asset is kept for reuse: caching strategies (keyed, top-level query, dependency following its creator), reuse of an existing asset under every strategy, the plan independent of strategy, `ImmediateAssetManager::get_dependency_asset`, `cached: Some(false)` and the log reason on an unregistered asset, the trait accessors. §`stored` and `cached`: the recipe's `cached` is a strategy; metadata keeps a bool. A key with no recipe is not subject to the strategy, and an existing keyed asset is reused before it is consulted (PR #102 review). | phase-5 (`design/plan-policy/`) |
 | 2026-10-09 | Cancellation is a request decided by the run: `Cancelled` status description, the cancellation path diagram, Scenarios 3-5 (`cancel_for_replacement`), §Terminal outcome (`Cancelled` records its cause in `error_data`; `fail_asset` acts once on an in-flight asset; cascade cancellation through `wait_for_dependency`). | phase-5 (`design/asset-cancellation-outcome/`) |

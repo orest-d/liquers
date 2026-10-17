@@ -3,7 +3,7 @@ title: Polars Command Library Specification
 kind: reference
 audience: internal
 area: [lib/polars]
-reviewed: 2026-10-10
+reviewed: 2026-10-14
 ---
 # Polars Command Library Specification
 
@@ -75,6 +75,45 @@ liquers-lib/src/polars/
 └── util.rs             # Helper functions
 ```
 
+## Inputs: DataFrames and records
+
+Every `ns-pl` command reads its input with `try_to_polars_dataframe` (`liquers-lib/src/polars/util.rs`):
+a `polars.DataFrame` as is; a **`RecordView`** through the records bridge
+(`record_batch_to_dataframe` — key roles and labels are dropped; a Vector column is refused,
+[`POLARS-BRIDGE-VECTOR-COLUMNS-REFUSED`](../issues/POLARS-BRIDGE-VECTOR-COLUMNS-REFUSED.md)); text or
+bytes in the metadata's data format (CSV when none). A **`RecordSource` is refused**, naming
+`ns-rec/materialize`: `ns-pl` is synchronous and eager, so a stream is narrowed lazily in `ns-rec`
+first (`…/ns-rec/select_columns-a-b/materialize/ns-pl/sum`). Why a `LazyFrame` cannot pull a record
+stream at polars 0.55: `specs/design/record-filter-commands/lazyframe-investigation.md`. The
+reverse direction — `ns-rec` on a DataFrame — and the full `ns-rec` ↔ `ns-pl` comparison are in
+[`RECORD_STREAMS.md`](RECORD_STREAMS.md) §"`ns-rec` commands".
+
+**Runtime.** Commands that build a lazy plan (`filter`s, `sort`, the aggregations) collect it with
+`CollectOnAnyRuntime::collect_on_any_runtime` (`liquers-lib/src/polars/util.rs`), never with a bare
+`LazyFrame::collect`. polars 0.55's `collect` calls `tokio::task::block_in_place`, which panics on a
+current-thread Tokio runtime; on such a runtime the helper collects on a scoped OS thread instead, and
+everywhere else it is `collect()` unchanged. So `ns-pl` works on any runtime, including
+`#[tokio::test]`'s default. New lazy code in this library uses the helper.
+
+## Conventions: polars first
+
+polars is the source of naming and argument conventions; `ns-rec` copies `ns-pl`, and a future
+pandas namespace adapts to them (maintainer decision, 2026-10-13). Where `ns-pl` already deviated
+from polars, the `ns-pl` spelling stands.
+
+| Operation | polars | pandas | `ns-pl` / `ns-rec` |
+|---|---|---|---|
+| Comparison | `eq`, `neq`, `gt`, `gt_eq`, `lt`, `lt_eq` | `eq`, `ne`, `gt`, `ge`, `lt`, `le` | `eq`, `ne`, `gt`, `gte`, `lt`, `lte` |
+| Membership | `is_in` | `isin` | `is_in` |
+| Nulls | `is_null`, `is_not_null` | `isna`/`isnull`, `notna`/`notnull` | `is_null`, `is_not_null` |
+| Prefix / suffix / substring | `str.starts_with`, `str.ends_with`, `str.contains` | `str.startswith`, `str.endswith`, `str.contains` | `starts_with`, `ends_with`, `contains` |
+| Case in text tests | sensitive | `case=True` (sensitive) | `case_sensitive = false` — **deliberate difference**, as `ns-search/search` |
+| Sort direction | `descending = false` | `ascending = True` | `ascending = true` |
+| Nulls in a sort | `nulls_last = false` (nulls first) | `na_position = 'last'` | `nulls_last = false`, as polars |
+| Ties in a sort | `maintain_order = false` | `kind = 'quicksort'` (unstable) | always stable |
+| Drop columns | `drop` | `drop(columns=…)` | `drop_columns` |
+| Row / column count | `height`, `width`, `shape` | `len`, `shape` | `nrows`, `ncols`, `shape` |
+
 ## Command Reference
 
 ### Column Selection (variadic)
@@ -134,20 +173,25 @@ Filter rows where condition is true. Can be chained for AND logic.
 | `lt` | Less than | `<` | `lt-price-50` |
 | `lte` | Less than or equal | `<=` | `lte-inventory-10` |
 
-#### String Predicates (2 arguments: column-value)
+#### String Predicates (2-3 arguments: column-text-[case_sensitive])
+
+`text` is literal. **Case-insensitive by default** (both sides lowercased) — a deliberate
+difference from polars and pandas, which match case, chosen so that `ns-pl` and `ns-rec` agree
+with `ns-search/search`. A non-String column is refused.
 
 | Command | Description | Polars Operator | Example |
 |---------|-------------|-----------------|---------|
-| `contains` | String contains substring (case-sensitive) | `str.contains()` | `contains-name-john` |
-| `startswith` | String starts with prefix (case-sensitive) | `str.starts_with()` | `startswith-code-us` |
-| `endswith` | String ends with suffix (case-sensitive) | `str.ends_with()` | `endswith-file-csv` |
+| `contains` | Text contains the substring | `str.contains_literal()` | `contains-name-john` |
+| `starts_with` | Text starts with the prefix | `str.starts_with()` | `starts_with-code-us` |
+| `ends_with` | Text ends with the suffix | `str.ends_with()` | `ends_with-file-csv-t` (case-sensitive) |
 
-#### Null Checks (1 argument: column)
+#### Membership and Null Checks
 
-| Command | Description | Polars Operator | Example |
-|---------|-------------|-----------------|---------|
-| `isnull` | Filter rows where column is null | `is_null()` | `isnull-email` |
-| `notnull` | Filter rows where column is not null | `is_not_null()` | `notnull-phone` |
+| Command | Arguments | Description | Polars Operator | Example |
+|---------|-----------|-------------|-----------------|---------|
+| `is_in` | `column-value…` (variadic) | equals one of the values, each parsed to the column's type; an empty list is refused | OR of `==` | `is_in-region-west-east` |
+| `is_null` | `column` | the column is null | `is_null()` | `is_null-email` |
+| `is_not_null` | `column` | the column is not null | `is_not_null()` | `is_not_null-phone` |
 
 #### Min/Max Row Filters (1 argument: column)
 
@@ -167,9 +211,11 @@ Filter rows where condition is true. Can be chained for AND logic.
 
 | Command | Arguments | Description | Polars Method |
 |---------|-----------|-------------|---------------|
-| `sort` | `column-[ascending_flag]` | Sort by column (ascending by default) | `df.sort()` |
+| `sort` | `column-[ascending]-[nulls_last]` | Stable sort by one column: `ascending: bool = true`, `nulls_last: bool = false` (nulls first, as polars) | `lazy().sort(.., SortMultipleOptions::with_order_descending(!ascending).with_nulls_last(..).with_maintain_order(true))` |
 
-**Example**: `sort-date` or `sort-date-f` 
+**Example**: `sort-date`, `sort-date-f` (descending), `sort-date-t-t` (nulls last). The flags are
+booleans, so `t`/`f`/`true`/`false` all parse; an empty flag, accepted before 2026-10-13, is now an
+error. Stable (`maintain_order`), so `ns-pl/sort` and `ns-rec/sort` give the same order with ties.
 
 ### Aggregations - Full DataFrame
 
@@ -222,7 +268,8 @@ Out of scope.
 | `nrows` | Get row count | `df.height()` |
 | `ncols` | Get column count | `df.width()` |
 
-**Example**: `shape` returns dictionary with nrows and ncols.
+**Example**: `shape` returns dictionary with nrows and ncols. All three counts are `i64` (they were
+`i32` before 2026-10-13; the JSON is the same).
 
 ### String Operations (1-3 arguments)
 
@@ -586,9 +633,9 @@ Support ISO 8601 and compact formats:
 - **Whitespace preserved** (no trimming for string values)
 - **Example**: `eq-status-completed` matches "completed" but not "Completed" or " completed"
 
-**String predicates** (`contains`, `startswith`, `endswith`):
-- Also case-sensitive
-- `contains-name-john` matches "john" in "johnny" but not "John"
+**String predicates** (`contains`, `starts_with`, `ends_with`):
+- Case-**insensitive** unless `case_sensitive` (the third argument) is `t`
+- `contains-name-john` matches "John" and "johnny"; `contains-name-john-t` matches only "johnny"
 
 #### Boolean Columns
 
@@ -611,8 +658,8 @@ Accept multiple representations (case-insensitive):
 
 - **Nulls are filtered out** by comparison operators (standard SQL behavior)
 - `gt-amount-1000` on a column with nulls: nulls never match the condition
-- To explicitly check for nulls, use `isnull-column` or `notnull-column`
-- **Recommended pattern** for data quality: `notnull-amount/gt-amount-1000`
+- To explicitly check for nulls, use `is_null-column` or `is_not_null-column`
+- **Recommended pattern** for data quality: `is_not_null-amount/gt-amount-1000`
 
 ### Edge Cases & Error Handling
 
@@ -671,7 +718,7 @@ Accept multiple representations (case-insensitive):
 **Partial matches**:
 - `eq`, `ne`: exact match only
 - `contains`: substring match
-- `startswith`, `endswith`: prefix/suffix match
+- `starts_with`, `ends_with`: prefix/suffix match
 
 #### Numeric Edge Cases
 
@@ -856,6 +903,8 @@ To minimize dependencies and enable incremental testing:
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-14 | §Inputs, runtime: lazy commands collect through `collect_on_any_runtime`, so `ns-pl` works on a current-thread runtime. | `POLARS-COLLECT-PANICS-ON-CURRENT-THREAD-RUNTIME` |
+| 2026-10-13 | Inputs (record views accepted, sources refused) and runtime note; polars-first conventions table with pandas; `sort` takes `ascending: bool`, `nulls_last` and is stable; implemented string predicates (`starts_with`, `ends_with`, `contains`, case-insensitive by default), `is_in`, `is_null`, `is_not_null` replace the planned `startswith` / `isnull` / `notnull`; counts are `i64`. Only these sections were checked against the code. | `design/record-filter-commands/` |
 | 2026-10-10 | `head` is an alias of `slice` (`offset = 0`) rather than its own implementation; the implementation-pattern example uses `tail`, which still is one. Only the slicing rows were checked against the code. | phase-5, `design/command-alias-contract/` |
 | 2026-09-04 | Qualified every complete Polars resource pipeline with `ns-pl` and documented the namespace selection rule. | `POLARS-DOC-EXAMPLES-OMIT-NAMESPACE` |
 | 2026-03-02 | Present at repository import; content unchanged since. Not reviewed against the implementation. | migration |

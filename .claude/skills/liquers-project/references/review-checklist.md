@@ -24,7 +24,10 @@ that does not apply is skipped, not padded.
   non-goals are stated.
 - [ ] Overlap triage done (`issue-triage.md`, `overlap.md`). No existing design already covers this,
   and weak overlaps are listed as dependencies.
-- [ ] Crate placement respects the dependency flow in `CLAUDE.md`.
+- [ ] Crate placement respects the dependency flow in `CLAUDE.md` and the crate roles in
+  `specs/reference/VISION.md`.
+- [ ] The design serves a use case or vision point in `specs/reference/VISION.md` and crosses no
+  non-goal; a conflict is a finding to raise, not a reason to edit that document.
 - [ ] Documentation intent answers all four: reference, guide, other documents, documents to update.
 
 ## Phase 2: architecture
@@ -39,6 +42,9 @@ that does not apply is skipped, not padded.
   serialization, `TypeInfo`).
 - [ ] Commands are given as `register_command!` lines; a signature change plans the
   `specs/command_registry.yaml` regeneration.
+- [ ] Command signatures follow `specs/guides/COMMAND_REGISTRATION_GUIDE.md`; in particular, an
+  argument that depends on location is a default link (`query "-R-key/."`), never read from
+  `Context` or inferred from the input.
 - [ ] Documentation architecture gives exact paths and changes, and the proposed `affects_docs`.
 - [ ] The risk table is filled in, with no category left empty without a reason.
 

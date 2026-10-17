@@ -9,7 +9,10 @@ use std::sync::{Arc, RwLock};
 use async_trait::async_trait;
 use nom::Err;
 
-use crate::command_metadata::{self, CommandKey, CommandMetadata, CommandMetadataRegistry};
+use crate::command_metadata::{
+    self, CommandKey, CommandMetadata, CommandMetadataRegistry, NON_EXECUTABLE_REALMS,
+};
+use crate::store::realm::{register_builtin_store_config, StoreConfigFunctions};
 use crate::context::{Context, Environment};
 use crate::error::{Error, ErrorType};
 use crate::plan::{ParameterValue, ResolvedParameterValues};
@@ -620,15 +623,27 @@ pub struct CommandRegistry<E: Environment> {
     executors: HashMap<CommandKey, Arc<Box<SyncExecutorFn<E>>>>,
     async_executors: HashMap<CommandKey, Arc<Box<AsyncExecutorFn<E>>>>,
     pub command_metadata_registry: CommandMetadataRegistry,
+    /// The builders of the `store_config` entries declared in
+    /// [`Self::command_metadata_registry`]. Data only: those entries are compiled by the store
+    /// builder and never executed (`specs/design/store-adapters/`).
+    pub store_config: StoreConfigFunctions,
 }
 
 impl<E: Environment> CommandRegistry<E> {
     pub fn new() -> Self {
+        let mut command_metadata_registry = CommandMetadataRegistry::new();
+        let mut store_config = StoreConfigFunctions::new();
+        // Constant registrations; `realm::tests` calls the function directly and would fail.
+        if let Err(error) =
+            register_builtin_store_config(&mut command_metadata_registry, &mut store_config)
+        {
+            eprintln!("store_config: built-in registration failed: {error}");
+        }
         CommandRegistry {
-            //executors: HashMap::new(),
             executors: HashMap::new(),
             async_executors: HashMap::new(),
-            command_metadata_registry: CommandMetadataRegistry::new(),
+            command_metadata_registry,
+            store_config,
         }
     }
     pub fn register_command<K, F>(&mut self, key: K, f: F) -> Result<&mut CommandMetadata, Error>
@@ -789,6 +804,17 @@ impl<E: Environment> CommandRegistry<E> {
     }
 }
 
+/// Refuses a command of a realm whose entries are declared but never executed (`store_config`).
+fn refuse_non_executable_realm(key: &CommandKey) -> Result<(), Error> {
+    if NON_EXECUTABLE_REALMS.contains(&key.realm.as_str()) {
+        return Err(Error::not_supported(format!(
+            "Command '{}' belongs to realm '{}', which is configuration and cannot be executed",
+            key.name, key.realm
+        )));
+    }
+    Ok(())
+}
+
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 impl<E: Environment> CommandExecutor<E> for CommandRegistry<E> {
@@ -799,6 +825,7 @@ impl<E: Environment> CommandExecutor<E> for CommandRegistry<E> {
         arguments: CommandArguments<E>,
         context: Context<E>,
     ) -> Result<E::Value, Error> {
+        refuse_non_executable_realm(key)?;
         if let Some(command) = self.executors.get(&key) {
             command(state, arguments, context)
         } else {
@@ -818,6 +845,7 @@ impl<E: Environment> CommandExecutor<E> for CommandRegistry<E> {
         arguments: CommandArguments<E>,
         context: Context<E>,
     ) -> Result<E::Value, Error> {
+        refuse_non_executable_realm(key)?;
         if let Some(command) = self.async_executors.get(&key) {
             command(state, arguments.clone(), context).await
         } else {
@@ -837,6 +865,17 @@ mod tests {
     use crate::state::State;
     use crate::value::Value;
     use liquers_macro::*;
+
+    /// AC-9: the realm `store_config` is declared in every registry and never executed.
+    #[test]
+    fn executor_refuses_the_store_config_realm() {
+        let registry = CommandRegistry::<SimpleEnvironment<Value>>::new();
+        let defaults = CommandKey::new("store_config", "", "defaults");
+        assert!(registry.command_metadata_registry.get(defaults.clone()).is_some());
+        let refused = refuse_non_executable_realm(&defaults);
+        assert!(matches!(refused, Err(e) if e.error_type == ErrorType::NotSupported));
+        assert!(refuse_non_executable_realm(&CommandKey::new("", "", "defaults")).is_ok());
+    }
 
     /// Tests for `CommandArguments::get_multiple`, the retrieval half of variadic arguments.
     ///

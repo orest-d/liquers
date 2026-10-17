@@ -18,6 +18,18 @@
 //! | `set` / `setMetadata` / `remove` / `removedir` / `makedir` | no | `KeyNotSupported` |
 //! | `contains(key)` / `isDir(key)` / `listdir(key)` | no | `KeyNotSupported` |
 //! | `isSupported(key)` → bool (**sync**) | no | every key under the prefix is supported |
+//! | `getData` / `setData` / `removeData` / `listdirData` / `dataFacts` | no, all five or none | no data-only access |
+//! | `renameData(from, to)`; property `atomicWrite: true` | no | no rename; writes not atomic |
+//! | `getStoredMetadata(key)` → object, or `null` when it stores none | no | `KeyNotSupported` |
+//!
+//! **Data-only access** (`specs/design/store-adapters/`) is what a `metadata` section in the
+//! store's configuration builds on: the configured handlers and storage model run in Rust, around
+//! this store, and reach it only through these methods. They never touch metadata. `dataFacts`
+//! returns `{size, modified?, precision?, etag?}` or `null` for an absent object, with `modified`
+//! an RFC 3339 string and `precision` one of `seconds`, `millis`, `micros`, `nanos` (default:
+//! the precision the string is written in). `getStoredMetadata` is needed only by the `native`
+//! storage model. An object without all five data methods reports no data-only access, and a
+//! `metadata` section on its mount is refused when the store is built.
 //!
 //! **Absent optional methods produce an error rather than the trait's default.** `AsyncStore`
 //! defaults `contains` to `false` and `listdir` to `[]` — permissive values that make a
@@ -46,9 +58,9 @@
 
 use async_trait::async_trait;
 use liquers_core::error::{Error, ErrorType};
-use liquers_core::metadata::Metadata;
+use liquers_core::metadata::{BackendTime, Metadata, TimePrecision};
 use liquers_core::query::Key;
-use liquers_core::store::AsyncStore;
+use liquers_core::store::{AsyncStore, DataCapabilities, DataFacts};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::JsFuture;
@@ -70,6 +82,15 @@ struct JsStoreMethods {
     listdir: Option<js_sys::Function>,
     makedir: Option<js_sys::Function>,
     is_supported: Option<js_sys::Function>,
+    get_data: Option<js_sys::Function>,
+    set_data: Option<js_sys::Function>,
+    remove_data: Option<js_sys::Function>,
+    rename_data: Option<js_sys::Function>,
+    listdir_data: Option<js_sys::Function>,
+    data_facts: Option<js_sys::Function>,
+    get_stored_metadata: Option<js_sys::Function>,
+    /// The object's `atomicWrite` property, read once with the methods.
+    atomic_write: bool,
 }
 
 /// Adapts a JavaScript object implementing the store protocol to [`AsyncStore`].
@@ -110,6 +131,16 @@ impl JsStore {
             listdir: method(&object, "listdir"),
             makedir: method(&object, "makedir"),
             is_supported: method(&object, "isSupported"),
+            get_data: method(&object, "getData"),
+            set_data: method(&object, "setData"),
+            remove_data: method(&object, "removeData"),
+            rename_data: method(&object, "renameData"),
+            listdir_data: method(&object, "listdirData"),
+            data_facts: method(&object, "dataFacts"),
+            get_stored_metadata: method(&object, "getStoredMetadata"),
+            atomic_write: js_sys::Reflect::get(&object, &JsValue::from_str("atomicWrite"))
+                .map(|v| v.as_bool() == Some(true))
+                .unwrap_or(false),
         };
 
         Ok(Self {
@@ -176,6 +207,63 @@ impl JsStore {
 
     fn truthy(value: &JsValue) -> bool {
         value.as_bool().unwrap_or_else(|| value.is_truthy())
+    }
+
+    /// True when the object offers the five methods data-only access needs.
+    fn has_data_access(&self) -> bool {
+        self.methods.get_data.is_some()
+            && self.methods.set_data.is_some()
+            && self.methods.remove_data.is_some()
+            && self.methods.listdir_data.is_some()
+            && self.methods.data_facts.is_some()
+    }
+
+    /// A data-only method, or the refusal of a store without data-only access.
+    fn data_method<'a>(
+        &self,
+        function: &'a Option<js_sys::Function>,
+        key: &Key,
+        name: &str,
+    ) -> Result<&'a js_sys::Function, Error> {
+        match function {
+            Some(function) => Ok(function),
+            None => Err(Error::not_supported(format!(
+                "Store '{}' does not offer data-only access: its object has no `{name}` method \
+                 (key '{key}')",
+                self.store_name()
+            ))),
+        }
+    }
+
+    /// `dataFacts`' answer as [`DataFacts`].
+    fn facts_from_js(&self, key: &Key, value: &JsValue) -> Result<DataFacts, Error> {
+        let field = |name: &str| js_sys::Reflect::get(value, &JsValue::from_str(name)).ok();
+        let size = field("size").and_then(|v| v.as_f64()).ok_or_else(|| {
+            Error::key_read_error(
+                key,
+                &self.store_name(),
+                &"`dataFacts` must return an object with a numeric `size`",
+            )
+        })?;
+        let precision = match field("precision").and_then(|v| v.as_string()) {
+            Some(name) => Some(TimePrecision::from_name(&name).ok_or_else(|| {
+                Error::key_read_error(
+                    key,
+                    &self.store_name(),
+                    &format!("`dataFacts` precision '{name}' is not seconds, millis, micros or nanos"),
+                )
+            })?),
+            None => None,
+        };
+        let modified = match field("modified").and_then(|v| v.as_string()) {
+            Some(text) => Some(BackendTime::parse(&text, precision)?),
+            None => None,
+        };
+        Ok(DataFacts {
+            size: size as u64,
+            modified,
+            etag: field("etag").and_then(|v| v.as_string()),
+        })
     }
 }
 
@@ -348,6 +436,97 @@ impl AsyncStore for JsStore {
             .iter()
             .filter_map(|name| name.as_string())
             .collect())
+    }
+
+    async fn get_data(&self, key: &Key) -> Result<Vec<u8>, Error> {
+        check_key(key, &self.store_name())?;
+        let function = self.data_method(&self.methods.get_data, key, "getData")?;
+        let value = self.call(function, &self.args1(key)).await?;
+        if value.is_null() || value.is_undefined() {
+            return Err(Error::key_not_found(key));
+        }
+        self.bytes_from_js(key, &value)
+    }
+
+    async fn set_data(&self, key: &Key, data: &[u8]) -> Result<(), Error> {
+        check_key(key, &self.store_name())?;
+        let function = self.data_method(&self.methods.set_data, key, "setData")?;
+        let args = self.args1(key);
+        args.push(&js_sys::Uint8Array::from(data).into());
+        self.call(function, &args).await.map(|_| ())
+    }
+
+    async fn remove_data(&self, key: &Key) -> Result<(), Error> {
+        check_key(key, &self.store_name())?;
+        let function = self.data_method(&self.methods.remove_data, key, "removeData")?;
+        self.call(function, &self.args1(key)).await.map(|_| ())
+    }
+
+    async fn rename_data(&self, from: &Key, to: &Key) -> Result<(), Error> {
+        check_key(from, &self.store_name())?;
+        check_key(to, &self.store_name())?;
+        let function = self.data_method(&self.methods.rename_data, from, "renameData")?;
+        let args = self.args1(from);
+        args.push(&JsValue::from_str(&to.encode()));
+        self.call(function, &args).await.map(|_| ())
+    }
+
+    async fn listdir_data(&self, key: &Key) -> Result<Vec<String>, Error> {
+        check_key(key, &self.store_name())?;
+        let function = self.data_method(&self.methods.listdir_data, key, "listdirData")?;
+        let value = self.call(function, &self.args1(key)).await?;
+        if value.is_null() || value.is_undefined() {
+            return Ok(Vec::new());
+        }
+        if !js_sys::Array::is_array(&value) {
+            return Err(Error::key_read_error(
+                key,
+                &self.store_name(),
+                &"`listdirData` must return an array of names",
+            ));
+        }
+        Ok(js_sys::Array::from(&value)
+            .iter()
+            .filter_map(|name| name.as_string())
+            .collect())
+    }
+
+    async fn data_facts(&self, key: &Key) -> Result<Option<DataFacts>, Error> {
+        check_key(key, &self.store_name())?;
+        let function = self.data_method(&self.methods.data_facts, key, "dataFacts")?;
+        let value = self.call(function, &self.args1(key)).await?;
+        if value.is_null() || value.is_undefined() {
+            return Ok(None);
+        }
+        self.facts_from_js(key, &value).map(Some)
+    }
+
+    async fn get_stored_metadata(&self, key: &Key) -> Result<Option<Metadata>, Error> {
+        check_key(key, &self.store_name())?;
+        let function = self
+            .methods
+            .get_stored_metadata
+            .as_ref()
+            .ok_or_else(|| self.missing(key, "getStoredMetadata"))?;
+        let value = self.call(function, &self.args1(key)).await?;
+        if value.is_null() || value.is_undefined() {
+            return Ok(None);
+        }
+        self.metadata_from_js(key, &value).map(Some)
+    }
+
+    /// From the methods found at construction: data access needs all five data methods.
+    fn data_capabilities(&self) -> DataCapabilities {
+        if !self.has_data_access() {
+            return DataCapabilities::default();
+        }
+        DataCapabilities {
+            data_access: true,
+            atomic_write: self.methods.atomic_write,
+            rename: self.methods.rename_data.is_some(),
+            modified_time: false,
+            etag: false,
+        }
     }
 
     /// Must be overridden: the trait default is `false`, and `AsyncStoreRouter` consults it.

@@ -2,7 +2,7 @@
 id: RECORD-AND-POLARS-COMMANDS-NOT-INTEROPERABLE
 kind: feature
 title: Record and polars commands differ in names and inputs, so a query cannot move between them
-status: draft
+status: closed
 priority: P2
 complexity: L
 area: [records]
@@ -10,6 +10,25 @@ design: record-filter-commands
 created: 2026-10-11
 github:
 ---
+## Resolution
+
+Resolved by `specs/design/record-filter-commands/`, implemented 2026-10-13 on branch
+`claude/kind-goldberg-9oxjza`. Against the four expected behaviours:
+
+1. **Same names, same meaning.** `ns-rec` uses `ns-pl`'s names and arguments (polars first;
+   `conventions.md`). `rec/schema` was added, with `records_schema` as an alias; `pl/schema` keeps its
+   polars form, by decision. The deliberate differences are tabled in
+   `specs/reference/RECORD_STREAMS.md` §"`ns-rec` commands". `records_table_ops.rs`
+   `shared_commands_have_the_same_arguments` checks every shared command.
+2. **Each accepts the other's values.** `ns-pl` accepts a `RecordView` and refuses a source, naming
+   `ns-rec/materialize`; `ns-rec` accepts a `polars.DataFrame` (`pl_commands_accept_a_record_view`,
+   `rec_commands_accept_a_dataframe`).
+3. **`ns-rec`'s gaps are filled:** filters, `sort`, `tail`, `drop_columns`, `nrows`, `ncols`,
+   `shape`, `count`.
+4. **`RecordSource` as a `LazyFrame`: not worth it at polars 0.55**, because `AnonymousScan` is
+   synchronous and returns one whole frame. Laziness lives in `ns-rec` instead
+   (`lazyframe-investigation.md`).
+
 ## Problem
 
 `ns-rec` (records, `liquers-lib/src/records/commands.rs`) and `ns-pl` (polars DataFrames,

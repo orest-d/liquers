@@ -258,8 +258,13 @@ fn apply_store(env: &mut WebEnvironment) -> Result<(), Error> {
     for (name, object) in objects {
         factory.register_object(&name, object);
     }
-    let router = crate::store::builder::build_router(&config, factory)?;
-    env.with_async_store(Box::new(router));
+    let store = crate::store::builder::build_store(
+        &config,
+        factory,
+        env.command_registry.command_metadata_registry.clone(),
+        env.command_registry.store_config.clone(),
+    )?;
+    env.with_async_store(Box::new(liquers_core::store::SharedStore(store)));
     Ok(())
 }
 
@@ -791,8 +796,8 @@ impl LiquersEnvironment {
         envref
             .0
             .get_command_metadata_registry()
-            .commands
-            .iter()
+            // Declared-only realms (`store_config`) are configuration, not runnable commands.
+            .executable_commands()
             .map(|c| JsValue::from_str(&c.name))
             .collect()
     }

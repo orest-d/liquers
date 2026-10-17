@@ -1,7 +1,8 @@
 # Phase 1 template: high-level design
 
 **What and why.** One page, excluding the problem example and the readiness section. No code
-structure; that is Phase 2. File: `specs/design/<slug>/phase1-high-level-design.md`. For a compact
+structure; that is Phase 2. Background: `specs/reference/VISION.md` (purpose, vision, strategy,
+crate roles) — the Purpose should connect to a use case or vision point there. File: `specs/design/<slug>/phase1-high-level-design.md`. For a compact
 design use [`compact-design-template.md`](compact-design-template.md) instead.
 
 ```markdown

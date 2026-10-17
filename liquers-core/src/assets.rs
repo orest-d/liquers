@@ -2213,6 +2213,21 @@ impl<E: Environment> Clone for WeakAssetRef<E> {
     }
 }
 
+/// Upserts `dependencies` into `metadata`, linearly: one index for the whole batch.
+///
+/// Legacy metadata other than `null` cannot hold records, and is left as it is, as
+/// `Metadata::add_dependency` leaves it.
+fn merge_dependencies(metadata: &mut Metadata, dependencies: Vec<DependencyRecord>) {
+    match metadata {
+        Metadata::MetadataRecord(record) => record.merge_dependencies(dependencies),
+        Metadata::LegacyMetadata(_) => {
+            for dependency in dependencies {
+                let _ = metadata.add_dependency(dependency);
+            }
+        }
+    }
+}
+
 impl<E: Environment> AssetRef<E> {
     /// Enter the canonical dependency-waiting status for this asset.
     ///
@@ -3811,7 +3826,19 @@ impl<E: Environment> AssetRef<E> {
         }
         let context_for_deps = context.clone(); // shares pending_dependencies Arc
         eprintln!("Applying recipe");
-        let res = envref.apply_recipe(input_state, recipe, context).await?;
+        let res = match envref.apply_recipe(input_state, recipe, context).await {
+            Ok(res) => res,
+            Err(error) => {
+                // A failed evaluation keeps what it read, so a caller that recovers the failure
+                // (`Context::apply_ad_hoc` under a template's `expand` mode) can pass it on.
+                let observed_deps = context_for_deps.take_pending_dependencies().await;
+                let mut lock = self.data.write().await;
+                for dep in observed_deps {
+                    let _ = lock.metadata.add_dependency(dep);
+                }
+                return Err(error);
+            }
+        };
         //eprintln!("Recipe evaluated, result: {:?}", &res);
 
         // Observed dependencies travel back as data, to be merged into the live metadata by
@@ -3848,12 +3875,31 @@ impl<E: Environment> AssetRef<E> {
     ///
     /// `payload` carries per-call caller context. It is deliberately not part of an asset's
     /// identity, so an asset evaluated with one is never shared, reused, or persisted as loadable.
+    ///
+    /// **A panic is an error.** A command that panics (a bug in it, an `unwrap` in a library it
+    /// calls) yields `Err` here, naming the panic, so both run harnesses take their ordinary error
+    /// path: the asset becomes `Error` and its waiters are released. Unwinding past the harness
+    /// would instead leave the run claim armed, and its `Drop` repair would re-submit the asset to
+    /// run — and panic — again, forever (`COMMAND-PANIC-HANGS-EVALUATION`). Where panics abort
+    /// (wasm32 by default) there is nothing to catch, and this changes nothing.
     async fn compute(
         &self,
         payload: Option<E::Payload>,
     ) -> Result<RecipeEvaluation<E::Value>, Error> {
-        self.resolve_volatility_before_evaluation().await;
-        self.evaluate_recipe_outcome(payload).await
+        use futures::FutureExt;
+        let body = async {
+            self.resolve_volatility_before_evaluation().await;
+            self.evaluate_recipe_outcome(payload).await
+        };
+        // AssertUnwindSafe: after a panic the evaluation's partial state is discarded — the asset
+        // is failed through the same path as any other error — so no broken invariant is observed.
+        match std::panic::AssertUnwindSafe(body).catch_unwind().await {
+            Ok(result) => result,
+            Err(panic) => Err(Error::general_error(format!(
+                "evaluation panicked: {}",
+                panic_message(panic.as_ref())
+            ))),
+        }
     }
 
     /// The evaluation body without the run harness, for tests that evaluate an asset directly.
@@ -3890,9 +3936,7 @@ impl<E: Environment> AssetRef<E> {
                     lock.metadata
                         .with_type_identifier(value.identifier().to_string())
                         .with_type_name(value.type_name().to_string());
-                    for dep in dependencies {
-                        let _ = lock.metadata.add_dependency(dep);
-                    }
+                    merge_dependencies(&mut lock.metadata, dependencies);
                     lock.data = Some(value);
                     // Every other value-installing path clears this (`set_value`, `set_state`),
                     // and this one is about to write it. Leaving a stale binary here would let
@@ -5624,6 +5668,20 @@ fn adopt_external_change(
     }
 }
 
+/// The version-verification policy for `key`: the store's, when the mount configured one (a
+/// `content_hash` handler, `specs/design/store-adapters/`), otherwise the manager's.
+fn effective_version_verification<E, M>(manager: &M, key: &Key) -> VersionVerification
+where
+    E: Environment,
+    M: AssetManager<E> + ?Sized,
+{
+    manager
+        .get_envref()
+        .get_async_store()
+        .version_verification(key)
+        .unwrap_or_else(|| manager.version_verification())
+}
+
 /// Re-hash `bytes` against the version recorded in `metadata` and decide what to do about a
 /// mismatch. `Ok(None)`: verified, not checked, or verification is `Off`. Changes nothing.
 async fn decide_external_change<E, M>(
@@ -5636,7 +5694,7 @@ where
     E: Environment,
     M: AssetManager<E> + ?Sized,
 {
-    match manager.version_verification() {
+    match effective_version_verification(manager, key) {
         VersionVerification::Off => return Ok(None),
         VersionVerification::OnRead => {}
     }
@@ -5907,6 +5965,9 @@ pub trait AssetManager<E: Environment>:
     /// Evaluate an ad-hoc asset for a command of `parent` (`Context::apply`), inside `parent`'s
     /// evaluation session, so the dependencies it resolves are the ones `parent`'s evaluation
     /// uses.
+    ///
+    /// The built-in managers return the asset even when its evaluation failed: the failure is
+    /// recorded in it, with the dependencies it read, which `Context::apply_ad_hoc` passes on.
     ///
     /// Default: [`Self::apply`], which evaluates it in a session of its own.
     async fn apply_for(
@@ -7213,11 +7274,9 @@ pub trait AssetManager<E: Environment>:
         mode: AuditMode,
     ) -> Result<VersionVerificationReport, Error> {
         let mut report = VersionVerificationReport::default();
-        match self.version_verification() {
-            VersionVerification::Off => return Ok(report),
-            VersionVerification::OnRead => {}
-        }
         let store = self.get_envref().get_async_store();
+        // A mount may configure its own policy, so the manager's `Off` cannot end the sweep here;
+        // each key is checked against its own policy below.
         let keys = if store.is_dir(key).await? {
             if deep {
                 store.listdir_keys_deep(key).await?
@@ -7230,6 +7289,10 @@ pub trait AssetManager<E: Environment>:
         for key in keys {
             if store.is_dir(&key).await? {
                 continue;
+            }
+            match effective_version_verification(self, &key) {
+                VersionVerification::Off => continue,
+                VersionVerification::OnRead => {}
             }
             if !store.contains(&key).await? {
                 report.skipped.push(key);
@@ -7545,8 +7608,8 @@ impl<E: Environment> DefaultAssetManager<E> {
     /// stack, so evaluation depth does not grow with the chain
     /// (`dependency-resolved-once-per-evaluation`). If the dependent is dropped while waiting, the
     /// child is detached and finishes on its own, instead of being interrupted and re-parked. A
-    /// panic in the run is ignored as an inline run's result was; the claim's `Drop` re-parks the
-    /// asset. Like a job started by `JobQueue::try_to_start_immediately`, the child's undrained
+    /// panicking command does not unwind here — [`AssetRef::compute`] turns it into the asset's
+    /// error — so the claim's `Drop` re-park covers only a panic in the harness itself. Like a job started by `JobQueue::try_to_start_immediately`, the child's undrained
     /// local dependencies are re-parked when it finishes.
     async fn run_claimed_in_own_task(&self, dependency: AssetRef<E>, claim: RunClaim<E>) {
         let queue = self.job_queue.clone();
@@ -8553,7 +8616,8 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         if let Some(session) = parent.evaluation_session().await {
             asset_ref.adopt_evaluation_session(&session).await;
         }
-        asset_ref.run(payload).await?;
+        // A failure is recorded in the asset (see the trait method).
+        let _ = asset_ref.run(payload).await;
         Ok(asset_ref)
     }
 
@@ -8949,6 +9013,17 @@ impl<E: Environment> DependencyManagerAccess<E> for DefaultAssetManager<E> {
 impl<E: Environment> KeyMutationAccess for DefaultAssetManager<E> {
     fn key_mutation_lock(&self) -> &tokio::sync::Mutex<()> {
         &self.key_mutation_lock
+    }
+}
+
+/// The text of a panic payload: the `&str` or `String` a `panic!` carries, else a placeholder.
+fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
+    if let Some(text) = payload.downcast_ref::<&str>() {
+        (*text).to_string()
+    } else if let Some(text) = payload.downcast_ref::<String>() {
+        text.clone()
+    } else {
+        "a non-text panic payload".to_string()
     }
 }
 
@@ -10064,7 +10139,8 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
         if let Some(session) = parent.evaluation_session().await {
             asset_ref.adopt_evaluation_session(&session).await;
         }
-        asset_ref.run_inline(payload).await?;
+        // A failure is recorded in the asset (see the trait method).
+        let _ = asset_ref.run_inline(payload).await;
         Ok(asset_ref)
     }
 

@@ -151,7 +151,7 @@ pub(crate) fn metadata_to_js_value(
     })
 }
 
-pub use builder::{build_router, WebStoreFactory};
+pub use builder::{build_router, build_store, WebStoreFactory};
 pub use fetch::FetchStore;
 pub use js_store::JsStore;
 pub use key_guard::check_key;

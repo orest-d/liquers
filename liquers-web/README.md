@@ -171,6 +171,56 @@ env.registerStoreObject('mine', {
 });
 ```
 
+### Read-only stores and metadata sections
+
+Any entry may carry `read_only: true`, which refuses every write with `not_supported` before it
+reaches the backend (HTTP 501 through the native server), and a
+`metadata` section, which decides how the store's metadata is stored and shaped
+(`specs/reference/STORE_CONFIG_FSD.md`, "Metadata section"). `store.isReadOnly()` reports whether
+every write is refused.
+
+```js
+await env.configureStore({
+  stores: [
+    { type: 'js', prefix: 'notes', config: { object: 'notes' },
+      metadata: { storage: 'grouped', on_read: 'media_type-fill/file_facts' } },
+  ],
+});
+```
+
+The section runs in Rust, around the store, and reaches a page-implemented store only through its
+**data-only methods**: `getData`, `setData`, `removeData`, `listdirData` and `dataFacts`, all five
+or none, plus optional `renameData` and an `atomicWrite: true` property. `dataFacts` returns
+`{ size, modified?, precision?, etag? }` (or `null` when absent), `modified` as an RFC 3339 string.
+`getStoredMetadata` is needed only by the default `native` storage model. A `metadata` section on
+an object without the five methods is refused when the store is configured, naming the entry.
+
+The built-in stores offer data-only access too, so they take a `metadata` section with no page
+code:
+
+- **`localstorage`** — all of it. A `per_entry` or `grouped` record is one more entry in the
+  namespace, and the default `native` model keeps the store's own metadata entry. Writes and
+  renames are atomic (one synchronous `setItem`; a rename has no interleaving point), and
+  `dataFacts` reports the size and an ETag (a hash of the stored entry) but no modification time,
+  because the store keeps none.
+- **`http`** — the read half. Reads, listing (the configured `keys`, raw) and facts (one `HEAD`:
+  `Content-Length`, `ETag`, `Last-Modified` at seconds precision, when the server sends them)
+  work, and the record `native` sees is the one derived from the response headers. A record file
+  the host serves — `a.txt.__metadata__` for `per_entry`, `__metadata__.json` for `grouped` —
+  must be listed in `keys` like any other. Every data write is refused, so pair the section with
+  `read_only: true`.
+
+```js
+await env.configureStore({
+  stores: [
+    { type: 'localstorage', prefix: 'local', config: { namespace: 'myapp' },
+      metadata: { storage: 'per_entry' } },
+    { type: 'http', prefix: 'data', read_only: true, metadata: { storage: 'grouped' },
+      config: { url_prefix: 'https://example.org/data/', keys: ['input.csv', '__metadata__.json'] } },
+  ],
+});
+```
+
 ## Known limitations
 
 **`-R/` queries do not evaluate in the browser yet.** The stores work and are reachable through

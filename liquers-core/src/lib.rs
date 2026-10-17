@@ -130,6 +130,7 @@ pub mod command_metadata;
 pub mod commands;
 pub mod assets;
 pub mod context;
+pub mod data_node;
 pub mod dependencies;
 pub mod entities;
 pub mod environment_builder;

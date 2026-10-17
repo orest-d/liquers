@@ -3,7 +3,7 @@ title: Command Design Guide
 kind: guide
 audience: internal
 area: [core/commands]
-reviewed: 2026-10-10
+reviewed: 2026-10-17
 ---
 # Command Design Guide
 
@@ -135,6 +135,12 @@ exact contract is [`reference/COMMAND_ALIASES.md`](../reference/COMMAND_ALIASES.
   `pycall` whose heads are the module, the function and how to pass the state. The declared
   command keeps its own name and arguments; the bridge stays one registered implementation.
 
+- **A template.** A command whose result is text assembled from other queries (a context pack, a
+  report) is an alias of `template/render` with the template as its head link: the template is
+  data, editable without a rebuild, and a dependency of every result
+  ([`TEMPLATE_GUIDE.md`](TEMPLATE_GUIDE.md) §3). Write it in Rust when it computes rather than
+  assembles.
+
 ### When not to
 
 - **The behaviour differs, not only the arguments.** `rec/head` materializes its rows into a batch;
@@ -186,6 +192,7 @@ output is not worth keeping*.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-17 | §Aliases: a template command (an alias of `template/render`) for text assembled from queries. | `design/liquers-mustache/` |
 | 2026-10-10 | New §Outputs not worth keeping: when to declare `cached: false` and when not; aliases inherit the target's flag. | phase-5, `design/plan-policy/` |
 | 2026-10-10 | New §Aliases: what an alias is, when to use one (convenience wrapper, bridge), when not to, and the design consequences. Introduction no longer limited to cancellation. | phase-5, `design/command-alias-contract/` |
 | 2026-10-09 | Created: cooperative cancellation — what `cancel()` guarantees, `is_cancelled` / `check_cancelled`, sync vs async commands, returning and propagating `Error::cancelled`, cascade through dependencies, testing. | phase-5, `design/asset-cancellation-outcome/` |

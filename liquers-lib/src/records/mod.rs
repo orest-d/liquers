@@ -17,6 +17,7 @@ use crate::value::{ExtValueInterface, Value};
 
 pub mod commands;
 pub mod convert;
+pub mod table_ops;
 #[cfg(feature = "polars")]
 pub mod polars;
 

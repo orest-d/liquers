@@ -3,7 +3,7 @@ title: Search
 kind: reference
 audience: internal
 area: [records, lib/commands]
-reviewed: 2026-10-11
+reviewed: 2026-10-17
 ---
 
 # Search
@@ -33,6 +33,13 @@ md_split(state, unit: String = "section" (section|line))
 
 `limit = 0`, `max_bytes = 0` and `max_entries = 0` mean no limit; negative values are errors.
 
+**`ns-rec/filter-<expr>`** is `search-<expr>` with `rank=false` and no limit, over any record input.
+The `ns-rec` single-column filters (`eq`, `starts_with`, `is_in`, `is_null`, …) build one node of
+this language in code — `SearchExpr::field(column, FieldTest::…)`, with the literal constructors
+`FieldTest::prefix` / `suffix` / `substring` (regex-escaped) — so nothing is parsed or escaped; they
+wrap it in `StrictPredicate`, which turns a missing column into an error instead of a warning
+([`RECORD_STREAMS.md`](RECORD_STREAMS.md) §"`ns-rec` commands").
+
 ## Inputs
 
 **`folder_of`** — the folder a state denotes (`catalog`, and the folder case of the others):
@@ -55,13 +62,44 @@ from `content` when present, otherwise from `read_text`.
 
 ## Non-evaluation
 
-Listings go through `AssetManager::listdir` and `get_asset_info`, which never start an asset, so a
-key only a recipe declares is listed with status `Recipe`. `read_text` reads **stored bytes only**:
+Listings go through `Context::record_listing` (the listing half of `-R-dir/<folder>`, built on
+`AssetManager::listdir`) and `get_asset_info`, which never start an asset, so a key only a recipe
+declares is listed with status `Recipe`. `read_text` reads **stored bytes only**:
 a non-directory entry whose status is `Ready`, `Source` or `Override` and whose media type is text
 (`text/*`, `application/json`, `application/x-yaml`, `application/x-toml`, `application/xml`, or a
 `+json` / `+xml` type; from `AssetInfo.media_type`, else the file extension). Bytes are cut at a
 UTF-8 boundary after `max_bytes`; non-UTF-8 bytes are not text. The only evaluation is of an
 explicit `Key` or `Query` value given to `search`.
+
+## Dependencies
+
+A result records what it read, so it is reused while that stays the same and recomputed when it
+changes through the asset manager (a write, `set_binary`, `set_state`, a removal):
+
+| Read | Recorded | Expires the result when |
+|---|---|---|
+| Each folder walked (`catalog`, and every command given a folder) | `-R-dir/<folder>` at its listing version (`Context::record_listing`) | an entry is added to or removed from that folder |
+| Each file a catalog lists, its text read or not | `-R/<key>` at `AssetManager::version` (metadata only), read before its info, so the recorded version is never newer than the columns | the file is written or removed |
+| Each file whose text is read (`read_text`) | `-R/<key>` at the version its bytes were read at: a live asset's bytes and version from one snapshot in memory (it may be `Ready` before its write reaches the store); otherwise from the store, read again if the version moved, at most three times, else recorded as unknown | as above |
+| An explicit `Key` or `Query` value given to `search` | its query, through `Context::get_dependency_state` | it is recomputed |
+
+A recipe-only entry records the version its metadata gives, and nothing evaluates it. Records
+reach a chain built on the command (`…/catalog-t-t/search-x`) through core: a non-keyed dependency
+hands its dependent the records its run added (`DEPENDENCIES_STATUS.md`, row `Evaluate(query)`), and
+a keyed result stores them, so a stored index is checked against them when it is loaded.
+
+Not covered: edits made behind the asset manager's back while it runs
+(`ASSET-MANAGER-CANNOT-BE-SYNCHRONIZED-WITH-THE-STORE`); a file written into a **new** subfolder
+(`NEW-FOLDER-WRITE-DOES-NOT-REFRESH-THE-PARENT-LISTING`); a recipe-only entry that later becomes
+`Ready` (a first registration is not a change); a write that lands between reading a version and
+recording it (`RUNTIME-DEPENDENCY-RECORD-AGAINST-SUPERSEDED-VERSION-IS-NOT-CHECKED`). Results stored
+before 2026-10-17 carry no records and are recomputed only once something else expires them.
+
+Cost (`design/search-read-dependencies/performance.md`): one version read per entry, one listing
+per folder. At 5 000 files (debug build, cold) a catalog takes about 1.5x its earlier time on a
+memory store and on a file store, where the version read is most of it
+(`SEARCH-CATALOG-READS-EACH-FILE-METADATA-TWICE`); the first load of a stored keyed index in a
+process reads the metadata of every file it recorded.
 
 ## Grammar
 
@@ -222,7 +260,8 @@ A `RecordSource` filtering an inner source lazily: each view passes through `fil
 (zero-copy), empty views are skipped, and the stream stops after `limit` rows — a stop part-way
 through a chunk cuts that view. The predicate is re-bound when a view's schema differs. `chunks`
 and `describe_chunk` describe the **unfiltered** input. `truncated()` is the inner value or a limit
-stop. Bind and evaluation warnings are kept; `warnings()` reads them.
+stop. Bind and evaluation warnings are kept; `warnings()` reads them. `ns-rec/head` over a source
+is a `FilteredSource` with `SearchExpr::always()` and `limit = n`.
 
 ## Errors and warnings
 
@@ -232,7 +271,7 @@ stop. Bind and evaluation warnings are kept; `warnings()` reads them.
 | The same in `search` | a warning; the words are searched |
 | Input that is not a folder (`catalog`) or not records (`field_extract`, `md_split`) | `Error::conversion_error_with_message` |
 | Explicit search field missing; ambiguous field name | `Error::general_error`, or `resolve_field`'s error |
-| Field test on a missing column | a warning; no match |
+| Field test on a missing column | a warning; no match (under `StrictPredicate`, as the `ns-rec` filters use: `Error::general_error` naming the available fields) |
 | Wildcard or regex on a non-Text column; nested field tests on a non-JSON column; unparseable compare value | `Error::general_error` naming the field and position |
 | Invalid cell in a JSON column | no match; one warning with the count |
 | Negative `limit` / `max_bytes` / `max_entries` | `Error::general_error` |
@@ -241,5 +280,7 @@ stop. Bind and evaluation warnings are kept; `warnings()` reads them.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-17 | `## Dependencies`: results record the folders and files they read and expire when those change; listings through `Context::record_listing`. | `design/search-read-dependencies/` |
+| 2026-10-13 | `ns-rec/filter` as the unranked form; programmatic `SearchExpr` / `FieldTest` constructors and `StrictPredicate` used by the `ns-rec` filters; `FilteredSource` behind `ns-rec/head`. | `design/record-filter-commands/` |
 | 2026-10-11 | `field_extract`: a file with none of the requested fields is dropped; same-name collisions keep the first and warn; integers above `i64::MAX` are UInt or Text, never rounded (PR review). | phase-5, `design/store-and-asset-search/` |
 | 2026-10-11 | Created with the `ns-search` commands and `liquers-records` search. | phase-5, `design/store-and-asset-search/` |

@@ -34,6 +34,27 @@
 //! It is also why `STORE06` has a real answer: there is no interleaving point, so concurrent
 //! writes serialize and the last one is intact rather than torn.
 //!
+//! # Data-only access
+//!
+//! The data-only methods of `AsyncStore` (`STORE_SEMANTICS.md` §11) work on the `d` entries alone,
+//! so a `localstorage` mount can take a `metadata` section: a `per_entry` or `grouped` record is
+//! then simply another `d` entry, and `native` storage reads the `m` entry through
+//! `get_stored_metadata`. No `m` entry is ever read, written or repaired by `get_data`, `set_data`,
+//! `remove_data`, `rename_data`, `listdir_data` or `data_facts`.
+//!
+//! What [`AsyncStore::data_capabilities`] claims, and why each is honest:
+//!
+//! - **`atomic_write`** — one `setItem` replaces one entry; a reader sees the old string or the
+//!   new one, never a mix.
+//! - **`rename`** — the copy and the removal run synchronously with no `.await` between them, so
+//!   no other code on the page can observe the store between the two steps. A browser crash
+//!   between them leaves the object at *both* keys, never at neither. (Another tab is not
+//!   observed at all; see the limitation below.)
+//! - **`etag`** — a 64-bit FNV-1a hash of the stored envelope, so any change of the bytes changes
+//!   it. This is what lets a metadata layer notice a same-size overwrite.
+//! - **no `modified_time`** — the store keeps no write time, and inventing one at read time would
+//!   make every read look like a change.
+//!
 //! # Known limitation
 //!
 //! A second tab writing the same namespace is not observed; this store's derived index goes stale
@@ -45,10 +66,10 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use async_trait::async_trait;
 use liquers_core::error::Error;
-use liquers_core::metadata::{Metadata, MetadataRecord};
+use liquers_core::metadata::Metadata;
 use liquers_core::parse::parse_key;
 use liquers_core::query::Key;
-use liquers_core::store::AsyncStore;
+use liquers_core::store::{AsyncStore, DataCapabilities, DataFacts};
 
 use crate::store::encoding::{decode_envelope, encode_envelope};
 use crate::store::key_guard::check_key;
@@ -349,6 +370,42 @@ impl LocalStorageStore {
     }
 }
 
+/// The number of bytes an envelope written by [`encode_envelope`] decodes to, without decoding it.
+///
+/// `None` for anything that is not a well-formed current envelope; the caller reports that as a
+/// read error, as [`decode_envelope`] would.
+fn envelope_data_len(envelope: &str) -> Option<u64> {
+    let bytes = envelope.as_bytes();
+    if bytes.len() < 2 || bytes[0] != b'1' {
+        return None;
+    }
+    let payload = &bytes[2..];
+    match crate::store::encoding::ByteEncoding::from_tag(bytes[1])? {
+        crate::store::encoding::ByteEncoding::Utf8 => Some(payload.len() as u64),
+        crate::store::encoding::ByteEncoding::Base64 => {
+            // Standard alphabet with padding: every 4 characters carry 3 bytes, less the padding.
+            if payload.len() % 4 != 0 {
+                return None;
+            }
+            let padding = payload.iter().rev().take_while(|b| **b == b'=').count();
+            if padding > 2 {
+                return None;
+            }
+            Some((payload.len() / 4 * 3 - padding) as u64)
+        }
+    }
+}
+
+/// A 64-bit FNV-1a hash of a stored entry, as a quoted hexadecimal ETag.
+fn envelope_etag(envelope: &str) -> String {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in envelope.as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    format!("\"{hash:016x}\"")
+}
+
 /// Records every ancestor edge of `key` in the directory index.
 fn index_key(dirs: &mut BTreeMap<Key, BTreeSet<String>>, key: &Key) {
     for depth in 0..key.len() {
@@ -578,6 +635,134 @@ impl AsyncStore for LocalStorageStore {
         );
         keys.insert(self.prefix.clone());
         Ok(keys.into_iter().collect())
+    }
+
+    // --- Data-only access (module documentation, "Data-only access") ------------------------
+
+    /// The `d` entry alone; `KeyNotFound` when there is none. The `m` entry is never read.
+    async fn get_data(&self, key: &Key) -> Result<Vec<u8>, Error> {
+        self.check(key)?;
+        let storage = self.storage()?;
+        let envelope = storage
+            .get_item(&self.entry_name(EntryKind::Data, key))
+            .ok()
+            .flatten()
+            .ok_or_else(|| Error::key_not_found(key))?;
+        decode_envelope(&envelope, key, &self.store_name())
+    }
+
+    /// Writes the `d` entry alone, inside the configured budget.
+    async fn set_data(&self, key: &Key, data: &[u8]) -> Result<(), Error> {
+        self.check(key)?;
+        let storage = self.storage()?;
+        self.put_all(
+            &storage,
+            key,
+            &[(self.entry_name(EntryKind::Data, key), encode_envelope(data))],
+        )?;
+        let mut state = self.state.borrow_mut();
+        state.keys.insert(key.clone());
+        index_key(&mut state.dirs, key);
+        Ok(())
+    }
+
+    /// Removes the `d` entry alone; absent is `Ok(())`. A key that keeps an `m` entry stays
+    /// enumerable (STORE_SEMANTICS §8), which the rescan works out from the entries themselves.
+    async fn remove_data(&self, key: &Key) -> Result<(), Error> {
+        self.check(key)?;
+        let storage = self.storage()?;
+        let name = self.entry_name(EntryKind::Data, key);
+        if storage.get_item(&name).ok().flatten().is_none() {
+            return Ok(());
+        }
+        self.drop_entry(&storage, &name);
+        self.rescan()
+    }
+
+    /// Copies the `d` entry verbatim (no re-encoding), then removes the source. Atomic as far as
+    /// the page can observe: there is no `.await` between the two steps. Neither key's `m` entry
+    /// moves.
+    async fn rename_data(&self, from: &Key, to: &Key) -> Result<(), Error> {
+        self.check(from)?;
+        self.check(to)?;
+        let storage = self.storage()?;
+        let from_name = self.entry_name(EntryKind::Data, from);
+        let envelope = storage
+            .get_item(&from_name)
+            .ok()
+            .flatten()
+            .ok_or_else(|| Error::key_not_found(from))?;
+        if from == to {
+            return Ok(());
+        }
+        // A refused write (budget or browser quota) leaves both keys as they were.
+        self.put_all(
+            &storage,
+            to,
+            &[(self.entry_name(EntryKind::Data, to), envelope)],
+        )?;
+        self.drop_entry(&storage, &from_name);
+        self.rescan()
+    }
+
+    /// The raw names under `key`: data objects (records a metadata layer keeps among them), keys
+    /// holding only a native `m` entry, and directories. This store reserves no names of its own —
+    /// its entry kinds are separated in the entry name, not in the key space.
+    async fn listdir_data(&self, key: &Key) -> Result<Vec<String>, Error> {
+        self.listdir(key).await
+    }
+
+    /// Size and an ETag from the `d` entry; `Ok(None)` when there is none. No modification time:
+    /// the store keeps none.
+    async fn data_facts(&self, key: &Key) -> Result<Option<DataFacts>, Error> {
+        self.check(key)?;
+        let storage = self.storage()?;
+        let Some(envelope) = storage
+            .get_item(&self.entry_name(EntryKind::Data, key))
+            .ok()
+            .flatten()
+        else {
+            return Ok(None);
+        };
+        let size = envelope_data_len(&envelope).ok_or_else(|| {
+            Error::key_read_error(
+                key,
+                &self.store_name(),
+                "stored value is not a valid envelope",
+            )
+        })?;
+        Ok(Some(DataFacts {
+            size,
+            modified: None,
+            etag: Some(envelope_etag(&envelope)),
+        }))
+    }
+
+    /// The `m` entry exactly as stored, never synthesized or repaired; `Ok(None)` when there is
+    /// none. This is what `storage: native` reads.
+    async fn get_stored_metadata(&self, key: &Key) -> Result<Option<Metadata>, Error> {
+        self.check(key)?;
+        let storage = self.storage()?;
+        match storage
+            .get_item(&self.entry_name(EntryKind::Metadata, key))
+            .ok()
+            .flatten()
+        {
+            Some(json) => Metadata::from_json(&json).map(Some).map_err(|e| {
+                Error::key_read_error(key, &self.store_name(), &format!("corrupt metadata: {e}"))
+            }),
+            None => Ok(None),
+        }
+    }
+
+    fn data_capabilities(&self) -> DataCapabilities {
+        DataCapabilities {
+            data_access: true,
+            atomic_write: true,
+            rename: true,
+            modified_time: false,
+            etag: true,
+        }
     }
 
     /// Must be overridden: the trait default is `false`, and `AsyncStoreRouter` consults it.

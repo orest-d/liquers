@@ -119,6 +119,20 @@ async function main(): Promise<void> {
   const metadata: unknown = await store.getMetadata('data/input.csv');
   void assetInfo;
   void metadata;
+  const readOnly: boolean = store.isReadOnly();
+  void readOnly;
+
+  // A store entry with the adapter fields, and a page store offering data-only access.
+  const entry: liquers.LiquersStoreEntry = {
+    type: 'js',
+    prefix: 'notes',
+    config: { object: 'notes' },
+    read_only: false,
+    metadata: { storage: 'grouped', on_read: 'media_type-fill/file_facts' },
+  };
+  void entry;
+  const facts: liquers.LiquersDataFacts = { size: 3, modified: '2026-10-15T12:00:00Z', precision: 'seconds' };
+  void facts;
 
   // A page raises a typed error, with and without a key query.
   const notFound = new liquers.LiquersError('key_not_found', 'no such key: a.txt');

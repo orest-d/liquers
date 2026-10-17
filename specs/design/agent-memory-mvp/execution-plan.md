@@ -5,8 +5,9 @@ and design that `agent-memory-mvp` depends on into tracks and waves, says which 
 each one unblocks, and marks what is already done, what is worked around and what is out of scope.
 It is a plan for the backlog, not for this design's own Phase 4, which comes after its Phases 2–3.
 
-Statuses are from `specs/index.csv` on 2026-10-13. Designs proceed through the `liquers-project`
-gates; nothing below is implemented before its design's Phase 4 is approved.
+Statuses are from `specs/index.csv` on 2026-10-13, except Wave 0, closed 2026-10-15 (§3). Designs
+proceed through the `liquers-project` gates; nothing below is implemented before its design's Phase 4
+is approved.
 
 ## 1. Inventory
 
@@ -24,8 +25,8 @@ gates; nothing below is implemented before its design's Phase 4 is approved.
 
 | # | Item | Kind / state | P · size | Unblocks (agent-memory AC) |
 |---|---|---|---|---|
-| D1 | `STORE-ROUTER-DOES-NOT-FORWARD-ASSET-INFO` | issue, no design | P2 · S | Folder tiers through the router: AC-1, AC-17; `store-adapters` AC-8 |
-| D2 | `VALUE-TO-JSON-PANICS-ON-NON-FINITE-FLOAT` | issue, no design | **P0** · S (a panic on a supported path, §4.4) | Values → JSON for MCP results and template data: AC-14, `liquers-mustache` AC-7 |
+| D1 | `STORE-ROUTER-DOES-NOT-FORWARD-ASSET-INFO` | **closed 2026-10-13** (PR #130, design `store-router-forwards-asset-info`) | P2 · S | Folder tiers through the router: AC-1, AC-17; `store-adapters` AC-8 |
+| D2 | `VALUE-TO-JSON-PANICS-ON-NON-FINITE-FLOAT` | **closed 2026-10-13** (PR #131, design `value-to-json-non-finite-float`) | **P0** · M (re-sized from S; a panic on a supported path, §4.4) | Values → JSON for MCP results and template data: AC-14, `liquers-mustache` AC-7 |
 | D3 | `store-adapters` M1 — read-only adapter (`STORE-NO-READ-ONLY-ADAPTER`) | design, Phase 1 in review | P2 · M | AC-13; decision 2 ("fixed first") |
 | D4 | `store-adapters` M2–M3 — adapter configuration, registry, enhancers | same design | part of XL | Front-matter adapter: AC-1, AC-5 (creation), AC-11, AC-17; profiles AC-18, AC-19 |
 | D5 | `liquers-mustache` M1–M3 — public parser surface, template parser and diagnostics, renderer with *apply* | design, Phase 1 in review (`NO-QUERY-AWARE-TEMPLATE-LANGUAGE`) | P2 · XL | Templates for `memory_new`: AC-4 |
@@ -48,7 +49,7 @@ gates; nothing below is implemented before its design's Phase 4 is approved.
 `CORE-SESSION-AND-KEY-ACL` (identity), `COMMAND-CANNOT-BE-RUN-WITH-A-RESTRICTED-CONTEXT` (needed only
 for a general `query` tool over MCP), `external-index-sync` / `ASSET-EXPIRATION-EVENTS-CANNOT-BE-OBSERVED-EXCEPT-PER-ASSET`
 (semantic search), `NO-TEMPLATE-EDITOR-UI`, `QUERY-DOCS-CLAIM-LINK-PARAMETERS-DO-NOT-PARSE` (a doc
-fix; worth doing in Wave 0 because `liquers-mustache` extends that parser, but not blocking).
+fix; done in Wave 0 because `liquers-mustache` extends that parser, closed 2026-10-13).
 
 ## 2. Dependency graph
 
@@ -77,17 +78,19 @@ graph LR
 
 Three tracks run in parallel; a wave starts when its inputs are approved or merged.
 
-### Wave 0 — now, no design needed (each S, one PR each)
+### Wave 0 — closed 2026-10-15
 
-| Step | Item | Why now | Proof |
-|---|---|---|---|
-| 0.1 | Merge PR 128 | Puts the three designs on `main`, so their issues are reciprocal and visible | `docs_index.py --check` 0 errors on `main` |
-| 0.2 | D1 router forwarding | Small, generic, unblocks folder tiers; `store-adapters` assumes it | A conformance test: a member's `get_asset_info` is observed through the router |
-| 0.3 | D2 non-finite floats | Small; the template data model and MCP results go through it | Unit test for NaN, +∞, −∞ |
-| 0.4 | `QUERY-DOCS-CLAIM-LINK-PARAMETERS-DO-NOT-PARSE` | Corrects the docs of the parser `liquers-mustache` extends | Doc-only |
+All four steps are on `main`, each checked against its proof on 2026-10-15 (at the merge of PR #134).
 
-Candidates for the automatic-fix route (`references/auto-fix.md`): D1, D2 and 0.4 are S, single
-module, with an obvious test — label them `eligible` when triaged.
+| Step | Item | Why now | Proof | Done |
+|---|---|---|---|---|
+| 0.1 | Merge PR 128 | Puts the three designs on `main`, so their issues are reciprocal and visible | `docs_index.py --check` 0 errors on `main` | PR #128; 0 errors |
+| 0.2 | D1 router forwarding | Small, generic, unblocks folder tiers; `store-adapters` assumes it | A conformance test: a member's `get_asset_info` is observed through the router | PR #130; `c6_router_with_a_decorated_member_and_a_nested_mount` in `store_conformance_CONF.rs` |
+| 0.3 | D2 non-finite floats | Small; the template data model and MCP results go through it | Unit test for NaN, +∞, −∞ | PR #131; `value_try_into_json_value_refuses_non_finite` and neighbours in `value.rs` |
+| 0.4 | `QUERY-DOCS-CLAIM-LINK-PARAMETERS-DO-NOT-PARSE` | Corrects the docs of the parser `liquers-mustache` extends | Doc-only | commit `fc74dca` |
+
+D1 and D2 went through compact designs rather than the automatic-fix route first suggested here;
+D2 was re-sized to M.
 
 ### Wave 1 — the three gates (decisions, no code)
 
@@ -114,7 +117,7 @@ the three tracks.
 | Step | Work | Needs | ACs |
 |---|---|---|---|
 | 3.1 (memory A) | `ns-mem` core: schema, `describe`, `similar`, `new` (without templates), `write`, `edit`, `set_field`, `append_row`, write log, `check` with the `docs_index.py` oracle | Wave 2 Stores M1 | AC-2, 5, 6, 7, 8, 9, 12, 13, 15, 16 |
-| 3.2 (memory B) | `liquers-mcp` engine (tools as declared queries, schemas from `CommandMetadata` including argument descriptions) and `liquers-mem mcp` over stdio | 3.1 | AC-14 |
+| 3.2 (memory B) | `liquers-mcp` engine (tools as declared queries, schemas from `CommandMetadata` including argument descriptions) and `liquers-agent mcp` over stdio | 3.1 | AC-14 |
 | 3.3 | `store-adapters` **M2–M3**: adapter configuration and registry, hash-on-change and front-matter enhancers (the front-matter adapter in `liquers-lib`) | D1, M1 | — |
 | 3.4 | `liquers-mustache` **M4–M5**: query tags through the asset layer, dependencies, partials; `tpl` commands | D5 | — |
 | 3.5 | D8 minimum: `section` by heading path (absorbed into `ns-mem`, or a compact design under `NO-MARKDOWN-NAVIGATION-COMMANDS`) | — | AC-3 |
@@ -159,7 +162,7 @@ becomes blocking the day a general `query` tool is offered over MCP.
 
 | Wave | Items | Parallel? |
 |---|---|---|
-| 0 | PR 128, D1, D2, link-docs fix | Yes, four small PRs |
+| 0 | PR 128, D1, D2, link-docs fix — **closed 2026-10-15** | Yes, four small PRs |
 | 1 | Three Phase 1 gates + `record-filter-commands` Phase 1 | Decisions only |
 | 2 | Stores M1 · Templates M1–M3 · Records | Three tracks |
 | 3 | Memory A, B · Stores M2–M3 · Templates M4–M5 · sections · Rust items | Mostly parallel |

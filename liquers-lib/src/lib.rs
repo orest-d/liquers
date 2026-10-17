@@ -9,6 +9,10 @@ pub mod polars;
 pub mod records;
 #[cfg(feature = "records")]
 pub mod search;
+#[cfg(feature = "records")]
+pub mod store_config;
+#[cfg(feature = "templates")]
+pub mod template;
 pub mod ui;
 pub mod utils;
 pub mod value;

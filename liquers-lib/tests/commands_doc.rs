@@ -68,3 +68,24 @@ async fn test_commands_doc_output() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
+
+/// The `store_config` realm is declared in every registry for configuration and validation, but
+/// its entries are not commands a query can run, so the overview leaves them out.
+#[tokio::test]
+async fn commands_doc_omits_the_store_config_realm() -> Result<(), Box<dyn std::error::Error>> {
+    let mut env = DefaultEnvironment::<Value>::new();
+    env.with_trivial_recipe_provider();
+    register_test_commands(&mut env)?;
+    let declared = env
+        .get_command_metadata_registry()
+        .commands
+        .iter()
+        .any(|c| c.realm == "store_config" && c.name == "file_facts");
+    assert!(declared, "the realm is declared");
+    let state = evaluate(env.to_ref(), "commands_doc", None).await?;
+    let md = state.try_into_string()?;
+    for name in ["file_facts", "content_hash", "per_entry", "transactional"] {
+        assert!(!md.contains(&format!("### `{name}`")), "{name} is listed");
+    }
+    Ok(())
+}

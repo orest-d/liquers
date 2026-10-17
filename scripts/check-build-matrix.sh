@@ -63,10 +63,13 @@ LIB_CONFIGS=(
   "--no-default-features --features records-ipc --tests"
   "--no-default-features --features records-parquet --tests"
   "--no-default-features --features records-parquet,polars --tests"
+  "--no-default-features --features templates --tests"
+  "--no-default-features --features templates,records --tests"
   "--tests"
   "--target wasm32-unknown-unknown --no-default-features --features webui"
   "--target wasm32-unknown-unknown --no-default-features --features webui,records"
   "--target wasm32-unknown-unknown --no-default-features --features webui,records,records-ipc"
+  "--target wasm32-unknown-unknown --no-default-features --features webui,templates"
 )
 
 # liquers-records has no default features: each format behind its own flag, and every one of them
@@ -76,6 +79,13 @@ RECORDS_CONFIGS=(
   "--features ipc,parquet --tests"
   "--target wasm32-unknown-unknown"
   "--target wasm32-unknown-unknown --features ipc,parquet"
+)
+
+# liquers-template depends on liquers-core only and adds no async runtime, so it must build for
+# wasm32 too (design/liquers-mustache, AC-13).
+TEMPLATE_CONFIGS=(
+  "--tests"
+  "--target wasm32-unknown-unknown --tests"
 )
 
 CORE_CONFIGS=(
@@ -119,6 +129,10 @@ done
 
 for args in "${RECORDS_CONFIGS[@]}"; do
   check liquers-records "$args"
+done
+
+for args in "${TEMPLATE_CONFIGS[@]}"; do
+  check liquers-template "$args"
 done
 
 for args in "${CORE_CONFIGS[@]}"; do
