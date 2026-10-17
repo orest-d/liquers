@@ -27,12 +27,12 @@ before the wasm32 step.
 - [x] Step 3: `ArgumentInfo::with_default_link` and link heads in aliases (link heads already worked; test added)
 - [x] Step 4: Deprecate `simple_template`
 - [x] Step 5: Records adapters
-- [ ] Step 6: `liquers-template` crate, diagnostics and names
-- [ ] Step 7: Query template AST, parser, encoder and parity
-- [ ] Step 8: Instantiation
-- [ ] Step 9: Mustache AST, lexer, parser and encoder
-- [ ] Step 10: Renderer, hosts and error modes
-- [ ] Step 11: Validation
+- [x] Step 6: `liquers-template` crate, diagnostics and names
+- [x] Step 7: Query template AST, parser, encoder and parity (sentinel parser; D7)
+- [x] Step 8: Instantiation
+- [x] Step 9: Mustache AST, lexer, parser and encoder
+- [x] Step 10: Renderer, hosts and error modes (D8)
+- [x] Step 11: Validation
 - [ ] Step 12: wasm32 build and Node tests
 - [ ] Step 13: liquers-lib commands, hosts and value adapters
 - [ ] Step 14: Registry export
