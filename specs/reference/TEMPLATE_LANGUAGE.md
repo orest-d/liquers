@@ -161,7 +161,12 @@ A **template command** is an alias of `template/render` whose head parameter is 
 An apply input that is a state's node (`.` over the rendered state, a section over a query tag's
 result) is passed on as that value, whatever its type, a polars frame or an image included; any
 other node goes as its JSON. A failing ad-hoc query still passes on what it read, so a render that
-recovers the failure (`expand`, `silent`) is invalidated when that changes.
+recovers the failure (`expand`, `silent`) is invalidated when that changes. The failing query itself is a
+limit: a keyed asset that failed has no version of its own, so a dependency on one that never had
+a version is recorded as `Version::unknown()`, which a later success does not contradict (an edge
+recording unknown is spared when the key gets its first version, and a stored unknown is
+compatible). Such a recovered render is invalidated only through what the failed query read, or
+when it is evaluated again; use `strict` where that matters.
 Volatility is not passed on (`design/volatility-system`, decision 4): a render over volatile queries
 is volatile only when `v` comes before the render action (`v/ns-template/render-…`; a trailing `/v`
 serves the cached render), or when a template command is declared `volatile`
