@@ -25,7 +25,7 @@ before the wasm32 step.
 - [x] Step 1: `DataNode` in liquers-core (8fde04a)
 - [x] Step 2: `Context::apply_ad_hoc` (see the commit adding `tests/apply_ad_hoc.rs`; D6)
 - [x] Step 3: `ArgumentInfo::with_default_link` and link heads in aliases (link heads already worked; test added)
-- [ ] Step 4: Deprecate `simple_template`
+- [x] Step 4: Deprecate `simple_template`
 - [ ] Step 5: Records adapters
 - [ ] Step 6: `liquers-template` crate, diagnostics and names
 - [ ] Step 7: Query template AST, parser, encoder and parity

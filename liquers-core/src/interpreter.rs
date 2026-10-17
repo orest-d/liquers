@@ -10,7 +10,6 @@ use crate::{
     context::{Context, EnvRef, Environment},
     error::Error,
     metadata::{DependencyKey, DependencyRecord, ExpiryCause, LogEntry, Metadata, Version},
-    parse::{SimpleTemplate, SimpleTemplateElement},
     plan::{
         analyze_plan_dependencies, ParameterValue, Plan, PlanBuilder, ResolvedParameterValues,
         Step,
@@ -20,6 +19,8 @@ use crate::{
     state::State,
     value::ValueInterface,
 };
+#[allow(deprecated)]
+use crate::parse::{SimpleTemplate, SimpleTemplateElement};
 
 /// Complete plan setup after `recipe.to_plan()`, **without** cutting a boundary.
 ///
@@ -1095,6 +1096,8 @@ pub fn evaluate<E: Environment, Q: TryToQuery>(
     .maybe_boxed()
 }
 
+#[deprecated(note = "use the liquers-template crate (`{{$ query}}` templates)")]
+#[allow(deprecated)]
 pub fn evaluate_simple_template<E: Environment>(
     envref: EnvRef<E>,
     template: SimpleTemplate,
