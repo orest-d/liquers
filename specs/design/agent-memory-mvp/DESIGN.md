@@ -259,11 +259,17 @@ notes travel as a separate content block (stderr in the CLI), so CSV and JSON re
 parseable, and the `query` tool's format follows the filename. AC-20 runs in-process against
 `s3s-fs` instead of an ignored external test.
 
+**Migration guide (2026-10-17, Orest).** Added to the documentation plan as
+`guides/AGENT_MEMORY_MIGRATION_GUIDE.md`, drafted now in `migration-guide-draft.md`: documents are
+`Source` assets with no stored metadata, `ns-mem` results are never stored and recipe results are
+recomputed, so an upgrade migrates nothing by itself; schema changes are found by `check`.
+`memory.yaml` gains `version` (Phase 2 change 10); three tests added to Phase 3.
+
 ## Links
 
 - [Phase 1](./phase1-high-level-design.md)
 - [Survey](./memory-systems-survey.md) · [Specification](./service-specification.md) · [Workflow porting](./workflow-porting.md) · [Tiers and storage](./tiers-and-storage.md) · [Interfaces and MCP](./interfaces-and-mcp.md) · [Brainstorm: workflow improvements](./brainstorm-workflow-improvements.md) · [Template language evaluation](./template-language-evaluation.md) · [Execution plan](./execution-plan.md) · [Workbench direction](./workbench-direction.md)
-- [Phase 2](./phase2-architecture.md)
+- [Phase 2](./phase2-architecture.md) · [Migration guide draft](./migration-guide-draft.md)
 - [Phase 3](./phase3-examples.md)
 - [Phase 4](./phase4-implementation.md)
 - [Phase 5](./phase5-documentation.md)

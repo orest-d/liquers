@@ -117,6 +117,12 @@ directories where files are the point. Each test evaluates queries as the tools 
 - `edit_combined_pairs_and_forbidden_transition` (AC-16)
 - `fallback_tiers_without_front_matter` (AC-17): a document and a folder `README.md`
 - `openviking_layout_lists_creates_and_searches` (AC-19)
+- `mem_results_are_never_stored` (AC-18): after every read command, the store's key listing is
+  unchanged (migration guide §1)
+- `newer_schema_version_is_refused` (AC-15): `version: 2` against a service supporting 1 names
+  both; a file without `version` reads as 1
+- `recipe_results_drop_back_to_recipe` (AC-12): a computed recipe key removed with
+  `AssetManager::remove` becomes `Recipe` and recomputes (migration guide §3.2)
 - `many_writes_do_not_grow_retained_assets` (AC-7): 500 edits; the asset manager's live count
   stays bounded (Phase 2 preflight)
 

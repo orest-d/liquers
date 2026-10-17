@@ -92,6 +92,9 @@ These need confirmation at this gate. Each has a reason.
 9. **Results go through the serialization system.** Tables are record views and documents are
    text, each with a default format chosen for agents (Markdown); the query's filename picks
    another (`list.csv`, `list.json`).
+10. **Migration is kept small by design**, and a migration guide is added (Orest, 2026-10-17;
+   draft in [`migration-guide-draft.md`](./migration-guide-draft.md)). `memory.yaml` gains a
+   `version`. Phase 1's documentation intent did not list the guide.
 
 ## Known-Issue Preflight
 
@@ -134,6 +137,7 @@ each time:
 ```rust
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MemoryLayout {                                     // <root>/_schema/memory.yaml
+    #[serde(default = "one")] pub version: u32,               // schema format; newer than supported -> refused
     #[serde(default = "default_readme")] pub readme: String,  // "README.md"
     #[serde(default = "default_log")] pub log: String,        // "_log"
     #[serde(default)] pub instructions: String,               // appended to the server instructions
@@ -686,6 +690,7 @@ collections:
 
 | Case | Constructor |
 |---|---|
+| `memory.yaml` `version` newer than supported | `Error::configuration_error`, naming both versions |
 | Schema file missing or malformed; a tool set naming an unknown command, argument or tool; a duplicate tool name | `Error::configuration_error` |
 | A write that violates the schema: an unknown field value, a missing `title`/`description`, a forbidden transition, a key outside every collection, a collection with `writable: false` | `Error::general_error`, naming the field, value and allowed values, as `store_config`'s validate step does |
 | `expected_version` differs from the current content hash | `Error::dependency_version_mismatch(&DependencyKey::from(&key), "expected …, found …")` |
@@ -706,6 +711,7 @@ CLI, errors go to stderr and the exit code is 1.
 | Path | Kind | Change |
 |---|---|---|
 | `reference/AGENT_MEMORY_SERVICE.md` | reference, new; area `[lib/commands, mcp]`; for agents and developers | Layout, the `memory.yaml` format, tiers and fallbacks, commands and tools, the log format, the CLI, the two profiles |
+| `guides/AGENT_MEMORY_MIGRATION_GUIDE.md` | guide, new; area `[lib/commands, docs]`; for maintainers of a memory | What is durable and what is derived, the rules that keep it so, and the steps per kind of change; from `migration-guide-draft.md` |
 | `.claude/skills/liquers-memory/SKILL.md` | skill, new | When to use memory: orientation first, search before writing, L0/L1 with every write |
 | `guides/STORE_CONFIG_GUIDE.md` | update | `markdown_tiers` in the handler catalogue; `storage: none` for checkouts edited by hand. History row, `reviewed:` bump |
 | `guides/COMMAND_REGISTRATION_GUIDE.md` | update | New section "Commands served as MCP tools": one command per tool, the state as a key argument filled structurally, relative-default arguments hidden, the query tool's allow-list. History row, `reviewed:` bump |
@@ -714,7 +720,7 @@ CLI, errors go to stderr and the exit code is 1.
 | `CLAUDE.md` | update | Project structure and dependency flow gain the two crates |
 | `README.md` (specs) | update | The capability map links the reference document |
 
-Proposed `affects_docs`: `reference/AGENT_MEMORY_SERVICE.md`, `guides/STORE_CONFIG_GUIDE.md`,
+Proposed `affects_docs`: `reference/AGENT_MEMORY_SERVICE.md`, `guides/AGENT_MEMORY_MIGRATION_GUIDE.md`, `guides/STORE_CONFIG_GUIDE.md`,
 `guides/COMMAND_REGISTRATION_GUIDE.md`, `reference/PROJECT_OVERVIEW.md`, `DOCS_STRUCTURE_GUIDE.md`.
 
 ## Risks
