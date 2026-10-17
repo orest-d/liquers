@@ -1035,6 +1035,8 @@ pub fn evaluate<E: Environment, Q: TryToQuery>(
         */
         let input_state = State::<<E as Environment>::Value>::new();
         let res = apply_plan(plan, input_state, context.clone(), envref).await?;
+        // As `AssetRef::compute` does: a volatile dependency makes the result volatile.
+        context.check_resolved_volatility().await?;
         let observed_deps = context.take_pending_dependencies().await;
         let mut metadata = context.get_metadata().await?;
         metadata.merge_dependencies(observed_deps);

@@ -2864,6 +2864,10 @@ impl<E: Environment> AssetRef<E> {
 
     /// Estimate the volatility before execution.
     /// Used e.g. by: `evaluate` in this module
+    ///
+    /// This is the plan-time estimate only. The run can still make the asset volatile, through
+    /// `Context::set_volatile` (a volatile dependency, or the command's own decision); see
+    /// `specs/design/runtime-volatility/`.
     async fn resolve_volatility_before_evaluation(&self) {
         let mut lock = self.data.write().await;
         let resolved =
@@ -3841,6 +3845,10 @@ impl<E: Environment> AssetRef<E> {
         };
         //eprintln!("Recipe evaluated, result: {:?}", &res);
 
+        // A volatile dependency makes this asset volatile, however the command waited for it
+        // (`specs/design/runtime-volatility/`). Recorded on the asset before it is finalized.
+        context_for_deps.check_resolved_volatility().await?;
+
         // Observed dependencies travel back as data, to be merged into the live metadata by
         // `evaluate`. Every entry point records them; this is the asymmetry the issue names.
         let observed_deps = context_for_deps.take_pending_dependencies().await;
@@ -4441,6 +4449,29 @@ impl<E: Environment> AssetRef<E> {
             return Ok(());
         }
         set_metadata_description(&mut lock.metadata, title, description)
+    }
+
+    /// Marks the asset being evaluated volatile, during its run (`Context::set_volatile`).
+    ///
+    /// The asset is the authority on its volatility: this sets `AssetData::is_volatile` and the
+    /// metadata flag under one write lock, so `finalize_status_with_version` finishes the asset
+    /// `Volatile` — not reused, stored with a status `try_fast_track` refuses, not a
+    /// dependency-graph node. Written directly rather than through the service channel, which is
+    /// drained only after the run has settled and would apply it too late
+    /// (`specs/design/runtime-volatility/`).
+    ///
+    /// Idempotent: only the first call logs `reason`. A no-op on an asset that is no longer in
+    /// flight, whose status is already final.
+    pub(crate) async fn set_volatile_during_run(&self, reason: &str) -> Result<(), Error> {
+        let mut lock = self.data.write().await;
+        if lock.is_volatile || !is_in_flight(lock.status) {
+            return Ok(());
+        }
+        lock.is_volatile = true;
+        lock.metadata.set_volatile()?;
+        lock.metadata
+            .add_log_entry(LogEntry::info(format!("Volatile: {}", reason)))?;
+        Ok(())
     }
 
     /// Converts this runtime asset to `Override`, preventing recipe re-evaluation.
@@ -14491,6 +14522,35 @@ recipes:
             volatile.is_volatile().await,
             "sanity: it really was volatile"
         );
+    }
+
+    /// `set_volatile_during_run` records volatility on the asset itself — the flag and the
+    /// metadata — and logs the reason once (`specs/design/runtime-volatility/`, AC-7, AC-9).
+    #[tokio::test]
+    async fn set_volatile_during_run_marks_metadata_once() {
+        let envref = SimpleEnvironment::<Value>::new().to_ref();
+        let asset = AssetRef::new_temporary(envref);
+        asset
+            .set_volatile_during_run("first reason")
+            .await
+            .expect("first");
+        asset
+            .set_volatile_during_run("second reason")
+            .await
+            .expect("second");
+        let lock = asset.data.read().await;
+        assert!(lock.is_volatile, "the asset flag is set");
+        assert!(lock.metadata.is_volatile(), "the metadata flag is set");
+        let entries: Vec<String> = lock
+            .metadata
+            .metadata_record()
+            .expect("record")
+            .log
+            .iter()
+            .filter(|e| e.message.starts_with("Volatile:"))
+            .map(|e| e.message.clone())
+            .collect();
+        assert_eq!(entries, vec!["Volatile: first reason".to_string()]);
     }
 
     /// T12 — an asset that turns out volatile is used once, then dropped from the key map.
