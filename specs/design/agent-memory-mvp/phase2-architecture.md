@@ -21,7 +21,7 @@ once, in Liquers style, and served through two interfaces.**
 
 - **The commands take what they act on as state.** A document comes from `-R/<key>`, and a folder
   or the memory itself from `-R-key/<path>`, which evaluates to the key as a `Value::Key`. So
-  `-R/specs/issues/X.md/-/ns-mem/read-description` is an ordinary query, and the `ns-mem`
+  `-R/specs/issues/X.md/-/ns-mem/read-l1` is an ordinary query, and the `ns-mem`
   commands sit beside `ns-search` and `ns-rec` in queries an agent writes itself.
 - **Basic tools** are standard MCP tools, one per command, for any agent. Their schemas are
   generated: the command's arguments as in any tool, plus one **key argument** that stands for
@@ -50,7 +50,8 @@ Rejected:
 | Tools hidden at first and revealed later (MCP `list_changed`) | Clients support it unevenly. All tools are listed from the start, and the instructions point to the power layer |
 | Composite tools assembled in `liquers-mcp` (`memory_new` = `similar` then `new`) | Puts memory semantics in the generic engine, against `workbench-direction.md` §2. The schema could no longer be generated from one command |
 | Write body as the evaluation payload (`interfaces-and-mcp.md` §6) | Argument overrides already carry long, unescaped text by name. A payload type is specific to the environment, and `payload: required` would make the CLI path special |
-| `ns-mem` commands returning record views | MCP results need `shown`/`total`, versions, and either/or shapes (`new`). Records stay available through `ns-search`, which the commands call |
+| `ns-mem` commands returning one JSON object each (Phase 2 draft) | A generic object serializes only to JSON and composes with nothing. Tables are record views (Markdown, CSV, JSON, HTML through the serialization system, and `ns-rec` downstream); counts and versions travel as log notes |
+| L0/L1 always equal to `title`/`description` | Orest, 2026-10-17: L0/L1 serve agents finding a resource, title and description serve humans in UI and reports. They may overlap or not, so the mapping is configuration to experiment with |
 | Collections in the `liquers-agent` configuration file | Commands see only the store, not the binary's configuration. P6 also asks for the schema to be data in the memory |
 | Re-serialising front-matter with `serde_yaml` on edit (as `front_matter_sync` does) | Loses comments and key order in hand-maintained files, so every edit would make a noisy diff |
 | A new storage adapter for tiers | `store-adapters` shipped the pipeline. A read handler is all that is missing |
@@ -82,6 +83,12 @@ These need confirmation at this gate. Each has a reason.
 7. **A query tool and two resources are added**: `memory_query` (read-only, allow-listed
    commands), `liquers://memory/query-guide` and `liquers://commands/{namespace}`. Phase 1 decision
    11 listed nine tools; the MVP now has ten. AC-14 counts the basic tools, unchanged.
+8. **L0/L1 are separate from `title`/`description`**, joined by a configurable bridge (`tiers` in
+   `memory.yaml`, per memory and per collection). The default maps them to `title` and
+   `description`, so the specs behave as in Phase 1. Results and `read`'s tier speak of `l0`/`l1`.
+9. **Results go through the serialization system.** Tables are record views and documents are
+   text, each with a default format chosen for agents (Markdown); the query's filename picks
+   another (`list.csv`, `list.json`).
 
 ## Known-Issue Preflight
 
@@ -127,7 +134,20 @@ pub struct MemoryLayout {                                     // <root>/_schema/
     #[serde(default = "default_readme")] pub readme: String,  // "README.md"
     #[serde(default = "default_log")] pub log: String,        // "_log"
     #[serde(default)] pub instructions: String,               // appended to the server instructions
+    #[serde(default)] pub tiers: TierSources,                 // the L0/L1 bridge, memory-wide
     pub collections: Vec<CollectionSchema>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TierSources {                                      // first non-empty source wins
+    #[serde(default = "default_l0")] pub l0: Vec<TierSource>, // ["meta:title"]
+    #[serde(default = "default_l1")] pub l1: Vec<TierSource>, // ["meta:description"]
+}
+pub enum TierSource {                                         // (de)serialized from "kind:arg" text
+    Field(String),      // "field:l0"         a front-matter field
+    Meta(String),       // "meta:title"       a field of the store's metadata record
+    Section(String),    // "section:Problem"  first paragraph of that section
+    Heading,            // "heading"          the first heading
+    Paragraph,          // "paragraph"        the first paragraph after the front-matter
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CollectionSchema {
@@ -143,6 +163,7 @@ pub struct CollectionSchema {
     #[serde(default)] pub sections: Vec<String>,              // required headings
     #[serde(default)] pub history: Option<HistoryRule>,       // { section: History, stamp: reviewed }
     #[serde(default)] pub checks: Vec<String>,                // named built-in rules
+    #[serde(default)] pub tiers: Option<TierSources>,         // overrides the memory-wide bridge
 }
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct FieldRule {
@@ -218,10 +239,19 @@ before the arrow:
 - 2026-10-17T15:20:58Z write specs/issues/X.md 1a2b3c4d→5e6f7a8b — reason text
 ```
 
+`mem/tiers.rs` resolves a document's L0 and L1 from the collection's `TierSources` (else the
+memory's). `Meta` sources read the record the mount's pipeline produced, so the default costs no
+extra read; `Field`, `Section`, `Heading` and `Paragraph` parse the document with
+`FrontMatterDoc` and `md_split.rs` `sections`. The bridge is the place to experiment: changing
+which parts an agent sees as L0/L1 is an edit of `memory.yaml`, with no code or store change. The
+`markdown_tiers` handler below shares its section and paragraph extraction.
+
 **Store handler** (`liquers-lib/src/store_config.rs`, beside `front_matter`, registered by
 `register_lib_store_config`): `markdown_tiers(sections: Vec<String> multiple)`, at stages `Default`
 and `Read`.
 
+- It is the bridge for humans: it fills the record's `title` and `description`, which UI, `key/info`
+  and reports show. Agents see L0/L1 through `tiers`, which by default read these fields.
 - It acts only on a `text/markdown` entry whose record has an empty `title` or `description`.
 - It fills `title` from the first heading.
 - It fills `description` from the first paragraph of the first listed section that is present,
@@ -331,12 +361,14 @@ pub async fn serve_stdio<E: Environment>(server: McpServer<E>) -> Result<(), Err
 - **`plan` and `call`** share one builder. It takes the key argument out of the call's arguments
   and fills it with `fill_key`, then makes a `Recipe` from the resulting query, with `arguments`
   set to the remaining arguments plus `fixed`, and `cwd` set to the tool set's `cwd`.
-  - `call` then runs `get_asset_manager().apply(recipe, State::new(), None)`, `AssetRef::get` and
-    `ValueInterface::try_into_json_value`. This evaluation is unmanaged, so nothing is cached
-    between calls.
+  - `call` then runs `get_asset_manager().apply(recipe, State::new(), None)` and `AssetRef::get`,
+    and serializes the value with `DefaultValueSerializer::as_bytes` in the state's
+    `get_data_format()`, which the query's filename set. The evaluation is unmanaged, so the tool
+    result itself is not cached; its inputs are, through their own assets.
+  - The command's log notes are appended to the text, one line each, after a blank line.
   - It runs in a spawned task, so a panic becomes a tool error.
-- **`call_tool`** sends an object value as structured content plus its JSON text, and any other
-  value as text only. An `Error` becomes `CallToolResult::error` with its Display, so the agent
+- **`call_tool`** sends the serialized text. When the format is `json`, it also sends the parsed
+  object as structured content. An `Error` becomes `CallToolResult::error` with its Display, so the agent
   reads it. Only an unknown tool name is a protocol error.
 - **`get_info`** joins the tool sets' `instructions`. The memory tool set adds the README's L1 by
   calling its `overview` tool once at start, and one sentence pointing to the power layer: "For
@@ -385,11 +417,11 @@ matching tool, so the CLI and MCP share one code path and one allow-list.
 ```yaml
 prefix: memory_
 tools:
-  - { name: overview, query: "-R-key/./-/ns-mem/overview", read_only: true }
-  - { name: list,   query: "-R-key/./-/ns-mem/list",   key: { name: path }, read_only: true }
-  - { name: search, query: "-R-key/./-/ns-mem/search", key: { name: path }, read_only: true }
-  - { name: read,   query: "-R/./-/ns-mem/read",       key: { name: key, required: true }, read_only: true }
-  - { name: edit,   query: "-R-key/./-/ns-mem/edit",   key: { name: key, required: true } }
+  - { name: overview, query: "-R-key/./-/ns-mem/overview/overview.md", read_only: true }
+  - { name: list,   query: "-R-key/./-/ns-mem/list/list.md",   key: { name: path }, read_only: true }
+  - { name: search, query: "-R-key/./-/ns-mem/search/search.md", key: { name: path }, read_only: true }
+  - { name: read,   query: "-R/./-/ns-mem/read/read.md",       key: { name: key, required: true }, read_only: true }
+  - { name: edit,   query: "-R-key/./-/ns-mem/edit/edit.json",   key: { name: key, required: true } }
   # describe, new, write, check likewise
 query_tool:
   name: query
@@ -442,7 +474,11 @@ Every command:
     (`DIRECTORY-KEY-CANNOT-BE-EVALUATED-AS-A-RESOURCE`) and, for writes, a document that is
     about to be replaced;
 - is `volatile: true`, except `read`, whose input is a recorded dependency (see the preflight);
-- returns a JSON-shaped `Value` (`ValueInterface::try_from_json_value`);
+- returns a value the serialization system writes in several formats, with a `filename:` whose
+  extension is the default chosen for agents (table below): a **record view** for tables, **text**
+  (Markdown) for documents and orientation, and a small JSON object for write results;
+- reports counts, truncation and versions as log notes (`context.info`), e.g.
+  `shown 10 of 47; raise limit to see more` or `version 1a2b…`, so the table itself stays a table;
 - ends with `root: Key = query "-R-key/."` (`COMMAND_REGISTRATION_GUIDE.md` §cwd), the memory's
   root, where `_schema/memory.yaml` is found. A key state is relative to the same working
   directory, so `-R-key/./…` and `root` agree unless a query overrides `root`.
@@ -462,7 +498,7 @@ register_command!(cr, async fn list(state, depth: i64 = 1, include_superseded: b
 register_command!(cr, async fn search(state, text: String = "",
     unit: String = "document" (enum: ["document", "section"]), filter: String = "", limit: i64 = 10,
     include_superseded: bool = false, root: Key = query "-R-key/.", context) -> result namespace: "mem" volatile: true)?;
-register_command!(cr, async fn read(state, tier: String = "full" (enum: ["title", "description", "full"]),
+register_command!(cr, async fn read(state, tier: String = "full" (enum: ["l0", "l1", "full"]),
     section: String = "", lines: String = "", context) -> result namespace: "mem")?;
 register_command!(cr, async fn similar(state, collection: String, title: String, description: String = "",
     limit: i64 = 5, root: Key = query "-R-key/.", context) -> result namespace: "mem" volatile: true)?;
@@ -490,30 +526,38 @@ Equivalent queries, as an agent writes them in `memory_query` or the CLI:
 
 ```
 -R-key/specs/issues/-/ns-mem/list-2
--R/specs/issues/NO-MARKDOWN-NAVIGATION-COMMANDS.md/-/ns-mem/read-description
+-R/specs/issues/NO-MARKDOWN-NAVIGATION-COMMANDS.md/-/ns-mem/read-l1
 -R-key/specs/-/ns-mem/search-tiers
 ```
 
 `fields: Value` accepts both an empty text (the query-text default) and a JSON object (an MCP
 override).
 
-| Tool (`memory_`) | Key argument → state | Command | Returns | AC |
+| Tool (`memory_`) | Key argument → state | Command | Returns (default file) | AC |
 |---|---|---|---|---|
-| `overview` | — (root) | `-mem-overview` | `{readme: {title, description}, collections: [{name, title, description, count}], log: [lines]}` | AC-15 |
-| `describe` | — (root) | `-mem-describe` | the `CollectionSchema`s, with `enum_from` resolved and `writable` | AC-15, AC-13 |
-| `list` | `path` (optional) → `-R-key/<path>` | `-mem-list` | `{entries: [{key, title, description, kind, status, asset_status, is_dir}], shown, total}` | AC-1, AC-8, AC-12, AC-17 |
-| `search` | `path` (optional) → `-R-key/<path>` | `-mem-search` | `{hits: [{key, title, description, excerpt, score, matched, heading?, line?}], shown, total}` | AC-2, AC-8, AC-12 |
-| `read` | `key` → `-R/<key>` | `-mem-read` | `{key, version, front_matter, content}` | AC-3 |
-| `new` | — (root) | `-mem-new` | `{written: false, candidates}` or `{written: true, key, version}` | AC-4, AC-5 |
-| `write` | `key` → `-R-key/<key>` | `-mem-write` | `{key, version_before, version_after}` | AC-5 to AC-8 |
-| `edit` | `key` → `-R-key/<key>` | `-mem-edit` | as `write` | AC-6, AC-7, AC-16 |
-| `check` | `path` (optional) → `-R-key/<path>` | `-mem-check` | `{violations: [{rule, key, severity, message}], counts, unsupported}` | AC-9 |
+| `overview` | — (root) | `-mem-overview` | text: README L0/L1, collections with L0/L1 and counts, latest log lines (`overview.md`) | AC-15 |
+| `describe` | — (root) | `-mem-describe` | text: collections, fields, vocabularies, writability (`describe.md`) | AC-15, AC-13 |
+| `list` | `path` (optional) → `-R-key/<path>` | `-mem-list` | record view `key, l0, l1, kind, status, asset_status, is_dir` (`list.md`); note `shown/total` | AC-1, AC-8, AC-12, AC-17 |
+| `search` | `path` (optional) → `-R-key/<path>` | `-mem-search` | record view `key, l0, l1, excerpt, score, matched, heading, line` (`search.md`); note `shown/total` | AC-2, AC-8, AC-12 |
+| `read` | `key` → `-R/<key>` | `-mem-read` | text: the tier, section or lines asked for (`read.md`); notes `key`, `version` | AC-3 |
+| `new` | — (root) | `-mem-new` | JSON `{written: false, candidates}` or `{written: true, key, version}` (`new.json`) | AC-4, AC-5 |
+| `write` | `key` → `-R-key/<key>` | `-mem-write` | JSON `{key, version_before, version_after}` (`write.json`) | AC-5 to AC-8 |
+| `edit` | `key` → `-R-key/<key>` | `-mem-edit` | as `write` (`edit.json`) | AC-6, AC-7, AC-16 |
+| `check` | `path` (optional) → `-R-key/<path>` | `-mem-check` | record view `rule, key, severity, message` (`check.md`); notes counts, `unsupported` | AC-9 |
+
+Markdown is the default because agents read it with the least overhead: a record view's `md`
+format is a pipe table, and documents are Markdown already. A power user asks for another format
+with the query's filename (`…/ns-mem/list/list.csv`, `…/list.json`), or pipes a table on
+(`…/ns-mem/list/ns-rec/sort-l0/sorted.md`). Each tool's query ends with its default filename, and
+every basic tool also takes an optional `format` argument that the engine applies by changing that
+filename's extension in the parsed query.
 | `query` | — (any query) | allow-listed commands | the query's value, as JSON | power layer |
 
 How each acceptance scenario is met:
 
-- **AC-1, AC-17 (tiers).** `title` and `description` come from `AssetInfo`, which the mount's
-  chain fills with `front_matter` and then `markdown_tiers`. A folder's tiers come from its
+- **AC-1, AC-17 (tiers).** L0 and L1 come from the `tiers` bridge. By default it reads `title` and
+  `description` from `AssetInfo`, which the mount's chain fills with `front_matter` and then
+  `markdown_tiers`. A folder's tiers come from its
   `README.md`. `status` and `kind` are front-matter fields, and `asset_status` is the Liquers
   `Status`.
 - **AC-2 (search).** The catalog is built with `search/catalog.rs` and `field_extract`. The text,
@@ -686,22 +730,23 @@ Proposed `affects_docs`: `reference/AGENT_MEMORY_SERVICE.md`, `guides/STORE_CONF
    their document or key as state; basic tools are generated from command metadata with a key
    argument filled structurally; `memory_query` plus a query guide and command reference form the
    power layer. Core option C excluded for now (`RECIPE-CANNOT-PARAMETERIZE-RESOURCE-KEY`).
-2. **The write body as an argument** (an override), not the evaluation payload. Recommended: yes.
+2. **The write body as an argument** (an override), not the evaluation payload. DECIDED (A).
 3. **Every `ns-mem` command volatile except `read`** until
    `SEARCH-COMMANDS-RECORD-NO-DEPENDENCY-ON-READ-FILES` is fixed; `read`'s input is a recorded
-   dependency. Recommended: yes.
+   dependency. DECIDED (A).
 4. **Schema location:** one `<root>/_schema/memory.yaml`, with vocabularies in sibling files.
-   Recommended: yes. Per-collection files can come later without a format change.
+   DECIDED (A). Per-collection files can come later without a format change.
 5. **Fallback tiers as a `store_config` handler** (`markdown_tiers`), configured per mount (change
-   3). Recommended: yes. The handler also makes `key/info` show the fallback.
-6. **Results are JSON-shaped values**, not record views. Recommended: yes, with `ns-search` as the
-   composable layer. With commands now composable, `list` and `search` could instead return record
-   views that `ns-rec` filters and sorts; that would split each result into a table plus
-   `shown`/`total`, so it is left for NEXT.
+   3). DECIDED (A), with the L0/L1 bridge (change 8): front-matter plus configuration, kept
+   flexible because the right tiers are not known yet.
+6. **Results through the serialization system.** DECIDED 2026-10-17 (Orest): `ns-mem` returns
+   what agents digest best (record views and Markdown text, JSON for write results), and power
+   users pick other formats through the query's filename (change 9).
 7. **`mem` as a default feature of `liquers-lib`**, so that the exported registry and
-   `liquers-validate` know `ns-mem`. It adds only `indexmap`. Recommended: yes.
+   `liquers-validate` know `ns-mem`. It adds only `indexmap`. DECIDED (A).
 8. **`storage: none` on writable checkout mounts.** No `.__metadata__` sidecars are written into
-   the repository, and the record is re-derived on every read. Recommended: yes.
+   the repository, and the record is re-derived on every read. DECIDED (A) for the specs; front-matter
+   is where their metadata is maintained.
 9. **The query tool's allow-list**: the read-only `ns-mem` commands plus all of `ns-rec` and
    `ns-search` (none of which writes, checked against the registry in a test). Recommended: yes.
    Polars (`ns-pl`) and other namespaces can be added per profile.

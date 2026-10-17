@@ -241,6 +241,14 @@ being volatile. Core key placeholders (option C) are excluded for now and filed 
 `RECIPE-CANNOT-PARAMETERIZE-RESOURCE-KEY`. The discussion is in
 `/mnt/project-files/agent-memory-mvp/decision1-liquers-style-tools.md`.
 
+**Decisions 2–8 at the gate (2026-10-17, Orest).** 2, 3, 4, 7 and 8 as recommended. 5 as
+recommended, with an addition: L0/L1 (for agents finding a resource) are not assumed equal to
+`title`/`description` (for humans, UI and reports), so a configurable bridge in `memory.yaml`
+maps document parts to L0/L1, defaulting to title and description, to allow experiments. 6
+changed: results go through the serialization system: record views for tables, Markdown text for
+documents, JSON for write results, with Markdown as the default for agents and other formats
+chosen by the query's filename. Counts and versions travel as log notes.
+
 ## Links
 
 - [Phase 1](./phase1-high-level-design.md)
