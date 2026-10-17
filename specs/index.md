@@ -8,9 +8,9 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 125
+Total rows: 127
 - P2: 51
-- P3: 74
+- P3: 76
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -69,8 +69,10 @@ Total rows: 125
 | [`BUILD-MATRIX-EXHAUSTS-SESSION-DISK`](issues/BUILD-MATRIX-EXHAUSTS-SESSION-DISK.md) | issue | The build-matrix script fills a cloud session's disk before it finishes | draft |  |  | P3 | S | build |  | 2026-10-17 |
 | [`COMBINED-VALUE-DATA-NODE-COPIES-BASE-VALUE`](issues/COMBINED-VALUE-DATA-NODE-COPIES-BASE-VALUE.md) | issue | A base value is copied whole to become a data node | draft |  |  | P3 | S | lib/value |  | 2026-10-17 |
 | [`COMMAND-REGISTRY-HEADER-NAMES-GROUPS-NOT-FEATURES`](issues/COMMAND-REGISTRY-HEADER-NAMES-GROUPS-NOT-FEATURES.md) | issue | The command_registry.yaml header lists group names under "features" | draft |  |  | P3 | S | lib/commands;build |  | 2026-10-11 |
+| [`CORE-WASM-BUILD-EMITS-UNUSED-WARNINGS`](issues/CORE-WASM-BUILD-EMITS-UNUSED-WARNINGS.md) | issue | A wasm32 build of liquers-core emits five unused-import and dead-code warnings | draft |  |  | P3 | S | core/assets;build |  | 2026-10-17 |
 | [`CWD-DEFAULT-LINK-WARNS-WITHOUT-WORKING-DIRECTORY`](issues/CWD-DEFAULT-LINK-WARNS-WITHOUT-WORKING-DIRECTORY.md) | issue | The recommended cwd default link warns on every evaluation without a working directory | draft |  |  | P3 | S | core/query |  | 2026-10-17 |
 | [`DEPENDENCY-ANALYSIS-USES-CALLER-CWD-FOR-A-CWD-LESS-RECIPE`](issues/DEPENDENCY-ANALYSIS-USES-CALLER-CWD-FOR-A-CWD-LESS-RECIPE.md) | issue | Dependency analysis resolves a cwd-less recipe against its caller's cursor, but its run resolves against the root | draft |  |  | P3 | S | core/plan |  | 2026-10-13 |
+| [`DEPENDENCY-MANAGER-VERSION-NOT-OBSERVABLE-FROM-TESTS`](issues/DEPENDENCY-MANAGER-VERSION-NOT-OBSERVABLE-FROM-TESTS.md) | issue | An integration test cannot ask the dependency manager whether a key has a registered version | draft |  |  | P3 | S | core/assets |  | 2026-10-17 |
 | [`DEPENDENT-ASSET-WEAK-REFERENCES-ARE-NEVER-PRUNED`](issues/DEPENDENT-ASSET-WEAK-REFERENCES-ARE-NEVER-PRUNED.md) | issue | The dependency manager never prunes dead weak dependents, so its lists grow with every distinct query | draft |  |  | P3 | S | core/assets |  | 2026-10-17 |
 | [`EXTERNAL-MANAGER-CANNOT-SHARE-AN-EVALUATION-SESSION`](issues/EXTERNAL-MANAGER-CANNOT-SHARE-AN-EVALUATION-SESSION.md) | issue | An external asset manager cannot hand a dependency its parent's evaluation session | draft |  |  | P3 | S | core/assets |  | 2026-10-12 |
 | [`LIB-BUILD-EMITS-UNUSED-AND-UNHANDLED-RESULT-WARNINGS`](issues/LIB-BUILD-EMITS-UNUSED-AND-UNHANDLED-RESULT-WARNINGS.md) | issue | A default liquers-lib build emits about 50 warnings, some for discarded Results | draft |  |  | P3 | S | lib/commands;build |  | 2026-10-11 |
