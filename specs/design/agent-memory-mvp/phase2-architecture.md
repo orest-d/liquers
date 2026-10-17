@@ -757,5 +757,7 @@ Proposed `affects_docs`: `reference/AGENT_MEMORY_SERVICE.md`, `guides/STORE_CONF
    the repository, and the record is re-derived on every read. DECIDED (A) for the specs; front-matter
    is where their metadata is maintained.
 9. **The query tool's allow-list**: the read-only `ns-mem` commands plus all of `ns-rec` and
-   `ns-search` (none of which writes, checked against the registry in a test). Recommended: yes.
-   Polars (`ns-pl`) and other namespaces can be added per profile.
+   `ns-search` (none of which writes, checked against the registry in a test). DECIDED for the MVP
+   (Orest, 2026-10-17). Polars (`ns-pl`) and other namespaces can be added per profile. The general
+   answer is access control (`CORE-SESSION-AND-KEY-ACL`): once it exists, the allow-list should
+   give way to permissions checked by core rather than by `liquers-mcp`.
