@@ -3,7 +3,7 @@ title: Recipes and Plans Reference
 kind: reference
 audience: internal
 area: [core/plan, core/assets, core/context]
-reviewed: 2026-10-12
+reviewed: 2026-10-17
 ---
 # DOC-08: Recipes and Plans
 
@@ -275,6 +275,14 @@ cached `a/b` as a volatile, unmanaged asset. `v` at the head leaves no pure pref
 so `v/a/b/c` is volatile throughout and cuts nothing — write it there to recompute
 everything. (Until `plan-policy`, `v` anywhere marked the whole plan volatile; a
 recipe's `volatile: true`, which carries no position, still does.)
+
+A resource step — `-R-stored/…`, `-R-stored_meta/…` or `-R-sdir/…`, planned as
+`GetResource`, `GetResourceMetadata` or `GetResourceDirectory` and read straight from
+the store — never makes a plan volatile. Store data is not tracked by volatility: a
+resource's changes reach its dependants through its version and dependency records.
+`Plan::is_volatile`, set by the builder, is the only volatility authority; the
+crate-private `IsVolatile` answers a `Query`, `Recipe` or `Plan` from it and has no
+step-level implementation.
 
 A command registered with `cached: false` sets `Plan::uncached_by` when it is the
 **last** action: the next action, a resource step or `q` clears it, and a filename,
@@ -740,6 +748,7 @@ runtime behavior is unchanged.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-17 | Planning contract: resource steps (`-R-stored/`, `-R-stored_meta/`, `-R-sdir/`) never make a plan volatile; `Plan::is_volatile` is the only volatility authority (the step-level `IsVolatile` impl was removed). | `design/step-volatility-impl-removal/` |
 | 2026-10-12 | Recipe contract: overrides apply in sorted order, resolve against `Plan::last_action_command` (an alias's own arguments; head slots refused), convert a mismatched JSON type with a planning warning or fail with `ConversionError`, and report an unknown or injected name as `ParameterError`. | phase-5, `design/axum-query-named-arguments/` |
 | 2026-10-10 | Predecessor boundaries: planning diagnostics (`init_steps`) now reach the evaluated asset's log, appended once when the plan is applied (`PLANNING-DIAGNOSTICS-NEVER-REACH-THE-ASSET-LOG`). | `issues/PLANNING-DIAGNOSTICS-NEVER-REACH-THE-ASSET-LOG.md` |
 | 2026-10-10 | Reviewed against `design/plan-policy/`. Recipe contract: `cached` is a caching strategy (`none` \| `result` \| `all`, booleans read as `all`/`none`, absent or `default` = `recipe_cache_strategy`). Planning contract: `v` is positional (`a/b/v/c` cuts `a/b`, `a/b/v` is `Evaluate(a/b)`, `v/…` recomputes everything); `Plan::uncached_by`. Predecessor boundaries: cutting is recursive (corrects "one cut retains one intermediate"); new "What is kept" (the command flag, strategies following the origin, the plan independent of strategy and manager state, `cut_predecessors`); a fourth condition, not cached; `Declared` is recipe-level only; the stable-plan empty-tail rule; two pitfalls updated or added; planning diagnostics do not reach the asset log (`PLANNING-DIAGNOSTICS-NEVER-REACH-THE-ASSET-LOG`). | phase-5, `design/plan-policy/` |

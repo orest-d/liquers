@@ -127,9 +127,9 @@ Command: `cargo test -p liquers-core --lib alias`.
 
 ### Steps
 
-- [ ] 1. `interpreter.rs` — remove the three impls and the step test — `cargo check -p liquers-core --tests`. Rollback: if a caller appears, restore and only drop the prints
-- [ ] 2. `plan.rs` — add `volatile_alias_of_stable_target_makes_plan_volatile` — `cargo test -p liquers-core --lib alias`
-- [ ] 3. DOC_08 note, History row, `reviewed:`; close the issue — `python3 scripts/docs_index.py --check`
+- [x] 1. `interpreter.rs` — remove the three impls and the step test — `cargo check -p liquers-core --tests`. Rollback: if a caller appears, restore and only drop the prints
+- [x] 2. `plan.rs` — add `volatile_alias_of_stable_target_makes_plan_volatile` — `cargo test -p liquers-core --lib alias`
+- [x] 3. DOC_08 note, History row, `reviewed:`; close the issue — `python3 scripts/docs_index.py --check`
 
 ### Validation
 
