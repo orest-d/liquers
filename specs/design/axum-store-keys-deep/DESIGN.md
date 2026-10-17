@@ -2,6 +2,7 @@
 id: AXUM-STORE-KEYS-DEEP
 kind: design
 title: Store API keys route enumerates every key under the prefix
+status: complete
 gh_pr: [109]
 readiness: ready
 autofix: eligible
@@ -10,6 +11,8 @@ issues: [AXUM-STORE-KEYS-LISTS-ONLY-DIRECT-CHILDREN]
 created: 2026-10-06
 ---
 # Store API keys route enumerates every key under the prefix
+
+> **Complete on 2026-10-17** (backlog compaction): implemented by #109, merged; every source issue is closed and no phase is outstanding.
 
 > **Acceptance scenarios not defined.** This design predates acceptance scenarios
 > (`specs/DOCS_STRUCTURE_GUIDE.md` §5.2.1). Consider updating it: state the Phase 1 acceptance

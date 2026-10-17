@@ -2,7 +2,7 @@
 id: EXPIRED-BINARY-READ-SAFETY
 kind: design
 title: Expired-safe binary reads
-phase: implementation
+status: complete
 area: [core/assets, core/store]
 gh_pr: [22]
 issues: [ASSET-EXPIRED-CACHED-BINARY-READ]
@@ -10,6 +10,8 @@ created: 2026-08-08
 superseded_by:
 ---
 # expired-binary-read-safety Design Tracking
+
+> **Complete on 2026-10-17** (backlog compaction): implemented by #22, merged; every source issue is closed and no phase is outstanding.
 
 > **Acceptance scenarios not defined.** This design predates acceptance scenarios
 > (`specs/DOCS_STRUCTURE_GUIDE.md` §5.2.1). Consider updating it: state the Phase 1 acceptance

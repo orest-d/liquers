@@ -2,6 +2,7 @@
 id: STORE-CONFORMANCE-WARNING-CLEANUP
 kind: design
 title: Build the store-conformance feature without warnings
+status: complete
 form: compact
 gh_pr: [106]
 readiness: ready
@@ -11,6 +12,8 @@ issues: [STORE-CONFORMANCE-FEATURE-BUILD-WARNINGS]
 created: 2026-10-10
 ---
 # Build the store-conformance feature without warnings
+
+> **Complete on 2026-10-17** (backlog compaction): implemented by #106, merged; every source issue is closed and no phase is outstanding.
 
 Bulk design (`specs/guides/autonomous_bulk_design.md`). Phases 1-4 are written but not approved, and
 nothing is implemented.
