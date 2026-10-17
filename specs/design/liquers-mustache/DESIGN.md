@@ -4,19 +4,19 @@ kind: design
 title: liquers-mustache — a query-aware template language
 workflow: liquers-project
 status: in_review
-phase: high-level
+phase: architecture
 area: [core/query, core/value, lib/commands, lib/ui, docs]
 issues: [NO-QUERY-AWARE-TEMPLATE-LANGUAGE, SIMPLE-TEMPLATE-HAS-NO-COMMAND]
 merged: 2026-10-13
-affects_docs: []
+affects_docs: [specs/reference/TEMPLATE_LANGUAGE.md, specs/guides/TEMPLATE_GUIDE.md, specs/reference/VALUE_TYPE_SYSTEM.md, specs/reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md, specs/reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md, specs/reference/PROJECT_OVERVIEW.md]
 created: 2026-10-13
 ---
 # liquers-mustache — a query-aware template language
 
 ## Phases
 
-- [Phase 1](./phase1-high-level-design.md) — written 2026-10-13, revised twice on 2026-10-17 after review, awaiting approval
-- [Phase 2](./phase2-architecture.md)
+- [Phase 1](./phase1-high-level-design.md) — written 2026-10-13, revised twice on 2026-10-17 after review, **approved 2026-10-17**
+- [Phase 2](./phase2-architecture.md) — written and reviewed 2026-10-17, awaiting approval
 - [Phase 3](./phase3-examples.md)
 - [Phase 4](./phase4-implementation.md)
 - [Phase 5](./phase5-documentation.md)
