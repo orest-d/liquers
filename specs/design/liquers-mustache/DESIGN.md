@@ -4,7 +4,7 @@ kind: design
 title: liquers-template — a query-aware template language (Mustache syntax)
 workflow: liquers-project
 status: in_review
-phase: architecture
+phase: examples
 area: [core/query, core/value, lib/commands, lib/ui, docs]
 issues: [NO-QUERY-AWARE-TEMPLATE-LANGUAGE, SIMPLE-TEMPLATE-HAS-NO-COMMAND]
 merged: 2026-10-13
@@ -16,8 +16,8 @@ created: 2026-10-13
 ## Phases
 
 - [Phase 1](./phase1-high-level-design.md) — written 2026-10-13, revised twice on 2026-10-17 after review, **approved 2026-10-17**
-- [Phase 2](./phase2-architecture.md) — written and reviewed 2026-10-17, revised the same day after review, awaiting approval
-- [Phase 3](./phase3-examples.md)
+- [Phase 2](./phase2-architecture.md) — written and reviewed 2026-10-17, revised the same day after review, **approved 2026-10-17**
+- [Phase 3](./phase3-examples.md) — written 2026-10-17, in review
 - [Phase 4](./phase4-implementation.md)
 - [Phase 5](./phase5-documentation.md)
 

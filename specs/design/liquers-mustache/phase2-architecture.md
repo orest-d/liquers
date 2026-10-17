@@ -312,8 +312,8 @@ six paths in the table.
 - **13 [decided 2026-10-17]** Relative partial keys resolve against a cwd passed as an argument.
 - **14 [decided 2026-10-17]** `cwd` defaults to the link `-R-key/.` and is the last argument. The
   earlier claim that a link needed a new command was wrong: `-R-key/.` is the documented pattern.
-- **15 [proposed]** What may appear inside `[…]`? *Recommended:* a name resolved from the top of
+- **15 [accepted 2026-10-17]** Inside `[…]`: a name resolved from the top of
   the context stack, an integer (negative from the end) or a quoted string; not a query, which a
   later `[$ q]` could add.
-- **16 [proposed]** Which mode is the default? *Recommended:* `strict`, so a broken template is
+- **16 [accepted 2026-10-17]** The default mode is `strict`, so a broken template is
   noticed; `errors` sits before `cwd`, so a caller choosing a mode keeps `cwd` promoted.
