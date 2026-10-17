@@ -2213,6 +2213,21 @@ impl<E: Environment> Clone for WeakAssetRef<E> {
     }
 }
 
+/// Upserts `dependencies` into `metadata`, linearly: one index for the whole batch.
+///
+/// Legacy metadata other than `null` cannot hold records, and is left as it is, as
+/// `Metadata::add_dependency` leaves it.
+fn merge_dependencies(metadata: &mut Metadata, dependencies: Vec<DependencyRecord>) {
+    match metadata {
+        Metadata::MetadataRecord(record) => record.merge_dependencies(dependencies),
+        Metadata::LegacyMetadata(_) => {
+            for dependency in dependencies {
+                let _ = metadata.add_dependency(dependency);
+            }
+        }
+    }
+}
+
 impl<E: Environment> AssetRef<E> {
     /// Enter the canonical dependency-waiting status for this asset.
     ///
@@ -3909,9 +3924,7 @@ impl<E: Environment> AssetRef<E> {
                     lock.metadata
                         .with_type_identifier(value.identifier().to_string())
                         .with_type_name(value.type_name().to_string());
-                    for dep in dependencies {
-                        let _ = lock.metadata.add_dependency(dep);
-                    }
+                    merge_dependencies(&mut lock.metadata, dependencies);
                     lock.data = Some(value);
                     // Every other value-installing path clears this (`set_value`, `set_state`),
                     // and this one is about to write it. Leaving a stale binary here would let
