@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: L
 area: [web, records]
-design:
+design: liquers-web-records-bridge
 created: 2026-10-17
 github:
 ---
