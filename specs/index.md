@@ -8,8 +8,8 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 121
-- P2: 53
+Total rows: 122
+- P2: 54
 - P3: 68
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
@@ -32,6 +32,7 @@ Total rows: 121
 | [`PY-MODULES-NOT-DECLARED-IN-LIB`](issues/PY-MODULES-NOT-DECLARED-IN-LIB.md) | issue | Half of liquers-py's source files are not declared as modules and never compile | draft |  |  | P2 | M | py |  | 2026-08-25 |
 | [`PY-VALUE-SERIALIZER-IS-A-STUB`](issues/PY-VALUE-SERIALIZER-IS-A-STUB.md) | issue | liquers-py's value serializer writes almost nothing and reads nothing back | draft |  |  | P2 | M | py;core/value |  | 2026-08-26 |
 | [`RECORDS-PARQUET-POLARS-READ-IGNORES-DECLARED-SCHEMA`](issues/RECORDS-PARQUET-POLARS-READ-IGNORES-DECLARED-SCHEMA.md) | issue | Reading Parquet through the polars bridge ignores a caller-declared schema | draft |  |  | P2 | M | records;lib/polars |  | 2026-09-27 |
+| [`RUNTIME-VOLATILE-DEPENDENCY-DOES-NOT-MAKE-PARENT-VOLATILE`](issues/RUNTIME-VOLATILE-DEPENDENCY-DOES-NOT-MAKE-PARENT-VOLATILE.md) | issue | A volatile dependency a command evaluates through its context does not make the command's result volatile | draft |  |  | P2 | M | core/context |  | 2026-10-17 |
 | [`SEARCH-COMMANDS-RECORD-NO-DEPENDENCY-ON-READ-FILES`](issues/SEARCH-COMMANDS-RECORD-NO-DEPENDENCY-ON-READ-FILES.md) | issue | ns-search results do not depend on the files they read, so they go stale | draft |  |  | P2 | M | lib/commands;core/assets |  | 2026-10-17 |
 | [`SERIALIZATION-CANNOT-REPORT-A-LOSSY-WRITE`](issues/SERIALIZATION-CANNOT-REPORT-A-LOSSY-WRITE.md) | issue | Serialization cannot report a lossy write, so a value silently loses data on its way to the store | draft |  |  | P2 | M | core/value |  | 2026-10-13 |
 | [`SERIALIZED-BINARY-RETAINED-WITH-NO-DISPOSAL-POLICY`](issues/SERIALIZED-BINARY-RETAINED-WITH-NO-DISPOSAL-POLICY.md) | issue | A serialized binary is cached on the asset forever, with no policy for releasing it | draft |  |  | P2 | M | core/assets |  | 2026-09-05 |

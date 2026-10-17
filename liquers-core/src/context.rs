@@ -854,7 +854,8 @@ impl<E: Environment> Context<E> {
     /// Volatility is not passed on, exactly as [`Self::get_dependency_state`] does not pass it on:
     /// it is fixed before evaluation starts (`design/volatility-system`, decision 4). A volatile
     /// ad-hoc plan records no dependencies, so a caller that applies a volatile query declares its
-    /// own command `volatile`, or the query that reaches it ends in `v`.
+    /// own command `volatile`, or the query that reaches it has `v` before that command (a trailing
+    /// `v` serves the cached prefix). See `RUNTIME-VOLATILE-DEPENDENCY-DOES-NOT-MAKE-PARENT-VOLATILE`.
     pub async fn apply_ad_hoc(
         &self,
         recipe: Recipe,

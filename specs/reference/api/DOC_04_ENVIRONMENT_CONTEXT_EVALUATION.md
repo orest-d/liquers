@@ -392,7 +392,8 @@ the observed version, and drains the local dependency queue. It still returns an
 `apply_ad_hoc` is what a template uses for a query with an input or a parameter override. The
 query is resolved as `apply` resolves it (a relative query is refused). Volatility is not passed
 on, as with `get_dependency_state`: it is fixed before evaluation (`design/volatility-system`,
-decision 4), so a parent that wants a volatile result says so with `v`.
+decision 4), so a parent that wants a volatile result puts `v` before its own action, or is declared
+`volatile` (`RUNTIME-VOLATILE-DEPENDENCY-DOES-NOT-MAKE-PARENT-VOLATILE`).
 
 `get_dependency_state` is the direct schedule-and-wait operation used by the
 interpreter for linked and resource dependencies. It is exactly `submit` followed by
@@ -598,6 +599,7 @@ methods crate-private), so an asset manager can be implemented outside `liquers-
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-17 | `apply_ad_hoc` volatility: `v` goes before the parent's own action; linked the run-time volatility issue. | `RUNTIME-VOLATILE-DEPENDENCY-DOES-NOT-MAKE-PARENT-VOLATILE` |
 | 2026-10-17 | §Dependency and apply methods: `Context::apply_ad_hoc`, which passes the ad-hoc dependencies on and no volatility. | `design/liquers-mustache/` |
 | 2026-10-12 | Context methods: one asset per dependency per evaluation; `evaluate` runs locally queued work in tasks of its own on the queued manager; `apply` stays in the evaluation's session. | phase-5 (`design/dependency-resolved-once-per-evaluation/`) |
 | 2026-10-11 | `Query::absolute` renamed `Query::rooted`, wire name included (no alias); its meaning is unchanged. | `design/query-leading-slash-field/` |

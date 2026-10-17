@@ -124,7 +124,7 @@ async fn apply_ad_hoc_rejects_relative_query() -> TestResult {
 
 /// Volatility is fixed before evaluation (`design/volatility-system`, decision 4): neither
 /// `get_dependency_state` nor `apply_ad_hoc` makes a non-volatile parent volatile. The parent
-/// that wants a volatile result says so with `v`.
+/// that wants a volatile result puts `v` ahead of its own action.
 #[tokio::test]
 async fn apply_ad_hoc_volatility_is_static() -> TestResult {
     let envref = env().await?;
@@ -134,8 +134,8 @@ async fn apply_ad_hoc_volatility_is_static() -> TestResult {
         assert_eq!(asset.get().await?.try_into_string()?, "random");
         assert!(!asset.is_volatile().await, "{query} is not volatile");
     }
-    let asset = manager.get_asset(&parse_query("apply_with-rnd/v")?).await?;
+    let asset = manager.get_asset(&parse_query("v/apply_with-rnd")?).await?;
     asset.get().await?;
-    assert!(asset.is_volatile().await, "a query ending in v is volatile");
+    assert!(asset.is_volatile().await, "a query starting with v is volatile");
     Ok(())
 }

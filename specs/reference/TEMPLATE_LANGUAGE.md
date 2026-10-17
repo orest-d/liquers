@@ -154,7 +154,9 @@ A **template command** is an alias of `template/render` whose head parameter is 
 
 An apply input that is a value node is passed on as that value; any other node goes as its JSON.
 Volatility is not passed on (`design/volatility-system`, decision 4): a render over volatile queries
-is volatile only when its query ends in `/v`, or when a template command is declared `volatile`.
+is volatile only when `v` comes before the render action (`v/ns-template/render-…`; a trailing `/v`
+serves the cached render), or when a template command is declared `volatile`
+(`RUNTIME-VOLATILE-DEPENDENCY-DOES-NOT-MAKE-PARENT-VOLATILE`).
 Partials nest at most `max_partial_depth` (32) deep, and the same partial at the same stack depth is
 a cycle error.
 
@@ -190,4 +192,5 @@ positions of §2; `QueryTemplate::try_into_query` succeeds exactly when it has n
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-17 | Corrected the volatility rule: `v` before the render action, not a trailing `/v`. | `RUNTIME-VOLATILE-DEPENDENCY-DOES-NOT-MAKE-PARENT-VOLATILE` |
 | 2026-10-17 | Created: tags, slot positions, names, data nodes, the `ns-template` commands, evaluation routes, error modes, the AST. | `design/liquers-mustache/` |
