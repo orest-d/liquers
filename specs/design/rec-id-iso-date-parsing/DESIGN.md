@@ -3,8 +3,7 @@ id: REC-ID-ISO-DATE-PARSING
 kind: design
 workflow: liquers-project
 title: ns-rec/rec_id accepts YYYYMMDD and YYYY-MM-DD ids
-status: in_review
-phase: documentation
+status: complete
 readiness: ready
 autofix: not-eligible
 area: [records, lib/commands]
@@ -12,6 +11,8 @@ issues: [REC-ID-PARSES-DATE-AND-TIMESTAMP-IDS-AS-RAW-NUMBERS]
 created: 2026-10-06
 ---
 # ns-rec/rec_id accepts YYYYMMDD and YYYY-MM-DD ids
+
+> **Complete on 2026-10-17** (backlog compaction): Phase 5 approved by the maintainer; the implementation is merged and every source issue it completed is closed.
 
 > **Acceptance scenarios not defined.** This design predates acceptance scenarios
 > (`specs/DOCS_STRUCTURE_GUIDE.md` §5.2.1). Consider updating it: state the Phase 1 acceptance

@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: S
 area: [core/plan]
-design: 
+design: cwd-less-recipe-analysed-at-root
 created: 2026-10-13
 github:
 ---
@@ -24,6 +24,13 @@ So, for a recipe without `cwd` that uses a relative operand (`-R/./s.txt`) and i
 with a CWD:
 - the analysis records dependencies, volatility and expiry of `<caller CWD>/s.txt`;
 - the run reads `s.txt` at the root.
+
+## Problem Example
+
+A provider serves `lib/r.txt` = `-R/./s.txt/-/up` with no `cwd`, `x/s.txt` (expires in 10 s) and
+`s.txt` (never expires). Analysing the plan `SetCwd(x)`, `GetAsset(lib/r.txt)` today gives the plan
+`x/s.txt`'s 10 s expiry (pinned by `memo_respects_caller_cwd_for_recipe_without_cwd`), while the
+run of `lib/r.txt` reads `s.txt`. It should give `s.txt`'s summary, whatever the caller's CWD.
 
 ## Impact
 

@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: S
 area: [core/query]
-design: 
+design: cwd-default-link-silent-root
 created: 2026-10-17
 github:
 ---
@@ -17,6 +17,13 @@ argument declared as `dir: Key = query "-R-key/."`. When the query sets no worki
 link resolves `.` against the logical root and logs `RELATIVE_WITHOUT_CWD_WARNING`
 ("Relative key/query has no CWD; using logical root '/'.", `liquers-core/src/query.rs`) as a
 warning of the result. The root is the intended default there, so the warning reports nothing wrong.
+
+## Problem Example
+
+Evaluating `ns-template/render-~X~-R/templates/hello.md~E` with no `-R-cwd/…` logs
+`Relative key/query has no CWD; using logical root '/'.` from the `cwd` argument's default link
+`-R-key/.` (emitted when `ParameterValue::freeze_cwd` absorbs the link's root fallback). It should
+resolve `cwd` to the root silently; `-R/./x.txt` with no CWD should keep warning.
 
 ## Impact
 

@@ -2,9 +2,8 @@
 id: STALE-DEPENDENCY-STATUS-FINALIZATION
 kind: design
 title: Status is finalized before persistence for a stale-dependency evaluation
+status: complete
 workflow: liquers-project
-status:
-phase: documentation
 area: [core/assets]
 gh_pr: [71]
 issues: [ASSET-STALE-DEPENDENCY-PERSISTED-AS-READY, CROSS-PROCESS-RELOAD-IS-UNTESTED, EXPIRY-RECORDS-NO-REASON, STALE-DEPENDENCY-PATH-HAS-NO-END-TO-END-TEST, AUDIT-CANNOT-EXPIRE-ON-A-FIRST-OBSERVED-VERSION]
@@ -13,6 +12,8 @@ created: 2026-09-04
 superseded_by:
 ---
 # stale-dependency-status-finalization Design Tracking
+
+> **Complete on 2026-10-17** (backlog compaction): Phase 5 approved by the maintainer; the implementation (#71) is merged and every source issue it completed is closed.
 
 > **Acceptance scenarios not defined.** This design predates acceptance scenarios
 > (`specs/DOCS_STRUCTURE_GUIDE.md` §5.2.1). Consider updating it: state the Phase 1 acceptance

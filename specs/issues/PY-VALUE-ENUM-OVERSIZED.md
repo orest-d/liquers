@@ -4,9 +4,9 @@ kind: issue
 title: liquers-py's own Value enum is over 700 bytes because large variants are stored inline
 status: draft
 priority: P3
-complexity: S
+complexity: M
 area: [py]
-design: 
+design: py-value-arc-payloads
 created: 2026-10-12
 github:
 ---

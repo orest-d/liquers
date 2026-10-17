@@ -2,6 +2,7 @@
 id: EXTERNAL-MANAGER-REPLACEMENT-SURFACE
 kind: design
 title: Replacement and state installation for external asset managers
+status: complete
 readiness: ready
 autofix: not-eligible
 area: [core/assets]
@@ -10,6 +11,8 @@ created: 2026-10-06
 gh_pr: [118]
 ---
 # Replacement and state installation for external asset managers
+
+> **Complete on 2026-10-17** (backlog compaction): implemented by #118, merged; every source issue is closed and no phase is outstanding.
 
 > **Acceptance scenarios not defined.** This design predates acceptance scenarios
 > (`specs/DOCS_STRUCTURE_GUIDE.md` §5.2.1). Consider updating it: state the Phase 1 acceptance
