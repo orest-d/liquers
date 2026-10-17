@@ -720,7 +720,13 @@ impl StoreRouterBuilder {
         functions: &StoreConfigFunctions,
         central: bool,
         warnings: &mut Vec<String>,
-    ) -> Result<(AsyncStoreRouter, Vec<(crate::query::Key, Arc<dyn AsyncStore>)>), Error> {
+    ) -> Result<
+        (
+            AsyncStoreRouter,
+            Vec<(crate::query::Key, Arc<dyn AsyncStore>)>,
+        ),
+        Error,
+    > {
         let mut router = AsyncStoreRouter::new();
         let mut mounts = Vec::new();
         for store_config in &self.config.stores {
@@ -741,10 +747,12 @@ impl StoreRouterBuilder {
                 } else {
                     let mut notes = Vec::new();
                     store = Arc::new(
+                        // The router's ReadOnlyStore cannot stop a member pipeline writing
+                        // records during a read, so the pipeline takes the router's flag too.
                         pipeline(
                             store,
                             section,
-                            store_config.read_only,
+                            store_config.read_only || self.config.read_only,
                             Vec::new(),
                             registry,
                             functions,

@@ -76,6 +76,13 @@ pub trait MetadataStorage: crate::maybe_send::MaybeSend + crate::maybe_send::May
         None
     }
 
+    /// The folder of the model's object store that mirrors `folder`, when records live outside
+    /// the data tree (the `root` layout, central storage): what makes a folder that holds only
+    /// records a folder. `None` when records live beside the data, where the backend sees them.
+    fn record_folder(&self, _folder: &Key) -> Option<Key> {
+        None
+    }
+
     /// The keys of the objects that hold `key`'s record, in the model's object store; what a write
     /// strategy looks for when it recovers an interrupted write. Empty for a model with no
     /// objects of its own.
@@ -303,6 +310,19 @@ impl MetadataStorage for PerEntryStorage {
 
     fn object_keys(&self, key: &Key) -> Vec<Key> {
         self.metadata_key(key).into_iter().collect()
+    }
+
+    fn record_folder(&self, folder: &Key) -> Option<Key> {
+        match self.layout {
+            Layout::Root => {
+                let mut root = Key::new().join(METADATA_SEGMENT);
+                for segment in folder.iter() {
+                    root = root.join(&segment.name);
+                }
+                Some(root)
+            }
+            Layout::Sidecar | Layout::Prefix | Layout::Folder => None,
+        }
     }
 
     async fn record_names(
@@ -566,6 +586,10 @@ impl MetadataStorage for MemoryCentralStorage {
 
     fn object_keys(&self, key: &Key) -> Vec<Key> {
         vec![key.clone()]
+    }
+
+    fn record_folder(&self, folder: &Key) -> Option<Key> {
+        Some(folder.clone())
     }
 
     async fn record_names(

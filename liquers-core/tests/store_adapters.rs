@@ -226,6 +226,23 @@ async fn read_only_mount_from_config() -> TestResult {
     Ok(())
 }
 
+/// A router-level `read_only` reaches a member's own pipeline: a member that persists default
+/// records writes none on read.
+#[tokio::test]
+async fn router_read_only_stops_member_pipeline_writes() -> TestResult {
+    let member = memory("m");
+    member.set_data(&key("m/a.txt"), b"hello").await?;
+    let yaml = "read_only: true\nstores:\n  - type: shared\n    prefix: m\n    config: { name: m }\n    metadata: { storage: per_entry, persist_defaults: true }\n";
+    let store = build(yaml, &[("m", member.clone())])?;
+    let _ = store.get_metadata(&key("m/a.txt")).await?;
+    let _ = store.get(&key("m/a.txt")).await?;
+    assert_eq!(
+        member.listdir_data(&key("m")).await?,
+        vec!["a.txt".to_string()]
+    );
+    Ok(())
+}
+
 /// AC-1: `read_only` over a store without data access is built, and the build reports a warning
 /// naming the mount (returned, so an integration without stderr can show it).
 #[tokio::test]
@@ -238,8 +255,16 @@ async fn read_only_over_store_without_data_access_warns() -> TestResult {
     .with_store_config(cmr, functions)
     .build_store_reporting()?;
     assert_eq!(built.warnings.len(), 1, "{:?}", built.warnings);
-    assert!(built.warnings[0].contains("Mount 'n'"), "{:?}", built.warnings);
-    assert!(built.warnings[0].contains("no data-only access"), "{:?}", built.warnings);
+    assert!(
+        built.warnings[0].contains("Mount 'n'"),
+        "{:?}",
+        built.warnings
+    );
+    assert!(
+        built.warnings[0].contains("no data-only access"),
+        "{:?}",
+        built.warnings
+    );
     let store = built.store;
     assert!(store.is_read_only());
     assert!(store
@@ -460,7 +485,8 @@ fn central_storage_resolves_its_mount_through_the_router() {
     let message = error_of(build(absent, &[]));
     assert!(message.contains("does not have"), "{message}");
 
-    let member = "stores:\n  - type: memory\n    prefix: m\n    metadata: { storage: central-meta }\n";
+    let member =
+        "stores:\n  - type: memory\n    prefix: m\n    metadata: { storage: central-meta }\n";
     let message = error_of(build(member, &[]));
     assert!(message.contains("Mount 'm'"), "{message}");
     assert!(message.contains("router-level"), "{message}");

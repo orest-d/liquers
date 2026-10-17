@@ -257,26 +257,54 @@ impl MetadataPipelineStore {
         let _ = self.cache.remove_async(key).await;
     }
 
-    /// Takes the write lock of `key`'s group.
-    async fn lock(&self, key: &Key) -> (Key, Arc<tokio::sync::Mutex<()>>) {
-        let group = self.storage.group_of(key).unwrap_or_else(|| key.clone());
-        let lock = self
-            .locks
+    /// The groups a write of `key` must lock, sorted: the group of every model that holds its
+    /// record (the storage and the backup covering it), or `key` itself when none groups it.
+    fn lock_groups(&self, key: &Key) -> Vec<Key> {
+        let mut groups: Vec<Key> = self
+            .storage
+            .group_of(key)
+            .into_iter()
+            .chain(
+                self.backup_for(key)
+                    .and_then(|(_, backup)| backup.storage.group_of(key)),
+            )
+            .collect();
+        if groups.is_empty() {
+            groups.push(key.clone());
+        }
+        groups.sort();
+        groups.dedup();
+        groups
+    }
+
+    /// The lock of `group`, created when absent.
+    async fn lock(&self, group: &Key) -> Arc<tokio::sync::Mutex<()>> {
+        self.locks
             .entry_async(group.clone())
             .await
             .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(())))
             .get()
-            .clone();
-        (group, lock)
+            .clone()
     }
 
     /// Evicts a group's lock when nobody else holds it.
-    async fn release(&self, group: Key, lock: Arc<tokio::sync::Mutex<()>>) {
+    async fn release(&self, group: &Key, lock: Arc<tokio::sync::Mutex<()>>) {
         drop(lock);
         let _ = self
             .locks
-            .remove_if_async(&group, |l| Arc::strong_count(l) == 1)
+            .remove_if_async(group, |l| Arc::strong_count(l) == 1)
             .await;
+    }
+
+    /// A backend folder, or a folder holding only records kept outside the data tree.
+    async fn is_folder(&self, key: &Key) -> Result<bool, Error> {
+        if self.backend.is_dir(key).await? {
+            return Ok(true);
+        }
+        match self.storage.record_folder(key) {
+            Some(folder) => self.metadata_store().is_dir(&folder).await,
+            None => Ok(false),
+        }
     }
 
     /// Plans and commits `data` (`Some(None)` deletes it, `None` leaves it) with `record` for
@@ -292,7 +320,7 @@ impl MetadataPipelineStore {
             };
             for name in names {
                 let child = current.join(&name);
-                if self.backend.is_dir(&child).await? {
+                if self.is_folder(&child).await? {
                     pending.push(child);
                 } else {
                     match self.commit(&child, Some(None), None).await {
@@ -312,12 +340,22 @@ impl MetadataPipelineStore {
         data: Option<Option<&[u8]>>,
         record: Option<&Metadata>,
     ) -> Result<(), Error> {
-        let (group, lock) = self.lock(key).await;
+        // Taken in sorted order, so two writes sharing groups cannot deadlock.
+        let groups = self.lock_groups(key);
+        let mut locks = Vec::with_capacity(groups.len());
+        for group in &groups {
+            locks.push(self.lock(group).await);
+        }
         let result = {
-            let _guard = lock.lock().await;
+            let mut guards = Vec::with_capacity(locks.len());
+            for lock in &locks {
+                guards.push(lock.lock().await);
+            }
             self.commit_locked(key, data, record).await
         };
-        self.release(group, lock).await;
+        for (group, lock) in groups.iter().zip(locks) {
+            self.release(group, lock).await;
+        }
         self.cache_invalidate(key).await;
         result
     }
@@ -703,6 +741,11 @@ impl AsyncStore for MetadataPipelineStore {
             Ok(()) => self.backend.removedir(key).await,
             Err(error) => Err(error),
         };
+        // The folder that mirrored it in the object store, now holding no records.
+        let result = match (result, self.storage.record_folder(key)) {
+            (Ok(()), Some(folder)) => self.metadata_store().removedir(&folder).await,
+            (result, _) => result,
+        };
         let mut stale = Vec::new();
         let _ = self
             .cache
@@ -734,7 +777,7 @@ impl AsyncStore for MetadataPipelineStore {
 
     async fn is_dir(&self, key: &Key) -> Result<bool, Error> {
         let key = self.check_key(key)?;
-        self.backend.is_dir(key).await
+        self.is_folder(key).await
     }
 
     /// The backend's names, without the ones the parts reserve, and the names that have only a
@@ -772,7 +815,7 @@ impl AsyncStore for MetadataPipelineStore {
         let mut infos = Vec::new();
         for name in self.listdir(key).await? {
             let child = key.join(&name);
-            if self.backend.is_dir(&child).await? {
+            if self.is_folder(&child).await? {
                 let mut info = self.backend.default_metadata(&child, true).get_asset_info();
                 info.with_key(child.clone());
                 info.is_dir = true;
@@ -899,17 +942,16 @@ mod tests {
             StoreComponent::Storage(storage) => storage,
             StoreComponent::Writes(_) => return Err(Error::general_error("storage".into())),
         };
-        let writes =
-            match f.compile_component(
-                spec.writes,
-                ComponentKind::Writes,
-                &cmr,
-                &ComponentContext::none(),
-                &mut Vec::new(),
-            )? {
-                StoreComponent::Writes(writes) => writes,
-                StoreComponent::Storage(_) => return Err(Error::general_error("writes".into())),
-            };
+        let writes = match f.compile_component(
+            spec.writes,
+            ComponentKind::Writes,
+            &cmr,
+            &ComponentContext::none(),
+            &mut Vec::new(),
+        )? {
+            StoreComponent::Writes(writes) => writes,
+            StoreComponent::Storage(_) => return Err(Error::general_error("writes".into())),
+        };
         let mut parts = PipelineParts::new(backend, storage, writes);
         parts.chains = StageChains {
             default: f.compile(spec.on_default, Stage::Default, &cmr)?,
@@ -1359,6 +1401,78 @@ mod tests {
                     .await?,
             )?;
             assert_eq!(stored.title, format!("T{i}"));
+        }
+        Ok(())
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn grouped_backup_sibling_writes_are_serialized() -> Result<(), Error> {
+        let (cmr, f) = registry()?;
+        let raw = memory();
+        let mut parts = PipelineParts::new(
+            raw.clone(),
+            Arc::new(crate::store::storage::PerEntryStorage::new(
+                crate::store::storage::Layout::Sidecar,
+            )),
+            match f.compile_component(
+                "direct",
+                ComponentKind::Writes,
+                &cmr,
+                &ComponentContext::none(),
+                &mut Vec::new(),
+            )? {
+                StoreComponent::Writes(writes) => writes,
+                StoreComponent::Storage(_) => return Err(Error::general_error("writes".into())),
+            },
+        );
+        parts.backups = vec![Backup {
+            prefix: Key::new(),
+            storage: Arc::new(crate::store::storage::GroupedStorage::new(
+                crate::store::storage::DEFAULT_GROUP_FILE,
+            )?),
+        }];
+        let store = Arc::new(MetadataPipelineStore::new(parts)?);
+        let mut tasks = tokio::task::JoinSet::new();
+        for i in 0..20 {
+            let store = store.clone();
+            tasks.spawn(async move {
+                let key = parse_key(&format!("docs/f{i}.txt"))?;
+                store.set(&key, b"x", &record(&format!("T{i}"))).await
+            });
+        }
+        while let Some(result) = tasks.join_next().await {
+            result.map_err(|e| Error::general_error(e.to_string()))??;
+        }
+        let backup =
+            crate::store::storage::GroupedStorage::new(crate::store::storage::DEFAULT_GROUP_FILE)?;
+        let mut names = backup
+            .record_names(raw.as_ref(), &parse_key("docs")?)
+            .await?;
+        names.sort();
+        assert_eq!(names.len(), 20, "{names:?}");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn removedir_descends_into_folders_holding_only_records() -> Result<(), Error> {
+        for storage in ["per_entry-root", "memory_central"] {
+            let raw = memory();
+            let store = pipeline(
+                raw.clone(),
+                &Spec {
+                    storage,
+                    ..Spec::default()
+                },
+            )?;
+            let nested = parse_key("folder/sub/a.txt")?;
+            store.set_metadata(&nested, &record("A")).await?;
+            assert!(store.is_dir(&parse_key("folder/sub")?).await?, "{storage}");
+            let infos = store.listdir_asset_info(&parse_key("folder")?).await?;
+            assert!(infos.iter().all(|i| i.is_dir), "{storage}: {infos:?}");
+            store.removedir(&parse_key("folder")?).await?;
+            assert!(!store.contains(&nested).await?, "{storage}");
+            assert!(!store.is_dir(&parse_key("folder/sub")?).await?, "{storage}");
+            assert!(objects(raw.as_ref()).await?.is_empty(), "{storage}");
         }
         Ok(())
     }
