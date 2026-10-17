@@ -126,7 +126,7 @@ high. Recovery: revert.
 - Existing `recipe_override_reaches_a_variadic_argument` and the `pl/select_columns` tests in
   `liquers-lib` — AC-4
 
-Commands: `cargo test -p liquers-core --lib variadic permissive`;
+Commands: `cargo test -p liquers-core --lib variadic` and `cargo test -p liquers-core --lib permissive` (Cargo takes one filter per run);
 `cargo run -p liquers-core --features cli --bin liquers-validate -- --command echo_args -- 'echo_args----20'` (exit 0).
 
 ## Phase 4: Implementation Plan
@@ -134,7 +134,7 @@ Commands: `cargo test -p liquers-core --lib variadic permissive`;
 ### Steps
 
 - [ ] 1. `plan.rs` `pop_value` element `ArgumentInfo` — `cargo test -p liquers-core --lib`
-- [ ] 2. The three tests above — `cargo test -p liquers-core --lib variadic permissive`
+- [ ] 2. The three tests above — `cargo test -p liquers-core --lib variadic` and `cargo test -p liquers-core --lib permissive` (Cargo takes one filter per run)
 - [ ] 3. Problem Example through the CLI — exit 0; `cargo test -p liquers-lib --lib --tests`
 - [ ] 4. Close the issue — `python3 scripts/docs_index.py --check`
 

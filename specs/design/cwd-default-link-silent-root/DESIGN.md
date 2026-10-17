@@ -129,7 +129,7 @@ In `liquers-core/src/plan.rs` tests, with a command `here(dir: Key = query "-R-k
 In `liquers-lib/tests/template_commands.rs`: `error_modes_log_warnings` asserts no warning equals
 `Relative key/query has no CWD; using logical root '/'.` — AC-1.
 
-Commands: `cargo test -p liquers-core --lib cwd_default_link relative_default_link`,
+Commands: `cargo test -p liquers-core --lib cwd_default_link`, `cargo test -p liquers-core --lib relative_default_link` (Cargo takes one filter per run),
 `cargo test -p liquers-lib --test template_commands`.
 
 ## Phase 4: Implementation Plan

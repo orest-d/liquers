@@ -102,7 +102,8 @@ Known-issue preflight: none open touches `dependent_assets`.
 
 - `liquers-core/src/dependencies.rs` `DependencyManager::add_dependent_asset`: the prune; a
   private helper `prune_dependent_assets(list: &mut Vec<WeakAssetRef<E>>)`.
-- A `#[cfg(test)]` accessor `dependent_asset_count(&self, key) -> usize` for the tests.
+- `#[cfg(test)]` helpers `dependent_asset_count(&self, key) -> usize` and
+  `prune_dependents_now(&self, key)` (calls `prune_dependent_assets` on the entry) for the tests.
 - `specs/reference/DEPENDENCIES_STATUS.md`: one line on the bound; History row.
 
 No signature, command or serialized format changes. Synchronous code under the existing `scc`
@@ -126,8 +127,10 @@ In `liquers-core/src/dependencies.rs` `mod tests`, using `AssetRef::new_temporar
 
 - `dependent_assets_prune_dead_entries_as_the_list_grows` — add 1 000 temporary assets one by
   one, dropping each; the count stays below 2·live + 16 — AC-1, AC-4
-- `dependent_assets_list_one_asset_once` — add one asset 40 times; after the prune the count is 1,
-  and `expire` reports it once — AC-2
+- `dependent_assets_list_one_asset_once` — add one asset 40 times; the count never exceeds the
+  minimum capacity (16) plus one, because duplicates are only bounded between prunes; then force a
+  prune with the `#[cfg(test)]` `prune_dependents_now(key)` and assert the count is 1 and `expire`
+  reports it once — AC-2
 - `dependent_assets_keep_every_live_entry` — 100 live assets added with dead ones interleaved;
   `expire` reports all 100 — AC-3
 

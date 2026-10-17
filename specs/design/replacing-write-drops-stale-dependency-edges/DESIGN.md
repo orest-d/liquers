@@ -52,6 +52,10 @@ manager.set_binary(&d, b"changed", meta).await?;
 - **AC-4** External managers get the same behaviour
   - WHEN an external manager installs a value through `AssetManager::track_installed`
   - THEN AC-1 and AC-2 hold
+- **AC-5** A replaced run cannot restore a cleared edge
+  - WHEN a keyed evaluation is still running when `set_state` replaces its key, and its command
+    then requests a dependency `d`
+  - THEN the request fails as cancelled and a later write of `d` does not expire the key
 
 Non-goals: the evaluation path (`AssetRef` completion calls `track_asset` / `track_keyed_asset`
 with records that may not include schedule-time attribution edges, so replacing there needs its
@@ -95,6 +99,18 @@ body of `AssetManager::track_installed`. The edge clear runs under the key-mutat
 `set_state` already holds, after `publish_version` (AC-3 is unaffected: outgoing edges live under
 the key's own entry, which is not touched).
 
+**A replaced run cannot restore a cleared edge.** `cancel_for_replacement` marks the old run
+cancelled but does not stop its command, so a `Context` that read its owner key before the
+replacement can still reach `register_scheduled_dependency` (`liquers-core/src/context.rs`, the
+schedule-time registration in the dependency-request path) after the clear. Close it in that
+path: after `register_scheduled_dependency` returns, check the context's own cancellation
+(`self.assetref` cancelled with a replacement cause); if it is set, remove the keyed edges this
+call just added (`remove_edge(dependency, owner)` for a keyed dependent) and return the
+cancellation error. `set_state` cancels before it clears, so a registration that lands after the
+clear always sees the cancellation, and one that lands before it is removed by the clear itself.
+The rollback skips an edge the replacing asset's own records also name, which
+`track_replacing_asset` re-adds after the clear in any case.
+
 Rejected: replacing in `track_keyed_asset` for every caller (the evaluation path, see non-goals);
 a reverse index field (more state to keep consistent in every expiry path, for a write-path cost
 that has not been measured).
@@ -104,14 +120,16 @@ Known-issue preflight: none open touches `track_keyed_asset` or `load_from_recor
 ### Changes
 
 - `liquers-core/src/dependencies.rs`: `clear_incoming_edges`, `track_replacing_asset`.
+- `liquers-core/src/context.rs`: the post-registration cancellation check and rollback (private).
 - `liquers-core/src/assets.rs`: three call sites; `track_installed` doc comment ("replaces the
   key's previous incoming edges").
 - `specs/guides/ASSET_MANAGER_IMPLEMENTATION_GUIDE.md`: the `track_installed` line; History row.
 
 ### Risks
 
-A schedule-time edge for the key added by a still-running evaluation would be dropped; `set_state`
-cancels that evaluation first (`cancel_for_replacement`), so none should remain. Tests most likely
+A still-running replaced evaluation can register a schedule-time edge after the clear; the
+cancellation check above rolls it back (`set_state` cancels before clearing, so the check cannot
+miss it). Tests most likely
 touched: `liquers-core/tests/external_asset_manager.rs`, `dependency_manager_integration.rs`.
 Certainty: high.
 
@@ -131,6 +149,11 @@ The Problem Example.
 - `liquers-core/tests/external_asset_manager.rs`
   `external_manager_replacing_install_drops_unlisted_edges` — the same through
   `MinimalInlineAssetManager` — AC-4
+- `liquers-core/tests/dependency_manager_integration.rs`
+  `replaced_run_cannot_restore_a_cleared_edge` — a command that waits on a `tokio::sync::Notify`
+  before calling `context.evaluate` on `-R/d`; start the keyed evaluation, `set_state` the key, then
+  release the command; assert its request errors as cancelled and a write of `d` leaves the new
+  value `Ready` — AC-5
 
 Run: `cargo test -p liquers-core --lib dependencies::tests::clear_incoming_edges` and
 `cargo test -p liquers-core --test dependency_manager_integration --test external_asset_manager`.
@@ -139,12 +162,14 @@ Run: `cargo test -p liquers-core --lib dependencies::tests::clear_incoming_edges
 
 ### Steps
 
-- [ ] 1. The three failing tests — commands above (AC-1, AC-4 fail; AC-2, AC-3 pass)
+- [ ] 1. The four failing tests — commands above (AC-1, AC-4, AC-5 fail; AC-2, AC-3 pass)
 - [ ] 2. `liquers-core/src/dependencies.rs` `clear_incoming_edges`, `track_replacing_asset` —
   unit test passes
 - [ ] 3. `liquers-core/src/assets.rs` — both `set_state` step-9 call sites and the
   `track_installed` default body use `track_replacing_asset` — integration tests pass. Rollback:
   revert the three call sites.
+- [ ] 3a. `liquers-core/src/context.rs` — after `register_scheduled_dependency`, roll the edge back
+  when the run was cancelled for replacement — `replaced_run_cannot_restore_a_cleared_edge` passes
 - [ ] 4. Guide line and History row; close the issue — `python3 scripts/docs_index.py --check`
 
 ### Validation

@@ -167,7 +167,7 @@ Run: `cargo test -p liquers-axum --test query_api_routes`, then
 ### Steps
 
 - [ ] 1. `liquers-axum/tests/query_api_routes.rs` — add `qar09` and `qar11` first and see them fail
-  against HEAD — `cargo test -p liquers-axum --test query_api_routes qar09 qar11`
+  against HEAD — `cargo test -p liquers-axum --test query_api_routes qar09` and `… qar11` (Cargo takes one filter per run)
 - [ ] 2. `liquers-axum/src/query/builder.rs` `QueryApiBuilder::build` — trim the base's trailing `/`
   and insert one; update the `new` doc comment — `cargo test -p liquers-axum --test query_api_routes`
 - [ ] 3. Add `qar10`, `qar12` — same command, plus `cargo test -p liquers-axum --lib`
