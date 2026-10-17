@@ -102,10 +102,10 @@ docs ("use `v/` or declare the command volatile") can be relaxed.
 
 ### Overlap
 
-- PR #141 (`design/search-read-dependencies`) edits the same funnel,
-  `Context::wait_for_dependency_recording`, to inherit a non-keyed dependency's records. Volatility
-  inheritance is the same idea for a different fact; whichever merges second takes a small
-  conflict. Not blocking.
+- `design/search-read-dependencies` (PR #141, merged 2026-10-17; this branch is rebased on it)
+  made `Context::wait_for_dependency_recording` inherit a non-keyed dependency's records.
+  Volatility inheritance is the same idea for a different fact and builds on that code. Not
+  blocking.
 - `EVALUATION-SESSION-VOLATILE-TEST-INTERMITTENT`: the known flaky test sits next to the code this
   changes; failures of it are triaged against that issue, not this design.
 - `RESOURCE-STEP-VOLATILITY-IS-NEVER-CHECKED`: plan-time, separate.
