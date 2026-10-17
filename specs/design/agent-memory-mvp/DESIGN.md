@@ -4,8 +4,8 @@ kind: design
 title: MVP for an agent memory service on the liquers stack
 workflow: liquers-project
 status: in_review
-phase: high-level
-area: [axum, lib/commands, core/store, docs]
+phase: architecture
+area: [lib/commands, core/store, docs]
 gh_pr: []
 issues: [AGENT-MEMORY-SERVICE]
 affects_docs: []
@@ -18,8 +18,8 @@ superseded_by:
 
 ## Phase Status
 
-- [ ] Phase 1: High-Level Design
-- [ ] Phase 2: Solution & Architecture
+- [x] Phase 1: High-Level Design — **approved 2026-10-17** (revision 4, after the split)
+- [ ] Phase 2: Solution & Architecture — written and reviewed 2026-10-17, awaiting approval
 - [ ] Phase 3: Examples & Testing
 - [ ] Phase 4: Implementation Plan
 - [ ] Phase 5: Documentation
@@ -206,6 +206,30 @@ Phase 1 reconciled with what landed since revision 3, for the Wave 1 gate 1.3 (`
    and the `memory_context` tool.
 
 The execution plan's Wave 1 table and dependency inventory were updated to match.
+
+## Phase 2 — 2026-10-17
+
+Written after Phase 1 approval, then reviewed by two independent reviewers (conformity and records;
+codebase and soundness). The review found four blocking problems, all fixed before the gate:
+
+- The profile had no mount for `_log/` and `README.md`. A catch-all `memory/` mount was added.
+- Writes would have left `.__metadata__` sidecars in the checkout, and stale front-matter tiers
+  after them. The fix is `storage: none` on writable checkout mounts.
+- AC-11, AC-12 and AC-20 had no mechanism. Each now has one.
+- The resource template hard-coded `ns-mem` into the generic engine. Resources are now declared
+  per tool set.
+
+The review also led to these fixes:
+
+- `root` is hidden from tools, so an agent cannot leave the memory.
+- The schema is read through the store, not as a cached dependency.
+- The order of environment building is fixed, with S3 coming from `liquers_store`'s factory.
+- `mem` is a default feature, so the registry export and `liquers-validate` know `ns-mem`.
+- `McpServer::plan` validates without running.
+- The preflight gained eight issues.
+- Six deviations from Phase 1 are listed under "Changes from Phase 1", for confirmation.
+
+`area` drops `axum`: `serve` is NEXT, and the MVP binary does not use `liquers-axum`.
 
 ## Links
 
