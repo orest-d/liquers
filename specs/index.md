@@ -9,8 +9,8 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
 Total rows: 118
-- P2: 53
-- P3: 65
+- P2: 52
+- P3: 66
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -18,7 +18,6 @@ Total rows: 118
 | [`DEFAULT-ASSET-MANAGER-RECIPE-OPT-SKIPS-PAYLOAD-CHECK`](issues/DEFAULT-ASSET-MANAGER-RECIPE-OPT-SKIPS-PAYLOAD-CHECK.md) | issue | DefaultAssetManager's recipe_opt override skips the payload-required rejection | draft | ready | eligible | P2 | M | core/assets | [design](design/default-asset-manager-recipe-opt-payload-check/DESIGN.md) | 2026-09-25 |
 | [`CORE-VALUE-ENUM-OVERSIZED`](issues/CORE-VALUE-ENUM-OVERSIZED.md) | issue | Every Value occupies over 700 bytes because three variants are stored unboxed | draft | ready | not-eligible | P2 | M | core/value;lib/value | [design](design/core-value-enum-oversized/DESIGN.md) | 2026-08-18 |
 | [`ENVIRONMENT-MANAGER-REFERENCE-CYCLE`](issues/ENVIRONMENT-MANAGER-REFERENCE-CYCLE.md) | issue | Environment and asset manager hold each other with strong Arcs, so every environment leaks | draft | ready | not-eligible | P2 | M | core/assets;core/context | [design](design/environment-manager-reference-cycle/DESIGN.md) | 2026-08-27 |
-| [`SEARCH-COMMANDS-RECORD-NO-DEPENDENCY-ON-READ-FILES`](issues/SEARCH-COMMANDS-RECORD-NO-DEPENDENCY-ON-READ-FILES.md) | issue | ns-search results do not depend on the files they read, so they go stale | draft | ready | not-eligible | P2 | M | lib/commands;core/assets | [performance.md](design/search-read-dependencies/performance.md)  | 2026-10-17 |
 | [`CORE-TRACING-MIGRATION`](issues/CORE-TRACING-MIGRATION.md) | issue | Diagnostics use `eprintln!` rather than structured logging | accepted | needs-decision | not-eligible | P2 | M | core/error;build | [design](design/core-tracing-migration/DESIGN.md) | 2026-08-08 |
 | [`COMMAND-CANNOT-BE-RUN-WITH-A-RESTRICTED-CONTEXT`](issues/COMMAND-CANNOT-BE-RUN-WITH-A-RESTRICTED-CONTEXT.md) | feature | A command cannot be run with a restricted context | draft |  |  | P2 | M | core/context;core/commands |  | 2026-09-17 |
 | [`CORE-METADATA-NO-APPLICATION-ATTRIBUTES`](issues/CORE-METADATA-NO-APPLICATION-ATTRIBUTES.md) | feature | Metadata cannot carry application-defined attributes | draft |  |  | P2 | M | core/value |  | 2026-09-15 |
@@ -78,6 +77,7 @@ Total rows: 118
 | [`REPLACING-WRITE-KEEPS-DROPPED-DEPENDENCY-EDGES`](issues/REPLACING-WRITE-KEEPS-DROPPED-DEPENDENCY-EDGES.md) | issue | A write that replaces a keyed asset keeps the dependency edges its new metadata no longer lists | draft |  |  | P3 | S | core/assets |  | 2026-10-11 |
 | [`RESOURCE-STEP-VOLATILITY-IS-NEVER-CHECKED`](issues/RESOURCE-STEP-VOLATILITY-IS-NEVER-CHECKED.md) | issue | Resource plan steps always report non-volatile, behind a TODO that prints at runtime | draft |  |  | P3 | S | core/plan |  | 2026-10-12 |
 | [`ROOT-LISTING-DEPENDENCY-KEY-HAS-TWO-SPELLINGS`](issues/ROOT-LISTING-DEPENDENCY-KEY-HAS-TWO-SPELLINGS.md) | issue | The root directory listing dependency has two spellings, so a dependent that recorded one is never expired | draft |  |  | P3 | S | core/assets |  | 2026-10-17 |
+| [`SEARCH-CATALOG-READS-EACH-FILE-METADATA-TWICE`](issues/SEARCH-CATALOG-READS-EACH-FILE-METADATA-TWICE.md) | issue | ns-search/catalog reads each file's metadata twice, once for its info and once for its version | draft |  |  | P3 | S | lib/commands;core/assets |  | 2026-10-17 |
 | [`TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS`](issues/TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS.md) | issue | TypeInfo cannot declare a format a type writes but cannot read back | draft |  |  | P3 | S | core/value |  | 2026-09-24 |
 | [`VALIDATE-COMMAND-STUB-REJECTS-POSITIONAL-EMPTIES`](issues/VALIDATE-COMMAND-STUB-REJECTS-POSITIONAL-EMPTIES.md) | issue | A liquers-validate --command stub rejects a query with empty positional parameters | draft |  |  | P3 | S | core/validate |  | 2026-10-12 |
 | [`CONTEXT-TITLE-LOST-ACROSS-PREDECESSOR-BOUNDARY`](issues/CONTEXT-TITLE-LOST-ACROSS-PREDECESSOR-BOUNDARY.md) | issue | A title or description set by a command in a cut predecessor does not reach the final asset | draft | needs-decision | not-eligible | P3 | M | core/context;core/plan | [phase1](design/context-title-predecessor-inheritance/phase1-high-level-design.md)  [phase2](design/context-title-predecessor-inheritance/phase2-architecture.md)  [phase3](design/context-title-predecessor-inheritance/phase3-examples.md)  [phase4](design/context-title-predecessor-inheritance/phase4-implementation.md)  | 2026-10-06 |

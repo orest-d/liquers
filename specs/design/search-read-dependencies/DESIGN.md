@@ -5,7 +5,7 @@ title: ns-search results depend on the folders and files they read
 form: compact
 workflow: liquers-project
 status: in_review
-phase: implementation
+phase: documentation
 readiness: ready
 autofix: not-eligible
 area: [lib/commands, core/assets, core/plan]
@@ -15,8 +15,9 @@ created: 2026-10-17
 ---
 # ns-search results depend on the folders and files they read
 
-All four phases drafted in one pass at the user's request (2026-10-17), none approved yet; the
-approach was checked with a throwaway prototype (Phase 2, Certainty).
+All four phases drafted in one pass at the user's request (2026-10-17); the approach was checked
+with a throwaway prototype (Phase 2, Certainty). Pre-approved (`proceed all`) on 2026-10-17, after
+Q1, Q3 and Q4 were decided.
 
 ## Phase 1: High-Level Design
 
@@ -248,22 +249,23 @@ Run with `cargo test -p liquers-lib --test search_commands` and
 
 ### Steps
 
-- [ ] 1. `liquers-lib/tests/search_commands.rs` — add the `write` helper and the eleven tests
-  above; confirm that AC-1 to AC-8 and AC-11 fail at HEAD — `cargo test -p liquers-lib --test search_commands`
-- [ ] 2. `liquers-core/tests/cache_strategy.rs` — add `cut_predecessor_runtime_dependency_reaches_dependent`
-  and confirm it fails with cutting on — `cargo test -p liquers-core --test cache_strategy`
-- [ ] 3. `liquers-core/src/context.rs`, `assets.rs` — linear merges, inheritance in
+- [x] 1. `liquers-lib/tests/search_commands.rs` — add the `write` helper and the eleven tests
+  above; confirm that AC-1 to AC-8 and AC-11 fail at HEAD — `cargo test -p liquers-lib --test search_commands` — 005b476
+- [x] 2. `liquers-core/tests/cache_strategy.rs` — add `cut_predecessor_runtime_dependency_reaches_dependent`
+  and confirm it fails with cutting on — `cargo test -p liquers-core --test cache_strategy` — 005b476
+- [x] 3. `liquers-core/src/context.rs`, `assets.rs` — linear merges, inheritance in
   `wait_for_dependency_recording`, `record_listing` — `cargo test -p liquers-core --lib --tests`
-  (all green, AC-12 passes)
-- [ ] 4. `liquers-lib/src/search/mod.rs` — `record_read`, bracketed `read_text` —
-  `cargo test -p liquers-lib --test search_commands`
-- [ ] 5. `liquers-lib/src/search/catalog.rs` — `walk` through `record_listing`, batched records — the same
-  command, all green
-- [ ] 6. Re-run the `performance.md` bench (5 000 files, memory and file store) and record it in
+  (all green, AC-12 passes) — 91f1810
+- [x] 4. `liquers-lib/src/search/mod.rs` — `record_read`, bracketed `read_text` —
+  `cargo test -p liquers-lib --test search_commands` — 7db6ec0
+- [x] 5. `liquers-lib/src/search/catalog.rs` — `walk` through `record_listing`, batched records — the same
+  command, all green — 7db6ec0
+- [x] 6. Re-run the `performance.md` bench (5 000 files, memory and file store) and record it in
   Phase 5. Stop if the chain exceeds 3x HEAD or the file-store catalog 1.5x —
-  `cargo test -p liquers-lib --test search_commands -- --ignored`
-- [ ] 7. Documents — `SEARCH.md`, `SEARCH_GUIDE.md`, `DEPENDENCIES_STATUS.md`, each with a History
-  row and a `reviewed:` bump — `python3 scripts/docs_index.py --check`
+  `cargo test -p liquers-lib --test search_commands -- --ignored` — dccdd1c; chain 1.9x, file-store
+  catalog **1.54x** (median of three, at the limit; see Phase 5)
+- [x] 7. Documents — `SEARCH.md`, `SEARCH_GUIDE.md`, `DEPENDENCIES_STATUS.md`, each with a History
+  row and a `reviewed:` bump — `python3 scripts/docs_index.py --check` — dccdd1c
 
 Rollback: revert the step's commit. Under Q1 (b), step 3 becomes input-record copying in the search commands.
 
@@ -275,3 +277,47 @@ Rollback: revert the step's commit. Under Q1 (b), step 3 becomes input-record co
 `cargo test -p liquers-lib --test registry_export` confirms. On completion, close
 `SEARCH-COMMANDS-RECORD-NO-DEPENDENCY-ON-READ-FILES`, and update `design/liquers-mustache` (D3) and
 `design/agent-memory-mvp` if they are still open.
+
+## Phase 5: Documentation
+
+**Built versus approved.** As approved, in four commits (005b476 tests, 91f1810 core, 7db6ec0 search,
+dccdd1c bench and documents). Search commands record each folder walked (`-R-dir/<folder>`, through
+the new `Context::record_listing`, which `Step::GetAssetDirectory` now calls) and each file listed
+or read (`-R/<key>`); `read_text` re-reads a file whose version moved, at most three times. In core,
+`wait_for_dependency_recording` merges a non-keyed dependency's records into its dependent, and the
+pending list and the finalization merge are indexed. All twelve scenarios have passing tests;
+AC-1 to AC-8, AC-11 and AC-12 failed before the change.
+
+**Differences.**
+- `Context::add_dependencies` (batch, one lock) is a second new `pub` method beside
+  `record_listing`; the catalog records its files with it.
+- `record_read` takes the version as an argument; `read_recorded` brackets the read and records
+  once, with an unknown version if the file kept moving (recording before the read would have left
+  a version newer than the bytes).
+- The final metadata merge of `interpreter::evaluate` was quadratic too, and uses the same
+  indexed merge.
+- AC-4 is tested on `updated`: the memory store records no `size`. AC-5's `search` over a folder
+  matches a new file's name, because a folder input is cataloged without content.
+- `submit_records_dependency_under_the_key_wait_uses` (core unit test) now allows the inherited
+  command records beside the one upgraded record.
+
+**Cost** ([`performance.md`](performance.md), last section): catalog chain 1.9x (limit 3x);
+file-store catalog **1.54x**, at the 1.5x limit. The per-file version read is four fifths of it.
+
+**Documents** (`affects_docs`, reviewed against the code): `reference/SEARCH.md` (new
+§Dependencies, §Non-evaluation), `guides/SEARCH_GUIDE.md` (§7),
+`reference/DEPENDENCIES_STATUS.md` (§What a dependency record holds), each with a History row and
+`reviewed: 2026-10-17`. No new reference or guide document was needed.
+
+**Issues.** Closed: `SEARCH-COMMANDS-RECORD-NO-DEPENDENCY-ON-READ-FILES`. Filed during the work:
+`NEW-FOLDER-WRITE-DOES-NOT-REFRESH-THE-PARENT-LISTING` (core; a file written into a new subfolder
+is missed; not this design's scope, a defect of every `-R-dir` dependent) and
+`SEARCH-CATALOG-READS-EACH-FILE-METADATA-TWICE` (cost). Filed in Phase 2:
+`ROOT-LISTING-DEPENDENCY-KEY-HAS-TWO-SPELLINGS` (no longer affects search),
+`RUNTIME-DEPENDENCY-RECORD-AGAINST-SUPERSEDED-VERSION-IS-NOT-CHECKED`,
+`DEPENDENT-ASSET-WEAK-REFERENCES-ARE-NEVER-PRUNED`. The `liquers-mustache` (D3) and
+`agent-memory-mvp` notes live on their own open PRs (#139, #140) and are updated there.
+
+**Learning.** Any command that records at run time inside a cut predecessor was stale before this
+change, not only search; the cut and expanded plans now record the same. Record merges must stay
+linear once a single asset can hold thousands of records.

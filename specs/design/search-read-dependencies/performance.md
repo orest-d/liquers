@@ -114,3 +114,22 @@ fails for keyed results across restarts, though. A persisted index would record 
 an audit cannot resolve, so after a restart it would be served stale until something it read is
 written. Inheritance keeps the records that audits need. A hybrid is possible: cascade for
 non-keyed dependents, inheritance only into keyed ones. It is more code; listed as Q4's option (b).
+
+## As implemented (Phase 4 step 6)
+
+`bench_search_dependency_cost` in `liquers-lib/tests/search_commands.rs` (`-- --ignored`), run three
+times alternately on the commit before the change and on the implementation; debug build, cold, 5 000
+files. Its chain runs `catalog-t-t` cold, so it is not comparable with the table above, whose chain
+reused a cached catalog.
+
+| | HEAD (3 runs) | Implemented (3 runs) | Median ratio |
+|---|---|---|---|
+| Memory, `catalog-t-f` | 142, 143, 138 ms | 207, 194, 211 ms | 1.46x |
+| Memory, catalog + 3-step chain | 242, 238, 206 ms | 410, 450, 512 ms | 1.89x (limit 3x) |
+| Memory, write | 0.3 ms | 2.4–3.2 ms | |
+| Memory, recompute after the write | 1.1 ms (stale) | 414–481 ms (correct) | |
+| File store, `catalog-t-f` | 1.69, 1.58, 1.73 s | 2.61, 2.53, 2.37 s | 1.54x (limit 1.5x) |
+
+The file-store catalog is at the limit the design set. With the per-file version read disabled it
+took 1.89 and 1.92 s (1.1x), so that read is about four fifths of the added cost: it reads the same
+metadata `get_asset_info` has just read. Filed as `SEARCH-CATALOG-READS-EACH-FILE-METADATA-TWICE`.

@@ -96,8 +96,10 @@ recording it (`RUNTIME-DEPENDENCY-RECORD-AGAINST-SUPERSEDED-VERSION-IS-NOT-CHECK
 before 2026-10-17 carry no records and are recomputed only once something else expires them.
 
 Cost (`design/search-read-dependencies/performance.md`): one version read per entry, one listing
-per folder; at 5 000 files a catalog is about 1.3x on a memory store and 1.3x on a file store, and
-the first load of a stored keyed index in a process reads the metadata of every file it recorded.
+per folder. At 5 000 files (debug build, cold) a catalog takes about 1.5x its earlier time on a
+memory store and on a file store, where the version read is most of it
+(`SEARCH-CATALOG-READS-EACH-FILE-METADATA-TWICE`); the first load of a stored keyed index in a
+process reads the metadata of every file it recorded.
 
 ## Grammar
 
