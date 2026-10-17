@@ -62,8 +62,10 @@
 #     second result counts.
 #
 # `MATRIX_MIN_FREE_GB=0` disables the guard (never cleans). `MATRIX_DRY_RUN=1` prints every row and
-# every clean decision without running cargo, and exits 0. The target directory is
-# `$CARGO_TARGET_DIR` if set, else `target/` at the repository root.
+# every clean decision without running cargo, and exits 0. The target directory is the one Cargo
+# itself resolves (`cargo metadata`: `CARGO_TARGET_DIR`, `CARGO_BUILD_TARGET_DIR` or a
+# `[build] target-dir` config), and it is exported as `CARGO_TARGET_DIR` so that every row, every
+# clean and the free-space check use the same directory.
 #
 # Usage: bash scripts/check-build-matrix.sh
 #        MATRIX_MIN_FREE_GB=12 bash scripts/check-build-matrix.sh   # more headroom
@@ -76,7 +78,14 @@ export CARGO_INCREMENTAL="${CARGO_INCREMENTAL:-0}"
 MATRIX_MIN_FREE_GB="${MATRIX_MIN_FREE_GB:-8}"
 MATRIX_DRY_RUN="${MATRIX_DRY_RUN:-0}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-TARGET_DIR="${CARGO_TARGET_DIR:-$ROOT/target}"
+# Cargo's effective target directory; falls back to the environment or `target/` when cargo
+# metadata is unavailable (for example under a stubbed cargo).
+TARGET_DIR="$(cd "$ROOT" && cargo metadata --format-version 1 --no-deps 2>/dev/null \
+  | sed -n 's/.*"target_directory":"\([^"]*\)".*/\1/p')"
+if [ -z "$TARGET_DIR" ]; then
+  TARGET_DIR="${CARGO_TARGET_DIR:-${CARGO_BUILD_TARGET_DIR:-$ROOT/target}}"
+fi
+export CARGO_TARGET_DIR="$TARGET_DIR"
 
 # Free space, in whole GB, on the filesystem holding the target directory (the repository root
 # until the target directory exists). In a cloud session `df` reports the session allowance.
