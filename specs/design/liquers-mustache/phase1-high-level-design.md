@@ -7,8 +7,9 @@ native Liquers capabilities — tags that evaluate queries through the asset lay
 template data, and **parametrized queries** with `{{…}}` inside them, in two forms: hygienic
 `{{$ …}}`, which fills the query's AST, and classic `{{$$ …}}`, which expands the text first. Its
 parser shadows the query parser (nom, `Position`), so a malformed query is reported at its line and column in the template,
-and its highlighter extends the query's. One AST runs in two modes: **evaluate** (a document whose
-queries are run) and **apply** (a function applied to a `Value`). It lives in a new crate,
+and its highlighter extends the query's. Each query tag either **evaluates** its query (the
+default) or **applies** it to the current context as input state, so one render command serves
+both, and any value implementing a core data trait (`DataNode`) can be the template's data. It lives in a new crate,
 `liquers-mustache`; `liquers-lib` provides the commands.
 
 ## Problem Example
@@ -35,8 +36,8 @@ no caching or dependency tracking, no Liquers value as data.
 **After:** the template parses with the query inside it (an error points into the query), `{{area}}`
 inside the query becomes one encoded parameter, the query runs through the asset manager, its records
 iterate in the section, and the rendered document is an asset that is recomputed when an issue
-changes. Applied to `{"area": "core/store"}` it renders that area; evaluated with an `area` argument
-it renders the same.
+changes. Rendered with `{"area": "core/store"}` as its input state, it renders that area, and
+rendered with an `area` argument it renders the same.
 
 ## Scope and Acceptance Criteria
 
@@ -70,13 +71,14 @@ it renders the same.
   THEN the text between `{{$$` and `}}` is expanded first, with values inserted verbatim, and is then
   parsed as a query. `x = "a-b"` gives `cmd-a-b/q`, two parameters. Parse errors are positioned in
   the expanded text, together with the tag's position in the template
-- **AC-7** Apply mode
-  WHEN a template is applied to a `Value` — an object, a list, records, text
-  THEN that value is the template's data and the result is the same as evaluating the template with
-  equivalent named arguments
-- **AC-8** Evaluate mode
-  WHEN a template is evaluated with named arguments and no input value
-  THEN every statement and query is run and the arguments are the data
+- **AC-7** Apply mode, per tag
+  WHEN a query tag is written in its apply form, `{{$. q}}` (or `{{$.name q}}`, open question 11)
+  THEN `q` is applied with the current context (or the value of `name`) as its input state, through
+  `AssetManager::apply`; the same holds for `{{$$. q}}` and for the section and partial forms
+- **AC-8** Evaluate mode is the default
+  WHEN a query tag has no apply marker (`{{$ q}}`)
+  THEN `q` is evaluated with no input state, and the template's own data (the input value of the
+  render command, or its named arguments) affects it only through its placeholders
 - **AC-9** Validation without evaluation
   WHEN a template is validated
   THEN all errors and warnings (unknown command, unknown partial, unused section close) are reported
@@ -87,8 +89,10 @@ it renders the same.
   token kinds the query highlighter uses
 - **AC-11** Commands
   WHEN `liquers-lib` is built with its template feature
-  THEN commands render (evaluate), apply and validate a template given by key or as the state, and
-  their results are ordinary assets (text with the template's media type)
+  THEN one command renders and one validates a template given by key, with the input state as the
+  root context when there is one; their results are ordinary assets (text with the template's media
+  type). Evaluate versus apply is chosen by each tag (AC-7, AC-8), so there are no separate
+  evaluate and apply commands
 - **AC-12** Partials from the store
   WHEN a template contains `{{> key}}`, or a dynamic partial `{{>$ query}}` / `{{>$$ query}}`
   THEN the referenced text is loaded through the asset layer, rendered as a template, and recorded as
@@ -103,6 +107,18 @@ it renders the same.
   `specs/`, recipes and the registry, and generated queries)
   THEN both accept the same queries, the template converts to a `Query` equal to the core result,
   positions included, and both reject the same queries at the same position
+- **AC-15** Any value as template data
+  WHEN the context is a type that implements the `DataNode` (sync) or `AsyncDataNode` (async) trait of
+  [`data-node-interface.md`](./data-node-interface.md): a core `Value`, a `MetadataRecord`, a record
+  view or source, a polars frame, a store folder
+  THEN names, sections and placeholders resolve through the trait with no conversion of the whole
+  value, and a sync-only consumer given an async-only value reports an error instead of blocking
+- **AC-16** Non-scalar placeholder as a parameter override
+  WHEN a whole P1 placeholder in a hygienic tag expands to a non-scalar value (a list, a map,
+  records) in the query's last action
+  THEN the value is passed as that argument's override, and the query runs through
+  `AssetManager::apply` rather than `get_asset`; in an earlier action it is an error at the
+  placeholder, since overrides reach only the last action (`RECIPE-OVERRIDE-ONLY-LAST-ACTION`)
 
 Non-goals: a template editor (`NO-TEMPLATE-EDITOR-UI`); Mustache's optional modules (lambdas,
 inheritance) — lambdas may later map to commands; logic beyond Mustache (comparisons, arithmetic):
@@ -113,8 +129,12 @@ such decisions are commands that add data; replacing the query language.
 - **Query:** a shadow query parser in `liquers-mustache` produces a `QueryTemplate`, the query AST
   with placeholder nodes in positions P1–P6 ([`query-placeholders.md`](./query-placeholders.md)),
   kept equal to the core parser by AC-14. `liquers-core`'s `Query` is not changed.
-- **Assets:** evaluation goes through the asset manager; embedded queries and partials are
-  dependencies of the result.
+- **Assets:** a query tag with no apply marker and no override goes through `get_asset` (cached,
+  a dependency of the result); an apply form or an override goes through `apply` (ad hoc,
+  uncached). Partials are dependencies of the result.
+- **Data:** a new `DataNode` / `AsyncDataNode` pair in `liquers-core` lets any value be template
+  data, and is meant to replace the store pipeline's hard-coded field access
+  (`STORE-HANDLER-FIELD-ACCESS-HARDCODED`).
 - **Commands:** a template command set in `liquers-lib`; `simple_template` is subsumed.
 - **Value types:** a parsed template may become a value (cached AST); decided in Phase 2.
 - **UI:** the highlighter's styled tokens feed the existing query renderers; no editor.
@@ -125,9 +145,12 @@ New crate **`liquers-mustache`**, depending on `liquers-core` only (nom and nom_
 core dependencies): grammar, AST, positions, diagnostics, highlighter, data model over core `Value`,
 and both evaluation modes over the `Environment` / asset-manager traits. **`liquers-lib`**: the
 commands (feature `templates`), the mapping of `ExtValue` (records, polars frames) into template data,
-and the egui rendering of highlighted templates. **`liquers-core` is unchanged** (open question 8):
-the template crate has its own complete query parser, built on the public `escape` module,
-`Position` and `StyledQueryToken`, rather than opening `parse.rs`, whose combinators are private.
+and the egui rendering of highlighted templates. **`liquers-core`** gains one module,
+`data_node.rs` (open question 10), with its implementations for `Value`, `MetadataRecord` and
+`serde_json::Value`. Its parser is not changed (open question 8): the template crate has its own
+complete query parser, built on the public `escape` module, `Position` and `StyledQueryToken`,
+rather than opening `parse.rs`, whose combinators are private. `liquers-records` implements the
+traits for `RecordView` (sync) and `RecordSource` (async).
 
 ## Documentation Intent
 
@@ -166,8 +189,8 @@ Phase 2.
    `ns-` namespaces (P2), action names (P3), key segments (P4), output filenames (P5) and the
    inside of link parameters (P6), each whole or as a fragment. Realms, header parameters and whole
    actions or segments are left to `{{$$ …}}`. P3–P5 have no escape form, so a value that is invalid
-   there is an error. **2a [open design]:** may a whole placeholder take a list (several parameters)
-   or a `Key` (several segments)? *Recommended: yes*, in a whole P1 or P4 position only.
+   there is an error. **2a [decided 2026-10-17]:** a non-scalar value in a whole P1 position is a
+   parameter override (AC-16), and anywhere else it is an error.
 3. **[accepted 2026-10-17] Escaping of interpolation in text** follows the output media type: none
    for text and Markdown, HTML for HTML, with `{{{x}}}` always raw.
 4. **[accepted 2026-10-17] Template data from Liquers values.** Records iterate as rows of objects,
@@ -180,11 +203,13 @@ Phase 2.
    | `{{> key}}` | Standard partial. The name is a store key, loaded through the asset layer (AC-12) |
    | `{{$ q}}` / `{{$$ q}}` | Evaluate the query `q` and insert its text result, escaped as in 3 |
    | `{{&$ q}}` / `{{&$$ q}}` | The same, never escaped |
-   | `{{#$ q}}…{{/$}}` / `{{#$$ q}}…{{/$$}}` | Evaluate `q` and use the result as section data. Records and lists iterate, an object becomes the context, a boolean decides (AC-3) |
-   | `{{^$ q}}…{{/$}}` / `{{^$$ q}}…{{/$$}}` | Render the body when the result is empty or false |
+   | `{{#$ q}}…{{/}}` / `{{#$$ q}}…{{/}}` | Evaluate `q` and use the result as section data. Records and lists iterate, an object becomes the context, a boolean decides (AC-3) |
+   | `{{^$ q}}…{{/}}` / `{{^$$ q}}…{{/}}` | Render the body when the result is empty or false |
    | `{{>$ q}}` / `{{>$$ q}}` | Dynamic partial: the result of `q` is the template text |
+   | `{{$. q}}`, `{{#$. q}}`, `{{&$. q}}`, `{{>$. q}}`, and the `$$.` forms | Apply forms of the tags above: `q` gets the current context as its input state (open question 11) |
+   | `{{/}}` | Closes the innermost open section of any kind (decided 2026-10-17). `{{/$}}`, `{{/$$}}` and `{{/name}}` are also accepted, and are checked against the section they close |
 
-   `{{/$}}` closes the innermost open query section, so the query is not repeated. Mustache's
+   A query section is closed by `{{/}}` (or `{{/$}}`), so the query is not repeated. Mustache's
    inheritance module also uses `{{$name}}`, and this design does not adopt that module.
 6. **[accepted 2026-10-17] `simple_template`.** Convert the existing templates and deprecate `$query$`.
 7. **[proposed] Command namespace.** *Recommended: `mustache`* (`ns-mustache/render`, `apply`,
@@ -197,6 +222,19 @@ Phase 2.
 9. **[decided 2026-10-17] Nested braces in query tags.** Braces are balanced: the query parser
    consumes nested `{{…}}` as placeholders, and the tag ends at the first unbalanced `}}`. The rule
    applies to both `$` and `$$`.
+
+10. **[proposed] A data interface in `liquers-core`.** A sync `DataNode` and an async
+    `AsyncDataNode`, joined by an `AnyNode` enum. Values in memory implement the sync trait, while
+    record sources and store folders implement the async one. The renderer takes both, and sync
+    consumers such as store handlers take only sync nodes. The design and the sync, async and dual
+    comparison are in [`data-node-interface.md`](./data-node-interface.md). *Recommended: dual.*
+11. **[proposed] Apply syntax.** `{{$. q}}` applies `q` to the current context, as Mustache's
+    `{{.}}` names it, and `{{$.name q}}` applies it to the value of `name`. Without the dot, `{{$ q}}`
+    evaluates with no input. The marker composes with every query tag (`{{#$. q}}`, `{{$$. q}}`,
+    `{{>$. q}}`). A query that itself begins with `.` is written after a space (`{{$ .x}}`), since
+    `$.` always means apply. Alternatives considered: a pipe, `{{. | $ q}}`, which is a new operator
+    that Mustache has nowhere else; and a section switch, `{{#.}}{{$ q}}{{/}}`, which cannot name a
+    value other than the current one. *Recommended: the dot.*
 
 ## References
 

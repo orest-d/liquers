@@ -57,24 +57,39 @@ filename (`{{name}}.html`), and any other token is an action (`{{name}}`). The v
 classification. A value containing `.` in an action-name position is an error, not a filename.
 
 **Values that are not text.** A number or a boolean is written as its text (`42`, `true`). Null or
-a missing name is an error in a query: Mustache's empty string would change the query silently. An
-object is an error. A list or a `Key` in a *whole* P1 or P4 position is **open question 2a**.
+a missing name is an error in a query, because Mustache's empty string would change the query
+silently. A **non-scalar** value (a list, a map, records, a frame: any `DataNode` whose kind is not
+scalar, see [`data-node-interface.md`](./data-node-interface.md)) is a **parameter override**
+(decided 2026-10-17). It is allowed only as a whole P1 placeholder. The argument's name comes from the command's
+metadata once the instantiated query is planned, and the argument the placeholder
+stands for receives the value through a recipe argument (`Recipe::arguments`, a
+`serde_json::Value`), so a list given to a `multiple` argument supplies one value per element
+(`Plan::override_value`, `liquers-core/src/plan.rs`). A non-scalar in a fragment, or in P2–P5, is
+an error.
+
+**Overrides reach only the last action today (verified).** `Plan::override_value` and
+`override_link` target the last action only (module docs of `liquers-core/src/plan.rs`), and
+`Recipe::to_plan` refuses any other name with `not_in_last_action` (`liquers-core/src/recipes.rs`).
+A non-scalar placeholder in an earlier action is therefore an error at the placeholder until
+`RECIPE-OVERRIDE-ONLY-LAST-ACTION` is fixed.
+
+## How a query tag is evaluated
+
+| Tag | Override present? | Route | Caching |
+|---|---|---|---|
+| `{{$ q}}` | no | `AssetManager::get_asset(&query)` | Shared and cached; a dependency of the result |
+| `{{$ q}}` | yes | `AssetManager::apply(recipe, State::new(), None)`, with the overrides as the recipe's arguments | Ad hoc, never cached (`apply` docs, `liquers-core/src/assets.rs`) |
+| `{{$. q}}`, `{{$.name q}}` (apply, Phase 1 open question 11) | either | `AssetManager::apply(recipe, state, None)`, where `state` is the current context (or `name`) as the input | Ad hoc, never cached |
+| `{{$$ q}}` and its apply forms | never, since text has no overrides | As the first and third rows | As above |
+
+`apply` evaluates inline and takes no job-queue slot, so calling it from inside an evaluation is
+safe (the `ASSETS-FIX1` #17 deadlock does not arise). How an ad-hoc result's own dependencies reach
+the rendered document is a Phase 2 question.
 
 ## Proposed details for Phase 2
 
 - `QueryTemplate` mirrors `Query`, with a `Placeholder { path, position }` element allowed in the
-  positions above. `QueryTemplate::instantiate(&data) -> Result<Query, Error>` fills it, and
-  `QueryTemplate::try_into_query()` succeeds exactly when there are no placeholders.
+  positions above. `QueryTemplate::instantiate(&data) -> Result<(Query, Overrides), Error>` fills
+  it, and `QueryTemplate::try_into_query()` succeeds exactly when there are no placeholders.
 - An expansion error is reported at the placeholder's position in the template, naming the position
   kind (P1 to P5) and the rejected value.
-
-## Open question 2a
-
-**Can one whole placeholder fill several parameters or segments?** For example, `cmd-{{cols}}`
-with `cols = ["a", "b"]` could become `cmd-a-b` with two encoded parameters. That would fit
-`multiple` arguments. Likewise `-R/{{dir}}/x.csv` with a `Key` value `data/sub` could become two
-segments, each checked as in P4. The structure still comes from the template, which marks the slot
-as a list, and every element is encoded.
-
-*Recommended: yes for lists in a whole P1 position and for a `Key` value in a whole P4 position. A
-list anywhere else, and a string containing `/` in P4, are errors.*

@@ -5,7 +5,7 @@ title: liquers-mustache — a query-aware template language
 workflow: liquers-project
 status: in_review
 phase: high-level
-area: [core/query, lib/commands, lib/ui, docs]
+area: [core/query, core/value, lib/commands, lib/ui, docs]
 issues: [NO-QUERY-AWARE-TEMPLATE-LANGUAGE, SIMPLE-TEMPLATE-HAS-NO-COMMAND]
 merged: 2026-10-13
 affects_docs: []
@@ -15,7 +15,7 @@ created: 2026-10-13
 
 ## Phases
 
-- [Phase 1](./phase1-high-level-design.md) — written 2026-10-13, revised 2026-10-17 after review, awaiting approval
+- [Phase 1](./phase1-high-level-design.md) — written 2026-10-13, revised twice on 2026-10-17 after review, awaiting approval
 - [Phase 2](./phase2-architecture.md)
 - [Phase 3](./phase3-examples.md)
 - [Phase 4](./phase4-implementation.md)
@@ -23,8 +23,10 @@ created: 2026-10-13
 
 ## Notes
 
-Supporting note: [`query-placeholders.md`](./query-placeholders.md), the positions a placeholder may
-fill in a hygienic query tag and how each is expanded.
+Supporting notes: [`query-placeholders.md`](./query-placeholders.md), the positions a placeholder
+may fill in a hygienic query tag, how each is expanded, and how a query tag is evaluated;
+[`data-node-interface.md`](./data-node-interface.md), the core data trait that lets any value be
+template data, with the sync, async and dual comparison.
 
 **Revision 2026-10-17**, from the maintainer's review of Phase 1. Two query-tag forms replace the
 `{{x}}` / `{{{x}}}` split inside queries: hygienic `{{$ …}}` fills the AST and classic `{{$$ …}}`
@@ -46,3 +48,11 @@ commands in `liquers-lib`. A UI editor is out of scope and filed as `NO-TEMPLATE
 
 `SIMPLE-TEMPLATE-HAS-NO-COMMAND` (filed 2026-10-12 for `agent-memory-mvp`) is attached as a second
 source: its fix — evaluation through the asset manager with dependencies — is this design's AC-2.
+
+**Revision 2026-10-17 (second)**, from the maintainer's second review. `{{/}}` closes any section.
+Evaluate and apply became a per-tag choice (`{{$ q}}` evaluates, `{{$. q}}` applies to the current
+context, new open question 11), so one render command serves both. A non-scalar placeholder is a
+parameter override that routes the query through `apply` (AC-16, which settles 2a). A core data
+interface, `DataNode` / `AsyncDataNode`, was added (AC-15, open question 10). It brings a
+`liquers-core` change back, a new module this time rather than the parser. Filed
+`STORE-HANDLER-FIELD-ACCESS-HARDCODED` and `RECIPE-OVERRIDE-ONLY-LAST-ACTION`.
