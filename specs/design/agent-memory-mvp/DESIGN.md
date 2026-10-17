@@ -4,7 +4,7 @@ kind: design
 title: MVP for an agent memory service on the liquers stack
 workflow: liquers-project
 status: in_review
-phase: examples
+phase: implementation
 area: [lib/commands, core/store, docs]
 gh_pr: []
 issues: [AGENT-MEMORY-SERVICE]
@@ -20,8 +20,8 @@ superseded_by:
 
 - [x] Phase 1: High-Level Design — **approved 2026-10-17** (revision 4, after the split)
 - [x] Phase 2: Solution & Architecture — **approved 2026-10-17** (decision 1 revised; decisions 2–9 settled at the gate)
-- [ ] Phase 3: Examples & Testing — written and reviewed 2026-10-17, awaiting approval
-- [ ] Phase 4: Implementation Plan
+- [x] Phase 3: Examples & Testing — **approved 2026-10-17** (with the migration guide draft)
+- [ ] Phase 4: Implementation Plan — written 2026-10-17, in review
 - [ ] Phase 5: Documentation
 - [ ] Implementation Complete
 
