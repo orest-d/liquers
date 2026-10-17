@@ -2,7 +2,7 @@
 id: COMMAND-REGISTRY-HEADER-NAMES-GROUPS-NOT-FEATURES
 kind: issue
 title: The command_registry.yaml header lists group names under "features"
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [lib/commands, build]
@@ -10,6 +10,20 @@ design: command-registry-header-feature-names
 created: 2026-10-11
 github:
 ---
+## Resolution (2026-10-17)
+
+Fixed by design `command-registry-header-feature-names`. The private `Group` enum of
+`liquers-lib/src/bin/export_command_registry.rs` gained `feature()`, mapping each group to the
+`liquers-lib` cargo feature that compiles it in (`Image` → `image-support`, `Template` →
+`templates`, `Records` and `Search` → `records`, `Core` / `Lui` / `StoreConfig` → none). `header`
+builds `features=` from it, deduplicated in order, replacing the `search` special case. The
+committed `specs/command_registry.yaml` header now reads
+`features=egui,image-support,polars,records,templates`; only that line and a CHANGELOG line
+changed.
+
+Evidence: `group_features_are_declared_in_cargo_toml` (every group's feature is a `[features]` key
+of `liquers-lib/Cargo.toml`) and `header_lists_cargo_features_once` in the binary's test module;
+`registry_export` still passes.
 
 ## Problem
 

@@ -2,8 +2,8 @@
 id: COMMAND-REGISTRY-HEADER-FEATURE-NAMES
 kind: design
 title: The command registry header names cargo features, not group names
+gh_pr: [149]
 form: compact
-status: in_review
 phase: implementation
 readiness: ready
 autofix: eligible
@@ -119,9 +119,9 @@ Run: `cargo test -p liquers-lib --features cli --bin export-command-registry`, t
 
 ### Steps
 
-- [ ] 1. `export_command_registry.rs` `Group::feature`, `header` — `cargo test -p liquers-lib --features cli --bin export-command-registry`
-- [ ] 2. Regenerate `specs/command_registry.yaml` (CLAUDE.md command) and add a dated CHANGELOG line; check `git diff` shows only the header and that line — `cargo test -p liquers-lib --test registry_export`
-- [ ] 3. Close the issue with a resolution note — `python3 scripts/docs_index.py --check`
+- [x] 1. `export_command_registry.rs` `Group::feature`, `header` — `cargo test -p liquers-lib --features cli --bin export-command-registry`
+- [x] 2. Regenerate `specs/command_registry.yaml` (CLAUDE.md command) and add a dated CHANGELOG line; check `git diff` shows only the header and that line — `cargo test -p liquers-lib --test registry_export`
+- [x] 3. Close the issue with a resolution note — `python3 scripts/docs_index.py --check`
 
 ### Validation
 
