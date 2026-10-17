@@ -5,7 +5,8 @@ and design that `agent-memory-mvp` depends on into tracks and waves, says which 
 each one unblocks, and marks what is already done, what is worked around and what is out of scope.
 It is a plan for the backlog, not for this design's own Phase 4, which comes after its Phases 2–3.
 
-Statuses are from `specs/index.csv` on 2026-10-13, except Wave 0, closed 2026-10-15 (§3). Designs
+Statuses are from `specs/index.csv` on 2026-10-13, except Wave 0, closed 2026-10-15 (§3), and the
+Wave 1 gates and D3–D7, updated 2026-10-17. Designs
 proceed through the `liquers-project` gates; nothing below is implemented before its design's Phase 4
 is approved.
 
@@ -27,13 +28,14 @@ is approved.
 |---|---|---|---|---|
 | D1 | `STORE-ROUTER-DOES-NOT-FORWARD-ASSET-INFO` | **closed 2026-10-13** (PR #130, design `store-router-forwards-asset-info`) | P2 · S | Folder tiers through the router: AC-1, AC-17; `store-adapters` AC-8 |
 | D2 | `VALUE-TO-JSON-PANICS-ON-NON-FINITE-FLOAT` | **closed 2026-10-13** (PR #131, design `value-to-json-non-finite-float`) | **P0** · M (re-sized from S; a panic on a supported path, §4.4) | Values → JSON for MCP results and template data: AC-14, `liquers-mustache` AC-7 |
-| D3 | `store-adapters` M1 — read-only adapter (`STORE-NO-READ-ONLY-ADAPTER`) | design, Phase 1 in review | P2 · M | AC-13; decision 2 ("fixed first") |
-| D4 | `store-adapters` M2–M3 — adapter configuration, registry, enhancers | same design | part of XL | Front-matter adapter: AC-1, AC-5 (creation), AC-11, AC-17; profiles AC-18, AC-19 |
-| D5 | `liquers-mustache` M1–M3 — public parser surface, template parser and diagnostics, renderer with *apply* | design, Phase 1 in review (`NO-QUERY-AWARE-TEMPLATE-LANGUAGE`) | P2 · XL | Templates for `memory_new`: AC-4 |
-| D6 | `liquers-mustache` M4–M5 — asset-aware query tags, commands (`SIMPLE-TEMPLATE-HAS-NO-COMMAND`) | same design | | Context packs AC-21, `index.md` AC-22 |
-| D7 | `record-filter-commands` — filters and `sort` for records (`RECORD-AND-POLARS-COMMANDS-NOT-INTEROPERABLE`) | design, Phase 1 draft | P2 · L | `index.md` AC-22 (sort, count); `index.csv` AC-10 (ordering) |
+| D3 | `store-adapters` M1 — read-only adapter (`STORE-NO-READ-ONLY-ADAPTER`) | **done** (PR #137, design complete) | P2 · M | AC-13; decision 2 ("fixed first") |
+| D4 | `store-adapters` M2–M3 — adapter configuration, registry, enhancers | **done** (PR #137): `metadata` sections, `-store_config-front_matter` / `front_matter_sync` | part of XL | Front-matter adapter: AC-1, AC-5 (creation), AC-11, AC-17; profiles AC-18, AC-19 |
+| D5 | `liquers-mustache` (crate `liquers-template`) — shadow query parser, template parser and diagnostics, renderer with *apply* | design, Phases 1–2 approved 2026-10-17, Phase 3 in review (PR #139) | P2 · XL | Templates for `memory_new`: AC-4 |
+| D6 | `liquers-mustache` — asset-aware query tags, `-template-render` / `-template-expand`, template commands as aliases (`SIMPLE-TEMPLATE-HAS-NO-COMMAND`) | same design | | Context packs AC-21, `index.md` AC-22 |
+| D7 | `record-filter-commands` — filters and `sort` for records (`RECORD-AND-POLARS-COMMANDS-NOT-INTEROPERABLE`) | **done** (design complete 2026-10-14) | P2 · L | `index.md` AC-22 (sort, count); `index.csv` AC-10 (ordering) |
 | D8 | Markdown section access — the minimum of `NO-MARKDOWN-NAVIGATION-COMMANDS` | feature, no design | P3 · L | Section read AC-3, fallback tiers AC-17, packs AC-21 |
 | D9 | Rust item records — the first half of `NO-SOURCE-CODE-AND-API-DOC-NAVIGATION` | feature, no design | P3 · L | Decision 6; code sections of packs AC-21 |
+| D10 | `SEARCH-COMMANDS-RECORD-NO-DEPENDENCY-ON-READ-FILES` (filed 2026-10-17 by `liquers-mustache` Phase 3) | issue, draft | P2 · M | Recompute and version clauses of AC-10, AC-21, AC-22 |
 
 ### 1.3 Worked around — not blocking, fix later
 
@@ -96,10 +98,10 @@ D2 was re-sized to M.
 
 | Step | Gate | Decision it needs |
 |---|---|---|
-| 1.1 | `store-adapters` Phase 1 → Phase 2 | Wrapper vs pipeline; split layouts from adapters (its open questions 1 and 5) |
-| 1.2 | `liquers-mustache` Phase 1 → Phase 2 | Hygienic and raw expansion; public parser surface; nested braces (open questions 1, 8, 9) |
-| 1.3 | `agent-memory-mvp` Phase 1 → Phase 2 | Split into designs (decision 12); confirm decision 7 now points at `liquers-mustache` |
-| 1.4 | `record-filter-commands` Phase 1 | It is still a draft; the memory service needs only filters, `sort` and a count |
+| 1.1 | `store-adapters` Phase 1 → Phase 2 | Done: approved 2026-10-15, implemented and merged (PR #137) |
+| 1.2 | `liquers-mustache` Phase 1 → Phase 2 | Done: Phases 1–2 approved 2026-10-17 (hygienic `{{$ q}}` / classic `{{$$ q}}`; shadow parser instead of a public core parser) |
+| 1.3 | `agent-memory-mvp` Phase 1 → Phase 2 | Split into designs (decision 12); confirm decision 7 now points at `liquers-mustache`. Phase 1 revision 4 (2026-10-17) awaits this gate |
+| 1.4 | `record-filter-commands` Phase 1 | Done: design complete before this plan's Wave 1 (2026-10-14) |
 
 ### Wave 2 — foundations (three parallel tracks)
 

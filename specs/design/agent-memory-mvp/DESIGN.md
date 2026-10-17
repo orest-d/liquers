@@ -184,6 +184,27 @@ the planned follow-on features (general tool set, Python command registration, t
 inspection UI) in [`workbench-direction.md`](./workbench-direction.md). The separability itself
 was already decided in [`interfaces-and-mcp.md`](./interfaces-and-mcp.md) §6.
 
+## Revision 4 — 2026-10-17
+
+Phase 1 reconciled with what landed since revision 3, for the Wave 1 gate 1.3 (`execution-plan.md`):
+
+1. **`store-adapters` is complete** (PR #137). The read-only mount (decision 2) and the
+   front-matter adapter (decision 4) exist as `read_only: true` and the
+   `-store_config-front_matter` / `front_matter_sync` handlers; this design configures them and
+   builds no store code. Write-back happens in `set_metadata` only.
+2. **`liquers-mustache` Phases 1–2 are approved** (PR #139): crate `liquers-template`, namespace
+   `template`, `{{$ q}}` / `{{$$ q}}`, `-template-render` and `-template-expand`, template commands as
+   aliases of `-template-render`. Context packs (AC-21) and `index.md` (AC-22) become template
+   commands. Decision 7 asks to confirm this and drop the interim engine.
+3. **New dependency** `SEARCH-COMMANDS-RECORD-NO-DEPENDENCY-ON-READ-FILES` (D10): until it is fixed,
+   indexes and packs built on `ns-search` do not recompute (AC-10, AC-21, AC-22).
+4. **`record-filter-commands` is complete**; `RECIPE-OVERRIDE-ONLY-LAST-ACTION` constrains MCP tool
+   queries (arguments override the last action only).
+5. **Decision 12 has a recommendation**: two designs — this one keeps memory A, B, C; a new
+   `agent-memory-derived` takes D, E, F.
+
+The execution plan's Wave 1 table and dependency inventory were updated to match.
+
 ## Links
 
 - [Phase 1](./phase1-high-level-design.md)

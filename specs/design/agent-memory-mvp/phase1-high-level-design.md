@@ -2,7 +2,8 @@
 
 ## Feature Name
 
-Agent memory service (MVP), revision 3 (2026-10-12; earlier revisions in `DESIGN.md`).
+Agent memory service (MVP), revision 4 (2026-10-17: reconciled with the merged `store-adapters` and
+the approved Phases 1–2 of `liquers-mustache`; earlier revisions in `DESIGN.md`).
 Companion analyses: [survey](./memory-systems-survey.md) ·
 [specification](./service-specification.md) · [workflow porting](./workflow-porting.md) ·
 [tiers and storage](./tiers-and-storage.md) · [interfaces and MCP](./interfaces-and-mcp.md) ·
@@ -142,13 +143,21 @@ MCP (only kept combinable, `interfaces-and-mcp.md` §6); git commits by the serv
 ## Core Interactions
 
 - **Query:** no grammar change.
-- **Store:** a front-matter store adapter (`tiers-and-storage.md` §2 C); a read-only mount.
+- **Store:** no new store code. Mounts use what `store-adapters` shipped: `read_only: true`
+  (AC-13), and a `metadata` section whose read and write chains include `-store_config-front_matter`
+  and `-store_config-front_matter_sync` (AC-11; `liquers-lib`, feature `records`). Write-back
+  happens in `set_metadata` only; in `set` the written bytes are the truth, which suits writes that
+  carry a whole document.
 - **Commands:** new `ns-mem` (`describe`, `similar`, `new`, `write`, `edit`, `set_field`,
   `append_row`, `check`, `section`, `context`), built on `ns-search`; small record commands for
-  indexes (`count_by`, `to_md_table`, `to_md_list`) beside `ns-rec`'s filters and `sort`; `expand` and
-  `render` templates (`SIMPLE-TEMPLATE-HAS-NO-COMMAND`, `template-language-evaluation.md`).
-- **Configuration:** the existing store-router configuration, extended with collections, tiers,
-  views and tool sets.
+  indexes (`count_by`, `to_md_table`, `to_md_list`) beside `ns-rec`'s filters and `sort` (on
+  `main`); templates through `liquers-template`'s `-template-render` and `-template-expand`. A
+  context pack (AC-21) and the `index.md` page (AC-22) are **template commands**: aliases of
+  `-template-render` whose head is the template link, as `liquers-mustache` AC-19 specifies.
+  Commands are named by `CommandKey` Display; a command that resolves relative keys takes `cwd` as
+  an explicit default-link argument, never from `Context` (`COMMAND_REGISTRATION_GUIDE.md`).
+- **Configuration:** the existing store-router configuration with its `metadata` sections,
+  extended with collections, tiers, views and tool sets.
 - **Assets:** writes go through the asset manager; recipes for indexes and folder tiers.
 - **Web/API:** the existing assets API; MCP tool arguments map onto argument overrides; MCP over
   HTTP is NEXT (question 5).
@@ -156,7 +165,7 @@ MCP (only kept combinable, `interfaces-and-mcp.md` §6); git commits by the serv
 ## Crate Placement
 
 `liquers-lib` (`src/mem/`, feature `mem` implying `records`): `ns-mem` and the front-matter store,
-beside `ns-search`. New `liquers-mcp` (depends on `liquers-core`): the MCP engine. New
+beside `ns-search`; it uses `liquers-lib`'s `templates` feature (crate `liquers-template`). New `liquers-mcp` (depends on `liquers-core`): the MCP engine. New
 `liquers-agent` (named 2026-10-15, replacing the working name `liquers-mem`; named for its
 audience so it can later carry the workbench tool sets of `AGENT-WORKBENCH-SURFACE` without a
 rename): the binary, over `liquers-lib`, `liquers-axum` and `liquers-mcp`.
@@ -174,13 +183,19 @@ rename): the binary, over `liquers-lib`, `liquers-axum` and `liquers-mcp`.
 ## Design Dependencies
 
 - **Requires** `store-and-asset-search` (merged; `ns-search`, `SEARCH_GUIDE.md`),
-  `axum-query-named-arguments` (merged; argument overrides), `store-adapters` (read-only mount AC-13,
-  front-matter adapter AC-11) and `liquers-mustache` (templates for AC-21, AC-22).
+  `axum-query-named-arguments` (merged; argument overrides), `store-adapters` (**complete**, PR #137:
+  read-only mount AC-13, `front_matter` handlers AC-11), `record-filter-commands` (**complete**),
+  `liquers-mustache` (Phases 1–2 approved, PR #139; templates for AC-4, AC-21, AC-22), and
+  **`SEARCH-COMMANDS-RECORD-NO-DEPENDENCY-ON-READ-FILES`** (filed 2026-10-17, P2 M): `ns-search`
+  results record no dependency on the files they read, so the "recomputed" and "version changes"
+  clauses of AC-10, AC-21 and AC-22 fail until it is fixed. It must be fixed before memory E and F.
 - **Overlaps** `STORE-METADATA-HANDLING-NOT-COMPOSABLE` (decision 4; the front-matter adapter is one
   instance), `NO-MARKDOWN-NAVIGATION-COMMANDS` (AC-3, AC-17, AC-21),
   `SIMPLE-TEMPLATE-HAS-NO-COMMAND` (AC-21), `NO-SOURCE-CODE-AND-API-DOC-NAVIGATION` (question 6),
-  `STORE-ROUTER-DOES-NOT-FORWARD-ASSET-INFO` (folder tiers), `record-filter-commands` (sorting and
-  counting for AC-10, AC-22), `CORE-METADATA-NO-APPLICATION-ATTRIBUTES`, `STORE-WRITE-HAS-NO-PRECONDITION` (AC-6 is
+  `CORE-METADATA-NO-APPLICATION-ATTRIBUTES` (`front_matter` projects only `title` and
+  `description`; other fields are read as `field_extract` records),
+  `RECIPE-OVERRIDE-ONLY-LAST-ACTION` (an MCP tool's arguments override the last action of its
+  declared query only, so each tool's query ends in the command that takes them), `STORE-WRITE-HAS-NO-PRECONDITION` (AC-6 is
   single-process until it is fixed).
 - **Feeds** `external-index-sync`, where semantic memory search belongs.
 
@@ -189,24 +204,29 @@ rename): the binary, over `liquers-lib`, `liquers-axum` and `liquers-mcp`.
 Answered by the user on 2026-10-12; the answers are decisions of this phase.
 
 1. ~~*Sequencing.*~~ Resolved: `store-and-asset-search` is merged.
-2. **`STORE-NO-READ-ONLY-ADAPTER` is fixed first**, before Phase 2 relies on it — since 2026-10-13 as
-   the first milestone of [`store-adapters`](../store-adapters/), into which it was merged.
+2. **`STORE-NO-READ-ONLY-ADAPTER` is fixed first** — done: `ReadOnlyStore` and `read_only: true`
+   shipped with [`store-adapters`](../store-adapters/) (PR #137, merged 2026-10-17).
 3. **L1 for the existing corpus:** per-collection fallbacks now (AC-1, AC-17); descriptions are
    backfilled by agents over time.
 4. **Tiers:** a store adapter projects front-matter into metadata, and setting `title` /
    `description` through metadata rewrites the front-matter. This adapter and the read-only one are
    instances of a general, configurable metadata pipeline (create, enhance, store, policy), filed as
    `STORE-METADATA-HANDLING-NOT-COMPOSABLE` and designed in [`store-adapters`](../store-adapters/)
-   (2026-10-13); this design supplies the front-matter adapter as one of its adapters.
+   (2026-10-13). It shipped: the front-matter adapter is the `front_matter` / `front_matter_sync`
+   handler pair in `liquers-lib`, so this design configures it rather than building it.
 5. **HTTP MCP (`serve`)** is NEXT; stdio MCP and the CLI first.
 6. **Rust item records** (`syn`) are in the MVP; references and call graphs (SCIP) later.
 7. **Templates must understand queries** (parse errors at template positions; evaluation through the
    asset layer), so the long-term language will be reimplemented. Recommended in
    [`template-language-evaluation.md`](./template-language-evaluation.md): reimplement **Mustache with
    query tags** (logic-less like Liquers, small specified language with a conformance suite, partials
-   as the built-in extension point); the interim is a Mustache engine followed by an `expand` pass over
-   `$query$` spans, not minijinja, so interim templates survive. Since 2026-10-13 the language is
-   its own design, [`liquers-mustache`](../liquers-mustache/) (`NO-QUERY-AWARE-TEMPLATE-LANGUAGE`).
+   as the built-in extension point). Since 2026-10-13 the language is its own design,
+   [`liquers-mustache`](../liquers-mustache/) (`NO-QUERY-AWARE-TEMPLATE-LANGUAGE`), whose Phases 1–2
+   were approved on 2026-10-17: crate `liquers-template`, namespace `template`, hygienic `{{$ q}}`
+   (fills the query AST) and classic `{{$$ q}}` (expands text, then parses), `{{$. q}}` to apply a
+   query to the current context. **To confirm at this gate:** memory templates use that language
+   directly, and the interim (an existing Mustache engine plus an `expand` pass) is dropped, since
+   the template track no longer lags the memory core.
 8. **Agent-written memory** is a separate writable mount — committed `notes/` by default, S3 when the
    network policy allows. A **separate repository** works today as a second clone mounted with the
    `filesystem` type (in a cloud session: added to the session and cloned; git push by the agent).
@@ -219,7 +239,14 @@ Answered by the user on 2026-10-12; the answers are decisions of this phase.
     rendering records as a Markdown table — and a template for the page. Both `index.csv` (AC-10) and
     `index.md` (AC-22) are in scope.
 11. **Ten tools**, `memory_forget` later.
-12. **Splitting** the design is decided after Phase 1 is approved.
+12. **Splitting — open, to decide at this gate.** Recommended: two designs, cut by what they wait
+    on. This design keeps the memory core, the MCP server, tiers and profiles (execution plan
+    memory A, B, C; AC-1 to AC-3, AC-5 to AC-9, AC-11 to AC-20, and AC-4 without the template
+    step), all of whose inputs are now on `main`. A new design, `agent-memory-derived`, takes
+    templates in `memory_new`, the indexes and context packs (memory D, E, F; AC-4's template step,
+    AC-10, AC-21, AC-22), which wait on `liquers-template`, Markdown sections, Rust item records and
+    `SEARCH-COMMANDS-RECORD-NO-DEPENDENCY-ON-READ-FILES`. Memory C no longer needs a design of its
+    own, because the front-matter adapter it waited for has shipped.
 
 ## References
 
