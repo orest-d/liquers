@@ -716,6 +716,13 @@ impl ArgumentInfo {
         self.default = CommandParameterValue::from_value(value.into());
         self
     }
+    /// Sets a default link: when the argument is not written, `query` is evaluated and its value
+    /// passed, and the result depends on it. A relative query (`-R-key/.`, the cwd) is resolved
+    /// against the action's cwd; see `specs/guides/COMMAND_REGISTRATION_GUIDE.md`.
+    pub fn with_default_link(mut self, query: Query) -> Self {
+        self.default = CommandParameterValue::Query(query);
+        self
+    }
     pub fn true_by_default(mut self) -> Self {
         self = self.with_type(ArgumentType::Boolean);
         self.default = CommandParameterValue::from_value(Value::Bool(true));
@@ -1539,6 +1546,17 @@ impl CommandMetadataRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn with_default_link_sets_query_default() {
+        let query = crate::parse::parse_query("-R-key/.").expect("query");
+        let arg = ArgumentInfo::any_argument("cwd").with_default_link(query.clone());
+        assert!(
+            matches!(&arg.default, CommandParameterValue::Query(q) if *q == query),
+            "{:?}",
+            arg.default
+        );
+    }
 
     /// AC-9: overviews of what can be run leave the `store_config` realm out.
     #[test]
