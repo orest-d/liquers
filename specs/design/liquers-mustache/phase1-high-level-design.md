@@ -117,6 +117,17 @@ rendered with an `area` argument it renders the same.
   THEN the value is passed as that argument's override, and the query runs through
   `AssetManager::apply` rather than `get_asset`; in an earlier action it is an error at the
   placeholder, since overrides reach only the last action (`RECIPE-OVERRIDE-ONLY-LAST-ACTION`)
+- **AC-17** Indexing into data (added 2026-10-17 at the Phase 2 review)
+  WHEN a name indexes a list (`{{items.0.title}}`) or uses a bracket lookup (`{{x[y]}}`, `x[0]`,
+  `x["a b"]`)
+  THEN a dotted index resolves as Mustache does, empty when absent, and a bracket resolves `y`,
+  then indexes a list or looks up a map key by `x`'s kind, and an absent element is an error
+- **AC-18** Error modes (added 2026-10-17 at the Phase 2 review)
+  WHEN a tag fails while rendering (a query, a lookup, a partial, or a tag that does not parse)
+  under `errors` `strict`, `expand` (or `expand_html`, `expand_md`) or `silent`
+  THEN strict fails with the first error; expand renders the error in place of the tag and silent
+  renders nothing, both logging every error as a warning; an unclosed section or unterminated tag
+  fails in every mode
 
 Non-goals: a template editor (`NO-TEMPLATE-EDITOR-UI`); Mustache's optional modules (lambdas,
 inheritance) — lambdas may later map to commands; logic beyond Mustache (comparisons, arithmetic):

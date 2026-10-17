@@ -26,7 +26,9 @@ created: 2026-10-13
 Supporting notes: [`query-placeholders.md`](./query-placeholders.md), the positions a placeholder
 may fill in a hygienic query tag, how each is expanded, and how a query tag is evaluated;
 [`data-node-interface.md`](./data-node-interface.md), the core data trait that lets any value be
-template data, with the sync, async and dual comparison.
+template data, with the sync, async and dual comparison;
+[`names-and-errors.md`](./names-and-errors.md), the name grammar with indexing, the error modes and
+recoverable syntax errors.
 
 **Revision 2026-10-17**, from the maintainer's review of Phase 1. Two query-tag forms replace the
 `{{x}}` / `{{{x}}}` split inside queries: hygienic `{{$ …}}` fills the AST and classic `{{$$ …}}`
@@ -63,4 +65,7 @@ Mustache. The design folder keeps its slug. Highlighting (AC-10) was withdrawn a
 design as `TEMPLATE-HAS-NO-HIGHLIGHTER`. Open questions 12 and 13 were accepted. The command takes a
 `cwd` argument, and the AST is specified in Phase 2 on the model of `Query`. The same day the `cwd`
 argument was aligned with the command registration guide: a default link `-R-key/.`, last in the
-signature (open question 14).
+signature (open question 14). Later the same day, names gained list indexing and a strict bracket lookup
+`x[y]`, and rendering gained three error modes (strict, expand, silent) with recoverable syntax
+errors kept as `Invalid` AST nodes. Both are in [`names-and-errors.md`](./names-and-errors.md), and
+Phase 1 gained AC-17 and AC-18.

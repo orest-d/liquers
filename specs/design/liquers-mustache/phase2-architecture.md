@@ -75,7 +75,9 @@ pub enum ActionParameterTemplate { String(Vec<Piece>, Position), Link(QueryTempl
 pub struct TokenTemplate { pub pieces: Vec<Piece>, pub position: Position }  // a name, segment or filename
 pub enum Piece { Literal(String), Slot(Slot) }
 pub struct Slot { pub name: Name, pub position: Position }
-pub struct Name { pub parts: Vec<String>, pub position: Position }   // `a.b.c`; empty parts = `.`
+pub struct Name { pub parts: Vec<NamePart>, pub position: Position }   // `a.b.0[k]`; empty parts = `.`
+pub enum NamePart { Field(String, Position), Index(usize, Position), Lookup(LookupKey, Position) }
+pub enum LookupKey { Name(Name), Integer(i64), Text(String) }         // `[y]` `[-1]` `["a b"]`
 
 impl From<&Query> for QueryTemplate { … }     // lifts a query: every token one Literal piece
 impl QueryTemplate {
@@ -99,20 +101,22 @@ separately.
 pub enum Template { Mustache(MustacheTemplate) }                     // one variant per syntax
 pub struct MustacheTemplate { pub elements: Vec<Element>, pub source: QuerySource }
 pub enum Element { Text(TextElement), Variable(VariableTag), Section(Section),
-    Partial(PartialTag), Query(QueryTag), Comment(CommentTag), SetDelimiter(SetDelimiterTag) }
+    Partial(PartialTag), Query(QueryTag), Comment(CommentTag), SetDelimiter(SetDelimiterTag),
+    Invalid(Invalid) }                                               // a recoverable syntax error
+pub struct Invalid { pub source: String, pub error: Error, pub position: Position }
 pub struct TextElement { pub text: String, pub position: Position }
 pub struct VariableTag { pub name: Name, pub escape: Escape, pub position: Position }      // {{x}} {{{x}}} {{&x}}
 pub enum Escape { Escaped, Triple, Ampersand }                    // kept apart so encode() round-trips
 pub struct Section { pub inverted: bool, pub head: SectionHead, pub elements: Vec<Element>,
     pub close: CloseTag, pub standalone: Option<Standalone>, pub position: Position }
-pub enum SectionHead { Name(Name), Query(QueryTag) }
+pub enum SectionHead { Name(Name), Query(QueryTag), Invalid(Invalid) }
 pub struct CloseTag { pub form: CloseForm, pub standalone: Option<Standalone>, pub position: Position }
 pub enum CloseForm { Bare, Name(Name), Hygienic, Classic }        // {{/}} {{/x}} {{/$}} {{/$$}}
 pub struct PartialTag { pub target: PartialTarget, pub standalone: Option<Standalone>, pub position: Position }
-pub enum PartialTarget { Key(Key), Query(QueryTag) }              // {{> key}} / {{>$ q}} {{>$$ q}}
+pub enum PartialTarget { Key(Key), Query(QueryTag), Invalid(Invalid) }   // {{> key}} / {{>$ q}} {{>$$ q}}
 pub struct QueryTag { pub body: QueryBody, pub apply: Option<ApplyTarget>, pub escape: Escape,
     pub position: Position }                                     // {{$ q}} {{&$ q}} {{$. q}} …
-pub enum QueryBody { Hygienic(QueryTemplate), Classic(ClassicQuery) }
+pub enum QueryBody { Hygienic(QueryTemplate), Classic(ClassicQuery), Invalid(Invalid) }
 pub struct ClassicQuery { pub pieces: Vec<ClassicPiece>, pub position: Position }
 pub enum ClassicPiece { Text(String, Position), Slot(Slot) }      // expanded verbatim, then parsed
 pub enum ApplyTarget { Current(Position), Name(Name) }            // {{$. q}} / {{$.a.b q}}
@@ -126,6 +130,10 @@ pub struct Standalone { pub indent: String, pub newline: String }  // the line a
 drops it and re-indents partials with `indent`, while `encode()` restores it. The encoder tracks
 `SetDelimiterTag`s, so it writes every tag with the delimiters in force at its position. `Section`
 and its `CloseTag` each have a position, so a mismatched close is reported at both.
+
+**Names and recoverable syntax errors** are specified in [`names-and-errors.md`](./names-and-errors.md):
+the name grammar with list indexing (`items.0`) and the strict lookup `x[y]`, and the `Invalid`
+nodes. An `Invalid` node keeps its source text, so `encode()` still round-trips.
 
 ## Interfaces
 
@@ -167,10 +175,13 @@ pub fn validate_template(text: &str, syntax: TemplateSyntax, cmr: Option<&Comman
 pub struct Diagnostic { pub severity: Severity, pub message: String, pub position: Position }
 pub trait TemplateHost: MaybeSend + MaybeSync {
     async fn evaluate(&self, request: QueryRequest) -> Result<AnyNode, Error>;
-    async fn partial(&self, key: &Key) -> Result<String, Error>; }
+    async fn partial(&self, key: &Key) -> Result<String, Error>;
 pub struct QueryRequest { pub query: Query, pub overrides: Vec<(String, serde_json::Value)>,
     pub input: Option<AnyNode>, pub position: Position }
-pub struct RenderOptions { pub html_escape: bool, pub max_partial_depth: usize }
+    fn warn(&self, error: &Error); }                         // a recovered error, to the log
+pub enum ErrorMode { Strict, Expand(ExpandFormat), Silent }
+pub enum ExpandFormat { Text, Html, Markdown }
+pub struct RenderOptions { pub html_escape: bool, pub max_partial_depth: usize, pub errors: ErrorMode }
 pub async fn render<H: TemplateHost>(t: &Template, root: Vec<AnyNode>, host: &H, o: &RenderOptions)
     -> Result<String, Error>;
 pub struct MapHost { pub partials: BTreeMap<Key, String> }   // refuses queries: spec suite and tests
@@ -179,11 +190,12 @@ pub struct MapHost { pub partials: BTreeMap<Key, String> }   // refuses queries:
 `ContextStack<'a>` holds frames, either `NodeRef<'a>` borrowed during sync iteration or an owned
 `AnyNode`. Names resolve by the Mustache rules plus `_meta`. The renderer recurses through boxed
 futures (`maybe_send`). Partials keep a stack of keys: a key already on it is a **cycle error**
-(AC-12), and depth is capped at 32 for dynamic partials.
+(AC-12), and depth is capped at 32 for dynamic partials. `DataNode` and `AsyncDataNode` gain a
+defaulted `index(i)` for list indexing (`names-and-errors.md`).
 
 **`ContextHost<E>`** (`liquers-lib/src/template/host.rs`) holds the `Context` and the `cwd` key
 (below). Before evaluating, it makes relative keys absolute with `Query::to_absolute(&cwd)`, and
-routes as in `query-placeholders.md`:
+implements `warn` with `Context::warning`, and routes as in `query-placeholders.md`:
 - no input and no overrides go to `get_dependency_state`;
 - anything else goes to `apply_ad_hoc`.
 
@@ -207,9 +219,18 @@ without reading it. A file child is read on demand through `get_dependency_state
 
 ## Error Handling
 
+**Modes** (AC-18, `names-and-errors.md`). *Strict* fails with the first error. *Expand* renders the
+error in place of its tag, as text, HTML or Markdown, and *silent* renders nothing; both log every
+error as a warning. The unit of failure is one tag, or a whole section when its head fails. An
+unclosed or mismatched section, an unterminated tag and a bad set-delimiter tag are never
+recoverable and fail in every mode. Any other tag that does not parse is kept as an `Invalid` node,
+which strict mode rejects before any query runs.
+
 | Failure | Constructor |
 |---|---|
-| Template grammar (unclosed or mismatched section, bad delimiter, `{{{x}}}` in a query tag) | `Error::parse_error(msg).with_position(&pos)` |
+| Template structure (unclosed or mismatched section, unterminated tag, bad delimiter): irrecoverable | `Error::parse_error(msg).with_position(&pos)` |
+| Tag content (bad name, unknown sigil, `{{{x}}}` in a query tag): an `Invalid` node | `Error::parse_error(msg).with_position(&pos)` |
+| Bracket lookup: not indexable, out of range, missing key, non-scalar key | `Error::general_error(msg).with_position(&part_pos)`, naming the kind and the key |
 | Malformed hygienic query | `Error::query_parse_error(text, err, &pos)`, in template coordinates |
 | Malformed classic query after expansion | `Error::query_parse_error(expanded, err, &tag_pos)`, with the offset in the message |
 | Value invalid in P2–P5 | `Error::conversion_error_at_position(value, "<position kind>", &pos)` |
@@ -228,7 +249,8 @@ The namespace is **`template`** (decided 2026-10-17). It interacts with `rec` an
 as data) and `pl` (frames as data).
 
 ```rust
-register_command!(cr, async fn render(state, template: String = "", data: Value = "", cwd: Key = query "-R-key/.", context) -> result
+register_command!(cr, async fn render(state, template: String = "", data: Value = "", errors: String = "strict",
+    cwd: Key = query "-R-key/.", context) -> result
     namespace: "template" label: "Render template"
     doc: "Render a template with query tags; the state is the root context, or the template when `template` is empty")?;
 register_command!(cr, async fn validate(state, template: String = "", context) -> result
@@ -239,16 +261,17 @@ register_command!(cr, async fn validate(state, template: String = "", context) -
   evaluates it and records it as a dependency.
 - **`data`** (`ArgumentType::Any`) holds named data above the state, such as `{"area": …}` as a
   recipe argument. This is how AC-8's named arguments arrive. Empty text means no data.
+- **`errors`** is `strict`, `expand`, `expand_html`, `expand_md` or `silent`; anything else fails
+  before rendering (open question 16).
 - **`cwd`** is a key. Relative partial keys and relative keys in query tags resolve against it.
   It follows `specs/guides/COMMAND_REGISTRATION_GUIDE.md`, "Passing the working directory": a
   default link `-R-key/.`, which yields the working directory, so the folder is explicit,
   overridable and part of what names the result (open question 14). There is no hidden fallback to
   the template's own folder. A caller who wants it sets the working directory
-  (`-R-cwd/templates/-/ns-template/render-~X~-R/./issues.md~E-`) or passes it
-  (`-R/templates/issues.md/-/ns-template/render---templates`); both validate.
-  `cwd` is last, so the link is promoted into the query only when `template` and `data` are
-  written; the guide's argument-order pitfall. An unused `data` is written empty (the trailing `-`
-  above) to keep the promotion.
+  (`-R-cwd/templates/-/ns-template/render-~X~-R/./issues.md~E--strict`) or passes it
+  (`-R/templates/issues.md/-/ns-template/render---strict-templates`); both validate.
+  `cwd` is last, so the link is promoted into the query only when every earlier argument is
+  written; the guide's argument-order pitfall. An unused `data` is written empty to keep it.
 - **The result** is text. Its media type follows the asset's filename, `text/plain` when there is
   none. HTML escaping is on when that media type is `text/html`.
 - **`validate`** checks a literal partial key's syntax, not its existence (AC-9). The `apply`
@@ -289,3 +312,8 @@ six paths in the table.
 - **13 [decided 2026-10-17]** Relative partial keys resolve against a cwd passed as an argument.
 - **14 [decided 2026-10-17]** `cwd` defaults to the link `-R-key/.` and is the last argument. The
   earlier claim that a link needed a new command was wrong: `-R-key/.` is the documented pattern.
+- **15 [proposed]** What may appear inside `[…]`? *Recommended:* a name resolved from the top of
+  the context stack, an integer (negative from the end) or a quoted string; not a query, which a
+  later `[$ q]` could add.
+- **16 [proposed]** Which mode is the default? *Recommended:* `strict`, so a broken template is
+  noticed; `errors` sits before `cwd`, so a caller choosing a mode keeps `cwd` promoted.
