@@ -354,8 +354,10 @@ deliberately folded behind a broader line.
 - design `js-store-effective-media-type`
 - design `json-orient-index-column-collision`
 - design `json-table-column-order`
+- design `language-guide-web-claims`
 - design `lib-integration-test-feature-gates`
 - design `lib-polars-ethnum-rust-1-98`
+- design `liquers-web-records-bridge`
 - design `listdir-keys-deep-child-check`
 - design `manifest-chunk-error-identity`
 - design `manifest-over-stored-csv-test`
@@ -409,8 +411,13 @@ deliberately folded behind a broader line.
 - design `ui-query-console-error-highlight`
 - design `value-type-system`
 - design `variadic-metadata-tail-check`
+- design `web-docs-stale-limitations`
+- design `web-environ-validation-report`
 - design `web-liquers-error-constructor`
 - design `web-object06-error-type-exhaustiveness`
+- design `web-outbound-int64-precision`
+- design `web-records-single-cell-scalar`
+- design `web-store-conformance-tests`
 - design `web-value04-bytes-identifier`
 - feature `AGENT-MEMORY-SERVICE`
 - feature `ASSET-MANAGER-CANNOT-BE-SYNCHRONIZED-WITH-THE-STORE`
