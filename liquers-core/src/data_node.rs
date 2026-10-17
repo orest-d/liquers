@@ -137,6 +137,7 @@ impl<'a, T: Stream<Item = Result<AnyNode, Error>> + MaybeSend> NodeStream<'a> fo
 /// Every method has the answer for the kind it does not apply to: `scalar` is `None` for a list, a
 /// map or an opaque node, `get` is `None` for anything but a map, `items` is empty for anything but
 /// a list.
+#[allow(clippy::len_without_is_empty)] // `len` is `None` for a node that is not a list
 pub trait DataNode: MaybeSend + MaybeSync {
     /// What the node is.
     fn kind(&self) -> NodeKind;
@@ -211,6 +212,7 @@ impl std::fmt::Debug for NodeRef<'_> {
 /// Asynchronous access to data read on demand.
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[allow(clippy::len_without_is_empty)]
 pub trait AsyncDataNode: MaybeSend + MaybeSync {
     /// What the node is; known without I/O.
     fn kind(&self) -> NodeKind;
