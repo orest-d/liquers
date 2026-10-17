@@ -3760,6 +3760,14 @@ impl<E: Environment> AssetRef<E> {
                         let envref = self.get_envref().await;
                         let manager = envref.get_asset_manager();
                         let state = manager.wait_for_dependency(self, &asset).await?;
+                        if state.metadata.is_volatile() {
+                            // The owner turned volatile during its run: so is its value, here too.
+                            self.set_volatile_during_run(&format!(
+                                "the owner of key {} is volatile",
+                                key
+                            ))
+                            .await?;
+                        }
                         return Ok(RecipeEvaluation {
                             value: state.data_unchecked().clone(),
                             // A hand-off transfers the value, not the owner's metadata record —
@@ -4472,14 +4480,28 @@ impl<E: Environment> AssetRef<E> {
     /// Idempotent: only the first call logs `reason`. A no-op on an asset that is no longer in
     /// flight, whose status is already final.
     pub(crate) async fn set_volatile_during_run(&self, reason: &str) -> Result<(), Error> {
-        let mut lock = self.data.write().await;
-        if lock.is_volatile || !is_in_flight(lock.status) {
-            return Ok(());
+        // Read before the flag flips: a volatile asset is never a bound owner.
+        let owner_key = self.bound_owner_key().await?;
+        {
+            let mut lock = self.data.write().await;
+            if lock.is_volatile || !is_in_flight(lock.status) {
+                return Ok(());
+            }
+            lock.is_volatile = true;
+            lock.metadata.set_volatile()?;
+            lock.metadata
+                .add_log_entry(LogEntry::info(format!("Volatile: {}", reason)))?;
         }
-        lock.is_volatile = true;
-        lock.metadata.set_volatile()?;
-        lock.metadata
-            .add_log_entry(LogEntry::info(format!("Volatile: {}", reason)))?;
+        if let Some(key) = owner_key {
+            // While it was the key's owner, its context registered schedule-time edges under the
+            // key. A volatile asset is not a graph node, so they go.
+            self.get_envref()
+                .await
+                .get_asset_manager()
+                .dependency_manager()
+                .remove_dependent_edges(&DependencyKey::from(&key))
+                .await;
+        }
         Ok(())
     }
 

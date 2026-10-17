@@ -367,6 +367,11 @@ Built as approved in Phase 2 (revised), with two additions found by the tests:
    `AssetInfo::payload_required` and `PAYLOAD_GUIDE.md` say so. Reuse is unchanged (such an asset
    was already ad hoc and in no map); only the reported status and flag differ.
 
+Review (Codex, PR #142) found two more paths, both fixed: a keyed owner that turns volatile
+during its run now drops the schedule-time edges it registered as a dependent
+(`DependencyManager::remove_dependent_edges`, called from `AssetRef::set_volatile_during_run`),
+and a delegating asset whose owner finished volatile is marked volatile too.
+
 The free function `interpreter::evaluate` also calls `check_resolved_volatility`, a one-line
 change Phase 2 had judged unnecessary (it would have missed a dependency waited with
 `AssetRef::get`).
