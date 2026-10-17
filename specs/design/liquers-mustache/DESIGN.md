@@ -61,4 +61,6 @@ interface, `DataNode` / `AsyncDataNode`, was added (AC-15, open question 10). It
 `liquers-template` and the namespace is `template`, so other template syntaxes can be added beside
 Mustache. The design folder keeps its slug. Highlighting (AC-10) was withdrawn and filed with its
 design as `TEMPLATE-HAS-NO-HIGHLIGHTER`. Open questions 12 and 13 were accepted. The command takes a
-`cwd` argument, and the AST is specified in Phase 2 on the model of `Query`.
+`cwd` argument, and the AST is specified in Phase 2 on the model of `Query`. The same day the `cwd`
+argument was aligned with the command registration guide: a default link `-R-key/.`, last in the
+signature (open question 14).

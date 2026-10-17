@@ -217,7 +217,7 @@ without reading it. A file child is read on demand through `get_dependency_state
 | Non-scalar outside a whole P1 slot of the last action | `Error::not_supported(msg).with_position(&pos)` |
 | Partial cycle or depth exceeded | `Error::execution_error(msg).with_position(&pos)` |
 | Async-only node given to a sync consumer | `Error::not_supported(msg)` |
-| `cwd` not a key | `Error::key_parse_error(text, err, &pos)` from `parse_key` |
+| `cwd` link does not yield a key | Conversion error from `TryFrom<Value> for Key`, raised before the command runs |
 | Query evaluation failure | Propagated; `with_position(&tag_pos)` only when its own position is unknown |
 
 There is no `unwrap` or `expect` in library code, and every match on the new enums is exhaustive.
@@ -228,7 +228,7 @@ The namespace is **`template`** (decided 2026-10-17). It interacts with `rec` an
 as data) and `pl` (frames as data).
 
 ```rust
-register_command!(cr, async fn render(state, template: String = "", data: Value = "", cwd: String = "", context) -> result
+register_command!(cr, async fn render(state, template: String = "", data: Value = "", cwd: Key = query "-R-key/.", context) -> result
     namespace: "template" label: "Render template"
     doc: "Render a template with query tags; the state is the root context, or the template when `template` is empty")?;
 register_command!(cr, async fn validate(state, template: String = "", context) -> result
@@ -240,10 +240,15 @@ register_command!(cr, async fn validate(state, template: String = "", context) -
 - **`data`** (`ArgumentType::Any`) holds named data above the state, such as `{"area": …}` as a
   recipe argument. This is how AC-8's named arguments arrive. Empty text means no data.
 - **`cwd`** is a key. Relative partial keys and relative keys in query tags resolve against it.
-  Empty means the folder of the template's key, when the template is the state and its metadata
-  has a key, and otherwise the command's context cwd. A **default link** (`cwd: String = query
-  "…"`) is the alternative the maintainer suggested; it needs a command that returns the template's
-  folder, and none exists (open question 14).
+  It follows `specs/guides/COMMAND_REGISTRATION_GUIDE.md`, "Passing the working directory": a
+  default link `-R-key/.`, which yields the working directory, so the folder is explicit,
+  overridable and part of what names the result (open question 14). There is no hidden fallback to
+  the template's own folder. A caller who wants it sets the working directory
+  (`-R-cwd/templates/-/ns-template/render-~X~-R/./issues.md~E-`) or passes it
+  (`-R/templates/issues.md/-/ns-template/render---templates`); both validate.
+  `cwd` is last, so the link is promoted into the query only when `template` and `data` are
+  written; the guide's argument-order pitfall. An unused `data` is written empty (the trailing `-`
+  above) to keep the promotion.
 - **The result** is text. Its media type follows the asset's filename, `text/plain` when there is
   none. HTML escaping is on when that media type is `text/html`.
 - **`validate`** checks a literal partial key's syntax, not its existence (AC-9). The `apply`
@@ -282,6 +287,5 @@ six paths in the table.
 
 - **12 [decided 2026-10-17]** `apply_ad_hoc` propagates the ad-hoc asset's dependencies.
 - **13 [decided 2026-10-17]** Relative partial keys resolve against a cwd passed as an argument.
-- **14 [proposed]** What should the `cwd` default be? *Recommended:* empty, resolved as above. A
-  default link would need a new core command that returns the folder of the template's key, and a
-  template given as a link has no key to return, so the link would not cover that case.
+- **14 [decided 2026-10-17]** `cwd` defaults to the link `-R-key/.` and is the last argument. The
+  earlier claim that a link needed a new command was wrong: `-R-key/.` is the documented pattern.

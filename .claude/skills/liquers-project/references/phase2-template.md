@@ -28,7 +28,9 @@ category that does not apply.>
 <Failure cases and the `Error` constructor each uses (no `Error::new`).>
 
 ## Relevant Commands
-<New commands with signatures; existing namespaces this interacts with (e.g. `pl`, `lui`).>
+<New commands with signatures; existing namespaces this interacts with (e.g. `pl`, `lui`). Write
+signatures after reading `specs/guides/COMMAND_REGISTRATION_GUIDE.md`: an argument that depends on
+location (the working directory, a sibling file) is a default link such as `query "-R-key/."`.>
 
 ## Documentation Architecture
 <For each document to create or update: exact path, kind, audience, area, and the change. The

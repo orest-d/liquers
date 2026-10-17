@@ -325,10 +325,14 @@ is broken.
 The `register_command!` macro is a **function-like macro** (not an attribute macro) with a custom DSL.
 The actual function must be defined SEPARATELY, then registered via the macro.
 
-**See `specs/guides/COMMAND_REGISTRATION_GUIDE.md` for comprehensive guidelines** covering:
-- Using the `register_command!` macro (recommended)
-- Manual registration (fine-grained control)
+**Read `specs/guides/COMMAND_REGISTRATION_GUIDE.md` whenever you create, change or design a
+command** — in code, in a design document's signatures, or in a review. The summary below is not a
+substitute: the guide holds the patterns a signature has to follow, among them:
+- Using the `register_command!` macro (recommended), and manual registration (fine-grained control)
 - Generic Environment commands (library reusability)
+- Passing the working directory or any relative query in as a default link argument
+  (`dir: Key = query "-R-key/."`) — a command cannot read the cwd from its `Context`
+- Waiting for dependencies from inside a command (`context.wait_for_dependency`)
 - Best practices and examples
 
 For macro syntax details, see `specs/reference/REGISTER_COMMAND_FSD.md`.
