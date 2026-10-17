@@ -30,8 +30,8 @@ the `from_dir_key` spelling. `From<&Key> for DependencyKey` has the same shape f
 ## Impact
 
 Small: only listings of the store root. Found through `ns-search/catalog` with no input, which
-lists the whole store; `design/search-read-dependencies` works around it by forwarding the listing
-asset's own records. Any other dependent of the query `-R-dir` stays stale after a root-level write.
+lists the whole store; `design/search-read-dependencies` is not affected, since
+`Context::record_listing` records the `from_dir_key` spelling directly. Any other dependent of the query `-R-dir` stays stale after a root-level write.
 
 ## Expected behaviour
 
