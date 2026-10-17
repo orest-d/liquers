@@ -19,9 +19,9 @@ that `check` finds for you.
 | The schema: `_schema/memory.yaml` and its vocabulary files | **yes** | the memory root | edited by hand per release notes (§3.3) |
 | The write log `_log/YYYY-MM.md` | **yes**, append-only | the memory root | never rewritten; old lines stay as written |
 | The profile (`liquers-agent` configuration) | **yes** | the deployment | edited per release notes, like any configuration |
-| Metadata records (title, description, media type, versions) | no | derived on every read (`storage: none`) | nothing to do |
+| Metadata records (title, description, media type, versions) | no | derived on every read on mounts with `storage: none`; on the other mounts kept as sidecars | nothing to do, or delete the sidecars (§3.1) |
 | `.__metadata__` sidecars, only on a mount that stores metadata | no — a cache | beside the files | delete them; they are re-derived (§3.1) |
-| `ns-mem` results (listings, searches, reads, check reports) | no | never written to a store: volatile, or (for `read`) cached in the running process only | nothing to do |
+| `ns-mem` results (listings, searches, reads, check reports) | no | never written to a store; volatile, or (for `read`) at most held in the running process | nothing to do |
 | Assets with recipes | no | stored results of recipe keys | drop the computed results; they recompute on demand (§3.2) |
 | Versions (`expected_version`) | no | content hashes, held by an agent within a session | nothing to do: the same bytes give the same version after a move |
 
@@ -45,8 +45,8 @@ Anyone extending the memory follows these, so the table above stays true:
 
 Before any of them: commit or back up the memory, and run `liquers-agent check` so you start clean.
 
-1. **Liquers changes its metadata format.** Nothing, on mounts with `storage: none` (all mounts of
-   both shipped profiles). On a mount that stores metadata, delete its `.__metadata__` sidecars;
+1. **Liquers changes its metadata format.** Nothing, on mounts with `storage: none` (the writable
+   mounts of both shipped profiles). On a mount that stores metadata, delete its `.__metadata__` sidecars;
    the next read re-derives them from the front-matter.
 2. **Assets with recipes.** Recomputing is safe, so drop their stored results:
    `AssetManager::remove` on a key with a recipe and a computed status (`Ready`, `Expired`,
@@ -55,7 +55,7 @@ Before any of them: commit or back up the memory, and run `liquers-agent check` 
    value someone wrote, and the key falls back to its recipe.
 3. **The schema format changes** (`memory.yaml` `version` goes up). Edit `memory.yaml` as the
    release notes say, then set its `version`. Until you do, the service keeps reading the old one
-   if it still supports it, or refuses to start, naming the versions.
+   if it still supports it; otherwise every tool call fails, naming both versions.
 4. **The memory's content rules change** (a renamed field, a renamed status, a new required field,
    a vocabulary change). Change `memory.yaml`, run `liquers-agent check`, and fix each violation:
    with `memory_edit` (`field`/`value`) one document at a time, or with a script over

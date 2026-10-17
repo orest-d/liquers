@@ -21,7 +21,7 @@ superseded_by:
 - [x] Phase 1: High-Level Design — **approved 2026-10-17** (revision 4, after the split)
 - [x] Phase 2: Solution & Architecture — **approved 2026-10-17** (decision 1 revised; decisions 2–9 settled at the gate)
 - [x] Phase 3: Examples & Testing — **approved 2026-10-17** (with the migration guide draft)
-- [ ] Phase 4: Implementation Plan — written 2026-10-17, in review
+- [ ] Phase 4: Implementation Plan — written and reviewed 2026-10-17, awaiting approval
 - [ ] Phase 5: Documentation
 - [ ] Implementation Complete
 
@@ -264,6 +264,19 @@ parseable, and the `query` tool's format follows the filename. AC-20 runs in-pro
 `Source` assets with no stored metadata, `ns-mem` results are never stored and recipe results are
 recomputed, so an upgrade migrates nothing by itself; schema changes are found by `check`.
 `memory.yaml` gains `version` (Phase 2 change 10); three tests added to Phase 3.
+
+## Phase 4 — 2026-10-17
+
+Written, then reviewed together with a consistency pass over all phases. Three blocking findings
+were fixed: `liquers-lib`'s `Value` had no conversion to `Key`, which every `root` argument needs
+(added in Step 1); the no-op `register_mem_commands!` stand-in moved to `commands.rs`; the
+paragraph helpers that `markdown_tiers` shares moved to `search/md_split.rs`, so `records` builds
+do not depend on `mem`. Also fixed: the registry is regenerated in every step that registers
+commands; two `check` rules promised by Phase 2 (`log_behind`, `supersede_reciprocal`) got tests;
+the stdio test got its fixture and the `transport-child-process` dev feature; the commands'
+`filename:` is shown in Phase 2. Phase 1 became revision 5, aligned with Phase 2's changes, with a
+Design Readiness section; the migration guide's claims about `storage: none` and start-up were
+corrected.
 
 ## Links
 

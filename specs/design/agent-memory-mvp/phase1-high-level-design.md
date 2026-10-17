@@ -2,9 +2,12 @@
 
 ## Feature Name
 
-Agent memory service (MVP), revision 4 (2026-10-17: reconciled with the merged `store-adapters` and
-the approved Phases 1–2 of `liquers-mustache`, then split: templates, indexes and context packs
-moved to [`agent-memory-derived`](../agent-memory-derived/); earlier revisions in `DESIGN.md`).
+Agent memory service (MVP), revision 5 (2026-10-17). Revision 4 reconciled it with the merged
+`store-adapters` and the approved Phases 1–2 of `liquers-mustache`, then split it: templates, indexes
+and context packs moved to [`agent-memory-derived`](../agent-memory-derived/). Revision 5 aligns the
+text with the decisions approved in Phase 2 (its changes 1–10): L0/L1 through a configurable bridge,
+Liquers-style commands, `memory_query`, serialized results, the migration guide. Earlier revisions
+are in `DESIGN.md`.
 Companion analyses: [survey](./memory-systems-survey.md) ·
 [specification](./service-specification.md) · [workflow porting](./workflow-porting.md) ·
 [tiers and storage](./tiers-and-storage.md) · [interfaces and MCP](./interfaces-and-mcp.md) ·
@@ -50,13 +53,14 @@ service only, except `archive`, which is mounted read-only; agent notes live in 
 
 - **AC-1** Tiered listing
   WHEN an agent calls `memory_list` on `specs/issues`
-  THEN every entry carries `key`, `title` and `description` — from front-matter, or from the
-  collection's declared fallback where front-matter has none — and no document body is returned
+  THEN every entry carries `key`, `l0` and `l1` — by default the front-matter's `title` and
+  `description`, or the declared fallback where front-matter has none (Phase 2 change 8) — and no
+  document body is returned
 - **AC-2** Ranked, honest search
   WHEN an agent calls `memory_search` with `text: expiration`, `filter: -status:closed*`,
   `path: specs/issues`, `limit: 5`
   THEN at most five hits return in descending `score`, none with a `closed*` status, each with
-  `key`, `title`, `description`, `excerpt` and `matched`, plus `shown` ≤ `total`
+  `key`, `l0`, `l1`, `excerpt` and `matched`, plus `shown` ≤ `total` (as a note beside the table)
 - **AC-3** Section read
   WHEN an agent calls `memory_read` with a key and `section: Problem`
   THEN only that section's text is returned, with the document's `version`
@@ -97,8 +101,8 @@ service only, except `archive`, which is mounted read-only; agent notes live in 
   THEN the reads create no sidecar files and the write is refused
 - **AC-14** MCP discovery and use
   WHEN an MCP client starts `liquers-agent mcp` over stdio and lists tools
-  THEN the `memory_` tools of `interfaces-and-mcp.md` §4.1 except `memory_context` are offered with argument schemas
-  as tabulated there, and a `memory_search` call returns structured hits
+  THEN the nine basic `memory_` tools of Phase 2's tool table and `memory_query` are offered with
+  argument schemas as tabulated there, and a `memory_search` call returns its hits as a table
 - **AC-15** Orientation
   WHEN an agent calls `memory_overview`, then `memory_describe` for `issues`
   THEN it receives the memory's L0/L1, its collections with counts and the latest log lines; then
@@ -136,13 +140,14 @@ MCP (only kept combinable, `interfaces-and-mcp.md` §6); git commits by the serv
 ## Core Interactions
 
 - **Query:** no grammar change.
-- **Store:** no new store code. Mounts use what `store-adapters` shipped: `read_only: true`
+- **Store:** no new store adapter; one new read handler, `markdown_tiers` (Phase 2 change 4). Mounts use what `store-adapters` shipped: `read_only: true`
   (AC-13), and a `metadata` section whose read and write chains include `-store_config-front_matter`
   and `-store_config-front_matter_sync` (AC-11; `liquers-lib`, feature `records`). Write-back
   happens in `set_metadata` only; in `set` the written bytes are the truth, which suits writes that
   carry a whole document.
-- **Commands:** new `ns-mem` (`describe`, `similar`, `new`, `write`, `edit`, `set_field`,
-  `append_row`, `check`, `section`), built on `ns-search`. Commands are named by `CommandKey` Display; a command that resolves relative keys takes `cwd` as
+- **Commands:** new `ns-mem` (`overview`, `describe`, `list`, `search`, `read`, `similar`, `new`,
+  `write`, `edit`, `check`), built on `ns-search`; field setting, row appending and section reads are
+  arguments of `edit` and `read` (Phase 2 changes 1–2). Commands are named by `CommandKey` Display; a command that resolves relative keys takes `cwd` as
   an explicit default-link argument, never from `Context` (`COMMAND_REGISTRATION_GUIDE.md`).
 - **Configuration:** the existing store-router configuration with its `metadata` sections,
   extended with collections, tiers, views and tool sets.
@@ -156,17 +161,32 @@ MCP (only kept combinable, `interfaces-and-mcp.md` §6); git commits by the serv
 beside `ns-search`. New `liquers-mcp` (depends on `liquers-core`): the MCP engine. New
 `liquers-agent` (named 2026-10-15, replacing the working name `liquers-mem`; named for its
 audience so it can later carry the workbench tool sets of `AGENT-WORKBENCH-SURFACE` without a
-rename): the binary, over `liquers-lib`, `liquers-axum` and `liquers-mcp`.
+rename): the binary, over `liquers-lib`, `liquers-store` and `liquers-mcp` (`liquers-axum` arrives with
+`serve`, which is NEXT; Phase 2 change 6).
 
 ## Documentation Intent
 
 - Reference: new `specs/reference/AGENT_MEMORY_SERVICE.md` — layout, document and schema format,
   tiers, tools and CLI. No existing reference owns it.
-- Guide: new skill `.claude/skills/liquers-memory/` for agents using the service.
+- Guide: new skill `.claude/skills/liquers-memory/` for agents using the service; new
+  `specs/guides/AGENT_MEMORY_MIGRATION_GUIDE.md` (Phase 2 change 10).
 - Other documents: none.
 - Documents to update: `CLAUDE.md` project structure and dependency flow (two crates);
   `DOCS_STRUCTURE_GUIDE.md` §3 (an `area` for MCP) and §4.8 (the fast path becomes the tool);
+  `STORE_CONFIG_GUIDE.md`, `COMMAND_REGISTRATION_GUIDE.md`, `PROJECT_OVERVIEW.md` (Phase 2);
   `specs/README.md` capability map.
+
+## Design Readiness
+
+Consistency pass before the Phase 4 gate, 2026-10-17. **Blocking: none. Needs decision: none.**
+Open risks, each with its test and fallback:
+- `s3s-fs` as the in-process S3 endpoint for AC-20 is unchecked against OpenDAL's client
+  (`s3_mount_round_trip`; fallback: `#[ignore]` behind `LIQUERS_TEST_S3_ENDPOINT`, recorded as a
+  deviation).
+- `check` parity with `docs_index.py` depends on mapping its messages to rules
+  (`check_matches_docs_index_oracle`).
+- Listing cost of `storage: none` with `front_matter` over 334 issues (`storage_none_listing_cost`).
+- `read`'s version must equal `commit`'s (`read_version_matches_commit_version`).
 
 ## Design Dependencies
 
@@ -218,7 +238,8 @@ Answered by the user on 2026-10-12; the answers are decisions of this phase.
 9. **Schemas** are a small YAML format of our own; the tool converts between formats (YAML, JSON,
    TOML, JSON Schema for MCP) itself.
 10. **Indexes are recipes over separate, simple commands** — moved to `agent-memory-derived`.
-11. **Ten tools**, `memory_forget` later. Nine here; `memory_context` moved to `agent-memory-derived`.
+11. **Ten tools**, `memory_forget` later. Here: nine basic tools plus `memory_query` (Phase 2 change
+    7); `memory_context` moved to `agent-memory-derived`.
 12. **Split into two designs** (decided 2026-10-17). This design keeps the memory core, the MCP
     server, tiers and profiles (execution plan memory A, B, C), whose inputs are on `main`.
     [`agent-memory-derived`](../agent-memory-derived/) takes templates in `memory_new`, indexes and

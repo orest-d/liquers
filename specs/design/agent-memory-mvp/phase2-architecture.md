@@ -23,7 +23,8 @@ once, in Liquers style, and served through two interfaces.**
   or the memory itself from `-R-key/<path>`, which evaluates to the key as a `Value::Key`. So
   `-R/specs/issues/X.md/-/ns-mem/read-l1` is an ordinary query, and the `ns-mem`
   commands sit beside `ns-search` and `ns-rec` in queries an agent writes itself.
-- **Basic tools** are standard MCP tools, one per command, for any agent. Their schemas are
+- **Basic tools** are standard MCP tools, one per command except `similar` (which `new` runs
+  itself, and which `memory_query` reaches), for any agent. Their schemas are
   generated: the command's arguments as in any tool, plus one **key argument** that stands for
   the state. The engine fills it into the tool query's resource segment structurally, never by
   editing query text (§`liquers-mcp`).
@@ -477,7 +478,8 @@ Every command:
     and `description` (filled by `front_matter` and `markdown_tiers`). A state without a key is
     accepted, and `read` then reports no `key` and no `version`;
   - **key state** (all others): a `Value::Key` from `-R-key/<path>`, converted with
-    `TryFrom<Value> for Key`, as link arguments are. Any other value is refused with
+    `TryFrom<Value> for Key`, as link arguments are (added for `liquers-lib`'s `Value` by this
+    design; core has it only for its own). Any other value is refused with
     `Error::general_error`. A key state avoids evaluating a folder
     (`DIRECTORY-KEY-CANNOT-BE-EVALUATED-AS-A-RESOURCE`) and, for writes, a document that is
     about to be replaced;
@@ -498,29 +500,29 @@ through `Recipe::cwd` and never exposes `root`.
 
 ```rust
 register_command!(cr, async fn overview(state, log_lines: i64 = 10, root: Key = query "-R-key/.", context) -> result
-    namespace: "mem" volatile: true doc: "The memory's README tiers, its collections with counts, and the latest log lines")?;
+    namespace: "mem" filename: "overview.md" volatile: true doc: "The memory's README tiers, its collections with counts, and the latest log lines")?;
 register_command!(cr, async fn describe(state, collection: String = "", root: Key = query "-R-key/.", context) -> result
-    namespace: "mem" volatile: true doc: "Collections, fields, vocabularies, templates; which are writable")?;
+    namespace: "mem" filename: "describe.md" volatile: true doc: "Collections, fields, vocabularies, templates; which are writable")?;
 register_command!(cr, async fn list(state, depth: i64 = 1, include_superseded: bool = false,
-    limit: i64 = 100, root: Key = query "-R-key/.", context) -> result namespace: "mem" volatile: true)?;
+    limit: i64 = 100, root: Key = query "-R-key/.", context) -> result namespace: "mem" filename: "list.md" volatile: true)?;
 register_command!(cr, async fn search(state, text: String = "",
     unit: String = "document" (enum: ["document", "section"]), filter: String = "", limit: i64 = 10,
-    include_superseded: bool = false, root: Key = query "-R-key/.", context) -> result namespace: "mem" volatile: true)?;
+    include_superseded: bool = false, root: Key = query "-R-key/.", context) -> result namespace: "mem" filename: "search.md" volatile: true)?;
 register_command!(cr, async fn read(state, tier: String = "full" (enum: ["l0", "l1", "full"]),
-    section: String = "", lines: String = "", context) -> result namespace: "mem")?;
+    section: String = "", lines: String = "", context) -> result namespace: "mem" filename: "read.md")?;
 register_command!(cr, async fn similar(state, collection: String, title: String, description: String = "",
-    limit: i64 = 5, root: Key = query "-R-key/.", context) -> result namespace: "mem" volatile: true)?;
+    limit: i64 = 5, root: Key = query "-R-key/.", context) -> result namespace: "mem" filename: "similar.md" volatile: true)?;
 register_command!(cr, async fn new(state, collection: String, title: String, description: String, fields: Value = "",
     body: String = "", force: bool = false, reason: String = "", root: Key = query "-R-key/.", context) -> result
-    namespace: "mem" volatile: true)?;
+    namespace: "mem" filename: "new.json" volatile: true)?;
 register_command!(cr, async fn write(state, body: String = "", title: String = "", description: String = "",
     fields: Value = "", expected_version: String = "", supersedes: String = "", reason: String = "",
-    root: Key = query "-R-key/.", context) -> result namespace: "mem" volatile: true)?;
+    root: Key = query "-R-key/.", context) -> result namespace: "mem" filename: "write.json" volatile: true)?;
 register_command!(cr, async fn edit(state, old: String = "", new: String = "", field: String = "",
     value: String = "", section: String = "", row: String = "", expected_version: String = "", reason: String = "",
-    root: Key = query "-R-key/.", context) -> result namespace: "mem" volatile: true)?;
+    root: Key = query "-R-key/.", context) -> result namespace: "mem" filename: "edit.json" volatile: true)?;
 register_command!(cr, async fn check(state, root: Key = query "-R-key/.", context) -> result
-    namespace: "mem" volatile: true)?;
+    namespace: "mem" filename: "check.md" volatile: true)?;
 ```
 
 The state is what the command acts on: the memory's root for `overview`, `describe`, `similar`
@@ -552,6 +554,7 @@ override).
 | `write` | `key` → `-R-key/<key>` | `-mem-write` | JSON `{key, version_before, version_after}` (`write.json`) | AC-5 to AC-8 |
 | `edit` | `key` → `-R-key/<key>` | `-mem-edit` | as `write` (`edit.json`) | AC-6, AC-7, AC-16 |
 | `check` | `path` (optional) → `-R-key/<path>` | `-mem-check` | record view `rule, key, severity, message` (`check.md`); notes counts, `unsupported` | AC-9 |
+| `query` | — (any query) | allow-listed commands | the query's value, in the format its filename (or the value's default) selects | power layer |
 
 Markdown is the default because agents read it with the least overhead: a record view's `md`
 format is a pipe table, and documents are Markdown already. A power user asks for another format
@@ -559,7 +562,6 @@ with the query's filename (`…/ns-mem/list/list.csv`, `…/list.json`), or pipe
 (`…/ns-mem/list/ns-rec/sort-l0/sorted.md`). Each tool's query ends with its default filename, and
 every basic tool also takes an optional `format` argument that the engine applies by changing that
 filename's extension in the parsed query.
-| `query` | — (any query) | allow-listed commands | the query's value, in the format its filename (or the value's default) selects | power layer |
 
 How each acceptance scenario is met:
 
@@ -586,8 +588,9 @@ How each acceptance scenario is met:
   Validation refuses a value outside `enum` or `enum_from`, and a missing `title` or
   `description`.
 - **AC-6, AC-7.** The precondition is `commit` step 2. The stamps and the log line are steps 4 and 6.
-- **AC-8 (supersession).** `write` with `supersedes` makes two commits: the new memory first, then
-  `set_field superseded_by` on the old one, and logs both. `list` and `search` hide a memory with a
+- **AC-8 (supersession).** `write` with `supersedes` makes two commits: the new memory first, with
+  `supersedes: <old key>` in its front-matter, then `superseded_by` set on the old one, and logs
+  both. `check`'s `supersede_reciprocal` rule reports a partial supersede. `list` and `search` hide a memory with a
   non-empty `superseded_by` unless `include_superseded` is set.
 - **AC-11 (projection).** This is configuration only.
   - `on_read` includes `front_matter`; `on_write` includes `front_matter` and `front_matter_sync`

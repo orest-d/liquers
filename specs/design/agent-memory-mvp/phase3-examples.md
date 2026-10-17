@@ -88,7 +88,10 @@ need `rmcp` with `client` and `transport-async-rw` as dev-dependency features.
   line are identical; `set_list_field_writes_flow_list` (AC-16).
 - `src/mem/tiers.rs` — `default_tiers_read_title_and_description` (AC-1);
   `first_nonempty_source_wins` (AC-17); `section_source_takes_first_paragraph` (AC-17).
-- `src/mem/layout.rs` — `field_default_fills_status_draft` (AC-4).
+- `src/mem/layout.rs` — `field_default_fills_status_draft` (AC-4);
+  `schema_version_newer_than_supported_is_refused` (AC-15).
+- `src/mem/check.rs` — one test per rule (AC-9), among them `check_warns_on_memory_newer_than_its_log`
+  (AC-7) and `check_reports_partial_supersede` (AC-8).
 - `src/mem/write.rs` — `edit_applies_every_pair_once` (AC-16, AC-7): one version check, one
   write, one log line; `half_given_pair_is_refused` (AC-16); `failed_replace_writes_nothing`
   (AC-16); `log_failure_keeps_the_write` (AC-7); `malformed_expected_version_is_a_parse_error`

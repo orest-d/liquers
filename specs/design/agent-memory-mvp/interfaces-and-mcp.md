@@ -102,6 +102,8 @@ Design rules for the tool set, from the survey and
 - **No raw query tool in the memory MCP's MVP.** A `memory_query` that evaluates an arbitrary Liquers
   query is the escape hatch an expert agent wants, and the injection surface a cautious deployment
   does not. It belongs to the general MCP (§6), behind `COMMAND-CANNOT-BE-RUN-WITH-A-RESTRICTED-CONTEXT`.
+  *Superseded 2026-10-17 (Phase 2 decision 1): the MVP has a read-only `memory_query`, limited by an
+  allow-list checked on the whole plan, as the stand-in for `CORE-SESSION-AND-KEY-ACL`.*
 
 ### 4.2 Resources
 

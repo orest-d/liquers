@@ -9,7 +9,8 @@ build matrix (13). Each step lands as its own commit on this branch with its pro
 
 No prerequisite issue must be fixed first (Phase 2 preflight). `liquers-template` (PR #139) is not
 needed: `memory_new` copies a template as it is. Disk: the session allowance is 30 GB, so the build
-matrix runs one row at a time, deleting `target/` when space is low (`BUILD-MATRIX-EXHAUSTS-SESSION-DISK`).
+matrix runs one row at a time, deleting `target/` when space is low (`BUILD-MATRIX-EXHAUSTS-SESSION-DISK`,
+filed with `liquers-mustache`, PR #139).
 Signatures re-opened at HEAD 2026-10-17: `register_lib_store_config` (`liquers-lib/src/store_config.rs`),
 `register_all_commands!` (`liquers-lib/src/commands.rs`), `Group` (`liquers-lib/src/bin/export_command_registry.rs`),
 `AssetManager::set_binary` and `listdir_asset_info` (`liquers-core/src/assets.rs`), `Context::info`
@@ -37,38 +38,48 @@ Signatures re-opened at HEAD 2026-10-17: `register_lib_store_config` (`liquers-l
 
 ### Step 1: `mem` feature, module skeleton and registry group
 - Files / symbols: `liquers-lib/Cargo.toml` (feature `mem = ["records", "dep:indexmap"]` in `default`,
-  optional `indexmap` 2 with `serde`); `liquers-lib/src/mem/mod.rs` (`register_mem_commands!` and a
-  no-op stand-in under `not(feature = "mem")`); `liquers-lib/src/lib.rs`; `register_all_commands!`;
+  optional `indexmap` 2 with `serde`); `liquers-lib/src/mem/mod.rs` (`register_mem_commands!`); the
+  no-op stand-in under `not(feature = "mem")` in `liquers-lib/src/commands.rs`, beside the existing
+  stand-ins (a `#[macro_export]` inside a gated module disappears with it); `liquers-lib/src/lib.rs`;
+  `register_all_commands!`;
   `Group::Mem` in the exporter; `liquers-lib/tests/registry_export.rs` gate and `full_registry()`.
 - Depends on: none.
-- Proof: `cargo check -p liquers-lib` and `cargo check -p liquers-lib --no-default-features`.
+- Also: `impl TryFrom<CombinedValue<B, E>> for Key` in `liquers-lib/src/value/extended.rs`, beside the
+  `String` conversion. No `liquers-lib` command takes a `Key` argument today, and every `ns-mem`
+  command's `root: Key = query "-R-key/."` needs it (core has it only for its own `Value`).
+- Proof: `cargo check -p liquers-lib`, `cargo check -p liquers-lib --no-default-features`, and
+  `cargo test -p liquers-lib --lib -- value::extended::tests::key_from_combined_value`.
 - Rollback: revert the commit; nothing else references `mem` yet.
 
 ### Step 2: schema types
 - Files / symbols: `liquers-lib/src/mem/layout.rs` — `MemoryLayout` (with `version`),
   `CollectionSchema`, `FieldRule`, `IdRule`, `IdSource`, `IdCase`, `FieldEquals`, `FieldType`,
   `TierSources`, `TierSource` (text form `kind:arg`), `MemoryLayout::load(context, root)` reading
-  `<root>/_schema/memory.yaml` through the store, `collection_for(key)` (longest folder prefix).
+  `<root>/_schema/memory.yaml` through the store and refusing a newer `version`,
+  `collection_for(key)` (longest folder prefix).
 - Depends on: Step 1.
-- Proof: `cargo test -p liquers-lib --lib mem::layout` — `field_default_fills_status_draft`; the
-  version check behind `newer_schema_version_is_refused` lands here as a unit test.
+- Proof: `cargo test -p liquers-lib --lib -- mem::layout` — `field_default_fills_status_draft`,
+  `schema_version_newer_than_supported_is_refused`.
 - Rollback: revert; no caller yet.
 
 ### Step 3: front-matter editor
 - Files / symbols: `liquers-lib/src/mem/front_matter.rs` — `FrontMatterDoc::{parse, get, set, body,
   render}`, `compose`, `parse_version`.
 - Depends on: Step 1. Parallel with Step 2.
-- Proof: `cargo test -p liquers-lib --lib mem::front_matter` — `set_field_changes_one_line`,
-  `set_list_field_writes_flow_list`; `malformed_expected_version_is_a_parse_error`.
+- Proof: `cargo test -p liquers-lib --lib -- mem::front_matter` — `set_field_changes_one_line`,
+  `set_list_field_writes_flow_list`.
 - Rollback: revert; no caller yet.
 
 ### Step 4: L0/L1 bridge and `markdown_tiers`
-- Files / symbols: `liquers-lib/src/mem/tiers.rs` — `resolve(sources, record, text) -> (l0, l1)` and
-  the shared `first_heading`, `first_paragraph`, `section_paragraph` (over `search/md_split.rs`
-  `sections`); `liquers-lib/src/store_config.rs` — `markdown_tiers(sections: Vec<String> multiple)`
+- Files / symbols: `liquers-lib/src/search/md_split.rs` — new `first_heading`, `first_paragraph`,
+  `section_paragraph` beside `sections` (feature `records`, so `store_config.rs`, also under
+  `records`, does not depend on `mem`); `liquers-lib/src/mem/tiers.rs` —
+  `resolve(sources, record, text) -> (l0, l1)` over them; `liquers-lib/src/store_config.rs` — `markdown_tiers(sections: Vec<String> multiple)`
   at stages `Default` and `Read`, registered in `register_lib_store_config`.
 - Depends on: Steps 2, 3.
-- Proof: `cargo test -p liquers-lib --lib mem::tiers store_config` — `default_tiers_read_title_and_description`,
+- Proof: `cargo test -p liquers-lib --lib -- mem::tiers` and `cargo test -p liquers-lib --lib -- store_config`;
+  `cargo check -p liquers-lib --no-default-features --features records` —
+  `default_tiers_read_title_and_description`,
   `first_nonempty_source_wins`, `section_source_takes_first_paragraph`,
   `markdown_tiers_fills_only_empty_fields`; `liquers-validate` on the profile's `on_read` spec.
 - Rollback: revert; the handler is only reachable from configuration.
@@ -78,31 +89,39 @@ Signatures re-opened at HEAD 2026-10-17: `register_lib_store_config` (`liquers-l
   `EditOp::{Replace, SetField, AppendRow}`, `WriteOutcome`, `commit`, `append_log`,
   `apply_edits` (fixed order, all-or-nothing), the `history` stamp.
 - Depends on: Steps 2, 3.
-- Proof: `cargo test -p liquers-lib --lib mem::write` — `edit_applies_every_pair_once`,
-  `half_given_pair_is_refused`, `failed_replace_writes_nothing`, `log_failure_keeps_the_write`.
+- Proof: `cargo test -p liquers-lib --lib -- mem::write` — `edit_applies_every_pair_once`,
+  `half_given_pair_is_refused`, `failed_replace_writes_nothing`, `log_failure_keeps_the_write`,
+  `malformed_expected_version_is_a_parse_error`.
 - Rollback: revert; no command uses it yet.
 
 ### Step 6: read commands
 - Files / symbols: `liquers-lib/src/mem/commands.rs` (`overview`, `describe`, `list`, `search`,
   `read`, `similar`, registered per Phase 2 with their `filename:`); `liquers-lib/src/mem/read.rs`
-  (record views built with `liquers_records`, notes through `context.info`); key-state conversion
-  via `TryFrom<Value> for Key`; document state for `read`.
+  (record views built with `liquers_records`, notes through `context.info`); key state through the
+  conversion added in Step 1; document state for `read`; `specs/command_registry.yaml` regenerated
+  (the registry test fails on any commit that registers a default-feature command without it).
 - Depends on: Steps 2, 4.
 - Proof: `cargo test -p liquers-lib --test mem_commands` — `list_entries_carry_l0_l1`,
   `search_ranks_and_filters_before_limit`, `read_section_returns_section_and_version_note`,
   `list_and_search_do_not_evaluate_recipes`, `overview_and_describe_orient`,
   `fallback_tiers_without_front_matter`, `front_matter_projection_follows_external_edit`,
   `read_only_mount_refuses_write_and_leaves_no_sidecar` (read half), `mem_results_are_never_stored`,
-  `newer_schema_version_is_refused`, `recipe_results_drop_back_to_recipe`.
-- Rollback: revert; remove the registrations.
+  `newer_schema_version_is_refused`, `recipe_results_drop_back_to_recipe`;
+  `cargo test -p liquers-lib --test registry_export`.
+- Rollback: revert; remove the registrations and regenerate the registry.
 
 ### Step 7: `check`
 - Files / symbols: `liquers-lib/src/mem/check.rs` — schema rules and the named built-in rules
   (`scenarios`, `readiness`, `compact_form`, `dead_links`, `reviewed`/`history`), the `unsupported`
-  list; `check` command.
+  list, and two service rules: `log_behind` (warning: a memory whose current version is not the
+  `version_after` of its last log line, i.e. changed outside the service or with a lost log line)
+  and `supersede_reciprocal` (error: `supersedes: B` without `superseded_by` on B, a partial
+  supersede); `check` command; registry regenerated.
 - Depends on: Step 6.
-- Proof: unit tests per rule in `check.rs`; the oracle comparison runs in Step 11.
-- Rollback: revert; `check` is independent of the other commands.
+- Proof: `cargo test -p liquers-lib --lib -- mem::check` — one test per rule, among them
+  `check_warns_on_memory_newer_than_its_log` and `check_reports_partial_supersede`;
+  `cargo test -p liquers-lib --test registry_export`. The oracle comparison runs in Step 11.
+- Rollback: revert and regenerate the registry; `check` is independent of the other commands.
 
 ### Step 8: write commands and registry
 - Files / symbols: `new`, `write` (with `supersedes`), `edit` in `commands.rs`;
@@ -120,20 +139,27 @@ Signatures re-opened at HEAD 2026-10-17: `register_lib_store_config` (`liquers-l
 
 ### Step 9: `liquers-mcp` (parallel with Steps 2–8)
 - Files / symbols: new crate `liquers-mcp/` (workspace member and default member; `liquers-core`,
-  `rmcp` 3.5.1 `server` + `transport-io`, dev: `client` + `transport-async-rw`); `src/decl.rs`
+  `rmcp = { version = "=3.5.1", default-features = false, features = ["server", "transport-io"] }`,
+  dev: `client`, `transport-async-rw`); `src/decl.rs`
   (`ToolSetDecl`, `ToolDecl`, `KeyArgumentDecl`, `QueryToolDecl`, `ResourceDecl`); `src/schema.rs`
   (`argument_schema`); `src/server.rs` (`ToolRegistry::build`, `fill_key`, `check_allowed`,
   `McpServer::{new, plan, call}`, `ServerHandler`, notes as a second content block); `src/lib.rs`
   (`serve_stdio`).
 - Depends on: none in this design.
-- Proof: `cargo test -p liquers-mcp` — the unit tests and `tests/mcp_roundtrip.rs` of Phase 3.
+- Proof: `cargo test -p liquers-mcp` — `fill_key_rejects_query_shaped_keys`,
+  `fill_key_encodes_relative_to_the_base`, `check_allowed_walks_link_queries`,
+  `format_argument_changes_the_filename`, `build_refuses_multi_action_tool_queries`,
+  `hidden_argument_is_refused`; `tests/mcp_roundtrip.rs`: `tool_error_is_a_result_not_a_protocol_error`,
+  `notes_are_a_separate_content_block`, `panicking_command_is_a_tool_error`.
 - Rollback: remove the crate from the workspace.
 
 ### Step 10: `liquers-agent` and the tool set
 - Files / symbols: new crate `liquers-agent/` (member, not a default member); `src/config.rs`
   (`AgentConfig`, `MemorySettings`); `src/main.rs` (environment build order of Phase 2,
   subcommands `mcp`, `check`, `search`, `read`, `query`; notes to stderr); `tools/memory.yaml`;
-  `tools/query-guide.md`.
+  `tools/query-guide.md`; a fixture memory and configuration in `liquers-agent/tests/fixtures/`
+  (five documents, a `memory.yaml`); dev-dependency `rmcp` with `client` and
+  `transport-child-process` to spawn `liquers-agent mcp`.
 - Depends on: Steps 8, 9.
 - Proof: `cargo test -p liquers-agent --test mcp_tools` — `memory_tools_match_the_tool_table`,
   `query_tool_refuses_a_write_command`, `allow_list_namespaces_contain_no_writing_command`,
@@ -150,8 +176,9 @@ Signatures re-opened at HEAD 2026-10-17: `register_lib_store_config` (`liquers-l
 - Rollback: delete `memory/` and the test; no `specs/` file is changed by this step.
 
 ### Step 12: "openviking" profile and S3
-- Files / symbols: `liquers-agent/tests/s3_profile.rs`, dev-dependency `s3s-fs` (with `s3s`),
-  `liquers-store` feature `services-s3` for `liquers-agent`.
+- Files / symbols: `liquers-agent/tests/s3_profile.rs`, dev-dependency `s3s-fs` (with `s3s`; not yet
+  checked against OpenDAL's S3 client). `services-s3` is already in `liquers-store`'s default
+  services.
 - Depends on: Step 10.
 - Proof: `cargo test -p liquers-agent --test s3_profile` — `s3_mount_round_trip`. If `s3s-fs` cannot
   serve OpenDAL's S3 client, mark the test `#[ignore]` behind `LIQUERS_TEST_S3_ENDPOINT` and record
@@ -162,7 +189,8 @@ Signatures re-opened at HEAD 2026-10-17: `register_lib_store_config` (`liquers-l
 - Files / symbols: `scripts/check-build-matrix.sh` rows with and without `mem` (native and wasm32).
 - Depends on: Steps 1–12.
 - Proof: the new rows, then the rest one row at a time; `cargo test -p liquers-lib --lib --tests`;
-  `cargo test -p liquers-mcp`; `cargo test -p liquers-agent`; `python3 scripts/docs_index.py --check`.
+  `cargo test -p liquers-mcp`; `cargo test -p liquers-agent`; `python3 scripts/docs_index.py`
+  then `python3 scripts/docs_index.py --check`; `DESIGN.md` Phase 4 ticked.
 - Rollback: revert the script rows.
 
 ## Agent Assignment
@@ -190,7 +218,8 @@ Written in Phase 5 from what was built (Phase 2 §Documentation Architecture):
 `reference/AGENT_MEMORY_SERVICE.md` (new), `guides/AGENT_MEMORY_MIGRATION_GUIDE.md` (new, from
 `migration-guide-draft.md`), `.claude/skills/liquers-memory/SKILL.md` (new), updates to
 `STORE_CONFIG_GUIDE.md`, `COMMAND_REGISTRATION_GUIDE.md`, `PROJECT_OVERVIEW.md`,
-`DOCS_STRUCTURE_GUIDE.md`, `CLAUDE.md` and `specs/README.md`, each reference or guide change with a
+`DOCS_STRUCTURE_GUIDE.md`, `CLAUDE.md` (two crates; registry-comparison tests gated on five
+groups, not four) and `specs/README.md`, each reference or guide change with a
 History row and a `reviewed:` bump. Regenerated: `specs/command_registry.yaml` (Step 8),
 `specs/index.csv` and `specs/index.md` with `scripts/docs_index.py`.
 
