@@ -115,7 +115,7 @@ These need confirmation at this gate. Each has a reason.
 | `COMMAND-REGISTRY-HEADER-NAMES-GROUPS-NOT-FEATURES` | draft | — | A new registry group, `mem` | No | No | Follow the existing group convention |
 | `RESOURCE-NAME-ASCII-ONLY` | draft | — | Ids derived from titles | No | No | `IdCase::ScreamingKebab` transliterates to ASCII and drops the rest |
 | `AGENT-WORKBENCH-SURFACE` | draft | P2 · L | Direction check | No | No | `liquers-mcp` stays generic: `plan` validates without running, and resources are declared per tool set |
-| `CORE-SESSION-AND-KEY-ACL` | accepted | P2 · L | Identity | No | No | Out of scope (Phase 1 non-goals) |
+| `CORE-SESSION-AND-KEY-ACL` | accepted | P2 · L | Identity; the general replacement for the query tool's allow-list | No | No | Out of scope (Phase 1 non-goals); the allow-list is the MVP stand-in |
 
 There is no blocker. Namespaces involved, for confirmation at the gate:
 
