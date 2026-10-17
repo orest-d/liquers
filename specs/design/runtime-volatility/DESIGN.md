@@ -4,8 +4,7 @@ kind: design
 title: Volatility discovered while a command runs
 form: compact
 workflow: liquers-project
-status: approved
-phase: documentation
+status: complete
 area: [core/assets, core/context]
 issues: [RUNTIME-VOLATILE-DEPENDENCY-DOES-NOT-MAKE-PARENT-VOLATILE]
 created: 2026-10-17

@@ -101,7 +101,9 @@ recorded separately.
 
 **Keys are a payload boundary.** A key names one shared, global asset while a payload is
 supplied per evaluation, so a keyed recipe may not require one: such a recipe is rejected
-when its plan is built. A payload requirement never propagates through a keyed step
+when its plan is built, which every asset manager does when it resolves the key's recipe
+(`AssetManager::recipe_opt`), before an asset exists. Writing an override for that key and
+removing it are not refused: they only ask whether a recipe exists. A payload requirement never propagates through a keyed step
 either.
 
 ## When to Use Payload
@@ -1206,6 +1208,7 @@ When creating a newtype for injection:
 | Date | Change | Source |
 |---|---|---|
 | 2026-10-17 | A payload-requiring evaluation now finishes `Volatile`: an ad-hoc asset records its plan's volatility. | `design/runtime-volatility` |
+| 2026-10-13 | Stated where an invalid keyed recipe is rejected: in `recipe_opt`, before an asset exists, on every asset manager (the native manager previously deferred it to evaluation), and that overriding or removing such a key is not refused. | `design/default-asset-manager-recipe-opt-payload-check` |
 | 2026-09-04 | Corrected the claim that requiring a payload implies `volatile`. The consequences (never cached, shared, or held as a dependency) are right; the mechanism is construction — ad hoc, non-keyed, in no map — and a payload-requiring evaluation finishes `Ready` with `is_volatile` false. Verified against the planner and pinned by a test. | asset API doc review |
 | 2026-08-31 | Recorded that the payload environments are now type aliases of `GenericEnvironment<V, P, K>` rather than distinct structs, and pointed at the builder for construction. Payload semantics themselves are unchanged and were not otherwise re-reviewed. | `design/environment-builder/phase-5` |
 | 2026-08-01 | Last substantive edit, carried into `reference/` unchanged. Not reviewed against the implementation since. | migration |
