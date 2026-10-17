@@ -302,7 +302,8 @@ AC-1 to AC-8, AC-11 and AC-12 failed before the change.
   command records beside the one upgraded record.
 
 **Cost** ([`performance.md`](performance.md), last section): catalog chain 1.9x (limit 3x);
-file-store catalog **1.54x**, at the 1.5x limit. The per-file version read is four fifths of it.
+file-store catalog **1.54x**, at the 1.5x limit. The per-file version read is four fifths of it. Accepted
+by the maintainer on 2026-10-17; the double read is left to `SEARCH-CATALOG-READS-EACH-FILE-METADATA-TWICE`.
 
 **Documents** (`affects_docs`, reviewed against the code): `reference/SEARCH.md` (new
 §Dependencies, §Non-evaluation), `guides/SEARCH_GUIDE.md` (§7),
