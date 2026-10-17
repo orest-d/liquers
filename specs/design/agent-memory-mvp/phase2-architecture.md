@@ -60,9 +60,12 @@ Rejected:
 
 These need confirmation at this gate. Each has a reason.
 
-1. **`memory_edit`'s arguments are flat**: `op` (`replace` | `set_field` | `append_row`), `target`
-   and `text`. `interfaces-and-mcp.md` §4.1 had a one-of of objects. A tool's schema is generated
-   from one command, and `register_command!` has no union type. AC-14's "as tabulated there" now
+1. **`memory_edit`'s arguments are flat, and every operation given is applied** (decided
+   2026-10-17, Orest): `old`/`new` replace text, `field`/`value` set a front-matter field, and
+   `section`/`row` append a table row. Any combination may be given in one call; it is one edit,
+   with one version check, one write and one log line. `interfaces-and-mcp.md` §4.1 had a one-of
+   of objects. A tool's schema is generated from one command, and `register_command!` has no union
+   type. AC-14's "as tabulated there" now
    refers to the table in §Relevant Commands below. `memory_overview` gains `log_lines` and
    `memory_new` gains `reason`.
 2. **`set_field`, `append_row` and `section` are not separate commands.** The first two are `edit`
@@ -207,7 +210,7 @@ pub fn parse_version(text: &str) -> Result<Version, Error>;  // 32 hex digits ->
 ```rust
 pub(crate) struct WriteRequest { pub key: Key, pub bytes: Vec<u8>, pub expected: Option<Version>,
                                  pub op: WriteOp, pub reason: String }
-pub(crate) enum WriteOp { Create, Write, Edit(EditOp) }       // EditOp: Replace | SetField | AppendRow
+pub(crate) enum WriteOp { Create, Write, Edit(Vec<EditOp>) }  // EditOp: Replace | SetField | AppendRow
 pub(crate) struct WriteOutcome { pub key: Key, pub version_before: Option<Version>,
                                  pub version_after: Version }
 pub(crate) async fn commit<E: Environment>(context: &Context<E>, root: &Key, layout: &MemoryLayout,
@@ -508,8 +511,8 @@ register_command!(cr, async fn new(state, collection: String, title: String, des
 register_command!(cr, async fn write(state, body: String = "", title: String = "", description: String = "",
     fields: Value = "", expected_version: String = "", supersedes: String = "", reason: String = "",
     root: Key = query "-R-key/.", context) -> result namespace: "mem" volatile: true)?;
-register_command!(cr, async fn edit(state, op: String (enum: ["replace", "set_field", "append_row"]),
-    target: String, text: String, expected_version: String = "", reason: String = "",
+register_command!(cr, async fn edit(state, old: String = "", new: String = "", field: String = "",
+    value: String = "", section: String = "", row: String = "", expected_version: String = "", reason: String = "",
     root: Key = query "-R-key/.", context) -> result namespace: "mem" volatile: true)?;
 register_command!(cr, async fn check(state, root: Key = query "-R-key/.", context) -> result
     namespace: "mem" volatile: true)?;
@@ -593,10 +596,15 @@ How each acceptance scenario is met:
 - **AC-13.** A `read_only: true` mount, plus `writable: false` on its collection, which `describe`
   reports.
 - **AC-14.** The nine basic tools above, served by `liquers-agent mcp`, plus `memory_query`.
-- **AC-16 (edits).**
-  - `replace` requires exactly one match.
-  - `set_field` checks `enum` and `transitions`.
-  - `append_row` appends a Markdown row to the named section. When that section is the collection's
+- **AC-16 (edits).** Each pair of arguments is one operation, and `edit` applies every pair that
+  is given, in a fixed order (replace, then set field, then append row), to the text in memory,
+  then validates and commits once. A half-given pair (`old` without `new`, `field` without
+  `value`, `section` without `row`), or no pair at all, is refused before anything is read.
+  `new` may be empty, which deletes `old`.
+  - replace (`old`, `new`) requires exactly one match of `old`.
+  - set field (`field`, `value`) checks `enum` and `transitions`. `value` is parsed as a YAML
+    scalar or flow list (`[a, b]`), so list fields take one argument.
+  - append row (`section`, `row`) appends a Markdown row to the named section. When that section is the collection's
     `history.section`, it also stamps `history.stamp` (`reviewed:`) with today's date.
 - **AC-18 to AC-20.** These are profiles, below.
 
@@ -681,7 +689,8 @@ collections:
 | A write that violates the schema: an unknown field value, a missing `title`/`description`, a forbidden transition, a key outside every collection, a collection with `writable: false` | `Error::general_error`, naming the field, value and allowed values, as `store_config`'s validate step does |
 | `expected_version` differs from the current content hash | `Error::dependency_version_mismatch(&DependencyKey::from(&key), "expected …, found …")` |
 | `expected_version` is not 32 hex digits | `Error::parse_error` |
-| `edit replace` text not found, or found more than once | `Error::general_error`, with the count |
+| `edit` with `old` not found, or found more than once | `Error::general_error`, with the count; nothing is written, whatever other pairs were given |
+| `edit` with a half-given pair, or with no pair | `Error::general_error`, naming the missing argument |
 | `read` or `edit` of a missing key | `Error::key_not_found` |
 | TOML front-matter on an edit | `Error::not_supported` |
 | A write into a `read_only` mount | The store's refusal, propagated unchanged |
