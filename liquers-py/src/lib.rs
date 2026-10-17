@@ -18,9 +18,9 @@ pub mod value;
 
 use crate::query::*;
 
-/// A Python module implemented in Rust.
+/// The native extension, `liquers._native`; the `liquers` package (`python/liquers/`) re-exports it.
 #[pymodule]
-fn liquers_py(m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Position>()?;
     m.add_class::<ActionParameter>()?;
     m.add_class::<ResourceName>()?;
