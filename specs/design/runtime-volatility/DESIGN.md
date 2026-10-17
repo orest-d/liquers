@@ -110,9 +110,9 @@ docs ("use `v/` or declare the command volatile") can be relaxed.
   changes; failures of it are triaged against that issue, not this design.
 - `RESOURCE-STEP-VOLATILITY-IS-NEVER-CHECKED`: plan-time, separate.
 
-### Decisions
+### Open Questions
 
-Answered by Orest on 2026-10-17. No open questions remain.
+None. All four were answered by Orest on 2026-10-17:
 
 1. **Volatile at finish.** `design/volatility-system` decision 4 is revised: an asset starts
    non-volatile when nothing at plan time says otherwise, and finishes `Volatile` if its run had a
