@@ -11,11 +11,12 @@ A later syntax would be a sibling module and a new `Template` variant. `liquers-
 `templates`, on by default) adds the `ns-template` commands, `ContextHost`, and the `DataNode`
 adapters for its value types.
 
-**Departures from Phase 1.** Phase 1 put one core module in scope. This design adds three more core
+**Departures from Phase 1.** Phase 1 put one core module in scope. This design adds four more core
 items, all additive:
 - `ValueInterface::data_node`, with a default, so the renderer can view any `E::Value`;
 - `Context::apply_ad_hoc`, because an override needs a `Recipe` with arguments, and
   `Context::apply` takes a `Query` only;
+- `ArgumentInfo::with_default_link`, for template commands (an alias of `render`);
 - deprecation of `simple_template` (`SimpleTemplate`, `parse_simple_template`,
   `evaluate_simple_template`). No command uses it, so there are no templates to convert.
 
@@ -156,14 +157,21 @@ and `cfg_attr(wasm32, async_trait(?Send))`.
 through `try_into_json_value`, or `Opaque` when that fails. In `liquers-lib` the override is on
 `CombinedValue` (`value/extended.rs`), delegating by arm:
 - `SimpleValue` implements `DataNode`;
-- `ExtValue` gets a defaulted `ValueExtension::data_node`, overridden for `RecordView` (sync),
-  `RecordSource` (async) and `PolarsDataFrame` (sync).
+- `ExtValue` gets a defaulted `ValueExtension::data_node` (trait in `value/extended.rs`), overridden
+  in `value/mod.rs` for `RecordView` and `PolarsDataFrame` (sync).
+- A `RecordSource` cannot stream without a `ChunkResolver`, which only a `Context` provides
+  (`ContextResolver`), so `data_node` gives it as `Opaque`. `ContextHost::node_of(value)` checks for
+  a `RecordSource` first and wraps it with `liquers-records`' async adapter and a
+  `ContextResolver`; every other value goes through `data_node`.
 
 **`Context::apply_ad_hoc(&self, recipe: Recipe, to: State<E::Value>) -> Result<AssetRef<E>, Error>`**
 is async. It resolves the recipe's query as `apply` does (`reject_relative_query`, then
 `resolve_query_from_cwd`), leaves `recipe.cwd` alone, and calls `apply_for`. It then adds the
 ad-hoc asset's `MetadataRecord::dependencies` to the parent through `add_dependency` (open
-question 12, accepted). Legacy metadata contributes nothing.
+question 12, accepted). Legacy metadata contributes nothing. Plan dependencies are recorded only
+for a non-volatile plan (`interpreter.rs`), so a volatile ad-hoc result contributes no records;
+`apply_ad_hoc` then makes the parent volatile, as a volatile dependency does through
+`get_dependency_state` (Step 2 confirms the mechanism and adds it if missing).
 
 **Renderer** (`liquers-template`). Rendering and `instantiate` are async; everything else is sync.
 
@@ -177,19 +185,24 @@ pub trait TemplateHost: MaybeSend + MaybeSync {
     async fn evaluate(&self, request: QueryRequest) -> Result<AnyNode, Error>;
     async fn partial(&self, key: &Key) -> Result<String, Error>;
     fn command_registry(&self) -> &CommandMetadataRegistry;  // names overrides at instantiation
+    fn warn(&self, error: &Error);                           // a recovered error, to the log
+}
 pub struct QueryRequest { pub query: Query, pub overrides: Vec<(String, serde_json::Value)>,
     pub input: Option<AnyNode>, pub position: Position }
-    fn warn(&self, error: &Error); }                         // a recovered error, to the log
 pub enum ErrorMode { Strict, Expand(ExpandFormat), Silent }
 pub enum ExpandFormat { Text, Html, Markdown }
 pub struct RenderOptions { pub html_escape: bool, pub max_partial_depth: usize, pub errors: ErrorMode }
-pub async fn render<H: TemplateHost>(t: &Template, root: Vec<AnyNode>, host: &H, o: &RenderOptions)
+pub struct ContextStack<'a> { frames: Vec<Frame<'a>> }
+pub enum FrameKind { Data, Names }                  // a `Names` frame is looked up, never `{{.}}`
+impl<'a> ContextStack<'a> { pub fn new() -> Self; pub fn push(&mut self, node: AnyNode, kind: FrameKind); }
+pub async fn render<H: TemplateHost>(t: &Template, stack: ContextStack<'_>, host: &H, o: &RenderOptions)
     -> Result<String, Error>;
-pub struct MapHost { pub partials: BTreeMap<Key, String> }   // refuses queries: spec suite and tests
+pub struct MapHost { pub partials: BTreeMap<Key, String>, pub warnings: Mutex<Vec<Error>> }   // refuses queries
 ```
 
-`ContextStack<'a>` holds frames, either `NodeRef<'a>` borrowed during sync iteration or an owned
-`AnyNode`. Names resolve by the Mustache rules plus `_meta`. The renderer recurses through boxed
+`ContextStack<'a>` (`src/stack.rs`) holds frames, either `NodeRef<'a>` borrowed during sync
+iteration or an owned `AnyNode`, each `Data` or `Names`. `{{.}}` and the apply forms take the top
+`Data` frame; a `Names` frame (`render`'s `data`) only answers name lookups. Names resolve by the Mustache rules plus `_meta`. The renderer recurses through boxed
 futures (`maybe_send`). Partials keep a stack of keys: a key already on it is a **cycle error**
 (AC-12), and depth is capped at 32 for dynamic partials. `DataNode` and `AsyncDataNode` gain a
 defaulted `index(i)` for list indexing (`names-and-errors.md`).
@@ -212,9 +225,9 @@ without reading it. A file child is read on demand through `get_dependency_state
 
 | Crate | Change |
 |---|---|
-| `liquers-core` | `data_node.rs` (new); `lib.rs`; `value.rs` (`data_node`, `Value` impl); `metadata.rs` (`MetadataRecord` impl); `context.rs` (`apply_ad_hoc`); `command_metadata.rs` (`ArgumentInfo::with_default_link`); `#[deprecated]` in `parse.rs` and `interpreter.rs` |
+| `liquers-core` | `data_node.rs` (new, with the `Value`, `MetadataRecord` and JSON impls); `lib.rs`; `value.rs` (`data_node`); `context.rs` (`apply_ad_hoc`); `command_metadata.rs` (`ArgumentInfo::with_default_link`); `#[deprecated]` in `parse.rs` and `interpreter.rs` |
 | `liquers-records` | A row adapter over `RecordView` (sync) and a source adapter (async) |
-| `liquers-template` (new) | `src/lib.rs`, `src/{data,host,render,diagnostics}.rs`; `src/query/{ast,parse,instantiate}.rs`; `src/mustache/{ast,lexer,parse,encode,render}.rs`; `tests/spec/` (the vendored Mustache spec, MIT); `tests/parity.rs`; added to the workspace members |
+| `liquers-template` (new) | `src/lib.rs`, `src/{name,stack,host,render,diagnostics}.rs` (syntax-neutral; `render.rs` dispatches on `Template`); `src/query/{ast,parse,instantiate}.rs`; `src/mustache/{ast,lexer,parse,encode,render}.rs`; `tests/spec/` (the vendored Mustache spec, MIT); `tests/{parity,spec,render,node}.rs`; added to the workspace `members` and `default-members` |
 | `liquers-lib` | Feature `templates`; `src/template/{mod,commands,host,folder}.rs`; `value/extended.rs` and `value/mod.rs` (`data_node`); `register_template_commands!` and its no-op stand-in in `register_all_commands!` |
 | Scripts and generated files | `check-build-matrix.sh` rows for `templates` and for `liquers-template` on wasm32; `specs/command_registry.yaml` regenerated |
 
@@ -308,7 +321,9 @@ cr.register_alias(
 `ns-fixture/ctx-core~/store/ns-pack/open_issues` then renders the pack. The head is a link, so the
 template is a dependency of every result, and an edit to it invalidates them; the alias's own
 metadata key is a dependency too (`COMMAND_ALIASES.md` §5). The alias's arguments line up with
-`render`'s after the head, as `register_alias` requires. `ArgumentInfo::with_default_link` is a
+`render`'s after the head, as `register_alias` requires. `cwd` is `any_argument` because `Key`
+maps to `ArgumentType::Any`; the conversion to `Key` happens in `render`'s executor, so it applies
+through the alias too. `ArgumentInfo::with_default_link` is a
 small core addition (today a link default is set by assigning `ArgumentInfo::default`). A head
 parameter that is a `CommandParameterValue::Query` becomes a `DefaultLink`
 (`ParameterValue::from_command_parameter_value`), which no alias uses yet, so Phase 3 tests it.
@@ -326,8 +341,8 @@ parameter that is a `CommandParameterValue::Query` becomes a `DefaultLink`
   argument-order pitfall).
 - **The result** is text. Its media type follows the asset's filename, `text/plain` when there is
   none. HTML escaping is on when that media type is `text/html`.
-- **`validate`** checks a literal partial key's syntax, not its existence (AC-9). The `apply`
-  command of Phase 1, question 7 is dropped, because tags choose the mode (AC-11).
+- **`validate`** checks a literal partial key's syntax, not its existence (AC-9). There is no
+  separate apply command, because tags choose the mode (AC-11).
 
 ## Documentation Architecture
 

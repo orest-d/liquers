@@ -94,7 +94,7 @@ The expanded text names the position and the message:
 
 Expanded text is not escaped again by `html_escape`, since each format escapes its own message.
 Warnings go through a new `TemplateHost::warn(&self, error: &Error)`; `ContextHost` calls
-`Context::warning`, which writes to the result asset's log, and `MapHost` collects them for tests.
+`Context::warning`, which writes to the result asset's log, and `MapHost` and `RecordingHost` collect them in a `warnings` list for tests.
 
 **What each mode covers.** The unit of failure is one tag.
 

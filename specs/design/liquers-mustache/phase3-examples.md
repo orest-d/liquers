@@ -33,8 +33,8 @@ validated by the CLI; the parser tests cover them.
 
 The fixture holds `specs/issues/{A-EXPIRY,B-CLOSED,C-STORE,D-TOML}.md`; only `C-STORE` is in area
 `core/store` and not closed (`search` matches a list-valued `area`, as
-`search_commands.rs::field_extract_prefix_and_flatten` shows). The template is Phase 1's problem
-example, stored at `templates/open_issues.md`:
+`search_commands.rs::field_extract_prefix_and_flatten` shows). The template is adapted from Phase 1's problem
+example (bare `{{/}}` closes and a `{{#priority}}` guard), stored at `templates/open_issues.md`:
 
 ```markdown
 # Open issues in {{area}}
@@ -178,12 +178,12 @@ The cases Phase 2's risks and error table name:
   `hygienic_value_must_fit_its_position` (AC-5); `classic_expands_text_then_parses`,
   `classic_parse_error_is_positioned_in_expansion` (AC-6);
   `non_scalar_last_action_becomes_override`, `non_scalar_earlier_action_is_error` (AC-16).
-- `src/mustache/name.rs` — `dotted_index_selects_item`, `dotted_missing_is_empty`,
+- `src/name.rs` — `dotted_index_selects_item`, `dotted_missing_is_empty`,
   `bracket_lookup_by_kind`, `bracket_missing_is_error`, `bracket_negative_index`,
   `bracket_in_query_slot` (AC-17).
 - `tests/render.rs` (`RecordingHost`) — `example_2_requests` (AC-5, AC-6, AC-7, AC-12, AC-16);
   `section_over_list_map_bool`, `inverted_on_empty_result`, `bare_close_ends_query_section` (AC-3);
-  `evaluate_has_no_input`, `dot_is_state_in_render_and_data_in_expand` (AC-8, AC-11); `partial_cycle_is_error`, `partial_depth_capped` (AC-12);
+  `evaluate_has_no_input`, `names_frame_is_not_dot` (AC-8, AC-11); `partial_cycle_is_error`, `partial_depth_capped` (AC-12);
   `example_3_modes`, `failing_section_head_is_one_unit`, `strict_rejects_invalid_before_any_query`,
   `irrecoverable_in_every_mode` (AC-18).
 - `src/diagnostics.rs` — `validate_reports_all` (AC-9): every `Invalid` node, an unknown command and
@@ -200,7 +200,7 @@ The cases Phase 2's risks and error table name:
 - `src/data_node.rs` — `value_as_data_node`, `metadata_record_as_data_node`,
   `json_as_data_node`, `sync_consumer_refuses_async_node` (AC-15).
 - `tests/apply_ad_hoc.rs` — `apply_ad_hoc_propagates_dependencies` (AC-7, AC-16),
-  `apply_ad_hoc_rejects_relative_query` (AC-7).
+  `apply_ad_hoc_rejects_relative_query`, `apply_ad_hoc_volatile_makes_parent_volatile` (AC-7).
 - `tests/command_alias.rs` — `alias_head_link_is_evaluated` (AC-19): an alias whose head is a
   `CommandParameterValue::Query` plans a `DefaultLink`, evaluates it, and records its dependency;
   `src/command_metadata.rs` — `with_default_link_sets_query_default` (AC-19).
@@ -219,7 +219,9 @@ The cases Phase 2's risks and error table name:
 - `partial_from_store_is_dependency`, `dynamic_partial_is_dependency`,
   `relative_partial_uses_cwd_link` (AC-11, AC-12): under `-R-cwd/templates/-/…`, `{{> ./header.md}}`
   reads `templates/header.md`.
-- `override_list_routes_through_apply` (AC-16); `error_modes_log_warnings` (AC-18), reading the log
+- `dot_is_state_in_render_and_data_in_expand` (AC-11); `apply_tag_routes_through_apply_ad_hoc`
+  (`{{$. q}}`, `{{$$. q}}` and `{{>$$ q}}` through `ContextHost`) (AC-7, AC-12);
+  `override_list_routes_through_apply` (AC-16); `error_modes_log_warnings` (AC-18), reading the log
   with `LogEntryKind::Warning`; `unknown_error_mode_fails`, `cwd_not_a_key_fails` (AC-11, AC-18);
   `validate_command_runs_nothing` (AC-9, AC-11), with `fixture/count` proving no command ran.
 - `frame_rows_as_data` (AC-15, also gated on `polars`), `folder_as_data` (AC-15).

@@ -77,16 +77,18 @@ A non-scalar placeholder in an earlier action is therefore an error at the place
 
 | Tag | Override present? | Route | Caching |
 |---|---|---|---|
-| `{{$ q}}` | no | `AssetManager::get_asset(&query)` | Shared and cached; a dependency of the result |
-| `{{$ q}}` | yes | `AssetManager::apply(recipe, State::new(), None)`, with the overrides as the recipe's arguments | Ad hoc, never cached (`apply` docs, `liquers-core/src/assets.rs`) |
-| `{{$. q}}`, `{{$.name q}}` (apply, Phase 1 open question 11) | either | `AssetManager::apply(recipe, state, None)`, where `state` is the current context (or `name`) as the input | Ad hoc, never cached |
+| `{{$ q}}` | no | `Context::get_dependency_state(&query)` | Shared and cached; a dependency of the result |
+| `{{$ q}}` | yes | `Context::apply_ad_hoc(recipe, State::new())`, with the overrides as the recipe's arguments | Ad hoc, never cached; its dependencies are propagated (Phase 2, open question 12) |
+| `{{$. q}}`, `{{$.name q}}` (apply, Phase 1 open question 11) | either | `Context::apply_ad_hoc(recipe, state)`, where `state` is the current context (or `name`) as the input | Ad hoc, never cached |
 | `{{$$ q}}` and its apply forms | never, since text has no overrides | As the first and third rows | As above |
 
-`apply` evaluates inline and takes no job-queue slot, so calling it from inside an evaluation is
-safe (the `ASSETS-FIX1` #17 deadlock does not arise). How an ad-hoc result's own dependencies reach
-the rendered document is a Phase 2 question.
+`apply_ad_hoc` wraps `AssetManager::apply_for`, which evaluates inline and takes no job-queue slot,
+so calling it from inside an evaluation is safe (the `ASSETS-FIX1` #17 deadlock does not arise).
 
-## Proposed details for Phase 2
+## Proposed details for Phase 2 (superseded)
+
+Superseded by Phase 2 §AST: the placeholder is `Slot { name, position }` and
+`instantiate(data, cmr) -> Instantiated`. Kept as written on 2026-10-17:
 
 - `QueryTemplate` mirrors `Query`, with a `Placeholder { path, position }` element allowed in the
   positions above. `QueryTemplate::instantiate(&data) -> Result<(Query, Overrides), Error>` fills

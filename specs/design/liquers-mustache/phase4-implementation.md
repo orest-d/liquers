@@ -50,17 +50,20 @@ before the wasm32 step.
 - Depends on: none
 - Proof: `cargo test -p liquers-core --lib data_node` (`value_as_data_node`,
   `metadata_record_as_data_node`, `json_as_data_node`, `sync_consumer_refuses_async_node`), then
-  `cargo check -p liquers-py` (it implements `ValueInterface` and must inherit the default)
+  `PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1 cargo check -p liquers-py` (Python here is 3.13; it
+  implements `ValueInterface` and must inherit the default)
 - Rollback: revert the module and the defaulted method; nothing else uses them yet
 
 ### Step 2: `Context::apply_ad_hoc`
 - Files / symbols: `liquers-core/src/context.rs` `Context::apply_ad_hoc(&self, recipe: Recipe, to:
   State<E::Value>) -> Result<AssetRef<E>, Error>`: `reject_relative_query`, `resolve_query_from_cwd`,
-  `apply_for`, then the ad-hoc asset's `MetadataRecord::dependencies` through `add_dependency`.
+  `apply_for`, then the ad-hoc asset's dependencies (`AssetRef::get_metadata`,
+  `Metadata::get_dependencies`) through `add_dependency`; a volatile ad-hoc result makes the parent
+  volatile (find the path `get_dependency_state` uses for a volatile dependency; add one if none).
   `liquers-core/tests/apply_ad_hoc.rs` (new)
 - Depends on: none (parallel with Step 1)
 - Proof: `cargo test -p liquers-core --test apply_ad_hoc` (`apply_ad_hoc_propagates_dependencies`,
-  `apply_ad_hoc_rejects_relative_query`)
+  `apply_ad_hoc_rejects_relative_query`, `apply_ad_hoc_volatile_makes_parent_volatile`)
 - Rollback: remove the method and the test file
 
 ### Step 3: `ArgumentInfo::with_default_link` and link heads in aliases
@@ -75,14 +78,17 @@ before the wasm32 step.
 ### Step 4: Deprecate `simple_template`
 - Files / symbols: `#[deprecated(note = "use liquers-template")]` on `SimpleTemplate`,
   `parse_simple_template` (`parse.rs`) and `evaluate_simple_template` (`interpreter.rs`);
-  `#[allow(deprecated)]` on their own tests
+  `#[allow(deprecated)]` at the in-crate uses: the import in `interpreter.rs`, `impl IntoIterator for
+  SimpleTemplate` and `impl SimpleTemplate`, the `simple_template` parser function, and their tests
 - Depends on: none
-- Proof: `cargo test -p liquers-core --lib` with no new warnings outside those items
+- Proof: `cargo test -p liquers-core --lib` and `cargo test -p liquers-core --doc parse`, with no
+  deprecation warning
 - Rollback: drop the attributes
 
 ### Step 5: Records adapters
 - Files / symbols: `liquers-records/src/data_node.rs` (new): a row map over `RecordView` (sync,
-  `index` builds one row) and a streamed source adapter (async)
+  `index` builds one row) and `RecordSourceNode::new(source, resolver: Arc<dyn ChunkResolver>)`
+  (async), since a source cannot stream without a resolver
 - Depends on: Step 1
 - Proof: `cargo test -p liquers-records --all-features --lib data_node` (`record_view_rows_as_maps`,
   `record_view_index_builds_one_row`, `record_source_streams_rows`)
@@ -90,10 +96,11 @@ before the wasm32 step.
 
 ### Step 6: `liquers-template` crate, diagnostics and names
 - Files / symbols: `liquers-template/Cargo.toml` (depends on `liquers-core`, `nom`, `nom_locate`,
-  `serde`, `serde_json`, `futures`, `async-trait`; no tokio outside dev-dependencies; wasm32
-  dev-dependency `wasm-bindgen-test`); workspace `members` and `default-members`; `src/lib.rs`;
-  `src/diagnostics.rs` (`Diagnostic`, `Severity`); `src/mustache/name.rs` (`Name`, `NamePart`,
-  `LookupKey`, parser and `encode`)
+  `serde`, `serde_json`, `futures`, `async-trait`; tokio only under
+  `[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]`, `wasm-bindgen-test` under the
+  wasm32 one); workspace `members` and `default-members`; `src/lib.rs`; `src/diagnostics.rs`
+  (`Diagnostic`, `Severity`); `src/name.rs` (`Name`, `NamePart`, `LookupKey`, parser, resolution
+  and `encode`); `src/stack.rs` (`ContextStack`, `FrameKind`)
 - Depends on: Step 1
 - Proof: `cargo test -p liquers-template --lib name` (`dotted_index_selects_item`,
   `dotted_missing_is_empty`, `bracket_lookup_by_kind`, `bracket_missing_is_error`,
@@ -109,10 +116,10 @@ before the wasm32 step.
 - Rollback: the crate is not yet used; revert the files
 
 ### Step 8: Instantiation
-- Files / symbols: `src/query/instantiate.rs` `QueryTemplate::instantiate`, `Instantiated`,
-  `ContextStack`
+- Files / symbols: `src/query/instantiate.rs` `QueryTemplate::instantiate`, `Instantiated`
 - Depends on: Steps 6, 7
-- Proof: `cargo test -p liquers-template --lib instantiate` (the seven AC-5, AC-6 and AC-16 tests)
+- Proof: `cargo test -p liquers-template --lib instantiate` (the eight AC-5, AC-6 and AC-16 tests)
+  and `cargo test -p liquers-template --lib name::tests::bracket_in_query_slot` (AC-17)
 - Rollback: revert the file
 
 ### Step 9: Mustache AST, lexer, parser and encoder
@@ -123,9 +130,9 @@ before the wasm32 step.
 - Rollback: revert the files
 
 ### Step 10: Renderer, hosts and error modes
-- Files / symbols: `src/host.rs` (`TemplateHost` with `command_registry`, `QueryRequest`, `MapHost`),
-  `src/render.rs` (`render`, `RenderOptions`, `ErrorMode`, `ExpandFormat`, partial stack and depth
-  cap); `tests/spec/` (the mustache/spec JSON files, MIT, with their licence), `tests/spec.rs`,
+- Files / symbols: `src/host.rs` (`TemplateHost` with `command_registry` and `warn`,
+  `QueryRequest`, `MapHost`), `src/render.rs` (`render`, `RenderOptions`, `ErrorMode`,
+  `ExpandFormat`) and `src/mustache/render.rs` (sections, partial stack and depth cap, error modes); `tests/spec/` (the mustache/spec JSON files, MIT, with their licence), `tests/spec.rs`,
   `tests/common/recording_host.rs`, `tests/render.rs`
 - Depends on: Steps 8, 9
 - Proof: `cargo test -p liquers-template --test spec --test render`
@@ -142,9 +149,12 @@ before the wasm32 step.
   `spec.rs`, `parity.rs`, `render.rs`; `scripts/check-build-matrix.sh` rows for `liquers-template`
   on wasm32
 - Depends on: Step 10
-- Proof: `cargo clean`, then `cargo test -p liquers-template --target wasm32-unknown-unknown`
-  (needs `wasm-bindgen-test-runner`; if it cannot be installed, the step proves the build with
-  `cargo check --tests --target wasm32-unknown-unknown` and records the gap as an issue)
+- Prerequisites: `rustup target add wasm32-unknown-unknown`; `cargo install wasm-bindgen-cli`
+  pinned to the `wasm-bindgen` version in `Cargo.lock` (the runner `.cargo/config.toml` names);
+  Node on `PATH`
+- Proof: `cargo clean`, then `cargo test -p liquers-template --target wasm32-unknown-unknown`. If
+  the runner cannot be installed, the step proves the build with
+  `cargo check -p liquers-template --tests --target wasm32-unknown-unknown` and files the gap
 - Rollback: revert the gating and rows
 
 ### Step 13: liquers-lib commands, hosts and value adapters
@@ -152,8 +162,12 @@ before the wasm32 step.
   `default`; `src/template/{mod,commands,host,folder}.rs`: `render`, `expand`, `validate`,
   `ContextHost`, the store-folder node; `value/extended.rs` (`CombinedValue::data_node`),
   `value/mod.rs` (`ValueExtension::data_node`, overridden for `RecordView`, `RecordSource`,
-  `PolarsDataFrame`); `register_template_commands!` in `register_all_commands!` and its no-op
-  stand-in; `tests/template_commands.rs`
+  `PolarsDataFrame`) — the trait is in `value/extended.rs`, the overrides in `value/mod.rs`;
+  `ContextHost::node_of` wrapping a `RecordSource` with `RecordSourceNode` and a `ContextResolver`;
+  `register_template_commands!` in `register_all_commands!` and its no-op stand-in;
+  `tests/template_commands.rs`; `scripts/check-build-matrix.sh` `LIB_CONFIGS` rows
+  `--no-default-features --features templates` and `templates,records`, and a wasm32
+  `--features templates` row
 - Depends on: Steps 2, 3, 5, 11
 - Proof: `cargo test -p liquers-lib --test template_commands`, then
   `cargo test -p liquers-lib --no-default-features --features templates --lib --tests`

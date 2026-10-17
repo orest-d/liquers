@@ -30,7 +30,7 @@ template data, with the sync, async and dual comparison;
 [`names-and-errors.md`](./names-and-errors.md), the name grammar with indexing, the error modes and
 recoverable syntax errors.
 
-**Revision 2026-10-17**, from the maintainer's review of Phase 1. Two query-tag forms replace the
+**Revision 2026-10-17**, from the maintainer's review of Phase 1 (the crate and namespace names here were superseded by the Phase 2 review below). Two query-tag forms replace the
 `{{x}}` / `{{{x}}}` split inside queries: hygienic `{{$ …}}` fills the AST and classic `{{$$ …}}`
 expands the text. The hygienic positions are specified in full, including action names and
 filenames. A shadow query parser in `liquers-mustache` replaces the public `liquers-core` parser

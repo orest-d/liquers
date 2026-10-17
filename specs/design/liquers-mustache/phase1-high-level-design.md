@@ -1,4 +1,4 @@
-# Phase 1: High-Level Design — liquers-mustache, a query-aware template language
+# Phase 1: High-Level Design — liquers-template, a query-aware template language
 
 ## Purpose
 
@@ -37,7 +37,7 @@ no caching or dependency tracking, no Liquers value as data.
 inside the query becomes one encoded parameter, the query runs through the asset manager, its records
 iterate in the section, and the rendered document is an asset that is recomputed when an issue
 changes. Rendered with `{"area": "core/store"}` as its input state, it renders that area, and
-rendered with an `area` argument it renders the same.
+rendered with `{"area": "core/store"}` as its `data` argument it renders the same.
 
 ## Scope and Acceptance Criteria
 
@@ -74,22 +74,22 @@ rendered with an `area` argument it renders the same.
 - **AC-7** Apply mode, per tag
   WHEN a query tag is written in its apply form, `{{$. q}}` (or `{{$.name q}}`, open question 11)
   THEN `q` is applied with the current context (or the value of `name`) as its input state, through
-  `AssetManager::apply`; the same holds for `{{$$. q}}` and for the section and partial forms
+  `Context::apply_ad_hoc` (ad hoc, uncached); the same holds for `{{$$. q}}` and for the section and partial forms
 - **AC-8** Evaluate mode is the default
   WHEN a query tag has no apply marker (`{{$ q}}`)
   THEN `q` is evaluated with no input state, and the template's own data (the input value of the
-  render command, or its named arguments) affects it only through its placeholders
+  render command, or its `data` argument) affects it only through its placeholders
 - **AC-9** Validation without evaluation
   WHEN a template is validated
-  THEN all errors and warnings (unknown command, unknown partial, unused section close) are reported
+  THEN all errors and warnings (unknown command, malformed partial key, unused section close) are reported
   with positions, and no query, store read or command runs
 - ~~**AC-10** Highlighting~~ Withdrawn 2026-10-17 at the maintainer's request: moved, with its
   design, to `TEMPLATE-HAS-NO-HIGHLIGHTER`.
 - **AC-11** Commands (revised 2026-10-17)
-  WHEN `liquers-lib` is built with its template feature
+  WHEN `liquers-lib` is built with its `templates` feature
   THEN `render` renders the template given as its first argument over the state, `expand` renders
   the state as a template, and `validate` checks the state as a template; `data` adds named values
-  above the state; results are ordinary assets (text with the template's media type). Evaluate
+  above the state; results are ordinary assets (text whose media type follows the result's filename, `text/plain` without one). Evaluate
   versus apply is chosen by each tag (AC-7, AC-8), so there are no separate evaluate and apply
   commands
 - **AC-12** Partials from the store
@@ -116,7 +116,7 @@ rendered with an `area` argument it renders the same.
   WHEN a whole P1 placeholder in a hygienic tag expands to a non-scalar value (a list, a map,
   records) in the query's last action
   THEN the value is passed as that argument's override, and the query runs through
-  `AssetManager::apply` rather than `get_asset`; in an earlier action it is an error at the
+  `Context::apply_ad_hoc` rather than `get_dependency_state`; in an earlier action it is an error at the
   placeholder, since overrides reach only the last action (`RECIPE-OVERRIDE-ONLY-LAST-ACTION`)
 - **AC-17** Indexing into data (added 2026-10-17 at the Phase 2 review)
   WHEN a name indexes a list (`{{items.0.title}}`) or uses a bracket lookup (`{{x[y]}}`, `x[0]`,
@@ -144,9 +144,9 @@ such decisions are commands that add data; replacing the query language.
 - **Query:** a shadow query parser in `liquers-template` produces a `QueryTemplate`, the query AST
   with placeholder nodes in positions P1–P6 ([`query-placeholders.md`](./query-placeholders.md)),
   kept equal to the core parser by AC-14. `liquers-core`'s `Query` is not changed.
-- **Assets:** a query tag with no apply marker and no override goes through `get_asset` (cached,
-  a dependency of the result); an apply form or an override goes through `apply` (ad hoc,
-  uncached). Partials are dependencies of the result.
+- **Assets:** a query tag with no apply marker and no override goes through
+  `Context::get_dependency_state` (cached, a dependency of the result); an apply form or an override
+  goes through a new `Context::apply_ad_hoc` (ad hoc, uncached, its dependencies propagated). Partials are dependencies of the result.
 - **Data:** a new `DataNode` / `AsyncDataNode` pair in `liquers-core` lets any value be template
   data, and is meant to replace the store pipeline's hard-coded field access
   (`STORE-HANDLER-FIELD-ACCESS-HARDCODED`).
@@ -157,12 +157,13 @@ such decisions are commands that add data; replacing the query language.
 ## Crate Placement
 
 New crate **`liquers-template`**, depending on `liquers-core` only (nom and nom_locate are already
-core dependencies): grammar, AST, positions, diagnostics, data model over core `Value`,
-and both evaluation modes over the `Environment` / asset-manager traits. **`liquers-lib`**: the
-commands (feature `templates`), the mapping of `ExtValue` (records, polars frames) into template data,
-**`liquers-core`** gains one module,
+core dependencies): grammar, AST, positions, diagnostics, instantiation and the renderer, which
+reaches queries and partials through a `TemplateHost` trait. **`liquers-lib`**: the commands
+(feature `templates`), `ContextHost` (the host over a command's `Context`), the store-folder node,
+and the mapping of `ExtValue` (records, polars frames) into template data. **`liquers-core`** gains
 `data_node.rs` (open question 10), with its implementations for `Value`, `MetadataRecord` and
-`serde_json::Value`. Its parser is not changed (open question 8): the template crate has its own
+`serde_json::Value`, plus three additions settled in Phase 2: `ValueInterface::data_node`,
+`Context::apply_ad_hoc` and `ArgumentInfo::with_default_link`. Its parser is not changed (open question 8): the template crate has its own
 complete query parser, built on the public `escape` module, `Position` and `StyledQueryToken`,
 rather than opening `parse.rs`, whose combinators are private. `liquers-records` implements the
 traits for `RecordView` (sync) and `RecordSource` (async).
@@ -174,10 +175,11 @@ traits for `RecordView` (sync) and `RecordSource` (async).
 - Guide: new `specs/guides/TEMPLATE_GUIDE.md` — writing, validating and applying templates, with a
   context pack as the worked example, and template commands (an alias of `render`, AC-19), which
   `COMMAND_REGISTRATION_GUIDE.md`, `COMMAND_DESIGN_GUIDE.md` and `COMMAND_ALIASES.md` refer to.
-- Other documents: none.
 - Documents to update: `specs/reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md` (parametrized
-  queries; `simple_template` status), `specs/reference/PROJECT_OVERVIEW.md` (a new crate), `CLAUDE.md`
-  project structure and dependency flow, `specs/README.md`.
+  queries; `simple_template` status), `specs/reference/PROJECT_OVERVIEW.md` (a new crate),
+  `specs/reference/VALUE_TYPE_SYSTEM.md` (`DataNode`), `DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md`
+  (`apply_ad_hoc`), the three command documents above, `CLAUDE.md` project structure and dependency
+  flow, `specs/README.md`. The full list is Phase 2's documentation table.
 
 ## Design Dependencies
 
@@ -200,7 +202,7 @@ Phase 2.
    the placeholder in the query's AST, so a serialized result escapes the value
    (`x = "a-b"`: `cmd-{{x}}` becomes `cmd-a~_b`, one parameter). Classic `{{$$ …}}` expands the text,
    then parses it (`cmd-a-b`, two parameters). See [`query-placeholders.md`](./query-placeholders.md).
-2. **[proposed] Which positions are hygienic.** Specified in
+2. **[accepted 2026-10-17] Which positions are hygienic.** Specified in
    [`query-placeholders.md`](./query-placeholders.md). The positions are action parameters (P1),
    `ns-` namespaces (P2), action names (P3), key segments (P4), output filenames (P5) and the
    inside of link parameters (P6), each whole or as a fragment. Realms, header parameters and whole
@@ -211,7 +213,7 @@ Phase 2.
    for text and Markdown, HTML for HTML, with `{{{x}}}` always raw.
 4. **[accepted 2026-10-17] Template data from Liquers values.** Records iterate as rows of objects,
    and an entry's metadata is reachable under one reserved name, `{{_meta.title}}`.
-5. **[proposed] Query tags.** In each pair, the `$` form is hygienic and the `$$` form is classic:
+5. **[accepted 2026-10-17] Query tags.** In each pair, the `$` form is hygienic and the `$$` form is classic:
 
    | Tag | Meaning |
    |---|---|
@@ -227,7 +229,7 @@ Phase 2.
 
    A query section is closed by `{{/}}` (or `{{/$}}`), so the query is not repeated. Mustache's
    inheritance module also uses `{{$name}}`, and this design does not adopt that module.
-6. **[accepted 2026-10-17] `simple_template`.** Convert the existing templates and deprecate `$query$`.
+6. **[accepted 2026-10-17] `simple_template`.** Deprecate `$query$`; Phase 2 found no templates to convert.
 7. **[decided 2026-10-17] Command namespace and crate.** The namespace is `template`
    (`ns-template/render`, `expand`, `validate`), and the crate is `liquers-template`, so that other template
    syntaxes can join Mustache there later. The design folder keeps its slug `liquers-mustache`.
@@ -238,12 +240,12 @@ Phase 2.
    consumes nested `{{…}}` as placeholders, and the tag ends at the first unbalanced `}}`. The rule
    applies to both `$` and `$$`.
 
-10. **[proposed] A data interface in `liquers-core`.** A sync `DataNode` and an async
+10. **[accepted 2026-10-17] A data interface in `liquers-core`.** A sync `DataNode` and an async
     `AsyncDataNode`, joined by an `AnyNode` enum. Values in memory implement the sync trait, while
     record sources and store folders implement the async one. The renderer takes both, and sync
     consumers such as store handlers take only sync nodes. The design and the sync, async and dual
     comparison are in [`data-node-interface.md`](./data-node-interface.md). *Recommended: dual.*
-11. **[proposed] Apply syntax.** `{{$. q}}` applies `q` to the current context, as Mustache's
+11. **[accepted 2026-10-17] Apply syntax.** `{{$. q}}` applies `q` to the current context, as Mustache's
     `{{.}}` names it, and `{{$.name q}}` applies it to the value of `name`. Without the dot, `{{$ q}}`
     evaluates with no input. The marker composes with every query tag (`{{#$. q}}`, `{{$$. q}}`,
     `{{>$. q}}`). A query that itself begins with `.` is written after a space (`{{$ .x}}`), since

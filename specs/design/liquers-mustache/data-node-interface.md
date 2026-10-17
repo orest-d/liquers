@@ -99,6 +99,14 @@ Every implementation is a thin adapter, and none copies the data.
 
 ## Open points for Phase 2
 
+Settled in Phase 2 (2026-10-17): the trait gains `as_any` and a defaulted `index`, and streams use
+`NodeStream`; a store folder tells files from folders with `is_dir`; a `RecordSource` is adapted by
+the host, which has the resolver, not by `data_node`. **Key order** is the node's own (sorted for
+`Value::Object`, file order where the source keeps it): Mustache never iterates a map, so the
+renderer needs no order, and `to_json` keeps what the node gives.
+
+The points as first written:
+
 - Whether `NodeKind::Map` needs ordered keys (front matter keeps file order, while `Value::Object`
   is a `BTreeMap`).
 - How a store folder distinguishes a file child from a folder child without reading it.
