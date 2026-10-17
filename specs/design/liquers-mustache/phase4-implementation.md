@@ -34,8 +34,8 @@ before the wasm32 step.
 - [x] Step 10: Renderer, hosts and error modes (D8)
 - [x] Step 11: Validation
 - [x] Step 12: wasm32 build and Node tests (runner installed; D5 fallback not needed)
-- [ ] Step 13: liquers-lib commands, hosts and value adapters
-- [ ] Step 14: Registry export
+- [x] Step 13: liquers-lib commands, hosts and value adapters (D9)
+- [x] Step 14: Registry export
 - [ ] Step 15: Documentation
 - [ ] Step 16: Final checks
 

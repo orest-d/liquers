@@ -618,7 +618,7 @@ impl DataNode for Value {
 }
 
 /// A field of a value without a field-level view, taken from its JSON snapshot.
-fn snapshot_field<'a, T: serde::Serialize>(value: &T, name: &str) -> Option<NodeRef<'a>> {
+pub fn snapshot_field<'a, T: serde::Serialize>(value: &T, name: &str) -> Option<NodeRef<'a>> {
     match serde_json::to_value(value) {
         Ok(serde_json::Value::Object(mut map)) => {
             map.remove(name).map(|v| NodeRef::Owned(Box::new(v)))
@@ -628,7 +628,7 @@ fn snapshot_field<'a, T: serde::Serialize>(value: &T, name: &str) -> Option<Node
 }
 
 /// The field names of a value without a field-level view, from its JSON snapshot.
-fn snapshot_keys<'a, T: serde::Serialize>(value: &T) -> Box<dyn KeyIter<'a> + 'a> {
+pub fn snapshot_keys<'a, T: serde::Serialize>(value: &T) -> Box<dyn KeyIter<'a> + 'a> {
     match serde_json::to_value(value) {
         Ok(serde_json::Value::Object(map)) => {
             Box::new(map.into_iter().map(|(k, _)| Cow::Owned(k)).collect::<Vec<_>>().into_iter())

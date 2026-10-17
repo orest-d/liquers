@@ -470,13 +470,9 @@ impl<'h, H: TemplateHost> Renderer<'h, H> {
                 position: tag.position.clone(),
             })
             .await
-            .map_err(|e| {
-                if e.position.is_unknown() {
-                    e.with_position(&tag.position)
-                } else {
-                    e
-                }
-            })?;
+            // A position the error carries is in the evaluated query's own text, not the
+            // template's, so the tag's position replaces it (D9).
+            .map_err(|e| e.with_position(&tag.position))?;
         Ok((value, query))
     }
 }

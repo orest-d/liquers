@@ -63,10 +63,13 @@ LIB_CONFIGS=(
   "--no-default-features --features records-ipc --tests"
   "--no-default-features --features records-parquet --tests"
   "--no-default-features --features records-parquet,polars --tests"
+  "--no-default-features --features templates --tests"
+  "--no-default-features --features templates,records --tests"
   "--tests"
   "--target wasm32-unknown-unknown --no-default-features --features webui"
   "--target wasm32-unknown-unknown --no-default-features --features webui,records"
   "--target wasm32-unknown-unknown --no-default-features --features webui,records,records-ipc"
+  "--target wasm32-unknown-unknown --no-default-features --features webui,templates"
 )
 
 # liquers-records has no default features: each format behind its own flag, and every one of them

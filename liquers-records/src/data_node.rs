@@ -142,6 +142,10 @@ impl DataNode for RecordViewNode {
     fn to_json(&self) -> Result<serde_json::Value, Error> {
         crate::formats::shapes::to_json(self.view.as_ref(), crate::formats::shapes::JsonOrient::Records)
     }
+    /// The view itself (an `Arc<dyn RecordView>`), so a host can pass it on without a copy.
+    fn as_any(&self) -> Option<&dyn std::any::Any> {
+        Some(&self.view)
+    }
 }
 
 /// A record source as a list of rows, read by streaming it through `resolver`. Each row is a sync

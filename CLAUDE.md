@@ -213,7 +213,7 @@ Each test file that needs an optional dependency is gated — `#![cfg(feature = 
 when the whole file needs it, `#[cfg(feature = "…")]` on the single test when it does not — so a
 reduced configuration runs the subset that applies instead of failing to compile. Tests comparing
 against `specs/command_registry.yaml`, which is exported with the default features, are gated on
-all four groups (`egui`, `image-support`, `polars`, `records`).
+all five groups (`egui`, `image-support`, `polars`, `records`, `templates`).
 
 ### liquers-web
 

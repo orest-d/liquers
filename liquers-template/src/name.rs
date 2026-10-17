@@ -395,7 +395,7 @@ pub(crate) fn own(node: &NodeRef<'_>) -> AnyNode {
 }
 
 /// The name of a kind, in messages.
-pub(crate) fn kind_name(kind: NodeKind) -> &'static str {
+pub fn kind_name(kind: NodeKind) -> &'static str {
     match kind {
         NodeKind::Null => "null",
         NodeKind::Bool => "boolean",

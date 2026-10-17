@@ -255,7 +255,7 @@ which strict mode rejects before any query runs.
 | Partial cycle or depth exceeded | `Error::execution_error(msg).with_position(&pos)` |
 | Async-only node given to a sync consumer | `Error::not_supported(msg)` |
 | `cwd` link does not yield a key | Conversion error from `TryFrom<Value> for Key`, raised before the command runs |
-| Query evaluation failure | Propagated; `with_position(&tag_pos)` only when its own position is unknown |
+| Query evaluation failure | Propagated, with the tag's position: a position the error carried is in the query's own text (D9) |
 
 There is no `unwrap` or `expect` in library code, and every match on the new enums is exhaustive.
 
