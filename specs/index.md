@@ -8,9 +8,9 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 117
+Total rows: 118
 - P2: 53
-- P3: 64
+- P3: 65
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -73,6 +73,7 @@ Total rows: 117
 | [`DEPENDENT-ASSET-WEAK-REFERENCES-ARE-NEVER-PRUNED`](issues/DEPENDENT-ASSET-WEAK-REFERENCES-ARE-NEVER-PRUNED.md) | issue | The dependency manager never prunes dead weak dependents, so its lists grow with every distinct query | draft |  |  | P3 | S | core/assets |  | 2026-10-17 |
 | [`EXTERNAL-MANAGER-CANNOT-SHARE-AN-EVALUATION-SESSION`](issues/EXTERNAL-MANAGER-CANNOT-SHARE-AN-EVALUATION-SESSION.md) | issue | An external asset manager cannot hand a dependency its parent's evaluation session | draft |  |  | P3 | S | core/assets |  | 2026-10-12 |
 | [`LIB-BUILD-EMITS-UNUSED-AND-UNHANDLED-RESULT-WARNINGS`](issues/LIB-BUILD-EMITS-UNUSED-AND-UNHANDLED-RESULT-WARNINGS.md) | issue | A default liquers-lib build emits about 50 warnings, some for discarded Results | draft |  |  | P3 | S | lib/commands;build |  | 2026-10-11 |
+| [`NEW-FOLDER-WRITE-DOES-NOT-REFRESH-THE-PARENT-LISTING`](issues/NEW-FOLDER-WRITE-DOES-NOT-REFRESH-THE-PARENT-LISTING.md) | issue | A write that creates a folder does not refresh the listing of the folder above it | draft |  |  | P3 | S | core/assets |  | 2026-10-17 |
 | [`PY-VALUE-ENUM-OVERSIZED`](issues/PY-VALUE-ENUM-OVERSIZED.md) | issue | liquers-py's own Value enum is over 700 bytes because large variants are stored inline | draft |  |  | P3 | S | py |  | 2026-10-12 |
 | [`REPLACING-WRITE-KEEPS-DROPPED-DEPENDENCY-EDGES`](issues/REPLACING-WRITE-KEEPS-DROPPED-DEPENDENCY-EDGES.md) | issue | A write that replaces a keyed asset keeps the dependency edges its new metadata no longer lists | draft |  |  | P3 | S | core/assets |  | 2026-10-11 |
 | [`RESOURCE-STEP-VOLATILITY-IS-NEVER-CHECKED`](issues/RESOURCE-STEP-VOLATILITY-IS-NEVER-CHECKED.md) | issue | Resource plan steps always report non-volatile, behind a TODO that prints at runtime | draft |  |  | P3 | S | core/plan |  | 2026-10-12 |

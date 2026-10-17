@@ -3,7 +3,7 @@ title: Search
 kind: reference
 audience: internal
 area: [records, lib/commands]
-reviewed: 2026-10-13
+reviewed: 2026-10-17
 ---
 
 # Search
@@ -62,13 +62,42 @@ from `content` when present, otherwise from `read_text`.
 
 ## Non-evaluation
 
-Listings go through `AssetManager::listdir` and `get_asset_info`, which never start an asset, so a
-key only a recipe declares is listed with status `Recipe`. `read_text` reads **stored bytes only**:
+Listings go through `Context::record_listing` (the listing half of `-R-dir/<folder>`, built on
+`AssetManager::listdir`) and `get_asset_info`, which never start an asset, so a key only a recipe
+declares is listed with status `Recipe`. `read_text` reads **stored bytes only**:
 a non-directory entry whose status is `Ready`, `Source` or `Override` and whose media type is text
 (`text/*`, `application/json`, `application/x-yaml`, `application/x-toml`, `application/xml`, or a
 `+json` / `+xml` type; from `AssetInfo.media_type`, else the file extension). Bytes are cut at a
 UTF-8 boundary after `max_bytes`; non-UTF-8 bytes are not text. The only evaluation is of an
 explicit `Key` or `Query` value given to `search`.
+
+## Dependencies
+
+A result records what it read, so it is reused while that stays the same and recomputed when it
+changes through the asset manager (a write, `set_binary`, `set_state`, a removal):
+
+| Read | Recorded | Expires the result when |
+|---|---|---|
+| Each folder walked (`catalog`, and every command given a folder) | `-R-dir/<folder>` at its listing version (`Context::record_listing`) | an entry is added to or removed from that folder |
+| Each file a catalog lists, its text read or not | `-R/<key>` at `AssetManager::version` (metadata only) | the file is written or removed |
+| Each file whose text is read (`read_text`) | `-R/<key>` at the version its bytes were read at; read again if the version moved, at most three times, else recorded as unknown | as above |
+| An explicit `Key` or `Query` value given to `search` | its query, through `Context::get_dependency_state` | it is recomputed |
+
+A recipe-only entry records the version its metadata gives, and nothing evaluates it. Records
+reach a chain built on the command (`…/catalog-t-t/search-x`) through core: a non-keyed dependency
+hands its dependent the records its run added (`DEPENDENCIES_STATUS.md`, row `Evaluate(query)`), and
+a keyed result stores them, so a stored index is checked against them when it is loaded.
+
+Not covered: edits made behind the asset manager's back while it runs
+(`ASSET-MANAGER-CANNOT-BE-SYNCHRONIZED-WITH-THE-STORE`); a file written into a **new** subfolder
+(`NEW-FOLDER-WRITE-DOES-NOT-REFRESH-THE-PARENT-LISTING`); a recipe-only entry that later becomes
+`Ready` (a first registration is not a change); a write that lands between reading a version and
+recording it (`RUNTIME-DEPENDENCY-RECORD-AGAINST-SUPERSEDED-VERSION-IS-NOT-CHECKED`). Results stored
+before 2026-10-17 carry no records and are recomputed only once something else expires them.
+
+Cost (`design/search-read-dependencies/performance.md`): one version read per entry, one listing
+per folder; at 5 000 files a catalog is about 1.3x on a memory store and 1.3x on a file store, and
+the first load of a stored keyed index in a process reads the metadata of every file it recorded.
 
 ## Grammar
 
@@ -249,6 +278,7 @@ is a `FilteredSource` with `SearchExpr::always()` and `limit = n`.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-17 | `## Dependencies`: results record the folders and files they read and expire when those change; listings through `Context::record_listing`. | `design/search-read-dependencies/` |
 | 2026-10-13 | `ns-rec/filter` as the unranked form; programmatic `SearchExpr` / `FieldTest` constructors and `StrictPredicate` used by the `ns-rec` filters; `FilteredSource` behind `ns-rec/head`. | `design/record-filter-commands/` |
 | 2026-10-11 | `field_extract`: a file with none of the requested fields is dropped; same-name collisions keep the first and warn; integers above `i64::MAX` are UInt or Text, never rounded (PR review). | phase-5, `design/store-and-asset-search/` |
 | 2026-10-11 | Created with the `ns-search` commands and `liquers-records` search. | phase-5, `design/store-and-asset-search/` |

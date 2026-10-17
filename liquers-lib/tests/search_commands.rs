@@ -809,3 +809,69 @@ async fn guide_queries_run() -> Res {
     }
     Ok(())
 }
+
+// ------------------------------------------------------------------------------------------------
+// Cost of recording reads (specs/design/search-read-dependencies/performance.md); run with
+// `cargo test -p liquers-lib --test search_commands -- --ignored --nocapture`
+// ------------------------------------------------------------------------------------------------
+
+const BENCH_FILES: usize = 5000;
+
+async fn bench_env(store: Box<dyn AsyncStore>) -> Result<EnvRef<CommandEnvironment>, Error> {
+    for i in 0..BENCH_FILES {
+        let key = parse_key(&format!("docs/d{}/f{i:05}.md", i % 10))?;
+        let mut metadata = Metadata::new();
+        metadata.set_filename(&format!("f{i:05}.md"))?;
+        metadata.set_status(Status::Source)?;
+        let animal = if i % 10 == 0 { "wombat" } else { "koala" };
+        let body = format!(
+            "---\nid: D{i}\nstatus: draft\n---\n# Doc {i}\n\nSome text about a {animal} and other doc things. {}\n",
+            "filler ".repeat(100)
+        );
+        store.set(&key, body.as_bytes(), &metadata).await?;
+    }
+    let mut env = CommandEnvironment::new();
+    {
+        let cr = env.get_mut_command_registry();
+        register_records_commands!(cr)?;
+        register_search_commands!(cr)?;
+    }
+    env.with_async_store(store);
+    Ok(env.to_ref())
+}
+
+async fn timed(env: &EnvRef<CommandEnvironment>, query: &str) -> Result<(std::time::Duration, usize), Error> {
+    let start = std::time::Instant::now();
+    let rows = view_of(env, query).await?.len();
+    Ok((start.elapsed(), rows))
+}
+
+#[tokio::test]
+#[ignore = "measurement, not a test"]
+async fn bench_search_dependency_cost() -> Res {
+    let catalog = "-R-key/docs/-/ns-search/catalog-t-f";
+    let chain = "-R-key/docs/-/ns-search/catalog-t-t/search-wombat-f-f-0/search-doc-f-f-0/search-text-f-f-0";
+
+    let env = bench_env(Box::new(AsyncMemoryStore::new(&Key::new()))).await?;
+    let (t_catalog, _) = timed(&env, catalog).await?;
+    let (t_chain, before) = timed(&env, chain).await?;
+    let (t_warm, _) = timed(&env, chain).await?;
+    let start = std::time::Instant::now();
+    write(&env, "docs/d1/f00001.md", "# Doc 1\n\nnow a wombat doc text\n").await?;
+    let t_write = start.elapsed();
+    let (t_recompute, after) = timed(&env, chain).await?;
+    eprintln!(
+        "BENCH memory n={BENCH_FILES} catalog={t_catalog:?} chain={t_chain:?} warm={t_warm:?} \
+         write={t_write:?} recompute={t_recompute:?} hits {before}->{after}"
+    );
+
+    let dir = std::env::temp_dir().join(format!("liquers-search-bench-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir)?;
+    let path = dir.to_str().ok_or("temp dir is not UTF-8")?.to_string();
+    let env = bench_env(Box::new(liquers_core::store::AsyncFileStore::new(&path, &Key::new()))).await?;
+    let (t_catalog, _) = timed(&env, catalog).await?;
+    eprintln!("BENCH file n={BENCH_FILES} catalog={t_catalog:?}");
+    let _ = std::fs::remove_dir_all(&dir);
+    Ok(())
+}

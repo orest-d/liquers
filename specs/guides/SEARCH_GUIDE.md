@@ -3,7 +3,7 @@ title: Search Guide
 kind: guide
 audience: both
 area: [lib/commands, records]
-reviewed: 2026-10-11
+reviewed: 2026-10-17
 ---
 
 # Search Guide
@@ -182,7 +182,12 @@ cargo run -p liquers-core --features cli --bin liquers-validate -- -- '<query>'
 
 - `status` in a plain catalog is the **asset** status (`Ready`, `Recipe`, …). A document's own
   status comes from `field_extract`.
-- Every search reads the folder again: there is no index yet
+- A result is cached, and recomputed when a folder it walked or a file it read changes through
+  Liquers (a write or removal through the asset manager), chains and recipe keys built on it
+  included. Not seen: edits made behind Liquers' back while it runs, and a file written into a
+  **new** subfolder (`issues/NEW-FOLDER-WRITE-DOES-NOT-REFRESH-THE-PARENT-LISTING.md`). Details:
+  `reference/SEARCH.md` §Dependencies.
+- A recomputed search reads the folder again: there is no index yet
   (`design/external-index-sync/`). Semantic search is not available.
 - A column name with spaces or `-` cannot be named in an expression.
 - `md_split` is a proof of concept; richer Markdown navigation is
@@ -195,4 +200,5 @@ cargo run -p liquers-core --features cli --bin liquers-validate -- -- '<query>'
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-17 | §7: results are cached and recomputed when what they read changes. | `design/search-read-dependencies/` |
 | 2026-10-11 | Created with the `ns-search` commands. | phase-5, `design/store-and-asset-search/` |
