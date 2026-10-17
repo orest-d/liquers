@@ -2,9 +2,8 @@
 id: FOREIGN-VALUE-TYPE-REGISTRATION
 kind: design
 title: Foreign and Python value types in the type registry
+status: complete
 workflow: liquers-project
-# No `status:` — `gh_pr` is set, so the status is GitHub's to derive (§5.5). With every phase now
-# done, `--sync` proposes `complete` once PR #42 merges.
 area: [core/value, lib/value, web, py]
 gh_pr: [42]
 issues: [FOREIGN-VALUE-TYPES-NOT-REGISTERED, PY-VALUE-TYPE-DESCRIPTIONS-MISSING, WEB-VALUE04-BYTES-IDENTIFIER-CASE-MISMATCH]
@@ -13,6 +12,8 @@ created: 2026-08-26
 superseded_by:
 ---
 # foreign-value-type-registration Design Tracking
+
+> **Complete on 2026-10-17** (backlog compaction): Phase 5 approved by the maintainer; the implementation (#42) is merged and every source issue it completed is closed.
 
 > **Acceptance scenarios not defined.** This design predates acceptance scenarios
 > (`specs/DOCS_STRUCTURE_GUIDE.md` §5.2.1). Consider updating it: state the Phase 1 acceptance

@@ -12,8 +12,8 @@ record; not edited later.
 | Open issues and features | 125 | 127 (2 filed this run) |
 | …without a design | 98 | 80 |
 | …`S` without a design | 20 | 1 (`TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS`, folded into `DATA-FORMAT-CONSTANTS-AND-TOOLING` by decision D8 of 2026-10-08) |
-| Open designs | 68 | 51, and 33 if the Phase 5 approvals below are confirmed |
-| …`ready` / `needs-decision` / `covered` / `phase2-blocked` | 35 / 2 / 14 / 1 | 26 / 9 / 0 / 2 |
+| Open designs | 68 | 33 |
+| …`ready` / `needs-decision` / `covered` / `phase2-blocked` | 35 / 2 / 14 / 1 | 14 / 9 / 0 / 2 |
 | …`autofix: eligible` and not yet implemented | 1 | 9 |
 
 `docs_index.py --check`: 0 errors before and after; 36 warnings, all pre-existing (`L` issues
@@ -39,8 +39,8 @@ so this run added one.
 - **Complete (14 coverage records):** `COVERED-01`…`COVERED-14`, whose covered issue is closed.
 - **Abandoned (1):** `expiration-integration-suite-failing-at-head`; its issue was closed at triage
   on 2026-08-12 because the suite already passed.
-- **Phase 5 awaiting approval (18), put to the maintainer:** five-phase designs with merged code,
-  closed sources and a written Phase 5: `opendal-derived-store-arguments`,
+- **Complete after Phase 5 approval (18):** five-phase designs with merged code, closed sources
+  and a written Phase 5, approved by the maintainer during this run (decision D1): `opendal-derived-store-arguments`,
   `asset-cancellation-outcome`, `command-cache-flag`, `csv-physical-lines-short-rows`,
   `js-store-effective-media-type`, `json-table-column-order`, `markdown-empty-text-and-tables`,
   `null-cell-string-option`, `rec-id-iso-date-parsing`, `simple-value-serializer-parity`,
@@ -125,8 +125,8 @@ its own branch, so no fix was started; the maintainer was asked to authorize the
 
 Ordered by what they unlock. Each names the recommendation recorded in its design.
 
-- **D1 — Phase 5 approval for the 18 shipped designs above.** Recommended: approve; they become
-  `complete`.
+- **D1 — Phase 5 approval for the 18 shipped designs above.** Decided during the run: approved,
+  all 18 are `complete`.
 - **D2 — `registry-query-default-text-form`:** also *write* a query default as text, not only read
   it? Recommended: yes (one-time `metadata_version` change for `template/render` and
   `template/expand`).

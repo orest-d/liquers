@@ -2,9 +2,8 @@
 id: ACTIVE-11
 kind: design
 title: Derived OpenDAL store arguments and offline S3 construction tests
+status: complete
 workflow: liquers-project
-status: in_review
-phase: documentation
 readiness: ready
 autofix: not-eligible
 area: [store/backends, store/config]
@@ -14,6 +13,8 @@ created: 2026-09-03
 ---
 
 # Design Tracking
+
+> **Complete on 2026-10-17** (backlog compaction): Phase 5 approved by the maintainer; the implementation is merged and every source issue it completed is closed.
 
 > **Acceptance scenarios not defined.** This design predates acceptance scenarios
 > (`specs/DOCS_STRUCTURE_GUIDE.md` §5.2.1). Consider updating it: state the Phase 1 acceptance

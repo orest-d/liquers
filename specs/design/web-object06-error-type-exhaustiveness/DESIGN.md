@@ -2,9 +2,8 @@
 id: WEB-OBJECT06-ERROR-TYPE-EXHAUSTIVENESS
 kind: design
 title: A compiler-checked ErrorType list for the OBJECT06 round-trip test
+status: complete
 workflow: liquers-project
-status: in_review
-phase: documentation
 readiness: ready
 autofix: not-eligible
 area: [web]
@@ -13,6 +12,8 @@ affects_docs: []
 created: 2026-10-04
 ---
 # web-object06-error-type-exhaustiveness Design Tracking
+
+> **Complete on 2026-10-17** (backlog compaction): Phase 5 approved by the maintainer; the implementation is merged and every source issue it completed is closed.
 
 > **Acceptance scenarios not defined.** This design predates acceptance scenarios
 > (`specs/DOCS_STRUCTURE_GUIDE.md` §5.2.1). Consider updating it: state the Phase 1 acceptance
