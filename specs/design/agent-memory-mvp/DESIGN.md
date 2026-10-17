@@ -231,6 +231,16 @@ The review also led to these fixes:
 
 `area` drops `axum`: `serve` is NEXT, and the MVP binary does not use `liquers-axum`.
 
+**Decision 1 revised at the gate (2026-10-17, Orest).** The draft had every command take its key as
+an argument, so that a tool schema could be generated from one command. Orest asked for Liquers
+style without losing generated schemas. Now the commands take their document (`-R/<key>`) or key
+(`-R-key/<path>`) as state; the basic tools are still generated from command metadata, with one
+key argument that `liquers-mcp` fills into the query structurally; and a read-only, allow-listed
+`memory_query` tool with a query guide and a command reference is the power layer. `read` stops
+being volatile. Core key placeholders (option C) are excluded for now and filed as
+`RECIPE-CANNOT-PARAMETERIZE-RESOURCE-KEY`. The discussion is in
+`/mnt/project-files/agent-memory-mvp/decision1-liquers-style-tools.md`.
+
 ## Links
 
 - [Phase 1](./phase1-high-level-design.md)

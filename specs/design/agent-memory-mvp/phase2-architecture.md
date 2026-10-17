@@ -11,21 +11,43 @@ Three layers, each usable without the next:
   as MCP tools. A tool is a declared query whose last action is one command, and its input schema
   is generated from that command's `CommandMetadata`.
 - **`liquers-agent`** (a new binary crate) reads one configuration file, builds the environment,
-  and offers `mcp` (stdio), `check`, `search` and `read`.
+  and offers `mcp` (stdio), `check`, `search`, `read` and `query`.
 
 Storage is configuration only: `read_only` mounts and `metadata` sections from `store-adapters`,
 plus one new read handler for fallback tiers.
 
-One decision shapes the rest. **Every memory tool calls exactly one `ns-mem` command, and every
-tool argument is an argument of that command.** Overrides reach only the last action of a query
-(`RECIPE-OVERRIDE-ONLY-LAST-ACTION`), never its resource segment. So the commands take their keys
-as arguments, not as state. Composite behaviour lives inside the commands, not in the tool layer:
-the duplicate check in `new`, the edit operations, and hiding superseded memories.
+One decision shapes the rest (decided at the Phase 2 gate, 2026-10-17). **The commands are written
+once, in Liquers style, and served through two interfaces.**
+
+- **The commands take what they act on as state.** A document comes from `-R/<key>`, and a folder
+  or the memory itself from `-R-key/<path>`, which evaluates to the key as a `Value::Key`. So
+  `-R/specs/issues/X.md/-/ns-mem/read-description` is an ordinary query, and the `ns-mem`
+  commands sit beside `ns-search` and `ns-rec` in queries an agent writes itself.
+- **Basic tools** are standard MCP tools, one per command, for any agent. Their schemas are
+  generated: the command's arguments as in any tool, plus one **key argument** that stands for
+  the state. The engine fills it into the tool query's resource segment structurally, never by
+  editing query text (§`liquers-mcp`).
+- **Power use** is one read-only tool, `memory_query`, that evaluates any Liquers query whose
+  commands are on an allow-list, plus a query guide and a command reference served as MCP
+  resources. The server's instructions point to them.
+
+Overrides still reach only the last action of a query (`RECIPE-OVERRIDE-ONLY-LAST-ACTION`), and
+core has no placeholder for a resource key. Both are designed around: every tool query has one
+action, and the key argument is filled by the engine. A core mechanism that would make a tool a
+`Recipe` with holes (option C in `/mnt/project-files/agent-memory-mvp/decision1-liquers-style-tools.md`)
+is excluded for now; it is filed as `RECIPE-CANNOT-PARAMETERIZE-RESOURCE-KEY`.
+
+Composite behaviour lives inside the commands, not in the tool layer: the duplicate check in
+`new`, the edit operations, and hiding superseded memories.
 
 Rejected:
 
 | Alternative | Why not |
 |---|---|
+| Keys as command arguments, every command a source command (Phase 2 draft) | The commands would not compose, so a query tool would add nothing, and a document read inside a command body records no dependency |
+| Splicing the key argument into the query text | Query injection: a key such as `x/-/ns-mem/write-…` would change the command. The engine substitutes a parsed, validated `Key` into the parsed `Query` instead |
+| Key placeholders and multi-action overrides in core (option C) | A core design of its own with open encoding questions; excluded for now and filed |
+| Tools hidden at first and revealed later (MCP `list_changed`) | Clients support it unevenly. All tools are listed from the start, and the instructions point to the power layer |
 | Composite tools assembled in `liquers-mcp` (`memory_new` = `similar` then `new`) | Puts memory semantics in the generic engine, against `workbench-direction.md` §2. The schema could no longer be generated from one command |
 | Write body as the evaluation payload (`interfaces-and-mcp.md` §6) | Argument overrides already carry long, unescaped text by name. A payload type is specific to the environment, and `payload: required` would make the CLI path special |
 | `ns-mem` commands returning record views | MCP results need `shown`/`total`, versions, and either/or shapes (`new`). Records stay available through `ns-search`, which the commands call |
@@ -57,24 +79,28 @@ These need confirmation at this gate. Each has a reason.
    only for entries that have data.
 6. **`liquers-agent` does not depend on `liquers-axum` in the MVP**, since `serve` is NEXT (Phase 1
    decision 5). The dependency arrives with `serve`.
+7. **A query tool and two resources are added**: `memory_query` (read-only, allow-listed
+   commands), `liquers://memory/query-guide` and `liquers://commands/{namespace}`. Phase 1 decision
+   11 listed nine tools; the MVP now has ten. AC-14 counts the basic tools, unchanged.
 
 ## Known-Issue Preflight
 
 | Issue | Status | Priority | Impact on this design | Fix first? | Blocking? | Action |
 |---|---|---|---|---|---|---|
 | `STORE-WRITE-HAS-NO-PRECONDITION` | draft | P2 · M | AC-6 is check-then-write: race-free across processes only once fixed | No | No | Design around (P8, one writer); monitor |
-| `SEARCH-COMMANDS-RECORD-NO-DEPENDENCY-ON-READ-FILES` | draft | P2 · M | A cached `ns-mem` read would go stale | No | No | Every `ns-mem` command is `volatile`; the schema is read through the store |
-| `ASSET-MANAGER-CANNOT-BE-SYNCHRONIZED-WITH-THE-STORE` | draft | — | AC-11 with the asset loaded | No | No | Per-mount `content_hash-on_change` and `version_verification` (`store-adapters` step 9); Phase 3 tests the loaded case |
-| `RECIPE-OVERRIDE-ONLY-LAST-ACTION` | draft | P3 · M | Tool arguments reach only the last action | No | No | Designed around: one command per tool |
+| `SEARCH-COMMANDS-RECORD-NO-DEPENDENCY-ON-READ-FILES` | draft | P2 · M | A cached result of a command that reads files in its body would go stale | No | No | Every `ns-mem` command that reads the store in its body is `volatile`. `read` is not: its document arrives as state through `-R/<key>`, a recorded dependency |
+| `ASSET-MANAGER-CANNOT-BE-SYNCHRONIZED-WITH-THE-STORE` | draft | — | AC-11 with the asset loaded; `read`'s state is the keyed asset | No | No | Per-mount `content_hash-on_change` and `version_verification` (`store-adapters` step 9); Phase 3 tests the loaded case, including a hand edit between two `read`s |
+| `RECIPE-OVERRIDE-ONLY-LAST-ACTION` | draft | P3 · M | Tool arguments reach only the last action | No | No | Designed around: every tool query has one action; the key argument is filled by the engine |
+| `RECIPE-CANNOT-PARAMETERIZE-RESOURCE-KEY` | draft (filed with this phase) | P3 · L | No core placeholder for the key of a resource segment | No | No | `liquers-mcp` substitutes the key structurally; core option C excluded for now |
 | `CORE-METADATA-NO-APPLICATION-ATTRIBUTES` | draft | P2 · M | `front_matter` projects only `title`/`description` | No | No | `ns-mem` reads the other fields from the front-matter itself |
-| `COMMAND-CANNOT-BE-RUN-WITH-A-RESTRICTED-CONTEXT` | draft | P2 · M | Needed only for a raw query tool | No | No | No raw query tool; `root` is never a tool argument |
+| `COMMAND-CANNOT-BE-RUN-WITH-A-RESTRICTED-CONTEXT` | draft | P2 · M | `memory_query` must not write, but a command's body could | No | No | Enforced on the plan, not the context: every command in the plan, link queries included, must be on the tool set's allow-list, which names only commands reviewed not to write |
 | `NO-MARKDOWN-NAVIGATION-COMMANDS` | draft | P3 · L | AC-3 needs a section by heading | No | No | Absorb the minimum: `read`'s `section`, using `search/md_split.rs` `sections` |
-| `DIRECTORY-KEY-CANNOT-BE-EVALUATED-AS-A-RESOURCE` | draft | P3 · M | Folder queries | No | No | Commands take folder paths as arguments and list through the asset manager |
+| `DIRECTORY-KEY-CANNOT-BE-EVALUATED-AS-A-RESOURCE` | draft | P3 · M | `-R/<folder>` fails | No | No | Folder commands take `-R-key/<folder>`, a `Value::Key`, and list through the asset manager |
 | `STORE-CONFIG-SPEC-CANNOT-SCOPE-HANDLERS-TO-A-KEY` | draft | P3 · M | Tier handlers apply to a whole mount | No | No | `markdown_tiers` acts on `text/markdown` only (change 3) |
 | `REPLACING-WRITE-KEEPS-DROPPED-DEPENDENCY-EDGES` | draft | P3 · S | A memory rewritten by `set_binary` may expire a dependent needlessly | No | No | Needless recomputation only; monitor |
 | `SERIALIZED-BINARY-RETAINED-WITH-NO-DISPOSAL-POLICY`, `ENVIRONMENT-MANAGER-REFERENCE-CYCLE` | draft | — | A long-lived stdio server grows with writes | No | No | Monitor in Phase 3 (a test with many writes); writes keep no `AssetRef` |
 | `LIBRARY-CODE-USES-UNWRAP-AND-EXPECT` | draft | — | A panic in a linked library ends the MCP server | No | No | The new code has none; each tool call runs in a spawned task, so a panic becomes a tool error |
-| `EVALUATION-SESSION-VOLATILE-TEST-INTERMITTENT` | draft | — | Every `ns-mem` command is volatile | No | No | Tests call the commands through `apply`, not through a session |
+| `EVALUATION-SESSION-VOLATILE-TEST-INTERMITTENT` | draft | — | Most `ns-mem` commands are volatile | No | No | Tests call the commands through `apply`, not through a session |
 | `COMMAND-METADATA-ENHANCEMENTS` | accepted | P2 · L | MCP schemas need enum values | No | No | A local `EnumArgument` is enough; global enums are resolved in `build` |
 | `COMMAND-REGISTRY-HEADER-NAMES-GROUPS-NOT-FEATURES` | draft | — | A new registry group, `mem` | No | No | Follow the existing group convention |
 | `RESOURCE-NAME-ASCII-ONLY` | draft | — | Ids derived from titles | No | No | `IdCase::ScreamingKebab` transliterates to ASCII and drops the rest |
@@ -213,28 +239,51 @@ pub struct ToolSetDecl {
     #[serde(default)] pub cwd: Option<String>,                // the tool set's root; Recipe::cwd
     #[serde(default)] pub instructions: String,
     pub tools: Vec<ToolDecl>,
+    #[serde(default)] pub query_tool: Option<QueryToolDecl>,  // the power layer
     #[serde(default)] pub resources: Vec<ResourceDecl>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ToolDecl {
     pub name: String,                                         // without the prefix
-    pub query: String,                                        // encoded; last action = the command
+    pub query: String,                                        // encoded; one action = the command
+    #[serde(default)] pub key: Option<KeyArgumentDecl>,       // stands for the state
     #[serde(default)] pub description: Option<String>,        // default: CommandMetadata::doc
     #[serde(default)] pub fixed: BTreeMap<String, serde_json::Value>,  // overrides not offered
     #[serde(default)] pub read_only: bool,                    // MCP readOnlyHint
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct ResourceDecl { pub uri_template: String, pub tool: String, pub argument: String }
-// e.g. { uri_template: "liquers://memory/{+key}", tool: read, argument: key }
+pub struct KeyArgumentDecl {
+    pub name: String,                                         // "key" or "path"
+    #[serde(default)] pub description: Option<String>,        // default: "Key relative to the root"
+    #[serde(default)] pub required: bool,                     // else empty = the query's own key
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct QueryToolDecl {
+    pub name: String,                                         // "query"
+    pub allow: Vec<String>,                                   // CommandKey Display or "-ns-*" patterns
+    #[serde(default)] pub description: Option<String>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ResourceDecl {
+    Tool { uri_template: String, tool: String, argument: String },
+    // e.g. { uri_template: "liquers://memory/{+key}", tool: read, argument: key }
+    Text { uri: String, name: String, description: String, text: String },
+    // the query guide, compiled into the binary that declares it
+    Commands { uri_template: String, namespaces: Vec<String> },
+    // "liquers://commands/{namespace}": signatures and docs from the CommandMetadataRegistry
+}
 
 pub struct ToolRegistry { /* full name -> Tool { decl, set: usize, query: Query, command: CommandKey,
                               input_schema: Arc<serde_json::Map<String, serde_json::Value>>,
-                              hidden: BTreeSet<String> } */ }
+                              hidden: BTreeSet<String> }, plus each set's QueryTool { allow } */ }
 impl ToolRegistry {
     pub fn build(sets: Vec<ToolSetDecl>, cmr: &CommandMetadataRegistry) -> Result<Self, Error>;
 }
-pub fn argument_schema(command: &CommandMetadata, hidden: &BTreeSet<String>)
-    -> serde_json::Map<String, serde_json::Value>;
+pub fn argument_schema(command: &CommandMetadata, key: Option<&KeyArgumentDecl>,
+                       hidden: &BTreeSet<String>) -> serde_json::Map<String, serde_json::Value>;
+pub fn fill_key(query: &Query, argument: &str) -> Result<Query, Error>;   // structural, validated
+pub fn check_allowed(plan: &Plan, allow: &[String]) -> Result<(), Error>;  // walks link queries too
 
 pub struct McpServer<E: Environment> { envref: EnvRef<E>, tools: Arc<ToolRegistry> }
 impl<E: Environment> McpServer<E> {
@@ -252,7 +301,22 @@ pub async fn serve_stdio<E: Environment>(server: McpServer<E>) -> Result<(), Err
 - **`build`** parses each query and plans it once with `Recipe::to_plan`. From the last action it
   takes the `CommandKey`, and the `CommandMetadata` after `resolve_global_enums`. It refuses these
   with `Error::configuration_error`: a duplicate full name, a `fixed` name the command does not
-  have, an unregistered command, and a resource that names an unknown tool.
+  have, an unregistered command, a resource that names an unknown tool, a tool query with more
+  than one action, a `key` on a query that does not begin with a resource segment, and a `key`
+  name that clashes with a command argument.
+- **The key argument** (`fill_key`). The tool query's resource segment holds the base key, usually
+  `.` (`-R/./-/ns-mem/read`, `-R-key/./-/ns-mem/list`). The engine parses the argument with
+  `parse_key` and refuses an absolute key, an empty or `..` segment, and a segment beginning with
+  `-`; then it joins the key onto the base **in the parsed `Query`**, never in the text. Since the
+  recipe's `cwd` is the tool set's root, every key resolves under the root. An empty, optional key
+  leaves the base. In the schema the key argument comes first, as a string, with the declared
+  description; the command's `state_argument` supplies nothing else.
+- **The query tool** (`check_allowed`). `memory_query(query)` parses the text, plans it with the
+  tool set's `cwd`, and refuses the plan unless every action, including those of link queries
+  (`ParameterValue::DefaultLink`, `ParameterLink`, `OverrideLink`, `EnumLink`, planned
+  recursively), names a command matched by `allow`. Resource steps are allowed: the store is the
+  agent's own memory. The allow-list is the safety boundary, because a context cannot yet be
+  restricted (`COMMAND-CANNOT-BE-RUN-WITH-A-RESTRICTED-CONTEXT`). It is evaluated as `call` does.
 - **Hidden arguments** are `injected` ones, `fixed` names, and **every argument whose default link
   has a relative operand** (`Query::has_relative_operand`; this is how `root` is hidden). So an
   agent cannot redirect a tool outside its root, and `call` refuses a hidden name.
@@ -264,8 +328,9 @@ pub async fn serve_stdio<E: Environment>(server: McpServer<E>) -> Result<(), Err
   - `None` is skipped, and a `multiple` argument becomes an array.
   - `ArgumentInfo::description` and `label` become the description and title.
   - A `Value` default becomes `default`. A link default makes the argument optional.
-- **`plan` and `call`** share one builder. It makes a `Recipe` from the tool's query, with
-  `arguments` set to the call's arguments plus `fixed`, and `cwd` set to the tool set's `cwd`.
+- **`plan` and `call`** share one builder. It takes the key argument out of the call's arguments
+  and fills it with `fill_key`, then makes a `Recipe` from the resulting query, with `arguments`
+  set to the remaining arguments plus `fixed`, and `cwd` set to the tool set's `cwd`.
   - `call` then runs `get_asset_manager().apply(recipe, State::new(), None)`, `AssetRef::get` and
     `ValueInterface::try_into_json_value`. This evaluation is unmanaged, so nothing is cached
     between calls.
@@ -274,9 +339,13 @@ pub async fn serve_stdio<E: Environment>(server: McpServer<E>) -> Result<(), Err
   value as text only. An `Error` becomes `CallToolResult::error` with its Display, so the agent
   reads it. Only an unknown tool name is a protocol error.
 - **`get_info`** joins the tool sets' `instructions`. The memory tool set adds the README's L1 by
-  calling its `overview` tool once at start.
-- **Resources** come from `ResourceDecl`. `read_resource` matches the URI template and calls the
-  named tool. The engine knows nothing about memory.
+  calling its `overview` tool once at start, and one sentence pointing to the power layer: "For
+  anything the tools above cannot express, read `liquers://memory/query-guide` and use
+  `memory_query`."
+- **Resources** come from `ResourceDecl`. A `Tool` resource matches the URI template and calls the
+  named tool; a `Text` resource returns its text; a `Commands` resource renders the named
+  namespace's `CommandMetadata` (signature, arguments, doc) as Markdown, so the reference never
+  drifts from the registry. The engine knows nothing about memory.
 
 Bounds: `E: Environment` with `E::Value: ValueInterface`. `ServerHandler` requires
 `Send + Sync + 'static`, which `EnvRef<E>` and `Arc<ToolRegistry>` satisfy on native targets. The
@@ -307,9 +376,37 @@ Commands are registered before `build()`, because building compiles the mounts' 
 sections against the registry. The built-in tool set is `tools/memory.yaml`, compiled in with
 `include_str!`, and its `cwd` is set from `memory.root`.
 
-**Subcommands.** `mcp`, `check [PATH]`, `search TEXT [--in PATH] [--limit N]` and
-`read KEY [--tier T] [--section S]`. Each one calls `McpServer::call` with the matching tool, so the
-CLI and MCP share one code path.
+**Subcommands.** `mcp`, `check [PATH]`, `search TEXT [--in PATH] [--limit N]`,
+`read KEY [--tier T] [--section S]` and `query QUERY`. Each one calls `McpServer::call` with the
+matching tool, so the CLI and MCP share one code path and one allow-list.
+
+**Built-in tool set** (`tools/memory.yaml`, abridged):
+
+```yaml
+prefix: memory_
+tools:
+  - { name: overview, query: "-R-key/./-/ns-mem/overview", read_only: true }
+  - { name: list,   query: "-R-key/./-/ns-mem/list",   key: { name: path }, read_only: true }
+  - { name: search, query: "-R-key/./-/ns-mem/search", key: { name: path }, read_only: true }
+  - { name: read,   query: "-R/./-/ns-mem/read",       key: { name: key, required: true }, read_only: true }
+  - { name: edit,   query: "-R-key/./-/ns-mem/edit",   key: { name: key, required: true } }
+  # describe, new, write, check likewise
+query_tool:
+  name: query
+  allow: ["-mem-overview", "-mem-describe", "-mem-list", "-mem-search", "-mem-read",
+          "-mem-similar", "-mem-check", "-rec-*", "-search-*"]
+resources:
+  - { kind: tool, uri_template: "liquers://memory/{+key}", tool: read, argument: key }
+  - { kind: text, uri: "liquers://memory/query-guide", name: query-guide,
+      description: "Liquers queries over this memory", text: "<include_str!(query-guide.md)>" }
+  - { kind: commands, uri_template: "liquers://commands/{namespace}", namespaces: [mem, rec, search] }
+```
+
+`tools/query-guide.md` is short: the query shape (`-R/<key>` for a document, `-R-key/<folder>`
+for a folder, `/-/` before the first command), escaping, five worked queries, and the link to
+`liquers://commands/{namespace}`. Its queries are checked by `liquers-validate` in a test.
+Whether `-rec-*` and `-search-*` contain no writing command is checked by that test too, against
+the registry.
 
 - Output is JSON on stdout, or YAML with `--format yaml`. Diagnostics go to stderr.
 - `check` exits 1 when it finds an error.
@@ -333,58 +430,85 @@ All ten commands are registered in namespace `mem` by `register_mem_commands!` i
 
 Every command:
 
-- is `async` and `volatile: true` (see the preflight);
-- takes no state;
+- is `async`;
+- takes state, in one of two kinds:
+  - **document state** (`read` only): the document's value from `-R/<key>`. Its key is the
+    state's `MetadataRecord.key`; the value supplies the text, and the metadata supplies `title`
+    and `description` (filled by `front_matter` and `markdown_tiers`). A state without a key is
+    accepted, and `read` then reports no `key` and no `version`;
+  - **key state** (all others): a `Value::Key` from `-R-key/<path>`, converted with
+    `TryFrom<Value> for Key`, as link arguments are. Any other value is refused with
+    `Error::general_error`. A key state avoids evaluating a folder
+    (`DIRECTORY-KEY-CANNOT-BE-EVALUATED-AS-A-RESOURCE`) and, for writes, a document that is
+    about to be replaced;
+- is `volatile: true`, except `read`, whose input is a recorded dependency (see the preflight);
 - returns a JSON-shaped `Value` (`ValueInterface::try_from_json_value`);
-- ends with `root: Key = query "-R-key/."` (`COMMAND_REGISTRATION_GUIDE.md` §cwd).
+- ends with `root: Key = query "-R-key/."` (`COMMAND_REGISTRATION_GUIDE.md` §cwd), the memory's
+  root, where `_schema/memory.yaml` is found. A key state is relative to the same working
+  directory, so `-R-key/./…` and `root` agree unless a query overrides `root`.
 
-`root` comes last, against the guide's ordering pitfall, for two reasons. Promotion affects only
-the encoded identity of a cached asset, and these commands are volatile. With the key arguments
-first, the CLI form also reads naturally (`ns-mem/read-specs~/issues~/X.md`). `liquers-template`
-made the same choice (its question 14). The MCP server sets the root through `Recipe::cwd` and
-never exposes `root`.
+`root` comes last, against the guide's ordering pitfall: promotion affects only the encoded
+identity of a cached asset, the volatile commands are never cached, and `read` does not use
+`root`. `liquers-template` made the same choice (its question 14). The MCP server sets the root
+through `Recipe::cwd` and never exposes `root`.
 
 ```rust
-register_command!(cr, async fn overview(log_lines: i64 = 10, root: Key = query "-R-key/.", context) -> result
+register_command!(cr, async fn overview(state, log_lines: i64 = 10, root: Key = query "-R-key/.", context) -> result
     namespace: "mem" volatile: true doc: "The memory's README tiers, its collections with counts, and the latest log lines")?;
-register_command!(cr, async fn describe(collection: String = "", root: Key = query "-R-key/.", context) -> result
+register_command!(cr, async fn describe(state, collection: String = "", root: Key = query "-R-key/.", context) -> result
     namespace: "mem" volatile: true doc: "Collections, fields, vocabularies, templates; which are writable")?;
-register_command!(cr, async fn list(path: String = "", depth: i64 = 1, include_superseded: bool = false,
+register_command!(cr, async fn list(state, depth: i64 = 1, include_superseded: bool = false,
     limit: i64 = 100, root: Key = query "-R-key/.", context) -> result namespace: "mem" volatile: true)?;
-register_command!(cr, async fn search(text: String = "", path: String = "",
+register_command!(cr, async fn search(state, text: String = "",
     unit: String = "document" (enum: ["document", "section"]), filter: String = "", limit: i64 = 10,
     include_superseded: bool = false, root: Key = query "-R-key/.", context) -> result namespace: "mem" volatile: true)?;
-register_command!(cr, async fn read(key: String, tier: String = "full" (enum: ["title", "description", "full"]),
-    section: String = "", lines: String = "", root: Key = query "-R-key/.", context) -> result namespace: "mem" volatile: true)?;
-register_command!(cr, async fn similar(collection: String, title: String, description: String = "",
+register_command!(cr, async fn read(state, tier: String = "full" (enum: ["title", "description", "full"]),
+    section: String = "", lines: String = "", context) -> result namespace: "mem")?;
+register_command!(cr, async fn similar(state, collection: String, title: String, description: String = "",
     limit: i64 = 5, root: Key = query "-R-key/.", context) -> result namespace: "mem" volatile: true)?;
-register_command!(cr, async fn new(collection: String, title: String, description: String, fields: Value = "",
+register_command!(cr, async fn new(state, collection: String, title: String, description: String, fields: Value = "",
     body: String = "", force: bool = false, reason: String = "", root: Key = query "-R-key/.", context) -> result
     namespace: "mem" volatile: true)?;
-register_command!(cr, async fn write(key: String, body: String = "", title: String = "", description: String = "",
+register_command!(cr, async fn write(state, body: String = "", title: String = "", description: String = "",
     fields: Value = "", expected_version: String = "", supersedes: String = "", reason: String = "",
     root: Key = query "-R-key/.", context) -> result namespace: "mem" volatile: true)?;
-register_command!(cr, async fn edit(key: String, op: String (enum: ["replace", "set_field", "append_row"]),
+register_command!(cr, async fn edit(state, op: String (enum: ["replace", "set_field", "append_row"]),
     target: String, text: String, expected_version: String = "", reason: String = "",
     root: Key = query "-R-key/.", context) -> result namespace: "mem" volatile: true)?;
-register_command!(cr, async fn check(path: String = "", root: Key = query "-R-key/.", context) -> result
+register_command!(cr, async fn check(state, root: Key = query "-R-key/.", context) -> result
     namespace: "mem" volatile: true)?;
+```
+
+The state is what the command acts on: the memory's root for `overview`, `describe`, `similar`
+and `new` (whose `collection` argument picks the folder); a folder for `list`, `search` and
+`check`; the document's key for `write` and `edit`. `read`'s `version` is
+`Version::from_content` of the state's text, the function `commit` uses on the stored bytes;
+Phase 3 tests that the two agree for every document in `specs/`, since a disagreement would make
+every `expected_version` fail.
+
+Equivalent queries, as an agent writes them in `memory_query` or the CLI:
+
+```
+-R-key/specs/issues/-/ns-mem/list-2
+-R/specs/issues/NO-MARKDOWN-NAVIGATION-COMMANDS.md/-/ns-mem/read-description
+-R-key/specs/-/ns-mem/search-tiers
 ```
 
 `fields: Value` accepts both an empty text (the query-text default) and a JSON object (an MCP
 override).
 
-| Tool (`memory_`) | Command | Returns | AC |
-|---|---|---|---|
-| `overview` | `-mem-overview` | `{readme: {title, description}, collections: [{name, title, description, count}], log: [lines]}` | AC-15 |
-| `describe` | `-mem-describe` | the `CollectionSchema`s, with `enum_from` resolved and `writable` | AC-15, AC-13 |
-| `list` | `-mem-list` | `{entries: [{key, title, description, kind, status, asset_status, is_dir}], shown, total}` | AC-1, AC-8, AC-12, AC-17 |
-| `search` | `-mem-search` | `{hits: [{key, title, description, excerpt, score, matched, heading?, line?}], shown, total}` | AC-2, AC-8, AC-12 |
-| `read` | `-mem-read` | `{key, version, front_matter, content}` | AC-3 |
-| `new` | `-mem-new` | `{written: false, candidates}` or `{written: true, key, version}` | AC-4, AC-5 |
-| `write` | `-mem-write` | `{key, version_before, version_after}` | AC-5 to AC-8 |
-| `edit` | `-mem-edit` | as `write` | AC-6, AC-7, AC-16 |
-| `check` | `-mem-check` | `{violations: [{rule, key, severity, message}], counts, unsupported}` | AC-9 |
+| Tool (`memory_`) | Key argument → state | Command | Returns | AC |
+|---|---|---|---|---|
+| `overview` | — (root) | `-mem-overview` | `{readme: {title, description}, collections: [{name, title, description, count}], log: [lines]}` | AC-15 |
+| `describe` | — (root) | `-mem-describe` | the `CollectionSchema`s, with `enum_from` resolved and `writable` | AC-15, AC-13 |
+| `list` | `path` (optional) → `-R-key/<path>` | `-mem-list` | `{entries: [{key, title, description, kind, status, asset_status, is_dir}], shown, total}` | AC-1, AC-8, AC-12, AC-17 |
+| `search` | `path` (optional) → `-R-key/<path>` | `-mem-search` | `{hits: [{key, title, description, excerpt, score, matched, heading?, line?}], shown, total}` | AC-2, AC-8, AC-12 |
+| `read` | `key` → `-R/<key>` | `-mem-read` | `{key, version, front_matter, content}` | AC-3 |
+| `new` | — (root) | `-mem-new` | `{written: false, candidates}` or `{written: true, key, version}` | AC-4, AC-5 |
+| `write` | `key` → `-R-key/<key>` | `-mem-write` | `{key, version_before, version_after}` | AC-5 to AC-8 |
+| `edit` | `key` → `-R-key/<key>` | `-mem-edit` | as `write` | AC-6, AC-7, AC-16 |
+| `check` | `path` (optional) → `-R-key/<path>` | `-mem-check` | `{violations: [{rule, key, severity, message}], counts, unsupported}` | AC-9 |
+| `query` | — (any query) | allow-listed commands | the query's value, as JSON | power layer |
 
 How each acceptance scenario is met:
 
@@ -424,7 +548,7 @@ How each acceptance scenario is met:
   appears with `asset_status: Recipe` and is not evaluated (P5, as in `ns-search`).
 - **AC-13.** A `read_only: true` mount, plus `writable: false` on its collection, which `describe`
   reports.
-- **AC-14.** The nine tools above, served by `liquers-agent mcp`.
+- **AC-14.** The nine basic tools above, served by `liquers-agent mcp`, plus `memory_query`.
 - **AC-16 (edits).**
   - `replace` requires exactly one match.
   - `set_field` checks `enum` and `transitions`.
@@ -530,7 +654,7 @@ CLI, errors go to stderr and the exit code is 1.
 | `reference/AGENT_MEMORY_SERVICE.md` | reference, new; area `[lib/commands, mcp]`; for agents and developers | Layout, the `memory.yaml` format, tiers and fallbacks, commands and tools, the log format, the CLI, the two profiles |
 | `.claude/skills/liquers-memory/SKILL.md` | skill, new | When to use memory: orientation first, search before writing, L0/L1 with every write |
 | `guides/STORE_CONFIG_GUIDE.md` | update | `markdown_tiers` in the handler catalogue; `storage: none` for checkouts edited by hand. History row, `reviewed:` bump |
-| `guides/COMMAND_REGISTRATION_GUIDE.md` | update | New section "Commands served as MCP tools": one command per tool, keys as arguments, relative-default arguments hidden. History row, `reviewed:` bump |
+| `guides/COMMAND_REGISTRATION_GUIDE.md` | update | New section "Commands served as MCP tools": one command per tool, the state as a key argument filled structurally, relative-default arguments hidden, the query tool's allow-list. History row, `reviewed:` bump |
 | `reference/PROJECT_OVERVIEW.md` | update | The crate list gains `liquers-mcp` and `liquers-agent`. History row, `reviewed:` bump |
 | `DOCS_STRUCTURE_GUIDE.md` | update | §3 gains area `mcp` (`liquers-mcp` and `liquers-agent`); §4.8 names the `memory_new` route beside `docs_index.py new`. History row |
 | `CLAUDE.md` | update | Project structure and dependency flow gain the two crates |
@@ -551,25 +675,33 @@ Proposed `affects_docs`: `reference/AGENT_MEMORY_SERVICE.md`, `guides/STORE_CONF
 | Data | Writes edit hand-maintained files. The line-preserving editor and the write log keep this reviewable. A partial supersede (new memory written, old one not marked) is visible to `check` |
 | Concurrency | `set_binary` holds `key_mutation_lock`, but the version check runs before it, so two in-process writers can race. Accepted under P8; closed by `STORE-WRITE-HAS-NO-PRECONDITION` |
 | Performance | Volatile reads re-list and re-read a collection per call (`specs/issues`: about 300 files, 1.15 MB). Acceptable at an agent's call rate; revisited with the search-dependency fix |
-| Security | No raw query tool, and `root` cannot be overridden. Writes are limited to writable collections and mounts. Stdout carries MCP frames, so a stray `println!` in a linked library breaks the server (`CLAUDE.md` forbids it) |
+| Security | Tool arguments cannot change a query's shape: the key is substituted structurally and validated, and `root` is hidden. `memory_query` is limited by its allow-list, checked on the whole plan including link queries; it can read any mount of the agent's store and cannot write. Writes are limited to writable collections and mounts. Stdout carries MCP frames, so a stray `println!` in a linked library breaks the server (`CLAUDE.md` forbids it) |
 | Dependencies | `rmcp` 3.5.1 (MSRV 1.88 ≤ 1.95), features `server` and `transport-io` only. The version is pinned, because protocol types change between minor versions |
 | Recovery | Revert the crates, and remove `mem` from `default`. Memory files are plain Markdown |
 | Certainty and open questions | High for the commands and the engine. **Medium** for byte-for-byte `check` parity, because `docs_index.py` also has rules over the whole corpus, and for the cost of `storage: none` plus `front_matter` on large listings, which Phase 3 measures |
 
 ## Open Questions
 
-1. **Keys as arguments, not state.** Every `ns-mem` command is a source command that takes `key`
-   or `path` arguments, so one MCP tool is one command. Recommended: yes.
+1. **Two interfaces over Liquers-style commands.** DECIDED 2026-10-17 (Orest): commands take
+   their document or key as state; basic tools are generated from command metadata with a key
+   argument filled structurally; `memory_query` plus a query guide and command reference form the
+   power layer. Core option C excluded for now (`RECIPE-CANNOT-PARAMETERIZE-RESOURCE-KEY`).
 2. **The write body as an argument** (an override), not the evaluation payload. Recommended: yes.
-3. **All `ns-mem` commands volatile** until `SEARCH-COMMANDS-RECORD-NO-DEPENDENCY-ON-READ-FILES` is
-   fixed. Recommended: yes.
+3. **Every `ns-mem` command volatile except `read`** until
+   `SEARCH-COMMANDS-RECORD-NO-DEPENDENCY-ON-READ-FILES` is fixed; `read`'s input is a recorded
+   dependency. Recommended: yes.
 4. **Schema location:** one `<root>/_schema/memory.yaml`, with vocabularies in sibling files.
    Recommended: yes. Per-collection files can come later without a format change.
 5. **Fallback tiers as a `store_config` handler** (`markdown_tiers`), configured per mount (change
    3). Recommended: yes. The handler also makes `key/info` show the fallback.
 6. **Results are JSON-shaped values**, not record views. Recommended: yes, with `ns-search` as the
-   composable layer.
+   composable layer. With commands now composable, `list` and `search` could instead return record
+   views that `ns-rec` filters and sorts; that would split each result into a table plus
+   `shown`/`total`, so it is left for NEXT.
 7. **`mem` as a default feature of `liquers-lib`**, so that the exported registry and
    `liquers-validate` know `ns-mem`. It adds only `indexmap`. Recommended: yes.
 8. **`storage: none` on writable checkout mounts.** No `.__metadata__` sidecars are written into
    the repository, and the record is re-derived on every read. Recommended: yes.
+9. **The query tool's allow-list**: the read-only `ns-mem` commands plus all of `ns-rec` and
+   `ns-search` (none of which writes, checked against the registry in a test). Recommended: yes.
+   Polars (`ns-pl`) and other namespaces can be added per profile.
