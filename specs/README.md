@@ -256,7 +256,7 @@ submit, and submitted query state is not preserved.
 - **Web API library** — built → [`design/web-api-library/`](design/web-api-library/)
 - **Browser and JavaScript integration** — built → [`design/liquers-web/`](design/liquers-web/)
 - **Async evaluation on wasm** — built → [`design/async-wasm-refactor/`](design/async-wasm-refactor/)
-- **Python wrapper** — built → [`design/python-wrapper/`](design/python-wrapper/)
+- **Python integration (liquers-py)** — designing → [`design/liquers-py/`](design/liquers-py/) *(supersedes [`design/python-wrapper/`](design/python-wrapper/))*
 - **Executor-agnostic core** — planned → [`issues/CORE-TOKIO-REMOVAL.md`](issues/CORE-TOKIO-REMOVAL.md)
 - **Browser stores (localStorage, fetch, JS, routing)** — built → [`design/liquers-web-store/`](design/liquers-web-store/)
 - **Browser-native store and command backend** — planned → [`issues/WEB-NATIVE-IO-TIER2.md`](issues/WEB-NATIVE-IO-TIER2.md)
