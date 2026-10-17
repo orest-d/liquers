@@ -8,9 +8,9 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 122
+Total rows: 123
 - P2: 54
-- P3: 68
+- P3: 69
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -80,6 +80,7 @@ Total rows: 122
 | [`REGISTRY-QUERY-DEFAULT-NOT-WRITABLE-AS-TEXT`](issues/REGISTRY-QUERY-DEFAULT-NOT-WRITABLE-AS-TEXT.md) | issue | A default link argument cannot be written as query text in a registry file | draft |  |  | P3 | S | core/commands;core/validate |  | 2026-10-17 |
 | [`REPLACING-WRITE-KEEPS-DROPPED-DEPENDENCY-EDGES`](issues/REPLACING-WRITE-KEEPS-DROPPED-DEPENDENCY-EDGES.md) | issue | A write that replaces a keyed asset keeps the dependency edges its new metadata no longer lists | draft |  |  | P3 | S | core/assets |  | 2026-10-11 |
 | [`RESOURCE-STEP-VOLATILITY-IS-NEVER-CHECKED`](issues/RESOURCE-STEP-VOLATILITY-IS-NEVER-CHECKED.md) | issue | Resource plan steps always report non-volatile, behind a TODO that prints at runtime | draft |  |  | P3 | S | core/plan |  | 2026-10-12 |
+| [`TEMPLATE-NON-SCALAR-HAS-NO-TEXT-FORM`](issues/TEMPLATE-NON-SCALAR-HAS-NO-TEXT-FORM.md) | issue | A template cannot index into a Query or Key value, and inserts other non-scalars as JSON | draft |  |  | P3 | S | lib/commands |  | 2026-10-17 |
 | [`TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS`](issues/TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS.md) | issue | TypeInfo cannot declare a format a type writes but cannot read back | draft |  |  | P3 | S | core/value |  | 2026-09-24 |
 | [`VALIDATE-COMMAND-STUB-REJECTS-POSITIONAL-EMPTIES`](issues/VALIDATE-COMMAND-STUB-REJECTS-POSITIONAL-EMPTIES.md) | issue | A liquers-validate --command stub rejects a query with empty positional parameters | draft |  |  | P3 | S | core/validate |  | 2026-10-12 |
 | [`CONTEXT-TITLE-LOST-ACROSS-PREDECESSOR-BOUNDARY`](issues/CONTEXT-TITLE-LOST-ACROSS-PREDECESSOR-BOUNDARY.md) | issue | A title or description set by a command in a cut predecessor does not reach the final asset | draft | needs-decision | not-eligible | P3 | M | core/context;core/plan | [phase1](design/context-title-predecessor-inheritance/phase1-high-level-design.md)  [phase2](design/context-title-predecessor-inheritance/phase2-architecture.md)  [phase3](design/context-title-predecessor-inheritance/phase3-examples.md)  [phase4](design/context-title-predecessor-inheritance/phase4-implementation.md)  | 2026-10-06 |
