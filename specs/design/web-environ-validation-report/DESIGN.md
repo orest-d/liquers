@@ -1,234 +1,246 @@
 ---
 id: WEB-ENVIRON-VALIDATION-REPORT
 kind: design
-title: A language-visible validation report for JavaScript command declarations
+title: A language-visible validation report for imported command metadata in liquers-web
 form: compact
 status: in_review
 phase: implementation
-readiness: needs-decision
+readiness: ready
 autofix: not-eligible
 area: [web, core/commands]
 issues: [WEB-ENVIRON-VALIDATION-REPORT-NOT-EXPOSED]
 affects_docs: [specs/reference/COMMAND_DECLARATION.md, specs/guides/LANGUAGE-INTEGRATION_GUIDE.md, liquers-web/README.md]
 created: 2026-10-17
 ---
-# A language-visible validation report for JavaScript command declarations
+# A language-visible validation report for imported command metadata in liquers-web
 
-Bulk design (`specs/guides/autonomous_bulk_design.md`). Phases 1-4 are written but not approved, and
-nothing is implemented.
+Bulk design (`specs/guides/autonomous_bulk_design.md`), revised on 2026-10-17 after the
+maintainer's answers (see Design Readiness). Phases 1-4 are written but not approved, and nothing is
+implemented.
 
 ## Phase 1: High-Level Design
 
 ### Purpose
 
-`ENVIRON08` (`LANGUAGE-INTEGRATION_GUIDE.md` §ENVIRON, added 2026-09-05) requires that invalid
-imported command metadata expose a complete language-visible report (severity, message, command
-identity) before the consuming operation raises its compact error. In `liquers-web` the imported
-metadata is the JavaScript command declaration, and the only consumer is `registerCommand`. Today
-every finding is flattened into one `ParameterError`: `CommandDeclaration::build`
-(`liquers-core/src/command_declaration.rs`) computes `metadata.check()` and keeps only
-`short_summary`, and `JsCommandSpec::parse` (`liquers-web/src/command/spec.rs`) adds its own
-JavaScript-specific refusals as single errors. A page has no way to list the findings.
+`ENVIRON08` (`LANGUAGE-INTEGRATION_GUIDE.md` §ENVIRON, from `specs/design/variadic-metadata-tail-check/`)
+is about **imported command metadata**: metadata deserialized from JSON or YAML, which only the
+environment build validates (`EnvironmentBuilder::build` → `CommandMetadataRegistry::check()`). The
+integration must expose that registry's complete report (severity, message, command identity) to
+the language before the consuming operation raises its compact error.
+
+`liquers-web` has no import path at all: a page can only register one declaration object at a time
+with `registerCommand`, and every finding is flattened into one `ParameterError`
+(`CommandDeclaration::build` keeps only `short_summary`; `JsCommandSpec::parse` adds single-error
+refusals). This design adds a batch import, accepting a serialized command metadata registry or an
+array of declarations, that produces the registry's own report, and makes registering and reporting
+one call.
 
 ### Problem Example
 
-```js
-await liquers.init();
-const spec = { name: "join", run: (...xs) => xs.join(""),
-               arguments: [{ name: "xs", multiple: true }, { name: "a" }, { name: "b" }] };
-liquers.registerCommand(spec);
-```
-
-Today: throws `LiquersError` with `type: "parameter_error"` and message `Command metadata contains 2
-errors; first: Argument 'a' is starved by multiple argument 'xs' on --join`. The second finding
-(`b`) is reported only as a count, and there is no call that returns both.
-
-Should be: `liquers.validateCommand(spec)` returns, without registering anything,
+A page ships its command metadata as YAML in the `specs/command_registry.yaml` format and binds the
+functions by name:
 
 ```js
-[{ severity: "error", message: "Argument 'a' is starved by multiple argument 'xs'",
-   command: { realm: "", namespace: "", name: "join" } },
- { severity: "error", message: "Argument 'b' is starved by multiple argument 'xs'",
-   command: { realm: "", namespace: "", name: "join" } }]
+const yaml = `
+commands:
+  - name: join
+    arguments:
+      - { name: xs, argument_type: string, multiple: true }
+      - { name: a,  argument_type: string }
+`;
+const report = liquers.registerCommands(yaml, { join: (...xs) => xs.join("") });
 ```
 
-and `registerCommand(spec)` still throws the same compact error.
+Today: there is no such call; a serialized registry cannot be imported, and `registerCommand` would
+report only `Command metadata contains 1 error; first: …` for a declaration.
+
+Should be: the call registers nothing and throws `LiquersError` (`type: "parameter_error"`, message
+`Command metadata contains 1 error; first: Argument 'a' is starved by multiple argument 'xs' on
+--join`) whose `report` property holds the full report:
+
+```js
+{ hasErrors: true, errorCount: 1, warningCount: 0,
+  summary: "Command metadata contains 1 error; first: …",
+  issues: [{ severity: "error", message: "Argument 'a' is starved by multiple argument 'xs'",
+             command: { realm: "", namespace: "", name: "join" } }] }
+```
+
+`liquers.validateCommands(yaml, impls)` returns the same report without registering anything.
 
 ### Scope and Acceptance Criteria
 
-- **AC-1** Complete report
-  - WHEN a declaration with several metadata errors is passed to `validateCommand`
-  - THEN it returns one entry per finding, each with `severity`, `message` and `command`
-- **AC-2** Preflight, not a side effect
-  - WHEN `validateCommand` is called on any declaration
-  - THEN nothing is registered and no environment is built or rebuilt, before or after `init()`
-- **AC-3** The compact error is unchanged
-  - WHEN `registerCommand` receives the same invalid declaration
-  - THEN it throws a `parameter_error` whose message equals the report's compact summary, and the
-    command is not registered
-- **AC-4** A valid declaration
-  - WHEN `validateCommand` receives a declaration that `registerCommand` accepts
-  - THEN it returns an empty array
-- **AC-5** JavaScript-specific refusals are findings too
-  - WHEN the declaration lacks a `run` function, has an empty `name`, or uses the reserved namespace
-  - THEN `validateCommand` returns one `error` entry carrying the message `registerCommand` throws,
-    with `command` set when a name is known and `null` otherwise
-- **AC-6** Core keeps one validation path
+- **AC-1** Complete report from the registry check
+  - WHEN `validateCommands` receives commands with several metadata errors
+  - THEN `report.issues` has one entry per finding of `CommandMetadataRegistry::check()` over the
+    candidate registry (current commands plus the batch), each with `severity`, `message`, `command`
+- **AC-2** One call registers or reports
+  - WHEN `registerCommands(input, impls)` finds no error
+  - THEN every command in the batch is registered, with at most one environment rebuild, and the
+    call returns the report (empty, or warnings only)
+- **AC-3** All or nothing, compact error with the report
+  - WHEN the batch has any error
+  - THEN nothing is registered, and the thrown `parameter_error`'s message equals `report.summary`
+    and its `report` property is the report `validateCommands` returns
+- **AC-4** Serialized registry input
+  - WHEN `input` is a JSON or YAML string in the `CommandMetadataRegistry` format
+  - THEN each command binds `impls[name]`; a command with no implementation is an error entry for
+    that command; an implementation naming no command is a warning
+- **AC-5** Declaration input
+  - WHEN `input` is a declaration object or an array of them
+  - THEN each goes through the existing declaration pipeline and its findings (including the
+    JavaScript-specific refusals: no `run`, empty name, reserved namespace, not an object) join the
+    same report; `command` is `null` when no name is known
+- **AC-6** Preflight is pure
+  - WHEN `validateCommands` is called, before or after `init()`
+  - THEN nothing is registered and no environment is built or rebuilt
+- **AC-7** Existing behaviour kept
+  - WHEN `registerCommand(spec)` is called
+  - THEN it behaves as `registerCommands([spec])`: same compact message as today, now also carrying
+    `report`
+- **AC-8** Core keeps one validation path
   - WHEN `CommandDeclaration::build` refuses metadata
   - THEN its message equals `CommandDeclaration::check().short_summary("Command metadata")`
 
-Non-goals: adopting `EnvironmentBuilder` in `liquers-web`; a report on the explicit `Environment`
-instance (it cannot register commands); surfacing declaration `Warning`s (JavaScript runs with
-`conventions: false`, so the convention warnings are unreachable).
+Non-goals: adopting `EnvironmentBuilder` in `liquers-web`; registering on an explicit
+`Environment` instance (it cannot register today); exporting a registry document from the page.
 
 ### Design Readiness
 
-- **Readiness:** needs-decision
-- **Automatic fixing:** not-eligible — adds a `pub` method to `liquers-core`'s `CommandDeclaration`
-  and a function to the JavaScript binding (rule 4), across two crates (rule 6).
-- **Leading issue:** Proposed resolution — the JavaScript surface.
-- **Explanation:** The report already exists in core and only needs to stop being flattened; the
-  rest is a mapping and one new binding function, so Phases 3-4 are safe under the proposed shape.
-- **Open questions:**
-  1. **Proposed resolution - binding surface:** add a module-level `validateCommand(spec):
-     LiquersIssue[]` preflight, and leave `registerCommand`'s thrown error as it is. Alternatives:
-     attach an `issues` array to the thrown `LiquersError` (changes the ERROR shape for one call
-     site, and the guide asks for the report *before* the consuming call), or a
-     `validationReport()` accessor holding the last failure (stateful, stale after a rebuild).
-     Recommended: `validateCommand`.
-  2. **Proposed resolution - entry shape:** `{severity, message, command: {realm, namespace,
-     name} | null}` with severity as the lowercase `IssueSeverity` display name. Not serde's
-     externally tagged `Issue` enum, which would surface `{CommandRegistry: {...}}`.
+- **Readiness:** ready
+- **Automatic fixing:** not-eligible — new JavaScript functions and a new error property (rule 4), a
+  `pub` method in `liquers-core` (rule 4), two crates (rule 6).
+- **Leading issue:** None
+- **Explanation:** Maintainer decisions of 2026-10-17: a preflight report (accepted), but ergonomic,
+  so one call accepts several commands and either registers them or hands back the report; ENVIRON08
+  concerns imported (serialized) command metadata, whose registry check produces its own report; the
+  entry shape follows the existing `IssueReport` / `Issue` (checked: `Issue::CommandRegistry` carries
+  exactly `severity, realm, namespace, name, message`; `Issue::Generic` maps to `command: null`).
+- **Open questions:** None. Implementation detail resolved in Phase 2: in the registry form,
+  `impls[name]` is a function, or `{ run, state, async }` using the declaration fields' names and
+  defaults.
 
 ### Design Dependencies
 
-- `overlaps` `WEB-STORE-CONFIG-NOT-APPLIED-THROUGH-ENVIRONMENT-CONFIG` (no design yet): both
-  concern how `liquers-web` assembles its environment, but this design does not adopt
-  `EnvironmentBuilder` and touches the command path, not `apply_store`. Weak overlap; either order.
-- `overlaps` the design for `LANGUAGE-GUIDE-STALE-LIQUERS-WEB-CLAIMS`:
-  both edit `LANGUAGE-INTEGRATION_GUIDE.md`, in different paragraphs; whichever lands second
+- `overlaps` `WEB-STORE-CONFIG-NOT-APPLIED-THROUGH-ENVIRONMENT-CONFIG` (no design): same environment
+  assembly, different change site (`apply_store`); either order.
+- `overlaps` `language-guide-web-claims`: different paragraphs of the same guide; the later one
   rebases its History row.
 
 ### Consolidated Findings
 
-- `EnvironmentBuilder::validate` checks only the assembled registry. In `liquers-web` an invalid
-  JavaScript declaration is refused before it reaches the registry, so adopting the builder would
-  report nothing ENVIRON08 is about. The report has to come from the declaration path.
-- Core's `build` must derive its error from the new `check`, so the compact message and the report
-  cannot drift (AC-6).
-- `validateCommand` must reuse `JsCommandSpec::parse`'s stage-1 logic rather than copy it: the
-  plan splits `parse` into a report-producing core and a thin error wrapper.
-- The guide's ENVIRON paragraph speaks of "an integration using `EnvironmentBuilder`"; it gains one
-  sentence covering integrations that validate per declaration.
-- Two crates, one new binding function, one TypeScript declaration and stub entry.
+- `EnvironmentBuilder::validate` is exactly `CommandMetadataRegistry::check()`; running that check
+  on a candidate registry gives the guide's report without adopting the builder.
+- A batch registers through one rebuild, which also softens `POST-INIT-COMMAND-REGISTRATION` for
+  pages that register many commands after the first evaluation.
+- Registry-form commands must survive rebuilds like declarations do, so retention gains a second
+  entry kind (Phase 2).
 
 ## Phase 2: Architecture
 
 ### Solution
 
-Expose the per-declaration report that core already computes, and map it to JavaScript.
+1. **Core:** `CommandDeclaration::check(&self) -> IssueReport` returns what `build` validates
+   (normalisation, deserialization, `metadata.check()`); `build` becomes `check` + `short_summary` +
+   deserialize (AC-8).
+2. **Web, intake:** `ImportBatch::read(input, impls) -> (Vec<JsCommandSpec>, IssueReport)` in a new
+   private module `liquers-web/src/command/import.rs`. A string is parsed as YAML (which accepts
+   JSON, as `parse_store_config` does) into `CommandMetadataRegistry`; each command gets a
+   `JsCommandSpec::from_metadata(metadata, impl)`. An object or array goes through
+   `JsCommandSpec::check(spec)` (the report-producing core of today's `parse`). Duplicate keys
+   within the batch are error entries.
+3. **Web, validation:** clone the current command metadata registry (pending or shared
+   environment), add the batch's metadata, run `CommandMetadataRegistry::check()`, append to the
+   intake report.
+4. **Web, registration:** `register_commands_on(input, impls)` validates; on errors returns
+   `Err(report)`; otherwise registers each spec into the pending environment, or rebuilds once with
+   the whole batch, and retains it for replay.
+5. **Binding:** `validateCommands(input, impls?)` and `registerCommands(input, impls?)`;
+   `registerCommand(spec)` delegates to `registerCommands`. The thrown error is the existing
+   `LiquersError` with an added `report` property.
 
-1. **Core:** `CommandDeclaration::check(&self) -> IssueReport` runs what `build` runs (the
-   `state_argument` normalisation and deserialization) and returns `metadata.check()`; a
-   deserialization failure becomes one `Issue::command_registry` error with the command's name.
-   `build` becomes `check` + `short_summary` + deserialize, so there is one path.
-2. **Web:** `JsCommandSpec::check(spec: &JsValue) -> IssueReport` runs stage 1 and stages 2-5
-   (`apply_conventions`, `fill_defaults`, then `check`) and returns every finding; a stage-1
-   refusal is one error issue. `JsCommandSpec::parse` calls `check`, returns
-   `report.to_error("Command metadata")` with the `ParameterError` type when it has errors, and
-   otherwise finishes as today.
-3. **Binding:** module-level `validateCommand(spec)` in `liquers-web/src/lib.rs` returns
-   `js_sys::Array` of plain objects built by a private `issue_to_js` in
-   `liquers-web/src/error.rs`. It touches no thread-local, so it is callable before `init()`.
+Rejected: `EnvironmentBuilder` adoption (reworks the rebuild path, reports nothing more);
+attaching the report only to errors with no preflight (the guide wants it *before*); a stateful
+`validationReport()` accessor (stale after a rebuild); a non-throwing `registerCommands` that
+returns `{ok, report}` (a page that ignores the result continues silently).
 
-Rejected: routing `liquers-web` through `EnvironmentBuilder` (reports registry findings only, see
-Consolidated Findings, and would rework the rebuild path); duplicating `build`'s normalisation in
-`liquers-web` (drift); an `issues` field on the thrown error (open question 1).
-
-Known-issue preflight: `WEB-STORE-CONFIG-NOT-APPLIED-THROUGH-ENVIRONMENT-CONFIG` (P3) does not
-block. `POST-INIT-COMMAND-REGISTRATION` (accepted) is unaffected: `validateCommand` never rebuilds.
-`LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT` concerns the JS→Rust direction only.
+Known-issue preflight: `POST-INIT-COMMAND-REGISTRATION` (accepted) unchanged in kind, improved in
+cost; `LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT` concerns JS→Rust only. Nothing blocks.
 
 ### Changes
 
-- `liquers-core/src/command_declaration.rs`: new `pub fn check(&self) -> IssueReport` on
-  `CommandDeclaration`; private `validate` removed, `build` rewritten over `check`. Uses
-  `crate::issue_report::{Issue, IssueReport, IssueSeverity}`.
-- `liquers-web/src/command/spec.rs`: `pub fn check(spec: &JsValue) -> IssueReport` on
-  `JsCommandSpec`; `parse` delegates to it. Messages of stage-1 refusals are unchanged.
-- `liquers-web/src/error.rs`: `pub(crate) fn issue_report_to_js(report: &IssueReport) ->
-  js_sys::Array`.
-- `liquers-web/src/lib.rs`: `#[wasm_bindgen(js_name = validateCommand)] pub fn
-  validate_command(spec: typescript::JsCommandSpecObject) -> js_sys::Array`. Infallible: a
-  non-object argument is itself a finding.
-- `liquers-web/src/typescript.rs`: `export interface LiquersIssue { severity: "debug" | "info" |
-  "warning" | "error"; message: string; command: { realm: string; namespace: string; name: string }
-  | null }` and the return type `LiquersIssue[]`.
-- `liquers-web/scripts/check-stubs.sh` free-function list, `tests/stubs/valid_usage.ts`.
-- Errors: unchanged types; sync only; no command or registry change.
-- Documents: `COMMAND_DECLARATION.md` (the `check` entry point), the guide's ENVIRON paragraph,
-  `liquers-web/README.md` API section.
+- `liquers-core/src/command_declaration.rs`: `pub fn check(&self) -> IssueReport`; `build` over it.
+- `liquers-web/src/command/spec.rs`: `pub(crate) fn check(spec) -> (Option<JsCommandSpec>,
+  IssueReport)`, `pub(crate) fn from_metadata(metadata: CommandMetadata, implementation: &JsValue)
+  -> Result<JsCommandSpec, Issue>`; `parse` delegates to `check`.
+- `liquers-web/src/command/import.rs` (new, private): batch intake as above.
+- `liquers-web/src/environment.rs`: `validate_commands_on`, `register_commands_on`;
+  `REGISTERED_SPECS` becomes `Vec<Retained>` with `enum Retained { Declaration(JsValue),
+  Metadata(CommandMetadata, JsValue) }` (private), replayed by `rebuild_with` in order.
+- `liquers-web/src/error.rs`: `pub(crate) fn issue_report_to_js(&IssueReport) -> JsValue` and
+  attaching `report` to the `LiquersError` built for a refused batch.
+- `liquers-web/src/lib.rs`: the two bindings; `registerCommand` delegates.
+- `liquers-web/src/typescript.rs`: `LiquersIssue`, `LiquersIssueReport`, `CommandImplementation =
+  Function | { run: Function; state?: string; async?: boolean }`, `LiquersError.report?`.
+- `scripts/check-stubs.sh`, `tests/stubs/valid_usage.ts`.
+- Sync only; no command, registry export or core signature change besides `check`.
 
 ### Risks
 
 | Risk | Mitigation | Certainty |
 |---|---|---|
-| `build`'s error text changes for an existing caller | AC-6 test; `short_summary` input is the same report | high |
-| A stage-1 message changes while being moved | Existing `commands_COMMAND.rs` / `commands_DECLARATION.rs` assertions on messages | high |
-| Deserialization-failure wording differs between `check` and `build` | Both format through one helper | high |
-| Stub drift | `check-stubs.sh` STUBS02/03 | high |
-
-Likely test impact: none failing; `environ07_documented_operations_are_callable` gains a call.
+| `registerCommand` messages change | AC-7 test plus existing `commands_COMMAND` / `commands_DECLARATION` message assertions | high |
+| A replayed registry-form command differs from first registration | Replay uses the retained `CommandMetadata` and function, through `from_metadata` | high |
+| Registry check flags pre-existing commands | Built-ins pass `check()` today (`EnvironmentBuilder` builds them); a test asserts an empty report for a valid batch | high |
+| Stub drift | `check-stubs.sh` | high |
 
 ## Phase 3: Examples and Tests
 
 ### Examples
 
-The Problem Example (AC-1, AC-3). A valid `{ name: "hello", run: () => "hi" }` gives `[]` (AC-4).
-`validateCommand({ name: "x" })` gives `[{severity: "error", message: "Command \"x\" must have a
-`run` function", command: {realm: "", namespace: "", name: "x"}}]`; `validateCommand(42)` gives one
-entry with `command: null` (AC-5).
+The Problem Example (AC-1, AC-3, AC-4). A valid batch `registerCommands([{name: "a", run: () => 1},
+{name: "b", run: () => 2}])` returns an empty report and both commands evaluate (AC-2).
+`validateCommands(42)` gives one entry with `command: null` (AC-5).
 
 ### Tests
 
 Core, `liquers-core/src/command_declaration.rs` `mod tests`:
 
-- `check01_report_lists_every_metadata_issue` — two starved arguments give two `CommandRegistry`
-  errors naming the command: AC-1, AC-6
-- `check02_build_error_is_the_report_summary` — `build` error message equals
-  `check().short_summary("Command metadata")`: AC-6
-- `check03_deserialization_failure_is_one_issue` — a wrongly typed field gives one error naming the
-  command: AC-1
+- `check01_report_lists_every_metadata_issue`: AC-1, AC-8
+- `check02_build_error_is_the_report_summary`: AC-8
+- `check03_deserialization_failure_is_one_issue`: AC-1
 
-Web, `liquers-web/tests/environment_ENVIRON.rs`:
+Web, `liquers-web/tests/environment_ENVIRON.rs` (Node loop):
 
-- `environ08_validate_command_reports_every_issue` — the Problem Example: AC-1
-- `environ08_validation_registers_nothing` — before and after `init()`, the command is absent and
-  `commandNames` is unchanged: AC-2
-- `environ08_report_precedes_compact_registration_error` — `registerCommand` then throws
-  `parameter_error` with the summary message, command absent: AC-3
-- `environ08_valid_declaration_has_empty_report`: AC-4
-- `environ08_javascript_refusals_are_report_entries` — missing `run`, empty `name`, reserved
-  namespace, non-object: AC-5
-- `environ07_documented_operations_are_callable` (extended) — `validateCommand` is callable: AC-2
+- `environ08_serialized_registry_reports_every_issue` — the Problem Example: AC-1, AC-4
+- `environ08_refused_batch_registers_nothing_and_carries_the_report`: AC-3
+- `environ08_valid_batch_registers_with_one_rebuild` — after `init()` and one evaluation, a
+  three-command batch; all evaluate; the asset cache is discarded once: AC-2
+- `environ08_missing_and_unknown_implementations` — error for the first, warning for the second: AC-4
+- `environ08_declaration_refusals_are_report_entries`: AC-5
+- `environ08_validation_is_pure` — before and after `init()`: AC-6
+- `environ08_register_command_is_a_batch_of_one` — message unchanged, `report` present: AC-7
+- `environ08_registry_form_commands_survive_a_rebuild` — import, evaluate, register another
+  command, the imported one still evaluates: AC-2, AC-4
+- `environ07_documented_operations_are_callable` (extended): AC-6
 
 Run: `cargo test -p liquers-core --lib command_declaration`;
-`cargo test -p liquers-web --target wasm32-unknown-unknown --features debug-handles --test
-environment_ENVIRON`; `./liquers-web/scripts/check-stubs.sh`.
+`cargo test -p liquers-web --target wasm32-unknown-unknown --features debug-handles --test environment_ENVIRON`;
+`./liquers-web/scripts/check-stubs.sh`.
 
 ## Phase 4: Implementation Plan
 
 ### Steps
 
-- [ ] 1. `liquers-core/src/command_declaration.rs` `CommandDeclaration::check` — add it, rewrite `build` over it, remove `validate`; add `check01`-`check03` — `cargo test -p liquers-core --lib command_declaration`. Rollback: revert the file; nothing depends on it yet.
-- [ ] 2. `liquers-web/src/command/spec.rs` `JsCommandSpec::check` / `parse` — split as in Phase 2 — the existing `commands_COMMAND` and `commands_DECLARATION` suites under Node pass unchanged.
-- [ ] 3. `liquers-web/src/error.rs` `issue_report_to_js`; `liquers-web/src/lib.rs` `validate_command` — add the binding; add the `environ08_*` tests and extend `environ07_documented_operations_are_callable` — `cargo test -p liquers-web --target wasm32-unknown-unknown --features debug-handles --test environment_ENVIRON`.
-- [ ] 4. `liquers-web/src/typescript.rs`, `scripts/check-stubs.sh`, `tests/stubs/valid_usage.ts` — declare `LiquersIssue` and `validateCommand` — `./liquers-web/examples-web/quickstart/build.sh && ./liquers-web/scripts/check-stubs.sh`.
-- [ ] 5. Documents — `COMMAND_DECLARATION.md` (entry point), `LANGUAGE-INTEGRATION_GUIDE.md` ENVIRON paragraph (per-declaration integrations; History row, `reviewed:`), `liquers-web/README.md` API list; close the source issue — `python3 scripts/docs_index.py --check`.
+- [ ] 1. `liquers-core/src/command_declaration.rs` `CommandDeclaration::check` — add, rewrite `build` over it, tests `check01`-`check03` — `cargo test -p liquers-core --lib command_declaration`. Rollback: revert the file.
+- [ ] 2. `liquers-web/src/command/spec.rs` — split `parse` into `check` + wrapper; add `from_metadata` — existing `commands_COMMAND` / `commands_DECLARATION` suites pass unchanged.
+- [ ] 3. `liquers-web/src/command/import.rs` and `environment.rs` `validate_commands_on` — intake plus candidate-registry check — `environ08_serialized_registry_reports_every_issue`, `environ08_missing_and_unknown_implementations`, `environ08_declaration_refusals_are_report_entries`, `environ08_validation_is_pure`.
+- [ ] 4. `environment.rs` `register_commands_on`, `Retained`, `rebuild_with` — batch registration and replay — `environ08_valid_batch_registers_with_one_rebuild`, `environ08_registry_form_commands_survive_a_rebuild`.
+- [ ] 5. `error.rs`, `lib.rs` — `issue_report_to_js`, `report` on the error, the two bindings, `registerCommand` delegating — `environ08_refused_batch_registers_nothing_and_carries_the_report`, `environ08_register_command_is_a_batch_of_one`, then the full Node loop.
+- [ ] 6. `typescript.rs`, `check-stubs.sh`, `tests/stubs/valid_usage.ts` — `./liquers-web/examples-web/quickstart/build.sh && ./liquers-web/scripts/check-stubs.sh`.
+- [ ] 7. Documents — `COMMAND_DECLARATION.md` (`check`), the guide's ENVIRON paragraph (an integration without `EnvironmentBuilder` runs the registry check on its import path; History row, `reviewed:`), `liquers-web/README.md` (registering commands in bulk); close the source issue — `python3 scripts/docs_index.py --check`.
 
 ### Validation
 
-`cargo test -p liquers-core --lib`; the full Node loop
-`cargo test -p liquers-web --target wasm32-unknown-unknown --features debug-handles`;
-`bash scripts/check-build-matrix.sh` wasm32 rows; `python3 scripts/docs_index.py --check`; a final
-diff review for scope (no `EnvironmentBuilder` adoption, no registry change).
+`cargo test -p liquers-core --lib`; the full Node loop; `bash scripts/check-build-matrix.sh`
+wasm32 rows; `python3 scripts/docs_index.py --check`; a final diff review (no `EnvironmentBuilder`
+adoption, no command or registry-export change).

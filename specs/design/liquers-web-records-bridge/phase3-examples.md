@@ -25,7 +25,7 @@ A page reads a stored manifest as a source and sums rows chunk by chunk, holding
 ```js
 const src = await liquers.evaluate("-R/data/sales.manifest/-/ns-rec/to_record_source");
 let rows = 0;
-for await (const batch of await src.stream()) {   // env omitted → Environment.global()
+for await (const batch of await src.stream()) {   // chunks evaluate in the web environment
   rows += batch.numRows;
   batch.free();
 }
@@ -94,6 +94,6 @@ sources without chunk evaluation and a `ManifestSource::new(spec, None)` with ex
 
 - A page query cannot produce records until `ns-rec` is registered in the browser; every earlier
   RECORDS test built its batch in Rust.
-- `LiquersEnvironment::resolve()` is already public, so the `env` argument needs no new accessor.
+- Traversal resolves the web environment at each call (`with_global()`), so no new accessor is needed.
 - `liquers-validate` accepts `rows/ns-rec/from_json-records/nrows` and
   `-R/data/sales.manifest/-/ns-rec/to_record_source` against the committed registry.

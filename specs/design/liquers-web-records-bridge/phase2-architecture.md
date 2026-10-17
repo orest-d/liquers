@@ -3,8 +3,8 @@
 ## Overview
 
 Map `ExtValue::RecordSource` to a new exported `RecordSource` handle holding the `Arc<dyn
-RecordSource>`; traversal methods take an optional `Environment` and evaluate chunks through
-`liquers_records::EnvResolver` over that environment's `EnvRef`. `stream()` returns an async
+RecordSource>`; traversal methods evaluate chunks through `liquers_records::EnvResolver` over the
+web environment's `EnvRef` (`with_global()`), resolved at each call. `stream()` returns an async
 iterable built by a small JavaScript companion (`src/records_stream.js`) over a Rust
 `RecordStream` handle whose `nextBatch()` returns a `Promise<RecordBatch | null>`. Both handle kinds
 register their `Arc` in a thread-local registry under a `u32` id exposed as a marker property, so
@@ -12,8 +12,8 @@ register their `Arc` in a thread-local registry under a `u32` id exposed as a ma
 command set.
 
 Rejected:
-- Capture an environment at conversion time — `to_js_custom(&self)` has none; the global one is
-  wrong for `new Environment()`.
+- An environment argument on `stream`/`materialize` — there is one environment, the web
+  environment; a multi-environment (client/server) system is not defined yet (maintainer, 2026-10-17).
 - Consume the handle with wasm-bindgen's owned `TryFromJsValue` — invalidates the page's handle on a
   read-only pass-through.
 - Materialize a source on crossing — defeats the record-streams design for any large source.
@@ -45,8 +45,8 @@ impl LiquersRecordSource {
     #[wasm_bindgen(getter)] pub fn bounded(&self) -> bool;       // ChunkList::Known
     #[wasm_bindgen(js_name = schemaJson)] pub fn schema_json(&self) -> Option<String>;
     #[wasm_bindgen(js_name = manifestJson)] pub fn manifest_json(&self) -> Option<String>;
-    pub fn stream(&self, env: Option<LiquersEnvironment>) -> js_sys::Promise;      // async
-    pub fn materialize(&self, max_rows: usize, env: Option<LiquersEnvironment>) -> js_sys::Promise; // async
+    pub fn stream(&self) -> js_sys::Promise;                     // async
+    pub fn materialize(&self, max_rows: usize) -> js_sys::Promise; // async
     #[wasm_bindgen(getter, js_name = __liquersRecordHandle)] pub fn handle_id(&self) -> u32;
 }
 
@@ -77,8 +77,7 @@ Commands: none new. `liquers-web/src/builtins.rs` `register_builtin_commands` ad
   `from_js_custom` reads `__liquersRecordHandle` (only on objects) and returns
   `ExtValue::RecordView`/`RecordSource` from the registry.
 - `liquers-web/src/records.rs`: the types above; `src/records_stream.js` companion.
-- `liquers-web/src/environment.rs`: no change — the existing `pub fn LiquersEnvironment::resolve()`
-  gives the `EnvRef`; `None` → `with_global()`.
+- `liquers-web/src/environment.rs`: no change — `with_global()` gives the `EnvRef`.
 - `liquers-web/src/builtins.rs`: `ns-rec` registration.
 - `liquers-web/src/typescript.rs`: declarations for `RecordSource`, the iterable, `chunks()` entries.
 - `liquers-web/scripts/check-stubs.sh` / quickstart: the new exports appear in the `.d.ts` check.
@@ -91,7 +90,7 @@ Commands: none new. `liquers-web/src/builtins.rs` `register_builtin_commands` ad
   while a previous call is pending")`.
 - `materialize` past `max_rows`, schema mismatch, chunk failures: the `liquers-records` errors,
   unchanged, via `liquers_error_to_js`.
-- `init()` not run and no `env`: the existing `with_global()` error.
+- `init()` not run: the existing `with_global()` error.
 - Until Step 3 lands, Step 1's refusal: `Error::conversion_error("RecordSource", "a JavaScript value
   (a record source has no JavaScript representation yet; materialize it with ns-rec/materialize)")`.
 
@@ -103,7 +102,7 @@ The existing `rec` namespace (`ns-rec/from_json`, `to_record`, `to_record_source
 ## Documentation Architecture
 
 - `specs/guides/LANGUAGE-INTEGRATION_GUIDE.md` (guide, internal, `[web, records]`): §RECORDS "What
-  `liquers-web` does" — the source handle, `env` argument, handles crossing back; History row,
+  `liquers-web` does" — the source handle, traversal in the web environment, handles crossing back; History row,
   `reviewed:` bump.
 - `liquers-web/README.md`: a records usage section and `RECORDS` rows in `## Conformance`.
 - `affects_docs`: the two above.
@@ -112,10 +111,10 @@ The existing `rec` namespace (`ns-rec/from_json`, `to_record`, `to_record_source
 
 | Assessment | Finding |
 |---|---|
-| Files likely to change | `default_value.rs`, `records.rs`, `records_stream.js`, `builtins.rs`, `environment.rs`, `typescript.rs`, `tests/records_RECORDS.rs`, README, guide |
+| Files likely to change | `default_value.rs`, `records.rs`, `records_stream.js`, `builtins.rs`, `typescript.rs`, `tests/records_RECORDS.rs`, README, guide |
 | Crates and workflows affected | `liquers-web` only; the Node test loop, the stubs check, the quickstart build |
 | Existing tests likely to change | `records05`/`records06` (handle constructor gains an id); stubs snapshot |
 | New validation | `records01`, `02`, `04`, `07`, `08`, AC-6/AC-7 tests under Node |
 | Compatibility / data / concurrency / performance / security | Additive JS API. The `.wasm` grows with `ns-rec`; Step 2 records the before/after size of the quickstart build (no size budget exists today). Registry holds `Arc`s only while handles live; a leaked JS handle leaks as today. Single-threaded, no locks across awaits. |
 | Recovery | Each step reverts alone; Step 2 (commands) can be feature-gated off if the size budget fails |
-| Certainty and open questions | High for the mechanism; the three Phase 1 decisions are the open part |
+| Certainty and open questions | High for the mechanism; the JS→Rust direction (Phase 1 open question 1) is the open part |

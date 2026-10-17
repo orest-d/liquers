@@ -5,26 +5,22 @@
 - **Readiness:** needs-decision
 - **Automatic fixing:** not-eligible — adds exported JavaScript classes (`RecordSource`,
   `RecordStream`) and changes the JavaScript binding (rules 3 and 4); complexity `L`.
-- **Leading issue:** **Proposed resolution — how a source reaches an environment:** traversal methods
-  take the `Environment` explicitly (defaulting to the global one), because `to_js_custom` has no
-  environment to capture.
+- **Leading issue:** **Proposed resolution — JS→Rust direction** (open question 1).
+- **Decided 2026-10-17 (maintainer):** there is one environment, the web (client) environment; a
+  multi-environment system is not defined yet. Traversal therefore uses the web environment and takes
+  no environment argument. `ns-rec` is registered in the web environment.
 - **Explanation:** Every part has a working solution over existing public API (`RecordSource::chunks`,
   `stream`, `materialize`, `liquers_records::EnvResolver`, `register_records_commands!`), and the
-  tests run under the Node loop. Three choices change what a page sees and stay visible for review.
+  tests run under the Node loop. One choice that changes what a page sees remains for review.
 - **Open questions:**
-  1. **Proposed resolution — environment argument:** `source.stream(env?)`,
-     `source.materialize(maxRows, env?)`; omitted means `Environment.global()`. Rejected: capturing
-     the global environment at conversion time (wrong for `new Environment()` instances) and a
-     thread-local "current environment" set around every conversion (invisible coupling).
-  2. **Proposed resolution — JS→Rust direction:** an unmodified `RecordBatch` or `RecordSource`
+  1. **Proposed resolution — JS→Rust direction:** an unmodified `RecordBatch` or `RecordSource`
      handle crosses back as the same `Arc` (`ExtValue::RecordView` / `RecordSource`), found through a
      handle registry keyed by a marker property. A JavaScript-built table is **not** converted by the
      bridge: it crosses structurally and `ns-rec/from_json` makes it a record. A freed handle is
      refused with a `ConversionError` naming it.
-  3. **Proposed resolution — `ns-rec` in the browser:** the web environment registers the `ns-rec`
-     command set (`register_records_commands!`) whenever the `records` feature is on, so a page
-     query can produce records at all. Cost: a larger `.wasm`, whose before/after size
-     Step 2 records (there is no size budget to check against).
+
+Resolved: `ns-rec` is registered in the web environment whenever the `records` feature is on
+(maintainer, 2026-10-17); Step 2 records the `.wasm` size before and after for information.
 
 ## Purpose
 
@@ -58,8 +54,8 @@ const all = await src.materialize(10000);  // RecordBatch, or an error past 10 0
 
 - **AC-1** A source reaches JavaScript as a `RecordSource`
   - WHEN a query's value is an `ExtValue::RecordSource`
-  - THEN the page receives a `RecordSource` handle with `chunks()`, `stream(env?)`,
-    `materialize(maxRows, env?)`, `schemaJson()`, `manifestJson()`, `bounded` and `free()`
+  - THEN the page receives a `RecordSource` handle with `chunks()`, `stream()`,
+    `materialize(maxRows)`, `schemaJson()`, `manifestJson()`, `bounded` and `free()`
 - **AC-2** The async iterator yields the source's rows (`RECORDS08`)
   - WHEN a page runs `for await (const b of src.stream())`
   - THEN it receives one `RecordBatch` per view, in order, with the same rows as `materialize`
@@ -99,7 +95,7 @@ the bridge; the single-cell scalar (`web-records-single-cell-scalar`).
 ## Core Interactions
 
 Value bindings (`ExtValue::RecordView`/`RecordSource` across `JsExtensionBridge`); commands (`ns-rec`
-in the web environment); evaluation (`EnvResolver` over the chosen environment's `EnvRef`).
+in the web environment); evaluation (`EnvResolver` over the web environment's `EnvRef`).
 
 ## Crate Placement
 
@@ -126,9 +122,10 @@ in the web environment); evaluation (`EnvResolver` over the chosen environment's
 
 - No page query yields a record value today (no `ns-rec` in the browser), so AC-7 precedes every
   page-level example; its `.wasm` size cost is the one measurable risk.
-- `to_js_custom(&self)` has no environment, hence the `env` argument (decision 1).
+- `to_js_custom(&self)` has no environment; chunks are evaluated in the web environment, resolved
+  at each call (`with_global()`), so a rebuild between calls is harmless.
 - A wasm-bindgen handle cannot be borrowed back from a `JsValue` without consuming it; a `u32 → Arc`
-  registry filled in `From` and emptied in an unconditional `Drop` is the safe route (decision 2).
+  registry filled in `From` and emptied in an unconditional `Drop` is the safe route (open question 1).
 - `BoxRecordStream` must not be borrowed across an `await`: `nextBatch` takes it out of its
   `RefCell` and puts it back; a concurrent call is refused.
 - Order: refusal message → `ns-rec` → registry → handles → way back → records. Step 1 alone meets

@@ -35,8 +35,8 @@ Steps 4 and 5 may run in parallel after Step 3.
 - Depends on: none.
 - Proof: `records_ns_rec_commands_run_in_the_web_environment`;
   `./liquers-web/examples-web/quickstart/build.sh`.
-- Rollback: remove the line; if the size is unacceptable, gate it behind a new opt-in feature
-  (a decision for the reviewer).
+- Rollback: remove the line. Registration was decided by the maintainer (2026-10-17); the size is
+  recorded for information.
 
 ### Step 3: Handle registry and the batch handle's id and origin getters
 - Files / symbols: `liquers-web/src/records.rs` — private `RecordHandle`, `HANDLES`,
@@ -51,7 +51,7 @@ Steps 4 and 5 may run in parallel after Step 3.
 - Files / symbols: `liquers-web/src/records.rs` `LiquersRecordSource`, `LiquersRecordStream`;
   new `liquers-web/src/records_stream.js` (`asyncIterable(stream)` with `next()`/`return()`);
   `default_value.rs` `RecordSource` arm returns `LiquersRecordSource` (replacing Step 1's error).
-  `stream`/`materialize` resolve the environment (`env.resolve()` or `with_global()`), build
+  `stream`/`materialize` resolve the web environment (`with_global()`), build
   `EnvResolver::new(envref)`, and use `wasm_bindgen_futures::future_to_promise`. `nextBatch`
   takes the stream out of its `RefCell`, awaits `StreamExt::next`, and puts it back.
 - Depends on: Step 3.
