@@ -2,8 +2,8 @@
 id: STEP-VOLATILITY-IMPL-REMOVAL
 kind: design
 title: Remove the unreachable step-level volatility check and its runtime print
+gh_pr: [146]
 form: compact
-status: in_review
 phase: implementation
 readiness: ready
 autofix: eligible
