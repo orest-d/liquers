@@ -1,7 +1,7 @@
 ---
 id: LIQUERS-MUSTACHE
 kind: design
-title: liquers-mustache — a query-aware template language
+title: liquers-template — a query-aware template language (Mustache syntax)
 workflow: liquers-project
 status: in_review
 phase: architecture
@@ -11,12 +11,12 @@ merged: 2026-10-13
 affects_docs: [specs/reference/TEMPLATE_LANGUAGE.md, specs/guides/TEMPLATE_GUIDE.md, specs/reference/VALUE_TYPE_SYSTEM.md, specs/reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md, specs/reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md, specs/reference/PROJECT_OVERVIEW.md]
 created: 2026-10-13
 ---
-# liquers-mustache — a query-aware template language
+# liquers-template — a query-aware template language (Mustache syntax)
 
 ## Phases
 
 - [Phase 1](./phase1-high-level-design.md) — written 2026-10-13, revised twice on 2026-10-17 after review, **approved 2026-10-17**
-- [Phase 2](./phase2-architecture.md) — written and reviewed 2026-10-17, awaiting approval
+- [Phase 2](./phase2-architecture.md) — written and reviewed 2026-10-17, revised the same day after review, awaiting approval
 - [Phase 3](./phase3-examples.md)
 - [Phase 4](./phase4-implementation.md)
 - [Phase 5](./phase5-documentation.md)
@@ -56,3 +56,9 @@ parameter override that routes the query through `apply` (AC-16, which settles 2
 interface, `DataNode` / `AsyncDataNode`, was added (AC-15, open question 10). It brings a
 `liquers-core` change back, a new module this time rather than the parser. Filed
 `STORE-HANDLER-FIELD-ACCESS-HARDCODED` and `RECIPE-OVERRIDE-ONLY-LAST-ACTION`.
+
+**Revision 2026-10-17 (Phase 2 review)**, from the maintainer. The crate is renamed
+`liquers-template` and the namespace is `template`, so other template syntaxes can be added beside
+Mustache. The design folder keeps its slug. Highlighting (AC-10) was withdrawn and filed with its
+design as `TEMPLATE-HAS-NO-HIGHLIGHTER`. Open questions 12 and 13 were accepted. The command takes a
+`cwd` argument, and the AST is specified in Phase 2 on the model of `Query`.

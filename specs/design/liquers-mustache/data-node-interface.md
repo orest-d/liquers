@@ -72,7 +72,7 @@ issue, because templates only read.
 |---|---|---|---|
 | Values in memory: `Value`, `MetadataRecord`, a record view, a polars frame | Natural and cheap: a lookup is a function call | Every field lookup is a boxed future (`async_trait` allocates), and iterators become streams | Implemented sync, so they stay cheap |
 | `RecordSource` (`read_chunk` and `advance` are async) and store folders (`AsyncStore`) | **Excluded.** They must be materialized first: a source through `materialize` with its row cap, a folder through a full listing and read | Natural, and lazy: only the fields the template touches are read, so dependencies are exact | Implemented async, lazily |
-| Sync consumers: store handlers (`CompiledFn` is sync by design, with no interpreter and no locks), validation, highlighting, egui | Usable | **Unusable.** Bridging needs `block_on`, which is blocking in an async context and does not exist on wasm32 | They take `DataNode` and refuse an `Async` node with a clear error |
+| Sync consumers: store handlers (`CompiledFn` is sync by design, with no interpreter and no locks), validation, egui | Usable | **Unusable.** Bridging needs `block_on`, which is blocking in an async context and does not exist on wasm32 | They take `DataNode` and refuse an `Async` node with a clear error |
 | The renderer, which is async anyway because it evaluates queries | Usable, but it cannot take lazy data | Usable | Takes `AnyNode` and awaits only the async arms |
 | Cost | One trait | One trait, slower everywhere | Two traits, and consumers match two arms. Each type implements only the trait that fits it |
 

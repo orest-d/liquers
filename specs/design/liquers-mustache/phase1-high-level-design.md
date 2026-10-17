@@ -6,11 +6,11 @@ A template language that is part of Liquers: Mustache's familiar, logic-less tag
 native Liquers capabilities — tags that evaluate queries through the asset layer, Liquers values as
 template data, and **parametrized queries** with `{{…}}` inside them, in two forms: hygienic
 `{{$ …}}`, which fills the query's AST, and classic `{{$$ …}}`, which expands the text first. Its
-parser shadows the query parser (nom, `Position`), so a malformed query is reported at its line and column in the template,
-and its highlighter extends the query's. Each query tag either **evaluates** its query (the
+parser shadows the query parser (nom, `Position`), so a malformed query is reported at its line and column in the template. Each query tag either **evaluates** its query (the
 default) or **applies** it to the current context as input state, so one render command serves
 both, and any value implementing a core data trait (`DataNode`) can be the template's data. It lives in a new crate,
-`liquers-mustache`; `liquers-lib` provides the commands.
+`liquers-template` (renamed from `liquers-mustache` on 2026-10-17), whose Mustache syntax is the first of
+possibly several; `liquers-lib` provides the commands.
 
 ## Problem Example
 
@@ -83,10 +83,8 @@ rendered with an `area` argument it renders the same.
   WHEN a template is validated
   THEN all errors and warnings (unknown command, unknown partial, unused section close) are reported
   with positions, and no query, store read or command runs
-- **AC-10** Highlighting
-  WHEN a template is rendered for display (ANSI or HTML)
-  THEN template tags, data names and the queries inside tags are styled, the queries with the same
-  token kinds the query highlighter uses
+- ~~**AC-10** Highlighting~~ Withdrawn 2026-10-17 at the maintainer's request: moved, with its
+  design, to `TEMPLATE-HAS-NO-HIGHLIGHTER`.
 - **AC-11** Commands
   WHEN `liquers-lib` is built with its template feature
   THEN one command renders and one validates a template given by key, with the input state as the
@@ -98,12 +96,12 @@ rendered with an `area` argument it renders the same.
   THEN the referenced text is loaded through the asset layer, rendered as a template, and recorded as
   a dependency; a cycle of partials is an error, not a hang
 - **AC-13** Portable build
-  WHEN `liquers-mustache`, and `liquers-lib` with its `templates` feature, are built for
+  WHEN `liquers-template`, and `liquers-lib` with its `templates` feature, are built for
   `wasm32-unknown-unknown` (`scripts/check-build-matrix.sh`)
-  THEN both compile, and `liquers-mustache`'s parser and renderer tests pass under Node
+  THEN both compile, and `liquers-template`'s parser and renderer tests pass under Node
 - **AC-14** Parser parity with `liquers-core`
   WHEN a query with no placeholder is parsed by `liquers-core`'s `parse_query` and by
-  `liquers-mustache`'s query-template parser, over a corpus (the core parser's tests, the queries in
+  `liquers-template`'s query-template parser, over a corpus (the core parser's tests, the queries in
   `specs/`, recipes and the registry, and generated queries)
   THEN both accept the same queries, the template converts to a `Query` equal to the core result,
   positions included, and both reject the same queries at the same position
@@ -126,7 +124,7 @@ such decisions are commands that add data; replacing the query language.
 
 ## Core Interactions
 
-- **Query:** a shadow query parser in `liquers-mustache` produces a `QueryTemplate`, the query AST
+- **Query:** a shadow query parser in `liquers-template` produces a `QueryTemplate`, the query AST
   with placeholder nodes in positions P1–P6 ([`query-placeholders.md`](./query-placeholders.md)),
   kept equal to the core parser by AC-14. `liquers-core`'s `Query` is not changed.
 - **Assets:** a query tag with no apply marker and no override goes through `get_asset` (cached,
@@ -137,15 +135,15 @@ such decisions are commands that add data; replacing the query language.
   (`STORE-HANDLER-FIELD-ACCESS-HARDCODED`).
 - **Commands:** a template command set in `liquers-lib`; `simple_template` is subsumed.
 - **Value types:** a parsed template may become a value (cached AST); decided in Phase 2.
-- **UI:** the highlighter's styled tokens feed the existing query renderers; no editor.
+- **UI:** none; highlighting is `TEMPLATE-HAS-NO-HIGHLIGHTER` and an editor `NO-TEMPLATE-EDITOR-UI`.
 
 ## Crate Placement
 
-New crate **`liquers-mustache`**, depending on `liquers-core` only (nom and nom_locate are already
-core dependencies): grammar, AST, positions, diagnostics, highlighter, data model over core `Value`,
+New crate **`liquers-template`**, depending on `liquers-core` only (nom and nom_locate are already
+core dependencies): grammar, AST, positions, diagnostics, data model over core `Value`,
 and both evaluation modes over the `Environment` / asset-manager traits. **`liquers-lib`**: the
 commands (feature `templates`), the mapping of `ExtValue` (records, polars frames) into template data,
-and the egui rendering of highlighted templates. **`liquers-core`** gains one module,
+**`liquers-core`** gains one module,
 `data_node.rs` (open question 10), with its implementations for `Value`, `MetadataRecord` and
 `serde_json::Value`. Its parser is not changed (open question 8): the template crate has its own
 complete query parser, built on the public `escape` module, `Position` and `StyledQueryToken`,
@@ -212,11 +210,10 @@ Phase 2.
    A query section is closed by `{{/}}` (or `{{/$}}`), so the query is not repeated. Mustache's
    inheritance module also uses `{{$name}}`, and this design does not adopt that module.
 6. **[accepted 2026-10-17] `simple_template`.** Convert the existing templates and deprecate `$query$`.
-7. **[proposed] Command namespace.** *Recommended: `mustache`* (`ns-mustache/render`, `apply`,
-   `validate`). It names the language and the crate, and it leaves `template` free for a generic
-   concept. The earlier `tpl` read like a sibling of `pl` (polars). Confirmed at the Phase 2 gate with
-   the other namespaces.
-8. **[decided 2026-10-17] Parser.** A complete shadow implementation in `liquers-mustache` is
+7. **[decided 2026-10-17] Command namespace and crate.** The namespace is `template`
+   (`ns-template/render`, `validate`), and the crate is `liquers-template`, so that other template
+   syntaxes can join Mustache there later. The design folder keeps its slug `liquers-mustache`.
+8. **[decided 2026-10-17] Parser.** A complete shadow implementation in `liquers-template` is
    acceptable, under parity tests (AC-14): a query without placeholders parses identically in both
    parsers, up to `Query` versus `QueryTemplate`. `liquers-core`'s parser stays private.
 9. **[decided 2026-10-17] Nested braces in query tags.** Braces are balanced: the query parser

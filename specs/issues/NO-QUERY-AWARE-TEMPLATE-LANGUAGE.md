@@ -42,7 +42,7 @@ surface only at run time and without positions. The predecessor project used `mu
 
 ## Expected behaviour
 
-A new crate `liquers-mustache` (on `liquers-core`) with the parser, AST, highlighter and both
+A new crate `liquers-template` (on `liquers-core`; named `liquers-mustache` until 2026-10-17) with the parser, AST, highlighter and both
 evaluation modes, and `liquers-lib` commands to render, apply and validate templates. Design:
 `specs/design/liquers-mustache/`. A template editor is a separate issue (`NO-TEMPLATE-EDITOR-UI`).
 

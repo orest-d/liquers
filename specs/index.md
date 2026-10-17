@@ -8,9 +8,9 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 115
+Total rows: 116
 - P2: 52
-- P3: 63
+- P3: 64
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -107,6 +107,7 @@ Total rows: 115
 | [`STORE-CONFIG-FROM-URI`](issues/STORE-CONFIG-FROM-URI.md) | feature | A store cannot be configured from a URI | draft |  |  | P3 | M | store/config | [phase1](design/store-config-uri/phase1-high-level-design.md)  [phase2](design/store-config-uri/phase2-architecture.md)  | 2026-08-29 |
 | [`STORE-CONFIG-SPEC-CANNOT-SCOPE-HANDLERS-TO-A-KEY`](issues/STORE-CONFIG-SPEC-CANNOT-SCOPE-HANDLERS-TO-A-KEY.md) | feature | A store_config spec cannot limit its handlers to one key, folder or pattern | draft |  |  | P3 | M | core/store;store/config;core/plan |  | 2026-10-15 |
 | [`STORE-HANDLER-FIELD-ACCESS-HARDCODED`](issues/STORE-HANDLER-FIELD-ACCESS-HARDCODED.md) | issue | Store handlers read and write metadata fields through a hard-coded match of six names | draft |  |  | P3 | M | core/store;core/value | [data](design/liquers-mustache/data-node-interface.md)  [phase1](design/liquers-mustache/phase1-high-level-design.md)  [phase2](design/liquers-mustache/phase2-architecture.md)  [phase3](design/liquers-mustache/phase3-examples.md)  [phase4](design/liquers-mustache/phase4-implementation.md)  [phase5](design/liquers-mustache/phase5-documentation.md)  [query](design/liquers-mustache/query-placeholders.md)  | 2026-10-17 |
+| [`TEMPLATE-HAS-NO-HIGHLIGHTER`](issues/TEMPLATE-HAS-NO-HIGHLIGHTER.md) | feature | Templates cannot be rendered with syntax highlighting | draft |  |  | P3 | M | lib/ui;lib/egui;lib/commands |  | 2026-10-17 |
 | [`UI-VARIADIC-ARGUMENT-LIST-EDITOR`](issues/UI-VARIADIC-ARGUMENT-LIST-EDITOR.md) | feature | A variadic argument cannot be edited as a list in a parameter editor | draft |  |  | P3 | M | lib/ui;lib/egui;web;core/query | [phase1](design/variadic-arguments-declaration/phase1-high-level-design.md)  [phase2](design/variadic-arguments-declaration/phase2-architecture.md)  [phase3](design/variadic-arguments-declaration/phase3-examples.md)  [phase4](design/variadic-arguments-declaration/phase4-implementation.md)  [phase5](design/variadic-arguments-declaration/phase5-documentation.md)  | 2026-08-25 |
 | [`UNCACHED-STORED-COPY-EXPIRY-RACES-AN-INFLIGHT-EVALUATION`](issues/UNCACHED-STORED-COPY-EXPIRY-RACES-AN-INFLIGHT-EVALUATION.md) | issue | Expiring an uncached key's stored copy can be overwritten by an evaluation already in flight | draft |  |  | P3 | M | core/assets | [chunking](design/record-streams/chunking-and-resumability.md)  [engine](design/record-streams/engine-survey.md)  [manifest](design/record-streams/manifest-format.md)  [phase1](design/record-streams/phase1-high-level-design.md)  [phase2](design/record-streams/phase2-architecture.md)  [phase3](design/record-streams/phase3-examples.md)  [phase3](design/record-streams/phase3-tests.md)  [phase4](design/record-streams/phase4-implementation.md)  [phase5](design/record-streams/phase5-documentation.md)  [phase5](design/record-streams/phase5-evidence.md)  [record](design/record-streams/record-model.md)  | 2026-09-27 |
 | [`UNMANAGED-ASSET-NOT-FOLLOWABLE-ACROSS-CONNECTIONS`](issues/UNMANAGED-ASSET-NOT-FOLLOWABLE-ACROSS-CONNECTIONS.md) | feature | An unmanaged asset can be followed only by the connection that requested it | draft |  |  | P3 | M | axum;core/context |  | 2026-10-12 |
