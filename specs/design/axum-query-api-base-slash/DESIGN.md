@@ -2,8 +2,8 @@
 id: AXUM-QUERY-API-BASE-SLASH
 kind: design
 title: The Query API route separates its base from the query with a slash
+gh_pr: [147]
 form: compact
-status: in_review
 phase: implementation
 readiness: ready
 autofix: eligible
