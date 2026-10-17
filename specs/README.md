@@ -262,6 +262,7 @@ submit, and submitted query state is not preserved.
 - **Browser-native store and command backend** — planned → [`issues/WEB-NATIVE-IO-TIER2.md`](issues/WEB-NATIVE-IO-TIER2.md)
 - **Argument overrides over HTTP and WebSocket; managed and unmanaged assets** — documented → [`reference/WEB_API_SPECIFICATION.md` §2.4–2.5](reference/WEB_API_SPECIFICATION.md#24-argument-overrides-and-options) (how to use them: [`guides/WEB_API_GUIDE.md`](guides/WEB_API_GUIDE.md) §4; design: [`design/axum-query-named-arguments/`](design/axum-query-named-arguments/))
 - **Agent memory service** — designing → [`design/agent-memory-mvp/`](design/agent-memory-mvp/)
+- **Agent workbench surface (evaluate/validate/discover tool set, toolsmithing)** — planned → [`issues/AGENT-WORKBENCH-SURFACE.md`](issues/AGENT-WORKBENCH-SURFACE.md) *(direction: [`design/agent-memory-mvp/workbench-direction.md`](design/agent-memory-mvp/workbench-direction.md); vision: [`reference/VISION.md`](reference/VISION.md) §The agent workbench)*
 
 The memory service is the first line here that is an *application* of Liquers rather than a way
 into it: a store router holding the corpus, a `ns-mem` command namespace, and the assets API as the

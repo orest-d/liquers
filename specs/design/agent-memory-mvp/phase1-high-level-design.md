@@ -76,7 +76,7 @@ service only, except `archive`, which is mounted read-only; agent notes live in 
   THEN the old memory gains `superseded_by` and is omitted from `memory_list` and `memory_search`
   unless `include_superseded` is set
 - **AC-9** Check matches the oracle
-  WHEN `liquers-mem check specs` runs on this repository and on a fixture with seeded violations
+  WHEN `liquers-agent check specs` runs on this repository and on a fixture with seeded violations
   THEN it reports the same error set (rule, file) as `scripts/docs_index.py --check` for every rule
   the schema expresses, and lists the rules it does not
 - **AC-10** Index as an asset
@@ -95,7 +95,7 @@ service only, except `archive`, which is mounted read-only; agent notes live in 
   WHEN an agent lists and reads `specs/archive`, then tries to write into it
   THEN the reads create no sidecar files and the write is refused
 - **AC-14** MCP discovery and use
-  WHEN an MCP client starts `liquers-mem mcp` over stdio and lists tools
+  WHEN an MCP client starts `liquers-agent mcp` over stdio and lists tools
   THEN the `memory_` tools of `interfaces-and-mcp.md` §4.1 are offered with argument schemas
   as tabulated there, and a `memory_search` call returns structured hits
 - **AC-15** Orientation
@@ -156,8 +156,10 @@ MCP (only kept combinable, `interfaces-and-mcp.md` §6); git commits by the serv
 ## Crate Placement
 
 `liquers-lib` (`src/mem/`, feature `mem` implying `records`): `ns-mem` and the front-matter store,
-beside `ns-search`. New `liquers-mcp` (depends on `liquers-core`): the MCP engine. New `liquers-mem`:
-the binary, over `liquers-lib`, `liquers-axum` and `liquers-mcp`.
+beside `ns-search`. New `liquers-mcp` (depends on `liquers-core`): the MCP engine. New
+`liquers-agent` (named 2026-10-15, replacing the working name `liquers-mem`; named for its
+audience so it can later carry the workbench tool sets of `AGENT-WORKBENCH-SURFACE` without a
+rename): the binary, over `liquers-lib`, `liquers-axum` and `liquers-mcp`.
 
 ## Documentation Intent
 

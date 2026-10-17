@@ -363,7 +363,7 @@ session, network through a policy proxy.
 
 | Concern | Risk | Proposal |
 |---|---|---|
-| **Building the binary** | A cold `cargo test -p liquers-lib` is ~3 min and a debug `target/` ~4 GB; the server must not add a second full build | `liquers-mem` built with `liquers-lib` at `default-features = false, features = ["mem"]` (records, no polars / egui / image): a fraction of the full build. Built once per session by a **SessionStart hook in the background**, so the MCP server is ready when the agent first needs it |
+| **Building the binary** | A cold `cargo test -p liquers-lib` is ~3 min and a debug `target/` ~4 GB; the server must not add a second full build | `liquers-agent` built with `liquers-lib` at `default-features = false, features = ["mem"]` (records, no polars / egui / image): a fraction of the full build. Built once per session by a **SessionStart hook in the background**, so the MCP server is ready when the agent first needs it |
 | **Starting the MCP server** | Each stdio start builds an `Environment` and registry | Milliseconds once built; declared in the repository's `.mcp.json` so every session gets it with no setup |
 | **Index state in an ephemeral container** | Derived assets (catalogue, field records, embeddings) vanish with the container | Recompute is cheap by design: `syn` ≈ 1 s, a BM25 scan reads ~12 MB, static embeddings ≈ 5–10 s. Persist only what is expensive: embeddings in a content-hash-keyed cache file — on a durable mount (F7) when available, never committed to `main` (churn) |
 | **Model weights** | Hugging Face is blocked | Vendored: a small crate on crates.io (reachable) embedding the quantized weights, or Git LFS, or a committed file — decided in the semantic-search design |

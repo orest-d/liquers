@@ -32,6 +32,7 @@ the code does not ship yet.
 2. *Every piece of derived data, one link away.*
 3. *Make, for data — with URLs.*
 4. *Compute it once, link it forever.*
+5. For the agent audience specifically: *Agents think in models; they work in Liquers.*
 
 ### The 90-second explanation (for someone with no context)
 
@@ -128,21 +129,36 @@ architecture.
 - **Objections:** *Python coverage* — honest: `liquers-py` exposes a selected subset of core
   today; the strategy (deeper data-science integration) is priority 3 in `VISION.md`.
 
-### 5. User of AI agents — **upcoming** (agent memory system)
+### 5. User of AI agents — **upcoming** (agent memory system, then the agent workbench)
 
-- **Hook:** "My agent's memory is a pile of Markdown files and a vendor-locked vector store. Its
-  tool calls are unauditable, and every project reinvents the bookkeeping."
-- **Pitch:** The Liquers agent memory service (designed: `specs/design/agent-memory-mvp/`) is a
-  memory agents browse in tiers, search, write safely and draw assembled context packs from —
-  served over **MCP** and a CLI, configured by one document, running over *your* stores: local
-  directories or remote ones such as S3. Underneath, every operation is a Liquers query: cheap,
-  validatable before execution, cached, dependency-tracked — tool calls with provenance. Not a
-  black box: the derived indexes are assets you can inspect by URL.
+- **Hook:** "My agent re-derived the same analysis for the ninth time at $4 a run, its memory is a
+  pile of Markdown files or a vendor-locked vector store, and I can't explain to anyone what it
+  actually did."
+- **Category:** the **agent workbench** (`VISION.md` §The agent workbench). Orchestration
+  frameworks (LangChain/LangGraph, agent SDKs) manage the reasoning loop; Liquers is the layer
+  where the agent's *work* lives. One line: *MCP gives agents hands; Liquers gives them a
+  workbench and a lab notebook.* The core argument is **the missing middle**: fixed tool lists are
+  safe but rigid, arbitrary code in a sandbox is flexible but unauditable — a Liquers query is
+  compositional like code and validatable *before* execution, cached across sessions and agents,
+  provenance-tracked after.
+- **Pitch, step 1 (memory, designed: `specs/design/agent-memory-mvp/`):** a memory agents browse
+  in tiers, search, write safely and draw assembled context packs from — served over **MCP** and a
+  CLI, configured by one document, running over *your* stores: local directories or remote ones
+  such as S3. Not a black box: the derived indexes are assets you can inspect by URL.
+- **Pitch, step 2 (workbench, planned: `design/agent-memory-mvp/workbench-direction.md`):**
+  evaluate/validate/discover as a general tool set; **toolsmithing** — the agent *proposes* a new
+  command in Python when the registry lacks a verb, and a person promotes it into the governed
+  registry (*agents coin verbs; people govern the vocabulary*); a **query inspection UI** that
+  renders an agent-proposed query as an editable structure, so oversight is looking at a diagram,
+  not reading a transcript.
 - **Killer demo (once shipped):** `memory_new(...)` returning ranked duplicate candidates before
-  writing anything — one MCP call replacing a grep-open-judge-scaffold loop.
-- **Objections:** *"It doesn't exist yet"* — correct; market it as early access when the MVP
+  writing anything — one MCP call replacing a grep-open-judge-scaffold loop. Workbench follow-up:
+  the same query, issued by two different agents a week apart, computed once.
+- **Objections:** *"It doesn't exist yet"* — correct; market each step as early access when it
   lands, not before. *"Why not a vector DB?"* — tiers, provenance and configurability over raw
   similarity; the design's survey (`memory-systems-survey.md`) makes the comparison honestly.
+  *"Why not a code sandbox?"* — a sandbox runs anything once; the workbench runs governed verbs
+  with a cache and a receipt.
 
 ### 6. Documentation writer — **upcoming** (template system)
 
@@ -173,6 +189,7 @@ architecture.
 | Make-for-data | recipes, dependency audit, expiration, consistency policies | asset GC, combined expiration algebra |
 | Python | `liquers-py` subset | deeper data-science integration |
 | Agent memory | design complete (MVP, rev 3) | implementation |
+| Agent workbench | separability decided (`interfaces-and-mcp.md` §6); `liquers-validate` | general tool set, Python command registration, toolsmithing, query inspection UI (`workbench-direction.md`) |
 | Templates | `simple_template` in core | Mustache-with-query-tags engine |
 | Offline validation | `liquers-validate` CLI + registry export | editor/live validation (`UI-QUERY-EDITOR-LACKS-LIVE-VALIDATION`) |
 
@@ -220,4 +237,5 @@ architecture.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-15 | Agent audience repositioned to the **agent workbench** framing (the missing middle, toolsmithing, query inspection UI); added the agent tagline and a workbench proof-point row. | user direction; `VISION.md` §The agent workbench |
 | 2026-10-15 | Created: positioning statement, one-liner candidates, 90-second explanation, message pillars, six audience pitches (backend, front-end, application developer, data scientist, AI-agent user, documentation writer), proof-point table, rollout sketch, open questions. | user request |
