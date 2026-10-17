@@ -2,25 +2,52 @@
 
 Python bindings for Liquers, built with [PyO3](https://pyo3.rs) and [maturin](https://www.maturin.rs).
 
-## Building
+The distribution is named `liquers-py`; the package it installs is imported as `liquers`:
 
-**Supported Python: CPython 3.8 to 3.12; PyPy 3.8 to 3.10.** The pinned PyO3 (0.21) supports
-CPython up to 3.12 and PyPy up to 3.10, and `pyproject.toml` declares
-`requires-python = ">=3.8,<3.13"` to match CPython. That field cannot state a narrower range per
-implementation, so PyPy 3.11 and newer are inside it but fail the build, and the override below does
-not help them: PyPy has no stable ABI, and PyO3 refuses the newer PyPy outright.
+```python
+import liquers
 
-On a host whose `python3` is CPython 3.13 or newer, the build fails in PyO3's build script:
-
-```text
-error: the configured Python interpreter version (3.13) is newer than PyO3's maximum supported version (3.12)
+q = liquers.parse("a/b/-/x")
 ```
 
-To build anyway, against the stable ABI, set the override PyO3 names in that message:
+## Layout
+
+This is a mixed Rust/Python project. The Rust crate (`src/`) builds the native extension
+`liquers._native`; the Python package around it is `python/liquers/`, whose `__init__.py`
+re-exports every class and function of the extension by name. A class registered in
+`src/lib.rs` is not reachable as `liquers.<Name>` until it is added to `__init__.py` as well.
+
+## Supported Python
+
+**CPython 3.9 to 3.15; PyPy 3.11 or newer.** These are the versions PyO3 0.30 supports, and
+`pyproject.toml` declares `requires-python = ">=3.9,<3.16"` to match CPython. That field cannot
+state a narrower range per implementation, so PyPy 3.9 and 3.10 are inside it but fail the build.
+
+No environment override is needed for any supported version, including the cloud dev
+environment's CPython 3.13.
+
+## Building and testing
 
 ```bash
-PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1 cargo check -p liquers-py --lib
+bash scripts/test-liquers-py.sh
 ```
 
-The override builds, but Python 3.13 is not a supported target until PyO3 is upgraded
-(`specs/issues/PY-PYO3-0-21-CANNOT-TARGET-PYTHON-3-13.md`).
+run from the repository root, does the whole loop: it creates (or reuses) a virtual environment at
+`target/liquers-py-venv`, installs `maturin` and `pytest` into it, runs `maturin develop` to build
+and install the `liquers` package, runs `pytest liquers-py/tests`, and then runs the crate's Rust
+unit tests. Extra arguments are passed to pytest (`bash scripts/test-liquers-py.sh -k parse`).
+`cargo clean` removes the environment along with the rest of `target/`; the next run recreates it.
+
+The pieces on their own:
+
+```bash
+cargo check -p liquers-py --lib --tests              # compile only
+cargo test -p liquers-py --no-default-features --lib # Rust unit tests
+```
+
+`--no-default-features` matters for the second: the default `extension-module` feature leaves the
+Python symbols for the loading interpreter to supply, so a test binary built with it fails to link
+(`Cargo.toml` explains).
+
+Python test modules are named for the feature they test, `test_<FEATURE>_<topic>.py`
+(`specs/guides/LANGUAGE-INTEGRATION_GUIDE.md` §3).
