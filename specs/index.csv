@@ -537,16 +537,16 @@ DOC_02_QUERY_LANGUAGE_REFERENCE,reference,Query Language Reference,current,local
 DOC_03_ASSETS_EXECUTION_LIFECYCLE,reference,Assets and Execution Lifecycle Reference,current,local,,,,,,core/assets,,,,,2026-10-12,,specs/reference/api/DOC_03_ASSETS_EXECUTION_LIFECYCLE.md
 DOC_04_ENVIRONMENT_CONTEXT_EVALUATION,reference,"Environment, Context and Evaluation Reference",current,local,,,,,,core/context;core/plan,,,,,2026-10-17,,specs/reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md
 DOC_08_RECIPES_PLANS,reference,Recipes and Plans Reference,current,local,,,,,,core/plan;core/assets;core/context,,,,,2026-10-12,,specs/reference/api/DOC_08_RECIPES_PLANS.md
-ASSET_LIFECYCLE,reference,Asset Evaluation — Flows and Public Surface,current,local,,,,,,core/assets,,,,,2026-10-12,,specs/reference/ASSET_LIFECYCLE.md
+ASSET_LIFECYCLE,reference,Asset Evaluation — Flows and Public Surface,current,local,,,,,,core/assets,,,,,2026-10-17,,specs/reference/ASSET_LIFECYCLE.md
 ASSET_SET_OPERATION,reference,Asset Set Operation Specification,current,local,,,,,,core/assets,,,,,2026-10-10,,specs/reference/ASSET_SET_OPERATION.md
-ASSETS,reference,Assets Specification,current,local,,,,,,core/assets,,,,,2026-10-15,,specs/reference/ASSETS.md
+ASSETS,reference,Assets Specification,current,local,,,,,,core/assets,,,,,2026-10-17,,specs/reference/ASSETS.md
 COMMAND_ALIASES,reference,Command Aliases,current,local,,,,,,core/commands;core/plan,,,,,2026-10-17,,specs/reference/COMMAND_ALIASES.md
 COMMAND_DECLARATION,reference,Command Declaration Format,current,local,,,,,,core/commands;web;py,,,,,2026-10-11,,specs/reference/COMMAND_DECLARATION.md
 CONFORMANCE_TERMS,reference,Conformance Terms,current,local,,,,,,docs,,,,,2026-09-02,,specs/reference/CONFORMANCE_TERMS.md
 DEPENDENCIES_STATUS,reference,Status::Dependencies Specification,current,local,,,,,,core/assets,,,,,2026-10-17,,specs/reference/DEPENDENCIES_STATUS.md
 ENVIRONMENT_CONFIG,reference,Environment Configuration,current,local,,,,,,core/context;core/store;core/assets,,,,,2026-10-10,,specs/reference/ENVIRONMENT_CONFIG.md
 IMAGE_COMMAND_LIBRARY,reference,Image Command Library Specification,overdue,local,,,,,,lib/image,,,,,2026-03-02,,specs/reference/IMAGE_COMMAND_LIBRARY.md
-PAYLOAD_GUIDE,reference,Payload Specification and Usage,current,local,,,,,,core/context;core/commands,,,,,2026-09-04,,specs/reference/PAYLOAD_GUIDE.md
+PAYLOAD_GUIDE,reference,Payload Specification and Usage,current,local,,,,,,core/context;core/commands,,,,,2026-10-17,,specs/reference/PAYLOAD_GUIDE.md
 POLARS_COMMAND_LIBRARY,reference,Polars Command Library Specification,current,local,,,,,,lib/polars,,,,,2026-10-14,,specs/reference/POLARS_COMMAND_LIBRARY.md
 POSITIONING,reference,Positioning and Marketing Plan (draft),current,local,,,,,,docs,,,,,2026-10-15,,specs/reference/POSITIONING.md
 PROJECT_OVERVIEW,reference,Liquers Project Overview,current,local,,,,,,core/query;core/plan;core/assets;core/store;core/value,,,,,2026-10-17,,specs/reference/PROJECT_OVERVIEW.md

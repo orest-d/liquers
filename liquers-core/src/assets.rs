@@ -171,6 +171,15 @@
 //! on volatile input also produces a volatile result, so the result is not reused
 //! as a stable cached asset.
 //!
+//! Most of it is known from the plan, before evaluation. The rest is decided during
+//! the run and recorded on the asset, which is the authority: a command calls
+//! `Context::set_volatile`, and the context calls it itself when a dependency it
+//! resolved is volatile by its metadata — whether the plan named it or the command
+//! evaluated it at run time. An ad-hoc asset records its plan's volatility when the
+//! plan is applied. Finalization reads the flag, so such an asset finishes
+//! `Volatile`, and a map entry made for it before is evicted on the next request
+//! (`specs/design/runtime-volatility/`).
+//!
 //! # Identity, reuse, and fast-track loading
 //!
 //! A pure key query is resolved through the key-asset map. Other queries use the
