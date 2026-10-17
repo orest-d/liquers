@@ -387,6 +387,7 @@ deliberately folded behind a broader line.
 - design `register-command-option-value`
 - design `register-command-payload-docs`
 - design `save-to-store-skip-outcome`
+- design `search-read-dependencies`
 - design `sidecar-colliding-keys`
 - design `simple-value-serializer-parity`
 - design `simple-value-untyped-and-scalar-reads`

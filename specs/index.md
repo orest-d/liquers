@@ -8,9 +8,9 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 113
-- P2: 52
-- P3: 61
+Total rows: 116
+- P2: 53
+- P3: 63
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -19,6 +19,7 @@ Total rows: 113
 | [`CORE-VALUE-ENUM-OVERSIZED`](issues/CORE-VALUE-ENUM-OVERSIZED.md) | issue | Every Value occupies over 700 bytes because three variants are stored unboxed | draft | ready | not-eligible | P2 | M | core/value;lib/value | [design](design/core-value-enum-oversized/DESIGN.md) | 2026-08-18 |
 | [`ENVIRONMENT-MANAGER-REFERENCE-CYCLE`](issues/ENVIRONMENT-MANAGER-REFERENCE-CYCLE.md) | issue | Environment and asset manager hold each other with strong Arcs, so every environment leaks | draft | ready | not-eligible | P2 | M | core/assets;core/context | [design](design/environment-manager-reference-cycle/DESIGN.md) | 2026-08-27 |
 | [`CORE-TRACING-MIGRATION`](issues/CORE-TRACING-MIGRATION.md) | issue | Diagnostics use `eprintln!` rather than structured logging | accepted | needs-decision | not-eligible | P2 | M | core/error;build | [design](design/core-tracing-migration/DESIGN.md) | 2026-08-08 |
+| [`SEARCH-COMMANDS-RECORD-NO-DEPENDENCY-ON-READ-FILES`](issues/SEARCH-COMMANDS-RECORD-NO-DEPENDENCY-ON-READ-FILES.md) | issue | ns-search results do not depend on the files they read, so they go stale | draft | needs-decision | not-eligible | P2 | M | lib/commands;core/assets | [design](design/search-read-dependencies/DESIGN.md) | 2026-10-17 |
 | [`COMMAND-CANNOT-BE-RUN-WITH-A-RESTRICTED-CONTEXT`](issues/COMMAND-CANNOT-BE-RUN-WITH-A-RESTRICTED-CONTEXT.md) | feature | A command cannot be run with a restricted context | draft |  |  | P2 | M | core/context;core/commands |  | 2026-09-17 |
 | [`CORE-METADATA-NO-APPLICATION-ATTRIBUTES`](issues/CORE-METADATA-NO-APPLICATION-ATTRIBUTES.md) | feature | Metadata cannot carry application-defined attributes | draft |  |  | P2 | M | core/value |  | 2026-09-15 |
 | [`EGUI-ASSET-MANAGER-INTEGRATION`](issues/EGUI-ASSET-MANAGER-INTEGRATION.md) | feature | No stable adapter between egui widgets and the asset manager | accepted |  |  | P2 | M | lib/egui |  | 2026-08-08 |
@@ -74,6 +75,7 @@ Total rows: 113
 | [`PY-VALUE-ENUM-OVERSIZED`](issues/PY-VALUE-ENUM-OVERSIZED.md) | issue | liquers-py's own Value enum is over 700 bytes because large variants are stored inline | draft |  |  | P3 | S | py |  | 2026-10-12 |
 | [`REPLACING-WRITE-KEEPS-DROPPED-DEPENDENCY-EDGES`](issues/REPLACING-WRITE-KEEPS-DROPPED-DEPENDENCY-EDGES.md) | issue | A write that replaces a keyed asset keeps the dependency edges its new metadata no longer lists | draft |  |  | P3 | S | core/assets |  | 2026-10-11 |
 | [`RESOURCE-STEP-VOLATILITY-IS-NEVER-CHECKED`](issues/RESOURCE-STEP-VOLATILITY-IS-NEVER-CHECKED.md) | issue | Resource plan steps always report non-volatile, behind a TODO that prints at runtime | draft |  |  | P3 | S | core/plan |  | 2026-10-12 |
+| [`ROOT-LISTING-DEPENDENCY-KEY-HAS-TWO-SPELLINGS`](issues/ROOT-LISTING-DEPENDENCY-KEY-HAS-TWO-SPELLINGS.md) | issue | The root directory listing dependency has two spellings, so a dependent that recorded one is never expired | draft |  |  | P3 | S | core/assets |  | 2026-10-17 |
 | [`TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS`](issues/TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS.md) | issue | TypeInfo cannot declare a format a type writes but cannot read back | draft |  |  | P3 | S | core/value |  | 2026-09-24 |
 | [`VALIDATE-COMMAND-STUB-REJECTS-POSITIONAL-EMPTIES`](issues/VALIDATE-COMMAND-STUB-REJECTS-POSITIONAL-EMPTIES.md) | issue | A liquers-validate --command stub rejects a query with empty positional parameters | draft |  |  | P3 | S | core/validate |  | 2026-10-12 |
 | [`CONTEXT-TITLE-LOST-ACROSS-PREDECESSOR-BOUNDARY`](issues/CONTEXT-TITLE-LOST-ACROSS-PREDECESSOR-BOUNDARY.md) | issue | A title or description set by a command in a cut predecessor does not reach the final asset | draft | needs-decision | not-eligible | P3 | M | core/context;core/plan | [phase1](design/context-title-predecessor-inheritance/phase1-high-level-design.md)  [phase2](design/context-title-predecessor-inheritance/phase2-architecture.md)  [phase3](design/context-title-predecessor-inheritance/phase3-examples.md)  [phase4](design/context-title-predecessor-inheritance/phase4-implementation.md)  | 2026-10-06 |
@@ -101,6 +103,7 @@ Total rows: 113
 | [`QUERY-CANNOT-MARK-CACHED-INTERMEDIATES`](issues/QUERY-CANNOT-MARK-CACHED-INTERMEDIATES.md) | feature | A query cannot mark which of its intermediates are worth caching | draft |  |  | P3 | M | core/plan;core/assets;core/query |  | 2026-10-10 |
 | [`RECIPE-PLAN-ANALYSIS-RUNS-OUTSIDE-PLAN-BUILDING`](issues/RECIPE-PLAN-ANALYSIS-RUNS-OUTSIDE-PLAN-BUILDING.md) | issue | Recipe plan analysis runs outside plan building | draft |  |  | P3 | M | core/plan;core/assets |  | 2026-08-26 |
 | [`RECORD-BATCH-FIELDS-CAN-BE-MUTATED-PAST-VALIDATION`](issues/RECORD-BATCH-FIELDS-CAN-BE-MUTATED-PAST-VALIDATION.md) | issue | RecordBatch validates its columns in new, but its public fields can be changed afterwards; InMemorySource's materialize exposes a placeholder chunk id | draft |  |  | P3 | M | records | [chunking](design/record-streams/chunking-and-resumability.md)  [engine](design/record-streams/engine-survey.md)  [manifest](design/record-streams/manifest-format.md)  [phase1](design/record-streams/phase1-high-level-design.md)  [phase2](design/record-streams/phase2-architecture.md)  [phase3](design/record-streams/phase3-examples.md)  [phase3](design/record-streams/phase3-tests.md)  [phase4](design/record-streams/phase4-implementation.md)  [phase5](design/record-streams/phase5-documentation.md)  [phase5](design/record-streams/phase5-evidence.md)  [record](design/record-streams/record-model.md)  | 2026-09-27 |
+| [`RUNTIME-DEPENDENCY-RECORD-AGAINST-SUPERSEDED-VERSION-IS-NOT-CHECKED`](issues/RUNTIME-DEPENDENCY-RECORD-AGAINST-SUPERSEDED-VERSION-IS-NOT-CHECKED.md) | issue | A dependency record added at run time is never compared with a newer registered version | draft |  |  | P3 | M | core/assets |  | 2026-10-17 |
 | [`STORE-CENTRAL-STORAGE-MODEL-NOT-IMPLEMENTED`](issues/STORE-CENTRAL-STORAGE-MODEL-NOT-IMPLEMENTED.md) | feature | The central(mount) storage model is declared but refuses to build | draft |  |  | P3 | M | core/store;store/config |  | 2026-10-15 |
 | [`STORE-COMMAND-NAMESPACE-MISSING`](issues/STORE-COMMAND-NAMESPACE-MISSING.md) | feature | Store contents cannot be read or written from a query | accepted |  |  | P3 | M | lib/commands;core/store |  | 2026-08-09 |
 | [`STORE-CONFIG-FROM-URI`](issues/STORE-CONFIG-FROM-URI.md) | feature | A store cannot be configured from a URI | draft |  |  | P3 | M | store/config | [phase1](design/store-config-uri/phase1-high-level-design.md)  [phase2](design/store-config-uri/phase2-architecture.md)  | 2026-08-29 |
