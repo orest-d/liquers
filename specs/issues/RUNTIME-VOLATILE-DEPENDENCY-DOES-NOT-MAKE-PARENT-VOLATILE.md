@@ -46,6 +46,10 @@ When a context's dependency is volatile, the asset being evaluated finishes `Vol
 registered for reuse, not stored, evicted if it already was. To decide: whether this revises
 volatility-system decision 4 or is a separate "volatile at finish" path like the runtime expiry one.
 
+## Decision
+
+2026-10-17, Orest: fix in core, in its own PR (not in the liquers-template PR #139).
+
 ## Discovery
 
 design/liquers-mustache D6 (AC-2 "volatility inherited"), verified with a probe test against
