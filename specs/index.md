@@ -8,9 +8,9 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 111
+Total rows: 110
 - P2: 54
-- P3: 57
+- P3: 56
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -29,7 +29,7 @@ Total rows: 111
 | [`LANGUAGE-GUIDE-NO-DOCUMENTATION-SECTION`](issues/LANGUAGE-GUIDE-NO-DOCUMENTATION-SECTION.md) | feature | The language integration guide says nothing about writing the integration's own documentation | draft |  |  | P2 | M | docs;web;py |  | 2026-08-30 |
 | [`LANGUAGE-STORE-TYPE-NOT-DEFINABLE`](issues/LANGUAGE-STORE-TYPE-NOT-DEFINABLE.md) | feature | A store type cannot be defined in the integrated language | draft |  |  | P2 | M | web;py;core/store;store/config |  | 2026-08-29 |
 | [`POLARS-COMMAND-TESTS-BYPASS-COMMANDS`](issues/POLARS-COMMAND-TESTS-BYPASS-COMMANDS.md) | issue | The polars command integration tests never invoke a polars command | draft |  |  | P2 | M | lib/polars;build |  | 2026-08-25 |
-| [`PY-MODULES-NOT-DECLARED-IN-LIB`](issues/PY-MODULES-NOT-DECLARED-IN-LIB.md) | issue | Half of liquers-py's source files are not declared as modules and never compile | draft |  |  | P2 | M | py |  | 2026-08-25 |
+| [`PY-ADD-PYTHON-COMMAND-ALIASES-AN-UNREGISTERED-COMMAND`](issues/PY-ADD-PYTHON-COMMAND-ALIASES-AN-UNREGISTERED-COMMAND.md) | issue | liquers-py's add_python_command registers an alias to a pycall command that does not exist | draft |  |  | P2 | M | py |  | 2026-10-17 |
 | [`PY-VALUE-SERIALIZER-IS-A-STUB`](issues/PY-VALUE-SERIALIZER-IS-A-STUB.md) | issue | liquers-py's value serializer writes almost nothing and reads nothing back | draft |  |  | P2 | M | py;core/value |  | 2026-08-26 |
 | [`RECORDS-PARQUET-POLARS-READ-IGNORES-DECLARED-SCHEMA`](issues/RECORDS-PARQUET-POLARS-READ-IGNORES-DECLARED-SCHEMA.md) | issue | Reading Parquet through the polars bridge ignores a caller-declared schema | draft |  |  | P2 | M | records;lib/polars |  | 2026-09-27 |
 | [`SERIALIZATION-CANNOT-REPORT-A-LOSSY-WRITE`](issues/SERIALIZATION-CANNOT-REPORT-A-LOSSY-WRITE.md) | issue | Serialization cannot report a lossy write, so a value silently loses data on its way to the store | draft |  |  | P2 | M | core/value |  | 2026-10-13 |
@@ -98,7 +98,6 @@ Total rows: 111
 | [`MACRO-QUERY-VALIDATION-AND-HINTS`](issues/MACRO-QUERY-VALIDATION-AND-HINTS.md) | issue | `register_command!` does not validate queries or implement hints | accepted |  |  | P3 | M | macro |  | 2026-08-08 |
 | [`POLARS-BRIDGE-VECTOR-COLUMNS-REFUSED`](issues/POLARS-BRIDGE-VECTOR-COLUMNS-REFUSED.md) | issue | The RecordBatch <-> DataFrame bridge cannot convert Vector columns | draft |  |  | P3 | M | records;lib/polars |  | 2026-09-27 |
 | [`POST-INIT-COMMAND-REGISTRATION`](issues/POST-INIT-COMMAND-REGISTRATION.md) | issue | Registering a command after Environment::to_ref requires a rebuild | accepted |  |  | P3 | M | core/commands;web |  | 2026-08-08 |
-| [`PY-PYO3-0-21-CANNOT-TARGET-PYTHON-3-13`](issues/PY-PYO3-0-21-CANNOT-TARGET-PYTHON-3-13.md) | feature | liquers-py pins PyO3 0.21, which cannot target Python 3.13 or newer | draft |  |  | P3 | M | py;build |  | 2026-10-10 |
 | [`QUERY-CANNOT-MARK-CACHED-INTERMEDIATES`](issues/QUERY-CANNOT-MARK-CACHED-INTERMEDIATES.md) | feature | A query cannot mark which of its intermediates are worth caching | draft |  |  | P3 | M | core/plan;core/assets;core/query |  | 2026-10-10 |
 | [`RECIPE-PLAN-ANALYSIS-RUNS-OUTSIDE-PLAN-BUILDING`](issues/RECIPE-PLAN-ANALYSIS-RUNS-OUTSIDE-PLAN-BUILDING.md) | issue | Recipe plan analysis runs outside plan building | draft |  |  | P3 | M | core/plan;core/assets |  | 2026-08-26 |
 | [`RECORD-BATCH-FIELDS-CAN-BE-MUTATED-PAST-VALIDATION`](issues/RECORD-BATCH-FIELDS-CAN-BE-MUTATED-PAST-VALIDATION.md) | issue | RecordBatch validates its columns in new, but its public fields can be changed afterwards; InMemorySource's materialize exposes a placeholder chunk id | draft |  |  | P3 | M | records | [chunking](design/record-streams/chunking-and-resumability.md)  [engine](design/record-streams/engine-survey.md)  [manifest](design/record-streams/manifest-format.md)  [phase1](design/record-streams/phase1-high-level-design.md)  [phase2](design/record-streams/phase2-architecture.md)  [phase3](design/record-streams/phase3-examples.md)  [phase3](design/record-streams/phase3-tests.md)  [phase4](design/record-streams/phase4-implementation.md)  [phase5](design/record-streams/phase5-documentation.md)  [phase5](design/record-streams/phase5-evidence.md)  [record](design/record-streams/record-model.md)  | 2026-09-27 |
