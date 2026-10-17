@@ -142,21 +142,7 @@ pub(crate) async fn read_text<E: Environment<Value = Value>>(
     if info.is_dir {
         return None;
     }
-    let stored = match info.status {
-        Status::Ready | Status::Source | Status::Override => true,
-        Status::None
-        | Status::Directory
-        | Status::Recipe
-        | Status::Submitted
-        | Status::Dependencies
-        | Status::Processing
-        | Status::Partial
-        | Status::Storing
-        | Status::Expired
-        | Status::Error
-        | Status::Cancelled
-        | Status::Volatile => false,
-    };
+    let stored = holds_stored_value(info.status);
     let filename = info.filename.clone().unwrap_or_default();
     if !stored || !is_text_media_type(&media_type_of(info, &filename)) {
         return None;
@@ -179,14 +165,26 @@ const READS: usize = 3;
 /// The stored bytes of `key`, recorded as a dependency of this evaluation with the version they
 /// were read at (`specs/design/search-read-dependencies/`).
 ///
-/// The version is read before and after the bytes; if it moved, a write landed in between, and
-/// the file is read again, at most [`READS`] times. A version that never settles is recorded as
-/// unknown, so the next change of the file expires the result. `None` when the store cannot read
-/// the file, which is still recorded.
+/// A live asset holding a value is read from memory, bytes and version from one snapshot: it can
+/// be `Ready` before its background write reaches the store, and the store would then give the
+/// previous bytes under the new version. Otherwise the store is read, and the version is read
+/// before and after the bytes; if it moved, a write landed in between, and the file is read
+/// again, at most [`READS`] times. A version that never settles is recorded as unknown, so the
+/// next change of the file expires the result. `None` when the file cannot be read, which is
+/// still recorded.
 pub(crate) async fn read_recorded<E: Environment<Value = Value>>(
     key: &Key,
     context: &Context<E>,
 ) -> Option<Vec<u8>> {
+    if let Some(asset) = context.get_envref().get_asset_manager().lookup_key_asset(key) {
+        if holds_stored_value(asset.status().await) {
+            if let Ok(Some((bytes, metadata))) = asset.get_binary_any_status().await {
+                let version = metadata.version().unwrap_or_else(Version::unknown);
+                record_read(key, version, context).await;
+                return Some(bytes.as_ref().clone());
+            }
+        }
+    }
     let store = context.get_envref().get_async_store();
     let mut version = file_version(key, context).await;
     let mut bytes = None;
@@ -202,6 +200,26 @@ pub(crate) async fn read_recorded<E: Environment<Value = Value>>(
     }
     record_read(key, if settled { version } else { Version::unknown() }, context).await;
     bytes
+}
+
+/// Whether an asset in `status` holds a value whose bytes `read_text` may use: the same statuses
+/// it accepts from an `AssetInfo`.
+fn holds_stored_value(status: Status) -> bool {
+    match status {
+        Status::Ready | Status::Source | Status::Override => true,
+        Status::None
+        | Status::Directory
+        | Status::Recipe
+        | Status::Submitted
+        | Status::Dependencies
+        | Status::Processing
+        | Status::Partial
+        | Status::Storing
+        | Status::Expired
+        | Status::Error
+        | Status::Cancelled
+        | Status::Volatile => false,
+    }
 }
 
 /// The version the asset manager holds for `key`, read from metadata: it never evaluates. A

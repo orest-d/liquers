@@ -232,6 +232,18 @@ async fn write(envref: &EnvRef<CommandEnvironment>, key: &str, text: &str) -> Re
     envref.get_asset_manager().set_binary(&key, text.as_bytes(), metadata).await
 }
 
+/// Writes `text` to the store behind the asset manager's back, as `put` does in the fixture.
+async fn put_store(envref: &EnvRef<CommandEnvironment>, key: &str, text: &str) -> Result<(), Error> {
+    let key = parse_key(key)?;
+    let mut metadata = Metadata::new();
+    let filename = key
+        .filename()
+        .ok_or_else(|| Error::general_error(format!("key '{key}' has no filename")))?;
+    metadata.set_filename(filename.encode().as_ref())?;
+    metadata.set_status(Status::Source)?;
+    envref.get_async_store().set(&key, text.as_bytes(), &metadata).await
+}
+
 fn dependencies_of(state: &State<Value>) -> Vec<String> {
     match &*state.metadata {
         Metadata::MetadataRecord(record) => {
@@ -752,6 +764,31 @@ async fn search_catalog_is_reused_while_nothing_changes() -> Res {
     write(&env, "data/elsewhere.txt", "unrelated").await?;
     let third = env.evaluate(query).await?;
     assert_eq!(first.id(), third.id(), "a write outside the folder expires nothing");
+    Ok(())
+}
+
+/// A live asset is read from memory, with its own version: it may be `Ready` before its
+/// background write reaches the store. Here the store is made to disagree behind the manager's
+/// back, standing for a write still in flight.
+#[tokio::test]
+async fn search_reads_a_live_asset_before_the_store() -> Res {
+    let env = fixture("search_reads_a_live_asset_before_the_store").await?;
+    let key = parse_key("specs/issues/C-STORE.md")?;
+    let manager = env.get_asset_manager();
+    let mut metadata = MetadataRecord {
+        data_format: Some("md".into()),
+        ..Default::default()
+    };
+    metadata.set_filename("C-STORE.md");
+    let state = State::new()
+        .with_data(Value::from(C_STORE_CHANGED))
+        .with_metadata(Metadata::MetadataRecord(metadata));
+    manager.set_state(&key, state).await?;
+    assert!(manager.lookup_key_asset(&key).is_some(), "set_state keeps a live asset");
+    put_store(&env, "specs/issues/C-STORE.md", C_STORE).await?;
+    let view = view_of(&env, "-R-key/specs/issues/-/ns-search/catalog-t-t").await?;
+    let content = content_of(&view, "specs/issues/C-STORE.md");
+    assert!(content.contains("Changed text"), "{content}");
     Ok(())
 }
 

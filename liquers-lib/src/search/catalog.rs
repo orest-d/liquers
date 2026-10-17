@@ -94,9 +94,11 @@ pub(crate) async fn infos<E: Environment<Value = Value>>(
         futures::stream::iter(keys.into_iter().map(|key| {
             let context = context.clone();
             async move {
+                // The version is read first: a write that lands after it registers a newer one,
+                // so the recorded version is never newer than the info it is recorded with.
+                let version = file_version(&key, &context).await;
                 let info = info_of(&key, &context).await?;
-                let version =
-                    if info.is_dir { None } else { Some(file_version(&key, &context).await) };
+                let version = if info.is_dir { None } else { Some(version) };
                 Ok::<_, Error>((key, info, version))
             }
         }))

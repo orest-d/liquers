@@ -79,8 +79,8 @@ changes through the asset manager (a write, `set_binary`, `set_state`, a removal
 | Read | Recorded | Expires the result when |
 |---|---|---|
 | Each folder walked (`catalog`, and every command given a folder) | `-R-dir/<folder>` at its listing version (`Context::record_listing`) | an entry is added to or removed from that folder |
-| Each file a catalog lists, its text read or not | `-R/<key>` at `AssetManager::version` (metadata only) | the file is written or removed |
-| Each file whose text is read (`read_text`) | `-R/<key>` at the version its bytes were read at; read again if the version moved, at most three times, else recorded as unknown | as above |
+| Each file a catalog lists, its text read or not | `-R/<key>` at `AssetManager::version` (metadata only), read before its info, so the recorded version is never newer than the columns | the file is written or removed |
+| Each file whose text is read (`read_text`) | `-R/<key>` at the version its bytes were read at: a live asset's bytes and version from one snapshot in memory (it may be `Ready` before its write reaches the store); otherwise from the store, read again if the version moved, at most three times, else recorded as unknown | as above |
 | An explicit `Key` or `Query` value given to `search` | its query, through `Context::get_dependency_state` | it is recomputed |
 
 A recipe-only entry records the version its metadata gives, and nothing evaluates it. Records
