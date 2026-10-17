@@ -109,7 +109,13 @@ for data read on demand, so a template walks a value without converting it. Ever
 | A directory listing (`-R-dir/…`, `template::folder::FolderNode`) | Async map of children; a child is read, as a dependency, when a template names it |
 | Image, UI element, foreign value | Opaque: renders empty |
 
-A sync consumer given an async-only node gets `not_supported`, never a blocking wait.
+A sync consumer given an async-only node gets `not_supported`, never a blocking wait. An integer
+above `i64::MAX` is `Scalar::UInt`, kept exact.
+
+**`_meta`.** The node of a state (the rendered state, a query tag's result, a folder child) answers
+the reserved name `_meta` with the state's `MetadataRecord`: `{{_meta.key}}`, `{{_meta.title}}`,
+`{{#$ -R/a.txt}}{{_meta.filename}}{{/}}`. It is not among the node's keys, and legacy metadata has
+none.
 
 **The context stack.** Frames are `Data` (looked up, and `.` and the apply input while on top) or
 `Names` (looked up only). Sections push their value as a `Data` frame.
@@ -152,7 +158,10 @@ A **template command** is an alias of `template/render` whose head parameter is 
 | An apply input or an override | `Context::apply_ad_hoc` | Ad hoc, never cached; its dependencies are passed on |
 | `{{> key}}` | `get_dependency_state` of the key | A dependency; a missing partial is an error |
 
-An apply input that is a value node is passed on as that value; any other node goes as its JSON.
+An apply input that is a state's node (`.` over the rendered state, a section over a query tag's
+result) is passed on as that value, whatever its type, a polars frame or an image included; any
+other node goes as its JSON. A failing ad-hoc query still passes on what it read, so a render that
+recovers the failure (`expand`, `silent`) is invalidated when that changes.
 Volatility is not passed on (`design/volatility-system`, decision 4): a render over volatile queries
 is volatile only when `v` comes before the render action (`v/ns-template/render-…`; a trailing `/v`
 serves the cached render), or when a template command is declared `volatile`
@@ -192,5 +201,6 @@ positions of §2; `QueryTemplate::try_into_query` succeeds exactly when it has n
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-17 | `_meta`, exact large integers, apply inputs keep their type, a failed ad-hoc query's dependencies (PR #139 review). | `design/liquers-mustache/` |
 | 2026-10-17 | Corrected the volatility rule: `v` before the render action, not a trailing `/v`. | `RUNTIME-VOLATILE-DEPENDENCY-DOES-NOT-MAKE-PARENT-VOLATILE` |
 | 2026-10-17 | Created: tags, slot positions, names, data nodes, the `ns-template` commands, evaluation routes, error modes, the AST. | `design/liquers-mustache/` |

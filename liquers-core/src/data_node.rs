@@ -58,6 +58,8 @@ pub enum Scalar<'a> {
     Null,
     Bool(bool),
     Integer(i64),
+    /// An integer above `i64::MAX`, kept exact rather than rounded to a float.
+    UInt(u64),
     Float(f64),
     Text(Cow<'a, str>),
 }
@@ -68,7 +70,7 @@ impl<'a> Scalar<'a> {
         match self {
             Scalar::Null => NodeKind::Null,
             Scalar::Bool(_) => NodeKind::Bool,
-            Scalar::Integer(_) => NodeKind::Integer,
+            Scalar::Integer(_) | Scalar::UInt(_) => NodeKind::Integer,
             Scalar::Float(_) => NodeKind::Float,
             Scalar::Text(_) => NodeKind::Text,
         }
@@ -81,6 +83,7 @@ impl<'a> Scalar<'a> {
             Scalar::Null => Cow::Borrowed(""),
             Scalar::Bool(b) => Cow::Borrowed(if *b { "true" } else { "false" }),
             Scalar::Integer(i) => Cow::Owned(i.to_string()),
+            Scalar::UInt(u) => Cow::Owned(u.to_string()),
             Scalar::Float(f) => Cow::Owned(f.to_string()),
             Scalar::Text(t) => Cow::Borrowed(t.as_ref()),
         }
@@ -92,6 +95,7 @@ impl<'a> Scalar<'a> {
             Scalar::Null => Scalar::Null,
             Scalar::Bool(b) => Scalar::Bool(b),
             Scalar::Integer(i) => Scalar::Integer(i),
+            Scalar::UInt(u) => Scalar::UInt(u),
             Scalar::Float(f) => Scalar::Float(f),
             Scalar::Text(t) => Scalar::Text(Cow::Owned(t.into_owned())),
         }
@@ -103,6 +107,7 @@ impl<'a> Scalar<'a> {
             Scalar::Null => Ok(serde_json::Value::Null),
             Scalar::Bool(b) => Ok(serde_json::Value::Bool(*b)),
             Scalar::Integer(i) => Ok(serde_json::Value::from(*i)),
+            Scalar::UInt(u) => Ok(serde_json::Value::from(*u)),
             Scalar::Float(f) => serde_json::Number::from_f64(*f)
                 .map(serde_json::Value::Number)
                 .ok_or_else(|| Error::conversion_error(f, "JSON number")),
@@ -115,7 +120,7 @@ impl<'a> Scalar<'a> {
         match self {
             Scalar::Null => false,
             Scalar::Bool(b) => *b,
-            Scalar::Integer(_) | Scalar::Float(_) | Scalar::Text(_) => true,
+            Scalar::Integer(_) | Scalar::UInt(_) | Scalar::Float(_) | Scalar::Text(_) => true,
         }
     }
 }
@@ -347,6 +352,7 @@ impl DataNode for Scalar<'_> {
             Scalar::Null => Scalar::Null,
             Scalar::Bool(b) => Scalar::Bool(*b),
             Scalar::Integer(i) => Scalar::Integer(*i),
+            Scalar::UInt(u) => Scalar::UInt(*u),
             Scalar::Float(f) => Scalar::Float(*f),
         })
     }
@@ -391,6 +397,8 @@ impl DataNode for serde_json::Value {
             serde_json::Value::Number(n) => {
                 if let Some(i) = n.as_i64() {
                     Some(Scalar::Integer(i))
+                } else if let Some(u) = n.as_u64() {
+                    Some(Scalar::UInt(u))
                 } else {
                     n.as_f64().map(Scalar::Float)
                 }
@@ -677,7 +685,7 @@ impl DataNode for MetadataRecord {
             "is_error" => Some(NodeRef::Scalar(Scalar::Bool(self.is_error))),
             "is_dir" => Some(NodeRef::Scalar(Scalar::Bool(self.is_dir))),
             "file_size" => Some(NodeRef::Scalar(match self.file_size {
-                Some(n) => i64::try_from(n).map(Scalar::Integer).unwrap_or(Scalar::Float(n as f64)),
+                Some(n) => i64::try_from(n).map(Scalar::Integer).unwrap_or(Scalar::UInt(n)),
                 None => Scalar::Null,
             })),
             _ => snapshot_field(self, name),
@@ -787,6 +795,17 @@ mod tests {
         assert!(!DataNode::get(&json, "b").map(|b| b.node().is_truthy()).unwrap_or(true));
         assert_eq!(DataNode::to_json(&json).ok(), Some(json.clone()));
         assert_eq!(Scalar::Float(f64::NAN).to_json().is_err(), true);
+    }
+
+    #[test]
+    fn large_unsigned_integer_stays_exact() {
+        let json = serde_json::json!({"id": u64::MAX});
+        let id = DataNode::get(&json, "id").expect("id");
+        let scalar = id.node().scalar().map(|s| s.into_owned());
+        assert_eq!(scalar, Some(Scalar::UInt(u64::MAX)));
+        assert_eq!(id.node().kind(), NodeKind::Integer);
+        assert_eq!(Scalar::UInt(u64::MAX).to_text(), "18446744073709551615");
+        assert_eq!(Scalar::UInt(u64::MAX).to_json().ok(), Some(serde_json::json!(u64::MAX)));
     }
 
     struct Lazy;

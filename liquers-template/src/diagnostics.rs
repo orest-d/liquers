@@ -148,20 +148,24 @@ fn unknown_commands(query: &Query, cmr: &CommandMetadataRegistry, out: &mut Vec<
 }
 
 /// Literal action names of a template with placeholders; a filled name is checked when it runs.
+/// So is every name when a namespace is a placeholder (`ns-{{lib}}`), since the namespaces it is
+/// looked up in are only known then.
 fn template_commands(
     template: &crate::query::ast::QueryTemplate,
     cmr: &CommandMetadataRegistry,
     out: &mut Vec<Diagnostic>,
 ) {
     let mut namespaces = cmr.default_namespaces.clone();
+    let mut dynamic_namespace = false;
     for segment in &template.segments {
         if let QuerySegmentTemplate::Transform(t) = segment {
             for action in &t.query {
                 if action.name.as_literal().as_deref() == Some("ns") {
                     for p in &action.parameters {
                         if let crate::query::ast::ActionParameterTemplate::String(pieces, _) = p {
-                            if let Some(ns) = crate::query::ast::pieces_literal(pieces) {
-                                namespaces.insert(0, ns);
+                            match crate::query::ast::pieces_literal(pieces) {
+                                Some(ns) => namespaces.insert(0, ns),
+                                None => dynamic_namespace = true,
                             }
                         }
                     }
@@ -174,7 +178,7 @@ fn template_commands(
             QuerySegmentTemplate::Transform(t) => {
                 let realm = t.header.as_ref().map(|h| h.name.clone()).unwrap_or_default();
                 for action in &t.query {
-                    if let Some(name) = action.name.as_literal() {
+                    if let Some(name) = action.name.as_literal().filter(|_| !dynamic_namespace) {
                         if !is_instruction(&name)
                             && cmr.find_command_in_namespaces(&realm, &namespaces, &name).is_none()
                         {
@@ -217,5 +221,15 @@ mod tests {
         assert!(diagnostics[3].message.contains("closes no open section"));
         let broken = validate_template("{{#a}}", TemplateSyntax::Mustache, None);
         assert_eq!(broken.len(), 1);
+    }
+
+    /// A placeholder namespace is only known at render time, so its commands are checked then.
+    #[test]
+    fn dynamic_namespace_defers_command_check() {
+        let cmr = CommandMetadataRegistry::new();
+        let dynamic = validate_template("{{$ ns-{{lib}}/cmd}}", TemplateSyntax::Mustache, Some(&cmr));
+        assert!(dynamic.is_empty(), "{dynamic:#?}");
+        let literal = validate_template("{{$ ns-lib/cmd-{{x}}}}", TemplateSyntax::Mustache, Some(&cmr));
+        assert_eq!(literal.len(), 1, "a literal namespace is still checked: {literal:#?}");
     }
 }

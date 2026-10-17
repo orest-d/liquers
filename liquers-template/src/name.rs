@@ -447,7 +447,7 @@ pub fn resolve<'s>(
         for frame in stack.top_down() {
             match frame.view() {
                 FrameView::Sync(n) => {
-                    if n.kind() == NodeKind::Map {
+                    if n.kind() == NodeKind::Map || field == META {
                         if let Some(child) = n.get(&field) {
                             current = Resolved::Node(child);
                             break;
@@ -455,7 +455,7 @@ pub fn resolve<'s>(
                     }
                 }
                 FrameView::Async(a) => {
-                    if a.kind() == NodeKind::Map {
+                    if a.kind() == NodeKind::Map || field == META {
                         if let Some(child) = a.get(&field).await? {
                             current = Resolved::Any(child);
                             break;
@@ -498,7 +498,7 @@ async fn lookup_key<'s>(
             match scalar {
                 Some(Scalar::Integer(i)) => Ok(Key::Integer(i)),
                 Some(Scalar::Text(t)) => Ok(Key::Text(t.into_owned())),
-                Some(other @ (Scalar::Bool(_) | Scalar::Float(_))) => {
+                Some(other @ (Scalar::Bool(_) | Scalar::UInt(_) | Scalar::Float(_))) => {
                     Ok(Key::Text(other.to_text().into_owned()))
                 }
                 Some(Scalar::Null) | None if resolved.is_missing() => Err(Error::general_error(
@@ -524,6 +524,10 @@ fn not_indexable(kind: NodeKind, key: &Key, position: &Position) -> Error {
     ))
     .with_position(position)
 }
+
+/// The reserved name of a state's metadata record. A host's node answers it whatever its kind (a
+/// text file has metadata too), so it is looked up on every node, not only on maps.
+pub const META: &str = "_meta";
 
 /// The list index a bracket key selects.
 fn list_index(key: &Key, len: Option<usize>, position: &Position) -> Result<usize, Error> {
@@ -569,6 +573,7 @@ fn sync_step<'n>(
 ) -> Result<Option<NodeRef<'n>>, Error> {
     let kind = node.kind();
     match (part, key) {
+        (NamePart::Field(f, _), _) if f == META => Ok(node.get(f)),
         (NamePart::Field(f, _), _) => Ok(match kind {
             NodeKind::Map => node.get(f),
             NodeKind::Null
@@ -623,6 +628,7 @@ async fn async_step(
 ) -> Result<Option<AnyNode>, Error> {
     let kind = node.kind();
     match (part, key) {
+        (NamePart::Field(f, _), _) if f == META => node.get(f).await,
         (NamePart::Field(f, _), _) => match kind {
             NodeKind::Map => node.get(f).await,
             NodeKind::Null

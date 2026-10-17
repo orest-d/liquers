@@ -835,10 +835,13 @@ impl<E: Environment> Context<E> {
         Self::reject_relative_query(query)?;
         let query = self.resolve_query_from_cwd(query)?;
         let envref = self.assetref.get_envref().await;
-        envref
+        let asset = envref
             .get_asset_manager()
             .apply_for(&self.assetref, (&query).into(), to, self.payload.clone())
-            .await
+            .await?;
+        // `apply_for` returns a failed asset; a failure is still this call's error.
+        asset.get().await?;
+        Ok(asset)
     }
 
     /// Applies a recipe to a supplied state as an ad-hoc asset, waits for it, and passes its
@@ -849,7 +852,8 @@ impl<E: Environment> Context<E> {
     /// dependencies, so the current asset is invalidated when any of them changes. The recipe's
     /// query is resolved as `apply` resolves a query (absolute, or against this context's cwd);
     /// `recipe.cwd` is left as it is. Legacy metadata contributes nothing. A failed ad-hoc
-    /// evaluation is returned as its error, not as a failed asset.
+    /// evaluation is returned as its error, not as a failed asset, after its dependencies are
+    /// passed on.
     ///
     /// Volatility is not passed on, exactly as [`Self::get_dependency_state`] does not pass it on:
     /// it is fixed before evaluation starts (`design/volatility-system`, decision 4). A volatile
@@ -871,10 +875,13 @@ impl<E: Environment> Context<E> {
             .get_asset_manager()
             .apply_for(&self.assetref, recipe, to, self.payload.clone())
             .await?;
-        asset.get().await?.error_result()?;
+        let outcome = asset.get().await;
+        // Passed on before a failure is returned: a caller that recovers the error (a template in
+        // `expand` mode) is still invalidated when what the failed query read changes.
         for record in asset.get_metadata().await?.get_dependencies() {
             self.add_dependency(record.clone()).await;
         }
+        outcome?.error_result()?;
         Ok(asset)
     }
 

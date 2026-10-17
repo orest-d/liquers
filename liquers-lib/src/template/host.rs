@@ -1,12 +1,17 @@
 //! [`ContextHost`]: rendering a template inside a command, with its queries evaluated through the
 //! command's [`Context`].
 
+use std::any::Any;
+use std::pin::Pin;
 use std::sync::Arc;
 
 use liquers_core::command_metadata::CommandMetadataRegistry;
 use liquers_core::context::{Context, EnvRef, Environment};
-use liquers_core::data_node::AnyNode;
+use liquers_core::data_node::{
+    AnyNode, AsyncDataNode, DataNode, KeyIter, NodeIter, NodeKind, NodeRef, NodeStream, Scalar,
+};
 use liquers_core::error::Error;
+use liquers_core::metadata::MetadataRecord;
 use liquers_core::query::{Key, Query};
 use liquers_core::recipes::Recipe;
 use liquers_core::state::State;
@@ -41,8 +46,19 @@ impl<E: Environment<Value = Value>> ContextHost<E> {
     /// A state as template data. A record source streams through this context (so the chunks it
     /// reads are dependencies), a directory listing is a folder of its children, and every other
     /// value is its own `data_node`.
+    ///
+    /// The node answers `_meta` with the state's metadata record (none for legacy metadata), and
+    /// an apply tag given it receives the value itself, whatever its type.
     pub fn node_of(&self, state: &State<Value>) -> AnyNode {
-        let value = state.data_unchecked();
+        let value = state.data_unchecked().clone();
+        let meta = state.metadata.metadata_record().map(Arc::new);
+        match self.inner_node_of(&value) {
+            AnyNode::Sync(inner) => AnyNode::Sync(Arc::new(StateNode { value, meta, inner })),
+            AnyNode::Async(inner) => AnyNode::Async(Arc::new(AsyncStateNode { meta, inner })),
+        }
+    }
+
+    fn inner_node_of(&self, value: &Arc<Value>) -> AnyNode {
         #[cfg(feature = "records")]
         {
             use crate::value::ExtValueInterface;
@@ -54,7 +70,7 @@ impl<E: Environment<Value = Value>> ContextHost<E> {
                 )));
             }
         }
-        if let Some(listing) = directory_listing(value) {
+        if let Some(listing) = directory_listing(value.as_ref()) {
             return AnyNode::Async(Arc::new(super::folder::FolderNode::new(
                 self.context.clone(),
                 listing,
@@ -63,11 +79,14 @@ impl<E: Environment<Value = Value>> ContextHost<E> {
         Value::data_node(value.clone())
     }
 
-    /// An apply tag's input as a state: the value itself when the node is one, its JSON otherwise
-    /// (which keeps the data and drops the metadata).
+    /// An apply tag's input as a state: the value itself when the node is a state's or a value's
+    /// (`node_of`), its JSON otherwise (which keeps the data and drops the metadata).
     async fn input_state(&self, node: AnyNode) -> Result<State<Value>, Error> {
         if let AnyNode::Sync(n) = &node {
             if let Some(any) = n.as_any() {
+                if let Some(value) = any.downcast_ref::<Arc<Value>>() {
+                    return Ok(State::new().with_data(value.as_ref().clone()));
+                }
                 if let Some(value) = any.downcast_ref::<SimpleValue>() {
                     return Ok(State::new().with_data(Value::new_base(value.clone())));
                 }
@@ -84,6 +103,94 @@ impl<E: Environment<Value = Value>> ContextHost<E> {
 
     fn absolute(&self, query: &Query) -> Query {
         query.to_absolute(&self.cwd)
+    }
+}
+
+/// The reserved name under which a state's metadata record is read.
+const META: &str = liquers_template::name::META;
+
+/// A state's node: the value's own node, plus `_meta` and the value itself for an apply tag.
+struct StateNode {
+    value: Arc<Value>,
+    meta: Option<Arc<MetadataRecord>>,
+    inner: Arc<dyn DataNode>,
+}
+
+impl DataNode for StateNode {
+    fn kind(&self) -> NodeKind {
+        self.inner.kind()
+    }
+    fn scalar(&self) -> Option<Scalar<'_>> {
+        self.inner.scalar()
+    }
+    fn get(&self, name: &str) -> Option<NodeRef<'_>> {
+        if name == META {
+            return self
+                .meta
+                .as_ref()
+                .map(|meta| NodeRef::Borrowed(meta.as_ref() as &dyn DataNode));
+        }
+        self.inner.get(name)
+    }
+    fn len(&self) -> Option<usize> {
+        self.inner.len()
+    }
+    fn items(&self) -> Box<dyn NodeIter<'_> + '_> {
+        self.inner.items()
+    }
+    fn keys(&self) -> Box<dyn KeyIter<'_> + '_> {
+        self.inner.keys()
+    }
+    fn to_json(&self) -> Result<serde_json::Value, Error> {
+        self.inner.to_json()
+    }
+    fn index(&self, i: usize) -> Option<NodeRef<'_>> {
+        self.inner.index(i)
+    }
+    fn is_truthy(&self) -> bool {
+        self.inner.is_truthy()
+    }
+    /// The value (an `Arc<Value>`), so an apply tag passes it on unconverted.
+    fn as_any(&self) -> Option<&dyn Any> {
+        Some(&self.value)
+    }
+}
+
+/// As [`StateNode`], for a value read on demand (a record source, a folder).
+struct AsyncStateNode {
+    meta: Option<Arc<MetadataRecord>>,
+    inner: Arc<dyn AsyncDataNode>,
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+impl AsyncDataNode for AsyncStateNode {
+    fn kind(&self) -> NodeKind {
+        self.inner.kind()
+    }
+    async fn scalar(&self) -> Result<Option<Scalar<'static>>, Error> {
+        self.inner.scalar().await
+    }
+    async fn get(&self, name: &str) -> Result<Option<AnyNode>, Error> {
+        if name == META {
+            return Ok(self
+                .meta
+                .as_ref()
+                .map(|meta| AnyNode::Sync(meta.clone() as Arc<dyn DataNode>)));
+        }
+        self.inner.get(name).await
+    }
+    fn items(&self) -> Pin<Box<dyn NodeStream<'_> + '_>> {
+        self.inner.items()
+    }
+    async fn to_json(&self) -> Result<serde_json::Value, Error> {
+        self.inner.to_json().await
+    }
+    async fn len(&self) -> Result<Option<usize>, Error> {
+        self.inner.len().await
+    }
+    async fn index(&self, i: usize) -> Result<Option<AnyNode>, Error> {
+        self.inner.index(i).await
     }
 }
 

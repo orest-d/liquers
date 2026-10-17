@@ -22,7 +22,8 @@ type TestEnv = SimpleEnvironment<Value>;
 /// `apply_with(query)` applies `query` to the text `"input"` through `apply_ad_hoc`;
 /// `depend_on(query)` evaluates `query` through `get_dependency_state`;
 /// `read_b` reads `-R/data/b.txt` as a dependency and appends it to its input;
-/// `apply_relative` applies the relative `-R-key/./b.txt`; `rnd` is volatile.
+/// `apply_relative` applies the relative `-R-key/./b.txt`; `rnd` is volatile; `apply_recover`
+/// applies `read_b_fail` (which reads `-R/data/b.txt`, then fails) and ignores the failure.
 fn register(cr: &mut CommandRegistry<TestEnv>) -> Result<(), Error> {
     cr.register_async_command(CommandKey::new_name("apply_with"), |_, args, ctx| {
         Box::pin(async move {
@@ -52,6 +53,19 @@ fn register(cr: &mut CommandRegistry<TestEnv>) -> Result<(), Error> {
                 .await?
                 .try_into_string()?;
             Ok(Value::from(format!("{}+{b}", input?)))
+        })
+    })?;
+    cr.register_async_command(CommandKey::new_name("apply_recover"), |_, _, ctx| {
+        Box::pin(async move {
+            let recipe = Recipe::new("read_b_fail".to_string(), String::new(), String::new())?;
+            let outcome = ctx.apply_ad_hoc(recipe, State::new()).await;
+            Ok(Value::from(if outcome.is_err() { "recovered" } else { "succeeded" }))
+        })
+    })?;
+    cr.register_async_command(CommandKey::new_name("read_b_fail"), |_, _, ctx| {
+        Box::pin(async move {
+            ctx.get_dependency_state(&parse_query("-R/data/b.txt")?).await?;
+            Err(Error::general_error("read b, then failed".to_string()))
         })
     })?;
     cr.register_async_command(CommandKey::new_name("apply_relative"), |_, _, ctx| {
@@ -99,6 +113,21 @@ async fn apply_ad_hoc_propagates_dependencies() -> TestResult {
         deps.iter().any(|d| d.key == b),
         "the ad-hoc read of data/b.txt is a dependency of the parent: {deps:?}"
     );
+    Ok(())
+}
+
+/// A recovered ad-hoc failure still passes on what it read, so the parent is invalidated by it.
+#[tokio::test]
+async fn apply_ad_hoc_failure_propagates_dependencies() -> TestResult {
+    let envref = env().await?;
+    let asset = envref
+        .get_asset_manager()
+        .get_asset(&parse_query("apply_recover")?)
+        .await?;
+    assert_eq!(asset.get().await?.try_into_string()?, "recovered");
+    let b = DependencyKey::from(&parse_key("data/b.txt")?);
+    let deps = asset.get_metadata().await?.get_dependencies().to_vec();
+    assert!(deps.iter().any(|d| d.key == b), "the failed read of data/b.txt is a dependency: {deps:?}");
     Ok(())
 }
 

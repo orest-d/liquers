@@ -27,7 +27,7 @@ fn cell_node<'a>(value: FieldValue) -> Option<NodeRef<'a>> {
         FieldValue::Int(i) => Some(NodeRef::Scalar(Scalar::Integer(i))),
         FieldValue::UInt(u) => Some(NodeRef::Scalar(match i64::try_from(u) {
             Ok(i) => Scalar::Integer(i),
-            Err(_) => Scalar::Float(u as f64),
+            Err(_) => Scalar::UInt(u),
         })),
         FieldValue::Float(f) => Some(NodeRef::Scalar(Scalar::Float(f))),
         FieldValue::Text(t) => Some(NodeRef::Scalar(Scalar::Text(Cow::Owned(t.to_string())))),

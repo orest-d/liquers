@@ -98,6 +98,12 @@ fn frame() -> Result<Value, Error> {
     Ok(Value::from_polars_dataframe(df))
 }
 
+#[cfg(feature = "polars")]
+fn frame_height(state: &State<Value>) -> Result<Value, Error> {
+    use liquers_lib::value::ExtValueInterface;
+    Ok(Value::from(format!("rows={}", state.data_unchecked().as_polars_dataframe()?.height())))
+}
+
 const A_EXPIRY: &str = "---
 id: A-EXPIRY
 title: Expired assets are served stale
@@ -192,6 +198,8 @@ async fn fixture() -> Result<EnvRef<CommandEnvironment>, Error> {
         register_command!(cr, fn rnd() -> result namespace: "fixture" volatile: true)?;
         #[cfg(feature = "polars")]
         register_command!(cr, fn frame() -> result namespace: "fixture")?;
+        #[cfg(feature = "polars")]
+        register_command!(cr, fn frame_height(state) -> result namespace: "fixture")?;
         cr.register_alias(
             CommandKey::new("", "pack", "open_issues"),
             CommandKey::new("", "template", "render"),
@@ -419,9 +427,9 @@ async fn volatile_query_needs_declared_volatility() -> Res {
     let asset = manager.get_asset(&parse_query("ns-template/render-~X~-R/templates/rnd.md~E")?).await?;
     assert_eq!(asset.get().await?.try_into_string()?, "random");
     assert!(!asset.is_volatile().await, "a volatile query does not make the render volatile");
-    let asset = manager.get_asset(&parse_query("ns-template/render-~X~-R/templates/rnd.md~E/v")?).await?;
+    let asset = manager.get_asset(&parse_query("v/ns-template/render-~X~-R/templates/rnd.md~E")?).await?;
     assert_eq!(asset.get().await?.try_into_string()?, "random");
-    assert!(asset.is_volatile().await, "a render query ending in v is volatile");
+    assert!(asset.is_volatile().await, "a render query starting with v is volatile");
     Ok(())
 }
 
@@ -568,5 +576,26 @@ async fn folder_as_data() -> Res {
     let query = "-R-dir/specs/-/ns-template/render-~X~-R/templates/folder.md~E";
     assert_eq!(text(&env, query).await?, "[plain notes]");
     assert!(has_key(&dependencies(&env, query).await?, "specs/issues/notes.txt")?);
+    Ok(())
+}
+
+/// An apply tag passes an extended value on as itself, not as its JSON.
+#[cfg(feature = "polars")]
+#[tokio::test]
+async fn apply_tag_keeps_extended_value() -> Res {
+    let env = fixture().await?;
+    set(&env, "templates/height.md", "{{$. ns-fixture/frame_height}}").await?;
+    let out = text(&env, "ns-fixture/frame/ns-template/render-~X~-R/templates/height.md~E").await?;
+    assert_eq!(out, "rows=2");
+    Ok(())
+}
+
+/// `_meta` is the state's metadata record, for the rendered state and for a query result.
+#[tokio::test]
+async fn meta_reads_state_metadata() -> Res {
+    let env = fixture().await?;
+    set(&env, "templates/meta.md", "{{_meta.key}}|{{#$ -R/specs/issues/notes.txt}}{{.}} {{_meta.filename}}{{/}}").await?;
+    let out = text(&env, "-R/data/word.txt/-/ns-template/render-~X~-R/templates/meta.md~E").await?;
+    assert_eq!(out, "data/word.txt|plain notes notes.txt");
     Ok(())
 }

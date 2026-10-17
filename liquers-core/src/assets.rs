@@ -3811,7 +3811,19 @@ impl<E: Environment> AssetRef<E> {
         }
         let context_for_deps = context.clone(); // shares pending_dependencies Arc
         eprintln!("Applying recipe");
-        let res = envref.apply_recipe(input_state, recipe, context).await?;
+        let res = match envref.apply_recipe(input_state, recipe, context).await {
+            Ok(res) => res,
+            Err(error) => {
+                // A failed evaluation keeps what it read, so a caller that recovers the failure
+                // (`Context::apply_ad_hoc` under a template's `expand` mode) can pass it on.
+                let observed_deps = context_for_deps.take_pending_dependencies().await;
+                let mut lock = self.data.write().await;
+                for dep in observed_deps {
+                    let _ = lock.metadata.add_dependency(dep);
+                }
+                return Err(error);
+            }
+        };
         //eprintln!("Recipe evaluated, result: {:?}", &res);
 
         // Observed dependencies travel back as data, to be merged into the live metadata by
@@ -5931,6 +5943,9 @@ pub trait AssetManager<E: Environment>:
     /// Evaluate an ad-hoc asset for a command of `parent` (`Context::apply`), inside `parent`'s
     /// evaluation session, so the dependencies it resolves are the ones `parent`'s evaluation
     /// uses.
+    ///
+    /// The built-in managers return the asset even when its evaluation failed: the failure is
+    /// recorded in it, with the dependencies it read, which `Context::apply_ad_hoc` passes on.
     ///
     /// Default: [`Self::apply`], which evaluates it in a session of its own.
     async fn apply_for(
@@ -8572,7 +8587,8 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         if let Some(session) = parent.evaluation_session().await {
             asset_ref.adopt_evaluation_session(&session).await;
         }
-        asset_ref.run(payload).await?;
+        // A failure is recorded in the asset (see the trait method).
+        let _ = asset_ref.run(payload).await;
         Ok(asset_ref)
     }
 
@@ -10107,7 +10123,8 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
         if let Some(session) = parent.evaluation_session().await {
             asset_ref.adopt_evaluation_session(&session).await;
         }
-        asset_ref.run_inline(payload).await?;
+        // A failure is recorded in the asset (see the trait method).
+        let _ = asset_ref.run_inline(payload).await;
         Ok(asset_ref)
     }
 
