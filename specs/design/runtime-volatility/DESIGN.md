@@ -4,13 +4,15 @@ kind: design
 title: Volatility discovered while a command runs
 form: compact
 workflow: liquers-project
-status: in_review
-phase: architecture
+status: approved
+phase: implementation
 area: [core/assets, core/context]
 issues: [RUNTIME-VOLATILE-DEPENDENCY-DOES-NOT-MAKE-PARENT-VOLATILE]
 created: 2026-10-17
 ---
 # Volatility discovered while a command runs
+
+Pre-approved after Phase 2 on 2026-10-17.
 
 ## Phase 1: High-Level Design
 
@@ -81,6 +83,11 @@ volatility is never checked (`RESOURCE-STEP-VOLATILITY-IS-NEVER-CHECKED`, separa
 - **AC-8** The command can see it
   - WHEN a command has resolved a volatile dependency through its context
   - THEN `Context::is_volatile()` returns `true` for the rest of that command's run
+
+- **AC-9** A command can declare its result volatile
+  - WHEN a non-volatile command calls `Context::set_volatile("reason")` and returns
+  - THEN its asset finishes `Volatile`, as in AC-3, and the reason is in its log
+  - *(added at the Phase 2 review with `Context::set_volatile`)*
 
 ### Systems touched and crate placement
 
@@ -251,3 +258,91 @@ the record of the revision.
 - **Recovery.** Two files; reverting the PR restores today's behaviour. Certainty: high, since
   the finish path it reuses is already tested (`runtime_volatile_asset_is_evicted_from_key_map`,
   `volatile_keyed_recipe_recomputes_every_time`).
+
+## Phase 3: Examples and Tests
+
+### Examples
+
+The commands live in a new integration test, `liquers-core/tests/runtime_volatility.rs`, built
+over both managers (`SimpleEnvironment`, queued, and `ImmediateEnvironment`, inline) with one
+generic environment builder:
+
+- `count` — volatile, returns `n0`, `n1`, … from a shared counter;
+- `depend_on(query)` — `get_dependency_state(query)`, as in `tests/apply_ad_hoc.rs`;
+- `read_counted` — `get_dependency_state(-R/n.txt)`, where `recipes.yaml` maps
+  `depend_on-count/n.txt` to the key `n.txt`;
+- `submit_wait(query)`, `evaluate_get(query)` (`evaluate` then `AssetRef::get`, bypassing
+  `wait_for_dependency`), `apply_to(query)` (`Context::apply` then `AssetRef::get`);
+- `probe_volatile(query)` — returns `"<before>/<after>"` of `Context::is_volatile()` around a
+  `get_dependency_state(query)`;
+- `declare_volatile` — calls `set_volatile("declared by the command")`, returns `"declared"`;
+- `plain` — non-volatile, returns `"plain"`.
+
+Primary example (AC-1): `depend_on-count` evaluated twice gives `n0` then `n1`, both `Volatile`.
+Secondary (AC-3): the key `n.txt` requested twice gives two asset ids, the store's metadata for
+`n.txt` has `Status::Volatile`, and the dependency manager has no version for `n.txt`.
+
+Edge and error cases: a dependency submitted and never waited for that is not volatile by plan
+leaves the parent `Ready` (decision 2's "judged by its metadata at the end"); a volatile dependency
+whose evaluation fails fails the parent as today (the error wins, no volatility question arises);
+`set_volatile` called twice logs one entry.
+
+All queries above validate with `liquers-validate --command …` (2026-10-17).
+
+### Tests
+
+`liquers-core/tests/runtime_volatility.rs`, each scenario as `<name>_default` and `<name>_inline`:
+
+| Test | Scenarios |
+|---|---|
+| `rv01_runtime_dependency_makes_query_volatile` | AC-1 |
+| `rv02_trailing_v_recomputes_the_prefix` | AC-2 |
+| `rv03_keyed_runtime_volatile_is_stored_volatile_and_recomputed` | AC-3 |
+| `rv04_runtime_volatility_is_transitive` | AC-4 |
+| `rv05_every_context_entry_point_passes_volatility` (`submit_wait`, `evaluate_get`, `apply_to`) | AC-5 |
+| `rv06_non_volatile_dependency_stays_ready` (`depend_on-plain`: `Ready`, same asset twice, dependency record present) | AC-6 |
+| `rv07_volatile_cause_is_logged` (exactly one info entry naming `count`) | AC-7 |
+| `rv08_context_is_volatile_after_volatile_dependency` (`probe_volatile-count` returns `false/true`; `probe_volatile-plain` returns `false/false`) | AC-8 |
+| `rv09_command_can_declare_volatile` (called twice: one log entry) | AC-9 |
+| `rv10_unwaited_non_volatile_dependency_keeps_parent_ready` | AC-6 |
+
+Changed: `tests/apply_ad_hoc.rs` `apply_ad_hoc_volatility_is_static`, which pins today's
+behaviour, becomes `apply_ad_hoc_volatility_is_inherited`: `apply_with-rnd` is now volatile
+(AC-5). Unit test in `liquers-core/src/assets.rs`: `set_volatile_during_run_marks_metadata_once`
+(AC-7, AC-9).
+
+```bash
+cargo test -p liquers-core --test runtime_volatility --test apply_ad_hoc
+cargo test -p liquers-core --lib set_volatile_during_run
+```
+
+## Phase 4: Implementation Plan
+
+### Steps
+
+- [ ] 1. `liquers-core/src/assets.rs` `AssetRef::set_volatile_during_run` (+ unit test); doc of
+  `resolve_volatility_before_evaluation` — `cargo test -p liquers-core --lib set_volatile_during_run`
+- [ ] 2. `liquers-core/src/context.rs` — fields `resolved_dependencies`, `volatile_set` in `new`,
+  `with_volatile`, `clone_context`, `Clone`; `set_volatile`, `is_volatile`, `note_resolved`,
+  `check_resolved_volatility`; `note_resolved` in the two schedule functions, `apply`,
+  `apply_ad_hoc`; the volatile check in `wait_for_dependency_recording` — `cargo check -p liquers-core`
+- [ ] 3. `liquers-core/src/assets.rs` `AssetRef::compute` calls `check_resolved_volatility` before
+  `take_pending_dependencies` — `cargo check -p liquers-core`
+- [ ] 4. `liquers-core/tests/runtime_volatility.rs` (rv01–rv10); rename and invert
+  `apply_ad_hoc_volatility_is_static` — the Phase 3 commands
+- [ ] 5. Regression: every test that pinned the old behaviour is updated with a reference to this
+  design, or the implementation is fixed — `cargo test -p liquers-core --lib --tests` and
+  `cargo test -p liquers-lib --lib --tests` (template and search commands read queries at run time)
+- [ ] 6. Documents: `ASSETS.md`, `ASSET_LIFECYCLE.md`, `COMMAND_DESIGN_GUIDE.md`,
+  `TEMPLATE_LANGUAGE.md`, `TEMPLATE_GUIDE.md` (History row and `reviewed:` each), the `assets.rs`
+  module docs §Volatility, `Context` docs — `python3 scripts/docs_index.py --check`
+
+Rollback: each step is one commit on the PR branch; reverting the branch restores today's
+behaviour. No stored format changes, so no data needs rollback.
+
+### Validation
+
+`cargo test -p liquers-core --lib --tests`, `cargo test -p liquers-lib --lib --tests`, and
+`cargo check -p liquers-core --target wasm32-unknown-unknown` (the new fields use `std::sync` only).
+No `#[cfg]`, optional dependency or `ExtValue` match changes, so the build matrix is not needed.
+No command signature changes, so `specs/command_registry.yaml` is unchanged.
