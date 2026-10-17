@@ -2,8 +2,8 @@
 id: VARIADIC-EMPTY-ELEMENT-CONVERSION
 kind: design
 title: An empty element of a variadic argument converts as an element, not as the whole list's default
+gh_pr: [148]
 form: compact
-status: in_review
 phase: implementation
 readiness: ready
 autofix: eligible
