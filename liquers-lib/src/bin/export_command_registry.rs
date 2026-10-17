@@ -72,6 +72,19 @@ impl Group {
         }
     }
 
+    /// The `liquers-lib` cargo feature that compiles this group in, or `None` when the group is
+    /// always present. Several groups may share one feature (`search` comes with `records`).
+    fn feature(self) -> Option<&'static str> {
+        match self {
+            Group::Core | Group::Lui | Group::StoreConfig => None,
+            Group::Egui => Some("egui"),
+            Group::Image => Some("image-support"),
+            Group::Polars => Some("polars"),
+            Group::Records | Group::Search => Some("records"),
+            Group::Template => Some("templates"),
+        }
+    }
+
     /// Whether this binary was compiled with the group's cargo feature.
     fn is_compiled_in(self) -> bool {
         match self {
@@ -303,16 +316,18 @@ fn build_registry(groups: &[Group]) -> Result<CommandMetadataRegistry, Error> {
 /// verbatim — that is the whole mechanism keeping a human-edited history across regeneration.
 fn header(groups: &[Group], command_count: usize, path: &Path) -> String {
     let group_names: Vec<&str> = groups.iter().map(|g| g.name()).collect();
-    // `search` is compiled in by the `records` feature, and `store_config` is always present, so
-    // neither adds a feature name of its own.
-    let features: Vec<&str> = Group::all()
+    // Cargo feature names, not group names: they differ (`image` / `image-support`), and groups
+    // sharing a feature (`search` comes with `records`) list it once.
+    let mut features: Vec<&str> = Vec::new();
+    for feature in Group::all()
         .into_iter()
-        .filter(|g| {
-            !matches!(g, Group::Core | Group::Lui | Group::Search | Group::StoreConfig)
-                && g.is_compiled_in()
-        })
-        .map(|g| g.name())
-        .collect();
+        .filter(|g| g.is_compiled_in())
+        .filter_map(|g| g.feature())
+    {
+        if !features.contains(&feature) {
+            features.push(feature);
+        }
+    }
 
     let changelog = existing_changelog(path).unwrap_or_else(|| {
         format!("{CHANGELOG_BEGIN}\n# (add a dated line here when regenerating)\n{CHANGELOG_END}\n")
@@ -343,4 +358,72 @@ fn existing_changelog(path: &Path) -> Option<String> {
     let start = text.find(CHANGELOG_BEGIN)?;
     let end = text[start..].find(CHANGELOG_END)? + start + CHANGELOG_END.len();
     Some(format!("{}\n", &text[start..end]))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The keys of `liquers-lib/Cargo.toml`'s `[features]` table.
+    fn declared_features() -> Vec<String> {
+        let manifest = include_str!("../../Cargo.toml");
+        let mut in_features = false;
+        let mut features = Vec::new();
+        for line in manifest.lines() {
+            let line = line.trim();
+            if line.starts_with('[') {
+                in_features = line == "[features]";
+                continue;
+            }
+            if !in_features || line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            if let Some((key, _)) = line.split_once('=') {
+                features.push(key.trim().to_string());
+            }
+        }
+        features
+    }
+
+    #[test]
+    fn group_features_are_declared_in_cargo_toml() {
+        let declared = declared_features();
+        assert!(declared.contains(&"records".to_string()), "{:?}", declared);
+        for group in Group::all() {
+            if let Some(feature) = group.feature() {
+                assert!(
+                    declared.iter().any(|d| d == feature),
+                    "group '{}' names feature '{}', which liquers-lib/Cargo.toml does not declare ({:?})",
+                    group.name(),
+                    feature,
+                    declared
+                );
+            }
+        }
+    }
+
+    #[cfg(all(
+        feature = "egui",
+        feature = "image-support",
+        feature = "polars",
+        feature = "records",
+        feature = "templates"
+    ))]
+    #[test]
+    fn header_lists_cargo_features_once() {
+        let groups: Vec<Group> = Group::all()
+            .into_iter()
+            .filter(|g| g.is_compiled_in())
+            .collect();
+        let text = header(&groups, 0, Path::new("no/such/command_registry.yaml"));
+        let origin = text
+            .lines()
+            .find(|line| line.starts_with("# Origin:"))
+            .expect("header has an Origin line");
+        let features = origin
+            .split_whitespace()
+            .find_map(|field| field.strip_prefix("features="))
+            .expect("Origin line has a features= field");
+        assert_eq!(features, "egui,image-support,polars,records,templates");
+    }
 }
