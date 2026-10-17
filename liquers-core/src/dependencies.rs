@@ -1111,6 +1111,28 @@ impl<E: Environment> DependencyManager<E> {
             .unwrap_or(true)
     }
 
+    /// Drop every edge on which `dependent` is the depending side: `dependent` no longer depends
+    /// on anything in the graph. Edges *to* `dependent`, and its version, are kept.
+    ///
+    /// Called when a keyed asset turns volatile during its run (`Context::set_volatile`): its
+    /// dependencies were registered at schedule time, while it was still a graph node, and a
+    /// volatile asset is not a node (`specs/design/runtime-volatility/`). A full scan, which a
+    /// rare event affords.
+    pub(crate) async fn remove_dependent_edges(&self, dependent: &DependencyKey) {
+        self.keyed_dependents
+            .retain_async(|_, edges| {
+                edges.remove_sync(dependent);
+                !edges.is_empty()
+            })
+            .await;
+        self.expression_dependents
+            .retain_async(|_, dependents| {
+                dependents.remove_sync(dependent);
+                !dependents.is_empty()
+            })
+            .await;
+    }
+
     /// Remove a key from all tracking structures.
     pub(crate) async fn remove(&self, key: &DependencyKey) {
         self.versions.remove_async(key).await;
@@ -1758,6 +1780,27 @@ mod tests {
         dm.add_dependency(&b, &a, Version::new(1)).await.unwrap();
         // Adding a → b would create cycle: a depends on b depends on a
         assert!(dm.would_create_cycle(&a, &b).await);
+    }
+
+    /// A keyed asset that turned volatile during its run drops the edges it registered as a
+    /// dependent, and keeps those of its own dependents (`specs/design/runtime-volatility/`).
+    #[tokio::test]
+    async fn remove_dependent_edges_drops_only_outgoing_edges() {
+        let dm = DependencyManager::<TestEnv>::new();
+        let a = DependencyKey::new("-R/a");
+        let b = DependencyKey::new("-R/b");
+        let c = DependencyKey::new("-R/c");
+        dm.add_dependency(&b, &a, Version::new(1)).await.unwrap();
+        dm.add_dependency(&c, &b, Version::new(2)).await.unwrap();
+        dm.remove_dependent_edges(&b).await;
+        assert!(
+            !dm.would_create_cycle(&a, &b).await,
+            "b no longer depends on a, so a may depend on b"
+        );
+        assert!(
+            dm.would_create_cycle(&b, &c).await,
+            "c still depends on b"
+        );
     }
 
     #[tokio::test]

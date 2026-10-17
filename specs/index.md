@@ -8,9 +8,9 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 132
-- P2: 55
-- P3: 77
+Total rows: 133
+- P2: 54
+- P3: 79
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -34,7 +34,6 @@ Total rows: 132
 | [`PY-MODULES-NOT-DECLARED-IN-LIB`](issues/PY-MODULES-NOT-DECLARED-IN-LIB.md) | issue | Half of liquers-py's source files are not declared as modules and never compile | draft |  |  | P2 | M | py |  | 2026-08-25 |
 | [`PY-VALUE-SERIALIZER-IS-A-STUB`](issues/PY-VALUE-SERIALIZER-IS-A-STUB.md) | issue | liquers-py's value serializer writes almost nothing and reads nothing back | draft |  |  | P2 | M | py;core/value |  | 2026-08-26 |
 | [`RECORDS-PARQUET-POLARS-READ-IGNORES-DECLARED-SCHEMA`](issues/RECORDS-PARQUET-POLARS-READ-IGNORES-DECLARED-SCHEMA.md) | issue | Reading Parquet through the polars bridge ignores a caller-declared schema | draft |  |  | P2 | M | records;lib/polars |  | 2026-09-27 |
-| [`RUNTIME-VOLATILE-DEPENDENCY-DOES-NOT-MAKE-PARENT-VOLATILE`](issues/RUNTIME-VOLATILE-DEPENDENCY-DOES-NOT-MAKE-PARENT-VOLATILE.md) | issue | A volatile dependency a command evaluates through its context does not make the command's result volatile | draft |  |  | P2 | M | core/context |  | 2026-10-17 |
 | [`SERIALIZATION-CANNOT-REPORT-A-LOSSY-WRITE`](issues/SERIALIZATION-CANNOT-REPORT-A-LOSSY-WRITE.md) | issue | Serialization cannot report a lossy write, so a value silently loses data on its way to the store | draft |  |  | P2 | M | core/value |  | 2026-10-13 |
 | [`SERIALIZED-BINARY-RETAINED-WITH-NO-DISPOSAL-POLICY`](issues/SERIALIZED-BINARY-RETAINED-WITH-NO-DISPOSAL-POLICY.md) | issue | A serialized binary is cached on the asset forever, with no policy for releasing it | draft |  |  | P2 | M | core/assets |  | 2026-09-05 |
 | [`STORE-CONFORMANCE-VALIDATION-TOOL`](issues/STORE-CONFORMANCE-VALIDATION-TOOL.md) | issue | No way to run the conformance suite against a store outside a test binary | accepted |  |  | P2 | M | store/backends;core/store |  | 2026-09-02 |
@@ -85,6 +84,8 @@ Total rows: 132
 | [`EXTERNAL-MANAGER-CANNOT-SHARE-AN-EVALUATION-SESSION`](issues/EXTERNAL-MANAGER-CANNOT-SHARE-AN-EVALUATION-SESSION.md) | issue | An external asset manager cannot hand a dependency its parent's evaluation session | draft | needs-decision | not-eligible | P3 | S | core/assets | [design](design/external-manager-evaluation-session-sharing/DESIGN.md) | 2026-10-12 |
 | [`REGISTRY-QUERY-DEFAULT-NOT-WRITABLE-AS-TEXT`](issues/REGISTRY-QUERY-DEFAULT-NOT-WRITABLE-AS-TEXT.md) | issue | A default link argument cannot be written as query text in a registry file | draft | needs-decision | not-eligible | P3 | S | core/commands;core/validate | [design](design/registry-query-default-text-form/DESIGN.md) | 2026-10-17 |
 | [`SEARCH-CATALOG-READS-EACH-FILE-METADATA-TWICE`](issues/SEARCH-CATALOG-READS-EACH-FILE-METADATA-TWICE.md) | issue | ns-search/catalog reads each file's metadata twice, once for its info and once for its version | draft | needs-decision | not-eligible | P3 | S | lib/commands;core/assets | [design](design/search-catalog-single-metadata-read/DESIGN.md) | 2026-10-17 |
+| [`CORE-WASM-BUILD-EMITS-UNUSED-WARNINGS`](issues/CORE-WASM-BUILD-EMITS-UNUSED-WARNINGS.md) | issue | A wasm32 build of liquers-core emits five unused-import and dead-code warnings | draft |  |  | P3 | S | core/assets;build |  | 2026-10-17 |
+| [`DEPENDENCY-MANAGER-VERSION-NOT-OBSERVABLE-FROM-TESTS`](issues/DEPENDENCY-MANAGER-VERSION-NOT-OBSERVABLE-FROM-TESTS.md) | issue | An integration test cannot ask the dependency manager whether a key has a registered version | draft |  |  | P3 | S | core/assets |  | 2026-10-17 |
 | [`TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS`](issues/TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS.md) | issue | TypeInfo cannot declare a format a type writes but cannot read back | draft |  |  | P3 | S | core/value |  | 2026-09-24 |
 | [`WEB-OUTBOUND-INT64-BEYOND-DOUBLE-UNTESTED`](issues/WEB-OUTBOUND-INT64-BEYOND-DOUBLE-UNTESTED.md) | issue | An i64 beyond 2^53 leaving for JavaScript has unconfirmed, untested behaviour | draft |  |  | P3 | S | web |  | 2026-10-17 |
 | [`PY-VALUE-ENUM-OVERSIZED`](issues/PY-VALUE-ENUM-OVERSIZED.md) | issue | liquers-py's own Value enum is over 700 bytes because large variants are stored inline | draft | ready | not-eligible | P3 | M | py | [design](design/py-value-arc-payloads/DESIGN.md) | 2026-10-12 |
