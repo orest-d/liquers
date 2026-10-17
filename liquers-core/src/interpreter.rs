@@ -417,6 +417,13 @@ pub(crate) fn apply_plan_state<E: Environment>(
         // leave a metadata-only store entry for a keyed asset mid-evaluation.
         log_init_steps(&plan, &context).await?;
 
+        // A volatile plan makes its asset volatile. A managed asset was already marked when the
+        // manager created it; an ad-hoc asset (`apply`, `apply_ad_hoc`) is created without a
+        // plan, so this is where it learns it (`specs/design/runtime-volatility/`).
+        if plan.is_volatile && !context.is_volatile() {
+            context.set_volatile("its plan is volatile").await?;
+        }
+
         // A plan declared `payload: required` must not run without one. This is the
         // authoritative gate: it covers every execution path — top-level `EnvRef::evaluate`,
         // keyed evaluation, and nested scheduling alike — where the per-entry-point checks
