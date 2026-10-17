@@ -2,8 +2,8 @@
 id: AXUM-QUERY-API-BASE-SLASH
 kind: design
 title: The Query API route separates its base from the query with a slash
+gh_pr: [147]
 form: compact
-status: in_review
 phase: implementation
 readiness: ready
 autofix: eligible
@@ -166,16 +166,16 @@ Run: `cargo test -p liquers-axum --test query_api_routes`, then
 
 ### Steps
 
-- [ ] 1. `liquers-axum/tests/query_api_routes.rs` — add `qar09` and `qar11` first and see them fail
+- [x] 1. `liquers-axum/tests/query_api_routes.rs` — add `qar09` and `qar11` first and see them fail
   against HEAD — `cargo test -p liquers-axum --test query_api_routes qar09` and `… qar11` (Cargo takes one filter per run)
-- [ ] 2. `liquers-axum/src/query/builder.rs` `QueryApiBuilder::build` — trim the base's trailing `/`
+- [x] 2. `liquers-axum/src/query/builder.rs` `QueryApiBuilder::build` — trim the base's trailing `/`
   and insert one; update the `new` doc comment — `cargo test -p liquers-axum --test query_api_routes`
-- [ ] 3. Add `qar10`, `qar12` — same command, plus `cargo test -p liquers-axum --lib`
-- [ ] 3a. Add `join_base` and route the Store, Recipes and Assets builders through it; add
+- [x] 3. Add `qar10`, `qar12` — same command, plus `cargo test -p liquers-axum --lib`
+- [x] 3a. Add `join_base` and route the Store, Recipes and Assets builders through it; add
   `base_with_trailing_slash_registers_the_same_store_routes` — `cargo test -p liquers-axum --lib --tests`
-- [ ] 4. `specs/reference/WEB_API_SPECIFICATION.md` §7, Appendix A — route shape and trailing-slash
+- [x] 4. `specs/reference/WEB_API_SPECIFICATION.md` §7, Appendix A — route shape and trailing-slash
   sentence; History row, `reviewed:` bump — `python3 scripts/docs_index.py --check`
-- [ ] 5. Close `AXUM-QUERY-API-QUERY-KEEPS-LEADING-SLASH` and
+- [x] 5. Close `AXUM-QUERY-API-QUERY-KEEPS-LEADING-SLASH` and
   `AXUM-API-BASE-WITH-TRAILING-SLASH-DOUBLES-THE-SEPARATOR`, each with a resolution note; regenerate the
   index — `python3 scripts/docs_index.py && python3 scripts/docs_index.py --check`
 

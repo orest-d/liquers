@@ -3,7 +3,7 @@ title: Liquers Web API Specification
 kind: reference
 audience: internal
 area: [axum, web]
-reviewed: 2026-10-12
+reviewed: 2026-10-17
 ---
 # Liquers Web API Specification
 
@@ -46,8 +46,9 @@ For a task-oriented introduction with curl and Python examples, see
 | `RecipesApiBuilder` | `/liquer/api/recipes` | the `AsyncRecipeProvider`, read-only |
 | `QueryApiBuilder` | `/liquer/q` | one-shot query evaluation |
 
-Base paths are chosen by the caller; nothing is mounted by default. A server merges the routers it
-wants and supplies the environment as state (§8).
+Base paths are chosen by the caller; nothing is mounted by default. A trailing `/` on a base is
+ignored (`"/liquer/q"` and `"/liquer/q/"` register the same routes), and the base joins its routes
+with exactly one `/`. A server merges the routers it wants and supplies the environment as state (§8).
 
 ---
 
@@ -569,14 +570,17 @@ depends on the provider.
 
 ## 7. Query API
 
-`QueryApiBuilder::new(base).build()` registers one route, `{base}{*query}`: the query is
-whatever follows the base path (`QueryApiBuilder::new("/liquer/q")` serves
-`GET /liquer/q/make_text/upper`).
+`QueryApiBuilder::new(base).build()` registers one route, `{base}/{*query}`: the query is
+whatever follows the base path and its separating `/` (`QueryApiBuilder::new("/liquer/q")` serves
+`GET /liquer/q/make_text/upper` as the query `make_text/upper`, with no leading `/`). A trailing
+`/` on the base is ignored, so `"/liquer/q/"` is the same route, and `""` or `"/"` serves
+`/{*query}`. The base is a whole path segment: `GET /liquer/qX` matches no route. A doubled slash in
+the URL (`GET /liquer/q//x`) still means the query `/x`.
 
 | Method | Behaviour |
 |---|---|
-| `GET {base}{*query}` | evaluates the query and answers the value (§2.3) with `x-liquers-managed`; URL query parameters are argument overrides (§2.4) |
-| `POST {base}{*query}` | the same, with further overrides in an optional JSON object body; a body that is not a JSON object is 400 |
+| `GET {base}/{*query}` | evaluates the query and answers the value (§2.3) with `x-liquers-managed`; URL query parameters are argument overrides (§2.4) |
+| `POST {base}/{*query}` | the same, with further overrides in an optional JSON object body; a body that is not a JSON object is 400 |
 
 Without overrides the query is evaluated with `Environment::evaluate`, as a managed asset where
 the manager's rules make it one; with any, ad hoc as an unmanaged one (§2.5). The Query API takes
@@ -663,7 +667,7 @@ Assets API's mutations unless those are left out (`STORE-NO-READ-ONLY-ADAPTER`).
 
 | Python liquer | liquers-axum | Notes |
 |---|---|---|
-| `/liquer/q/QUERY` | `{query base}{*query}` | same shape with the conventional base `/liquer/q` |
+| `/liquer/q/QUERY` | `{query base}/{*query}` | same shape with the conventional base `/liquer/q` |
 | `/liquer/api/store/data/KEY` | `/liquer/api/store/data/{*key}` | writes are `PUT`, not `POST` |
 | `/liquer/api/store/remove/KEY` etc. | `GET remove|removedir|makedir/{*key}` | only with `with_destructive_gets()` |
 | `/liquer/api/cache/get/KEY` | `/liquer/api/assets/key/data/{*key}` or `/liquer/api/assets/q/data/{*query}` | the cache is the asset manager |
@@ -687,6 +691,7 @@ Not available at HEAD; listed so that no reader mistakes them for features:
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-17 | §1, §7, Appendix A: the Query API route is `{base}/{*query}`, so a base without a trailing `/` no longer leaves a leading `/` on the query; every builder ignores a trailing `/` on its base. `AXUM-QUERY-API-QUERY-KEEPS-LEADING-SLASH` and `AXUM-API-BASE-WITH-TRAILING-SLASH-DOUBLES-THE-SEPARATOR` closed. | `design/axum-query-api-base-slash/` |
 | 2026-10-12 | §2.4: a `GET`'s body is ignored; only `POST` carries body overrides (Codex review of PR #125). | review fix |
 | 2026-10-12 | §7: the timeout answer carries `x-liquers-managed`, and with overrides its message points to a `ws/q` subscribe with `arguments` (Codex review of PR #125). | review fix |
 | 2026-10-12 | §2.4 argument overrides and options, §2.5 managed and unmanaged assets (with the table of what cannot follow an unmanaged asset and the workaround); §2.3 and §6 `_entry_format` replaces `format`; §5.3 `q/data`, `q/entry` (GET and POST) and `q/submit` take overrides, `x-liquers-managed`, `SubmitResult`, failure metadata on `q/entry`; §5.8 `arguments`, `request_id`, `Subscribed`, `subscription_id`, `cancel`, `managed`, and the inline-manager disconnect exception; §7 the Query API takes overrides. `QUERY-API-ARGUMENTS-ONLY-IN-QUERY-PATH` closed. | phase-5, `design/axum-query-named-arguments/` |
