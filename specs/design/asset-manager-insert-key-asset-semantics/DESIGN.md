@@ -2,9 +2,8 @@
 id: ASSET-MANAGER-INSERT-KEY-ASSET-SEMANTICS
 kind: design
 title: asset-manager-insert-key-asset-semantics
+status: complete
 workflow: liquers-project
-status: draft
-phase: documentation
 area: [core/assets]
 gh_pr: []
 issues: [ASSET-MANAGER-INSERT-KEY-ASSET-NO-OVERWRITE]
@@ -13,6 +12,8 @@ created: 2026-08-25
 superseded_by:
 ---
 # asset-manager-insert-key-asset-semantics Design Tracking
+
+> **Complete on 2026-10-17** (backlog compaction): Phase 5 approved by the maintainer; the implementation is merged and every source issue it completed is closed.
 
 > **Acceptance scenarios not defined.** This design predates acceptance scenarios
 > (`specs/DOCS_STRUCTURE_GUIDE.md` §5.2.1). Consider updating it: state the Phase 1 acceptance

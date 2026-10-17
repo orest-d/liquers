@@ -4,9 +4,9 @@ kind: issue
 title: A template cannot index into a Query or Key value, and inserts other non-scalars as JSON
 status: draft
 priority: P3
-complexity: S
+complexity: M
 area: [lib/commands]
-design: 
+design: template-non-scalar-text-form
 created: 2026-10-17
 github:
 ---
@@ -15,6 +15,12 @@ github:
 A Query or Key value is a text scalar to a template: `{{x}}` renders `a/b`, but `{{x[0]}}` is an
 error. Any other non-scalar (list, map, record) is inserted as its JSON. `try_into_string` refuses
 Query, Key, arrays and objects (`liquers-core/src/value.rs`).
+
+## Problem Example
+
+Data whose field `k` holds the key `data/2026/report.csv`, rendered with the template
+`{{k}} is in {{k[1]}}`: today `{{k}}` gives `data/2026/report.csv` and `{{k[1]}}` is an error, since a Key is a text scalar
+(`NodeKind::Text`). Wanted: `data/2026/report.csv is in 2026`.
 
 ## Impact
 

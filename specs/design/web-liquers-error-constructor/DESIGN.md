@@ -2,6 +2,7 @@
 id: ACTIVE-12
 kind: design
 title: Design for WEB-LIQUERSERROR-NOT-CONSTRUCTIBLE
+status: complete
 gh_pr: [123]
 readiness: ready
 autofix: not-eligible
@@ -11,6 +12,8 @@ created: 2026-09-03
 ---
 
 # Design Tracking
+
+> **Complete on 2026-10-17** (backlog compaction): implemented by #123, merged; every source issue is closed and no phase is outstanding.
 
 > **Acceptance scenarios not defined.** This design predates acceptance scenarios
 > (`specs/DOCS_STRUCTURE_GUIDE.md` §5.2.1). Consider updating it: state the Phase 1 acceptance

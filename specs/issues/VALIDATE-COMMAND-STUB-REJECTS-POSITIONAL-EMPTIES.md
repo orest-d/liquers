@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: S
 area: [core/validate]
-design:
+design: variadic-empty-element-conversion
 created: 2026-10-12
 github:
 ---
@@ -25,6 +25,15 @@ ERROR [0] Multiple parameters not supported inside vector argument
 ```
 
 The same query validates once the real signature is supplied with `--registry-file`.
+
+## Problem Example
+
+`liquers-validate --command echo_args -- 'echo_args----20'` today fails with
+`Multiple parameters not supported inside vector argument`; it should plan with four elements
+`"", "", "", "20"`. Checked 2026-10-17: the cause is in `ParameterValue::pop_value`
+(`liquers-core/src/plan.rs`), which converts an empty element with the variadic argument's own
+`ArgumentInfo`, so the `Any`/numeric/`bool` fallbacks return the whole list's default. Every
+non-`String` `multiple` argument is affected, not only the stub.
 
 ## Impact
 

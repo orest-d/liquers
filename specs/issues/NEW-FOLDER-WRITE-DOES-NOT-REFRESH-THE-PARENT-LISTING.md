@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: S
 area: [core/assets]
-design: 
+design: new-folder-write-ancestor-listing-refresh
 created: 2026-10-17
 github:
 ---
@@ -20,6 +20,12 @@ it. The mirror case is a removal that empties a folder on a store where an empty
 
 So a dependent of `-R-dir/a` (a plan's `GetAssetDirectory`, or `Context::record_listing`) is not
 expired, and serves a listing without the new folder until something else in `a` changes.
+
+## Problem Example
+
+Evaluate `index.txt = -R-dir/data/-/index_files`, then `set_binary("data/new/x.txt", ...)`,
+which creates `data/new`. Today `index.txt` stays `Ready` without `data/new`. It should be expired,
+with root `-R-dir/data`.
 
 ## Impact
 

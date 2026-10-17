@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: S
 area: [lib/value]
-design: 
+design: combined-value-shared-data-node
 created: 2026-10-17
 github:
 ---
@@ -16,6 +16,12 @@ github:
 and must return an owned node, so for a `Base` value it clones the base value into a new `Arc`
 (`BaseValue::data_node(Arc::new(base.clone()))`). `ValueInterface` does not require the base value
 to implement `DataNode`, so the node cannot borrow through the outer `Arc`.
+
+## Problem Example
+
+`ns-template/render` over a state holding a `SimpleValue::Object` of 100 000 entries:
+`Value::data_node(arc)` clones the whole object into a new `Arc` before the template reads one
+field. Wanted: the node reads through `arc`, with no copy.
 
 ## Impact
 

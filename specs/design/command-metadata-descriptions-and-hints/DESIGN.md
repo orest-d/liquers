@@ -2,6 +2,7 @@
 id: COMMAND-METADATA-DESCRIPTIONS-AND-HINTS
 kind: design
 title: Command-level hints and per-argument descriptions
+status: complete
 form: compact
 readiness: ready
 autofix: not-eligible
@@ -12,6 +13,8 @@ merged: 2026-10-08
 created: 2026-10-08
 ---
 # Command-level hints and per-argument descriptions
+
+> **Complete on 2026-10-17** (backlog compaction): implemented by #116, merged; every source issue is closed and no phase is outstanding.
 
 Merged on 2026-10-08 by maintainer decision (backlog compaction, decision D1) from
 [`command-metadata-command-hints`](../command-metadata-command-hints/) and

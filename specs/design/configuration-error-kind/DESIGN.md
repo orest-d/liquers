@@ -2,6 +2,7 @@
 id: CONFIGURATION-ERROR-KIND
 kind: design
 title: Classify semantic configuration failures
+status: complete
 readiness: ready
 autofix: not-eligible
 area: [core/error, store/config]
@@ -10,6 +11,8 @@ gh_pr: [117]
 created: 2026-08-31
 ---
 # Configuration error kind
+
+> **Complete on 2026-10-17** (backlog compaction): implemented by #117, merged; every source issue is closed and no phase is outstanding.
 
 > **Acceptance scenarios not defined.** This design predates acceptance scenarios
 > (`specs/DOCS_STRUCTURE_GUIDE.md` §5.2.1). Consider updating it: state the Phase 1 acceptance

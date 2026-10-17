@@ -2,6 +2,7 @@
 id: REGISTER-COMMAND-OPTION-VALUE
 kind: design
 title: register_command! supports numeric and bool Option<T> arguments and rejects the rest
+status: complete
 gh_pr: [124]
 readiness: ready
 autofix: not-eligible
@@ -10,6 +11,8 @@ issues: [REGISTER-COMMAND-OPTION-VALUE-CANNOT-BIND]
 created: 2026-10-06
 ---
 # register_command! supports numeric and bool Option<T> arguments and rejects the rest
+
+> **Complete on 2026-10-17** (backlog compaction): implemented by #124, merged; every source issue is closed and no phase is outstanding.
 
 > **Acceptance scenarios not defined.** This design predates acceptance scenarios
 > (`specs/DOCS_STRUCTURE_GUIDE.md` §5.2.1). Consider updating it: state the Phase 1 acceptance

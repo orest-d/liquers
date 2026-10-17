@@ -3,8 +3,7 @@ id: SIMPLE-VALUE-SERIALIZER-PARITY
 kind: design
 workflow: liquers-project
 title: SimpleValue serializes every format its shared TypeInfo declares
-status: in_review
-phase: documentation
+status: complete
 readiness: ready
 autofix: not-eligible
 area: [lib/value]
@@ -12,6 +11,8 @@ issues: [SIMPLE-VALUE-WRITES-FEWER-FORMATS-THAN-DECLARED]
 created: 2026-10-06
 ---
 # SimpleValue serializes every format its shared TypeInfo declares
+
+> **Complete on 2026-10-17** (backlog compaction): Phase 5 approved by the maintainer; the implementation is merged and every source issue it completed is closed.
 
 > **Acceptance scenarios not defined.** This design predates acceptance scenarios
 > (`specs/DOCS_STRUCTURE_GUIDE.md` §5.2.1). Consider updating it: state the Phase 1 acceptance

@@ -2,6 +2,7 @@
 id: AXUM-STORE-MAKEDIR-TEST-UNIGNORE
 kind: design
 title: Run the axum store makedir test that is ignored for a fixed limitation
+status: complete
 form: compact
 gh_pr: [105]
 readiness: ready
@@ -11,6 +12,8 @@ issues: [AXUM-STORE-MAKEDIR-TEST-IGNORED-FOR-A-FIXED-LIMITATION]
 created: 2026-10-10
 ---
 # Run the axum store makedir test that is ignored for a fixed limitation
+
+> **Complete on 2026-10-17** (backlog compaction): implemented by #105, merged; every source issue is closed and no phase is outstanding.
 
 Bulk design (`specs/guides/autonomous_bulk_design.md`). Phases 1-4 are written but not approved, and
 nothing is implemented.

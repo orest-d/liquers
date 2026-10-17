@@ -2,8 +2,7 @@
 id: COVERED-09
 kind: design
 title: Coverage record for COMMAND-REGISTRY-ISSUE-NAMESPACE-NAME-SWAPPED
-status: in_review
-phase: architecture
+status: complete
 readiness: covered
 autofix: not-eligible
 area: [core/commands]
@@ -12,6 +11,8 @@ created: 2026-09-03
 ---
 
 # Coverage Record
+
+> **Complete on 2026-10-17** (backlog compaction): the covered source issue is closed by its covering design, so this record has nothing left to cover.
 
 > **Acceptance scenarios not defined.** This design predates acceptance scenarios
 > (`specs/DOCS_STRUCTURE_GUIDE.md` §5.2.1). Consider updating it: state the Phase 1 acceptance

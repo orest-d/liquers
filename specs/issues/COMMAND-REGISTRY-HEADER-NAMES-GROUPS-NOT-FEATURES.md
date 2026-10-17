@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: S
 area: [lib/commands, build]
-design:
+design: command-registry-header-feature-names
 created: 2026-10-11
 github:
 ---
@@ -18,6 +18,13 @@ github:
 optional group. A group name is not always its cargo feature: `Group::Image` prints `image`, but the
 feature is `image-support`. The header of the committed `specs/command_registry.yaml` therefore
 reads `features=egui,image,polars,records`, naming a feature that does not exist.
+
+## Problem Example
+
+`specs/command_registry.yaml` line 4 reads `features=egui,image,polars,records,template`; neither
+`image` nor `template` is a feature of `liquers-lib` (they are `image-support` and `templates`), so
+`cargo build -p liquers-lib --features image,template` fails. Wanted:
+`features=egui,image-support,polars,records,templates`.
 
 ## Impact
 

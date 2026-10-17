@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: S
 area: [core/assets]
-design: 
+design: root-listing-dependency-key-spelling
 created: 2026-10-17
 github:
 ---
@@ -26,6 +26,12 @@ A dependent that recorded `-R-dir` is therefore never expired when a file is add
 the store. Non-root folders do not have the problem: `-R-dir/a/b` is both the query encoding and
 the `from_dir_key` spelling. `From<&Key> for DependencyKey` has the same shape for the root key
 (`-R/`), although a root `-R/` dependency has no practical use.
+
+## Problem Example
+
+A command calls `ctx.get_dependency_state(&parse_query("-R-dir")?)`, recording `-R-dir`. A file
+is then written at the store root; `refresh_listing_version` registers `-R-dir/`. Today the
+dependent stays `Ready`. It should be expired.
 
 ## Impact
 

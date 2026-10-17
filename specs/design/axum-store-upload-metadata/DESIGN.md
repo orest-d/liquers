@@ -2,6 +2,7 @@
 id: AXUM-STORE-UPLOAD-METADATA
 kind: design
 title: Store API keeps upload media types and serves legacy metadata as stored
+status: complete
 gh_pr: [108]
 readiness: ready
 autofix: eligible
@@ -10,6 +11,8 @@ issues: [AXUM-STORE-UPLOAD-AND-METADATA-DROP-INFORMATION]
 created: 2026-10-06
 ---
 # Store API keeps upload media types and serves legacy metadata as stored
+
+> **Complete on 2026-10-17** (backlog compaction): implemented by #108, merged; every source issue is closed and no phase is outstanding.
 
 > **Acceptance scenarios not defined.** This design predates acceptance scenarios
 > (`specs/DOCS_STRUCTURE_GUIDE.md` §5.2.1). Consider updating it: state the Phase 1 acceptance

@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: S
 area: [core/assets]
-design: 
+design: dependent-asset-weak-reference-pruning
 created: 2026-10-17
 github:
 ---
@@ -18,6 +18,12 @@ non-keyed asset as a weak dependent of each of its recorded dependencies
 that dependency changes (`take_dependent_assets`) or is removed. Nothing removes a reference whose
 asset has been dropped, and nothing deduplicates, so a list grows with every distinct query that
 read the key, for as long as the key does not change.
+
+## Problem Example
+
+Evaluate 1 000 distinct queries that each read `-R/data/a.txt` and drop each asset. Today
+`dependent_assets["-R/data/a.txt"]` holds at least 1 000 entries, all dead, until `data/a.txt`
+changes. It should hold about as many entries as there are live dependents.
 
 ## Impact
 
