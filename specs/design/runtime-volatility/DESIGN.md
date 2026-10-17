@@ -78,7 +78,7 @@ volatility is never checked (`RESOURCE-STEP-VOLATILITY-IS-NEVER-CHECKED`, separa
   - WHEN an asset finishes `Volatile` because of a run-time dependency
   - THEN its metadata log has one info entry naming that dependency, as the planner's
     `PlanBuilder::mark_volatile` reason does for plan-time volatility
-- **AC-8** The command can see it (pending Q3)
+- **AC-8** The command can see it
   - WHEN a command has resolved a volatile dependency through its context
   - THEN `Context::is_volatile()` returns `true` for the rest of that command's run
 
@@ -110,22 +110,19 @@ docs ("use `v/` or declare the command volatile") can be relaxed.
   changes; failures of it are triaged against that issue, not this design.
 - `RESOURCE-STEP-VOLATILITY-IS-NEVER-CHECKED`: plan-time, separate.
 
-### Open Questions
+### Decisions
 
-1. **Revise decision 4 as "volatile at finish".** An asset starts non-volatile when nothing at
-   plan time says otherwise, and finishes `Volatile` if its run used a volatile value; already
-   registered entries are evicted. *Recommended.* The alternative, re-planning or holding
-   registration until the run ends, gives up sharing in-flight assets for every query.
-2. **What counts as "used a volatile value".** (a) Every asset this context resolved
-   (`submit`, `evaluate`, `get_dependency_state`, interpreter-scheduled dependencies, `apply`,
-   `apply_ad_hoc`, payload dependencies) that is volatile when the command finishes,
-   *recommended*, because it also covers a command that waits with `AssetRef::get` instead of
-   `wait_for_dependency`; or (b) only dependencies waited through `wait_for_dependency`. A
-   dependency submitted but never waited for, still running at finish, counts only if its plan was
-   already volatile; the command did not use its value.
-3. **`Context::is_volatile()` reflects the discovery** (AC-8). *Recommended yes*: commands consult
-   it to decide on side effects, and today it is `false` even inside a volatile evaluation's cut
-   prefix. No would drop AC-8.
-4. **Copies stored as `Ready` before this change.** A keyed result computed before the fix keeps
-   being served from the store until a dependency expires it. *Recommended*: document it, no
-   migration. The alternative is a one-off check on load, which would cost every fast track.
+Answered by Orest on 2026-10-17. No open questions remain.
+
+1. **Volatile at finish.** `design/volatility-system` decision 4 is revised: an asset starts
+   non-volatile when nothing at plan time says otherwise, and finishes `Volatile` if its run had a
+   volatile dependency. Entries that were already registered are evicted.
+2. **Any volatile dependency makes the result volatile, as read from that dependency's
+   metadata.** Every asset the context resolved counts (`submit`, `evaluate`,
+   `get_dependency_state`, interpreter-scheduled dependencies, `apply`, `apply_ad_hoc`, payload
+   dependencies), whether the command waited through `wait_for_dependency` or `AssetRef::get`. The
+   test is the dependency's metadata (`Metadata::is_volatile`, which covers `is_volatile` and
+   `Status::Volatile`), not a separate flag.
+3. **`Context::is_volatile()` reflects the discovery** (AC-8).
+4. **No migration.** Backward compatibility is not a concern yet. Copies stored as `Ready` before
+   this change are left as they are.
