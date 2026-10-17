@@ -908,16 +908,15 @@ async fn payload_requirement_is_recorded_even_when_the_payload_is_missing(
 }
 
 
-/// A payload requirement does **not** imply volatility, and the metadata docs now say so.
+/// A payload requirement implies volatility, and an ad-hoc evaluation now records it.
 ///
-/// `MetadataRecord::payload_required` claimed the opposite until 2026-09-04 — that the
-/// operational consequence was "already carried by `is_volatile`, which a payload requirement
-/// always implies". The planner marks the two independently (`mark_payload_required` does not
-/// touch `is_volatile`), so a payload-requiring evaluation finishes `Ready` with `is_volatile`
-/// false. What actually keeps such a result from being reused is construction: the asset is ad
-/// hoc, not keyed, and in no map. This pins the fact so the corrected documentation stays true.
+/// `register_command!` marks a `payload: required` command `volatile` too, so its plan is
+/// volatile. Until `specs/design/runtime-volatility/` an ad-hoc asset never recorded its plan's
+/// volatility, so such an evaluation finished `Ready` with `is_volatile` false, and this test
+/// pinned that. The asset now records it when the plan is applied: it finishes `Volatile`, and
+/// `payload_required` is still recorded beside it.
 #[tokio::test]
-async fn payload_requirement_does_not_imply_volatility() -> Result<(), Box<dyn std::error::Error>> {
+async fn payload_requirement_is_recorded_with_volatility() -> Result<(), Box<dyn std::error::Error>> {
     type CommandEnvironment = QueuedEnv;
     let mut env = QueuedEnv::new();
 
@@ -938,17 +937,14 @@ async fn payload_requirement_does_not_imply_volatility() -> Result<(), Box<dyn s
 
     let info = asset.get_asset_info().await?;
     assert_eq!(info.payload_required, PayloadRequirement::Required);
-    assert!(
-        !info.is_volatile,
-        "a payload requirement is not volatility: the two are marked independently"
-    );
+    assert!(info.is_volatile, "the plan of a payload-requiring command is volatile");
     assert_eq!(
         info.status,
-        liquers_core::metadata::Status::Ready,
-        "and it finishes Ready, not Volatile"
+        liquers_core::metadata::Status::Volatile,
+        "and the ad-hoc asset finishes Volatile"
     );
 
-    // The asset is nonetheless unreusable — by construction, not by a flag.
+    // It is also unreusable by construction.
     assert!(
         asset.key().await.is_none(),
         "a payload-evaluated asset is not keyed, so it is never stored"

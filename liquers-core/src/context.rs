@@ -1953,6 +1953,8 @@ mod tests {
                 evaluation_session: crate::evaluation_session::EvaluationSession::new(),
                 active_payload_queries: Arc::new(tokio::sync::Mutex::new(Vec::new())),
                 cancellation: Arc::new(CancellationRequest::new()),
+                resolved_dependencies: Arc::new(Mutex::new(Vec::new())),
+                volatile_set: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             },
             service_rx,
         )
