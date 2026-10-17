@@ -2,8 +2,8 @@
 id: COMMAND-REGISTRY-HEADER-FEATURE-NAMES
 kind: design
 title: The command registry header names cargo features, not group names
+gh_pr: [149]
 form: compact
-status: in_review
 phase: implementation
 readiness: ready
 autofix: eligible
