@@ -17,7 +17,7 @@ created: 2026-10-13
 
 - [Phase 1](./phase1-high-level-design.md) — written 2026-10-13, revised twice on 2026-10-17 after review, **approved 2026-10-17**
 - [Phase 2](./phase2-architecture.md) — written and reviewed 2026-10-17, revised the same day after review, **approved 2026-10-17**
-- [Phase 3](./phase3-examples.md) — written 2026-10-17, in review
+- [Phase 3](./phase3-examples.md) — written and reviewed 2026-10-17, awaiting approval
 - [Phase 4](./phase4-implementation.md)
 - [Phase 5](./phase5-documentation.md)
 
@@ -68,4 +68,6 @@ argument was aligned with the command registration guide: a default link `-R-key
 signature (open question 14). Later the same day, names gained list indexing and a strict bracket lookup
 `x[y]`, and rendering gained three error modes (strict, expand, silent) with recoverable syntax
 errors kept as `Invalid` AST nodes. Both are in [`names-and-errors.md`](./names-and-errors.md), and
-Phase 1 gained AC-17 and AC-18.
+Phase 1 gained AC-17 and AC-18. Phase 2 was approved the same day. Its review of Phase 3 added
+`TemplateHost::command_registry`, which `instantiate` needs to name an override, and filed
+`REGISTRY-QUERY-DEFAULT-NOT-WRITABLE-AS-TEXT` and `SEARCH-COMMANDS-RECORD-NO-DEPENDENCY-ON-READ-FILES`.

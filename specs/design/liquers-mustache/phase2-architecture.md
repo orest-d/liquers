@@ -176,6 +176,7 @@ pub struct Diagnostic { pub severity: Severity, pub message: String, pub positio
 pub trait TemplateHost: MaybeSend + MaybeSync {
     async fn evaluate(&self, request: QueryRequest) -> Result<AnyNode, Error>;
     async fn partial(&self, key: &Key) -> Result<String, Error>;
+    fn command_registry(&self) -> &CommandMetadataRegistry;  // names overrides at instantiation
 pub struct QueryRequest { pub query: Query, pub overrides: Vec<(String, serde_json::Value)>,
     pub input: Option<AnyNode>, pub position: Position }
     fn warn(&self, error: &Error); }                         // a recovered error, to the log
