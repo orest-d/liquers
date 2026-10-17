@@ -2,8 +2,8 @@
 id: BUILD-MATRIX-DISK-BUDGET
 kind: design
 title: The build-matrix script keeps its target directory within the free disk
+gh_pr: [144]
 form: compact
-status: in_review
 phase: implementation
 readiness: ready
 autofix: eligible
@@ -154,16 +154,16 @@ Tooling, so the proofs are commands rather than Rust tests:
 
 ### Steps
 
-- [ ] 1. Measure the heaviest row: `cargo clean && CARGO_INCREMENTAL=0 cargo check -p liquers-lib --tests && du -sh target`;
+- [ ] 1. (Not run in the automatic fix: measuring needs a `cargo clean` of a shared target directory; default kept at 8 and the header says it is unmeasured.) Measure the heaviest row: `cargo clean && CARGO_INCREMENTAL=0 cargo check -p liquers-lib --tests && du -sh target`;
   set the default threshold to that size plus margin (8 GB if it is under 6) — record the figure in the header
-- [ ] 2. `scripts/check-build-matrix.sh` — `CARGO_INCREMENTAL` default, the two variables, `ROOT`/`TARGET_DIR`,
+- [x] 2. `scripts/check-build-matrix.sh` — `CARGO_INCREMENTAL` default, the two variables, `ROOT`/`TARGET_DIR`,
   `free_gb`, `ensure_space` — `bash -n scripts/check-build-matrix.sh`
-- [ ] 3. `check()` — `ensure_space` before the row, the single retry, dry-run echo — the three dry-run
+- [x] 3. `check()` — `ensure_space` before the row, the single retry, dry-run echo — the three dry-run
   commands of Phase 3 and `matrix_retry_after_disk_failure`
-- [ ] 4. Header comment — the variables and why — `bash -n`
-- [ ] 5. Full run in a cloud session from a clean `target/` — `bash scripts/check-build-matrix.sh`
+- [x] 4. Header comment — the variables and why — `bash -n`
+- [ ] 5. (Not run in the automatic fix: a full matrix would exhaust the disk shared with concurrent agents; left for the PR's CI and a maintainer run.) Full run in a cloud session from a clean `target/` — `bash scripts/check-build-matrix.sh`
   reaches "All 37 configurations OK" (AC-5). Rollback: `MATRIX_MIN_FREE_GB=0` or revert
-- [ ] 6. Close `BUILD-MATRIX-EXHAUSTS-SESSION-DISK` with a resolution note; regenerate the index —
+- [x] 6. Close `BUILD-MATRIX-EXHAUSTS-SESSION-DISK` with a resolution note; regenerate the index —
   `python3 scripts/docs_index.py && python3 scripts/docs_index.py --check`
 
 ### Validation

@@ -2,7 +2,7 @@
 id: BUILD-MATRIX-EXHAUSTS-SESSION-DISK
 kind: issue
 title: The build-matrix script fills a cloud session's disk before it finishes
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [build]
@@ -43,3 +43,16 @@ threshold; and `CARGO_INCREMENTAL=0` for its own runs.
 ## Discovery
 
 design/liquers-mustache Step 16: the first full run filled the disk after liquers-lib's first row.
+
+## Resolution
+
+2026-10-17, design `build-matrix-disk-budget`. `scripts/check-build-matrix.sh` now exports
+`CARGO_INCREMENTAL=0` unless the caller set it, runs `cargo clean` before a row when free space on
+the target directory's filesystem is below `MATRIX_MIN_FREE_GB` (default 8; `0` disables), and
+retries a failed row once after a clean when space is low after the failure, listing such rows
+under "Passed on retry after a low-disk clean". `MATRIX_DRY_RUN=1` prints the rows and clean
+decisions without running cargo. Proven by the design's command tests
+`matrix_dry_run_cleans_below_threshold`, `matrix_dry_run_never_cleans_when_disabled`,
+`matrix_dry_run_shows_incremental_off` and `matrix_retry_after_disk_failure` (stub `cargo`);
+`matrix_full_run_in_cloud_session` (AC-5) and the threshold measurement were not run in the
+automatic fix and remain for the PR's CI and a maintainer run.

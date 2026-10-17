@@ -8,9 +8,9 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 133
+Total rows: 132
 - P2: 55
-- P3: 78
+- P3: 77
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -71,7 +71,6 @@ Total rows: 133
 | [`VALUE-TYPE-DEFINITION-MACRO`](issues/VALUE-TYPE-DEFINITION-MACRO.md) | feature | Value types and their registry entries are hand-written instead of generated | draft |  |  | P2 | XL | macro;lib/value;core/value |  | 2026-08-18 |
 | [`AXUM-API-BASE-WITH-TRAILING-SLASH-DOUBLES-THE-SEPARATOR`](issues/AXUM-API-BASE-WITH-TRAILING-SLASH-DOUBLES-THE-SEPARATOR.md) | issue | The Assets, Store and Recipes APIs mounted at a base ending in a slash get double-slash routes | draft | ready | eligible | P3 | S | axum | [design](design/axum-query-api-base-slash/DESIGN.md) | 2026-10-17 |
 | [`AXUM-QUERY-API-QUERY-KEEPS-LEADING-SLASH`](issues/AXUM-QUERY-API-QUERY-KEEPS-LEADING-SLASH.md) | issue | The Query API mounted without a trailing slash evaluates the query with a leading slash | draft | ready | eligible | P3 | S | axum | [design](design/axum-query-api-base-slash/DESIGN.md) | 2026-10-12 |
-| [`BUILD-MATRIX-EXHAUSTS-SESSION-DISK`](issues/BUILD-MATRIX-EXHAUSTS-SESSION-DISK.md) | issue | The build-matrix script fills a cloud session's disk before it finishes | draft | ready | eligible | P3 | S | build | [design](design/build-matrix-disk-budget/DESIGN.md) | 2026-10-17 |
 | [`COMMAND-REGISTRY-HEADER-NAMES-GROUPS-NOT-FEATURES`](issues/COMMAND-REGISTRY-HEADER-NAMES-GROUPS-NOT-FEATURES.md) | issue | The command_registry.yaml header lists group names under "features" | draft | ready | eligible | P3 | S | lib/commands;build | [design](design/command-registry-header-feature-names/DESIGN.md) | 2026-10-11 |
 | [`DEPENDENT-ASSET-WEAK-REFERENCES-ARE-NEVER-PRUNED`](issues/DEPENDENT-ASSET-WEAK-REFERENCES-ARE-NEVER-PRUNED.md) | issue | The dependency manager never prunes dead weak dependents, so its lists grow with every distinct query | draft | ready | eligible | P3 | S | core/assets | [design](design/dependent-asset-weak-reference-pruning/DESIGN.md) | 2026-10-17 |
 | [`NEW-FOLDER-WRITE-DOES-NOT-REFRESH-THE-PARENT-LISTING`](issues/NEW-FOLDER-WRITE-DOES-NOT-REFRESH-THE-PARENT-LISTING.md) | issue | A write that creates a folder does not refresh the listing of the folder above it | draft | ready | eligible | P3 | S | core/assets | [design](design/new-folder-write-ancestor-listing-refresh/DESIGN.md) | 2026-10-17 |
