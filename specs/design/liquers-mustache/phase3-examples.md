@@ -12,7 +12,8 @@ rewrite is seen. `search_commands.rs` is not changed.
 
 **Validation.** Every placeholder-free query here, and the Example 1 query instantiated with
 `area = core/store`, passes `liquers-validate` against the committed registry plus an overlay
-declaring `template/render`, `template/validate` and `fixture/ctx`, with `--command fixture/fail`.
+declaring `template/render`, `template/expand`, `template/validate`, `fixture/ctx` and the alias
+`pack/open_issues`, with `--command fixture/fail`.
 The overlay writes `cwd`'s default as `!Value ''`, because a link default cannot be written as text
 (`REGISTRY-QUERY-DEFAULT-NOT-WRITABLE-AS-TEXT`, filed). Tag bodies with `{{…}}` inside cannot be
 validated by the CLI; the parser tests cover them.
@@ -24,8 +25,9 @@ validated by the CLI; the parser tests cover them.
 | 1 | Example | Context pack of open issues | The problem example end to end through `template/render` | AC-2, AC-3, AC-5, AC-8, AC-11 |
 | 2 | Example | What each tag form asks the host | Hygienic, classic, apply, override, dynamic partial | AC-5, AC-6, AC-7, AC-12, AC-16 |
 | 3 | Example | Indexing and error modes | `items.0`, `x[y]`, a failing tag and a failing section under each mode | AC-17, AC-18 |
-| 4 | Tests | Conformance and parity | Mustache spec suite, core parser parity | AC-1, AC-14 |
-| 5 | Tests | Diagnostics, data, partials, portability | Parse errors, `DataNode` impls, partials, `validate`, wasm32 | AC-4, AC-9, AC-12, AC-13, AC-15 |
+| 4 | Example | A template command | `pack/open_issues`, an alias of `render` with the template as its head | AC-19 |
+| 5 | Tests | Conformance and parity | Mustache spec suite, core parser parity | AC-1, AC-14 |
+| 6 | Tests | Diagnostics, data, partials, portability | Parse errors, `DataNode` impls, partials, `validate`, wasm32 | AC-4, AC-9, AC-12, AC-13, AC-15 |
 
 ## Example 1: context pack of open issues
 
@@ -64,7 +66,10 @@ assert_eq!(state.try_into_string()?, "# Open issues in core/store\n- [Store list
 The four section lines are standalone and drop with their newlines; `{{#priority}}` is inline and
 renders nothing, since `C-STORE` has no priority. The same text renders when the data comes as the
 `data` argument instead of the state:
-`ns-template/render-~X~-R/templates/open_issues.md~E-~X~ns-fixture/ctx-core~/store~E-strict`.
+`ns-template/render-~X~-R/templates/open_issues.md~E-~X~ns-fixture/ctx-core~/store~E-strict`. With
+both, `data` is the top frame: a state `{"area": "core/assets", "title": "T"}` and the `data`
+above give `area = core/store` from `data` and `title = T` from the state. Given the template as
+the state, `expand` renders it: `-R/templates/open_issues.md/-/ns-template/expand-~X~ns-fixture/ctx-core~/store~E`.
 
 Recomputation is shown on a plain key, not on the search: `ns-search` records no dependency on the
 files it reads, so its result would stay stale (`SEARCH-COMMANDS-RECORD-NO-DEPENDENCY-ON-READ-FILES`,
@@ -117,6 +122,29 @@ becomes an `Invalid` node, and strict mode fails on it before `ns-fixture/fail` 
 fixture's call counter proves. An `errors` value outside the five, such as `warp`
 (`ns-template/render-~X~-R/templates/hello.md~E--warp`), fails before rendering.
 
+## Example 4: a template command
+
+The context pack becomes a command with no Rust function: an alias of `render` whose head is the
+template link (Phase 2, Relevant Commands).
+
+```rust
+cr.register_alias(
+    CommandKey::new("", "pack", "open_issues"),
+    CommandKey::new("", "template", "render"),
+    vec![CommandParameterValue::Query(parse_query("-R/templates/open_issues.md")?)],
+    vec![ArgumentInfo::any_argument("data").with_default(""),
+         ArgumentInfo::string_argument("errors").with_default("strict"),
+         ArgumentInfo::any_argument("cwd").with_default_link(parse_query("-R-key/.")?)],
+)?.with_label("Open issues");
+let state = eval(&env, "ns-fixture/ctx-core~/store/ns-pack/open_issues").await?;
+assert_eq!(state.try_into_string()?, "# Open issues in core/store\n- [Store listing](specs/issues/C-STORE.md)\n");
+```
+
+The result equals Example 1's. `make_plan` shows one `render` action with
+`origin: Alias { command: pack/open_issues }`, and its dependencies include the template's key and
+the alias's metadata key. Rewriting `templates/open_issues.md` (the heading becomes `## Open`)
+makes the next evaluation return the new heading, so the template is a real dependency.
+
 ## Edge and Error Cases
 
 The cases Phase 2's risks and error table name:
@@ -128,6 +156,8 @@ The cases Phase 2's risks and error table name:
 | A frame or record source as data (performance risk) | Rows built one at a time, no whole-value conversion | `frame_rows_as_data`, `record_source_streams_rows` |
 | The facts Phase 2 rated medium | A linked `.md` arrives as text; the filename is known when `render` runs; the template key is visible in the state's metadata; dynamically found dependencies keep the result's volatility | `linked_template_arrives_as_text`, `media_type_follows_filename`, `template_key_in_state_metadata`, `volatile_query_makes_result_volatile` |
 | `cwd` link does not yield a key | Conversion error before the command runs | `cwd_not_a_key_fails` |
+| `data` is a list or a scalar | Error before rendering, naming `data` | `data_must_be_a_map` |
+| An alias head that is a link (no alias used one before) | Planned as a `DefaultLink` and evaluated as a dependency | `alias_head_link_is_evaluated` |
 | Encoding (AST principle) | `parse(encode(t)) == t`, `Invalid` nodes included | `encode_round_trips` |
 
 ## Test Plan
@@ -153,7 +183,7 @@ The cases Phase 2's risks and error table name:
   `bracket_in_query_slot` (AC-17).
 - `tests/render.rs` (`RecordingHost`) — `example_2_requests` (AC-5, AC-6, AC-7, AC-12, AC-16);
   `section_over_list_map_bool`, `inverted_on_empty_result`, `bare_close_ends_query_section` (AC-3);
-  `evaluate_has_no_input` (AC-8); `partial_cycle_is_error`, `partial_depth_capped` (AC-12);
+  `evaluate_has_no_input`, `dot_is_state_in_render_and_data_in_expand` (AC-8, AC-11); `partial_cycle_is_error`, `partial_depth_capped` (AC-12);
   `example_3_modes`, `failing_section_head_is_one_unit`, `strict_rejects_invalid_before_any_query`,
   `irrecoverable_in_every_mode` (AC-18).
 - `src/diagnostics.rs` — `validate_reports_all` (AC-9): every `Invalid` node, an unknown command and
@@ -171,16 +201,21 @@ The cases Phase 2's risks and error table name:
   `json_as_data_node`, `sync_consumer_refuses_async_node` (AC-15).
 - `tests/apply_ad_hoc.rs` — `apply_ad_hoc_propagates_dependencies` (AC-7, AC-16),
   `apply_ad_hoc_rejects_relative_query` (AC-7).
+- `tests/command_alias.rs` — `alias_head_link_is_evaluated` (AC-19): an alias whose head is a
+  `CommandParameterValue::Query` plans a `DefaultLink`, evaluates it, and records its dependency;
+  `src/command_metadata.rs` — `with_default_link_sets_query_default` (AC-19).
 
 `liquers-records` (`cargo test -p liquers-records --all-features --lib --tests`):
 - `record_view_rows_as_maps`, `record_view_index_builds_one_row`, `record_source_streams_rows` (AC-15).
 
 `liquers-lib` (`cargo test -p liquers-lib --test template_commands`):
-- `context_pack_renders_open_issues`, `data_argument_supplies_names` (AC-3, AC-5, AC-8, AC-11):
-  Example 1, from the state and from `data`.
+- `context_pack_renders_open_issues`, `data_argument_supplies_names`, `data_shadows_state_fields`,
+  `data_must_be_a_map` (AC-3, AC-5, AC-8, AC-11): Example 1, from the state, from `data`, and both.
+- `template_command_alias_renders`, `template_command_invalidates_on_template_edit` (AC-19):
+  Example 4.
 - `query_dependency_recomputes`, `linked_template_arrives_as_text`, `media_type_follows_filename`,
-  `template_key_in_state_metadata`, `volatile_query_makes_result_volatile`, `state_as_template`
-  (`-R/templates/hello.md/-/ns-template/render`) (AC-2, AC-11).
+  `template_key_in_state_metadata`, `volatile_query_makes_result_volatile`,
+  `expand_renders_state_as_template` (`-R/templates/hello.md/-/ns-template/expand`) (AC-2, AC-11).
 - `partial_from_store_is_dependency`, `dynamic_partial_is_dependency`,
   `relative_partial_uses_cwd_link` (AC-11, AC-12): under `-R-cwd/templates/-/…`, `{{> ./header.md}}`
   reads `templates/header.md`.

@@ -212,7 +212,7 @@ without reading it. A file child is read on demand through `get_dependency_state
 
 | Crate | Change |
 |---|---|
-| `liquers-core` | `data_node.rs` (new); `lib.rs`; `value.rs` (`data_node`, `Value` impl); `metadata.rs` (`MetadataRecord` impl); `context.rs` (`apply_ad_hoc`); `#[deprecated]` in `parse.rs` and `interpreter.rs` |
+| `liquers-core` | `data_node.rs` (new); `lib.rs`; `value.rs` (`data_node`, `Value` impl); `metadata.rs` (`MetadataRecord` impl); `context.rs` (`apply_ad_hoc`); `command_metadata.rs` (`ArgumentInfo::with_default_link`); `#[deprecated]` in `parse.rs` and `interpreter.rs` |
 | `liquers-records` | A row adapter over `RecordView` (sync) and a source adapter (async) |
 | `liquers-template` (new) | `src/lib.rs`, `src/{data,host,render,diagnostics}.rs`; `src/query/{ast,parse,instantiate}.rs`; `src/mustache/{ast,lexer,parse,encode,render}.rs`; `tests/spec/` (the vendored Mustache spec, MIT); `tests/parity.rs`; added to the workspace members |
 | `liquers-lib` | Feature `templates`; `src/template/{mod,commands,host,folder}.rs`; `value/extended.rs` and `value/mod.rs` (`data_node`); `register_template_commands!` and its no-op stand-in in `register_all_commands!` |
@@ -250,18 +250,69 @@ The namespace is **`template`** (decided 2026-10-17). It interacts with `rec` an
 as data) and `pl` (frames as data).
 
 ```rust
-register_command!(cr, async fn render(state, template: String = "", data: Value = "", errors: String = "strict",
+register_command!(cr, async fn render(state, template: String, data: Value = "", errors: String = "strict",
     cwd: Key = query "-R-key/.", context) -> result
     namespace: "template" label: "Render template"
-    doc: "Render a template with query tags; the state is the root context, or the template when `template` is empty")?;
-register_command!(cr, async fn validate(state, template: String = "", context) -> result
-    namespace: "template" label: "Validate template" doc: "Positioned errors and warnings; runs nothing")?;
+    doc: "Render the template given as the first argument; the state and `data` are its data")?;
+register_command!(cr, async fn expand(state, data: Value = "", errors: String = "strict",
+    cwd: Key = query "-R-key/.", context) -> result
+    namespace: "template" label: "Expand template"
+    doc: "Render the state as a template; `data` is its data")?;
+register_command!(cr, async fn validate(state, context) -> result
+    namespace: "template" label: "Validate template" doc: "Positioned errors and warnings for the state as a template; runs nothing")?;
 ```
 
-- **`template`** is normally a link (`render-~X~-R/templates/issues.md~E`), so the planner
-  evaluates it and records it as a dependency.
-- **`data`** (`ArgumentType::Any`) holds named data above the state, such as `{"area": …}` as a
-  recipe argument. This is how AC-8's named arguments arrive. Empty text means no data.
+Two render commands (decided 2026-10-17), because the template and the data are two different
+inputs and either can be the one a query produces:
+- **`render`** takes the template as its first argument, normally a link
+  (`render-~X~-R/templates/issues.md~E`), so the planner evaluates it and records it as a
+  dependency. The state is the data. Having the template first is also what makes a **template
+  command** possible: an alias of `render` whose head is the template link (below).
+- **`expand`** takes the template as the state (`-R/templates/hello.md/-/ns-template/expand`), for a
+  template that is itself computed or read in the query. Only `data` is its data.
+- **`validate`** reads the template from the state, as `expand` does.
+
+**How the state and `data` combine.** They are two frames of one Mustache context stack, never
+merged into one value:
+
+| Command | Bottom frame | Top frame | `{{.}}`, `{{$. q}}` |
+|---|---|---|---|
+| `render` | the state | `data`, when not empty | the state |
+| `expand` | none | `data`, when not empty | `data` |
+
+- A name is looked up in the top frame first, then the bottom, by the Mustache stack rule, so a
+  field in `data` shadows the same field in the state and every other field of the state stays
+  visible. `render-~X~…~E-~X~ns-fixture/ctx-core~/store~E` on a state with `area` and `title`
+  sees `data`'s `area` and the state's `title`.
+- `data` must be a map (or empty text, meaning no data): it holds **named** values, which is how
+  AC-8's named arguments and a recipe's `{"area": …}` arrive. A list or scalar `data` is an error
+  before rendering, since it would have no names and would hide the state from `{{.}}`.
+- `{{.}}` and the apply forms refer to the state in `render`, because the state is the input the
+  query produced; `data` only supplies names. Sections push further frames above both, as usual.
+- An empty state (`State::new()`, as at the start of a query) is no frame.
+
+**Template commands.** A command whose behaviour is a template is an alias of `render` with the
+template as its head parameter, so it needs no Rust function:
+
+```rust
+cr.register_alias(
+    CommandKey::new("", "pack", "open_issues"),
+    CommandKey::new("", "template", "render"),
+    vec![CommandParameterValue::Query(parse_query("-R/templates/open_issues.md")?)], // `template`
+    vec![ArgumentInfo::any_argument("data").with_default(""),
+         ArgumentInfo::string_argument("errors").with_default("strict"),
+         ArgumentInfo::any_argument("cwd").with_default_link(parse_query("-R-key/.")?)],
+)?.with_label("Open issues").with_doc("Open issues of the area in the state");
+```
+
+`ns-fixture/ctx-core~/store/ns-pack/open_issues` then renders the pack. The head is a link, so the
+template is a dependency of every result, and an edit to it invalidates them; the alias's own
+metadata key is a dependency too (`COMMAND_ALIASES.md` §5). The alias's arguments line up with
+`render`'s after the head, as `register_alias` requires. `ArgumentInfo::with_default_link` is a
+small core addition (today a link default is set by assigning `ArgumentInfo::default`). A head
+parameter that is a `CommandParameterValue::Query` becomes a `DefaultLink`
+(`ParameterValue::from_command_parameter_value`), which no alias uses yet, so Phase 3 tests it.
+
 - **`errors`** is `strict`, `expand`, `expand_html`, `expand_md` or `silent`; anything else fails
   before rendering (open question 16).
 - **`cwd`** is a key. Relative partial keys and relative keys in query tags resolve against it.
@@ -270,9 +321,9 @@ register_command!(cr, async fn validate(state, template: String = "", context) -
   overridable and part of what names the result (open question 14). There is no hidden fallback to
   the template's own folder. A caller who wants it sets the working directory
   (`-R-cwd/templates/-/ns-template/render-~X~-R/./issues.md~E--strict`) or passes it
-  (`-R/templates/issues.md/-/ns-template/render---strict-templates`); both validate.
-  `cwd` is last, so the link is promoted into the query only when every earlier argument is
-  written; the guide's argument-order pitfall. An unused `data` is written empty to keep it.
+  (`-R/templates/issues.md/-/ns-template/expand--strict-templates`). `cwd` is last, so the link is
+  promoted into the query only when every earlier argument is written (the guide's
+  argument-order pitfall).
 - **The result** is text. Its media type follows the asset's filename, `text/plain` when there is
   none. HTML escaping is on when that media type is `text/html`.
 - **`validate`** checks a literal partial key's syntax, not its existence (AC-9). The `apply`
@@ -283,14 +334,18 @@ register_command!(cr, async fn validate(state, template: String = "", context) -
 | Path | Kind | Change |
 |---|---|---|
 | `specs/reference/TEMPLATE_LANGUAGE.md` | reference, new (`core/query`, `lib/commands`) | Mustache syntax, tags, P1–P6, AST, data and `_meta`, escaping, evaluation routes, `cwd`, diagnostics, conformance |
-| `specs/guides/TEMPLATE_GUIDE.md` | guide, new | Writing, validating and rendering; implementing `DataNode`; adding a syntax; a context pack as the example |
+| `specs/guides/TEMPLATE_GUIDE.md` | guide, new | Writing, validating, `render` versus `expand`, how the state and `data` combine; **template commands** (an alias of `render`, with the context pack as the worked example and its test); implementing `DataNode`; adding a syntax |
+| `specs/guides/COMMAND_REGISTRATION_GUIDE.md` | update | §*Registering an alias*: a template command is an alias of `template/render`; link to the template guide |
+| `specs/guides/COMMAND_DESIGN_GUIDE.md` | update | §Aliases: when a command is better written as a template |
+| `specs/reference/COMMAND_ALIASES.md` | update | A head parameter may be a link; `pack/open_issues` → `template/render` as the example |
 | `specs/reference/VALUE_TYPE_SYSTEM.md` | update | §`DataNode` and `ValueInterface::data_node` |
 | `specs/reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md` | update | `Context::apply_ad_hoc` and its dependency rule |
 | `specs/reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md` | update | Parametrized queries; `simple_template` deprecated |
 | `specs/reference/PROJECT_OVERVIEW.md` | update | The new crate and the dependency flow |
 
-`CLAUDE.md` and `specs/README.md` gain the crate and the links. The proposed `affects_docs` is the
-six paths in the table.
+`CLAUDE.md` and `specs/README.md` gain the crate and the links; `CLAUDE.md`'s "Adding a Command"
+gains one line pointing at template commands. The proposed `affects_docs` is the nine paths in the
+table.
 
 ## Risks
 

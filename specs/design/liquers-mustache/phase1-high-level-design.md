@@ -85,12 +85,13 @@ rendered with an `area` argument it renders the same.
   with positions, and no query, store read or command runs
 - ~~**AC-10** Highlighting~~ Withdrawn 2026-10-17 at the maintainer's request: moved, with its
   design, to `TEMPLATE-HAS-NO-HIGHLIGHTER`.
-- **AC-11** Commands
+- **AC-11** Commands (revised 2026-10-17)
   WHEN `liquers-lib` is built with its template feature
-  THEN one command renders and one validates a template given by key, with the input state as the
-  root context when there is one; their results are ordinary assets (text with the template's media
-  type). Evaluate versus apply is chosen by each tag (AC-7, AC-8), so there are no separate
-  evaluate and apply commands
+  THEN `render` renders the template given as its first argument over the state, `expand` renders
+  the state as a template, and `validate` checks the state as a template; `data` adds named values
+  above the state; results are ordinary assets (text with the template's media type). Evaluate
+  versus apply is chosen by each tag (AC-7, AC-8), so there are no separate evaluate and apply
+  commands
 - **AC-12** Partials from the store
   WHEN a template contains `{{> key}}`, or a dynamic partial `{{>$ query}}` / `{{>$$ query}}`
   THEN the referenced text is loaded through the asset layer, rendered as a template, and recorded as
@@ -128,6 +129,11 @@ rendered with an `area` argument it renders the same.
   THEN strict fails with the first error; expand renders the error in place of the tag and silent
   renders nothing, both logging every error as a warning; an unclosed section or unterminated tag
   fails in every mode
+- **AC-19** Template commands (added 2026-10-17)
+  WHEN a command is registered as an alias of `render` whose head parameter is a template link
+  (`pack/open_issues` → `render` with `-R/templates/open_issues.md`)
+  THEN a query naming the alias renders that template over its state, the template and the alias
+  are dependencies of the result, and an edit to the template invalidates it
 
 Non-goals: a template editor (`NO-TEMPLATE-EDITOR-UI`); Mustache's optional modules (lambdas,
 inheritance) — lambdas may later map to commands; logic beyond Mustache (comparisons, arithmetic):
@@ -166,7 +172,8 @@ traits for `RecordView` (sync) and `RecordSource` (async).
 - Reference: new `specs/reference/TEMPLATE_LANGUAGE.md` — the grammar, tags, data model, escaping,
   modes, diagnostics and conformance.
 - Guide: new `specs/guides/TEMPLATE_GUIDE.md` — writing, validating and applying templates, with a
-  context pack as the worked example.
+  context pack as the worked example, and template commands (an alias of `render`, AC-19), which
+  `COMMAND_REGISTRATION_GUIDE.md`, `COMMAND_DESIGN_GUIDE.md` and `COMMAND_ALIASES.md` refer to.
 - Other documents: none.
 - Documents to update: `specs/reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md` (parametrized
   queries; `simple_template` status), `specs/reference/PROJECT_OVERVIEW.md` (a new crate), `CLAUDE.md`
@@ -222,7 +229,7 @@ Phase 2.
    inheritance module also uses `{{$name}}`, and this design does not adopt that module.
 6. **[accepted 2026-10-17] `simple_template`.** Convert the existing templates and deprecate `$query$`.
 7. **[decided 2026-10-17] Command namespace and crate.** The namespace is `template`
-   (`ns-template/render`, `validate`), and the crate is `liquers-template`, so that other template
+   (`ns-template/render`, `expand`, `validate`), and the crate is `liquers-template`, so that other template
    syntaxes can join Mustache there later. The design folder keeps its slug `liquers-mustache`.
 8. **[decided 2026-10-17] Parser.** A complete shadow implementation in `liquers-template` is
    acceptable, under parity tests (AC-14): a query without placeholders parses identically in both

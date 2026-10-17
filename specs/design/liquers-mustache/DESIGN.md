@@ -8,15 +8,15 @@ phase: examples
 area: [core/query, core/value, lib/commands, lib/ui, docs]
 issues: [NO-QUERY-AWARE-TEMPLATE-LANGUAGE, SIMPLE-TEMPLATE-HAS-NO-COMMAND]
 merged: 2026-10-13
-affects_docs: [specs/reference/TEMPLATE_LANGUAGE.md, specs/guides/TEMPLATE_GUIDE.md, specs/reference/VALUE_TYPE_SYSTEM.md, specs/reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md, specs/reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md, specs/reference/PROJECT_OVERVIEW.md]
+affects_docs: [specs/reference/TEMPLATE_LANGUAGE.md, specs/guides/TEMPLATE_GUIDE.md, specs/reference/VALUE_TYPE_SYSTEM.md, specs/reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md, specs/reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md, specs/reference/PROJECT_OVERVIEW.md, specs/guides/COMMAND_REGISTRATION_GUIDE.md, specs/guides/COMMAND_DESIGN_GUIDE.md, specs/reference/COMMAND_ALIASES.md]
 created: 2026-10-13
 ---
 # liquers-template — a query-aware template language (Mustache syntax)
 
 ## Phases
 
-- [Phase 1](./phase1-high-level-design.md) — written 2026-10-13, revised twice on 2026-10-17 after review, **approved 2026-10-17**
-- [Phase 2](./phase2-architecture.md) — written and reviewed 2026-10-17, revised the same day after review, **approved 2026-10-17**
+- [Phase 1](./phase1-high-level-design.md) — written 2026-10-13, revised twice on 2026-10-17 after review, **approved 2026-10-17**; AC-11 revised and AC-19 added after approval, the same day
+- [Phase 2](./phase2-architecture.md) — written and reviewed 2026-10-17, revised the same day after review, **approved 2026-10-17**; commands revised after approval, the same day
 - [Phase 3](./phase3-examples.md) — written and reviewed 2026-10-17, awaiting approval
 - [Phase 4](./phase4-implementation.md)
 - [Phase 5](./phase5-documentation.md)
@@ -71,3 +71,11 @@ errors kept as `Invalid` AST nodes. Both are in [`names-and-errors.md`](./names-
 Phase 1 gained AC-17 and AC-18. Phase 2 was approved the same day. Its review of Phase 3 added
 `TemplateHost::command_registry`, which `instantiate` needs to name an override, and filed
 `REGISTRY-QUERY-DEFAULT-NOT-WRITABLE-AS-TEXT` and `SEARCH-COMMANDS-RECORD-NO-DEPENDENCY-ON-READ-FILES`.
+
+**Revision 2026-10-17 (after Phase 2 approval)**, from the maintainer. Rendering is two commands:
+`render` takes the template as its first argument and `expand` takes it as the state; `validate`
+reads the state. The state and `data` are two frames of one context stack, `data` on top and a map.
+A template command is an alias of `render` with the template link as its head (AC-19), documented
+in the template guide and referred to from the command registration and design guides and
+`COMMAND_ALIASES.md`. Phase 1 AC-11 was revised and AC-19 added; Phases 1 and 2 are re-approved at
+the Phase 3 gate.
