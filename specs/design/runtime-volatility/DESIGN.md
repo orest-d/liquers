@@ -5,7 +5,7 @@ title: Volatility discovered while a command runs
 form: compact
 workflow: liquers-project
 status: in_review
-phase: high-level
+phase: architecture
 area: [core/assets, core/context]
 issues: [RUNTIME-VOLATILE-DEPENDENCY-DOES-NOT-MAKE-PARENT-VOLATILE]
 created: 2026-10-17
@@ -126,3 +126,104 @@ None. All four were answered by Orest on 2026-10-17:
 3. **`Context::is_volatile()` reflects the discovery** (AC-8).
 4. **No migration.** Backward compatibility is not a concern yet. Copies stored as `Ready` before
    this change are left as they are.
+
+## Phase 2: Architecture
+
+### Solution
+
+**The context collects what it resolved; the asset reads their metadata when the run ends.**
+Every asset a `Context` hands to a command or the interpreter is noted with a short description.
+When `AssetRef::compute` has the command's result, it asks the context whether any of them is
+volatile by its metadata (`Metadata::is_volatile`, i.e. `is_volatile` or `Status::Volatile`, per
+decision 2). If one is, `complete_evaluation` sets the asset volatile *before*
+`finalize_status_with_version`, and the existing finish path does the rest: status `Volatile`, no
+version prepared, the stored copy written with `Status::Volatile` (so `try_fast_track` refuses
+it), no dependency-graph registration. Eviction needs no new code: `get`, `get_asset` and
+`get_dependency_asset` already treat a mapped `Volatile` asset as a cache miss and rebuild it, and
+`owned_key_asset` already drops one (`specs/reference/ASSETS.md` §Volatile assets are never owned).
+
+Reading the metadata at the end, not when the dependency is scheduled, is what catches a
+dependency that only turns volatile during its own run (AC-4's chain) and a command that waits
+with `AssetRef::get` (AC-5). A dependency that is still running when the command returns is judged
+by what its metadata says then: volatile if its plan was, otherwise not.
+
+Rejected:
+- *Only in `wait_for_dependency_recording`* (next to the record inheritance of
+  `design/search-read-dependencies`): misses `AssetRef::get` after `evaluate`, `apply`, and
+  `apply_ad_hoc`, against decision 2. It is still used, to update `Context::is_volatile()` early.
+- *Re-plan or hold registration until the run ends*: rejected by decision 1.
+- *Push from the child to its requesters*: a non-volatile child is shared, and the child does not
+  know who read it.
+
+**Known-issue preflight.** None blocks. `EVALUATION-SESSION-VOLATILE-TEST-INTERMITTENT` is next to
+this code; a failure of `volatile_dependency_has_one_value_per_evaluation` is triaged against it.
+`RESOURCE-STEP-VOLATILITY-IS-NEVER-CHECKED` is plan-time and separate; resource steps read the
+store, not an asset, so they are outside this mechanism. `INLINE-MANAGER-DYNAMIC-DEPENDENCY-CHAIN-NESTS`
+is unaffected. **Command namespaces involved:** none; no command is added or changed.
+
+### Changes
+
+`liquers-core/src/context.rs`, `Context<E>`:
+
+```rust
+/// Assets this evaluation resolved, for the volatility check at finish (shared by clones).
+resolved_dependencies: Arc<std::sync::Mutex<Vec<(String, AssetRef<E>)>>>,
+/// Set once a resolved dependency is seen to be volatile; read by `is_volatile()`.
+volatile_dependency_seen: Arc<AtomicBool>,
+
+pub fn is_volatile(&self) -> bool          // unchanged signature: is_volatile || seen
+pub(crate) fn note_resolved(&self, description: String, asset: &AssetRef<E>)
+pub(crate) async fn volatile_dependency(&self) -> Option<String>   // first volatile, by metadata
+```
+
+- `note_resolved` is called in `schedule_dependency_asset_with_key` (so also `submit`,
+  `evaluate`, `get_dependency_state` and the interpreter's scheduled steps),
+  `schedule_payload_dependency_asset`, and `apply`. `apply_ad_hoc` (PR #139) calls it too when
+  that PR is merged after this one; if it merges first, this PR adds the call. The description is
+  the dependency key's encoding, or `apply <query>` for an ad-hoc asset.
+- `wait_for_dependency_recording` sets `volatile_dependency_seen` when the returned state's
+  metadata is volatile, so `is_volatile()` turns true as soon as the command has the value (AC-8).
+  `volatile_dependency` sets it too.
+- `new` creates both; `with_volatile`, `clone_context` and the `Clone` impl share them, like
+  `pending_dependencies`. A `std::sync::Mutex` suffices: it is never held across an `.await`
+  (`volatile_dependency` clones the list out before reading each asset's metadata), and a
+  poisoned lock is recovered with `unwrap_or_else(|e| e.into_inner())`, as `cwd_key` does.
+
+`liquers-core/src/assets.rs`:
+- `RecipeEvaluation` gains `volatile_dependency: Option<String>`. `compute` fills it from
+  `context_for_deps.volatile_dependency()` next to `take_pending_dependencies()`; the delegation
+  branch sets `None` (a key's registered owner is never volatile).
+- `complete_evaluation`, in the same write lock that merges the dependencies: if `Some(cause)`,
+  `lock.is_volatile = true`, `metadata.set_volatile()`, and one info log entry
+  `"Volatile: dependency <cause> is volatile"` (AC-7). Everything after that is unchanged.
+- `resolve_volatility_before_evaluation` keeps its plan-time role; its doc comment says the
+  decision can still change at finish.
+
+`liquers-core/src/interpreter.rs`, free function `evaluate` (temporary asset, not managed): if
+`context.volatile_dependency()` is `Some`, the returned state's metadata is marked volatile, so a
+caller of that path sees the same rule.
+
+No public signature changes, no new error, no new trait. All changes are async where they touch
+asset locks, as the surrounding code is; `note_resolved` and `is_volatile` stay synchronous.
+
+**Documents.** `ASSETS.md` §Volatile assets are never owned (volatility can be decided at finish,
+by a dependency) and `ASSET_LIFECYCLE.md` steps 1 and 6, each with a `## History` row and
+`reviewed:` bump; `COMMAND_DESIGN_GUIDE.md` (a command that evaluates queries does not declare
+`volatile` for its inputs); the `assets.rs` module docs §Volatility; the `Context` method docs.
+`design/volatility-system` is complete and frozen, so its decision 4 is not edited; this design is
+the record of the revision.
+
+### Risks
+
+- **Existing tests that expect `Ready`** from a command reading a volatile value at run time will
+  now see `Volatile`. Each is checked: a test pinning the old behaviour is updated, citing this
+  design.
+- **Cost.** One `Vec` push per resolved dependency and one metadata read lock per dependency at
+  finish. Linear; a search catalog reading thousands of files pays thousands of uncontended read
+  locks once. No measurement is planned unless the Phase 4 tests show a regression.
+- **Memory.** The list holds each resolved `AssetRef` until the run ends. The evaluation session
+  already pins them, so the lifetime does not grow in practice.
+- **Recovery.** The change is confined to three files and one decision point in
+  `complete_evaluation`; reverting the PR restores today's behaviour. Certainty: high, since the
+  finish path it reuses is already tested (`runtime_volatile_asset_is_evicted_from_key_map`,
+  `volatile_keyed_recipe_recomputes_every_time`).
