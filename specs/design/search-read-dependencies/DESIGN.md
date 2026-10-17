@@ -97,72 +97,84 @@ registry is fixed per environment) and edits behind the asset manager's back whi
 - `ROOT-LISTING-DEPENDENCY-KEY-HAS-TWO-SPELLINGS` (filed today): **overlaps**; designed around.
 - `RUNTIME-DEPENDENCY-RECORD-AGAINST-SUPERSEDED-VERSION-IS-NOT-CHECKED` (filed today): **overlaps**;
   a residual race shared with every runtime record.
+- `DEPENDENT-ASSET-WEAK-REFERENCES-ARE-NEVER-PRUNED` (filed today): **overlaps** (Q4).
 - `external-index-sync` (draft): **overlaps**; anything kept *between* searches belongs there.
 - `liquers-mustache` (D3), `agent-memory-mvp` (AC-10, AC-21, AC-22): **required-by**.
 
 ### Design Readiness
 
 - **Readiness:** needs-decision
-- **Automatic fixing:** not-eligible. The fix spans `liquers-core` and `liquers-lib` (rule 6), and Q1
-  is open (rule 5). Once Q1 is decided, each of the two parts alone satisfies rules 1-4 and 6: a bug
-  fix with no new `pub` item, no command change and no new data structure.
+- **Automatic fixing:** not-eligible: two crates (rule 6), open questions (rule 5), and Q3 a adds a
+  `pub` method to `Context` (rule 4).
 - **Leading issue:** Q1.
 - **Explanation:** The solution works end to end in a prototype that passes all `ns-search` and
-  `liquers-core` tests. One choice changes what keyed results persist, so the user should see it.
+  `liquers-core` tests. Its cost is measured in [`performance.md`](performance.md): with the linear
+  merges below, a 5 000-file chain costs 85 ms instead of 36 ms on a memory store.
 - **Open questions:**
   1. **Q1 (proposed resolution): where a cut predecessor's run-time records reach its dependent.**
-     - **(a) Recommended:** in core: both `Step::Evaluate` arms copy the predecessor's records into
-       the dependent's context, fixing every command that records at run time. Keyed results computed
-       through a cut then persist the records an expanded plan already persists.
+     - **(a) Recommended:** in core, where a **non-keyed** dependency's state is received
+       (`Context::get_dependency_state`). This covers cut `Evaluate` steps, links and a command's own
+       `Context::evaluate`, which have the same gap. It stops at keys, so it is not the transitive
+       recording of the 2026-10 incident. Keyed results built through a cut persist the records an
+       expanded plan already persists. Requires the linear merges (performance finding 1).
      - **(b)** in `ns-search` only: `search`, `field_extract`, `md_split` copy their input's records.
        One crate (auto-fixable), but other commands stay stale behind a cut, with no issue filed.
   2. Resolved autonomously: `catalog` records **every** listed file, not only those whose text it
      read. Its `size`, `updated`, `status` and `title` columns come from the file (AC-4). The cost is
-     one version read per entry, measured in Phase 4 step 6.
+     one version read per entry (+38 % on a file store at 5 000 files).
+  3. **Q3 (proposed resolution): how the catalog lists a folder.** Evaluating `-R-dir/<folder>`
+     builds an `AssetInfo` per entry that the catalog then builds again: +150 % on a file store.
+     - **(a) Recommended:** a `pub` core helper, `Context::record_listing(&Key) -> Result<Vec<String>, Error>`,
+       factored out of `Step::GetAssetDirectory`: list, register the version, record. No infos: +38 %.
+     - **(b)** reuse the infos of the `-R-dir/` value, lib only: +75 %, and sequential.
+  4. **Q4 (proposed resolution): memory.** Each non-keyed asset holds a weak reference per record,
+     never pruned (`DEPENDENT-ASSET-WEAK-REFERENCES-ARE-NEVER-PRUNED`, filed). *Q* distinct searches
+     over *N* files hold about *Q·N* per step. **(a) Recommended:** accept, and fix pruning separately.
+     **(b)** cascade expiry through query nodes for non-keyed dependents and inherit only into keyed
+     ones: O(N) memory, more code (performance.md, last section).
 
 ## Phase 2: Architecture
 
 ### Solution
 
 Use the dependency machinery that exists. A search command records what it reads in its own
-context, through public API only:
+context:
 
-- **Folders.** Each folder walked is read by evaluating `-R-dir/<folder>` through
-  `Context::get_dependency_state`. `Step::GetAssetDirectory` registers the listing version (with its
-  three-read race handling) and `refresh_listing_version` moves it on every write or removal. The
-  listing carries `is_dir`, replacing a per-entry `AsyncStore::is_dir`, and evaluates no member (AC-10).
+- **Folders (Q3 a).** Each folder walked is read with `Context::record_listing`, the listing half of
+  `Step::GetAssetDirectory`: it registers the listing version (with its three-read race handling)
+  and records `-R-dir/<folder>`; `refresh_listing_version` moves it on every write or removal. It
+  evaluates no member (AC-10). Under Q3 b, the folder is read by evaluating `-R-dir/<folder>`.
 - **Files.** For each file listed or read, the command records `-R/<key>` with
   `AssetManager::version(key)`, which reads metadata and never evaluates. An unknown version is
   safe: any later registration of the key expires the dependent.
-- **Core (Q1 a).** `Step::Evaluate` copies the predecessor's `MetadataRecord.dependencies` into the
-  dependent's context with `Context::add_dependency`. That method upserts, and keeps a known version
-  over an unknown one. `Step::GetAsset` is unchanged: a keyed predecessor is a graph node, and the
-  nearest addressable dependency is that key.
+- **Core (Q1 a).** When `Context::get_dependency_state` receives a non-keyed dependency's state, it
+  merges that state's `MetadataRecord.dependencies` into the context, keeping known versions over
+  unknown ones. A keyed dependency (`-R/`) is a graph node and is not inherited. Both record merges
+  (`Context` pending records, and the metadata merge in `AssetRef` finalization) become linear,
+  using a `HashMap` index built per merge.
 
 Rejected: `volatile` commands (never reused, and contagious to every context pack); an expiry
-(stale inside the window); a new `Context` listing API (`-R-dir/` already does it); reading files
+(stale inside the window); reading files
 through `get_dependency_state(-R/<key>)` (evaluates recipe keys, breaking AC-10).
 
-Known-issue preflight: `ROOT-LISTING-DEPENDENCY-KEY-HAS-TWO-SPELLINGS` would leave AC-7 failing.
-It is designed around: `listing` copies the `-R-dir` asset's own records (spelled `-R-dir/`, the
-graph's spelling) into the caller. It does not block. `DIRECTORY-KEY-CANNOT-BE-EVALUATED-AS-A-RESOURCE`
+Known-issue preflight: `ROOT-LISTING-DEPENDENCY-KEY-HAS-TWO-SPELLINGS` does not affect Q3 a, which
+records the graph's spelling directly (under Q3 b, the copied `-R-dir` records work around it). `DIRECTORY-KEY-CANNOT-BE-EVALUATED-AS-A-RESOURCE`
 is unrelated (the `-R-key/` form is used). Namespaces involved: `search` only. No command signature
 changes, so `specs/command_registry.yaml` is untouched, and no search command uses `version: auto`.
 
 ### Changes
 
-`liquers-core/src/interpreter.rs`:
-- New private `async fn inherit_dependency_records<E: Environment>(context: &Context<E>, state: &State<E::Value>)`:
-  for a `Metadata::MetadataRecord`, `context.add_dependency(record.clone())` for each dependency.
-  Legacy metadata has none.
-- `do_step`, `Step::Evaluate` arm, and `do_step_state`, `Step::Evaluate` arm: call it after
-  `get_dependency_state`, **before** `state.value()?`, so a failed predecessor still records.
+`liquers-core/src/context.rs`:
+- `wait_for_dependency_recording`: when `dep_key` is not a pure key, merge the received state's
+  records before returning, so a failed dependency still records. `Context::add_dependency` keeps its
+  signature; the pending list gains a private key index (O(1) upsert).
+- New `pub async fn record_listing(&self, dir: &Key) -> Result<Vec<String>, Error>` (Q3 a), the
+  listing half of `Step::GetAssetDirectory`, which then calls it.
+
+`liquers-core/src/assets.rs`: the finalization loop over `metadata.add_dependency` becomes one
+indexed merge (private helper).
 
 `liquers-lib/src/search/mod.rs`:
-- New `pub(crate) async fn listing<E: Environment<Value = Value>>(dir: &Key, context: &Context<E>) -> Result<Vec<AssetInfo>, Error>`:
-  evaluates `-R-dir` for the root, else `DependencyKey::from_dir_key(dir).to_query()?`; copies the
-  listing state's records (the root workaround); returns its `SimpleValue::AssetInfo` list, any
-  other value being `Error::conversion_error_with_message`.
 - New `pub(crate) async fn record_read<E: Environment<Value = Value>>(key: &Key, context: &Context<E>) -> Version`:
   records `DependencyRecord::new(DependencyKey::from(key), version)`. A store error records
   `Version::unknown()`, which only makes invalidation more eager.
@@ -170,14 +182,12 @@ changes, so `specs/command_registry.yaml` is untouched, and no search command us
   most three reads, as `Step::GetAssetDirectory`).
 
 `liquers-lib/src/search/catalog.rs`:
-- `walk`: names and `is_dir` come from `listing`, replacing `AssetManager::listdir` and
-  `AsyncStore::is_dir`. Names are still sorted.
-- `infos`: inside the same `CONCURRENCY`-bounded stream, calls `record_read` for each entry that is
-  not a directory.
+- `walk`: names come from `Context::record_listing` instead of `AssetManager::listdir`.
+- `infos`: in the same `CONCURRENCY`-bounded stream, reads each file's version; `catalog_view`
+  records them in one batch.
 - `extract.rs`, `md_split.rs`, `search_command.rs`: unchanged (they use `catalog_view`, `read_text`).
 
-Errors and async: no new error kind; a listing error propagates as `listdir`'s did; no lock is held
-across an await. `folder_of` is unchanged.
+No new error kind; no lock held across an await; `folder_of` unchanged.
 
 Documents: `SEARCH.md` gets `## Dependencies` and `## Non-evaluation` names `-R-dir/`;
 `SEARCH_GUIDE.md` §7 says results are cached and recomputed on a change through Liquers, with the
@@ -186,18 +196,18 @@ added". Each with a History row and a `reviewed:` bump.
 
 ### Risks
 
-- **Cost.** A catalog of *n* files carries *n* + folders records (persisted for a keyed result),
-  one `contains` + `get_metadata` per entry (through `CONCURRENCY`), and one cached `-R-dir` asset
-  per folder. Phase 4 step 6 measures 1 000 files.
+- **Cost** ([`performance.md`](performance.md)). At 5 000 files: catalog 2x on a memory store and
+  +38 % on a file store (Q3 a); the first load of a stored keyed index after a restart reads every
+  recorded file's metadata (1.6 s instead of 6 ms), once per process; memory is Q4.
 - **Not covered (documented):** edits made outside Liquers while the manager runs; a recipe-only
   entry whose status later becomes `Ready` (a first registration is not a change, so the row keeps
   `Recipe` until something else changes); the race in
   `RUNTIME-DEPENDENCY-RECORD-AGAINST-SUPERSEDED-VERSION-IS-NOT-CHECKED`.
 - **Compatibility.** No API, command, format or binding change. Results stored earlier carry no
   records and stay stale until recomputed once (noted in Phase 5).
-- **Certainty: high.** A discarded prototype passed the 25 existing `search_commands` tests and
-  probes for content, add/remove, chains and root; all 48 `liquers-core` suites passed with the core
-  change. Without it the chain probe failed; without the copy in `listing`, the root probe.
+- **Certainty: high.** A discarded prototype passed the 25 existing `search_commands` tests, probes
+  for content, add/remove, chains and root, and all 48 `liquers-core` suites; a second one measured
+  the cost (`performance.md`).
 
 ## Phase 3: Examples and Tests
 
@@ -242,20 +252,20 @@ Run with `cargo test -p liquers-lib --test search_commands` and
   above; confirm that AC-1 to AC-8 and AC-11 fail at HEAD — `cargo test -p liquers-lib --test search_commands`
 - [ ] 2. `liquers-core/tests/cache_strategy.rs` — add `cut_predecessor_runtime_dependency_reaches_dependent`
   and confirm it fails with cutting on — `cargo test -p liquers-core --test cache_strategy`
-- [ ] 3. `liquers-core/src/interpreter.rs` — `inherit_dependency_records` and the two `Step::Evaluate`
-  arms — `cargo test -p liquers-core --lib --tests` (all green, AC-12 passes)
-- [ ] 4. `liquers-lib/src/search/mod.rs` — `listing`, `record_read`, bracketed `read_text` —
+- [ ] 3. `liquers-core/src/context.rs`, `assets.rs` — linear merges, inheritance in
+  `wait_for_dependency_recording`, `record_listing` — `cargo test -p liquers-core --lib --tests`
+  (all green, AC-12 passes)
+- [ ] 4. `liquers-lib/src/search/mod.rs` — `record_read`, bracketed `read_text` —
   `cargo test -p liquers-lib --test search_commands`
-- [ ] 5. `liquers-lib/src/search/catalog.rs` — `walk` through `listing`, `infos` records — the same
+- [ ] 5. `liquers-lib/src/search/catalog.rs` — `walk` through `record_listing`, batched records — the same
   command, all green
-- [ ] 6. Measure: a throwaway test cataloging 1 000 files with and without step 5. Record the times
-  and the record count in Phase 5. If recording costs more than 2x, stop and reopen open question 2 —
+- [ ] 6. Re-run the `performance.md` bench (5 000 files, memory and file store) and record it in
+  Phase 5. Stop if the chain exceeds 3x HEAD or the file-store catalog 1.5x —
   `cargo test -p liquers-lib --test search_commands -- --ignored`
 - [ ] 7. Documents — `SEARCH.md`, `SEARCH_GUIDE.md`, `DEPENDENCIES_STATUS.md`, each with a History
   row and a `reviewed:` bump — `python3 scripts/docs_index.py --check`
 
-Rollback: revert the step's commit. Under Q1 (b), step 3 becomes input-record copying in
-`search_command.rs`, `extract.rs` and `md_split.rs`.
+Rollback: revert the step's commit. Under Q1 (b), step 3 becomes input-record copying in the search commands.
 
 ### Validation
 

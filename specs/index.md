@@ -8,9 +8,9 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 116
+Total rows: 117
 - P2: 53
-- P3: 63
+- P3: 64
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -19,7 +19,7 @@ Total rows: 116
 | [`CORE-VALUE-ENUM-OVERSIZED`](issues/CORE-VALUE-ENUM-OVERSIZED.md) | issue | Every Value occupies over 700 bytes because three variants are stored unboxed | draft | ready | not-eligible | P2 | M | core/value;lib/value | [design](design/core-value-enum-oversized/DESIGN.md) | 2026-08-18 |
 | [`ENVIRONMENT-MANAGER-REFERENCE-CYCLE`](issues/ENVIRONMENT-MANAGER-REFERENCE-CYCLE.md) | issue | Environment and asset manager hold each other with strong Arcs, so every environment leaks | draft | ready | not-eligible | P2 | M | core/assets;core/context | [design](design/environment-manager-reference-cycle/DESIGN.md) | 2026-08-27 |
 | [`CORE-TRACING-MIGRATION`](issues/CORE-TRACING-MIGRATION.md) | issue | Diagnostics use `eprintln!` rather than structured logging | accepted | needs-decision | not-eligible | P2 | M | core/error;build | [design](design/core-tracing-migration/DESIGN.md) | 2026-08-08 |
-| [`SEARCH-COMMANDS-RECORD-NO-DEPENDENCY-ON-READ-FILES`](issues/SEARCH-COMMANDS-RECORD-NO-DEPENDENCY-ON-READ-FILES.md) | issue | ns-search results do not depend on the files they read, so they go stale | draft | needs-decision | not-eligible | P2 | M | lib/commands;core/assets | [design](design/search-read-dependencies/DESIGN.md) | 2026-10-17 |
+| [`SEARCH-COMMANDS-RECORD-NO-DEPENDENCY-ON-READ-FILES`](issues/SEARCH-COMMANDS-RECORD-NO-DEPENDENCY-ON-READ-FILES.md) | issue | ns-search results do not depend on the files they read, so they go stale | draft | needs-decision | not-eligible | P2 | M | lib/commands;core/assets | [performance.md](design/search-read-dependencies/performance.md)  | 2026-10-17 |
 | [`COMMAND-CANNOT-BE-RUN-WITH-A-RESTRICTED-CONTEXT`](issues/COMMAND-CANNOT-BE-RUN-WITH-A-RESTRICTED-CONTEXT.md) | feature | A command cannot be run with a restricted context | draft |  |  | P2 | M | core/context;core/commands |  | 2026-09-17 |
 | [`CORE-METADATA-NO-APPLICATION-ATTRIBUTES`](issues/CORE-METADATA-NO-APPLICATION-ATTRIBUTES.md) | feature | Metadata cannot carry application-defined attributes | draft |  |  | P2 | M | core/value |  | 2026-09-15 |
 | [`EGUI-ASSET-MANAGER-INTEGRATION`](issues/EGUI-ASSET-MANAGER-INTEGRATION.md) | feature | No stable adapter between egui widgets and the asset manager | accepted |  |  | P2 | M | lib/egui |  | 2026-08-08 |
@@ -70,6 +70,7 @@ Total rows: 116
 | [`AXUM-QUERY-API-QUERY-KEEPS-LEADING-SLASH`](issues/AXUM-QUERY-API-QUERY-KEEPS-LEADING-SLASH.md) | issue | The Query API mounted without a trailing slash evaluates the query with a leading slash | draft |  |  | P3 | S | axum |  | 2026-10-12 |
 | [`COMMAND-REGISTRY-HEADER-NAMES-GROUPS-NOT-FEATURES`](issues/COMMAND-REGISTRY-HEADER-NAMES-GROUPS-NOT-FEATURES.md) | issue | The command_registry.yaml header lists group names under "features" | draft |  |  | P3 | S | lib/commands;build |  | 2026-10-11 |
 | [`DEPENDENCY-ANALYSIS-USES-CALLER-CWD-FOR-A-CWD-LESS-RECIPE`](issues/DEPENDENCY-ANALYSIS-USES-CALLER-CWD-FOR-A-CWD-LESS-RECIPE.md) | issue | Dependency analysis resolves a cwd-less recipe against its caller's cursor, but its run resolves against the root | draft |  |  | P3 | S | core/plan |  | 2026-10-13 |
+| [`DEPENDENT-ASSET-WEAK-REFERENCES-ARE-NEVER-PRUNED`](issues/DEPENDENT-ASSET-WEAK-REFERENCES-ARE-NEVER-PRUNED.md) | issue | The dependency manager never prunes dead weak dependents, so its lists grow with every distinct query | draft |  |  | P3 | S | core/assets |  | 2026-10-17 |
 | [`EXTERNAL-MANAGER-CANNOT-SHARE-AN-EVALUATION-SESSION`](issues/EXTERNAL-MANAGER-CANNOT-SHARE-AN-EVALUATION-SESSION.md) | issue | An external asset manager cannot hand a dependency its parent's evaluation session | draft |  |  | P3 | S | core/assets |  | 2026-10-12 |
 | [`LIB-BUILD-EMITS-UNUSED-AND-UNHANDLED-RESULT-WARNINGS`](issues/LIB-BUILD-EMITS-UNUSED-AND-UNHANDLED-RESULT-WARNINGS.md) | issue | A default liquers-lib build emits about 50 warnings, some for discarded Results | draft |  |  | P3 | S | lib/commands;build |  | 2026-10-11 |
 | [`PY-VALUE-ENUM-OVERSIZED`](issues/PY-VALUE-ENUM-OVERSIZED.md) | issue | liquers-py's own Value enum is over 700 bytes because large variants are stored inline | draft |  |  | P3 | S | py |  | 2026-10-12 |
