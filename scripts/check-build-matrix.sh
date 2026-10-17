@@ -78,6 +78,13 @@ RECORDS_CONFIGS=(
   "--target wasm32-unknown-unknown --features ipc,parquet"
 )
 
+# liquers-template depends on liquers-core only and adds no async runtime, so it must build for
+# wasm32 too (design/liquers-mustache, AC-13).
+TEMPLATE_CONFIGS=(
+  "--tests"
+  "--target wasm32-unknown-unknown --tests"
+)
+
 CORE_CONFIGS=(
   "--no-default-features"
   ""
@@ -119,6 +126,10 @@ done
 
 for args in "${RECORDS_CONFIGS[@]}"; do
   check liquers-records "$args"
+done
+
+for args in "${TEMPLATE_CONFIGS[@]}"; do
+  check liquers-template "$args"
 done
 
 for args in "${CORE_CONFIGS[@]}"; do

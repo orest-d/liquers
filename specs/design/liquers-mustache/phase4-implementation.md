@@ -33,7 +33,7 @@ before the wasm32 step.
 - [x] Step 9: Mustache AST, lexer, parser and encoder
 - [x] Step 10: Renderer, hosts and error modes (D8)
 - [x] Step 11: Validation
-- [ ] Step 12: wasm32 build and Node tests
+- [x] Step 12: wasm32 build and Node tests (runner installed; D5 fallback not needed)
 - [ ] Step 13: liquers-lib commands, hosts and value adapters
 - [ ] Step 14: Registry export
 - [ ] Step 15: Documentation
