@@ -446,6 +446,7 @@ deliberately folded behind a broader line.
 - feature `VALUE-CONVERSION-CAPABILITY`
 - feature `VALUE-SERIALIZATION-IS-SYNCHRONOUS-AND-WHOLE-VALUE`
 - feature `VALUE-TYPE-DEFINITION-MACRO`
+- feature `WEB-RECORDS-BRIDGE-ONE-WAY-AND-SOURCE-UNMAPPED`
 <!-- END generated: unplaced -->
 
 ## Guides
