@@ -7,6 +7,7 @@ liquers-core/     # Core abstractions (Query, Key, Store, Assets, Commands)
 liquers-macro/    # register_command! function-like proc-macro
 liquers-store/    # Storage backends (OpenDAL integration, config)
 liquers-records/  # Record streams: columnar tables, views, sources, manifests, table formats
+liquers-template/ # Query-aware Mustache templates (parser, renderer, query templates)
 liquers-lib/      # Command library, Rich value types (Polars DataFrames, egui UI, images)
 liquers-axum/     # HTTP REST API server
 liquers-web/      # Browser/JavaScript bindings (wasm32-only)
@@ -21,7 +22,8 @@ specs/            # Internal documentation — see specs/README.md
 
 **Dependency flow**: `liquers-core` ← `liquers-macro` ← `liquers-store` ← `liquers-lib` ← `liquers-axum` / `liquers-web`;
 `liquers-core` ← `liquers-records` ← `liquers-lib` (feature `records`). `liquers-records` depends on
-`liquers-core` only, so a crate built on records need not pull in `liquers-lib`.
+`liquers-core` only, so a crate built on records need not pull in `liquers-lib`. Likewise
+`liquers-core` ← `liquers-template` ← `liquers-lib` (feature `templates`).
 
 **Key specs**: See `specs/reference/VISION.md` for the project's purpose, vision and strategy (background for design and review work), `specs/reference/PROJECT_OVERVIEW.md` for architecture, `specs/reference/REGISTER_COMMAND_FSD.md` for macro details, `specs/reference/ASSETS.md` for asset lifecycle.
 
@@ -67,6 +69,9 @@ Also:
   provider: `liquers-records/src/`. The glue that needs `liquers-lib`'s `Value` — `ExtValue::RecordView`
   / `RecordSource`, `to_record` / `to_record_source`, the `ns-rec` commands, the polars bridge:
   `liquers-lib/src/records/` (design: `specs/design/record-streams/`)
+- Template language (parser, renderer, query templates, hosts): `liquers-template/src/`; the
+  `ns-template` commands, `ContextHost` and the store folder node: `liquers-lib/src/template/`
+  (reference: `specs/reference/TEMPLATE_LANGUAGE.md`)
 
 ### Key Types
 - `Query`, `Key`, `ActionRequest` - query DSL (`liquers-core/src/query.rs`)
@@ -185,7 +190,7 @@ crate's test binaries at once, which is what exhausts the allowance.
 ### Feature matrix
 
 The default loop builds one feature configuration. `egui`, `image-support`, `polars`, `webui`,
-`records`, `records-ipc` and `records-parquet` are all optional (the last three on by default), and a missing `#[cfg]` compiles fine with the defaults on while breaking a
+`records`, `records-ipc`, `records-parquet` and `templates` are all optional (all but `webui` on by default), and a missing `#[cfg]` compiles fine with the defaults on while breaking a
 minimal or wasm build. `scripts/check-build-matrix.sh` checks every configuration, library **and
 test targets**, plus the wasm32 target, `liquers-store`'s feature split and `liquers-records`' own
 `ipc` / `parquet` features:
@@ -206,6 +211,7 @@ cargo test -p liquers-lib --no-default-features --features egui --lib --tests
 cargo test -p liquers-lib --no-default-features --features image-support --lib --tests
 cargo test -p liquers-lib --no-default-features --features webui --lib --tests
 cargo test -p liquers-lib --no-default-features --features records --lib --tests
+cargo test -p liquers-lib --no-default-features --features templates --lib --tests
 cargo test -p liquers-records --lib --tests                 # no formats beyond the built-in ones
 ```
 
@@ -387,6 +393,10 @@ register_command!(cr,
   or an integer)
 
 See examples in `liquers-lib/src/commands.rs` and `liquers-core/tests/async_hellow_world.rs`.
+
+A command whose result is text assembled from other queries can be a **template command**: an
+alias of `template/render` with the template link as its head, no Rust function needed
+(`specs/guides/TEMPLATE_GUIDE.md` §3).
 
 ### Validating queries
 
