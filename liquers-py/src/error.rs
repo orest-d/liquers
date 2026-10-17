@@ -2,7 +2,7 @@ use pyo3::{exceptions::PyException, prelude::*};
 
 use crate::parse::Position;
 
-#[pyclass]
+#[pyclass(from_py_object, eq, eq_int)]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Copy)]
 pub enum ErrorType {
     ArgumentMissing,
@@ -104,7 +104,7 @@ impl From<liquers_core::error::ErrorType> for ErrorType {
     }
 }
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Debug, Clone)]
 pub struct Error(pub liquers_core::error::Error);
 

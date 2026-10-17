@@ -8,9 +8,9 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 132
+Total rows: 131
 - P2: 55
-- P3: 77
+- P3: 76
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -31,8 +31,8 @@ Total rows: 132
 | [`LANGUAGE-GUIDE-NO-DOCUMENTATION-SECTION`](issues/LANGUAGE-GUIDE-NO-DOCUMENTATION-SECTION.md) | feature | The language integration guide says nothing about writing the integration's own documentation | draft |  |  | P2 | M | docs;web;py |  | 2026-08-30 |
 | [`LANGUAGE-STORE-TYPE-NOT-DEFINABLE`](issues/LANGUAGE-STORE-TYPE-NOT-DEFINABLE.md) | feature | A store type cannot be defined in the integrated language | draft |  |  | P2 | M | web;py;core/store;store/config |  | 2026-08-29 |
 | [`POLARS-COMMAND-TESTS-BYPASS-COMMANDS`](issues/POLARS-COMMAND-TESTS-BYPASS-COMMANDS.md) | issue | The polars command integration tests never invoke a polars command | draft |  |  | P2 | M | lib/polars;build |  | 2026-08-25 |
-| [`PY-MODULES-NOT-DECLARED-IN-LIB`](issues/PY-MODULES-NOT-DECLARED-IN-LIB.md) | issue | Half of liquers-py's source files are not declared as modules and never compile | draft |  |  | P2 | M | py |  | 2026-08-25 |
-| [`PY-VALUE-SERIALIZER-IS-A-STUB`](issues/PY-VALUE-SERIALIZER-IS-A-STUB.md) | issue | liquers-py's value serializer writes almost nothing and reads nothing back | draft |  |  | P2 | M | py;core/value |  | 2026-08-26 |
+| [`PY-ADD-PYTHON-COMMAND-ALIASES-AN-UNREGISTERED-COMMAND`](issues/PY-ADD-PYTHON-COMMAND-ALIASES-AN-UNREGISTERED-COMMAND.md) | issue | liquers-py's add_python_command registers an alias to a pycall command that does not exist | draft |  |  | P2 | M | py | [phase1](design/liquers-py/phase1-high-level-design.md)  [phase2](design/liquers-py/phase2-architecture.md)  [phase3](design/liquers-py/phase3-examples.md)  [phase4](design/liquers-py/phase4-implementation.md)  [phase5](design/liquers-py/phase5-documentation.md)  | 2026-10-17 |
+| [`PY-VALUE-SERIALIZER-IS-A-STUB`](issues/PY-VALUE-SERIALIZER-IS-A-STUB.md) | issue | liquers-py's value serializer writes almost nothing and reads nothing back | draft |  |  | P2 | M | py;core/value | [phase1](design/liquers-py/phase1-high-level-design.md)  [phase2](design/liquers-py/phase2-architecture.md)  [phase3](design/liquers-py/phase3-examples.md)  [phase4](design/liquers-py/phase4-implementation.md)  [phase5](design/liquers-py/phase5-documentation.md)  | 2026-08-26 |
 | [`RECORDS-PARQUET-POLARS-READ-IGNORES-DECLARED-SCHEMA`](issues/RECORDS-PARQUET-POLARS-READ-IGNORES-DECLARED-SCHEMA.md) | issue | Reading Parquet through the polars bridge ignores a caller-declared schema | draft |  |  | P2 | M | records;lib/polars |  | 2026-09-27 |
 | [`RUNTIME-VOLATILE-DEPENDENCY-DOES-NOT-MAKE-PARENT-VOLATILE`](issues/RUNTIME-VOLATILE-DEPENDENCY-DOES-NOT-MAKE-PARENT-VOLATILE.md) | issue | A volatile dependency a command evaluates through its context does not make the command's result volatile | draft |  |  | P2 | M | core/context |  | 2026-10-17 |
 | [`SERIALIZATION-CANNOT-REPORT-A-LOSSY-WRITE`](issues/SERIALIZATION-CANNOT-REPORT-A-LOSSY-WRITE.md) | issue | Serialization cannot report a lossy write, so a value silently loses data on its way to the store | draft |  |  | P2 | M | core/value |  | 2026-10-13 |
@@ -87,7 +87,6 @@ Total rows: 132
 | [`SEARCH-CATALOG-READS-EACH-FILE-METADATA-TWICE`](issues/SEARCH-CATALOG-READS-EACH-FILE-METADATA-TWICE.md) | issue | ns-search/catalog reads each file's metadata twice, once for its info and once for its version | draft | needs-decision | not-eligible | P3 | S | lib/commands;core/assets | [design](design/search-catalog-single-metadata-read/DESIGN.md) | 2026-10-17 |
 | [`TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS`](issues/TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS.md) | issue | TypeInfo cannot declare a format a type writes but cannot read back | draft |  |  | P3 | S | core/value |  | 2026-09-24 |
 | [`WEB-OUTBOUND-INT64-BEYOND-DOUBLE-UNTESTED`](issues/WEB-OUTBOUND-INT64-BEYOND-DOUBLE-UNTESTED.md) | issue | An i64 beyond 2^53 leaving for JavaScript has unconfirmed, untested behaviour | draft |  |  | P3 | S | web |  | 2026-10-17 |
-| [`PY-VALUE-ENUM-OVERSIZED`](issues/PY-VALUE-ENUM-OVERSIZED.md) | issue | liquers-py's own Value enum is over 700 bytes because large variants are stored inline | draft | ready | not-eligible | P3 | M | py | [design](design/py-value-arc-payloads/DESIGN.md) | 2026-10-12 |
 | [`CONTEXT-TITLE-LOST-ACROSS-PREDECESSOR-BOUNDARY`](issues/CONTEXT-TITLE-LOST-ACROSS-PREDECESSOR-BOUNDARY.md) | issue | A title or description set by a command in a cut predecessor does not reach the final asset | draft | needs-decision | not-eligible | P3 | M | core/context;core/plan | [phase1](design/context-title-predecessor-inheritance/phase1-high-level-design.md)  [phase2](design/context-title-predecessor-inheritance/phase2-architecture.md)  [phase3](design/context-title-predecessor-inheritance/phase3-examples.md)  [phase4](design/context-title-predecessor-inheritance/phase4-implementation.md)  | 2026-10-06 |
 | [`TEMPLATE-NON-SCALAR-HAS-NO-TEXT-FORM`](issues/TEMPLATE-NON-SCALAR-HAS-NO-TEXT-FORM.md) | issue | A template cannot index into a Query or Key value, and inserts other non-scalars as JSON | draft | needs-decision | not-eligible | P3 | M | lib/commands | [design](design/template-non-scalar-text-form/DESIGN.md) | 2026-10-17 |
 | [`ASSETS-API-ADMIN-OPERATIONS`](issues/ASSETS-API-ADMIN-OPERATIONS.md) | feature | Manager status and a guarded remove have no assets API endpoint | draft |  |  | P3 | M | axum;core/assets |  | 2026-09-27 |
@@ -111,7 +110,7 @@ Total rows: 132
 | [`MACRO-QUERY-VALIDATION-AND-HINTS`](issues/MACRO-QUERY-VALIDATION-AND-HINTS.md) | issue | `register_command!` does not validate queries or implement hints | accepted |  |  | P3 | M | macro |  | 2026-08-08 |
 | [`POLARS-BRIDGE-VECTOR-COLUMNS-REFUSED`](issues/POLARS-BRIDGE-VECTOR-COLUMNS-REFUSED.md) | issue | The RecordBatch <-> DataFrame bridge cannot convert Vector columns | draft |  |  | P3 | M | records;lib/polars |  | 2026-09-27 |
 | [`POST-INIT-COMMAND-REGISTRATION`](issues/POST-INIT-COMMAND-REGISTRATION.md) | issue | Registering a command after Environment::to_ref requires a rebuild | accepted |  |  | P3 | M | core/commands;web |  | 2026-08-08 |
-| [`PY-PYO3-0-21-CANNOT-TARGET-PYTHON-3-13`](issues/PY-PYO3-0-21-CANNOT-TARGET-PYTHON-3-13.md) | feature | liquers-py pins PyO3 0.21, which cannot target Python 3.13 or newer | draft |  |  | P3 | M | py;build |  | 2026-10-10 |
+| [`PY-VALUE-ENUM-OVERSIZED`](issues/PY-VALUE-ENUM-OVERSIZED.md) | issue | liquers-py's own Value enum is over 700 bytes because large variants are stored inline | draft |  |  | P3 | M | py | [phase1](design/liquers-py/phase1-high-level-design.md)  [phase2](design/liquers-py/phase2-architecture.md)  [phase3](design/liquers-py/phase3-examples.md)  [phase4](design/liquers-py/phase4-implementation.md)  [phase5](design/liquers-py/phase5-documentation.md)  | 2026-10-12 |
 | [`QUERY-CANNOT-MARK-CACHED-INTERMEDIATES`](issues/QUERY-CANNOT-MARK-CACHED-INTERMEDIATES.md) | feature | A query cannot mark which of its intermediates are worth caching | draft |  |  | P3 | M | core/plan;core/assets;core/query |  | 2026-10-10 |
 | [`RECIPE-OVERRIDE-ONLY-LAST-ACTION`](issues/RECIPE-OVERRIDE-ONLY-LAST-ACTION.md) | issue | Argument overrides can target only the last action of a query | draft |  |  | P3 | M | core/plan |  | 2026-10-17 |
 | [`RECIPE-PLAN-ANALYSIS-RUNS-OUTSIDE-PLAN-BUILDING`](issues/RECIPE-PLAN-ANALYSIS-RUNS-OUTSIDE-PLAN-BUILDING.md) | issue | Recipe plan analysis runs outside plan building | draft |  |  | P3 | M | core/plan;core/assets |  | 2026-08-26 |

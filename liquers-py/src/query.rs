@@ -7,7 +7,7 @@ use pyo3::prelude::*;
 
 use crate::error::Error;
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone)]
 pub struct Position(pub liquers_core::query::Position);
 
@@ -54,7 +54,7 @@ impl Position {
     }
 }
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone)]
 pub struct ActionParameter(liquers_core::query::ActionParameter);
 
@@ -86,7 +86,7 @@ impl ActionParameter {
     }
 }
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone)]
 pub struct ResourceName(liquers_core::query::ResourceName);
 
@@ -115,7 +115,7 @@ impl ResourceName {
     }
 }
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone)]
 pub struct ActionRequest(liquers_core::query::ActionRequest);
 
@@ -160,7 +160,7 @@ impl ActionRequest {
     }
 }
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone)]
 pub struct SegmentHeader(liquers_core::query::SegmentHeader);
 
@@ -213,7 +213,7 @@ impl SegmentHeader {
     }
 }
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone)]
 pub struct TransformQuerySegment(liquers_core::query::TransformQuerySegment);
 
@@ -283,7 +283,7 @@ impl TransformQuerySegment {
     }
 }
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone, Debug)]
 pub struct Key(pub liquers_core::query::Key);
 
@@ -349,7 +349,7 @@ impl Key {
     }
 }
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone)]
 pub struct ResourceQuerySegment(liquers_core::query::ResourceQuerySegment);
 
@@ -411,7 +411,7 @@ impl ResourceQuerySegment {
     }
 }
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone)]
 pub struct QuerySegment(liquers_core::query::QuerySegment);
 
@@ -490,7 +490,7 @@ impl QuerySegment {
     }
 }
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone, Debug)]
 pub struct Query(pub liquers_core::query::Query);
 
@@ -617,7 +617,7 @@ impl Query {
     }
 }
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone)]
 pub struct QuerySource(liquers_core::query::QuerySource);
 

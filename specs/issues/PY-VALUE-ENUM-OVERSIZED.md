@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: M
 area: [py]
-design: py-value-arc-payloads
+design: liquers-py
 created: 2026-10-12
 github:
 ---

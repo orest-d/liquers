@@ -256,7 +256,7 @@ submit, and submitted query state is not preserved.
 - **Web API library** — built → [`design/web-api-library/`](design/web-api-library/)
 - **Browser and JavaScript integration** — built → [`design/liquers-web/`](design/liquers-web/)
 - **Async evaluation on wasm** — built → [`design/async-wasm-refactor/`](design/async-wasm-refactor/)
-- **Python wrapper** — built → [`design/python-wrapper/`](design/python-wrapper/)
+- **Python integration (liquers-py)** — designing → [`design/liquers-py/`](design/liquers-py/) *(supersedes [`design/python-wrapper/`](design/python-wrapper/))*
 - **Executor-agnostic core** — planned → [`issues/CORE-TOKIO-REMOVAL.md`](issues/CORE-TOKIO-REMOVAL.md)
 - **Browser stores (localStorage, fetch, JS, routing)** — built → [`design/liquers-web-store/`](design/liquers-web-store/)
 - **Browser-native store and command backend** — planned → [`issues/WEB-NATIVE-IO-TIER2.md`](issues/WEB-NATIVE-IO-TIER2.md)
@@ -386,7 +386,6 @@ deliberately folded behind a broader line.
 - design `plan-split-predecessor-fields`
 - design `polars-doc-example-namespace`
 - design `predecessor-cut-equivalence`
-- design `py-value-arc-payloads`
 - design `pyo3-python-3-13-support`
 - design `query-leading-slash-field`
 - design `queued-manager-conditional-eviction`
@@ -449,7 +448,6 @@ deliberately folded behind a broader line.
 - feature `NO-REMOTE-STORE-OR-ASSET-MANAGER`
 - feature `NO-SOURCE-CODE-AND-API-DOC-NAVIGATION`
 - feature `NO-TEMPLATE-EDITOR-UI`
-- feature `PY-PYO3-0-21-CANNOT-TARGET-PYTHON-3-13`
 - feature `QUERY-CANNOT-MARK-CACHED-INTERMEDIATES`
 - feature `RECORDS-ARROW-C-DATA-EXPORT-NOT-BUILT`
 - feature `STORE-CENTRAL-STORAGE-MODEL-NOT-IMPLEMENTED`

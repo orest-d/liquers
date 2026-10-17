@@ -2,21 +2,16 @@ use serde_json;
 
 use liquers_core::{
     error::ErrorType,
-    value::{self, DefaultValueSerializer, ValueInterface},
+    value::{DefaultValueSerializer, ValueInterface},
 };
 use pyo3::{
     prelude::*,
     types::{PyDict, PyList},
+    IntoPyObjectExt,
 };
 
 use liquers_core::error::Error;
-use std::{
-    borrow::Cow,
-    collections::BTreeMap,
-    convert::{TryFrom, TryInto},
-    fmt::format,
-    result::Result,
-};
+use std::{borrow::Cow, collections::BTreeMap, convert::TryFrom, result::Result};
 
 use crate::{
     command_metadata::CommandMetadata,
@@ -25,8 +20,10 @@ use crate::{
     recipes::Recipe,
 };
 
-#[derive(Debug, Clone)]
-#[pyclass]
+// `Clone` is implemented by hand below: `Py<PyAny>` is not `Clone` without PyO3's `py-clone`
+// feature, because copying a Python reference needs the interpreter.
+#[derive(Debug)]
+#[pyclass(from_py_object)]
 pub enum Value {
     None {},
     Bool {
@@ -76,31 +73,74 @@ pub enum Value {
     },
 }
 
+impl Clone for Value {
+    fn clone(&self) -> Self {
+        match self {
+            Value::None {} => Value::None {},
+            Value::Bool { value } => Value::Bool { value: *value },
+            Value::I32 { value } => Value::I32 { value: *value },
+            Value::I64 { value } => Value::I64 { value: *value },
+            Value::F64 { value } => Value::F64 { value: *value },
+            Value::Text { value } => Value::Text {
+                value: value.clone(),
+            },
+            Value::Array { value } => Value::Array {
+                value: value.clone(),
+            },
+            Value::Object { value } => Value::Object {
+                value: value.clone(),
+            },
+            Value::Bytes { value } => Value::Bytes {
+                value: value.clone(),
+            },
+            Value::Metadata { value } => Value::Metadata {
+                value: value.clone(),
+            },
+            Value::Recipe { value } => Value::Recipe {
+                value: value.clone(),
+            },
+            Value::CommandMetadata { value } => Value::CommandMetadata {
+                value: value.clone(),
+            },
+            Value::Query { value } => Value::Query {
+                value: value.clone(),
+            },
+            Value::Key { value } => Value::Key {
+                value: value.clone(),
+            },
+            Value::AssetInfo { value } => Value::AssetInfo {
+                value: value.clone(),
+            },
+            Value::Py { value } => Value::Py {
+                value: Python::attach(|py| value.clone_ref(py)),
+            },
+        }
+    }
+}
+
 #[pymethods]
 impl Value {
     #[new]
-    pub fn new(x: PyObject) -> Self {
-        Python::with_gil(|py| {
-            if x.is_none(py) {
-                Value::None {}
-            } else if let Ok(b) = x.extract::<bool>(py) {
-                Value::Bool { value: b }
-            } else if let Ok(n) = x.extract::<i32>(py) {
-                Value::I32 { value: n }
-            } else if let Ok(n) = x.extract::<i64>(py) {
-                Value::I64 { value: n }
-            } else if let Ok(n) = x.extract::<f64>(py) {
-                Value::F64 { value: n }
-            } else if let Ok(t) = x.extract::<String>(py) {
-                Value::Text { value: t }
-            } else if let Ok(b) = x.extract::<Vec<u8>>(py) {
-                Value::Bytes { value: b }
-            } else {
-                Value::Py { value: x.into() }
-            }
-        })
+    pub fn new(x: Bound<'_, PyAny>) -> Self {
+        if x.is_none() {
+            Value::None {}
+        } else if let Ok(b) = x.extract::<bool>() {
+            Value::Bool { value: b }
+        } else if let Ok(n) = x.extract::<i32>() {
+            Value::I32 { value: n }
+        } else if let Ok(n) = x.extract::<i64>() {
+            Value::I64 { value: n }
+        } else if let Ok(n) = x.extract::<f64>() {
+            Value::F64 { value: n }
+        } else if let Ok(t) = x.extract::<String>() {
+            Value::Text { value: t }
+        } else if let Ok(b) = x.extract::<Vec<u8>>() {
+            Value::Bytes { value: b }
+        } else {
+            Value::Py { value: x.unbind() }
+        }
     }
-    pub fn as_pyobject(&self, py: Python) -> PyResult<PyObject> {
+    pub fn as_pyobject(&self, py: Python) -> PyResult<Py<PyAny>> {
         Ok(value_to_pyobject(self, py).map_err(|e| crate::error::Error::from(e))?)
     }
     pub fn __str__(&self) -> PyResult<String> {
@@ -138,7 +178,7 @@ impl Value {
                     .join(", ")
             )),
             Value::Bytes { value } => Ok(format!("{:?}", value)),
-            Value::Py { value } => Python::with_gil(|py| Ok(value.bind(py).str()?.to_string())),
+            Value::Py { value } => Python::attach(|py| Ok(value.bind(py).str()?.to_string())),
             Value::Metadata { value } => Ok(format!("{:?}", value)),
             Value::AssetInfo { value } => Ok(format!("{:?}", value)),
             Value::Recipe { value } => Ok(format!("{:?}", value)),
@@ -182,7 +222,7 @@ impl Value {
                     .join(", ")
             )),
             Value::Bytes { value } => Ok(format!("{:?}", value)),
-            Value::Py { value } => Python::with_gil(|py| Ok(value.bind(py).repr()?.to_string())),
+            Value::Py { value } => Python::attach(|py| Ok(value.bind(py).repr()?.to_string())),
             Value::Metadata { value } => Ok(format!("{:?}", value)),
             Value::AssetInfo { value } => Ok(format!("{:?}", value)),
             Value::Recipe { value } => Ok(format!("{:?}", value)),
@@ -193,16 +233,29 @@ impl Value {
     }
 }
 
-pub fn value_to_pyobject(v: &Value, py: Python) -> Result<PyObject, liquers_core::error::Error> {
+/// Convert a Rust value to a Python object, reporting a failure as a Liquers error.
+fn into_py_any<'py, T: IntoPyObjectExt<'py>>(
+    value: T,
+    py: Python<'py>,
+    what: &str,
+) -> Result<Py<PyAny>, liquers_core::error::Error> {
+    value.into_py_any(py).map_err(|e| {
+        liquers_core::error::Error::execution_error(format!(
+            "Error converting {what} to a python object: {e}"
+        ))
+    })
+}
+
+pub fn value_to_pyobject(v: &Value, py: Python) -> Result<Py<PyAny>, liquers_core::error::Error> {
     match v {
         Value::None {} => Ok(py.None()),
-        Value::Bool { value } => Ok(value.to_object(py)),
-        Value::I32 { value } => Ok(value.to_object(py)),
-        Value::I64 { value } => Ok(value.to_object(py)),
-        Value::F64 { value } => Ok(value.to_object(py)),
-        Value::Text { value } => Ok(value.to_object(py)),
+        Value::Bool { value } => into_py_any(*value, py, "bool"),
+        Value::I32 { value } => into_py_any(*value, py, "i32"),
+        Value::I64 { value } => into_py_any(*value, py, "i64"),
+        Value::F64 { value } => into_py_any(*value, py, "f64"),
+        Value::Text { value } => into_py_any(value.as_str(), py, "text"),
         Value::Array { value } => {
-            let list = PyList::empty_bound(py);
+            let list = PyList::empty(py);
             for x in value {
                 list.append(value_to_pyobject(x, py)?).map_err(|e| {
                     liquers_core::error::Error::execution_error(format!(
@@ -213,7 +266,7 @@ pub fn value_to_pyobject(v: &Value, py: Python) -> Result<PyObject, liquers_core
             Ok(list.into())
         }
         Value::Object { value } => {
-            let dict = PyDict::new_bound(py);
+            let dict = PyDict::new(py);
             for (k, v) in value {
                 let x = value_to_pyobject(v, py)?;
                 dict.set_item(k, x).map_err(|e| {
@@ -224,14 +277,14 @@ pub fn value_to_pyobject(v: &Value, py: Python) -> Result<PyObject, liquers_core
             }
             Ok(dict.into())
         }
-        Value::Bytes { value } => Ok(value.to_object(py)),
+        Value::Bytes { value } => into_py_any(value.as_slice(), py, "bytes"),
         Value::Py { value } => Ok(value.clone_ref(py)),
-        Value::Metadata { value } => Ok(value.clone().into_py(py)),
-        Value::AssetInfo { value } => Ok(value.clone().into_py(py)),
-        Value::Recipe { value } => Ok(value.clone().into_py(py)),
-        Value::CommandMetadata { value } => Ok(value.clone().into_py(py)),
-        Value::Query { value } => Ok(value.clone().into_py(py)),
-        Value::Key { value } => Ok(value.clone().into_py(py)),
+        Value::Metadata { value } => into_py_any(value.clone(), py, "metadata"),
+        Value::AssetInfo { value } => into_py_any(value.clone(), py, "asset info"),
+        Value::Recipe { value } => into_py_any(value.clone(), py, "recipe"),
+        Value::CommandMetadata { value } => into_py_any(value.clone(), py, "command metadata"),
+        Value::Query { value } => into_py_any(value.clone(), py, "query"),
+        Value::Key { value } => into_py_any(value.clone(), py, "key"),
     }
 }
 
@@ -828,7 +881,7 @@ impl DefaultValueSerializer for Value {
             )),
         }
     }
-    fn deserialize_from_bytes(b: &[u8], _type_identifier: &str, fmt: &str) -> Result<Self, Error> {
+    fn deserialize_from_bytes(_b: &[u8], _type_identifier: &str, fmt: &str) -> Result<Self, Error> {
         match fmt {
             _ => Err(Error::new(
                 ErrorType::SerializationError,
@@ -845,8 +898,8 @@ mod tests {
 
     /// Every variant this crate can hold, except `Py`.
     ///
-    /// **GIL-free by necessity.** `pyo3` is built here with `extension-module` and without
-    /// `auto-initialize`, so a test calling `Python::with_gil` has no interpreter to attach to.
+    /// **Interpreter-free by necessity.** `pyo3` is built here without
+    /// `auto-initialize`, so a test calling `Python::attach` has no interpreter to attach to.
     /// `Value::Py` is therefore covered by [`PY_OBJECT_TYPE_IDENTIFIER`] appearing in both
     /// `identifier()` and `type_descriptions()` rather than by a constructed sample.
     fn samples() -> Vec<Value> {
