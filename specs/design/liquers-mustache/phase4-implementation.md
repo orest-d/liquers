@@ -37,7 +37,7 @@ before the wasm32 step.
 - [x] Step 13: liquers-lib commands, hosts and value adapters (D9)
 - [x] Step 14: Registry export
 - [x] Step 15: Documentation
-- [ ] Step 16: Final checks
+- [x] Step 16: Final checks
 
 ## Implementation Steps
 
@@ -222,6 +222,6 @@ Created: `specs/reference/TEMPLATE_LANGUAGE.md`, `specs/guides/TEMPLATE_GUIDE.md
 `specs/command_registry.yaml`, `specs/index.csv`, `specs/index.md`.
 
 ## Phase 5 Entry Criteria
-- [ ] Implementation finished and validated
-- [ ] User and review comments answered
-- [ ] Documentation checkable against implemented and tested behaviour
+- [x] Implementation finished and validated
+- [ ] User and review comments answered (D6 awaits Orest)
+- [x] Documentation checkable against implemented and tested behaviour

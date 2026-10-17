@@ -4,7 +4,7 @@ kind: design
 title: liquers-template — a query-aware template language (Mustache syntax)
 workflow: liquers-project
 status: approved
-phase: implementation
+phase: documentation
 area: [core/query, core/value, lib/commands, lib/ui, docs]
 issues: [NO-QUERY-AWARE-TEMPLATE-LANGUAGE, SIMPLE-TEMPLATE-HAS-NO-COMMAND]
 merged: 2026-10-13
