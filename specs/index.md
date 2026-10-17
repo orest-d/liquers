@@ -8,9 +8,9 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 133
+Total rows: 132
 - P2: 55
-- P3: 78
+- P3: 77
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -77,7 +77,6 @@ Total rows: 133
 | [`NEW-FOLDER-WRITE-DOES-NOT-REFRESH-THE-PARENT-LISTING`](issues/NEW-FOLDER-WRITE-DOES-NOT-REFRESH-THE-PARENT-LISTING.md) | issue | A write that creates a folder does not refresh the listing of the folder above it | draft | ready | eligible | P3 | S | core/assets | [design](design/new-folder-write-ancestor-listing-refresh/DESIGN.md) | 2026-10-17 |
 | [`REPLACING-WRITE-KEEPS-DROPPED-DEPENDENCY-EDGES`](issues/REPLACING-WRITE-KEEPS-DROPPED-DEPENDENCY-EDGES.md) | issue | A write that replaces a keyed asset keeps the dependency edges its new metadata no longer lists | draft | ready | eligible | P3 | S | core/assets | [design](design/replacing-write-drops-stale-dependency-edges/DESIGN.md) | 2026-10-11 |
 | [`RESOURCE-STEP-VOLATILITY-IS-NEVER-CHECKED`](issues/RESOURCE-STEP-VOLATILITY-IS-NEVER-CHECKED.md) | issue | Resource plan steps always report non-volatile, behind a TODO that prints at runtime | draft | ready | eligible | P3 | S | core/plan | [design](design/step-volatility-impl-removal/DESIGN.md) | 2026-10-12 |
-| [`VALIDATE-COMMAND-STUB-REJECTS-POSITIONAL-EMPTIES`](issues/VALIDATE-COMMAND-STUB-REJECTS-POSITIONAL-EMPTIES.md) | issue | A liquers-validate --command stub rejects a query with empty positional parameters | draft | ready | eligible | P3 | S | core/validate | [design](design/variadic-empty-element-conversion/DESIGN.md) | 2026-10-12 |
 | [`LIB-BUILD-EMITS-UNUSED-AND-UNHANDLED-RESULT-WARNINGS`](issues/LIB-BUILD-EMITS-UNUSED-AND-UNHANDLED-RESULT-WARNINGS.md) | issue | A default liquers-lib build emits about 50 warnings, some for discarded Results | draft | ready | not-eligible | P3 | S | lib/commands;build | [design](design/lib-build-warning-cleanup/DESIGN.md) | 2026-10-11 |
 | [`ROOT-LISTING-DEPENDENCY-KEY-HAS-TWO-SPELLINGS`](issues/ROOT-LISTING-DEPENDENCY-KEY-HAS-TWO-SPELLINGS.md) | issue | The root directory listing dependency has two spellings, so a dependent that recorded one is never expired | draft | ready | not-eligible | P3 | S | core/assets | [design](design/root-listing-dependency-key-spelling/DESIGN.md) | 2026-10-17 |
 | [`COMBINED-VALUE-DATA-NODE-COPIES-BASE-VALUE`](issues/COMBINED-VALUE-DATA-NODE-COPIES-BASE-VALUE.md) | issue | A base value is copied whole to become a data node | draft | needs-decision | not-eligible | P3 | S | lib/value | [design](design/combined-value-shared-data-node/DESIGN.md) | 2026-10-17 |

@@ -2,8 +2,8 @@
 id: VARIADIC-EMPTY-ELEMENT-CONVERSION
 kind: design
 title: An empty element of a variadic argument converts as an element, not as the whole list's default
+gh_pr: [148]
 form: compact
-status: in_review
 phase: implementation
 readiness: ready
 autofix: eligible
@@ -133,10 +133,10 @@ Commands: `cargo test -p liquers-core --lib variadic` and `cargo test -p liquers
 
 ### Steps
 
-- [ ] 1. `plan.rs` `pop_value` element `ArgumentInfo` — `cargo test -p liquers-core --lib`
-- [ ] 2. The three tests above — `cargo test -p liquers-core --lib variadic` and `cargo test -p liquers-core --lib permissive` (Cargo takes one filter per run)
-- [ ] 3. Problem Example through the CLI — exit 0; `cargo test -p liquers-lib --lib --tests`
-- [ ] 4. Close the issue — `python3 scripts/docs_index.py --check`
+- [x] 1. `plan.rs` `pop_value` element `ArgumentInfo` — `cargo test -p liquers-core --lib`
+- [x] 2. The three tests above — `cargo test -p liquers-core --lib variadic` and `cargo test -p liquers-core --lib permissive` (Cargo takes one filter per run)
+- [x] 3. Problem Example through the CLI — exit 0; `cargo test -p liquers-lib --lib --tests`
+- [x] 4. Close the issue — `python3 scripts/docs_index.py --check`
 
 ### Validation
 
