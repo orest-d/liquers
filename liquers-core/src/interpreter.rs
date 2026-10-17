@@ -4,12 +4,12 @@ use std::sync::Arc;
 use crate::maybe_send::MaybeBoxed;
 
 use crate::{
-    assets::{AssetManager, AssetRef, DependencyManagerAccess},
+    assets::{AssetManager, AssetRef},
     command_metadata::{CommandKey, PayloadRequirement},
     commands::{CommandArguments, CommandExecutor},
     context::{Context, EnvRef, Environment},
     error::Error,
-    metadata::{DependencyKey, DependencyRecord, ExpiryCause, LogEntry, Metadata, Version},
+    metadata::{DependencyRecord, LogEntry, Metadata, Version},
     plan::{
         analyze_plan_dependencies, ParameterValue, Plan, PlanBuilder, ResolvedParameterValues,
         Step,
@@ -829,57 +829,8 @@ pub fn do_step<E: Environment>(
         .maybe_boxed(),
         Step::GetAssetDirectory(key) => async move {
             let key = context.resolve_key_from_cwd(&key)?;
-            let envref1 = envref.clone();
-            let asset_manager = envref1.get_asset_manager();
-            // The listing is a dependency: register its version, so a later change of the
-            // membership (`refresh_listing_version`) expires what was built from it, and record
-            // it on this evaluation. `add_dependency` upgrades the plan-time `unknown` record.
-            let dir_dep_key = DependencyKey::from_dir_key(&key);
-            let dm = asset_manager.dependency_manager();
-            let owner = context.owner_key().await?;
-            // The value and the version come from the same read. A write that lands after that
-            // read and before the version is registered skips its refresh
-            // (`refresh_listing_version` refreshes only a registered listing), so the listing is
-            // read again once registered: if it moved, the step registers and uses the new one.
-            // A write after the last read finds the version registered and refreshes it.
-            const LISTING_READS: usize = 3;
-            let mut names = asset_manager.listdir(&key).await?;
-            let mut version;
-            let mut reads = 1;
-            loop {
-                version = crate::dependencies::DependencyManager::<E>::listing_version(&names);
-                // The owner's edge is recorded *before* the version is registered: a dependent
-                // is spared by an edge that records exactly the new version, so the asset being
-                // evaluated right now (whose plan-time edge still holds the previous listing) is
-                // not expired by the registration it is itself causing.
-                if let Some(owner) = &owner {
-                    let owner_dep_key = DependencyKey::from(owner);
-                    if let Ok(expired) =
-                        dm.add_dependency(&owner_dep_key, &dir_dep_key, version).await
-                    {
-                        asset_manager
-                            .expire_dependencies_result(expired, ExpiryCause::Updated { version })
-                            .await;
-                    }
-                }
-                let expired = dm.register_version(&dir_dep_key, version).await;
-                asset_manager
-                    .expire_dependencies_result(expired, ExpiryCause::Updated { version })
-                    .await;
-                if reads == LISTING_READS {
-                    break;
-                }
-                let again = asset_manager.listdir(&key).await?;
-                reads += 1;
-                if crate::dependencies::DependencyManager::<E>::listing_version(&again) == version {
-                    break;
-                }
-                names = again;
-            }
-            let d = asset_manager.asset_info_of_names(&key, &names).await?;
-            context
-                .add_dependency(DependencyRecord::new(dir_dep_key, version))
-                .await;
+            let (names, version) = context.record_listing_with_version(&key).await?;
+            let d = envref.get_asset_manager().asset_info_of_names(&key, &names).await?;
             // The listing is evaluated as a query asset of its own (`-R-dir/data` is a boundary
             // in the plan), whose context has no owner. The asset that depends on it learns the
             // dependency's version from this asset's metadata (`wait_for_dependency_recording`),
@@ -1086,9 +1037,7 @@ pub fn evaluate<E: Environment, Q: TryToQuery>(
         let res = apply_plan(plan, input_state, context.clone(), envref).await?;
         let observed_deps = context.take_pending_dependencies().await;
         let mut metadata = context.get_metadata().await?;
-        for dep in observed_deps {
-            let _ = metadata.add_dependency(dep);
-        }
+        metadata.merge_dependencies(observed_deps);
         Ok(State::new()
             .with_data((*res).clone())
             .with_metadata(metadata.into()))

@@ -2,11 +2,11 @@
 id: SEARCH-COMMANDS-RECORD-NO-DEPENDENCY-ON-READ-FILES
 kind: issue
 title: ns-search results do not depend on the files they read, so they go stale
-status: draft
+status: closed
 priority: P2
 complexity: M
 area: [lib/commands, core/assets]
-design:
+design: search-read-dependencies
 created: 2026-10-17
 github:
 ---
@@ -35,3 +35,15 @@ A search result depends on what it read: each file read through the asset layer 
 recorded through the dependency API), and each listed folder recorded so that an added or removed
 file invalidates the listing. Where that is too costly, the commands are declared `volatile` or
 given an expiration, and the documentation says so.
+
+## Resolution (2026-10-17)
+
+Fixed by `design/search-read-dependencies/` (PR #141). Every folder a search command walks is
+recorded as `-R-dir/<folder>` through the new `Context::record_listing`, and every file listed or
+read as `-R/<key>`; in core, a non-keyed dependency's run-time records are inherited by its
+dependent, so chains (`…/catalog-t-t/search-x`) and recipe keys built on a search expire too.
+Evidence: `liquers-lib/tests/search_commands.rs` (`search_catalog_*`, `search_document_commands_*`,
+`search_over_a_cut_catalog_*`, `search_root_catalog_*`, `search_keyed_recipe_*`) and
+`liquers-core/tests/cache_strategy.rs` (`cut_predecessor_runtime_dependency_reaches_dependent_*`).
+A file written into a new subfolder is still missed:
+`NEW-FOLDER-WRITE-DOES-NOT-REFRESH-THE-PARENT-LISTING`.

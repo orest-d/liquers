@@ -20,7 +20,7 @@ use liquers_core::{
     cache_strategy::CacheStrategy,
     command_metadata::{ArgumentInfo, CommandKey},
     commands::CommandRegistry,
-    context::{EnvRef, Environment, GenericEnvironment},
+    context::{Context, EnvRef, Environment, GenericEnvironment},
     environment_builder::{AssetManagerKind, AssetManagerOptions, EnvironmentBuilder, Inline, Queued},
     error::Error,
     metadata::Metadata,
@@ -96,6 +96,23 @@ fn register_cat<E: Environment<Value = Value>>(cr: &mut CommandRegistry<E>) -> R
     Ok(())
 }
 
+/// `read-<key>`: the value of the asset `<key>`, read at run time through
+/// `Context::get_dependency_state`, so the dependency is recorded by the command, not the plan.
+fn register_read<E: Environment<Value = Value>>(cr: &mut CommandRegistry<E>) -> Result<(), Error> {
+    let metadata = cr.register_async_command(
+        CommandKey::new_name("read"),
+        |_state: State<Value>, args, context: Context<E>| {
+            Box::pin(async move {
+                let key: String = args.get(0, "key")?;
+                let state = context.get_dependency_state(&parse_key(&key)?.into()).await?;
+                Ok(Value::from(state.try_into_string()?))
+            })
+        },
+    )?;
+    metadata.with_argument(ArgumentInfo::string_argument("key"));
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // A recipe provider serving fixed recipes
 // ---------------------------------------------------------------------------
@@ -159,6 +176,7 @@ fn env<K: AssetManagerKind>(
         }
         register_counting(cr, "wide", Some(false))?;
         register_cat(cr)?;
+        register_read(cr)?;
     }
     builder.build()
 }
@@ -425,6 +443,25 @@ async fn existing_keyed_asset_is_reused_under_recipe_none<K: AssetManagerKind>(
 // One test per scenario and manager
 // ---------------------------------------------------------------------------
 
+/// AC-12 (`specs/design/search-read-dependencies/`): `read` records `-R/<file>` at run time. In
+/// `read/t1` the plan cuts before `t1`, so `read` runs as an asset of its own; its dependent must
+/// still see the rewrite, exactly as the expanded plan does.
+async fn cut_predecessor_runtime_dependency_reaches_dependent<K: AssetManagerKind>(
+    tag: &str,
+) -> Result<(), Error> {
+    for options in [opts(), opts().with_cut_predecessors(false)] {
+        let envref = env::<K>(options, vec![])?;
+        let key = parse_key(&format!("docs/{tag}.txt"))?;
+        let manager = envref.get_asset_manager();
+        manager.set_state(&key, State::new().with_data(Value::from("one"))).await?;
+        let query = format!("read-docs~/{tag}.txt/t1-{tag}");
+        assert_eq!(eval(&envref, &query).await?, "onet1");
+        manager.set_state(&key, State::new().with_data(Value::from("two"))).await?;
+        assert_eq!(eval(&envref, &query).await?, "twot1", "{query} after a rewrite");
+    }
+    Ok(())
+}
+
 macro_rules! both_managers {
     ($scenario:ident, $default:ident, $immediate:ident, $tag:literal) => {
         #[tokio::test]
@@ -462,4 +499,10 @@ both_managers!(
     existing_keyed_asset_is_reused_under_recipe_none_default,
     existing_keyed_asset_is_reused_under_recipe_none_immediate,
     "a10"
+);
+both_managers!(
+    cut_predecessor_runtime_dependency_reaches_dependent,
+    cut_predecessor_runtime_dependency_reaches_dependent_default,
+    cut_predecessor_runtime_dependency_reaches_dependent_immediate,
+    "a11"
 );
