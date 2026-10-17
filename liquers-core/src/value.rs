@@ -406,6 +406,18 @@ pub trait ValueInterface:
         ))
     }
 
+    /// The value seen as template data ([`crate::data_node`]).
+    ///
+    /// The default is a JSON snapshot through [`Self::try_into_json_value`], or an opaque node when
+    /// the value has no JSON form. A value type with a cheaper or richer view (records, frames)
+    /// overrides it.
+    fn data_node(value: std::sync::Arc<Self>) -> crate::data_node::AnyNode {
+        match value.try_into_json_value() {
+            Ok(json) => crate::data_node::AnyNode::from_json(json),
+            Err(_) => crate::data_node::AnyNode::opaque(),
+        }
+    }
+
     /// Try to convert JSON value to value type
     fn try_from_json_value(value: &serde_json::Value) -> Result<Self, Error> {
         match value {
@@ -444,6 +456,10 @@ pub trait ValueInterface:
 }
 
 impl ValueInterface for Value {
+    fn data_node(value: std::sync::Arc<Self>) -> crate::data_node::AnyNode {
+        crate::data_node::AnyNode::Sync(value)
+    }
+
     fn try_into_query(&self) -> Result<crate::query::Query, Error> {
         match self {
             Value::Query(q) => Ok(q.clone()),
