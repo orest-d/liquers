@@ -368,7 +368,8 @@ pub async fn serve_stdio<E: Environment>(server: McpServer<E>) -> Result<(), Err
     and serializes the value with `DefaultValueSerializer::as_bytes` in the state's
     `get_data_format()`, which the query's filename set. The evaluation is unmanaged, so the tool
     result itself is not cached; its inputs are, through their own assets.
-  - The command's log notes are appended to the text, one line each, after a blank line.
+  - The command's log notes are sent as a **second text content block**, never inside the
+    serialized value, so a CSV or JSON result stays parseable. The CLI writes them to stderr.
   - It runs in a spawned task, so a panic becomes a tool error.
 - **`call_tool`** sends the serialized text. When the format is `json`, it also sends the parsed
   object as structured content. An `Error` becomes `CallToolResult::error` with its Display, so the agent
@@ -554,7 +555,7 @@ with the query's filename (`…/ns-mem/list/list.csv`, `…/list.json`), or pipe
 (`…/ns-mem/list/ns-rec/sort-l0/sorted.md`). Each tool's query ends with its default filename, and
 every basic tool also takes an optional `format` argument that the engine applies by changing that
 filename's extension in the parsed query.
-| `query` | — (any query) | allow-listed commands | the query's value, as JSON | power layer |
+| `query` | — (any query) | allow-listed commands | the query's value, in the format its filename (or the value's default) selects | power layer |
 
 How each acceptance scenario is met:
 

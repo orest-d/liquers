@@ -20,7 +20,7 @@ superseded_by:
 
 - [x] Phase 1: High-Level Design — **approved 2026-10-17** (revision 4, after the split)
 - [x] Phase 2: Solution & Architecture — **approved 2026-10-17** (decision 1 revised; decisions 2–9 settled at the gate)
-- [ ] Phase 3: Examples & Testing — written 2026-10-17, in review
+- [ ] Phase 3: Examples & Testing — written and reviewed 2026-10-17, awaiting approval
 - [ ] Phase 4: Implementation Plan
 - [ ] Phase 5: Documentation
 - [ ] Implementation Complete
@@ -248,6 +248,16 @@ maps document parts to L0/L1, defaulting to title and description, to allow expe
 changed: results go through the serialization system: record views for tables, Markdown text for
 documents, JSON for write results, with Markdown as the default for agents and other formats
 chosen by the query's filename. Counts and versions travel as log notes.
+
+## Phase 3 — 2026-10-17
+
+Reviewed by an independent reviewer. Three blocking findings were fixed: AC-14 is now tested
+against the real tool set from `liquers-agent` (stdio), since `liquers-mcp` cannot see `ns-mem`;
+the AC-9 oracle maps `docs_index.py` messages to rules by pattern, drops unsupported rules and
+asserts they are listed; Example 1 no longer has an agent set `accepted`. Phase 2 was corrected:
+notes travel as a separate content block (stderr in the CLI), so CSV and JSON results stay
+parseable, and the `query` tool's format follows the filename. AC-20 runs in-process against
+`s3s-fs` instead of an ignored external test.
 
 ## Links
 
