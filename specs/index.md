@@ -8,9 +8,9 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 113
+Total rows: 114
 - P2: 52
-- P3: 61
+- P3: 62
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -119,6 +119,7 @@ Total rows: 113
 | [`NO-SOURCE-CODE-AND-API-DOC-NAVIGATION`](issues/NO-SOURCE-CODE-AND-API-DOC-NAVIGATION.md) | feature | Source code and API documentation cannot be navigated or extracted | draft |  |  | P3 | L | lib/commands |  | 2026-10-11 |
 | [`NO-TEMPLATE-EDITOR-UI`](issues/NO-TEMPLATE-EDITOR-UI.md) | feature | Templates and queries have no editor with highlighting and diagnostics | draft |  |  | P3 | L | lib/ui;lib/egui |  | 2026-10-13 |
 | [`QUERY-AST-DISCARDS-ENTITIES`](issues/QUERY-AST-DISCARDS-ENTITIES.md) | issue | Parsed entities are decoded away, so the AST cannot show them | draft |  |  | P3 | L | core/query |  | 2026-08-14 |
+| [`RECIPE-CANNOT-PARAMETERIZE-RESOURCE-KEY`](issues/RECIPE-CANNOT-PARAMETERIZE-RESOURCE-KEY.md) | issue | A recipe can leave an action parameter open for an override, but not the key of a resource segment | draft |  |  | P3 | L | core/query;core/plan | [brainstorm](design/agent-memory-mvp/brainstorm-workflow-improvements.md)  [execution](design/agent-memory-mvp/execution-plan.md)  [interfaces](design/agent-memory-mvp/interfaces-and-mcp.md)  [memory](design/agent-memory-mvp/memory-systems-survey.md)  [phase1](design/agent-memory-mvp/phase1-high-level-design.md)  [phase2](design/agent-memory-mvp/phase2-architecture.md)  [phase3](design/agent-memory-mvp/phase3-examples.md)  [phase4](design/agent-memory-mvp/phase4-implementation.md)  [phase5](design/agent-memory-mvp/phase5-documentation.md)  [service](design/agent-memory-mvp/service-specification.md)  [template](design/agent-memory-mvp/template-language-evaluation.md)  [tiers](design/agent-memory-mvp/tiers-and-storage.md)  [workbench](design/agent-memory-mvp/workbench-direction.md)  [workflow](design/agent-memory-mvp/workflow-porting.md)  | 2026-10-17 |
 | [`RECORDS-ARROW-C-DATA-EXPORT-NOT-BUILT`](issues/RECORDS-ARROW-C-DATA-EXPORT-NOT-BUILT.md) | feature | Record batches cannot be handed to Arrow consumers in place; every route copies | draft |  |  | P3 | L | records;py | [chunking](design/record-streams/chunking-and-resumability.md)  [engine](design/record-streams/engine-survey.md)  [manifest](design/record-streams/manifest-format.md)  [phase1](design/record-streams/phase1-high-level-design.md)  [phase2](design/record-streams/phase2-architecture.md)  [phase3](design/record-streams/phase3-examples.md)  [phase3](design/record-streams/phase3-tests.md)  [phase4](design/record-streams/phase4-implementation.md)  [phase5](design/record-streams/phase5-documentation.md)  [phase5](design/record-streams/phase5-evidence.md)  [record](design/record-streams/record-model.md)  | 2026-09-27 |
 | [`SHAREABLE-METADATA-AND-BYTES-ARE-DEEP-COPIED`](issues/SHAREABLE-METADATA-AND-BYTES-ARE-DEEP-COPIED.md) | issue | Metadata and stored bytes are deep-copied where they could be shared | draft |  |  | P3 | L | core/value;core/store;core/assets |  | 2026-10-12 |
 | [`STORE-ABSOLUTE-KEY-NOT-TYPE-ENFORCED`](issues/STORE-ABSOLUTE-KEY-NOT-TYPE-ENFORCED.md) | issue | Store key absoluteness is enforced by convention rather than by the type system | draft |  |  | P3 | L | core/store;store/backends;core/query |  | 2026-08-17 |

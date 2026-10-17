@@ -4,8 +4,8 @@ kind: design
 title: MVP for an agent memory service on the liquers stack
 workflow: liquers-project
 status: in_review
-phase: high-level
-area: [axum, lib/commands, core/store, docs]
+phase: examples
+area: [lib/commands, core/store, docs]
 gh_pr: []
 issues: [AGENT-MEMORY-SERVICE]
 affects_docs: []
@@ -18,9 +18,9 @@ superseded_by:
 
 ## Phase Status
 
-- [ ] Phase 1: High-Level Design
-- [ ] Phase 2: Solution & Architecture
-- [ ] Phase 3: Examples & Testing
+- [x] Phase 1: High-Level Design — **approved 2026-10-17** (revision 4, after the split)
+- [x] Phase 2: Solution & Architecture — **approved 2026-10-17** (decision 1 revised; decisions 2–9 settled at the gate)
+- [ ] Phase 3: Examples & Testing — written and reviewed 2026-10-17, awaiting approval
 - [ ] Phase 4: Implementation Plan
 - [ ] Phase 5: Documentation
 - [ ] Implementation Complete
@@ -183,6 +183,81 @@ standing check at each phase gate — the MVP must not foreclose the general sur
 the planned follow-on features (general tool set, Python command registration, toolsmithing, query
 inspection UI) in [`workbench-direction.md`](./workbench-direction.md). The separability itself
 was already decided in [`interfaces-and-mcp.md`](./interfaces-and-mcp.md) §6.
+
+## Revision 4 — 2026-10-17
+
+Phase 1 reconciled with what landed since revision 3, for the Wave 1 gate 1.3 (`execution-plan.md`):
+
+1. **`store-adapters` is complete** (PR #137). The read-only mount (decision 2) and the
+   front-matter adapter (decision 4) exist as `read_only: true` and the
+   `-store_config-front_matter` / `front_matter_sync` handlers; this design configures them and
+   builds no store code. Write-back happens in `set_metadata` only.
+2. **`liquers-mustache` Phases 1–2 are approved** (PR #139): crate `liquers-template`, namespace
+   `template`, `{{$ q}}` / `{{$$ q}}`, `-template-render` and `-template-expand`, template commands as
+   aliases of `-template-render`. Context packs (AC-21) and `index.md` (AC-22) become template
+   commands. Decision 7 asks to confirm this and drop the interim engine.
+3. **New dependency** `SEARCH-COMMANDS-RECORD-NO-DEPENDENCY-ON-READ-FILES` (D10): until it is fixed,
+   indexes and packs built on `ns-search` do not recompute (AC-10, AC-21, AC-22).
+4. **`record-filter-commands` is complete**; `RECIPE-OVERRIDE-ONLY-LAST-ACTION` constrains MCP tool
+   queries (arguments override the last action only).
+5. **Decision 12 decided by the user: two designs.** This one keeps memory A, B, C; the new
+   [`agent-memory-derived`](../agent-memory-derived/) takes D, E, F — the template step of AC-4,
+   AC-10, AC-21 and AC-22 (retired here, renumbered there as AC-1 to AC-4), decisions 6, 7 and 10,
+   and the `memory_context` tool.
+
+The execution plan's Wave 1 table and dependency inventory were updated to match.
+
+## Phase 2 — 2026-10-17
+
+Written after Phase 1 approval, then reviewed by two independent reviewers (conformity and records;
+codebase and soundness). The review found four blocking problems, all fixed before the gate:
+
+- The profile had no mount for `_log/` and `README.md`. A catch-all `memory/` mount was added.
+- Writes would have left `.__metadata__` sidecars in the checkout, and stale front-matter tiers
+  after them. The fix is `storage: none` on writable checkout mounts.
+- AC-11, AC-12 and AC-20 had no mechanism. Each now has one.
+- The resource template hard-coded `ns-mem` into the generic engine. Resources are now declared
+  per tool set.
+
+The review also led to these fixes:
+
+- `root` is hidden from tools, so an agent cannot leave the memory.
+- The schema is read through the store, not as a cached dependency.
+- The order of environment building is fixed, with S3 coming from `liquers_store`'s factory.
+- `mem` is a default feature, so the registry export and `liquers-validate` know `ns-mem`.
+- `McpServer::plan` validates without running.
+- The preflight gained eight issues.
+- Six deviations from Phase 1 are listed under "Changes from Phase 1", for confirmation.
+
+`area` drops `axum`: `serve` is NEXT, and the MVP binary does not use `liquers-axum`.
+
+**Decision 1 revised at the gate (2026-10-17, Orest).** The draft had every command take its key as
+an argument, so that a tool schema could be generated from one command. Orest asked for Liquers
+style without losing generated schemas. Now the commands take their document (`-R/<key>`) or key
+(`-R-key/<path>`) as state; the basic tools are still generated from command metadata, with one
+key argument that `liquers-mcp` fills into the query structurally; and a read-only, allow-listed
+`memory_query` tool with a query guide and a command reference is the power layer. `read` stops
+being volatile. Core key placeholders (option C) are excluded for now and filed as
+`RECIPE-CANNOT-PARAMETERIZE-RESOURCE-KEY`. The discussion is in
+`/mnt/project-files/agent-memory-mvp/decision1-liquers-style-tools.md`.
+
+**Decisions 2–8 at the gate (2026-10-17, Orest).** 2, 3, 4, 7 and 8 as recommended. 5 as
+recommended, with an addition: L0/L1 (for agents finding a resource) are not assumed equal to
+`title`/`description` (for humans, UI and reports), so a configurable bridge in `memory.yaml`
+maps document parts to L0/L1, defaulting to title and description, to allow experiments. 6
+changed: results go through the serialization system: record views for tables, Markdown text for
+documents, JSON for write results, with Markdown as the default for agents and other formats
+chosen by the query's filename. Counts and versions travel as log notes.
+
+## Phase 3 — 2026-10-17
+
+Reviewed by an independent reviewer. Three blocking findings were fixed: AC-14 is now tested
+against the real tool set from `liquers-agent` (stdio), since `liquers-mcp` cannot see `ns-mem`;
+the AC-9 oracle maps `docs_index.py` messages to rules by pattern, drops unsupported rules and
+asserts they are listed; Example 1 no longer has an agent set `accepted`. Phase 2 was corrected:
+notes travel as a separate content block (stderr in the CLI), so CSV and JSON results stay
+parseable, and the `query` tool's format follows the filename. AC-20 runs in-process against
+`s3s-fs` instead of an ignored external test.
 
 ## Links
 
