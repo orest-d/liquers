@@ -200,8 +200,10 @@ Phase 1 reconciled with what landed since revision 3, for the Wave 1 gate 1.3 (`
    indexes and packs built on `ns-search` do not recompute (AC-10, AC-21, AC-22).
 4. **`record-filter-commands` is complete**; `RECIPE-OVERRIDE-ONLY-LAST-ACTION` constrains MCP tool
    queries (arguments override the last action only).
-5. **Decision 12 has a recommendation**: two designs — this one keeps memory A, B, C; a new
-   `agent-memory-derived` takes D, E, F.
+5. **Decision 12 decided by the user: two designs.** This one keeps memory A, B, C; the new
+   [`agent-memory-derived`](../agent-memory-derived/) takes D, E, F — the template step of AC-4,
+   AC-10, AC-21 and AC-22 (retired here, renumbered there as AC-1 to AC-4), decisions 6, 7 and 10,
+   and the `memory_context` tool.
 
 The execution plan's Wave 1 table and dependency inventory were updated to match.
 

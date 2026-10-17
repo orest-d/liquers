@@ -100,7 +100,7 @@ D2 was re-sized to M.
 |---|---|---|
 | 1.1 | `store-adapters` Phase 1 → Phase 2 | Done: approved 2026-10-15, implemented and merged (PR #137) |
 | 1.2 | `liquers-mustache` Phase 1 → Phase 2 | Done: Phases 1–2 approved 2026-10-17 (hygienic `{{$ q}}` / classic `{{$$ q}}`; shadow parser instead of a public core parser) |
-| 1.3 | `agent-memory-mvp` Phase 1 → Phase 2 | Split into designs (decision 12); confirm decision 7 now points at `liquers-mustache`. Phase 1 revision 4 (2026-10-17) awaits this gate |
+| 1.3 | `agent-memory-mvp` Phase 1 → Phase 2 | Split decided 2026-10-17 (two designs; D, E, F → `agent-memory-derived`); decision 7 moved there. Phase 1 revision 4 awaits `proceed` |
 | 1.4 | `record-filter-commands` Phase 1 | Done: design complete before this plan's Wave 1 (2026-10-14) |
 
 ### Wave 2 — foundations (three parallel tracks)
@@ -153,8 +153,9 @@ changes `liquers-core`'s public surface, the step most likely to need iteration.
 - **Order inside the memory design.** Memory A and B (most acceptance scenarios, and the MCP server
   agents actually use) depend only on the read-only adapter, not on templates or records — they are
   deliberately first.
-- **Size.** `agent-memory-mvp` is XL; the split asked for in decision 12 should follow these waves:
-  core and MCP (A, B), tiers and profiles (C), templates, indexes and packs (D, E, F).
+- **Size.** Split on 2026-10-17 (decision 12): `agent-memory-mvp` keeps memory A, B, C;
+  [`agent-memory-derived`](../agent-memory-derived/) takes D, E, F. AC numbers in this plan are
+  `agent-memory-mvp`'s; former AC-10, AC-21, AC-22 are `agent-memory-derived` AC-2, AC-3, AC-4.
 
 **Open dependencies to watch:** `STORE-WRITE-HAS-NO-PRECONDITION` becomes blocking the day two
 processes write one memory (an MCP server and a CLI at once); `COMMAND-CANNOT-BE-RUN-WITH-A-RESTRICTED-CONTEXT`
