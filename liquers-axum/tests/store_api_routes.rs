@@ -377,3 +377,47 @@ async fn read_only_store_write_is_501() {
     let (status, _) = send(app, "DELETE", "/api/store/data/data/file.txt", Body::empty()).await;
     assert_eq!(status, StatusCode::NOT_IMPLEMENTED);
 }
+
+/// A builder base with and without a trailing `/` registers the same routes, and no `//` route
+/// exists: Store, Recipes and the Assets WebSocket. Design:
+/// `specs/design/axum-query-api-base-slash/` (AC-5).
+#[tokio::test]
+async fn base_with_trailing_slash_registers_the_same_store_routes() {
+    use liquers_axum::{assets::AssetsApiBuilder, recipes::RecipesApiBuilder};
+    use liquers_core::recipes::DefaultRecipeProvider;
+
+    for base in ["/api/store", "/api/store/"] {
+        let (envref, store) = env_with_store();
+        store.set(&parse_key("a.txt").unwrap(), b"hello", &Metadata::new()).await.unwrap();
+        let app = StoreApiBuilder::<SimpleEnvironment<Value>>::new(base).build().with_state(envref);
+        let (status, body) = send_raw(app.clone(), "GET", "/api/store/data/a.txt", Body::empty()).await;
+        assert_eq!(status, StatusCode::OK, "store base {base:?}");
+        assert_eq!(body, b"hello", "store base {base:?}");
+        let (status, _) = send_raw(app, "GET", "/api/store//data/a.txt", Body::empty()).await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "store base {base:?}: no `//` route");
+    }
+
+    for base in ["/api/recipes", "/api/recipes/"] {
+        let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        env.with_async_store(Box::new(AsyncMemoryStore::new(&Key::new())));
+        env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
+        let app = RecipesApiBuilder::<SimpleEnvironment<Value>>::new(base).build().with_state(env.to_ref());
+        let (status, _) = send(app.clone(), "GET", "/api/recipes/listdir", Body::empty()).await;
+        assert_eq!(status, StatusCode::OK, "recipes base {base:?}");
+        let (status, _) = send(app, "GET", "/api/recipes//listdir", Body::empty()).await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "recipes base {base:?}: no `//` route");
+    }
+
+    // The WebSocket route exists under one separator (a plain GET is refused by the upgrade
+    // extractor, not by the router) and not under two.
+    for base in ["/api/assets", "/api/assets/"] {
+        let (envref, _) = env_with_store();
+        let app = AssetsApiBuilder::<SimpleEnvironment<Value>>::new(base).build().with_state(envref);
+        let (status, _) = send_raw(app.clone(), "GET", "/api/assets/ws/q", Body::empty()).await;
+        assert_ne!(status, StatusCode::NOT_FOUND, "assets base {base:?}: ws route");
+        let (status, _) = send_raw(app.clone(), "GET", "/api/assets//ws/q", Body::empty()).await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "assets base {base:?}: no `//ws` route");
+        let (status, _) = send_raw(app, "GET", "/api/assets//key/contains/a.txt", Body::empty()).await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "assets base {base:?}: no `//key` route");
+    }
+}

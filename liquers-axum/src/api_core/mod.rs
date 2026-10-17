@@ -12,3 +12,10 @@ pub use overrides::{OverrideInput, OverrideRequest, RouteOptions, LINK_PREFIX};
 pub use response::{
     ApiResponse, BinaryResponse, DataEntry, ErrorDetail, ResponseStatus, SerializationFormat,
 };
+
+/// Join a builder's base path and a route below it with exactly one `/`, so `"/api/x"` and
+/// `"/api/x/"` register the same routes (`"/api/x/data/{*key}"`) and `""` or `"/"` registers
+/// `"/data/{*key}"`. Design: `specs/design/axum-query-api-base-slash/`.
+pub(crate) fn join_base(base: &str, rest: &str) -> String {
+    format!("{}/{}", base.trim_end_matches('/'), rest)
+}
