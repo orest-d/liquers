@@ -97,8 +97,9 @@ Update `specs/reference/ASSETS.md` §Volatile assets are never owned and
 `specs/reference/ASSET_LIFECYCLE.md` (steps 1 and 6), the volatility section of the
 `liquers-core/src/assets.rs` module docs, and the `Context` method docs that point users at the
 issue. `specs/guides/COMMAND_DESIGN_GUIDE.md` gets one paragraph: a command that evaluates queries
-no longer needs `volatile: true` for its *inputs'* volatility. After this lands PR #139's template
-docs ("use `v/` or declare the command volatile") can be relaxed.
+no longer needs `volatile: true` for its *inputs'* volatility. The template docs from PR #139
+(merged), `specs/reference/TEMPLATE_LANGUAGE.md` §volatility and `specs/guides/TEMPLATE_GUIDE.md`
+**Volatility**, are relaxed in this PR: a render over volatile queries becomes volatile by itself.
 
 ### Overlap
 
@@ -178,8 +179,8 @@ pub(crate) async fn volatile_dependency(&self) -> Option<String>   // first vola
 
 - `note_resolved` is called in `schedule_dependency_asset_with_key` (so also `submit`,
   `evaluate`, `get_dependency_state` and the interpreter's scheduled steps),
-  `schedule_payload_dependency_asset`, and `apply`. `apply_ad_hoc` (PR #139) calls it too when
-  that PR is merged after this one; if it merges first, this PR adds the call. The description is
+  `schedule_payload_dependency_asset`, `apply` and `apply_ad_hoc` (on main since PR #139 merged
+  on 2026-10-17; its doc comment that says volatility is not passed on is rewritten). The description is
   the dependency key's encoding, or `apply <query>` for an ad-hoc asset.
 - `wait_for_dependency_recording` sets `volatile_dependency_seen` when the returned state's
   metadata is volatile, so `is_volatile()` turns true as soon as the command has the value (AC-8).
@@ -209,7 +210,9 @@ asset locks, as the surrounding code is; `note_resolved` and `is_volatile` stay 
 **Documents.** `ASSETS.md` §Volatile assets are never owned (volatility can be decided at finish,
 by a dependency) and `ASSET_LIFECYCLE.md` steps 1 and 6, each with a `## History` row and
 `reviewed:` bump; `COMMAND_DESIGN_GUIDE.md` (a command that evaluates queries does not declare
-`volatile` for its inputs); the `assets.rs` module docs §Volatility; the `Context` method docs.
+`volatile` for its inputs); `TEMPLATE_LANGUAGE.md` and `TEMPLATE_GUIDE.md` (drop the "put `v`
+before the render or declare it volatile" advice); the `assets.rs` module docs §Volatility; the
+`Context` method docs, including `apply_ad_hoc`'s.
 `design/volatility-system` is complete and frozen, so its decision 4 is not edited; this design is
 the record of the revision.
 
