@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: S
 area: [lib/commands, build]
-design:
+design: lib-build-warning-cleanup
 created: 2026-10-11
 github:
 ---
@@ -26,6 +26,13 @@ Some are not cosmetic:
   frame is never read, which looks like a lost sort;
 - `unused variable: filter` in `liquers-lib/src/image/geometric.rs:81` — a parsed resize filter
   that is never applied.
+
+## Problem Example
+
+In the egui table (`display_polars_dataframe`), clicking a column header shows a sort arrow but the
+rows stay in their original order: `columns` is taken from the unsorted frame before the sort. And
+`-R/photos/product.jpg/-/ns-img/thumb-300-300-nearest` equals `…-lanczos3`: the parsed filter is
+never applied.
 
 ## Impact
 

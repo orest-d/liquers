@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: S
 area: [axum]
-design:
+design: axum-query-api-base-slash
 created: 2026-10-12
 github:
 ---
@@ -20,6 +20,17 @@ With the conventional base `/liquer/q` — used by `examples/assets_recipes_basi
 not `text-hi` (checked with `liquers-validate`), and the error envelopes show it
 (`"query":"/text"`). The Assets API's `q/` routes capture after a literal `/`
 (`{b}/q/data/{*query}`), so the same request there evaluates `text-hi`.
+
+## Problem Example
+
+```bash
+# server built with QueryApiBuilder::new("/liquer/q"), as in examples/basic_server.rs
+curl http://localhost:3000/liquer/q/no_such_command
+```
+
+Today the handler parses `/no_such_command` (the wildcard captured the separating slash), so the
+asset is cached under, and errors report, `/no_such_command`. It should evaluate `no_such_command`,
+as `QueryApiBuilder::new("/liquer/q/")` already does.
 
 ## Impact
 

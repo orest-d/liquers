@@ -6,6 +6,7 @@ status: draft
 priority: P3
 complexity: S
 area: [core/assets]
+design: replacing-write-drops-stale-dependency-edges
 created: 2026-10-11
 github:
 ---
@@ -25,6 +26,12 @@ did not need to be.
 
 Found by an automated review of PR #118, which added `track_installed`; the built-in managers
 behave the same way.
+
+## Problem Example
+
+`set_state(k)` with metadata recording `-R/data/d.txt`, then `set_state(k)` again with metadata
+recording nothing, then a write of `data/d.txt`. Today `k` is expired (`Cascaded`, root
+`-R/data/d.txt`). It should stay `Override`.
 
 ## Expected
 

@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: S
 area: [build]
-design: 
+design: build-matrix-disk-budget
 created: 2026-10-17
 github:
 ---
@@ -16,6 +16,16 @@ github:
 cleans it. Each feature configuration and target leaves its own artifacts, so with 34 rows the
 directory outgrows the 30 GB a Claude Code cloud session has, and the later rows fail with
 "No space left on device" rather than with their own result.
+
+## Problem Example
+
+```bash
+bash scripts/check-build-matrix.sh      # cloud session (30 GB), fresh target/
+```
+
+Today the disk fills during liquers-lib's rows and every later row is listed under "FAILED
+configurations" with "No space left on device". It should reach its summary line and list only
+configurations that genuinely fail to compile.
 
 ## Impact
 

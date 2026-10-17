@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: S
 area: [core/commands, core/validate]
-design:
+design: registry-query-default-text-form
 created: 2026-10-17
 github:
 ---
@@ -25,6 +25,14 @@ serialized AST. Writing it as text fails:
 `CommandParameterValue`'s deserializer already accepts a bare scalar as shorthand for `Value`, but
 it has no text form for `Query`. No command in `specs/command_registry.yaml` has a link default
 yet, so the exported form has never been exercised either.
+
+## Problem Example
+
+A `liquers-validate --registry-file` overlay declaring
+`- {name: cwd, label: cwd, default: !Query "-R-key/.", argument_type: any}` fails with
+`invalid type: string "-R-key/.", expected struct Query`; it should read as
+`parse_query("-R-key/.")`. The exported `specs/command_registry.yaml` writes the same default for
+`template/render` as a 30-line AST with source positions; it should write `!Query '-R-key/.'`.
 
 ## Impact
 
