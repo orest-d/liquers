@@ -258,3 +258,18 @@ in `design/agent-memory-mvp/template-language-evaluation.md`; query grammar in
 `liquers-core/src/parse.rs`, positions and styled tokens in `liquers-core/src/query.rs` (`Position`,
 `QueryRenderStyle`, `StyledQueryToken`); the predecessor `expand` / `mustache` commands of
 `ranees-liquers`; the [Mustache specification](https://github.com/mustache/spec).
+
+## Design Readiness
+
+Pre-approved after Phase 2 on 2026-10-17 (`proceed all`, given after the post-approval revision of
+AC-11 and AC-19, so it also re-approves Phases 1–3). Decision log, tiered as in
+`autonomous_bulk_design.md` §3:
+
+| # | Item | Tier | Assumption taken |
+|---|---|---|---|
+| D1 | `templates` joins `liquers-lib`'s default features | accepted | On by default, like `records`, so the exported registry includes `template` |
+| D2 | The Mustache spec suite is vendored (`mustache/spec`, MIT) under `liquers-template/tests/spec/` with its licence | accepted | Only the six required modules |
+| D3 | `search` results go stale (`SEARCH-COMMANDS-RECORD-NO-DEPENDENCY-ON-READ-FILES`) | not blocking | Designed around; context packs over search are stale until that issue is fixed |
+| D4 | A link default cannot be written in a registry overlay (`REGISTRY-QUERY-DEFAULT-NOT-WRITABLE-AS-TEXT`) | not blocking | The exported registry will carry `render`'s `cwd` default as a serialized `Query` |
+| D5 | `wasm-bindgen-test-runner` may be unavailable here | not blocking | Step 12 falls back to a wasm32 `cargo check` and files the gap |
+

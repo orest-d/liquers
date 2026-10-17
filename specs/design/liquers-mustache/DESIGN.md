@@ -3,8 +3,8 @@ id: LIQUERS-MUSTACHE
 kind: design
 title: liquers-template — a query-aware template language (Mustache syntax)
 workflow: liquers-project
-status: in_review
-phase: examples
+status: approved
+phase: implementation
 area: [core/query, core/value, lib/commands, lib/ui, docs]
 issues: [NO-QUERY-AWARE-TEMPLATE-LANGUAGE, SIMPLE-TEMPLATE-HAS-NO-COMMAND]
 merged: 2026-10-13
@@ -17,8 +17,8 @@ created: 2026-10-13
 
 - [Phase 1](./phase1-high-level-design.md) — written 2026-10-13, revised twice on 2026-10-17 after review, **approved 2026-10-17**; AC-11 revised and AC-19 added after approval, the same day
 - [Phase 2](./phase2-architecture.md) — written and reviewed 2026-10-17, revised the same day after review, **approved 2026-10-17**; commands revised after approval, the same day
-- [Phase 3](./phase3-examples.md) — written and reviewed 2026-10-17, awaiting approval
-- [Phase 4](./phase4-implementation.md)
+- [Phase 3](./phase3-examples.md) — written and reviewed 2026-10-17, revised the same day, **approved 2026-10-17**
+- [Phase 4](./phase4-implementation.md) — written 2026-10-17, pre-approved
 - [Phase 5](./phase5-documentation.md)
 
 ## Notes
@@ -79,3 +79,6 @@ A template command is an alias of `render` with the template link as its head (A
 in the template guide and referred to from the command registration and design guides and
 `COMMAND_ALIASES.md`. Phase 1 AC-11 was revised and AC-19 added; Phases 1 and 2 are re-approved at
 the Phase 3 gate.
+
+**Pre-approved after Phase 2 on 2026-10-17** (`proceed all`, which also re-approved Phases 1–3).
+The decision log is in Phase 1, Design Readiness.
