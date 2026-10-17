@@ -6,7 +6,7 @@ form: compact
 workflow: liquers-project
 status: in_review
 phase: implementation
-readiness: needs-decision
+readiness: ready
 autofix: not-eligible
 area: [lib/commands, core/assets, core/plan]
 issues: [SEARCH-COMMANDS-RECORD-NO-DEPENDENCY-ON-READ-FILES]
@@ -103,15 +103,15 @@ registry is fixed per environment) and edits behind the asset manager's back whi
 
 ### Design Readiness
 
-- **Readiness:** needs-decision
-- **Automatic fixing:** not-eligible: two crates (rule 6), open questions (rule 5), and Q3 a adds a
+- **Readiness:** ready
+- **Automatic fixing:** not-eligible: two crates (rule 6), and Q3 a adds a
   `pub` method to `Context` (rule 4).
-- **Leading issue:** Q1.
+- **Leading issue:** None. Q1, Q3 and Q4 were decided by the maintainer on 2026-10-17: all as recommended (a).
 - **Explanation:** The solution works end to end in a prototype that passes all `ns-search` and
   `liquers-core` tests. Its cost is measured in [`performance.md`](performance.md): with the linear
   merges below, a 5 000-file chain costs 85 ms instead of 36 ms on a memory store.
-- **Open questions:**
-  1. **Q1 (proposed resolution): where a cut predecessor's run-time records reach its dependent.**
+- **Decisions (resolved 2026-10-17):**
+  1. **Q1 (decided: a): where a cut predecessor's run-time records reach its dependent.**
      - **(a) Recommended:** in core, where a **non-keyed** dependency's state is received
        (`Context::get_dependency_state`). This covers cut `Evaluate` steps, links and a command's own
        `Context::evaluate`, which have the same gap. It stops at keys, so it is not the transitive
@@ -122,12 +122,12 @@ registry is fixed per environment) and edits behind the asset manager's back whi
   2. Resolved autonomously: `catalog` records **every** listed file, not only those whose text it
      read. Its `size`, `updated`, `status` and `title` columns come from the file (AC-4). The cost is
      one version read per entry (+38 % on a file store at 5 000 files).
-  3. **Q3 (proposed resolution): how the catalog lists a folder.** Evaluating `-R-dir/<folder>`
+  3. **Q3 (decided: a): how the catalog lists a folder.** Evaluating `-R-dir/<folder>`
      builds an `AssetInfo` per entry that the catalog then builds again: +150 % on a file store.
      - **(a) Recommended:** a `pub` core helper, `Context::record_listing(&Key) -> Result<Vec<String>, Error>`,
        factored out of `Step::GetAssetDirectory`: list, register the version, record. No infos: +38 %.
      - **(b)** reuse the infos of the `-R-dir/` value, lib only: +75 %, and sequential.
-  4. **Q4 (proposed resolution): memory.** Each non-keyed asset holds a weak reference per record,
+  4. **Q4 (decided: a): memory.** Each non-keyed asset holds a weak reference per record,
      never pruned (`DEPENDENT-ASSET-WEAK-REFERENCES-ARE-NEVER-PRUNED`, filed). *Q* distinct searches
      over *N* files hold about *Q·N* per step. **(a) Recommended:** accept, and fix pruning separately.
      **(b)** cascade expiry through query nodes for non-keyed dependents and inherit only into keyed
