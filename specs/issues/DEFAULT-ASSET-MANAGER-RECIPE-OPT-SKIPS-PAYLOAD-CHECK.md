@@ -2,7 +2,7 @@
 id: DEFAULT-ASSET-MANAGER-RECIPE-OPT-SKIPS-PAYLOAD-CHECK
 kind: issue
 title: DefaultAssetManager's recipe_opt override skips the payload-required rejection
-status: draft
+status: closed
 priority: P2
 complexity: M
 area: [core/assets]
@@ -100,3 +100,13 @@ Found while implementing Step 1.2 of `specs/design/record-streams/phase4-impleme
 `ImmediateAssetManager`'s `recipe_opt`/`is_volatile` implementations side by side to resolve the
 key's recipe once in `get_resource_asset`. Not fixed here: out of scope for that step, and the
 existing test suite does not regress either way.
+
+## Resolution
+
+Fixed by `specs/design/default-asset-manager-recipe-opt-payload-check/` (2026-10-13).
+`DefaultAssetManager` no longer overrides `recipe_opt` and `is_volatile`, so both managers reject a
+payload-requiring keyed recipe in `recipe_opt`, before an asset is created. Callers that only need
+to know whether a recipe exists (`set_binary`, `set_state`, `remove`, `expire`,
+`decide_external_change`) ask the provider's `can_make` instead, so overriding and removing such a
+key succeed on both managers. Tests: `liquers-core/tests/payload_inheritance.rs`
+`keyed_payload_recipe_*_{default,immediate}`.
