@@ -5,9 +5,6 @@ extern crate serde_derive;
 use pyo3::prelude::*;
 
 pub mod command_metadata;
-// `value` and `context` are declared; the remaining orphaned files
-// (`commands`, `interpreter`, `state`) are not — see
-// `specs/issues/PY-MODULES-NOT-DECLARED-IN-LIB.md`.
 pub mod context;
 pub mod dependencies;
 pub mod error;
@@ -23,7 +20,7 @@ use crate::query::*;
 
 /// A Python module implemented in Rust.
 #[pymodule]
-fn liquers_py(_py: Python, m: &PyModule) -> PyResult<()> {
+fn liquers_py(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Position>()?;
     m.add_class::<ActionParameter>()?;
     m.add_class::<ResourceName>()?;

@@ -10,7 +10,7 @@ use pyo3::prelude::*;
 
 use crate::parse::{Key, Position, Query};
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Version {
     pub inner: CoreVersion,
@@ -38,7 +38,7 @@ impl Version {
     }
 }
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct DependencyKey {
     pub inner: CoreDependencyKey,
@@ -66,7 +66,7 @@ impl DependencyKey {
     }
 }
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DependencyRecord {
     pub inner: CoreDependencyRecord,
@@ -237,7 +237,7 @@ impl Metadata {
     }
 }
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone, Debug)]
 pub struct MetadataRecord {
     pub inner: CoreMetadataRecord,
@@ -503,10 +503,10 @@ impl MetadataRecord {
 
     #[getter]
     pub fn expiry_reason(&self) -> Option<String> {
-        self.inner.expiry_reason.as_ref().map(|reason| {
-            serde_json::to_string(reason)
-                .unwrap_or_else(|_| "null".to_string())
-        })
+        self.inner
+            .expiry_reason
+            .as_ref()
+            .map(|reason| serde_json::to_string(reason).unwrap_or_else(|_| "null".to_string()))
     }
 
     pub fn __str__(&self) -> String {
@@ -530,7 +530,7 @@ impl MetadataRecord {
     }
 }
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone, Debug)]
 pub struct AssetInfo {
     pub inner: CoreAssetInfo,
@@ -650,10 +650,10 @@ impl AssetInfo {
 
     #[getter]
     pub fn expiry_reason(&self) -> Option<String> {
-        self.inner.expiry_reason.as_ref().map(|reason| {
-            serde_json::to_string(reason)
-                .unwrap_or_else(|_| "null".to_string())
-        })
+        self.inner
+            .expiry_reason
+            .as_ref()
+            .map(|reason| serde_json::to_string(reason).unwrap_or_else(|_| "null".to_string()))
     }
 
     pub fn to_json(&self) -> PyResult<String> {
@@ -669,7 +669,7 @@ impl AssetInfo {
     }
 }
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone, Debug)]
 pub struct Status {
     pub inner: CoreStatus,
@@ -711,7 +711,7 @@ impl Status {
     }
 }
 
-#[pyclass]
+#[pyclass(from_py_object, eq, eq_int)]
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum LogEntryKind {
     #[serde(rename = "debug")]
@@ -772,7 +772,7 @@ impl LogEntryKind {
     }
 }
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Clone, Debug)]
 pub struct LogEntry {
     pub inner: CoreLogEntry,
