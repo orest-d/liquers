@@ -2,6 +2,7 @@
 id: RECORD-TIMESTAMP-UTC
 kind: design
 title: Record Timestamp is a UTC instant in every format
+status: complete
 gh_pr: [121]
 readiness: ready
 autofix: not-eligible
@@ -10,6 +11,8 @@ issues: [RECORD-TIMESTAMP-TIME-ZONE-DIFFERS-BY-FORMAT]
 created: 2026-10-06
 ---
 # Record Timestamp is a UTC instant in every format
+
+> **Complete on 2026-10-17** (backlog compaction): implemented by #121, merged; every source issue is closed and no phase is outstanding.
 
 > **Acceptance scenarios not defined.** This design predates acceptance scenarios
 > (`specs/DOCS_STRUCTURE_GUIDE.md` §5.2.1). Consider updating it: state the Phase 1 acceptance

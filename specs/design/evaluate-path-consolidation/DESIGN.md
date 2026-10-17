@@ -2,8 +2,8 @@
 id: EVALUATE-PATH-CONSOLIDATION
 kind: design
 title: One evaluation path for every entry point
+status: complete
 workflow: liquers-project
-phase: documentation
 area: [core/assets, core/plan]
 gh_pr: [61]
 issues: [CORE-EVALUATE-PATH-CONSOLIDATION, ASSETS-FIX1, INLINE-PATH-LACKS-EXECUTE-ONCE, ASSET-PAYLOAD-REQUIREMENT-NOT-RECORDED, ASSET-STALE-DEPENDENCY-PERSISTED-AS-READY, REGISTER-COMMAND-PAYLOAD-STATEMENT-UNDOCUMENTED, ASSET-REGISTRATION-OWNERSHIP-CONTRACT]
@@ -12,6 +12,8 @@ created: 2026-09-02
 superseded_by:
 ---
 # evaluate-path-consolidation Design Tracking
+
+> **Complete on 2026-10-17** (backlog compaction): Phase 5 approved by the maintainer; the implementation (#61) is merged and every source issue it completed is closed.
 
 > **Acceptance scenarios not defined.** This design predates acceptance scenarios
 > (`specs/DOCS_STRUCTURE_GUIDE.md` §5.2.1). Consider updating it: state the Phase 1 acceptance

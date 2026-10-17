@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: S
 area: [lib/commands, core/assets]
-design: 
+design: search-catalog-single-metadata-read
 created: 2026-10-17
 github:
 ---
@@ -17,6 +17,12 @@ Since `design/search-read-dependencies/`, `catalog` records every file it lists 
 `AssetManager::version` for each file. Both read the same metadata: on a file store, `contains` plus
 a metadata read each, so the store is read twice per entry. `AssetInfo` has no version, so the
 catalog cannot take it from the first read.
+
+## Problem Example
+
+`-R-key/docs/-/ns-search/catalog-t-f` over an `AsyncFileStore` of 5 000 files: per file the store
+sees `contains` + `get_metadata` (version) and then `contains` + `is_dir` + `get_metadata` (info);
+2.5 s cold where one read per file gives about 1.9 s.
 
 ## Impact
 

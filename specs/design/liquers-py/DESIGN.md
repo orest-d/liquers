@@ -6,7 +6,7 @@ workflow: liquers-project
 status: in_review
 phase: high-level
 area: [py]
-issues: []
+issues: [PY-VALUE-ENUM-OVERSIZED, PY-VALUE-SERIALIZER-IS-A-STUB, PY-ADD-PYTHON-COMMAND-ALIASES-AN-UNREGISTERED-COMMAND]
 affects_docs: [specs/guides/LANGUAGE-INTEGRATION_GUIDE.md]
 created: 2026-10-17
 ---

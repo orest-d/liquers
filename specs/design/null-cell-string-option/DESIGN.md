@@ -3,8 +3,7 @@ id: NULL-CELL-STRING-OPTION
 kind: design
 workflow: liquers-project
 title: A null record cell reads as None through try_into_string_option
-status: in_review
-phase: documentation
+status: complete
 readiness: ready
 autofix: not-eligible
 area: [lib/value, records]
@@ -12,6 +11,8 @@ issues: [NULL-CELL-READS-AS-THE-TEXT-NONE]
 created: 2026-10-06
 ---
 # A null record cell reads as None through try_into_string_option
+
+> **Complete on 2026-10-17** (backlog compaction): Phase 5 approved by the maintainer; the implementation is merged and every source issue it completed is closed.
 
 > **Acceptance scenarios not defined.** This design predates acceptance scenarios
 > (`specs/DOCS_STRUCTURE_GUIDE.md` §5.2.1). Consider updating it: state the Phase 1 acceptance

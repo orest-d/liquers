@@ -2,15 +2,16 @@
 id: ASSET-CANCELLATION-OUTCOME
 kind: design
 title: Deterministic asset cancellation outcome and cooperative command cancellation
+status: complete
 workflow: liquers-project
-status: in_review
-phase: documentation
 area: [core/assets, core/commands]
 issues: [ASSET-CANCEL-DURING-PROCESSING-FINISHES-READY]
 affects_docs: [specs/reference/ASSETS.md, specs/reference/ASSET_SET_OPERATION.md, specs/reference/DEPENDENCIES_STATUS.md, specs/reference/ASSET_LIFECYCLE.md, specs/reference/api/DOC_03_ASSETS_EXECUTION_LIFECYCLE.md, specs/reference/WEB_API_SPECIFICATION.md, specs/guides/COMMAND_REGISTRATION_GUIDE.md, specs/guides/ASSET_MANAGER_IMPLEMENTATION_GUIDE.md, specs/guides/WEB_API_GUIDE.md, specs/guides/COMMAND_DESIGN_GUIDE.md]
 created: 2026-10-09
 ---
 # Deterministic asset cancellation outcome and cooperative command cancellation
+
+> **Complete on 2026-10-17** (backlog compaction): Phase 5 approved by the maintainer; the implementation is merged and every source issue it completed is closed.
 
 Pre-approved after Phase 2 on 2026-10-09 (`proceed all`).
 

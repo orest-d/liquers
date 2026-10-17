@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: S
 area: [core/assets]
-design: 
+design: evaluation-session-volatile-test-flake
 created: 2026-10-13
 github:
 ---
@@ -26,6 +26,11 @@ running it again. In five runs of `cargo test -p liquers-core --all-features --l
 2026-10-13 it failed twice and passed three times, with no code change between runs. The fixture
 uses a plain `AsyncMemoryStore` (`tests/common/chain_fixture.rs`), so stores and routing are not
 involved.
+
+## Problem Example
+
+Run `cargo test -p liquers-core --test evaluation_session volatile_dependency_has_one_value_per_evaluation`
+20 times. Today about half the runs fail with `left: 1, right: 2`; every run should pass.
 
 ## Impact
 

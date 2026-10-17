@@ -2,8 +2,8 @@
 id: ORDERED-JSON-ORIENT-COLUMN-ORDER
 kind: design
 title: Schema-less split and values JSON reads keep the document's column order
+status: complete
 form: compact
-phase: implementation
 readiness: ready
 autofix: eligible
 area: [records]
@@ -12,6 +12,8 @@ gh_pr: [90]
 created: 2026-10-08
 ---
 # Schema-less split and values JSON reads keep the document's column order
+
+> **Complete on 2026-10-17** (backlog compaction): implemented by #90, merged; every source issue is closed and no phase is outstanding.
 
 Produced under [`guides/autonomous_bulk_design.md`](../../guides/autonomous_bulk_design.md) by the
 2026-10-08 backlog compaction: Phases 1-4, reviewed without phase approval. Not an approval and not

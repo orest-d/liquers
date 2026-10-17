@@ -2,9 +2,8 @@
 id: EXPIRATION-INTEGRATION-SUITE-REPAIR
 kind: design
 title: expiration-integration-suite-failing-at-head
+status: abandoned
 workflow: liquers-project
-status: draft
-phase: examples
 area: [core/assets]
 gh_pr: []
 issues: [EXPIRATION-INTEGRATION-SUITE-FAILING-AT-HEAD]
@@ -13,6 +12,8 @@ created: 2026-08-11
 superseded_by:
 ---
 # expiration-integration-suite-failing-at-head Design Tracking
+
+> **Abandoned on 2026-10-17** (backlog compaction): not pursued: the source issue was closed during triage on 2026-08-12 because the suite already passed at HEAD (see its Resolution).
 
 > **Acceptance scenarios not defined.** This design predates acceptance scenarios
 > (`specs/DOCS_STRUCTURE_GUIDE.md` §5.2.1). Consider updating it: state the Phase 1 acceptance

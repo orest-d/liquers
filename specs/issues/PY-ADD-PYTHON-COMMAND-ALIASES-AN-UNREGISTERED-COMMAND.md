@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: M
 area: [py]
-design:
+design: liquers-py
 created: 2026-10-17
 github:
 ---

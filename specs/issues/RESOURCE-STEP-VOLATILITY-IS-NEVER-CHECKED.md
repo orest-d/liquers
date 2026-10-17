@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: S
 area: [core/plan]
-design:
+design: step-volatility-impl-removal
 created: 2026-10-12
 github:
 ---
@@ -23,6 +23,15 @@ github:
 Not verified: whether `Step::is_volatile` is reached on any supported path. `Plan::is_volatile`
 returns the value cached by plan building and does not consult its steps, so the arms may be
 reachable only through a caller that asks a single step directly.
+
+## Problem Example
+
+`Step::GetResourceDirectory(parse_key("data")?).is_volatile(envref)` returns `Ok(true)`, while the
+plan of `-R-sdir/data` has `is_volatile == false`; `Step::GetResource(..).is_volatile(..)` prints
+`ADD SUPPORT FOR RESOURCE VOLATILITY CHECK! (A)` to stderr. Checked 2026-10-17: nothing outside the
+unit test `step_is_volatile_when_alias_is_volatile` calls the step-level impl (`IsVolatile` is
+`pub(crate)`; `Query`, `Recipe` and links answer from `Plan::is_volatile`). There should be one
+authority, the plan, and no runtime print.
 
 ## Impact
 
