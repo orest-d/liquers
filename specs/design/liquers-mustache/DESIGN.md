@@ -3,11 +3,10 @@ id: LIQUERS-MUSTACHE
 kind: design
 title: liquers-template — a query-aware template language (Mustache syntax)
 workflow: liquers-project
-status: approved
-phase: documentation
+status: complete
 area: [core/query, core/value, lib/commands, lib/ui, docs]
 issues: [NO-QUERY-AWARE-TEMPLATE-LANGUAGE, SIMPLE-TEMPLATE-HAS-NO-COMMAND]
-merged: 2026-10-13
+merged: 2026-10-17
 affects_docs: [specs/reference/TEMPLATE_LANGUAGE.md, specs/guides/TEMPLATE_GUIDE.md, specs/reference/VALUE_TYPE_SYSTEM.md, specs/reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md, specs/reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md, specs/reference/PROJECT_OVERVIEW.md, specs/guides/COMMAND_REGISTRATION_GUIDE.md, specs/guides/COMMAND_DESIGN_GUIDE.md, specs/reference/COMMAND_ALIASES.md]
 created: 2026-10-13
 ---
