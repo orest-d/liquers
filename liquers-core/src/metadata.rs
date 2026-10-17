@@ -1910,6 +1910,27 @@ impl MetadataRecord {
         }
     }
 
+    /// [`Self::add_dependency`] for each record, through one key index: linear in the total
+    /// rather than quadratic, for an evaluation that recorded thousands of dependencies
+    /// (`specs/design/search-read-dependencies/performance.md`).
+    pub(crate) fn merge_dependencies(&mut self, records: impl IntoIterator<Item = DependencyRecord>) {
+        let mut index: std::collections::HashMap<DependencyKey, usize> = self
+            .dependencies
+            .iter()
+            .enumerate()
+            .map(|(position, d)| (d.key.clone(), position))
+            .collect();
+        for record in records {
+            match index.get(&record.key) {
+                Some(&position) => self.dependencies[position].version = record.version,
+                None => {
+                    index.insert(record.key.clone(), self.dependencies.len());
+                    self.dependencies.push(record);
+                }
+            }
+        }
+    }
+
     /// Returns whether the produced value should be written to the store.
     ///
     /// Returns `true` when `stored` is absent or `Some(true)`, `false` when `Some(false)`.
