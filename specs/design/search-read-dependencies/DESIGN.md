@@ -4,8 +4,7 @@ kind: design
 title: ns-search results depend on the folders and files they read
 form: compact
 workflow: liquers-project
-status: in_review
-phase: documentation
+status: complete
 readiness: ready
 autofix: not-eligible
 area: [lib/commands, core/assets, core/plan]
