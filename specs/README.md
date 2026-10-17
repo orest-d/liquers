@@ -82,6 +82,7 @@ volatility work all landed in `assets.rs`.
 - **Weak references in the expiration monitor** — built → [`design/expiration-monitor-assetref/`](design/expiration-monitor-assetref/)
 - **Expired-safe binary reads** — built → [`design/expired-binary-read-safety/`](design/expired-binary-read-safety/)
 - **Volatility tracking** — built → [`design/volatility-system/`](design/volatility-system/)
+- **Volatility discovered at run time (a volatile value a command reads through its context makes its result volatile)** — designing → [`design/runtime-volatility/`](design/runtime-volatility/)
 - **Versions for computed keyed assets, and dependency audit** — built → [`design/keyed-expiry-cascade-fix/`](design/keyed-expiry-cascade-fix/) *(contract and audit policies in [`reference/DEPENDENCIES_STATUS.md`](reference/DEPENDENCIES_STATUS.md))*
 - **Keyed-recipe ownership** — built → [`design/keyed-recipe-ownership/`](design/keyed-recipe-ownership/)
 - **Keyed delegation as a hand-off** — built → [`design/keyed-delegation-hand-off/`](design/keyed-delegation-hand-off/) *(rule documented in [`reference/DEPENDENCIES_STATUS.md`](reference/DEPENDENCIES_STATUS.md))*

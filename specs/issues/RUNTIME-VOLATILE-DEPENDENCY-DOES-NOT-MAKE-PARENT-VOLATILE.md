@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: M
 area: [core/context]
-design: 
+design: runtime-volatility
 created: 2026-10-17
 github:
 ---
