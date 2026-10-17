@@ -47,9 +47,66 @@
 # native default build exercises. The `--no-default-features` row proves that the core async store
 # surface is always available even when no optional features are selected.
 #
+# Disk budget. Every feature set and target leaves its own artifacts in one `target/`, and the
+# whole matrix does not fit in a 30 GB Claude Code cloud session (BUILD-MATRIX-EXHAUSTS-SESSION-DISK).
+# So the script:
+#
+#   * runs cargo with `CARGO_INCREMENTAL=0` unless the caller set `CARGO_INCREMENTAL` — the
+#     incremental caches buy nothing in a one-shot run and are the largest part of `target/`;
+#   * runs `cargo clean` before a row when free space on the target directory's filesystem is
+#     below `MATRIX_MIN_FREE_GB` (default 8; the default was not re-measured against the heaviest
+#     row, `cargo check -p liquers-lib --tests`, when it was introduced — raise it if a row still
+#     runs out). Cleaning only when low keeps the shared dependency builds as long as space allows;
+#   * retries a failed row once, after a clean, when free space is below the threshold after the
+#     failure, so a "No space left on device" is not reported as a broken configuration. Only the
+#     second result counts.
+#
+# `MATRIX_MIN_FREE_GB=0` disables the guard (never cleans). `MATRIX_DRY_RUN=1` prints every row and
+# every clean decision without running cargo, and exits 0. The target directory is
+# `$CARGO_TARGET_DIR` if set, else `target/` at the repository root.
+#
 # Usage: bash scripts/check-build-matrix.sh
-# See specs/design/liquers-web/phase4-implementation.md, Step 7.
+#        MATRIX_MIN_FREE_GB=12 bash scripts/check-build-matrix.sh   # more headroom
+#        MATRIX_DRY_RUN=1 bash scripts/check-build-matrix.sh        # show the plan only
+# See specs/design/liquers-web/phase4-implementation.md, Step 7, and
+# specs/design/build-matrix-disk-budget/.
 set -uo pipefail
+
+export CARGO_INCREMENTAL="${CARGO_INCREMENTAL:-0}"
+MATRIX_MIN_FREE_GB="${MATRIX_MIN_FREE_GB:-8}"
+MATRIX_DRY_RUN="${MATRIX_DRY_RUN:-0}"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+TARGET_DIR="${CARGO_TARGET_DIR:-$ROOT/target}"
+
+# Free space, in whole GB, on the filesystem holding the target directory (the repository root
+# until the target directory exists). In a cloud session `df` reports the session allowance.
+free_gb() {
+  local dir="$ROOT"
+  if [ -d "$TARGET_DIR" ]; then
+    dir="$TARGET_DIR"
+  fi
+  df -Pk "$dir" | awk 'NR == 2 { print int($4 / 1048576) }'
+}
+
+# Below the threshold, clean the target directory (announced; skipped under dry run).
+ensure_space() {
+  if [ "$MATRIX_MIN_FREE_GB" -eq 0 ]; then
+    return 0
+  fi
+  local free
+  free="$(free_gb)"
+  if [ "$free" -lt "$MATRIX_MIN_FREE_GB" ]; then
+    echo "==> low disk (${free} GB free < ${MATRIX_MIN_FREE_GB} GB): cargo clean"
+    if [ "$MATRIX_DRY_RUN" != "1" ]; then
+      cargo clean
+    fi
+  fi
+}
+
+# True when free space is below a non-zero threshold.
+space_low() {
+  [ "$MATRIX_MIN_FREE_GB" -ne 0 ] && [ "$(free_gb)" -lt "$MATRIX_MIN_FREE_GB" ]
+}
 
 LIB_CONFIGS=(
   "--no-default-features --tests"
@@ -109,6 +166,7 @@ STORE_CONFIGS=(
 )
 
 failed=()
+retried=()
 total=0
 
 check() {
@@ -116,11 +174,26 @@ check() {
   local args="$2"
   local label="cargo check -p $crate ${args:-(default)}"
   total=$((total + 1))
+  ensure_space
   echo "==> $label"
-  # shellcheck disable=SC2086
-  if ! cargo check -p "$crate" $args; then
-    failed+=("$label")
+  if [ "$MATRIX_DRY_RUN" = "1" ]; then
+    echo "    (dry run) CARGO_INCREMENTAL=$CARGO_INCREMENTAL cargo check -p $crate $args"
+    return 0
   fi
+  # shellcheck disable=SC2086
+  if cargo check -p "$crate" $args; then
+    return 0
+  fi
+  if space_low; then
+    ensure_space
+    echo "==> retrying after clean: $label"
+    # shellcheck disable=SC2086
+    if cargo check -p "$crate" $args; then
+      retried+=("$label")
+      return 0
+    fi
+  fi
+  failed+=("$label")
 }
 
 for args in "${LIB_CONFIGS[@]}"; do
@@ -152,6 +225,12 @@ check liquers-axum ""
 # `#[cfg]`-gated items must vanish cleanly).
 check liquers-core "--features store-conformance --lib --tests"
 check liquers-store "--features store-conformance --lib --tests"
+
+if [ ${#retried[@]} -ne 0 ]; then
+  echo
+  echo "Passed on retry after a low-disk clean:"
+  printf '  %s\n' "${retried[@]}"
+fi
 
 if [ ${#failed[@]} -ne 0 ]; then
   echo
