@@ -1,12 +1,10 @@
 use std::sync::Arc;
 
 use liquers_core::{
-    command_metadata::CommandMetadataRegistry,
-    commands::CommandRegistry,
-    context::SimpleSession,
-    store::{AsyncStore, NoAsyncStore},
+    command_metadata::CommandMetadataRegistry, commands::CommandRegistry, context::SimpleSession,
+    store::NoAsyncStore,
 };
-use pyo3::{exceptions::PyException, prelude::*};
+use pyo3::prelude::*;
 
 use crate::value::Value;
 
@@ -91,7 +89,8 @@ impl liquers_core::context::Environment for Environment {
         &self.command_registry
     }
 
-    #[cfg(feature = "async_store")]
+    // Not gated on `async_store`: `get_async_store` is a required `Environment` method, so a
+    // build without the feature could not implement the trait.
     fn get_async_store(&self) -> Arc<dyn liquers_core::store::AsyncStore> {
         //self.async_store.clone()
         Arc::new(NoAsyncStore)
@@ -110,10 +109,10 @@ impl liquers_core::context::Environment for Environment {
     }
 
     fn apply_recipe(
-        envref: liquers_core::context::EnvRef<Self>,
-        input_state: liquers_core::state::State<Self::Value>,
-        recipe: liquers_core::recipes::Recipe,
-        context: liquers_core::context::Context<Self>,
+        _envref: liquers_core::context::EnvRef<Self>,
+        _input_state: liquers_core::state::State<Self::Value>,
+        _recipe: liquers_core::recipes::Recipe,
+        _context: liquers_core::context::Context<Self>,
     ) -> std::pin::Pin<
         Box<
             dyn core::future::Future<Output = Result<Arc<Self::Value>, liquers_core::error::Error>>
@@ -144,8 +143,10 @@ pub struct Context(pub liquers_core::context::Context<Environment>);
 
 #[pymethods]
 impl Context {
-    fn info(&self, message: &str) {
-        self.0.info(message);
+    fn info(&self, message: &str) -> PyResult<()> {
+        self.0
+            .info(message)
+            .map_err(|e| crate::error::Error::from(e).into())
     }
 }
 

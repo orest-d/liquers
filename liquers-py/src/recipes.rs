@@ -1,13 +1,13 @@
 use liquers_core::recipes::Recipe as CoreRecipe;
 use pyo3::{prelude::*, types::PyDict};
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Debug, Clone)]
 pub struct Recipe {
     pub inner: CoreRecipe,
 }
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Debug, Clone)]
 pub struct RecipeList {
     pub inner: liquers_core::recipes::RecipeList,
@@ -81,21 +81,21 @@ impl Recipe {
     }
 
     #[getter]
-    pub fn arguments<'py>(&self, py: Python<'py>) -> &'py PyDict {
+    pub fn arguments<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
         let dict = PyDict::new(py);
         for (k, v) in &self.inner.arguments {
-            dict.set_item(k, format!("{}", v)).unwrap();
+            dict.set_item(k, format!("{}", v))?;
         }
-        dict
+        Ok(dict)
     }
 
     #[getter]
-    pub fn links<'py>(&self, py: Python<'py>) -> &'py PyDict {
+    pub fn links<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
         let dict = PyDict::new(py);
         for (k, v) in &self.inner.links {
-            dict.set_item(k, v).unwrap();
+            dict.set_item(k, v)?;
         }
-        dict
+        Ok(dict)
     }
 
     pub fn to_json(&self) -> PyResult<String> {
