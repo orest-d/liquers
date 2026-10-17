@@ -2,7 +2,7 @@
 id: NO-QUERY-AWARE-TEMPLATE-LANGUAGE
 kind: feature
 title: No template language understands Liquers queries and values
-status: draft
+status: closed
 priority: P2
 complexity: XL
 area: [core/query, lib/commands]
@@ -42,7 +42,7 @@ surface only at run time and without positions. The predecessor project used `mu
 
 ## Expected behaviour
 
-A new crate `liquers-mustache` (on `liquers-core`) with the parser, AST, highlighter and both
+A new crate `liquers-template` (on `liquers-core`; named `liquers-mustache` until 2026-10-17) with the parser, AST, highlighter and both
 evaluation modes, and `liquers-lib` commands to render, apply and validate templates. Design:
 `specs/design/liquers-mustache/`. A template editor is a separate issue (`NO-TEMPLATE-EDITOR-UI`).
 
@@ -51,3 +51,7 @@ evaluation modes, and `liquers-lib` commands to render, apply and validate templ
 Raised by the user on 2026-10-13, answering `agent-memory-mvp` Phase 1 open question 7: the
 template system must understand queries, so it should be reimplemented, and the language to
 reimplement chosen for suitability (`design/agent-memory-mvp/template-language-evaluation.md`).
+
+## Resolution (2026-10-17)
+
+Implemented by `design/liquers-mustache/` (PR #139): the `liquers-template` crate (Mustache with `{{$ q}}` / `{{$$ q}}` query tags, sections, partials, apply forms, error modes) and the `template/render`, `template/expand` and `template/validate` commands. Reference: `specs/reference/TEMPLATE_LANGUAGE.md`; guide: `specs/guides/TEMPLATE_GUIDE.md`.

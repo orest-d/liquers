@@ -50,6 +50,8 @@ enum Group {
     Polars,
     Records,
     Search,
+    /// The `ns-template` commands (feature `templates`).
+    Template,
     /// The `store_config` realm: store configuration entries, declared but never executed.
     #[value(name = "store_config")]
     StoreConfig,
@@ -65,6 +67,7 @@ impl Group {
             Group::Polars => "polars",
             Group::Records => "records",
             Group::Search => "search",
+            Group::Template => "template",
             Group::StoreConfig => "store_config",
         }
     }
@@ -78,10 +81,11 @@ impl Group {
             Group::Polars => cfg!(feature = "polars"),
             Group::Records => cfg!(feature = "records"),
             Group::Search => cfg!(feature = "records"),
+            Group::Template => cfg!(feature = "templates"),
         }
     }
 
-    fn all() -> [Group; 8] {
+    fn all() -> [Group; 9] {
         [
             Group::Core,
             Group::Lui,
@@ -90,6 +94,7 @@ impl Group {
             Group::Polars,
             Group::Records,
             Group::Search,
+            Group::Template,
             Group::StoreConfig,
         ]
     }
@@ -264,6 +269,10 @@ fn build_registry(groups: &[Group]) -> Result<CommandMetadataRegistry, Error> {
                 Group::Search => {
                     #[cfg(feature = "records")]
                     liquers_lib::register_search_commands!(cr)?;
+                }
+                Group::Template => {
+                    #[cfg(feature = "templates")]
+                    liquers_lib::register_template_commands!(cr)?;
                 }
                 // Every command registry declares the realm's built-ins when it is created;
                 // the group adds liquers-lib's own entries and decides whether they are kept.

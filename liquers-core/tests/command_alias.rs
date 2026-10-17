@@ -12,6 +12,7 @@ use liquers_core::{
     error::{Error, ErrorType},
     interpreter::{evaluate, make_plan},
     metadata::DependencyKey,
+    parse::parse_query,
     plan::{ActionOrigin, ParameterValue, Plan, Step},
     state::State,
     value::Value,
@@ -44,6 +45,10 @@ fn fail(_state: &State<Value>, reason: String) -> Result<Value, Error> {
     Err(Error::general_error(reason))
 }
 
+fn join(state: &State<Value>, other: String) -> Result<Value, Error> {
+    Ok(Value::from(format!("{}+{other}", state.try_into_string()?)))
+}
+
 fn ticker(_state: &State<Value>) -> Result<Value, Error> {
     Ok(Value::from("tick"))
 }
@@ -69,6 +74,7 @@ fn environment() -> Result<CommandEnvironment, Error> {
     register_command!(cr, fn tag(state, prefix: String, items: Vec<String> multiple) -> result)?;
     register_command!(cr, fn fail(state, reason: String) -> result)?;
     register_command!(cr, fn ticker(state) -> result volatile: true)?;
+    register_command!(cr, fn join(state, other: String) -> result)?;
 
     cr.register_alias(
         key("first"),
@@ -84,6 +90,12 @@ fn environment() -> Result<CommandEnvironment, Error> {
         vec![ArgumentInfo::string_argument("items").set_multiple()],
     )?;
     cr.register_alias(key("broken"), key("fail"), vec![string("boom")], vec![])?;
+    cr.register_alias(
+        key("join_hello"),
+        key("join"),
+        vec![CommandParameterValue::Query(parse_query("text-hello")?)],
+        vec![],
+    )?;
     Ok(env)
 }
 
@@ -361,5 +373,34 @@ async fn register_alias_replaces_a_registered_command() -> Result<(), Box<dyn st
 
     let state = evaluate(env.to_ref(), "text-abc/short", None).await?;
     assert_eq!(state.try_into_string()?, "a");
+    Ok(())
+}
+
+/// liquers-template AC-19: a head that is a query plans a `DefaultLink`, which is evaluated and
+/// recorded as a dependency - the form a template command uses for its template.
+#[tokio::test]
+async fn alias_head_link_is_evaluated() -> Result<(), Box<dyn std::error::Error>> {
+    use liquers_core::assets::AssetManager;
+    let envref = environment()?.to_ref();
+    let plan = make_plan(envref.clone(), "text-abc/join_hello").await?;
+    let (name, parameters, _) = last_action(&plan);
+    assert_eq!(name, "join");
+    assert!(
+        matches!(&parameters[0], ParameterValue::DefaultLink(n, q) if n == "other" && q.encode() == "text-hello"),
+        "{:?}",
+        parameters[0]
+    );
+
+    let asset = envref
+        .get_asset_manager()
+        .get_asset(&parse_query("text-abc/join_hello")?)
+        .await?;
+    assert_eq!(asset.get().await?.try_into_string()?, "abc+hello");
+    let link = DependencyKey::from(&parse_query("text-hello")?);
+    let deps = asset.get_metadata().await?.get_dependencies().to_vec();
+    assert!(
+        deps.iter().any(|d| d.key == link),
+        "the head link is a dependency: {deps:?}"
+    );
     Ok(())
 }

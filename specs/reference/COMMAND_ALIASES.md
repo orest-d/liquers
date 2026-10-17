@@ -3,7 +3,7 @@ title: Command Aliases
 kind: reference
 audience: internal
 area: [core/commands, core/plan]
-reviewed: 2026-10-13
+reviewed: 2026-10-17
 ---
 # Command Aliases
 
@@ -45,7 +45,13 @@ An alias has no executor and no `impl_version`.
 
 **Registered aliases** (besides test fixtures): `pl/head` → `pl/slice` (head `offset = 0`, `n` fills
 `length`), and `rec/records_schema` → `rec/schema` (no head parameters, no arguments — a renamed
-command kept for existing queries).
+command kept for existing queries). A **template command** is an alias of `template/render` whose
+head is the template link, for example `pack/open_issues` → `template/render` with head
+`-R/templates/open_issues.md` ([`guides/TEMPLATE_GUIDE.md`](../guides/TEMPLATE_GUIDE.md) §3).
+
+**A head parameter may be a link** (`CommandParameterValue::Query`). It is planned as a
+`DefaultLink`, evaluated before the target runs and recorded as a dependency of the result
+(`liquers-core/tests/command_alias.rs`, `alias_head_link_is_evaluated`).
 
 ## 2. The argument contract
 
@@ -134,6 +140,7 @@ arguments) would still be `ActionOrigin::Alias`: its rules live in the alias's m
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-17 | A head parameter may be a link, evaluated as a dependency; template commands (`pack/open_issues` → `template/render`) as the example. | `design/liquers-mustache/` |
 | 2026-10-13 | `rec/records_schema` is an alias of `rec/schema`; registered aliases listed in §1. | `design/record-filter-commands/` |
 | 2026-10-12 | Overrides by name resolve against the alias's own arguments; a head slot cannot be overridden (`ParameterError`). | phase-5, `design/axum-query-named-arguments/` |
 | 2026-10-10 | Created: the argument contract, validation (including replacement of a registered command), planning with `ActionOrigin`, dependencies and execution, as implemented and tested (`liquers-core/tests/command_alias.rs`, `pl/head`). | `design/command-alias-contract/` |

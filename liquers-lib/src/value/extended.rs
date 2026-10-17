@@ -78,6 +78,18 @@ pub trait ValueExtension:
     fn try_into_json_value(&self) -> Result<serde_json::Value, Error> {
         Err(Error::conversion_error(self.identifier(), "JSON"))
     }
+
+    /// The value as a data node: what a template reads names, sections and placeholders from.
+    ///
+    /// Defaults to a JSON snapshot through [`ValueExtension::try_into_json_value`], or an opaque
+    /// node when there is none. An extension whose values are large or tabular overrides it with a
+    /// node that reads in place (`ExtValue` does for record views and polars frames).
+    fn data_node(value: std::sync::Arc<Self>) -> liquers_core::data_node::AnyNode {
+        match value.try_into_json_value() {
+            Ok(json) => liquers_core::data_node::AnyNode::from_json(json),
+            Err(_) => liquers_core::data_node::AnyNode::opaque(),
+        }
+    }
     /// Static self-description of every type this extension can hold.
     ///
     /// Concatenated with the base value's descriptions by `CombinedValue`, so the registry sees
@@ -215,6 +227,16 @@ impl<BaseValue: ValueInterface + Default, Ext: ValueExtension> ValueInterface
         match self {
             CombinedValue::Base(base) => base.try_into_json_value(),
             CombinedValue::Extended(ext) => ext.try_into_json_value(),
+        }
+    }
+
+    /// Delegates by arm. The arm's payload is cloned into its own `Arc`, since the node must own
+    /// it: cheap for an extension (its payloads are `Arc`s), one copy of the value for a base
+    /// value.
+    fn data_node(value: std::sync::Arc<Self>) -> liquers_core::data_node::AnyNode {
+        match value.as_ref() {
+            CombinedValue::Base(base) => BaseValue::data_node(std::sync::Arc::new(base.clone())),
+            CombinedValue::Extended(ext) => Ext::data_node(std::sync::Arc::new(ext.clone())),
         }
     }
 
@@ -597,6 +619,17 @@ macro_rules! impl_try_from_combined_value_option {
 impl_try_from_combined_value_option!(
     i8, i16, i32, i64, isize, u8, u16, u32, u64, usize, f32, f64, bool
 );
+
+/// What a `Key` command argument (`dir: Key = query "-R-key/."`) is read through: a key, a query
+/// naming one, or text that parses as one.
+impl<B: ValueInterface + Default, E: ValueExtension> TryFrom<CombinedValue<B, E>>
+    for liquers_core::query::Key
+{
+    type Error = Error;
+    fn try_from(value: CombinedValue<B, E>) -> Result<Self, Self::Error> {
+        value.try_into_key()
+    }
+}
 
 impl<B: ValueInterface + Default + From<bool>, E: ValueExtension> From<bool>
     for CombinedValue<B, E>

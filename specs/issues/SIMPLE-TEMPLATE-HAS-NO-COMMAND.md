@@ -2,7 +2,7 @@
 id: SIMPLE-TEMPLATE-HAS-NO-COMMAND
 kind: feature
 title: Simple templates have no command and lose their sub-queries' dependencies
-status: draft
+status: closed
 priority: P2
 complexity: M
 area: [core/query, lib/commands]
@@ -47,3 +47,7 @@ compares the options.
 
 Templating research for `agent-memory-mvp`, 2026-10-12: assembling "context packs" for agents
 needs a document built from several queries.
+
+## Resolution (2026-10-17)
+
+Superseded by `design/liquers-mustache/` (PR #139): `template/render` and `template/expand` are the commands, every query a template evaluates is a dependency of the render, and `simple_template` / `evaluate_simple_template` are deprecated.

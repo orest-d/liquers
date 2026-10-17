@@ -885,10 +885,54 @@ impl<E: Environment> Context<E> {
         Self::reject_relative_query(query)?;
         let query = self.resolve_query_from_cwd(query)?;
         let envref = self.assetref.get_envref().await;
-        envref
+        let asset = envref
             .get_asset_manager()
             .apply_for(&self.assetref, (&query).into(), to, self.payload.clone())
-            .await
+            .await?;
+        // `apply_for` returns a failed asset; a failure is still this call's error.
+        asset.get().await?;
+        Ok(asset)
+    }
+
+    /// Applies a recipe to a supplied state as an ad-hoc asset, waits for it, and passes its
+    /// dependencies on to the current asset.
+    ///
+    /// The ad-hoc asset itself is not a dependency, for the reason [`Self::apply`] gives, but what
+    /// it read is: each record of its settled metadata is added to this context's pending
+    /// dependencies, so the current asset is invalidated when any of them changes. The recipe's
+    /// query is resolved as `apply` resolves a query (absolute, or against this context's cwd);
+    /// `recipe.cwd` is left as it is. Legacy metadata contributes nothing. A failed ad-hoc
+    /// evaluation is returned as its error, not as a failed asset, after its dependencies are
+    /// passed on.
+    ///
+    /// Volatility is not passed on, exactly as [`Self::get_dependency_state`] does not pass it on:
+    /// it is fixed before evaluation starts (`design/volatility-system`, decision 4). A volatile
+    /// ad-hoc plan records no dependencies, so a caller that applies a volatile query declares its
+    /// own command `volatile`, or the query that reaches it has `v` before that command (a trailing
+    /// `v` serves the cached prefix). See `RUNTIME-VOLATILE-DEPENDENCY-DOES-NOT-MAKE-PARENT-VOLATILE`.
+    pub async fn apply_ad_hoc(
+        &self,
+        recipe: Recipe,
+        to: State<E::Value>,
+    ) -> Result<AssetRef<E>, Error> {
+        let query = recipe.get_query()?;
+        Self::reject_relative_query(&query)?;
+        let query = self.resolve_query_from_cwd(&query)?;
+        let mut recipe = recipe;
+        recipe.query = query.encode();
+        let envref = self.assetref.get_envref().await;
+        let asset = envref
+            .get_asset_manager()
+            .apply_for(&self.assetref, recipe, to, self.payload.clone())
+            .await?;
+        let outcome = asset.get().await;
+        // Passed on before a failure is returned: a caller that recovers the error (a template in
+        // `expand` mode) is still invalidated when what the failed query read changes.
+        for record in asset.get_metadata().await?.get_dependencies() {
+            self.add_dependency(record.clone()).await;
+        }
+        outcome?.error_result()?;
+        Ok(asset)
     }
 
     /// Returns a copy of the current asset's structured metadata record.

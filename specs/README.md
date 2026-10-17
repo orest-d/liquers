@@ -133,7 +133,7 @@ serves both. Solve them together.
 - **`register_command!` specification** — documented → [`reference/REGISTER_COMMAND_FSD.md`](reference/REGISTER_COMMAND_FSD.md)
 - **Context parameter position** — documented → [`reference/REGISTER_COMMAND_FSD.md`](reference/REGISTER_COMMAND_FSD.md) §Context Parameter *(design in [`design/context-param-order/`](design/context-param-order/))*
 - **Enum parameters** — designing → [`design/register-command-enum/`](design/register-command-enum/)
-- **Query-aware templates (`liquers-mustache`: Mustache with query tags, parametrized queries, evaluate and apply modes)** — designing → [`design/liquers-mustache/`](design/liquers-mustache/)
+- **Query-aware templates (`liquers-template`: Mustache with query tags, parametrized queries, template commands)** — built → [`reference/TEMPLATE_LANGUAGE.md`](reference/TEMPLATE_LANGUAGE.md) *(how to: [`guides/TEMPLATE_GUIDE.md`](guides/TEMPLATE_GUIDE.md); design in [`design/liquers-mustache/`](design/liquers-mustache/))*
 - **Command aliases** — documented → [`reference/COMMAND_ALIASES.md`](reference/COMMAND_ALIASES.md) *(when to use one: [`guides/COMMAND_DESIGN_GUIDE.md`](guides/COMMAND_DESIGN_GUIDE.md) §Aliases; design in [`design/command-alias-contract/`](design/command-alias-contract/))*
 - **Language-neutral command declaration** — documented → [`reference/COMMAND_DECLARATION.md`](reference/COMMAND_DECLARATION.md)
 - **Command metadata enhancements** — planned → [`issues/COMMAND-METADATA-ENHANCEMENTS.md`](issues/COMMAND-METADATA-ENHANCEMENTS.md)
@@ -426,7 +426,6 @@ deliberately folded behind a broader line.
 - feature `LANGUAGE-STORE-CONFIG-FUNCTION-NOT-DEFINABLE`
 - feature `LANGUAGE-STORE-TYPE-NOT-DEFINABLE`
 - feature `NO-MARKDOWN-NAVIGATION-COMMANDS`
-- feature `NO-QUERY-AWARE-TEMPLATE-LANGUAGE`
 - feature `NO-RELATIONAL-DATABASE-ACCESS-LAYER`
 - feature `NO-REMOTE-STORE-OR-ASSET-MANAGER`
 - feature `NO-SOURCE-CODE-AND-API-DOC-NAVIGATION`
@@ -434,12 +433,12 @@ deliberately folded behind a broader line.
 - feature `PY-PYO3-0-21-CANNOT-TARGET-PYTHON-3-13`
 - feature `QUERY-CANNOT-MARK-CACHED-INTERMEDIATES`
 - feature `RECORDS-ARROW-C-DATA-EXPORT-NOT-BUILT`
-- feature `SIMPLE-TEMPLATE-HAS-NO-COMMAND`
 - feature `STORE-CENTRAL-STORAGE-MODEL-NOT-IMPLEMENTED`
 - feature `STORE-COMMAND-NAMESPACE-MISSING`
 - feature `STORE-CONFIG-FROM-URI`
 - feature `STORE-CONFIG-SPEC-CANNOT-SCOPE-HANDLERS-TO-A-KEY`
 - feature `STORE-NO-DATABASE-STORAGE-MODEL`
+- feature `TEMPLATE-HAS-NO-HIGHLIGHTER`
 - feature `TYPE-REGISTRY-NOT-REALM-AWARE`
 - feature `UI-VARIADIC-ARGUMENT-LIST-EDITOR`
 - feature `UNMANAGED-ASSET-NOT-FOLLOWABLE-ACROSS-CONNECTIONS`
@@ -465,6 +464,7 @@ deliberately folded behind a broader line.
 - [`STORE_CONFIG_GUIDE.md`](guides/STORE_CONFIG_GUIDE.md) — This guide has two parts:
 - [`STORE_FACTORY_GUIDE.md`](guides/STORE_FACTORY_GUIDE.md) — > This guide covers **declaring a store type** so a configuration document can name it. For
 - [`STORE_IMPLEMENTATION_GUIDE.md`](guides/STORE_IMPLEMENTATION_GUIDE.md) — How to implement an `AsyncStore` that satisfies
+- [`TEMPLATE_GUIDE.md`](guides/TEMPLATE_GUIDE.md) — How to write Liquers templates, render them, and turn one into a command. The language itself is
 - [`TYPE_SYSTEM_GUIDE.md`](guides/TYPE_SYSTEM_GUIDE.md) — How to add a value type so the system can describe it, store it and read it back. For *why* the
 - [`UNITTEST_GUIDE.md`](guides/UNITTEST_GUIDE.md) — This guide explains how to write comprehensive unit tests for the Liquers query evaluation flow, covering environment setup, command registration, query evaluat
 - [`WEB_API_GUIDE.md`](guides/WEB_API_GUIDE.md) — This guide shows how to use a Liquers server over HTTP and WebSocket: evaluating queries, running
