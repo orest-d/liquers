@@ -15,13 +15,24 @@ created: 2026-10-13
 
 ## Phases
 
-- [Phase 1](./phase1-high-level-design.md) — written 2026-10-13, awaiting approval
+- [Phase 1](./phase1-high-level-design.md) — written 2026-10-13, revised 2026-10-17 after review, awaiting approval
 - [Phase 2](./phase2-architecture.md)
 - [Phase 3](./phase3-examples.md)
 - [Phase 4](./phase4-implementation.md)
 - [Phase 5](./phase5-documentation.md)
 
 ## Notes
+
+Supporting note: [`query-placeholders.md`](./query-placeholders.md), the positions a placeholder may
+fill in a hygienic query tag and how each is expanded.
+
+**Revision 2026-10-17**, from the maintainer's review of Phase 1. Two query-tag forms replace the
+`{{x}}` / `{{{x}}}` split inside queries: hygienic `{{$ …}}` fills the AST and classic `{{$$ …}}`
+expands the text. The hygienic positions are specified in full, including action names and
+filenames. A shadow query parser in `liquers-mustache` replaces the public `liquers-core` parser
+surface, held to the core parser by parity tests (new AC-14), so `liquers-core` is no longer changed.
+Nested-brace balancing was agreed. The tags are now described one by one. The proposed namespace
+changed from `tpl` to `mustache`.
 
 Created 2026-10-13 at the user's request, from `agent-memory-mvp` Phase 1 open question 7. The
 language choice — Mustache with query tags, over Jinja, Liquid and Handlebars — was argued in
