@@ -3,7 +3,7 @@ title: Web API Guide
 kind: guide
 audience: both
 area: [axum, web]
-reviewed: 2026-10-12
+reviewed: 2026-10-16
 ---
 # Using the Liquers web API
 
@@ -69,7 +69,7 @@ An error has `"status":"ERROR"`, a matching HTTP status code, and an `error` obj
 names the problem:
 
 ```json
-{"status":"ERROR","message":"Query evaluation failed","error":{"type":"ActionNotRegistered","message":"Action 'nosuch' not registered in namespaces '', 'root'"}}
+{"status":"ERROR","message":"Query evaluation failed","error":{"type":"ActionNotRegistered","message":"Action 'nosuch' not registered; command keys tried: '--nosuch'"}}
 ```
 
 The common codes: 400 for a malformed query, key or parameter; 404 for something that does not
@@ -504,7 +504,7 @@ JobFinished              status=Ready
 
 $ python3 follow.py 'nosuch'
 Error                    status=None
-{'type': 'ActionNotRegistered', 'message': "Action 'nosuch' not registered in namespaces '', 'root'", 'query': ''}
+{'type': 'ActionNotRegistered', 'message': "Action 'nosuch' not registered; command keys tried: '--nosuch'", 'query': ''}
 ```
 
 Notifications are a convenience, not a guarantee: for a definitive answer, `GET …/info`. A
@@ -582,6 +582,7 @@ JobFinished              status=Ready managed=False
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-16 | Error examples: the not-registered message now names the command keys tried. | `design/store-adapters/` phase-5 review |
 | 2026-10-12 | §4 naming arguments: argument overrides from the query string and a JSON body, `_link_`, the managed/unmanaged distinction, errors and type warnings; §5 submitting what cannot be polled (unmanaged assets: no result, still useful for side effects); §8 subscribe with `arguments`, `Subscribed`, `subscription_id`, `cancel`; `?format=` → `?_entry_format=`. Examples run against `examples/assets_recipes_basic.rs`. | phase-5, `design/axum-query-named-arguments/` |
 | 2026-10-09 | `q/cancel` is best-effort (a completed command stays `Ready`), the cause in `error_data`; the cancel-ends-`Ready` known gap removed. | phase-5 (`design/asset-cancellation-outcome/`) |
 | 2026-10-06 | Added a `key/can_make` example beside `key/contains`. | phase-5 |

@@ -1,4 +1,6 @@
-//! `C1`–`C6` — the conformance suite applied to `liquers-core`'s stores and to the trait defaults.
+//! `C1`–`C5`, `C8` — the conformance suite applied to `liquers-core`'s stores and trait defaults;
+//! `A1`–`A7` — the same suite applied to adapted stores built from configuration
+//! (`specs/design/store-adapters/`).
 //!
 //! This file is the **divergence census** the issue
 //! `STORE-ASYNC-STORE-NO-BEHAVIOURAL-CONFORMANCE-SUITE` asked for: the first time these
@@ -209,8 +211,8 @@ async fn c3_report() -> ConformanceReport {
     report
 }
 
-/// `C6` — `AsyncStoreRouter` with a member that describes its own entries and a member mounted
-/// inside it.
+/// `C8` — `AsyncStoreRouter` with a member that describes its own entries and a member mounted
+/// inside it. (Named `C6` until 2026-10-16; `C6`–`C7` are `liquers-store`'s OpenDAL suites.)
 ///
 /// The router composes every directory answer here instead of forwarding it: the fixture's
 /// namespace `mem` has two contributors. `dir07` (directory `children` are the listing) is the rule
@@ -218,21 +220,23 @@ async fn c3_report() -> ConformanceReport {
 /// `children` and omitted the nested mount. The decorating member stands in for the front-matter
 /// adapter of `design/store-adapters/`, whose `get_asset_info` override the router must not bypass.
 #[tokio::test]
-async fn c6_router_with_a_decorated_member_and_a_nested_mount() {
-    check(c6_report().await, C6_ALLOWED);
+async fn c8_router_with_a_decorated_member_and_a_nested_mount() {
+    check(c8_report().await, C8_ALLOWED);
 }
 
-/// Known divergences of `C6`.
-const C6_ALLOWED: &[AllowedFailure] = &[];
+/// Known divergences of `C8`.
+const C8_ALLOWED: &[AllowedFailure] = &[];
 
-async fn c6_report() -> ConformanceReport {
+async fn c8_report() -> ConformanceReport {
     let mem_prefix = parse_key("mem").expect("prefix");
     let mut router = AsyncStoreRouter::new();
     // First match wins, so the nested mount goes first.
     router.add_store(Box::new(AsyncMemoryStore::new(
         &parse_key("mem/nested").expect("prefix"),
     )));
-    router.add_store(Box::new(DecoratingStore(AsyncMemoryStore::new(&mem_prefix))));
+    router.add_store(Box::new(DecoratingStore(AsyncMemoryStore::new(
+        &mem_prefix,
+    ))));
     let fixture = GenericFixture::new(
         "AsyncStoreRouter(decorated mem + nested mem)",
         Box::new(router),
@@ -454,6 +458,214 @@ async fn c5_report() -> ConformanceReport {
     run_all(&fixture).await
 }
 
+// --- A1–A7: adapted stores (`specs/design/store-adapters/`, AC-7) ---
+
+/// The `store_config` entries the adapted suites compile against: the built-ins, `memory_central`
+/// and the front-matter stand-in.
+fn adapter_entries() -> (
+    liquers_core::command_metadata::CommandMetadataRegistry,
+    liquers_core::store::realm::StoreConfigFunctions,
+) {
+    use liquers_core::store::realm::{register_test_store_config, StoreConfigFunctions};
+    let (mut cmr, mut functions) = StoreConfigFunctions::builtin();
+    register_test_store_config(&mut cmr, &mut functions).expect("test entries register");
+    liquers_core::store::test_support::register_front_matter_stand_in(&mut cmr, &mut functions)
+        .expect("stand-in registers");
+    (cmr, functions)
+}
+
+/// A store built from configuration, the way an environment builds it.
+fn configured(yaml: &str) -> Box<dyn AsyncStore> {
+    let (cmr, functions) = adapter_entries();
+    let store = liquers_core::store_factory::StoreRouterBuilder::from_yaml(
+        yaml,
+        Box::new(liquers_core::store_factory::core_store_factory()),
+    )
+    .expect("configuration parses")
+    .with_store_config(cmr, functions)
+    .build_store()
+    .expect("store builds");
+    Box::new(liquers_core::store::SharedStore(store))
+}
+
+/// A memory mount at `mem` with `metadata` as its section, run through the generic fixture.
+async fn adapted_memory_report(
+    label: &str,
+    metadata: &str,
+    capabilities: StoreCapabilities,
+) -> ConformanceReport {
+    let yaml = format!("stores:\n  - type: memory\n    prefix: mem\n    metadata: {metadata}\n");
+    let fixture = GenericFixture::new(
+        label,
+        configured(&yaml),
+        Key::new(),
+        capabilities,
+        SafetyLevel::Scratch,
+    )
+    .with_key_base(parse_key("mem").expect("prefix"));
+    run_all(&fixture).await
+}
+
+/// `A1` — a read-only file store, over a directory seeded with one file.
+#[tokio::test]
+async fn a1_read_only_file_store() {
+    check(a1_report().await, A1_ALLOWED);
+}
+
+const A1_ALLOWED: &[AllowedFailure] = &[];
+
+async fn a1_report() -> ConformanceReport {
+    let root = unique_temp_dir("a1");
+    tokio::fs::create_dir_all(root.join("dir"))
+        .await
+        .expect("temp root");
+    tokio::fs::write(root.join("dir/existing.txt"), b"hello")
+        .await
+        .expect("seed file");
+    let yaml = format!(
+        "stores:\n  - type: filesystem\n    prefix: \"\"\n    config: {{ path: \"{}\" }}\n    read_only: true\n",
+        root.to_string_lossy()
+    );
+    let capabilities = StoreCapabilities {
+        write: false,
+        remove: false,
+        directories: true,
+        derived_directories: false,
+        explicit_directories: false,
+        remove_directories: false,
+        stored_metadata: false,
+        enumerate_keys: true,
+    };
+    let fixture = GenericFixture::new(
+        "ReadOnlyStore(AsyncFileStore)",
+        configured(&yaml),
+        Key::new(),
+        capabilities,
+        SafetyLevel::ReadOnly,
+    )
+    .with_existing(parse_key("dir/existing.txt").expect("key"))
+    .with_existing_directory(parse_key("dir").expect("key"));
+    let report = run_all(&fixture).await;
+    let _ = tokio::fs::remove_dir_all(&root).await;
+    report
+}
+
+/// `A2` — `storage: none`: records are synthesized, never stored.
+#[tokio::test]
+async fn a2_storage_none() {
+    check(a2_report().await, A2_ALLOWED);
+}
+
+const A2_ALLOWED: &[AllowedFailure] = &[];
+
+async fn a2_report() -> ConformanceReport {
+    let mut capabilities = index_backed();
+    capabilities.stored_metadata = false;
+    adapted_memory_report(
+        "MetadataPipelineStore(memory, storage: none)",
+        "{ storage: none }",
+        capabilities,
+    )
+    .await
+}
+
+const PER_ENTRY_LAYOUTS: [&str; 4] = ["sidecar", "root", "prefix", "folder"];
+
+/// `A3` — `per_entry`, once for each layout.
+#[tokio::test]
+async fn a3_per_entry_each_layout() {
+    for layout in PER_ENTRY_LAYOUTS {
+        check(a3_report(layout).await, A3_ALLOWED);
+    }
+}
+
+const A3_ALLOWED: &[AllowedFailure] = &[];
+
+async fn a3_report(layout: &str) -> ConformanceReport {
+    adapted_memory_report(
+        &format!("MetadataPipelineStore(memory, per_entry-{layout})"),
+        &format!("{{ storage: per_entry-{layout} }}"),
+        index_backed(),
+    )
+    .await
+}
+
+/// `A4` — `grouped`: one record file per folder.
+#[tokio::test]
+async fn a4_grouped() {
+    check(a4_report().await, A4_ALLOWED);
+}
+
+const A4_ALLOWED: &[AllowedFailure] = &[];
+
+async fn a4_report() -> ConformanceReport {
+    adapted_memory_report(
+        "MetadataPipelineStore(memory, grouped)",
+        "{ storage: grouped }",
+        index_backed(),
+    )
+    .await
+}
+
+/// `A5` — central storage on a router, with a member keeping a backup.
+#[tokio::test]
+async fn a5_memory_central() {
+    check(a5_report().await, A5_ALLOWED);
+}
+
+const A5_ALLOWED: &[AllowedFailure] = &[];
+
+async fn a5_report() -> ConformanceReport {
+    let yaml = "metadata: { storage: memory_central }\nstores:\n  - type: memory\n    prefix: mem\n    metadata: { storage: per_entry }\n";
+    let fixture = GenericFixture::new(
+        "MetadataPipelineStore(router, memory_central)",
+        configured(yaml),
+        Key::new(),
+        index_backed(),
+        SafetyLevel::Scratch,
+    )
+    .with_key_base(parse_key("mem").expect("prefix"));
+    run_all(&fixture).await
+}
+
+const WRITE_STRATEGIES: [&str; 3] = ["direct", "atomic", "transactional"];
+
+/// `A6` — each write strategy, over `per_entry` storage.
+#[tokio::test]
+async fn a6_each_write_strategy() {
+    for writes in WRITE_STRATEGIES {
+        check(a6_report(writes).await, A6_ALLOWED);
+    }
+}
+
+const A6_ALLOWED: &[AllowedFailure] = &[];
+
+async fn a6_report(writes: &str) -> ConformanceReport {
+    adapted_memory_report(
+        &format!("MetadataPipelineStore(memory, per_entry, {writes})"),
+        &format!("{{ storage: per_entry, writes: {writes} }}"),
+        index_backed(),
+    )
+    .await
+}
+
+/// `A7` — a front-matter handler in the read chain (the core stand-in for liquers-lib's).
+#[tokio::test]
+async fn a7_front_matter() {
+    check(a7_report().await, A7_ALLOWED);
+}
+
+const A7_ALLOWED: &[AllowedFailure] = &[];
+
+async fn a7_report() -> ConformanceReport {
+    adapted_memory_report(
+        "MetadataPipelineStore(memory, test_front_matter on read)",
+        "{ on_read: media_type-fill/file_facts/test_front_matter }",
+        index_backed(),
+    )
+    .await
+}
+
 /// The `STORE_IMPLEMENTATION_GUIDE.md` §9 row of one report: rules that ran, and a status that is
 /// `CONFORMANT` only when nothing failed or errored.
 ///
@@ -534,8 +746,8 @@ async fn status_table() {
         "{}",
         status_row(
             "`AsyncStoreRouter` (nested)",
-            &c6_report().await,
-            C6_ALLOWED,
+            &c8_report().await,
+            C8_ALLOWED,
             "a decorating member with a member mounted inside it: every directory answer is \
              composed by the router (`design/store-router-forwards-asset-info/`)",
         )
@@ -556,6 +768,73 @@ async fn status_table() {
             &c5_report().await,
             C5_ALLOWED,
             "accepts no key, and says so correctly",
+        )
+    );
+    eprintln!(
+        "{}",
+        status_row(
+            "`ReadOnlyStore` (file store)",
+            &a1_report().await,
+            A1_ALLOWED,
+            "`read_only: true` from configuration; write and remove refused",
+        )
+    );
+    eprintln!(
+        "{}",
+        status_row(
+            "Pipeline, `storage: none`",
+            &a2_report().await,
+            A2_ALLOWED,
+            "records synthesized, never stored",
+        )
+    );
+    for layout in PER_ENTRY_LAYOUTS {
+        eprintln!(
+            "{}",
+            status_row(
+                &format!("Pipeline, `per_entry-{layout}`"),
+                &a3_report(layout).await,
+                A3_ALLOWED,
+                "",
+            )
+        );
+    }
+    eprintln!(
+        "{}",
+        status_row(
+            "Pipeline, `grouped`",
+            &a4_report().await,
+            A4_ALLOWED,
+            "one record file per folder",
+        )
+    );
+    eprintln!(
+        "{}",
+        status_row(
+            "Pipeline, central (`memory_central`)",
+            &a5_report().await,
+            A5_ALLOWED,
+            "router-level section; the member keeps a `per_entry` backup",
+        )
+    );
+    for writes in WRITE_STRATEGIES {
+        eprintln!(
+            "{}",
+            status_row(
+                &format!("Pipeline, `writes: {writes}`"),
+                &a6_report(writes).await,
+                A6_ALLOWED,
+                "over `per_entry`",
+            )
+        );
+    }
+    eprintln!(
+        "{}",
+        status_row(
+            "Pipeline, front matter on read",
+            &a7_report().await,
+            A7_ALLOWED,
+            "core stand-in for liquers-lib's `front_matter`",
         )
     );
 }

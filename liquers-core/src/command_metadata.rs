@@ -1293,6 +1293,12 @@ impl CommandMetadata {
     }
 }
 
+/// Realms whose entries are declared in the registry, so queries can name, plan and validate them,
+/// but are never executed: `store_config`, whose entries a store compiles at build
+/// (`specs/design/store-adapters/`). Overviews of what can be run leave them out
+/// ([`CommandMetadataRegistry::executable_commands`]).
+pub const NON_EXECUTABLE_REALMS: [&str; 1] = ["store_config"];
+
 // TODO: Refactor CommandMetadataRegistry to use realm/ns hierarchy and CommandKey
 // TODO: support global enums
 // TODO: support for dynamic global enums
@@ -1327,6 +1333,15 @@ impl CommandMetadataRegistry {
             default_namespaces: vec!["".to_string(), "root".to_string()],
             global_enums: HashMap::new(),
         }
+    }
+
+    /// The commands that can be executed: every command except those of
+    /// [`NON_EXECUTABLE_REALMS`]. What an overview of "what can I run" should list; the planner,
+    /// the exporter and validation keep using [`Self::commands`].
+    pub fn executable_commands(&self) -> impl Iterator<Item = &CommandMetadata> {
+        self.commands
+            .iter()
+            .filter(|command| !NON_EXECUTABLE_REALMS.contains(&command.realm.as_str()))
     }
 
     pub fn check(&self) -> IssueReport {
@@ -1524,6 +1539,19 @@ impl CommandMetadataRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// AC-9: overviews of what can be run leave the `store_config` realm out.
+    #[test]
+    fn executable_commands_skip_the_store_config_realm() {
+        let mut cmr = CommandMetadataRegistry::new();
+        cmr.add_command(&CommandMetadata::new("ordinary"));
+        let mut handler = CommandMetadata::new("defaults");
+        handler.with_realm("store_config").with_namespace("");
+        cmr.add_command(&handler);
+        let names: Vec<&str> = cmr.executable_commands().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, vec!["ordinary"]);
+        assert_eq!(cmr.commands.len(), 2);
+    }
 
     #[test]
     fn argument_gui_info_omission_uses_the_shared_text_field_default() {

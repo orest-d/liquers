@@ -471,11 +471,18 @@ Configuration and construction live in `liquers-core`; only the backends live ab
    add the matching `services-<scheme>` feature** to `liquers-store/Cargo.toml` — a type with no
    service feature behind it is advertised but unconstructible, which
    `availability02_advertised_types_match_the_enabled_features` will fail on
-5. **Run the conformance suite against it.** Write a `Fixture` (usually `GenericFixture`), declare
+5. **Implement data-only access** (`get_data`, `set_data`, `remove_data`, `listdir_data`,
+   `data_facts`, `get_stored_metadata`, optionally `rename_data`, and an honest
+   `data_capabilities`), so a mount of the store can take a `metadata` section and `read_only`
+   can keep its reads from writing. The defaults refuse, and a `metadata` section on such a mount
+   fails the build. See `specs/guides/STORE_IMPLEMENTATION_GUIDE.md` §4a; new handlers, storage
+   models and write strategies are `specs/guides/STORE_CONFIG_GUIDE.md`
+6. **Run the conformance suite against it.** Write a `Fixture` (usually `GenericFixture`), declare
    its `StoreCapabilities` honestly, and add a suite beside the others in
-   `tests/store_conformance_CONF.rs`. A store that is not in the suite is a store nobody has
-   checked. See `specs/guides/STORE_IMPLEMENTATION_GUIDE.md` §5
-6. See `specs/reference/STORE_CONFIG_FSD.md` §"Building stores: the factory model"
+   `tests/store_conformance_CONF.rs` — plain, and under a `metadata` section like `A3`. A store
+   that is not in the suite is a store nobody has checked. See
+   `specs/guides/STORE_IMPLEMENTATION_GUIDE.md` §5
+7. See `specs/reference/STORE_CONFIG_FSD.md` §"Building stores: the factory model"
 
 ### Adding a Value Type
 

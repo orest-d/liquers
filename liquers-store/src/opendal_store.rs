@@ -3,9 +3,11 @@ use std::collections::BTreeSet;
 use bytes::Buf;
 use liquers_core::{
     error::Error,
-    metadata::{Metadata, MetadataRecord},
+    metadata::{BackendTime, Metadata, MetadataRecord, TimePrecision},
     query::Key,
-    store::{AsyncStore, ReservedNames, METADATA_FOLDER, METADATA_SUFFIX},
+    store::{
+        AsyncStore, DataCapabilities, DataFacts, ReservedNames, METADATA_FOLDER, METADATA_SUFFIX,
+    },
 };
 use opendal::{Buffer, Operator};
 
@@ -545,7 +547,134 @@ impl AsyncStore for AsyncOpenDALStore {
             && key.has_key_prefix(&self.prefix)
             && !PathMap::RESERVED.is_reserved_key(key)
     }
+
+    // --- Data-only access (`specs/design/store-adapters/`) ----------------------------------
+    //
+    // Data paths are the key's encoding with nothing reserved: this store takes no locks, and a
+    // metadata layer above it may keep its own objects (a `per_entry` sidecar) under any name.
+
+    async fn get_data(&self, key: &Key) -> Result<Vec<u8>, Error> {
+        let path = PathMap::data(key)?;
+        let buf = self.map_read_error(key, self.op.read(&path).await)?;
+        Ok(buf.to_vec())
+    }
+
+    async fn set_data(&self, key: &Key, data: &[u8]) -> Result<(), Error> {
+        let path = PathMap::data(key)?;
+        let buffer = Buffer::from_iter(data.iter().copied());
+        self.map_write_error(key, self.op.write(&path, buffer).await)?;
+        Ok(())
+    }
+
+    /// Removing an absent object is `Ok(())`, as OpenDAL's `delete` is.
+    async fn remove_data(&self, key: &Key) -> Result<(), Error> {
+        let path = PathMap::data(key)?;
+        self.map_write_error(key, self.op.delete(&path).await)
+    }
+
+    /// Only where the service renames natively; `data_capabilities` says which.
+    async fn rename_data(&self, from: &Key, to: &Key) -> Result<(), Error> {
+        let from_path = PathMap::data(from)?;
+        let to_path = PathMap::data(to)?;
+        if !self.op.info().full_capability().rename {
+            return Err(Error::not_supported(format!(
+                "Store '{}' cannot rename '{from}': the {} service has no rename",
+                self.store_name(),
+                self.op.info().scheme()
+            )));
+        }
+        if !self.map_read_error(from, self.op.exists(&from_path).await)? {
+            return Err(Error::key_not_found(from));
+        }
+        self.map_write_error(from, self.op.rename(&from_path, &to_path).await)
+    }
+
+    /// The raw names directly under `key`, sidecars included; empty for an absent directory.
+    async fn listdir_data(&self, key: &Key) -> Result<Vec<String>, Error> {
+        let path = PathMap::directory(key)?;
+        let entries = match self.op.list(&path).await {
+            Ok(entries) => entries,
+            Err(e) if e.kind() == opendal::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(e) => return self.map_read_error(key, Err(e)),
+        };
+        let mut names = BTreeSet::new();
+        for entry in entries {
+            let trimmed = entry.path().trim_matches('/');
+            if trimmed.is_empty() || entry.path() == path {
+                continue;
+            }
+            if let Some(name) = trimmed.rsplit('/').next() {
+                names.insert(name.to_string());
+            }
+        }
+        Ok(names.into_iter().collect())
+    }
+
+    /// From `stat`: size, last-modified time and ETag where the service reports them. `Ok(None)`
+    /// for an absent key or a directory.
+    async fn data_facts(&self, key: &Key) -> Result<Option<DataFacts>, Error> {
+        let path = PathMap::data(key)?;
+        let stat = match self.op.stat(&path).await {
+            Ok(stat) => stat,
+            Err(e) if e.kind() == opendal::ErrorKind::NotFound => return Ok(None),
+            Err(e) => return self.map_read_error(key, Err(e)),
+        };
+        if stat.is_dir() {
+            return Ok(None);
+        }
+        let modified = stat.last_modified().map(|t| {
+            BackendTime::new(
+                chrono::DateTime::<chrono::Utc>::from(std::time::SystemTime::from(t)),
+                TimePrecision::Nanos,
+            )
+        });
+        Ok(Some(DataFacts {
+            size: stat.content_length(),
+            modified,
+            etag: stat.etag().map(str::to_string),
+        }))
+    }
+
+    /// The sidecar exactly as stored, or `None`; never synthesized.
+    async fn get_stored_metadata(&self, key: &Key) -> Result<Option<Metadata>, Error> {
+        let path = PathMap::metadata(key)?;
+        let buffer = match self.op.read(&path).await {
+            Ok(buffer) => buffer,
+            Err(e) if e.kind() == opendal::ErrorKind::NotFound => return Ok(None),
+            Err(e) => return self.map_read_error(key, Err(e)),
+        };
+        if let Ok(metadata) = serde_json::from_reader(buffer.clone().reader()) {
+            return Ok(Some(Metadata::MetadataRecord(metadata)));
+        }
+        if let Ok(metadata) = serde_json::from_reader(buffer.reader()) {
+            return Ok(Some(Metadata::LegacyMetadata(metadata)));
+        }
+        Err(Error::key_read_error(
+            key,
+            &self.store_name(),
+            "Metadata parsing error",
+        ))
+    }
+
+    /// Data access everywhere. Object services replace an object atomically; `rename` is the
+    /// service's own. Time and ETag are reported when `stat` has them, but OpenDAL 0.55 cannot
+    /// say in advance which services do, so neither is promised.
+    fn data_capabilities(&self) -> DataCapabilities {
+        let info = self.op.info();
+        DataCapabilities {
+            data_access: true,
+            atomic_write: ATOMIC_WRITE_SCHEMES.contains(&info.scheme()),
+            rename: info.full_capability().rename,
+            modified_time: false,
+            etag: false,
+        }
+    }
 }
+
+/// OpenDAL services whose `write` replaces an object atomically: a reader sees the old or the new
+/// bytes, never a mix.
+#[cfg(feature = "async_store")]
+const ATOMIC_WRITE_SCHEMES: &[&str] = &["memory", "s3", "gcs", "azblob", "oss", "cos", "obs"];
 
 #[cfg(feature = "async_store")]
 #[cfg(test)]
@@ -557,6 +686,31 @@ mod tests {
     use liquers_core::value::Value;
     use opendal::services::Memory;
     use opendal::Operator;
+
+    /// Data-only access touches no sidecar, lists raw names and reports facts from `stat`.
+    #[tokio::test]
+    async fn opendal_data_only_access() -> Result<(), Error> {
+        let op = Operator::new(Memory::default())
+            .map_err(|e| Error::general_error(e.to_string()))?
+            .finish();
+        let store = AsyncOpenDALStore::new(op, Key::new());
+        let key = parse_key("d/a.txt")?;
+        assert_eq!(store.data_facts(&key).await?, None);
+        store.set_data(&key, b"hello").await?;
+        assert_eq!(store.get_data(&key).await?, b"hello".to_vec());
+        assert_eq!(store.get_stored_metadata(&key).await?, None);
+        let facts = store.data_facts(&key).await?.expect("facts");
+        assert_eq!(facts.size, 5);
+        store.set_metadata(&key, &Metadata::new()).await?;
+        assert!(store.get_stored_metadata(&key).await?.is_some());
+        let names = store.listdir_data(&parse_key("d")?).await?;
+        assert_eq!(names, vec!["a.txt".to_string(), "a.txt.__metadata__".to_string()]);
+        assert!(store.listdir_data(&parse_key("missing")?).await?.is_empty());
+        store.remove_data(&key).await?;
+        assert_eq!(store.data_facts(&key).await?, None);
+        assert!(store.data_capabilities().data_access);
+        Ok(())
+    }
 
     /// `keyabs16` — the OpenDAL store refuses relative keys.
     ///

@@ -36,6 +36,15 @@ pub struct StoreRouterConfig {
     /// List of store configurations. Order matters for routing.
     #[serde(default)]
     pub stores: Vec<StoreConfig>,
+
+    /// Refuse every write to every mount (`specs/design/store-adapters/`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub read_only: bool,
+
+    /// Metadata handling for the whole router: central storage. Under it, a member's own section
+    /// may name only a storage model, which keeps the member's backup copy.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<MetadataConfig>,
 }
 
 /// Configuration for a single store.
@@ -61,15 +70,126 @@ pub struct StoreConfig {
     #[serde(default)]
     pub config: HashMap<String, serde_json::Value>,
 
-    /// Reserved for future use - metadata storage configuration.
-    #[serde(default)]
-    pub metadata: Option<HashMap<String, serde_json::Value>>,
+    /// Refuse every write to this mount; nothing is written on read either
+    /// (`specs/design/store-adapters/`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub read_only: bool,
+
+    /// How this mount's metadata is stored and shaped. No section, or an empty one, keeps today's
+    /// behaviour with the store unwrapped.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<MetadataConfig>,
+}
+
+/// A mount's metadata section (`specs/design/store-adapters/`, Phase 2 §7).
+///
+/// Every component is a `store_config` spec: a query of the realm `store_config`, whose realm
+/// prefix may be omitted. A field left out takes its value from [`METADATA_DEFAULTS`]; a field that
+/// is set replaces its default whole, and `""` means no steps.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MetadataConfig {
+    /// The storage model (`native`, `per_entry-folder`, `grouped`, `none`, …).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub storage: Option<String>,
+    /// The write strategy (`direct`, `atomic`, `transactional`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub writes: Option<String>,
+    /// Store the record `on_default` synthesized the first time it is read.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub persist_defaults: Option<bool>,
+    /// Handlers that build the record of an entry that has none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_default: Option<String>,
+    /// Handlers that check a record before it is written; an error refuses the write.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_validate: Option<String>,
+    /// Handlers that shape a record as it is written.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_write: Option<String>,
+    /// Handlers that shape a record as it is read; an error becomes a warning.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_read: Option<String>,
+}
+
+/// The values a [`MetadataConfig`] field takes when it is left out.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MetadataDefaults {
+    pub storage: &'static str,
+    pub writes: &'static str,
+    pub persist_defaults: bool,
+    pub on_default: &'static str,
+    pub on_validate: &'static str,
+    pub on_write: &'static str,
+    pub on_read: &'static str,
+}
+
+/// The defaults of a metadata section: today's behaviour made explicit, plus the facts that cost
+/// no extra read. Documented in `STORE_CONFIG_FSD.md`; a test compares the two.
+pub const METADATA_DEFAULTS: MetadataDefaults = MetadataDefaults {
+    storage: "native",
+    writes: "direct",
+    persist_defaults: false,
+    on_default: "defaults/media_type-fill/file_facts",
+    on_validate: "",
+    on_write: "defaults/media_type-fill/file_facts",
+    on_read: "media_type-fill/file_facts",
+};
+
+/// A metadata section with every field filled in.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedMetadataConfig {
+    pub storage: String,
+    pub writes: String,
+    pub persist_defaults: bool,
+    pub on_default: String,
+    pub on_validate: String,
+    pub on_write: String,
+    pub on_read: String,
+}
+
+impl MetadataConfig {
+    /// True when no field is set: `metadata: {}` is the same as no section.
+    pub fn is_empty(&self) -> bool {
+        self == &MetadataConfig::default()
+    }
+
+    /// True when the section names handlers or a write strategy, not only a storage model.
+    pub fn names_more_than_storage(&self) -> bool {
+        self.writes.is_some()
+            || self.persist_defaults.is_some()
+            || self.on_default.is_some()
+            || self.on_validate.is_some()
+            || self.on_write.is_some()
+            || self.on_read.is_some()
+    }
+
+    /// Every field, a set one as written and a missing one from [`METADATA_DEFAULTS`].
+    pub fn resolved(&self) -> ResolvedMetadataConfig {
+        let d = METADATA_DEFAULTS;
+        let or = |field: &Option<String>, default: &str| {
+            field.clone().unwrap_or_else(|| default.to_string())
+        };
+        ResolvedMetadataConfig {
+            storage: or(&self.storage, d.storage),
+            writes: or(&self.writes, d.writes),
+            persist_defaults: self.persist_defaults.unwrap_or(d.persist_defaults),
+            on_default: or(&self.on_default, d.on_default),
+            on_validate: or(&self.on_validate, d.on_validate),
+            on_write: or(&self.on_write, d.on_write),
+            on_read: or(&self.on_read, d.on_read),
+        }
+    }
 }
 
 impl StoreRouterConfig {
     /// Create an empty configuration.
     pub fn new() -> Self {
-        Self { stores: Vec::new() }
+        Self {
+            stores: Vec::new(),
+            read_only: false,
+            metadata: None,
+        }
     }
 
     /// Add a store configuration.
@@ -128,6 +248,7 @@ impl StoreConfig {
             store_type: store_type.to_string(),
             prefix: String::new(),
             config: HashMap::new(),
+            read_only: false,
             metadata: None,
         }
     }

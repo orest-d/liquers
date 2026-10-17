@@ -243,6 +243,29 @@ pub fn build_router(
     StoreRouterBuilder::new(config.clone(), Box::new(chain)).build_without_env_expansion()
 }
 
+/// Builds a page's whole store from a configuration document, router-level `read_only` and
+/// `metadata` sections included, compiling the sections against `registry` and `functions` (the
+/// environment's own, so a `store_config` entry registered there can be named).
+pub fn build_store(
+    config: &StoreRouterConfig,
+    factory: WebStoreFactory,
+    registry: liquers_core::command_metadata::CommandMetadataRegistry,
+    functions: liquers_core::store::realm::StoreConfigFunctions,
+) -> Result<std::sync::Arc<dyn liquers_core::store::AsyncStore>, Error> {
+    warn_on_unexpanded_variables(config);
+    let chain = ChainedStoreFactory::new()
+        .chain(Box::new(core_store_factory()))
+        .chain(Box::new(factory));
+    let built = StoreRouterBuilder::new(config.clone(), Box::new(chain))
+        .with_store_config(registry, functions)
+        .build_store_reporting_without_env_expansion()?;
+    // stderr goes nowhere in a browser: the page's console is where a warning is seen.
+    for warning in &built.warnings {
+        warn(&format!("liquers: {warning}"));
+    }
+    Ok(built.store)
+}
+
 /// A browser has no environment variables, so `${VAR}` is left verbatim. Saying so is better than
 /// letting a configuration quietly point somewhere unintended.
 fn warn_on_unexpanded_variables(config: &StoreRouterConfig) {

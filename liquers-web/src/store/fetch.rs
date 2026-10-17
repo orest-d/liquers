@@ -16,6 +16,18 @@
 //! from the extension; a static file server that labels everything `text/plain` or
 //! `application/octet-stream` would otherwise break every command downstream of a fetched asset.
 //!
+//! **Data-only access is the read half only.** `get_data`, `listdir_data`, `data_facts` and
+//! `get_stored_metadata` are implemented, so a `read_only: true` mount reads through them and an
+//! `http` mount can take a `metadata` section — a static host can serve `per_entry` sidecars or a
+//! `grouped` `__metadata__.json` as ordinary listed keys, or `storage: none` can synthesize every
+//! record through the configured handlers. `set_data`, `remove_data` and `rename_data` refuse with
+//! `NotSupported`, as every write here does; a section whose chains would write fails at the
+//! write, not at build. Listing is the configured key set, raw (a listed sidecar is a name like
+//! any other). `data_facts` costs a `HEAD` request: the size from `Content-Length` (or a `GET`
+//! when the server sends none or rejects `HEAD`), the `ETag` and `Last-Modified` headers when the
+//! server sends them — which is why `modified_time` and `etag` are not *promised* in
+//! [`AsyncStore::data_capabilities`]. `Last-Modified` is an HTTP-date, so its precision is seconds.
+//!
 //! `fetch` itself is taken from [`js_sys::global`] rather than from `web_sys::Window`, so the
 //! store works in a window, in a worker, and under Node — which is what allows the pure parts
 //! below to be tested without a browser.
@@ -24,9 +36,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use async_trait::async_trait;
 use liquers_core::error::Error;
-use liquers_core::metadata::{Metadata, MetadataRecord, Status};
+use liquers_core::metadata::{BackendTime, Metadata, MetadataRecord, Status, TimePrecision};
 use liquers_core::query::Key;
-use liquers_core::store::AsyncStore;
+use liquers_core::store::{AsyncStore, DataCapabilities, DataFacts};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::JsFuture;
@@ -307,6 +319,63 @@ impl FetchStore {
     fn directory_metadata(&self, key: &Key) -> Metadata {
         Metadata::MetadataRecord(self.default_metadata(key, true))
     }
+
+    /// `GET`s a known key, returning the body with the response it came in.
+    async fn fetch_body(&self, key: &Key) -> Result<(Vec<u8>, web_sys::Response), Error> {
+        let url = self.url_for(key)?;
+        self.require_known(key)?;
+        let response = self.request(key, &url, "GET").await?;
+        if !response.ok() {
+            return Err(self.status_error(key, &url, response.status()));
+        }
+        let buffer = response
+            .array_buffer()
+            .map_err(|e| self.js_read_error(key, &url, &e))?;
+        let buffer = JsFuture::from(buffer)
+            .await
+            .map_err(|e| self.js_read_error(key, &url, &e))?;
+        Ok((js_sys::Uint8Array::new(&buffer).to_vec(), response))
+    }
+
+    /// `HEAD`s a known key, falling back to `GET` for a server that rejects `HEAD` (405, 501).
+    /// `None` when the server answers 404. The body length is returned when a `GET` was made.
+    async fn probe(&self, key: &Key) -> Result<Option<(web_sys::Response, Option<u64>)>, Error> {
+        let url = self.url_for(key)?;
+        self.require_known(key)?;
+        let response = self.request(key, &url, "HEAD").await?;
+        if response.ok() {
+            return Ok(Some((response, None)));
+        }
+        match response.status() {
+            404 => Ok(None),
+            405 | 501 => match self.fetch_body(key).await {
+                Ok((data, response)) => Ok(Some((response, Some(data.len() as u64)))),
+                Err(e) if e.error_type == liquers_core::error::ErrorType::KeyNotFound => Ok(None),
+                Err(e) => Err(e),
+            },
+            status => Err(self.status_error(key, &url, status)),
+        }
+    }
+
+    /// The refusal of a data-only write: this store has no write path at all.
+    fn read_only_refusal(&self, key: &Key, method: &str) -> Error {
+        Error::not_supported(format!(
+            "Store '{}' is read-only over HTTP: {method} refused for key '{key}'",
+            self.store_name()
+        ))
+    }
+}
+
+/// Reads an HTTP-date (`Last-Modified`) as a [`BackendTime`] at seconds precision, which is all
+/// the format carries. `None` for a header that does not parse, rather than an error: the time is
+/// an optional fact, and a malformed header should not make the object unreadable.
+fn http_date_to_backend_time(text: &str) -> Option<BackendTime> {
+    let date = js_sys::Date::new(&JsValue::from_str(text));
+    if date.get_time().is_nan() {
+        return None;
+    }
+    let iso: String = date.to_iso_string().into();
+    BackendTime::parse(&iso, Some(TimePrecision::Seconds)).ok()
 }
 
 #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
@@ -321,19 +390,7 @@ impl AsyncStore for FetchStore {
     }
 
     async fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
-        let url = self.url_for(key)?;
-        self.require_known(key)?;
-        let response = self.request(key, &url, "GET").await?;
-        if !response.ok() {
-            return Err(self.status_error(key, &url, response.status()));
-        }
-        let buffer = response
-            .array_buffer()
-            .map_err(|e| self.js_read_error(key, &url, &e))?;
-        let buffer = JsFuture::from(buffer)
-            .await
-            .map_err(|e| self.js_read_error(key, &url, &e))?;
-        let data = js_sys::Uint8Array::new(&buffer).to_vec();
+        let (data, response) = self.fetch_body(key).await?;
         let metadata = self.metadata_from_response(key, &response, Some(data.len() as u64));
         Ok((data, metadata))
     }
@@ -388,6 +445,83 @@ impl AsyncStore for FetchStore {
 
     async fn keys(&self) -> Result<Vec<Key>, Error> {
         Ok(self.keys.iter().cloned().collect())
+    }
+
+    // --- Data-only access: the read half (module documentation) ----------------------------
+
+    /// The body alone; a key outside the configured set is `KeyNotFound` before any request.
+    async fn get_data(&self, key: &Key) -> Result<Vec<u8>, Error> {
+        self.fetch_body(key).await.map(|(data, _)| data)
+    }
+
+    async fn set_data(&self, key: &Key, _data: &[u8]) -> Result<(), Error> {
+        check_key(key, &self.store_name())?;
+        Err(self.read_only_refusal(key, "set_data"))
+    }
+
+    async fn remove_data(&self, key: &Key) -> Result<(), Error> {
+        check_key(key, &self.store_name())?;
+        Err(self.read_only_refusal(key, "remove_data"))
+    }
+
+    // `rename_data` keeps the trait's refusal: there is nothing to rename and `rename` is false.
+
+    /// The configured names under `key`, raw: nothing is reserved or filtered here.
+    async fn listdir_data(&self, key: &Key) -> Result<Vec<String>, Error> {
+        self.listdir(key).await
+    }
+
+    /// One `HEAD`: size, `ETag` and `Last-Modified`. `Ok(None)` for a directory, a key outside
+    /// the configured set, or a 404 — the configured set bounds what may be requested, exactly as
+    /// it does for `get`.
+    async fn data_facts(&self, key: &Key) -> Result<Option<DataFacts>, Error> {
+        check_key(key, &self.store_name())?;
+        if !self.keys.contains(key) {
+            return Ok(None);
+        }
+        let Some((response, body_len)) = self.probe(key).await? else {
+            return Ok(None);
+        };
+        let size = match body_len.or_else(|| {
+            Self::header(&response, "content-length").and_then(|v| v.trim().parse::<u64>().ok())
+        }) {
+            Some(size) => size,
+            // No length announced (chunked, or a compressed response): only the body can tell.
+            None => self.fetch_body(key).await?.0.len() as u64,
+        };
+        Ok(Some(DataFacts {
+            size,
+            modified: Self::header(&response, "last-modified")
+                .as_deref()
+                .and_then(http_date_to_backend_time),
+            etag: Self::header(&response, "etag"),
+        }))
+    }
+
+    /// The record this store has always reported for a key — derived from the server's own
+    /// `Content-Type` and `Content-Length`, nothing written or repaired — so `storage: native`
+    /// and `read_only: true` see what `get_metadata` returns. The server keeps no other metadata;
+    /// `Ok(None)` for a directory, an unlisted key or a 404.
+    async fn get_stored_metadata(&self, key: &Key) -> Result<Option<Metadata>, Error> {
+        check_key(key, &self.store_name())?;
+        if !self.keys.contains(key) {
+            return Ok(None);
+        }
+        Ok(self
+            .probe(key)
+            .await?
+            .map(|(response, body_len)| self.metadata_from_response(key, &response, body_len)))
+    }
+
+    /// `etag` and `modified_time` are reported when the server sends them, never promised.
+    fn data_capabilities(&self) -> DataCapabilities {
+        DataCapabilities {
+            data_access: true,
+            atomic_write: false,
+            rename: false,
+            modified_time: false,
+            etag: false,
+        }
     }
 
     /// Must be overridden: the trait default is `false`, and `AsyncStoreRouter` consults it, so a

@@ -19,7 +19,7 @@ use liquers_core::parse::parse_key;
 use liquers_core::query::Key;
 use liquers_core::store::{AsyncStore, AsyncStoreRouter};
 use liquers_core::store_config::StoreRouterConfig;
-use liquers_web::store::{build_router, JsStore, WebStoreFactory};
+use liquers_web::store::{build_router, build_store, JsStore, WebStoreFactory};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_test::*;
 
@@ -713,4 +713,164 @@ fn failed_reconfiguration_keeps_the_previous_store() {
     );
 
     reset_global();
+}
+
+// ---------------------------------------------------------------------------
+// STORE14–STORE17: store adapters from configuration (`specs/design/store-adapters/`).
+// ---------------------------------------------------------------------------
+
+/// A store offering data-only access: plain bytes in a `Map`, a fixed backend time.
+const DATA_STORE: &str = r#"
+(() => {
+  const data = new Map();
+  const children = (key) => {
+    const prefix = key === '' ? '' : key + '/';
+    const names = new Set();
+    for (const k of data.keys()) {
+      if (k.startsWith(prefix)) names.add(k.slice(prefix.length).split('/')[0]);
+    }
+    return [...names];
+  };
+  let gets = 0;
+  return {
+    _data: data,
+    _gets() { return gets; },
+    async get(key) {
+      gets += 1;
+      if (!data.has(key)) return undefined;
+      return { data: data.get(key), metadata: {} };
+    },
+    async getData(key) { return data.get(key) ?? null; },
+    async setData(key, bytes) { data.set(key, bytes); },
+    async removeData(key) { data.delete(key); },
+    async listdirData(key) { return children(key); },
+    async dataFacts(key) {
+      const bytes = data.get(key);
+      if (bytes === undefined) return null;
+      return { size: bytes.length, modified: '2026-10-15T12:00:00.123Z', etag: 'e' + bytes.length };
+    },
+    isDir(key) { return !data.has(key) && children(key).length > 0; },
+    async contains(key) { return data.has(key) || children(key).length > 0; },
+    async listdir(key) { return children(key); },
+  };
+})()
+"#;
+
+fn data_store_factory(name: &str, source: &str) -> WebStoreFactory {
+    let mut factory = WebStoreFactory::new();
+    factory.register_object(name, object(source));
+    factory
+}
+
+fn built(yaml: &str, factory: WebStoreFactory) -> Result<std::sync::Arc<dyn AsyncStore>, liquers_core::error::Error> {
+    let config = StoreRouterConfig::from_yaml(yaml).expect("config parses");
+    let (registry, functions) = liquers_core::store::realm::StoreConfigFunctions::builtin();
+    build_store(&config, factory, registry, functions)
+}
+
+/// STORE14 — `read_only` on a `js` entry refuses writes before they reach the object.
+#[wasm_bindgen_test]
+async fn store14_read_only_js_store_refuses_writes() {
+    let store = built(
+        "stores:\n  - type: js\n    prefix: ro\n    config: { object: ro }\n    read_only: true\n",
+        data_store_factory("ro", READ_ONLY_STORE),
+    )
+    .expect("store builds");
+    let (data, _) = store.get(&key("ro/fixed.txt")).await.expect("reads pass through");
+    assert_eq!(data, b"hi".to_vec());
+    match store.set(&key("ro/new.txt"), b"x", &Metadata::new()).await {
+        Ok(()) => panic!("a read-only store must refuse a write"),
+        Err(e) => assert_eq!(e.error_type, ErrorType::NotSupported, "{}", e.message),
+    }
+    assert!(store.is_read_only());
+}
+
+/// STORE15 — a `metadata` section on an object without the data methods is refused at build.
+#[wasm_bindgen_test]
+fn store15_metadata_without_data_methods_refused() {
+    let result = built(
+        "stores:\n  - type: js\n    prefix: d\n    config: { object: full }\n    metadata: { storage: grouped }\n",
+        data_store_factory("full", FULL_STORE),
+    );
+    match result {
+        Ok(_) => panic!("a store without data-only access must be refused"),
+        Err(e) => {
+            assert!(e.message.contains("Mount 'd'"), "{}", e.message);
+            assert!(e.message.contains("data-only access"), "{}", e.message);
+        }
+    }
+}
+
+/// STORE16 — under `per_entry` and `grouped` storage the records are data objects the page keeps,
+/// the default read chain applies, and the object's own `get` is never called.
+#[wasm_bindgen_test]
+async fn store16_js_store_under_grouped_storage_round_trips() {
+    for storage in ["per_entry", "grouped"] {
+        store16_round_trip(storage).await;
+    }
+}
+
+async fn store16_round_trip(storage: &str) {
+    let source = object(DATA_STORE);
+    let mut factory = WebStoreFactory::new();
+    factory.register_object("notes", source.clone());
+    let store = built(
+        &format!(
+            "stores:\n  - type: js\n    prefix: n\n    config: {{ object: notes }}\n    metadata: {{ storage: {storage} }}\n"
+        ),
+        factory,
+    )
+    .expect("store builds");
+    let mut record = liquers_core::metadata::MetadataRecord::new();
+    record.title = "First".to_string();
+    store
+        .set(&key("n/a.md"), b"# A", &Metadata::MetadataRecord(record))
+        .await
+        .expect("set");
+    store.set(&key("n/b.txt"), b"bee", &Metadata::new()).await.expect("set");
+    let a = store.get_metadata(&key("n/a.md")).await.expect("metadata");
+    assert_eq!(a.title(), "First");
+    assert_eq!(a.get_media_type(), "text/markdown");
+    let mut names = store.listdir(&key("n")).await.expect("listdir");
+    names.sort();
+    assert_eq!(names, vec!["a.md".to_string(), "b.txt".to_string()]);
+    // The default `on_read` chain fills the facts.
+    assert_eq!(store.get_asset_info(&key("n/b.txt")).await.expect("info").file_size, Some(3));
+    // The records are data objects of the page's store.
+    let data = js_sys::Reflect::get(&source, &JsValue::from_str("_data")).expect("_data");
+    let map: js_sys::Map = data.dyn_into().expect("a Map");
+    let (present, absent) = if storage == "grouped" {
+        ("n/__metadata__.json", "n/a.md.__metadata__")
+    } else {
+        ("n/a.md.__metadata__", "n/__metadata__.json")
+    };
+    assert!(map.has(&JsValue::from_str(present)), "{storage}: {present}");
+    assert!(!map.has(&JsValue::from_str(absent)), "{storage}: {absent}");
+    let gets = js_sys::Reflect::get(&source, &JsValue::from_str("_gets"))
+        .expect("_gets")
+        .dyn_into::<js_sys::Function>()
+        .expect("a function")
+        .call0(&source)
+        .expect("call");
+    assert_eq!(gets.as_f64(), Some(0.0), "{storage}: the object's get must not be called");
+}
+
+/// STORE17 — `created` comes from the page's `dataFacts` time, in the canonical form.
+#[wasm_bindgen_test]
+async fn store17_created_round_trips_from_js_time() {
+    let store = built(
+        "stores:\n  - type: js\n    prefix: n\n    config: { object: notes }\n    metadata: { storage: per_entry }\n",
+        data_store_factory("notes", DATA_STORE),
+    )
+    .expect("store builds");
+    store.set(&key("n/a.txt"), b"abc", &Metadata::new()).await.expect("set");
+    let metadata = store.get_metadata(&key("n/a.txt")).await.expect("metadata");
+    let record = metadata.metadata_record().expect("a record");
+    assert_eq!(
+        record.created.as_ref().map(|t| t.as_str().to_string()),
+        Some("2026-10-15T12:00:00.123Z".to_string())
+    );
+    assert_eq!(record.etag.as_deref(), Some("e3"));
+    let info = store.get_asset_info(&key("n/a.txt")).await.expect("info");
+    assert_eq!(info.created, record.created);
 }

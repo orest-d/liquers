@@ -419,6 +419,17 @@ async fn unknown_field_logs_warning() -> Res {
 // commands
 // ------------------------------------------------------------------------------------------------
 
+/// The `store_config` realm (declared for configuration, never executed) is not catalogued.
+#[tokio::test]
+async fn command_catalog_omits_the_store_config_realm() -> Res {
+    let env = fixture("command_catalog_omits_the_store_config_realm").await?;
+    let all = view_of(&env, "ns-search/commands").await?;
+    assert!(all.len() > 5);
+    assert!(texts(&all, "realm").iter().all(|realm| realm != "store_config"));
+    assert!(!texts(&all, "name").contains(&"front_matter".to_string()));
+    Ok(())
+}
+
 #[tokio::test]
 async fn commands_catalog_and_discovery() -> Res {
     let env = fixture("commands_catalog_and_discovery").await?;

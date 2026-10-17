@@ -200,3 +200,117 @@ async fn c10_js_store() {
     // WEB-JS-STORE-HAS-NO-DIRECTORY-METADATA).
     report(run_all(&fixture).await);
 }
+
+/// Install a `fetch` serving `files` (URL → text body) with `ETag`, `Last-Modified` and
+/// `Content-Length` headers, answering `HEAD` without a body and anything unlisted with 404.
+fn install_header_fetch(files: &[(&str, String)]) {
+    let map = js_sys::Object::new();
+    for (url, body) in files {
+        js_sys::Reflect::set(&map, &JsValue::from_str(url), &JsValue::from_str(body))
+            .expect("map entry");
+    }
+    let make = js_sys::Function::new_with_args(
+        "files",
+        r#"
+        return async (url, options) => {
+          const body = files[url];
+          if (body === undefined) return new Response(null, { status: 404 });
+          const headers = {
+            'Content-Length': String(new TextEncoder().encode(body).length),
+            'ETag': '"v1"',
+            'Last-Modified': 'Wed, 21 Oct 2015 07:28:00 GMT',
+            'Content-Type': 'text/plain',
+          };
+          const isHead = options && options.method === 'HEAD';
+          return new Response(isHead ? null : body, { status: 200, headers });
+        };
+        "#,
+    );
+    let fetch = make.call1(&JsValue::NULL, &map).expect("build fetch");
+    js_sys::Reflect::set(&js_sys::global(), &"fetch".into(), &fetch).expect("install fetch");
+}
+
+/// `FetchStore`'s data-only access is the read half: bytes, raw names, facts from the response
+/// headers, its header-derived record as the stored one — and every data write refused
+/// (WEB-BUILT-IN-STORES-HAVE-NO-DATA-ACCESS).
+#[wasm_bindgen_test]
+async fn fetch_store_data_only_read_half() {
+    use liquers_core::error::ErrorType;
+    use liquers_core::store::AsyncStore;
+    install_header_fetch(&[("https://h.invalid/a.txt", "hello".to_string())]);
+    let prefix = parse_key("web").expect("prefix");
+    let a = parse_key("web/a.txt").expect("key");
+    let sidecar = parse_key("web/a.txt.__metadata__").expect("key");
+    let store = FetchStore::new(&prefix, "https://h.invalid/", vec![a.clone(), sidecar.clone()])
+        .expect("fetch store");
+
+    let caps = store.data_capabilities();
+    assert!(caps.data_access);
+    assert!(!caps.atomic_write && !caps.rename && !caps.modified_time && !caps.etag);
+
+    assert_eq!(store.get_data(&a).await.expect("get_data"), b"hello".to_vec());
+    let mut names = store.listdir_data(&prefix).await.expect("listdir_data");
+    names.sort();
+    assert_eq!(names, vec!["a.txt", "a.txt.__metadata__"]);
+
+    let facts = store.data_facts(&a).await.expect("facts").expect("present");
+    assert_eq!(facts.size, 5);
+    assert_eq!(facts.etag.as_deref(), Some("\"v1\""));
+    assert_eq!(
+        facts.modified.as_ref().map(|t| t.as_str().to_string()),
+        Some("2015-10-21T07:28:00Z".to_string())
+    );
+    // Listed but not served: absent, not an error.
+    assert_eq!(store.data_facts(&sidecar).await.expect("facts"), None);
+    // Unlisted: absent, and no request is made for it.
+    assert_eq!(store.data_facts(&parse_key("web/other").expect("key")).await.expect("facts"), None);
+    assert_eq!(store.data_facts(&prefix).await.expect("facts"), None, "a directory has no facts");
+
+    let stored = store.get_stored_metadata(&a).await.expect("stored").expect("a record");
+    assert_eq!(stored.get_media_type(), "text/plain");
+    assert_eq!(store.get_stored_metadata(&sidecar).await.expect("stored"), None);
+
+    for result in [
+        store.set_data(&a, b"x").await,
+        store.remove_data(&a).await,
+        store.rename_data(&a, &sidecar).await,
+    ] {
+        match result {
+            Ok(()) => panic!("a data write must be refused"),
+            Err(e) => assert_eq!(e.error_type, ErrorType::NotSupported, "{}", e.message),
+        }
+    }
+}
+
+/// An `http` mount takes a `metadata` section: here `grouped`, with the folder's record file
+/// served by the host as one more listed key, under `read_only: true`.
+#[wasm_bindgen_test]
+async fn fetch_store_under_grouped_metadata_section() {
+    use liquers_core::metadata::{Metadata, MetadataRecord};
+    use liquers_core::store_config::StoreRouterConfig;
+    use liquers_web::store::{build_store, WebStoreFactory};
+
+    let mut record = MetadataRecord::new();
+    record.title = "From the host".to_string();
+    let record_json = Metadata::MetadataRecord(record).to_json().expect("json");
+    install_header_fetch(&[
+        ("https://h.invalid/a.txt", "hello".to_string()),
+        ("https://h.invalid/__metadata__.json", format!("{{\"a.txt\": {record_json}}}")),
+    ]);
+    let yaml = "stores:\n  - type: http\n    prefix: web\n    config:\n      url_prefix: https://h.invalid/\n      keys: [a.txt, __metadata__.json]\n    read_only: true\n    metadata: { storage: grouped }\n";
+    let config = StoreRouterConfig::from_yaml(yaml).expect("config parses");
+    let (registry, functions) = liquers_core::store::realm::StoreConfigFunctions::builtin();
+    let store = build_store(&config, WebStoreFactory::new(), registry, functions)
+        .unwrap_or_else(|e| panic!("an http mount must take a metadata section: {}", e.message));
+
+    let a = parse_key("web/a.txt").expect("key");
+    let metadata = store.get_metadata(&a).await.expect("metadata");
+    assert_eq!(metadata.title(), "From the host");
+    let (data, _) = store.get(&a).await.expect("get");
+    assert_eq!(data, b"hello".to_vec());
+    // The record file is the storage model's reserved name, so the listing drops it.
+    assert_eq!(
+        store.listdir(&parse_key("web").expect("key")).await.expect("listdir"),
+        vec!["a.txt".to_string()]
+    );
+}

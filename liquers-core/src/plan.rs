@@ -99,9 +99,10 @@ fn promote_relative_default_links(
         let QuerySegment::Transform(transform) = segment else {
             continue;
         };
+        // The realm of a segment's header applies to every action in it.
+        let realm = transform.name();
         for action in transform.query.iter_mut() {
             let namespaces = namespaces_for_query(query, cmr)?;
-            let realm = query.last_transform_query_name().unwrap_or_default();
             let Some(metadata) = cmr.find_command_in_namespaces(&realm, &namespaces, &action.name)
             else {
                 // An unresolvable action is not this function's error to report; plan building
@@ -185,7 +186,7 @@ pub fn append_action(
     let plain_query = append_actions(query, vec![action.clone()]);
 
     let namespaces = namespaces_for_query(query, cmr)?;
-    let realm = query.last_transform_query_name().unwrap_or_default();
+    let realm = query.last_transform_realm();
     let resolved_plain = cmr.find_command_in_namespaces(&realm, &namespaces, &action.name);
 
     let requested_ns = normalize_namespace(ns);
@@ -1503,22 +1504,25 @@ impl<'c> PlanBuilder<'c> {
         namespaces_for_query(query, self.command_registry)
     }
 
+    /// Looks up an action's command in `realm` — the realm of the transform segment the action
+    /// was written in, which the caller knows and `query` may no longer show: `process_query`
+    /// passes a reduced query for a segment's first action.
     fn get_command_metadata(
         &mut self,
         query: &Query,
+        realm: &str,
         action_request: &ActionRequest,
     ) -> Result<CommandMetadata, Error> {
         let namespaces = self.get_namespaces(query)?;
-        let realm = query.last_transform_query_name().unwrap_or("".to_string());
 
         if let Some(command_metadata) = self.command_registry.find_command_in_namespaces(
-            &realm,
+            realm,
             &namespaces,
             &action_request.name,
         ) {
             Ok(command_metadata.resolve_global_enums(self.command_registry)?)
         } else {
-            Err(Error::action_not_registered(action_request, &namespaces)
+            Err(Error::action_not_registered(action_request, realm, &namespaces)
                 .with_query(query)
                 .with_position(&action_request.position))
         }
@@ -1661,6 +1665,7 @@ impl<'c> PlanBuilder<'c> {
         &mut self,
         query: &Query,
         prefix: &Query,
+        realm: &str,
         action_request: &ActionRequest,
     ) -> Result<(), Error> {
         // Intercept 'v' instruction BEFORE normal action processing
@@ -1685,7 +1690,7 @@ impl<'c> PlanBuilder<'c> {
             return Ok(()); // Don't create Step::Action for 'v'
         }
 
-        let command_metadata = self.get_command_metadata(query, action_request)?;
+        let command_metadata = self.get_command_metadata(query, realm, action_request)?;
 
         // `uncached_by` describes the last action only: this action's commands decide it afresh.
         self.plan.uncached_by = None;
@@ -1860,7 +1865,7 @@ impl<'c> PlanBuilder<'c> {
                 let prefix = query.clone();
                 let mut query = query.clone();
                 query.segments = Vec::new();
-                self.process_action(&query, &prefix, &action)?;
+                self.process_action(&query, &prefix, &transform.name(), &action)?;
                 return Ok(());
             }
             if transform.is_filename() {
@@ -1924,7 +1929,8 @@ impl<'c> PlanBuilder<'c> {
                         return Ok(());
                     }
                     if let Some(action) = tqs.action() {
-                        self.process_action(query, query, &action)?;
+                        // `tqs` is the split-off last action; it keeps its segment's header.
+                        self.process_action(query, query, &tqs.name(), &action)?;
                         return Ok(());
                     }
                     if tqs.is_filename() {
@@ -6954,4 +6960,86 @@ mod tests {
         Ok(())
     }
 
+    // --- A segment's realm applies to every action in it (store-adapters Phase 4 step 0) ---
+
+    /// A registry declaring `a` and `b` in realm `r` only, so planning succeeds only if the
+    /// planner looks them up in that realm.
+    fn realm_registry() -> CommandMetadataRegistry {
+        let mut cmr = CommandMetadataRegistry::new();
+        for name in ["a", "b"] {
+            let mut cmd = CommandMetadata::new(name);
+            cmd.with_realm("r");
+            cmr.add_command(&cmd);
+        }
+        cmr
+    }
+
+    fn action_realms(plan: &Plan) -> Vec<(String, String)> {
+        plan.steps
+            .iter()
+            .filter_map(|step| match step {
+                Step::Action {
+                    realm, action_name, ..
+                } => Some((realm.clone(), action_name.clone())),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn realm_header_applies_to_every_action() -> Result<(), Error> {
+        let cmr = realm_registry();
+        let plan = PlanBuilder::new(parse_query("-r/a/b")?, &cmr).build()?;
+        assert_eq!(
+            action_realms(&plan),
+            vec![
+                ("r".to_string(), "a".to_string()),
+                ("r".to_string(), "b".to_string())
+            ]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn realm_header_applies_to_a_single_action() -> Result<(), Error> {
+        let cmr = realm_registry();
+        let plan = PlanBuilder::new(parse_query("-r/a")?, &cmr).build()?;
+        assert_eq!(action_realms(&plan), vec![("r".to_string(), "a".to_string())]);
+        Ok(())
+    }
+
+    #[test]
+    fn realm_header_applies_after_a_resource_segment() -> Result<(), Error> {
+        let cmr = realm_registry();
+        let plan = PlanBuilder::new(parse_query("-R/data/x.txt/-r/a/b")?, &cmr).build()?;
+        assert_eq!(
+            action_realms(&plan),
+            vec![
+                ("r".to_string(), "a".to_string()),
+                ("r".to_string(), "b".to_string())
+            ]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn default_realm_plans_unchanged() -> Result<(), Error> {
+        // The same names in realm "" are found without a header, and are not found under one.
+        let mut cmr = CommandMetadataRegistry::new();
+        for name in ["a", "b"] {
+            cmr.add_command(&CommandMetadata::new(name));
+        }
+        let plan = PlanBuilder::new(parse_query("a/b")?, &cmr).build()?;
+        assert_eq!(
+            action_realms(&plan),
+            vec![
+                (String::new(), "a".to_string()),
+                (String::new(), "b".to_string())
+            ]
+        );
+        let plan = PlanBuilder::new(parse_query("-R/data/x.txt/-/a/b")?, &cmr).build()?;
+        assert_eq!(action_realms(&plan).len(), 2);
+        assert!(PlanBuilder::new(parse_query("-r/a")?, &cmr).build().is_err());
+        Ok(())
+    }
 }

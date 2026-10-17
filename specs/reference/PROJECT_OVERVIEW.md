@@ -3,7 +3,7 @@ title: Liquers Project Overview
 kind: reference
 audience: internal
 area: [core/query, core/plan, core/assets, core/store, core/value]
-reviewed: 2026-10-15
+reviewed: 2026-10-16
 ---
 # Liquers Project Overview
 
@@ -91,6 +91,8 @@ adapter trait.
 | `query.rs` | ~2600 | Query DSL: Query, Key, ActionRequest, segments |
 | `metadata.rs` | ~1500 | Metadata, Status, logging, progress tracking |
 | `store.rs` | ~1200 | Storage abstraction: AsyncStore, router, memory and file backends |
+| `store/` | ~6000 | Configured stores: `ReadOnlyStore`, `MetadataPipelineStore`, storage models, write strategies, the `store_config` realm's compiler and handlers |
+| `store_config.rs`, `store_factory.rs` | ~1800 | Store configuration documents and `StoreRouterBuilder` |
 | `assets.rs` | ~1400 | Asset lifecycle management, async execution |
 | `interpreter.rs` | ~400 | Plan execution engine |
 | `commands.rs` | ~300 | Command execution framework |
@@ -133,7 +135,7 @@ adapter trait.
 
 **Legacy shorthand**: If a query has exactly two parts and the second is a transform, the first is treated as a resource (may be phased out due to confusion).
 
-**Segment Headers**: Queries can specify realm in the segment header. Realm applies to the whole segment. Namespace can change within a segment using `ns` instruction.
+**Segment Headers**: Queries can specify realm in the segment header. Realm applies to the whole segment: the planner looks every action of a transform segment up in that segment's realm. Namespace can change within a segment using `ns` instruction. See [`REALMS.md`](REALMS.md).
 
 **Parameter arity**: every parameter written in a query must be consumed. An action supplying more
 parameters than its command declares is an **error** at plan build time, carrying the position of
@@ -212,7 +214,12 @@ inside a link.
     - Browser frontend (limited APIs)
 
   - Allows routing: web client sends "backend" realm to server, executes "frontend" in browser
-  - Realm interpretation is the responsibility of a plan interpreter. (Currently there is no multi-realm interpreter implemented.) 
+  - Realm interpretation is the responsibility of a plan interpreter. (Currently there is no multi-realm interpreter implemented.)
+  - A realm may also be **foreign**: addressable (parsed, planned, validated, exported) but not
+    executable. `store_config` is the first. Its entries are declared in the ordinary
+    `CommandMetadataRegistry` and compiled into store configuration, and the executor refuses
+    them (`NON_EXECUTABLE_REALMS`). Overviews of runnable commands use
+    `CommandMetadataRegistry::executable_commands()`. See [`REALMS.md`](REALMS.md).
 
 - **Namespace**: Logical grouping of related commands
   - Multiple namespaces can be active
@@ -290,6 +297,23 @@ not `PlanBuilder`, is responsible for resolving subsequent keys, queries, links,
 
 **Routing**: `AsyncStoreRouter` directs requests by key prefix to appropriate backends
 `AsyncStoreRouter` implements the `AsyncStore` interface, so it can be used as a store.
+
+**Data-only access**: `AsyncStore` also has optional methods that read and write the data object
+alone, never touching metadata: `get_data`, `set_data`, `remove_data`, `rename_data`,
+`listdir_data` and `data_facts` (size, backend time, ETag), plus `get_stored_metadata` (the
+backend's own record as stored, never repaired). Alongside them
+sit `data_capabilities`, `is_read_only`, `sync` and `version_verification`. Every one has a
+default (refuse, or "none"), so a store that does not implement them is unchanged. The memory,
+file, router and OpenDAL stores implement data-only access.
+
+**Configured stores**: a mount's `read_only` flag and `metadata` section (`STORE_CONFIG_FSD.md`)
+wrap the backend. `ReadOnlyStore` refuses writes. `MetadataPipelineStore` (`store/pipeline.rs`)
+works through the backend's data-only methods. It keeps records in a storage model (`native`,
+`per_entry`, `grouped`, `none`) and shapes them with four handler chains (`on_default`,
+`on_validate`, `on_write`, `on_read`). It commits each write with a write strategy (`direct`,
+`atomic`, `transactional`). Each part is a spec of the `store_config` realm, compiled once at
+store build. Behaviour: `STORE_SEMANTICS.md` §§11–16. How-to:
+[`guides/STORE_CONFIG_GUIDE.md`](../guides/STORE_CONFIG_GUIDE.md).
 
 ### 6. Execution Flow
 
@@ -404,6 +428,15 @@ Session (user session - currently minimal)
 - Queries and recipes are stateless - if the commands are stateless and the data stored in the store is constant. This should integrate well with a REST API.
 - In practice commands may interact with non-static systems, e.g. databases and data in the store may be modified by the user. Such issues will partly be mitigated by dependency checking.  
 
+### Liquers is the only writer of store metadata while it runs
+- Other programs may change the *data* in a store: configured mounts detect it from the backend's
+  size, modification time and ETag, and dependency checks follow the recorded versions.
+- Other programs may not change the *metadata*. A metadata record has no hash or time of its own,
+  so an outside edit cannot be detected and may be cached over or overwritten; editing it while
+  Liquers runs is at the editor's own risk. Change metadata through Liquers, or with it stopped.
+  Two Liquers processes writing one store are outside the contract too (locks are per process).
+  See `STORE_SEMANTICS.md`, introduction.
+
 ### Keys identify named resources
 - Keys form a natural hierarchical structure
 - Keys allow for a unified access to both data available from store and assets created on demand.
@@ -470,6 +503,8 @@ project's purpose, intended uses and per-crate strategy. This document describes
 - [Python LiQuer docs](https://orest-d.github.io/liquer/site/index.html) (obsolete but relevant)
 - [Query language spec](https://raw.githubusercontent.com/orest-d/liquer/refs/heads/master/docs/query.md)
 - [Store Config FSD](./STORE_CONFIG_FSD.md)
+- [Realms](./REALMS.md)
+- [Store Configuration Guide](../guides/STORE_CONFIG_GUIDE.md)
 
 ### Key Source Files
 - `liquers-core/src/query.rs` - Query DSL implementation
@@ -493,7 +528,7 @@ project's purpose, intended uses and per-crate strategy. This document describes
 | **Recipe** | Query + metadata + parameter overrides |
 | **Recipe provider** | Source of recipes for keys; several compose into a `RecipeProviderChain` |
 | **Record stream** | Tabular data as a `RecordView` (a table) or a `RecordSource` (re-openable chunks), from `liquers-records` |
-| **Realm** | Environment capability context (GUI, server, browser) |
+| **Realm** | First component of a `CommandKey`, chosen by a transform segment's header: an environment capability context (GUI, server, browser), or a foreign realm such as `store_config` |
 | **Namespace** | Logical grouping of commands |
 | **Store** | Key-value storage backend |
 | **Plan** | Compiled sequence of execution steps |
@@ -506,12 +541,14 @@ project's purpose, intended uses and per-crate strategy. This document describes
 
 ---
 
-*Last updated: 2026-09-27*
+*Last updated: 2026-10-15*
 
 ## History
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-16 | Key Design Decisions: Liquers is the only writer of store metadata while it runs. | `design/store-adapters/` phase-5 review |
+| 2026-10-15 | Reviewed against `design/store-adapters/`. Added `AsyncStore` data-only access and the configured-store layer (`ReadOnlyStore`, `MetadataPipelineStore`, storage models, write strategies, handler chains) to §5. The module table gains `store/`, `store_config.rs` and `store_factory.rs`. "Realm applies to the whole segment" is now true of the planner. §3 adds foreign realms: `store_config` is addressable, plannable, not executable. Pointers to `REALMS.md` and `STORE_CONFIG_GUIDE.md`. | phase-5, `design/store-adapters/` |
 | 2026-10-15 | Priority areas and the UI roadmap moved to the new `VISION.md` (purpose, uses, vision, strategy); dropped the stale claim that dependency checking is unimplemented — it landed (see `DEPENDENCIES_STATUS.md` and the dependency designs). | documentation-gap review |
 | 2026-10-11 | `Query::absolute` renamed `Query::rooted`, wire name included (no alias); its meaning is unchanged. | `design/query-leading-slash-field/` |
 | 2026-10-10 | Special instructions: `v` is positional (`design/plan-policy/`). | phase-5, `design/plan-policy/` |

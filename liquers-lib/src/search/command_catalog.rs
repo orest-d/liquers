@@ -103,9 +103,9 @@ pub async fn commands<E: Environment<Value = Value>>(
     let wanted = namespace.strip_prefix("ns-").unwrap_or(&namespace).to_string();
     let envref = context.get_envref();
     let registry = envref.get_command_metadata_registry();
+    // Declared-only realms (`store_config`) are configuration, not commands a query can run.
     let mut selected: Vec<&CommandMetadata> = registry
-        .commands
-        .iter()
+        .executable_commands()
         .filter(|command| wanted.is_empty() || command.namespace == wanted)
         .collect();
     selected.sort_by(|a, b| (&a.namespace, &a.name, &a.realm).cmp(&(&b.namespace, &b.name, &b.realm)));

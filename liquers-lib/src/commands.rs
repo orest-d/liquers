@@ -125,7 +125,8 @@ pub fn commands_doc<E: Environment>(
     // Group commands by namespace, applying filters
     let mut by_namespace: BTreeMap<String, Vec<&liquers_core::command_metadata::CommandMetadata>> =
         BTreeMap::new();
-    for cmd in &registry.commands {
+    // Declared-only realms (`store_config`) are configuration, not commands a query can run.
+    for cmd in registry.executable_commands() {
         let ns = if cmd.namespace.is_empty() {
             "root".to_string()
         } else {

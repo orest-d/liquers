@@ -464,13 +464,17 @@ impl<V: ValueInterface, P: PayloadType, K: AssetManagerKind> EnvironmentBuilder<
             match (self.async_store, self.store_config) {
                 (Some(store), None) => store,
                 (None, Some((config, factory, expand))) => {
-                    let builder = StoreRouterBuilder::new(config, factory);
-                    let router = if expand {
-                        builder.build()?
+                    // Metadata sections compile against this environment's own registry, so a
+                    // `store_config` entry registered by a library is available to them.
+                    let builder = StoreRouterBuilder::new(config, factory).with_store_config(
+                        self.command_registry.command_metadata_registry.clone(),
+                        self.command_registry.store_config.clone(),
+                    );
+                    if expand {
+                        builder.build_store()?
                     } else {
-                        builder.build_without_env_expansion()?
-                    };
-                    Arc::new(router)
+                        builder.build_store_without_env_expansion()?
+                    }
                 }
                 (Some(_), Some(_)) => return Err(Error::general_error(
                     "both a store and a store configuration were supplied; use one or the other"

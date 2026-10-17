@@ -213,13 +213,24 @@ impl Error {
     pub fn not_supported(message: String) -> Self {
         Error::new(ErrorType::NotSupported, message)
     }
-    pub fn action_not_registered(action: &ActionRequest, namespaces: &Vec<String>) -> Self {
+    /// No command `action` in any of `namespaces` of `realm`. The message names every
+    /// [`CommandKey`] tried, in its `Display` form, so a wrong realm is as visible as a missing
+    /// namespace.
+    pub fn action_not_registered(
+        action: &ActionRequest,
+        realm: &str,
+        namespaces: &Vec<String>,
+    ) -> Self {
         Error::new(
             ErrorType::ActionNotRegistered,
             format!(
-                "Action '{}' not registered in namespaces {}",
+                "Action '{}' not registered; command keys tried: {}",
                 action.name,
-                namespaces.iter().map(|ns| format!("'{}'", ns)).join(", ")
+                namespaces
+                    .iter()
+                    .map(|ns| format!("'{}'", CommandKey::new(realm, ns, &action.name)))
+                    .unique()
+                    .join(", ")
             ),
         )
         .with_position(&action.position)
@@ -525,6 +536,23 @@ impl error::Error for Error {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn action_not_registered_names_every_command_key_tried() {
+        let action = crate::query::ActionRequest::new("to_text".to_string());
+        let error = Error::action_not_registered(
+            &action,
+            "foo",
+            &vec!["".to_string(), "root".to_string()],
+        );
+        assert_eq!(error.error_type, ErrorType::ActionNotRegistered);
+        // `root` is the default namespace, so both name the same key, listed once.
+        let tried = format!("'{}'", CommandKey::new("foo", "", "to_text"));
+        assert_eq!(error.message.matches(&tried).count(), 1, "{}", error.message);
+        let other = Error::action_not_registered(&action, "", &vec!["pl".to_string()]);
+        let tried = format!("'{}'", CommandKey::new("", "pl", "to_text"));
+        assert!(other.message.contains(&tried), "{}", other.message);
+    }
 
     /// T1 (`design/configuration-error-kind`).
     #[test]

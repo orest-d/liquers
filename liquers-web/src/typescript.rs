@@ -118,6 +118,29 @@ export interface LiquersStoreEntry {
   prefix?: string;
   /** Backend-specific settings. See the per-type fields below. */
   config?: LiquersStoreEntryConfig;
+  /** Refuse every write to this store. Default `false`. */
+  read_only?: boolean;
+  /**
+   * How this store's metadata is stored and shaped. Each value is a `store_config` spec (for
+   * example `media_type-fill/file_facts`); a field left out takes its default. Needs a store with
+   * data-only access: a `js` object without `getData`, `setData`, `removeData`, `listdirData` and
+   * `dataFacts` is refused here when the store is built.
+   */
+  metadata?: LiquersStoreMetadata;
+}
+
+/** A store's metadata section. Every field is optional; see `STORE_CONFIG_FSD.md`. */
+export interface LiquersStoreMetadata {
+  /** `native` (default), `per_entry`, `per_entry-<layout>`, `grouped`, `none`. */
+  storage?: string;
+  /** `direct` (default), `atomic`, `transactional`. */
+  writes?: string;
+  /** Store the record `on_default` synthesized the first time it is read. Default `false`. */
+  persist_defaults?: boolean;
+  on_default?: string;
+  on_validate?: string;
+  on_write?: string;
+  on_read?: string;
 }
 
 /**
@@ -141,6 +164,10 @@ export interface LiquersStoreEntryConfig {
 /** A store-router configuration: stores are tried in order, first matching prefix wins. */
 export interface LiquersStoreConfig {
   stores: LiquersStoreEntry[];
+  /** Refuse every write to every store. Default `false`. */
+  read_only?: boolean;
+  /** Central metadata storage for the whole router. */
+  metadata?: LiquersStoreMetadata;
 }
 
 /**
@@ -173,6 +200,33 @@ export interface LiquersStoreObject {
   listdir?(key: string): string[] | Promise<string[]>;
   /** Synchronous. A `Promise` here is truthy and would claim every key. */
   isSupported?(key: string): boolean;
+  /**
+   * Data-only access, needed by a `metadata` section on this store's entry: all five of
+   * `getData`, `setData`, `removeData`, `listdirData` and `dataFacts`, or none. They read and
+   * write data objects only and never touch metadata.
+   */
+  getData?(key: string): Uint8Array | null | undefined | Promise<Uint8Array | null | undefined>;
+  setData?(key: string, data: Uint8Array): void | Promise<void>;
+  removeData?(key: string): void | Promise<void>;
+  /** Raw names in a directory, including any objects a metadata layer keeps there. */
+  listdirData?(key: string): string[] | Promise<string[]>;
+  /** `null` for an absent object. `modified` is RFC 3339; `precision` defaults to its digits. */
+  dataFacts?(key: string): LiquersDataFacts | null | undefined
+    | Promise<LiquersDataFacts | null | undefined>;
+  /** Optional; with it, `writes: atomic` can use moves. */
+  renameData?(from: string, to: string): void | Promise<void>;
+  /** The metadata this store itself keeps, or `null`. Needed by the `native` storage model. */
+  getStoredMetadata?(key: string): object | null | undefined | Promise<object | null | undefined>;
+  /** `true` when `setData` replaces an object atomically. */
+  atomicWrite?: boolean;
+}
+
+/** What `dataFacts` reports about a data object without reading it. */
+export interface LiquersDataFacts {
+  size: number;
+  modified?: string;
+  precision?: "seconds" | "millis" | "micros" | "nanos";
+  etag?: string;
 }
 "#;
 

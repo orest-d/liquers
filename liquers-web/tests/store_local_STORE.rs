@@ -366,3 +366,166 @@ async fn browser_quota_failure_rolls_back_the_whole_write() {
         "a rolled-back write must not leave bytes behind"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Data-only access (WEB-BUILT-IN-STORES-HAVE-NO-DATA-ACCESS)
+// ---------------------------------------------------------------------------
+
+/// Whether `localStorage` holds an entry by this exact name.
+fn has_entry(name: &str) -> bool {
+    web_sys::window()
+        .expect("a browser window")
+        .local_storage()
+        .expect("localStorage is accessible")
+        .expect("localStorage is enabled")
+        .get_item(name)
+        .expect("get_item")
+        .is_some()
+}
+
+/// The data-only methods round-trip bytes, never touch the `m` entry, and report raw names.
+#[wasm_bindgen_test]
+async fn data_only_methods_round_trip_without_metadata() {
+    use liquers_core::store::AsyncStore as _;
+    let ns = "t_dataonly";
+    let store = store(ns);
+    let caps = store.data_capabilities();
+    assert!(caps.data_access && caps.atomic_write && caps.rename && caps.etag);
+    assert!(!caps.modified_time, "the store keeps no write time");
+
+    let text = key("d/a.txt");
+    let binary = key("d/b.bin");
+    store.set_data(&text, b"hello").await.expect("set_data");
+    store.set_data(&binary, &[0xff, 0x00, 0xfe, 0x01]).await.expect("set_data binary");
+    assert_eq!(store.get_data(&text).await.expect("get_data"), b"hello".to_vec());
+    assert_eq!(
+        store.get_data(&binary).await.expect("get_data binary"),
+        vec![0xff, 0x00, 0xfe, 0x01]
+    );
+    assert!(!has_entry(&format!("{ns}/m/d/a.txt")), "set_data must not write metadata");
+    assert_eq!(store.get_stored_metadata(&text).await.expect("stored"), None);
+
+    // Sizes are the decoded byte counts, for both envelope encodings.
+    let facts = store.data_facts(&text).await.expect("facts").expect("present");
+    assert_eq!(facts.size, 5);
+    assert_eq!(facts.modified, None);
+    let binary_facts = store.data_facts(&binary).await.expect("facts").expect("present");
+    assert_eq!(binary_facts.size, 4);
+    assert_eq!(store.data_facts(&key("d/none")).await.expect("facts"), None);
+
+    // The ETag moves on a same-size overwrite.
+    store.set_data(&text, b"world").await.expect("overwrite");
+    let moved = store.data_facts(&text).await.expect("facts").expect("present");
+    assert_eq!(moved.size, 5);
+    assert_ne!(moved.etag, facts.etag, "a changed object must change its ETag");
+
+    // Raw names, a sidecar-shaped name included.
+    store
+        .set_data(&key("d/a.txt.__metadata__"), b"{}")
+        .await
+        .expect("set a sidecar-shaped name");
+    let mut names = store.listdir_data(&key("d")).await.expect("listdir_data");
+    names.sort();
+    assert_eq!(names, vec!["a.txt", "a.txt.__metadata__", "b.bin"]);
+
+    // remove_data leaves a key's own stored record — and so its enumerability — in place.
+    store
+        .set_metadata(&text, &text_metadata("text/plain"))
+        .await
+        .expect("set_metadata");
+    store.remove_data(&text).await.expect("remove_data");
+    assert_eq!(store.data_facts(&text).await.expect("facts"), None);
+    assert!(store.get_stored_metadata(&text).await.expect("stored").is_some());
+    assert!(store.contains(&text).await.expect("contains"), "§8: a record keeps the key");
+    store.remove_data(&text).await.expect("removing an absent object is Ok");
+
+    // rename_data moves the bytes alone.
+    let renamed = key("e/b.bin");
+    store.rename_data(&binary, &renamed).await.expect("rename_data");
+    assert_eq!(store.data_facts(&binary).await.expect("facts"), None);
+    assert!(!store.contains(&binary).await.expect("contains"));
+    assert_eq!(store.get_data(&renamed).await.expect("get"), vec![0xff, 0x00, 0xfe, 0x01]);
+    match store.get_data(&binary).await {
+        Ok(_) => panic!("the source must be gone"),
+        Err(e) => assert_eq!(e.error_type, ErrorType::KeyNotFound, "{}", e.message),
+    }
+
+    // The index is derived from the entries, so a fresh store sees the same thing.
+    let reopened = LocalStorageStore::new(&Key::new(), ns, None).expect("reopen");
+    let mut names = reopened.listdir_data(&key("d")).await.expect("listdir_data");
+    names.sort();
+    assert_eq!(names, vec!["a.txt", "a.txt.__metadata__"]);
+}
+
+/// STORE16 for `localstorage` — under a `metadata` section the records are `d` entries the store
+/// keeps like any other data (`per_entry`, `grouped`) or its own `m` entry (`native`), and a
+/// record round-trips through the pipeline.
+#[wasm_bindgen_test]
+async fn store16_local_storage_under_metadata_sections_round_trips() {
+    use liquers_core::store_config::StoreRouterConfig;
+    use liquers_web::store::{build_store, WebStoreFactory};
+
+    for storage in ["per_entry", "grouped", "native"] {
+        let ns = format!("t_s16_{storage}");
+        clear(&ns);
+        let yaml = format!(
+            "stores:\n  - type: localstorage\n    prefix: ls\n    config: {{ namespace: {ns} }}\n    metadata: {{ storage: {storage} }}\n"
+        );
+        let config = StoreRouterConfig::from_yaml(&yaml).expect("config parses");
+        let (registry, functions) = liquers_core::store::realm::StoreConfigFunctions::builtin();
+        let store = build_store(&config, WebStoreFactory::new(), registry, functions)
+            .unwrap_or_else(|e| panic!("{storage}: the mount must build: {}", e.message));
+
+        let mut record = MetadataRecord::new();
+        record.title = "First".to_string();
+        store
+            .set(&key("ls/a.md"), b"# A", &Metadata::MetadataRecord(record))
+            .await
+            .expect("set");
+        store
+            .set(&key("ls/b.txt"), b"bee", &Metadata::new())
+            .await
+            .expect("set");
+
+        let a = store.get_metadata(&key("ls/a.md")).await.expect("metadata");
+        assert_eq!(a.title(), "First", "{storage}");
+        assert_eq!(a.get_media_type(), "text/markdown", "{storage}");
+        let (data, _) = store.get(&key("ls/a.md")).await.expect("get");
+        assert_eq!(data, b"# A".to_vec(), "{storage}");
+        let mut names = store.listdir(&key("ls")).await.expect("listdir");
+        names.sort();
+        assert_eq!(names, vec!["a.md".to_string(), "b.txt".to_string()], "{storage}");
+        assert_eq!(
+            store
+                .get_asset_info(&key("ls/b.txt"))
+                .await
+                .expect("info")
+                .file_size,
+            Some(3),
+            "{storage}"
+        );
+
+        // Where the record went, as `localStorage` entries.
+        let sidecar = format!("{ns}/d/ls/a.md.__metadata__");
+        let grouped = format!("{ns}/d/ls/__metadata__.json");
+        let native = format!("{ns}/m/ls/a.md");
+        let expected = match storage {
+            "per_entry" => [true, false, false],
+            "grouped" => [false, true, false],
+            _ => [false, false, true],
+        };
+        assert_eq!(
+            [has_entry(&sidecar), has_entry(&grouped), has_entry(&native)],
+            expected,
+            "{storage}: per_entry sidecar, grouped file, native entry"
+        );
+
+        // A fresh build over the same namespace reads the same record back.
+        let config = StoreRouterConfig::from_yaml(&yaml).expect("config parses");
+        let (registry, functions) = liquers_core::store::realm::StoreConfigFunctions::builtin();
+        let reopened = build_store(&config, WebStoreFactory::new(), registry, functions)
+            .expect("rebuild");
+        let again = reopened.get_metadata(&key("ls/a.md")).await.expect("metadata");
+        assert_eq!(again.title(), "First", "{storage}: after reopening");
+    }
+}

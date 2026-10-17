@@ -176,4 +176,11 @@ impl LiquersStore {
     pub fn store_name(&self) -> String {
         self.inner.store_name()
     }
+
+    /// True when every write is refused by policy: a `read_only` mount, or a router whose
+    /// mounts all are (`specs/design/store-adapters/`).
+    #[wasm_bindgen(js_name = isReadOnly)]
+    pub fn is_read_only(&self) -> bool {
+        self.inner.is_read_only()
+    }
 }

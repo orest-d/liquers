@@ -2,7 +2,7 @@
 id: STORE-METADATA-HANDLING-NOT-COMPOSABLE
 kind: feature
 title: Store metadata handling is not composable or configurable
-status: draft
+status: closed
 priority: P2
 complexity: L
 area: [core/store, store/config, store/backends]
@@ -60,3 +60,7 @@ Needs a design folder.
 Raised by the user on 2026-10-12 while answering `agent-memory-mvp` Phase 1 open questions 2 and 4:
 the read-only adapter and the front-matter adapter are two instances of one modular metadata
 mechanism, and how all of it is configured should be designed once.
+
+## Resolution (2026-10-15)
+
+Fixed by design `store-adapters` (PR #137). A mount's `metadata` section names a storage model, a write strategy (`direct`, `atomic`, `transactional`) and handler chains per stage (`on_default`, `on_validate`, `on_write`, `on_read`), written as queries in the realm `store_config` and compiled at build into closures run by `MetadataPipelineStore` (`liquers-core/src/store/pipeline.rs`). Built-in handlers live in `liquers-core/src/store/realm.rs`; the front-matter projection and write-back (`front_matter`, `front_matter_sync`) live in `liquers-lib/src/store_config.rs` behind `records`. Read-only is the access policy (`STORE-NO-READ-ONLY-ADAPTER`). Conformance suites `a1`-`a7` run over adapted stores. The handler mechanism is described in `specs/guides/STORE_CONFIG_GUIDE.md` and the realm in `specs/reference/REALMS.md`. Not done here and filed separately: handlers defined in another language (`LANGUAGE-STORE-CONFIG-FUNCTION-NOT-DEFINABLE`).

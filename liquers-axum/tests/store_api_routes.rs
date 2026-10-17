@@ -355,3 +355,25 @@ async fn sar16_builder_build_smoke_test() {
     let (envref, _) = env_with_store();
     let _app = build_app(envref); // must not panic
 }
+
+/// A read-only store (`specs/design/store-adapters/`, AC-1) answers a write with 501, because the
+/// refusal is `NotSupported`; reads still succeed.
+#[tokio::test]
+async fn read_only_store_write_is_501() {
+    let inner: std::sync::Arc<dyn AsyncStore> = std::sync::Arc::new(AsyncMemoryStore::new(&Key::new()));
+    inner.set(&parse_key("data/file.txt").unwrap(), b"hello", &Metadata::new()).await.unwrap();
+    let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+    env.with_async_store(Box::new(liquers_core::store::ReadOnlyStore::new(inner)));
+    let app = build_app(env.to_ref());
+
+    let (status, body) = send_raw(app.clone(), "GET", "/api/store/data/data/file.txt", Body::empty()).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body, b"hello");
+
+    let (status, json) = send(app.clone(), "PUT", "/api/store/data/data/file.txt", Body::from("x")).await;
+    assert_eq!(status, StatusCode::NOT_IMPLEMENTED, "{json}");
+    assert_eq!(json["error"]["type"], "NotSupported");
+
+    let (status, _) = send(app, "DELETE", "/api/store/data/data/file.txt", Body::empty()).await;
+    assert_eq!(status, StatusCode::NOT_IMPLEMENTED);
+}
