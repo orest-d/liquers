@@ -420,14 +420,14 @@ degrades on read.
 
 ## History
 
-| Date | Change |
-|---|---|
+| Date | Change | Source |
+|---|---|---|
 | 2026-10-18 | §Reading: a registered type that declares no formats is read as degraded, never decoded. | `design/liquers-py/` (`FOREIGN-VALUE-CANNOT-BE-DESERIALIZED`) |
 | 2026-10-18 | §Reading a foreign value back: the process-global foreign decoder table, and foreign identifiers routed to the extension. `liquers-py` now registers `py.Object` at construction instead of owning a value type. | `design/liquers-py/` |
 | 2026-10-17 | §Reading a value by name: `DataNode` and `ValueInterface::data_node`. | `design/liquers-mustache/` |
-| 2026-10-13 | §Reading: `F64` in `json`. Non-finite floats are written as tokens and read back by identifier, nested core floats become `null`, and `try_into_json_value` refuses (`design/value-to-json-non-finite-float/`, closing `VALUE-TO-JSON-PANICS-ON-NON-FINITE-FLOAT`). |
-| 2026-10-10 | §Seeding: a query with no filename seeds no format — the recipe no longer declares `bin` (`design/plan-step-state-metadata/`, closing `FREE-FUNCTION-EVALUATE-BAKES-A-BIN-DATA-FORMAT`). |
-| 2026-10-09 | §Reading: a combined value picks the half that reads the bytes by the declared identifier; an extension identifier is never read by the base value (`design/combined-value-identifier-dispatch/`, closing `COMBINED-VALUE-DISCRIMINATION`). |
-| 2026-09-27 | Reviewed against `design/record-streams/` Phase 5 (phase-5). Added `RecordView` and `RecordSource` to the registered identifiers, and §The record identifiers: `records`-gated trait-object variants, their `TypeInfo`s (formats and aliases, `ipc`/`parquet` behind `records-ipc`/`records-parquet`, `html` write-only, Parquet read only through polars), manifest-only serialization of a source, single-cell scalar reading by delegation to the base value, and `try_into_json_value`. |
-| 2026-08-18 | Created with the `value-type-system` design, resolving `CORE-METADATA-FORMAT-TYPE-CONSISTENCY`. |
-| 2026-08-26 | Removed the `error` type identifier: an errored state is typed by the value it holds, which is none, and the failure lives in the metadata. Stated the one-identifier-per-variant rule. Added runtime registration for a type an integration owns (`foreign-value-type-registration`). |
+| 2026-10-13 | §Reading: `F64` in `json`. Non-finite floats are written as tokens and read back by identifier, nested core floats become `null`, and `try_into_json_value` refuses (`design/value-to-json-non-finite-float/`, closing `VALUE-TO-JSON-PANICS-ON-NON-FINITE-FLOAT`). | |
+| 2026-10-10 | §Seeding: a query with no filename seeds no format — the recipe no longer declares `bin` (`design/plan-step-state-metadata/`, closing `FREE-FUNCTION-EVALUATE-BAKES-A-BIN-DATA-FORMAT`). | |
+| 2026-10-09 | §Reading: a combined value picks the half that reads the bytes by the declared identifier; an extension identifier is never read by the base value (`design/combined-value-identifier-dispatch/`, closing `COMBINED-VALUE-DISCRIMINATION`). | |
+| 2026-09-27 | Reviewed against `design/record-streams/` Phase 5 (phase-5). Added `RecordView` and `RecordSource` to the registered identifiers, and §The record identifiers: `records`-gated trait-object variants, their `TypeInfo`s (formats and aliases, `ipc`/`parquet` behind `records-ipc`/`records-parquet`, `html` write-only, Parquet read only through polars), manifest-only serialization of a source, single-cell scalar reading by delegation to the base value, and `try_into_json_value`. | |
+| 2026-08-18 | Created with the `value-type-system` design, resolving `CORE-METADATA-FORMAT-TYPE-CONSISTENCY`. | |
+| 2026-08-26 | Removed the `error` type identifier: an errored state is typed by the value it holds, which is none, and the failure lives in the metadata. Stated the one-identifier-per-variant rule. Added runtime registration for a type an integration owns (`foreign-value-type-registration`). | |

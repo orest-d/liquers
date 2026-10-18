@@ -4,10 +4,14 @@
 
 - **Readiness:** `needs-decision`
 - **Automatic fixing:** `not-eligible`. The work is `L`, crosses crates, and changes a Python API.
-- **Leading issue:** the read-path change in `liquers-core` (open design question 1).
+- **Leading issue:** `FOREIGN-VALUE-CANNOT-BE-DESERIALIZED`, which the read-path change (question 1)
+  resolves.
 - **Explanation:** every question below has a recommended answer that a working design is built on.
-  Pre-approval (2026-10-18) covers implementation, but items 1, 5 and 6 are the owner's, so the
-  pre-implementation stop applies until they are answered.
+  Items 1, 5 and 6 are the owner's. On 2026-10-18 the owner said to run every phase without waiting
+  for approval, so Phases 2–5 and the implementation proceeded on the recommended answer to each;
+  1 and 6 are implemented as recommended, and 5 is not yet done (the M0 fixes are still in this
+  PR). The readiness stays `needs-decision` until the owner confirms 1 and 6 and answers 5:
+  proceeding was authorized, the choices themselves were not made by the owner.
 - **Open questions:**
   1. **Open design: read path for formatless types.**
      - Change: a stored value whose registered type declares *no* data formats is read as degraded

@@ -8,7 +8,8 @@ import liquers as lq
 
 
 def test_OBJECT01_query_parse_encode_roundtrip():
-    for text in ["hello/repeat-3", "-R/d/in.txt/-/repeat-2", "make_frame/ns-pl/head-2"]:
+    for text in ["hello/repeat-3", "a/b-1-2/c", "data/q/query_to_string/output.txt",
+                 "-R/data/report.txt/-/to_text", "make_frame/ns-pl/head-2"]:
         assert lq.parse(text).encode() == text
 
 

@@ -117,7 +117,7 @@ def test_ENVIRON07_documented_operations_callable_in_every_state(operation, life
         environment.evaluate("hello")
     if lifecycle == "shut":
         environment.shutdown()
-        if operation in ("validate", "unregister"):
+        if operation == "validate":
             OPERATIONS[operation](environment)  # reading declarations stays possible
         else:
             with pytest.raises(lq.GeneralError):

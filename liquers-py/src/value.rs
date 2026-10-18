@@ -162,7 +162,7 @@ impl ForeignValue for PyObjectValue {
                 ),
             ));
         }
-        Python::attach(|py| {
+        attach_off_worker(|py| {
             let dumped = py
                 .import("pickle")
                 .and_then(|pickle| pickle.call_method1("dumps", (self.object.bind(py),)))
@@ -178,6 +178,31 @@ impl ForeignValue for PyObjectValue {
     }
 }
 
+/// Takes the GIL for `f`, first handing the thread's tokio work to another worker if it is a
+/// runtime worker.
+///
+/// The asset manager serializes and deserializes on its workers, and waiting for the GIL there
+/// would stall every task queued behind that worker for as long as some Python thread holds it.
+/// `block_in_place` exists on a multi-thread runtime only, so on any other thread the GIL is
+/// simply taken.
+fn attach_off_worker<T>(f: impl for<'py> FnOnce(Python<'py>) -> T) -> T {
+    let on_worker = match tokio::runtime::Handle::try_current() {
+        Ok(handle) => match handle.runtime_flavor() {
+            tokio::runtime::RuntimeFlavor::MultiThread => true,
+            tokio::runtime::RuntimeFlavor::CurrentThread => false,
+            // `RuntimeFlavor` is `#[non_exhaustive]`; an unknown flavor may not support
+            // `block_in_place`, which panics where it is unsupported.
+            _ => false,
+        },
+        Err(_) => false,
+    };
+    if on_worker {
+        tokio::task::block_in_place(|| Python::attach(f))
+    } else {
+        Python::attach(f)
+    }
+}
+
 /// Rebuilds a `py.Object` from pickle bytes. Registered once, at module init.
 ///
 /// Reached only from an environment whose registry lists `pickle` for `py.Object`; a pickle-off
@@ -189,7 +214,7 @@ pub fn decode_pickle(bytes: &[u8], data_format: &str) -> Result<Arc<dyn ForeignV
             format!("{PY_OBJECT_TYPE_IDENTIFIER} cannot be read from '{data_format}'"),
         ));
     }
-    Python::attach(|py| {
+    attach_off_worker(|py| {
         let object = py
             .import("pickle")
             .and_then(|pickle| pickle.call_method1("loads", (PyBytes::new(py, bytes),)))

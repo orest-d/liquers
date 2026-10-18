@@ -47,6 +47,14 @@ def test_COMMAND05_metadata_matches_the_declaration(env):
     meta = env.command_metadata("repeat")
     assert meta.label == "Repeat it" and meta.doc == "Repeat the input."
     assert [(a.name, a.default) for a in meta.arguments] == [("count", 2)]
+    assert meta.arguments[0].argument_type == "int"
+
+    @env.first_command
+    def typed(a: str, b: float, c: bool, d: "int | None" = None, e=None):
+        return a
+
+    assert [a.argument_type for a in env.command_metadata("typed").arguments] == [
+        "string", "float", "bool", "int_opt", "any"]
 
     @env.first_command
     def nullary():

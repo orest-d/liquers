@@ -147,6 +147,29 @@ impl From<Error> for PyErr {
     }
 }
 
+/// Why a call made from Python failed: a Liquers error, or a Python exception raised while it
+/// waited (`KeyboardInterrupt` from a signal handler), which is re-raised unchanged rather than
+/// becoming an `ExecutionError`.
+pub enum PyFailure {
+    Liquers(liquers_core::error::Error),
+    Python(PyErr),
+}
+
+impl From<liquers_core::error::Error> for PyFailure {
+    fn from(e: liquers_core::error::Error) -> Self {
+        PyFailure::Liquers(e)
+    }
+}
+
+impl PyFailure {
+    pub fn into_pyerr(self, py: Python<'_>) -> PyErr {
+        match self {
+            PyFailure::Liquers(error) => error_to_pyerr(py, &error),
+            PyFailure::Python(err) => err,
+        }
+    }
+}
+
 /// The Python exception for a Liquers error: an instance of the `LiquersError` subclass for its
 /// `ErrorType`, carrying every field (ERROR01, ERROR02).
 ///
@@ -265,7 +288,20 @@ mod tests {
 
     /// Loads `liquers._errors` from the source tree and installs its subclasses, without the
     /// native extension (which a Rust test binary cannot import).
+    /// Loads `liquers._errors` once per test process.
+    ///
+    /// Tests run on parallel threads, and executing the module can release the GIL, so a second
+    /// install could replace `sys.modules["liquers._errors"]` between another test's raise and
+    /// its `isinstance` check against the replaced `LiquersError` — which made
+    /// `every_error_type_round_trips_with_its_fields` fail intermittently.
     fn install_errors_module(py: Python<'_>) -> PyResult<()> {
+        // `PyOnceLock` detaches while it waits, so a test blocked here cannot hold the GIL that
+        // the initializing test needs.
+        static INSTALLED: pyo3::sync::PyOnceLock<()> = pyo3::sync::PyOnceLock::new();
+        INSTALLED.get_or_try_init(py, || load_errors_module(py)).map(|_| ())
+    }
+
+    fn load_errors_module(py: Python<'_>) -> PyResult<()> {
         let path = concat!(env!("CARGO_MANIFEST_DIR"), "/python/liquers/_errors.py");
         let util = py.import("importlib.util")?;
         let spec = util.call_method1("spec_from_file_location", ("liquers._errors", path))?;

@@ -48,9 +48,24 @@ def test_VALUE03_integer_beyond_i64_is_refused(echo):
         through(echo, 2**63)
 
 
+BYTES_CORPUS = [
+    b"",
+    b"hello",
+    "h\u00e9llo \u2014 ok".encode(),
+    "\U0001F980".encode(),
+    b"a\x00b",
+    b"\xff\xfe",
+    b"\xed\xa0\x80",
+    bytes(range(256)),
+]
+
+
 def test_VALUE04_bytes_are_not_confused_with_text(echo):
     assert type(through(echo, b"abc")) is bytes
     assert type(through(echo, "abc")) is str
+    for data in BYTES_CORPUS:
+        result = through(echo, data)
+        assert type(result) is bytes and result == data, f"corrupted: {data!r}"
 
 
 def test_VALUE05_unknown_object_follows_configured_policy(echo):
@@ -115,7 +130,7 @@ def test_VALUE09_checked_upcast_and_downcast(env):
         return text
 
     assert env.evaluate("number-3/as_text") == "3"  # the value's text form
-    with pytest.raises(lq.LiquersError):
+    with pytest.raises(lq.ConversionError):
         env.evaluate("make_obj/as_text")  # an opaque object has no text form
 
 
@@ -129,7 +144,9 @@ def test_VALUE11_callable_retention_or_rejection_follows_policy(echo):
         return x + 1
 
     returned = through(echo, add_one)
-    assert returned is add_one and returned(1) == 2
+    assert returned is add_one and returned(1) == 2  # retained by identity, like any object
+    with pytest.raises(lq.SerializationError):
+        echo.store_set("o/fn", add_one)  # and never serialized without the pickle codec
 
 
 @na("liquers-py exposes no Value wrapper with operators; values cross as Python objects")
@@ -143,6 +160,8 @@ def test_VALUE13_state_operations_preserve_or_discard_metadata(env):
     assert state.metadata.type_identifier() == "Text"
     with pytest.raises(AttributeError):
         state.value = "changed"  # a State is a read-only snapshot
+    # The design's choice: no derived-state operations, so no state is made without metadata.
+    assert not hasattr(state, "map")
 
 
 def test_STATUS_names_every_variant_and_refuses_unknown_ones():

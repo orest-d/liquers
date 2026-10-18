@@ -321,8 +321,14 @@ impl Key {
         self.0.len()
     }
 
-    pub fn __getitem__(&self, index: isize) -> ResourceName {
-        ResourceName(self.0 .0.get(index as usize).unwrap().clone())
+    /// The resource name at `index`; a negative index counts from the end.
+    pub fn __getitem__(&self, index: isize) -> PyResult<ResourceName> {
+        let len = self.0.len() as isize;
+        let position = if index < 0 { index + len } else { index };
+        if position < 0 || position >= len {
+            return Err(pyo3::exceptions::PyIndexError::new_err("key index out of range"));
+        }
+        Ok(ResourceName(self.0 .0[position as usize].clone()))
     }
 
     pub fn __repr__(&self) -> String {

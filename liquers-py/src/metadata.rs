@@ -750,11 +750,10 @@ impl Status {
         }
     }
 
-    fn __hash__(&self) -> u64 {
-        use std::hash::{Hash, Hasher};
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        self.inner.hash(&mut hasher);
-        hasher.finish()
+    /// The hash of the status name, so that a status and its name string — which compare
+    /// equal — hash alike.
+    fn __hash__(&self, py: Python<'_>) -> PyResult<isize> {
+        pyo3::types::PyString::new(py, &self.name()).hash()
     }
 
     fn __repr__(&self) -> String {

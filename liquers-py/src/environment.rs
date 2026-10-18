@@ -20,8 +20,15 @@
 //! Every call that waits releases the GIL (`py.detach`) around `block_on` on the process runtime,
 //! so a Python command called from a tokio worker can take it. The state lock is never held across
 //! an evaluation: it is taken to read or build the environment reference and released at once.
+//!
+//! A wait is cut into short slices. Between two, `block_on` runs the pending signal handlers, so
+//! Ctrl-C raises `KeyboardInterrupt` in a waiting `evaluate`, and it checks the handle's shut
+//! flag, so a wait outstanding when `shutdown()` is called raises `CancelledError` instead of
+//! hanging on an asset manager that no longer runs. Leaving a wait does not cancel the asset.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
+use std::time::Duration;
 
 use liquers_core::command_metadata::{CommandKey, CommandMetadata};
 use liquers_core::commands::CommandRegistry;
@@ -44,7 +51,7 @@ use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyString};
 
 use crate::command::{register_py_command, PyCommandSpec, Replaced};
-use crate::error::{error_to_pyerr, pyerr_to_error};
+use crate::error::{error_to_pyerr, pyerr_to_error, PyFailure};
 use crate::runtime::runtime;
 use crate::value::{py_to_value, py_type_info, value_to_py, ConversionMode, Value};
 
@@ -83,6 +90,8 @@ pub struct EnvCell {
     config: EnvironmentConfig,
     pub conversion: ConversionMode,
     pub pickle: bool,
+    /// Set by `shutdown()`; every wait started from this handle watches it.
+    pub shut: Arc<AtomicBool>,
 }
 
 impl EnvCell {
@@ -105,6 +114,7 @@ impl EnvCell {
             config,
             conversion,
             pickle,
+            shut: Arc::new(AtomicBool::new(false)),
         })
     }
 
@@ -119,11 +129,7 @@ impl EnvCell {
         let mut declarations = self.lock()?;
         match &declarations.state {
             EnvState::Built(envref) => return Ok(envref.clone()),
-            EnvState::Shut => {
-                return Err(Error::general_error(
-                    "the environment has been shut down".to_string(),
-                ))
-            }
+            EnvState::Shut => return Err(shut_down_error()),
             EnvState::Pending => {}
         }
         let envref = self.build(&declarations)?;
@@ -138,19 +144,7 @@ impl EnvCell {
     ///
     /// Fails after `shutdown()`, so a registration on a shut environment is not silently dropped.
     pub fn invalidate(&self) -> Result<(), Error> {
-        let mut declarations = self.lock()?;
-        let previous = std::mem::replace(&mut declarations.state, EnvState::Pending);
-        match previous {
-            EnvState::Built(envref) => declarations.retired.push(envref),
-            EnvState::Pending => {}
-            EnvState::Shut => {
-                declarations.state = EnvState::Shut;
-                return Err(Error::general_error(
-                    "the environment has been shut down".to_string(),
-                ));
-            }
-        }
-        Ok(())
+        retire(&mut *self.lock()?)
     }
 
     /// The builder with every declaration applied, but no store yet.
@@ -202,58 +196,57 @@ impl EnvCell {
 
     /// Retains a Python command and marks the environment for a rebuild. Reports what it replaced.
     pub fn register(&self, spec: PyCommandSpec) -> Result<Replaced, Error> {
-        let replaced = {
-            let mut declarations = self.lock()?;
-            if matches!(declarations.state, EnvState::Shut) {
-                return Err(Error::general_error(
-                    "the environment has been shut down".to_string(),
-                ));
-            }
-            let replaced = if declarations.specs.iter().any(|s| s.key == spec.key) {
-                Replaced::Python
-            } else if !declarations.unregistered.contains(&spec.key)
-                && builtin_keys()?.contains(&spec.key)
-            {
-                Replaced::Builtin
-            } else {
-                Replaced::Nothing
-            };
-            declarations.specs.retain(|s| s.key != spec.key);
-            declarations.unregistered.retain(|k| k != &spec.key);
-            declarations.specs.push(spec);
-            replaced
+        let mut declarations = self.lock()?;
+        refuse_if_shut(&declarations)?;
+        let replaced = if declarations.specs.iter().any(|s| s.key == spec.key) {
+            Replaced::Python
+        } else if !declarations.unregistered.contains(&spec.key)
+            && builtin_keys()?.contains(&spec.key)
+        {
+            Replaced::Builtin
+        } else {
+            Replaced::Nothing
         };
-        self.invalidate()?;
+        declarations.specs.retain(|s| s.key != spec.key);
+        declarations.unregistered.retain(|k| k != &spec.key);
+        declarations.specs.push(spec);
+        retire(&mut declarations)?;
         Ok(replaced)
     }
 
-    /// Removes a command, Python or built-in. `false` when there was nothing to remove.
+    /// Removes the top command under `key`. `false` when there was nothing to remove.
+    ///
+    /// A Python command that replaced a built-in is removed first, which brings the built-in back;
+    /// a second call removes the built-in.
     pub fn unregister(&self, key: CommandKey) -> Result<bool, Error> {
-        let removed = {
-            let mut declarations = self.lock()?;
-            let before = declarations.specs.len();
-            declarations.specs.retain(|s| s.key != key);
-            let was_spec = declarations.specs.len() != before;
-            let was_builtin =
-                !declarations.unregistered.contains(&key) && builtin_keys()?.contains(&key);
-            if was_builtin {
-                declarations.unregistered.push(key);
-            }
-            was_spec || was_builtin
+        let mut declarations = self.lock()?;
+        refuse_if_shut(&declarations)?;
+        let before = declarations.specs.len();
+        declarations.specs.retain(|s| s.key != key);
+        let removed = if declarations.specs.len() != before {
+            true
+        } else if !declarations.unregistered.contains(&key) && builtin_keys()?.contains(&key) {
+            declarations.unregistered.push(key);
+            true
+        } else {
+            false
         };
         if removed {
-            self.invalidate()?;
+            retire(&mut declarations)?;
         }
         Ok(removed)
     }
 
     pub fn import_metadata(&self, commands: Vec<CommandMetadata>) -> Result<(), Error> {
-        self.lock()?.imported.extend(commands);
-        self.invalidate()
+        let mut declarations = self.lock()?;
+        refuse_if_shut(&declarations)?;
+        declarations.imported.extend(commands);
+        retire(&mut declarations)
     }
 
     /// Stops the current and every retired asset manager. Idempotent.
     pub fn shutdown(&self) -> Result<(), Error> {
+        self.shut.store(true, Ordering::SeqCst);
         let mut declarations = self.lock()?;
         let previous = std::mem::replace(&mut declarations.state, EnvState::Shut);
         let mut envrefs = std::mem::take(&mut declarations.retired);
@@ -270,6 +263,27 @@ impl EnvCell {
         }
         Ok(())
     }
+}
+
+fn shut_down_error() -> Error {
+    Error::general_error("the environment has been shut down".to_string())
+}
+
+fn refuse_if_shut(declarations: &Declarations) -> Result<(), Error> {
+    match declarations.state {
+        EnvState::Shut => Err(shut_down_error()),
+        EnvState::Pending | EnvState::Built(_) => Ok(()),
+    }
+}
+
+/// Marks the environment for a rebuild, keeping the built one on the retired list.
+fn retire(declarations: &mut Declarations) -> Result<(), Error> {
+    refuse_if_shut(declarations)?;
+    match std::mem::replace(&mut declarations.state, EnvState::Pending) {
+        EnvState::Built(envref) => declarations.retired.push(envref),
+        EnvState::Pending | EnvState::Shut => {}
+    }
+    Ok(())
 }
 
 /// The keys of the built-in commands, computed once.
@@ -433,12 +447,40 @@ pub struct Environment {
     pub cell: Arc<EnvCell>,
 }
 
+/// How long a wait runs between two checks for a signal or a shutdown.
+const WAIT_SLICE: Duration = Duration::from_millis(100);
+
 /// Runs a future on the process runtime with the GIL released.
+///
+/// Between slices of [`WAIT_SLICE`] it runs Python's pending signal handlers — an exception they
+/// raise (`KeyboardInterrupt`) ends the wait and is re-raised as is — and checks `shut`, ending
+/// the wait with `Cancelled` once the environment is shut down. Ending a wait drops the future;
+/// it does not cancel an asset the future was waiting for.
 pub fn block_on<T: Send>(
     py: Python<'_>,
+    shut: &AtomicBool,
     future: impl std::future::Future<Output = Result<T, Error>> + Send,
-) -> Result<T, Error> {
-    py.detach(|| runtime()?.block_on(future))
+) -> Result<T, PyFailure> {
+    let runtime = runtime()?;
+    let mut future = std::pin::pin!(future);
+    loop {
+        // The timer is made inside `block_on`: it needs the runtime's context.
+        let slice = py.detach(|| {
+            runtime.block_on(async { tokio::time::timeout(WAIT_SLICE, future.as_mut()).await })
+        });
+        match slice {
+            Ok(result) => return result.map_err(PyFailure::from),
+            Err(_elapsed) => {
+                py.check_signals().map_err(PyFailure::Python)?;
+                if shut.load(Ordering::SeqCst) {
+                    return Err(Error::cancelled(
+                        "the environment was shut down while this call was waiting".to_string(),
+                    )
+                    .into());
+                }
+            }
+        }
+    }
 }
 
 #[pymethods]
@@ -468,42 +510,42 @@ impl Environment {
 
     /// Evaluates a query and returns its value as a Python object.
     fn evaluate(&self, py: Python<'_>, query: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
-        let result = (|| {
+        let result = (|| -> Result<_, PyFailure> {
             let query = to_query(query)?;
             let envref = self.cell.envref()?;
-            let value = block_on(py, async move {
+            let value = block_on(py, &self.cell.shut, async move {
                 let asset = envref.evaluate(query).await?;
                 let state = asset.get().await?;
                 state.value()
             })?;
-            value_to_py(py, &value)
+            Ok(value_to_py(py, &value)?)
         })();
-        result.map_err(|e| error_to_pyerr(py, &e))
+        result.map_err(|e| e.into_pyerr(py))
     }
 
     /// Evaluates a query and returns the result as a `State`, metadata included.
     fn evaluate_state(&self, py: Python<'_>, query: &Bound<'_, PyAny>) -> PyResult<Py<crate::asset::State>> {
-        let result = (|| {
+        let result = (|| -> Result<_, PyFailure> {
             let query = to_query(query)?;
             let envref = self.cell.envref()?;
-            let state = block_on(py, async move {
+            let state = block_on(py, &self.cell.shut, async move {
                 let asset = envref.evaluate(query).await?;
                 asset.get().await?.value_state()
             })?;
-            crate::asset::State::from_core(py, &state)
+            Ok(crate::asset::State::from_core(py, &state)?)
         })();
-        result.map_err(|e| error_to_pyerr(py, &e))
+        result.map_err(|e| e.into_pyerr(py))
     }
 
     /// Starts evaluating a query and returns its `AssetRef` without waiting for the value.
     fn get_asset(&self, py: Python<'_>, query: &Bound<'_, PyAny>) -> PyResult<crate::asset::AssetRef> {
-        let result = (|| {
+        let result = (|| -> Result<_, PyFailure> {
             let query = to_query(query)?;
             let envref = self.cell.envref()?;
-            let asset = block_on(py, async move { envref.evaluate(query).await })?;
-            Ok(crate::asset::AssetRef::new(asset))
+            let asset = block_on(py, &self.cell.shut, async move { envref.evaluate(query).await })?;
+            Ok(crate::asset::AssetRef::new(asset, self.cell.shut.clone()))
         })();
-        result.map_err(|e| error_to_pyerr(py, &e))
+        result.map_err(|e| e.into_pyerr(py))
     }
 
     /// Writes a value to the store under `key`.
@@ -512,7 +554,7 @@ impl Environment {
     /// the pickle codec off — raises `SerializationError` instead of being kept as metadata only
     /// (AC-6). The data format is always recorded, so the read path never has to guess it.
     fn store_set(&self, py: Python<'_>, key: &str, data: &Bound<'_, PyAny>) -> PyResult<()> {
-        let result = (|| {
+        let result = (|| -> Result<_, PyFailure> {
             let key = parse_key(key)?;
             let value = py_to_value(data, self.cell.conversion, self.cell.pickle)?;
             let data_format = value.default_data_format().to_string();
@@ -524,11 +566,11 @@ impl Environment {
                 Arc::new(Metadata::MetadataRecord(record)),
             );
             let envref = self.cell.envref()?;
-            block_on(py, async move {
+            block_on(py, &self.cell.shut, async move {
                 envref.get_asset_manager().set_state(&key, state).await
             })
         })();
-        result.map_err(|e| error_to_pyerr(py, &e))
+        result.map_err(|e| e.into_pyerr(py))
     }
 
     /// The decorator bound to this environment: `@env.command`, or `@env.command(name=…)`.
@@ -551,7 +593,8 @@ impl Environment {
         bound_decorator(slf, true, r#fn, options)
     }
 
-    /// Called by the decorators in `liquers._commands`; returns what the command replaced.
+    /// Called by the decorators in `liquers._commands`; returns what the command replaced and the
+    /// declaration's warnings.
     fn _register_command(
         &self,
         py: Python<'_>,
@@ -560,11 +603,11 @@ impl Environment {
         declaration: &Bound<'_, PyAny>,
         context_index: Option<usize>,
         implementation: Option<Vec<u8>>,
-    ) -> PyResult<&'static str> {
+    ) -> PyResult<(&'static str, Vec<String>)> {
         let result = (|| {
             let baseline = py_to_json(py, baseline)?;
             let declaration = py_to_json(py, declaration)?;
-            let spec = PyCommandSpec::new(
+            let (spec, warnings) = PyCommandSpec::new(
                 callable,
                 baseline,
                 &declaration,
@@ -572,11 +615,12 @@ impl Environment {
                 implementation.as_deref(),
                 self.cell.conversion,
                 self.cell.pickle,
+                self.cell.shut.clone(),
             )?;
-            self.cell.register(spec)
+            Ok((self.cell.register(spec)?, warnings))
         })();
         result
-            .map(|replaced| replaced.as_str())
+            .map(|(replaced, warnings)| (replaced.as_str(), warnings))
             .map_err(|e| error_to_pyerr(py, &e))
     }
 

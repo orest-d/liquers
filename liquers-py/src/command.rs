@@ -12,9 +12,10 @@
 //! `python/liquers/_commands.py` supplies the baseline (stage 1) and the author's keyword
 //! arguments, and [`PyCommandSpec::new`] runs stages 2–5 with `CommandDeclaration`.
 
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
-use liquers_core::command_declaration::{CommandDeclaration, StateDelivery};
+use liquers_core::command_declaration::{CommandDeclaration, StateDelivery, WarningKind};
 use liquers_core::command_metadata::{CommandKey, CommandMetadata};
 use liquers_core::commands::{CommandArguments, CommandRegistry};
 use liquers_core::context::Context as CoreContext;
@@ -64,6 +65,8 @@ pub struct PyCallable {
     pub context_index: Option<usize>,
     pub conversion: ConversionMode,
     pub pickle: bool,
+    /// The registering environment's shut flag, handed to the `Context` of each call.
+    pub shut: Arc<AtomicBool>,
 }
 
 impl PyCallable {
@@ -73,6 +76,7 @@ impl PyCallable {
         context_index: Option<usize>,
         conversion: ConversionMode,
         pickle: bool,
+        shut: Arc<AtomicBool>,
     ) -> Self {
         #[cfg(feature = "debug-handles")]
         LIVE_HANDLES.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
@@ -82,6 +86,7 @@ impl PyCallable {
             context_index,
             conversion,
             pickle,
+            shut,
         }
     }
 }
@@ -116,6 +121,11 @@ pub struct PyCommandSpec {
 
 impl PyCommandSpec {
     /// Runs declaration stages 2–5 over the decorator's baseline.
+    ///
+    /// Returns the spec and the pipeline's warnings, for the decorator to issue as Python
+    /// warnings. `ReservedStateDelivery` is left out: a state parameter with any name delivering
+    /// the value is the Python convention, not a mistake.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         object: Py<PyAny>,
         baseline: serde_json::Value,
@@ -124,13 +134,20 @@ impl PyCommandSpec {
         implementation: Option<&[u8]>,
         conversion: ConversionMode,
         pickle: bool,
-    ) -> Result<Self, Error> {
+        shut: Arc<AtomicBool>,
+    ) -> Result<(Self, Vec<String>), Error> {
         let mut command = CommandDeclaration::from_introspection(baseline);
         command.enhance(declaration)?;
         let mut metadata = command.finish()?;
-        for warning in command.warnings() {
-            eprintln!("command {:?}: {}", warning.command, warning.message);
-        }
+        let warnings = command
+            .warnings()
+            .iter()
+            .filter(|warning| match warning.kind {
+                WarningKind::ReservedStateDelivery => false,
+                WarningKind::ContextBeforeState | WarningKind::NoIntrospection => true,
+            })
+            .map(|warning| format!("command {:?}: {}", warning.command, warning.message))
+            .collect();
         let delivery = command
             .registration()
             .get("state")
@@ -145,7 +162,7 @@ impl PyCommandSpec {
             Some(bytes) => Version::from_content(bytes),
             None => Version::new_unique(),
         };
-        Ok(PyCommandSpec {
+        let spec = PyCommandSpec {
             key: metadata.key(),
             metadata,
             callable: Arc::new(PyCallable::new(
@@ -154,8 +171,10 @@ impl PyCommandSpec {
                 context_index,
                 conversion,
                 pickle,
+                shut,
             )),
-        })
+        };
+        Ok((spec, warnings))
     }
 }
 
@@ -254,7 +273,7 @@ fn call_with_gil(
             }
         }
     }
-    let context = callable.context_index.map(|index| (index, Context::new(context)));
+    let context = callable.context_index.map(|index| (index, Context::new(context, callable.shut.clone())));
     if let Some((index, context)) = &context {
         let object = Py::new(py, context.clone_handle())
             .map_err(|e| pyerr_to_error(py, &e))?

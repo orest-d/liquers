@@ -8,6 +8,7 @@
 //! and it releases the GIL while it waits, so the nested command — Python or Rust — can run on
 //! another thread (AC-13).
 
+use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
 use liquers_core::context::Context as CoreContext;
@@ -15,19 +16,22 @@ use liquers_core::error::Error;
 use pyo3::prelude::*;
 
 use crate::environment::{block_on, PyEnvironment};
-use crate::error::error_to_pyerr;
+use crate::error::{error_to_pyerr, PyFailure};
 use crate::value::value_to_py;
 
 /// The execution context of a running Python command.
 #[pyclass(frozen, name = "Context", module = "liquers")]
 pub struct Context {
     inner: Arc<Mutex<Option<CoreContext<PyEnvironment>>>>,
+    /// The environment's shut flag, so a nested wait ends when it is shut down.
+    shut: Arc<AtomicBool>,
 }
 
 impl Context {
-    pub fn new(context: CoreContext<PyEnvironment>) -> Self {
+    pub fn new(context: CoreContext<PyEnvironment>, shut: Arc<AtomicBool>) -> Self {
         Context {
             inner: Arc::new(Mutex::new(Some(context))),
+            shut,
         }
     }
 
@@ -35,6 +39,7 @@ impl Context {
     pub fn clone_handle(&self) -> Self {
         Context {
             inner: self.inner.clone(),
+            shut: self.shut.clone(),
         }
     }
 
@@ -64,17 +69,17 @@ impl Context {
 impl Context {
     /// Evaluates a query as a dependency of the current asset and returns its value.
     fn evaluate(&self, py: Python<'_>, query: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
-        let result = (|| {
+        let result = (|| -> Result<_, PyFailure> {
             let query = crate::environment::to_query(query)?;
             let context = self.get()?;
-            let value = block_on(py, async move {
+            let value = block_on(py, &self.shut, async move {
                 let asset = context.evaluate(&query).await?;
                 let state = context.wait_for_dependency(&asset).await?;
                 state.value()
             })?;
-            value_to_py(py, &value)
+            Ok(value_to_py(py, &value)?)
         })();
-        result.map_err(|e| error_to_pyerr(py, &e))
+        result.map_err(|e| e.into_pyerr(py))
     }
 
     /// Adds an info entry to the asset's log.

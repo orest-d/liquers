@@ -21,11 +21,16 @@ parameter, plus the keyword arguments as the author's *declaration*. Rust runs t
 * ``*args`` becomes a ``multiple`` argument.
 
 A keyword-only parameter or ``**kwargs`` has no place in a positional query, so it is refused with
-``TypeError`` naming the parameter. The function is returned unchanged.
+``TypeError`` naming the parameter; ``context`` after ``*args`` is keyword-only too, and is refused
+the same way. A default must be ``None``, a ``str``, an ``int``, a finite ``float`` or a ``bool``.
+The function is returned unchanged.
 """
 
 import inspect
 import marshal
+import math
+import os
+import sys
 import typing
 import warnings
 
@@ -51,7 +56,15 @@ def _type_hints(fn):
 
 
 def _implementation_bytes(fn):
-    """What the command's ``impl_version`` hashes, or ``None`` for a callable with no code."""
+    """What the command's ``impl_version`` hashes, or ``None`` when the code does not decide it.
+
+    ``None`` gives the command a fresh version on every registration. That is the answer for a
+    callable with no code object, and for a closure or a bound method: there the result also
+    depends on captured cells or on ``self``, which the code object does not show, so hashing the
+    code alone could reuse a result computed from other captured values.
+    """
+    if getattr(fn, "__self__", None) is not None or getattr(fn, "__closure__", None):
+        return None
     code = getattr(fn, "__code__", None)
     if code is None:
         return None
@@ -67,12 +80,20 @@ def _baseline(fn, name, source):
     Returns the document and the index of the ``context`` parameter among the positional
     parameters, if there is one.
     """
-    signature = inspect.signature(fn)
+    try:
+        signature = inspect.signature(fn)
+    except (TypeError, ValueError) as e:
+        raise TypeError(f"command {name!r}: cannot read the parameters of {fn!r}: {e}") from None
     hints = _type_hints(fn)
     arguments = [{"name": "none"}] if source else []
     context_index = None
     position = 0
     for parameter in signature.parameters.values():
+        if parameter.kind is inspect.Parameter.KEYWORD_ONLY and parameter.name == "context":
+            raise TypeError(
+                f"command {name!r}: 'context' after *args is keyword-only and cannot be passed; "
+                "put it before *args"
+            )
         if parameter.kind is inspect.Parameter.KEYWORD_ONLY:
             raise TypeError(
                 f"command {name!r}: keyword-only parameter {parameter.name!r} cannot be passed "
@@ -91,11 +112,16 @@ def _baseline(fn, name, source):
         if annotation is not inspect.Parameter.empty:
             argument["argument_type"] = _argument_type(annotation)
         default = parameter.default
-        if default is not inspect.Parameter.empty and default is not None:
-            if not isinstance(default, _DEFAULT_TYPES):
+        if default is not inspect.Parameter.empty:
+            if default is not None and not isinstance(default, _DEFAULT_TYPES):
                 raise TypeError(
-                    f"command {name!r}: the default of {parameter.name!r} must be a str, int, "
-                    f"float or bool, not {type(default).__name__}"
+                    f"command {name!r}: the default of {parameter.name!r} must be None, a str, "
+                    f"int, float or bool, not {type(default).__name__}"
+                )
+            if isinstance(default, float) and not math.isfinite(default):
+                raise TypeError(
+                    f"command {name!r}: the default of {parameter.name!r} must be finite, "
+                    f"not {default!r}"
                 )
             argument["default"] = default
         arguments.append(argument)
@@ -107,8 +133,26 @@ def _baseline(fn, name, source):
     return document, context_index
 
 
+_PACKAGE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+def _caller_stacklevel():
+    """The ``stacklevel`` that points a warning at the first frame outside this package."""
+    level = 1
+    frame = sys._getframe(1)
+    while frame is not None and os.path.dirname(os.path.abspath(frame.f_code.co_filename)) == _PACKAGE_DIR:
+        frame = frame.f_back
+        level += 1
+    return level
+
+
 def _register(env, fn, source, name, namespace, label, doc, filename, volatile, cached):
-    name = name or fn.__name__
+    if name is None:
+        name = getattr(fn, "__name__", None)
+        if not isinstance(name, str):
+            raise TypeError(
+                f"{fn!r} has no __name__; give the command a name with name=..."
+            )
     baseline, context_index = _baseline(fn, name, source)
     declaration = {"namespace": namespace}
     if label is not None:
@@ -121,12 +165,16 @@ def _register(env, fn, source, name, namespace, label, doc, filename, volatile, 
         declaration["volatile"] = volatile
     if cached is not None:
         declaration["cached"] = cached
-    replaced = env._register_command(
+    replaced, messages = env._register_command(
         fn, baseline, declaration, context_index, _implementation_bytes(fn)
     )
+    for message in messages:
+        warnings.warn(message, stacklevel=_caller_stacklevel())
     if replaced != "nothing":
         where = f"{namespace}/{name}" if namespace else name
-        warnings.warn(f"command {where!r} replaces a {replaced} command", stacklevel=3)
+        warnings.warn(
+            f"command {where!r} replaces a {replaced} command", stacklevel=_caller_stacklevel()
+        )
     return fn
 
 

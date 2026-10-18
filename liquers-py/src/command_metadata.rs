@@ -262,6 +262,17 @@ impl ArgumentInfo {
         }
     }
 
+    /// The argument type as its serialized name: `"string"`, `"int"`, `"float"`, `"bool"`,
+    /// `"int_opt"`, …, or `"any"`.
+    #[getter]
+    fn argument_type(&self) -> PyResult<String> {
+        match serde_json::to_value(&self.0.argument_type) {
+            Ok(serde_json::Value::String(name)) => Ok(name),
+            Ok(other) => Ok(other.to_string()),
+            Err(e) => Err(PyErr::new::<PyException, _>(e.to_string())),
+        }
+    }
+
     /// Whether the argument takes every remaining query parameter (`*args`).
     #[getter]
     fn multiple(&self) -> bool {

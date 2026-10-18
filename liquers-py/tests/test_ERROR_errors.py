@@ -51,6 +51,8 @@ def test_ERROR02_fields_survive_a_command(env):
         env.evaluate("located")
     assert raised.value.message == "bad"
     assert raised.value.key == "k/x"
+    # The asset layer records the query being evaluated, replacing the one the command set.
+    assert raised.value.query in ("a/b", "located")
 
 
 def test_ERROR03_language_exception_includes_class_and_stack(env):
@@ -84,5 +86,7 @@ def test_ERROR06_language_raised_error_keeps_its_type(env):
 
 def test_ERROR05_no_panic_crosses_the_boundary(env):
     # `test_panic` is a Rust command that panics, registered only under `debug-handles`.
-    with pytest.raises(lq.LiquersError):
+    assert hasattr(lq.Environment, "live_handle_count"), "build with --features debug-handles"
+    with pytest.raises(lq.LiquersError, match="test_panic was evaluated") as raised:
         env.evaluate("test_panic")
+    assert raised.value.type != lq.ErrorType.ActionNotRegistered

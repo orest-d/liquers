@@ -16,9 +16,14 @@ def test_EVAL04_invalid_query_maps_through_error(env):
         env.evaluate("a/b-~")
 
 
-def test_EVAL_text_value_read_from_store(env):
+def test_EVAL_text_resource_read_from_store(env):
+    @env.command
+    def repeat(text: str, count: int = 2) -> str:
+        return text * count
+
     env.store_set("d/in.txt", "abc")
     assert env.evaluate("-R/d/in.txt") == "abc"
+    assert env.evaluate("-R/d/in.txt/-/repeat-2") == "abcabc"
 
 
 def test_EVAL01_evaluate_builtin_query(env):
@@ -45,6 +50,8 @@ def test_EVAL03_metadata_and_logs_available(env):
 
 
 def test_EVAL05_payload_and_context_reach_a_command(env):
+    # The context half. The payload half is NA: the environment's payload type is `()`, so there
+    # is no payload to deliver (README, Conformance).
     assert env.evaluate("outer") == "outer:hello"
 
 

@@ -74,15 +74,18 @@ def test_RUNTIME05_cancellation_and_shutdown_release_handles():
     "manager hold each other with strong Arcs, so its registry and callables are never freed",
 )
 def test_RUNTIME05_built_environment_releases_handles_on_shutdown():
+    from conftest import register_fixture_commands
+
     baseline = lq.Environment.live_handle_count()
     environment = lq.Environment()
-
-    @environment.first_command
-    def kept():
-        return 1
-
-    assert environment.evaluate("kept") == 1
+    register_fixture_commands(environment)
+    running = environment.get_asset("slow-60")
+    running.cancel()
+    with pytest.raises(lq.CancelledError):
+        running.get()
+    assert running.status == "Cancelled"
     environment.shutdown()
+    del running
     assert lq.Environment.live_handle_count() == baseline
 
 
@@ -95,11 +98,17 @@ def test_RUNTIME01_native_adapter_satisfies_thread_bounds(env):
         return "ok"
 
     result = {}
-    worker = threading.Thread(target=lambda: result.setdefault("v", env.evaluate("where")))
+
+    def call():
+        result["caller"] = threading.get_ident()
+        result["v"] = env.evaluate("where")
+
+    worker = threading.Thread(target=call)
     worker.start()
     worker.join(timeout=20)
-    assert result == {"v": "ok"}
-    assert seen["thread"] != threading.get_ident()  # Python ran on a Liquers worker thread
+    assert result["v"] == "ok"
+    # The command ran on a Liquers blocking thread, not on the thread that called evaluate.
+    assert seen["thread"] not in (result["caller"], threading.get_ident())
 
 
 def test_RUNTIME03_stored_callback_outlives_registration_scope(env):
@@ -120,7 +129,8 @@ def test_RUNTIME03_stored_callback_outlives_registration_scope(env):
 def test_RUNTIME06_panic_and_exception_containment(env):
     with pytest.raises(lq.ExecutionError):
         env.evaluate("hello/boom")
-    with pytest.raises(lq.LiquersError) as raised:
+    assert hasattr(lq.Environment, "live_handle_count"), "build with --features debug-handles"
+    with pytest.raises(lq.LiquersError, match="test_panic was evaluated") as raised:
         env.evaluate("test_panic")
-    assert "panic" in raised.value.message.lower()
+    assert raised.value.type != lq.ErrorType.ActionNotRegistered
     assert env.evaluate("hello") == "hello"  # the process and the environment carry on

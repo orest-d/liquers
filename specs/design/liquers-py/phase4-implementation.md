@@ -22,6 +22,54 @@ prerequisite issues.
 - [x] Step 11: remaining Appendix A suites and the conformance matrix — 429cb6a1
 - [ ] Step 12: final checks
 
+## Implementation Review
+
+Two independent reviews ran after step 11, as the Phase 4 gate requires: a conformity review
+against the guide and this design, and a soundness review of the code. Their findings and what
+became of each:
+
+- **Conformity.**
+  - The matrix claimed `COMPLETE` for `ENVIRON`, `EVAL` and `COMMAND` over hard dependencies that are
+    not. `RUNTIME` and `VALUE` are now `BLOCKED`, naming their core issues, and the three dependents
+    are `PARTIAL` with the reason in the limitations column.
+  - **AC-18 is met only in part.** "Nothing is unpickled" holds and is tested
+    (`test_VALUE_pickle_off_never_unpickles`). "The error names `py.Object`" does not: the read
+    falls through to "No recipe found" (`DEGRADED-STORED-VALUE-WITHOUT-RECIPE-REPORTS-NO-RECIPE`, a
+    strict `xfail`). The fix is in `liquers-core` and goes in its own PR, per the project's rule
+    that issue fixes stay out of a design PR.
+  - `EVAL05`'s payload half is `NA` (the payload type is `()`), now recorded in the matrix and the
+    test.
+  - Phase 1 readiness now says which owner decisions were proceeded on and which is still open, and
+    names its leading issue.
+  - The two issues this design filed gained their `Impact` and `Discovery` sections.
+  - The other findings (missing test cases, naming) were fixed in the suites.
+- **Soundness.** Each fix has a regression test, in `tests/test_ENVIRON_waits_and_shutdown.py`,
+  `test_COMMAND_declaration_edges.py` and `test_OBJECT_hash_and_index.py`.
+  - A wait outstanding at `shutdown()` hung, and Ctrl-C could not interrupt a wait. `block_on` now
+    waits in 100 ms slices, running signal handlers and checking the handle's shut flag between
+    them.
+  - A `None` default was dropped, which made the argument required. Non-finite float defaults
+    are now refused.
+  - Pickling took the GIL on a tokio worker; it now runs under `block_in_place` there.
+  - A closure or bound method was versioned by its code alone, so a re-registration with other
+    captures could reuse results. It now gets a fresh version.
+  - Unregistering a Python override also removed the built-in it replaced. It now restores the
+    built-in.
+  - Declaration warnings went to stderr; they are now Python warnings, pointed at the caller's
+    frame. The reserved-state warning is dropped, since any name delivering the value is the
+    Python convention.
+  - A callable without `__name__` (`functools.partial`), and `context` after `*args`, now get a
+    clear `TypeError`.
+  - `register` took the lock twice, and `unregister` and `import_metadata` still worked after
+    shutdown.
+  - `Status` hashed unlike the name string it compares equal to, and `Key[i]` panicked out of
+    range.
+  - Not fixed: retired environments accumulate until `shutdown()`. They cannot be pruned while
+    `ENVIRONMENT-MANAGER-REFERENCE-CYCLE` keeps every built environment alive.
+- **Flaky Rust test.** `every_error_type_round_trips_with_its_fields` failed once in parallel
+  runs: two tests reinstalled `liquers._errors` concurrently. The module now loads once, under a
+  `PyOnceLock`.
+
 ## Implementation Steps
 
 ### Step 1: foreign decoder hook in `liquers-lib`
