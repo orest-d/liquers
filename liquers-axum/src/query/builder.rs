@@ -3,6 +3,7 @@ use liquers_core::context::{EnvRef, Environment};
 use std::marker::PhantomData;
 use std::time::Duration;
 
+use crate::api_core::join_base;
 use crate::query::handlers::QueryApiConfig;
 
 /// Builder for Query Execution API endpoints (GET/POST /q/{*query})
@@ -15,6 +16,9 @@ pub struct QueryApiBuilder<E: Environment> {
 impl<E: Environment> QueryApiBuilder<E> {
     /// Create a new QueryApiBuilder with the specified base path
     /// Example: QueryApiBuilder::new("/liquer/q")
+    ///
+    /// A trailing `/` on the base is ignored: `"/liquer/q"` and `"/liquer/q/"` both serve
+    /// `/liquer/q/{*query}`, and the query is whatever follows that `/`.
     pub fn new(base_path: impl Into<String>) -> Self {
         Self {
             base_path: base_path.into(),
@@ -37,7 +41,7 @@ impl<E: Environment> QueryApiBuilder<E> {
         Router::new()
             // GET /q/{*query} - Execute query via GET
             .route(
-                &format!("{}{{*query}}", self.base_path),
+                &join_base(&self.base_path, "{*query}"),
                 get(crate::query::handlers::get_query_handler::<E>)
                     .post(crate::query::handlers::post_query_handler::<E>),
             )
