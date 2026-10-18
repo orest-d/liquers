@@ -412,6 +412,11 @@ fn json_to_js(json: &serde_json::Value) -> Result<JsValue, Error> {
 ///
 /// Routing every conversion through here keeps the shape uniform: an object that crossed into
 /// Liquers as an object crosses back as one.
+///
+/// Integers keep serde-wasm-bindgen's default: one inside ±(2^53 − 1) becomes a `number`, and one
+/// outside it is refused with `ConversionError` rather than rounded or sent as a `BigInt`. That
+/// satisfies `VALUE03` (exact or raise, never silently imprecise) without making pages handle
+/// `BigInt`; `value03_outbound_integer_boundaries` in `tests/value_bridge_VALUE.rs` holds it.
 pub fn serialize_to_js<T: serde::Serialize + ?Sized>(
     value: &T,
 ) -> Result<JsValue, serde_wasm_bindgen::Error> {

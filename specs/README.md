@@ -253,6 +253,7 @@ submit, and submitted query state is not preserved.
 - **Using the web API (curl, Python)** — documented → [`guides/WEB_API_GUIDE.md`](guides/WEB_API_GUIDE.md)
 - **Assets HTTP and WebSocket API (`q/`, `key/`, `admin/`, `ws/q`, `ws/key`)** — built → [`design/axum-assets-endpoints/`](design/axum-assets-endpoints/)
 - **Language integration** — documented → [`guides/LANGUAGE-INTEGRATION_GUIDE.md`](guides/LANGUAGE-INTEGRATION_GUIDE.md)
+- **Integers leaving for JavaScript (VALUE03)** — built → [`design/web-outbound-int64-precision/`](design/web-outbound-int64-precision/)
 - **Assets and recipes HTTP API** — built → [`design/axum-assets-recipes-api/`](design/axum-assets-recipes-api/)
 - **Web API library** — built → [`design/web-api-library/`](design/web-api-library/)
 - **Browser and JavaScript integration** — built → [`design/liquers-web/`](design/liquers-web/)
@@ -435,7 +436,6 @@ deliberately folded behind a broader line.
 - design `web-environ-validation-report`
 - design `web-liquers-error-constructor`
 - design `web-object06-error-type-exhaustiveness`
-- design `web-outbound-int64-precision`
 - design `web-records-single-cell-scalar`
 - design `web-store-conformance-tests`
 - design `web-value04-bytes-identifier`
