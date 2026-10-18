@@ -10,7 +10,7 @@ autofix: not-eligible
 merged: 2026-10-17
 area: [py]
 issues: [PY-VALUE-ENUM-OVERSIZED, PY-VALUE-SERIALIZER-IS-A-STUB, PY-ADD-PYTHON-COMMAND-ALIASES-AN-UNREGISTERED-COMMAND, FOREIGN-VALUE-CANNOT-BE-DESERIALIZED]
-affects_docs: [specs/guides/LANGUAGE-INTEGRATION_GUIDE.md, specs/reference/VALUE_TYPE_SYSTEM.md, specs/reference/ASSETS.md]
+affects_docs: [specs/guides/LANGUAGE-INTEGRATION_GUIDE.md, specs/reference/VALUE_TYPE_SYSTEM.md]
 created: 2026-10-17
 ---
 # liquers-py — Python integration

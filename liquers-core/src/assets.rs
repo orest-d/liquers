@@ -1059,7 +1059,26 @@ fn deserialize_stored_value<E: Environment>(
     if !type_identifier.trim().is_empty() && !registry.contains(type_identifier) {
         return Ok(None);
     }
+    // A registered type that declares no data format has no byte form in this environment: the
+    // write path refuses to serialize it, so stored bytes under its identifier were written by a
+    // differently configured environment. They are kept, never decoded — decoding is exactly what
+    // such a registration opts out of (an untrusted codec such as pickle, turned off). No built-in
+    // type is affected, since every one that can be stored declares at least one format.
+    if let Some(info) = registry.get(type_identifier) {
+        if info.supported_data_formats.is_empty() {
+            return Ok(None);
+        }
+    }
     E::Value::deserialize_from_bytes(binary, type_identifier, data_format).map(Some)
+}
+
+/// Why [`deserialize_stored_value`] read a value as degraded, for the messages that report it.
+fn degraded_reason(type_identifier: &str, registry: &crate::type_system::TypeRegistry) -> &'static str {
+    if registry.contains(type_identifier) {
+        "is registered with no data format, so it has no byte form in this environment"
+    } else {
+        "is not registered in this build"
+    }
 }
 
 impl<E: Environment> AssetData<E> {
@@ -1424,12 +1443,13 @@ impl<E: Environment> AssetData<E> {
                 ) {
                     Ok(Some(value)) => value,
                     Ok(None) => {
-                        // Degraded: this build has no such type. Do not fast-track a value that
-                        // cannot be materialized; the store entry stays readable as bytes.
+                        // Degraded: no byte form for this type here. Do not fast-track a value
+                        // that cannot be materialized; the store entry stays readable as bytes.
                         eprintln!(
-                            "Asset {} fast-track: type identifier '{}' is not registered in this build; keeping bytes only",
+                            "Asset {} fast-track: type identifier '{}' {}; keeping bytes only",
                             self.id(),
-                            type_identifier
+                            type_identifier,
+                            degraded_reason(&type_identifier, registry_owner.get_type_registry())
                         );
                         self.clear_fast_track_payload();
                         return Ok(false);
@@ -7482,10 +7502,11 @@ pub trait AssetManager<E: Environment>:
                 }
                 Ok(Some(State::from_parts(Arc::new(value), Arc::new(metadata))))
             }
-            // Degraded: the caller asked for a value of a type this build does not know.
+            // Degraded: the caller asked for a value this environment cannot read from bytes.
             None => Err(Error::general_error(format!(
-                "Type identifier '{}' is not registered in this build, so the stored value cannot be materialized",
-                type_identifier
+                "Type identifier '{}' {}, so the stored value cannot be materialized",
+                type_identifier,
+                degraded_reason(&type_identifier, envref.get_type_registry())
             ))
             .with_key(key)),
         }
@@ -10526,6 +10547,34 @@ impl<E: Environment> KeyMutationAccess for ImmediateAssetManager<E> {
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use crate::type_system::{TypeInfo, TypeRegistry};
+
+    /// The formatless read rule: a registered type with no data format is read as degraded, so
+    /// its stored bytes are never handed to a decoder, while a type with formats still decodes.
+    #[test]
+    fn formatless_registered_type_is_read_as_degraded() -> Result<(), Error> {
+        let mut registry = TypeRegistry::from_value_type::<Value>();
+        registry.register(TypeInfo::new("test.Formatless"))?;
+        let read = deserialize_stored_value::<SimpleEnvironment<Value>>(
+            b"bytes written elsewhere",
+            "test.Formatless",
+            "pickle",
+            &registry,
+        )?;
+        assert!(read.is_none());
+        assert!(degraded_reason("test.Formatless", &registry).contains("no data format"));
+        assert!(degraded_reason("test.Unknown", &registry).contains("not registered"));
+
+        let text = deserialize_stored_value::<SimpleEnvironment<Value>>(
+            b"hello",
+            "Text",
+            "txt",
+            &registry,
+        )?;
+        assert_eq!(text.map(|v| v.try_into_string()).transpose()?, Some("hello".to_string()));
+        Ok(())
+    }
+
     use std::sync::Arc;
     use std::sync::Mutex as StdMutex;
     use std::time::Duration;

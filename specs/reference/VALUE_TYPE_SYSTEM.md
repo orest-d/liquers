@@ -373,6 +373,15 @@ The identifier check applies in both cases.
 know **degrades**: the bytes and metadata are kept verbatim so a minimal build can copy, proxy and
 re-store data it cannot interpret. Asking for a *value* then fails with an error naming the type.
 
+**A registered type that declares no formats degrades the same way.** By the write path's
+exemption above such a type has no byte form, so bytes stored under its identifier were written by
+a differently configured environment, and decoding them is exactly what the registration opts out
+of. `liquers-py` relies on this: with its pickle codec off it registers `py.Object` with no
+formats, so a pickle-off environment never unpickles bytes a pickle-on one stored. No built-in
+type is affected, because every one that can be stored declares a format. The error says which of
+the two reasons applies (`degraded_reason`). On the `-R/` path, a degraded key with no recipe is
+still reported as "No recipe found" (`DEGRADED-STORED-VALUE-WITHOUT-RECIPE-REPORTS-NO-RECIPE`).
+
 A combined value (`liquers_lib::value::Value`, a `CombinedValue<SimpleValue, ExtValue>`) then
 chooses which half reads the bytes **by the identifier**, not by trying one half after the other
 (`CombinedValue::deserialize_from_bytes`):
@@ -413,6 +422,7 @@ degrades on read.
 
 | Date | Change |
 |---|---|
+| 2026-10-18 | §Reading: a registered type that declares no formats is read as degraded, never decoded. | `design/liquers-py/` (`FOREIGN-VALUE-CANNOT-BE-DESERIALIZED`) |
 | 2026-10-18 | §Reading a foreign value back: the process-global foreign decoder table, and foreign identifiers routed to the extension. `liquers-py` now registers `py.Object` at construction instead of owning a value type. | `design/liquers-py/` |
 | 2026-10-17 | §Reading a value by name: `DataNode` and `ValueInterface::data_node`. | `design/liquers-mustache/` |
 | 2026-10-13 | §Reading: `F64` in `json`. Non-finite floats are written as tokens and read back by identifier, nested core floats become `null`, and `try_into_json_value` refuses (`design/value-to-json-non-finite-float/`, closing `VALUE-TO-JSON-PANICS-ON-NON-FINITE-FLOAT`). |

@@ -40,6 +40,12 @@ prerequisite issues.
   - `liquers-core/src/assets.rs` `deserialize_stored_value`, plus the degraded messages at
     `:1430` and `:7487`. The test goes in the top-level `mod tests` (`:10527`).
   - `specs/reference/ASSETS.md`: the rule, with a History row and a `reviewed:` bump.
+- **Changed while implementing:** the read rule is documented where the read path already is,
+  `VALUE_TYPE_SYSTEM.md` §Reading, rather than in `ASSETS.md`, which does not describe it. Run
+  without waiting for the owner's answer on the read-rule card, on the recommended option, as the
+  owner instructed on 2026-10-18 ("follow all the phases, no need to wait for approval").
+  A degraded key with no recipe is still reported as "No recipe found", filed as
+  `DEGRADED-STORED-VALUE-WITHOUT-RECIPE-REPORTS-NO-RECIPE`.
 - **Depends on:** none; can run in parallel with step 1.
 - **Proof:**
   - `cargo test -p liquers-core --lib assets::tests::formatless`;
