@@ -315,6 +315,16 @@ export interface LiquersRecordColumn {
   readonly view: ArrayBufferView;
   toCopy(): LiquersRecordColumnCopy;
 }
+
+/**
+ * One chunk of a `RecordSource`, as `RecordSource.chunks()` lists it without evaluating it.
+ * `query` evaluates to the chunk's rows either way: the chunk's own query when `kind` is
+ * `"query"`, a resource query over the stored chunk when it is `"key"`.
+ */
+export interface LiquersRecordChunk {
+  kind: "query" | "key";
+  query: string;
+}
 "#;
 
 #[wasm_bindgen]

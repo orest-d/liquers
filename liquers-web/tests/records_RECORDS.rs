@@ -1,7 +1,9 @@
-//! `RECORDS05`/`RECORDS06` — the wasm half of `specs/design/record-streams/phase3-tests.md` §6.
-//! `RECORDS06` needs the `debug-handles` feature, as `RUNTIME05` does.
+//! `RECORDS*` — the wasm half of `specs/design/record-streams/phase3-tests.md` §6, and the records
+//! bridge of `specs/design/liquers-web-records-bridge/` (sources, streaming, handles crossing back,
+//! the `rec` commands in the web environment). The `RECORDS06` tests need the `debug-handles`
+//! feature, as `RUNTIME05` does.
 //!
-//! Both run under the Node loop (`cargo test -p liquers-web --target wasm32-unknown-unknown
+//! All run under the Node loop (`cargo test -p liquers-web --target wasm32-unknown-unknown
 //! --features debug-handles`): neither needs a browser API, since `WebAssembly.Memory` growth and
 //! typed arrays behave the same under Node.
 
@@ -17,7 +19,10 @@ use liquers_lib::records::{
 };
 use liquers_web::records::LiquersRecordBatch;
 use wasm_bindgen::{prelude::*, JsCast};
+use wasm_bindgen_futures::JsFuture;
 use wasm_bindgen_test::*;
+
+mod common;
 
 fn float_batch(values: &[f64]) -> Arc<RecordBatch> {
     let schema =
@@ -240,4 +245,332 @@ fn records10_null_and_binary_cells_keep_the_value_mapping() {
     let js = to_js(batch);
     assert!(js.is_instance_of::<js_sys::Uint8Array>());
     assert_eq!(js_sys::Uint8Array::from(js).to_vec(), b"abc".to_vec());
+}
+
+// ---------------------------------------------------------------------------
+// The records bridge (`specs/design/liquers-web-records-bridge/`)
+// ---------------------------------------------------------------------------
+
+use liquers_lib::records::{InMemorySource, ManifestSource, ManifestSpec, RecordSource, RecordView};
+use liquers_lib::value::{ExtValue, Value};
+
+fn source_value(source: Arc<dyn RecordSource>) -> Value {
+    Value::Extended(ExtValue::RecordSource { value: source })
+}
+
+fn source_to_js(source: Arc<dyn RecordSource>) -> JsValue {
+    liquers_web::bridge::value_to_js(&source_value(source)).expect("value_to_js")
+}
+
+/// Three two-row views of one `Int` column `a`: 1..=6.
+fn three_views() -> Arc<dyn RecordSource> {
+    let views: Vec<Arc<dyn RecordView>> = [[1, 2], [3, 4], [5, 6]]
+        .iter()
+        .map(|pair| {
+            json_batch(serde_json::json!([{ "a": pair[0] }, { "a": pair[1] }])) as Arc<dyn RecordView>
+        })
+        .collect();
+    Arc::new(InMemorySource::new(views))
+}
+
+fn call(target: &JsValue, method: &str, args: &[JsValue]) -> JsValue {
+    let function: Function = Reflect::get(target, &JsValue::from_str(method))
+        .expect("method")
+        .dyn_into()
+        .expect("a function");
+    function
+        .apply(target, &args.iter().collect::<js_sys::Array>())
+        .unwrap_or_else(|e| panic!("{method}() threw {e:?}"))
+}
+
+async fn awaited(promise: JsValue) -> Result<JsValue, JsValue> {
+    JsFuture::from(js_sys::Promise::from(promise)).await
+}
+
+/// The `a` column of a batch handle, read through `columnCopy`.
+fn int_column(batch: &JsValue) -> Vec<i64> {
+    let copy = call(batch, "columnCopy", &[JsValue::from(0)]);
+    copy.dyn_into::<js_sys::BigInt64Array>()
+        .expect("an Int column copies to BigInt64Array")
+        .to_vec()
+}
+
+/// Every batch an async iterable yields, driven through `Symbol.asyncIterator` as `for await` does.
+async fn drain(iterable: &JsValue) -> Vec<JsValue> {
+    let factory: Function = Reflect::get(iterable, &js_sys::Symbol::async_iterator())
+        .expect("Symbol.asyncIterator")
+        .dyn_into()
+        .expect("a function");
+    let iterator = factory.call0(iterable).expect("an iterator");
+    let mut batches = Vec::new();
+    loop {
+        let step = awaited(call(&iterator, "next", &[])).await.expect("next()");
+        if Reflect::get(&step, &"done".into()).expect("done").as_bool() == Some(true) {
+            return batches;
+        }
+        batches.push(Reflect::get(&step, &"value".into()).expect("value"));
+    }
+}
+
+fn free(handle: &JsValue) {
+    call(handle, "free", &[]);
+}
+
+fn rust_value(js: &JsValue) -> Result<Value, liquers_core::error::Error> {
+    liquers_web::bridge::js_to_value::<Value>(js, liquers_web::bridge::ConversionPolicy::Structural)
+}
+
+/// RECORDS01 — a batch handle crosses back as the very view it was made from, origin intact.
+#[wasm_bindgen_test]
+fn records01_a_batch_handle_crosses_back_as_the_same_view_with_origin_intact() {
+    let chunk = liquers_core::parse::parse_query("part-1/ns-rec/from_json-records").expect("query");
+    let origin = liquers_lib::records::ChunkOrigin {
+        asset: chunk.clone(),
+        chunk: chunk.clone(),
+        info: None,
+        locator: None,
+    };
+    let schema = Arc::new(
+        RecordSchema::new(vec![
+            FieldSchema::new("id", FieldType::Int).with_key(liquers_lib::records::KeyRole::Id),
+            FieldSchema::new("x", FieldType::Float),
+        ])
+        .expect("schema"),
+    );
+    let batch = Arc::new(
+        RecordBatch::new(
+            schema,
+            vec![
+                Column::Int { validity: None, values: Buffer::from_slice(&[1i64, 2]) },
+                Column::Float { validity: None, values: Buffer::from_slice(&[0.5, 1.5]) },
+            ],
+            Some(liquers_lib::records::ChunkId::Query(chunk)),
+            None,
+            vec![origin],
+        )
+        .expect("batch"),
+    );
+    let view: Arc<dyn RecordView> = batch.clone();
+    let js = liquers_web::bridge::value_to_js(&Value::Extended(ExtValue::RecordView {
+        value: view.clone(),
+    }))
+    .expect("value_to_js");
+
+    assert_eq!(
+        call(&js, "chunkIdJson", &[]).as_string(),
+        Some(serde_json::to_string(&batch.chunk_id).expect("json"))
+    );
+    assert_eq!(
+        call(&js, "sourcesJson", &[]).as_string(),
+        Some(serde_json::to_string(&batch.sources).expect("json"))
+    );
+
+    match rust_value(&js).expect("the handle crosses back") {
+        Value::Extended(ExtValue::RecordView { value }) => {
+            assert!(Arc::ptr_eq(&value, &view), "the same Arc, not a copy");
+            assert!(value.schema().id_field().is_some(), "the Id role survives");
+        }
+        other => panic!("expected a record view, got {other:?}"),
+    }
+    free(&js);
+}
+
+/// RECORDS02 — a column reads the same through its typed-array view and through its copy.
+#[wasm_bindgen_test]
+fn records02_a_column_reads_the_same_through_a_view_and_a_copy() {
+    let values = [0.25, -1.0, 8.5];
+    let handle = LiquersRecordBatch::from(float_batch(&values));
+    let desc = handle.column(0).expect("descriptor");
+    let view = Float64Array::new_with_byte_offset_and_length(
+        &memory_buffer(),
+        descriptor_field(&desc, "ptr") as u32,
+        descriptor_field(&desc, "len") as u32,
+    );
+    let copy: Float64Array = handle.column_copy(0).expect("copy").dyn_into().expect("Float64Array");
+    assert_eq!(view.to_vec(), copy.to_vec());
+
+    let texts = LiquersRecordBatch::from(json_batch(serde_json::json!([{ "t": "x" }, { "t": "yz" }])));
+    let copy: js_sys::Array = texts.column_copy(0).expect("copy").dyn_into().expect("Array");
+    let read: Vec<Option<String>> = copy.iter().map(|v| v.as_string()).collect();
+    assert_eq!(read, vec![Some("x".to_string()), Some("yz".to_string())]);
+}
+
+/// RECORDS04 — a column copy is detached: writing into it leaves the batch unchanged.
+#[wasm_bindgen_test]
+fn records04_a_column_copy_is_detached_from_the_batch() {
+    let values = [1.0, 2.0];
+    let handle = LiquersRecordBatch::from(float_batch(&values));
+    let copy: Float64Array = handle.column_copy(0).expect("copy").dyn_into().expect("Float64Array");
+    copy.set_index(0, 99.0);
+    let desc = handle.column(0).expect("descriptor");
+    let view = Float64Array::new_with_byte_offset_and_length(
+        &memory_buffer(),
+        descriptor_field(&desc, "ptr") as u32,
+        descriptor_field(&desc, "len") as u32,
+    );
+    assert_eq!(view.to_vec(), values, "the batch's own buffer is untouched");
+}
+
+/// A JavaScript command `part` whose chunks count how often they are evaluated.
+fn register_part_command() {
+    use common::{arg, args, decl_with_params, with};
+    liquers_web::environment::register_command_on(&with(
+        decl_with_params(
+            "part",
+            &["n"],
+            "globalThis.__liquersParts = (globalThis.__liquersParts || 0) + 1; \
+             return [{ a: n }, { a: n * 10 }];",
+        ),
+        "arguments",
+        args(vec![arg("n", Some("int"), None)]),
+    ))
+    .expect("register part");
+}
+
+fn parts_evaluated() -> f64 {
+    Reflect::get(&js_sys::global(), &"__liquersParts".into())
+        .ok()
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.0)
+}
+
+/// RECORDS07 — chunk ids are data: listing them evaluates nothing, and evaluating them one at a
+/// time yields the source's rows.
+#[wasm_bindgen_test]
+async fn records07_chunk_ids_are_data_and_evaluate_one_at_a_time() {
+    common::fresh();
+    register_part_command();
+    let _ = Reflect::set(&js_sys::global(), &"__liquersParts".into(), &JsValue::from(0));
+    let spec: ManifestSpec = serde_json::from_value(serde_json::json!({
+        "manifest": "record-stream",
+        "chunks": [
+            { "query": "part-1/ns-rec/from_json-records" },
+            { "query": "part-2/ns-rec/from_json-records" },
+        ],
+    }))
+    .expect("manifest");
+    let source: Arc<dyn RecordSource> = Arc::new(ManifestSource::new(spec, None).expect("source"));
+    let js = source_to_js(source);
+
+    assert_eq!(Reflect::get(&js, &"bounded".into()).expect("bounded").as_bool(), Some(true));
+    let chunks: Vec<JsValue> = js_sys::Array::from(&call(&js, "chunks", &[])).iter().collect();
+    assert_eq!(chunks.len(), 2);
+    assert_eq!(parts_evaluated(), 0.0, "listing chunks evaluates nothing");
+
+    let mut one_at_a_time = Vec::new();
+    for chunk in &chunks {
+        assert_eq!(Reflect::get(chunk, &"kind".into()).expect("kind").as_string().as_deref(), Some("query"));
+        let query = Reflect::get(chunk, &"query".into()).expect("query").as_string().expect("text");
+        let batch = common::eval_to_js(&query).await.expect("the chunk query evaluates");
+        one_at_a_time.extend(int_column(&batch));
+    }
+    assert_eq!(one_at_a_time, vec![1, 10, 2, 20]);
+
+    let all = awaited(call(&js, "materialize", &[JsValue::from(100)]))
+        .await
+        .expect("materialize");
+    assert_eq!(int_column(&all), one_at_a_time, "the stream's rows, in order");
+    liquers_web::environment::reset_global();
+}
+
+/// RECORDS08 — the async iterator yields one batch per view, with the rows `materialize` gives.
+#[wasm_bindgen_test]
+async fn records08_the_async_iterator_yields_the_same_rows_as_materialize() {
+    common::fresh();
+    let js = source_to_js(three_views());
+    let iterable = awaited(call(&js, "stream", &[])).await.expect("stream()");
+    let batches = drain(&iterable).await;
+    assert_eq!(batches.len(), 3, "one batch per view");
+    let streamed: Vec<i64> = batches.iter().flat_map(int_column).collect();
+
+    let all = awaited(call(&js, "materialize", &[JsValue::from(1000)]))
+        .await
+        .expect("materialize");
+    assert_eq!(streamed, int_column(&all));
+    assert_eq!(streamed, vec![1, 2, 3, 4, 5, 6]);
+    liquers_web::environment::reset_global();
+}
+
+/// `materialize(maxRows)` refuses a larger source and accepts one that fits.
+#[wasm_bindgen_test]
+async fn records_source_materialize_is_bounded_by_max_rows() {
+    common::fresh();
+    let js = source_to_js(three_views());
+    let refused = awaited(call(&js, "materialize", &[JsValue::from(5)]))
+        .await
+        .expect_err("six rows exceed five");
+    let message = Reflect::get(&refused, &"message".into()).expect("message").as_string().unwrap_or_default();
+    assert!(message.contains("max_rows"), "{message}");
+
+    let all = awaited(call(&js, "materialize", &[JsValue::from(6)]))
+        .await
+        .expect("six rows fit six");
+    assert_eq!(js_number(&all, "numRows"), 6.0);
+    liquers_web::environment::reset_global();
+}
+
+/// A freed handle passed back is refused, naming what it was.
+#[wasm_bindgen_test]
+fn records_a_freed_handle_is_refused_by_name() {
+    let batch = to_js(float_batch(&[1.0, 2.0]));
+    free(&batch);
+    let error = rust_value(&batch).expect_err("a freed batch must be refused");
+    assert!(error.message.contains("freed RecordBatch"), "{}", error.message);
+
+    let source = source_to_js(three_views());
+    free(&source);
+    let error = rust_value(&source).expect_err("a freed source must be refused");
+    assert!(error.message.contains("freed RecordSource"), "{}", error.message);
+}
+
+/// The `rec` commands run in the web environment: a page query can produce records.
+#[wasm_bindgen_test]
+async fn records_ns_rec_commands_run_in_the_web_environment() {
+    common::fresh();
+    liquers_web::environment::register_command_on(&common::decl(
+        "rows",
+        "return [{ a: 1 }, { a: 2 }, { a: 3 }];",
+    ))
+    .expect("register rows");
+    let count = common::eval_to_js("rows/ns-rec/from_json-records/nrows")
+        .await
+        .expect("evaluates");
+    assert_eq!(count.as_f64(), Some(3.0));
+    liquers_web::environment::reset_global();
+}
+
+/// A command handed a batch that returns it gives Rust the same view, and the query continues.
+#[wasm_bindgen_test]
+async fn records_a_command_returning_its_batch_hands_rust_the_same_view() {
+    common::fresh();
+    liquers_web::environment::register_command_on(&common::decl(
+        "rows",
+        "return [{ a: 1 }, { a: 2 }, { a: 3 }];",
+    ))
+    .expect("register rows");
+    liquers_web::environment::register_command_on(&common::with(
+        common::decl_with_params("keep", &["batch"], "if (typeof batch.numRows !== 'number') throw new Error('not a batch'); return batch;"),
+        "state",
+        JsValue::from_str("value"),
+    ))
+    .expect("register keep");
+    let count = common::eval_to_js("rows/ns-rec/from_json-records/keep/ns-rec/nrows")
+        .await
+        .expect("evaluates");
+    assert_eq!(count.as_f64(), Some(3.0));
+    liquers_web::environment::reset_global();
+}
+
+/// RECORDS06 — freeing a source handle releases the source: the registry forgets its id and the
+/// source itself is dropped.
+#[wasm_bindgen_test]
+fn records06_releasing_a_source_handle_releases_the_source() {
+    let source = three_views();
+    let weak = Arc::downgrade(&source);
+    let js = source_to_js(source);
+    let id = js_number(&js, "__liquersRecordHandle") as u32;
+    assert!(liquers_web::records::handle_is_live(id));
+    free(&js);
+    assert!(!liquers_web::records::handle_is_live(id), "the registry forgets a freed handle");
+    assert!(weak.upgrade().is_none(), "free() must drop the last Arc of the source");
 }

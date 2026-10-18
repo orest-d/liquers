@@ -446,9 +446,17 @@ returning a **descriptor** (`kind`, `ptr`, `len`, `validity`, plus `dim` for vec
 `offsets`/`data` for text and binary) from which the caller builds a typed-array view over
 `memory.buffer`, `columnCopy(i)` as the always-safe detached copy, and `columnView(i)` building the
 `RecordColumn` companion (`records_column.js`) that re-creates a view detached by `memory.grow`.
-The handle holds the batch by `Arc`, so buffers stay valid until `free()`. A `RecordSource` has no
-JavaScript representation yet and is refused by the standard mapping. `RECORDS05`, `RECORDS06` and
-`RECORDS10` run in `liquers-web/tests/records_RECORDS.rs`.
+The handle holds the batch by `Arc`, so buffers stay valid until `free()`. A `RecordSource` crosses
+unmaterialized as a `RecordSource` handle: `chunks()` lists `{kind, query}` without evaluating
+anything (route 1), `stream()` resolves to an async iterable yielding one `RecordBatch` per view,
+and `materialize(maxRows)` resolves to one batch; traversal evaluates chunks in the web
+environment, resolved at each call. Both handle kinds carry a registry id
+(`__liquersRecordHandle`), so a handle a JavaScript command returns crosses back as the same `Arc`
+(`ExtValue::RecordView` / `RecordSource`), and a freed one is refused by name. A table a page
+builds itself is not recognized at the boundary: it crosses as plain data, and the query says
+`ns-rec/from_json-records`. The `rec` commands are registered in the web environment. `RECORDS01`,
+`02`, `04`-`08` and `10` run in `liquers-web/tests/records_RECORDS.rs`; `03`, `09` and `11` are
+`NA` (no Arrow route; JavaScript has an async model; JavaScript cannot implement the traits).
 
 A single-cell view reads as a scalar (`record-streams` Phase 2, "A view as a value"), so a wrapper
 should expose that as the *language*'s own scalar rather than as a one-by-one table.
@@ -3095,6 +3103,7 @@ def test_PACKAGE07_artifact_carries_declarations_license_and_metadata():
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-18 | §RECORDS "What `liquers-web` does": a source crosses as a `RecordSource` handle (chunks, async iterator, bounded materialize), handles cross back as the same `Arc`, the `rec` commands run in the browser; the `RECORDS` dispositions. | `design/liquers-web-records-bridge/` |
 | 2026-10-18 | §RECORDS "What `liquers-web` does": a single-cell view reaches JavaScript as its scalar; `RECORDS10` runs there. | `WEB-RECORDS-SINGLE-CELL-VIEW-CROSSES-AS-BATCH`, `design/web-records-single-cell-scalar/` |
 | 2026-10-16 | §6 Browser JavaScript: `localstorage` and `http` now offer data-only access and can take a `metadata` section. | `design/store-adapters/` phase-5 review |
 | 2026-10-15 | Configured stores. §4: `read_only` and `metadata` belong to `STORE` direction 3, with no feature ID of their own. §STORE: direction 3 covers a mount's access policy and metadata handling; the inventory adds the data-only methods, `DataCapabilities`, `DataFacts`, `BackendTime`, `is_read_only`, `sync`, `created`/`etag` and `MetadataConfig`/`StoreConfigFunctions`; new design questions for configured stores; new subsection "Configured stores: access policy, metadata and write strategies" with the capability table and the `store_config` counterpart of "What the *language* cannot contribute"; tests `STORE14`–`STORE18` with a disposition column and Appendix A blueprints. §COMMAND asks about foreign realms; §ENVIRON states that chains compile against the environment's registry. §6: `JsStore`'s optional data methods and the built-in browser stores' refusal; Python's GIL cost for a per-entry handler. | phase-5, `design/store-adapters/` |

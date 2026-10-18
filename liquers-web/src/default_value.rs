@@ -25,9 +25,16 @@ pub type WebValue = liquers_lib::value::Value;
 // so the documented Tier-2 route is the one this crate itself uses, rather than a second-class
 // alternative to it.
 impl JsExtensionBridge for ExtValue {
-    fn from_js_custom(_js: &JsValue) -> Result<Option<Self>, Error> {
-        // The default value type has no JavaScript-specific structural cases beyond the standard
-        // mapping, so it always falls through.
+    fn from_js_custom(js: &JsValue) -> Result<Option<Self>, Error> {
+        // A record handle the page received crosses back as the value it was made from — the same
+        // `Arc`, with its schema, roles and origin — rather than through a JSON round trip.
+        // Everything else falls through to the standard mapping.
+        #[cfg(feature = "records")]
+        if let Some(value) = record_handle_value(js)? {
+            return Ok(Some(value));
+        }
+        #[cfg(not(feature = "records"))]
+        let _ = js;
         Ok(None)
     }
 
@@ -54,13 +61,16 @@ impl JsExtensionBridge for ExtValue {
                     return single_cell_to_js(self, value.as_ref()).map(Some);
                 }
                 let batch = value.materialize()?;
-                Ok(Some(crate::records::LiquersRecordBatch::from(batch).into()))
+                Ok(Some(
+                    crate::records::LiquersRecordBatch::from_view(value.clone(), batch).into(),
+                ))
             }
-            // A source has no JavaScript-specific representation yet — it falls through to the
-            // standard mapping, which refuses it (a source serializes only as its manifest, and
-            // that byte form is not what structural conversion produces).
+            // A source crosses as a handle, never materialized: its chunks are read only when the
+            // page traverses it.
             #[cfg(feature = "records")]
-            ExtValue::RecordSource { .. } => Ok(None),
+            ExtValue::RecordSource { value } => Ok(Some(
+                crate::records::LiquersRecordSource::from(value.clone()).into(),
+            )),
         }
     }
 
@@ -96,6 +106,38 @@ impl JsExtensionBridge for ExtValue {
             #[cfg(feature = "records")]
             ExtValue::RecordSource { .. } => Ok(None),
         }
+    }
+}
+
+/// The value a record handle stands for, when `js` is one; `None` for anything else.
+///
+/// A handle is recognized by its `__liquersRecordHandle` property (a getter on the class), checked
+/// with `in` so an ordinary object is never asked for it. A freed handle's getter throws, and a
+/// handle whose id the registry no longer holds has been freed too; both are refused, naming the
+/// handle's class.
+#[cfg(feature = "records")]
+fn record_handle_value(js: &JsValue) -> Result<Option<ExtValue>, Error> {
+    use crate::records::RecordHandle;
+    let marker = JsValue::from_str("__liquersRecordHandle");
+    if !js.is_object() || !js_sys::Reflect::has(js, &marker).unwrap_or(false) {
+        return Ok(None);
+    }
+    let freed = || {
+        let class = js_sys::Reflect::get(js, &JsValue::from_str("constructor"))
+            .and_then(|c| js_sys::Reflect::get(&c, &JsValue::from_str("name")))
+            .ok()
+            .and_then(|name| name.as_string())
+            .unwrap_or_else(|| "record".to_string());
+        Error::conversion_error(format!("a freed {class} handle"), "a live record handle")
+    };
+    let id = js_sys::Reflect::get(js, &marker)
+        .ok()
+        .and_then(|id| id.as_f64())
+        .ok_or_else(freed)?;
+    match crate::records::lookup_handle(id as u32) {
+        Some(RecordHandle::View(value)) => Ok(Some(ExtValue::RecordView { value })),
+        Some(RecordHandle::Source(value)) => Ok(Some(ExtValue::RecordSource { value })),
+        None => Err(freed()),
     }
 }
 

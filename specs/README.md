@@ -255,7 +255,7 @@ submit, and submitted query state is not preserved.
 - **Language integration** — documented → [`guides/LANGUAGE-INTEGRATION_GUIDE.md`](guides/LANGUAGE-INTEGRATION_GUIDE.md)
 - **Assets and recipes HTTP API** — built → [`design/axum-assets-recipes-api/`](design/axum-assets-recipes-api/)
 - **Web API library** — built → [`design/web-api-library/`](design/web-api-library/)
-- **Browser and JavaScript integration** — built → [`design/liquers-web/`](design/liquers-web/) *(single-cell records as scalars: [`design/web-records-single-cell-scalar/`](design/web-records-single-cell-scalar/))*
+- **Browser and JavaScript integration** — built → [`design/liquers-web/`](design/liquers-web/) *(single-cell records as scalars: [`design/web-records-single-cell-scalar/`](design/web-records-single-cell-scalar/); record sources, streaming and handles crossing back: [`design/liquers-web-records-bridge/`](design/liquers-web-records-bridge/))*
 - **Async evaluation on wasm** — built → [`design/async-wasm-refactor/`](design/async-wasm-refactor/)
 - **Python wrapper** — built → [`design/python-wrapper/`](design/python-wrapper/)
 - **Executor-agnostic core** — planned → [`issues/CORE-TOKIO-REMOVAL.md`](issues/CORE-TOKIO-REMOVAL.md)
@@ -368,7 +368,6 @@ deliberately folded behind a broader line.
 - design `lib-build-warning-cleanup`
 - design `lib-integration-test-feature-gates`
 - design `lib-polars-ethnum-rust-1-98`
-- design `liquers-web-records-bridge`
 - design `listdir-keys-deep-child-check`
 - design `manifest-chunk-error-identity`
 - design `manifest-over-stored-csv-test`
@@ -472,7 +471,6 @@ deliberately folded behind a broader line.
 - feature `VALUE-CONVERSION-CAPABILITY`
 - feature `VALUE-SERIALIZATION-IS-SYNCHRONOUS-AND-WHOLE-VALUE`
 - feature `VALUE-TYPE-DEFINITION-MACRO`
-- feature `WEB-RECORDS-BRIDGE-ONE-WAY-AND-SOURCE-UNMAPPED`
 <!-- END generated: unplaced -->
 
 ## Guides

@@ -221,6 +221,46 @@ await env.configureStore({
 });
 ```
 
+## Record streams
+
+A command that returns a record view reaches JavaScript as a `RecordBatch` handle (or as its scalar,
+when the view is a single cell); one that returns a record source reaches it as a `RecordSource`.
+Both are handles to the Rust object, not copies, and both cross back unchanged: pass a handle as a
+command argument or return it from a JavaScript command and Rust receives the same view, with its
+chunk identity and origin intact. The `ns-rec` commands are registered in the web environment.
+
+```js
+// `people` is any command whose result converts to records.
+const source = await env.evaluate('people/ns-rec/to_record_source');
+for (const chunk of source.chunks()) {
+  console.log(chunk.kind, chunk.query);        // data only; nothing is evaluated yet
+}
+for await (const batch of await source.stream()) {
+  console.log(batch.numRows);                  // one chunk at a time
+  batch.free();
+}
+const all = await source.materialize(10000);   // one batch, refused beyond maxRows rows
+source.free();
+```
+
+`free()` releases a handle; a freed handle passed back to Rust is refused with a `ConversionError`
+naming its class. Leaving a `for await` loop early (`break`, `return`, a throw) frees the stream.
+Only one `nextBatch()` may be pending on a stream at a time.
+
+## Conformance
+
+Where liquers-web stands against [`LANGUAGE-INTEGRATION_GUIDE.md`](../specs/guides/LANGUAGE-INTEGRATION_GUIDE.md),
+for the Browser JavaScript profile. Each row is updated by the change that moves it.
+
+| Feature | Status | Tests | Gaps and `NA` decisions |
+|---|---|---|---|
+| `VALUE` / RECORDS | complete | 01, 02, 04–08, 10, `tests/records_RECORDS.rs` | `03`, `09` and `11` are `NA`, see below |
+
+**`RECORDS03` is `NA`**: there is no Arrow route out of the browser build; it becomes required if an
+Arrow export is added. **`RECORDS09` is `NA`**: JavaScript has its own async model, which the
+`RecordSource` iterator uses. **`RECORDS11` is `NA`**: JavaScript cannot implement `RecordView` or
+`RecordSource`; it becomes required with a JavaScript-implemented source.
+
 ## Known limitations
 
 **`-R/` queries do not evaluate in the browser yet.** The stores work and are reachable through
