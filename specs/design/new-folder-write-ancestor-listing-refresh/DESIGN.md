@@ -2,8 +2,8 @@
 id: NEW-FOLDER-WRITE-ANCESTOR-LISTING-REFRESH
 kind: design
 title: A write that creates or empties a folder refreshes the listings above it
+gh_pr: [160]
 form: compact
-status: in_review
 phase: implementation
 readiness: ready
 autofix: eligible
