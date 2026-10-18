@@ -9,7 +9,7 @@ prerequisite issues.
 
 ## Progress
 
-- [ ] Step 1: foreign decoder hook in `liquers-lib`
+- [x] Step 1: foreign decoder hook in `liquers-lib` — 9b2ba9fe
 - [ ] Step 2: formatless read rule in `liquers-core`
 - [ ] Step 3: `liquers-py` dependencies and runtime
 - [ ] Step 4: value bridge, with the old environment removed
