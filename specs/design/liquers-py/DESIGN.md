@@ -4,10 +4,10 @@ kind: design
 title: Python integration of Liquers (liquers-py)
 workflow: liquers-project
 status: in_review
-phase: high-level
+phase: architecture
 area: [py]
 issues: [PY-VALUE-ENUM-OVERSIZED, PY-VALUE-SERIALIZER-IS-A-STUB, PY-ADD-PYTHON-COMMAND-ALIASES-AN-UNREGISTERED-COMMAND]
-affects_docs: [specs/guides/LANGUAGE-INTEGRATION_GUIDE.md]
+affects_docs: [specs/guides/LANGUAGE-INTEGRATION_GUIDE.md, specs/reference/VALUE_TYPE_SYSTEM.md]
 created: 2026-10-17
 ---
 # liquers-py — Python integration
