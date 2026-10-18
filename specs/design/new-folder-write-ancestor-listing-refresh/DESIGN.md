@@ -139,10 +139,10 @@ Run: `cargo test -p liquers-core --test dependency_audit_integration`.
 
 ### Steps
 
-- [ ] 1. The five tests — command above (AC-1, AC-2, AC-3 fail; AC-4, AC-5 pass)
-- [ ] 2. `liquers-core/src/assets.rs` `refresh_listing_version` loop and `refresh_one_listing` —
+- [x] 1. The five tests — command above (AC-1, AC-2, AC-3 fail; AC-4, AC-5 pass)
+- [x] 2. `liquers-core/src/assets.rs` `refresh_listing_version` loop and `refresh_one_listing` —
   same command, all pass. Rollback: revert the body.
-- [ ] 3. `DEPENDENCIES_STATUS.md` rule, History row, `reviewed:`; close the issue —
+- [x] 3. `DEPENDENCIES_STATUS.md` rule, History row, `reviewed:`; close the issue —
   `python3 scripts/docs_index.py --check`
 
 ### Validation

@@ -8,9 +8,9 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 128
+Total rows: 127
 - P2: 54
-- P3: 74
+- P3: 73
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -69,7 +69,6 @@ Total rows: 128
 | [`NO-REMOTE-STORE-OR-ASSET-MANAGER`](issues/NO-REMOTE-STORE-OR-ASSET-MANAGER.md) | feature | A client environment cannot use a server's store or asset manager as its own | draft |  |  | P2 | XL | axum;web;core/assets;core/store |  | 2026-09-27 |
 | [`VALUE-TYPE-DEFINITION-MACRO`](issues/VALUE-TYPE-DEFINITION-MACRO.md) | feature | Value types and their registry entries are hand-written instead of generated | draft |  |  | P2 | XL | macro;lib/value;core/value |  | 2026-08-18 |
 | [`DEPENDENT-ASSET-WEAK-REFERENCES-ARE-NEVER-PRUNED`](issues/DEPENDENT-ASSET-WEAK-REFERENCES-ARE-NEVER-PRUNED.md) | issue | The dependency manager never prunes dead weak dependents, so its lists grow with every distinct query | draft | ready | eligible | P3 | S | core/assets | [design](design/dependent-asset-weak-reference-pruning/DESIGN.md) | 2026-10-17 |
-| [`NEW-FOLDER-WRITE-DOES-NOT-REFRESH-THE-PARENT-LISTING`](issues/NEW-FOLDER-WRITE-DOES-NOT-REFRESH-THE-PARENT-LISTING.md) | issue | A write that creates a folder does not refresh the listing of the folder above it | draft | ready | eligible | P3 | S | core/assets | [design](design/new-folder-write-ancestor-listing-refresh/DESIGN.md) | 2026-10-17 |
 | [`REPLACING-WRITE-KEEPS-DROPPED-DEPENDENCY-EDGES`](issues/REPLACING-WRITE-KEEPS-DROPPED-DEPENDENCY-EDGES.md) | issue | A write that replaces a keyed asset keeps the dependency edges its new metadata no longer lists | draft | ready | eligible | P3 | S | core/assets | [design](design/replacing-write-drops-stale-dependency-edges/DESIGN.md) | 2026-10-11 |
 | [`WEB-OUTBOUND-INT64-BEYOND-DOUBLE-UNTESTED`](issues/WEB-OUTBOUND-INT64-BEYOND-DOUBLE-UNTESTED.md) | issue | An i64 beyond 2^53 leaving for JavaScript has unconfirmed, untested behaviour | draft | ready | eligible | P3 | S | web | [design](design/web-outbound-int64-precision/DESIGN.md) | 2026-10-17 |
 | [`LIB-BUILD-EMITS-UNUSED-AND-UNHANDLED-RESULT-WARNINGS`](issues/LIB-BUILD-EMITS-UNUSED-AND-UNHANDLED-RESULT-WARNINGS.md) | issue | A default liquers-lib build emits about 50 warnings, some for discarded Results | draft | ready | not-eligible | P3 | S | lib/commands;build | [design](design/lib-build-warning-cleanup/DESIGN.md) | 2026-10-11 |

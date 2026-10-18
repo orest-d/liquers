@@ -1994,6 +1994,53 @@ fn stored_record_breaks(
     }
 }
 
+/// One level of [`AssetManager::refresh_listing_version`]: read the listing of `dir`, whose
+/// version `dep_key` is registered, register its new version and expire what it moved. Returns
+/// whether the listing is now empty, or `None` when it could not be read (reported on stderr).
+async fn refresh_one_listing<E: Environment, M: AssetManager<E> + ?Sized>(
+    manager: &M,
+    dir: &Key,
+    dep_key: &crate::metadata::DependencyKey,
+) -> Option<bool> {
+    match manager.listdir(dir).await {
+        Ok(names) => {
+            let version = crate::dependencies::DependencyManager::<E>::listing_version(&names);
+            let expired = manager
+                .dependency_manager()
+                .register_version(dep_key, version)
+                .await;
+            manager
+                .expire_dependencies_result(expired, ExpiryCause::Updated { version })
+                .await;
+            Some(names.is_empty())
+        }
+        Err(error) => {
+            eprintln!(
+                "Could not refresh the listing version of '{}' after a write: {}",
+                dir, error
+            );
+            None
+        }
+    }
+}
+
+/// Whether the listing of any strict ancestor of `dir` (up to and including the root) has a
+/// registered version. Version-map reads only, no I/O.
+async fn has_registered_ancestor_listing<E: Environment, M: AssetManager<E> + ?Sized>(
+    manager: &M,
+    dir: &Key,
+) -> bool {
+    let mut ancestor = dir.clone();
+    while !ancestor.is_empty() {
+        ancestor = ancestor.parent();
+        let dep_key = crate::metadata::DependencyKey::from_dir_key(&ancestor);
+        if manager.dependency_manager().get_version(&dep_key).await.is_some() {
+            return true;
+        }
+    }
+    false
+}
+
 /// The stored-records walk behind [`AssetManager::stored_dependency_state`]: iterative, with an
 /// explicit stack, because a chain of stored values has no bounded depth.
 pub(crate) async fn stored_dependency_walk<E: Environment, M: AssetManager<E> + ?Sized>(
@@ -6952,38 +6999,41 @@ pub trait AssetManager<E: Environment>:
 
     /// Recompute and register the listing version of `dir` **iff** the dependency manager
     /// already holds one (something depends on the listing); cascades with
-    /// `ExpiryCause::Updated` when it moved.
+    /// `ExpiryCause::Updated` when it moved. Then the same for the folders above `dir`, as far as
+    /// the write can have changed their membership.
     ///
-    /// Called after every manager-mediated write or removal, with the written key's parent. It
-    /// first tells the recipe provider that `dir` changed
+    /// Called after every manager-mediated write or removal, with the written key's parent. A
+    /// write that creates `dir` adds it to the listing of its parent, and a removal that empties
+    /// it may drop it there, so the refresh walks towards the root
+    /// (`specs/design/new-folder-write-ancestor-listing-refresh/`). It climbs past a registered
+    /// level only when that level's old or new listing is empty (the level may have been created
+    /// or removed), and past an unregistered level only when some higher level is registered;
+    /// otherwise it stops. An ordinary write into an existing, non-empty folder therefore still
+    /// reads one listing, and a write under no registered listing reads none.
+    ///
+    /// Each visited level first tells the recipe provider that it changed
     /// ([`AsyncRecipeProvider::directory_changed`]), so a provider caching directory-derived
-    /// state drops it. It then costs one version-map read when nobody depends on the listing. It never takes
+    /// state drops it. A level nobody depends on costs version-map reads only. It never takes
     /// `key_mutation_lock`, so it is safe to call with that lock held. A `listdir` error is
-    /// reported with `eprintln!`: the write it follows stands, and a failed refresh must not
-    /// undo it.
+    /// reported with `eprintln!` and ends the walk: the write it follows stands, and a failed
+    /// refresh must not undo it.
     async fn refresh_listing_version(&self, dir: &Key) {
-        self.get_recipe_provider().directory_changed(dir).await;
-        let dep_key = crate::metadata::DependencyKey::from_dir_key(dir);
-        if self.dependency_manager().get_version(&dep_key).await.is_none() {
-            return;
-        }
-        match self.listdir(dir).await {
-            Ok(names) => {
-                let version =
-                    crate::dependencies::DependencyManager::<E>::listing_version(&names);
-                let expired = self
-                    .dependency_manager()
-                    .register_version(&dep_key, version)
-                    .await;
-                self.expire_dependencies_result(expired, ExpiryCause::Updated { version })
-                    .await;
+        let empty_listing = crate::dependencies::DependencyManager::<E>::listing_version(&[]);
+        let mut level = dir.clone();
+        loop {
+            self.get_recipe_provider().directory_changed(&level).await;
+            let dep_key = crate::metadata::DependencyKey::from_dir_key(&level);
+            let climb = match self.dependency_manager().get_version(&dep_key).await {
+                Some(old) => match refresh_one_listing(self, &level, &dep_key).await {
+                    Some(now_empty) => old == empty_listing || old.is_unknown() || now_empty,
+                    None => false,
+                },
+                None => has_registered_ancestor_listing(self, &level).await,
+            };
+            if !climb || level.is_empty() {
+                return;
             }
-            Err(error) => {
-                eprintln!(
-                    "Could not refresh the listing version of '{}' after a write: {}",
-                    dir, error
-                );
-            }
+            level = level.parent();
         }
     }
 

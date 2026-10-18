@@ -2,7 +2,7 @@
 id: NEW-FOLDER-WRITE-DOES-NOT-REFRESH-THE-PARENT-LISTING
 kind: issue
 title: A write that creates a folder does not refresh the listing of the folder above it
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [core/assets]
@@ -46,3 +46,18 @@ ordinary write still costs one refresh. Removal does the same while a folder dis
 Implementing `design/search-read-dependencies` (2026-10-17): a catalog of `specs/` did not show
 `specs/design/y/DESIGN.md` written into the new folder `specs/design/y`, while files written into
 `specs/design/x` appeared.
+
+## Resolution
+
+2026-10-18, by `design/new-folder-write-ancestor-listing-refresh/`.
+`AssetManager::refresh_listing_version` (`liquers-core/src/assets.rs`) now walks from the written
+key's parent towards the root, through the private helpers `refresh_one_listing` and
+`has_registered_ancestor_listing`. It climbs past a registered listing only when its old or new
+listing is empty, and past an unregistered one only when some higher listing is registered, so an
+ordinary write still reads one listing and a write under no registered listing reads none. The
+issue's recommended rule ("the parent's listing version moved") was refined this way because an
+ordinary new file moves its folder's version too. Tests in
+`liquers-core/tests/dependency_audit_integration.rs`:
+`writing_into_a_new_folder_expires_the_parent_index`,
+`writing_into_a_new_deep_chain_expires_the_index`, `emptying_a_folder_expires_the_parent_index`,
+`ordinary_write_reads_one_listing`, `write_without_registered_listings_reads_none`.
