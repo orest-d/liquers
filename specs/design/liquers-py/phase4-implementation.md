@@ -20,7 +20,12 @@ prerequisite issues.
 - [x] Step 9: `State`, `AssetRef`, `Status` — 620770b5
 - [x] Step 10: `debug-handles` and the test script — 4fd469a8
 - [x] Step 11: remaining Appendix A suites and the conformance matrix — 429cb6a1
-- [ ] Step 12: final checks
+- [x] Step 12: final checks, all passing:
+  - `test-liquers-py.sh`: 153 passed, 2 NA skips, 2 BLOCKED xfails, and 15 Rust tests;
+  - `liquers-lib --lib --tests`: 39 suites, 677 passed, `registry_export` included;
+  - `check-build-matrix.sh`: every row passed. The nine wasm32 rows first failed only because the
+    target was not installed, and passed after `rustup target add wasm32-unknown-unknown`;
+  - `docs_index --check`: 0 errors.
 
 ## Implementation Review
 
@@ -279,6 +284,7 @@ features `IN-PROGRESS`.
 - `specs/command_registry.yaml` is unchanged.
 
 ## Phase 5 Entry Criteria
-- [ ] Implementation finished and validated
-- [ ] User and review comments answered
-- [ ] Documentation checkable against implemented and tested behaviour
+- [x] Implementation finished and validated
+- [ ] User and review comments answered — review comments yes; the owner's Phase 1 decisions 1, 5
+  and 6 are open
+- [x] Documentation checkable against implemented and tested behaviour

@@ -148,7 +148,7 @@ are still open in Phase 1 readiness: question 5 (the M0 split) and confirmation 
   tests: 15 passed, stable over 12 consecutive runs after the race fix.
 - `cargo test -p liquers-lib --lib --tests`: 39 suites, 677 passed, 0 failed, `registry_export`
   included. `liquers-core` passed in full at step 2 (1201 lib tests).
-- `bash scripts/check-build-matrix.sh`: see the Phase 4 Progress entry for step 12.
+- `bash scripts/check-build-matrix.sh`: every native and wasm32 row passes (Phase 4 Progress, step 12).
 - `python3 scripts/docs_index.py --check`: 0 errors.
 - Two independent Phase 5 reviews ran: one against the skill's Phase 5 checklist, one checking every
   documentation claim against the code. Their blocking findings were all fixed. The fixes:
