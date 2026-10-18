@@ -890,8 +890,16 @@ async fn store14_read_only_js_store_refuses_writes() {
     assert_eq!(data.size(), 0, "no write may reach the page object");
 
     assert!(store.is_read_only());
-    assert!(
-        liquers_web::store::LiquersStore::new(store.clone()).is_read_only(),
+    // Through the JavaScript export, so a renamed or dropped `js_name` fails here.
+    let handle = JsValue::from(liquers_web::store::LiquersStore::new(store.clone()));
+    let is_read_only: js_sys::Function =
+        js_sys::Reflect::get(&handle, &JsValue::from_str("isReadOnly"))
+            .expect("isReadOnly")
+            .dyn_into()
+            .expect("`Store.isReadOnly` is a function");
+    assert_eq!(
+        is_read_only.call0(&handle).expect("isReadOnly()"),
+        JsValue::TRUE,
         "`Store.isReadOnly()` must report the mount's policy to JavaScript"
     );
 }
