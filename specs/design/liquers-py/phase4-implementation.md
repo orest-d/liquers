@@ -17,7 +17,7 @@ prerequisite issues.
 - [x] Step 6: environment — 3cc4e0b7
 - [x] Step 7: commands and decorators — 2a987613
 - [x] Step 8: context for nested evaluation — 2a987613
-- [ ] Step 9: `State`, `AssetRef`, `Status`
+- [x] Step 9: `State`, `AssetRef`, `Status` — 620770b5
 - [ ] Step 10: `debug-handles` and the test script
 - [ ] Step 11: remaining Appendix A suites and the conformance matrix
 - [ ] Step 12: final checks
