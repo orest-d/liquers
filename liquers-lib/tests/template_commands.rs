@@ -419,14 +419,16 @@ async fn media_type_follows_filename() -> Res {
     Ok(())
 }
 
+/// A volatile query in a template makes the render volatile by itself; `v/` is no longer needed
+/// (`specs/design/runtime-volatility/`). This test pinned the opposite before that design.
 #[tokio::test]
-async fn volatile_query_needs_declared_volatility() -> Res {
+async fn volatile_query_makes_render_volatile() -> Res {
     let env = fixture().await?;
     set(&env, "templates/rnd.md", "{{$ ns-fixture/rnd}}").await?;
     let manager = env.get_asset_manager();
     let asset = manager.get_asset(&parse_query("ns-template/render-~X~-R/templates/rnd.md~E")?).await?;
     assert_eq!(asset.get().await?.try_into_string()?, "random");
-    assert!(!asset.is_volatile().await, "a volatile query does not make the render volatile");
+    assert!(asset.is_volatile().await, "a volatile query makes the render volatile");
     let asset = manager.get_asset(&parse_query("v/ns-template/render-~X~-R/templates/rnd.md~E")?).await?;
     assert_eq!(asset.get().await?.try_into_string()?, "random");
     assert!(asset.is_volatile().await, "a render query starting with v is volatile");

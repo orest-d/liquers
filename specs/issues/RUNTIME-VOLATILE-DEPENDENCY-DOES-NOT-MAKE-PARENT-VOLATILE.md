@@ -2,11 +2,11 @@
 id: RUNTIME-VOLATILE-DEPENDENCY-DOES-NOT-MAKE-PARENT-VOLATILE
 kind: issue
 title: A volatile dependency a command evaluates through its context does not make the command's result volatile
-status: draft
+status: closed
 priority: P2
 complexity: M
 area: [core/context]
-design: 
+design: runtime-volatility
 created: 2026-10-17
 github:
 ---
@@ -49,6 +49,16 @@ volatility-system decision 4 or is a separate "volatile at finish" path like the
 ## Decision
 
 2026-10-17, Orest: fix in core, in its own PR (not in the liquers-template PR #139).
+
+## Resolution (2026-10-17)
+
+Fixed by design `runtime-volatility` (PR #142). A command's `Context` now records every asset it
+resolves (`get_dependency_state`, `evaluate`, `submit` + `wait_for_dependency`, `apply`,
+`apply_ad_hoc`); when one of them is volatile by its metadata, the new `Context::set_volatile`
+marks the running asset volatile, so it finishes `Volatile`, gets no version, is not reused and is
+evicted on the next request. Ad-hoc assets also record their plan's volatility, which makes a
+payload-requiring evaluation `Volatile`. Pinned by `liquers-core/tests/runtime_volatility.rs`
+(rv01–rv10 on both asset managers).
 
 ## Discovery
 
