@@ -12,9 +12,11 @@
 //! cargo test -p liquers-web --target wasm32-unknown-unknown --test value_bridge_VALUE
 //! ```
 //!
-//! Tests that genuinely need a browser (`RUNTIME*`, `ASYNCQ*`, `PACKAGE*`) add
-//! `wasm_bindgen_test_configure!(run_in_browser)` in their own files and require a chromedriver
-//! whose major version matches the installed Chromium.
+//! `RUNTIME*` and `ASYNCQ*` run under Node too. Only suites that need a real browser API carry
+//! `wasm_bindgen_test_configure!(run_in_browser)` — `store_local_STORE.rs` and
+//! `store_conformance_browser_CONF.rs` (`localStorage`), behind the `browser-tests` feature, which
+//! need a chromedriver whose major version matches the installed Chromium. `PACKAGE*` checks the
+//! delivery form in Playwright (`tests/e2e/`).
 
 #![cfg(target_arch = "wasm32")]
 
