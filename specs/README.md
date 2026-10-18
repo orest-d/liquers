@@ -368,6 +368,7 @@ deliberately folded behind a broader line.
 - design `lib-build-warning-cleanup`
 - design `lib-integration-test-feature-gates`
 - design `lib-polars-ethnum-rust-1-98`
+- design `liquers-py-async`
 - design `liquers-web-records-bridge`
 - design `listdir-keys-deep-child-check`
 - design `manifest-chunk-error-identity`
