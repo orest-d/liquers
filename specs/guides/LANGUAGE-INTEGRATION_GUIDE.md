@@ -104,9 +104,11 @@ reliably costs hours, and the failures are obscure.
    language's core semantics; a test of the event loop, UI thread, or module system needs the real
    host. Classify the inventory on this axis first.
 2. **Is there a lighter runtime for the tests that do not need the host?** Browser JavaScript has
-   one: `liquers-web`'s `VALUE`, `RUNTIME` and `ASYNCQ` suites are pure ECMAScript and run under
-   Node with no browser and no WebDriver; only the suites that need a real browser API
-   (`localStorage`) and the `PACKAGE` checks of the delivery form need a real browser. Python has
+   one: in `liquers-web` the `VALUE` and `ASYNCQ` suites and `RUNTIME02`-`06` are pure
+   ECMAScript and run under Node with no browser and no WebDriver; `RUNTIME01` is a native test in
+   `liquers-lib`; `PACKAGE01` and `PACKAGE05` are script checks (`check-stubs.sh`). Only the suites
+   that need a real browser API (`localStorage`) and the Playwright delivery-form checks
+   (`PACKAGE02`-`04`, `PACKAGE07`) need a real browser. Classify per test, not per feature. Python has
    the same split between a bare interpreter and an application host. Using the lighter runtime
    where it suffices removes an entire class of setup failure from most of the suite.
 3. **What version coupling does the harness impose, and does a mismatch fail loudly?** Toolchains
@@ -3097,7 +3099,7 @@ def test_PACKAGE07_artifact_carries_declarations_license_and_metadata():
 
 | Date | Change | Source |
 |---|---|---|
-| 2026-10-18 | Corrected four descriptive claims about `liquers-web`: §3 harness question 2 (only browser-API suites and `PACKAGE` need a browser), the §OBJECT `OBJECT09` one-liner (round trip, matching Appendix A), the rebuild triggers in the TypeRegistry advice, and the worked-example entry's 83-test disposition (dated to the 2026-08 inventory). | `LANGUAGE-GUIDE-STALE-LIQUERS-WEB-CLAIMS`, `design/language-guide-web-claims/` |
+| 2026-10-18 | Corrected four descriptive claims about `liquers-web`: §3 harness question 2 (classified per test: Node, native, script and browser tiers), the §OBJECT `OBJECT09` one-liner (round trip, matching Appendix A), the rebuild triggers in the TypeRegistry advice, and the worked-example entry's 83-test disposition (dated to the 2026-08 inventory). | `LANGUAGE-GUIDE-STALE-LIQUERS-WEB-CLAIMS`, `design/language-guide-web-claims/` |
 | 2026-10-16 | §6 Browser JavaScript: `localstorage` and `http` now offer data-only access and can take a `metadata` section. | `design/store-adapters/` phase-5 review |
 | 2026-10-15 | Configured stores. §4: `read_only` and `metadata` belong to `STORE` direction 3, with no feature ID of their own. §STORE: direction 3 covers a mount's access policy and metadata handling; the inventory adds the data-only methods, `DataCapabilities`, `DataFacts`, `BackendTime`, `is_read_only`, `sync`, `created`/`etag` and `MetadataConfig`/`StoreConfigFunctions`; new design questions for configured stores; new subsection "Configured stores: access policy, metadata and write strategies" with the capability table and the `store_config` counterpart of "What the *language* cannot contribute"; tests `STORE14`–`STORE18` with a disposition column and Appendix A blueprints. §COMMAND asks about foreign realms; §ENVIRON states that chains compile against the environment's registry. §6: `JsStore`'s optional data methods and the built-in browser stores' refusal; Python's GIL cost for a per-entry handler. | phase-5, `design/store-adapters/` |
 | 2026-10-13 | §Design questions, question 4: NaN/infinity follows the JSON policy in `SERIALIZATION_GUIDE.md`. | phase-5, `design/value-to-json-non-finite-float/` |

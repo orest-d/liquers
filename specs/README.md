@@ -252,7 +252,7 @@ submit, and submitted query state is not preserved.
 - **Web API** — documented → [`reference/WEB_API_SPECIFICATION.md`](reference/WEB_API_SPECIFICATION.md)
 - **Using the web API (curl, Python)** — documented → [`guides/WEB_API_GUIDE.md`](guides/WEB_API_GUIDE.md)
 - **Assets HTTP and WebSocket API (`q/`, `key/`, `admin/`, `ws/q`, `ws/key`)** — built → [`design/axum-assets-endpoints/`](design/axum-assets-endpoints/)
-- **Language integration** — documented → [`guides/LANGUAGE-INTEGRATION_GUIDE.md`](guides/LANGUAGE-INTEGRATION_GUIDE.md)
+- **Language integration** — documented → [`guides/LANGUAGE-INTEGRATION_GUIDE.md`](guides/LANGUAGE-INTEGRATION_GUIDE.md) *(liquers-web claims corrected: [`design/language-guide-web-claims/`](design/language-guide-web-claims/))*
 - **Assets and recipes HTTP API** — built → [`design/axum-assets-recipes-api/`](design/axum-assets-recipes-api/)
 - **Web API library** — built → [`design/web-api-library/`](design/web-api-library/)
 - **Browser and JavaScript integration** — built → [`design/liquers-web/`](design/liquers-web/)
@@ -364,7 +364,6 @@ deliberately folded behind a broader line.
 - design `js-store-effective-media-type`
 - design `json-orient-index-column-collision`
 - design `json-table-column-order`
-- design `language-guide-web-claims`
 - design `lib-build-warning-cleanup`
 - design `lib-integration-test-feature-gates`
 - design `lib-polars-ethnum-rust-1-98`
