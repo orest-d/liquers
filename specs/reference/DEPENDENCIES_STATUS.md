@@ -455,7 +455,8 @@ This is the runtime dependency path for commands that discover dependencies whil
    - If the current asset is keyed, `add_dependent_asset()` also records the current asset as an
      untracked dependent of the dependency key.
      An untracked dependent is held weakly, and the key's list is pruned of dropped and duplicate
-     entries as it grows, so it holds at most about twice the key's live dependents (plus 16).
+     entries as it grows, so it holds at most about twice the key's live dependents (plus 16), and
+     its allocation shrinks again once most of those dependents are dropped.
 
 5. **Enter dependency wait**
    - The command waits with `context.wait_for_dependency(&child)`, which delegates to

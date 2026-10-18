@@ -625,9 +625,10 @@ impl<E: Environment> DependencyManager<E> {
     /// Register a `WeakAssetRef` as a dependent of `dependency`.
     ///
     /// The list is pruned of dead and duplicate entries when a push would reallocate it (from
-    /// [`MIN_PRUNED_DEPENDENT_ASSETS`] entries up), and grown when the prune leaves it more than
-    /// half full, so it holds at most about twice its live dependents and the pruning work stays
-    /// amortized constant per insert.
+    /// [`MIN_PRUNED_DEPENDENT_ASSETS`] entries up). The prune grows it when it leaves it more than
+    /// half full and shrinks it to twice its length when it leaves it under a quarter full, so it
+    /// holds at most about twice its live dependents (or that minimum), its allocation follows
+    /// that count down as well as up, and the pruning work stays amortized constant per insert.
     pub(crate) async fn add_dependent_asset(
         &self,
         dependency: &DependencyKey,
@@ -643,6 +644,8 @@ impl<E: Environment> DependencyManager<E> {
             Self::prune_dependent_assets(list);
             if 2 * list.len() > list.capacity() {
                 list.reserve(list.capacity());
+            } else if 4 * list.len() < list.capacity() {
+                list.shrink_to((2 * list.len()).max(MIN_PRUNED_DEPENDENT_ASSETS));
             }
         }
         list.push(dependent);
@@ -2545,6 +2548,32 @@ mod tests {
             let count = dm.dependent_asset_count(&a).await;
             assert!(count < 2 * 1 + 16, "after {} adds the list holds {count} entries", i + 1);
         }
+        assert_eq!(expired_on(&dm.expire(&a).await, &a), 1);
+    }
+
+    #[tokio::test]
+    async fn dependent_assets_release_capacity_once_dependents_drop() {
+        let dm = DependencyManager::<TestEnv>::new();
+        let a = dk("-R/data/a.txt");
+        let mut many = Vec::new();
+        for _ in 0..1000 {
+            let asset = untracked_asset();
+            dm.add_dependent_asset(&a, asset.downgrade()).await;
+            many.push(asset);
+        }
+        drop(many);
+        let live = untracked_asset();
+        for _ in 0..1000 {
+            let asset = untracked_asset();
+            dm.add_dependent_asset(&a, asset.downgrade()).await;
+            drop(asset);
+        }
+        dm.add_dependent_asset(&a, live.downgrade()).await;
+        let capacity = match dm.dependent_assets.get_async(&a).await {
+            Some(entry) => entry.get().capacity(),
+            None => 0,
+        };
+        assert!(capacity < 4 * 16, "the list still reserves {capacity} entries");
         assert_eq!(expired_on(&dm.expire(&a).await, &a), 1);
     }
 

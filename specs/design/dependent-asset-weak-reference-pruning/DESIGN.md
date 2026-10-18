@@ -153,6 +153,10 @@ has id 0 and deduplicating by id would drop live dependents. The tests build ass
 `AssetData::new_temporary(..).to_ref()`, because `AssetRef::new_temporary` starts a service-message
 task that holds the asset strongly, so a dropped handle would never die.
 
+Review note (2026-10-18, Codex on #158): a prune that leaves the list under a quarter of its
+capacity now shrinks it to twice its length (at least 16), so the allocation also follows the
+live count down after many dependents drop. Test: `dependent_assets_release_capacity_once_dependents_drop`.
+
 ### Validation
 
 `cargo test -p liquers-core --lib --tests`; `cargo test -p liquers-lib --lib --tests` (search
