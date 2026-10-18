@@ -2,8 +2,8 @@
 id: REPLACING-WRITE-DROPS-STALE-DEPENDENCY-EDGES
 kind: design
 title: A write that replaces a keyed asset replaces its incoming dependency edges
+gh_pr: [159]
 form: compact
-status: in_review
 phase: implementation
 readiness: ready
 autofix: eligible
