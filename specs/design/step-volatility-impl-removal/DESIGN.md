@@ -2,9 +2,9 @@
 id: STEP-VOLATILITY-IMPL-REMOVAL
 kind: design
 title: Remove the unreachable step-level volatility check and its runtime print
+status: complete
 gh_pr: [146]
 form: compact
-phase: implementation
 readiness: ready
 autofix: eligible
 area: [core/plan]
@@ -12,6 +12,8 @@ issues: [RESOURCE-STEP-VOLATILITY-IS-NEVER-CHECKED]
 created: 2026-10-17
 ---
 # Remove the unreachable step-level volatility check and its runtime print
+
+> **Complete on 2026-10-18**: implemented and merged in #146.
 
 Produced under [`guides/autonomous_bulk_design.md`](../../guides/autonomous_bulk_design.md) by the
 2026-10-17 backlog compaction: Phases 1-4, reviewed without phase approval. Not an approval and not

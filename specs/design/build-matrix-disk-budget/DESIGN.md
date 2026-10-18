@@ -2,9 +2,9 @@
 id: BUILD-MATRIX-DISK-BUDGET
 kind: design
 title: The build-matrix script keeps its target directory within the free disk
+status: complete
 gh_pr: [144]
 form: compact
-phase: implementation
 readiness: ready
 autofix: eligible
 area: [build]
@@ -12,6 +12,8 @@ issues: [BUILD-MATRIX-EXHAUSTS-SESSION-DISK]
 created: 2026-10-17
 ---
 # The build-matrix script keeps its target directory within the free disk
+
+> **Complete on 2026-10-18**: implemented and merged in #144.
 
 Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-17 backlog compaction. Phases 1-4
 are written but not approved, and nothing is implemented.
