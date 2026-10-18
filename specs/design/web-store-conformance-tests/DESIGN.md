@@ -4,6 +4,7 @@ kind: design
 title: Close liquers-web's STORE test gaps and record its STORE dispositions
 form: compact
 status: complete
+gh_pr: [155]
 readiness: ready
 autofix: eligible
 area: [web, core/store]
