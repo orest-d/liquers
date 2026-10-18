@@ -7,6 +7,7 @@ priority: P3
 complexity: S
 area: [docs]
 created: 2026-10-18
+design:
 github:
 ---
 
@@ -16,10 +17,18 @@ github:
 `references/phase5-documentation.md`, whose example section lists its five completion
 preconditions as ticked (`- [x] Implementation is finished and validated`, …). Every design created
 with the script therefore starts with a Phase 5 document asserting that the implementation is
-finished, reviewed and documented, which is false until Phase 5 is written. A reviewer found it in
-`specs/design/liquers-py/` on 2026-10-18.
+finished, reviewed and documented, which is false until Phase 5 is written.
 
-## Expected
+## Impact
+
+A reader or an agent checking the entry gate sees it met before any work is done; a reviewer has to
+notice the falsehood. Low cost, but it erodes the gate. Workaround: untick by hand on creation.
+
+## Expected behaviour
 
 The skeleton's preconditions start unticked (`- [ ]`), and the reference keeps the ticked form only
 as an example of a finished document, not as the copied template.
+
+## Discovery
+
+A reviewer of `specs/design/liquers-py/` Phase 1 found the ticked skeleton on 2026-10-18.

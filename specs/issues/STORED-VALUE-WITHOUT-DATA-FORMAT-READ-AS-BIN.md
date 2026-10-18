@@ -7,6 +7,7 @@ priority: P3
 complexity: S
 area: [core/assets]
 created: 2026-10-18
+design:
 github:
 ---
 
@@ -19,16 +20,25 @@ substitutes the constant `bin` when the metadata declares no format (`metadata.r
 format (`state.rs`), for example JSON for an `I64` or an `Array`. A value stored with no declared
 format is therefore read back with the wrong format and fails as corrupted.
 
-This was found while reviewing `specs/design/liquers-py/` Phase 2 and has not been reproduced in a
-test. First confirm whether every write path now fills `data_format` before storing, which would
-leave only older stores affected.
+This has not been reproduced in a test. First confirm whether every write path now fills
+`data_format` before storing, which would leave only older stores affected.
 
 Related, write side: `FREE-FUNCTION-EVALUATE-BAKES-A-BIN-DATA-FORMAT` (closed).
 
-## Expected
+## Impact
+
+If reachable, a stored value with no declared format cannot be read back, which looks like data
+corruption. Workaround: always write an explicit `data_format`, as `liquers-py` does.
+
+## Expected behaviour
 
 The read path uses the stored type's default data format (`TypeInfo::default_data_format`) when
 the metadata declares none, which is the level-1 rule `effective_data_format` already describes.
+
+## Discovery
+
+A reviewer of `specs/design/liquers-py/` Phase 2 found it by reading the read and write paths,
+2026-10-18.
 
 ## Triage
 

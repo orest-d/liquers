@@ -8,9 +8,9 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 131
+Total rows: 132
 - P2: 54
-- P3: 77
+- P3: 78
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -84,6 +84,7 @@ Total rows: 131
 | [`DEPENDENCY-MANAGER-VERSION-NOT-OBSERVABLE-FROM-TESTS`](issues/DEPENDENCY-MANAGER-VERSION-NOT-OBSERVABLE-FROM-TESTS.md) | issue | An integration test cannot ask the dependency manager whether a key has a registered version | draft |  |  | P3 | S | core/assets |  | 2026-10-17 |
 | [`PHASE5-SKELETON-CREATED-WITH-PRECONDITIONS-TICKED`](issues/PHASE5-SKELETON-CREATED-WITH-PRECONDITIONS-TICKED.md) | issue | A new design's Phase 5 skeleton claims every completion precondition is already met | draft |  |  | P3 | S | docs |  | 2026-10-18 |
 | [`POLARS-DATAFRAME-IPC-NOT-SERIALIZABLE`](issues/POLARS-DATAFRAME-IPC-NOT-SERIALIZABLE.md) | issue | A polars DataFrame cannot be written or read as Arrow IPC although polars is built with ipc | draft |  |  | P3 | S | lib/polars |  | 2026-10-18 |
+| [`PY-COMMAND-DECORATOR-CANNOT-DECLARE-ARGUMENT-METADATA`](issues/PY-COMMAND-DECORATOR-CANNOT-DECLARE-ARGUMENT-METADATA.md) | feature | Python command decorators cannot declare per-argument metadata | draft |  |  | P3 | S | py |  | 2026-10-18 |
 | [`PY-COMMAND-DECORATOR-CANNOT-SET-REALM`](issues/PY-COMMAND-DECORATOR-CANNOT-SET-REALM.md) | feature | Python command decorators cannot place a command in a realm | draft |  |  | P3 | S | py |  | 2026-10-18 |
 | [`STORED-VALUE-WITHOUT-DATA-FORMAT-READ-AS-BIN`](issues/STORED-VALUE-WITHOUT-DATA-FORMAT-READ-AS-BIN.md) | issue | A stored value with no declared data format is deserialized as bin, not its own default format | draft |  |  | P3 | S | core/assets |  | 2026-10-18 |
 | [`TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS`](issues/TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS.md) | issue | TypeInfo cannot declare a format a type writes but cannot read back | draft |  |  | P3 | S | core/value |  | 2026-09-24 |

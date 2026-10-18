@@ -22,7 +22,7 @@ Short-term priorities are:
 
 Longer-term candidates include Rhai, JavaScript/TypeScript on Node or Deno, RustPython, generic Wasm guests, C/C++, and GDScript.
 
-`liquers-py` is a conforming *integration* of the Python baseline profile, designed in [`design/liquers-py/`](../design/liquers-py/DESIGN.md); its conformance matrix, with the features still `BLOCKED` on core defects, is in `liquers-py/README.md`. The guide stays the definition: where the two differ, the guide wins and the difference is an issue. Its predecessor's design, [`design/python-wrapper/`](../design/python-wrapper/phase1-high-level-design.md), is superseded.
+`liquers-py` implements every Essential feature of the Python baseline profile, designed in [`design/liquers-py/`](../design/liquers-py/DESIGN.md); none is yet `CONFORMANT`, and two are `BLOCKED` on core defects (matrix in `liquers-py/README.md`). The guide stays the definition: where the two differ, the guide wins and the difference is an issue. Its predecessor's design, [`design/python-wrapper/`](../design/python-wrapper/phase1-high-level-design.md), is superseded.
 
 ### Supplying a recipe working directory
 
@@ -1503,10 +1503,15 @@ settled on, and the list after them is what cost time.
 - **Value.** Use `liquers-lib`'s `Value`; a Python object with no structural mapping becomes a
   `PyObjectValue` (`py.Object`) in `ExtValue::Foreign`. Conversion is permissive by default
   (`Environment(conversion="permissive")`), with `strict` refusing the opaque fallback. DataFrames
-  cross as Parquet bytes. Pickle is an opt-in codec (`Environment(pickle=True)`), never an implicit
-  interchange format: with it off, `py.Object` declares no data formats, so a write raises
-  `SerializationError` and a read of pickled bytes is degraded rather than decoded
-  (`reference/VALUE_TYPE_SYSTEM.md` §Reading).
+  cross as Parquet bytes and images as PNG. Pickle is an opt-in codec (`Environment(pickle=True)`),
+  never an implicit interchange format. With it off, `py.Object` declares no data formats:
+  `store_set` raises `SerializationError`, a computed `py.Object` result is kept as metadata only,
+  and stored pickle bytes are read as degraded rather than decoded. The user currently sees "No
+  recipe found" for that read (`DEGRADED-STORED-VALUE-WITHOUT-RECIPE-REPORTS-NO-RECIPE`). Reading
+  pickles back needs a decoder: the module registers
+  `register_foreign_decoder("py.Object", decode_pickle)` once at import. The table is
+  process-global, and each environment's registry decides whether it may be used
+  (`reference/VALUE_TYPE_SYSTEM.md` §"Reading a foreign value back").
 - **Environment.** A built environment's registry is frozen, but Python registers commands on
   import, before or after the first evaluation. The handle keeps every declaration, builds lazily,
   and rebuilds when one arrives late, handing the rebuild the first build's store so stored data
@@ -1520,7 +1525,8 @@ settled on, and the list after them is what cost time.
 - **The GIL.** Run a Python command under `spawn_blocking` and take the GIL there. Release the GIL
   around every wait (`py.detach`), and wait in short slices, running `py.check_signals()` and
   checking for shutdown between them: otherwise Ctrl-C cannot interrupt `evaluate`, and a wait
-  outstanding at shutdown never returns. Serialization runs on asset-manager workers, so a codec
+  outstanding at shutdown never returns. The caller sees `KeyboardInterrupt` or
+  `CancelledError`. Leaving a wait does not cancel the asset; `AssetRef.cancel()` does. Serialization runs on asset-manager workers, so a codec
   that takes the GIL there goes under `tokio::task::block_in_place`.
 
 What cost time:
@@ -3135,7 +3141,7 @@ def test_PACKAGE07_artifact_carries_declarations_license_and_metadata():
 
 | Date | Change | Source |
 |---|---|---|
-| 2026-10-18 | §6 Python rewritten from the implemented `liquers-py`: value, environment, command and GIL choices, and what cost time. §5 VALUE: corrected the claim that `liquers-py` owns a value type; it takes the constructor route like `liquers-web`. §1: `liquers-py` is now a conforming integration, no longer a partial reference. | `design/liquers-py/` (phase-5) |
+| 2026-10-18 | §6 Python rewritten from the implemented `liquers-py`: value, environment, command and GIL choices, and what cost time. §5 VALUE: corrected the claim that `liquers-py` owns a value type; it takes the constructor route like `liquers-web`. §1: `liquers-py` now implements every Essential feature of the Python profile, no longer a partial reference. | `design/liquers-py/` (phase-5) |
 | 2026-10-16 | §6 Browser JavaScript: `localstorage` and `http` now offer data-only access and can take a `metadata` section. | `design/store-adapters/` phase-5 review |
 | 2026-10-15 | Configured stores. §4: `read_only` and `metadata` belong to `STORE` direction 3, with no feature ID of their own. §STORE: direction 3 covers a mount's access policy and metadata handling; the inventory adds the data-only methods, `DataCapabilities`, `DataFacts`, `BackendTime`, `is_read_only`, `sync`, `created`/`etag` and `MetadataConfig`/`StoreConfigFunctions`; new design questions for configured stores; new subsection "Configured stores: access policy, metadata and write strategies" with the capability table and the `store_config` counterpart of "What the *language* cannot contribute"; tests `STORE14`–`STORE18` with a disposition column and Appendix A blueprints. §COMMAND asks about foreign realms; §ENVIRON states that chains compile against the environment's registry. §6: `JsStore`'s optional data methods and the built-in browser stores' refusal; Python's GIL cost for a per-entry handler. | phase-5, `design/store-adapters/` |
 | 2026-10-13 | §Design questions, question 4: NaN/infinity follows the JSON policy in `SERIALIZATION_GUIDE.md`. | phase-5, `design/value-to-json-non-finite-float/` |

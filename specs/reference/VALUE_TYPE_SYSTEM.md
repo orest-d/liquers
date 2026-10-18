@@ -422,6 +422,7 @@ degrades on read.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-18 | Reviewed against the implemented `liquers-py` (phase-5): §Reading's foreign decoder and formatless read rule match `liquers-lib/src/value/foreign.rs` and `liquers-core/src/assets.rs`. | `design/liquers-py/` (phase-5) |
 | 2026-10-18 | §Reading: a registered type that declares no formats is read as degraded, never decoded. | `design/liquers-py/` (`FOREIGN-VALUE-CANNOT-BE-DESERIALIZED`) |
 | 2026-10-18 | §Reading a foreign value back: the process-global foreign decoder table, and foreign identifiers routed to the extension. `liquers-py` now registers `py.Object` at construction instead of owning a value type. | `design/liquers-py/` |
 | 2026-10-17 | §Reading a value by name: `DataNode` and `ValueInterface::data_node`. | `design/liquers-mustache/` |

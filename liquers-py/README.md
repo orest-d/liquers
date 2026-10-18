@@ -24,7 +24,8 @@ what it receives: `text` the state's text, `state` an `lq.State` (value and meta
 the value. `lq.first_command` registers a source command, which takes no state. A parameter named
 `context` receives an `lq.Context` (`evaluate`, `info`, `warning`, `error`, `is_cancelled`), and
 `*args` takes every remaining query parameter. Both decorators accept `name=`, `namespace=`,
-`label=`, `doc=`, `filename=`, `volatile=` and `cached=`.
+`label=`, `doc=`, `filename=`, `volatile=` and `cached=`, plus `env=` to register in an environment
+other than the default.
 
 The bare decorators and `lq.evaluate` use one shared `lq.default_environment()`. For isolation
 (tests, several configurations), make your own and use its bound decorators:
@@ -55,6 +56,12 @@ and its type is kept.
 next evaluation: the environment is rebuilt from everything declared on it, and the store is kept.
 The asset cache is not, and the replaced environment is never freed
 (`ENVIRONMENT-MANAGER-REFERENCE-CYCLE`), so register commands up front where you can.
+
+**Waiting, interrupting and shutting down.** `evaluate` and `AssetRef.get` block with the GIL
+released. Ctrl-C raises `KeyboardInterrupt` in a waiting call, and a wait still outstanding when
+`shutdown()` is called raises `lq.CancelledError`; leaving a wait either way does not cancel the
+asset (use `AssetRef.cancel()`). `shutdown()` is idempotent, and every later use of the
+environment, registering commands included, raises `lq.GeneralError`.
 
 ## Layout
 
@@ -111,7 +118,7 @@ test is named for its ID, in `tests/test_<FEATURE>_*.py`.
 | `RUNTIME` | Essential | BLOCKED | `RUNTIME05` is blocked for a built environment by `ENVIRONMENT-MANAGER-REFERENCE-CYCLE` (a strict `xfail`): a built environment's callables are never released. `RUNTIME02` is `NA` until a Pyodide target exists | `test_RUNTIME01`, `03`–`06` |
 | `VALUE` | Essential | BLOCKED | A pickle-off read of a pickled `py.Object` refuses to unpickle, but reports "No recipe found" instead of naming the type (`DEGRADED-STORED-VALUE-WITHOUT-RECIPE-REPORTS-NO-RECIPE`, a strict `xfail`). `VALUE12` is `NA` until a `Value` wrapper with operators exists | `test_VALUE01`–`13` |
 | `ENVIRON` | Essential | PARTIAL | Every `ENVIRON` test passes; held at `PARTIAL` because its hard dependency `RUNTIME` is `BLOCKED`. Only the default recipe provider can be configured | `test_ENVIRON01`–`08` |
-| `EVAL` | Essential | PARTIAL | Every `EVAL` test passes; held at `PARTIAL` because its hard dependency `VALUE` is `BLOCKED`. `EVAL05`'s payload half is `NA`: the environment's payload type is `()`, so only the context half is tested. Evaluation is synchronous; async is `specs/design/liquers-py-async/` | `test_EVAL01`–`06` |
+| `EVAL` | Essential | PARTIAL | Every `EVAL` test passes; held at `PARTIAL` because its hard dependencies `VALUE` (`BLOCKED`) and `ENVIRON` (`PARTIAL`) are not `COMPLETE`. `EVAL05`'s payload half is `NA`: the environment's payload type is `()`, so only the context half is tested. Evaluation is synchronous; async is `specs/design/liquers-py-async/` | `test_EVAL01`–`06` |
 | `COMMAND` | Essential | PARTIAL | Every `COMMAND` test passes; held at `PARTIAL` because its hard dependencies `RUNTIME` and `VALUE` are `BLOCKED`. No `realm=` on the decorators; `async def` commands are the async design's | `test_COMMAND01`–`14` |
 
 A feature is never claimed `COMPLETE` over a hard dependency that is not (guide §1, "Dependencies

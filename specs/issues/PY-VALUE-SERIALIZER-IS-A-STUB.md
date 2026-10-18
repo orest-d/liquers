@@ -70,5 +70,6 @@ the serializer gap behind them is this issue.
 
 Removed with the own `Value` enum. Serialization is `liquers-lib`'s `DefaultValueSerializer`,
 plus the opt-in pickle codec for `py.Object`; a value with no byte form raises
-`SerializationError` on write instead of being written as nothing (`design/liquers-py/`, Phase 4
-steps 4 and 10, commits 0d0a4c13 and 4fd469a8; `test_VALUE04`–`06`).
+`SerializationError` from `store_set` instead of being written as nothing (`design/liquers-py/`,
+Phase 4 steps 4, 6 and 11, commits 0d0a4c13, 3cc4e0b7 and 429cb6a1; `test_VALUE06`,
+`test_VALUE11`).

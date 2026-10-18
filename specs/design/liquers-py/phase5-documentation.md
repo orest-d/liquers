@@ -48,8 +48,8 @@ nothing is unpickled, but the error does not name the type. The matrix is in
 **Omitted.**
 - Async evaluation and `async def` commands moved to
   [`liquers-py-async`](../liquers-py-async/DESIGN.md).
-- `realm=` on the decorators, and recipe providers other than the default, are filed as issues
-  below.
+- `realm=` and `arguments=` on the decorators, and recipe providers other than the default, are
+  filed as issues below.
 - `RUNTIME02` (Pyodide) and `VALUE12` (a `Value` wrapper with operators) are `NA` with their
   reasons in the matrix.
 
@@ -74,6 +74,14 @@ None. `LANGUAGE-INTEGRATION_GUIDE.md` §6 Python is the guide, rewritten (below)
   - §Reading gained the foreign decoder (Phase 4 step 1) and the formatless read rule (step 2).
   - Each has a History row, and `reviewed:` is 2026-10-18.
   - The History table header now has the `Source` column its rows already used.
+- **`reference/COMMAND_DECLARATION.md`** (a candidate by its `py` area), reviewed against
+  `_commands.py` and `command.rs`. The stages match. §9 now says how `liquers-py` differs from the
+  worked example: no `arguments=` on its decorators, and the context is passed positionally.
+- **`guides/COMMAND_DESIGN_GUIDE.md`**: its alias "bridge" example described the removed
+  `pycall` design, and is corrected.
+
+Each kept document has a 2026-10-18 History row with source phase-5, and `reviewed:` set to
+2026-10-18.
 
 Also updated:
 - `CLAUDE.md`: a "Python bindings" entry under "Where Code Goes";
@@ -87,17 +95,17 @@ now links the guide's §6 and the README matrix, keeping the design link.
 
 - `DEGRADED-STORED-VALUE-WITHOUT-RECIPE-REPORTS-NO-RECIPE` (P2): a refused degraded read reports
   "No recipe found". It blocks `VALUE` and the rest of AC-18.
-- `ENVIRONMENT-MANAGER-REFERENCE-CYCLE` (P2, filed earlier and confirmed here): built
-  environments never free. It blocks `RUNTIME05`, and retired environments accumulate until
-  `shutdown()`.
+- `ENVIRONMENT-MANAGER-REFERENCE-CYCLE` (P2, pre-existing, updated with this design's evidence):
+  built environments never free. It blocks `RUNTIME05`, and retired environments accumulate;
+  `shutdown()` stops them but cannot free them.
 - `WEB-EVALUATE-RESOLVES-FAILED-ASSET-AS-NULL` (P2): the same bug `liquers-py` had, in
   `liquers-web`, found by reading the code.
 - `STORED-VALUE-WITHOUT-DATA-FORMAT-READ-AS-BIN` (P3) and `POLARS-DATAFRAME-IPC-NOT-SERIALIZABLE`
   (P3): found in the value bridge.
 - `PHASE5-SKELETON-CREATED-WITH-PRECONDITIONS-TICKED` (P3): a workflow defect in the skill's
   skeleton.
-- `PY-COMMAND-DECORATOR-CANNOT-SET-REALM` (P3) and `PY-RECIPE-PROVIDER-NOT-CONFIGURABLE` (P3):
-  omitted scope.
+- `PY-COMMAND-DECORATOR-CANNOT-SET-REALM`, `PY-COMMAND-DECORATOR-CANNOT-DECLARE-ARGUMENT-METADATA`
+  and `PY-RECIPE-PROVIDER-NOT-CONFIGURABLE` (all P3): omitted scope.
 
 **Closed by this work:**
 - `FOREIGN-VALUE-CANNOT-BE-DESERIALIZED`;
@@ -142,3 +150,16 @@ are still open in Phase 1 readiness: question 5 (the M0 split) and confirmation 
   included. `liquers-core` passed in full at step 2 (1201 lib tests).
 - `bash scripts/check-build-matrix.sh`: see the Phase 4 Progress entry for step 12.
 - `python3 scripts/docs_index.py --check`: 0 errors.
+- Two independent Phase 5 reviews ran: one against the skill's Phase 5 checklist, one checking every
+  documentation claim against the code. Their blocking findings were all fixed. The fixes:
+  - `COMMAND_DECLARATION.md` and `COMMAND_DESIGN_GUIDE.md` were added to `affects_docs`, and the
+    latter's stale `pycall` example was corrected;
+  - a phase-5 History row was added to `VALUE_TYPE_SYSTEM.md`;
+  - the guide no longer says "conforming";
+  - a resolution citation was corrected.
+
+  Their optional findings were also applied: the guide gained the shutdown, Ctrl-C and decoder
+  notes, the README gained a waiting and shutdown paragraph, and the filed issues gained their
+  missing sections. Not resolvable here: the entry gate's "all user comments answered", which
+  waits on the owner's Phase 1 decisions.
+
