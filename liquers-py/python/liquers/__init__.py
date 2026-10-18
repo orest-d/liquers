@@ -59,6 +59,11 @@ from liquers._native import (
     Recipe,
     RecipeList,
 )
+from liquers._errors import LiquersError, _install as _install_errors
+
+# One LiquersError subclass per ErrorType variant (KeyNotFoundError, ExecutionError, ...).
+_ERROR_SUBCLASSES = _install_errors(ErrorType)
+globals().update(_ERROR_SUBCLASSES)
 
 __all__ = [
     "Position",
@@ -104,4 +109,6 @@ __all__ = [
     "build_plan",
     "Recipe",
     "RecipeList",
+    "LiquersError",
+    *sorted(_ERROR_SUBCLASSES),
 ]
