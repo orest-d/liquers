@@ -3,8 +3,7 @@ id: WEB-STORE-CONFORMANCE-TESTS
 kind: design
 title: Close liquers-web's STORE test gaps and record its STORE dispositions
 form: compact
-status: in_review
-phase: implementation
+status: complete
 readiness: ready
 autofix: eligible
 area: [web, core/store]
@@ -13,8 +12,9 @@ created: 2026-10-17
 ---
 # Close liquers-web's STORE test gaps and record its STORE dispositions
 
-Bulk design (`specs/guides/autonomous_bulk_design.md`). Phases 1-4 are written but not approved, and
-nothing is implemented.
+Bulk design (`specs/guides/autonomous_bulk_design.md`). Implemented: the tests and the README
+`## Conformance` section are in place, and the issue is closed. The browser half of AC-1 is landed
+gated; it was not run where the design was implemented (chromedriver 147 against Chromium 141).
 
 ## Phase 1: High-Level Design
 
@@ -186,13 +186,13 @@ Run: `cargo test -p liquers-web --target wasm32-unknown-unknown --features debug
 
 ### Steps
 
-- [ ] 1. `tests/store_pure_STORE.rs` `keyguard04_ordinary_keys_accepted` — add the dotted names — `cargo test -p liquers-web --target wasm32-unknown-unknown --test store_pure_STORE`
-- [ ] 2. `tests/store_js_STORE.rs` — add `store05b_traversal_after_makedir_is_refused` and `store11_overlapping_prefixes_follow_document_order` — `cargo test -p liquers-web --target wasm32-unknown-unknown --test store_js_STORE`
-- [ ] 3. `tests/store_js_STORE.rs` — rewrite `store14_read_only_js_store_refuses_writes` over `FULL_STORE` (AC-4) — same command
-- [ ] 4. `tests/store_js_STORE.rs` — add the two `store17_*precision*` tests with a parameterised `DATA_STORE` variant — same command
-- [ ] 5. `tests/store_local_STORE.rs` — add `store05b_traversal_after_makedir_is_refused` — the browser-tests command in Phase 3. Rollback: if no matching chromedriver is available, land the test (it is gated) and say so in the PR
-- [ ] 6. `liquers-web/README.md` — create `## Conformance` if absent (matrix from the audit §1, updated to HEAD), add the `STORE18` `NA` row with its reversing condition and the "overlapping prefixes accepted silently" statement — review against AC-7
-- [ ] 7. Close `WEB-STORE-CONFORMANCE-TEST-GAPS` with a resolution note — `python3 scripts/docs_index.py && python3 scripts/docs_index.py --check`
+- [x] 1. `tests/store_pure_STORE.rs` `keyguard04_ordinary_keys_accepted` — add the dotted names — `cargo test -p liquers-web --target wasm32-unknown-unknown --test store_pure_STORE`
+- [x] 2. `tests/store_js_STORE.rs` — add `store05b_traversal_after_makedir_is_refused` and `store11_overlapping_prefixes_follow_document_order` — `cargo test -p liquers-web --target wasm32-unknown-unknown --test store_js_STORE`
+- [x] 3. `tests/store_js_STORE.rs` — rewrite `store14_read_only_js_store_refuses_writes` over `FULL_STORE` (AC-4) — same command
+- [x] 4. `tests/store_js_STORE.rs` — add the two `store17_*precision*` tests with a parameterised `DATA_STORE` variant — same command
+- [x] 5. `tests/store_local_STORE.rs` — add `store05b_traversal_after_makedir_is_refused` — the browser-tests command in Phase 3. Rollback: if no matching chromedriver is available, land the test (it is gated) and say so in the PR
+- [x] 6. `liquers-web/README.md` — create `## Conformance` if absent (matrix from the audit §1, updated to HEAD), add the `STORE18` `NA` row with its reversing condition and the "overlapping prefixes accepted silently" statement — review against AC-7
+- [x] 7. Close `WEB-STORE-CONFORMANCE-TEST-GAPS` with a resolution note — `python3 scripts/docs_index.py && python3 scripts/docs_index.py --check`
 
 For any step whose new test fails on unmodified code: stop, file the defect (`DOCS_STRUCTURE_GUIDE.md`
 §4.8), and hand the item back as `not-eligible`.

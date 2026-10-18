@@ -259,7 +259,7 @@ submit, and submitted query state is not preserved.
 - **Async evaluation on wasm** — built → [`design/async-wasm-refactor/`](design/async-wasm-refactor/)
 - **Python wrapper** — built → [`design/python-wrapper/`](design/python-wrapper/)
 - **Executor-agnostic core** — planned → [`issues/CORE-TOKIO-REMOVAL.md`](issues/CORE-TOKIO-REMOVAL.md)
-- **Browser stores (localStorage, fetch, JS, routing)** — built → [`design/liquers-web-store/`](design/liquers-web-store/)
+- **Browser stores (localStorage, fetch, JS, routing)** — built → [`design/liquers-web-store/`](design/liquers-web-store/) *(conformance gaps closed: [`design/web-store-conformance-tests/`](design/web-store-conformance-tests/))*
 - **Browser-native store and command backend** — planned → [`issues/WEB-NATIVE-IO-TIER2.md`](issues/WEB-NATIVE-IO-TIER2.md)
 - **Argument overrides over HTTP and WebSocket; managed and unmanaged assets** — documented → [`reference/WEB_API_SPECIFICATION.md` §2.4–2.5](reference/WEB_API_SPECIFICATION.md#24-argument-overrides-and-options) (how to use them: [`guides/WEB_API_GUIDE.md`](guides/WEB_API_GUIDE.md) §4; design: [`design/axum-query-named-arguments/`](design/axum-query-named-arguments/))
 - **Agent memory service** — designing → [`design/agent-memory-mvp/`](design/agent-memory-mvp/)
@@ -437,7 +437,6 @@ deliberately folded behind a broader line.
 - design `web-object06-error-type-exhaustiveness`
 - design `web-outbound-int64-precision`
 - design `web-records-single-cell-scalar`
-- design `web-store-conformance-tests`
 - design `web-value04-bytes-identifier`
 - feature `AGENT-MEMORY-SERVICE`
 - feature `ASSET-MANAGER-CANNOT-BE-SYNCHRONIZED-WITH-THE-STORE`

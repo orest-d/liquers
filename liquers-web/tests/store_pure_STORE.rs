@@ -75,7 +75,20 @@ fn keyguard03_current_segment_refused() {
 /// would all still pass.
 #[wasm_bindgen_test]
 fn keyguard04_ordinary_keys_accepted() {
-    for text in ["a", "a/b.txt", "a.b/c", "data/sub/report.json", "notes"] {
+    // The dotted names matter as much as the plain ones: only an element that is exactly `.` or
+    // `..` is relative, so a guard matching on a leading or contained dot would refuse these.
+    for text in [
+        "a",
+        "a/b.txt",
+        "a.b/c",
+        "data/sub/report.json",
+        "notes",
+        "d/.hidden",
+        "d/a..b",
+        "d/...",
+        "d/..x",
+        "d/v1.2.3",
+    ] {
         let key = parse_key(text).unwrap_or_else(|e| panic!("{text:?}: {}", e.message));
         assert!(
             check_key(&key, STORE).is_ok(),

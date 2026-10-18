@@ -8,9 +8,9 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 128
+Total rows: 127
 - P2: 54
-- P3: 74
+- P3: 73
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -83,7 +83,6 @@ Total rows: 128
 | [`CORE-WASM-BUILD-EMITS-UNUSED-WARNINGS`](issues/CORE-WASM-BUILD-EMITS-UNUSED-WARNINGS.md) | issue | A wasm32 build of liquers-core emits five unused-import and dead-code warnings | draft |  |  | P3 | S | core/assets;build |  | 2026-10-17 |
 | [`DEPENDENCY-MANAGER-VERSION-NOT-OBSERVABLE-FROM-TESTS`](issues/DEPENDENCY-MANAGER-VERSION-NOT-OBSERVABLE-FROM-TESTS.md) | issue | An integration test cannot ask the dependency manager whether a key has a registered version | draft |  |  | P3 | S | core/assets |  | 2026-10-17 |
 | [`TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS`](issues/TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS.md) | issue | TypeInfo cannot declare a format a type writes but cannot read back | draft |  |  | P3 | S | core/value |  | 2026-09-24 |
-| [`WEB-STORE-CONFORMANCE-TEST-GAPS`](issues/WEB-STORE-CONFORMANCE-TEST-GAPS.md) | issue | liquers-web's STORE tests are narrower than the guide's prescribed contracts | draft | ready | eligible | P3 | M | web;core/store | [design](design/web-store-conformance-tests/DESIGN.md) | 2026-10-17 |
 | [`PY-VALUE-ENUM-OVERSIZED`](issues/PY-VALUE-ENUM-OVERSIZED.md) | issue | liquers-py's own Value enum is over 700 bytes because large variants are stored inline | draft | ready | not-eligible | P3 | M | py | [design](design/py-value-arc-payloads/DESIGN.md) | 2026-10-12 |
 | [`CONTEXT-TITLE-LOST-ACROSS-PREDECESSOR-BOUNDARY`](issues/CONTEXT-TITLE-LOST-ACROSS-PREDECESSOR-BOUNDARY.md) | issue | A title or description set by a command in a cut predecessor does not reach the final asset | draft | needs-decision | not-eligible | P3 | M | core/context;core/plan | [phase1](design/context-title-predecessor-inheritance/phase1-high-level-design.md)  [phase2](design/context-title-predecessor-inheritance/phase2-architecture.md)  [phase3](design/context-title-predecessor-inheritance/phase3-examples.md)  [phase4](design/context-title-predecessor-inheritance/phase4-implementation.md)  | 2026-10-06 |
 | [`TEMPLATE-NON-SCALAR-HAS-NO-TEXT-FORM`](issues/TEMPLATE-NON-SCALAR-HAS-NO-TEXT-FORM.md) | issue | A template cannot index into a Query or Key value, and inserts other non-scalars as JSON | draft | needs-decision | not-eligible | P3 | M | lib/commands | [design](design/template-non-scalar-text-form/DESIGN.md) | 2026-10-17 |
