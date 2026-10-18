@@ -11,8 +11,8 @@ prerequisite issues.
 
 - [x] Step 1: foreign decoder hook in `liquers-lib` — 9b2ba9fe
 - [ ] Step 2: formatless read rule in `liquers-core`
-- [ ] Step 3: `liquers-py` dependencies and runtime
-- [ ] Step 4: value bridge, with the old environment removed
+- [x] Step 3: `liquers-py` dependencies and runtime — 0d0a4c13
+- [x] Step 4: value bridge, with the old environment removed — 0d0a4c13
 - [ ] Step 5: error mapping
 - [ ] Step 6: environment
 - [ ] Step 7: commands and decorators
