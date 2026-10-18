@@ -3,8 +3,8 @@ id: LIQUERS-PY
 kind: design
 title: Python integration of Liquers (liquers-py)
 workflow: liquers-project
-status: approved
-phase: examples
+status: in_review
+phase: implementation
 readiness: needs-decision
 autofix: not-eligible
 merged: 2026-10-17

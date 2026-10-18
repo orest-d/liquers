@@ -102,7 +102,7 @@ Features: `OBJECT ERROR RUNTIME VALUE ENVIRON EVAL COMMAND` (the guide's Python 
   WHEN two `lq.Environment()`s each register a command
   THEN neither sees the other's; `lq.evaluate` uses one shared default
 - **AC-12** Validation report
-  WHEN `lq.Environment(config=…)` imports invalid command metadata from YAML
+  WHEN `env.import_metadata(yaml)` imports invalid command metadata
   THEN `env.validate()` lists every issue (severity, message, key) before the first evaluation
   raises `ConfigurationError`
 - **AC-13** Nested evaluation
@@ -114,7 +114,7 @@ Features: `OBJECT ERROR RUNTIME VALUE ENVIRON EVAL COMMAND` (the guide's Python 
   THEN the result is the `str` `"abcabc"`
 - **AC-18** Pickle bytes untrusted by default
   WHEN a pickle-off environment evaluates `-R/<key>` holding bytes a pickle-on one stored
-  THEN nothing is unpickled and the error names `py.Object`
+  THEN nothing is unpickled, and the error names `py.Object` and says it has no byte form here
 - **AC-19** Results and cancellation
   WHEN `env.get_asset(query)` completes, or is cancelled before its command starts
   THEN completion exposes value, metadata and logs; cancellation ends `Cancelled`, command never run
@@ -168,7 +168,8 @@ store-backed imports, UI.
 - Async (AC-14..16, ASYNCQ, ASYNCCMD) moved to `liquers-py-async` to fit the size limit.
 - Added AC-18 (codec off on read), AC-19 (EVAL06's named result), AC-20 (ENVIRON06), AC-21
   (remaining Appendix A). Reworded AC-1 (`text`, per `StateDelivery`), AC-6 (an explicit write: an
-  unwritten opaque value persists as metadata only) and AC-12 (`config=`).
+  unwritten opaque value persists as metadata only) and AC-12 (`import_metadata`: the core
+  `EnvironmentConfig` has no command-metadata section).
 - Placement extended to the `liquers-lib` hook and core read rule (`FOREIGN-VALUE-CANNOT-BE-DESERIALIZED`).
 - M0 shipped in this PR; it also fixed the plan's unfiled `PY-WRAPPER-DESIGN-MARKED-COMPLETE` and
   `PY-TESTS-HAVE-NO-RUNNER`. Splitting it out is put to the owner.

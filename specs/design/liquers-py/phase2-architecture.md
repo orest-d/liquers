@@ -49,12 +49,13 @@ Rejected alternatives:
 `supported_data_formats` is empty returns `Ok(None)` (degraded). A formatless type has no byte form
 by the write path's own rule (`assets.rs:934`), so this changes nothing for built-ins. Its purpose is
 that a pickle-off environment, whose registry lists `py.Object` with no formats, never unpickles
-(AC-18).
+(AC-18). The degraded-read error says which case applies: unregistered, or registered without a
+byte form.
 
 ### `liquers-py` (Rust)
 
 - **`PyObjectValue { object: Py<PyAny>, type_name: String, pickle: bool }`**, `impl ForeignValue`.
-  - `origin` is `"python"`, `identifier` is `"py.Object"`.
+  - `origin` is `"python"`, `identifier` is `"py.Object"`, `default_extension` is `pickle`.
   - `as_bytes("pickle")` calls `pickle.dumps` under the GIL when `pickle` is set, and returns
     `SerializationError` otherwise.
   - `type_info` lists `pickle` only when `pickle` is set.
@@ -67,14 +68,23 @@ that a pickle-off environment, whose registry lists `py.Object` with no formats,
   the GIL.
   - The table is plan §3.2, with `bool` checked before `int`.
   - `polars.DataFrame` crosses as Parquet bytes into `ExtValue::PolarsDataFrame`.
+  - A `list` or `dict` already on the current conversion path (an identity set) raises
+    `Error::conversion_error` naming the cycle (VALUE07). Shared references that are not cycles
+    are copied.
 - **`enum ConversionMode { Permissive, Strict }`**
 - **`#[pyclass(frozen)] Environment { inner: Arc<EnvCell> }`**
   - `EnvCell` holds:
     - `Mutex<EnvState>`, where `EnvState` is `Pending`, `Built(EnvRef<DefaultEnvironment<Value>>)`
       or `Shut`;
-    - the shared `Arc<dyn AsyncStore>`, a memory store kept across rebuilds;
+    - the store `Arc<dyn AsyncStore>`, built once from `config.store` (a memory store when the
+      configuration names none) and passed to every rebuild with `with_async_store`, so data
+      survives rebuilds;
+    - the retired `EnvRef`s of earlier builds: in-flight evaluations finish against them, and
+      `shutdown()` shuts their managers down (the `Arc` cycle in `DefaultAssetManager` otherwise
+      keeps them alive);
     - the retained `Vec<PyCommandSpec>`;
-    - the `config`.
+    - the `EnvironmentConfig` (store, recipes, `assets: AssetManagerOptions`) and the imported
+      command metadata.
   - No lock is held across an await.
   - `build` runs under `runtime().enter()`, because the queued manager spawns tasks.
   - `build` registers the liquers-lib domains on `builder.command_registry` with
@@ -83,19 +93,29 @@ that a pickle-off environment, whose registry lists `py.Object` with no formats,
     with `type CommandEnvironment = DefaultEnvironment<Value>`. It does not use
     `register_all_commands!`, which needs `UIPayload`.
 - **Environment methods**, all sync. Each releases the GIL (`py.detach`) around `block_on`:
-  - `new(*, config: dict | str | None = None, conversion = "permissive", pickle = False)`
+  - `new(*, config: dict | str | None = None, conversion = "permissive", pickle = False)`, where
+    `config` is an `EnvironmentConfig` as a dict or a YAML string
+  - `command(...)` and `first_command(...)`: the decorators bound to this environment
+  - `import_metadata(yaml: str)`: a `CommandMetadataRegistry` document merged into the registry
+    at build (ENVIRON08)
+  - `command_metadata(name, namespace="") -> CommandMetadata | None`; the existing wrapper gains
+    `label`, `doc` and `arguments` getters
   - `validate() -> list[Issue]`
   - `evaluate(query) -> object`
   - `evaluate_state(query) -> State`
   - `get_asset(query) -> AssetRef`
-  - `store_set(key, data)`: `str` is written as `Text`/`txt`, `bytes` as `Bytes`/`b`, and anything
-    else through `py_to_value` in its default format.
+  - `store_set(key, data)` calls `AsyncStore::set` with a `MetadataRecord` carrying the key,
+    `type_identifier`, an explicit `data_format` and `Status::Source` (the read path keeps only
+    data-bearing statuses). `str` is `Text`/`txt`, `bytes` is `Bytes`/`b`, anything else goes
+    through `py_to_value` in its type's default format (`pickle` for `py.Object`).
   - `unregister(name, namespace="") -> bool`
   - `shutdown()`
+  - `live_handle_count() -> int`, only under the test-only `debug-handles` feature, which
+    `scripts/test-liquers-py.sh` passes to `maturin develop` (RUNTIME05)
 - **`#[pyclass(frozen)] State`** holds a value and a `Metadata` and is read-only (VALUE13: nothing is
   discarded, nothing is mutable).
-- **`AssetRef`** offers `get() -> State`, `status`, `metadata` and `cancel()`, which runs `cancel()`
-  on the runtime.
+- **`AssetRef`** offers `get() -> State`, `status -> Status`, `metadata` and `cancel()`, which
+  runs `cancel()` on the runtime. The existing `Status` wrapper gains `__eq__` and `name`.
 - **`register_py_command(&mut CommandRegistry<_>, &PyCommandSpec) -> Result<Replaced, Error>`**
   - `PyCommandSpec { key, metadata: CommandMetadata, func: Arc<Py<PyAny>>, delivery: StateDelivery }`
   - It calls `registry.unregister(key)` first, so a replacement drops the old executor and its
@@ -156,6 +176,7 @@ that a pickle-off environment, whose registry lists `py.Object` with no formats,
 | Invalid configuration | `IssueReport` → `validate()`, then `ConfigurationError` |
 | Panic in a command | the `spawn_blocking` `JoinError::is_panic` → `Error::unexpected_error`; PyO3 turns a panic at the binding boundary into `PanicException` |
 | Use after `shutdown()` | `Error::general_error("environment is shut down")` |
+| Pickle-off read of `py.Object` bytes | degraded read; the error names the identifier and says the type has no byte form in this environment |
 
 All matches over `ErrorType`, `StateDelivery` and `ExtValue` are explicit.
 
@@ -183,6 +204,6 @@ Also `liquers-py/README.md` (quick start, matrix with NAs) and `specs/README.md`
 | Crates and workflows affected | liquers-py now builds liquers-lib, so the build is larger and its matrix row slower |
 | Existing tests likely to change | the two `test_OBJECT_*` files only |
 | New validation | pytest per feature ID; Rust tests for conversion, the decoder hook, `py_type_info` agreement and the read rule |
-| Compatibility / data / concurrency / performance / security | Renaming nothing in the Python API: `ErrorType` keeps its name. Python commands serialize on the GIL. A DataFrame costs one Parquet encode per crossing. Pickle is gated on write and on read |
+| Compatibility / data / concurrency / performance / security | Rebuilds retire, not stop, the old environment: memory grows with the number of late registrations until `shutdown()`. Cyclic containers are refused. Two Python threads evaluating at once both make progress, since the GIL is released while waiting. Renaming nothing in the Python API: `ErrorType` keeps its name. Python commands serialize on the GIL. A DataFrame costs one Parquet encode per crossing. Pickle is gated on write and on read |
 | Recovery | each step is its own commit; the core and lib changes revert independently |
 | Certainty and open questions | high; see Phase 1 Design Readiness |
