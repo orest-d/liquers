@@ -2,9 +2,9 @@
 id: STEP-VOLATILITY-IMPL-REMOVAL
 kind: design
 title: Remove the unreachable step-level volatility check and its runtime print
+status: complete
+gh_pr: [146]
 form: compact
-status: in_review
-phase: implementation
 readiness: ready
 autofix: eligible
 area: [core/plan]
@@ -12,6 +12,8 @@ issues: [RESOURCE-STEP-VOLATILITY-IS-NEVER-CHECKED]
 created: 2026-10-17
 ---
 # Remove the unreachable step-level volatility check and its runtime print
+
+> **Complete on 2026-10-18**: implemented and merged in #146.
 
 Produced under [`guides/autonomous_bulk_design.md`](../../guides/autonomous_bulk_design.md) by the
 2026-10-17 backlog compaction: Phases 1-4, reviewed without phase approval. Not an approval and not
@@ -127,9 +129,9 @@ Command: `cargo test -p liquers-core --lib alias`.
 
 ### Steps
 
-- [ ] 1. `interpreter.rs` — remove the three impls and the step test — `cargo check -p liquers-core --tests`. Rollback: if a caller appears, restore and only drop the prints
-- [ ] 2. `plan.rs` — add `volatile_alias_of_stable_target_makes_plan_volatile` — `cargo test -p liquers-core --lib alias`
-- [ ] 3. DOC_08 note, History row, `reviewed:`; close the issue — `python3 scripts/docs_index.py --check`
+- [x] 1. `interpreter.rs` — remove the three impls and the step test — `cargo check -p liquers-core --tests`. Rollback: if a caller appears, restore and only drop the prints
+- [x] 2. `plan.rs` — add `volatile_alias_of_stable_target_makes_plan_volatile` — `cargo test -p liquers-core --lib alias`
+- [x] 3. DOC_08 note, History row, `reviewed:`; close the issue — `python3 scripts/docs_index.py --check`
 
 ### Validation
 

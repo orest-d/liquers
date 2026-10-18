@@ -5488,6 +5488,29 @@ mod tests {
         Ok(())
     }
 
+    /// STEP-VOLATILITY-IMPL-REMOVAL AC-1, AC-3: a volatile alias of a non-volatile target makes
+    /// the plan volatile. The plan is the only volatility authority; this replaces the removed
+    /// step-level `step_is_volatile_when_alias_is_volatile`.
+    #[test]
+    fn volatile_alias_of_stable_target_makes_plan_volatile() -> Result<(), Error> {
+        let mut registry = CommandMetadataRegistry::new();
+        registry.add_command(&CommandMetadata::new("steady"));
+        let mut jumpy = CommandMetadata::new("jumpy");
+        jumpy.volatile = true;
+        jumpy.definition = CommandDefinition::Alias {
+            command: CommandKey::new("", "", "steady"),
+            head_parameters: vec![],
+        };
+        registry.add_command(&jumpy);
+
+        let stable = PlanBuilder::new(parse_query("steady")?, &registry).build()?;
+        assert!(!stable.is_volatile, "the target alone is not volatile");
+
+        let plan = PlanBuilder::new(parse_query("jumpy")?, &registry).build()?;
+        assert!(plan.is_volatile, "a volatile alias makes the plan volatile");
+        Ok(())
+    }
+
     /// Phase 3 test 15 (AC-5): a missing target fails while planning, not at execution.
     #[test]
     fn alias_errors_surface_at_plan_time() -> Result<(), Error> {
