@@ -3,8 +3,7 @@ id: WEB-ENVIRON-VALIDATION-REPORT
 kind: design
 title: A language-visible validation report for imported command metadata in liquers-web
 form: compact
-status: in_review
-phase: implementation
+status: complete
 readiness: ready
 autofix: not-eligible
 area: [web, core/commands]
@@ -15,8 +14,8 @@ created: 2026-10-17
 # A language-visible validation report for imported command metadata in liquers-web
 
 Bulk design (`specs/guides/autonomous_bulk_design.md`), revised on 2026-10-17 after the
-maintainer's answers (see Design Readiness). Phases 1-4 are written but not approved, and nothing is
-implemented.
+maintainer's answers (see Design Readiness). Implemented on 2026-10-18; see "Implementation notes"
+at the end for where the code differs from the text below.
 
 ## Phase 1: High-Level Design
 
@@ -231,16 +230,33 @@ Run: `cargo test -p liquers-core --lib command_declaration`;
 
 ### Steps
 
-- [ ] 1. `liquers-core/src/command_declaration.rs` `CommandDeclaration::check` — add, rewrite `build` over it, tests `check01`-`check03` — `cargo test -p liquers-core --lib command_declaration`. Rollback: revert the file.
-- [ ] 2. `liquers-web/src/command/spec.rs` — split `parse` into `check` + wrapper; add `from_metadata` — existing `commands_COMMAND` / `commands_DECLARATION` suites pass unchanged.
-- [ ] 3. `liquers-web/src/command/import.rs` and `environment.rs` `validate_commands_on` — intake plus candidate-registry check — `environ08_serialized_registry_reports_every_issue`, `environ08_missing_and_unknown_implementations`, `environ08_declaration_refusals_are_report_entries`, `environ08_validation_is_pure`.
-- [ ] 4. `environment.rs` `register_commands_on`, `Retained`, `rebuild_with` — batch registration and replay — `environ08_valid_batch_registers_with_one_rebuild`, `environ08_registry_form_commands_survive_a_rebuild`.
-- [ ] 5. `error.rs`, `lib.rs` — `issue_report_to_js`, `report` on the error, the two bindings, `registerCommand` delegating — `environ08_refused_batch_registers_nothing_and_carries_the_report`, `environ08_register_command_is_a_batch_of_one`, then the full Node loop.
-- [ ] 6. `typescript.rs`, `check-stubs.sh`, `tests/stubs/valid_usage.ts` — `./liquers-web/examples-web/quickstart/build.sh && ./liquers-web/scripts/check-stubs.sh`.
-- [ ] 7. Documents — `COMMAND_DECLARATION.md` (`check`), the guide's ENVIRON paragraph (an integration without `EnvironmentBuilder` runs the registry check on its import path; History row, `reviewed:`), `liquers-web/README.md` (registering commands in bulk); close the source issue — `python3 scripts/docs_index.py --check`.
+- [x] 1. `liquers-core/src/command_declaration.rs` `CommandDeclaration::check` — add, rewrite `build` over it, tests `check01`-`check03` — `cargo test -p liquers-core --lib command_declaration`. Rollback: revert the file.
+- [x] 2. `liquers-web/src/command/spec.rs` — split `parse` into `check` + wrapper; add `from_metadata` — existing `commands_COMMAND` / `commands_DECLARATION` suites pass unchanged.
+- [x] 3. `liquers-web/src/command/import.rs` and `environment.rs` `validate_commands_on` — intake plus candidate-registry check — `environ08_serialized_registry_reports_every_issue`, `environ08_missing_and_unknown_implementations`, `environ08_declaration_refusals_are_report_entries`, `environ08_validation_is_pure`.
+- [x] 4. `environment.rs` `register_commands_on`, `Retained`, `rebuild_with` — batch registration and replay — `environ08_valid_batch_registers_with_one_rebuild`, `environ08_registry_form_commands_survive_a_rebuild`.
+- [x] 5. `error.rs`, `lib.rs` — `issue_report_to_js`, `report` on the error, the two bindings, `registerCommand` delegating — `environ08_refused_batch_registers_nothing_and_carries_the_report`, `environ08_register_command_is_a_batch_of_one`, then the full Node loop.
+- [x] 6. `typescript.rs`, `check-stubs.sh`, `tests/stubs/valid_usage.ts` — `./liquers-web/examples-web/quickstart/build.sh && ./liquers-web/scripts/check-stubs.sh`.
+- [x] 7. Documents — `COMMAND_DECLARATION.md` (`check`), the guide's ENVIRON paragraph (an integration without `EnvironmentBuilder` runs the registry check on its import path; History row, `reviewed:`), `liquers-web/README.md` (registering commands in bulk); close the source issue — `python3 scripts/docs_index.py --check`.
 
 ### Validation
 
 `cargo test -p liquers-core --lib`; the full Node loop; `bash scripts/check-build-matrix.sh`
 wasm32 rows; `python3 scripts/docs_index.py --check`; a final diff review (no `EnvironmentBuilder`
 adoption, no command or registry-export change).
+
+## Implementation notes (2026-10-18)
+
+- **Refusal messages (AC-7).** A metadata error keeps today's message exactly. A JavaScript-specific
+  refusal (no `run`, empty name, reserved namespace, not an object) is now a report entry like any
+  other, so its thrown message is the report summary: the old text follows
+  `Command metadata contains 1 error; first:`. Every existing test asserts with `contains`, and
+  all pass.
+- **Registry check scope (AC-1).** `CommandMetadataRegistry::check()` runs over a registry holding
+  the batch only. The check is per command, so adding the commands already registered changes no
+  finding about the batch and would repeat their own findings in every report.
+- **Registry input (AC-4).** Read into a local `ImportedRegistry` (`commands`, `global_enums`), since
+  `CommandMetadataRegistry` requires `default_namespaces` and a hand-written document need not
+  carry it. Global enums are not imported, and a document defining them gets a warning.
+- **Declarations and `impls`.** A declaration without `run` takes `impls[name]`, so one
+  implementations object serves both input forms.
+- **Browser tests.** The Node loop covers everything; there is no browser-only test.

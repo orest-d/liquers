@@ -3,7 +3,7 @@ title: Language Integration Guide
 kind: guide
 audience: internal
 area: [web, py, core/commands, core/plan, core/assets, core/store]
-reviewed: 2026-10-16
+reviewed: 2026-10-18
 ---
 # Liquers Language Integration Guide
 
@@ -744,6 +744,14 @@ compact error summary; a GUI, editor, or custom logger needs the complete report
 consuming operation. On wasm, the default full-report emission goes to the browser console, but
 it does not replace this programmatic access. See
 [Building and Configuring an Environment](./ENVIRONMENT_CONSTRUCTION_GUIDE.md#validating-imported-command-metadata).
+
+An integration that does not use `EnvironmentBuilder` owes the same report on its own import
+path: run `CommandMetadataRegistry::check()` over the metadata it imports (a registry holding the
+imported commands is enough, since the check is per command), add its own intake refusals to the
+same `IssueReport`, and hand the whole report to the language before the consuming call raises.
+For a declaration, `CommandDeclaration::check` gives the full report whose summary `build` raises.
+`liquers-web` does this in `validateCommands` / `registerCommands`: a batch of declarations or a
+JSON/YAML registry document, registered all or nothing, with the report on the thrown error.
 
 **Registration after publication is the shape of the problem, and it is not a core limitation.** Rust code builds the registry, then the environment, then calls `to_ref` — but `Environment::to_ref` *consumes* the environment into an `Arc`, registration needs `&mut CommandRegistry`, and `get_command_executor` hands back a reference, so the executor cannot live behind a lock either. Once the environment is shared there is no mutable path to it. An *integration* whose host registers commands *at runtime* therefore cannot simply hold an `EnvRef` from the start, and it is easy to misdiagnose this as a missing core capability. It is not: the resolution is to do what Rust does, twice.
 
@@ -3094,6 +3102,7 @@ def test_PACKAGE07_artifact_carries_declarations_license_and_metadata():
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-18 | §ENVIRON: an integration without `EnvironmentBuilder` runs the registry check on its own import path and reports it before raising; `liquers-web`'s `validateCommands` / `registerCommands`. | `design/web-environ-validation-report/` |
 | 2026-10-16 | §6 Browser JavaScript: `localstorage` and `http` now offer data-only access and can take a `metadata` section. | `design/store-adapters/` phase-5 review |
 | 2026-10-15 | Configured stores. §4: `read_only` and `metadata` belong to `STORE` direction 3, with no feature ID of their own. §STORE: direction 3 covers a mount's access policy and metadata handling; the inventory adds the data-only methods, `DataCapabilities`, `DataFacts`, `BackendTime`, `is_read_only`, `sync`, `created`/`etag` and `MetadataConfig`/`StoreConfigFunctions`; new design questions for configured stores; new subsection "Configured stores: access policy, metadata and write strategies" with the capability table and the `store_config` counterpart of "What the *language* cannot contribute"; tests `STORE14`–`STORE18` with a disposition column and Appendix A blueprints. §COMMAND asks about foreign realms; §ENVIRON states that chains compile against the environment's registry. §6: `JsStore`'s optional data methods and the built-in browser stores' refusal; Python's GIL cost for a per-entry handler. | phase-5, `design/store-adapters/` |
 | 2026-10-13 | §Design questions, question 4: NaN/infinity follows the JSON policy in `SERIALIZATION_GUIDE.md`. | phase-5, `design/value-to-json-non-finite-float/` |

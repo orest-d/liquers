@@ -24,6 +24,7 @@ use serde_json::Value;
 use crate::command_metadata::ArgumentGUIInfo;
 use crate::command_metadata::{ArgumentInfo, CommandMetadata, DEFAULT_GUI};
 use crate::error::{Error, ErrorType};
+use crate::issue_report::{Issue, IssueReport, IssueSeverity};
 
 /// How the input state reaches the callable.
 ///
@@ -689,10 +690,36 @@ impl CommandDeclaration {
     ///
     /// `registration` and `conventions` are declaration-only and do not reach the metadata.
     ///
+    /// A refusal's message is [`Self::check`]'s report summarised by
+    /// [`IssueReport::short_summary`], so the compact error and the full report cannot disagree.
+    pub fn build(&self) -> Result<CommandMetadata, Error> {
+        let (metadata, report) = self.checked();
+        if let Some(summary) = report.short_summary("Command metadata") {
+            return Err(parameter_error(summary));
+        }
+        metadata.ok_or_else(|| {
+            parameter_error(format!(
+                "command {:?}: metadata could not be built",
+                self.command_name()
+            ))
+        })
+    }
+
+    /// Everything [`Self::build`] would refuse, as a complete report rather than one message.
+    ///
+    /// A document that does not deserialize into `CommandMetadata` is one error entry; otherwise
+    /// the report is `CommandMetadata::check()` of the built metadata. Global-enum references are
+    /// not resolved, as in `build`.
+    pub fn check(&self) -> IssueReport {
+        self.checked().1
+    }
+
+    /// The built metadata, when the document deserializes, and its report.
+    ///
     /// In a declaration an absent `state_argument` means a *source* command, whereas raw
     /// `CommandMetadata` reads an omitted field as the conventional `state` argument; the
     /// declaration's intent is therefore written as an explicit `null` before conversion.
-    pub fn build(&self) -> Result<CommandMetadata, Error> {
+    fn checked(&self) -> (Option<CommandMetadata>, IssueReport) {
         let command = self.command_name();
         let source_doc;
         let doc = match self.doc.as_object() {
@@ -704,15 +731,35 @@ impl CommandDeclaration {
             }
             _ => &self.doc,
         };
-        let metadata: CommandMetadata = CommandMetadata::deserialize(doc).map_err(|e| {
-            parameter_error(if command.is_empty() {
-                format!("command declaration: {e}")
-            } else {
-                format!("command {command:?}: {e}")
-            })
-        })?;
-        validate(&metadata)?;
-        Ok(metadata)
+        let mut report = IssueReport::default();
+        match CommandMetadata::deserialize(doc) {
+            Ok(metadata) => {
+                report.append(metadata.check());
+                (Some(metadata), report)
+            }
+            Err(e) => {
+                let issue = if command.is_empty() {
+                    Issue::generic(IssueSeverity::Error, format!("command declaration: {e}"))
+                } else {
+                    let field = |name: &str| {
+                        self.doc
+                            .get(name)
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string()
+                    };
+                    Issue::command_registry(
+                        IssueSeverity::Error,
+                        field("realm"),
+                        field("namespace"),
+                        command,
+                        e.to_string(),
+                    )
+                };
+                report.extend([issue]);
+                (None, report)
+            }
+        }
     }
 
     /// Stages 3-5 in order. The normal entry point once a declaration has been enhanced.
@@ -747,16 +794,6 @@ fn fill_argument_defaults(argument: &mut Value) {
         if let Ok(default_gui) = serde_json::to_value(DEFAULT_GUI.clone()) {
             map.insert("gui_info".to_string(), default_gui);
         }
-    }
-}
-
-/// Reports what is wrong with built metadata, naming the command and, where there is one, the
-/// argument. Global-enum references are deliberately not resolved: that needs a
-/// `CommandMetadataRegistry` and happens at registry insertion and plan building.
-fn validate(metadata: &CommandMetadata) -> Result<(), Error> {
-    match metadata.check().short_summary("Command metadata") {
-        Some(summary) => Err(parameter_error(summary)),
-        None => Ok(()),
     }
 }
 
@@ -1532,5 +1569,64 @@ mod tests {
             m.arguments[0].argument_type,
             ArgumentType::GlobalEnum(_)
         ));
+    }
+
+    // --- check: the report behind `build` --------------------------------------------------------
+
+    fn prepared(doc: Value) -> CommandDeclaration {
+        let mut declaration = CommandDeclaration::from_document(doc);
+        declaration.apply_conventions().expect("conventions apply");
+        declaration.fill_defaults();
+        declaration
+    }
+
+    #[test]
+    fn check01_report_lists_every_metadata_issue() {
+        let declaration = prepared(json!({"name":"join","arguments":[
+            {"name":"xs","multiple":true},{"name":"a"},{"name":"b"}]}));
+        let report = declaration.check();
+        assert_eq!(report.error_count(), 2, "{report}");
+        for (issue, starved) in report.issues().iter().zip(["'a'", "'b'"]) {
+            assert!(issue.message().contains(starved), "{}", issue.message());
+            match issue {
+                Issue::CommandRegistry { name, .. } => assert_eq!(name, "join"),
+                Issue::Generic { .. } => panic!("the issue must name its command"),
+            }
+        }
+    }
+
+    #[test]
+    fn check02_build_error_is_the_report_summary() {
+        let declaration = prepared(json!({"name":"join","arguments":[
+            {"name":"xs","multiple":true},{"name":"a"},{"name":"b"}]}));
+        let summary = declaration
+            .check()
+            .short_summary("Command metadata")
+            .expect("there are errors");
+        let error = declaration.build().expect_err("the declaration is invalid");
+        assert_eq!(error.message, summary);
+        assert_eq!(error.error_type, ErrorType::ParameterError);
+        assert!(prepared(baseline()).check().is_empty());
+    }
+
+    #[test]
+    fn check03_deserialization_failure_is_one_issue() {
+        let declaration = CommandDeclaration::from_document(json!({"name":"f","volatile":"often"}));
+        let report = declaration.check();
+        assert_eq!(report.issues().len(), 1, "{report}");
+        assert!(report.has_errors());
+        match &report.issues()[0] {
+            Issue::CommandRegistry { name, .. } => assert_eq!(name, "f"),
+            Issue::Generic { .. } => panic!("a named document must name its command"),
+        }
+        let nameless = CommandDeclaration::from_document(json!({"volatile":"often"})).check();
+        assert!(
+            matches!(nameless.issues(), [Issue::Generic { .. }]),
+            "{nameless}"
+        );
+        assert_eq!(
+            declaration.build().expect_err("refused").message,
+            report.short_summary("Command metadata").expect("summary")
+        );
     }
 }

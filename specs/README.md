@@ -255,7 +255,7 @@ submit, and submitted query state is not preserved.
 - **Language integration** — documented → [`guides/LANGUAGE-INTEGRATION_GUIDE.md`](guides/LANGUAGE-INTEGRATION_GUIDE.md)
 - **Assets and recipes HTTP API** — built → [`design/axum-assets-recipes-api/`](design/axum-assets-recipes-api/)
 - **Web API library** — built → [`design/web-api-library/`](design/web-api-library/)
-- **Browser and JavaScript integration** — built → [`design/liquers-web/`](design/liquers-web/)
+- **Browser and JavaScript integration** — built → [`design/liquers-web/`](design/liquers-web/) *(command validation report: [`design/web-environ-validation-report/`](design/web-environ-validation-report/))*
 - **Async evaluation on wasm** — built → [`design/async-wasm-refactor/`](design/async-wasm-refactor/)
 - **Python wrapper** — built → [`design/python-wrapper/`](design/python-wrapper/)
 - **Executor-agnostic core** — planned → [`issues/CORE-TOKIO-REMOVAL.md`](issues/CORE-TOKIO-REMOVAL.md)
@@ -432,7 +432,6 @@ deliberately folded behind a broader line.
 - design `variadic-empty-element-conversion`
 - design `variadic-metadata-tail-check`
 - design `web-docs-stale-limitations`
-- design `web-environ-validation-report`
 - design `web-liquers-error-constructor`
 - design `web-object06-error-type-exhaustiveness`
 - design `web-outbound-int64-precision`
