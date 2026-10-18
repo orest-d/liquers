@@ -13,7 +13,7 @@ prerequisite issues.
 - [ ] Step 2: formatless read rule in `liquers-core`
 - [x] Step 3: `liquers-py` dependencies and runtime — 0d0a4c13
 - [x] Step 4: value bridge, with the old environment removed — 0d0a4c13
-- [ ] Step 5: error mapping
+- [x] Step 5: error mapping — e914dbf1
 - [ ] Step 6: environment
 - [ ] Step 7: commands and decorators
 - [ ] Step 8: context for nested evaluation
