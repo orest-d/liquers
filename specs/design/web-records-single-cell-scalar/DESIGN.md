@@ -3,8 +3,7 @@ id: WEB-RECORDS-SINGLE-CELL-SCALAR
 kind: design
 title: A single-cell record view reaches JavaScript as a scalar
 form: compact
-status: in_review
-phase: implementation
+status: complete
 readiness: ready
 autofix: eligible
 area: [web, records]
@@ -13,8 +12,8 @@ created: 2026-10-17
 ---
 # A single-cell record view reaches JavaScript as a scalar
 
-Bulk design (`specs/guides/autonomous_bulk_design.md`). Phases 1-4 are written but not approved, and
-nothing is implemented.
+Bulk design (`specs/guides/autonomous_bulk_design.md`), merged in #145; implemented, every Phase 4
+step done.
 
 ## Phase 1: High-Level Design
 
@@ -153,9 +152,9 @@ Run: `cargo test -p liquers-web --target wasm32-unknown-unknown --features debug
 
 ### Steps
 
-- [ ] 1. `liquers-web/tests/records_RECORDS.rs` — add the three `records10_*` tests; confirm AC-1 and AC-3 fail and AC-2 passes — the run command above
-- [ ] 2. `liquers-web/src/default_value.rs` `to_js_custom` — add `is_single_cell` and `single_cell_to_js`, call them before `materialize()` — the run command above, all `records10_*` and existing `records05`/`records06` pass. Rollback: revert the arm.
-- [ ] 3. Close `WEB-RECORDS-SINGLE-CELL-VIEW-CROSSES-AS-BATCH` with a resolution note; in `LANGUAGE-INTEGRATION_GUIDE.md` §RECORDS "What `liquers-web` does", state that a single-cell view crosses as its scalar and add `RECORDS10` to the tests run there (History row, `reviewed:` bump) — `python3 scripts/docs_index.py --check`
+- [x] 1. `liquers-web/tests/records_RECORDS.rs` — add the three `records10_*` tests; confirm AC-1 and AC-3 fail and AC-2 passes — the run command above
+- [x] 2. `liquers-web/src/default_value.rs` `to_js_custom` — add `is_single_cell` and `single_cell_to_js`, call them before `materialize()` — the run command above, all `records10_*` and existing `records05`/`records06` pass. Rollback: revert the arm.
+- [x] 3. Close `WEB-RECORDS-SINGLE-CELL-VIEW-CROSSES-AS-BATCH` with a resolution note; in `LANGUAGE-INTEGRATION_GUIDE.md` §RECORDS "What `liquers-web` does", state that a single-cell view crosses as its scalar and add `RECORDS10` to the tests run there (History row, `reviewed:` bump) — `python3 scripts/docs_index.py --check`
 
 ### Validation
 
