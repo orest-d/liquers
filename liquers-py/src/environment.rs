@@ -4,8 +4,8 @@
 //!
 //! A built `DefaultEnvironment` is frozen: its command registry cannot change once it is shared.
 //! Python, though, registers commands whenever a module is imported — before or after the first
-//! evaluation. So the handle keeps every declaration it receives (configuration, imported
-//! metadata and, from step 7, the Python command specs), builds the environment from them on first
+//! evaluation. So the handle keeps every declaration it receives (configuration, Python command
+//! specs, unregistrations and imported metadata), builds the environment from them on first
 //! use, and marks it for a rebuild when a declaration arrives late. This is liquers-web's
 //! `rebuild_with`, without the global.
 //!
@@ -21,7 +21,7 @@
 //! so a Python command called from a tokio worker can take it. The state lock is never held across
 //! an evaluation: it is taken to read or build the environment reference and released at once.
 
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
 use liquers_core::command_metadata::{CommandKey, CommandMetadata};
 use liquers_core::commands::CommandRegistry;
@@ -41,9 +41,10 @@ use liquers_core::type_system::TypeRegistry;
 use liquers_core::value::{DefaultValueSerializer, ValueInterface};
 use liquers_lib::environment::{default_environment_builder, DefaultEnvironment, LibKind};
 use pyo3::prelude::*;
-use pyo3::types::PyString;
+use pyo3::types::{PyDict, PyString};
 
-use crate::error::error_to_pyerr;
+use crate::command::{register_py_command, PyCommandSpec, Replaced};
+use crate::error::{error_to_pyerr, pyerr_to_error};
 use crate::runtime::runtime;
 use crate::value::{py_to_value, py_type_info, value_to_py, ConversionMode, Value};
 
@@ -68,7 +69,11 @@ struct Declarations {
     store: Option<Arc<dyn AsyncStore>>,
     /// Environments replaced by a rebuild, kept until `shutdown()`.
     retired: Vec<EnvRef<PyEnvironment>>,
-    /// Command metadata from `import_metadata`, applied after the built-ins.
+    /// Python commands, in registration order; at most one per key.
+    specs: Vec<PyCommandSpec>,
+    /// Keys `unregister` removed, applied after the built-ins so a built-in stays removed.
+    unregistered: Vec<CommandKey>,
+    /// Command metadata from `import_metadata`, applied last, so it can describe any command.
     imported: Vec<CommandMetadata>,
 }
 
@@ -93,6 +98,8 @@ impl EnvCell {
                 state: EnvState::Pending,
                 store: None,
                 retired: Vec::new(),
+                specs: Vec::new(),
+                unregistered: Vec::new(),
                 imported: Vec::new(),
             }),
             config,
@@ -154,6 +161,12 @@ impl EnvCell {
             .with_type_registry(types)
             .with_asset_manager_options(self.config.assets.clone());
         crate::builtins::register(&mut builder.command_registry)?;
+        for key in &declarations.unregistered {
+            builder.command_registry.unregister(key.clone());
+        }
+        for spec in &declarations.specs {
+            register_py_command(&mut builder.command_registry, spec)?;
+        }
         let issues = apply_imported(&mut builder.command_registry, &declarations.imported);
         Ok((builder, issues))
     }
@@ -187,6 +200,53 @@ impl EnvCell {
         Ok(issues)
     }
 
+    /// Retains a Python command and marks the environment for a rebuild. Reports what it replaced.
+    pub fn register(&self, spec: PyCommandSpec) -> Result<Replaced, Error> {
+        let replaced = {
+            let mut declarations = self.lock()?;
+            if matches!(declarations.state, EnvState::Shut) {
+                return Err(Error::general_error(
+                    "the environment has been shut down".to_string(),
+                ));
+            }
+            let replaced = if declarations.specs.iter().any(|s| s.key == spec.key) {
+                Replaced::Python
+            } else if !declarations.unregistered.contains(&spec.key)
+                && builtin_keys()?.contains(&spec.key)
+            {
+                Replaced::Builtin
+            } else {
+                Replaced::Nothing
+            };
+            declarations.specs.retain(|s| s.key != spec.key);
+            declarations.unregistered.retain(|k| k != &spec.key);
+            declarations.specs.push(spec);
+            replaced
+        };
+        self.invalidate()?;
+        Ok(replaced)
+    }
+
+    /// Removes a command, Python or built-in. `false` when there was nothing to remove.
+    pub fn unregister(&self, key: CommandKey) -> Result<bool, Error> {
+        let removed = {
+            let mut declarations = self.lock()?;
+            let before = declarations.specs.len();
+            declarations.specs.retain(|s| s.key != key);
+            let was_spec = declarations.specs.len() != before;
+            let was_builtin =
+                !declarations.unregistered.contains(&key) && builtin_keys()?.contains(&key);
+            if was_builtin {
+                declarations.unregistered.push(key);
+            }
+            was_spec || was_builtin
+        };
+        if removed {
+            self.invalidate()?;
+        }
+        Ok(removed)
+    }
+
     pub fn import_metadata(&self, commands: Vec<CommandMetadata>) -> Result<(), Error> {
         self.lock()?.imported.extend(commands);
         self.invalidate()
@@ -202,12 +262,31 @@ impl EnvCell {
             EnvState::Pending | EnvState::Shut => {}
         }
         declarations.store = None;
+        // Releases the Python callables now rather than when the handle is collected.
+        declarations.specs.clear();
         drop(declarations);
         for envref in envrefs {
             envref.get_asset_manager().shutdown();
         }
         Ok(())
     }
+}
+
+/// The keys of the built-in commands, computed once.
+fn builtin_keys() -> Result<&'static Vec<CommandKey>, Error> {
+    static KEYS: OnceLock<Result<Vec<CommandKey>, Error>> = OnceLock::new();
+    KEYS.get_or_init(|| {
+        let mut registry = CommandRegistry::<PyEnvironment>::new();
+        crate::builtins::register(&mut registry)?;
+        Ok(registry
+            .command_metadata_registry
+            .commands
+            .iter()
+            .map(|command| command.key())
+            .collect())
+    })
+    .as_ref()
+    .map_err(|e| e.clone())
 }
 
 /// Adds imported command metadata to a registry.
@@ -257,6 +336,33 @@ fn parse_config(py: Python<'_>, config: &Bound<'_, PyAny>) -> Result<Environment
             ))
         })?;
     EnvironmentConfig::from_json(&json)
+}
+
+fn bound_decorator(
+    env: &Bound<'_, Environment>,
+    source: bool,
+    callable: Option<&Bound<'_, PyAny>>,
+    options: Option<&Bound<'_, PyDict>>,
+) -> PyResult<Py<PyAny>> {
+    let py = env.py();
+    let decorate = py
+        .import("liquers._commands")?
+        .call_method1("_bound", (env, source))?;
+    let callable = match callable {
+        Some(callable) => callable.clone(),
+        None => py.None().into_bound(py),
+    };
+    Ok(decorate.call((callable,), options)?.unbind())
+}
+
+/// A JSON-compatible Python object (the decorator's documents) as JSON.
+fn py_to_json(py: Python<'_>, object: &Bound<'_, PyAny>) -> Result<serde_json::Value, Error> {
+    let text = py
+        .import("json")
+        .and_then(|json| json.call_method1("dumps", (object,)))
+        .and_then(|dumped| dumped.extract::<String>().map_err(PyErr::from))
+        .map_err(|e| pyerr_to_error(py, &e))?;
+    serde_json::from_str(&text).map_err(|e| Error::general_error(format!("invalid declaration: {e}")))
 }
 
 /// One validation finding.
@@ -350,7 +456,7 @@ impl Environment {
             let value = block_on(py, async move {
                 let asset = envref.evaluate(query).await?;
                 let state = asset.get().await?;
-                Ok(state.data_unchecked().clone())
+                state.value()
             })?;
             value_to_py(py, &value)
         })();
@@ -380,6 +486,91 @@ impl Environment {
             })
         })();
         result.map_err(|e| error_to_pyerr(py, &e))
+    }
+
+    /// The decorator bound to this environment: `@env.command`, or `@env.command(name=…)`.
+    #[pyo3(signature = (r#fn=None, **options))]
+    fn command(
+        slf: &Bound<'_, Self>,
+        r#fn: Option<&Bound<'_, PyAny>>,
+        options: Option<&Bound<'_, PyDict>>,
+    ) -> PyResult<Py<PyAny>> {
+        bound_decorator(slf, false, r#fn, options)
+    }
+
+    /// The source-command decorator bound to this environment: `@env.first_command`.
+    #[pyo3(signature = (r#fn=None, **options))]
+    fn first_command(
+        slf: &Bound<'_, Self>,
+        r#fn: Option<&Bound<'_, PyAny>>,
+        options: Option<&Bound<'_, PyDict>>,
+    ) -> PyResult<Py<PyAny>> {
+        bound_decorator(slf, true, r#fn, options)
+    }
+
+    /// Called by the decorators in `liquers._commands`; returns what the command replaced.
+    fn _register_command(
+        &self,
+        py: Python<'_>,
+        callable: Py<PyAny>,
+        baseline: &Bound<'_, PyAny>,
+        declaration: &Bound<'_, PyAny>,
+        context_index: Option<usize>,
+        implementation: Option<Vec<u8>>,
+    ) -> PyResult<&'static str> {
+        let result = (|| {
+            let baseline = py_to_json(py, baseline)?;
+            let declaration = py_to_json(py, declaration)?;
+            let spec = PyCommandSpec::new(
+                callable,
+                baseline,
+                &declaration,
+                context_index,
+                implementation.as_deref(),
+                self.cell.conversion,
+                self.cell.pickle,
+            )?;
+            self.cell.register(spec)
+        })();
+        result
+            .map(|replaced| replaced.as_str())
+            .map_err(|e| error_to_pyerr(py, &e))
+    }
+
+    /// Removes a command, Python or built-in. Returns whether there was one.
+    #[pyo3(signature = (name, namespace=""))]
+    fn unregister(&self, py: Python<'_>, name: &str, namespace: &str) -> PyResult<bool> {
+        self.cell
+            .unregister(CommandKey::new("", namespace, name))
+            .map_err(|e| error_to_pyerr(py, &e))
+    }
+
+    /// The metadata of a registered command, as the built environment holds it.
+    #[pyo3(signature = (name, namespace=""))]
+    fn command_metadata(
+        &self,
+        py: Python<'_>,
+        name: &str,
+        namespace: &str,
+    ) -> PyResult<crate::command_metadata::CommandMetadata> {
+        let result = (|| {
+            let envref = self.cell.envref()?;
+            let key = CommandKey::new("", namespace, name);
+            envref
+                .get_command_metadata_registry()
+                .get(key.clone())
+                .cloned()
+                .map(crate::command_metadata::CommandMetadata)
+                .ok_or_else(|| Error::general_error(format!("no command {key} is registered")))
+        })();
+        result.map_err(|e| error_to_pyerr(py, &e))
+    }
+
+    /// The number of Python callables held by every environment's registrations (test-only).
+    #[cfg(feature = "debug-handles")]
+    #[staticmethod]
+    fn live_handle_count() -> usize {
+        crate::command::live_handle_count()
     }
 
     /// Imports command metadata from YAML: a document with a `commands` list.

@@ -6,7 +6,9 @@ use pyo3::prelude::*;
 
 pub mod command_metadata;
 pub mod context;
+pub mod asset;
 pub mod builtins;
+pub mod command;
 pub mod dependencies;
 pub mod environment;
 pub mod error;
@@ -83,6 +85,8 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     m.add_class::<crate::environment::Environment>()?;
     m.add_class::<crate::environment::Issue>()?;
+    m.add_class::<crate::context::Context>()?;
+    m.add_class::<crate::asset::State>()?;
 
     Ok(())
 }

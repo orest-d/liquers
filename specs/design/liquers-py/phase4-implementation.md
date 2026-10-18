@@ -123,6 +123,15 @@ prerequisite issues.
   - Getters on `src/command_metadata.rs`: `label`, `doc` and `arguments` on `CommandMetadata`;
     `name` and `default` on `ArgumentInfo`.
   - `tests/conftest.py`: the fixture commands.
+- **Added while implementing (steps 7 and 8 landed as one commit):**
+  - `src/asset.rs` `State` is pulled forward from step 9, because `StateDelivery::State` needs it;
+  - the build order is built-ins, then unregistrations, then Python specs, then imported metadata,
+    so imported metadata can describe a Python command (step 6 had it before the specs);
+  - the implementation hash also covers `co_names`, so a call to a different function counts;
+  - the decorators also take `filename=`;
+  - `evaluate` extracts with `state.value()`, because `AssetRef::get` returns a failed asset as
+    an `Ok` error state. liquers-web has the same shape, filed as
+    `WEB-EVALUATE-RESOLVES-FAILED-ASSET-AS-NULL`.
 - **Depends on:** step 6.
 - **Proof:**
   - COMMAND01–06 and 08–14 (AC-1, AC-9, AC-10), plus `test_COMMAND_late_registration_keeps_store`;

@@ -46,3 +46,8 @@ async_store=[]
 # as they were, while `cargo test -p liquers-py --no-default-features` links against libpython and
 # can run. This is the recipe the PyO3 guide gives for exactly this problem.
 extension-module=["pyo3/extension-module"]
+
+# Test-only: exposes `Environment.live_handle_count()`, the number of Python callables the command
+# registrations hold, so `RUNTIME05` can assert their release deterministically rather than through
+# garbage-collector timing. `scripts/test-liquers-py.sh` builds with it; a wheel never does.
+debug-handles=[]

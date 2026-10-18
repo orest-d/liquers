@@ -235,6 +235,39 @@ impl ArgumentInfo {
         Ok(ArgumentInfo(a))
     }
 
+    #[getter]
+    fn name(&self) -> String {
+        self.0.name.clone()
+    }
+
+    #[getter]
+    fn label(&self) -> String {
+        self.0.label.clone()
+    }
+
+    /// The default as a Python value: `None` when there is none, a query's text for a link.
+    #[getter]
+    fn default(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        use liquers_core::command_metadata::CommandParameterValue;
+        match &self.0.default {
+            CommandParameterValue::None => Ok(py.None()),
+            CommandParameterValue::Query(query) => {
+                Ok(pyo3::types::PyString::new(py, &query.encode()).into_any().unbind())
+            }
+            CommandParameterValue::Value(value) => {
+                let text = serde_json::to_string(value)
+                    .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))?;
+                Ok(py.import("json")?.call_method1("loads", (text,))?.unbind())
+            }
+        }
+    }
+
+    /// Whether the argument takes every remaining query parameter (`*args`).
+    #[getter]
+    fn multiple(&self) -> bool {
+        self.0.multiple
+    }
+
     fn __repr__(&self) -> String {
         format!("{:?}", self.0)
     }
@@ -354,6 +387,54 @@ impl CommandMetadata {
         let a: liquers_core::command_metadata::CommandMetadata =
             serde_yaml::from_str(yaml).map_err(|e| PyErr::new::<PyException, _>(e.to_string()))?;
         Ok(CommandMetadata(a))
+    }
+
+    #[getter]
+    fn name(&self) -> String {
+        self.0.name.clone()
+    }
+
+    #[getter]
+    fn namespace(&self) -> String {
+        self.0.namespace.clone()
+    }
+
+    #[getter]
+    fn realm(&self) -> String {
+        self.0.realm.clone()
+    }
+
+    #[getter]
+    fn label(&self) -> String {
+        self.0.label.clone()
+    }
+
+    #[getter]
+    fn doc(&self) -> String {
+        self.0.doc.clone()
+    }
+
+    #[getter]
+    fn filename(&self) -> String {
+        self.0.filename.clone()
+    }
+
+    /// `"python"` for a command registered from Python.
+    #[getter]
+    fn module(&self) -> String {
+        self.0.module.clone()
+    }
+
+    /// Whether the command's output is kept for reuse.
+    #[getter]
+    fn cached(&self) -> bool {
+        self.0.cached()
+    }
+
+    /// The query arguments, in order: the state and `context` are not among them.
+    #[getter]
+    fn arguments(&self) -> Vec<ArgumentInfo> {
+        self.0.arguments.iter().cloned().map(ArgumentInfo).collect()
     }
 
     #[getter]
