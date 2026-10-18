@@ -9,7 +9,7 @@ area: [web, records]
 issues: [WEB-RECORDS-BRIDGE-ONE-WAY-AND-SOURCE-UNMAPPED]
 affects_docs: [specs/guides/LANGUAGE-INTEGRATION_GUIDE.md]
 created: 2026-10-17
-gh_pr: []
+gh_pr: [157]
 ---
 # Complete the liquers-web records bridge — sources, streaming and the way back
 
