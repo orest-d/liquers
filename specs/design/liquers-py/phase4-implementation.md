@@ -19,7 +19,7 @@ prerequisite issues.
 - [x] Step 8: context for nested evaluation — 2a987613
 - [x] Step 9: `State`, `AssetRef`, `Status` — 620770b5
 - [x] Step 10: `debug-handles` and the test script — 4fd469a8
-- [ ] Step 11: remaining Appendix A suites and the conformance matrix
+- [x] Step 11: remaining Appendix A suites and the conformance matrix — 429cb6a1
 - [ ] Step 12: final checks
 
 ## Implementation Steps
