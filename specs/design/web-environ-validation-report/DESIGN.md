@@ -4,6 +4,7 @@ kind: design
 title: A language-visible validation report for imported command metadata in liquers-web
 form: compact
 status: complete
+gh_pr: [156]
 readiness: ready
 autofix: not-eligible
 area: [web, core/commands]
