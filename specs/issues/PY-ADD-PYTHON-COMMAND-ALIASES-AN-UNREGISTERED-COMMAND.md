@@ -2,7 +2,7 @@
 id: PY-ADD-PYTHON-COMMAND-ALIASES-AN-UNREGISTERED-COMMAND
 kind: issue
 title: liquers-py's add_python_command registers an alias to a pycall command that does not exist
-status: draft
+status: closed
 priority: P2
 complexity: M
 area: [py]
@@ -41,3 +41,9 @@ Either of:
 Recorded as "Impact, point 2" of `PY-MODULES-NOT-DECLARED-IN-LIB`, which was closed on 2026-10-17
 by deleting the orphaned `commands.rs`. Closing it would otherwise have left this live defect
 untracked, so it is filed on its own.
+
+## Resolution
+
+`add_python_command` and the `pycall` alias are gone. A Python function is registered as an
+async command whose closure owns the callable, through `@lq.command` / `@lq.first_command`
+(`design/liquers-py/`, Phase 4 step 7, commit 2a987613; `test_COMMAND01`–`14`).

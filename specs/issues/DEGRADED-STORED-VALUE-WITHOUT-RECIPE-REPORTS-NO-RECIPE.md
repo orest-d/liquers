@@ -3,7 +3,7 @@ id: DEGRADED-STORED-VALUE-WITHOUT-RECIPE-REPORTS-NO-RECIPE
 kind: issue
 title: Evaluating a stored value this build cannot read fails with "No recipe found" instead of naming the type
 status: draft
-priority: P3
+priority: P2
 complexity: S
 area: [core/assets]
 created: 2026-10-18

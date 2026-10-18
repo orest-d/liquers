@@ -2,7 +2,7 @@
 id: PY-VALUE-ENUM-OVERSIZED
 kind: issue
 title: liquers-py's own Value enum is over 700 bytes because large variants are stored inline
-status: draft
+status: closed
 priority: P3
 complexity: M
 area: [py]
@@ -41,3 +41,9 @@ The large payloads sit behind `Arc`, as in the core design, with a `size_of` gua
 Found on 2026-10-12 while writing the `core-value-enum-oversized` bulk design, which scopes
 liquers-py out because the binding defines its own enum. Weak overlap with that design: same remedy,
 independent change site; do it after it so the bound and convention are settled.
+
+## Resolution
+
+The own `Value` enum no longer exists. `liquers-py` uses `liquers-lib`'s `Value`, whose large
+payloads are already behind `Arc`, and holds a Python object as `PyObjectValue` in
+`ExtValue::Foreign` (`design/liquers-py/`, Phase 4 step 4, commit 0d0a4c13).

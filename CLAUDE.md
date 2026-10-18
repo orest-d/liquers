@@ -69,6 +69,11 @@ Also:
   provider: `liquers-records/src/`. The glue that needs `liquers-lib`'s `Value` — `ExtValue::RecordView`
   / `RecordSource`, `to_record` / `to_record_source`, the `ns-rec` commands, the polars bridge:
   `liquers-lib/src/records/` (design: `specs/design/record-streams/`)
+- Python bindings: `liquers-py/src/` (environment handle, command adapter, value bridge, error
+  mapping) and the `liquers` package in `liquers-py/python/liquers/` (decorators, error classes).
+  A Python object is `py.Object` in `ExtValue::Foreign`; Python commands are closures, not
+  `pycall` aliases. Conformance matrix: `liquers-py/README.md`; guidance:
+  `specs/guides/LANGUAGE-INTEGRATION_GUIDE.md` §6 Python
 - Template language (parser, renderer, query templates, hosts): `liquers-template/src/`; the
   `ns-template` commands, `ContextHost` and the store folder node: `liquers-lib/src/template/`
   (reference: `specs/reference/TEMPLATE_LANGUAGE.md`)

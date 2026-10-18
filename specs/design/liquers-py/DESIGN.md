@@ -4,7 +4,7 @@ kind: design
 title: Python integration of Liquers (liquers-py)
 workflow: liquers-project
 status: in_review
-phase: implementation
+phase: documentation
 readiness: needs-decision
 autofix: not-eligible
 merged: 2026-10-17

@@ -3,7 +3,7 @@ title: Language Integration Guide
 kind: guide
 audience: internal
 area: [web, py, core/commands, core/plan, core/assets, core/store]
-reviewed: 2026-10-16
+reviewed: 2026-10-18
 ---
 # Liquers Language Integration Guide
 
@@ -22,7 +22,7 @@ Short-term priorities are:
 
 Longer-term candidates include Rhai, JavaScript/TypeScript on Node or Deno, RustPython, generic Wasm guests, C/C++, and GDScript.
 
-`liquers-py` is a useful but partial reference, not the conformance definition. In particular, it contains many basic wrappers and an experimental `pycall`, but also incomplete paths. See [PYTHON-WRAPPER-HIGH-LEVEL-DESIGN.md](../design/python-wrapper/phase1-high-level-design.md), [PYTHON-WRAPPER-ARCHITECTURE.md](../design/python-wrapper/phase2-architecture.md), and [FEATURES/PYTHON-BASIC-OBJECTS.md](../archive/PYTHON-BASIC-OBJECTS.md).
+`liquers-py` is a conforming *integration* of the Python baseline profile, designed in [`design/liquers-py/`](../design/liquers-py/DESIGN.md); its conformance matrix, with the features still `BLOCKED` on core defects, is in `liquers-py/README.md`. The guide stays the definition: where the two differ, the guide wins and the difference is an issue. Its predecessor's design, [`design/python-wrapper/`](../design/python-wrapper/phase1-high-level-design.md), is superseded.
 
 ### Supplying a recipe working directory
 
@@ -631,10 +631,12 @@ Four things worth getting right, each of which has cost somebody time:
    object-safe). One assertion — `js_value_type_info().type_identifier == instance.identifier()` —
    is the whole guarantee.
 
-**A Python-style integration needs none of this.** If your language handle is a variant of a value
-type *you* define — `liquers-py`'s `Value::Py` — its identifier is statically knowable and belongs
-in your `type_descriptions()`. The constructor route is only for a type implemented in a different
-crate from its value type.
+**Only an integration that defines its own value type skips this.** If your language handle is a
+variant of a value type *you* define, its identifier is statically knowable and belongs in your
+`type_descriptions()`. Both shipped integrations take the constructor route instead: `liquers-web`
+for `js.Value`, and `liquers-py`, which holds a Python object as `PyObjectValue` (`py.Object`) in
+`liquers-lib`'s `ExtValue::Foreign` and registers its `TypeInfo` when an environment is built
+(`liquers-py/src/value.rs` `py_type_info`).
 
 Reference: `specs/reference/VALUE_TYPE_SYSTEM.md`, "Registering a type an integration owns".
 Executable example: `liquers-lib/tests/foreign_value_registration.rs`, which does all of this
@@ -1495,7 +1497,46 @@ Treat sandboxing and determinism as product requirements. Prefer copied Liquers 
 
 ### Python
 
-Modernize `liquers-py` rather than treating its current behavior as normative. Prefer owned `Py<T>` handles across async/thread boundaries, short explicit interpreter-lock scopes, permissive `VALUE` conversion with an *opaque language value* fallback, and explicit typed exceptions. Pickle may be an opt-in codec, never an implicit trusted interchange format. Organize pytest suites using the IDs in this guide.
+`liquers-py` (`specs/design/liquers-py/`) is the worked example; the choices below are what it
+settled on, and the list after them is what cost time.
+
+- **Value.** Use `liquers-lib`'s `Value`; a Python object with no structural mapping becomes a
+  `PyObjectValue` (`py.Object`) in `ExtValue::Foreign`. Conversion is permissive by default
+  (`Environment(conversion="permissive")`), with `strict` refusing the opaque fallback. DataFrames
+  cross as Parquet bytes. Pickle is an opt-in codec (`Environment(pickle=True)`), never an implicit
+  interchange format: with it off, `py.Object` declares no data formats, so a write raises
+  `SerializationError` and a read of pickled bytes is degraded rather than decoded
+  (`reference/VALUE_TYPE_SYSTEM.md` §Reading).
+- **Environment.** A built environment's registry is frozen, but Python registers commands on
+  import, before or after the first evaluation. The handle keeps every declaration, builds lazily,
+  and rebuilds when one arrives late, handing the rebuild the first build's store so stored data
+  survives. The previous environment is retired, not dropped, so an evaluation in flight finishes.
+- **Commands.** Register a Python function as an ordinary async command whose closure owns the
+  callable, not as an alias of a generic `pycall`. The decorator reads `inspect.signature` as the
+  declaration baseline and Rust runs the shared declaration stages, so a Python command follows the
+  `register_command!` conventions (`state` / `text` / any other first parameter name, `context`,
+  `*args` as `multiple`). Version a command by its code object, and give a closure or a bound
+  method a fresh version: its captures are not in the code.
+- **The GIL.** Run a Python command under `spawn_blocking` and take the GIL there. Release the GIL
+  around every wait (`py.detach`), and wait in short slices, running `py.check_signals()` and
+  checking for shutdown between them: otherwise Ctrl-C cannot interrupt `evaluate`, and a wait
+  outstanding at shutdown never returns. Serialization runs on asset-manager workers, so a codec
+  that takes the GIL there goes under `tokio::task::block_in_place`.
+
+What cost time:
+
+- **`AssetRef::get` returns `Ok` for a failed asset**, holding an error state. Call `.value()` on
+  the state, or a failed command looks like one that returned `None`.
+- **PyO3 classes report `__module__ == "builtins"`** unless declared with `module = "…"`, so the
+  public classes do not appear to belong to the package (`OBJECT08`).
+- **Built environments are never freed** while `ENVIRONMENT-MANAGER-REFERENCE-CYCLE` stands, so a
+  test counting released callables can only pass for an environment that was never built. Count
+  handles behind a test-only feature (`debug-handles`) rather than relying on garbage collection.
+- **The `extension-module` feature cannot link a test binary.** Run the crate's Rust tests with
+  `--no-default-features`; `scripts/test-liquers-py.sh` runs both halves.
+- **Rust tests that load a Python module race.** Executing a module can release the GIL, so two
+  tests installing the same module replace each other's classes; load it once, under a
+  `PyOnceLock`.
 
 `MetadataRecord` and `AssetInfo` expose the backend's `created` (an RFC 3339 string) and `etag` as
 read-only properties. A configured store's handlers run in Rust, so they cost no interpreter lock.
@@ -3094,6 +3135,7 @@ def test_PACKAGE07_artifact_carries_declarations_license_and_metadata():
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-18 | §6 Python rewritten from the implemented `liquers-py`: value, environment, command and GIL choices, and what cost time. §5 VALUE: corrected the claim that `liquers-py` owns a value type; it takes the constructor route like `liquers-web`. §1: `liquers-py` is now a conforming integration, no longer a partial reference. | `design/liquers-py/` (phase-5) |
 | 2026-10-16 | §6 Browser JavaScript: `localstorage` and `http` now offer data-only access and can take a `metadata` section. | `design/store-adapters/` phase-5 review |
 | 2026-10-15 | Configured stores. §4: `read_only` and `metadata` belong to `STORE` direction 3, with no feature ID of their own. §STORE: direction 3 covers a mount's access policy and metadata handling; the inventory adds the data-only methods, `DataCapabilities`, `DataFacts`, `BackendTime`, `is_read_only`, `sync`, `created`/`etag` and `MetadataConfig`/`StoreConfigFunctions`; new design questions for configured stores; new subsection "Configured stores: access policy, metadata and write strategies" with the capability table and the `store_config` counterpart of "What the *language* cannot contribute"; tests `STORE14`–`STORE18` with a disposition column and Appendix A blueprints. §COMMAND asks about foreign realms; §ENVIRON states that chains compile against the environment's registry. §6: `JsStore`'s optional data methods and the built-in browser stores' refusal; Python's GIL cost for a per-entry handler. | phase-5, `design/store-adapters/` |
 | 2026-10-13 | §Design questions, question 4: NaN/infinity follows the JSON policy in `SERIALIZATION_GUIDE.md`. | phase-5, `design/value-to-json-non-finite-float/` |

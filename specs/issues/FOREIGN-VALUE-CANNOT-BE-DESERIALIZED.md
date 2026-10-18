@@ -2,7 +2,7 @@
 id: FOREIGN-VALUE-CANNOT-BE-DESERIALIZED
 kind: issue
 title: A foreign value written as bytes can never be read back
-status: draft
+status: closed
 priority: P2
 complexity: M
 area: [lib/value, core/value, py]
@@ -33,3 +33,13 @@ lists no format for the type never decodes it.
 
 `specs/design/liquers-py/` Phase 2: a `register_foreign_decoder` hook in `liquers-lib`, plus a
 degraded read for registered types that declare no data formats.
+
+## Resolution
+
+Fixed in two parts. `liquers-lib` gained a process-global foreign decoder table consulted by
+`ExtValue` deserialization (commit 9b2ba9fe, `ext_value_deserialization_consults_the_decoder`), and
+`liquers-core` reads a stored value whose registered type declares no data formats as degraded
+instead of decoding it (commit 1f17bde3, `formatless_registered_type_is_read_as_degraded`). Both
+are in `reference/VALUE_TYPE_SYSTEM.md` §Reading. Delivered by `design/liquers-py/`, Phase 4 steps
+1 and 2. The one remaining gap, the error message of a refused read, is
+`DEGRADED-STORED-VALUE-WITHOUT-RECIPE-REPORTS-NO-RECIPE`.
