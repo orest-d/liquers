@@ -100,9 +100,9 @@ fn read_declaration(
 /// Its own type because `CommandMetadataRegistry` requires `default_namespaces`, which an exported
 /// registry always has and a hand-written one, holding only `commands`, need not. Unknown fields
 /// (`default_namespaces` among them) are ignored, so an exported registry reads as it is.
+/// `commands` itself is required: a misspelled key must be an error, not an empty batch.
 #[derive(serde::Deserialize)]
 struct ImportedRegistry {
-    #[serde(default)]
     commands: Vec<CommandMetadata>,
     #[serde(default)]
     global_enums: std::collections::HashMap<String, serde_json::Value>,
@@ -131,7 +131,7 @@ fn read_registry(text: &str, impls: &JsValue, report: &mut IssueReport) -> Vec<A
     let mut named = HashSet::new();
     for metadata in registry.commands {
         named.insert(metadata.name.clone());
-        let implementation = property(impls, &metadata.name);
+        let implementation = snapshot_implementation(&property(impls, &metadata.name));
         if implementation.is_undefined() || implementation.is_null() {
             report.extend([Issue::command_registry(
                 IssueSeverity::Error,
@@ -196,8 +196,10 @@ fn property(object: &JsValue, name: &str) -> JsValue {
     js_sys::Reflect::get(object, &JsValue::from_str(name)).unwrap_or(JsValue::UNDEFINED)
 }
 
-/// Sets `run` from `impls[name]` on a declaration that has none. The snapshot is the batch's own
-/// copy, so writing to it does not touch the page's object.
+/// Sets `run` from `impls[name]` on a declaration that has none. The implementation is a function
+/// or `{ run, state?, async? }`; from the object form, `state` and `async` fill in what the
+/// declaration leaves unset. The snapshot is the batch's own copy, so writing to it does not touch
+/// the page's object.
 fn with_implementation(declaration: JsValue, impls: &JsValue) -> JsValue {
     if !declaration.is_object() || property(&declaration, "run").is_function() {
         return declaration;
@@ -206,10 +208,36 @@ fn with_implementation(declaration: JsValue, impls: &JsValue) -> JsValue {
         return declaration;
     };
     let implementation = property(impls, &name);
+    let set = |field: &str, value: &JsValue| {
+        let _ = js_sys::Reflect::set(&declaration, &JsValue::from_str(field), value);
+    };
     if implementation.is_function() {
-        let _ = js_sys::Reflect::set(&declaration, &JsValue::from_str("run"), &implementation);
+        set("run", &implementation);
+    } else if implementation.is_object() {
+        let run = property(&implementation, "run");
+        if run.is_function() {
+            set("run", &run);
+            for field in ["state", "async"] {
+                let value = property(&implementation, field);
+                if !value.is_undefined() && property(&declaration, field).is_undefined() {
+                    set(field, &value);
+                }
+            }
+        }
     }
     declaration
+}
+
+/// Copies an object-form implementation, `{ run, state?, async? }`, for the reason
+/// `snapshot_declaration` copies a declaration: a rebuild replays what was retained, and the page
+/// may since have changed its object. A function is returned as it is; it *is* the command.
+fn snapshot_implementation(implementation: &JsValue) -> JsValue {
+    if implementation.is_function() || !implementation.is_object() {
+        return implementation.clone();
+    }
+    let copy = js_sys::Object::new();
+    let _ = js_sys::Object::assign(&copy, &js_sys::Object::from(implementation.clone()));
+    copy.into()
 }
 
 /// Copies a declaration so that later mutation by the caller cannot change what a rebuild replays.

@@ -697,3 +697,77 @@ async fn environ08_registry_form_commands_survive_a_rebuild() {
     assert!(!has_command("imported"));
     reset_global();
 }
+
+/// ENVIRON08 — `{ run, state?, async? }` binds a declaration as it binds imported metadata.
+#[wasm_bindgen_test]
+async fn environ08_object_form_implementation_binds_a_declaration() {
+    reset_global();
+    init_global().expect("init");
+    let declaration = js_sys::Object::new();
+    js_sys::Reflect::set(&declaration, &"name".into(), &"wrapped".into()).expect("set");
+    let wrapper = js_sys::Object::new();
+    js_sys::Reflect::set(
+        &wrapper,
+        &"run".into(),
+        &js_sys::Function::new_no_args("return 'wrapped';"),
+    )
+    .expect("set");
+    js_sys::Reflect::set(&wrapper, &"async".into(), &JsValue::FALSE).expect("set");
+    let impls = js_sys::Object::new();
+    js_sys::Reflect::set(&impls, &"wrapped".into(), &wrapper).expect("set");
+
+    let report = register(&declaration.into(), &impls.into()).expect("the declaration binds");
+    assert_eq!(get(&report, "hasErrors").as_bool(), Some(false));
+    assert_eq!(
+        evaluate("wrapped").await.as_string().as_deref(),
+        Some("wrapped")
+    );
+    reset_global();
+}
+
+/// ENVIRON08 — an object-form implementation is copied, so changing it later does not change
+/// what a rebuild replays.
+#[wasm_bindgen_test]
+async fn environ08_object_form_implementation_is_snapshotted() {
+    reset_global();
+    init_global().expect("init");
+    let wrapper = js_sys::Object::new();
+    js_sys::Reflect::set(
+        &wrapper,
+        &"run".into(),
+        &js_sys::Function::new_no_args("return 'original';"),
+    )
+    .expect("set");
+    let impls = js_sys::Object::new();
+    js_sys::Reflect::set(&impls, &"snap".into(), &wrapper).expect("set");
+    register(
+        &JsValue::from_str("commands:\n  - name: snap\n"),
+        &impls.into(),
+    )
+    .expect("the registry imports");
+    assert_eq!(
+        evaluate("snap").await.as_string().as_deref(),
+        Some("original")
+    );
+
+    js_sys::Reflect::set(&wrapper, &"run".into(), &JsValue::from(42)).expect("mutate");
+    register_command_on(&decl("later", "return 'later';")).expect("a rebuild still succeeds");
+    assert_eq!(
+        evaluate("snap").await.as_string().as_deref(),
+        Some("original")
+    );
+    reset_global();
+}
+
+/// ENVIRON08 — a registry without `commands` is an error, not an empty batch.
+#[wasm_bindgen_test]
+fn environ08_registry_without_commands_is_refused() {
+    reset_global();
+    let report = validate(
+        &JsValue::from_str("commandz:\n  - name: c1\n"),
+        &implementations(&[("c1", "return 1;")]),
+    );
+    assert_eq!(get(&report, "hasErrors").as_bool(), Some(true));
+    let summary = get(&report, "summary").as_string().unwrap_or_default();
+    assert!(summary.contains("commands"), "{summary}");
+}
