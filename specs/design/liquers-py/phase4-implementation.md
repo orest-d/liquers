@@ -89,6 +89,9 @@ prerequisite issues.
   - `src/builtins.rs`: the six domain macros, with `type CommandEnvironment = DefaultEnvironment<Value>`
     and the `Context` import;
   - `python/liquers/_env.py` `default_environment`.
+  - Added while implementing: an `Issue` pyclass (`severity`, `message`, `key`) for `validate()`,
+    and `liquers-store` as a direct dependency (already in the graph through `liquers-lib`) for
+    its store factory chain, so a configured store can name the OpenDAL types too.
 - **Build sequence:**
   1. `liquers_lib::environment::default_environment_builder::<Value, ()>()`. Kind `LibKind`
      matches the macros' alias and keeps the default recipe chain.

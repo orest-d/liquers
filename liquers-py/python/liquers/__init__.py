@@ -58,7 +58,11 @@ from liquers._native import (
     # Recipes
     Recipe,
     RecipeList,
+    # Environments
+    Environment,
+    Issue,
 )
+from liquers._env import default_environment, evaluate
 from liquers._errors import LiquersError, _install as _install_errors
 
 # One LiquersError subclass per ErrorType variant (KeyNotFoundError, ExecutionError, ...).
@@ -109,6 +113,10 @@ __all__ = [
     "build_plan",
     "Recipe",
     "RecipeList",
+    "Environment",
+    "Issue",
+    "default_environment",
+    "evaluate",
     "LiquersError",
     *sorted(_ERROR_SUBCLASSES),
 ]

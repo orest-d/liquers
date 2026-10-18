@@ -6,7 +6,9 @@ use pyo3::prelude::*;
 
 pub mod command_metadata;
 pub mod context;
+pub mod builtins;
 pub mod dependencies;
+pub mod environment;
 pub mod error;
 pub mod expiration;
 pub mod metadata;
@@ -78,6 +80,9 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     m.add_class::<crate::recipes::Recipe>()?;
     m.add_class::<crate::recipes::RecipeList>()?;
+
+    m.add_class::<crate::environment::Environment>()?;
+    m.add_class::<crate::environment::Issue>()?;
 
     Ok(())
 }
