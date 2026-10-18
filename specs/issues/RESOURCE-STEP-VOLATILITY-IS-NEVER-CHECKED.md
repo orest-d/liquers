@@ -2,7 +2,7 @@
 id: RESOURCE-STEP-VOLATILITY-IS-NEVER-CHECKED
 kind: issue
 title: Resource plan steps always report non-volatile, behind a TODO that prints at runtime
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [core/plan]
@@ -50,3 +50,15 @@ reference. The `eprintln!` lines go in both cases.
 
 Found 2026-10-12 while inventorying `eprintln!` sites for `specs/design/core-tracing-migration/`.
 That design maps the two lines to `tracing::trace!` and leaves the behaviour to this issue.
+
+## Resolution
+
+2026-10-17, by `design/step-volatility-impl-removal/`. The step-level impl was unreachable, so it
+was removed rather than taught to read resource metadata: `liquers-core/src/interpreter.rs` no
+longer has `impl IsVolatile for Step`, `for ResolvedParameterValues` or `for ParameterValue`, and
+the two `ADD SUPPORT FOR RESOURCE VOLATILITY CHECK!` prints went with them. `Query`, `Recipe` and
+`Plan` still answer from `Plan::is_volatile`, now documented as the only authority.
+`specs/reference/api/DOC_08_RECIPES_PLANS.md` (Planning contract) records that resource steps never
+make a plan volatile. The removed unit test `step_is_volatile_when_alias_is_volatile` is replaced
+at plan level by `plan::tests::volatile_alias_of_stable_target_makes_plan_volatile`;
+`plan::tests::alias_planning_inherits_target_volatility` still passes.

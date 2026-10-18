@@ -185,6 +185,12 @@ inside each consumer. A non-keyed query ending with it is not kept either.
 - It does not override a recipe: a recipe ending with the command still keeps its own keyed result
   under its caching strategy.
 
+**Volatility of what a command reads.** A command that evaluates queries through its `Context`
+(`get_dependency_state`, `submit`, `evaluate`, `apply`, `apply_ad_hoc`) does not declare
+`volatile` for its inputs' sake: when any of them is volatile, its result is volatile
+automatically. Declare `volatile` only when the command itself is nondeterministic, or call
+`context.set_volatile("reason")` when it decides so while running (`design/runtime-volatility`).
+
 Registration: [`COMMAND_REGISTRATION_GUIDE.md`](COMMAND_REGISTRATION_GUIDE.md) §*Commands whose
 output is not worth keeping*.
 
@@ -192,6 +198,7 @@ output is not worth keeping*.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-17 | Added: a command does not declare `volatile` for the volatility of the queries it reads; `Context::set_volatile`. | `design/runtime-volatility` |
 | 2026-10-17 | §Aliases: a template command (an alias of `template/render`) for text assembled from queries. | `design/liquers-mustache/` |
 | 2026-10-10 | New §Outputs not worth keeping: when to declare `cached: false` and when not; aliases inherit the target's flag. | phase-5, `design/plan-policy/` |
 | 2026-10-10 | New §Aliases: what an alias is, when to use one (convenience wrapper, bridge), when not to, and the design consequences. Introduction no longer limited to cancellation. | phase-5, `design/command-alias-contract/` |
