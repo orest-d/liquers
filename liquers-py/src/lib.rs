@@ -14,6 +14,7 @@ pub mod parse;
 pub mod plan;
 pub mod query;
 pub mod recipes;
+pub mod runtime;
 pub mod value;
 
 use crate::query::*;
@@ -21,6 +22,12 @@ use crate::query::*;
 /// The native extension, `liquers._native`; the `liquers` package (`python/liquers/`) re-exports it.
 #[pymodule]
 fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    // Stored `py.Object` values are read back through this decoder; an environment with the
+    // pickle codec off lists no formats for the type, so the read path never reaches it there.
+    liquers_lib::value::foreign::register_foreign_decoder(
+        crate::value::PY_OBJECT_TYPE_IDENTIFIER,
+        crate::value::decode_pickle,
+    );
     m.add_class::<Position>()?;
     m.add_class::<ActionParameter>()?;
     m.add_class::<ResourceName>()?;

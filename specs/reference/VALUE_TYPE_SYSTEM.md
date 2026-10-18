@@ -159,9 +159,9 @@ type-checked with `Self: ?Sized` and cannot call an associated function. **A sha
 unit test asserting the two agree** is the guarantee instead, which is proportionate: there are a
 few tens of types in the whole system and each is fixed once its variant is implemented.
 
-Only a type implemented in a *different crate from its value type* needs this. `liquers-py` holds
-Python objects in `Value::Py`, a variant of a value type it owns, so `py.Object` goes in its static
-`type_descriptions()` and no constructor is involved.
+Only a type implemented in a *different crate from its value type* needs this. Both language
+integrations do: `liquers-web` registers `js.Value`, and `liquers-py` registers `py.Object` (the
+`PyObjectValue` it keeps in `ExtValue::Foreign`, described by `py_type_info`).
 
 See `specs/guides/LANGUAGE-INTEGRATION_GUIDE.md` §VALUE for the procedure.
 
@@ -413,7 +413,7 @@ degrades on read.
 
 | Date | Change |
 |---|---|
-| 2026-10-18 | §Reading a foreign value back: the process-global foreign decoder table, and foreign identifiers routed to the extension. | `design/liquers-py/` |
+| 2026-10-18 | §Reading a foreign value back: the process-global foreign decoder table, and foreign identifiers routed to the extension. `liquers-py` now registers `py.Object` at construction instead of owning a value type. | `design/liquers-py/` |
 | 2026-10-17 | §Reading a value by name: `DataNode` and `ValueInterface::data_node`. | `design/liquers-mustache/` |
 | 2026-10-13 | §Reading: `F64` in `json`. Non-finite floats are written as tokens and read back by identifier, nested core floats become `null`, and `try_into_json_value` refuses (`design/value-to-json-non-finite-float/`, closing `VALUE-TO-JSON-PANICS-ON-NON-FINITE-FLOAT`). |
 | 2026-10-10 | §Seeding: a query with no filename seeds no format — the recipe no longer declares `bin` (`design/plan-step-state-metadata/`, closing `FREE-FUNCTION-EVALUATE-BAKES-A-BIN-DATA-FORMAT`). |
