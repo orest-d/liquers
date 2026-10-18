@@ -3,7 +3,7 @@ title: Payload Specification and Usage
 kind: reference
 audience: internal
 area: [core/context, core/commands]
-reviewed: 2026-10-13
+reviewed: 2026-10-17
 ---
 # Payload Usage Guide
 
@@ -91,13 +91,13 @@ never shared, and never registered as a dependency of another asset — a payloa
 of the dependency key, so nothing may hold a reference to such an asset. It may still *have*
 dependencies of its own.
 
-That holds **by construction, not by volatility**: the asset is built ad hoc, is not a keyed
-asset, and is inserted into no map, so there is nothing to reuse it from. It is not marked
-volatile — a payload-requiring evaluation finishes `Ready` with `is_volatile` false, and
-`PlanBuilder::mark_payload_required` does not touch `is_volatile`. (This document said
-"requiring a payload implies `volatile`" until 2026-09-04; the consequences it listed were
-right, the mechanism was not. `payload_requirement_does_not_imply_volatility` in
-`liquers-core/tests/payload_inheritance.rs` pins it.)
+That holds **by construction**: the asset is built ad hoc, is not a keyed asset, and is inserted
+into no map, so there is nothing to reuse it from. It is also volatile: `register_command!` declares
+a `payload: required` command `volatile`, and since `design/runtime-volatility` an ad-hoc asset
+records its plan's volatility, so a payload-requiring evaluation finishes `Volatile`
+(`payload_requirement_is_recorded_with_volatility` in `liquers-core/tests/payload_inheritance.rs`).
+`PlanBuilder::mark_payload_required` itself does not touch `is_volatile`; the two facts are
+recorded separately.
 
 **Keys are a payload boundary.** A key names one shared, global asset while a payload is
 supplied per evaluation, so a keyed recipe may not require one: such a recipe is rejected
@@ -1207,6 +1207,7 @@ When creating a newtype for injection:
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-17 | A payload-requiring evaluation now finishes `Volatile`: an ad-hoc asset records its plan's volatility. | `design/runtime-volatility` |
 | 2026-10-13 | Stated where an invalid keyed recipe is rejected: in `recipe_opt`, before an asset exists, on every asset manager (the native manager previously deferred it to evaluation), and that overriding or removing such a key is not refused. | `design/default-asset-manager-recipe-opt-payload-check` |
 | 2026-09-04 | Corrected the claim that requiring a payload implies `volatile`. The consequences (never cached, shared, or held as a dependency) are right; the mechanism is construction — ad hoc, non-keyed, in no map — and a payload-requiring evaluation finishes `Ready` with `is_volatile` false. Verified against the planner and pinned by a test. | asset API doc review |
 | 2026-08-31 | Recorded that the payload environments are now type aliases of `GenericEnvironment<V, P, K>` rather than distinct structs, and pointed at the builder for construction. Payload semantics themselves are unchanged and were not otherwise re-reviewed. | `design/environment-builder/phase-5` |

@@ -3,7 +3,7 @@ title: Asset Evaluation — Flows and Public Surface
 kind: reference
 audience: internal
 area: [core/assets]
-reviewed: 2026-10-12
+reviewed: 2026-10-17
 ---
 # Asset Evaluation — Flows and Public Surface
 
@@ -84,12 +84,12 @@ load-bearing and must not be reordered.
 
 | # | Step | Why it is here |
 |---|---|---|
-| 1 | Resolve volatility | later steps branch on it; it must be settled before any of them |
+| 1 | Resolve volatility | the plan-time estimate, which registration and the context branch on. The run can still make the asset volatile (`Context::set_volatile`: the command's decision, a volatile dependency, or an ad-hoc asset's volatile plan); that is recorded on the asset before step 6 |
 | 2 | Resolve the recipe | a key recipe either **hands off** to the key's registered owner, or is resolved through the recipe provider and adopted, so the asset evaluates its real recipe rather than a placeholder |
 | 3 | Apply the recipe, with any payload installed on the context | `Environment::apply_recipe` → `interpreter::apply_plan`, which holds the authoritative payload gate |
 | 4 | Record observed dependencies into metadata | **unconditional, for every entry point** — this is the asymmetry `CORE-EVALUATE-PATH-CONSOLIDATION` named |
 | 5 | Install the value, its type identifier and type name | merged into the live metadata, never installed as a snapshot: the service loop is writing progress and log entries to the same record concurrently |
-| 6 | Finalize status | the single status authority. It decides between four outcomes — `Volatile`, `Expired` (the evaluation consumed a stale dependency), `Ready`, `Error` — and must run **before** the notification and **before** persistence, so nothing observes or stores a non-final status. The manager is the authority on status; this ordering is what lets the store follow it |
+| 6 | Finalize status | the single status authority, reading the volatility recorded on the asset up to this point. It decides between four outcomes — `Volatile`, `Expired` (the evaluation consumed a stale dependency), `Ready`, `Error` — and must run **before** the notification and **before** persistence, so nothing observes or stores a non-final status. The manager is the authority on status; this ordering is what lets the store follow it |
 | 7 | Send `ValueProduced` | after step 6, so a client that polls on the notification sees a terminal status |
 | 8 | Persist | only if this is a **keyed** asset, this evaluation did not hand off, and its metadata does not say `stored: false` |
 | 9 | Register in the dependency graph | self-limiting on status and ownership, so ad-hoc assets register nothing and a volatile asset is not a node at all. An asset that consumed a stale dependency has its version registered **directly**, because `DependencyManager::track_asset` refuses an `Expired` asset and that refusal would leave the graph asserting the key still holds its previous content. Only the key's registered owner registers — or, for a `cached: false` key with no registered owner, the unregistered asset built for it (`bound_owner_key`) — so a delegating asset registers nothing |
@@ -339,6 +339,7 @@ arrives mid-evaluation and must join the first rather than be turned away.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-17 | Steps 1 and 6: volatility can be recorded during the run and is read at finalization. | `design/runtime-volatility` |
 | 2026-10-12 | §1–2 `AssetManager::apply_queued`; §4 the terms managed / unmanaged asset (four causes, how to tell) and argument override, and the keyed-recipe edge case. | phase-5, `design/axum-query-named-arguments/` |
 | 2026-10-09 | §Persistence outcomes: the cancelled, cancelled-after-completion, replaced-while-running and failed rows. | phase-5 (`design/asset-cancellation-outcome/`) |
 | 2026-10-08 | §Reusing a stored asset: a metadata-only entry is recomputed from its recipe without a corruption report, and answers like an absent key when there is none. | phase-5 (`design/metadata-only-entry-reload/`) |
