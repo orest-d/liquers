@@ -322,7 +322,8 @@ export interface LiquersRecordColumn {
  * `"query"`, a resource query over the stored chunk when it is `"key"`.
  */
 export interface LiquersRecordChunk {
-  kind: "query" | "key";
+  /** `"memory"`: a view held in memory, whose `query` is a label rather than evaluable. */
+  kind: "query" | "key" | "memory";
   query: string;
 }
 "#;

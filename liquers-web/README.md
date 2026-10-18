@@ -234,6 +234,7 @@ chunk identity and origin intact. The `ns-rec` commands are registered in the we
 const source = await env.evaluate('people/ns-rec/to_record_source');
 for (const chunk of source.chunks()) {
   console.log(chunk.kind, chunk.query);        // data only; nothing is evaluated yet
+  // kind "query" or "key": `query` evaluates to the chunk; kind "memory": a label only
 }
 for await (const batch of await source.stream()) {
   console.log(batch.numRows);                  // one chunk at a time
@@ -277,6 +278,7 @@ kept as `fixme` in `tests/e2e/store.spec.ts` so that removing the marker proves 
 | Registering a command after the first evaluation rebuilds the environment, discarding its asset cache. Register before evaluating to avoid it | `POST-INIT-COMMAND-REGISTRATION` |
 | A thrown exception's class and stack reach the caller inside `message`, not as `jsClass`/`jsStack` — `liquers_core::Error` has no field to carry them through the asset lifecycle | `LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT` |
 | `registerCommand` is refused on an explicit `Environment` instance — the handle holds a shared environment with no mutable path. Register on the singleton | `POST-INIT-COMMAND-REGISTRATION` |
+| A `RecordSource` from an explicit `Environment` instance streams and materializes through the singleton, which must be initialized | `WEB-RECORD-SOURCE-RESOLVES-THROUGH-SINGLETON` |
 
 All are in [`specs/issues/`](../specs/issues/), each with the condition that reverses it.
 

@@ -41,7 +41,7 @@ use std::sync::Arc;
 use liquers_core::error::{Error, ErrorType};
 use liquers_lib::records::{
     AlignedBuffer, Bitmap, BoxRecordStream, Buffer, ChunkId, ChunkList, Column, EnvResolver,
-    RecordBatch, RecordSource, RecordView,
+    InMemorySource, RecordBatch, RecordSource, RecordView,
 };
 use wasm_bindgen::prelude::*;
 
@@ -263,7 +263,8 @@ pub struct LiquersRecordSource {
 impl LiquersRecordSource {
     /// Every known chunk as `{ kind, query }`, without evaluating any: `kind` is `"query"` for an
     /// unkeyed chunk and `"key"` for a stored one, and `query` evaluates to the chunk either way.
-    /// For an unbounded source, only the chunks computed so far.
+    /// A view held in memory has no query that produces it: its `kind` is `"memory"` and its
+    /// `query` is only a label. For an unbounded source, only the chunks computed so far.
     #[wasm_bindgen(unchecked_return_type = "LiquersRecordChunk[]")]
     pub fn chunks(&self) -> Result<JsValue, JsValue> {
         let ids = match self.inner.chunks() {
@@ -273,6 +274,9 @@ impl LiquersRecordSource {
         let list = js_sys::Array::new();
         for id in ids {
             let (kind, query) = match id {
+                ChunkId::Query(query) if InMemorySource::is_placeholder_chunk_id(id) => {
+                    ("memory", query.encode())
+                }
                 ChunkId::Query(query) => ("query", query.encode()),
                 ChunkId::Key(key) => ("key", liquers_core::query::Query::from(key.clone()).encode()),
             };

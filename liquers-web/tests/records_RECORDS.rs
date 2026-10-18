@@ -574,3 +574,35 @@ fn records06_releasing_a_source_handle_releases_the_source() {
     assert!(!liquers_web::records::handle_is_live(id), "the registry forgets a freed handle");
     assert!(weak.upgrade().is_none(), "free() must drop the last Arc of the source");
 }
+
+/// Data carrying the marker is data, not a handle: an own property cannot name a live record.
+#[wasm_bindgen_test]
+fn records_an_object_copying_the_marker_is_not_a_handle() {
+    let batch = to_js(float_batch(&[1.0, 2.0]));
+    let id = Reflect::get(&batch, &"__liquersRecordHandle".into()).expect("a live id");
+    let forged = js_sys::Object::new();
+    Reflect::set(&forged, &"__liquersRecordHandle".into(), &id).expect("set");
+    match rust_value(&forged.into()).expect("plain data converts") {
+        Value::Extended(ExtValue::RecordView { .. }) | Value::Extended(ExtValue::RecordSource { .. }) => {
+            panic!("an object with a copied marker must not become a record value")
+        }
+        Value::Base(_) | Value::Extended(_) => {}
+    }
+    assert!(
+        matches!(rust_value(&batch), Ok(Value::Extended(ExtValue::RecordView { .. }))),
+        "the real handle still crosses back"
+    );
+    free(&batch);
+}
+
+/// Views held in memory list as `memory` chunks, which name no query to evaluate.
+#[wasm_bindgen_test]
+fn records_in_memory_chunks_are_not_offered_as_queries() {
+    let js = source_to_js(three_views());
+    let kinds: Vec<Option<String>> = js_sys::Array::from(&call(&js, "chunks", &[]))
+        .iter()
+        .map(|chunk| Reflect::get(&chunk, &"kind".into()).expect("kind").as_string())
+        .collect();
+    assert_eq!(kinds, vec![Some("memory".to_string()); 3]);
+    free(&js);
+}

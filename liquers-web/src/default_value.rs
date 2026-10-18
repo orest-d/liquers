@@ -119,7 +119,7 @@ impl JsExtensionBridge for ExtValue {
 fn record_handle_value(js: &JsValue) -> Result<Option<ExtValue>, Error> {
     use crate::records::RecordHandle;
     let marker = JsValue::from_str("__liquersRecordHandle");
-    if !js.is_object() || !js_sys::Reflect::has(js, &marker).unwrap_or(false) {
+    if !is_record_handle(js, &marker) {
         return Ok(None);
     }
     let freed = || {
@@ -139,6 +139,31 @@ fn record_handle_value(js: &JsValue) -> Result<Option<ExtValue>, Error> {
         Some(RecordHandle::Source(value)) => Ok(Some(ExtValue::RecordSource { value })),
         None => Err(freed()),
     }
+}
+
+/// Whether `js` is an instance of a record handle class, recognised by where the marker lives: a
+/// getter on the object's prototype, as wasm-bindgen generates it. Data cannot pass — JSON, a
+/// spread copy or a structured clone carries the marker, if at all, as an own data property —
+/// so an object from outside the page is never taken for a handle.
+#[cfg(feature = "records")]
+fn is_record_handle(js: &JsValue, marker: &JsValue) -> bool {
+    use wasm_bindgen::JsCast;
+    if !js.is_object() {
+        return false;
+    }
+    let object: &js_sys::Object = js.unchecked_ref();
+    if object.has_own_property(marker) {
+        return false;
+    }
+    let prototype = js_sys::Object::get_prototype_of(js);
+    if prototype.is_null() || prototype.is_undefined() {
+        return false;
+    }
+    let descriptor = js_sys::Object::get_own_property_descriptor(&prototype, marker);
+    descriptor.is_object()
+        && js_sys::Reflect::get(&descriptor, &JsValue::from_str("get"))
+            .map(|getter| getter.is_function())
+            .unwrap_or(false)
 }
 
 /// Whether a view reads as one cell — the same shape `liquers-lib`'s private

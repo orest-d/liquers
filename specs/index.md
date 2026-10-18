@@ -8,9 +8,9 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 126
+Total rows: 127
 - P2: 52
-- P3: 74
+- P3: 75
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -123,6 +123,7 @@ Total rows: 126
 | [`UNMANAGED-ASSET-NOT-FOLLOWABLE-ACROSS-CONNECTIONS`](issues/UNMANAGED-ASSET-NOT-FOLLOWABLE-ACROSS-CONNECTIONS.md) | feature | An unmanaged asset can be followed only by the connection that requested it | draft |  |  | P3 | M | axum;core/context |  | 2026-10-12 |
 | [`VALIDATE-CANNOT-SEE-NON-STANDARD-RECIPE-PROVIDERS`](issues/VALIDATE-CANNOT-SEE-NON-STANDARD-RECIPE-PROVIDERS.md) | feature | liquers-validate cannot validate recipes served by a non-standard or generative recipe provider | draft |  |  | P3 | M | core/commands;core/plan |  | 2026-09-25 |
 | [`WEB-CANCELLATION-INERT`](issues/WEB-CANCELLATION-INERT.md) | issue | Web cancellation surface exists but does nothing | accepted |  |  | P3 | M | web |  | 2026-08-08 |
+| [`WEB-RECORD-SOURCE-RESOLVES-THROUGH-SINGLETON`](issues/WEB-RECORD-SOURCE-RESOLVES-THROUGH-SINGLETON.md) | issue | A RecordSource from an explicit Environment streams through the singleton | draft |  |  | P3 | M | web;records |  | 2026-10-18 |
 | [`WEB-STORE-CONFIG-NOT-APPLIED-THROUGH-ENVIRONMENT-CONFIG`](issues/WEB-STORE-CONFIG-NOT-APPLIED-THROUGH-ENVIRONMENT-CONFIG.md) | issue | liquers-web hand-rolls the environment configuration that EnvironmentConfig will own | draft |  |  | P3 | M | web;core/store;core/context |  | 2026-08-31 |
 | [`WORKSPACE-NOT-RUSTFMT-CLEAN`](issues/WORKSPACE-NOT-RUSTFMT-CLEAN.md) | issue | The workspace is not rustfmt-clean, so formatting drift hides in every diff | draft |  |  | P3 | M | build;docs |  | 2026-08-29 |
 | [`ASSET-MANAGER-CANNOT-BE-SYNCHRONIZED-WITH-THE-STORE`](issues/ASSET-MANAGER-CANNOT-BE-SYNCHRONIZED-WITH-THE-STORE.md) | feature | The asset and dependency managers cannot be explicitly synchronized with the store | draft |  |  | P3 | L | core/assets |  | 2026-10-08 |
