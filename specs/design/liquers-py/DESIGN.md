@@ -16,6 +16,9 @@ Modernizes `liquers-py` into a conformant integration for the Python baseline pr
 `ASYNCQ` and `ASYNCCMD` (Phase 1). Supersedes [`python-wrapper`](../python-wrapper/DESIGN.md).
 Plan of record: [`archive/2026-10-17-liquers-py-implementation-plan.md`](../../archive/2026-10-17-liquers-py-implementation-plan.md).
 
+Pre-approved after Phase 2 on 2026-10-18 (owner: run all phases without gates, with full
+reviews). The decision log is Phase 1's `## Design Readiness`.
+
 ## Phases
 
 - [Phase 1](./phase1-high-level-design.md)
