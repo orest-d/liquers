@@ -151,20 +151,18 @@ async fn apply_ad_hoc_rejects_relative_query() -> TestResult {
     Ok(())
 }
 
-/// Volatility is fixed before evaluation (`design/volatility-system`, decision 4): neither
-/// `get_dependency_state` nor `apply_ad_hoc` makes a non-volatile parent volatile. The parent
-/// that wants a volatile result puts `v` ahead of its own action.
+/// Volatility is inherited from what a command reads at run time
+/// (`specs/design/runtime-volatility/`, AC-5): both `get_dependency_state` and `apply_ad_hoc` of a
+/// volatile query make a non-volatile parent volatile. This test pinned the opposite while
+/// volatility was fixed before evaluation (`design/volatility-system`, decision 4).
 #[tokio::test]
-async fn apply_ad_hoc_volatility_is_static() -> TestResult {
+async fn apply_ad_hoc_volatility_is_inherited() -> TestResult {
     let envref = env().await?;
     let manager = envref.get_asset_manager();
-    for query in ["apply_with-rnd", "depend_on-rnd"] {
+    for query in ["apply_with-rnd", "depend_on-rnd", "v/apply_with-rnd"] {
         let asset = manager.get_asset(&parse_query(query)?).await?;
         assert_eq!(asset.get().await?.try_into_string()?, "random");
-        assert!(!asset.is_volatile().await, "{query} is not volatile");
+        assert!(asset.is_volatile().await, "{query} is volatile");
     }
-    let asset = manager.get_asset(&parse_query("v/apply_with-rnd")?).await?;
-    asset.get().await?;
-    assert!(asset.is_volatile().await, "a query starting with v is volatile");
     Ok(())
 }
