@@ -2,9 +2,9 @@
 id: COMMAND-REGISTRY-HEADER-FEATURE-NAMES
 kind: design
 title: The command registry header names cargo features, not group names
+status: complete
 gh_pr: [149]
 form: compact
-phase: implementation
 readiness: ready
 autofix: eligible
 area: [lib/commands, build]
@@ -12,6 +12,8 @@ issues: [COMMAND-REGISTRY-HEADER-NAMES-GROUPS-NOT-FEATURES]
 created: 2026-10-17
 ---
 # The command registry header names cargo features, not group names
+
+> **Complete on 2026-10-18**: implemented and merged in #149.
 
 Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-17 backlog compaction. Phases 1-4
 are written but not approved, and nothing is implemented.
