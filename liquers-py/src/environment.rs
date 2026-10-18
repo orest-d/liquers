@@ -355,6 +355,24 @@ fn bound_decorator(
     Ok(decorate.call((callable,), options)?.unbind())
 }
 
+/// A query given as text or as an `lq.Query`.
+pub fn to_query(query: &Bound<'_, PyAny>) -> Result<liquers_core::query::Query, Error> {
+    if let Ok(text) = query.cast::<PyString>() {
+        return parse_query(&text.to_string());
+    }
+    match query.cast::<crate::query::Query>() {
+        Ok(wrapped) => Ok(wrapped.borrow().0.clone()),
+        Err(_) => Err(Error::general_error(format!(
+            "a query must be a str or an lq.Query, not {}",
+            query
+                .get_type()
+                .name()
+                .map(|n| n.to_string())
+                .unwrap_or_else(|_| "?".to_string())
+        ))),
+    }
+}
+
 /// A JSON-compatible Python object (the decorator's documents) as JSON.
 fn py_to_json(py: Python<'_>, object: &Bound<'_, PyAny>) -> Result<serde_json::Value, Error> {
     let text = py
@@ -449,9 +467,9 @@ impl Environment {
     }
 
     /// Evaluates a query and returns its value as a Python object.
-    fn evaluate(&self, py: Python<'_>, query: &str) -> PyResult<Py<PyAny>> {
+    fn evaluate(&self, py: Python<'_>, query: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
         let result = (|| {
-            let query = parse_query(query)?;
+            let query = to_query(query)?;
             let envref = self.cell.envref()?;
             let value = block_on(py, async move {
                 let asset = envref.evaluate(query).await?;
@@ -459,6 +477,31 @@ impl Environment {
                 state.value()
             })?;
             value_to_py(py, &value)
+        })();
+        result.map_err(|e| error_to_pyerr(py, &e))
+    }
+
+    /// Evaluates a query and returns the result as a `State`, metadata included.
+    fn evaluate_state(&self, py: Python<'_>, query: &Bound<'_, PyAny>) -> PyResult<Py<crate::asset::State>> {
+        let result = (|| {
+            let query = to_query(query)?;
+            let envref = self.cell.envref()?;
+            let state = block_on(py, async move {
+                let asset = envref.evaluate(query).await?;
+                asset.get().await?.value_state()
+            })?;
+            crate::asset::State::from_core(py, &state)
+        })();
+        result.map_err(|e| error_to_pyerr(py, &e))
+    }
+
+    /// Starts evaluating a query and returns its `AssetRef` without waiting for the value.
+    fn get_asset(&self, py: Python<'_>, query: &Bound<'_, PyAny>) -> PyResult<crate::asset::AssetRef> {
+        let result = (|| {
+            let query = to_query(query)?;
+            let envref = self.cell.envref()?;
+            let asset = block_on(py, async move { envref.evaluate(query).await })?;
+            Ok(crate::asset::AssetRef::new(asset))
         })();
         result.map_err(|e| error_to_pyerr(py, &e))
     }

@@ -63,6 +63,7 @@ from liquers._native import (
     Issue,
     Context,
     State,
+    AssetRef,
 )
 from liquers._env import default_environment, evaluate
 from liquers._commands import command, first_command
@@ -120,6 +121,7 @@ __all__ = [
     "Issue",
     "Context",
     "State",
+    "AssetRef",
     "default_environment",
     "evaluate",
     "command",

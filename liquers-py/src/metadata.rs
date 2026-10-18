@@ -192,6 +192,20 @@ impl Metadata {
         self.inner.with_error(Error::general_error(error));
     }
 
+    /// The log entries; empty for legacy metadata, which has no log.
+    pub fn log(&self) -> Vec<LogEntry> {
+        match self.inner.metadata_record() {
+            Some(record) => record
+                .log
+                .iter()
+                .map(|entry| LogEntry {
+                    inner: entry.clone(),
+                })
+                .collect(),
+            None => Vec::new(),
+        }
+    }
+
     pub fn status(&self) -> Status {
         Status {
             inner: self.inner.status(),
@@ -701,21 +715,54 @@ pub struct Status {
 
 #[pymethods]
 impl Status {
+    /// A status by its variant name (`"Ready"`); an unknown name raises `ValueError`.
     #[new]
-    pub fn new(name: &str) -> Self {
+    pub fn new(name: &str) -> PyResult<Self> {
         let inner = match name {
             "None" => CoreStatus::None,
+            "Directory" => CoreStatus::Directory,
+            "Recipe" => CoreStatus::Recipe,
             "Submitted" => CoreStatus::Submitted,
+            "Dependencies" => CoreStatus::Dependencies,
             "Processing" => CoreStatus::Processing,
             "Partial" => CoreStatus::Partial,
             "Error" => CoreStatus::Error,
-            "Recipe" => CoreStatus::Recipe,
+            "Storing" => CoreStatus::Storing,
             "Ready" => CoreStatus::Ready,
             "Expired" => CoreStatus::Expired,
+            "Cancelled" => CoreStatus::Cancelled,
             "Source" => CoreStatus::Source,
-            _ => CoreStatus::None,
+            "Override" => CoreStatus::Override,
+            "Volatile" => CoreStatus::Volatile,
+            other => return Err(PyValueError::new_err(format!("unknown status {other:?}"))),
         };
-        Status { inner }
+        Ok(Status { inner })
+    }
+
+    /// Equal to another `Status` of the same variant, or to its name as a string.
+    fn __eq__(&self, other: &Bound<'_, PyAny>) -> bool {
+        if let Ok(other) = other.extract::<Status>() {
+            return other.inner == self.inner;
+        }
+        match other.extract::<String>() {
+            Ok(name) => name == self.name(),
+            Err(_) => false,
+        }
+    }
+
+    fn __hash__(&self) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        self.inner.hash(&mut hasher);
+        hasher.finish()
+    }
+
+    fn __repr__(&self) -> String {
+        format!("Status({:?})", self.name())
+    }
+
+    fn __str__(&self) -> String {
+        self.name()
     }
 
     pub fn name(&self) -> String {

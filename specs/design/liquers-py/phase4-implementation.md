@@ -154,6 +154,9 @@ prerequisite issues.
   - `src/asset.rs`: `State`, `AssetRef` and `Environment.get_asset`;
   - `src/metadata.rs` `Status::new`: every core variant listed, a `ValueError` for an unknown
     name, and `__eq__`.
+- **Added while implementing:** `Metadata.log()`, since the wrapper had no way to read the log,
+  and `evaluate`, `evaluate_state`, `get_asset` and `Context.evaluate` accept an `lq.Query` as
+  well as a string (EVAL02).
 - **Depends on:** step 8, because the `slow` fixture uses `is_cancelled`.
 - **Proof:** `test_EVAL03` and `test_EVAL06` (AC-19), plus `test_VALUE13`.
 - **Rollback:** revert.

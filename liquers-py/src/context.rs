@@ -12,7 +12,6 @@ use std::sync::{Arc, Mutex};
 
 use liquers_core::context::Context as CoreContext;
 use liquers_core::error::Error;
-use liquers_core::parse::parse_query;
 use pyo3::prelude::*;
 
 use crate::environment::{block_on, PyEnvironment};
@@ -64,9 +63,9 @@ impl Context {
 #[pymethods]
 impl Context {
     /// Evaluates a query as a dependency of the current asset and returns its value.
-    fn evaluate(&self, py: Python<'_>, query: &str) -> PyResult<Py<PyAny>> {
+    fn evaluate(&self, py: Python<'_>, query: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
         let result = (|| {
-            let query = parse_query(query)?;
+            let query = crate::environment::to_query(query)?;
             let context = self.get()?;
             let value = block_on(py, async move {
                 let asset = context.evaluate(&query).await?;

@@ -5,13 +5,6 @@ import pytest
 import liquers as lq
 
 
-@pytest.fixture
-def env():
-    environment = lq.Environment()
-    yield environment
-    environment.shutdown()
-
-
 def test_ENVIRON01_default_environment_evaluates_builtin(env):
     doc = env.evaluate("commands_doc")
     assert isinstance(doc, str)

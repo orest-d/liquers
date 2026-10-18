@@ -139,7 +139,9 @@ def test_COMMAND07_context_injection(env):
         context.info("hello from command")
         return text
 
-    assert env.evaluate("hello/logs") == "hello"
+    state = env.evaluate_state("hello/logs")
+    assert state.value == "hello"
+    assert any("hello from command" in str(entry) for entry in state.metadata.log())
     assert env.evaluate("outer") == "outer:hello"
 
 

@@ -87,6 +87,7 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<crate::environment::Issue>()?;
     m.add_class::<crate::context::Context>()?;
     m.add_class::<crate::asset::State>()?;
+    m.add_class::<crate::asset::AssetRef>()?;
 
     Ok(())
 }
