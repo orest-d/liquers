@@ -29,3 +29,9 @@ Related, write side: `FREE-FUNCTION-EVALUATE-BAKES-A-BIN-DATA-FORMAT` (closed).
 
 The read path uses the stored type's default data format (`TypeInfo::default_data_format`) when
 the metadata declares none, which is the level-1 rule `effective_data_format` already describes.
+
+## Triage
+
+Filed without a design: it is outside `liquers-py`'s scope, which designs around it by always
+writing an explicit `data_format` (`specs/design/liquers-py/phase2-architecture.md` preflight). It
+needs a reproduction before a design, and it is a candidate for automatic fixing once reproduced.

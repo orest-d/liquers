@@ -2,21 +2,17 @@
 
 ## Overview
 
-The work goes from the bottom up. It starts with the two additive changes below `liquers-py`
-(steps 1–2), which can be tested without Python. Next come the runtime and value bridge (3–4), the
-error mapping (5), the environment (6), commands (7), context (8) and asset handles (9), each
-proven by its Phase 3 suite. The work closes with the test-only handle counter, the remaining
-Appendix A suites, and the conformance matrix (10–11), followed by final checks (12).
-
-There are no prerequisite issues; Phase 2's preflight found no blocker. Steps 1 and 2 can run in
-parallel. All the others are sequential.
+Steps 1 and 2 are the additive changes below `liquers-py`. They can run in parallel, and each
+carries its reference-document edit. The other steps are sequential. Each one leaves the crate
+compiling, and each is proven by the earliest Phase 3 tests its code makes runnable. There are no
+prerequisite issues.
 
 ## Progress
 
 - [ ] Step 1: foreign decoder hook in `liquers-lib`
 - [ ] Step 2: formatless read rule in `liquers-core`
 - [ ] Step 3: `liquers-py` dependencies and runtime
-- [ ] Step 4: value bridge and `PyObjectValue`
+- [ ] Step 4: value bridge, with the old environment removed
 - [ ] Step 5: error mapping
 - [ ] Step 6: environment
 - [ ] Step 7: commands and decorators
@@ -29,167 +25,183 @@ parallel. All the others are sequential.
 ## Implementation Steps
 
 ### Step 1: foreign decoder hook in `liquers-lib`
-- Files / symbols:
-  - `liquers-lib/src/value/foreign.rs`: `ForeignDecoder`, `register_foreign_decoder`,
-    `foreign_decoder`;
-  - `liquers-lib/src/value/mod.rs`: the `_` arm of `ExtValue::deserialize_from_bytes`.
-- Change: the registry is `OnceLock<RwLock<HashMap<&'static str, ForeignDecoder>>>`. The lookup
-  comes before the unknown-identifier error, and the decoder's value is wrapped as
-  `ExtValue::Foreign`.
-- Depends on: none
-- Proof: `cargo test -p liquers-lib --lib value::foreign`, through
-  `decoder_rebuilds_registered_identifier`.
-- Rollback: revert the commit. Nothing else calls it until step 4.
+- **Files / symbols:**
+  - `liquers-lib/src/value/foreign.rs`: `ForeignDecoder`, `register_foreign_decoder` and
+    `foreign_decoder`, kept in a `OnceLock<RwLock<HashMap>>`;
+  - `liquers-lib/src/value/mod.rs`: the `_` arm of `ExtValue::deserialize_from_bytes`;
+  - `specs/reference/VALUE_TYPE_SYSTEM.md`: the hook, with a History row and a `reviewed:` bump.
+- **Depends on:** none.
+- **Proof:** `cargo test -p liquers-lib --lib value::foreign`
+  (`decoder_rebuilds_registered_identifier`).
+- **Rollback:** revert. Nothing calls the hook until step 4.
 
 ### Step 2: formatless read rule in `liquers-core`
-- Files / symbols: `liquers-core/src/assets.rs` `deserialize_stored_value`, plus the two degraded
-  messages near `assets.rs:1426` and `assets.rs:7486`.
-- Change: a registered type with empty `supported_data_formats` returns `Ok(None)`, and the messages
-  distinguish an unregistered type from a formatless one.
-- Depends on: none (parallel with step 1)
-- Proof:
+- **Files / symbols:**
+  - `liquers-core/src/assets.rs` `deserialize_stored_value`, plus the degraded messages at
+    `:1430` and `:7487`. The test goes in the top-level `mod tests` (`:10527`).
+  - `specs/reference/ASSETS.md`: the rule, with a History row and a `reviewed:` bump.
+- **Depends on:** none; can run in parallel with step 1.
+- **Proof:**
   - `cargo test -p liquers-core --lib assets::tests::formatless`;
-  - `cargo test -p liquers-core --lib --tests` stays green;
-  - `cargo test -p liquers-lib --lib --tests` stays green.
-- Rollback: revert the commit, which reopens AC-18.
+  - `cargo test -p liquers-core --lib --tests` and `cargo test -p liquers-lib --lib --tests` stay green.
+- **Rollback:** revert. AC-18 reopens.
 
 ### Step 3: `liquers-py` dependencies and runtime
-- Files / symbols:
-  - `liquers-py/Cargo.toml`: add `liquers-lib` (default features minus `egui`) and `tokio`
-    (`rt-multi-thread`);
-  - `liquers-py/src/runtime.rs`: `runtime()`.
-- Depends on: none
-- Proof: `cargo check -p liquers-py --lib --tests`; the M0 pytest suites still pass.
-- Rollback: revert. The crate builds as at M0.
+- **Files / symbols:**
+  - `liquers-py/Cargo.toml`:
+    - `liquers-lib` with `default-features = false` and the features `image-support`, `polars`,
+      `records`, `records-ipc`, `records-parquet` and `templates`;
+    - `liquers-macro`, `tokio` (`rt-multi-thread`), `futures`, `async-trait` and `serde_json`,
+      because the domain macros expand in this crate (`liquers-web/src/builtins.rs` is the precedent).
+  - `src/runtime.rs` `runtime()`.
+  - The comment on the liquers-py row in `scripts/check-build-matrix.sh`.
+- **Depends on:** none.
+- **Proof:**
+  - `cargo check -p liquers-py --lib --tests`;
+  - `bash scripts/test-liquers-py.sh` still passes the M0 suites.
+- **Rollback:** revert.
 
-### Step 4: value bridge and `PyObjectValue`
-- Files / symbols:
-  - `liquers-py/src/value.rs` (rewritten): `PyObjectValue`, `py_type_info`, `ConversionMode`,
-    `value_to_py`, `py_to_value`, with the decoder registered in `_native`'s init;
-  - `liquers-py/src/recipes.rs`: ported off the own enum.
-- Depends on: steps 1 and 3
-- Proof:
-  - `cargo test -p liquers-py --lib value`, through `py_type_info_agrees_with_instance` and
-    conversion-table tests;
-  - pytest `test_VALUE01`, `03`, `04` once step 6 exists.
-- Rollback: revert steps 4 onward together. The bridge is their base.
+### Step 4: value bridge, with the old environment removed
+- **Files / symbols:**
+  - `src/value.rs` (rewritten): `PyObjectValue`, `py_type_info`, `ConversionMode`, `value_to_py`
+    and `py_to_value`, with the decoder registered in `_native`'s init.
+  - `src/context.rs`: the old `Environment` and `Context`, which implement core traits over the
+    removed enum, are deleted here and replaced in step 8.
+- **Depends on:** steps 1 and 3.
+- **Proof:** `cargo test -p liquers-py --no-default-features --lib value`
+  (`py_type_info_agrees_with_instance` and the conversion-table tests).
+- **Rollback:** revert steps 4 onwards together.
 
 ### Step 5: error mapping
-- Files / symbols:
-  - `liquers-py/python/liquers/_errors.py`: `LiquersError` and its generated subclasses;
-  - `liquers-py/src/error.rs`: `error_to_pyerr`, `pyerr_to_error` (class, message, `traceback`,
-    `BaseException`).
-- Depends on: step 4
-- Proof: `test_ERROR_errors.py` ERROR01, 02, 04, 05; ERROR03 and 06 after step 7.
-- Rollback: revert. Errors surface untyped.
+- **Files / symbols:**
+  - `python/liquers/_errors.py`: `LiquersError` and its generated `<Variant>Error` subclasses;
+  - `src/error.rs`: `error_to_pyerr` and `pyerr_to_error`, covering the class, the message, the
+    traceback and `BaseException`.
+- **Depends on:** step 4.
+- **Proof:** `cargo test -p liquers-py --no-default-features --lib error`, round-tripping every
+  `ErrorType` and every field.
+- **Rollback:** revert.
 
 ### Step 6: environment
-- Files / symbols:
-  - `liquers-py/src/environment.rs`: `Environment`, `EnvCell`, `EnvState`, `build`, `evaluate`,
-    `evaluate_state`, `store_set`, `validate`, `import_metadata`, `shutdown`;
-  - `python/liquers/_env.py`: `default_environment`.
-- Change:
-  - `build` runs under `runtime().enter()` and registers the six liquers-lib domain macros.
-  - Rebuilds retire the old `EnvRef`.
-- Depends on: steps 4 and 5
-- Proof:
-  - `test_ENVIRON01`, 02–08 (ENVIRON02 and 07 completed after step 9);
-  - `test_EVAL01`, 02, 04;
-  - `test_EVAL_text_resource_read_from_store` (AC-17);
-  - `test_VALUE06*` (AC-6, AC-18).
-- Rollback: revert. The previous steps stand alone.
+- **Files / symbols:**
+  - `src/environment.rs`: `Environment`, `EnvCell`, `EnvState`, `build`, `evaluate`,
+    `evaluate_state`, `store_set`, `validate`, `import_metadata` and `shutdown`;
+  - `src/builtins.rs`: the six domain macros, with `type CommandEnvironment = DefaultEnvironment<Value>`
+    and the `Context` import;
+  - `python/liquers/_env.py` `default_environment`.
+- **Build sequence:**
+  1. `liquers_lib::environment::default_environment_builder::<Value, ()>()`. Kind `LibKind`
+     matches the macros' alias and keeps the default recipe chain.
+  2. `with_type_registry` with `py_type_info(pickle)`.
+  3. On the first build, `with_store_config(config.store, default_store_factory())` when a store is
+     configured, otherwise `with_async_store` of a memory store. Every rebuild instead passes
+     `with_async_store(old_envref.get_async_store())`, so the data survives.
+  4. `with_asset_manager_options(config.assets)`. A `config.recipes` other than the default is
+     refused with `ConfigurationError`, because recipes belong to the STORE/RECIPE design.
+  5. `builtins::register(&mut builder.command_registry)`.
+  6. Imported metadata: parsed into a struct whose fields all default, then `add_command` for each
+     entry. An entry with no executor is a validation issue.
+  7. The retained Python specs (step 7).
+  8. `build()` under `runtime().enter()`.
+
+  A rebuild moves the old `EnvRef` to the retired list.
+- **Depends on:** step 5.
+- **Proof:** `test_ENVIRON01_default_environment_evaluates_builtin` (`commands_doc`, AC-2) and
+  `test_EVAL04_invalid_query_maps_through_error` (`liquers-py/tests/`), run with
+  `bash scripts/test-liquers-py.sh`.
+- **Rollback:** revert.
 
 ### Step 7: commands and decorators
-- Files / symbols:
-  - `liquers-py/src/command.rs`: `PyCommandSpec`, `register_py_command`, `Replaced`;
-  - `python/liquers/_commands.py`: `command`, `first_command`;
-  - `Environment.command`, `Environment.first_command`, `Environment.command_metadata`;
-  - the `label`, `doc` and `arguments` getters on `command_metadata.rs` `CommandMetadata`.
-- Depends on: step 6
-- Proof: `test_COMMAND_registration.py` COMMAND01–14, AC-1, AC-9, AC-10;
-  `test_COMMAND_late_registration_keeps_store`.
-- Rollback: revert. `PY-ADD-PYTHON-COMMAND-ALIASES-AN-UNREGISTERED-COMMAND` reopens.
+- **Files / symbols:**
+  - `src/command.rs`: `PyCommandSpec`, `register_py_command` and `Replaced`. `impl_version` is set
+    from a hash of `__code__.co_code` and `co_consts`.
+  - `python/liquers/_commands.py`: `command` and `first_command`, plus the `Environment.command`,
+    `first_command` and `command_metadata` methods.
+  - Getters on `src/command_metadata.rs`: `label`, `doc` and `arguments` on `CommandMetadata`;
+    `name` and `default` on `ArgumentInfo`.
+  - `tests/conftest.py`: the fixture commands.
+- **Depends on:** step 6.
+- **Proof:**
+  - COMMAND01–06 and 08–14 (AC-1, AC-9, AC-10), plus `test_COMMAND_late_registration_keeps_store`;
+  - ERROR01–06 (AC-7, AC-8);
+  - ENVIRON02–08 (AC-11, AC-12, AC-20) and EVAL01, 02 and 04;
+  - VALUE01, 03–06 and 08 (AC-3–AC-6), plus `test_VALUE_pickle_off_never_unpickles` (AC-18);
+  - `test_EVAL_text_resource_read_from_store` (AC-17).
+- **Rollback:** revert. `PY-ADD-PYTHON-COMMAND-ALIASES-AN-UNREGISTERED-COMMAND` reopens.
 
 ### Step 8: context for nested evaluation
-- Files / symbols: `liquers-py/src/context.rs` (rewritten): `Context` with `evaluate`, `info`,
-  `warning`, `error` and `is_cancelled`.
-- Depends on: step 7
-- Proof: `test_RUNTIME04` (AC-13), `test_COMMAND07`, `test_EVAL05`,
+- **Files / symbols:** `src/context.rs` `Context`: `evaluate`, `info`, `warning`, `error` and
+  `is_cancelled`.
+- **Depends on:** step 7.
+- **Proof:** `test_RUNTIME04` (AC-13), `test_COMMAND07`, `test_EVAL05` and
   `test_RUNTIME_two_threads_evaluate_concurrently`.
-- Rollback: revert. Commands then run without a context.
+- **Rollback:** revert.
 
 ### Step 9: `State`, `AssetRef`, `Status`
-- Files / symbols:
-  - `liquers-py/src/asset.rs`: `State`, `AssetRef`, `Environment.get_asset`;
-  - `liquers-py/src/metadata.rs` `Status`: `__eq__` and `name`.
-- Depends on: step 6
-- Proof: `test_EVAL03`, `test_EVAL06` (AC-19), `test_VALUE13`.
-- Rollback: revert.
+- **Files / symbols:**
+  - `src/asset.rs`: `State`, `AssetRef` and `Environment.get_asset`;
+  - `src/metadata.rs` `Status::new`: every core variant listed, a `ValueError` for an unknown
+    name, and `__eq__`.
+- **Depends on:** step 8, because the `slow` fixture uses `is_cancelled`.
+- **Proof:** `test_EVAL03` and `test_EVAL06` (AC-19), plus `test_VALUE13`.
+- **Rollback:** revert.
 
 ### Step 10: `debug-handles` and the test script
-- Files / symbols:
-  - `liquers-py/Cargo.toml` feature `debug-handles`;
-  - `Environment.live_handle_count`;
-  - `scripts/test-liquers-py.sh`: install `polars` and `pillow`, run
+- **Files / symbols:**
+  - the `debug-handles` feature and `Environment.live_handle_count`;
+  - `scripts/test-liquers-py.sh`: install `polars` and `pillow`, then run
     `maturin develop --features debug-handles`.
-- Depends on: steps 7 and 9
-- Proof: `test_RUNTIME05`, and `test_VALUE08` / AC-3 running rather than skipping.
-- Rollback: revert. RUNTIME05 is marked BLOCKED.
+- **Depends on:** step 9.
+- **Proof:** `test_RUNTIME05`, and `test_VALUE08` running rather than skipped.
+- **Rollback:** revert. RUNTIME05 is marked BLOCKED.
 
 ### Step 11: remaining Appendix A suites and the conformance matrix
-- Files / symbols:
-  - `liquers-py/tests/test_*`: OBJECT05–09, VALUE02, 07, 09–11, ERROR, RUNTIME01, 03, 06, and the
-    rest of COMMAND;
-  - `liquers-py/README.md`: the conformance matrix, with `RUNTIME02` and `VALUE12` as NA and their
-    reversing conditions.
-- Change: an OBJECT audit failure in an existing wrapper is fixed here if it is local. Otherwise it
-  is filed (triage), and the test is marked BLOCKED with the issue ID.
-- Depends on: step 10
-- Proof: `bash scripts/test-liquers-py.sh` fully green (AC-21).
-- Rollback: none needed; this step only adds tests and docs.
+- **Files / symbols:**
+  - the remaining `liquers-py/tests/test_*` suites: OBJECT05–09, VALUE02, 07 and 09–11, and
+    RUNTIME01, 03 and 06;
+  - `liquers-py/README.md`: the matrix, with `RUNTIME02` and `VALUE12` as NA.
+- **Change:** a local OBJECT audit failure is fixed in this step. Anything larger is triaged, filed,
+  and its test marked BLOCKED with the issue ID.
+- **Depends on:** step 10.
+- **Proof:** `bash scripts/test-liquers-py.sh` passes in full (AC-21).
+- **Rollback:** none needed, since the step adds only tests and docs.
 
 ### Step 12: final checks
-- Proof:
-  - `bash scripts/check-build-matrix.sh` (the liquers-py row and the liquers-lib rows touched by
-    step 1);
-  - `cargo test -p liquers-lib --lib --tests`;
-  - `python3 scripts/docs_index.py --check`;
-  - `cargo test -p liquers-lib --test registry_export`, which must stay green (no command
-    signature changes).
-- Depends on: step 11
-- Rollback: n/a
+- **Proof:**
+  - `bash scripts/test-liquers-py.sh`;
+  - `cargo test -p liquers-core --lib --tests` and `cargo test -p liquers-lib --lib --tests`;
+  - `cargo test -p liquers-lib --test registry_export`, which changes nothing because no command
+    signature changes;
+  - `bash scripts/check-build-matrix.sh`, run with its low-disk cleans because the liquers-py row
+    now builds polars;
+  - `python3 scripts/docs_index.py --check`.
+- **Depends on:** step 11.
+- **Rollback:** n/a.
 
 ## Testing Plan
 
-Each step's proof runs when the step lands. Python suites run through
-`bash scripts/test-liquers-py.sh`. Rust tests run per crate, never with `--workspace`.
+Each step's proof runs when the step lands. The Python suites run only through
+`scripts/test-liquers-py.sh`. Rust tests run per crate: `--no-default-features` for liquers-py's own
+unit tests, because the `extension-module` feature does not link libpython. Never use `--workspace`.
 
-`liquers-py` now links `liquers-lib`, so its build is about the size of the
-`cargo test -p liquers-lib` loop. Run `cargo clean -p liquers-py` between feature changes if disk
-runs short (CLAUDE.md, "No space left on device").
-
-The build matrix runs once, in step 12, because step 1 touches a module that is compiled in every
-configuration.
+Expect about 8–10 GB of build output with the routine liquers-lib loop. Clean
+`target/debug/incremental` before the matrix run.
 
 ## Rollback Plan
 
-Every step is a separate commit, ordered so that a prefix of the steps is always a working crate.
-Steps 1 and 2 are independent of Python and stay valid if liquers-py work stops. If only some steps
-land, the unticked remainder becomes an issue (§5.6), and the matrix marks the unfinished features
-`IN-PROGRESS`.
+Every step is one commit, and every prefix of the steps compiles. Steps 1 and 2 stand alone. If the
+work stops part-way, the unticked remainder becomes an issue (§5.6) and the matrix marks those
+features `IN-PROGRESS`.
 
 ## Documentation Updates
 
-- `specs/guides/LANGUAGE-INTEGRATION_GUIDE.md`: §6 Python rewritten and the §5 VALUE paragraph
-  corrected.
-- `specs/reference/VALUE_TYPE_SYSTEM.md`: the foreign decoder hook.
-- `specs/reference/ASSETS.md`: the formatless read rule.
-- Each of the three documents above gets a `## History` row and a `reviewed:` bump in the same
-  commit as its change.
-- `liquers-py/README.md`: quick start and matrix.
-- `specs/README.md`: the design status.
-- `specs/index.csv`: regenerated with `python3 scripts/docs_index.py`.
-- `specs/command_registry.yaml`: unchanged, since no `register_command!` signature changes.
+- Steps 1 and 2 carry the two reference edits.
+- Phase 5 rewrites `LANGUAGE-INTEGRATION_GUIDE.md` §6 and corrects §5 VALUE, both with a History
+  row and a `reviewed:` bump.
+- Phase 5 also updates `CLAUDE.md` (liquers-py notes) and `specs/README.md`.
+- Step 11 writes `liquers-py/README.md`.
+- `specs/index.csv` is regenerated by each step that touches `specs/`.
+- `specs/command_registry.yaml` is unchanged.
 
 ## Phase 5 Entry Criteria
 - [ ] Implementation finished and validated

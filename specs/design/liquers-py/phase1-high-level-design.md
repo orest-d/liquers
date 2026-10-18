@@ -6,7 +6,8 @@
 - **Automatic fixing:** `not-eligible`. The work is `L`, crosses crates, and changes a Python API.
 - **Leading issue:** the read-path change in `liquers-core` (open design question 1).
 - **Explanation:** every question below has a recommended answer that a working design is built on.
-  Pre-approval (2026-10-18) lets the work proceed on those answers. They stay visible for the owner.
+  Pre-approval (2026-10-18) covers implementation, but items 1, 5 and 6 are the owner's, so the
+  pre-implementation stop applies until they are answered.
 - **Open questions:**
   1. **Open design: read path for formatless types.**
      - Change: a stored value whose registered type declares *no* data formats is read as degraded
@@ -24,6 +25,22 @@
   4. **Proposed resolution: `VALUE12` is NA.** `evaluate` returns native Python objects. There is
      no `liquers.Value` wrapper whose operators could be specified. This reverses if a wrapper is
      exposed.
+  5. **Needs decision: M0 in this PR.** The M0 code fixes (PyO3 0.30, the `liquers` import name,
+     orphan removal, the test runner) are in this design PR. The skill puts such fixes in their own
+     PR. Recommended: split them into their own PR and merge it first.
+  6. **Needs decision: deviations from the owner's plan.**
+     - The pickle codec is a `pickle=` keyword, not `config={"codecs": …}`, because the core
+       `EnvironmentConfig` has no codec section.
+     - `reset()` is dropped: a new `Environment()` is the reset.
+     - `language_context` is not added to core, since `ErrorPayload.traceback` already carries the
+       stack and the class rides in the message.
+     - Recommended: accept all three.
+  7. **Proposed resolution: configured stores are in scope** to the extent of `EnvironmentConfig`'s
+     `store` section, using core's existing factories (AC-18's shared file store). Python-defined
+     stores stay a non-goal.
+  8. **Deferred to `liquers-py-async`: sync evaluation on a running loop.** This design's
+     `lq.evaluate` works inside a Jupyter cell, because it blocks with the GIL released. The async
+     design must not make it raise there.
 
 ## Purpose
 
@@ -126,8 +143,8 @@ Features: `OBJECT ERROR RUNTIME VALUE ENVIRON EVAL COMMAND` (the guide's Python 
   THEN the Appendix A suites of the seven features pass, each `NA` with its reversing condition in
   `liquers-py/README.md` (`RUNTIME02` until a Pyodide target, `VALUE12` until a `Value` wrapper)
 
-Non-goals, each a follow-up design that this must not preclude: async (`liquers-py-async`); Python
-stores, recipe providers and configured stores; records and Arrow; stubs and wheels; server,
+Non-goals, each a follow-up design that this must not preclude: async (`liquers-py-async`);
+Python-defined stores and recipe providers; records and Arrow; stubs and wheels; server,
 store-backed imports, UI.
 
 ## Core Interactions
@@ -172,7 +189,9 @@ store-backed imports, UI.
   `EnvironmentConfig` has no command-metadata section).
 - Placement extended to the `liquers-lib` hook and core read rule (`FOREIGN-VALUE-CANNOT-BE-DESERIALIZED`).
 - M0 shipped in this PR; it also fixed the plan's unfiled `PY-WRAPPER-DESIGN-MARKED-COMPLETE` and
-  `PY-TESTS-HAVE-NO-RUNNER`. Splitting it out is put to the owner.
+  `PY-TESTS-HAVE-NO-RUNNER`. Splitting it out is put to the owner (question 5).
+- After the Phase 4 review: configured stores via `EnvironmentConfig.store` brought into scope
+  (question 7), since AC-18 needs two environments on one store.
 
 ## References
 

@@ -31,7 +31,7 @@ evaluation.
   THEN it is awaited, its metadata marks it async, and its exceptions map as in `liquers-py` AC-7
 - **AC-3** No blocking inside the loop (was `liquers-py` AC-16)
   WHEN the synchronous `lq.evaluate` or `context.evaluate` is called from a coroutine on a running
-  loop
+  loop (see question 2 for which loops)
   THEN it raises `RuntimeError` pointing at the async variant
 - **AC-4** Nested async evaluation
   WHEN an `async def` command awaits `context.evaluate_async(...)` on a query that runs another
@@ -64,6 +64,9 @@ own code, not `pyo3-async-runtimes`, so the PyO3 version stays independent.
    (`Context` carries no Python handle, and its payload slot changes caching). The cost is that a
    coroutine cannot use objects bound to the caller's loop, such as a client session created there.
    The alternative carries the caller's loop through the evaluation.
+2. **Open design: sync `lq.evaluate` on a running loop.** AC-3 as written would break sync use in
+   Jupyter, where every cell runs on a running loop. `liquers-py` ships a sync `evaluate` that works
+   there. Recommended: raise only on liquers-py's own loop thread, and warn elsewhere.
 
 ## References
 
