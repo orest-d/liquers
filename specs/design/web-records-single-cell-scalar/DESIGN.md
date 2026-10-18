@@ -4,6 +4,7 @@ kind: design
 title: A single-cell record view reaches JavaScript as a scalar
 form: compact
 status: complete
+gh_pr: [153]
 readiness: ready
 autofix: eligible
 area: [web, records]
