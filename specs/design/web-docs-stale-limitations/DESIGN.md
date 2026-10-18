@@ -3,6 +3,7 @@ id: WEB-DOCS-STALE-LIMITATIONS
 kind: design
 title: Bring liquers-web's documentation up to date with the fixed limitations
 form: compact
+gh_pr: [151]
 status: complete
 readiness: ready
 autofix: eligible
