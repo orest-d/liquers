@@ -352,7 +352,13 @@ mod tests {
     #[test]
     fn permissive_command_accepts_any_argument_list() {
         let cmr = permissive_registry("greet");
-        for query in ["greet", "greet-world", "greet-a-b-c-d-e"] {
+        for query in [
+            "greet",
+            "greet-world",
+            "greet-a-b-c-d-e",
+            "greet----20",
+            "greet-a--b-",
+        ] {
             let result = validate_query(query, 0, ValidationLevel::Plan, &cmr);
             assert_eq!(
                 result.status,

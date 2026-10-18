@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: S
 area: [web, docs]
-design:
+design: web-docs-stale-limitations
 created: 2026-10-17
 github:
 ---

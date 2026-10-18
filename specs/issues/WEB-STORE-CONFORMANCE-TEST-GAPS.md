@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: M
 area: [web, core/store]
-design:
+design: web-store-conformance-tests
 created: 2026-10-17
 github:
 ---

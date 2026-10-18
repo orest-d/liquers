@@ -82,6 +82,7 @@ volatility work all landed in `assets.rs`.
 - **Weak references in the expiration monitor** — built → [`design/expiration-monitor-assetref/`](design/expiration-monitor-assetref/)
 - **Expired-safe binary reads** — built → [`design/expired-binary-read-safety/`](design/expired-binary-read-safety/)
 - **Volatility tracking** — built → [`design/volatility-system/`](design/volatility-system/)
+- **Volatility discovered at run time (a volatile value a command reads through its context makes its result volatile)** — built → [`reference/ASSETS.md`](reference/ASSETS.md), [`reference/ASSET_LIFECYCLE.md`](reference/ASSET_LIFECYCLE.md) *(design in [`design/runtime-volatility/`](design/runtime-volatility/); `Context::set_volatile`)*
 - **Versions for computed keyed assets, and dependency audit** — built → [`design/keyed-expiry-cascade-fix/`](design/keyed-expiry-cascade-fix/) *(contract and audit policies in [`reference/DEPENDENCIES_STATUS.md`](reference/DEPENDENCIES_STATUS.md))*
 - **Keyed-recipe ownership** — built → [`design/keyed-recipe-ownership/`](design/keyed-recipe-ownership/)
 - **Keyed delegation as a hand-off** — built → [`design/keyed-delegation-hand-off/`](design/keyed-delegation-hand-off/) *(rule documented in [`reference/DEPENDENCIES_STATUS.md`](reference/DEPENDENCIES_STATUS.md))*
@@ -363,9 +364,11 @@ deliberately folded behind a broader line.
 - design `js-store-effective-media-type`
 - design `json-orient-index-column-collision`
 - design `json-table-column-order`
+- design `language-guide-web-claims`
 - design `lib-build-warning-cleanup`
 - design `lib-integration-test-feature-gates`
 - design `lib-polars-ethnum-rust-1-98`
+- design `liquers-web-records-bridge`
 - design `listdir-keys-deep-child-check`
 - design `manifest-chunk-error-identity`
 - design `manifest-over-stored-csv-test`
@@ -427,8 +430,13 @@ deliberately folded behind a broader line.
 - design `value-type-system`
 - design `variadic-empty-element-conversion`
 - design `variadic-metadata-tail-check`
+- design `web-docs-stale-limitations`
+- design `web-environ-validation-report`
 - design `web-liquers-error-constructor`
 - design `web-object06-error-type-exhaustiveness`
+- design `web-outbound-int64-precision`
+- design `web-records-single-cell-scalar`
+- design `web-store-conformance-tests`
 - design `web-value04-bytes-identifier`
 - feature `AGENT-MEMORY-SERVICE`
 - feature `ASSET-MANAGER-CANNOT-BE-SYNCHRONIZED-WITH-THE-STORE`

@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: S
 area: [web]
-design:
+design: web-outbound-int64-precision
 created: 2026-10-17
 github:
 ---

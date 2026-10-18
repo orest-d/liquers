@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: S
 area: [docs, web]
-design:
+design: language-guide-web-claims
 created: 2026-10-17
 github:
 ---

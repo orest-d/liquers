@@ -7,6 +7,8 @@ use axum::{routing::get, Router};
 use liquers_core::context::{EnvRef, Environment};
 use std::marker::PhantomData;
 
+use crate::api_core::join_base;
+
 /// Builder for Recipes API endpoints (/api/recipes/*)
 ///
 /// The Recipes API is read-only (HTTP GET only) and provides access to recipe definitions
@@ -40,31 +42,31 @@ impl<E: Environment> RecipesApiBuilder<E> {
 
         // List all recipes - GET /listdir
         router = router.route(
-            &format!("{}/listdir", self.base_path),
+            &join_base(&self.base_path, "listdir"),
             get(crate::recipes::handlers::listdir_handler::<E>),
         );
 
         // Recipe data - GET /data/{*key}
         router = router.route(
-            &format!("{}/data/{{*key}}", self.base_path),
+            &join_base(&self.base_path, "data/{*key}"),
             get(crate::recipes::handlers::get_data_handler::<E>),
         );
 
         // Recipe metadata - GET /metadata/{*key}
         router = router.route(
-            &format!("{}/metadata/{{*key}}", self.base_path),
+            &join_base(&self.base_path, "metadata/{*key}"),
             get(crate::recipes::handlers::get_metadata_handler::<E>),
         );
 
         // Recipe entry (data + metadata) - GET /entry/{*key}
         router = router.route(
-            &format!("{}/entry/{{*key}}", self.base_path),
+            &join_base(&self.base_path, "entry/{*key}"),
             get(crate::recipes::handlers::get_entry_handler::<E>),
         );
 
         // Recipe resolution - GET /resolve/{*key}
         router = router.route(
-            &format!("{}/resolve/{{*key}}", self.base_path),
+            &join_base(&self.base_path, "resolve/{*key}"),
             get(crate::recipes::handlers::resolve_handler::<E>),
         );
 

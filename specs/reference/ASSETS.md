@@ -3,7 +3,7 @@ title: Assets Specification
 kind: reference
 audience: internal
 area: [core/assets]
-reviewed: 2026-10-15
+reviewed: 2026-10-17
 ---
 # Assets Specification
 
@@ -103,8 +103,13 @@ A volatile asset cannot be shared and cannot be reused, so the maps never *serve
   `get`, `get_asset` and `get_dependency_asset`, so a cached volatile asset is evicted and rebuilt.
 
 The last point matters because volatility is not always known at registration time: registration
-consults the recipe, but `try_to_set_ready` also marks a result volatile from a metadata expiry set
-by a command *during* evaluation. Without the eviction, such an asset is served from cache forever
+consults the recipe, but an asset can also become volatile *during* evaluation. A command can say so
+with `Context::set_volatile`; the context does it itself when a dependency it resolved
+(`get_dependency_state`, `submit`, `evaluate`, `apply`, `apply_ad_hoc`, or an interpreter step) is
+volatile by its metadata, so volatility spreads through run-time dependencies as it does through
+the plan; an ad-hoc asset records its plan's volatility when the plan is applied; and
+`try_to_set_ready` marks a result volatile from a metadata expiry set by a command. The asset's
+metadata is the authority, and it is written before the status is finalized. Without the eviction, such an asset is served from cache forever
 — `Status::Volatile.is_finished()` is `true` and the expiry re-check only fires for
 `Status::Ready`.
 
@@ -1248,6 +1253,7 @@ each with an `ExpiryReason` (§Why an asset is `Expired`). The rules are in
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-17 | §Volatile assets are never owned: an asset can become volatile during its run, through `Context::set_volatile`, a volatile run-time dependency, or (ad hoc) its plan. | `design/runtime-volatility` |
 | 2026-10-15 | `Storing`: written by the unwrapped file and OpenDAL stores, never under a configured write strategy (`direct` / `atomic` / `transactional` and their crash behaviour). §Content changed outside Liquers: per-mount `version_verification` overrides the manager's policy (`content_hash` in `on_read`); a `read_only` mount writes nothing on read; `created` and `etag` on records. | phase-5 (`design/store-adapters/`) |
 | 2026-10-14 | §Terminal outcome: a panicking command fails its asset (`evaluation panicked: …`) instead of hanging its waiters. | `COMMAND-PANIC-HANGS-EVALUATION` |
 | 2026-10-12 | §Re-evaluation: a stale dependency re-evaluates at an evaluation's first request only; within the evaluation the session pins it. | phase-5 (`design/dependency-resolved-once-per-evaluation/`) |

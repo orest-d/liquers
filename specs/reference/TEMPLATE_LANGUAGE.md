@@ -167,10 +167,9 @@ a version is recorded as `Version::unknown()`, which a later success does not co
 recording unknown is spared when the key gets its first version, and a stored unknown is
 compatible). Such a recovered render is invalidated only through what the failed query read, or
 when it is evaluated again; use `strict` where that matters.
-Volatility is not passed on (`design/volatility-system`, decision 4): a render over volatile queries
-is volatile only when `v` comes before the render action (`v/ns-template/render-…`; a trailing `/v`
-serves the cached render), or when a template command is declared `volatile`
-(`RUNTIME-VOLATILE-DEPENDENCY-DOES-NOT-MAKE-PARENT-VOLATILE`).
+Volatility is passed on: a render that evaluates or applies a volatile query is volatile itself,
+is not reused and is not stored as loadable (`design/runtime-volatility`). No `v/` or `volatile`
+declaration is needed for that.
 Partials nest at most `max_partial_depth` (32) deep, and the same partial at the same stack depth is
 a cycle error.
 
@@ -206,6 +205,7 @@ positions of §2; `QueryTemplate::try_into_query` succeeds exactly when it has n
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-17 | Volatility of the template's queries now makes the render volatile; the `v/` advice is removed. | `design/runtime-volatility` |
 | 2026-10-17 | `_meta`, exact large integers, apply inputs keep their type, a failed ad-hoc query's dependencies (PR #139 review). | `design/liquers-mustache/` |
 | 2026-10-17 | Corrected the volatility rule: `v` before the render action, not a trailing `/v`. | `RUNTIME-VOLATILE-DEPENDENCY-DOES-NOT-MAKE-PARENT-VOLATILE` |
 | 2026-10-17 | Created: tags, slot positions, names, data nodes, the `ns-template` commands, evaluation routes, error modes, the AST. | `design/liquers-mustache/` |
