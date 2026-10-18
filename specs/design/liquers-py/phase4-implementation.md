@@ -15,8 +15,8 @@ prerequisite issues.
 - [x] Step 4: value bridge, with the old environment removed — 0d0a4c13
 - [x] Step 5: error mapping — e914dbf1
 - [x] Step 6: environment — 3cc4e0b7
-- [ ] Step 7: commands and decorators
-- [ ] Step 8: context for nested evaluation
+- [x] Step 7: commands and decorators — 2a987613
+- [x] Step 8: context for nested evaluation — 2a987613
 - [ ] Step 9: `State`, `AssetRef`, `Status`
 - [ ] Step 10: `debug-handles` and the test script
 - [ ] Step 11: remaining Appendix A suites and the conformance matrix

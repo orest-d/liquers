@@ -8,8 +8,8 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 131
-- P2: 55
+Total rows: 132
+- P2: 56
 - P3: 76
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
@@ -18,6 +18,7 @@ Total rows: 131
 | [`WEB-DOCS-STALE-AFTER-KEYED-EVAL-FIX`](issues/WEB-DOCS-STALE-AFTER-KEYED-EVAL-FIX.md) | issue | liquers-web documentation still describes limitations that were fixed | draft | ready | eligible | P2 | S | web;docs | [design](design/web-docs-stale-limitations/DESIGN.md) | 2026-10-17 |
 | [`WEB-RECORDS-SINGLE-CELL-VIEW-CROSSES-AS-BATCH`](issues/WEB-RECORDS-SINGLE-CELL-VIEW-CROSSES-AS-BATCH.md) | issue | A single-cell RecordView reaches JavaScript as a 1×1 batch instead of a scalar | draft | ready | eligible | P2 | S | web;records | [design](design/web-records-single-cell-scalar/DESIGN.md) | 2026-10-17 |
 | [`EVALUATION-SESSION-VOLATILE-TEST-INTERMITTENT`](issues/EVALUATION-SESSION-VOLATILE-TEST-INTERMITTENT.md) | issue | volatile_dependency_has_one_value_per_evaluation fails intermittently: a later evaluation sometimes reuses the volatile value | draft | phase2-blocked | not-eligible | P2 | S | core/assets | [design](design/evaluation-session-volatile-test-flake/DESIGN.md) | 2026-10-13 |
+| [`WEB-EVALUATE-RESOLVES-FAILED-ASSET-AS-NULL`](issues/WEB-EVALUATE-RESOLVES-FAILED-ASSET-AS-NULL.md) | issue | liquers-web's evaluate resolves a failed command's asset to null instead of rejecting | draft |  |  | P2 | S | web |  | 2026-10-18 |
 | [`CORE-VALUE-ENUM-OVERSIZED`](issues/CORE-VALUE-ENUM-OVERSIZED.md) | issue | Every Value occupies over 700 bytes because three variants are stored unboxed | draft | ready | not-eligible | P2 | M | core/value;lib/value | [design](design/core-value-enum-oversized/DESIGN.md) | 2026-08-18 |
 | [`ENVIRONMENT-MANAGER-REFERENCE-CYCLE`](issues/ENVIRONMENT-MANAGER-REFERENCE-CYCLE.md) | issue | Environment and asset manager hold each other with strong Arcs, so every environment leaks | draft | ready | not-eligible | P2 | M | core/assets;core/context | [design](design/environment-manager-reference-cycle/DESIGN.md) | 2026-08-27 |
 | [`WEB-ENVIRON-VALIDATION-REPORT-NOT-EXPOSED`](issues/WEB-ENVIRON-VALIDATION-REPORT-NOT-EXPOSED.md) | issue | liquers-web exposes no builder validation report, so ENVIRON08 is unimplemented | draft | ready | not-eligible | P2 | M | web | [design](design/web-environ-validation-report/DESIGN.md) | 2026-10-17 |
