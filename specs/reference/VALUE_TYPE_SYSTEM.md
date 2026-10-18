@@ -3,7 +3,7 @@ title: Value Type System
 kind: reference
 audience: internal
 area: [core/value, lib/value]
-reviewed: 2026-10-17
+reviewed: 2026-10-18
 ---
 
 # Value Type System
@@ -164,6 +164,26 @@ Python objects in `Value::Py`, a variant of a value type it owns, so `py.Object`
 `type_descriptions()` and no constructor is involved.
 
 See `specs/guides/LANGUAGE-INTEGRATION_GUIDE.md` §VALUE for the procedure.
+
+### Reading a foreign value back
+
+`ExtValue::deserialize_from_bytes` dispatches on static identifiers, so a foreign identifier has no
+arm there. A foreign type with a byte form registers a **decoder** instead
+(`liquers_lib::value::foreign`):
+
+```rust
+register_foreign_decoder("py.Object", decode_pickle); // fn(&[u8], &str) -> Result<Arc<dyn ForeignValue>, Error>
+```
+
+The table is process-global, because deserialization is a static method with no environment. Two
+consequences:
+
+- **A registered foreign identifier belongs to the extension.** `CombinedValue` sends it to the
+  extension before trying the base, which would otherwise read a `json` or `txt` payload as its own
+  value.
+- **Whether an environment may decode is still its registry's decision.** A type registered with no
+  data formats has no byte form in that environment, and the read path never reaches the decoder
+  for it. That is how a pickle-off Python environment refuses stored pickles.
 
 ### How a failure is typed
 
@@ -393,6 +413,7 @@ degrades on read.
 
 | Date | Change |
 |---|---|
+| 2026-10-18 | §Reading a foreign value back: the process-global foreign decoder table, and foreign identifiers routed to the extension. | `design/liquers-py/` |
 | 2026-10-17 | §Reading a value by name: `DataNode` and `ValueInterface::data_node`. | `design/liquers-mustache/` |
 | 2026-10-13 | §Reading: `F64` in `json`. Non-finite floats are written as tokens and read back by identifier, nested core floats become `null`, and `try_into_json_value` refuses (`design/value-to-json-non-finite-float/`, closing `VALUE-TO-JSON-PANICS-ON-NON-FINITE-FLOAT`). |
 | 2026-10-10 | §Seeding: a query with no filename seeds no format — the recipe no longer declares `bin` (`design/plan-step-state-metadata/`, closing `FREE-FUNCTION-EVALUATE-BAKES-A-BIN-DATA-FORMAT`). |
