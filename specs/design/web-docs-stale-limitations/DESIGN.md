@@ -13,8 +13,8 @@ created: 2026-10-17
 ---
 # Bring liquers-web's documentation up to date with the fixed limitations
 
-Bulk design (`specs/guides/autonomous_bulk_design.md`). Phases 1-4 are written but not approved, and
-nothing is implemented.
+Bulk design (`specs/guides/autonomous_bulk_design.md`), merged in #145 and implemented in #151;
+every Phase 4 step is done.
 
 ## Phase 1: High-Level Design
 
