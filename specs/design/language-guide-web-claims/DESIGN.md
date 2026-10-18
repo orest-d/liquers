@@ -3,8 +3,7 @@ id: LANGUAGE-GUIDE-WEB-CLAIMS
 kind: design
 title: Correct the Language Integration Guide's stale claims about liquers-web
 form: compact
-status: in_review
-phase: implementation
+status: complete
 readiness: ready
 autofix: eligible
 area: [docs, web]
@@ -145,9 +144,9 @@ No runtime tests. Proofs:
 
 ### Steps
 
-- [ ] 1. `specs/guides/LANGUAGE-INTEGRATION_GUIDE.md` — edits 1-4 of Phase 2 — AC-1..AC-4 greps
-- [ ] 2. Same file — bump `reviewed:`, add the History row — AC-5
-- [ ] 3. Close `LANGUAGE-GUIDE-STALE-LIQUERS-WEB-CLAIMS` (§4.3) and regenerate — `python3 scripts/docs_index.py && python3 scripts/docs_index.py --check`
+- [x] 1. `specs/guides/LANGUAGE-INTEGRATION_GUIDE.md` — edits 1-4 of Phase 2 — AC-1..AC-4 greps
+- [x] 2. Same file — bump `reviewed:`, add the History row — AC-5
+- [x] 3. Close `LANGUAGE-GUIDE-STALE-LIQUERS-WEB-CLAIMS` (§4.3) and regenerate — `python3 scripts/docs_index.py && python3 scripts/docs_index.py --check`
 
 ### Validation
 
