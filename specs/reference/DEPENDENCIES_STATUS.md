@@ -3,7 +3,7 @@ title: Status::Dependencies Specification
 kind: reference
 audience: internal
 area: [core/assets]
-reviewed: 2026-10-17
+reviewed: 2026-10-18
 ---
 # Dependencies Status Specification
 
@@ -454,6 +454,8 @@ This is the runtime dependency path for commands that discover dependencies whil
      already present, a later unknown observation is ignored instead of downgrading it.
    - If the current asset is keyed, `add_dependent_asset()` also records the current asset as an
      untracked dependent of the dependency key.
+     An untracked dependent is held weakly, and the key's list is pruned of dropped and duplicate
+     entries as it grows, so it holds at most about twice the key's live dependents (plus 16).
 
 5. **Enter dependency wait**
    - The command waits with `context.wait_for_dependency(&child)`, which delegates to
@@ -634,6 +636,7 @@ priming cannot see (`INLINE-MANAGER-DYNAMIC-DEPENDENCY-CHAIN-NESTS`).
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-18 | Flow B step 4: an untracked dependent list is pruned of dropped and duplicate entries as it grows, bounded by about twice its live dependents. | `design/dependent-asset-weak-reference-pruning/` |
 | 2026-10-17 | §What a dependency record holds: a non-keyed dependency's run-time records are inherited by its dependent; row for records a command adds at run time. | `design/search-read-dependencies/` |
 | 2026-10-12 | New §Evaluation session (one asset per dependency per evaluation; the pre-pass stops at a failed dependency; depth independent of chain length). F-1 bullet, Flow A step 5 and step 7, Flow D item 2 and §Non-blocking dependency scheduling: a locally queued dependency runs in a task of its own on the queued manager. | phase-5 (`design/dependency-resolved-once-per-evaluation/`) |
 | 2026-10-09 | Flow D: cascade cancellation, the wait no longer sets the parent's status (`fail_due_to_dependency` removed); the delegation description and glossary follow. | phase-5 (`design/asset-cancellation-outcome/`) |
