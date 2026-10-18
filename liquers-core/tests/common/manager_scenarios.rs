@@ -1328,3 +1328,250 @@ where
     assert_eq!(current.try_into_string()?, "two");
     Ok(())
 }
+
+/// Install `state` at `key` with metadata recording `dependencies`, each at its current version.
+async fn install_with_dependencies<E>(
+    envref: &EnvRef<E>,
+    key: &Key,
+    text: &str,
+    dependencies: &[&Key],
+) -> Result<(), Error>
+where
+    E: Environment<Value = Value>,
+{
+    use liquers_core::metadata::{DependencyKey, DependencyRecord, MetadataRecord};
+
+    let m = envref.get_asset_manager();
+    let mut record = MetadataRecord::new();
+    for dependency in dependencies {
+        let version = m
+            .get(dependency)
+            .await?
+            .get_metadata()
+            .await?
+            .version()
+            .ok_or_else(|| Error::general_error(format!("{dependency} has no version")))?;
+        record
+            .dependencies
+            .push(DependencyRecord::new(DependencyKey::from(*dependency), version));
+    }
+    let state = State::new()
+        .with_data(Value::from(text))
+        .with_metadata(Metadata::MetadataRecord(record));
+    m.set_state(key, state).await
+}
+
+/// Recipes for `dash.txt` and `j.txt`, so both install as `Override` (a `Source` value is never
+/// expired).
+pub async fn replacing_install_store() -> Result<AsyncMemoryStore, Error> {
+    let store = AsyncMemoryStore::new(&Key::new());
+    store
+        .set(
+            &parse_key("recipes.yaml")?,
+            b"recipes:\n  - query: greet/dash.txt\n  - query: greet/j.txt\n",
+            &Metadata::new(),
+        )
+        .await?;
+    Ok(store)
+}
+
+/// A write that replaces a keyed asset replaces its incoming dependency edges
+/// (`specs/design/replacing-write-drops-stale-dependency-edges/`). Over
+/// [`replacing_install_store`].
+///
+/// `dash.txt` is installed depending on `d`, `j` is installed depending on `dash.txt`, then
+/// `dash.txt` is replaced by a value depending on `e` only. The replacement expires `j` (its
+/// recorded version of `dash.txt` is contradicted, AC-3); a later write of `d` leaves the new
+/// value alone (AC-1); a write of `e` expires it (AC-2).
+pub async fn scenario_replacing_install_drops_unlisted_edges<E>(
+    envref: EnvRef<E>,
+) -> Result<(), Error>
+where
+    E: Environment<Value = Value>,
+{
+    let m = envref.get_asset_manager();
+    let d = parse_key("data/d.txt")?;
+    let e = parse_key("data/e.txt")?;
+    let k = parse_key("dash.txt")?;
+    let j = parse_key("j.txt")?;
+    m.set_state(&d, State::new().with_data(Value::from("d1"))).await?;
+    m.set_state(&e, State::new().with_data(Value::from("e1"))).await?;
+
+    install_with_dependencies(&envref, &k, "from d", &[&d]).await?;
+    install_with_dependencies(&envref, &j, "from k", &[&k]).await?;
+    let dependent = m.get(&j).await?;
+    assert_eq!(dependent.status().await, Status::Override);
+
+    install_with_dependencies(&envref, &k, "from e", &[&e]).await?;
+    let replaced = m.get(&k).await?;
+    assert_eq!(replaced.status().await, Status::Override);
+    assert_eq!(
+        dependent.status().await,
+        Status::Expired,
+        "replacing a key still expires the dependents its new version contradicts"
+    );
+
+    m.set_state(&d, State::new().with_data(Value::from("d2"))).await?;
+    assert_eq!(
+        replaced.status().await,
+        Status::Override,
+        "a dependency the new metadata no longer lists must not expire the key"
+    );
+
+    m.set_state(&e, State::new().with_data(Value::from("e2"))).await?;
+    assert_eq!(
+        replaced.status().await,
+        Status::Expired,
+        "a dependency the new metadata lists still expires the key"
+    );
+    Ok(())
+}
+
+/// The gate of [`register_late_dependency_commands`].
+pub struct LateGate {
+    pub entered: tokio::sync::Notify,
+    pub release: tokio::sync::Notify,
+    pub finished: tokio::sync::Notify,
+    /// The error type of the gated request for `-R/data/d.txt`, `None` when it succeeded.
+    pub outcome: std::sync::Mutex<Option<Option<liquers_core::error::ErrorType>>>,
+}
+
+impl LateGate {
+    pub fn new() -> Arc<Self> {
+        Arc::new(LateGate {
+            entered: tokio::sync::Notify::new(),
+            release: tokio::sync::Notify::new(),
+            finished: tokio::sync::Notify::new(),
+            outcome: std::sync::Mutex::new(None),
+        })
+    }
+}
+
+/// `late_dep`: signals `gate.entered`, blocks on `gate.release`, then requests `-R/data/d.txt`.
+/// `late_parent` evaluates the non-keyed `late_child`, which does what `late_dep` does — so the
+/// late request comes from an expression the keyed asset scheduled, not from the keyed run.
+pub fn register_late_dependency_commands<E>(
+    cr: &mut liquers_core::commands::CommandRegistry<E>,
+    gate: Arc<LateGate>,
+) where
+    E: Environment<Value = Value>,
+{
+    for name in ["late_dep", "late_child"] {
+        let gate = gate.clone();
+        cr.register_async_command(CommandKey::new_name(name), move |_state, _args, ctx| {
+            let gate = gate.clone();
+            Box::pin(async move {
+                gate.entered.notify_one();
+                gate.release.notified().await;
+                let result = ctx.evaluate(&q("-R/data/d.txt")).await;
+                let outcome = result.as_ref().err().map(|e| e.error_type.clone());
+                *gate.outcome.lock().expect("outcome lock") = Some(outcome);
+                gate.finished.notify_one();
+                result?;
+                Ok(Value::from("late"))
+            })
+        })
+        .expect("register late command");
+    }
+    cr.register_async_command(CommandKey::new_name("late_parent"), move |_state, _args, ctx| {
+        Box::pin(async move {
+            let child = ctx.evaluate(&q("late_child")).await?;
+            let _ = child.get().await;
+            Ok(Value::from("late parent"))
+        })
+    })
+    .expect("register late_parent");
+}
+
+/// `data/k.txt = late_dep`, `data/kc.txt = late_parent`.
+pub async fn late_dependency_store() -> Result<AsyncMemoryStore, Error> {
+    use liquers_core::recipes::{Recipe, RecipeList};
+    let mut rl = RecipeList::new();
+    rl.add_recipe(Recipe::new(
+        "late_dep/k.txt".to_string(),
+        "K".into(),
+        "requests d.txt after a gate".into(),
+    )?);
+    rl.add_recipe(Recipe::new(
+        "late_parent/kc.txt".to_string(),
+        "KC".into(),
+        "evaluates late_child, which requests d.txt after a gate".into(),
+    )?);
+    let yaml = serde_yaml::to_string(&rl)
+        .map_err(|e| Error::general_error(format!("recipes.yaml: {e}")))?;
+    let store = AsyncMemoryStore::new(&Key::new());
+    store
+        .set(&parse_key("data/recipes.yaml")?, yaml.as_bytes(), &Metadata::new())
+        .await?;
+    Ok(store)
+}
+
+/// A replaced run cannot restore a cleared edge (AC-5 of
+/// `specs/design/replacing-write-drops-stale-dependency-edges/`).
+///
+/// The keyed evaluation of `key` (`data/k.txt` or, with `via_child`, `data/kc.txt`) blocks at
+/// the gate; `set_state` replaces the key with a value recording no dependencies; the gate opens
+/// and the old run requests `-R/data/d.txt`. A later write of `d` must leave the new value alone.
+/// The request made by the replaced run itself fails as cancelled.
+pub async fn scenario_replaced_run_cannot_restore_a_cleared_edge<E>(
+    envref: EnvRef<E>,
+    gate: Arc<LateGate>,
+    via_child: bool,
+) -> Result<(), Error>
+where
+    E: Environment<Value = Value>,
+{
+    let within = |what: &'static str| async move {
+        tokio::time::sleep(std::time::Duration::from_secs(20)).await;
+        Error::general_error(format!("late-dependency scenario stalled: {what}"))
+    };
+    let m = envref.get_asset_manager();
+    let d = parse_key("data/d.txt")?;
+    let key = parse_key(if via_child { "data/kc.txt" } else { "data/k.txt" })?;
+    m.set_state(&d, State::new().with_data(Value::from("d1"))).await?;
+
+    // On the inline manager `get` evaluates in the caller's future, which blocks at the gate.
+    // The replaced run ends cancelled, which either manager may report as an error.
+    let run_env = envref.clone();
+    let run_key = key.clone();
+    let evaluation = tokio::spawn(async move {
+        if let Ok(asset) = run_env.get_asset_manager().get(&run_key).await {
+            let _ = asset.get().await;
+        }
+    });
+    tokio::select! {
+        _ = gate.entered.notified() => {}
+        e = within("the command never reached the gate") => return Err(e),
+    }
+
+    m.set_state(&key, State::new().with_data(Value::from("replacement")))
+        .await?;
+    let installed = m.get(&key).await?;
+    assert_eq!(installed.status().await, Status::Override);
+
+    gate.release.notify_one();
+    tokio::select! {
+        _ = gate.finished.notified() => {}
+        e = within("the late request never finished") => return Err(e),
+    }
+    let outcome = gate.outcome.lock().expect("outcome lock").clone();
+    if !via_child {
+        assert_eq!(
+            outcome,
+            Some(Some(liquers_core::error::ErrorType::Cancelled)),
+            "the replaced run's request must fail as cancelled"
+        );
+    }
+    tokio::select! {
+        r = evaluation => { r.map_err(|e| Error::general_error(format!("join: {e}")))?; }
+        e = within("the replaced evaluation never ended") => return Err(e),
+    }
+
+    m.set_state(&d, State::new().with_data(Value::from("d2"))).await?;
+    assert_eq!(
+        installed.status().await,
+        Status::Override,
+        "a dependency requested by the replaced run must not expire the replacement"
+    );
+    Ok(())
+}

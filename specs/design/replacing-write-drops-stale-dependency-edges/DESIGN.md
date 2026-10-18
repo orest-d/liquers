@@ -162,15 +162,33 @@ Run: `cargo test -p liquers-core --lib dependencies::tests::clear_incoming_edges
 
 ### Steps
 
-- [ ] 1. The four failing tests — commands above (AC-1, AC-4, AC-5 fail; AC-2, AC-3 pass)
-- [ ] 2. `liquers-core/src/dependencies.rs` `clear_incoming_edges`, `track_replacing_asset` —
+- [x] 1. The four failing tests — commands above (AC-1, AC-4, AC-5 fail; AC-2, AC-3 pass)
+- [x] 2. `liquers-core/src/dependencies.rs` `clear_incoming_edges`, `track_replacing_asset` —
   unit test passes
-- [ ] 3. `liquers-core/src/assets.rs` — both `set_state` step-9 call sites and the
+- [x] 3. `liquers-core/src/assets.rs` — both `set_state` step-9 call sites and the
   `track_installed` default body use `track_replacing_asset` — integration tests pass. Rollback:
   revert the three call sites.
-- [ ] 3a. `liquers-core/src/context.rs` — after `register_scheduled_dependency`, roll the edge back
+- [x] 3a. `liquers-core/src/context.rs` — after `register_scheduled_dependency`, roll the edge back
   when the run was cancelled for replacement — `replaced_run_cannot_restore_a_cleared_edge` passes
-- [ ] 4. Guide line and History row; close the issue — `python3 scripts/docs_index.py --check`
+- [x] 4. Guide line and History row; close the issue — `python3 scripts/docs_index.py --check`
+
+### Implementation notes (2026-10-18)
+
+- Step 2 reuses the existing `remove_dependent_edges` instead of adding `clear_incoming_edges`: it
+  is the same `retain_async` over `keyed_dependents` and also removes the key from
+  `expression_dependents`. That second part is needed: an expression the replaced run scheduled
+  (a non-keyed child still running) keeps the key in its attribution set, and its later requests
+  would otherwise add edges to the key again. The unit test is
+  `remove_dependent_edges_removes_only_that_dependent`.
+- Step 3a: after a replacement is mapped, the old run's `owner_key()` is already `None`, so its
+  request registers as an expression and adds no keyed edge; the rollback covers the window where
+  the owner key was read before the replacement. It is
+  `DependencyManager::unregister_scheduled_dependency` (`pub(crate)`), which also undoes an
+  expression dependency's attribution, and it keeps the edges named by the records of the asset
+  now mapped at the key. `replaced_run_cannot_restore_a_cleared_edge` runs the direct request
+  (fails before 3a on the cancellation assertion only) and the child-expression request (fails
+  without the `expression_dependents` clear), on both built-in managers. The shared bodies are in
+  `tests/common/manager_scenarios.rs`.
 
 ### Validation
 
