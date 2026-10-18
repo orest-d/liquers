@@ -2,9 +2,9 @@
 id: AXUM-QUERY-API-BASE-SLASH
 kind: design
 title: The Query API route separates its base from the query with a slash
+status: complete
 gh_pr: [147]
 form: compact
-phase: implementation
 readiness: ready
 autofix: eligible
 area: [axum]
@@ -13,6 +13,8 @@ merged: 2026-10-17
 created: 2026-10-17
 ---
 # The Query API route separates its base from the query with a slash
+
+> **Complete on 2026-10-18**: implemented and merged in #147.
 
 Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-17 backlog compaction. Phases 1-4
 are written but not approved, and nothing is implemented.
