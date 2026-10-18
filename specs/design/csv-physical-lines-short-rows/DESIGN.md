@@ -3,8 +3,7 @@ id: CSV-PHYSICAL-LINES-SHORT-ROWS
 kind: design
 workflow: liquers-project
 title: CSV errors name physical lines; short rows are padded with an aggregate warning
-status: in_review
-phase: documentation
+status: complete
 readiness: ready
 autofix: not-eligible
 area: [records]
@@ -12,6 +11,8 @@ issues: [CSV-ROW-NUMBERS-COUNT-RECORDS-AND-SHORT-ROWS-READ-AS-NULL]
 created: 2026-10-06
 ---
 # CSV errors name physical lines; short rows are padded with an aggregate warning
+
+> **Complete on 2026-10-17** (backlog compaction): Phase 5 approved by the maintainer; the implementation is merged and every source issue it completed is closed.
 
 > **Acceptance scenarios not defined.** This design predates acceptance scenarios
 > (`specs/DOCS_STRUCTURE_GUIDE.md` §5.2.1). Consider updating it: state the Phase 1 acceptance

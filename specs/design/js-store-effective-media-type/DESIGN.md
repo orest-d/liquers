@@ -3,8 +3,7 @@ id: JS-STORE-EFFECTIVE-MEDIA-TYPE
 kind: design
 workflow: liquers-project
 title: LiquersStore exposes getAssetInfo with effective media type
-status: in_review
-phase: documentation
+status: complete
 readiness: ready
 autofix: not-eligible
 area: [web]
@@ -12,6 +11,8 @@ issues: [JS-STORE-WRAPPER-HAS-NO-EFFECTIVE-MEDIA-TYPE]
 created: 2026-10-06
 ---
 # LiquersStore exposes getAssetInfo with effective media type
+
+> **Complete on 2026-10-17** (backlog compaction): Phase 5 approved by the maintainer; the implementation is merged and every source issue it completed is closed.
 
 > **Acceptance scenarios not defined.** This design predates acceptance scenarios
 > (`specs/DOCS_STRUCTURE_GUIDE.md` §5.2.1). Consider updating it: state the Phase 1 acceptance

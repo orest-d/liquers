@@ -19,6 +19,8 @@ use axum::{
 use liquers_core::context::{EnvRef, Environment};
 use std::marker::PhantomData;
 
+use crate::api_core::join_base;
+
 use super::key_handlers as kh;
 use super::query_handlers as qh;
 use super::websocket::{self as ws, WebSocketLimits};
@@ -46,7 +48,7 @@ impl<E: Environment> AssetsApiBuilder<E> {
     /// ```
     pub fn new(base_path: impl Into<String>) -> Self {
         let base_path = base_path.into();
-        let websocket_path = Some(format!("{}/ws", base_path));
+        let websocket_path = Some(join_base(&base_path, "ws"));
         Self {
             base_path,
             websocket_path,
@@ -129,7 +131,8 @@ impl<E: Environment> AssetsApiBuilder<E> {
     ///
     /// Returns a Router that can be merged into your application.
     pub fn build(self) -> Router<EnvRef<E>> {
-        let b = self.base_path.clone();
+        // A trailing `/` on the base is ignored, so every `{b}/…` route has exactly one separator.
+        let b = self.base_path.trim_end_matches('/').to_string();
         let mutations = !self.read_only;
         let admin = !self.read_only && self.admin;
         let mut router = Router::new();
@@ -264,6 +267,7 @@ impl<E: Environment> AssetsApiBuilder<E> {
 
         // ---- WebSocket: {ws}/q[/{*query}] and {ws}/key[/{*key}]; unaffected by read_only()
         if let Some(ws_path) = &self.websocket_path {
+            let ws_path = ws_path.trim_end_matches('/');
             let limits = Extension(self.websocket_limits);
             router = router
                 .route(

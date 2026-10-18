@@ -5,6 +5,8 @@ use axum::{
 use liquers_core::context::{EnvRef, Environment};
 use std::marker::PhantomData;
 
+use crate::api_core::join_base;
+
 /// Builder for Store API endpoints (/api/store/*)
 pub struct StoreApiBuilder<E: Environment> {
     base_path: String,
@@ -39,7 +41,7 @@ impl<E: Environment> StoreApiBuilder<E> {
 
         // Data endpoints (Task #25) - IMPLEMENTED
         router = router.route(
-            &format!("{}/data/{{*key}}", self.base_path),
+            &join_base(&self.base_path, "data/{*key}"),
             get(crate::store::handlers::get_data_handler::<E>)
                 .put(crate::store::handlers::put_data_handler::<E>)
                 .delete(crate::store::handlers::delete_data_handler::<E>),
@@ -47,14 +49,14 @@ impl<E: Environment> StoreApiBuilder<E> {
 
         // Metadata endpoints (Task #25) - IMPLEMENTED
         router = router.route(
-            &format!("{}/metadata/{{*key}}", self.base_path),
+            &join_base(&self.base_path, "metadata/{*key}"),
             get(crate::store::handlers::get_metadata_handler::<E>)
                 .put(crate::store::handlers::put_metadata_handler::<E>),
         );
 
         // Unified entry endpoints (Task #27) - IMPLEMENTED
         router = router.route(
-            &format!("{}/entry/{{*key}}", self.base_path),
+            &join_base(&self.base_path, "entry/{*key}"),
             get(crate::store::handlers::get_entry_handler::<E>)
                 .put(crate::store::handlers::put_entry_handler::<E>)
                 .delete(crate::store::handlers::delete_entry_handler::<E>),
@@ -63,27 +65,27 @@ impl<E: Environment> StoreApiBuilder<E> {
         // Directory operations (Task #26) - IMPLEMENTED
         router = router
             .route(
-                &format!("{}/listdir/{{*key}}", self.base_path),
+                &join_base(&self.base_path, "listdir/{*key}"),
                 get(crate::store::handlers::listdir_handler::<E>),
             )
             .route(
-                &format!("{}/is_dir/{{*key}}", self.base_path),
+                &join_base(&self.base_path, "is_dir/{*key}"),
                 get(crate::store::handlers::is_dir_handler::<E>),
             )
             .route(
-                &format!("{}/contains/{{*key}}", self.base_path),
+                &join_base(&self.base_path, "contains/{*key}"),
                 get(crate::store::handlers::contains_handler::<E>),
             )
             .route(
-                &format!("{}/keys", self.base_path),
+                &join_base(&self.base_path, "keys"),
                 get(crate::store::handlers::keys_handler::<E>),
             )
             .route(
-                &format!("{}/makedir/{{*key}}", self.base_path),
+                &join_base(&self.base_path, "makedir/{*key}"),
                 put(crate::store::handlers::makedir_handler::<E>),
             )
             .route(
-                &format!("{}/removedir/{{*key}}", self.base_path),
+                &join_base(&self.base_path, "removedir/{*key}"),
                 delete(crate::store::handlers::removedir_handler::<E>),
             );
 
@@ -91,22 +93,22 @@ impl<E: Environment> StoreApiBuilder<E> {
         if self.allow_destructive_gets {
             router = router
                 .route(
-                    &format!("{}/remove/{{*key}}", self.base_path),
+                    &join_base(&self.base_path, "remove/{*key}"),
                     get(crate::store::handlers::get_remove_handler::<E>),
                 )
                 .route(
-                    &format!("{}/removedir/{{*key}}", self.base_path),
+                    &join_base(&self.base_path, "removedir/{*key}"),
                     get(crate::store::handlers::get_removedir_handler::<E>),
                 )
                 .route(
-                    &format!("{}/makedir/{{*key}}", self.base_path),
+                    &join_base(&self.base_path, "makedir/{*key}"),
                     get(crate::store::handlers::get_makedir_handler::<E>),
                 );
         }
 
         // Upload endpoint (Task #29) - IMPLEMENTED
         router = router.route(
-            &format!("{}/upload/{{*key}}", self.base_path),
+            &join_base(&self.base_path, "upload/{*key}"),
             post(crate::store::handlers::upload_handler::<E>),
         );
 

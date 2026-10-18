@@ -2,6 +2,7 @@
 id: STORE-GUIDE-STATUS-TABLE
 kind: design
 title: Store guide status table: generator or honest hand maintenance
+status: complete
 gh_pr: [120]
 readiness: ready
 autofix: not-eligible
@@ -10,6 +11,8 @@ issues: [STORE-GUIDE-STATUS-TABLE-HAS-NO-GENERATOR]
 created: 2026-10-06
 ---
 # Store guide status table: generator or honest hand maintenance
+
+> **Complete on 2026-10-17** (backlog compaction): implemented by #120, merged; every source issue is closed and no phase is outstanding.
 
 > **Acceptance scenarios not defined.** This design predates acceptance scenarios
 > (`specs/DOCS_STRUCTURE_GUIDE.md` §5.2.1). Consider updating it: state the Phase 1 acceptance

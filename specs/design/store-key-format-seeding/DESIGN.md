@@ -2,6 +2,7 @@
 id: STORE-KEY-FORMAT-SEEDING
 kind: design
 title: Every store seeds the data format from the key's extension when the metadata names none
+status: complete
 form: compact
 gh_pr: [122]
 readiness: ready
@@ -11,6 +12,8 @@ issues: [STORES-DISAGREE-ON-SEEDING-THE-DATA-FORMAT-FROM-THE-KEY]
 created: 2026-10-08
 ---
 # Every store seeds the data format from the key's extension when the metadata names none
+
+> **Complete on 2026-10-17** (backlog compaction): implemented by #122, merged; every source issue is closed and no phase is outstanding.
 
 Produced under [`guides/autonomous_bulk_design.md`](../../guides/autonomous_bulk_design.md) by the
 2026-10-08 backlog compaction: Phases 1-4, reviewed without phase approval. Not an approval and not

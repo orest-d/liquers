@@ -490,6 +490,16 @@ pub struct Context<E: Environment> {
 
     /// Cancellation request of the asset this context evaluates, shared with the asset.
     cancellation: Arc<CancellationRequest>,
+
+    /// Every asset this evaluation resolved (scheduled, submitted or applied), with a short
+    /// description for the log. [`Self::check_resolved_volatility`] reads their metadata at the
+    /// end of the run, so a dependency that turned volatile is caught however the command waited
+    /// for it. Shared across context clones, like `pending_dependencies`.
+    resolved_dependencies: Arc<Mutex<Vec<(String, AssetRef<E>)>>>,
+
+    /// Mirrors the asset's volatility flag once [`Self::set_volatile`] has recorded it, so
+    /// [`Self::is_volatile`] can stay synchronous. The asset remains the authority.
+    volatile_set: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl<E: Environment> Context<E> {
@@ -514,6 +524,8 @@ impl<E: Environment> Context<E> {
             evaluation_session,
             active_payload_queries: Arc::new(tokio::sync::Mutex::new(Vec::new())),
             cancellation,
+            resolved_dependencies: Arc::new(Mutex::new(Vec::new())),
+            volatile_set: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }
     }
 
@@ -678,6 +690,7 @@ impl<E: Environment> Context<E> {
                 .add_dependent_asset(&query_dep_key, self.assetref.downgrade())
                 .await;
         }
+        self.note_resolved(query.encode(), &asset);
         self.add_dependency(DependencyRecord::new(query_dep_key, version))
             .await;
 
@@ -735,6 +748,7 @@ impl<E: Environment> Context<E> {
             .get_dependency_asset_with_payload(&self.assetref, query, payload, child_path)
             .await?;
 
+        self.note_resolved(query.encode(), &asset);
         // A payload asset may have dependencies even though it may not be one.
         self.add_dependency(DependencyRecord::new(query_dep_key, version))
             .await;
@@ -765,6 +779,17 @@ impl<E: Environment> Context<E> {
         let envref = self.assetref.get_envref().await;
         let manager = envref.get_asset_manager();
         let state = manager.wait_for_dependency(&self.assetref, asset).await?;
+        if state.metadata.is_volatile() && !self.is_volatile() {
+            // A volatile dependency makes this evaluation volatile. Recorded as soon as the value
+            // is in hand, so `is_volatile()` answers truthfully for the rest of the command;
+            // `check_resolved_volatility` catches the dependencies waited for some other way.
+            let description = match dep_key {
+                Some(dep_key) => dep_key.to_string(),
+                None => format!("asset {}", asset.id()),
+            };
+            self.set_volatile(&format!("dependency {} is volatile", description))
+                .await?;
+        }
         if let Some(dep_key) = dep_key {
             // A non-keyed dependency (a cut predecessor, a link, a query a command evaluates) is
             // not a node anything is expired through: the records its run added stay on its own
@@ -889,6 +914,7 @@ impl<E: Environment> Context<E> {
             .get_asset_manager()
             .apply_for(&self.assetref, (&query).into(), to, self.payload.clone())
             .await?;
+        self.note_resolved(format!("apply {}", query.encode()), &asset);
         // `apply_for` returns a failed asset; a failure is still this call's error.
         asset.get().await?;
         Ok(asset)
@@ -905,11 +931,8 @@ impl<E: Environment> Context<E> {
     /// evaluation is returned as its error, not as a failed asset, after its dependencies are
     /// passed on.
     ///
-    /// Volatility is not passed on, exactly as [`Self::get_dependency_state`] does not pass it on:
-    /// it is fixed before evaluation starts (`design/volatility-system`, decision 4). A volatile
-    /// ad-hoc plan records no dependencies, so a caller that applies a volatile query declares its
-    /// own command `volatile`, or the query that reaches it has `v` before that command (a trailing
-    /// `v` serves the cached prefix). See `RUNTIME-VOLATILE-DEPENDENCY-DOES-NOT-MAKE-PARENT-VOLATILE`.
+    /// Volatility is passed on, as for every asset this context resolves: if the ad-hoc result is
+    /// volatile, the current asset finishes volatile too (`specs/design/runtime-volatility/`).
     pub async fn apply_ad_hoc(
         &self,
         recipe: Recipe,
@@ -925,6 +948,7 @@ impl<E: Environment> Context<E> {
             .get_asset_manager()
             .apply_for(&self.assetref, recipe, to, self.payload.clone())
             .await?;
+        self.note_resolved(format!("apply {}", query.encode()), &asset);
         let outcome = asset.get().await;
         // Passed on before a failure is returned: a caller that recovers the error (a template in
         // `expand` mode) is still invalidated when what the failed query read changes.
@@ -967,8 +991,66 @@ impl<E: Environment> Context<E> {
     }
 
     /// Returns whether this context is evaluating a volatile asset.
+    ///
+    /// True when the plan was volatile, and from the moment [`Self::set_volatile`] has recorded
+    /// volatility during the run — by the command itself, or by this context on seeing a
+    /// volatile dependency.
     pub fn is_volatile(&self) -> bool {
         self.is_volatile
+            || self
+                .volatile_set
+                .load(std::sync::atomic::Ordering::Acquire)
+    }
+
+    /// Records on the asset this command is producing that it is volatile: its value is used once,
+    /// is not reused from the asset maps and is not stored as loadable. `reason` goes into the
+    /// asset's log once.
+    ///
+    /// The asset's metadata is the authority on volatility; this writes it at once, so the
+    /// asset finishes `Status::Volatile` however the command ends. A command calls it when it
+    /// decides its result is volatile. The context calls it itself when a dependency it resolved
+    /// is volatile (`specs/design/runtime-volatility/`), so a command that only reads volatile
+    /// queries does not need to.
+    pub async fn set_volatile(&self, reason: &str) -> Result<(), Error> {
+        self.assetref.set_volatile_during_run(reason).await?;
+        self.volatile_set
+            .store(true, std::sync::atomic::Ordering::Release);
+        Ok(())
+    }
+
+    /// Notes an asset this evaluation resolved, for [`Self::check_resolved_volatility`].
+    pub(crate) fn note_resolved(&self, description: String, asset: &AssetRef<E>) {
+        self.resolved_dependencies
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .push((description, asset.clone()));
+    }
+
+    /// Makes the asset volatile if any asset this evaluation resolved is volatile by its metadata.
+    ///
+    /// Called by `AssetRef::compute` when the command has returned, before the result is
+    /// finalized. Reading the metadata at the end catches a dependency that only turned volatile
+    /// during its own run, and a command that waited with `AssetRef::get` rather than
+    /// [`Self::wait_for_dependency`]. A dependency still running is judged by what its metadata
+    /// says now: volatile if its plan was.
+    pub(crate) async fn check_resolved_volatility(&self) -> Result<(), Error> {
+        if self.is_volatile() {
+            return Ok(());
+        }
+        let resolved: Vec<(String, AssetRef<E>)> = self
+            .resolved_dependencies
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .clone();
+        for (description, asset) in resolved {
+            let volatile = asset.data.read().await.metadata.is_volatile();
+            if volatile {
+                return self
+                    .set_volatile(&format!("dependency {} is volatile", description))
+                    .await;
+            }
+        }
+        Ok(())
     }
 
     /// Whether cancellation of the asset this command is evaluating has been requested.
@@ -1013,6 +1095,8 @@ impl<E: Environment> Context<E> {
             evaluation_session: self.evaluation_session.clone(),
             active_payload_queries: self.active_payload_queries.clone(),
             cancellation: self.cancellation.clone(),
+            resolved_dependencies: self.resolved_dependencies.clone(),
+            volatile_set: self.volatile_set.clone(),
         }
     }
 
@@ -1094,6 +1178,8 @@ impl<E: Environment> Context<E> {
             evaluation_session: self.evaluation_session.clone(),
             active_payload_queries: self.active_payload_queries.clone(),
             cancellation: self.cancellation.clone(),
+            resolved_dependencies: self.resolved_dependencies.clone(),
+            volatile_set: self.volatile_set.clone(),
         }
     }
     /// Returns the current working key used for relative query resolution.
@@ -1346,6 +1432,8 @@ impl<E: Environment> Clone for Context<E> {
             evaluation_session: self.evaluation_session.clone(),
             active_payload_queries: self.active_payload_queries.clone(),
             cancellation: self.cancellation.clone(),
+            resolved_dependencies: self.resolved_dependencies.clone(),
+            volatile_set: self.volatile_set.clone(),
         }
     }
 }
@@ -1865,6 +1953,8 @@ mod tests {
                 evaluation_session: crate::evaluation_session::EvaluationSession::new(),
                 active_payload_queries: Arc::new(tokio::sync::Mutex::new(Vec::new())),
                 cancellation: Arc::new(CancellationRequest::new()),
+                resolved_dependencies: Arc::new(Mutex::new(Vec::new())),
+                volatile_set: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             },
             service_rx,
         )

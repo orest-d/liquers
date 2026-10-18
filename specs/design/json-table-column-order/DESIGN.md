@@ -3,8 +3,7 @@ id: JSON-TABLE-COLUMN-ORDER
 kind: design
 workflow: liquers-project
 title: Schema-less JSON reads use a stable, sorted column order
-status: in_review
-phase: documentation
+status: complete
 readiness: ready
 autofix: not-eligible
 area: [records]
@@ -12,6 +11,8 @@ issues: [SCHEMA-LESS-JSON-READS-SORT-COLUMNS-ALPHABETICALLY]
 created: 2026-10-06
 ---
 # Schema-less JSON reads use a stable, sorted column order
+
+> **Complete on 2026-10-17** (backlog compaction): Phase 5 approved by the maintainer; the implementation is merged and every source issue it completed is closed.
 
 > **Acceptance scenarios not defined.** This design predates acceptance scenarios
 > (`specs/DOCS_STRUCTURE_GUIDE.md` §5.2.1). Consider updating it: state the Phase 1 acceptance

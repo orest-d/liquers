@@ -1,5 +1,6 @@
 //! Query API routes (`QueryApiBuilder`), including `with_timeout`. Design:
-//! `specs/design/axum-assets-endpoints/` (Phase 3, QAR01–QAR07).
+//! `specs/design/axum-assets-endpoints/` (Phase 3, QAR01–QAR07); QAR09–QAR12:
+//! `specs/design/axum-query-api-base-slash/`.
 
 use axum::{body::{to_bytes, Body}, http::{Request, StatusCode}};
 use liquers_axum::query::QueryApiBuilder;
@@ -127,4 +128,64 @@ async fn qar08_timeout_bounds_inline_evaluation() {
         started.elapsed() < std::time::Duration::from_secs(2),
         "the request must end at the timeout, not after the 5 s evaluation"
     );
+}
+
+/// A base without a trailing `/` must not leave the separating `/` on the query: the timeout
+/// envelope reports the evaluated query. Design: `specs/design/axum-query-api-base-slash/` (AC-1).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn qar09_base_without_slash_evaluates_query_without_leading_slash() {
+    let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+    env.command_registry
+        .register_command(CommandKey::new_name("slow"), |_, _, _| {
+            std::thread::sleep(std::time::Duration::from_millis(500));
+            Ok(Value::from("done"))
+        })
+        .unwrap();
+    let app = QueryApiBuilder::<SimpleEnvironment<Value>>::new("/q")
+        .with_timeout(std::time::Duration::from_millis(100))
+        .build()
+        .with_state(env.to_ref());
+    let (status, json) = send(app, "GET", "/q/slow").await;
+    assert_ne!(status, StatusCode::OK, "the 100ms timeout must fire before the 500ms sleep finishes");
+    assert_eq!(json["error"]["query"], "slow");
+}
+
+/// The base is a whole path segment: `/qmake_text` is not `/q` + `make_text` (AC-3).
+#[tokio::test]
+async fn qar11_base_is_a_whole_segment() {
+    let app = QueryApiBuilder::<SimpleEnvironment<Value>>::new("/q").build().with_state(env_with_commands());
+    let (status, _) = send(app, "GET", "/qmake_text").await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+/// `"/q"` and `"/q/"` are the same route, for GET and POST (AC-2).
+#[tokio::test]
+async fn qar10_base_with_and_without_trailing_slash_are_the_same_route() {
+    for base in ["/q", "/q/"] {
+        for method in ["GET", "POST"] {
+            let app = QueryApiBuilder::<SimpleEnvironment<Value>>::new(base).build().with_state(env_with_commands());
+            let resp = app
+                .oneshot(Request::builder().method(method).uri("/q/make_text").body(Body::empty()).unwrap())
+                .await
+                .unwrap();
+            assert_eq!(resp.status(), StatusCode::OK, "base {base:?}, {method}");
+            let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+            assert_eq!(body.as_ref(), b"generated", "base {base:?}, {method}");
+        }
+    }
+}
+
+/// A root base, spelled `""` or `"/"`, serves the query at `/` (AC-4).
+#[tokio::test]
+async fn qar12_root_base() {
+    for base in ["", "/"] {
+        let app = QueryApiBuilder::<SimpleEnvironment<Value>>::new(base).build().with_state(env_with_commands());
+        let resp = app
+            .oneshot(Request::builder().method("GET").uri("/make_text").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK, "base {base:?}");
+        let body = to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        assert_eq!(body.as_ref(), b"generated", "base {base:?}");
+    }
 }

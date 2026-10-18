@@ -2,9 +2,9 @@
 id: SIMPLE-VALUE-UNTYPED-AND-SCALAR-READS
 kind: design
 title: liquers-lib's base value reads untyped files as Bytes and textual scalars as their type
+status: complete
 form: compact
 gh_pr: [91]
-phase: implementation
 readiness: ready
 autofix: eligible
 area: [lib/value]
@@ -13,6 +13,8 @@ merged: 2026-10-08
 created: 2026-10-08
 ---
 # liquers-lib's base value reads untyped files as Bytes and textual scalars as their type
+
+> **Complete on 2026-10-17** (backlog compaction): implemented by #91, merged; every source issue is closed and no phase is outstanding.
 
 Produced under [`guides/autonomous_bulk_design.md`](../../guides/autonomous_bulk_design.md) by the
 2026-10-08 backlog compaction: Phases 1-4, reviewed without phase approval. Not an approval and not

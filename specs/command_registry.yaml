@@ -1,7 +1,7 @@
 # Liquers command registry — GENERATED, do not edit by hand.
 # Regenerate: cargo run -p liquers-lib --features cli --bin export-command-registry -- \
 #               --format yaml -o specs/command_registry.yaml
-# Origin:   groups=core,lui,egui,image,polars,records,search,template,store_config  features=egui,image,polars,records,template
+# Origin:   groups=core,lui,egui,image,polars,records,search,template,store_config  features=egui,image-support,polars,records,templates
 # Commands: 161
 # CHANGELOG-BEGIN
 # 2026-08-02  initial export (95 commands: img 47, pl 26, lui 14, root 6, dep 2)
@@ -41,6 +41,8 @@
 #             commands_doc and ns-search/commands omit the store_config realm.
 # 2026-10-17  template group: template/render, template/expand, template/validate
 #             (liquers-lib, feature templates; design/liquers-mustache).
+# 2026-10-17  header only: Origin features= names cargo features (image-support, templates),
+#             not group names. design/command-registry-header-feature-names
 # CHANGELOG-END
 commands:
 - realm: store_config

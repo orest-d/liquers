@@ -2,9 +2,8 @@
 id: TEXT-VALUE-MARKDOWN-FORMAT
 kind: design
 title: Markdown as a data format of the Text value
+status: complete
 workflow: liquers-project
-status: in_review
-phase: documentation
 readiness: ready
 autofix: not-eligible
 area: [core/value]
@@ -13,6 +12,8 @@ affects_docs: [guides/TYPE_SYSTEM_GUIDE.md]
 created: 2026-10-04
 ---
 # text-value-markdown-format Design Tracking
+
+> **Complete on 2026-10-17** (backlog compaction): Phase 5 approved by the maintainer; the implementation is merged and every source issue it completed is closed.
 
 > **Acceptance scenarios not defined.** This design predates acceptance scenarios
 > (`specs/DOCS_STRUCTURE_GUIDE.md` §5.2.1). Consider updating it: state the Phase 1 acceptance

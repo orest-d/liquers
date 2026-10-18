@@ -82,6 +82,7 @@ volatility work all landed in `assets.rs`.
 - **Weak references in the expiration monitor** — built → [`design/expiration-monitor-assetref/`](design/expiration-monitor-assetref/)
 - **Expired-safe binary reads** — built → [`design/expired-binary-read-safety/`](design/expired-binary-read-safety/)
 - **Volatility tracking** — built → [`design/volatility-system/`](design/volatility-system/)
+- **Volatility discovered at run time (a volatile value a command reads through its context makes its result volatile)** — built → [`reference/ASSETS.md`](reference/ASSETS.md), [`reference/ASSET_LIFECYCLE.md`](reference/ASSET_LIFECYCLE.md) *(design in [`design/runtime-volatility/`](design/runtime-volatility/); `Context::set_volatile`)*
 - **Versions for computed keyed assets, and dependency audit** — built → [`design/keyed-expiry-cascade-fix/`](design/keyed-expiry-cascade-fix/) *(contract and audit policies in [`reference/DEPENDENCIES_STATUS.md`](reference/DEPENDENCIES_STATUS.md))*
 - **Keyed-recipe ownership** — built → [`design/keyed-recipe-ownership/`](design/keyed-recipe-ownership/)
 - **Keyed delegation as a hand-off** — built → [`design/keyed-delegation-hand-off/`](design/keyed-delegation-hand-off/) *(rule documented in [`reference/DEPENDENCIES_STATUS.md`](reference/DEPENDENCIES_STATUS.md))*
@@ -307,16 +308,20 @@ deliberately folded behind a broader line.
 - design `asset-manager-insert-key-asset-semantics`
 - design `async-memory-store-prefix-support`
 - design `async-store-wrapper-docs`
+- design `axum-query-api-base-slash`
 - design `axum-recipes-metadata-entry`
 - design `axum-store-keys-deep`
 - design `axum-store-makedir-test-unignore`
 - design `axum-store-upload-metadata`
 - design `build-matrix-ci`
+- design `build-matrix-disk-budget`
 - design `build-sysinfo-rustc-compatibility`
 - design `combined-value-default-extension`
+- design `combined-value-shared-data-node`
 - design `command-cache-flag`
 - design `command-declaration`
 - design `command-metadata-descriptions-and-hints`
+- design `command-registry-header-feature-names`
 - design `command-registry-impl-version-freshness`
 - design `command-registry-issue-fields-coverage`
 - design `command-registry-issue-fields`
@@ -330,11 +335,14 @@ deliberately folded behind a broader line.
 - design `core-tracing-migration`
 - design `core-value-enum-oversized`
 - design `csv-physical-lines-short-rows`
+- design `cwd-default-link-silent-root`
+- design `cwd-less-recipe-analysed-at-root`
 - design `default-asset-manager-recipe-opt-payload-check`
 - design `delegated-value-persistence`
 - design `delegated-value-repersisted`
 - design `dependency-edge-superseded-version`
 - design `dependency-failure-error-subject`
+- design `dependent-asset-weak-reference-pruning`
 - design `designer-init-argument-parsing`
 - design `docs-current-link-validation`
 - design `docs-dead-links`
@@ -344,8 +352,10 @@ deliberately folded behind a broader line.
 - design `environment-manager-reference-cycle`
 - design `error-store-name-payload`
 - design `error-with-key-field`
+- design `evaluation-session-volatile-test-flake`
 - design `expiration-integration-suite-failing-at-head`
 - design `ext-value-description-completeness`
+- design `external-manager-evaluation-session-sharing`
 - design `external-manager-replacement-surface`
 - design `finished-asset-progress-contract`
 - design `foreign-value-type-registration`
@@ -355,6 +365,7 @@ deliberately folded behind a broader line.
 - design `json-orient-index-column-collision`
 - design `json-table-column-order`
 - design `language-guide-web-claims`
+- design `lib-build-warning-cleanup`
 - design `lib-integration-test-feature-gates`
 - design `lib-polars-ethnum-rust-1-98`
 - design `liquers-web-records-bridge`
@@ -366,6 +377,7 @@ deliberately folded behind a broader line.
 - design `metadata-error-traceback`
 - design `metadata-only-entry-reload`
 - design `metadata-serde-partialeq`
+- design `new-folder-write-ancestor-listing-refresh`
 - design `null-cell-string-option`
 - design `opendal-derived-store-arguments`
 - design `opendal-feature-without-async-store`
@@ -377,6 +389,7 @@ deliberately folded behind a broader line.
 - design `plan-split-predecessor-fields`
 - design `polars-doc-example-namespace`
 - design `predecessor-cut-equivalence`
+- design `py-value-arc-payloads`
 - design `pyo3-python-3-13-support`
 - design `query-leading-slash-field`
 - design `queued-manager-conditional-eviction`
@@ -388,11 +401,16 @@ deliberately folded behind a broader line.
 - design `register-all-commands-feature-gating`
 - design `register-command-option-value`
 - design `register-command-payload-docs`
+- design `registry-query-default-text-form`
+- design `replacing-write-drops-stale-dependency-edges`
+- design `root-listing-dependency-key-spelling`
 - design `save-to-store-skip-outcome`
+- design `search-catalog-single-metadata-read`
 - design `sidecar-colliding-keys`
 - design `simple-value-serializer-parity`
 - design `simple-value-untyped-and-scalar-reads`
 - design `state-argument-serde-default`
+- design `step-volatility-impl-removal`
 - design `store-conformance-suite`
 - design `store-conformance-warning-cleanup`
 - design `store-guide-status-table`
@@ -406,10 +424,12 @@ deliberately folded behind a broader line.
 - design `stubs01-class-detection`
 - design `submit-eagerness-documentation`
 - design `supplied-expired-status-reason`
+- design `template-non-scalar-text-form`
 - design `text-value-markdown-format`
 - design `type-info-write-only-formats`
 - design `ui-query-console-error-highlight`
 - design `value-type-system`
+- design `variadic-empty-element-conversion`
 - design `variadic-metadata-tail-check`
 - design `web-docs-stale-limitations`
 - design `web-environ-validation-report`

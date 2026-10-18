@@ -2,6 +2,7 @@
 id: METADATA-ERROR-TRACEBACK
 kind: design
 title: Error traceback in metadata log entries
+status: complete
 readiness: ready
 autofix: not-eligible
 area: [core/value, core/error]
@@ -11,6 +12,8 @@ created: 2026-08-29
 superseded_by:
 ---
 # metadata-error-traceback Design Tracking
+
+> **Complete on 2026-10-17** (backlog compaction): implemented by #113, merged; every source issue is closed and no phase is outstanding.
 
 > **Acceptance scenarios not defined.** This design predates acceptance scenarios
 > (`specs/DOCS_STRUCTURE_GUIDE.md` §5.2.1). Consider updating it: state the Phase 1 acceptance

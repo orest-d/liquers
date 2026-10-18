@@ -3,8 +3,7 @@ id: COMMAND-CACHE-FLAG
 kind: design
 workflow: liquers-project
 title: Remove the unread CommandMetadata.cache flag
-status: in_review
-phase: documentation
+status: complete
 readiness: ready
 autofix: not-eligible
 area: [core/commands, macro]
@@ -12,6 +11,8 @@ issues: [COMMAND-CACHE-FLAG-IS-DECLARED-BUT-NEVER-READ]
 created: 2026-10-06
 ---
 # Remove the unread CommandMetadata.cache flag
+
+> **Complete on 2026-10-17** (backlog compaction): Phase 5 approved by the maintainer; the implementation is merged and every source issue it completed is closed.
 
 > **Acceptance scenarios not defined.** This design predates acceptance scenarios
 > (`specs/DOCS_STRUCTURE_GUIDE.md` §5.2.1). Consider updating it: state the Phase 1 acceptance

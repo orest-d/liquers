@@ -65,11 +65,9 @@ Choose the error mode with `errors`: `strict` while developing, `expand_md` or `
 every failure in the output at once, `silent` for best-effort output. Every recovered error is also
 a warning in the result's log.
 
-**Volatility.** A render is cached like any other query. A template whose queries are volatile does
-not make the render volatile (`RUNTIME-VOLATILE-DEPENDENCY-DOES-NOT-MAKE-PARENT-VOLATILE`): start the
-render query's actions with `v/` (`v/ns-template/render-…`), or declare the template command
-`volatile`, when every evaluation must recompute. A trailing `/v` is not enough: `v` is positional,
-so it serves the cached render ahead of it.
+**Volatility.** A render is cached like any other query, unless one of the template's queries is
+volatile: then the render is volatile too and recomputes on every request
+(`design/runtime-volatility`). You do not need `v/` or a `volatile` declaration for that.
 
 ## 3. Template commands
 
@@ -137,5 +135,6 @@ stack, query templates, hosts and error modes are shared.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-17 | Volatility advice relaxed: a volatile query in a template makes the render volatile by itself. | `design/runtime-volatility` |
 | 2026-10-17 | Corrected the volatility advice: `v` goes before the render action; a trailing `/v` serves the cached render. | `RUNTIME-VOLATILE-DEPENDENCY-DOES-NOT-MAKE-PARENT-VOLATILE` |
 | 2026-10-17 | Created: writing and validating templates, `render` and `expand`, template commands, rendering from Rust, data nodes, adding a syntax. | `design/liquers-mustache/` |

@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: S
 area: [core/assets]
-design: 
+design: external-manager-evaluation-session-sharing
 created: 2026-10-12
 github:
 ---
@@ -20,6 +20,13 @@ dependency its parent's session before the dependency starts. `DefaultAssetManag
 An `AssetManager` implemented outside `liquers-core` (`liquers-core/tests/common/minimal_manager.rs`
 `MinimalInlineAssetManager`, or one in another crate) cannot call it. Each dependency it runs
 therefore begins a session of its own.
+
+## Problem Example
+
+With recipes `v = tick` (volatile), `a = -R/data/v.txt/-/upper`, `b` the same, and
+`c = -R/data/a.txt/-/join-~X~-R/data/b.txt~E`, evaluate `-R/data/c.txt` on
+`MinimalInlineAssetManager`. Today `a` and `b` each begin their own session, so `tick` can run
+twice and the two halves of `c` can differ. It should run once, as on the built-in managers.
 
 ## Impact
 
