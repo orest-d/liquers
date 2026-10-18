@@ -4,6 +4,7 @@ kind: design
 title: Pin what an i64 beyond the safe-integer range does when it leaves for JavaScript
 form: compact
 status: complete
+gh_pr: [154]
 readiness: ready
 autofix: eligible
 area: [web]
