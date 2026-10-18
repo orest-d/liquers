@@ -2,6 +2,8 @@
 
 import threading
 
+import pytest
+
 import liquers as lq
 from conftest import na
 
@@ -43,3 +45,42 @@ def test_RUNTIME_two_threads_evaluate_concurrently(env):
     for thread in threads:
         thread.join(timeout=20)
     assert results == {1: 1, 2: 2}
+
+
+def test_RUNTIME05_cancellation_and_shutdown_release_handles():
+    """What is released today: the callables of an environment that was never built."""
+    assert hasattr(lq.Environment, "live_handle_count"), "build with --features debug-handles"
+    baseline = lq.Environment.live_handle_count()
+    environment = lq.Environment()
+
+    @environment.first_command
+    def kept():
+        return 1
+
+    @environment.first_command
+    def dropped():
+        return 2
+
+    assert lq.Environment.live_handle_count() == baseline + 2
+    assert environment.unregister("dropped")
+    assert lq.Environment.live_handle_count() == baseline + 1
+    environment.shutdown()
+    assert lq.Environment.live_handle_count() == baseline
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="BLOCKED: ENVIRONMENT-MANAGER-REFERENCE-CYCLE: a built environment and its asset "
+    "manager hold each other with strong Arcs, so its registry and callables are never freed",
+)
+def test_RUNTIME05_built_environment_releases_handles_on_shutdown():
+    baseline = lq.Environment.live_handle_count()
+    environment = lq.Environment()
+
+    @environment.first_command
+    def kept():
+        return 1
+
+    assert environment.evaluate("kept") == 1
+    environment.shutdown()
+    assert lq.Environment.live_handle_count() == baseline

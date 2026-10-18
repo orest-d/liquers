@@ -166,6 +166,12 @@ prerequisite issues.
   - the `debug-handles` feature and `Environment.live_handle_count`;
   - `scripts/test-liquers-py.sh`: install `polars` and `pillow`, then run
     `maturin develop --features debug-handles`.
+- **Found while implementing:** a *built* environment never releases its callables, because the
+  environment and its asset manager hold each other with strong `Arc`s
+  (`ENVIRONMENT-MANAGER-REFERENCE-CYCLE`, design in implementation). `RUNTIME05` therefore asserts
+  what is released today (an environment that was never built), and its built-environment half is
+  a strict `xfail` marked BLOCKED with that issue, so it fails loudly once the cycle is fixed.
+  Retired environments leak the same way, so each late registration costs one environment.
 - **Depends on:** step 9.
 - **Proof:** `test_RUNTIME05`, and `test_VALUE08` running rather than skipped.
 - **Rollback:** revert. RUNTIME05 is marked BLOCKED.
