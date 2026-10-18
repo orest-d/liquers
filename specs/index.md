@@ -8,9 +8,9 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 127
+Total rows: 128
 - P2: 54
-- P3: 73
+- P3: 74
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -81,6 +81,7 @@ Total rows: 127
 | [`SEARCH-CATALOG-READS-EACH-FILE-METADATA-TWICE`](issues/SEARCH-CATALOG-READS-EACH-FILE-METADATA-TWICE.md) | issue | ns-search/catalog reads each file's metadata twice, once for its info and once for its version | draft | needs-decision | not-eligible | P3 | S | lib/commands;core/assets | [design](design/search-catalog-single-metadata-read/DESIGN.md) | 2026-10-17 |
 | [`CORE-WASM-BUILD-EMITS-UNUSED-WARNINGS`](issues/CORE-WASM-BUILD-EMITS-UNUSED-WARNINGS.md) | issue | A wasm32 build of liquers-core emits five unused-import and dead-code warnings | draft |  |  | P3 | S | core/assets;build |  | 2026-10-17 |
 | [`DEPENDENCY-MANAGER-VERSION-NOT-OBSERVABLE-FROM-TESTS`](issues/DEPENDENCY-MANAGER-VERSION-NOT-OBSERVABLE-FROM-TESTS.md) | issue | An integration test cannot ask the dependency manager whether a key has a registered version | draft |  |  | P3 | S | core/assets |  | 2026-10-17 |
+| [`RECIPE-ONLY-FOLDER-NAMES-HIDE-A-CREATED-FOLDER-FROM-ITS-PARENT`](issues/RECIPE-ONLY-FOLDER-NAMES-HIDE-A-CREATED-FOLDER-FROM-ITS-PARENT.md) | issue | A recipe provider that lists names in a folder with no stored file can leave the parent listing stale after a write | draft |  |  | P3 | S | core/assets |  | 2026-10-18 |
 | [`TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS`](issues/TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS.md) | issue | TypeInfo cannot declare a format a type writes but cannot read back | draft |  |  | P3 | S | core/value |  | 2026-09-24 |
 | [`WEB-STORE-CONFORMANCE-TEST-GAPS`](issues/WEB-STORE-CONFORMANCE-TEST-GAPS.md) | issue | liquers-web's STORE tests are narrower than the guide's prescribed contracts | draft | ready | eligible | P3 | M | web;core/store | [design](design/web-store-conformance-tests/DESIGN.md) | 2026-10-17 |
 | [`PY-VALUE-ENUM-OVERSIZED`](issues/PY-VALUE-ENUM-OVERSIZED.md) | issue | liquers-py's own Value enum is over 700 bytes because large variants are stored inline | draft | ready | not-eligible | P3 | M | py | [design](design/py-value-arc-payloads/DESIGN.md) | 2026-10-12 |

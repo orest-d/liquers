@@ -2024,21 +2024,21 @@ async fn refresh_one_listing<E: Environment, M: AssetManager<E> + ?Sized>(
     }
 }
 
-/// Whether the listing of any strict ancestor of `dir` (up to and including the root) has a
-/// registered version. Version-map reads only, no I/O.
-async fn has_registered_ancestor_listing<E: Environment, M: AssetManager<E> + ?Sized>(
+/// The nearest strict ancestor of `dir` (up to and including the root) whose listing has a
+/// registered version, if any. Version-map reads only, no I/O.
+async fn nearest_registered_ancestor_listing<E: Environment, M: AssetManager<E> + ?Sized>(
     manager: &M,
     dir: &Key,
-) -> bool {
+) -> Option<Key> {
     let mut ancestor = dir.clone();
     while !ancestor.is_empty() {
         ancestor = ancestor.parent();
         let dep_key = crate::metadata::DependencyKey::from_dir_key(&ancestor);
         if manager.dependency_manager().get_version(&dep_key).await.is_some() {
-            return true;
+            return Some(ancestor);
         }
     }
-    false
+    None
 }
 
 /// The stored-records walk behind [`AssetManager::stored_dependency_state`]: iterative, with an
@@ -7009,7 +7009,13 @@ pub trait AssetManager<E: Environment>:
     /// level only when that level's old or new listing is empty (the level may have been created
     /// or removed), and past an unregistered level only when some higher level is registered;
     /// otherwise it stops. An ordinary write into an existing, non-empty folder therefore still
-    /// reads one listing, and a write under no registered listing reads none.
+    /// reads one listing, and a write under no registered listing reads none. The emptiness test
+    /// reads the merged listing ([`Self::listdir`]); it stands for the stored one because the
+    /// in-tree recipe providers list names in a folder only from a file stored in that folder
+    /// (`recipes.yaml`, `*.manifest.yaml`). A provider listing names in a folder with no stored
+    /// file breaks that (`RECIPE-ONLY-FOLDER-NAMES-HIDE-A-CREATED-FOLDER-FROM-ITS-PARENT`). Levels
+    /// found unregistered on the way to the nearest registered ancestor are looked up once, so a
+    /// deep new path costs version-map reads linear in its depth.
     ///
     /// Each visited level first tells the recipe provider that it changed
     /// ([`AsyncRecipeProvider::directory_changed`]), so a provider caching directory-derived
@@ -7020,15 +7026,31 @@ pub trait AssetManager<E: Environment>:
     async fn refresh_listing_version(&self, dir: &Key) {
         let empty_listing = crate::dependencies::DependencyManager::<E>::listing_version(&[]);
         let mut level = dir.clone();
+        // The registered ancestor found from an unregistered level: the levels below it were
+        // just looked up and found unregistered, so they are climbed without a second lookup,
+        // which keeps a deep new path linear in its depth.
+        let mut registered_above: Option<Key> = None;
         loop {
             self.get_recipe_provider().directory_changed(&level).await;
-            let dep_key = crate::metadata::DependencyKey::from_dir_key(&level);
-            let climb = match self.dependency_manager().get_version(&dep_key).await {
-                Some(old) => match refresh_one_listing(self, &level, &dep_key).await {
-                    Some(now_empty) => old == empty_listing || old.is_unknown() || now_empty,
-                    None => false,
-                },
-                None => has_registered_ancestor_listing(self, &level).await,
+            let between = match &registered_above {
+                Some(ancestor) => ancestor != &level,
+                None => false,
+            };
+            let climb = if between {
+                true
+            } else {
+                registered_above = None;
+                let dep_key = crate::metadata::DependencyKey::from_dir_key(&level);
+                match self.dependency_manager().get_version(&dep_key).await {
+                    Some(old) => match refresh_one_listing(self, &level, &dep_key).await {
+                        Some(now_empty) => old == empty_listing || old.is_unknown() || now_empty,
+                        None => false,
+                    },
+                    None => {
+                        registered_above = nearest_registered_ancestor_listing(self, &level).await;
+                        registered_above.is_some()
+                    }
+                }
             };
             if !climb || level.is_empty() {
                 return;

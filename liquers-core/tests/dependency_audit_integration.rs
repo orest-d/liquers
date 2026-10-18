@@ -1336,6 +1336,67 @@ async fn emptying_a_folder_expires_the_parent_index() -> TestResult {
     Ok(())
 }
 
+/// A write deep under the one registered listing climbs through every new level. Each level must
+/// cost a bounded number of version-map reads, not a rescan of the rest of the path: with a
+/// rescan per level, this depth takes minutes instead of well under a second (Codex review on
+/// PR #160).
+#[tokio::test]
+async fn deep_new_path_refresh_is_linear_in_depth() -> TestResult {
+    const DEPTH: usize = 2000;
+    let envref = index_env(Box::new(index_store("idx", false).await?), Arc::new(AtomicUsize::new(0)));
+    put(&envref, "data/a.txt", b"hello").await?;
+    evaluate_index(&envref, "idx").await?;
+    let mut name = String::from("data");
+    for _ in 0..DEPTH {
+        name.push_str("/n");
+    }
+    name.push_str("/x.txt");
+
+    let started = std::time::Instant::now();
+    put(&envref, &name, b"deep").await?;
+    let elapsed = started.elapsed();
+
+    assert_index_expired_by_data_listing(&envref).await?;
+    assert!(elapsed < std::time::Duration::from_secs(10), "took {elapsed:?}");
+    Ok(())
+}
+
+/// A folder whose listing holds recipe names besides its stored files. Recipe names in a folder
+/// come from a file stored in that same folder (`recipes.yaml` here; `*.manifest.yaml` for the
+/// records manifest provider), so the merged listing is empty exactly when the stored one is, and
+/// removing the last stored file still climbs to the parent (Codex review on PR #160).
+#[tokio::test]
+async fn removing_a_recipe_folder_expires_the_parent_index() -> TestResult {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let store = index_store("idx", false).await?;
+    let mut sub_index = RecipeList::new();
+    sub_index.add_recipe(Recipe::new(
+        "-R-dir/data/sub/-/index_files/index.txt".to_string(),
+        "Sub index".into(),
+        "lists data/sub".into(),
+    )?);
+    let mut sub_recipes = RecipeList::new();
+    sub_recipes.add_recipe(Recipe::new("make_text/y.txt".to_string(), "Y".into(), "recipe only".into())?);
+    for (key, list) in [("idx2/recipes.yaml", &sub_index), ("data/sub/recipes.yaml", &sub_recipes)] {
+        let yaml = serde_yaml::to_string(list)
+            .map_err(|e| Error::general_error(format!("recipes.yaml: {e}")))?;
+        store.set(&parse_key(key)?, yaml.as_bytes(), &Metadata::new()).await?;
+    }
+    let envref = index_env(Box::new(store), calls.clone());
+    put(&envref, "data/a.txt", b"hello").await?;
+    let before = evaluate_index(&envref, "idx").await?;
+    assert!(before.contains("data/sub"), "{before}");
+    let sub = evaluate_index(&envref, "idx2").await?;
+    assert!(sub.contains("data/sub/y.txt"), "precondition: a recipe-only name in the sub listing: {sub}");
+
+    within(envref.get_asset_manager().remove(&parse_key("data/sub/recipes.yaml")?)).await?;
+
+    assert_index_expired_by_data_listing(&envref).await?;
+    let after = evaluate_index(&envref, "idx").await?;
+    assert!(!after.contains("data/sub"), "{after}");
+    Ok(())
+}
+
 /// A store that records every folder it is asked to list.
 struct ListdirCountingStore {
     inner: AsyncMemoryStore,
