@@ -854,25 +854,24 @@ impl<E: Environment> DependencyManager<E> {
     }
 
     /// Undo what [`Self::register_scheduled_dependency`] added for the keyed dependent `owner`
-    /// requesting `dependency`, except the edges from the keys in `keep`.
+    /// requesting `dependency`; an edge a record in `keep` names is reset to that record's
+    /// version instead of removed.
     ///
     /// For a run cancelled because its key was replaced: the replacing write cleared the key's
     /// incoming edges, and a request the old run makes afterwards must not put one back. `keep`
-    /// is the replacement's own dependency records, whose edges the write re-adds. For an
+    /// is the replacement's own dependency records, whose edges the write re-adds. The late
+    /// request may have overwritten such an edge with the version the old run captured (edge
+    /// insertion is last-writer-wins), so the record's version is written back. For an
     /// expression dependency, `owner` leaves the attribution set of it and of every expression it
     /// depends on, and the keyed edges that attribution implied are removed.
     pub(crate) async fn unregister_scheduled_dependency(
         &self,
         owner: &DependencyKey,
         dependency: &ScheduleNode,
-        keep: &[DependencyKey],
+        keep: &[DependencyRecord],
     ) {
         match dependency {
-            ScheduleNode::Keyed(d) => {
-                if !keep.contains(d) {
-                    self.remove_edge(d, owner).await;
-                }
-            }
+            ScheduleNode::Keyed(d) => self.restore_or_remove_edge(d, owner, keep).await,
             ScheduleNode::Expression(dq) => {
                 let mut visited = std::collections::HashSet::new();
                 let mut pending = vec![dq.clone()];
@@ -891,13 +890,29 @@ impl<E: Environment> DependencyManager<E> {
                         self.expression_dependents.remove_async(&expr).await;
                     }
                     for x in self.snapshot_set(&self.expression_keyed_deps, &expr).await {
-                        if !keep.contains(&x) {
-                            self.remove_edge(&x, owner).await;
-                        }
+                        self.restore_or_remove_edge(&x, owner, keep).await;
                     }
                     pending.extend(self.snapshot_set(&self.expression_expr_deps, &expr).await);
                 }
             }
+        }
+    }
+
+    /// Reset the edge `dependency → owner` to the version the record in `keep` names, or remove
+    /// it when no record names `dependency`.
+    async fn restore_or_remove_edge(
+        &self,
+        dependency: &DependencyKey,
+        owner: &DependencyKey,
+        keep: &[DependencyRecord],
+    ) {
+        match keep.iter().find(|record| &record.key == dependency) {
+            Some(record) => {
+                // The edge already exists, so this cannot close a new cycle; a refusal would
+                // leave the edge as the replacement's own registration would.
+                let _ = self.add_dependency(owner, dependency, record.version).await;
+            }
+            None => self.remove_edge(dependency, owner).await,
         }
     }
 
@@ -1935,8 +1950,12 @@ mod tests {
             .unwrap();
         assert_eq!(dm.snapshot_dependent_keys(&x).await, vec![k.clone()]);
 
-        dm.unregister_scheduled_dependency(&k, &ScheduleNode::Keyed(d.clone()), &[d.clone()])
-            .await;
+        dm.unregister_scheduled_dependency(
+            &k,
+            &ScheduleNode::Keyed(d.clone()),
+            &[DependencyRecord::new(d.clone(), Version::new(1))],
+        )
+        .await;
         assert_eq!(dm.snapshot_dependent_keys(&d).await, vec![k.clone()], "kept edge");
         dm.unregister_scheduled_dependency(&k, &ScheduleNode::Keyed(d.clone()), &[])
             .await;
@@ -1947,6 +1966,51 @@ mod tests {
         assert!(
             dm.snapshot_set(&dm.expression_dependents, &q).await.is_empty(),
             "k no longer joins the child's later requests"
+        );
+    }
+
+    /// A late request overwrites the replacement's edge with the version the old run captured
+    /// (edge insertion is last-writer-wins); the rollback must put the replacement's own version
+    /// back, through a keyed and through an expression request, or an audit at that version would
+    /// expire the valid replacement.
+    #[tokio::test]
+    async fn unregister_scheduled_dependency_restores_a_kept_edge_version() {
+        let dm = DependencyManager::<TestEnv>::new();
+        let k = DependencyKey::new("-R/k");
+        let d = DependencyKey::new("-R/d");
+        let q = DependencyKey::new("child");
+        let keyed = ScheduleNode::Keyed(k.clone());
+        let replacement = vec![DependencyRecord::new(d.clone(), Version::new(2))];
+        dm.load_from_records(&k, &replacement).await;
+        dm.register_scheduled_dependency(&keyed, &ScheduleNode::Keyed(d.clone()), Version::new(1))
+            .await
+            .unwrap();
+        assert_eq!(dm.snapshot_dependent_edges(&d).await, vec![(k.clone(), Version::new(1))]);
+        dm.unregister_scheduled_dependency(&k, &ScheduleNode::Keyed(d.clone()), &replacement)
+            .await;
+        assert_eq!(
+            dm.snapshot_dependent_edges(&d).await,
+            vec![(k.clone(), Version::new(2))],
+            "the replacement's version is restored"
+        );
+
+        dm.register_scheduled_dependency(
+            &ScheduleNode::Expression(q.clone()),
+            &ScheduleNode::Keyed(d.clone()),
+            Version::new(1),
+        )
+        .await
+        .unwrap();
+        dm.register_scheduled_dependency(&keyed, &ScheduleNode::Expression(q.clone()), Version::new(1))
+            .await
+            .unwrap();
+        assert_eq!(dm.snapshot_dependent_edges(&d).await, vec![(k.clone(), Version::unknown())]);
+        dm.unregister_scheduled_dependency(&k, &ScheduleNode::Expression(q.clone()), &replacement)
+            .await;
+        assert_eq!(
+            dm.snapshot_dependent_edges(&d).await,
+            vec![(k.clone(), Version::new(2))],
+            "the replacement's version is restored after an expression request"
         );
     }
 

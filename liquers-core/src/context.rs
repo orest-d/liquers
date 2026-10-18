@@ -671,19 +671,16 @@ impl<E: Environment> Context<E> {
                 .await?;
             // A write replacing the key cancels this run, then clears the key's incoming edges.
             // A registration that landed after the clear must not survive it, so a cancelled run
-            // takes back what it just added (except the edges the replacement's own records name,
-            // which the write re-adds) and fails the request.
+            // takes back what it just added and fails the request. An edge the replacement's own
+            // records name is reset to the record's version rather than removed: this request may
+            // have overwritten it with the version the old run captured.
             // See `specs/design/replacing-write-drops-stale-dependency-edges/`.
             if self.is_cancelled() {
                 if let (ScheduleNode::Keyed(owner), Some(k)) = (dependent, &owner_key) {
                     let keep = match manager.lookup_key_asset(k) {
                         Some(current) if current.id() != self.assetref.id() => {
                             match current.get_metadata().await? {
-                                Metadata::MetadataRecord(mr) => mr
-                                    .dependencies
-                                    .iter()
-                                    .map(|record| record.key.clone())
-                                    .collect(),
+                                Metadata::MetadataRecord(mr) => mr.dependencies,
                                 Metadata::LegacyMetadata(_) => Vec::new(),
                             }
                         }

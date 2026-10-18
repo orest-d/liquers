@@ -189,6 +189,7 @@ Run: `cargo test -p liquers-core --lib dependencies::tests::clear_incoming_edges
   (fails before 3a on the cancellation assertion only) and the child-expression request (fails
   without the `expression_dependents` clear), on both built-in managers. The shared bodies are in
   `tests/common/manager_scenarios.rs`.
+- Review (PR #159, Codex): a late request overwrote a kept edge with the old run's version, so the rollback now resets each edge the replacement's records name to the record's version (`unregister_scheduled_dependency_restores_a_kept_edge_version`).
 
 ### Validation
 
