@@ -14,7 +14,7 @@ prerequisite issues.
 - [x] Step 3: `liquers-py` dependencies and runtime — 0d0a4c13
 - [x] Step 4: value bridge, with the old environment removed — 0d0a4c13
 - [x] Step 5: error mapping — e914dbf1
-- [ ] Step 6: environment
+- [x] Step 6: environment — 3cc4e0b7
 - [ ] Step 7: commands and decorators
 - [ ] Step 8: context for nested evaluation
 - [ ] Step 9: `State`, `AssetRef`, `Status`
