@@ -4,7 +4,7 @@ kind: design
 title: Complete the liquers-web records bridge — sources, streaming and the way back
 status: in_review
 phase: implementation
-readiness: needs-decision
+readiness: ready
 autofix: not-eligible
 area: [web, records]
 issues: [WEB-RECORDS-BRIDGE-ONE-WAY-AND-SOURCE-UNMAPPED]

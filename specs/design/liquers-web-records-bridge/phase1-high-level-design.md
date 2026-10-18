@@ -2,18 +2,18 @@
 
 ## Design Readiness
 
-- **Readiness:** needs-decision
+- **Readiness:** ready
 - **Automatic fixing:** not-eligible — adds exported JavaScript classes (`RecordSource`,
   `RecordStream`) and changes the JavaScript binding (rules 3 and 4); complexity `L`.
-- **Leading issue:** **Proposed resolution — JS→Rust direction** (open question 1).
+- **Leading issue:** None
 - **Decided 2026-10-17 (maintainer):** there is one environment, the web (client) environment; a
   multi-environment system is not defined yet. Traversal therefore uses the web environment and takes
   no environment argument. `ns-rec` is registered in the web environment.
 - **Explanation:** Every part has a working solution over existing public API (`RecordSource::chunks`,
   `stream`, `materialize`, `liquers_records::EnvResolver`, `register_records_commands!`), and the
-  tests run under the Node loop. One choice that changes what a page sees remains for review.
-- **Open questions:**
-  1. **Proposed resolution — JS→Rust direction:** an unmodified `RecordBatch` or `RecordSource`
+  tests run under the Node loop. The JS→Rust direction below was accepted as proposed by the maintainer on 2026-10-18.
+- **Open questions:** None. Decided:
+  1. **JS→Rust direction (accepted 2026-10-18):** an unmodified `RecordBatch` or `RecordSource`
      handle crosses back as the same `Arc` (`ExtValue::RecordView` / `RecordSource`), found through a
      handle registry keyed by a marker property. A JavaScript-built table is **not** converted by the
      bridge: it crosses structurally and `ns-rec/from_json` makes it a record. A freed handle is
@@ -125,7 +125,7 @@ in the web environment); evaluation (`EnvResolver` over the web environment's `E
 - `to_js_custom(&self)` has no environment; chunks are evaluated in the web environment, resolved
   at each call (`with_global()`), so a rebuild between calls is harmless.
 - A wasm-bindgen handle cannot be borrowed back from a `JsValue` without consuming it; a `u32 → Arc`
-  registry filled in `From` and emptied in an unconditional `Drop` is the safe route (open question 1).
+  registry filled in `From` and emptied in an unconditional `Drop` is the safe route (decision 1).
 - `BoxRecordStream` must not be borrowed across an `await`: `nextBatch` takes it out of its
   `RefCell` and puts it back; a concurrent call is refused.
 - Order: refusal message → `ns-rec` → registry → handles → way back → records. Step 1 alone meets

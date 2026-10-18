@@ -117,4 +117,4 @@ The existing `rec` namespace (`ns-rec/from_json`, `to_record`, `to_record_source
 | New validation | `records01`, `02`, `04`, `07`, `08`, AC-6/AC-7 tests under Node |
 | Compatibility / data / concurrency / performance / security | Additive JS API. The `.wasm` grows with `ns-rec`; Step 2 records the before/after size of the quickstart build (no size budget exists today). Registry holds `Arc`s only while handles live; a leaked JS handle leaks as today. Single-threaded, no locks across awaits. |
 | Recovery | Each step reverts alone; Step 2 (commands) can be feature-gated off if the size budget fails |
-| Certainty and open questions | High for the mechanism; the JS→Rust direction (Phase 1 open question 1) is the open part |
+| Certainty and open questions | High; no open questions (decisions recorded in Phase 1) |
