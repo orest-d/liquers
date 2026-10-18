@@ -80,3 +80,9 @@ def test_ERROR06_language_raised_error_keeps_its_type(env):
         env.evaluate("missing")
     assert raised.value.type == lq.ErrorType.KeyNotFound
     assert "no such key" in raised.value.message
+
+
+def test_ERROR05_no_panic_crosses_the_boundary(env):
+    # `test_panic` is a Rust command that panics, registered only under `debug-handles`.
+    with pytest.raises(lq.LiquersError):
+        env.evaluate("test_panic")

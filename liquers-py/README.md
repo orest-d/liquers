@@ -5,10 +5,56 @@ Python bindings for Liquers, built with [PyO3](https://pyo3.rs) and [maturin](ht
 The distribution is named `liquers-py`; the package it installs is imported as `liquers`:
 
 ```python
-import liquers
+import liquers as lq
 
-q = liquers.parse("a/b/-/x")
+@lq.first_command
+def hello() -> str:
+    return "hello"
+
+@lq.command
+def repeat(text: str, count: int = 2) -> str:
+    """Repeat the input text."""
+    return text * count
+
+assert lq.evaluate("hello/repeat-3") == "hellohellohello"
 ```
+
+`lq.command` registers a function whose first parameter is the state. The parameter's name chooses
+what it receives: `text` the state's text, `state` an `lq.State` (value and metadata), anything else
+the value. `lq.first_command` registers a source command, which takes no state. A parameter named
+`context` receives an `lq.Context` (`evaluate`, `info`, `warning`, `error`, `is_cancelled`), and
+`*args` takes every remaining query parameter. Both decorators accept `name=`, `namespace=`,
+`label=`, `doc=`, `filename=`, `volatile=` and `cached=`.
+
+The bare decorators and `lq.evaluate` use one shared `lq.default_environment()`. For isolation
+(tests, several configurations), make your own and use its bound decorators:
+
+```python
+import polars as pl
+
+env = lq.Environment()                      # or Environment(config=…, conversion="strict", pickle=True)
+
+@env.first_command
+def make_frame() -> pl.DataFrame:
+    return pl.DataFrame({"a": [1, 2, 3]})
+
+df = env.evaluate("make_frame/ns-pl/head-2")  # a Python command feeding a Rust one
+env.shutdown()
+```
+
+Every environment has `liquers-lib`'s built-in commands (`to_text`, `commands_doc`, `ns-pl`, images,
+records, templates). Values cross structurally: `None`, `bool`, `int` (64-bit), `float`, `str`,
+`bytes`, `list` and `dict` arrive as themselves, a `polars.DataFrame` and a PIL image cross as
+Liquers values, and anything else is kept as an opaque `py.Object` (refused instead with
+`conversion="strict"`). An opaque object is stored only with `pickle=True`, and a pickle-off
+environment never unpickles stored bytes. Errors are raised as `lq.LiquersError`, through a
+subclass per `ErrorType` (`lq.KeyNotFoundError`, `lq.ExecutionError`, …); a command may raise one
+and its type is kept.
+
+**Late registration.** A command registered after the environment has been used takes effect on the
+next evaluation: the environment is rebuilt from everything declared on it, and the store is kept.
+The asset cache is not, and the replaced environment is never freed
+(`ENVIRONMENT-MANAGER-REFERENCE-CYCLE`), so register commands up front where you can.
 
 ## Layout
 
@@ -33,8 +79,8 @@ bash scripts/test-liquers-py.sh
 ```
 
 run from the repository root, does the whole loop: it creates (or reuses) a virtual environment at
-`target/liquers-py-venv`, installs `maturin` and `pytest` into it, runs `maturin develop` to build
-and install the `liquers` package, runs `pytest liquers-py/tests`, and then runs the crate's Rust
+`target/liquers-py-venv`, installs `maturin`, `pytest`, `polars` and `pillow` into it, runs
+`maturin develop --features debug-handles` to build and install the `liquers` package, runs `pytest liquers-py/tests`, and then runs the crate's Rust
 unit tests. Extra arguments are passed to pytest (`bash scripts/test-liquers-py.sh -k parse`).
 `cargo clean` removes the environment along with the rest of `target/`; the next run recreates it.
 
@@ -51,3 +97,19 @@ Python symbols for the loading interpreter to supply, so a test binary built wit
 
 Python test modules are named for the feature they test, `test_<FEATURE>_<topic>.py`
 (`specs/guides/LANGUAGE-INTEGRATION_GUIDE.md` §3).
+
+## Conformance
+
+Against the Python baseline profile of `specs/guides/LANGUAGE-INTEGRATION_GUIDE.md`; states as
+defined in `specs/reference/CONFORMANCE_TERMS.md`. The design is `specs/design/liquers-py/`. Each
+test is named for its ID, in `tests/test_<FEATURE>_*.py`.
+
+| Feature | Selected level | Status | Limitations | Test evidence |
+|---|---|---|---|---|
+| `OBJECT` | Essential | COMPLETE | — | `test_OBJECT01`–`09` |
+| `ERROR` | Essential | COMPLETE | A Python exception's class and message ride in `message`, its stack in `traceback` (`LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT`) | `test_ERROR01`–`06` |
+| `RUNTIME` | Essential | PARTIAL | `RUNTIME02` is `NA` until a Pyodide target exists. `RUNTIME05` is `BLOCKED` for a built environment by `ENVIRONMENT-MANAGER-REFERENCE-CYCLE`, a strict `xfail` | `test_RUNTIME01`, `03`–`06` |
+| `VALUE` | Essential | PARTIAL | `VALUE12` is `NA` until a `Value` wrapper with operators exists. A refused pickle read reports "No recipe found" (`DEGRADED-STORED-VALUE-WITHOUT-RECIPE-REPORTS-NO-RECIPE`, a strict `xfail`) | `test_VALUE01`–`13` |
+| `ENVIRON` | Essential | COMPLETE | Only the default recipe provider can be configured | `test_ENVIRON01`–`08` |
+| `EVAL` | Essential | COMPLETE | Evaluation is synchronous; async is `specs/design/liquers-py-async/` | `test_EVAL01`–`06` |
+| `COMMAND` | Essential | COMPLETE | No `realm=` on the decorators; `async def` commands are the async design's | `test_COMMAND01`–`14` |

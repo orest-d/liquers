@@ -2,7 +2,7 @@ use pyo3::{exceptions::PyException, prelude::*, types::PyAnyMethods};
 
 use crate::parse::Position;
 
-#[pyclass(from_py_object, eq, eq_int)]
+#[pyclass(from_py_object, eq, eq_int, module = "liquers")]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Copy)]
 pub enum ErrorType {
     ArgumentMissing,
@@ -104,7 +104,7 @@ impl From<liquers_core::error::ErrorType> for ErrorType {
     }
 }
 
-#[pyclass(from_py_object)]
+#[pyclass(from_py_object, module = "liquers")]
 #[derive(Debug, Clone)]
 pub struct Error(pub liquers_core::error::Error);
 
@@ -139,9 +139,11 @@ impl From<liquers_core::error::Error> for Error {
     }
 }
 
+/// A wrapped Liquers error raised from a binding becomes the `LiquersError` subclass of its type,
+/// the same exception an evaluation raises (OBJECT04).
 impl From<Error> for PyErr {
     fn from(e: Error) -> Self {
-        PyException::new_err((e.0.to_string(), e))
+        Python::attach(|py| error_to_pyerr(py, &e.0))
     }
 }
 

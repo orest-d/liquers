@@ -10,7 +10,7 @@ use pyo3::prelude::*;
 
 use crate::parse::{Key, Position, Query};
 
-#[pyclass(from_py_object)]
+#[pyclass(from_py_object, module = "liquers")]
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Version {
     pub inner: CoreVersion,
@@ -38,7 +38,7 @@ impl Version {
     }
 }
 
-#[pyclass(from_py_object)]
+#[pyclass(from_py_object, module = "liquers")]
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct DependencyKey {
     pub inner: CoreDependencyKey,
@@ -66,7 +66,7 @@ impl DependencyKey {
     }
 }
 
-#[pyclass(from_py_object)]
+#[pyclass(from_py_object, module = "liquers")]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DependencyRecord {
     pub inner: CoreDependencyRecord,
@@ -104,7 +104,7 @@ impl DependencyRecord {
     }
 }
 
-#[pyclass]
+#[pyclass(module = "liquers")]
 pub struct Metadata {
     pub inner: CoreMetadata,
 }
@@ -251,7 +251,7 @@ impl Metadata {
     }
 }
 
-#[pyclass(from_py_object)]
+#[pyclass(from_py_object, module = "liquers")]
 #[derive(Clone, Debug)]
 pub struct MetadataRecord {
     pub inner: CoreMetadataRecord,
@@ -556,7 +556,7 @@ impl MetadataRecord {
     }
 }
 
-#[pyclass(from_py_object)]
+#[pyclass(from_py_object, module = "liquers")]
 #[derive(Clone, Debug)]
 pub struct AssetInfo {
     pub inner: CoreAssetInfo,
@@ -707,7 +707,7 @@ impl AssetInfo {
     }
 }
 
-#[pyclass(from_py_object)]
+#[pyclass(from_py_object, module = "liquers")]
 #[derive(Clone, Debug)]
 pub struct Status {
     pub inner: CoreStatus,
@@ -782,7 +782,7 @@ impl Status {
     }
 }
 
-#[pyclass(from_py_object, eq, eq_int)]
+#[pyclass(from_py_object, eq, eq_int, module = "liquers")]
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum LogEntryKind {
     #[serde(rename = "debug")]
@@ -843,7 +843,7 @@ impl LogEntryKind {
     }
 }
 
-#[pyclass(from_py_object)]
+#[pyclass(from_py_object, module = "liquers")]
 #[derive(Clone, Debug)]
 pub struct LogEntry {
     pub inner: CoreLogEntry,

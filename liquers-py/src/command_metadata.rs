@@ -18,7 +18,7 @@ use pyo3::{exceptions::PyException, prelude::*, types::PyList};
 /// Type of an enum argument, see EnumArgument
 /// This is a restricted version of ArgumentType to prevent circular type definition
 
-#[pyclass(from_py_object, eq, eq_int)]
+#[pyclass(from_py_object, eq, eq_int, module = "liquers")]
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum EnumArgumentType {
     #[serde(rename = "string")]
@@ -39,7 +39,7 @@ pub enum EnumArgumentType {
     Any,
 }
 
-#[pyclass(from_py_object)]
+#[pyclass(from_py_object, module = "liquers")]
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct EnumArgument(pub liquers_core::command_metadata::EnumArgument);
 
@@ -75,7 +75,7 @@ impl EnumArgument {
     }
 }
 
-#[pyclass(from_py_object)]
+#[pyclass(from_py_object, module = "liquers")]
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct ArgumentType(pub liquers_core::command_metadata::ArgumentType);
 
@@ -153,7 +153,7 @@ impl From<liquers_core::command_metadata::EnumArgumentType> for EnumArgumentType
     }
 }
 
-#[pyclass]
+#[pyclass(module = "liquers")]
 pub struct CommandKey(pub liquers_core::command_metadata::CommandKey);
 
 #[pymethods]
@@ -201,7 +201,7 @@ impl CommandKey {
     }
 }
 
-#[pyclass]
+#[pyclass(module = "liquers")]
 pub struct ArgumentInfo(liquers_core::command_metadata::ArgumentInfo);
 
 #[pymethods]
@@ -282,7 +282,7 @@ impl ArgumentInfo {
     }
 }
 
-#[pyclass(from_py_object)]
+#[pyclass(from_py_object, module = "liquers")]
 #[derive(Debug, Clone, PartialEq)]
 pub struct CommandDefinition(pub liquers_core::command_metadata::CommandDefinition);
 
@@ -318,7 +318,7 @@ impl CommandDefinition {
     }
 }
 
-#[pyclass(from_py_object)]
+#[pyclass(from_py_object, module = "liquers")]
 #[derive(Debug, Clone, PartialEq)]
 pub struct CommandPreset(pub liquers_core::command_metadata::CommandPreset);
 
@@ -356,7 +356,7 @@ impl CommandPreset {
     }
 }
 
-#[pyclass(from_py_object)]
+#[pyclass(from_py_object, module = "liquers")]
 #[derive(Debug, Clone)]
 pub struct CommandMetadata(pub liquers_core::command_metadata::CommandMetadata);
 
@@ -470,7 +470,7 @@ impl CommandMetadata {
     }
 }
 
-#[pyclass]
+#[pyclass(module = "liquers")]
 pub struct CommandMetadataRegistry(pub liquers_core::command_metadata::CommandMetadataRegistry);
 
 #[pymethods]

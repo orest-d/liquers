@@ -84,3 +84,43 @@ def test_RUNTIME05_built_environment_releases_handles_on_shutdown():
     assert environment.evaluate("kept") == 1
     environment.shutdown()
     assert lq.Environment.live_handle_count() == baseline
+
+
+def test_RUNTIME01_native_adapter_satisfies_thread_bounds(env):
+    seen = {}
+
+    @env.first_command
+    def where():
+        seen["thread"] = threading.get_ident()
+        return "ok"
+
+    result = {}
+    worker = threading.Thread(target=lambda: result.setdefault("v", env.evaluate("where")))
+    worker.start()
+    worker.join(timeout=20)
+    assert result == {"v": "ok"}
+    assert seen["thread"] != threading.get_ident()  # Python ran on a Liquers worker thread
+
+
+def test_RUNTIME03_stored_callback_outlives_registration_scope(env):
+    import gc
+
+    def register():
+        captured = ["from the closure"]
+
+        @env.first_command
+        def remembered():
+            return captured[0]
+
+    register()
+    gc.collect()
+    assert env.evaluate("remembered") == "from the closure"
+
+
+def test_RUNTIME06_panic_and_exception_containment(env):
+    with pytest.raises(lq.ExecutionError):
+        env.evaluate("hello/boom")
+    with pytest.raises(lq.LiquersError) as raised:
+        env.evaluate("test_panic")
+    assert "panic" in raised.value.message.lower()
+    assert env.evaluate("hello") == "hello"  # the process and the environment carry on

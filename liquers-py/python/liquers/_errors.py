@@ -56,6 +56,9 @@ class LiquersError(Exception):
         return f"{type(self).__name__}({self.message!r})"
 
 
+# Reported as `liquers.LiquersError`, where users import it from (OBJECT08).
+LiquersError.__module__ = "liquers"
+
 _ERROR_TYPE_CLASS = None
 
 

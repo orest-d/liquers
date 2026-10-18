@@ -31,5 +31,18 @@ pub fn register(cr: &mut CommandRegistry<PyEnvironment>) -> Result<(), Error> {
     liquers_lib::register_records_commands!(cr)?;
     liquers_lib::register_search_commands!(cr)?;
     liquers_lib::register_template_commands!(cr)?;
+    #[cfg(feature = "debug-handles")]
+    register_test_commands(cr)?;
+    Ok(())
+}
+
+/// Test-only commands, behind `debug-handles`: `test_panic` panics inside a Rust command, so
+/// `ERROR05` and `RUNTIME06` can check that a panic surfaces as an error rather than aborting the
+/// process or leaving the evaluation waiting forever.
+#[cfg(feature = "debug-handles")]
+fn register_test_commands(cr: &mut CommandRegistry<PyEnvironment>) -> Result<(), Error> {
+    cr.register_command("test_panic", |_state, _arguments, _context| {
+        panic!("test_panic was evaluated")
+    })?;
     Ok(())
 }
