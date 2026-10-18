@@ -2,8 +2,8 @@
 id: DEPENDENT-ASSET-WEAK-REFERENCE-PRUNING
 kind: design
 title: The dependency manager prunes dead and duplicate weak dependents as their lists grow
+gh_pr: [158]
 form: compact
-status: in_review
 phase: implementation
 readiness: ready
 autofix: eligible
