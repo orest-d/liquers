@@ -3,6 +3,7 @@ id: LANGUAGE-GUIDE-WEB-CLAIMS
 kind: design
 title: Correct the Language Integration Guide's stale claims about liquers-web
 form: compact
+gh_pr: [152]
 status: complete
 readiness: ready
 autofix: eligible
