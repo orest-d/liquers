@@ -2,9 +2,9 @@
 id: VARIADIC-EMPTY-ELEMENT-CONVERSION
 kind: design
 title: An empty element of a variadic argument converts as an element, not as the whole list's default
+status: complete
 gh_pr: [148]
 form: compact
-phase: implementation
 readiness: ready
 autofix: eligible
 area: [core/plan, core/validate]
@@ -12,6 +12,8 @@ issues: [VALIDATE-COMMAND-STUB-REJECTS-POSITIONAL-EMPTIES]
 created: 2026-10-17
 ---
 # An empty element of a variadic argument converts as an element, not as the whole list's default
+
+> **Complete on 2026-10-18**: implemented and merged in #148.
 
 Produced under [`guides/autonomous_bulk_design.md`](../../guides/autonomous_bulk_design.md) by the
 2026-10-17 backlog compaction: Phases 1-4, reviewed without phase approval. Not an approval and not
