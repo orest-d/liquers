@@ -182,6 +182,12 @@ Signatures re-opened at HEAD 2026-10-17: `register_lib_store_config` (`liquers-l
   serve OpenDAL's S3 client, mark the test `#[ignore]` behind `LIQUERS_TEST_S3_ENDPOINT` and record
   the deviation from AC-20 here.
 - Rollback: drop the dev-dependency and the test.
+- Outcome: `s3s-fs` 0.17 serves OpenDAL 0.55's S3 client unchanged, so the test runs and is not
+  ignored. AC-19 is covered in `liquers-lib/tests/mem_commands.rs`
+  (`openviking_layout_lists_creates_and_searches`); this test runs the same layout with the `user`
+  mount on S3. Deviation: `s3s` 0.17 declares `rust-version = "1.96"`, one above the workspace
+  minimum, so `cargo test -p liquers-agent` needs Rust 1.96 (the library and binary still build
+  on 1.95; dev-dependencies are not built for them).
 
 ### Step 13: build matrix and final checks
 - Files / symbols: `scripts/check-build-matrix.sh` rows with and without `mem` (native and wasm32).
