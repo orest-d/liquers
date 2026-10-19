@@ -91,6 +91,49 @@ export interface LiquersCommandSpec {
   volatile?: boolean;
 }
 
+/**
+ * A command's implementation for `registerCommands`: the function, or the function with the
+ * declaration's `state` and `async` fields (same names and defaults as `LiquersCommandSpec`).
+ */
+export type LiquersCommandImplementation =
+  | ((...args: any[]) => any)
+  | { run: (...args: any[]) => any; state?: LiquersStateMode; async?: boolean };
+
+/** Implementations by command name, for `registerCommands` and `validateCommands`. */
+export type LiquersCommandImplementations = Record<string, LiquersCommandImplementation>;
+
+/**
+ * A batch for `registerCommands` and `validateCommands`: one declaration, an array of them, or a
+ * JSON or YAML string in the command metadata registry format (`commands: [...]`). A declaration
+ * may omit `run` when the implementations object has an entry for its name.
+ */
+export type LiquersCommandBatch =
+  | LiquersCommandSpec
+  | Omit<LiquersCommandSpec, "run"> & { run?: LiquersCommandSpec["run"] }
+  | Array<LiquersCommandSpec | (Omit<LiquersCommandSpec, "run"> & { run?: LiquersCommandSpec["run"] })>
+  | string;
+
+/** One finding of a command validation report. */
+export interface LiquersIssue {
+  severity: "debug" | "info" | "warning" | "error";
+  message: string;
+  /** The command the finding is about, or `null` when no name is known. */
+  command: { realm: string; namespace: string; name: string } | null;
+}
+
+/**
+ * A command validation report, from `validateCommands`, `registerCommands`, or the `report`
+ * property of the error a refused batch throws.
+ */
+export interface LiquersIssueReport {
+  issues: LiquersIssue[];
+  errorCount: number;
+  warningCount: number;
+  hasErrors: boolean;
+  /** The message a refusal throws, or `null` when there is no error. */
+  summary: string | null;
+}
+
 /** Command metadata, as returned by `describeCommand`. */
 export interface LiquersCommandInfo {
   name: string;
@@ -333,6 +376,18 @@ extern "C" {
     /// A command declaration object. Typed as `LiquersCommandSpec` in the generated `.d.ts`.
     #[wasm_bindgen(typescript_type = "LiquersCommandSpec")]
     pub type JsCommandSpecObject;
+
+    /// A batch of commands: declarations or a serialized registry.
+    #[wasm_bindgen(typescript_type = "LiquersCommandBatch")]
+    pub type JsCommandBatch;
+
+    /// Implementations by command name.
+    #[wasm_bindgen(typescript_type = "LiquersCommandImplementations")]
+    pub type JsCommandImplementations;
+
+    /// A command validation report.
+    #[wasm_bindgen(typescript_type = "LiquersIssueReport")]
+    pub type JsIssueReport;
 
     /// Command metadata, or `null` when the command is not registered.
     #[wasm_bindgen(typescript_type = "LiquersCommandInfo | null")]

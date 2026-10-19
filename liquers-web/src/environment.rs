@@ -26,7 +26,10 @@ use liquers_lib::environment::DefaultEnvironment;
 use liquers_lib::value::Value;
 use wasm_bindgen::prelude::*;
 
+use crate::command::import::{read_batch, Accepted, Retained};
 use crate::error::liquers_error_to_js;
+use liquers_core::command_metadata::CommandMetadataRegistry;
+use liquers_core::issue_report::IssueReport;
 
 /// The concrete environment. A type alias, not a newtype, so a downstream crate can substitute its
 /// own `DefaultEnvironment<MyValue, P>` and reuse every generic function in this crate.
@@ -70,13 +73,12 @@ thread_local! {
     /// rebuild would fail on "no store object named …" for a store that was working a moment ago.
     static STORE_OBJECTS: RefCell<Vec<(String, js_sys::Object)>> = const { RefCell::new(Vec::new()) };
 
-    /// Every command declaration registered so far, in order.
+    /// Every command registered so far, in order: declarations and imported metadata.
     ///
     /// Retained so the environment can be rebuilt: registering after the environment has been
-    /// shared replays these into a fresh one. Holding the original declaration objects rather than
-    /// the parsed specs keeps replay identical to first registration — one code path, so the two
-    /// cannot drift.
-    static REGISTERED_SPECS: RefCell<Vec<JsValue>> = const { RefCell::new(Vec::new()) };
+    /// shared replays these into a fresh one. Holding the inputs rather than the parsed specs keeps
+    /// replay identical to first registration — one code path, so the two cannot drift.
+    static REGISTERED_SPECS: RefCell<Vec<Retained>> = const { RefCell::new(Vec::new()) };
 }
 
 /// Builds a fresh, un-shared environment with the built-in Rust command set registered.
@@ -134,72 +136,129 @@ pub fn build_environment() -> Result<EnvRef<WebEnvironment>, Error> {
 /// interrupted — it simply does not see the new command. Registering all commands before the first
 /// evaluation avoids the rebuild entirely.
 pub fn register_command_on(spec: &JsValue) -> Result<(), Error> {
-    // Parse first, so an invalid declaration fails before anything is mutated or rebuilt.
-    let parsed = crate::command::JsCommandSpec::parse(spec)?;
-    let key = parsed.key.clone();
-
-    let replaced = existing_command_kind(&key);
-
-    let registered_directly = PENDING_ENV.with(|cell| -> Result<bool, Error> {
-        let mut guard = cell.borrow_mut();
-        match guard.as_mut() {
-            Some(env) => {
-                crate::command::register_js_command(&mut env.command_registry, parsed)?;
-                Ok(true)
-            }
-            None => Ok(false),
-        }
-    })?;
-
-    if !registered_directly {
-        if !GLOBAL_ENV.with(|g| g.borrow().is_some()) {
-            return Err(Error::from_error(
-                ErrorType::NotAvailable,
-                "Liquers is not initialized — await liquers.init() first".to_string(),
-            ));
-        }
-        rebuild_with(spec.clone())?;
-    }
-
-    REGISTERED_SPECS.with(|cell| cell.borrow_mut().push(snapshot_declaration(spec)));
-    warn_on_replacement(&key.name, replaced);
-    Ok(())
+    register_commands_on(spec, &JsValue::UNDEFINED)
+        .map(|_| ())
+        .map_err(|refused| refused.error)
 }
 
-/// Copies a declaration so that later mutation by the caller cannot change what a rebuild replays.
+/// A batch `register_commands_on` refused: the compact error, and the full report when the refusal
+/// came from validation rather than from the environment's state.
+pub struct RefusedBatch {
+    pub error: Error,
+    pub report: Option<IssueReport>,
+}
+
+/// Checks a batch of commands without registering anything (`validateCommands`, `ENVIRON08`).
 ///
-/// `JsValue::clone` clones the *handle*, not the object. Retaining the caller's own object means a
-/// page that reuses or mutates a declaration template — plausible in a framework that builds
-/// specs from a loop — silently changes an already-registered command the next time a rebuild
-/// replays it, or breaks an unrelated registration if a field such as `run` was removed.
+/// `input` is a declaration object, an array of them, or a JSON or YAML string in the
+/// `CommandMetadataRegistry` format, with functions bound by name from `impls`
+/// ([`crate::command::import`]). The report holds every intake finding plus
+/// `CommandMetadataRegistry::check()` of the batch's metadata — the check
+/// `EnvironmentBuilder::validate` runs, and the only one imported metadata gets.
 ///
-/// A shallow copy plus a copy of the `arguments` array and its entries covers the mutation a
-/// caller can realistically perform. The `run` function is shared by reference, deliberately:
-/// copying a closure is not possible and not wanted — it *is* the command.
-fn snapshot_declaration(spec: &JsValue) -> JsValue {
-    let copy = js_sys::Object::new();
-    if js_sys::Object::assign(&copy, &js_sys::Object::from(spec.clone())).is_falsy() {
-        // `Object.assign` returns its target; a falsy result would mean something is very wrong.
-        return spec.clone();
+/// Pure: works before `init()`, and never builds, rebuilds or mutates an environment.
+pub fn validate_commands_on(input: &JsValue, impls: &JsValue) -> IssueReport {
+    validate_batch(input, impls).1
+}
+
+/// Intake plus the registry check. The registry holds only the batch: the check is per command, so
+/// adding the commands already registered would change nothing but repeat their own findings in
+/// every report.
+fn validate_batch(input: &JsValue, impls: &JsValue) -> (Vec<Accepted>, IssueReport) {
+    let (accepted, mut report) = read_batch(input, impls);
+    let mut batch = CommandMetadataRegistry::new();
+    for command in &accepted {
+        batch.add_command(&command.spec.metadata);
+    }
+    report.append(batch.check());
+    (accepted, report)
+}
+
+/// Registers a batch of commands on the global environment, all or nothing (`registerCommands`).
+///
+/// Validates first, as [`validate_commands_on`]. Any error refuses the whole batch with a
+/// `ParameterError` whose message is the report's summary, and the report itself. Otherwise every
+/// command is registered and the report (empty, or warnings only) is returned.
+///
+/// Registration needs `&mut CommandRegistry`, and `Environment::to_ref` consumes the environment
+/// into an `Arc`, so once it has been shared there is no mutable path back to it. Rather than
+/// refuse, this follows the same shape Rust code uses — build the registry, then the environment,
+/// then share it — and simply does it again:
+///
+/// - **Before the first evaluation** the environment is still un-shared, so the commands are
+///   registered directly. This is the ordinary path and costs nothing.
+/// - **After the first evaluation** a fresh environment is built, every command so far is replayed
+///   into it along with the batch, and the singleton is swapped — once per batch, not per command.
+///
+/// The cost of a rebuild is the asset cache, which is discarded with the old environment. An
+/// evaluation already in flight keeps the old `EnvRef` and completes against it, so nothing is
+/// interrupted — it simply does not see the new commands. Registering all commands before the
+/// first evaluation avoids the rebuild entirely.
+pub fn register_commands_on(input: &JsValue, impls: &JsValue) -> Result<IssueReport, RefusedBatch> {
+    let refused = |error: Error| RefusedBatch {
+        error,
+        report: None,
+    };
+    // Validate first, so an invalid batch fails before anything is mutated or rebuilt.
+    let (accepted, report) = validate_batch(input, impls);
+    if let Some(summary) = report.short_summary("Command metadata") {
+        return Err(RefusedBatch {
+            error: Error::from_error(ErrorType::ParameterError, summary),
+            report: Some(report),
+        });
+    }
+    if accepted.is_empty() {
+        return Ok(report);
     }
 
-    // The `arguments` array and its entries are the part a caller is most likely to reuse.
-    if let Ok(args) = js_sys::Reflect::get(&copy, &JsValue::from_str("arguments")) {
-        if js_sys::Array::is_array(&args) {
-            let copied = js_sys::Array::new();
-            for entry in js_sys::Array::from(&args).iter() {
-                if entry.is_object() && !js_sys::Array::is_array(&entry) {
-                    let e = js_sys::Object::new();
-                    let _ = js_sys::Object::assign(&e, &js_sys::Object::from(entry));
-                    copied.push(&e.into());
-                } else {
-                    copied.push(&entry);
+    let replaced: Vec<(String, Replaced)> = accepted
+        .iter()
+        .map(|command| {
+            (
+                command.spec.key.name.clone(),
+                existing_command_kind(&command.spec.key),
+            )
+        })
+        .collect();
+    let retained: Vec<Retained> = accepted
+        .iter()
+        .map(|command| command.retained.clone())
+        .collect();
+
+    // `None` once registered directly into the un-shared environment; the batch back otherwise.
+    let not_registered = PENDING_ENV
+        .with(|cell| -> Result<Option<Vec<Accepted>>, Error> {
+            let mut guard = cell.borrow_mut();
+            match guard.as_mut() {
+                Some(env) => {
+                    for command in accepted {
+                        crate::command::register_js_command(
+                            &mut env.command_registry,
+                            command.spec,
+                        )?;
+                    }
+                    Ok(None)
                 }
+                None => Ok(Some(accepted)),
             }
-            let _ = js_sys::Reflect::set(&copy, &JsValue::from_str("arguments"), &copied);
+        })
+        .map_err(refused)?;
+
+    if not_registered.is_some() {
+        if !GLOBAL_ENV.with(|g| g.borrow().is_some()) {
+            return Err(refused(Error::from_error(
+                ErrorType::NotAvailable,
+                "Liquers is not initialized — await liquers.init() first".to_string(),
+            )));
         }
+        rebuild_with(retained.clone()).map_err(refused)?;
     }
-    copy.into()
+
+    REGISTERED_SPECS.with(|cell| cell.borrow_mut().extend(retained));
+    for (name, kind) in replaced {
+        warn_on_replacement(&name, kind);
+    }
+    Ok(report)
 }
 
 /// What was registered under a key before, if anything.
@@ -274,17 +333,16 @@ fn apply_store(env: &mut WebEnvironment) -> Result<(), Error> {
     Ok(())
 }
 
-/// Rebuilds the shared environment from every retained declaration, plus `additional`.
+/// Rebuilds the shared environment from every retained command, plus `additional`.
 ///
-/// Used when a command is registered after the environment has been shared.
-fn rebuild_with(additional: JsValue) -> Result<(), Error> {
+/// Used when commands are registered after the environment has been shared.
+fn rebuild_with(additional: Vec<Retained>) -> Result<(), Error> {
     let mut env = new_environment()?;
 
     let specs = REGISTERED_SPECS.with(|cell| cell.borrow().clone());
-    for spec in specs.iter().chain(std::iter::once(&additional)) {
+    for spec in specs.iter().chain(additional.iter()) {
         // Replay through the same path as first registration, so the two cannot drift.
-        let parsed = crate::command::JsCommandSpec::parse(spec)?;
-        crate::command::register_js_command(&mut env.command_registry, parsed)?;
+        crate::command::register_js_command(&mut env.command_registry, spec.parse()?)?;
     }
     apply_store(&mut env)?;
 
@@ -429,7 +487,7 @@ pub fn unregister_command_on(name: &str) -> Result<bool, Error> {
     let removed_spec = REGISTERED_SPECS.with(|cell| {
         let mut specs = cell.borrow_mut();
         let before = specs.len();
-        specs.retain(|s| spec_name(s).as_deref() != Some(name));
+        specs.retain(|s| s.name().as_deref() != Some(name));
         before != specs.len()
     });
 
@@ -462,20 +520,12 @@ fn rebuild_without() -> Result<(), Error> {
     let mut env = new_environment()?;
     let specs = REGISTERED_SPECS.with(|cell| cell.borrow().clone());
     for spec in specs.iter() {
-        let parsed = crate::command::JsCommandSpec::parse(spec)?;
-        crate::command::register_js_command(&mut env.command_registry, parsed)?;
+        crate::command::register_js_command(&mut env.command_registry, spec.parse()?)?;
     }
     apply_store(&mut env)?;
     let envref = env.to_ref();
     set_singleton(envref);
     Ok(())
-}
-
-/// The `name` field of a declaration object, for matching retained specs.
-fn spec_name(spec: &JsValue) -> Option<String> {
-    js_sys::Reflect::get(spec, &JsValue::from_str("name"))
-        .ok()
-        .and_then(|v| v.as_string())
 }
 
 /// Returns a command's registered metadata as JSON, or `null` when it is not registered.
