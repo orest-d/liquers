@@ -5,17 +5,11 @@
 //! documents through the store and log every write under `<root>/_log/`.
 //! Design: `specs/design/agent-memory-mvp/`.
 
+pub mod check;
+pub mod commands;
 pub mod front_matter;
 pub mod layout;
+pub mod read;
 pub mod rules;
 pub mod tiers;
 pub mod write;
-
-/// Registers the `ns-mem` commands.
-#[macro_export]
-macro_rules! register_mem_commands {
-    ($cr:expr) => {{
-        let _ = &$cr;
-        Ok::<(), liquers_core::error::Error>(())
-    }};
-}

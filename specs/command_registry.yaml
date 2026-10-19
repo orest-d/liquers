@@ -1,8 +1,8 @@
 # Liquers command registry — GENERATED, do not edit by hand.
 # Regenerate: cargo run -p liquers-lib --features cli --bin export-command-registry -- \
 #               --format yaml -o specs/command_registry.yaml
-# Origin:   groups=core,lui,egui,image,polars,records,search,template,store_config  features=egui,image-support,polars,records,templates
-# Commands: 161
+# Origin:   groups=core,lui,egui,image,polars,records,search,template,mem,store_config  features=egui,image-support,polars,records,templates,mem
+# Commands: 172
 # CHANGELOG-BEGIN
 # 2026-08-02  initial export (95 commands: img 47, pl 26, lui 14, root 6, dep 2)
 # 2026-08-25  pl/select_columns and pl/drop_columns take a variadic `columns` argument
@@ -43,6 +43,8 @@
 #             (liquers-lib, feature templates; design/liquers-mustache).
 # 2026-10-17  header only: Origin features= names cargo features (image-support, templates),
 #             not group names. design/command-registry-header-feature-names
+# 2026-10-19  agent-memory-mvp: new group mem (ns-mem: overview, describe, list, search, read,
+#             similar, new, write, edit, check) and the store_config handler markdown_tiers.
 # CHANGELOG-END
 commands:
 - realm: store_config
@@ -2492,6 +2494,27 @@ commands:
   volatile: false
   expires: never
   definition: Registered
+- realm: store_config
+  name: markdown_tiers
+  label: Markdown tiers
+  doc: 'For a Markdown entry whose record has an empty title or description, fills the title from the first heading and the description from the first paragraph of the first named section present, else from the first paragraph after the front matter. Never overwrites; other media types: no effect. Put it after front_matter.'
+  hints:
+    store_config: handler
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: sections
+    label: sections
+    default: None
+    argument_type: string
+    multiple: true
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  definition: Registered
 - namespace: rec
   name: rec_id
   label: Record by id
@@ -3517,6 +3540,619 @@ commands:
     default: None
     gui_info: !TextField 40
   volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: mem
+  name: overview
+  label: Memory overview
+  doc: The memory's README tiers, its collections with counts, and the latest log lines
+  filename: overview.md
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: log_lines
+    label: log lines
+    default: !Value 10
+    argument_type: int
+    gui_info: !TextField 40
+  - name: root
+    label: root
+    default: !Query
+      segments:
+      - !Resource
+        header:
+          name: ''
+          level: 0
+          parameters:
+          - value: key
+            position:
+              offset: 3
+              line: 1
+              column: 4
+          resource: true
+          position:
+            offset: 0
+            line: 1
+            column: 1
+        key:
+        - name: .
+          position:
+            offset: 7
+            line: 1
+            column: 8
+      rooted: false
+      source: Unspecified
+    gui_info: !TextField 40
+  volatile: true
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: mem
+  name: describe
+  label: Describe collections
+  doc: Collections, fields, vocabularies, templates; which are writable
+  filename: describe.md
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: collection
+    label: collection
+    default: !Value ''
+    argument_type: string
+    gui_info: !TextField 40
+  - name: root
+    label: root
+    default: !Query
+      segments:
+      - !Resource
+        header:
+          name: ''
+          level: 0
+          parameters:
+          - value: key
+            position:
+              offset: 3
+              line: 1
+              column: 4
+          resource: true
+          position:
+            offset: 0
+            line: 1
+            column: 1
+        key:
+        - name: .
+          position:
+            offset: 7
+            line: 1
+            column: 8
+      rooted: false
+      source: Unspecified
+    gui_info: !TextField 40
+  volatile: true
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: mem
+  name: list
+  label: List memories
+  doc: 'Entries under the folder (state: -R-key/<folder>) with their L0/L1, kind and status; superseded memories hidden'
+  filename: list.md
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: depth
+    label: depth
+    default: !Value 1
+    argument_type: int
+    gui_info: !TextField 40
+  - name: include_superseded
+    label: include superseded
+    default: !Value false
+    argument_type: bool
+    gui_info: !TextField 40
+  - name: limit
+    label: limit
+    default: !Value 100
+    argument_type: int
+    gui_info: !TextField 40
+  - name: root
+    label: root
+    default: !Query
+      segments:
+      - !Resource
+        header:
+          name: ''
+          level: 0
+          parameters:
+          - value: key
+            position:
+              offset: 3
+              line: 1
+              column: 4
+          resource: true
+          position:
+            offset: 0
+            line: 1
+            column: 1
+        key:
+        - name: .
+          position:
+            offset: 7
+            line: 1
+            column: 8
+      rooted: false
+      source: Unspecified
+    gui_info: !TextField 40
+  volatile: true
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: mem
+  name: search
+  label: Search memories
+  doc: Documents (or sections) under the folder ranked against text; filter is a search expression over front-matter fields, e.g. -status:closed*
+  filename: search.md
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: text
+    label: text
+    default: !Value ''
+    argument_type: string
+    gui_info: !TextField 40
+  - name: unit
+    label: unit
+    default: !Value document
+    argument_type: !Enum
+      name: unit
+      values:
+      - alias: document
+        value: !Value document
+      - alias: section
+        value: !Value section
+      others_allowed: false
+      value_type: string
+    gui_info: VerticalRadioEnum
+  - name: filter
+    label: filter
+    default: !Value ''
+    argument_type: string
+    gui_info: !TextField 40
+  - name: limit
+    label: limit
+    default: !Value 10
+    argument_type: int
+    gui_info: !TextField 40
+  - name: include_superseded
+    label: include superseded
+    default: !Value false
+    argument_type: bool
+    gui_info: !TextField 40
+  - name: root
+    label: root
+    default: !Query
+      segments:
+      - !Resource
+        header:
+          name: ''
+          level: 0
+          parameters:
+          - value: key
+            position:
+              offset: 3
+              line: 1
+              column: 4
+          resource: true
+          position:
+            offset: 0
+            line: 1
+            column: 1
+        key:
+        - name: .
+          position:
+            offset: 7
+            line: 1
+            column: 8
+      rooted: false
+      source: Unspecified
+    gui_info: !TextField 40
+  volatile: true
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: mem
+  name: read
+  label: Read memory
+  doc: 'A document (state: -R/<key>): its L0, L1, a section by heading, a line range (N-M) or all of it; notes carry its key and version'
+  filename: read.md
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: tier
+    label: tier
+    default: !Value full
+    argument_type: !Enum
+      name: tier
+      values:
+      - alias: l0
+        value: !Value l0
+      - alias: l1
+        value: !Value l1
+      - alias: full
+        value: !Value full
+      others_allowed: false
+      value_type: string
+    gui_info: VerticalRadioEnum
+  - name: section
+    label: section
+    default: !Value ''
+    argument_type: string
+    gui_info: !TextField 40
+  - name: lines
+    label: lines
+    default: !Value ''
+    argument_type: string
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: mem
+  name: similar
+  label: Similar memories
+  doc: Memories of a collection sharing at least half of the title's significant words
+  filename: similar.md
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: collection
+    label: collection
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  - name: title
+    label: title
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  - name: description
+    label: description
+    default: !Value ''
+    argument_type: string
+    gui_info: !TextField 40
+  - name: limit
+    label: limit
+    default: !Value 5
+    argument_type: int
+    gui_info: !TextField 40
+  - name: root
+    label: root
+    default: !Query
+      segments:
+      - !Resource
+        header:
+          name: ''
+          level: 0
+          parameters:
+          - value: key
+            position:
+              offset: 3
+              line: 1
+              column: 4
+          resource: true
+          position:
+            offset: 0
+            line: 1
+            column: 1
+        key:
+        - name: .
+          position:
+            offset: 7
+            line: 1
+            column: 8
+      rooted: false
+      source: Unspecified
+    gui_info: !TextField 40
+  volatile: true
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: mem
+  name: new
+  label: New memory
+  doc: Create a memory in a collection; returns similar memories instead unless force is set
+  filename: new.json
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: collection
+    label: collection
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  - name: title
+    label: title
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  - name: description
+    label: description
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  - name: fields
+    label: fields
+    default: !Value ''
+    gui_info: !TextField 40
+  - name: body
+    label: body
+    default: !Value ''
+    argument_type: string
+    gui_info: !TextField 40
+  - name: force
+    label: force
+    default: !Value false
+    argument_type: bool
+    gui_info: !TextField 40
+  - name: reason
+    label: reason
+    default: !Value ''
+    argument_type: string
+    gui_info: !TextField 40
+  - name: root
+    label: root
+    default: !Query
+      segments:
+      - !Resource
+        header:
+          name: ''
+          level: 0
+          parameters:
+          - value: key
+            position:
+              offset: 3
+              line: 1
+              column: 4
+          resource: true
+          position:
+            offset: 0
+            line: 1
+            column: 1
+        key:
+        - name: .
+          position:
+            offset: 7
+            line: 1
+            column: 8
+      rooted: false
+      source: Unspecified
+    gui_info: !TextField 40
+  volatile: true
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: mem
+  name: write
+  label: Write memory
+  doc: 'Replace a memory''s body and set fields (state: -R-key/<key>); supersedes marks an older memory'
+  filename: write.json
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: body
+    label: body
+    default: !Value ''
+    argument_type: string
+    gui_info: !TextField 40
+  - name: title
+    label: title
+    default: !Value ''
+    argument_type: string
+    gui_info: !TextField 40
+  - name: description
+    label: description
+    default: !Value ''
+    argument_type: string
+    gui_info: !TextField 40
+  - name: fields
+    label: fields
+    default: !Value ''
+    gui_info: !TextField 40
+  - name: expected_version
+    label: expected version
+    default: !Value ''
+    argument_type: string
+    gui_info: !TextField 40
+  - name: supersedes
+    label: supersedes
+    default: !Value ''
+    argument_type: string
+    gui_info: !TextField 40
+  - name: reason
+    label: reason
+    default: !Value ''
+    argument_type: string
+    gui_info: !TextField 40
+  - name: root
+    label: root
+    default: !Query
+      segments:
+      - !Resource
+        header:
+          name: ''
+          level: 0
+          parameters:
+          - value: key
+            position:
+              offset: 3
+              line: 1
+              column: 4
+          resource: true
+          position:
+            offset: 0
+            line: 1
+            column: 1
+        key:
+        - name: .
+          position:
+            offset: 7
+            line: 1
+            column: 8
+      rooted: false
+      source: Unspecified
+    gui_info: !TextField 40
+  volatile: true
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: mem
+  name: edit
+  label: Edit memory
+  doc: 'Apply every given pair to one memory (state: -R-key/<key>) in one write: old/new replaces text, field/value sets a field, section/row appends a row'
+  filename: edit.json
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: old
+    label: old
+    default: !Value ''
+    argument_type: string
+    gui_info: !TextField 40
+  - name: new
+    label: new
+    default: !Value ''
+    argument_type: string
+    gui_info: !TextField 40
+  - name: field
+    label: field
+    default: !Value ''
+    argument_type: string
+    gui_info: !TextField 40
+  - name: value
+    label: value
+    default: !Value ''
+    argument_type: string
+    gui_info: !TextField 40
+  - name: section
+    label: section
+    default: !Value ''
+    argument_type: string
+    gui_info: !TextField 40
+  - name: row
+    label: row
+    default: !Value ''
+    argument_type: string
+    gui_info: !TextField 40
+  - name: expected_version
+    label: expected version
+    default: !Value ''
+    argument_type: string
+    gui_info: !TextField 40
+  - name: reason
+    label: reason
+    default: !Value ''
+    argument_type: string
+    gui_info: !TextField 40
+  - name: root
+    label: root
+    default: !Query
+      segments:
+      - !Resource
+        header:
+          name: ''
+          level: 0
+          parameters:
+          - value: key
+            position:
+              offset: 3
+              line: 1
+              column: 4
+          resource: true
+          position:
+            offset: 0
+            line: 1
+            column: 1
+        key:
+        - name: .
+          position:
+            offset: 7
+            line: 1
+            column: 8
+      rooted: false
+      source: Unspecified
+    gui_info: !TextField 40
+  volatile: true
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: mem
+  name: check
+  label: Check memory
+  doc: 'Schema and consistency findings for the memories under the folder (state: -R-key/<folder>)'
+  filename: check.md
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: root
+    label: root
+    default: !Query
+      segments:
+      - !Resource
+        header:
+          name: ''
+          level: 0
+          parameters:
+          - value: key
+            position:
+              offset: 3
+              line: 1
+              column: 4
+          resource: true
+          position:
+            offset: 0
+            line: 1
+            column: 1
+        key:
+        - name: .
+          position:
+            offset: 7
+            line: 1
+            column: 8
+      rooted: false
+      source: Unspecified
+    gui_info: !TextField 40
+  volatile: true
   expires: never
   is_async: true
   definition: Registered
