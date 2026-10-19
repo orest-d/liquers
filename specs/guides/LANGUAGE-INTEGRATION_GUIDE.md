@@ -3,7 +3,7 @@ title: Language Integration Guide
 kind: guide
 audience: internal
 area: [web, py, core/commands, core/plan, core/assets, core/store]
-reviewed: 2026-10-18
+reviewed: 2026-10-19
 ---
 # Liquers Language Integration Guide
 
@@ -454,7 +454,9 @@ environment, resolved at each call. Both handle kinds carry a registry id
 (`__liquersRecordHandle`), so a handle a JavaScript command returns crosses back as the same `Arc`
 (`ExtValue::RecordView` / `RecordSource`), and a freed one is refused by name. A table a page
 builds itself is not recognized at the boundary: it crosses as plain data, and the query says
-`ns-rec/from_json-records`. The `rec` commands are registered in the web environment. `RECORDS01`,
+`ns-rec/from_json-records`. The `rec` commands are registered in the web environment. All of this is behind
+`liquers-web`'s `records` feature, which is off by default because it adds about 4 MB to a release
+module; a binding should weigh the same cost before making records part of its default build. `RECORDS01`,
 `02`, `04`-`08` and `10` run in `liquers-web/tests/records_RECORDS.rs`; `03`, `09` and `11` are
 `NA` (no Arrow route; JavaScript has an async model; JavaScript cannot implement the traits).
 
@@ -3103,6 +3105,7 @@ def test_PACKAGE07_artifact_carries_declarations_license_and_metadata():
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-19 | §RECORDS "What `liquers-web` does": the records bridge is behind an opt-in feature, and why. | `claude/web-records-opt-in` |
 | 2026-10-18 | §RECORDS "What `liquers-web` does": a source crosses as a `RecordSource` handle (chunks, async iterator, bounded materialize), handles cross back as the same `Arc`, the `rec` commands run in the browser; the `RECORDS` dispositions. | `design/liquers-web-records-bridge/` |
 | 2026-10-18 | §RECORDS "What `liquers-web` does": a single-cell view reaches JavaScript as its scalar; `RECORDS10` runs there. | `WEB-RECORDS-SINGLE-CELL-VIEW-CROSSES-AS-BATCH`, `design/web-records-single-cell-scalar/` |
 | 2026-10-16 | §6 Browser JavaScript: `localstorage` and `http` now offer data-only access and can take a `metadata` section. | `design/store-adapters/` phase-5 review |
