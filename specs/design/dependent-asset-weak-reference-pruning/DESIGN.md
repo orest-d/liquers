@@ -2,8 +2,8 @@
 id: DEPENDENT-ASSET-WEAK-REFERENCE-PRUNING
 kind: design
 title: The dependency manager prunes dead and duplicate weak dependents as their lists grow
+gh_pr: [158]
 form: compact
-status: in_review
 phase: implementation
 readiness: ready
 autofix: eligible
@@ -140,12 +140,22 @@ Run: `cargo test -p liquers-core --lib dependencies::tests::dependent_assets`.
 
 ### Steps
 
-- [ ] 1. `liquers-core/src/dependencies.rs` — the three failing tests and the `#[cfg(test)]`
+- [x] 1. `liquers-core/src/dependencies.rs` — the three failing tests and the `#[cfg(test)]`
   accessor — `cargo test -p liquers-core --lib dependencies::tests::dependent_assets` (AC-1, AC-2 fail)
-- [ ] 2. `DependencyManager::add_dependent_asset` and `prune_dependent_assets` — the capacity-
+- [x] 2. `DependencyManager::add_dependent_asset` and `prune_dependent_assets` — the capacity-
   triggered prune — same command, all pass. Rollback: revert the method body.
-- [ ] 3. `specs/reference/DEPENDENCIES_STATUS.md` — the bound, History row, `reviewed:` bumped;
+- [x] 3. `specs/reference/DEPENDENCIES_STATUS.md` — the bound, History row, `reviewed:` bumped;
   close the issue — `python3 scripts/docs_index.py --check`
+
+Implementation note (2026-10-18): duplicates are judged by the shared allocation
+(`Weak::as_ptr`), not by `id()`, because every temporary asset (`AssetManager::create_temporary_asset`)
+has id 0 and deduplicating by id would drop live dependents. The tests build assets with
+`AssetData::new_temporary(..).to_ref()`, because `AssetRef::new_temporary` starts a service-message
+task that holds the asset strongly, so a dropped handle would never die.
+
+Review note (2026-10-18, Codex on #158): a prune that leaves the list under a quarter of its
+capacity now shrinks it to twice its length (at least 16), so the allocation also follows the
+live count down after many dependents drop. Test: `dependent_assets_release_capacity_once_dependents_drop`.
 
 ### Validation
 
