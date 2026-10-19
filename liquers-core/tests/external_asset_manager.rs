@@ -47,6 +47,7 @@ use common::manager_scenarios::{
     scenario_set_state_of_unserializable_value_is_served,
     scenario_unserializable_state_replaces_stored_bytes,
     scenario_installed_state_expires_with_its_dependency,
+    scenario_replacing_install_drops_unlisted_edges, replacing_install_store,
 };
 use common::minimal_manager::{
     MinimalEnv, MinimalInlineAssetManager, MinimalKind, AUDIT_TRAIL_PREFIX,
@@ -475,4 +476,17 @@ async fn external_manager_apply_queued_returns_failed_asset() -> TestResult {
     assert_eq!(asset.status().await, liquers_core::metadata::Status::Error);
     assert!(asset.get_asset_info().await?.is_error);
     Ok(())
+}
+
+/// An external manager installing through `AssetManager::track_installed` replaces the key's
+/// incoming dependency edges as the built-in managers do
+/// (`specs/design/replacing-write-drops-stale-dependency-edges/`, AC-4).
+#[tokio::test]
+async fn external_manager_replacing_install_drops_unlisted_edges() -> TestResult {
+    let envref = env_over(replacing_install_store().await?, |cr| register_greet(cr));
+    scenario(
+        "replacing_install_drops_unlisted_edges",
+        scenario_replacing_install_drops_unlisted_edges(envref),
+    )
+    .await
 }

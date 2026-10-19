@@ -2,6 +2,7 @@
 id: DEFAULT-ASSET-MANAGER-RECIPE-OPT-PAYLOAD-CHECK
 kind: design
 title: DefaultAssetManager rejects a payload-requiring keyed recipe in recipe_opt
+status: complete
 form: compact
 readiness: ready
 autofix: eligible
@@ -11,6 +12,8 @@ issues: [DEFAULT-ASSET-MANAGER-RECIPE-OPT-SKIPS-PAYLOAD-CHECK]
 created: 2026-10-12
 ---
 # DefaultAssetManager rejects a payload-requiring keyed recipe in recipe_opt
+
+> **Complete on 2026-10-18**: implemented and merged in #132.
 
 Bulk design (`specs/guides/autonomous_bulk_design.md`). Implemented through the autonomous fixing
 procedure (`specs/guides/autonomous_issue_fixing.md`) on 2026-10-13.
