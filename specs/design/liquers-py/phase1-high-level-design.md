@@ -9,8 +9,8 @@
 - **Explanation:** every question below has a recommended answer that a working design is built on.
   Items 1, 5 and 6 are the owner's. On 2026-10-18 the owner said to run every phase without waiting
   for approval, so Phases 2–5 and the implementation proceeded on the recommended answer to each;
-  1 and 6 are implemented as recommended, and 5 is not yet done (the M0 fixes are still in this
-  PR). The readiness stays `needs-decision` until the owner confirms 1 and 6 and answers 5:
+  1 and 6 are implemented as recommended, and 5 was decided on 2026-10-19 (the M0 split, PR #163).
+  The readiness stays `needs-decision` until the owner confirms 1 and 6:
   proceeding was authorized, the choices themselves were not made by the owner.
 - **Open questions:**
   1. **Open design: read path for formatless types.**
@@ -29,9 +29,9 @@
   4. **Proposed resolution: `VALUE12` is NA.** `evaluate` returns native Python objects. There is
      no `liquers.Value` wrapper whose operators could be specified. This reverses if a wrapper is
      exposed.
-  5. **Needs decision: M0 in this PR.** The M0 code fixes (PyO3 0.30, the `liquers` import name,
-     orphan removal, the test runner) are in this design PR. The skill puts such fixes in their own
-     PR. Recommended: split them into their own PR and merge it first.
+  5. **Decided (2026-10-19): M0 in its own PR.** Orest chose the split. The M0 code fixes (PyO3 0.30,
+     the `liquers` import name, orphan removal, the test runner) are PR #163, cherry-picked onto
+     `main`. It merges first, and this PR picks it up with a merge of `main`.
   6. **Needs decision: deviations from the owner's plan.**
      - The pickle codec is a `pickle=` keyword, not `config={"codecs": …}`, because the core
        `EnvironmentConfig` has no codec section.
