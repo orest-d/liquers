@@ -335,6 +335,7 @@ macro_rules! register_all_commands {
         $crate::register_records_commands!($cr)?;
         $crate::register_search_commands!($cr)?;
         $crate::register_template_commands!($cr)?;
+        $crate::register_mem_commands!($cr)?;
         $crate::register_lui_commands!($cr)?;
         Ok::<(), liquers_core::error::Error>(())
     }};
@@ -389,6 +390,16 @@ macro_rules! register_records_commands {
 #[cfg(not(feature = "templates"))]
 #[macro_export]
 macro_rules! register_template_commands {
+    ($cr:expr) => {{
+        let _ = &$cr;
+        Ok::<(), liquers_core::error::Error>(())
+    }};
+}
+
+/// No-op stand-in for `register_mem_commands!` when the `mem` feature is off.
+#[cfg(not(feature = "mem"))]
+#[macro_export]
+macro_rules! register_mem_commands {
     ($cr:expr) => {{
         let _ = &$cr;
         Ok::<(), liquers_core::error::Error>(())

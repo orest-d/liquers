@@ -4,7 +4,7 @@
 //! which calls `tokio::spawn` and panics without a runtime.
 
 // Only the freshness test reads the committed file.
-#[cfg(all(feature = "egui", feature = "image-support", feature = "polars", feature = "records", feature = "templates"))]
+#[cfg(all(feature = "egui", feature = "image-support", feature = "polars", feature = "records", feature = "templates", feature = "mem"))]
 use std::path::PathBuf;
 
 use liquers_core::command_metadata::CommandMetadataRegistry;
@@ -58,11 +58,13 @@ fn full_registry() -> Result<CommandMetadataRegistry, Error> {
         liquers_lib::register_search_commands!(cr)?;
         #[cfg(feature = "templates")]
         liquers_lib::register_template_commands!(cr)?;
+        #[cfg(feature = "mem")]
+        liquers_lib::register_mem_commands!(cr)?;
     }
     Ok(env.get_command_metadata_registry().clone())
 }
 
-#[cfg(all(feature = "egui", feature = "image-support", feature = "polars", feature = "records", feature = "templates"))]
+#[cfg(all(feature = "egui", feature = "image-support", feature = "polars", feature = "records", feature = "templates", feature = "mem"))]
 fn committed_registry_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -172,7 +174,7 @@ async fn namespace_filtering_selects_expected_commands() -> Result<(), Error> {
 ///
 /// Comparing structures rather than file bytes also keeps the test from failing spuriously on a
 /// serde_yaml formatting change.
-#[cfg(all(feature = "egui", feature = "image-support", feature = "polars", feature = "records", feature = "templates"))]
+#[cfg(all(feature = "egui", feature = "image-support", feature = "polars", feature = "records", feature = "templates", feature = "mem"))]
 fn signature_of(command: &liquers_core::command_metadata::CommandMetadata) -> String {
     let mut command = command.clone();
     command.impl_version = liquers_core::metadata::Version::new(0);
@@ -184,7 +186,7 @@ fn signature_of(command: &liquers_core::command_metadata::CommandMetadata) -> St
 /// `specs/command_registry.yaml` is exported with the default features on, so only a build with
 /// the same groups compiled in can compare against it. A reduced build registers a subset and
 /// would report the missing groups as staleness.
-#[cfg(all(feature = "egui", feature = "image-support", feature = "polars", feature = "records", feature = "templates"))]
+#[cfg(all(feature = "egui", feature = "image-support", feature = "polars", feature = "records", feature = "templates", feature = "mem"))]
 #[tokio::test]
 async fn committed_registry_is_fresh() -> Result<(), Error> {
     let path = committed_registry_path();
@@ -247,7 +249,7 @@ async fn committed_registry_is_fresh() -> Result<(), Error> {
 /// the same process give it two different versions.
 ///
 /// See specs/design/command-registry-impl-version-freshness/.
-#[cfg(all(feature = "egui", feature = "image-support", feature = "polars", feature = "records", feature = "templates"))]
+#[cfg(all(feature = "egui", feature = "image-support", feature = "polars", feature = "records", feature = "templates", feature = "mem"))]
 #[tokio::test]
 async fn committed_registry_impl_versions_are_fresh() -> Result<(), Error> {
     let path = committed_registry_path();
