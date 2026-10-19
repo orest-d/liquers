@@ -33,7 +33,8 @@ bash scripts/test-liquers-py.sh
 ```
 
 run from the repository root, does the whole loop: it creates (or reuses) a virtual environment at
-`target/liquers-py-venv`, installs `maturin` and `pytest` into it, runs `maturin develop` to build
+`target/liquers-py-venv-<interpreter>` (one per interpreter, so `PYTHON=python3.13 bash
+scripts/test-liquers-py.sh` really tests 3.13), installs `maturin` and `pytest` into it, runs `maturin develop` to build
 and install the `liquers` package, runs `pytest liquers-py/tests`, and then runs the crate's Rust
 unit tests. Extra arguments are passed to pytest (`bash scripts/test-liquers-py.sh -k parse`).
 `cargo clean` removes the environment along with the rest of `target/`; the next run recreates it.
