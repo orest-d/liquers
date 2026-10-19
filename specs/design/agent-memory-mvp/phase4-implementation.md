@@ -44,11 +44,9 @@ Signatures re-opened at HEAD 2026-10-17: `register_lib_store_config` (`liquers-l
   `register_all_commands!`;
   `Group::Mem` in the exporter; `liquers-lib/tests/registry_export.rs` gate and `full_registry()`.
 - Depends on: none.
-- Also: `impl TryFrom<CombinedValue<B, E>> for Key` in `liquers-lib/src/value/extended.rs`, beside the
-  `String` conversion. No `liquers-lib` command takes a `Key` argument today, and every `ns-mem`
-  command's `root: Key = query "-R-key/."` needs it (core has it only for its own `Value`).
-- Proof: `cargo check -p liquers-lib`, `cargo check -p liquers-lib --no-default-features`, and
-  `cargo test -p liquers-lib --lib -- value::extended::tests::key_from_combined_value`.
+- Also: `impl TryFrom<CombinedValue<B, E>> for Key` — *arrived from main with `liquers-template`
+  (`liquers-lib/src/value/extended.rs`, merged 2026-10-19), so nothing to add.*
+- Proof: `cargo check -p liquers-lib` and `cargo check -p liquers-lib --no-default-features`.
 - Rollback: revert the commit; nothing else references `mem` yet.
 
 ### Step 2: schema types

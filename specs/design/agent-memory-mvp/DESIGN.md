@@ -3,7 +3,7 @@ id: AGENT-MEMORY-MVP
 kind: design
 title: MVP for an agent memory service on the liquers stack
 workflow: liquers-project
-status: in_review
+status: approved
 phase: implementation
 area: [lib/commands, core/store, docs]
 gh_pr: []
@@ -21,7 +21,7 @@ superseded_by:
 - [x] Phase 1: High-Level Design — **approved 2026-10-17** (revision 4, after the split)
 - [x] Phase 2: Solution & Architecture — **approved 2026-10-17** (decision 1 revised; decisions 2–9 settled at the gate)
 - [x] Phase 3: Examples & Testing — **approved 2026-10-17** (with the migration guide draft)
-- [ ] Phase 4: Implementation Plan — written and reviewed 2026-10-17, awaiting approval
+- [x] Phase 4: Implementation Plan — **approved 2026-10-19** ("Implement now"; then `proceed all`: pre-approved through Phase 5)
 - [ ] Phase 5: Documentation
 - [ ] Implementation Complete
 
@@ -277,6 +277,10 @@ the stdio test got its fixture and the `transport-child-process` dev feature; th
 `filename:` is shown in Phase 2. Phase 1 became revision 5, aligned with Phase 2's changes, with a
 Design Readiness section; the migration guide's claims about `storage: none` and start-up were
 corrected.
+
+**Pre-approved after Phase 4 on 2026-10-19** (`proceed all`). Implementation and Phase 5 run
+without further gates; a discovery that changes an approved contract stops the work and returns to
+the earliest affected gate. Phase 5's results are presented before `status: complete`.
 
 ## Links
 
