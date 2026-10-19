@@ -107,7 +107,8 @@ Python symbols for the loading interpreter to supply, so a test binary built wit
 (`Cargo.toml` explains).
 
 Python test modules are named for the feature they test, `test_<FEATURE>_<topic>.py`
-(`specs/guides/LANGUAGE-INTEGRATION_GUIDE.md` §3).
+(`specs/guides/LANGUAGE-INTEGRATION_GUIDE.md` §3). The one exception is `test_GUIDE_examples.py`,
+which runs every example in `specs/guides/PYTHON_GUIDE.md`.
 
 ## Conformance
 

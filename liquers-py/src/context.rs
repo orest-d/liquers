@@ -96,7 +96,8 @@ impl Context {
             .map_err(|e| error_to_pyerr(py, &e))
     }
 
-    /// Adds an error-level entry to the asset's log. It does not fail the asset: raise for that.
+    /// Adds an error-level entry to the asset's log, which also marks the asset failed: the query
+    /// raises `GeneralError` with this message even if the command returns.
     fn error(&self, py: Python<'_>, message: &str) -> PyResult<()> {
         self.get()
             .and_then(|context| context.error(message))

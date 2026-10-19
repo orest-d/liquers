@@ -59,8 +59,8 @@ nothing is unpickled, but the error does not name the type. The matrix is in
 The owner asked on 2026-10-19 for three Python documents: a standard Python API doc, a Python
 reference documenting the integration, and a Python guide to the modules and to configuring an
 environment, registering a command and running a query. `LANGUAGE-INTEGRATION_GUIDE.md` requires
-none of them; it asks only for a quick-start under the Optional `PACKAGE` feature. That gap is
-filed as `LANGUAGE-INTEGRATION-GUIDE-DEFINES-NO-USER-DOCUMENTATION`.
+none of them; it asks only for a quick-start under the Optional `PACKAGE` feature. That gap was
+already filed, as `LANGUAGE-GUIDE-NO-DOCUMENTATION-SECTION` (2026-08-30), which now carries this design's evidence.
 
 ### New Reference Documents
 - **[`reference/PYTHON_INTEGRATION.md`](../../reference/PYTHON_INTEGRATION.md)** (audience
@@ -73,8 +73,9 @@ filed as `LANGUAGE-INTEGRATION-GUIDE-DEFINES-NO-USER-DOCUMENTATION`.
 ### New Guide Documents
 - **[`guides/PYTHON_GUIDE.md`](../../guides/PYTHON_GUIDE.md)** (audience `user`): installing, the
   module overview, a first query, configuring an environment, registering commands (input,
-  arguments, context, metadata, replacing, errors), running queries, values, errors, testing, and
-  known limitations. Its twelve examples were extracted and executed against the built package.
+  arguments, context, metadata, replacing, errors), running queries (metadata, cancelling,
+  recipes), values, errors, testing, and known limitations. `test_GUIDE_examples.py` runs its
+  thirteen examples.
 
 ### Deferred: the generated API reference
 Most public names have no docstring (285 of 392 on 2026-10-19), so a generated reference would
@@ -137,8 +138,15 @@ README matrix, keeping the design link.
 - `PY-API-REFERENCE-NOT-GENERATED` (P2): the deferred API reference, above.
 - `PY-REPRS-SHOW-RUST-DEBUG-FORMAT` (P3): `repr(Query)` and `repr(Key)` quote their text twice,
   and several classes print Rust debug output. Found while writing the guide.
-- `LANGUAGE-INTEGRATION-GUIDE-DEFINES-NO-USER-DOCUMENTATION` (P2): the guide requires no user
-  documentation from an integration.
+- `LANGUAGE-GUIDE-NO-DOCUMENTATION-SECTION` (P2, pre-existing): the guide requires no user
+  documentation from an integration. Updated with this design's evidence and the three-document
+  split, instead of filing a duplicate.
+- `COMMAND-NAMES-Q-AND-V-ARE-NOT-RESERVED` (P2): a command named `q` or `v` registers and never
+  runs. Found by the Phase 5 review.
+- `MISSING-RESOURCE-REPORTED-AS-GENERAL-ERROR` (P2): a missing key raises `GeneralError` without
+  its key. Found by the Phase 5 review.
+- `PY-METADATA-FIELDS-ARE-METHODS` (P3): `Metadata`'s fields are methods where `State` and
+  `AssetRef` use properties.
 
 **Closed by this work:**
 - `FOREIGN-VALUE-CANNOT-BE-DESERIALIZED`;
@@ -176,6 +184,28 @@ What remains is in the issues above; nothing is left half-done in the design. No
 is open: Phase 1 questions 1, 5 and 6 were decided on 2026-10-19 (M0 is PR #163).
 
 ## Validation
+
+- The Python guide and reference had two independent reviews of their own (2026-10-19): one
+  checked every claim against the code and by running probes, the other read them as a new user
+  and against `DOCS_STRUCTURE_GUIDE.md`. Fixed from them:
+  - `Context.error` *does* fail the asset, contrary to both documents and the `context.rs`
+    docstring; all three now say so, and `test_EVAL_context_error_fails_the_result` pins it;
+  - pickling of the classes, `validate()`'s scope, behaviour after `shutdown()`, `State` being a
+    snapshot, `store_set`'s caller-thread serialization, unannotated arguments arriving as `str`,
+    the container rule, the `filename` keyword and the OpenSSL requirement were corrected;
+  - the guide gained the store-prefix rule, a YAML file example with `${VAR}`, argument escapes,
+    reserved names, a metadata table, recipes, thread safety, the common errors, install notes
+    and definitions of its terms; the reference gained a method table, reserved names and
+    concurrency;
+  - a duplicate issue was withdrawn in favour of `LANGUAGE-GUIDE-NO-DOCUMENTATION-SECTION`, and
+    three issues were filed from what the reviews found;
+  - `liquers-py/tests/test_GUIDE_examples.py` now runs every guide example (13), so they cannot
+    rot.
+
+  Not adopted: moving the guide's issue references out (they are plain text, not links, so a move
+  to `docs/` breaks nothing) and removing the guide's user-level conversion and error tables in
+  favour of the reference (a user needs them; the guide points at the reference for the exact
+  rules).
 
 - `bash scripts/test-liquers-py.sh`: 153 passed, 2 skipped (NA), 2 xfailed (BLOCKED). Rust unit
   tests: 15 passed, stable over 12 consecutive runs after the race fix.

@@ -12,24 +12,31 @@ register commands written in Python, and evaluate queries. How the package is bu
 crates, and the exact rules it follows, are in
 [`reference/PYTHON_INTEGRATION.md`](../reference/PYTHON_INTEGRATION.md).
 
-Every example below runs as written against the package built from this repository. Examples that
-use `polars` need it installed.
+Every example below runs as written against the package built from this repository;
+`liquers-py/tests/test_GUIDE_examples.py` runs them all. Examples that use `polars` need it
+installed.
 
 ## 1. Installing
 
-The package is not published yet. Build it from a checkout into a virtual environment with
-[maturin](https://www.maturin.rs):
+The package is not published yet. Build it from the repository root into a virtual environment
+with [maturin](https://www.maturin.rs):
 
 ```bash
 python -m venv .venv && . .venv/bin/activate
-pip install maturin
-maturin develop -m liquers-py/Cargo.toml       # builds the extension and installs `liquers`
+pip install maturin polars pillow
+maturin develop --release -m liquers-py/Cargo.toml   # builds the extension and installs `liquers`
 ```
 
+The first build compiles the Rust libraries, Polars included, so it takes several minutes and a few
+gigabytes of disk. `--release` makes the package much faster; leave it out for a quicker build
+while working on the bindings themselves. A Rust toolchain is required. `polars` and `pillow` are
+optional: they are needed only to exchange DataFrames and images.
+
 The distribution is called `liquers-py`; the package is imported as `liquers`, conventionally as
-`lq`. CPython 3.9 to 3.15 and PyPy 3.11 or newer are supported. Building needs a Rust toolchain
-and OpenSSL development headers (`libssl-dev`). `polars` and `pillow` are optional; they are
-needed only to exchange DataFrames and images.
+`lq`. CPython 3.9 to 3.15 and PyPy 3.11 or newer are supported.
+
+Liquers writes progress lines to stderr while it evaluates, and they cannot be turned off yet
+(`CORE-TRACING-MIGRATION`). Stdout is left alone.
 
 ## 2. What is in the package
 
@@ -39,7 +46,7 @@ traceback is readable.
 | Module | What it holds |
 |---|---|
 | `liquers` | The public names, all re-exported here. |
-| `liquers._native` | The Rust extension: every class below, and `parse`, `parse_key`, `build_plan`. |
+| `liquers._native` | The Rust extension: every class below except the exception classes, and `parse`, `parse_key`, `build_plan`. |
 | `liquers._env` | `default_environment()` and `evaluate()`. |
 | `liquers._commands` | The `command` and `first_command` decorators. |
 | `liquers._errors` | `LiquersError` and its subclasses, one per `ErrorType`. |
@@ -65,18 +72,23 @@ is a `LiquersError`.
 ```python
 import liquers as lq
 
-print(lq.evaluate("commands_doc")[:10])     # "# Commands"
+listing = lq.evaluate("commands_doc")       # Markdown: every command you can use
+assert listing.startswith("# Commands")
 ```
 
 `lq.evaluate` runs a query in the process's default environment and returns its value as a Python
 object. Every environment comes with the built-in commands of `liquers-lib`: `to_text`,
 `commands_doc`, the Polars commands under `ns-pl`, images, records, search and templates.
+`commands_doc` lists them all, with their arguments.
 
 A query is a path of actions: `hello/repeat-3` applies `hello`, then `repeat` with the argument
 `3`. `-R/data/note.txt` reads a key from the store, and `-R/data/note.txt/-/to_text` reads it and
 applies `to_text` (the `/-/` starts the actions; without it, `to_text` would be part of the key).
 The query language is described in
 [`reference/PROJECT_OVERVIEW.md`](../reference/PROJECT_OVERVIEW.md).
+
+Each result Liquers computes is an *asset*: the value together with its status (such as
+`Processing` or `Ready`) and its metadata (type, log, and how it was made).
 
 ## 4. Configuring an environment
 
@@ -92,10 +104,13 @@ env = lq.Environment(config={
     "store": {"stores": [{"type": "filesystem", "prefix": "data", "config": {"path": root}}]},
     "assets": {"job_capacity": 2},
 })
-env.store_set("data/note.txt", "kept")
+env.store_set("data/note.txt", "kept")      # the file <root>/data/note.txt
 assert env.evaluate("-R/data/note.txt") == "kept"
 env.shutdown()
 ```
+
+The prefix stays in the path: under this configuration the key `data/note.txt` is the file
+`<root>/data/note.txt`, so point `path` at the folder that *contains* `data/`.
 
 `Environment` takes keyword arguments only:
 
@@ -105,26 +120,46 @@ env.shutdown()
 | `conversion` | `"permissive"` | What happens to a Python object with no Liquers equivalent: `"permissive"` keeps it as an opaque object, `"strict"` refuses it with `ConversionError` (§7). |
 | `pickle` | `False` | Whether opaque objects can be written to the store, as pickle. Leave it off unless you trust everything the store holds: reading pickle runs code. |
 
-The same configuration as YAML:
+A configuration is usually kept in a file. YAML may refer to environment variables as
+`${NAME}`:
 
 ```python
+import os
+import tempfile
 import liquers as lq
 
-env = lq.Environment(config="""
+os.environ["LIQUERS_DATA"] = tempfile.mkdtemp()
+config_text = """
+store:
+  stores:
+    - type: filesystem
+      prefix: data
+      config:
+        path: ${LIQUERS_DATA}
 assets:
   job_capacity: 2
-""")
+"""
+# In practice: config_text = pathlib.Path("liquers.yaml").read_text()
+env = lq.Environment(config=config_text)
+env.store_set("data/note.txt", "kept")
 env.shutdown()
 ```
 
-**Lifecycle.** An environment is built on first use, from everything declared on it, and keeps
-running until `shutdown()`. `shutdown()` is idempotent; afterwards every use raises
-`GeneralError`. Call it when you are done with an environment you made, typically in a `finally`
-or a test fixture. An invalid `conversion` or `recipes` is refused by the constructor, but a store
-that cannot be built, such as one of an unknown type, is reported by the first use.
+`config` must be the text, not a path. Malformed YAML raises `ParseError`; keys Liquers does not
+know are ignored, so check the spelling of a setting that seems to have no effect.
+
+**Lifecycle.** An environment is built on first use, from the commands registered on it, and keeps
+running until `shutdown()`. `shutdown()` is idempotent; afterwards every use raises `GeneralError`
+(a wait still outstanding raises `CancelledError`). Call it when you are done with an environment
+you made, typically in a `finally` or a test fixture. An invalid `conversion` or `recipes` is
+refused by the constructor, but a store that cannot be built, such as one of an unknown type
+(`NotSupportedError`), is reported by the first use.
 
 **The default environment.** `lq.default_environment()` returns one shared environment, created on
 first use with the default settings. `lq.evaluate` and the bare `@lq.command` decorators use it.
+
+**Threads.** One environment can be used from several Python threads at once; evaluations run in
+parallel.
 
 ## 5. Registering a command
 
@@ -152,7 +187,9 @@ env.shutdown()
 
 `@env.command` registers in `env`; `@lq.command` registers in the default environment, and
 `@lq.command(env=env)` is the same as `@env.command`. The function is returned unchanged, so it
-can still be called directly.
+can still be called directly. `ns`, `q` and `v` are query instructions, not command names: `ns` is
+refused, and a command named `q` or `v` registers but never runs
+(`COMMAND-NAMES-Q-AND-V-ARE-NOT-RESERVED`).
 
 ### The input
 
@@ -174,11 +211,17 @@ Every other parameter is an argument, given in the query after the command name,
 | Annotation | Argument type |
 |---|---|
 | `str`, `int`, `float`, `bool` | that type |
-| `Optional[int]`, `Optional[float]`, `Optional[bool]` | optional; an empty or omitted argument gives the default, or `None` |
-| none, or anything else | any value |
+| `Optional[int]`, `Optional[float]`, `Optional[bool]` (or `int \| None`, …) | optional; an empty or omitted argument gives the default, or `None` |
+| none, or anything else | the query text as a `str`; an omitted argument gets its default unchanged |
 
-A default must be `None`, a `str`, an `int`, a finite `float` or a `bool`. `*args` takes every
-remaining argument:
+Annotate a number, or it arrives as text. For an optional string use `str = ""`; `Optional[str]`
+counts as unannotated. A default must be `None`, a `str`, an `int`, a finite `float` or a `bool`.
+
+An argument containing `-`, `/` or a space is written with an escape: `~_` for `-`, `~/` for `/`,
+`~.` for a space, `~~` for `~`. The full encoding is in
+[`reference/PROJECT_OVERVIEW.md`](../reference/PROJECT_OVERVIEW.md).
+
+`*args` takes every remaining argument:
 
 ```python
 import liquers as lq
@@ -194,6 +237,7 @@ def join(value, *parts: str) -> str:
     return "-".join([value, *parts])
 
 assert env.evaluate("hello/join-a-b-c") == "hello-a-b-c"
+assert env.evaluate("hello/join-a~_b") == "hello-a-b"       # one argument, "a-b"
 env.shutdown()
 ```
 
@@ -226,7 +270,8 @@ env.shutdown()
 | `Context` method | Does |
 |---|---|
 | `evaluate(query)` | evaluates `query` as a dependency of this result and returns its value |
-| `info(msg)`, `warning(msg)`, `error(msg)` | adds an entry to the result's log; `error` does not fail the command, raising does |
+| `info(msg)`, `warning(msg)` | adds an entry to the result's log |
+| `error(msg)` | adds an error entry **and fails the result**: the query raises `GeneralError` with `msg`, even if the command then returns |
 | `is_cancelled()` | whether the result was cancelled; a long command should check it and stop |
 
 The context is valid only during the call. Keeping it and using it later raises `GeneralError`.
@@ -239,9 +284,9 @@ Both decorators take keyword arguments describing the command:
 | Keyword | Meaning |
 |---|---|
 | `name` | the command's name in queries; default: the function's name |
-| `namespace` | the namespace; a query selects it with `ns-<namespace>` |
+| `namespace` | a group of commands; a query selects it with `ns-<namespace>` before the command |
 | `label`, `doc` | a display name and a description; `doc` defaults to the docstring |
-| `filename` | the file name the result is presented under, such as `"result.csv"` |
+| `filename` | the default file name a client offers for the result, such as `"result.csv"`; recorded in the command's metadata, it changes neither the value nor the result's metadata |
 | `volatile` | `True` for a result that must never be reused |
 | `cached` | `False` for a cheap command whose result is not worth keeping |
 | `env` | the environment to register in |
@@ -274,7 +319,7 @@ brings the built-in back.
 Register commands before the first evaluation where you can. A command registered later takes
 effect on the next evaluation, by rebuilding the environment: the store is kept, but results
 already computed are not, and the replaced environment's memory is not freed until the process
-exits ([`ENVIRONMENT-MANAGER-REFERENCE-CYCLE`](../issues/ENVIRONMENT-MANAGER-REFERENCE-CYCLE.md)).
+exits (`ENVIRONMENT-MANAGER-REFERENCE-CYCLE`).
 
 ### Errors from a command
 
@@ -295,6 +340,8 @@ try:
     env.evaluate("lookup-a")
 except lq.KeyNotFoundError as e:
     assert e.key == "a"
+else:
+    raise AssertionError("expected KeyNotFoundError")
 env.shutdown()
 ```
 
@@ -307,7 +354,10 @@ env.shutdown()
 | `env.get_asset(query)` | an `lq.AssetRef` at once, without waiting for the value |
 | `lq.evaluate(query)` | the value, from the default environment |
 
-`query` is a string or an `lq.Query`. The metadata records how a value was made:
+`query` is a string or an `lq.Query`. A failed query raises its error from each of these calls
+except `get_asset`, whose `AssetRef` raises it from `get()`.
+
+### Reading metadata
 
 ```python
 import liquers as lq
@@ -325,6 +375,19 @@ assert state.metadata.type_identifier() == "Text"
 assert "made a greeting" in [entry.message for entry in state.metadata.log()]
 env.shutdown()
 ```
+
+`State.value` is a property, but `Metadata`'s fields are methods:
+
+| `Metadata` method | Gives |
+|---|---|
+| `status()` | an `lq.Status`, such as `Ready` or `Error` |
+| `is_error()`, `message()` | whether the result failed, and its last message |
+| `type_identifier()` | the value's type, such as `Text` |
+| `query()` | the query that produced it |
+| `filename()`, `get_media_type()` | its file name and media type, when the query ends in one (see recipes, below) |
+| `log()` | the log: your `info`/`warning`/`error` entries and Liquers' own, such as detected dependencies |
+
+### Watching and cancelling
 
 An `AssetRef` is for a result you want to watch or stop: `status` (an `lq.Status`), `metadata`,
 `get()` and `get_state()` to wait for the value, and `cancel()`.
@@ -352,9 +415,47 @@ wait with `KeyboardInterrupt`, and `shutdown()` ends any wait still outstanding 
 **Results are reused.** A query evaluated twice is computed once while the environment keeps the
 result. A command that must run every time is declared `volatile=True`.
 
-**Checking a query without running it.** `lq.parse(text)` parses a query and raises `ParseError`
-when it is malformed; `.encode()` gives its canonical text. `env.validate()` lists the problems
-the next build of the environment would meet, as `lq.Issue` objects, without building it.
+### Named results: recipes
+
+A *recipe* gives a query's result a key in the store, so `-R/data/triple.txt` computes it when no
+file is there. Recipes live in a `recipes.yaml` in the folder they belong to; the key is the folder
+plus the query's last segment, its file name:
+
+```python
+import pathlib
+import tempfile
+import liquers as lq
+
+root = pathlib.Path(tempfile.mkdtemp())
+(root / "data").mkdir()
+(root / "data" / "recipes.yaml").write_text("recipes:\n  - query: hello/repeat-3/triple.txt\n")
+
+env = lq.Environment(config={
+    "store": {"stores": [{"type": "filesystem", "prefix": "data", "config": {"path": str(root)}}]},
+})
+
+@env.first_command
+def hello() -> str:
+    return "hello"
+
+@env.command
+def repeat(text: str, count: int = 2) -> str:
+    return text * count
+
+assert env.evaluate("-R/data/triple.txt") == "hellohellohello"
+env.shutdown()
+```
+
+A trailing file name such as `triple.txt` also names the result and sets its media type; it can end
+any query (`hello/repeat-3/triple.txt`). How recipes are resolved is in
+[`reference/api/DOC_08_RECIPES_PLANS.md`](../reference/api/DOC_08_RECIPES_PLANS.md).
+
+### Checking a query without running it
+
+`lq.parse(text)` parses a query and raises `ParseError` when it is malformed; `.encode()` gives its
+canonical text. `env.validate()` lists the problems the registered commands and imported metadata
+would cause, as `lq.Issue` objects, without building the environment. It does not check the store
+configuration, which only the first use does.
 
 ## 7. Values
 
@@ -373,8 +474,10 @@ Values cross between Python and Liquers by kind:
 | `lq.Query`, `lq.Key`, `lq.Recipe`, `lq.MetadataRecord`, `lq.CommandMetadata` | the same | the same |
 | anything else | an opaque Python object | the same object |
 
-A list or dict is converted only when everything inside it can be. One that holds an unconvertible
-item, or a dict with a non-`str` key, is kept whole as an opaque object, so it comes back unchanged.
+A list or dict is converted only when everything inside it is a plain value: `None`, a bool,
+number, `str` or `bytes`, a list or dict of those, or one of the `lq` objects above. One holding
+anything else, a DataFrame or image included, or a dict with a non-`str` key, is kept whole as an
+opaque object, so it comes back unchanged.
 
 A DataFrame lets Python and Rust commands share a pipeline:
 
@@ -397,16 +500,15 @@ A DataFrame or image is copied each time it crosses, not shared.
 **Opaque objects.** An object with no Liquers equivalent is kept as it is, so a later Python command
 receives the same object. Liquers cannot look inside it: a Rust command given one fails with
 `ConversionError`. It can be written to the store only by an environment created with
-`pickle=True`. Writing one without pickle raises `SerializationError`, and an environment without
-pickle never unpickles stored bytes. With `conversion="strict"`, such an object is refused with
-`ConversionError` as soon as a command returns it.
+`pickle=True`; without it, writing one raises `SerializationError`, and stored pickle bytes are
+never unpickled. With `conversion="strict"`, such an object is refused with `ConversionError` as
+soon as a command returns it.
 
 ## 8. Errors
 
-Every Liquers error is raised as a subclass of `lq.LiquersError`, one per `ErrorType`:
-`ErrorType.KeyNotFound` is `lq.KeyNotFoundError`, `ErrorType.ActionNotRegistered` is
-`lq.ActionNotRegisteredError`, and `ErrorType.ExecutionError` is `lq.ExecutionError` (a name that
-already ends in `Error` is not suffixed twice). Catch `lq.LiquersError` for any of them.
+Every Liquers error is raised as a subclass of `lq.LiquersError`, one per `ErrorType`, named for it:
+`lq.KeyNotFoundError`, `lq.ActionNotRegisteredError`, `lq.ExecutionError`. Catch
+`lq.LiquersError` for any of them.
 
 | Attribute | Meaning |
 |---|---|
@@ -417,6 +519,18 @@ already ends in `Error` is not suffixed twice). Catch `lq.LiquersError` for any 
 
 To raise one: `lq.KeyNotFoundError("message", key="a/b")`, or
 `lq.LiquersError(lq.ErrorType.KeyNotFound, "message", key="a/b")`, which is the same.
+
+Errors you will meet early:
+
+| Situation | Raised |
+|---|---|
+| A command name that is not registered | `ActionNotRegisteredError` |
+| A key that is neither in the store nor made by a recipe | `GeneralError`, "No recipe found for key …", with no `key` (`MISSING-RESOURCE-REPORTED-AS-GENERAL-ERROR`) |
+| A malformed query | `ParseError` |
+| An exception inside a Python command | `ExecutionError` |
+| A value that cannot be converted | `ConversionError` |
+
+The exact mapping is in [`reference/PYTHON_INTEGRATION.md`](../reference/PYTHON_INTEGRATION.md) §6.
 
 ## 9. Testing your commands
 
@@ -447,19 +561,17 @@ way to give a test its input.
 
 ## 10. Known limitations
 
-- Evaluation is synchronous; `async def` commands are not supported yet
-  ([`design/liquers-py-async/`](../design/liquers-py-async/DESIGN.md)).
-- The decorators cannot set a command's realm or describe its arguments beyond their annotations
-  ([`PY-COMMAND-DECORATOR-CANNOT-SET-REALM`](../issues/PY-COMMAND-DECORATOR-CANNOT-SET-REALM.md),
-  [`PY-COMMAND-DECORATOR-CANNOT-DECLARE-ARGUMENT-METADATA`](../issues/PY-COMMAND-DECORATOR-CANNOT-DECLARE-ARGUMENT-METADATA.md)).
-- Only the default recipe provider can be configured
-  ([`PY-RECIPE-PROVIDER-NOT-CONFIGURABLE`](../issues/PY-RECIPE-PROVIDER-NOT-CONFIGURABLE.md)).
-- An environment's memory is never freed, even after `shutdown()`
-  ([`ENVIRONMENT-MANAGER-REFERENCE-CYCLE`](../issues/ENVIRONMENT-MANAGER-REFERENCE-CYCLE.md)).
-- Liquers writes progress diagnostics to stderr, and they cannot be turned off yet
-  ([`CORE-TRACING-MIGRATION`](../issues/CORE-TRACING-MIGRATION.md)).
-- Most classes have no docstrings yet, so `help()` says little about them
-  ([`PY-API-REFERENCE-NOT-GENERATED`](../issues/PY-API-REFERENCE-NOT-GENERATED.md)).
+What you will notice; the complete list, with the tracking issues, is
+[`reference/PYTHON_INTEGRATION.md`](../reference/PYTHON_INTEGRATION.md) §8.
+
+- Evaluation is synchronous; `async def` commands are not supported yet.
+- The decorators cannot set a command's realm (a deployment-level grouping of commands) or describe
+  arguments beyond their annotations.
+- Only the default recipe provider can be configured.
+- An environment's memory is never freed, even after `shutdown()`.
+- Progress lines on stderr cannot be turned off.
+- Most classes have no docstrings yet, so `help()` says little about them, and there are no type
+  stubs for editors.
 
 ## History
 

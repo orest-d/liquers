@@ -50,7 +50,7 @@
      - The owner also asked for user documentation: a Python guide and a Python integration
        reference, written in Phase 5, and a generated API reference, filed as
        `PY-API-REFERENCE-NOT-GENERATED`. The integration guide does not require any of them
-       (`LANGUAGE-INTEGRATION-GUIDE-DEFINES-NO-USER-DOCUMENTATION`).
+       (`LANGUAGE-GUIDE-NO-DOCUMENTATION-SECTION`).
   7. **Proposed resolution: configured stores are in scope** to the extent of `EnvironmentConfig`'s
      `store` section, using core's existing factories (AC-18's shared file store). Python-defined
      stores stay a non-goal.

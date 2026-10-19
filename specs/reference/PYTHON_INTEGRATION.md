@@ -2,7 +2,7 @@
 title: Python Integration
 kind: reference
 audience: both
-area: [py]
+area: [py, core/value, core/error, lib/value]
 reviewed: 2026-10-19
 ---
 # Python Integration
@@ -39,13 +39,13 @@ and the `test_panic` command. `liquers-lib` is linked with `image-support`, `pol
 `records-ipc`, `records-parquet` and `templates`; `egui` is not linked, since a Python process has
 no egui event loop.
 
-Every class reports `module = "liquers"`, so `repr` and pickling name `liquers.X`, not
-`liquers._native.X`.
+Every class reports `__module__ == "liquers"`, so type names in messages and default reprs read
+`liquers.X`, not `liquers._native.X`. The classes cannot be pickled.
 
 ## 2. Exposed types
 
-Each class wraps one Rust value. The handles bound to an environment (`Environment`, `Context`,
-`State`, `AssetRef`) and `Issue` are frozen; the others hold their own copy of the value.
+Each class wraps one Rust value. `Environment`, `Context`, `State`, `AssetRef` and `Issue` are
+frozen; the others hold their own copy of the value.
 
 | Python | Wraps |
 |---|---|
@@ -57,7 +57,8 @@ Each class wraps one Rust value. The handles bound to an environment (`Environme
 | `Expires`, `ExpirationTime`, `DependencyRelation`, `PlanDependency` | expiration and dependency types |
 | `ErrorType`, `Error` | `liquers_core::error`; `Error` is a data object, not the exception (§6) |
 | `Environment`, `Issue` | the environment handle (§3) and one `IssueReport` finding |
-| `Context`, `State`, `AssetRef` | a command's context, a state, an asset reference, each bound to an environment |
+| `Context`, `AssetRef` | a command's context and an asset reference, each watching its environment's shut flag |
+| `State` | a snapshot of a value, converted to Python, and a copy of its metadata |
 
 `Status` compares equal to its variant's name (`asset.status == "Ready"`) and hashes as that
 string. `Key[i]` accepts negative indices and raises `IndexError` out of range.
@@ -85,7 +86,9 @@ and the command metadata `import_metadata` added. A build applies them in this o
 4. the imported metadata. An entry naming no registered command is a validation error.
 
 The builder's own validation runs next; any error-level issue fails the build with
-`ConfigurationError` summarising them. `validate()` reports the same issues without building.
+`ConfigurationError` summarising them. `validate()` reports the same issues without building;
+it does not construct the store, so a store that cannot be built is reported only by the first
+use.
 
 **Store.** The first build constructs the store: an `AsyncMemoryStore` at the root when
 `config.store.stores` is empty, otherwise the configured router through
@@ -101,10 +104,30 @@ not carry over.
 **Shutdown.** `shutdown()` stops the asset managers of the current and every retired environment,
 and sets a shared *shut* flag that every wait started from the handle watches (§7). It is
 idempotent. Afterwards every method that would use or change the environment raises
-`GeneralError`, registration included. Neither shutdown nor dropping the handle frees a built
+`GeneralError`, registration included; `validate()` still answers. An `AssetRef` taken before
+shutdown still returns a result that is already ready, and a wait still outstanding raises
+`Cancelled`. Neither shutdown nor dropping the handle frees a built
 environment (`ENVIRONMENT-MANAGER-REFERENCE-CYCLE`).
 
-**Default environment.** `lq.default_environment()` is one `Environment()`, made on first call.
+**Default environment.** `lq.default_environment()` is one `Environment()`, made on first call
+under a lock.
+
+**Methods.**
+
+| Method | Does |
+|---|---|
+| `evaluate(query)`, `evaluate_state(query)` | evaluates and waits; the value, or an `lq.State` |
+| `get_asset(query)` | starts evaluating; an `lq.AssetRef` |
+| `store_set(key, data)` | writes a value; `key` is a `str` |
+| `command(fn=None, **options)`, `first_command(…)` | the decorators bound to this environment |
+| `unregister(name, namespace="")` | removes a command (§4) |
+| `command_metadata(name, namespace="")` | the `CommandMetadata` the built environment holds |
+| `import_metadata(yaml)` | adds command metadata from a document with a `commands` list; only an unparseable document raises here, other problems surface through `validate()` and the next build |
+| `validate()` | the issues the next build would meet, as `lq.Issue` |
+| `shutdown()` | stops the environment |
+| `live_handle_count()` | static, `debug-handles` only: Python callables held by every environment's registrations |
+
+`query` is a `str` or an `lq.Query` everywhere.
 
 **Writing to the store.** `store_set(key, data)` converts `data` (§5), serializes it in its
 default data format — raising `SerializationError` when it has no byte form — and sets it through
@@ -146,6 +169,10 @@ code object (`co_code`, `co_consts`, `co_names`), so changing the code invalidat
 A closure, a bound method, or a callable with no code object gets a unique version on every
 registration instead, because its result depends on state the code object does not show.
 
+**Reserved names.** `ns` is refused as a command name by core. `q` and `v` are planner
+instructions too, but are not refused, so a command with either name registers and never runs
+(`COMMAND-NAMES-Q-AND-V-ARE-NOT-RESERVED`).
+
 **Registration.** Registering replaces whatever is registered under the key: the old command is
 unregistered first, and the decorator warns `command 'x' replaces a built-in command` (or a
 `Python` one). `unregister(name, namespace="")` removes the top command for the key and returns
@@ -167,7 +194,8 @@ becomes `UnexpectedError`, and a cancelled join `Cancelled`.
 
 **Context.** `evaluate(query)` evaluates through the core context, as a dependency of the current
 asset, and waits with `wait_for_dependency`. `info`, `warning` and `error` append to the asset's
-log; `error` does not fail the asset. `is_cancelled()` reads the asset's cancellation flag.
+log. An `error` entry also marks the asset failed (core's `add_log_entry` sets `Status::Error`),
+so the query raises `GeneralError` with that message even if the command returns normally. `is_cancelled()` reads the asset's cancellation flag.
 
 ## 5. Values
 
@@ -220,8 +248,10 @@ needs a string or a number from it gets `ConversionError`.
   *degraded* (`VALUE_TYPE_SYSTEM.md` §Reading), so a pickle-off environment never unpickles bytes,
   whoever wrote them.
 
-Pickling runs on runtime workers. Both directions take the GIL through `block_in_place` there, so
-a worker waiting for the GIL hands its other tasks to another worker.
+Pickling can run on runtime workers; there both directions take the GIL through
+`block_in_place`, so a worker waiting for the GIL hands its other tasks to another worker.
+`store_set` also serializes once on the calling thread, to refuse a value with no byte form
+before anything is written.
 
 ## 6. Errors
 
@@ -265,7 +295,11 @@ future only; the asset keeps running until `AssetRef.cancel()`.
 
 **Re-entrancy.** A Python command runs on a blocking-pool thread, not a worker, so a command that
 calls `Context.evaluate` blocks its own thread only. A command can evaluate further commands to any
-depth that the blocking pool has threads for.
+depth that the blocking pool has threads for (tokio's default, 512).
+
+**Concurrency.** An `Environment` may be used from several Python threads at once. Its
+declarations are behind one lock, held only to read or change them, and evaluations run in
+parallel on the runtime; Python commands still take the GIL one at a time.
 
 ## 8. Limitations
 
@@ -278,8 +312,12 @@ depth that the blocking pool has threads for.
 - Built environments are never freed (`ENVIRONMENT-MANAGER-REFERENCE-CYCLE`).
 - A pickle-off read of a pickled object reports "No recipe found" rather than naming the type
   (`DEGRADED-STORED-VALUE-WITHOUT-RECIPE-REPORTS-NO-RECIPE`).
+- A missing resource raises `GeneralError` "No recipe found for key …" with no `key`, not
+  `KeyNotFound` (`MISSING-RESOURCE-REPORTED-AS-GENERAL-ERROR`).
+- Core's progress diagnostics go to stderr and cannot be filtered (`CORE-TRACING-MIGRATION`).
 - Most classes and methods have no docstrings, and there is no generated API reference
-  (`PY-API-REFERENCE-NOT-GENERATED`); `repr` of several classes is Rust's debug format
+  (`PY-API-REFERENCE-NOT-GENERATED`); `Metadata` exposes its fields as methods where `State` and
+`AssetRef` use properties (`PY-METADATA-FIELDS-ARE-METHODS`); `repr` of several classes is Rust's debug format
   (`PY-REPRS-SHOW-RUST-DEBUG-FORMAT`).
 - No Pyodide target, no type stubs, no published wheel.
 

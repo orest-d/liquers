@@ -63,6 +63,25 @@ It should cover at least:
 5. **Keeping documentation examples true**, by the same principle as the conformance tests: an
    example that no test executes will rot.
 
+## Evidence from liquers-py (2026-10-19)
+
+`design/liquers-py/` reached Phase 5 with a README and docstrings on about a quarter of its
+public names (285 of 392 had none), because nothing asked for more: the guide's only
+documentation requirement is a runnable quick-start under the Optional `PACKAGE` feature, plus
+`STUBS` declarations. The owner had to ask explicitly for three documents, which are the split
+this section should prescribe:
+
+1. **A generated API reference** in the language's standard form (docstrings plus pdoc or Sphinx
+   for Python, TypeDoc for JavaScript), with a check that every public name is documented. For
+   liquers-py this is `PY-API-REFERENCE-NOT-GENERATED`.
+2. **A contract reference** in `specs/reference/`: exposed types, value conversion, command
+   declaration and call path, errors, threading, lifecycle and limitations.
+3. **A user guide** in `specs/guides/` (later `docs/`): the modules, configuring an environment,
+   registering a command, running a query, values, errors and testing, with executed examples.
+
+`reference/PYTHON_INTEGRATION.md` and `guides/PYTHON_GUIDE.md` are a worked example of 2 and 3,
+and `liquers-py/tests/test_GUIDE_examples.py` of item 5 above.
+
 ## Related
 
 - `design/command-declaration/` — produces the reference this section must point at; filed from its

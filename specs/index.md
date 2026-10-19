@@ -8,9 +8,9 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 136
-- P2: 56
-- P3: 80
+Total rows: 138
+- P2: 57
+- P3: 81
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -18,8 +18,8 @@ Total rows: 136
 | [`WEB-DOCS-STALE-AFTER-KEYED-EVAL-FIX`](issues/WEB-DOCS-STALE-AFTER-KEYED-EVAL-FIX.md) | issue | liquers-web documentation still describes limitations that were fixed | draft | ready | eligible | P2 | S | web;docs | [design](design/web-docs-stale-limitations/DESIGN.md) | 2026-10-17 |
 | [`WEB-RECORDS-SINGLE-CELL-VIEW-CROSSES-AS-BATCH`](issues/WEB-RECORDS-SINGLE-CELL-VIEW-CROSSES-AS-BATCH.md) | issue | A single-cell RecordView reaches JavaScript as a 1×1 batch instead of a scalar | draft | ready | eligible | P2 | S | web;records | [design](design/web-records-single-cell-scalar/DESIGN.md) | 2026-10-17 |
 | [`EVALUATION-SESSION-VOLATILE-TEST-INTERMITTENT`](issues/EVALUATION-SESSION-VOLATILE-TEST-INTERMITTENT.md) | issue | volatile_dependency_has_one_value_per_evaluation fails intermittently: a later evaluation sometimes reuses the volatile value | draft | phase2-blocked | not-eligible | P2 | S | core/assets | [design](design/evaluation-session-volatile-test-flake/DESIGN.md) | 2026-10-13 |
+| [`COMMAND-NAMES-Q-AND-V-ARE-NOT-RESERVED`](issues/COMMAND-NAMES-Q-AND-V-ARE-NOT-RESERVED.md) | issue | A command named q or v registers but can never run | draft |  |  | P2 | S | core/commands;core/query |  | 2026-10-19 |
 | [`DEGRADED-STORED-VALUE-WITHOUT-RECIPE-REPORTS-NO-RECIPE`](issues/DEGRADED-STORED-VALUE-WITHOUT-RECIPE-REPORTS-NO-RECIPE.md) | issue | Evaluating a stored value this build cannot read fails with "No recipe found" instead of naming the type | draft |  |  | P2 | S | core/assets |  | 2026-10-18 |
-| [`LANGUAGE-INTEGRATION-GUIDE-DEFINES-NO-USER-DOCUMENTATION`](issues/LANGUAGE-INTEGRATION-GUIDE-DEFINES-NO-USER-DOCUMENTATION.md) | issue | The language integration guide does not require user documentation for an integration | draft |  |  | P2 | S | docs |  | 2026-10-19 |
 | [`WEB-EVALUATE-RESOLVES-FAILED-ASSET-AS-NULL`](issues/WEB-EVALUATE-RESOLVES-FAILED-ASSET-AS-NULL.md) | issue | liquers-web's evaluate resolves a failed command's asset to null instead of rejecting | draft |  |  | P2 | S | web |  | 2026-10-18 |
 | [`CORE-VALUE-ENUM-OVERSIZED`](issues/CORE-VALUE-ENUM-OVERSIZED.md) | issue | Every Value occupies over 700 bytes because three variants are stored unboxed | draft | ready | not-eligible | P2 | M | core/value;lib/value | [design](design/core-value-enum-oversized/DESIGN.md) | 2026-08-18 |
 | [`ENVIRONMENT-MANAGER-REFERENCE-CYCLE`](issues/ENVIRONMENT-MANAGER-REFERENCE-CYCLE.md) | issue | Environment and asset manager hold each other with strong Arcs, so every environment leaks | draft | ready | not-eligible | P2 | M | core/assets;core/context | [design](design/environment-manager-reference-cycle/DESIGN.md) | 2026-08-27 |
@@ -34,6 +34,7 @@ Total rows: 136
 | [`JS-STORE-RESOURCE-NOT-FOUND-WITHOUT-A-RECIPE`](issues/JS-STORE-RESOURCE-NOT-FOUND-WITHOUT-A-RECIPE.md) | issue | A resource served by a page-implemented js store fails with "No recipe found" | draft |  |  | P2 | M | web;core/assets |  | 2026-09-27 |
 | [`LANGUAGE-GUIDE-NO-DOCUMENTATION-SECTION`](issues/LANGUAGE-GUIDE-NO-DOCUMENTATION-SECTION.md) | feature | The language integration guide says nothing about writing the integration's own documentation | draft |  |  | P2 | M | docs;web;py |  | 2026-08-30 |
 | [`LANGUAGE-STORE-TYPE-NOT-DEFINABLE`](issues/LANGUAGE-STORE-TYPE-NOT-DEFINABLE.md) | feature | A store type cannot be defined in the integrated language | draft |  |  | P2 | M | web;py;core/store;store/config |  | 2026-08-29 |
+| [`MISSING-RESOURCE-REPORTED-AS-GENERAL-ERROR`](issues/MISSING-RESOURCE-REPORTED-AS-GENERAL-ERROR.md) | issue | A key that is neither stored nor made by a recipe raises a General error without its key | draft |  |  | P2 | M | core/assets;core/error |  | 2026-10-19 |
 | [`POLARS-COMMAND-TESTS-BYPASS-COMMANDS`](issues/POLARS-COMMAND-TESTS-BYPASS-COMMANDS.md) | issue | The polars command integration tests never invoke a polars command | draft |  |  | P2 | M | lib/polars;build |  | 2026-08-25 |
 | [`PY-API-REFERENCE-NOT-GENERATED`](issues/PY-API-REFERENCE-NOT-GENERATED.md) | feature | The Python package has no generated API reference, and most of its names have no docstring | draft |  |  | P2 | M | py;docs |  | 2026-10-19 |
 | [`RECORDS-PARQUET-POLARS-READ-IGNORES-DECLARED-SCHEMA`](issues/RECORDS-PARQUET-POLARS-READ-IGNORES-DECLARED-SCHEMA.md) | issue | Reading Parquet through the polars bridge ignores a caller-declared schema | draft |  |  | P2 | M | records;lib/polars |  | 2026-09-27 |
@@ -88,6 +89,7 @@ Total rows: 136
 | [`POLARS-DATAFRAME-IPC-NOT-SERIALIZABLE`](issues/POLARS-DATAFRAME-IPC-NOT-SERIALIZABLE.md) | issue | A polars DataFrame cannot be written or read as Arrow IPC although polars is built with ipc | draft |  |  | P3 | S | lib/polars |  | 2026-10-18 |
 | [`PY-COMMAND-DECORATOR-CANNOT-DECLARE-ARGUMENT-METADATA`](issues/PY-COMMAND-DECORATOR-CANNOT-DECLARE-ARGUMENT-METADATA.md) | feature | Python command decorators cannot declare per-argument metadata | draft |  |  | P3 | S | py |  | 2026-10-18 |
 | [`PY-COMMAND-DECORATOR-CANNOT-SET-REALM`](issues/PY-COMMAND-DECORATOR-CANNOT-SET-REALM.md) | feature | Python command decorators cannot place a command in a realm | draft |  |  | P3 | S | py |  | 2026-10-18 |
+| [`PY-METADATA-FIELDS-ARE-METHODS`](issues/PY-METADATA-FIELDS-ARE-METHODS.md) | issue | Python Metadata exposes its fields as methods while State and AssetRef use properties | draft |  |  | P3 | S | py |  | 2026-10-19 |
 | [`PY-REPRS-SHOW-RUST-DEBUG-FORMAT`](issues/PY-REPRS-SHOW-RUST-DEBUG-FORMAT.md) | issue | Several Python classes' repr is Rust debug output, and Key and Query quote their text twice | draft |  |  | P3 | S | py |  | 2026-10-19 |
 | [`STORED-VALUE-WITHOUT-DATA-FORMAT-READ-AS-BIN`](issues/STORED-VALUE-WITHOUT-DATA-FORMAT-READ-AS-BIN.md) | issue | A stored value with no declared data format is deserialized as bin, not its own default format | draft |  |  | P3 | S | core/assets |  | 2026-10-18 |
 | [`TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS`](issues/TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS.md) | issue | TypeInfo cannot declare a format a type writes but cannot read back | draft |  |  | P3 | S | core/value |  | 2026-09-24 |

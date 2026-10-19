@@ -35,11 +35,11 @@ signatures or its return types. `help()` and editor tooltips say nothing for mos
    where PyO3 cannot infer one.
 2. A script, for example `scripts/build-liquers-py-docs.sh`, builds the package and generates an
    HTML API reference with a standard tool (`pdoc` is the smallest choice; Sphinx autodoc if the
-   reference is to join other Python docs). It is run in CI so a broken docstring fails the build.
+   reference is to join other Python docs). `scripts/test-liquers-py.sh` runs it, so a broken
+   docstring fails the test loop; no CI job runs liquers-py's Python tests yet.
 3. A test fails when a public name has no docstring, so coverage cannot regress.
-4. Where the API is inconsistent enough to be awkward to document, it is fixed first or recorded:
-   `Metadata.type_identifier()` and `status()` are methods while `State.value` and
-   `AssetRef.status` are properties.
+
+The method-versus-property inconsistency of `Metadata` is `PY-METADATA-FIELDS-ARE-METHODS`.
 
 Type stubs (`.pyi`, `py.typed`) are the guide's separate `STUBS` feature and are not required here,
 though a generator that reads the same docstrings would serve both.
@@ -49,4 +49,4 @@ though a generator that reads the same docstrings would serve both.
 Requested by the owner when closing `design/liquers-py/` (2026-10-19): a standard Python API doc,
 a Python reference and a Python guide. The guide and the reference were written in that design's
 Phase 5; this is the remaining part. Tracked in `reference/api/API_DOCS_GAP_ANALYSIS.md` as part
-of DOC-12.
+of DOC-12, and an instance of `LANGUAGE-GUIDE-NO-DOCUMENTATION-SECTION`.

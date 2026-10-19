@@ -81,3 +81,17 @@ def test_EVAL06_cancellation_has_defined_terminal_result():
         assert CALLS["slow"] == 1, "the cancelled slow-6 must never run"
     finally:
         environment.shutdown()
+
+
+def test_EVAL_context_error_fails_the_result():
+    # Core marks an asset failed when an error-level entry is logged, even if the command returns.
+    env = lq.Environment()
+
+    @env.first_command
+    def logs_an_error(context):
+        context.error("logged error")
+        return "value"
+
+    with pytest.raises(lq.GeneralError, match="logged error"):
+        env.evaluate("logs_an_error")
+    env.shutdown()
