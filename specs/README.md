@@ -57,7 +57,7 @@ encoding, and the interpreter that turns a plan into asset evaluation.
 - **Payload inheritance in nested evaluation** — built → [`design/payload-nested-evaluation-inheritance/`](design/payload-nested-evaluation-inheritance/)
 - **CWD-relative nested query resolution** — documented → [`reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md`](reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md)
 - **Excess action parameters rejected** — built → [`design/excess-action-parameters-error/`](design/excess-action-parameters-error/) *(rule documented in [`reference/PROJECT_OVERVIEW.md`](reference/PROJECT_OVERVIEW.md) §Query Language)*
-- **Variadic command arguments (`multiple`)** — documented → [`reference/REGISTER_COMMAND_FSD.md`](reference/REGISTER_COMMAND_FSD.md) §Variadic Parameters *(how-to in [`guides/COMMAND_REGISTRATION_GUIDE.md`](guides/COMMAND_REGISTRATION_GUIDE.md); design in [`design/variadic-arguments-declaration/`](design/variadic-arguments-declaration/))*
+- **Variadic command arguments (`multiple`)** — documented → [`reference/REGISTER_COMMAND_FSD.md`](reference/REGISTER_COMMAND_FSD.md) §Variadic Parameters *(how-to in [`guides/COMMAND_REGISTRATION_GUIDE.md`](guides/COMMAND_REGISTRATION_GUIDE.md); design in [`design/variadic-arguments-declaration/`](design/variadic-arguments-declaration/))* *(empty elements: [`design/variadic-empty-element-conversion/`](design/variadic-empty-element-conversion/))*
 - **Programmatic query builder** — planned → [`issues/QUERY-BUILDER-TOOLING.md`](issues/QUERY-BUILDER-TOOLING.md)
 - **Realms: what a realm is, a foreign realm that is addressable but not executable (`store_config`)** — documented → [`reference/REALMS.md`](reference/REALMS.md) *(design in [`design/store-adapters/`](design/store-adapters/))*
 - **Multi-realm dispatch** — planned → [`issues/CORE-MULTI-REALM-INTERPRETER.md`](issues/CORE-MULTI-REALM-INTERPRETER.md)
@@ -81,7 +81,7 @@ volatility work all landed in `assets.rs`.
 - **Expiration timing and race safety** — built → [`design/expiration-safety/`](design/expiration-safety/)
 - **Weak references in the expiration monitor** — built → [`design/expiration-monitor-assetref/`](design/expiration-monitor-assetref/)
 - **Expired-safe binary reads** — built → [`design/expired-binary-read-safety/`](design/expired-binary-read-safety/)
-- **Volatility tracking** — built → [`design/volatility-system/`](design/volatility-system/)
+- **Volatility tracking** — built → [`design/volatility-system/`](design/volatility-system/) *(also [`design/step-volatility-impl-removal/`](design/step-volatility-impl-removal/))*
 - **Volatility discovered at run time (a volatile value a command reads through its context makes its result volatile)** — built → [`reference/ASSETS.md`](reference/ASSETS.md), [`reference/ASSET_LIFECYCLE.md`](reference/ASSET_LIFECYCLE.md) *(design in [`design/runtime-volatility/`](design/runtime-volatility/); `Context::set_volatile`)*
 - **Versions for computed keyed assets, and dependency audit** — built → [`design/keyed-expiry-cascade-fix/`](design/keyed-expiry-cascade-fix/) *(contract and audit policies in [`reference/DEPENDENCIES_STATUS.md`](reference/DEPENDENCIES_STATUS.md))*
 - **Keyed-recipe ownership** — built → [`design/keyed-recipe-ownership/`](design/keyed-recipe-ownership/)
@@ -93,6 +93,7 @@ volatility work all landed in `assets.rs`.
 - **Dependency audit, audit policy and listing dependencies** — documented → [`reference/DEPENDENCIES_STATUS.md`](reference/DEPENDENCIES_STATUS.md) *(design in [`design/dependency-audit-and-expiry-provenance/`](design/dependency-audit-and-expiry-provenance/))*
 - **Expiry reasons, and content changed outside Liquers** — documented → [`reference/ASSETS.md`](reference/ASSETS.md) *(design in [`design/dependency-audit-and-expiry-provenance/`](design/dependency-audit-and-expiry-provenance/))*
 - **Dependency records and consistency policies (trusting `explicit` / conservative `on_load`, startup store audit)** — documented → [`reference/DEPENDENCIES_STATUS.md`](reference/DEPENDENCIES_STATUS.md) §What a dependency record holds, §Consistency policies; how to choose: [`guides/DEPENDENCY_CONSISTENCY_GUIDE.md`](guides/DEPENDENCY_CONSISTENCY_GUIDE.md) *(design in [`design/dependency-chain-analysis-cost/`](design/dependency-chain-analysis-cost/))*
+- **Dependency graph upkeep: dead weak dependents pruned, a replacing write drops stale edges, a write that creates or empties a folder refreshes the listings above it, a payload-requiring keyed recipe rejected before an asset exists** — built → [`reference/DEPENDENCIES_STATUS.md`](reference/DEPENDENCIES_STATUS.md) *(designs in [`design/dependent-asset-weak-reference-pruning/`](design/dependent-asset-weak-reference-pruning/), [`design/replacing-write-drops-stale-dependency-edges/`](design/replacing-write-drops-stale-dependency-edges/), [`design/new-folder-write-ancestor-listing-refresh/`](design/new-folder-write-ancestor-listing-refresh/), [`design/default-asset-manager-recipe-opt-payload-check/`](design/default-asset-manager-recipe-opt-payload-check/))*
 - **Asset managers outside core** — documented → [`guides/ASSET_MANAGER_IMPLEMENTATION_GUIDE.md`](guides/ASSET_MANAGER_IMPLEMENTATION_GUIDE.md) *(design in [`design/dependency-audit-and-expiry-provenance/`](design/dependency-audit-and-expiry-provenance/))*
 - **Caching strategies (what is kept for reuse), `cached: false` commands, positional `v`** — documented → [`reference/ASSETS.md`](reference/ASSETS.md) §When an asset is kept for reuse *(also [`reference/api/DOC_08_RECIPES_PLANS.md`](reference/api/DOC_08_RECIPES_PLANS.md) §Predecessor boundaries, [`reference/ENVIRONMENT_CONFIG.md`](reference/ENVIRONMENT_CONFIG.md); how to choose: [`guides/ENVIRONMENT_CONSTRUCTION_GUIDE.md`](guides/ENVIRONMENT_CONSTRUCTION_GUIDE.md) §Choosing caching strategies; design in [`design/plan-policy/`](design/plan-policy/))*
 - **Combined expiration algebra** — planned → [`issues/COMBINED-EXPIRES.md`](issues/COMBINED-EXPIRES.md)
@@ -249,7 +250,7 @@ submit, and submitted query state is not preserved.
 
 ### Bindings and servers
 
-- **Web API** — documented → [`reference/WEB_API_SPECIFICATION.md`](reference/WEB_API_SPECIFICATION.md)
+- **Web API** — documented → [`reference/WEB_API_SPECIFICATION.md`](reference/WEB_API_SPECIFICATION.md) *(API base with or without a trailing slash: [`design/axum-query-api-base-slash/`](design/axum-query-api-base-slash/))*
 - **Using the web API (curl, Python)** — documented → [`guides/WEB_API_GUIDE.md`](guides/WEB_API_GUIDE.md)
 - **Assets HTTP and WebSocket API (`q/`, `key/`, `admin/`, `ws/q`, `ws/key`)** — built → [`design/axum-assets-endpoints/`](design/axum-assets-endpoints/)
 - **Language integration** — documented → [`guides/LANGUAGE-INTEGRATION_GUIDE.md`](guides/LANGUAGE-INTEGRATION_GUIDE.md)
@@ -282,6 +283,8 @@ and a working WebSocket. Three further gaps are still worked around rather than 
 
 ### Build and repository
 
+- **Build matrix within the session disk budget** — built → `scripts/check-build-matrix.sh` *(design in [`design/build-matrix-disk-budget/`](design/build-matrix-disk-budget/))*
+- **Command registry header names cargo features** — built → `specs/command_registry.yaml` *(design in [`design/command-registry-header-feature-names/`](design/command-registry-header-feature-names/))*
 - **Benchmarks** — planned → [`issues/BENCHMARK-SUITE.md`](issues/BENCHMARK-SUITE.md)
 - **Structured logging** — planned → [`issues/CORE-TRACING-MIGRATION.md`](issues/CORE-TRACING-MIGRATION.md)
 
@@ -308,20 +311,17 @@ deliberately folded behind a broader line.
 - design `asset-manager-insert-key-asset-semantics`
 - design `async-memory-store-prefix-support`
 - design `async-store-wrapper-docs`
-- design `axum-query-api-base-slash`
 - design `axum-recipes-metadata-entry`
 - design `axum-store-keys-deep`
 - design `axum-store-makedir-test-unignore`
 - design `axum-store-upload-metadata`
 - design `build-matrix-ci`
-- design `build-matrix-disk-budget`
 - design `build-sysinfo-rustc-compatibility`
 - design `combined-value-default-extension`
 - design `combined-value-shared-data-node`
 - design `command-cache-flag`
 - design `command-declaration`
 - design `command-metadata-descriptions-and-hints`
-- design `command-registry-header-feature-names`
 - design `command-registry-impl-version-freshness`
 - design `command-registry-issue-fields-coverage`
 - design `command-registry-issue-fields`
@@ -337,12 +337,10 @@ deliberately folded behind a broader line.
 - design `csv-physical-lines-short-rows`
 - design `cwd-default-link-silent-root`
 - design `cwd-less-recipe-analysed-at-root`
-- design `default-asset-manager-recipe-opt-payload-check`
 - design `delegated-value-persistence`
 - design `delegated-value-repersisted`
 - design `dependency-edge-superseded-version`
 - design `dependency-failure-error-subject`
-- design `dependent-asset-weak-reference-pruning`
 - design `designer-init-argument-parsing`
 - design `docs-current-link-validation`
 - design `docs-dead-links`
@@ -377,7 +375,6 @@ deliberately folded behind a broader line.
 - design `metadata-error-traceback`
 - design `metadata-only-entry-reload`
 - design `metadata-serde-partialeq`
-- design `new-folder-write-ancestor-listing-refresh`
 - design `null-cell-string-option`
 - design `opendal-derived-store-arguments`
 - design `opendal-feature-without-async-store`
@@ -402,7 +399,6 @@ deliberately folded behind a broader line.
 - design `register-command-option-value`
 - design `register-command-payload-docs`
 - design `registry-query-default-text-form`
-- design `replacing-write-drops-stale-dependency-edges`
 - design `root-listing-dependency-key-spelling`
 - design `save-to-store-skip-outcome`
 - design `search-catalog-single-metadata-read`
@@ -410,7 +406,6 @@ deliberately folded behind a broader line.
 - design `simple-value-serializer-parity`
 - design `simple-value-untyped-and-scalar-reads`
 - design `state-argument-serde-default`
-- design `step-volatility-impl-removal`
 - design `store-conformance-suite`
 - design `store-conformance-warning-cleanup`
 - design `store-guide-status-table`
@@ -429,7 +424,6 @@ deliberately folded behind a broader line.
 - design `type-info-write-only-formats`
 - design `ui-query-console-error-highlight`
 - design `value-type-system`
-- design `variadic-empty-element-conversion`
 - design `variadic-metadata-tail-check`
 - design `web-docs-stale-limitations`
 - design `web-environ-validation-report`
