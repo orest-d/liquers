@@ -2,9 +2,9 @@
 id: NEW-FOLDER-WRITE-ANCESTOR-LISTING-REFRESH
 kind: design
 title: A write that creates or empties a folder refreshes the listings above it
+status: complete
 gh_pr: [160]
 form: compact
-phase: implementation
 readiness: ready
 autofix: eligible
 area: [core/assets]
@@ -12,6 +12,8 @@ issues: [NEW-FOLDER-WRITE-DOES-NOT-REFRESH-THE-PARENT-LISTING]
 created: 2026-10-17
 ---
 # A write that creates or empties a folder refreshes the listings above it
+
+> **Complete on 2026-10-18**: implemented and merged in #160.
 
 Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-17 backlog compaction. Phases 1-4
 are written but not approved, and nothing is implemented.
