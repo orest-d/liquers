@@ -25,6 +25,31 @@ fn newline_of(text: &str) -> &'static str {
     }
 }
 
+/// `key: value` lines, as `scripts/docs_index.py` reads front-matter.
+fn flat_fields(yaml: &str) -> IndexMap<String, serde_json::Value> {
+    let mut out = IndexMap::new();
+    for line in yaml.lines() {
+        if line.trim().is_empty() || line.trim_start().starts_with('#') {
+            continue;
+        }
+        let Some((key, value)) = line.split_once(':') else { continue };
+        let (key, value) = (key.trim(), value.trim());
+        let parsed = match value.strip_prefix('[').and_then(|v| v.strip_suffix(']')) {
+            Some(inner) => serde_json::Value::Array(
+                inner
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|v| !v.is_empty())
+                    .map(|v| serde_json::Value::String(v.to_string()))
+                    .collect(),
+            ),
+            None => serde_json::Value::String(value.to_string()),
+        };
+        out.insert(key.to_string(), parsed);
+    }
+    out
+}
+
 fn split_lines_keep(text: &str) -> Vec<&str> {
     text.split_inclusive('\n').collect()
 }
@@ -94,9 +119,19 @@ impl FrontMatterDoc {
         }
     }
 
-    /// One field's value; `None` when absent or when the front-matter does not parse.
+    /// The fields, read as flat `key: value` lines when the front-matter is not valid YAML, as
+    /// `scripts/docs_index.py` reads it: a value `[a, b]` is a list, anything else a string.
+    /// The flag says whether the YAML parsed.
+    pub fn fields_lenient(&self) -> (IndexMap<String, serde_json::Value>, bool) {
+        match self.fields() {
+            Ok(fields) => (fields, true),
+            Err(_) => (flat_fields(&self.lines.concat()), false),
+        }
+    }
+
+    /// One field's value; `None` when absent. Malformed YAML is read leniently.
     pub fn get(&self, field: &str) -> Option<serde_json::Value> {
-        self.fields().ok()?.get(field).cloned()
+        self.fields_lenient().0.get(field).cloned()
     }
 
     /// One field as text: a string as is, a number or boolean in its YAML form, a list joined

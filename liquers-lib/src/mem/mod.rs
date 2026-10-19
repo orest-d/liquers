@@ -9,6 +9,7 @@ pub mod check;
 pub mod commands;
 pub mod front_matter;
 pub mod layout;
+pub mod named_rules;
 pub mod read;
 pub mod rules;
 pub mod tiers;

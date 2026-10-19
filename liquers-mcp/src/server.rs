@@ -600,7 +600,8 @@ impl ToolOutput {
 /// Log lines the planner and interpreter write about the evaluation itself, which are not the
 /// command's notes. A log entry does not record who wrote it
 /// (`LOG-ENTRY-HAS-NO-SOURCE`), so they are recognised by their text.
-const ENGINE_NOTE_PREFIXES: [&str; 3] = [
+const ENGINE_NOTE_PREFIXES: [&str; 4] = [
+    "Relative key/query has no CWD",
     "Recipe set CWD to ",
     "Dependency detected: ",
     "Predecessor boundary not cut",

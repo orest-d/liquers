@@ -17,17 +17,28 @@ use crate::value::Value;
 
 use super::front_matter::{value_items, FrontMatterDoc};
 use super::layout::{join_path, read_bytes, relative_path, CollectionSchema, MemoryLayout};
-use super::read::{log_entries, members, version_of, Entry};
+use super::named_rules::{self, DesignRow};
+use super::read::{log_entries, members, version_of, walk, Entry};
 use super::rules::{document_violations, is_date, Severity, Violation, Vocabularies};
 
 /// Rules of `docs_index.py --check` that `check` does not implement, with the reason.
-pub const UNSUPPORTED: [&str; 2] = [
+pub const UNSUPPORTED: [&str; 4] = [
     "index.csv is stale (generated files belong to agent-memory-derived)",
     "index.md is stale (generated files belong to agent-memory-derived)",
+    "dead links to files outside the memory's folders (source code) are not checked",
+    "ids are unique per collection, not across collections",
 ];
 
 /// The named built-in rules a collection may list in `checks`.
-pub const NAMED_RULES: [&str; 3] = ["reviewed", "history", "dead_links"];
+pub const NAMED_RULES: [&str; 7] = [
+    "reviewed",
+    "history",
+    "dead_links",
+    "lifecycle",
+    "readiness",
+    "compact_form",
+    "scenarios",
+];
 
 /// One finding, with the key it is about (relative to the root).
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -58,6 +69,7 @@ pub async fn check_memory<E: Environment<Value = Value>>(
         all.insert(collection.name.clone(), members(root, collection, context).await?);
     }
     let log = log_versions(&envref, root, layout).await?;
+    let in_scope = link_scope(layout, root)?;
     let mut findings = Vec::new();
     let mut unsupported: Vec<String> = UNSUPPORTED.iter().map(|s| s.to_string()).collect();
     for collection in &layout.collections {
@@ -74,6 +86,8 @@ pub async fn check_memory<E: Environment<Value = Value>>(
         let mut ids: BTreeMap<String, String> = BTreeMap::new();
         for doc in docs.iter().filter(|d| d.key.has_key_prefix(folder)) {
             let rel = relative_path(root, &doc.key);
+            // Findings about other files (a design's phase files), added after this document's.
+            let mut others: Vec<Finding> = Vec::new();
             let mut push = |violation: Violation| findings.push(Finding { key: rel.clone(), violation });
             let Some(text) = doc.text.as_deref() else {
                 // A recipe-only key has no document to check; a stored one that is not text does.
@@ -166,23 +180,79 @@ pub async fn check_memory<E: Environment<Value = Value>>(
                 match name.as_str() {
                     "reviewed" => {
                         let stamp = collection.history.as_ref().map(|h| h.stamp.as_str()).unwrap_or("reviewed");
-                        if !is_date(&field(stamp)) {
+                        if field(stamp).trim().is_empty() {
                             push(Violation::error("reviewed", format!("no {stamp}: date (§9.2)")));
                         }
                     }
                     "history" => {
-                        let section = collection.history.as_ref().map(|h| h.section.as_str()).unwrap_or("History");
-                        if crate::search::md_split::find_section(text, section).is_none() {
-                            push(Violation::error("history", format!("no ## {section} section (§9.5)")));
+                        let (section, stamp) = match &collection.history {
+                            Some(h) => (h.section.as_str(), h.stamp.as_str()),
+                            None => ("History", "reviewed"),
+                        };
+                        let heading = format!("## {section}");
+                        match text.split_once(heading.as_str()) {
+                            None => push(Violation::error("history", format!("no {heading} section (§9.5)"))),
+                            Some((_, after)) => {
+                                let date = field(stamp);
+                                if !date.is_empty() && !after.contains(date.as_str()) {
+                                    push(Violation::error(
+                                        "history",
+                                        format!("{section} has no row dated {date} (§9.5)"),
+                                    ));
+                                }
+                            }
                         }
                     }
                     "dead_links" => {
-                        for target in dead_links(&envref, &doc.key, text).await? {
+                        for target in dead_links(&envref, &doc.key, text, &in_scope).await? {
                             push(Violation::error("dead_links", format!("dead link {target} (§8.4)")));
+                        }
+                        if collection.entry.is_some() {
+                            for (other, target) in folder_dead_links(&doc.key, &in_scope, context).await? {
+                                others.push(Finding {
+                                    key: relative_path(root, &other),
+                                    violation: Violation::error("dead_links", format!("dead link {target} (§8.4)")),
+                                });
+                            }
+                        }
+                    }
+                    "lifecycle" => {
+                        for violation in named_rules::lifecycle(doc) {
+                            push(violation);
+                        }
+                    }
+                    "compact_form" => {
+                        for violation in named_rules::compact_form(doc) {
+                            push(violation);
+                        }
+                    }
+                    "scenarios" => {
+                        if fm.as_ref().is_some_and(|d| d.has_front_matter()) {
+                            let phase1 = design_phase(&envref, doc, 1).await?;
+                            let phase3 = design_phase(&envref, doc, 3).await?;
+                            for violation in named_rules::scenarios(doc, phase1.as_deref(), phase3.as_deref()) {
+                                push(violation);
+                            }
                         }
                     }
                     _ => {}
                 }
+            }
+            findings.extend(others);
+        }
+        if collection.checks.iter().any(|c| c == "readiness") {
+            let rows: Vec<DesignRow<'_>> = docs
+                .iter()
+                .filter(|d| d.key.has_key_prefix(folder) && d.text.is_some())
+                .map(|d| DesignRow {
+                    rel: relative_path(root, &d.key),
+                    slug: collection.id_of(&d.key),
+                    entry: d,
+                })
+                .collect();
+            let issue = |id: &str| find_any(&all, layout, root, id).cloned();
+            for (rel, violation) in named_rules::readiness(&rows, &issue) {
+                findings.push(Finding { key: rel, violation });
             }
         }
     }
@@ -199,7 +269,7 @@ fn find<'a>(docs: &'a [Entry], collection: &CollectionSchema, root: &Key, value:
             let given = d.field("id");
             if given.is_empty() { collection.id_of(&d.key) } else { given }
         };
-        id == value || relative_path(root, &d.key) == value
+        id == value || collection.id_of(&d.key) == value || relative_path(root, &d.key) == value
     })
 }
 
@@ -252,10 +322,33 @@ async fn log_versions<E: Environment>(
 
 /// Relative links in `text` whose target does not exist in the store. Code is skipped; a link
 /// to an absolute path, a URL or an anchor alone is not checked.
+/// Which link targets `dead_links` checks: keys in the top-level folders of the collections (a
+/// hidden top-level folder, such as `.claude`, only within the collection's own folder). A link
+/// out of them, to source code for instance, points at files the memory does not mount.
+fn link_scope(
+    layout: &MemoryLayout,
+    root: &Key,
+) -> Result<impl Fn(&Key) -> bool + Send + Sync, Error> {
+    let mut tops: Vec<Key> = Vec::new();
+    for collection in &layout.collections {
+        let folder = join_path(root, &collection.folder)?;
+        let top = match folder.iter().nth(root.len()) {
+            Some(first) if first.name.starts_with('.') => folder,
+            Some(first) => root.join(&first.name),
+            None => folder,
+        };
+        if !tops.contains(&top) {
+            tops.push(top);
+        }
+    }
+    Ok(move |key: &Key| tops.iter().any(|top| key.has_key_prefix(top)))
+}
+
 async fn dead_links<E: Environment>(
     envref: &liquers_core::context::EnvRef<E>,
     key: &Key,
     text: &str,
+    in_scope: &(dyn Fn(&Key) -> bool + Send + Sync),
 ) -> Result<Vec<String>, Error> {
     let store = envref.get_async_store();
     let mut out = Vec::new();
@@ -301,12 +394,69 @@ async fn dead_links<E: Environment>(
                     name => resolved = resolved.join(name),
                 }
             }
+            if !outside && !in_scope(&resolved) {
+                continue;
+            }
             if outside || !(store.contains(&resolved).await? || store.is_dir(&resolved).await?) {
                 out.push(raw.to_string());
             }
         }
     }
     Ok(out)
+}
+
+/// Dead links in the other Markdown files of an `entry` memory's folder (a design's phase files).
+async fn folder_dead_links<E: Environment<Value = Value>>(
+    entry: &Key,
+    in_scope: &(dyn Fn(&Key) -> bool + Send + Sync),
+    context: &Context<E>,
+) -> Result<Vec<(Key, String)>, Error> {
+    let envref = context.get_envref();
+    let mut out = Vec::new();
+    for key in walk(&entry.parent(), 0, context).await? {
+        let is_md = key.filename().is_some_and(|n| n.name.ends_with(".md"));
+        if key == *entry || !is_md {
+            continue;
+        }
+        let Some(bytes) = read_bytes(&envref, &key).await? else { continue };
+        let Ok(text) = String::from_utf8(bytes) else { continue };
+        for target in dead_links(&envref, &key, &text, in_scope).await? {
+            out.push((key.clone(), target));
+        }
+    }
+    Ok(out)
+}
+
+/// The text of one phase of a design: its `## Phase N` section in a compact design, or every
+/// `phase<N>-*.md` file beside its DESIGN.md, joined.
+async fn design_phase<E: Environment>(
+    envref: &liquers_core::context::EnvRef<E>,
+    doc: &Entry,
+    phase: usize,
+) -> Result<Option<String>, Error> {
+    if doc.field("form") == "compact" {
+        return Ok(doc.text.as_deref().and_then(|t| named_rules::compact_phase(t, phase)));
+    }
+    let folder = doc.key.parent();
+    let prefix = format!("phase{phase}-");
+    let mut names: Vec<String> = envref
+        .get_async_store()
+        .listdir(&folder)
+        .await?
+        .into_iter()
+        .filter(|n| n.starts_with(&prefix) && n.ends_with(".md"))
+        .collect();
+    names.sort_by_key(|n| (n.to_lowercase(), n.clone()));
+    if names.is_empty() {
+        return Ok(None);
+    }
+    let mut parts = Vec::new();
+    for name in names {
+        if let Some(bytes) = read_bytes(envref, &folder.join(&name)).await? {
+            parts.push(String::from_utf8_lossy(&bytes).into_owned());
+        }
+    }
+    Ok(Some(parts.join("\n")))
 }
 
 fn strip_inline_code(line: &str) -> String {

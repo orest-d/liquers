@@ -147,8 +147,11 @@ pub fn document_violations(
     let fields: IndexMap<String, serde_json::Value> = match doc.fields() {
         Ok(fields) => fields,
         Err(e) => {
-            out.push(Violation::error("front_matter", e.message.clone()));
-            return out;
+            out.push(Violation::warning(
+                "front_matter",
+                format!("{}; read as flat `key: value` lines", e.message),
+            ));
+            doc.fields_lenient().0
         }
     };
     if !doc.has_front_matter() && !collection.fields.is_empty() {

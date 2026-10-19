@@ -143,6 +143,9 @@ pub struct CollectionSchema {
     /// Each sub-folder is one memory, this file its document (`DESIGN.md`).
     #[serde(default)]
     pub entry: Option<String>,
+    /// Documents in sub-folders are memories too (`reference/api/…`).
+    #[serde(default)]
+    pub recursive: bool,
     #[serde(default = "yes")]
     pub writable: bool,
     #[serde(default)]
@@ -423,7 +426,8 @@ impl CollectionSchema {
             (Some(file), _) => rest.len() == 1 && &rest[0] == file,
             (None, Some(entry)) => rest.len() == 2 && &rest[1] == entry,
             (None, None) => {
-                rest.len() == 1 && rest[0].ends_with(".md") && !is_readme(&rest[0])
+                let last = &rest[rest.len() - 1];
+                (rest.len() == 1 || self.recursive) && last.ends_with(".md") && !is_readme(last)
             }
         }
     }

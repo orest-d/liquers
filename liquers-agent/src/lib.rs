@@ -137,6 +137,15 @@ liquers://memory/query-guide and use memory_query.";
 /// Builds the server: the configured tool sets (or the built-in one), with the memory's
 /// overview added to the instructions.
 pub async fn build_server(config: &AgentConfig) -> Result<McpServer<AgentEnvironment>, Error> {
+    build_server_with(config, true).await
+}
+
+/// As [`build_server`]; `overview: false` skips reading the overview into the instructions,
+/// which only an MCP client reads (it lists every collection, so it reads every memory).
+pub async fn build_server_with(
+    config: &AgentConfig,
+    overview: bool,
+) -> Result<McpServer<AgentEnvironment>, Error> {
     let envref = build_environment(config)?;
     let (sets, builtin) = match &config.memory.tools {
         Some(sets) => (sets.clone(), false),
@@ -144,7 +153,7 @@ pub async fn build_server(config: &AgentConfig) -> Result<McpServer<AgentEnviron
     };
     let registry = ToolRegistry::build(sets, envref.get_command_metadata_registry())?;
     let server = McpServer::new(envref, registry);
-    if !builtin {
+    if !builtin || !overview {
         return Ok(server);
     }
     let mut arguments = serde_json::Map::new();

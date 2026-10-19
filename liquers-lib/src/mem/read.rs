@@ -124,7 +124,11 @@ pub(crate) async fn members<E: Environment<Value = Value>>(
     if !store.is_dir(&folder).await? {
         return Ok(Vec::new());
     }
-    let depth = if collection.entry.is_some() { 2 } else { 1 };
+    let depth = match (collection.recursive, &collection.entry) {
+        (true, _) => 0,
+        (false, Some(_)) => 2,
+        (false, None) => 1,
+    };
     let keys = walk(&folder, depth, context)
         .await?
         .into_iter()
@@ -256,7 +260,7 @@ pub(crate) async fn search_memories<E: Environment<Value = Value>>(
     for doc in &docs {
         let map: BTreeMap<String, String> = doc
             .doc()
-            .and_then(|d| d.fields().ok())
+            .map(|d| d.fields_lenient().0)
             .unwrap_or_default()
             .into_iter()
             .filter(|(name, _)| !RESERVED.contains(&name.as_str()))

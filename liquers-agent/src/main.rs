@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand, ValueEnum};
-use liquers_agent::{build_server, AgentConfig};
+use liquers_agent::{build_server_with, AgentConfig};
 use liquers_core::error::Error;
 use liquers_mcp::ToolOutput;
 use serde_json::{json, Map, Value};
@@ -101,7 +101,8 @@ fn has_errors(output: &ToolOutput) -> bool {
 
 async fn run(cli: Cli) -> Result<ExitCode, Error> {
     let config = AgentConfig::load(&cli.config)?;
-    let server = build_server(&config).await?;
+    let serving = matches!(cli.command, Command::Mcp);
+    let server = build_server_with(&config, serving).await?;
     let json = Some(json!("json"));
     let (tool, args) = match cli.command {
         Command::Mcp => {

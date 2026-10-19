@@ -1,0 +1,71 @@
+# The "liquers-specs" profile: this repository's specs/ as an agent memory.
+# Contract: specs/DOCS_STRUCTURE_GUIDE.md. `liquers-agent check` mirrors `scripts/docs_index.py
+# --check` (minus the generated-index rules), which liquers-agent/tests/specs_profile.rs verifies.
+version: 1
+instructions: >-
+  Search before you file: memory_new returns similar issues instead of creating a duplicate.
+  File what you find but do not fix under specs/issues with status draft (DOCS_STRUCTURE_GUIDE.md
+  §4.8). Never write under specs/archive.
+tiers:
+  l0: [meta:title, field:title, heading]
+  l1: [meta:description, field:description, paragraph]
+collections:
+  - name: issues
+    folder: specs/issues
+    description: What is wrong or missing (§4)
+    id: { from: title, case: screaming_kebab }
+    template: _templates/issue.md
+    checks: [dead_links]
+    fields:
+      id: { equals: filename_stem }
+      kind: { enum: [issue, feature] }
+      title: { required: true }
+      status: { required: true, default: draft, enum_from: _schema/issue-status.yaml, transitions: _schema/issue-transitions.yaml }
+      priority: { required: true, enum: [P0, P1, P2, P3] }
+      complexity: { required: true, enum: [S, M, L, XL] }
+      area: { list: true, enum_from: _schema/areas.yaml }
+      design: { link: designs }
+      duplicate_of: { link: issues }
+      created: { type: date }
+  - name: designs
+    folder: specs/design
+    entry: DESIGN.md
+    description: Why each change was made, phase by phase (§5)
+    checks: [lifecycle, readiness, compact_form, scenarios, dead_links]
+    fields:
+      phase: { enum: [high-level, architecture, examples, implementation, documentation] }
+      readiness: { enum: [ready, needs-decision, blocked, phase2-blocked, covered] }
+      area: { list: true, enum_from: _schema/areas.yaml }
+      superseded_by: { link: designs }
+  - name: reference
+    folder: specs/reference
+    recursive: true
+    description: How the system is; true at HEAD (§9)
+    history: { section: History, stamp: reviewed }
+    checks: [reviewed, history, dead_links]
+    fields:
+      audience: { required: true, enum: [internal, user, both] }
+      area: { list: true, enum_from: _schema/areas.yaml }
+  - name: guides
+    folder: specs/guides
+    recursive: true
+    description: How to work on the system (§9)
+    history: { section: History, stamp: reviewed }
+    checks: [reviewed, history, dead_links]
+    fields:
+      audience: { required: true, enum: [internal, user, both] }
+      area: { list: true, enum_from: _schema/areas.yaml }
+  - name: archive
+    folder: specs/archive
+    recursive: true
+    description: What was true on a date; never edited
+    writable: false
+  - name: skills
+    folder: .claude/skills
+    entry: SKILL.md
+    description: Agent skills of this repository
+    writable: false
+  - name: notes
+    folder: notes
+    description: Short notes agents keep between sessions
+    id: { from: title, case: kebab }

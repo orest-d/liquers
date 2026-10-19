@@ -1,0 +1,4 @@
+# DOCS_STRUCTURE_GUIDE.md §3. Mirrors AREAS in scripts/docs_index.py.
+[core/query, core/plan, core/commands, core/assets, core/store, core/value, core/context,
+ core/error, core/validate, macro, store/backends, store/config, records, lib/commands,
+ lib/value, lib/polars, lib/image, lib/egui, lib/ui, axum, web, py, docs, build]
