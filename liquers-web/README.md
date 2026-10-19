@@ -251,16 +251,42 @@ Only one `nextBatch()` may be pending on a stream at a time.
 ## Conformance
 
 Where liquers-web stands against [`LANGUAGE-INTEGRATION_GUIDE.md`](../specs/guides/LANGUAGE-INTEGRATION_GUIDE.md),
-for the Browser JavaScript profile. Each row is updated by the change that moves it.
+for the Browser JavaScript profile (baseline plus `ASYNCQ`). Seeded from the
+[2026-10-17 audit](../specs/archive/2026-10-17-liquers-web-guide-conformance.md) §1; each row is
+updated by the change that moves it.
 
 | Feature | Status | Tests | Gaps and `NA` decisions |
 |---|---|---|---|
+| `OBJECT` | complete | 01–09, `tests/objects_OBJECT.rs` | — |
+| `ERROR` | complete | 01–05; 06 in `tests/store_js_STORE.rs` | class and stack arrive inside `message` (`LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT`) |
+| `RUNTIME` | complete | 01 native; 02–06 under Node | `RUNTIME05` needs `--features debug-handles` |
+| `VALUE` | complete, one gap | 01–13, `tests/value_bridge_VALUE.rs` | outbound integers beyond 2^53 untested (`WEB-OUTBOUND-INT64-BEYOND-DOUBLE-UNTESTED`) |
 | `VALUE` / RECORDS | complete | 01, 02, 04–08, 10, `tests/records_RECORDS.rs` | `03`, `09` and `11` are `NA`, see below |
+| `ENVIRON` | partial | 01–07 | `ENVIRON08` (`WEB-ENVIRON-VALIDATION-REPORT-NOT-EXPOSED`) |
+| `EVAL` | complete | 01–07 | `EVAL06` pins inert cancellation (`WEB-CANCELLATION-INERT`) |
+| `COMMAND` | complete | 01–14, DECL01–03 | — |
+| `ASYNCQ` | complete | 01–06, 08 | `07` is `NA`: JavaScript has its own async model |
+| `ASYNCCMD` | complete | 01–06 | — |
+| `STORE` (all three directions) | complete | 01–17 by ID; 08 is the conformance suite; 13 native | `STORE18` is `NA`, see below |
+| `STUBS` | complete | 01–07 | — |
+| `PACKAGE` | complete | 01–05, 07 | `06` is `NA`: no optional extra |
+| `RECIPE`, `UIUSE`, `UIDEF` | not started (deferred) | — | — |
+| `MODULE`, `POLYGLOT`, `WEBSERV`, `WEBAPI` | `NA` for the shipped milestone | — | — |
 
 **`RECORDS03` is `NA`**: there is no Arrow route out of the browser build; it becomes required if an
 Arrow export is added. **`RECORDS09` is `NA`**: JavaScript has its own async model, which the
 `RecordSource` iterator uses. **`RECORDS11` is `NA`**: JavaScript cannot implement `RecordView` or
 `RecordSource`; it becomes required with a JavaScript-implemented source.
+
+**`STORE18` is `NA`.** It tests a `store_config` handler defined in the language, and JavaScript
+cannot define one yet: [`LANGUAGE-STORE-CONFIG-FUNCTION-NOT-DEFINABLE`](../specs/issues/LANGUAGE-STORE-CONFIG-FUNCTION-NOT-DEFINABLE.md).
+When that issue lands for JavaScript, `STORE18` becomes required.
+
+**Overlapping store prefixes are accepted silently.** A configuration may list `data` and
+`data/scratch`; the first matching entry in document order wins, so `data` listed first shadows
+`data/scratch`. No warning is given: the router has no warning channel at build time, a warning
+would belong in core's `StoreRouterConfig` for every integration, and nesting is sometimes
+deliberate. `store11_overlapping_prefixes_follow_document_order` pins the routing.
 
 ## Known limitations
 
