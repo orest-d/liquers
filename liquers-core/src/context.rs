@@ -669,6 +669,30 @@ impl<E: Environment> Context<E> {
                 .dependency_manager()
                 .register_scheduled_dependency(dependent, &dependency, version)
                 .await?;
+            // A write replacing the key cancels this run, then clears the key's incoming edges.
+            // A registration that landed after the clear must not survive it, so a cancelled run
+            // takes back what it just added and fails the request. An edge the replacement's own
+            // records name is reset to the record's version rather than removed: this request may
+            // have overwritten it with the version the old run captured.
+            // See `specs/design/replacing-write-drops-stale-dependency-edges/`.
+            if self.is_cancelled() {
+                if let (ScheduleNode::Keyed(owner), Some(k)) = (dependent, &owner_key) {
+                    let keep = match manager.lookup_key_asset(k) {
+                        Some(current) if current.id() != self.assetref.id() => {
+                            match current.get_metadata().await? {
+                                Metadata::MetadataRecord(mr) => mr.dependencies,
+                                Metadata::LegacyMetadata(_) => Vec::new(),
+                            }
+                        }
+                        Some(_) | None => Vec::new(),
+                    };
+                    manager
+                        .dependency_manager()
+                        .unregister_scheduled_dependency(owner, &dependency, &keep)
+                        .await;
+                }
+                self.check_cancelled()?;
+            }
         }
 
         // Capture the AssetRef exactly once (volatile-safe) and schedule it. Within one evaluation
