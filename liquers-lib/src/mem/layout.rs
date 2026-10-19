@@ -1,7 +1,7 @@
 //! The memory's schema: `<root>/_schema/memory.yaml`, read through the store on every call.
 
 use indexmap::IndexMap;
-use liquers_core::context::{Context, Environment};
+use liquers_core::context::{EnvRef, Environment};
 use liquers_core::error::{Error, ErrorType};
 use liquers_core::parse::parse_key;
 use liquers_core::query::Key;
@@ -310,9 +310,9 @@ impl MemoryLayout {
     }
 
     /// Reads `<root>/_schema/memory.yaml` through the store.
-    pub async fn load<E: Environment>(context: &Context<E>, root: &Key) -> Result<Self, Error> {
+    pub async fn load<E: Environment>(envref: &EnvRef<E>, root: &Key) -> Result<Self, Error> {
         let key = join_path(root, SCHEMA_PATH)?;
-        let bytes = read_bytes(context, &key).await?.ok_or_else(|| {
+        let bytes = read_bytes(envref, &key).await?.ok_or_else(|| {
             Error::configuration_error(format!(
                 "no memory schema at '{}': a memory root holds {SCHEMA_PATH}",
                 key.encode()
@@ -505,10 +505,10 @@ pub fn is_readme(name: &str) -> bool {
 /// The stored bytes of `key`, or `None` when it does not exist. Read from the store directly,
 /// never from a live asset: the schema and the write path need what is on disk now.
 pub(crate) async fn read_bytes<E: Environment>(
-    context: &Context<E>,
+    envref: &EnvRef<E>,
     key: &Key,
 ) -> Result<Option<Vec<u8>>, Error> {
-    let store = context.get_envref().get_async_store();
+    let store = envref.get_async_store();
     match store.get_bytes(key).await {
         Ok(bytes) => Ok(Some(bytes)),
         Err(e) if e.error_type == ErrorType::KeyNotFound => Ok(None),
@@ -518,12 +518,12 @@ pub(crate) async fn read_bytes<E: Environment>(
 
 /// A YAML file under `root` read as `T`; used for `enum_from` lists and `transitions` maps.
 pub(crate) async fn load_yaml<E: Environment, T: serde::de::DeserializeOwned>(
-    context: &Context<E>,
+    envref: &EnvRef<E>,
     root: &Key,
     rel: &str,
 ) -> Result<T, Error> {
     let key = join_path(root, rel)?;
-    let bytes = read_bytes(context, &key)
+    let bytes = read_bytes(envref, &key)
         .await?
         .ok_or_else(|| Error::configuration_error(format!("'{}' does not exist", key.encode())))?;
     serde_yaml::from_slice(&bytes)

@@ -7,7 +7,9 @@
 
 pub mod front_matter;
 pub mod layout;
+pub mod rules;
 pub mod tiers;
+pub mod write;
 
 /// Registers the `ns-mem` commands.
 #[macro_export]
