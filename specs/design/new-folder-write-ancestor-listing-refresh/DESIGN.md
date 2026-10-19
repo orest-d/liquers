@@ -2,9 +2,9 @@
 id: NEW-FOLDER-WRITE-ANCESTOR-LISTING-REFRESH
 kind: design
 title: A write that creates or empties a folder refreshes the listings above it
+status: complete
+gh_pr: [160]
 form: compact
-status: in_review
-phase: implementation
 readiness: ready
 autofix: eligible
 area: [core/assets]
@@ -12,6 +12,8 @@ issues: [NEW-FOLDER-WRITE-DOES-NOT-REFRESH-THE-PARENT-LISTING]
 created: 2026-10-17
 ---
 # A write that creates or empties a folder refreshes the listings above it
+
+> **Complete on 2026-10-18**: implemented and merged in #160.
 
 Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-17 backlog compaction. Phases 1-4
 are written but not approved, and nothing is implemented.
@@ -139,11 +141,26 @@ Run: `cargo test -p liquers-core --test dependency_audit_integration`.
 
 ### Steps
 
-- [ ] 1. The five tests — command above (AC-1, AC-2, AC-3 fail; AC-4, AC-5 pass)
-- [ ] 2. `liquers-core/src/assets.rs` `refresh_listing_version` loop and `refresh_one_listing` —
+- [x] 1. The five tests — command above (AC-1, AC-2, AC-3 fail; AC-4, AC-5 pass)
+- [x] 2. `liquers-core/src/assets.rs` `refresh_listing_version` loop and `refresh_one_listing` —
   same command, all pass. Rollback: revert the body.
-- [ ] 3. `DEPENDENCIES_STATUS.md` rule, History row, `reviewed:`; close the issue —
+- [x] 3. `DEPENDENCIES_STATUS.md` rule, History row, `reviewed:`; close the issue —
   `python3 scripts/docs_index.py --check`
+
+### Review notes
+
+- 2026-10-18, Codex review on PR #160, finding 1 (real): each unregistered level rescanned the
+  rest of the path for a registered ancestor, O(N²) version-map reads (each encoding an O(N) key)
+  for a depth-N new path. The walk now remembers the nearest registered ancestor and climbs the
+  levels below it without a second lookup (`nearest_registered_ancestor_listing`). Test
+  `deep_new_path_refresh_is_linear_in_depth` (depth 2000: 313 s before, under 2 s after).
+- 2026-10-18, finding 2 (not real for the in-tree providers): the climb reads the merged listing,
+  but `DefaultRecipeProvider` and `ManifestRecipeProvider` list names in a folder only from a file
+  stored in it, so the merged listing is empty exactly when the stored one is. Pinned by
+  `removing_a_recipe_folder_expires_the_parent_index`; the assumption is documented on
+  `refresh_listing_version`, and a custom provider breaking it is filed as
+  `RECIPE-ONLY-FOLDER-NAMES-HIDE-A-CREATED-FOLDER-FROM-ITS-PARENT`. Deciding from "the parent's
+  listing moved" was not adopted: it reads every registered ancestor on an ordinary write.
 
 ### Validation
 
