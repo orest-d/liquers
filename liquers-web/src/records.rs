@@ -257,6 +257,40 @@ impl Drop for LiquersRecordBatch {
 pub struct LiquersRecordSource {
     inner: Arc<dyn RecordSource>,
     id: u32,
+    /// The environment whose evaluation produced the source; chunks resolve through it.
+    origin: Origin,
+}
+
+/// Which environment a source handle resolves its chunks through.
+#[derive(Clone)]
+enum Origin {
+    /// The singleton, re-resolved on every use so that a rebuild (a command registered later) is
+    /// visible.
+    Global,
+    /// An explicit `new Environment()` instance, which is never rebuilt and so is held.
+    Explicit(liquers_core::context::EnvRef<crate::environment::WebEnvironment>),
+}
+
+impl Origin {
+    /// The origin of the conversion in progress: the environment it runs in, or the singleton
+    /// when the caller named none or named the singleton itself.
+    fn of_current_conversion() -> Origin {
+        match crate::bridge::conversion_env::<crate::environment::WebEnvironment>() {
+            Some(env) => match crate::environment::with_global() {
+                Ok(global) if Arc::ptr_eq(&global.0, &env.0) => Origin::Global,
+                Ok(_) | Err(_) => Origin::Explicit(env),
+            },
+            None => Origin::Global,
+        }
+    }
+
+    fn resolver(&self) -> Result<Arc<dyn liquers_lib::records::ChunkResolver>, JsValue> {
+        let envref = match self {
+            Origin::Global => crate::environment::shared_env().map_err(liquers_error_to_js)?,
+            Origin::Explicit(envref) => envref.clone(),
+        };
+        Ok(Arc::new(EnvResolver::new(envref)))
+    }
 }
 
 #[wasm_bindgen(js_class = RecordSource)]
@@ -319,9 +353,10 @@ impl LiquersRecordSource {
     #[wasm_bindgen(unchecked_return_type = "Promise<AsyncIterableIterator<RecordBatch>>")]
     pub fn stream(&self) -> js_sys::Promise {
         let source = self.inner.clone();
+        let origin = self.origin.clone();
         wasm_bindgen_futures::future_to_promise(async move {
             let stream = source
-                .stream(web_resolver()?)
+                .stream(origin.resolver()?)
                 .await
                 .map_err(liquers_error_to_js)?;
             let handle = LiquersRecordStream {
@@ -339,9 +374,10 @@ impl LiquersRecordSource {
         #[wasm_bindgen(js_name = maxRows)] max_rows: usize,
     ) -> js_sys::Promise {
         let source = self.inner.clone();
+        let origin = self.origin.clone();
         wasm_bindgen_futures::future_to_promise(async move {
             let batch = source
-                .materialize(web_resolver()?, max_rows)
+                .materialize(origin.resolver()?, max_rows)
                 .await
                 .map_err(liquers_error_to_js)?;
             Ok(LiquersRecordBatch::from(batch).into())
@@ -358,7 +394,11 @@ impl LiquersRecordSource {
 impl From<Arc<dyn RecordSource>> for LiquersRecordSource {
     fn from(inner: Arc<dyn RecordSource>) -> Self {
         let id = register_handle(RecordHandle::Source(inner.clone()));
-        LiquersRecordSource { inner, id }
+        LiquersRecordSource {
+            inner,
+            id,
+            origin: Origin::of_current_conversion(),
+        }
     }
 }
 
@@ -366,13 +406,6 @@ impl Drop for LiquersRecordSource {
     fn drop(&mut self) {
         release_handle(self.id);
     }
-}
-
-/// A chunk resolver over the web environment as it is now. `shared_env`, as evaluation uses: it
-/// shares an environment that `init()` created but nothing has evaluated in yet.
-fn web_resolver() -> Result<Arc<dyn liquers_lib::records::ChunkResolver>, JsValue> {
-    let envref = crate::environment::shared_env().map_err(liquers_error_to_js)?;
-    Ok(Arc::new(EnvResolver::new(envref)))
 }
 
 enum StreamState {

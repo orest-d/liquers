@@ -107,6 +107,8 @@ pub fn opaque(value: JsValue) -> Result<LiquersValue, JsValue> {
 #[wasm_bindgen(js_name = Value)]
 pub struct LiquersValue {
     inner: liquers_lib::value::Value,
+    /// The environment that produced the value, when known; `toJS` converts inside it.
+    env: Option<liquers_core::context::EnvRef<environment::WebEnvironment>>,
 }
 
 #[wasm_bindgen(js_class = Value)]
@@ -114,7 +116,11 @@ impl LiquersValue {
     /// Converts back to a JavaScript value. An opaque value returns the original object.
     #[wasm_bindgen(js_name = toJS)]
     pub fn to_js(&self) -> Result<JsValue, JsValue> {
-        bridge::value_to_js(&self.inner).map_err(error::liquers_error_to_js)
+        match &self.env {
+            Some(env) => bridge::value_to_js_in(env, &self.inner),
+            None => bridge::value_to_js(&self.inner),
+        }
+        .map_err(error::liquers_error_to_js)
     }
 
     #[wasm_bindgen(getter, js_name = typeName)]
@@ -151,7 +157,16 @@ impl LiquersValue {
 
 impl LiquersValue {
     pub fn from_value(inner: liquers_lib::value::Value) -> Self {
-        LiquersValue { inner }
+        LiquersValue { inner, env: None }
+    }
+
+    /// Records the environment that produced the value, for `toJS`.
+    pub fn in_env(
+        mut self,
+        env: liquers_core::context::EnvRef<environment::WebEnvironment>,
+    ) -> Self {
+        self.env = Some(env);
+        self
     }
 
     pub fn inner(&self) -> &liquers_lib::value::Value {

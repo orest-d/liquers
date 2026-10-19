@@ -606,3 +606,57 @@ fn records_in_memory_chunks_are_not_offered_as_queries() {
     assert_eq!(kinds, vec![Some("memory".to_string()); 3]);
     free(&js);
 }
+
+fn parts_manifest() -> Arc<dyn RecordSource> {
+    let spec: ManifestSpec = serde_json::from_value(serde_json::json!({
+        "manifest": "record-stream",
+        "chunks": [{ "query": "part-1/ns-rec/from_json-records" }],
+    }))
+    .expect("manifest");
+    Arc::new(ManifestSource::new(spec, None).expect("source"))
+}
+
+/// A source from an explicit environment resolves through it: it needs no singleton, and it does
+/// not see the singleton's commands.
+#[wasm_bindgen_test]
+async fn records_a_source_resolves_through_the_environment_that_produced_it() {
+    liquers_web::environment::reset_global();
+    let explicit = liquers_web::environment::build_environment().expect("an explicit environment");
+
+    let in_memory = liquers_web::bridge::value_to_js_in(&explicit, &source_value(three_views()))
+        .expect("converts");
+    let all = awaited(call(&in_memory, "materialize", &[JsValue::from(6)]))
+        .await
+        .expect("an uninitialized singleton is not needed");
+    assert_eq!(js_number(&all, "numRows"), 6.0);
+
+    common::fresh();
+    register_part_command();
+    let manifest = liquers_web::bridge::value_to_js_in(&explicit, &source_value(parts_manifest()))
+        .expect("converts");
+    awaited(call(&manifest, "materialize", &[JsValue::from(10)]))
+        .await
+        .expect_err("`part` is registered on the singleton only, so the explicit environment fails");
+    let global = source_to_js(parts_manifest());
+    let rows = awaited(call(&global, "materialize", &[JsValue::from(10)]))
+        .await
+        .expect("the singleton has `part`");
+    assert_eq!(int_column(&rows), vec![1, 10]);
+    liquers_web::environment::reset_global();
+}
+
+/// A source from the singleton keeps following it: a command registered after the source was
+/// produced, which rebuilds the singleton, is visible when the source streams.
+#[wasm_bindgen_test]
+async fn records_a_singleton_source_sees_commands_registered_later() {
+    common::fresh();
+    let envref = liquers_web::environment::shared_env().expect("share");
+    let js = liquers_web::bridge::value_to_js_in(&envref, &source_value(parts_manifest()))
+        .expect("converts");
+    register_part_command();
+    let rows = awaited(call(&js, "materialize", &[JsValue::from(10)]))
+        .await
+        .expect("the rebuilt singleton has `part`");
+    assert_eq!(int_column(&rows), vec![1, 10]);
+    liquers_web::environment::reset_global();
+}

@@ -2,7 +2,7 @@
 id: WEB-RECORD-SOURCE-RESOLVES-THROUGH-SINGLETON
 kind: issue
 title: A RecordSource from an explicit Environment streams through the singleton
-status: draft
+status: closed
 priority: P3
 complexity: M
 area: [web, records]
@@ -42,3 +42,13 @@ so that sources which never resolve (in-memory) do not need the singleton.
 ## Discovery
 
 Codex review of PR #157 (`liquers-web-records-bridge`), 2026-10-18.
+
+## Resolution (2026-10-19)
+
+A `RecordSource` handle now remembers its origin: the singleton (re-resolved on every use, so a
+command registered later is visible) or the explicit instance whose evaluation produced it.
+Conversions that know their environment run inside it (`bridge::value_to_js_in`, a scope read by
+`bridge::conversion_env`): query evaluation, `Asset.get()` and the `State`/`Value` it yields, and
+the arguments of a JavaScript command. `to_js_custom` keeps its signature. Tests:
+`records_a_source_resolves_through_the_environment_that_produced_it`,
+`records_a_singleton_source_sees_commands_registered_later` (`liquers-web/tests/records_RECORDS.rs`).

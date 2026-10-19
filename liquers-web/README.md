@@ -246,7 +246,8 @@ source.free();
 
 `free()` releases a handle; a freed handle passed back to Rust is refused with a `ConversionError`
 naming its class. Leaving a `for await` loop early (`break`, `return`, a throw) frees the stream.
-Only one `nextBatch()` may be pending on a stream at a time.
+Only one `nextBatch()` may be pending on a stream at a time. A source resolves its chunks through the
+environment that produced it: the singleton, or the `new Environment()` instance it was evaluated in.
 
 ## Conformance
 
@@ -278,7 +279,6 @@ kept as `fixme` in `tests/e2e/store.spec.ts` so that removing the marker proves 
 | Registering a command after the first evaluation rebuilds the environment, discarding its asset cache. Register before evaluating to avoid it | `POST-INIT-COMMAND-REGISTRATION` |
 | A thrown exception's class and stack reach the caller inside `message`, not as `jsClass`/`jsStack` — `liquers_core::Error` has no field to carry them through the asset lifecycle | `LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT` |
 | `registerCommand` is refused on an explicit `Environment` instance — the handle holds a shared environment with no mutable path. Register on the singleton | `POST-INIT-COMMAND-REGISTRATION` |
-| A `RecordSource` from an explicit `Environment` instance streams and materializes through the singleton, which must be initialized | `WEB-RECORD-SOURCE-RESOLVES-THROUGH-SINGLETON` |
 
 All are in [`specs/issues/`](../specs/issues/), each with the condition that reverses it.
 
