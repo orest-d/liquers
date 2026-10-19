@@ -441,7 +441,8 @@ kinds of object:
 | a source | **as its manifest only**; its rows through `materialize`, which is asynchronous and bounded | the whole source in memory |
 
 **What `liquers-web` does — lent buffers, not Arrow.** The browser binding has no Arrow route; a
-batch crosses as the lent-buffer handle of §"A third category". A `RecordView` reaching JavaScript
+batch crosses as the lent-buffer handle of §"A third category". A single-cell `RecordView` reaches
+JavaScript as its scalar (a null cell as `null`, a binary cell as a `Uint8Array`); any larger view
 is materialized (free for a batch) and wrapped in `LiquersRecordBatch`, exported to JavaScript as
 `RecordBatch` (`liquers-web/src/records.rs`): `numRows`, `numColumns`, `schemaJson`, `column(i)`
 returning a **descriptor** (`kind`, `ptr`, `len`, `validity`, plus `dim` for vectors and
@@ -449,8 +450,8 @@ returning a **descriptor** (`kind`, `ptr`, `len`, `validity`, plus `dim` for vec
 `memory.buffer`, `columnCopy(i)` as the always-safe detached copy, and `columnView(i)` building the
 `RecordColumn` companion (`records_column.js`) that re-creates a view detached by `memory.grow`.
 The handle holds the batch by `Arc`, so buffers stay valid until `free()`. A `RecordSource` has no
-JavaScript representation yet and is refused by the standard mapping. `RECORDS05` and `RECORDS06`
-run in `liquers-web/tests/records_RECORDS.rs`.
+JavaScript representation yet and is refused by the standard mapping. `RECORDS05`, `RECORDS06` and
+`RECORDS10` run in `liquers-web/tests/records_RECORDS.rs`.
 
 A single-cell view reads as a scalar (`record-streams` Phase 2, "A view as a value"), so a wrapper
 should expose that as the *language*'s own scalar rather than as a one-by-one table.
@@ -3107,6 +3108,7 @@ def test_PACKAGE07_artifact_carries_declarations_license_and_metadata():
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-18 | §RECORDS "What `liquers-web` does": a single-cell view reaches JavaScript as its scalar; `RECORDS10` runs there. | `WEB-RECORDS-SINGLE-CELL-VIEW-CROSSES-AS-BATCH`, `design/web-records-single-cell-scalar/` |
 | 2026-10-18 | §ENVIRON: an integration without `EnvironmentBuilder` runs the registry check on its own import path and reports it before raising; `liquers-web`'s `validateCommands` / `registerCommands`. | `design/web-environ-validation-report/` |
 | 2026-10-18 | Corrected four descriptive claims about `liquers-web`: §3 harness question 2 (classified per test: Node, native, script and browser tiers), the §OBJECT `OBJECT09` one-liner (round trip, matching Appendix A), the rebuild triggers in the TypeRegistry advice, and the worked-example entry's 83-test disposition (dated to the 2026-08 inventory). | `LANGUAGE-GUIDE-STALE-LIQUERS-WEB-CLAIMS`, `design/language-guide-web-claims/` |
 | 2026-10-16 | §6 Browser JavaScript: `localstorage` and `http` now offer data-only access and can take a `metadata` section. | `design/store-adapters/` phase-5 review |

@@ -149,3 +149,95 @@ fn records06_freeing_the_handle_releases_the_batch() {
     assert_eq!(live_batch_handle_count(), baseline);
     assert!(weak.upgrade().is_none(), "free() must drop the last Arc<RecordBatch>");
 }
+
+fn view_value(batch: Arc<RecordBatch>) -> liquers_lib::value::Value {
+    let view: Arc<dyn liquers_lib::records::RecordView> = batch;
+    liquers_lib::value::Value::Extended(liquers_lib::value::ExtValue::RecordView { value: view })
+}
+
+fn json_batch(rows: serde_json::Value) -> Arc<RecordBatch> {
+    Arc::new(
+        liquers_lib::records::from_json(
+            &rows,
+            liquers_lib::records::JsonOrient::Records,
+            liquers_lib::records::ReadSchema::Infer,
+        )
+        .expect("batch from JSON"),
+    )
+}
+
+fn to_js(batch: Arc<RecordBatch>) -> JsValue {
+    liquers_web::bridge::value_to_js(&view_value(batch)).expect("value_to_js")
+}
+
+fn js_number(obj: &JsValue, name: &str) -> f64 {
+    Reflect::get(obj, &JsValue::from_str(name))
+        .expect("property")
+        .as_f64()
+        .expect("numeric property")
+}
+
+/// RECORDS10 — a single-cell view reaches the language as its own scalar.
+#[wasm_bindgen_test]
+fn records10_a_single_cell_view_reaches_javascript_as_its_scalar() {
+    assert_eq!(to_js(float_batch(&[1.5])).as_f64(), Some(1.5));
+    assert_eq!(to_js(json_batch(serde_json::json!([{ "n": 7 }]))).as_f64(), Some(7.0));
+    assert_eq!(
+        to_js(json_batch(serde_json::json!([{ "t": "a" }]))).as_string(),
+        Some("a".to_string())
+    );
+    assert_eq!(to_js(json_batch(serde_json::json!([{ "b": true }]))).as_bool(), Some(true));
+
+    // No payload field: the `Id` field is the value.
+    let schema = Arc::new(
+        RecordSchema::new(vec![FieldSchema::new("id", FieldType::Int)
+            .with_key(liquers_lib::records::KeyRole::Id)])
+        .expect("schema"),
+    );
+    let ids = Column::Int {
+        validity: None,
+        values: Buffer::from_slice(&[42i64]),
+    };
+    let batch = Arc::new(RecordBatch::new(schema, vec![ids], None, None, vec![]).expect("batch"));
+    assert_eq!(to_js(batch).as_f64(), Some(42.0));
+}
+
+/// RECORDS10 — a larger view crosses as a batch whose shape is readable.
+#[wasm_bindgen_test]
+fn records10_a_larger_view_reaches_javascript_as_a_batch_naming_its_shape() {
+    let tall = to_js(float_batch(&[1.0, 2.0]));
+    assert!(tall.is_object());
+    assert_eq!(js_number(&tall, "numRows"), 2.0);
+    assert_eq!(js_number(&tall, "numColumns"), 1.0);
+
+    let wide = to_js(json_batch(serde_json::json!([{ "a": 1.0, "b": 2.0 }])));
+    assert!(wide.is_object());
+    assert_eq!(js_number(&wide, "numRows"), 1.0);
+    assert_eq!(js_number(&wide, "numColumns"), 2.0);
+}
+
+/// RECORDS10 — a null cell is `null` and a binary cell a `Uint8Array`, as for a bare value.
+#[wasm_bindgen_test]
+fn records10_null_and_binary_cells_keep_the_value_mapping() {
+    let schema =
+        Arc::new(RecordSchema::new(vec![FieldSchema::new("x", FieldType::Float)]).expect("schema"));
+    let column = Column::Float {
+        validity: Some(Bitmap::from_bytes(&[0u8], 1)),
+        values: Buffer::from_slice(&[0.0]),
+    };
+    let batch = Arc::new(RecordBatch::new(schema, vec![column], None, None, vec![]).expect("batch"));
+    assert!(to_js(batch).is_null());
+
+    let schema = Arc::new(
+        RecordSchema::new(vec![FieldSchema::new("blob", FieldType::Binary)]).expect("schema"),
+    );
+    let column = Column::Binary {
+        validity: None,
+        offsets: Buffer::from_slice(&[0i32, 3]),
+        data: liquers_lib::records::AlignedBuffer::from_slice(b"abc"),
+    };
+    let batch = Arc::new(RecordBatch::new(schema, vec![column], None, None, vec![]).expect("batch"));
+    let js = to_js(batch);
+    assert!(js.is_instance_of::<js_sys::Uint8Array>());
+    assert_eq!(js_sys::Uint8Array::from(js).to_vec(), b"abc".to_vec());
+}
