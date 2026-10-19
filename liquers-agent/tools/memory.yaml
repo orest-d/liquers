@@ -1,0 +1,56 @@
+# The built-in memory tool set. `cwd` is set from `memory.root` at start.
+prefix: memory_
+instructions: |
+  This server is a file-based memory: Markdown documents in folders, each with a title (L0) and a
+  one-paragraph description (L1). Start with memory_overview, find with memory_search or
+  memory_list, read with memory_read (ask for tier l0 or l1 before reading a whole document),
+  and search before you create: memory_new returns similar memories instead of creating one
+  unless force is set. Writes take expected_version, the version memory_read reported, so a
+  concurrent change is refused instead of overwritten.
+tools:
+  - name: overview
+    query: "-R-key/./-/ns-mem/overview/overview.md"
+    read_only: true
+  - name: describe
+    query: "-R-key/./-/ns-mem/describe/describe.md"
+    read_only: true
+  - name: list
+    query: "-R-key/./-/ns-mem/list/list.md"
+    key: { name: path, description: "Folder relative to the memory root; empty for the root" }
+    read_only: true
+  - name: search
+    query: "-R-key/./-/ns-mem/search/search.md"
+    key: { name: path, description: "Folder to search, relative to the memory root; empty for all of it" }
+    read_only: true
+  - name: read
+    query: "-R/./-/ns-mem/read/read.md"
+    key: { name: key, description: "Document key relative to the memory root, e.g. notes/idea.md", required: true }
+    read_only: true
+  - name: new
+    query: "-R-key/./-/ns-mem/new/new.json"
+  - name: write
+    query: "-R-key/./-/ns-mem/write/write.json"
+    key: { name: key, description: "Document key relative to the memory root", required: true }
+  - name: edit
+    query: "-R-key/./-/ns-mem/edit/edit.json"
+    key: { name: key, description: "Document key relative to the memory root", required: true }
+  - name: check
+    query: "-R-key/./-/ns-mem/check/check.md"
+    key: { name: path, description: "Folder to check, relative to the memory root; empty for all of it" }
+    read_only: true
+query_tool:
+  name: query
+  description: >-
+    Evaluate a read-only Liquers query over the memory, for anything the other tools cannot
+    express: composing a listing with filters and sorts, or another output format. Read
+    liquers://memory/query-guide first.
+  allow: ["-mem-overview", "-mem-describe", "-mem-list", "-mem-search", "-mem-read",
+          "-mem-similar", "-mem-check", "-rec-*", "-search-*"]
+resources:
+  - { kind: tool, uri_template: "liquers://memory/{+key}", tool: read, argument: key }
+  - kind: text
+    uri: "liquers://memory/query-guide"
+    name: query-guide
+    description: "Liquers queries over this memory, for memory_query"
+    text: ""
+  - { kind: commands, uri_template: "liquers://commands/{namespace}", namespaces: [mem, rec, search] }
