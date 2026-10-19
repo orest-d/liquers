@@ -8,14 +8,12 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 129
-- P2: 54
-- P3: 75
+Total rows: 126
+- P2: 52
+- P3: 74
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
-| [`LANGUAGE-GUIDE-STALE-LIQUERS-WEB-CLAIMS`](issues/LANGUAGE-GUIDE-STALE-LIQUERS-WEB-CLAIMS.md) | issue | LANGUAGE-INTEGRATION_GUIDE makes stale claims about liquers-web | draft | ready | eligible | P2 | S | docs;web | [design](design/language-guide-web-claims/DESIGN.md) | 2026-10-17 |
-| [`WEB-DOCS-STALE-AFTER-KEYED-EVAL-FIX`](issues/WEB-DOCS-STALE-AFTER-KEYED-EVAL-FIX.md) | issue | liquers-web documentation still describes limitations that were fixed | draft | ready | eligible | P2 | S | web;docs | [design](design/web-docs-stale-limitations/DESIGN.md) | 2026-10-17 |
 | [`WEB-RECORDS-SINGLE-CELL-VIEW-CROSSES-AS-BATCH`](issues/WEB-RECORDS-SINGLE-CELL-VIEW-CROSSES-AS-BATCH.md) | issue | A single-cell RecordView reaches JavaScript as a 1×1 batch instead of a scalar | draft | ready | eligible | P2 | S | web;records | [design](design/web-records-single-cell-scalar/DESIGN.md) | 2026-10-17 |
 | [`EVALUATION-SESSION-VOLATILE-TEST-INTERMITTENT`](issues/EVALUATION-SESSION-VOLATILE-TEST-INTERMITTENT.md) | issue | volatile_dependency_has_one_value_per_evaluation fails intermittently: a later evaluation sometimes reuses the volatile value | draft | phase2-blocked | not-eligible | P2 | S | core/assets | [design](design/evaluation-session-volatile-test-flake/DESIGN.md) | 2026-10-13 |
 | [`CORE-VALUE-ENUM-OVERSIZED`](issues/CORE-VALUE-ENUM-OVERSIZED.md) | issue | Every Value occupies over 700 bytes because three variants are stored unboxed | draft | ready | not-eligible | P2 | M | core/value;lib/value | [design](design/core-value-enum-oversized/DESIGN.md) | 2026-08-18 |
@@ -84,7 +82,6 @@ Total rows: 129
 | [`TEMPORARY-ASSET-NEVER-RUN-IS-KEPT-ALIVE-BY-ITS-SERVICE-LOOP`](issues/TEMPORARY-ASSET-NEVER-RUN-IS-KEPT-ALIVE-BY-ITS-SERVICE-LOOP.md) | issue | A temporary asset that is never run is kept alive forever by its own service-message loop | draft |  |  | P3 | S | core/assets |  | 2026-10-18 |
 | [`TEMPORARY-ASSETS-SHARE-ID-ZERO`](issues/TEMPORARY-ASSETS-SHARE-ID-ZERO.md) | issue | Every temporary asset has id 0, so code that identifies assets by id can confuse them | draft |  |  | P3 | S | core/assets |  | 2026-10-18 |
 | [`TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS`](issues/TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS.md) | issue | TypeInfo cannot declare a format a type writes but cannot read back | draft |  |  | P3 | S | core/value |  | 2026-09-24 |
-| [`WEB-STORE-CONFORMANCE-TEST-GAPS`](issues/WEB-STORE-CONFORMANCE-TEST-GAPS.md) | issue | liquers-web's STORE tests are narrower than the guide's prescribed contracts | draft | ready | eligible | P3 | M | web;core/store | [design](design/web-store-conformance-tests/DESIGN.md) | 2026-10-17 |
 | [`PY-VALUE-ENUM-OVERSIZED`](issues/PY-VALUE-ENUM-OVERSIZED.md) | issue | liquers-py's own Value enum is over 700 bytes because large variants are stored inline | draft | ready | not-eligible | P3 | M | py | [design](design/py-value-arc-payloads/DESIGN.md) | 2026-10-12 |
 | [`CONTEXT-TITLE-LOST-ACROSS-PREDECESSOR-BOUNDARY`](issues/CONTEXT-TITLE-LOST-ACROSS-PREDECESSOR-BOUNDARY.md) | issue | A title or description set by a command in a cut predecessor does not reach the final asset | draft | needs-decision | not-eligible | P3 | M | core/context;core/plan | [phase1](design/context-title-predecessor-inheritance/phase1-high-level-design.md)  [phase2](design/context-title-predecessor-inheritance/phase2-architecture.md)  [phase3](design/context-title-predecessor-inheritance/phase3-examples.md)  [phase4](design/context-title-predecessor-inheritance/phase4-implementation.md)  | 2026-10-06 |
 | [`TEMPLATE-NON-SCALAR-HAS-NO-TEXT-FORM`](issues/TEMPLATE-NON-SCALAR-HAS-NO-TEXT-FORM.md) | issue | A template cannot index into a Query or Key value, and inserts other non-scalars as JSON | draft | needs-decision | not-eligible | P3 | M | lib/commands | [design](design/template-non-scalar-text-form/DESIGN.md) | 2026-10-17 |
