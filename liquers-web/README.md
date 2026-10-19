@@ -44,6 +44,31 @@ Design documents: [`specs/design/liquers-web/`](../specs/design/liquers-web/). T
 
 A runnable version is in [`examples-web/quickstart/`](examples-web/quickstart/).
 
+### Registering commands in bulk
+
+`registerCommands(input, impls?)` registers a batch in one call, all or nothing. `input` is a
+declaration, an array of declarations, or a JSON or YAML string in the command metadata registry
+format (`commands: [...]`, the shape of `specs/command_registry.yaml`); `impls` binds functions by
+command name, either the function itself or `{ run, state?, async? }`.
+
+```js
+const yaml = `
+commands:
+  - name: greet
+    arguments:
+      - { name: who, argument_type: string }
+`;
+liquers.registerCommands(yaml, { greet: (who) => `Hello, ${who}!` });
+await liquers.evaluate("greet-world");   // "Hello, world!"
+```
+
+If anything in the batch is wrong, nothing is registered and the `parameter_error` thrown has a
+`report` property listing every finding: `{ issues, errorCount, warningCount, hasErrors, summary }`,
+each issue `{ severity, message, command }` with `command` being `{ realm, namespace, name }` or
+`null`. `validateCommands(input, impls?)` returns the same report without registering anything, and
+works before `init()`. After the first evaluation a batch costs one environment rebuild, not one
+per command. `registerCommand(spec)` is a batch of one.
+
 ## Building
 
 `liquers-web` is **wasm32-only**. `JsValue` is `!Send`/`!Sync` on every target, and on native the

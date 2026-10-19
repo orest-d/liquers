@@ -347,7 +347,7 @@ WEB-API-SPECIFICATION-DIVERGES-FROM-IMPLEMENTATION,issue,The web API specificati
 WEB-BUILT-IN-STORES-HAVE-NO-DATA-ACCESS,issue,"The browser's built-in stores refuse data-only access, so they cannot take a metadata section",closed,local,,,,P3,S,web;core/store,,,,,,2026-10-15,specs/issues/WEB-BUILT-IN-STORES-HAVE-NO-DATA-ACCESS.md
 WEB-CANCELLATION-INERT,issue,Web cancellation surface exists but does nothing,accepted,local,,,,P3,M,web,,,,,,2026-08-08,specs/issues/WEB-CANCELLATION-INERT.md
 WEB-DOCS-STALE-AFTER-KEYED-EVAL-FIX,issue,liquers-web documentation still describes limitations that were fixed,closed,local,,ready,eligible,P2,S,web;docs,,,,web-docs-stale-limitations,,2026-10-17,specs/issues/WEB-DOCS-STALE-AFTER-KEYED-EVAL-FIX.md
-WEB-ENVIRON-VALIDATION-REPORT-NOT-EXPOSED,issue,"liquers-web exposes no builder validation report, so ENVIRON08 is unimplemented",draft,local,,ready,not-eligible,P2,M,web,,,,web-environ-validation-report,,2026-10-17,specs/issues/WEB-ENVIRON-VALIDATION-REPORT-NOT-EXPOSED.md
+WEB-ENVIRON-VALIDATION-REPORT-NOT-EXPOSED,issue,"liquers-web exposes no builder validation report, so ENVIRON08 is unimplemented",closed,local,,ready,not-eligible,P2,M,web,,,,web-environ-validation-report,,2026-10-17,specs/issues/WEB-ENVIRON-VALIDATION-REPORT-NOT-EXPOSED.md
 WEB-JS-STORE-CANNOT-EXPRESS-KEY-NOT-FOUND,issue,"A JsStore delegate has no way to signal absence, so a missing key reads as a read error",closed,local,,,,P2,S,web;core/store,,,,store-conformance-backlog,,2026-09-02,specs/issues/WEB-JS-STORE-CANNOT-EXPRESS-KEY-NOT-FOUND.md
 WEB-JS-STORE-HAS-NO-DIRECTORY-METADATA,issue,"JsStore::get_metadata delegates a directory key to get, which throws",closed,local,,,,P2,S,web;core/store,,,,store-conformance-backlog,,2026-09-02,specs/issues/WEB-JS-STORE-HAS-NO-DIRECTORY-METADATA.md
 WEB-LIQUERSERROR-NOT-CONSTRUCTIBLE,issue,"JavaScript cannot construct a LiquersError, so a page cannot raise a typed error",closed,local,,ready,not-eligible,P3,S,web;core/error,,,,web-liquers-error-constructor,,2026-08-09,specs/issues/WEB-LIQUERSERROR-NOT-CONSTRUCTIBLE.md
@@ -563,7 +563,7 @@ VARIADIC-METADATA-TAIL-CHECK,design,Runtime validation of variadic command metad
 VOLATILITY-SYSTEM,design,Volatility tracking across the asset graph,complete,local,,,,,,core/assets,,,,volatility-system,,2026-03-02,specs/design/volatility-system/DESIGN.md
 WEB-API-LIBRARY,design,Web API library,complete,local,,,,,,axum,,,,web-api-library,,2026-03-02,specs/design/web-api-library/DESIGN.md
 WEB-DOCS-STALE-LIMITATIONS,design,Bring liquers-web's documentation up to date with the fixed limitations,complete,local,,ready,eligible,P2,S,web;docs,,151,,web-docs-stale-limitations,,2026-10-17,specs/design/web-docs-stale-limitations/DESIGN.md
-WEB-ENVIRON-VALIDATION-REPORT,design,A language-visible validation report for imported command metadata in liquers-web,in_review,local,implementation,ready,not-eligible,P2,M,web;core/commands,,,,web-environ-validation-report,,2026-10-17,specs/design/web-environ-validation-report/DESIGN.md
+WEB-ENVIRON-VALIDATION-REPORT,design,A language-visible validation report for imported command metadata in liquers-web,complete,local,,ready,not-eligible,P2,M,web;core/commands,,156,,web-environ-validation-report,,2026-10-17,specs/design/web-environ-validation-report/DESIGN.md
 ACTIVE-12,design,Design for WEB-LIQUERSERROR-NOT-CONSTRUCTIBLE,complete,local,,ready,not-eligible,P3,S,web;core/error,,123,,web-liquers-error-constructor,,2026-09-03,specs/design/web-liquers-error-constructor/DESIGN.md
 WEB-OBJECT06-ERROR-TYPE-EXHAUSTIVENESS,design,A compiler-checked ErrorType list for the OBJECT06 round-trip test,complete,local,,ready,not-eligible,P2,S,web,,,,web-object06-error-type-exhaustiveness,,2026-10-04,specs/design/web-object06-error-type-exhaustiveness/DESIGN.md
 WEB-OUTBOUND-INT64-PRECISION,design,Pin what an i64 beyond the safe-integer range does when it leaves for JavaScript,complete,local,,ready,eligible,P3,S,web,,154,,web-outbound-int64-precision,,2026-10-17,specs/design/web-outbound-int64-precision/DESIGN.md
@@ -583,7 +583,7 @@ ASSET_LIFECYCLE,reference,Asset Evaluation — Flows and Public Surface,current,
 ASSET_SET_OPERATION,reference,Asset Set Operation Specification,current,local,,,,,,core/assets,,,,,2026-10-10,,specs/reference/ASSET_SET_OPERATION.md
 ASSETS,reference,Assets Specification,current,local,,,,,,core/assets,,,,,2026-10-17,,specs/reference/ASSETS.md
 COMMAND_ALIASES,reference,Command Aliases,current,local,,,,,,core/commands;core/plan,,,,,2026-10-17,,specs/reference/COMMAND_ALIASES.md
-COMMAND_DECLARATION,reference,Command Declaration Format,current,local,,,,,,core/commands;web;py,,,,,2026-10-11,,specs/reference/COMMAND_DECLARATION.md
+COMMAND_DECLARATION,reference,Command Declaration Format,current,local,,,,,,core/commands;web;py,,,,,2026-10-18,,specs/reference/COMMAND_DECLARATION.md
 CONFORMANCE_TERMS,reference,Conformance Terms,current,local,,,,,,docs,,,,,2026-09-02,,specs/reference/CONFORMANCE_TERMS.md
 DEPENDENCIES_STATUS,reference,Status::Dependencies Specification,current,local,,,,,,core/assets,,,,,2026-10-18,,specs/reference/DEPENDENCIES_STATUS.md
 ENVIRONMENT_CONFIG,reference,Environment Configuration,current,local,,,,,,core/context;core/store;core/assets,,,,,2026-10-10,,specs/reference/ENVIRONMENT_CONFIG.md
