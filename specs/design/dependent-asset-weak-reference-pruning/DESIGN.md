@@ -15,8 +15,8 @@ created: 2026-10-17
 
 > **Complete on 2026-10-19**: implemented and merged in #158.
 
-Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-17 backlog compaction. Phases 1-4
-are written but not approved, and nothing is implemented.
+Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-17 backlog compaction. Phases 1-4 were
+implemented as written; see the completion note above.
 
 ## Phase 1: High-Level Design
 
