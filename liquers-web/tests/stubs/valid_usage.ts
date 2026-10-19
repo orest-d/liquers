@@ -70,6 +70,30 @@ async function main(): Promise<void> {
   }
   const whole: liquers.RecordBatch = await source.materialize(100000);
   void (whole.numRows === streamedRows);
+
+  // ENVIRON08 — a batch: declarations, or imported metadata bound to functions by name. The
+  // report is returned, and also carried by the error of a refused batch.
+  const report: liquers.LiquersIssueReport = liquers.validateCommands(
+    'commands:\n  - name: imported\n',
+    { imported: () => 'imported' },
+  );
+  const firstIssue: liquers.LiquersIssue | undefined = report.issues[0];
+  const where: string | undefined = firstIssue?.command?.name;
+  void where;
+  if (!report.hasErrors) {
+    liquers.registerCommands([
+      { name: 'one', run: () => 1 },
+      { name: 'two', state: 'text' },
+    ], { two: { run: (text: string) => text, state: 'text' } });
+  }
+  try {
+    liquers.registerCommands('commands: []');
+  } catch (e) {
+    if (e instanceof liquers.LiquersError) {
+      const summary: string | null | undefined = e.report?.summary;
+      void summary;
+    }
+  }
   void stillTyped;
 
   // Evaluation returns a Promise.

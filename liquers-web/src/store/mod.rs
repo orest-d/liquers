@@ -3,7 +3,7 @@
 //! Implements the `STORE` feature of `specs/guides/LANGUAGE-INTEGRATION_GUIDE.md` for the browser,
 //! which `specs/design/liquers-web/` deferred. Design: `specs/design/liquers-web-store/`.
 //!
-//! Four stores behind the existing [`liquers_core::store::AsyncStoreRouter`]:
+//! Three stores behind the existing [`liquers_core::store::AsyncStoreRouter`]:
 //!
 //! | Store | Config `type` | Writes |
 //! |---|---|---|

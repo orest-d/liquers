@@ -12,9 +12,11 @@
 //! cargo test -p liquers-web --target wasm32-unknown-unknown --test value_bridge_VALUE
 //! ```
 //!
-//! Tests that genuinely need a browser (`RUNTIME*`, `ASYNCQ*`, `PACKAGE*`) add
-//! `wasm_bindgen_test_configure!(run_in_browser)` in their own files and require a chromedriver
-//! whose major version matches the installed Chromium.
+//! `RUNTIME*` and `ASYNCQ*` run under Node too. Only suites that need a real browser API carry
+//! `wasm_bindgen_test_configure!(run_in_browser)` — `store_local_STORE.rs` and
+//! `store_conformance_browser_CONF.rs` (`localStorage`), behind the `browser-tests` feature, which
+//! need a chromedriver whose major version matches the installed Chromium. `PACKAGE*` checks the
+//! delivery form in Playwright (`tests/e2e/`).
 
 #![cfg(target_arch = "wasm32")]
 
@@ -137,6 +139,51 @@ fn value03_integer_boundaries() {
         err.error_type,
         liquers_core::error::ErrorType::ConversionError
     );
+}
+
+/// VALUE03, outbound — integers leaving for JavaScript arrive exactly or are refused.
+///
+/// `serialize_to_js` leaves serde-wasm-bindgen's `serialize_large_number_types_as_bigints` off, so
+/// an integer outside ±(2^53 − 1) is refused with `ConversionError` instead of being rounded to the
+/// nearest double or sent as a `BigInt`. Turning that option on makes this test fail on purpose.
+///
+/// Note the asymmetry with the inbound test above: a JavaScript `9007199254740992` (2^53) enters as
+/// an integer but cannot be sent back. `VALUE03` allows raising, so both halves conform; change
+/// them together or not at all.
+#[wasm_bindgen_test]
+fn value03_outbound_integer_boundaries() {
+    const MAX_SAFE: i64 = 9_007_199_254_740_991; // 2^53 − 1
+
+    for n in [0i64, 1 << 31, MAX_SAFE, -MAX_SAFE] {
+        let js = value_to_js(&Value::from_i64(n)).expect("a safe integer converts");
+        assert_eq!(js.as_f64(), Some(n as f64), "{n} must arrive as that exact number");
+    }
+
+    for n in [MAX_SAFE + 1, MAX_SAFE + 2, i64::MAX, i64::MIN] {
+        let err = value_to_js(&Value::from_i64(n)).expect_err("an unsafe integer must be refused");
+        assert_eq!(
+            err.error_type,
+            liquers_core::error::ErrorType::ConversionError
+        );
+        assert!(
+            err.message.contains(&n.to_string()),
+            "the message names the integer: {}",
+            err.message
+        );
+    }
+
+    // The refusal is not limited to scalars: a container with one unsafe element fails as a whole.
+    for json in [
+        serde_json::json!({"id": MAX_SAFE + 2}),
+        serde_json::json!([MAX_SAFE + 2]),
+    ] {
+        let value = Value::try_from_json_value(&json).expect("json value");
+        let err = value_to_js(&value).expect_err("a nested unsafe integer must be refused");
+        assert_eq!(
+            err.error_type,
+            liquers_core::error::ErrorType::ConversionError
+        );
+    }
 }
 
 /// VALUE04 — bytes are never confused with text.

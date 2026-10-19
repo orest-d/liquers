@@ -5,7 +5,7 @@
 // number of mistakes here — so a declaration change that makes any one of these legal is caught,
 // not merely a change that makes them all legal.
 //
-// **Expected errors: 6.** Keep that number in step with `check-stubs.sh`.
+// **Expected errors: 7.** Keep that number in step with `check-stubs.sh`.
 
 import * as liquers from '../../examples-web/quickstart/dist/liquers_web.js';
 
@@ -48,3 +48,6 @@ liquers.registerCommand({
   run: (n: number) => n,
   arguments: [{ name: 'n', type: 'int', default: () => 2 }],
 });
+
+// 7. A batch is declarations or a registry document, not an arbitrary value.
+liquers.registerCommands(42);
