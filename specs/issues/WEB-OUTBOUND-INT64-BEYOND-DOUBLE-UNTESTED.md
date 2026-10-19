@@ -2,7 +2,7 @@
 id: WEB-OUTBOUND-INT64-BEYOND-DOUBLE-UNTESTED
 kind: issue
 title: An i64 beyond 2^53 leaving for JavaScript has unconfirmed, untested behaviour
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [web]
@@ -37,3 +37,11 @@ with a `value03`-series test for the outbound direction.
 
 Bidirectional conformance audit (2026-10-17); the fact-check could not confirm
 serde-wasm-bindgen's behaviour from this tree and found no test.
+
+## Resolution (2026-10-18)
+
+Pinned, not changed. `value03_outbound_integer_boundaries` in
+`liquers-web/tests/value_bridge_VALUE.rs` asserts that integers inside ±(2^53 − 1) reach JavaScript
+as exact numbers and that anything outside, scalar or nested, is refused with `ConversionError`
+(serde-wasm-bindgen's default). The policy is stated in `serialize_to_js`'s doc comment. Design:
+`specs/design/web-outbound-int64-precision/`.

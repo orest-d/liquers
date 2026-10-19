@@ -8,18 +8,15 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 128
-- P2: 53
-- P3: 75
+Total rows: 124
+- P2: 50
+- P3: 74
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
-| [`LANGUAGE-GUIDE-STALE-LIQUERS-WEB-CLAIMS`](issues/LANGUAGE-GUIDE-STALE-LIQUERS-WEB-CLAIMS.md) | issue | LANGUAGE-INTEGRATION_GUIDE makes stale claims about liquers-web | draft | ready | eligible | P2 | S | docs;web | [design](design/language-guide-web-claims/DESIGN.md) | 2026-10-17 |
-| [`WEB-DOCS-STALE-AFTER-KEYED-EVAL-FIX`](issues/WEB-DOCS-STALE-AFTER-KEYED-EVAL-FIX.md) | issue | liquers-web documentation still describes limitations that were fixed | draft | ready | eligible | P2 | S | web;docs | [design](design/web-docs-stale-limitations/DESIGN.md) | 2026-10-17 |
 | [`EVALUATION-SESSION-VOLATILE-TEST-INTERMITTENT`](issues/EVALUATION-SESSION-VOLATILE-TEST-INTERMITTENT.md) | issue | volatile_dependency_has_one_value_per_evaluation fails intermittently: a later evaluation sometimes reuses the volatile value | draft | phase2-blocked | not-eligible | P2 | S | core/assets | [design](design/evaluation-session-volatile-test-flake/DESIGN.md) | 2026-10-13 |
 | [`CORE-VALUE-ENUM-OVERSIZED`](issues/CORE-VALUE-ENUM-OVERSIZED.md) | issue | Every Value occupies over 700 bytes because three variants are stored unboxed | draft | ready | not-eligible | P2 | M | core/value;lib/value | [design](design/core-value-enum-oversized/DESIGN.md) | 2026-08-18 |
 | [`ENVIRONMENT-MANAGER-REFERENCE-CYCLE`](issues/ENVIRONMENT-MANAGER-REFERENCE-CYCLE.md) | issue | Environment and asset manager hold each other with strong Arcs, so every environment leaks | draft | ready | not-eligible | P2 | M | core/assets;core/context | [design](design/environment-manager-reference-cycle/DESIGN.md) | 2026-08-27 |
-| [`WEB-ENVIRON-VALIDATION-REPORT-NOT-EXPOSED`](issues/WEB-ENVIRON-VALIDATION-REPORT-NOT-EXPOSED.md) | issue | liquers-web exposes no builder validation report, so ENVIRON08 is unimplemented | draft | ready | not-eligible | P2 | M | web | [design](design/web-environ-validation-report/DESIGN.md) | 2026-10-17 |
 | [`CORE-TRACING-MIGRATION`](issues/CORE-TRACING-MIGRATION.md) | issue | Diagnostics use `eprintln!` rather than structured logging | accepted | needs-decision | not-eligible | P2 | M | core/error;build | [design](design/core-tracing-migration/DESIGN.md) | 2026-08-08 |
 | [`COMMAND-CANNOT-BE-RUN-WITH-A-RESTRICTED-CONTEXT`](issues/COMMAND-CANNOT-BE-RUN-WITH-A-RESTRICTED-CONTEXT.md) | feature | A command cannot be run with a restricted context | draft |  |  | P2 | M | core/context;core/commands |  | 2026-09-17 |
 | [`CORE-METADATA-NO-APPLICATION-ATTRIBUTES`](issues/CORE-METADATA-NO-APPLICATION-ATTRIBUTES.md) | feature | Metadata cannot carry application-defined attributes | draft |  |  | P2 | M | core/value |  | 2026-09-15 |
@@ -67,7 +64,6 @@ Total rows: 128
 | [`NO-RELATIONAL-DATABASE-ACCESS-LAYER`](issues/NO-RELATIONAL-DATABASE-ACCESS-LAYER.md) | feature | No access layer from Liquers into relational databases | draft |  |  | P2 | XL | lib/value;lib/commands;store/backends |  | 2026-09-20 |
 | [`NO-REMOTE-STORE-OR-ASSET-MANAGER`](issues/NO-REMOTE-STORE-OR-ASSET-MANAGER.md) | feature | A client environment cannot use a server's store or asset manager as its own | draft |  |  | P2 | XL | axum;web;core/assets;core/store |  | 2026-09-27 |
 | [`VALUE-TYPE-DEFINITION-MACRO`](issues/VALUE-TYPE-DEFINITION-MACRO.md) | feature | Value types and their registry entries are hand-written instead of generated | draft |  |  | P2 | XL | macro;lib/value;core/value |  | 2026-08-18 |
-| [`WEB-OUTBOUND-INT64-BEYOND-DOUBLE-UNTESTED`](issues/WEB-OUTBOUND-INT64-BEYOND-DOUBLE-UNTESTED.md) | issue | An i64 beyond 2^53 leaving for JavaScript has unconfirmed, untested behaviour | draft | ready | eligible | P3 | S | web | [design](design/web-outbound-int64-precision/DESIGN.md) | 2026-10-17 |
 | [`LIB-BUILD-EMITS-UNUSED-AND-UNHANDLED-RESULT-WARNINGS`](issues/LIB-BUILD-EMITS-UNUSED-AND-UNHANDLED-RESULT-WARNINGS.md) | issue | A default liquers-lib build emits about 50 warnings, some for discarded Results | draft | ready | not-eligible | P3 | S | lib/commands;build | [design](design/lib-build-warning-cleanup/DESIGN.md) | 2026-10-11 |
 | [`ROOT-LISTING-DEPENDENCY-KEY-HAS-TWO-SPELLINGS`](issues/ROOT-LISTING-DEPENDENCY-KEY-HAS-TWO-SPELLINGS.md) | issue | The root directory listing dependency has two spellings, so a dependent that recorded one is never expired | draft | ready | not-eligible | P3 | S | core/assets | [design](design/root-listing-dependency-key-spelling/DESIGN.md) | 2026-10-17 |
 | [`COMBINED-VALUE-DATA-NODE-COPIES-BASE-VALUE`](issues/COMBINED-VALUE-DATA-NODE-COPIES-BASE-VALUE.md) | issue | A base value is copied whole to become a data node | draft | needs-decision | not-eligible | P3 | S | lib/value | [design](design/combined-value-shared-data-node/DESIGN.md) | 2026-10-17 |

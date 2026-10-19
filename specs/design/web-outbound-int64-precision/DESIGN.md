@@ -3,8 +3,8 @@ id: WEB-OUTBOUND-INT64-PRECISION
 kind: design
 title: Pin what an i64 beyond the safe-integer range does when it leaves for JavaScript
 form: compact
-status: in_review
-phase: implementation
+status: complete
+gh_pr: [154]
 readiness: ready
 autofix: eligible
 area: [web]
@@ -13,8 +13,8 @@ created: 2026-10-17
 ---
 # Pin what an i64 beyond the safe-integer range does when it leaves for JavaScript
 
-Bulk design (`specs/guides/autonomous_bulk_design.md`). Phases 1-4 are written but not approved, and
-nothing is implemented.
+Bulk design (`specs/guides/autonomous_bulk_design.md`). Implemented: the outbound test and the
+`serialize_to_js` doc paragraph are in place, and the issue is closed.
 
 ## Phase 1: High-Level Design
 
@@ -145,9 +145,9 @@ Run: `cargo test -p liquers-web --target wasm32-unknown-unknown --test value_bri
 
 ### Steps
 
-- [ ] 1. `liquers-web/tests/value_bridge_VALUE.rs` — add `value03_outbound_integer_boundaries` (AC-1..3), with a comment on the inbound/outbound `2^53` asymmetry — `cargo test -p liquers-web --target wasm32-unknown-unknown --test value_bridge_VALUE`. Rollback: if AC-2 fails (a value arrives as a `number`), stop, keep the test as the reproduction, and re-label this design `not-eligible` with the policy as a needs-decision question.
-- [ ] 2. `liquers-web/src/bridge.rs` `serialize_to_js` — doc paragraph: integers outside ±(2^53 − 1) are refused with `ConversionError`, not sent as `BigInt` (`VALUE03`) — `cargo check -p liquers-web --target wasm32-unknown-unknown`
-- [ ] 3. Close `WEB-OUTBOUND-INT64-BEYOND-DOUBLE-UNTESTED` with a resolution note — `python3 scripts/docs_index.py && python3 scripts/docs_index.py --check`
+- [x] 1. `liquers-web/tests/value_bridge_VALUE.rs` — add `value03_outbound_integer_boundaries` (AC-1..3), with a comment on the inbound/outbound `2^53` asymmetry — `cargo test -p liquers-web --target wasm32-unknown-unknown --test value_bridge_VALUE`. Rollback: if AC-2 fails (a value arrives as a `number`), stop, keep the test as the reproduction, and re-label this design `not-eligible` with the policy as a needs-decision question.
+- [x] 2. `liquers-web/src/bridge.rs` `serialize_to_js` — doc paragraph: integers outside ±(2^53 − 1) are refused with `ConversionError`, not sent as `BigInt` (`VALUE03`) — `cargo check -p liquers-web --target wasm32-unknown-unknown`
+- [x] 3. Close `WEB-OUTBOUND-INT64-BEYOND-DOUBLE-UNTESTED` with a resolution note — `python3 scripts/docs_index.py && python3 scripts/docs_index.py --check`
 
 ### Validation
 

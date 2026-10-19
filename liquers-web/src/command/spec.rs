@@ -19,6 +19,7 @@
 use liquers_core::command_declaration::CommandDeclaration;
 use liquers_core::command_metadata::{ArgumentInfo, CommandKey, CommandMetadata};
 use liquers_core::error::{Error, ErrorType};
+use liquers_core::issue_report::{Issue, IssueReport, IssueSeverity};
 use wasm_bindgen::prelude::*;
 
 /// The namespace reserved for platform-dependent commands provided by `liquers-web` itself
@@ -128,18 +129,60 @@ fn without_run(spec: &JsValue) -> Result<js_sys::Object, Error> {
     Ok(copy)
 }
 
+/// An error entry about the command `name` (with its `realm` and `namespace`, when known).
+fn command_issue(realm: &str, namespace: &str, name: &str, message: String) -> Issue {
+    Issue::command_registry(IssueSeverity::Error, realm, namespace, name, message)
+}
+
+/// A report holding one error.
+fn one_issue(issue: Issue) -> IssueReport {
+    let mut report = IssueReport::default();
+    report.extend([issue]);
+    report
+}
+
 impl JsCommandSpec {
-    /// Parses a declaration object.
+    /// Parses a declaration object, refusing it with one compact error.
+    ///
+    /// The error's message is [`Self::check`]'s report summarised by
+    /// [`IssueReport::short_summary`].
+    pub fn parse(spec: &JsValue) -> Result<JsCommandSpec, Error> {
+        match Self::check(spec) {
+            (Some(parsed), _) => Ok(parsed),
+            (None, report) => Err(Error::from_error(
+                ErrorType::ParameterError,
+                report
+                    .short_summary("Command metadata")
+                    .unwrap_or_else(|| "The command declaration was refused".to_string()),
+            )),
+        }
+    }
+
+    /// Parses a declaration object, or reports everything that refuses it.
     ///
     /// Stage 1 of the declaration pipeline (`specs/reference/COMMAND_DECLARATION.md`) is
     /// JavaScript-specific and stays here — resolving `run`, and inferring arguments from the
-    /// function source. Stages 2-5 are `liquers-core`'s.
-    pub fn parse(spec: &JsValue) -> Result<JsCommandSpec, Error> {
+    /// function source. Stages 2-5 are `liquers-core`'s, and their findings arrive as
+    /// `CommandDeclaration::check`'s report. A JavaScript-specific refusal (not an object, no
+    /// `name`, no `run`, the reserved namespace, an argument list that cannot be inferred) is one
+    /// error entry; it names its command when the name is known.
+    ///
+    /// The report is returned only for a refused declaration. An accepted one is checked again,
+    /// with the rest of its batch, by `CommandMetadataRegistry::check`, so its warnings would
+    /// otherwise be reported twice.
+    pub fn check(spec: &JsValue) -> (Option<JsCommandSpec>, IssueReport) {
+        match Self::check_inner(spec) {
+            Ok(parsed) => (Some(parsed), IssueReport::default()),
+            Err(report) => (None, report),
+        }
+    }
+
+    fn check_inner(spec: &JsValue) -> Result<JsCommandSpec, IssueReport> {
         if !spec.is_object() {
-            return Err(Error::from_error(
-                ErrorType::ParameterError,
-                "registerCommand expects an object, for example { name, run }".to_string(),
-            ));
+            return Err(one_issue(Issue::generic(
+                IssueSeverity::Error,
+                "registerCommand expects an object, for example { name, run }",
+            )));
         }
 
         // `name` is checked before serde sees the document, so these two messages survive
@@ -147,33 +190,35 @@ impl JsCommandSpec {
         let name = reflect_get(spec, "name")
             .and_then(|v| v.as_string())
             .ok_or_else(|| {
-                Error::from_error(
-                    ErrorType::ParameterError,
-                    "A command declaration must have a string `name`".to_string(),
-                )
+                one_issue(Issue::generic(
+                    IssueSeverity::Error,
+                    "A command declaration must have a string `name`",
+                ))
             })?;
         if name.is_empty() {
-            return Err(Error::from_error(
-                ErrorType::ParameterError,
-                "A command `name` must not be empty".to_string(),
-            ));
+            return Err(one_issue(Issue::generic(
+                IssueSeverity::Error,
+                "A command `name` must not be empty",
+            )));
         }
+        // Read for the report's command identity only; the document below is authoritative.
+        let text_field = |key: &str| {
+            reflect_get(spec, key)
+                .and_then(|v| v.as_string())
+                .unwrap_or_default()
+        };
+        let (realm, namespace) = (text_field("realm"), text_field("namespace"));
+        let refuse = |message: String| one_issue(command_issue(&realm, &namespace, &name, message));
 
         let run = reflect_get(spec, "run")
             .filter(|v| v.is_function())
-            .ok_or_else(|| {
-                Error::from_error(
-                    ErrorType::ParameterError,
-                    format!("Command {name:?} must have a `run` function"),
-                )
-            })?;
+            .ok_or_else(|| refuse(format!("Command {name:?} must have a `run` function")))?;
         let run: js_sys::Function = run.unchecked_into();
 
-        let declaration_object = without_run(spec)?;
+        let declaration_object = without_run(spec).map_err(|e| refuse(e.message.clone()))?;
         let mut document: serde_json::Value =
-            serde_wasm_bindgen::from_value(declaration_object.into()).map_err(|e| {
-                Error::from_error(ErrorType::ParameterError, format!("Command {name:?}: {e}"))
-            })?;
+            serde_wasm_bindgen::from_value(declaration_object.into())
+                .map_err(|e| refuse(format!("Command {name:?}: {e}")))?;
 
         let namespace = document
             .get("namespace")
@@ -181,13 +226,7 @@ impl JsCommandSpec {
             .unwrap_or("")
             .to_string();
         if namespace == RESERVED_NAMESPACE {
-            return Err(Error::from_error(
-                ErrorType::ParameterError,
-                format!(
-                    "The {RESERVED_NAMESPACE:?} namespace is reserved for platform commands \
-                     provided by liquers-web and cannot be registered into from JavaScript"
-                ),
-            ));
+            return Err(refuse(reserved_namespace_message()));
         }
         let realm = document
             .get("realm")
@@ -200,7 +239,7 @@ impl JsCommandSpec {
         // JavaScript command cannot reach the context at all
         // (JS-COMMAND-CANNOT-ACCESS-CONTEXT).
         let state_mode = match document.get("state").and_then(|v| v.as_str()) {
-            Some(s) => StateMode::parse(s)?,
+            Some(s) => StateMode::parse(s).map_err(|e| refuse(e.message.clone()))?,
             // A command with no declared state is a source command. Inference below cannot change
             // this — the state mode is never guessed from the function.
             None => StateMode::None,
@@ -214,13 +253,22 @@ impl JsCommandSpec {
         let arguments_inferred = document.get("arguments").is_none();
         prepare_javascript_document(&mut document, &name);
 
-        let mut metadata = CommandDeclaration::from_document(document)
-            .finish()
-            .map_err(|e| Error::from_error(ErrorType::ParameterError, format!("{e}")))?;
+        let mut declaration = CommandDeclaration::from_document(document);
+        declaration
+            .apply_conventions()
+            .map_err(|e| refuse(e.message.clone()))?;
+        declaration.fill_defaults();
+        let report = declaration.check();
+        if report.has_errors() {
+            return Err(report);
+        }
+        let mut metadata = declaration.build().map_err(|e| refuse(e.message.clone()))?;
         metadata.module = "javascript".to_string();
 
         if arguments_inferred {
-            for argument in infer_arguments(&run, state_mode, &name)? {
+            for argument in
+                infer_arguments(&run, state_mode, &name).map_err(|e| refuse(e.message.clone()))?
+            {
                 metadata.arguments.push(argument);
             }
         }
@@ -235,6 +283,71 @@ impl JsCommandSpec {
             arguments_inferred,
         })
     }
+
+    /// Binds imported command metadata to its JavaScript implementation.
+    ///
+    /// `implementation` is a function, or `{ run, state?, async? }` read with the declaration
+    /// fields' names and defaults: no `state` is a source command, no `async` decides per call.
+    /// The metadata is taken as it is — the caller validates it with the rest of its batch — apart
+    /// from `module`, which is set to `"javascript"` as for a declaration.
+    pub fn from_metadata(
+        mut metadata: CommandMetadata,
+        implementation: &JsValue,
+    ) -> Result<JsCommandSpec, Issue> {
+        let refuse = |message: String| {
+            command_issue(
+                &metadata.realm,
+                &metadata.namespace,
+                &metadata.name,
+                message,
+            )
+        };
+        if metadata.namespace == RESERVED_NAMESPACE {
+            return Err(refuse(reserved_namespace_message()));
+        }
+        let (run, state, is_async) = if implementation.is_function() {
+            (implementation.clone(), None, None)
+        } else if implementation.is_object() {
+            (
+                reflect_get(implementation, "run").unwrap_or(JsValue::UNDEFINED),
+                reflect_get(implementation, "state").and_then(|v| v.as_string()),
+                reflect_get(implementation, "async").and_then(|v| v.as_bool()),
+            )
+        } else {
+            (JsValue::UNDEFINED, None, None)
+        };
+        if !run.is_function() {
+            return Err(refuse(format!(
+                "Command {:?}: its implementation must be a function or {{ run, state?, async? }}",
+                metadata.name
+            )));
+        }
+        let state_mode = match state {
+            Some(name) => StateMode::parse(&name).map_err(|e| refuse(e.message.clone()))?,
+            None => StateMode::None,
+        };
+        let is_async = match is_async {
+            Some(true) => IsAsync::Async,
+            Some(false) => IsAsync::Sync,
+            None => IsAsync::Auto,
+        };
+        metadata.module = "javascript".to_string();
+        Ok(JsCommandSpec {
+            key: metadata.key(),
+            metadata,
+            state_mode,
+            is_async,
+            run: run.unchecked_into(),
+            arguments_inferred: false,
+        })
+    }
+}
+
+fn reserved_namespace_message() -> String {
+    format!(
+        "The {RESERVED_NAMESPACE:?} namespace is reserved for platform commands provided by \
+         liquers-web and cannot be registered into from JavaScript"
+    )
 }
 
 /// Fills in what JavaScript's own rules supply, before the shared pipeline derives anything.

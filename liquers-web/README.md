@@ -44,6 +44,31 @@ Design documents: [`specs/design/liquers-web/`](../specs/design/liquers-web/). T
 
 A runnable version is in [`examples-web/quickstart/`](examples-web/quickstart/).
 
+### Registering commands in bulk
+
+`registerCommands(input, impls?)` registers a batch in one call, all or nothing. `input` is a
+declaration, an array of declarations, or a JSON or YAML string in the command metadata registry
+format (`commands: [...]`, the shape of `specs/command_registry.yaml`); `impls` binds functions by
+command name, either the function itself or `{ run, state?, async? }`.
+
+```js
+const yaml = `
+commands:
+  - name: greet
+    arguments:
+      - { name: who, argument_type: string }
+`;
+liquers.registerCommands(yaml, { greet: (who) => `Hello, ${who}!` });
+await liquers.evaluate("greet-world");   // "Hello, world!"
+```
+
+If anything in the batch is wrong, nothing is registered and the `parameter_error` thrown has a
+`report` property listing every finding: `{ issues, errorCount, warningCount, hasErrors, summary }`,
+each issue `{ severity, message, command }` with `command` being `{ realm, namespace, name }` or
+`null`. `validateCommands(input, impls?)` returns the same report without registering anything, and
+works before `init()`. After the first evaluation a batch costs one environment rebuild, not one
+per command. `registerCommand(spec)` is a batch of one.
+
 ## Building
 
 `liquers-web` is **wasm32-only**. `JsValue` is `!Send`/`!Sync` on every target, and on native the
@@ -258,17 +283,9 @@ deliberate. `store11_overlapping_prefixes_follow_document_order` pins the routin
 
 ## Known limitations
 
-**`-R/` queries do not evaluate in the browser yet.** The stores work and are reachable through
-`env.store()`, but `env.evaluate("-R/…")` hangs: `ImmediateAssetManager::get` runs an asset inline
-and `evaluate_recipe` calls `get` on its *own* key, so keyed evaluation recurses until the wasm
-stack is exhausted, killing the instance. This is `liquers-core`, not this crate —
-`specs/issues/CORE-IMMEDIATE-MANAGER-KEYED-RECURSION.md` (P1). The blocked end-to-end tests are
-kept as `fixme` in `tests/e2e/store.spec.ts` so that removing the marker proves the fix.
-
 | Limitation | Tracked as |
 |---|---|
 | `Asset.cancel()` is inert: the immediate asset manager evaluates during `getAsset`, so an asset is already terminal when a caller receives it. The issue records what fixing it requires — the obstacle is not the absence of a task spawner | `WEB-CANCELLATION-INERT` |
-| `encodeParam` refuses values containing a lone colon, most punctuation, or any non-ASCII character — the query grammar has no entity for them. Refusing is deliberate; the core encoder emits unparseable text instead | `PARAMETER-ESCAPING-INCOMPLETE` |
 | Registering a command after the first evaluation rebuilds the environment, discarding its asset cache. Register before evaluating to avoid it | `POST-INIT-COMMAND-REGISTRATION` |
 | A thrown exception's class and stack reach the caller inside `message`, not as `jsClass`/`jsStack` — `liquers_core::Error` has no field to carry them through the asset lifecycle | `LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT` |
 | `registerCommand` is refused on an explicit `Environment` instance — the handle holds a shared environment with no mutable path. Register on the singleton | `POST-INIT-COMMAND-REGISTRATION` |
