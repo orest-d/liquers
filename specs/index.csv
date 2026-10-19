@@ -369,7 +369,7 @@ WEBUI-SUBMIT-QUERY-STATE-NOT-PRESERVED,issue,Submitted query state is not preser
 WORKSPACE-NOT-RUSTFMT-CLEAN,issue,"The workspace is not rustfmt-clean, so formatting drift hides in every diff",draft,local,,,,P3,M,build;docs,,,,,,2026-08-29,specs/issues/WORKSPACE-NOT-RUSTFMT-CLEAN.md
 WORKSPACE-SERDE-DERIVE-UNDECLARED,issue,Three crates use serde derive macros without declaring the `derive` feature,accepted,local,,,,P2,L,build;core/value;lib/ui;axum,,,,,,2026-08-09,specs/issues/WORKSPACE-SERDE-DERIVE-UNDECLARED.md
 AGENT-MEMORY-DERIVED,design,"Agent memory — templates, indexes and context packs",draft,local,high-level,,,,,lib/commands;docs,,,,agent-memory-derived,,2026-10-17,specs/design/agent-memory-derived/DESIGN.md
-AGENT-MEMORY-MVP,design,MVP for an agent memory service on the liquers stack,approved,local,implementation,,,P2,XL,lib/commands;core/store;docs,,,,agent-memory-mvp,,2026-09-15,specs/design/agent-memory-mvp/DESIGN.md
+AGENT-MEMORY-MVP,design,MVP for an agent memory service on the liquers stack,approved,local,documentation,,,P2,XL,lib/commands;core/store;docs,,,,agent-memory-mvp,,2026-09-15,specs/design/agent-memory-mvp/DESIGN.md
 ARGUMENT-GUI-INFO-DEFAULT,design,Consistent default GUI metadata for command arguments,complete,local,,ready,,P2,S,core/commands;macro;web,,,,argument-gui-info-default,,2026-09-01,specs/design/argument-gui-info-default/DESIGN.md
 ARGUMENT-INFO-DESCRIPTION,design,Per-argument description in ArgumentInfo and register_command!,superseded,local,,,,P3,S,core/commands;macro,,,,argument-info-description,,2026-10-06,specs/design/argument-info-description/DESIGN.md
 ASSET-CANCELLATION-OUTCOME,design,Deterministic asset cancellation outcome and cooperative command cancellation,complete,local,,,,P2,L,core/assets;core/commands,,,,asset-cancellation-outcome,,2026-10-09,specs/design/asset-cancellation-outcome/DESIGN.md
@@ -579,6 +579,7 @@ COVERED-08,design,Coverage record for WEB-VALUE04-BYTES-IDENTIFIER-CASE-MISMATCH
 WEBUI-FIXES,design,Invalidation tracking for retained-mode rendering,complete,local,,,,,,lib/ui,,12,,webui-fixes,,2026-03-02,specs/design/webui-fixes/DESIGN.md
 WEBUI,design,Web-framework-independent rendering with SSR and wasm,complete,local,,,,,,lib/ui,,10,,webui,,2026-03-02,specs/design/webui/DESIGN.md
 WP2-TERMINAL-OUTCOME,design,Asset terminal outcome contract,complete,local,,,,,,core/assets,,7,,wp2-terminal-outcome,,2026-03-02,specs/design/wp2-terminal-outcome/DESIGN.md
+AGENT_MEMORY_SERVICE,reference,Agent Memory Service,current,local,,,,,,lib/commands;mcp,,,,,2026-10-19,,specs/reference/AGENT_MEMORY_SERVICE.md
 API_DOCS_GAP_ANALYSIS,reference,API Documentation Gap Analysis,current,local,,,,,,docs,,,,,2026-10-10,,specs/reference/api/API_DOCS_GAP_ANALYSIS.md
 DOC_01_ARCHITECTURE_REFERENCE,reference,Architecture Reference,current,local,,,,,,core/query;core/plan;core/assets,,,,,2026-08-09,,specs/reference/api/DOC_01_ARCHITECTURE_REFERENCE.md
 DOC_02_QUERY_LANGUAGE_REFERENCE,reference,Query Language Reference,current,local,,,,,,core/query,,,,,2026-10-17,,specs/reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md
@@ -597,7 +598,7 @@ IMAGE_COMMAND_LIBRARY,reference,Image Command Library Specification,overdue,loca
 PAYLOAD_GUIDE,reference,Payload Specification and Usage,current,local,,,,,,core/context;core/commands,,,,,2026-10-17,,specs/reference/PAYLOAD_GUIDE.md
 POLARS_COMMAND_LIBRARY,reference,Polars Command Library Specification,current,local,,,,,,lib/polars,,,,,2026-10-14,,specs/reference/POLARS_COMMAND_LIBRARY.md
 POSITIONING,reference,Positioning and Marketing Plan (draft),current,local,,,,,,docs,,,,,2026-10-15,,specs/reference/POSITIONING.md
-PROJECT_OVERVIEW,reference,Liquers Project Overview,current,local,,,,,,core/query;core/plan;core/assets;core/store;core/value,,,,,2026-10-17,,specs/reference/PROJECT_OVERVIEW.md
+PROJECT_OVERVIEW,reference,Liquers Project Overview,current,local,,,,,,core/query;core/plan;core/assets;core/store;core/value,,,,,2026-10-19,,specs/reference/PROJECT_OVERVIEW.md
 REALMS,reference,Realms,current,local,,,,,,core/plan;core/commands;store/config,,,,,2026-10-16,,specs/reference/REALMS.md
 RECORD_STREAMS,reference,Record Streams,current,local,,,,,,records;lib/value;lib/commands;web,,,,,2026-10-13,,specs/reference/RECORD_STREAMS.md
 REGISTER_COMMAND_FSD,reference,register_command! Macro Functional Specification,current,local,,,,,,macro;core/commands,,,,,2026-10-12,,specs/reference/REGISTER_COMMAND_FSD.md
@@ -609,11 +610,12 @@ UI_INTERFACE_FSD,reference,UI Interface Specification,overdue,local,,,,,,lib/ui,
 VALUE_TYPE_SYSTEM,reference,Value Type System,current,local,,,,,,core/value;lib/value,,,,,2026-10-17,,specs/reference/VALUE_TYPE_SYSTEM.md
 VISION,reference,Liquers Vision and Strategy,current,local,,,,,,docs,,,,,2026-10-15,,specs/reference/VISION.md
 WEB_API_SPECIFICATION,reference,Liquers Web API Specification,current,local,,,,,,axum;web,,,,,2026-10-17,,specs/reference/WEB_API_SPECIFICATION.md
+AGENT_MEMORY_MIGRATION_GUIDE,guide,Agent Memory Migration Guide,current,local,,,,,,lib/commands;docs,,,,,2026-10-19,,specs/guides/AGENT_MEMORY_MIGRATION_GUIDE.md
 ASSET_MANAGER_IMPLEMENTATION_GUIDE,guide,Asset Manager Implementation Guide,current,local,,,,,,core/assets,,,,,2026-10-18,,specs/guides/ASSET_MANAGER_IMPLEMENTATION_GUIDE.md
 autonomous_bulk_design,guide,Autonomous Bulk Design Procedure,current,local,,,,,,docs;build,,,,,2026-10-08,,specs/guides/autonomous_bulk_design.md
 autonomous_issue_fixing,guide,Autonomous Issue Fixing Procedure,current,local,,,,,,docs;build,,,,,2026-10-08,,specs/guides/autonomous_issue_fixing.md
 COMMAND_DESIGN_GUIDE,guide,Command Design Guide,current,local,,,,,,core/commands,,,,,2026-10-17,,specs/guides/COMMAND_DESIGN_GUIDE.md
-COMMAND_REGISTRATION_GUIDE,guide,Command Registration Guide,current,local,,,,,,core/commands;macro,,,,,2026-10-17,,specs/guides/COMMAND_REGISTRATION_GUIDE.md
+COMMAND_REGISTRATION_GUIDE,guide,Command Registration Guide,current,local,,,,,,core/commands;macro,,,,,2026-10-19,,specs/guides/COMMAND_REGISTRATION_GUIDE.md
 DEPENDENCY_CONSISTENCY_GUIDE,guide,Dependency Consistency Guide,current,local,,,,,,core/assets,,,,,2026-10-08,,specs/guides/DEPENDENCY_CONSISTENCY_GUIDE.md
 ENVIRONMENT_CONSTRUCTION_GUIDE,guide,Building and Configuring an Environment,current,local,,,,,,core/context;core/assets;core/store,,,,,2026-10-11,,specs/guides/ENVIRONMENT_CONSTRUCTION_GUIDE.md
 LANGUAGE-INTEGRATION_GUIDE,guide,Language Integration Guide,current,local,,,,,,web;py;core/commands;core/plan;core/assets;core/store,,,,,2026-10-16,,specs/guides/LANGUAGE-INTEGRATION_GUIDE.md
@@ -621,7 +623,7 @@ QUERY_ESCAPING_GUIDE,guide,Query Escaping Guide,current,local,,,,,,core/query,,,
 RECORD_STREAM_GUIDE,guide,Record Stream Guide,current,local,,,,,,records;lib/value,,,,,2026-10-13,,specs/guides/RECORD_STREAM_GUIDE.md
 SEARCH_GUIDE,guide,Search Guide,current,local,,,,,,lib/commands;records,,,,,2026-10-17,,specs/guides/SEARCH_GUIDE.md
 SERIALIZATION_GUIDE,guide,Choosing a Serialization Format,current,local,,,,,,core/value;lib/value,,,,,2026-10-13,,specs/guides/SERIALIZATION_GUIDE.md
-STORE_CONFIG_GUIDE,guide,Store Configuration Guide,current,local,,,,,,store/config;core/store,,,,,2026-10-16,,specs/guides/STORE_CONFIG_GUIDE.md
+STORE_CONFIG_GUIDE,guide,Store Configuration Guide,current,local,,,,,,store/config;core/store,,,,,2026-10-19,,specs/guides/STORE_CONFIG_GUIDE.md
 STORE_FACTORY_GUIDE,guide,Store Factory Guide,current,local,,,,,,core/store;store/config,,,,,2026-10-16,,specs/guides/STORE_FACTORY_GUIDE.md
 STORE_IMPLEMENTATION_GUIDE,guide,Store Implementation Guide,current,local,,,,,,core/store;store/backends;web,,,,,2026-10-16,,specs/guides/STORE_IMPLEMENTATION_GUIDE.md
 TEMPLATE_GUIDE,guide,Template Guide,current,local,,,,,,core/query;lib/commands,,,,,2026-10-17,,specs/guides/TEMPLATE_GUIDE.md

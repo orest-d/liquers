@@ -45,6 +45,8 @@
 #             not group names. design/command-registry-header-feature-names
 # 2026-10-19  agent-memory-mvp: new group mem (ns-mem: overview, describe, list, search, read,
 #             similar, new, write, edit, check) and the store_config handler markdown_tiers.
+#             Later the same day: mem/read is volatile and also takes a key, read fresh from the
+#             store (AC-11 decision); mem/overview shows the schema's instructions.
 # CHANGELOG-END
 commands:
 - realm: store_config
@@ -3546,7 +3548,7 @@ commands:
 - namespace: mem
   name: overview
   label: Memory overview
-  doc: The memory's README tiers, its collections with counts, and the latest log lines
+  doc: The memory's README tiers, the schema's instructions, its collections with counts, and the latest log lines
   filename: overview.md
   state_argument:
     name: state
@@ -3776,7 +3778,7 @@ commands:
 - namespace: mem
   name: read
   label: Read memory
-  doc: 'A document (state: -R/<key>): its L0, L1, a section by heading, a line range (N-M) or all of it; notes carry its key and version'
+  doc: 'A document (state: -R-key/<key>, read fresh from the store, or -R/<key>): its L0, L1, a section by heading, a line range (N-M) or all of it; notes carry its key and version'
   filename: read.md
   state_argument:
     name: state
@@ -3809,7 +3811,7 @@ commands:
     default: !Value ''
     argument_type: string
     gui_info: !TextField 40
-  volatile: false
+  volatile: true
   expires: never
   is_async: true
   definition: Registered

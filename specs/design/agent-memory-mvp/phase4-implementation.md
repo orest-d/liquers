@@ -20,19 +20,19 @@ Signatures re-opened at HEAD 2026-10-17: `register_lib_store_config` (`liquers-l
 
 ## Progress
 
-- [ ] Step 1: `mem` feature, module skeleton and registry group
-- [ ] Step 2: schema types (`layout.rs`)
-- [ ] Step 3: line-preserving front-matter editor (`front_matter.rs`)
-- [ ] Step 4: L0/L1 bridge (`tiers.rs`) and the `markdown_tiers` handler
-- [ ] Step 5: write path (`write.rs`): commit, log, edit pairs
-- [ ] Step 6: read commands: overview, describe, list, search, read, similar
-- [ ] Step 7: `check` and its rules
-- [ ] Step 8: write commands: new, write, edit; registry regenerated
-- [ ] Step 9: `liquers-mcp` crate
-- [ ] Step 10: `liquers-agent` binary and the built-in tool set
-- [ ] Step 11: the "liquers-specs" profile, `memory/` folder and repository tests
-- [ ] Step 12: the "openviking" profile and the S3 test
-- [ ] Step 13: build matrix and final checks
+- [x] Step 1: `mem` feature, module skeleton and registry group (f5417800)
+- [x] Step 2: schema types (`layout.rs`) (6123936c)
+- [x] Step 3: line-preserving front-matter editor (`front_matter.rs`) (6123936c)
+- [x] Step 4: L0/L1 bridge (`tiers.rs`) and the `markdown_tiers` handler (6123936c)
+- [x] Step 5: write path (`write.rs`): commit, log, edit pairs (2de92207)
+- [x] Step 6: read commands: overview, describe, list, search, read, similar (9a335ccb)
+- [x] Step 7: `check` and its rules (9a335ccb)
+- [x] Step 8: write commands: new, write, edit; registry regenerated (9a335ccb)
+- [x] Step 9: `liquers-mcp` crate (4a116ec7)
+- [x] Step 10: `liquers-agent` binary and the built-in tool set (b6606096)
+- [x] Step 11: the "liquers-specs" profile, `memory/` folder and repository tests (896b0a5e)
+- [x] Step 12: the "openviking" profile and the S3 test (aef5c5db)
+- [x] Step 13: build matrix and final checks (this commit; all matrix rows pass, `liquers-lib` 431 unit tests and every suite, `liquers-mcp` 18, `liquers-agent` 11)
 
 ## Implementation Steps
 
@@ -189,6 +189,16 @@ Signatures re-opened at HEAD 2026-10-17: `register_lib_store_config` (`liquers-l
   minimum, so `cargo test -p liquers-agent` needs Rust 1.96 (the library and binary still build
   on 1.95; dev-dependencies are not built for them).
 
+### Decision during implementation: AC-11 with the document loaded (2026-10-19)
+
+Step 11 showed that a hand edit is not seen by a server that has already loaded the document:
+the asset manager serves its copy, and `list` and `search` load every document they show. Orest
+chose "Read fresh": `-mem-read` accepts a key state as well as a document, reads a key through
+`AsyncStore::get` (bytes and the record the mount's `on_read` derives), and is `volatile: true`.
+`memory_read`'s query is `-R-key/./-/ns-mem/read/read.md`. Tests: `read_of_a_key_sees_a_hand_edit`
+(`mem_commands.rs`) and the AC-11 block of `specs_profile_runs_the_scenarios`, which now edits
+a document the same server has read and searched.
+
 ### Step 13: build matrix and final checks
 - Files / symbols: `scripts/check-build-matrix.sh` rows with and without `mem` (native and wasm32).
 - Depends on: Steps 1–12.
@@ -196,6 +206,27 @@ Signatures re-opened at HEAD 2026-10-17: `register_lib_store_config` (`liquers-l
   `cargo test -p liquers-mcp`; `cargo test -p liquers-agent`; `python3 scripts/docs_index.py`
   then `python3 scripts/docs_index.py --check`; `DESIGN.md` Phase 4 ticked.
 - Rollback: revert the script rows.
+
+## Deviations From the Plan
+
+Recorded during implementation; none changes an approved contract except the AC-11 decision above.
+
+| Where | Planned | Built | Why |
+|---|---|---|---|
+| Profiles | a filesystem mount's `path` is the folder of its prefix (`./specs`) | the parent folder (`.`) | a filesystem store maps the full key under its `path` |
+| `fill_key` | joins onto the resource segment | the same, with the base `-R-key/./` and a round-trip check that the encoded query parses back to the same key | refuses any key whose encoding would change the query |
+| `check_allowed` | `(plan, allow)` | `(plan, allow, cmr)` | link parameters are planned with the registry to reach their actions |
+| `McpServer::call` | returns a JSON value | returns `ToolOutput { text, format, notes }` | notes travel beside the value; JSON is one format of several |
+| Input schemas | properties in argument order | alphabetical (`serde_json` without `preserve_order`) | MCP clients do not depend on order |
+| `format` argument | per tool | added by the engine to every tool whose query ends in a filename | one rule instead of a declaration per tool |
+| `memory/_schema` | `memory`, `areas`, `issue-status` | also `issue-transitions.yaml` | `transitions` names a key of a map |
+| `skills` collection | prefix `skills` | prefix `.claude/skills` | links in the specs name the real path |
+| Front-matter | strict YAML | lenient fallback to flat `key: value` lines, with a `front_matter` warning | nine specs files are not valid YAML (`SPECS-FRONT-MATTER-IS-NOT-VALID-YAML`) |
+| `dead_links` | every relative link | links within the memory's folders; code links are `unsupported` | the memory does not mount the source tree |
+| Duplicate ids | across the memory | per collection; listed as `unsupported` | collections are independent |
+| The CLI | overview at start | only `mcp` reads the overview | it reads every memory; CLI startup halves |
+| `overview` | README tiers, collections, log | also the schema's `instructions` | the field had no reader; the overview is what feeds the MCP instructions |
+| Step 12 | `s3s-fs` possibly `#[ignore]` | runs | see Step 12's outcome |
 
 ## Agent Assignment
 

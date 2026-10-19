@@ -359,12 +359,29 @@ async fn read_section_returns_section_and_version_note() -> Res {
     Ok(())
 }
 
+/// AC-11: a key state is read from the store, so a hand edit is seen after the document loaded.
+#[tokio::test]
+async fn read_of_a_key_sees_a_hand_edit() -> Res {
+    let f = fixture("read-fresh").await?;
+    let loaded = call(&f.env, "-R/issues/A-EXPIRY.md/-/ns-mem/read-l0", serde_json::json!({})).await?;
+    assert_eq!(text_of(&loaded)?, "Expired assets are served stale");
+    let path = f.dir.join("mem/issues/A-EXPIRY.md");
+    let edited = std::fs::read_to_string(&path)?.replacen("title: Expired", "title: Edited, expired", 1);
+    std::fs::write(&path, &edited)?;
+    let fresh = call(&f.env, "-R-key/issues/A-EXPIRY.md/-/ns-mem/read-l0", serde_json::json!({})).await?;
+    assert_eq!(text_of(&fresh)?, "Edited, expired assets are served stale");
+    let version = Version::from_content(edited.as_bytes()).to_string();
+    assert!(notes(&fresh).contains(&format!("version {version}")), "{:?}", notes(&fresh));
+    Ok(())
+}
+
 /// AC-15.
 #[tokio::test]
 async fn overview_and_describe_orient() -> Res {
     let f = fixture("overview").await?;
     let overview = text_of(&call(&f.env, "-R-key/./-/ns-mem/overview/overview.md", serde_json::json!({})).await?)?;
     assert!(overview.starts_with("# Test memory\n\nIssues and notes for the tests\n"), "{overview}");
+    assert!(overview.contains("Issues and notes for the tests\n\nSearch before you write.\n\n## Collections"), "{overview}");
     assert!(overview.contains("| issues | issues | 3 | yes | What is wrong or missing |"), "{overview}");
     assert!(overview.contains("| archive | archive | 1 | no |"), "{overview}");
     assert!(overview.contains("No writes logged yet."));

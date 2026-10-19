@@ -238,15 +238,16 @@ async fn specs_profile_runs_the_scenarios() -> Res {
     assert_eq!(log.lines().filter(|l| l.contains(issue)).count(), 2, "{log}");
     assert_eq!(log.lines().filter(|l| l.contains(reference)).count(), 1, "{log}");
 
-    // AC-11, the file edited outside the service and read by a server that has not loaded it.
-    // (A server that has loaded the document keeps serving its copy; see the AC-11 decision in
-    // phase4-implementation.md.)
+    // AC-11: the file edited outside the service is what the next read returns, even after this
+    // server has read and listed it (listing loads documents).
     let outside = "specs/issues/RECIPE-RESULT-UNDER-STORAGE-NONE-READS-AS-SOURCE.md";
+    let before_edit = server.call("memory_read", args(json!({"key": outside, "tier": "l0"}))).await?;
+    assert!(before_edit.text.starts_with("A recipe result"), "{}", before_edit.text);
+    server.call("memory_search", args(json!({"text": "storage-none", "path": "specs/issues"}))).await?;
     let original = std::fs::read_to_string(c.dir.join(outside))?;
     let changed = original.replacen("title: A recipe result", "title: Edited by hand, a recipe result", 1);
     std::fs::write(c.dir.join(outside), &changed)?;
-    let fresh = start_server(&c).await?;
-    let l0 = fresh.call("memory_read", args(json!({"key": outside, "tier": "l0"}))).await?;
+    let l0 = server.call("memory_read", args(json!({"key": outside, "tier": "l0"}))).await?;
     assert!(l0.text.starts_with("Edited by hand"), "{}", l0.text);
     std::fs::write(c.dir.join(outside), &original)?;
 

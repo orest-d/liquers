@@ -4,11 +4,11 @@ kind: design
 title: MVP for an agent memory service on the liquers stack
 workflow: liquers-project
 status: approved
-phase: implementation
+phase: documentation
 area: [lib/commands, core/store, docs]
 gh_pr: []
 issues: [AGENT-MEMORY-SERVICE]
-affects_docs: []
+affects_docs: [reference/AGENT_MEMORY_SERVICE.md, guides/AGENT_MEMORY_MIGRATION_GUIDE.md, reference/PROJECT_OVERVIEW.md, guides/STORE_CONFIG_GUIDE.md, guides/COMMAND_REGISTRATION_GUIDE.md, DOCS_STRUCTURE_GUIDE.md]
 created: 2026-09-15
 superseded_by:
 ---
@@ -22,7 +22,7 @@ superseded_by:
 - [x] Phase 2: Solution & Architecture — **approved 2026-10-17** (decision 1 revised; decisions 2–9 settled at the gate)
 - [x] Phase 3: Examples & Testing — **approved 2026-10-17** (with the migration guide draft)
 - [x] Phase 4: Implementation Plan — **approved 2026-10-19** ("Implement now"; then `proceed all`: pre-approved through Phase 5)
-- [ ] Phase 5: Documentation
+- [ ] Phase 5: Documentation — written 2026-10-19, awaiting sign-off before `status: complete`
 - [ ] Implementation Complete
 
 ## Revision 2 — 2026-10-11

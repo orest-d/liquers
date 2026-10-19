@@ -549,7 +549,7 @@ override).
 | `describe` | — (root) | `-mem-describe` | text: collections, fields, vocabularies, writability (`describe.md`) | AC-15, AC-13 |
 | `list` | `path` (optional) → `-R-key/<path>` | `-mem-list` | record view `key, l0, l1, kind, status, asset_status, is_dir` (`list.md`); note `shown/total` | AC-1, AC-8, AC-12, AC-17 |
 | `search` | `path` (optional) → `-R-key/<path>` | `-mem-search` | record view `key, l0, l1, excerpt, score, matched, heading, line` (`search.md`); note `shown/total` | AC-2, AC-8, AC-12 |
-| `read` | `key` → `-R/<key>` | `-mem-read` | text: the tier, section or lines asked for (`read.md`); notes `key`, `version` | AC-3 |
+| `read` | `key` → `-R-key/<key>` (read fresh; decided 2026-10-19) | `-mem-read` | text: the tier, section or lines asked for (`read.md`); notes `key`, `version` | AC-3 |
 | `new` | — (root) | `-mem-new` | JSON `{written: false, candidates}` or `{written: true, key, version}` (`new.json`) | AC-4, AC-5 |
 | `write` | `key` → `-R-key/<key>` | `-mem-write` | JSON `{key, version_before, version_after}` (`write.json`) | AC-5 to AC-8 |
 | `edit` | `key` → `-R-key/<key>` | `-mem-edit` | as `write` (`edit.json`) | AC-6, AC-7, AC-16 |
@@ -597,8 +597,11 @@ How each acceptance scenario is met:
     (write-back on `set_metadata`).
   - `storage: none` keeps the projection fresh, because the record is re-derived on every read. It
     also writes no sidecar files into the checkout.
-  - `content_hash-on_change`, together with the asset manager's per-mount `version_verification`,
-    covers a loaded asset.
+  - ~~`content_hash-on_change`, together with the asset manager's per-mount `version_verification`,
+    covers a loaded asset.~~ It does not: a running asset manager serves the copy it loaded, and
+    `list` and `search` load documents. Decided by Orest on 2026-10-19 ("Read fresh"): `read`
+    also takes a key state (`-R-key/<key>`), reads the bytes and record from the store, and is
+    `volatile`; the `memory_read` tool uses that form.
 - **AC-12.** Listing goes through `get_asset_manager().listdir_asset_info`, so a recipe-only key
   appears with `asset_status: Recipe` and is not evaluated (P5, as in `ns-search`).
 - **AC-13.** A `read_only: true` mount, plus `writable: false` on its collection, which `describe`

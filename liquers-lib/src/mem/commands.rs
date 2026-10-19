@@ -163,21 +163,25 @@ pub async fn read<E: Environment<Value = Value>>(
     context: Context<E>,
 ) -> Result<Value, Error> {
     let value = state.data_unchecked();
-    let text = value.try_into_string().map_err(|_| {
-        Error::general_error(format!(
-            "read needs a text document, got a value of type {}",
-            value.identifier()
-        ))
-    })?;
-    let key = state.metadata.key()?;
-    let part = read_part(
-        &text,
-        &state.metadata.title(),
-        &state.metadata.description(),
-        &tier,
-        &section,
-        &lines,
-    )?;
+    // A key state is read from the store, so a hand edit is seen even when the asset manager
+    // holds an older copy of the document; a document state is read as it was evaluated.
+    let (text, title, description, key) = if value.identifier().as_ref() == "Key" {
+        let key = value.try_into_key()?;
+        let (bytes, metadata) = context.get_envref().get_async_store().get(&key).await?;
+        let text = String::from_utf8(bytes).map_err(|_| {
+            Error::general_error(format!("read needs a text document; {} is not UTF-8", key.encode()))
+        })?;
+        (text, metadata.title().to_string(), metadata.description().to_string(), Some(key))
+    } else {
+        let text = value.try_into_string().map_err(|_| {
+            Error::general_error(format!(
+                "read needs a text document, got a value of type {}",
+                value.identifier()
+            ))
+        })?;
+        (text, state.metadata.title().to_string(), state.metadata.description().to_string(), state.metadata.key()?)
+    };
+    let part = read_part(&text, &title, &description, &tier, &section, &lines)?;
     if let Some(key) = key {
         context.info(&format!("key {}", key.encode()))?;
         context.info(&format!("version {}", version_of(&text)))?;
@@ -461,7 +465,7 @@ macro_rules! register_mem_commands {
             async fn overview(state, log_lines: i64 = 10, root: Key = query "-R-key/.", context) -> result
             namespace: "mem"
             label: "Memory overview"
-            doc: "The memory's README tiers, its collections with counts, and the latest log lines"
+            doc: "The memory's README tiers, the schema's instructions, its collections with counts, and the latest log lines"
             filename: "overview.md"
             volatile: true
         )?;
@@ -498,8 +502,9 @@ macro_rules! register_mem_commands {
                 section: String = "", lines: String = "", context) -> result
             namespace: "mem"
             label: "Read memory"
-            doc: "A document (state: -R/<key>): its L0, L1, a section by heading, a line range (N-M) or all of it; notes carry its key and version"
+            doc: "A document (state: -R-key/<key>, read fresh from the store, or -R/<key>): its L0, L1, a section by heading, a line range (N-M) or all of it; notes carry its key and version"
             filename: "read.md"
+            volatile: true
         )?;
         register_command!($cr,
             async fn similar(state, collection: String, title: String, description: String = "",

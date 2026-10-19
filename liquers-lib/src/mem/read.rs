@@ -21,7 +21,7 @@ use crate::value::Value;
 
 use super::front_matter::{value_text, FrontMatterDoc};
 use super::layout::{
-    is_readme, join_path, read_bytes, relative_path, CollectionSchema, MemoryLayout, TierSource,
+    join_path, read_bytes, relative_path, CollectionSchema, MemoryLayout, TierSource,
     TierSources,
 };
 use super::tiers;
@@ -459,6 +459,10 @@ pub(crate) async fn overview_text<E: Environment<Value = Value>>(
     out.push_str(&format!("# {}\n\n", if l0.is_empty() { "Memory" } else { l0.as_str() }));
     if !l1.is_empty() {
         out.push_str(&format!("{l1}\n\n"));
+    }
+    // The schema's own guidance; the MCP server's instructions carry the overview.
+    if !layout.instructions.trim().is_empty() {
+        out.push_str(&format!("{}\n\n", layout.instructions.trim()));
     }
     out.push_str("## Collections\n\n| collection | folder | count | writable | description |\n|---|---|---|---|---|\n");
     for collection in &layout.collections {

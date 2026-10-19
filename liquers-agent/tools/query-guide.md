@@ -7,8 +7,10 @@ namespaces `mem`, `rec` and `search`; anything else is refused before it runs.
 
 A query is a path. It starts with a resource and continues with commands after `/-/`:
 
-- `-R/./<key>` is a **document**, for `ns-mem/read`.
-- `-R-key/./<folder>` is a **folder** (or a document's key), for `ns-mem/list`, `search`, `check`.
+- `-R-key/./<path>` is a **key**: a folder for `ns-mem/list`, `search`, `check`, or a document
+  for `ns-mem/read`, which then reads the file as it is now.
+- `-R/./<key>` is a document's **value**, as the service last loaded it; `ns-mem/read` takes it
+  too.
 - `./` makes the key relative to the memory root. Without it, a key starts at the store's root.
 - `ns-mem/` selects the namespace of the commands that follow; `ns-rec/` switches to records.
 - A command's arguments follow its name, separated by `-`, in the order its reference lists
@@ -21,8 +23,8 @@ Inside an argument, write `~_` for `-`, `~.` for a space, `~/` for `/` and `~~` 
 ## Examples
 
 ```text
--R/./notes/idea.md/-/ns-mem/read-l1/idea.md
--R/./notes/idea.md/-/ns-mem/read-full-Problem/problem.md
+-R-key/./notes/idea.md/-/ns-mem/read-l1/idea.md
+-R-key/./notes/idea.md/-/ns-mem/read-full-Problem/problem.md
 -R-key/./notes/-/ns-mem/search-expiration~.policy/search.md
 -R-key/./-/ns-mem/list-0-false-1000/ns-rec/eq-status-draft/ns-rec/sort-l0/drafts.csv
 -R-key/./-/ns-mem/check/ns-rec/eq-severity-error/errors.json

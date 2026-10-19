@@ -19,7 +19,7 @@ use super::front_matter::{value_items, FrontMatterDoc};
 use super::layout::{join_path, read_bytes, relative_path, CollectionSchema, MemoryLayout};
 use super::named_rules::{self, DesignRow};
 use super::read::{log_entries, members, version_of, walk, Entry};
-use super::rules::{document_violations, is_date, Severity, Violation, Vocabularies};
+use super::rules::{document_violations, Severity, Violation, Vocabularies};
 
 /// Rules of `docs_index.py --check` that `check` does not implement, with the reason.
 pub const UNSUPPORTED: [&str; 4] = [

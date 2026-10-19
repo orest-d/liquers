@@ -23,7 +23,7 @@ tools:
     key: { name: path, description: "Folder to search, relative to the memory root; empty for all of it" }
     read_only: true
   - name: read
-    query: "-R/./-/ns-mem/read/read.md"
+    query: "-R-key/./-/ns-mem/read/read.md"
     key: { name: key, description: "Document key relative to the memory root, e.g. notes/idea.md", required: true }
     read_only: true
   - name: new
