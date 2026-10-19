@@ -359,6 +359,8 @@ deliberately folded behind a broader line.
 - design `foreign-value-type-registration`
 - design `immediate-lazy-expiry-cascade`
 - design `immediate-set-state-status-match`
+- design `inline-waiter-recovers-dropped-run`
+- design `ipc-reader-polars-text-columns`
 - design `js-store-effective-media-type`
 - design `json-orient-index-column-collision`
 - design `json-table-column-order`
@@ -372,6 +374,7 @@ deliberately folded behind a broader line.
 - design `manifest-over-stored-csv-test`
 - design `markdown-empty-text-and-tables`
 - design `memory-store-metadata-only-entry`
+- design `metadata-application-attributes`
 - design `metadata-error-traceback`
 - design `metadata-only-entry-reload`
 - design `metadata-serde-partialeq`
@@ -381,12 +384,17 @@ deliberately folded behind a broader line.
 - design `opendal-list-option-config`
 - design `opendal-localfs-assetinfo-test`
 - design `ordered-json-orient-column-order`
+- design `parquet-read-declared-schema`
 - design `plan-cwd-freeze`
 - design `plan-relative-resolution`
 - design `plan-split-predecessor-fields`
+- design `polars-command-tests-via-queries`
 - design `polars-doc-example-namespace`
 - design `predecessor-cut-equivalence`
+- design `pure-command-context`
+- design `py-orphan-modules`
 - design `py-value-arc-payloads`
+- design `py-value-serializer`
 - design `pyo3-python-3-13-support`
 - design `query-leading-slash-field`
 - design `queued-manager-conditional-eviction`
@@ -402,10 +410,14 @@ deliberately folded behind a broader line.
 - design `root-listing-dependency-key-spelling`
 - design `save-to-store-skip-outcome`
 - design `search-catalog-single-metadata-read`
+- design `serialization-lossy-write-warnings`
+- design `serialized-binary-disposal-policy`
 - design `sidecar-colliding-keys`
 - design `simple-value-serializer-parity`
 - design `simple-value-untyped-and-scalar-reads`
 - design `state-argument-serde-default`
+- design `store-conditional-write`
+- design `store-conformance-check-tool`
 - design `store-conformance-suite`
 - design `store-conformance-warning-cleanup`
 - design `store-guide-status-table`
@@ -422,7 +434,9 @@ deliberately folded behind a broader line.
 - design `template-non-scalar-text-form`
 - design `text-value-markdown-format`
 - design `type-info-write-only-formats`
+- design `ui-asset-snapshot-boundary`
 - design `ui-query-console-error-highlight`
+- design `value-serialization-writer`
 - design `value-type-system`
 - design `variadic-metadata-tail-check`
 - design `web-docs-stale-limitations`
@@ -450,6 +464,7 @@ deliberately folded behind a broader line.
 - feature `NO-REMOTE-STORE-OR-ASSET-MANAGER`
 - feature `NO-SOURCE-CODE-AND-API-DOC-NAVIGATION`
 - feature `NO-TEMPLATE-EDITOR-UI`
+- feature `PY-OBJECT-VALUE-HAS-NO-BYTE-FORM`
 - feature `PY-PYO3-0-21-CANNOT-TARGET-PYTHON-3-13`
 - feature `QUERY-CANNOT-MARK-CACHED-INTERMEDIATES`
 - feature `RECORDS-ARROW-C-DATA-EXPORT-NOT-BUILT`
@@ -459,6 +474,7 @@ deliberately folded behind a broader line.
 - feature `STORE-CONFIG-SPEC-CANNOT-SCOPE-HANDLERS-TO-A-KEY`
 - feature `STORE-NO-DATABASE-STORAGE-MODEL`
 - feature `TEMPLATE-HAS-NO-HIGHLIGHTER`
+- feature `TEXT-EDITOR-EDITS-ARE-NEVER-SAVED`
 - feature `TYPE-REGISTRY-NOT-REALM-AWARE`
 - feature `UI-VARIADIC-ARGUMENT-LIST-EDITOR`
 - feature `UNMANAGED-ASSET-NOT-FOLLOWABLE-ACROSS-CONNECTIONS`

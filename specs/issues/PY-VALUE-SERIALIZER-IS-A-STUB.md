@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: M
 area: [py, core/value]
-design:
+design: py-value-serializer
 created: 2026-08-26
 github:
 ---
@@ -31,6 +31,13 @@ fn deserialize_from_bytes(b: &[u8], _type_identifier: &str, fmt: &str) -> Result
 
 The `match` with only a wildcard arm is the shape of an unfinished function, and it also violates
 the no-default-arm rule.
+
+## Problem example
+
+`Value::Object { value: {"a": I32 1} }` has default extension `json`, yet `as_bytes("json")` is
+`Err("Unsupported format json")`, and `deserialize_from_bytes(b"{\"a\":1}", "Object", "json")` is an
+error too. It should write `{"a":1}` — the bytes `liquers_core::value::Value` writes — and read them
+back as an `Object`. Design: `specs/design/py-value-serializer/`.
 
 ## Impact
 

@@ -1,0 +1,51 @@
+---
+id: CORE-VALUE-JSON-READ-IGNORES-STRUCTURED-IDENTIFIERS
+kind: issue
+title: Core Value reads structured variants written as JSON back as a different variant
+status: draft
+priority: P2
+complexity: S
+area: [core/value]
+design:
+created: 2026-10-19
+github:
+---
+## Problem
+
+`liquers_core::value::Value` is `#[serde(untagged)]`, and the `json` arm of its
+`DefaultValueSerializer::deserialize_from_bytes` (`liquers-core/src/value.rs`) consults the type
+identifier only for `F64` and `Bytes`. Every other identifier falls through to an untagged
+`serde_json::from_slice`, which picks the **first** variant whose shape matches:
+
+| Written as `json` | Identifier | Reads back as |
+|---|---|---|
+| `Value::Metadata(_)` | `Metadata` | `Object` (a map matches `Object` before `Metadata`) |
+| `Value::Recipe(_)`, `Value::CommandMetadata(_)` | `Recipe`, `CommandMetadata` | `Object` |
+| `Value::AssetInfo(_)` | `AssetInfo` | `Array` |
+| `Value::Query(_)`, `Value::Key(_)` | `Query`, `Key` | `Object` (both derive `Serialize` as structs) |
+| `Value::I64(5)` | `I64` | `I32(5)` |
+
+All of these types declare `json` in `type_descriptions()`, and for the first five it is their
+default format, so the declared default does not round-trip. The existing test `vts7.2`
+(`scalar_identifiers_round_trip_through_the_serializer`) covers scalars only and sidesteps the `I64`
+case by using `-9_000_000_000`. Not verified against a build; derived from reading the arm and the
+enum's variant order.
+
+## Impact
+
+A stored metadata record, recipe, command metadata, asset-info list, query or key is reloaded as a
+plain JSON object or array, so a command expecting the typed value fails on reload (or, for `I64`,
+silently narrows the type). `liquers-lib`'s `CombinedValue` inherits it for base identifiers, and
+`liquers-py` will once its serializer delegates to core (`design/py-value-serializer/`).
+
+## Expected behaviour
+
+The `json` arm dispatches on every identifier core owns — deserialize the payload type directly
+(`serde_json::from_slice::<MetadataRecord>` and so on, `I64` as `i64`) — and keeps the untagged
+fallback only for an empty identifier and the genuinely shape-typed ones (`None`, `Bool`, `Text`,
+`Array`, `Object`). Extend `vts7.2` to every variant and every declared format.
+
+## Discovery
+
+Found 2026-10-19 while designing `specs/design/py-value-serializer/`, which delegates liquers-py's
+codec to core's and needed to know which round trips core actually provides.

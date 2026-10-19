@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: M
 area: [records, lib/polars]
-design:
+design: parquet-read-declared-schema
 created: 2026-09-27
 github:
 ---
@@ -23,6 +23,21 @@ the same signature every caller — `records::read_parquet_record_batch`,
 uses), but silently ignores it: polars' `ParquetReader` infers its own schema from the file, and the
 `RecordSchema` a caller declared (e.g. `ns-rec/*` commands' `schema` option,
 `ToRecordOptions::schema`) is never checked against, or used to guide, that read.
+
+## Problem Example
+
+```rust
+// bytes: Parquet written by Liquers, schema id: Int (Id, not null), amount: Float
+let wrong = RecordSchema::new(vec![
+    FieldSchema::new("id", FieldType::Int), FieldSchema::new("amount", FieldType::Text)])?;
+read_parquet_record_batch(&bytes, ReadSchema::Declared(&wrong))   // Ok: `amount` reads as Float
+read_parquet_record_batch(&bytes, ReadSchema::Infer)?.schema().id_field()   // None: Id lost
+```
+
+Expected: the first is an `Err` naming `amount`, `Float` and `Text` (as the IPC reader does); the
+second restores the embedded `liquers.schema`, which `record-streams` Phase 2 promised for
+Liquers-written Parquet and which polars exposes as `ParquetReader::get_metadata()?.key_value_metadata`.
+The design covers both, since they share the function and the schema rules.
 
 ## Impact
 

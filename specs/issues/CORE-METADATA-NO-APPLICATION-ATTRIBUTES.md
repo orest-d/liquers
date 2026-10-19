@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: M
 area: [core/value]
-design: 
+design: metadata-application-attributes
 created: 2026-09-15
 github:
 ---
@@ -23,6 +23,18 @@ all-or-nothing alternative to `MetadataRecord`, not an extension of it: choosing
 typed field and every typed accessor, and `Metadata::from_json` already falls into it silently
 whenever a document fails to deserialize as a full record, which
 `CORE-LEGACY-METADATA-ACCESSORS-RETURN-JSON` showed is its own trap.
+
+### Problem example
+
+```rust
+let mut record = MetadataRecord::new();
+// wanted: tags ["memory", "project-x"] — there is no field for them, and a JSON
+// document with an extra `tags` key deserializes as Metadata::LegacyMetadata
+store.set(&key, body, &Metadata::MetadataRecord(record)).await?;
+```
+
+Should be: `record.set_attribute("tags", json!([...]))`, returned unchanged by `get_metadata` and
+`listdir_asset_info`, with the version unaffected.
 
 ## Impact
 

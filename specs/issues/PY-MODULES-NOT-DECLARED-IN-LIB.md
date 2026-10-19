@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: M
 area: [py]
-design:
+design: py-orphan-modules
 created: 2026-08-25
 github:
 ---
@@ -40,6 +40,17 @@ not compile. That it does not fail is proof the file is not in the build.
 A second proof (noted 2026-10-10, `design/context-param-order/`): `commands.rs:189-191` call
 `register_command!(cr, hello())` and `greet(state, who:String)` — no `fn` and no `-> result`, a
 syntax the macro has not accepted for a long time. Declaring the module will need these rewritten.
+
+## Problem example
+
+```python
+reg = liquers_py.CommandMetadataRegistry()
+reg.add_python_command("", "double", "mymod", "double", "pyobject", ["x"], False)
+```
+
+`double` becomes an alias of `pycall`; installed into a Python `Environment` (`env.cmr = reg`), its
+`alias_target` is `Err(alias_target_not_registered)`, because nothing registers `pycall`. It should
+resolve to the `pycall` bridge. Design: `specs/design/py-orphan-modules/`.
 
 ## Impact
 
