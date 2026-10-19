@@ -2,9 +2,9 @@
 id: REPLACING-WRITE-DROPS-STALE-DEPENDENCY-EDGES
 kind: design
 title: A write that replaces a keyed asset replaces its incoming dependency edges
+status: complete
 gh_pr: [159]
 form: compact
-phase: implementation
 readiness: ready
 autofix: eligible
 area: [core/assets]
@@ -12,6 +12,8 @@ issues: [REPLACING-WRITE-KEEPS-DROPPED-DEPENDENCY-EDGES]
 created: 2026-10-17
 ---
 # A write that replaces a keyed asset replaces its incoming dependency edges
+
+> **Complete on 2026-10-18**: implemented and merged in #159.
 
 Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-17 backlog compaction. Phases 1-4
 are written but not approved, and nothing is implemented.
