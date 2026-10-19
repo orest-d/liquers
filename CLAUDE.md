@@ -72,7 +72,8 @@ Also:
 - Python bindings: `liquers-py/src/` (environment handle, command adapter, value bridge, error
   mapping) and the `liquers` package in `liquers-py/python/liquers/` (decorators, error classes).
   A Python object is `py.Object` in `ExtValue::Foreign`; Python commands are closures, not
-  `pycall` aliases. Conformance matrix: `liquers-py/README.md`; guidance:
+  `pycall` aliases. Contract: `specs/reference/PYTHON_INTEGRATION.md`; usage:
+  `specs/guides/PYTHON_GUIDE.md`; conformance matrix: `liquers-py/README.md`; guidance:
   `specs/guides/LANGUAGE-INTEGRATION_GUIDE.md` §6 Python
 - Template language (parser, renderer, query templates, hosts): `liquers-template/src/`; the
   `ns-template` commands, `ContextHost` and the store folder node: `liquers-lib/src/template/`

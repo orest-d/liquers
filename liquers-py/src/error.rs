@@ -299,8 +299,6 @@ mod tests {
     use super::*;
     use liquers_core::error::ErrorType as CoreErrorType;
 
-    /// Loads `liquers._errors` from the source tree and installs its subclasses, without the
-    /// native extension (which a Rust test binary cannot import).
     /// Loads `liquers._errors` once per test process.
     ///
     /// Tests run on parallel threads, and executing the module can release the GIL, so a second
@@ -314,6 +312,8 @@ mod tests {
         INSTALLED.get_or_try_init(py, || load_errors_module(py)).map(|_| ())
     }
 
+    /// Loads `liquers._errors` from the source tree and installs its subclasses, without the
+    /// native extension (which a Rust test binary cannot import).
     fn load_errors_module(py: Python<'_>) -> PyResult<()> {
         let path = concat!(env!("CARGO_MANIFEST_DIR"), "/python/liquers/_errors.py");
         let util = py.import("importlib.util")?;

@@ -1498,7 +1498,9 @@ Treat sandboxing and determinism as product requirements. Prefer copied Liquers 
 ### Python
 
 `liquers-py` (`specs/design/liquers-py/`) is the worked example; the choices below are what it
-settled on, and the list after them is what cost time.
+settled on, and the list after them is what cost time. Its contract is
+[`reference/PYTHON_INTEGRATION.md`](../reference/PYTHON_INTEGRATION.md), and how to use it is
+[`PYTHON_GUIDE.md`](PYTHON_GUIDE.md).
 
 - **Value.** Use `liquers-lib`'s `Value`; a Python object with no structural mapping becomes a
   `PyObjectValue` (`py.Object`) in `ExtValue::Foreign`. Conversion is permissive by default
@@ -3147,6 +3149,7 @@ def test_PACKAGE07_artifact_carries_declarations_license_and_metadata():
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-19 | §6 Python links the new Python integration reference and Python guide. | `design/liquers-py/` (phase-5) |
 | 2026-10-19 | §6 Python: an *Errors* entry. Nested Python tracebacks are concatenated innermost first, and the cross-language structure is an open problem (`MULTI-LANGUAGE-TRACEBACK-IS-A-FLAT-STRING`). | `design/liquers-py/` (phase-5) |
 | 2026-10-18 | §6 Python rewritten from the implemented `liquers-py`: value, environment, command and GIL choices, and what cost time. §5 VALUE: corrected the claim that `liquers-py` owns a value type; it takes the constructor route like `liquers-web`. §1: `liquers-py` now implements every Essential feature of the Python profile, no longer a partial reference. | `design/liquers-py/` (phase-5) |
 | 2026-10-16 | §6 Browser JavaScript: `localstorage` and `http` now offer data-only access and can take a `metadata` section. | `design/store-adapters/` phase-5 review |

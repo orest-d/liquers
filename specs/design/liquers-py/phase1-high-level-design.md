@@ -34,18 +34,23 @@
   5. **Decided (2026-10-19): M0 in its own PR.** Orest chose the split. The M0 code fixes (PyO3 0.30,
      the `liquers` import name, orphan removal, the test runner) are PR #163, cherry-picked onto
      `main`. It merges first, and this PR picks it up with a merge of `main`.
-  6. **Needs decision: deviations from the owner's plan.**
+  6. **Decided (2026-10-19): the three deviations from the owner's plan are accepted.** Orest
+     accepted all three and asked that they be documented; they are in
+     `reference/PYTHON_INTEGRATION.md` §3 and §6 and in `guides/PYTHON_GUIDE.md` §4.
      - The pickle codec is a `pickle=` keyword, not `config={"codecs": …}`, because the core
        `EnvironmentConfig` has no codec section.
      - `reset()` is dropped: a new `Environment()` is the reset.
      - `language_context` is not added to core, since `ErrorPayload.traceback` already carries the
        stack and the class rides in the message.
-       **Accepted 2026-10-19**, with the owner's note: a traceback may have to carry stacks from
+       Accepted with the owner's note: a traceback may have to carry stacks from
        several languages (Rust calling Python calling … Rhai). For now it is a concatenation of
        those stacks, and what matters most is that Python tracebacks are passed along. Nested
        Python stacks are now concatenated innermost first; the open problem is
        `MULTI-LANGUAGE-TRACEBACK-IS-A-FLAT-STRING`.
-     - Recommended: accept all three.
+     - The owner also asked for user documentation: a Python guide and a Python integration
+       reference, written in Phase 5, and a generated API reference, filed as
+       `PY-API-REFERENCE-NOT-GENERATED`. The integration guide does not require any of them
+       (`LANGUAGE-INTEGRATION-GUIDE-DEFINES-NO-USER-DOCUMENTATION`).
   7. **Proposed resolution: configured stores are in scope** to the extent of `EnvironmentConfig`'s
      `store` section, using core's existing factories (AC-18's shared file store). Python-defined
      stores stay a non-goal.

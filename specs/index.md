@@ -8,9 +8,9 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 133
-- P2: 54
-- P3: 79
+Total rows: 136
+- P2: 56
+- P3: 80
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -19,6 +19,7 @@ Total rows: 133
 | [`WEB-RECORDS-SINGLE-CELL-VIEW-CROSSES-AS-BATCH`](issues/WEB-RECORDS-SINGLE-CELL-VIEW-CROSSES-AS-BATCH.md) | issue | A single-cell RecordView reaches JavaScript as a 1×1 batch instead of a scalar | draft | ready | eligible | P2 | S | web;records | [design](design/web-records-single-cell-scalar/DESIGN.md) | 2026-10-17 |
 | [`EVALUATION-SESSION-VOLATILE-TEST-INTERMITTENT`](issues/EVALUATION-SESSION-VOLATILE-TEST-INTERMITTENT.md) | issue | volatile_dependency_has_one_value_per_evaluation fails intermittently: a later evaluation sometimes reuses the volatile value | draft | phase2-blocked | not-eligible | P2 | S | core/assets | [design](design/evaluation-session-volatile-test-flake/DESIGN.md) | 2026-10-13 |
 | [`DEGRADED-STORED-VALUE-WITHOUT-RECIPE-REPORTS-NO-RECIPE`](issues/DEGRADED-STORED-VALUE-WITHOUT-RECIPE-REPORTS-NO-RECIPE.md) | issue | Evaluating a stored value this build cannot read fails with "No recipe found" instead of naming the type | draft |  |  | P2 | S | core/assets |  | 2026-10-18 |
+| [`LANGUAGE-INTEGRATION-GUIDE-DEFINES-NO-USER-DOCUMENTATION`](issues/LANGUAGE-INTEGRATION-GUIDE-DEFINES-NO-USER-DOCUMENTATION.md) | issue | The language integration guide does not require user documentation for an integration | draft |  |  | P2 | S | docs |  | 2026-10-19 |
 | [`WEB-EVALUATE-RESOLVES-FAILED-ASSET-AS-NULL`](issues/WEB-EVALUATE-RESOLVES-FAILED-ASSET-AS-NULL.md) | issue | liquers-web's evaluate resolves a failed command's asset to null instead of rejecting | draft |  |  | P2 | S | web |  | 2026-10-18 |
 | [`CORE-VALUE-ENUM-OVERSIZED`](issues/CORE-VALUE-ENUM-OVERSIZED.md) | issue | Every Value occupies over 700 bytes because three variants are stored unboxed | draft | ready | not-eligible | P2 | M | core/value;lib/value | [design](design/core-value-enum-oversized/DESIGN.md) | 2026-08-18 |
 | [`ENVIRONMENT-MANAGER-REFERENCE-CYCLE`](issues/ENVIRONMENT-MANAGER-REFERENCE-CYCLE.md) | issue | Environment and asset manager hold each other with strong Arcs, so every environment leaks | draft | ready | not-eligible | P2 | M | core/assets;core/context | [design](design/environment-manager-reference-cycle/DESIGN.md) | 2026-08-27 |
@@ -34,6 +35,7 @@ Total rows: 133
 | [`LANGUAGE-GUIDE-NO-DOCUMENTATION-SECTION`](issues/LANGUAGE-GUIDE-NO-DOCUMENTATION-SECTION.md) | feature | The language integration guide says nothing about writing the integration's own documentation | draft |  |  | P2 | M | docs;web;py |  | 2026-08-30 |
 | [`LANGUAGE-STORE-TYPE-NOT-DEFINABLE`](issues/LANGUAGE-STORE-TYPE-NOT-DEFINABLE.md) | feature | A store type cannot be defined in the integrated language | draft |  |  | P2 | M | web;py;core/store;store/config |  | 2026-08-29 |
 | [`POLARS-COMMAND-TESTS-BYPASS-COMMANDS`](issues/POLARS-COMMAND-TESTS-BYPASS-COMMANDS.md) | issue | The polars command integration tests never invoke a polars command | draft |  |  | P2 | M | lib/polars;build |  | 2026-08-25 |
+| [`PY-API-REFERENCE-NOT-GENERATED`](issues/PY-API-REFERENCE-NOT-GENERATED.md) | feature | The Python package has no generated API reference, and most of its names have no docstring | draft |  |  | P2 | M | py;docs |  | 2026-10-19 |
 | [`RECORDS-PARQUET-POLARS-READ-IGNORES-DECLARED-SCHEMA`](issues/RECORDS-PARQUET-POLARS-READ-IGNORES-DECLARED-SCHEMA.md) | issue | Reading Parquet through the polars bridge ignores a caller-declared schema | draft |  |  | P2 | M | records;lib/polars |  | 2026-09-27 |
 | [`SERIALIZATION-CANNOT-REPORT-A-LOSSY-WRITE`](issues/SERIALIZATION-CANNOT-REPORT-A-LOSSY-WRITE.md) | issue | Serialization cannot report a lossy write, so a value silently loses data on its way to the store | draft |  |  | P2 | M | core/value |  | 2026-10-13 |
 | [`SERIALIZED-BINARY-RETAINED-WITH-NO-DISPOSAL-POLICY`](issues/SERIALIZED-BINARY-RETAINED-WITH-NO-DISPOSAL-POLICY.md) | issue | A serialized binary is cached on the asset forever, with no policy for releasing it | draft |  |  | P2 | M | core/assets |  | 2026-09-05 |
@@ -86,6 +88,7 @@ Total rows: 133
 | [`POLARS-DATAFRAME-IPC-NOT-SERIALIZABLE`](issues/POLARS-DATAFRAME-IPC-NOT-SERIALIZABLE.md) | issue | A polars DataFrame cannot be written or read as Arrow IPC although polars is built with ipc | draft |  |  | P3 | S | lib/polars |  | 2026-10-18 |
 | [`PY-COMMAND-DECORATOR-CANNOT-DECLARE-ARGUMENT-METADATA`](issues/PY-COMMAND-DECORATOR-CANNOT-DECLARE-ARGUMENT-METADATA.md) | feature | Python command decorators cannot declare per-argument metadata | draft |  |  | P3 | S | py |  | 2026-10-18 |
 | [`PY-COMMAND-DECORATOR-CANNOT-SET-REALM`](issues/PY-COMMAND-DECORATOR-CANNOT-SET-REALM.md) | feature | Python command decorators cannot place a command in a realm | draft |  |  | P3 | S | py |  | 2026-10-18 |
+| [`PY-REPRS-SHOW-RUST-DEBUG-FORMAT`](issues/PY-REPRS-SHOW-RUST-DEBUG-FORMAT.md) | issue | Several Python classes' repr is Rust debug output, and Key and Query quote their text twice | draft |  |  | P3 | S | py |  | 2026-10-19 |
 | [`STORED-VALUE-WITHOUT-DATA-FORMAT-READ-AS-BIN`](issues/STORED-VALUE-WITHOUT-DATA-FORMAT-READ-AS-BIN.md) | issue | A stored value with no declared data format is deserialized as bin, not its own default format | draft |  |  | P3 | S | core/assets |  | 2026-10-18 |
 | [`TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS`](issues/TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS.md) | issue | TypeInfo cannot declare a format a type writes but cannot read back | draft |  |  | P3 | S | core/value |  | 2026-09-24 |
 | [`WEB-STORE-CONFORMANCE-TEST-GAPS`](issues/WEB-STORE-CONFORMANCE-TEST-GAPS.md) | issue | liquers-web's STORE tests are narrower than the guide's prescribed contracts | draft | ready | eligible | P3 | M | web;core/store | [design](design/web-store-conformance-tests/DESIGN.md) | 2026-10-17 |

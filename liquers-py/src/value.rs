@@ -529,7 +529,7 @@ fn wrapper_to_simple(object: &Bound<'_, PyAny>) -> Option<SimpleValue> {
     None
 }
 
-/// DataFrames, images and numpy arrays, recognised by type without importing their libraries.
+/// Polars DataFrames and PIL images, recognised by type without importing their libraries.
 fn py_to_ext(object: &Bound<'_, PyAny>) -> Result<Option<ExtValue>, Error> {
     let type_name = qualified_type_name(object);
     let py = object.py();

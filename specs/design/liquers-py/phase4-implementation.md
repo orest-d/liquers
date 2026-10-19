@@ -285,6 +285,6 @@ features `IN-PROGRESS`.
 
 ## Phase 5 Entry Criteria
 - [x] Implementation finished and validated
-- [ ] User and review comments answered — review comments yes; the owner's Phase 1 decision 6
-  awaits confirmation
+- [x] User and review comments answered — review comments in "Implementation Review"; the
+  owner's Phase 1 decisions 1, 5 and 6 were made on 2026-10-19
 - [x] Documentation checkable against implemented and tested behaviour

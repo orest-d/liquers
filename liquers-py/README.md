@@ -2,6 +2,10 @@
 
 Python bindings for Liquers, built with [PyO3](https://pyo3.rs) and [maturin](https://www.maturin.rs).
 
+How to use it is [`specs/guides/PYTHON_GUIDE.md`](../specs/guides/PYTHON_GUIDE.md): configuring an
+environment, registering commands, running queries, values and errors. How it is built on the Rust
+crates is [`specs/reference/PYTHON_INTEGRATION.md`](../specs/reference/PYTHON_INTEGRATION.md).
+
 The distribution is named `liquers-py`; the package it installs is imported as `liquers`:
 
 ```python

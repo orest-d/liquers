@@ -171,6 +171,7 @@ LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT,issue,Language exception class and s
 LANGUAGE-GUIDE-NO-DOCUMENTATION-SECTION,feature,The language integration guide says nothing about writing the integration's own documentation,draft,local,,,,P2,M,docs;web;py,,,,,,2026-08-30,specs/issues/LANGUAGE-GUIDE-NO-DOCUMENTATION-SECTION.md
 LANGUAGE-GUIDE-STALE-LIQUERS-WEB-CLAIMS,issue,LANGUAGE-INTEGRATION_GUIDE makes stale claims about liquers-web,draft,local,,ready,eligible,P2,S,docs;web,,,,language-guide-web-claims,,2026-10-17,specs/issues/LANGUAGE-GUIDE-STALE-LIQUERS-WEB-CLAIMS.md
 LANGUAGE-GUIDE-STORE-SCOPE-INCOMPLETE,issue,The guide's STORE feature omits integration-provided stores and store configuration,closed,local,,,,P2,M,web;py;core/store,,,,,,2026-08-09,specs/issues/LANGUAGE-GUIDE-STORE-SCOPE-INCOMPLETE.md
+LANGUAGE-INTEGRATION-GUIDE-DEFINES-NO-USER-DOCUMENTATION,issue,The language integration guide does not require user documentation for an integration,draft,local,,,,P2,S,docs,,,,,,2026-10-19,specs/issues/LANGUAGE-INTEGRATION-GUIDE-DEFINES-NO-USER-DOCUMENTATION.md
 LANGUAGE-STORE-CONFIG-FUNCTION-NOT-DEFINABLE,feature,A store_config handler cannot be defined in the integrated language,draft,local,,,,P3,M,web;py;core/store;store/config,,,,,,2026-10-15,specs/issues/LANGUAGE-STORE-CONFIG-FUNCTION-NOT-DEFINABLE.md
 LANGUAGE-STORE-TYPE-NOT-DEFINABLE,feature,A store type cannot be defined in the integrated language,draft,local,,,,P2,M,web;py;core/store;store/config,,,,,,2026-08-29,specs/issues/LANGUAGE-STORE-TYPE-NOT-DEFINABLE.md
 LIB-BUILD-EMITS-UNUSED-AND-UNHANDLED-RESULT-WARNINGS,issue,"A default liquers-lib build emits about 50 warnings, some for discarded Results",draft,local,,ready,not-eligible,P3,S,lib/commands;build,,,,lib-build-warning-cleanup,,2026-10-11,specs/issues/LIB-BUILD-EMITS-UNUSED-AND-UNHANDLED-RESULT-WARNINGS.md
@@ -222,12 +223,14 @@ POLARS-DOC-EXAMPLES-OMIT-NAMESPACE,issue,Polars reference example queries omit t
 POST-INIT-COMMAND-REGISTRATION,issue,Registering a command after Environment::to_ref requires a rebuild,accepted,local,,,,P3,M,core/commands;web,,,,,,2026-08-08,specs/issues/POST-INIT-COMMAND-REGISTRATION.md
 PREDECESSOR-CUT-NOT-YET-EQUIVALENT,issue,Cutting a predecessor boundary is not yet equivalent to expanding it,closed,local,,,,P1,M,core/plan;core/assets,,,,predecessor-cut-equivalence,,2026-08-15,specs/issues/PREDECESSOR-CUT-NOT-YET-EQUIVALENT.md
 PY-ADD-PYTHON-COMMAND-ALIASES-AN-UNREGISTERED-COMMAND,issue,liquers-py's add_python_command registers an alias to a pycall command that does not exist,closed,local,,needs-decision,not-eligible,P2,M,py,,,,liquers-py,,2026-10-17,specs/issues/PY-ADD-PYTHON-COMMAND-ALIASES-AN-UNREGISTERED-COMMAND.md
+PY-API-REFERENCE-NOT-GENERATED,feature,"The Python package has no generated API reference, and most of its names have no docstring",draft,local,,,,P2,M,py;docs,,,,,,2026-10-19,specs/issues/PY-API-REFERENCE-NOT-GENERATED.md
 PY-COMMAND-DECORATOR-CANNOT-DECLARE-ARGUMENT-METADATA,feature,Python command decorators cannot declare per-argument metadata,draft,local,,,,P3,S,py,,,,,,2026-10-18,specs/issues/PY-COMMAND-DECORATOR-CANNOT-DECLARE-ARGUMENT-METADATA.md
 PY-COMMAND-DECORATOR-CANNOT-SET-REALM,feature,Python command decorators cannot place a command in a realm,draft,local,,,,P3,S,py,,,,,,2026-10-18,specs/issues/PY-COMMAND-DECORATOR-CANNOT-SET-REALM.md
 PY-MODULES-NOT-DECLARED-IN-LIB,issue,Half of liquers-py's source files are not declared as modules and never compile,closed,local,,needs-decision,not-eligible,P2,M,py,,,,liquers-py,,2026-08-25,specs/issues/PY-MODULES-NOT-DECLARED-IN-LIB.md
 PY-PYO3-0-21-CANNOT-TARGET-PYTHON-3-13,feature,"liquers-py pins PyO3 0.21, which cannot target Python 3.13 or newer",closed,local,,needs-decision,not-eligible,P3,M,py;build,,,,liquers-py,,2026-10-10,specs/issues/PY-PYO3-0-21-CANNOT-TARGET-PYTHON-3-13.md
 PY-PYO3-REJECTS-PYTHON-3-13,issue,liquers-py does not build against Python 3.13 without an environment override,closed,local,,ready,eligible,P3,S,py;build,,,,pyo3-python-3-13-support,,2026-10-06,specs/issues/PY-PYO3-REJECTS-PYTHON-3-13.md
 PY-RECIPE-PROVIDER-NOT-CONFIGURABLE,feature,A Python environment cannot configure a recipe provider other than the default,draft,local,,,,P3,M,py,,,,,,2026-10-18,specs/issues/PY-RECIPE-PROVIDER-NOT-CONFIGURABLE.md
+PY-REPRS-SHOW-RUST-DEBUG-FORMAT,issue,"Several Python classes' repr is Rust debug output, and Key and Query quote their text twice",draft,local,,,,P3,S,py,,,,,,2026-10-19,specs/issues/PY-REPRS-SHOW-RUST-DEBUG-FORMAT.md
 PY-VALUE-ENUM-OVERSIZED,issue,liquers-py's own Value enum is over 700 bytes because large variants are stored inline,closed,local,,needs-decision,not-eligible,P3,M,py,,,,liquers-py,,2026-10-12,specs/issues/PY-VALUE-ENUM-OVERSIZED.md
 PY-VALUE-SERIALIZER-IS-A-STUB,issue,liquers-py's value serializer writes almost nothing and reads nothing back,closed,local,,needs-decision,not-eligible,P2,M,py;core/value,,,,liquers-py,,2026-08-26,specs/issues/PY-VALUE-SERIALIZER-IS-A-STUB.md
 PY-VALUE-TYPE-DESCRIPTIONS-MISSING,issue,"liquers-py's Value describes no types, so its registry would refuse every write",closed,local,,,,P2,M,py;core/value,,,,foreign-value-type-registration,,2026-08-26,specs/issues/PY-VALUE-TYPE-DESCRIPTIONS-MISSING.md
@@ -581,7 +584,7 @@ COVERED-08,design,Coverage record for WEB-VALUE04-BYTES-IDENTIFIER-CASE-MISMATCH
 WEBUI-FIXES,design,Invalidation tracking for retained-mode rendering,complete,local,,,,,,lib/ui,,12,,webui-fixes,,2026-03-02,specs/design/webui-fixes/DESIGN.md
 WEBUI,design,Web-framework-independent rendering with SSR and wasm,complete,local,,,,,,lib/ui,,10,,webui,,2026-03-02,specs/design/webui/DESIGN.md
 WP2-TERMINAL-OUTCOME,design,Asset terminal outcome contract,complete,local,,,,,,core/assets,,7,,wp2-terminal-outcome,,2026-03-02,specs/design/wp2-terminal-outcome/DESIGN.md
-API_DOCS_GAP_ANALYSIS,reference,API Documentation Gap Analysis,current,local,,,,,,docs,,,,,2026-10-10,,specs/reference/api/API_DOCS_GAP_ANALYSIS.md
+API_DOCS_GAP_ANALYSIS,reference,API Documentation Gap Analysis,current,local,,,,,,docs,,,,,2026-10-19,,specs/reference/api/API_DOCS_GAP_ANALYSIS.md
 DOC_01_ARCHITECTURE_REFERENCE,reference,Architecture Reference,current,local,,,,,,core/query;core/plan;core/assets,,,,,2026-08-09,,specs/reference/api/DOC_01_ARCHITECTURE_REFERENCE.md
 DOC_02_QUERY_LANGUAGE_REFERENCE,reference,Query Language Reference,current,local,,,,,,core/query,,,,,2026-10-17,,specs/reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md
 DOC_03_ASSETS_EXECUTION_LIFECYCLE,reference,Assets and Execution Lifecycle Reference,current,local,,,,,,core/assets,,,,,2026-10-12,,specs/reference/api/DOC_03_ASSETS_EXECUTION_LIFECYCLE.md
@@ -600,6 +603,7 @@ PAYLOAD_GUIDE,reference,Payload Specification and Usage,current,local,,,,,,core/
 POLARS_COMMAND_LIBRARY,reference,Polars Command Library Specification,current,local,,,,,,lib/polars,,,,,2026-10-14,,specs/reference/POLARS_COMMAND_LIBRARY.md
 POSITIONING,reference,Positioning and Marketing Plan (draft),current,local,,,,,,docs,,,,,2026-10-15,,specs/reference/POSITIONING.md
 PROJECT_OVERVIEW,reference,Liquers Project Overview,current,local,,,,,,core/query;core/plan;core/assets;core/store;core/value,,,,,2026-10-17,,specs/reference/PROJECT_OVERVIEW.md
+PYTHON_INTEGRATION,reference,Python Integration,current,local,,,,,,py,,,,,2026-10-19,,specs/reference/PYTHON_INTEGRATION.md
 REALMS,reference,Realms,current,local,,,,,,core/plan;core/commands;store/config,,,,,2026-10-16,,specs/reference/REALMS.md
 RECORD_STREAMS,reference,Record Streams,current,local,,,,,,records;lib/value;lib/commands;web,,,,,2026-10-13,,specs/reference/RECORD_STREAMS.md
 REGISTER_COMMAND_FSD,reference,register_command! Macro Functional Specification,current,local,,,,,,macro;core/commands,,,,,2026-10-12,,specs/reference/REGISTER_COMMAND_FSD.md
@@ -619,6 +623,7 @@ COMMAND_REGISTRATION_GUIDE,guide,Command Registration Guide,current,local,,,,,,c
 DEPENDENCY_CONSISTENCY_GUIDE,guide,Dependency Consistency Guide,current,local,,,,,,core/assets,,,,,2026-10-08,,specs/guides/DEPENDENCY_CONSISTENCY_GUIDE.md
 ENVIRONMENT_CONSTRUCTION_GUIDE,guide,Building and Configuring an Environment,current,local,,,,,,core/context;core/assets;core/store,,,,,2026-10-11,,specs/guides/ENVIRONMENT_CONSTRUCTION_GUIDE.md
 LANGUAGE-INTEGRATION_GUIDE,guide,Language Integration Guide,current,local,,,,,,web;py;core/commands;core/plan;core/assets;core/store,,,,,2026-10-19,,specs/guides/LANGUAGE-INTEGRATION_GUIDE.md
+PYTHON_GUIDE,guide,Using Liquers from Python,current,local,,,,,,py,,,,,2026-10-19,,specs/guides/PYTHON_GUIDE.md
 QUERY_ESCAPING_GUIDE,guide,Query Escaping Guide,current,local,,,,,,core/query,,,,,2026-10-07,,specs/guides/QUERY_ESCAPING_GUIDE.md
 RECORD_STREAM_GUIDE,guide,Record Stream Guide,current,local,,,,,,records;lib/value,,,,,2026-10-13,,specs/guides/RECORD_STREAM_GUIDE.md
 SEARCH_GUIDE,guide,Search Guide,current,local,,,,,,lib/commands;records,,,,,2026-10-17,,specs/guides/SEARCH_GUIDE.md

@@ -257,7 +257,7 @@ submit, and submitted query state is not preserved.
 - **Web API library** — built → [`design/web-api-library/`](design/web-api-library/)
 - **Browser and JavaScript integration** — built → [`design/liquers-web/`](design/liquers-web/)
 - **Async evaluation on wasm** — built → [`design/async-wasm-refactor/`](design/async-wasm-refactor/)
-- **Python integration (liquers-py)** — built → [`guides/LANGUAGE-INTEGRATION_GUIDE.md`](guides/LANGUAGE-INTEGRATION_GUIDE.md) §6 Python; conformance matrix in `liquers-py/README.md`; design [`design/liquers-py/`](design/liquers-py/) *(supersedes [`design/python-wrapper/`](design/python-wrapper/))*
+- **Python integration (liquers-py)** — built → [`guides/PYTHON_GUIDE.md`](guides/PYTHON_GUIDE.md) (using it), [`reference/PYTHON_INTEGRATION.md`](reference/PYTHON_INTEGRATION.md) (its contract), [`guides/LANGUAGE-INTEGRATION_GUIDE.md`](guides/LANGUAGE-INTEGRATION_GUIDE.md) §6 Python; conformance matrix in `liquers-py/README.md`; design [`design/liquers-py/`](design/liquers-py/) *(supersedes [`design/python-wrapper/`](design/python-wrapper/))*
 - **Executor-agnostic core** — planned → [`issues/CORE-TOKIO-REMOVAL.md`](issues/CORE-TOKIO-REMOVAL.md)
 - **Browser stores (localStorage, fetch, JS, routing)** — built → [`design/liquers-web-store/`](design/liquers-web-store/)
 - **Browser-native store and command backend** — planned → [`issues/WEB-NATIVE-IO-TIER2.md`](issues/WEB-NATIVE-IO-TIER2.md)
@@ -457,6 +457,7 @@ deliberately folded behind a broader line.
 - feature `NO-REMOTE-STORE-OR-ASSET-MANAGER`
 - feature `NO-SOURCE-CODE-AND-API-DOC-NAVIGATION`
 - feature `NO-TEMPLATE-EDITOR-UI`
+- feature `PY-API-REFERENCE-NOT-GENERATED`
 - feature `PY-COMMAND-DECORATOR-CANNOT-DECLARE-ARGUMENT-METADATA`
 - feature `PY-COMMAND-DECORATOR-CANNOT-SET-REALM`
 - feature `PY-RECIPE-PROVIDER-NOT-CONFIGURABLE`
@@ -487,6 +488,7 @@ deliberately folded behind a broader line.
 - [`DEPENDENCY_CONSISTENCY_GUIDE.md`](guides/DEPENDENCY_CONSISTENCY_GUIDE.md) — How to choose how much inconsistency an application tolerates between runs, and how to start a
 - [`ENVIRONMENT_CONSTRUCTION_GUIDE.md`](guides/ENVIRONMENT_CONSTRUCTION_GUIDE.md) — An `Environment` owns the global services a query evaluation needs: the command registry, the
 - [`LANGUAGE-INTEGRATION_GUIDE.md`](guides/LANGUAGE-INTEGRATION_GUIDE.md) — Status: Draft
+- [`PYTHON_GUIDE.md`](guides/PYTHON_GUIDE.md) — How to use Liquers from Python with the `liquers` package: build it, configure an environment,
 - [`QUERY_ESCAPING_GUIDE.md`](guides/QUERY_ESCAPING_GUIDE.md) — A Liquers query is text with structure: `/` separates path segments, `-` separates action
 - [`RECORD_STREAM_GUIDE.md`](guides/RECORD_STREAM_GUIDE.md) — How to produce records from a new source: a command that returns a table, a manifest that stitches
 - [`SEARCH_GUIDE.md`](guides/SEARCH_GUIDE.md) — How to find things in a Liquers store with the `ns-search` commands: files by folder or name,

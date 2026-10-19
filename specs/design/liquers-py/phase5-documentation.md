@@ -3,8 +3,9 @@
 ## Completion Preconditions
 
 - [x] Implementation is finished and validated — Phase 4 steps 1–12; see Validation
-- [ ] All user comments are answered or incorporated — Phase 1 readiness question 6 awaits
-  the owner's confirmation (implemented as recommended); 1 was accepted and 5 decided (M0 is PR #163)
+- [x] All user comments are answered or incorporated — Phase 1 readiness questions 1, 5 and 6
+  were decided by the owner on 2026-10-19, and the documentation the owner then asked for is
+  below
 - [x] All review comments are answered or incorporated — Phase 4 "Implementation Review"
 - [x] Documentation is consistent with the implemented and tested behavior
 - [x] Documentation is included in the implementation PR when practical
@@ -55,13 +56,31 @@ nothing is unpickled, but the error does not name the type. The matrix is in
 
 ## Documentation Delivered
 
+The owner asked on 2026-10-19 for three Python documents: a standard Python API doc, a Python
+reference documenting the integration, and a Python guide to the modules and to configuring an
+environment, registering a command and running a query. `LANGUAGE-INTEGRATION_GUIDE.md` requires
+none of them; it asks only for a quick-start under the Optional `PACKAGE` feature. That gap is
+filed as `LANGUAGE-INTEGRATION-GUIDE-DEFINES-NO-USER-DOCUMENTATION`.
+
 ### New Reference Documents
-None. The Python API's current behaviour is in `liquers-py/README.md` (quick start and
-conformance matrix) and in the package's docstrings, which ship with the code. The integration
-patterns are guidance, so they went to the guide.
+- **[`reference/PYTHON_INTEGRATION.md`](../../reference/PYTHON_INTEGRATION.md)** (audience
+  `both`): the integration's contract at HEAD. It covers the layout and features, the exposed
+  types, the environment's declarations, build, rebuild and shutdown, the command declaration and
+  call path, both value-conversion directions and the pickle rule, error mapping and traceback
+  concatenation, waits, threads and limitations. It also records the three deviations accepted
+  in Phase 1 decision 6.
 
 ### New Guide Documents
-None. `LANGUAGE-INTEGRATION_GUIDE.md` §6 Python is the guide, rewritten (below).
+- **[`guides/PYTHON_GUIDE.md`](../../guides/PYTHON_GUIDE.md)** (audience `user`): installing, the
+  module overview, a first query, configuring an environment, registering commands (input,
+  arguments, context, metadata, replacing, errors), running queries, values, errors, testing, and
+  known limitations. Its twelve examples were extracted and executed against the built package.
+
+### Deferred: the generated API reference
+Most public names have no docstring (285 of 392 on 2026-10-19), so a generated reference would
+be empty. Writing them, generating HTML with a standard tool and checking coverage in CI is
+`PY-API-REFERENCE-NOT-GENERATED` (P2). It is tracked with the rest of the Python documentation as
+DOC-12 in `reference/api/API_DOCS_GAP_ANALYSIS.md`.
 
 ### Existing Documents Reviewed or Updated
 `affects_docs` (authoritative):
@@ -80,16 +99,22 @@ None. `LANGUAGE-INTEGRATION_GUIDE.md` §6 Python is the guide, rewritten (below)
 - **`guides/COMMAND_DESIGN_GUIDE.md`**: its alias "bridge" example described the removed
   `pycall` design, and is corrected.
 
-Each kept document has a 2026-10-18 History row with source phase-5, and `reviewed:` set to
-2026-10-18.
+- **`reference/api/API_DOCS_GAP_ANALYSIS.md`**: §12 Python bindings and the DOC-12 tracker row
+  described `liquers-py` as having no README, guide or examples; they now point at the new
+  documents and at what remains.
+
+Each kept document has a History row with source phase-5 and a matching `reviewed:` date.
+`LANGUAGE-INTEGRATION_GUIDE.md` §6 Python also links the two new documents (2026-10-19).
 
 Also updated:
-- `CLAUDE.md`: a "Python bindings" entry under "Where Code Goes";
-- `liquers-py/README.md`.
+- `CLAUDE.md`: a "Python bindings" entry under "Where Code Goes", pointing at the reference and
+  the guide;
+- `liquers-py/README.md`, which links both.
 
 ### Links and Capability Map
 `specs/README.md`: the "Python integration (liquers-py)" entry moves from *designing* to *built*. It
-now links the guide's §6 and the README matrix, keeping the design link.
+now links the Python guide, the Python integration reference, the integration guide's §6 and the
+README matrix, keeping the design link.
 
 ## Issues Filed
 
@@ -109,6 +134,11 @@ now links the guide's §6 and the README matrix, keeping the design link.
 - `MULTI-LANGUAGE-TRACEBACK-IS-A-FLAT-STRING` (P3): a traceback crossing several languages is one
   flat string. This is an open problem the owner raised; nested Python stacks are concatenated for
   now.
+- `PY-API-REFERENCE-NOT-GENERATED` (P2): the deferred API reference, above.
+- `PY-REPRS-SHOW-RUST-DEBUG-FORMAT` (P3): `repr(Query)` and `repr(Key)` quote their text twice,
+  and several classes print Rust debug output. Found while writing the guide.
+- `LANGUAGE-INTEGRATION-GUIDE-DEFINES-NO-USER-DOCUMENTATION` (P2): the guide requires no user
+  documentation from an integration.
 
 **Closed by this work:**
 - `FOREIGN-VALUE-CANNOT-BE-DESERIALIZED`;
@@ -142,8 +172,8 @@ These are in the guide's §6 Python, which is the place to update them.
 | AC-1–AC-21 | all | all except AC-18's message half (`DEGRADED-…`) and AC-21's `RUNTIME05`, built half (`ENVIRONMENT-MANAGER-REFERENCE-CYCLE`) |
 | Async | split to `liquers-py-async` (2026-10-18) | not here, by decision |
 
-What remains is in the issues above; nothing is left half-done in the design. Two owner decisions
-is still open in Phase 1 readiness: confirmation of 6. Question 1 was accepted and question 5 decided (M0 is PR #163).
+What remains is in the issues above; nothing is left half-done in the design. No owner decision
+is open: Phase 1 questions 1, 5 and 6 were decided on 2026-10-19 (M0 is PR #163).
 
 ## Validation
 
@@ -163,6 +193,5 @@ is still open in Phase 1 readiness: confirmation of 6. Question 1 was accepted a
 
   Their optional findings were also applied: the guide gained the shutdown, Ctrl-C and decoder
   notes, the README gained a waiting and shutdown paragraph, and the filed issues gained their
-  missing sections. Not resolvable here: the entry gate's "all user comments answered", which
-  waits on the owner's Phase 1 decisions.
+  missing sections.
 

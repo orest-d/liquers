@@ -5,12 +5,12 @@ title: Python integration of Liquers (liquers-py)
 workflow: liquers-project
 status: in_review
 phase: documentation
-readiness: needs-decision
+readiness: ready
 autofix: not-eligible
 merged: 2026-10-17
 area: [py]
 issues: [PY-MODULES-NOT-DECLARED-IN-LIB, PY-PYO3-0-21-CANNOT-TARGET-PYTHON-3-13, PY-VALUE-ENUM-OVERSIZED, PY-VALUE-SERIALIZER-IS-A-STUB, PY-ADD-PYTHON-COMMAND-ALIASES-AN-UNREGISTERED-COMMAND, FOREIGN-VALUE-CANNOT-BE-DESERIALIZED]
-affects_docs: [specs/guides/LANGUAGE-INTEGRATION_GUIDE.md, specs/reference/VALUE_TYPE_SYSTEM.md, specs/reference/COMMAND_DECLARATION.md, specs/guides/COMMAND_DESIGN_GUIDE.md]
+affects_docs: [specs/guides/LANGUAGE-INTEGRATION_GUIDE.md, specs/reference/VALUE_TYPE_SYSTEM.md, specs/reference/COMMAND_DECLARATION.md, specs/guides/COMMAND_DESIGN_GUIDE.md, specs/reference/api/API_DOCS_GAP_ANALYSIS.md, specs/reference/PYTHON_INTEGRATION.md, specs/guides/PYTHON_GUIDE.md]
 created: 2026-10-17
 ---
 # liquers-py — Python integration
