@@ -28,7 +28,8 @@ and consolidated findings are in Phase 1.
 - Review follow-ups (PR #157): a handle is recognised by the marker being a getter on its
   prototype, so data copying the marker is not taken for a handle; in-memory views list as
   `kind: "memory"` chunks, since their placeholder ids name no query. A source from an explicit
-  `Environment` still resolves through the singleton: `WEB-RECORD-SOURCE-RESOLVES-THROUGH-SINGLETON`.
+  `Environment` resolved through the singleton until `WEB-RECORD-SOURCE-RESOLVES-THROUGH-SINGLETON`
+  gave each handle its origin.
 - Quickstart `.wasm` size, measured with and without the `ns-rec` registration line: release
   13,435,801 → 16,533,123 bytes (+3.1 MB, +23%); debug 37.7 MB → 46.6 MB. Registration stays as
   decided; a page that needs a smaller build would need a feature to leave it out.

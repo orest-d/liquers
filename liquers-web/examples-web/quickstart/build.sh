@@ -7,8 +7,12 @@
 # because it is what CI-less environments can run. Both produce a `dist/` a static server can host.
 #
 # Usage:
-#   ./build.sh                 # debug build into ./dist
-#   ./build.sh --release       # optimized
+#   ./build.sh                       # debug build into ./dist
+#   ./build.sh --release             # optimized
+#   ./build.sh --features records    # with record streams (off by default; about 3 MB of wasm)
+#
+# Any argument other than `--release` is passed to `cargo build` unchanged, except `--profile`
+# and `--target-dir`, which are refused because they move the artifact this script packages.
 #
 # Then serve it — any static server works, the page needs no backend:
 #   python3 -m http.server 8090 --directory dist
@@ -20,10 +24,16 @@ root="$(cd "$here/../../.." && pwd)"
 profile_dir="debug"
 cargo_args=()
 
-if [[ "${1:-}" == "--release" ]]; then
-    profile_dir="release"
-    cargo_args+=(--release)
-fi
+for arg in "$@"; do
+    case "$arg" in
+        --release) profile_dir="release" ;;
+        # Both move the artifact away from where this script looks for it.
+        --profile|--profile=*|--target-dir|--target-dir=*)
+            echo "build.sh: $arg is not supported; use --release for an optimized build" >&2
+            exit 2 ;;
+    esac
+    cargo_args+=("$arg")
+done
 
 echo "Building liquers-web for wasm32…"
 cargo build --manifest-path "$root/Cargo.toml" -p liquers-web \
