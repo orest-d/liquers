@@ -152,7 +152,7 @@ fn is_record_handle(js: &JsValue, marker: &JsValue) -> bool {
         return false;
     }
     let object: &js_sys::Object = js.unchecked_ref();
-    if object.has_own_property(marker) {
+    if js_sys::Object::has_own(object, marker) {
         return false;
     }
     let prototype = js_sys::Object::get_prototype_of(js);
