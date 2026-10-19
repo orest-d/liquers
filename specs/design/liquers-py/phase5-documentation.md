@@ -3,8 +3,8 @@
 ## Completion Preconditions
 
 - [x] Implementation is finished and validated — Phase 4 steps 1–12; see Validation
-- [ ] All user comments are answered or incorporated — Phase 1 readiness questions 1, 5 and 6 await
-  the owner's confirmation (both implemented as recommended); 5 was decided, M0 split into PR #163
+- [ ] All user comments are answered or incorporated — Phase 1 readiness question 6 awaits
+  the owner's confirmation (implemented as recommended); 1 was accepted and 5 decided (M0 is PR #163)
 - [x] All review comments are answered or incorporated — Phase 4 "Implementation Review"
 - [x] Documentation is consistent with the implemented and tested behavior
 - [x] Documentation is included in the implementation PR when practical
@@ -140,7 +140,7 @@ These are in the guide's §6 Python, which is the place to update them.
 | Async | split to `liquers-py-async` (2026-10-18) | not here, by decision |
 
 What remains is in the issues above; nothing is left half-done in the design. Two owner decisions
-are still open in Phase 1 readiness: confirmation of 1 and 6. Question 5 was decided: M0 is PR #163.
+is still open in Phase 1 readiness: confirmation of 6. Question 1 was accepted and question 5 decided (M0 is PR #163).
 
 ## Validation
 

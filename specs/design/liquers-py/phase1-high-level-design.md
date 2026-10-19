@@ -9,11 +9,13 @@
 - **Explanation:** every question below has a recommended answer that a working design is built on.
   Items 1, 5 and 6 are the owner's. On 2026-10-18 the owner said to run every phase without waiting
   for approval, so Phases 2–5 and the implementation proceeded on the recommended answer to each;
-  1 and 6 are implemented as recommended, and 5 was decided on 2026-10-19 (the M0 split, PR #163).
-  The readiness stays `needs-decision` until the owner confirms 1 and 6:
+  all three are now settled except 6: 1 was accepted on 2026-10-19 as implemented, and 5 was
+  decided the same day (the M0 split, PR #163). The readiness stays `needs-decision` until the
+  owner confirms 6:
   proceeding was authorized, the choices themselves were not made by the owner.
 - **Open questions:**
-  1. **Open design: read path for formatless types.**
+  1. **Decided (2026-10-19): read path for formatless types, as implemented.** Orest accepted the
+     empty-format-list rule below; a stricter per-format rule was offered and not chosen.
      - Change: a stored value whose registered type declares *no* data formats is read as degraded
        (`Ok(None)`), not deserialized. Without this, a pickle-off environment unpickles whatever a
        shared store holds.
