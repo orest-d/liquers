@@ -106,6 +106,9 @@ now links the guide's §6 and the README matrix, keeping the design link.
   skeleton.
 - `PY-COMMAND-DECORATOR-CANNOT-SET-REALM`, `PY-COMMAND-DECORATOR-CANNOT-DECLARE-ARGUMENT-METADATA`
   and `PY-RECIPE-PROVIDER-NOT-CONFIGURABLE` (all P3): omitted scope.
+- `MULTI-LANGUAGE-TRACEBACK-IS-A-FLAT-STRING` (P3): a traceback crossing several languages is one
+  flat string. This is an open problem the owner raised; nested Python stacks are concatenated for
+  now.
 
 **Closed by this work:**
 - `FOREIGN-VALUE-CANNOT-BE-DESERIALIZED`;

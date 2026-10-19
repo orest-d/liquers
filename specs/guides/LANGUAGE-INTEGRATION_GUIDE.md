@@ -3,7 +3,7 @@ title: Language Integration Guide
 kind: guide
 audience: internal
 area: [web, py, core/commands, core/plan, core/assets, core/store]
-reviewed: 2026-10-18
+reviewed: 2026-10-19
 ---
 # Liquers Language Integration Guide
 
@@ -1522,6 +1522,12 @@ settled on, and the list after them is what cost time.
   `register_command!` conventions (`state` / `text` / any other first parameter name, `context`,
   `*args` as `multiple`). Version a command by its code object, and give a closure or a bound
   method a fresh version: its captures are not in the code.
+- **Errors.** A Python exception becomes an `ExecutionError` whose message starts with the class
+  (`ValueError: bad`) and whose `traceback` is the formatted Python stack. A `LiquersError`
+  raised through Python frames, such as a failed `context.evaluate` a command lets propagate,
+  keeps its type and has those frames appended to the traceback it carries, innermost first. So
+  a Python → Rust → Python chain reports every Python stack it crossed. The traceback is a flat
+  string for now; its structure across languages is open (`MULTI-LANGUAGE-TRACEBACK-IS-A-FLAT-STRING`).
 - **The GIL.** Run a Python command under `spawn_blocking` and take the GIL there. Release the GIL
   around every wait (`py.detach`), and wait in short slices, running `py.check_signals()` and
   checking for shutdown between them: otherwise Ctrl-C cannot interrupt `evaluate`, and a wait
@@ -3141,6 +3147,7 @@ def test_PACKAGE07_artifact_carries_declarations_license_and_metadata():
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-19 | §6 Python: an *Errors* entry. Nested Python tracebacks are concatenated innermost first, and the cross-language structure is an open problem (`MULTI-LANGUAGE-TRACEBACK-IS-A-FLAT-STRING`). | `design/liquers-py/` (phase-5) |
 | 2026-10-18 | §6 Python rewritten from the implemented `liquers-py`: value, environment, command and GIL choices, and what cost time. §5 VALUE: corrected the claim that `liquers-py` owns a value type; it takes the constructor route like `liquers-web`. §1: `liquers-py` now implements every Essential feature of the Python profile, no longer a partial reference. | `design/liquers-py/` (phase-5) |
 | 2026-10-16 | §6 Browser JavaScript: `localstorage` and `http` now offer data-only access and can take a `metadata` section. | `design/store-adapters/` phase-5 review |
 | 2026-10-15 | Configured stores. §4: `read_only` and `metadata` belong to `STORE` direction 3, with no feature ID of their own. §STORE: direction 3 covers a mount's access policy and metadata handling; the inventory adds the data-only methods, `DataCapabilities`, `DataFacts`, `BackendTime`, `is_read_only`, `sync`, `created`/`etag` and `MetadataConfig`/`StoreConfigFunctions`; new design questions for configured stores; new subsection "Configured stores: access policy, metadata and write strategies" with the capability table and the `store_config` counterpart of "What the *language* cannot contribute"; tests `STORE14`–`STORE18` with a disposition column and Appendix A blueprints. §COMMAND asks about foreign realms; §ENVIRON states that chains compile against the environment's registry. §6: `JsStore`'s optional data methods and the built-in browser stores' refusal; Python's GIL cost for a per-entry handler. | phase-5, `design/store-adapters/` |

@@ -8,9 +8,9 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 132
+Total rows: 133
 - P2: 54
-- P3: 78
+- P3: 79
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -134,6 +134,7 @@ Total rows: 132
 | [`ASSET-MANAGER-CANNOT-BE-SYNCHRONIZED-WITH-THE-STORE`](issues/ASSET-MANAGER-CANNOT-BE-SYNCHRONIZED-WITH-THE-STORE.md) | feature | The asset and dependency managers cannot be explicitly synchronized with the store | draft |  |  | P3 | L | core/assets |  | 2026-10-08 |
 | [`COMMAND-COMPOSITE-VARIADIC-ARGUMENTS`](issues/COMMAND-COMPOSITE-VARIADIC-ARGUMENTS.md) | feature | A variadic argument cannot carry composite elements such as pairs or tuples | draft |  |  | P3 | L | core/commands;macro;lib/ui | [phase1](design/variadic-arguments-declaration/phase1-high-level-design.md)  [phase2](design/variadic-arguments-declaration/phase2-architecture.md)  [phase3](design/variadic-arguments-declaration/phase3-examples.md)  [phase4](design/variadic-arguments-declaration/phase4-implementation.md)  [phase5](design/variadic-arguments-declaration/phase5-documentation.md)  | 2026-08-25 |
 | [`CORE-ASSET-GC`](issues/CORE-ASSET-GC.md) | issue | Assets are never garbage collected | accepted |  |  | P3 | L | core/assets;core/store |  | 2026-08-08 |
+| [`MULTI-LANGUAGE-TRACEBACK-IS-A-FLAT-STRING`](issues/MULTI-LANGUAGE-TRACEBACK-IS-A-FLAT-STRING.md) | issue | An error crossing several languages carries one flat traceback string with no structure | draft |  |  | P3 | L | core/error;py;web |  | 2026-10-19 |
 | [`NO-MARKDOWN-NAVIGATION-COMMANDS`](issues/NO-MARKDOWN-NAVIGATION-COMMANDS.md) | feature | Markdown documents cannot be navigated, filtered or interpreted by structure | draft |  |  | P3 | L | lib/commands |  | 2026-10-11 |
 | [`NO-SOURCE-CODE-AND-API-DOC-NAVIGATION`](issues/NO-SOURCE-CODE-AND-API-DOC-NAVIGATION.md) | feature | Source code and API documentation cannot be navigated or extracted | draft |  |  | P3 | L | lib/commands |  | 2026-10-11 |
 | [`NO-TEMPLATE-EDITOR-UI`](issues/NO-TEMPLATE-EDITOR-UI.md) | feature | Templates and queries have no editor with highlighting and diagnostics | draft |  |  | P3 | L | lib/ui;lib/egui |  | 2026-10-13 |

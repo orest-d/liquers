@@ -192,6 +192,7 @@ MEMORYSTORE-MAKEDIR-SUCCEEDS-WITHOUT-CREATING-A-DIRECTORY,issue,MemoryStore::mak
 METADATA-LACKS-SERIALIZE-DESERIALIZE-AND-PARTIALEQ,issue,"Metadata lacks Serialize, Deserialize and PartialEq",closed,local,,ready,,P2,S,core/value,,,,metadata-serde-partialeq,,2026-09-26,specs/issues/METADATA-LACKS-SERIALIZE-DESERIALIZE-AND-PARTIALEQ.md
 METADATA-ONLY-ENTRY-RELOADS-AS-CORRUPTED,issue,A value stored as metadata only is reloaded through the corrupted-data path,closed,local,,ready,eligible,P3,S,core/assets,,,,metadata-only-entry-reload,,2026-09-24,specs/issues/METADATA-ONLY-ENTRY-RELOADS-AS-CORRUPTED.md
 METADATA-TITLE-AND-DESCRIPTION-NEVER-POPULATED,issue,Nothing populates an asset's title or description,rejected,local,,,,P2,M,core/value;core/store,,,,,,2026-09-16,specs/issues/METADATA-TITLE-AND-DESCRIPTION-NEVER-POPULATED.md
+MULTI-LANGUAGE-TRACEBACK-IS-A-FLAT-STRING,issue,An error crossing several languages carries one flat traceback string with no structure,draft,local,,,,P3,L,core/error;py;web,,,,,,2026-10-19,specs/issues/MULTI-LANGUAGE-TRACEBACK-IS-A-FLAT-STRING.md
 NEW-FOLDER-WRITE-DOES-NOT-REFRESH-THE-PARENT-LISTING,issue,A write that creates a folder does not refresh the listing of the folder above it,draft,local,,ready,eligible,P3,S,core/assets,,,,new-folder-write-ancestor-listing-refresh,,2026-10-17,specs/issues/NEW-FOLDER-WRITE-DOES-NOT-REFRESH-THE-PARENT-LISTING.md
 NO-END-TO-END-TEST-OF-A-MANIFEST-OVER-STORED-CSV-FILES,issue,"No test reads a manifest whose chunks are stored CSV files, the design's motivating case",closed,local,,ready,eligible,P3,S,records,,,,manifest-over-stored-csv-test,,2026-09-27,specs/issues/NO-END-TO-END-TEST-OF-A-MANIFEST-OVER-STORED-CSV-FILES.md
 NO-MARKDOWN-NAVIGATION-COMMANDS,feature,"Markdown documents cannot be navigated, filtered or interpreted by structure",draft,local,,,,P3,L,lib/commands,,,,,,2026-10-11,specs/issues/NO-MARKDOWN-NAVIGATION-COMMANDS.md
@@ -617,7 +618,7 @@ COMMAND_DESIGN_GUIDE,guide,Command Design Guide,current,local,,,,,,core/commands
 COMMAND_REGISTRATION_GUIDE,guide,Command Registration Guide,current,local,,,,,,core/commands;macro,,,,,2026-10-17,,specs/guides/COMMAND_REGISTRATION_GUIDE.md
 DEPENDENCY_CONSISTENCY_GUIDE,guide,Dependency Consistency Guide,current,local,,,,,,core/assets,,,,,2026-10-08,,specs/guides/DEPENDENCY_CONSISTENCY_GUIDE.md
 ENVIRONMENT_CONSTRUCTION_GUIDE,guide,Building and Configuring an Environment,current,local,,,,,,core/context;core/assets;core/store,,,,,2026-10-11,,specs/guides/ENVIRONMENT_CONSTRUCTION_GUIDE.md
-LANGUAGE-INTEGRATION_GUIDE,guide,Language Integration Guide,current,local,,,,,,web;py;core/commands;core/plan;core/assets;core/store,,,,,2026-10-18,,specs/guides/LANGUAGE-INTEGRATION_GUIDE.md
+LANGUAGE-INTEGRATION_GUIDE,guide,Language Integration Guide,current,local,,,,,,web;py;core/commands;core/plan;core/assets;core/store,,,,,2026-10-19,,specs/guides/LANGUAGE-INTEGRATION_GUIDE.md
 QUERY_ESCAPING_GUIDE,guide,Query Escaping Guide,current,local,,,,,,core/query,,,,,2026-10-07,,specs/guides/QUERY_ESCAPING_GUIDE.md
 RECORD_STREAM_GUIDE,guide,Record Stream Guide,current,local,,,,,,records;lib/value,,,,,2026-10-13,,specs/guides/RECORD_STREAM_GUIDE.md
 SEARCH_GUIDE,guide,Search Guide,current,local,,,,,,lib/commands;records,,,,,2026-10-17,,specs/guides/SEARCH_GUIDE.md

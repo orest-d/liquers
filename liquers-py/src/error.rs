@@ -202,12 +202,25 @@ pub fn error_to_pyerr(py: Python<'_>, error: &liquers_core::error::Error) -> PyE
 
 /// The Liquers error for a Python exception.
 ///
-/// A `LiquersError` keeps its own type and fields (ERROR06). Anything else, `BaseException`
+/// A `LiquersError` keeps its own type and fields (ERROR06), with the Python frames it was raised
+/// through appended to its traceback. Anything else, `BaseException`
 /// subclasses such as `KeyboardInterrupt` included, becomes an `ExecutionError` whose message
 /// names the exception class and whose traceback is the formatted Python stack (ERROR03, ERROR04).
 pub fn pyerr_to_error(py: Python<'_>, err: &PyErr) -> liquers_core::error::Error {
     let value = err.value(py);
-    if let Some(error) = liquers_error_fields(py, value) {
+    if let Some(mut error) = liquers_error_fields(py, value) {
+        // A `LiquersError` that passed through Python frames (an `lq.Context.evaluate` failure a
+        // command let propagate) gains those frames after the traceback it already carries, so a
+        // Python -> Rust -> Python chain reports every Python stack it crossed. One that was never
+        // raised (`__traceback__` is `None`) is passed back unchanged.
+        if err.traceback(py).is_some() {
+            if let Some(frames) = format_traceback(py, err) {
+                error.traceback = Some(match error.traceback.take() {
+                    Some(inner) if !inner.is_empty() => format!("{inner}\n{frames}"),
+                    Some(_) | None => frames,
+                });
+            }
+        }
         return error;
     }
     let class = value

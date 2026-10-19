@@ -40,6 +40,11 @@
      - `reset()` is dropped: a new `Environment()` is the reset.
      - `language_context` is not added to core, since `ErrorPayload.traceback` already carries the
        stack and the class rides in the message.
+       **Accepted 2026-10-19**, with the owner's note: a traceback may have to carry stacks from
+       several languages (Rust calling Python calling … Rhai). For now it is a concatenation of
+       those stacks, and what matters most is that Python tracebacks are passed along. Nested
+       Python stacks are now concatenated innermost first; the open problem is
+       `MULTI-LANGUAGE-TRACEBACK-IS-A-FLAT-STRING`.
      - Recommended: accept all three.
   7. **Proposed resolution: configured stores are in scope** to the extent of `EnvironmentConfig`'s
      `store` section, using core's existing factories (AC-18's shared file store). Python-defined

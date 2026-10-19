@@ -84,6 +84,26 @@ def test_ERROR06_language_raised_error_keeps_its_type(env):
     assert "no such key" in raised.value.message
 
 
+def test_ERROR_nested_python_tracebacks_are_concatenated(env):
+    # Python -> Rust -> Python: the inner command's stack and the outer command's frames both
+    # reach the caller, inner first. A traceback is a plain concatenation for now; see
+    # MULTI-LANGUAGE-TRACEBACK-IS-A-FLAT-STRING.
+    @env.first_command
+    def inner_fails():
+        raise ValueError("deep")
+
+    @env.first_command
+    def outer_calls(context):
+        return context.evaluate("inner_fails")
+
+    with pytest.raises(lq.ExecutionError) as raised:
+        env.evaluate("outer_calls")
+    traceback = raised.value.traceback
+    assert "ValueError: deep" in raised.value.message
+    assert "inner_fails" in traceback and "outer_calls" in traceback
+    assert traceback.index("inner_fails") < traceback.index("outer_calls")
+
+
 def test_ERROR05_no_panic_crosses_the_boundary(env):
     # `test_panic` is a Rust command that panics, registered only under `debug-handles`.
     assert hasattr(lq.Environment, "live_handle_count"), "build with --features debug-handles"
