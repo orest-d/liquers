@@ -21,9 +21,12 @@ implemented.
 ### Purpose
 
 A caller applying a command speculatively (a search projection, a preview, a UI hint) needs an
-enforced guarantee that it evaluates nothing, reads no store and writes no asset. A **pure**
-context refuses those operations with an `Error`; command metadata says whether a command may run
-under one, and the registry refuses one that may not.
+guarantee that it evaluates nothing, reads no store and writes no asset. A **pure** context refuses
+those operations with an `Error` from every `Context` method; command metadata says whether a
+command may run under one, and the registry refuses one that may not. The enforcement covers the
+`Context` methods only: the raw handles `get_envref()` / `get_asset_ref()` stay reachable, and for a
+command that takes `context` the guarantee there rests on its `pure: true` declaration
+(question 1). A derived-pure command takes no context, so for it the guarantee is complete.
 
 ### Problem Example
 

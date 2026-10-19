@@ -147,8 +147,10 @@ A library module does the work; the binary parses arguments and maps the result 
 - **Run.** All rules: `run_all`. Selected: `run_rule` per id, then cleanup and residue as `run_all`.
 - **Output.** Text: parsed configuration, then `ConformanceReport`'s `Display`, then the residue,
   then the not-run line (`not_run_by_level`) and the summary. JSON/YAML: one envelope. Errors go to
-  stderr with stdout empty, as in `liquers-validate`.
-- **Exit.** 0 when `report.failures()` is empty, 1 otherwise, 2 for any `Err` before the report.
+  stderr with stdout empty, as in `liquers-validate`, with one exception (AC-6): when the document
+  parsed and the failure came later, `CheckFailure.config` carries the parsed configuration and the
+  binary renders it to stdout (unexpanded, AC-9) before writing the error to stderr.
+- **Exit.** 0 when `report.failures()` is empty, 1 otherwise, 2 for any `CheckFailure`.
 
 Rejected: the binary in `liquers-core` (no OpenDAL types); a `conformance:` section in
 `stores.yaml` (a check run is not deployment configuration; core schema change); `create_fixture` (Q2).
@@ -181,7 +183,10 @@ pub struct CheckRequest { pub source: CheckSource, pub level: Option<SafetyLevel
 pub struct CheckOutcome { pub config: StoreRouterConfig, pub report: ConformanceReport }
 pub enum CheckFormat { Text, Json, Yaml }
 
-pub async fn run_check(request: CheckRequest) -> Result<CheckOutcome, Error>;
+/// Failure before a report exists; `config` is `Some` once the document has parsed (AC-6).
+pub struct CheckFailure { pub config: Option<StoreRouterConfig>, pub error: Error }
+
+pub async fn run_check(request: CheckRequest) -> Result<CheckOutcome, CheckFailure>;
 pub async fn run_fixture(fixture: &dyn Fixture, rules: &[String]) -> Result<ConformanceReport, Error>;
 pub fn render(outcome: &CheckOutcome, format: CheckFormat) -> Result<String, Error>;
 impl CheckOutcome { pub fn exit_code(&self) -> i32 }
@@ -230,7 +235,7 @@ key_base: data/_conformance
 - `check04_incomplete_or_unknown_claims_are_setup_errors` — AC-3
 - `check05_failing_store_is_exit_one_with_rule_and_keys` — `run_fixture` over a test store whose `removedir` deletes a name-extending sibling: AC-4
 - `check06_create_only_lists_residue_before_summary` — AC-5
-- `check07_unbuildable_document_and_unknown_scratch_type_are_setup_errors` — AC-6
+- `check07_unbuildable_document_and_unknown_scratch_type_are_setup_errors` (the document case returns `CheckFailure` with `config: Some`, the scratch case `None`) — AC-6
 - `check08_rule_selection_runs_only_named_rules` — and an unknown id: AC-7
 - `check09_json_and_yaml_envelopes_parse` — AC-8
 - `check10_printed_configuration_keeps_variables` — AC-9
