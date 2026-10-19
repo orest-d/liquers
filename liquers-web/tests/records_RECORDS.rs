@@ -660,3 +660,21 @@ async fn records_a_singleton_source_sees_commands_registered_later() {
     assert_eq!(int_column(&rows), vec![1, 10]);
     liquers_web::environment::reset_global();
 }
+
+/// A value the singleton produced before a rebuild is still the singleton's: a source converted
+/// from it follows the singleton, not the generation it came from.
+#[wasm_bindgen_test]
+async fn records_a_source_from_an_earlier_singleton_follows_the_singleton() {
+    common::fresh();
+    let earlier = liquers_web::environment::shared_env().expect("share");
+    liquers_web::environment::register_command_on(&common::decl("other", "return 1;"))
+        .expect("register, rebuilding the singleton");
+    let js = liquers_web::bridge::value_to_js_in(&earlier, &source_value(parts_manifest()))
+        .expect("converts");
+    register_part_command();
+    let rows = awaited(call(&js, "materialize", &[JsValue::from(10)]))
+        .await
+        .expect("the current singleton has `part`");
+    assert_eq!(int_column(&rows), vec![1, 10]);
+    liquers_web::environment::reset_global();
+}

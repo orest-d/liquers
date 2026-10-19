@@ -273,13 +273,11 @@ enum Origin {
 
 impl Origin {
     /// The origin of the conversion in progress: the environment it runs in, or the singleton
-    /// when the caller named none or named the singleton itself.
+    /// when the caller named none or named the singleton, current or before a rebuild.
     fn of_current_conversion() -> Origin {
         match crate::bridge::conversion_env::<crate::environment::WebEnvironment>() {
-            Some(env) => match crate::environment::with_global() {
-                Ok(global) if Arc::ptr_eq(&global.0, &env.0) => Origin::Global,
-                Ok(_) | Err(_) => Origin::Explicit(env),
-            },
+            Some(env) if crate::environment::is_singleton(&env) => Origin::Global,
+            Some(env) => Origin::Explicit(env),
             None => Origin::Global,
         }
     }

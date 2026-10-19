@@ -48,6 +48,12 @@ thread_local! {
     /// Left unset when initialization fails, so a retry can succeed (`ENVIRON04`).
     static GLOBAL_ENV: RefCell<Option<EnvRef<WebEnvironment>>> = const { RefCell::new(None) };
 
+    /// Every environment that has been the singleton, weakly. A rebuild replaces the singleton,
+    /// so "is this the current singleton" cannot tell a value the singleton produced before a
+    /// rebuild from one an explicit instance produced; membership here can.
+    static SINGLETON_GENERATIONS: RefCell<Vec<std::sync::Weak<WebEnvironment>>> =
+        const { RefCell::new(Vec::new()) };
+
     /// The store configuration, if one has been applied.
     ///
     /// Retained for the same reason as [`REGISTERED_SPECS`]: a rebuild constructs a fresh
@@ -283,7 +289,7 @@ fn rebuild_with(additional: JsValue) -> Result<(), Error> {
     apply_store(&mut env)?;
 
     let envref = env.to_ref();
-    GLOBAL_ENV.with(|cell| *cell.borrow_mut() = Some(envref));
+    set_singleton(envref);
     Ok(())
 }
 
@@ -461,7 +467,7 @@ fn rebuild_without() -> Result<(), Error> {
     }
     apply_store(&mut env)?;
     let envref = env.to_ref();
-    GLOBAL_ENV.with(|cell| *cell.borrow_mut() = Some(envref));
+    set_singleton(envref);
     Ok(())
 }
 
@@ -550,6 +556,27 @@ fn set_field(target: &JsValue, name: &str, value: &JsValue) -> Result<(), Error>
         })
 }
 
+/// Makes `envref` the singleton, remembering it as one of the singleton's generations.
+fn set_singleton(envref: EnvRef<WebEnvironment>) {
+    SINGLETON_GENERATIONS.with(|cell| {
+        let mut generations = cell.borrow_mut();
+        generations.retain(|generation| generation.strong_count() > 0);
+        generations.push(std::sync::Arc::downgrade(&envref.0));
+    });
+    GLOBAL_ENV.with(|cell| *cell.borrow_mut() = Some(envref));
+}
+
+/// Whether `envref` is the singleton or an earlier generation of it, as opposed to an explicit
+/// `new Environment()` instance.
+pub fn is_singleton(envref: &EnvRef<WebEnvironment>) -> bool {
+    let ptr = std::sync::Arc::as_ptr(&envref.0);
+    SINGLETON_GENERATIONS.with(|cell| {
+        cell.borrow()
+            .iter()
+            .any(|generation| generation.as_ptr() == ptr)
+    })
+}
+
 /// Shares the pending environment, creating the `EnvRef` on first use.
 pub fn shared_env() -> Result<EnvRef<WebEnvironment>, Error> {
     if let Some(existing) = GLOBAL_ENV.with(|cell| cell.borrow().clone()) {
@@ -564,7 +591,7 @@ pub fn shared_env() -> Result<EnvRef<WebEnvironment>, Error> {
             )
         })?;
     let envref = env.to_ref();
-    GLOBAL_ENV.with(|cell| *cell.borrow_mut() = Some(envref.clone()));
+    set_singleton(envref.clone());
     Ok(envref)
 }
 
