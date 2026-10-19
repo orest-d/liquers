@@ -86,7 +86,8 @@ done <<< "$expected_classes"
 
 # Free functions: taken from the js_name attributes and snake_case exports in lib.rs.
 for fn in init isInitialized shutdown opaque evaluate getAsset encodeParam \
-          registerCommand unregisterCommand describeCommand version; do
+          registerCommand registerCommands validateCommands unregisterCommand describeCommand \
+          version; do
     if grep -q "^export function $fn(" "$decl"; then
         pass "function $fn"
     else
@@ -134,7 +135,7 @@ echo
 echo "STUBS06 — the type checker rejects incorrect usage"
 # Asserting "it fails" is not enough: one broad error would mask five silently-accepted mistakes.
 # The count is asserted, so a declaration change that legalizes any single case is caught.
-expected_errors=6
+expected_errors=7
 invalid_out=$("$tsc" --noEmit --strict --target es2022 --module es2022 \
     --moduleResolution bundler --lib es2022,dom,esnext.disposable "$stubs/invalid_usage.ts" 2>&1)
 actual_errors=$(printf '%s\n' "$invalid_out" | grep -cE '^[^ ].*error TS')

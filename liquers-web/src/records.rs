@@ -33,10 +33,16 @@
 //! memory before the caller ever reads it. Reading `inner.columns[i]` by reference keeps the
 //! pointer inside the buffer the handle's own `Arc<RecordBatch>` keeps alive.
 
+use std::cell::{Cell, RefCell};
+use std::collections::HashMap;
+use std::rc::Rc;
 use std::sync::Arc;
 
 use liquers_core::error::{Error, ErrorType};
-use liquers_lib::records::{AlignedBuffer, Bitmap, Buffer, Column, RecordBatch};
+use liquers_lib::records::{
+    AlignedBuffer, Bitmap, BoxRecordStream, Buffer, ChunkId, ChunkList, Column, EnvResolver,
+    InMemorySource, RecordBatch, RecordSource, RecordView,
+};
 use wasm_bindgen::prelude::*;
 
 use crate::error::liquers_error_to_js;
@@ -54,6 +60,64 @@ extern "C" {
 
     #[wasm_bindgen(constructor, js_class = "RecordColumn")]
     fn new(memory: &JsValue, desc: &JsValue) -> JsRecordColumn;
+}
+
+/// The JavaScript-side async-iterator companion (`records_stream.js`): wraps a [`LiquersRecordStream`]
+/// so a page can `for await` over it. Kept in JavaScript, like `records_column.js`, because the
+/// iterator protocol (`Symbol.asyncIterator`, `next`, `return`) is plain JavaScript and testable
+/// alone.
+#[wasm_bindgen(module = "/src/records_stream.js")]
+extern "C" {
+    #[wasm_bindgen(js_name = asyncIterable)]
+    fn async_iterable(stream: &JsValue) -> JsValue;
+}
+
+/// What a live handle stands for: the value Rust gets back when the handle crosses back.
+#[derive(Clone)]
+pub(crate) enum RecordHandle {
+    View(Arc<dyn RecordView>),
+    Source(Arc<dyn RecordSource>),
+}
+
+thread_local! {
+    /// Live record handles by id. A wasm-bindgen handle cannot be borrowed back from a `JsValue`
+    /// without consuming it, which would invalidate the page's handle on a read-only pass-through,
+    /// so each handle carries an id (`__liquersRecordHandle`) and this maps the id to the `Arc` the
+    /// handle was made from. Filled when a handle is constructed and emptied when it is dropped
+    /// (`free()`), so it holds an `Arc` exactly as long as JavaScript holds the handle.
+    ///
+    /// Single-threaded wasm: `RefCell` is enough, and no borrow is held across an `await` or a call
+    /// into JavaScript.
+    static HANDLES: RefCell<HashMap<u32, RecordHandle>> = RefCell::new(HashMap::new());
+    static NEXT_HANDLE_ID: Cell<u32> = const { Cell::new(1) };
+}
+
+fn register_handle(handle: RecordHandle) -> u32 {
+    let id = NEXT_HANDLE_ID.with(|next| {
+        let id = next.get();
+        // Wrapping past `u32::MAX` would take four billion handles; skipping 0 keeps it usable as
+        // "no handle" in a debugger.
+        next.set(id.checked_add(1).unwrap_or(1));
+        id
+    });
+    HANDLES.with(|handles| handles.borrow_mut().insert(id, handle));
+    id
+}
+
+fn release_handle(id: u32) {
+    // Removed before dropping: the `Arc`'s own drop runs after the borrow ends.
+    let removed = HANDLES.with(|handles| handles.borrow_mut().remove(&id));
+    drop(removed);
+}
+
+/// The value a live handle stands for, or `None` once it has been freed.
+pub(crate) fn lookup_handle(id: u32) -> Option<RecordHandle> {
+    HANDLES.with(|handles| handles.borrow().get(&id).cloned())
+}
+
+/// Whether the registry holds `id`. Test support for `RECORDS06`.
+pub fn handle_is_live(id: u32) -> bool {
+    lookup_handle(id).is_some()
 }
 
 #[cfg(feature = "debug-handles")]
@@ -76,6 +140,7 @@ pub fn live_batch_handle_count() -> usize {
 #[wasm_bindgen(js_name = RecordBatch)]
 pub struct LiquersRecordBatch {
     inner: Arc<RecordBatch>,
+    id: u32,
 }
 
 #[wasm_bindgen(js_class = RecordBatch)]
@@ -134,20 +199,247 @@ impl LiquersRecordBatch {
         let memory = wasm_bindgen::memory();
         Ok(JsRecordColumn::new(&memory, descriptor.as_ref()).into())
     }
+
+    /// The batch's `chunk_id`, as JSON (`null` when it has none) — where its rows were produced.
+    #[wasm_bindgen(js_name = chunkIdJson)]
+    pub fn chunk_id_json(&self) -> String {
+        serde_json::to_string(&self.inner.chunk_id).unwrap_or_else(|_| "null".to_string())
+    }
+
+    /// The batch's `sources` dictionary (`ChunkOrigin` entries), as JSON.
+    #[wasm_bindgen(js_name = sourcesJson)]
+    pub fn sources_json(&self) -> String {
+        serde_json::to_string(&self.inner.sources).unwrap_or_else(|_| "[]".to_string())
+    }
+
+    /// The registry id that lets this handle cross back into Liquers as the value it was made from.
+    /// Not for pages to use; its presence is how the bridge recognizes a record handle.
+    #[wasm_bindgen(getter, js_name = __liquersRecordHandle)]
+    pub fn handle_id(&self) -> u32 {
+        self.id
+    }
+}
+
+impl LiquersRecordBatch {
+    /// A handle for `batch` that crosses back as `view`, the value it was materialized from — so a
+    /// page that hands the batch back gives Rust the same `Arc`, not the materialized copy.
+    pub fn from_view(view: Arc<dyn RecordView>, batch: Arc<RecordBatch>) -> Self {
+        #[cfg(feature = "debug-handles")]
+        LIVE_BATCH_HANDLES.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let id = register_handle(RecordHandle::View(view));
+        LiquersRecordBatch { inner: batch, id }
+    }
 }
 
 impl From<Arc<RecordBatch>> for LiquersRecordBatch {
     fn from(inner: Arc<RecordBatch>) -> Self {
-        #[cfg(feature = "debug-handles")]
-        LIVE_BATCH_HANDLES.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        LiquersRecordBatch { inner }
+        let view: Arc<dyn RecordView> = inner.clone();
+        LiquersRecordBatch::from_view(view, inner)
     }
 }
 
-#[cfg(feature = "debug-handles")]
+/// Unconditional: the registry entry goes with the handle. Only the live count is test-only.
 impl Drop for LiquersRecordBatch {
     fn drop(&mut self) {
+        release_handle(self.id);
+        #[cfg(feature = "debug-handles")]
         LIVE_BATCH_HANDLES.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+/// A Liquers record source, visible to JavaScript: a possibly large, chunked table whose chunks
+/// are evaluated only when read.
+///
+/// Traversal (`stream`, `materialize`) evaluates chunks in the web environment, resolved afresh at
+/// each call, so a rebuild between calls is harmless. `chunks()` evaluates
+/// nothing.
+#[wasm_bindgen(js_name = RecordSource)]
+pub struct LiquersRecordSource {
+    inner: Arc<dyn RecordSource>,
+    id: u32,
+}
+
+#[wasm_bindgen(js_class = RecordSource)]
+impl LiquersRecordSource {
+    /// Every known chunk as `{ kind, query }`, without evaluating any: `kind` is `"query"` for an
+    /// unkeyed chunk and `"key"` for a stored one, and `query` evaluates to the chunk either way.
+    /// A view held in memory has no query that produces it: its `kind` is `"memory"` and its
+    /// `query` is only a label. For an unbounded source, only the chunks computed so far.
+    #[wasm_bindgen(unchecked_return_type = "LiquersRecordChunk[]")]
+    pub fn chunks(&self) -> Result<JsValue, JsValue> {
+        let ids = match self.inner.chunks() {
+            ChunkList::Known(ids) => ids,
+            ChunkList::Unbounded { computed } => computed,
+        };
+        let list = js_sys::Array::new();
+        for id in ids {
+            let (kind, query) = match id {
+                ChunkId::Query(query) if InMemorySource::is_placeholder_chunk_id(id) => {
+                    ("memory", query.encode())
+                }
+                ChunkId::Query(query) => ("query", query.encode()),
+                ChunkId::Key(key) => ("key", liquers_core::query::Query::from(key.clone()).encode()),
+            };
+            let entry = js_sys::Object::new();
+            set(&entry, "kind", &JsValue::from_str(kind)).map_err(liquers_error_to_js)?;
+            set(&entry, "query", &JsValue::from_str(&query)).map_err(liquers_error_to_js)?;
+            list.push(&entry);
+        }
+        Ok(list.into())
+    }
+
+    /// Whether every chunk is known in advance. An unbounded source ends at its first short chunk.
+    #[wasm_bindgen(getter)]
+    pub fn bounded(&self) -> bool {
+        match self.inner.chunks() {
+            ChunkList::Known(_) => true,
+            ChunkList::Unbounded { .. } => false,
+        }
+    }
+
+    /// The schema every batch will have, as JSON, when the source declares one.
+    #[wasm_bindgen(js_name = schemaJson)]
+    pub fn schema_json(&self) -> Option<String> {
+        self.inner
+            .schema()
+            .and_then(|schema| serde_json::to_string(schema.as_ref()).ok())
+    }
+
+    /// The manifest the source was built from, as JSON, when it has one.
+    #[wasm_bindgen(js_name = manifestJson)]
+    pub fn manifest_json(&self) -> Option<String> {
+        self.inner
+            .manifest()
+            .and_then(|manifest| serde_json::to_string(manifest).ok())
+    }
+
+    /// Resolves to an async iterable yielding one `RecordBatch` per view, in order. Each call opens
+    /// a fresh traversal. Abandoning the loop (`break`) frees the stream; an evaluation already
+    /// running for the current chunk still finishes (cancellation is inert in this build).
+    #[wasm_bindgen(unchecked_return_type = "Promise<AsyncIterableIterator<RecordBatch>>")]
+    pub fn stream(&self) -> js_sys::Promise {
+        let source = self.inner.clone();
+        wasm_bindgen_futures::future_to_promise(async move {
+            let stream = source
+                .stream(web_resolver()?)
+                .await
+                .map_err(liquers_error_to_js)?;
+            let handle = LiquersRecordStream {
+                state: Rc::new(RefCell::new(StreamState::Ready(stream))),
+            };
+            Ok(async_iterable(&JsValue::from(handle)))
+        })
+    }
+
+    /// Resolves to every row as one `RecordBatch`, or rejects when the source has more than
+    /// `maxRows` rows or its chunks' schemas differ.
+    #[wasm_bindgen(unchecked_return_type = "Promise<RecordBatch>")]
+    pub fn materialize(
+        &self,
+        #[wasm_bindgen(js_name = maxRows)] max_rows: usize,
+    ) -> js_sys::Promise {
+        let source = self.inner.clone();
+        wasm_bindgen_futures::future_to_promise(async move {
+            let batch = source
+                .materialize(web_resolver()?, max_rows)
+                .await
+                .map_err(liquers_error_to_js)?;
+            Ok(LiquersRecordBatch::from(batch).into())
+        })
+    }
+
+    /// The registry id that lets this handle cross back into Liquers as the same source.
+    #[wasm_bindgen(getter, js_name = __liquersRecordHandle)]
+    pub fn handle_id(&self) -> u32 {
+        self.id
+    }
+}
+
+impl From<Arc<dyn RecordSource>> for LiquersRecordSource {
+    fn from(inner: Arc<dyn RecordSource>) -> Self {
+        let id = register_handle(RecordHandle::Source(inner.clone()));
+        LiquersRecordSource { inner, id }
+    }
+}
+
+impl Drop for LiquersRecordSource {
+    fn drop(&mut self) {
+        release_handle(self.id);
+    }
+}
+
+/// A chunk resolver over the web environment as it is now. `shared_env`, as evaluation uses: it
+/// shares an environment that `init()` created but nothing has evaluated in yet.
+fn web_resolver() -> Result<Arc<dyn liquers_lib::records::ChunkResolver>, JsValue> {
+    let envref = crate::environment::shared_env().map_err(liquers_error_to_js)?;
+    Ok(Arc::new(EnvResolver::new(envref)))
+}
+
+enum StreamState {
+    Ready(BoxRecordStream),
+    /// A `nextBatch` is awaiting the stream, which it has taken out of the cell.
+    Pending,
+    Done,
+}
+
+/// One traversal of a [`LiquersRecordSource`]. Pages use it through the async iterable `stream()`
+/// returns; `nextBatch` is the primitive under it.
+#[wasm_bindgen(js_name = RecordStream)]
+pub struct LiquersRecordStream {
+    state: Rc<RefCell<StreamState>>,
+}
+
+#[wasm_bindgen(js_class = RecordStream)]
+impl LiquersRecordStream {
+    /// Resolves to the next `RecordBatch`, or `null` at the end. A call made while the previous
+    /// one is still pending is rejected: the stream is held by that call.
+    #[wasm_bindgen(js_name = nextBatch, unchecked_return_type = "Promise<RecordBatch | null>")]
+    pub fn next_batch(&self) -> js_sys::Promise {
+        let state = self.state.clone();
+        wasm_bindgen_futures::future_to_promise(async move {
+            next_view(&state)
+                .await
+                .map(|view| match view {
+                    Some(handle) => handle.into(),
+                    None => JsValue::NULL,
+                })
+                .map_err(liquers_error_to_js)
+        })
+    }
+}
+
+/// Takes the stream out of its cell for the `await` — a `RefCell` borrow held across it would be
+/// the `already borrowed` panic this crate's borrow rule forbids — and puts it back after.
+async fn next_view(state: &RefCell<StreamState>) -> Result<Option<LiquersRecordBatch>, Error> {
+    use futures::StreamExt;
+    let taken = std::mem::replace(&mut *state.borrow_mut(), StreamState::Pending);
+    let mut stream = match taken {
+        StreamState::Ready(stream) => stream,
+        StreamState::Pending => {
+            return Err(Error::general_error(
+                "RecordStream.nextBatch called while a previous call is pending".to_string(),
+            ))
+        }
+        StreamState::Done => {
+            *state.borrow_mut() = StreamState::Done;
+            return Ok(None);
+        }
+    };
+    let next = stream.next().await;
+    match next {
+        Some(Ok(view)) => {
+            *state.borrow_mut() = StreamState::Ready(stream);
+            let batch = view.materialize()?;
+            Ok(Some(LiquersRecordBatch::from_view(view, batch)))
+        }
+        Some(Err(e)) => {
+            *state.borrow_mut() = StreamState::Done;
+            Err(e)
+        }
+        None => {
+            *state.borrow_mut() = StreamState::Done;
+            Ok(None)
+        }
     }
 }
 
@@ -388,4 +680,32 @@ fn vector_copy(validity: &Option<Bitmap>, dim: usize, data: &Buffer<f32>) -> Res
         array.push(&js_sys::Float32Array::from(&slice[start..end]).into());
     }
     Ok(array.into())
+}
+
+#[cfg(all(test, target_arch = "wasm32"))]
+mod tests {
+    use super::*;
+    use liquers_lib::records::record_stream;
+    use wasm_bindgen_test::*;
+
+    /// A second `nextBatch` while the first is pending is refused, and the first still completes.
+    #[wasm_bindgen_test]
+    async fn next_batch_refuses_a_concurrent_call() {
+        let (sender, receiver) = futures::channel::mpsc::unbounded::<Result<Arc<dyn RecordView>, Error>>();
+        let state = Rc::new(RefCell::new(StreamState::Ready(record_stream(receiver, None))));
+
+        let first = next_view(&state);
+        futures::pin_mut!(first);
+        // Poll once so the first call takes the stream and waits on the empty channel.
+        assert!(futures::poll!(first.as_mut()).is_pending());
+
+        let second = next_view(&state).await;
+        match second {
+            Err(e) => assert!(e.message.contains("pending"), "{}", e.message),
+            Ok(_) => panic!("a concurrent nextBatch must be refused"),
+        }
+
+        drop(sender);
+        assert!(first.await.expect("the first call completes").is_none());
+    }
 }

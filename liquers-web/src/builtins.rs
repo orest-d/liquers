@@ -1,9 +1,10 @@
 //! The built-in Rust command set, registered into every web environment.
 //!
-//! A page gets `to_text`, `to_metadata`, `commands_doc` and the `dep` introspection commands for
-//! free. They matter beyond convenience: they are what makes structural conversion the right
-//! default for a JavaScript command's result. `myJsCommand/to_text` only works because the Rust
-//! command can read what JavaScript produced — an opaque value would stop at the boundary.
+//! A page gets `to_text`, `to_metadata`, `commands_doc`, the `dep` introspection commands and,
+//! with the `records` feature, the `rec` namespace for free. They matter beyond convenience: they
+//! are what makes structural conversion the right default for a JavaScript command's result.
+//! `myJsCommand/to_text` only works because the Rust command can read what JavaScript produced — an
+//! opaque value would stop at the boundary.
 //!
 //! # Why this is its own module
 //!
@@ -25,5 +26,11 @@ use crate::environment::WebEnvironment;
 pub fn register_builtin_commands(env: &mut WebEnvironment) -> Result<(), Error> {
     let cr = env.get_mut_command_registry();
     type CommandEnvironment = WebEnvironment;
-    liquers_lib::register_core_commands!(cr)
+    liquers_lib::register_core_commands!(cr)?;
+    // The `rec` namespace: without it no page query can produce a record value, so the
+    // `RecordBatch` and `RecordSource` handles would be reachable only from values a JavaScript
+    // command builds by hand. Registered here, so every rebuild keeps it.
+    #[cfg(feature = "records")]
+    liquers_lib::register_records_commands!(cr)?;
+    Ok(())
 }
