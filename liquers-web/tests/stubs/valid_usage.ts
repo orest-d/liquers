@@ -59,6 +59,18 @@ async function main(): Promise<void> {
   });
   const stillTyped: string = named('a', 2);
 
+  // A record source: listed without evaluation, streamed one batch at a time, or materialized.
+  const source = (await liquers.evaluate('rows/ns-rec/from_json-records/ns-rec/to_record_source')) as liquers.RecordSource;
+  const firstChunk: liquers.LiquersRecordChunk | undefined = source.chunks()[0];
+  void firstChunk;
+  let streamedRows = 0;
+  for await (const batch of await source.stream()) {
+    streamedRows += batch.numRows;
+    batch.free();
+  }
+  const whole: liquers.RecordBatch = await source.materialize(100000);
+  void (whole.numRows === streamedRows);
+
   // ENVIRON08 — a batch: declarations, or imported metadata bound to functions by name. The
   // report is returned, and also carried by the error of a refused batch.
   const report: liquers.LiquersIssueReport = liquers.validateCommands(

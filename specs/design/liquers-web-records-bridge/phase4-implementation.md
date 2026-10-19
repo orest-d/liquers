@@ -10,12 +10,12 @@ Steps 4 and 5 may run in parallel after Step 3.
 
 ## Progress
 
-- [ ] Step 1: Refuse a `RecordSource` with a message naming it
-- [ ] Step 2: Register the `ns-rec` commands in the web environment
-- [ ] Step 3: Handle registry and the batch handle's id and origin getters
-- [ ] Step 4: `RecordSource` and `RecordStream` handles with the async iterator
-- [ ] Step 5: Handles cross back through `from_js_custom`
-- [ ] Step 6: Declarations, README `## Conformance` rows, guide update, issue closure
+- [x] Step 1: Refuse a `RecordSource` with a message naming it
+- [x] Step 2: Register the `ns-rec` commands in the web environment
+- [x] Step 3: Handle registry and the batch handle's id and origin getters
+- [x] Step 4: `RecordSource` and `RecordStream` handles with the async iterator
+- [x] Step 5: Handles cross back through `from_js_custom`
+- [x] Step 6: Declarations, README `## Conformance` rows, guide update, issue closure
 
 ## Implementation Steps
 
@@ -104,6 +104,6 @@ bump), `liquers-web/src/typescript.rs` declarations, `specs/index.csv` (regenera
 
 ## Phase 5 Entry Criteria
 
-- [ ] Implementation finished and validated
-- [ ] User and review comments answered
-- [ ] Documentation checkable against implemented and tested behaviour
+- [x] Implementation finished and validated
+- [x] User and review comments answered
+- [x] Documentation checkable against implemented and tested behaviour

@@ -246,6 +246,33 @@ await env.configureStore({
 });
 ```
 
+## Record streams
+
+A command that returns a record view reaches JavaScript as a `RecordBatch` handle (or as its scalar,
+when the view is a single cell); one that returns a record source reaches it as a `RecordSource`.
+Both are handles to the Rust object, not copies, and both cross back unchanged: pass a handle as a
+command argument or return it from a JavaScript command and Rust receives the same view, with its
+chunk identity and origin intact. The `ns-rec` commands are registered in the web environment.
+
+```js
+// `people` is any command whose result converts to records.
+const source = await env.evaluate('people/ns-rec/to_record_source');
+for (const chunk of source.chunks()) {
+  console.log(chunk.kind, chunk.query);        // data only; nothing is evaluated yet
+  // kind "query" or "key": `query` evaluates to the chunk; kind "memory": a label only
+}
+for await (const batch of await source.stream()) {
+  console.log(batch.numRows);                  // one chunk at a time
+  batch.free();
+}
+const all = await source.materialize(10000);   // one batch, refused beyond maxRows rows
+source.free();
+```
+
+`free()` releases a handle; a freed handle passed back to Rust is refused with a `ConversionError`
+naming its class. Leaving a `for await` loop early (`break`, `return`, a throw) frees the stream.
+Only one `nextBatch()` may be pending on a stream at a time.
+
 ## Conformance
 
 Where liquers-web stands against [`LANGUAGE-INTEGRATION_GUIDE.md`](../specs/guides/LANGUAGE-INTEGRATION_GUIDE.md),
@@ -259,7 +286,7 @@ updated by the change that moves it.
 | `ERROR` | complete | 01–05; 06 in `tests/store_js_STORE.rs` | class and stack arrive inside `message` (`LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT`) |
 | `RUNTIME` | complete | 01 native; 02–06 under Node | `RUNTIME05` needs `--features debug-handles` |
 | `VALUE` | complete, one gap | 01–13, `tests/value_bridge_VALUE.rs` | outbound integers beyond 2^53 untested (`WEB-OUTBOUND-INT64-BEYOND-DOUBLE-UNTESTED`) |
-| `VALUE` / RECORDS | partial | 05, 06, `tests/records_RECORDS.rs` | `RECORDS10` (`WEB-RECORDS-SINGLE-CELL-VIEW-CROSSES-AS-BATCH`); `RecordSource` and the inbound direction (`WEB-RECORDS-BRIDGE-ONE-WAY-AND-SOURCE-UNMAPPED`) |
+| `VALUE` / RECORDS | complete | 01, 02, 04–08, 10, `tests/records_RECORDS.rs` | `03`, `09` and `11` are `NA`, see below |
 | `ENVIRON` | partial | 01–07 | `ENVIRON08` (`WEB-ENVIRON-VALIDATION-REPORT-NOT-EXPOSED`) |
 | `EVAL` | complete | 01–07 | `EVAL06` pins inert cancellation (`WEB-CANCELLATION-INERT`) |
 | `COMMAND` | complete | 01–14, DECL01–03 | — |
@@ -270,6 +297,11 @@ updated by the change that moves it.
 | `PACKAGE` | complete | 01–05, 07 | `06` is `NA`: no optional extra |
 | `RECIPE`, `UIUSE`, `UIDEF` | not started (deferred) | — | — |
 | `MODULE`, `POLYGLOT`, `WEBSERV`, `WEBAPI` | `NA` for the shipped milestone | — | — |
+
+**`RECORDS03` is `NA`**: there is no Arrow route out of the browser build; it becomes required if an
+Arrow export is added. **`RECORDS09` is `NA`**: JavaScript has its own async model, which the
+`RecordSource` iterator uses. **`RECORDS11` is `NA`**: JavaScript cannot implement `RecordView` or
+`RecordSource`; it becomes required with a JavaScript-implemented source.
 
 **`STORE18` is `NA`.** It tests a `store_config` handler defined in the language, and JavaScript
 cannot define one yet: [`LANGUAGE-STORE-CONFIG-FUNCTION-NOT-DEFINABLE`](../specs/issues/LANGUAGE-STORE-CONFIG-FUNCTION-NOT-DEFINABLE.md).
@@ -289,6 +321,7 @@ deliberate. `store11_overlapping_prefixes_follow_document_order` pins the routin
 | Registering a command after the first evaluation rebuilds the environment, discarding its asset cache. Register before evaluating to avoid it | `POST-INIT-COMMAND-REGISTRATION` |
 | A thrown exception's class and stack reach the caller inside `message`, not as `jsClass`/`jsStack` — `liquers_core::Error` has no field to carry them through the asset lifecycle | `LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT` |
 | `registerCommand` is refused on an explicit `Environment` instance — the handle holds a shared environment with no mutable path. Register on the singleton | `POST-INIT-COMMAND-REGISTRATION` |
+| A `RecordSource` from an explicit `Environment` instance streams and materializes through the singleton, which must be initialized | `WEB-RECORD-SOURCE-RESOLVES-THROUGH-SINGLETON` |
 
 All are in [`specs/issues/`](../specs/issues/), each with the condition that reverses it.
 
