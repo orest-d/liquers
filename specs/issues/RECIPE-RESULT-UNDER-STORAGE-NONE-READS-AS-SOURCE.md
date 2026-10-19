@@ -1,6 +1,6 @@
 ---
 id: RECIPE-RESULT-UNDER-STORAGE-NONE-READS-AS-SOURCE
-kind: bug
+kind: issue
 title: A recipe result stored in a storage-none mount reads back as Source and cannot drop back to its recipe
 status: draft
 priority: P3
