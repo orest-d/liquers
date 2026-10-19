@@ -2,7 +2,7 @@
 id: WEB-DOCS-STALE-AFTER-KEYED-EVAL-FIX
 kind: issue
 title: liquers-web documentation still describes limitations that were fixed
-status: draft
+status: closed
 priority: P2
 complexity: S
 area: [web, docs]
@@ -45,3 +45,12 @@ are `WEB-CANCELLATION-INERT`, `POST-INIT-COMMAND-REGISTRATION`,
 
 Bidirectional conformance audit of `liquers-web` against `LANGUAGE-INTEGRATION_GUIDE.md`
 (2026-10-17): the issue index says closed, the docs say open.
+
+## Resolution (2026-10-18)
+
+Fixed by `specs/design/web-docs-stale-limitations/`. `liquers-web/README.md` § Known limitations no
+longer lists `-R/` evaluation or the `encodeParam` refusal; the four remaining rows name open issues
+(`WEB-CANCELLATION-INERT`, `POST-INIT-COMMAND-REGISTRATION`,
+`LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT`). The orphaned `Cargo.toml` comment is removed,
+`src/store/mod.rs` says "Three stores", and the harness note in `tests/value_bridge_VALUE.rs` names
+the suites that actually need a browser.
