@@ -8,9 +8,9 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 127
+Total rows: 126
 - P2: 52
-- P3: 75
+- P3: 74
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -66,7 +66,6 @@ Total rows: 127
 | [`NO-RELATIONAL-DATABASE-ACCESS-LAYER`](issues/NO-RELATIONAL-DATABASE-ACCESS-LAYER.md) | feature | No access layer from Liquers into relational databases | draft |  |  | P2 | XL | lib/value;lib/commands;store/backends |  | 2026-09-20 |
 | [`NO-REMOTE-STORE-OR-ASSET-MANAGER`](issues/NO-REMOTE-STORE-OR-ASSET-MANAGER.md) | feature | A client environment cannot use a server's store or asset manager as its own | draft |  |  | P2 | XL | axum;web;core/assets;core/store |  | 2026-09-27 |
 | [`VALUE-TYPE-DEFINITION-MACRO`](issues/VALUE-TYPE-DEFINITION-MACRO.md) | feature | Value types and their registry entries are hand-written instead of generated | draft |  |  | P2 | XL | macro;lib/value;core/value |  | 2026-08-18 |
-| [`WEB-OUTBOUND-INT64-BEYOND-DOUBLE-UNTESTED`](issues/WEB-OUTBOUND-INT64-BEYOND-DOUBLE-UNTESTED.md) | issue | An i64 beyond 2^53 leaving for JavaScript has unconfirmed, untested behaviour | draft | ready | eligible | P3 | S | web | [design](design/web-outbound-int64-precision/DESIGN.md) | 2026-10-17 |
 | [`LIB-BUILD-EMITS-UNUSED-AND-UNHANDLED-RESULT-WARNINGS`](issues/LIB-BUILD-EMITS-UNUSED-AND-UNHANDLED-RESULT-WARNINGS.md) | issue | A default liquers-lib build emits about 50 warnings, some for discarded Results | draft | ready | not-eligible | P3 | S | lib/commands;build | [design](design/lib-build-warning-cleanup/DESIGN.md) | 2026-10-11 |
 | [`ROOT-LISTING-DEPENDENCY-KEY-HAS-TWO-SPELLINGS`](issues/ROOT-LISTING-DEPENDENCY-KEY-HAS-TWO-SPELLINGS.md) | issue | The root directory listing dependency has two spellings, so a dependent that recorded one is never expired | draft | ready | not-eligible | P3 | S | core/assets | [design](design/root-listing-dependency-key-spelling/DESIGN.md) | 2026-10-17 |
 | [`COMBINED-VALUE-DATA-NODE-COPIES-BASE-VALUE`](issues/COMBINED-VALUE-DATA-NODE-COPIES-BASE-VALUE.md) | issue | A base value is copied whole to become a data node | draft | needs-decision | not-eligible | P3 | S | lib/value | [design](design/combined-value-shared-data-node/DESIGN.md) | 2026-10-17 |
