@@ -154,6 +154,14 @@ TEMPLATE_CONFIGS=(
   "--target wasm32-unknown-unknown --tests"
 )
 
+# liquers-web is wasm32-only and its `records` feature is opt-in: both sides of that gate must
+# compile, library and tests, since a `#[cfg(feature = "records")]` arm missing on either side
+# breaks only that configuration.
+WEB_CONFIGS=(
+  "--target wasm32-unknown-unknown --tests"
+  "--target wasm32-unknown-unknown --features records --tests"
+)
+
 CORE_CONFIGS=(
   "--no-default-features"
   ""
@@ -215,6 +223,10 @@ done
 
 for args in "${TEMPLATE_CONFIGS[@]}"; do
   check liquers-template "$args"
+done
+
+for args in "${WEB_CONFIGS[@]}"; do
+  check liquers-web "$args"
 done
 
 for args in "${CORE_CONFIGS[@]}"; do

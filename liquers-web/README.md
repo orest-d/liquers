@@ -58,12 +58,13 @@ cargo check -p liquers-web --target wasm32-unknown-unknown
 ### The quick-start page
 
 ```bash
-./examples-web/quickstart/build.sh          # or --release
+./examples-web/quickstart/build.sh          # or --release; add --features records for record streams
 python3 -m http.server 8090 --directory examples-web/quickstart/dist
 ```
 
 `build.sh` does what `trunk build` does — build the cdylib for wasm32, run `wasm-bindgen` over it,
-copy the page next to the output — without requiring trunk to be installed. If you have trunk,
+copy the page next to the output — without requiring trunk to be installed. Arguments other than
+`--release` go to `cargo build` unchanged. If you have trunk,
 `cd examples-web/quickstart && trunk serve` works too and serves on the same port.
 
 ## Testing
@@ -71,16 +72,18 @@ copy the page next to the output — without requiring trunk to be installed. If
 Four harnesses, because four different things are being tested.
 
 ```bash
-# 1. Conformance suites, under Node. The bulk of the tests; no browser needed.
+# 1. Conformance suites, under Node. The bulk of the tests; no browser needed. Run it both ways:
+#    the second adds the RECORDS suite.
 cargo test -p liquers-web --target wasm32-unknown-unknown --features debug-handles
+cargo test -p liquers-web --target wasm32-unknown-unknown --features debug-handles,records
 
 # 2. Suites that genuinely need a browser API (`localStorage`). WebDriver required.
 CHROMEDRIVER=$(which chromedriver) cargo test -p liquers-web \
   --target wasm32-unknown-unknown --features browser-tests
 
-# 3. Declarations and artifact structure.
-./examples-web/quickstart/build.sh
-./scripts/check-stubs.sh
+# 3. Declarations and artifact structure, without and with records.
+./scripts/check-stubs.sh --build
+./scripts/check-stubs.sh --build --records
 
 # 4. The delivery form, in a real browser.
 cd tests/e2e && npm install && npx playwright test
@@ -228,6 +231,12 @@ when the view is a single cell); one that returns a record source reaches it as 
 Both are handles to the Rust object, not copies, and both cross back unchanged: pass a handle as a
 command argument or return it from a JavaScript command and Rust receives the same view, with its
 chunk identity and origin intact. The `ns-rec` commands are registered in the web environment.
+
+Record streams are behind the **`records` feature, which is off by default**: it is the largest
+single addition to the module, taking a release build from 12.4 MB to 16.5 MB. Build with
+`--features records` (`./examples-web/quickstart/build.sh --features records`) to get the handles,
+the `ns-rec` commands and their TypeScript declarations. Without it liquers-lib is linked without
+record values altogether, so no query can produce one.
 
 ```js
 // `people` is any command whose result converts to records.
