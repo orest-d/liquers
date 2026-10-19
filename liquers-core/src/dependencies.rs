@@ -176,6 +176,9 @@ pub struct DependencyManager<E: Environment> {
     expression_expr_deps: scc::HashMap<DependencyKey, scc::HashSet<DependencyKey>>,
 }
 
+/// The smallest weak-dependent list [`DependencyManager::add_dependent_asset`] prunes.
+const MIN_PRUNED_DEPENDENT_ASSETS: usize = 16;
+
 impl<E: Environment> Default for DependencyManager<E> {
     fn default() -> Self {
         Self::new()
@@ -659,6 +662,12 @@ impl<E: Environment> DependencyManager<E> {
     }
 
     /// Register a `WeakAssetRef` as a dependent of `dependency`.
+    ///
+    /// The list is pruned of dead and duplicate entries when a push would reallocate it (from
+    /// [`MIN_PRUNED_DEPENDENT_ASSETS`] entries up). The prune grows it when it leaves it more than
+    /// half full and shrinks it to twice its length when it leaves it under a quarter full, so it
+    /// holds at most about twice its live dependents (or that minimum), its allocation follows
+    /// that count down as well as up, and the pruning work stays amortized constant per insert.
     pub(crate) async fn add_dependent_asset(
         &self,
         dependency: &DependencyKey,
@@ -669,8 +678,44 @@ impl<E: Environment> DependencyManager<E> {
             .entry_async(dependency.clone())
             .await
             .or_insert(Vec::new());
-        entry.get_mut().push(dependent);
+        let list = entry.get_mut();
+        if list.len() == list.capacity() && list.len() >= MIN_PRUNED_DEPENDENT_ASSETS {
+            Self::prune_dependent_assets(list);
+            if 2 * list.len() > list.capacity() {
+                list.reserve(list.capacity());
+            } else if 4 * list.len() < list.capacity() {
+                list.shrink_to((2 * list.len()).max(MIN_PRUNED_DEPENDENT_ASSETS));
+            }
+        }
+        list.push(dependent);
         drop(entry);
+    }
+
+    /// The number of entries in `dependency`'s weak-dependent list, dead and duplicate included.
+    #[cfg(test)]
+    async fn dependent_asset_count(&self, dependency: &DependencyKey) -> usize {
+        match self.dependent_assets.get_async(dependency).await {
+            Some(entry) => entry.get().len(),
+            None => 0,
+        }
+    }
+
+    /// Prune `dependency`'s weak-dependent list now, as a growing list is pruned on insert.
+    #[cfg(test)]
+    async fn prune_dependents_now(&self, dependency: &DependencyKey) {
+        if let Some(mut entry) = self.dependent_assets.get_async(dependency).await {
+            Self::prune_dependent_assets(entry.get_mut());
+        }
+    }
+
+    /// Drop the dead entries of a weak-dependent list, and every entry listing an asset an
+    /// earlier entry already lists. Order is kept; no live asset is lost.
+    ///
+    /// Identity is the shared allocation, not [`WeakAssetRef::id`]: temporary assets all have
+    /// id 0. A live entry keeps its allocation, so no two live assets share an address.
+    fn prune_dependent_assets(list: &mut Vec<WeakAssetRef<E>>) {
+        let mut seen = HashSet::new();
+        list.retain(|weak| weak.data.strong_count() > 0 && seen.insert(weak.data.as_ptr()));
     }
 
     /// Check whether adding `dependent → dependency` would create a cycle.
@@ -2690,5 +2735,95 @@ mod tests {
             final_version == Some(v(2)) || final_version == Some(v(3)),
             "got {final_version:?}"
         );
+    }
+
+    fn untracked_asset() -> crate::assets::AssetRef<TestEnv> {
+        // No service-message task, which would hold a strong reference until the run finishes.
+        crate::assets::AssetData::new_temporary(TestEnv::new().to_ref()).to_ref()
+    }
+
+    fn expired_on(expired: &ExpiredDependents<TestEnv>, key: &DependencyKey) -> usize {
+        expired.assets.iter().filter(|(_, k)| k == key).count()
+    }
+
+    #[tokio::test]
+    async fn dependent_assets_prune_dead_entries_as_the_list_grows() {
+        let dm = DependencyManager::<TestEnv>::new();
+        let a = dk("-R/data/a.txt");
+        let live = untracked_asset();
+        dm.add_dependent_asset(&a, live.downgrade()).await;
+        for i in 0..1000 {
+            let asset = untracked_asset();
+            dm.add_dependent_asset(&a, asset.downgrade()).await;
+            drop(asset);
+            let count = dm.dependent_asset_count(&a).await;
+            assert!(count < 2 * 1 + 16, "after {} adds the list holds {count} entries", i + 1);
+        }
+        assert_eq!(expired_on(&dm.expire(&a).await, &a), 1);
+    }
+
+    #[tokio::test]
+    async fn dependent_assets_release_capacity_once_dependents_drop() {
+        let dm = DependencyManager::<TestEnv>::new();
+        let a = dk("-R/data/a.txt");
+        let mut many = Vec::new();
+        for _ in 0..1000 {
+            let asset = untracked_asset();
+            dm.add_dependent_asset(&a, asset.downgrade()).await;
+            many.push(asset);
+        }
+        drop(many);
+        let live = untracked_asset();
+        for _ in 0..1000 {
+            let asset = untracked_asset();
+            dm.add_dependent_asset(&a, asset.downgrade()).await;
+            drop(asset);
+        }
+        dm.add_dependent_asset(&a, live.downgrade()).await;
+        let capacity = match dm.dependent_assets.get_async(&a).await {
+            Some(entry) => entry.get().capacity(),
+            None => 0,
+        };
+        assert!(capacity < 4 * 16, "the list still reserves {capacity} entries");
+        assert_eq!(expired_on(&dm.expire(&a).await, &a), 1);
+    }
+
+    #[tokio::test]
+    async fn dependent_assets_list_one_asset_once() {
+        let dm = DependencyManager::<TestEnv>::new();
+        let a = dk("-R/data/a.txt");
+        let asset = untracked_asset();
+        for _ in 0..40 {
+            dm.add_dependent_asset(&a, asset.downgrade()).await;
+            assert!(dm.dependent_asset_count(&a).await <= 16 + 1);
+        }
+        dm.prune_dependents_now(&a).await;
+        assert_eq!(dm.dependent_asset_count(&a).await, 1);
+        assert_eq!(expired_on(&dm.expire(&a).await, &a), 1, "expired once");
+    }
+
+    #[tokio::test]
+    async fn dependent_assets_keep_every_live_entry() {
+        // Temporary assets all share id 0, so identity must not be judged by id.
+        let dm = DependencyManager::<TestEnv>::new();
+        let a = dk("-R/data/a.txt");
+        let mut live = Vec::new();
+        for _ in 0..100 {
+            let asset = untracked_asset();
+            dm.add_dependent_asset(&a, asset.downgrade()).await;
+            live.push(asset);
+            let dead = untracked_asset();
+            dm.add_dependent_asset(&a, dead.downgrade()).await;
+        }
+        let expired = dm.expire(&a).await;
+        assert_eq!(expired_on(&expired, &a), 100);
+        for asset in &live {
+            let listed = expired
+                .assets
+                .iter()
+                .filter(|(weak, _)| std::sync::Weak::ptr_eq(&weak.data, &asset.downgrade().data))
+                .count();
+            assert_eq!(listed, 1);
+        }
     }
 }
