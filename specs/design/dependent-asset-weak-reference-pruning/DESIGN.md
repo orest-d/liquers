@@ -2,9 +2,9 @@
 id: DEPENDENT-ASSET-WEAK-REFERENCE-PRUNING
 kind: design
 title: The dependency manager prunes dead and duplicate weak dependents as their lists grow
+status: complete
 gh_pr: [158]
 form: compact
-phase: implementation
 readiness: ready
 autofix: eligible
 area: [core/assets]
@@ -12,6 +12,8 @@ issues: [DEPENDENT-ASSET-WEAK-REFERENCES-ARE-NEVER-PRUNED]
 created: 2026-10-17
 ---
 # The dependency manager prunes dead and duplicate weak dependents as their lists grow
+
+> **Complete on 2026-10-19**: implemented and merged in #158.
 
 Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-17 backlog compaction. Phases 1-4
 are written but not approved, and nothing is implemented.
