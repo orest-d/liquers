@@ -3,7 +3,7 @@ title: Liquers Project Overview
 kind: reference
 audience: internal
 area: [core/query, core/plan, core/assets, core/store, core/value]
-reviewed: 2026-10-16
+reviewed: 2026-10-17
 ---
 # Liquers Project Overview
 
@@ -56,10 +56,15 @@ liquers-core (foundation - all core abstractions)
     │   ├─ Table formats: CSV/TSV, NDJSON/JSON, Markdown, HTML; Arrow IPC and Parquet by feature
     │   └─ Manifests and ManifestRecipeProvider (keyed record chunks as recipes)
     │
+    ├── liquers-template (query-aware Mustache templates; depends on liquers-core only)
+    │   ├─ Mustache parser, renderer and encoder; hygienic {{$ q}} query tags
+    │   └─ TemplateHost: how a renderer evaluates queries and loads partials
+    │
     ├── liquers-lib (rich value types + UI)
     │   ├─ Extended value types (DataFrames, Images, UI commands, records)
     │   ├─ Polars integration for tabular data
     │   ├─ Record values and the ns-rec commands (feature `records`, over liquers-records)
+    │   ├─ The ns-template commands (feature `templates`, over liquers-template)
     │   ├─ egui-based interactive UI
     │   └─ Implements Environment trait
     │
@@ -82,7 +87,9 @@ liquers-core (foundation - all core abstractions)
 `liquers-axum` / `liquers-web`, and `liquers-core` ← `liquers-records` ← `liquers-lib` (feature
 `records`, on by default). `liquers-records` depends on `liquers-core` alone, so a crate built on
 records need not pull in `liquers-lib`; it reaches its own value type through the `RecordValue`
-adapter trait.
+adapter trait. Likewise `liquers-core` ← `liquers-template` ← `liquers-lib` (feature `templates`, on
+by default); a template reads its data through core's `DataNode`
+([`TEMPLATE_LANGUAGE.md`](TEMPLATE_LANGUAGE.md)).
 
 ### liquers-core Module Structure
 
@@ -547,6 +554,7 @@ project's purpose, intended uses and per-crate strategy. This document describes
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-17 | Added `liquers-template` to the crate structure and the dependency flow `liquers-core ← liquers-template ← liquers-lib` (feature `templates`). | `design/liquers-mustache/` |
 | 2026-10-16 | Key Design Decisions: Liquers is the only writer of store metadata while it runs. | `design/store-adapters/` phase-5 review |
 | 2026-10-15 | Reviewed against `design/store-adapters/`. Added `AsyncStore` data-only access and the configured-store layer (`ReadOnlyStore`, `MetadataPipelineStore`, storage models, write strategies, handler chains) to §5. The module table gains `store/`, `store_config.rs` and `store_factory.rs`. "Realm applies to the whole segment" is now true of the planner. §3 adds foreign realms: `store_config` is addressable, plannable, not executable. Pointers to `REALMS.md` and `STORE_CONFIG_GUIDE.md`. | phase-5, `design/store-adapters/` |
 | 2026-10-15 | Priority areas and the UI roadmap moved to the new `VISION.md` (purpose, uses, vision, strategy); dropped the stale claim that dependency checking is unimplemented — it landed (see `DEPENDENCIES_STATUS.md` and the dependency designs). | documentation-gap review |

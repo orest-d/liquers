@@ -2,6 +2,7 @@
 id: JSON-ORIENT-INDEX-COLUMN-COLLISION
 kind: design
 title: A schema-less indexed JSON read does not let a data column named index overwrite the index
+status: complete
 form: compact
 gh_pr: [107]
 readiness: ready
@@ -11,6 +12,8 @@ issues: [SCHEMA-LESS-JSON-ORIENT-INDEX-COLUMN-OVERWRITTEN]
 created: 2026-10-08
 ---
 # A schema-less indexed JSON read does not let a data column named `index` overwrite the index
+
+> **Complete on 2026-10-17** (backlog compaction): implemented by #107, merged; every source issue is closed and no phase is outstanding.
 
 Filed through `liquers-project` triage (case 3b) as a spin-off of
 `design/ordered-json-orient-column-order/`. Phases 1-4 are written but not approved, and nothing is

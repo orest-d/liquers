@@ -4,13 +4,12 @@ use std::sync::Arc;
 use crate::maybe_send::MaybeBoxed;
 
 use crate::{
-    assets::{AssetManager, AssetRef, DependencyManagerAccess},
+    assets::{AssetManager, AssetRef},
     command_metadata::{CommandKey, PayloadRequirement},
     commands::{CommandArguments, CommandExecutor},
     context::{Context, EnvRef, Environment},
     error::Error,
-    metadata::{DependencyKey, DependencyRecord, ExpiryCause, LogEntry, Metadata, Version},
-    parse::{SimpleTemplate, SimpleTemplateElement},
+    metadata::{DependencyRecord, LogEntry, Metadata, Version},
     plan::{
         analyze_plan_dependencies, ParameterValue, Plan, PlanBuilder, ResolvedParameterValues,
         Step,
@@ -20,6 +19,8 @@ use crate::{
     state::State,
     value::ValueInterface,
 };
+#[allow(deprecated)]
+use crate::parse::{SimpleTemplate, SimpleTemplateElement};
 
 /// Complete plan setup after `recipe.to_plan()`, **without** cutting a boundary.
 ///
@@ -415,6 +416,13 @@ pub(crate) fn apply_plan_state<E: Environment>(
         // not sent as `Context` log messages: those persist the metadata at once, which would
         // leave a metadata-only store entry for a keyed asset mid-evaluation.
         log_init_steps(&plan, &context).await?;
+
+        // A volatile plan makes its asset volatile. A managed asset was already marked when the
+        // manager created it; an ad-hoc asset (`apply`, `apply_ad_hoc`) is created without a
+        // plan, so this is where it learns it (`specs/design/runtime-volatility/`).
+        if plan.is_volatile && !context.is_volatile() {
+            context.set_volatile("its plan is volatile").await?;
+        }
 
         // A plan declared `payload: required` must not run without one. This is the
         // authoritative gate: it covers every execution path — top-level `EnvRef::evaluate`,
@@ -828,57 +836,8 @@ pub fn do_step<E: Environment>(
         .maybe_boxed(),
         Step::GetAssetDirectory(key) => async move {
             let key = context.resolve_key_from_cwd(&key)?;
-            let envref1 = envref.clone();
-            let asset_manager = envref1.get_asset_manager();
-            // The listing is a dependency: register its version, so a later change of the
-            // membership (`refresh_listing_version`) expires what was built from it, and record
-            // it on this evaluation. `add_dependency` upgrades the plan-time `unknown` record.
-            let dir_dep_key = DependencyKey::from_dir_key(&key);
-            let dm = asset_manager.dependency_manager();
-            let owner = context.owner_key().await?;
-            // The value and the version come from the same read. A write that lands after that
-            // read and before the version is registered skips its refresh
-            // (`refresh_listing_version` refreshes only a registered listing), so the listing is
-            // read again once registered: if it moved, the step registers and uses the new one.
-            // A write after the last read finds the version registered and refreshes it.
-            const LISTING_READS: usize = 3;
-            let mut names = asset_manager.listdir(&key).await?;
-            let mut version;
-            let mut reads = 1;
-            loop {
-                version = crate::dependencies::DependencyManager::<E>::listing_version(&names);
-                // The owner's edge is recorded *before* the version is registered: a dependent
-                // is spared by an edge that records exactly the new version, so the asset being
-                // evaluated right now (whose plan-time edge still holds the previous listing) is
-                // not expired by the registration it is itself causing.
-                if let Some(owner) = &owner {
-                    let owner_dep_key = DependencyKey::from(owner);
-                    if let Ok(expired) =
-                        dm.add_dependency(&owner_dep_key, &dir_dep_key, version).await
-                    {
-                        asset_manager
-                            .expire_dependencies_result(expired, ExpiryCause::Updated { version })
-                            .await;
-                    }
-                }
-                let expired = dm.register_version(&dir_dep_key, version).await;
-                asset_manager
-                    .expire_dependencies_result(expired, ExpiryCause::Updated { version })
-                    .await;
-                if reads == LISTING_READS {
-                    break;
-                }
-                let again = asset_manager.listdir(&key).await?;
-                reads += 1;
-                if crate::dependencies::DependencyManager::<E>::listing_version(&again) == version {
-                    break;
-                }
-                names = again;
-            }
-            let d = asset_manager.asset_info_of_names(&key, &names).await?;
-            context
-                .add_dependency(DependencyRecord::new(dir_dep_key, version))
-                .await;
+            let (names, version) = context.record_listing_with_version(&key).await?;
+            let d = envref.get_asset_manager().asset_info_of_names(&key, &names).await?;
             // The listing is evaluated as a query asset of its own (`-R-dir/data` is a boundary
             // in the plan), whose context has no owner. The asset that depends on it learns the
             // dependency's version from this asset's metadata (`wait_for_dependency_recording`),
@@ -1083,11 +1042,11 @@ pub fn evaluate<E: Environment, Q: TryToQuery>(
         */
         let input_state = State::<<E as Environment>::Value>::new();
         let res = apply_plan(plan, input_state, context.clone(), envref).await?;
+        // As `AssetRef::compute` does: a volatile dependency makes the result volatile.
+        context.check_resolved_volatility().await?;
         let observed_deps = context.take_pending_dependencies().await;
         let mut metadata = context.get_metadata().await?;
-        for dep in observed_deps {
-            let _ = metadata.add_dependency(dep);
-        }
+        metadata.merge_dependencies(observed_deps);
         Ok(State::new()
             .with_data((*res).clone())
             .with_metadata(metadata.into()))
@@ -1095,6 +1054,8 @@ pub fn evaluate<E: Environment, Q: TryToQuery>(
     .maybe_boxed()
 }
 
+#[deprecated(note = "use the liquers-template crate (`{{$ query}}` templates)")]
+#[allow(deprecated)]
 pub fn evaluate_simple_template<E: Environment>(
     envref: EnvRef<E>,
     template: SimpleTemplate,
@@ -1127,31 +1088,11 @@ pub(crate) trait IsVolatile<E: Environment> {
     async fn is_volatile(&self, env: EnvRef<E>) -> Result<bool, Error>;
 }
 
-impl<E: Environment> IsVolatile<E> for ParameterValue {
-    async fn is_volatile(&self, env: EnvRef<E>) -> Result<bool, Error> {
-        if let Some(link) = self.link() {
-            Box::pin(link.is_volatile(env)).await
-        } else {
-            Ok(false)
-        }
-    }
-}
-
-impl<E: Environment> IsVolatile<E> for ResolvedParameterValues {
-    async fn is_volatile(&self, env: EnvRef<E>) -> Result<bool, Error> {
-        for param in self.0.iter() {
-            if param.is_volatile(env.clone()).await? {
-                return Ok(true);
-            }
-        }
-        Ok(false)
-    }
-}
-
 impl<E: Environment> IsVolatile<E> for Plan {
     async fn is_volatile(&self, _env: EnvRef<E>) -> Result<bool, Error> {
         // Return cached value - Plan.is_volatile is always set during plan building (make_plan)
-        // No need to re-check steps; volatility is computed during Phase 1 and Phase 2
+        // No need to re-check steps; volatility is computed during Phase 1 and Phase 2.
+        // The plan is the only volatility authority: there is deliberately no step-level impl.
         Ok(self.is_volatile)
     }
 }
@@ -1173,91 +1114,17 @@ impl<E: Environment> IsVolatile<E> for Query {
     }
 }
 
-impl<E: Environment> IsVolatile<E> for Step {
-    async fn is_volatile(&self, env: EnvRef<E>) -> Result<bool, Error> {
-        match self {
-            Step::Action {
-                realm,
-                ns,
-                action_name,
-                position: _,
-                parameters,
-                origin,
-                query: _,
-            } => {
-                // A hand-built or deserialized alias may be volatile when its target is not.
-                if let Some(alias) = origin.alias() {
-                    if let Some(alias_cmd) = env.get_command_metadata_registry().find_command(
-                        &alias.realm,
-                        &alias.namespace,
-                        &alias.name,
-                    ) {
-                        if alias_cmd.volatile {
-                            return Ok(true);
-                        }
-                    }
-                }
-                if let Some(cmd) =
-                    env.get_command_metadata_registry()
-                        .find_command(&realm, &ns, action_name)
-                {
-                    if cmd.volatile {
-                        return Ok(true);
-                    }
-                    if parameters.is_volatile(env).await? {
-                        return Ok(true);
-                    }
-                    return Ok(false);
-                } else {
-                    Ok(false)
-                }
-            }
-            Step::GetAsset(key) => env.get_asset_manager().is_volatile(&key).await,
-            Step::GetAssetBinary(key) => env.get_asset_manager().is_volatile(&key).await,
-            Step::GetAssetMetadata(key) => env.get_asset_manager().is_volatile(&key).await,
-            Step::GetAssetRecipe(key) => {
-                env.get_asset_manager().is_volatile(&key).await // TODO: not sure when a recipe itself is volatile
-            }
-            Self::GetAssetDirectory(_) => {
-                Ok(true) // TODO: Is asset directory volatilile?
-            }
-            Step::GetResource(_key) => {
-                eprintln!("ADD SUPPORT FOR RESOURCE VOLATILITY CHECK! (A)");
-                // TODO: support for resource volatility check
-                Ok(false)
-            }
-            Step::GetResourceMetadata(_key) => {
-                eprintln!("ADD SUPPORT FOR RESOURCE VOLATILITY CHECK! (B)");
-                // TODO: support for resource volatility check
-                Ok(false)
-            }
-            Self::GetResourceDirectory(_) => {
-                Ok(true) // TODO: Is directory volatilile?
-            }
-            Step::Evaluate(query) => query.is_volatile(env).await,
-            Step::UseQueryValue(_query) => Ok(false),
-            Step::Filename(_) => Ok(false),
-            Step::Info(_) => Ok(false),
-            Step::Warning(_) => Ok(false),
-            Step::Error(_) => Ok(false),
-            Step::Plan(plan) => plan.is_volatile(env).await,
-            Step::SetCwd(_) => Ok(false),
-            Step::UseKeyValue(_) => Ok(false),
-        }
-    }
-}
-
 /// Whether a plan, query, recipe or step needs an evaluation payload to run.
 ///
-/// Mirrors [`IsVolatile`], with one deliberate difference: **keys are a payload boundary**.
-/// A keyed asset is evaluated independently through the asset manager and never inherits a
-/// caller's payload, because keys are global while a payload is per-evaluation. The keyed
-/// step arms below therefore return [`PayloadRequirement::None`] unconditionally instead of
-/// consulting the asset manager as `IsVolatile` does. A keyed recipe that does require a
-/// payload is rejected where the plan for that key is built.
+/// Unlike [`IsVolatile`], which answers from the cached `Plan::is_volatile` only, this walks
+/// the steps. **Keys are a payload boundary**: a keyed asset is evaluated independently
+/// through the asset manager and never inherits a caller's payload, because keys are global
+/// while a payload is per-evaluation. The keyed step arms below therefore return
+/// [`PayloadRequirement::None`] unconditionally. A keyed recipe that does require a payload is
+/// rejected where the plan for that key is built.
 ///
-/// Because no arm consults the asset manager, this traversal is cheaper than `IsVolatile`:
-/// its only asynchronous work is `make_plan` in the [`Query`] implementation.
+/// No arm consults the asset manager: the only asynchronous work is `make_plan` in the
+/// [`Query`] implementation.
 pub(crate) trait RequiresPayload<E: Environment> {
     async fn requires_payload(&self, env: EnvRef<E>) -> Result<PayloadRequirement, Error>;
 }
@@ -1382,47 +1249,6 @@ mod tests {
     use crate::store::{AsyncMemoryStore, AsyncStore};
     use crate::value::Value;
     use liquers_macro::*;
-
-    /// Phase 3 test 11 (AC-8): a hand-built alias may be volatile when its target is not; the
-    /// step that runs the target still reports volatile. (`IsVolatile` is crate-private, so this
-    /// lives here rather than in `tests/command_alias.rs`.)
-    #[tokio::test]
-    async fn step_is_volatile_when_alias_is_volatile() -> Result<(), Error> {
-        let mut env = SimpleEnvironment::<Value>::new();
-        let registry = &mut env.command_registry.command_metadata_registry;
-        registry.add_command(&crate::command_metadata::CommandMetadata::new("steady"));
-        let mut jumpy = crate::command_metadata::CommandMetadata::new("jumpy");
-        jumpy.volatile = true;
-        jumpy.definition = crate::command_metadata::CommandDefinition::Alias {
-            command: CommandKey::new("", "", "steady"),
-            head_parameters: vec![],
-        };
-        registry.add_command(&jumpy);
-        let envref = env.to_ref();
-
-        let step = |origin: crate::plan::ActionOrigin| Step::Action {
-            realm: String::new(),
-            ns: String::new(),
-            action_name: "steady".to_string(),
-            position: Position::unknown(),
-            parameters: ResolvedParameterValues::new(),
-            origin,
-            query: None,
-        };
-        assert!(
-            !step(crate::plan::ActionOrigin::Direct)
-                .is_volatile(envref.clone())
-                .await?
-        );
-        assert!(
-            step(crate::plan::ActionOrigin::Alias {
-                command: CommandKey::new("", "", "jumpy"),
-            })
-            .is_volatile(envref)
-            .await?
-        );
-        Ok(())
-    }
 
     async fn immediate_context(
         envref: EnvRef<ImmediateEnvironment<Value>>,

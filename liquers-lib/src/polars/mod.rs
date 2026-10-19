@@ -2,6 +2,7 @@
 // Implements commands for data manipulation using Polars DataFrames
 
 pub mod aggregation;
+pub mod data_node;
 pub mod filtering;
 pub mod info;
 pub mod io;

@@ -171,6 +171,15 @@
 //! on volatile input also produces a volatile result, so the result is not reused
 //! as a stable cached asset.
 //!
+//! Most of it is known from the plan, before evaluation. The rest is decided during
+//! the run and recorded on the asset, which is the authority: a command calls
+//! `Context::set_volatile`, and the context calls it itself when a dependency it
+//! resolved is volatile by its metadata — whether the plan named it or the command
+//! evaluated it at run time. An ad-hoc asset records its plan's volatility when the
+//! plan is applied. Finalization reads the flag, so such an asset finishes
+//! `Volatile`, and a map entry made for it before is evicted on the next request
+//! (`specs/design/runtime-volatility/`).
+//!
 //! # Identity, reuse, and fast-track loading
 //!
 //! A pure key query is resolved through the key-asset map. Other queries use the
@@ -1985,6 +1994,53 @@ fn stored_record_breaks(
     }
 }
 
+/// One level of [`AssetManager::refresh_listing_version`]: read the listing of `dir`, whose
+/// version `dep_key` is registered, register its new version and expire what it moved. Returns
+/// whether the listing is now empty, or `None` when it could not be read (reported on stderr).
+async fn refresh_one_listing<E: Environment, M: AssetManager<E> + ?Sized>(
+    manager: &M,
+    dir: &Key,
+    dep_key: &crate::metadata::DependencyKey,
+) -> Option<bool> {
+    match manager.listdir(dir).await {
+        Ok(names) => {
+            let version = crate::dependencies::DependencyManager::<E>::listing_version(&names);
+            let expired = manager
+                .dependency_manager()
+                .register_version(dep_key, version)
+                .await;
+            manager
+                .expire_dependencies_result(expired, ExpiryCause::Updated { version })
+                .await;
+            Some(names.is_empty())
+        }
+        Err(error) => {
+            eprintln!(
+                "Could not refresh the listing version of '{}' after a write: {}",
+                dir, error
+            );
+            None
+        }
+    }
+}
+
+/// The nearest strict ancestor of `dir` (up to and including the root) whose listing has a
+/// registered version, if any. Version-map reads only, no I/O.
+async fn nearest_registered_ancestor_listing<E: Environment, M: AssetManager<E> + ?Sized>(
+    manager: &M,
+    dir: &Key,
+) -> Option<Key> {
+    let mut ancestor = dir.clone();
+    while !ancestor.is_empty() {
+        ancestor = ancestor.parent();
+        let dep_key = crate::metadata::DependencyKey::from_dir_key(&ancestor);
+        if manager.dependency_manager().get_version(&dep_key).await.is_some() {
+            return Some(ancestor);
+        }
+    }
+    None
+}
+
 /// The stored-records walk behind [`AssetManager::stored_dependency_state`]: iterative, with an
 /// explicit stack, because a chain of stored values has no bounded depth.
 pub(crate) async fn stored_dependency_walk<E: Environment, M: AssetManager<E> + ?Sized>(
@@ -2209,6 +2265,21 @@ impl<E: Environment> Clone for WeakAssetRef<E> {
         WeakAssetRef {
             id: self.id,
             data: self.data.clone(),
+        }
+    }
+}
+
+/// Upserts `dependencies` into `metadata`, linearly: one index for the whole batch.
+///
+/// Legacy metadata other than `null` cannot hold records, and is left as it is, as
+/// `Metadata::add_dependency` leaves it.
+fn merge_dependencies(metadata: &mut Metadata, dependencies: Vec<DependencyRecord>) {
+    match metadata {
+        Metadata::MetadataRecord(record) => record.merge_dependencies(dependencies),
+        Metadata::LegacyMetadata(_) => {
+            for dependency in dependencies {
+                let _ = metadata.add_dependency(dependency);
+            }
         }
     }
 }
@@ -2849,6 +2920,10 @@ impl<E: Environment> AssetRef<E> {
 
     /// Estimate the volatility before execution.
     /// Used e.g. by: `evaluate` in this module
+    ///
+    /// This is the plan-time estimate only. The run can still make the asset volatile, through
+    /// `Context::set_volatile` (a volatile dependency, or the command's own decision); see
+    /// `specs/design/runtime-volatility/`.
     async fn resolve_volatility_before_evaluation(&self) {
         let mut lock = self.data.write().await;
         let resolved =
@@ -3732,6 +3807,14 @@ impl<E: Environment> AssetRef<E> {
                         let envref = self.get_envref().await;
                         let manager = envref.get_asset_manager();
                         let state = manager.wait_for_dependency(self, &asset).await?;
+                        if state.metadata.is_volatile() {
+                            // The owner turned volatile during its run: so is its value, here too.
+                            self.set_volatile_during_run(&format!(
+                                "the owner of key {} is volatile",
+                                key
+                            ))
+                            .await?;
+                        }
                         return Ok(RecipeEvaluation {
                             value: state.data_unchecked().clone(),
                             // A hand-off transfers the value, not the owner's metadata record —
@@ -3811,8 +3894,24 @@ impl<E: Environment> AssetRef<E> {
         }
         let context_for_deps = context.clone(); // shares pending_dependencies Arc
         eprintln!("Applying recipe");
-        let res = envref.apply_recipe(input_state, recipe, context).await?;
+        let res = match envref.apply_recipe(input_state, recipe, context).await {
+            Ok(res) => res,
+            Err(error) => {
+                // A failed evaluation keeps what it read, so a caller that recovers the failure
+                // (`Context::apply_ad_hoc` under a template's `expand` mode) can pass it on.
+                let observed_deps = context_for_deps.take_pending_dependencies().await;
+                let mut lock = self.data.write().await;
+                for dep in observed_deps {
+                    let _ = lock.metadata.add_dependency(dep);
+                }
+                return Err(error);
+            }
+        };
         //eprintln!("Recipe evaluated, result: {:?}", &res);
+
+        // A volatile dependency makes this asset volatile, however the command waited for it
+        // (`specs/design/runtime-volatility/`). Recorded on the asset before it is finalized.
+        context_for_deps.check_resolved_volatility().await?;
 
         // Observed dependencies travel back as data, to be merged into the live metadata by
         // `evaluate`. Every entry point records them; this is the asymmetry the issue names.
@@ -3909,9 +4008,7 @@ impl<E: Environment> AssetRef<E> {
                     lock.metadata
                         .with_type_identifier(value.identifier().to_string())
                         .with_type_name(value.type_name().to_string());
-                    for dep in dependencies {
-                        let _ = lock.metadata.add_dependency(dep);
-                    }
+                    merge_dependencies(&mut lock.metadata, dependencies);
                     lock.data = Some(value);
                     // Every other value-installing path clears this (`set_value`, `set_state`),
                     // and this one is about to write it. Leaving a stale binary here would let
@@ -4416,6 +4513,43 @@ impl<E: Environment> AssetRef<E> {
             return Ok(());
         }
         set_metadata_description(&mut lock.metadata, title, description)
+    }
+
+    /// Marks the asset being evaluated volatile, during its run (`Context::set_volatile`).
+    ///
+    /// The asset is the authority on its volatility: this sets `AssetData::is_volatile` and the
+    /// metadata flag under one write lock, so `finalize_status_with_version` finishes the asset
+    /// `Volatile` — not reused, stored with a status `try_fast_track` refuses, not a
+    /// dependency-graph node. Written directly rather than through the service channel, which is
+    /// drained only after the run has settled and would apply it too late
+    /// (`specs/design/runtime-volatility/`).
+    ///
+    /// Idempotent: only the first call logs `reason`. A no-op on an asset that is no longer in
+    /// flight, whose status is already final.
+    pub(crate) async fn set_volatile_during_run(&self, reason: &str) -> Result<(), Error> {
+        // Read before the flag flips: a volatile asset is never a bound owner.
+        let owner_key = self.bound_owner_key().await?;
+        {
+            let mut lock = self.data.write().await;
+            if lock.is_volatile || !is_in_flight(lock.status) {
+                return Ok(());
+            }
+            lock.is_volatile = true;
+            lock.metadata.set_volatile()?;
+            lock.metadata
+                .add_log_entry(LogEntry::info(format!("Volatile: {}", reason)))?;
+        }
+        if let Some(key) = owner_key {
+            // While it was the key's owner, its context registered schedule-time edges under the
+            // key. A volatile asset is not a graph node, so they go.
+            self.get_envref()
+                .await
+                .get_asset_manager()
+                .dependency_manager()
+                .remove_dependent_edges(&DependencyKey::from(&key))
+                .await;
+        }
+        Ok(())
     }
 
     /// Converts this runtime asset to `Override`, preventing recipe re-evaluation.
@@ -5681,7 +5815,10 @@ where
         VersionCheck::Verified => return Ok(None),
         VersionCheck::Mismatch { actual, .. } => actual,
     };
-    let has_recipe = manager.recipe_opt(key).await?.is_some();
+    let has_recipe = manager
+        .get_recipe_provider()
+        .can_make(key, manager.get_envref())
+        .await?;
     let status = external_change_status(metadata.status(), recorded, has_recipe);
     Ok(
         external_change_action(status, has_recipe, manager.external_change_policy(), actual)
@@ -5869,7 +6006,13 @@ pub trait AssetManager<E: Environment>:
     ///
     /// A recipe that requires an evaluation payload is rejected here: keys are a payload
     /// boundary. This is the earliest funnel where a recipe is resolved *for a key*, so the
-    /// rejection precedes asset creation and volatility resolution.
+    /// rejection precedes asset creation and volatility resolution. Implementations should not
+    /// override it without keeping that check.
+    ///
+    /// A caller that only needs to know whether a recipe *exists* — to decide that a written value
+    /// is an `Override`, or what removing or expiring a key does — asks the provider's
+    /// [`AsyncRecipeProvider::can_make`] instead: overriding and deleting are independent of the
+    /// payload boundary, so they must not fail on a recipe evaluation would refuse.
     async fn recipe_opt(&self, key: &Key) -> Result<Option<Recipe>, Error> {
         let recipe = self
             .get_recipe_provider()
@@ -5931,6 +6074,9 @@ pub trait AssetManager<E: Environment>:
     /// Evaluate an ad-hoc asset for a command of `parent` (`Context::apply`), inside `parent`'s
     /// evaluation session, so the dependencies it resolves are the ones `parent`'s evaluation
     /// uses.
+    ///
+    /// The built-in managers return the asset even when its evaluation failed: the failure is
+    /// recorded in it, with the dependencies it read, which `Context::apply_ad_hoc` passes on.
     ///
     /// Default: [`Self::apply`], which evaluates it in a session of its own.
     async fn apply_for(
@@ -6057,7 +6203,10 @@ pub trait AssetManager<E: Environment>:
         } else {
             None
         };
-        let has_recipe = self.recipe_opt(key).await?.is_some();
+        let has_recipe = self
+            .get_recipe_provider()
+            .can_make(key, self.get_envref())
+            .await?;
 
         let decisive = match live_status {
             Some(status) if !live_status_defers_to_store(status) => Some(status),
@@ -6204,7 +6353,11 @@ pub trait AssetManager<E: Environment>:
                 | Status::Volatile => Err(Error::status_conflict(key, status, "expire")),
             };
         }
-        if self.recipe_opt(key).await?.is_some() {
+        if self
+            .get_recipe_provider()
+            .can_make(key, self.get_envref())
+            .await?
+        {
             Err(Error::status_conflict(key, Status::Recipe, "expire"))
         } else {
             Err(Error::key_not_found(key))
@@ -6846,38 +6999,63 @@ pub trait AssetManager<E: Environment>:
 
     /// Recompute and register the listing version of `dir` **iff** the dependency manager
     /// already holds one (something depends on the listing); cascades with
-    /// `ExpiryCause::Updated` when it moved.
+    /// `ExpiryCause::Updated` when it moved. Then the same for the folders above `dir`, as far as
+    /// the write can have changed their membership.
     ///
-    /// Called after every manager-mediated write or removal, with the written key's parent. It
-    /// first tells the recipe provider that `dir` changed
+    /// Called after every manager-mediated write or removal, with the written key's parent. A
+    /// write that creates `dir` adds it to the listing of its parent, and a removal that empties
+    /// it may drop it there, so the refresh walks towards the root
+    /// (`specs/design/new-folder-write-ancestor-listing-refresh/`). It climbs past a registered
+    /// level only when that level's old or new listing is empty (the level may have been created
+    /// or removed), and past an unregistered level only when some higher level is registered;
+    /// otherwise it stops. An ordinary write into an existing, non-empty folder therefore still
+    /// reads one listing, and a write under no registered listing reads none. The emptiness test
+    /// reads the merged listing ([`Self::listdir`]); it stands for the stored one because the
+    /// in-tree recipe providers list names in a folder only from a file stored in that folder
+    /// (`recipes.yaml`, `*.manifest.yaml`). A provider listing names in a folder with no stored
+    /// file breaks that (`RECIPE-ONLY-FOLDER-NAMES-HIDE-A-CREATED-FOLDER-FROM-ITS-PARENT`). Levels
+    /// found unregistered on the way to the nearest registered ancestor are looked up once, so a
+    /// deep new path costs version-map reads linear in its depth.
+    ///
+    /// Each visited level first tells the recipe provider that it changed
     /// ([`AsyncRecipeProvider::directory_changed`]), so a provider caching directory-derived
-    /// state drops it. It then costs one version-map read when nobody depends on the listing. It never takes
+    /// state drops it. A level nobody depends on costs version-map reads only. It never takes
     /// `key_mutation_lock`, so it is safe to call with that lock held. A `listdir` error is
-    /// reported with `eprintln!`: the write it follows stands, and a failed refresh must not
-    /// undo it.
+    /// reported with `eprintln!` and ends the walk: the write it follows stands, and a failed
+    /// refresh must not undo it.
     async fn refresh_listing_version(&self, dir: &Key) {
-        self.get_recipe_provider().directory_changed(dir).await;
-        let dep_key = crate::metadata::DependencyKey::from_dir_key(dir);
-        if self.dependency_manager().get_version(&dep_key).await.is_none() {
-            return;
-        }
-        match self.listdir(dir).await {
-            Ok(names) => {
-                let version =
-                    crate::dependencies::DependencyManager::<E>::listing_version(&names);
-                let expired = self
-                    .dependency_manager()
-                    .register_version(&dep_key, version)
-                    .await;
-                self.expire_dependencies_result(expired, ExpiryCause::Updated { version })
-                    .await;
+        let empty_listing = crate::dependencies::DependencyManager::<E>::listing_version(&[]);
+        let mut level = dir.clone();
+        // The registered ancestor found from an unregistered level: the levels below it were
+        // just looked up and found unregistered, so they are climbed without a second lookup,
+        // which keeps a deep new path linear in its depth.
+        let mut registered_above: Option<Key> = None;
+        loop {
+            self.get_recipe_provider().directory_changed(&level).await;
+            let between = match &registered_above {
+                Some(ancestor) => ancestor != &level,
+                None => false,
+            };
+            let climb = if between {
+                true
+            } else {
+                registered_above = None;
+                let dep_key = crate::metadata::DependencyKey::from_dir_key(&level);
+                match self.dependency_manager().get_version(&dep_key).await {
+                    Some(old) => match refresh_one_listing(self, &level, &dep_key).await {
+                        Some(now_empty) => old == empty_listing || old.is_unknown() || now_empty,
+                        None => false,
+                    },
+                    None => {
+                        registered_above = nearest_registered_ancestor_listing(self, &level).await;
+                        registered_above.is_some()
+                    }
+                }
+            };
+            if !climb || level.is_empty() {
+                return;
             }
-            Err(error) => {
-                eprintln!(
-                    "Could not refresh the listing version of '{}' after a write: {}",
-                    dir, error
-                );
-            }
+            level = level.parent();
         }
     }
 
@@ -7045,10 +7223,12 @@ pub trait AssetManager<E: Environment>:
     /// The primitive an external manager's `set_state` calls once the installed asset is mapped,
     /// as the built-in managers do; `version` is the installed version, the cause recorded on
     /// anything the registration finds stale. Only `Ready`, `Source` and `Override` assets are
-    /// registered. Like [`Self::publish_version`] it touches the graph only and may be called with
+    /// registered. The installed key's previous incoming edges are replaced by the records in the
+    /// new metadata, so a dependency the new value no longer lists stops expiring it. Like
+    /// [`Self::publish_version`] it touches the graph only and may be called with
     /// [`KeyMutationAccess::key_mutation_lock`] held.
     async fn track_installed(&self, asset: &AssetRef<E>, version: Version) {
-        let expired = self.dependency_manager().track_asset(asset).await;
+        let expired = self.dependency_manager().track_replacing_asset(asset).await;
         self.expire_dependencies_result(expired, ExpiryCause::Updated { version })
             .await;
     }
@@ -8572,7 +8752,8 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         if let Some(session) = parent.evaluation_session().await {
             asset_ref.adopt_evaluation_session(&session).await;
         }
-        asset_ref.run(payload).await?;
+        // A failure is recorded in the asset (see the trait method).
+        let _ = asset_ref.run(payload).await;
         Ok(asset_ref)
     }
 
@@ -8628,27 +8809,6 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         }
     }
 
-    /// Get recipe option for a resource asset
-    async fn recipe_opt(&self, key: &Key) -> Result<Option<Recipe>, Error> {
-        self.get_recipe_provider()
-            .recipe_opt(key, self.get_envref())
-            .await
-    }
-
-    /// Computes and returns a boolean volatility check for a resource asset
-    /// Used by: `get_query_asset`, `get_resource_asset`, `resolve_volatility_before_evaluation` in this module.
-    ///
-    /// Arguments:
-    /// - `key`: Store key identifying the target asset/resource.
-    async fn is_volatile(&self, key: &Key) -> Result<bool, Error> {
-        if let Some(recipe) = self.recipe_opt(key).await? {
-            let env = self.get_envref();
-            Ok(recipe.is_volatile(env).await?)
-        } else {
-            Ok(false)
-        }
-    }
-
     /// Set binary value ot the asset
     /// Equivalent of store set method.
     /// For assets with recipes, this can be considered an Override, and the status is set accordingly.
@@ -8689,7 +8849,11 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
             let input_status = metadata.status;
             let final_status = match written_status(input_status) {
                 Some(status) => status,
-                None => written_status_with_recipe(self.recipe_opt(key).await?.is_some()),
+                None => written_status_with_recipe(
+                    self.get_recipe_provider()
+                        .can_make(key, self.get_envref())
+                        .await?,
+                ),
             };
             metadata.status = final_status;
             validate_required_metadata_fields(key, &metadata, self.get_envref().get_type_registry())?;
@@ -8791,7 +8955,11 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
             let input_status = state.metadata.status();
             let final_status = match written_status(input_status) {
                 Some(status) => status,
-                None => written_status_with_recipe(self.recipe_opt(key).await?.is_some()),
+                None => written_status_with_recipe(
+                    self.get_recipe_provider()
+                        .can_make(key, self.get_envref())
+                        .await?,
+                ),
             };
 
             // 3. Create metadata record with updated status, timestamp, and log entry
@@ -8871,8 +9039,8 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
                 if let Some(version) = metadata.version() {
                     self.publish_version(&dep_key, version).await;
                 }
-                // Track the asset in the dependency manager
-                let expired = self.dependency_manager.track_asset(&asset_ref).await;
+                // Track the asset in the dependency manager, replacing the key's incoming edges
+                let expired = self.dependency_manager.track_replacing_asset(&asset_ref).await;
                 self.expire_dependencies_result(expired, ExpiryCause::Updated { version })
                     .await;
             }
@@ -10107,7 +10275,8 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
         if let Some(session) = parent.evaluation_session().await {
             asset_ref.adopt_evaluation_session(&session).await;
         }
-        asset_ref.run_inline(payload).await?;
+        // A failure is recorded in the asset (see the trait method).
+        let _ = asset_ref.run_inline(payload).await;
         Ok(asset_ref)
     }
 
@@ -10186,7 +10355,11 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
         let result = async {
             let final_status = match written_status(metadata.status) {
                 Some(status) => status,
-                None => written_status_with_recipe(self.recipe_opt(key).await?.is_some()),
+                None => written_status_with_recipe(
+                    self.get_recipe_provider()
+                        .can_make(key, self.get_envref())
+                        .await?,
+                ),
             };
             metadata.status = final_status;
             validate_required_metadata_fields(key, &metadata, self.envref().get_type_registry())?;
@@ -10246,7 +10419,11 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
         let result = async {
             let final_status = match written_status(state.metadata.status()) {
                 Some(status) => status,
-                None => written_status_with_recipe(self.recipe_opt(key).await?.is_some()),
+                None => written_status_with_recipe(
+                    self.get_recipe_provider()
+                        .can_make(key, self.get_envref())
+                        .await?,
+                ),
             };
             let mut metadata = state.metadata.as_ref().clone();
             metadata.set_status(final_status)?;
@@ -10294,7 +10471,7 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
                 if let Some(version) = metadata.version() {
                     self.publish_version(&dep_key, version).await;
                 }
-                let expired = self.dependency_manager.track_asset(&asset).await;
+                let expired = self.dependency_manager.track_replacing_asset(&asset).await;
                 self.expire_dependencies_result(expired, ExpiryCause::Updated { version })
                     .await;
             }
@@ -14461,6 +14638,35 @@ recipes:
             volatile.is_volatile().await,
             "sanity: it really was volatile"
         );
+    }
+
+    /// `set_volatile_during_run` records volatility on the asset itself — the flag and the
+    /// metadata — and logs the reason once (`specs/design/runtime-volatility/`, AC-7, AC-9).
+    #[tokio::test]
+    async fn set_volatile_during_run_marks_metadata_once() {
+        let envref = SimpleEnvironment::<Value>::new().to_ref();
+        let asset = AssetRef::new_temporary(envref);
+        asset
+            .set_volatile_during_run("first reason")
+            .await
+            .expect("first");
+        asset
+            .set_volatile_during_run("second reason")
+            .await
+            .expect("second");
+        let lock = asset.data.read().await;
+        assert!(lock.is_volatile, "the asset flag is set");
+        assert!(lock.metadata.is_volatile(), "the metadata flag is set");
+        let entries: Vec<String> = lock
+            .metadata
+            .metadata_record()
+            .expect("record")
+            .log
+            .iter()
+            .filter(|e| e.message.starts_with("Volatile:"))
+            .map(|e| e.message.clone())
+            .collect();
+        assert_eq!(entries, vec!["Volatile: first reason".to_string()]);
     }
 
     /// T12 — an asset that turns out volatile is used once, then dropped from the key map.

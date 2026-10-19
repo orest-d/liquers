@@ -42,6 +42,9 @@ that does not apply is skipped, not padded.
   serialization, `TypeInfo`).
 - [ ] Commands are given as `register_command!` lines; a signature change plans the
   `specs/command_registry.yaml` regeneration.
+- [ ] Command signatures follow `specs/guides/COMMAND_REGISTRATION_GUIDE.md`; in particular, an
+  argument that depends on location is a default link (`query "-R-key/."`), never read from
+  `Context` or inferred from the input.
 - [ ] Documentation architecture gives exact paths and changes, and the proposed `affects_docs`.
 - [ ] The risk table is filled in, with no category left empty without a reason.
 

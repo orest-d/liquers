@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use liquers_core::assets::AssetManager;
 use liquers_core::context::{EnvRef, Environment};
 use liquers_core::error::Error;
-use liquers_core::metadata::{LogEntryKind, Metadata, Status};
+use liquers_core::metadata::{LogEntryKind, Metadata, MetadataRecord, Status};
 use liquers_core::parse::parse_key;
 use liquers_core::query::Key;
 use liquers_core::state::State;
@@ -212,6 +212,45 @@ fn texts(view: &Arc<dyn RecordView>, name: &str) -> Vec<String> {
 
 fn row_of(view: &Arc<dyn RecordView>, key: &str) -> usize {
     texts(view, "key").iter().position(|k| k == key).unwrap_or_else(|| panic!("no row '{key}'"))
+}
+
+/// Writes `text` to `key` through the asset manager, as a user or a command would: the write
+/// registers a new version and refreshes the folder's listing.
+async fn write(envref: &EnvRef<CommandEnvironment>, key: &str, text: &str) -> Result<(), Error> {
+    let key = parse_key(key)?;
+    let filename = key
+        .filename()
+        .ok_or_else(|| Error::general_error(format!("key '{key}' has no filename")))?
+        .encode();
+    let mut metadata = MetadataRecord {
+        type_identifier: "Text".into(),
+        type_name: "text".into(),
+        data_format: Some(filename.rsplit('.').next().unwrap_or("txt").to_string()),
+        ..Default::default()
+    };
+    metadata.set_filename(filename.as_ref());
+    envref.get_asset_manager().set_binary(&key, text.as_bytes(), metadata).await
+}
+
+/// Writes `text` to the store behind the asset manager's back, as `put` does in the fixture.
+async fn put_store(envref: &EnvRef<CommandEnvironment>, key: &str, text: &str) -> Result<(), Error> {
+    let key = parse_key(key)?;
+    let mut metadata = Metadata::new();
+    let filename = key
+        .filename()
+        .ok_or_else(|| Error::general_error(format!("key '{key}' has no filename")))?;
+    metadata.set_filename(filename.encode().as_ref())?;
+    metadata.set_status(Status::Source)?;
+    envref.get_async_store().set(&key, text.as_bytes(), &metadata).await
+}
+
+fn dependencies_of(state: &State<Value>) -> Vec<String> {
+    match &*state.metadata {
+        Metadata::MetadataRecord(record) => {
+            record.dependencies.iter().map(|d| d.key.as_str().to_string()).collect()
+        }
+        Metadata::LegacyMetadata(_) => vec![],
+    }
 }
 
 fn log_messages(state: &State<Value>, kind: LogEntryKind) -> Vec<String> {
@@ -575,6 +614,204 @@ async fn md_split_sections_and_lines() -> Res {
 }
 
 // ------------------------------------------------------------------------------------------------
+// Dependencies (specs/design/search-read-dependencies/)
+// ------------------------------------------------------------------------------------------------
+
+const C_STORE_CHANGED: &str = "---
+id: C-STORE
+title: Store listing
+status: closed
+area: [core/store]
+---
+# Store listing
+
+Changed text, now about a wombat.
+";
+
+fn content_of(view: &Arc<dyn RecordView>, key: &str) -> String {
+    texts(view, "content")[row_of(view, key)].clone()
+}
+
+/// AC-1
+#[tokio::test]
+async fn search_catalog_content_follows_a_rewrite() -> Res {
+    let env = fixture("search_catalog_content_follows_a_rewrite").await?;
+    let query = "-R-key/specs/issues/-/ns-search/catalog-t-t";
+    let before = view_of(&env, query).await?;
+    assert!(content_of(&before, "specs/issues/C-STORE.md").contains("Nothing to see here."));
+    write(&env, "specs/issues/C-STORE.md", C_STORE_CHANGED).await?;
+    let after = view_of(&env, query).await?;
+    let content = content_of(&after, "specs/issues/C-STORE.md");
+    assert!(content.contains("Changed text"), "{content}");
+    Ok(())
+}
+
+/// AC-2, AC-3: a file added to the folder and to a subfolder; a file removed. (A file that
+/// creates a new subfolder is not seen: `NEW-FOLDER-WRITE-DOES-NOT-REFRESH-THE-PARENT-LISTING`.)
+#[tokio::test]
+async fn search_catalog_follows_added_and_removed_files() -> Res {
+    let env = fixture("search_catalog_follows_added_and_removed_files").await?;
+    let query = "-R-key/specs/-/ns-search/catalog";
+    let keys = texts(&view_of(&env, query).await?, "key");
+    assert!(keys.contains(&"specs/issues/B-CLOSED.md".to_string()));
+    for added in ["specs/issues/E-NEW.md", "specs/design/x/phase2.md"] {
+        write(&env, added, "# New\n").await?;
+        let keys = texts(&view_of(&env, query).await?, "key");
+        assert!(keys.contains(&added.to_string()), "{added} in {keys:?}");
+    }
+    env.get_asset_manager().remove(&parse_key("specs/issues/B-CLOSED.md")?).await?;
+    let keys = texts(&view_of(&env, query).await?, "key");
+    assert!(!keys.contains(&"specs/issues/B-CLOSED.md".to_string()), "{keys:?}");
+    Ok(())
+}
+
+/// AC-4: `updated` (the memory store records no `size`).
+#[tokio::test]
+async fn search_catalog_metadata_columns_follow_a_rewrite() -> Res {
+    let env = fixture("search_catalog_metadata_columns_follow_a_rewrite").await?;
+    let query = "-R-key/specs/issues/-/ns-search/catalog-t-f";
+    // The fixture's files carry no `updated`; one written through Liquers does.
+    write(&env, "specs/issues/C-STORE.md", C_STORE).await?;
+    let before = view_of(&env, query).await?;
+    let updated = column(&before, "updated")[row_of(&before, "specs/issues/C-STORE.md")].clone();
+    assert!(matches!(updated, FieldValue::Timestamp(_)), "{updated:?}");
+    // `updated` has millisecond resolution.
+    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    write(&env, "specs/issues/C-STORE.md", C_STORE_CHANGED).await?;
+    let after = view_of(&env, query).await?;
+    assert_ne!(column(&after, "updated")[row_of(&after, "specs/issues/C-STORE.md")], updated);
+    Ok(())
+}
+
+/// AC-5. `search` over a folder searches its catalog without content, so it is shown a new file
+/// whose name matches.
+#[tokio::test]
+async fn search_document_commands_follow_a_rewrite() -> Res {
+    let env = fixture("search_document_commands_follow_a_rewrite").await?;
+    let extract = "-R-key/specs/issues/-/ns-search/field_extract";
+    let split = "-R-key/specs/issues/-/ns-search/md_split";
+    let search = "-R-key/specs/issues/-/ns-search/search-wombat";
+    let fields = view_of(&env, extract).await?;
+    assert_eq!(texts(&fields, "status")[row_of(&fields, "specs/issues/C-STORE.md")], "draft");
+    assert!(!texts(&view_of(&env, split).await?, "text").iter().any(|t| t.contains("wombat")));
+    assert_eq!(view_of(&env, search).await?.len(), 0);
+    write(&env, "specs/issues/C-STORE.md", C_STORE_CHANGED).await?;
+    write(&env, "specs/issues/wombat.md", "# Wombat\n").await?;
+    let fields = view_of(&env, extract).await?;
+    assert_eq!(texts(&fields, "status")[row_of(&fields, "specs/issues/C-STORE.md")], "closed");
+    assert!(texts(&view_of(&env, split).await?, "text").iter().any(|t| t.contains("wombat")));
+    assert_eq!(texts(&view_of(&env, search).await?, "key"), vec!["specs/issues/wombat.md"]);
+    Ok(())
+}
+
+/// AC-6: the catalog prefix is a predecessor asset of its own.
+#[tokio::test]
+async fn search_over_a_cut_catalog_follows_a_rewrite() -> Res {
+    let env = fixture("search_over_a_cut_catalog_follows_a_rewrite").await?;
+    let query = "-R-key/specs/issues/-/ns-search/catalog-t-t/search-wombat";
+    assert_eq!(view_of(&env, query).await?.len(), 0);
+    write(&env, "specs/issues/C-STORE.md", C_STORE_CHANGED).await?;
+    assert_eq!(texts(&view_of(&env, query).await?, "key"), vec!["specs/issues/C-STORE.md"]);
+    Ok(())
+}
+
+/// AC-7
+#[tokio::test]
+async fn search_root_catalog_follows_a_root_write() -> Res {
+    let env = fixture("search_root_catalog_follows_a_root_write").await?;
+    let query = "ns-search/catalog-f";
+    assert!(!texts(&view_of(&env, query).await?, "key").contains(&"ROOT.md".to_string()));
+    write(&env, "ROOT.md", "# Root\n").await?;
+    let keys = texts(&view_of(&env, query).await?, "key");
+    assert!(keys.contains(&"ROOT.md".to_string()), "{keys:?}");
+    Ok(())
+}
+
+/// AC-8: a recipe key whose query is the catalog.
+#[tokio::test]
+async fn search_keyed_recipe_follows_a_rewrite() -> Res {
+    let env = fixture("search_keyed_recipe_follows_a_rewrite").await?;
+    env.get_async_store()
+        .set(
+            &parse_key("index/recipes.yaml")?,
+            b"recipes:\n  - query: \"-R-key/specs/issues/-/ns-search/catalog-t-t/issues.csv\"\n",
+            &Metadata::new(),
+        )
+        .await?;
+    let key = parse_key("index/issues.csv")?;
+    let state = env.get_asset_manager().get(&key).await?.get().await?;
+    let view = state.value()?.as_record_view()?;
+    assert!(content_of(&view, "specs/issues/C-STORE.md").contains("Nothing to see here."));
+    let dependencies = dependencies_of(&state);
+    assert!(dependencies.contains(&"-R/specs/issues/C-STORE.md".to_string()), "{dependencies:?}");
+    write(&env, "specs/issues/C-STORE.md", C_STORE_CHANGED).await?;
+    let state = env.get_asset_manager().get(&key).await?.get().await?;
+    let view = state.value()?.as_record_view()?;
+    let content = content_of(&view, "specs/issues/C-STORE.md");
+    assert!(content.contains("Changed text"), "{content}");
+    Ok(())
+}
+
+/// AC-9: the same asset while nothing under the folder changes, a write elsewhere included.
+#[tokio::test]
+async fn search_catalog_is_reused_while_nothing_changes() -> Res {
+    let env = fixture("search_catalog_is_reused_while_nothing_changes").await?;
+    let query = "-R-key/specs/issues/-/ns-search/catalog-t-t";
+    let first = env.evaluate(query).await?;
+    first.get().await?;
+    let second = env.evaluate(query).await?;
+    assert_eq!(first.id(), second.id());
+    write(&env, "data/elsewhere.txt", "unrelated").await?;
+    let third = env.evaluate(query).await?;
+    assert_eq!(first.id(), third.id(), "a write outside the folder expires nothing");
+    Ok(())
+}
+
+/// A live asset is read from memory, with its own version: it may be `Ready` before its
+/// background write reaches the store. Here the store is made to disagree behind the manager's
+/// back, standing for a write still in flight.
+#[tokio::test]
+async fn search_reads_a_live_asset_before_the_store() -> Res {
+    let env = fixture("search_reads_a_live_asset_before_the_store").await?;
+    let key = parse_key("specs/issues/C-STORE.md")?;
+    let manager = env.get_asset_manager();
+    let mut metadata = MetadataRecord {
+        data_format: Some("md".into()),
+        ..Default::default()
+    };
+    metadata.set_filename("C-STORE.md");
+    let state = State::new()
+        .with_data(Value::from(C_STORE_CHANGED))
+        .with_metadata(Metadata::MetadataRecord(metadata));
+    manager.set_state(&key, state).await?;
+    assert!(manager.lookup_key_asset(&key).is_some(), "set_state keeps a live asset");
+    put_store(&env, "specs/issues/C-STORE.md", C_STORE).await?;
+    let view = view_of(&env, "-R-key/specs/issues/-/ns-search/catalog-t-t").await?;
+    let content = content_of(&view, "specs/issues/C-STORE.md");
+    assert!(content.contains("Changed text"), "{content}");
+    Ok(())
+}
+
+/// AC-11
+#[tokio::test]
+async fn search_catalog_records_listing_and_file_dependencies() -> Res {
+    let env = fixture("search_catalog_records_listing_and_file_dependencies").await?;
+    let state = eval(&env, "-R-key/specs/-/ns-search/catalog-t-t").await?;
+    let dependencies = dependencies_of(&state);
+    for expected in [
+        "-R-dir/specs",
+        "-R-dir/specs/issues",
+        "-R-dir/specs/design",
+        "-R-dir/specs/design/x",
+        "-R/specs/issues/A-EXPIRY.md",
+        "-R/specs/design/x/DESIGN.md",
+    ] {
+        assert!(dependencies.contains(&expected.to_string()), "{expected} in {dependencies:?}");
+    }
+    Ok(())
+}
+
+// ------------------------------------------------------------------------------------------------
 // guides/SEARCH_GUIDE.md
 // ------------------------------------------------------------------------------------------------
 
@@ -607,5 +844,71 @@ async fn guide_queries_run() -> Res {
             assert!(view.len() > 0, "{query}: no rows");
         }
     }
+    Ok(())
+}
+
+// ------------------------------------------------------------------------------------------------
+// Cost of recording reads (specs/design/search-read-dependencies/performance.md); run with
+// `cargo test -p liquers-lib --test search_commands -- --ignored --nocapture`
+// ------------------------------------------------------------------------------------------------
+
+const BENCH_FILES: usize = 5000;
+
+async fn bench_env(store: Box<dyn AsyncStore>) -> Result<EnvRef<CommandEnvironment>, Error> {
+    for i in 0..BENCH_FILES {
+        let key = parse_key(&format!("docs/d{}/f{i:05}.md", i % 10))?;
+        let mut metadata = Metadata::new();
+        metadata.set_filename(&format!("f{i:05}.md"))?;
+        metadata.set_status(Status::Source)?;
+        let animal = if i % 10 == 0 { "wombat" } else { "koala" };
+        let body = format!(
+            "---\nid: D{i}\nstatus: draft\n---\n# Doc {i}\n\nSome text about a {animal} and other doc things. {}\n",
+            "filler ".repeat(100)
+        );
+        store.set(&key, body.as_bytes(), &metadata).await?;
+    }
+    let mut env = CommandEnvironment::new();
+    {
+        let cr = env.get_mut_command_registry();
+        register_records_commands!(cr)?;
+        register_search_commands!(cr)?;
+    }
+    env.with_async_store(store);
+    Ok(env.to_ref())
+}
+
+async fn timed(env: &EnvRef<CommandEnvironment>, query: &str) -> Result<(std::time::Duration, usize), Error> {
+    let start = std::time::Instant::now();
+    let rows = view_of(env, query).await?.len();
+    Ok((start.elapsed(), rows))
+}
+
+#[tokio::test]
+#[ignore = "measurement, not a test"]
+async fn bench_search_dependency_cost() -> Res {
+    let catalog = "-R-key/docs/-/ns-search/catalog-t-f";
+    let chain = "-R-key/docs/-/ns-search/catalog-t-t/search-wombat-f-f-0/search-doc-f-f-0/search-text-f-f-0";
+
+    let env = bench_env(Box::new(AsyncMemoryStore::new(&Key::new()))).await?;
+    let (t_catalog, _) = timed(&env, catalog).await?;
+    let (t_chain, before) = timed(&env, chain).await?;
+    let (t_warm, _) = timed(&env, chain).await?;
+    let start = std::time::Instant::now();
+    write(&env, "docs/d1/f00001.md", "# Doc 1\n\nnow a wombat doc text\n").await?;
+    let t_write = start.elapsed();
+    let (t_recompute, after) = timed(&env, chain).await?;
+    eprintln!(
+        "BENCH memory n={BENCH_FILES} catalog={t_catalog:?} chain={t_chain:?} warm={t_warm:?} \
+         write={t_write:?} recompute={t_recompute:?} hits {before}->{after}"
+    );
+
+    let dir = std::env::temp_dir().join(format!("liquers-search-bench-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir)?;
+    let path = dir.to_str().ok_or("temp dir is not UTF-8")?.to_string();
+    let env = bench_env(Box::new(liquers_core::store::AsyncFileStore::new(&path, &Key::new()))).await?;
+    let (t_catalog, _) = timed(&env, catalog).await?;
+    eprintln!("BENCH file n={BENCH_FILES} catalog={t_catalog:?}");
+    let _ = std::fs::remove_dir_all(&dir);
     Ok(())
 }

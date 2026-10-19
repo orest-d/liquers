@@ -2,9 +2,8 @@
 id: CONTEXT-TITLE-DESCRIPTION
 kind: design
 title: Context methods for a command to set its asset's title and description
+status: complete
 workflow: liquers-project
-status: in_review
-phase: implementation
 readiness: ready
 autofix: not-eligible
 area: [core/context]
@@ -13,6 +12,8 @@ affects_docs: [reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md, guides/CO
 created: 2026-10-04
 ---
 # context-title-description Design Tracking
+
+> **Complete on 2026-10-17** (backlog compaction): Phase 5 approved by the maintainer; the implementation is merged and every source issue it completed is closed.
 
 > **Acceptance scenarios not defined.** This design predates acceptance scenarios
 > (`specs/DOCS_STRUCTURE_GUIDE.md` §5.2.1). Consider updating it: state the Phase 1 acceptance

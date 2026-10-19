@@ -9,7 +9,7 @@ rust-version.workspace = true
 crate-type = ["rlib", "cdylib"]
 
 [features]
-default = ["egui", "image-support", "polars", "records", "records-ipc", "records-parquet"]
+default = ["egui", "image-support", "polars", "records", "records-ipc", "records-parquet", "templates"]
 # Command-line tools. Not in `default` — see the same note in liquers-core.
 cli = ["dep:clap"]
 image-support = ["imageproc"]
@@ -26,10 +26,13 @@ records = ["dep:liquers-records"]
 # Arrow IPC (Feather v2) and the Parquet writer for record views.
 records-ipc = ["records", "liquers-records/ipc"]
 records-parquet = ["records", "liquers-records/parquet"]
+# Query-aware Mustache templates: the `ns-template` commands (liquers-template).
+templates = ["dep:liquers-template"]
 
 [dependencies]
 liquers-core={path="../liquers-core"}
 liquers-records = { path = "../liquers-records", optional = true }
+liquers-template = { path = "../liquers-template", optional = true }
 clap = { version = "4", features = ["derive"], optional = true }
 liquers-macro={path="../liquers-macro"}
 serde = "1.0.229"

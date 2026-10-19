@@ -7,13 +7,14 @@
 use std::sync::Arc;
 
 use liquers_core::{
+    assets::AssetManager,
     command_metadata::PayloadRequirement,
     commands::{InjectedFromContext, PayloadType},
     context::{
         Context, Environment, ImmediateEnvironmentWithPayload, SimpleEnvironmentWithPayload,
     },
     error::Error,
-    metadata::Metadata,
+    metadata::{Metadata, MetadataRecord, Status},
     parse::{parse_key, parse_query},
     query::Key,
     recipes::{DefaultRecipeProvider, Recipe, RecipeList},
@@ -161,13 +162,13 @@ async fn test_keyed_recipe_requiring_payload_is_rejected() -> Result<(), Box<dyn
         info.message
     );
 
-    // And the same rejection reaches evaluation, which is the path a caller actually takes.
-    let asset = envref.evaluate("-R/dash.txt").await?;
-    let err = asset
-        .get()
-        .await?
-        .value_state()
-        .expect_err("a keyed recipe requiring a payload must not evaluate");
+    // And the same rejection reaches evaluation, which is the path a caller actually takes. It
+    // happens when the key's recipe is resolved, before an asset exists.
+    let err = envref
+        .evaluate("-R/dash.txt")
+        .await
+        .err()
+        .expect("a keyed recipe requiring a payload must not evaluate");
     assert!(
         err.to_string().contains("keyed recipes cannot receive one"),
         "expected the payload-boundary rejection, got: {}",
@@ -175,6 +176,123 @@ async fn test_keyed_recipe_requiring_payload_is_rejected() -> Result<(), Box<dyn
     );
     Ok(())
 }
+
+// ============================================================================
+// Both asset managers reject a payload-requiring keyed recipe at the same point
+// (DEFAULT-ASSET-MANAGER-RECIPE-OPT-SKIPS-PAYLOAD-CHECK)
+// ============================================================================
+
+/// Builds an environment of type `$env` holding the recipe `needs_payload/dash.txt` at `dash.txt`,
+/// where `needs_payload` requires a payload. Returns the environment reference and the key.
+macro_rules! invalid_keyed_recipe_env {
+    ($env:ty) => {{
+        type CommandEnvironment = $env;
+        let mut env = <$env>::new();
+
+        fn needs_payload(window_id: WindowId) -> Result<Value, Error> {
+            Ok(Value::from(format!("window:{}", window_id.0)))
+        }
+
+        let cr = &mut env.command_registry;
+        register_command!(cr, fn needs_payload(window_id: WindowId injected) -> result
+            payload: required
+        )?;
+
+        let mut recipe_list = RecipeList::new();
+        recipe_list.add_recipe(Recipe::new(
+            "needs_payload/dash.txt".to_string(),
+            "Dashboard".to_string(),
+            "Recipe that (invalidly) requires a payload".to_string(),
+        )?);
+        let store = AsyncMemoryStore::new(&Key::new());
+        store
+            .set(
+                &parse_key("recipes.yaml")?,
+                serde_yaml::to_string(&recipe_list)?.as_bytes(),
+                &Metadata::new(),
+            )
+            .await?;
+        env.with_async_store(Box::new(store));
+        env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
+        (env.to_ref(), parse_key("dash.txt")?)
+    }};
+}
+
+fn assert_payload_boundary_error(err: &Error) {
+    assert!(
+        err.to_string().contains("keyed recipes cannot receive one"),
+        "expected the payload-boundary rejection, got: {}",
+        err
+    );
+}
+
+macro_rules! manager_rejection_tests {
+    ($env:ty, $recipe_opt:ident, $before_asset:ident, $mutations:ident) => {
+        /// AC-1, AC-2: `recipe_opt` and `is_volatile` reject the recipe themselves.
+        #[tokio::test]
+        async fn $recipe_opt() -> Result<(), Box<dyn std::error::Error>> {
+            let (envref, key) = invalid_keyed_recipe_env!($env);
+            let manager = envref.get_asset_manager();
+            let err = manager
+                .recipe_opt(&key)
+                .await
+                .expect_err("recipe_opt must reject a payload-requiring keyed recipe");
+            assert_payload_boundary_error(&err);
+            let err = manager
+                .is_volatile(&key)
+                .await
+                .expect_err("is_volatile must reject a payload-requiring keyed recipe");
+            assert_payload_boundary_error(&err);
+            Ok(())
+        }
+
+        /// AC-3: evaluation fails before an asset for the key is registered.
+        #[tokio::test]
+        async fn $before_asset() -> Result<(), Box<dyn std::error::Error>> {
+            let (envref, key) = invalid_keyed_recipe_env!($env);
+            let err = envref
+                .evaluate("-R/dash.txt")
+                .await
+                .err()
+                .expect("evaluate must reject a payload-requiring keyed recipe");
+            assert_payload_boundary_error(&err);
+            assert!(
+                envref.get_asset_manager().lookup_key_asset(&key).is_none(),
+                "no asset may be registered for a rejected keyed recipe"
+            );
+            Ok(())
+        }
+
+        /// AC-5: overriding and deleting only ask whether a recipe exists.
+        #[tokio::test]
+        async fn $mutations() -> Result<(), Box<dyn std::error::Error>> {
+            let (envref, key) = invalid_keyed_recipe_env!($env);
+            let manager = envref.get_asset_manager();
+            let mut metadata = MetadataRecord::new();
+            metadata.type_identifier = "Bytes".to_string();
+            metadata.type_name = "bytes".to_string();
+            metadata.data_format = Some("bin".to_string());
+            manager.set_binary(&key, b"hello", metadata).await?;
+            let metadata = envref.get_async_store().get_metadata(&key).await?;
+            assert_eq!(metadata.status(), Status::Override);
+            manager.remove(&key).await?;
+            Ok(())
+        }
+    };
+}
+
+manager_rejection_tests!(
+    QueuedEnv,
+    keyed_payload_recipe_rejected_by_recipe_opt_default,
+    keyed_payload_recipe_rejected_before_asset_creation_default,
+    keyed_payload_recipe_allows_mutations_default
+);
+manager_rejection_tests!(
+    InlineEnv,
+    keyed_payload_recipe_rejected_by_recipe_opt_immediate,
+    keyed_payload_recipe_rejected_before_asset_creation_immediate,
+    keyed_payload_recipe_allows_mutations_immediate
+);
 
 /// The mirror of the above: the same command evaluated directly (not through a key) is fine.
 #[tokio::test]
@@ -908,16 +1026,15 @@ async fn payload_requirement_is_recorded_even_when_the_payload_is_missing(
 }
 
 
-/// A payload requirement does **not** imply volatility, and the metadata docs now say so.
+/// A payload requirement implies volatility, and an ad-hoc evaluation now records it.
 ///
-/// `MetadataRecord::payload_required` claimed the opposite until 2026-09-04 — that the
-/// operational consequence was "already carried by `is_volatile`, which a payload requirement
-/// always implies". The planner marks the two independently (`mark_payload_required` does not
-/// touch `is_volatile`), so a payload-requiring evaluation finishes `Ready` with `is_volatile`
-/// false. What actually keeps such a result from being reused is construction: the asset is ad
-/// hoc, not keyed, and in no map. This pins the fact so the corrected documentation stays true.
+/// `register_command!` marks a `payload: required` command `volatile` too, so its plan is
+/// volatile. Until `specs/design/runtime-volatility/` an ad-hoc asset never recorded its plan's
+/// volatility, so such an evaluation finished `Ready` with `is_volatile` false, and this test
+/// pinned that. The asset now records it when the plan is applied: it finishes `Volatile`, and
+/// `payload_required` is still recorded beside it.
 #[tokio::test]
-async fn payload_requirement_does_not_imply_volatility() -> Result<(), Box<dyn std::error::Error>> {
+async fn payload_requirement_is_recorded_with_volatility() -> Result<(), Box<dyn std::error::Error>> {
     type CommandEnvironment = QueuedEnv;
     let mut env = QueuedEnv::new();
 
@@ -938,17 +1055,14 @@ async fn payload_requirement_does_not_imply_volatility() -> Result<(), Box<dyn s
 
     let info = asset.get_asset_info().await?;
     assert_eq!(info.payload_required, PayloadRequirement::Required);
-    assert!(
-        !info.is_volatile,
-        "a payload requirement is not volatility: the two are marked independently"
-    );
+    assert!(info.is_volatile, "the plan of a payload-requiring command is volatile");
     assert_eq!(
         info.status,
-        liquers_core::metadata::Status::Ready,
-        "and it finishes Ready, not Volatile"
+        liquers_core::metadata::Status::Volatile,
+        "and the ad-hoc asset finishes Volatile"
     );
 
-    // The asset is nonetheless unreusable — by construction, not by a flag.
+    // It is also unreusable by construction.
     assert!(
         asset.key().await.is_none(),
         "a payload-evaluated asset is not keyed, so it is never stored"

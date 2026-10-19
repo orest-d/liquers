@@ -82,6 +82,7 @@ volatility work all landed in `assets.rs`.
 - **Weak references in the expiration monitor** — built → [`design/expiration-monitor-assetref/`](design/expiration-monitor-assetref/)
 - **Expired-safe binary reads** — built → [`design/expired-binary-read-safety/`](design/expired-binary-read-safety/)
 - **Volatility tracking** — built → [`design/volatility-system/`](design/volatility-system/)
+- **Volatility discovered at run time (a volatile value a command reads through its context makes its result volatile)** — built → [`reference/ASSETS.md`](reference/ASSETS.md), [`reference/ASSET_LIFECYCLE.md`](reference/ASSET_LIFECYCLE.md) *(design in [`design/runtime-volatility/`](design/runtime-volatility/); `Context::set_volatile`)*
 - **Versions for computed keyed assets, and dependency audit** — built → [`design/keyed-expiry-cascade-fix/`](design/keyed-expiry-cascade-fix/) *(contract and audit policies in [`reference/DEPENDENCIES_STATUS.md`](reference/DEPENDENCIES_STATUS.md))*
 - **Keyed-recipe ownership** — built → [`design/keyed-recipe-ownership/`](design/keyed-recipe-ownership/)
 - **Keyed delegation as a hand-off** — built → [`design/keyed-delegation-hand-off/`](design/keyed-delegation-hand-off/) *(rule documented in [`reference/DEPENDENCIES_STATUS.md`](reference/DEPENDENCIES_STATUS.md))*
@@ -133,7 +134,7 @@ serves both. Solve them together.
 - **`register_command!` specification** — documented → [`reference/REGISTER_COMMAND_FSD.md`](reference/REGISTER_COMMAND_FSD.md)
 - **Context parameter position** — documented → [`reference/REGISTER_COMMAND_FSD.md`](reference/REGISTER_COMMAND_FSD.md) §Context Parameter *(design in [`design/context-param-order/`](design/context-param-order/))*
 - **Enum parameters** — designing → [`design/register-command-enum/`](design/register-command-enum/)
-- **Query-aware templates (`liquers-mustache`: Mustache with query tags, parametrized queries, evaluate and apply modes)** — designing → [`design/liquers-mustache/`](design/liquers-mustache/)
+- **Query-aware templates (`liquers-template`: Mustache with query tags, parametrized queries, template commands)** — built → [`reference/TEMPLATE_LANGUAGE.md`](reference/TEMPLATE_LANGUAGE.md) *(how to: [`guides/TEMPLATE_GUIDE.md`](guides/TEMPLATE_GUIDE.md); design in [`design/liquers-mustache/`](design/liquers-mustache/))*
 - **Command aliases** — documented → [`reference/COMMAND_ALIASES.md`](reference/COMMAND_ALIASES.md) *(when to use one: [`guides/COMMAND_DESIGN_GUIDE.md`](guides/COMMAND_DESIGN_GUIDE.md) §Aliases; design in [`design/command-alias-contract/`](design/command-alias-contract/))*
 - **Language-neutral command declaration** — documented → [`reference/COMMAND_DECLARATION.md`](reference/COMMAND_DECLARATION.md)
 - **Command metadata enhancements** — planned → [`issues/COMMAND-METADATA-ENHANCEMENTS.md`](issues/COMMAND-METADATA-ENHANCEMENTS.md)
@@ -159,7 +160,7 @@ expansion time rather than at runtime. That is the cheapest item here.
 - **Shared directory support for backends without directories** — documented → `liquers-core/src/store_dir_index.rs` *(design in [`design/opendal-path-mapping/`](design/opendal-path-mapping/))*
 - **Streaming binary access (`openbin`)** — planned → [`issues/CORE-STORE-OPENBIN-MISSING.md`](issues/CORE-STORE-OPENBIN-MISSING.md)
 - **Record streams — a chunked, Arrow-interoperable tabular abstraction** — built → [`reference/RECORD_STREAMS.md`](reference/RECORD_STREAMS.md); producing records: [`guides/RECORD_STREAM_GUIDE.md`](guides/RECORD_STREAM_GUIDE.md) *(design in [`design/record-streams/`](design/record-streams/))*
-- **Content and metadata search** — built → [`reference/SEARCH.md`](reference/SEARCH.md); recipes for people and agents: [`guides/SEARCH_GUIDE.md`](guides/SEARCH_GUIDE.md) *(design in [`design/store-and-asset-search/`](design/store-and-asset-search/))*
+- **Content and metadata search** — built → [`reference/SEARCH.md`](reference/SEARCH.md); recipes for people and agents: [`guides/SEARCH_GUIDE.md`](guides/SEARCH_GUIDE.md) *(designs in [`design/store-and-asset-search/`](design/store-and-asset-search/) and [`design/search-read-dependencies/`](design/search-read-dependencies/), which makes results follow what they read)*
 - **External indexes and engines (search engines, vector stores, RAG, SQL mirrors)** — designing → [`design/external-index-sync/`](design/external-index-sync/)
 - **SQL over stored and derived data** — planned → [`issues/NO-SQL-QUERY-CAPABILITY-OVER-STORED-AND-DERIVED-DATA.md`](issues/NO-SQL-QUERY-CAPABILITY-OVER-STORED-AND-DERIVED-DATA.md)
 - **Read-only mounts** — planned → [`issues/STORE-NO-READ-ONLY-ADAPTER.md`](issues/STORE-NO-READ-ONLY-ADAPTER.md)
@@ -308,16 +309,20 @@ deliberately folded behind a broader line.
 - design `asset-manager-insert-key-asset-semantics`
 - design `async-memory-store-prefix-support`
 - design `async-store-wrapper-docs`
+- design `axum-query-api-base-slash`
 - design `axum-recipes-metadata-entry`
 - design `axum-store-keys-deep`
 - design `axum-store-makedir-test-unignore`
 - design `axum-store-upload-metadata`
 - design `build-matrix-ci`
+- design `build-matrix-disk-budget`
 - design `build-sysinfo-rustc-compatibility`
 - design `combined-value-default-extension`
+- design `combined-value-shared-data-node`
 - design `command-cache-flag`
 - design `command-declaration`
 - design `command-metadata-descriptions-and-hints`
+- design `command-registry-header-feature-names`
 - design `command-registry-impl-version-freshness`
 - design `command-registry-issue-fields-coverage`
 - design `command-registry-issue-fields`
@@ -331,11 +336,14 @@ deliberately folded behind a broader line.
 - design `core-tracing-migration`
 - design `core-value-enum-oversized`
 - design `csv-physical-lines-short-rows`
+- design `cwd-default-link-silent-root`
+- design `cwd-less-recipe-analysed-at-root`
 - design `default-asset-manager-recipe-opt-payload-check`
 - design `delegated-value-persistence`
 - design `delegated-value-repersisted`
 - design `dependency-edge-superseded-version`
 - design `dependency-failure-error-subject`
+- design `dependent-asset-weak-reference-pruning`
 - design `designer-init-argument-parsing`
 - design `docs-current-link-validation`
 - design `docs-dead-links`
@@ -345,8 +353,10 @@ deliberately folded behind a broader line.
 - design `environment-manager-reference-cycle`
 - design `error-store-name-payload`
 - design `error-with-key-field`
+- design `evaluation-session-volatile-test-flake`
 - design `expiration-integration-suite-failing-at-head`
 - design `ext-value-description-completeness`
+- design `external-manager-evaluation-session-sharing`
 - design `external-manager-replacement-surface`
 - design `finished-asset-progress-contract`
 - design `foreign-value-type-registration`
@@ -355,8 +365,11 @@ deliberately folded behind a broader line.
 - design `js-store-effective-media-type`
 - design `json-orient-index-column-collision`
 - design `json-table-column-order`
+- design `language-guide-web-claims`
+- design `lib-build-warning-cleanup`
 - design `lib-integration-test-feature-gates`
 - design `lib-polars-ethnum-rust-1-98`
+- design `liquers-web-records-bridge`
 - design `listdir-keys-deep-child-check`
 - design `manifest-chunk-error-identity`
 - design `manifest-over-stored-csv-test`
@@ -365,6 +378,7 @@ deliberately folded behind a broader line.
 - design `metadata-error-traceback`
 - design `metadata-only-entry-reload`
 - design `metadata-serde-partialeq`
+- design `new-folder-write-ancestor-listing-refresh`
 - design `null-cell-string-option`
 - design `opendal-derived-store-arguments`
 - design `opendal-feature-without-async-store`
@@ -376,6 +390,7 @@ deliberately folded behind a broader line.
 - design `plan-split-predecessor-fields`
 - design `polars-doc-example-namespace`
 - design `predecessor-cut-equivalence`
+- design `py-value-arc-payloads`
 - design `pyo3-python-3-13-support`
 - design `query-leading-slash-field`
 - design `queued-manager-conditional-eviction`
@@ -387,11 +402,16 @@ deliberately folded behind a broader line.
 - design `register-all-commands-feature-gating`
 - design `register-command-option-value`
 - design `register-command-payload-docs`
+- design `registry-query-default-text-form`
+- design `replacing-write-drops-stale-dependency-edges`
+- design `root-listing-dependency-key-spelling`
 - design `save-to-store-skip-outcome`
+- design `search-catalog-single-metadata-read`
 - design `sidecar-colliding-keys`
 - design `simple-value-serializer-parity`
 - design `simple-value-untyped-and-scalar-reads`
 - design `state-argument-serde-default`
+- design `step-volatility-impl-removal`
 - design `store-conformance-suite`
 - design `store-conformance-warning-cleanup`
 - design `store-guide-status-table`
@@ -405,13 +425,20 @@ deliberately folded behind a broader line.
 - design `stubs01-class-detection`
 - design `submit-eagerness-documentation`
 - design `supplied-expired-status-reason`
+- design `template-non-scalar-text-form`
 - design `text-value-markdown-format`
 - design `type-info-write-only-formats`
 - design `ui-query-console-error-highlight`
 - design `value-type-system`
+- design `variadic-empty-element-conversion`
 - design `variadic-metadata-tail-check`
+- design `web-docs-stale-limitations`
+- design `web-environ-validation-report`
 - design `web-liquers-error-constructor`
 - design `web-object06-error-type-exhaustiveness`
+- design `web-outbound-int64-precision`
+- design `web-records-single-cell-scalar`
+- design `web-store-conformance-tests`
 - design `web-value04-bytes-identifier`
 - feature `AGENT-MEMORY-HAS-NO-MIGRATE-COMMAND`
 - feature `AGENT-MEMORY-SERVICE`
@@ -428,7 +455,6 @@ deliberately folded behind a broader line.
 - feature `LANGUAGE-STORE-CONFIG-FUNCTION-NOT-DEFINABLE`
 - feature `LANGUAGE-STORE-TYPE-NOT-DEFINABLE`
 - feature `NO-MARKDOWN-NAVIGATION-COMMANDS`
-- feature `NO-QUERY-AWARE-TEMPLATE-LANGUAGE`
 - feature `NO-RELATIONAL-DATABASE-ACCESS-LAYER`
 - feature `NO-REMOTE-STORE-OR-ASSET-MANAGER`
 - feature `NO-SOURCE-CODE-AND-API-DOC-NAVIGATION`
@@ -436,12 +462,12 @@ deliberately folded behind a broader line.
 - feature `PY-PYO3-0-21-CANNOT-TARGET-PYTHON-3-13`
 - feature `QUERY-CANNOT-MARK-CACHED-INTERMEDIATES`
 - feature `RECORDS-ARROW-C-DATA-EXPORT-NOT-BUILT`
-- feature `SIMPLE-TEMPLATE-HAS-NO-COMMAND`
 - feature `STORE-CENTRAL-STORAGE-MODEL-NOT-IMPLEMENTED`
 - feature `STORE-COMMAND-NAMESPACE-MISSING`
 - feature `STORE-CONFIG-FROM-URI`
 - feature `STORE-CONFIG-SPEC-CANNOT-SCOPE-HANDLERS-TO-A-KEY`
 - feature `STORE-NO-DATABASE-STORAGE-MODEL`
+- feature `TEMPLATE-HAS-NO-HIGHLIGHTER`
 - feature `TYPE-REGISTRY-NOT-REALM-AWARE`
 - feature `UI-VARIADIC-ARGUMENT-LIST-EDITOR`
 - feature `UNMANAGED-ASSET-NOT-FOLLOWABLE-ACROSS-CONNECTIONS`
@@ -449,6 +475,7 @@ deliberately folded behind a broader line.
 - feature `VALUE-CONVERSION-CAPABILITY`
 - feature `VALUE-SERIALIZATION-IS-SYNCHRONOUS-AND-WHOLE-VALUE`
 - feature `VALUE-TYPE-DEFINITION-MACRO`
+- feature `WEB-RECORDS-BRIDGE-ONE-WAY-AND-SOURCE-UNMAPPED`
 <!-- END generated: unplaced -->
 
 ## Guides
@@ -467,6 +494,7 @@ deliberately folded behind a broader line.
 - [`STORE_CONFIG_GUIDE.md`](guides/STORE_CONFIG_GUIDE.md) — This guide has two parts:
 - [`STORE_FACTORY_GUIDE.md`](guides/STORE_FACTORY_GUIDE.md) — > This guide covers **declaring a store type** so a configuration document can name it. For
 - [`STORE_IMPLEMENTATION_GUIDE.md`](guides/STORE_IMPLEMENTATION_GUIDE.md) — How to implement an `AsyncStore` that satisfies
+- [`TEMPLATE_GUIDE.md`](guides/TEMPLATE_GUIDE.md) — How to write Liquers templates, render them, and turn one into a command. The language itself is
 - [`TYPE_SYSTEM_GUIDE.md`](guides/TYPE_SYSTEM_GUIDE.md) — How to add a value type so the system can describe it, store it and read it back. For *why* the
 - [`UNITTEST_GUIDE.md`](guides/UNITTEST_GUIDE.md) — This guide explains how to write comprehensive unit tests for the Liquers query evaluation flow, covering environment setup, command registration, query evaluat
 - [`WEB_API_GUIDE.md`](guides/WEB_API_GUIDE.md) — This guide shows how to use a Liquers server over HTTP and WebSocket: evaluating queries, running

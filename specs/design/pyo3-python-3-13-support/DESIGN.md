@@ -2,6 +2,7 @@
 id: PYO3-PYTHON-3-13-SUPPORT
 kind: design
 title: liquers-py builds against the current Python
+status: complete
 form: compact
 gh_pr: [110]
 readiness: ready
@@ -11,6 +12,8 @@ issues: [PY-PYO3-REJECTS-PYTHON-3-13]
 created: 2026-10-08
 ---
 # liquers-py builds against the current Python
+
+> **Complete on 2026-10-17** (backlog compaction): implemented by #110, merged; every source issue is closed and no phase is outstanding.
 
 Produced under [`guides/autonomous_bulk_design.md`](../../guides/autonomous_bulk_design.md) by the
 2026-10-08 backlog compaction: Phases 1-4, reviewed without phase approval. Not an approval and not

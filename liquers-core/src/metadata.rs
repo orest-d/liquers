@@ -1025,9 +1025,9 @@ pub struct AssetInfo {
     /// Reported, not enforced. What keeps such a result from being reused is *construction*: a
     /// payload-evaluated asset is created ad hoc, is not a
     /// [keyed asset](crate::assets#keyed-assets-storing-and-persistence) and is inserted into no
-    /// map, so it is never stored and never handed to a second caller. It is **not** marked
-    /// volatile — a payload-requiring evaluation finishes `Ready` with `is_volatile` false — so
-    /// this field is the only place the fact appears.
+    /// map, so it is never stored and never handed to a second caller. It is also volatile: a
+    /// `payload: required` command is declared volatile, and the asset records its plan's
+    /// volatility (`specs/design/runtime-volatility/`).
     ///
     /// It is recorded even when the evaluation was *refused* for want of a payload, which is what
     /// lets a client tell "needs a payload" from "failed".
@@ -1293,9 +1293,10 @@ pub struct MetadataRecord {
 
     /// Whether producing this value needed an evaluation payload.
     ///
-    /// Reported, not enforced, and independent of `is_volatile`: a payload-requiring evaluation
-    /// finishes `Ready` with `is_volatile` false. What keeps the result from being reused is that
-    /// a payload-evaluated asset is built ad hoc — not keyed, in no map (see
+    /// Reported, not enforced. A payload-requiring evaluation is also volatile (a `payload:
+    /// required` command is declared volatile), but the two fields are recorded separately.
+    /// What keeps the result from being reused is that a payload-evaluated asset is built ad hoc
+    /// — not keyed, in no map (see
     /// [keyed assets](crate::assets#keyed-assets-storing-and-persistence)).
     ///
     /// Unlike `is_volatile` this field DOES have `#[serde(default)]` — records written before the
@@ -1907,6 +1908,27 @@ impl MetadataRecord {
             existing.version = record.version;
         } else {
             self.dependencies.push(record);
+        }
+    }
+
+    /// [`Self::add_dependency`] for each record, through one key index: linear in the total
+    /// rather than quadratic, for an evaluation that recorded thousands of dependencies
+    /// (`specs/design/search-read-dependencies/performance.md`).
+    pub(crate) fn merge_dependencies(&mut self, records: impl IntoIterator<Item = DependencyRecord>) {
+        let mut index: std::collections::HashMap<DependencyKey, usize> = self
+            .dependencies
+            .iter()
+            .enumerate()
+            .map(|(position, d)| (d.key.clone(), position))
+            .collect();
+        for record in records {
+            match index.get(&record.key) {
+                Some(&position) => self.dependencies[position].version = record.version,
+                None => {
+                    index.insert(record.key.clone(), self.dependencies.len());
+                    self.dependencies.push(record);
+                }
+            }
         }
     }
 

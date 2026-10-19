@@ -3,7 +3,7 @@ title: Query Language Reference
 kind: reference
 audience: internal
 area: [core/query]
-reviewed: 2026-10-11
+reviewed: 2026-10-17
 ---
 # DOC-02: Query Language, Keys, and Actions
 
@@ -66,7 +66,7 @@ Supplementary specifications:
 | Query provenance | `QuerySource` | Non-semantic origin metadata |
 | Conversion | `TryToQuery`, `TryFrom` | Parse strings or retain constructed values |
 | Text parsing | `parse_query`, `parse_key` | Complete-input validation |
-| Templates | `SimpleTemplate`, `SimpleTemplateElement` | Text, `$$`, and `$query$` |
+| Templates | `SimpleTemplate`, `SimpleTemplateElement` | Text, `$$`, and `$query$`; **deprecated** in favour of the `liquers-template` crate, whose hygienic `{{$ q}}` tags fill placeholders in the query's AST ([`TEMPLATE_LANGUAGE.md`](../TEMPLATE_LANGUAGE.md)) |
 | String encoding | `encode_token` | Action-parameter escaping |
 | Canonicalization | `canonical` methods | Explicit headers and transform filename normalization |
 | Planner instructions | `ns`, `q`, `v` | Namespace, query value, volatility |
@@ -518,6 +518,7 @@ Completed on 2026-07-26:
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-17 | `SimpleTemplate`, `parse_simple_template` and `evaluate_simple_template` are deprecated; parametrized queries are `liquers-template`'s `QueryTemplate`. | `design/liquers-mustache/` |
 | 2026-10-11 | `Query::absolute` renamed `Query::rooted`, wire name included (no alias); its meaning is unchanged. | `design/query-leading-slash-field/` |
 | 2026-10-10 | Planner instructions: `v` is positional (volatile from its position onward; at the head, the whole query) and rejects parameters; the stale "`v` parameters are silently ignored" gap is struck. | phase-5, `design/plan-policy/` |
 | 2026-08-17 | Reviewed against HEAD. Recorded `Key`'s second, store-facing notion of relative — `is_relative`/`as_absolute`/`try_into_absolute` and `KeyNotAbsolute` — and how it diverges from the cursor's narrower "needs a CWD" test on an interior `..`. Query syntax and planning are unchanged. | phase-5 |

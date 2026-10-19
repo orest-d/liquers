@@ -3,7 +3,7 @@ title: Command Registration Guide
 kind: guide
 audience: internal
 area: [core/commands, macro]
-reviewed: 2026-10-11
+reviewed: 2026-10-17
 ---
 # Command Registration Guide
 
@@ -744,6 +744,15 @@ arguments; a head on an injected or variadic argument; arguments that do not lin
 `origin: Alias { command: … }`, and `plan.dependencies` includes the alias's metadata key.
 `liquers-core/tests/command_alias.rs` covers each rule.
 
+**A head may be a link.** A `CommandParameterValue::Query` head is planned as a default link and
+evaluated as a dependency of every result. A default link among the alias's own arguments is set
+with `ArgumentInfo::with_default_link(query)`.
+
+**Template commands.** A command whose behaviour is a template is an alias of `template/render`
+with the template link as its head, so it needs no Rust function: `pack/open_issues` renders
+`-R/templates/open_issues.md`, and editing the template invalidates its results. The worked example
+and its test are in [`TEMPLATE_GUIDE.md`](TEMPLATE_GUIDE.md) §3.
+
 An alias registered in a group exported to `specs/command_registry.yaml` appears there with
 `definition: !Alias`; regenerate the file as for any signature change.
 ---
@@ -1059,6 +1068,7 @@ fn apply(...) -> Result<...> { ... }
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-17 | §*Registering an alias*: a head may be a link (`CommandParameterValue::Query`), `ArgumentInfo::with_default_link`, and template commands as aliases of `template/render`. | `design/liquers-mustache/` |
 | 2026-10-11 | §Common Examples: argument `description:` and command `hint <key>:`. | `design/command-metadata-descriptions-and-hints/` |
 | 2026-10-11 | New §5 *Commands that list or describe the store must not evaluate it*. | phase-5, `design/store-and-asset-search/` |
 | 2026-10-10 | New §Commands whose output is not worth keeping (`cached: false`); `cached` in the metadata statement list. | phase-5, `design/plan-policy/` |

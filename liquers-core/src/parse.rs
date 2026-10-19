@@ -815,9 +815,11 @@ pub enum SimpleTemplateElement {
 ///
 /// Use [`parse_simple_template`] to construct a template from text. Iteration
 /// consumes the template and yields its [`SimpleTemplateElement`] values.
+#[deprecated(note = "use the liquers-template crate (`{{$ query}}` templates)")]
 #[derive(Debug, PartialEq, Clone)]
 pub struct SimpleTemplate(pub Vec<SimpleTemplateElement>);
 
+#[allow(deprecated)]
 impl IntoIterator for SimpleTemplate {
     type Item = SimpleTemplateElement;
     type IntoIter = std::vec::IntoIter<SimpleTemplateElement>;
@@ -827,6 +829,7 @@ impl IntoIterator for SimpleTemplate {
     }
 }
 
+#[allow(deprecated)]
 impl SimpleTemplate {
     /// Encode the template using `$query$` for query expansion and literal text
     /// for text elements.
@@ -865,6 +868,7 @@ fn template_expand_query(text: Span) -> IResult<Span, SimpleTemplateElement> {
     Ok((text, SimpleTemplateElement::ExpandQuery(q)))
 }
 
+#[allow(deprecated)]
 fn simple_template(text: Span) -> IResult<Span, SimpleTemplate> {
     let (text, elements) = many0(alt((
         template_escape_expand,
@@ -1091,6 +1095,8 @@ pub fn parse_key<S: AsRef<str>>(key: S) -> Result<Key, Error> {
 ///
 /// `$$` represents a literal dollar sign and `$query$` represents a query
 /// expansion. The embedded query uses [`parse_query`]'s grammar.
+#[deprecated(note = "use the liquers-template crate (`{{$ query}}` templates)")]
+#[allow(deprecated)]
 pub fn parse_simple_template<S: AsRef<str>>(template_text: S) -> Result<SimpleTemplate, Error> {
     // Templates reach query_parser through `$...$` expansion, so they inherit the link
     // recursion and need the same bound. It applies to the expansion spans ONLY: literal
@@ -1585,6 +1591,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn simple_template_parsing() -> Result<(), Error> {
         let t = parse_simple_template("abc")?;
         assert_eq!(t.0.len(), 1);
@@ -1797,6 +1804,7 @@ mod link_tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn a10_link_inside_simple_template() -> Result<(), Error> {
         let t = parse_simple_template("Result: $action-~X~nested~E$")?;
         assert_eq!(t.0.len(), 2);
@@ -2189,6 +2197,7 @@ mod link_tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn c12_template_bounds_apply_only_to_expansion_spans() -> Result<(), Error> {
         // Literal template text is never parsed as a query, so link markers in prose --
         // including prose documenting the link syntax -- must not count against the

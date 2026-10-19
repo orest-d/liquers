@@ -70,6 +70,10 @@ impl Default for SimpleValue {
 }
 
 impl ValueInterface for SimpleValue {
+    fn data_node(value: Arc<Self>) -> liquers_core::data_node::AnyNode {
+        liquers_core::data_node::AnyNode::Sync(value)
+    }
+
     fn try_into_query(&self) -> Result<Query, Error> {
         match self {
             SimpleValue::Query { value } => Ok(value.clone()),

@@ -149,7 +149,7 @@ fn json_cell_as_text(value: &Value) -> Result<FieldValue, Error> {
 /// The inverse of [`json_to_scalar`]: renders one [`FieldValue`] the way [`super::write_table`]
 /// writes JSON — dates/timestamps as ISO strings (matching `csv.rs`'s rendering), `Binary` as a
 /// base64 string, `Vector` as an array of numbers.
-pub(super) fn scalar_to_json(value: &FieldValue) -> Result<Value, Error> {
+pub(crate) fn scalar_to_json(value: &FieldValue) -> Result<Value, Error> {
     match value {
         FieldValue::Null => Ok(Value::Null),
         FieldValue::Bool(v) => Ok(Value::Bool(*v)),
@@ -424,7 +424,7 @@ pub(super) fn objects_to_batch_ordered(
 // ---------------------------------------------------------------------------------------------
 
 /// One row as a JSON object, in schema field order. `pub(super)`: shared with [`super::shapes`].
-pub(super) fn row_to_json(view: &dyn RecordView, row: usize) -> Result<Value, Error> {
+pub(crate) fn row_to_json(view: &dyn RecordView, row: usize) -> Result<Value, Error> {
     let schema = view.schema();
     let mut obj = Map::with_capacity(schema.fields.len());
     for (col, field) in schema.fields.iter().enumerate() {

@@ -822,11 +822,16 @@ impl ParameterValue {
         }
 
         if arginfo.multiple {
+            // Each element converts as a scalar of the variadic's type with no default, so an
+            // empty element gets that type's element fallback rather than the list's default.
+            let mut element = arginfo.clone();
+            element.multiple = false;
+            element.default = CommandParameterValue::None;
             let mut values = Vec::new();
             for x in &mut *param {
                 match x {
                     ActionParameter::String(s, pos) => {
-                        let pv = Self::from_string(arginfo, s, pos)?;
+                        let pv = Self::from_string(&element, s, pos)?;
                         match pv {
                             ParameterValue::ParameterValue(_, _, _) => values.push(pv),
                             ParameterValue::DefaultValue(_, _) => values.push(pv),
@@ -5339,6 +5344,63 @@ mod tests {
         Ok(())
     }
 
+    /// An empty element of a variadic is converted as an element: it takes the fallback a
+    /// scalar argument of that type without a default gets, not the whole list's default.
+    /// See specs/design/variadic-empty-element-conversion/ (AC-2).
+    #[test]
+    fn variadic_empty_element_uses_element_fallback() -> Result<(), Error> {
+        let cases = [
+            (
+                ArgumentInfo::any_argument("xs").set_multiple(),
+                Value::String("1".to_string()),
+                Value::String(String::new()),
+            ),
+            (
+                ArgumentInfo::integer_argument("xs", true).set_multiple(),
+                Value::from(1i64),
+                Value::Null,
+            ),
+            (
+                ArgumentInfo::boolean_argument("xs").set_multiple(),
+                Value::Bool(true),
+                Value::Bool(false),
+            ),
+        ];
+        for (arginfo, first, fallback) in cases {
+            let label = format!("{:?}", arginfo.argument_type);
+            let mut cm = CommandMetadata::new("cmd");
+            cm.with_argument(arginfo);
+            let values = ResolvedParameterValues::from_action(&action_of("cmd-1--"), &cm, false)?;
+            assert_eq!(values.0.len(), 1, "{label}: one argument slot");
+            let elements = values.0[0]
+                .multiple()
+                .expect("a variadic slot must be a parameter list");
+            assert_eq!(elements.len(), 3, "{label}: every element is kept");
+            assert_eq!(elements[0].value(), Some(first), "{label}: first element");
+            assert_eq!(elements[1].value(), Some(fallback.clone()), "{label}: second element");
+            assert_eq!(elements[2].value(), Some(fallback), "{label}: third element");
+            assert_eq!(elements[1].name().as_deref(), Some("xs"), "{label}: element name");
+        }
+        Ok(())
+    }
+
+    /// An empty element of a required numeric variadic reports itself as that element missing,
+    /// at the element's position (AC-3).
+    #[test]
+    fn variadic_empty_required_numeric_element_is_missing() {
+        let mut cm = CommandMetadata::new("cmd");
+        cm.with_argument(ArgumentInfo::integer_argument("xs", false).set_multiple());
+        let error = ResolvedParameterValues::from_action(&action_of("cmd-1--2"), &cm, false)
+            .expect_err("an empty Integer element must be rejected");
+        assert!(
+            error.message.contains("Integer argument xs missing"),
+            "unexpected message: {}",
+            error.message
+        );
+        // `cmd-1--2`: the empty second element sits at byte offset 6.
+        assert_eq!(error.position.offset, 6, "error must point at the empty element");
+    }
+
     /// T2 - the *first* surplus parameter is reported, not the last and not a count.
     #[test]
     fn excess_reports_first_surplus_only() -> Result<(), Error> {
@@ -5485,6 +5547,29 @@ mod tests {
         };
         assert_eq!(action_name, "src");
         assert_eq!(origin.alias(), Some(&CommandKey::new("", "", "calm")));
+        Ok(())
+    }
+
+    /// STEP-VOLATILITY-IMPL-REMOVAL AC-1, AC-3: a volatile alias of a non-volatile target makes
+    /// the plan volatile. The plan is the only volatility authority; this replaces the removed
+    /// step-level `step_is_volatile_when_alias_is_volatile`.
+    #[test]
+    fn volatile_alias_of_stable_target_makes_plan_volatile() -> Result<(), Error> {
+        let mut registry = CommandMetadataRegistry::new();
+        registry.add_command(&CommandMetadata::new("steady"));
+        let mut jumpy = CommandMetadata::new("jumpy");
+        jumpy.volatile = true;
+        jumpy.definition = CommandDefinition::Alias {
+            command: CommandKey::new("", "", "steady"),
+            head_parameters: vec![],
+        };
+        registry.add_command(&jumpy);
+
+        let stable = PlanBuilder::new(parse_query("steady")?, &registry).build()?;
+        assert!(!stable.is_volatile, "the target alone is not volatile");
+
+        let plan = PlanBuilder::new(parse_query("jumpy")?, &registry).build()?;
+        assert!(plan.is_volatile, "a volatile alias makes the plan volatile");
         Ok(())
     }
 

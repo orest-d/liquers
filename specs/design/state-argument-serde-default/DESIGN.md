@@ -2,6 +2,7 @@
 id: STATE-ARGUMENT-SERDE-DEFAULT
 kind: design
 title: Consistent state argument default in command metadata
+status: complete
 readiness: ready
 autofix: not-eligible
 area: [core/commands]
@@ -11,6 +12,8 @@ created: 2026-09-01
 superseded_by:
 ---
 # state-argument-serde-default Design Tracking
+
+> **Complete on 2026-10-17** (backlog compaction): implemented by #114, merged; every source issue is closed and no phase is outstanding.
 
 > **Acceptance scenarios not defined.** This design predates acceptance scenarios
 > (`specs/DOCS_STRUCTURE_GUIDE.md` §5.2.1). Consider updating it: state the Phase 1 acceptance

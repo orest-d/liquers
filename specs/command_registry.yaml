@@ -1,8 +1,8 @@
 # Liquers command registry — GENERATED, do not edit by hand.
 # Regenerate: cargo run -p liquers-lib --features cli --bin export-command-registry -- \
 #               --format yaml -o specs/command_registry.yaml
-# Origin:   groups=core,lui,egui,image,polars,records,search,store_config  features=egui,image,polars,records
-# Commands: 158
+# Origin:   groups=core,lui,egui,image,polars,records,search,template,store_config  features=egui,image-support,polars,records,templates
+# Commands: 161
 # CHANGELOG-BEGIN
 # 2026-08-02  initial export (95 commands: img 47, pl 26, lui 14, root 6, dep 2)
 # 2026-08-25  pl/select_columns and pl/drop_columns take a variadic `columns` argument
@@ -39,6 +39,10 @@
 # 2026-10-15  store_config write strategies: direct, atomic, transactional.
 # 2026-10-15  store_config front_matter, front_matter_sync (liquers-lib, feature records);
 #             commands_doc and ns-search/commands omit the store_config realm.
+# 2026-10-17  template group: template/render, template/expand, template/validate
+#             (liquers-lib, feature templates; design/liquers-mustache).
+# 2026-10-17  header only: Origin features= names cargo features (image-support, templates),
+#             not group names. design/command-registry-header-feature-names
 # CHANGELOG-END
 commands:
 - realm: store_config
@@ -3392,6 +3396,126 @@ commands:
       others_allowed: false
       value_type: string
     gui_info: VerticalRadioEnum
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: template
+  name: render
+  label: Render template
+  doc: Render the template given as the first argument; the state and `data` are its data
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: template
+    label: template
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  - name: data
+    label: data
+    default: !Value ''
+    gui_info: !TextField 40
+  - name: errors
+    label: errors
+    default: !Value strict
+    argument_type: string
+    gui_info: !TextField 40
+  - name: cwd
+    label: cwd
+    default: !Query
+      segments:
+      - !Resource
+        header:
+          name: ''
+          level: 0
+          parameters:
+          - value: key
+            position:
+              offset: 3
+              line: 1
+              column: 4
+          resource: true
+          position:
+            offset: 0
+            line: 1
+            column: 1
+        key:
+        - name: .
+          position:
+            offset: 7
+            line: 1
+            column: 8
+      rooted: false
+      source: Unspecified
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: template
+  name: expand
+  label: Expand template
+  doc: Render the state as a template; `data` is its data
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: data
+    label: data
+    default: !Value ''
+    gui_info: !TextField 40
+  - name: errors
+    label: errors
+    default: !Value strict
+    argument_type: string
+    gui_info: !TextField 40
+  - name: cwd
+    label: cwd
+    default: !Query
+      segments:
+      - !Resource
+        header:
+          name: ''
+          level: 0
+          parameters:
+          - value: key
+            position:
+              offset: 3
+              line: 1
+              column: 4
+          resource: true
+          position:
+            offset: 0
+            line: 1
+            column: 1
+        key:
+        - name: .
+          position:
+            offset: 7
+            line: 1
+            column: 8
+      rooted: false
+      source: Unspecified
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  is_async: true
+  definition: Registered
+- namespace: template
+  name: validate
+  label: Validate template
+  doc: Positioned errors and warnings for the state as a template; runs nothing
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
   volatile: false
   expires: never
   is_async: true

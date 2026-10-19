@@ -111,7 +111,10 @@ use crate::{
     dependencies::ScheduleNode,
     error::Error,
     expiration::Expires,
-    metadata::{DependencyKey, DependencyRecord, LogEntry, MetadataRecord, ProgressEntry, Version},
+    metadata::{
+        DependencyKey, DependencyRecord, ExpiryCause, LogEntry, Metadata, MetadataRecord,
+        ProgressEntry, Version,
+    },
     query::{CwdCursor, Key, Query, TryToQuery, RELATIVE_WITHOUT_CWD_WARNING},
     recipes::{AsyncRecipeProvider, Recipe},
     state::State,
@@ -403,6 +406,41 @@ impl<E: Environment> Clone for EnvRef<E> {
     }
 }
 
+/// The dependency records a run has collected, awaiting metadata finalization.
+///
+/// Records are upserted by key, through an index: a command that reads thousands of assets, or a
+/// dependency whose records are inherited (`Context::wait_for_dependency_recording`), must not
+/// make collection quadratic (`specs/design/search-read-dependencies/performance.md`).
+#[derive(Debug, Default)]
+struct PendingDependencies {
+    records: Vec<DependencyRecord>,
+    index: HashMap<DependencyKey, usize>,
+}
+
+impl PendingDependencies {
+    /// Version(0) is the dependency-manager sentinel for "unknown": a known version is not
+    /// replaced by a later unknown observation of the same dependency.
+    fn upsert(&mut self, record: DependencyRecord) {
+        match self.index.get(&record.key) {
+            Some(&position) => {
+                let existing = &mut self.records[position];
+                if existing.version.is_unknown() || !record.version.is_unknown() {
+                    existing.version = record.version;
+                }
+            }
+            None => {
+                self.index.insert(record.key.clone(), self.records.len());
+                self.records.push(record);
+            }
+        }
+    }
+
+    fn take(&mut self) -> Vec<DependencyRecord> {
+        self.index.clear();
+        std::mem::take(&mut self.records)
+    }
+}
+
 /// Command-facing context for one asset evaluation.
 ///
 /// The interpreter clones a context across plan steps. Clones share asset-bound
@@ -425,7 +463,7 @@ pub struct Context<E: Environment> {
 
     /// Dependencies discovered during evaluation (via Context::evaluate calls).
     /// Collected here and written to the asset's metadata after evaluation completes.
-    pending_dependencies: Arc<tokio::sync::Mutex<Vec<DependencyRecord>>>,
+    pending_dependencies: Arc<tokio::sync::Mutex<PendingDependencies>>,
 
     /// Which `DependencyKey` each asset returned by [`Self::submit`] was recorded under, by asset
     /// id. [`Self::wait_for_dependency`] looks the key up so the dependency's settled version
@@ -452,6 +490,16 @@ pub struct Context<E: Environment> {
 
     /// Cancellation request of the asset this context evaluates, shared with the asset.
     cancellation: Arc<CancellationRequest>,
+
+    /// Every asset this evaluation resolved (scheduled, submitted or applied), with a short
+    /// description for the log. [`Self::check_resolved_volatility`] reads their metadata at the
+    /// end of the run, so a dependency that turned volatile is caught however the command waited
+    /// for it. Shared across context clones, like `pending_dependencies`.
+    resolved_dependencies: Arc<Mutex<Vec<(String, AssetRef<E>)>>>,
+
+    /// Mirrors the asset's volatility flag once [`Self::set_volatile`] has recorded it, so
+    /// [`Self::is_volatile`] can stay synchronous. The asset remains the authority.
+    volatile_set: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl<E: Environment> Context<E> {
@@ -471,11 +519,13 @@ impl<E: Environment> Context<E> {
             service_tx,
             payload: None,
             is_volatile, // Initialize from parameter
-            pending_dependencies: Arc::new(tokio::sync::Mutex::new(Vec::new())),
+            pending_dependencies: Arc::new(tokio::sync::Mutex::new(PendingDependencies::default())),
             submitted_dependencies: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
             evaluation_session,
             active_payload_queries: Arc::new(tokio::sync::Mutex::new(Vec::new())),
             cancellation,
+            resolved_dependencies: Arc::new(Mutex::new(Vec::new())),
+            volatile_set: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }
     }
 
@@ -619,6 +669,30 @@ impl<E: Environment> Context<E> {
                 .dependency_manager()
                 .register_scheduled_dependency(dependent, &dependency, version)
                 .await?;
+            // A write replacing the key cancels this run, then clears the key's incoming edges.
+            // A registration that landed after the clear must not survive it, so a cancelled run
+            // takes back what it just added and fails the request. An edge the replacement's own
+            // records name is reset to the record's version rather than removed: this request may
+            // have overwritten it with the version the old run captured.
+            // See `specs/design/replacing-write-drops-stale-dependency-edges/`.
+            if self.is_cancelled() {
+                if let (ScheduleNode::Keyed(owner), Some(k)) = (dependent, &owner_key) {
+                    let keep = match manager.lookup_key_asset(k) {
+                        Some(current) if current.id() != self.assetref.id() => {
+                            match current.get_metadata().await? {
+                                Metadata::MetadataRecord(mr) => mr.dependencies,
+                                Metadata::LegacyMetadata(_) => Vec::new(),
+                            }
+                        }
+                        Some(_) | None => Vec::new(),
+                    };
+                    manager
+                        .dependency_manager()
+                        .unregister_scheduled_dependency(owner, &dependency, &keep)
+                        .await;
+                }
+                self.check_cancelled()?;
+            }
         }
 
         // Capture the AssetRef exactly once (volatile-safe) and schedule it. Within one evaluation
@@ -640,6 +714,7 @@ impl<E: Environment> Context<E> {
                 .add_dependent_asset(&query_dep_key, self.assetref.downgrade())
                 .await;
         }
+        self.note_resolved(query.encode(), &asset);
         self.add_dependency(DependencyRecord::new(query_dep_key, version))
             .await;
 
@@ -697,6 +772,7 @@ impl<E: Environment> Context<E> {
             .get_dependency_asset_with_payload(&self.assetref, query, payload, child_path)
             .await?;
 
+        self.note_resolved(query.encode(), &asset);
         // A payload asset may have dependencies even though it may not be one.
         self.add_dependency(DependencyRecord::new(query_dep_key, version))
             .await;
@@ -727,7 +803,30 @@ impl<E: Environment> Context<E> {
         let envref = self.assetref.get_envref().await;
         let manager = envref.get_asset_manager();
         let state = manager.wait_for_dependency(&self.assetref, asset).await?;
+        if state.metadata.is_volatile() && !self.is_volatile() {
+            // A volatile dependency makes this evaluation volatile. Recorded as soon as the value
+            // is in hand, so `is_volatile()` answers truthfully for the rest of the command;
+            // `check_resolved_volatility` catches the dependencies waited for some other way.
+            let description = match dep_key {
+                Some(dep_key) => dep_key.to_string(),
+                None => format!("asset {}", asset.id()),
+            };
+            self.set_volatile(&format!("dependency {} is volatile", description))
+                .await?;
+        }
         if let Some(dep_key) = dep_key {
+            // A non-keyed dependency (a cut predecessor, a link, a query a command evaluates) is
+            // not a node anything is expired through: the records its run added stay on its own
+            // asset. They are inherited here, so the dependent records what the expanded plan
+            // would, and expires when any of it changes. A keyed dependency is a node, and the
+            // nearest addressable dependency is where recording stops
+            // (`specs/design/search-read-dependencies/`). A failed dependency's records are
+            // inherited too: what made it fail may change.
+            if asset.key().await.is_none() {
+                if let Metadata::MetadataRecord(record) = &*state.metadata {
+                    self.add_dependencies(record.dependencies.iter().cloned()).await;
+                }
+            }
             if let Some(version) = state.metadata.version() {
                 // `add_dependency` prefers a concrete version over an unknown one, so this
                 // upgrades the schedule-time record rather than competing with it.
@@ -835,10 +934,53 @@ impl<E: Environment> Context<E> {
         Self::reject_relative_query(query)?;
         let query = self.resolve_query_from_cwd(query)?;
         let envref = self.assetref.get_envref().await;
-        envref
+        let asset = envref
             .get_asset_manager()
             .apply_for(&self.assetref, (&query).into(), to, self.payload.clone())
-            .await
+            .await?;
+        self.note_resolved(format!("apply {}", query.encode()), &asset);
+        // `apply_for` returns a failed asset; a failure is still this call's error.
+        asset.get().await?;
+        Ok(asset)
+    }
+
+    /// Applies a recipe to a supplied state as an ad-hoc asset, waits for it, and passes its
+    /// dependencies on to the current asset.
+    ///
+    /// The ad-hoc asset itself is not a dependency, for the reason [`Self::apply`] gives, but what
+    /// it read is: each record of its settled metadata is added to this context's pending
+    /// dependencies, so the current asset is invalidated when any of them changes. The recipe's
+    /// query is resolved as `apply` resolves a query (absolute, or against this context's cwd);
+    /// `recipe.cwd` is left as it is. Legacy metadata contributes nothing. A failed ad-hoc
+    /// evaluation is returned as its error, not as a failed asset, after its dependencies are
+    /// passed on.
+    ///
+    /// Volatility is passed on, as for every asset this context resolves: if the ad-hoc result is
+    /// volatile, the current asset finishes volatile too (`specs/design/runtime-volatility/`).
+    pub async fn apply_ad_hoc(
+        &self,
+        recipe: Recipe,
+        to: State<E::Value>,
+    ) -> Result<AssetRef<E>, Error> {
+        let query = recipe.get_query()?;
+        Self::reject_relative_query(&query)?;
+        let query = self.resolve_query_from_cwd(&query)?;
+        let mut recipe = recipe;
+        recipe.query = query.encode();
+        let envref = self.assetref.get_envref().await;
+        let asset = envref
+            .get_asset_manager()
+            .apply_for(&self.assetref, recipe, to, self.payload.clone())
+            .await?;
+        self.note_resolved(format!("apply {}", query.encode()), &asset);
+        let outcome = asset.get().await;
+        // Passed on before a failure is returned: a caller that recovers the error (a template in
+        // `expand` mode) is still invalidated when what the failed query read changes.
+        for record in asset.get_metadata().await?.get_dependencies() {
+            self.add_dependency(record.clone()).await;
+        }
+        outcome?.error_result()?;
+        Ok(asset)
     }
 
     /// Returns a copy of the current asset's structured metadata record.
@@ -873,8 +1015,66 @@ impl<E: Environment> Context<E> {
     }
 
     /// Returns whether this context is evaluating a volatile asset.
+    ///
+    /// True when the plan was volatile, and from the moment [`Self::set_volatile`] has recorded
+    /// volatility during the run — by the command itself, or by this context on seeing a
+    /// volatile dependency.
     pub fn is_volatile(&self) -> bool {
         self.is_volatile
+            || self
+                .volatile_set
+                .load(std::sync::atomic::Ordering::Acquire)
+    }
+
+    /// Records on the asset this command is producing that it is volatile: its value is used once,
+    /// is not reused from the asset maps and is not stored as loadable. `reason` goes into the
+    /// asset's log once.
+    ///
+    /// The asset's metadata is the authority on volatility; this writes it at once, so the
+    /// asset finishes `Status::Volatile` however the command ends. A command calls it when it
+    /// decides its result is volatile. The context calls it itself when a dependency it resolved
+    /// is volatile (`specs/design/runtime-volatility/`), so a command that only reads volatile
+    /// queries does not need to.
+    pub async fn set_volatile(&self, reason: &str) -> Result<(), Error> {
+        self.assetref.set_volatile_during_run(reason).await?;
+        self.volatile_set
+            .store(true, std::sync::atomic::Ordering::Release);
+        Ok(())
+    }
+
+    /// Notes an asset this evaluation resolved, for [`Self::check_resolved_volatility`].
+    pub(crate) fn note_resolved(&self, description: String, asset: &AssetRef<E>) {
+        self.resolved_dependencies
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .push((description, asset.clone()));
+    }
+
+    /// Makes the asset volatile if any asset this evaluation resolved is volatile by its metadata.
+    ///
+    /// Called by `AssetRef::compute` when the command has returned, before the result is
+    /// finalized. Reading the metadata at the end catches a dependency that only turned volatile
+    /// during its own run, and a command that waited with `AssetRef::get` rather than
+    /// [`Self::wait_for_dependency`]. A dependency still running is judged by what its metadata
+    /// says now: volatile if its plan was.
+    pub(crate) async fn check_resolved_volatility(&self) -> Result<(), Error> {
+        if self.is_volatile() {
+            return Ok(());
+        }
+        let resolved: Vec<(String, AssetRef<E>)> = self
+            .resolved_dependencies
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .clone();
+        for (description, asset) in resolved {
+            let volatile = asset.data.read().await.metadata.is_volatile();
+            if volatile {
+                return self
+                    .set_volatile(&format!("dependency {} is volatile", description))
+                    .await;
+            }
+        }
+        Ok(())
     }
 
     /// Whether cancellation of the asset this command is evaluating has been requested.
@@ -919,6 +1119,8 @@ impl<E: Environment> Context<E> {
             evaluation_session: self.evaluation_session.clone(),
             active_payload_queries: self.active_payload_queries.clone(),
             cancellation: self.cancellation.clone(),
+            resolved_dependencies: self.resolved_dependencies.clone(),
+            volatile_set: self.volatile_set.clone(),
         }
     }
 
@@ -1000,6 +1202,8 @@ impl<E: Environment> Context<E> {
             evaluation_session: self.evaluation_session.clone(),
             active_payload_queries: self.active_payload_queries.clone(),
             cancellation: self.cancellation.clone(),
+            resolved_dependencies: self.resolved_dependencies.clone(),
+            volatile_set: self.volatile_set.clone(),
         }
     }
     /// Returns the current working key used for relative query resolution.
@@ -1115,7 +1319,7 @@ impl<E: Environment> Context<E> {
     /// This is an interpreter/asset finalization primitive. Calling it early
     /// removes records that would otherwise be written to result metadata.
     pub async fn take_pending_dependencies(&self) -> Vec<DependencyRecord> {
-        std::mem::take(&mut *self.pending_dependencies.lock().await)
+        self.pending_dependencies.lock().await.take()
     }
 
     /// Adds or updates a dependency awaiting metadata finalization.
@@ -1123,17 +1327,81 @@ impl<E: Environment> Context<E> {
     /// A known version is not replaced by the `Version(0)` unknown sentinel.
     /// This is normally called by dependency scheduling and the interpreter.
     pub async fn add_dependency(&self, record: DependencyRecord) {
-        let mut deps = self.pending_dependencies.lock().await;
-        if let Some(existing) = deps.iter_mut().find(|d| d.key == record.key) {
-            // Version(0) is the dependency-manager sentinel for "unknown".
-            // Do not let an unknown later observation erase a previously known
-            // version for the same dependency.
-            if existing.version.is_unknown() || !record.version.is_unknown() {
-                existing.version = record.version;
-            }
-        } else {
-            deps.push(record);
+        self.pending_dependencies.lock().await.upsert(record);
+    }
+
+    /// Adds or updates several dependencies, as [`Self::add_dependency`] does each, under one
+    /// lock. A command that reads many assets records them in one call.
+    pub async fn add_dependencies(&self, records: impl IntoIterator<Item = DependencyRecord>) {
+        let mut pending = self.pending_dependencies.lock().await;
+        for record in records {
+            pending.upsert(record);
         }
+    }
+
+    /// The names in the folder `dir`, read as a dependency of this evaluation.
+    ///
+    /// This is the listing half of `-R-dir/<dir>`: it registers the listing's version, so a later
+    /// change of the folder's membership (`DependencyManager::refresh_listing_version`, on every
+    /// write or removal through the asset manager) expires what was built from it, and records
+    /// `-R-dir/<dir>` here. It builds no `AssetInfo` and evaluates nothing in the folder: a
+    /// command that only needs the names pays for one listing (and its race re-reads), not for
+    /// a description of every entry. `dir` is absolute; the root is the empty key.
+    pub async fn record_listing(&self, dir: &Key) -> Result<Vec<String>, Error> {
+        self.record_listing_with_version(dir).await.map(|(names, _)| names)
+    }
+
+    /// As [`Self::record_listing`], also returning the listing version it recorded.
+    pub(crate) async fn record_listing_with_version(
+        &self,
+        dir: &Key,
+    ) -> Result<(Vec<String>, Version), Error> {
+        let asset_manager = self.envref.get_asset_manager();
+        // The listing is a dependency: register its version, so a later change of the
+        // membership (`refresh_listing_version`) expires what was built from it, and record
+        // it on this evaluation. `add_dependency` upgrades the plan-time `unknown` record.
+        let dir_dep_key = DependencyKey::from_dir_key(dir);
+        let dm = asset_manager.dependency_manager();
+        let owner = self.owner_key().await?;
+        // The value and the version come from the same read. A write that lands after that
+        // read and before the version is registered skips its refresh
+        // (`refresh_listing_version` refreshes only a registered listing), so the listing is
+        // read again once registered: if it moved, the registration uses the new one.
+        // A write after the last read finds the version registered and refreshes it.
+        const LISTING_READS: usize = 3;
+        let mut names = asset_manager.listdir(dir).await?;
+        let mut version;
+        let mut reads = 1;
+        loop {
+            version = crate::dependencies::DependencyManager::<E>::listing_version(&names);
+            // The owner's edge is recorded *before* the version is registered: a dependent
+            // is spared by an edge that records exactly the new version, so the asset being
+            // evaluated right now (whose plan-time edge still holds the previous listing) is
+            // not expired by the registration it is itself causing.
+            if let Some(owner) = &owner {
+                let owner_dep_key = DependencyKey::from(owner);
+                if let Ok(expired) = dm.add_dependency(&owner_dep_key, &dir_dep_key, version).await {
+                    asset_manager
+                        .expire_dependencies_result(expired, ExpiryCause::Updated { version })
+                        .await;
+                }
+            }
+            let expired = dm.register_version(&dir_dep_key, version).await;
+            asset_manager
+                .expire_dependencies_result(expired, ExpiryCause::Updated { version })
+                .await;
+            if reads == LISTING_READS {
+                break;
+            }
+            let again = asset_manager.listdir(dir).await?;
+            reads += 1;
+            if crate::dependencies::DependencyManager::<E>::listing_version(&again) == version {
+                break;
+            }
+            names = again;
+        }
+        self.add_dependency(DependencyRecord::new(dir_dep_key, version)).await;
+        Ok((names, version))
     }
 
     /// Applies an expiration policy to the current asset metadata and deadline.
@@ -1188,6 +1456,8 @@ impl<E: Environment> Clone for Context<E> {
             evaluation_session: self.evaluation_session.clone(),
             active_payload_queries: self.active_payload_queries.clone(),
             cancellation: self.cancellation.clone(),
+            resolved_dependencies: self.resolved_dependencies.clone(),
+            volatile_set: self.volatile_set.clone(),
         }
     }
 }
@@ -1702,11 +1972,13 @@ mod tests {
                 service_tx,
                 payload: None,
                 is_volatile: false,
-                pending_dependencies: Arc::new(tokio::sync::Mutex::new(Vec::new())),
+                pending_dependencies: Arc::new(tokio::sync::Mutex::new(PendingDependencies::default())),
             submitted_dependencies: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
                 evaluation_session: crate::evaluation_session::EvaluationSession::new(),
                 active_payload_queries: Arc::new(tokio::sync::Mutex::new(Vec::new())),
                 cancellation: Arc::new(CancellationRequest::new()),
+                resolved_dependencies: Arc::new(Mutex::new(Vec::new())),
+                volatile_set: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             },
             service_rx,
         )
@@ -2069,8 +2341,16 @@ mod tests {
         assert_eq!(state.try_into_string().expect("text"), "counted");
 
         let records = context.take_pending_dependencies().await;
-        assert_eq!(records.len(), 1, "one record, upgraded in place: {records:?}");
-        assert_eq!(records[0].key, expected_key);
+        let own: Vec<_> = records.iter().filter(|r| r.key == expected_key).collect();
+        assert_eq!(own.len(), 1, "one record, upgraded in place: {records:?}");
+        // The rest are the non-keyed dependency's own records, inherited
+        // (`wait_for_dependency_recording`): here, its command's.
+        assert!(
+            records
+                .iter()
+                .all(|r| r.key == expected_key || r.key.as_str().starts_with("ns-dep/")),
+            "{records:?}"
+        );
     }
 
     /// A key asset that submits itself is a dependency cycle, reported at submit time.
