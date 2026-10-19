@@ -104,8 +104,11 @@ reliably costs hours, and the failures are obscure.
    language's core semantics; a test of the event loop, UI thread, or module system needs the real
    host. Classify the inventory on this axis first.
 2. **Is there a lighter runtime for the tests that do not need the host?** Browser JavaScript has
-   one: all thirteen `VALUE` tests for `liquers-web` are pure ECMAScript and run under Node with no
-   browser and no WebDriver, while `RUNTIME`, `ASYNCQ` and `PACKAGE` need a real browser. Python has
+   one: in `liquers-web` the `VALUE` and `ASYNCQ` suites and `RUNTIME02`-`06` are pure
+   ECMAScript and run under Node with no browser and no WebDriver; `RUNTIME01` is a native test in
+   `liquers-lib`; `PACKAGE01` and `PACKAGE05` are script checks (`check-stubs.sh`). Only the suites
+   that need a real browser API (`localStorage`) and the Playwright delivery-form checks
+   (`PACKAGE02`-`04`, `PACKAGE07`) need a real browser. Classify per test, not per feature. Python has
    the same split between a bare interpreter and an application host. Using the lighter runtime
    where it suffices removes an entire class of setup failure from most of the suite.
 3. **What version coupling does the harness impose, and does a mismatch fail loudly?** Toolchains
@@ -268,7 +271,7 @@ contract it depends on.
 
 The **encode direction needs the same discipline and is easier to overlook.** Any *integration* that lets host code supply a string parameter must turn that string into query text, and query text has its own escaping (tilde entities: `~~`, `~_`, `~.`, `~/`, `~h`, `~H`, `~f`, `~P`, `~<digit>` for a negative number, `~U<hex>~` for any code point, and `~n<name>~` for a named entity). Percent-encoding is *not* part of the grammar and will not parse. Do not hand-roll an encoder in the *integrated language*: build the `Query` programmatically and call `encode()`, so the escaping comes from Rust — `liquers-web` used to carry its own encoder and it was deleted rather than corrected, because two implementations of one grammar is how the original escaping defect went unnoticed. **Every value is now representable**: `encode_token` is total, so an *integration* no longer needs a refusal path for unencodable characters. Pass the host string through unchanged and let `encode()` escape it; the parameter holds the *decoded* value, so nothing should be pre-escaped on the way in. `QUERY-BUILDER-TOOLING` remains open — there is still no supported query-construction utility — so assembling the `Query` is the integration's job. Avoid *wrappers* that borrow a temporary Rust object or temporary *language runtime* value. Prefer owned handles or immutable snapshots. For enums, prefer names/tags over unstable numeric ordinals and define a forward-compatibility policy. Keep convenience APIs above a thin parity layer.
 
-**Meaningful tests:** `OBJECT01` query parse/encode roundtrip; `OBJECT02` key equality/hash; `OBJECT03` command metadata roundtrip; `OBJECT04` invalid parse produces `ERROR`; `OBJECT05` *wrapper* remains valid for its documented lifetime; `OBJECT06` every selected enum variant roundtrips; `OBJECT07` unknown enum variant follows the compatibility policy; `OBJECT08` all *wrappers* follow the documented naming and ownership conventions; `OBJECT09` a host string that cannot be represented in query text **raises** rather than producing text that will not parse.
+**Meaningful tests:** `OBJECT01` query parse/encode roundtrip; `OBJECT02` key equality/hash; `OBJECT03` command metadata roundtrip; `OBJECT04` invalid parse produces `ERROR`; `OBJECT05` *wrapper* remains valid for its documented lifetime; `OBJECT06` every selected enum variant roundtrips; `OBJECT07` unknown enum variant follows the compatibility policy; `OBJECT08` all *wrappers* follow the documented naming and ownership conventions; `OBJECT09` any host string supplied as a parameter round-trips through query text: encoded, then parsed by the real parser, it yields the same value.
 
 ### ERROR — Error bridge
 
@@ -618,7 +621,9 @@ Four things worth getting right, each of which has cost somebody time:
    nothing, so the build cannot store ordinary text either — and the symptom appears far from the
    cause.
 2. **Register where your rebuild path already goes.** If your integration reconstructs its
-   environment (as `liquers-web` does on command registration), put the registration in the
+   environment (as `liquers-web` does on command registration and unregistration, store
+   configuration, and store-object registration while a configuration is installed, each once the
+   environment is shared), put the registration in the
    function *both* the first build and the rebuild call. Anywhere else and it silently vanishes on
    the first rebuild.
 3. **Declare no data formats while `as_bytes` refuses.** `supported_data_formats` says what
@@ -1553,7 +1558,7 @@ Every language-specific design should contain:
 - Liquers core integration boundaries: `liquers-core/src/value.rs`, `error.rs`, `context.rs`, `commands.rs`, `store.rs`, `recipes.rs`, `assets.rs`, and `maybe_send.rs`
 - Shared opaque-value mechanism for every *integrated language*: `liquers-lib/src/value/foreign.rs` (`ForeignValue`) and the `ExtValue::Foreign` variant in `liquers-lib/src/value/mod.rs`
 - Command removal: `CommandRegistry::unregister` (`liquers-core/src/commands.rs`) and `CommandMetadataRegistry::remove_command` (`liquers-core/src/command_metadata.rs`)
-- A worked *integration* design following this guide: [`specs/design/liquers-web/`](../design/liquers-web/) — browser JavaScript, phases 1-4 with the full 83-test disposition
+- A worked *integration* design following this guide: [`specs/design/liquers-web/`](../design/liquers-web/) — browser JavaScript, phases 1-4 with the 83-test disposition against the 2026-08 inventory; later additions (`ENVIRON08`, `RECORDS01`-`11`, `STORE14`-`18`) are dispositioned in [`specs/archive/2026-10-17-liquers-web-guide-conformance.md`](../archive/2026-10-17-liquers-web-guide-conformance.md)
 - [Command Declaration Format](../reference/COMMAND_DECLARATION.md) — the shared declaration vocabulary, composition over introspection, and the defaulting rules every *language* guide builds on
 - [Command Registration Guide](COMMAND_REGISTRATION_GUIDE.md)
 - [Realms](../reference/REALMS.md) — what a realm is, and why `store_config` actions are addressable but not executable
@@ -3103,6 +3108,7 @@ def test_PACKAGE07_artifact_carries_declarations_license_and_metadata():
 | Date | Change | Source |
 |---|---|---|
 | 2026-10-18 | §ENVIRON: an integration without `EnvironmentBuilder` runs the registry check on its own import path and reports it before raising; `liquers-web`'s `validateCommands` / `registerCommands`. | `design/web-environ-validation-report/` |
+| 2026-10-18 | Corrected four descriptive claims about `liquers-web`: §3 harness question 2 (classified per test: Node, native, script and browser tiers), the §OBJECT `OBJECT09` one-liner (round trip, matching Appendix A), the rebuild triggers in the TypeRegistry advice, and the worked-example entry's 83-test disposition (dated to the 2026-08 inventory). | `LANGUAGE-GUIDE-STALE-LIQUERS-WEB-CLAIMS`, `design/language-guide-web-claims/` |
 | 2026-10-16 | §6 Browser JavaScript: `localstorage` and `http` now offer data-only access and can take a `metadata` section. | `design/store-adapters/` phase-5 review |
 | 2026-10-15 | Configured stores. §4: `read_only` and `metadata` belong to `STORE` direction 3, with no feature ID of their own. §STORE: direction 3 covers a mount's access policy and metadata handling; the inventory adds the data-only methods, `DataCapabilities`, `DataFacts`, `BackendTime`, `is_read_only`, `sync`, `created`/`etag` and `MetadataConfig`/`StoreConfigFunctions`; new design questions for configured stores; new subsection "Configured stores: access policy, metadata and write strategies" with the capability table and the `store_config` counterpart of "What the *language* cannot contribute"; tests `STORE14`–`STORE18` with a disposition column and Appendix A blueprints. §COMMAND asks about foreign realms; §ENVIRON states that chains compile against the environment's registry. §6: `JsStore`'s optional data methods and the built-in browser stores' refusal; Python's GIL cost for a per-entry handler. | phase-5, `design/store-adapters/` |
 | 2026-10-13 | §Design questions, question 4: NaN/infinity follows the JSON policy in `SERIALIZATION_GUIDE.md`. | phase-5, `design/value-to-json-non-finite-float/` |
