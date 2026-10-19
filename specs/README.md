@@ -256,7 +256,7 @@ submit, and submitted query state is not preserved.
 - **Language integration** — documented → [`guides/LANGUAGE-INTEGRATION_GUIDE.md`](guides/LANGUAGE-INTEGRATION_GUIDE.md) *(liquers-web claims corrected: [`design/language-guide-web-claims/`](design/language-guide-web-claims/))*
 - **Assets and recipes HTTP API** — built → [`design/axum-assets-recipes-api/`](design/axum-assets-recipes-api/)
 - **Web API library** — built → [`design/web-api-library/`](design/web-api-library/)
-- **Browser and JavaScript integration** — built → [`design/liquers-web/`](design/liquers-web/)
+- **Browser and JavaScript integration** — built → [`design/liquers-web/`](design/liquers-web/) *(docs brought up to date: [`design/web-docs-stale-limitations/`](design/web-docs-stale-limitations/))*
 - **Async evaluation on wasm** — built → [`design/async-wasm-refactor/`](design/async-wasm-refactor/)
 - **Python wrapper** — built → [`design/python-wrapper/`](design/python-wrapper/)
 - **Executor-agnostic core** — planned → [`issues/CORE-TOKIO-REMOVAL.md`](issues/CORE-TOKIO-REMOVAL.md)
@@ -424,7 +424,6 @@ deliberately folded behind a broader line.
 - design `ui-query-console-error-highlight`
 - design `value-type-system`
 - design `variadic-metadata-tail-check`
-- design `web-docs-stale-limitations`
 - design `web-environ-validation-report`
 - design `web-liquers-error-constructor`
 - design `web-object06-error-type-exhaustiveness`
