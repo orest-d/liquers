@@ -197,6 +197,38 @@ async fn store05_unsupported_key() {
     }
 }
 
+/// STORE05b — traversal stays refused after `makedir` created the directory it starts from.
+///
+/// `localStorage` has no real directories either, but `makedir` does record one, so this is the
+/// nearest this store comes to the filesystem trap the blueprint describes.
+#[wasm_bindgen_test]
+async fn store05b_traversal_after_makedir_is_refused() {
+    let store = store("t_store05b");
+    store.makedir(&key("d/a")).await.expect("makedir");
+    let escaping = key("d/a/../../etc");
+    match store.get(&escaping).await {
+        Ok(_) => panic!("traversal after makedir must be refused"),
+        Err(e) => assert_eq!(e.error_type, ErrorType::KeyNotAbsolute, "{}", e.message),
+    }
+    match store.set(&escaping, b"x", &Metadata::new()).await {
+        Ok(()) => panic!("traversal after makedir must be refused for writes too"),
+        Err(e) => assert_eq!(e.error_type, ErrorType::KeyNotAbsolute, "{}", e.message),
+    }
+    let storage = web_sys::window()
+        .expect("a browser window")
+        .local_storage()
+        .expect("localStorage is accessible")
+        .expect("localStorage is enabled");
+    for i in 0..storage.length().expect("length") {
+        if let Ok(Some(name)) = storage.key(i) {
+            assert!(
+                !(name.starts_with("t_store05b/") && name.contains("etc")),
+                "the refused write left {name}"
+            );
+        }
+    }
+}
+
 /// STORE06 — concurrent writes: the last one wins, intact.
 ///
 /// Not "one of them won". `LocalStorageStore` never awaits — the Web Storage API is synchronous —
