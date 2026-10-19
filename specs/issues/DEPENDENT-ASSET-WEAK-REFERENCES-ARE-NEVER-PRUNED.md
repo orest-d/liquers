@@ -2,7 +2,7 @@
 id: DEPENDENT-ASSET-WEAK-REFERENCES-ARE-NEVER-PRUNED
 kind: issue
 title: The dependency manager never prunes dead weak dependents, so its lists grow with every distinct query
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [core/assets]
@@ -42,3 +42,13 @@ dependents.
 ## Discovery
 
 Performance assessment of `design/search-read-dependencies` (2026-10-17).
+
+## Resolution
+
+2026-10-18: fixed by `design/dependent-asset-weak-reference-pruning/`. `DependencyManager::add_dependent_asset`
+(`liquers-core/src/dependencies.rs`) now prunes a key's weak-dependent list on insert, when a push would
+reallocate it (from 16 entries up): dead references and duplicates of one asset (judged by the shared
+allocation, since temporary assets all have id 0) are dropped, and the list is grown when the prune leaves
+it more than half full, so it holds at most about twice its live dependents with amortized constant
+pruning work. Tests: `dependencies::tests::dependent_assets_prune_dead_entries_as_the_list_grows`,
+`dependent_assets_list_one_asset_once`, `dependent_assets_keep_every_live_entry`.

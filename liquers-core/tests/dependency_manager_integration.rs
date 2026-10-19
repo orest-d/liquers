@@ -6,10 +6,18 @@
 //! NOTE: DependencyManager and dependency_manager() are pub(crate), so integration tests
 //! exercise them indirectly via the public AssetManager API.
 
+mod common;
+
+use common::manager_scenarios::{
+    late_dependency_store, register_greet, register_late_dependency_commands,
+    scenario_replaced_run_cannot_restore_a_cleared_edge,
+    scenario_replacing_install_drops_unlisted_edges, replacing_install_store, LateGate,
+};
 use liquers_core::parse::parse_key;
+use liquers_core::recipes::DefaultRecipeProvider;
 use liquers_core::{
     assets::AssetManager,
-    context::{Context, Environment, SimpleEnvironment},
+    context::{Context, Environment, ImmediateEnvironment, SimpleEnvironment},
     error::Error,
     metadata::{DependencyKey, Version},
     query::Key,
@@ -158,3 +166,47 @@ fn version_zero_is_unknown_sentinel() {
 // TODO: Phase 3 integration tests 3 and 4 deferred
 // - Test 3: concurrent_expiration_serialized — requires spawning concurrent cascade tasks
 // - Test 4: evaluate_with_retry_succeeds_after_mismatch — requires injecting mid-evaluation expiration
+
+/// A write replacing a keyed asset replaces its incoming dependency edges, on both built-in
+/// managers (`specs/design/replacing-write-drops-stale-dependency-edges/`, AC-1 to AC-3).
+#[tokio::test]
+async fn replacing_set_state_drops_unlisted_dependency_edges() -> Result<(), Error> {
+    let mut env = SimpleEnvironment::<Value>::new();
+    register_greet(&mut env.command_registry);
+    env.with_async_store(Box::new(replacing_install_store().await?));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
+    scenario_replacing_install_drops_unlisted_edges(env.to_ref()).await?;
+
+    let mut env = ImmediateEnvironment::<Value>::new();
+    register_greet(&mut env.command_registry);
+    env.with_async_store(Box::new(replacing_install_store().await?));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
+    scenario_replacing_install_drops_unlisted_edges(env.to_ref()).await
+}
+
+/// A keyed run replaced while it is still running cannot put back an edge the replacing write
+/// cleared, whether it requests the dependency itself or through an expression it scheduled
+/// (AC-5), on both built-in managers.
+#[tokio::test]
+async fn replaced_run_cannot_restore_a_cleared_edge() -> Result<(), Error> {
+    for via_child in [false, true] {
+        let gate = LateGate::new();
+        let mut env = SimpleEnvironment::<Value>::new();
+        register_late_dependency_commands(&mut env.command_registry, gate.clone());
+        env.with_async_store(Box::new(late_dependency_store().await?));
+        env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
+        scenario_replaced_run_cannot_restore_a_cleared_edge(env.to_ref(), gate, via_child)
+            .await
+            .map_err(|e| Error::general_error(format!("default, via_child={via_child}: {e}")))?;
+
+        let gate = LateGate::new();
+        let mut env = ImmediateEnvironment::<Value>::new();
+        register_late_dependency_commands(&mut env.command_registry, gate.clone());
+        env.with_async_store(Box::new(late_dependency_store().await?));
+        env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
+        scenario_replaced_run_cannot_restore_a_cleared_edge(env.to_ref(), gate, via_child)
+            .await
+            .map_err(|e| Error::general_error(format!("immediate, via_child={via_child}: {e}")))?;
+    }
+    Ok(())
+}

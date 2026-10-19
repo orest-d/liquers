@@ -8,9 +8,9 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 127
+Total rows: 129
 - P2: 52
-- P3: 75
+- P3: 77
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -66,9 +66,6 @@ Total rows: 127
 | [`NO-RELATIONAL-DATABASE-ACCESS-LAYER`](issues/NO-RELATIONAL-DATABASE-ACCESS-LAYER.md) | feature | No access layer from Liquers into relational databases | draft |  |  | P2 | XL | lib/value;lib/commands;store/backends |  | 2026-09-20 |
 | [`NO-REMOTE-STORE-OR-ASSET-MANAGER`](issues/NO-REMOTE-STORE-OR-ASSET-MANAGER.md) | feature | A client environment cannot use a server's store or asset manager as its own | draft |  |  | P2 | XL | axum;web;core/assets;core/store |  | 2026-09-27 |
 | [`VALUE-TYPE-DEFINITION-MACRO`](issues/VALUE-TYPE-DEFINITION-MACRO.md) | feature | Value types and their registry entries are hand-written instead of generated | draft |  |  | P2 | XL | macro;lib/value;core/value |  | 2026-08-18 |
-| [`DEPENDENT-ASSET-WEAK-REFERENCES-ARE-NEVER-PRUNED`](issues/DEPENDENT-ASSET-WEAK-REFERENCES-ARE-NEVER-PRUNED.md) | issue | The dependency manager never prunes dead weak dependents, so its lists grow with every distinct query | draft | ready | eligible | P3 | S | core/assets | [design](design/dependent-asset-weak-reference-pruning/DESIGN.md) | 2026-10-17 |
-| [`NEW-FOLDER-WRITE-DOES-NOT-REFRESH-THE-PARENT-LISTING`](issues/NEW-FOLDER-WRITE-DOES-NOT-REFRESH-THE-PARENT-LISTING.md) | issue | A write that creates a folder does not refresh the listing of the folder above it | draft | ready | eligible | P3 | S | core/assets | [design](design/new-folder-write-ancestor-listing-refresh/DESIGN.md) | 2026-10-17 |
-| [`REPLACING-WRITE-KEEPS-DROPPED-DEPENDENCY-EDGES`](issues/REPLACING-WRITE-KEEPS-DROPPED-DEPENDENCY-EDGES.md) | issue | A write that replaces a keyed asset keeps the dependency edges its new metadata no longer lists | draft | ready | eligible | P3 | S | core/assets | [design](design/replacing-write-drops-stale-dependency-edges/DESIGN.md) | 2026-10-11 |
 | [`WEB-OUTBOUND-INT64-BEYOND-DOUBLE-UNTESTED`](issues/WEB-OUTBOUND-INT64-BEYOND-DOUBLE-UNTESTED.md) | issue | An i64 beyond 2^53 leaving for JavaScript has unconfirmed, untested behaviour | draft | ready | eligible | P3 | S | web | [design](design/web-outbound-int64-precision/DESIGN.md) | 2026-10-17 |
 | [`LIB-BUILD-EMITS-UNUSED-AND-UNHANDLED-RESULT-WARNINGS`](issues/LIB-BUILD-EMITS-UNUSED-AND-UNHANDLED-RESULT-WARNINGS.md) | issue | A default liquers-lib build emits about 50 warnings, some for discarded Results | draft | ready | not-eligible | P3 | S | lib/commands;build | [design](design/lib-build-warning-cleanup/DESIGN.md) | 2026-10-11 |
 | [`ROOT-LISTING-DEPENDENCY-KEY-HAS-TWO-SPELLINGS`](issues/ROOT-LISTING-DEPENDENCY-KEY-HAS-TWO-SPELLINGS.md) | issue | The root directory listing dependency has two spellings, so a dependent that recorded one is never expired | draft | ready | not-eligible | P3 | S | core/assets | [design](design/root-listing-dependency-key-spelling/DESIGN.md) | 2026-10-17 |
@@ -80,6 +77,11 @@ Total rows: 127
 | [`SEARCH-CATALOG-READS-EACH-FILE-METADATA-TWICE`](issues/SEARCH-CATALOG-READS-EACH-FILE-METADATA-TWICE.md) | issue | ns-search/catalog reads each file's metadata twice, once for its info and once for its version | draft | needs-decision | not-eligible | P3 | S | lib/commands;core/assets | [design](design/search-catalog-single-metadata-read/DESIGN.md) | 2026-10-17 |
 | [`CORE-WASM-BUILD-EMITS-UNUSED-WARNINGS`](issues/CORE-WASM-BUILD-EMITS-UNUSED-WARNINGS.md) | issue | A wasm32 build of liquers-core emits five unused-import and dead-code warnings | draft |  |  | P3 | S | core/assets;build |  | 2026-10-17 |
 | [`DEPENDENCY-MANAGER-VERSION-NOT-OBSERVABLE-FROM-TESTS`](issues/DEPENDENCY-MANAGER-VERSION-NOT-OBSERVABLE-FROM-TESTS.md) | issue | An integration test cannot ask the dependency manager whether a key has a registered version | draft |  |  | P3 | S | core/assets |  | 2026-10-17 |
+| [`EXPRESSION-ATTRIBUTION-MAPS-ARE-NEVER-CLEANED`](issues/EXPRESSION-ATTRIBUTION-MAPS-ARE-NEVER-CLEANED.md) | issue | Schedule-time expression attribution entries are never removed outside tests | draft |  |  | P3 | S | core/assets |  | 2026-10-18 |
+| [`RECIPE-ONLY-FOLDER-NAMES-HIDE-A-CREATED-FOLDER-FROM-ITS-PARENT`](issues/RECIPE-ONLY-FOLDER-NAMES-HIDE-A-CREATED-FOLDER-FROM-ITS-PARENT.md) | issue | A recipe provider that lists names in a folder with no stored file can leave the parent listing stale after a write | draft |  |  | P3 | S | core/assets |  | 2026-10-18 |
+| [`SET-BINARY-KEEPS-PREVIOUS-DEPENDENCY-EDGES`](issues/SET-BINARY-KEEPS-PREVIOUS-DEPENDENCY-EDGES.md) | issue | A set_binary that replaces a keyed asset keeps the incoming dependency edges of the value it replaced | draft |  |  | P3 | S | core/assets |  | 2026-10-18 |
+| [`TEMPORARY-ASSET-NEVER-RUN-IS-KEPT-ALIVE-BY-ITS-SERVICE-LOOP`](issues/TEMPORARY-ASSET-NEVER-RUN-IS-KEPT-ALIVE-BY-ITS-SERVICE-LOOP.md) | issue | A temporary asset that is never run is kept alive forever by its own service-message loop | draft |  |  | P3 | S | core/assets |  | 2026-10-18 |
+| [`TEMPORARY-ASSETS-SHARE-ID-ZERO`](issues/TEMPORARY-ASSETS-SHARE-ID-ZERO.md) | issue | Every temporary asset has id 0, so code that identifies assets by id can confuse them | draft |  |  | P3 | S | core/assets |  | 2026-10-18 |
 | [`TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS`](issues/TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS.md) | issue | TypeInfo cannot declare a format a type writes but cannot read back | draft |  |  | P3 | S | core/value |  | 2026-09-24 |
 | [`WEB-STORE-CONFORMANCE-TEST-GAPS`](issues/WEB-STORE-CONFORMANCE-TEST-GAPS.md) | issue | liquers-web's STORE tests are narrower than the guide's prescribed contracts | draft | ready | eligible | P3 | M | web;core/store | [design](design/web-store-conformance-tests/DESIGN.md) | 2026-10-17 |
 | [`PY-VALUE-ENUM-OVERSIZED`](issues/PY-VALUE-ENUM-OVERSIZED.md) | issue | liquers-py's own Value enum is over 700 bytes because large variants are stored inline | draft | ready | not-eligible | P3 | M | py | [design](design/py-value-arc-payloads/DESIGN.md) | 2026-10-12 |
