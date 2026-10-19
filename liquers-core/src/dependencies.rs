@@ -594,6 +594,45 @@ impl<E: Environment> DependencyManager<E> {
         expired
     }
 
+    /// [`Self::track_asset`] for an asset a write installed: a keyed asset's incoming edges are
+    /// first cleared, so they become exactly the records in its metadata.
+    ///
+    /// A write's metadata is by definition the whole truth about what the new value depends on,
+    /// so an edge the key held before and the new records no longer list is dropped rather than
+    /// left to expire the key spuriously. The clear also unhooks the key from the expressions its
+    /// previous run scheduled, so their later requests no longer add edges to it. Edges *from* the
+    /// key to its dependents are not touched. The evaluation path keeps the additive
+    /// [`Self::track_asset`]: its records need not include the schedule-time edges.
+    /// See `specs/design/replacing-write-drops-stale-dependency-edges/`.
+    pub(crate) async fn track_replacing_asset(
+        &self,
+        asset: &crate::assets::AssetRef<E>,
+    ) -> ExpiredDependents<E> {
+        let tracked = match asset.status().await {
+            crate::metadata::Status::Ready
+            | crate::metadata::Status::Source
+            | crate::metadata::Status::Override => true,
+            crate::metadata::Status::None
+            | crate::metadata::Status::Directory
+            | crate::metadata::Status::Recipe
+            | crate::metadata::Status::Submitted
+            | crate::metadata::Status::Dependencies
+            | crate::metadata::Status::Processing
+            | crate::metadata::Status::Partial
+            | crate::metadata::Status::Error
+            | crate::metadata::Status::Storing
+            | crate::metadata::Status::Expired
+            | crate::metadata::Status::Cancelled
+            | crate::metadata::Status::Volatile => false,
+        };
+        if tracked {
+            if let Some(key) = asset.bound_owner_key().await.ok().flatten() {
+                self.remove_dependent_edges(&DependencyKey::from(&key)).await;
+            }
+        }
+        self.track_asset(asset).await
+    }
+
     /// Register a keyed asset as a graph node: its current version, and its incoming edges.
     ///
     /// Split out of [`Self::track_asset`] so the evaluation path can reach it for an asset whose
@@ -857,6 +896,69 @@ impl<E: Environment> DependencyManager<E> {
             Box::pin(self.propagate_attribution(dq, attribution, origin, visited)).await?;
         }
         Ok(())
+    }
+
+    /// Undo what [`Self::register_scheduled_dependency`] added for the keyed dependent `owner`
+    /// requesting `dependency`; an edge a record in `keep` names is reset to that record's
+    /// version instead of removed.
+    ///
+    /// For a run cancelled because its key was replaced: the replacing write cleared the key's
+    /// incoming edges, and a request the old run makes afterwards must not put one back. `keep`
+    /// is the replacement's own dependency records, whose edges the write re-adds. The late
+    /// request may have overwritten such an edge with the version the old run captured (edge
+    /// insertion is last-writer-wins), so the record's version is written back. For an
+    /// expression dependency, `owner` leaves the attribution set of it and of every expression it
+    /// depends on, and the keyed edges that attribution implied are removed.
+    pub(crate) async fn unregister_scheduled_dependency(
+        &self,
+        owner: &DependencyKey,
+        dependency: &ScheduleNode,
+        keep: &[DependencyRecord],
+    ) {
+        match dependency {
+            ScheduleNode::Keyed(d) => self.restore_or_remove_edge(d, owner, keep).await,
+            ScheduleNode::Expression(dq) => {
+                let mut visited = std::collections::HashSet::new();
+                let mut pending = vec![dq.clone()];
+                while let Some(expr) = pending.pop() {
+                    if !visited.insert(expr.clone()) {
+                        continue;
+                    }
+                    let mut now_empty = false;
+                    if let Some(entry) = self.expression_dependents.get_async(&expr).await {
+                        let dependents = entry.get();
+                        dependents.remove_async(owner).await;
+                        now_empty = dependents.is_empty();
+                        drop(entry);
+                    }
+                    if now_empty {
+                        self.expression_dependents.remove_async(&expr).await;
+                    }
+                    for x in self.snapshot_set(&self.expression_keyed_deps, &expr).await {
+                        self.restore_or_remove_edge(&x, owner, keep).await;
+                    }
+                    pending.extend(self.snapshot_set(&self.expression_expr_deps, &expr).await);
+                }
+            }
+        }
+    }
+
+    /// Reset the edge `dependency → owner` to the version the record in `keep` names, or remove
+    /// it when no record names `dependency`.
+    async fn restore_or_remove_edge(
+        &self,
+        dependency: &DependencyKey,
+        owner: &DependencyKey,
+        keep: &[DependencyRecord],
+    ) {
+        match keep.iter().find(|record| &record.key == dependency) {
+            Some(record) => {
+                // The edge already exists, so this cannot close a new cycle; a refusal would
+                // leave the edge as the replacement's own registration would.
+                let _ = self.add_dependency(owner, dependency, record.version).await;
+            }
+            None => self.remove_edge(dependency, owner).await,
+        }
     }
 
     /// Drop the transient schedule-time attribution entries for expression `expr`.
@@ -1845,6 +1947,115 @@ mod tests {
         assert!(
             dm.would_create_cycle(&b, &c).await,
             "c still depends on b"
+        );
+    }
+
+    /// The clear a replacing write makes (`specs/design/replacing-write-drops-stale-dependency-edges/`):
+    /// edges `d→k`, `d→j`, `e→k`; clearing `k` keeps `d→j` and drops the emptied entry of `e`.
+    #[tokio::test]
+    async fn remove_dependent_edges_removes_only_that_dependent() {
+        let dm = DependencyManager::<TestEnv>::new();
+        let d = DependencyKey::new("-R/d");
+        let e = DependencyKey::new("-R/e");
+        let k = DependencyKey::new("-R/k");
+        let j = DependencyKey::new("-R/j");
+        dm.add_dependency(&k, &d, Version::new(1)).await.unwrap();
+        dm.add_dependency(&j, &d, Version::new(1)).await.unwrap();
+        dm.add_dependency(&k, &e, Version::new(2)).await.unwrap();
+        dm.remove_dependent_edges(&k).await;
+        assert_eq!(dm.snapshot_dependent_keys(&d).await, vec![j.clone()], "d->j survives, d->k is gone");
+        assert!(
+            !dm.keyed_dependents.contains_async(&e).await,
+            "e's entry held only k and is dropped"
+        );
+    }
+
+    /// Rolling back a cancelled run's schedule-time request removes the edges it added, keeps an
+    /// edge the replacement's records name, and unhooks the owner from the expression it joined.
+    #[tokio::test]
+    async fn unregister_scheduled_dependency_undoes_a_keyed_and_an_expression_request() {
+        let dm = DependencyManager::<TestEnv>::new();
+        let k = DependencyKey::new("-R/k");
+        let d = DependencyKey::new("-R/d");
+        let x = DependencyKey::new("-R/x");
+        let q = DependencyKey::new("child");
+        let keyed = ScheduleNode::Keyed(k.clone());
+        dm.register_scheduled_dependency(&keyed, &ScheduleNode::Keyed(d.clone()), Version::new(1))
+            .await
+            .unwrap();
+        dm.register_scheduled_dependency(
+            &ScheduleNode::Expression(q.clone()),
+            &ScheduleNode::Keyed(x.clone()),
+            Version::new(1),
+        )
+        .await
+        .unwrap();
+        dm.register_scheduled_dependency(&keyed, &ScheduleNode::Expression(q.clone()), Version::new(1))
+            .await
+            .unwrap();
+        assert_eq!(dm.snapshot_dependent_keys(&x).await, vec![k.clone()]);
+
+        dm.unregister_scheduled_dependency(
+            &k,
+            &ScheduleNode::Keyed(d.clone()),
+            &[DependencyRecord::new(d.clone(), Version::new(1))],
+        )
+        .await;
+        assert_eq!(dm.snapshot_dependent_keys(&d).await, vec![k.clone()], "kept edge");
+        dm.unregister_scheduled_dependency(&k, &ScheduleNode::Keyed(d.clone()), &[])
+            .await;
+        assert!(dm.snapshot_dependent_keys(&d).await.is_empty());
+        dm.unregister_scheduled_dependency(&k, &ScheduleNode::Expression(q.clone()), &[])
+            .await;
+        assert!(dm.snapshot_dependent_keys(&x).await.is_empty());
+        assert!(
+            dm.snapshot_set(&dm.expression_dependents, &q).await.is_empty(),
+            "k no longer joins the child's later requests"
+        );
+    }
+
+    /// A late request overwrites the replacement's edge with the version the old run captured
+    /// (edge insertion is last-writer-wins); the rollback must put the replacement's own version
+    /// back, through a keyed and through an expression request, or an audit at that version would
+    /// expire the valid replacement.
+    #[tokio::test]
+    async fn unregister_scheduled_dependency_restores_a_kept_edge_version() {
+        let dm = DependencyManager::<TestEnv>::new();
+        let k = DependencyKey::new("-R/k");
+        let d = DependencyKey::new("-R/d");
+        let q = DependencyKey::new("child");
+        let keyed = ScheduleNode::Keyed(k.clone());
+        let replacement = vec![DependencyRecord::new(d.clone(), Version::new(2))];
+        dm.load_from_records(&k, &replacement).await;
+        dm.register_scheduled_dependency(&keyed, &ScheduleNode::Keyed(d.clone()), Version::new(1))
+            .await
+            .unwrap();
+        assert_eq!(dm.snapshot_dependent_edges(&d).await, vec![(k.clone(), Version::new(1))]);
+        dm.unregister_scheduled_dependency(&k, &ScheduleNode::Keyed(d.clone()), &replacement)
+            .await;
+        assert_eq!(
+            dm.snapshot_dependent_edges(&d).await,
+            vec![(k.clone(), Version::new(2))],
+            "the replacement's version is restored"
+        );
+
+        dm.register_scheduled_dependency(
+            &ScheduleNode::Expression(q.clone()),
+            &ScheduleNode::Keyed(d.clone()),
+            Version::new(1),
+        )
+        .await
+        .unwrap();
+        dm.register_scheduled_dependency(&keyed, &ScheduleNode::Expression(q.clone()), Version::new(1))
+            .await
+            .unwrap();
+        assert_eq!(dm.snapshot_dependent_edges(&d).await, vec![(k.clone(), Version::unknown())]);
+        dm.unregister_scheduled_dependency(&k, &ScheduleNode::Expression(q.clone()), &replacement)
+            .await;
+        assert_eq!(
+            dm.snapshot_dependent_edges(&d).await,
+            vec![(k.clone(), Version::new(2))],
+            "the replacement's version is restored after an expression request"
         );
     }
 

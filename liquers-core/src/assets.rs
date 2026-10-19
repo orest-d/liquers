@@ -7151,10 +7151,12 @@ pub trait AssetManager<E: Environment>:
     /// The primitive an external manager's `set_state` calls once the installed asset is mapped,
     /// as the built-in managers do; `version` is the installed version, the cause recorded on
     /// anything the registration finds stale. Only `Ready`, `Source` and `Override` assets are
-    /// registered. Like [`Self::publish_version`] it touches the graph only and may be called with
+    /// registered. The installed key's previous incoming edges are replaced by the records in the
+    /// new metadata, so a dependency the new value no longer lists stops expiring it. Like
+    /// [`Self::publish_version`] it touches the graph only and may be called with
     /// [`KeyMutationAccess::key_mutation_lock`] held.
     async fn track_installed(&self, asset: &AssetRef<E>, version: Version) {
-        let expired = self.dependency_manager().track_asset(asset).await;
+        let expired = self.dependency_manager().track_replacing_asset(asset).await;
         self.expire_dependencies_result(expired, ExpiryCause::Updated { version })
             .await;
     }
@@ -8965,8 +8967,8 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
                 if let Some(version) = metadata.version() {
                     self.publish_version(&dep_key, version).await;
                 }
-                // Track the asset in the dependency manager
-                let expired = self.dependency_manager.track_asset(&asset_ref).await;
+                // Track the asset in the dependency manager, replacing the key's incoming edges
+                let expired = self.dependency_manager.track_replacing_asset(&asset_ref).await;
                 self.expire_dependencies_result(expired, ExpiryCause::Updated { version })
                     .await;
             }
@@ -10397,7 +10399,7 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
                 if let Some(version) = metadata.version() {
                     self.publish_version(&dep_key, version).await;
                 }
-                let expired = self.dependency_manager.track_asset(&asset).await;
+                let expired = self.dependency_manager.track_replacing_asset(&asset).await;
                 self.expire_dependencies_result(expired, ExpiryCause::Updated { version })
                     .await;
             }
