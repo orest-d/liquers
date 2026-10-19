@@ -217,6 +217,41 @@ async fn store05_unsupported_key() {
     }
 }
 
+/// STORE05b — traversal stays refused after `makedir`, and dotted names stay ordinary.
+///
+/// A `JsStore` has no real directories, so the trap the blueprint describes (a filesystem resolving
+/// `..` once the directory exists) cannot occur here. What this pins is that the guard runs before
+/// the page object is called, whatever the object has been asked to create.
+#[wasm_bindgen_test]
+async fn store05b_traversal_after_makedir_is_refused() {
+    let page_object = object(FULL_STORE);
+    let store = JsStore::new(&key("d"), "full", page_object.clone()).expect("adapts");
+    store.makedir(&key("d/a")).await.expect("makedir");
+
+    let escaping = key("d/a/../../etc");
+    match store.get(&escaping).await {
+        Ok(_) => panic!("traversal after makedir must be refused"),
+        Err(e) => assert_eq!(e.error_type, ErrorType::KeyNotAbsolute, "{}", e.message),
+    }
+    match store.set(&escaping, b"x", &Metadata::new()).await {
+        Ok(()) => panic!("traversal after makedir must be refused for writes too"),
+        Err(e) => assert_eq!(e.error_type, ErrorType::KeyNotAbsolute, "{}", e.message),
+    }
+    let data: js_sys::Map = js_sys::Reflect::get(&page_object, &JsValue::from_str("_data"))
+        .expect("_data")
+        .dyn_into()
+        .expect("a Map");
+    assert_eq!(
+        data.size(),
+        0,
+        "the refused write must not reach the page object"
+    );
+
+    for text in ["d/.hidden", "d/a..b", "d/...", "d/..x", "d/v1.2.3"] {
+        assert!(store.is_supported(&key(text)), "{text} is an ordinary name");
+    }
+}
+
 /// STORE06 — concurrent writes to one key leave the last value, intact.
 #[wasm_bindgen_test]
 async fn store06_concurrent_update_policy() {
@@ -317,6 +352,52 @@ stores:
         Ok(_) => panic!("an unmatched prefix must not resolve"),
         Err(e) => assert_eq!(e.error_type, ErrorType::KeyNotFound, "{}", e.message),
     }
+}
+
+/// STORE11 — overlapping prefixes follow document order, and the overlap is accepted silently.
+///
+/// The router takes the first entry whose prefix matches, so `data` listed before `data/scratch`
+/// shadows it. liquers-web does not warn about the shadowing (see the README's `## Conformance`);
+/// this test pins the routing in both orders.
+#[wasm_bindgen_test]
+async fn store11_overlapping_prefixes_follow_document_order() {
+    async fn holder(first: &str, second: &str) -> (bool, bool) {
+        let broad = object(FULL_STORE);
+        let narrow = object(FULL_STORE);
+        let mut factory = WebStoreFactory::new();
+        factory.register_object("broad", broad.clone());
+        factory.register_object("narrow", narrow.clone());
+        let entry = |prefix: &str| {
+            let name = if prefix == "data" { "broad" } else { "narrow" };
+            format!("  - type: js\n    prefix: {prefix}\n    config: {{ object: {name} }}\n")
+        };
+        let yaml = format!("stores:\n{}{}", entry(first), entry(second));
+        let config = StoreRouterConfig::from_yaml(&yaml).expect("config parses");
+        let router = build_router(&config, factory).expect("router builds");
+        router
+            .set(&key("data/scratch/x"), b"1", &Metadata::new())
+            .await
+            .expect("write");
+        let has = |o: &js_sys::Object| {
+            js_sys::Reflect::get(o, &JsValue::from_str("_data"))
+                .expect("_data")
+                .dyn_into::<js_sys::Map>()
+                .expect("a Map")
+                .has(&JsValue::from_str("data/scratch/x"))
+        };
+        (has(&broad), has(&narrow))
+    }
+
+    assert_eq!(
+        holder("data", "data/scratch").await,
+        (true, false),
+        "listed first, `data` must shadow `data/scratch`"
+    );
+    assert_eq!(
+        holder("data/scratch", "data").await,
+        (false, true),
+        "listed first, `data/scratch` must take its own keys"
+    );
 }
 
 /// C11 — the protocol is bound at construction, so removing a method afterwards changes nothing.
@@ -768,21 +849,74 @@ fn built(yaml: &str, factory: WebStoreFactory) -> Result<std::sync::Arc<dyn Asyn
     build_store(&config, factory, registry, functions)
 }
 
-/// STORE14 — `read_only` on a `js` entry refuses writes before they reach the object.
+/// STORE14 — `read_only` on a `js` entry refuses every write before it reaches the object.
+///
+/// The page object here is fully writable, so a refusal can only come from the mount: an object
+/// with no write methods would refuse on its own and prove nothing about `read_only`.
 #[wasm_bindgen_test]
 async fn store14_read_only_js_store_refuses_writes() {
+    let page_object = object(FULL_STORE);
+    let mut factory = WebStoreFactory::new();
+    factory.register_object("rw", page_object.clone());
+    let store = built(
+        "stores:\n  - type: js\n    prefix: ro\n    config: { object: rw }\n    read_only: true\n",
+        factory,
+    )
+    .expect("store builds");
+
+    let k = key("ro/new.txt");
+    let refused = |what: &str, result: Result<(), liquers_core::error::Error>| match result {
+        Ok(()) => panic!("a read-only mount must refuse {what}"),
+        Err(e) => assert_eq!(
+            e.error_type,
+            ErrorType::NotSupported,
+            "{what}: {}",
+            e.message
+        ),
+    };
+    refused("set", store.set(&k, b"x", &Metadata::new()).await);
+    refused(
+        "set_metadata",
+        store.set_metadata(&k, &Metadata::new()).await,
+    );
+    refused("remove", store.remove(&k).await);
+    refused("removedir", store.removedir(&key("ro/dir")).await);
+    refused("makedir", store.makedir(&key("ro/dir")).await);
+
+    let data: js_sys::Map = js_sys::Reflect::get(&page_object, &JsValue::from_str("_data"))
+        .expect("_data")
+        .dyn_into()
+        .expect("a Map");
+    assert_eq!(data.size(), 0, "no write may reach the page object");
+
+    assert!(store.is_read_only());
+    // Through the JavaScript export, so a renamed or dropped `js_name` fails here.
+    let handle = JsValue::from(liquers_web::store::LiquersStore::new(store.clone()));
+    let is_read_only: js_sys::Function =
+        js_sys::Reflect::get(&handle, &JsValue::from_str("isReadOnly"))
+            .expect("isReadOnly")
+            .dyn_into()
+            .expect("`Store.isReadOnly` is a function");
+    assert_eq!(
+        is_read_only.call0(&handle).expect("isReadOnly()"),
+        JsValue::TRUE,
+        "`Store.isReadOnly()` must report the mount's policy to JavaScript"
+    );
+}
+
+/// STORE14 — reads still pass through a read-only mount.
+#[wasm_bindgen_test]
+async fn store14_read_only_js_store_still_reads() {
     let store = built(
         "stores:\n  - type: js\n    prefix: ro\n    config: { object: ro }\n    read_only: true\n",
         data_store_factory("ro", READ_ONLY_STORE),
     )
     .expect("store builds");
-    let (data, _) = store.get(&key("ro/fixed.txt")).await.expect("reads pass through");
+    let (data, _) = store
+        .get(&key("ro/fixed.txt"))
+        .await
+        .expect("reads pass through");
     assert_eq!(data, b"hi".to_vec());
-    match store.set(&key("ro/new.txt"), b"x", &Metadata::new()).await {
-        Ok(()) => panic!("a read-only store must refuse a write"),
-        Err(e) => assert_eq!(e.error_type, ErrorType::NotSupported, "{}", e.message),
-    }
-    assert!(store.is_read_only());
 }
 
 /// STORE15 — a `metadata` section on an object without the data methods is refused at build.
@@ -873,4 +1007,60 @@ async fn store17_created_round_trips_from_js_time() {
     assert_eq!(record.etag.as_deref(), Some("e3"));
     let info = store.get_asset_info(&key("n/a.txt")).await.expect("info");
     assert_eq!(info.created, record.created);
+}
+
+/// `DATA_STORE` with `dataFacts` reporting the given `modified` text and `precision` name.
+fn data_store_with_facts(modified: &str, precision: &str) -> String {
+    let original = "modified: '2026-10-15T12:00:00.123Z'";
+    assert!(
+        DATA_STORE.contains(original),
+        "the fixture's facts line moved"
+    );
+    DATA_STORE.replace(
+        original,
+        &format!("modified: '{modified}', precision: '{precision}'"),
+    )
+}
+
+/// STORE17 — an explicit `precision` from `dataFacts` is applied to the backend time.
+#[wasm_bindgen_test]
+async fn store17_explicit_precision_is_applied() {
+    let source = data_store_with_facts("2026-10-15T12:00:00.123456Z", "millis");
+    let store = built(
+        "stores:\n  - type: js\n    prefix: n\n    config: { object: notes }\n    metadata: { storage: per_entry }\n",
+        data_store_factory("notes", &source),
+    )
+    .expect("store builds");
+    store
+        .set(&key("n/a.txt"), b"abc", &Metadata::new())
+        .await
+        .expect("set");
+    let metadata = store.get_metadata(&key("n/a.txt")).await.expect("metadata");
+    let record = metadata.metadata_record().expect("a record");
+    assert_eq!(
+        record.created.as_ref().map(|t| t.as_str().to_string()),
+        Some("2026-10-15T12:00:00.123Z".to_string()),
+        "the time must be cut to the declared millisecond precision"
+    );
+}
+
+/// STORE17 — an unknown `precision` name is refused, naming it, rather than ignored.
+#[wasm_bindgen_test]
+async fn store17_unknown_precision_is_refused() {
+    let source = data_store_with_facts("2026-10-15T12:00:00Z", "hours");
+    let store = built(
+        "stores:\n  - type: js\n    prefix: n\n    config: { object: notes }\n    metadata: { storage: per_entry }\n",
+        data_store_factory("notes", &source),
+    )
+    .expect("store builds");
+    // The facts are read when `set` stamps `created` or when metadata is read back; whichever
+    // reads them first must fail.
+    let error = match store.set(&key("n/a.txt"), b"abc", &Metadata::new()).await {
+        Err(e) => e,
+        Ok(()) => match store.get_metadata(&key("n/a.txt")).await {
+            Err(e) => e,
+            Ok(m) => panic!("an unknown precision was accepted: {m:?}"),
+        },
+    };
+    assert!(error.message.contains("'hours'"), "{}", error.message);
 }
