@@ -24,6 +24,16 @@ pub type WebValue = liquers_lib::value::Value;
 // `CombinedValue<SimpleValue, ExtValue>`, and this is the same path a downstream crate takes —
 // so the documented Tier-2 route is the one this crate itself uses, rather than a second-class
 // alternative to it.
+// This crate's `records` feature must agree with liquers-lib's, because the matches below gate their
+// record arms on it. Cargo can turn `liquers-lib/records` on through another crate in the same
+// build while leaving this one off; the match then fails as non-exhaustive, and this assertion is
+// what says why.
+const _: () = assert!(
+    liquers_lib::RECORDS_ENABLED == cfg!(feature = "records"),
+    "liquers-lib's `records` feature is enabled in this build but liquers-web's is not (or the \
+     reverse): enable `liquers-web/records` too"
+);
+
 impl JsExtensionBridge for ExtValue {
     fn from_js_custom(js: &JsValue) -> Result<Option<Self>, Error> {
         // A record handle the page received crosses back as the value it was made from — the same

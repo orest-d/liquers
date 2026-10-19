@@ -64,7 +64,7 @@ python3 -m http.server 8090 --directory examples-web/quickstart/dist
 
 `build.sh` does what `trunk build` does — build the cdylib for wasm32, run `wasm-bindgen` over it,
 copy the page next to the output — without requiring trunk to be installed. Arguments other than
-`--release` go to `cargo build` unchanged. If you have trunk,
+`--release` go to `cargo build` unchanged (`--profile` and `--target-dir` are refused). If you have trunk,
 `cd examples-web/quickstart && trunk serve` works too and serves on the same port.
 
 ## Testing

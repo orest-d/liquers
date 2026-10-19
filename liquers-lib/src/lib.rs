@@ -16,3 +16,9 @@ pub mod template;
 pub mod ui;
 pub mod utils;
 pub mod value;
+
+/// Whether this build of the crate has the `records` feature, so `ExtValue::RecordView` and
+/// `RecordSource` exist. A dependent crate that matches on `ExtValue` and forwards the feature
+/// (`liquers-web`) asserts against it: feature unification can turn `records` on here without
+/// turning it on there, and the assertion names the fix where a bare non-exhaustive match would not.
+pub const RECORDS_ENABLED: bool = cfg!(feature = "records");
