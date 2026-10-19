@@ -3,7 +3,7 @@ title: Status::Dependencies Specification
 kind: reference
 audience: internal
 area: [core/assets]
-reviewed: 2026-10-17
+reviewed: 2026-10-18
 ---
 # Dependencies Status Specification
 
@@ -181,8 +181,13 @@ fails fast with `Error::dependency_cycle`. That is pinned by
   `set_binary`, `set_state`, `remove`, `makedir`, `removedir`, and an outside change deleted as
   corrupted — the parent
   listing is recomputed by `refresh_listing_version`, **only if** the version map already holds a
-  version for it, and its dependents are expired with `Updated { version }` when it moved. A
-  `listdir` error there is logged, not fatal. A change made to the folder outside Liquers is
+  version for it, and its dependents are expired with `Updated { version }` when it moved. The
+  refresh then climbs towards the root, because a write that creates a folder adds it to the
+  listing above, and a removal that empties one may drop it there: it climbs past a registered
+  listing only when its old or new version is the empty listing's (or the old one is unknown),
+  and past an unregistered one only when some higher listing is registered. An ordinary write into
+  an existing, non-empty folder still reads one listing, and a write under no registered listing
+  reads none. A `listdir` error there is logged, not fatal, and ends the climb. A change made to the folder outside Liquers is
   found only by an audit. A write after the step's last read, but before the dependent records its
   edge, is caught when the edge is recorded (next bullet).
 - **An edge recorded against a superseded version marks the dependent stale.** When an evaluating
@@ -454,6 +459,9 @@ This is the runtime dependency path for commands that discover dependencies whil
      already present, a later unknown observation is ignored instead of downgrading it.
    - If the current asset is keyed, `add_dependent_asset()` also records the current asset as an
      untracked dependent of the dependency key.
+     An untracked dependent is held weakly, and the key's list is pruned of dropped and duplicate
+     entries as it grows, so it holds at most about twice the key's live dependents (plus 16), and
+     its allocation shrinks again once most of those dependents are dropped.
 
 5. **Enter dependency wait**
    - The command waits with `context.wait_for_dependency(&child)`, which delegates to
@@ -558,7 +566,8 @@ This path handles dependencies known before command execution.
 - `AssetManager::dependency_version(dep_key)`: the current version of a `-R/` key (`version`) or a
   `-R-dir/` key (listing version), without evaluating; any other key answers 0.
 - `AssetManager::refresh_listing_version(dir)`: recompute and register a listing version iff one
-  is registered; cascades with `Updated` when it moved. Never takes `key_mutation_lock`.
+  is registered; cascades with `Updated` when it moved; continues to the ancestors whose
+  membership the write can have changed. Never takes `key_mutation_lock`.
 - `DefaultAssetManager::with_capacity(capacity)`: constructs a manager with configurable queue
   capacity, used to exercise F-1 capacity-sensitive paths.
 - `DefaultAssetManager::shutdown()` and `JobQueue::shutdown()`: stop background queue/expiration
@@ -634,6 +643,8 @@ priming cannot see (`INLINE-MANAGER-DYNAMIC-DEPENDENCY-CHAIN-NESTS`).
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-18 | §Current contract, folder-listing bullet, and glossary: `refresh_listing_version` climbs to the ancestors whose membership a write that creates or empties a folder changed. | `design/new-folder-write-ancestor-listing-refresh/` |
+| 2026-10-18 | Flow B step 4: an untracked dependent list is pruned of dropped and duplicate entries as it grows, bounded by about twice its live dependents. | `design/dependent-asset-weak-reference-pruning/` |
 | 2026-10-17 | §What a dependency record holds: a non-keyed dependency's run-time records are inherited by its dependent; row for records a command adds at run time. | `design/search-read-dependencies/` |
 | 2026-10-12 | New §Evaluation session (one asset per dependency per evaluation; the pre-pass stops at a failed dependency; depth independent of chain length). F-1 bullet, Flow A step 5 and step 7, Flow D item 2 and §Non-blocking dependency scheduling: a locally queued dependency runs in a task of its own on the queued manager. | phase-5 (`design/dependency-resolved-once-per-evaluation/`) |
 | 2026-10-09 | Flow D: cascade cancellation, the wait no longer sets the parent's status (`fail_due_to_dependency` removed); the delegation description and glossary follow. | phase-5 (`design/asset-cancellation-outcome/`) |
