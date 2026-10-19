@@ -1269,6 +1269,220 @@ async fn removing_a_subdirectory_expires_the_index() -> TestResult {
     Ok(())
 }
 
+/// Assert the index is stored `Expired`, cascaded from the listing of `data`.
+async fn assert_index_expired_by_data_listing(envref: &EnvRef<TestEnv>) -> TestResult {
+    let metadata = envref.get_async_store().get_metadata(&index_key("idx")?).await?;
+    assert_eq!(metadata.status(), Status::Expired);
+    let dir = DependencyKey::from_dir_key(&parse_key("data")?);
+    let Some(ExpiryReason::Cascaded { root, .. }) = metadata.expiry_reason() else {
+        panic!("expected a cascaded reason, got {:?}", metadata.expiry_reason());
+    };
+    assert_eq!(root, dir);
+    Ok(())
+}
+
+/// A write that creates a folder adds a member to the folder above it, so it expires an index of
+/// that folder (`specs/design/new-folder-write-ancestor-listing-refresh/`, AC-1).
+#[tokio::test]
+async fn writing_into_a_new_folder_expires_the_parent_index() -> TestResult {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let envref = index_env(Box::new(index_store("idx", false).await?), calls.clone());
+    put(&envref, "data/a.txt", b"hello").await?;
+    let before = evaluate_index(&envref, "idx").await?;
+    assert!(!before.contains("data/new"), "{before}");
+
+    put(&envref, "data/new/x.txt", b"fresh").await?;
+
+    assert_index_expired_by_data_listing(&envref).await?;
+    let after = evaluate_index(&envref, "idx").await?;
+    assert!(after.contains("data/new"), "{after}");
+    assert_eq!(calls.load(Ordering::SeqCst), 2, "recomputed once");
+    Ok(())
+}
+
+/// A write that creates a chain of new folders reaches the registered listing above them (AC-2).
+#[tokio::test]
+async fn writing_into_a_new_deep_chain_expires_the_index() -> TestResult {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let envref = index_env(Box::new(index_store("idx", false).await?), calls.clone());
+    put(&envref, "data/a.txt", b"hello").await?;
+    evaluate_index(&envref, "idx").await?;
+
+    put(&envref, "data/n1/n2/x.txt", b"deep").await?;
+
+    assert_index_expired_by_data_listing(&envref).await?;
+    let after = evaluate_index(&envref, "idx").await?;
+    assert!(after.contains("data/n1"), "{after}");
+    Ok(())
+}
+
+/// A removal that empties a folder drops it from the folder above (AC-3).
+#[tokio::test]
+async fn emptying_a_folder_expires_the_parent_index() -> TestResult {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let envref = index_env(Box::new(index_store("idx", false).await?), calls.clone());
+    put(&envref, "data/a.txt", b"hello").await?;
+    put(&envref, "data/new/x.txt", b"fresh").await?;
+    let before = evaluate_index(&envref, "idx").await?;
+    assert!(before.contains("data/new"), "{before}");
+
+    within(envref.get_asset_manager().remove(&parse_key("data/new/x.txt")?)).await?;
+
+    let names = envref.get_async_store().listdir(&parse_key("data")?).await?;
+    assert!(!names.contains(&"new".to_string()), "precondition: the store drops the empty folder: {names:?}");
+    assert_index_expired_by_data_listing(&envref).await?;
+    let after = evaluate_index(&envref, "idx").await?;
+    assert!(!after.contains("data/new"), "{after}");
+    Ok(())
+}
+
+/// A write deep under the one registered listing climbs through every new level. Each level must
+/// cost a bounded number of version-map reads, not a rescan of the rest of the path: with a
+/// rescan per level, this depth takes minutes instead of well under a second (Codex review on
+/// PR #160).
+#[tokio::test]
+async fn deep_new_path_refresh_is_linear_in_depth() -> TestResult {
+    const DEPTH: usize = 2000;
+    let envref = index_env(Box::new(index_store("idx", false).await?), Arc::new(AtomicUsize::new(0)));
+    put(&envref, "data/a.txt", b"hello").await?;
+    evaluate_index(&envref, "idx").await?;
+    let mut name = String::from("data");
+    for _ in 0..DEPTH {
+        name.push_str("/n");
+    }
+    name.push_str("/x.txt");
+
+    let started = std::time::Instant::now();
+    put(&envref, &name, b"deep").await?;
+    let elapsed = started.elapsed();
+
+    assert_index_expired_by_data_listing(&envref).await?;
+    assert!(elapsed < std::time::Duration::from_secs(10), "took {elapsed:?}");
+    Ok(())
+}
+
+/// A folder whose listing holds recipe names besides its stored files. Recipe names in a folder
+/// come from a file stored in that same folder (`recipes.yaml` here; `*.manifest.yaml` for the
+/// records manifest provider), so the merged listing is empty exactly when the stored one is, and
+/// removing the last stored file still climbs to the parent (Codex review on PR #160).
+#[tokio::test]
+async fn removing_a_recipe_folder_expires_the_parent_index() -> TestResult {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let store = index_store("idx", false).await?;
+    let mut sub_index = RecipeList::new();
+    sub_index.add_recipe(Recipe::new(
+        "-R-dir/data/sub/-/index_files/index.txt".to_string(),
+        "Sub index".into(),
+        "lists data/sub".into(),
+    )?);
+    let mut sub_recipes = RecipeList::new();
+    sub_recipes.add_recipe(Recipe::new("make_text/y.txt".to_string(), "Y".into(), "recipe only".into())?);
+    for (key, list) in [("idx2/recipes.yaml", &sub_index), ("data/sub/recipes.yaml", &sub_recipes)] {
+        let yaml = serde_yaml::to_string(list)
+            .map_err(|e| Error::general_error(format!("recipes.yaml: {e}")))?;
+        store.set(&parse_key(key)?, yaml.as_bytes(), &Metadata::new()).await?;
+    }
+    let envref = index_env(Box::new(store), calls.clone());
+    put(&envref, "data/a.txt", b"hello").await?;
+    let before = evaluate_index(&envref, "idx").await?;
+    assert!(before.contains("data/sub"), "{before}");
+    let sub = evaluate_index(&envref, "idx2").await?;
+    assert!(sub.contains("data/sub/y.txt"), "precondition: a recipe-only name in the sub listing: {sub}");
+
+    within(envref.get_asset_manager().remove(&parse_key("data/sub/recipes.yaml")?)).await?;
+
+    assert_index_expired_by_data_listing(&envref).await?;
+    let after = evaluate_index(&envref, "idx").await?;
+    assert!(!after.contains("data/sub"), "{after}");
+    Ok(())
+}
+
+/// A store that records every folder it is asked to list.
+struct ListdirCountingStore {
+    inner: AsyncMemoryStore,
+    listed: Arc<std::sync::Mutex<Vec<String>>>,
+}
+
+#[async_trait]
+impl AsyncStore for ListdirCountingStore {
+    async fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
+        self.inner.get(key).await
+    }
+
+    async fn set_metadata(&self, key: &Key, metadata: &Metadata) -> Result<(), Error> {
+        self.inner.set_metadata(key, metadata).await
+    }
+
+    async fn get_metadata(&self, key: &Key) -> Result<Metadata, Error> {
+        self.inner.get_metadata(key).await
+    }
+
+    async fn set(&self, key: &Key, data: &[u8], metadata: &Metadata) -> Result<(), Error> {
+        self.inner.set(key, data, metadata).await
+    }
+
+    async fn contains(&self, key: &Key) -> Result<bool, Error> {
+        self.inner.contains(key).await
+    }
+
+    async fn remove(&self, key: &Key) -> Result<(), Error> {
+        self.inner.remove(key).await
+    }
+
+    async fn is_dir(&self, key: &Key) -> Result<bool, Error> {
+        self.inner.is_dir(key).await
+    }
+
+    async fn listdir(&self, key: &Key) -> Result<Vec<String>, Error> {
+        if let Ok(mut listed) = self.listed.lock() {
+            listed.push(key.encode());
+        }
+        self.inner.listdir(key).await
+    }
+}
+
+fn take_listed(listed: &Arc<std::sync::Mutex<Vec<String>>>) -> Vec<String> {
+    match listed.lock() {
+        Ok(mut listed) => std::mem::take(&mut *listed),
+        Err(poisoned) => std::mem::take(&mut *poisoned.into_inner()),
+    }
+}
+
+/// An ordinary write into an existing, non-empty, listed folder reads that one listing (AC-4).
+#[tokio::test]
+async fn ordinary_write_reads_one_listing() -> TestResult {
+    let listed = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let envref = index_env(
+        Box::new(ListdirCountingStore { inner: index_store("idx", false).await?, listed: listed.clone() }),
+        Arc::new(AtomicUsize::new(0)),
+    );
+    put(&envref, "data/a.txt", b"hello").await?;
+    evaluate_index(&envref, "idx").await?;
+    take_listed(&listed);
+
+    put(&envref, "data/b.txt", b"more").await?;
+
+    assert_eq!(take_listed(&listed), vec!["data".to_string()]);
+    Ok(())
+}
+
+/// With no listing registered anywhere on the path, a write reads no listing at all (AC-5).
+#[tokio::test]
+async fn write_without_registered_listings_reads_none() -> TestResult {
+    let listed = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let envref = index_env(
+        Box::new(ListdirCountingStore { inner: index_store("idx", false).await?, listed: listed.clone() }),
+        Arc::new(AtomicUsize::new(0)),
+    );
+    put(&envref, "data/a.txt", b"hello").await?;
+    take_listed(&listed);
+
+    put(&envref, "data/n1/n2/x.txt", b"deep").await?;
+
+    assert_eq!(take_listed(&listed), Vec::<String>::new());
+    Ok(())
+}
+
 /// A store that, once armed, adds `data/late.txt` straight after answering a `listdir` of `data`:
 /// a write that lands after the directory step took its snapshot, while no listing version is
 /// registered yet, so the write's own refresh has nothing to refresh.

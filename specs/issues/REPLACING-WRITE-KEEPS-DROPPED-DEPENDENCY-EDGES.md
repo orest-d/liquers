@@ -2,7 +2,7 @@
 id: REPLACING-WRITE-KEEPS-DROPPED-DEPENDENCY-EDGES
 kind: issue
 title: A write that replaces a keyed asset keeps the dependency edges its new metadata no longer lists
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [core/assets]
@@ -44,3 +44,23 @@ key) before loading the new records.
 The reverse index needed to find "every dependency this key is an edge of" may not exist;
 `keyed_dependents` is indexed by dependency. Check whether a scan is acceptable or a reverse map is
 needed.
+
+## Resolution
+
+2026-10-18. A write now replaces the key's incoming dependency edges instead of adding to them
+(`design/replacing-write-drops-stale-dependency-edges/`). `DependencyManager::track_replacing_asset`
+(`liquers-core/src/dependencies.rs`) clears the key's incoming edges with the existing
+`remove_dependent_edges` (which also takes the key out of the attribution sets of the expressions its
+previous run scheduled) before loading the new records; both built-in `set_state`s and the default
+`AssetManager::track_installed` call it. The evaluation path still adds edges. A run still in flight
+when its key is replaced cannot put an edge back: after a schedule-time registration,
+`Context::schedule_dependency_asset_with_key` (`liquers-core/src/context.rs`) checks for
+cancellation, undoes what it registered with the new
+`DependencyManager::unregister_scheduled_dependency` (keeping the edges the replacement's records
+name), and fails the request as cancelled. `set_binary` still loads no records and is unchanged.
+
+Tests: `dependencies::tests::remove_dependent_edges_removes_only_that_dependent`,
+`dependencies::tests::unregister_scheduled_dependency_undoes_a_keyed_and_an_expression_request`,
+`dependency_manager_integration::replacing_set_state_drops_unlisted_dependency_edges`,
+`dependency_manager_integration::replaced_run_cannot_restore_a_cleared_edge`,
+`external_asset_manager::external_manager_replacing_install_drops_unlisted_edges`.

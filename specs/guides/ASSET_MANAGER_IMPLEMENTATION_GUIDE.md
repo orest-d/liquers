@@ -4,7 +4,7 @@ title: Asset Manager Implementation Guide
 kind: guide
 audience: both
 area: [core/assets]
-reviewed: 2026-10-12
+reviewed: 2026-10-18
 ---
 # Asset Manager Implementation Guide
 
@@ -226,7 +226,7 @@ rustdoc; the summary:
 | `AssetRef::new_installed(id, key, state, status, envref)` | A finished keyed asset holding a supplied `state` (`set_state`), serializable or not; the value is shared, not copied. `status` must be one a write produces (`Source`, `Override`, `Expired`, `Error`), anything else is an error. Names `key` in the metadata. Starts no service loop and writes nothing: persisting, mapping it once persisted, `publish_version`, `track_installed` and, for `Expired`, `record_expiry` stay yours. |
 | `AssetRef::cancel()` | A client's best-effort cancel: a request the run decides (a completed command still ends ready and is stored). Not for replacement — its late result could overwrite your write. |
 | `AssetManager::publish_version(dep_key, version)` | Publish a written key's new version and cascade-expire dependents that recorded another (`Updated`). Graph only: no store write, no lock, safe under the key-mutation lock. Unchanged version, no cascade. |
-| `AssetManager::track_installed(asset, version)` | Register an installed asset and the dependency records in its metadata in the graph, so a later change to a dependency expires it (an `Override`; a `Source` is never expired). Call it after `publish_version`, once the asset is mapped. Graph only, safe under the key-mutation lock. |
+| `AssetManager::track_installed(asset, version)` | Register an installed asset and the dependency records in its metadata in the graph, so a later change to a dependency expires it (an `Override`; a `Source` is never expired). The records replace the key's previous incoming edges: a dependency the new metadata no longer lists stops expiring the key, and the key leaves the expressions its replaced run scheduled. Call it after `publish_version`, once the asset is mapped. Graph only, safe under the key-mutation lock. |
 | `AssetManager::refresh_listing_version(dir)` | Call it with the written key's parent after every write or removal. First tells the recipe provider (`directory_changed`, so a caching provider such as the manifest provider drops its folder listing), then re-hashes a directory listing that something depends on. |
 | `AssetManager::is_volatile(key)`, `is_volatile_query(query)` | Volatility **without evaluating**, asked before registering (§7). |
 
@@ -525,6 +525,7 @@ store conformance suite: shared scenarios, no rule numbers and no capability mod
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-18 | §Primitives `track_installed`: the installed records replace the key's previous incoming edges. | fix (`design/replacing-write-drops-stale-dependency-edges/`) |
 | 2026-10-12 | §4: the evaluation session and what it asks of `get_dependency_asset` (return a failed asset; no per-link nesting); `apply_for`. §11: three limits (external managers cannot share a session; inline chains through dynamic or volatile links still nest; pinned assets live per session). | phase-5 (`design/dependency-resolved-once-per-evaluation/`) |
 | 2026-10-12 | §4 `apply_queued`: the default now builds and evaluates the asset itself and returns it even when it failed, so an inline manager keeps it; only a queued manager overrides it (Codex review of PR #125). | review fix |
 | 2026-10-12 | §4: the provided `apply_queued` — what to return on a queued and on an inline manager. | phase-5, `design/axum-query-named-arguments/` |
