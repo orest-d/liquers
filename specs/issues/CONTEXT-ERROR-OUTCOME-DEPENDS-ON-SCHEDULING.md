@@ -25,7 +25,15 @@ run fails with that entry's message (`AssetRef::fail_on_drained_error`). That co
 `Environment::apply_recipe` that does not go through the interpreter, and makes the asset's outcome
 depend on every message its run sent. Orest chose this combination (the context flag to stop the
 plan, the drain to decide the outcome) over letting the drain flip a finished asset, which would
-have to undo a stored, announced and dependency-tracked value. `MetadataRecord::add_log_entry` now sets only `is_error`,
+have to undo a stored, announced and dependency-tracked value. Because the drain now runs before
+the value is written, `save_to_store` first drops any metadata snapshot the service loop queued
+during the run (`MetadataSaver::supersede`), which would otherwise land after the write and leave
+the stored value with `Processing` metadata.
+
+Known limits of the drain-first order: an error entry left in the channel by a dropped run, or
+sent later by a detached task holding an old `Context`, is applied during the next run of the same
+asset and fails it; and a run future dropped during the drain has not installed its value yet, so
+the run is repeated rather than kept. `MetadataRecord::add_log_entry` now sets only `is_error`,
 never the status, and only on a record that is not finished, so a late log message cannot make a
 finished asset unreadable. `MetadataRecord::with_status` keeps `is_error` while a run waits or
 resumes (`Submitted`, `Dependencies`, `Processing`, `Storing`); `None` and `Recipe` restart a run

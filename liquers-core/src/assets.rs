@@ -484,6 +484,26 @@ impl MetadataSaver {
         }
     }
 
+    /// Drop the pending metadata and wait for a write already under way, without closing the
+    /// saver. Called just before the asset's value and final metadata are written together, so
+    /// that a snapshot queued during the run (status `Processing`) cannot land on top of them.
+    pub(crate) async fn supersede(&self) {
+        #[cfg(not(target_arch = "wasm32"))]
+        let in_flight = {
+            let mut lock = self.state.lock().await;
+            lock.pending = None;
+            lock.in_flight.take()
+        };
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(handle) = in_flight {
+            let _ = handle.await;
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            self.state.lock().await.pending = None;
+        }
+    }
+
     /// Enqueue metadata for persistence and trigger a single coalescing worker task.
     pub async fn save_immediately<E: Environment>(
         self: &Arc<Self>,
@@ -3390,9 +3410,10 @@ impl<E: Environment> AssetRef<E> {
             eprintln!("Received message: {:?} by asset {}", msg, self.id());
             if self.is_finished().await {
                 // Progress the command sent during its own run is applied even when the status
-                // flipped to finished first: `finalize_primary_progress` runs after this loop has
-                // drained and normalizes it, so applying it here is what makes the result
-                // independent of scheduling. Once finalized, late progress is dropped below.
+                // flipped to finished first. A run settles only after this loop has drained, so
+                // that happens only when something else finished the asset meanwhile;
+                // `finalize_primary_progress` then normalizes it. Once finalized, late progress
+                // is dropped below.
                 let in_run_progress = matches!(
                     msg,
                     AssetServiceMessage::UpdatePrimaryProgress(_)
@@ -3543,9 +3564,6 @@ impl<E: Environment> AssetRef<E> {
         }
     }
 
-    /// Turns how the race between computing and cancelling ended into this run's result:
-    /// `Ok(true)` when this run finalized the asset, `Ok(false)` when someone else finished it
-    /// first, `Err` when the run failed or was cancelled.
     /// The number of entries in this asset's log, taken when a run starts so the run can tell
     /// its own entries from earlier ones.
     async fn log_len(&self) -> usize {
@@ -3577,7 +3595,15 @@ impl<E: Environment> AssetRef<E> {
                     Metadata::LegacyMetadata(_) => None,
                 };
                 match logged {
-                    Some(message) => RunOutcome::Computed(Err(Error::execution_error(message))),
+                    Some(message) => {
+                        // A failed evaluation keeps what it read, as when the evaluation itself
+                        // fails (`evaluate_recipe_outcome`).
+                        let mut lock = self.data.write().await;
+                        for dep in evaluation.dependencies {
+                            let _ = lock.metadata.add_dependency(dep);
+                        }
+                        RunOutcome::Computed(Err(Error::execution_error(message)))
+                    }
                     None => RunOutcome::Computed(Ok(evaluation)),
                 }
             }
@@ -3587,6 +3613,9 @@ impl<E: Environment> AssetRef<E> {
         }
     }
 
+    /// Turns how the race between computing and cancelling ended into this run's result:
+    /// `Ok(true)` when this run finalized the asset, `Ok(false)` when someone else finished it
+    /// first, `Err` when the run failed or was cancelled.
     async fn settle_run(&self, outcome: RunOutcome<E::Value>) -> Result<bool, Error> {
         match outcome {
             // Past the point of no return: finalizing and storing are not cancellable (D2).
@@ -4310,6 +4339,10 @@ impl<E: Environment> AssetRef<E> {
                         )));
                     }
                 }
+                // A metadata snapshot the service loop queued during the run is older than this
+                // one; dropped first, so it cannot overwrite the value's metadata afterwards.
+                let saver = self.data.read().await.metadata_saver.clone();
+                saver.supersede().await;
                 let written = store.set(key, &data, &metadata).await;
                 if written.is_ok() {
                     // Listings that depend on this directory see a new (or rewritten) member.
@@ -11345,6 +11378,42 @@ mod tests {
 
         assetref.run(None).await.unwrap();
         assert_eq!(assetref.status().await, Status::Ready);
+    }
+
+    /// A metadata snapshot the service loop queued during the run (status `Processing`) must not
+    /// land in the store after the value and its final metadata were written.
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_queued_run_metadata_does_not_overwrite_the_stored_value() {
+        let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        env.command_registry
+            .register_async_command(CommandKey::new_name("logs"), |_, _, context| {
+                Box::pin(async move {
+                    // The first snapshot is written at once and starts the saver's debounce
+                    // interval; the second is held back by it until after the value is stored.
+                    context.info("first in-run log")?;
+                    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                    context.info("second in-run log")?;
+                    Ok(Value::from("value"))
+                })
+            })
+            .unwrap();
+        env.with_async_store(Box::new(crate::store::AsyncMemoryStore::new(&Key::new())));
+        let envref = env.to_ref();
+        let key = parse_key("logged.txt").unwrap();
+        let mut asset_data = AssetData::<SimpleEnvironment<Value>>::new(
+            9801,
+            parse_query("logs").unwrap().into(),
+            Some(key.clone()),
+            envref.clone(),
+        );
+        asset_data.save_in_background = false;
+        let asset = asset_data.to_ref();
+        asset.run(None).await.unwrap();
+        assert_eq!(asset.status().await, Status::Ready);
+        // Longer than the saver's debounce interval, so a queued snapshot would have landed.
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        let (_bytes, stored) = envref.get_async_store().get(&key).await.unwrap();
+        assert_eq!(stored.status(), Status::Ready);
     }
 
     /// An error-level entry that reaches the asset only through its service channel, with no
