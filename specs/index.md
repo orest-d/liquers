@@ -8,15 +8,14 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 135
-- P2: 52
+Total rows: 134
+- P2: 51
 - P3: 83
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
 | [`EVALUATION-SESSION-VOLATILE-TEST-INTERMITTENT`](issues/EVALUATION-SESSION-VOLATILE-TEST-INTERMITTENT.md) | issue | volatile_dependency_has_one_value_per_evaluation fails intermittently: a later evaluation sometimes reuses the volatile value | draft | phase2-blocked | not-eligible | P2 | S | core/assets | [design](design/evaluation-session-volatile-test-flake/DESIGN.md) | 2026-10-13 |
 | [`CORE-VALUE-JSON-READ-IGNORES-STRUCTURED-IDENTIFIERS`](issues/CORE-VALUE-JSON-READ-IGNORES-STRUCTURED-IDENTIFIERS.md) | issue | Core Value reads structured variants written as JSON back as a different variant | draft |  |  | P2 | S | core/value |  | 2026-10-19 |
-| [`INLINE-DROP-REPAIR-STRANDS-EXISTING-WAITERS`](issues/INLINE-DROP-REPAIR-STRANDS-EXISTING-WAITERS.md) | issue | An inline run dropped mid-flight leaves callers already waiting on it parked forever | draft | ready | eligible | P2 | M | core/assets;web | [design](design/inline-waiter-recovers-dropped-run/DESIGN.md) | 2026-09-04 |
 | [`POLARS-COMMAND-TESTS-BYPASS-COMMANDS`](issues/POLARS-COMMAND-TESTS-BYPASS-COMMANDS.md) | issue | The polars command integration tests never invoke a polars command | draft | ready | eligible | P2 | M | lib/polars;build | [design](design/polars-command-tests-via-queries/DESIGN.md) | 2026-08-25 |
 | [`PY-VALUE-SERIALIZER-IS-A-STUB`](issues/PY-VALUE-SERIALIZER-IS-A-STUB.md) | issue | liquers-py's value serializer writes almost nothing and reads nothing back | draft | ready | eligible | P2 | M | py;core/value | [design](design/py-value-serializer/DESIGN.md) | 2026-08-26 |
 | [`RECORDS-PARQUET-POLARS-READ-IGNORES-DECLARED-SCHEMA`](issues/RECORDS-PARQUET-POLARS-READ-IGNORES-DECLARED-SCHEMA.md) | issue | Reading Parquet through the polars bridge ignores a caller-declared schema | draft | ready | eligible | P2 | M | records;lib/polars | [design](design/parquet-read-declared-schema/DESIGN.md) | 2026-09-27 |

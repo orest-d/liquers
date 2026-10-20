@@ -3702,12 +3702,11 @@ impl<E: Environment> AssetRef<E> {
         //
         // A caller that does not get the claim **waits** for the running evaluation rather than
         // failing — refusing it breaks the legitimate case of two tasks awaiting the same asset,
-        // which is what a genuinely async command produces.
-        let claim = match self.try_claim_for_run_inline().await? {
+        // which is what a genuinely async command produces. If that run is dropped, the waiter
+        // takes the claim over and runs the asset itself.
+        let claim = match self.claim_or_wait_inline().await? {
             Some(claim) => claim,
-            None => {
-                return self.wait_to_finish().await;
-            }
+            None => return Ok(()),
         };
         let cancellation = self.cancellation().await;
         let eval_side = async {
@@ -3743,15 +3742,54 @@ impl<E: Environment> AssetRef<E> {
         self.finish_run_with_result(result, Ok(psm_result)).await
     }
 
+    /// Claims the inline run, or waits until it is no longer needed.
+    ///
+    /// `Ok(Some(claim))`: this caller runs the asset, either at once or after the previous
+    /// runner's future was dropped and `InlineRunClaim::drop` returned the asset to `Recipe`.
+    /// `Ok(None)`: the asset finished or was removed while waiting, so there is nothing to run.
+    ///
+    /// The subscription is taken **before** the first claim attempt: a `watch` receiver marks the
+    /// current value as seen, so a repair landing between a failed claim and a later subscription
+    /// would never wake the waiter.
+    async fn claim_or_wait_inline(&self) -> Result<Option<InlineRunClaim<E>>, Error> {
+        let mut rx = self.subscribe_to_notifications().await;
+        loop {
+            if let Some(claim) = self.try_claim_for_run_inline().await? {
+                return Ok(Some(claim));
+            }
+            if self.status().await.is_finished() {
+                return Ok(None);
+            }
+            let notification = rx.borrow().clone();
+            match notification {
+                AssetNotificationMessage::JobFinished | AssetNotificationMessage::Removed => {
+                    return Ok(None);
+                }
+                AssetNotificationMessage::Initial
+                | AssetNotificationMessage::JobSubmitted
+                | AssetNotificationMessage::JobStarted
+                | AssetNotificationMessage::StatusChanged(_)
+                | AssetNotificationMessage::ValueProduced
+                | AssetNotificationMessage::ErrorOccurred(_)
+                | AssetNotificationMessage::LogMessage
+                | AssetNotificationMessage::PrimaryProgressUpdated(_)
+                | AssetNotificationMessage::SecondaryProgressUpdated(_)
+                | AssetNotificationMessage::Expired => {}
+            }
+            rx.changed().await.map_err(|e| {
+                Error::general_error(format!("Failed to receive notification: {}", e))
+            })?;
+        }
+    }
+
     /// Inline (spawn-free) counterpart of [`Self::run`]: evaluation and the service-message loop
     /// are polled together in the caller's task. Use this one on wasm32, and in any manager that
     /// must not spawn.
     ///
     /// Safe to call from several tasks: one claims the run, and the others wait for it to finish.
-    /// On an asset that has already finished it returns at once. If the returned future is
-    /// dropped before completion the asset's status is repaired, but waiters already registered
-    /// on it can be stranded (`INLINE-DROP-REPAIR-STRANDS-EXISTING-WAITERS`), so await it to the
-    /// end.
+    /// On an asset that has already finished it returns at once. If the returned future of the
+    /// running caller is dropped before completion, the asset's status is repaired to `Recipe`
+    /// and one of the waiting callers takes the run over.
     pub async fn run_inline(&self, payload: Option<E::Payload>) -> Result<(), Error> {
         self.run_with_future_inline(self.compute(payload)).await
     }
@@ -9276,9 +9314,8 @@ impl<E: Environment> Drop for InlineRunClaim<E> {
             match lock.status {
                 Status::Processing | Status::Dependencies => {
                     let _ = lock.set_status(Status::Recipe);
-                    // Observers (a UI reading status) learn of the repair. It does not release a
-                    // caller already parked in `wait_to_finish`, which waits for `JobFinished`
-                    // alone — see `INLINE-DROP-REPAIR-STRANDS-EXISTING-WAITERS`.
+                    // Observers (a UI reading status) learn of the repair, and a caller parked in
+                    // `claim_or_wait_inline` wakes on it, claims the asset and runs it.
                     let _ = lock
                         .notification_tx
                         .send(AssetNotificationMessage::StatusChanged(Status::Recipe));
@@ -16041,6 +16078,228 @@ recipes:
             sleep(Duration::from_millis(5)).await;
         }
         panic!("the evaluation session outlived its last run");
+    }
+
+    // ==================================================================================
+    // A parked inline caller takes over a dropped run — `design/inline-waiter-recovers-dropped-run/`
+    // ==================================================================================
+
+    /// How the first (gated) call of the `slow` command ends once its gate opens.
+    #[derive(Clone, Copy)]
+    enum SlowFirst {
+        Ok,
+        Err,
+    }
+
+    /// Shared state of the `slow` command: the first call parks on `release` and then ends as
+    /// `first` says; every later call returns `"y"` at once.
+    struct SlowGate {
+        entered: AtomicUsize,
+        release: tokio::sync::Notify,
+        first: SlowFirst,
+        asset: StdMutex<Option<AssetRef<ImmediateEnvironment<Value>>>>,
+    }
+
+    impl SlowGate {
+        fn new(first: SlowFirst) -> Arc<Self> {
+            Arc::new(SlowGate {
+                entered: AtomicUsize::new(0),
+                release: tokio::sync::Notify::new(),
+                first,
+                asset: StdMutex::new(None),
+            })
+        }
+
+        fn entered(&self) -> usize {
+            self.entered.load(Ordering::SeqCst)
+        }
+
+        /// The asset the command runs for, recorded by its first call.
+        fn asset(&self) -> AssetRef<ImmediateEnvironment<Value>> {
+            self.asset
+                .lock()
+                .expect("slot")
+                .clone()
+                .expect("the slow command has started")
+        }
+    }
+
+    fn slow_env(gate: Arc<SlowGate>) -> EnvRef<ImmediateEnvironment<Value>> {
+        let mut env = ImmediateEnvironment::<Value>::new();
+        env.command_registry
+            .register_async_command(CommandKey::new_name("slow"), move |_state, _args, context| {
+                let gate = gate.clone();
+                Box::pin(async move {
+                    let call = gate.entered.fetch_add(1, Ordering::SeqCst);
+                    if call > 0 {
+                        return Ok(Value::from("y"));
+                    }
+                    *gate.asset.lock().expect("slot") = Some(context.get_asset_ref());
+                    gate.release.notified().await;
+                    match gate.first {
+                        SlowFirst::Ok => Ok(Value::from("x")),
+                        SlowFirst::Err => Err(Error::general_error("slow failed".to_string())),
+                    }
+                })
+            })
+            .expect("register slow");
+        env.to_ref()
+    }
+
+    const WAITER_TIMEOUT: Duration = Duration::from_secs(2);
+
+    /// AC-1: B is parked on A's run, A's future is dropped, B claims the asset and runs it.
+    #[tokio::test]
+    async fn inline_waiter_takes_over_dropped_run() -> Result<(), Error> {
+        let gate = SlowGate::new(SlowFirst::Ok);
+        let envref = slow_env(gate.clone());
+        let m = envref.get_asset_manager();
+        let query = parse_query("slow")?;
+        let mut a = Box::pin(m.get_asset(&query));
+        assert!(futures::poll!(a.as_mut()).is_pending());
+        let mut b = Box::pin(m.get_asset(&query));
+        assert!(futures::poll!(b.as_mut()).is_pending());
+        drop(a);
+        let asset = tokio::time::timeout(WAITER_TIMEOUT, b)
+            .await
+            .expect("the parked caller must take over the dropped run")?;
+        assert_eq!(asset.get().await?.try_into_string()?, "y");
+        assert_eq!(asset.status().await, Status::Ready);
+        assert_eq!(gate.entered(), 2);
+        Ok(())
+    }
+
+    /// AC-3: A's run ends `Ready`, `Error` or `Cancelled`; B returns without running the command
+    /// and the asset keeps A's terminal status.
+    async fn waiter_returns_when_runner_finishes(first: SlowFirst, cancel: bool, expected: Status) {
+        let gate = SlowGate::new(first);
+        let envref = slow_env(gate.clone());
+        let m = envref.get_asset_manager();
+        let query = parse_query("slow").expect("query");
+        let mut a = Box::pin(m.get_asset(&query));
+        assert!(futures::poll!(a.as_mut()).is_pending());
+        let mut b = Box::pin(m.get_asset(&query));
+        assert!(futures::poll!(b.as_mut()).is_pending());
+        let asset = gate.asset();
+        let finish = async {
+            if cancel {
+                // `cancel` waits for the run to settle, so A must be polled alongside it.
+                let _ = asset.cancel().await;
+            } else {
+                gate.release.notify_one();
+            }
+        };
+        let ((), ra, rb) =
+            tokio::time::timeout(WAITER_TIMEOUT, async { futures::join!(finish, a, b) })
+                .await
+                .expect("both callers return once the run finishes");
+        if expected == Status::Ready {
+            let ra = ra.expect("A succeeds");
+            let rb = rb.expect("B succeeds");
+            assert_eq!(ra.get().await.expect("value").try_into_string().expect("text"), "x");
+            assert_eq!(rb.get().await.expect("value").try_into_string().expect("text"), "x");
+        }
+        assert_eq!(asset.status().await, expected);
+        assert_eq!(gate.entered(), 1, "the waiter must not run the command again");
+    }
+
+    #[tokio::test]
+    async fn inline_waiter_returns_when_runner_succeeds() {
+        waiter_returns_when_runner_finishes(SlowFirst::Ok, false, Status::Ready).await;
+    }
+
+    #[tokio::test]
+    async fn inline_waiter_returns_when_runner_fails() {
+        waiter_returns_when_runner_finishes(SlowFirst::Err, false, Status::Error).await;
+    }
+
+    #[tokio::test]
+    async fn inline_waiter_returns_when_run_is_cancelled() {
+        waiter_returns_when_runner_finishes(SlowFirst::Ok, true, Status::Cancelled).await;
+    }
+
+    /// AC-4: status changes and progress while B is parked do not make B run the command.
+    #[tokio::test]
+    async fn inline_waiter_ignores_intermediate_notifications() -> Result<(), Error> {
+        let gate = SlowGate::new(SlowFirst::Ok);
+        let envref = slow_env(gate.clone());
+        let m = envref.get_asset_manager();
+        let query = parse_query("slow")?;
+        let mut a = Box::pin(m.get_asset(&query));
+        assert!(futures::poll!(a.as_mut()).is_pending());
+        let mut b = Box::pin(m.get_asset(&query));
+        assert!(futures::poll!(b.as_mut()).is_pending());
+        let asset = gate.asset();
+        for status in [Status::Dependencies, Status::Processing] {
+            asset.set_status(status).await?;
+            let _ = asset
+                .data
+                .read()
+                .await
+                .notification_tx
+                .send(AssetNotificationMessage::StatusChanged(status));
+            assert!(futures::poll!(b.as_mut()).is_pending());
+        }
+        let _ = asset.data.read().await.notification_tx.send(
+            AssetNotificationMessage::PrimaryProgressUpdated(ProgressEntry::tick(
+                "Working".to_string(),
+            )),
+        );
+        assert!(futures::poll!(b.as_mut()).is_pending());
+        assert!(futures::poll!(a.as_mut()).is_pending());
+        assert_eq!(gate.entered(), 1);
+        gate.release.notify_one();
+        let (ra, rb) = tokio::time::timeout(WAITER_TIMEOUT, async { futures::join!(a, b) })
+            .await
+            .expect("both callers return once the run finishes");
+        assert_eq!(ra?.get().await?.try_into_string()?, "x");
+        assert_eq!(rb?.get().await?.try_into_string()?, "x");
+        assert_eq!(gate.entered(), 1);
+        Ok(())
+    }
+
+    /// AC-5: B and C are parked and A is dropped; exactly one of them runs the command.
+    #[tokio::test]
+    async fn inline_two_waiters_one_takes_over() -> Result<(), Error> {
+        let gate = SlowGate::new(SlowFirst::Ok);
+        let envref = slow_env(gate.clone());
+        let m = envref.get_asset_manager();
+        let query = parse_query("slow")?;
+        let mut a = Box::pin(m.get_asset(&query));
+        assert!(futures::poll!(a.as_mut()).is_pending());
+        let mut b = Box::pin(m.get_asset(&query));
+        assert!(futures::poll!(b.as_mut()).is_pending());
+        let mut c = Box::pin(m.get_asset(&query));
+        assert!(futures::poll!(c.as_mut()).is_pending());
+        drop(a);
+        let (rb, rc) = tokio::time::timeout(WAITER_TIMEOUT, async { futures::join!(b, c) })
+            .await
+            .expect("both parked callers return");
+        assert_eq!(rb?.get().await?.try_into_string()?, "y");
+        let rc = rc?;
+        assert_eq!(rc.get().await?.try_into_string()?, "y");
+        assert_eq!(rc.status().await, Status::Ready);
+        assert_eq!(gate.entered(), 2);
+        Ok(())
+    }
+
+    /// AC-6: removing the asset still releases a parked caller.
+    #[tokio::test]
+    async fn inline_waiter_released_by_removal() -> Result<(), Error> {
+        let gate = SlowGate::new(SlowFirst::Ok);
+        let envref = slow_env(gate.clone());
+        let m = envref.get_asset_manager();
+        let query = parse_query("slow")?;
+        let mut a = Box::pin(m.get_asset(&query));
+        assert!(futures::poll!(a.as_mut()).is_pending());
+        let mut b = Box::pin(m.get_asset(&query));
+        assert!(futures::poll!(b.as_mut()).is_pending());
+        gate.asset().notify_removed().await;
+        let _ = tokio::time::timeout(WAITER_TIMEOUT, b)
+            .await
+            .expect("removal releases the parked caller");
+        assert_eq!(gate.entered(), 1);
+        Ok(())
     }
 }
 
