@@ -678,7 +678,12 @@ impl<B: ValueInterface + Default, E: ValueExtension> DefaultValueSerializer
         // reads some formats whatever the identifier (`txt`, `json`, `yaml`), so asking it first
         // turned a `RecordView` written as JSON into an `Array`. A refusal here is final; falling
         // back to the base would produce a value of another type.
-        if declares(&<E as ValueExtension>::type_descriptions(), type_identifier) {
+        // A foreign identifier with a registered decoder is the extension's too: it cannot be in
+        // the static descriptions, and the base would otherwise read a `json` or `txt` payload as
+        // its own value.
+        if declares(&<E as ValueExtension>::type_descriptions(), type_identifier)
+            || crate::value::foreign::foreign_decoder(type_identifier).is_some()
+        {
             return E::deserialize_from_bytes(b, type_identifier, fmt).map(CombinedValue::Extended);
         }
         // Base identifiers, the empty identifier and identifiers nobody declares keep the base

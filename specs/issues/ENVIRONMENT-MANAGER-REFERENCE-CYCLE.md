@@ -134,3 +134,12 @@ in a `OnceLock` instead, written once by `Environment::init_with_envref`.
 That relocation is where a future fix would go: `init_with_envref` is now the single place that
 constructs the manager with a reference to its environment, so weakening that reference is one
 function to change rather than four.
+
+## Evidence from `liquers-py` (2026-10-18)
+
+The Python bindings (`design/liquers-py/`) hit the leak in two places. `RUNTIME05` of
+`LANGUAGE-INTEGRATION_GUIDE.md` (callables released on shutdown) cannot pass for a built
+environment, because the environment holding the registered closures is never dropped; that half
+is a strict `xfail` in `liquers-py/tests/test_RUNTIME_runtime.py`, which marks `RUNTIME` `BLOCKED`.
+And a late command registration rebuilds the environment and retires the old one until
+`shutdown()`, so every late registration retains one more environment.

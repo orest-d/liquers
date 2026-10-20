@@ -1,184 +1,114 @@
-use std::sync::Arc;
+//! `lq.Context`: the execution context a Python command receives.
+//!
+//! A command asks for it by naming a parameter `context`. It is valid only during the call that
+//! received it: the command closure invalidates it when the callable returns, so a context kept
+//! past that raises `GeneralError` instead of acting on an asset that has moved on.
+//!
+//! `evaluate` is nested evaluation. It records the query as a dependency of the current asset,
+//! and it releases the GIL while it waits, so the nested command — Python or Rust — can run on
+//! another thread (AC-13).
 
-use liquers_core::{
-    command_metadata::CommandMetadataRegistry, commands::CommandRegistry, context::SimpleSession,
-    store::NoAsyncStore,
-};
+use std::sync::atomic::AtomicBool;
+use std::sync::{Arc, Mutex};
+
+use liquers_core::context::Context as CoreContext;
+use liquers_core::error::Error;
 use pyo3::prelude::*;
 
-use crate::value::Value;
+use crate::environment::{block_on, PyEnvironment};
+use crate::error::{error_to_pyerr, PyFailure};
+use crate::value::value_to_py;
 
-/*
-#[pyclass]
-pub struct EnvRef(pub EnvRefDef);
-
-#[pymethods]
-impl EnvRef{
-    #[new]
-    fn new()->Self{
-        let envref = liquers_core::context::ArcEnvRef(Arc::new(Environment::new()));
-        EnvRef(envref)
-    }
-}
-*/
-
-#[pyclass]
-pub struct Environment {
-    pub type_registry: liquers_core::type_system::TypeRegistry,
-    pub command_registry: CommandRegistry<Self>,
-    //#[cfg(feature = "async_store")]
-    //async_store: Arc<Mutex<Box<dyn AsyncStore>>>,
+/// The execution context of a running Python command.
+#[pyclass(frozen, name = "Context", module = "liquers")]
+pub struct Context {
+    inner: Arc<Mutex<Option<CoreContext<PyEnvironment>>>>,
+    /// The environment's shut flag, so a nested wait ends when it is shut down.
+    shut: Arc<AtomicBool>,
 }
 
-#[pymethods]
-impl Environment {
-    #[new]
-    pub fn new() -> Self {
-        Environment {
-            type_registry: liquers_core::type_system::TypeRegistry::from_value_type::<Value>(),
-            command_registry: CommandRegistry::new(),
-            //#[cfg(feature = "async_store")]
-            //async_store: Arc::new(Mutex::new(Box::new(NoAsyncStore))),
+impl Context {
+    pub fn new(context: CoreContext<PyEnvironment>, shut: Arc<AtomicBool>) -> Self {
+        Context {
+            inner: Arc::new(Mutex::new(Some(context))),
+            shut,
         }
     }
 
-    #[getter]
-    pub fn get_cmr(&self) -> crate::command_metadata::CommandMetadataRegistry {
-        crate::command_metadata::CommandMetadataRegistry(
-            self.command_registry.command_metadata_registry.clone(),
-        )
+    /// Another handle on the same context; invalidating one invalidates both.
+    pub fn clone_handle(&self) -> Self {
+        Context {
+            inner: self.inner.clone(),
+            shut: self.shut.clone(),
+        }
     }
 
-    #[setter]
-    pub fn set_cmr(&mut self, cmr: &crate::command_metadata::CommandMetadataRegistry) {
-        self.command_registry.command_metadata_registry = cmr.0.clone();
+    /// Ends the context's validity. Called when the command returns.
+    pub fn invalidate(&self) {
+        match self.inner.lock() {
+            Ok(mut inner) => *inner = None,
+            Err(poisoned) => *poisoned.into_inner() = None,
+        }
     }
 
-    /*
-    #[cfg(feature = "async_store")]
-    pub fn with_async_store(&mut self, store:Box<dyn AsyncStore>) -> &mut Self {
-        self.async_store = Arc::new(Mutex::new(store));
-        self
-    }
-    pub fn to_ref(self)->EnvRef{
-        liquers_core::context::ArcEnvRef(Arc::new(self))
-    }
-    */
-}
-
-impl liquers_core::context::Environment for Environment {
-    fn get_type_registry(&self) -> &liquers_core::type_system::TypeRegistry {
-        &self.type_registry
-    }
-
-    type Value = Value;
-    type CommandExecutor = CommandRegistry<Self>;
-    type SessionType = liquers_core::context::SimpleSession;
-    type Payload = ();
-    type AssetManager = liquers_core::assets::DefaultAssetManager<Self>;
-
-    fn get_command_metadata_registry(&self) -> &CommandMetadataRegistry {
-        &self.command_registry.command_metadata_registry
-    }
-
-    fn get_mut_command_metadata_registry(&mut self) -> &mut CommandMetadataRegistry {
-        &mut self.command_registry.command_metadata_registry
-    }
-
-    fn get_command_executor(&self) -> &Self::CommandExecutor {
-        &self.command_registry
-    }
-
-    // Not gated on `async_store`: `get_async_store` is a required `Environment` method, so a
-    // build without the feature could not implement the trait.
-    fn get_async_store(&self) -> Arc<dyn liquers_core::store::AsyncStore> {
-        //self.async_store.clone()
-        Arc::new(NoAsyncStore)
-    }
-
-    fn get_asset_manager(&self) -> Arc<liquers_core::assets::DefaultAssetManager<Self>> {
-        todo!()
-    }
-
-    fn get_recipe_provider(&self) -> Arc<dyn liquers_core::recipes::AsyncRecipeProvider<Self>> {
-        todo!()
-    }
-
-    fn create_session(&self, user: liquers_core::context::User) -> Self::SessionType {
-        SimpleSession { user }
-    }
-
-    fn apply_recipe(
-        _envref: liquers_core::context::EnvRef<Self>,
-        _input_state: liquers_core::state::State<Self::Value>,
-        _recipe: liquers_core::recipes::Recipe,
-        _context: liquers_core::context::Context<Self>,
-    ) -> std::pin::Pin<
-        Box<
-            dyn core::future::Future<Output = Result<Arc<Self::Value>, liquers_core::error::Error>>
-                + Send
-                + 'static,
-        >,
-    > {
-        todo!()
-    }
-
-    fn init_with_envref(
-        &self,
-        envref: liquers_core::context::EnvRef<Self>,
-    ) -> Result<(), liquers_core::error::Error> {
-        // The Python environment is a stub: `get_asset_manager` and `get_recipe_provider` are
-        // still `todo!()`, so there is no manager to construct, install or start. Report that
-        // rather than panicking — this hook is now the readiness contract, and a `todo!()` behind
-        // it would be a panic on a path callers are entitled to take.
-        let _ = envref;
-        Err(liquers_core::error::Error::general_error(
-            "the Python environment does not yet provide an asset manager".to_string(),
-        ))
+    fn get(&self) -> Result<CoreContext<PyEnvironment>, Error> {
+        let inner = self
+            .inner
+            .lock()
+            .map_err(|_| Error::unexpected_error("context lock poisoned".to_string()))?;
+        inner.clone().ok_or_else(|| {
+            Error::general_error(
+                "the context is used after its command returned; it is valid only during the call"
+                    .to_string(),
+            )
+        })
     }
 }
-
-#[pyclass(unsendable)]
-pub struct Context(pub liquers_core::context::Context<Environment>);
 
 #[pymethods]
 impl Context {
-    fn info(&self, message: &str) -> PyResult<()> {
-        self.0
-            .info(message)
-            .map_err(|e| crate::error::Error::from(e).into())
+    /// Evaluates a query as a dependency of the current asset and returns its value.
+    fn evaluate(&self, py: Python<'_>, query: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
+        let result = (|| -> Result<_, PyFailure> {
+            let query = crate::environment::to_query(query)?;
+            let context = self.get()?;
+            let value = block_on(py, &self.shut, async move {
+                let asset = context.evaluate(&query).await?;
+                let state = context.wait_for_dependency(&asset).await?;
+                state.value()
+            })?;
+            Ok(value_to_py(py, &value)?)
+        })();
+        result.map_err(|e| e.into_pyerr(py))
+    }
+
+    /// Adds an info entry to the asset's log.
+    fn info(&self, py: Python<'_>, message: &str) -> PyResult<()> {
+        self.get()
+            .and_then(|context| context.info(message))
+            .map_err(|e| error_to_pyerr(py, &e))
+    }
+
+    /// Adds a warning to the asset's log.
+    fn warning(&self, py: Python<'_>, message: &str) -> PyResult<()> {
+        self.get()
+            .and_then(|context| context.warning(message))
+            .map_err(|e| error_to_pyerr(py, &e))
+    }
+
+    /// Adds an error-level entry to the asset's log, which also marks the asset failed: the query
+    /// raises `GeneralError` with this message even if the command returns.
+    fn error(&self, py: Python<'_>, message: &str) -> PyResult<()> {
+        self.get()
+            .and_then(|context| context.error(message))
+            .map_err(|e| error_to_pyerr(py, &e))
+    }
+
+    /// Whether cancellation of the asset has been requested. A command that sees `True` should
+    /// stop, for example by raising `lq.CancelledError`.
+    fn is_cancelled(&self, py: Python<'_>) -> PyResult<bool> {
+        self.get()
+            .map(|context| context.is_cancelled())
+            .map_err(|e| error_to_pyerr(py, &e))
     }
 }
-
-/*
-static ENVREF:Lazy<EnvRef> = Lazy::new(||{
-    liquers_core::context::ArcEnvRef(Arc::new(Environment::new()))
-});
-*/
-
-/*
-fn get_envref() -> Arc<Mutex<EnvRef>> {
-    static INSTANCE: OnceCell<Arc<Mutex<EnvRef>>> = OnceCell::new();
-    let envref = INSTANCE.get_or_init(|| {
-        Arc::new(
-            Mutex::new(
-                liquers_core::context::ArcEnvRef(Arc::new(Environment::new()))
-            )
-        )
-    });
-    envref.clone()
-}
-*/
-
-/*
-pub struct PyEnvRef<E: Environment>(pub Rc<E>);
-
-impl<E: Environment> EnvRef<E> for RcEnvRef<E> {
-    fn get(&self) -> &E {
-        &*self.0
-    }
-    fn get_ref(&self) -> Self {
-        RcEnvRef(self.0.clone())
-    }
-}
-*/

@@ -4,8 +4,11 @@
 #
 #   1. Creates (or reuses) a venv at target/liquers-py-venv-<implementation><version> (for example
 #      `-cpython3.12`), from `python3` on PATH, so each interpreter gets its own venv.
-#   2. Installs maturin and pytest into it with pip -- nothing else.
-#   3. `maturin develop` builds the extension and installs the `liquers` package into the venv.
+#   2. Installs maturin and pytest into it with pip, plus polars and pillow: the VALUE suite crosses
+#      a DataFrame and an image, and skips those tests (rather than failing) only if they are absent.
+#   3. `maturin develop --features debug-handles` builds the extension and installs the `liquers`
+#      package into the venv. `debug-handles` is test-only: it lets RUNTIME05 count the Python
+#      callables the registrations hold.
 #   4. `pytest liquers-py/tests`.
 #   5. `cargo test -p liquers-py --no-default-features --lib` (links libpython; see Cargo.toml).
 #
@@ -34,11 +37,11 @@ fi
 # shellcheck disable=SC1091
 source "$venv/bin/activate"
 
-echo "==> installing maturin and pytest"
-python3 -m pip install --quiet --disable-pip-version-check maturin pytest
+echo "==> installing maturin, pytest, polars and pillow"
+python3 -m pip install --quiet --disable-pip-version-check maturin pytest polars pillow
 
-echo "==> maturin develop"
-maturin develop --manifest-path liquers-py/Cargo.toml
+echo "==> maturin develop --features debug-handles"
+maturin develop --manifest-path liquers-py/Cargo.toml --features debug-handles
 
 echo "==> pytest liquers-py/tests"
 python3 -m pytest liquers-py/tests "$@"

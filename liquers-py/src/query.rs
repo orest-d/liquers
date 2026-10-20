@@ -7,7 +7,7 @@ use pyo3::prelude::*;
 
 use crate::error::Error;
 
-#[pyclass(from_py_object)]
+#[pyclass(from_py_object, module = "liquers")]
 #[derive(Clone)]
 pub struct Position(pub liquers_core::query::Position);
 
@@ -54,7 +54,7 @@ impl Position {
     }
 }
 
-#[pyclass(from_py_object)]
+#[pyclass(from_py_object, module = "liquers")]
 #[derive(Clone)]
 pub struct ActionParameter(liquers_core::query::ActionParameter);
 
@@ -86,7 +86,7 @@ impl ActionParameter {
     }
 }
 
-#[pyclass(from_py_object)]
+#[pyclass(from_py_object, module = "liquers")]
 #[derive(Clone)]
 pub struct ResourceName(liquers_core::query::ResourceName);
 
@@ -115,7 +115,7 @@ impl ResourceName {
     }
 }
 
-#[pyclass(from_py_object)]
+#[pyclass(from_py_object, module = "liquers")]
 #[derive(Clone)]
 pub struct ActionRequest(liquers_core::query::ActionRequest);
 
@@ -126,9 +126,18 @@ impl ActionRequest {
         ActionRequest(liquers_core::query::ActionRequest::new(name.to_owned()))
     }
 
+    /// An action with string parameters; `encode()` escapes whatever query text needs (OBJECT09).
     #[staticmethod]
-    pub fn from_arguments(name: &str) -> Self {
-        ActionRequest(liquers_core::query::ActionRequest::new(name.to_owned()))
+    #[pyo3(signature = (name, arguments=Vec::new()))]
+    pub fn from_arguments(name: &str, arguments: Vec<String>) -> Self {
+        let mut action = liquers_core::query::ActionRequest::new(name.to_owned());
+        for argument in arguments {
+            action.parameters.push(liquers_core::query::ActionParameter::String(
+                argument,
+                liquers_core::query::Position::unknown(),
+            ));
+        }
+        ActionRequest(action)
     }
 
     #[getter]
@@ -160,7 +169,7 @@ impl ActionRequest {
     }
 }
 
-#[pyclass(from_py_object)]
+#[pyclass(from_py_object, module = "liquers")]
 #[derive(Clone)]
 pub struct SegmentHeader(liquers_core::query::SegmentHeader);
 
@@ -213,7 +222,7 @@ impl SegmentHeader {
     }
 }
 
-#[pyclass(from_py_object)]
+#[pyclass(from_py_object, module = "liquers")]
 #[derive(Clone)]
 pub struct TransformQuerySegment(liquers_core::query::TransformQuerySegment);
 
@@ -283,7 +292,7 @@ impl TransformQuerySegment {
     }
 }
 
-#[pyclass(from_py_object)]
+#[pyclass(from_py_object, module = "liquers")]
 #[derive(Clone, Debug)]
 pub struct Key(pub liquers_core::query::Key);
 
@@ -312,8 +321,14 @@ impl Key {
         self.0.len()
     }
 
-    pub fn __getitem__(&self, index: isize) -> ResourceName {
-        ResourceName(self.0 .0.get(index as usize).unwrap().clone())
+    /// The resource name at `index`; a negative index counts from the end.
+    pub fn __getitem__(&self, index: isize) -> PyResult<ResourceName> {
+        let len = self.0.len() as isize;
+        let position = if index < 0 { index + len } else { index };
+        if position < 0 || position >= len {
+            return Err(pyo3::exceptions::PyIndexError::new_err("key index out of range"));
+        }
+        Ok(ResourceName(self.0 .0[position as usize].clone()))
     }
 
     pub fn __repr__(&self) -> String {
@@ -349,7 +364,7 @@ impl Key {
     }
 }
 
-#[pyclass(from_py_object)]
+#[pyclass(from_py_object, module = "liquers")]
 #[derive(Clone)]
 pub struct ResourceQuerySegment(liquers_core::query::ResourceQuerySegment);
 
@@ -411,7 +426,7 @@ impl ResourceQuerySegment {
     }
 }
 
-#[pyclass(from_py_object)]
+#[pyclass(from_py_object, module = "liquers")]
 #[derive(Clone)]
 pub struct QuerySegment(liquers_core::query::QuerySegment);
 
@@ -490,7 +505,7 @@ impl QuerySegment {
     }
 }
 
-#[pyclass(from_py_object)]
+#[pyclass(from_py_object, module = "liquers")]
 #[derive(Clone, Debug)]
 pub struct Query(pub liquers_core::query::Query);
 
@@ -617,7 +632,7 @@ impl Query {
     }
 }
 
-#[pyclass(from_py_object)]
+#[pyclass(from_py_object, module = "liquers")]
 #[derive(Clone)]
 pub struct QuerySource(liquers_core::query::QuerySource);
 

@@ -18,7 +18,7 @@ use pyo3::{exceptions::PyException, prelude::*, types::PyList};
 /// Type of an enum argument, see EnumArgument
 /// This is a restricted version of ArgumentType to prevent circular type definition
 
-#[pyclass(from_py_object, eq, eq_int)]
+#[pyclass(from_py_object, eq, eq_int, module = "liquers")]
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum EnumArgumentType {
     #[serde(rename = "string")]
@@ -39,7 +39,7 @@ pub enum EnumArgumentType {
     Any,
 }
 
-#[pyclass(from_py_object)]
+#[pyclass(from_py_object, module = "liquers")]
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct EnumArgument(pub liquers_core::command_metadata::EnumArgument);
 
@@ -75,7 +75,7 @@ impl EnumArgument {
     }
 }
 
-#[pyclass(from_py_object)]
+#[pyclass(from_py_object, module = "liquers")]
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct ArgumentType(pub liquers_core::command_metadata::ArgumentType);
 
@@ -153,7 +153,7 @@ impl From<liquers_core::command_metadata::EnumArgumentType> for EnumArgumentType
     }
 }
 
-#[pyclass]
+#[pyclass(module = "liquers")]
 pub struct CommandKey(pub liquers_core::command_metadata::CommandKey);
 
 #[pymethods]
@@ -201,7 +201,7 @@ impl CommandKey {
     }
 }
 
-#[pyclass]
+#[pyclass(module = "liquers")]
 pub struct ArgumentInfo(liquers_core::command_metadata::ArgumentInfo);
 
 #[pymethods]
@@ -235,6 +235,50 @@ impl ArgumentInfo {
         Ok(ArgumentInfo(a))
     }
 
+    #[getter]
+    fn name(&self) -> String {
+        self.0.name.clone()
+    }
+
+    #[getter]
+    fn label(&self) -> String {
+        self.0.label.clone()
+    }
+
+    /// The default as a Python value: `None` when there is none, a query's text for a link.
+    #[getter]
+    fn default(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        use liquers_core::command_metadata::CommandParameterValue;
+        match &self.0.default {
+            CommandParameterValue::None => Ok(py.None()),
+            CommandParameterValue::Query(query) => {
+                Ok(pyo3::types::PyString::new(py, &query.encode()).into_any().unbind())
+            }
+            CommandParameterValue::Value(value) => {
+                let text = serde_json::to_string(value)
+                    .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))?;
+                Ok(py.import("json")?.call_method1("loads", (text,))?.unbind())
+            }
+        }
+    }
+
+    /// The argument type as its serialized name: `"string"`, `"int"`, `"float"`, `"bool"`,
+    /// `"int_opt"`, …, or `"any"`.
+    #[getter]
+    fn argument_type(&self) -> PyResult<String> {
+        match serde_json::to_value(&self.0.argument_type) {
+            Ok(serde_json::Value::String(name)) => Ok(name),
+            Ok(other) => Ok(other.to_string()),
+            Err(e) => Err(PyErr::new::<PyException, _>(e.to_string())),
+        }
+    }
+
+    /// Whether the argument takes every remaining query parameter (`*args`).
+    #[getter]
+    fn multiple(&self) -> bool {
+        self.0.multiple
+    }
+
     fn __repr__(&self) -> String {
         format!("{:?}", self.0)
     }
@@ -249,7 +293,7 @@ impl ArgumentInfo {
     }
 }
 
-#[pyclass(from_py_object)]
+#[pyclass(from_py_object, module = "liquers")]
 #[derive(Debug, Clone, PartialEq)]
 pub struct CommandDefinition(pub liquers_core::command_metadata::CommandDefinition);
 
@@ -285,7 +329,7 @@ impl CommandDefinition {
     }
 }
 
-#[pyclass(from_py_object)]
+#[pyclass(from_py_object, module = "liquers")]
 #[derive(Debug, Clone, PartialEq)]
 pub struct CommandPreset(pub liquers_core::command_metadata::CommandPreset);
 
@@ -323,7 +367,7 @@ impl CommandPreset {
     }
 }
 
-#[pyclass(from_py_object)]
+#[pyclass(from_py_object, module = "liquers")]
 #[derive(Debug, Clone)]
 pub struct CommandMetadata(pub liquers_core::command_metadata::CommandMetadata);
 
@@ -354,6 +398,54 @@ impl CommandMetadata {
         let a: liquers_core::command_metadata::CommandMetadata =
             serde_yaml::from_str(yaml).map_err(|e| PyErr::new::<PyException, _>(e.to_string()))?;
         Ok(CommandMetadata(a))
+    }
+
+    #[getter]
+    fn name(&self) -> String {
+        self.0.name.clone()
+    }
+
+    #[getter]
+    fn namespace(&self) -> String {
+        self.0.namespace.clone()
+    }
+
+    #[getter]
+    fn realm(&self) -> String {
+        self.0.realm.clone()
+    }
+
+    #[getter]
+    fn label(&self) -> String {
+        self.0.label.clone()
+    }
+
+    #[getter]
+    fn doc(&self) -> String {
+        self.0.doc.clone()
+    }
+
+    #[getter]
+    fn filename(&self) -> String {
+        self.0.filename.clone()
+    }
+
+    /// `"python"` for a command registered from Python.
+    #[getter]
+    fn module(&self) -> String {
+        self.0.module.clone()
+    }
+
+    /// Whether the command's output is kept for reuse.
+    #[getter]
+    fn cached(&self) -> bool {
+        self.0.cached()
+    }
+
+    /// The query arguments, in order: the state and `context` are not among them.
+    #[getter]
+    fn arguments(&self) -> Vec<ArgumentInfo> {
+        self.0.arguments.iter().cloned().map(ArgumentInfo).collect()
     }
 
     #[getter]
@@ -389,7 +481,7 @@ impl CommandMetadata {
     }
 }
 
-#[pyclass]
+#[pyclass(module = "liquers")]
 pub struct CommandMetadataRegistry(pub liquers_core::command_metadata::CommandMetadataRegistry);
 
 #[pymethods]

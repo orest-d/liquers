@@ -13,8 +13,8 @@ created: 2026-10-19
 ---
 # A caller parked on an inline run recovers when the runner is dropped
 
-Bulk design (`specs/guides/autonomous_bulk_design.md`): Phases 1-4 written, not approved, nothing
-implemented.
+Bulk design (`specs/guides/autonomous_bulk_design.md`): Phases 1-4 written; Phase 4 implemented on
+2026-10-20 (automatic fix).
 
 ## Phase 1: High-Level Design
 
@@ -226,16 +226,16 @@ Run: `CARGO_INCREMENTAL=0 cargo test -p liquers-core --test manager_parametric`,
 
 ### Steps
 
-- [ ] 1. `liquers-core/tests/manager_parametric.rs`: add the five new tests. Only
+- [x] 1. `liquers-core/tests/manager_parametric.rs`: add the five new tests. Only
   `inline_waiter_takes_over_dropped_run` and `inline_two_waiters_one_takes_over` fail at HEAD (by
   timing out). Proof: `cargo test -p liquers-core --test manager_parametric`. Rollback: delete the
   tests.
-- [ ] 2. `liquers-core/src/assets.rs`: add `AssetRef::claim_or_wait_inline` and use it in
+- [x] 2. `liquers-core/src/assets.rs`: add `AssetRef::claim_or_wait_inline` and use it in
   `run_with_future_inline` (depends on 1). Proof: all six tests in step 1, plus
   `cargo test -p liquers-core --lib --tests`. Rollback: revert the commit.
-- [ ] 3. `assets.rs`: doc comments of `InlineRunClaim::drop` and `run_inline`. Proof:
+- [x] 3. `assets.rs`: doc comments of `InlineRunClaim::drop` and `run_inline`. Proof:
   `cargo doc -p liquers-core --no-deps`.
-- [ ] 4. `specs/reference/ASSET_LIFECYCLE.md` §7: the takeover rule, a History row and a
+- [x] 4. `specs/reference/ASSET_LIFECYCLE.md` §7: the takeover rule, a History row and a
   `reviewed:` bump. Close `INLINE-DROP-REPAIR-STRANDS-EXISTING-WAITERS` with a resolution note.
   Proof: `python3 scripts/docs_index.py --check`.
 
@@ -246,3 +246,12 @@ after `cargo clean`, `cargo test -p liquers-web --target wasm32-unknown-unknown 
 debug-handles` as a smoke run of the inline path in its delivery form (no new web tests);
 `python3 scripts/docs_index.py --check`; a diff review for debug output and for edits outside
 `assets.rs`, the test file and `ASSET_LIFECYCLE.md`.
+
+### Implementation notes (2026-10-20)
+
+- The tests are in `liquers-core/src/assets.rs`'s own test module, not in
+  `tests/manager_parametric.rs`: AC-4 needs `AssetRef::set_status` and the notification sender,
+  which are crate-private. The AC-3 test is split into three (`…_runner_succeeds`, `…_runner_fails`,
+  `…_run_is_cancelled`), and the cancel case polls A alongside `AssetRef::cancel`, which on native
+  waits for the run to settle.
+- `claim_or_wait_inline` matches `AssetNotificationMessage` explicitly (no `_ =>` arm).

@@ -3,15 +3,18 @@ id: PY-VALUE-ARC-PAYLOADS
 kind: design
 title: liquers-py's large value payload wrappers share their core record through Arc
 form: compact
-status: in_review
-phase: implementation
-readiness: ready
-autofix: not-eligible
+status: superseded
+superseded_by: liquers-py
 area: [py]
-issues: [PY-VALUE-ENUM-OVERSIZED]
+issues: []
 created: 2026-10-17
 ---
 # liquers-py's large value payload wrappers share their core record through Arc
+
+**Superseded 2026-10-17 by [`liquers-py`](../liquers-py/DESIGN.md)** (overlap T4): the owner decided
+to remove liquers-py's own `Value` enum in favour of `liquers_lib::value::Value`, so the enum this
+design shrinks no longer exists. `PY-VALUE-ENUM-OVERSIZED` moved to that design. Kept for its
+measurements of the wrapper sizes.
 
 Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-17 backlog compaction. Phases 1-4
 are written but not approved, and nothing is implemented. Re-sized `S` → `M` (four wrapper types,

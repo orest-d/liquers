@@ -6,7 +6,7 @@ status: closed
 priority: P2
 complexity: M
 area: [py]
-design:
+design: liquers-py
 created: 2026-08-25
 github:
 ---

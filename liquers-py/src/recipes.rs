@@ -1,13 +1,13 @@
 use liquers_core::recipes::Recipe as CoreRecipe;
 use pyo3::{prelude::*, types::PyDict};
 
-#[pyclass(from_py_object)]
+#[pyclass(from_py_object, module = "liquers")]
 #[derive(Debug, Clone)]
 pub struct Recipe {
     pub inner: CoreRecipe,
 }
 
-#[pyclass(from_py_object)]
+#[pyclass(from_py_object, module = "liquers")]
 #[derive(Debug, Clone)]
 pub struct RecipeList {
     pub inner: liquers_core::recipes::RecipeList,
