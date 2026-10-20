@@ -389,6 +389,7 @@ impl CollectionSchema {
 
     /// The key a memory with this id is written at.
     pub fn key_for_id(&self, root: &Key, id: &str) -> Result<Key, Error> {
+        check_id(id)?;
         let folder = join_path(root, &self.folder)?;
         if let Some(file) = &self.file {
             return Ok(folder.join(file));
@@ -445,8 +446,8 @@ impl CollectionSchema {
             IdCase::Kebab => kebab(&base),
         };
         if let Some(max) = self.id.max_len {
-            if id.len() > max {
-                id.truncate(max);
+            if id.chars().count() > max {
+                id = id.chars().take(max).collect();
                 while id.ends_with('-') {
                     id.pop();
                 }
@@ -454,6 +455,17 @@ impl CollectionSchema {
         }
         id
     }
+}
+
+/// Refuses an id that would not be one key element: empty, `.` or `..`, or containing a path
+/// separator, which a file store would read as a folder (and could leave the collection by).
+pub fn check_id(id: &str) -> Result<(), Error> {
+    if id.is_empty() || id == "." || id == ".." || id.contains(['/', '\\']) {
+        return Err(Error::general_error(format!(
+            "id {id:?} is not a valid file name: it must be non-empty, not . or .., and contain no / or \\"
+        )));
+    }
+    Ok(())
 }
 
 /// Lower-case ASCII words joined by `-`; other characters are transliterated where they have an
@@ -618,6 +630,22 @@ collections:
         let mut events = issues.clone();
         events.id = IdRule { from: IdSource::DateTitle, case: IdCase::Kebab, max_len: Some(20) };
         assert_eq!(events.derive_id("Met Alice at the café", "2026-10-19"), "2026-10-19-met-alice");
+        let mut as_is = issues.clone();
+        as_is.id = IdRule { from: IdSource::Title, case: IdCase::AsIs, max_len: Some(1) };
+        assert_eq!(as_is.derive_id("été", ""), "é");
+        Ok(())
+    }
+
+    #[test]
+    fn ids_that_are_not_one_key_element_are_refused() -> Result<(), Error> {
+        let layout = MemoryLayout::parse(LAYOUT)?;
+        let issues = layout.collection("issues")?;
+        let designs = layout.collection("designs")?;
+        for id in ["../../outside", "a/b", "a\\b", "..", ".", ""] {
+            assert!(issues.key_for_id(&Key::new(), id).is_err(), "{id:?}");
+            assert!(designs.key_for_id(&Key::new(), id).is_err(), "{id:?}");
+        }
+        assert_eq!(issues.key_for_id(&Key::new(), "X")?.encode(), "specs/issues/X.md");
         Ok(())
     }
 }
