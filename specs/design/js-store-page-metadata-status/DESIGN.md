@@ -1,16 +1,16 @@
 ---
 id: JS-STORE-PAGE-METADATA-STATUS
 kind: design
-title: A page-implemented store's data is loadable without a Liquers-written status
+title: Stored data without a status is loadable
 form: compact
 workflow: liquers-project
 status: in_review
-phase: high-level
-area: [web, core/store]
+phase: architecture
+area: [core/assets, web]
 issues: [JS-STORE-RESOURCE-NOT-FOUND-WITHOUT-A-RECIPE]
 created: 2026-10-20
 ---
-# A page-implemented store's data is loadable without a Liquers-written status
+# Stored data without a status is loadable
 
 ## Phase 1: High-Level Design
 
@@ -40,40 +40,38 @@ evaluates `-R/mem/greeting.txt/-/to_text`:
 **Today** it fails with `No recipe found for key mem/greeting.txt`. **It should** return
 `'from the page'`.
 
-**Cause (from reading the code; the Phase 3 test confirms it at run time).** A keyed resource is
-loaded by `AssetData::try_fast_track` (`liquers-core/src/assets.rs`). It calls `contains`, which
-answers `true`, and then `get`. Then it reuses the bytes only when the stored status is `Ready`,
-`Source` or `Override`. Otherwise it treats them as a value that must be recomputed and falls
-through to the recipe provider. There is no recipe for this key, hence the error.
+**Cause.** A keyed resource is loaded by `AssetData::try_fast_track`
+(`liquers-core/src/assets.rs`). It calls `contains`, which answers `true`, and then `get`. Then it
+reuses the bytes only when the stored status is `Ready`, `Source` or `Override`. Otherwise it
+treats them as a value that must be recomputed and falls through to the recipe provider. There is
+no recipe for this key, hence the error. The page's metadata has no `status`, so it reads as
+`Status::None`.
 
-The page's metadata has no `status`, so it is `Status::None`. Two things in `liquers-web` let that
-through:
+**This is not specific to JavaScript** (checked 2026-10-20 with a throwaway native test).
+`AsyncMemoryStore::set` and `AsyncFileStore::set` store the caller's record as given, with only the
+filename seeded. So `store.set(a/b.txt, b"hello", <record with no status>)` followed by evaluating
+`-R/a/b.txt` fails natively in the same way ("No recipes defined…"). With status `Source`, the same
+test returns `hello`. The `http` and `localstorage` cases of `STORE07` pass only because those
+stores write `Source` themselves.
 
-1. **The read path passes the page's record through unchanged.** `JsStore::get`
-   (`liquers-web/src/store/js_store.rs`) returns what `metadata_from_js_value` builds. Other
-   stores never return data with status `None`:
-   - `AsyncStore::finalize_metadata` (`liquers-core/src/store.rs`) turns `None` into `Source`
-     whenever data is present.
-   - `AsyncFileStore::get` applies it when it has to synthesise a record for a file without one.
-   - `FetchStore` builds its record with `Source`.
+The rule the fast track should apply is already documented, but the status check comes before the
+code that applies it. `ASSETS.md` "Content changed outside Liquers" recognises **a file with no
+metadata** as a stored `Source` or `None` with recorded version 0. It treats that file as `Source`
+when there is no recipe and as `Ready` when there is one (`external_change_status`). But
+`try_fast_track` refuses `None` at the status gate, before `decide_external_change` reaches that
+mapping.
 
-   The `http` and `localstorage` cases of `STORE07` pass for that reason.
-2. **A partial object skips the key and filename seeding.** `MetadataRecord` is
-   `#[serde(default, deny_unknown_fields)]`, so `{ media_type: 'text/plain' }` parses as a
-   *complete* record on `metadata_from_js_value`'s first branch. Its `key` and `filename` stay
-   unset, and its data format falls back to `bin`. The overlay branch, which seeds the key, is
-   reached only by objects that carry unknown fields.
-
-The write direction has the same gap. `JsStore::set` seeds the filename but never sets a status.
-So bytes a page writes through `env.store().set(…)` with partial metadata are stored with status
-`None`, and evaluating them later fails the same way. The Node suites miss this because their
-fixtures either write a full record (`eval_EVAL.rs` sets `Status::Source` by hand) or never
-evaluate.
+**A second, `liquers-web`-only gap.** `MetadataRecord` is `#[serde(default, deny_unknown_fields)]`,
+so `{ media_type: 'text/plain' }` parses as a *complete* record on `metadata_from_js_value`'s first
+branch (`liquers-web/src/store/mod.rs`). Its `key` and `filename` stay unset, so its data format
+falls back to `bin`. Only objects that carry unknown fields reach the overlay branch, which is the
+one that seeds the key.
 
 ### Scope and Acceptance Criteria
 
-In scope: `JsStore`'s read and write paths, and the shared `metadata_from_js_value` helper.
-Out of scope: changing what `try_fast_track` accepts in core.
+In scope: the status that core's fast-track and store fallback read for stored bytes, and the key
+and filename seeding in `liquers-web`'s `metadata_from_js_value`. Out of scope: rewriting the
+stored records themselves.
 
 - **AC-1** A page store with only `get` and `contains` serves a resource query
   - WHEN a `js` store's `get` returns data with metadata that has no `status`, and
@@ -89,27 +87,127 @@ Out of scope: changing what `try_fast_track` accepts in core.
 - **AC-4** A page write evaluates afterwards
   - WHEN `env.store().set(key, bytes, {})` writes to a `js` store with a `set` method, and the key
     is then evaluated
-  - THEN the bytes are served. The record handed to the page's `set` has status `Source`, its key,
-    its filename and its file size, as `AsyncFileStore` would write it
+  - THEN the bytes are served
 - **AC-5** The existing e2e test passes unchanged
   - WHEN `npx playwright test` runs `liquers-web/tests/e2e/store.spec.ts`
   - THEN `STORE07 a JavaScript store evaluates end to end` passes
 
+- **AC-6** Core stores behave the same way
+  - WHEN bytes are written to `AsyncMemoryStore` or `AsyncFileStore` with a record that has no
+    status and no version, and the key is then evaluated
+  - THEN the bytes are served as `Source` when the key has no recipe, and as `Ready` when it has one
+- **AC-7** A dependency with no status does not block its dependent
+  - WHEN a stored dependency of a fast-tracked asset has status `None`
+  - THEN the dependency check treats it as inconclusive, the same as an unreadable one, and does not
+    refuse the fast track
+
 ### Open Questions
 
-1. **Where the default lives.** I recommend the adapter: `JsStore` applies
-   `AsyncStore::finalize_metadata` on `get` and `set`, the same as the core stores. The
-   alternative is for core's `try_fast_track` to accept `None` when bytes are present. That
-   would also cover any future language store, but it changes the reuse rule for every store,
-   and a store written by Liquers can never hold `None` with data anyway.
-2. **`getMetadata` without data.** A page's `getMetadata` answer is a metadata-only read, so the
-   adapter cannot tell whether bytes exist. I recommend seeding the key and the filename there,
-   but leaving `status` as the page gives it. Fast-track never reads it.
-3. **Fixing `metadata_from_js_value` for every caller.** The helper is shared with
-   `LiquersStore` (`src/store/wrapper.rs`). I recommend making it seed the key on both branches.
-   That changes what a page receives back from `getMetadata` on the wrapper only by filling in
-   `key`.
+None open. Decided:
 
-Readiness: not assessed. Complexity is `M`, mostly in tests: the fix is two calls in
-`js_store.rs` and one in `store/mod.rs`, but AC-4 needs a new Node test and AC-5 needs the e2e
-loop.
+1. **Where the default lives:** core's fast track, chosen by the user on 2026-10-20, superseding
+   the adapter-only answer this phase first recommended.
+2. **`getMetadata` without data:** `metadata_from_js_value` seeds the key and the filename, and the
+   status is left as the page gives it.
+3. **The shared helper:** fixed for every caller, so it seeds the key on both branches.
+
+### Scope Changes
+
+2026-10-20, after Phase 1 was approved: the native check showed that the core stores fail the same
+way. The fix moves from `JsStore` into `try_fast_track`, `AC-4`'s THEN no longer prescribes the
+record passed to the page's `set`, and `AC-6` and `AC-7` are added.
+
+Readiness: not assessed. Complexity is still `M`, mostly in tests.
+
+## Phase 2: Architecture
+
+### Solution
+
+Give the asset layer one rule for the status of stored bytes, and apply it everywhere it reads a
+stored record together with its data. A record whose status is `None` and whose recorded version
+is unknown is the documented **file with no metadata**. It reads as `Source` when the key has no
+recipe and as `Ready` when it has one, which is exactly what `external_change_status` already
+returns. Every other status is read as stored.
+
+When a status is mapped, the asset's in-memory metadata gets the mapped status **and a warning in
+its log**, requested by the user on 2026-10-20. The warning names the key and the status it was
+read as, for example:
+
+```text
+no status was stored for mem/greeting.txt; read as Source
+```
+
+Nothing is written back to the store. The asset's metadata is persisted only by the paths that
+already persist it, so a read never writes. That keeps `read_only` mounts and the data-only
+contract intact.
+
+Rejected alternatives:
+- **Normalise in every store's `set`** (memory, file, `JsStore`, plus `JsStore::get`). That is
+  four places to keep in step, and data placed in a backend from outside Liquers would still
+  fail.
+- **Write the mapped status back on read.** A read would then write, which `ReadOnlyStore` would
+  refuse.
+- **Map every no-version record, as `external_change_status` does.** That would turn an existing
+  `Source` into `Ready` whenever a recipe exists, changing what the fast track reports today.
+  Only `None` is mapped.
+
+Known-issue preflight: `EXTENDED-FAST-TRACK`, `ASSETS-FIX1` and
+`UNCACHED-STORED-COPY-EXPIRY-RACES-AN-INFLIGHT-EVALUATION` touch the same code. None of them blocks
+this change or has to go first. No command namespace is involved.
+
+### Changes
+
+`liquers-core/src/assets.rs`:
+
+```rust
+/// The status stored bytes are reused under: `stored`, except that a record with no status and
+/// no recorded version (a file with no metadata) reads as `external_change_status` maps it.
+pub fn reusable_stored_status(stored: Status, recorded: Version, has_recipe: bool) -> Status;
+
+/// Applies `reusable_stored_status` to `metadata` in place. When the status changes, it adds a
+/// warning naming `key` and the new status. The recipe provider is asked (`can_make`) only when
+/// the stored status is `None`, so the common path costs nothing extra.
+async fn adopt_stored_status<E: Environment>(
+    manager: &E::AssetManager,
+    key: &Key,
+    metadata: &mut Metadata,
+) -> Result<(), Error>;
+```
+
+Call sites, each before its status check:
+- `AssetData::try_fast_track`, before the `Ready | Source | Override` gate.
+- The store branches of `get_any_status` and `get_binary_any_status` in both
+  `DefaultAssetManager` and `ImmediateAssetManager`, before `has_data()`.
+- `to_override` keeps its `has_data()` gate unchanged, since it changes a status deliberately and
+  is not a read.
+- `dependency_blocks_fast_track` gets a `Status::None` arm that answers `false` (inconclusive),
+  without asking for the recipe (AC-7).
+
+`liquers-web/src/store/mod.rs` `metadata_from_js_value`: on the complete-record branch, set `key`
+when the record has none and call `liquers_core::store::seed_filename_from_key`. That makes both
+branches seed the same fields, so `JsStore::get`, `getMetadata` and the `LiquersStore` wrapper all
+pick it up.
+
+There are no new errors, and `can_make` errors propagate as they already do in
+`decide_external_change`. Everything is async, as today. No command or registry changes, so
+`specs/command_registry.yaml` is untouched.
+
+Documents:
+- `specs/reference/ASSETS.md`: "Content changed outside Liquers" and the fast-track paragraph say
+  the no-metadata rule now also governs reuse, with the warning.
+- `specs/reference/STORE_SEMANTICS.md` §10: a note that a store may return data with no status.
+- `liquers-web/README.md`: no change. The `STORE` row becomes true.
+
+Each reference document gets a History row and a `reviewed:` bump.
+
+### Risks
+
+- **Behaviour change:** a key stored with status `None` that has a recipe now reuses its bytes as
+  `Ready` instead of recomputing them. That matches what the external-change table already
+  promises. A test that relied on recomputation would show it, and the Phase 3 suite searches for
+  such tests.
+- **Tests likely to change:** the fast-track tests in `assets.rs`, plus
+  `liquers-core/tests/metadata_only_entry_reload.rs`. A metadata-only entry has no data, so `get`
+  answers `KeyNotFound` before the new rule runs, and nothing should change there.
+- **Recovery:** revert the call sites, since the helper is pure. Certainty is high: the native
+  check already showed `Source` loading and `None` failing.
