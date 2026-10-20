@@ -10,7 +10,7 @@ use liquers_core::error::Error;
 use liquers_core::query::Query;
 use wasm_bindgen::prelude::*;
 
-use crate::bridge::{value_to_js, JsValueBridge};
+use crate::bridge::{value_to_js_in, JsValueBridge};
 use crate::error::liquers_error_to_js;
 
 /// Evaluates a query, returning a `Promise`.
@@ -44,5 +44,5 @@ where
     let manager = envref.get_asset_manager();
     let asset = manager.get_asset(&query).await?;
     let state = asset.get().await?;
-    value_to_js(state.data_unchecked().as_ref())
+    value_to_js_in(&envref, state.data_unchecked().as_ref())
 }

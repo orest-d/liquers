@@ -1,0 +1,35 @@
+[package]
+name = "liquers-agent"
+version = "0.1.0"
+edition = "2021"
+rust-version.workspace = true
+description = "A file-based agent memory served over MCP and the command line"
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "liquers-agent"
+path = "src/main.rs"
+
+[dependencies]
+liquers-core = { path = "../liquers-core" }
+liquers-lib = { path = "../liquers-lib", default-features = false, features = ["mem"] }
+liquers-store = { path = "../liquers-store" }
+liquers-mcp = { path = "../liquers-mcp" }
+# register_all_commands! expands to register_command!, which names these two crates.
+liquers-macro = { path = "../liquers-macro" }
+futures = "0.3.34"
+clap = { version = "4", features = ["derive", "env"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+serde_yaml = "0.9.34"
+tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros", "io-std"] }
+
+[dev-dependencies]
+rmcp = { version = "=3.5.1", default-features = false, features = ["client", "transport-child-process"] }
+tokio = { version = "1.53.1", features = ["full"] }
+# An in-process S3-compatible endpoint for `tests/s3_profile.rs` (AC-20).
+s3s = "0.17.0"
+s3s-fs = "0.17.0"
+hyper-util = { version = "0.1.20", features = ["server-auto", "http1", "http2", "tokio"] }

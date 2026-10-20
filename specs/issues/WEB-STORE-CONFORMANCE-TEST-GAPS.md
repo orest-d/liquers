@@ -2,7 +2,7 @@
 id: WEB-STORE-CONFORMANCE-TEST-GAPS
 kind: issue
 title: liquers-web's STORE tests are narrower than the guide's prescribed contracts
-status: draft
+status: closed
 priority: P3
 complexity: M
 area: [web, core/store]
@@ -54,3 +54,14 @@ Add the missing test cases under their guide IDs in the existing suites
 
 Bidirectional conformance audit (2026-10-17), comparing the guide's Appendix A STORE blueprints
 against `liquers-web/tests/`.
+
+## Resolution (2026-10-18)
+
+All six gaps are covered in liquers-web's suites: dotted names in `keyguard04` and in
+`store05b_traversal_after_makedir_is_refused` (Node, and a browser twin in `store_local_STORE.rs`
+gated behind `browser-tests`), `store11_overlapping_prefixes_follow_document_order`, a
+`store14_read_only_js_store_refuses_writes` covering every write over a writable page object plus
+`Store.isReadOnly()`, and `store17_explicit_precision_is_applied` /
+`store17_unknown_precision_is_refused`. `liquers-web/README.md` `## Conformance` records `STORE18` as
+`NA` and that overlapping prefixes are accepted silently. Design:
+`specs/design/web-store-conformance-tests/`.

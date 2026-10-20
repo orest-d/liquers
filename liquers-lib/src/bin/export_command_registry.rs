@@ -52,6 +52,8 @@ enum Group {
     Search,
     /// The `ns-template` commands (feature `templates`).
     Template,
+    /// The `ns-mem` commands (feature `mem`).
+    Mem,
     /// The `store_config` realm: store configuration entries, declared but never executed.
     #[value(name = "store_config")]
     StoreConfig,
@@ -68,6 +70,7 @@ impl Group {
             Group::Records => "records",
             Group::Search => "search",
             Group::Template => "template",
+            Group::Mem => "mem",
             Group::StoreConfig => "store_config",
         }
     }
@@ -82,6 +85,7 @@ impl Group {
             Group::Polars => Some("polars"),
             Group::Records | Group::Search => Some("records"),
             Group::Template => Some("templates"),
+            Group::Mem => Some("mem"),
         }
     }
 
@@ -95,10 +99,11 @@ impl Group {
             Group::Records => cfg!(feature = "records"),
             Group::Search => cfg!(feature = "records"),
             Group::Template => cfg!(feature = "templates"),
+            Group::Mem => cfg!(feature = "mem"),
         }
     }
 
-    fn all() -> [Group; 9] {
+    fn all() -> [Group; 10] {
         [
             Group::Core,
             Group::Lui,
@@ -108,6 +113,7 @@ impl Group {
             Group::Records,
             Group::Search,
             Group::Template,
+            Group::Mem,
             Group::StoreConfig,
         ]
     }
@@ -287,6 +293,10 @@ fn build_registry(groups: &[Group]) -> Result<CommandMetadataRegistry, Error> {
                     #[cfg(feature = "templates")]
                     liquers_lib::register_template_commands!(cr)?;
                 }
+                Group::Mem => {
+                    #[cfg(feature = "mem")]
+                    liquers_lib::register_mem_commands!(cr)?;
+                }
                 // Every command registry declares the realm's built-ins when it is created;
                 // the group adds liquers-lib's own entries and decides whether they are kept.
                 Group::StoreConfig => {
@@ -407,7 +417,8 @@ mod tests {
         feature = "image-support",
         feature = "polars",
         feature = "records",
-        feature = "templates"
+        feature = "templates",
+        feature = "mem"
     ))]
     #[test]
     fn header_lists_cargo_features_once() {
@@ -424,6 +435,6 @@ mod tests {
             .split_whitespace()
             .find_map(|field| field.strip_prefix("features="))
             .expect("Origin line has a features= field");
-        assert_eq!(features, "egui,image-support,polars,records,templates");
+        assert_eq!(features, "egui,image-support,polars,records,templates,mem");
     }
 }

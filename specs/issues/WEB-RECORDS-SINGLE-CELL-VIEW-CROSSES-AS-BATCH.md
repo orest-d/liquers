@@ -2,7 +2,7 @@
 id: WEB-RECORDS-SINGLE-CELL-VIEW-CROSSES-AS-BATCH
 kind: issue
 title: A single-cell RecordView reaches JavaScript as a 1×1 batch instead of a scalar
-status: draft
+status: closed
 priority: P2
 complexity: S
 area: [web, records]
@@ -40,3 +40,11 @@ with its shape otherwise).
 Bidirectional conformance audit of `liquers-web` against `LANGUAGE-INTEGRATION_GUIDE.md`
 (2026-10-17); confirmed by reading `liquers-web/src/default_value.rs` against
 `liquers-lib/src/value/mod.rs`.
+
+## Resolution (2026-10-18)
+
+Fixed by `specs/design/web-records-single-cell-scalar/`. `to_js_custom`
+(`liquers-web/src/default_value.rs`) checks the shape before materializing: a single-cell view
+crosses as its scalar (null as `null`, binary as `Uint8Array`, anything else through the view's JSON
+scalar), a larger view as a `RecordBatch`. Three `records10_*` tests in
+`liquers-web/tests/records_RECORDS.rs` pass under the Node loop.

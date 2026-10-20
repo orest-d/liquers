@@ -1,6 +1,7 @@
 //! `COMMAND` — registering JavaScript callables as Liquers commands.
 
 pub mod adapter;
+pub(crate) mod import;
 pub mod spec;
 
 pub(crate) use adapter::is_thenable;
