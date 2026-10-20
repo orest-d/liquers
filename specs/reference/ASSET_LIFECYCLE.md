@@ -3,7 +3,7 @@ title: Asset Evaluation — Flows and Public Surface
 kind: reference
 audience: internal
 area: [core/assets]
-reviewed: 2026-10-17
+reviewed: 2026-10-20
 ---
 # Asset Evaluation — Flows and Public Surface
 
@@ -315,9 +315,13 @@ cover `Dependencies` as well as `Processing`: a status only a live runner can ho
 a runner that is gone, is not merely un-run but — since the claim reads it as active —
 permanently unclaimable.
 
-The inline repair makes the asset claimable again for the *next* caller. It does not release a
-caller already parked on it, which waits for `JobFinished` alone; see
-`INLINE-DROP-REPAIR-STRANDS-EXISTING-WAITERS`.
+The inline repair makes the asset claimable again, and a caller already parked on it takes the run
+over. A caller that loses the claim subscribes to the asset's notifications *before* it tries to
+claim, and on every notification it tries to claim again: after the repair (`StatusChanged(Recipe)`)
+one parked caller wins and runs the asset with its own evaluation, and the others go on waiting
+for it. A parked caller stops waiting without running when the asset finishes (`JobFinished`, or a
+finished status) or is removed (`Removed`). Intermediate notifications — `Dependencies`,
+`Processing`, progress — do not start a second run, because the claim refuses an active status.
 
 A caller that does not win the claim **waits** for the running evaluation. Refusing it is wrong and
 was tried and reverted once: a genuinely async command yields, so a second legitimate request
@@ -339,6 +343,7 @@ arrives mid-evaluation and must join the first rather than be turned away.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-20 | §7: a caller parked on an inline run takes the run over when the runner's future is dropped; `INLINE-DROP-REPAIR-STRANDS-EXISTING-WAITERS` is fixed. | `design/inline-waiter-recovers-dropped-run/` |
 | 2026-10-17 | Steps 1 and 6: volatility can be recorded during the run and is read at finalization. | `design/runtime-volatility` |
 | 2026-10-12 | §1–2 `AssetManager::apply_queued`; §4 the terms managed / unmanaged asset (four causes, how to tell) and argument override, and the keyed-recipe edge case. | phase-5, `design/axum-query-named-arguments/` |
 | 2026-10-09 | §Persistence outcomes: the cancelled, cancelled-after-completion, replaced-while-running and failed rows. | phase-5 (`design/asset-cancellation-outcome/`) |

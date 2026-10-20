@@ -2,7 +2,7 @@
 id: INLINE-DROP-REPAIR-STRANDS-EXISTING-WAITERS
 kind: issue
 title: An inline run dropped mid-flight leaves callers already waiting on it parked forever
-status: draft
+status: closed
 priority: P2
 complexity: M
 area: [core/assets, web]
@@ -83,3 +83,17 @@ Found on 2026-09-04 while fixing PR #61 review comment 2 (the `Dependencies` hal
 `Drop` repair). Recorded rather than fixed there: the review asked for the status repair, and the
 waiter loop is a distinct change to the wait protocol with its own livelock risk, which deserves
 its own tests rather than riding along on a review round.
+
+## Resolution
+
+Fixed 2026-10-20 by `design/inline-waiter-recovers-dropped-run/`. `AssetRef::run_with_future_inline`
+no longer sends the caller that loses the claim to `wait_to_finish`; the new private
+`claim_or_wait_inline` subscribes first, then tries the claim again on every notification, so a
+parked caller wakes on the `Drop` repair's `StatusChanged(Recipe)`, claims the asset and runs it
+with its own evaluation. It returns without running when the asset finishes or is removed.
+Evidence: `liquers-core/src/assets.rs` tests `inline_waiter_takes_over_dropped_run`,
+`inline_two_waiters_one_takes_over`, `inline_waiter_returns_when_runner_succeeds` / `_fails`,
+`inline_waiter_returns_when_run_is_cancelled`, `inline_waiter_ignores_intermediate_notifications`,
+`inline_waiter_does_not_rerun_a_removed_asset`
+and `inline_waiter_released_by_removal`. A repair that `Drop` skips because `try_write` failed is
+still out of reach (`INLINE-RUN-CLAIM-REPAIR-SKIPPED-UNDER-LOCK-CONTENTION`).
