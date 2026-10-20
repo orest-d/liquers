@@ -8,9 +8,12 @@
 //! a `RecordBatch` — the reverse of [`record_batch_to_dataframe`], which the Parquet writer's own
 //! interop tests exercise the other way (`liquers-lib/tests/records_parquet_polars.rs`).
 //!
-//! Roles are lost on this path (polars carries no equivalent of `RecordSchema`'s `FieldRole`/
-//! `KeyRole`); the `Id` field is not guessed, exactly as CSV's schema-less reader does not guess
-//! one — see `RecordSchema`'s field resolution rules.
+//! Polars carries no equivalent of `RecordSchema`'s `FieldRole`/`KeyRole`, so a schema is not read
+//! from the frame alone: a declared schema is checked against the file and becomes the result's
+//! schema, and without one the `liquers.schema` Liquers' own Parquet writer embeds in the file's
+//! key-value metadata is restored while it still describes the columns. Otherwise the `Id` field
+//! is not guessed, exactly as CSV's schema-less reader does not guess one — see
+//! [`read_parquet_record_batch`] and `RecordSchema`'s field resolution rules.
 //!
 //! Imports name `polars::prelude::Column` explicitly, as `PolarsColumn`, rather than glob-importing
 //! `polars::prelude::*`: this module also names `liquers_records::Column` (aliased `RecColumn`),
@@ -238,31 +241,162 @@ fn append_series_values(column: &mut ColumnMut, series: &Series, field_type: Fie
 /// A polars `DataFrame` -> a `RecordBatch`. Every field lands as ordinary data (`KeyRole::None`):
 /// no field is guessed as `Id`, matching CSV's schema-less reader.
 pub fn dataframe_to_record_batch(df: &DataFrame) -> Result<RecordBatch, Error> {
+    let (fields, columns) = dataframe_to_fields_and_columns(df)?;
+    RecordBatch::new(Arc::new(RecordSchema::new(fields)?), columns, None, None, Vec::new())
+}
+
+/// Every column of `df` as an inferred field (nullable, `KeyRole::None`) and its bridged column.
+fn dataframe_to_fields_and_columns(df: &DataFrame) -> Result<(Vec<FieldSchema>, Vec<RecColumn>), Error> {
     let height = df.height();
     let mut fields = Vec::with_capacity(df.width());
-    let mut mut_columns: Vec<ColumnMut> = Vec::with_capacity(df.width());
+    let mut columns = Vec::with_capacity(df.width());
     for series in df.materialized_column_iter() {
         let name = series.name().to_string();
         let field_type = polars_dtype_to_field_type(series.dtype(), &name)?;
         fields.push(FieldSchema::new(name, field_type));
         let mut column = ColumnMut::with_capacity(field_type, height);
         append_series_values(&mut column, series, field_type)?;
-        mut_columns.push(column);
+        columns.push(column.freeze());
     }
-    let schema = Arc::new(RecordSchema::new(fields)?);
-    let columns: Vec<RecColumn> = mut_columns.into_iter().map(ColumnMut::freeze).collect();
-    RecordBatch::new(schema, columns, None, None, Vec::new())
+    Ok((fields, columns))
 }
 
-/// Reads Parquet `bytes` with polars' own reader, then bridges the result with
-/// [`dataframe_to_record_batch`]. `schema` is not cross-checked against the file today — polars'
-/// reader infers its own schema and nothing here validates a caller-declared one against it;
-/// filed as `RECORDS-PARQUET-POLARS-READ-IGNORES-DECLARED-SCHEMA`.
-pub fn read_parquet_record_batch(bytes: &[u8], _schema: ReadSchema<'_>) -> Result<RecordBatch, Error> {
-    let df = ParquetReader::new(Cursor::new(bytes))
+/// The `liquers.schema` entry of a Parquet file's key-value metadata, parsed. A value that does not
+/// parse is stale or foreign metadata and gives `None`, as an absent one does.
+fn embedded_liquers_schema<'a>(
+    key_value_metadata: impl IntoIterator<Item = (&'a str, Option<&'a str>)>,
+) -> Option<RecordSchema> {
+    key_value_metadata
+        .into_iter()
+        .find(|(key, _)| *key == "liquers.schema")
+        .and_then(|(_, value)| value)
+        .and_then(|json| serde_json::from_str::<RecordSchema>(json).ok())
+}
+
+/// `liquers.schema` is trusted only while it still describes the file: the same fields, in the same
+/// order, with the same names and types (another tool may rewrite the columns and keep the
+/// metadata). The rule of the Arrow IPC reader's `check_embedded_schema`.
+fn embedded_schema_describes(schema: &RecordSchema, inferred: &[FieldSchema]) -> bool {
+    schema.fields.len() == inferred.len()
+        && schema
+            .fields
+            .iter()
+            .zip(inferred.iter())
+            .all(|(embedded, file)| embedded.name == file.name && embedded.data_type == file.data_type)
+}
+
+/// The columns of `df` read under a declared schema, matched by name: every column of the file must be declared,
+/// with the type it bridges to; a declared field the file lacks is an all-null column when it is
+/// nullable, and an error otherwise. Nothing is cast. The rules of the Arrow IPC reader's
+/// `resolve_declared`.
+fn dataframe_to_declared_columns(df: &DataFrame, declared: &RecordSchema) -> Result<Vec<RecColumn>, Error> {
+    for series in df.materialized_column_iter() {
+        let name = series.name().as_str();
+        if declared.index_of(name).is_none() {
+            return Err(Error::general_error(format!(
+                "parquet: the file's field '{name}' is not in the declared schema"
+            )));
+        }
+    }
+    let height = df.height();
+    let mut columns = Vec::with_capacity(declared.fields.len());
+    for field in &declared.fields {
+        let mut column = ColumnMut::with_capacity(field.data_type, height);
+        match df.column(&field.name) {
+            Ok(file_column) => {
+                let series = file_column.as_materialized_series();
+                let file_type = polars_dtype_to_field_type(series.dtype(), &field.name)?;
+                if file_type != field.data_type {
+                    return Err(Error::general_error(format!(
+                        "parquet: declared field '{}' is {:?} but the file's field '{}' is {:?}",
+                        field.name, field.data_type, field.name, file_type
+                    )));
+                }
+                append_series_values(&mut column, series, field.data_type)?;
+            }
+            Err(_) => {
+                if !field.nullable {
+                    return Err(Error::general_error(format!(
+                        "parquet: declared non-nullable field '{}' is missing from the file",
+                        field.name
+                    )));
+                }
+                if field.data_type == FieldType::Vector {
+                    return Err(Error::not_supported(format!(
+                        "parquet: declared Vector field '{}' is missing from the file, and a null \
+                         Vector column has no width to read it as",
+                        field.name
+                    )));
+                }
+                for _ in 0..height {
+                    column.push(&FieldValue::Null)?;
+                }
+            }
+        }
+        columns.push(column.freeze());
+    }
+    Ok(columns)
+}
+
+/// A field declared not null must hold no null. A file written by Liquers marks such a column
+/// `REQUIRED`, so it always passes; a file from elsewhere may not.
+fn check_not_null(schema: &RecordSchema, columns: &[RecColumn]) -> Result<(), Error> {
+    for (field, column) in schema.fields.iter().zip(columns.iter()) {
+        if field.nullable {
+            continue;
+        }
+        let nulls = column.null_mask().count_ones();
+        if nulls > 0 {
+            return Err(Error::general_error(format!(
+                "parquet: field '{}' is declared not null, but the file holds {nulls} null(s) in it",
+                field.name
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// Reads Parquet `bytes` with polars' own reader, then bridges the result to a `RecordBatch` under
+/// the same schema rules as the Arrow IPC reader:
+///
+/// - `ReadSchema::Declared(s)`: the result's schema is exactly `s` (order, roles, labels, `Id`,
+///   nullability), with columns matched by name. A file column `s` does not declare, a type that
+///   differs from the declared one, or a missing non-nullable (or `Vector`) field is an error;
+///   nothing is cast. A missing nullable field reads as all nulls.
+/// - `ReadSchema::Infer`: the `liquers.schema` Liquers' Parquet writer embeds is restored when it
+///   still describes the file's columns (same names and types, in order); otherwise — absent,
+///   unparseable or stale — the schema is derived from the polars dtypes, with no `Id` guessed.
+///
+/// On both paths a field declared not null that holds a null is an error.
+pub fn read_parquet_record_batch(bytes: &[u8], schema: ReadSchema<'_>) -> Result<RecordBatch, Error> {
+    let mut reader = ParquetReader::new(Cursor::new(bytes));
+    let embedded = {
+        let metadata = reader
+            .get_metadata()
+            .map_err(|e| Error::from_error(ErrorType::SerializationError, e))?;
+        embedded_liquers_schema(
+            metadata
+                .key_value_metadata
+                .iter()
+                .flatten()
+                .map(|kv| (kv.key.as_str(), kv.value.as_deref())),
+        )
+    };
+    let df = reader
         .finish()
         .map_err(|e| Error::from_error(ErrorType::SerializationError, e))?;
-    dataframe_to_record_batch(&df)
+    let (schema, columns) = match schema {
+        ReadSchema::Declared(declared) => (declared.clone(), dataframe_to_declared_columns(&df, declared)?),
+        ReadSchema::Infer => {
+            let (fields, columns) = dataframe_to_fields_and_columns(&df)?;
+            match embedded {
+                Some(embedded) if embedded_schema_describes(&embedded, &fields) => (embedded, columns),
+                Some(_) | None => (RecordSchema::new(fields)?, columns),
+            }
+        }
+    };
+    check_not_null(&schema, &columns)?;
+    RecordBatch::new(Arc::new(schema), columns, None, None, Vec::new())
 }
 
 #[cfg(test)]

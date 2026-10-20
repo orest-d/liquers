@@ -13,8 +13,8 @@ created: 2026-10-19
 ---
 # Parquet read through polars honours the declared and embedded schema
 
-Bulk design (`specs/guides/autonomous_bulk_design.md`): Phases 1-4 written, not approved, nothing
-implemented.
+Bulk design (`specs/guides/autonomous_bulk_design.md`): Phases 1-4 written; Phase 4 implemented on
+2026-10-20 (automatic fix).
 
 ## Phase 1: High-Level Design
 
@@ -241,19 +241,19 @@ Run with `CARGO_INCREMENTAL=0 cargo test -p liquers-lib --test records_parquet_p
 
 ### Steps
 
-- [ ] 1. `liquers-lib/tests/records_parquet_polars.rs`: add the tests from Phase 3. All of them
+- [x] 1. `liquers-lib/tests/records_parquet_polars.rs`: add the tests from Phase 3. All of them
   except the two "derives / ignores" AC-7 tests fail at HEAD. Proof:
   `cargo test -p liquers-lib --test records_parquet_polars`. Rollback: delete the tests.
-- [ ] 2. `liquers-lib/src/records/polars.rs`: add `embedded_liquers_schema` and
+- [x] 2. `liquers-lib/src/records/polars.rs`: add `embedded_liquers_schema` and
   `embedded_schema_describes`, and restructure `read_parquet_record_batch` (metadata, then
   `finish`) for the `Infer` path. Proof: `parquet_infer_*` (AC-6, AC-7).
-- [ ] 3. `polars.rs`: add `dataframe_to_declared_batch` and `check_not_null`, and wire the
+- [x] 3. `polars.rs`: add `dataframe_to_declared_batch` and `check_not_null`, and wire the
   `Declared` path. Proof: `parquet_declared_*` (AC-1 to AC-5) and
   `to_record_parquet_with_schema_option_is_strict` (AC-8).
-- [ ] 4. Doc comments: the `polars.rs` module comment and `read_parquet_record_batch`, and
+- [x] 4. Doc comments: the `polars.rs` module comment and `read_parquet_record_batch`, and
   `records/mod.rs::read_parquet_record_batch`. Proof: `cargo doc -p liquers-lib --no-deps` builds
   without warnings for these items.
-- [ ] 5. `specs/reference/RECORD_STREAMS.md`: update §Parquet and the formats table row, add a
+- [x] 5. `specs/reference/RECORD_STREAMS.md`: update §Parquet and the formats table row, add a
   History row and bump `reviewed:`. Close `RECORDS-PARQUET-POLARS-READ-IGNORES-DECLARED-SCHEMA`
   with a resolution note (`DOCS_STRUCTURE_GUIDE.md` §4.3). Proof:
   `python3 scripts/docs_index.py --check`.
@@ -265,3 +265,11 @@ Run `cargo test -p liquers-lib --lib --tests`,
 refuses without `polars`, which is unchanged), `bash scripts/check-build-matrix.sh`, and
 `python3 scripts/docs_index.py --check`. Review the diff for edits outside `liquers-lib` and the
 reference document, and for debug output.
+
+### Implementation notes (2026-10-20)
+
+- `to_record_parquet_with_schema_option_is_strict` links `.txt` schema files: a plain `.yaml` file
+  is read as an object and cannot bind to the `String` `schema` argument. Filed as
+  `YAML-SCHEMA-FILE-CANNOT-BE-LINKED-AS-SCHEMA-TEXT`.
+- A failed `to_record` surfaces as an error state from `AssetRef::get`, so the test accepts either
+  an `Err` or an error state, and checks the message.

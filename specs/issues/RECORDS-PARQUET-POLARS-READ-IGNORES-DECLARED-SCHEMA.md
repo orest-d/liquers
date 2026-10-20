@@ -2,7 +2,7 @@
 id: RECORDS-PARQUET-POLARS-READ-IGNORES-DECLARED-SCHEMA
 kind: issue
 title: Reading Parquet through the polars bridge ignores a caller-declared schema
-status: draft
+status: closed
 priority: P2
 complexity: M
 area: [records, lib/polars]
@@ -67,3 +67,15 @@ ReadSchema<'_>` for signature parity with `liquers_records::read_table`, then di
 (`_schema`) because polars' `ParquetReader` has no schema-aware read path exposed here. Filed per
 CLAUDE.md's "record what you find" rule rather than leaving the parameter's dead effect undocumented
 outside a one-line code comment.
+
+## Resolution
+
+Fixed 2026-10-20 by `design/parquet-read-declared-schema/`.
+`liquers_lib::records::polars::read_parquet_record_batch` now reads the file's key-value metadata
+before the frame. `ReadSchema::Declared` is strict, as in the Arrow IPC reader: columns are matched
+by name, an undeclared column or a type mismatch is an error naming it, nothing is cast, and a
+missing nullable field reads as nulls. `ReadSchema::Infer` restores the embedded `liquers.schema`
+when it still describes the columns, and otherwise derives the schema from the polars dtypes. A
+not-null field holding a null is refused on both paths. Evidence: the `parquet_*` and
+`to_record_parquet_with_schema_option_is_strict` tests in
+`liquers-lib/tests/records_parquet_polars.rs`.

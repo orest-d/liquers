@@ -3,7 +3,7 @@ title: Record Streams
 kind: reference
 audience: internal
 area: [records, lib/value, lib/commands, web]
-reviewed: 2026-10-19
+reviewed: 2026-10-20
 ---
 
 # Record Streams
@@ -535,7 +535,7 @@ selects the schema-aware reader (strict, nothing guessed); `ReadSchema::Infer` t
 | Markdown | `md`, `markdown` — GFM pipe table | yes | yes | presentation: headers are labels; types inferred; null is an empty cell, `""` is `<!---->` | — |
 | HTML | `html` | yes | **no** (`not_supported`) | presentation only | — |
 | Arrow IPC file | `feather`, `ipc`, `arrow_ipc`, `arrow` | yes | yes | **lossless**: types, nulls, schema with roles, `chunk_id` | `ipc` |
-| Parquet | `parquet` | yes | **not here** — `liquers-lib` reads it through polars | values and types; roles lost when read back | `parquet` (write) |
+| Parquet | `parquet` | yes | **not here** — `liquers-lib` reads it through polars | everything, when written by Liquers (`liquers.schema`); values and types otherwise | `parquet` (write) |
 
 Without its feature, `Ipc` / `Parquet` refuse with `not_supported`, naming the feature. All writers
 keep schema order; the text writers read cell by cell through `RecordView::value`, the IPC and
@@ -682,9 +682,13 @@ one PLAIN v1 data page per column, GZIP, min/max statistics, definition levels f
 
 Reading Parquet is `liquers_lib::records::read_parquet_record_batch`: polars' reader, then
 `dataframe_to_record_batch` — used by `RecordView` deserialization and by `to_record`. Without
-`polars` it refuses, naming the feature. It ignores a declared schema
-([`RECORDS-PARQUET-POLARS-READ-IGNORES-DECLARED-SCHEMA`](../issues/RECORDS-PARQUET-POLARS-READ-IGNORES-DECLARED-SCHEMA.md))
-and `liquers.schema`.
+`polars` it refuses, naming the feature. Its schema rules are the Arrow IPC reader's. A declared
+schema is the result's schema, matched by name: a file column it does not declare, a type that
+differs from the declared one, or a missing non-nullable (or `Vector`) field is an error, and
+nothing is cast; a missing nullable field reads as nulls. Without one, the embedded
+`liquers.schema` is restored when it still describes the file's columns (same names and types, in
+order), so roles, labels, the `Id` and `UInt` survive a Liquers round trip; otherwise the schema
+comes from the polars dtypes. On both paths a not-null field holding a null is an error.
 
 ## Value types and commands
 
@@ -813,7 +817,7 @@ directory does not hold, and fails.
 
 | Value | Writes | Reads back as |
 |---|---|---|
-| `RecordView` (any view) | `write_table` in the requested format, directly from the view (no materialize, except IPC and Parquet, which materialize internally) | a `RecordBatch`: the **schema-less** reader for every text format (so roles, labels, `Id` and `UInt` are not restored); IPC with `liquers.schema`; Parquet through polars |
+| `RecordView` (any view) | `write_table` in the requested format, directly from the view (no materialize, except IPC and Parquet, which materialize internally) | a `RecordBatch`: the **schema-less** reader for every text format (so roles, labels, `Id` and `UInt` are not restored); IPC with `liquers.schema`; Parquet through polars, with `liquers.schema` |
 | `RecordSource` with a manifest | its `ManifestSpec`, as `yaml` or `json` — never its rows | a **keyless** `ManifestSource`; `to_record_source` re-keys it |
 | any other `RecordSource` | refused (`SerializationError`) naming `ns-rec/materialize` | — |
 
@@ -866,6 +870,7 @@ materializes to an empty batch; without one it is an error.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-20 | §Parquet: the polars read path honours a declared schema and restores `liquers.schema` (formats table row updated). | `design/parquet-read-declared-schema/` |
 | 2026-10-19 | Crate table: `liquers-web`'s `records` feature is opt-in (release wasm 12.4 MB without it, 16.5 MB with it). | `claude/web-records-opt-in` |
 | 2026-10-13 | `ns-rec` table operations (filters, `sort`, `tail`, `drop_columns`, counts, `schema` with `records_schema` as alias); `select_columns` / `head` lazy over sources; `MappedSource`, `RecordBatch::empty`, `Column::sort_indices`, `StrictPredicate`; DataFrame input; lenient `IndexKind` / `Analyzer` / `FieldRole` deserialization; JSON-first `schema` argument; the `ns-rec` ↔ `ns-pl` comparison. | `design/record-filter-commands/` |
 | 2026-10-13 | §Scalar reading: a single NaN or infinite cell is refused by `try_into_json_value` (a `ConversionError`), consistent with the JSON writer. | phase-5, `design/value-to-json-non-finite-float/` |
