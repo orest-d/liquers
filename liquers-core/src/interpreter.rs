@@ -416,6 +416,8 @@ pub(crate) fn apply_plan_state<E: Environment>(
         // not sent as `Context` log messages: those persist the metadata at once, which would
         // leave a metadata-only store entry for a keyed asset mid-evaluation.
         log_init_steps(&plan, &context).await?;
+        // An error-level planning diagnostic fails the plan before anything is scheduled.
+        fail_on_logged_error(&plan, &context)?;
 
         // A volatile plan makes its asset volatile. A managed asset was already marked when the
         // manager created it; an ad-hoc asset (`apply`, `apply_ad_hoc`) is created without a
@@ -461,13 +463,27 @@ pub(crate) fn apply_plan_state<E: Environment>(
             eprintln!("Applying step {}/{}: {:?}", i + 1, plan.len(), &plan[i]);
             let step = plan[i].clone();
             state = do_step_state(step, state, context.clone(), envref.clone()).await?;
+            // An error logged during the step (`Context::error`) fails the evaluation here, after
+            // the step returned: the rest of the plan does not run and the step's value is dropped.
+            fail_on_logged_error(&plan, &context)?;
         }
         Ok(state)
     }
     .maybe_boxed()
 }
 
+/// Fails with the evaluation's logged error, if a command or a planning diagnostic logged one.
+fn fail_on_logged_error<E: Environment>(plan: &Plan, context: &Context<E>) -> Result<(), Error> {
+    match context.logged_error() {
+        Some(message) => Err(Error::execution_error(message).with_query(&plan.query)),
+        None => Ok(()),
+    }
+}
+
 /// Appends a plan's planning diagnostics (`Plan::init_steps`) to the evaluating asset's log.
+///
+/// An `Error` diagnostic is also recorded as the evaluation's logged error, so the plan fails
+/// before its first step, as one logged by a command would after its step.
 ///
 /// Only `Info`, `Warning` and `Error` are diagnostics; `init_steps` holds nothing else by
 /// contract, and any other step found there is ignored rather than executed.
@@ -477,7 +493,10 @@ async fn log_init_steps<E: Environment>(plan: &Plan, context: &Context<E>) -> Re
         match step {
             Step::Info(message) => entries.push(LogEntry::info(message.clone())),
             Step::Warning(message) => entries.push(LogEntry::warning(message.clone())),
-            Step::Error(message) => entries.push(LogEntry::error(message.clone())),
+            Step::Error(message) => {
+                context.record_logged_error(message);
+                entries.push(LogEntry::error(message.clone()))
+            }
             Step::GetAsset(_)
             | Step::GetAssetBinary(_)
             | Step::GetAssetMetadata(_)

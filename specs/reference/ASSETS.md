@@ -3,7 +3,7 @@ title: Assets Specification
 kind: reference
 audience: internal
 area: [core/assets]
-reviewed: 2026-10-17
+reviewed: 2026-10-20
 ---
 # Assets Specification
 
@@ -1198,7 +1198,7 @@ never sets the parent's status itself; its run does.
 **Post-finish messages.** Once finalized, display-mutating/control service messages
 (`UpdatePrimaryProgress`, `UpdateSecondaryProgress`, `JobSubmitted`, `JobStarted`, `Cancel`,
 `ErrorOccurred`) are dropped (debug-logged); a late `LogMessage` is tolerated (at most one extra
-log entry). The progress a command sent during its own run is the exception: it is applied even
+log entry; an error-level one changes neither the finished status nor `is_error`). The progress a command sent during its own run is the exception: it is applied even
 when the status flipped to finished first, because the progress is finalized only after the
 service loop has drained (below).
 
@@ -1253,6 +1253,7 @@ each with an `ExpiryReason` (§Why an asset is `Expired`). The rules are in
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-20 | §Post-finish messages: a late error-level log entry no longer flips a finished asset's status. | `issues/CONTEXT-ERROR-OUTCOME-DEPENDS-ON-SCHEDULING.md` |
 | 2026-10-17 | §Volatile assets are never owned: an asset can become volatile during its run, through `Context::set_volatile`, a volatile run-time dependency, or (ad hoc) its plan. | `design/runtime-volatility` |
 | 2026-10-15 | `Storing`: written by the unwrapped file and OpenDAL stores, never under a configured write strategy (`direct` / `atomic` / `transactional` and their crash behaviour). §Content changed outside Liquers: per-mount `version_verification` overrides the manager's policy (`content_hash` in `on_read`); a `read_only` mount writes nothing on read; `created` and `etag` on records. | phase-5 (`design/store-adapters/`) |
 | 2026-10-14 | §Terminal outcome: a panicking command fails its asset (`evaluation panicked: …`) instead of hanging its waiters. | `COMMAND-PANIC-HANGS-EVALUATION` |

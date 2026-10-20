@@ -500,6 +500,14 @@ pub struct Context<E: Environment> {
     /// Mirrors the asset's volatility flag once [`Self::set_volatile`] has recorded it, so
     /// [`Self::is_volatile`] can stay synchronous. The asset remains the authority.
     volatile_set: Arc<std::sync::atomic::AtomicBool>,
+
+    /// The message of the first error-level entry logged through this context, if any.
+    ///
+    /// Recorded synchronously by [`Self::add_log_entry`], so it does not depend on when the
+    /// asset's service loop applies the log message. The interpreter checks it after every step
+    /// and fails the asset with it (see [`Self::error`]). Shared across context clones, so every
+    /// step of one evaluation sees it.
+    logged_error: Arc<std::sync::Mutex<Option<String>>>,
 }
 
 impl<E: Environment> Context<E> {
@@ -526,6 +534,7 @@ impl<E: Environment> Context<E> {
             cancellation,
             resolved_dependencies: Arc::new(Mutex::new(Vec::new())),
             volatile_set: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            logged_error: Arc::new(std::sync::Mutex::new(None)),
         }
     }
 
@@ -1121,6 +1130,7 @@ impl<E: Environment> Context<E> {
             cancellation: self.cancellation.clone(),
             resolved_dependencies: self.resolved_dependencies.clone(),
             volatile_set: self.volatile_set.clone(),
+            logged_error: self.logged_error.clone(),
         }
     }
 
@@ -1159,7 +1169,14 @@ impl<E: Environment> Context<E> {
             .await
     }
     /// Sends a structured log entry to the current asset.
+    ///
+    /// An entry of kind [`LogEntryKind::Error`](crate::metadata::LogEntryKind::Error) is also
+    /// recorded as this evaluation's logged error, which fails the asset once the current step
+    /// returns (see [`Self::error`]).
     pub fn add_log_entry(&self, entry: LogEntry) -> Result<(), Error> {
+        if entry.kind == crate::metadata::LogEntryKind::Error {
+            self.record_logged_error(&entry.message);
+        }
         self.service_tx
             .send(AssetServiceMessage::LogMessage(entry))
             .map_err(|e| Error::general_error(format!("Failed to send log message: {}", e)))
@@ -1179,12 +1196,35 @@ impl<E: Environment> Context<E> {
         eprintln!("WARNING: {}", message);
         self.add_log_entry(LogEntry::warning(message.to_string()))
     }
-    /// Logs an error-level message and writes it to stderr.
+    /// Logs an error-level message, writes it to stderr, and marks the evaluation failed.
     ///
-    /// This does not fail the asset; use [`Self::set_error`] for that operation.
+    /// The command is not interrupted: it keeps running and may log more or return a value. A
+    /// managed asset's metadata gets the entry and `is_error`, but its status stays in flight.
+    /// When the current plan step returns, the interpreter stops the plan and the asset fails
+    /// with an `ExecutionError` carrying the first logged error's message; a returned value is
+    /// discarded, while an `Err` the command returns is the failure instead. The asset manager
+    /// checks again after `Environment::apply_recipe` returns, so an environment that runs a
+    /// plan another way gets the same outcome. Use [`Self::warning`] to record a problem without
+    /// failing.
     pub fn error(&self, message: &str) -> Result<(), Error> {
         eprintln!("ERROR:   {}", message);
         self.add_log_entry(LogEntry::error(message.to_string()))
+    }
+
+    /// Records `message` as the logged error unless one is recorded already.
+    pub(crate) fn record_logged_error(&self, message: &str) {
+        let mut logged = self.logged_error.lock().unwrap_or_else(|e| e.into_inner());
+        if logged.is_none() {
+            *logged = Some(message.to_string());
+        }
+    }
+
+    /// The message of the first error logged through this evaluation's context, if any.
+    pub fn logged_error(&self) -> Option<String> {
+        self.logged_error
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
     /// Clones the context.
     ///
@@ -1204,6 +1244,7 @@ impl<E: Environment> Context<E> {
             cancellation: self.cancellation.clone(),
             resolved_dependencies: self.resolved_dependencies.clone(),
             volatile_set: self.volatile_set.clone(),
+            logged_error: self.logged_error.clone(),
         }
     }
     /// Returns the current working key used for relative query resolution.
@@ -1434,9 +1475,10 @@ impl<E: Environment> Context<E> {
         Ok(())
     }
 
-    /// Fails the current asset with an error.
+    /// Fails the current asset with an error, immediately.
     ///
-    /// Unlike [`Self::error`], this changes the asset's terminal state.
+    /// [`Self::error`] fails the asset only when the current step returns, and keeps its
+    /// message; this sets the terminal state and the structured error now.
     pub async fn set_error(&self, error: Error) -> Result<(), Error> {
         self.assetref.set_error(error).await
     }
@@ -1458,6 +1500,7 @@ impl<E: Environment> Clone for Context<E> {
             cancellation: self.cancellation.clone(),
             resolved_dependencies: self.resolved_dependencies.clone(),
             volatile_set: self.volatile_set.clone(),
+            logged_error: self.logged_error.clone(),
         }
     }
 }
@@ -1979,6 +2022,7 @@ mod tests {
                 cancellation: Arc::new(CancellationRequest::new()),
                 resolved_dependencies: Arc::new(Mutex::new(Vec::new())),
                 volatile_set: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                logged_error: Arc::new(std::sync::Mutex::new(None)),
             },
             service_rx,
         )

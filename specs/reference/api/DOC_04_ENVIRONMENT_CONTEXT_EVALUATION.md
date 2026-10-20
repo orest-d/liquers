@@ -3,7 +3,7 @@ title: Environment, Context and Evaluation Reference
 kind: reference
 audience: internal
 area: [core/context, core/plan]
-reviewed: 2026-10-17
+reviewed: 2026-10-20
 ---
 # DOC-04: Environment, Context, and End-to-End Evaluation
 
@@ -469,8 +469,16 @@ instead of registering payload-specific assets in the shared dependency graph.
 asset's service channel. `debug`, `info`, `warning`, and `error` also write to
 stderr before sending a structured log entry.
 
-`Context::error` only records an error-level log message. It does not fail the
-asset. `Context::set_error` changes the asset outcome to `Error`.
+`Context::error` logs an error-level entry and marks the evaluation failed. It does
+not interrupt the command, and the asset's status stays in flight (`Processing`) while
+the command runs; only the metadata's `is_error` flag is set. When the step returns,
+the interpreter stops the plan with an `ExecutionError` carrying the first logged
+error's message: the returned value is discarded, the remaining steps do not run, and
+the asset ends in `Error`. If the command returns `Err` instead, that error is the
+failure. The asset manager checks again after `Environment::apply_recipe` returns, so a
+custom environment gets the same outcome. The same holds for an executable `Step::Error`. Use
+`warning` to report a problem without failing. `Context::set_error` fails the asset
+immediately.
 
 `set_filename` mutates current metadata directly. `set_expires` updates metadata
 expiration and the asset's resolved deadline. Both are public today, although
@@ -558,7 +566,7 @@ The improved reference should prevent:
 - Assuming `EnvRef::evaluate(...).await` always returns a ready value
 - Building a native queued environment outside a Tokio runtime
 - Expecting payload inheritance through keyed assets, which deliberately form a payload boundary
-- Treating `Context::error` as an asset failure
+- Logging with `Context::error` and expecting the command's returned value to survive
 - Treating `Context::apply` as dependency-tracked evaluation
 - Mutating one context clone's payload and expecting other clones to see replacement
 - Selecting `SimpleEnvironmentWithPayload` for Wasm
@@ -601,6 +609,7 @@ methods crate-private), so an asset manager can be implemented outside `liquers-
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-20 | §Logging, progress, metadata, and outcome: `Context::error` fails the evaluation once the step returns (`ExecutionError`, first message); mid-run only `is_error` is set. Pitfall reworded. | `issues/CONTEXT-ERROR-OUTCOME-DEPENDS-ON-SCHEDULING.md` |
 | 2026-10-17 | `apply_ad_hoc` passes on a failed evaluation's dependencies; `apply_for` returns the failed asset. | PR #139 review |
 | 2026-10-17 | `apply_ad_hoc` volatility: `v` goes before the parent's own action; linked the run-time volatility issue. | `RUNTIME-VOLATILE-DEPENDENCY-DOES-NOT-MAKE-PARENT-VOLATILE` |
 | 2026-10-17 | §Dependency and apply methods: `Context::apply_ad_hoc`, which passes the ad-hoc dependencies on and no volatility. | `design/liquers-mustache/` |

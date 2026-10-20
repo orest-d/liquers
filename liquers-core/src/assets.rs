@@ -3188,9 +3188,9 @@ impl<E: Environment> AssetRef<E> {
                 "Asset evaluation finished ({:?} status) but no data available",
                 lock.status
             ));
-            if let Err(e) = lock.metadata.add_log_entry(LogEntry::from_error(&e)) {
-                eprintln!("!!!ERROR!!! Failed to add log entry: {}", e);
-            }
+            // `with_error` sets the metadata's status, `is_error` and `error_data` with the log
+            // entry; a bare error log entry no longer changes the status.
+            lock.metadata.with_error(e);
         }
         true
     }
@@ -3956,7 +3956,16 @@ impl<E: Environment> AssetRef<E> {
         }
         let context_for_deps = context.clone(); // shares pending_dependencies Arc
         eprintln!("Applying recipe");
-        let res = match envref.apply_recipe(input_state, recipe, context).await {
+        // An error logged through the context fails the run even when the environment's
+        // `apply_recipe` does not go through the interpreter, which checks it after every step.
+        let outcome = envref
+            .apply_recipe(input_state, recipe, context)
+            .await
+            .and_then(|res| match context_for_deps.logged_error() {
+                Some(message) => Err(Error::execution_error(message)),
+                None => Ok(res),
+            });
+        let res = match outcome {
             Ok(res) => res,
             Err(error) => {
                 // A failed evaluation keeps what it read, so a caller that recovers the failure

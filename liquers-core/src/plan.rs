@@ -2513,7 +2513,8 @@ impl Plan {
     }
     /// Appends an executable error-level diagnostic.
     ///
-    /// This does not populate [`Self::error`] and does not by itself abort interpretation.
+    /// This does not populate [`Self::error`]. When interpreted, the step logs through
+    /// [`crate::context::Context::error`], so the plan stops with an `ExecutionError` after it.
     pub fn error(&mut self, message: String) {
         self.steps.push(Step::Error(message));
     }
