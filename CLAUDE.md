@@ -9,6 +9,8 @@ liquers-store/    # Storage backends (OpenDAL integration, config)
 liquers-records/  # Record streams: columnar tables, views, sources, manifests, table formats
 liquers-template/ # Query-aware Mustache templates (parser, renderer, query templates)
 liquers-lib/      # Command library, Rich value types (Polars DataFrames, egui UI, images)
+liquers-mcp/      # Commands served as MCP tools (rmcp; depends on liquers-core only)
+liquers-agent/    # Agent memory binary: ns-mem tools over MCP stdio and the CLI
 liquers-axum/     # HTTP REST API server
 liquers-web/      # Browser/JavaScript bindings (wasm32-only)
 liquers-py/       # Python bindings (PyO3)
@@ -23,7 +25,8 @@ specs/            # Internal documentation — see specs/README.md
 **Dependency flow**: `liquers-core` ← `liquers-macro` ← `liquers-store` ← `liquers-lib` ← `liquers-axum` / `liquers-web`;
 `liquers-core` ← `liquers-records` ← `liquers-lib` (feature `records`). `liquers-records` depends on
 `liquers-core` only, so a crate built on records need not pull in `liquers-lib`. Likewise
-`liquers-core` ← `liquers-template` ← `liquers-lib` (feature `templates`).
+`liquers-core` ← `liquers-template` ← `liquers-lib` (feature `templates`), and
+`liquers-core` ← `liquers-mcp` ← `liquers-agent` (which also uses `liquers-lib` with `mem`).
 
 **Key specs**: See `specs/reference/VISION.md` for the project's purpose, vision and strategy (background for design and review work), `specs/reference/PROJECT_OVERVIEW.md` for architecture, `specs/reference/REGISTER_COMMAND_FSD.md` for macro details, `specs/reference/ASSETS.md` for asset lifecycle.
 
@@ -69,6 +72,10 @@ Also:
   provider: `liquers-records/src/`. The glue that needs `liquers-lib`'s `Value` — `ExtValue::RecordView`
   / `RecordSource`, `to_record` / `to_record_source`, the `ns-rec` commands, the polars bridge:
   `liquers-lib/src/records/` (design: `specs/design/record-streams/`)
+- Agent memory: the `ns-mem` commands in `liquers-lib/src/mem/` (feature `mem`); serving commands
+  as MCP tools in `liquers-mcp/`; the binary, its built-in tool set and query guide in
+  `liquers-agent/` (`specs/reference/AGENT_MEMORY_SERVICE.md`). This repository's specs as a
+  memory: `memory/liquers-specs.yaml`
 - Template language (parser, renderer, query templates, hosts): `liquers-template/src/`; the
   `ns-template` commands, `ContextHost` and the store folder node: `liquers-lib/src/template/`
   (reference: `specs/reference/TEMPLATE_LANGUAGE.md`)
@@ -159,9 +166,9 @@ mod tests {
 
 **Minimum Rust: 1.95** (`[workspace.package] rust-version` in `Cargo.toml`, set by the egui 0.36 / sysinfo 0.39 dependencies; a minimum, not a pin — on an older toolchain run `rustup update stable`).
 
-**`liquers-py` supports CPython 3.8–3.12 and PyPy 3.8–3.10** (PyO3 0.21). With CPython 3.13 or
-newer, prefix its builds with `PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1` (no such override exists for
-PyPy) — see `liquers-py/README.md`.
+**`liquers-py` supports CPython 3.9–3.15 and PyPy 3.11 or newer** (PyO3 0.30); no build override
+is needed — see `liquers-py/README.md`. Its tests run with `bash scripts/test-liquers-py.sh`
+(venv under `target/`, `maturin develop`, pytest, then its Rust unit tests).
 
 Rust debug builds of this workspace are large — large enough that a full build does not fit in a
 cloud dev environment (Claude Code on the web caps sessions at **30 GB of disk**, and `df` reports
@@ -173,6 +180,8 @@ they are worth so nobody removes them by accident.
 ```bash
 cargo test -p liquers-lib --lib --tests     # the normal loop: unit + integration, no examples
 cargo test -p liquers-records --all-features --lib --tests   # records work: builds core only
+cargo test -p liquers-mcp                   # MCP engine: builds core only
+cargo test -p liquers-agent                 # agent memory end to end (needs Rust 1.96: s3s)
 ```
 
 `liquers-lib` is where most work lands and it transitively builds `liquers-core`, `liquers-macro`
@@ -190,7 +199,7 @@ crate's test binaries at once, which is what exhausts the allowance.
 ### Feature matrix
 
 The default loop builds one feature configuration. `egui`, `image-support`, `polars`, `webui`,
-`records`, `records-ipc`, `records-parquet` and `templates` are all optional (all but `webui` on by default), and a missing `#[cfg]` compiles fine with the defaults on while breaking a
+`records`, `records-ipc`, `records-parquet`, `templates` and `mem` are all optional (all but `webui` on by default), and a missing `#[cfg]` compiles fine with the defaults on while breaking a
 minimal or wasm build. `scripts/check-build-matrix.sh` checks every configuration, library **and
 test targets**, plus the wasm32 target, `liquers-store`'s feature split and `liquers-records`' own
 `ipc` / `parquet` features:
@@ -212,6 +221,7 @@ cargo test -p liquers-lib --no-default-features --features image-support --lib -
 cargo test -p liquers-lib --no-default-features --features webui --lib --tests
 cargo test -p liquers-lib --no-default-features --features records --lib --tests
 cargo test -p liquers-lib --no-default-features --features templates --lib --tests
+cargo test -p liquers-lib --no-default-features --features mem --lib --tests
 cargo test -p liquers-records --lib --tests                 # no formats beyond the built-in ones
 ```
 
@@ -219,7 +229,7 @@ Each test file that needs an optional dependency is gated — `#![cfg(feature = 
 when the whole file needs it, `#[cfg(feature = "…")]` on the single test when it does not — so a
 reduced configuration runs the subset that applies instead of failing to compile. Tests comparing
 against `specs/command_registry.yaml`, which is exported with the default features, are gated on
-all five groups (`egui`, `image-support`, `polars`, `records`, `templates`).
+all six groups (`egui`, `image-support`, `polars`, `records`, `templates`, `mem`).
 
 ### liquers-web
 
@@ -228,8 +238,10 @@ never build it. It has three test loops, because three different things are bein
 them after `cargo clean`, separately from the native loop:
 
 ```bash
-# Conformance suites, under Node. No browser needed; this is the routine loop.
+# Conformance suites, under Node. No browser needed; this is the routine loop. `records` is
+# opt-in (off by default), so run it both ways.
 cargo test -p liquers-web --target wasm32-unknown-unknown --features debug-handles
+cargo test -p liquers-web --target wasm32-unknown-unknown --features debug-handles,records
 
 # Suites that need a real browser API (`localStorage`). Requires a chromedriver whose major
 # version matches the installed browser.
@@ -237,8 +249,8 @@ CHROMEDRIVER=$(which chromedriver) cargo test -p liquers-web \
   --target wasm32-unknown-unknown --features browser-tests
 
 # Declarations and artifact structure.
-./liquers-web/examples-web/quickstart/build.sh
-./liquers-web/scripts/check-stubs.sh
+./liquers-web/scripts/check-stubs.sh --build             # default build: record classes absent
+./liquers-web/scripts/check-stubs.sh --build --records   # with records
 
 # The delivery form, in a real browser.
 cd liquers-web/tests/e2e && npm install && npx playwright test

@@ -2,7 +2,7 @@
 id: LANGUAGE-GUIDE-STALE-LIQUERS-WEB-CLAIMS
 kind: issue
 title: LANGUAGE-INTEGRATION_GUIDE makes stale claims about liquers-web
-status: draft
+status: closed
 priority: P2
 complexity: S
 area: [docs, web]
@@ -48,3 +48,9 @@ Correct the four statements (with a `## History` row and a `reviewed:` bump per
 
 Bidirectional conformance audit (2026-10-17): the guide's descriptive claims about liquers-web
 were fact-checked against the code.
+
+## Resolution (2026-10-18)
+
+Fixed by `specs/design/language-guide-web-claims/`. The guide's §3 harness question 2, the §OBJECT
+`OBJECT09` one-liner, the rebuild triggers in the TypeRegistry advice and the worked-example entry
+now match the code and Appendix A; `reviewed:` bumped and a History row added.

@@ -362,6 +362,46 @@ fn js_to_json(js: &JsValue, depth: usize, path: &str) -> Result<serde_json::Valu
     ))
 }
 
+thread_local! {
+    /// The environment of the conversion in progress, when its caller named one. An `EnvRef<E>`
+    /// behind `Any`, because this module is generic over the environment and only the extension
+    /// that reads it knows the concrete type.
+    static CONVERSION_ENV: std::cell::RefCell<Option<Box<dyn std::any::Any>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Converts a value as [`value_to_js`] does, inside `envref`: a handle the conversion creates
+/// (a record source, which evaluates chunks later) can read the environment with
+/// [`conversion_env`] and keep it, so it resolves through the environment that produced the value.
+///
+/// A scope rather than an argument, so that `JsExtensionBridge::to_js_custom` keeps its signature
+/// for every extension type that does not care. wasm is single-threaded and the conversion is
+/// synchronous, so the scope covers exactly this call; the previous scope is restored after it.
+pub fn value_to_js_in<E, V>(
+    envref: &liquers_core::context::EnvRef<E>,
+    value: &V,
+) -> Result<JsValue, Error>
+where
+    E: liquers_core::context::Environment,
+    V: JsValueBridge,
+{
+    let previous = CONVERSION_ENV.with(|cell| cell.replace(Some(Box::new(envref.clone()))));
+    let result = value_to_js(value);
+    CONVERSION_ENV.with(|cell| *cell.borrow_mut() = previous);
+    result
+}
+
+/// The environment of the conversion in progress, when it is an `EnvRef<E>`.
+pub fn conversion_env<E: liquers_core::context::Environment>(
+) -> Option<liquers_core::context::EnvRef<E>> {
+    CONVERSION_ENV.with(|cell| {
+        cell.borrow()
+            .as_ref()
+            .and_then(|env| env.downcast_ref::<liquers_core::context::EnvRef<E>>())
+            .cloned()
+    })
+}
+
 /// Converts a Liquers value into a JavaScript value.
 ///
 /// An opaque value is handed back as the original object; a value belonging to a *different*
@@ -412,6 +452,11 @@ fn json_to_js(json: &serde_json::Value) -> Result<JsValue, Error> {
 ///
 /// Routing every conversion through here keeps the shape uniform: an object that crossed into
 /// Liquers as an object crosses back as one.
+///
+/// Integers keep serde-wasm-bindgen's default: one inside ±(2^53 − 1) becomes a `number`, and one
+/// outside it is refused with `ConversionError` rather than rounded or sent as a `BigInt`. That
+/// satisfies `VALUE03` (exact or raise, never silently imprecise) without making pages handle
+/// `BigInt`; `value03_outbound_integer_boundaries` in `tests/value_bridge_VALUE.rs` holds it.
 pub fn serialize_to_js<T: serde::Serialize + ?Sized>(
     value: &T,
 ) -> Result<JsValue, serde_wasm_bindgen::Error> {

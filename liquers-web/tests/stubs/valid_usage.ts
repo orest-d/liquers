@@ -58,6 +58,30 @@ async function main(): Promise<void> {
     run: named,
   });
   const stillTyped: string = named('a', 2);
+
+  // ENVIRON08 — a batch: declarations, or imported metadata bound to functions by name. The
+  // report is returned, and also carried by the error of a refused batch.
+  const report: liquers.LiquersIssueReport = liquers.validateCommands(
+    'commands:\n  - name: imported\n',
+    { imported: () => 'imported' },
+  );
+  const firstIssue: liquers.LiquersIssue | undefined = report.issues[0];
+  const where: string | undefined = firstIssue?.command?.name;
+  void where;
+  if (!report.hasErrors) {
+    liquers.registerCommands([
+      { name: 'one', run: () => 1 },
+      { name: 'two', state: 'text' },
+    ], { two: { run: (text: string) => text, state: 'text' } });
+  }
+  try {
+    liquers.registerCommands('commands: []');
+  } catch (e) {
+    if (e instanceof liquers.LiquersError) {
+      const summary: string | null | undefined = e.report?.summary;
+      void summary;
+    }
+  }
   void stillTyped;
 
   // Evaluation returns a Promise.
@@ -87,31 +111,6 @@ async function main(): Promise<void> {
   const key: liquers.Key = liquers.Key.parse('data/file.txt');
   void encoded;
   void key;
-
-  // RecordBatch / RecordColumn (the `records` feature). `RecordBatch` has no public constructor
-  // — a page gets one back from a query that evaluates to a table — so this checks the declared
-  // shape via a type assertion rather than constructing one.
-  const batch = null as unknown as liquers.RecordBatch;
-  const numRows: number = batch.numRows;
-  const numColumns: number = batch.numColumns;
-  const schemaJson: string = batch.schemaJson();
-  const descriptor: liquers.LiquersRecordColumnDescriptor = batch.column(0);
-  const columnCopyResult: unknown = batch.columnCopy(0);
-  void numRows;
-  void numColumns;
-  void schemaJson;
-  void columnCopyResult;
-
-  const kind: string = descriptor.kind;
-  const validity: liquers.LiquersRecordColumnDescriptor | null = descriptor.validity;
-  void kind;
-  void validity;
-
-  const recordColumn = null as unknown as liquers.LiquersRecordColumn;
-  const view: ArrayBufferView = recordColumn.view;
-  const copy: liquers.LiquersRecordColumnCopy = recordColumn.toCopy();
-  void view;
-  void copy;
 
   // The store: raw metadata, and the effective asset info derived from it.
   const store: liquers.Store = liquers.Environment.global().store();

@@ -51,6 +51,7 @@ AREAS = {
     "lib/image",
     "lib/egui",
     "lib/ui",
+    "mcp",
     "axum",
     "web",
     "py",

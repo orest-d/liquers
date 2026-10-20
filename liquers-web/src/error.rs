@@ -5,6 +5,7 @@
 //! string field instead, which is also what makes it forward-compatible.
 
 use liquers_core::error::{Error, ErrorType};
+use liquers_core::issue_report::{Issue, IssueReport};
 use wasm_bindgen::prelude::*;
 
 /// Stable string names for every [`ErrorType`].
@@ -84,6 +85,7 @@ pub struct LiquersError {
     inner: Error,
     js_class: Option<String>,
     js_stack: Option<String>,
+    report: Option<JsValue>,
 }
 
 #[wasm_bindgen(js_class = LiquersError)]
@@ -168,6 +170,14 @@ impl LiquersError {
         self.js_stack.clone()
     }
 
+    /// The complete validation report behind a refused `registerCommands` or `registerCommand`,
+    /// as `validateCommands` returns it; `undefined` on every other error. The message is its
+    /// `summary`.
+    #[wasm_bindgen(getter, unchecked_return_type = "LiquersIssueReport | undefined")]
+    pub fn report(&self) -> JsValue {
+        self.report.clone().unwrap_or(JsValue::UNDEFINED)
+    }
+
     #[wasm_bindgen(js_name = toString)]
     pub fn to_string_js(&self) -> String {
         format!("{}: {}", self.error_type(), self.inner.message)
@@ -180,7 +190,14 @@ impl LiquersError {
             inner,
             js_class: None,
             js_stack: None,
+            report: None,
         }
+    }
+
+    /// Attaches the validation report a refused command batch carries.
+    pub fn with_report(mut self, report: &IssueReport) -> Self {
+        self.report = Some(issue_report_to_js(report));
+        self
     }
 
     /// Builds an error from a thrown JavaScript value, keeping the originating class and stack in
@@ -195,6 +212,7 @@ impl LiquersError {
             inner: js_error_to_liquers(thrown, fallback),
             js_class: class,
             js_stack: stack,
+            report: None,
         }
     }
 
@@ -295,4 +313,70 @@ fn js_value_as_liquers_error(thrown: &JsValue) -> Option<Error> {
         .and_then(|m| m.as_string())
         .unwrap_or_default();
     Some(Error::from_error(error_type, message))
+}
+
+/// A validation report as JavaScript sees it (`LiquersIssueReport` in the `.d.ts`).
+///
+/// `{ issues, errorCount, warningCount, hasErrors, summary }`, each issue
+/// `{ severity, message, command }`. A flat, declared shape rather than serde's form of
+/// [`Issue`], which would put a Rust enum name in the page's API and change it whenever core adds
+/// a variant. `severity` is [`liquers_core::issue_report::IssueSeverity`]'s lowercase name;
+/// `command` is `{ realm, namespace, name }`, or `null` when no command is known. `summary` is the
+/// message a refusal throws, or `null` when there is no error.
+pub fn issue_report_to_js(report: &IssueReport) -> JsValue {
+    // Built directly rather than through `serialize_to_js`: serde-wasm-bindgen writes a JSON
+    // `null` as `undefined`, and the declared shape promises `null`.
+    let set = |target: &js_sys::Object, key: &str, value: &JsValue| {
+        let _ = js_sys::Reflect::set(target, &JsValue::from_str(key), value);
+    };
+    let issues = js_sys::Array::new();
+    for issue in report.issues() {
+        let entry = js_sys::Object::new();
+        set(
+            &entry,
+            "severity",
+            &JsValue::from_str(&issue.severity().to_string()),
+        );
+        set(&entry, "message", &JsValue::from_str(issue.message()));
+        let command = match issue {
+            Issue::Generic { .. } => JsValue::NULL,
+            Issue::CommandRegistry {
+                realm,
+                namespace,
+                name,
+                ..
+            } => {
+                let command = js_sys::Object::new();
+                set(&command, "realm", &JsValue::from_str(realm));
+                set(&command, "namespace", &JsValue::from_str(namespace));
+                set(&command, "name", &JsValue::from_str(name));
+                command.into()
+            }
+        };
+        set(&entry, "command", &command);
+        issues.push(&entry);
+    }
+    let document = js_sys::Object::new();
+    set(&document, "issues", &issues);
+    set(
+        &document,
+        "errorCount",
+        &JsValue::from_f64(report.error_count() as f64),
+    );
+    set(
+        &document,
+        "warningCount",
+        &JsValue::from_f64(report.warning_count() as f64),
+    );
+    set(
+        &document,
+        "hasErrors",
+        &JsValue::from_bool(report.has_errors()),
+    );
+    let summary = report
+        .short_summary("Command metadata")
+        .map(|summary| JsValue::from_str(&summary))
+        .unwrap_or(JsValue::NULL);
+    set(&document, "summary", &summary);
+    document.into()
 }

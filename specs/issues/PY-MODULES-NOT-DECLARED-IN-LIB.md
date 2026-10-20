@@ -2,11 +2,11 @@
 id: PY-MODULES-NOT-DECLARED-IN-LIB
 kind: issue
 title: Half of liquers-py's source files are not declared as modules and never compile
-status: draft
+status: closed
 priority: P2
 complexity: M
 area: [py]
-design: py-orphan-modules
+design:
 created: 2026-08-25
 github:
 ---
@@ -40,17 +40,6 @@ not compile. That it does not fail is proof the file is not in the build.
 A second proof (noted 2026-10-10, `design/context-param-order/`): `commands.rs:189-191` call
 `register_command!(cr, hello())` and `greet(state, who:String)` — no `fn` and no `-> result`, a
 syntax the macro has not accepted for a long time. Declaring the module will need these rewritten.
-
-## Problem example
-
-```python
-reg = liquers_py.CommandMetadataRegistry()
-reg.add_python_command("", "double", "mymod", "double", "pyobject", ["x"], False)
-```
-
-`double` becomes an alias of `pycall`; installed into a Python `Environment` (`env.cmr = reg`), its
-`alias_target` is `Err(alias_target_not_registered)`, because nothing registers `pycall`. It should
-resolve to the `pycall` bridge. Design: `specs/design/py-orphan-modules/`.
 
 ## Impact
 
@@ -110,3 +99,20 @@ alias.
 `liquers_core::cache`, which that design removes, and a future Python store wraps `AsyncStore`
 (`design/python-wrapper/`). Once it lands, the remaining orphans are `commands`, `interpreter` and
 `state`.
+
+## Resolution (2026-10-17)
+
+Resolved by deletion, the third option of "Fix direction" step 3. The last three orphans —
+`liquers-py/src/commands.rs`, `interpreter.rs` and `state.rs` — are removed, along with the comment
+in `lib.rs` that listed them; nothing compiled referred to them. Every remaining file under
+`liquers-py/src/` is declared in `lib.rs` and compiled.
+
+The Python command-execution path they sketched (`pycall`, the `CommandRegistry` wrapper) is not
+ported: it is redesigned by the liquers-py implementation plan, whose design folder is to be
+`specs/design/liquers-py/` — one Rust closure per Python command owning its callable, instead of an
+alias to a `pycall` command resolved by module path at call time. Until then
+`CommandMetadataRegistry::add_python_command` still builds an alias to the unregistered `pycall`
+(Impact, point 2), now tracked as `PY-ADD-PYTHON-COMMAND-ALIASES-AN-UNREGISTERED-COMMAND`.
+
+Evidence: `cargo check -p liquers-py --lib --tests` builds with zero warnings, and
+`bash scripts/test-liquers-py.sh` passes.

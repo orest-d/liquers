@@ -398,5 +398,376 @@ async fn environ07_documented_operations_are_callable() {
         message.contains("liquers.registerCommand"),
         "the refusal must point at the supported path: {message}"
     );
+
+    // Validating a batch is callable with no singleton at all, and does not create one.
+    let report = liquers_web::validate_commands(decl("y", "return 1;").unchecked_into(), None);
+    assert_eq!(get(&report, "hasErrors").as_bool(), Some(false));
+    assert!(!liquers_web::is_initialized());
     reset_global();
+}
+
+// ---------------------------------------------------------------------------
+// ENVIRON08 — the validation report for imported command metadata
+// (`specs/design/web-environ-validation-report/`).
+// ---------------------------------------------------------------------------
+
+fn get(value: &JsValue, key: &str) -> JsValue {
+    js_sys::Reflect::get(value, &JsValue::from_str(key)).expect("property readable")
+}
+
+fn issues(report: &JsValue) -> Vec<JsValue> {
+    js_sys::Array::from(&get(report, "issues")).iter().collect()
+}
+
+/// The `name` of an issue's command, or `None` for `command: null`.
+fn issue_command(issue: &JsValue) -> Option<String> {
+    let command = get(issue, "command");
+    if command.is_null() {
+        None
+    } else {
+        get(&command, "name").as_string()
+    }
+}
+
+fn implementations(entries: &[(&str, &str)]) -> JsValue {
+    let impls = js_sys::Object::new();
+    for (name, body) in entries {
+        js_sys::Reflect::set(
+            &impls,
+            &JsValue::from_str(name),
+            &js_sys::Function::new_no_args(body),
+        )
+        .expect("set implementation");
+    }
+    impls.into()
+}
+
+fn validate(input: &JsValue, impls: &JsValue) -> JsValue {
+    liquers_web::validate_commands(
+        input.clone().unchecked_into(),
+        Some(impls.clone().unchecked_into()),
+    )
+    .into()
+}
+
+fn register(input: &JsValue, impls: &JsValue) -> Result<JsValue, JsValue> {
+    liquers_web::register_commands(
+        input.clone().unchecked_into(),
+        Some(impls.clone().unchecked_into()),
+    )
+    .map(Into::into)
+}
+
+async fn evaluate(query: &str) -> JsValue {
+    let envref = shared_env().expect("share");
+    let query = liquers_core::parse::parse_query(query).expect("parse");
+    liquers_web::eval::evaluate_query(envref, query)
+        .await
+        .expect("evaluates")
+}
+
+const STARVED_REGISTRY: &str = "
+commands:
+  - name: join
+    arguments:
+      - { name: xs, argument_type: string, multiple: true }
+      - { name: a, argument_type: string }
+      - { name: b, argument_type: string }
+";
+
+/// ENVIRON08 — imported metadata gets the registry check, and its report lists every finding.
+#[wasm_bindgen_test]
+fn environ08_serialized_registry_reports_every_issue() {
+    reset_global();
+    let report = validate(
+        &JsValue::from_str(STARVED_REGISTRY),
+        &implementations(&[("join", "return '';")]),
+    );
+    assert_eq!(get(&report, "hasErrors").as_bool(), Some(true));
+    assert_eq!(get(&report, "errorCount").as_f64(), Some(2.0));
+    let found = issues(&report);
+    assert_eq!(found.len(), 2);
+    for (issue, starved) in found.iter().zip(["'a'", "'b'"]) {
+        assert_eq!(get(issue, "severity").as_string().as_deref(), Some("error"));
+        assert_eq!(issue_command(issue).as_deref(), Some("join"));
+        let message = get(issue, "message").as_string().unwrap_or_default();
+        assert!(message.contains(starved), "{message}");
+    }
+    let summary = get(&report, "summary").as_string().expect("a summary");
+    assert!(
+        summary.starts_with("Command metadata contains 2 errors"),
+        "{summary}"
+    );
+}
+
+/// ENVIRON08 — a refused batch registers nothing, and its error carries the full report.
+#[wasm_bindgen_test]
+fn environ08_refused_batch_registers_nothing_and_carries_the_report() {
+    reset_global();
+    init_global().expect("init");
+    let batch = js_sys::Array::new();
+    batch.push(&decl("fine", "return 1;"));
+    batch.push(&JsValue::from(42));
+    let error = register(&batch.into(), &JsValue::UNDEFINED).expect_err("the batch has an error");
+
+    assert_eq!(
+        get(&error, "errorType").as_string().as_deref(),
+        Some("parameter_error")
+    );
+    let report = get(&error, "report");
+    assert_eq!(get(&report, "errorCount").as_f64(), Some(1.0));
+    assert_eq!(
+        get(&error, "message").as_string(),
+        get(&report, "summary").as_string(),
+        "the compact message is the report's summary"
+    );
+    assert!(
+        !has_command("fine"),
+        "all or nothing: the valid command is not registered"
+    );
+    reset_global();
+}
+
+/// ENVIRON08 — a valid batch registers every command through one rebuild and returns its report.
+#[wasm_bindgen_test]
+async fn environ08_valid_batch_registers_with_one_rebuild() {
+    reset_global();
+    init_global().expect("init");
+    register_command_on(&decl("first", "return 'first';")).expect("register");
+    assert_eq!(
+        evaluate("first").await.as_string().as_deref(),
+        Some("first")
+    );
+    let before = with_global().expect("shared");
+
+    let batch = js_sys::Array::new();
+    for name in ["b1", "b2", "b3"] {
+        batch.push(&decl(name, &format!("return '{name}';")));
+    }
+    let report = register(&batch.into(), &JsValue::UNDEFINED).expect("a valid batch registers");
+    assert_eq!(get(&report, "hasErrors").as_bool(), Some(false));
+    assert!(issues(&report).is_empty());
+
+    let after = with_global().expect("shared");
+    assert!(
+        !std::sync::Arc::ptr_eq(&before.0, &after.0),
+        "registering after sharing rebuilds"
+    );
+    for name in ["first", "b1", "b2", "b3"] {
+        assert_eq!(evaluate(name).await.as_string().as_deref(), Some(name));
+    }
+    reset_global();
+}
+
+/// ENVIRON08 — in a registry, a command with no implementation is an error and an implementation
+/// naming no command is a warning.
+#[wasm_bindgen_test]
+fn environ08_missing_and_unknown_implementations() {
+    reset_global();
+    let registry = "commands:\n  - name: c1\n  - name: c2\n";
+    let report = validate(
+        &JsValue::from_str(registry),
+        &implementations(&[("c1", "return 1;"), ("extra", "return 2;")]),
+    );
+    let found = issues(&report);
+    assert_eq!(found.len(), 2, "{:?}", get(&report, "summary"));
+    let missing = found
+        .iter()
+        .find(|i| get(i, "severity").as_string().as_deref() == Some("error"))
+        .expect("an error");
+    assert_eq!(issue_command(missing).as_deref(), Some("c2"));
+    let unknown = found
+        .iter()
+        .find(|i| get(i, "severity").as_string().as_deref() == Some("warning"))
+        .expect("a warning");
+    assert!(get(unknown, "message")
+        .as_string()
+        .unwrap_or_default()
+        .contains("extra"));
+    assert_eq!(issue_command(unknown), None);
+}
+
+/// ENVIRON08 — the JavaScript-specific refusals of a declaration join the same report.
+#[wasm_bindgen_test]
+fn environ08_declaration_refusals_are_report_entries() {
+    reset_global();
+    let no_run = js_sys::Object::new();
+    js_sys::Reflect::set(&no_run, &"name".into(), &"nofn".into()).expect("set");
+    let reserved = decl("w", "return 1;");
+    js_sys::Reflect::set(&reserved, &"namespace".into(), &"web".into()).expect("set");
+    let batch = js_sys::Array::new();
+    batch.push(&JsValue::from(42));
+    batch.push(&no_run);
+    batch.push(&reserved);
+
+    let report = validate(&batch.into(), &JsValue::UNDEFINED);
+    let commands: Vec<Option<String>> = issues(&report).iter().map(issue_command).collect();
+    assert_eq!(
+        commands,
+        vec![None, Some("nofn".to_string()), Some("w".to_string())]
+    );
+    assert_eq!(get(&report, "errorCount").as_f64(), Some(3.0));
+
+    // A declaration without `run` takes it from the implementations, by name.
+    let bound = validate(&no_run.into(), &implementations(&[("nofn", "return 1;")]));
+    assert_eq!(get(&bound, "hasErrors").as_bool(), Some(false));
+}
+
+/// ENVIRON08 — validation registers nothing and builds no environment, before or after `init()`.
+#[wasm_bindgen_test]
+async fn environ08_validation_is_pure() {
+    reset_global();
+    let report = validate(&decl("pure", "return 1;"), &JsValue::UNDEFINED);
+    assert_eq!(get(&report, "hasErrors").as_bool(), Some(false));
+    assert!(!is_initialized(), "validation must not initialize");
+
+    init_global().expect("init");
+    register_command_on(&decl("seed", "return 1;")).expect("register");
+    evaluate("seed").await;
+    let before = with_global().expect("shared");
+    validate(&decl("pure", "return 1;"), &JsValue::UNDEFINED);
+    let after = with_global().expect("shared");
+    assert!(
+        std::sync::Arc::ptr_eq(&before.0, &after.0),
+        "validation must not rebuild"
+    );
+    assert!(!has_command("pure"));
+    reset_global();
+}
+
+/// ENVIRON08 — `registerCommand` is a batch of one: the same compact message, now with `report`.
+#[wasm_bindgen_test]
+fn environ08_register_command_is_a_batch_of_one() {
+    reset_global();
+    init_global().expect("init");
+    let spec = decl("join", "return '';");
+    let arguments = js_sys::Array::new();
+    for (name, multiple) in [("xs", true), ("a", false)] {
+        let argument = js_sys::Object::new();
+        js_sys::Reflect::set(&argument, &"name".into(), &name.into()).expect("set");
+        js_sys::Reflect::set(&argument, &"multiple".into(), &multiple.into()).expect("set");
+        arguments.push(&argument);
+    }
+    js_sys::Reflect::set(&spec, &"arguments".into(), &arguments).expect("set");
+
+    let error = liquers_web::register_command(spec.unchecked_into()).expect_err("refused");
+    assert_eq!(
+        get(&error, "message").as_string().as_deref(),
+        Some(
+            "Command metadata contains 1 error; first: Argument 'a' is starved by multiple \
+             argument 'xs' on --join"
+        )
+    );
+    assert_eq!(issues(&get(&error, "report")).len(), 1);
+    reset_global();
+}
+
+/// ENVIRON08 — commands imported as metadata are replayed when the environment rebuilds.
+#[wasm_bindgen_test]
+async fn environ08_registry_form_commands_survive_a_rebuild() {
+    reset_global();
+    init_global().expect("init");
+    let impls = js_sys::Object::new();
+    js_sys::Reflect::set(
+        &impls,
+        &"imported".into(),
+        &js_sys::Function::new_with_args("who", "return `Hello, ${who}!`;"),
+    )
+    .expect("set implementation");
+    register(
+        &JsValue::from_str(
+            "commands:\n  - name: imported\n    arguments:\n      - { name: who, argument_type: string }\n",
+        ),
+        &impls.into(),
+    )
+    .expect("the registry imports");
+    let hello = || async { evaluate("imported-world").await.as_string() };
+    assert_eq!(hello().await.as_deref(), Some("Hello, world!"));
+
+    // Registering after sharing rebuilds, which replays the imported command.
+    register_command_on(&decl("later", "return 'later';")).expect("register");
+    assert_eq!(hello().await.as_deref(), Some("Hello, world!"));
+    assert_eq!(
+        evaluate("later").await.as_string().as_deref(),
+        Some("later")
+    );
+
+    // And `unregisterCommand` removes it from what a rebuild replays.
+    assert!(unregister_command_on("imported").expect("unregister"));
+    assert!(!has_command("imported"));
+    reset_global();
+}
+
+/// ENVIRON08 — `{ run, state?, async? }` binds a declaration as it binds imported metadata.
+#[wasm_bindgen_test]
+async fn environ08_object_form_implementation_binds_a_declaration() {
+    reset_global();
+    init_global().expect("init");
+    let declaration = js_sys::Object::new();
+    js_sys::Reflect::set(&declaration, &"name".into(), &"wrapped".into()).expect("set");
+    let wrapper = js_sys::Object::new();
+    js_sys::Reflect::set(
+        &wrapper,
+        &"run".into(),
+        &js_sys::Function::new_no_args("return 'wrapped';"),
+    )
+    .expect("set");
+    js_sys::Reflect::set(&wrapper, &"async".into(), &JsValue::FALSE).expect("set");
+    let impls = js_sys::Object::new();
+    js_sys::Reflect::set(&impls, &"wrapped".into(), &wrapper).expect("set");
+
+    let report = register(&declaration.into(), &impls.into()).expect("the declaration binds");
+    assert_eq!(get(&report, "hasErrors").as_bool(), Some(false));
+    assert_eq!(
+        evaluate("wrapped").await.as_string().as_deref(),
+        Some("wrapped")
+    );
+    reset_global();
+}
+
+/// ENVIRON08 — an object-form implementation is copied, so changing it later does not change
+/// what a rebuild replays.
+#[wasm_bindgen_test]
+async fn environ08_object_form_implementation_is_snapshotted() {
+    reset_global();
+    init_global().expect("init");
+    let wrapper = js_sys::Object::new();
+    js_sys::Reflect::set(
+        &wrapper,
+        &"run".into(),
+        &js_sys::Function::new_no_args("return 'original';"),
+    )
+    .expect("set");
+    let impls = js_sys::Object::new();
+    js_sys::Reflect::set(&impls, &"snap".into(), &wrapper).expect("set");
+    register(
+        &JsValue::from_str("commands:\n  - name: snap\n"),
+        &impls.into(),
+    )
+    .expect("the registry imports");
+    assert_eq!(
+        evaluate("snap").await.as_string().as_deref(),
+        Some("original")
+    );
+
+    js_sys::Reflect::set(&wrapper, &"run".into(), &JsValue::from(42)).expect("mutate");
+    register_command_on(&decl("later", "return 'later';")).expect("a rebuild still succeeds");
+    assert_eq!(
+        evaluate("snap").await.as_string().as_deref(),
+        Some("original")
+    );
+    reset_global();
+}
+
+/// ENVIRON08 — a registry without `commands` is an error, not an empty batch.
+#[wasm_bindgen_test]
+fn environ08_registry_without_commands_is_refused() {
+    reset_global();
+    let report = validate(
+        &JsValue::from_str("commandz:\n  - name: c1\n"),
+        &implementations(&[("c1", "return 1;")]),
+    );
+    assert_eq!(get(&report, "hasErrors").as_bool(), Some(true));
+    let summary = get(&report, "summary").as_string().unwrap_or_default();
+    assert!(summary.contains("commands"), "{summary}");
 }

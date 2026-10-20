@@ -44,6 +44,31 @@ Design documents: [`specs/design/liquers-web/`](../specs/design/liquers-web/). T
 
 A runnable version is in [`examples-web/quickstart/`](examples-web/quickstart/).
 
+### Registering commands in bulk
+
+`registerCommands(input, impls?)` registers a batch in one call, all or nothing. `input` is a
+declaration, an array of declarations, or a JSON or YAML string in the command metadata registry
+format (`commands: [...]`, the shape of `specs/command_registry.yaml`); `impls` binds functions by
+command name, either the function itself or `{ run, state?, async? }`.
+
+```js
+const yaml = `
+commands:
+  - name: greet
+    arguments:
+      - { name: who, argument_type: string }
+`;
+liquers.registerCommands(yaml, { greet: (who) => `Hello, ${who}!` });
+await liquers.evaluate("greet-world");   // "Hello, world!"
+```
+
+If anything in the batch is wrong, nothing is registered and the `parameter_error` thrown has a
+`report` property listing every finding: `{ issues, errorCount, warningCount, hasErrors, summary }`,
+each issue `{ severity, message, command }` with `command` being `{ realm, namespace, name }` or
+`null`. `validateCommands(input, impls?)` returns the same report without registering anything, and
+works before `init()`. After the first evaluation a batch costs one environment rebuild, not one
+per command. `registerCommand(spec)` is a batch of one.
+
 ## Building
 
 `liquers-web` is **wasm32-only**. `JsValue` is `!Send`/`!Sync` on every target, and on native the
@@ -58,12 +83,13 @@ cargo check -p liquers-web --target wasm32-unknown-unknown
 ### The quick-start page
 
 ```bash
-./examples-web/quickstart/build.sh          # or --release
+./examples-web/quickstart/build.sh          # or --release; add --features records for record streams
 python3 -m http.server 8090 --directory examples-web/quickstart/dist
 ```
 
 `build.sh` does what `trunk build` does — build the cdylib for wasm32, run `wasm-bindgen` over it,
-copy the page next to the output — without requiring trunk to be installed. If you have trunk,
+copy the page next to the output — without requiring trunk to be installed. Arguments other than
+`--release` go to `cargo build` unchanged (`--profile` and `--target-dir` are refused). If you have trunk,
 `cd examples-web/quickstart && trunk serve` works too and serves on the same port.
 
 ## Testing
@@ -71,16 +97,18 @@ copy the page next to the output — without requiring trunk to be installed. If
 Four harnesses, because four different things are being tested.
 
 ```bash
-# 1. Conformance suites, under Node. The bulk of the tests; no browser needed.
+# 1. Conformance suites, under Node. The bulk of the tests; no browser needed. Run it both ways:
+#    the second adds the RECORDS suite.
 cargo test -p liquers-web --target wasm32-unknown-unknown --features debug-handles
+cargo test -p liquers-web --target wasm32-unknown-unknown --features debug-handles,records
 
 # 2. Suites that genuinely need a browser API (`localStorage`). WebDriver required.
 CHROMEDRIVER=$(which chromedriver) cargo test -p liquers-web \
   --target wasm32-unknown-unknown --features browser-tests
 
-# 3. Declarations and artifact structure.
-./examples-web/quickstart/build.sh
-./scripts/check-stubs.sh
+# 3. Declarations and artifact structure, without and with records.
+./scripts/check-stubs.sh --build
+./scripts/check-stubs.sh --build --records
 
 # 4. The delivery form, in a real browser.
 cd tests/e2e && npm install && npx playwright test
@@ -221,6 +249,40 @@ await env.configureStore({
 });
 ```
 
+## Record streams
+
+A command that returns a record view reaches JavaScript as a `RecordBatch` handle (or as its scalar,
+when the view is a single cell); one that returns a record source reaches it as a `RecordSource`.
+Both are handles to the Rust object, not copies, and both cross back unchanged: pass a handle as a
+command argument or return it from a JavaScript command and Rust receives the same view, with its
+chunk identity and origin intact. The `ns-rec` commands are registered in the web environment.
+
+Record streams are behind the **`records` feature, which is off by default**: it is the largest
+single addition to the module, taking a release build from 12.4 MB to 16.5 MB. Build with
+`--features records` (`./examples-web/quickstart/build.sh --features records`) to get the handles,
+the `ns-rec` commands and their TypeScript declarations. Without it liquers-lib is linked without
+record values altogether, so no query can produce one.
+
+```js
+// `people` is any command whose result converts to records.
+const source = await env.evaluate('people/ns-rec/to_record_source');
+for (const chunk of source.chunks()) {
+  console.log(chunk.kind, chunk.query);        // data only; nothing is evaluated yet
+  // kind "query" or "key": `query` evaluates to the chunk; kind "memory": a label only
+}
+for await (const batch of await source.stream()) {
+  console.log(batch.numRows);                  // one chunk at a time
+  batch.free();
+}
+const all = await source.materialize(10000);   // one batch, refused beyond maxRows rows
+source.free();
+```
+
+`free()` releases a handle; a freed handle passed back to Rust is refused with a `ConversionError`
+naming its class. Leaving a `for await` loop early (`break`, `return`, a throw) frees the stream.
+Only one `nextBatch()` may be pending on a stream at a time. A source resolves its chunks through the
+environment that produced it: the singleton, or the `new Environment()` instance it was evaluated in.
+
 ## Conformance
 
 Where liquers-web stands against [`LANGUAGE-INTEGRATION_GUIDE.md`](../specs/guides/LANGUAGE-INTEGRATION_GUIDE.md),
@@ -233,9 +295,9 @@ updated by the change that moves it.
 | `OBJECT` | complete | 01–09, `tests/objects_OBJECT.rs` | — |
 | `ERROR` | complete | 01–05; 06 in `tests/store_js_STORE.rs` | class and stack arrive inside `message` (`LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT`) |
 | `RUNTIME` | complete | 01 native; 02–06 under Node | `RUNTIME05` needs `--features debug-handles` |
-| `VALUE` | complete, one gap | 01–13, `tests/value_bridge_VALUE.rs` | outbound integers beyond 2^53 untested (`WEB-OUTBOUND-INT64-BEYOND-DOUBLE-UNTESTED`) |
-| `VALUE` / RECORDS | partial | 05, 06, `tests/records_RECORDS.rs` | `RECORDS10` (`WEB-RECORDS-SINGLE-CELL-VIEW-CROSSES-AS-BATCH`); `RecordSource` and the inbound direction (`WEB-RECORDS-BRIDGE-ONE-WAY-AND-SOURCE-UNMAPPED`) |
-| `ENVIRON` | partial | 01–07 | `ENVIRON08` (`WEB-ENVIRON-VALIDATION-REPORT-NOT-EXPOSED`) |
+| `VALUE` | complete | 01–13, `tests/value_bridge_VALUE.rs` | an outbound integer outside ±(2^53 − 1) is refused with `ConversionError` (`value03_outbound_integer_boundaries`) |
+| `VALUE` / RECORDS | complete, opt-in | 01, 02, 04–08, 10, `tests/records_RECORDS.rs` | behind the `records` feature; `03`, `09` and `11` are `NA`, see below |
+| `ENVIRON` | complete | 01–08; 08 in `tests/environment_ENVIRON.rs` | — |
 | `EVAL` | complete | 01–07 | `EVAL06` pins inert cancellation (`WEB-CANCELLATION-INERT`) |
 | `COMMAND` | complete | 01–14, DECL01–03 | — |
 | `ASYNCQ` | complete | 01–06, 08 | `07` is `NA`: JavaScript has its own async model |
@@ -245,6 +307,11 @@ updated by the change that moves it.
 | `PACKAGE` | complete | 01–05, 07 | `06` is `NA`: no optional extra |
 | `RECIPE`, `UIUSE`, `UIDEF` | not started (deferred) | — | — |
 | `MODULE`, `POLYGLOT`, `WEBSERV`, `WEBAPI` | `NA` for the shipped milestone | — | — |
+
+**`RECORDS03` is `NA`**: there is no Arrow route out of the browser build; it becomes required if an
+Arrow export is added. **`RECORDS09` is `NA`**: JavaScript has its own async model, which the
+`RecordSource` iterator uses. **`RECORDS11` is `NA`**: JavaScript cannot implement `RecordView` or
+`RecordSource`; it becomes required with a JavaScript-implemented source.
 
 **`STORE18` is `NA`.** It tests a `store_config` handler defined in the language, and JavaScript
 cannot define one yet: [`LANGUAGE-STORE-CONFIG-FUNCTION-NOT-DEFINABLE`](../specs/issues/LANGUAGE-STORE-CONFIG-FUNCTION-NOT-DEFINABLE.md).
@@ -258,17 +325,9 @@ deliberate. `store11_overlapping_prefixes_follow_document_order` pins the routin
 
 ## Known limitations
 
-**`-R/` queries do not evaluate in the browser yet.** The stores work and are reachable through
-`env.store()`, but `env.evaluate("-R/…")` hangs: `ImmediateAssetManager::get` runs an asset inline
-and `evaluate_recipe` calls `get` on its *own* key, so keyed evaluation recurses until the wasm
-stack is exhausted, killing the instance. This is `liquers-core`, not this crate —
-`specs/issues/CORE-IMMEDIATE-MANAGER-KEYED-RECURSION.md` (P1). The blocked end-to-end tests are
-kept as `fixme` in `tests/e2e/store.spec.ts` so that removing the marker proves the fix.
-
 | Limitation | Tracked as |
 |---|---|
 | `Asset.cancel()` is inert: the immediate asset manager evaluates during `getAsset`, so an asset is already terminal when a caller receives it. The issue records what fixing it requires — the obstacle is not the absence of a task spawner | `WEB-CANCELLATION-INERT` |
-| `encodeParam` refuses values containing a lone colon, most punctuation, or any non-ASCII character — the query grammar has no entity for them. Refusing is deliberate; the core encoder emits unparseable text instead | `PARAMETER-ESCAPING-INCOMPLETE` |
 | Registering a command after the first evaluation rebuilds the environment, discarding its asset cache. Register before evaluating to avoid it | `POST-INIT-COMMAND-REGISTRATION` |
 | A thrown exception's class and stack reach the caller inside `message`, not as `jsClass`/`jsStack` — `liquers_core::Error` has no field to carry them through the asset lifecycle | `LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT` |
 | `registerCommand` is refused on an explicit `Environment` instance — the handle holds a shared environment with no mutable path. Register on the singleton | `POST-INIT-COMMAND-REGISTRATION` |

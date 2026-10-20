@@ -97,7 +97,6 @@ unit tests, not through a store.
 - `py-value-arc-payloads` (in_review) — **overlaps**: edits the `MetadataRecord`/`Recipe`/
   `CommandMetadata`/`Query` wrappers this design converts. No order; whichever lands second
   writes the conversion as `(*inner).clone()` / `Wrapper::from(core)` instead of field access.
-- `py-orphan-modules` (in_review) — **overlaps**: same crate, different files; no order.
 - `DATA-FORMAT-CONSTANTS-AND-TOOLING` (feature, no design) — **overlaps**: would replace core's
   hand-written arms; delegation means liquers-py inherits that change for free.
 - `CORE-VALUE-JSON-READ-IGNORES-STRUCTURED-IDENTIFIERS` (issue, filed by this design, no design)

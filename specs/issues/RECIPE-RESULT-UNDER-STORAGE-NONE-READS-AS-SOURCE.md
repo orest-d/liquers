@@ -1,0 +1,38 @@
+---
+id: RECIPE-RESULT-UNDER-STORAGE-NONE-READS-AS-SOURCE
+kind: issue
+title: A recipe result stored in a storage-none mount reads back as Source and cannot drop back to its recipe
+status: draft
+priority: P3
+complexity: M
+area: [core/store, core/assets]
+design: agent-memory-mvp
+created: 2026-10-19
+github:
+---
+# A recipe result stored in a storage-none mount reads back as Source and cannot drop back to its recipe
+
+## Problem
+
+A mount with `metadata: { storage: none }` keeps no metadata record: every read re-derives it from
+the data. A recipe's computed result written into such a mount is therefore indistinguishable from
+a hand-made file once its live asset is gone: its status reads back as `Source`. Removing it with
+`AssetManager::remove` then takes the `Source + recipe` branch (delete the user value) instead of
+`DropComputed` (rewrite as `Recipe`), and a later listing shows a user value where a recipe was.
+
+Found while testing `agent-memory-mvp` (`recipe_results_drop_back_to_recipe`): with the result in
+a `storage: none` mount, `get_asset_info` after `remove` reported `Source`; the test now uses a
+mount with stored metadata, where the result drops back to `Recipe` as the migration guide says.
+
+## Impact
+
+- The migration guide's rule that recipe assets are safe to recompute holds only for mounts that
+  store metadata. In a `storage: none` checkout mount, a recipe result looks like a document.
+- Workaround: keep recipe outputs out of `storage: none` mounts, or give such a mount a metadata
+  storage.
+
+## Expected behaviour
+
+Either a `storage: none` mount refuses to store a computed (`Ready`) value, or the pipeline can
+derive `Recipe`/`Ready` for a key the recipe provider can make, so a computed result is not taken
+for a user value.

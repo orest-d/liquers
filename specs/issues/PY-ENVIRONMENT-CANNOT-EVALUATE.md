@@ -36,6 +36,6 @@ and exposes `evaluate` to Python, per `specs/design/python-wrapper/` (`EnvRef.ev
 
 ## Discovery
 
-Found 2026-10-19 while designing `specs/design/py-orphan-modules/` and
-`specs/design/py-value-serializer/`: neither can be tested end to end, because no Python environment
-can evaluate a query.
+Found 2026-10-19 while designing `specs/design/py-value-serializer/` and an orphaned-module design
+(withdrawn once PY-MODULES-NOT-DECLARED-IN-LIB was closed by deletion): neither could be tested end
+to end, because no Python environment can evaluate a query.

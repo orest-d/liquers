@@ -1,0 +1,9 @@
+# Allowed status changes of an issue (DOCS_STRUCTURE_GUIDE.md §4.3), checked by memory_edit and
+# memory_write. A finished issue is reopened through in_progress or accepted, never back to draft.
+draft: [accepted, rejected, duplicate, in_progress, closed, closed_not_planned]
+accepted: [in_progress, closed, closed_not_planned, duplicate]
+in_progress: [accepted, closed, closed_not_planned]
+closed: [in_progress]
+closed_not_planned: [accepted]
+rejected: [accepted]
+duplicate: []

@@ -21,6 +21,8 @@ use liquers_core::store::realm::{
 };
 use liquers_records::search::{front_matter_end, parse_structure, StructFormat};
 
+use crate::search::md_split;
+
 /// The fields projected when a handler names none.
 pub const DEFAULT_FRONT_MATTER_FIELDS: [&str; 2] = ["title", "description"];
 
@@ -50,7 +52,18 @@ pub fn register_lib_store_config(
          write. In set the caller's bytes are kept as they are.",
     );
     front_matter_sync.with_argument(fields_argument());
-    functions.register_step(cmr, front_matter_sync, build_front_matter_sync)
+    functions.register_step(cmr, front_matter_sync, build_front_matter_sync)?;
+
+    let mut markdown_tiers = handler(
+        "markdown_tiers",
+        "Markdown tiers",
+        "For a Markdown entry whose record has an empty title or description, fills the title \
+         from the first heading and the description from the first paragraph of the first named \
+         section present, else from the first paragraph after the front matter. Never \
+         overwrites; other media types: no effect. Put it after front_matter.",
+    );
+    markdown_tiers.with_argument(ArgumentInfo::string_argument("sections").set_multiple());
+    functions.register_step(cmr, markdown_tiers, build_markdown_tiers)
 }
 
 fn handler(name: &str, label: &str, doc: &str) -> CommandMetadata {
@@ -174,6 +187,47 @@ fn build_front_matter_sync(
     Ok(CompiledStep::with_needs_bytes(run, needs_bytes))
 }
 
+fn build_markdown_tiers(
+    stage: Stage,
+    parameters: &ResolvedParameterValues,
+) -> Result<CompiledStep, Error> {
+    check_stage("markdown_tiers", stage, &[Stage::Default, Stage::Read])?;
+    let sections = string_list_parameter(parameters, "sections")?;
+    let run: CompiledFn = Box::new(move |record, facts, _out| {
+        if !is_markdown_record(record, facts.key)
+            || (!record.title.is_empty() && !record.description.is_empty())
+        {
+            return Ok(());
+        }
+        let Some(bytes) = facts.bytes else {
+            return Ok(());
+        };
+        let text = String::from_utf8_lossy(bytes);
+        if record.title.is_empty() {
+            if let Some(heading) = md_split::first_heading(&text) {
+                set_text_field(record, "title", &heading, Mode::Fill);
+            }
+        }
+        if record.description.is_empty() {
+            let paragraph = sections
+                .iter()
+                .find_map(|section| md_split::section_paragraph(&text, section))
+                .or_else(|| md_split::first_paragraph(&text));
+            if let Some(paragraph) = paragraph {
+                set_text_field(record, "description", &paragraph, Mode::Fill);
+            }
+        }
+        Ok(())
+    });
+    let read_stage = stage == Stage::Read;
+    let needs_bytes: NeedsBytesFn = Box::new(move |facts: &FactsIn<'_>| {
+        facts.bytes.is_none()
+            && is_markdown(facts.key)
+            && (!read_stage || changed_since_stored(facts))
+    });
+    Ok(CompiledStep::with_needs_bytes(run, needs_bytes))
+}
+
 /// The document with its YAML front matter carrying the record's `fields`, other keys kept;
 /// `None` for TOML front matter. A document without front matter gets a new block.
 fn rewrite_front_matter(
@@ -249,6 +303,32 @@ mod tests {
         let mut record = MetadataRecord::new();
         run("front_matter", Stage::Read, &mut record, &facts)?;
         assert_eq!(record.title, "");
+        Ok(())
+    }
+
+    #[test]
+    fn markdown_tiers_fills_only_empty_fields() -> Result<(), Error> {
+        let key = parse_key("specs/issues/X.md")?;
+        let text = b"---\nstatus: draft\n---\n# The title\n\nIntro.\n\n## Problem\n\nIt breaks.\n";
+        let mut facts = FactsIn::new(&key);
+        facts.bytes = Some(text);
+        let mut record = MetadataRecord::new();
+        run("front_matter/markdown_tiers-Problem-Purpose", Stage::Read, &mut record, &facts)?;
+        assert_eq!(record.title, "The title");
+        assert_eq!(record.description, "It breaks.");
+        // Fields already set by front_matter are kept; without a listed section, the first
+        // paragraph is used.
+        let mut record = MetadataRecord::new();
+        record.title = "Given".to_string();
+        run("markdown_tiers-Purpose", Stage::Read, &mut record, &facts)?;
+        assert_eq!(record.title, "Given");
+        assert_eq!(record.description, "Intro.");
+        let txt = parse_key("a.txt")?;
+        let mut facts_txt = FactsIn::new(&txt);
+        facts_txt.bytes = Some(text);
+        let mut plain = MetadataRecord::new();
+        run("markdown_tiers", Stage::Read, &mut plain, &facts_txt)?;
+        assert_eq!(plain.title, "");
         Ok(())
     }
 

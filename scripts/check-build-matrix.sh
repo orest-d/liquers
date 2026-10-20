@@ -47,6 +47,9 @@
 # native default build exercises. The `--no-default-features` row proves that the core async store
 # surface is always available even when no optional features are selected.
 #
+# liquers-py has a single native row (`--lib --tests`, default features); see the comment above
+# the call.
+#
 # Disk budget. Every feature set and target leaves its own artifacts in one `target/`, and the
 # whole matrix does not fit in a 30 GB Claude Code cloud session (BUILD-MATRIX-EXHAUSTS-SESSION-DISK).
 # So the script:
@@ -131,11 +134,14 @@ LIB_CONFIGS=(
   "--no-default-features --features records-parquet,polars --tests"
   "--no-default-features --features templates --tests"
   "--no-default-features --features templates,records --tests"
+  # `mem` pulls `records` in; every row above it is the build without it (design/agent-memory-mvp).
+  "--no-default-features --features mem --tests"
   "--tests"
   "--target wasm32-unknown-unknown --no-default-features --features webui"
   "--target wasm32-unknown-unknown --no-default-features --features webui,records"
   "--target wasm32-unknown-unknown --no-default-features --features webui,records,records-ipc"
   "--target wasm32-unknown-unknown --no-default-features --features webui,templates"
+  "--target wasm32-unknown-unknown --no-default-features --features webui,mem"
 )
 
 # liquers-records has no default features: each format behind its own flag, and every one of them
@@ -152,6 +158,14 @@ RECORDS_CONFIGS=(
 TEMPLATE_CONFIGS=(
   "--tests"
   "--target wasm32-unknown-unknown --tests"
+)
+
+# liquers-web is wasm32-only and its `records` feature is opt-in: both sides of that gate must
+# compile, library and tests, since a `#[cfg(feature = "records")]` arm missing on either side
+# breaks only that configuration.
+WEB_CONFIGS=(
+  "--target wasm32-unknown-unknown --tests"
+  "--target wasm32-unknown-unknown --features records --tests"
 )
 
 CORE_CONFIGS=(
@@ -217,6 +231,10 @@ for args in "${TEMPLATE_CONFIGS[@]}"; do
   check liquers-template "$args"
 done
 
+for args in "${WEB_CONFIGS[@]}"; do
+  check liquers-web "$args"
+done
+
 for args in "${CORE_CONFIGS[@]}"; do
   check liquers-core "$args"
 done
@@ -228,12 +246,22 @@ done
 # The default consumer of liquers-store must be undisturbed by the feature split.
 check liquers-axum ""
 
+# The MCP engine (liquers-core only) and the agent binary (liquers-lib with `mem` alone). Native
+# only: rmcp's stdio transport and the binary's tokio runtime have no wasm32 form.
+check liquers-mcp "--tests"
+check liquers-agent "--tests"
+
 # The conformance suite is behind a non-default feature, so the default build never exercises it —
 # and a store author enabling it must not be the first to discover it does not compile. Both
 # directions matter: with the feature ON (the module and its tests), and with it OFF (the
 # `#[cfg]`-gated items must vanish cleanly).
 check liquers-core "--features store-conformance --lib --tests"
 check liquers-store "--features store-conformance --lib --tests"
+
+# liquers-py is outside the liquers-lib dependency chain, so no other row builds it, and its PyO3
+# bindings are the code most exposed to a dependency upgrade. Native only: there is no wasm32 Python
+# target. The check needs a Python 3 interpreter that PyO3 supports, found on `PATH`.
+check liquers-py "--lib --tests"
 
 if [ ${#retried[@]} -ne 0 ]; then
   echo

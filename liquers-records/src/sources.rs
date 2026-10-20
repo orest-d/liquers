@@ -599,6 +599,20 @@ impl InMemorySource {
         InMemorySource { views, ids, uniform_schema }
     }
 
+    /// Whether `id` is one of the placeholder ids this type gives its views. A placeholder names
+    /// no query that produces the chunk, so a caller listing [`RecordSource::chunks`] for something
+    /// to evaluate must skip it.
+    pub fn is_placeholder_chunk_id(id: &ChunkId) -> bool {
+        match id {
+            ChunkId::Query(query) => query
+                .encode()
+                .strip_prefix("in_memory_view-")
+                .and_then(|index| index.parse::<usize>().ok())
+                .is_some_and(|index| in_memory_chunk_id(index) == *id),
+            ChunkId::Key(_) => false,
+        }
+    }
+
     /// `Some` only when every view shares one schema (by value, not by `Arc` identity) —
     /// phase2-architecture.md §"Schema uniformity is declared, not assumed".
     fn infer_uniform_schema(views: &[Arc<dyn RecordView>]) -> Option<Arc<RecordSchema>> {
@@ -1719,5 +1733,20 @@ mod tests {
         let inner: Arc<dyn RecordSource> = Arc::new(InMemorySource::new(vec![two_column_view(&["a"], &[1])]));
         assert!(MappedSource::new(inner, bad).is_err());
         Ok(())
+    }
+
+    #[test]
+    fn in_memory_placeholder_ids_are_recognised() {
+        let source = InMemorySource::new(Vec::new());
+        assert!(source.ids.is_empty());
+        for index in [0usize, 7] {
+            assert!(InMemorySource::is_placeholder_chunk_id(&in_memory_chunk_id(index)));
+        }
+        let real = ChunkId::Query(
+            liquers_core::parse::parse_query("part-1/ns-rec/from_json-records").expect("query"),
+        );
+        assert!(!InMemorySource::is_placeholder_chunk_id(&real));
+        let key = ChunkId::Key(liquers_core::parse::parse_key("data/in_memory_view-0").expect("key"));
+        assert!(!InMemorySource::is_placeholder_chunk_id(&key));
     }
 }

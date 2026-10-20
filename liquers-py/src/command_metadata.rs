@@ -18,7 +18,7 @@ use pyo3::{exceptions::PyException, prelude::*, types::PyList};
 /// Type of an enum argument, see EnumArgument
 /// This is a restricted version of ArgumentType to prevent circular type definition
 
-#[pyclass]
+#[pyclass(from_py_object, eq, eq_int)]
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum EnumArgumentType {
     #[serde(rename = "string")]
@@ -39,7 +39,7 @@ pub enum EnumArgumentType {
     Any,
 }
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct EnumArgument(pub liquers_core::command_metadata::EnumArgument);
 
@@ -75,7 +75,7 @@ impl EnumArgument {
     }
 }
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct ArgumentType(pub liquers_core::command_metadata::ArgumentType);
 
@@ -249,7 +249,7 @@ impl ArgumentInfo {
     }
 }
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Debug, Clone, PartialEq)]
 pub struct CommandDefinition(pub liquers_core::command_metadata::CommandDefinition);
 
@@ -285,7 +285,7 @@ impl CommandDefinition {
     }
 }
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Debug, Clone, PartialEq)]
 pub struct CommandPreset(pub liquers_core::command_metadata::CommandPreset);
 
@@ -323,7 +323,7 @@ impl CommandPreset {
     }
 }
 
-#[pyclass]
+#[pyclass(from_py_object)]
 #[derive(Debug, Clone)]
 pub struct CommandMetadata(pub liquers_core::command_metadata::CommandMetadata);
 
@@ -409,27 +409,23 @@ impl CommandMetadataRegistry {
         module: &str,
         function: &str,
         pass_state: &str,
-        arguments: Py<PyList>,
+        arguments: &Bound<'_, PyList>,
         multiple: bool,
     ) -> PyResult<()> {
         let mut cmd = liquers_core::command_metadata::CommandMetadata::new(command_name);
         cmd.with_namespace(namespace);
-        Python::with_gil(|py| {
-            let list = arguments.bind(py);
-            let mut args = Vec::new();
-            for i in 0..list.len() {
-                let item = list.get_item(i).unwrap();
-                let pystr = item.str().unwrap();
-                let aname = pystr.to_str().unwrap();
-                let a = if aname == "context" {
-                    liquers_core::command_metadata::ArgumentInfo::argument(aname).set_injected()
-                } else {
-                    liquers_core::command_metadata::ArgumentInfo::any_argument(aname)
-                };
-                args.push(a);
-            }
-            cmd.arguments = args;
-        });
+        let mut args = Vec::new();
+        for item in arguments.iter() {
+            let pystr = item.str()?;
+            let aname = pystr.to_str()?;
+            let a = if aname == "context" {
+                liquers_core::command_metadata::ArgumentInfo::argument(aname).set_injected()
+            } else {
+                liquers_core::command_metadata::ArgumentInfo::any_argument(aname)
+            };
+            args.push(a);
+        }
+        cmd.arguments = args;
         if multiple {
             if let Some(last) = cmd.arguments.last_mut() {
                 last.multiple = true;

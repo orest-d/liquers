@@ -3,7 +3,7 @@ title: Record Streams
 kind: reference
 audience: internal
 area: [records, lib/value, lib/commands, web]
-reviewed: 2026-10-13
+reviewed: 2026-10-19
 ---
 
 # Record Streams
@@ -29,7 +29,7 @@ command that produces records, a manifest source, a view — is in
 |---|---|---|
 | `liquers-records` | Everything below that does not need `liquers-lib`'s `Value`. Depends on `liquers-core` only. **No `unsafe`.** | `ipc` (Arrow IPC read/write, pulls `flatbuffers`), `parquet` (Parquet write, pulls `flate2`). Neither is default |
 | `liquers-lib` | `ExtValue::RecordView` / `RecordSource`, `to_record` / `to_record_source`, the `ns-rec` commands, the polars bridge, the provider-chain default. `liquers_lib::records` re-exports all of `liquers-records` | `records` (the glue), `records-ipc` → `liquers-records/ipc`, `records-parquet` → `liquers-records/parquet`. All three are default |
-| `liquers-web` | The `RecordBatch` JavaScript handle | `records`, forwarded, default |
+| `liquers-web` | The `RecordBatch` / `RecordSource` JavaScript handles and the `ns-rec` commands in the web environment | `records`, forwarded, **not default**: it adds about 4 MB to a release wasm |
 
 With `records` off, neither value variant exists and no `ns-rec` command is registered.
 
@@ -866,6 +866,7 @@ materializes to an empty batch; without one it is an error.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-19 | Crate table: `liquers-web`'s `records` feature is opt-in (release wasm 12.4 MB without it, 16.5 MB with it). | `claude/web-records-opt-in` |
 | 2026-10-13 | `ns-rec` table operations (filters, `sort`, `tail`, `drop_columns`, counts, `schema` with `records_schema` as alias); `select_columns` / `head` lazy over sources; `MappedSource`, `RecordBatch::empty`, `Column::sort_indices`, `StrictPredicate`; DataFrame input; lenient `IndexKind` / `Analyzer` / `FieldRole` deserialization; JSON-first `schema` argument; the `ns-rec` ↔ `ns-pl` comparison. | `design/record-filter-commands/` |
 | 2026-10-13 | §Scalar reading: a single NaN or infinite cell is refused by `try_into_json_value` (a `ConversionError`), consistent with the JSON writer. | phase-5, `design/value-to-json-non-finite-float/` |
 | 2026-10-11 | `Timestamp` is a UTC instant everywhere: IPC writes `Timestamp(Microsecond, "UTC")` and reads any zone without shifting; the polars bridge produces `Datetime(µs, "UTC")` and accepts any `Datetime`. The time-zone limitation is removed. | `design/record-timestamp-utc/` |
