@@ -4,8 +4,8 @@ kind: design
 title: Stored data without a status is loadable
 form: compact
 workflow: liquers-project
-status: in_review
-phase: architecture
+status: approved
+phase: implementation
 area: [core/assets, web]
 issues: [JS-STORE-RESOURCE-NOT-FOUND-WITHOUT-A-RECIPE]
 created: 2026-10-20
@@ -102,6 +102,8 @@ stored records themselves.
     refuse the fast track
 
 ### Open Questions
+
+Pre-approved after Phase 2 on 2026-10-20.
 
 None open. Decided:
 
@@ -211,3 +213,85 @@ Each reference document gets a History row and a `reviewed:` bump.
   answers `KeyNotFound` before the new rule runs, and nothing should change there.
 - **Recovery:** revert the call sites, since the helper is pure. Certainty is high: the native
   check already showed `Source` loading and `None` failing.
+
+## Phase 3: Examples and Tests
+
+### Examples
+
+**Primary** (AC-1, the e2e test unchanged): a page store with only `get` and `contains` returns
+`{ data, metadata: { media_type: 'text/plain' } }` for `mem/greeting.txt`. Evaluating
+`-R/mem/greeting.txt/-/to_text` returns `'from the page'`. The asset's status is `Source`, and its
+log holds `no status was stored for mem/greeting.txt; read as Source`.
+
+**Secondary** (AC-6, native): `AsyncMemoryStore::set(x.txt, b"stored", <no status>)` under a
+`recipes.yaml` that declares `x.txt`. Requesting `x.txt` returns `stored`, the recipe does not run,
+and the status is `Ready`.
+
+**Edge and error cases:**
+- A stored `Error` keeps its status, and the key falls through to the recipe provider (AC-3).
+- A record with status `None` and a *known* version is not the no-metadata case, so it is still
+  refused. Liquers never writes one.
+- A metadata-only entry (no data object) is unaffected, because `get` answers `KeyNotFound`
+  before the rule runs.
+- A dependency with status `None` is inconclusive and does not block (AC-7).
+
+### Tests
+
+Native, in `liquers-core/tests/stored_status_none.rs`
+(`cargo test -p liquers-core --test stored_status_none`):
+
+| Test | Proves |
+|---|---|
+| `none01_memory_store_without_recipe_reads_as_source` | AC-1, AC-6 |
+| `none02_memory_store_with_recipe_reads_as_ready` | AC-6 |
+| `none03_file_store_without_recipe_reads_as_source` | AC-6 |
+| `none04_declared_status_is_kept` | AC-3 |
+| `none05_get_any_status_reads_as_source` | AC-6 |
+
+Unit tests in `liquers-core/src/assets.rs` `mod tests`
+(`cargo test -p liquers-core --lib reusable_stored_status`, `… dependency_blocks_fast_track`):
+
+| Test | Proves |
+|---|---|
+| `reusable_stored_status_maps_only_none_without_version` | AC-3, AC-6 |
+| `dependency_blocks_fast_track_is_false_for_status_none` | AC-7 |
+
+Node, in `liquers-web/tests/store_js_STORE.rs`
+(`cargo test -p liquers-web --target wasm32-unknown-unknown --test store_js_STORE`):
+
+| Test | Proves |
+|---|---|
+| `store07_js_store_with_partial_metadata_evaluates` | AC-1 |
+| `store07_js_store_without_metadata_evaluates` | AC-2 |
+| `store07_js_store_declared_error_status_is_kept` | AC-3 |
+| `store07_js_store_page_write_evaluates` | AC-4 |
+
+Browser: `STORE07 a JavaScript store evaluates end to end` in `liquers-web/tests/e2e/store.spec.ts`,
+unchanged (AC-5).
+
+## Phase 4: Implementation Plan
+
+### Steps
+
+- [ ] 1. `liquers-core/src/assets.rs`: add `reusable_stored_status` and `adopt_stored_status`, and
+  call them in `try_fast_track` and in the store branches of `AssetManager::get_any_status` /
+  `get_binary_any_status`. Add the `Status::None` arm to `dependency_blocks_fast_track`. Add the
+  two unit tests. Proof: `cargo test -p liquers-core --lib`
+- [ ] 2. `liquers-core/tests/stored_status_none.rs`: the five native tests. Proof:
+  `cargo test -p liquers-core --test stored_status_none`, then `cargo test -p liquers-core`
+- [ ] 3. `liquers-web/src/store/mod.rs` `metadata_from_js_value`: seed the key and the filename on
+  the complete-record branch. Add the four Node tests. Proof: the Node loop, with and without
+  `records`
+- [ ] 4. Run `cargo test -p liquers-lib --lib --tests`, the regression loop for the code that
+  depends on core
+- [ ] 5. The e2e run (AC-5), where the environment can run it. Otherwise record it as not run
+- [ ] 6. Documents: `ASSETS.md`, `STORE_SEMANTICS.md` §10, the issue closed, `specs/index.csv`
+  regenerated
+
+Rollback for every step: revert its commit. Step 1 is the only behavioural change.
+
+### Validation
+
+`cargo test -p liquers-core`, `cargo test -p liquers-lib --lib --tests`, the `liquers-web` Node
+loop, and `python3 scripts/docs_index.py --check`. `specs/command_registry.yaml` is untouched,
+since no command changes.
