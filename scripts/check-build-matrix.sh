@@ -131,11 +131,14 @@ LIB_CONFIGS=(
   "--no-default-features --features records-parquet,polars --tests"
   "--no-default-features --features templates --tests"
   "--no-default-features --features templates,records --tests"
+  # `mem` pulls `records` in; every row above it is the build without it (design/agent-memory-mvp).
+  "--no-default-features --features mem --tests"
   "--tests"
   "--target wasm32-unknown-unknown --no-default-features --features webui"
   "--target wasm32-unknown-unknown --no-default-features --features webui,records"
   "--target wasm32-unknown-unknown --no-default-features --features webui,records,records-ipc"
   "--target wasm32-unknown-unknown --no-default-features --features webui,templates"
+  "--target wasm32-unknown-unknown --no-default-features --features webui,mem"
 )
 
 # liquers-records has no default features: each format behind its own flag, and every one of them
@@ -239,6 +242,11 @@ done
 
 # The default consumer of liquers-store must be undisturbed by the feature split.
 check liquers-axum ""
+
+# The MCP engine (liquers-core only) and the agent binary (liquers-lib with `mem` alone). Native
+# only: rmcp's stdio transport and the binary's tokio runtime have no wasm32 form.
+check liquers-mcp "--tests"
+check liquers-agent "--tests"
 
 # The conformance suite is behind a non-default feature, so the default build never exercises it —
 # and a store author enabling it must not be the first to discover it does not compile. Both

@@ -57,6 +57,105 @@ pub(crate) fn sections(text: &str) -> Vec<(Option<String>, usize, usize, usize)>
     out
 }
 
+/// The first heading of a Markdown text (any level), after any front-matter.
+pub(crate) fn first_heading(text: &str) -> Option<String> {
+    let body = &text[liquers_records::search::front_matter_end(text)..];
+    let mut in_fence = false;
+    for line in body.lines() {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
+            in_fence = !in_fence;
+            continue;
+        }
+        if !in_fence {
+            if let Some(title) = heading_title(trimmed) {
+                return Some(title);
+            }
+        }
+    }
+    None
+}
+
+fn heading_title(trimmed: &str) -> Option<String> {
+    let level = trimmed.chars().take_while(|&c| c == '#').count();
+    if (1..=6).contains(&level) && trimmed[level..].starts_with(' ') {
+        let title = trimmed[level..].trim();
+        (!title.is_empty()).then(|| title.to_string())
+    } else {
+        None
+    }
+}
+
+/// The first paragraph of `lines`: consecutive prose lines joined by spaces, skipping headings,
+/// fenced code, tables and HTML comments.
+fn paragraph_of<'a>(lines: impl Iterator<Item = &'a str>) -> Option<String> {
+    let mut in_fence = false;
+    let mut in_comment = false;
+    let mut out: Vec<&str> = Vec::new();
+    for line in lines {
+        let trimmed = line.trim();
+        if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
+            in_fence = !in_fence;
+            if !out.is_empty() {
+                break;
+            }
+            continue;
+        }
+        if in_comment {
+            if trimmed.contains("-->") {
+                in_comment = false;
+            }
+            continue;
+        }
+        if trimmed.starts_with("<!--") {
+            in_comment = !trimmed.contains("-->");
+            continue;
+        }
+        let skip = in_fence || heading_title(trimmed).is_some() || trimmed.starts_with('|');
+        if trimmed.is_empty() || skip {
+            if !out.is_empty() {
+                break;
+            }
+            continue;
+        }
+        out.push(trimmed);
+    }
+    (!out.is_empty()).then(|| out.join(" "))
+}
+
+/// The first paragraph after the front-matter.
+pub(crate) fn first_paragraph(text: &str) -> Option<String> {
+    paragraph_of(text[liquers_records::search::front_matter_end(text)..].lines())
+}
+
+/// The lines (1-based, inclusive) of the section named `name`: its full heading path
+/// (`A > B`) or its own heading, compared without case. The first match wins.
+pub(crate) fn find_section(text: &str, name: &str) -> Option<(String, usize, usize)> {
+    let name = name.trim();
+    sections(&blank_front_matter(text)).into_iter().find_map(|(heading, _, start, end)| {
+        let heading = heading?;
+        let own = heading.rsplit(" > ").next().unwrap_or(&heading);
+        (heading.eq_ignore_ascii_case(name) || own.eq_ignore_ascii_case(name))
+            .then_some((heading.clone(), start, end))
+    })
+}
+
+/// `text` with its front-matter lines emptied, so a YAML comment is not taken for a heading and
+/// line numbers still count from the top of the file.
+pub(crate) fn blank_front_matter(text: &str) -> String {
+    let end = liquers_records::search::front_matter_end(text);
+    let lines = text[..end].lines().count();
+    let mut out = "\n".repeat(lines);
+    out.push_str(&text[end..]);
+    out
+}
+
+/// The first paragraph of the section named `name` (see [`find_section`]).
+pub(crate) fn section_paragraph(text: &str, name: &str) -> Option<String> {
+    let (_, start, end) = find_section(text, name)?;
+    paragraph_of(text.lines().skip(start).take(end.saturating_sub(start)))
+}
+
 fn schema() -> Result<Arc<RecordSchema>, Error> {
     Ok(Arc::new(RecordSchema::new(vec![
         FieldSchema::new("id", FieldType::Text).with_key(KeyRole::Id),
@@ -141,6 +240,16 @@ pub async fn md_split<E: Environment<Value = Value>>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn headings_and_paragraphs_skip_front_matter_and_code() {
+        let text = "---\n# yaml comment\ntitle: t\n---\n<!-- note -->\n# Title\n\n```\ncode\n```\nFirst line\nsecond.\n\n## Problem\n\n| a |\nThe problem.\n";
+        assert_eq!(first_heading(text).as_deref(), Some("Title"));
+        assert_eq!(first_paragraph(text).as_deref(), Some("First line second."));
+        assert_eq!(section_paragraph(text, "problem").as_deref(), Some("The problem."));
+        assert_eq!(section_paragraph(text, "Title > Problem").as_deref(), Some("The problem."));
+        assert!(section_paragraph(text, "Missing").is_none());
+    }
 
     #[test]
     fn sections_follow_heading_levels_and_skip_fences() {

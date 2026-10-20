@@ -3,6 +3,8 @@ pub mod commands;
 pub mod egui;
 pub mod environment;
 pub mod image;
+#[cfg(feature = "mem")]
+pub mod mem;
 #[cfg(feature = "polars")]
 pub mod polars;
 #[cfg(feature = "records")]

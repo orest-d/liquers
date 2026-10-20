@@ -69,7 +69,8 @@ server can serve the skill text itself as a prompt (§4.3).
 
 ### 4.1 Tools
 
-Ten tools in the MVP, each a thin wrapper over one `ns-mem` or `ns-search` query (`memory_context`
+Ten tools in the MVP (since the 2026-10-17 split, `memory_context` belongs to
+[`agent-memory-derived`](../agent-memory-derived/) and the MVP has nine), each a thin wrapper over one `ns-mem` or `ns-search` query (`memory_context`
 added in Phase 1 revision 3, from `brainstorm-workflow-improvements.md` §3 W4). Names are
 prefixed `memory_` so that they cannot collide with a general Liquers MCP (§6).
 
@@ -101,6 +102,8 @@ Design rules for the tool set, from the survey and
 - **No raw query tool in the memory MCP's MVP.** A `memory_query` that evaluates an arbitrary Liquers
   query is the escape hatch an expert agent wants, and the injection surface a cautious deployment
   does not. It belongs to the general MCP (§6), behind `COMMAND-CANNOT-BE-RUN-WITH-A-RESTRICTED-CONTEXT`.
+  *Superseded 2026-10-17 (Phase 2 decision 1): the MVP has a read-only `memory_query`, limited by an
+  allow-list checked on the whole plan, as the stand-in for `CORE-SESSION-AND-KEY-ACL`.*
 
 ### 4.2 Resources
 

@@ -98,6 +98,7 @@ and a YAML list in front-matter.
 | `lib/image` | `liquers-lib`: `image/` |
 | `lib/egui` | `liquers-lib`: `egui/` |
 | `lib/ui` | `liquers-lib`: `ui/` — `UISpec`, backend-independent UI |
+| `mcp` | `liquers-mcp` and `liquers-agent` — commands served as MCP tools, the agent memory binary |
 | `axum` | `liquers-axum` — HTTP REST API |
 | `web` | `liquers-web` — browser/JavaScript bindings |
 | `py` | `liquers-py` — Python bindings |
@@ -259,6 +260,11 @@ defects go unrecorded, which is worse than a backlog with some noise in it.
 > and 6 (§7.1), including a better duplicate search than a `grep` can manage. The steps below
 > remain the definition — filing must work with no tooling at all — but use the helper when it is
 > available.
+>
+> **Through the agent memory.** An agent connected to `liquers-agent mcp` with the
+> `memory/liquers-specs.yaml` profile files with `memory_new` (collection `issues`): it returns
+> similar issues instead of writing (step 1) unless `force` is set, derives the ID from the title
+> (step 2), and fills `status: draft` and `created` (steps 3–4). Step 6 still runs by hand.
 
 1. **Search first.** `grep -i '<keyword>' specs/index.csv` against the symptom, the module, and the
    area. Duplicate filing is the one failure mode that makes cheap capture worthless. If you find a
@@ -1131,6 +1137,7 @@ neither.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-19 | §3: area `mcp` for `liquers-mcp` and `liquers-agent`. §4.8.1: filing through the agent memory's `memory_new`. | `design/agent-memory-mvp/` Phase 5 |
 | 2026-10-08 | §5.2.1, §7.2 check 16: acceptance scenarios (`AC-<n>` WHEN/THEN) in Phase 1, cited by Phase 3 tests and checked only when defined; a Phase 4 progress checklist; open designs without scenarios carry a note and are counted in one warning. | maintainer decision |
 | 2026-10-08 | §5: a design's `form` — the default full form, or `compact` for `S`/`M` work, with every phase as a `## Phase N` section of `DESIGN.md`; `--check` validates the value and the sections; the `index.md` board links a compact design's `DESIGN.md`. | maintainer decision |
 | 2026-10-08 | §5.1.1, §6: optional `autofix` (`eligible` / `not-eligible`) beside `readiness`, projected into a new `index.csv` column and the `index.md` board; `--check` requires readiness with it, and `ready` plus an `S`/`M` leading source for `eligible`. | maintainer decision |
