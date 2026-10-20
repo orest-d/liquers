@@ -360,6 +360,7 @@ deliberately folded behind a broader line.
 - design `immediate-lazy-expiry-cascade`
 - design `immediate-set-state-status-match`
 - design `js-store-effective-media-type`
+- design `js-store-page-metadata-status`
 - design `json-orient-index-column-collision`
 - design `json-table-column-order`
 - design `lib-build-warning-cleanup`

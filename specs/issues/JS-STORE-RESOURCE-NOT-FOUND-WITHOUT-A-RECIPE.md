@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: M
 area: [web, core/assets]
-design:
+design: js-store-page-metadata-status
 created: 2026-09-27
 github:
 ---
