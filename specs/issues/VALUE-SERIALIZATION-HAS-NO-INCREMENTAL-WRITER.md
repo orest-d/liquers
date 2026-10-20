@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: M
 area: [core/value]
-design: record-streams
+design: value-serialization-writer
 created: 2026-09-17
 github:
 ---
@@ -28,6 +28,16 @@ The capability exists one layer down and is not exposed. `liquers-lib`'s polars 
 (`liquers-lib/src/polars/serde.rs:94`), which writes CSV, parquet and NDJSON incrementally — and
 `liquers-lib/src/value/mod.rs:302` calls it with a `Vec<u8>` as the writer, immediately discarding
 the benefit to satisfy the `as_bytes` signature.
+
+### Problem example
+
+```rust
+let value = Value::from_polars_dataframe(df);   // liquers-lib, a large frame
+let bytes = value.as_bytes("csv")?;             // the whole CSV in memory first
+std::fs::write("out.csv", &bytes)?;
+```
+
+Should be: `value.write_to("csv", &mut file)?`, writing the same bytes in polars' batches.
 
 ## Impact
 
@@ -131,3 +141,9 @@ serialization call site in `liquers-axum` that the pattern would change.
 Unchanged, and still open. `record-streams` writes every table format into one `Vec<u8>` through
 `as_bytes`. It added no incremental writer, which Phase 2 chose to leave out of scope. Fold this
 into `VALUE-SERIALIZATION-IS-SYNCHRONOUS-AND-WHOLE-VALUE` when that design starts.
+
+## Update 2026-10-19 — own design
+
+The `design:` field named the completed origin design `record-streams`, which found this and scoped
+it out. It now names `design/value-serialization-writer/`, a bulk design of the synchronous writer
+form on its own, with the fold-into-the-redesign question above left open for the maintainer.

@@ -3,7 +3,7 @@ title: Store Configuration Guide
 kind: guide
 audience: internal
 area: [store/config, core/store]
-reviewed: 2026-10-16
+reviewed: 2026-10-19
 ---
 # Store Configuration Guide
 
@@ -160,6 +160,7 @@ field) or `fill` (set it only where it is empty). The **text fields** are `title
 | `updated` | none | write | Sets `updated` to now, for a chain without `defaults` |
 | `front_matter` *(liquers-lib, `records`)* | `mode = overwrite`, `fields…` (multiple; empty means `title`, `description`) | default, write, read | For a Markdown entry (by extension or `media_type`), copies the named text fields from its YAML or TOML front matter. Other entries: no effect. In `on_read` it reads the bytes only when the entry changed |
 | `front_matter_sync` *(liquers-lib, `records`)* | `fields…` (multiple; empty means `title`, `description`) | write | In `set_metadata` only, rewrites a Markdown entry's YAML front matter from the record's fields (an empty field removes its key), so the metadata write becomes a data write too. In `set`, the caller's bytes are kept. TOML front matter is left alone, with a warning |
+| `markdown_tiers` *(liquers-lib, `records`)* | `sections…` (multiple) | default, read | For a Markdown entry whose record has an empty `title` or `description`: fills `title` from the first heading and `description` from the first paragraph of the first listed section present, else the first paragraph after the front matter. Never overwrites, never writes. Put it after `front_matter`, as a fallback for documents without front matter |
 
 `mode` comes first in `front_matter`, so its field list starts at the second parameter:
 `front_matter-fill-title-description`. `front_matter-title` fails, because `title` is not a mode.
@@ -175,7 +176,7 @@ environment cannot name them.
 | `native` | none | the backend's own metadata, through `get_stored_metadata` / `set_metadata` (the stores' existing sidecars) | what the backend reserves |
 | `per_entry` | `layout = sidecar` (`sidecar` · `root` · `prefix` · `folder`) | one object per key: `{key}.__metadata__` · `__metadata__/{key}` · `{folder}/__metadata__{name}.json` · `{folder}/__metadata__/{name}.json` | the suffix, the `__metadata__` segment or the `__metadata__` prefix |
 | `grouped` | `file = __metadata__.json` (a plain file name) | one JSON map, name → record, per folder | that file name in every folder |
-| `none` | none | nothing; every record comes from `on_default` and `on_read` | nothing |
+| `none` | none | nothing; every record comes from `on_default` and `on_read` — the choice for a checkout edited by hand, since a hand edit is seen at the next read and no sidecar lands beside the files | nothing |
 | `central` | `mount` | declared only: in a router-level section the builder resolves the mount (an unknown one, or a member section, is a configuration error), then the build fails with "declared but not implemented yet" ([`STORE-CENTRAL-STORAGE-MODEL-NOT-IMPLEMENTED`](../issues/STORE-CENTRAL-STORAGE-MODEL-NOT-IMPLEMENTED.md)) | — |
 | `memory_central` | none | **test only** (`register_test_store_config`, under `cfg(test)` / feature `store-conformance`); an in-memory central store | nothing |
 
@@ -438,5 +439,6 @@ Language-defined entries (Python, JavaScript) are not possible yet:
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-19 | §5: the `markdown_tiers` handler; `storage: none` recommended for checkouts edited by hand. | `design/agent-memory-mvp/` Phase 5 |
 | 2026-10-16 | §11: `ComponentBuilder` takes a `ComponentContext` holding the router's mounts for a router-level section, so a storage model can keep records in another mount; `central` resolves its mount. | `design/store-adapters/` phase-5 review |
 | 2026-10-15 | Created by store-adapters: writing `metadata` sections (fields and defaults, spec syntax and escaping, stages, the `store_config` catalogue, router-level sections, validation, error messages) and defining a new handler, storage model or write strategy. | `design/store-adapters/` phase-5 |

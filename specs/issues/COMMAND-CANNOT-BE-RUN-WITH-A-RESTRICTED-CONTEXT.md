@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: M
 area: [core/context, core/commands]
-design: 
+design: pure-command-context
 created: 2026-09-17
 github:
 ---
@@ -26,6 +26,18 @@ The distinction the caller needs already exists one level up.
 (`liquers-core/src/commands.rs:540`) applies a command to a state and returns a value: it creates no
 asset, persists nothing and cascades no dependency. So a caller can invoke a command cheaply — and
 then the command's own body can reach through the context and do all three anyway.
+
+## Problem Example
+
+A command holding `context` applies a projection to bytes it already has:
+`context.get_envref().get_command_executor().execute_async(&CommandKey::new_name("front_matter"),
+state, args, context.clone())`. If the body of `front_matter` calls
+`context.evaluate(&parse_query("-R/big/recipe.csv")?)`, that recipe runs, and its asset is created,
+cached and recorded as a dependency of the caller. Nothing tells the caller. Instead, the caller
+should be able to pass a restricted context, so that the `evaluate` call returns an `Error` and no
+asset is created, or so that the command is refused up front if it was never declared safe to run
+that way. (Line references above are from 2026-09-17. At 2026-10-19 `Context::evaluate` is at
+`context.rs:916`, `EnvRef::get_async_store` at `:321` and `CommandExecutor` at `commands.rs:563`.)
 
 ## Impact
 

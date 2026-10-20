@@ -2,11 +2,11 @@
 id: PY-MODULES-NOT-DECLARED-IN-LIB
 kind: issue
 title: Half of liquers-py's source files are not declared as modules and never compile
-status: draft
+status: closed
 priority: P2
 complexity: M
 area: [py]
-design:
+design: liquers-py
 created: 2026-08-25
 github:
 ---
@@ -99,3 +99,20 @@ alias.
 `liquers_core::cache`, which that design removes, and a future Python store wraps `AsyncStore`
 (`design/python-wrapper/`). Once it lands, the remaining orphans are `commands`, `interpreter` and
 `state`.
+
+## Resolution (2026-10-17)
+
+Resolved by deletion, the third option of "Fix direction" step 3. The last three orphans —
+`liquers-py/src/commands.rs`, `interpreter.rs` and `state.rs` — are removed, along with the comment
+in `lib.rs` that listed them; nothing compiled referred to them. Every remaining file under
+`liquers-py/src/` is declared in `lib.rs` and compiled.
+
+The Python command-execution path they sketched (`pycall`, the `CommandRegistry` wrapper) is not
+ported: it is redesigned by the liquers-py implementation plan, whose design folder is to be
+`specs/design/liquers-py/` — one Rust closure per Python command owning its callable, instead of an
+alias to a `pycall` command resolved by module path at call time. Until then
+`CommandMetadataRegistry::add_python_command` still builds an alias to the unregistered `pycall`
+(Impact, point 2), now tracked as `PY-ADD-PYTHON-COMMAND-ALIASES-AN-UNREGISTERED-COMMAND`.
+
+Evidence: `cargo check -p liquers-py --lib --tests` builds with zero warnings, and
+`bash scripts/test-liquers-py.sh` passes.

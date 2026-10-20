@@ -1,0 +1,19 @@
+[package]
+name = "liquers-mcp"
+version = "0.1.0"
+edition = "2021"
+rust-version.workspace = true
+description = "Serves Liquers commands as MCP tools: one query per tool, plus an allow-listed query tool"
+
+[dependencies]
+liquers-core = { path = "../liquers-core" }
+rmcp = { version = "=3.5.1", default-features = false, features = ["server", "transport-io"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+tokio = { version = "1.53.1", features = ["sync", "rt", "macros"] }
+
+[dev-dependencies]
+liquers-macro = { path = "../liquers-macro" }
+futures = "0.3.34"
+rmcp = { version = "=3.5.1", default-features = false, features = ["server", "transport-io", "client", "transport-async-rw"] }
+tokio = { version = "1.53.1", features = ["full"] }

@@ -1,0 +1,16 @@
+version: 1
+instructions: Search before you write.
+collections:
+  - name: issues
+    folder: issues
+    description: What is wrong or missing
+    sections: [Problem]
+    fields:
+      id: { required: true, equals: filename_stem }
+      title: { required: true }
+      description: { required: true }
+      status: { required: true, default: draft, enum: [draft, in_progress, closed] }
+  - name: notes
+    folder: notes
+    description: Short notes kept by agents
+    id: { from: title, case: kebab }

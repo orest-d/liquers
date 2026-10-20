@@ -908,13 +908,20 @@ impl DefaultValueSerializer for ExtValue {
                 let source = ManifestSource::new(spec, None)?;
                 Ok(ExtValue::from_record_source(Arc::new(source)))
             }
-            _ => Err(Error::from_error(
-                ErrorType::SerializationError,
-                format!(
-                    "Unsupported type identifier in from_bytes:{}",
-                    type_identifier
-                ),
-            )),
+            // A foreign identifier is open-ended, so it cannot be a match arm: an integration
+            // registers a decoder for it (`foreign::register_foreign_decoder`).
+            _ => match crate::value::foreign::foreign_decoder(type_identifier) {
+                Some(decoder) => Ok(ExtValue::Foreign {
+                    value: decoder(b, fmt)?,
+                }),
+                None => Err(Error::from_error(
+                    ErrorType::SerializationError,
+                    format!(
+                        "Unsupported type identifier in from_bytes:{}",
+                        type_identifier
+                    ),
+                )),
+            },
         }
     }
 }

@@ -2,11 +2,11 @@
 id: PYTHON-WRAPPER
 kind: design
 title: Python wrapper architecture for liquers-py
-status: complete
+status: superseded
 area: [py]
 issues: []
 created: 2026-03-02
-superseded_by:
+superseded_by: liquers-py
 ---
 
 # Python Wrapper Design Tracking
@@ -19,6 +19,14 @@ There are no phase 3 or 4 documents; the implementation landed without them.
 
 `complete` is assigned per `DOCS_STRUCTURE_GUIDE.md` §5.3 rule 1 — every phase *required when this
 design was approved* is done, and at that time there was no phase set at all.
+
+## Superseded
+
+Superseded on 2026-10-17 by [`liquers-py`](../liquers-py/DESIGN.md). Its owner decisions (phase 1
+TODO) carry over; its value-extension, `pycall` alias dispatch and metadata-extractor proposals do
+not. The salvage list is §2 of
+[`archive/2026-10-17-liquers-py-implementation-plan.md`](../../archive/2026-10-17-liquers-py-implementation-plan.md).
+The earlier `complete` status was wrong: nothing it describes was implemented.
 
 ## Phase Status
 
