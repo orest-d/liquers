@@ -4,7 +4,7 @@ use pyo3::prelude::*;
 
 use crate::error::Error;
 
-#[pyclass(from_py_object)]
+#[pyclass(from_py_object, module = "liquers")]
 #[derive(Clone, Debug)]
 pub struct Expires(pub liquers_core::expiration::Expires);
 
@@ -48,7 +48,7 @@ impl Expires {
     }
 }
 
-#[pyclass(from_py_object)]
+#[pyclass(from_py_object, module = "liquers")]
 #[derive(Clone, Debug)]
 pub struct ExpirationTime(pub liquers_core::expiration::ExpirationTime);
 

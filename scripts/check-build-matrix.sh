@@ -258,7 +258,8 @@ check liquers-agent "--tests"
 check liquers-core "--features store-conformance --lib --tests"
 check liquers-store "--features store-conformance --lib --tests"
 
-# liquers-py is outside the liquers-lib dependency chain, so no other row builds it, and its PyO3
+# liquers-py builds liquers-lib with `egui` off — a feature set no other row uses, which makes this
+# the heaviest single row (polars included). No other row builds liquers-py itself, and its PyO3
 # bindings are the code most exposed to a dependency upgrade. Native only: there is no wasm32 Python
 # target. The check needs a Python 3 interpreter that PyO3 supports, found on `PATH`.
 check liquers-py "--lib --tests"

@@ -3,7 +3,7 @@ use pyo3::{exceptions::PyException, prelude::*};
 
 use crate::{command_metadata::CommandMetadataRegistry, error::Error};
 
-#[pyclass(from_py_object)]
+#[pyclass(from_py_object, module = "liquers")]
 #[derive(Debug, Clone)]
 pub struct Step(pub liquers_core::plan::Step);
 
@@ -36,7 +36,7 @@ impl Step {
     }
 }
 
-#[pyclass(from_py_object)]
+#[pyclass(from_py_object, module = "liquers")]
 #[derive(Debug, Clone)]
 pub struct ParameterValue(pub liquers_core::plan::ParameterValue);
 
@@ -59,7 +59,7 @@ impl ParameterValue {
     }
 }
 
-#[pyclass(from_py_object)]
+#[pyclass(from_py_object, module = "liquers")]
 #[derive(Debug, Clone)]
 pub struct ResolvedParameterValues(pub liquers_core::plan::ResolvedParameterValues);
 
@@ -82,7 +82,7 @@ impl ResolvedParameterValues {
     }
 }
 
-#[pyclass]
+#[pyclass(module = "liquers")]
 pub struct Plan(pub liquers_core::plan::Plan);
 
 #[pymethods]

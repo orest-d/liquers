@@ -1,0 +1,34 @@
+---
+id: PY-COMMAND-DECORATOR-CANNOT-SET-REALM
+kind: feature
+title: Python command decorators cannot place a command in a realm
+status: draft
+priority: P3
+complexity: S
+area: [py]
+design:
+created: 2026-10-18
+github:
+---
+
+## Problem
+
+`@lq.command` and `@lq.first_command` (`liquers-py/python/liquers/_commands.py`) take `namespace=`
+but no `realm=`, and `Environment.unregister` and `command_metadata` look a command up by name and
+namespace only, with the realm fixed to `""`. A Python command therefore always lives in the
+default realm, while `register_command!` accepts `realm:`.
+
+## Impact
+
+Python authors who need a command in a non-default realm cannot declare one. No known user needs
+it yet; the omission was deliberate scope control in `design/liquers-py/`.
+
+## Expected behaviour
+
+The decorators accept `realm=`, passed through the declaration like `namespace`, and the lookup
+methods accept a matching keyword. Alternatively, the realm stays fixed and the guide records why.
+
+## Discovery
+
+Intentionally omitted scope of `specs/design/liquers-py/`, recorded in Phase 5 and in the
+`COMMAND` row of `liquers-py/README.md`.

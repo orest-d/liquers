@@ -72,6 +72,12 @@ Also:
   provider: `liquers-records/src/`. The glue that needs `liquers-lib`'s `Value` — `ExtValue::RecordView`
   / `RecordSource`, `to_record` / `to_record_source`, the `ns-rec` commands, the polars bridge:
   `liquers-lib/src/records/` (design: `specs/design/record-streams/`)
+- Python bindings: `liquers-py/src/` (environment handle, command adapter, value bridge, error
+  mapping) and the `liquers` package in `liquers-py/python/liquers/` (decorators, error classes).
+  A Python object is `py.Object` in `ExtValue::Foreign`; Python commands are closures, not
+  `pycall` aliases. Contract: `specs/reference/PYTHON_INTEGRATION.md`; usage:
+  `specs/guides/PYTHON_GUIDE.md`; conformance matrix: `liquers-py/README.md`; guidance:
+  `specs/guides/LANGUAGE-INTEGRATION_GUIDE.md` §6 Python
 - Agent memory: the `ns-mem` commands in `liquers-lib/src/mem/` (feature `mem`); serving commands
   as MCP tools in `liquers-mcp/`; the binary, its built-in tool set and query guide in
   `liquers-agent/` (`specs/reference/AGENT_MEMORY_SERVICE.md`). This repository's specs as a

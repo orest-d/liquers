@@ -65,3 +65,10 @@ that had already been prepended.
 an optional rendered `traceback` string (`Error::with_traceback`), which reaches the metadata log
 and the axum error body. What remains here is the exception class and having `liquers-web` and
 `liquers-py` fill the traceback on the way in instead of appending the stack to `message`.
+
+## Related (2026-10-19)
+
+`liquers-py` follows the same route as `liquers-web`: the Python class goes in the message and the
+stack in `Error::traceback`, and no `language_context` field was added (owner decision, design
+`liquers-py` Phase 1 question 6). How several languages' stacks share that one field is
+`MULTI-LANGUAGE-TRACEBACK-IS-A-FLAT-STRING`.
