@@ -5,7 +5,7 @@ title: A plain .yaml schema file cannot be linked into to_record's schema argume
 status: draft
 priority: P2
 complexity: S
-area: [lib/records, core/value]
+area: [records, lib/value]
 design:
 created: 2026-10-20
 github:
