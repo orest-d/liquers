@@ -8,8 +8,8 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 143
-- P2: 53
+Total rows: 142
+- P2: 52
 - P3: 90
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
@@ -37,7 +37,6 @@ Total rows: 143
 | [`WEBUI-SUBMIT-QUERY-STATE-NOT-PRESERVED`](issues/WEBUI-SUBMIT-QUERY-STATE-NOT-PRESERVED.md) | issue | Submitted query state is not preserved in the browser | accepted | needs-decision | not-eligible | P2 | M | lib/ui | [phase1](design/ui-events/phase1-high-level-design.md)  [phase2](design/ui-events/phase2-architecture.md)  [phase3](design/ui-events/phase3-examples.md)  [phase4](design/ui-events/phase4-implementation.md)  | 2026-08-08 |
 | [`INLINE-RUN-CLAIM-REPAIR-SKIPPED-UNDER-LOCK-CONTENTION`](issues/INLINE-RUN-CLAIM-REPAIR-SKIPPED-UNDER-LOCK-CONTENTION.md) | issue | A dropped inline run leaves its asset Processing forever when the asset lock is busy at drop time | draft |  |  | P2 | M | core/assets |  | 2026-10-19 |
 | [`JS-COMMAND-CANNOT-ACCESS-CONTEXT`](issues/JS-COMMAND-CANNOT-ACCESS-CONTEXT.md) | feature | A JavaScript command cannot access the execution context | draft |  |  | P2 | M | web;core/commands |  | 2026-08-29 |
-| [`JS-STORE-RESOURCE-NOT-FOUND-WITHOUT-A-RECIPE`](issues/JS-STORE-RESOURCE-NOT-FOUND-WITHOUT-A-RECIPE.md) | issue | A resource served by a page-implemented js store fails with "No recipe found" | draft |  |  | P2 | M | web;core/assets | [design](design/js-store-page-metadata-status/DESIGN.md) | 2026-09-27 |
 | [`LANGUAGE-GUIDE-NO-DOCUMENTATION-SECTION`](issues/LANGUAGE-GUIDE-NO-DOCUMENTATION-SECTION.md) | feature | The language integration guide says nothing about writing the integration's own documentation | draft |  |  | P2 | M | docs;web;py |  | 2026-08-30 |
 | [`LANGUAGE-STORE-TYPE-NOT-DEFINABLE`](issues/LANGUAGE-STORE-TYPE-NOT-DEFINABLE.md) | feature | A store type cannot be defined in the integrated language | draft |  |  | P2 | M | web;py;core/store;store/config |  | 2026-08-29 |
 | [`MISSING-RESOURCE-REPORTED-AS-GENERAL-ERROR`](issues/MISSING-RESOURCE-REPORTED-AS-GENERAL-ERROR.md) | issue | A key that is neither stored nor made by a recipe raises a General error without its key | draft |  |  | P2 | M | core/assets;core/error |  | 2026-10-19 |

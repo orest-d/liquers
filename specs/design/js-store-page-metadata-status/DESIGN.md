@@ -5,7 +5,8 @@ title: Stored data without a status is loadable
 form: compact
 workflow: liquers-project
 status: approved
-phase: implementation
+phase: documentation
+affects_docs: [specs/reference/ASSETS.md, specs/reference/ASSET_LIFECYCLE.md, specs/reference/STORE_SEMANTICS.md]
 area: [core/assets, web]
 issues: [JS-STORE-RESOURCE-NOT-FOUND-WITHOUT-A-RECIPE]
 created: 2026-10-20
@@ -96,6 +97,7 @@ stored records themselves.
   - WHEN bytes are written to `AsyncMemoryStore` or `AsyncFileStore` with a record that has no
     status and no version, and the key is then evaluated
   - THEN the bytes are served as `Source` when the key has no recipe, and as `Ready` when it has one
+    (which the version check then keeps as `Override` under the default policy, see Phase 5)
 - **AC-7** A dependency with no status does not block its dependent
   - WHEN a stored dependency of a fast-tracked asset has status `None`
   - THEN the dependency check treats it as inconclusive, the same as an unreadable one, and does not
@@ -273,19 +275,19 @@ unchanged (AC-5).
 
 ### Steps
 
-- [ ] 1. `liquers-core/src/assets.rs`: add `reusable_stored_status` and `adopt_stored_status`, and
+- [x] 1. `liquers-core/src/assets.rs`: add `reusable_stored_status` and `adopt_stored_status`, and
   call them in `try_fast_track` and in the store branches of `AssetManager::get_any_status` /
   `get_binary_any_status`. Add the `Status::None` arm to `dependency_blocks_fast_track`. Add the
   two unit tests. Proof: `cargo test -p liquers-core --lib`
-- [ ] 2. `liquers-core/tests/stored_status_none.rs`: the five native tests. Proof:
-  `cargo test -p liquers-core --test stored_status_none`, then `cargo test -p liquers-core`
-- [ ] 3. `liquers-web/src/store/mod.rs` `metadata_from_js_value`: seed the key and the filename on
+- [x] 2. `liquers-core/tests/stored_status_none.rs`: the five native tests. Proof:
+  `cargo test -p liquers-core --test stored_status_none`, then `cargo test -p liquers-core` (`5eca54c`)
+- [x] 3. `liquers-web/src/store/mod.rs` `metadata_from_js_value`: seed the key and the filename on
   the complete-record branch. Add the four Node tests. Proof: the Node loop, with and without
-  `records`
-- [ ] 4. Run `cargo test -p liquers-lib --lib --tests`, the regression loop for the code that
+  `records` (`c8bd006`)
+- [x] 4. Run `cargo test -p liquers-lib --lib --tests`, the regression loop for the code that
   depends on core
-- [ ] 5. The e2e run (AC-5), where the environment can run it. Otherwise record it as not run
-- [ ] 6. Documents: `ASSETS.md`, `STORE_SEMANTICS.md` §10, the issue closed, `specs/index.csv`
+- [x] 5. The e2e run (AC-5), where the environment can run it. Otherwise record it as not run
+- [x] 6. Documents: `ASSETS.md`, `STORE_SEMANTICS.md` §10, the issue closed, `specs/index.csv`
   regenerated
 
 Rollback for every step: revert its commit. Step 1 is the only behavioural change.
@@ -295,3 +297,46 @@ Rollback for every step: revert its commit. Step 1 is the only behavioural chang
 `cargo test -p liquers-core`, `cargo test -p liquers-lib --lib --tests`, the `liquers-web` Node
 loop, and `python3 scripts/docs_index.py --check`. `specs/command_registry.yaml` is untouched,
 since no command changes.
+
+## Phase 5: Documentation
+
+**What was built.** The design was built as approved after the 2026-10-20 scope change. Core
+gained `reusable_stored_status`, which maps only `None` with no recorded version, and
+`adopt_stored_status`, which applies it, logs `no status was stored for <key>; read as <status>` as
+a warning, and writes nothing back. It runs in `try_fast_track` and in the store branches of
+`AssetManager::get_any_status` / `get_binary_any_status`, which both managers share. In
+`dependency_blocks_fast_track`, a `None` is inconclusive. In `liquers-web`, `metadata_from_js_value`
+seeds the key and filename on its complete-record branch. One e2e comment that still called
+keyed evaluation broken was corrected.
+
+**Differences from the approved design:**
+- With a recipe, the bytes read as `Ready`, as designed. They carry no version, though, so the
+  external-change check that follows finds them changed and keeps them as `Override` under the
+  default `user_input` policy. That is the outcome `ASSETS.md`'s table already documents for a file
+  with no metadata under a recipe, so the design was not changed. AC-6's THEN and
+  `none02_memory_store_with_recipe_reads_as_ready` record it.
+- Only one `get_any_status` / `get_binary_any_status` exists, a default on the `AssetManager`
+  trait, not one per manager as Phase 2 assumed. That is one call site per method instead of two.
+
+**Validation.**
+- `cargo test -p liquers-core`: every suite passes, 1,221 lib tests among them, plus the 5 new
+  tests.
+- `cargo test -p liquers-lib --lib --tests`: 30 suites, no failures.
+- `liquers-web` Node loop, with and without `records`: every suite passes, including the four
+  `store07_*` tests.
+- With `try_fast_track` reverted to `main`, three of the four `store07_*` tests fail. The
+  declared-`Error` test passes either way, as it should.
+- e2e (`quickstart/build.sh`, Playwright against the preinstalled Chromium): **16/16**,
+  including `STORE07 a JavaScript store evaluates end to end`.
+
+**Documents.** `ASSETS.md` (§Content changed outside Liquers and §Volatile), `ASSET_LIFECYCLE.md`
+(§Reusing a stored asset) and `STORE_SEMANTICS.md` §10 were each reviewed against the code and
+updated, with History rows and `reviewed: 2026-10-20`. The `liquers-web` README needs no change:
+its `STORE` row is now true.
+
+**Issues.** `JS-STORE-RESOURCE-NOT-FOUND-WITHOUT-A-RECIPE` is closed with a resolution. No new
+problems were found, so none were filed.
+
+**Learning.** "No recipe found" on a key that the store answers `contains` for means its stored
+status is not reusable. Check the stored record's status before suspecting the store.
+
