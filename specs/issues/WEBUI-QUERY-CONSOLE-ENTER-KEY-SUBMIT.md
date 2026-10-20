@@ -18,6 +18,16 @@ the target's closest `[data-lq-action]` ancestor. The current markup puts `data-
 sibling `<span>` (the "Go" button) instead of the input or one of its ancestors, so pressing Enter in
 the query console returns without sending `ApplyToInput` — only clicking "Go" works.
 
+## Problem Example
+In `liquers-lib/examples-web/ui_query_console_app`, open a console from the menu (`New Console`,
+query `hello/q/ns-lui/query_console/add-child`), type `about` into the query input and press Enter.
+Today nothing happens: the content still shows the `hello` result. Clicking "Go" instead shows the
+`about` result. Expected: Enter submits exactly as "Go" does. The Playwright case
+`W1: pressing Enter in the input does not submit` in
+`liquers-lib/examples-web/tests/ui_query_console_app.spec.ts` asserts today's broken behaviour.
+Confirmed at HEAD on 2026-10-19 (`QueryConsoleElement::render_web` puts the action on the sibling
+`<span class="lq-go">`; `dispatch_dom_event` searches only the input's ancestors).
+
 ## Fix direction
 Put the action on the input (or a shared toolbar ancestor of both the input and the button), or
 special-case the input element on Enter in `dispatch_dom_event`.

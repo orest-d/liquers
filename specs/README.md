@@ -361,6 +361,8 @@ deliberately folded behind a broader line.
 - design `foreign-value-type-registration`
 - design `immediate-lazy-expiry-cascade`
 - design `immediate-set-state-status-match`
+- design `inline-waiter-recovers-dropped-run`
+- design `ipc-reader-polars-text-columns`
 - design `js-store-effective-media-type`
 - design `json-orient-index-column-collision`
 - design `json-table-column-order`
@@ -374,6 +376,7 @@ deliberately folded behind a broader line.
 - design `manifest-over-stored-csv-test`
 - design `markdown-empty-text-and-tables`
 - design `memory-store-metadata-only-entry`
+- design `metadata-application-attributes`
 - design `metadata-error-traceback`
 - design `metadata-only-entry-reload`
 - design `metadata-serde-partialeq`
@@ -383,11 +386,14 @@ deliberately folded behind a broader line.
 - design `opendal-list-option-config`
 - design `opendal-localfs-assetinfo-test`
 - design `ordered-json-orient-column-order`
+- design `parquet-read-declared-schema`
 - design `plan-cwd-freeze`
 - design `plan-relative-resolution`
 - design `plan-split-predecessor-fields`
+- design `polars-command-tests-via-queries`
 - design `polars-doc-example-namespace`
 - design `predecessor-cut-equivalence`
+- design `pure-command-context`
 - design `pyo3-python-3-13-support`
 - design `query-leading-slash-field`
 - design `queued-manager-conditional-eviction`
@@ -403,10 +409,14 @@ deliberately folded behind a broader line.
 - design `root-listing-dependency-key-spelling`
 - design `save-to-store-skip-outcome`
 - design `search-catalog-single-metadata-read`
+- design `serialization-lossy-write-warnings`
+- design `serialized-binary-disposal-policy`
 - design `sidecar-colliding-keys`
 - design `simple-value-serializer-parity`
 - design `simple-value-untyped-and-scalar-reads`
 - design `state-argument-serde-default`
+- design `store-conditional-write`
+- design `store-conformance-check-tool`
 - design `store-conformance-suite`
 - design `store-conformance-warning-cleanup`
 - design `store-guide-status-table`
@@ -423,7 +433,9 @@ deliberately folded behind a broader line.
 - design `template-non-scalar-text-form`
 - design `text-value-markdown-format`
 - design `type-info-write-only-formats`
+- design `ui-asset-snapshot-boundary`
 - design `ui-query-console-error-highlight`
+- design `value-serialization-writer`
 - design `value-type-system`
 - design `variadic-metadata-tail-check`
 - design `web-environ-validation-report`
@@ -462,6 +474,7 @@ deliberately folded behind a broader line.
 - feature `STORE-CONFIG-SPEC-CANNOT-SCOPE-HANDLERS-TO-A-KEY`
 - feature `STORE-NO-DATABASE-STORAGE-MODEL`
 - feature `TEMPLATE-HAS-NO-HIGHLIGHTER`
+- feature `TEXT-EDITOR-EDITS-ARE-NEVER-SAVED`
 - feature `TYPE-REGISTRY-NOT-REALM-AWARE`
 - feature `UI-VARIADIC-ARGUMENT-LIST-EDITOR`
 - feature `UNMANAGED-ASSET-NOT-FOLLOWABLE-ACROSS-CONNECTIONS`

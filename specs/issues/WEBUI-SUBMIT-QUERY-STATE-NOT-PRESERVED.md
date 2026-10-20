@@ -18,6 +18,16 @@ When the web QueryConsole's "Go" control emits `ApplyToInput`, `lui/submit` only
 never updated with the live DOM input. After the result triggers a re-render, the input is rebuilt
 from the old `self.query_text`, and volatile/expired refresh paths also resubmit that stale query.
 
+## Problem Example
+In `liquers-lib/examples-web/ui_query_console_app`, open a console (initial query `hello`), type
+`about`, click "Go". The content shows the `about` result, but when the console re-renders the
+input reverts to `hello`, the history holds only `hello`, and a volatile or expired refresh would
+re-request `hello`. Expected: the input shows `about`, history ends with `about`, and refreshes
+request `about`. The Playwright case `W2: the input reverts to the previous query after submitting`
+asserts today's broken behaviour. Confirmed at HEAD on 2026-10-19 (`submit` in
+`liquers-lib/src/ui/commands.rs` sends only `AppMessage::RequestAssetUpdates`; nothing updates
+`QueryConsoleElement::query_text`).
+
 ## Fix direction
 Update the console element's state (or carry the submitted query through the snapshot) before
 requesting asset updates, so `query_text`/history reflect the live input.

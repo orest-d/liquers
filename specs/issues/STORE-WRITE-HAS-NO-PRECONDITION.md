@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: M
 area: [core/store]
-design: 
+design: store-conditional-write
 created: 2026-09-15
 github:
 ---
@@ -26,6 +26,20 @@ rather than a contract.
 
 `STORE_SEMANTICS.md` says nothing about concurrent writers. The only concurrency statement in it
 is that `removedir` is not atomic.
+
+### Problem example
+
+```rust
+let (a, meta) = store.get(&key).await?;   // writer A reads "x"
+let (b, _)    = store.get(&key).await?;   // writer B reads "x"
+store.set(&key, b"x+A", &meta).await?;    // A writes
+store.set(&key, b"x+B", &meta).await?;    // B writes: Ok(()), and A's edit is lost unseen
+```
+
+B should be able to say "only if the key still holds `x`" and get a conflict error instead.
+Since filing, `STORE_SEMANTICS.md` has gained a single-metadata-writer assumption (introduction) and
+§16 (grouped writes lock per process only, citing this issue); there is still no conditional write
+and no rule for concurrent `set`. Design: `specs/design/store-conditional-write/`.
 
 ## Impact
 

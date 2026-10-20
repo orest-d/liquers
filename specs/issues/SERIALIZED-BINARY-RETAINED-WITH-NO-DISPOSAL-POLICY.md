@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: M
 area: [core/assets]
-design:
+design: serialized-binary-disposal-policy
 created: 2026-09-05
 github:
 ---
@@ -33,6 +33,14 @@ roughly doubling its resident cost for as long as it is cached.
 There is no policy to consult. The asset carries no size accounting, no last-used marker for the
 binary, and no notion of when a cached binary is worth keeping (a repeatedly-served large table)
 versus dropping (a one-shot write of a value that is cheap to re-serialize).
+
+### Problem example
+
+A keyed recipe `big/table.csv` evaluates to a 500 MB DataFrame. `prepare_version` serializes it for
+the content hash, `finalize_status_with_version` caches those bytes on the asset, and
+`save_to_store` writes them. Afterwards the asset still holds the DataFrame and the 500 MB of CSV,
+and `poll_binary()` returns them, until the asset is replaced or evicted. Once the store holds the
+bytes, only the DataFrame needs to stay resident.
 
 ## Impact
 

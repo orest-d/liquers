@@ -6,7 +6,7 @@ status: accepted
 priority: P2
 complexity: M
 area: [store/backends, core/store]
-design:
+design: store-conformance-check-tool
 created: 2026-09-02
 github:
 ---
@@ -22,6 +22,16 @@ it can only be executed from a test binary against a hand-written fixture. Two t
 
 Both are the same missing thing: a command that takes a store description, runs the suite, and
 prints the report.
+
+### Problem example
+
+`stores.yaml` mounts `data` as `type: fs, config: { root: /srv/data }`. To check that mount
+against the contract, an operator has to write Rust like
+`liquers-store/tests/store_conformance_CONF.rs::a3_opendal_read_only_report` — build the store,
+declare `StoreCapabilities` by hand, call `run_all` — and run it with `cargo test`. Wanted:
+`liquers-store-check --config stores.yaml --claims data-claims.yaml --store data`, printing the
+report and exiting 0 / 1 / 2. Design (including an answer to the unsolved problem below):
+`specs/design/store-conformance-check-tool/`.
 
 ## Impact
 

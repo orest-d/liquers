@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: M
 area: [records]
-design: record-streams
+design: ipc-reader-polars-text-columns
 created: 2026-09-27
 github:
 ---
@@ -33,6 +33,19 @@ option, `CompatLevel::oldest()`, writes `LargeUtf8`/`LargeBinary` — never the 
 type this reader accepts. So **no `IpcWriter` setting** produces a string/binary column `read_ipc`
 can read; the two column types Phase 2 lists as supported are, in practice, unreachable from
 polars.
+
+## Problem Example
+
+```rust
+let mut df = df!("id" => [1i64, 2], "label" => ["short", "a label longer than twelve bytes"])?;
+let mut bytes = Vec::new();
+IpcWriter::new(&mut bytes).finish(&mut df)?;          // Utf8View (CompatLevel::newest())
+read_table(&bytes, TableFormat::Ipc, ReadSchema::Infer, &ReadOptions::default())
+// Err(NotSupported "Arrow IPC: field 'label' has unsupported Arrow type Utf8View (tag 24)")
+```
+
+With `.with_compat_level(CompatLevel::oldest())` the error is instead "... is LargeUtf8 (64-bit
+offsets), which this reader refuses". Expected: a two-row batch with `label: Text`.
 
 ## Impact
 
@@ -66,6 +79,12 @@ One of, decided together since they share a cause:
    `Utf8View`/`BinaryView`) and note in `ipc.rs`'s module doc comment that polars' output cannot
    satisfy the text/binary side of the interop claim without a writer-side compatibility flag this
    reader has no equivalent of.
+
+## Design
+
+Found while implementing the `record-streams` design (complete; its Phase 2 §"Tier 2" made the
+Large\* exclusion). The fix is designed separately in
+[`ipc-reader-polars-text-columns`](../design/ipc-reader-polars-text-columns/DESIGN.md).
 
 ## Discovery
 

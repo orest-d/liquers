@@ -3,53 +3,59 @@ id: UI-EVENTS
 kind: design
 title: UI event delivery to widgets
 status: in_review
-phase: high-level
+phase: implementation
+readiness: needs-decision
+autofix: not-eligible
 area: [lib/ui]
 gh_pr: []
-issues: []
+issues: [WEBUI-SUBMIT-QUERY-STATE-NOT-PRESERVED, WEBUI-QUERY-CONSOLE-ENTER-KEY-SUBMIT, WEBUI-MENU-SHORTCUTS-IGNORED]
+merged: 2026-10-19
+affects_docs: [UI_INTERFACE_FSD]
 created: 2026-03-02
 superseded_by:
 ---
 # ui-events Design Tracking
 
-> **Acceptance scenarios not defined.** This design predates acceptance scenarios
-> (`specs/DOCS_STRUCTURE_GUIDE.md` §5.2.1). Consider updating it: state the Phase 1 acceptance
-> criteria as `AC-<n>` WHEN/THEN scenarios and cite each from the Phase 3 test that proves it. Remove
-> this note when you do; until then `docs_index.py --check` counts this design in its warning.
-
-**Created:** 2026-07-25
-
+**Created:** 2026-07-25. **Resumed:** 2026-10-19 under `specs/guides/autonomous_bulk_design.md`
+§11 (bulk design): Phase 1 reviewed and trimmed, acceptance scenarios added, Phases 2-4 written. Not
+approved; nothing implemented.
 
 ## Scope
 
-How user interaction reaches a `UIElement` in any backend: the event vocabulary, how an element
-declares what it reacts to, and how a handler is expressed (native where that is right,
-query-based where the action should be data).
+How user interaction reaches a `UIElement` in any backend: a shared event vocabulary delivered
+through `update()`, declared in `render_web` markup, handled natively by the element or as a
+`UiAction` query. Split out of `specs/design/webui-fixes/` (complete), which kept rendering and
+invalidation. This first increment fixes the three browser defects that motivated it:
 
-Split out of `specs/design/webui-fixes/`, which keeps the rendering/invalidation half. Acceptance criteria
-are the interaction defects in `specs/archive/2026-08-08-issues.md`: W1 (Enter does not submit), W2 (submitted query
-never reaches the element), W5 (accelerators are egui-only).
+| ID | Issue | Symptom |
+|----|-------|---------|
+| W2 | WEBUI-SUBMIT-QUERY-STATE-NOT-PRESERVED (leading) | the submitted query never reaches the console; input, history and refresh keep the old one |
+| W1 | WEBUI-QUERY-CONSOLE-ENTER-KEY-SUBMIT | Enter in the console input does nothing |
+| W5 | WEBUI-MENU-SHORTCUTS-IGNORED (filed 2026-10-19) | `UISpec` menu shortcuts do nothing in the browser |
+
+The sources share one design because they strongly overlap (`overlap.md` T2, T4): each fix depends
+on the user-to-element contract this design defines, and a maintainer moved them here from
+`webui-fixes`. Egui adoption, per-keystroke sync, an imperative mount hook and event propagation
+are non-goals of this increment.
 
 ## Phase Status
 
-- [ ] Phase 1: High-Level Design — drafted, awaiting review
-- [ ] Phase 2: Solution & Architecture
-- [ ] Phase 3: Examples & Testing
-- [ ] Phase 4: Implementation Plan
+- [x] Phase 1: High-Level Design — reviewed 2026-10-19; scenarios AC-1 to AC-7
+- [x] Phase 2: Solution & Architecture — drafted 2026-10-19
+- [x] Phase 3: Examples & Testing — drafted 2026-10-19
+- [x] Phase 4: Implementation Plan — drafted 2026-10-19, 8 steps
 - [ ] Implementation Complete
+
+Readiness `needs-decision`: the public vocabulary shape (Phase 1 leading question) awaits
+confirmation; the recommended answer is assumed throughout.
 
 ## Notes
 
-- Modelled on the two backends in hand: HTML (typed events, delegation, per-control default
-  actions) and egui (`Response` predicates, explicit accelerator consumption).
-- Decided during the `webui-fixes` review and carried in: delivery through `update()` with a shared
-  vocabulary (`Custom` kept as escape hatch); declarative markup as the normal way to declare
-  interest, with an imperative per-element mount hook as an opt-in extension; field values synced
-  on dispatch with per-keystroke as a per-field opt-in; both value-only and values+action message
-  shapes; accelerators must not override native HTML key behaviour.
-- `value-accessor` is the binding layer under this feature's naming layer, and is **not** a
-  prerequisite — two composition rules keep the door open (values travel as `Value`; async writes
-  go through the runner).
+- Decided during the `webui-fixes` review and kept: delivery through `update()` with a shared
+  vocabulary (`Custom` stays as escape hatch); declarative markup as the way to declare interest;
+  field values carried with the event; accelerators never override native HTML key behaviour.
+- `value-accessor` is the binding layer beneath this naming layer and is not a prerequisite:
+  values travel as `Value`, and async writes go through the runner.
 
 ## Links
 
