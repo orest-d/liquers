@@ -107,6 +107,8 @@ pub fn opaque(value: JsValue) -> Result<LiquersValue, JsValue> {
 #[wasm_bindgen(js_name = Value)]
 pub struct LiquersValue {
     inner: liquers_lib::value::Value,
+    /// The environment that produced the value, when known; `toJS` converts inside it.
+    env: Option<liquers_core::context::EnvRef<environment::WebEnvironment>>,
 }
 
 #[wasm_bindgen(js_class = Value)]
@@ -114,7 +116,11 @@ impl LiquersValue {
     /// Converts back to a JavaScript value. An opaque value returns the original object.
     #[wasm_bindgen(js_name = toJS)]
     pub fn to_js(&self) -> Result<JsValue, JsValue> {
-        bridge::value_to_js(&self.inner).map_err(error::liquers_error_to_js)
+        match &self.env {
+            Some(env) => bridge::value_to_js_in(env, &self.inner),
+            None => bridge::value_to_js(&self.inner),
+        }
+        .map_err(error::liquers_error_to_js)
     }
 
     #[wasm_bindgen(getter, js_name = typeName)]
@@ -151,7 +157,16 @@ impl LiquersValue {
 
 impl LiquersValue {
     pub fn from_value(inner: liquers_lib::value::Value) -> Self {
-        LiquersValue { inner }
+        LiquersValue { inner, env: None }
+    }
+
+    /// Records the environment that produced the value, for `toJS`.
+    pub fn in_env(
+        mut self,
+        env: liquers_core::context::EnvRef<environment::WebEnvironment>,
+    ) -> Self {
+        self.env = Some(env);
+        self
     }
 
     pub fn inner(&self) -> &liquers_lib::value::Value {
@@ -221,7 +236,50 @@ pub fn encode_param_js(text: &str) -> Result<String, JsValue> {
 /// invisible until a query quietly returns the wrong thing.
 #[wasm_bindgen(js_name = registerCommand)]
 pub fn register_command(spec: typescript::JsCommandSpecObject) -> Result<(), JsValue> {
-    environment::register_command_on(spec.as_ref()).map_err(error::liquers_error_to_js)
+    environment::register_commands_on(spec.as_ref(), &JsValue::UNDEFINED)
+        .map(|_| ())
+        .map_err(refused_batch_to_js)
+}
+
+/// Registers a batch of commands on the global environment, all or nothing.
+///
+/// `input` is a declaration, an array of declarations, or a JSON or YAML string in the command
+/// metadata registry format (`commands: [...]`, as `specs/command_registry.yaml`). `impls` maps a
+/// command name to its function, or to `{ run, state?, async? }`; a declaration that has its own
+/// `run` needs no entry. Returns the validation report (empty, or warnings only). If anything is
+/// wrong, nothing is registered and a `parameter_error` is thrown whose `report` property holds
+/// every finding. Registering after the first evaluation rebuilds the environment once per batch.
+#[wasm_bindgen(js_name = registerCommands)]
+pub fn register_commands(
+    input: typescript::JsCommandBatch,
+    impls: Option<typescript::JsCommandImplementations>,
+) -> Result<typescript::JsIssueReport, JsValue> {
+    let impls: JsValue = impls.map(Into::into).unwrap_or(JsValue::UNDEFINED);
+    environment::register_commands_on(input.as_ref(), &impls)
+        .map(|report| error::issue_report_to_js(&report).unchecked_into())
+        .map_err(refused_batch_to_js)
+}
+
+/// Checks a batch of commands as `registerCommands` would, without registering anything.
+///
+/// Never throws for a bad batch: every finding is in the returned report. Works before `init()`
+/// and never rebuilds the environment.
+#[wasm_bindgen(js_name = validateCommands)]
+pub fn validate_commands(
+    input: typescript::JsCommandBatch,
+    impls: Option<typescript::JsCommandImplementations>,
+) -> typescript::JsIssueReport {
+    let impls: JsValue = impls.map(Into::into).unwrap_or(JsValue::UNDEFINED);
+    error::issue_report_to_js(&environment::validate_commands_on(input.as_ref(), &impls))
+        .unchecked_into()
+}
+
+fn refused_batch_to_js(refused: environment::RefusedBatch) -> JsValue {
+    let error = error::LiquersError::new(refused.error);
+    match refused.report {
+        Some(report) => error.with_report(&report).into(),
+        None => error.into(),
+    }
 }
 
 /// Removes a command from the global environment.

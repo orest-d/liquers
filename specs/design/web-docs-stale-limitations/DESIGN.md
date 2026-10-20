@@ -3,8 +3,8 @@ id: WEB-DOCS-STALE-LIMITATIONS
 kind: design
 title: Bring liquers-web's documentation up to date with the fixed limitations
 form: compact
-status: in_review
-phase: implementation
+gh_pr: [151]
+status: complete
 readiness: ready
 autofix: eligible
 area: [web, docs]
@@ -13,8 +13,8 @@ created: 2026-10-17
 ---
 # Bring liquers-web's documentation up to date with the fixed limitations
 
-Bulk design (`specs/guides/autonomous_bulk_design.md`). Phases 1-4 are written but not approved, and
-nothing is implemented.
+Bulk design (`specs/guides/autonomous_bulk_design.md`), merged in #145 and implemented in #151;
+every Phase 4 step is done.
 
 ## Phase 1: High-Level Design
 
@@ -136,9 +136,9 @@ No new tests: documentation has nothing to assert at runtime. Proofs:
 
 ### Steps
 
-- [ ] 1. `liquers-web/README.md` § Known limitations — delete the `-R/` paragraph and the `encodeParam` row; fix any repeat of the caveat elsewhere in the README — AC-1 grep
-- [ ] 2. `liquers-web/Cargo.toml`, `src/store/mod.rs`, `tests/value_bridge_VALUE.rs` — the three comment fixes in Phase 2 — AC-2 greps
-- [ ] 3. Close `WEB-DOCS-STALE-AFTER-KEYED-EVAL-FIX` (§4.3) and regenerate the index — `python3 scripts/docs_index.py && python3 scripts/docs_index.py --check`
+- [x] 1. `liquers-web/README.md` § Known limitations — delete the `-R/` paragraph and the `encodeParam` row; fix any repeat of the caveat elsewhere in the README — AC-1 grep
+- [x] 2. `liquers-web/Cargo.toml`, `src/store/mod.rs`, `tests/value_bridge_VALUE.rs` — the three comment fixes in Phase 2 — AC-2 greps
+- [x] 3. Close `WEB-DOCS-STALE-AFTER-KEYED-EVAL-FIX` (§4.3) and regenerate the index — `python3 scripts/docs_index.py && python3 scripts/docs_index.py --check`
 
 ### Validation
 

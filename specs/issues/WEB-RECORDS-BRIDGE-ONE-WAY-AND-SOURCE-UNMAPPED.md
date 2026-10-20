@@ -2,7 +2,7 @@
 id: WEB-RECORDS-BRIDGE-ONE-WAY-AND-SOURCE-UNMAPPED
 kind: feature
 title: The records bridge is one-way and a RecordSource has no JavaScript representation
-status: draft
+status: closed
 priority: P2
 complexity: L
 area: [web, records]
@@ -52,3 +52,13 @@ tests and recorded `NA` dispositions for `03`/`09`/`11` with reversing condition
 
 Bidirectional conformance audit of `liquers-web` against `LANGUAGE-INTEGRATION_GUIDE.md`
 (2026-10-17). The guide itself already records the `RecordSource` absence as "yet".
+
+## Resolution (2026-10-18)
+
+Implemented by design [`liquers-web-records-bridge`](../design/liquers-web-records-bridge/). A
+`RecordSource` reaches JavaScript as a `RecordSource` handle (`chunks()`, `bounded`, `schemaJson`,
+`manifestJson`, `stream()` as an async iterator, `materialize(maxRows)`); `RecordBatch` and
+`RecordSource` handles cross back to Rust as the same Arc through a handle registry, and a freed
+handle is refused by name. The `ns-rec` commands are registered in the web environment. Tests:
+`liquers-web/tests/records_RECORDS.rs` (`records01`, `02`, `04`, `06`-`08` and the source, freed
+handle and `ns-rec` tests); dispositions in the `liquers-web/README.md` `## Conformance` RECORDS row.

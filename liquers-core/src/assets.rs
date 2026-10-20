@@ -2014,6 +2014,53 @@ fn stored_record_breaks(
     }
 }
 
+/// One level of [`AssetManager::refresh_listing_version`]: read the listing of `dir`, whose
+/// version `dep_key` is registered, register its new version and expire what it moved. Returns
+/// whether the listing is now empty, or `None` when it could not be read (reported on stderr).
+async fn refresh_one_listing<E: Environment, M: AssetManager<E> + ?Sized>(
+    manager: &M,
+    dir: &Key,
+    dep_key: &crate::metadata::DependencyKey,
+) -> Option<bool> {
+    match manager.listdir(dir).await {
+        Ok(names) => {
+            let version = crate::dependencies::DependencyManager::<E>::listing_version(&names);
+            let expired = manager
+                .dependency_manager()
+                .register_version(dep_key, version)
+                .await;
+            manager
+                .expire_dependencies_result(expired, ExpiryCause::Updated { version })
+                .await;
+            Some(names.is_empty())
+        }
+        Err(error) => {
+            eprintln!(
+                "Could not refresh the listing version of '{}' after a write: {}",
+                dir, error
+            );
+            None
+        }
+    }
+}
+
+/// The nearest strict ancestor of `dir` (up to and including the root) whose listing has a
+/// registered version, if any. Version-map reads only, no I/O.
+async fn nearest_registered_ancestor_listing<E: Environment, M: AssetManager<E> + ?Sized>(
+    manager: &M,
+    dir: &Key,
+) -> Option<Key> {
+    let mut ancestor = dir.clone();
+    while !ancestor.is_empty() {
+        ancestor = ancestor.parent();
+        let dep_key = crate::metadata::DependencyKey::from_dir_key(&ancestor);
+        if manager.dependency_manager().get_version(&dep_key).await.is_some() {
+            return Some(ancestor);
+        }
+    }
+    None
+}
+
 /// The stored-records walk behind [`AssetManager::stored_dependency_state`]: iterative, with an
 /// explicit stack, because a chain of stored values has no bounded depth.
 pub(crate) async fn stored_dependency_walk<E: Environment, M: AssetManager<E> + ?Sized>(
@@ -6972,38 +7019,63 @@ pub trait AssetManager<E: Environment>:
 
     /// Recompute and register the listing version of `dir` **iff** the dependency manager
     /// already holds one (something depends on the listing); cascades with
-    /// `ExpiryCause::Updated` when it moved.
+    /// `ExpiryCause::Updated` when it moved. Then the same for the folders above `dir`, as far as
+    /// the write can have changed their membership.
     ///
-    /// Called after every manager-mediated write or removal, with the written key's parent. It
-    /// first tells the recipe provider that `dir` changed
+    /// Called after every manager-mediated write or removal, with the written key's parent. A
+    /// write that creates `dir` adds it to the listing of its parent, and a removal that empties
+    /// it may drop it there, so the refresh walks towards the root
+    /// (`specs/design/new-folder-write-ancestor-listing-refresh/`). It climbs past a registered
+    /// level only when that level's old or new listing is empty (the level may have been created
+    /// or removed), and past an unregistered level only when some higher level is registered;
+    /// otherwise it stops. An ordinary write into an existing, non-empty folder therefore still
+    /// reads one listing, and a write under no registered listing reads none. The emptiness test
+    /// reads the merged listing ([`Self::listdir`]); it stands for the stored one because the
+    /// in-tree recipe providers list names in a folder only from a file stored in that folder
+    /// (`recipes.yaml`, `*.manifest.yaml`). A provider listing names in a folder with no stored
+    /// file breaks that (`RECIPE-ONLY-FOLDER-NAMES-HIDE-A-CREATED-FOLDER-FROM-ITS-PARENT`). Levels
+    /// found unregistered on the way to the nearest registered ancestor are looked up once, so a
+    /// deep new path costs version-map reads linear in its depth.
+    ///
+    /// Each visited level first tells the recipe provider that it changed
     /// ([`AsyncRecipeProvider::directory_changed`]), so a provider caching directory-derived
-    /// state drops it. It then costs one version-map read when nobody depends on the listing. It never takes
+    /// state drops it. A level nobody depends on costs version-map reads only. It never takes
     /// `key_mutation_lock`, so it is safe to call with that lock held. A `listdir` error is
-    /// reported with `eprintln!`: the write it follows stands, and a failed refresh must not
-    /// undo it.
+    /// reported with `eprintln!` and ends the walk: the write it follows stands, and a failed
+    /// refresh must not undo it.
     async fn refresh_listing_version(&self, dir: &Key) {
-        self.get_recipe_provider().directory_changed(dir).await;
-        let dep_key = crate::metadata::DependencyKey::from_dir_key(dir);
-        if self.dependency_manager().get_version(&dep_key).await.is_none() {
-            return;
-        }
-        match self.listdir(dir).await {
-            Ok(names) => {
-                let version =
-                    crate::dependencies::DependencyManager::<E>::listing_version(&names);
-                let expired = self
-                    .dependency_manager()
-                    .register_version(&dep_key, version)
-                    .await;
-                self.expire_dependencies_result(expired, ExpiryCause::Updated { version })
-                    .await;
+        let empty_listing = crate::dependencies::DependencyManager::<E>::listing_version(&[]);
+        let mut level = dir.clone();
+        // The registered ancestor found from an unregistered level: the levels below it were
+        // just looked up and found unregistered, so they are climbed without a second lookup,
+        // which keeps a deep new path linear in its depth.
+        let mut registered_above: Option<Key> = None;
+        loop {
+            self.get_recipe_provider().directory_changed(&level).await;
+            let between = match &registered_above {
+                Some(ancestor) => ancestor != &level,
+                None => false,
+            };
+            let climb = if between {
+                true
+            } else {
+                registered_above = None;
+                let dep_key = crate::metadata::DependencyKey::from_dir_key(&level);
+                match self.dependency_manager().get_version(&dep_key).await {
+                    Some(old) => match refresh_one_listing(self, &level, &dep_key).await {
+                        Some(now_empty) => old == empty_listing || old.is_unknown() || now_empty,
+                        None => false,
+                    },
+                    None => {
+                        registered_above = nearest_registered_ancestor_listing(self, &level).await;
+                        registered_above.is_some()
+                    }
+                }
+            };
+            if !climb || level.is_empty() {
+                return;
             }
-            Err(error) => {
-                eprintln!(
-                    "Could not refresh the listing version of '{}' after a write: {}",
-                    dir, error
-                );
-            }
+            level = level.parent();
         }
     }
 
@@ -7171,10 +7243,12 @@ pub trait AssetManager<E: Environment>:
     /// The primitive an external manager's `set_state` calls once the installed asset is mapped,
     /// as the built-in managers do; `version` is the installed version, the cause recorded on
     /// anything the registration finds stale. Only `Ready`, `Source` and `Override` assets are
-    /// registered. Like [`Self::publish_version`] it touches the graph only and may be called with
+    /// registered. The installed key's previous incoming edges are replaced by the records in the
+    /// new metadata, so a dependency the new value no longer lists stops expiring it. Like
+    /// [`Self::publish_version`] it touches the graph only and may be called with
     /// [`KeyMutationAccess::key_mutation_lock`] held.
     async fn track_installed(&self, asset: &AssetRef<E>, version: Version) {
-        let expired = self.dependency_manager().track_asset(asset).await;
+        let expired = self.dependency_manager().track_replacing_asset(asset).await;
         self.expire_dependencies_result(expired, ExpiryCause::Updated { version })
             .await;
     }
@@ -8986,8 +9060,8 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
                 if let Some(version) = metadata.version() {
                     self.publish_version(&dep_key, version).await;
                 }
-                // Track the asset in the dependency manager
-                let expired = self.dependency_manager.track_asset(&asset_ref).await;
+                // Track the asset in the dependency manager, replacing the key's incoming edges
+                let expired = self.dependency_manager.track_replacing_asset(&asset_ref).await;
                 self.expire_dependencies_result(expired, ExpiryCause::Updated { version })
                     .await;
             }
@@ -10418,7 +10492,7 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
                 if let Some(version) = metadata.version() {
                     self.publish_version(&dep_key, version).await;
                 }
-                let expired = self.dependency_manager.track_asset(&asset).await;
+                let expired = self.dependency_manager.track_replacing_asset(&asset).await;
                 self.expire_dependencies_result(expired, ExpiryCause::Updated { version })
                     .await;
             }

@@ -234,8 +234,10 @@ never build it. It has three test loops, because three different things are bein
 them after `cargo clean`, separately from the native loop:
 
 ```bash
-# Conformance suites, under Node. No browser needed; this is the routine loop.
+# Conformance suites, under Node. No browser needed; this is the routine loop. `records` is
+# opt-in (off by default), so run it both ways.
 cargo test -p liquers-web --target wasm32-unknown-unknown --features debug-handles
+cargo test -p liquers-web --target wasm32-unknown-unknown --features debug-handles,records
 
 # Suites that need a real browser API (`localStorage`). Requires a chromedriver whose major
 # version matches the installed browser.
@@ -243,8 +245,8 @@ CHROMEDRIVER=$(which chromedriver) cargo test -p liquers-web \
   --target wasm32-unknown-unknown --features browser-tests
 
 # Declarations and artifact structure.
-./liquers-web/examples-web/quickstart/build.sh
-./liquers-web/scripts/check-stubs.sh
+./liquers-web/scripts/check-stubs.sh --build             # default build: record classes absent
+./liquers-web/scripts/check-stubs.sh --build --records   # with records
 
 # The delivery form, in a real browser.
 cd liquers-web/tests/e2e && npm install && npx playwright test

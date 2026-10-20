@@ -425,6 +425,12 @@ Stage 4 reports, naming the command and where relevant the argument:
 Global enum references are **not** resolved here — that needs the command registry, and it happens at
 registration and at plan building, as it does for Rust commands.
 
+`CommandDeclaration::check` returns every finding as an `IssueReport`; `build` refuses with that
+report's `short_summary("Command metadata")`, so the compact error and the full report cannot
+disagree. A document that does not deserialize into `CommandMetadata` is one error entry, naming
+the command when the document has a `name`. An integration that shows its language a complete
+report (`ENVIRON08`) calls `check` rather than parsing `build`'s message.
+
 Unknown keys are ignored rather than refused, which matches existing behaviour but means a
 misspelled field is silently dropped. Inside `hints` nothing can be checked at all, by construction.
 
@@ -521,6 +527,7 @@ so no query parameter is consumed by either — that is conventions.
 | Date | Change | Source |
 |---|---|---|
 | 2026-10-18 | Reviewed against `liquers-py` (phase-5). §9: how the shipped Python integration differs from the worked example (no `arguments=` on its decorators; the context passed positionally). | `design/liquers-py/` (phase-5) |
+| 2026-10-18 | §7: `CommandDeclaration::check` returns the full report; `build`'s refusal is its summary, and a deserialization failure is one entry. | `design/web-environ-validation-report/` |
 | 2026-10-11 | §4 intro, §4.1 `hints`, §4.2 `description`, §6.1: command-level `hints` and argument `description` reach the metadata; the dropped-key warning for command `hints` (`WarningKind::DroppedKey`) is removed. | `design/command-metadata-descriptions-and-hints/` |
 | 2026-10-11 | §4.1 `state_argument`: raw `CommandMetadata` now reads an omitted field as the conventional `state` argument and always writes a source command's `null`; a declaration keeps "absent means source" by building with explicit `null`. | `design/state-argument-serde-default` |
 | 2026-10-10 | §4.1 and §5.2: `cached` (declarable with no pipeline change, as every metadata field is). | phase-5, `design/plan-policy/` |
