@@ -2,7 +2,7 @@
 title: Recipes and Plans Reference
 kind: reference
 audience: internal
-area: [core/plan, core/assets, core/context]
+area: [core/plan, core/query, core/assets, core/context]
 reviewed: 2026-10-20
 ---
 # Recipes and Plans
@@ -42,9 +42,10 @@ right and this document is the bug. The query syntax itself is in
 
 ```text
 Query
-  -> keyed recipe lookup (when the query identifies a recipe-backed asset)
+  -> keyed recipe lookup (when the query identifies a recipe-backed asset;
+                          the asset manager checks it with Recipe::to_plan_for_key)
   -> Environment::apply_recipe
-       -> Recipe::to_plan   (Recipe::to_plan_for_key for a keyed lookup)
+       -> Recipe::to_plan
        -> interpreter::finalize_plan (freeze CWD, analyse dependencies,
                                       seed/register dependencies, cut predecessor boundary)
        -> set plan.expires on the context
@@ -297,24 +298,30 @@ A **planner instruction** is a part of a query that the plan builder consumes it
 plan — which namespaces commands are looked up in, where volatility starts, whether the query is
 quoted as a value, which kind of read a resource segment performs — but it is never looked up in the
 command registry and never becomes a `Step::Action`. A **command** is the opposite: it is resolved
-through command metadata and runs as an `Step::Action` when the interpreter reaches it. Instructions
-look like actions in the query text, so the distinction is purely one of planning; the parser does
-not know it. ("Directive" is not used for these; the code, its error messages and the tests say
-*instruction*.)
+through command metadata and runs as a `Step::Action` when the interpreter reaches it.
 
-The action-shaped instructions are recognised by name before any command lookup, so a registered
-command called `ns`, `q` or `v` can never be reached. `CommandMetadata::check` reports a command
-named `ns` as an error ("Command name 'ns' is reserved"); `q` and `v` are not reported yet
-(`COMMAND-NAMES-Q-AND-V-ARE-NOT-RESERVED`).
+There are four planner instructions. Three of them — `ns`, `q` and `v` — are written exactly like
+actions, so the distinction is one of planning, not of syntax: the parser produces an ordinary
+action and the plan builder recognises it by name. The fourth is the resource header instruction,
+the parameter of a resource segment's header (`-R-meta/…`).
 
 | Instruction | Written | Plan effect | Parameters |
 |---|---|---|---|
 | `ns` | an action anywhere in a transform segment | Selects namespaces; emits no step | Any number of strings |
 | `q` | an action | Quotes the query before it as a value: `Step::UseQueryValue` | None |
 | `v` | an action | Makes the plan volatile from this position on; emits no step | None |
-| resource header instruction | `-R-<instr>/key` | Chooses the step that reads the key | Exactly one |
-| transform segment header | `-<realm>/…` | Chooses the realm the segment's actions are looked up in | — |
-| filename | the last element, with an extension | `Step::Filename`: names the result and its format | — |
+| resource header instruction | `-R-<instr>/key` | Chooses the step that reads the key | At most one (none = `GetAsset`) |
+
+The action-shaped instructions are recognised by name before any command lookup, so a registered
+command called `ns`, `q` or `v` can never be reached. `CommandMetadata::check` reports a command
+named `ns` as an error ("Command name 'ns' is reserved"); `q` and `v` are not reported yet
+([`COMMAND-NAMES-Q-AND-V-ARE-NOT-RESERVED`](../issues/COMMAND-NAMES-Q-AND-V-ARE-NOT-RESERVED.md)).
+
+The planner also consumes two pieces of query *syntax* that are not instructions, since the parser
+already gives them their own structure: a **transform segment header** (`-<realm>/…`) chooses the
+realm the segment's actions are looked up in, and a **filename** (the last element, with an
+extension) becomes `Step::Filename`, naming the result and its format. Both are described at the
+end of this section.
 
 **`ns`.** `ns-a-b` names namespaces searched, in order, before the registry's
 `default_namespaces`. Only the last `ns` before an action in the same transform segment applies — a
@@ -331,8 +338,9 @@ segment boundary. In `ns-pl/head-3/ns-img/x`, `head` is looked up in `pl` and `x
 (`upper/q/out.txt`). The quoted part is **not planned**: its commands are neither resolved nor
 validated (`nosuch/q` plans without error), and it contributes no volatility, payload requirement,
 expiration or dependency, and no predecessor is recorded inside it, so a boundary can only fall
-after the `q`. Its operands are frozen
-like any other query operand. `q` clears `uncached_by`. A trailing `q` with a parameter is
+after the `q`. An `ns` inside the quoted part still applies to the actions after `q` in the same
+segment (`ns-pl/head/q/upper` looks `upper` up in `pl`), by the `ns` rule above. Its operands are
+frozen like any other query operand. `q` clears `uncached_by`. A trailing `q` with a parameter is
 `NotSupported` ("The 'q' instruction does not accept any arguments"); a `q` in the middle of a query
 currently ignores its parameters
 ([`MID-QUERY-Q-INSTRUCTION-DISCARDS-ARGUMENTS`](../issues/MID-QUERY-Q-INSTRUCTION-DISCARDS-ARGUMENTS.md)).
@@ -347,7 +355,7 @@ there to recompute everything. A recipe's `volatile: true`, which carries no pos
 whole plan volatile. `v` keeps `uncached_by`. Unlike `ns` and `q`, which `process_query` intercepts,
 `v` is intercepted in `process_action`, before command metadata is resolved.
 
-**Resource header instructions.** The single parameter of a resource segment's header selects the
+**Resource header instructions.** The parameter of a resource segment's header, if any, selects the
 step that reads its key:
 
 | Header instruction | Step |
@@ -367,8 +375,12 @@ An unknown instruction is `NotSupported` with the list of valid ones; a second p
 `TooManyParameters`. The header *name* (`-Rname-meta/…`) is reserved: it is warned about ("Resource
 header name is ignored") and otherwise ignored. A resource step clears `uncached_by`.
 
-**Transform segment headers.** Every action of a transform segment is looked up in the realm its
+**Transform segment headers** (syntax, not an instruction). Every action of a transform segment is looked up in the realm its
 header names (`-<realm>/…`; none, or an empty name, is realm `""`); see [`REALMS.md`](REALMS.md).
+
+**Filenames** (syntax, not an instruction). A last element with an extension (`upper/out.txt`)
+becomes `Step::Filename`. It sets the asset's filename and, unless one was declared, the data
+format named by its extension; it changes no value and keeps `uncached_by`.
 
 ### Volatility, caching and aliases
 
@@ -744,8 +756,9 @@ Synchronous build results are incomplete for environment-backed dependencies.
    reachable recipe graph, each recipe once per (key, caller CWD), with an O(1) cycle check. It
    records the direct dependencies in `plan.dependencies` and appends a "Dependency detected: …"
    `Info` for each. A recipe lookup error during the walk is treated as "no recipe". Cycles are
-   detected per path and reported as `Plan::error` ("Circular dependency detected: key … appears in
-   dependency chain"); a link to a key already on the path is skipped.
+   detected per path, set as `Plan::error` ("Circular dependency detected: key … appears in
+   dependency chain") and returned, so finalization fails; a link to a key already on the path is
+   skipped.
 2. Incorporates upstream declared volatility (a recipe with `volatile: true`): through state reads at
    any depth, through a link one level only.
 3. Incorporates upstream recipe expiration, combined along every path.
@@ -846,8 +859,10 @@ not otherwise enforce this distinction.
   [`DEPENDENCY-VOLATILITY-INVISIBLE-TO-PREDECESSOR-WALK`](../issues/DEPENDENCY-VOLATILITY-INVISIBLE-TO-PREDECESSOR-WALK.md).
 - A mid-query `q` silently drops its parameters —
   [`MID-QUERY-Q-INSTRUCTION-DISCARDS-ARGUMENTS`](../issues/MID-QUERY-Q-INSTRUCTION-DISCARDS-ARGUMENTS.md).
-- `DefaultRecipeProvider` skips a recipe with no valid filename in listings without a diagnostic, and
-  the explicit-`cwd` error names the directory but not the offending recipe.
+- `DefaultRecipeProvider` skips a recipe with no valid filename in listings without a diagnostic —
+  [`RECIPE-WITHOUT-FILENAME-SILENTLY-OMITTED-FROM-LISTING`](../issues/RECIPE-WITHOUT-FILENAME-SILENTLY-OMITTED-FROM-LISTING.md).
+- The explicit-`cwd` error names the directory but not the offending recipe —
+  [`RECIPE-CWD-ERROR-DOES-NOT-NAME-THE-RECIPE`](../issues/RECIPE-CWD-ERROR-DOES-NOT-NAME-THE-RECIPE.md).
 
 ## Tests that pin this contract
 

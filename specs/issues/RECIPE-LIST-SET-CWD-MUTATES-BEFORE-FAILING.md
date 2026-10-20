@@ -14,18 +14,17 @@ github:
 
 `RecipeList::set_cwd` (`liquers-core/src/recipes.rs`) assigns the working key to each recipe in
 order and returns `NotSupported` at the first recipe that already has a `cwd`, leaving the earlier
-ones mutated. It also writes a diagnostic with `eprintln!`, and its error names neither the
-offending recipe nor its position (the provider adds only the directory key).
+ones mutated. (That its error does not name the recipe is
+[`RECIPE-CWD-ERROR-DOES-NOT-NAME-THE-RECIPE`](RECIPE-CWD-ERROR-DOES-NOT-NAME-THE-RECIPE.md).)
 
 ## Impact
 
 `DefaultRecipeProvider` discards the list on error, so nothing observes the partial state today;
-a programmatic caller could. The error is hard to act on in a long `recipes.yaml`.
+a programmatic caller could.
 
 ## Expected behaviour
 
-Validate the whole list before mutating it, and name the offending recipe (its query or filename)
-in the error instead of printing to stderr.
+Validate the whole list before mutating it.
 
 ## Discovery
 

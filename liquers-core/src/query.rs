@@ -114,20 +114,13 @@
 //!
 //! # Planner instructions
 //!
-//! The planner gives three action names structural meaning. They are *planner
-//! instructions*, not commands: [`crate::plan::PlanBuilder`] consumes them, never looks
-//! them up in the command registry, and never emits a `Step::Action` for them.
-//!
-//! - `ns` selects command namespaces, searched before the registry's defaults, for the
-//!   actions after it. Within a transform segment the last `ns` before an action
-//!   applies; it does not carry into the next segment.
-//! - `q` makes the query before it a query value (`Step::UseQueryValue`), at the end
-//!   of a query or in the middle of one, where the following actions receive it. The
-//!   quoted part is not planned.
-//! - `v` makes the plan volatile from its position onward and creates no step.
-//!
-//! These are semantic rules of plan construction, not additional parser grammar. The
-//! full contract, together with the resource header instructions, is in
+//! Some parts of a query are *planner instructions*, not commands:
+//! [`crate::plan::PlanBuilder`] consumes them, never looks them up in the command
+//! registry, and never emits a `Step::Action` for them. Three are written as actions —
+//! `ns` (selects command namespaces), `q` (makes the query before it a value) and `v`
+//! (makes the plan volatile from its position on) — and the fourth is the resource
+//! header instruction (`-R-meta/…`). These are semantic rules of plan construction, not
+//! additional parser grammar; each one is defined in
 //! `specs/reference/RECIPES_AND_PLANS.md` §Planner instructions.
 
 #![allow(unused_imports)]

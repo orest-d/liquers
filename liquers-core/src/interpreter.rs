@@ -24,15 +24,15 @@ use crate::parse::{SimpleTemplate, SimpleTemplateElement};
 
 /// Complete plan setup after `recipe.to_plan()`, **without** cutting a boundary.
 ///
-/// - Populates `plan.dependencies` via async `find_dependencies` (which `to_plan` cannot do
-///   because it is synchronous).
+/// - Freezes every CWD-relative operand against the context's entry key.
+/// - Populates `plan.dependencies` via async `analyze_plan_dependencies` (which `to_plan`
+///   cannot do because it is synchronous).
 /// - May update `plan.is_volatile` if any dependency asset is volatile.
 /// - May update `plan.expires` based on dependency recipe expiration policies.
 /// - When the plan is not volatile, seeds the context's dependency records with the direct
 ///   dependencies at the versions the dependency manager holds (`Version::unknown()` when it
 ///   has none), and registers dependency edges in the `DependencyManager` for an owned (keyed)
 ///   asset.
-/// - Freezes every CWD-relative operand.
 ///
 /// This yields the **expanded** plan: every step inline, no `Step::Evaluate` boundary.
 ///

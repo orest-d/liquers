@@ -8,13 +8,14 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 132
-- P2: 51
-- P3: 81
+Total rows: 135
+- P2: 52
+- P3: 83
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
 | [`EVALUATION-SESSION-VOLATILE-TEST-INTERMITTENT`](issues/EVALUATION-SESSION-VOLATILE-TEST-INTERMITTENT.md) | issue | volatile_dependency_has_one_value_per_evaluation fails intermittently: a later evaluation sometimes reuses the volatile value | draft | phase2-blocked | not-eligible | P2 | S | core/assets | [design](design/evaluation-session-volatile-test-flake/DESIGN.md) | 2026-10-13 |
+| [`COMMAND-NAMES-Q-AND-V-ARE-NOT-RESERVED`](issues/COMMAND-NAMES-Q-AND-V-ARE-NOT-RESERVED.md) | issue | A command named q or v registers but can never run | draft |  |  | P2 | S | core/commands;core/query |  | 2026-10-19 |
 | [`PLAN-EXPIRATION-REACHES-THE-CONTEXT-ONLY-THROUGH-APPLY-RECIPE`](issues/PLAN-EXPIRATION-REACHES-THE-CONTEXT-ONLY-THROUGH-APPLY-RECIPE.md) | issue | A plan's expiration reaches the asset only through apply_recipe | draft |  |  | P2 | S | core/context |  | 2026-10-20 |
 | [`RECIPES-YAML-READ-ERRORS-READ-AS-NO-RECIPES`](issues/RECIPES-YAML-READ-ERRORS-READ-AS-NO-RECIPES.md) | issue | Every recipes.yaml read error is treated as an empty recipe list | draft |  |  | P2 | S | core/assets |  | 2026-10-20 |
 | [`CORE-VALUE-ENUM-OVERSIZED`](issues/CORE-VALUE-ENUM-OVERSIZED.md) | issue | Every Value occupies over 700 bytes because three variants are stored unboxed | draft | ready | not-eligible | P2 | M | core/value;lib/value | [design](design/core-value-enum-oversized/DESIGN.md) | 2026-08-18 |
@@ -80,8 +81,10 @@ Total rows: 132
 | [`NEXT-PRESETS-MISREAD-PLANNER-INSTRUCTIONS`](issues/NEXT-PRESETS-MISREAD-PLANNER-INSTRUCTIONS.md) | issue | find_next_presets reads planner instructions differently from the planner | draft |  |  | P3 | S | lib/commands |  | 2026-10-20 |
 | [`PLANNER-INSTRUCTION-NAMES-DUPLICATED`](issues/PLANNER-INSTRUCTION-NAMES-DUPLICATED.md) | issue | The planner instruction names are hard-coded in three crates | draft |  |  | P3 | S | core/plan;lib/commands |  | 2026-10-20 |
 | [`RECIPE-CIRCULAR-DEPENDENCY-FIELDS-ARE-DEAD`](issues/RECIPE-CIRCULAR-DEPENDENCY-FIELDS-ARE-DEAD.md) | issue | The recipe circular-dependency fields are never set or read | draft |  |  | P3 | S | core/assets |  | 2026-10-20 |
+| [`RECIPE-CWD-ERROR-DOES-NOT-NAME-THE-RECIPE`](issues/RECIPE-CWD-ERROR-DOES-NOT-NAME-THE-RECIPE.md) | issue | The explicit-cwd recipe error names the directory but not the offending recipe | draft |  |  | P3 | S | core/assets |  | 2026-10-20 |
 | [`RECIPE-LIST-SET-CWD-MUTATES-BEFORE-FAILING`](issues/RECIPE-LIST-SET-CWD-MUTATES-BEFORE-FAILING.md) | issue | RecipeList::set_cwd mutates part of the list before failing | draft |  |  | P3 | S | core/assets |  | 2026-10-20 |
 | [`RECIPE-ONLY-FOLDER-NAMES-HIDE-A-CREATED-FOLDER-FROM-ITS-PARENT`](issues/RECIPE-ONLY-FOLDER-NAMES-HIDE-A-CREATED-FOLDER-FROM-ITS-PARENT.md) | issue | A recipe provider that lists names in a folder with no stored file can leave the parent listing stale after a write | draft |  |  | P3 | S | core/assets |  | 2026-10-18 |
+| [`RECIPE-WITHOUT-FILENAME-SILENTLY-OMITTED-FROM-LISTING`](issues/RECIPE-WITHOUT-FILENAME-SILENTLY-OMITTED-FROM-LISTING.md) | issue | A recipe with no valid filename is silently left out of the recipe listing and lookup | draft |  |  | P3 | S | core/assets |  | 2026-10-20 |
 | [`SET-BINARY-KEEPS-PREVIOUS-DEPENDENCY-EDGES`](issues/SET-BINARY-KEEPS-PREVIOUS-DEPENDENCY-EDGES.md) | issue | A set_binary that replaces a keyed asset keeps the incoming dependency edges of the value it replaced | draft |  |  | P3 | S | core/assets |  | 2026-10-18 |
 | [`TEMPORARY-ASSET-NEVER-RUN-IS-KEPT-ALIVE-BY-ITS-SERVICE-LOOP`](issues/TEMPORARY-ASSET-NEVER-RUN-IS-KEPT-ALIVE-BY-ITS-SERVICE-LOOP.md) | issue | A temporary asset that is never run is kept alive forever by its own service-message loop | draft |  |  | P3 | S | core/assets |  | 2026-10-18 |
 | [`TEMPORARY-ASSETS-SHARE-ID-ZERO`](issues/TEMPORARY-ASSETS-SHARE-ID-ZERO.md) | issue | Every temporary asset has id 0, so code that identifies assets by id can confuse them | draft |  |  | P3 | S | core/assets |  | 2026-10-18 |

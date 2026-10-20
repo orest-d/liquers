@@ -16,7 +16,7 @@ The set of planner instruction names is hard-coded separately in `liquers-core`
 (`ActionRequest::is_ns`/`is_q`, the `"v"` check in `PlanBuilder::process_action`, the `ns`
 refusal in `command_metadata.rs`), in `liquers-template/src/diagnostics.rs` (`is_instruction`:
 `ns | q | v`) and partly in `liquers-lib/src/utils.rs` (`ns` and `q` only). `q` and `v` are not
-refused as command names (`COMMAND-NAMES-Q-AND-V-ARE-NOT-RESERVED`).
+refused as command names ([`COMMAND-NAMES-Q-AND-V-ARE-NOT-RESERVED`](COMMAND-NAMES-Q-AND-V-ARE-NOT-RESERVED.md)).
 
 ## Impact
 

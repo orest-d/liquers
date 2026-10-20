@@ -379,9 +379,9 @@ consumer contract is stated in `specs/reference/STORE_SEMANTICS.md`; its API rus
 
 ### 8. Recipes and plans
 
-The completed [DOC-08 reference](../RECIPES_AND_PLANS.md) (now `reference/RECIPES_AND_PLANS.md`) records the verified
-recipe schema, provider lookup rules, planning policies, execution flow, and
-remaining implementation-level gaps.
+[`RECIPES_AND_PLANS.md`](../RECIPES_AND_PLANS.md) (formerly DOC-08) records the verified
+recipe schema, provider lookup rules, planning policies and execution flow, and
+links its known limitations to issues.
 
 The relationship between query, recipe, plan, and asset is not documented
 operationally enough. The `Recipe` example in the project overview is also

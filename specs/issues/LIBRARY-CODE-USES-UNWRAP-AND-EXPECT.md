@@ -78,6 +78,11 @@ Noticed 2026-08-17 while implementing `specs/design/store-key-guard/`: making
 `AsyncOpenDALStore::key_to_path` fallible required touching `make_sub_dirs`, whose neighbouring
 `unwrap()` is the example above. The survey that followed showed it was not an isolated case.
 
+Also noticed 2026-10-20 while documenting planner instructions: the two filename branches of
+`PlanBuilder` (`liquers-core/src/plan.rs`, `transform.filename.unwrap()` in `process_query` and
+`tqs.filename.as_ref().unwrap()` in its last-segment branch) unwrap right after an `is_filename()`
+check, the same guarded-today shape.
+
 ## Progress
 
 Progress 2026-09-28 (`design/axum-assets-endpoints/`, I7): `liquers-axum` library code has no

@@ -2329,8 +2329,8 @@ impl Plan {
     /// Volatility, payload requirement, expiration and dependencies are deliberately **not**
     /// recomputed: they were computed over the fully expanded plan, which is why the cut happens
     /// here rather than during building. Every level passed over, and each explicit decline,
-    /// appends a planning [`Step::Info`], so a declined cut is distinguishable from a plan that had no
-    /// predecessor.
+    /// appends a planning [`Step::Info`], so a declined cut is distinguishable from a plan that
+    /// had no predecessor.
     ///
     /// Returns `false` when no boundary was cut.
     pub fn cut_predecessor(&mut self, cmr: &CommandMetadataRegistry) -> Result<bool, Error> {
