@@ -8,9 +8,9 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 129
-- P2: 49
-- P3: 80
+Total rows: 127
+- P2: 48
+- P3: 79
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -59,7 +59,6 @@ Total rows: 129
 | [`VALUE-CONVERSION-CAPABILITY`](issues/VALUE-CONVERSION-CAPABILITY.md) | feature | Values cannot be converted between types, automatically or explicitly | draft |  |  | P2 | L | core/value;core/commands;lib/value |  | 2026-08-18 |
 | [`VALUE-SERIALIZATION-IS-SYNCHRONOUS-AND-WHOLE-VALUE`](issues/VALUE-SERIALIZATION-IS-SYNCHRONOUS-AND-WHOLE-VALUE.md) | feature | Serialization is synchronous and whole-value, so a large or lazy value cannot be served or stored as it is produced | draft |  |  | P2 | L | core/value;core/store;core/assets;axum |  | 2026-09-24 |
 | [`WORKSPACE-SERDE-DERIVE-UNDECLARED`](issues/WORKSPACE-SERDE-DERIVE-UNDECLARED.md) | issue | Three crates use serde derive macros without declaring the `derive` feature | accepted |  |  | P2 | L | build;core/value;lib/ui;axum |  | 2026-08-09 |
-| [`AGENT-MEMORY-SERVICE`](issues/AGENT-MEMORY-SERVICE.md) | feature | A memory service for agents, built on the liquers stack | draft |  |  | P2 | XL | axum;lib/commands;core/store;docs | [brainstorm](design/agent-memory-mvp/brainstorm-workflow-improvements.md)  [execution](design/agent-memory-mvp/execution-plan.md)  [interfaces](design/agent-memory-mvp/interfaces-and-mcp.md)  [memory](design/agent-memory-mvp/memory-systems-survey.md)  [migration](design/agent-memory-mvp/migration-guide-draft.md)  [phase1](design/agent-memory-mvp/phase1-high-level-design.md)  [phase2](design/agent-memory-mvp/phase2-architecture.md)  [phase3](design/agent-memory-mvp/phase3-examples.md)  [phase4](design/agent-memory-mvp/phase4-implementation.md)  [phase5](design/agent-memory-mvp/phase5-documentation.md)  [service](design/agent-memory-mvp/service-specification.md)  [template](design/agent-memory-mvp/template-language-evaluation.md)  [tiers](design/agent-memory-mvp/tiers-and-storage.md)  [workbench](design/agent-memory-mvp/workbench-direction.md)  [workflow](design/agent-memory-mvp/workflow-porting.md)  | 2026-09-15 |
 | [`NO-RELATIONAL-DATABASE-ACCESS-LAYER`](issues/NO-RELATIONAL-DATABASE-ACCESS-LAYER.md) | feature | No access layer from Liquers into relational databases | draft |  |  | P2 | XL | lib/value;lib/commands;store/backends |  | 2026-09-20 |
 | [`NO-REMOTE-STORE-OR-ASSET-MANAGER`](issues/NO-REMOTE-STORE-OR-ASSET-MANAGER.md) | feature | A client environment cannot use a server's store or asset manager as its own | draft |  |  | P2 | XL | axum;web;core/assets;core/store |  | 2026-09-27 |
 | [`VALUE-TYPE-DEFINITION-MACRO`](issues/VALUE-TYPE-DEFINITION-MACRO.md) | feature | Value types and their registry entries are hand-written instead of generated | draft |  |  | P2 | XL | macro;lib/value;core/value |  | 2026-08-18 |
@@ -124,7 +123,6 @@ Total rows: 129
 | [`UNMANAGED-ASSET-NOT-FOLLOWABLE-ACROSS-CONNECTIONS`](issues/UNMANAGED-ASSET-NOT-FOLLOWABLE-ACROSS-CONNECTIONS.md) | feature | An unmanaged asset can be followed only by the connection that requested it | draft |  |  | P3 | M | axum;core/context |  | 2026-10-12 |
 | [`VALIDATE-CANNOT-SEE-NON-STANDARD-RECIPE-PROVIDERS`](issues/VALIDATE-CANNOT-SEE-NON-STANDARD-RECIPE-PROVIDERS.md) | feature | liquers-validate cannot validate recipes served by a non-standard or generative recipe provider | draft |  |  | P3 | M | core/commands;core/plan |  | 2026-09-25 |
 | [`WEB-CANCELLATION-INERT`](issues/WEB-CANCELLATION-INERT.md) | issue | Web cancellation surface exists but does nothing | accepted |  |  | P3 | M | web |  | 2026-08-08 |
-| [`WEB-RECORD-SOURCE-RESOLVES-THROUGH-SINGLETON`](issues/WEB-RECORD-SOURCE-RESOLVES-THROUGH-SINGLETON.md) | issue | A RecordSource from an explicit Environment streams through the singleton | draft |  |  | P3 | M | web;records |  | 2026-10-18 |
 | [`WEB-STORE-CONFIG-NOT-APPLIED-THROUGH-ENVIRONMENT-CONFIG`](issues/WEB-STORE-CONFIG-NOT-APPLIED-THROUGH-ENVIRONMENT-CONFIG.md) | issue | liquers-web hand-rolls the environment configuration that EnvironmentConfig will own | draft |  |  | P3 | M | web;core/store;core/context |  | 2026-08-31 |
 | [`WORKSPACE-NOT-RUSTFMT-CLEAN`](issues/WORKSPACE-NOT-RUSTFMT-CLEAN.md) | issue | The workspace is not rustfmt-clean, so formatting drift hides in every diff | draft |  |  | P3 | M | build;docs |  | 2026-08-29 |
 | [`ASSET-MANAGER-CANNOT-BE-SYNCHRONIZED-WITH-THE-STORE`](issues/ASSET-MANAGER-CANNOT-BE-SYNCHRONIZED-WITH-THE-STORE.md) | feature | The asset and dependency managers cannot be explicitly synchronized with the store | draft |  |  | P3 | L | core/assets |  | 2026-10-08 |

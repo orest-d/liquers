@@ -3,8 +3,8 @@
 ## Completion Preconditions
 
 - [x] Implementation is finished and validated
-- [x] All user comments are answered or incorporated (the AC-11 card: "Read fresh", 2026-10-19)
-- [ ] All review comments are answered or incorporated (PR #140 review pending)
+- [x] All user comments are answered or incorporated (the AC-11 card: "Read fresh", 2026-10-19; Phase 5 approved 2026-10-20)
+- [x] All review comments are answered or incorporated (PR #140: the description was rewritten to the real scope)
 - [x] Documentation is consistent with implemented and tested behavior
 - [x] Documentation is included in the implementation PR when practical (PR #140)
 

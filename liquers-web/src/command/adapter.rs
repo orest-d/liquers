@@ -19,7 +19,7 @@ use liquers_core::state::State;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
 
-use crate::bridge::{js_to_value, value_to_js, ConversionPolicy, JsValueBridge};
+use crate::bridge::{js_to_value, value_to_js_in, ConversionPolicy, JsValueBridge};
 use crate::command::spec::{IsAsync, JsCommandSpec, StateMode};
 use crate::error::js_error_to_liquers;
 
@@ -162,13 +162,17 @@ pub async fn call_js_command<E>(
     callable: Rc<CallableSpec>,
     state: State<E::Value>,
     args: CommandArguments<E>,
-    _context: Context<E>,
+    context: Context<E>,
 ) -> Result<E::Value, Error>
 where
     E: Environment,
     E::Value: JsValueBridge,
 {
     let js_args = js_sys::Array::new();
+    // Values handed to JavaScript are converted inside the command's own environment, so a handle
+    // among them resolves through it later.
+    let envref = context.get_envref();
+    let value_to_js = |value: &E::Value| value_to_js_in(&envref, value);
 
     // The state argument, when the command takes one.
     match callable.state_mode {

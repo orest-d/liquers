@@ -83,12 +83,13 @@ cargo check -p liquers-web --target wasm32-unknown-unknown
 ### The quick-start page
 
 ```bash
-./examples-web/quickstart/build.sh          # or --release
+./examples-web/quickstart/build.sh          # or --release; add --features records for record streams
 python3 -m http.server 8090 --directory examples-web/quickstart/dist
 ```
 
 `build.sh` does what `trunk build` does — build the cdylib for wasm32, run `wasm-bindgen` over it,
-copy the page next to the output — without requiring trunk to be installed. If you have trunk,
+copy the page next to the output — without requiring trunk to be installed. Arguments other than
+`--release` go to `cargo build` unchanged (`--profile` and `--target-dir` are refused). If you have trunk,
 `cd examples-web/quickstart && trunk serve` works too and serves on the same port.
 
 ## Testing
@@ -96,16 +97,18 @@ copy the page next to the output — without requiring trunk to be installed. If
 Four harnesses, because four different things are being tested.
 
 ```bash
-# 1. Conformance suites, under Node. The bulk of the tests; no browser needed.
+# 1. Conformance suites, under Node. The bulk of the tests; no browser needed. Run it both ways:
+#    the second adds the RECORDS suite.
 cargo test -p liquers-web --target wasm32-unknown-unknown --features debug-handles
+cargo test -p liquers-web --target wasm32-unknown-unknown --features debug-handles,records
 
 # 2. Suites that genuinely need a browser API (`localStorage`). WebDriver required.
 CHROMEDRIVER=$(which chromedriver) cargo test -p liquers-web \
   --target wasm32-unknown-unknown --features browser-tests
 
-# 3. Declarations and artifact structure.
-./examples-web/quickstart/build.sh
-./scripts/check-stubs.sh
+# 3. Declarations and artifact structure, without and with records.
+./scripts/check-stubs.sh --build
+./scripts/check-stubs.sh --build --records
 
 # 4. The delivery form, in a real browser.
 cd tests/e2e && npm install && npx playwright test
@@ -254,6 +257,12 @@ Both are handles to the Rust object, not copies, and both cross back unchanged: 
 command argument or return it from a JavaScript command and Rust receives the same view, with its
 chunk identity and origin intact. The `ns-rec` commands are registered in the web environment.
 
+Record streams are behind the **`records` feature, which is off by default**: it is the largest
+single addition to the module, taking a release build from 12.4 MB to 16.5 MB. Build with
+`--features records` (`./examples-web/quickstart/build.sh --features records`) to get the handles,
+the `ns-rec` commands and their TypeScript declarations. Without it liquers-lib is linked without
+record values altogether, so no query can produce one.
+
 ```js
 // `people` is any command whose result converts to records.
 const source = await env.evaluate('people/ns-rec/to_record_source');
@@ -271,7 +280,8 @@ source.free();
 
 `free()` releases a handle; a freed handle passed back to Rust is refused with a `ConversionError`
 naming its class. Leaving a `for await` loop early (`break`, `return`, a throw) frees the stream.
-Only one `nextBatch()` may be pending on a stream at a time.
+Only one `nextBatch()` may be pending on a stream at a time. A source resolves its chunks through the
+environment that produced it: the singleton, or the `new Environment()` instance it was evaluated in.
 
 ## Conformance
 
@@ -285,9 +295,9 @@ updated by the change that moves it.
 | `OBJECT` | complete | 01–09, `tests/objects_OBJECT.rs` | — |
 | `ERROR` | complete | 01–05; 06 in `tests/store_js_STORE.rs` | class and stack arrive inside `message` (`LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT`) |
 | `RUNTIME` | complete | 01 native; 02–06 under Node | `RUNTIME05` needs `--features debug-handles` |
-| `VALUE` | complete, one gap | 01–13, `tests/value_bridge_VALUE.rs` | outbound integers beyond 2^53 untested (`WEB-OUTBOUND-INT64-BEYOND-DOUBLE-UNTESTED`) |
-| `VALUE` / RECORDS | complete | 01, 02, 04–08, 10, `tests/records_RECORDS.rs` | `03`, `09` and `11` are `NA`, see below |
-| `ENVIRON` | partial | 01–07 | `ENVIRON08` (`WEB-ENVIRON-VALIDATION-REPORT-NOT-EXPOSED`) |
+| `VALUE` | complete | 01–13, `tests/value_bridge_VALUE.rs` | an outbound integer outside ±(2^53 − 1) is refused with `ConversionError` (`value03_outbound_integer_boundaries`) |
+| `VALUE` / RECORDS | complete, opt-in | 01, 02, 04–08, 10, `tests/records_RECORDS.rs` | behind the `records` feature; `03`, `09` and `11` are `NA`, see below |
+| `ENVIRON` | complete | 01–08; 08 in `tests/environment_ENVIRON.rs` | — |
 | `EVAL` | complete | 01–07 | `EVAL06` pins inert cancellation (`WEB-CANCELLATION-INERT`) |
 | `COMMAND` | complete | 01–14, DECL01–03 | — |
 | `ASYNCQ` | complete | 01–06, 08 | `07` is `NA`: JavaScript has its own async model |
@@ -321,7 +331,6 @@ deliberate. `store11_overlapping_prefixes_follow_document_order` pins the routin
 | Registering a command after the first evaluation rebuilds the environment, discarding its asset cache. Register before evaluating to avoid it | `POST-INIT-COMMAND-REGISTRATION` |
 | A thrown exception's class and stack reach the caller inside `message`, not as `jsClass`/`jsStack` — `liquers_core::Error` has no field to carry them through the asset lifecycle | `LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT` |
 | `registerCommand` is refused on an explicit `Environment` instance — the handle holds a shared environment with no mutable path. Register on the singleton | `POST-INIT-COMMAND-REGISTRATION` |
-| A `RecordSource` from an explicit `Environment` instance streams and materializes through the singleton, which must be initialized | `WEB-RECORD-SOURCE-RESOLVES-THROUGH-SINGLETON` |
 
 All are in [`specs/issues/`](../specs/issues/), each with the condition that reverses it.
 

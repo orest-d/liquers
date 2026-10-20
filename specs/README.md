@@ -433,7 +433,6 @@ deliberately folded behind a broader line.
 - design `web-records-single-cell-scalar`
 - design `web-value04-bytes-identifier`
 - feature `AGENT-MEMORY-HAS-NO-MIGRATE-COMMAND`
-- feature `AGENT-MEMORY-SERVICE`
 - feature `ASSET-MANAGER-CANNOT-BE-SYNCHRONIZED-WITH-THE-STORE`
 - feature `ASSET-REGISTRATION-OWNERSHIP-CONTRACT`
 - feature `ASSETS-API-ADMIN-OPERATIONS`

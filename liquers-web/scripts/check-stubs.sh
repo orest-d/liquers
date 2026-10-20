@@ -18,8 +18,12 @@
 # This ships as a script rather than a CI job because the repository has no CI. Run it after
 # `examples-web/quickstart/build.sh`.
 #
-# Usage:  ./scripts/check-stubs.sh [--build]
-#           --build   run the quick-start build first
+# Usage:  ./scripts/check-stubs.sh [--build] [--records]
+#           --build     run the quick-start build first
+#           --records   the build has the `records` feature: its classes must be declared and
+#                       tests/stubs/valid_usage_records.ts must type-check. Without it, the
+#                       record classes must be *absent* — records is opt-in, and a default build
+#                       that still carried them would mean the feature gate had leaked.
 
 set -uo pipefail
 
@@ -34,8 +38,22 @@ failures=0
 pass() { printf '  \033[32mok\033[0m   %s\n' "$1"; }
 fail() { printf '  \033[31mFAIL\033[0m %s\n' "$1"; failures=$((failures + 1)); }
 
-if [[ "${1:-}" == "--build" ]]; then
-    "$crate/examples-web/quickstart/build.sh" >/dev/null
+build=0
+records=0
+for arg in "$@"; do
+    case "$arg" in
+        --build) build=1 ;;
+        --records) records=1 ;;
+        *) echo "unknown argument: $arg" >&2; exit 2 ;;
+    esac
+done
+
+if [[ $build -eq 1 ]]; then
+    if [[ $records -eq 1 ]]; then
+        "$crate/examples-web/quickstart/build.sh" --features records >/dev/null
+    else
+        "$crate/examples-web/quickstart/build.sh" >/dev/null
+    fi
 fi
 
 if [[ ! -d "$dist" ]]; then
@@ -64,14 +82,19 @@ decl="$dist/liquers_web.d.ts"
 # The awk pass remembers the name in the last `#[wasm_bindgen(js_name = X)]` line, keeps it across
 # further attributes, doc comments and blank lines, and emits it at the next `pub struct` or
 # `pub enum`. Any other line clears it, so a `js_name` on a method or an extern type is ignored.
-expected_classes=$(find "$crate/src" -name '*.rs' -print0 | xargs -0 awk '
+#
+# Classes defined in src/records.rs exist only with the `records` feature, so they are checked
+# separately: declared with `--records`, absent without it.
+all_classes=$(find "$crate/src" -name '*.rs' -print0 | xargs -0 awk '
     FNR == 1 { pending = "" }
     /#\[wasm_bindgen\(js_name *= *[A-Za-z_][A-Za-z0-9_]*\)\]/ {
         match($0, /js_name *= *[A-Za-z_][A-Za-z0-9_]*/); s = substr($0, RSTART, RLENGTH)
         sub(/js_name *= */, "", s); pending = s; next }
     /^[[:space:]]*(#\[|\/\/\/|$)/ { next }
-    /^[[:space:]]*pub (struct|enum) / { if (pending != "") print pending; pending = ""; next }
-    { pending = "" }' | sort -u)
+    /^[[:space:]]*pub (struct|enum) / { if (pending != "") print FILENAME " " pending; pending = ""; next }
+    { pending = "" }')
+expected_classes=$(printf '%s\n' "$all_classes" | grep -v '/src/records\.rs ' | awk '{print $2}' | sort -u)
+record_classes=$(printf '%s\n' "$all_classes" | grep '/src/records\.rs ' | awk '{print $2}' | sort -u)
 if [[ -z "$expected_classes" ]]; then
     fail "STUBS01 found no #[wasm_bindgen(js_name = …)] classes — detection is broken"
 fi
@@ -83,6 +106,24 @@ while read -r class; do
         fail "class $class is not declared"
     fi
 done <<< "$expected_classes"
+
+if [[ -z "$record_classes" ]]; then
+    fail "STUBS01 found no classes in src/records.rs — detection is broken"
+fi
+while read -r class; do
+    [[ -z "$class" ]] && continue
+    declared=0
+    grep -qE "^export class $class( |\\{|$)" "$decl" && declared=1
+    if [[ $records -eq 1 && $declared -eq 1 ]]; then
+        pass "class $class (records)"
+    elif [[ $records -eq 1 ]]; then
+        fail "class $class is not declared, though --records was given"
+    elif [[ $declared -eq 0 ]]; then
+        pass "class $class is absent without the records feature"
+    else
+        fail "class $class is declared in a build without --records — build without the feature, or pass --records"
+    fi
+done <<< "$record_classes"
 
 # Free functions: taken from the js_name attributes and snake_case exports in lib.rs.
 for fn in init isInitialized shutdown opaque evaluate getAsset encodeParam \
@@ -129,6 +170,17 @@ if [[ -z "$valid_out" ]]; then
 else
     fail "valid_usage.ts must type-check cleanly:"
     printf '%s\n' "$valid_out" | sed 's/^/       /'
+fi
+
+if [[ $records -eq 1 ]]; then
+    records_out=$("$tsc" --noEmit --strict --target es2022 --module es2022 \
+        --moduleResolution bundler --lib es2022,dom,esnext.disposable "$stubs/valid_usage_records.ts" 2>&1)
+    if [[ -z "$records_out" ]]; then
+        pass "valid_usage_records.ts type-checks"
+    else
+        fail "valid_usage_records.ts must type-check cleanly:"
+        printf '%s\n' "$records_out" | sed 's/^/       /'
+    fi
 fi
 
 echo

@@ -1,7 +1,7 @@
 id,kind,title,status,status_source,phase,readiness,autofix,priority,complexity,area,gh_issue,gh_pr,branch,design,reviewed,created,file
 ACTION-PARAMETER-SET-VALUE-DOUBLE-ENCODES,issue,ActionParameter::set_value double-encodes its value,closed,local,,,,P1,S,core/query,,,,parameter-entity-escaping,,2026-08-14,specs/issues/ACTION-PARAMETER-SET-VALUE-DOUBLE-ENCODES.md
 AGENT-MEMORY-HAS-NO-MIGRATE-COMMAND,feature,"Agent memory schema changes are applied by hand, with no migrate command",draft,local,,,,P3,M,lib/commands,,,,agent-memory-mvp,,2026-10-17,specs/issues/AGENT-MEMORY-HAS-NO-MIGRATE-COMMAND.md
-AGENT-MEMORY-SERVICE,feature,"A memory service for agents, built on the liquers stack",draft,local,,,,P2,XL,axum;lib/commands;core/store;docs,,,,agent-memory-mvp,,2026-09-15,specs/issues/AGENT-MEMORY-SERVICE.md
+AGENT-MEMORY-SERVICE,feature,"A memory service for agents, built on the liquers stack",closed,local,,,,P2,XL,axum;lib/commands;core/store;docs,,,,agent-memory-mvp,,2026-09-15,specs/issues/AGENT-MEMORY-SERVICE.md
 AGENT-WORKBENCH-SURFACE,feature,"Agents get only memory tools — no general surface to evaluate, validate, inspect or propose",draft,local,,,,P2,L,lib/commands;core/commands;py;docs,,,,,,2026-10-15,specs/issues/AGENT-WORKBENCH-SURFACE.md
 ANY-STATUS-READ-MISSES-STORED-VALUE-OF-UNLOADED-LIVE-ASSET,issue,Recovery reads return None while a concurrent get has mapped the key but not loaded it,closed,local,,ready,,P3,S,core/assets,,,,recovery-read-defers-placeholder,,2026-10-02,specs/issues/ANY-STATUS-READ-MISSES-STORED-VALUE-OF-UNLOADED-LIVE-ASSET.md
 ARGUMENT-DECLARATION-IS-ALL-OR-NOTHING,feature,Declared arguments replace inferred ones instead of augmenting them,closed,local,,,,P3,M,core/commands;web;py,,,,,,2026-08-29,specs/issues/ARGUMENT-DECLARATION-IS-ALL-OR-NOTHING.md
@@ -359,7 +359,7 @@ WEB-LIQUERSERROR-NOT-CONSTRUCTIBLE,issue,"JavaScript cannot construct a LiquersE
 WEB-NATIVE-IO-TIER2,issue,Browser storage has no IndexedDB backend,accepted,local,,,,P3,L,web,,,,liquers-web-store,,2026-08-08,specs/issues/WEB-NATIVE-IO-TIER2.md
 WEB-OBJECT06-EXPECTS-A-STALE-ERROR-TYPE-COUNT,issue,"OBJECT06 asserts 22 ErrorType variants, and its own list now has 23",closed,local,,ready,not-eligible,P2,S,web,,,,web-object06-error-type-exhaustiveness,,2026-09-30,specs/issues/WEB-OBJECT06-EXPECTS-A-STALE-ERROR-TYPE-COUNT.md
 WEB-OUTBOUND-INT64-BEYOND-DOUBLE-UNTESTED,issue,"An i64 beyond 2^53 leaving for JavaScript has unconfirmed, untested behaviour",closed,local,,ready,eligible,P3,S,web,,,,web-outbound-int64-precision,,2026-10-17,specs/issues/WEB-OUTBOUND-INT64-BEYOND-DOUBLE-UNTESTED.md
-WEB-RECORD-SOURCE-RESOLVES-THROUGH-SINGLETON,issue,A RecordSource from an explicit Environment streams through the singleton,draft,local,,,,P3,M,web;records,,,,,,2026-10-18,specs/issues/WEB-RECORD-SOURCE-RESOLVES-THROUGH-SINGLETON.md
+WEB-RECORD-SOURCE-RESOLVES-THROUGH-SINGLETON,issue,A RecordSource from an explicit Environment streams through the singleton,closed,local,,,,P3,M,web;records,,,,,,2026-10-18,specs/issues/WEB-RECORD-SOURCE-RESOLVES-THROUGH-SINGLETON.md
 WEB-RECORDS-BRIDGE-ONE-WAY-AND-SOURCE-UNMAPPED,feature,The records bridge is one-way and a RecordSource has no JavaScript representation,closed,local,,ready,not-eligible,P2,L,web;records,,,,liquers-web-records-bridge,,2026-10-17,specs/issues/WEB-RECORDS-BRIDGE-ONE-WAY-AND-SOURCE-UNMAPPED.md
 WEB-RECORDS-SINGLE-CELL-VIEW-CROSSES-AS-BATCH,issue,A single-cell RecordView reaches JavaScript as a 1×1 batch instead of a scalar,closed,local,,ready,eligible,P2,S,web;records,,,,web-records-single-cell-scalar,,2026-10-17,specs/issues/WEB-RECORDS-SINGLE-CELL-VIEW-CROSSES-AS-BATCH.md
 WEB-STORE-CONFIG-NOT-APPLIED-THROUGH-ENVIRONMENT-CONFIG,issue,liquers-web hand-rolls the environment configuration that EnvironmentConfig will own,draft,local,,,,P3,M,web;core/store;core/context,,,,,,2026-08-31,specs/issues/WEB-STORE-CONFIG-NOT-APPLIED-THROUGH-ENVIRONMENT-CONFIG.md
@@ -370,7 +370,7 @@ WEBUI-SUBMIT-QUERY-STATE-NOT-PRESERVED,issue,Submitted query state is not preser
 WORKSPACE-NOT-RUSTFMT-CLEAN,issue,"The workspace is not rustfmt-clean, so formatting drift hides in every diff",draft,local,,,,P3,M,build;docs,,,,,,2026-08-29,specs/issues/WORKSPACE-NOT-RUSTFMT-CLEAN.md
 WORKSPACE-SERDE-DERIVE-UNDECLARED,issue,Three crates use serde derive macros without declaring the `derive` feature,accepted,local,,,,P2,L,build;core/value;lib/ui;axum,,,,,,2026-08-09,specs/issues/WORKSPACE-SERDE-DERIVE-UNDECLARED.md
 AGENT-MEMORY-DERIVED,design,"Agent memory — templates, indexes and context packs",draft,local,high-level,,,,,lib/commands;docs,,,,agent-memory-derived,,2026-10-17,specs/design/agent-memory-derived/DESIGN.md
-AGENT-MEMORY-MVP,design,MVP for an agent memory service on the liquers stack,approved,local,documentation,,,P2,XL,lib/commands;core/store;docs,,,,agent-memory-mvp,,2026-09-15,specs/design/agent-memory-mvp/DESIGN.md
+AGENT-MEMORY-MVP,design,MVP for an agent memory service on the liquers stack,complete,local,,,,P2,XL,lib/commands;core/store;docs,,,,agent-memory-mvp,,2026-09-15,specs/design/agent-memory-mvp/DESIGN.md
 ARGUMENT-GUI-INFO-DEFAULT,design,Consistent default GUI metadata for command arguments,complete,local,,ready,,P2,S,core/commands;macro;web,,,,argument-gui-info-default,,2026-09-01,specs/design/argument-gui-info-default/DESIGN.md
 ARGUMENT-INFO-DESCRIPTION,design,Per-argument description in ArgumentInfo and register_command!,superseded,local,,,,P3,S,core/commands;macro,,,,argument-info-description,,2026-10-06,specs/design/argument-info-description/DESIGN.md
 ASSET-CANCELLATION-OUTCOME,design,Deterministic asset cancellation outcome and cooperative command cancellation,complete,local,,,,P2,L,core/assets;core/commands,,,,asset-cancellation-outcome,,2026-10-09,specs/design/asset-cancellation-outcome/DESIGN.md
@@ -601,7 +601,7 @@ POLARS_COMMAND_LIBRARY,reference,Polars Command Library Specification,current,lo
 POSITIONING,reference,Positioning and Marketing Plan (draft),current,local,,,,,,docs,,,,,2026-10-15,,specs/reference/POSITIONING.md
 PROJECT_OVERVIEW,reference,Liquers Project Overview,current,local,,,,,,core/query;core/plan;core/assets;core/store;core/value,,,,,2026-10-19,,specs/reference/PROJECT_OVERVIEW.md
 REALMS,reference,Realms,current,local,,,,,,core/plan;core/commands;store/config,,,,,2026-10-16,,specs/reference/REALMS.md
-RECORD_STREAMS,reference,Record Streams,current,local,,,,,,records;lib/value;lib/commands;web,,,,,2026-10-13,,specs/reference/RECORD_STREAMS.md
+RECORD_STREAMS,reference,Record Streams,current,local,,,,,,records;lib/value;lib/commands;web,,,,,2026-10-19,,specs/reference/RECORD_STREAMS.md
 REGISTER_COMMAND_FSD,reference,register_command! Macro Functional Specification,current,local,,,,,,macro;core/commands,,,,,2026-10-12,,specs/reference/REGISTER_COMMAND_FSD.md
 SEARCH,reference,Search,current,local,,,,,,records;lib/commands,,,,,2026-10-17,,specs/reference/SEARCH.md
 STORE_CONFIG_FSD,reference,Store Configuration Functional Specification,current,local,,,,,,store/config,,,,,2026-10-15,,specs/reference/STORE_CONFIG_FSD.md
@@ -619,7 +619,7 @@ COMMAND_DESIGN_GUIDE,guide,Command Design Guide,current,local,,,,,,core/commands
 COMMAND_REGISTRATION_GUIDE,guide,Command Registration Guide,current,local,,,,,,core/commands;macro,,,,,2026-10-19,,specs/guides/COMMAND_REGISTRATION_GUIDE.md
 DEPENDENCY_CONSISTENCY_GUIDE,guide,Dependency Consistency Guide,current,local,,,,,,core/assets,,,,,2026-10-08,,specs/guides/DEPENDENCY_CONSISTENCY_GUIDE.md
 ENVIRONMENT_CONSTRUCTION_GUIDE,guide,Building and Configuring an Environment,current,local,,,,,,core/context;core/assets;core/store,,,,,2026-10-11,,specs/guides/ENVIRONMENT_CONSTRUCTION_GUIDE.md
-LANGUAGE-INTEGRATION_GUIDE,guide,Language Integration Guide,current,local,,,,,,web;py;core/commands;core/plan;core/assets;core/store,,,,,2026-10-18,,specs/guides/LANGUAGE-INTEGRATION_GUIDE.md
+LANGUAGE-INTEGRATION_GUIDE,guide,Language Integration Guide,current,local,,,,,,web;py;core/commands;core/plan;core/assets;core/store,,,,,2026-10-19,,specs/guides/LANGUAGE-INTEGRATION_GUIDE.md
 QUERY_ESCAPING_GUIDE,guide,Query Escaping Guide,current,local,,,,,,core/query,,,,,2026-10-07,,specs/guides/QUERY_ESCAPING_GUIDE.md
 RECORD_STREAM_GUIDE,guide,Record Stream Guide,current,local,,,,,,records;lib/value,,,,,2026-10-13,,specs/guides/RECORD_STREAM_GUIDE.md
 SEARCH_GUIDE,guide,Search Guide,current,local,,,,,,lib/commands;records,,,,,2026-10-17,,specs/guides/SEARCH_GUIDE.md

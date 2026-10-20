@@ -170,7 +170,9 @@ impl LiquersAsset {
         let inner = self.inner.clone();
         wasm_bindgen_futures::future_to_promise(async move {
             match inner.get().await {
-                Ok(state) => Ok(LiquersState::from_state(state).into()),
+                Ok(state) => Ok(LiquersState::from_state(state)
+                    .in_env(inner.get_envref().await)
+                    .into()),
                 Err(e) => Err(liquers_error_to_js(e)),
             }
         })
@@ -214,11 +216,19 @@ impl LiquersAsset {
 #[wasm_bindgen(js_name = State)]
 pub struct LiquersState {
     inner: State<liquers_lib::value::Value>,
+    /// The environment of the asset the state came from, when known; conversions run inside it.
+    env: Option<EnvRef<WebEnvironment>>,
 }
 
 impl LiquersState {
     pub fn from_state(inner: State<liquers_lib::value::Value>) -> Self {
-        LiquersState { inner }
+        LiquersState { inner, env: None }
+    }
+
+    /// Records the environment the state came from, for `toJS` and `value()`.
+    pub fn in_env(mut self, env: EnvRef<WebEnvironment>) -> Self {
+        self.env = Some(env);
+        self
     }
 
     pub fn state(&self) -> &State<liquers_lib::value::Value> {
@@ -234,7 +244,13 @@ impl LiquersState {
     /// accessor, and going around it is how an error state silently becomes `null`.
     pub fn value(&self) -> Result<LiquersValue, JsValue> {
         match self.inner.value() {
-            Ok(v) => Ok(LiquersValue::from_value((*v).clone())),
+            Ok(v) => {
+                let value = LiquersValue::from_value((*v).clone());
+                Ok(match &self.env {
+                    Some(env) => value.in_env(env.clone()),
+                    None => value,
+                })
+            }
             Err(e) => Err(liquers_error_to_js(e)),
         }
     }
@@ -243,7 +259,11 @@ impl LiquersState {
     #[wasm_bindgen(js_name = toJS)]
     pub fn to_js(&self) -> Result<JsValue, JsValue> {
         let value = self.inner.value().map_err(liquers_error_to_js)?;
-        value_to_js(value.as_ref()).map_err(liquers_error_to_js)
+        match &self.env {
+            Some(env) => crate::bridge::value_to_js_in(env, value.as_ref()),
+            None => value_to_js(value.as_ref()),
+        }
+        .map_err(liquers_error_to_js)
     }
 
     /// The metadata, as a plain object.
