@@ -3546,6 +3546,47 @@ impl<E: Environment> AssetRef<E> {
     /// Turns how the race between computing and cancelling ended into this run's result:
     /// `Ok(true)` when this run finalized the asset, `Ok(false)` when someone else finished it
     /// first, `Err` when the run failed or was cancelled.
+    /// The number of entries in this asset's log, taken when a run starts so the run can tell
+    /// its own entries from earlier ones.
+    async fn log_len(&self) -> usize {
+        match &self.data.read().await.metadata {
+            Metadata::MetadataRecord(record) => record.log.len(),
+            Metadata::LegacyMetadata(_) => 0,
+        }
+    }
+
+    /// Turns a computed value into a failure when the run logged an error
+    /// (`Context::error`), once the service loop has applied every message the run sent.
+    ///
+    /// `log_start` is [`Self::log_len`] at the start of the run; the failure carries the first
+    /// error-level entry logged after it. Any other outcome is returned unchanged.
+    async fn fail_on_drained_error(
+        &self,
+        outcome: RunOutcome<E::Value>,
+        log_start: usize,
+    ) -> RunOutcome<E::Value> {
+        match outcome {
+            RunOutcome::Computed(Ok(evaluation)) => {
+                let logged = match &self.data.read().await.metadata {
+                    Metadata::MetadataRecord(record) => record
+                        .log
+                        .iter()
+                        .skip(log_start)
+                        .find(|entry| entry.kind == LogEntryKind::Error)
+                        .map(|entry| entry.message.clone()),
+                    Metadata::LegacyMetadata(_) => None,
+                };
+                match logged {
+                    Some(message) => RunOutcome::Computed(Err(Error::execution_error(message))),
+                    None => RunOutcome::Computed(Ok(evaluation)),
+                }
+            }
+            RunOutcome::Computed(Err(e)) => RunOutcome::Computed(Err(e)),
+            RunOutcome::FinishedElsewhere(res) => RunOutcome::FinishedElsewhere(res),
+            RunOutcome::CancelRequested => RunOutcome::CancelRequested,
+        }
+    }
+
     async fn settle_run(&self, outcome: RunOutcome<E::Value>) -> Result<bool, Error> {
         match outcome {
             // Past the point of no return: finalizing and storing are not cancellable (D2).
@@ -3662,6 +3703,7 @@ impl<E: Environment> AssetRef<E> {
             return Ok(()); // Already finished
         }
         let cancellation = self.cancellation().await;
+        let log_start = self.log_len().await;
         let assetref = self.clone();
         // all service messages should be processed, therefore they run in a separate task
         let psm = tokio::spawn(async move { assetref.process_service_messages().await });
@@ -3676,13 +3718,15 @@ impl<E: Environment> AssetRef<E> {
                 _ = cancellation.requested() => RunOutcome::CancelRequested,
             }
         };
-        let result = self.settle_run(outcome).await;
         self.service_sender()
             .await
             .send(AssetServiceMessage::JobFinishing)
             .ok(); // Notify the service loop that the job is finishing, so it should smoothly end.
         let psm_result = psm.await;
-        // After the loop has drained, so the outcome does not depend on scheduling.
+        // The outcome is settled only once the loop has drained, so every message the run sent
+        // (an error-level log entry included) has been applied first and can decide it.
+        let outcome = self.fail_on_drained_error(outcome, log_start).await;
+        let result = self.settle_run(outcome).await;
         self.finalize_primary_progress().await;
         self.finish_run_with_result(result, psm_result).await
     }
@@ -3729,6 +3773,7 @@ impl<E: Environment> AssetRef<E> {
             None => return Ok(()),
         };
         let cancellation = self.cancellation().await;
+        let log_start = self.log_len().await;
         let eval_side = async {
             let outcome = if cancellation.is_requested() {
                 RunOutcome::CancelRequested
@@ -3743,16 +3788,17 @@ impl<E: Environment> AssetRef<E> {
                     () = requested => RunOutcome::CancelRequested,
                 }
             };
-            let result = self.settle_run(outcome).await;
             self.service_sender()
                 .await
                 .send(AssetServiceMessage::JobFinishing)
                 .ok();
-            result
+            outcome
         };
         let psm_side = self.process_service_messages();
-        let (result, psm_result) = futures::join!(eval_side, psm_side);
-        // After the loop has drained, so the outcome does not depend on scheduling.
+        let (outcome, psm_result) = futures::join!(eval_side, psm_side);
+        // Settled after the loop has drained, so the outcome does not depend on scheduling.
+        let outcome = self.fail_on_drained_error(outcome, log_start).await;
+        let result = self.settle_run(outcome).await;
         self.finalize_primary_progress().await;
         // The run reached its end, so the status it leaves behind is the real one; the guard must
         // not rewind it. A panic or early return skips this and the `Drop` repair applies instead.
@@ -3956,16 +4002,7 @@ impl<E: Environment> AssetRef<E> {
         }
         let context_for_deps = context.clone(); // shares pending_dependencies Arc
         eprintln!("Applying recipe");
-        // An error logged through the context fails the run even when the environment's
-        // `apply_recipe` does not go through the interpreter, which checks it after every step.
-        let outcome = envref
-            .apply_recipe(input_state, recipe, context)
-            .await
-            .and_then(|res| match context_for_deps.logged_error() {
-                Some(message) => Err(Error::execution_error(message)),
-                None => Ok(res),
-            });
-        let res = match outcome {
+        let res = match envref.apply_recipe(input_state, recipe, context).await {
             Ok(res) => res,
             Err(error) => {
                 // A failed evaluation keeps what it read, so a caller that recovers the failure
@@ -11310,6 +11347,49 @@ mod tests {
         assert_eq!(assetref.status().await, Status::Ready);
     }
 
+    /// An error-level entry that reaches the asset only through its service channel, with no
+    /// interpreter step to notice it, still fails the run: the outcome is settled after the loop
+    /// has drained (`CONTEXT-ERROR-OUTCOME-DEPENDS-ON-SCHEDULING`). Both harnesses.
+    #[tokio::test]
+    async fn test_drained_error_entry_fails_a_computed_value() {
+        for inline in [false, true] {
+            let query = parse_query("test").unwrap();
+            let env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+            let envref = env.to_ref();
+            let asset_data =
+                AssetData::<SimpleEnvironment<Value>>::new(2240, query.into(), None, envref);
+            let assetref = asset_data.to_ref();
+            let sender = assetref.service_sender().await;
+            let compute = async move {
+                sender
+                    .send(AssetServiceMessage::LogMessage(LogEntry::error(
+                        "logged through the channel".to_string(),
+                    )))
+                    .unwrap();
+                sender
+                    .send(AssetServiceMessage::LogMessage(LogEntry::info("later".to_string())))
+                    .unwrap();
+                Ok(RecipeEvaluation {
+                    value: Arc::new(Value::from("value")),
+                    dependencies: Vec::new(),
+                    origin: ValueOrigin::Computed,
+                })
+            };
+            if inline {
+                assetref.run_with_future_inline(compute).await.unwrap_err();
+            } else {
+                assetref.run_with_future(compute).await.unwrap_err();
+            }
+            assert_eq!(assetref.status().await, Status::Error, "inline: {inline}");
+            let error = match assetref.get().await.and_then(|state| state.value_state()) {
+                Ok(_) => panic!("expected a failure, inline: {inline}"),
+                Err(e) => e,
+            };
+            assert_eq!(error.error_type, ErrorType::ExecutionError, "inline: {inline}");
+            assert_eq!(error.message, "logged through the channel", "inline: {inline}");
+        }
+    }
+
     #[tokio::test]
     async fn test_late_progress_messages_are_ignored_after_finish() {
         let query = parse_query("test").unwrap();
@@ -13833,13 +13913,16 @@ recipes:
         let envref = env.to_ref();
 
         let key = parse_key("p.txt")?;
-        let asset = AssetData::<SimpleEnvironment<Value>>::new(
+        let mut asset_data = AssetData::<SimpleEnvironment<Value>>::new(
             9701,
             parse_query("sd_value")?.into(),
             Some(key.clone()),
             envref.clone(),
-        )
-        .to_ref();
+        );
+        // Save synchronously: the store is read right after `run` returns, and a background
+        // save is not awaited by the run.
+        asset_data.save_in_background = false;
+        let asset = asset_data.to_ref();
 
         // A dependency that is expired but has retained its value — the case
         // `wait_for_dependency` is documented to use rather than recompute.

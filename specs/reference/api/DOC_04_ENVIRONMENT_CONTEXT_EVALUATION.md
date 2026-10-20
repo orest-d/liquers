@@ -475,8 +475,9 @@ the command runs; only the metadata's `is_error` flag is set. When the step retu
 the interpreter stops the plan with an `ExecutionError` carrying the first logged
 error's message: the returned value is discarded, the remaining steps do not run, and
 the asset ends in `Error`. If the command returns `Err` instead, that error is the
-failure. The asset manager checks again after `Environment::apply_recipe` returns, so a
-custom environment gets the same outcome. The same holds for an executable `Step::Error`. Use
+failure. The asset manager settles a run only after its service loop has drained, and fails
+a run that produced a value if an error-level entry reached the log, so a custom
+`apply_recipe` gets the same outcome. The same holds for an executable `Step::Error`. Use
 `warning` to report a problem without failing. `Context::set_error` fails the asset
 immediately.
 

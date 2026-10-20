@@ -1203,9 +1203,9 @@ impl<E: Environment> Context<E> {
     /// When the current plan step returns, the interpreter stops the plan and the asset fails
     /// with an `ExecutionError` carrying the first logged error's message; a returned value is
     /// discarded, while an `Err` the command returns is the failure instead. The asset manager
-    /// checks again after `Environment::apply_recipe` returns, so an environment that runs a
-    /// plan another way gets the same outcome. Use [`Self::warning`] to record a problem without
-    /// failing.
+    /// settles a run only after its service loop has drained, and fails one that produced a
+    /// value if an error entry reached the log, so an environment that runs a plan another way
+    /// gets the same outcome. Use [`Self::warning`] to record a problem without failing.
     pub fn error(&self, message: &str) -> Result<(), Error> {
         eprintln!("ERROR:   {}", message);
         self.add_log_entry(LogEntry::error(message.to_string()))

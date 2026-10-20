@@ -3,7 +3,7 @@ title: Using Liquers from Python
 kind: guide
 audience: user
 area: [py]
-reviewed: 2026-10-19
+reviewed: 2026-10-20
 ---
 # Using Liquers from Python
 
@@ -271,7 +271,7 @@ env.shutdown()
 |---|---|
 | `evaluate(query)` | evaluates `query` as a dependency of this result and returns its value |
 | `info(msg)`, `warning(msg)` | adds an entry to the result's log |
-| `error(msg)` | adds an error entry **and fails the result**: the query raises `GeneralError` with `msg`, even if the command then returns |
+| `error(msg)` | adds an error entry **and fails the result**: the command keeps running, but once it returns the query raises `ExecutionError` with the first `msg` |
 | `is_cancelled()` | whether the result was cancelled; a long command should check it and stop |
 
 The context is valid only during the call. Keeping it and using it later raises `GeneralError`.
@@ -577,4 +577,5 @@ What you will notice; the complete list, with the tracking issues, is
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-20 | `context.error` raises `ExecutionError` with the first logged message once the command returns. | `CONTEXT-ERROR-OUTCOME-DEPENDS-ON-SCHEDULING` |
 | 2026-10-19 | Created from the implemented `liquers-py`. | `design/liquers-py/` (phase-5) |

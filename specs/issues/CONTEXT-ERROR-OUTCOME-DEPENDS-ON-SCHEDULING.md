@@ -18,9 +18,14 @@ evaluation). The interpreter checks it before the first step and after every ste
 (`interpreter::apply_plan_state`) and stops the plan with
 `Error::execution_error(<first message>)`, so the asset ends in `Error` through the normal
 failure path and its dependents see that error. A command that logs an error and then returns
-`Err` fails with its own error. The asset manager checks the flag again after
-`Environment::apply_recipe` returns, so a custom environment that runs a plan without the
-interpreter gets the same outcome. `MetadataRecord::add_log_entry` now sets only `is_error`,
+`Err` fails with its own error. Both run harnesses (`run_with_future`, `run_with_future_inline`)
+now settle the outcome only after the service loop has drained, instead of installing, storing and
+announcing the value first; a computed value whose drained log holds an error-level entry from this
+run fails with that entry's message (`AssetRef::fail_on_drained_error`). That covers a custom
+`Environment::apply_recipe` that does not go through the interpreter, and makes the asset's outcome
+depend on every message its run sent. Orest chose this combination (the context flag to stop the
+plan, the drain to decide the outcome) over letting the drain flip a finished asset, which would
+have to undo a stored, announced and dependency-tracked value. `MetadataRecord::add_log_entry` now sets only `is_error`,
 never the status, and only on a record that is not finished, so a late log message cannot make a
 finished asset unreadable. `MetadataRecord::with_status` keeps `is_error` while a run waits or
 resumes (`Submitted`, `Dependencies`, `Processing`, `Storing`); `None` and `Recipe` restart a run
@@ -31,7 +36,10 @@ the same way; the latter before any dependency is scheduled.
 multi-thread runtimes) and on the inline manager: a sync command, an `info` after the error, a
 dependency wait after the error, an uncached command followed by another action, a command
 returning `Err` after logging, and the mid-run state (status `Processing`, `is_error` true). All
-of those tests fail without the fix.
+of those tests fail without the fix. `assets::tests::test_drained_error_entry_fails_a_computed_value`
+pins the drain-first settlement on both harnesses with an entry sent straight to the service channel.
+`keyed_stale_dependency_is_stored_expired` now saves synchronously: it read the store right after
+the run and passed only because the old order gave a background save time to finish.
 
 ## Problem
 

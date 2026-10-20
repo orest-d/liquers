@@ -1195,6 +1195,13 @@ dependency's recorded cancellation unchanged, logs `Dependency <dep> was cancell
 and the parent ends `Cancelled` unless its command handles the error and returns `Ok`. The wait
 never sets the parent's status itself; its run does.
 
+**Settling a run.** A run's outcome is settled only after its service loop has drained: the
+command's result is held while every message the run sent is applied, and only then is the value
+installed, stored and announced (or the failure recorded). A computed value whose run logged an
+error-level entry fails instead, with an `ExecutionError` carrying the first such entry
+(`Context::error`). A background save is not part of the run, so the store may receive the value
+after the run returns.
+
 **Post-finish messages.** Once finalized, display-mutating/control service messages
 (`UpdatePrimaryProgress`, `UpdateSecondaryProgress`, `JobSubmitted`, `JobStarted`, `Cancel`,
 `ErrorOccurred`) are dropped (debug-logged); a late `LogMessage` is tolerated (at most one extra
@@ -1253,7 +1260,7 @@ each with an `ExpiryReason` (§Why an asset is `Expired`). The rules are in
 
 | Date | Change | Source |
 |---|---|---|
-| 2026-10-20 | §Post-finish messages: a late error-level log entry no longer flips a finished asset's status. | `issues/CONTEXT-ERROR-OUTCOME-DEPENDS-ON-SCHEDULING.md` |
+| 2026-10-20 | New §Settling a run: the outcome is settled after the service loop drains, and a logged error fails a computed value. §Post-finish messages: a late error-level log entry no longer flips a finished asset's status. | `issues/CONTEXT-ERROR-OUTCOME-DEPENDS-ON-SCHEDULING.md` |
 | 2026-10-17 | §Volatile assets are never owned: an asset can become volatile during its run, through `Context::set_volatile`, a volatile run-time dependency, or (ad hoc) its plan. | `design/runtime-volatility` |
 | 2026-10-15 | `Storing`: written by the unwrapped file and OpenDAL stores, never under a configured write strategy (`direct` / `atomic` / `transactional` and their crash behaviour). §Content changed outside Liquers: per-mount `version_verification` overrides the manager's policy (`content_hash` in `on_read`); a `read_only` mount writes nothing on read; `created` and `etag` on records. | phase-5 (`design/store-adapters/`) |
 | 2026-10-14 | §Terminal outcome: a panicking command fails its asset (`evaluation panicked: …`) instead of hanging its waiters. | `COMMAND-PANIC-HANGS-EVALUATION` |

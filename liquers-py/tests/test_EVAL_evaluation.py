@@ -84,7 +84,7 @@ def test_EVAL06_cancellation_has_defined_terminal_result():
 
 
 def test_EVAL_context_error_fails_the_result():
-    # Core marks an asset failed when an error-level entry is logged, even if the command returns.
+    # An error-level entry fails the evaluation once the command returns, whatever it returned.
     env = lq.Environment()
 
     @env.first_command
@@ -92,6 +92,6 @@ def test_EVAL_context_error_fails_the_result():
         context.error("logged error")
         return "value"
 
-    with pytest.raises(lq.GeneralError, match="logged error"):
+    with pytest.raises(lq.ExecutionError, match="logged error"):
         env.evaluate("logs_an_error")
     env.shutdown()
