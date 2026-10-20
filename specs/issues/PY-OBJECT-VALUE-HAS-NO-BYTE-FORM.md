@@ -2,14 +2,22 @@
 id: PY-OBJECT-VALUE-HAS-NO-BYTE-FORM
 kind: feature
 title: A retained Python object (py.Object) cannot be stored as bytes
-status: draft
+status: closed
 priority: P3
 complexity: M
 area: [py, core/value]
-design:
+design: liquers-py
 created: 2026-10-19
 github:
 ---
+## Resolution
+
+Closed by the `liquers-py` design (PR #150), which took option 2: `py.Object` is serialized with
+`pickle` only in an environment built with `Environment(pickle=True)`, and a pickle-off environment
+declares no format for it and never unpickles stored bytes
+(`specs/reference/PYTHON_INTEGRATION.md`, values section). The `Value::Py` variant described below
+no longer exists; a Python object is now `py.Object` in `ExtValue::Foreign`.
+
 ## Problem
 
 `liquers-py`'s `Value::Py` (identifier `py.Object`, `liquers-py/src/value.rs`) declares `pickle` as

@@ -3,15 +3,17 @@ id: PY-VALUE-SERIALIZER
 kind: design
 title: liquers-py's value serializer delegates to the core codec
 form: compact
-status: in_review
-phase: implementation
-readiness: ready
-autofix: eligible
+status: superseded
+superseded_by: liquers-py
 area: [py, core/value]
 issues: [PY-VALUE-SERIALIZER-IS-A-STUB]
 created: 2026-10-19
 ---
 # liquers-py's value serializer delegates to the core codec
+
+**Superseded 2026-10-20 by [`liquers-py`](../liquers-py/DESIGN.md)**, which merged in the same
+change: liquers-py now uses `liquers_lib::value::Value`, so it has no serializer of its own and
+`PY-VALUE-SERIALIZER-IS-A-STUB` is closed there. Written by the bulk design run before that merge.
 
 Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-19. Phases 1-4 are written but not
 approved, and nothing is implemented.

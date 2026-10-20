@@ -7,7 +7,7 @@ use pyo3::prelude::*;
 
 use crate::metadata::DependencyKey;
 
-#[pyclass(from_py_object)]
+#[pyclass(from_py_object, module = "liquers")]
 #[derive(Clone, Debug)]
 pub struct DependencyRelation(pub liquers_core::dependencies::DependencyRelation);
 
@@ -96,7 +96,7 @@ impl DependencyRelation {
     }
 }
 
-#[pyclass(from_py_object)]
+#[pyclass(from_py_object, module = "liquers")]
 #[derive(Clone, Debug)]
 pub struct PlanDependency(pub liquers_core::dependencies::PlanDependency);
 

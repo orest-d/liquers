@@ -502,7 +502,14 @@ leaves it.
 
 **Stage 5** — validation passes. The resulting `CommandMetadata` has **one** argument, `count`. The
 `registration` block does not reach it; the Python integration reads it from the declaration and
-knows to call `repeat(state_value, count, context=ctx)`.
+knows how to deliver the state and where to pass the context.
+
+`liquers-py`, the shipped Python integration, follows these stages with two differences of
+surface. Its decorators (`liquers-py/python/liquers/_commands.py`) accept `name`, `namespace`,
+`label`, `doc`, `filename`, `volatile` and `cached`, but not `arguments`, so a per-argument entry
+such as the slider above cannot be declared from Python yet. And it passes the context
+positionally at the parameter's own index, `repeat(state_value, count, ctx)`, computing that index
+from the signature.
 
 Two things to take from this. The discovered `int` and default `2` **survived** an entry that
 mentioned neither — that is composition. And `state` and `context` never became command arguments,
@@ -519,6 +526,7 @@ so no query parameter is consumed by either — that is conventions.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-18 | Reviewed against `liquers-py` (phase-5). §9: how the shipped Python integration differs from the worked example (no `arguments=` on its decorators; the context passed positionally). | `design/liquers-py/` (phase-5) |
 | 2026-10-18 | §7: `CommandDeclaration::check` returns the full report; `build`'s refusal is its summary, and a deserialization failure is one entry. | `design/web-environ-validation-report/` |
 | 2026-10-11 | §4 intro, §4.1 `hints`, §4.2 `description`, §6.1: command-level `hints` and argument `description` reach the metadata; the dropped-key warning for command `hints` (`WarningKind::DroppedKey`) is removed. | `design/command-metadata-descriptions-and-hints/` |
 | 2026-10-11 | §4.1 `state_argument`: raw `CommandMetadata` now reads an omitted field as the conventional `state` argument and always writes a source command's `null`; a declaration keeps "absent means source" by building with explicit `null`. | `design/state-argument-serde-default` |

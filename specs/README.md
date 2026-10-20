@@ -259,7 +259,7 @@ submit, and submitted query state is not preserved.
 - **Web API library** — built → [`design/web-api-library/`](design/web-api-library/)
 - **Browser and JavaScript integration** — built → [`design/liquers-web/`](design/liquers-web/) *(docs brought up to date: [`design/web-docs-stale-limitations/`](design/web-docs-stale-limitations/))*
 - **Async evaluation on wasm** — built → [`design/async-wasm-refactor/`](design/async-wasm-refactor/)
-- **Python wrapper** — built → [`design/python-wrapper/`](design/python-wrapper/)
+- **Python integration (liquers-py)** — built → [`guides/PYTHON_GUIDE.md`](guides/PYTHON_GUIDE.md) (using it), [`reference/PYTHON_INTEGRATION.md`](reference/PYTHON_INTEGRATION.md) (its contract), [`guides/LANGUAGE-INTEGRATION_GUIDE.md`](guides/LANGUAGE-INTEGRATION_GUIDE.md) §6 Python; conformance matrix in `liquers-py/README.md`; design [`design/liquers-py/`](design/liquers-py/) *(supersedes [`design/python-wrapper/`](design/python-wrapper/))*
 - **Executor-agnostic core** — planned → [`issues/CORE-TOKIO-REMOVAL.md`](issues/CORE-TOKIO-REMOVAL.md)
 - **Browser stores (localStorage, fetch, JS, routing)** — built → [`design/liquers-web-store/`](design/liquers-web-store/) *(conformance gaps closed: [`design/web-store-conformance-tests/`](design/web-store-conformance-tests/))*
 - **Browser-native store and command backend** — planned → [`issues/WEB-NATIVE-IO-TIER2.md`](issues/WEB-NATIVE-IO-TIER2.md)
@@ -369,6 +369,7 @@ deliberately folded behind a broader line.
 - design `lib-build-warning-cleanup`
 - design `lib-integration-test-feature-gates`
 - design `lib-polars-ethnum-rust-1-98`
+- design `liquers-py-async`
 - design `liquers-web-records-bridge`
 - design `listdir-keys-deep-child-check`
 - design `manifest-chunk-error-identity`
@@ -393,8 +394,6 @@ deliberately folded behind a broader line.
 - design `polars-doc-example-namespace`
 - design `predecessor-cut-equivalence`
 - design `pure-command-context`
-- design `py-value-arc-payloads`
-- design `py-value-serializer`
 - design `pyo3-python-3-13-support`
 - design `query-leading-slash-field`
 - design `queued-manager-conditional-eviction`
@@ -463,7 +462,10 @@ deliberately folded behind a broader line.
 - feature `NO-REMOTE-STORE-OR-ASSET-MANAGER`
 - feature `NO-SOURCE-CODE-AND-API-DOC-NAVIGATION`
 - feature `NO-TEMPLATE-EDITOR-UI`
-- feature `PY-OBJECT-VALUE-HAS-NO-BYTE-FORM`
+- feature `PY-API-REFERENCE-NOT-GENERATED`
+- feature `PY-COMMAND-DECORATOR-CANNOT-DECLARE-ARGUMENT-METADATA`
+- feature `PY-COMMAND-DECORATOR-CANNOT-SET-REALM`
+- feature `PY-RECIPE-PROVIDER-NOT-CONFIGURABLE`
 - feature `QUERY-CANNOT-MARK-CACHED-INTERMEDIATES`
 - feature `RECORDS-ARROW-C-DATA-EXPORT-NOT-BUILT`
 - feature `STORE-CENTRAL-STORAGE-MODEL-NOT-IMPLEMENTED`
@@ -492,6 +494,7 @@ deliberately folded behind a broader line.
 - [`DEPENDENCY_CONSISTENCY_GUIDE.md`](guides/DEPENDENCY_CONSISTENCY_GUIDE.md) — How to choose how much inconsistency an application tolerates between runs, and how to start a
 - [`ENVIRONMENT_CONSTRUCTION_GUIDE.md`](guides/ENVIRONMENT_CONSTRUCTION_GUIDE.md) — An `Environment` owns the global services a query evaluation needs: the command registry, the
 - [`LANGUAGE-INTEGRATION_GUIDE.md`](guides/LANGUAGE-INTEGRATION_GUIDE.md) — Status: Draft
+- [`PYTHON_GUIDE.md`](guides/PYTHON_GUIDE.md) — How to use Liquers from Python with the `liquers` package: build it, configure an environment,
 - [`QUERY_ESCAPING_GUIDE.md`](guides/QUERY_ESCAPING_GUIDE.md) — A Liquers query is text with structure: `/` separates path segments, `-` separates action
 - [`RECORD_STREAM_GUIDE.md`](guides/RECORD_STREAM_GUIDE.md) — How to produce records from a new source: a command that returns a table, a manifest that stitches
 - [`SEARCH_GUIDE.md`](guides/SEARCH_GUIDE.md) — How to find things in a Liquers store with the `ns-search` commands: files by folder or name,
