@@ -6,7 +6,7 @@ status: accepted
 priority: P2
 complexity: M
 area: [lib/egui]
-design:
+design: ui-asset-snapshot-boundary
 created: 2026-08-08
 github:
 ---
@@ -26,6 +26,13 @@ Current widget integration includes temporary paths and direct assumptions about
 4. Result: two integration styles coexist:
    1. centralized (`AppRunner` + `AssetSnapshot`),
    2. widget-owned async tasks (`AssetStatus`, `TextEditor`).
+
+5. Verified 2026-10-19 (`569c2f0`): a third instance exists inside the centralized path itself —
+   `AssetViewElement::from_asset_ref` (`liquers-lib/src/ui/element.rs`), called by
+   `AppRunner::poll_evaluating_nodes`, subscribes and spawns its own update loop; `AssetStatus` has
+   no caller. Design: `specs/design/ui-asset-snapshot-boundary/`, which proposes the existing
+   `RequestAssetUpdates` / `AssetUpdate(AssetSnapshot)` message path as the stable boundary
+   instead of a new adapter trait.
 
 ## Goals
 1. Define a stable adapter boundary between widgets and asset manager.

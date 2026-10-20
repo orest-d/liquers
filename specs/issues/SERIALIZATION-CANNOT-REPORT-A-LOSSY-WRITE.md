@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: M
 area: [core/value]
-design:
+design: serialization-lossy-write-warnings
 created: 2026-10-13
 github:
 ---
@@ -25,6 +25,17 @@ refused write that stores nothing is worse for a user than a few `null`s. The de
 the loss is silent, and records it as the compromise this issue would remove. Other lossy writes
 of the same shape include text formats that cannot represent every value, and a future format with
 lower precision.
+
+### Problem example
+
+```rust
+let v = Value::Array(vec![Value::F64(1.0), Value::F64(f64::NAN)]);   // core Value
+v.as_bytes("json")?;   // Ok(b"[1.0,null]"), and nothing else
+```
+
+A keyed asset with this value is stored as `[1.0,null]` and its stored metadata has no log entry
+about it; after a restart it reads back as `[1.0, None]`. It should carry a `Warning` naming `json`
+and the non-finite float.
 
 ## Impact
 

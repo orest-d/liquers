@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: M
 area: [lib/polars, build]
-design:
+design: polars-command-tests-via-queries
 created: 2026-08-25
 github:
 ---
@@ -35,6 +35,16 @@ The file even builds the machinery to do it properly and then does not use it: `
 (`:9`) constructs a `DefaultEnvironment`, calls `register_polars_commands()`, and installs a recipe
 provider. It is **defined and never called** — its only occurrence in the file is its own
 definition.
+
+**State at 2026-10-19 (`569c2f0`).** Partly overtaken: `create_test_env()` is now used through
+the helper `eval_over_csv`, and `test_select_columns`, `test_drop_columns` and the `head` alias test
+go through queries (`variadic-arguments-declaration`, `command-alias-contract`). Ten tests still
+bypass the commands — `test_from_csv_basic`, `test_shape`, `test_head`, `test_tail`, `test_slice`,
+`test_filter_eq`, `test_sort`, `test_aggregation_sum`, `test_aggregation_mean`,
+`test_chained_operations` — and 28 of the 32 registered `pl` commands are executed by no test in the
+file. Concrete example: `test_sort` sorts with `LazyFrame::sort` directly, so deleting the `sort`
+registration leaves the file green; it should evaluate `ns-pl/sort-age` and assert the returned
+order. Design: `specs/design/polars-command-tests-via-queries/`.
 
 ## Impact
 
