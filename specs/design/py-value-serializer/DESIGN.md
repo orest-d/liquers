@@ -13,8 +13,8 @@ created: 2026-10-19
 ---
 # liquers-py's value serializer delegates to the core codec
 
-Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-19. Phases 1-4 are written but not
-approved, and nothing is implemented.
+Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-19. Phases 1-4 are written; Phase 4
+was implemented on 2026-10-20 (automatic fix).
 
 ## Phase 1: High-Level Design
 
@@ -213,10 +213,10 @@ Run: `cargo test -p liquers-py --lib --no-default-features --features async_stor
 
 ### Steps
 
-- [ ] 1. `liquers-py/src/value.rs` `mod tests` — add `pyser01`-`pyser06`; `pyser01`-`pyser03` fail at HEAD — `cargo test -p liquers-py --lib --no-default-features --features async_store pyser`. Rollback: delete the tests.
-- [ ] 2. `liquers-py/src/value.rs` — add `to_core_value` / `from_core_value`, rewrite `DefaultValueSerializer for Value`; no `_ =>` arm (AC-6, checked with `grep -n "_ =>" liquers-py/src/value.rs`) — same command.
-- [ ] 3. `liquers-py/src/value.rs` `type_descriptions` — build from `CoreValue::type_descriptions()` + `py.Object`; delete `declared_formats_are_ones_the_serializer_accepts` — `cargo test -p liquers-py --lib --no-default-features --features async_store`.
-- [ ] 4. Records — close `PY-VALUE-SERIALIZER-IS-A-STUB` with a resolution note — `python3 scripts/docs_index.py && python3 scripts/docs_index.py --check`.
+- [x] 1. `liquers-py/src/value.rs` `mod tests` — add `pyser01`-`pyser06`; `pyser01`-`pyser03` fail at HEAD — `cargo test -p liquers-py --lib --no-default-features --features async_store pyser`. Rollback: delete the tests.
+- [x] 2. `liquers-py/src/value.rs` — add `to_core_value` / `from_core_value`, rewrite `DefaultValueSerializer for Value`; no `_ =>` arm (AC-6, checked with `grep -n "_ =>" liquers-py/src/value.rs`) — same command.
+- [x] 3. `liquers-py/src/value.rs` `type_descriptions` — build from `CoreValue::type_descriptions()` + `py.Object`; delete `declared_formats_are_ones_the_serializer_accepts` — `cargo test -p liquers-py --lib --no-default-features --features async_store`.
+- [x] 4. Records — close `PY-VALUE-SERIALIZER-IS-A-STUB` with a resolution note — `python3 scripts/docs_index.py && python3 scripts/docs_index.py --check`.
 
 ### Validation
 

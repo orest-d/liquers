@@ -305,83 +305,12 @@ impl ValueInterface for Value {
     fn type_descriptions() -> Vec<liquers_core::type_system::TypeInfo> {
         use liquers_core::type_system::TypeInfo;
 
-        // `supported_data_formats` declares what `DefaultValueSerializer::as_bytes` **accepts**,
-        // and this crate's serializer is a stub: it handles `txt`/`html` for a few scalar
-        // variants and nothing else, and `deserialize_from_bytes` rejects every format
-        // (`PY-VALUE-SERIALIZER-IS-A-STUB`). So most types here declare **no** format and persist
-        // as metadata only, which is the honest description of a type with no byte form.
-        //
-        // Declaring a format the codec cannot produce is worse than declaring none: the write
-        // path would accept bytes that can never be materialized, moving the failure from write
-        // time to read time.
-        let text_like = ["txt", "html"];
-        vec![
-            TypeInfo::new("None").with_type_name("none").with_defaults(
-                "json",
-                "json",
-                "application/json",
-                "data.json",
-            ),
-            TypeInfo::new("Bool").with_type_name("bool").with_defaults(
-                "json",
-                "json",
-                "application/json",
-                "data.json",
-            ),
-            TypeInfo::new("I32").with_type_name("i32").with_defaults(
-                "json",
-                "json",
-                "application/json",
-                "data.json",
-            ),
-            TypeInfo::new("I64").with_type_name("i64").with_defaults(
-                "json",
-                "json",
-                "application/json",
-                "data.json",
-            ),
-            TypeInfo::new("F64").with_type_name("f64").with_defaults(
-                "json",
-                "json",
-                "application/json",
-                "data.json",
-            ),
-            // The three that genuinely round-trip out: their default is `txt`, and `as_bytes`
-            // implements it.
-            TypeInfo::new("Text")
-                .with_type_name("text")
-                .with_defaults("txt", "txt", "text/plain", "text.txt")
-                .with_data_formats(text_like),
-            TypeInfo::new("Array")
-                .with_type_name("array")
-                .with_defaults("json", "json", "application/json", "data.json"),
-            TypeInfo::new("Object")
-                .with_type_name("object")
-                .with_defaults("json", "json", "application/json", "data.json"),
-            TypeInfo::new("Bytes")
-                .with_type_name("bytes")
-                .with_defaults("b", "b", "application/octet-stream", "binary.b"),
-            TypeInfo::new("Metadata")
-                .with_type_name("metadata")
-                .with_defaults("json", "json", "application/json", "metadata.json"),
-            TypeInfo::new("AssetInfo")
-                .with_type_name("asset_info")
-                .with_defaults("json", "json", "application/json", "asset_info.json"),
-            TypeInfo::new("Recipe")
-                .with_type_name("recipe")
-                .with_defaults("json", "json", "application/json", "recipe.json"),
-            TypeInfo::new("CommandMetadata")
-                .with_type_name("command_metadata")
-                .with_defaults("json", "json", "application/json", "command_metadata.json"),
-            TypeInfo::new("Query")
-                .with_type_name("query")
-                .with_defaults("txt", "txt", "text/plain", "query.txt")
-                .with_data_formats(text_like),
-            TypeInfo::new("Key")
-                .with_type_name("key")
-                .with_defaults("txt", "txt", "text/plain", "key.txt")
-                .with_data_formats(text_like),
-            // A retained Python object has no byte form here at all.
+        // The shared variants are described by `liquers-core`, whose codec this crate's
+        // serializer delegates to, so the declared formats are exactly the ones it accepts.
+        let mut descriptions = CoreValue::type_descriptions();
+        // A retained Python object has no byte form: it declares no data format, so the asset
+        // layer stores it as metadata only.
+        descriptions.push(
             TypeInfo::new(PY_OBJECT_TYPE_IDENTIFIER)
                 .with_type_name("python_value")
                 .with_defaults(
@@ -390,7 +319,8 @@ impl ValueInterface for Value {
                     "application/octet-stream",
                     "data.pickle",
                 ),
-        ]
+        );
+        descriptions
     }
 
     fn try_into_query(&self) -> Result<liquers_core::query::Query, Error> {
@@ -853,41 +783,102 @@ impl From<&str> for Value {
     }
 }
 
+type CoreValue = liquers_core::value::Value;
+
+/// The error for a value that holds a retained Python object, which has no byte form
+/// (`PY-OBJECT-VALUE-HAS-NO-BYTE-FORM`).
+fn python_object_has_no_byte_form(action: &str) -> Error {
+    Error::from_error(
+        ErrorType::SerializationError,
+        format!("{PY_OBJECT_TYPE_IDENTIFIER} has no byte form: cannot {action} a Python object"),
+    )
+}
+
+/// The `liquers-core` twin of `value`, whose codec this crate's serializer is. Fails on a
+/// `Value::Py` anywhere inside, since core has no variant for it.
+fn to_core_value(value: &Value) -> Result<CoreValue, Error> {
+    Ok(match value {
+        Value::None {} => CoreValue::None,
+        Value::Bool { value } => CoreValue::Bool(*value),
+        Value::I32 { value } => CoreValue::I32(*value),
+        Value::I64 { value } => CoreValue::I64(*value),
+        Value::F64 { value } => CoreValue::F64(*value),
+        Value::Text { value } => CoreValue::Text(value.clone()),
+        Value::Array { value } => {
+            CoreValue::Array(value.iter().map(to_core_value).collect::<Result<_, _>>()?)
+        }
+        Value::Object { value } => CoreValue::Object(
+            value
+                .iter()
+                .map(|(k, v)| Ok((k.clone(), to_core_value(v)?)))
+                .collect::<Result<_, Error>>()?,
+        ),
+        Value::Bytes { value } => CoreValue::Bytes(value.clone()),
+        Value::Metadata { value } => CoreValue::Metadata(value.inner.clone()),
+        Value::Recipe { value } => CoreValue::Recipe(value.inner.clone()),
+        Value::CommandMetadata { value } => CoreValue::CommandMetadata(value.0.clone()),
+        Value::Query { value } => CoreValue::Query(value.0.clone()),
+        Value::Key { value } => CoreValue::Key(value.0.clone()),
+        Value::AssetInfo { value } => {
+            CoreValue::AssetInfo(value.iter().map(|info| info.inner.clone()).collect())
+        }
+        Value::Py { value: _ } => return Err(python_object_has_no_byte_form("serialize")),
+    })
+}
+
+/// The inverse of [`to_core_value`]; total, since every core variant has a twin here.
+fn from_core_value(value: CoreValue) -> Value {
+    match value {
+        CoreValue::None => Value::None {},
+        CoreValue::Bool(value) => Value::Bool { value },
+        CoreValue::I32(value) => Value::I32 { value },
+        CoreValue::I64(value) => Value::I64 { value },
+        CoreValue::F64(value) => Value::F64 { value },
+        CoreValue::Text(value) => Value::Text { value },
+        CoreValue::Array(value) => Value::Array {
+            value: value.into_iter().map(from_core_value).collect(),
+        },
+        CoreValue::Object(value) => Value::Object {
+            value: value
+                .into_iter()
+                .map(|(k, v)| (k, from_core_value(v)))
+                .collect(),
+        },
+        CoreValue::Bytes(value) => Value::Bytes { value },
+        CoreValue::Metadata(inner) => Value::Metadata {
+            value: MetadataRecord { inner },
+        },
+        CoreValue::AssetInfo(value) => Value::AssetInfo {
+            value: value
+                .into_iter()
+                .map(|inner| crate::metadata::AssetInfo { inner })
+                .collect(),
+        },
+        CoreValue::Recipe(inner) => Value::Recipe {
+            value: Recipe { inner },
+        },
+        CoreValue::CommandMetadata(value) => Value::CommandMetadata {
+            value: CommandMetadata(value),
+        },
+        CoreValue::Query(value) => Value::Query {
+            value: Query(value),
+        },
+        CoreValue::Key(value) => Value::Key { value: Key(value) },
+    }
+}
+
+/// The codec is `liquers-core`'s, reached through [`to_core_value`] / [`from_core_value`], so a
+/// store written from Python holds the same bytes as one written from Rust, and the two cannot
+/// drift. A Python object (`py.Object`) has no byte form and is refused.
 impl DefaultValueSerializer for Value {
     fn as_bytes(&self, format: &str) -> Result<Vec<u8>, Error> {
-        match format {
-            "txt" | "html" => match self {
-                Value::None {} => Ok("none".as_bytes().to_vec()),
-                Value::Bool { value: true } => Ok("true".as_bytes().to_vec()),
-                Value::Bool { value: false } => Ok("false".as_bytes().to_vec()),
-                Value::I32 { value: x } => Ok(format!("{x}").into_bytes()),
-                Value::I64 { value: x } => Ok(format!("{x}").into_bytes()),
-                Value::F64 { value: x } => Ok(format!("{x}").into_bytes()),
-                Value::Text { value: x } => Ok(x.as_bytes().to_vec()),
-                Value::Query { value: x } => Ok(x.encode().as_bytes().to_vec()),
-                Value::Key { value: x } => Ok(x.encode().as_bytes().to_vec()),
-                _ => Err(Error::new(
-                    ErrorType::SerializationError,
-                    format!(
-                        "Serialization to {} not supported by {}",
-                        format,
-                        self.type_name()
-                    ),
-                )),
-            },
-            _ => Err(Error::new(
-                ErrorType::SerializationError,
-                format!("Unsupported format {}", format),
-            )),
-        }
+        to_core_value(self)?.as_bytes(format)
     }
-    fn deserialize_from_bytes(_b: &[u8], _type_identifier: &str, fmt: &str) -> Result<Self, Error> {
-        match fmt {
-            _ => Err(Error::new(
-                ErrorType::SerializationError,
-                format!("Unsupported format in from_bytes:{}", fmt),
-            )),
+    fn deserialize_from_bytes(b: &[u8], type_identifier: &str, fmt: &str) -> Result<Self, Error> {
+        if type_identifier == PY_OBJECT_TYPE_IDENTIFIER {
+            return Err(python_object_has_no_byte_form("deserialize"));
         }
+        CoreValue::deserialize_from_bytes(b, type_identifier, fmt).map(from_core_value)
     }
 }
 
@@ -989,36 +980,227 @@ mod tests {
         );
     }
 
-    /// A declared format is one `as_bytes` actually accepts.
-    ///
-    /// The registry's promise is that a declared format can be written. Declaring one the codec
-    /// cannot produce lets the write path accept bytes that can never be materialized, which
-    /// moves the failure from write time to read time. This crate's serializer is a stub
-    /// (`PY-VALUE-SERIALIZER-IS-A-STUB`), so most types honestly declare nothing.
+    /// Samples with content, for the codec tests: `samples()` plus non-empty containers and a
+    /// real query and key (an empty query encodes as the empty string).
+    fn codec_samples() -> Vec<Value> {
+        let mut values = samples();
+        values.push(Value::Array {
+            value: vec![
+                Value::I32 { value: 1 },
+                Value::Text {
+                    value: "a".to_owned(),
+                },
+            ],
+        });
+        values.push(Value::Object {
+            value: BTreeMap::from([("a".to_owned(), Value::I32 { value: 1 })]),
+        });
+        values.push(Value::Bytes {
+            value: vec![1, 2, 3],
+        });
+        values.push(Value::Query {
+            value: crate::parse::Query(
+                liquers_core::parse::parse_query("a/b-c").expect("query"),
+            ),
+        });
+        values.push(Value::Key {
+            value: crate::query::Key(liquers_core::parse::parse_key("x/y.txt").expect("key")),
+        });
+        values
+    }
+
+    /// The formats `value`'s type declares in `Value::type_descriptions()`.
+    fn declared_formats(value: &Value) -> Vec<String> {
+        let identifier = value.identifier();
+        Value::type_descriptions()
+            .into_iter()
+            .find(|info| info.type_identifier == identifier)
+            .unwrap_or_else(|| panic!("no description for {identifier}"))
+            .supported_data_formats
+            .iter()
+            .map(|format| format.to_string())
+            .collect()
+    }
+
+    /// `pyser01` (AC-1) — every declared format writes.
     #[test]
-    fn declared_formats_are_ones_the_serializer_accepts() {
-        for info in Value::type_descriptions() {
-            for format in &info.supported_data_formats {
+    fn pyser01_every_declared_format_writes() {
+        for value in codec_samples() {
+            for format in declared_formats(&value) {
+                let result = value.as_bytes(&format);
                 assert!(
-                    matches!(format.as_ref(), "txt" | "html"),
-                    "{} declares {format:?}, which DefaultValueSerializer::as_bytes rejects",
-                    info.type_identifier
+                    result.is_ok(),
+                    "{} as {format}: {:?}",
+                    value.identifier(),
+                    result.err()
                 );
+            }
+        }
+    }
+
+    /// `pyser02` (AC-2) — a value round-trips wherever core's codec does: the identifier is kept
+    /// and the bytes re-encode identically. Everywhere else liquers-py reads back exactly what
+    /// core reads back (core's JSON read is identifier-blind for the structured variants,
+    /// `CORE-VALUE-JSON-READ-IGNORES-STRUCTURED-IDENTIFIERS`), which `pyser03` asserts.
+    #[test]
+    fn pyser02_round_trip_where_core_round_trips() -> Result<(), Error> {
+        let text = |s: &str| Value::Text {
+            value: s.to_owned(),
+        };
+        let cases: Vec<(Value, &[&str])> = vec![
+            (Value::None {}, &["json"]),
+            (Value::Bool { value: true }, &["json", "txt"]),
+            (Value::I32 { value: 7 }, &["json", "txt"]),
+            (
+                Value::I64 {
+                    value: -9_000_000_000,
+                },
+                &["json", "txt"],
+            ),
+            (Value::F64 { value: 2.5 }, &["json", "txt"]),
+            (text("hello"), &["json", "txt", "html", "md"]),
+            (
+                Value::Bytes {
+                    value: vec![1, 2, 3],
+                },
+                &["json", "b"],
+            ),
+            (
+                Value::Array {
+                    value: vec![Value::I32 { value: 1 }, text("a")],
+                },
+                &["json"],
+            ),
+            (
+                Value::Object {
+                    value: BTreeMap::from([("a".to_owned(), Value::I32 { value: 1 })]),
+                },
+                &["json"],
+            ),
+            (
+                Value::Query {
+                    value: crate::parse::Query(
+                        liquers_core::parse::parse_query("a/b-c").expect("query"),
+                    ),
+                },
+                &["txt"],
+            ),
+            (
+                Value::Key {
+                    value: crate::query::Key(
+                        liquers_core::parse::parse_key("x/y.txt").expect("key"),
+                    ),
+                },
+                &["txt"],
+            ),
+        ];
+        for (value, formats) in cases {
+            let identifier = value.identifier();
+            for format in formats {
+                let bytes = value.as_bytes(format)?;
+                let back = Value::deserialize_from_bytes(&bytes, &identifier, format)?;
+                assert_eq!(back.identifier(), identifier, "{identifier} as {format}");
+                assert_eq!(back.as_bytes(format)?, bytes, "{identifier} as {format}");
             }
         }
 
-        // And the ones that do declare a format support their own default, so
-        // `State::as_bytes` on an unspecified format reaches a codec that exists.
-        for info in Value::type_descriptions() {
-            if !info.supported_data_formats.is_empty() {
-                assert!(
-                    info.supports_data_format(&info.default_data_format),
-                    "{} does not support its own default {}",
-                    info.type_identifier,
-                    info.default_data_format
-                );
+        // The problem example: an object as JSON.
+        let object = Value::Object {
+            value: BTreeMap::from([("a".to_owned(), Value::I32 { value: 1 })]),
+        };
+        assert_eq!(object.default_extension(), "json");
+        assert_eq!(object.as_bytes("json")?, b"{\"a\":1}".to_vec());
+        let back = Value::deserialize_from_bytes(b"{\"a\":1}", "Object", "json")?;
+        assert_eq!(back.identifier(), "Object");
+        Ok(())
+    }
+
+    /// `pyser03` (AC-3) — liquers-py writes the bytes core writes for the same value, and each side
+    /// reads the other's bytes to the same value (or both refuse them).
+    #[test]
+    fn pyser03_bytes_match_core_both_ways() -> Result<(), Error> {
+        for value in codec_samples() {
+            let core = to_core_value(&value)?;
+            let identifier = value.identifier();
+            for format in declared_formats(&value) {
+                let py_bytes = value.as_bytes(&format)?;
+                let core_bytes = core.as_bytes(&format)?;
+                assert_eq!(py_bytes, core_bytes, "{identifier} as {format}");
+
+                let py_read = Value::deserialize_from_bytes(&core_bytes, &identifier, &format);
+                let core_read = CoreValue::deserialize_from_bytes(&py_bytes, &identifier, &format);
+                match (py_read, core_read) {
+                    (Ok(py), Ok(core)) => {
+                        assert_eq!(to_core_value(&py)?, core, "{identifier} as {format}")
+                    }
+                    (Err(_), Err(_)) => {}
+                    (py, core) => panic!(
+                        "{identifier} as {format}: liquers-py read {:?}, core read {:?}",
+                        py.map(|v| v.identifier()),
+                        core.map(|v| v.identifier())
+                    ),
+                }
             }
         }
+        Ok(())
+    }
+
+    /// `pyser04` (AC-4) — the shared descriptions are core's, and the only extra one is
+    /// `py.Object`.
+    #[test]
+    fn pyser04_descriptions_match_core() {
+        let core = CoreValue::type_descriptions();
+        let py = Value::type_descriptions();
+        assert_eq!(py.len(), core.len() + 1);
+        for info in &py {
+            if info.type_identifier == PY_OBJECT_TYPE_IDENTIFIER {
+                continue;
+            }
+            let twin = core
+                .iter()
+                .find(|c| c.type_identifier == info.type_identifier)
+                .unwrap_or_else(|| panic!("{} is not in core", info.type_identifier));
+            assert_eq!(info.type_name, twin.type_name, "{}", info.type_identifier);
+            assert_eq!(info.default_extension, twin.default_extension);
+            assert_eq!(info.default_data_format, twin.default_data_format);
+            assert_eq!(info.default_media_type, twin.default_media_type);
+            assert_eq!(info.default_filename, twin.default_filename);
+            assert_eq!(info.supported_data_formats, twin.supported_data_formats);
+        }
+    }
+
+    /// `pyser05` (AC-5) — reading a Python object is refused, and its type declares no format.
+    #[test]
+    fn pyser05_python_object_read_is_refused() {
+        let error = Value::deserialize_from_bytes(b"\x80\x04N.", PY_OBJECT_TYPE_IDENTIFIER, "pickle")
+            .expect_err("a Python object has no byte form");
+        assert_eq!(error.error_type, ErrorType::SerializationError);
+        assert!(error.message.contains(PY_OBJECT_TYPE_IDENTIFIER), "{}", error.message);
+
+        let info = Value::type_descriptions()
+            .into_iter()
+            .find(|info| info.type_identifier == PY_OBJECT_TYPE_IDENTIFIER)
+            .expect("py.Object is described");
+        assert!(info.supported_data_formats.is_empty());
+    }
+
+    /// `pyser06` (AC-5) — writing a Python object, alone or inside an array, is refused.
+    #[test]
+    fn pyser06_python_object_write_is_refused() {
+        Python::initialize();
+        Python::attach(|py| {
+            let object = Value::Py { value: py.None() };
+            let array = Value::Array {
+                value: vec![Value::I32 { value: 1 }, object.clone()],
+            };
+            for value in [object, array] {
+                let error = value
+                    .as_bytes("json")
+                    .expect_err("a Python object has no byte form");
+                assert_eq!(error.error_type, ErrorType::SerializationError);
+                assert!(error.message.contains(PY_OBJECT_TYPE_IDENTIFIER), "{}", error.message);
+            }
+        });
     }
 
     /// `fvt6.2` — every identifier satisfies the naming rule.

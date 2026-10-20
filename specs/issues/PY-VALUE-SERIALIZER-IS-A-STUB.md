@@ -2,7 +2,7 @@
 id: PY-VALUE-SERIALIZER-IS-A-STUB
 kind: issue
 title: liquers-py's value serializer writes almost nothing and reads nothing back
-status: draft
+status: closed
 priority: P2
 complexity: M
 area: [py, core/value]
@@ -72,3 +72,15 @@ Found on 2026-08-26 during `foreign-value-type-registration`, from a Codex revie
 [#42](https://github.com/orest-d/liquers/pull/42) pointing out that the new `type_descriptions()`
 advertised `json` for types the serializer cannot write. The declarations were corrected in that PR;
 the serializer gap behind them is this issue.
+
+## Resolution
+
+Fixed 2026-10-20 by `design/py-value-serializer/`. `DefaultValueSerializer for Value` in
+`liquers-py/src/value.rs` now converts to `liquers_core::value::Value` (`to_core_value` /
+`from_core_value`) and uses core's codec, so liquers-py writes and reads exactly the bytes core
+does. `type_descriptions()` is core's list plus `py.Object`, which still declares no data format; a
+`Value::Py` (alone or inside an array or object) and a read with identifier `py.Object` are refused
+with a `SerializationError` naming `py.Object`. Evidence: tests `pyser01`–`pyser06` in
+`liquers-py/src/value.rs`. Gaps core's JSON reader has for structured variants are inherited, not
+patched here (`CORE-VALUE-JSON-READ-IGNORES-STRUCTURED-IDENTIFIERS`); a byte form for Python
+objects stays open (`PY-OBJECT-VALUE-HAS-NO-BYTE-FORM`).
