@@ -3,7 +3,7 @@ title: Liquers Project Overview
 kind: reference
 audience: internal
 area: [core/query, core/plan, core/assets, core/store, core/value]
-reviewed: 2026-10-17
+reviewed: 2026-10-20
 ---
 # Liquers Project Overview
 
@@ -161,8 +161,11 @@ declared `multiple` consumes every remaining parameter, so a command with one is
 `register_command!` is not yet possible; see
 [`COMMAND-VARIADIC-ARGUMENTS-NOT-DECLARABLE`](../issues/COMMAND-VARIADIC-ARGUMENTS-NOT-DECLARABLE.md).)
 
-The special instructions resolve no command metadata, so each carries its own rule: `v` and `q` take
-no parameters and reject any, while **`ns` is variadic by design** — every parameter names a
+The **planner instructions** `ns`, `q` and `v` look like actions but are consumed by the plan
+builder: they shape the plan and are never looked up as commands or run as `Action` steps
+([`RECIPES_AND_PLANS.md` §Planner instructions](RECIPES_AND_PLANS.md#planner-instructions)). They
+resolve no command metadata, so each carries its own rule: `v` and `q` take
+no parameters and reject any (a `q` in the middle of a query does not check yet), while **`ns` is variadic by design** — every parameter names a
 namespace, so `ns-one-two` is correct and must keep working. `v` is **positional**: a query is
 volatile from `v` onward and the prefix ahead of it stays pure and cacheable, so `v` at the head
 (`v/a/b`) is how to make the whole query volatile.
@@ -554,6 +557,7 @@ project's purpose, intended uses and per-crate strategy. This document describes
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-20 | "Special instructions" renamed planner instructions and linked to their definition in `RECIPES_AND_PLANS.md`. | DOC-08 promotion |
 | 2026-10-17 | Added `liquers-template` to the crate structure and the dependency flow `liquers-core ← liquers-template ← liquers-lib` (feature `templates`). | `design/liquers-mustache/` |
 | 2026-10-16 | Key Design Decisions: Liquers is the only writer of store metadata while it runs. | `design/store-adapters/` phase-5 review |
 | 2026-10-15 | Reviewed against `design/store-adapters/`. Added `AsyncStore` data-only access and the configured-store layer (`ReadOnlyStore`, `MetadataPipelineStore`, storage models, write strategies, handler chains) to §5. The module table gains `store/`, `store_config.rs` and `store_factory.rs`. "Realm applies to the whole segment" is now true of the planner. §3 adds foreign realms: `store_config` is addressable, plannable, not executable. Pointers to `REALMS.md` and `STORE_CONFIG_GUIDE.md`. | phase-5, `design/store-adapters/` |

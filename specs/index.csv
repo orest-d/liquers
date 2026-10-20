@@ -117,6 +117,7 @@ DEPENDENCY-FAILURE-ERRORS-NAME-ASSET-IDS,issue,Dependency failure errors name th
 DEPENDENCY-MANAGER-VERSION-NOT-OBSERVABLE-FROM-TESTS,issue,An integration test cannot ask the dependency manager whether a key has a registered version,draft,local,,,,P3,S,core/assets,,,,,,2026-10-17,specs/issues/DEPENDENCY-MANAGER-VERSION-NOT-OBSERVABLE-FROM-TESTS.md
 DEPENDENCY-RECORD-VERSION-CAPTURED-BEFORE-DEPENDENCY-EVALUATES,issue,"A dependency record captures the dependency's version before the dependency has been evaluated, so it is always unknown",closed,local,,,,P1,M,core/assets,,,,keyed-expiry-cascade-fix,,2026-09-05,specs/issues/DEPENDENCY-RECORD-VERSION-CAPTURED-BEFORE-DEPENDENCY-EVALUATES.md
 DEPENDENCY-VERSIONS-NOT-LOADED-OR-VERIFIED-FROM-STORE,issue,The dependency manager treats an unloaded dependency as a mismatch instead of consulting its durable version,closed,local,,,,P1,M,core/assets,,,,keyed-expiry-cascade-fix,,2026-09-05,specs/issues/DEPENDENCY-VERSIONS-NOT-LOADED-OR-VERIFIED-FROM-STORE.md
+DEPENDENCY-VOLATILITY-INVISIBLE-TO-PREDECESSOR-WALK,issue,Volatility a plan inherits at finalization is invisible to the predecessor-boundary walk,draft,local,,,,P3,M,core/plan,,,,,,2026-10-20,specs/issues/DEPENDENCY-VOLATILITY-INVISIBLE-TO-PREDECESSOR-WALK.md
 DEPENDENT-ASSET-WEAK-REFERENCES-ARE-NEVER-PRUNED,issue,"The dependency manager never prunes dead weak dependents, so its lists grow with every distinct query",closed,local,,ready,eligible,P3,S,core/assets,,,,dependent-asset-weak-reference-pruning,,2026-10-17,specs/issues/DEPENDENT-ASSET-WEAK-REFERENCES-ARE-NEVER-PRUNED.md
 DESCRIBING-AN-ASSET-CAN-TRIGGER-ITS-EVALUATION,issue,Describing an asset can trigger its evaluation,closed,local,,,,P1,M,core/assets,,,,axum-assets-endpoints,,2026-09-17,specs/issues/DESCRIBING-AN-ASSET-CAN-TRIGGER-ITS-EVALUATION.md
 DESIGNER-INIT-FEATURE-ACCEPTS-FLAGS-AS-NAMES,issue,"Designer init_feature.py treats any argument, including --help, as a feature name",closed,local,,ready,,P3,S,docs,,,,designer-init-argument-parsing,,2026-09-27,specs/issues/DESIGNER-INIT-FEATURE-ACCEPTS-FLAGS-AS-NAMES.md
@@ -191,7 +192,9 @@ MEMORYSTORE-MAKEDIR-SUCCEEDS-WITHOUT-CREATING-A-DIRECTORY,issue,MemoryStore::mak
 METADATA-LACKS-SERIALIZE-DESERIALIZE-AND-PARTIALEQ,issue,"Metadata lacks Serialize, Deserialize and PartialEq",closed,local,,ready,,P2,S,core/value,,,,metadata-serde-partialeq,,2026-09-26,specs/issues/METADATA-LACKS-SERIALIZE-DESERIALIZE-AND-PARTIALEQ.md
 METADATA-ONLY-ENTRY-RELOADS-AS-CORRUPTED,issue,A value stored as metadata only is reloaded through the corrupted-data path,closed,local,,ready,eligible,P3,S,core/assets,,,,metadata-only-entry-reload,,2026-09-24,specs/issues/METADATA-ONLY-ENTRY-RELOADS-AS-CORRUPTED.md
 METADATA-TITLE-AND-DESCRIPTION-NEVER-POPULATED,issue,Nothing populates an asset's title or description,rejected,local,,,,P2,M,core/value;core/store,,,,,,2026-09-16,specs/issues/METADATA-TITLE-AND-DESCRIPTION-NEVER-POPULATED.md
+MID-QUERY-Q-INSTRUCTION-DISCARDS-ARGUMENTS,issue,A q instruction in the middle of a query silently drops its parameters,draft,local,,,,P3,S,core/plan,,,,,,2026-10-20,specs/issues/MID-QUERY-Q-INSTRUCTION-DISCARDS-ARGUMENTS.md
 NEW-FOLDER-WRITE-DOES-NOT-REFRESH-THE-PARENT-LISTING,issue,A write that creates a folder does not refresh the listing of the folder above it,closed,local,,ready,eligible,P3,S,core/assets,,,,new-folder-write-ancestor-listing-refresh,,2026-10-17,specs/issues/NEW-FOLDER-WRITE-DOES-NOT-REFRESH-THE-PARENT-LISTING.md
+NEXT-PRESETS-MISREAD-PLANNER-INSTRUCTIONS,issue,find_next_presets reads planner instructions differently from the planner,draft,local,,,,P3,S,lib/commands,,,,,,2026-10-20,specs/issues/NEXT-PRESETS-MISREAD-PLANNER-INSTRUCTIONS.md
 NO-END-TO-END-TEST-OF-A-MANIFEST-OVER-STORED-CSV-FILES,issue,"No test reads a manifest whose chunks are stored CSV files, the design's motivating case",closed,local,,ready,eligible,P3,S,records,,,,manifest-over-stored-csv-test,,2026-09-27,specs/issues/NO-END-TO-END-TEST-OF-A-MANIFEST-OVER-STORED-CSV-FILES.md
 NO-MARKDOWN-NAVIGATION-COMMANDS,feature,"Markdown documents cannot be navigated, filtered or interpreted by structure",draft,local,,,,P3,L,lib/commands,,,,,,2026-10-11,specs/issues/NO-MARKDOWN-NAVIGATION-COMMANDS.md
 NO-QUERY-AWARE-TEMPLATE-LANGUAGE,feature,No template language understands Liquers queries and values,closed,local,,,,P2,XL,core/query;lib/commands,,,,liquers-mustache,,2026-10-13,specs/issues/NO-QUERY-AWARE-TEMPLATE-LANGUAGE.md
@@ -209,7 +212,10 @@ PAYLOAD-SOURCED-INJECTION-NOT-DECLARED,issue,An injection that reads the payload
 PLAN-DEPENDENCY-RECORDS-HARDCODE-VERSION-ZERO,issue,Plan dependency records are written with a hard-coded zero version although real versions are available,closed,local,,,,P2,S,core/plan;core/assets,,,,keyed-expiry-cascade-fix,,2026-09-05,specs/issues/PLAN-DEPENDENCY-RECORDS-HARDCODE-VERSION-ZERO.md
 PLAN-ERRORS-DO-NOT-NAME-THE-REALM,issue,"A command not found in a realm is reported without the realm, and mixed-realm queries plan without a warning",closed,local,,,,P3,S,core/plan;core/commands,,,,,,2026-10-15,specs/issues/PLAN-ERRORS-DO-NOT-NAME-THE-REALM.md
 PLAN-EXCESS-ACTION-PARAMETERS-DROPPED,issue,Plan builder silently drops excess action parameters,closed,local,,,,P0,M,core/plan,,,,excess-action-parameters-error,,2026-08-08,specs/issues/PLAN-EXCESS-ACTION-PARAMETERS-DROPPED.md
+PLAN-EXPIRATION-REACHES-THE-CONTEXT-ONLY-THROUGH-APPLY-RECIPE,issue,A plan's expiration reaches the asset only through apply_recipe,draft,local,,,,P2,S,core/context,,,,,,2026-10-20,specs/issues/PLAN-EXPIRATION-REACHES-THE-CONTEXT-ONLY-THROUGH-APPLY-RECIPE.md
+PLAN-SERDE-HAS-NO-COMPATIBILITY-CONTRACT,issue,A serialized Plan has no compatibility contract,draft,local,,,,P3,M,core/plan,,,,,,2026-10-20,specs/issues/PLAN-SERDE-HAS-NO-COMPATIBILITY-CONTRACT.md
 PLAN-SPLIT-DROPS-PREDECESSOR-FIELDS,issue,Plan split drops predecessor fields,closed,local,,covered,not-eligible,P2,S,core/plan,,,,plan-split-predecessor-fields,,2026-08-26,specs/issues/PLAN-SPLIT-DROPS-PREDECESSOR-FIELDS.md
+PLANNER-INSTRUCTION-NAMES-DUPLICATED,issue,The planner instruction names are hard-coded in three crates,draft,local,,,,P3,S,core/plan;lib/commands,,,,,,2026-10-20,specs/issues/PLANNER-INSTRUCTION-NAMES-DUPLICATED.md
 PLANNING-DIAGNOSTICS-NEVER-REACH-THE-ASSET-LOG,issue,Planning diagnostics never reach the evaluated asset's log,closed,local,,,,P2,M,core/plan;core/assets,,,,,,2026-10-10,specs/issues/PLANNING-DIAGNOSTICS-NEVER-REACH-THE-ASSET-LOG.md
 POLARS-BRIDGE-VECTOR-COLUMNS-REFUSED,issue,The RecordBatch <-> DataFrame bridge cannot convert Vector columns,draft,local,,,,P3,M,records;lib/polars,,,,,,2026-09-27,specs/issues/POLARS-BRIDGE-VECTOR-COLUMNS-REFUSED.md
 POLARS-COLLECT-PANICS-ON-CURRENT-THREAD-RUNTIME,issue,ns-pl commands panic inside LazyFrame::collect on a current-thread tokio runtime,closed,local,,,,P2,M,lib/polars,,,,,,2026-10-13,specs/issues/POLARS-COLLECT-PANICS-ON-CURRENT-THREAD-RUNTIME.md
@@ -232,13 +238,16 @@ QUERY-DOCS-CLAIM-LINK-PARAMETERS-DO-NOT-PARSE,issue,"query.rs module docs say li
 QUEUED-MANAGER-EVICTION-RACE,issue,The queued manager's cache evictions can delete a replacement asset,closed,local,,ready,,P2,S,core/assets,,,,queued-manager-conditional-eviction,,2026-08-09,specs/issues/QUEUED-MANAGER-EVICTION-RACE.md
 QUEUED-MANAGER-STARTUP-READINESS,issue,Queued asset manager accepts work before it is ready to run it,closed,local,,,,P1,L,core/assets,,,,environment-builder,,2026-08-08,specs/issues/QUEUED-MANAGER-STARTUP-READINESS.md
 REC-ID-PARSES-DATE-AND-TIMESTAMP-IDS-AS-RAW-NUMBERS,issue,"ns-rec/rec_id reads a Date or Timestamp id as a raw day or microsecond count, not as ISO text",closed,local,,ready,not-eligible,P3,S,records;lib/commands,,,,rec-id-iso-date-parsing,,2026-09-27,specs/issues/REC-ID-PARSES-DATE-AND-TIMESTAMP-IDS-AS-RAW-NUMBERS.md
+RECIPE-CIRCULAR-DEPENDENCY-FIELDS-ARE-DEAD,issue,The recipe circular-dependency fields are never set or read,draft,local,,,,P3,S,core/assets,,,,,,2026-10-20,specs/issues/RECIPE-CIRCULAR-DEPENDENCY-FIELDS-ARE-DEAD.md
 RECIPE-CONTAINS-DEFAULT-ASSUMES-ENUMERABILITY,issue,AsyncRecipeProvider::contains has a default that silently assumes recipes are enumerable,closed,local,,ready,,P2,S,core/assets,,,,recipe-provider-listing-contract,,2026-09-20,specs/issues/RECIPE-CONTAINS-DEFAULT-ASSUMES-ENUMERABILITY.md
+RECIPE-LIST-SET-CWD-MUTATES-BEFORE-FAILING,issue,RecipeList::set_cwd mutates part of the list before failing,draft,local,,,,P3,S,core/assets,,,,,,2026-10-20,specs/issues/RECIPE-LIST-SET-CWD-MUTATES-BEFORE-FAILING.md
 RECIPE-ONLY-FOLDER-NAMES-HIDE-A-CREATED-FOLDER-FROM-ITS-PARENT,issue,A recipe provider that lists names in a folder with no stored file can leave the parent listing stale after a write,draft,local,,,,P3,S,core/assets,,,,,,2026-10-18,specs/issues/RECIPE-ONLY-FOLDER-NAMES-HIDE-A-CREATED-FOLDER-FROM-ITS-PARENT.md
 RECIPE-OVERRIDE-ONLY-LAST-ACTION,issue,Argument overrides can target only the last action of a query,draft,local,,,,P3,M,core/plan,,,,,,2026-10-17,specs/issues/RECIPE-OVERRIDE-ONLY-LAST-ACTION.md
 RECIPE-PLAN-ANALYSIS-RUNS-OUTSIDE-PLAN-BUILDING,issue,Recipe plan analysis runs outside plan building,draft,local,,,,P3,M,core/plan;core/assets,,,,,,2026-08-26,specs/issues/RECIPE-PLAN-ANALYSIS-RUNS-OUTSIDE-PLAN-BUILDING.md
 RECIPE-PROVIDER-BY-NAME,feature,"Recipe providers cannot be selected by name, so a configuration document cannot choose one",closed,local,,,,P0,S,core/assets;web,,,,recipe-provider-selection,,2026-08-27,specs/issues/RECIPE-PROVIDER-BY-NAME.md
 RECIPE-PROVIDERS-FAIL-ON-A-KEY-THE-STORE-DOES-NOT-SUPPORT,issue,Recipe providers fail a query when the store refuses the recipes.yaml or manifest key as unsupported,closed,local,,,,P1,S,core/assets;records;web,,,,record-streams,,2026-09-27,specs/issues/RECIPE-PROVIDERS-FAIL-ON-A-KEY-THE-STORE-DOES-NOT-SUPPORT.md
 RECIPE-TO-PLAN-IGNORES-RECIPE-LEVEL-VOLATILE-AND-EXPIRES,issue,Recipe to_plan ignores recipe level volatile and expires,closed,local,,covered,not-eligible,P2,S,core/plan;core/assets,,,,recipe-plan-declarations,,2026-08-26,specs/issues/RECIPE-TO-PLAN-IGNORES-RECIPE-LEVEL-VOLATILE-AND-EXPIRES.md
+RECIPES-YAML-READ-ERRORS-READ-AS-NO-RECIPES,issue,Every recipes.yaml read error is treated as an empty recipe list,draft,local,,,,P2,S,core/assets,,,,,,2026-10-20,specs/issues/RECIPES-YAML-READ-ERRORS-READ-AS-NO-RECIPES.md
 RECORD-AND-POLARS-COMMANDS-NOT-INTEROPERABLE,feature,"Record and polars commands differ in names and inputs, so a query cannot move between them",closed,local,,ready,not-eligible,P2,L,records,,,,record-filter-commands,,2026-10-11,specs/issues/RECORD-AND-POLARS-COMMANDS-NOT-INTEROPERABLE.md
 RECORD-BATCH-FIELDS-CAN-BE-MUTATED-PAST-VALIDATION,issue,"RecordBatch validates its columns in new, but its public fields can be changed afterwards; InMemorySource's materialize exposes a placeholder chunk id",draft,local,,,,P3,M,records,,,,record-streams,,2026-09-27,specs/issues/RECORD-BATCH-FIELDS-CAN-BE-MUTATED-PAST-VALIDATION.md
 RECORD-SELECTION-IS-EAGER-NOT-A-VIEW,feature,Selecting records from a stream is eager; there is no view that a source can push down,closed,local,,,,P2,L,lib/value;lib/commands,,,,record-streams,,2026-09-21,specs/issues/RECORD-SELECTION-IS-EAGER-NOT-A-VIEW.md
@@ -574,41 +583,41 @@ COVERED-08,design,Coverage record for WEB-VALUE04-BYTES-IDENTIFIER-CASE-MISMATCH
 WEBUI-FIXES,design,Invalidation tracking for retained-mode rendering,complete,local,,,,,,lib/ui,,12,,webui-fixes,,2026-03-02,specs/design/webui-fixes/DESIGN.md
 WEBUI,design,Web-framework-independent rendering with SSR and wasm,complete,local,,,,,,lib/ui,,10,,webui,,2026-03-02,specs/design/webui/DESIGN.md
 WP2-TERMINAL-OUTCOME,design,Asset terminal outcome contract,complete,local,,,,,,core/assets,,7,,wp2-terminal-outcome,,2026-03-02,specs/design/wp2-terminal-outcome/DESIGN.md
-API_DOCS_GAP_ANALYSIS,reference,API Documentation Gap Analysis,current,local,,,,,,docs,,,,,2026-10-10,,specs/reference/api/API_DOCS_GAP_ANALYSIS.md
+API_DOCS_GAP_ANALYSIS,reference,API Documentation Gap Analysis,current,local,,,,,,docs,,,,,2026-10-20,,specs/reference/api/API_DOCS_GAP_ANALYSIS.md
 DOC_01_ARCHITECTURE_REFERENCE,reference,Architecture Reference,current,local,,,,,,core/query;core/plan;core/assets,,,,,2026-08-09,,specs/reference/api/DOC_01_ARCHITECTURE_REFERENCE.md
-DOC_02_QUERY_LANGUAGE_REFERENCE,reference,Query Language Reference,current,local,,,,,,core/query,,,,,2026-10-17,,specs/reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md
+DOC_02_QUERY_LANGUAGE_REFERENCE,reference,Query Language Reference,current,local,,,,,,core/query,,,,,2026-10-20,,specs/reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md
 DOC_03_ASSETS_EXECUTION_LIFECYCLE,reference,Assets and Execution Lifecycle Reference,current,local,,,,,,core/assets,,,,,2026-10-12,,specs/reference/api/DOC_03_ASSETS_EXECUTION_LIFECYCLE.md
-DOC_04_ENVIRONMENT_CONTEXT_EVALUATION,reference,"Environment, Context and Evaluation Reference",current,local,,,,,,core/context;core/plan,,,,,2026-10-17,,specs/reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md
-DOC_08_RECIPES_PLANS,reference,Recipes and Plans Reference,current,local,,,,,,core/plan;core/assets;core/context,,,,,2026-10-17,,specs/reference/api/DOC_08_RECIPES_PLANS.md
-ASSET_LIFECYCLE,reference,Asset Evaluation — Flows and Public Surface,current,local,,,,,,core/assets,,,,,2026-10-17,,specs/reference/ASSET_LIFECYCLE.md
+DOC_04_ENVIRONMENT_CONTEXT_EVALUATION,reference,"Environment, Context and Evaluation Reference",current,local,,,,,,core/context;core/plan,,,,,2026-10-20,,specs/reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md
+ASSET_LIFECYCLE,reference,Asset Evaluation — Flows and Public Surface,current,local,,,,,,core/assets,,,,,2026-10-20,,specs/reference/ASSET_LIFECYCLE.md
 ASSET_SET_OPERATION,reference,Asset Set Operation Specification,current,local,,,,,,core/assets,,,,,2026-10-10,,specs/reference/ASSET_SET_OPERATION.md
 ASSETS,reference,Assets Specification,current,local,,,,,,core/assets,,,,,2026-10-17,,specs/reference/ASSETS.md
-COMMAND_ALIASES,reference,Command Aliases,current,local,,,,,,core/commands;core/plan,,,,,2026-10-17,,specs/reference/COMMAND_ALIASES.md
+COMMAND_ALIASES,reference,Command Aliases,current,local,,,,,,core/commands;core/plan,,,,,2026-10-20,,specs/reference/COMMAND_ALIASES.md
 COMMAND_DECLARATION,reference,Command Declaration Format,current,local,,,,,,core/commands;web;py,,,,,2026-10-18,,specs/reference/COMMAND_DECLARATION.md
 CONFORMANCE_TERMS,reference,Conformance Terms,current,local,,,,,,docs,,,,,2026-09-02,,specs/reference/CONFORMANCE_TERMS.md
 DEPENDENCIES_STATUS,reference,Status::Dependencies Specification,current,local,,,,,,core/assets,,,,,2026-10-18,,specs/reference/DEPENDENCIES_STATUS.md
-ENVIRONMENT_CONFIG,reference,Environment Configuration,current,local,,,,,,core/context;core/store;core/assets,,,,,2026-10-10,,specs/reference/ENVIRONMENT_CONFIG.md
+ENVIRONMENT_CONFIG,reference,Environment Configuration,current,local,,,,,,core/context;core/store;core/assets,,,,,2026-10-20,,specs/reference/ENVIRONMENT_CONFIG.md
 IMAGE_COMMAND_LIBRARY,reference,Image Command Library Specification,overdue,local,,,,,,lib/image,,,,,2026-03-02,,specs/reference/IMAGE_COMMAND_LIBRARY.md
 PAYLOAD_GUIDE,reference,Payload Specification and Usage,current,local,,,,,,core/context;core/commands,,,,,2026-10-17,,specs/reference/PAYLOAD_GUIDE.md
 POLARS_COMMAND_LIBRARY,reference,Polars Command Library Specification,current,local,,,,,,lib/polars,,,,,2026-10-14,,specs/reference/POLARS_COMMAND_LIBRARY.md
 POSITIONING,reference,Positioning and Marketing Plan (draft),current,local,,,,,,docs,,,,,2026-10-15,,specs/reference/POSITIONING.md
-PROJECT_OVERVIEW,reference,Liquers Project Overview,current,local,,,,,,core/query;core/plan;core/assets;core/store;core/value,,,,,2026-10-17,,specs/reference/PROJECT_OVERVIEW.md
+PROJECT_OVERVIEW,reference,Liquers Project Overview,current,local,,,,,,core/query;core/plan;core/assets;core/store;core/value,,,,,2026-10-20,,specs/reference/PROJECT_OVERVIEW.md
 REALMS,reference,Realms,current,local,,,,,,core/plan;core/commands;store/config,,,,,2026-10-16,,specs/reference/REALMS.md
+RECIPES_AND_PLANS,reference,Recipes and Plans Reference,current,local,,,,,,core/plan;core/assets;core/context,,,,,2026-10-20,,specs/reference/RECIPES_AND_PLANS.md
 RECORD_STREAMS,reference,Record Streams,current,local,,,,,,records;lib/value;lib/commands;web,,,,,2026-10-19,,specs/reference/RECORD_STREAMS.md
-REGISTER_COMMAND_FSD,reference,register_command! Macro Functional Specification,current,local,,,,,,macro;core/commands,,,,,2026-10-12,,specs/reference/REGISTER_COMMAND_FSD.md
+REGISTER_COMMAND_FSD,reference,register_command! Macro Functional Specification,current,local,,,,,,macro;core/commands,,,,,2026-10-20,,specs/reference/REGISTER_COMMAND_FSD.md
 SEARCH,reference,Search,current,local,,,,,,records;lib/commands,,,,,2026-10-17,,specs/reference/SEARCH.md
 STORE_CONFIG_FSD,reference,Store Configuration Functional Specification,current,local,,,,,,store/config,,,,,2026-10-15,,specs/reference/STORE_CONFIG_FSD.md
 STORE_SEMANTICS,reference,Store Behavioural Semantics,current,local,,,,,,core/store;store/backends;web,,,,,2026-10-16,,specs/reference/STORE_SEMANTICS.md
 TEMPLATE_LANGUAGE,reference,Template Language,current,local,,,,,,core/query;lib/commands,,,,,2026-10-17,,specs/reference/TEMPLATE_LANGUAGE.md
 UI_INTERFACE_FSD,reference,UI Interface Specification,overdue,local,,,,,,lib/ui,,,,,2026-03-02,,specs/reference/UI_INTERFACE_FSD.md
-VALUE_TYPE_SYSTEM,reference,Value Type System,current,local,,,,,,core/value;lib/value,,,,,2026-10-17,,specs/reference/VALUE_TYPE_SYSTEM.md
+VALUE_TYPE_SYSTEM,reference,Value Type System,current,local,,,,,,core/value;lib/value,,,,,2026-10-20,,specs/reference/VALUE_TYPE_SYSTEM.md
 VISION,reference,Liquers Vision and Strategy,current,local,,,,,,docs,,,,,2026-10-15,,specs/reference/VISION.md
 WEB_API_SPECIFICATION,reference,Liquers Web API Specification,current,local,,,,,,axum;web,,,,,2026-10-17,,specs/reference/WEB_API_SPECIFICATION.md
 ASSET_MANAGER_IMPLEMENTATION_GUIDE,guide,Asset Manager Implementation Guide,current,local,,,,,,core/assets,,,,,2026-10-18,,specs/guides/ASSET_MANAGER_IMPLEMENTATION_GUIDE.md
 autonomous_bulk_design,guide,Autonomous Bulk Design Procedure,current,local,,,,,,docs;build,,,,,2026-10-08,,specs/guides/autonomous_bulk_design.md
 autonomous_issue_fixing,guide,Autonomous Issue Fixing Procedure,current,local,,,,,,docs;build,,,,,2026-10-08,,specs/guides/autonomous_issue_fixing.md
 COMMAND_DESIGN_GUIDE,guide,Command Design Guide,current,local,,,,,,core/commands,,,,,2026-10-17,,specs/guides/COMMAND_DESIGN_GUIDE.md
-COMMAND_REGISTRATION_GUIDE,guide,Command Registration Guide,current,local,,,,,,core/commands;macro,,,,,2026-10-17,,specs/guides/COMMAND_REGISTRATION_GUIDE.md
+COMMAND_REGISTRATION_GUIDE,guide,Command Registration Guide,current,local,,,,,,core/commands;macro,,,,,2026-10-20,,specs/guides/COMMAND_REGISTRATION_GUIDE.md
 DEPENDENCY_CONSISTENCY_GUIDE,guide,Dependency Consistency Guide,current,local,,,,,,core/assets,,,,,2026-10-08,,specs/guides/DEPENDENCY_CONSISTENCY_GUIDE.md
 ENVIRONMENT_CONSTRUCTION_GUIDE,guide,Building and Configuring an Environment,current,local,,,,,,core/context;core/assets;core/store,,,,,2026-10-11,,specs/guides/ENVIRONMENT_CONSTRUCTION_GUIDE.md
 LANGUAGE-INTEGRATION_GUIDE,guide,Language Integration Guide,current,local,,,,,,web;py;core/commands;core/plan;core/assets;core/store,,,,,2026-10-19,,specs/guides/LANGUAGE-INTEGRATION_GUIDE.md

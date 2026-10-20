@@ -3,7 +3,7 @@ title: Query Language Reference
 kind: reference
 audience: internal
 area: [core/query]
-reviewed: 2026-10-17
+reviewed: 2026-10-20
 ---
 # DOC-02: Query Language, Keys, and Actions
 
@@ -372,13 +372,13 @@ refusal belongs to the store layer, not to the language. Executable evidence:
 ### Headers
 
 - The resource flag distinguishes resource and transform headers.
-- A transform header name supplies the command realm only when
-  `Query::last_transform_query_name` can obtain a pure, single transform segment.
-  Multi-segment realm behavior must not be inferred from the design documents.
+- A transform header name supplies the command realm of every action in that
+  segment, in a query with any number of segments (`-R/a/-/upper/-x/upper` looks the
+  second `upper` up in realm `x`). See [`REALMS.md`](../REALMS.md).
 - A resource header name is currently ignored during plan building and produces a
   plan warning.
-- Only the first resource-header parameter affects the generated plan. Extra
-  parameters are ignored with a warning.
+- A resource header takes exactly one parameter, its instruction. A second one is
+  a `TooManyParameters` error.
 
 Resource selector mapping:
 
@@ -395,30 +395,32 @@ Resource selector mapping:
 | `cwd` | `SetCwd` |
 | `key` | `UseKeyValue` |
 
-An unrecognized first parameter produces `ErrorType::NotSupported`.
+An unrecognized first parameter produces `ErrorType::NotSupported`, whose message
+lists the valid instructions.
 
 ### Planner instructions
 
-- `ns` is a namespace selector. Planner command lookup uses the last `ns` action
-  in the final transform segment together with configured default namespaces.
-  Namespace parameters must be strings.
-- A terminal `q` removes itself and makes the preceding query a query-valued plan
-  step. It rejects parameters.
-- `v` creates no action step, rejects parameters, and is **positional**: the query
-  is volatile from `v` onward while the prefix ahead of it stays pure, so `a/b/v/c`
-  can reuse a cached `a/b` and `a/b/v` serves a cached `a/b` as a volatile value.
-  `v` at the head (`v/a/b/c`) makes the whole query volatile. See DOC-08
-  §Planning contract.
+`ns`, `q` and `v` are written like actions but are **planner instructions**: the plan
+builder consumes them itself, they are never looked up as commands and never become
+an `Action` step. The resource header instruction (above), the transform segment
+header and the filename are planner instructions of the same kind. In brief:
+
+- `ns-a-b` selects namespaces for the actions after it in the same transform
+  segment, ahead of the configured default namespaces; a later `ns` replaces it, and
+  it does not cross a `-/` boundary. Parameters must be strings; any number is
+  allowed.
+- `q` makes the query before it a value (`Step::UseQueryValue`), whether it ends the
+  query (`a/b/q`) or not (`a/b/q/c`, where `c` receives the query `a/b`). The quoted
+  part is not planned. It rejects parameters at the end of a query.
+- `v` creates no step, rejects parameters, and is **positional**: the query is
+  volatile from `v` onward while the prefix ahead of it stays pure, so `a/b/v/c` can
+  reuse a cached `a/b`, and `v` at the head (`v/a/b/c`) makes the whole query
+  volatile.
+
+The authoritative definitions, with every edge case, are in
+[`RECIPES_AND_PLANS.md` §Planner instructions](../RECIPES_AND_PLANS.md#planner-instructions).
 
 ## Important implementation limitations
-
-### Realm scope is narrower than the design language suggests
-
-The project overview describes named transform headers as realms. The current
-planner obtains a realm through `Query::last_transform_query_name`, which delegates
-to `transform_query` and therefore succeeds only for a query containing exactly one
-transform segment. The reference documents this implemented boundary and does not
-generalize it to multi-segment queries.
 
 ### Programmatic construction is not validation
 
@@ -446,8 +448,8 @@ documentation can promise.
 
 | Priority | Gap | Human impact | Coding-agent impact | Recommended action |
 |---:|---|---|---|---|
-| P1 | Realm behavior is limited and partly documented as future work | Medium | High | Define intended multi-segment semantics, implement them, then update reference |
-| P1 | Resource selector error text does not list valid selectors | Medium | High | Return a precise diagnostic with accepted values |
+| ~~P1~~ | ~~Realm behavior is limited~~ — resolved: every action is looked up in its own segment's realm ([`REALMS.md`](../REALMS.md)); multi-realm execution is `CORE-MULTI-REALM-INTERPRETER` | — | — | — |
+| ~~P1~~ | ~~Resource selector error text does not list valid selectors~~ — resolved: the `NotSupported` message lists them | — | — | — |
 | P1 | Public constructors allow non-round-trippable values | Medium | High | Add validated constructors or clearly named unchecked constructors |
 | ~~P2~~ | ~~`v` parameters are silently ignored~~ — resolved: `v` rejects parameters with a positioned error, like `q` | — | — | — |
 | P2 | Some query helpers return owned clones where borrowing could be clearer | Low | Medium | Consider borrowed accessors in a later API review |
@@ -518,6 +520,7 @@ Completed on 2026-07-26:
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-20 | §Planner instructions now defines an instruction against a command, covers mid-query `q` and the `ns` scope rule, and points to `RECIPES_AND_PLANS.md` (promoted from DOC-08) for the full contract. §Headers: corrected two stale claims — a transform header sets the realm in multi-segment queries too, and a second resource-header parameter is an error, not a warning; removed the "Realm scope" limitation and struck the two resolved P1 rows. | DOC-08 promotion |
 | 2026-10-17 | `SimpleTemplate`, `parse_simple_template` and `evaluate_simple_template` are deprecated; parametrized queries are `liquers-template`'s `QueryTemplate`. | `design/liquers-mustache/` |
 | 2026-10-11 | `Query::absolute` renamed `Query::rooted`, wire name included (no alias); its meaning is unchanged. | `design/query-leading-slash-field/` |
 | 2026-10-10 | Planner instructions: `v` is positional (volatile from its position onward; at the head, the whole query) and rejects parameters; the stale "`v` parameters are silently ignored" gap is struck. | phase-5, `design/plan-policy/` |

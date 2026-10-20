@@ -28,8 +28,10 @@ use crate::parse::{SimpleTemplate, SimpleTemplateElement};
 ///   because it is synchronous).
 /// - May update `plan.is_volatile` if any dependency asset is volatile.
 /// - May update `plan.expires` based on dependency recipe expiration policies.
-/// - Seeds `context.pending_dependencies` with all plan deps at `Version(0)`.
-/// - Registers dependency edges in the `DependencyManager` for keyed plans.
+/// - When the plan is not volatile, seeds the context's dependency records with the direct
+///   dependencies at the versions the dependency manager holds (`Version::unknown()` when it
+///   has none), and registers dependency edges in the `DependencyManager` for an owned (keyed)
+///   asset.
 /// - Freezes every CWD-relative operand.
 ///
 /// This yields the **expanded** plan: every step inline, no `Step::Evaluate` boundary.
@@ -107,7 +109,7 @@ pub async fn finalize_plan_expanded<E: Environment>(
 ///
 /// Everything follows from one fact: **a boundary is a cache entry, keyed by its query.**
 /// Anything feeding the prefix that is not part of that key makes the entry unsound; anything
-/// that makes the entry worthless makes the boundary pointless. There are exactly three such
+/// that makes the entry worthless makes the boundary pointless. There are exactly four such
 /// conditions, and they differ in where the answer lives:
 ///
 /// 1. **Volatility** — a boundary recomputed on every request buys none of the three things a
@@ -116,8 +118,10 @@ pub async fn finalize_plan_expanded<E: Environment>(
 /// 2. **Payload requirement** — a payload is not part of a cache key. Visible in the plan, per
 ///    candidate.
 /// 3. **Input state** — likewise not part of the key, and **not visible in the plan at all**.
+/// 4. **Not cached** — the candidate's last command declares `cached: false`. Visible in the
+///    plan, per candidate, via [`Plan::uncached_by`].
 ///
-/// [`Plan::cut_predecessor`] handles 1 and 2, because it can see them. Only the caller knows 3,
+/// [`Plan::cut_predecessor`] handles 1, 2 and 4, because it can see them. Only the caller knows 3,
 /// which is why `input_state` is a parameter here rather than something this function could
 /// infer. A boundary runs as its own asset starting from `State::new()`, so a prefix that
 /// consumes a caller's state would silently receive nothing: applying `wrap/wrap` to `"x"` with
