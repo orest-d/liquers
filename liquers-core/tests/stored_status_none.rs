@@ -192,3 +192,22 @@ async fn none05_get_any_status_reads_as_source() {
     assert_eq!(bytes.as_slice(), b"hello");
     assert_eq!(metadata.status(), Status::Source);
 }
+
+/// A cold manager removes a no-status entry under a recipe as it removes an `Override`, so the next
+/// request recomputes instead of serving the bytes again (PR #166 review).
+#[tokio::test]
+async fn none06_remove_under_recipe_deletes_the_entry() {
+    let store = AsyncMemoryStore::new(&Key::new());
+    put(&store, "x.txt", "stored", &no_status()).await;
+    let (envref, calls) = env_over(Box::new(store)).await;
+
+    let key = parse_key("x.txt").unwrap();
+    envref.get_asset_manager().remove(&key).await.unwrap();
+    assert!(
+        !envref.get_async_store().contains(&key).await.unwrap(),
+        "the stored entry is deleted"
+    );
+    let (_asset, text) = request(&envref, "x.txt").await;
+    assert_eq!(text, "generated", "the key falls back to its recipe");
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+}

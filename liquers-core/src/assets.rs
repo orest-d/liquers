@@ -6309,6 +6309,7 @@ pub trait AssetManager<E: Environment>:
     /// | `Directory` | any | `StatusConflict` — use [`Self::removedir`] |
     /// | any other | no | delete: the live asset, the dependency-graph entry and the stored entry; dependents are expired |
     /// | `Source`, `Override` | yes | delete the user value as above; the key falls back to its recipe |
+    /// | stored with no status and no version (a file with no metadata) | yes | as `Override` |
     /// | computed (`Ready`, `Expired`, `Error`, in-flight, …) | yes | drop the value: the live asset is unmapped and the stored entry is rewritten as `Recipe` with its version kept; dependents are **not** expired |
     /// | none, or stored `Recipe` | yes | nothing to do |
     /// | nothing live, nothing stored | no | `KeyNotFound` |
@@ -6340,7 +6341,17 @@ pub trait AssetManager<E: Environment>:
 
         let decisive = match live_status {
             Some(status) if !live_status_defers_to_store(status) => Some(status),
-            Some(_) | None => stored_metadata.as_ref().map(|m| m.status()),
+            // A stored record with no status and no version is a file with no metadata: under a
+            // recipe a read serves its bytes and keeps them as user input (`Override`), so its
+            // removal deletes them, as for any user value. A metadata-only entry with no status
+            // is deleted too, which loses nothing: it holds no value.
+            Some(_) | None => stored_metadata.as_ref().map(|m| {
+                let recorded = m.version().unwrap_or_else(Version::unknown);
+                match m.status() {
+                    Status::None if recorded.is_unknown() => Status::Override,
+                    status => status,
+                }
+            }),
         };
         let action = if !has_recipe {
             if live.is_none() && stored_metadata.is_none() {

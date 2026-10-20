@@ -6,7 +6,7 @@ form: compact
 workflow: liquers-project
 status: approved
 phase: documentation
-affects_docs: [specs/reference/ASSETS.md, specs/reference/ASSET_LIFECYCLE.md, specs/reference/STORE_SEMANTICS.md]
+affects_docs: [specs/reference/ASSETS.md, specs/reference/ASSET_LIFECYCLE.md, specs/reference/STORE_SEMANTICS.md, specs/reference/WEB_API_SPECIFICATION.md]
 area: [core/assets, web]
 issues: [JS-STORE-RESOURCE-NOT-FOUND-WITHOUT-A-RECIPE]
 created: 2026-10-20
@@ -315,12 +315,16 @@ keyed evaluation broken was corrected.
   default `user_input` policy. That is the outcome `ASSETS.md`'s table already documents for a file
   with no metadata under a recipe, so the design was not changed. AC-6's THEN and
   `none02_memory_store_with_recipe_reads_as_ready` record it.
+- From the PR review: under a recipe, `AssetManager::remove` on a cold manager read a stored
+  no-status entry as "nothing to do". Once reads serve such an entry, removing it has to delete it,
+  so `remove` now treats it as `Override` (`none06_remove_under_recipe_deletes_the_entry`). The
+  removal tables in `ASSETS.md` and `WEB_API_SPECIFICATION.md` gained the row.
 - Only one `get_any_status` / `get_binary_any_status` exists, a default on the `AssetManager`
   trait, not one per manager as Phase 2 assumed. That is one call site per method instead of two.
 
 **Validation.**
-- `cargo test -p liquers-core`: every suite passes, 1,221 lib tests among them, plus the 5 new
-  tests.
+- `cargo test -p liquers-core`: every suite passes, 1,221 lib tests among them, plus the 6 new
+  tests. `cargo test -p liquers-axum` passes as well.
 - `cargo test -p liquers-lib --lib --tests`: 30 suites, no failures.
 - `liquers-web` Node loop, with and without `records`: every suite passes, including the four
   `store07_*` tests.
@@ -329,8 +333,8 @@ keyed evaluation broken was corrected.
 - e2e (`quickstart/build.sh`, Playwright against the preinstalled Chromium): **16/16**,
   including `STORE07 a JavaScript store evaluates end to end`.
 
-**Documents.** `ASSETS.md` (§Content changed outside Liquers and §Volatile), `ASSET_LIFECYCLE.md`
-(§Reusing a stored asset) and `STORE_SEMANTICS.md` §10 were each reviewed against the code and
+**Documents.** `ASSETS.md` (§Content changed outside Liquers, §Volatile and the removal table),
+`ASSET_LIFECYCLE.md` (§Reusing a stored asset), `WEB_API_SPECIFICATION.md` (asset removal) and `STORE_SEMANTICS.md` §10 were each reviewed against the code and
 updated, with History rows and `reviewed: 2026-10-20`. The `liquers-web` README needs no change:
 its `STORE` row is now true.
 
