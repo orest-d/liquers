@@ -1,6 +1,6 @@
 import pytest
 
-from liquers_py import (
+from liquers import (
     CommandMetadata,
     DependencyKey,
     DependencyRecord,

@@ -47,6 +47,9 @@
 # native default build exercises. The `--no-default-features` row proves that the core async store
 # surface is always available even when no optional features are selected.
 #
+# liquers-py has a single native row (`--lib --tests`, default features); see the comment above
+# the call.
+#
 # Disk budget. Every feature set and target leaves its own artifacts in one `target/`, and the
 # whole matrix does not fit in a 30 GB Claude Code cloud session (BUILD-MATRIX-EXHAUSTS-SESSION-DISK).
 # So the script:
@@ -254,6 +257,11 @@ check liquers-agent "--tests"
 # `#[cfg]`-gated items must vanish cleanly).
 check liquers-core "--features store-conformance --lib --tests"
 check liquers-store "--features store-conformance --lib --tests"
+
+# liquers-py is outside the liquers-lib dependency chain, so no other row builds it, and its PyO3
+# bindings are the code most exposed to a dependency upgrade. Native only: there is no wasm32 Python
+# target. The check needs a Python 3 interpreter that PyO3 supports, found on `PATH`.
+check liquers-py "--lib --tests"
 
 if [ ${#retried[@]} -ne 0 ]; then
   echo
