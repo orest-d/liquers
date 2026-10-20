@@ -198,8 +198,8 @@ In `liquers-py/src/value.rs` `mod tests`, reusing `samples()` (every variant but
 - `pyser05_python_object_read_is_refused` — GIL-free: `deserialize_from_bytes(_, "py.Object",
   "pickle")` is a `SerializationError` naming `py.Object`, and its `TypeInfo` declares no data
   format — AC-5
-- `pyser06_python_object_write_is_refused` — needs an interpreter: `pyo3::prepare_freethreaded_python()`,
-  then inside `Python::with_gil` build `Value::Py` and an `Array` containing it; both `as_bytes("json")`
+- `pyser06_python_object_write_is_refused` — needs an interpreter: `Python::initialize()` (PyO3 0.30),
+  then inside `Python::attach` build `Value::Py` and an `Array` containing it; both `as_bytes("json")`
   are a `SerializationError` naming `py.Object` — AC-5
 - AC-6 is a review item checked in Phase 4 step 2 (`grep -n "_ =>"` over the new functions)
   — AC-6
@@ -221,6 +221,5 @@ Run: `cargo test -p liquers-py --lib --no-default-features --features async_stor
 ### Validation
 
 `cargo test -p liquers-py --lib --no-default-features --features async_store`; `cargo check -p
-liquers-py --lib` (default features, the wheel configuration; prefix
-`PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1` on CPython 3.13+); a diff review confirming only
+liquers-py --lib` (default features, the wheel configuration); a diff review confirming only
 `liquers-py/src/value.rs` and the issue/index changed and no `println!`.
