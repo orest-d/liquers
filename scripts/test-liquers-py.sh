@@ -2,7 +2,8 @@
 # Build liquers-py into a virtual environment and run its tests: the Python suite under pytest,
 # then the crate's Rust unit tests.
 #
-#   1. Creates (or reuses) a venv at target/liquers-py-venv, from `python3` on PATH.
+#   1. Creates (or reuses) a venv at target/liquers-py-venv-<implementation><version> (for example
+#      `-cpython3.12`), from `python3` on PATH, so each interpreter gets its own venv.
 #   2. Installs maturin and pytest into it with pip, plus polars and pillow: the VALUE suite crosses
 #      a DataFrame and an image, and skips those tests (rather than failing) only if they are absent.
 #   3. `maturin develop --features debug-handles` builds the extension and installs the `liquers`
@@ -11,8 +12,8 @@
 #   4. `pytest liquers-py/tests`.
 #   5. `cargo test -p liquers-py --no-default-features --lib` (links libpython; see Cargo.toml).
 #
-# The venv lives under target/, so `cargo clean` removes it and the next run recreates it.
-# Set PYTHON to build against an interpreter other than `python3`.
+# The venvs live under target/, so `cargo clean` removes them and the next run recreates them.
+# Set PYTHON to build against an interpreter other than `python3`; it gets a venv of its own.
 #
 # Usage: bash scripts/test-liquers-py.sh [extra pytest arguments]
 set -euo pipefail
@@ -21,7 +22,9 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
 
 python="${PYTHON:-python3}"
-venv="$repo_root/target/liquers-py-venv"
+# One venv per interpreter: reusing a venv made by another interpreter would silently ignore PYTHON.
+python_tag="$("$python" -c 'import sys; print(sys.implementation.name + "%d.%d" % sys.version_info[:2])')"
+venv="$repo_root/target/liquers-py-venv-$python_tag"
 
 if [ ! -x "$venv/bin/python" ]; then
   echo "==> creating virtual environment at $venv"

@@ -9,6 +9,8 @@ liquers-store/    # Storage backends (OpenDAL integration, config)
 liquers-records/  # Record streams: columnar tables, views, sources, manifests, table formats
 liquers-template/ # Query-aware Mustache templates (parser, renderer, query templates)
 liquers-lib/      # Command library, Rich value types (Polars DataFrames, egui UI, images)
+liquers-mcp/      # Commands served as MCP tools (rmcp; depends on liquers-core only)
+liquers-agent/    # Agent memory binary: ns-mem tools over MCP stdio and the CLI
 liquers-axum/     # HTTP REST API server
 liquers-web/      # Browser/JavaScript bindings (wasm32-only)
 liquers-py/       # Python bindings (PyO3)
@@ -23,7 +25,8 @@ specs/            # Internal documentation — see specs/README.md
 **Dependency flow**: `liquers-core` ← `liquers-macro` ← `liquers-store` ← `liquers-lib` ← `liquers-axum` / `liquers-web`;
 `liquers-core` ← `liquers-records` ← `liquers-lib` (feature `records`). `liquers-records` depends on
 `liquers-core` only, so a crate built on records need not pull in `liquers-lib`. Likewise
-`liquers-core` ← `liquers-template` ← `liquers-lib` (feature `templates`).
+`liquers-core` ← `liquers-template` ← `liquers-lib` (feature `templates`), and
+`liquers-core` ← `liquers-mcp` ← `liquers-agent` (which also uses `liquers-lib` with `mem`).
 
 **Key specs**: See `specs/reference/VISION.md` for the project's purpose, vision and strategy (background for design and review work), `specs/reference/PROJECT_OVERVIEW.md` for architecture, `specs/reference/REGISTER_COMMAND_FSD.md` for macro details, `specs/reference/ASSETS.md` for asset lifecycle.
 
@@ -75,6 +78,10 @@ Also:
   `pycall` aliases. Contract: `specs/reference/PYTHON_INTEGRATION.md`; usage:
   `specs/guides/PYTHON_GUIDE.md`; conformance matrix: `liquers-py/README.md`; guidance:
   `specs/guides/LANGUAGE-INTEGRATION_GUIDE.md` §6 Python
+- Agent memory: the `ns-mem` commands in `liquers-lib/src/mem/` (feature `mem`); serving commands
+  as MCP tools in `liquers-mcp/`; the binary, its built-in tool set and query guide in
+  `liquers-agent/` (`specs/reference/AGENT_MEMORY_SERVICE.md`). This repository's specs as a
+  memory: `memory/liquers-specs.yaml`
 - Template language (parser, renderer, query templates, hosts): `liquers-template/src/`; the
   `ns-template` commands, `ContextHost` and the store folder node: `liquers-lib/src/template/`
   (reference: `specs/reference/TEMPLATE_LANGUAGE.md`)
@@ -179,6 +186,8 @@ they are worth so nobody removes them by accident.
 ```bash
 cargo test -p liquers-lib --lib --tests     # the normal loop: unit + integration, no examples
 cargo test -p liquers-records --all-features --lib --tests   # records work: builds core only
+cargo test -p liquers-mcp                   # MCP engine: builds core only
+cargo test -p liquers-agent                 # agent memory end to end (needs Rust 1.96: s3s)
 ```
 
 `liquers-lib` is where most work lands and it transitively builds `liquers-core`, `liquers-macro`
@@ -196,7 +205,7 @@ crate's test binaries at once, which is what exhausts the allowance.
 ### Feature matrix
 
 The default loop builds one feature configuration. `egui`, `image-support`, `polars`, `webui`,
-`records`, `records-ipc`, `records-parquet` and `templates` are all optional (all but `webui` on by default), and a missing `#[cfg]` compiles fine with the defaults on while breaking a
+`records`, `records-ipc`, `records-parquet`, `templates` and `mem` are all optional (all but `webui` on by default), and a missing `#[cfg]` compiles fine with the defaults on while breaking a
 minimal or wasm build. `scripts/check-build-matrix.sh` checks every configuration, library **and
 test targets**, plus the wasm32 target, `liquers-store`'s feature split and `liquers-records`' own
 `ipc` / `parquet` features:
@@ -218,6 +227,7 @@ cargo test -p liquers-lib --no-default-features --features image-support --lib -
 cargo test -p liquers-lib --no-default-features --features webui --lib --tests
 cargo test -p liquers-lib --no-default-features --features records --lib --tests
 cargo test -p liquers-lib --no-default-features --features templates --lib --tests
+cargo test -p liquers-lib --no-default-features --features mem --lib --tests
 cargo test -p liquers-records --lib --tests                 # no formats beyond the built-in ones
 ```
 
@@ -225,7 +235,7 @@ Each test file that needs an optional dependency is gated — `#![cfg(feature = 
 when the whole file needs it, `#[cfg(feature = "…")]` on the single test when it does not — so a
 reduced configuration runs the subset that applies instead of failing to compile. Tests comparing
 against `specs/command_registry.yaml`, which is exported with the default features, are gated on
-all five groups (`egui`, `image-support`, `polars`, `records`, `templates`).
+all six groups (`egui`, `image-support`, `polars`, `records`, `templates`, `mem`).
 
 ### liquers-web
 

@@ -6,7 +6,8 @@ workflow: liquers-project
 status: complete
 readiness: ready
 autofix: not-eligible
-merged: 2026-10-17
+merged: 2026-10-20
+gh_pr: [150, 163]
 area: [py]
 issues: [PY-MODULES-NOT-DECLARED-IN-LIB, PY-PYO3-0-21-CANNOT-TARGET-PYTHON-3-13, PY-VALUE-ENUM-OVERSIZED, PY-VALUE-SERIALIZER-IS-A-STUB, PY-ADD-PYTHON-COMMAND-ALIASES-AN-UNREGISTERED-COMMAND, FOREIGN-VALUE-CANNOT-BE-DESERIALIZED]
 affects_docs: [specs/guides/LANGUAGE-INTEGRATION_GUIDE.md, specs/reference/VALUE_TYPE_SYSTEM.md, specs/reference/COMMAND_DECLARATION.md, specs/guides/COMMAND_DESIGN_GUIDE.md, specs/reference/api/API_DOCS_GAP_ANALYSIS.md, specs/reference/PYTHON_INTEGRATION.md, specs/guides/PYTHON_GUIDE.md]
