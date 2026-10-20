@@ -93,6 +93,7 @@ parked caller wakes on the `Drop` repair's `StatusChanged(Recipe)`, claims the a
 with its own evaluation. It returns without running when the asset finishes or is removed.
 Evidence: `liquers-core/src/assets.rs` tests `inline_waiter_takes_over_dropped_run`,
 `inline_two_waiters_one_takes_over`, `inline_waiter_returns_when_runner_succeeds` / `_fails`,
-`inline_waiter_returns_when_run_is_cancelled`, `inline_waiter_ignores_intermediate_notifications`
+`inline_waiter_returns_when_run_is_cancelled`, `inline_waiter_ignores_intermediate_notifications`,
+`inline_waiter_does_not_rerun_a_removed_asset`
 and `inline_waiter_released_by_removal`. A repair that `Drop` skips because `try_write` failed is
 still out of reach (`INLINE-RUN-CLAIM-REPAIR-SKIPPED-UNDER-LOCK-CONTENTION`).

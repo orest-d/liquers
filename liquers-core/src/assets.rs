@@ -3754,6 +3754,11 @@ impl<E: Environment> AssetRef<E> {
     async fn claim_or_wait_inline(&self) -> Result<Option<InlineRunClaim<E>>, Error> {
         let mut rx = self.subscribe_to_notifications().await;
         loop {
+            // Removal is terminal and is the last message an asset sends, so it is checked before
+            // the claim: an asset repaired to `Recipe` and then removed must not be run again.
+            if matches!(*rx.borrow(), AssetNotificationMessage::Removed) {
+                return Ok(None);
+            }
             if let Some(claim) = self.try_claim_for_run_inline().await? {
                 return Ok(Some(claim));
             }
@@ -3762,10 +3767,9 @@ impl<E: Environment> AssetRef<E> {
             }
             let notification = rx.borrow().clone();
             match notification {
-                AssetNotificationMessage::JobFinished | AssetNotificationMessage::Removed => {
-                    return Ok(None);
-                }
-                AssetNotificationMessage::Initial
+                AssetNotificationMessage::JobFinished => return Ok(None),
+                AssetNotificationMessage::Removed
+                | AssetNotificationMessage::Initial
                 | AssetNotificationMessage::JobSubmitted
                 | AssetNotificationMessage::JobStarted
                 | AssetNotificationMessage::StatusChanged(_)
@@ -16280,6 +16284,29 @@ recipes:
         assert_eq!(rc.get().await?.try_into_string()?, "y");
         assert_eq!(rc.status().await, Status::Ready);
         assert_eq!(gate.entered(), 2);
+        Ok(())
+    }
+
+    /// A run dropped and then removed before the parked caller is polled again is not re-run:
+    /// removal is terminal even though the repair left the asset claimable.
+    #[tokio::test]
+    async fn inline_waiter_does_not_rerun_a_removed_asset() -> Result<(), Error> {
+        let gate = SlowGate::new(SlowFirst::Ok);
+        let envref = slow_env(gate.clone());
+        let m = envref.get_asset_manager();
+        let query = parse_query("slow")?;
+        let mut a = Box::pin(m.get_asset(&query));
+        assert!(futures::poll!(a.as_mut()).is_pending());
+        let mut b = Box::pin(m.get_asset(&query));
+        assert!(futures::poll!(b.as_mut()).is_pending());
+        let asset = gate.asset();
+        drop(a);
+        assert_eq!(asset.status().await, Status::Recipe);
+        asset.notify_removed().await;
+        let _ = tokio::time::timeout(WAITER_TIMEOUT, b)
+            .await
+            .expect("removal releases the parked caller");
+        assert_eq!(gate.entered(), 1, "a removed asset is not run again");
         Ok(())
     }
 
