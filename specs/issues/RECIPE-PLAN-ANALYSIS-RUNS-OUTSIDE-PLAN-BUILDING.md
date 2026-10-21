@@ -4,9 +4,9 @@ kind: issue
 title: Recipe plan analysis runs outside plan building
 status: draft
 priority: P3
-complexity: M
+complexity: S
 area: [core/plan, core/assets]
-design: 
+design: recipe-preview-shares-plan-analysis
 created: 2026-08-26
 github:
 ---
@@ -47,6 +47,13 @@ directory listing or asset preview reports come from this path rather than the e
 `let _ = analyze_plan_dependencies(envref, &mut plan, None).await`. The discarded result, the CWD
 `None` and the duplication with `finalize_plan` remain as described above.
 
+## Problem Example
+
+`get_asset_info(data/r.txt)` for `r.txt` = `-R/./s.txt/-/upper` (with `cwd: data`) reports the
+`expires` of `data/s.txt`, computed by `create_plan_with_init_metadata`. Evaluating `r.txt` computes
+it again through `finalize_plan`. Both use the same entry CWD and agree, but they are two separately
+written sequences and no test ties them together.
+
 ## Impact
 
 A preview can disagree with the evaluation about volatility, expiration, or dependencies for a
@@ -71,3 +78,18 @@ for display.
 Noticed while auditing `predecessor-cut-equivalence` for open questions, 2026-08-26 — reading
 `recipes.rs` for how a recipe's `volatile:` flag reaches an asset. Out of scope for that design,
 which does not touch the analysis passes.
+
+## Triage (2026-10-20): partly reproduces
+
+Re-checked at HEAD 18732dd:
+
+1. *Discarded result*: mitigated. `analyze_plan_dependencies` sets `plan.error` before returning
+   `Err`, and `get_asset_info` reports `plan.error`.
+2. *CWD `None`*: does not reproduce. A keyed asset's `Context` starts without a CWD, and a recipe's
+   `cwd` is a `SetCwd` step of its plan, so the run also analyses with `None`.
+3. *Unfrozen analysis*: equivalent. The walk resolves relative operands with its own cursor, as
+   `make_plan` does.
+
+What remains is the duplicated, misleadingly named build-and-analyse sequence with its TODO markers,
+and no test that the preview's flags equal the evaluated asset's. Complexity re-sized from M to S.
+Designed in `design/recipe-preview-shares-plan-analysis/`.

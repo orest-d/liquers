@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: M
 area: [core/assets, core/error]
-design:
+design: key-without-recipe-answer
 created: 2026-10-19
 github:
 ---
@@ -35,3 +35,15 @@ the key is not in the store and no recipe produces it.
 Found by the Phase 5 review of `design/liquers-py/` (2026-10-19). Related special cases:
 `JS-STORE-RESOURCE-NOT-FOUND-WITHOUT-A-RECIPE`, `DIRECTORY-KEY-CANNOT-BE-EVALUATED-AS-A-RESOURCE`,
 `DEGRADED-STORED-VALUE-WITHOUT-RECIPE-REPORTS-NO-RECIPE`.
+
+## Reproduction at HEAD (bulk design, 2026-10-20)
+
+Still reproduces at 18732dd. `AssetRef::evaluate_recipe_outcome` (`liquers-core/src/assets.rs`)
+calls `get_recipe_provider().recipe(&key)`; `DefaultRecipeProvider::recipe` and
+`RecipeProviderChain::no_recipe_error` (`recipes.rs`) build `Error::general_error("No recipe found
+for key …").with_key(key)`, and `Error::with_key` writes the `query` field, not `key`
+(`ERROR-WITH-KEY-SETS-QUERY-FIELD`) — which is why `e.key` is `None`. The integration test
+`metadata_only_entry_without_recipe_answers_like_an_absent_key` pins the message today. Designed
+together with `DEGRADED-STORED-VALUE-WITHOUT-RECIPE-REPORTS-NO-RECIPE` and
+`DIRECTORY-KEY-CANNOT-BE-EVALUATED-AS-A-RESOURCE` in `design/key-without-recipe-answer/` (one root
+cause: every fast-track decline ends at the recipe provider's error).

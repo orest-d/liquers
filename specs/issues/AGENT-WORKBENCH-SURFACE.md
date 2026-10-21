@@ -4,7 +4,7 @@ kind: feature
 title: Agents get only memory tools — no general surface to evaluate, validate, inspect or propose
 status: draft
 priority: P2
-complexity: L
+complexity: M
 area: [lib/commands, core/commands, py, docs]
 design:
 created: 2026-10-15
@@ -78,6 +78,31 @@ A design is needed (complexity L) and is deliberately deferred: it builds on the
 engine, whose own design is `in_review` and unimplemented, so a Phase 2 here could not name real
 symbols yet. Start the design when `AGENT-MEMORY-MVP` reaches implementation. Direction map:
 `design/agent-memory-mvp/workbench-direction.md` (this issue is W1–W4 of its ladder, trimmed).
+
+## Status at HEAD (2026-10-21)
+
+Re-checked at commit 18732dd during the bulk design pass; the issue is **partly** addressed and is
+re-scoped. The "deferred until `AGENT-MEMORY-MVP` reaches implementation" condition above is met:
+`agent-memory-mvp` is `complete` and the engine exists.
+
+- Already possible, by configuration only: a tool set's `query_tool` evaluates any query whose
+  commands match its allow-list (`liquers-mcp/src/server.rs` `allowed`, `check_allowed`); an
+  allow-list of `["*"]` matches every command, so "evaluate a query" needs only a `liquers_` tool-set
+  YAML. Command discovery exists as the `commands` resource kind (`ResourceDecl::Commands`,
+  `liquers://commands/{namespace}`) and as `-search-*` queries through the query tool.
+- Still missing: a **validate** tool (no tool kind calls `liquers_core::validate::validate_query`;
+  the engine only plans internally to check the allow-list), the stable plan projection of **G2**
+  (the `liquers-validate` report type in `liquers-core/src/validate/report.rs` is the candidate),
+  **G4 receipts** (`McpServer::call` returns text, format and notes only — no cache-hit flag, no
+  asset metadata link), a store/asset-status browse tool outside a memory root, and a shipped
+  `liquers_` tool set in `liquers-agent/tools/`.
+- **G3 (toolsmithing) is split out** to `AGENT-CANNOT-PROPOSE-A-COMMAND`: it needs a staging
+  realm/namespace, provenance and, for Python, an embedded interpreter in `liquers-agent`, which is a
+  separate project. This issue keeps G1, G2 and G4.
+
+Re-sized L → M: what remains is one tool kind in `liquers-mcp` (validate), one field set on the
+call result (receipts), and one tool-set declaration in `liquers-agent`. The `py` area now belongs
+to the split-out issue.
 
 ## Discovery
 

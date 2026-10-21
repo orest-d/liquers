@@ -2,7 +2,7 @@
 id: ASSETS-FIX1
 kind: feature
 title: Unresolved TODO and FIXME markers in the asset lifecycle
-status: accepted
+status: closed
 priority: P2
 complexity: L
 area: [core/assets]
@@ -147,3 +147,42 @@ Non-goals for this Phase4 item:
 2. Parent transitions through `Dependencies` while child is pending/running.
 3. Delegated asset is submitted exactly once (no duplicate queue amplification).
 4. Logs/metadata no longer contain `FIXME` markers and include dependency wait diagnostics.
+
+## Resolution (2026-10-20, bulk-design triage)
+
+Closed: both remaining items are fixed at HEAD (commit 18732dd). Verified by reading the code and
+tests; nothing was changed for this record.
+
+- **#16 (the `FIXME` log line)** — gone. `grep -n "FIXME" liquers-core/src/assets.rs` finds
+  nothing. The delegation branch in `AssetRef::evaluate_recipe_outcome` logs
+  "Delegating evaluation of asset {} to asset {}", and the wait records a structured
+  `LogEntry::info("Waiting for dependency <key or query>")` in the parent's metadata
+  (`AssetRef::enter_dependencies`).
+- **#17 (delegation can deadlock)** — the bare `asset.get().await` is replaced by
+  `AssetManager::wait_for_dependency` (`DefaultAssetManager::wait_for_dependency`, assets.rs
+  ~8666), the claim-based primitive: it drains the parent's local dependency queue, directly claims
+  a still-runnable dependency and runs it on the parent's slot (no new queue slot), or subscribes
+  with the lost-wakeup re-poll. The parent enters `Status::Dependencies` while it waits and resumes
+  afterwards (`enter_dependencies` / `leave_dependencies_and_resume`). The owner is found with the
+  non-evaluating `owned_key_asset` map read, so the delegate is never submitted a second time.
+  Designs: `dependency-management` (complete; "deadlock-safe delegation"), `keyed-recipe-ownership`
+  and `keyed-delegation-hand-off` (complete). Evidence: `scenario_keyed_delegation`
+  (`liquers-core/tests/common/manager_scenarios.rs`, run by `keyed_delegation_default` /
+  `keyed_delegation_immediate` in `tests/manager_parametric.rs`) and the capacity-1 chain tests in
+  `liquers-core/tests/deep_chain_evaluation.rs`.
+- Suggested acceptance criteria 1-4 of this file are met by the above: no capacity-1 deadlock (the
+  wait borrows the parent's slot), `Dependencies` while waiting, one submission, no `FIXME`.
+
+Markers left in `assets.rs` at HEAD, and where they belong:
+
+- `assets.rs:1394` `// TODO: support for quick plans` in `AssetData::try_fast_track` —
+  `EXTENDED-FAST-TRACK` (its migration table, item 4).
+- `assets.rs:5168` `// TODO: Remove?` on the `#[cfg(test)]`-only `AssetRef::set_value` — test
+  scaffolding, no runtime effect; not tracked.
+- The `apply()` / `apply_immediately()` fast-track TODOs (items 23, 24, moved to
+  `EXTENDED-FAST-TRACK`) no longer exist: `apply` absorbed `apply_immediately` and runs inline
+  without a job-queue slot.
+
+The links to `specs/archive/EXPIRATION-SAFETY.md` and `SCHEDULER-IMPROVEMENTS.md` above are
+absolute paths from another machine; the expiration work they name is the complete design
+`expiration-safety`.

@@ -21,6 +21,35 @@ error state's empty value, `null`.
 The web `ERROR03` tests call the error bridge directly, not the evaluation path, which is why no
 test catches it. This is inferred from reading the code and has not been reproduced in a browser.
 
+## Re-checked at HEAD (2026-10-20): partly — the common path already rejects
+
+The defect is narrower than described above. On `wasm32` the environment uses
+`ImmediateAssetManager`, whose `get_asset` runs the asset inline (`get_query_asset_run` →
+`AssetRef::run_inline`), and `run_with_future_inline` → `finish_run_with_result` returns the
+command's `Err` (`liquers-core/src/assets.rs`). So for the caller that runs the evaluation, the
+`?` on `manager.get_asset(&query).await?` in `evaluate_query` already rejects, before
+`data_unchecked()` is reached. `EVAL04` (`liquers-web/tests/eval_EVAL.rs`,
+`eval04_invalid_query_maps_through_error`, its "the command throws" half) asserts exactly that, through
+`evaluate_query`.
+
+What is still wrong is the unchecked read itself, which is reached whenever `get_asset` returns
+`Ok` for an asset that failed. The concrete path is a **second caller** of the same query while the
+first is still running: `run_with_future_inline` → `claim_or_wait_inline` waits for the running
+evaluation and returns `Ok(None)`, `get_asset` returns `Ok(asset)`, `asset.get()` returns the
+terminal error state as `Ok`, and `state.data_unchecked()` hands `null` to the page. The rest of the
+issue (the fix, `state.value()?`, and the test) stands; the test has to be the concurrent case,
+since the single-caller case is already covered.
+
+## Problem Example
+
+```javascript
+liquers.registerCommand({ name: "boom", async: true,
+  run: async () => { await new Promise(r => setTimeout(r, 50)); throw new Error("bang"); } });
+const [a, b] = await Promise.allSettled([liquers.evaluate("boom"), liquers.evaluate("boom")]);
+// today:    a = rejected (LiquersError "Error: bang"), b = fulfilled with null
+// expected: both rejected with the same execution_error
+```
+
 ## Impact
 
 Every JavaScript caller of `evaluate`: a failed command looks like a command that returned `null`,

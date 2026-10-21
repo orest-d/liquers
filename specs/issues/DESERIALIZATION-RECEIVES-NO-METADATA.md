@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: M
 area: [core/value, core/assets]
-design:
+design: deserialization-with-metadata
 created: 2026-10-19
 github:
 ---
@@ -43,3 +43,14 @@ defaults to the existing method; or a metadata-aware hook only on the record-vie
 Filed 2026-10-19 while designing `design/metadata-application-attributes/` in a bulk-design run: the
 issue it designs records this as a second requirement, which that design leaves out of scope.
 Verified at HEAD: `deserialize_stored_value` passes no metadata.
+
+## Update 2026-10-20 — confirmed at HEAD, designed
+
+Still reproduces: `deserialize_stored_value` (`liquers-core/src/assets.rs`) is the only production
+caller of `deserialize_from_bytes` and passes no metadata; both of its callers (`try_fast_track`,
+`get_any_status`) hold the stored record. Example: a `RecordView` with `code: Text` values `"123"`,
+`"456"` stored as `data/t.csv` reads back with `code: Int`, whatever its metadata says. Design:
+`specs/design/deserialization-with-metadata/` — a defaulted `deserialize_from_bytes_with_metadata`
+on `DefaultValueSerializer`, and `RecordView` reading the attribute `records.schema` for the
+schema-less table formats. It requires `design/metadata-application-attributes/`. Recording the
+schema when a view is written is filed separately as `RECORD-SCHEMA-NOT-RECORDED-IN-METADATA-ON-WRITE`.

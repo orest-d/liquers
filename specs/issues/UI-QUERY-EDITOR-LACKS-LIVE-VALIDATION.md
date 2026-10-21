@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: L
 area: [lib/ui, lib/egui, web, core/plan, core/query]
-design:
+design: query-editor-live-validation
 created: 2026-09-04
 github:
 ---
@@ -45,3 +45,12 @@ Review of `UI-QUERY-CONSOLE-NO-ERROR-HIGHLIGHT` found that its fix consumes only
 asset snapshots. A complete editing experience instead needs synchronous plan construction against
 the command metadata registry, plus a backend-independent representation so the web query console
 gains the syntax-highlighting editor it currently lacks.
+
+## Problem example
+
+Added 2026-10-21 (bulk design; reproduced at `8ecfd7f`). Typing `ns-pl/head-x` in the egui console
+shows it coloured and silent; only after Enter does `Can't convert 'x' to integer` (byte 11)
+appear. The field should underline `x` while typing. The same review found that the console's
+layouter lays out a copy of the text taken before the edit, and the re-encoded query: `ns-pl/-/head`
+re-encodes as `-R/ns-pl/-/head`, so the galley differs from the buffer. Both are designed in
+`specs/design/query-editor-live-validation/`.

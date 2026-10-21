@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: M
 area: [core/store, core/assets]
-design: agent-memory-mvp
+design: storage-none-computed-values
 created: 2026-10-19
 github:
 ---
@@ -36,3 +36,13 @@ mount with stored metadata, where the result drops back to `Recipe` as the migra
 Either a `storage: none` mount refuses to store a computed (`Ready`) value, or the pipeline can
 derive `Recipe`/`Ready` for a key the recipe provider can make, so a computed result is not taken
 for a user value.
+
+## Reproduction at HEAD (bulk design, 2026-10-20)
+
+Persists at 18732dd by code reading: `NoStorage` (`liquers-core/src/store/storage.rs`) keeps no
+record, `AssetRef::save_to_store` writes a `Ready` result without asking whether the mount can keep
+its status, and `AssetManager::remove` decides from the synthesized `Source`. One more consequence
+than filed: with no stored dependency records, a later process fast-tracks the old result as a
+`Source` even after its inputs changed. Found while testing `design/agent-memory-mvp/` (complete),
+which this issue no longer links as its design. Designed in `design/storage-none-computed-values/`
+(recommended: do not write computed values into a mount that keeps no metadata).

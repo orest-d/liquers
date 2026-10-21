@@ -79,6 +79,32 @@ Questions the design has to answer, none of them settled here:
 - **Does `js` survive?** Probably yes, as the quick path for a one-off store, with the new mechanism
   for a store type that deserves a name.
 
+## Re-checked at HEAD (2026-10-20): persists; the language-neutral half already exists
+
+No `registerStoreType` exists in `liquers-web` or `liquers-py`. But the first design question above
+is largely answered by what landed since: `StoreTypeInfo` (with `StoreArgumentInfo`,
+`StoreTypeAvailability` and `ArgumentCoverage`) is already a serde type in
+`liquers-core/src/store_factory.rs`, so a page or module can hand over a declaration as JSON or YAML
+with no new core type. What remains is per integration: a bridging `StoreFactory` over a table of
+registered declarations plus constructor callbacks, chained into `WebStoreFactory`
+(`liquers-web/src/store/builder.rs`), and retained across rebuilds like `STORE_OBJECTS`. That keeps
+it `M` per integration. `liquers-py` has no `STORE` feature at all yet, so its half waits for one.
+
+## Problem Example
+
+```javascript
+liquers.registerStoreType({
+  store_type: 'kv', label: 'Key-value service', doc: 'A page-provided KV store',
+  arguments: [{ name: 'bucket', label: 'Bucket', doc: 'Bucket name', argument_type: 'string',
+                 required: true }],
+  create: (config) => makeKvStore(config.bucket),     // returns a store object, as for `js`
+});
+await env.configureStore({ stores: [{ type: 'kv', prefix: 'kv', config: { bucket: 'b1' } }] });
+// today:    registerStoreType does not exist; `type: kv` is refused as unknown and the message
+//           lists only the Rust-defined types
+// expected: the store is built through the callback, and `kv` appears in the store-type list
+```
+
 ## Discovery
 
 Raised by the maintainer while reviewing `LANGUAGE-INTEGRATION_GUIDE.md` after

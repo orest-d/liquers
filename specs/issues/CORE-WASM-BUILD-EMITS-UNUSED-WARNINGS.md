@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: S
 area: [core/assets, build]
-design:
+design: core-wasm-warning-free
 created: 2026-10-17
 github:
 ---
@@ -18,6 +18,14 @@ PR #139) emits five warnings that the native build does not:
 - `liquers-core/src/assets.rs`: unused imports `AtomicUsize`, `VecDeque`, `scc`, `Notify` — used
   only by native-only code (`DefaultAssetManager`, the job queue);
 - `field interval is never read` and `struct FileLockGuard is never constructed`.
+
+## Problem Example
+
+`cargo check -p liquers-core --target wasm32-unknown-unknown` prints five `liquers-core` warnings;
+it should print none. Rechecked by code reading on 2026-10-20 (main 18732dd): the four imports in
+`assets.rs:313-321`, `MetadataSaver::interval` (`assets.rs:438`, read only in the native
+`save_task`) and `FileLockGuard` (`liquers-core/src/store.rs:1459`, which is in `store.rs`, not
+`assets.rs`, and is constructed only in the native `impl AsyncFileStore`) are all still ungated.
 
 ## Impact
 

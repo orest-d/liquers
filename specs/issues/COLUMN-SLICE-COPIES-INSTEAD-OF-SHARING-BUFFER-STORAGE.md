@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: M
 area: [records]
-design: record-streams
+design: column-slice-shared-buffers
 created: 2026-09-26
 github:
 ---
@@ -51,3 +51,13 @@ implementation copies. Phase 3's own test for this
 (`column_slice_returns_the_requested_range`, §2.3) already anticipates the gap: its comment reads
 "Zero-copy sharing is `Buffer`'s internal representation ..., not something this level exposes an
 accessor for."
+
+## Problem Example
+
+`batch.column_range(col, 1_000_000..1_000_050)` on a 10-million-row `Float` column, or
+`-R/data/big.feather/-/ns-rec/to_record/slice-1000000-50`, allocates and copies the range: at HEAD
+18732dd `slice_buffer` / `slice_bytes` / `slice_vector` / `slice_bitmap` (`liquers-records/src/column.rs`)
+all end in `Buffer::from_slice` / `AlignedBuffer::from_slice` / a bit-by-bit `Bitmap`, and
+`AlignedBuffer` (`buffer.rs`) still has no window. Should: the slice shares the parent's `Arc`.
+Origin design `record-streams` (complete); this issue's design is
+`specs/design/column-slice-shared-buffers/`.

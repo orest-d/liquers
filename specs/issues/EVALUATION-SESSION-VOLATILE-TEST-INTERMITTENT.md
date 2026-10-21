@@ -2,7 +2,7 @@
 id: EVALUATION-SESSION-VOLATILE-TEST-INTERMITTENT
 kind: issue
 title: volatile_dependency_has_one_value_per_evaluation fails intermittently: a later evaluation sometimes reuses the volatile value
-status: draft
+status: closed
 priority: P2
 complexity: S
 area: [core/assets]
@@ -55,3 +55,16 @@ Reproduced on a clean `origin/main` worktree at `2bc4228`. On this machine it fa
 4 of 6 runs of the single test on the merged branch, and 2 of 4 on clean main. The failure is the
 same assertion at line 113 (`left: 1, right: 2`). Seen while validating the unrelated
 `design/value-to-json-non-finite-float/` branch, whose changes do not touch evaluation.
+
+## Resolution (2026-10-21)
+
+Fixed at HEAD (`18732dd`) by runtime volatility (`design/runtime-volatility/`, commit `b87faa1`,
+PR #142), found during the 2026-10-20 bulk design. The failing second evaluation fast-tracked a
+stored `Ready` copy of `data/c.txt` that a background save wrote after `manager.remove` (log:
+"Fast track successful for asset with key data/c.txt"). Now `a`, `b` and `c` become volatile at run
+time because they read the volatile `v`; their stored copies are `Volatile` and fast track refuses
+them. Measured on one machine: the test binary built from `2bc4228` failed 16/20 and 21/30 runs; the
+HEAD binary passed 280/280 (queued, including under parallel load) and 20/20 (inline). The design
+`evaluation-session-volatile-test-flake` is abandoned. The underlying product race (a late
+background save reviving a removed or replaced non-volatile key) is filed as
+`REMOVED-OR-REPLACED-KEY-REVIVED-BY-A-LATE-BACKGROUND-SAVE`.

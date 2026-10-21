@@ -4,8 +4,7 @@ kind: design
 title: Stored data without a status is loadable
 form: compact
 workflow: liquers-project
-status: approved
-phase: documentation
+status: complete
 affects_docs: [specs/reference/ASSETS.md, specs/reference/ASSET_LIFECYCLE.md, specs/reference/STORE_SEMANTICS.md, specs/reference/WEB_API_SPECIFICATION.md]
 area: [core/assets, web]
 issues: [JS-STORE-RESOURCE-NOT-FOUND-WITHOUT-A-RECIPE]

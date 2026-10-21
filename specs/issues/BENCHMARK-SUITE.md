@@ -6,7 +6,7 @@ status: accepted
 priority: P3
 complexity: M
 area: [build]
-design:
+design: core-benchmark-suite
 created: 2026-08-08
 github:
 ---
@@ -18,6 +18,13 @@ Define a repeatable benchmark suite for core runtime paths so technical-debt ref
 
 ## Problem
 Performance-sensitive refactors are currently evaluated mostly by functional tests and ad-hoc runs. There is no stable benchmark baseline or regression gate.
+
+## Problem Example
+
+Rechecked at main 18732dd (bulk design, 2026-10-20): there is no `benches/` directory, no
+`[[bench]]` target and no benchmark dependency in the workspace. To judge a change to
+`AsyncMemoryStore` locking, someone has to write throwaway timing code. It should take one
+`cargo bench … --save-baseline` before the change and one `--baseline` after it.
 
 ## Goals
 1. Define benchmark scope and metrics for core crates.

@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: L
 area: [core/query, core/plan]
-design: agent-memory-mvp
+design: recipe-override-addressing
 created: 2026-10-17
 github:
 ---
@@ -44,3 +44,11 @@ the validation above, so a tool or template is a `Recipe` with named holes. Toge
 
 Found 2026-10-17 while revising `agent-memory-mvp` Phase 2 decision 1 (option C in its discussion).
 Excluded from that design for now by Orest.
+
+## Design
+
+Origin design: `agent-memory-mvp` (complete). Now designed, together with
+`RECIPE-OVERRIDE-ONLY-LAST-ACTION`, in `specs/design/recipe-override-addressing/` (bulk design
+2026-10-20): a recipe argument `@key` appends a validated relative key to a resource segment.
+Still reproduces at HEAD 18732dd: `Recipe` has no key hole and `liquers-mcp/src/server.rs` `fill_key`
+still does the join.

@@ -6,7 +6,7 @@ workflow: liquers-project
 status: draft
 phase: high-level
 area: [py]
-issues: []
+issues: [PY-ASYNC-EVALUATION-NOT-SUPPORTED]
 affects_docs: []
 created: 2026-10-18
 ---

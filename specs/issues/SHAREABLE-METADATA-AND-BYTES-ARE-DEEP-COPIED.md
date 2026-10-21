@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: L
 area: [core/value, core/store, core/assets]
-design: 
+design: shared-metadata-and-bytes
 created: 2026-10-12
 github:
 ---
@@ -80,3 +80,24 @@ checked at HEAD; the prior-art descriptions come from each project's documentati
 checked against the current versions of sled and fjall. Weak overlap with
 `VALUE-SERIALIZATION-IS-SYNCHRONOUS-AND-WHOLE-VALUE` (streaming a value as it is produced): a
 shared byte type is a likely building block for it, but neither covers the other.
+
+## Update 2026-10-20: re-checked at HEAD, designed
+
+Still reproduces at HEAD 18732dd: `Metadata::MetadataRecord(MetadataRecord)` (`metadata.rs`),
+`AssetData::binary: Option<Arc<Vec<u8>>>`, `AsyncStore::get` returning `Vec<u8>`, OpenDAL
+`buf.to_vec()` in `get_bytes`/`get_data`, the memory store's `data.as_ref().to_vec()`,
+`Value::Bytes(Vec<u8>)`, and `(*data).clone()` in `liquers-axum` `serve_query` and `asset_bytes`.
+Two further copies were found:
+
+- every `AssetRef::get()` deep-copies the asset's metadata record and log
+  (`AssetData::exposed_value_state` clones `self.metadata` and writes the type fields);
+- both managers' `set_state` deep-clone the value they install
+  (`Arc::new(state.data_unchecked().as_ref().clone())`).
+
+The problem example above is a `GetAsset` (`-R/data/image.png` loads the keyed asset by the fast
+track): the read bytes become the cached binary, so the axum clone is the second whole copy; the
+`Step::GetResource` path is `-R-stored/…`.
+
+Designed in [`shared-metadata-and-bytes`](../design/shared-metadata-and-bytes/phase1-high-level-design.md)
+in three stages (metadata; `Bytes` for store reads, asset binaries and HTTP; `Value::Bytes(Bytes)`).
+Store writes taking `Bytes` were scoped out and filed as `STORE-WHOLE-WRITE-COPIES-CALLER-BYTES`.

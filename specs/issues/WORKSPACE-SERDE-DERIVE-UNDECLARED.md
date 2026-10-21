@@ -4,9 +4,9 @@ kind: issue
 title: Three crates use serde derive macros without declaring the `derive` feature
 status: accepted
 priority: P2
-complexity: L
+complexity: S
 area: [build, core/value, lib/ui, axum]
-design:
+design: serde-derive-feature-declared
 created: 2026-08-09
 github:
 ---
@@ -28,6 +28,24 @@ unifies it across the build. Nothing declares it, so nothing guarantees it.
 
 `liquers-web` is the one crate that gets it right
 (`serde = { version = "1.0", features = ["derive"] }`).
+
+**Rechecked at main 18732dd (bulk design, 2026-10-20).** Partly as described:
+
+- Exposed: `liquers-lib` (derives in 13 files; `liquers-store` is only a dev-dependency, and with
+  `--no-default-features` the sole enabler of `serde/derive` is `typetag`) and `liquers-axum`
+  (derives in 6 files; enabled through `liquers-store`, `opendal`, `jsonwebtoken`, `ciborium`).
+- Not exposed: `liquers-core` and `liquers-py` (not listed above, same pattern) have
+  `#[macro_use] extern crate serde_derive;` in `src/lib.rs` with `serde_derive` declared, so their
+  derives resolve to the declared crate regardless of the feature.
+- `serde_derive` is dead in `liquers-lib`, `liquers-axum` and `liquers-store`; `serde` is dead in
+  `liquers-store`, whose manifest comment still cites a `config.rs` that moved to `liquers-core`.
+
+Re-sized from L to S: two one-line declarations and three removals.
+
+## Problem Example
+
+`cargo tree -p liquers-lib --no-default-features -e features -i serde` lists only `typetag` under
+`serde feature "derive"`; it should list `liquers-lib` itself.
 
 ## Impact
 

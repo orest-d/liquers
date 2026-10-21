@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: M
 area: [records]
-design: record-streams
+design: record-batch-private-fields
 created: 2026-09-27
 github:
 ---
@@ -34,3 +34,19 @@ the invariant as the caller's. Keep placeholder chunk ids out of materialized ba
 ## Discovery
 
 Found 2026-09-27 while fixing the implementation review's data-model findings.
+
+## Triage 2026-10-21
+
+Persists at HEAD 18732dd: `RecordBatch`'s six fields are `pub` (`liquers-records/src/batch.rs`);
+`InMemorySource::materialize` places its one view with `Some(in_memory_chunk_id(0))`
+(`sources.rs`). The leak is wider than filed: `RecordStreamExt::materialize` keeps the `chunk_id` of a
+single streamed batch (`RecordBatch::concat`'s one-input rule), so a filter, `head` or
+`select_columns` over a one-view `InMemorySource` also yields `in_memory_view-0`. Origin design
+`record-streams` (complete); design: `specs/design/record-batch-private-fields/`.
+
+## Problem Example
+
+Outside the crate, `batch.len = 10;` or `batch.columns.pop();` compiles after `RecordBatch::new`
+validated the batch; and `InMemorySource::new(vec![view]).materialize(resolver, 1000)` returns a batch
+whose serialized `chunk_id` is `in_memory_view-0`. Should: the assignments do not compile, and the
+batch's `chunk_id` is the view's own (`None` for a fresh batch).

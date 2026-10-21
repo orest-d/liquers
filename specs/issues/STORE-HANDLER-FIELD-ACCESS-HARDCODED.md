@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: M
 area: [core/store, core/value]
-design: liquers-mustache
+design: store-handler-field-access
 created: 2026-10-17
 github:
 ---
@@ -18,6 +18,22 @@ The `store_config` handlers reach `MetadataRecord` fields through `text_field` a
 (`title`, `description`, `media_type`, `data_format`, `type_identifier`, `unicode_icon`), guarded by
 `check_text_field` against `TEXT_FIELDS`. Any other field, a nested field, or a non-text field
 cannot be named in a spec. Every new field needs three edits in step.
+
+## Problem Example
+
+```yaml
+metadata:
+  on_validate: require-title-filename
+  on_write: defaults/set-type_name-note/set-attributes.source-import
+```
+
+Today: `require-title-filename` fails the build with "field 'filename' is not one of title,
+description, media_type, data_format, type_identifier, unicode_icon"
+(`handlers::check_text_field`, `liquers-core/src/store/handlers.rs`), although
+`MetadataRecord::get("filename")` (`liquers-core/src/data_node.rs`) answers it; and once
+`METADATA-APPLICATION-ATTRIBUTES` adds attributes, `set-attributes.source-import` would fail the
+same way. Should be: both build; `require` refuses a record with an empty `filename`, and `set`
+writes the attribute `source = "import"`.
 
 ## Impact
 
@@ -38,3 +54,10 @@ recommends a dual sync and async interface.
 Raised by the maintainer on 2026-10-17, reviewing `liquers-mustache` Phase 1: the template data
 interface belongs in core and should replace the extraction of fields from metadata in the store
 pipeline. Confirmed by reading `handlers.rs` at `04dd70e`.
+
+## Design (2026-10-21)
+
+Found during `design/liquers-mustache/` (complete), formerly this issue's `design:`. Now designed in
+`design/store-handler-field-access/`: a `DataNodeMut` trait beside `DataNode`, so the handlers read
+and write any field `MetadataRecord` exposes; the `attributes.<name>` arm waits for
+`METADATA-APPLICATION-ATTRIBUTES`.

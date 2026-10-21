@@ -31,6 +31,16 @@ The owner's position (2026-10-19): for now the traceback is a string concatenati
 it crossed, and the important property is that Python tracebacks are passed along. This issue
 records the open problem so the shape is decided deliberately rather than by accretion.
 
+## Problem Example
+
+A Rust query calls Python command `outer`, which calls `context.evaluate("inner")`, where `inner` is
+a Python command that raises `ValueError`. Today the caller's `LiquersError.traceback` is one string
+with `inner`'s frames followed by `outer`'s, with nothing marking the boundary or naming either
+command or language. Expected (whichever option is chosen): a consumer can list the segments —
+`(python, inner, frames)`, `(python, outer, frames)` — or at least split the string at a documented
+separator. Re-checked at HEAD 2026-10-20: `Error::traceback` is still `Option<String>`
+(`liquers-core/src/error.rs`).
+
 ## Impact
 
 No current user is blocked: Python tracebacks reach the caller, inner first. The cost appears

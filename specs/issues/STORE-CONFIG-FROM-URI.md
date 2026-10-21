@@ -21,6 +21,29 @@ must decompose it by hand into `type`, `root` and `config` keys.
 OpenDAL 0.55 supports the URI form natively (`Operator::from_uri`, and `Configurator::from_uri` on
 61 of its 62 service configs), so the capability exists one layer down and is simply not exposed.
 
+## Problem Example
+
+```yaml
+stores:
+  - uri: s3://my-bucket/datasets?region=eu-central-1
+    prefix: remote
+```
+
+Today: `StoreConfig` (`liquers-core/src/store_config.rs`) has no `uri` field, and it is not
+`deny_unknown_fields`, so the key is **silently dropped**; the entry then has an empty `type`, no
+factory resolves it, and the build fails with "A store entry has no type" (`unknown_store_type_error`). Should be: the entry builds
+the same store as
+
+```yaml
+  - type: s3
+    prefix: remote
+    config: { bucket: my-bucket, root: datasets, region: eu-central-1 }
+```
+
+The capability exists one layer down: OpenDAL 0.55's `OperatorUri::new` plus a service
+`Configurator::from_uri` build an identical operator (`s3_01_arguments_and_uri_agree`,
+`liquers-store/src/store_factory.rs`, already proves the equality through `Operator::from_uri`).
+
 ## Impact
 
 A convenience gap, not a defect: everything expressible as a URI is expressible as `type` +
@@ -119,3 +142,11 @@ arguments.
 
 Deliberately out of scope for that design, which moves existing code and adds a factory seam; a new
 configuration field is a format change and belongs on its own.
+
+## Update (2026-10-21)
+
+The audit's trait change (`resolve`) and `#[serde(default)]` on `store_type` have landed with
+`store-factories-in-core`. Constraint 4's recommendation (expand per value after parsing) is not
+implementable, since OpenDAL parses and consumes the URI in one call; the resumed design
+recommends expanding on the URI string with percent-encoded values, and keeping secrets in a
+`config:` map applied beside the URI.

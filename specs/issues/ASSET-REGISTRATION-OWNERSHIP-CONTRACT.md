@@ -4,9 +4,9 @@ kind: feature
 title: Registration of a keyed asset is a manager convenience, not a contract anything can rely on
 status: draft
 priority: P2
-complexity: L
+complexity: M
 area: [core/assets]
-design:
+design: asset-registration-contract
 created: 2026-09-03
 github:
 ---
@@ -38,6 +38,20 @@ which requires that registration be guaranteed rather than opportunistic. Under 
 manager may legitimately decline to register, and the users would silently get separate assets.
 That feature is not designed and not scheduled; this issue is the record that it needs a contract
 first.
+
+## Problem Example
+
+```rust
+let m = envref.get_asset_manager();
+let a = m.get(&key).await?;     // registered: lookup_key_asset(&key) is `a`
+m.remove(&key).await?;          // unregistered
+let b = m.get(&key).await?;     // a fresh asset
+// May any later operation make lookup_key_asset(&key) return `a` again?
+```
+
+At HEAD the answer is "no", but only because every insertion site happens to construct the asset it
+inserts. No document states it, no test checks it, and the reference documents defer the whole
+contract to this issue.
 
 ## Impact
 
@@ -110,3 +124,27 @@ Raised on 2026-09-03 by the project owner while reviewing
 this asset own?" and adopts "the key recorded at creation" as the working answer; the questions of
 what registration guarantees, how it can be observed safely, and whether it can be made contractual
 are larger than that design and are recorded here rather than settled inside it.
+
+## Update, 2026-10-20 (bulk design triage)
+
+Checked at HEAD (`18732dd`):
+
+- **Point 4 is done.** The key is recorded in `MetadataRecord::key` (`liquers-core/src/metadata.rs`)
+  and in `AssetInfo`, so a keyed asset and a query asset are distinguishable
+  (`ASSET_LIFECYCLE.md` §6).
+- **Point 1 is mostly answered.** `mark_expired_status` and `save_to_store` now use the key recorded
+  at construction (`AssetRef::key`), not `bound_owner_key`. `bound_owner_key` also answers for an
+  unregistered `cached: false` keyed asset. A volatile keyed asset still has no graph node, which is
+  deliberate and documented (`ASSETS.md` §Volatile assets are never owned). `Context::owner_key`
+  and `DependencyManager::track_asset` follow the same rule.
+- **Point 2 holds by construction, unstated.** Every insertion site mints a new `AssetRef`
+  (`get_nonvolatile_resource_asset`, `get_query_asset_for`, `set_state` in both managers), so an
+  unregistered asset is never registered again. Nothing documents or tests it.
+  `QUEUED-MANAGER-EVICTION-RACE` is closed.
+- **Point 3 (protected registration)** is split off as
+  `REGISTERED-ASSET-CANNOT-BE-PROTECTED-FROM-UNREGISTRATION`. It has no consumer yet.
+
+What remains is to state the contract (ownership, revocable and monotonic registration, interval
+observation) in the reference documents and to prove monotonicity on every manager. That is one
+crate and no API change, so complexity is re-sized from `L` to `M`. Design:
+[`asset-registration-contract`](../design/asset-registration-contract/).

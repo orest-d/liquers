@@ -39,6 +39,31 @@ Not a blocker for anything: the environment-builder design explicitly leaves thi
 the grounds that the rebuild path is the crate's most delicate code and that project already carries
 a readiness fix plus a new configuration layer.
 
+## Re-checked at HEAD (2026-10-20): persists; its prerequisite has landed
+
+`EnvironmentConfig` and `EnvironmentBuilder::with_config` now exist
+(`liquers-core/src/environment_config.rs`), and `liquers-py` already builds its environments from
+them (`liquers-py/src/environment.rs`, `PyBuilder = EnvironmentBuilder<Value, (), LibKind>`), so
+there is a worked migration to copy. `liquers-web` is unchanged: `STORE_CONFIG`, `STORE_OBJECTS`
+and `apply_store` in `liquers-web/src/environment.rs`, and `new_environment` builds a
+`WebEnvironment` (`DefaultEnvironment<Value, ()>`) by hand rather than through the builder.
+
+What the migration has to keep: the builder's `build()` shares the environment (`EnvRef`), while
+`liquers-web` holds an *un-shared* `WebEnvironment` in `PENDING_ENV` so commands can still be
+registered without a rebuild; the pending value would become an `EnvironmentBuilder` (whose
+`command_registry` is a public field), and the custom type registry (`js.Value`) goes through
+`with_type_registry`. `build_store` also compiles `metadata` sections against the environment's
+own command registry and `StoreConfigFunctions`; the builder's `with_store_config` must do the
+same for a `js` mount, or a section that works today stops working.
+
+## Problem Example
+
+`await env.configureStore({stores: [...]})` followed by `liquers.registerCommand(...)` after the
+first evaluation: today the rebuild replays the store through `apply_store`; after a field such as
+`recipes` or `assets` is added to the retained document, it would be silently dropped on rebuild,
+because only `StoreRouterConfig` is retained. Expected: the whole `EnvironmentConfig` is retained
+and replayed, so a rebuilt environment equals a freshly configured one.
+
 ## Expected behaviour
 
 Once `EnvironmentConfig` exists in `liquers-core`, `liquers-web` retains an `EnvironmentConfig`

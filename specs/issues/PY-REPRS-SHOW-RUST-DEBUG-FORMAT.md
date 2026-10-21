@@ -19,6 +19,20 @@ quotes it adds itself (`format!("Query('{:?}')", …)`, `format!("Key('{:?}')", 
 (`ActionRequest`, `ResourceName`, the segment classes, `LogEntry` inside a list) return the Rust
 `Debug` rendering, such as `LogEntry { kind: Info, message: "…", message_html: None, … }`.
 
+## Problem Example
+
+At HEAD (2026-10-20), the same "quotes inside quotes" pattern is in five places, and seventeen
+`__repr__`s return `format!("{:?}", …)`:
+
+```text
+liquers-py/src/query.rs        Query('{:?}'), Key('{:?}')       -> Query('"-R/data/a.txt"')
+liquers-py/src/dependencies.rs DependencyRelation('{:?}')
+liquers-py/src/expiration.rs   Expires('{:?}'), ExpirationTime('{:?}')
+liquers-py/src/metadata.rs     '{:?}' (LogEntryKind)
+Debug only: metadata.rs (AssetInfo, Metadata, MetadataRecord, LogEntry), query.rs (5 classes),
+            command_metadata.rs (7 classes), dependencies.rs (1)
+```
+
 ## Impact
 
 Cosmetic but visible in every interactive session, notebook and test failure message. A `repr`
