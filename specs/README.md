@@ -296,9 +296,7 @@ question are both measure-first items.
 ## Open issues attached to live design work
 
 <!-- BEGIN generated: issues -->
-| Issue | Pri | Cx | Design |
-|---|---|---|---|
-| [`STORED-VALUE-WITHOUT-DATA-FORMAT-READ-AS-BIN`](issues/STORED-VALUE-WITHOUT-DATA-FORMAT-READ-AS-BIN.md) | P1 | S | `stored-value-default-data-format` |
+*None.*
 <!-- END generated: issues -->
 
 ## Not yet placed

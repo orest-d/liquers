@@ -1034,13 +1034,14 @@ fn add_soft_consistency_warnings_enum(metadata: &mut Metadata) -> Result<(), Err
     Ok(())
 }
 
-/// identifier and data format. Shared between `AssetData::try_fast_track` and
+/// Deserializes a stored value from its bytes, its type identifier and its *declared* data format
+/// (`None` when the metadata declares none: the type's default format is used). Shared between `AssetData::try_fast_track` and
 /// `AssetManager::get_any_status`'s store-fallback path, so the binary/type-identifier handling
 /// (including the "bytes"-like identifiers that skip real deserialization) stays in one place.
 fn deserialize_stored_value<E: Environment>(
     binary: &[u8],
     type_identifier: &str,
-    data_format: &str,
+    declared_data_format: Option<&str>,
     registry: &crate::type_system::TypeRegistry,
 ) -> Result<Option<E::Value>, Error> {
     // The canonical identifier is `Bytes`; the lowercase spellings are what older stores wrote.
@@ -1069,7 +1070,30 @@ fn deserialize_stored_value<E: Environment>(
             return Ok(None);
         }
     }
+    // An undeclared format means the writer used the value's own default (the level-1 rule,
+    // `State::effective_data_format`), so read with the type's default too. Only a value with no
+    // registered type (a raw file without metadata) falls back to `bin`.
+    let data_format = match declared_data_format {
+        Some(format) => format,
+        None => registry
+            .get(type_identifier)
+            .map(|info| info.default_data_format.as_ref())
+            .unwrap_or("bin"),
+    };
     E::Value::deserialize_from_bytes(binary, type_identifier, data_format).map(Some)
+}
+
+/// The data format a stored record declares, for [`deserialize_stored_value`]. A record's `None`
+/// means "nobody chose" and resolves to the type's default there. Legacy metadata has no such
+/// distinction: its format was always derived from the filename's extension
+/// (`Metadata::get_data_format`), so that extension still counts as declared.
+fn stored_declared_data_format(metadata: &Metadata) -> Option<String> {
+    match metadata {
+        Metadata::LegacyMetadata(_) => metadata
+            .declared_data_format()
+            .or_else(|| metadata.extension()),
+        Metadata::MetadataRecord(record) => record.declared_data_format().map(str::to_owned),
+    }
 }
 
 /// Why [`deserialize_stored_value`] read a value as degraded, for the messages that report it.
@@ -1440,12 +1464,12 @@ impl<E: Environment> AssetData<E> {
                 }
 
                 let type_identifier = metadata.type_identifier()?;
-                let data_format = metadata.get_data_format();
+                let data_format = stored_declared_data_format(&metadata);
                 let registry_owner = self.get_envref();
                 let value = match deserialize_stored_value::<E>(
                     &binary,
                     &type_identifier,
-                    &data_format,
+                    data_format.as_deref(),
                     registry_owner.get_type_registry(),
                 ) {
                     Ok(Some(value)) => value,
@@ -7681,12 +7705,12 @@ pub trait AssetManager<E: Environment>:
             return Ok(None);
         }
         let type_identifier = metadata.type_identifier()?;
-        let data_format = metadata.get_data_format();
+        let data_format = stored_declared_data_format(&metadata);
         let envref = self.get_envref();
         let value = deserialize_stored_value::<E>(
             &binary,
             &type_identifier,
-            &data_format,
+            data_format.as_deref(),
             envref.get_type_registry(),
         )?;
         match value {
@@ -10754,7 +10778,7 @@ mod tests {
         let read = deserialize_stored_value::<SimpleEnvironment<Value>>(
             b"bytes written elsewhere",
             "test.Formatless",
-            "pickle",
+            Some("pickle"),
             &registry,
         )?;
         assert!(read.is_none());
@@ -10764,7 +10788,7 @@ mod tests {
         let text = deserialize_stored_value::<SimpleEnvironment<Value>>(
             b"hello",
             "Text",
-            "txt",
+            Some("txt"),
             &registry,
         )?;
         assert_eq!(text.map(|v| v.try_into_string()).transpose()?, Some("hello".to_string()));
@@ -11062,6 +11086,117 @@ mod tests {
         assert!(asset_data.try_fast_track().await.unwrap());
         let state = asset_data.poll_state().expect("state must be available");
         assert_eq!(state.data_unchecked().try_into_bytes().unwrap(), raw);
+    }
+
+    /// Stores `bytes` at `key` with the given type identifier and data format, status `Source`.
+    async fn store_undeclared_format_record(
+        env: &SimpleEnvironment<Value>,
+        key: &Key,
+        bytes: &[u8],
+        type_identifier: &str,
+        data_format: Option<&str>,
+    ) {
+        env.get_async_store()
+            .set(key, bytes, &{
+                let mut metadata = MetadataRecord::new();
+                metadata.with_key(key.clone());
+                metadata.with_type_identifier(type_identifier.to_owned());
+                metadata.data_format = data_format.map(str::to_owned);
+                metadata.with_status(Status::Source);
+                Metadata::MetadataRecord(metadata)
+            })
+            .await
+            .unwrap();
+    }
+
+    async fn fast_track_value(env: SimpleEnvironment<Value>, key: &Key) -> Value {
+        let envref = env.to_ref();
+        let mut asset_data =
+            AssetData::<SimpleEnvironment<Value>>::new(1240, key.clone().into(), Some(key.clone()), envref);
+        assert!(asset_data.try_fast_track().await.unwrap());
+        let state = asset_data.poll_state().expect("state must be available");
+        state.data_unchecked().as_ref().clone()
+    }
+
+    #[tokio::test]
+    async fn fast_track_reads_an_undeclared_format_as_the_type_default() {
+        let key = parse_key("counter").unwrap();
+        let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        env.with_async_store(Box::new(AsyncMemoryStore::new(&Key::new())));
+        store_undeclared_format_record(&env, &key, b"42", "I64", None).await;
+        let stored = env.get_async_store().get_metadata(&key).await.unwrap();
+        assert_eq!(stored.declared_data_format(), None, "the extensionless key seeds no format");
+        // The number, not the bytes "42". Its variant (`I32`) is the separate JSON
+        // discrimination defect `CORE-VALUE-JSON-READ-IGNORES-STRUCTURED-IDENTIFIERS`.
+        assert_eq!(fast_track_value(env, &key).await.try_into_i64().unwrap(), 42);
+    }
+
+    #[tokio::test]
+    async fn fast_track_reads_undeclared_text_as_text() {
+        let key = parse_key("note").unwrap();
+        let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        env.with_async_store(Box::new(AsyncMemoryStore::new(&Key::new())));
+        store_undeclared_format_record(&env, &key, b"hello", "Text", None).await;
+        assert_eq!(fast_track_value(env, &key).await, Value::from("hello"));
+    }
+
+    #[tokio::test]
+    async fn get_any_status_reads_an_undeclared_format_as_the_type_default() {
+        let key = parse_key("counter").unwrap();
+        let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        env.with_async_store(Box::new(AsyncMemoryStore::new(&Key::new())));
+        store_undeclared_format_record(&env, &key, b"42", "I64", None).await;
+        let envref = env.to_ref();
+        let state = envref
+            .get_asset_manager()
+            .get_any_status(&key)
+            .await
+            .unwrap()
+            .expect("the stored value must be recovered");
+        assert_eq!(state.data_unchecked().try_into_i64().unwrap(), 42);
+    }
+
+    #[test]
+    fn legacy_metadata_reads_in_its_filename_extension() {
+        // Legacy metadata always derived its format from the filename; that is kept.
+        let legacy = Metadata::LegacyMetadata(serde_json::json!({
+            "type_identifier": "Text",
+            "filename": "note.json"
+        }));
+        assert_eq!(stored_declared_data_format(&legacy).as_deref(), Some("json"));
+        let declared = Metadata::LegacyMetadata(serde_json::json!({
+            "type_identifier": "Text",
+            "filename": "note.json",
+            "data_format": "txt"
+        }));
+        assert_eq!(stored_declared_data_format(&declared).as_deref(), Some("txt"));
+        let bare = Metadata::LegacyMetadata(serde_json::json!({"type_identifier": "Text"}));
+        assert_eq!(stored_declared_data_format(&bare), None);
+        // A record's undeclared format stays undeclared, whatever its filename.
+        let mut record = MetadataRecord::new();
+        record.with_filename("note.json".to_owned());
+        record.data_format = None;
+        assert_eq!(stored_declared_data_format(&Metadata::MetadataRecord(record)), None);
+    }
+
+    #[tokio::test]
+    async fn stored_value_without_type_or_format_stays_bytes() {
+        // No type identifier and no format: a raw file, read as bytes as before.
+        let key = parse_key("blob").unwrap();
+        let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        env.with_async_store(Box::new(AsyncMemoryStore::new(&Key::new())));
+        store_undeclared_format_record(&env, &key, b"42", "", None).await;
+        assert_eq!(
+            fast_track_value(env, &key).await.try_into_bytes().unwrap(),
+            b"42".to_vec()
+        );
+
+        // A declared format still wins over the type's default.
+        let key = parse_key("counter").unwrap();
+        let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        env.with_async_store(Box::new(AsyncMemoryStore::new(&Key::new())));
+        store_undeclared_format_record(&env, &key, b"42", "I64", Some("txt")).await;
+        assert_eq!(fast_track_value(env, &key).await, Value::from(42i64));
     }
 
     #[tokio::test]

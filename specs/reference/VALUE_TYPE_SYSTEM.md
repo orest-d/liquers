@@ -3,7 +3,7 @@ title: Value Type System
 kind: reference
 audience: internal
 area: [core/value, lib/value]
-reviewed: 2026-10-18
+reviewed: 2026-10-21
 ---
 
 # Value Type System
@@ -382,6 +382,11 @@ type is affected, because every one that can be stored declares a format. The er
 the two reasons applies (`degraded_reason`). On the `-R/` path, a degraded key with no recipe is
 still reported as "No recipe found" (`DEGRADED-STORED-VALUE-WITHOUT-RECIPE-REPORTS-NO-RECIPE`).
 
+**An undeclared data format reads as the type's default.** When the stored metadata declares no
+`data_format` (a key without an extension, written by a state that chose none), the bytes are read
+in the registered type's `TypeInfo::default_data_format`, the same format the write path used
+(`State::effective_data_format`). Only an empty or unregistered identifier falls back to `bin`.
+
 A combined value (`liquers_lib::value::Value`, a `CombinedValue<SimpleValue, ExtValue>`) then
 chooses which half reads the bytes **by the identifier**, not by trying one half after the other
 (`CombinedValue::deserialize_from_bytes`):
@@ -422,6 +427,7 @@ degrades on read.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-21 | §Reading: a stored value whose metadata declares no data format is read in its type's default format, not `bin`. | `design/stored-value-default-data-format/` (`STORED-VALUE-WITHOUT-DATA-FORMAT-READ-AS-BIN`) |
 | 2026-10-18 | Reviewed against the implemented `liquers-py` (phase-5): §Reading's foreign decoder and formatless read rule match `liquers-lib/src/value/foreign.rs` and `liquers-core/src/assets.rs`. | `design/liquers-py/` (phase-5) |
 | 2026-10-18 | §Reading: a registered type that declares no formats is read as degraded, never decoded. | `design/liquers-py/` (`FOREIGN-VALUE-CANNOT-BE-DESERIALIZED`) |
 | 2026-10-18 | §Reading a foreign value back: the process-global foreign decoder table, and foreign identifiers routed to the extension. `liquers-py` now registers `py.Object` at construction instead of owning a value type. | `design/liquers-py/` |

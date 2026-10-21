@@ -3,8 +3,7 @@ id: STORED-VALUE-DEFAULT-DATA-FORMAT
 kind: design
 title: A stored value with no declared data format is read in its type's default format
 form: compact
-status: in_review
-phase: implementation
+status: complete
 readiness: ready
 autofix: eligible
 area: [core/assets]
@@ -13,8 +12,8 @@ created: 2026-10-20
 ---
 # A stored value with no declared data format is read in its type's default format
 
-Bulk design (`specs/guides/autonomous_bulk_design.md`): Phases 1-4 written, not approved, nothing
-implemented.
+Bulk design (`specs/guides/autonomous_bulk_design.md`): Phases 1-4 written; implemented
+2026-10-21 under automatic fixing (see Phase 5).
 
 ## Phase 1: High-Level Design
 
@@ -152,12 +151,24 @@ Run: `cargo test -p liquers-core --lib assets::tests::` with the four names.
 
 ### Steps
 
-- [ ] 1. `liquers-core/src/assets.rs` `deserialize_stored_value` — take `declared_data_format: Option<&str>`, resolve the effective format after the degraded checks — `cargo check -p liquers-core`. Rollback: revert.
-- [ ] 2. Same file, `AssetData::try_fast_track` and `AssetManager::get_any_status` — pass `metadata.declared_data_format().as_deref()` — `cargo check -p liquers-core`. Depends on 1.
-- [ ] 3. Same file `mod tests` — the four tests of Phase 3 — `cargo test -p liquers-core --lib assets::tests::` (each name). Depends on 2.
-- [ ] 4. `VALUE_TYPE_SYSTEM.md` §Reading sentence, History row, `reviewed:`; close `STORED-VALUE-WITHOUT-DATA-FORMAT-READ-AS-BIN` with a resolution note — `python3 scripts/docs_index.py --check`.
+- [x] 1. `liquers-core/src/assets.rs` `deserialize_stored_value` — take `declared_data_format: Option<&str>`, resolve the effective format after the degraded checks — `cargo check -p liquers-core`. Rollback: revert.
+- [x] 2. Same file, `AssetData::try_fast_track` and `AssetManager::get_any_status` — pass `metadata.declared_data_format().as_deref()` — `cargo check -p liquers-core`. Depends on 1.
+- [x] 3. Same file `mod tests` — the four tests of Phase 3 — `cargo test -p liquers-core --lib assets::tests::` (each name). Depends on 2.
+- [x] 4. `VALUE_TYPE_SYSTEM.md` §Reading sentence, History row, `reviewed:`; close `STORED-VALUE-WITHOUT-DATA-FORMAT-READ-AS-BIN` with a resolution note — `python3 scripts/docs_index.py --check`.
 
 ### Validation
 
 `cargo test -p liquers-core --lib --tests`; `cargo test -p liquers-lib --lib --tests` (extension
 value types read through the same function); diff review: one source file plus the two documents.
+
+## Phase 5: Implementation Notes (2026-10-21)
+
+Implemented as planned: `deserialize_stored_value` takes the declared format and falls back to the
+type's `TypeInfo::default_data_format`, then to `bin`; both callers pass
+`metadata.declared_data_format()`. The four Phase 3 tests are in `liquers-core/src/assets.rs`.
+
+Deviation: the `I64` tests assert the number (`try_into_i64() == 42`), not the variant. Core
+`Value` reads JSON `42` with identifier `I64` back as `I32`, because its `"json"` arm does not
+dispatch on integer identifiers. That is the separate, already designed
+`CORE-VALUE-JSON-READ-IGNORES-STRUCTURED-IDENTIFIERS` (`core-value-json-identifier-dispatch`), not
+this fix; the assertion can tighten to `Value::I64(42)` once it lands.

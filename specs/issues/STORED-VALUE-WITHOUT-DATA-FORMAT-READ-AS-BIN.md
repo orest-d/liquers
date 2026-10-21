@@ -2,7 +2,7 @@
 id: STORED-VALUE-WITHOUT-DATA-FORMAT-READ-AS-BIN
 kind: issue
 title: A stored value with no declared data format is deserialized as bin, not its own default format
-status: draft
+status: closed
 priority: P1
 complexity: S
 area: [core/assets]
@@ -58,3 +58,12 @@ written in the value's own default format (`State::effective_data_format`). On r
 two bytes `42` with no error. Priority raised from P3 to P1: a wrong value without an error on an
 extensionless key (it meets the P0 wording if extensionless keys are a supported path; review
 decides). Design: `stored-value-default-data-format`.
+
+## Resolution (2026-10-21)
+
+Fixed by design `stored-value-default-data-format`. The read path (`AssetData::try_fast_track` and
+`AssetManager::get_any_status`, through `deserialize_stored_value` in `liquers-core/src/assets.rs`)
+now reads a value whose metadata declares no data format in its type's
+`TypeInfo::default_data_format`, so an `I64` stored at an extensionless key reads back as the
+number 42, not the bytes `42`. A declared format is used as before, and a value with no registered
+type still reads as `bin`.
