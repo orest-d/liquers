@@ -1083,6 +1083,19 @@ fn deserialize_stored_value<E: Environment>(
     E::Value::deserialize_from_bytes(binary, type_identifier, data_format).map(Some)
 }
 
+/// The data format a stored record declares, for [`deserialize_stored_value`]. A record's `None`
+/// means "nobody chose" and resolves to the type's default there. Legacy metadata has no such
+/// distinction: its format was always derived from the filename's extension
+/// (`Metadata::get_data_format`), so that extension still counts as declared.
+fn stored_declared_data_format(metadata: &Metadata) -> Option<String> {
+    match metadata {
+        Metadata::LegacyMetadata(_) => metadata
+            .declared_data_format()
+            .or_else(|| metadata.extension()),
+        Metadata::MetadataRecord(record) => record.declared_data_format().map(str::to_owned),
+    }
+}
+
 /// Why [`deserialize_stored_value`] read a value as degraded, for the messages that report it.
 fn degraded_reason(type_identifier: &str, registry: &crate::type_system::TypeRegistry) -> &'static str {
     if registry.contains(type_identifier) {
@@ -1451,7 +1464,7 @@ impl<E: Environment> AssetData<E> {
                 }
 
                 let type_identifier = metadata.type_identifier()?;
-                let data_format = metadata.declared_data_format();
+                let data_format = stored_declared_data_format(&metadata);
                 let registry_owner = self.get_envref();
                 let value = match deserialize_stored_value::<E>(
                     &binary,
@@ -7692,7 +7705,7 @@ pub trait AssetManager<E: Environment>:
             return Ok(None);
         }
         let type_identifier = metadata.type_identifier()?;
-        let data_format = metadata.declared_data_format();
+        let data_format = stored_declared_data_format(&metadata);
         let envref = self.get_envref();
         let value = deserialize_stored_value::<E>(
             &binary,
@@ -11141,6 +11154,29 @@ mod tests {
             .unwrap()
             .expect("the stored value must be recovered");
         assert_eq!(state.data_unchecked().try_into_i64().unwrap(), 42);
+    }
+
+    #[test]
+    fn legacy_metadata_reads_in_its_filename_extension() {
+        // Legacy metadata always derived its format from the filename; that is kept.
+        let legacy = Metadata::LegacyMetadata(serde_json::json!({
+            "type_identifier": "Text",
+            "filename": "note.json"
+        }));
+        assert_eq!(stored_declared_data_format(&legacy).as_deref(), Some("json"));
+        let declared = Metadata::LegacyMetadata(serde_json::json!({
+            "type_identifier": "Text",
+            "filename": "note.json",
+            "data_format": "txt"
+        }));
+        assert_eq!(stored_declared_data_format(&declared).as_deref(), Some("txt"));
+        let bare = Metadata::LegacyMetadata(serde_json::json!({"type_identifier": "Text"}));
+        assert_eq!(stored_declared_data_format(&bare), None);
+        // A record's undeclared format stays undeclared, whatever its filename.
+        let mut record = MetadataRecord::new();
+        record.with_filename("note.json".to_owned());
+        record.data_format = None;
+        assert_eq!(stored_declared_data_format(&Metadata::MetadataRecord(record)), None);
     }
 
     #[tokio::test]
