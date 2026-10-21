@@ -182,7 +182,8 @@ Correctness gaps, highest first. Two are P1.
 
 ## 5. Ready designs
 
-24 designs can be implemented now. **Eligible** means it may go to an automatic fix under
+24 designs are marked `ready`. 23 can be implemented now; the 24th, `core-value-enum-oversized`, is
+listed after the table because it must be corrected first. **Eligible** means it may go to an automatic fix under
 `references/auto-fix.md`; the others are ready but need a maintainer's eye on the PR (public API,
 several crates, or a registry change).
 
@@ -207,11 +208,17 @@ several crates, or a registry change).
 | `lib-build-warning-cleanup` | P3 S | not eligible | regenerates the registry (`version: auto`) |
 | `root-listing-dependency-key-spelling` | P3 S | not eligible | **add the `restore_or_remove_edge` normalisation site** (R1) |
 | `environment-manager-reference-cycle` | P2 M | not eligible | **land early** (§7); audit must include `MetadataSaver::save_immediately` |
-| `core-value-enum-oversized` | P2 M | not eligible | **correct before implementing** (§9): step 4 / AC-5 is false since liquers-py binds `SimpleValue` payloads |
 | `payload-requirement-skips-dependency-analysis` | P3 M | not eligible | ~691 → ~271 lookups in `chain_20_links_smoke` (estimate) |
 | `recipe-preview-shares-plan-analysis` | P3 S | not eligible | |
 | `polars-dataframe-ipc` | P3 S | not eligible | after `ipc-reader-polars-text-columns` if polars-written IPC must read back in records |
 | `column-mut-zero-copy-validity` | P3 M | not eligible | after `column-slice-shared-buffers` (both touch `into_mut`) |
+
+**Not implementable as written: `core-value-enum-oversized`** (P2 M, not eligible). Its front matter
+says `ready` and every decision is taken, but its step 4 / AC-5 assume liquers-py and liquers-web
+build unmodified, which stopped being true when liquers-py began binding `SimpleValue` payloads, and
+it names a method that does not exist (§9). The design would stop at step 4. Apply the §9
+corrections and re-run `validate_phase.py core-value-enum-oversized 4` before scheduling it; this
+pass could not, because finished designs are not edited by bulk design.
 
 `temporary-asset-never-run-leak` is `covered` by `environment-manager-reference-cycle` step 5. The
 maintainer should add `TEMPORARY-ASSET-NEVER-RUN-IS-KEPT-ALIVE-BY-ITS-SERVICE-LOOP` to that design's
@@ -631,7 +638,10 @@ context packs v1 without code items; `mem` depends on `templates`.
 
 ## 11. Issues still without a design
 
-76 open issues have no design. By kind:
+76 open issues have no design. **Every issue that was open at the start and is not a project-group
+issue now has a design**: the 19 pre-existing issues without one are all project-group issues
+(§10). The other 57 were filed during this pass, after their clusters had been designed, and were
+out of its scope by construction; they are the input of the next pass. By kind:
 
 - **Project groups (28)** — the py, web/language and agent issues of §10. Planned, deliberately
   undesigned here.
