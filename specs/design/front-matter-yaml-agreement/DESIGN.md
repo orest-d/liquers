@@ -166,5 +166,8 @@ All six steps done. The new check found one more divergence the issue did not li
 `specs/design/command-declaration/DESIGN.md` wrote `issues:` as a flow list over four lines, which
 YAML reads as a list and `parse_front_matter` read as a broken string. It is now on one line, and
 `--check` refuses a list that is not (`list must be on one line`). `{ } [ ] ,` joined the refused
-leading characters for the same reason. `python3 -m unittest scripts/test_docs_index.py` (55 tests,
+leading characters for the same reason. Review (Codex, PR #173) added two rules: a `title`
+YAML would type (`null`, `true`, a number, a date) must be quoted, and a line that is not a flat
+`key: value` is refused. The second found `refresh-command-metadata-versions/DESIGN.md`, whose
+`affects_docs` was a block list `docs_index.py` read as empty; it is now a one-line list. `python3 -m unittest scripts/test_docs_index.py` (57 tests,
 including the PyYAML agreement test) and `--check` pass.

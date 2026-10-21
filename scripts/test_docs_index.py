@@ -648,8 +648,42 @@ class FrontMatterYamlTests(unittest.TestCase):
         )
         self.assertEqual(
             docs_index.front_matter_yaml_errors("D.md", "---\nissues: [A,\n  B]\n---\n"),
-            ["D.md: front-matter 'issues' list must be on one line"],
+            [
+                "D.md: front-matter 'issues' list must be on one line",
+                "D.md: front-matter line 'B]' is not a flat `key: value`",
+            ],
         )
+
+    def test_titles_yaml_would_type_are_reported_and_quoted_by_new(self):
+        for value in ["null", "~", "True", "no", "42", "3.5", "1e3", ".inf", "2026-10-20", "1:30"]:
+            with self.subTest(value=value):
+                self.assertEqual(
+                    docs_index.front_matter_yaml_errors(
+                        "D.md", f"---\ntitle: {value}\n---\n"
+                    ),
+                    [
+                        "D.md: front-matter 'title' must be quoted "
+                        "(YAML would read it as a non-string)"
+                    ],
+                )
+                quoted = docs_index.yaml_scalar(value)
+                self.assertEqual(quoted, f'"{value}"')
+                if yaml is not None:
+                    self.assertEqual(yaml.safe_load(f"title: {quoted}")["title"], value)
+        self.assertEqual(docs_index.yaml_scalar("Nothing to type"), "Nothing to type")
+
+    def test_lines_outside_the_flat_grammar_are_reported(self):
+        for line in ["stray text", "  indented: value", ": no key"]:
+            with self.subTest(line=line):
+                self.assertEqual(
+                    docs_index.front_matter_yaml_errors(
+                        "D.md", f"---\nid: X\n{line}\n---\n"
+                    ),
+                    [
+                        f"D.md: front-matter line {line.strip()!r} is not a flat "
+                        "`key: value`"
+                    ],
+                )
 
     def test_safe_plain_values_pass(self):
         text = (

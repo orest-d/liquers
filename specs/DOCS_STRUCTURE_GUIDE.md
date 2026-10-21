@@ -222,8 +222,10 @@ Front-matter is YAML, kept to flat scalars and one-line `[a, b]` lists so that `
 reads it without a YAML library and still agrees with one. **Double-quote a value** (`"…"`, with
 JSON escapes) when it starts with one of `` ` @ % * & ! | > ' " { } [ ] , # `` or with `? ` or
 `- `, contains `: ` or ` #`, or ends with `:` — for example a title that opens with a code span or
-contains a colon. `docs_index.py new` quotes such a title for you; `--check` refuses an unquoted one
-(§7.2 check 17).
+contains a colon. Quote a `title` that YAML would read as something other than a string, too
+(`null`, `~`, `true`, `no`, a number, a date). Every line is one `key: value` at the left margin; a
+list is written `[a, b]` on that line, never as indented `- item` lines. `docs_index.py new` quotes
+such a title for you; `--check` refuses an unquoted one (§7.2 check 17).
 
 The body is free-form. A useful default: **Problem**, **Impact**, **Expected behaviour**,
 **Discovery**. Keep the reasoning; it is the reason the file exists rather than a CSV row.
@@ -839,7 +841,8 @@ tooling, no network and no Python can still record what it found.
     line); a "not defined" note left after scenarios exist; unticked Phase 4 progress at
     `documentation` or `complete`.
 17. Every front-matter value reads the same to `docs_index.py` and to a YAML parser: a value §4.6
-    says to quote is quoted, a quoted value is well-formed, and a list is on one line. Quotes are
+    says to quote is quoted, a quoted value is well-formed, every line is a flat `key: value`, and a
+    list is on one line. Quotes are
     removed on reading, so `index.csv` never shows them. The rule is deliberately stricter than
     YAML and needs no YAML library; `scripts/test_docs_index.py` compares both readers over the
     repository where PyYAML is installed.

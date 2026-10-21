@@ -371,9 +371,29 @@ def needs_yaml_quotes(value: str) -> bool:
     )
 
 
+# Plain spellings YAML reads as null, a boolean, a number or a date rather than a string.
+_YAML_TYPED = re.compile(
+    r"(~|null|true|false|yes|no|on|off|y|n"
+    r"|[-+]?(\.inf|\.nan)"
+    r"|[-+]?(0x[0-9a-f_]+|0o?[0-7_]+|[0-9][0-9_]*(\.[0-9_]*)?(e[-+]?[0-9]+)?|\.[0-9_]+(e[-+]?[0-9]+)?)"
+    r"|[0-9]+(:[0-5]?[0-9])+(\.[0-9_]*)?"
+    r"|[0-9]{4}-[0-9]{1,2}-[0-9]{1,2}([tT ].*)?)",
+    re.IGNORECASE,
+)
+
+# Fields that are free text, so a value YAML would type must be quoted to stay a string.
+_TEXT_KEYS = ("title",)
+
+
+def yaml_would_type(value: str) -> bool:
+    return value == "" or _YAML_TYPED.fullmatch(value) is not None
+
+
 def yaml_scalar(value: str) -> str:
-    """`value` as front-matter text: plain when that is safe, double-quoted otherwise."""
-    return json.dumps(value, ensure_ascii=False) if needs_yaml_quotes(value) else value
+    """Text `value` as front-matter: plain when YAML reads it as that string, quoted otherwise."""
+    if needs_yaml_quotes(value) or yaml_would_type(value):
+        return json.dumps(value, ensure_ascii=False)
+    return value
 
 
 def _quoted_error(raw: str) -> bool:
@@ -398,9 +418,17 @@ def front_matter_yaml_errors(where: str, text: str) -> list[str]:
         if not line.strip() or line.lstrip().startswith("#"):
             continue
         key, colon, value = line.partition(":")
-        if not colon:
+        if not colon or line[:1].isspace() or not key.strip():
+            errors.append(
+                f"{where}: front-matter line {line.strip()!r} is not a flat `key: value`"
+            )
             continue
         key, value = key.strip(), value.strip()
+        if key in _TEXT_KEYS and value and yaml_would_type(value):
+            errors.append(
+                f"{where}: front-matter '{key}' must be quoted (YAML would read it as a non-string)"
+            )
+            continue
         if value.startswith("[") and not value.endswith("]"):
             errors.append(f"{where}: front-matter '{key}' list must be on one line")
             continue
