@@ -3,7 +3,7 @@ title: Environment, Context and Evaluation Reference
 kind: reference
 audience: internal
 area: [core/context, core/plan]
-reviewed: 2026-10-20
+reviewed: 2026-10-21
 ---
 # DOC-04: Environment, Context, and End-to-End Evaluation
 
@@ -477,7 +477,9 @@ error's message: the returned value is discarded, the remaining steps do not run
 the asset ends in `Error`. If the command returns `Err` instead, that error is the
 failure. The asset manager settles a run only after its service loop has drained, and fails
 a run that produced a value if an error-level entry reached the log, so a custom
-`apply_recipe` gets the same outcome. The same holds for an executable `Step::Error`. Use
+`apply_recipe` gets the same outcome. The same holds for an executable `Step::Error`, except
+that a run of consecutive `Step::Info`, `Step::Warning` and `Step::Error` steps is logged in
+full before the plan stops, so several errors, or the context around one, all reach the log. Use
 `warning` to report a problem without failing. `Context::set_error` fails the asset
 immediately.
 
@@ -611,6 +613,7 @@ methods crate-private), so an asset manager can be implemented outside `liquers-
 | Date | Change | Source |
 |---|---|---|
 | 2026-10-20 | §Logging, progress, metadata, and outcome: `Context::error` fails the evaluation once the step returns (`ExecutionError`, first message); mid-run only `is_error` is set. Pitfall reworded. | `issues/CONTEXT-ERROR-OUTCOME-DEPENDS-ON-SCHEDULING.md` |
+| 2026-10-21 | §Logging, progress, metadata, and outcome: consecutive diagnostic steps are all logged before an error among them stops the plan. | `issues/CONTEXT-ERROR-OUTCOME-DEPENDS-ON-SCHEDULING.md` |
 | 2026-10-17 | `apply_ad_hoc` passes on a failed evaluation's dependencies; `apply_for` returns the failed asset. | PR #139 review |
 | 2026-10-17 | `apply_ad_hoc` volatility: `v` goes before the parent's own action; linked the run-time volatility issue. | `RUNTIME-VOLATILE-DEPENDENCY-DOES-NOT-MAKE-PARENT-VOLATILE` |
 | 2026-10-17 | §Dependency and apply methods: `Context::apply_ad_hoc`, which passes the ad-hoc dependencies on and no volatility. | `design/liquers-mustache/` |

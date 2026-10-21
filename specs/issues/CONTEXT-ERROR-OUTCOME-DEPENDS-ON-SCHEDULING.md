@@ -38,7 +38,10 @@ never the status, and only on a record that is not finished, so a late log messa
 finished asset unreadable. `MetadataRecord::with_status` keeps `is_error` while a run waits or
 resumes (`Submitted`, `Dependencies`, `Processing`, `Storing`); `None` and `Recipe` restart a run
 and clear it. An executable `Step::Error`, and an error-level `init_steps` entry, fail the plan
-the same way; the latter before any dependency is scheduled.
+the same way; the latter before any dependency is scheduled. A run of consecutive `Step::Info`,
+`Step::Warning` and `Step::Error` steps is logged in full before the check (Orest, 2026-10-21), so
+several errors, or the info and warnings giving context to one, all reach the log; the plan stops
+before the next non-diagnostic step with the first error's message.
 
 `liquers-core/tests/context_error.rs` pins it on the queued manager (current-thread and
 multi-thread runtimes) and on the inline manager: a sync command, an `info` after the error, a
@@ -46,6 +49,8 @@ dependency wait after the error, an uncached command followed by another action,
 returning `Err` after logging, and the mid-run state (status `Processing`, `is_error` true). All
 of those tests fail without the fix. `assets::tests::test_drained_error_entry_fails_a_computed_value`
 pins the drain-first settlement on both harnesses with an entry sent straight to the service channel.
+`interpreter::tests::consecutive_diagnostic_steps_are_all_logged_before_an_error_stops_the_plan`
+pins the logging of a run of diagnostics.
 `keyed_stale_dependency_is_stored_expired` now saves synchronously: it read the store right after
 the run and passed only because the old order gave a background save time to finish.
 

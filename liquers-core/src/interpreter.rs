@@ -465,7 +465,12 @@ pub(crate) fn apply_plan_state<E: Environment>(
             state = do_step_state(step, state, context.clone(), envref.clone()).await?;
             // An error logged during the step (`Context::error`) fails the evaluation here, after
             // the step returned: the rest of the plan does not run and the step's value is dropped.
-            fail_on_logged_error(&plan, &context)?;
+            // Consecutive diagnostic steps are all logged first, so several errors, or the info
+            // and warnings around one, reach the log together.
+            let more_diagnostics = plan[i].is_log() && i + 1 < plan.len() && plan[i + 1].is_log();
+            if !more_diagnostics {
+                fail_on_logged_error(&plan, &context)?;
+            }
         }
         Ok(state)
     }
@@ -1268,6 +1273,71 @@ mod tests {
     use crate::store::{AsyncMemoryStore, AsyncStore};
     use crate::value::Value;
     use liquers_macro::*;
+
+    /// Consecutive diagnostic steps are all logged before an error among them stops the plan; the
+    /// failure carries the first error, and the action after them does not run.
+    #[tokio::test]
+    async fn consecutive_diagnostic_steps_are_all_logged_before_an_error_stops_the_plan(
+    ) -> Result<(), Error> {
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let mut env = SimpleEnvironment::<Value>::new();
+        let counted = calls.clone();
+        env.command_registry
+            .register_command(CommandKey::new_name("probe"), move |_, _, _| {
+                counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                Ok(Value::from("probed"))
+            })?;
+        let envref = env.to_ref();
+        let mut plan =
+            PlanBuilder::new(parse_query("probe")?, envref.get_command_metadata_registry())
+                .build()?;
+        let diagnostics = [
+            Step::Info("before".to_owned()),
+            Step::Error("first".to_owned()),
+            Step::Info("context".to_owned()),
+            Step::Error("second".to_owned()),
+            Step::Warning("also".to_owned()),
+        ];
+        for (index, step) in diagnostics.iter().cloned().enumerate() {
+            plan.steps.insert(index, step);
+        }
+        let asset = AssetRef::new_temporary(envref.clone());
+        let context = Context::new(asset.clone(), false).await;
+        let error = match apply_plan(plan, State::new(), context, envref).await {
+            Ok(_) => panic!("an Error step must fail the plan"),
+            Err(error) => error,
+        };
+        assert_eq!(error.error_type, ErrorType::ExecutionError);
+        assert_eq!(error.message, "first");
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 0, "probe must not run");
+
+        // A temporary asset has no service loop of its own: drain it here.
+        asset
+            .service_sender()
+            .await
+            .send(crate::assets::AssetServiceMessage::JobFinishing)
+            .ok();
+        asset.process_service_messages().await?;
+        let Metadata::MetadataRecord(record) = asset.get_metadata().await? else {
+            panic!("structured metadata expected");
+        };
+        let logged: Vec<(LogEntryKind, String)> = record
+            .log
+            .iter()
+            .map(|entry| (entry.kind.clone(), entry.message.clone()))
+            .collect();
+        assert_eq!(
+            logged,
+            vec![
+                (LogEntryKind::Info, "before".to_owned()),
+                (LogEntryKind::Error, "first".to_owned()),
+                (LogEntryKind::Info, "context".to_owned()),
+                (LogEntryKind::Error, "second".to_owned()),
+                (LogEntryKind::Warning, "also".to_owned()),
+            ]
+        );
+        Ok(())
+    }
 
     async fn immediate_context(
         envref: EnvRef<ImmediateEnvironment<Value>>,
