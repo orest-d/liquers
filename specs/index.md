@@ -8,14 +8,13 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 199
-- P1: 2
+Total rows: 198
+- P1: 1
 - P2: 62
 - P3: 135
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
-| [`STORED-VALUE-WITHOUT-DATA-FORMAT-READ-AS-BIN`](issues/STORED-VALUE-WITHOUT-DATA-FORMAT-READ-AS-BIN.md) | issue | A stored value with no declared data format is deserialized as bin, not its own default format | draft | ready | eligible | P1 | S | core/assets | [design](design/stored-value-default-data-format/DESIGN.md) | 2026-10-18 |
 | [`REMOVED-OR-REPLACED-KEY-REVIVED-BY-A-LATE-BACKGROUND-SAVE`](issues/REMOVED-OR-REPLACED-KEY-REVIVED-BY-A-LATE-BACKGROUND-SAVE.md) | issue | A background save still in flight after a key is removed or replaced writes the old value back to the store | draft |  |  | P1 | M | core/assets;core/store |  | 2026-10-21 |
 | [`COMBINED-EXPIRES`](issues/COMBINED-EXPIRES.md) | feature | Combining expirations reduces end-of-day with end-of-week or end-of-month across time zones | accepted | ready | eligible | P2 | S | core/assets | [design](design/expires-cross-timezone-reduction/DESIGN.md) | 2026-08-08 |
 | [`COMMAND-NAMES-Q-AND-V-ARE-NOT-RESERVED`](issues/COMMAND-NAMES-Q-AND-V-ARE-NOT-RESERVED.md) | issue | A command named q or v registers but can never run | draft | ready | eligible | P2 | S | core/commands;core/query | [design](design/reserved-instruction-command-names/DESIGN.md) | 2026-10-19 |
