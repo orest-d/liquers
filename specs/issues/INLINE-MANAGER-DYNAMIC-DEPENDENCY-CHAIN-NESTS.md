@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: M
 area: [core/assets]
-design: 
+design: inline-manager-flat-dynamic-dependency-runs
 created: 2026-10-12
 github:
 ---
@@ -57,3 +57,18 @@ Triage: it overlaps `dependency-resolved-once-per-evaluation` (T3, the same chan
 `ImmediateAssetManager::get_dependency_asset`), but it is outside that design's agreed scope (a
 non-goal there). It is filed without a design of its own, because the design depends on how
 priming is finally built; it should get one when that design reaches Phase 5.
+
+## Problem Example
+
+On `ImmediateEnvironment` under `futures::executor::block_on` on a 1 MiB thread, a cold chain
+`data/l0.txt = make_text/l0.txt`, `data/l{i}.txt = dyn_upper-{i-1}/l{i}.txt` for `i` in `1..=100`,
+where the async command `dyn_upper` reads `-R/data/l{n}.txt` through
+`Context::get_dependency_state`: evaluating `-R/data/l100.txt` nests one `run_inline` per link and
+overflows the stack. It should return `TEXT` as the static chain does.
+
+## Triage 2026-10-20
+
+Still present at HEAD (`18732dd`): `ImmediateAssetManager::get_dependency_asset` → `run_dependency`
+→ `run_inline` inside the parent's run; `prime_upstream` skips volatile keys and sees only
+`upstream_graph`. Design: `inline-manager-flat-dynamic-dependency-runs` (a run driver in the
+evaluation session; prime-on-demand would not flatten a chain whose every link is dynamic).

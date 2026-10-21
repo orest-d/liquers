@@ -6,11 +6,21 @@ status: draft
 priority: P2
 complexity: L
 area: [core/value, core/commands, core/plan, web, axum]
-design:
+design: realm-type-registry
 created: 2026-08-18
 github:
 ---
 ## Problem
+
+> **Design 2026-10-20 (bulk design, `design/realm-type-registry/`).** The design covers a first
+> slice: behaviour 2 (a serializable registry holding every realm, `import_realm`) and the
+> declaration half of behaviour 3 (`TransferPolicy` on `TypeInfo`, with `js.Value`
+> untransferable). Publishing a registry to the other side is split off as
+> `REGISTRIES-NOT-PUBLISHED-ACROSS-REALMS`; acting on transfer modes in the plan (behaviours 3-4)
+> as `CROSS-REALM-TRANSFER-NOT-PLANNED`. Note: the claim below that command metadata "is shared
+> across the boundary" does not hold at HEAD — no route publishes it (`liquers-web` can import a
+> `command_registry.yaml` the page supplies, `src/command/import.rs`).
+
 
 A query will eventually execute across more than one realm — a `wasm` frontend in the browser and
 a native `axum` backend being the motivating pair. **Those realms do not support the same set of

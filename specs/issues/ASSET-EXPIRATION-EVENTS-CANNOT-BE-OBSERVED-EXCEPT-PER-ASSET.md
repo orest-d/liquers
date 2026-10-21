@@ -37,6 +37,13 @@ There is no subscription on `AssetManager`. Three consequences, each independent
    current status — which is what the channel was built for — and wrong for anything that must not
    miss an event.
 
+## Problem Example
+
+`data/b.txt`'s recipe reads `-R/data/a.txt`. An observer wants to know when anything under `data/`
+expires. `m.set_state(&parse_key("data/a.txt")?, new_state)` cascades to `data/b.txt`. The observer
+hears about it only if it already holds `data/b.txt`'s `AssetRef`. If `data/b.txt` is stored but not
+live, `expire_stored_copy` rewrites its stored metadata and notifies nobody.
+
 ## Impact
 
 `design/store-and-asset-search/` is the motivating consumer. Its interoperability layer lets an
@@ -116,3 +123,17 @@ channel type is `watch` at `assets.rs:518`; and the cascade's expiry loop is gua
 
 This is the push path of the interoperability layer, which moved from `store-and-asset-search` to
 [`external-index-sync`](../design/external-index-sync/).
+
+## Update, 2026-10-21 (bulk design triage)
+
+Still reproduces at HEAD (`18732dd`), with line numbers moved: `Expired` is sent in
+`AssetRef::mark_expired_status`; the only subscriptions are `AssetData::subscribe_to_notifications`
+and `AssetRef::subscribe_to_notifications`; the channel is a `watch`. Two points have changed since
+filing. A stored-only key **is** now expired by the cascade (`expire_stored_copy`), but silently.
+And "deadline versus cascade" is answered by `ExpiryReason`, which every route records.
+`DIRECTORY-LISTING-DEPENDENCY-IS-NEVER-REGISTERED-OR-CHECKED` is closed.
+
+`external-index-sync` has been narrowed to this issue and now designs the event stream (Phases
+1-4). Split off: `ASSET-EVENTS-ARE-NOT-DELIVERED-OUT-OF-PROCESS`,
+`ASSET-EVENT-STREAM-CARRIES-ONLY-EXPIRATIONS`, and the rest of the layer as
+`EXTERNAL-INDEX-HAS-NO-RECONCILIATION-CONTRACT`.

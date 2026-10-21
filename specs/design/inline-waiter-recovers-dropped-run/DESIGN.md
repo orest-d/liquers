@@ -3,8 +3,8 @@ id: INLINE-WAITER-RECOVERS-DROPPED-RUN-DESIGN
 kind: design
 title: A caller parked on an inline run recovers when the runner is dropped
 form: compact
-status: in_review
-phase: implementation
+status: complete
+gh_pr: [167]
 readiness: ready
 autofix: eligible
 area: [core/assets]
@@ -12,6 +12,8 @@ issues: [INLINE-DROP-REPAIR-STRANDS-EXISTING-WAITERS]
 created: 2026-10-19
 ---
 # A caller parked on an inline run recovers when the runner is dropped
+
+> **Complete on 2026-10-20** (bulk design review): implemented by #167 (commits 2a56b3c, cb9597f), merged; every source issue is closed and no phase is outstanding.
 
 Bulk design (`specs/guides/autonomous_bulk_design.md`): Phases 1-4 written; Phase 4 implemented on
 2026-10-20 (automatic fix).

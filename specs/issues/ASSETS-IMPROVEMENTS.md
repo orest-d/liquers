@@ -1,16 +1,50 @@
 ---
 id: ASSETS-IMPROVEMENTS
 kind: feature
-title: Asset persistence, eviction safety and upload limits
+title: The web API's request-body limit is axum's fixed 2 MiB default, not configurable or documented
 status: accepted
 priority: P2
-complexity: L
-area: [core/assets, core/store]
-design:
+complexity: M
+area: [axum, docs]
+design: http-request-body-limit
 created: 2026-08-08
 github:
 ---
 # ASSETS-IMPROVEMENTS
+
+## Status at HEAD (2026-10-20, bulk-design triage) — what remains
+
+Re-scoped. Verified at commit 18732dd; the original feature text follows as history.
+
+- **A, A1 — non-serializable values and persistence failures: done.** `PersistenceStatus`
+  (`None`, `Persisted`, `NonSerializable`, `NotPersisted`; `liquers-core/src/assets.rs:410`) is
+  recorded on every save path (`persist_with_status_tracking`, `record_persistence_result`), with a
+  metadata warning carrying the complete error and the asset reference
+  (`AssetData::set_persistence_status`); `get` still returns the value. `set_state` stores a value
+  with no byte form metadata-only (`STORE_SEMANTICS.md` §2). The "no store key" case is obsolete:
+  an unkeyed asset is never written by design (`ASSETS.md` §Key ownership), so it is not a
+  persistence failure.
+- **B — sticky eviction of `Source` / `Override`: moved.** There is no LRU or memory-pressure
+  eviction at HEAD; the maps drop only expired, volatile and stale-terminal entries. A bounded cache
+  is `CORE-ASSET-GC`, which must keep non-derivable `Source` values. `ASSET_SET_OPERATION.md`
+  §Eviction Handling still describes LRU eviction (corrected by the design below). Found while
+  checking: `TO-OVERRIDE-KEEPS-THE-PENDING-EXPIRATION-DEADLINE`.
+- **C — upload size limit: remains, re-scoped to the web API.** Every body-taking route of
+  `liquers-axum` (`Bytes`, `Json`, `Multipart` extractors) is limited by axum's built-in default of
+  2 MiB, which no builder exposes and no document states; an over-size body gets axum's plain-text
+  413. Problem example:
+
+  ```text
+  $ curl -X PUT --data-binary @big.bin http://localhost:3000/liquer/api/store/data/data/big.bin
+  HTTP/1.1 413 Payload Too Large            # big.bin is 3 MB
+  Failed to buffer the request body: length limit exceeded
+  ```
+
+  Expected: a per-router builder option for the limit (raise, lower, disable), documented with the
+  413 it produces. A core `max_binary_size` for `set()` is proposed to be dropped (in-process
+  callers already hold the bytes). Re-sized `M` (one crate plus documents). Design:
+  `http-request-body-limit`.
+
 
 
 ## Summary

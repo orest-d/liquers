@@ -6,7 +6,7 @@ workflow: liquers-project
 status: draft
 phase: high-level
 area: [lib/commands, docs]
-issues: []
+issues: [AGENT-MEMORY-HAS-NO-INDEXES-OR-CONTEXT-PACKS]
 affects_docs: []
 created: 2026-10-17
 ---

@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: M
 area: [core/plan, core/assets]
-design:
+design: payload-requirement-skips-dependency-analysis
 created: 2026-10-08
 github:
 ---
@@ -24,6 +24,11 @@ So evaluating link *i* of a chain visits about 3·(i+1) recipes, and evaluating 
 *n* links costs O(n²) recipe visits. Measured: 200 links, 60 901 lookups, 4.5 s in a debug build.
 The same applies to many dependents of one large shared upstream graph: each analysis re-walks
 it.
+
+## Problem Example
+
+`chain_20_links_smoke` (`liquers-core/tests/dependency_chain_scaling.rs`) evaluates `-R/data/l0.txt`
+… `-R/data/l20.txt` one at a time and counts 691 recipe lookups: about 3 × Σ i.
 
 ## Impact
 
@@ -46,3 +51,12 @@ deliberately not taken (simpler code first).
 
 Deferred as an optional optimization in `dependency-chain-analysis-cost` Phase 1 ("Optional
 optimization, not part of this design"), with the maintainer's agreement that it is low priority.
+
+## Triage (2026-10-20)
+
+Still present at HEAD 18732dd. Two of the three walks per evaluation come from
+`impl RequiresPayload for Query` (`interpreter.rs`), which calls `make_plan`, a full analysis, only
+to read `payload_required`, a fact of plan building. It does so for every scheduled dependency, which
+is scheduled twice (the pre-pass and the step). The first slice, which removes them, is designed in
+`design/payload-requirement-skips-dependency-analysis/`. The remainder (reusing summaries across
+evaluations) is `DEPENDENCY-ANALYSIS-SUMMARIES-NOT-REUSED-ACROSS-EVALUATIONS`.

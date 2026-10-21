@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: M
 area: [lib/ui, lib/egui, web, core/query]
-design: variadic-arguments-declaration
+design: variadic-argument-slots
 created: 2026-08-25
 github:
 ---
@@ -57,3 +57,17 @@ Filed from `specs/design/variadic-arguments-declaration/` Phase 1, decision 5. T
 `multiple` declarable through `register_command!` but deliberately stops at the metadata contract:
 `ArgumentGUIInfo` describes one element, `multiple` means "render a list of these". Everything
 above is downstream of that contract and blocks nothing in it.
+
+## Re-scope 2026-10-21
+
+Bulk design, reproduced at `8ecfd7f`: still nothing in the workspace reads `gui_info`, and no code
+maps parameters to arguments by position. Obstacle 2 above is half true: `ActionRequest::parameters`
+is a public `Vec`, so raw insert/remove exist; what is missing is the *position*. Concrete case
+(validated): appending `status` to `fields` of `ns-search/field_extract` written with no parameters
+gives `field_extract-status`, which fails (`Can't convert 'status' to extension`); the correct edit
+is `field_extract-md--false-status`.
+
+Design: `specs/design/variadic-argument-slots/` (fix-direction steps 1 and 2, in `liquers-core`).
+Step 3, the list widget, has no in-tree parameter editor to live in and moved to
+`NO-COMMAND-PARAMETER-EDITOR`. The origin design was `specs/design/variadic-arguments-declaration/`
+(complete).

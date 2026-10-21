@@ -3,8 +3,8 @@ id: POLARS-COMMAND-TESTS-VIA-QUERIES
 kind: design
 title: Polars command tests evaluate the commands they are named after
 form: compact
-status: in_review
-phase: implementation
+status: complete
+gh_pr: [170]
 readiness: ready
 autofix: eligible
 area: [lib/polars, build]
@@ -13,8 +13,10 @@ created: 2026-10-19
 ---
 # Polars command tests evaluate the commands they are named after
 
-Bulk design (`specs/guides/autonomous_bulk_design.md`): Phases 1-4 written, not approved, nothing
-implemented.
+> **Complete on 2026-10-20** (bulk design review): implemented by #170 (commit f622c95), merged; every source issue is closed and no phase is outstanding.
+
+Bulk design (`specs/guides/autonomous_bulk_design.md`): Phases 1-4 written; Phase 4 implemented on
+2026-10-20 (automatic fix).
 
 ## Phase 1: High-Level Design
 
@@ -230,10 +232,10 @@ then `cargo test -p liquers-lib --lib --tests`.
 
 ### Steps
 
-- [ ] 1. `liquers-lib/tests/polars_commands.rs` `eval_state_over_csv`, `eval_over_csv`, `column_strings` — split the helper, require a DataFrame in `eval_over_csv` — the eight existing query tests still pass: `cargo test -p liquers-lib --no-default-features --features polars --test polars_commands`. Rollback: revert the file.
-- [ ] 2. Same file — rewrite the ten bypassing tests and add the ten new ones (Phase 3), one command group at a time; for any failure that is the command's fault, file `specs/issues/<ID>.md` (`status: draft`) and add `#[ignore = "<ID>"]` — same command, with the `--features polars` run green.
-- [ ] 3. Review — `grep -n "try_to_polars_dataframe\|\.lazy()" liquers-lib/tests/polars_commands.rs` shows only the helpers' and `test_parse_utilities`' lines (AC-7); every registered `pl` command name occurs in a query string (AC-2).
-- [ ] 4. Records — set `POLARS-COMMAND-TESTS-BYPASS-COMMANDS` to `closed` with a resolution note naming any issues filed in step 2 — `python3 scripts/docs_index.py && python3 scripts/docs_index.py --check`.
+- [x] 1. `liquers-lib/tests/polars_commands.rs` `eval_state_over_csv`, `eval_over_csv`, `column_strings` — split the helper, require a DataFrame in `eval_over_csv` — the eight existing query tests still pass: `cargo test -p liquers-lib --no-default-features --features polars --test polars_commands`. Rollback: revert the file.
+- [x] 2. Same file — rewrite the ten bypassing tests and add the ten new ones (Phase 3), one command group at a time; for any failure that is the command's fault, file `specs/issues/<ID>.md` (`status: draft`) and add `#[ignore = "<ID>"]` — same command, with the `--features polars` run green.
+- [x] 3. Review — `grep -n "try_to_polars_dataframe\|\.lazy()" liquers-lib/tests/polars_commands.rs` shows only the helpers' and `test_parse_utilities`' lines (AC-7); every registered `pl` command name occurs in a query string (AC-2).
+- [x] 4. Records — set `POLARS-COMMAND-TESTS-BYPASS-COMMANDS` to `closed` with a resolution note naming any issues filed in step 2 — `python3 scripts/docs_index.py && python3 scripts/docs_index.py --check`.
 
 ### Validation
 

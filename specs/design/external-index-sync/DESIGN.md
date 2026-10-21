@@ -1,30 +1,43 @@
 ---
 id: EXTERNAL-INDEX-SYNC
 kind: design
-title: Keeping external indexes and engines in sync with record sources
+title: Asset expiration events observable by scope (the push path for external index sync)
 workflow: liquers-project
-status: draft
-phase: high-level
-area: [records, core/assets, lib/commands]
+status: in_review
+phase: implementation
+readiness: needs-decision
+autofix: not-eligible
+area: [core/assets]
 issues: [ASSET-EXPIRATION-EVENTS-CANNOT-BE-OBSERVED-EXCEPT-PER-ASSET]
-affects_docs: []
+affects_docs: [reference/ASSETS.md, reference/api/DOC_03_ASSETS_EXECUTION_LIFECYCLE.md, guides/ASSET_MANAGER_IMPLEMENTATION_GUIDE.md]
 created: 2026-10-10
 ---
-# Keeping external indexes and engines in sync with record sources — design tracking
+# Asset expiration events observable by scope — design tracking
 
 **Created:** 2026-10-10, split out of [`store-and-asset-search`](../store-and-asset-search/) when
 that design was refocused on in-tree, record-based search commands (its revision 8).
 
+## Scope, since 2026-10-21
+
+Narrowed during bulk design (`specs/guides/autonomous_bulk_design.md`) to its source issue: a
+manager-level, scoped, lossless-or-told stream of expiration events in `liquers-core` (Phase 1,
+Scope Changes). The rest of what this folder was opened for — the feed, the reconciliation diff,
+projection identity, sinks and the indexation policy — is
+[`EXTERNAL-INDEX-HAS-NO-RECONCILIATION-CONTRACT`](../../issues/EXTERNAL-INDEX-HAS-NO-RECONCILIATION-CONTRACT.md),
+which takes over the open questions listed below. The two inherited analysis documents stay here as
+that issue's input. Out-of-process delivery and non-expiry events are
+`ASSET-EVENTS-ARE-NOT-DELIVERED-OUT-OF-PROCESS` and `ASSET-EVENT-STREAM-CARRIES-ONLY-EXPIRATIONS`.
+
 ## Phase Status
 
-- [ ] Phase 1: High-Level Design — not started; the analysis below is its input
-- [ ] Phase 2: Solution & Architecture
-- [ ] Phase 3: Examples & Testing
-- [ ] Phase 4: Implementation Plan
-- [ ] Phase 5: Documentation
+- [x] Phase 1: High-Level Design (written 2026-10-21, not approved)
+- [x] Phase 2: Solution & Architecture (written, not approved)
+- [x] Phase 3: Examples & Testing (written, not approved)
+- [x] Phase 4: Implementation Plan (written, not approved)
+- [ ] Phase 5: Documentation (after implementation; skeleton as generated)
 - [ ] Implementation Complete
 
-## What this design is for
+## What this folder was opened for (background for the follow-up issue)
 
 Some systems answer questions that an in-tree scan cannot answer well. These are a full-text
 search engine (Tantivy, Elasticsearch, Meilisearch), a vector store (Qdrant, pgvector), a RAG
@@ -106,7 +119,7 @@ These are numbered as in the search design's revision-7 `DESIGN.md`, which is ar
 - **The search predicate is a parseable string.** An engine receives the same syntax and parses it
   with the same parser in `liquers-records`. This was path (b) of the search design's revision 7.
 
-## Open questions (from the search design's Phase 1, renumbered)
+## Open questions of the wider layer (moved to `EXTERNAL-INDEX-HAS-NO-RECONCILIATION-CONTRACT`)
 
 1. How does a projection rule get an identity that takes part in the reconciliation diff? Does it
    belong on the record, the sink, or both? (was OQ 8)

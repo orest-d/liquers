@@ -6,6 +6,7 @@ status: draft
 priority: P3
 complexity: S
 area: [core/assets]
+design: temporary-asset-never-run-leak
 created: 2026-10-18
 github:
 ---
@@ -30,3 +31,18 @@ assets never drop.
 Dropping the last outside reference to a temporary asset that never ran frees it and ends its
 service loop. For example, the loop could hold a weak reference, or the loop could start only when
 the asset is first run.
+
+## Problem Example
+
+```rust
+let asset = AssetRef::new_temporary(envref.clone());   // what interpreter::evaluate does
+let weak = asset.downgrade();
+drop(asset);
+assert!(weak.upgrade().is_none());                      // today: Some, forever
+```
+
+## Triage 2026-10-20
+
+Still present at HEAD (`18732dd`): `AssetRef::new_temporary` spawns `process_service_messages` on a
+strong clone. Covered by `environment-manager-reference-cycle` (its AC-7 and step 5, a loop holding
+a `WeakAssetRef`); coverage record: `temporary-asset-never-run-leak` (`readiness: covered`).

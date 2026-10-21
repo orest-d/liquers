@@ -79,3 +79,13 @@ are chosen, this issue is not a safe one-assignment implementation.
 Noticed while boxing the error payload for `CORE-ERROR-PAYLOAD-SIZE` (2026-08-25). Scope expanded
 after review on 2026-09-03 showed that recipe identity and nested query context cannot be expressed
 by the existing flat fields.
+
+## Reproduction at HEAD (2026-10-20)
+
+Confirmed by code reading at 18732dd: `Error::with_key` in `liquers-core/src/error.rs` still writes
+`key.encode()` into `query`; `key_not_found` still leaves `key` empty. `with_key`'s query placement
+is load-bearing: the `ErrorType::Cancelled` contract, `AssetRef::attribute_run_error` (tests
+`query.is_none()`) and `cancelled_dependency_cause` read it, and assertions in
+`tests/asset_cancellation.rs`, `assets.rs` and `plan.rs` check it. Correction to Impact: the Python
+exceptions do carry `query` and `key` (`_errors.py` `_from_native`); only the `liquers.Error`
+wrapper class lacks them. Design `error-with-key-field` (resumed, `needs-decision`) covers this.

@@ -6,6 +6,7 @@ status: draft
 priority: P2
 complexity: S
 area: [core/assets]
+design: key-without-recipe-answer
 created: 2026-10-18
 github:
 ---
@@ -42,3 +43,13 @@ the key. When a recipe exists, recomputing stays the right outcome. `liquers-py`
 Implementing `liquers-py`'s AC-18 (`specs/design/liquers-py/`, Phase 4 step 10): a pickle-off
 environment reading a `py.Object` that a pickle-on one stored correctly refuses to unpickle, as
 required, but the test asserting the error names `py.Object` failed on "No recipe found".
+
+## Reproduction at HEAD (bulk design, 2026-10-20)
+
+Still reproduces at 18732dd: the `Ok(None)` branch of `AssetData::try_fast_track` prints the
+degraded reason and returns `Ok(false)`; the evaluation then fails in
+`AssetRef::evaluate_recipe_outcome` with the recipe provider's "No recipe found". `liquers-py`'s
+`test_VALUE_pickle_off_error_names_the_type` is still a strict `xfail`. Merged into
+`design/key-without-recipe-answer/` with `MISSING-RESOURCE-REPORTED-AS-GENERAL-ERROR` (same root
+cause and change site); it cannot be fixed alone without the `liquers-py` test edit, so it is not
+eligible for automatic fixing on its own either.

@@ -28,7 +28,9 @@ pub use convert::{to_record, to_record_source, ToRecordOptions};
 /// reading is not". With the `polars` feature, this goes through [`polars::read_parquet_record_batch`]
 /// to polars' own reader; without it, this refuses, naming the `polars` feature. Shared by
 /// `value/mod.rs`'s `deserialize_from_bytes` (the `RecordView`/`"parquet"` case) and
-/// `convert::to_record`'s byte path, so both go through the same rule.
+/// `convert::to_record`'s byte path, so both go through the same rule. The schema rules (a declared
+/// schema is strict; `liquers.schema` is restored on `Infer`) are documented on
+/// [`polars::read_parquet_record_batch`].
 pub fn read_parquet_record_batch(bytes: &[u8], schema: ReadSchema<'_>) -> Result<RecordBatch, Error> {
     #[cfg(feature = "polars")]
     {

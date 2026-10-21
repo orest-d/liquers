@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: M
 area: [core/store, store/config, core/plan]
-design:
+design: store-config-key-scoped-handlers
 created: 2026-10-15
 github:
 ---
@@ -18,6 +18,25 @@ the `store_config` compiler refuses `GetResource`, `GetResourceMetadata`, `GetRe
 and `UseKeyValue` steps with a configuration error (`liquers-core/src/store/realm.rs`,
 `StoreConfigFunctions::compile`). `design/store-adapters/phase2-architecture.md` §4 analysed the
 form and deferred it.
+
+## Problem Example
+
+```yaml
+- type: filesystem
+  prefix: kb
+  config: { path: ./kb }
+  metadata:
+    on_validate: -R-key/kb/notes/-/require-title
+    on_read: media_type-fill/file_facts/-R-key/kb/notes/-/front_matter
+```
+
+Today: the build fails — `StoreConfigFunctions::compile_plan` (`liquers-core/src/store/realm.rs`)
+refuses the `UseKeyValue` step: "Store configuration 'on_validate: -R-key/kb/notes/-store_config/
+require-title': contains a resource segment, which is not supported in store configuration yet".
+Should be: the store builds; `set` of `kb/notes/a.md` without a title is refused, `set` of
+`kb/data/x.csv` without one succeeds, and only files under `kb/notes` get `front_matter`.
+(The issue's own example, `front_matter-title`, does not plan: `front_matter`'s first parameter is
+`mode`; `front_matter-overwrite-title` is the spelling.)
 
 ## Impact
 
@@ -33,3 +52,9 @@ Open points from the analysis: exact key or prefix match; how several guarded ch
 ## Discovery
 
 Deferred by `design/store-adapters/` (Phase 2, "`-R-key/…` — analysed, not supported now").
+
+## Note (2026-10-21)
+
+The example spelling `front_matter-title` above does not plan: `front_matter`'s first parameter is
+`mode`, so the scoped form is `front_matter-overwrite-title`. Designed in
+`design/store-config-key-scoped-handlers/`.

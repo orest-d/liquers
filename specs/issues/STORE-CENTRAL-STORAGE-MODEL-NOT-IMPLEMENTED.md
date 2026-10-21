@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: M
 area: [core/store, store/config]
-design:
+design: central-storage-model
 created: 2026-10-15
 github:
 ---
@@ -17,6 +17,26 @@ registered in the `store_config` realm and exported, but its builder refuses
 (`liquers-core/src/store/storage.rs`, `build_central`; description "Declared; not implemented
 yet"). Router-level central storage is exercised only through the test-only `memory_central`
 model, registered under `cfg(test)` and the `store-conformance` feature.
+
+## Problem Example
+
+```yaml
+metadata: { storage: central-meta, on_read: media_type-fill/file_facts }
+stores:
+  - type: filesystem
+    prefix: docs
+    config: { path: ./docs }
+    read_only: true
+  - type: filesystem
+    prefix: meta
+    config: { path: ./meta }
+```
+
+Today: `StoreRouterBuilder::build_store` resolves the mount `meta` through `ComponentContext`, then
+`build_central` (`liquers-core/src/store/storage.rs`) returns `not_supported`: "central storage in
+mount 'meta' is declared but not implemented yet". Should be: the store builds; `set_metadata` of
+`docs/a.md` with a title writes nothing under `./docs`, writes the record to
+`./meta/__metadata__/docs/a.md`, and a rebuilt store reads the title back.
 
 ## Impact
 

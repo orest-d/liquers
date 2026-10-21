@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: M
 area: [core/plan, core/assets, core/query]
-design: 
+design: query-cache-directives
 created: 2026-10-10
 github:
 ---
@@ -47,3 +47,11 @@ The cached points are the predecessor boundaries. Decisions already worked out:
 
 Raised by the maintainer in design `plan-policy`, Phase 1 discussion, 2026-10-10. Deferred
 there in favour of the recipe-level policy and the command-level `cached` declaration.
+
+## Design
+
+Still reproduces at HEAD 18732dd (2026-10-20): no `cache` instruction exists in `PlanBuilder`
+(`liquers-core/src/plan.rs` intercepts only `v`, `q`, `ns`), and a query containing `cache-off`
+fails with `ActionNotRegistered`. Designed in `specs/design/query-cache-directives/` (bulk design
+2026-10-20). Origin design: `plan-policy` (complete). Note that `cache-on` is syntactically the
+action `cache` with parameter `on`.

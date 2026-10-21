@@ -4,9 +4,9 @@ kind: issue
 title: Registering a command after Environment::to_ref requires a rebuild
 status: accepted
 priority: P3
-complexity: M
+complexity: L
 area: [core/commands, web]
-design: 
+design: post-init-command-registration
 created: 2026-08-08
 github:
 ---
@@ -70,3 +70,25 @@ Found while implementing `specs/liquers-web` milestone M4, and corrected in the 
 the rebuild approach was identified. Recorded because the underlying constraint is real and worth
 removing, and because the first diagnosis being wrong is itself worth remembering: the absence of a
 mutable path is not the same as the absence of a way forward.
+
+## Triage 2026-10-20
+
+Problem example:
+
+```rust
+let envref = env.to_ref();
+envref.evaluate("hello").await?;   // cached
+// No way to register `shout` now: no &mut CommandRegistry is reachable through EnvRef.
+// liquers-py / liquers-web rebuild the environment instead, dropping the cached `hello`.
+```
+
+Reproduces at HEAD (18732dd): `Environment::to_ref(self)` (`context.rs` ≈266) and
+`get_command_executor(&self) -> &Self::CommandExecutor` (≈182) are as described. One correction to
+the recommended option 1 above: the planner and 93 call sites also take
+`get_command_metadata_registry(&self) -> &CommandMetadataRegistry` (≈169), which cannot return a
+reference into a lock either. So interior mutability alone cannot work without changing that
+signature. Re-sized `M` → `L`: two `Environment` trait signatures change, and call sites in nine
+crates follow. On the asset side, `AssetManager::refresh_command_versions_and_expire` already
+exists for exactly this. Designed in `design/post-init-command-registration/` (needs-decision:
+snapshot handle recommended). The switch of `liquers-web` / `liquers-py` from rebuild to the new
+mechanism is filed as `LANGUAGE-INTEGRATIONS-REBUILD-ENVIRONMENT-ON-REGISTRATION`.

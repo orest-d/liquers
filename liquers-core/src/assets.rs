@@ -1392,6 +1392,9 @@ impl<E: Environment> AssetData<E> {
             // (`AssetManager::remove`): the dependent was built from that version, so, like a key
             // the store does not hold, it does not block.
             Ok(metadata) if metadata.status() == Status::Recipe => false,
+            // No status (a file with no metadata, or a record written without one): whether it
+            // is reusable depends on its bytes, which are not read here — inconclusive.
+            Ok(metadata) if metadata.status() == Status::None => false,
             Ok(metadata) => !Self::status_permits_reuse(metadata.status()),
             Err(_) => false, // absent or unreadable — inconclusive
         }
@@ -1422,7 +1425,7 @@ impl<E: Environment> AssetData<E> {
             if store.contains(&key).await? {
                 eprintln!("Asset {} exists in the store, loading", self.id());
                 // Asset exists in the store, load binary and metadata
-                let (binary, metadata) = match store.get(&key).await {
+                let (binary, mut metadata) = match store.get(&key).await {
                     Ok(entry) => entry,
                     // Metadata without a data object (STORE_SEMANTICS §2): a value with no byte
                     // form, stored metadata-only by `set_state`. There is nothing to load, so the
@@ -1438,6 +1441,10 @@ impl<E: Environment> AssetData<E> {
                     }
                     Err(e) => return Err(e),
                 };
+                // Bytes stored with no status (a file with no metadata) read as `Source`, or as
+                // `Ready` when the key has a recipe, before the reuse check below.
+                adopt_stored_status(&*self.get_envref().get_asset_manager(), &key, &mut metadata)
+                    .await?;
                 let stored_status = metadata.status();
                 if !matches!(
                     stored_status,
@@ -5851,6 +5858,67 @@ pub fn external_change_status(stored_status: Status, recorded: Version, has_reci
     }
 }
 
+/// The status stored bytes are reused under: `stored`, except that a record with no status and
+/// no recorded version — a file with no metadata — reads as [`external_change_status`] maps it.
+///
+/// Only `None` is mapped. A stored `Source` without a version keeps its status even when a recipe
+/// exists, so what the fast track reports for it is unchanged. A `None` with a known version is
+/// not the no-metadata case (Liquers never writes one) and is still refused.
+pub fn reusable_stored_status(stored: Status, recorded: Version, has_recipe: bool) -> Status {
+    match stored {
+        Status::None => external_change_status(stored, recorded, has_recipe),
+        Status::Directory
+        | Status::Recipe
+        | Status::Submitted
+        | Status::Dependencies
+        | Status::Processing
+        | Status::Partial
+        | Status::Error
+        | Status::Storing
+        | Status::Ready
+        | Status::Expired
+        | Status::Source
+        | Status::Cancelled
+        | Status::Override
+        | Status::Volatile => stored,
+    }
+}
+
+/// Applies [`reusable_stored_status`] to `metadata` read with its bytes from the store, in place.
+///
+/// A store may return data whose record carries no status: one written through `set` with a
+/// caller's record that had none, or a page-implemented store answering with partial metadata.
+/// When the status changes, a warning naming `key` and the new status goes into the record's log.
+/// Nothing is written back — a read never writes, which keeps read-only mounts read-only. The
+/// recipe provider is asked only for a stored `None`, so the common path costs nothing extra.
+async fn adopt_stored_status<E, M>(
+    manager: &M,
+    key: &Key,
+    metadata: &mut Metadata,
+) -> Result<(), Error>
+where
+    E: Environment,
+    M: AssetManager<E> + ?Sized,
+{
+    let stored = metadata.status();
+    if stored != Status::None {
+        return Ok(());
+    }
+    let recorded = metadata.version().unwrap_or_else(Version::unknown);
+    let has_recipe = manager
+        .get_recipe_provider()
+        .can_make(key, manager.get_envref())
+        .await?;
+    let status = reusable_stored_status(stored, recorded, has_recipe);
+    if status != stored {
+        metadata.set_status(status)?;
+        metadata.add_log_entry(LogEntry::warning(format!(
+            "no status was stored for {key}; read as {status:?}"
+        )))?;
+    }
+    Ok(())
+}
+
 /// Whether a stored entry is checked at all. Whether the key has a recipe never changes the
 /// answer, only the action, so it can be asked before the recipe (and the bytes) are read.
 fn external_change_checked(stored_status: Status, recorded: Version) -> bool {
@@ -6330,6 +6398,7 @@ pub trait AssetManager<E: Environment>:
     /// | `Directory` | any | `StatusConflict` — use [`Self::removedir`] |
     /// | any other | no | delete: the live asset, the dependency-graph entry and the stored entry; dependents are expired |
     /// | `Source`, `Override` | yes | delete the user value as above; the key falls back to its recipe |
+    /// | stored with no status and no version (a file with no metadata) | yes | as `Override` |
     /// | computed (`Ready`, `Expired`, `Error`, in-flight, …) | yes | drop the value: the live asset is unmapped and the stored entry is rewritten as `Recipe` with its version kept; dependents are **not** expired |
     /// | none, or stored `Recipe` | yes | nothing to do |
     /// | nothing live, nothing stored | no | `KeyNotFound` |
@@ -6361,7 +6430,17 @@ pub trait AssetManager<E: Environment>:
 
         let decisive = match live_status {
             Some(status) if !live_status_defers_to_store(status) => Some(status),
-            Some(_) | None => stored_metadata.as_ref().map(|m| m.status()),
+            // A stored record with no status and no version is a file with no metadata: under a
+            // recipe a read serves its bytes and keeps them as user input (`Override`), so its
+            // removal deletes them, as for any user value. A metadata-only entry with no status
+            // is deleted too, which loses nothing: it holds no value.
+            Some(_) | None => stored_metadata.as_ref().map(|m| {
+                let recorded = m.version().unwrap_or_else(Version::unknown);
+                match m.status() {
+                    Status::None if recorded.is_unknown() => Status::Override,
+                    status => status,
+                }
+            }),
         };
         let action = if !has_recipe {
             if live.is_none() && stored_metadata.is_none() {
@@ -7686,6 +7765,7 @@ pub trait AssetManager<E: Environment>:
             Err(e) if e.error_type == ErrorType::KeyNotFound => return Ok(None),
             Err(e) => return Err(e),
         };
+        adopt_stored_status(self, key, &mut metadata).await?;
         if !metadata.status().has_data() {
             return Ok(None);
         }
@@ -7747,6 +7827,7 @@ pub trait AssetManager<E: Environment>:
             Err(e) if e.error_type == ErrorType::KeyNotFound => return Ok(None),
             Err(e) => return Err(e),
         };
+        adopt_stored_status(self, key, &mut metadata).await?;
         // `has_data()` is the right question here — this asks whether the store entry holds a
         // value at all, not whether a reader may see it. That is the distinction from
         // `ReadExposure`, which gates reads.
@@ -15920,6 +16001,49 @@ recipes:
         let dir = DependencyKey::from_dir_key(&parse_key("data")?);
         assert!(!asset.dependency_blocks_fast_track(&manager, &dir).await);
         Ok(())
+    }
+
+    /// AC-7 of `js-store-page-metadata-status`: a stored dependency with no status is
+    /// inconclusive, as an unreadable one is, and does not refuse its dependent's fast track.
+    #[tokio::test]
+    async fn dependency_blocks_fast_track_is_false_for_status_none(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let envref = expiry_test_envref();
+        let manager = envref.get_asset_manager();
+        let dep = parse_key("data/dep.txt")?;
+        envref
+            .get_async_store()
+            .set(&dep, b"dep", &Metadata::MetadataRecord(MetadataRecord::new()))
+            .await?;
+        assert_eq!(envref.get_async_store().get_metadata(&dep).await?.status(), Status::None);
+        let key = parse_key("data/index.txt")?;
+        let asset =
+            AssetData::<SimpleEnvironment<Value>>::new(9802, key.clone().into(), Some(key), envref);
+        assert!(!asset.dependency_blocks_fast_track(&manager, &DependencyKey::from(&dep)).await);
+        Ok(())
+    }
+
+    /// AC-3 and AC-6 of `js-store-page-metadata-status`: only `None` without a recorded version
+    /// is mapped; every declared status is kept.
+    #[test]
+    fn reusable_stored_status_maps_only_none_without_version() {
+        let zero = Version::unknown();
+        assert_eq!(reusable_stored_status(Status::None, zero, false), Status::Source);
+        assert_eq!(reusable_stored_status(Status::None, zero, true), Status::Ready);
+        let known = Version::from_content(b"x");
+        assert_eq!(reusable_stored_status(Status::None, known, false), Status::None);
+        for status in [
+            Status::Source,
+            Status::Ready,
+            Status::Override,
+            Status::Error,
+            Status::Expired,
+            Status::Volatile,
+        ] {
+            for has_recipe in [false, true] {
+                assert_eq!(reusable_stored_status(status, zero, has_recipe), status);
+            }
+        }
     }
 
     // --- Step 9: content changed outside Liquers (Part G) ---

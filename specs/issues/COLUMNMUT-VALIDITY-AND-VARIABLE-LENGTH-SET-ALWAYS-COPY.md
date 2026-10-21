@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: M
 area: [records]
-design: record-streams
+design: column-mut-zero-copy-validity
 created: 2026-09-26
 github:
 ---
@@ -59,3 +59,21 @@ Found while implementing Step 2.5 of the record-streams Phase 4 plan
 made the asymmetry with validity handling and `Text`/`Binary`'s `set` visible by contrast — both
 already existed as `Column`/`ColumnMut` design decisions (`Bitmap`'s lack of a growable form,
 `Text`/`Binary`'s offset-shift-on-edit shape), not something Step 2.5 introduced.
+
+## Triage 2026-10-21 (partly changed)
+
+Re-checked at HEAD 18732dd (`liquers-records/src/mutable.rs`). Still true: `validity_to_vec` /
+`validity_option` copy validity both ways; `set_bytes_cell` copies the whole data buffer and rebuilds
+every offset. No longer true: `set` on `Text` is now tested
+(`column_mut_set_overwrites_a_text_cell_and_rebuilds_offsets`), so the path is verified, only slow.
+Also found: `Text`/`Binary` offsets are copied both ways too (`offsets.as_slice().to_vec()` in
+`column_into_mut`, `Buffer::from_slice(&offsets)` in `freeze`), and `Bool` values go through
+`Vec<bool>`. Origin design `record-streams` (complete); design:
+`specs/design/column-mut-zero-copy-validity/`.
+
+## Problem Example
+
+`batch.into_mut()`, 100 × `set_value(row, text_col, &FieldValue::Text("x".into()))`, `freeze()` on a
+5-million-row `Text` column: 100 full-column copies plus validity and offsets copied twice. Should:
+validity and offsets move, and each `set` moves only the tail after the cell (nothing for a
+same-length value).

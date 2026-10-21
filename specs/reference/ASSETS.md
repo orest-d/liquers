@@ -118,7 +118,8 @@ it. Used once, never reused.
 
 A volatile value is still persisted, with `Status::Volatile` in its metadata. It is written as an
 opportunity for the user to override, not as a value to read back: `try_fast_track` accepts only a
-stored `Ready`, `Source` or `Override`.
+stored `Ready`, `Source` or `Override`. A stored record with no status at all is first read as §Content
+changed outside Liquers says for a file with no metadata.
 
 #### `stored` and `cached`: opting out of the write and of reuse
 
@@ -510,7 +511,25 @@ Anything else — a timestamp, `new_unique`, 0 — never equals a hash and is a 
 | any other | — | not checked | not checked |
 
 A file with **no metadata** is recognised as a stored `Source` or `None` with recorded version 0,
-and is treated as `Source` without a recipe and `Ready` with one. Without a recipe it is adopted
+and is treated as `Source` without a recipe and `Ready` with one.
+
+**The same rule decides reuse** (`reusable_stored_status`, applied by `adopt_stored_status`). A store
+can return bytes whose record has no status: `AsyncMemoryStore` and `AsyncFileStore` keep a
+caller's record as given, and a page-implemented store may answer with partial metadata. Before
+`try_fast_track` checks for a reusable status, and before the store branch of `get_any_status` /
+`get_binary_any_status` checks `has_data()`, a stored `None` with no recorded version is read as
+`Source` without a recipe or as `Ready` with one. Every other status, a `Source` included, is read
+as stored. The asset's log gets a warning, and nothing is written back for it:
+
+```text
+no status was stored for mem/greeting.txt; read as Source
+```
+
+With a recipe, the version check that follows then finds the unversioned bytes changed outside
+Liquers, so under the default policy they become `Override`, as the table above says. A
+dependency stored with status `None` is inconclusive, so it does not block its dependent's fast
+track, and `remove` deletes such an entry under a recipe as it deletes an `Override`
+(`liquers-core/tests/stored_status_none.rs`). Without a recipe it is adopted
 **in memory only**: the version map learns `actual`, nothing is written, and the next process
 computes the same hash again. Every other adoption writes the sidecar with the new version (and
 status) and a warning in the asset's log:
@@ -1070,6 +1089,7 @@ then the stored status decides.
 | `Directory` | any | `Err(StatusConflict)` — use `removedir` | — |
 | any other | no | delete: live asset, dependency-graph entry, stored entry | expired, **before** the key leaves the graph |
 | `Source`, `Override` | yes | delete the user value as above; the key falls back to its recipe | expired |
+| stored with no status and no version (a file with no metadata) | yes | as `Override`: a read would serve it as user input | expired |
 | `Ready`, `Expired`, `Error`, `Cancelled`, `Volatile`, `Partial`, in flight | yes | drop the computed value: unmap the live asset; the stored record is rewritten as `Recipe`, data-bearing fields cleared, **version kept** (legacy metadata is deleted instead) | **not** expired — a recomputation that changes the content hash cascades then |
 | none, or stored `Recipe` | yes | nothing to do (idempotent) | — |
 | nothing live, nothing stored | no | `Err(KeyNotFound)` | — |
@@ -1261,6 +1281,7 @@ each with an `ExpiryReason` (§Why an asset is `Expired`). The rules are in
 | Date | Change | Source |
 |---|---|---|
 | 2026-10-20 | New §Settling a run: the outcome is settled after the service loop drains, and a logged error fails a computed value. §Post-finish messages: a late error-level log entry no longer flips a finished asset's status. | `issues/CONTEXT-ERROR-OUTCOME-DEPENDS-ON-SCHEDULING.md` |
+| 2026-10-20 | §Content changed outside Liquers: the no-metadata rule also governs reuse. A stored `None` with no recorded version reads as `Source` without a recipe and `Ready` with one, in the fast track and the store branch of `get_any_status` / `get_binary_any_status`, with a warning in the asset's log; nothing is written back. `remove` deletes such an entry under a recipe, as an `Override`. | phase-5 (`design/js-store-page-metadata-status/`) |
 | 2026-10-17 | §Volatile assets are never owned: an asset can become volatile during its run, through `Context::set_volatile`, a volatile run-time dependency, or (ad hoc) its plan. | `design/runtime-volatility` |
 | 2026-10-15 | `Storing`: written by the unwrapped file and OpenDAL stores, never under a configured write strategy (`direct` / `atomic` / `transactional` and their crash behaviour). §Content changed outside Liquers: per-mount `version_verification` overrides the manager's policy (`content_hash` in `on_read`); a `read_only` mount writes nothing on read; `created` and `etag` on records. | phase-5 (`design/store-adapters/`) |
 | 2026-10-14 | §Terminal outcome: a panicking command fails its asset (`evaluation panicked: …`) instead of hanging its waiters. | `COMMAND-PANIC-HANGS-EVALUATION` |

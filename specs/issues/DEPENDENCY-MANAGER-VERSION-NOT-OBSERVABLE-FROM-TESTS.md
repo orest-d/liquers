@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: S
 area: [core/assets]
-design:
+design: dependency-manager-registered-version
 created: 2026-10-17
 github:
 ---
@@ -17,6 +17,11 @@ method answers "is this key a graph node, and with which version". An integratio
 show an asset was *not* registered — `design/runtime-volatility` AC-3, "the key registers no
 version in the dependency graph" — can only assert the proxy that the asset's own metadata has no
 version.
+
+## Problem Example
+
+`envref.get_asset_manager().dependency_manager().get_version(&key)` in an integration test fails to
+compile (`get_version` is private). The test can only check the asset's own metadata.
 
 ## Impact
 
@@ -31,3 +36,8 @@ A read-only public accessor (for instance `DependencyManager::registered_version
 ## Discovery
 
 `liquers-core/tests/runtime_volatility.rs` `rv03_*`, while implementing `design/runtime-volatility`.
+
+## Triage (2026-10-20)
+
+Reproduces at HEAD 18732dd: `DependencyManager` and `AssetManager::dependency_manager()` are public,
+but every method except `new` is `pub(crate)`. Designed in `design/dependency-manager-registered-version/`.

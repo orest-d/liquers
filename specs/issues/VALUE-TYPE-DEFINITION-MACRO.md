@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: XL
 area: [macro, lib/value, core/value]
-design:
+design: value-type-definition-macro
 created: 2026-08-18
 github:
 ---
@@ -103,3 +103,18 @@ declared Rust type — and `COMMAND-METADATA-ENHANCEMENTS` owns the `ArgumentTyp
 carries a type identifier. `value-type-system` defines `TypeInfo`, `TypeRegistry` and
 `TypeIdentifiedIn<V>` in shapes a generator can emit — see its Phase 2 "Generator alignment" section for
 the commitments it makes so that nothing here has to undo them.
+
+## Triage 2026-10-20 (bulk design)
+
+Persists. Line references moved: the `ExtValue` fact arms are now `liquers-lib/src/value/mod.rs`
+`impl ValueExtension for ExtValue` (`identifier` … `default_media_type`) and the `CombinedValue`
+delegations `value/extended.rs` `impl ValueInterface for CombinedValue`.
+`COMBINED-VALUE-DEFAULT-EXTENSION-NOT-DELEGATED` is closed, but the class persists: the `Foreign`
+arms of `try_into_string` / `try_into_json_value` refuse instead of delegating
+(`FOREIGN-VALUE-TEXT-AND-JSON-HOOKS-NEVER-CALLED`, filed), and `TypeIdentifiedIn` has no
+implementation anywhere (`TYPE-IDENTIFIED-IN-HAS-NO-IMPLEMENTATIONS`, filed). At HEAD `mod.rs` holds
+136 variant arms and 128 `#[cfg]` lines.
+
+The design delivers the generator first and proposes moving the fifteen scalars to
+`VALUE-EXTENDED-SCALAR-TYPES-MISSING`, declared through the generator (a maintainer decision, since
+the 2026-08-18 decision put them here). Design: `specs/design/value-type-definition-macro/`.

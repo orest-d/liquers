@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: M
 area: [core/assets]
-design: 
+design: runtime-dependency-record-superseded-check
 created: 2026-10-17
 github:
 ---
@@ -27,6 +27,12 @@ records a command adds.
 
 Inferred from reading the code; not reproduced (the window is narrow).
 
+## Problem Example
+
+A keyed recipe's command reads version `v1` of `data/d.txt` and records it with
+`context.add_dependency`. Before the run completes, `d` is written (`v2`). The run finishes `Ready`
+with an edge expecting `v1`. It should finish `Expired` with `Direct { StaleDependency }`.
+
 ## Impact
 
 Rare stale results for commands that record their own reads: `ns-search` after
@@ -43,3 +49,9 @@ holds a concrete, different version, the dependent takes the stale-dependency ro
 
 Designing `design/search-read-dependencies` (2026-10-17), whose search commands record a version
 read from the store and then read the bytes.
+
+## Triage (2026-10-20)
+
+Still present at HEAD 18732dd by reading (`AssetRef::complete_evaluation` merges the records, and
+`track_keyed_asset` / `track_asset` never compare them). Designed in
+`design/runtime-dependency-record-superseded-check/`.

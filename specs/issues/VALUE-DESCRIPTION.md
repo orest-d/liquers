@@ -6,7 +6,7 @@ status: accepted
 priority: P3
 complexity: L
 area: [core/value, lib/value]
-design:
+design: value-summary
 created: 2026-08-08
 github:
 ---
@@ -20,6 +20,13 @@ The model must work for built-in values and future user-defined values.
 
 ## Problem
 Different value types need concise descriptions for UI, APIs, and diagnostics, but current metadata is type-specific and inconsistent. There is no single extensible mechanism for describing values across domains.
+
+## Problem Example
+
+`store.get_metadata(&parse_key("data/sales/table.csv")?)` on a stored `RecordView` returns its type
+identifier and filename but not its row count or columns; a client must download and parse the CSV
+to show "2 rows × 2 columns: region, amount". Should be: a `value_summary` in the metadata and in the
+listing's `AssetInfo`.
 
 ## Goals
 1. Introduce a general value description schema usable for all value types.
@@ -90,3 +97,11 @@ Properties should include:
 2. DataFrames include rows/columns/fields in value description.
 3. Unknown/custom value kinds can provide structured descriptions without code changes in generic consumers.
 4. Legacy values without descriptions continue to work.
+
+## Triage 2026-10-20 (bulk design)
+
+Persists: no summary field exists in `MetadataRecord` or `AssetInfo` (`liquers-core/src/metadata.rs`).
+Re-scoped by the design: `kind` is now `type_identifier` (shipped by `value-type-system`), so the
+model is `summary` + `properties`; `schema_version` is replaced by serde's tolerant defaults; the
+name becomes `ValueSummary` / `value_summary`, because `liquers-axum/src/assets/value_description.rs`
+already defines `ValueDescription` for the client-settable metadata. Design: `specs/design/value-summary/`.

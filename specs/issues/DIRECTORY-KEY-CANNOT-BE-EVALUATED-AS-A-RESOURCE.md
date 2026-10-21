@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: M
 area: [core/assets]
-design: record-streams
+design: key-without-recipe-answer
 created: 2026-09-26
 github:
 ---
@@ -60,3 +60,12 @@ What this record asks for is still open: a **plain** `-R/data/-/…` still fails
 because `get(key)` never asks the store whether the key is a directory. Priority lowered to P3
 because a working spelling exists.
 
+## Reproduction at HEAD (bulk design, 2026-10-20)
+
+Still reproduces at 18732dd. Found during `design/record-streams/` (complete), which this issue no
+longer links as its design. `-R/data/…` plans `GetAsset(data)`; the fast track sees `contains` true
+and `get` → `KeyNotFound` (a directory has no data object), declines as "stored without bytes", and
+the evaluation fails at the recipe provider ("No recipe found for key data", as the test comment in
+`liquers-lib/src/records/commands.rs` records). The same holds under a router for a key above its
+mounts (`AsyncStoreRouter::get` answers `KeyNotFound`, `is_dir` answers true). Designed in
+`design/key-without-recipe-answer/` (same branch as `MISSING-RESOURCE-REPORTED-AS-GENERAL-ERROR`).

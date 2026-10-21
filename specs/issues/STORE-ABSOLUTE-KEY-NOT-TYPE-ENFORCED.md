@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: L
 area: [core/store, store/backends, core/query]
-design:
+design: store-backend-absolute-key
 created: 2026-08-17
 github:
 ---
@@ -87,3 +87,21 @@ as noise, and whether the check is in fact forgotten anywhere.
 `design/sync-store-removal/` removes the synchronous `Store` and `StoreRouter`. Once it lands, the
 call sites to convert are `AsyncStore`'s and its implementations' only, and the router in question
 is `AsyncStoreRouter::find_store`.
+
+## Triage 2026-10-20 (bulk design)
+
+Still holds at HEAD (18732dd): `AsyncStore` methods take `&Key`, and the rule is kept by about sixty
+`key.as_absolute()?` lines in `liquers-core/src/store.rs`, `store/read_only.rs`, `store/pipeline.rs`,
+fallible path builders in `AsyncFileStore` and `AsyncOpenDALStore`, and `check_key` in
+`liquers-web/src/store/key_guard.rs`. No method was found that omits it, so this remains hardening.
+
+## Problem Example
+
+A new backend that implements `AsyncStore` and builds its path with `self.root.join(key.encode())`
+in `get_bytes`, without `as_absolute`, compiles. `store.get_bytes(&parse_key("a/../../etc/passwd")?)`
+then reads outside the root when called directly, not through a router.
+
+Designed in `design/store-backend-absolute-key/`. That design recommends a different shape from the
+newtype-in-every-signature proposal above: backends implement a new `StoreBackend` trait that
+receives a borrowed `AbsoluteKey<'_>`, and the caller-facing `AsyncStore` is a sealed blanket
+implementation that checks once. Callers and bindings do not change.

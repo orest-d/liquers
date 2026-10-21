@@ -5,12 +5,17 @@ title: Library code uses unwrap and expect despite the no-panic rule
 status: draft
 priority: P2
 complexity: L
-area: [core/query, lib/commands, axum]
-design: axum-assets-endpoints
+area: [core/query, core/value, lib/egui, macro, build]
+design: library-no-panic-lint
 created: 2026-08-17
 github:
 ---
 ## Problem
+
+**Re-scoped 2026-10-20 (bulk design).** Still reproduces, in part — see "Status at 18732dd"
+below; the text that follows it is the original filing, kept as history. The original design
+link, `axum-assets-endpoints` (implemented, PR #73), removed the `liquers-axum` sites; the
+remainder is designed in `specs/design/library-no-panic-lint/`.
 
 `CLAUDE.md` states the rule without qualification: *"Do NOT use `unwrap()` or `expect()` in library
 code (only in tests)."* They panic, and library code must return `Result<_, Error>` and propagate
@@ -84,3 +89,25 @@ Progress 2026-09-28 (`design/axum-assets-endpoints/`, I7): `liquers-axum` librar
 `unwrap()`/`expect()` — the nine sites use `build_or_500` or `HeaderValue::from_static`, and
 `cargo clippy -p liquers-axum --no-deps -- -D clippy::unwrap_used -D clippy::expect_used` passes.
 The other crates remain.
+
+## Status at 18732dd (2026-10-20)
+
+Re-measured with the same textual scan (non-test `src/`, stopping at `#[cfg(test)] mod`, comments
+skipped):
+
+| Crate | Sites | Where |
+|---|---|---|
+| `liquers-core` | 23 | `metadata.rs` 12, `query.rs` 6, `commands.rs` 2, `plan.rs` 2, `assets.rs` 1 |
+| `liquers-lib` | 31 | `egui/dataframe.rs` 18, `egui/widgets.rs` 10, `egui/mod.rs` 2, `polars/filtering.rs` 1 |
+| `liquers-macro` | 2 | in the expansion of float defaults (`registration.rs`), so in every crate that registers commands |
+| `liquers-axum`, `-store`, `-records`, `-template`, `-mcp`, `-agent`, `-py`, `-web` | 0 | axum: PR #73; store: `make_sub_dirs` rewritten in a3b3652 |
+
+Every remaining site is guarded by an earlier check, so none is reachable today. Two premises above
+are out of date: the `make_sub_dirs` example no longer exists, and the repository now has CI
+(`.github/workflows/build-matrix.yml`), which is where the lint can be enforced.
+
+Problem example at HEAD: `CommandRegistry::register_command` (`liquers-core/src/commands.rs`) ends
+with `self.command_metadata_registry.get_mut(key).unwrap()`, and adding another `.unwrap()`
+anywhere in library code passes build, tests and CI. Expected: the sites gone, and
+`cargo clippy -p <crate> --lib` (and the CI matrix) failing on a new one.
+

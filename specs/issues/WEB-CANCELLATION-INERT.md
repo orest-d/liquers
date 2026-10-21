@@ -4,7 +4,7 @@ kind: issue
 title: Web cancellation surface exists but does nothing
 status: accepted
 priority: P3
-complexity: M
+complexity: L
 area: [web]
 design: 
 created: 2026-08-08
@@ -89,6 +89,21 @@ the returned asset is *finished*. Callers are `liquers-core/src/context.rs:287` 
 untouched by a change confined to the immediate manager), and several `liquers-core` asset tests
 that inspect status straight after `get_asset` — those tests are the ones that would need
 revisiting, and they are the ones worth reading first, because they encode the current contract.
+
+## Re-checked at HEAD (2026-10-20): persists; re-sized `M` → `L`
+
+`ImmediateAssetManager::get_asset` still runs the asset before returning it (`get_query_asset_run`
+and the keyed `get` both call `run_inline` in `liquers-core/src/assets.rs`), and `AssetRef::get`
+still only polls and waits. Re-sized to `L` because the fix is a change to `liquers-core`'s asset
+lifecycle contract (`specs/reference/ASSETS.md`), not to `liquers-web`, and its tests span both
+crates; `L` requires a design (§4.5).
+
+One thing has changed in the fix's favour since this was filed: the inline path now has an
+execute-once claim with waiters and drop repair (`claim_or_wait_inline`, `InlineRunClaim`;
+`INLINE-PATH-LACKS-EXECUTE-ONCE`, `inline-waiter-recovers-dropped-run`). "Run on first `get`" can
+therefore call `run_inline` from `get` and inherit those guarantees, rather than inventing a second
+claim mechanism, and a `cancel()` that arrives before `get()` is already honoured by
+`run_with_future_inline` (it checks `cancellation.is_requested()` before computing).
 
 ## Where it is recorded
 

@@ -2,7 +2,7 @@
 id: POLARS-COMMAND-TESTS-BYPASS-COMMANDS
 kind: issue
 title: The polars command integration tests never invoke a polars command
-status: draft
+status: closed
 priority: P2
 complexity: M
 area: [lib/polars, build]
@@ -83,3 +83,17 @@ Found while planning tests for `specs/design/variadic-arguments-declaration/`, w
 unchanged after the conversion, including if the conversion were wrong — which is what surfaced the
 problem. That design replaces those two tests with query-evaluating ones; the remaining eleven are
 this issue.
+
+## Resolution
+
+Fixed 2026-10-20 by `design/polars-command-tests-via-queries/`. Every test in
+`liquers-lib/tests/polars_commands.rs` named after an `ns-pl` command now evaluates a query naming
+that command through `create_test_env()`, and all 32 registered `pl` commands (31 functions and
+the `head` alias) are executed by at least one test. `eval_over_csv` reads its result with
+`as_polars_dataframe`, so a command that returned its text input no longer passes as a
+DataFrame; the non-DataFrame commands (`shape`, `nrows`, `ncols`, `schema`, `to_csv`) assert their
+own value type. Defaults (`tail`, `sort`, the text filters, `from_csv`'s separator) are exercised
+both ways, and an unknown column or a text filter on a numeric column is an error naming it. No
+command failed on first contact, so no issue was filed. Evidence: `cargo test -p liquers-lib
+--no-default-features --features polars --test polars_commands` (30 passed) and the same with the
+default features.

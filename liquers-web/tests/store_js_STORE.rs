@@ -1064,3 +1064,100 @@ async fn store17_unknown_precision_is_refused() {
     };
     assert!(error.message.contains("'hours'"), "{}", error.message);
 }
+
+// ---------------------------------------------------------------------------
+// STORE07 — a page store's data evaluates end to end (`js-store-page-metadata-status`).
+// ---------------------------------------------------------------------------
+
+/// A read-only page store serving one file, with the given `metadata` expression for it.
+///
+/// Implements only `get` and `contains`, as the e2e test's store does.
+fn page_store(metadata: &str) -> js_sys::Object {
+    object(&format!(
+        r#"({{
+  async get(key) {{
+    if (key !== 'mem/greeting.txt') return undefined;
+    return {{ data: new TextEncoder().encode('from the page'), metadata: {metadata} }};
+  }},
+  async contains(key) {{ return key === 'mem/greeting.txt'; }},
+}})"#
+    ))
+}
+
+/// Evaluates `query` against a fresh global environment whose `mem` prefix is `store`.
+async fn evaluate_over(store: js_sys::Object, query: &str) -> Result<JsValue, liquers_core::error::Error> {
+    common::fresh();
+    register_store_object_on("page", store).expect("register store object");
+    configure_store_on(js_store_config("mem", "page")).expect("configure");
+    let result = common::eval_to_js(query).await;
+    reset_global();
+    result
+}
+
+/// AC-1: metadata without a `status` no longer makes the asset layer refuse the bytes.
+#[wasm_bindgen_test]
+async fn store07_js_store_with_partial_metadata_evaluates() {
+    let text = evaluate_over(
+        page_store("{ media_type: 'text/plain' }"),
+        "-R/mem/greeting.txt/-/to_text",
+    )
+    .await
+    .expect("a page store's resource must evaluate");
+    assert_eq!(text.as_string().as_deref(), Some("from the page"));
+}
+
+/// AC-2: no metadata at all evaluates the same way, and the record is seeded from the key.
+#[wasm_bindgen_test]
+async fn store07_js_store_without_metadata_evaluates() {
+    let text = evaluate_over(page_store("undefined"), "-R/mem/greeting.txt/-/to_text")
+        .await
+        .expect("a page store's resource must evaluate");
+    assert_eq!(text.as_string().as_deref(), Some("from the page"));
+
+    let store = JsStore::new(&key("mem"), "page", page_store("{ media_type: 'text/plain' }"))
+        .expect("construct");
+    let (_, metadata) = store.get(&key("mem/greeting.txt")).await.expect("get");
+    let Metadata::MetadataRecord(record) = metadata else {
+        panic!("a partial object must become a record");
+    };
+    assert_eq!(record.key, Some(key("mem/greeting.txt")), "the key is seeded");
+    assert_eq!(record.filename.as_deref(), Some("greeting.txt"), "so is the filename");
+    assert_eq!(record.data_format.as_deref(), Some("txt"), "and the format follows it");
+}
+
+/// AC-3: a status the page declares is kept, so a stored `Error` is still not reused.
+#[wasm_bindgen_test]
+async fn store07_js_store_declared_error_status_is_kept() {
+    let result = evaluate_over(
+        page_store("{ media_type: 'text/plain', status: 'Error' }"),
+        "-R/mem/greeting.txt/-/to_text",
+    )
+    .await;
+    assert!(
+        result.as_ref().map(|v| v.as_string()).ok().flatten().as_deref() != Some("from the page"),
+        "a declared Error must not be served as a value: {result:?}"
+    );
+}
+
+/// AC-4: bytes a page writes through the store with empty metadata evaluate afterwards.
+#[wasm_bindgen_test]
+async fn store07_js_store_page_write_evaluates() {
+    common::fresh();
+    register_store_object_on("full", object(FULL_STORE)).expect("register store object");
+    configure_store_on(js_store_config("mem", "full")).expect("configure");
+
+    let written = global_store().expect("store").set(
+        "mem/note.txt",
+        b"written by the page",
+        js_sys::Object::new().into(),
+    );
+    wasm_bindgen_futures::JsFuture::from(written)
+        .await
+        .expect("the write must succeed");
+
+    let text = common::eval_to_js("-R/mem/note.txt/-/to_text")
+        .await
+        .expect("a page write must evaluate");
+    assert_eq!(text.as_string().as_deref(), Some("written by the page"));
+    reset_global();
+}
