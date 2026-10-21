@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: L
 area: [core/commands, macro, lib/ui]
-design: variadic-arguments-declaration
+design: composite-variadic-arguments
 created: 2026-08-25
 github:
 ---
@@ -62,3 +62,15 @@ direction variadic arguments may take once flat lists work: "In the future, vari
 support types combining multiple values — tuples, key-value pairs (allowing to specify
 dictionaries). Such complex arguments also would require specific gui elements." Recorded so the
 flat-list design does not foreclose it.
+
+## Triage 2026-10-20
+
+Still true at HEAD (18732dd). `ArgumentType` (`command_metadata.rs` ≈172) has no composite variant.
+`variadic_element_type` (`liquers-macro/src/registration.rs` ≈541) only peels `Vec<T>`, and no
+`FromParameterValue` impl exists for a tuple, so `Vec<(String, String)> multiple` does not compile.
+Nested `MultipleParameters` is still refused in `plan.rs` `pop_value`, `commands.rs`
+`convert_multiple_element` and `FromParameterValue<Vec<V>>`. No in-repo command pairs elements by
+hand today. The origin design `design/variadic-arguments-declaration/` is complete; this feature is
+now designed in `design/composite-variadic-arguments/` (needs-decision: a flat query, a
+`Tuple` argument type, grouping at retrieval; the first question is whether to build it before a
+command needs it).

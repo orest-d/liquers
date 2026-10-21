@@ -45,6 +45,22 @@ commands were delivered by `specs/design/liquers-web/` (`registerCommand`), and 
 browser store adapters. Browser `-R/` evaluation was subsequently unblocked by the fixes recorded
 in `CORE-IMMEDIATE-MANAGER-KEYED-RECURSION` and `IMMEDIATE-MANAGER-NO-FAST-TRACK`.
 
+## Re-checked at HEAD (2026-10-20): persists
+
+No IndexedDB code exists in `liquers-web/src/` (the only mention is a forward reference in
+`environment.rs`, explaining why `configureStore` returns a `Promise`). The `design:` field points at
+`liquers-web-store`, which is `complete`; the IndexedDB store needs a design of its own, which
+should replace that link when it is created.
+
+## Problem Example
+
+```javascript
+await env.configureStore({ stores: [{ type: 'indexeddb', prefix: 'db', config: { database: 'app' } }] });
+// today:    refused — no factory claims the type `indexeddb`
+// expected: a store with the full contract (directories, binary round trip, data-only access)
+//           that survives a reload and is not limited by localStorage's quota
+```
+
 ## Discovery
 
 Migration triage, 2026-08-08. Source: the *async-wasm-refactor follow-ups* section of `specs/archive/2026-08-08-issues.md`. Verified against HEAD — see

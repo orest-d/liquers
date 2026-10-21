@@ -66,6 +66,25 @@ an optional rendered `traceback` string (`Error::with_traceback`), which reaches
 and the axum error body. What remains here is the exception class and having `liquers-web` and
 `liquers-py` fill the traceback on the way in instead of appending the stack to `message`.
 
+## Re-checked at HEAD (2026-10-20): partly — `liquers-py` done, `liquers-web` not
+
+- **Core:** `Error::traceback: Option<String>` and `Error::with_traceback` exist
+  (`liquers-core/src/error.rs`). Done.
+- **`liquers-py`:** puts the class in `message` and the formatted stack in `traceback`
+  (`liquers-py/src/error.rs` `pyerr_to_error`). Done, by owner decision.
+- **`liquers-web`:** still appends the stack to `message` (`js_error_to_liquers` in
+  `liquers-web/src/error.rs`, the `if let Some(s) = stack` block) and never sets `traceback`; the
+  `LiquersError` class has no `traceback` getter, and `jsClass` / `jsStack` stay `null` on the
+  evaluation path. This is the remaining work: move the frames into `traceback`, expose it on
+  `LiquersError` (and in the `.d.ts`), decide what `jsClass` / `jsStack` become, and make `ERROR03`
+  assert `traceback` on the evaluation path.
+
+## Problem Example
+
+A command `run: () => { throw new TypeError('bang') }`, evaluated: today the rejection's `message`
+is `"TypeError: bang\n    at run (...)\n ..."` and `traceback` is not exposed; expected (the
+`liquers-py` route) `message` is `"TypeError: bang"` and `traceback` holds the frames.
+
 ## Related (2026-10-19)
 
 `liquers-py` follows the same route as `liquers-web`: the Python class goes in the message and the

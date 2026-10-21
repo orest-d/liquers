@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: S
 area: [core/value]
-design:
+design: core-value-json-identifier-dispatch
 created: 2026-10-19
 github:
 ---
@@ -49,3 +49,13 @@ fallback only for an empty identifier and the genuinely shape-typed ones (`None`
 
 Found 2026-10-19 while designing `specs/design/py-value-serializer/`, which delegates liquers-py's
 codec to core's and needed to know which round trips core actually provides.
+
+## Update 2026-10-20 — confirmed at HEAD, designed
+
+Still reproduces: the `"json"` arm of `Value::deserialize_from_bytes` (`liquers-core/src/value.rs`)
+dispatches only `F64` and `Bytes`; the file's last change (`8fde04a`) did not touch it. One
+correction to the table above: `Key` is a newtype over `Vec<ResourceName>`, so it serializes as an
+array and reads back as `Array`, not `Object`. Design: `specs/design/core-value-json-identifier-dispatch/`
+(every core identifier read as its own payload; the untagged parse kept for an empty or foreign
+identifier). `liquers-lib`'s `SimpleValue` has the mirror defect for `I32`, filed separately as
+`SIMPLE-VALUE-I32-JSON-READS-BACK-AS-I64`.

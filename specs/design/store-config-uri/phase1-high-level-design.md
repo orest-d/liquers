@@ -1,32 +1,14 @@
-For [`issues/STORE-CONFIG-FROM-URI.md`](../../issues/STORE-CONFIG-FROM-URI.md). Nothing here is
-implemented.
+# Phase 1: High-Level Design — Configuring a store from a URI
 
-# Phase 1 — High-level design
+## Purpose
 
-## Problem and evidence
+Let a store entry be written as one URI — `s3://my-bucket/datasets?region=eu-central-1` — instead of
+a `type` plus a `config` map, for the cases where a URI is the natural unit: a command-line flag, a
+single-store quick start, an environment variable. Serves `VISION.md` priority area 3 (more storage
+backends through the store factory model) by making the backends OpenDAL already provides reachable
+in the form people copy from cloud tooling.
 
-A store entry is written as a `type` plus a `config` map. There is **no URI support of any kind** in
-`liquers-store`: `StoreConfig` (`liquers-store/src/config.rs:39`) carries `store_type`, `prefix`,
-`config` and `metadata`, and `create_opendal_store` (`store_builder.rs:190`) builds a backend from
-`config_as_string_map()` through `Operator::via_iter(scheme, pairs)`. No code path anywhere accepts a
-URI.
-
-The capability exists one layer down and is unexposed. Verified against OpenDAL 0.55:
-
-```
-s3://probe-bucket/data?region=eu-central-1&allow_anonymous=true  ->  name=probe-bucket root="/data/"
-via_iter("s3", {bucket, root, region, allow_anonymous})          ->  name=probe-bucket root="/data/"
-```
-
-Identical operators. `Configurator::from_uri` is implemented by **61 of 62** service configs, though
-`Operator::from_uri`'s own registry resolves only **10** schemes.
-
-The ergonomic gap is real: `s3://my-bucket/datasets?region=eu-central-1` is one line that people
-already copy from AWS tooling, against four lines of YAML that must be assembled by hand.
-
-## Expected behaviour and acceptance criteria
-
-A store entry may be written as a URI **instead of** a type and its arguments:
+## Problem Example
 
 ```yaml
 stores:
@@ -34,69 +16,117 @@ stores:
     prefix: remote
 ```
 
-1. `uri` and `type` are **mutually exclusive**; exactly one is present, and a document with both is
-   an error naming both.
-2. `prefix` is orthogonal and works with either form.
-3. A URI entry and the equivalent `type` + `config` entry produce the same store.
-4. Scheme resolution goes through the **Liquers factory chain**, never OpenDAL's registry, so
-   first-wins ordering decides which factory serves a scheme exactly as it decides a store type.
-5. A scheme no factory in the chain claims is an error listing the schemes the chain does support —
-   the URI analogue of the unclaimed-store-type error.
-6. `${VAR}` expansion keeps working, and a secret containing `&`, `=` or `/` survives it.
+Today: `StoreConfig` (`liquers-core/src/store_config.rs`) has no `uri` field, and it is not
+`deny_unknown_fields`, so the key is **silently dropped**; the entry then has an empty `type`, no
+factory resolves it, and the build fails with `Unknown store type ''`. Should be: the entry builds
+the same store as
 
-## Scope and non-goals
+```yaml
+  - type: s3
+    prefix: remote
+    config: { bucket: my-bucket, root: datasets, region: eu-central-1 }
+```
 
-**In scope:** a `uri` field on a store entry; scheme-to-store-type mapping; routing a URI entry
-through the existing chain; the error paths above; and the compatibility audit of
-`store-factories-in-core` that is this design's second purpose.
+The capability exists one layer down: OpenDAL 0.55's `OperatorUri::new` plus a service
+`Configurator::from_uri` build an identical operator (`s3_01_arguments_and_uri_agree`,
+`liquers-store/src/store_factory.rs`, already proves the equality through `Operator::from_uri`).
 
-**Non-goals.** Replacing `type` + `config`, which stays the primary and the only sensible form for a
-backend with many arguments — S3 has 26. Exposing `Operator::from_uri` directly. A URI form for
-`prefix` or for the router as a whole. Credentials-in-URI as a recommended practice.
+## Scope and Acceptance Criteria
 
-## Affected systems
+- **AC-1** Equivalent spellings
+  WHEN an entry has `uri: s3://probe-bucket/data?region=eu-central-1` and a prefix
+  THEN it builds a store with the same prefix, bucket name and root as the equivalent `type: s3`
+  entry with a `config:` map
+- **AC-2** Exactly one of `type` and `uri`
+  WHEN an entry has both `type` and `uri`, or neither
+  THEN the build fails with a configuration error naming the entry's prefix and the two fields
+- **AC-3** Resolution through the factory chain
+  WHEN two factories in a chain both declare a scheme
+  THEN the first in the chain builds the entry, exactly as for a `type:` entry, and OpenDAL's own
+  operator registry is never consulted
+- **AC-4** Unclaimed scheme
+  WHEN no factory in the chain resolves the URI's scheme
+  THEN the build fails with an error naming the scheme and listing the schemes the chain declares
+- **AC-5** Core types have schemes
+  WHEN an entry has `uri: file:///srv/data` or `uri: memory://`
+  THEN core's `filesystem` (rooted at `/srv/data`) or `memory` store is built; `fs://` still means
+  OpenDAL's `fs` service
+- **AC-6** Variables and secrets
+  WHEN an entry has `uri: s3://${BUCKET}/data?region=${REGION}` with `REGION` set to a value
+  containing `&` or `=`, and `config: { secret_access_key: ${SECRET} }`
+  THEN the substituted values reach the service unchanged, and the `config:` values are applied as
+  well, overriding a query parameter of the same name
+- **AC-7** Service without a URI form
+  WHEN the URI names an OpenDAL service whose configuration cannot be read from a URI
+  THEN the build fails with a not-supported error that tells the user to write `type` + `config`
 
-**Store.** The configuration format gains a field; `StoreRouterBuilder` gains a normalization step
-before dispatch. **Query, Commands, Assets, UI:** unaffected — this is configuration, not evaluation.
-**Bindings:** `liquers-web` benefits without change, since it consumes `StoreRouterConfig`; a browser
-page could configure `localstorage://ns` once the browser factory declares a scheme.
+Non-goals: replacing `type` + `config` (still the primary form; S3 has 26 arguments); exposing
+`Operator::from_uri`; a URI for the whole router or for `prefix`; schemes for the browser store
+types (`localstorage://`), which `liquers-web` can declare later without a design change;
+credentials inside a URI as a recommended practice.
 
-## Compatibility constraints
+## Core Interactions
 
-Backwards compatibility is **not** a constraint at this stage (maintainer decision), so the Liquers
-store-type namespace and OpenDAL's scheme namespace may be harmonized where that reduces surprise.
-They are **not merged**: a scheme is OpenDAL's vocabulary and a store type is ours, so a mapping
-remains even where the two names coincide.
+- **Store configuration:** `StoreConfig` gains `uri`; `StoreTypeInfo` gains `uri_schemes`; the
+  router builder checks exclusivity and expands variables in the URI.
+- **Store factories:** the default `StoreFactory::resolve` and `StoreTypeMap::resolve` also match a
+  URI's scheme against declared schemes; `OpendalStoreFactory` resolves and builds from a URI;
+  `ChainedStoreFactory` reports an unclaimed scheme.
+- **Store backends:** core's `filesystem` constructor reads its root from a `file://` URI.
+- Query, commands, assets, value types, bindings: untouched (`liquers-web` consumes
+  `StoreRouterConfig` and gains the field without change).
 
-The binding constraint is the other direction: this design must not require a change to
-[`design/store-factories-in-core/`](../store-factories-in-core/), which is at its own approval gate.
-Phase 2 audits that explicitly.
+## Crate Placement
 
-## Open questions
+`liquers-core` (`store_config.rs`, `store_factory.rs`) for the field, the scheme declaration, the
+default resolution, exclusivity, variable expansion and the two core schemes: configuration and the
+factory model live in core. `liquers-store` (`store_factory.rs`) for the OpenDAL half: interpreting a
+URI is backend knowledge — the authority means a bucket for `s3`, a host for `ftp`, nothing for
+`fs` — so it belongs in the factory that owns the backend.
 
-1. **Does core's `filesystem` claim `fs://`?** Harmonization argues yes; Phase 2 argues no, and the
-   reason is the sharpest finding here — see the `fs://` trap.
-2. **Where does `${VAR}` expansion happen** — on the URI string before parsing, or per value after?
-   Phase 2 recommends after.
-3. **Do the browser store types get schemes** (`localstorage://`, `js://`)? Desirable, not required.
-4. **Is `uri` also accepted at the router level** as a one-store shorthand? Out of scope; noted
-   because a CLI flag is the most natural home for a URI.
+## Documentation Intent
 
-## Documentation assessment
+- Reference: extend `specs/reference/STORE_CONFIG_FSD.md` — the `uri` field, the exclusivity rule,
+  the scheme table (generated from `uri_schemes`), variable expansion in a URI.
+- Guide: extend `specs/guides/STORE_CONFIG_GUIDE.md` with a short "one store from a URI" task that
+  keeps secrets in `config:`, and `specs/guides/STORE_IMPLEMENTATION_GUIDE.md` with "declare a URI
+  scheme" for a factory author.
+- Other documents: none.
 
-Small maintenance: `specs/reference/STORE_CONFIG_FSD.md` gains the `uri` field, the scheme mapping
-table and the exclusivity rule. Potentially substantive, to revisit at Phase 5: whether the
-scheme-to-type mapping deserves its own section rather than a table, and whether
-`STORE_FACTORY_GUIDE.md` (created by `store-factories-in-core`) needs a "declare a URI scheme"
-task.
+## Design Readiness
 
-## Critical review
+- **Readiness:** needs-decision
+- **Automatic fixing:** not-eligible — a new public field on two structs, a new configuration form
+  and a change to the default trait method (rules 3 and 4).
+- **Leading issue:** **Open design - variables in a URI:** where `${VAR}` is expanded.
+- **Explanation:** the 2026-08-29 audit's one hard requirement — `StoreFactory::resolve(&StoreConfig)`
+  in place of `claims(&str)` — has landed with `store-factories-in-core`, as has `#[serde(default)]`
+  on `store_type`. What remains is additive. Re-reading OpenDAL showed that the earlier
+  recommendation for variables (expand per value after parsing) cannot be implemented without
+  re-implementing every service's `from_uri`, so it is re-opened. Phases 3-4 assume the
+  recommendations below.
+- **Open questions:**
+  1. **Open design - variables in a URI:** expand `${VAR}` on the URI string, percent-encoding each
+     substituted value (recommended: `OperatorUri::new` percent-decodes the path and query, so any
+     value round-trips, and expansion stays in the builder), or forbid `${VAR}` in `uri` and require
+     `config:` for anything variable.
+  2. **Open design - `config:` beside `uri`:** allowed, applied as OpenDAL's extra options that
+     override a query parameter of the same name (recommended: it is the documented home for
+     secrets and for arguments too long for a query string), or forbidden.
+  3. **Proposed resolution - filesystem scheme:** core's `filesystem` declares `file://`, OpenDAL's
+     `fs` keeps `fs://`; `memory://` is core's `memory` by chain order.
+  4. **Proposed resolution - `type` with `uri`:** mutually exclusive (the scheme is the type); can be
+     relaxed later additively if a URI ever needs disambiguating.
+  5. **Proposed resolution - dispatch:** `uri_schemes` feeds the default `resolve` (one mechanism,
+     overridable), instead of being documentation only as the 2026-08-29 draft had it.
+  6. **Open design - parsing in core:** a narrow hand-written `scheme://authority/path?query` parser
+     with percent-decoding for the two core schemes (recommended: core stays dependency-light), or
+     the `url` crate, already in `Cargo.lock` through OpenDAL.
 
-- **Duplication:** none. No existing mechanism accepts a URI.
-- **Scope:** narrow and testable; every criterion above is assertable offline, since OpenDAL
-  construction is verified not to touch the network.
-- **Architecture fit:** the unified-URI direction *reinforces* the layered design rather than
-  cutting across it — resolution stays inside the Liquers chain, and the store type remains the
-  dispatch key.
-- **Blocking unknowns:** none. Question 1 is a recommendation Phase 2 makes and the gate can
-  overrule; 2–4 do not block.
+## Design Dependencies
+
+- `store-factories-in-core` (complete) — **requires**, satisfied: `resolve`, `ChainedStoreFactory`
+  first-wins and the defaultable `store_type` are at HEAD.
+- `store-conformance-check-tool` — **overlaps**, weak: its `--store` picks a mount by name today; a
+  later `--store s3://…` would use this form.
+- `store-conditional-write`, `metadata-application-attributes` — no overlap.

@@ -1,16 +1,48 @@
 ---
 id: COMMAND-METADATA-ENHANCEMENTS
 kind: feature
-title: Command metadata lacks enums, specialization and IO typing
+title: Global enums cannot be registered, checked or versioned
 status: accepted
 priority: P2
-complexity: L
-area: [core/commands, macro]
-design:
+complexity: M
+area: [core/commands, core/validate]
+design: global-enum-registration
 created: 2026-08-08
 github:
 ---
 # COMMAND-METADATA-ENHANCEMENTS
+
+## Re-scoped 2026-10-20 (bulk design)
+
+This was an umbrella over four milestones. Checked at HEAD (18732dd), they stand as follows:
+
+| Milestone | State at HEAD | Now tracked by |
+|---|---|---|
+| 1. Enum schema, local | **Done.** `EnumArgument` / `ArgumentType::Enum` (`liquers-core/src/command_metadata.rs`), the `register_command!` `enum:` syntax with typed values, `others: true` and GUI defaults (`liquers-macro/src/registration.rs` `EnumParameterSpec`), plan-time alias expansion (`plan.rs` `ParameterValue::from_string`, `Enum` arm), documented in `REGISTER_COMMAND_FSD.md` §Parameter Metadata. `ns-img/resize`'s `method` is one in use | — |
+| 1. Enum schema, global | **Partly.** `ArgumentType::GlobalEnum`, `CommandMetadataRegistry::global_enums`, `get_global_enum`, `enum_ref:` and plan-time resolution exist. Missing: a registration method, any check of a reference (a typo surfaces only when a query plans), validation of the enum itself, and a metadata version that follows the enum's content | **this issue**, `design/global-enum-registration/` |
+| 2. Dynamic enum providers | Not started (`// TODO: support for dynamic global enums`) | `COMMAND-ENUM-ALTERNATIVES-CANNOT-BE-COMPUTED` |
+| 3. Specialization | Not started (`//TODO: implement command specialization by type`) | `COMMAND-SPECIALIZATION-BY-INPUT-TYPE-MISSING` |
+| 4. Input/output typing | Not started | `COMMAND-INPUT-OUTPUT-TYPES-ARE-UNDECLARED` |
+
+So this issue is now the global-enum remainder of milestone 1: complexity `M` (one crate,
+`liquers-core`), title changed accordingly. Related gaps filed at the same time:
+`GLOBAL-ENUMS-NOT-IMPORTED-BY-LANGUAGE-INTEGRATIONS`, `ENUM-ALTERNATIVES-HAVE-NO-LABEL`. The old
+sourceless draft `design/register-command-enum/` designed the `enum:` / `enum_ref:` DSL, which has
+shipped.
+
+### Problem example
+
+```rust
+cr.command_metadata_registry.global_enums.insert("img.method".into(), method_enum); // only way in
+register_command!(cr, fn shrink(state, method: String (enum_ref: "img.methd")) -> result)?; // typo
+builder.build()?;                         // succeeds
+envref.evaluate("shrink-nearest").await;  // fails only here: "Global enum img.methd not defined"
+```
+
+Expected: a registration method that validates the enum, a `build` error naming `shrink`,
+`method` and `img.methd`, and cached results invalidated when the enum's alternatives change.
+
+## Original text (2026-08-08)
 
 
 ## Summary

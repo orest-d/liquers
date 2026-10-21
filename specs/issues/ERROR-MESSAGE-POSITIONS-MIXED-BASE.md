@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: M
 area: [records, core/query]
-design:
+design: one-based-error-positions
 created: 2026-10-10
 github:
 ---
@@ -24,6 +24,14 @@ User-facing error messages number positions inconsistently. Command-argument num
 - **Rust API indices.** `column index {col} out of range (0..{n})`, `Column::take: index {idx}`,
   `ColumnMut::set: row {row}` and siblings in `column.rs`, `mutable.rs`, `views.rs`, `batch.rs` and
   `liquers-web/src/records.rs` echo the 0-based index the caller passed, with a 0-based range.
+
+## Problem Example
+
+Reproduced at HEAD (18732dd, 2026-10-20). An NDJSON file whose first object has `null` in a
+non-nullable `name` column, read with a declared schema, fails with
+`read_table: record 0, column 'name': null is not allowed (not nullable)`; the same row as CSV
+reports `CSV line 2`. `escape::decode_token("ab:c")` reports `':' at offset 2` (0-based bytes), while the
+parser reports the colon of the query `f-ab:c` at `(line 1, column 5)` (1-based).
 
 ## Impact
 

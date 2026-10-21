@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: L
 area: [core/value, lib/value, lib/commands, macro]
-design:
+design: data-format-vocabulary
 created: 2026-08-18
 github:
 ---
@@ -167,3 +167,23 @@ once they exist. Concretely, for this feature's generic serde path (point 3):
   `yaml` gave "Unsupported format yaml".
 - An untagged core `Value` gains nothing from a self-describing format: inside a container it still
   needs a tagged form (as `SimpleValue` uses) to tell `F64(NaN)` from `None`.
+
+## Update 2026-10-20 — confirmed at HEAD, first slice designed
+
+Still open at HEAD. Evidence: `TEXTUAL` is still a local const in `Value::type_descriptions`
+(`liquers-core/src/value.rs`); `SimpleValue` now writes the same text formats as core
+(`simple-value-serializer-parity`), but still reads `toml`, `yaml` and `yml` without declaring or
+writing them; the alias sets of the table codecs disagree (`polars.DataFrame` declares `csv_comma`
+and parses `csv_pipe`, `RecordView` neither; records accept `arrow`, polars does not);
+`liquers-validate` returns `Ok` with no warning for `-R/data/sales.csv/-/ns-pl/head-5/data.jsonn`;
+`abc/x-csv:comma` still fails to parse, so a refinement is unwritable in a query.
+
+Design: `specs/design/data-format-vocabulary/`, merged with
+`TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS` (maintainer decision D8). It delivers points 1-2 of
+the expected behaviour and write-only formats. It proposes (its question 1, a maintainer decision)
+to move the rest to separate items, filed 2026-10-20:
+
+- point 3, the generic serde path → `SERDE-TYPES-HAVE-NO-GENERIC-DATA-FORMATS`;
+- point 4, a command that chooses the format, with its refinement → `QUERY-CANNOT-CHOOSE-A-DATA-FORMAT`;
+- point 5, a fast binary format → `NO-COMPACT-BINARY-DATA-FORMAT`;
+- point 6, macro alignment → the existing `VALUE-TYPE-DEFINITION-MACRO`.

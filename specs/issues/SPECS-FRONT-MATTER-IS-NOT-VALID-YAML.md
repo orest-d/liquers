@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: S
 area: [docs]
-design: agent-memory-mvp
+design: front-matter-yaml-agreement
 created: 2026-10-19
 github:
 ---
@@ -27,6 +27,16 @@ have such a `title:` (line 3):
 - `specs/issues/EVALUATION-SESSION-VOLATILE-TEST-INTERMITTENT.md`
 - `specs/issues/MACRO-QUERY-VALIDATION-AND-HINTS.md`
 - `specs/issues/REGISTER-COMMAND-PAYLOAD-STATEMENT-UNDOCUMENTED.md`
+
+Rechecked at main 18732dd (bulk design, 2026-10-20): `yaml.safe_load` still rejects exactly these
+nine. Found by the completed design `agent-memory-mvp`; designed in `front-matter-yaml-agreement`.
+
+## Problem Example
+
+`title: Store guide status table: generator or honest hand maintenance` passes
+`docs_index.py --check` but YAML fails with "mapping values are not allowed here". Quoting it
+today would put the quotes into `index.csv`, because `parse_front_matter` does not unquote — the
+fix needs both halves.
 
 ## Impact
 
