@@ -3,7 +3,7 @@ title: Liquers Web API Specification
 kind: reference
 audience: internal
 area: [axum, web]
-reviewed: 2026-10-17
+reviewed: 2026-10-20
 ---
 # Liquers Web API Specification
 
@@ -398,6 +398,7 @@ nothing live has produced anything yet):
 | `Directory` | any | 409 `StatusConflict`, naming `key/removedir` | — |
 | any other | no | deleted: live asset, dependency-graph entry and stored entry; dependents expired | `None` |
 | `Source`, `Override` | yes | the user value is deleted, as above; the key falls back to its recipe | `Recipe` |
+| stored with no status and no version | yes | as `Override` | `Recipe` |
 | computed (`Ready`, `Expired`, `Error`, `Cancelled`, `Volatile`, `Partial`, in flight) | yes | the value is dropped; the stored record is kept as `Recipe` with its version; dependents are **not** expired | `Recipe` |
 | none, or stored `Recipe` | yes | nothing to do | `Recipe` |
 | nothing live, nothing stored | no | 404 `KeyNotFound` | — |
@@ -691,6 +692,7 @@ Not available at HEAD; listed so that no reader mistakes them for features:
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-20 | Asset removal: an entry stored with no status and no version is removed under a recipe as an `Override`. | phase-5 (`design/js-store-page-metadata-status/`) |
 | 2026-10-17 | §1, §7, Appendix A: the Query API route is `{base}/{*query}`, so a base without a trailing `/` no longer leaves a leading `/` on the query; every builder ignores a trailing `/` on its base. `AXUM-QUERY-API-QUERY-KEEPS-LEADING-SLASH` and `AXUM-API-BASE-WITH-TRAILING-SLASH-DOUBLES-THE-SEPARATOR` closed. | `design/axum-query-api-base-slash/` |
 | 2026-10-12 | §2.4: a `GET`'s body is ignored; only `POST` carries body overrides (Codex review of PR #125). | review fix |
 | 2026-10-12 | §7: the timeout answer carries `x-liquers-managed`, and with overrides its message points to a `ws/q` subscribe with `arguments` (Codex review of PR #125). | review fix |

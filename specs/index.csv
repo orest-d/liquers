@@ -190,7 +190,7 @@ INLINE-RUN-CLAIM-REPAIR-SKIPPED-UNDER-LOCK-CONTENTION,issue,A dropped inline run
 IPC-READER-CANNOT-READ-ANY-POLARS-STRING-COLUMN,issue,The Arrow IPC reader cannot read a String/Binary column from any polars IpcWriter setting,draft,local,,needs-decision,not-eligible,P2,M,records,,,,ipc-reader-polars-text-columns,,2026-09-27,specs/issues/IPC-READER-CANNOT-READ-ANY-POLARS-STRING-COLUMN.md
 ISSUE-REPORT-PLAN-AND-METADATA-LOGGING,feature,Reuse structured issue reports for plan validation and metadata logging,draft,local,,needs-decision,not-eligible,P3,M,core/validate;core/plan;core/commands,,,,diagnostics-carry-their-origin,,2026-09-05,specs/issues/ISSUE-REPORT-PLAN-AND-METADATA-LOGGING.md
 JS-COMMAND-CANNOT-ACCESS-CONTEXT,feature,A JavaScript command cannot access the execution context,draft,local,,,,P2,M,web;core/commands,,,,,,2026-08-29,specs/issues/JS-COMMAND-CANNOT-ACCESS-CONTEXT.md
-JS-STORE-RESOURCE-NOT-FOUND-WITHOUT-A-RECIPE,issue,"A resource served by a page-implemented js store fails with ""No recipe found""",draft,local,,,,P2,S,web;core/assets,,,,,,2026-09-27,specs/issues/JS-STORE-RESOURCE-NOT-FOUND-WITHOUT-A-RECIPE.md
+JS-STORE-RESOURCE-NOT-FOUND-WITHOUT-A-RECIPE,issue,"A resource served by a page-implemented js store fails with ""No recipe found""",closed,local,,,,P2,S,web;core/assets,,,,js-store-page-metadata-status,,2026-09-27,specs/issues/JS-STORE-RESOURCE-NOT-FOUND-WITHOUT-A-RECIPE.md
 JS-STORE-WRAPPER-HAS-NO-EFFECTIVE-MEDIA-TYPE,issue,A page can read a key's declared metadata but not its effective media type,closed,local,,ready,not-eligible,P3,S,web,,,,js-store-effective-media-type,,2026-09-30,specs/issues/JS-STORE-WRAPPER-HAS-NO-EFFECTIVE-MEDIA-TYPE.md
 KEYED-EXPIRY-DOES-NOT-CASCADE-TO-KEYED-DEPENDENTS,issue,Expiring a computed keyed asset never invalidates the keyed assets that depend on it,closed,local,,,,P1,L,core/assets,,,,keyed-expiry-cascade-fix,,2026-09-04,specs/issues/KEYED-EXPIRY-DOES-NOT-CASCADE-TO-KEYED-DEPENDENTS.md
 LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT,issue,Language exception class and stack are lost in transport,accepted,local,,,,P3,M,core/error;web;py,,,,,,2026-08-08,specs/issues/LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT.md
@@ -573,6 +573,7 @@ IPC-READER-POLARS-TEXT-COLUMNS,design,The Arrow IPC reader reads polars' text an
 ACTIVE-07,design,Design for WEB-JS-STORE-HAS-NO-DIRECTORY-METADATA,superseded,local,,,,P2,S,web;core/store,,,,js-store-directory-metadata,,2026-09-03,specs/design/js-store-directory-metadata/DESIGN.md
 JS-STORE-EFFECTIVE-MEDIA-TYPE,design,LiquersStore exposes getAssetInfo with effective media type,complete,local,,ready,not-eligible,P3,S,web,,,,js-store-effective-media-type,,2026-10-06,specs/design/js-store-effective-media-type/DESIGN.md
 ACTIVE-06,design,Design for WEB-JS-STORE-CANNOT-EXPRESS-KEY-NOT-FOUND,superseded,local,,,,P2,S,web;core/store,,,,js-store-not-found-sentinel,,2026-09-03,specs/design/js-store-not-found-sentinel/DESIGN.md
+JS-STORE-PAGE-METADATA-STATUS,design,Stored data without a status is loadable,complete,local,,,,P2,S,core/assets;web,,,,js-store-page-metadata-status,,2026-10-20,specs/design/js-store-page-metadata-status/DESIGN.md
 JSON-ORIENT-INDEX-COLUMN-COLLISION,design,A schema-less indexed JSON read does not let a data column named index overwrite the index,complete,local,,ready,eligible,P3,S,records,,107,,json-orient-index-column-collision,,2026-10-08,specs/design/json-orient-index-column-collision/DESIGN.md
 JSON-TABLE-COLUMN-ORDER,design,"Schema-less JSON reads use a stable, sorted column order",complete,local,,ready,not-eligible,P3,S,records,,,,json-table-column-order,,2026-10-06,specs/design/json-table-column-order/DESIGN.md
 KEY-WITHOUT-RECIPE-ANSWER,design,What a key answers when the store cannot serve it and no recipe makes it,in_review,local,implementation,needs-decision,not-eligible,P2,M,core/assets;core/error,,,,key-without-recipe-answer,,2026-10-20,specs/design/key-without-recipe-answer/DESIGN.md
@@ -775,7 +776,7 @@ DOC_04_ENVIRONMENT_CONTEXT_EVALUATION,reference,"Environment, Context and Evalua
 DOC_08_RECIPES_PLANS,reference,Recipes and Plans Reference,current,local,,,,,,core/plan;core/assets;core/context,,,,,2026-10-17,,specs/reference/api/DOC_08_RECIPES_PLANS.md
 ASSET_LIFECYCLE,reference,Asset Evaluation — Flows and Public Surface,current,local,,,,,,core/assets,,,,,2026-10-20,,specs/reference/ASSET_LIFECYCLE.md
 ASSET_SET_OPERATION,reference,Asset Set Operation Specification,current,local,,,,,,core/assets,,,,,2026-10-10,,specs/reference/ASSET_SET_OPERATION.md
-ASSETS,reference,Assets Specification,current,local,,,,,,core/assets,,,,,2026-10-17,,specs/reference/ASSETS.md
+ASSETS,reference,Assets Specification,current,local,,,,,,core/assets,,,,,2026-10-20,,specs/reference/ASSETS.md
 COMMAND_ALIASES,reference,Command Aliases,current,local,,,,,,core/commands;core/plan,,,,,2026-10-17,,specs/reference/COMMAND_ALIASES.md
 COMMAND_DECLARATION,reference,Command Declaration Format,current,local,,,,,,core/commands;web;py,,,,,2026-10-18,,specs/reference/COMMAND_DECLARATION.md
 CONFORMANCE_TERMS,reference,Conformance Terms,current,local,,,,,,docs,,,,,2026-09-02,,specs/reference/CONFORMANCE_TERMS.md
@@ -792,12 +793,12 @@ RECORD_STREAMS,reference,Record Streams,current,local,,,,,,records;lib/value;lib
 REGISTER_COMMAND_FSD,reference,register_command! Macro Functional Specification,current,local,,,,,,macro;core/commands,,,,,2026-10-12,,specs/reference/REGISTER_COMMAND_FSD.md
 SEARCH,reference,Search,current,local,,,,,,records;lib/commands,,,,,2026-10-17,,specs/reference/SEARCH.md
 STORE_CONFIG_FSD,reference,Store Configuration Functional Specification,current,local,,,,,,store/config,,,,,2026-10-15,,specs/reference/STORE_CONFIG_FSD.md
-STORE_SEMANTICS,reference,Store Behavioural Semantics,current,local,,,,,,core/store;store/backends;web,,,,,2026-10-16,,specs/reference/STORE_SEMANTICS.md
+STORE_SEMANTICS,reference,Store Behavioural Semantics,current,local,,,,,,core/store;store/backends;web,,,,,2026-10-20,,specs/reference/STORE_SEMANTICS.md
 TEMPLATE_LANGUAGE,reference,Template Language,current,local,,,,,,core/query;lib/commands,,,,,2026-10-17,,specs/reference/TEMPLATE_LANGUAGE.md
 UI_INTERFACE_FSD,reference,UI Interface Specification,overdue,local,,,,,,lib/ui,,,,,2026-03-02,,specs/reference/UI_INTERFACE_FSD.md
 VALUE_TYPE_SYSTEM,reference,Value Type System,current,local,,,,,,core/value;lib/value,,,,,2026-10-18,,specs/reference/VALUE_TYPE_SYSTEM.md
 VISION,reference,Liquers Vision and Strategy,current,local,,,,,,docs,,,,,2026-10-15,,specs/reference/VISION.md
-WEB_API_SPECIFICATION,reference,Liquers Web API Specification,current,local,,,,,,axum;web,,,,,2026-10-17,,specs/reference/WEB_API_SPECIFICATION.md
+WEB_API_SPECIFICATION,reference,Liquers Web API Specification,current,local,,,,,,axum;web,,,,,2026-10-20,,specs/reference/WEB_API_SPECIFICATION.md
 AGENT_MEMORY_MIGRATION_GUIDE,guide,Agent Memory Migration Guide,current,local,,,,,,lib/commands;docs,,,,,2026-10-19,,specs/guides/AGENT_MEMORY_MIGRATION_GUIDE.md
 ASSET_MANAGER_IMPLEMENTATION_GUIDE,guide,Asset Manager Implementation Guide,current,local,,,,,,core/assets,,,,,2026-10-18,,specs/guides/ASSET_MANAGER_IMPLEMENTATION_GUIDE.md
 autonomous_bulk_design,guide,Autonomous Bulk Design Procedure,current,local,,,,,,docs;build,,,,,2026-10-08,,specs/guides/autonomous_bulk_design.md

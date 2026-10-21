@@ -295,9 +295,9 @@ test.describe('STORE — the store surface, which is not blocked', () => {
   /**
    * The fetch store really fetches, through the real `Store` class in a real page.
    *
-   * This is what `STORE07` would assert if keyed evaluation worked: bytes from an HTTP server,
-   * reached through a configuration document, in a browser. Only the last hop — the asset manager
-   * — is missing.
+   * The store-surface half of `STORE07`: bytes from an HTTP server, reached through a
+   * configuration document, in a browser, without the asset manager. The `STORE07` tests above
+   * cover the evaluation half.
    */
   test('a configured fetch store serves bytes over HTTP', async ({ page }) => {
     const out = await page.evaluate(

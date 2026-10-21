@@ -8,9 +8,9 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 200
+Total rows: 199
 - P1: 2
-- P2: 63
+- P2: 62
 - P3: 135
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
@@ -24,7 +24,6 @@ Total rows: 200
 | [`WORKSPACE-SERDE-DERIVE-UNDECLARED`](issues/WORKSPACE-SERDE-DERIVE-UNDECLARED.md) | issue | Three crates use serde derive macros without declaring the `derive` feature | accepted | ready | not-eligible | P2 | S | build;core/value;lib/ui;axum | [design](design/serde-derive-feature-declared/DESIGN.md) | 2026-08-09 |
 | [`DEGRADED-STORED-VALUE-WITHOUT-RECIPE-REPORTS-NO-RECIPE`](issues/DEGRADED-STORED-VALUE-WITHOUT-RECIPE-REPORTS-NO-RECIPE.md) | issue | Evaluating a stored value this build cannot read fails with "No recipe found" instead of naming the type | draft | needs-decision | not-eligible | P2 | S | core/assets | [design](design/key-without-recipe-answer/DESIGN.md) | 2026-10-18 |
 | [`YAML-SCHEMA-FILE-CANNOT-BE-LINKED-AS-SCHEMA-TEXT`](issues/YAML-SCHEMA-FILE-CANNOT-BE-LINKED-AS-SCHEMA-TEXT.md) | issue | A plain .yaml schema file cannot be linked into to_record's schema argument | draft | needs-decision | not-eligible | P2 | S | records;lib/value | [design](design/schema-argument-structured-link/DESIGN.md) | 2026-10-20 |
-| [`JS-STORE-RESOURCE-NOT-FOUND-WITHOUT-A-RECIPE`](issues/JS-STORE-RESOURCE-NOT-FOUND-WITHOUT-A-RECIPE.md) | issue | A resource served by a page-implemented js store fails with "No recipe found" | draft |  |  | P2 | S | web;core/assets |  | 2026-09-27 |
 | [`QUERY-TOKEN-CLASSES-TRUNCATE-NON-ASCII`](issues/QUERY-TOKEN-CLASSES-TRUNCATE-NON-ASCII.md) | issue | Action names, filenames and header values accept non-ASCII characters by low-byte truncation | draft |  |  | P2 | S | core/query |  | 2026-10-21 |
 | [`WEB-EVALUATE-RESOLVES-FAILED-ASSET-AS-NULL`](issues/WEB-EVALUATE-RESOLVES-FAILED-ASSET-AS-NULL.md) | issue | liquers-web's evaluate resolves a failed command's asset to null instead of rejecting | draft |  |  | P2 | S | web |  | 2026-10-18 |
 | [`INLINE-RUN-CLAIM-REPAIR-SKIPPED-UNDER-LOCK-CONTENTION`](issues/INLINE-RUN-CLAIM-REPAIR-SKIPPED-UNDER-LOCK-CONTENTION.md) | issue | A dropped inline run leaves its asset Processing forever when the asset lock is busy at drop time | draft | ready | eligible | P2 | M | core/assets | [design](design/inline-run-claim-repair-under-lock-contention/DESIGN.md) | 2026-10-19 |

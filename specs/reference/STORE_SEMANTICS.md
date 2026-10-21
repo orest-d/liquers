@@ -3,7 +3,7 @@ title: Store Behavioural Semantics
 kind: reference
 audience: internal
 area: [core/store, store/backends, web]
-reviewed: 2026-10-16
+reviewed: 2026-10-20
 ---
 # Store Behavioural Semantics
 
@@ -386,6 +386,12 @@ calling `finalize_metadata` on the record it persists, or the function directly.
 went through `finalize_metadata` (OpenDAL, `LocalStorageStore`) did this, so `AsyncMemoryStore`
 reported `application/octet-stream` for the example above.
 
+**A store may return data whose record carries no status.** Seeding fills the filename and data
+format, not the status: `AsyncMemoryStore`, `AsyncFileStore` and `JsStore` keep a caller's status as
+given, and a page-implemented store may answer with no status at all. The asset layer reads such a
+record as a file with no metadata (`ASSETS.md`, "Content changed outside Liquers"), so a store need
+not invent one.
+
 *Enforced by:* `seed01`, `seed02`.
 
 ## 11. Data-only access
@@ -639,6 +645,7 @@ commits. So:
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-20 | §10: a store may return data whose record has no status; the asset layer reads it as a file with no metadata. | phase-5 (`design/js-store-page-metadata-status/`) |
 | 2026-10-16 | §11: `LocalStorageStore` and `FetchStore` (read half) offer data-only access; `FetchStore::get_stored_metadata` returns its header-derived record. | `design/store-adapters/` phase-5 review |
 | 2026-10-16 | Introduction: Liquers assumes it is the only writer of a store's metadata while it runs (outside data edits are detected, outside metadata edits are not). §13: `created` falls back to the write time on a backend without modification times; the record cache's limit stated. | `design/store-adapters/` phase-5 review |
 | 2026-10-15 | §11–§16 added: data-only access and `DataCapabilities` per store; `ReadOnlyStore`; the metadata pipeline, storage models and their reserved names, enumerable record-only keys, the facts-keyed cache, `persist_defaults`, `created`/`etag` from backend facts, central storage and backups, record compatibility; handler stages and their error rules; write strategies, recovery on read and `sync`, the `Storing` marker not written under the pipeline; grouped-write guarantees (per-process locks only). Introduction names the adapters and suites `A1`–`A7`. | `design/store-adapters/` |

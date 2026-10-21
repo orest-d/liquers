@@ -395,6 +395,7 @@ deliberately folded behind a broader line.
 - design `inline-waiter-recovers-dropped-run`
 - design `ipc-reader-polars-text-columns`
 - design `js-store-effective-media-type`
+- design `js-store-page-metadata-status`
 - design `json-orient-index-column-collision`
 - design `json-table-column-order`
 - design `key-without-recipe-answer`

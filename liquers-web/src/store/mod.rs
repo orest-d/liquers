@@ -75,9 +75,17 @@ pub(crate) fn metadata_from_js_value(
         })?;
 
     // The complete-record path first: a caller returning metadata it got from Liquers keeps
-    // everything, including fields this helper does not know about.
-    if let Ok(record) = serde_json::from_str::<MetadataRecord>(&json) {
-        return Ok(Metadata::MetadataRecord(record));
+    // everything, including fields this helper does not know about. `MetadataRecord` defaults
+    // every field, so a partial object such as `{media_type: "text/plain"}` lands here too: a
+    // missing key and filename are seeded, as the overlay path below seeds them, and a declared
+    // one is kept.
+    if let Ok(mut record) = serde_json::from_str::<MetadataRecord>(&json) {
+        if record.key.is_none() {
+            record.key = Some(key.to_owned());
+        }
+        let mut metadata = Metadata::MetadataRecord(record);
+        liquers_core::store::seed_filename_from_key(&mut metadata, key);
+        return Ok(metadata);
     }
 
     // Otherwise, overlay the fields a page plausibly sets onto a default record.

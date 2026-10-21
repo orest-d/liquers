@@ -199,7 +199,9 @@ Read the contrapositive: **not keyed means never stored and never loadable.**
 ### Reusing a stored asset: what the fast track verifies
 
 `try_fast_track` loads a stored entry instead of evaluating it. It admits only a stored status the
-system would itself reuse — `Ready`, `Source`, `Override`. Under `verify_versions: on_read` (the
+system would itself reuse — `Ready`, `Source`, `Override` — after reading a record with no status
+and no version as a file with no metadata: `Source` without a recipe, `Ready` with one, with a
+warning in the asset's log (§Content changed outside Liquers of [`ASSETS.md`](ASSETS.md)). Under `verify_versions: on_read` (the
 default) it first re-hashes the bytes against the recorded version; a mismatch is an edit made
 outside Liquers and is handled as in §Content changed outside Liquers of [`ASSETS.md`](ASSETS.md) —
 adopted as input, or, under `external_change: corrupted`, deleted so the key is recomputed. The
@@ -343,6 +345,7 @@ arrives mid-evaluation and must join the first rather than be turned away.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-20 | §Reusing a stored asset: a stored record with no status and no version is first read as `Source` (no recipe) or `Ready` (recipe), with a warning; a dependency with status `None` is inconclusive. | phase-5 (`design/js-store-page-metadata-status/`) |
 | 2026-10-20 | §7: a caller parked on an inline run takes the run over when the runner's future is dropped; `INLINE-DROP-REPAIR-STRANDS-EXISTING-WAITERS` is fixed. | `design/inline-waiter-recovers-dropped-run/` |
 | 2026-10-17 | Steps 1 and 6: volatility can be recorded during the run and is read at finalization. | `design/runtime-volatility` |
 | 2026-10-12 | §1–2 `AssetManager::apply_queued`; §4 the terms managed / unmanaged asset (four causes, how to tell) and argument override, and the keyed-recipe edge case. | phase-5, `design/axum-query-named-arguments/` |
