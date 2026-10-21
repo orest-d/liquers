@@ -1,8 +1,16 @@
+import argparse
+import contextlib
+import io
 import tempfile
 import unittest
 from pathlib import Path
 
 from scripts import docs_index
+
+try:
+    import yaml
+except ImportError:  # the agreement test is skipped without PyYAML
+    yaml = None
 
 
 class RelativeLinkTests(unittest.TestCase):
@@ -599,3 +607,148 @@ class ScenarioAndProgressTests(unittest.TestCase):
                 docs_index.scenario_errors([row]),
                 ["specs/design/d/DESIGN.md: scenario AC-1 is defined more than once (§5.2.1)"],
             )
+
+
+class FrontMatterYamlTests(unittest.TestCase):
+    def test_double_and_single_quoted_values_unquote(self):
+        fields, _ = docs_index.parse_front_matter(
+            "---\n"
+            'title: "A: b \\"c\\""\n'
+            "other: 'it''s'\n"
+            "area: [\"x: y\", plain]\n"
+            "---\nbody"
+        )
+        self.assertEqual(fields["title"], 'A: b "c"')
+        self.assertEqual(fields["other"], "it's")
+        self.assertEqual(fields["area"], ["x: y", "plain"])
+
+    def test_unsafe_plain_values_are_reported(self):
+        unsafe = [c + "x" for c in "`@%*&!|>{#"] + [
+            "? x",
+            "- x",
+            "a: b",
+            "a #b",
+            "trailing:",
+        ]
+        for value in unsafe:
+            with self.subTest(value=value):
+                self.assertEqual(
+                    docs_index.front_matter_yaml_errors(
+                        "D.md", f"---\ntitle: {value}\n---\n"
+                    ),
+                    ["D.md: front-matter 'title' must be quoted (YAML would misread it)"],
+                )
+        self.assertEqual(
+            docs_index.front_matter_yaml_errors("D.md", "---\narea: [docs, a: b]\n---\n"),
+            ["D.md: front-matter 'area' must be quoted (YAML would misread it)"],
+        )
+        self.assertEqual(
+            docs_index.front_matter_yaml_errors("D.md", '---\ntitle: "open\n---\n'),
+            ["D.md: front-matter 'title' has a malformed quoted value"],
+        )
+        self.assertEqual(
+            docs_index.front_matter_yaml_errors("D.md", "---\nissues: [A,\n  B]\n---\n"),
+            [
+                "D.md: front-matter 'issues' list must be on one line",
+                "D.md: front-matter line 'B]' is not a flat `key: value`",
+            ],
+        )
+
+    def test_titles_yaml_would_type_are_reported_and_quoted_by_new(self):
+        for value in ["null", "~", "True", "no", "42", "3.5", "1e3", ".inf", "2026-10-20", "1:30"]:
+            with self.subTest(value=value):
+                self.assertEqual(
+                    docs_index.front_matter_yaml_errors(
+                        "D.md", f"---\ntitle: {value}\n---\n"
+                    ),
+                    [
+                        "D.md: front-matter 'title' must be quoted "
+                        "(YAML would read it as a non-string)"
+                    ],
+                )
+                quoted = docs_index.yaml_scalar(value)
+                self.assertEqual(quoted, f'"{value}"')
+                if yaml is not None:
+                    self.assertEqual(yaml.safe_load(f"title: {quoted}")["title"], value)
+        self.assertEqual(docs_index.yaml_scalar("Nothing to type"), "Nothing to type")
+
+    def test_lines_outside_the_flat_grammar_are_reported(self):
+        for line in ["stray text", "  indented: value", ": no key"]:
+            with self.subTest(line=line):
+                self.assertEqual(
+                    docs_index.front_matter_yaml_errors(
+                        "D.md", f"---\nid: X\n{line}\n---\n"
+                    ),
+                    [
+                        f"D.md: front-matter line {line.strip()!r} is not a flat "
+                        "`key: value`"
+                    ],
+                )
+
+    def test_safe_plain_values_pass(self):
+        text = (
+            "---\n"
+            "id: SOME-ID\n"
+            "title: A plain title, with commas and a `code` span\n"
+            "area: [build, docs]\n"
+            "issues: []\n"
+            "github:\n"
+            "created: 2026-10-20\n"
+            'quoted: "`x`: y"\n'
+            "---\n"
+        )
+        self.assertEqual(docs_index.front_matter_yaml_errors("D.md", text), [])
+
+    def test_repository_front_matter_is_clean(self):
+        errors = [
+            e
+            for r in docs_index.collect()
+            for e in docs_index.front_matter_yaml_errors(
+                r["file"], r["_path"].read_text(encoding="utf-8")
+            )
+        ]
+        self.assertEqual(errors, [])
+
+    def test_new_quotes_a_title_that_needs_it(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "specs" / "issues").mkdir(parents=True)
+            saved = docs_index.REPO, docs_index.SPECS, docs_index.write_all
+            docs_index.REPO, docs_index.SPECS = root, root / "specs"
+            docs_index.write_all = lambda rows, **kw: None
+            try:
+                args = argparse.Namespace(
+                    title="`openbin`: missing",
+                    id="OPENBIN-MISSING",
+                    kind="issue",
+                    priority="P3",
+                    complexity="S",
+                    area=["docs"],
+                    design="",
+                    force=True,
+                )
+                with contextlib.redirect_stdout(io.StringIO()):
+                    self.assertEqual(docs_index.cmd_new(args), 0)
+            finally:
+                docs_index.REPO, docs_index.SPECS, docs_index.write_all = saved
+            text = (root / "specs" / "issues" / "OPENBIN-MISSING.md").read_text(
+                encoding="utf-8"
+            )
+        self.assertIn('title: "`openbin`: missing"\n', text)
+        self.assertEqual(docs_index.front_matter_yaml_errors("N.md", text), [])
+        self.assertEqual(docs_index.parse_front_matter(text)[0]["title"], "`openbin`: missing")
+        if yaml is not None:
+            self.assertEqual(
+                yaml.safe_load(text.split("---\n")[1])["title"], "`openbin`: missing"
+            )
+
+    @unittest.skipUnless(yaml is not None, "PyYAML is not installed")
+    def test_readers_agree_with_yaml(self):
+        for r in docs_index.collect():
+            text = r["_path"].read_text(encoding="utf-8")
+            loaded = yaml.safe_load("\n".join(docs_index._front_matter_lines(text)))
+            for key in ("id", "kind", "title", "status"):
+                value = r["_fm"].get(key)
+                if value:
+                    with self.subTest(file=r["file"], key=key):
+                        self.assertEqual(str(loaded.get(key)), value)

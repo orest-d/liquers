@@ -8,10 +8,10 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 199
+Total rows: 198
 - P1: 2
 - P2: 62
-- P3: 135
+- P3: 134
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -82,7 +82,6 @@ Total rows: 199
 | [`CORE-STATE-LOCK-API-CLEANUP`](issues/CORE-STATE-LOCK-API-CLEANUP.md) | issue | `State` holds an `RwLock` that may not be needed | accepted | ready | eligible | P3 | S | core/value | [design](design/state-lock-marker-cleanup/DESIGN.md) | 2026-08-08 |
 | [`CORE-WASM-BUILD-EMITS-UNUSED-WARNINGS`](issues/CORE-WASM-BUILD-EMITS-UNUSED-WARNINGS.md) | issue | A wasm32 build of liquers-core emits five unused-import and dead-code warnings | draft | ready | eligible | P3 | S | core/assets;build | [design](design/core-wasm-warning-free/DESIGN.md) | 2026-10-17 |
 | [`PHASE5-SKELETON-CREATED-WITH-PRECONDITIONS-TICKED`](issues/PHASE5-SKELETON-CREATED-WITH-PRECONDITIONS-TICKED.md) | issue | A new design's Phase 5 skeleton claims every completion precondition is already met | draft | ready | eligible | P3 | S | docs | [design](design/phase5-skeleton-unticked/DESIGN.md) | 2026-10-18 |
-| [`SPECS-FRONT-MATTER-IS-NOT-VALID-YAML`](issues/SPECS-FRONT-MATTER-IS-NOT-VALID-YAML.md) | issue | Nine specs documents have front-matter that a YAML parser rejects | draft | ready | eligible | P3 | S | docs | [design](design/front-matter-yaml-agreement/DESIGN.md) | 2026-10-19 |
 | [`TEMPORARY-ASSETS-SHARE-ID-ZERO`](issues/TEMPORARY-ASSETS-SHARE-ID-ZERO.md) | issue | Every temporary asset has id 0, so code that identifies assets by id can confuse them | draft | ready | eligible | P3 | S | core/assets | [design](design/temporary-asset-unique-id/DESIGN.md) | 2026-10-18 |
 | [`VALIDATE-PHASE-EMPTY-SECTION-MATCHES-ACROSS-LINES`](issues/VALIDATE-PHASE-EMPTY-SECTION-MATCHES-ACROSS-LINES.md) | issue | validate_phase.py reports a filled compact section as empty when its name appears earlier in the phase | draft | ready | eligible | P3 | S | docs;build | [design](design/validate-phase-section-match/DESIGN.md) | 2026-10-19 |
 | [`LIB-BUILD-EMITS-UNUSED-AND-UNHANDLED-RESULT-WARNINGS`](issues/LIB-BUILD-EMITS-UNUSED-AND-UNHANDLED-RESULT-WARNINGS.md) | issue | A default liquers-lib build emits about 50 warnings, some for discarded Results | draft | ready | not-eligible | P3 | S | lib/commands;build | [design](design/lib-build-warning-cleanup/DESIGN.md) | 2026-10-11 |
