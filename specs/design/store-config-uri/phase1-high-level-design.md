@@ -1,5 +1,9 @@
 # Phase 1: High-Level Design — Configuring a store from a URI
 
+## Feature Name
+
+Configuring a store from a URI (`uri:` on a store entry).
+
 ## Purpose
 
 Let a store entry be written as one URI — `s3://my-bucket/datasets?region=eu-central-1` — instead of
@@ -18,7 +22,7 @@ stores:
 
 Today: `StoreConfig` (`liquers-core/src/store_config.rs`) has no `uri` field, and it is not
 `deny_unknown_fields`, so the key is **silently dropped**; the entry then has an empty `type`, no
-factory resolves it, and the build fails with `Unknown store type ''`. Should be: the entry builds
+factory resolves it, and the build fails with "A store entry has no type" (`unknown_store_type_error`). Should be: the entry builds
 the same store as
 
 ```yaml
@@ -105,23 +109,7 @@ URI is backend knowledge — the authority means a bucket for `s3`, a host for `
   recommendation for variables (expand per value after parsing) cannot be implemented without
   re-implementing every service's `from_uri`, so it is re-opened. Phases 3-4 assume the
   recommendations below.
-- **Open questions:**
-  1. **Open design - variables in a URI:** expand `${VAR}` on the URI string, percent-encoding each
-     substituted value (recommended: `OperatorUri::new` percent-decodes the path and query, so any
-     value round-trips, and expansion stays in the builder), or forbid `${VAR}` in `uri` and require
-     `config:` for anything variable.
-  2. **Open design - `config:` beside `uri`:** allowed, applied as OpenDAL's extra options that
-     override a query parameter of the same name (recommended: it is the documented home for
-     secrets and for arguments too long for a query string), or forbidden.
-  3. **Proposed resolution - filesystem scheme:** core's `filesystem` declares `file://`, OpenDAL's
-     `fs` keeps `fs://`; `memory://` is core's `memory` by chain order.
-  4. **Proposed resolution - `type` with `uri`:** mutually exclusive (the scheme is the type); can be
-     relaxed later additively if a URI ever needs disambiguating.
-  5. **Proposed resolution - dispatch:** `uri_schemes` feeds the default `resolve` (one mechanism,
-     overridable), instead of being documentation only as the 2026-08-29 draft had it.
-  6. **Open design - parsing in core:** a narrow hand-written `scheme://authority/path?query` parser
-     with percent-decoding for the two core schemes (recommended: core stays dependency-light), or
-     the `url` crate, already in `Cargo.lock` through OpenDAL.
+- **Open questions:** six, listed under Open Questions below.
 
 ## Design Dependencies
 
@@ -130,3 +118,22 @@ URI is backend knowledge — the authority means a bucket for `s3`, a host for `
 - `store-conformance-check-tool` — **overlaps**, weak: its `--store` picks a mount by name today; a
   later `--store s3://…` would use this form.
 - `store-conditional-write`, `metadata-application-attributes` — no overlap.
+
+## Open Questions
+
+1. **Open design - variables in a URI:** expand `${VAR}` on the URI string, percent-encoding each
+  substituted value (recommended: `OperatorUri::new` percent-decodes the path and query, so any
+  value round-trips, and expansion stays in the builder), or forbid `${VAR}` in `uri` and require
+  `config:` for anything variable.
+  2. **Open design - `config:` beside `uri`:** allowed, applied as OpenDAL's extra options that
+  override a query parameter of the same name (recommended: it is the documented home for
+  secrets and for arguments too long for a query string), or forbidden.
+  3. **Proposed resolution - filesystem scheme:** core's `filesystem` declares `file://`, OpenDAL's
+  `fs` keeps `fs://`; `memory://` is core's `memory` by chain order.
+  4. **Proposed resolution - `type` with `uri`:** mutually exclusive (the scheme is the type); can be
+  relaxed later additively if a URI ever needs disambiguating.
+  5. **Proposed resolution - dispatch:** `uri_schemes` feeds the default `resolve` (one mechanism,
+  overridable), instead of being documentation only as the 2026-08-29 draft had it.
+  6. **Open design - parsing in core:** a narrow hand-written `scheme://authority/path?query` parser
+  with percent-decoding for the two core schemes (recommended: core stays dependency-light), or
+  the `url` crate, already in `Cargo.lock` through OpenDAL.

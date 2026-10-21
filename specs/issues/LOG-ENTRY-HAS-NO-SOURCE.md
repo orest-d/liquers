@@ -4,9 +4,9 @@ kind: issue
 title: A state's log does not record whether an entry came from the command or from the engine
 status: draft
 priority: P3
-complexity: S
+complexity: M
 area: [core/value, core/plan]
-design: agent-memory-mvp
+design: diagnostics-carry-their-origin
 created: 2026-10-19
 github:
 ---
@@ -34,3 +34,12 @@ dependency diagnostics before the command's own note.
 
 A `LogEntry` carries its origin (command, plan, interpreter, store), or engine diagnostics use
 `LogEntryKind::Debug`, so a consumer can select the command's own notes without matching text.
+
+## Design
+
+Origin design: `agent-memory-mvp` (complete). Still reproduces at HEAD 18732dd: `LogEntry`
+(`liquers-core/src/metadata.rs`) has no source field and `liquers-mcp/src/server.rs` still filters by
+`ENGINE_NOTE_PREFIXES`. Designed together with `ISSUE-REPORT-PLAN-AND-METADATA-LOGGING` in
+`specs/design/diagnostics-carry-their-origin/` (bulk design 2026-10-20; strong overlap T2/T3).
+Re-sized `S` → `M`: the engine call sites span `context.rs`, `interpreter.rs` and `assets.rs`, plus
+the MCP consumer.

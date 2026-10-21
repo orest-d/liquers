@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: L
 area: [core/value, core/store, core/assets, axum]
-design:
+design: value-serialization-streaming
 created: 2026-09-24
 github:
 ---
@@ -51,6 +51,16 @@ happen inside a synchronous `as_bytes`. It fails three ways at once:
 `VALUE-SERIALIZATION-HAS-NO-INCREMENTAL-WRITER` records the first of these, for an in-memory value.
 This issue is the wider pattern: **asynchronous, incremental serialization**, end to end — value,
 asset, store and HTTP — with the store needing a **write-side `openbin`** to receive it.
+
+## Problem Example
+
+```text
+GET /liquer/q/-R/data/sales.csv/-/ns-pl/from_csv/sales.csv     # a 2 GB DataFrame, unkeyed
+```
+
+Today the whole CSV is built in a `Vec<u8>` by `as_bytes`, cached on the asset, cloned into the
+response, and only then sent. Should be: the first chunk is sent while the rest is still being
+encoded, and the encoding is never whole in memory.
 
 ## Why it surfaced now: the axum "ad-hoc streaming" is not implementable as designed
 
@@ -268,3 +278,23 @@ reporting as well as streaming. The sketched `SerializedBytes` is the natural ca
 may only discover a loss mid-stream. The asset layer would then write them to the stored metadata
 log. Whichever of the two is designed first should take the other into account. The interim
 default-method sketch in that issue is only worth doing if this redesign is far off.
+
+## Update 2026-10-20: re-checked at HEAD, first slice designed
+
+Still reproduces at HEAD 18732dd: `DefaultValueSerializer` has only `as_bytes` /
+`deserialize_from_bytes`; `AssetData::binary` is `Option<Arc<Vec<u8>>>`; `AsyncStore` has no
+streamed method; `BinaryResponse { data: Vec<u8> }`. Several items in §"What in `liquers-axum` has
+to be refactored" are done since this was written: the two query handlers are one `serve_query`,
+the timeout is configurable (`QueryApiConfig`, `AXUM-QUERY-TIMEOUT-HARDCODED` closed), the Assets
+API serves through `get_binary` (`AXUM-ASSETS-API-SERVES-ONLY-BYTES-AND-TEXT` closed), and the
+response builders use `build_or_500` instead of `unwrap`. The per-request `(*data).clone()` remains.
+
+Designed as a first slice in [`value-serialization-streaming`](../design/value-serialization-streaming/phase1-high-level-design.md):
+`serialize_stream` returning `SerializedBytes::{Whole, Stream}`, `AssetRef::get_serialized`, the
+Query and Assets `data` routes streaming with the first chunk before headers, entry routes kept
+whole, and `PolarsDataFrame` streaming through a writer adapter. The store side is
+`design/store-streaming-read-write/` (`CORE-STORE-OPENBIN-MISSING`). Filed as the remainder:
+`RECORD-SOURCE-ROWS-CANNOT-BE-STREAMED` (lazy values that need the environment — question 1) and
+`STREAMED-VALUE-IS-COLLECTED-BEFORE-IT-IS-STORED` (questions 5 and 7 for keyed persistence).
+`VALUE-SERIALIZATION-HAS-NO-INCREMENTAL-WRITER` stays a separate design (`value-serialization-writer`);
+it is not folded in.

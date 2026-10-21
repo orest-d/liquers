@@ -18,6 +18,22 @@ Liquers can store and search source files as text (`ns-search/catalog-t-t`, `md_
 regex, from `store-and-asset-search` revision 8). It has no notion of a symbol, a module, an item,
 or API documentation.
 
+## Problem Example
+
+```
+-R/liquers-core/src/assets.rs/-/ns-search/md_split-line
+```
+
+splits the file into line records; a regex filter over them then finds every line containing `fn get_asset_info` — definitions, calls and comments alike — with no
+item kind, signature, doc comment or span. Wanted: one query over a folder of Rust files returning
+records `kind, name, path, signature, doc, file, line_start, line_end`, so that
+`ns-rec` filters select "the `pub fn` named `get_asset_info` and its doc comment".
+
+Re-checked at commit 18732dd (2026-10-21): no Rust item records anywhere (`liquers-lib/Cargo.toml`
+has no `syn`, tree-sitter or rustdoc dependency; no such command in `specs/command_registry.yaml`).
+`syn` 2 with `full` is already in the workspace's lock file through `liquers-macro`, so a parser
+adds no new crate to the build graph.
+
 ## Impact
 
 "Where is `get_asset_info` defined?" works only as a regex over lines (`/fn get_asset_info/`),

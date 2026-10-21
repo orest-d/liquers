@@ -100,8 +100,8 @@ writer), `liquers-axum` (consumers). The dependency flow is unchanged.
      data object and its sidecar (its previous object is already gone, as with a failed `set`).
   4. **Proposed resolution - names:** `get_stream` / `set_stream`; the `openbin` comments go.
   5. **Proposed resolution - adapters:** the pipeline and `ReadOnlyStore` keep the collecting
-     default in this design; streaming through them needs data-only stream methods and is filed as
-     a follow-up.
+     default in this design; streaming through them needs data-only stream methods, recorded as a
+     follow-up issue when this design lands (Phase 4).
 
 ## Design Dependencies
 

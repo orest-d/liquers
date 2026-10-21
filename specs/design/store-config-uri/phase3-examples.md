@@ -39,7 +39,7 @@ stores:
 `/srv/liquers/data` and an `AsyncMemoryStore`. `uri: "fs:///srv/liquers/data"` would instead build
 OpenDAL's `fs` service — the two are not interchangeable (`STORE-OPENDAL-SLASH-HANDLING`).
 
-## Edge and Error Cases
+## Corner Cases
 
 | Symptom | Expected | Test |
 |---|---|---|
@@ -72,7 +72,7 @@ OpenDAL's `fs` service — the two are not interchangeable (`STORE-OPENDAL-SLASH
 - Commands: `cargo test -p liquers-core --lib store_`, `cargo test -p liquers-store --lib
   store_factory`, `bash scripts/check-build-matrix.sh`.
 
-## Learning Log
+## Documentation and Learning Log
 
 - The audit's one breaking requirement (`resolve`) landed before this design resumed; everything
   left is additive.

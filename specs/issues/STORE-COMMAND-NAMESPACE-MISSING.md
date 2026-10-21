@@ -6,7 +6,7 @@ status: accepted
 priority: P3
 complexity: M
 area: [lib/commands, core/store]
-design:
+design: store-command-namespace
 created: 2026-08-09
 github:
 ---
@@ -26,6 +26,24 @@ Consequences a query cannot express today:
 - Writing a result to a key, so a pipeline cannot persist an intermediate under a name of its own
   choosing.
 - Asking whether a key exists, to branch on it.
+
+## Problem Example
+
+A recipe computes the name of today's input and wants to read it, then persist a cleaned copy:
+
+```
+-R/config/today.txt/-/to_text/-/ns-store/get/-/clean/-/ns-store_write/save-~X~-R-key/out/today.csv~E
+```
+
+Today: planning fails with `Action 'get' not registered` — no crate registers a command in a
+`store` namespace (`specs/command_registry.yaml`), so the key held in `config/today.txt` cannot be
+read, and nothing can write a result under a chosen key; a host has to do both outside the query.
+Should be: `get` reads the key named by its input, through the asset manager, recording it as a
+dependency; `save` stores the cleaned value at `out/today.csv` and returns that key.
+
+**Already possible at HEAD** (resource instructions added since the issue was filed, 2026-10-10 to
+2026-10-11): a key *written in the query* can be listed (`-R-dir/k`, `-R-sdir/k`), described
+(`-R-meta/k`, `-R-stored_meta/k`) and read raw (`-R-stored/k`). This design does not duplicate them.
 
 ## Impact
 
@@ -60,3 +78,10 @@ Raised as Phase 2 open question Q8 of `specs/design/liquers-web-store/` (2026-08
 the user as out of scope for that design: the capability belongs in `liquers-lib` so every target
 gets it, and folding it into a browser-store design would have turned "the browser can have a
 store" into "queries can mutate stores" without the security discussion that deserves.
+
+## Partly fixed (2026-10-21)
+
+The resource instructions added 2026-10-10 to 2026-10-11 cover a key written in the query: list
+(`-R-dir/`, `-R-sdir/`), describe (`-R-meta/`, `-R-stored_meta/`) and read raw (`-R-stored/`).
+Still missing: reading a key that is *computed* (the input of a command), existence tests, and
+writing a value under a chosen key. `design/store-command-namespace/` covers what remains.

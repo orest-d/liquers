@@ -6,11 +6,20 @@ status: draft
 priority: P2
 complexity: XL
 area: [axum, web, core/assets, core/store]
-design:
+design: remote-store-and-asset-manager
 created: 2026-09-27
 github:
 ---
 ## Problem
+
+> **Design 2026-10-20 (bulk design, `design/remote-store-and-asset-manager/`).** Split into three
+> slices. Slice 1, a native `AsyncStore` over the existing Store API (store type `liquers_api`,
+> a `client` feature of `liquers-axum`), is planned through Phase 4. The browser counterpart is
+> `WEB-HAS-NO-READ-WRITE-REMOTE-STORE`; the remote asset manager with its trusted system API, and
+> every open question below, is `REMOTE-ASSET-MANAGER-AND-SYSTEM-API`. This issue closes when slice
+> 1 lands and those two carry the remainder. Still reproduces at HEAD: no store type speaks the
+> Store API (`WEB_API_SPECIFICATION.md` Appendix B).
+
 
 An environment's store and asset manager are always local to it. There is no `AsyncStore` that
 reads and writes a Liquers server's Store API, and no `AssetManager` that is a proxy for the asset

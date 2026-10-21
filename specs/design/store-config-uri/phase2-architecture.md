@@ -38,7 +38,7 @@ Rejected, one line each (the 2026-08-29 audit, unchanged where still true):
 | `STORE-OPENDAL-LIST-OPTION-MISPARSED` | closed | P2 | a URI query carries `a,b` lists natively | no | no | none |
 | `STORE-OPENDAL-SLASH-HANDLING` | see index | — | why `fs://` must not be shadowed | no | no | Q3 |
 
-## Interfaces
+## Data Structures
 
 `liquers-core/src/store_config.rs`:
 
@@ -71,12 +71,16 @@ pub struct StoreTypeInfo { /* … */ #[serde(default)] pub uri_schemes: Vec<Stri
 impl StoreTypeInfo { pub fn with_uri_scheme(self, scheme: &str) -> Self; }           // NEW
 ```
 
+## Trait Implementations
+
 - `StoreFactory::resolve` default: exact `store_type` match as today; when `store_type` is empty and
   `uri_scheme()` is `Some(s)`, the first declared type whose `uri_schemes` contains `s`.
   `StoreTypeMap::resolve` the same over its map.
 - `core_store_factory`: `memory` declares `memory`, `filesystem` declares `file`. The filesystem
   constructor takes `path` from `config` or, with a URI, from `StoreUri::parse(uri)?.path`
   (authority empty or `localhost`; an absolute path).
+## Function Signatures
+
 - `ChainedStoreFactory::create`, no resolution: with a URI and an empty type,
   `unknown_uri_scheme_error(scheme, &self.store_types())`.
 - `StoreRouterBuilder::build_router`: before `factory.create`, `check_type_or_uri(store_config)`.
@@ -92,7 +96,10 @@ impl StoreTypeInfo { pub fn with_uri_scheme(self, scheme: &str) -> Self; }      
   `"s3" => Operator::from_config(S3Config::from_uri(&uri)?)?.finish()`. A service whose
   `from_uri` returns `Unsupported` → AC-7.
 
-Sync throughout; parsing is not I/O. No `unwrap`, no `Error::new`, no default arm over an enum.
+## Sync vs Async
+
+Sync throughout, like the rest of store construction: parsing is not I/O and OpenDAL builders do
+not touch the network. No `unwrap`, no `Error::new`, no default arm over an enum.
 
 ## Integration Points
 

@@ -2,7 +2,7 @@
 id: AXUM-ASSETS-ENDPOINTS
 kind: design
 title: A working web and WebSocket interface for the asset manager
-phase: implementation
+status: complete
 area: [axum, core/assets, core/error, docs]
 gh_pr: [73]
 issues: [AXUM-ASSETS-API-ENDPOINTS-NOT-IMPLEMENTED, AXUM-ASSETS-WEBSOCKET-ROUTE-PANICS, WEB-API-SPECIFICATION-DIVERGES-FROM-IMPLEMENTATION, AXUM-ASSETS-API-SERVES-ONLY-BYTES-AND-TEXT, EXPIRATION-RECOVERY-WEB-API, AXUM-ASSETS-CANCEL-STARTS-EVALUATION, AXUM-HANDLER-TEST-COVERAGE, AXUM-QUERY-TIMEOUT-HARDCODED, AXUM-WEBSOCKET-HARDENING, LIBRARY-CODE-USES-UNWRAP-AND-EXPECT, MEDIA-TYPES-MISSING-FOR-TABULAR-FORMATS, ASSET-REMOVE-FORGETS-DEPENDENTS, ASSET-TO-OVERRIDE-SOURCE-INCONSISTENT, DESCRIBING-AN-ASSET-CAN-TRIGGER-ITS-EVALUATION]
@@ -10,6 +10,8 @@ created: 2026-09-27
 superseded_by:
 ---
 # axum-assets-endpoints Design Tracking
+
+> **Complete on 2026-10-20** (bulk design review): implemented by #73, merged; every Phase 4 step is ticked. Twelve of its fourteen source issues are closed. The two still open have their own designs now: `AXUM-WEBSOCKET-HARDENING` → `axum-websocket-connection-limits`, `LIBRARY-CODE-USES-UNWRAP-AND-EXPECT` → `library-no-panic-lint`.
 
 > **Acceptance scenarios not defined.** This design predates acceptance scenarios
 > (`specs/DOCS_STRUCTURE_GUIDE.md` §5.2.1). Consider updating it: state the Phase 1 acceptance

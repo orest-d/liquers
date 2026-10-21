@@ -69,6 +69,11 @@ Per-step proofs, then `cargo test -p liquers-core --lib`, `cargo test -p liquers
 --tests`, the build matrix (wasm32 row for core's declarations) and
 `cargo test -p liquers-lib --lib --tests` as a smoke test of configuration loading.
 
+## Agent Assignment
+
+One implementer, steps in order; steps 4 and 5 may run in parallel once step 3 is in. A reviewer
+checks the error messages for query-string leaks (`uri_errors_omit_the_query`).
+
 ## Rollback Plan
 
 Every step is additive behind an optional field, so reverting a step leaves `type:` documents

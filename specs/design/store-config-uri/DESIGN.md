@@ -53,6 +53,6 @@ Changed on resumption, against the 2026-08-29 text:
 - OpenDAL's `OperatorUri::new(uri, extra)` percent-decodes path and query and lets extra options
   override query pairs, so `config:` beside `uri` and percent-encoded variables both fall out.
 - A `uri:` key today is silently dropped (`StoreConfig` is not `deny_unknown_fields`) and the entry
-  fails as `Unknown store type ''` — a confusing message the design replaces.
+  fails as "A store entry has no type" — a misleading message, since the entry has a URI; the design replaces it.
 - `file://` for core's `filesystem`, never `fs://`, so OpenDAL's `fs` is not silently shadowed.
 - Error messages must never echo a URI's query string.

@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: L
 area: [lib/ui, lib/egui]
-design: 
+design: template-editor-ui
 created: 2026-10-13
 github:
 ---
@@ -33,3 +33,12 @@ mode. Deliberately out of scope of `design/liquers-mustache/`.
 
 Split out by the user on 2026-10-13 from the template-language request: a UI editor is out of scope
 for now and recorded separately.
+
+## Problem example
+
+Added 2026-10-21 (bulk design; reproduced at `8ecfd7f`: nothing in `liquers-lib` or `liquers-web`
+edits a template). An author of `templates/page.md` with a misspelt command in a query tag learns
+of it only from `-R/templates/page.md/-/ns-template/validate` or a failed render. It should be
+underlined while typing in `-R-key/templates/page.md/-/ns-template/editor`, saved with Ctrl+S, and
+previewed. The query half of this issue is met by `query-editor-live-validation`'s reusable
+`edit_query_live`; the design is `specs/design/template-editor-ui/`.

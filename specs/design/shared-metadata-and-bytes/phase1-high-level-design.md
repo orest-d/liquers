@@ -15,24 +15,30 @@ proportion to the data once — the "data service" shape of `VISION.md`.
 GET /liquer/q/-R/data/image.png        # a 50 MB object in an OpenDAL store
 ```
 
-Today, at HEAD 18732dd:
+Today, at HEAD 18732dd (`-R/data/image.png` plans to `GetAsset`, so the keyed asset's fast
+track loads it):
 
 1. `AsyncOpenDALStore::get` (`liquers-store/src/opendal_store.rs`) reads an `opendal::Buffer`
    and returns `buf.to_vec()` — copy 1 (the memory store copies too: `data.as_ref().to_vec()`);
-2. `Step::GetResource` (`liquers-core/src/interpreter.rs`) moves the `Vec` into `Value::Bytes`;
-3. `AssetRef::get_binary` → `State::as_bytes` → `Value::as_bytes("b")` clones the `Vec` — copy 2 —
-   and caches it as `Arc<Vec<u8>>` (`AssetData::binary`);
-4. `serve_query` (`liquers-axum/src/query/handlers.rs`) builds
-   `BinaryResponse { data: (*data).clone(), metadata: (*metadata).clone() }` — copy 3, plus a
-   deep copy of the metadata record.
+2. the fast track (`AssetData`, `liquers-core/src/assets.rs`) decodes the value from `&binary`
+   (`deserialize_from_bytes(&[u8], …)`, a second buffer for a `bin` value) and keeps the read bytes
+   as the cached binary, `Arc::new(binary)`;
+3. `serve_query` (`liquers-axum/src/query/handlers.rs`) builds
+   `BinaryResponse { data: (*data).clone(), metadata: (*metadata).clone() }` — copy 2 of the whole
+   object, plus a deep copy of the metadata record.
+
+The stored-bytes form `-R-stored/data/image.png` (`Step::GetResource`) moves the store's `Vec`
+into `Value::Bytes`, then `get_binary` serializes it with `as_bytes` — another full copy.
 
 Every `AssetRef::get()` on the same asset also deep-copies its metadata: `exposed_value_state`
 (`liquers-core/src/assets.rs`) does `self.metadata.clone()` and then writes two type fields.
 
-Should be: one buffer, shared from the store to the asset (steps 1, 2 and 4 copy nothing), and
-one metadata record shared by the asset, every state read from it and a `Value::Metadata` made
-from it. Step 3's encoding copy is removed by `value-serialization-streaming` (a `Bytes` value
-hands its buffer out as its encoding); this design makes it possible.
+Should be: one buffer, shared from the store through the cached binary to the response body
+(steps 1 and 3 copy nothing), the stored-bytes value holding that same buffer, and one metadata
+record shared by the asset, every state read from it and a `Value::Metadata` made from it. The
+remaining copies are the value's own: decoding (step 2) reads a `&[u8]`
+(`deserialization-with-metadata` owns that signature), and `as_bytes` of a `Bytes` value is removed
+by `value-serialization-streaming` (a `Bytes` value hands its buffer out as its encoding).
 
 ## Scope and Acceptance Criteria
 
@@ -56,12 +62,18 @@ hands its buffer out as its encoding); this design makes it possible.
   WHEN `AsyncMemoryStore::get` reads one key twice
   THEN both `Bytes` point at the same buffer, and `AsyncOpenDALStore`, `AsyncFileStore` and every
   conformance suite return the same content as at HEAD
-- **AC-7** A resource value shares the store's buffer
-  WHEN `-R/data/x.bin` is evaluated against a memory store holding `x.bin`
+- **AC-7** A stored-bytes value shares the store's buffer
+  WHEN `-R-stored/data/x.bin` is evaluated against a memory store holding `data/x.bin`
   THEN the `Value::Bytes` of the result points at the buffer a second `store.get` returns
-- **AC-8** The cached binary is served without a copy
-  WHEN `AssetRef::get_binary` is called twice, and the Query API serves the same asset
-  THEN both reads return one shared buffer, and the HTTP body equals it
+- **AC-8** The cached binary is the store's buffer and is served without a copy
+  WHEN `-R/data/x.bin` is loaded by the fast track, `AssetRef::get_binary` is called twice, and the
+  Query API serves the same asset
+  THEN both reads return the buffer `store.get` returns, and the HTTP body equals it
+- **AC-9** `set_state` shares the value
+  WHEN `AssetManager::set_state` installs a state on `DefaultAssetManager` and on
+  `ImmediateAssetManager`
+  THEN the asset's value is the state's `Arc` (`Arc::ptr_eq`), not a clone of it (both managers
+  deep-clone it at HEAD: `Arc::new(state.data_unchecked().as_ref().clone())`)
 
 Non-goals: store **writes** taking `Bytes` (`set`/`set_data` keep `&[u8]`; large writes go through
 `set_stream` in `store-streaming-read-write`; the remaining copy is filed as
@@ -144,6 +156,9 @@ test stores of `liquers-records`. Nothing moves between crates.
   Either order; the second rebases.
 - `serialization-lossy-write-warnings`, `metadata-application-attributes` — **overlaps**, weak:
   they add `Metadata` mutators, which after stage A go through `record_mut`. Either order.
+- `deserialization-with-metadata` (needs-decision, cluster C5a) — **overlaps**, weak: it adds a
+  deserialization entry point taking `b: &[u8]`; taking `&Bytes` there would let a `bin` value
+  share the fast-track buffer too. A recommendation for that design, not a dependency.
 - `combined-value-shared-data-node` — **overlaps**, weak: same goal (share, do not copy) for data
   nodes; no shared site.
 - `state-lock-marker-cleanup` — **overlaps**, weak: documents `State`'s handles; kept apart by E1.

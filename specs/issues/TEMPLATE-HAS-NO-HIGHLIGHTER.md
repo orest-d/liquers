@@ -4,9 +4,9 @@ kind: feature
 title: Templates cannot be rendered with syntax highlighting
 status: draft
 priority: P3
-complexity: M
+complexity: L
 area: [lib/ui, lib/egui, lib/commands]
-design:
+design: template-syntax-highlighter
 created: 2026-10-17
 github:
 ---
@@ -48,3 +48,14 @@ The design salvaged from `design/liquers-mustache/` Phase 2 (revision of 2026-10
 
 Split out of `design/liquers-mustache/` Phase 2 on 2026-10-17. The maintainer asked to skip the
 highlight command, remove highlighting from the design, and file it with the existing design kept.
+
+## Problem example
+
+Added 2026-10-21 (bulk design; reproduced at `8ecfd7f`: `liquers-template` has no highlighting
+code, `ns-template` registers `render`, `expand`, `validate` only). `-R/templates/page.md/-/ns-template/validate`
+reports `unknown command 'field_extrct'` at 2:31 and the reader counts columns; a `highlight`
+command should return the template coloured with that action marked.
+
+Re-sized from `M` to `L`: the work crosses `liquers-template` and `liquers-lib` and adds a command.
+The design (`specs/design/template-syntax-highlighter/`) replaces the text-carrying
+`TemplateToken::Query(StyledQueryToken)` sketch above with byte-range tokens, which an editor needs.
