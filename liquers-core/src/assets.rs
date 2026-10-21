@@ -484,6 +484,26 @@ impl MetadataSaver {
         }
     }
 
+    /// Drop the pending metadata and wait for a write already under way, without closing the
+    /// saver. Called just before the asset's value and final metadata are written together, so
+    /// that a snapshot queued during the run (status `Processing`) cannot land on top of them.
+    pub(crate) async fn supersede(&self) {
+        #[cfg(not(target_arch = "wasm32"))]
+        let in_flight = {
+            let mut lock = self.state.lock().await;
+            lock.pending = None;
+            lock.in_flight.take()
+        };
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(handle) = in_flight {
+            let _ = handle.await;
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            self.state.lock().await.pending = None;
+        }
+    }
+
     /// Enqueue metadata for persistence and trigger a single coalescing worker task.
     pub async fn save_immediately<E: Environment>(
         self: &Arc<Self>,
@@ -3219,9 +3239,9 @@ impl<E: Environment> AssetRef<E> {
                 "Asset evaluation finished ({:?} status) but no data available",
                 lock.status
             ));
-            if let Err(e) = lock.metadata.add_log_entry(LogEntry::from_error(&e)) {
-                eprintln!("!!!ERROR!!! Failed to add log entry: {}", e);
-            }
+            // `with_error` sets the metadata's status, `is_error` and `error_data` with the log
+            // entry; a bare error log entry no longer changes the status.
+            lock.metadata.with_error(e);
         }
         true
     }
@@ -3421,9 +3441,10 @@ impl<E: Environment> AssetRef<E> {
             eprintln!("Received message: {:?} by asset {}", msg, self.id());
             if self.is_finished().await {
                 // Progress the command sent during its own run is applied even when the status
-                // flipped to finished first: `finalize_primary_progress` runs after this loop has
-                // drained and normalizes it, so applying it here is what makes the result
-                // independent of scheduling. Once finalized, late progress is dropped below.
+                // flipped to finished first. A run settles only after this loop has drained, so
+                // that happens only when something else finished the asset meanwhile;
+                // `finalize_primary_progress` then normalizes it. Once finalized, late progress
+                // is dropped below.
                 let in_run_progress = matches!(
                     msg,
                     AssetServiceMessage::UpdatePrimaryProgress(_)
@@ -3574,6 +3595,55 @@ impl<E: Environment> AssetRef<E> {
         }
     }
 
+    /// The number of entries in this asset's log, taken when a run starts so the run can tell
+    /// its own entries from earlier ones.
+    async fn log_len(&self) -> usize {
+        match &self.data.read().await.metadata {
+            Metadata::MetadataRecord(record) => record.log.len(),
+            Metadata::LegacyMetadata(_) => 0,
+        }
+    }
+
+    /// Turns a computed value into a failure when the run logged an error
+    /// (`Context::error`), once the service loop has applied every message the run sent.
+    ///
+    /// `log_start` is [`Self::log_len`] at the start of the run; the failure carries the first
+    /// error-level entry logged after it. Any other outcome is returned unchanged.
+    async fn fail_on_drained_error(
+        &self,
+        outcome: RunOutcome<E::Value>,
+        log_start: usize,
+    ) -> RunOutcome<E::Value> {
+        match outcome {
+            RunOutcome::Computed(Ok(evaluation)) => {
+                let logged = match &self.data.read().await.metadata {
+                    Metadata::MetadataRecord(record) => record
+                        .log
+                        .iter()
+                        .skip(log_start)
+                        .find(|entry| entry.kind == LogEntryKind::Error)
+                        .map(|entry| entry.message.clone()),
+                    Metadata::LegacyMetadata(_) => None,
+                };
+                match logged {
+                    Some(message) => {
+                        // A failed evaluation keeps what it read, as when the evaluation itself
+                        // fails (`evaluate_recipe_outcome`).
+                        let mut lock = self.data.write().await;
+                        for dep in evaluation.dependencies {
+                            let _ = lock.metadata.add_dependency(dep);
+                        }
+                        RunOutcome::Computed(Err(Error::execution_error(message)))
+                    }
+                    None => RunOutcome::Computed(Ok(evaluation)),
+                }
+            }
+            RunOutcome::Computed(Err(e)) => RunOutcome::Computed(Err(e)),
+            RunOutcome::FinishedElsewhere(res) => RunOutcome::FinishedElsewhere(res),
+            RunOutcome::CancelRequested => RunOutcome::CancelRequested,
+        }
+    }
+
     /// Turns how the race between computing and cancelling ended into this run's result:
     /// `Ok(true)` when this run finalized the asset, `Ok(false)` when someone else finished it
     /// first, `Err` when the run failed or was cancelled.
@@ -3693,6 +3763,7 @@ impl<E: Environment> AssetRef<E> {
             return Ok(()); // Already finished
         }
         let cancellation = self.cancellation().await;
+        let log_start = self.log_len().await;
         let assetref = self.clone();
         // all service messages should be processed, therefore they run in a separate task
         let psm = tokio::spawn(async move { assetref.process_service_messages().await });
@@ -3707,13 +3778,15 @@ impl<E: Environment> AssetRef<E> {
                 _ = cancellation.requested() => RunOutcome::CancelRequested,
             }
         };
-        let result = self.settle_run(outcome).await;
         self.service_sender()
             .await
             .send(AssetServiceMessage::JobFinishing)
             .ok(); // Notify the service loop that the job is finishing, so it should smoothly end.
         let psm_result = psm.await;
-        // After the loop has drained, so the outcome does not depend on scheduling.
+        // The outcome is settled only once the loop has drained, so every message the run sent
+        // (an error-level log entry included) has been applied first and can decide it.
+        let outcome = self.fail_on_drained_error(outcome, log_start).await;
+        let result = self.settle_run(outcome).await;
         self.finalize_primary_progress().await;
         self.finish_run_with_result(result, psm_result).await
     }
@@ -3760,6 +3833,7 @@ impl<E: Environment> AssetRef<E> {
             None => return Ok(()),
         };
         let cancellation = self.cancellation().await;
+        let log_start = self.log_len().await;
         let eval_side = async {
             let outcome = if cancellation.is_requested() {
                 RunOutcome::CancelRequested
@@ -3774,16 +3848,17 @@ impl<E: Environment> AssetRef<E> {
                     () = requested => RunOutcome::CancelRequested,
                 }
             };
-            let result = self.settle_run(outcome).await;
             self.service_sender()
                 .await
                 .send(AssetServiceMessage::JobFinishing)
                 .ok();
-            result
+            outcome
         };
         let psm_side = self.process_service_messages();
-        let (result, psm_result) = futures::join!(eval_side, psm_side);
-        // After the loop has drained, so the outcome does not depend on scheduling.
+        let (outcome, psm_result) = futures::join!(eval_side, psm_side);
+        // Settled after the loop has drained, so the outcome does not depend on scheduling.
+        let outcome = self.fail_on_drained_error(outcome, log_start).await;
+        let result = self.settle_run(outcome).await;
         self.finalize_primary_progress().await;
         // The run reached its end, so the status it leaves behind is the real one; the guard must
         // not rewind it. A panic or early return skips this and the `Drop` repair applies instead.
@@ -4295,6 +4370,20 @@ impl<E: Environment> AssetRef<E> {
                         )));
                     }
                 }
+                // A metadata snapshot the service loop queued during the run is older than this
+                // one; dropped first, so it cannot overwrite the value's metadata afterwards.
+                // The metadata written is then read again, so a snapshot queued after it was
+                // captured above (progress finalized while this write ran in the background)
+                // is not dropped in favour of the older copy.
+                let saver = self.data.read().await.metadata_saver.clone();
+                saver.supersede().await;
+                let metadata = self
+                    .data
+                    .read()
+                    .await
+                    .binary_unchecked()
+                    .map(|(_, current)| current)
+                    .unwrap_or(metadata);
                 let written = store.set(key, &data, &metadata).await;
                 if written.is_ok() {
                     // Listings that depend on this directory see a new (or rewritten) member.
@@ -11517,6 +11606,85 @@ mod tests {
         assert_eq!(assetref.status().await, Status::Ready);
     }
 
+    /// A metadata snapshot the service loop queued during the run (status `Processing`) must not
+    /// land in the store after the value and its final metadata were written.
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_queued_run_metadata_does_not_overwrite_the_stored_value() {
+        let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        env.command_registry
+            .register_async_command(CommandKey::new_name("logs"), |_, _, context| {
+                Box::pin(async move {
+                    // The first snapshot is written at once and starts the saver's debounce
+                    // interval; the second is held back by it until after the value is stored.
+                    context.info("first in-run log")?;
+                    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                    context.info("second in-run log")?;
+                    Ok(Value::from("value"))
+                })
+            })
+            .unwrap();
+        env.with_async_store(Box::new(crate::store::AsyncMemoryStore::new(&Key::new())));
+        let envref = env.to_ref();
+        let key = parse_key("logged.txt").unwrap();
+        let mut asset_data = AssetData::<SimpleEnvironment<Value>>::new(
+            9801,
+            parse_query("logs").unwrap().into(),
+            Some(key.clone()),
+            envref.clone(),
+        );
+        asset_data.save_in_background = false;
+        let asset = asset_data.to_ref();
+        asset.run(None).await.unwrap();
+        assert_eq!(asset.status().await, Status::Ready);
+        // Longer than the saver's debounce interval, so a queued snapshot would have landed.
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        let (_bytes, stored) = envref.get_async_store().get(&key).await.unwrap();
+        assert_eq!(stored.status(), Status::Ready);
+    }
+
+    /// An error-level entry that reaches the asset only through its service channel, with no
+    /// interpreter step to notice it, still fails the run: the outcome is settled after the loop
+    /// has drained (`CONTEXT-ERROR-OUTCOME-DEPENDS-ON-SCHEDULING`). Both harnesses.
+    #[tokio::test]
+    async fn test_drained_error_entry_fails_a_computed_value() {
+        for inline in [false, true] {
+            let query = parse_query("test").unwrap();
+            let env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+            let envref = env.to_ref();
+            let asset_data =
+                AssetData::<SimpleEnvironment<Value>>::new(2240, query.into(), None, envref);
+            let assetref = asset_data.to_ref();
+            let sender = assetref.service_sender().await;
+            let compute = async move {
+                sender
+                    .send(AssetServiceMessage::LogMessage(LogEntry::error(
+                        "logged through the channel".to_string(),
+                    )))
+                    .unwrap();
+                sender
+                    .send(AssetServiceMessage::LogMessage(LogEntry::info("later".to_string())))
+                    .unwrap();
+                Ok(RecipeEvaluation {
+                    value: Arc::new(Value::from("value")),
+                    dependencies: Vec::new(),
+                    origin: ValueOrigin::Computed,
+                })
+            };
+            if inline {
+                assetref.run_with_future_inline(compute).await.unwrap_err();
+            } else {
+                assetref.run_with_future(compute).await.unwrap_err();
+            }
+            assert_eq!(assetref.status().await, Status::Error, "inline: {inline}");
+            let error = match assetref.get().await.and_then(|state| state.value_state()) {
+                Ok(_) => panic!("expected a failure, inline: {inline}"),
+                Err(e) => e,
+            };
+            assert_eq!(error.error_type, ErrorType::ExecutionError, "inline: {inline}");
+            assert_eq!(error.message, "logged through the channel", "inline: {inline}");
+        }
+    }
+
     #[tokio::test]
     async fn test_late_progress_messages_are_ignored_after_finish() {
         let query = parse_query("test").unwrap();
@@ -13187,6 +13355,38 @@ recipes:
         assert_eq!(failed.message, "Working");
     }
 
+    /// A keyed asset saved in the background keeps the finalized progress in the store: the value
+    /// write must not land the metadata it captured before `finalize_primary_progress` on top of
+    /// the newer snapshot.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn background_value_write_keeps_finalized_progress() {
+        let mut env = SimpleEnvironment::<Value>::new();
+        register_progress_commands(&mut env.command_registry);
+        env.with_async_store(Box::new(crate::store::AsyncMemoryStore::new(&Key::new())));
+        let envref = env.to_ref();
+        let mut keys = Vec::new();
+        for i in 0..40 {
+            let key = parse_key(&format!("partial{i}.txt")).expect("key");
+            let asset = AssetData::<SimpleEnvironment<Value>>::new(
+                envref.get_asset_manager().next_id_for_asset(),
+                parse_query("report_partial").expect("query").into(),
+                Some(key.clone()),
+                envref.clone(),
+            )
+            .to_ref();
+            asset.run(None).await.expect("run");
+            assert!(asset.get_metadata().await.expect("metadata").primary_progress().is_done());
+            keys.push(key);
+        }
+        // Longer than the saver's debounce interval, so every queued write has landed.
+        tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+        for key in keys {
+            let (_bytes, stored) = envref.get_async_store().get(&key).await.expect("stored");
+            let progress = stored.primary_progress();
+            assert!(progress.is_done(), "{key}: {progress:?}");
+        }
+    }
+
     #[tokio::test]
     async fn finished_run_progress_contract_native() {
         scenario_finished_progress(progress_env_native(), false).await;
@@ -14040,13 +14240,16 @@ recipes:
         let envref = env.to_ref();
 
         let key = parse_key("p.txt")?;
-        let asset = AssetData::<SimpleEnvironment<Value>>::new(
+        let mut asset_data = AssetData::<SimpleEnvironment<Value>>::new(
             9701,
             parse_query("sd_value")?.into(),
             Some(key.clone()),
             envref.clone(),
-        )
-        .to_ref();
+        );
+        // Save synchronously: the store is read right after `run` returns, and a background
+        // save is not awaited by the run.
+        asset_data.save_in_background = false;
+        let asset = asset_data.to_ref();
 
         // A dependency that is expired but has retained its value — the case
         // `wait_for_dependency` is documented to use rather than recompute.

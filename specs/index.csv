@@ -76,6 +76,7 @@ COMMAND-VARIADIC-ARGUMENTS-NOT-DECLARABLE,issue,Variadic command arguments canno
 CONFIGURED-RECIPE-CHOICE-DROPS-MANIFEST-PROVIDER,issue,Building a library environment from a configuration document silently drops the manifest recipe provider,draft,local,,,,P3,S,lib/commands;records;core/context,,,,,,2026-10-20,specs/issues/CONFIGURED-RECIPE-CHOICE-DROPS-MANIFEST-PROVIDER.md
 CONTEXT-APPLY-BARE-KEY-ILL-DEFINED,issue,Context::apply with a bare key discards the input state and writes to the store,rejected,local,,,,P0,S,core/assets,,,,,,2026-08-09,specs/issues/CONTEXT-APPLY-BARE-KEY-ILL-DEFINED.md
 CONTEXT-CANNOT-SET-TITLE-OR-DESCRIPTION,issue,A command cannot set its asset's title or description through Context,closed,local,,ready,not-eligible,P2,S,core/context,,,,context-title-description,,2026-09-16,specs/issues/CONTEXT-CANNOT-SET-TITLE-OR-DESCRIPTION.md
+CONTEXT-ERROR-OUTCOME-DEPENDS-ON-SCHEDULING,issue,Whether Context::error fails an asset depends on when its log message is applied,closed,local,,,,P1,M,core/context;core/assets,,,,,,2026-10-20,specs/issues/CONTEXT-ERROR-OUTCOME-DEPENDS-ON-SCHEDULING.md
 CONTEXT-STEP-REPLACES-INPUT-STATE-METADATA,issue,A step that only passes the value through replaces the input state's metadata with the context's,closed,local,,ready,not-eligible,P2,L,core/plan;core/context,,,,plan-step-state-metadata,,2026-10-10,specs/issues/CONTEXT-STEP-REPLACES-INPUT-STATE-METADATA.md
 CONTEXT-TITLE-LOST-ACROSS-PREDECESSOR-BOUNDARY,issue,A title or description set by a command in a cut predecessor does not reach the final asset,draft,local,,needs-decision,not-eligible,P3,M,core/context;core/plan,,,,context-title-predecessor-inheritance,,2026-10-06,specs/issues/CONTEXT-TITLE-LOST-ACROSS-PREDECESSOR-BOUNDARY.md
 CORE-ASSET-GC,issue,Assets are never garbage collected,accepted,local,,needs-decision,not-eligible,P3,L,core/assets;core/store,,,,asset-garbage-collection,,2026-08-08,specs/issues/CORE-ASSET-GC.md
@@ -772,8 +773,8 @@ API_DOCS_GAP_ANALYSIS,reference,API Documentation Gap Analysis,current,local,,,,
 DOC_01_ARCHITECTURE_REFERENCE,reference,Architecture Reference,current,local,,,,,,core/query;core/plan;core/assets,,,,,2026-08-09,,specs/reference/api/DOC_01_ARCHITECTURE_REFERENCE.md
 DOC_02_QUERY_LANGUAGE_REFERENCE,reference,Query Language Reference,current,local,,,,,,core/query,,,,,2026-10-17,,specs/reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md
 DOC_03_ASSETS_EXECUTION_LIFECYCLE,reference,Assets and Execution Lifecycle Reference,current,local,,,,,,core/assets,,,,,2026-10-12,,specs/reference/api/DOC_03_ASSETS_EXECUTION_LIFECYCLE.md
-DOC_04_ENVIRONMENT_CONTEXT_EVALUATION,reference,"Environment, Context and Evaluation Reference",current,local,,,,,,core/context;core/plan,,,,,2026-10-17,,specs/reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md
-DOC_08_RECIPES_PLANS,reference,Recipes and Plans Reference,current,local,,,,,,core/plan;core/assets;core/context,,,,,2026-10-17,,specs/reference/api/DOC_08_RECIPES_PLANS.md
+DOC_04_ENVIRONMENT_CONTEXT_EVALUATION,reference,"Environment, Context and Evaluation Reference",current,local,,,,,,core/context;core/plan,,,,,2026-10-21,,specs/reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md
+DOC_08_RECIPES_PLANS,reference,Recipes and Plans Reference,current,local,,,,,,core/plan;core/assets;core/context,,,,,2026-10-21,,specs/reference/api/DOC_08_RECIPES_PLANS.md
 ASSET_LIFECYCLE,reference,Asset Evaluation — Flows and Public Surface,current,local,,,,,,core/assets,,,,,2026-10-20,,specs/reference/ASSET_LIFECYCLE.md
 ASSET_SET_OPERATION,reference,Asset Set Operation Specification,current,local,,,,,,core/assets,,,,,2026-10-10,,specs/reference/ASSET_SET_OPERATION.md
 ASSETS,reference,Assets Specification,current,local,,,,,,core/assets,,,,,2026-10-20,,specs/reference/ASSETS.md
@@ -787,7 +788,7 @@ PAYLOAD_GUIDE,reference,Payload Specification and Usage,current,local,,,,,,core/
 POLARS_COMMAND_LIBRARY,reference,Polars Command Library Specification,current,local,,,,,,lib/polars,,,,,2026-10-14,,specs/reference/POLARS_COMMAND_LIBRARY.md
 POSITIONING,reference,Positioning and Marketing Plan (draft),current,local,,,,,,docs,,,,,2026-10-15,,specs/reference/POSITIONING.md
 PROJECT_OVERVIEW,reference,Liquers Project Overview,current,local,,,,,,core/query;core/plan;core/assets;core/store;core/value,,,,,2026-10-19,,specs/reference/PROJECT_OVERVIEW.md
-PYTHON_INTEGRATION,reference,Python Integration,current,local,,,,,,py;core/value;core/error;lib/value,,,,,2026-10-19,,specs/reference/PYTHON_INTEGRATION.md
+PYTHON_INTEGRATION,reference,Python Integration,current,local,,,,,,py;core/value;core/error;lib/value,,,,,2026-10-20,,specs/reference/PYTHON_INTEGRATION.md
 REALMS,reference,Realms,current,local,,,,,,core/plan;core/commands;store/config,,,,,2026-10-16,,specs/reference/REALMS.md
 RECORD_STREAMS,reference,Record Streams,current,local,,,,,,records;lib/value;lib/commands;web,,,,,2026-10-20,,specs/reference/RECORD_STREAMS.md
 REGISTER_COMMAND_FSD,reference,register_command! Macro Functional Specification,current,local,,,,,,macro;core/commands,,,,,2026-10-12,,specs/reference/REGISTER_COMMAND_FSD.md
@@ -808,7 +809,7 @@ COMMAND_REGISTRATION_GUIDE,guide,Command Registration Guide,current,local,,,,,,c
 DEPENDENCY_CONSISTENCY_GUIDE,guide,Dependency Consistency Guide,current,local,,,,,,core/assets,,,,,2026-10-08,,specs/guides/DEPENDENCY_CONSISTENCY_GUIDE.md
 ENVIRONMENT_CONSTRUCTION_GUIDE,guide,Building and Configuring an Environment,current,local,,,,,,core/context;core/assets;core/store,,,,,2026-10-11,,specs/guides/ENVIRONMENT_CONSTRUCTION_GUIDE.md
 LANGUAGE-INTEGRATION_GUIDE,guide,Language Integration Guide,current,local,,,,,,web;py;core/commands;core/plan;core/assets;core/store,,,,,2026-10-19,,specs/guides/LANGUAGE-INTEGRATION_GUIDE.md
-PYTHON_GUIDE,guide,Using Liquers from Python,current,local,,,,,,py,,,,,2026-10-19,,specs/guides/PYTHON_GUIDE.md
+PYTHON_GUIDE,guide,Using Liquers from Python,current,local,,,,,,py,,,,,2026-10-20,,specs/guides/PYTHON_GUIDE.md
 QUERY_ESCAPING_GUIDE,guide,Query Escaping Guide,current,local,,,,,,core/query,,,,,2026-10-07,,specs/guides/QUERY_ESCAPING_GUIDE.md
 RECORD_STREAM_GUIDE,guide,Record Stream Guide,current,local,,,,,,records;lib/value,,,,,2026-10-13,,specs/guides/RECORD_STREAM_GUIDE.md
 SEARCH_GUIDE,guide,Search Guide,current,local,,,,,,lib/commands;records,,,,,2026-10-17,,specs/guides/SEARCH_GUIDE.md
@@ -818,5 +819,5 @@ STORE_FACTORY_GUIDE,guide,Store Factory Guide,current,local,,,,,,core/store;stor
 STORE_IMPLEMENTATION_GUIDE,guide,Store Implementation Guide,current,local,,,,,,core/store;store/backends;web,,,,,2026-10-16,,specs/guides/STORE_IMPLEMENTATION_GUIDE.md
 TEMPLATE_GUIDE,guide,Template Guide,current,local,,,,,,core/query;lib/commands,,,,,2026-10-17,,specs/guides/TEMPLATE_GUIDE.md
 TYPE_SYSTEM_GUIDE,guide,Adding and Typing Value Types,current,local,,,,,,core/value;lib/value,,,,,2026-10-13,,specs/guides/TYPE_SYSTEM_GUIDE.md
-UNITTEST_GUIDE,guide,Unit Testing Guide,current,local,,,,,,build;core/assets,,,,,2026-10-02,,specs/guides/UNITTEST_GUIDE.md
+UNITTEST_GUIDE,guide,Unit Testing Guide,current,local,,,,,,build;core/assets,,,,,2026-10-20,,specs/guides/UNITTEST_GUIDE.md
 WEB_API_GUIDE,guide,Web API Guide,current,local,,,,,,axum;web,,,,,2026-10-16,,specs/guides/WEB_API_GUIDE.md

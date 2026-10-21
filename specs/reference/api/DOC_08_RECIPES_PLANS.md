@@ -3,7 +3,7 @@ title: Recipes and Plans Reference
 kind: reference
 audience: internal
 area: [core/plan, core/assets, core/context]
-reviewed: 2026-10-17
+reviewed: 2026-10-21
 ---
 # DOC-08: Recipes and Plans
 
@@ -611,9 +611,12 @@ a recipe override patches. Omitted from the serialized plan when `None`, so plan
 written before the field existed load unchanged.
 
 `apply_plan` does not execute `init_steps`. They are copied into metadata by the
-plan-to-metadata helpers. `Step::Error` in `steps` logs through `Context::error`;
-it does not by itself return an execution error. `Plan::error` is the structured
-planning failure channel.
+plan-to-metadata helpers. `Step::Error` in `steps` logs through `Context::error`,
+so the plan stops with an `ExecutionError` carrying the first error's message. A run of
+consecutive `Step::Info`, `Step::Warning` and `Step::Error` steps is logged in full first: the
+plan stops after the last of them, before the next action or other step. An error-level
+entry in `init_steps` fails the plan the same way, before any dependency is scheduled.
+`Plan::error` is the structured planning failure channel.
 
 Before sequential step execution, `apply_plan` schedules known keyed dependencies
 so they can start concurrently. Steps themselves are then interpreted in order,
@@ -748,6 +751,8 @@ runtime behavior is unchanged.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-20 | Plan fields and execution: `Step::Error` and an error-level `init_steps` entry fail the plan. | `issues/CONTEXT-ERROR-OUTCOME-DEPENDS-ON-SCHEDULING.md` |
+| 2026-10-21 | Plan fields and execution: consecutive diagnostic steps are all logged before an error among them stops the plan. | `issues/CONTEXT-ERROR-OUTCOME-DEPENDS-ON-SCHEDULING.md` |
 | 2026-10-17 | Planning contract: resource steps (`-R-stored/`, `-R-stored_meta/`, `-R-sdir/`) never make a plan volatile; `Plan::is_volatile` is the only volatility authority (the step-level `IsVolatile` impl was removed). | `design/step-volatility-impl-removal/` |
 | 2026-10-12 | Recipe contract: overrides apply in sorted order, resolve against `Plan::last_action_command` (an alias's own arguments; head slots refused), convert a mismatched JSON type with a planning warning or fail with `ConversionError`, and report an unknown or injected name as `ParameterError`. | phase-5, `design/axum-query-named-arguments/` |
 | 2026-10-10 | Predecessor boundaries: planning diagnostics (`init_steps`) now reach the evaluated asset's log, appended once when the plan is applied (`PLANNING-DIAGNOSTICS-NEVER-REACH-THE-ASSET-LOG`). | `issues/PLANNING-DIAGNOSTICS-NEVER-REACH-THE-ASSET-LOG.md` |

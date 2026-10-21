@@ -3,7 +3,7 @@ title: Python Integration
 kind: reference
 audience: both
 area: [py, core/value, core/error, lib/value]
-reviewed: 2026-10-19
+reviewed: 2026-10-20
 ---
 # Python Integration
 
@@ -194,8 +194,9 @@ becomes `UnexpectedError`, and a cancelled join `Cancelled`.
 
 **Context.** `evaluate(query)` evaluates through the core context, as a dependency of the current
 asset, and waits with `wait_for_dependency`. `info`, `warning` and `error` append to the asset's
-log. An `error` entry also marks the asset failed (core's `add_log_entry` sets `Status::Error`),
-so the query raises `GeneralError` with that message even if the command returns normally. `is_cancelled()` reads the asset's cancellation flag.
+log. An `error` entry also fails the evaluation: the command keeps running, and once it returns
+the query raises `ExecutionError` with the first such message, whatever the command returned
+(`Context::error` in core). `is_cancelled()` reads the asset's cancellation flag.
 
 ## 5. Values
 
@@ -325,4 +326,5 @@ parallel on the runtime; Python commands still take the GIL one at a time.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-20 | `context.error` raises `ExecutionError` with the first logged message once the command returns. | `CONTEXT-ERROR-OUTCOME-DEPENDS-ON-SCHEDULING` |
 | 2026-10-19 | Created from the implemented `liquers-py`. | `design/liquers-py/` (phase-5) |

@@ -1563,7 +1563,24 @@ impl MetadataRecord {
     }
     pub fn with_status(&mut self, status: Status) -> &mut Self {
         self.status = status;
-        self.is_error = status == Status::Error;
+        // An in-flight status keeps `is_error`: an error logged during the run (`Context::error`)
+        // stays visible while the asset waits for dependencies or resumes. `None` and `Recipe`
+        // start a run afresh and `Partial` carries a value, so they, like every finished status,
+        // set the flag from the status itself.
+        match status {
+            Status::Submitted | Status::Dependencies | Status::Processing | Status::Storing => {}
+            Status::None
+            | Status::Directory
+            | Status::Recipe
+            | Status::Partial
+            | Status::Error
+            | Status::Ready
+            | Status::Expired
+            | Status::Cancelled
+            | Status::Source
+            | Status::Override
+            | Status::Volatile => self.is_error = status == Status::Error,
+        }
         if status != Status::Expired {
             self.expiry_reason = None;
         }
@@ -1632,10 +1649,16 @@ impl MetadataRecord {
         self.set_updated_now();
         self
     }
+    /// Appends a log entry and makes it the current `message`.
+    ///
+    /// An error entry sets `is_error` but leaves `status` alone: logging an error does not end
+    /// the asset by itself. A running evaluation fails when its step returns
+    /// (`Context::error`); the status changes then, through [`Self::with_error`]. On a finished
+    /// record the entry is only appended: a late error log cannot make a finished asset's value
+    /// unreadable.
     pub fn add_log_entry(&mut self, log_entry: LogEntry) -> &mut Self {
-        if log_entry.kind == LogEntryKind::Error {
+        if log_entry.kind == LogEntryKind::Error && !self.status.is_finished() {
             self.is_error = true;
-            self.status = Status::Error;
         }
         self.message = log_entry.message.clone();
         self.log.push(log_entry);
