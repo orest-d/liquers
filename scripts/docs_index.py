@@ -22,6 +22,7 @@ import csv
 import datetime as _dt
 import html
 import io
+import json
 import re
 import subprocess
 import sys
@@ -323,11 +324,99 @@ def parse_front_matter(text: str) -> tuple[dict, str]:
         if value.startswith("[") and value.endswith("]"):
             inner = value[1:-1].strip()
             fields[key] = (
-                [v.strip() for v in inner.split(",") if v.strip()] if inner else []
+                [_scalar(v.strip()) for v in inner.split(",") if v.strip()]
+                if inner
+                else []
             )
         else:
-            fields[key] = value
+            fields[key] = _scalar(value)
     return fields, text[end + 5 :]
+
+
+def _front_matter_lines(text: str) -> list[str]:
+    """The lines of the front-matter block, or [] when there is none."""
+    if not text.startswith("---\n"):
+        return []
+    end = text.find("\n---\n", 4)
+    return text[4:end].split("\n") if end != -1 else []
+
+
+def _scalar(raw: str) -> str:
+    """Unquote a YAML-quoted scalar; leave a plain one as it is.
+
+    `"…"` takes JSON escapes (a superset YAML accepts); `'…'` doubles a quote as `''`. A quote
+    that is not closed is returned unchanged — `front_matter_yaml_errors` reports it.
+    """
+    if len(raw) >= 2 and raw[0] == raw[-1] == '"':
+        try:
+            return json.loads(raw)
+        except ValueError:
+            return raw
+    if len(raw) >= 2 and raw[0] == raw[-1] == "'":
+        return raw[1:-1].replace("''", "'")
+    return raw
+
+
+# A plain scalar YAML would reject or read differently. Deliberately stricter than YAML, so a
+# value that passes is read the same way by `parse_front_matter` and by any YAML parser.
+_YAML_INDICATORS = tuple("`@%*&!|>'\"{}[],#") + ("? ", "- ")
+
+
+def needs_yaml_quotes(value: str) -> bool:
+    return (
+        value.startswith(_YAML_INDICATORS)
+        or ": " in value
+        or " #" in value
+        or value.endswith(":")
+    )
+
+
+def yaml_scalar(value: str) -> str:
+    """`value` as front-matter text: plain when that is safe, double-quoted otherwise."""
+    return json.dumps(value, ensure_ascii=False) if needs_yaml_quotes(value) else value
+
+
+def _quoted_error(raw: str) -> bool:
+    """True for a quoted scalar that is not closed, or whose escapes do not decode."""
+    if raw[:1] == '"':
+        if len(raw) < 2 or raw[-1] != '"':
+            return True
+        try:
+            json.loads(raw)
+        except ValueError:
+            return True
+        return False
+    if raw[:1] == "'":
+        return len(raw) < 2 or raw[-1] != "'" or "'" in raw[1:-1].replace("''", "")
+    return False
+
+
+def front_matter_yaml_errors(where: str, text: str) -> list[str]:
+    """Front-matter values a YAML parser would misread or reject (guide §4.6)."""
+    errors: list[str] = []
+    for line in _front_matter_lines(text):
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        key, colon, value = line.partition(":")
+        if not colon:
+            continue
+        key, value = key.strip(), value.strip()
+        if value.startswith("[") and not value.endswith("]"):
+            errors.append(f"{where}: front-matter '{key}' list must be on one line")
+            continue
+        if value.startswith("[") and value.endswith("]"):
+            items = [v.strip() for v in value[1:-1].split(",") if v.strip()]
+        else:
+            items = [value] if value else []
+        for item in items:
+            if item[:1] in ("'", '"'):
+                if _quoted_error(item):
+                    errors.append(f"{where}: front-matter '{key}' has a malformed quoted value")
+            elif needs_yaml_quotes(item):
+                errors.append(
+                    f"{where}: front-matter '{key}' must be quoted (YAML would misread it)"
+                )
+    return errors
 
 
 def _list(fields: dict, key: str) -> list[str]:
@@ -1029,6 +1118,9 @@ def check(rows: list[dict]) -> tuple[list[str], list[str]]:
         if not f:
             errors.append(f"{where}: no front-matter")
             continue
+        errors.extend(
+            front_matter_yaml_errors(where, r["_path"].read_text(encoding="utf-8"))
+        )
 
         # CHECK 2 — ids unique, and matching the filename for issues
         if r["id"] in ids:
@@ -1231,7 +1323,7 @@ def cmd_new(args) -> int:
         f"""---
 id: {ident}
 kind: {args.kind}
-title: {args.title}
+title: {yaml_scalar(args.title)}
 status: draft
 priority: {args.priority}
 complexity: {args.complexity}

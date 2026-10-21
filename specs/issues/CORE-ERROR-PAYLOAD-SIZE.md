@@ -1,7 +1,7 @@
 ---
 id: CORE-ERROR-PAYLOAD-SIZE
 kind: issue
-title: `Error` is large enough to bloat every `Result`
+title: "`Error` is large enough to bloat every `Result`"
 status: closed
 priority: P2
 complexity: S

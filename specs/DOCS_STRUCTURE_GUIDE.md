@@ -218,6 +218,13 @@ Required always: `id`, `kind`, `title`, `area`, `created`.
 Required for `issue`/`feature`: `priority`, `complexity`.
 Required always: `status`. `github` is optional and never changes status ownership.
 
+Front-matter is YAML, kept to flat scalars and one-line `[a, b]` lists so that `docs_index.py`
+reads it without a YAML library and still agrees with one. **Double-quote a value** (`"…"`, with
+JSON escapes) when it starts with one of `` ` @ % * & ! | > ' " { } [ ] , # `` or with `? ` or
+`- `, contains `: ` or ` #`, or ends with `:` — for example a title that opens with a code span or
+contains a colon. `docs_index.py new` quotes such a title for you; `--check` refuses an unquoted one
+(§7.2 check 17).
+
 The body is free-form. A useful default: **Problem**, **Impact**, **Expected behaviour**,
 **Discovery**. Keep the reasoning; it is the reason the file exists rather than a CSV row.
 
@@ -831,6 +838,11 @@ tooling, no network and no Python can still record what it found.
     every one and no other (§5.2.1). **Warnings:** open designs without scenarios (one summary
     line); a "not defined" note left after scenarios exist; unticked Phase 4 progress at
     `documentation` or `complete`.
+17. Every front-matter value reads the same to `docs_index.py` and to a YAML parser: a value §4.6
+    says to quote is quoted, a quoted value is well-formed, and a list is on one line. Quotes are
+    removed on reading, so `index.csv` never shows them. The rule is deliberately stricter than
+    YAML and needs no YAML library; `scripts/test_docs_index.py` compares both readers over the
+    repository where PyYAML is installed.
 
 Checks 12, 13 and 15 are **not implemented yet** — 12 needs the git diff, 13 needs cross-document
 Phase 5 validation, and 15 needs the API. `--sync` is likewise unbuilt. Everything else runs
@@ -1137,6 +1149,7 @@ neither.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-21 | §4.6: front-matter is YAML; when to double-quote a value. §7.2 check 17: unquoted values YAML would misread are refused, quoted values are unquoted on reading. | `SPECS-FRONT-MATTER-IS-NOT-VALID-YAML`, `design/front-matter-yaml-agreement/` |
 | 2026-10-19 | §3: area `mcp` for `liquers-mcp` and `liquers-agent`. §4.8.1: filing through the agent memory's `memory_new`. | `design/agent-memory-mvp/` Phase 5 |
 | 2026-10-08 | §5.2.1, §7.2 check 16: acceptance scenarios (`AC-<n>` WHEN/THEN) in Phase 1, cited by Phase 3 tests and checked only when defined; a Phase 4 progress checklist; open designs without scenarios carry a note and are counted in one warning. | maintainer decision |
 | 2026-10-08 | §5: a design's `form` — the default full form, or `compact` for `S`/`M` work, with every phase as a `## Phase N` section of `DESIGN.md`; `--check` validates the value and the sections; the `index.md` board links a compact design's `DESIGN.md`. | maintainer decision |
