@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: L
 area: [core/query, core/store]
-design: 
+design: resource-name-unicode
 created: 2026-08-14
 github:
 ---
@@ -137,3 +137,17 @@ option space be written down rather than reopened later, which is what the two q
 
 Marked `complexity: L` because Question 2 reaches `Key`, `AsyncStore` and every backend rather than
 only `parse.rs`, so a design folder is required (`DOCS_STRUCTURE_GUIDE.md` §4.5). None exists yet.
+
+## Triage 2026-10-21 (bulk design)
+
+Still reproduces at HEAD (18732dd), with one change to the measurement above: D10 has landed
+(`escape::is_resource_name_char` is ASCII-only), so `-R/data/ŁŁ.csv` **no longer parses** either;
+`-R/data/café.csv`, `-R/data/Łódź.csv`, `-R/data/my file.csv` and `-R/data/caf~U00E9~.csv` all fail
+with "Can't parse query completely" (`liquers-validate --no-registry`).
+`liquers-core/tests/query_backward_compatibility.rs` `non_ascii_resource_names_are_rejected_coherently`
+pins the rejection. The prerequisite named above for contract 2, `STORE-FILESTORE-PATH-TRAVERSAL`, is
+closed (`design/store-key-guard/`).
+
+Designed in `design/resource-name-unicode/` under the recommended answer **option C + contract 2**,
+with the alternatives and their consequences in its Phase 1 readiness section. Option A is the
+"close as not planned" answer.

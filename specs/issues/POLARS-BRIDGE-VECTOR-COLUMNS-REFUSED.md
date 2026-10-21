@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: M
 area: [records, lib/polars]
-design:
+design: polars-bridge-vector-columns
 created: 2026-09-27
 github:
 ---
@@ -50,3 +50,11 @@ phase4-implementation.md`): both `record_batch_to_dataframe` and `dataframe_to_r
 (`liquers-lib/src/records/polars.rs`'s `bridge_refuses_vector_columns_naming_the_column`) exists to
 pin that refusal rather than a crash. Filed per CLAUDE.md's "record what you find" rule rather than
 leaving the gap undocumented outside the code.
+
+## Problem Example
+
+`-R/data/emb.feather/-/ns-rec/to_record/ns-pl/head-5` over a table with an `embedding: Vector`
+column fails with `NotSupported: polars bridge: column 'embedding' is Vector …` (HEAD 18732dd:
+`column_to_series` in `liquers-lib/src/records/polars.rs`; `polars` features in
+`liquers-lib/Cargo.toml` still lack `dtype-array`). Should: the column crosses as
+`Array(Float32, dim)` and back. Design: `specs/design/polars-bridge-vector-columns/`.

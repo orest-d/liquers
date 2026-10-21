@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: M
 area: [core/context, core/assets]
-design: 
+design: environment-orderly-shutdown
 created: 2026-10-12
 github:
 ---
@@ -54,3 +54,11 @@ Split off on 2026-10-12 from `environment-manager-reference-cycle` (its Phase 1 
 by Orest's decision: "shutdown sounds potentially useful - there might be services needing a
 shutdown (though there are none today)". Requires that design (weak `EnvRef` back-references and
 `try_get_envref`).
+
+## Update, 2026-10-20 (bulk design triage)
+
+Still reproduces at HEAD (`18732dd`): `DefaultAssetManager::shutdown` is the only stop, it neither
+settles nor refuses work (`JobQueue::shutdown`'s doc comment: a later submit "leaves an asset
+parked in `Submitted` with nothing to start it"), and `ImmediateAssetManager` has none.
+`environment-manager-reference-cycle` is still unimplemented. Design:
+[`environment-orderly-shutdown`](../design/environment-orderly-shutdown/).

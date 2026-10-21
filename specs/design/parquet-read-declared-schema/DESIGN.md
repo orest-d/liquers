@@ -3,8 +3,8 @@ id: PARQUET-READ-DECLARED-SCHEMA
 kind: design
 title: Parquet read through polars honours the declared and embedded schema
 form: compact
-status: in_review
-phase: implementation
+status: complete
+gh_pr: [169]
 readiness: ready
 autofix: eligible
 area: [records, lib/polars]
@@ -12,6 +12,8 @@ issues: [RECORDS-PARQUET-POLARS-READ-IGNORES-DECLARED-SCHEMA]
 created: 2026-10-19
 ---
 # Parquet read through polars honours the declared and embedded schema
+
+> **Complete on 2026-10-20** (bulk design review): implemented by #169 (commit 6ee35f9), merged; every source issue is closed and no phase is outstanding.
 
 Bulk design (`specs/guides/autonomous_bulk_design.md`): Phases 1-4 written; Phase 4 implemented on
 2026-10-20 (automatic fix).

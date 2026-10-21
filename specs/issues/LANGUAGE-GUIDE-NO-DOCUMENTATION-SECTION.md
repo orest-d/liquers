@@ -21,6 +21,15 @@ Every feature section names objects to map and tests to pass. None names a docum
 completed integration can satisfy the whole guide and still ship with nothing a Python or JavaScript
 author can read.
 
+## Problem Example
+
+An author completing `liquers-web` against the guide today ticks every feature row in
+`liquers-web/README.md` and ships with no API reference, no contract reference in `specs/reference/`
+and no user guide: there is no `WEB_*` or `JAVASCRIPT_*` document in `specs/reference/` or
+`specs/guides/` (re-checked 2026-10-20; the two `WEB_API_*` documents are about `liquers-axum`), and
+the guide still has no documentation section. Expected: the guide names the three documents and
+`liquers-web` is checked against them.
+
 ## Why it matters
 
 The audiences are different and the guide only serves one of them. `specs/` is internal — it

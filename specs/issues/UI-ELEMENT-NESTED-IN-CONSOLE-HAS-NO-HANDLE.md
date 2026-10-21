@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: M
 area: [lib/ui]
-design:
+design: console-mounts-nested-element
 created: 2026-10-19
 github:
 ---
@@ -39,3 +39,10 @@ visible notice when an element that needs a handle is rendered without one).
 
 Found while designing `specs/design/ui-asset-snapshot-boundary/`, checking whether an element
 could request its own data in `init`.
+
+## Triage 2026-10-21
+
+Reproduced at `8ecfd7f` (`QueryConsoleElement::update` keeps `clone_boxed()` in `ui_element`; no
+`init`). Concrete case: a console evaluating `hello/q/ns-lui/query_console`; Enter in the nested
+console does nothing. Designed in `specs/design/console-mounts-nested-element/` (mount as a child
+node through a runner message).

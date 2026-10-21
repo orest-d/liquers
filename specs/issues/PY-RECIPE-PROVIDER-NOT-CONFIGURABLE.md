@@ -4,7 +4,7 @@ kind: feature
 title: A Python environment cannot configure a recipe provider other than the default
 status: draft
 priority: P3
-complexity: M
+complexity: S
 area: [py]
 design:
 created: 2026-10-18
@@ -16,6 +16,23 @@ github:
 `EnvCell::new` (`liquers-py/src/environment.rs`) refuses any `EnvironmentConfig.recipes` other
 than `RecipeProviderChoice::default()` with `ConfigurationError`: the handle does not pass the
 configured choice to the builder it assembles.
+
+## Problem Example
+
+```python
+import liquers as lq
+env = lq.Environment(config={"recipes": "trivial"})
+# raises ConfigurationError: "a recipe provider other than the default cannot be configured
+# from Python yet" (EnvCell::new, liquers-py/src/environment.rs; unit test
+# a_non_default_recipe_provider_is_refused)
+```
+
+Re-sized M → S on 2026-10-20: `RecipeProviderChoice` has two variants (`Default`, `Trivial`), and
+the builder already accepts them (`EnvironmentBuilder::with_recipe_provider_choice`); the fix is one
+call in `EnvCell::configured_builder` plus a test per choice. A "manifest-based" provider is not a
+`RecipeProviderChoice`: with `records` on, `liquers-lib` appends `ManifestRecipeProvider` to the
+default chain, and replacing the base drops it unless `RecordsRecipeProvider::with_records_recipe_provider`
+is called too (record-streams Phase 4 decision 1).
 
 ## Impact
 

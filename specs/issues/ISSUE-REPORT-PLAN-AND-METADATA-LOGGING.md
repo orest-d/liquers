@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: M
 area: [core/validate, core/plan, core/commands]
-design: variadic-metadata-tail-check
+design: diagnostics-carry-their-origin
 created: 2026-09-05
 github:
 ---
@@ -30,3 +30,16 @@ follow-up must design their ownership, positions/context, reporting boundary, an
 ## Discovery
 
 Filed from `design/variadic-metadata-tail-check` while creating the reusable issue-report module.
+
+## Design
+
+Origin design: `variadic-metadata-tail-check` (complete). Still open at HEAD 18732dd: `Issue`
+(`liquers-core/src/issue_report.rs`) has only `Generic` and `CommandRegistry`, and plan
+diagnostics reach callers as `Plan::error` plus strings (`validate::collect_warnings`). Designed
+with `LOG-ENTRY-HAS-NO-SOURCE` in `specs/design/diagnostics-carry-their-origin/` (bulk design
+2026-10-20): `Issue::Plan`, `Plan::issue_report`, and `Issue::to_log_entry` as the "metadata
+logging" half (report to log; the reverse is a non-goal).
+
+**Problem example.** A plan with `Plan::error` set and an init warning can be inspected only as an
+`Error` and strings; `EnvironmentBuilder::validation_report()` cannot `append` it. Should:
+`report.append(plan.issue_report())` counts the plan's error.

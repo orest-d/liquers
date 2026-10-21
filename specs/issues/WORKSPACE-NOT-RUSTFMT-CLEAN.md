@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: M
 area: [build, docs]
-design:
+design: workspace-rustfmt-check
 created: 2026-08-29
 github:
 ---
@@ -32,6 +32,16 @@ let _mutation = self.key_mutation_lock.lock().await;
 
 It documents nothing and `rustc` warns `unused doc comment` on both. The intent was presumably to
 document `add_soft_consistency_warnings_enum`, whose own definition may or may not carry it.
+
+**Rechecked at main 18732dd (bulk design, 2026-10-20).** Partly as described. The drift has grown
+to 3,034 hunks in 213 files across all ten Rust crates. Route 3 is done: the two misplaced
+comments in `assets.rs` are now `//` comments (`:8893`, `:8999`). `BUILD-MATRIX-NOT-RUN-IN-CI` is
+closed (`.github/workflows/build-matrix.yml`), so route 2's CI half now has a home.
+
+## Problem Example
+
+`cargo fmt --all -- --check` exits 1 with 3,034 hunks; it should exit 0, and a CI job should fail
+a PR that brings it back.
 
 ## Impact
 

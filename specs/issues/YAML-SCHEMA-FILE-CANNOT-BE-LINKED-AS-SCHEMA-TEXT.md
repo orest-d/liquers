@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: S
 area: [records, lib/value]
-design:
+design: schema-argument-structured-link
 created: 2026-10-20
 github:
 ---
@@ -34,3 +34,12 @@ general rule. Found while writing `to_record_parquet_with_schema_option_is_stric
 A schema file linked into `schema` works whatever its content parses as: either `to_record` accepts
 an `Object` value for `schema` (deserializing it as a `RecordSchema`), or the argument binding turns
 an object into its YAML/JSON text.
+
+## Problem Example
+
+`-R/data/orders.csv/-/ns-rec/to_record-csv-t-~X~-R/data/orders.schema.yaml~E` with a tag-free YAML
+schema fails with `ConversionError: Can't convert 'Object' to string`; it should read the CSV with
+that schema. Confirmed at HEAD 18732dd: `TryFrom<SimpleValue> for String`
+(`liquers-lib/src/value/simple.rs`) has no `Object` / `Array` arm. A `.json` schema file (what
+`ns-rec/schema` prints) fails the same way, through `from_plain_json`. Design:
+`specs/design/schema-argument-structured-link/`.

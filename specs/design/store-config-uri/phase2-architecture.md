@@ -1,249 +1,147 @@
-Based on `HEAD` plus the approved shape of
-[`design/store-factories-in-core/`](../store-factories-in-core/), read rather than remembered.
-Nothing here is implemented.
+# Phase 2: Solution & Architecture — Configuring a store from a URI
 
-# Phase 2 — Solution and architecture
+## Overview
 
-## Chosen solution: unified URI, normalized before dispatch
+A URI entry is an ordinary entry whose store type is **resolved** rather than written. Five steps,
+all inside machinery that exists at HEAD:
 
-A URI entry becomes an ordinary entry before the factory chain sees it. Five steps:
+1. The builder expands `${VAR}` in `uri` (percent-encoding the substituted values) and checks that
+   exactly one of `type` and `uri` is present.
+2. `ChainedStoreFactory` asks each factory in order to `resolve` the entry. The default
+   implementation, and `StoreTypeMap`'s, match the URI's scheme against the `uri_schemes` each
+   declared `StoreTypeInfo` carries; `OpendalStoreFactory` overrides `resolve` with the same rule over
+   its table.
+3. First `Some` wins; the chain writes the resolved name into `store_type` of a clone (already the
+   case for any resolution, `ChainedStoreFactory::create`).
+4. `create` runs. A core constructor reads what it needs from the URI; `OpendalStoreFactory` builds
+   `OperatorUri::new(uri, config pairs)` and hands it to the service's `Configurator::from_uri`.
+5. No factory resolves → an unclaimed-scheme error listing the declared schemes.
 
-1. **Ask each factory in chain order to `resolve` the entry.** A URI-aware factory parses the
-   scheme and answers with one of the store types it declares; a plain factory falls back to the
-   default exact-match on `store_type` and declines.
-2. **First `Some` wins**, exactly as for a `type:` entry — the same rule, not a parallel one.
-3. **The chain writes the resolved name** onto the `StoreConfig`, leaving the URI in place.
-4. **`create` runs** on a config whose `store_type` is now definite.
-5. **The URI is interpreted inside that factory**, the only place with the backend knowledge to do
-   it.
+Rejected, one line each (the 2026-08-29 audit, unchanged where still true):
+- **`Operator::from_uri`**: bypasses the chain (a browser build could not override `http`) and its
+  registry knows 10 services; per-service `Configurator::from_uri` reaches 61 of 62.
+- **A central normalizer that rewrites a URI into `config:` keys**: the authority means a bucket
+  (`s3`, `gcs`), a host (`ftp`, with a synthesized scheme), or nothing (`fs`); that is per-backend
+  knowledge.
+- **A per-entry interpreter** (`schemes: opendal`): the maintainer chose the unified form.
+- **Expanding variables per value after parsing** (the 2026-08-29 recommendation): parsing happens
+  inside OpenDAL's `OperatorUri`, and `from_uri` consumes the parsed URI; the values are never handed
+  back to Liquers between the two. Q1.
+- **`filesystem` claiming `fs://`**: would silently shadow OpenDAL's `fs`, which behaves
+  differently; `file://` is free. Q3.
 
-Steps 1 and 5 are the ones that are not obvious. Step 1 is why the trait needs `resolve` rather than
-`claims`; step 5 is why a generic normalizer cannot work — see §"Why the factory must interpret the
-URI".
+## Known-Issue Preflight
 
-### Data structures
+| Issue | Status | Priority | Impact on this design | Fix first? | Blocking? | Action |
+|---|---|---|---|---|---|---|
+| `STORE-OPENDAL-SERVICES-NOT-ENABLED` | closed | P0 | a URI naming a compiled-out service fails as the `type:` form does | no | no | none |
+| `STORE-OPENDAL-LIST-OPTION-MISPARSED` | closed | P2 | a URI query carries `a,b` lists natively | no | no | none |
+| `STORE-OPENDAL-SLASH-HANDLING` | see index | — | why `fs://` must not be shadowed | no | no | Q3 |
 
-Two additive fields, both on structs Liquers owns:
+## Data Structures
+
+`liquers-core/src/store_config.rs`:
 
 ```rust
-// liquers-core/src/store_config.rs
 pub struct StoreConfig {
-    #[serde(rename = "type", default)]
-    pub store_type: String,          // now defaultable: a URI entry fills it in
+    #[serde(rename = "type", default)] pub store_type: String,   // unchanged
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub uri: Option<String>,         // NEW
-    pub prefix: String,
-    pub config: HashMap<String, serde_json::Value>,
-    pub metadata: Option<HashMap<String, serde_json::Value>>,
+    pub uri: Option<String>,                                     // NEW
+    /* prefix, config, read_only, metadata: unchanged */
 }
-
-// liquers-core/src/store_factory.rs
-pub struct StoreTypeInfo {
-    pub store_type: String,
-    // … label, doc, arguments, availability, coverage …
-    /// URI schemes this store type answers to. Empty means "no URI spelling".
-    /// **Documentation and discovery only** — dispatch goes through `StoreFactory::resolve`.
-    #[serde(default)]
-    pub uri_schemes: Vec<String>,    // NEW
+impl StoreConfig {
+    pub fn with_uri(self, uri: &str) -> Self;                    // NEW, test and builder helper
+    /// The scheme of `uri`, lower-cased; `None` without a URI or a `scheme://`.
+    pub fn uri_scheme(&self) -> Option<String>;                  // NEW
 }
+/// A parsed URI for factories that do not use OpenDAL (Q6).
+pub struct StoreUri { pub scheme: String, pub authority: Option<String>,
+                      pub path: String, pub options: Vec<(String, String)> }
+impl StoreUri { pub fn parse(uri: &str) -> Result<StoreUri, Error>; }
 ```
 
-`uri_schemes` on `StoreTypeInfo` rather than a central table follows the parent design's principle
-that **a factory declares what it claims**. It is what a generated table or a `--help` lists, and
-what the unclaimed-scheme error enumerates. It is **not** how an entry is routed: routing is
-`resolve`, so there is exactly one dispatch mechanism and a declared scheme cannot drift out of step
-with the factory's actual behaviour.
+`StoreConfig::expand_env_vars` also expands `uri`, through a new private
+`expand_env_vars_uri_encoded`, which substitutes each `${VAR}` with its value percent-encoded
+(everything outside RFC 3986 unreserved characters).
 
-### Rejected alternatives
+`liquers-core/src/store_factory.rs`:
 
-| Alternative | Why rejected |
-|---|---|
-| **Named interpreter per entry** (`schemes: opendal` beside `uri:`) | The maintainer's option (b): safer and simpler, but messier and less ergonomic, and it pushes a Liquers-internal detail into every document. Reconsider only if scheme collisions prove common — §"Collision risk" argues they will not. |
-| **Hand the URI to `Operator::from_uri`** | Bypasses `ChainedStoreFactory` entirely, destroying the property the parent design exists for: that Liquers decides which factory serves a name. A browser build could never override `http`. Also limited to the 10 schemes in `DEFAULT_OPERATOR_REGISTRY`. |
-| **Generic normalizer: rewrite URI into `config:` keys centrally** | Impossible without backend knowledge — see below. |
-| **Merge the two namespaces** (a store type *is* a scheme) | Loses the distinction the maintainer asked to keep, and would let an OpenDAL rename silently change a Liquers type name. |
-| **A new `create_from_uri` method on `StoreFactory`** | Unnecessary once `resolve` exists: the URI travels inside `StoreConfig`, which `create` already receives, and `resolve` handles the dispatch half. Two entry points would double the paths a factory must keep consistent. |
-| **Chain-side scheme mapping** (`uri_schemes` drives dispatch) | This design's own first draft. Rejected after the maintainer's reframing: it puts backend knowledge in the chain, and gives a factory two ways to be selected that can disagree. |
+```rust
+pub struct StoreTypeInfo { /* … */ #[serde(default)] pub uri_schemes: Vec<String> }  // NEW
+impl StoreTypeInfo { pub fn with_uri_scheme(self, scheme: &str) -> Self; }           // NEW
+```
 
-## Why the factory must interpret the URI
+## Trait Implementations
 
-A generic normalizer would need one rule for turning a URI's authority and path into configuration
-keys. There is no such rule. Read from OpenDAL 0.55's `Configurator::from_uri` implementations:
+- `StoreFactory::resolve` default: exact `store_type` match as today; when `store_type` is empty and
+  `uri_scheme()` is `Some(s)`, the first declared type whose `uri_schemes` contains `s`.
+  `StoreTypeMap::resolve` the same over its map.
+- `core_store_factory`: `memory` declares `memory`, `filesystem` declares `file`. The filesystem
+  constructor takes `path` from `config` or, with a URI, from `StoreUri::parse(uri)?.path`
+  (authority empty or `localhost`; an absolute path).
+## Function Signatures
 
-| Service | authority becomes | path becomes |
+- `ChainedStoreFactory::create`, no resolution: with a URI and an empty type,
+  `unknown_uri_scheme_error(scheme, &self.store_types())`.
+- `StoreRouterBuilder::build_router`: before `factory.create`, `check_type_or_uri(store_config)`.
+
+`liquers-store/src/store_factory.rs`:
+
+- `OpendalStoreFactory::type_info` declares `uri_schemes` from a new `service_uri_scheme(store_type)`
+  (the OpenDAL scheme of the type: `s3` → `s3`, `fs` → `fs`, `http` → `http`, `https` → `https`).
+  `resolve` adds the URI rule.
+- `create` with a URI: `resolve_enabled_scheme` as today, then `operator_from_uri(store_type,
+  OperatorUri::new(uri, config_as_string_map()?))`, a match with one cfg-gated arm per service,
+  next to `service_arguments`:
+  `"s3" => Operator::from_config(S3Config::from_uri(&uri)?)?.finish()`. A service whose
+  `from_uri` returns `Unsupported` → AC-7.
+
+## Sync vs Async
+
+Sync throughout, like the rest of store construction: parsing is not I/O and OpenDAL builders do
+not touch the network. No `unwrap`, no `Error::new`, no default arm over an enum.
+
+## Integration Points
+
+- `StoreRouterConfig` documents (YAML/JSON/TOML) gain the optional key; nothing else reads it.
+- `liquers-web` builds through `StoreRouterBuilder`, so a browser factory may later declare
+  `localstorage` in its `StoreTypeInfo` with no further change.
+- `store-conformance-check-tool` may accept a URI for `--store` later.
+
+## Error Handling
+
+| Failure | Constructor | Message names |
 |---|---|---|
-| `s3` | `bucket` (from the URI *name*) | `root` |
-| `gcs` | `bucket` | `root` |
-| `ftp` | `endpoint` = `ftp://{authority}` | `root` |
-| `webdav` | `endpoint` = `https://{authority}` — **the scheme is hardcoded** | `root` |
-| `fs` | *nothing* — no authority at all | `root`, prefixed with `/` |
+| both `type` and `uri`, or neither | `Error::configuration_error` | the prefix and both fields |
+| `uri` without `scheme://` | `Error::configuration_error` | the URI with its query removed |
+| unclaimed scheme | `Error::not_supported` | the scheme and the declared schemes |
+| service without a URI form | `Error::not_supported` | the type and "write `type` + `config`" |
+| OpenDAL parse or config error | `Error::configuration_error` | the type; never the query string |
+| `file://` with a host or a relative path | `Error::configuration_error` | the URI |
 
-The authority means a bucket, a host, a host with a synthesized scheme, or nothing, depending
-entirely on the backend. **This is backend knowledge, so it belongs in the factory** — which is
-exactly where the parent design already puts backend knowledge.
+A message never repeats the query string, which may carry a credential.
 
-For OpenDAL types the factory does not implement this by hand: it delegates to
-`C::from_uri(&OperatorUri::new(uri, extra)?)` using the same `store_type → config type` mapping the
-parent design already needs for deriving argument names. That reaches **61 of 62** services, against
-the 10 that `Operator::from_uri` resolves — the per-config route is strictly better than the
-registry route, which is a second reason not to use OpenDAL's registry.
+## Relevant Commands
 
-## What this requires of `store-factories-in-core`
+None. No `store_config` realm entry and no command signature changes; `specs/command_registry.yaml`
+unchanged.
 
-**This section is the design's second purpose, and it earned its keep: the first pass got the
-verdict wrong.**
+## Documentation Architecture
 
-**Corrected verdict: one non-additive change is required, and it must land before that design is
-approved.** The trait method `claims(&self, store_type: &str) -> bool` must become
-`resolve(&self, config: &StoreConfig) -> Option<String>`. Everything else is additive.
+- `specs/reference/STORE_CONFIG_FSD.md`: "Store entries" gains `uri`; a "URI schemes" table; the
+  variable rule.
+- `specs/guides/STORE_CONFIG_GUIDE.md`: a task "one store from a URI", secrets in `config:`.
+- `specs/guides/STORE_IMPLEMENTATION_GUIDE.md`: "declare a URI scheme" for a factory author.
+- `affects_docs` as in `DESIGN.md`; no `specs/README.md` change.
 
-The first pass assumed the *chain* would map URI schemes to store types from a `uri_schemes` list,
-then dispatch on the resulting type — which needs no trait change. The maintainer's reframing broke
-that assumption:
+## Risks
 
-> A URI is allowed to be deliberately ambiguous; a store type is not. The store type may be
-> **inferred** by the factory — whether or not there is a URI.
-
-Under that model, resolution is the *factory's* job, so it needs the whole entry as input and
-returns the resolved name as output. `claims(&str) -> bool` cannot express either half. And the
-reframing is right for a reason the first pass had already established one step later: **a URI must
-be interpreted by the factory** because the authority-to-key mapping is per-backend. Resolution is
-the same argument applied earlier, and splitting it — chain resolves the scheme, factory interprets
-the rest — would put backend knowledge in two places and create two mechanisms that can disagree.
-
-Consequence for `uri_schemes`: it stays, but demoted. It is documentation and discovery — what a
-`--help` or a generated table shows — never the dispatch path. That removes the two-sources-of-truth
-risk the first pass created.
-
-**Why it cannot wait.** Changing the method after `store-factories-in-core` ships breaks every
-implementor that overrode it. Adopting `resolve` now costs one method's shape, and its default
-implementation is exactly today's exact-match behaviour, so nothing changes until a factory chooses
-to infer.
-
-| Element of the parent design | Does URI support change it? | Note |
-|---|---|---|
-| `StoreFactory::store_types()` | **No** | Returns `Vec<StoreTypeInfo>`; the new `uri_schemes` is a field on that struct, not a signature change |
-| `StoreFactory::claims()` | **YES — must become `resolve()`** | `claims(&str) -> bool` cannot infer a type; `resolve(&StoreConfig) -> Option<String>` takes the whole entry and returns the resolved name. Breaking if deferred |
-| `StoreFactory::create()` | **No**, and it gains a guarantee | Receives `&StoreConfig` with `store_type` already set to what `resolve` returned |
-| `ChainedStoreFactory` first-wins | **No — and it is load-bearing** | The same rule resolves schemes; see below |
-| `StoreRouterBuilder` | **Additive** | One normalization pass over the config before the existing build loop |
-| `StoreTypeInfo` | **Additive field** | `#[serde(default)] uri_schemes: Vec<String>` |
-| `StoreConfig` | **Additive field** | `#[serde(default)] uri: Option<String>`, and `store_type` gains `#[serde(default)]` |
-| `ArgumentCoverage`, `StoreTypeAvailability`, `StoreArgumentType` | **No** | Untouched |
-| `StoreTypeMap` | **No** | A map-built factory declares `uri_schemes` in the `StoreTypeInfo` it is given |
-
-**The two fields are `#[serde(default)]` on Liquers-owned structs**, so adding them later breaks no
-document and no implementor; they may be deferred. **`resolve` may not.** That asymmetry is the
-audit's substantive output: one trait method's shape has to be right at the gate, and the rest can
-follow whenever URI support is built.
-
-`StoreConfig::store_type` also gains `#[serde(default)]` in the parent design, so an entry whose
-type is inferred can omit it. That is additive and observably inert today, since an empty type
-resolves nowhere.
-
-### First-wins is what makes the unified URI safe
-
-The obvious worry is `http`: the browser serves it with `fetch`, OpenDAL serves it natively, and a
-URI `http://…` names neither implementation. Under the unified direction the scheme maps to store
-type `http` and the chain resolves it — so **the answer is whatever the chain already gives for
-`type: http`**, which is the browser factory in a browser build and the OpenDAL factory natively.
-The URI form inherits the type form's semantics for free, with no special case.
-
-This is a genuine argument *for* option (a) over the parent design, not merely compatibility with
-it: had the parent design kept the old "factories are consulted before built-ins" rule, scheme
-resolution would have had no single ordering to appeal to.
-
-### The one real trap: do not give `filesystem` the `fs://` scheme
-
-Harmonization is permitted, and the tempting move is to let core's `filesystem` answer to `fs://`,
-since OpenDAL calls the same idea `fs`. **Recommendation: do not.**
-
-Both `liquers-core`'s `filesystem` (an `AsyncFileStore`) and OpenDAL's `fs` are real, both would be
-in a native chain, and both would claim `fs://`. First-wins resolves it deterministically to core's —
-so a user who wrote `fs://` meaning OpenDAL silently gets a different backend, with no error and no
-warning, and the two differ in behaviour (`STORE-OPENDAL-SLASH-HANDLING`, `opendal-path-mapping`).
-Deterministic is not the same as unsurprising.
-
-Safer: give `filesystem` the **`file://`** scheme, which OpenDAL does not use, and leave `fs://` to
-OpenDAL's `fs`. The namespaces stay distinct, nothing is shadowed, and the mapping table says so
-explicitly. Recorded as Phase 1 open question 1, resolved here as a recommendation the gate may
-overrule.
-
-### Collision risk, assessed
-
-The maintainer's stated risk was "conflicting URI scheme definitions", judged low. The audit agrees,
-with one qualification. Two factories claiming one scheme is **not** a problem — first-wins settles
-it, exactly as for store types. The problem is only when the two mean *different things a user could
-plausibly intend*, which is the `fs://` case above and, as far as this audit found, only that one.
-`memory://` maps to core's `memory` under first-wins and OpenDAL's memory service is unreachable by
-URI, which is fine because they are interchangeable in behaviour.
-
-## Data ownership, errors, sync/async
-
-- `uri: Option<String>` is owned; `uri_schemes: Vec<String>` is owned. Nothing large enough for
-  `Arc`. No lifetimes.
-- Errors stay `liquers_core::error::Error` via typed constructors. New paths: both `type` and `uri`
-  present, and neither present, are `Error::general_error` naming the entry's prefix; an unclaimed
-  scheme is `Error::not_supported` listing supported schemes, mirroring the unclaimed-type error.
-- **Sync throughout**, like the rest of construction. Parsing a URI is not I/O.
-- No `unwrap`/`expect`, no `Error::new`, no default match arm.
-
-### `${VAR}` expansion — recommendation
-
-Expand **per configuration value after parsing**, not on the URI string before it. Whole-string
-expansion would put an expanded secret inside a query string, so any value containing `&`, `=` or `/`
-would need URL-encoding — a new failure mode for exactly the values most likely to contain those
-characters. Expanding after parsing keeps today's per-value rule and its tests.
-
-Consequence to document: `${VAR}` inside a URI query string is expanded *after* URL-decoding, so a
-secret needs no URL-encoding, but a literal `${` in a URI cannot be escaped. Acceptable; the
-`config:` map remains the recommended home for secrets.
-
-## Risk analysis
-
-| Assessment | Record |
+| Assessment | Finding |
 |---|---|
-| **Files** | `liquers-core/src/store_config.rs` (one field), `liquers-core/src/store_factory.rs` (one field, one normalization function, one error), `liquers-store/src/store_factory.rs` (URI delegation for OpenDAL types), plus colocated tests. Specs: `STORE_CONFIG_FSD.md`, the issue's `status:`, `specs/index.csv`. ~4 source files. |
-| **Impact area** | `store/config`, `store/backends`, `core/store`. Downstream: every consumer of `StoreRouterConfig`, but only additively — no existing document changes meaning. |
-| **Module/crate reach** | Two crates (`liquers-core`, `liquers-store`); `liquers-web` benefits without editing. Not confined to one module. |
-| **Existing-test breakage** | **Expected zero.** Both fields are `#[serde(default)]`, dispatch for `type:` entries is unchanged, and no existing test writes a `uri`. Serialization round-trip tests may need a nudge if `uri: None` is not skipped — hence `skip_serializing_if`. |
-| **New validation** | Round-trip equality (a URI entry and its `type` equivalent build the same store); exclusivity errors both ways; unclaimed scheme lists supported schemes; scheme first-wins across a two-factory chain; `${VAR}` inside a query value; the per-service authority mapping for `s3`, `ftp`, `fs`. All offline — OpenDAL construction is verified not to touch the network. |
-| **Behavioural risk** | *Compatibility:* additive only. *Data/persistence:* none — configuration is read at startup. *Concurrency:* none; construction is sync and single-threaded. *Performance:* one URL parse per URI entry at startup. *Security:* **the material risk** — a URI invites credentials in one string that gets logged and pasted; mitigated by documenting `config:` + `${VAR}` as the form for secrets, not by code. *Error paths:* three new, all covered above. |
-| **Recovery** | Revert two fields and one normalization pass. No migration, no persisted state, no document rewrite. |
-| **Certainty** | High on the audit — the parent design's shape is read from its Phase 2, and OpenDAL's `from_uri` behaviour is read from source and confirmed by a run. Open: the `fs://` recommendation, expansion timing, and whether browser types get schemes. None blocks. |
-
-## Relevant open issues
-
-- [`STORE-CONFIG-IN-CORE`](../../issues/STORE-CONFIG-IN-CORE.md) / `store-factories-in-core` —
-  **prerequisite.** This design assumes its factory chain, its `StoreTypeInfo`, and its builder. It
-  must land first. Not a blocker for *designing*; the audit above is the point.
-- [`STORE-OPENDAL-SERVICES-NOT-ENABLED`](../../issues/STORE-OPENDAL-SERVICES-NOT-ENABLED.md) (P0) —
-  a URI naming a service that is not compiled in fails the same way a `type:` does. This design
-  neither worsens nor fixes it, but URI support would make the defect *more* visible, since a URI is
-  the form a newcomer copies from documentation.
-- [`STORE-OPENDAL-LIST-OPTION-MISPARSED`](../../issues/STORE-OPENDAL-LIST-OPTION-MISPARSED.md) (P2) —
-  **interacts.** A URI query string is already comma-friendly (`?endpoints=a,b`), which is exactly
-  the encoding OpenDAL wants, so the URI form sidesteps that defect rather than inheriting it. Worth
-  noting in that issue if this lands first.
-- [`STORE-OPENDAL-SLASH-HANDLING`](../../issues/STORE-OPENDAL-SLASH-HANDLING.md) /
-  `opendal-path-mapping` — no overlap; that design edits `opendal_store.rs`, which this one does not
-  touch.
-
-## Critical review
-
-**Against Phase 1.** All six acceptance criteria are addressed: exclusivity (§Data structures,
-§errors), prefix orthogonality (unchanged field), equivalence (§Chosen solution step 5 and the
-round-trip test), chain-not-registry resolution (§Rejected alternatives), unclaimed-scheme error
-(§errors), and `${VAR}` survival (§expansion). Non-goals respected: `type` + `config` stays primary
-and nothing exposes `Operator::from_uri`.
-
-**Against the codebase.** `StoreConfig`'s fields, `create_opendal_store`'s use of
-`config_as_string_map`, `OperatorUri`'s accessors (`scheme`, `name`, `authority`, `root`, `options`)
-and the five `from_uri` implementations tabulated above were all read at their sources. The
-registry-versus-config-route counts (10 against 61 of 62) were counted, not estimated. The claim
-that construction is offline was confirmed by running it.
-
-**Understated risk, on reflection:** the security note deserves more weight than "documentation
-mitigates it". A URI is *designed* to be pasted into chat and shell history in a way a YAML block is
-not. Phase 3 should include a guide passage, not merely a reference sentence, and the guide should
-show `${VAR}` inside a URI rather than a literal credential in every example.
+| Files likely to change | `liquers-core/src/store_config.rs`, `liquers-core/src/store_factory.rs`, `liquers-store/src/store_factory.rs` |
+| Crates and workflows affected | `liquers-core`, `liquers-store`; every consumer of `StoreRouterConfig`, additively |
+| Existing tests likely to change | none expected: both fields default and skip when empty; `resolve01`–`resolve04` keep their meaning |
+| New validation | AC-1 to AC-7 as unit tests, offline (OpenDAL builders do not touch the network) |
+| Compatibility / data / concurrency / performance / security | additive; no persisted state; one parse per entry at startup; **security**: a URI invites a credential in one string that is logged and pasted — messages omit the query, the guide keeps secrets in `config:` |
+| Recovery | revert two fields and the resolution rule |
+| Certainty and open questions | high: `OperatorUri::new` (percent-decoding, extra options override) and `Configurator::from_uri` read in `opendal-0.55.0`; Q1, Q2, Q6 open |

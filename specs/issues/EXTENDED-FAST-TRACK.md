@@ -1,16 +1,39 @@
 ---
 id: EXTENDED-FAST-TRACK
 kind: feature
-title: Fast-track covers only simple loading
+title: A cheap query waits behind long-running jobs, because commands cannot be classified for scheduling
 status: accepted
 priority: P2
 complexity: L
 area: [core/assets]
-design:
+design: command-execution-class
 created: 2026-08-08
 github:
 ---
 # EXTENDED-FAST-TRACK
+
+## Status at HEAD (2026-10-20, bulk-design triage) — what remains
+
+Partly obsolete, partly open. Verified at commit 18732dd; the original text follows as history.
+
+- **Items 23, 24 (`apply()` / `apply_immediately()` fast-track): obsolete.** `apply` absorbed
+  `apply_immediately` and evaluates inline in the caller's future on both managers, consuming no
+  job-queue slot (`AssetManager::apply` doc, `liquers-core/src/assets.rs` ~6007;
+  `DefaultAssetManager::apply` ~8787). The TODO markers are gone.
+- **Cheap steps inside a query: partly covered** by `cached: false` (design `plan-policy`), which
+  runs a cheap step inline after the nearest kept prefix — a memory decision, not a latency one.
+- **Item 4 and the requirements (execution classes, class-aware scheduling): open.**
+  `AssetData::try_fast_track` still fast-tracks only a bare stored key (`// TODO: support for quick
+  plans`, assets.rs ~1394); `DefaultAssetManager::get_asset` submits every other unfinished query
+  to one FIFO `JobQueue` of fixed capacity (4 by default); `CommandMetadata` has no class.
+
+Problem example: with four 10-minute jobs holding every slot, the UI query
+`-R/data/sales.csv/-/ns-pl/head-10` is parked `Submitted` and its view stays empty until a job
+finishes. Expected: a query whose steps are declared fast starts at once, within a bounded lane.
+
+Design: `command-execution-class` (Phases 1-2, `phase2-blocked`): what `fast` guarantees (bypass,
+reserved lane, or priority) and whether the feature is wanted now are maintainer decisions.
+
 
 
 ## Summary

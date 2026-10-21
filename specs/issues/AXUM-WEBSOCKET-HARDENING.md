@@ -6,7 +6,7 @@ status: accepted
 priority: P3
 complexity: M
 area: [axum]
-design: axum-assets-endpoints
+design: axum-websocket-connection-limits
 created: 2026-08-08
 github:
 ---
@@ -41,3 +41,18 @@ queue that drops intermediate notifications when full but always delivers replie
 notifications; disconnect aborts every subscription task without cancelling the evaluations.
 Evidence: AWS12a, AWS12b, AWS13. Still open: connection-count limits, idle timeouts and
 server-initiated keep-alive, and a slow-consumer policy beyond the bounded queue.
+
+## Status at 18732dd (2026-10-20)
+
+Still reproduces for the open half. `liquers-axum/src/assets/websocket.rs`: `WebSocketLimits` has
+only `max_message_size` and `max_subscriptions`; `handle_socket` reads with no deadline and sends no
+Ping; `writer_task` awaits `sink.send` with no deadline, so a client that stops reading stalls its
+writer, then `Session::reply` and terminal notifications (`tx.send(..).await`), and the connection
+is never ended. Nothing counts connections.
+
+Problem example: subscribe on `ws/q/make_text/upper` and stop reading; once the socket buffer is
+full the connection, its 64-slot queue and its subscription tasks are held indefinitely. Expected:
+server pings, an idle close (1001), a write deadline, and a connection cap (close 1013), each with a
+stated default — designed in `specs/design/axum-websocket-connection-limits/` (the origin design,
+`axum-assets-endpoints`, is implemented and frozen).
+

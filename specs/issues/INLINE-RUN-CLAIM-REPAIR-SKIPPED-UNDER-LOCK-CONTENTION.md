@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: M
 area: [core/assets]
-design:
+design: inline-run-claim-repair-under-lock-contention
 created: 2026-10-19
 github:
 ---
@@ -56,3 +56,10 @@ contended at drop time. Possible directions, none chosen:
 Found on 2026-10-19 while designing `inline-waiter-recovers-dropped-run`
 (`INLINE-DROP-REPAIR-STRANDS-EXISTING-WAITERS`). That design makes parked callers react to the
 repair. It cannot help when the repair never happens, so it lists this as a non-goal and an overlap.
+
+## Triage 2026-10-20
+
+Still reproduces at HEAD (`18732dd`): `InlineRunClaim::drop` repairs only inside
+`if let Ok(mut lock) = self.asset.data.try_write()`, and PR #167's `claim_or_wait_inline` waits for a
+notification the skipped repair never sends. Design: `inline-run-claim-repair-under-lock-contention`
+(a lock-free abandoned mark honoured by the next inline claim, plus a `send_modify` wake-up).

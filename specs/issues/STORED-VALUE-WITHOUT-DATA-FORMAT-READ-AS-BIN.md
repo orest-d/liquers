@@ -3,11 +3,11 @@ id: STORED-VALUE-WITHOUT-DATA-FORMAT-READ-AS-BIN
 kind: issue
 title: A stored value with no declared data format is deserialized as bin, not its own default format
 status: draft
-priority: P3
+priority: P1
 complexity: S
 area: [core/assets]
 created: 2026-10-18
-design:
+design: stored-value-default-data-format
 github:
 ---
 
@@ -45,3 +45,16 @@ A reviewer of `specs/design/liquers-py/` Phase 2 found it by reading the read an
 Filed without a design: it is outside `liquers-py`'s scope, which designs around it by always
 writing an explicit `data_format` (`specs/design/liquers-py/phase2-architecture.md` preflight). It
 needs a reproduction before a design, and it is a candidate for automatic fixing once reproduced.
+
+## Reproduction at HEAD (bulk design, 2026-10-20)
+
+Confirmed by reading the code at 18732dd, and worse than filed. Every write path leaves
+`data_format` undeclared for a key without an extension: `AssetManager::set_state` and
+`AssetRef::serialize_to_binary` store the state's metadata as it is, and
+`AsyncStore::finalize_metadata` seeds a format only from the key's extension. The bytes are
+written in the value's own default format (`State::effective_data_format`). On read,
+`deserialize_stored_value(…, "bin", …)` does not fail: `Value::deserialize_from_bytes` answers
+`Value::Bytes` for `bin` whatever the type identifier, so `-R/counter` holding `I64(42)` returns the
+two bytes `42` with no error. Priority raised from P3 to P1: a wrong value without an error on an
+extensionless key (it meets the P0 wording if extensionless keys are a supported path; review
+decides). Design: `stored-value-default-data-format`.

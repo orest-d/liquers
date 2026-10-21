@@ -3,10 +3,7 @@ id: EVALUATION-SESSION-VOLATILE-TEST-FLAKE
 kind: design
 title: volatile_dependency_has_one_value_per_evaluation passes deterministically
 form: compact
-status: in_review
-phase: architecture
-readiness: phase2-blocked
-autofix: not-eligible
+status: abandoned
 area: [core/assets]
 issues: [EVALUATION-SESSION-VOLATILE-TEST-INTERMITTENT]
 created: 2026-10-17
@@ -15,6 +12,21 @@ created: 2026-10-17
 
 Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-17 backlog compaction. Phases 1-2
 only: the cause is not established, so no test or plan is written yet.
+
+> **Abandoned 2026-10-21 (bulk design, resumed under guide §11).** The source issue no longer
+> reproduces at HEAD (`18732dd`) and is closed. The cause was hypothesis H1 below, and runtime
+> volatility (`design/runtime-volatility/`, commit `b87faa1`, PR #142) removed the condition that
+> exposed it: `a`, `b` and `c` now become volatile at run time because they read the volatile `v`,
+> so their stored copies carry status `Volatile` and fast track refuses them ("Asset 1004 has stored
+> status Volatile, fast-track disabled"). Evidence: the test binary built from `2bc4228` (where the
+> flake was reported) failed 16/20 and 21/30 runs on this machine, every failure logging "Fast track
+> successful for asset with key data/c.txt" in the second evaluation — the stored `Ready` copy of `c`
+> written by a background save that landed after `manager.remove`. The HEAD binary passed 280 of
+> 280 runs (queued, including under 4× parallel load) and 20 of 20 (inline). The product race H1
+> describes (a late background save reviving a removed key) still exists for non-volatile keys and
+> is filed as `REMOVED-OR-REPLACED-KEY-REVIVED-BY-A-LATE-BACKGROUND-SAVE`. The phases below are kept
+> as the record of the diagnosis; the Consolidated Findings' first bullet ("`a`, `b` and `c` are
+> volatile at plan time") was wrong — the log shows "Getting non-volatile asset for key data/c.txt".
 
 ## Phase 1: High-Level Design
 

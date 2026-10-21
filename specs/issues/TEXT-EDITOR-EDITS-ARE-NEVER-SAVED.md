@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: M
 area: [lib/egui, lib/ui]
-design:
+design: text-editor-save
 created: 2026-10-19
 github:
 ---
@@ -34,3 +34,10 @@ An explicit save (button or shortcut) writes the text to the key — for example
 
 Found while designing `specs/design/ui-asset-snapshot-boundary/` (EGUI-ASSET-MANAGER-INTEGRATION),
 which moves the widget to a `TextEditorElement` without changing this behaviour.
+
+## Problem example
+
+Added 2026-10-21 (bulk design; reproduced at `8ecfd7f`). With `notes/readme.txt` = `hello notes`,
+a node showing `-R-key/notes/readme.txt/-/text_editor`, the user appends ` and more`; no save
+exists, and re-evaluating shows `hello notes`. Designed in `specs/design/text-editor-save/`
+(after `ui-asset-snapshot-boundary` creates `TextEditorElement`).

@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: M
 area: [core/assets]
-design:
+design: cancel-point-of-no-return
 created: 2026-10-09
 github:
 ---
@@ -45,3 +45,20 @@ race.
 Found while implementing `design/asset-cancellation-outcome/` (Phase 3 learning log): reasoning
 about which awaits remain in the compute future after a synchronous command returns. Not reproduced
 by a test; the race window is a few uncontended awaits.
+
+## Problem Example
+
+Queued manager, recipe `finish_anyway/out.txt` (a sync command that finishes anyway after seeing
+`is_cancelled()`): the test requests `asset.cancel()` while the command runs, and holds
+`asset.data.write()` at the moment the command returns `Ok("finished")`. `prefix_metadata` then
+suspends on the lock and the biased `select!` picks the pending request. Today: `Cancelled`,
+nothing stored. Should be: `Ready`, `"finished"` stored, the request dropped.
+
+## Triage 2026-10-20
+
+Still present at HEAD (`18732dd`): `run_with_future` / `run_with_future_inline` race the whole
+compute future against `CancellationRequest::requested()` with nothing marking the command's
+return; the awaits after it (`prefix_metadata`, a trailing `Filename` step,
+`check_resolved_volatility`, `take_pending_dependencies`) remain inside the race. More likely than
+first estimated: a cancel requested *during* a sync command is already pending when it returns.
+Origin design: `asset-cancellation-outcome` (D2). Design: `cancel-point-of-no-return`.

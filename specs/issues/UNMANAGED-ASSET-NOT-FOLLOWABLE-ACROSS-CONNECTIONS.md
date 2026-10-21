@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: M
 area: [axum, core/context]
-design:
+design: unmanaged-asset-registry
 created: 2026-10-12
 github:
 ---
@@ -47,3 +47,16 @@ id; `subscribe` / `cancel` by id work from any connection; possibly HTTP `id/inf
 
 Decided out of scope while designing `axum-query-named-arguments` (Phase 1, Q15, 2026-10-12): the
 user chose connection-scoped ids, to be extended to sessions once sessions are supported.
+
+## Status at 18732dd (2026-10-20)
+
+Still reproduces: `SubmitResult` (`liquers-axum/src/assets/common.rs`) carries no id, and
+`Session::cancel` / `unsubscribe_id` (`websocket.rs`) look only in the connection's own table.
+
+Problem example: `POST q/submit/ns-search/search?query=liquers&limit=20` answers `managed: false`
+with a note, and `q/info/ns-search/search` is 404 `NotAvailable`; nothing can read the result
+later. Expected (opt-in): the submit answers an `id`, and `id/info`, `id/data`, `id/cancel` and a
+WebSocket `subscribe` by `id` follow it from anywhere, with bounded retention. Designed in
+`specs/design/unmanaged-asset-registry/`; its leading decision is whether ids may ship as bearer
+capabilities before `CORE-SESSION-AND-KEY-ACL` (`access-policy-at-entry-points`).
+

@@ -4,8 +4,9 @@ kind: issue
 title: Schedule-time expression attribution entries are never removed outside tests
 status: draft
 priority: P3
-complexity: S
+complexity: M
 area: [core/assets]
+design: keyed-run-replaces-dependency-edges
 created: 2026-10-18
 github:
 ---
@@ -22,7 +23,22 @@ stays in an expression's attribution set long after the evaluation that put it t
 evaluation of the same expression adds edges to it (the reason
 `replacing-write-drops-stale-dependency-edges` had to remove a replaced key from these sets).
 
+## Problem Example
+
+A keyed `k` evaluates the non-keyed `-R/data/x.txt/-/upper`. After that expression has expired and
+`k` has re-run without it, the three maps still hold its entries, and `k` is still in its
+attribution set, for the life of the process.
+
 ## Expected
 
 An expression's attribution entries are dropped when the expression asset reaches a terminal
 status, as the dependency-scheduling design says, or the maps are otherwise bounded.
+
+## Triage (2026-10-20)
+
+Reproduces at HEAD 18732dd (`remove_expression` is `#[cfg(test)]`; no library caller). The cleanup
+point `dependency-scheduling` planned (the expression's terminal status) would break a cached `Ready`
+expression's late joiners, because expiry does not cascade through an expression. The design applies
+the cleanup only when the expression's value will not be served again. Designed with
+`EVALUATION-KEEPS-DROPPED-DEPENDENCY-EDGES` in `design/keyed-run-replaces-dependency-edges/`.
+Complexity re-sized from S to M (two files, lifecycle hooks).

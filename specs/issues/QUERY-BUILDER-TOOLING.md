@@ -6,7 +6,7 @@ status: accepted
 priority: P2
 complexity: L
 area: [core/query, core/validate]
-design: 
+design: query-builder
 created: 2026-08-08
 github:
 ---
@@ -57,3 +57,27 @@ characters `encode_token` does handle (`~`, space, `/`, `-`), and unsafe for any
 Raised while designing `specs/liquers-web`, where a JavaScript command takes a URL as a parameter.
 The example initially assumed percent-encoding, which the grammar does not support at all; checking
 the real mechanism surfaced both this gap and the encoder defect it depends on.
+
+## Triage 2026-10-21 (bulk design)
+
+**Partly resolved.** `PARAMETER-ESCAPING-INCOMPLETE` is closed: `encode_token` is total, so building
+string parameters through `ActionParameter::new_string` + `encode()` is now correct for every value
+(`QUERY_ESCAPING_GUIDE.md`), and requirement 3's typed error no longer applies to parameters. What
+remains at HEAD (18732dd):
+
+- action names, namespaces, key segments, resource selectors and filenames are still emitted raw and
+  unvalidated by every public constructor (DOC-02 §Programmatic construction is not validation);
+- a transform segment built without a header after a resource encodes as more key segments
+  (`-R/data/report.csv/filter-x/to_text` plans as `GetAsset[data/report.csv/filter-x/to_text]`);
+- there is no encode-direction CLI;
+- `liquers-web`'s `encodeParam("")` refuses the empty string, although the grammar accepts an empty
+  parameter (`cmd-`).
+
+## Problem Example
+
+A script builds `-R/data/report.csv/-/filter-<v>/to_text` for `v = "12:30"` by concatenation and gets
+text that does not parse; building the AST by hand without a transform header yields a query that
+fetches a file named `to_text`.
+
+Designed in `design/query-builder/` (first slice: core builder, `Query::check_encodable`,
+`liquers-encode`, shared token predicates); binding classes become a follow-up issue.

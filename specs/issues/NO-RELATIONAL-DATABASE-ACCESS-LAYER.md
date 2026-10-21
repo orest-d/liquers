@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: XL
 area: [lib/value, lib/commands, store/backends]
-design:
+design: relational-database-access
 created: 2026-09-20
 github:
 ---
@@ -23,6 +23,12 @@ cannot be a recipe input.
 `specs/design/record-streams/engine-survey.md` §3 assesses the fit against sqlx, Postgres, MySQL,
 SQLite and SurrealDB. The **read** path fits well. Three things do not, and they are why this is a
 separate task rather than an extension of that design.
+
+## Problem Example
+
+A team wants `<orders table of database sales>/ns-rec/eq-status-open/to_csv/open_orders.csv` as a
+link. Nothing can produce the first segment: at 18732dd no crate's `src/` uses a database client
+(`sqlx` is in `Cargo.lock` only through OpenDAL's optional key-value database services).
 
 ## Why it is not simply an extension of `record-streams`
 
@@ -70,3 +76,15 @@ large enough to be their own step.
 
 Related: `NO-SQL-QUERY-CAPABILITY-OVER-STORED-AND-DERIVED-DATA` is the mirror image — SQL *over*
 Liquers data rather than Liquers over SQL data. The two share the record abstraction and little else.
+
+## Triage 2026-10-21 (bulk design)
+
+Still reproduces at HEAD (no database client in any `src/`; `FieldType` has no `Decimal`,
+`liquers-records/src/schema.rs`). Item 1 above stays resolved: `ChunkList::Unbounded` fits keyset
+pages. Designed in [`relational-database-access`](../design/relational-database-access/), which
+stops at Phase 2 (`phase2-blocked`): how a query names a database (store mount, connection value or
+environment section) and the freshness rule for its results need a maintainer decision. Item 2 is
+filed as [`RECORD-FIELD-TYPE-HAS-NO-DECIMAL`](RECORD-FIELD-TYPE-HAS-NO-DECIMAL.md) and item 3 as
+[`NO-WRITE-PATH-FROM-RECORDS-INTO-A-RELATIONAL-DATABASE`](NO-WRITE-PATH-FROM-RECORDS-INTO-A-RELATIONAL-DATABASE.md);
+the design is read-only. The completed `record-streams` design still lists this issue among its
+sources (it resolved item 1); this issue's `design:` now points to the new design.

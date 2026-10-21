@@ -4,9 +4,9 @@ kind: issue
 title: Parsed entities are decoded away, so the AST cannot show them
 status: draft
 priority: P3
-complexity: L
+complexity: S
 area: [core/query]
-design: 
+design: styled-query-entity-tokens
 created: 2026-08-14
 github:
 ---
@@ -158,3 +158,12 @@ radius, so it was deliberately left out of that design's scope and recorded here
 reporting accurate positions and canonicalisation shown to be idempotent, two of the three original
 motivations are gone. Priority lowered `P2` → `P3`, and the cheaper highlighting route above was
 added — it may close this issue without any AST change.
+
+## Triage 2026-10-20 (bulk design)
+
+Still reproduces at HEAD (18732dd): `ActionParameter::styled_tokens` in `liquers-core/src/query.rs`
+emits one `StringParameter(encode_token(s))` per string parameter, so `filter-12~ncolon~30` yields
+`StringParameter("12~ncolon~30")` with no `Entity` piece. Designed in `design/styled-query-entity-tokens/`,
+which takes the cheaper route above under a recommended answer (canonical highlighting is acceptable)
+and leaves the segment-list AST unpursued. **Complexity re-sized `L` → `S`** for that route; if the
+maintainer requires the typed spelling instead, the AST redesign is a new `L` design.

@@ -1,16 +1,46 @@
 ---
 id: COMBINED-EXPIRES
 kind: feature
-title: No algebra for combining expiration across dependencies
+title: Combining expirations reduces end-of-day with end-of-week or end-of-month across time zones
 status: accepted
 priority: P2
-complexity: L
+complexity: S
 area: [core/assets]
-design:
+design: expires-cross-timezone-reduction
 created: 2026-08-08
 github:
 ---
 # COMBINED-EXPIRES
+
+## Status at HEAD (2026-10-20, bulk-design triage) — what remains
+
+The feature below is **implemented**, except for one wrong simplification. Verified at commit
+18732dd in `liquers-core/src/expiration.rs`: `Expires::Combination(BTreeSet<Expires>)` (`:52`),
+`canonise` (`:216`), `combine` (`:242`) with the lifted rules, `BitOr` / `BitOrAssign` (`:349`,
+`:357`), the comma text form (`FromStr` `:455`, `Display` `:710`), `to_expiration_time` of a
+combination as the minimum (`:187`), and plan aggregation with `|=` (`plan.rs:1410`, `:2918`,
+`:3023`, `:3513`; `recipes.rs:362`); tests `test_combine_*`, `test_roundtrip_combination`,
+`test_serde_expires_combination_json`, `test_plan_expires_combines_different_command_expirations`.
+
+**Remaining problem.** `combine_atomic_pair` (`:274`) reduces `EndOfDay | EndOfWeek` and
+`EndOfDay | EndOfMonth` to the `EndOfDay` operand regardless of `tz_offset`, and
+`test_combine_required_rules` asserts it with `None` against `Some(3600)`. The end of day in one
+zone can be later than the end of the week in another, so the combined expiry is too late:
+
+```rust
+// reference time Sunday 2026-10-18 23:30 UTC
+let day  = Expires::EndOfDay  { tz_offset: Some(14 * 3600) }; // ends Monday 10:00 UTC
+let week = Expires::EndOfWeek { tz_offset: Some(0) };          // ends Monday 00:00 UTC
+assert_eq!(day.clone() | week, day); // HEAD: expires ten hours after the week did
+```
+
+Expected: the reduction applies only when both operands carry the same `tz_offset`; otherwise the
+pair stays a `Combination`, whose `to_expiration_time` is the true minimum. Reachable only through
+the Rust API: the text forms always parse to `tz_offset: None`. Re-sized `S` (one private function
+and its tests). Design: `expires-cross-timezone-reduction`. The related loss of `tz_offset` in the
+text form is a separate issue, `EXPIRES-TEXT-FORM-DROPS-TIME-ZONE`.
+
+The original feature text follows as history.
 
 
 ## Summary

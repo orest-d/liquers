@@ -3,8 +3,8 @@ id: POLARS-COMMAND-TESTS-VIA-QUERIES
 kind: design
 title: Polars command tests evaluate the commands they are named after
 form: compact
-status: in_review
-phase: implementation
+status: complete
+gh_pr: [170]
 readiness: ready
 autofix: eligible
 area: [lib/polars, build]
@@ -12,6 +12,8 @@ issues: [POLARS-COMMAND-TESTS-BYPASS-COMMANDS]
 created: 2026-10-19
 ---
 # Polars command tests evaluate the commands they are named after
+
+> **Complete on 2026-10-20** (bulk design review): implemented by #170 (commit f622c95), merged; every source issue is closed and no phase is outstanding.
 
 Bulk design (`specs/guides/autonomous_bulk_design.md`): Phases 1-4 written; Phase 4 implemented on
 2026-10-20 (automatic fix).

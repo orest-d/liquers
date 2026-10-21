@@ -7,7 +7,7 @@ priority: P3
 complexity: S
 area: [lib/polars]
 created: 2026-10-18
-design:
+design: polars-dataframe-ipc
 github:
 ---
 
@@ -31,3 +31,13 @@ DataFrame cannot be written as `.arrow`/`.feather`. Workaround: Parquet.
 ## Discovery
 
 Choosing the DataFrame crossing for `specs/design/liquers-py/` (Phase 1, question 2), 2026-10-18.
+
+## Update 2026-10-20 — confirmed at HEAD, designed
+
+Still reproduces: `PolarsDataFormat::Ipc` sits in the refusing arms of both codec functions in
+`liquers-lib/src/polars/serde.rs`, and `polars.DataFrame`'s `TypeInfo` declares only `csv`,
+`csv:comma`, `csv_comma` and `parquet`, so even a working codec would be refused on the write path.
+Example: `Value::from_polars_dataframe(df).as_bytes("feather")` returns "Polars serialization for
+data_format 'feather' is not implemented yet"; `-R/data/sales.feather/-/ns-pl/head-5` fails the same
+way. Design: `specs/design/polars-dataframe-ipc/` (also adopts the `arrow` spelling, as
+`liquers-records` does). JSON and NDJSON are filed separately as `POLARS-DATAFRAME-JSON-NOT-SERIALIZABLE`.
