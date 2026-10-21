@@ -4341,8 +4341,18 @@ impl<E: Environment> AssetRef<E> {
                 }
                 // A metadata snapshot the service loop queued during the run is older than this
                 // one; dropped first, so it cannot overwrite the value's metadata afterwards.
+                // The metadata written is then read again, so a snapshot queued after it was
+                // captured above (progress finalized while this write ran in the background)
+                // is not dropped in favour of the older copy.
                 let saver = self.data.read().await.metadata_saver.clone();
                 saver.supersede().await;
+                let metadata = self
+                    .data
+                    .read()
+                    .await
+                    .binary_unchecked()
+                    .map(|(_, current)| current)
+                    .unwrap_or(metadata);
                 let written = store.set(key, &data, &metadata).await;
                 if written.is_ok() {
                     // Listings that depend on this directory see a new (or rewritten) member.
@@ -13127,6 +13137,38 @@ recipes:
         let failed = finished_primary_progress(&envref, "tick_then_fail", inline).await;
         assert!(failed.is_done(), "a finished asset never shows an unfinished bar: {failed:?}");
         assert_eq!(failed.message, "Working");
+    }
+
+    /// A keyed asset saved in the background keeps the finalized progress in the store: the value
+    /// write must not land the metadata it captured before `finalize_primary_progress` on top of
+    /// the newer snapshot.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn background_value_write_keeps_finalized_progress() {
+        let mut env = SimpleEnvironment::<Value>::new();
+        register_progress_commands(&mut env.command_registry);
+        env.with_async_store(Box::new(crate::store::AsyncMemoryStore::new(&Key::new())));
+        let envref = env.to_ref();
+        let mut keys = Vec::new();
+        for i in 0..40 {
+            let key = parse_key(&format!("partial{i}.txt")).expect("key");
+            let asset = AssetData::<SimpleEnvironment<Value>>::new(
+                envref.get_asset_manager().next_id_for_asset(),
+                parse_query("report_partial").expect("query").into(),
+                Some(key.clone()),
+                envref.clone(),
+            )
+            .to_ref();
+            asset.run(None).await.expect("run");
+            assert!(asset.get_metadata().await.expect("metadata").primary_progress().is_done());
+            keys.push(key);
+        }
+        // Longer than the saver's debounce interval, so every queued write has landed.
+        tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+        for key in keys {
+            let (_bytes, stored) = envref.get_async_store().get(&key).await.expect("stored");
+            let progress = stored.primary_progress();
+            assert!(progress.is_done(), "{key}: {progress:?}");
+        }
     }
 
     #[tokio::test]
