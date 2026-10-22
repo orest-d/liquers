@@ -283,6 +283,12 @@ Deviations, none changing a contract:
   only `EnvRef` to an asset, and one fixture (`stale_dep_fixture`) that returns only the asset
   deliberately keeps its environment for the test process.
 
+- PR #176 review: the sweep missed `get_envref` calls inside closures of `Result` functions
+  (`mark_expired_status`, so `expire()` on a retained keyed asset panicked; `set_volatile_during_run`;
+  the two map insertions of `get_nonvolatile_*_asset`). They use `try_get_envref` now, and three
+  store reads in non-`Result` helpers answer "inconclusive" / skip on teardown.
+  `teardown11_expire_after_teardown_returns_error` covers it.
+
 `TEMPORARY-ASSET-NEVER-RUN-IS-KEPT-ALIVE-BY-ITS-SERVICE-LOOP` (covered by step 5, per the backlog
 plan) is closed with this design, and its coverage record `temporary-asset-never-run-leak` is
 complete; it stays that issue's design.

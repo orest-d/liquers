@@ -1461,7 +1461,11 @@ impl<E: Environment> AssetData<E> {
         if let Some(asset) = manager.lookup_key_asset(&key) {
             return !Self::status_permits_reuse(asset.status().await);
         }
-        match self.get_envref().get_async_store().get_metadata(&key).await {
+        // Teardown: with no environment there is no store to consult — inconclusive.
+        let Ok(envref) = self.try_get_envref() else {
+            return false;
+        };
+        match envref.get_async_store().get_metadata(&key).await {
             // A stored `Recipe` is a computed value that was removed with its version kept
             // (`AssetManager::remove`): the dependent was built from that version, so, like a key
             // the store does not hold, it does not block.
@@ -2287,7 +2291,10 @@ async fn stored_leaf<E: Environment, M: AssetManager<E> + ?Sized>(
     let Ok(Some(store_key)) = key.key() else {
         return StoredLeaf::Final(StoredDependencyState::Unresolvable);
     };
-    let store = manager.get_envref().get_async_store();
+    let Ok(envref) = manager.try_get_envref() else {
+        return StoredLeaf::Final(StoredDependencyState::Unresolvable);
+    };
+    let store = envref.get_async_store();
     let metadata = match store.get_metadata(&store_key).await {
         Ok(metadata) => metadata,
         Err(_) => return StoredLeaf::Final(StoredDependencyState::Unresolvable),
@@ -4825,8 +4832,8 @@ impl<E: Environment> AssetRef<E> {
         if let Some(key) = owner_key {
             // While it was the key's owner, its context registered schedule-time edges under the
             // key. A volatile asset is not a graph node, so they go.
-            self.get_envref()
-                .await
+            self.try_get_envref()
+                .await?
                 .get_asset_manager()
                 .dependency_manager()
                 .remove_dependent_edges(&DependencyKey::from(&key))
@@ -4994,14 +5001,15 @@ impl<E: Environment> AssetRef<E> {
         // that happens after eviction. Collected while still holding the lock; the store write
         // itself happens after dropping it.
         let persist_info = if transitioned_to_expired {
-            owner_key.map(|key| (key, lock.metadata.clone(), lock.get_envref()))
+            owner_key.map(|key| (key, lock.metadata.clone(), lock.try_get_envref()))
         } else {
             None
         };
         drop(lock);
 
         if let Some((key, metadata, envref)) = persist_info {
-            let store = envref.get_async_store();
+            // Teardown: the in-memory status is `Expired`, but there is no store to persist it to.
+            let store = envref?.get_async_store();
             // Only rewrite metadata for a key the store already has. A value that was never
             // persisted (e.g. `PersistenceStatus::NonSerializable`) has no store entry to
             // invalidate, and `set_metadata` on a missing key would otherwise create a phantom
@@ -7653,9 +7661,9 @@ pub trait AssetManager<E: Environment>:
                 let reason = reason_for(&expired_key.via, Some(&expired_key.key));
                 if let Some(ar) = self.lookup_key_asset(&k) {
                     let _ = ar.expire_without_cascade(reason).await;
-                } else {
-                    expire_stored_copy(self, self.get_envref().get_async_store(), &k, &reason)
-                        .await;
+                } else if let Ok(envref) = self.try_get_envref() {
+                    // Teardown: no environment, no stored copy to reach.
+                    expire_stored_copy(self, envref.get_async_store(), &k, &reason).await;
                 }
             }
         }
@@ -8532,6 +8540,7 @@ impl<E: Environment> DefaultAssetManager<E> {
         // Cache construction races with replacement/removal operations. Once a cache miss is
         // observed, claim the mutation gate and re-check through `entry_async` before creating
         // the recipe asset.
+        let envref = self.try_get_envref()?;
         let _mutation = self.key_mutation_lock.lock().await;
 
         let entry = self
@@ -8543,7 +8552,7 @@ impl<E: Environment> DefaultAssetManager<E> {
                     self.next_id(),
                     Self::ad_hoc_resource_recipe(key, stored, cached),
                     Some(key.clone()),
-                    self.get_envref(),
+                    envref,
                 )
             });
 
@@ -8668,13 +8677,12 @@ impl<E: Environment> DefaultAssetManager<E> {
     ) -> Result<AssetRef<E>, Error> {
         eprintln!("Getting non-volatile asset for query {}", query);
 
+        let envref = self.try_get_envref()?;
         let entry = self
             .query_assets
             .entry_async(query.clone())
             .await
-            .or_insert_with(|| {
-                AssetRef::<E>::new_from_recipe(self.next_id(), recipe, None, self.get_envref())
-            });
+            .or_insert_with(|| AssetRef::<E>::new_from_recipe(self.next_id(), recipe, None, envref));
 
         Ok(entry.get().clone())
     }

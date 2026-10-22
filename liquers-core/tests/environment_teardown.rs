@@ -63,6 +63,12 @@ async fn store_with_x() -> Result<AsyncMemoryStore, Error> {
             .clone(),
     );
     store.set(&parse_key("data/x.txt")?, b"stored", &metadata).await?;
+    // A computed value left by an earlier run: loads `Ready`, so it can be expired.
+    let mut ready = MetadataRecord::new();
+    ready.with_type_identifier("Text".to_owned()).with_status(Status::Ready);
+    store
+        .set(&parse_key("data/ready.txt")?, b"computed", &Metadata::MetadataRecord(ready))
+        .await?;
     Ok(store)
 }
 
@@ -324,4 +330,25 @@ async fn teardown10_never_run_temporary_asset_is_freed() -> TestResult {
     assert!(weak.upgrade().is_none(), "the service loop must not own the asset");
     assert!(eventually(|| alive_tasks() == baseline).await, "the service loop must end");
     Ok(())
+}
+
+/// A keyed asset retained past teardown: `expire` reports the dropped environment rather than
+/// panicking while it collects what to persist (AC-8; PR #176 review).
+async fn expire_after_teardown<K: AssetManagerKind>() -> TestResult {
+    let envref = build::<K>(Arc::new(Semaphore::new(0)), None).await?;
+    let asset = envref.get_asset_manager().get(&parse_key("data/ready.txt")?).await?;
+    assert_eq!(asset.get().await?.try_into_string()?, "computed");
+    assert_eq!(asset.status().await, Status::Ready);
+    let env = Arc::downgrade(&envref.0);
+    drop(envref);
+    assert!(eventually(|| env.upgrade().is_none()).await, "the asset must not own the environment");
+    let error = asset.expire().await.err().ok_or("expire after teardown must fail")?;
+    assert!(error.message.contains("environment"), "unexpected error: {error}");
+    Ok(())
+}
+
+#[tokio::test]
+async fn teardown11_expire_after_teardown_returns_error() -> TestResult {
+    expire_after_teardown::<Queued>().await?;
+    expire_after_teardown::<Inline>().await
 }
