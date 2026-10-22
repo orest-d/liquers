@@ -120,7 +120,7 @@ async fn test_asset_ref_expire_from_ready() -> Result<(), Box<dyn std::error::Er
     let env = SimpleEnvironment::<Value>::new();
     let envref = env.to_ref();
 
-    let assetref = AssetRef::new_temporary(envref);
+    let assetref = AssetRef::new_temporary(envref.clone());
     // Transition to Override first (Override can expire)
     assetref.to_override().await?;
 
@@ -166,7 +166,7 @@ async fn test_asset_ref_expiration_time() -> Result<(), Box<dyn std::error::Erro
     let env = SimpleEnvironment::<Value>::new();
     let envref = env.to_ref();
 
-    let assetref = AssetRef::new_temporary(envref);
+    let assetref = AssetRef::new_temporary(envref.clone());
 
     // Default is Never
     let exp_time = assetref.expiration_time().await;

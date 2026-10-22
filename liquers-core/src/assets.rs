@@ -1493,7 +1493,7 @@ impl<E: Environment> AssetData<E> {
             return Ok(false); // If asset is not a resource, it can't be just loaded
         }
 
-        let store = self.get_envref().get_async_store();
+        let store = self.try_get_envref()?.get_async_store();
         if let Ok(Some(key)) = self.recipe.key() {
             eprintln!("Asset {} is a resource with key {}", self.id(), key);
             if store.contains(&key).await? {
@@ -1517,7 +1517,7 @@ impl<E: Environment> AssetData<E> {
                 };
                 // Bytes stored with no status (a file with no metadata) read as `Source`, or as
                 // `Ready` when the key has a recipe, before the reuse check below.
-                adopt_stored_status(&*self.get_envref().get_asset_manager(), &key, &mut metadata)
+                adopt_stored_status(&*self.try_get_envref()?.get_asset_manager(), &key, &mut metadata)
                     .await?;
                 let stored_status = metadata.status();
                 if !matches!(
@@ -1535,7 +1535,7 @@ impl<E: Environment> AssetData<E> {
 
                 let type_identifier = metadata.type_identifier()?;
                 let data_format = stored_declared_data_format(&metadata);
-                let registry_owner = self.get_envref();
+                let registry_owner = self.try_get_envref()?;
                 let value = match deserialize_stored_value::<E>(
                     &binary,
                     &type_identifier,
@@ -1566,7 +1566,7 @@ impl<E: Environment> AssetData<E> {
                     }
                 };
 
-                let envref = self.get_envref();
+                let envref = self.try_get_envref()?;
                 let manager = envref.get_asset_manager();
                 let dm = manager.dependency_manager();
 
@@ -2592,7 +2592,7 @@ impl<E: Environment> AssetRef<E> {
             let dep_lock = dependency.data.read().await;
             dep_lock.metadata.version()
         };
-        let envref = self.get_envref().await;
+        let envref = self.try_get_envref().await?;
         let manager = envref.get_asset_manager();
         let version = version
             .or(manager.dependency_manager().get_version(&dep_key).await)
@@ -2864,7 +2864,7 @@ impl<E: Environment> AssetRef<E> {
             return Ok(None);
         }
 
-        let manager = self.get_envref().await.get_asset_manager();
+        let manager = self.try_get_envref().await?.get_asset_manager();
         match manager.owned_key_asset(&candidate).await {
             Some(owner) => Ok((owner.id() == self.id()).then_some(candidate)),
             None => {
@@ -2976,7 +2976,7 @@ impl<E: Environment> AssetRef<E> {
         let (result, pending, envref) = {
             let mut lock = self.data.write().await;
             let result = lock.try_fast_track().await;
-            (result, lock.pending_external_change.take(), lock.get_envref())
+            (result, lock.pending_external_change.take(), lock.try_get_envref()?)
         };
         if let Some(pending) = pending {
             let manager = envref.get_asset_manager();
@@ -4045,7 +4045,7 @@ impl<E: Environment> AssetRef<E> {
         let (input_state, recipe) = {
             let (input_state, recipe) = self.initial_state_and_recipe().await;
             if let Ok(Some(key)) = recipe.key() {
-                let envref = self.get_envref().await;
+                let envref = self.try_get_envref().await?;
                 let manager = envref.get_asset_manager();
                 // Who owns this key? Asked with a map read, never with an evaluation:
                 // `AssetManager::get` would run the asset inline under an inline manager, and
@@ -4073,7 +4073,7 @@ impl<E: Environment> AssetRef<E> {
                         // (no queue slot consumed), or subscribes — guaranteeing progress for
                         // pure-key delegation chains without the old ad-hoc inline run.
                         self.record_dependency_on_asset(&asset).await?;
-                        let envref = self.get_envref().await;
+                        let envref = self.try_get_envref().await?;
                         let manager = envref.get_asset_manager();
                         let state = manager.wait_for_dependency(self, &asset).await?;
                         if state.metadata.is_volatile() {
@@ -4148,7 +4148,7 @@ impl<E: Environment> AssetRef<E> {
         };
 
         eprintln!("Evaluating recipe {:?}", &recipe);
-        let envref = self.get_envref().await;
+        let envref = self.try_get_envref().await?;
         /*
         let plan = {
             let cmr = envref.0.get_command_metadata_registry();
@@ -4349,7 +4349,7 @@ impl<E: Environment> AssetRef<E> {
                                 Metadata::LegacyMetadata(_) => Vec::new(),
                             }
                         };
-                        let envref = self.get_envref().await;
+                        let envref = self.try_get_envref().await?;
                         let manager = envref.get_asset_manager();
                         let dm = manager.dependency_manager();
                         // No `data` lock is held across this: the DM takes its own locks and,
@@ -4366,7 +4366,7 @@ impl<E: Environment> AssetRef<E> {
                             .await;
                     }
                 } else {
-                    let envref = self.get_envref().await;
+                    let envref = self.try_get_envref().await?;
                     let manager = envref.get_asset_manager();
                     let dm = manager.dependency_manager();
                     let expired = dm.track_asset(self).await;
@@ -4425,7 +4425,7 @@ impl<E: Environment> AssetRef<E> {
                 return Ok(SaveOutcome::Skipped);
             }
 
-            let envref = lock.get_envref();
+            let envref = lock.try_get_envref()?;
             let store = envref.get_async_store();
             // Only a keyed asset may be written, and the key is the one recorded at construction
             // — the same one `mark_expired_status` invalidates under, which was a *different*
@@ -4519,7 +4519,7 @@ impl<E: Environment> AssetRef<E> {
     async fn save_metadata_to_store(&self) -> Result<(), Error> {
         let lock = self.data.read().await;
 
-        let envref = lock.get_envref();
+        let envref = lock.try_get_envref()?;
         let metadata = lock.metadata.clone();
         let store = envref.get_async_store();
         let key = lock.recipe.key()?.or(lock.recipe.store_to_key()?);
@@ -4931,7 +4931,7 @@ impl<E: Environment> AssetRef<E> {
 
         if transitioned_to_expired {
             if let Some(dep_key) = dep_key_opt {
-                let envref = self.get_envref().await;
+                let envref = self.try_get_envref().await?;
                 let manager = envref.get_asset_manager();
                 manager.cascade_expire_dependents(&dep_key, cause).await;
             }
@@ -6032,7 +6032,7 @@ where
     let recorded = metadata.version().unwrap_or_else(Version::unknown);
     let has_recipe = manager
         .get_recipe_provider()
-        .can_make(key, manager.get_envref())
+        .can_make(key, manager.try_get_envref()?)
         .await?;
     let status = reusable_stored_status(stored, recorded, has_recipe);
     if status != stored {
@@ -6161,7 +6161,7 @@ where
     };
     let has_recipe = manager
         .get_recipe_provider()
-        .can_make(key, manager.get_envref())
+        .can_make(key, manager.try_get_envref()?)
         .await?;
     let status = external_change_status(metadata.status(), recorded, has_recipe);
     Ok(
@@ -6316,7 +6316,7 @@ pub trait AssetManager<E: Environment>:
     /// overrides it to queue instead (as `DefaultAssetManager` does).
     async fn apply_queued(&self, recipe: Recipe, to: State<E::Value>) -> Result<AssetRef<E>, Error> {
         let asset_ref =
-            AssetData::new_ext(self.next_id_for_asset(), recipe, to, None, self.get_envref())
+            AssetData::new_ext(self.next_id_for_asset(), recipe, to, None, self.try_get_envref()?)
                 .to_ref();
         // An error is already recorded in the asset's status and metadata.
         let _ = asset_ref.run_inline(None).await;
@@ -6360,10 +6360,10 @@ pub trait AssetManager<E: Environment>:
     async fn recipe_opt(&self, key: &Key) -> Result<Option<Recipe>, Error> {
         let recipe = self
             .get_recipe_provider()
-            .recipe_opt(key, self.get_envref())
+            .recipe_opt(key, self.try_get_envref()?)
             .await?;
         if let Some(recipe) = &recipe {
-            let envref = self.get_envref();
+            let envref = self.try_get_envref()?;
             recipe.to_plan_for_key(envref.get_command_metadata_registry(), key)?;
         }
         Ok(recipe)
@@ -6371,7 +6371,7 @@ pub trait AssetManager<E: Environment>:
     /// Returns whether the keyed resource's recipe is volatile.
     async fn is_volatile(&self, key: &Key) -> Result<bool, Error> {
         if let Some(recipe) = self.recipe_opt(key).await? {
-            Ok(recipe.is_volatile(self.get_envref()).await?)
+            Ok(recipe.is_volatile(self.try_get_envref()?).await?)
         } else {
             Ok(false)
         }
@@ -6383,7 +6383,7 @@ pub trait AssetManager<E: Environment>:
     /// query asset: a volatile asset must never be put in the manager's maps (it can be neither
     /// shared nor reused), so it is created fresh for each request instead.
     async fn is_volatile_query(&self, query: &Query) -> Result<bool, Error> {
-        crate::interpreter::IsVolatile::is_volatile(query, self.get_envref()).await
+        crate::interpreter::IsVolatile::is_volatile(query, self.try_get_envref()?).await
     }
 
     /// Resolve the asset for `query` and schedule it as a dependency of `parent`: start it
@@ -6533,7 +6533,7 @@ pub trait AssetManager<E: Environment>:
     /// cascade walks the edges the removal deletes.
     async fn remove(&self, key: &Key) -> Result<(), Error> {
         let _mutation = self.key_mutation_lock().lock().await;
-        let store = self.get_envref().get_async_store();
+        let store = self.try_get_envref()?.get_async_store();
         let live = self.lookup_key_asset(key);
         let live_status = match &live {
             Some(asset) => Some(asset.status().await),
@@ -6550,7 +6550,7 @@ pub trait AssetManager<E: Environment>:
         };
         let has_recipe = self
             .get_recipe_provider()
-            .can_make(key, self.get_envref())
+            .can_make(key, self.try_get_envref()?)
             .await?;
 
         let decisive = match live_status {
@@ -6666,7 +6666,7 @@ pub trait AssetManager<E: Environment>:
                 };
             }
         }
-        let store = self.get_envref().get_async_store();
+        let store = self.try_get_envref()?.get_async_store();
         if store.is_dir(key).await? {
             return Err(Error::status_conflict(key, Status::Directory, "expire"));
         }
@@ -6710,7 +6710,7 @@ pub trait AssetManager<E: Environment>:
         }
         if self
             .get_recipe_provider()
-            .can_make(key, self.get_envref())
+            .can_make(key, self.try_get_envref()?)
             .await?
         {
             Err(Error::status_conflict(key, Status::Recipe, "expire"))
@@ -6738,7 +6738,7 @@ pub trait AssetManager<E: Environment>:
             ));
         }
         let _mutation = self.key_mutation_lock().lock().await;
-        let store = self.get_envref().get_async_store();
+        let store = self.try_get_envref()?.get_async_store();
         let stored = store.contains(key).await?;
         if let Some(asset) = self.lookup_key_asset(key) {
             let status = asset.status().await;
@@ -6780,7 +6780,7 @@ pub trait AssetManager<E: Environment>:
     /// that failed. An absent key is `KeyNotFound`; a key that is not a directory is a
     /// `StatusConflict`.
     async fn removedir(&self, key: &Key) -> Result<(), Error> {
-        let store = self.get_envref().get_async_store();
+        let store = self.try_get_envref()?.get_async_store();
         if !store.is_dir(key).await? {
             if !store.contains(key).await? {
                 return Err(Error::key_not_found(key));
@@ -6854,13 +6854,13 @@ pub trait AssetManager<E: Environment>:
         if let Some(assetref) = self.lookup_key_asset(key) {
             assetref.get_asset_info().await
         } else {
-            let store = self.get_envref().get_async_store();
+            let store = self.try_get_envref()?.get_async_store();
             if store.contains(key).await? {
                 store.get_asset_info(key).await
             } else {
                 let rp = self.get_recipe_provider();
-                if rp.can_make(key, self.get_envref()).await? {
-                    rp.get_asset_info(key, self.get_envref()).await
+                if rp.can_make(key, self.try_get_envref()?).await? {
+                    rp.get_asset_info(key, self.try_get_envref()?).await
                 } else {
                     Err(Error::key_not_found(key))
                 }
@@ -6871,23 +6871,23 @@ pub trait AssetManager<E: Environment>:
     /// Whether `key` is stored, or listed by the recipe provider (shown in its directory).
     /// See [`Self::can_make`] for keys that can be produced without being listed.
     async fn contains(&self, key: &Key) -> Result<bool, Error> {
-        let store = self.get_envref().get_async_store();
+        let store = self.try_get_envref()?.get_async_store();
         if store.contains(key).await? {
             return Ok(true);
         }
         self.get_recipe_provider()
-            .contains(key, self.get_envref())
+            .contains(key, self.try_get_envref()?)
             .await
     }
 
     /// Whether `key` can be got: stored, or producible by the recipe provider (listed or not).
     async fn can_make(&self, key: &Key) -> Result<bool, Error> {
-        let store = self.get_envref().get_async_store();
+        let store = self.try_get_envref()?.get_async_store();
         if store.contains(key).await? {
             return Ok(true);
         }
         self.get_recipe_provider()
-            .can_make(key, self.get_envref())
+            .can_make(key, self.try_get_envref()?)
             .await
     }
 
@@ -6900,10 +6900,10 @@ pub trait AssetManager<E: Environment>:
     /// To get a key, names need to be joined with the key (key/name).
     /// Complete keys can be obtained with the listdir_keys method.
     async fn listdir(&self, key: &Key) -> Result<Vec<String>, Error> {
-        let store = self.get_envref().get_async_store();
+        let store = self.try_get_envref()?.get_async_store();
         let mut names = self
             .get_recipe_provider()
-            .assets_with_recipes(key, self.get_envref())
+            .assets_with_recipes(key, self.try_get_envref()?)
             .await?
             .into_iter()
             .map(|resourcename| resourcename.name)
@@ -6965,7 +6965,7 @@ pub trait AssetManager<E: Environment>:
     /// [`Self::listdir_keys`] reports for `d`, recipe-declared keys included. Never `key` itself.
     /// Only store directories are descended; the result is sorted and duplicate-free.
     async fn listdir_keys_deep(&self, key: &Key) -> Result<Vec<Key>, Error> {
-        let store = self.get_envref().get_async_store();
+        let store = self.try_get_envref()?.get_async_store();
         let mut keys = BTreeSet::new();
         let mut pending = vec![key.clone()];
         while let Some(dir) = pending.pop() {
@@ -6985,7 +6985,7 @@ pub trait AssetManager<E: Environment>:
     /// The asset is not registered in the manager and nothing is evaluated: a directory holds no
     /// value, so `get` on its key fails, and the directory is described by the store.
     async fn makedir(&self, key: &Key) -> Result<AssetRef<E>, Error> {
-        let store = self.get_envref().get_async_store();
+        let store = self.try_get_envref()?.get_async_store();
         store.makedir(key).await?;
         // A new directory is a new member of its parent's listing.
         self.refresh_listing_version(&key.parent()).await;
@@ -6993,7 +6993,7 @@ pub trait AssetManager<E: Environment>:
             self.next_id_for_asset(),
             key.into(),
             Some(key.clone()),
-            self.get_envref(),
+            self.try_get_envref()?,
         );
         data.data = Some(Arc::new(E::Value::none()));
         data.status = Status::Directory;
@@ -7152,7 +7152,7 @@ pub trait AssetManager<E: Environment>:
         root: &Key,
         mode: AuditMode,
     ) -> Result<AuditReport, Error> {
-        let store = self.get_envref().get_async_store();
+        let store = self.try_get_envref()?.get_async_store();
         let keys = if store.is_dir(root).await? {
             store.listdir_keys_deep(root).await?
         } else {
@@ -7454,7 +7454,7 @@ pub trait AssetManager<E: Environment>:
                 return Ok(version);
             }
         }
-        let store = self.get_envref().get_async_store();
+        let store = self.try_get_envref()?.get_async_store();
         if !store.contains(key).await? {
             return Ok(Version::unknown());
         }
@@ -7499,7 +7499,7 @@ pub trait AssetManager<E: Environment>:
     /// dependents must be expired. It does not expire them itself, because cascade expiration is
     /// asynchronous; [`Self::refresh_command_versions_and_expire`] is the companion that does.
     fn refresh_command_versions(&self) -> Result<Vec<crate::metadata::DependencyKey>, Error> {
-        let envref = self.get_envref();
+        let envref = self.try_get_envref()?;
         let cmr = envref.get_command_metadata_registry();
         Ok(load_command_versions_sync(self.dependency_manager(), cmr))
     }
@@ -7698,7 +7698,7 @@ pub trait AssetManager<E: Environment>:
         actual: Version,
         action: ExternalChangeAction,
     ) -> Result<(), Error> {
-        let store = self.get_envref().get_async_store();
+        let store = self.try_get_envref()?.get_async_store();
         let dep_key = crate::metadata::DependencyKey::from(key);
         let recorded_version = recorded.version().unwrap_or_else(Version::unknown);
         let _mutation = self.key_mutation_lock().lock().await;
@@ -7776,7 +7776,7 @@ pub trait AssetManager<E: Environment>:
         mode: AuditMode,
     ) -> Result<VersionVerificationReport, Error> {
         let mut report = VersionVerificationReport::default();
-        let store = self.get_envref().get_async_store();
+        let store = self.try_get_envref()?.get_async_store();
         // A mount may configure its own policy, so the manager's `Off` cannot end the sweep here;
         // each key is checked against its own policy below.
         let keys = if store.is_dir(key).await? {
@@ -7890,7 +7890,7 @@ pub trait AssetManager<E: Environment>:
             // A placeholder that has produced nothing yet (a concurrent `get` mapped it before
             // fast-tracking the stored value): the store decides, as in `remove`.
         }
-        let store = self.get_envref().get_async_store();
+        let store = self.try_get_envref()?.get_async_store();
         if !store.contains(key).await? {
             return Ok(None);
         }
@@ -7907,7 +7907,7 @@ pub trait AssetManager<E: Environment>:
         }
         let type_identifier = metadata.type_identifier()?;
         let data_format = stored_declared_data_format(&metadata);
-        let envref = self.get_envref();
+        let envref = self.try_get_envref()?;
         let value = deserialize_stored_value::<E>(
             &binary,
             &type_identifier,
@@ -7953,7 +7953,7 @@ pub trait AssetManager<E: Environment>:
             }
             // A placeholder that has produced nothing yet: the store decides, as in `remove`.
         }
-        let store = self.get_envref().get_async_store();
+        let store = self.try_get_envref()?.get_async_store();
         if !store.contains(key).await? {
             return Ok(None);
         }
@@ -7989,7 +7989,7 @@ pub trait AssetManager<E: Environment>:
             match asset_ref.persistence_status().await {
                 PersistenceStatus::Persisted => {
                     let metadata = asset_ref.get_metadata().await?;
-                    self.get_envref()
+                    self.try_get_envref()?
                         .get_async_store()
                         .set_metadata(key, &metadata)
                         .await?;
@@ -8001,7 +8001,7 @@ pub trait AssetManager<E: Environment>:
             }
             return Ok(());
         }
-        let store = self.get_envref().get_async_store();
+        let store = self.try_get_envref()?.get_async_store();
         if !store.contains(key).await? {
             return Err(Error::key_not_found(key));
         }
@@ -8568,7 +8568,7 @@ impl<E: Environment> DefaultAssetManager<E> {
             self.next_id(),
             Self::ad_hoc_resource_recipe(key, stored, cached),
             Some(key.clone()),
-            self.get_envref(),
+            self.try_get_envref()?,
         );
         let strategy = cached.unwrap_or(self.recipe_cache_strategy());
         mark_unregistered(
@@ -8597,7 +8597,7 @@ impl<E: Environment> DefaultAssetManager<E> {
             self.next_id(),
             Self::ad_hoc_resource_recipe(key, stored, cached),
             Some(key.clone()),
-            self.get_envref(),
+            self.try_get_envref()?,
         );
 
         // Set is_volatile flag in AssetData and Metadata
@@ -8626,7 +8626,7 @@ impl<E: Environment> DefaultAssetManager<E> {
     async fn get_resource_asset(&self, key: &Key) -> Result<AssetRef<E>, Error> {
         let recipe = self.recipe_opt(key).await?;
         let is_volatile = match &recipe {
-            Some(recipe) => recipe.is_volatile(self.get_envref()).await?,
+            Some(recipe) => recipe.is_volatile(self.try_get_envref()?).await?,
             None => false,
         };
         let (stored, cached) = match &recipe {
@@ -8686,7 +8686,7 @@ impl<E: Environment> DefaultAssetManager<E> {
     /// - `query`: Query used to create an asset
     async fn get_volatile_query_asset(&self, query: &Query) -> Result<AssetRef<E>, Error> {
         eprintln!("Getting volatile asset for query {}", query);
-        let asset_ref = AssetRef::new_from_recipe(self.next_id(), query.into(), None, self.get_envref());
+        let asset_ref = AssetRef::new_from_recipe(self.next_id(), query.into(), None, self.try_get_envref()?);
 
         // Set is_volatile flag in AssetData and Metadata
         {
@@ -8721,7 +8721,7 @@ impl<E: Environment> DefaultAssetManager<E> {
         query: &Query,
         origin: QueryAssetOrigin,
     ) -> Result<AssetRef<E>, Error> {
-        let plan = crate::interpreter::make_plan(self.get_envref(), query.clone()).await?;
+        let plan = crate::interpreter::make_plan(self.try_get_envref()?, query.clone()).await?;
         if plan.is_volatile {
             return self.get_volatile_query_asset(query).await;
         }
@@ -8733,7 +8733,7 @@ impl<E: Environment> DefaultAssetManager<E> {
             return Ok(existing);
         }
         Ok(retention
-            .unregistered(self.next_id(), query, self.get_envref())
+            .unregistered(self.next_id(), query, self.try_get_envref()?)
             .await)
     }
 }
@@ -8787,7 +8787,7 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
             match asset_ref.persistence_status().await {
                 PersistenceStatus::Persisted => {
                     let metadata = asset_ref.get_metadata().await?;
-                    self.get_envref()
+                    self.try_get_envref()?
                         .get_async_store()
                         .set_metadata(key, &metadata)
                         .await?;
@@ -8801,7 +8801,7 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
             // entry while its durable state is being promoted; do not reinsert a stale ref.
             return Ok(());
         }
-        let store = self.get_envref().get_async_store();
+        let store = self.try_get_envref()?.get_async_store();
         if !store.contains(key).await? {
             return Err(Error::key_not_found(key));
         }
@@ -9117,7 +9117,7 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         payload: Option<E::Payload>,
     ) -> Result<AssetRef<E>, Error> {
         let asset_ref =
-            AssetData::new_ext(self.next_id(), recipe, initial_state, None, self.get_envref())
+            AssetData::new_ext(self.next_id(), recipe, initial_state, None, self.try_get_envref()?)
                 .to_ref();
         asset_ref.run(payload).await?;
         Ok(asset_ref)
@@ -9132,7 +9132,7 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         payload: Option<E::Payload>,
     ) -> Result<AssetRef<E>, Error> {
         let asset_ref =
-            AssetData::new_ext(self.next_id(), recipe, initial_state, None, self.get_envref())
+            AssetData::new_ext(self.next_id(), recipe, initial_state, None, self.try_get_envref()?)
                 .to_ref();
         if let Some(session) = parent.evaluation_session().await {
             asset_ref.adopt_evaluation_session(&session).await;
@@ -9149,7 +9149,7 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         initial_state: State<E::Value>,
     ) -> Result<AssetRef<E>, Error> {
         let asset_ref =
-            AssetData::new_ext(self.next_id(), recipe, initial_state, None, self.get_envref())
+            AssetData::new_ext(self.next_id(), recipe, initial_state, None, self.try_get_envref()?)
                 .to_ref();
         self.job_queue.submit(asset_ref.clone()).await?;
         Ok(asset_ref)
@@ -9236,12 +9236,12 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
                 Some(status) => status,
                 None => written_status_with_recipe(
                     self.get_recipe_provider()
-                        .can_make(key, self.get_envref())
+                        .can_make(key, self.try_get_envref()?)
                         .await?,
                 ),
             };
             metadata.status = final_status;
-            validate_required_metadata_fields(key, &metadata, self.get_envref().get_type_registry())?;
+            validate_required_metadata_fields(key, &metadata, self.try_get_envref()?.get_type_registry())?;
             add_soft_consistency_warnings(&mut metadata);
 
             // 3. Update timestamp and add log entry
@@ -9263,7 +9263,7 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
             // write entirely — an explicit set is still allowed to bypass a `stored: false` recipe by
             // supplying `stored: true` in its own metadata, which is why the flag read here is the
             // *supplied* one, not the recipe's.
-            let store = self.get_envref().get_async_store();
+            let store = self.try_get_envref()?.get_async_store();
             if metadata.stored() {
                 if final_status == Status::Error {
                     // Store empty binary with error metadata
@@ -9342,7 +9342,7 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
                 Some(status) => status,
                 None => written_status_with_recipe(
                     self.get_recipe_provider()
-                        .can_make(key, self.get_envref())
+                        .can_make(key, self.try_get_envref()?)
                         .await?,
                 ),
             };
@@ -9353,7 +9353,7 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
             validate_required_metadata_fields_enum(
                 key,
                 &metadata,
-                self.get_envref().get_type_registry(),
+                self.try_get_envref()?.get_type_registry(),
             )?;
             add_soft_consistency_warnings_enum(&mut metadata)?;
             metadata.set_updated_now()?;
@@ -9381,7 +9381,7 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
                 recipe,
                 State::new(), // Empty initial state
                 Some(key.clone()),
-                self.get_envref(),
+                self.try_get_envref()?,
             );
             asset_data.data = Some(Arc::new(state.data_unchecked().as_ref().clone()));
             asset_data.metadata = metadata.clone();
@@ -9396,7 +9396,7 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
             // 7. Handle Error status specially - store empty binary with metadata
             // `stored: false` on the supplied metadata (true unless the caller set it) skips this
             // write entirely — see `set_binary` above for the same read of the *supplied* metadata.
-            let store = self.get_envref().get_async_store();
+            let store = self.try_get_envref()?.get_async_store();
             if metadata.stored() {
                 if final_status == Status::Error {
                     // Store empty binary with error metadata
@@ -10212,8 +10212,8 @@ impl<E: Environment> ImmediateAssetManager<E> {
                 let session = assetref.evaluation_session_or_begin().await;
                 match origin {
                     QueryAssetOrigin::TopLevel => {
-                        let graph = match crate::interpreter::make_plan(self.envref(), query.clone()).await {
-                            Ok(plan) => crate::plan::upstream_graph(self.envref(), &plan, None).await,
+                        let graph = match crate::interpreter::make_plan(self.try_envref()?, query.clone()).await {
+                            Ok(plan) => crate::plan::upstream_graph(self.try_envref()?, &plan, None).await,
                             Err(error) => Err(error),
                         };
                         self.prime_upstream(&session, graph).await?;
@@ -10458,7 +10458,7 @@ impl<E: Environment> ImmediateAssetManager<E> {
         query: &Query,
         origin: QueryAssetOrigin,
     ) -> Result<AssetRef<E>, Error> {
-        let plan = crate::interpreter::make_plan(self.envref(), query.clone()).await?;
+        let plan = crate::interpreter::make_plan(self.try_envref()?, query.clone()).await?;
         if plan.is_volatile {
             return Ok(self.make_volatile(query.into(), None).await);
         }
@@ -10470,10 +10470,10 @@ impl<E: Environment> ImmediateAssetManager<E> {
         }
         let retention = QueryRetention::decide(origin, self.query_cache_strategy(), &plan);
         if !retention.registers() {
-            return Ok(retention.unregistered(self.next_id(), query, self.envref()).await);
+            return Ok(retention.unregistered(self.next_id(), query, self.try_envref()?).await);
         }
         let asset_ref =
-            AssetRef::new_from_recipe(self.next_id(), retention.recipe(query), None, self.envref());
+            AssetRef::new_from_recipe(self.next_id(), retention.recipe(query), None, self.try_envref()?);
         let mut map = self.query_assets.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(existing) = map.get(query) {
             return Ok(existing.clone());
@@ -10504,7 +10504,7 @@ impl<E: Environment> ImmediateAssetManager<E> {
     async fn get_resource_asset(&self, key: &Key) -> Result<AssetRef<E>, Error> {
         let recipe = self.recipe_opt(key).await?;
         let is_volatile = match &recipe {
-            Some(recipe) => recipe.is_volatile(self.envref()).await?,
+            Some(recipe) => recipe.is_volatile(self.try_envref()?).await?,
             None => false,
         };
         let (stored, cached) = match &recipe {
@@ -10541,7 +10541,7 @@ impl<E: Environment> ImmediateAssetManager<E> {
                 self.next_id(),
                 Self::ad_hoc_resource_recipe(key, stored, cached),
                 Some(key.clone()),
-                self.envref(),
+                self.try_envref()?,
             );
             let strategy = cached.unwrap_or(self.recipe_cache_strategy());
             mark_unregistered(
@@ -10565,7 +10565,7 @@ impl<E: Environment> ImmediateAssetManager<E> {
             self.next_id(),
             Self::ad_hoc_resource_recipe(key, stored, cached),
             Some(key.clone()),
-            self.envref(),
+            self.try_envref()?,
         );
         let mut map = self.assets.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(existing) = map.get(key) {
@@ -10622,7 +10622,7 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
             match asset_ref.persistence_status().await {
                 PersistenceStatus::Persisted => {
                     let metadata = asset_ref.get_metadata().await?;
-                    self.envref()
+                    self.try_envref()?
                         .get_async_store()
                         .set_metadata(key, &metadata)
                         .await?;
@@ -10634,7 +10634,7 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
             }
             return Ok(());
         }
-        let store = self.envref().get_async_store();
+        let store = self.try_envref()?.get_async_store();
         if !store.contains(key).await? {
             return Err(Error::key_not_found(key));
         }
@@ -10687,11 +10687,11 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
         to: State<E::Value>,
         payload: Option<E::Payload>,
     ) -> Result<AssetRef<E>, Error> {
-        let graph = match recipe.to_plan(self.envref().get_command_metadata_registry()) {
-            Ok(plan) => crate::plan::upstream_graph(self.envref(), &plan, None).await,
+        let graph = match recipe.to_plan(self.try_envref()?.get_command_metadata_registry()) {
+            Ok(plan) => crate::plan::upstream_graph(self.try_envref()?, &plan, None).await,
             Err(error) => Err(error),
         };
-        let asset_ref = AssetData::new_ext(self.next_id(), recipe, to, None, self.envref()).to_ref();
+        let asset_ref = AssetData::new_ext(self.next_id(), recipe, to, None, self.try_envref()?).to_ref();
         let session = asset_ref.evaluation_session_or_begin().await;
         self.prime_upstream(&session, graph).await?;
         asset_ref.run_inline(payload).await?;
@@ -10706,7 +10706,7 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
         to: State<E::Value>,
         payload: Option<E::Payload>,
     ) -> Result<AssetRef<E>, Error> {
-        let asset_ref = AssetData::new_ext(self.next_id(), recipe, to, None, self.envref()).to_ref();
+        let asset_ref = AssetData::new_ext(self.next_id(), recipe, to, None, self.try_envref()?).to_ref();
         if let Some(session) = parent.evaluation_session().await {
             asset_ref.adopt_evaluation_session(&session).await;
         }
@@ -10718,7 +10718,7 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
     /// Inline: evaluate, and return the asset even when the evaluation failed (the failure is
     /// recorded in the asset, which is what a caller following it needs).
     async fn apply_queued(&self, recipe: Recipe, to: State<E::Value>) -> Result<AssetRef<E>, Error> {
-        let asset_ref = AssetData::new_ext(self.next_id(), recipe, to, None, self.envref()).to_ref();
+        let asset_ref = AssetData::new_ext(self.next_id(), recipe, to, None, self.try_envref()?).to_ref();
         // An error is already recorded in the asset's status and metadata.
         let _ = asset_ref.run_inline(None).await;
         Ok(asset_ref)
@@ -10764,7 +10764,7 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
             Settled::Available(asset_ref) => Ok(asset_ref),
             Settled::NeedsRun(asset_ref) => {
                 let session = asset_ref.evaluation_session_or_begin().await;
-                let graph = crate::plan::key_upstream_graph(self.envref(), key).await;
+                let graph = crate::plan::key_upstream_graph(self.try_envref()?, key).await;
                 self.prime_upstream(&session, graph).await?;
                 // Backstop against re-entry — see the note in `get_asset`.
                 asset_ref.run_inline(None).await?;
@@ -10792,12 +10792,12 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
                 Some(status) => status,
                 None => written_status_with_recipe(
                     self.get_recipe_provider()
-                        .can_make(key, self.get_envref())
+                        .can_make(key, self.try_get_envref()?)
                         .await?,
                 ),
             };
             metadata.status = final_status;
-            validate_required_metadata_fields(key, &metadata, self.envref().get_type_registry())?;
+            validate_required_metadata_fields(key, &metadata, self.try_envref()?.get_type_registry())?;
             add_soft_consistency_warnings(&mut metadata);
             metadata.set_updated_now();
             metadata.add_log_entry(LogEntry::info("Data set externally".to_string()));
@@ -10808,7 +10808,7 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
             if final_status != Status::Volatile && final_status != Status::Error {
                 metadata.version = Some(crate::metadata::Version::from_content(binary));
             }
-            let store = self.envref().get_async_store();
+            let store = self.try_envref()?.get_async_store();
             // `stored: false` on the supplied metadata (true unless the caller set it) skips this
             // write entirely — see `DefaultAssetManager::set_binary` for the same rule.
             if metadata.stored() {
@@ -10856,13 +10856,13 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
                 Some(status) => status,
                 None => written_status_with_recipe(
                     self.get_recipe_provider()
-                        .can_make(key, self.get_envref())
+                        .can_make(key, self.try_get_envref()?)
                         .await?,
                 ),
             };
             let mut metadata = state.metadata.as_ref().clone();
             metadata.set_status(final_status)?;
-            validate_required_metadata_fields_enum(key, &metadata, self.envref().get_type_registry())?;
+            validate_required_metadata_fields_enum(key, &metadata, self.try_envref()?.get_type_registry())?;
             add_soft_consistency_warnings_enum(&mut metadata)?;
             metadata.set_updated_now()?;
             metadata.add_log_entry(LogEntry::info("State set externally".to_string()))?;
@@ -10879,14 +10879,14 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
                 };
                 metadata.set_version(Some(version))?;
             }
-            let mut data = AssetData::new_ext(self.next_id(), key.into(), State::new(), Some(key.clone()), self.envref());
+            let mut data = AssetData::new_ext(self.next_id(), key.into(), State::new(), Some(key.clone()), self.try_envref()?);
             data.data = Some(Arc::new(state.data_unchecked().as_ref().clone()));
             data.metadata = metadata.clone();
             data.status = final_status;
             data.binary = None;
             let asset = data.to_ref();
             assert!(self.try_insert_key_asset(key, asset.clone()).await);
-            let store = self.envref().get_async_store();
+            let store = self.try_envref()?.get_async_store();
             // `stored: false` on the supplied metadata (true unless the caller set it) skips this
             // write entirely — see `DefaultAssetManager::set_state` for the same rule.
             if metadata.stored() {
@@ -10977,7 +10977,7 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
     }
 
     fn start(&self) -> Result<(), Error> {
-        let envref = self.envref();
+        let envref = self.try_envref()?;
         let cmr = envref.get_command_metadata_registry();
         let _changed = load_command_versions_sync(&self.dependency_manager, cmr);
         self.started
@@ -11384,7 +11384,7 @@ mod tests {
     async fn fast_track_value(env: SimpleEnvironment<Value>, key: &Key) -> Value {
         let envref = env.to_ref();
         let mut asset_data =
-            AssetData::<SimpleEnvironment<Value>>::new(1240, key.clone().into(), Some(key.clone()), envref);
+            AssetData::<SimpleEnvironment<Value>>::new(1240, key.clone().into(), Some(key.clone()), envref.clone());
         assert!(asset_data.try_fast_track().await.unwrap());
         let state = asset_data.poll_state().expect("state must be available");
         state.data_unchecked().as_ref().clone()
@@ -11577,11 +11577,13 @@ mod tests {
     #[tokio::test]
     async fn test_dependencies_status_has_no_data() {
         let env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        // Kept: the asset holds its environment weakly.
+        let envref = env.to_ref();
         let asset = AssetData::<SimpleEnvironment<Value>>::new(
             2236,
             parse_query("test").unwrap().into(),
             None,
-            env.to_ref(),
+            envref.clone(),
         )
         .to_ref();
         {
@@ -11597,11 +11599,13 @@ mod tests {
     #[tokio::test]
     async fn test_context_add_dependency_does_not_downgrade_known_version_to_unknown() {
         let env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        // Kept: the asset holds its environment weakly.
+        let envref = env.to_ref();
         let asset = AssetData::<SimpleEnvironment<Value>>::new(
             2237,
             parse_query("test").unwrap().into(),
             None,
-            env.to_ref(),
+            envref.clone(),
         )
         .to_ref();
         let context = asset.create_context().await;
@@ -11631,7 +11635,7 @@ mod tests {
             AssetData::<SimpleEnvironment<Value>>::new(2238, parent_key.clone().into(), Some(parent_key.clone()), envref.clone())
                 .to_ref();
         let dependency =
-            AssetData::<SimpleEnvironment<Value>>::new(2239, dep_key.clone().into(), Some(dep_key.clone()), envref)
+            AssetData::<SimpleEnvironment<Value>>::new(2239, dep_key.clone().into(), Some(dep_key.clone()), envref.clone())
                 .to_ref();
         let dependency_record_key = DependencyKey::from(&dep_key);
 
@@ -11752,7 +11756,7 @@ mod tests {
             AssetData::<SimpleEnvironment<Value>>::new(2242, parent_key.clone().into(), Some(parent_key.clone()), envref.clone())
                 .to_ref();
         let dependency =
-            AssetData::<SimpleEnvironment<Value>>::new(2243, dep_key.clone().into(), Some(dep_key.clone()), envref)
+            AssetData::<SimpleEnvironment<Value>>::new(2243, dep_key.clone().into(), Some(dep_key.clone()), envref.clone())
                 .to_ref();
 
         parent
@@ -11835,7 +11839,7 @@ mod tests {
             let env: SimpleEnvironment<Value> = SimpleEnvironment::new();
             let envref = env.to_ref();
             let asset_data =
-                AssetData::<SimpleEnvironment<Value>>::new(2240, query.into(), None, envref);
+                AssetData::<SimpleEnvironment<Value>>::new(2240, query.into(), None, envref.clone());
             let assetref = asset_data.to_ref();
             let sender = assetref.service_sender().await;
             let compute = async move {
@@ -12665,7 +12669,7 @@ recipes:
             9601,
             parse_query("queued_then_run").unwrap().into(),
             None,
-            envref,
+            envref.clone(),
         )
         .to_ref();
         // Queued without capacity, then claimed: what `JobQueue` does.
@@ -14113,7 +14117,7 @@ recipes:
         envref: EnvRef<SimpleEnvironment<Value>>,
     ) -> AssetData<SimpleEnvironment<Value>> {
         let key = parse_key("gate/subject.txt").expect("test key");
-        let mut d = AssetData::<SimpleEnvironment<Value>>::new(id, key.clone().into(), Some(key.clone()), envref);
+        let mut d = AssetData::<SimpleEnvironment<Value>>::new(id, key.clone().into(), Some(key.clone()), envref.clone());
         d.binary = Some(Arc::new(b"bytes that must not escape".to_vec()));
         if with_value {
             d.data = Some(Arc::new(Value::from("v")));
@@ -14145,9 +14149,12 @@ recipes:
             id,
             parse_query("test").expect("query").into(),
             None,
-            envref,
+            envref.clone(),
         )
         .to_ref();
+        // The asset holds its environment weakly and the callers keep only the asset, so the
+        // fixture's environment is deliberately kept for the rest of the test process.
+        std::mem::forget(envref);
         {
             let mut lock = asset.data.write().await;
             lock.data = Some(Arc::new(Value::from("value")));
@@ -14634,7 +14641,7 @@ recipes:
         );
 
         // Error and Cancelled deliberately do not stamp one.
-        let e = asset_with_binary(9211, Status::Error, false, envref);
+        let e = asset_with_binary(9211, Status::Error, false, envref.clone());
         let st = e.poll_state().expect("Error yields a metadata-only state");
         assert_ne!(st.metadata.type_identifier().unwrap_or_default(), "dir");
     }
@@ -14702,7 +14709,7 @@ recipes:
     #[tokio::test]
     async fn test_expired_asset_hides_cached_binary() -> Result<(), Box<dyn std::error::Error>> {
         let envref = test_envref();
-        let assetref = asset_with_binary(9280, Status::Ready, true, envref).to_ref();
+        let assetref = asset_with_binary(9280, Status::Ready, true, envref.clone()).to_ref();
         assert!(
             assetref.poll_binary().await.is_some(),
             "precondition: bytes are cached and visible while Ready"
@@ -14745,7 +14752,7 @@ recipes:
     async fn test_get_on_expired_errors_instead_of_blocking(
     ) -> Result<(), Box<dyn std::error::Error>> {
         let envref = test_envref();
-        let assetref = asset_with_binary(9290, Status::Ready, true, envref).to_ref();
+        let assetref = asset_with_binary(9290, Status::Ready, true, envref.clone()).to_ref();
         assetref.expire().await?;
 
         let outcome = tokio::time::timeout(std::time::Duration::from_secs(2), assetref.get()).await;
@@ -14763,7 +14770,7 @@ recipes:
     ) -> Result<(), Box<dyn std::error::Error>> {
         let envref = test_envref();
         let key = parse_key("gate/retained_no_bytes.txt")?;
-        let mut d = AssetData::<SimpleEnvironment<Value>>::new(9300, key.clone().into(), Some(key.clone()), envref);
+        let mut d = AssetData::<SimpleEnvironment<Value>>::new(9300, key.clone().into(), Some(key.clone()), envref.clone());
         d.data = Some(Arc::new(Value::from("recoverable")));
         d.binary = None; // never serialized — the common case
         d.status = Status::Expired;
@@ -14822,7 +14829,7 @@ recipes:
         assert!(cancelled.poll_state().await.is_some());
 
         // Directory: likewise constructed.
-        let dir = asset_with_binary(9312, Status::Directory, false, envref).to_ref();
+        let dir = asset_with_binary(9312, Status::Directory, false, envref.clone()).to_ref();
         let err = dir
             .get_binary()
             .await
@@ -14880,7 +14887,7 @@ recipes:
     ) -> Result<(), Box<dyn std::error::Error>> {
         let envref = test_envref();
         let key = parse_key("gate/value_no_bytes.txt")?;
-        let mut d = AssetData::<SimpleEnvironment<Value>>::new(9320, key.clone().into(), Some(key.clone()), envref);
+        let mut d = AssetData::<SimpleEnvironment<Value>>::new(9320, key.clone().into(), Some(key.clone()), envref.clone());
         d.data = Some(Arc::new(Value::from("serialize me")));
         d.binary = None;
         d.status = Status::Ready;
@@ -15337,7 +15344,7 @@ recipes:
     #[tokio::test]
     async fn set_volatile_during_run_marks_metadata_once() {
         let envref = SimpleEnvironment::<Value>::new().to_ref();
-        let asset = AssetRef::new_temporary(envref);
+        let asset = AssetRef::new_temporary(envref.clone());
         asset
             .set_volatile_during_run("first reason")
             .await
@@ -16020,7 +16027,7 @@ recipes:
             40,
             parse_query("reset_me").unwrap().into(),
             None,
-            envref,
+            envref.clone(),
         );
         d.progress_finalized = true;
         d.reset();
@@ -16315,7 +16322,7 @@ recipes:
         let manager = envref.get_asset_manager();
         let key = parse_key("data/index.txt")?;
         let asset =
-            AssetData::<SimpleEnvironment<Value>>::new(9801, key.clone().into(), Some(key), envref);
+            AssetData::<SimpleEnvironment<Value>>::new(9801, key.clone().into(), Some(key), envref.clone());
         let dir = DependencyKey::from_dir_key(&parse_key("data")?);
         assert!(!asset.dependency_blocks_fast_track(&manager, &dir).await);
         Ok(())
@@ -16336,7 +16343,7 @@ recipes:
         assert_eq!(envref.get_async_store().get_metadata(&dep).await?.status(), Status::None);
         let key = parse_key("data/index.txt")?;
         let asset =
-            AssetData::<SimpleEnvironment<Value>>::new(9802, key.clone().into(), Some(key), envref);
+            AssetData::<SimpleEnvironment<Value>>::new(9802, key.clone().into(), Some(key), envref.clone());
         assert!(!asset.dependency_blocks_fast_track(&manager, &DependencyKey::from(&dep)).await);
         Ok(())
     }
