@@ -3,7 +3,7 @@ title: Using Liquers from Python
 kind: guide
 audience: user
 area: [py]
-reviewed: 2026-10-20
+reviewed: 2026-10-22
 ---
 # Using Liquers from Python
 
@@ -318,8 +318,8 @@ brings the built-in back.
 
 Register commands before the first evaluation where you can. A command registered later takes
 effect on the next evaluation, by rebuilding the environment: the store is kept, but results
-already computed are not, and the replaced environment's memory is not freed until the process
-exits (`ENVIRONMENT-MANAGER-REFERENCE-CYCLE`).
+already computed are not, and the replaced environment is kept until `shutdown()`
+(`LANGUAGE-INTEGRATIONS-REBUILD-ENVIRONMENT-ON-REGISTRATION`).
 
 ### Errors from a command
 
@@ -577,5 +577,6 @@ What you will notice; the complete list, with the tracking issues, is
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-22 | Late registration: a replaced environment is kept until `shutdown()`, no longer until exit. | `design/environment-manager-reference-cycle/` |
 | 2026-10-20 | `context.error` raises `ExecutionError` with the first logged message once the command returns. | `CONTEXT-ERROR-OUTCOME-DEPENDS-ON-SCHEDULING` |
 | 2026-10-19 | Created from the implemented `liquers-py`. | `design/liquers-py/` (phase-5) |

@@ -310,3 +310,18 @@ async fn teardown09_manager_after_teardown_returns_error() -> TestResult {
     manager_after_teardown::<Queued>().await?;
     manager_after_teardown::<Inline>().await
 }
+
+/// The source example of `TEMPORARY-ASSET-NEVER-RUN-IS-KEPT-ALIVE-BY-ITS-SERVICE-LOOP`: a temporary
+/// asset that is never run is freed with its last reference, and its loop ends (AC-7).
+#[tokio::test]
+async fn teardown10_never_run_temporary_asset_is_freed() -> TestResult {
+    let envref = build::<Queued>(Arc::new(Semaphore::new(0)), None).await?;
+    tokio::task::yield_now().await;
+    let baseline = alive_tasks();
+    let asset = liquers_core::assets::AssetRef::new_temporary(envref.clone());
+    let weak = asset.downgrade();
+    drop(asset);
+    assert!(weak.upgrade().is_none(), "the service loop must not own the asset");
+    assert!(eventually(|| alive_tasks() == baseline).await, "the service loop must end");
+    Ok(())
+}

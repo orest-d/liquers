@@ -151,7 +151,7 @@ DOCS-STORE-CONFIG-DESCRIBES-ASYNC-FILESTORE-AS-FUTURE-WORK,issue,Store configura
 DOCS-TOOLING-TESTS-NOT-RUN-IN-CI,issue,The unit tests of the documentation tooling are not run by CI,draft,local,,,,P3,S,docs;build,,,,,,2026-10-20,specs/issues/DOCS-TOOLING-TESTS-NOT-RUN-IN-CI.md
 EGUI-ASSET-MANAGER-INTEGRATION,feature,No stable adapter between egui widgets and the asset manager,accepted,local,,needs-decision,not-eligible,P2,M,lib/egui,,,,ui-asset-snapshot-boundary,,2026-08-08,specs/issues/EGUI-ASSET-MANAGER-INTEGRATION.md
 ENUM-ALTERNATIVES-HAVE-NO-LABEL,issue,An enum alternative has an alias and a value but no label or description,draft,local,,,,P3,M,core/commands;macro,,,,,,2026-10-20,specs/issues/ENUM-ALTERNATIVES-HAVE-NO-LABEL.md
-ENVIRONMENT-MANAGER-REFERENCE-CYCLE,issue,"Environment and asset manager hold each other with strong Arcs, so every environment leaks",draft,local,,ready,not-eligible,P2,M,core/assets;core/context,,,,environment-manager-reference-cycle,,2026-08-27,specs/issues/ENVIRONMENT-MANAGER-REFERENCE-CYCLE.md
+ENVIRONMENT-MANAGER-REFERENCE-CYCLE,issue,"Environment and asset manager hold each other with strong Arcs, so every environment leaks",closed,local,,ready,not-eligible,P2,M,core/assets;core/context,,,,environment-manager-reference-cycle,,2026-08-27,specs/issues/ENVIRONMENT-MANAGER-REFERENCE-CYCLE.md
 ENVIRONMENT-ORDERLY-SHUTDOWN,feature,An environment cannot be shut down in an orderly way,draft,local,,needs-decision,not-eligible,P3,M,core/context;core/assets,,,,environment-orderly-shutdown,,2026-10-12,specs/issues/ENVIRONMENT-ORDERLY-SHUTDOWN.md
 ERROR-MESSAGE-POSITIONS-MIXED-BASE,issue,Error messages outside command arguments mix 0-based and 1-based positions,draft,local,,needs-decision,not-eligible,P3,M,records;core/query,,,,one-based-error-positions,,2026-10-10,specs/issues/ERROR-MESSAGE-POSITIONS-MIXED-BASE.md
 ERROR-WITH-KEY-SETS-QUERY-FIELD,issue,Error context cannot distinguish asset keys from nested queries,draft,local,,needs-decision,not-eligible,P2,L,core/error;core/query;core/assets;core/store;web;py;axum,,,,error-with-key-field,,2026-08-25,specs/issues/ERROR-WITH-KEY-SETS-QUERY-FIELD.md
@@ -399,7 +399,7 @@ SUBMIT-IS-NOT-LAZY-ON-ANY-MANAGER,issue,"Context::submit starts the dependency a
 SUPPLIED-EXPIRED-STATUS-STORED-WITHOUT-REASON,issue,set_binary and set_state accept a supplied Expired status and store it without an expiry reason,closed,local,,ready,,P3,S,core/assets,,,,supplied-expired-status-reason,,2026-10-02,specs/issues/SUPPLIED-EXPIRED-STATUS-STORED-WITHOUT-REASON.md
 TEMPLATE-HAS-NO-HIGHLIGHTER,feature,Templates cannot be rendered with syntax highlighting,draft,local,,needs-decision,not-eligible,P3,L,lib/ui;lib/egui;lib/commands,,,,template-syntax-highlighter,,2026-10-17,specs/issues/TEMPLATE-HAS-NO-HIGHLIGHTER.md
 TEMPLATE-NON-SCALAR-HAS-NO-TEXT-FORM,issue,"A template cannot index into a Query or Key value, and inserts other non-scalars as JSON",draft,local,,needs-decision,not-eligible,P3,M,lib/commands,,,,template-non-scalar-text-form,,2026-10-17,specs/issues/TEMPLATE-NON-SCALAR-HAS-NO-TEXT-FORM.md
-TEMPORARY-ASSET-NEVER-RUN-IS-KEPT-ALIVE-BY-ITS-SERVICE-LOOP,issue,A temporary asset that is never run is kept alive forever by its own service-message loop,draft,local,,covered,not-eligible,P3,S,core/assets,,,,temporary-asset-never-run-leak,,2026-10-18,specs/issues/TEMPORARY-ASSET-NEVER-RUN-IS-KEPT-ALIVE-BY-ITS-SERVICE-LOOP.md
+TEMPORARY-ASSET-NEVER-RUN-IS-KEPT-ALIVE-BY-ITS-SERVICE-LOOP,issue,A temporary asset that is never run is kept alive forever by its own service-message loop,closed,local,,covered,not-eligible,P3,S,core/assets,,,,temporary-asset-never-run-leak,,2026-10-18,specs/issues/TEMPORARY-ASSET-NEVER-RUN-IS-KEPT-ALIVE-BY-ITS-SERVICE-LOOP.md
 TEMPORARY-ASSETS-SHARE-ID-ZERO,issue,"Every temporary asset has id 0, so code that identifies assets by id can confuse them",draft,local,,ready,eligible,P3,S,core/assets,,,,temporary-asset-unique-id,,2026-10-18,specs/issues/TEMPORARY-ASSETS-SHARE-ID-ZERO.md
 TEXT-EDITOR-EDITS-ARE-NEVER-SAVED,feature,The text_editor widget edits a copy of the text and never writes it back,draft,local,,needs-decision,not-eligible,P3,M,lib/egui;lib/ui,,,,text-editor-save,,2026-10-19,specs/issues/TEXT-EDITOR-EDITS-ARE-NEVER-SAVED.md
 TEXT-VALUE-CANNOT-BE-STORED-AS-MARKDOWN,issue,A Text value cannot be stored with data format md,closed,local,,ready,not-eligible,P2,S,core/value,,,,text-value-markdown-format,,2026-09-27,specs/issues/TEXT-VALUE-CANNOT-BE-STORED-AS-MARKDOWN.md
@@ -541,7 +541,7 @@ DOCS-INDEX-PHASE-LINK-TARGETS,design,Resolvable design-phase links in the genera
 DOCS-LINK-CHECK-CODE-SPANS,design,The docs dead-link check ignores code spans and fenced blocks,complete,local,,ready,,P3,S,docs;build,,,,docs-link-check-code-spans,,2026-10-06,specs/design/docs-link-check-code-spans/DESIGN.md
 DOCS-CURRENTNESS-SMALL-FIXES,design,Keep small current documentation claims and rustdoc links accurate,complete,local,,,,,,docs;build;core/plan;core/store;core/value,,,,documentation-currentness-small-fixes,,2026-09-04,specs/design/documentation-currentness-small-fixes/DESIGN.md
 ENVIRONMENT-BUILDER,design,Environment builder,complete,local,,,,,,core/assets;core/context,,44;53,,environment-builder,,2026-08-27,specs/design/environment-builder/DESIGN.md
-ENVIRONMENT-MANAGER-REFERENCE-CYCLE-DESIGN,design,Environment teardown without reference cycles,in_review,local,implementation,ready,not-eligible,P2,M,core/assets;core/context,,,,environment-manager-reference-cycle,,2026-10-12,specs/design/environment-manager-reference-cycle/DESIGN.md
+ENVIRONMENT-MANAGER-REFERENCE-CYCLE-DESIGN,design,Environment teardown without reference cycles,complete,local,,ready,not-eligible,P2,M,core/assets;core/context,,,,environment-manager-reference-cycle,,2026-10-12,specs/design/environment-manager-reference-cycle/DESIGN.md
 ENVIRONMENT-ORDERLY-SHUTDOWN-DESIGN,design,An environment can be shut down in an orderly way,in_review,local,implementation,needs-decision,not-eligible,P3,M,core/context;core/assets,,,,environment-orderly-shutdown,,2026-10-20,specs/design/environment-orderly-shutdown/DESIGN.md
 ACTIVE-02,design,Design for CORE-ERROR-STORE-NAME-NOT-STRUCTURED,abandoned,local,,,,P2,S,core/error;core/store,,,,error-store-name-payload,,2026-09-03,specs/design/error-store-name-payload/DESIGN.md
 ERROR-WITH-KEY-FIELD,design,Structured error context for keys and nested queries,in_review,local,implementation,needs-decision,not-eligible,P2,L,core/error;core/query;core/assets;core/store;web;py;axum,,,,error-with-key-field,,2026-08-29,specs/design/error-with-key-field/DESIGN.md
@@ -727,7 +727,7 @@ SYNC-STORE-REMOVAL,design,Remove the synchronous Store trait and the legacy cach
 TEMPLATE-EDITOR-UI,design,"A template editor with live diagnostics, saving and a rendered preview",in_review,local,implementation,needs-decision,not-eligible,P3,L,lib/ui;lib/egui;lib/commands,,,,template-editor-ui,,2026-10-21,specs/design/template-editor-ui/DESIGN.md
 TEMPLATE-NON-SCALAR-TEXT-FORM,design,"A data node can have a text form, so a Query or Key is indexable and still renders as text",in_review,local,implementation,needs-decision,not-eligible,P3,M,lib/commands;core/value,,,,template-non-scalar-text-form,,2026-10-17,specs/design/template-non-scalar-text-form/DESIGN.md
 TEMPLATE-SYNTAX-HIGHLIGHTER,design,Templates rendered with syntax highlighting and marked diagnostics,in_review,local,implementation,needs-decision,not-eligible,P3,L,lib/commands;lib/egui;core/query,,,,template-syntax-highlighter,,2026-10-21,specs/design/template-syntax-highlighter/DESIGN.md
-TEMPORARY-ASSET-NEVER-RUN-LEAK,design,Coverage record for a temporary asset kept alive by its service loop,in_review,local,architecture,covered,not-eligible,P3,S,core/assets,,,,temporary-asset-never-run-leak,,2026-10-20,specs/design/temporary-asset-never-run-leak/DESIGN.md
+TEMPORARY-ASSET-NEVER-RUN-LEAK,design,Coverage record for a temporary asset kept alive by its service loop,complete,local,,covered,not-eligible,P3,S,core/assets,,,,temporary-asset-never-run-leak,,2026-10-20,specs/design/temporary-asset-never-run-leak/DESIGN.md
 TEMPORARY-ASSET-UNIQUE-ID,design,A temporary asset takes a fresh id from its manager,in_review,local,implementation,ready,eligible,P3,S,core/assets,,,,temporary-asset-unique-id,,2026-10-20,specs/design/temporary-asset-unique-id/DESIGN.md
 TEXT-EDITOR-SAVE,design,The text editor saves its text to the key it was opened on,in_review,local,implementation,needs-decision,not-eligible,P3,M,lib/ui;lib/egui,,,,text-editor-save,,2026-10-21,specs/design/text-editor-save/DESIGN.md
 TEXT-VALUE-MARKDOWN-FORMAT,design,Markdown as a data format of the Text value,complete,local,,ready,not-eligible,P2,S,core/value,,,,text-value-markdown-format,,2026-10-04,specs/design/text-value-markdown-format/DESIGN.md
@@ -772,8 +772,8 @@ AGENT_MEMORY_SERVICE,reference,Agent Memory Service,current,local,,,,,,lib/comma
 API_DOCS_GAP_ANALYSIS,reference,API Documentation Gap Analysis,current,local,,,,,,docs,,,,,2026-10-19,,specs/reference/api/API_DOCS_GAP_ANALYSIS.md
 DOC_01_ARCHITECTURE_REFERENCE,reference,Architecture Reference,current,local,,,,,,core/query;core/plan;core/assets,,,,,2026-08-09,,specs/reference/api/DOC_01_ARCHITECTURE_REFERENCE.md
 DOC_02_QUERY_LANGUAGE_REFERENCE,reference,Query Language Reference,current,local,,,,,,core/query,,,,,2026-10-17,,specs/reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md
-DOC_03_ASSETS_EXECUTION_LIFECYCLE,reference,Assets and Execution Lifecycle Reference,current,local,,,,,,core/assets,,,,,2026-10-12,,specs/reference/api/DOC_03_ASSETS_EXECUTION_LIFECYCLE.md
-DOC_04_ENVIRONMENT_CONTEXT_EVALUATION,reference,"Environment, Context and Evaluation Reference",current,local,,,,,,core/context;core/plan,,,,,2026-10-21,,specs/reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md
+DOC_03_ASSETS_EXECUTION_LIFECYCLE,reference,Assets and Execution Lifecycle Reference,current,local,,,,,,core/assets,,,,,2026-10-22,,specs/reference/api/DOC_03_ASSETS_EXECUTION_LIFECYCLE.md
+DOC_04_ENVIRONMENT_CONTEXT_EVALUATION,reference,"Environment, Context and Evaluation Reference",current,local,,,,,,core/context;core/plan,,,,,2026-10-22,,specs/reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md
 DOC_08_RECIPES_PLANS,reference,Recipes and Plans Reference,current,local,,,,,,core/plan;core/assets;core/context,,,,,2026-10-21,,specs/reference/api/DOC_08_RECIPES_PLANS.md
 ASSET_LIFECYCLE,reference,Asset Evaluation — Flows and Public Surface,current,local,,,,,,core/assets,,,,,2026-10-20,,specs/reference/ASSET_LIFECYCLE.md
 ASSET_SET_OPERATION,reference,Asset Set Operation Specification,current,local,,,,,,core/assets,,,,,2026-10-10,,specs/reference/ASSET_SET_OPERATION.md
@@ -788,7 +788,7 @@ PAYLOAD_GUIDE,reference,Payload Specification and Usage,current,local,,,,,,core/
 POLARS_COMMAND_LIBRARY,reference,Polars Command Library Specification,current,local,,,,,,lib/polars,,,,,2026-10-14,,specs/reference/POLARS_COMMAND_LIBRARY.md
 POSITIONING,reference,Positioning and Marketing Plan (draft),current,local,,,,,,docs,,,,,2026-10-15,,specs/reference/POSITIONING.md
 PROJECT_OVERVIEW,reference,Liquers Project Overview,current,local,,,,,,core/query;core/plan;core/assets;core/store;core/value,,,,,2026-10-19,,specs/reference/PROJECT_OVERVIEW.md
-PYTHON_INTEGRATION,reference,Python Integration,current,local,,,,,,py;core/value;core/error;lib/value,,,,,2026-10-20,,specs/reference/PYTHON_INTEGRATION.md
+PYTHON_INTEGRATION,reference,Python Integration,current,local,,,,,,py;core/value;core/error;lib/value,,,,,2026-10-22,,specs/reference/PYTHON_INTEGRATION.md
 REALMS,reference,Realms,current,local,,,,,,core/plan;core/commands;store/config,,,,,2026-10-16,,specs/reference/REALMS.md
 RECORD_STREAMS,reference,Record Streams,current,local,,,,,,records;lib/value;lib/commands;web,,,,,2026-10-20,,specs/reference/RECORD_STREAMS.md
 REGISTER_COMMAND_FSD,reference,register_command! Macro Functional Specification,current,local,,,,,,macro;core/commands,,,,,2026-10-12,,specs/reference/REGISTER_COMMAND_FSD.md
@@ -801,15 +801,15 @@ VALUE_TYPE_SYSTEM,reference,Value Type System,current,local,,,,,,core/value;lib/
 VISION,reference,Liquers Vision and Strategy,current,local,,,,,,docs,,,,,2026-10-15,,specs/reference/VISION.md
 WEB_API_SPECIFICATION,reference,Liquers Web API Specification,current,local,,,,,,axum;web,,,,,2026-10-20,,specs/reference/WEB_API_SPECIFICATION.md
 AGENT_MEMORY_MIGRATION_GUIDE,guide,Agent Memory Migration Guide,current,local,,,,,,lib/commands;docs,,,,,2026-10-19,,specs/guides/AGENT_MEMORY_MIGRATION_GUIDE.md
-ASSET_MANAGER_IMPLEMENTATION_GUIDE,guide,Asset Manager Implementation Guide,current,local,,,,,,core/assets,,,,,2026-10-18,,specs/guides/ASSET_MANAGER_IMPLEMENTATION_GUIDE.md
+ASSET_MANAGER_IMPLEMENTATION_GUIDE,guide,Asset Manager Implementation Guide,current,local,,,,,,core/assets,,,,,2026-10-22,,specs/guides/ASSET_MANAGER_IMPLEMENTATION_GUIDE.md
 autonomous_bulk_design,guide,Autonomous Bulk Design Procedure,current,local,,,,,,docs;build,,,,,2026-10-08,,specs/guides/autonomous_bulk_design.md
 autonomous_issue_fixing,guide,Autonomous Issue Fixing Procedure,current,local,,,,,,docs;build,,,,,2026-10-08,,specs/guides/autonomous_issue_fixing.md
 COMMAND_DESIGN_GUIDE,guide,Command Design Guide,current,local,,,,,,core/commands,,,,,2026-10-18,,specs/guides/COMMAND_DESIGN_GUIDE.md
 COMMAND_REGISTRATION_GUIDE,guide,Command Registration Guide,current,local,,,,,,core/commands;macro,,,,,2026-10-19,,specs/guides/COMMAND_REGISTRATION_GUIDE.md
 DEPENDENCY_CONSISTENCY_GUIDE,guide,Dependency Consistency Guide,current,local,,,,,,core/assets,,,,,2026-10-08,,specs/guides/DEPENDENCY_CONSISTENCY_GUIDE.md
 ENVIRONMENT_CONSTRUCTION_GUIDE,guide,Building and Configuring an Environment,current,local,,,,,,core/context;core/assets;core/store,,,,,2026-10-11,,specs/guides/ENVIRONMENT_CONSTRUCTION_GUIDE.md
-LANGUAGE-INTEGRATION_GUIDE,guide,Language Integration Guide,current,local,,,,,,web;py;core/commands;core/plan;core/assets;core/store,,,,,2026-10-19,,specs/guides/LANGUAGE-INTEGRATION_GUIDE.md
-PYTHON_GUIDE,guide,Using Liquers from Python,current,local,,,,,,py,,,,,2026-10-20,,specs/guides/PYTHON_GUIDE.md
+LANGUAGE-INTEGRATION_GUIDE,guide,Language Integration Guide,current,local,,,,,,web;py;core/commands;core/plan;core/assets;core/store,,,,,2026-10-22,,specs/guides/LANGUAGE-INTEGRATION_GUIDE.md
+PYTHON_GUIDE,guide,Using Liquers from Python,current,local,,,,,,py,,,,,2026-10-22,,specs/guides/PYTHON_GUIDE.md
 QUERY_ESCAPING_GUIDE,guide,Query Escaping Guide,current,local,,,,,,core/query,,,,,2026-10-07,,specs/guides/QUERY_ESCAPING_GUIDE.md
 RECORD_STREAM_GUIDE,guide,Record Stream Guide,current,local,,,,,,records;lib/value,,,,,2026-10-13,,specs/guides/RECORD_STREAM_GUIDE.md
 SEARCH_GUIDE,guide,Search Guide,current,local,,,,,,lib/commands;records,,,,,2026-10-17,,specs/guides/SEARCH_GUIDE.md

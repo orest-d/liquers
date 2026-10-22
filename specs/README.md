@@ -74,6 +74,7 @@ volatility work all landed in `assets.rs`.
 - **Asset model and lifecycle** — documented → [`reference/ASSETS.md`](reference/ASSETS.md) *(also: [lifecycle map](reference/ASSET_LIFECYCLE.md), [execution lifecycle](reference/api/DOC_03_ASSETS_EXECUTION_LIFECYCLE.md), [set operations](reference/ASSET_SET_OPERATION.md))*
 - **Status authority, and reuse across a restart** — documented → [`reference/ASSETS.md`](reference/ASSETS.md) §Who decides status *(also [`reference/ASSET_LIFECYCLE.md`](reference/ASSET_LIFECYCLE.md) §Reusing a stored asset; design in [`design/stale-dependency-status-finalization/`](design/stale-dependency-status-finalization/))*
 - **Environment construction and manager readiness** — documented → [`guides/ENVIRONMENT_CONSTRUCTION_GUIDE.md`](guides/ENVIRONMENT_CONSTRUCTION_GUIDE.md) *(design in [`design/environment-builder/`](design/environment-builder/))*
+- **Environment teardown: the last `EnvRef` drops the environment, its manager, cached assets and tasks** — documented → [`reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md`](reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md) §Ownership and teardown *(design in [`design/environment-manager-reference-cycle/`](design/environment-manager-reference-cycle/))*
 - **`Status::Dependencies` semantics** — documented → [`reference/DEPENDENCIES_STATUS.md`](reference/DEPENDENCIES_STATUS.md)
 - **Dependency-wait lifecycle and deadlock-safe delegation** — built → [`design/dependency-management/`](design/dependency-management/)
 - **Non-blocking dependency scheduling** — built → [`design/dependency-scheduling/`](design/dependency-scheduling/)
@@ -369,7 +370,6 @@ deliberately folded behind a broader line.
 - design `docs-index-phase-link-targets`
 - design `docs-link-check-code-spans`
 - design `documentation-currentness-small-fixes`
-- design `environment-manager-reference-cycle`
 - design `environment-orderly-shutdown`
 - design `error-store-name-payload`
 - design `error-with-key-field`

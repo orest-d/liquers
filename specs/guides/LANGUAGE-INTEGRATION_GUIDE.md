@@ -3,7 +3,7 @@ title: Language Integration Guide
 kind: guide
 audience: internal
 area: [web, py, core/commands, core/plan, core/assets, core/store]
-reviewed: 2026-10-19
+reviewed: 2026-10-22
 ---
 # Liquers Language Integration Guide
 
@@ -1567,9 +1567,10 @@ What cost time:
   the state, or a failed command looks like one that returned `None`.
 - **PyO3 classes report `__module__ == "builtins"`** unless declared with `module = "…"`, so the
   public classes do not appear to belong to the package (`OBJECT08`).
-- **Built environments are never freed** while `ENVIRONMENT-MANAGER-REFERENCE-CYCLE` stands, so a
-  test counting released callables can only pass for an environment that was never built. Count
-  handles behind a test-only feature (`debug-handles`) rather than relying on garbage collection.
+- **Count released callables behind a test-only feature** (`debug-handles`) rather than relying on
+  garbage collection. A built environment is freed with its last `EnvRef` (it used to leak, until
+  `ENVIRONMENT-MANAGER-REFERENCE-CYCLE` was fixed), but work in flight keeps it alive until it
+  finishes, so count after the work is done.
 - **The `extension-module` feature cannot link a test binary.** Run the crate's Rust tests with
   `--no-default-features`; `scripts/test-liquers-py.sh` runs both halves.
 - **Rust tests that load a Python module race.** Executing a module can release the GIL, so two
@@ -3173,6 +3174,7 @@ def test_PACKAGE07_artifact_carries_declarations_license_and_metadata():
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-22 | §6 Python pitfalls: built environments are now freed; the handle-counting advice stays. | `design/environment-manager-reference-cycle/` |
 | 2026-10-19 | §6 Python links the new Python integration reference and Python guide. | `design/liquers-py/` (phase-5) |
 | 2026-10-19 | §6 Python: an *Errors* entry. Nested Python tracebacks are concatenated innermost first, and the cross-language structure is an open problem (`MULTI-LANGUAGE-TRACEBACK-IS-A-FLAT-STRING`). | `design/liquers-py/` (phase-5) |
 | 2026-10-19 | §RECORDS "What `liquers-web` does": the records bridge is behind an opt-in feature, and why. | `claude/web-records-opt-in` |
