@@ -114,7 +114,7 @@ regenerated with a CHANGELOG line.
   no I/O beyond its inputs) and that `cached: false` is unrelated.
 - `specs/reference/api/DOC_03_ASSETS_EXECUTION_LIFECYCLE.md`, `specs/reference/ASSET_LIFECYCLE.md`
   — the fast lane in the entry-point contract and scheduling section.
-- `specs/reference/api/DOC_08_RECIPES_PLANS.md` — `Plan::execution_class`.
+- `specs/reference/RECIPES_AND_PLANS.md` — `Plan::execution_class`.
 - `specs/reference/ENVIRONMENT_CONFIG.md` — `fast_capacity`.
 - Proposed `affects_docs`: the five above.
 

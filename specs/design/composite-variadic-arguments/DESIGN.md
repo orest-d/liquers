@@ -8,7 +8,7 @@ readiness: needs-decision
 autofix: not-eligible
 area: [core/commands, macro, core/plan]
 issues: [COMMAND-COMPOSITE-VARIADIC-ARGUMENTS]
-affects_docs: [specs/reference/REGISTER_COMMAND_FSD.md, specs/guides/COMMAND_REGISTRATION_GUIDE.md, specs/reference/COMMAND_DECLARATION.md, specs/reference/api/DOC_08_RECIPES_PLANS.md]
+affects_docs: [specs/reference/REGISTER_COMMAND_FSD.md, specs/guides/COMMAND_REGISTRATION_GUIDE.md, specs/reference/COMMAND_DECLARATION.md, specs/reference/RECIPES_AND_PLANS.md]
 created: 2026-10-20
 ---
 # Variadic arguments with tuple elements

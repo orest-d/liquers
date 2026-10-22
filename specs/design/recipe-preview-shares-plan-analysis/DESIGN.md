@@ -114,7 +114,7 @@ Known-issue preflight: none open touches `create_plan_with_init_metadata`.
 
 - `interpreter.rs`: `make_recipe_plan`.
 - `recipes.rs`: remove `create_plan_with_init_metadata` and its TODOs; two call sites.
-- `specs/reference/api/DOC_08_RECIPES_PLANS.md`: the preview's flags come from `make_recipe_plan`.
+- `specs/reference/RECIPES_AND_PLANS.md`: the preview's flags come from `make_recipe_plan`.
   History row.
 - No `pub` change: the removed function was private.
 
@@ -155,7 +155,7 @@ Run: `CARGO_INCREMENTAL=0 cargo test -p liquers-core --lib recipes::tests interp
 - [ ] 2. `interpreter.rs` `make_recipe_plan` and its test. Proof: `--lib interpreter::tests`.
 - [ ] 3. `recipes.rs`: replace the two calls; delete `create_plan_with_init_metadata`. Proof: step-1
   tests unchanged. Rollback: revert the file.
-- [ ] 4. `DOC_08` line and History; close the issue with a resolution naming what was mitigated
+- [ ] 4. `RECIPES_AND_PLANS.md` line and History; close the issue with a resolution naming what was mitigated
   before. Proof: `python3 scripts/docs_index.py --check`.
 
 ### Validation

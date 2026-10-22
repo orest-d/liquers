@@ -77,7 +77,7 @@ later steps; none needs `liquers-lib`.
 
 ## Documentation Intent
 
-- Reference: extend `specs/reference/api/DOC_08_RECIPES_PLANS.md` §Recipe contract and §Planning
+- Reference: extend `specs/reference/RECIPES_AND_PLANS.md` §Recipe contract and §Planning
   contract (addressing, the cut floor; strike the P1 gap "Recipe override scope is narrower…");
   `specs/reference/TEMPLATE_LANGUAGE.md` line 73 (overrides reach any action); `specs/reference/AGENT_MEMORY_SERVICE.md` (key argument through `@key`).
 - Guide: none — `TEMPLATE_GUIDE.md` does not describe the last-action limit (checked); commands
