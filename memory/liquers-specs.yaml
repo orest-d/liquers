@@ -1,0 +1,31 @@
+# The "liquers-specs" profile: this repository's specs/ as an agent memory.
+# Run from the repository root:  liquers-agent --config memory/liquers-specs.yaml mcp
+#
+# A filesystem store maps the whole key under its `path`, so each mount's path is the folder that
+# contains its prefix. Mounts are matched most specific prefix first.
+store:
+  stores:
+    - type: filesystem
+      prefix: specs/archive
+      read_only: true
+      config: { path: "." }
+    - type: filesystem
+      prefix: specs
+      config: { path: "." }
+      metadata:
+        storage: none
+        on_read: "media_type/file_facts/content_hash-on_change/front_matter/markdown_tiers-Problem-Purpose"
+        on_write: "defaults/media_type-fill/file_facts/front_matter/front_matter_sync"
+    - type: filesystem
+      prefix: .claude/skills
+      read_only: true
+      config: { path: "." }
+    - type: filesystem
+      prefix: ""
+      config: { path: "./memory" }
+      metadata:
+        storage: none
+        on_read: "media_type/file_facts/front_matter/markdown_tiers"
+        on_write: "defaults/media_type-fill/file_facts/front_matter/front_matter_sync"
+memory:
+  root: ""

@@ -1044,6 +1044,30 @@ fn transform(...) -> Result<...> { ... }
 fn apply(...) -> Result<...> { ... }
 ```
 
+### Commands served as MCP tools
+
+`liquers-mcp` serves a command as an MCP tool when a tool set declares a query whose last (and
+only) action is that command ([`AGENT_MEMORY_SERVICE.md`](../reference/AGENT_MEMORY_SERVICE.md)
+§9). Nothing is registered twice: the tool's input schema is generated from the command's
+`CommandMetadata`. So a command meant to be a tool is designed like this:
+
+- **One command per tool.** Composite behaviour (a duplicate check before a create) lives in the
+  command, not in the tool layer; the schema can only come from one command.
+- **Take what it acts on as state**, and declare the tool's query with a resource segment
+  (`-R-key/./-/ns-x/cmd` for a key, `-R/./-/ns-x/cmd` for a document). The tool's **key argument**
+  is filled into that segment structurally by the engine; never make the command parse a key out
+  of a string argument.
+- **Give every argument a `label` and `description`**: they become the schema's `title` and
+  `description`, which is all an agent sees. An `enum` becomes a JSON `enum`.
+- **Relative defaults are hidden.** An argument whose default is a link with a relative operand
+  (`root: Key = query "-R-key/."`) is not in the schema and is refused in a call, so a tool cannot
+  be pointed outside its root. `injected` arguments are hidden too.
+- **Report counts and versions with `context.info`**, not inside the value: notes reach the agent
+  as a separate content block, so a table stays a table in every format.
+- **A command allowed in a query tool's allow-list must not write.** The allow-list is the safety
+  boundary (`COMMAND-CANNOT-BE-RUN-WITH-A-RESTRICTED-CONTEXT`); a test should check that the
+  allowed namespaces contain no writing command, as `liquers-agent/tests/mcp_tools.rs` does.
+
 ---
 
 ## 6. Reference
@@ -1069,6 +1093,7 @@ fn apply(...) -> Result<...> { ... }
 | Date | Change | Source |
 |---|---|---|
 | 2026-10-20 | Links to `reference/api/DOC_08_RECIPES_PLANS.md` follow its promotion to `reference/RECIPES_AND_PLANS.md`. | DOC-08 promotion |
+| 2026-10-19 | §5 *Commands served as MCP tools*: one command per tool, state as a structurally filled key argument, relative defaults hidden, notes beside the value, read-only allow-lists. | `design/agent-memory-mvp/` Phase 5 |
 | 2026-10-17 | §*Registering an alias*: a head may be a link (`CommandParameterValue::Query`), `ArgumentInfo::with_default_link`, and template commands as aliases of `template/render`. | `design/liquers-mustache/` |
 | 2026-10-11 | §Common Examples: argument `description:` and command `hint <key>:`. | `design/command-metadata-descriptions-and-hints/` |
 | 2026-10-11 | New §5 *Commands that list or describe the store must not evaluate it*. | phase-5, `design/store-and-asset-search/` |

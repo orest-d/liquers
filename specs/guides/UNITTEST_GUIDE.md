@@ -3,7 +3,7 @@ title: Unit Testing Guide
 kind: guide
 audience: internal
 area: [build, core/assets]
-reviewed: 2026-10-02
+reviewed: 2026-10-20
 ---
 # Liquers Unit Testing Guide
 
@@ -312,7 +312,8 @@ fn my_command<E: Environment>(
 ) -> Result<Value, Error> {
     context.info("Starting operation")?;
     context.warning("This is a warning")?;
-    context.error("This is an error")?;
+    // context.error("…") would fail the evaluation once this command returns,
+    // discarding the value below (CONTEXT-ERROR-OUTCOME-DEPENDS-ON-SCHEDULING).
 
     Ok(Value::from("result"))
 }
@@ -895,6 +896,7 @@ async fn test_error_handling() -> Result<(), Box<dyn std::error::Error>> {
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-20 | §Logging: the example no longer calls `context.error` before returning a value, since that now fails the evaluation. Only that section was checked. | `issues/CONTEXT-ERROR-OUTCOME-DEPENDS-ON-SCHEDULING.md` |
 | 2026-10-02 | §Testing Assets: added "Write manager-contract tests once, in `manager_scenarios.rs`" — generic scenarios run by `manager_parametric.rs` against both built-in managers and by `external_asset_manager.rs` against a manager written outside core. Only that section was checked against the code. | phase-5 (`design/dependency-audit-and-expiry-provenance/`) |
 | 2026-09-15 | Added §Testing Assets: wait with `get().await` before reading `status()`; `set_value`/`set_state` persist; simulate a restart by re-hydrating rather than sharing a store, with `StoreSnapshot`; assert an evaluation counter rather than a value; size a store wrapper by compiling it; assert deltas; assert that the success path can succeed. Promoted from `CROSS-PROCESS-RELOAD-IS-UNTESTED`, whose own condition for promotion was a third recurrence. | `stale-dependency-status-finalization` |
 | 2026-09-04 | Replaced the removed synchronous `AsyncStoreWrapper` example with direct `AsyncMemoryStore` setup and async byte writes. | `DOCS-ASYNC-STORE-WRAPPER-NO-LONGER-EXISTS` |

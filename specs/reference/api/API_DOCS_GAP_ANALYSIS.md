@@ -477,8 +477,14 @@ which preserve causal context, and which operations may be retried.
 ### 12. Python bindings
 
 `liquers-py` exposes many Rust concepts from
-[`lib.rs`](../../../liquers-py/src/lib.rs), but it has no README, API guide, `.pyi`
-type stubs, or user-oriented examples.
+[`lib.rs`](../../../liquers-py/src/lib.rs). Since `design/liquers-py/` (2026-10-19) it has a
+README with its conformance matrix, a usage guide with executed examples
+([`guides/PYTHON_GUIDE.md`](../../guides/PYTHON_GUIDE.md)) covering the module map, environment
+configuration, commands, queries, value conversion and errors, and a contract reference
+([`reference/PYTHON_INTEGRATION.md`](../PYTHON_INTEGRATION.md)) covering naming, conversion,
+error mapping and what is not exposed. What remains is the per-class reference: most names have no
+docstring and nothing generates an API reference (`PY-API-REFERENCE-NOT-GENERATED`), and there are
+no `.pyi` type stubs.
 
 #### Recommended documentation
 
@@ -637,7 +643,7 @@ Markdown files in this folder and linked from the `Analysis` column.
 | DOC-09 | Dependencies, expiration, volatility | P1 | Baseline complete | Not started | Not started |
 | DOC-10 | HTTP and WebSocket APIs | P1 | Baseline complete | Not started | Not started |
 | DOC-11 | Errors and diagnostics | P2 | Baseline complete | Not started | Not started |
-| DOC-12 | Python bindings | P2 | Baseline complete | Not started | Not started |
+| DOC-12 | Python bindings | P2 | Baseline complete | Partial: [guide](../../guides/PYTHON_GUIDE.md) and [reference](../PYTHON_INTEGRATION.md); generated API reference and stubs not started (`PY-API-REFERENCE-NOT-GENERATED`) | Guide examples executed against the built package |
 | DOC-13 | Feature flags and platforms | P2 | Baseline complete | Not started | Not started |
 | DOC-14 | Higher-level libraries | P2 | Baseline complete | Not started | Not started |
 | DOC-15 | Session and authorization | P2 | Baseline complete | Not started | Not started |
@@ -663,6 +669,7 @@ Suggested files for further work:
 | Date | Change | Source |
 |---|---|---|
 | 2026-10-20 | DOC-08 promoted to `reference/RECIPES_AND_PLANS.md`; tracker row and links point there. | DOC-08 promotion |
+| 2026-10-19 | §12 and DOC-12: `liquers-py` now has a guide and a contract reference; the generated API reference and stubs remain. Only §12 and the DOC-12 row were re-read against the code. | `design/liquers-py/` (phase-5) |
 | 2026-10-10 | §7 and the topic list: the synchronous `Store` trait and the `cache` module were removed; only `AsyncStore` remains to document. | `CORE-SYNC-STORE-TRAIT-OBSOLETE`, `design/sync-store-removal/` |
 | 2026-08-17 | Recorded the absolute-key precondition as required DOC-07 content in §7 and in the progress tracker. DOC-07 does not exist yet, so the rule is documented in `liquers-core::store` rustdoc meanwhile. | `design/store-key-guard/` |
 | 2026-08-09 | Promoted to current API reference; reviewed the gap inventory against HEAD, updated completed work and documentation-structure findings, and corrected links. | quarterly |

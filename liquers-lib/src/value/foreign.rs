@@ -127,6 +127,47 @@ pub trait ForeignValue:
     }
 }
 
+/// Rebuilds a foreign value from bytes its [`ForeignValue::as_bytes`] wrote, given the data format.
+///
+/// A plain `fn`, not a closure: a decoder captures nothing, so the registry stays a table of code
+/// pointers with no lifetime or thread-bound concerns on any target.
+pub type ForeignDecoder =
+    fn(bytes: &[u8], data_format: &str) -> Result<std::sync::Arc<dyn ForeignValue>, Error>;
+
+type DecoderTable = std::collections::HashMap<&'static str, ForeignDecoder>;
+
+fn decoders() -> &'static std::sync::RwLock<DecoderTable> {
+    static DECODERS: std::sync::OnceLock<std::sync::RwLock<DecoderTable>> =
+        std::sync::OnceLock::new();
+    DECODERS.get_or_init(|| std::sync::RwLock::new(DecoderTable::new()))
+}
+
+/// Registers the decoder for one foreign type identifier, replacing any earlier one.
+///
+/// **Process-global**, because [`liquers_core::value::ValueInterface::deserialize_from_bytes`] is a
+/// static method with no environment to consult. Whether an environment may *use* the decoder is
+/// decided by its type registry, not here: the read path treats a registered type that declares no
+/// data formats as having no byte form and never reaches the decoder (see
+/// `specs/design/liquers-py/phase2-architecture.md`).
+pub fn register_foreign_decoder(identifier: &'static str, decoder: ForeignDecoder) {
+    // A poisoned lock means a writer panicked mid-insert into a map of `fn` pointers, which leaves
+    // it consistent; recovering the guard is therefore safe.
+    let mut table = match decoders().write() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    table.insert(identifier, decoder);
+}
+
+/// The decoder registered for `identifier`, if any.
+pub fn foreign_decoder(identifier: &str) -> Option<ForeignDecoder> {
+    let table = match decoders().read() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+    table.get(identifier).copied()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -228,6 +269,47 @@ mod tests {
 
         assert!(info.supports_data_format("json"));
         assert!(!info.supports_data_format("parquet"));
+    }
+
+    fn decode_serializable(
+        bytes: &[u8],
+        data_format: &str,
+    ) -> Result<std::sync::Arc<dyn ForeignValue>, Error> {
+        if bytes == b"{}" && data_format == "json" {
+            Ok(std::sync::Arc::new(Serializable))
+        } else {
+            Err(Error::from_error(
+                ErrorType::SerializationError,
+                "unexpected bytes".to_string(),
+            ))
+        }
+    }
+
+    /// A registered decoder is found by its identifier and rebuilds the value `as_bytes` wrote.
+    #[test]
+    fn decoder_rebuilds_registered_identifier() -> Result<(), Box<dyn std::error::Error>> {
+        assert!(foreign_decoder("mock.Unregistered").is_none());
+        register_foreign_decoder("mock.Serializable", decode_serializable);
+        let decoder = foreign_decoder("mock.Serializable").ok_or("decoder not registered")?;
+        let bytes = Serializable.as_bytes("json")?;
+        let value = decoder(&bytes, "json")?;
+        assert_eq!(value.identifier(), "mock.Serializable");
+        assert!(value.as_any().downcast_ref::<Serializable>().is_some());
+        Ok(())
+    }
+
+    /// The decoder is reached through `ExtValue::deserialize_from_bytes`, the path the store uses.
+    #[test]
+    fn ext_value_deserialization_consults_the_decoder() -> Result<(), Box<dyn std::error::Error>> {
+        use crate::value::ExtValue;
+        use liquers_core::value::DefaultValueSerializer;
+        register_foreign_decoder("mock.Serializable", decode_serializable);
+        let value = crate::value::Value::deserialize_from_bytes(b"{}", "mock.Serializable", "json")?;
+        let crate::value::Value::Extended(ExtValue::Foreign { value }) = value else {
+            return Err("expected a foreign value".into());
+        };
+        assert_eq!(value.identifier(), "mock.Serializable");
+        Ok(())
     }
 
     /// The identifier reaches the description unchanged — the property the registry depends on.

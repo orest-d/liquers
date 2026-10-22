@@ -5,11 +5,12 @@ extern crate serde_derive;
 use pyo3::prelude::*;
 
 pub mod command_metadata;
-// `value` and `context` are declared; the remaining orphaned files
-// (`commands`, `interpreter`, `state`) are not — see
-// `specs/issues/PY-MODULES-NOT-DECLARED-IN-LIB.md`.
 pub mod context;
+pub mod asset;
+pub mod builtins;
+pub mod command;
 pub mod dependencies;
+pub mod environment;
 pub mod error;
 pub mod expiration;
 pub mod metadata;
@@ -17,13 +18,20 @@ pub mod parse;
 pub mod plan;
 pub mod query;
 pub mod recipes;
+pub mod runtime;
 pub mod value;
 
 use crate::query::*;
 
-/// A Python module implemented in Rust.
+/// The native extension, `liquers._native`; the `liquers` package (`python/liquers/`) re-exports it.
 #[pymodule]
-fn liquers_py(_py: Python, m: &PyModule) -> PyResult<()> {
+fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    // Stored `py.Object` values are read back through this decoder; an environment with the
+    // pickle codec off lists no formats for the type, so the read path never reaches it there.
+    liquers_lib::value::foreign::register_foreign_decoder(
+        crate::value::PY_OBJECT_TYPE_IDENTIFIER,
+        crate::value::decode_pickle,
+    );
     m.add_class::<Position>()?;
     m.add_class::<ActionParameter>()?;
     m.add_class::<ResourceName>()?;
@@ -74,6 +82,12 @@ fn liquers_py(_py: Python, m: &PyModule) -> PyResult<()> {
 
     m.add_class::<crate::recipes::Recipe>()?;
     m.add_class::<crate::recipes::RecipeList>()?;
+
+    m.add_class::<crate::environment::Environment>()?;
+    m.add_class::<crate::environment::Issue>()?;
+    m.add_class::<crate::context::Context>()?;
+    m.add_class::<crate::asset::State>()?;
+    m.add_class::<crate::asset::AssetRef>()?;
 
     Ok(())
 }

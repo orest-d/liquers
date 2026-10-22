@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: L
 area: [core/value, core/commands, lib/value]
-design:
+design: value-conversion-registry
 created: 2026-08-18
 github:
 ---
@@ -32,6 +32,17 @@ The **purpose axis** — "can this value be used as a table / an image / JSON?" 
 alongside the `value-type-system` project and deliberately deferred here, because a purpose
 vocabulary without conversion has no consumer: a caller could ask whether a value is a `table` and
 still have no way to obtain one. The two are one feature.
+
+## Problem Example
+
+```
+-R/data/sales.csv/-/convert-RecordView/ns-rec/head-5
+```
+
+Today there is no `convert` command; the CSV becomes a table only inside `ns-rec` commands
+(`liquers-lib/src/records/convert.rs` `to_record`) and, separately, inside `ns-pl` commands
+(`liquers-lib/src/polars/util.rs` `try_to_polars_dataframe`), each with its own rules. Should be: an
+explicit conversion by identifier, recorded in the log, with a class saying whether it is lossy.
 
 ## Impact
 
@@ -112,3 +123,12 @@ it ends up called — is this issue's to design.
 satisfied by several types) rather than one concrete Rust type. A purpose cannot be a Rust
 parameter type directly, so it needs a wrapper — `Table<T>`, or an `impl TableLike` bound — and
 that is the form in which conversion earns its keep.
+
+## Triage 2026-10-20 (bulk design)
+
+Persists. The `// TODO: add support for value with type_identifier` markers moved to
+`liquers-core/src/command_metadata.rs` above `EnumArgument` and `ArgumentType`. No conversion
+registry exists; conversions are hand-coded per family (`to_record`, `try_to_polars_dataframe`,
+`try_to_image`). The design delivers the explicit half and the classification; the automatic half
+(argument binding, state, UI, web negotiation, purposes) is filed as `VALUE-NOT-CONVERTED-AUTOMATICALLY`,
+which also needs `COMMAND-INPUT-OUTPUT-TYPES-ARE-UNDECLARED`. Design: `specs/design/value-conversion-registry/`.

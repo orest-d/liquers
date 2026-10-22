@@ -3,7 +3,7 @@ title: Recipes and Plans Reference
 kind: reference
 audience: internal
 area: [core/plan, core/query, core/assets, core/context]
-reviewed: 2026-10-20
+reviewed: 2026-10-22
 ---
 # Recipes and Plans
 
@@ -714,19 +714,25 @@ hand-built step and for the action a recipe override patches. Omitted from the s
 `apply_plan` does not execute `init_steps`; it appends them to the evaluating asset's log once,
 before the first step (and before the payload check), without a save of their own.
 `Plan::to_metadata_record` and `Metadata::from_plan` project them the same way for callers building
-metadata from a plan. `Step::Error` in `steps` logs through `Context::error`; it does not by itself
-return an execution error. `Plan::error` is the structured planning failure channel.
+metadata from a plan. `Step::Error` in `steps` logs through `Context::error`, so the plan stops with
+an `ExecutionError` carrying the first error's message. A run of consecutive `Step::Info`,
+`Step::Warning` and `Step::Error` steps is logged in full first: the plan stops after the last of
+them, before the next action or other step. An error-level entry in `init_steps` fails the plan the
+same way, before any dependency is scheduled. `Plan::error` is the structured planning failure
+channel.
 
 `apply_plan` runs, in order:
 
 1. resolves the rooted query's own resource step against the logical root;
-2. appends `init_steps` to the asset's log;
+2. appends `init_steps` to the asset's log, and stops with an `ExecutionError` if one of them is
+   error-level;
 3. if `plan.is_volatile`, marks the context volatile ("its plan is volatile");
 4. if a payload is required, records that on the context and rejects a context with no payload
    ("Query '…' requires an evaluation payload, but the evaluation was started without one…");
 5. pre-schedules known keyed dependencies so they can start concurrently, then drains the local
    queue once;
-6. interprets the steps in order.
+6. interprets the steps in order, stopping with an `ExecutionError` after a step (or a run of
+   consecutive diagnostic steps) once an error has been logged.
 
 Each step produces the state handed to the next (`interpreter::do_step_state`): a fetch hands on the
 fetched state — a boundary hands on its asset's state unchanged — steps that produce no value hand on
@@ -881,6 +887,7 @@ not otherwise enforce this distinction.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-22 | Carried over from DOC-08 on main: `Step::Error` and an error-level `init_steps` entry fail the plan with an `ExecutionError`, after a run of consecutive diagnostic steps is logged in full; the `apply_plan` order says where. | `issues/CONTEXT-ERROR-OUTCOME-DEPENDS-ON-SCHEDULING.md` |
 | 2026-10-20 | Promoted from `reference/api/DOC_08_RECIPES_PLANS.md` to `reference/RECIPES_AND_PLANS.md`; series wording, the dated verification log and the priority table removed (Known limitations link issues instead). Added §Planner instructions (instruction vs command; `ns`, `q` including mid-query, `v`, resource header instructions, segment headers, filenames), `to_plan_for_key`, placeholders, the `apply_plan` order, `uncached_by`, Serde defaults, a `recipes.yaml` example. Corrected: `init_steps` are logged by `apply_plan`; a `recipes.yaml` with an explicit `cwd` is refused whole; `set_cwd` writes to stderr; `to_plan` already folds `volatile`/`expires`; expiration reaches the context only in `apply_recipe`; seeding is conditional on non-volatility; circular-dependency fields are unused; the pre-pass schedules keyed dependencies only. (Earlier, until `plan-policy`, `v` anywhere marked the whole plan volatile.) | DOC-08 review, promotion |
 | 2026-10-17 | Planning contract: resource steps (`-R-stored/`, `-R-stored_meta/`, `-R-sdir/`) never make a plan volatile; `Plan::is_volatile` is the only volatility authority (the step-level `IsVolatile` impl was removed). | `design/step-volatility-impl-removal/` |
 | 2026-10-12 | Recipe contract: overrides apply in sorted order, resolve against `Plan::last_action_command` (an alias's own arguments; head slots refused), convert a mismatched JSON type with a planning warning or fail with `ConversionError`, and report an unknown or injected name as `ParameterError`. | phase-5, `design/axum-query-named-arguments/` |

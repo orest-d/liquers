@@ -3,7 +3,7 @@ title: Command Design Guide
 kind: guide
 audience: internal
 area: [core/commands]
-reviewed: 2026-10-17
+reviewed: 2026-10-18
 ---
 # Command Design Guide
 
@@ -131,9 +131,11 @@ exact contract is [`reference/COMMAND_ALIASES.md`](../reference/COMMAND_ALIASES.
   two names, and no chance of the two drifting apart. Write the general command first; add the
   convenient names as aliases of it.
 - **A bridge.** Many declared commands are executed by one generic executor, and the head
-  parameters say *which* thing to run. liquers-py declares each Python function as an alias of
-  `pycall` whose heads are the module, the function and how to pass the state. The declared
-  command keeps its own name and arguments; the bridge stays one registered implementation.
+  parameters say *which* thing to run: an alias of an executor whose heads name a script, a
+  module function or a remote endpoint. The declared command keeps its own name and arguments; the
+  bridge stays one registered implementation. When the integration can hold the callable itself,
+  a closure per command is simpler: `liquers-py` registers each Python function as its own
+  command whose closure owns it, and no executor command exists.
 
 - **A template.** A command whose result is text assembled from other queries (a context pack, a
   report) is an alias of `template/render` with the template as its head link: the template is
@@ -198,6 +200,7 @@ output is not worth keeping*.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-18 | "When to design a command as an alias", *A bridge*: `liquers-py` no longer aliases a `pycall` command; it registers a closure per Python function. | `design/liquers-py/` (phase-5) |
 | 2026-10-17 | Added: a command does not declare `volatile` for the volatility of the queries it reads; `Context::set_volatile`. | `design/runtime-volatility` |
 | 2026-10-17 | §Aliases: a template command (an alias of `template/render`) for text assembled from queries. | `design/liquers-mustache/` |
 | 2026-10-10 | New §Outputs not worth keeping: when to declare `cached: false` and when not; aliases inherit the target's flag. | phase-5, `design/plan-policy/` |

@@ -2,7 +2,7 @@
 id: AGENT-MEMORY-SERVICE
 kind: feature
 title: A memory service for agents, built on the liquers stack
-status: draft
+status: closed
 priority: P2
 complexity: XL
 area: [axum, lib/commands, core/store, docs]
@@ -81,3 +81,13 @@ Raised 2026-09-15 as an analysis question — what would it take to turn Liquers
 memory system comparable to OpenViking, using `liquers-axum` as the interface, stores for storage
 and commands as tools. The analysis is the design folder; this record is the backlog item it
 leaves behind.
+
+## Resolution (2026-10-20)
+
+The memory service is implemented by `design/agent-memory-mvp/` (PR #140): the `ns-mem` commands
+(`liquers-lib`, feature `mem`), `liquers-mcp`, which serves commands as MCP tools, and the
+`liquers-agent` binary over MCP and the CLI, with this repository's specs as a memory through
+`memory/liquers-specs.yaml` and an OpenViking-style layout on S3 tested. Reference:
+`specs/reference/AGENT_MEMORY_SERVICE.md`; migration: `specs/guides/AGENT_MEMORY_MIGRATION_GUIDE.md`.
+The derived layer split off on 2026-10-17 (templates in `memory_new`, generated indexes, context
+packs) continues as `design/agent-memory-derived/`.

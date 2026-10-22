@@ -2,10 +2,11 @@
 id: INLINE-DROP-REPAIR-STRANDS-EXISTING-WAITERS
 kind: issue
 title: An inline run dropped mid-flight leaves callers already waiting on it parked forever
-status: draft
+status: closed
 priority: P2
 complexity: M
 area: [core/assets, web]
+design: inline-waiter-recovers-dropped-run
 created: 2026-09-04
 github:
 ---
@@ -30,6 +31,15 @@ will never be sent, and the parked caller waits indefinitely.
 The queued path does not have this shape. `RunClaim`'s repair re-submits to the `JobQueue`, so a
 worker picks the asset up and eventually emits `JobFinished`; liveness comes from the
 re-submission, which is precisely what the queue-less path cannot do.
+
+## Problem Example
+
+Two callers ask an `ImmediateEnvironment` for the same query `slow`, an async command that blocks
+until released. Caller A wins the claim and is suspended inside the command. Caller B loses and
+parks in `wait_to_finish()`. A's future is then dropped. `InlineRunClaim::drop` sets the asset back
+to `Recipe` and sends `StatusChanged(Recipe)`, but B is waiting for `JobFinished` only, so B never
+returns (`tokio::time::timeout` elapses). B should instead claim the asset, run `slow` itself and
+return with the asset `Ready`. This is design `inline-waiter-recovers-dropped-run`, AC-1.
 
 ## Impact
 
@@ -73,3 +83,17 @@ Found on 2026-09-04 while fixing PR #61 review comment 2 (the `Dependencies` hal
 `Drop` repair). Recorded rather than fixed there: the review asked for the status repair, and the
 waiter loop is a distinct change to the wait protocol with its own livelock risk, which deserves
 its own tests rather than riding along on a review round.
+
+## Resolution
+
+Fixed 2026-10-20 by `design/inline-waiter-recovers-dropped-run/`. `AssetRef::run_with_future_inline`
+no longer sends the caller that loses the claim to `wait_to_finish`; the new private
+`claim_or_wait_inline` subscribes first, then tries the claim again on every notification, so a
+parked caller wakes on the `Drop` repair's `StatusChanged(Recipe)`, claims the asset and runs it
+with its own evaluation. It returns without running when the asset finishes or is removed.
+Evidence: `liquers-core/src/assets.rs` tests `inline_waiter_takes_over_dropped_run`,
+`inline_two_waiters_one_takes_over`, `inline_waiter_returns_when_runner_succeeds` / `_fails`,
+`inline_waiter_returns_when_run_is_cancelled`, `inline_waiter_ignores_intermediate_notifications`,
+`inline_waiter_does_not_rerun_a_removed_asset`
+and `inline_waiter_released_by_removal`. A repair that `Drop` skips because `try_write` failed is
+still out of reach (`INLINE-RUN-CLAIM-REPAIR-SKIPPED-UNDER-LOCK-CONTENTION`).

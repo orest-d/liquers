@@ -22,6 +22,28 @@ revision 8 adds three narrow pieces:
 
 Each was added because search needed it, not as part of a designed tool.
 
+## Problem Example
+
+An agent wants the outline of `specs/reference/AGENT_MEMORY_SERVICE.md`, the `yaml` code blocks
+under its §3 and the table in its `## History` section as records. The nearest queries are
+
+```
+-R/specs/reference/AGENT_MEMORY_SERVICE.md/-/ns-search/md_split-section
+-R-key/specs/reference/AGENT_MEMORY_SERVICE.md/-/ns-mem/read-full-History
+```
+
+The first returns every section with its whole text (no heading tree, no levels as a tree); the
+second returns one section, but only by its heading text and only as text. Neither yields the
+fenced blocks, the links or the table under a heading as records.
+
+Re-checked at commit 18732dd (2026-10-21): Markdown structure is read by a hand-written line
+scanner in `liquers-lib/src/search/md_split.rs` (`sections`, `find_section`, `first_heading`,
+`section_paragraph`, `blank_front_matter`), now shared by `ns-mem` (`mem/read.rs`, `write.rs`,
+`rules.rs`, `tiers.rs`) and the `markdown_tiers` metadata step (`store_config.rs:207`). Links are
+scanned privately for `check`'s `dead_links` rule (`mem/check.rs`). No outline, link, code-block or
+table-under-heading command exists; `pulldown-cmark` is still only behind `webui`. `-mem-read` with
+`section` covers "a section by heading" for memory documents only.
+
 ## Impact
 
 An agent can find a document but cannot cheaply ask for "the section headed X", "the outline", "the

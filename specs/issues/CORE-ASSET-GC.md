@@ -6,7 +6,7 @@ status: accepted
 priority: P3
 complexity: L
 area: [core/assets, core/store]
-design: 
+design: asset-garbage-collection
 created: 2026-08-08
 github:
 ---
@@ -15,6 +15,15 @@ github:
 Nothing removes assets that are no longer referenced. `WeakAssetRef` exists and the expiration
 monitor evicts on expiry, but an asset that simply stops being wanted persists in the cache and in
 the store.
+
+## Problem Example
+
+```rust
+for i in 0..100_000 {
+    m.get_asset(&parse_query(&format!("hello-{i}"))?).await?.get().await?;   // handle dropped
+}
+// query_assets now holds 100 000 assets and their values, for the life of the process.
+```
 
 ## Impact
 
@@ -40,3 +49,12 @@ The size limit needs a size estimate per value, which `ValueInterface` does not 
 ## Discovery
 
 Migration triage, 2026-08-08. Source: work packages WP-18/19. Verified against HEAD: no GC mechanism exists. See `specs/archive/2026-08-08-docs-migration-plan.md` §4.0c.
+
+## Update, 2026-10-21 (bulk design triage)
+
+Still reproduces at HEAD (`18732dd`): the maps of `DefaultAssetManager` and
+`ImmediateAssetManager` lose entries only by expiry, `remove`, replacement or volatility eviction.
+Design: [`asset-garbage-collection`](../design/asset-garbage-collection/). It answers "what makes
+an asset unreachable" (only the manager's map holds it; a recipe naming its key does not keep it
+alive) and bounds the maps by count and idle time. The byte budget and store pruning are split off
+as `VALUE-HAS-NO-MEMORY-SIZE-ESTIMATE` and `STORED-DERIVED-VALUES-ARE-NEVER-PRUNED`.

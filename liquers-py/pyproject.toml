@@ -4,12 +4,18 @@ build-backend = "maturin"
 
 [project]
 name = "liquers-py"
-requires-python = ">=3.8,<3.13"  # PyO3 0.21 supports Python up to 3.12; see README.md
+# PyO3 0.30 supports CPython 3.9 to 3.15 and PyPy 3.11 or newer; see README.md
+requires-python = ">=3.9,<3.16"
 classifiers = [
     "Programming Language :: Rust",
     "Programming Language :: Python :: Implementation :: CPython",
     "Programming Language :: Python :: Implementation :: PyPy",
 ]
 dynamic = ["version"]
+
 [tool.maturin]
+# Mixed Rust/Python project: the pure-Python package `liquers` lives under `python/`, and the
+# Rust extension is built into it as `liquers._native`.
+python-source = "python"
+module-name = "liquers._native"
 features = ["pyo3/extension-module"]

@@ -6,7 +6,7 @@ status: accepted
 priority: P2
 complexity: L
 area: [core/context, core/store, axum]
-design: 
+design: access-policy-at-entry-points
 created: 2026-08-08
 github:
 ---
@@ -64,3 +64,24 @@ Not in scope for `AGENT-MEMORY-SERVICE`; that design assumes a single writer and
 ## Discovery
 
 Migration triage, 2026-08-08. Source: `todo20260219.md` #10, work package WP-12, and the `KEY-LEVEL-ACL` feature brief. Verified against HEAD: the context.rs statement is current. See `specs/archive/2026-08-08-docs-migration-plan.md` §4.0c.
+
+## Status at 18732dd (2026-10-20)
+
+Still reproduces. `liquers-core/src/context.rs`: `User`, `Session`, `SimpleSession` and
+`Environment::create_session` exist and nothing outside `SimpleEnvironment` and one test uses them;
+no `liquers-axum` handler sees a caller (`WEB_API_SPECIFICATION.md` §9 says so).
+
+Problem example: on a server mounting the Store and Query APIs, `PUT
+/liquer/api/store/data/notes/alice/todo.md` sent by bob overwrites alice's file, and `GET
+/liquer/q/-R/notes/alice/todo.md/-/to_text` serves it to him; nothing can be configured to refuse
+either. Expected: with a policy granting bob no access to `notes/alice`, both answer 403.
+
+Designed in `specs/design/access-policy-at-entry-points/` (bulk design, `needs-decision`). It
+proposes a fourth route besides the three above, the one `context.rs` already states as intent
+("Asset evaluation should not depend on the user. Only the access rights will"): a principal
+(`User`) per request and a key-pattern policy checked **where requests enter** (HTTP routes,
+WebSocket), never on `Context` — so queries stay stateless and cached assets stay shared. Its
+leading decision is exactly that choice versus this issue's "`Context` exposes the session and
+user". The first slice is core + `liquers-axum`; MCP enforcement is filed as
+`MCP-SERVER-APPLIES-NO-ACCESS-POLICY`.
+

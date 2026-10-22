@@ -2,11 +2,11 @@
 id: RECORDS-PARQUET-POLARS-READ-IGNORES-DECLARED-SCHEMA
 kind: issue
 title: Reading Parquet through the polars bridge ignores a caller-declared schema
-status: draft
+status: closed
 priority: P2
 complexity: M
 area: [records, lib/polars]
-design:
+design: parquet-read-declared-schema
 created: 2026-09-27
 github:
 ---
@@ -23,6 +23,21 @@ the same signature every caller — `records::read_parquet_record_batch`,
 uses), but silently ignores it: polars' `ParquetReader` infers its own schema from the file, and the
 `RecordSchema` a caller declared (e.g. `ns-rec/*` commands' `schema` option,
 `ToRecordOptions::schema`) is never checked against, or used to guide, that read.
+
+## Problem Example
+
+```rust
+// bytes: Parquet written by Liquers, schema id: Int (Id, not null), amount: Float
+let wrong = RecordSchema::new(vec![
+    FieldSchema::new("id", FieldType::Int), FieldSchema::new("amount", FieldType::Text)])?;
+read_parquet_record_batch(&bytes, ReadSchema::Declared(&wrong))   // Ok: `amount` reads as Float
+read_parquet_record_batch(&bytes, ReadSchema::Infer)?.schema().id_field()   // None: Id lost
+```
+
+Expected: the first is an `Err` naming `amount`, `Float` and `Text` (as the IPC reader does); the
+second restores the embedded `liquers.schema`, which `record-streams` Phase 2 promised for
+Liquers-written Parquet and which polars exposes as `ParquetReader::get_metadata()?.key_value_metadata`.
+The design covers both, since they share the function and the schema rules.
 
 ## Impact
 
@@ -52,3 +67,15 @@ ReadSchema<'_>` for signature parity with `liquers_records::read_table`, then di
 (`_schema`) because polars' `ParquetReader` has no schema-aware read path exposed here. Filed per
 CLAUDE.md's "record what you find" rule rather than leaving the parameter's dead effect undocumented
 outside a one-line code comment.
+
+## Resolution
+
+Fixed 2026-10-20 by `design/parquet-read-declared-schema/`.
+`liquers_lib::records::polars::read_parquet_record_batch` now reads the file's key-value metadata
+before the frame. `ReadSchema::Declared` is strict, as in the Arrow IPC reader: columns are matched
+by name, an undeclared column or a type mismatch is an error naming it, nothing is cast, and a
+missing nullable field reads as nulls. `ReadSchema::Infer` restores the embedded `liquers.schema`
+when it still describes the columns, and otherwise derives the schema from the polars dtypes. A
+not-null field holding a null is refused on both paths. Evidence: the `parquet_*` and
+`to_record_parquet_with_schema_option_is_strict` tests in
+`liquers-lib/tests/records_parquet_polars.rs`.

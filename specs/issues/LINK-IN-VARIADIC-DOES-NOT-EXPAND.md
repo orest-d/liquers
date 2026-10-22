@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: M
 area: [core/plan, core/commands]
-design: variadic-arguments-declaration
+design: variadic-link-array-expansion
 created: 2026-08-25
 github:
 ---
@@ -71,3 +71,13 @@ Found while fixing recipe overrides of variadic arguments
 (`specs/design/variadic-arguments-declaration/`, from a Codex review finding on PR #38). The fix
 made `override_link` preserve the variadic slot as a one-element list; whether that element should
 expand when it resolves to an array is this issue, deliberately left out of that change.
+
+## Triage 2026-10-20
+
+Reproduces at HEAD (18732dd); the line numbers above have moved. `pop_value`'s variadic branch
+pushes one `ParameterLink` per link (`plan.rs` ≈868), `override_link` wraps a link as the single
+element (`plan.rs` ≈1217, its comment names this issue), and `interpreter.rs`
+`materialize_nested_parameter` (≈526) materialises each element 1:1. `liquers-validate --
+'ns-pl/select_columns-~X~-R/config/cols.json~E'` plans one `ParameterLink` element. The origin
+design `design/variadic-arguments-declaration/` is complete; this issue is now designed in
+`design/variadic-link-array-expansion/` (needs-decision: expand recommended).

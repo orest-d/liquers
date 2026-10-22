@@ -310,6 +310,29 @@ pub enum Step {
 }
 
 impl Step {
+    /// Returns whether this is an executable diagnostic: [`Step::Info`], [`Step::Warning`] or
+    /// [`Step::Error`]. A run of consecutive diagnostics is logged in full before an error among
+    /// them stops the plan.
+    pub fn is_log(&self) -> bool {
+        match self {
+            Step::Info(_) | Step::Warning(_) | Step::Error(_) => true,
+            Step::GetAsset(_)
+            | Step::GetAssetBinary(_)
+            | Step::GetAssetMetadata(_)
+            | Step::GetAssetDirectory(_)
+            | Step::GetAssetRecipe(_)
+            | Step::GetResource(_)
+            | Step::GetResourceMetadata(_)
+            | Step::GetResourceDirectory(_)
+            | Step::Evaluate(_)
+            | Step::UseQueryValue(_)
+            | Step::Action { .. }
+            | Step::Filename(_)
+            | Step::Plan(_)
+            | Step::SetCwd(_)
+            | Step::UseKeyValue(_) => false,
+        }
+    }
     /// Returns whether this is an executable error diagnostic.
     pub fn is_error(&self) -> bool {
         match self {
@@ -2517,7 +2540,9 @@ impl Plan {
     }
     /// Appends an executable error-level diagnostic.
     ///
-    /// This does not populate [`Self::error`] and does not by itself abort interpretation.
+    /// This does not populate [`Self::error`]. When interpreted, the step logs through
+    /// [`crate::context::Context::error`], so the plan stops with an `ExecutionError` once the run of
+    /// consecutive diagnostic steps it belongs to has been logged.
     pub fn error(&mut self, message: String) {
         self.steps.push(Step::Error(message));
     }

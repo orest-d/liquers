@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: S
 area: [core/value]
-design:
+design: data-format-vocabulary
 created: 2026-09-24
 github:
 ---
@@ -61,3 +61,13 @@ way to declare a write-only format. Its standalone design `design/type-info-writ
 Before `specs/design/combined-value-identifier-dispatch/`, a `RecordView` stored as `html` loaded
 through the combined `Value` as `Text`, which hid this issue for that case. It now fails to load (the
 extension's refusal is final), so the "declare it" consequence above applies to it as written.
+
+## Update 2026-10-20 — confirmed at HEAD, designed with the vocabulary
+
+Still reproduces: `TypeInfo` (`liquers-core/src/type_system.rs`) has one format list, documented as
+"written to and read from", and `RecordView` declares `html` in it (`liquers-lib/src/value/mod.rs`).
+A reloaded `table.html` reaches `read_table`, which refuses it, and the fast track logs it as
+corrupted before recomputing. Designed in `specs/design/data-format-vocabulary/` together with
+`DATA-FORMAT-CONSTANTS-AND-TOOLING`, as D8 decided: a `write_only_data_formats` subset list (the
+abandoned design's representation, still a maintainer decision there), checked in
+`deserialize_stored_value` so the entry degrades and is recomputed quietly.

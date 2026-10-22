@@ -484,6 +484,26 @@ impl MetadataSaver {
         }
     }
 
+    /// Drop the pending metadata and wait for a write already under way, without closing the
+    /// saver. Called just before the asset's value and final metadata are written together, so
+    /// that a snapshot queued during the run (status `Processing`) cannot land on top of them.
+    pub(crate) async fn supersede(&self) {
+        #[cfg(not(target_arch = "wasm32"))]
+        let in_flight = {
+            let mut lock = self.state.lock().await;
+            lock.pending = None;
+            lock.in_flight.take()
+        };
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(handle) = in_flight {
+            let _ = handle.await;
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            self.state.lock().await.pending = None;
+        }
+    }
+
     /// Enqueue metadata for persistence and trigger a single coalescing worker task.
     pub async fn save_immediately<E: Environment>(
         self: &Arc<Self>,
@@ -1034,13 +1054,14 @@ fn add_soft_consistency_warnings_enum(metadata: &mut Metadata) -> Result<(), Err
     Ok(())
 }
 
-/// identifier and data format. Shared between `AssetData::try_fast_track` and
+/// Deserializes a stored value from its bytes, its type identifier and its *declared* data format
+/// (`None` when the metadata declares none: the type's default format is used). Shared between `AssetData::try_fast_track` and
 /// `AssetManager::get_any_status`'s store-fallback path, so the binary/type-identifier handling
 /// (including the "bytes"-like identifiers that skip real deserialization) stays in one place.
 fn deserialize_stored_value<E: Environment>(
     binary: &[u8],
     type_identifier: &str,
-    data_format: &str,
+    declared_data_format: Option<&str>,
     registry: &crate::type_system::TypeRegistry,
 ) -> Result<Option<E::Value>, Error> {
     // The canonical identifier is `Bytes`; the lowercase spellings are what older stores wrote.
@@ -1059,7 +1080,49 @@ fn deserialize_stored_value<E: Environment>(
     if !type_identifier.trim().is_empty() && !registry.contains(type_identifier) {
         return Ok(None);
     }
+    // A registered type that declares no data format has no byte form in this environment: the
+    // write path refuses to serialize it, so stored bytes under its identifier were written by a
+    // differently configured environment. They are kept, never decoded — decoding is exactly what
+    // such a registration opts out of (an untrusted codec such as pickle, turned off). No built-in
+    // type is affected, since every one that can be stored declares at least one format.
+    if let Some(info) = registry.get(type_identifier) {
+        if info.supported_data_formats.is_empty() {
+            return Ok(None);
+        }
+    }
+    // An undeclared format means the writer used the value's own default (the level-1 rule,
+    // `State::effective_data_format`), so read with the type's default too. Only a value with no
+    // registered type (a raw file without metadata) falls back to `bin`.
+    let data_format = match declared_data_format {
+        Some(format) => format,
+        None => registry
+            .get(type_identifier)
+            .map(|info| info.default_data_format.as_ref())
+            .unwrap_or("bin"),
+    };
     E::Value::deserialize_from_bytes(binary, type_identifier, data_format).map(Some)
+}
+
+/// The data format a stored record declares, for [`deserialize_stored_value`]. A record's `None`
+/// means "nobody chose" and resolves to the type's default there. Legacy metadata has no such
+/// distinction: its format was always derived from the filename's extension
+/// (`Metadata::get_data_format`), so that extension still counts as declared.
+fn stored_declared_data_format(metadata: &Metadata) -> Option<String> {
+    match metadata {
+        Metadata::LegacyMetadata(_) => metadata
+            .declared_data_format()
+            .or_else(|| metadata.extension()),
+        Metadata::MetadataRecord(record) => record.declared_data_format().map(str::to_owned),
+    }
+}
+
+/// Why [`deserialize_stored_value`] read a value as degraded, for the messages that report it.
+fn degraded_reason(type_identifier: &str, registry: &crate::type_system::TypeRegistry) -> &'static str {
+    if registry.contains(type_identifier) {
+        "is registered with no data format, so it has no byte form in this environment"
+    } else {
+        "is not registered in this build"
+    }
 }
 
 impl<E: Environment> AssetData<E> {
@@ -1353,6 +1416,9 @@ impl<E: Environment> AssetData<E> {
             // (`AssetManager::remove`): the dependent was built from that version, so, like a key
             // the store does not hold, it does not block.
             Ok(metadata) if metadata.status() == Status::Recipe => false,
+            // No status (a file with no metadata, or a record written without one): whether it
+            // is reusable depends on its bytes, which are not read here — inconclusive.
+            Ok(metadata) if metadata.status() == Status::None => false,
             Ok(metadata) => !Self::status_permits_reuse(metadata.status()),
             Err(_) => false, // absent or unreadable — inconclusive
         }
@@ -1383,7 +1449,7 @@ impl<E: Environment> AssetData<E> {
             if store.contains(&key).await? {
                 eprintln!("Asset {} exists in the store, loading", self.id());
                 // Asset exists in the store, load binary and metadata
-                let (binary, metadata) = match store.get(&key).await {
+                let (binary, mut metadata) = match store.get(&key).await {
                     Ok(entry) => entry,
                     // Metadata without a data object (STORE_SEMANTICS §2): a value with no byte
                     // form, stored metadata-only by `set_state`. There is nothing to load, so the
@@ -1399,6 +1465,10 @@ impl<E: Environment> AssetData<E> {
                     }
                     Err(e) => return Err(e),
                 };
+                // Bytes stored with no status (a file with no metadata) read as `Source`, or as
+                // `Ready` when the key has a recipe, before the reuse check below.
+                adopt_stored_status(&*self.get_envref().get_asset_manager(), &key, &mut metadata)
+                    .await?;
                 let stored_status = metadata.status();
                 if !matches!(
                     stored_status,
@@ -1414,22 +1484,23 @@ impl<E: Environment> AssetData<E> {
                 }
 
                 let type_identifier = metadata.type_identifier()?;
-                let data_format = metadata.get_data_format();
+                let data_format = stored_declared_data_format(&metadata);
                 let registry_owner = self.get_envref();
                 let value = match deserialize_stored_value::<E>(
                     &binary,
                     &type_identifier,
-                    &data_format,
+                    data_format.as_deref(),
                     registry_owner.get_type_registry(),
                 ) {
                     Ok(Some(value)) => value,
                     Ok(None) => {
-                        // Degraded: this build has no such type. Do not fast-track a value that
-                        // cannot be materialized; the store entry stays readable as bytes.
+                        // Degraded: no byte form for this type here. Do not fast-track a value
+                        // that cannot be materialized; the store entry stays readable as bytes.
                         eprintln!(
-                            "Asset {} fast-track: type identifier '{}' is not registered in this build; keeping bytes only",
+                            "Asset {} fast-track: type identifier '{}' {}; keeping bytes only",
                             self.id(),
-                            type_identifier
+                            type_identifier,
+                            degraded_reason(&type_identifier, registry_owner.get_type_registry())
                         );
                         self.clear_fast_track_payload();
                         return Ok(false);
@@ -3168,9 +3239,9 @@ impl<E: Environment> AssetRef<E> {
                 "Asset evaluation finished ({:?} status) but no data available",
                 lock.status
             ));
-            if let Err(e) = lock.metadata.add_log_entry(LogEntry::from_error(&e)) {
-                eprintln!("!!!ERROR!!! Failed to add log entry: {}", e);
-            }
+            // `with_error` sets the metadata's status, `is_error` and `error_data` with the log
+            // entry; a bare error log entry no longer changes the status.
+            lock.metadata.with_error(e);
         }
         true
     }
@@ -3370,9 +3441,10 @@ impl<E: Environment> AssetRef<E> {
             eprintln!("Received message: {:?} by asset {}", msg, self.id());
             if self.is_finished().await {
                 // Progress the command sent during its own run is applied even when the status
-                // flipped to finished first: `finalize_primary_progress` runs after this loop has
-                // drained and normalizes it, so applying it here is what makes the result
-                // independent of scheduling. Once finalized, late progress is dropped below.
+                // flipped to finished first. A run settles only after this loop has drained, so
+                // that happens only when something else finished the asset meanwhile;
+                // `finalize_primary_progress` then normalizes it. Once finalized, late progress
+                // is dropped below.
                 let in_run_progress = matches!(
                     msg,
                     AssetServiceMessage::UpdatePrimaryProgress(_)
@@ -3523,6 +3595,55 @@ impl<E: Environment> AssetRef<E> {
         }
     }
 
+    /// The number of entries in this asset's log, taken when a run starts so the run can tell
+    /// its own entries from earlier ones.
+    async fn log_len(&self) -> usize {
+        match &self.data.read().await.metadata {
+            Metadata::MetadataRecord(record) => record.log.len(),
+            Metadata::LegacyMetadata(_) => 0,
+        }
+    }
+
+    /// Turns a computed value into a failure when the run logged an error
+    /// (`Context::error`), once the service loop has applied every message the run sent.
+    ///
+    /// `log_start` is [`Self::log_len`] at the start of the run; the failure carries the first
+    /// error-level entry logged after it. Any other outcome is returned unchanged.
+    async fn fail_on_drained_error(
+        &self,
+        outcome: RunOutcome<E::Value>,
+        log_start: usize,
+    ) -> RunOutcome<E::Value> {
+        match outcome {
+            RunOutcome::Computed(Ok(evaluation)) => {
+                let logged = match &self.data.read().await.metadata {
+                    Metadata::MetadataRecord(record) => record
+                        .log
+                        .iter()
+                        .skip(log_start)
+                        .find(|entry| entry.kind == LogEntryKind::Error)
+                        .map(|entry| entry.message.clone()),
+                    Metadata::LegacyMetadata(_) => None,
+                };
+                match logged {
+                    Some(message) => {
+                        // A failed evaluation keeps what it read, as when the evaluation itself
+                        // fails (`evaluate_recipe_outcome`).
+                        let mut lock = self.data.write().await;
+                        for dep in evaluation.dependencies {
+                            let _ = lock.metadata.add_dependency(dep);
+                        }
+                        RunOutcome::Computed(Err(Error::execution_error(message)))
+                    }
+                    None => RunOutcome::Computed(Ok(evaluation)),
+                }
+            }
+            RunOutcome::Computed(Err(e)) => RunOutcome::Computed(Err(e)),
+            RunOutcome::FinishedElsewhere(res) => RunOutcome::FinishedElsewhere(res),
+            RunOutcome::CancelRequested => RunOutcome::CancelRequested,
+        }
+    }
+
     /// Turns how the race between computing and cancelling ended into this run's result:
     /// `Ok(true)` when this run finalized the asset, `Ok(false)` when someone else finished it
     /// first, `Err` when the run failed or was cancelled.
@@ -3642,6 +3763,7 @@ impl<E: Environment> AssetRef<E> {
             return Ok(()); // Already finished
         }
         let cancellation = self.cancellation().await;
+        let log_start = self.log_len().await;
         let assetref = self.clone();
         // all service messages should be processed, therefore they run in a separate task
         let psm = tokio::spawn(async move { assetref.process_service_messages().await });
@@ -3656,13 +3778,15 @@ impl<E: Environment> AssetRef<E> {
                 _ = cancellation.requested() => RunOutcome::CancelRequested,
             }
         };
-        let result = self.settle_run(outcome).await;
         self.service_sender()
             .await
             .send(AssetServiceMessage::JobFinishing)
             .ok(); // Notify the service loop that the job is finishing, so it should smoothly end.
         let psm_result = psm.await;
-        // After the loop has drained, so the outcome does not depend on scheduling.
+        // The outcome is settled only once the loop has drained, so every message the run sent
+        // (an error-level log entry included) has been applied first and can decide it.
+        let outcome = self.fail_on_drained_error(outcome, log_start).await;
+        let result = self.settle_run(outcome).await;
         self.finalize_primary_progress().await;
         self.finish_run_with_result(result, psm_result).await
     }
@@ -3702,14 +3826,14 @@ impl<E: Environment> AssetRef<E> {
         //
         // A caller that does not get the claim **waits** for the running evaluation rather than
         // failing — refusing it breaks the legitimate case of two tasks awaiting the same asset,
-        // which is what a genuinely async command produces.
-        let claim = match self.try_claim_for_run_inline().await? {
+        // which is what a genuinely async command produces. If that run is dropped, the waiter
+        // takes the claim over and runs the asset itself.
+        let claim = match self.claim_or_wait_inline().await? {
             Some(claim) => claim,
-            None => {
-                return self.wait_to_finish().await;
-            }
+            None => return Ok(()),
         };
         let cancellation = self.cancellation().await;
+        let log_start = self.log_len().await;
         let eval_side = async {
             let outcome = if cancellation.is_requested() {
                 RunOutcome::CancelRequested
@@ -3724,16 +3848,17 @@ impl<E: Environment> AssetRef<E> {
                     () = requested => RunOutcome::CancelRequested,
                 }
             };
-            let result = self.settle_run(outcome).await;
             self.service_sender()
                 .await
                 .send(AssetServiceMessage::JobFinishing)
                 .ok();
-            result
+            outcome
         };
         let psm_side = self.process_service_messages();
-        let (result, psm_result) = futures::join!(eval_side, psm_side);
-        // After the loop has drained, so the outcome does not depend on scheduling.
+        let (outcome, psm_result) = futures::join!(eval_side, psm_side);
+        // Settled after the loop has drained, so the outcome does not depend on scheduling.
+        let outcome = self.fail_on_drained_error(outcome, log_start).await;
+        let result = self.settle_run(outcome).await;
         self.finalize_primary_progress().await;
         // The run reached its end, so the status it leaves behind is the real one; the guard must
         // not rewind it. A panic or early return skips this and the `Drop` repair applies instead.
@@ -3743,15 +3868,58 @@ impl<E: Environment> AssetRef<E> {
         self.finish_run_with_result(result, Ok(psm_result)).await
     }
 
+    /// Claims the inline run, or waits until it is no longer needed.
+    ///
+    /// `Ok(Some(claim))`: this caller runs the asset, either at once or after the previous
+    /// runner's future was dropped and `InlineRunClaim::drop` returned the asset to `Recipe`.
+    /// `Ok(None)`: the asset finished or was removed while waiting, so there is nothing to run.
+    ///
+    /// The subscription is taken **before** the first claim attempt: a `watch` receiver marks the
+    /// current value as seen, so a repair landing between a failed claim and a later subscription
+    /// would never wake the waiter.
+    async fn claim_or_wait_inline(&self) -> Result<Option<InlineRunClaim<E>>, Error> {
+        let mut rx = self.subscribe_to_notifications().await;
+        loop {
+            // Removal is terminal and is the last message an asset sends, so it is checked before
+            // the claim: an asset repaired to `Recipe` and then removed must not be run again.
+            if matches!(*rx.borrow(), AssetNotificationMessage::Removed) {
+                return Ok(None);
+            }
+            if let Some(claim) = self.try_claim_for_run_inline().await? {
+                return Ok(Some(claim));
+            }
+            if self.status().await.is_finished() {
+                return Ok(None);
+            }
+            let notification = rx.borrow().clone();
+            match notification {
+                AssetNotificationMessage::JobFinished => return Ok(None),
+                AssetNotificationMessage::Removed
+                | AssetNotificationMessage::Initial
+                | AssetNotificationMessage::JobSubmitted
+                | AssetNotificationMessage::JobStarted
+                | AssetNotificationMessage::StatusChanged(_)
+                | AssetNotificationMessage::ValueProduced
+                | AssetNotificationMessage::ErrorOccurred(_)
+                | AssetNotificationMessage::LogMessage
+                | AssetNotificationMessage::PrimaryProgressUpdated(_)
+                | AssetNotificationMessage::SecondaryProgressUpdated(_)
+                | AssetNotificationMessage::Expired => {}
+            }
+            rx.changed().await.map_err(|e| {
+                Error::general_error(format!("Failed to receive notification: {}", e))
+            })?;
+        }
+    }
+
     /// Inline (spawn-free) counterpart of [`Self::run`]: evaluation and the service-message loop
     /// are polled together in the caller's task. Use this one on wasm32, and in any manager that
     /// must not spawn.
     ///
     /// Safe to call from several tasks: one claims the run, and the others wait for it to finish.
-    /// On an asset that has already finished it returns at once. If the returned future is
-    /// dropped before completion the asset's status is repaired, but waiters already registered
-    /// on it can be stranded (`INLINE-DROP-REPAIR-STRANDS-EXISTING-WAITERS`), so await it to the
-    /// end.
+    /// On an asset that has already finished it returns at once. If the returned future of the
+    /// running caller is dropped before completion, the asset's status is repaired to `Recipe`
+    /// and one of the waiting callers takes the run over.
     pub async fn run_inline(&self, payload: Option<E::Payload>) -> Result<(), Error> {
         self.run_with_future_inline(self.compute(payload)).await
     }
@@ -4202,6 +4370,20 @@ impl<E: Environment> AssetRef<E> {
                         )));
                     }
                 }
+                // A metadata snapshot the service loop queued during the run is older than this
+                // one; dropped first, so it cannot overwrite the value's metadata afterwards.
+                // The metadata written is then read again, so a snapshot queued after it was
+                // captured above (progress finalized while this write ran in the background)
+                // is not dropped in favour of the older copy.
+                let saver = self.data.read().await.metadata_saver.clone();
+                saver.supersede().await;
+                let metadata = self
+                    .data
+                    .read()
+                    .await
+                    .binary_unchecked()
+                    .map(|(_, current)| current)
+                    .unwrap_or(metadata);
                 let written = store.set(key, &data, &metadata).await;
                 if written.is_ok() {
                     // Listings that depend on this directory see a new (or rewritten) member.
@@ -5700,6 +5882,67 @@ pub fn external_change_status(stored_status: Status, recorded: Version, has_reci
     }
 }
 
+/// The status stored bytes are reused under: `stored`, except that a record with no status and
+/// no recorded version — a file with no metadata — reads as [`external_change_status`] maps it.
+///
+/// Only `None` is mapped. A stored `Source` without a version keeps its status even when a recipe
+/// exists, so what the fast track reports for it is unchanged. A `None` with a known version is
+/// not the no-metadata case (Liquers never writes one) and is still refused.
+pub fn reusable_stored_status(stored: Status, recorded: Version, has_recipe: bool) -> Status {
+    match stored {
+        Status::None => external_change_status(stored, recorded, has_recipe),
+        Status::Directory
+        | Status::Recipe
+        | Status::Submitted
+        | Status::Dependencies
+        | Status::Processing
+        | Status::Partial
+        | Status::Error
+        | Status::Storing
+        | Status::Ready
+        | Status::Expired
+        | Status::Source
+        | Status::Cancelled
+        | Status::Override
+        | Status::Volatile => stored,
+    }
+}
+
+/// Applies [`reusable_stored_status`] to `metadata` read with its bytes from the store, in place.
+///
+/// A store may return data whose record carries no status: one written through `set` with a
+/// caller's record that had none, or a page-implemented store answering with partial metadata.
+/// When the status changes, a warning naming `key` and the new status goes into the record's log.
+/// Nothing is written back — a read never writes, which keeps read-only mounts read-only. The
+/// recipe provider is asked only for a stored `None`, so the common path costs nothing extra.
+async fn adopt_stored_status<E, M>(
+    manager: &M,
+    key: &Key,
+    metadata: &mut Metadata,
+) -> Result<(), Error>
+where
+    E: Environment,
+    M: AssetManager<E> + ?Sized,
+{
+    let stored = metadata.status();
+    if stored != Status::None {
+        return Ok(());
+    }
+    let recorded = metadata.version().unwrap_or_else(Version::unknown);
+    let has_recipe = manager
+        .get_recipe_provider()
+        .can_make(key, manager.get_envref())
+        .await?;
+    let status = reusable_stored_status(stored, recorded, has_recipe);
+    if status != stored {
+        metadata.set_status(status)?;
+        metadata.add_log_entry(LogEntry::warning(format!(
+            "no status was stored for {key}; read as {status:?}"
+        )))?;
+    }
+    Ok(())
+}
+
 /// Whether a stored entry is checked at all. Whether the key has a recipe never changes the
 /// answer, only the action, so it can be asked before the recipe (and the bytes) are read.
 fn external_change_checked(stored_status: Status, recorded: Version) -> bool {
@@ -6179,6 +6422,7 @@ pub trait AssetManager<E: Environment>:
     /// | `Directory` | any | `StatusConflict` — use [`Self::removedir`] |
     /// | any other | no | delete: the live asset, the dependency-graph entry and the stored entry; dependents are expired |
     /// | `Source`, `Override` | yes | delete the user value as above; the key falls back to its recipe |
+    /// | stored with no status and no version (a file with no metadata) | yes | as `Override` |
     /// | computed (`Ready`, `Expired`, `Error`, in-flight, …) | yes | drop the value: the live asset is unmapped and the stored entry is rewritten as `Recipe` with its version kept; dependents are **not** expired |
     /// | none, or stored `Recipe` | yes | nothing to do |
     /// | nothing live, nothing stored | no | `KeyNotFound` |
@@ -6210,7 +6454,17 @@ pub trait AssetManager<E: Environment>:
 
         let decisive = match live_status {
             Some(status) if !live_status_defers_to_store(status) => Some(status),
-            Some(_) | None => stored_metadata.as_ref().map(|m| m.status()),
+            // A stored record with no status and no version is a file with no metadata: under a
+            // recipe a read serves its bytes and keeps them as user input (`Override`), so its
+            // removal deletes them, as for any user value. A metadata-only entry with no status
+            // is deleted too, which loses nothing: it holds no value.
+            Some(_) | None => stored_metadata.as_ref().map(|m| {
+                let recorded = m.version().unwrap_or_else(Version::unknown);
+                match m.status() {
+                    Status::None if recorded.is_unknown() => Status::Override,
+                    status => status,
+                }
+            }),
         };
         let action = if !has_recipe {
             if live.is_none() && stored_metadata.is_none() {
@@ -7535,16 +7789,17 @@ pub trait AssetManager<E: Environment>:
             Err(e) if e.error_type == ErrorType::KeyNotFound => return Ok(None),
             Err(e) => return Err(e),
         };
+        adopt_stored_status(self, key, &mut metadata).await?;
         if !metadata.status().has_data() {
             return Ok(None);
         }
         let type_identifier = metadata.type_identifier()?;
-        let data_format = metadata.get_data_format();
+        let data_format = stored_declared_data_format(&metadata);
         let envref = self.get_envref();
         let value = deserialize_stored_value::<E>(
             &binary,
             &type_identifier,
-            &data_format,
+            data_format.as_deref(),
             envref.get_type_registry(),
         )?;
         match value {
@@ -7556,10 +7811,11 @@ pub trait AssetManager<E: Environment>:
                 }
                 Ok(Some(State::from_parts(Arc::new(value), Arc::new(metadata))))
             }
-            // Degraded: the caller asked for a value of a type this build does not know.
+            // Degraded: the caller asked for a value this environment cannot read from bytes.
             None => Err(Error::general_error(format!(
-                "Type identifier '{}' is not registered in this build, so the stored value cannot be materialized",
-                type_identifier
+                "Type identifier '{}' {}, so the stored value cannot be materialized",
+                type_identifier,
+                degraded_reason(&type_identifier, envref.get_type_registry())
             ))
             .with_key(key)),
         }
@@ -7595,6 +7851,7 @@ pub trait AssetManager<E: Environment>:
             Err(e) if e.error_type == ErrorType::KeyNotFound => return Ok(None),
             Err(e) => return Err(e),
         };
+        adopt_stored_status(self, key, &mut metadata).await?;
         // `has_data()` is the right question here — this asks whether the store entry holds a
         // value at all, not whether a reader may see it. That is the distinction from
         // `ReadExposure`, which gates reads.
@@ -9276,9 +9533,8 @@ impl<E: Environment> Drop for InlineRunClaim<E> {
             match lock.status {
                 Status::Processing | Status::Dependencies => {
                     let _ = lock.set_status(Status::Recipe);
-                    // Observers (a UI reading status) learn of the repair. It does not release a
-                    // caller already parked in `wait_to_finish`, which waits for `JobFinished`
-                    // alone — see `INLINE-DROP-REPAIR-STRANDS-EXISTING-WAITERS`.
+                    // Observers (a UI reading status) learn of the repair, and a caller parked in
+                    // `claim_or_wait_inline` wakes on it, claims the asset and runs it.
                     let _ = lock
                         .notification_tx
                         .send(AssetNotificationMessage::StatusChanged(Status::Recipe));
@@ -10600,6 +10856,34 @@ impl<E: Environment> KeyMutationAccess for ImmediateAssetManager<E> {
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use crate::type_system::{TypeInfo, TypeRegistry};
+
+    /// The formatless read rule: a registered type with no data format is read as degraded, so
+    /// its stored bytes are never handed to a decoder, while a type with formats still decodes.
+    #[test]
+    fn formatless_registered_type_is_read_as_degraded() -> Result<(), Error> {
+        let mut registry = TypeRegistry::from_value_type::<Value>();
+        registry.register(TypeInfo::new("test.Formatless"))?;
+        let read = deserialize_stored_value::<SimpleEnvironment<Value>>(
+            b"bytes written elsewhere",
+            "test.Formatless",
+            Some("pickle"),
+            &registry,
+        )?;
+        assert!(read.is_none());
+        assert!(degraded_reason("test.Formatless", &registry).contains("no data format"));
+        assert!(degraded_reason("test.Unknown", &registry).contains("not registered"));
+
+        let text = deserialize_stored_value::<SimpleEnvironment<Value>>(
+            b"hello",
+            "Text",
+            Some("txt"),
+            &registry,
+        )?;
+        assert_eq!(text.map(|v| v.try_into_string()).transpose()?, Some("hello".to_string()));
+        Ok(())
+    }
+
     use std::sync::Arc;
     use std::sync::Mutex as StdMutex;
     use std::time::Duration;
@@ -10891,6 +11175,117 @@ mod tests {
         assert!(asset_data.try_fast_track().await.unwrap());
         let state = asset_data.poll_state().expect("state must be available");
         assert_eq!(state.data_unchecked().try_into_bytes().unwrap(), raw);
+    }
+
+    /// Stores `bytes` at `key` with the given type identifier and data format, status `Source`.
+    async fn store_undeclared_format_record(
+        env: &SimpleEnvironment<Value>,
+        key: &Key,
+        bytes: &[u8],
+        type_identifier: &str,
+        data_format: Option<&str>,
+    ) {
+        env.get_async_store()
+            .set(key, bytes, &{
+                let mut metadata = MetadataRecord::new();
+                metadata.with_key(key.clone());
+                metadata.with_type_identifier(type_identifier.to_owned());
+                metadata.data_format = data_format.map(str::to_owned);
+                metadata.with_status(Status::Source);
+                Metadata::MetadataRecord(metadata)
+            })
+            .await
+            .unwrap();
+    }
+
+    async fn fast_track_value(env: SimpleEnvironment<Value>, key: &Key) -> Value {
+        let envref = env.to_ref();
+        let mut asset_data =
+            AssetData::<SimpleEnvironment<Value>>::new(1240, key.clone().into(), Some(key.clone()), envref);
+        assert!(asset_data.try_fast_track().await.unwrap());
+        let state = asset_data.poll_state().expect("state must be available");
+        state.data_unchecked().as_ref().clone()
+    }
+
+    #[tokio::test]
+    async fn fast_track_reads_an_undeclared_format_as_the_type_default() {
+        let key = parse_key("counter").unwrap();
+        let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        env.with_async_store(Box::new(AsyncMemoryStore::new(&Key::new())));
+        store_undeclared_format_record(&env, &key, b"42", "I64", None).await;
+        let stored = env.get_async_store().get_metadata(&key).await.unwrap();
+        assert_eq!(stored.declared_data_format(), None, "the extensionless key seeds no format");
+        // The number, not the bytes "42". Its variant (`I32`) is the separate JSON
+        // discrimination defect `CORE-VALUE-JSON-READ-IGNORES-STRUCTURED-IDENTIFIERS`.
+        assert_eq!(fast_track_value(env, &key).await.try_into_i64().unwrap(), 42);
+    }
+
+    #[tokio::test]
+    async fn fast_track_reads_undeclared_text_as_text() {
+        let key = parse_key("note").unwrap();
+        let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        env.with_async_store(Box::new(AsyncMemoryStore::new(&Key::new())));
+        store_undeclared_format_record(&env, &key, b"hello", "Text", None).await;
+        assert_eq!(fast_track_value(env, &key).await, Value::from("hello"));
+    }
+
+    #[tokio::test]
+    async fn get_any_status_reads_an_undeclared_format_as_the_type_default() {
+        let key = parse_key("counter").unwrap();
+        let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        env.with_async_store(Box::new(AsyncMemoryStore::new(&Key::new())));
+        store_undeclared_format_record(&env, &key, b"42", "I64", None).await;
+        let envref = env.to_ref();
+        let state = envref
+            .get_asset_manager()
+            .get_any_status(&key)
+            .await
+            .unwrap()
+            .expect("the stored value must be recovered");
+        assert_eq!(state.data_unchecked().try_into_i64().unwrap(), 42);
+    }
+
+    #[test]
+    fn legacy_metadata_reads_in_its_filename_extension() {
+        // Legacy metadata always derived its format from the filename; that is kept.
+        let legacy = Metadata::LegacyMetadata(serde_json::json!({
+            "type_identifier": "Text",
+            "filename": "note.json"
+        }));
+        assert_eq!(stored_declared_data_format(&legacy).as_deref(), Some("json"));
+        let declared = Metadata::LegacyMetadata(serde_json::json!({
+            "type_identifier": "Text",
+            "filename": "note.json",
+            "data_format": "txt"
+        }));
+        assert_eq!(stored_declared_data_format(&declared).as_deref(), Some("txt"));
+        let bare = Metadata::LegacyMetadata(serde_json::json!({"type_identifier": "Text"}));
+        assert_eq!(stored_declared_data_format(&bare), None);
+        // A record's undeclared format stays undeclared, whatever its filename.
+        let mut record = MetadataRecord::new();
+        record.with_filename("note.json".to_owned());
+        record.data_format = None;
+        assert_eq!(stored_declared_data_format(&Metadata::MetadataRecord(record)), None);
+    }
+
+    #[tokio::test]
+    async fn stored_value_without_type_or_format_stays_bytes() {
+        // No type identifier and no format: a raw file, read as bytes as before.
+        let key = parse_key("blob").unwrap();
+        let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        env.with_async_store(Box::new(AsyncMemoryStore::new(&Key::new())));
+        store_undeclared_format_record(&env, &key, b"42", "", None).await;
+        assert_eq!(
+            fast_track_value(env, &key).await.try_into_bytes().unwrap(),
+            b"42".to_vec()
+        );
+
+        // A declared format still wins over the type's default.
+        let key = parse_key("counter").unwrap();
+        let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        env.with_async_store(Box::new(AsyncMemoryStore::new(&Key::new())));
+        store_undeclared_format_record(&env, &key, b"42", "I64", Some("txt")).await;
+        assert_eq!(fast_track_value(env, &key).await, Value::from(42i64));
     }
 
     #[tokio::test]
@@ -11209,6 +11604,85 @@ mod tests {
 
         assetref.run(None).await.unwrap();
         assert_eq!(assetref.status().await, Status::Ready);
+    }
+
+    /// A metadata snapshot the service loop queued during the run (status `Processing`) must not
+    /// land in the store after the value and its final metadata were written.
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_queued_run_metadata_does_not_overwrite_the_stored_value() {
+        let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        env.command_registry
+            .register_async_command(CommandKey::new_name("logs"), |_, _, context| {
+                Box::pin(async move {
+                    // The first snapshot is written at once and starts the saver's debounce
+                    // interval; the second is held back by it until after the value is stored.
+                    context.info("first in-run log")?;
+                    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                    context.info("second in-run log")?;
+                    Ok(Value::from("value"))
+                })
+            })
+            .unwrap();
+        env.with_async_store(Box::new(crate::store::AsyncMemoryStore::new(&Key::new())));
+        let envref = env.to_ref();
+        let key = parse_key("logged.txt").unwrap();
+        let mut asset_data = AssetData::<SimpleEnvironment<Value>>::new(
+            9801,
+            parse_query("logs").unwrap().into(),
+            Some(key.clone()),
+            envref.clone(),
+        );
+        asset_data.save_in_background = false;
+        let asset = asset_data.to_ref();
+        asset.run(None).await.unwrap();
+        assert_eq!(asset.status().await, Status::Ready);
+        // Longer than the saver's debounce interval, so a queued snapshot would have landed.
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        let (_bytes, stored) = envref.get_async_store().get(&key).await.unwrap();
+        assert_eq!(stored.status(), Status::Ready);
+    }
+
+    /// An error-level entry that reaches the asset only through its service channel, with no
+    /// interpreter step to notice it, still fails the run: the outcome is settled after the loop
+    /// has drained (`CONTEXT-ERROR-OUTCOME-DEPENDS-ON-SCHEDULING`). Both harnesses.
+    #[tokio::test]
+    async fn test_drained_error_entry_fails_a_computed_value() {
+        for inline in [false, true] {
+            let query = parse_query("test").unwrap();
+            let env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+            let envref = env.to_ref();
+            let asset_data =
+                AssetData::<SimpleEnvironment<Value>>::new(2240, query.into(), None, envref);
+            let assetref = asset_data.to_ref();
+            let sender = assetref.service_sender().await;
+            let compute = async move {
+                sender
+                    .send(AssetServiceMessage::LogMessage(LogEntry::error(
+                        "logged through the channel".to_string(),
+                    )))
+                    .unwrap();
+                sender
+                    .send(AssetServiceMessage::LogMessage(LogEntry::info("later".to_string())))
+                    .unwrap();
+                Ok(RecipeEvaluation {
+                    value: Arc::new(Value::from("value")),
+                    dependencies: Vec::new(),
+                    origin: ValueOrigin::Computed,
+                })
+            };
+            if inline {
+                assetref.run_with_future_inline(compute).await.unwrap_err();
+            } else {
+                assetref.run_with_future(compute).await.unwrap_err();
+            }
+            assert_eq!(assetref.status().await, Status::Error, "inline: {inline}");
+            let error = match assetref.get().await.and_then(|state| state.value_state()) {
+                Ok(_) => panic!("expected a failure, inline: {inline}"),
+                Err(e) => e,
+            };
+            assert_eq!(error.error_type, ErrorType::ExecutionError, "inline: {inline}");
+            assert_eq!(error.message, "logged through the channel", "inline: {inline}");
+        }
     }
 
     #[tokio::test]
@@ -12881,6 +13355,38 @@ recipes:
         assert_eq!(failed.message, "Working");
     }
 
+    /// A keyed asset saved in the background keeps the finalized progress in the store: the value
+    /// write must not land the metadata it captured before `finalize_primary_progress` on top of
+    /// the newer snapshot.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn background_value_write_keeps_finalized_progress() {
+        let mut env = SimpleEnvironment::<Value>::new();
+        register_progress_commands(&mut env.command_registry);
+        env.with_async_store(Box::new(crate::store::AsyncMemoryStore::new(&Key::new())));
+        let envref = env.to_ref();
+        let mut keys = Vec::new();
+        for i in 0..40 {
+            let key = parse_key(&format!("partial{i}.txt")).expect("key");
+            let asset = AssetData::<SimpleEnvironment<Value>>::new(
+                envref.get_asset_manager().next_id_for_asset(),
+                parse_query("report_partial").expect("query").into(),
+                Some(key.clone()),
+                envref.clone(),
+            )
+            .to_ref();
+            asset.run(None).await.expect("run");
+            assert!(asset.get_metadata().await.expect("metadata").primary_progress().is_done());
+            keys.push(key);
+        }
+        // Longer than the saver's debounce interval, so every queued write has landed.
+        tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+        for key in keys {
+            let (_bytes, stored) = envref.get_async_store().get(&key).await.expect("stored");
+            let progress = stored.primary_progress();
+            assert!(progress.is_done(), "{key}: {progress:?}");
+        }
+    }
+
     #[tokio::test]
     async fn finished_run_progress_contract_native() {
         scenario_finished_progress(progress_env_native(), false).await;
@@ -13734,13 +14240,16 @@ recipes:
         let envref = env.to_ref();
 
         let key = parse_key("p.txt")?;
-        let asset = AssetData::<SimpleEnvironment<Value>>::new(
+        let mut asset_data = AssetData::<SimpleEnvironment<Value>>::new(
             9701,
             parse_query("sd_value")?.into(),
             Some(key.clone()),
             envref.clone(),
-        )
-        .to_ref();
+        );
+        // Save synchronously: the store is read right after `run` returns, and a background
+        // save is not awaited by the run.
+        asset_data.save_in_background = false;
+        let asset = asset_data.to_ref();
 
         // A dependency that is expired but has retained its value — the case
         // `wait_for_dependency` is documented to use rather than recompute.
@@ -15629,6 +16138,49 @@ recipes:
         Ok(())
     }
 
+    /// AC-7 of `js-store-page-metadata-status`: a stored dependency with no status is
+    /// inconclusive, as an unreadable one is, and does not refuse its dependent's fast track.
+    #[tokio::test]
+    async fn dependency_blocks_fast_track_is_false_for_status_none(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let envref = expiry_test_envref();
+        let manager = envref.get_asset_manager();
+        let dep = parse_key("data/dep.txt")?;
+        envref
+            .get_async_store()
+            .set(&dep, b"dep", &Metadata::MetadataRecord(MetadataRecord::new()))
+            .await?;
+        assert_eq!(envref.get_async_store().get_metadata(&dep).await?.status(), Status::None);
+        let key = parse_key("data/index.txt")?;
+        let asset =
+            AssetData::<SimpleEnvironment<Value>>::new(9802, key.clone().into(), Some(key), envref);
+        assert!(!asset.dependency_blocks_fast_track(&manager, &DependencyKey::from(&dep)).await);
+        Ok(())
+    }
+
+    /// AC-3 and AC-6 of `js-store-page-metadata-status`: only `None` without a recorded version
+    /// is mapped; every declared status is kept.
+    #[test]
+    fn reusable_stored_status_maps_only_none_without_version() {
+        let zero = Version::unknown();
+        assert_eq!(reusable_stored_status(Status::None, zero, false), Status::Source);
+        assert_eq!(reusable_stored_status(Status::None, zero, true), Status::Ready);
+        let known = Version::from_content(b"x");
+        assert_eq!(reusable_stored_status(Status::None, known, false), Status::None);
+        for status in [
+            Status::Source,
+            Status::Ready,
+            Status::Override,
+            Status::Error,
+            Status::Expired,
+            Status::Volatile,
+        ] {
+            for has_recipe in [false, true] {
+                assert_eq!(reusable_stored_status(status, zero, has_recipe), status);
+            }
+        }
+    }
+
     // --- Step 9: content changed outside Liquers (Part G) ---
 
     #[test]
@@ -16041,6 +16593,251 @@ recipes:
             sleep(Duration::from_millis(5)).await;
         }
         panic!("the evaluation session outlived its last run");
+    }
+
+    // ==================================================================================
+    // A parked inline caller takes over a dropped run — `design/inline-waiter-recovers-dropped-run/`
+    // ==================================================================================
+
+    /// How the first (gated) call of the `slow` command ends once its gate opens.
+    #[derive(Clone, Copy)]
+    enum SlowFirst {
+        Ok,
+        Err,
+    }
+
+    /// Shared state of the `slow` command: the first call parks on `release` and then ends as
+    /// `first` says; every later call returns `"y"` at once.
+    struct SlowGate {
+        entered: AtomicUsize,
+        release: tokio::sync::Notify,
+        first: SlowFirst,
+        asset: StdMutex<Option<AssetRef<ImmediateEnvironment<Value>>>>,
+    }
+
+    impl SlowGate {
+        fn new(first: SlowFirst) -> Arc<Self> {
+            Arc::new(SlowGate {
+                entered: AtomicUsize::new(0),
+                release: tokio::sync::Notify::new(),
+                first,
+                asset: StdMutex::new(None),
+            })
+        }
+
+        fn entered(&self) -> usize {
+            self.entered.load(Ordering::SeqCst)
+        }
+
+        /// The asset the command runs for, recorded by its first call.
+        fn asset(&self) -> AssetRef<ImmediateEnvironment<Value>> {
+            self.asset
+                .lock()
+                .expect("slot")
+                .clone()
+                .expect("the slow command has started")
+        }
+    }
+
+    fn slow_env(gate: Arc<SlowGate>) -> EnvRef<ImmediateEnvironment<Value>> {
+        let mut env = ImmediateEnvironment::<Value>::new();
+        env.command_registry
+            .register_async_command(CommandKey::new_name("slow"), move |_state, _args, context| {
+                let gate = gate.clone();
+                Box::pin(async move {
+                    let call = gate.entered.fetch_add(1, Ordering::SeqCst);
+                    if call > 0 {
+                        return Ok(Value::from("y"));
+                    }
+                    *gate.asset.lock().expect("slot") = Some(context.get_asset_ref());
+                    gate.release.notified().await;
+                    match gate.first {
+                        SlowFirst::Ok => Ok(Value::from("x")),
+                        SlowFirst::Err => Err(Error::general_error("slow failed".to_string())),
+                    }
+                })
+            })
+            .expect("register slow");
+        env.to_ref()
+    }
+
+    const WAITER_TIMEOUT: Duration = Duration::from_secs(2);
+
+    /// AC-1: B is parked on A's run, A's future is dropped, B claims the asset and runs it.
+    #[tokio::test]
+    async fn inline_waiter_takes_over_dropped_run() -> Result<(), Error> {
+        let gate = SlowGate::new(SlowFirst::Ok);
+        let envref = slow_env(gate.clone());
+        let m = envref.get_asset_manager();
+        let query = parse_query("slow")?;
+        let mut a = Box::pin(m.get_asset(&query));
+        assert!(futures::poll!(a.as_mut()).is_pending());
+        let mut b = Box::pin(m.get_asset(&query));
+        assert!(futures::poll!(b.as_mut()).is_pending());
+        drop(a);
+        let asset = tokio::time::timeout(WAITER_TIMEOUT, b)
+            .await
+            .expect("the parked caller must take over the dropped run")?;
+        assert_eq!(asset.get().await?.try_into_string()?, "y");
+        assert_eq!(asset.status().await, Status::Ready);
+        assert_eq!(gate.entered(), 2);
+        Ok(())
+    }
+
+    /// AC-3: A's run ends `Ready`, `Error` or `Cancelled`; B returns without running the command
+    /// and the asset keeps A's terminal status.
+    async fn waiter_returns_when_runner_finishes(first: SlowFirst, cancel: bool, expected: Status) {
+        let gate = SlowGate::new(first);
+        let envref = slow_env(gate.clone());
+        let m = envref.get_asset_manager();
+        let query = parse_query("slow").expect("query");
+        let mut a = Box::pin(m.get_asset(&query));
+        assert!(futures::poll!(a.as_mut()).is_pending());
+        let mut b = Box::pin(m.get_asset(&query));
+        assert!(futures::poll!(b.as_mut()).is_pending());
+        let asset = gate.asset();
+        let finish = async {
+            if cancel {
+                // `cancel` waits for the run to settle, so A must be polled alongside it.
+                let _ = asset.cancel().await;
+            } else {
+                gate.release.notify_one();
+            }
+        };
+        let ((), ra, rb) =
+            tokio::time::timeout(WAITER_TIMEOUT, async { futures::join!(finish, a, b) })
+                .await
+                .expect("both callers return once the run finishes");
+        if expected == Status::Ready {
+            let ra = ra.expect("A succeeds");
+            let rb = rb.expect("B succeeds");
+            assert_eq!(ra.get().await.expect("value").try_into_string().expect("text"), "x");
+            assert_eq!(rb.get().await.expect("value").try_into_string().expect("text"), "x");
+        }
+        assert_eq!(asset.status().await, expected);
+        assert_eq!(gate.entered(), 1, "the waiter must not run the command again");
+    }
+
+    #[tokio::test]
+    async fn inline_waiter_returns_when_runner_succeeds() {
+        waiter_returns_when_runner_finishes(SlowFirst::Ok, false, Status::Ready).await;
+    }
+
+    #[tokio::test]
+    async fn inline_waiter_returns_when_runner_fails() {
+        waiter_returns_when_runner_finishes(SlowFirst::Err, false, Status::Error).await;
+    }
+
+    #[tokio::test]
+    async fn inline_waiter_returns_when_run_is_cancelled() {
+        waiter_returns_when_runner_finishes(SlowFirst::Ok, true, Status::Cancelled).await;
+    }
+
+    /// AC-4: status changes and progress while B is parked do not make B run the command.
+    #[tokio::test]
+    async fn inline_waiter_ignores_intermediate_notifications() -> Result<(), Error> {
+        let gate = SlowGate::new(SlowFirst::Ok);
+        let envref = slow_env(gate.clone());
+        let m = envref.get_asset_manager();
+        let query = parse_query("slow")?;
+        let mut a = Box::pin(m.get_asset(&query));
+        assert!(futures::poll!(a.as_mut()).is_pending());
+        let mut b = Box::pin(m.get_asset(&query));
+        assert!(futures::poll!(b.as_mut()).is_pending());
+        let asset = gate.asset();
+        for status in [Status::Dependencies, Status::Processing] {
+            asset.set_status(status).await?;
+            let _ = asset
+                .data
+                .read()
+                .await
+                .notification_tx
+                .send(AssetNotificationMessage::StatusChanged(status));
+            assert!(futures::poll!(b.as_mut()).is_pending());
+        }
+        let _ = asset.data.read().await.notification_tx.send(
+            AssetNotificationMessage::PrimaryProgressUpdated(ProgressEntry::tick(
+                "Working".to_string(),
+            )),
+        );
+        assert!(futures::poll!(b.as_mut()).is_pending());
+        assert!(futures::poll!(a.as_mut()).is_pending());
+        assert_eq!(gate.entered(), 1);
+        gate.release.notify_one();
+        let (ra, rb) = tokio::time::timeout(WAITER_TIMEOUT, async { futures::join!(a, b) })
+            .await
+            .expect("both callers return once the run finishes");
+        assert_eq!(ra?.get().await?.try_into_string()?, "x");
+        assert_eq!(rb?.get().await?.try_into_string()?, "x");
+        assert_eq!(gate.entered(), 1);
+        Ok(())
+    }
+
+    /// AC-5: B and C are parked and A is dropped; exactly one of them runs the command.
+    #[tokio::test]
+    async fn inline_two_waiters_one_takes_over() -> Result<(), Error> {
+        let gate = SlowGate::new(SlowFirst::Ok);
+        let envref = slow_env(gate.clone());
+        let m = envref.get_asset_manager();
+        let query = parse_query("slow")?;
+        let mut a = Box::pin(m.get_asset(&query));
+        assert!(futures::poll!(a.as_mut()).is_pending());
+        let mut b = Box::pin(m.get_asset(&query));
+        assert!(futures::poll!(b.as_mut()).is_pending());
+        let mut c = Box::pin(m.get_asset(&query));
+        assert!(futures::poll!(c.as_mut()).is_pending());
+        drop(a);
+        let (rb, rc) = tokio::time::timeout(WAITER_TIMEOUT, async { futures::join!(b, c) })
+            .await
+            .expect("both parked callers return");
+        assert_eq!(rb?.get().await?.try_into_string()?, "y");
+        let rc = rc?;
+        assert_eq!(rc.get().await?.try_into_string()?, "y");
+        assert_eq!(rc.status().await, Status::Ready);
+        assert_eq!(gate.entered(), 2);
+        Ok(())
+    }
+
+    /// A run dropped and then removed before the parked caller is polled again is not re-run:
+    /// removal is terminal even though the repair left the asset claimable.
+    #[tokio::test]
+    async fn inline_waiter_does_not_rerun_a_removed_asset() -> Result<(), Error> {
+        let gate = SlowGate::new(SlowFirst::Ok);
+        let envref = slow_env(gate.clone());
+        let m = envref.get_asset_manager();
+        let query = parse_query("slow")?;
+        let mut a = Box::pin(m.get_asset(&query));
+        assert!(futures::poll!(a.as_mut()).is_pending());
+        let mut b = Box::pin(m.get_asset(&query));
+        assert!(futures::poll!(b.as_mut()).is_pending());
+        let asset = gate.asset();
+        drop(a);
+        assert_eq!(asset.status().await, Status::Recipe);
+        asset.notify_removed().await;
+        let _ = tokio::time::timeout(WAITER_TIMEOUT, b)
+            .await
+            .expect("removal releases the parked caller");
+        assert_eq!(gate.entered(), 1, "a removed asset is not run again");
+        Ok(())
+    }
+
+    /// AC-6: removing the asset still releases a parked caller.
+    #[tokio::test]
+    async fn inline_waiter_released_by_removal() -> Result<(), Error> {
+        let gate = SlowGate::new(SlowFirst::Ok);
+        let envref = slow_env(gate.clone());
+        let m = envref.get_asset_manager();
+        let query = parse_query("slow")?;
+        let mut a = Box::pin(m.get_asset(&query));
+        assert!(futures::poll!(a.as_mut()).is_pending());
+        let mut b = Box::pin(m.get_asset(&query));
+        assert!(futures::poll!(b.as_mut()).is_pending());
+        gate.asset().notify_removed().await;
+        let _ = tokio::time::timeout(WAITER_TIMEOUT, b)
+            .await
+            .expect("removal releases the parked caller");
+        assert_eq!(gate.entered(), 1);
+        Ok(())
     }
 }
 

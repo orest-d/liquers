@@ -4,7 +4,7 @@ kind: feature
 title: A store_config handler cannot be defined in the integrated language
 status: draft
 priority: P3
-complexity: M
+complexity: L
 area: [web, py, core/store, store/config]
 design: 
 created: 2026-10-15
@@ -41,6 +41,15 @@ has to settle what `design/store-adapters/phase2-architecture.md` §Language Int
 
 Exposing a compiled chain to the language (`compileStoreConfig`) is a related, smaller question; no
 use for it is known.
+
+## Re-checked at HEAD (2026-10-20): persists; re-sized `M` → `L`
+
+`StepBuilder` and `ComponentBuilder` are still plain `fn` pointers, and `StoreConfigFunctions`
+holds them in two `HashMap`s (`liquers-core/src/store/realm.rs`). Re-sized to `L`: the fix changes
+a public `liquers-core` type (a boxed, capturing builder beside or instead of the `fn` pointer) and
+then lands a binding in each integration, so it crosses crates (§4.5). `liquers-web` records
+`STORE18` as `NA` pending this issue (`liquers-web/README.md`); `liquers-py` has no `STORE` feature
+yet, so its half waits for that.
 
 ## Discovery
 

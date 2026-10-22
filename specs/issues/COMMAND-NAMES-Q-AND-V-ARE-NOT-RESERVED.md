@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: S
 area: [core/commands, core/query]
-design:
+design: reserved-instruction-command-names
 created: 2026-10-19
 github:
 ---
@@ -33,3 +33,11 @@ the reserved list lives in one place that both the planner and the validation re
 
 Found by the Phase 5 review of `design/liquers-py/` (2026-10-19), probing names while checking
 `guides/PYTHON_GUIDE.md`.
+
+## Triage 2026-10-20
+
+Reproduces at HEAD (18732dd): `CommandMetadata::check` still tests only `"ns"`
+(`command_metadata.rs` ≈1222), `PlanBuilder::process_action` intercepts `"v"` by literal
+(`plan.rs` ≈1677), and `liquers-validate --command v --command q -- v q` plans both as
+instructions. Designed in `design/reserved-instruction-command-names/` (ready, eligible for
+automatic fixing).

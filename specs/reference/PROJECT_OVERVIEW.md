@@ -65,8 +65,14 @@ liquers-core (foundation - all core abstractions)
     │   ├─ Polars integration for tabular data
     │   ├─ Record values and the ns-rec commands (feature `records`, over liquers-records)
     │   ├─ The ns-template commands (feature `templates`, over liquers-template)
+    │   ├─ The ns-mem agent memory commands (feature `mem`, over records)
     │   ├─ egui-based interactive UI
     │   └─ Implements Environment trait
+    │
+    ├── liquers-mcp (commands served as MCP tools; depends on liquers-core and rmcp only)
+    │   └─ Tool sets of single-command queries, generated schemas, an allow-listed query tool
+    │
+    ├── liquers-agent (binary: the agent memory over MCP stdio and the command line)
     │
     ├── liquers-axum (HTTP REST API server)
     │   ├─ Query evaluation endpoints
@@ -89,7 +95,9 @@ liquers-core (foundation - all core abstractions)
 records need not pull in `liquers-lib`; it reaches its own value type through the `RecordValue`
 adapter trait. Likewise `liquers-core` ← `liquers-template` ← `liquers-lib` (feature `templates`, on
 by default); a template reads its data through core's `DataNode`
-([`TEMPLATE_LANGUAGE.md`](TEMPLATE_LANGUAGE.md)).
+([`TEMPLATE_LANGUAGE.md`](TEMPLATE_LANGUAGE.md)). `liquers-core` ← `liquers-mcp` ← `liquers-agent`,
+which also depends on `liquers-lib` (feature `mem`) and `liquers-store`
+([`AGENT_MEMORY_SERVICE.md`](AGENT_MEMORY_SERVICE.md)).
 
 ### liquers-core Module Structure
 
@@ -556,6 +564,7 @@ project's purpose, intended uses and per-crate strategy. This document describes
 | Date | Change | Source |
 |---|---|---|
 | 2026-10-20 | "Special instructions" renamed planner instructions, reduced to the `ns`-is-variadic rule and a link to their definition in `RECIPES_AND_PLANS.md`; a resource header takes at most one instruction. | DOC-08 promotion |
+| 2026-10-19 | Added `liquers-mcp` and `liquers-agent` to the crate structure and the dependency flow, and the `mem` feature of `liquers-lib`. | `design/agent-memory-mvp/` |
 | 2026-10-17 | Added `liquers-template` to the crate structure and the dependency flow `liquers-core ← liquers-template ← liquers-lib` (feature `templates`). | `design/liquers-mustache/` |
 | 2026-10-16 | Key Design Decisions: Liquers is the only writer of store metadata while it runs. | `design/store-adapters/` phase-5 review |
 | 2026-10-15 | Reviewed against `design/store-adapters/`. Added `AsyncStore` data-only access and the configured-store layer (`ReadOnlyStore`, `MetadataPipelineStore`, storage models, write strategies, handler chains) to §5. The module table gains `store/`, `store_config.rs` and `store_factory.rs`. "Realm applies to the whole segment" is now true of the planner. §3 adds foreign realms: `store_config` is addressable, plannable, not executable. Pointers to `REALMS.md` and `STORE_CONFIG_GUIDE.md`. | phase-5, `design/store-adapters/` |

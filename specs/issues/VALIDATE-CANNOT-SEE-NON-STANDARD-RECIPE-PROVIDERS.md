@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: M
 area: [core/commands, core/plan]
-design:
+design: validate-through-recipe-providers
 created: 2026-09-25
 github:
 ---
@@ -48,3 +48,11 @@ commands are in `specs/command_registry.yaml`, so a query naming them validates.
 a manifest generates are still invisible to `liquers-validate`, which reads only `recipes.yaml`. A
 manifest's structure is checked when it loads, for example for colliding chunk names, and each
 chunk query is parsed when it is built. Nothing plans a chunk query against the registry.
+
+## Update 2026-10-20 — bulk design
+
+Still reproduces at HEAD 18732dd: `liquers-core/src/validate/` reads only a `RecipeList`
+(`validate_recipes`), and `liquers-validate` has no provider-backed mode. Designed in
+`specs/design/validate-through-recipe-providers/` as a first slice inside `liquers-core` (library
+over the provider chain plus a `--store-root` CLI mode with the default provider). The CLI for
+`liquers-lib`'s chain is the follow-up `LIB-RECIPE-PROVIDERS-HAVE-NO-VALIDATION-CLI`.

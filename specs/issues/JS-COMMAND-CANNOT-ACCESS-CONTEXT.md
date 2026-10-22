@@ -24,6 +24,42 @@ command cannot: `register_js_command` is handed a context and discards it.
 `CallableSpec` (`adapter.rs:130`) carries `run`, `state_mode`, `is_async` and `name` — there is no
 context in the calling convention, so `call_js_command` has nothing to pass even if it wanted to.
 
+## Re-checked at HEAD (2026-10-20): partly — the declaration half exists
+
+- **Declaration: done in core.** The Command Declaration Format has a `context` convention: an
+  argument named `context` is removed from `arguments` and its position recorded at
+  `registration.context` (`specs/reference/COMMAND_DECLARATION.md`, conventions table).
+  `liquers-web` deliberately does not run it (`liquers-web/src/command/spec.rs`, the comment citing
+  this issue), so nothing is missing in core for the declaration.
+- **Implementation: still missing.** `register_js_command` now passes the `Context<E>` into
+  `call_js_command` (`liquers-web/src/command/adapter.rs`), but only to read its `EnvRef` for value
+  conversion; nothing reaches JavaScript.
+- **A worked precedent exists.** `liquers-py` delivered the same thing (`liquers-py/src/context.rs`):
+  an `lq.Context` with `evaluate`, `info`, `warning`, `error` and `is_cancelled`, inserted at the
+  recorded `context` position and invalidated when the callable returns
+  (`specs/reference/PYTHON_INTEGRATION.md`, "Context"). The JavaScript design can follow it, with
+  `evaluate` returning a `Promise` (so only an async command can await it).
+- **The conformance row overstates it.** `liquers-web/README.md` lists `COMMAND` complete including
+  `COMMAND07`, but `command07_context_injection` (`tests/commands_COMMAND.rs`) only asserts that a
+  command runs, which passes whatever the adapter does with the context (guide §3, "Conformance
+  tests that pass whatever the code does"). It should read `PARTIAL` until this issue lands.
+
+## Problem Example
+
+```javascript
+liquers.registerCommand({
+  name: "report", async: true,
+  run: async (context) => {                    // wanted: a context object
+    context.info("fetching");                  // TypeError today: context is undefined
+    return await context.evaluate("hello/shout");
+  },
+});
+await liquers.evaluate("report");
+// today:    nothing passes a context; `context` is at best an ordinary query parameter of that
+//           name (when the argument list is inferred), so `context.info` fails
+// expected: "HELLO, WORLD!", with an info entry "fetching" in the asset's log
+```
+
 ## Why it matters
 
 Context is not a marginal capability. Without it a JavaScript command cannot report progress on a

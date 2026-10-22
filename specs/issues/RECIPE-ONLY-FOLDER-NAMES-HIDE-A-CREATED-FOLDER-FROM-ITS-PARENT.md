@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: S
 area: [core/assets]
-design:
+design: recipe-folder-names-listing-contract
 created: 2026-10-18
 github:
 ---
@@ -43,3 +43,12 @@ reads the parent on every ordinary write, which for a recursive catalog is one l
 
 Codex review on PR #160 (`design/new-folder-write-ancestor-listing-refresh`), 2026-10-18; traced
 against the in-tree providers, pinned by `removing_a_recipe_folder_expires_the_parent_index`.
+
+## Reproduction at HEAD (bulk design, 2026-10-20)
+
+Persists at 18732dd: `refresh_listing_version` / `refresh_one_listing` (`liquers-core/src/assets.rs`)
+still decide the climb from the merged `AssetManager::listdir`, and the trait doc of
+`AsyncRecipeProvider::assets_with_recipes` still states no contract. Origin design
+`new-folder-write-ancestor-listing-refresh` is complete. Designed in
+`design/recipe-folder-names-listing-contract/` (recommended: state the contract; the stored-listing
+climb is the alternative).

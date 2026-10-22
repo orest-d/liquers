@@ -3,7 +3,7 @@ title: Value Type System
 kind: reference
 audience: internal
 area: [core/value, lib/value]
-reviewed: 2026-10-20
+reviewed: 2026-10-21
 ---
 
 # Value Type System
@@ -159,11 +159,31 @@ type-checked with `Self: ?Sized` and cannot call an associated function. **A sha
 unit test asserting the two agree** is the guarantee instead, which is proportionate: there are a
 few tens of types in the whole system and each is fixed once its variant is implemented.
 
-Only a type implemented in a *different crate from its value type* needs this. `liquers-py` holds
-Python objects in `Value::Py`, a variant of a value type it owns, so `py.Object` goes in its static
-`type_descriptions()` and no constructor is involved.
+Only a type implemented in a *different crate from its value type* needs this. Both language
+integrations do: `liquers-web` registers `js.Value`, and `liquers-py` registers `py.Object` (the
+`PyObjectValue` it keeps in `ExtValue::Foreign`, described by `py_type_info`).
 
 See `specs/guides/LANGUAGE-INTEGRATION_GUIDE.md` §VALUE for the procedure.
+
+### Reading a foreign value back
+
+`ExtValue::deserialize_from_bytes` dispatches on static identifiers, so a foreign identifier has no
+arm there. A foreign type with a byte form registers a **decoder** instead
+(`liquers_lib::value::foreign`):
+
+```rust
+register_foreign_decoder("py.Object", decode_pickle); // fn(&[u8], &str) -> Result<Arc<dyn ForeignValue>, Error>
+```
+
+The table is process-global, because deserialization is a static method with no environment. Two
+consequences:
+
+- **A registered foreign identifier belongs to the extension.** `CombinedValue` sends it to the
+  extension before trying the base, which would otherwise read a `json` or `txt` payload as its own
+  value.
+- **Whether an environment may decode is still its registry's decision.** A type registered with no
+  data formats has no byte form in that environment, and the read path never reaches the decoder
+  for it. That is how a pickle-off Python environment refuses stored pickles.
 
 ### How a failure is typed
 
@@ -353,6 +373,20 @@ The identifier check applies in both cases.
 know **degrades**: the bytes and metadata are kept verbatim so a minimal build can copy, proxy and
 re-store data it cannot interpret. Asking for a *value* then fails with an error naming the type.
 
+**A registered type that declares no formats degrades the same way.** By the write path's
+exemption above such a type has no byte form, so bytes stored under its identifier were written by
+a differently configured environment, and decoding them is exactly what the registration opts out
+of. `liquers-py` relies on this: with its pickle codec off it registers `py.Object` with no
+formats, so a pickle-off environment never unpickles bytes a pickle-on one stored. No built-in
+type is affected, because every one that can be stored declares a format. The error says which of
+the two reasons applies (`degraded_reason`). On the `-R/` path, a degraded key with no recipe is
+still reported as "No recipe found" (`DEGRADED-STORED-VALUE-WITHOUT-RECIPE-REPORTS-NO-RECIPE`).
+
+**An undeclared data format reads as the type's default.** When the stored metadata declares no
+`data_format` (a key without an extension, written by a state that chose none), the bytes are read
+in the registered type's `TypeInfo::default_data_format`, the same format the write path used
+(`State::effective_data_format`). Only an empty or unregistered identifier falls back to `bin`.
+
 A combined value (`liquers_lib::value::Value`, a `CombinedValue<SimpleValue, ExtValue>`) then
 chooses which half reads the bytes **by the identifier**, not by trying one half after the other
 (`CombinedValue::deserialize_from_bytes`):
@@ -391,13 +425,17 @@ degrades on read.
 
 ## History
 
-| Date | Change |
-|---|---|
-| 2026-10-20 | Links to `reference/api/DOC_08_RECIPES_PLANS.md` follow its promotion to `reference/RECIPES_AND_PLANS.md` (DOC-08 promotion). |
+| Date | Change | Source |
+|---|---|---|
+| 2026-10-21 | §Reading: a stored value whose metadata declares no data format is read in its type's default format, not `bin`. | `design/stored-value-default-data-format/` (`STORED-VALUE-WITHOUT-DATA-FORMAT-READ-AS-BIN`) |
+| 2026-10-20 | Links to `reference/api/DOC_08_RECIPES_PLANS.md` follow its promotion to `reference/RECIPES_AND_PLANS.md`. | DOC-08 promotion |
+| 2026-10-18 | Reviewed against the implemented `liquers-py` (phase-5): §Reading's foreign decoder and formatless read rule match `liquers-lib/src/value/foreign.rs` and `liquers-core/src/assets.rs`. | `design/liquers-py/` (phase-5) |
+| 2026-10-18 | §Reading: a registered type that declares no formats is read as degraded, never decoded. | `design/liquers-py/` (`FOREIGN-VALUE-CANNOT-BE-DESERIALIZED`) |
+| 2026-10-18 | §Reading a foreign value back: the process-global foreign decoder table, and foreign identifiers routed to the extension. `liquers-py` now registers `py.Object` at construction instead of owning a value type. | `design/liquers-py/` |
 | 2026-10-17 | §Reading a value by name: `DataNode` and `ValueInterface::data_node`. | `design/liquers-mustache/` |
-| 2026-10-13 | §Reading: `F64` in `json`. Non-finite floats are written as tokens and read back by identifier, nested core floats become `null`, and `try_into_json_value` refuses (`design/value-to-json-non-finite-float/`, closing `VALUE-TO-JSON-PANICS-ON-NON-FINITE-FLOAT`). |
-| 2026-10-10 | §Seeding: a query with no filename seeds no format — the recipe no longer declares `bin` (`design/plan-step-state-metadata/`, closing `FREE-FUNCTION-EVALUATE-BAKES-A-BIN-DATA-FORMAT`). |
-| 2026-10-09 | §Reading: a combined value picks the half that reads the bytes by the declared identifier; an extension identifier is never read by the base value (`design/combined-value-identifier-dispatch/`, closing `COMBINED-VALUE-DISCRIMINATION`). |
-| 2026-09-27 | Reviewed against `design/record-streams/` Phase 5 (phase-5). Added `RecordView` and `RecordSource` to the registered identifiers, and §The record identifiers: `records`-gated trait-object variants, their `TypeInfo`s (formats and aliases, `ipc`/`parquet` behind `records-ipc`/`records-parquet`, `html` write-only, Parquet read only through polars), manifest-only serialization of a source, single-cell scalar reading by delegation to the base value, and `try_into_json_value`. |
-| 2026-08-18 | Created with the `value-type-system` design, resolving `CORE-METADATA-FORMAT-TYPE-CONSISTENCY`. |
-| 2026-08-26 | Removed the `error` type identifier: an errored state is typed by the value it holds, which is none, and the failure lives in the metadata. Stated the one-identifier-per-variant rule. Added runtime registration for a type an integration owns (`foreign-value-type-registration`). |
+| 2026-10-13 | §Reading: `F64` in `json`. Non-finite floats are written as tokens and read back by identifier, nested core floats become `null`, and `try_into_json_value` refuses (`design/value-to-json-non-finite-float/`, closing `VALUE-TO-JSON-PANICS-ON-NON-FINITE-FLOAT`). | |
+| 2026-10-10 | §Seeding: a query with no filename seeds no format — the recipe no longer declares `bin` (`design/plan-step-state-metadata/`, closing `FREE-FUNCTION-EVALUATE-BAKES-A-BIN-DATA-FORMAT`). | |
+| 2026-10-09 | §Reading: a combined value picks the half that reads the bytes by the declared identifier; an extension identifier is never read by the base value (`design/combined-value-identifier-dispatch/`, closing `COMBINED-VALUE-DISCRIMINATION`). | |
+| 2026-09-27 | Reviewed against `design/record-streams/` Phase 5 (phase-5). Added `RecordView` and `RecordSource` to the registered identifiers, and §The record identifiers: `records`-gated trait-object variants, their `TypeInfo`s (formats and aliases, `ipc`/`parquet` behind `records-ipc`/`records-parquet`, `html` write-only, Parquet read only through polars), manifest-only serialization of a source, single-cell scalar reading by delegation to the base value, and `try_into_json_value`. | |
+| 2026-08-18 | Created with the `value-type-system` design, resolving `CORE-METADATA-FORMAT-TYPE-CONSISTENCY`. | |
+| 2026-08-26 | Removed the `error` type identifier: an errored state is typed by the value it holds, which is none, and the failure lives in the metadata. Stated the one-identifier-per-variant rule. Added runtime registration for a type an integration owns (`foreign-value-type-registration`). | |

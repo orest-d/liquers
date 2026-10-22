@@ -9,7 +9,7 @@ rust-version.workspace = true
 crate-type = ["rlib", "cdylib"]
 
 [features]
-default = ["egui", "image-support", "polars", "records", "records-ipc", "records-parquet", "templates"]
+default = ["egui", "image-support", "polars", "records", "records-ipc", "records-parquet", "templates", "mem"]
 # Command-line tools. Not in `default` — see the same note in liquers-core.
 cli = ["dep:clap"]
 image-support = ["imageproc"]
@@ -28,6 +28,8 @@ records-ipc = ["records", "liquers-records/ipc"]
 records-parquet = ["records", "liquers-records/parquet"]
 # Query-aware Mustache templates: the `ns-template` commands (liquers-template).
 templates = ["dep:liquers-template"]
+# Agent memory: the `ns-mem` commands over Markdown documents with front-matter.
+mem = ["records", "dep:indexmap"]
 
 [dependencies]
 liquers-core={path="../liquers-core"}
@@ -39,6 +41,7 @@ serde = "1.0.229"
 serde_derive = "1.0.229"
 serde_json = "1.0.151"
 serde_yaml = "0.9.34"
+indexmap = { version = "2", features = ["serde"], optional = true }
 bytes = "1.12.1"
 base64 = "0.22.1"
 async-trait = "0.1.92"

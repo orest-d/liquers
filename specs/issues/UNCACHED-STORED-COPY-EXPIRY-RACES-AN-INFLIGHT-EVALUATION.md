@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: M
 area: [core/assets]
-design: record-streams
+design: uncached-write-back-rechecks-dependency-versions
 created: 2026-09-27
 github:
 ---
@@ -32,3 +32,19 @@ mid-evaluation is not revived.
 
 Found 2026-09-27 while fixing the implementation review's finding C1 (a `cached: false` asset kept
 out of the dependency graph).
+
+## Problem Example
+
+`data/src.txt` holds `a`; `data/u.txt` has recipe `-R/data/src.txt/-/gated_upper/u.txt` with
+`cached: false`. While `gated_upper` waits, `set_state(data/src.txt, "b")` cascades to `data/u.txt`
+(no registered asset, no stored copy yet: nothing marked). The evaluation then writes `A` as
+`Ready`. A fresh process serves `A`; it should find the copy `Expired` with a `StaleDependency`
+reason and recompute `B`.
+
+## Triage 2026-10-20
+
+Still present at HEAD (`18732dd`): `save_to_store` writes with a plain `store.set`, checking only
+`Cancelled`, and nothing compares the evaluation's dependency records with the dependency manager
+after the write. Origin design: `record-streams` (complete; implementation-review finding C1).
+Design: `uncached-write-back-rechecks-dependency-versions`. The registered (`cached: true`) analogue
+is filed as `CASCADE-TO-AN-IN-FLIGHT-DEPENDENT-IS-DROPPED`.

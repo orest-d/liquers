@@ -420,6 +420,8 @@ pub(crate) fn apply_plan_state<E: Environment>(
         // not sent as `Context` log messages: those persist the metadata at once, which would
         // leave a metadata-only store entry for a keyed asset mid-evaluation.
         log_init_steps(&plan, &context).await?;
+        // An error-level planning diagnostic fails the plan before anything is scheduled.
+        fail_on_logged_error(&plan, &context)?;
 
         // A volatile plan makes its asset volatile. A managed asset was already marked when the
         // manager created it; an ad-hoc asset (`apply`, `apply_ad_hoc`) is created without a
@@ -465,13 +467,32 @@ pub(crate) fn apply_plan_state<E: Environment>(
             eprintln!("Applying step {}/{}: {:?}", i + 1, plan.len(), &plan[i]);
             let step = plan[i].clone();
             state = do_step_state(step, state, context.clone(), envref.clone()).await?;
+            // An error logged during the step (`Context::error`) fails the evaluation here, after
+            // the step returned: the rest of the plan does not run and the step's value is dropped.
+            // Consecutive diagnostic steps are all logged first, so several errors, or the info
+            // and warnings around one, reach the log together.
+            let more_diagnostics = plan[i].is_log() && i + 1 < plan.len() && plan[i + 1].is_log();
+            if !more_diagnostics {
+                fail_on_logged_error(&plan, &context)?;
+            }
         }
         Ok(state)
     }
     .maybe_boxed()
 }
 
+/// Fails with the evaluation's logged error, if a command or a planning diagnostic logged one.
+fn fail_on_logged_error<E: Environment>(plan: &Plan, context: &Context<E>) -> Result<(), Error> {
+    match context.logged_error() {
+        Some(message) => Err(Error::execution_error(message).with_query(&plan.query)),
+        None => Ok(()),
+    }
+}
+
 /// Appends a plan's planning diagnostics (`Plan::init_steps`) to the evaluating asset's log.
+///
+/// An `Error` diagnostic is also recorded as the evaluation's logged error, so the plan fails
+/// before its first step, as one logged by a command would after its step.
 ///
 /// Only `Info`, `Warning` and `Error` are diagnostics; `init_steps` holds nothing else by
 /// contract, and any other step found there is ignored rather than executed.
@@ -481,7 +502,10 @@ async fn log_init_steps<E: Environment>(plan: &Plan, context: &Context<E>) -> Re
         match step {
             Step::Info(message) => entries.push(LogEntry::info(message.clone())),
             Step::Warning(message) => entries.push(LogEntry::warning(message.clone())),
-            Step::Error(message) => entries.push(LogEntry::error(message.clone())),
+            Step::Error(message) => {
+                context.record_logged_error(message);
+                entries.push(LogEntry::error(message.clone()))
+            }
             Step::GetAsset(_)
             | Step::GetAssetBinary(_)
             | Step::GetAssetMetadata(_)
@@ -1253,6 +1277,71 @@ mod tests {
     use crate::store::{AsyncMemoryStore, AsyncStore};
     use crate::value::Value;
     use liquers_macro::*;
+
+    /// Consecutive diagnostic steps are all logged before an error among them stops the plan; the
+    /// failure carries the first error, and the action after them does not run.
+    #[tokio::test]
+    async fn consecutive_diagnostic_steps_are_all_logged_before_an_error_stops_the_plan(
+    ) -> Result<(), Error> {
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let mut env = SimpleEnvironment::<Value>::new();
+        let counted = calls.clone();
+        env.command_registry
+            .register_command(CommandKey::new_name("probe"), move |_, _, _| {
+                counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                Ok(Value::from("probed"))
+            })?;
+        let envref = env.to_ref();
+        let mut plan =
+            PlanBuilder::new(parse_query("probe")?, envref.get_command_metadata_registry())
+                .build()?;
+        let diagnostics = [
+            Step::Info("before".to_owned()),
+            Step::Error("first".to_owned()),
+            Step::Info("context".to_owned()),
+            Step::Error("second".to_owned()),
+            Step::Warning("also".to_owned()),
+        ];
+        for (index, step) in diagnostics.iter().cloned().enumerate() {
+            plan.steps.insert(index, step);
+        }
+        let asset = AssetRef::new_temporary(envref.clone());
+        let context = Context::new(asset.clone(), false).await;
+        let error = match apply_plan(plan, State::new(), context, envref).await {
+            Ok(_) => panic!("an Error step must fail the plan"),
+            Err(error) => error,
+        };
+        assert_eq!(error.error_type, ErrorType::ExecutionError);
+        assert_eq!(error.message, "first");
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 0, "probe must not run");
+
+        // A temporary asset has no service loop of its own: drain it here.
+        asset
+            .service_sender()
+            .await
+            .send(crate::assets::AssetServiceMessage::JobFinishing)
+            .ok();
+        asset.process_service_messages().await?;
+        let Metadata::MetadataRecord(record) = asset.get_metadata().await? else {
+            panic!("structured metadata expected");
+        };
+        let logged: Vec<(LogEntryKind, String)> = record
+            .log
+            .iter()
+            .map(|entry| (entry.kind.clone(), entry.message.clone()))
+            .collect();
+        assert_eq!(
+            logged,
+            vec![
+                (LogEntryKind::Info, "before".to_owned()),
+                (LogEntryKind::Error, "first".to_owned()),
+                (LogEntryKind::Info, "context".to_owned()),
+                (LogEntryKind::Error, "second".to_owned()),
+                (LogEntryKind::Warning, "also".to_owned()),
+            ]
+        );
+        Ok(())
+    }
 
     async fn immediate_context(
         envref: EnvRef<ImmediateEnvironment<Value>>,

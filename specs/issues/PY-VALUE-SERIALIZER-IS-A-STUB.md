@@ -2,11 +2,11 @@
 id: PY-VALUE-SERIALIZER-IS-A-STUB
 kind: issue
 title: liquers-py's value serializer writes almost nothing and reads nothing back
-status: draft
+status: closed
 priority: P2
 complexity: M
 area: [py, core/value]
-design:
+design: liquers-py
 created: 2026-08-26
 github:
 ---
@@ -31,6 +31,13 @@ fn deserialize_from_bytes(b: &[u8], _type_identifier: &str, fmt: &str) -> Result
 
 The `match` with only a wildcard arm is the shape of an unfinished function, and it also violates
 the no-default-arm rule.
+
+## Problem example
+
+`Value::Object { value: {"a": I32 1} }` has default extension `json`, yet `as_bytes("json")` is
+`Err("Unsupported format json")`, and `deserialize_from_bytes(b"{\"a\":1}", "Object", "json")` is an
+error too. It should write `{"a":1}` — the bytes `liquers_core::value::Value` writes — and read them
+back as an `Object`. Design: `specs/design/py-value-serializer/`.
 
 ## Impact
 
@@ -65,3 +72,11 @@ Found on 2026-08-26 during `foreign-value-type-registration`, from a Codex revie
 [#42](https://github.com/orest-d/liquers/pull/42) pointing out that the new `type_descriptions()`
 advertised `json` for types the serializer cannot write. The declarations were corrected in that PR;
 the serializer gap behind them is this issue.
+
+## Resolution
+
+Removed with the own `Value` enum. Serialization is `liquers-lib`'s `DefaultValueSerializer`,
+plus the opt-in pickle codec for `py.Object`; a value with no byte form raises
+`SerializationError` from `store_set` instead of being written as nothing (`design/liquers-py/`,
+Phase 4 steps 4, 6 and 11, commits 0d0a4c13, 3cc4e0b7 and 429cb6a1; `test_VALUE06`,
+`test_VALUE11`).

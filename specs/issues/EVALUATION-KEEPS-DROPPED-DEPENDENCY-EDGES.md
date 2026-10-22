@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: M
 area: [core/assets]
-design:
+design: keyed-run-replaces-dependency-edges
 created: 2026-10-17
 github:
 ---
@@ -28,6 +28,10 @@ Recipe `r` reads `-R/a` on its first run and `-R/b` on its second (the switch is
 After the second evaluation, writing `-R/a` still expires `r`; it should not, because `r` no
 longer depends on `a`.
 
+Note (2026-10-20): the re-evaluation must have a cause other than a change of `a`. A change of `a`
+removes `a`'s edge map in its own cascade. In the design's example, a third input `c` selects
+which of `a` and `b` is read, and changing `c` triggers the re-run.
+
 ## Expected behaviour
 
 After an evaluation, the asset's incoming edges match its current dependency records plus any
@@ -37,3 +41,10 @@ schedule-time edges that are still live.
 
 Found on 2026-10-17 while designing `REPLACING-WRITE-KEEPS-DROPPED-DEPENDENCY-EDGES` in the backlog
 compaction (`specs/design/replacing-write-drops-stale-dependency-edges/`, Phase 2 scope note).
+
+## Triage (2026-10-20)
+
+Still reproduces at HEAD 18732dd by reading: `track_keyed_asset` / `load_from_records` only add, and
+`remove_dependent_edges` is called only from `track_replacing_asset` and `AssetRef::set_volatile`.
+Designed together with `EXPRESSION-ATTRIBUTION-MAPS-ARE-NEVER-CLEANED` in
+`design/keyed-run-replaces-dependency-edges/` (strong overlap: T2 and T3).
