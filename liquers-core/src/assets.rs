@@ -350,6 +350,38 @@ use crate::{
     value::DefaultValueSerializer,
 };
 
+/// The error an asset or a manager reports when it outlives its environment.
+///
+/// Managers and assets hold the environment weakly
+/// (`specs/design/environment-manager-reference-cycle/`), so dropping the last [`EnvRef`] drops
+/// the environment even while an `Arc` of its manager, or an [`AssetRef`], is still held.
+fn environment_dropped() -> Error {
+    Error::general_error(
+        "the environment was dropped; this asset or asset manager outlived it".to_string(),
+    )
+}
+
+/// Upgrades a weak back-reference to the environment, or reports [`environment_dropped`].
+fn upgrade_envref<E: Environment>(env: &Weak<E>) -> Result<EnvRef<E>, Error> {
+    env.upgrade().map(EnvRef).ok_or_else(environment_dropped)
+}
+
+/// Upgrades a weak back-reference to the environment for an infallible accessor.
+///
+/// # Panics
+///
+/// When the environment was dropped (teardown). Code that can fail uses a `try_get_envref`
+/// accessor instead.
+fn expect_envref<E: Environment>(env: &Weak<E>) -> EnvRef<E> {
+    match env.upgrade() {
+        Some(env) => EnvRef(env),
+        None => panic!(
+            "the environment was dropped (teardown) while an asset or asset manager still used it; \
+             use try_get_envref where this can happen"
+        ),
+    }
+}
+
 /// A reliable message sent to an asset's internal service loop.
 ///
 /// The service channel is an unbounded MPSC channel used by the scheduler and
@@ -526,8 +558,11 @@ impl MetadataSaver {
                 lock.in_flight = None;
             }
             let saver = self.clone();
+            // The store only: a coalescing save may wait out the interval, and must not keep the
+            // environment alive meanwhile.
+            let store = envref.get_async_store();
             lock.in_flight = Some(tokio::spawn(async move {
-                saver.save_task(key, envref).await;
+                saver.save_task(key, store).await;
             }));
         }
         #[cfg(target_arch = "wasm32")]
@@ -548,7 +583,7 @@ impl MetadataSaver {
     }
 
     #[cfg(not(target_arch = "wasm32"))]
-    async fn save_task<E: Environment>(self: Arc<Self>, key: Option<Key>, envref: EnvRef<E>) {
+    async fn save_task(self: Arc<Self>, key: Option<Key>, store: Arc<dyn crate::store::AsyncStore>) {
         loop {
             let maybe_payload = {
                 let mut lock = self.state.lock().await;
@@ -582,8 +617,7 @@ impl MetadataSaver {
                     if !metadata.stored() {
                         continue;
                     }
-                    if let Err(error) = envref.get_async_store().set_metadata(key, &metadata).await
-                    {
+                    if let Err(error) = store.set_metadata(key, &metadata).await {
                         eprintln!("Metadata save failed for key {}: {}", key, error);
                     } else {
                         let mut lock = self.state.lock().await;
@@ -706,7 +740,9 @@ pub struct AssetData<E: Environment> {
     /// Recipe associated with this runtime asset.
     pub recipe: Recipe,
 
-    envref: EnvRef<E>,
+    /// Weak, so a cached asset does not own its environment. Work in progress pins the
+    /// environment through its run claim or job-queue entry instead.
+    envref: Weak<E>,
     // Service channel (mpsc) for control messages
     service_tx: mpsc::UnboundedSender<AssetServiceMessage>,
     service_rx: Arc<Mutex<mpsc::UnboundedReceiver<AssetServiceMessage>>>,
@@ -1202,7 +1238,7 @@ impl<E: Environment> AssetData<E> {
         }
         let asset = AssetData {
             id,
-            envref,
+            envref: Arc::downgrade(&envref.0),
             recipe,
             service_tx,
             service_rx: Arc::new(Mutex::new(service_rx)),
@@ -1235,9 +1271,19 @@ impl<E: Environment> AssetData<E> {
         asset
     }
 
-    /// Returns a requested asset/runtime object needed by higher-level flows.
+    /// Returns the environment this asset belongs to.
+    ///
+    /// # Panics
+    ///
+    /// When the environment was dropped. The asset holds it weakly; use [`Self::try_get_envref`]
+    /// where the asset may outlive it.
     pub fn get_envref(&self) -> EnvRef<E> {
-        self.envref.clone()
+        expect_envref(&self.envref)
+    }
+
+    /// Returns the environment this asset belongs to, or an error once it was dropped.
+    pub fn try_get_envref(&self) -> Result<EnvRef<E>, Error> {
+        upgrade_envref(&self.envref)
     }
 
     /// Persists metadata updates to the configured async store.
@@ -1247,7 +1293,7 @@ impl<E: Environment> AssetData<E> {
         // The recorded key, not a re-derivation: only a keyed asset has a place in the store.
         let key = self.key.clone();
         self.metadata_saver
-            .save_immediately(self.metadata.clone(), key, self.get_envref())
+            .save_immediately(self.metadata.clone(), key, self.try_get_envref()?)
             .await;
         Ok(())
     }
@@ -1349,7 +1395,11 @@ impl<E: Environment> AssetData<E> {
     /// `self`, never from the `AssetRef` accessors (`get_envref`, `key`), which would take the
     /// same lock again and deadlock.
     fn record_expiry(&mut self, reason: &ExpiryReason) {
-        let manager = self.envref.get_asset_manager();
+        // Teardown: with the environment gone there is no manager to record through.
+        let Ok(envref) = self.try_get_envref() else {
+            return;
+        };
+        let manager = envref.get_asset_manager();
         let subject = self.expiry_subject();
         manager.record_expiry(&mut self.metadata, &subject, reason);
     }
@@ -2682,13 +2732,31 @@ impl<E: Environment> AssetRef<E> {
     /// [`AssetData::new_temporary`]).
     /// This spawns the event processing loop immediately.
     pub fn new_temporary(envref: EnvRef<E>) -> Self {
-        let assetref = AssetData::new_temporary(envref).to_ref();
+        let data = AssetData::new_temporary(envref);
+        #[cfg(not(target_arch = "wasm32"))]
+        let (service_rx, notification_tx) = (data.service_rx.clone(), data.notification_tx.clone());
+        let assetref = data.to_ref();
         // Native/queued mode runs the service-message loop in a background task. On wasm
         // (immediate mode) there is no runtime; the inline run path drives the psm loop itself.
+        //
+        // The loop holds the asset weakly. Nothing ends a temporary asset's run with
+        // `JobFinishing`, so a strong loop would keep the asset — and the task — alive forever;
+        // this one ends when the asset is gone and its senders with it (`recv` yields `None`).
         #[cfg(not(target_arch = "wasm32"))]
         {
-            let assetref1 = assetref.clone();
-            let _handle = tokio::spawn(async move { assetref1.process_service_messages().await });
+            let weak = assetref.downgrade();
+            tokio::spawn(async move {
+                let mut rx = service_rx.lock().await;
+                while let Some(msg) = rx.recv().await {
+                    let Some(asset) = weak.upgrade() else {
+                        return;
+                    };
+                    match asset.handle_service_message(msg, &notification_tx).await {
+                        Ok(false) => {}
+                        Ok(true) | Err(_) => return,
+                    }
+                }
+            });
         }
         assetref
     }
@@ -2879,9 +2947,20 @@ impl<E: Environment> AssetRef<E> {
     }
 
     /// Returns the environment associated with this asset.
+    ///
+    /// # Panics
+    ///
+    /// When the environment was dropped; see [`AssetData::get_envref`]. Use
+    /// [`Self::try_get_envref`] where the asset may outlive it.
     pub async fn get_envref(&self) -> EnvRef<E> {
         let lock = self.data.read().await;
         lock.get_envref()
+    }
+
+    /// Returns the environment associated with this asset, or an error once it was dropped.
+    pub async fn try_get_envref(&self) -> Result<EnvRef<E>, Error> {
+        let lock = self.data.read().await;
+        lock.try_get_envref()
     }
 
     /// Try to load this asset from the store ([`AssetData::try_fast_track`]) and apply any
@@ -3381,11 +3460,19 @@ impl<E: Environment> AssetRef<E> {
         // synchronously so immediate evaluation stays fully spawn-free (runnable with no runtime).
         #[cfg(not(target_arch = "wasm32"))]
         {
-            let inline =
-                self.get_envref().await.get_asset_manager().eval_mode() == EvalMode::Inline;
+            let envref = match self.try_get_envref().await {
+                Ok(envref) => envref,
+                Err(error) => {
+                    self.record_persistence_result(Err(error)).await;
+                    return;
+                }
+            };
+            let inline = envref.get_asset_manager().eval_mode() == EvalMode::Inline;
             let assetref = self.clone();
             if save_in_background && !inline {
                 tokio::spawn(async move {
+                    // The asset holds its environment weakly; the save is bounded, so it pins it.
+                    let _envref = envref;
                     let result = assetref.save_to_store().await;
                     assetref.record_persistence_result(result).await;
                 });
@@ -3438,137 +3525,151 @@ impl<E: Environment> AssetRef<E> {
         let mut rx = service_rx_ref.lock().await;
 
         while let Some(msg) = rx.recv().await {
-            eprintln!("Received message: {:?} by asset {}", msg, self.id());
-            if self.is_finished().await {
-                // Progress the command sent during its own run is applied even when the status
-                // flipped to finished first. A run settles only after this loop has drained, so
-                // that happens only when something else finished the asset meanwhile;
-                // `finalize_primary_progress` then normalizes it. Once finalized, late progress
-                // is dropped below.
-                let in_run_progress = matches!(
-                    msg,
-                    AssetServiceMessage::UpdatePrimaryProgress(_)
-                        | AssetServiceMessage::UpdateSecondaryProgress(_)
-                ) && !self.data.read().await.progress_finalized;
-                // Post-finish message policy: once the asset is finalized, DISPLAY-mutating and
-                // control messages are dropped so a late producer cannot corrupt the terminal
-                // state (status, progress) or resurrect processing. A late `LogMessage` is NOT
-                // dropped here: it can at most append one log entry (harmless, and the contract
-                // in specs tolerates it), and dropping it would race with legitimate in-run logs
-                // that are dequeued just after the status flips to Ready on the fast path.
-                let should_ignore = matches!(
-                    msg,
-                    AssetServiceMessage::UpdatePrimaryProgress(_)
-                        | AssetServiceMessage::UpdateSecondaryProgress(_)
-                        | AssetServiceMessage::JobSubmitted
-                        | AssetServiceMessage::JobStarted
-                        | AssetServiceMessage::Cancel
-                        | AssetServiceMessage::ErrorOccurred(_)
-                ) && !in_run_progress;
-                if should_ignore {
-                    // Interim debug logging (WP-6 will migrate to `tracing::debug!`).
-                    if cfg!(debug_assertions) {
-                        eprintln!(
-                            "Dropping late service message {:?} for finished asset {}",
-                            msg,
-                            self.id()
-                        );
-                    }
-                    continue;
-                }
-            }
-            match msg {
-                AssetServiceMessage::LogMessage(entry) => {
-                    // Forward log message to notification channel
-                    // Update metadata with log message
-                    let mut lock = self.data.write().await;
-                    lock.metadata.add_log_entry(entry)?;
-                    lock.save_metadata_to_store().await?;
-                    let _ = notification_tx.send(AssetNotificationMessage::LogMessage);
-                }
-                AssetServiceMessage::Cancel => {
-                    // A request only: the run decides the terminal status (single writer).
-                    let cause = self.own_cancellation_cause("cancelled").await;
-                    self.cancellation().await.request(cause);
-                }
-                AssetServiceMessage::UpdatePrimaryProgress(progress) => {
-                    eprintln!(
-                        "Asset {} updating primary progress: {:?}",
-                        self.id(),
-                        progress
-                    );
-
-                    let mut lock = self.data.write().await;
-                    lock.metadata.set_primary_progress(&progress);
-                    lock.save_metadata_to_store().await?;
-                    let _ = notification_tx
-                        .send(AssetNotificationMessage::PrimaryProgressUpdated(progress));
-                }
-                AssetServiceMessage::UpdateSecondaryProgress(progress_entry) => {
-                    let mut lock = self.data.write().await;
-                    lock.metadata.set_secondary_progress(&progress_entry);
-                    lock.save_metadata_to_store().await?;
-                    let _ = notification_tx.send(
-                        AssetNotificationMessage::SecondaryProgressUpdated(progress_entry),
-                    );
-                }
-                AssetServiceMessage::JobSubmitted => {
-                    // `submitted()` set the status already. This loop runs only once the job has
-                    // been claimed, so a job that waited in the queue reads the message late and
-                    // must not rewind its `Processing` to `Submitted` — `cancel` would then take
-                    // a running job for an unstarted one and discard its result.
-                    let rewinds = {
-                        let mut lock = self.data.write().await;
-                        match lock.status {
-                            Status::None | Status::Recipe => {
-                                lock.set_status(Status::Submitted)?;
-                                false
-                            }
-                            Status::Submitted => false,
-                            Status::Dependencies
-                            | Status::Processing
-                            | Status::Partial
-                            | Status::Directory
-                            | Status::Error
-                            | Status::Storing
-                            | Status::Ready
-                            | Status::Expired
-                            | Status::Cancelled
-                            | Status::Source
-                            | Status::Override
-                            | Status::Volatile => true,
-                        }
-                    };
-                    if !rewinds {
-                        self.save_metadata_to_store().await?;
-                        let _ = notification_tx
-                            .send(AssetNotificationMessage::StatusChanged(Status::Submitted));
-                        let _ = notification_tx.send(AssetNotificationMessage::JobSubmitted);
-                    }
-                }
-                AssetServiceMessage::JobStarted => {
-                    self.set_status(Status::Processing).await?;
-                    self.save_metadata_to_store().await?;
-                    let _ = notification_tx
-                        .send(AssetNotificationMessage::StatusChanged(Status::Processing));
-                    let _ = notification_tx.send(AssetNotificationMessage::JobStarted);
-                }
-                AssetServiceMessage::JobFinished => {
-                    return Ok(());
-                }
-                AssetServiceMessage::JobFinishing => {
-                    // The message should not be sent, otherwise finishing is before results are recorder in the asset
-                    // let _ = notification_tx.send(AssetNotificationMessage::JobFinished);
-                    return Ok(());
-                }
-                AssetServiceMessage::ErrorOccurred(error) => {
-                    // Unified failure routine (metadata-preserving, single notify).
-                    let _ = self.fail_asset(error).await;
-                    return Ok(());
-                }
+            if self.handle_service_message(msg, &notification_tx).await? {
+                return Ok(());
             }
         }
         Ok(())
+    }
+
+    /// Applies one service message; `true` when the loop should end (the job finished or
+    /// failed). The body of [`Self::process_service_messages`], shared with the weak loop of a
+    /// temporary asset ([`Self::new_temporary`]).
+    async fn handle_service_message(
+        &self,
+        msg: AssetServiceMessage,
+        notification_tx: &watch::Sender<AssetNotificationMessage>,
+    ) -> Result<bool, Error> {
+        eprintln!("Received message: {:?} by asset {}", msg, self.id());
+        if self.is_finished().await {
+            // Progress the command sent during its own run is applied even when the status
+            // flipped to finished first. A run settles only after this loop has drained, so
+            // that happens only when something else finished the asset meanwhile;
+            // `finalize_primary_progress` then normalizes it. Once finalized, late progress
+            // is dropped below.
+            let in_run_progress = matches!(
+                msg,
+                AssetServiceMessage::UpdatePrimaryProgress(_)
+                    | AssetServiceMessage::UpdateSecondaryProgress(_)
+            ) && !self.data.read().await.progress_finalized;
+            // Post-finish message policy: once the asset is finalized, DISPLAY-mutating and
+            // control messages are dropped so a late producer cannot corrupt the terminal
+            // state (status, progress) or resurrect processing. A late `LogMessage` is NOT
+            // dropped here: it can at most append one log entry (harmless, and the contract
+            // in specs tolerates it), and dropping it would race with legitimate in-run logs
+            // that are dequeued just after the status flips to Ready on the fast path.
+            let should_ignore = matches!(
+                msg,
+                AssetServiceMessage::UpdatePrimaryProgress(_)
+                    | AssetServiceMessage::UpdateSecondaryProgress(_)
+                    | AssetServiceMessage::JobSubmitted
+                    | AssetServiceMessage::JobStarted
+                    | AssetServiceMessage::Cancel
+                    | AssetServiceMessage::ErrorOccurred(_)
+            ) && !in_run_progress;
+            if should_ignore {
+                // Interim debug logging (WP-6 will migrate to `tracing::debug!`).
+                if cfg!(debug_assertions) {
+                    eprintln!(
+                        "Dropping late service message {:?} for finished asset {}",
+                        msg,
+                        self.id()
+                    );
+                }
+                return Ok(false);
+            }
+        }
+        match msg {
+            AssetServiceMessage::LogMessage(entry) => {
+                // Forward log message to notification channel
+                // Update metadata with log message
+                let mut lock = self.data.write().await;
+                lock.metadata.add_log_entry(entry)?;
+                lock.save_metadata_to_store().await?;
+                let _ = notification_tx.send(AssetNotificationMessage::LogMessage);
+            }
+            AssetServiceMessage::Cancel => {
+                // A request only: the run decides the terminal status (single writer).
+                let cause = self.own_cancellation_cause("cancelled").await;
+                self.cancellation().await.request(cause);
+            }
+            AssetServiceMessage::UpdatePrimaryProgress(progress) => {
+                eprintln!(
+                    "Asset {} updating primary progress: {:?}",
+                    self.id(),
+                    progress
+                );
+
+                let mut lock = self.data.write().await;
+                lock.metadata.set_primary_progress(&progress);
+                lock.save_metadata_to_store().await?;
+                let _ = notification_tx
+                    .send(AssetNotificationMessage::PrimaryProgressUpdated(progress));
+            }
+            AssetServiceMessage::UpdateSecondaryProgress(progress_entry) => {
+                let mut lock = self.data.write().await;
+                lock.metadata.set_secondary_progress(&progress_entry);
+                lock.save_metadata_to_store().await?;
+                let _ = notification_tx.send(
+                    AssetNotificationMessage::SecondaryProgressUpdated(progress_entry),
+                );
+            }
+            AssetServiceMessage::JobSubmitted => {
+                // `submitted()` set the status already. This loop runs only once the job has
+                // been claimed, so a job that waited in the queue reads the message late and
+                // must not rewind its `Processing` to `Submitted` — `cancel` would then take
+                // a running job for an unstarted one and discard its result.
+                let rewinds = {
+                    let mut lock = self.data.write().await;
+                    match lock.status {
+                        Status::None | Status::Recipe => {
+                            lock.set_status(Status::Submitted)?;
+                            false
+                        }
+                        Status::Submitted => false,
+                        Status::Dependencies
+                        | Status::Processing
+                        | Status::Partial
+                        | Status::Directory
+                        | Status::Error
+                        | Status::Storing
+                        | Status::Ready
+                        | Status::Expired
+                        | Status::Cancelled
+                        | Status::Source
+                        | Status::Override
+                        | Status::Volatile => true,
+                    }
+                };
+                if !rewinds {
+                    self.save_metadata_to_store().await?;
+                    let _ = notification_tx
+                        .send(AssetNotificationMessage::StatusChanged(Status::Submitted));
+                    let _ = notification_tx.send(AssetNotificationMessage::JobSubmitted);
+                }
+            }
+            AssetServiceMessage::JobStarted => {
+                self.set_status(Status::Processing).await?;
+                self.save_metadata_to_store().await?;
+                let _ = notification_tx
+                    .send(AssetNotificationMessage::StatusChanged(Status::Processing));
+                let _ = notification_tx.send(AssetNotificationMessage::JobStarted);
+            }
+            AssetServiceMessage::JobFinished => {
+                return Ok(true);
+            }
+            AssetServiceMessage::JobFinishing => {
+                // The message should not be sent, otherwise finishing is before results are recorder in the asset
+                // let _ = notification_tx.send(AssetNotificationMessage::JobFinished);
+                return Ok(true);
+            }
+            AssetServiceMessage::ErrorOccurred(error) => {
+                // Unified failure routine (metadata-preserving, single notify).
+                let _ = self.fail_asset(error).await;
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 
     /// Wait for the job finished notification.
@@ -6963,7 +7064,18 @@ pub trait AssetManager<E: Environment>:
     fn next_id_for_asset(&self) -> u64;
 
     /// The environment reference, supplied to the manager's constructor.
+    ///
+    /// The built-in managers hold it weakly, so this panics once the environment was dropped;
+    /// use [`Self::try_get_envref`] where the manager may outlive it.
     fn get_envref(&self) -> EnvRef<E>;
+
+    /// The environment reference, or an error once the environment was dropped.
+    ///
+    /// The default suits a manager that owns its environment strongly; the built-in managers,
+    /// which hold it weakly, override it.
+    fn try_get_envref(&self) -> Result<EnvRef<E>, Error> {
+        Ok(self.get_envref())
+    }
 
     /// Cancel any pending expiration tracking for the given asset id. Immediate managers no-op.
     fn untrack_expiration(&self, asset_id: u64) {
@@ -7967,9 +8079,10 @@ enum ExpirationMonitorMessage<E: Environment> {
 #[cfg(not(target_arch = "wasm32"))]
 pub struct DefaultAssetManager<E: Environment> {
     id: std::sync::atomic::AtomicU64,
-    /// Supplied at construction. The manager is fully formed at birth: there is no unset state
-    /// and therefore no "environment not set" path to guard.
-    envref: EnvRef<E>,
+    /// Supplied at construction, so there is no unset state. Weak: the environment owns the
+    /// manager, and a strong edge back would keep both alive forever
+    /// (`specs/design/environment-manager-reference-cycle/`).
+    envref: Weak<E>,
     /// Whether `start()` has completed at least once. An `AtomicBool` rather than a one-shot cell
     /// because `refresh_command_versions` must remain re-runnable.
     started: std::sync::atomic::AtomicBool,
@@ -8008,10 +8121,11 @@ impl<E: Environment> DefaultAssetManager<E> {
         let queue = self.job_queue.clone();
         let handle = tokio::spawn(async move {
             let _ = dependency.run(None).await;
-            claim.complete();
             for child in queue.take_local_dependencies(dependency.id()).await {
                 let _ = queue.repark_as_submitted(&child).await;
             }
+            // After the re-parks, which the claim's environment pin keeps alive.
+            claim.complete();
         });
         let _ = handle.await;
     }
@@ -8048,7 +8162,7 @@ impl<E: Environment> DefaultAssetManager<E> {
         let (monitor_tx, monitor_rx) = mpsc::unbounded_channel();
         let manager = DefaultAssetManager {
             id: std::sync::atomic::AtomicU64::new(1000),
-            envref,
+            envref: Arc::downgrade(&envref.0),
             started: std::sync::atomic::AtomicBool::new(false),
             assets: scc::HashMap::new(),
             key_mutation_lock: tokio::sync::Mutex::new(()),
@@ -8205,7 +8319,10 @@ impl<E: Environment> DefaultAssetManager<E> {
                                 };
 
                                 // 3. Remove from manager maps (if still occupied by this asset_id).
-                                let envref = asset_ref.get_envref().await;
+                                // Teardown: no environment, no maps left to remove it from.
+                                let Ok(envref) = asset_ref.try_get_envref().await else {
+                                    continue;
+                                };
                                 let manager = envref.get_asset_manager();
                                 let removed = manager
                                     .remove_expired_from_maps(asset_id, query.as_ref(), key.as_ref())
@@ -8267,9 +8384,17 @@ impl<E: Environment> DefaultAssetManager<E> {
 
     /// Get an environment reference.
     ///
-    /// A plain field read: the reference is a constructor parameter, so it is always present.
+    /// # Panics
+    ///
+    /// When the environment was dropped; the manager holds it weakly. Use
+    /// [`Self::try_get_envref`] where the manager may outlive it.
     pub fn get_envref(&self) -> EnvRef<E> {
-        self.envref.clone()
+        expect_envref(&self.envref)
+    }
+
+    /// Get an environment reference, or an error once the environment was dropped.
+    pub fn try_get_envref(&self) -> Result<EnvRef<E>, Error> {
+        upgrade_envref(&self.envref)
     }
 
     /// Access the internal dependency manager (pub(crate) — not public API).
@@ -8370,7 +8495,7 @@ impl<E: Environment> DefaultAssetManager<E> {
     /// Convinience method to get a recipe provider from the environment reference.
     /// Used e.g. by: `contains`, `evaluate_recipe`, `get_asset_info`
     pub fn get_recipe_provider(&self) -> Arc<dyn AsyncRecipeProvider<E>> {
-        self.envref.get_recipe_provider()
+        self.get_envref().get_recipe_provider()
     }
 
     /// Builds the ad-hoc key recipe a fresh resource asset is constructed with, carrying the
@@ -8616,7 +8741,10 @@ impl<E: Environment> DefaultAssetManager<E> {
 #[cfg(not(target_arch = "wasm32"))]
 impl<E: Environment> Drop for DefaultAssetManager<E> {
     fn drop(&mut self) {
-        // Send Shutdown to the monitor task. Unbounded send is synchronous, safe in Drop.
+        // Stop both background tasks. Both calls are synchronous and lock-free (an unbounded
+        // send; an atomic and a notify), so this is safe wherever the environment is dropped —
+        // including inside the job-queue task itself, when it releases the last pin.
+        self.job_queue.shutdown();
         let _ = self.monitor_tx.send(ExpirationMonitorMessage::Shutdown);
     }
 }
@@ -9358,6 +9486,10 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
         DefaultAssetManager::get_envref(self)
     }
 
+    fn try_get_envref(&self) -> Result<EnvRef<E>, Error> {
+        DefaultAssetManager::try_get_envref(self)
+    }
+
     fn untrack_expiration(&self, asset_id: u64) {
         DefaultAssetManager::untrack_expiration(self, asset_id);
     }
@@ -9367,7 +9499,8 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
     }
 
     fn start(&self) -> Result<(), Error> {
-        let cmr = self.envref.get_command_metadata_registry();
+        let envref = self.try_get_envref()?;
+        let cmr = envref.get_command_metadata_registry();
         // At first startup nothing can have changed, so the reported list is empty. Re-running
         // `start` is harmless for the same reason; a caller wanting the cascade uses
         // `refresh_command_versions_and_expire`.
@@ -9439,6 +9572,9 @@ pub(crate) struct RunClaim<E: Environment + 'static> {
     asset: AssetRef<E>,
     /// `Arc` so the Drop repair can reach the queue even after the borrow it came from.
     queue: Arc<JobQueue<E>>,
+    /// Keeps the environment alive while the run is in flight: the asset holds it only weakly.
+    /// `Option` so the Drop repair can move it into the repair task.
+    envref: Option<EnvRef<E>>,
     armed: bool,
 }
 
@@ -9463,7 +9599,10 @@ impl<E: Environment + 'static> Drop for RunClaim<E> {
         // child — reset it to Submitted and re-park globally so another runner recovers it.
         let asset = self.asset.clone();
         let queue = self.queue.clone();
+        // The repair outlives this claim, so it takes the pin with it.
+        let envref = self.envref.take();
         tokio::spawn(async move {
+            let _envref = envref;
             let mut lock = asset.data.write().await;
             match lock.status {
                 Status::Processing | Status::Dependencies => {
@@ -9503,6 +9642,8 @@ impl<E: Environment + 'static> Drop for RunClaim<E> {
 /// where nothing could ever claim it again.
 pub(crate) struct InlineRunClaim<E: Environment> {
     asset: AssetRef<E>,
+    /// Keeps the environment alive while the run is in flight: the asset holds it only weakly.
+    _envref: EnvRef<E>,
     armed: bool,
 }
 
@@ -9560,6 +9701,19 @@ impl<E: Environment> Drop for InlineRunClaim<E> {
 }
 
 impl<E: Environment> AssetRef<E> {
+    /// The pin a run claim takes, or — when the environment is already gone — the asset failed
+    /// with that error, so a caller waiting on it wakes instead of hanging on `Processing`.
+    async fn fail_unless_pinned(&self, envref: Result<EnvRef<E>, Error>) -> Result<EnvRef<E>, Error> {
+        match envref {
+            Ok(envref) => Ok(envref),
+            Err(error) => {
+                // In memory only: there is no store to write to without the environment.
+                let _ = self.fail_asset_with(error.clone(), false).await;
+                Err(error)
+            }
+        }
+    }
+
     /// Atomically claim the exclusive right to execute this asset's body, without a job queue.
     ///
     /// Available on both targets, unlike [`RunClaim`], which is native-only and needs a
@@ -9576,9 +9730,12 @@ impl<E: Environment> AssetRef<E> {
         match lock.status {
             Status::None | Status::Recipe | Status::Submitted => {
                 lock.set_status(Status::Processing)?;
+                let envref = lock.try_get_envref();
                 drop(lock);
+                let envref = self.fail_unless_pinned(envref).await?;
                 Ok(Some(InlineRunClaim {
                     asset: self.clone(),
+                    _envref: envref,
                     armed: true,
                 }))
             }
@@ -9621,10 +9778,13 @@ impl<E: Environment + 'static> AssetRef<E> {
         match lock.status {
             Status::None | Status::Recipe | Status::Submitted => {
                 lock.set_status(Status::Processing)?;
+                let envref = lock.try_get_envref();
                 drop(lock);
+                let envref = self.fail_unless_pinned(envref).await?;
                 Ok(Some(RunClaim {
                     asset: self.clone(),
                     queue: queue.clone(),
+                    envref: Some(envref),
                     armed: true,
                 }))
             }
@@ -9653,7 +9813,9 @@ impl<E: Environment + 'static> AssetRef<E> {
 /// [`AssetManager::eval_mode`].
 #[cfg(not(target_arch = "wasm32"))]
 pub struct JobQueue<E: Environment> {
-    jobs: Arc<Mutex<Vec<AssetRef<E>>>>,
+    /// Parked and running jobs, each with the environment pin that keeps a job alive while
+    /// nothing else holds the environment; released by `cleanup_completed_internal`.
+    jobs: Arc<Mutex<Vec<(AssetRef<E>, EnvRef<E>)>>>,
     running_count: Arc<AtomicUsize>,
     notify: Arc<Notify>,
     shutdown: Arc<AtomicBool>,
@@ -9709,12 +9871,13 @@ impl<E: Environment + 'static> JobQueue<E> {
         asset: &AssetRef<E>,
     ) -> Result<bool, Error> {
         let asset_id = asset.id();
+        let envref = asset.try_get_envref().await?;
 
         // Dedup-register in the global jobs list (as submit did before).
         {
             let mut jobs = self.jobs.lock().await;
-            if !jobs.iter().any(|a| a.id() == asset_id) {
-                jobs.push(asset.clone());
+            if !jobs.iter().any(|(a, _)| a.id() == asset_id) {
+                jobs.push((asset.clone(), envref));
             }
         }
         self.notify.notify_one();
@@ -9743,7 +9906,6 @@ impl<E: Environment + 'static> JobQueue<E> {
                 eprintln!("Starting asset job {} immediately", asset_id);
                 tokio::spawn(async move {
                     let _ = asset_clone.run(None).await;
-                    claim.complete();
                     running_count.fetch_sub(1, Ordering::SeqCst);
                     notify.notify_one();
                     // Re-park any undrained local dependencies of the finished asset so
@@ -9753,6 +9915,9 @@ impl<E: Environment + 'static> JobQueue<E> {
                     for dep in queue.take_local_dependencies(asset_id).await {
                         let _ = queue.repark_as_submitted(&dep).await;
                     }
+                    // Completed only now: the claim's pin keeps the environment alive for the
+                    // re-parks above. The asset is finished, so the repair has nothing to do.
+                    claim.complete();
                     eprintln!("Asset job {} finished", asset_clone.id());
                 });
                 Ok(true)
@@ -9769,11 +9934,12 @@ impl<E: Environment + 'static> JobQueue<E> {
     /// immediate start. Non-recursive counterpart used by cleanup paths (avoids recursing
     /// through `try_to_start_immediately`).
     async fn repark_as_submitted(&self, asset: &AssetRef<E>) -> Result<(), Error> {
+        let envref = asset.try_get_envref().await?;
         {
             let mut jobs = self.jobs.lock().await;
             let id = asset.id();
-            if !jobs.iter().any(|a| a.id() == id) {
-                jobs.push(asset.clone());
+            if !jobs.iter().any(|(a, _)| a.id() == id) {
+                jobs.push((asset.clone(), envref));
             }
         }
         asset.submitted().await?;
@@ -9828,7 +9994,7 @@ impl<E: Environment + 'static> JobQueue<E> {
     pub async fn waiting_jobs_count(&self) -> usize {
         let jobs = self.jobs.lock().await;
         let mut count = 0;
-        for asset in jobs.iter() {
+        for (asset, _) in jobs.iter() {
             if asset.status().await == Status::Submitted {
                 count += 1;
             }
@@ -9847,7 +10013,7 @@ impl<E: Environment + 'static> JobQueue<E> {
             if self.running_count.load(Ordering::SeqCst) < self.capacity {
                 let candidates = {
                     let jobs = self.jobs.lock().await;
-                    jobs.iter().cloned().collect::<Vec<_>>()
+                    jobs.iter().map(|(asset, _)| asset.clone()).collect::<Vec<_>>()
                 };
 
                 for asset in candidates {
@@ -9887,24 +10053,30 @@ impl<E: Environment + 'static> JobQueue<E> {
     pub fn shutdown(&self) {
         self.shutdown.store(true, Ordering::SeqCst);
         self.notify.notify_waiters();
+        // A permit too: the loop may be between its shutdown check and its wait — notably when
+        // the environment is dropped by the loop's own cleanup — and `notify_waiters` stores none.
+        self.notify.notify_one();
     }
 
     /// Internal cleanup method that doesn't require &mut self
     async fn cleanup_completed_internal(&self) -> usize {
-        let mut jobs = self.jobs.lock().await;
-        let initial_count = jobs.len();
-
-        let mut keep: Vec<AssetRef<E>> = Vec::new();
-        for asset in jobs.iter() {
-            let status = asset.status().await;
-            if !status.is_finished() {
-                keep.push(asset.clone());
+        let finished = {
+            let mut jobs = self.jobs.lock().await;
+            let mut keep = Vec::new();
+            let mut finished = Vec::new();
+            for entry in jobs.drain(..) {
+                if entry.0.status().await.is_finished() {
+                    finished.push(entry);
+                } else {
+                    keep.push(entry);
+                }
             }
-        }
-
-        let removed = initial_count - keep.len();
-        *jobs = keep;
-        removed
+            *jobs = keep;
+            finished
+        };
+        // Released outside the lock: the last pin may drop the environment, and with it the
+        // manager that owns this queue.
+        finished.len()
     }
 
     /// Clean up completed jobs (Ready or Error status)
@@ -9922,8 +10094,8 @@ impl<E: Environment + 'static> JobQueue<E> {
 /// can also be used for deterministic inline evaluation on native targets.
 pub struct ImmediateAssetManager<E: Environment> {
     id: std::sync::atomic::AtomicU64,
-    /// Supplied at construction; see [`DefaultAssetManager`].
-    envref: EnvRef<E>,
+    /// Supplied at construction and held weakly; see [`DefaultAssetManager`].
+    envref: Weak<E>,
     // Plain maps behind std Mutex: locked only for brief SYNC get/insert/remove, NEVER across an
     // `.await` (the guard is `!Send`, which statically enforces this on native).
     assets: std::sync::Mutex<std::collections::HashMap<Key, AssetRef<E>>>,
@@ -9978,7 +10150,7 @@ impl<E: Environment> ImmediateAssetManager<E> {
     pub fn new(envref: EnvRef<E>) -> Self {
         ImmediateAssetManager {
             id: std::sync::atomic::AtomicU64::new(1000),
-            envref,
+            envref: Arc::downgrade(&envref.0),
             assets: std::sync::Mutex::new(std::collections::HashMap::new()),
             key_mutation_lock: tokio::sync::Mutex::new(()),
             query_assets: std::sync::Mutex::new(std::collections::HashMap::new()),
@@ -9997,8 +10169,15 @@ impl<E: Environment> ImmediateAssetManager<E> {
         self.id.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
     }
 
+    /// # Panics
+    ///
+    /// When the environment was dropped; see [`DefaultAssetManager::get_envref`].
     fn envref(&self) -> EnvRef<E> {
-        self.envref.clone()
+        expect_envref(&self.envref)
+    }
+
+    fn try_envref(&self) -> Result<EnvRef<E>, Error> {
+        upgrade_envref(&self.envref)
     }
 
     /// Builds a fresh volatile asset that is deliberately inserted in no map.
@@ -10787,6 +10966,10 @@ impl<E: Environment> AssetManager<E> for ImmediateAssetManager<E> {
 
     fn get_envref(&self) -> EnvRef<E> {
         self.envref()
+    }
+
+    fn try_get_envref(&self) -> Result<EnvRef<E>, Error> {
+        self.try_envref()
     }
 
     fn create_temporary_asset(&self) -> AssetRef<E> {
