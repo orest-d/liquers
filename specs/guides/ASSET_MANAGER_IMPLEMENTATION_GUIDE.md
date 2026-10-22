@@ -4,7 +4,7 @@ title: Asset Manager Implementation Guide
 kind: guide
 audience: both
 area: [core/assets]
-reviewed: 2026-10-18
+reviewed: 2026-10-22
 ---
 # Asset Manager Implementation Guide
 
@@ -107,9 +107,12 @@ impl<E: Environment> KeyMutationAccess for MinimalInlineAssetManager<E> {
   is public but opaque: its methods are crate-private, and the `AssetManager` defaults are the only
   callers. When you need to tell the graph something, use the provided methods (§5).
 - **One key-mutation lock**, a `tokio::sync::Mutex<()>`, the same one on every call (§6).
-- **An `EnvRef<E>`**, received in `AssetManagerKind::build`. It is a strong reference, and the
-  environment holds the manager strongly too, so every environment leaks as the built-in ones do
-  (`ENVIRONMENT-MANAGER-REFERENCE-CYCLE`).
+- **A weak reference to the environment**, downgraded from the `EnvRef<E>` received in
+  `AssetManagerKind::build` (`Arc::downgrade(&envref.0)`). The environment holds the manager
+  strongly, so a strong edge back keeps both alive forever. Upgrade it in `get_envref` (panicking
+  on teardown, as the built-in managers do) and override `try_get_envref` to return the error; its
+  default, `Ok(self.get_envref())`, suits only a manager that keeps a strong reference. Work in
+  flight is pinned by the core's run claims, so the manager need not pin anything itself.
 - **A monotonic id counter** for `next_id_for_asset`, and a **started flag** for `start` /
   `is_started`.
 
@@ -505,7 +508,6 @@ store conformance suite: shared scenarios, no rule numbers and no capability mod
 |---|---|
 | An inline run dropped mid-flight can strand callers already waiting on it. | `INLINE-DROP-REPAIR-STRANDS-EXISTING-WAITERS` |
 | Ownership is read from your map; what registration guarantees beyond §7 is open. | `ASSET-REGISTRATION-OWNERSHIP-CONTRACT` |
-| The manager and the environment hold each other strongly. | `ENVIRONMENT-MANAGER-REFERENCE-CYCLE` |
 | `run` spawns on Tokio, so a queued manager is native-only. | `CORE-TOKIO-REMOVAL` |
 | An external manager cannot hand a dependency its parent's evaluation session (§4), so an upstream shared by two dependencies may run once for each. | `EXTERNAL-MANAGER-CANNOT-SHARE-AN-EVALUATION-SESSION` |
 | On the inline manager, the part of a chain upstream of a dynamic or volatile dependency is not primed and still nests one level per link. | `INLINE-MANAGER-DYNAMIC-DEPENDENCY-CHAIN-NESTS` |
@@ -525,6 +527,7 @@ store conformance suite: shared scenarios, no rule numbers and no capability mod
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-22 | §3 What to hold: hold the environment weakly and override `try_get_envref`; §11 drops the reference-cycle limit. | `design/environment-manager-reference-cycle/` |
 | 2026-10-18 | §Primitives `track_installed`: the installed records replace the key's previous incoming edges. | fix (`design/replacing-write-drops-stale-dependency-edges/`) |
 | 2026-10-12 | §4: the evaluation session and what it asks of `get_dependency_asset` (return a failed asset; no per-link nesting); `apply_for`. §11: three limits (external managers cannot share a session; inline chains through dynamic or volatile links still nest; pinned assets live per session). | phase-5 (`design/dependency-resolved-once-per-evaluation/`) |
 | 2026-10-12 | §4 `apply_queued`: the default now builds and evaluates the asset itself and returns it even when it failed, so an inline manager keeps it; only a queued manager overrides it (Codex review of PR #125). | review fix |

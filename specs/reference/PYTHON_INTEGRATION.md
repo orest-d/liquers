@@ -3,7 +3,7 @@ title: Python Integration
 kind: reference
 audience: both
 area: [py, core/value, core/error, lib/value]
-reviewed: 2026-10-20
+reviewed: 2026-10-22
 ---
 # Python Integration
 
@@ -106,8 +106,8 @@ and sets a shared *shut* flag that every wait started from the handle watches (�
 idempotent. Afterwards every method that would use or change the environment raises
 `GeneralError`, registration included; `validate()` still answers. An `AssetRef` taken before
 shutdown still returns a result that is already ready, and a wait still outstanding raises
-`Cancelled`. Neither shutdown nor dropping the handle frees a built
-environment (`ENVIRONMENT-MANAGER-REFERENCE-CYCLE`).
+`Cancelled`. Shutdown releases the retired environments, and a built environment is freed with
+the last reference to it; work still in flight keeps its own environment until it finishes.
 
 **Default environment.** `lq.default_environment()` is one `Environment()`, made on first call
 under a lock.
@@ -310,7 +310,6 @@ parallel on the runtime; Python commands still take the GIL one at a time.
   `PY-COMMAND-DECORATOR-CANNOT-DECLARE-ARGUMENT-METADATA`); the context is passed positionally
   (`COMMAND_DECLARATION.md` §9).
 - The recipe provider cannot be configured (`PY-RECIPE-PROVIDER-NOT-CONFIGURABLE`).
-- Built environments are never freed (`ENVIRONMENT-MANAGER-REFERENCE-CYCLE`).
 - A pickle-off read of a pickled object reports "No recipe found" rather than naming the type
   (`DEGRADED-STORED-VALUE-WITHOUT-RECIPE-REPORTS-NO-RECIPE`).
 - A missing resource raises `GeneralError` "No recipe found for key …" with no `key`, not
@@ -326,5 +325,6 @@ parallel on the runtime; Python commands still take the GIL one at a time.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-22 | §Shutdown, limitations: a built environment is freed (the reference cycle is fixed); `RUNTIME05` passes. | `design/environment-manager-reference-cycle/` |
 | 2026-10-20 | `context.error` raises `ExecutionError` with the first logged message once the command returns. | `CONTEXT-ERROR-OUTCOME-DEPENDS-ON-SCHEDULING` |
 | 2026-10-19 | Created from the implemented `liquers-py`. | `design/liquers-py/` (phase-5) |
