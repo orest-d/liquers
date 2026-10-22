@@ -100,7 +100,7 @@ regenerate `specs/command_registry.yaml`.
 `reference/REGISTER_COMMAND_FSD.md` (§Supported Types, §Variadic Parameters, rejection table),
 `guides/COMMAND_REGISTRATION_GUIDE.md` (§Accepting a variable number of parameters: "Elements made
 of several parameters"), `reference/COMMAND_DECLARATION.md` (declared types),
-`reference/api/DOC_08_RECIPES_PLANS.md` (override shapes). `affects_docs` lists these four. No
+`reference/RECIPES_AND_PLANS.md` (override shapes). `affects_docs` lists these four. No
 `specs/README.md` change.
 
 ## Risks

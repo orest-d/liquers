@@ -92,7 +92,7 @@ names in Steps 6-8.
 - Rollback: revert; qualified names still work with a conversion warning
 
 ### Step 9: documents and records
-- Files: `specs/reference/api/DOC_08_RECIPES_PLANS.md`, `specs/reference/TEMPLATE_LANGUAGE.md`,
+- Files: `specs/reference/RECIPES_AND_PLANS.md`, `specs/reference/TEMPLATE_LANGUAGE.md`,
   `specs/reference/AGENT_MEMORY_SERVICE.md` (History rows, `reviewed:`), module docs in `plan.rs`
   and `recipes.rs`; close `RECIPE-OVERRIDE-ONLY-LAST-ACTION` and
   `RECIPE-CANNOT-PARAMETERIZE-RESOURCE-KEY` with resolution notes; `DESIGN.md` `affects_docs`.

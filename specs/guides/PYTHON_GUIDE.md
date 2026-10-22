@@ -3,7 +3,7 @@ title: Using Liquers from Python
 kind: guide
 audience: user
 area: [py]
-reviewed: 2026-10-20
+reviewed: 2026-10-22
 ---
 # Using Liquers from Python
 
@@ -448,7 +448,7 @@ env.shutdown()
 
 A trailing file name such as `triple.txt` also names the result and sets its media type; it can end
 any query (`hello/repeat-3/triple.txt`). How recipes are resolved is in
-[`reference/api/DOC_08_RECIPES_PLANS.md`](../reference/api/DOC_08_RECIPES_PLANS.md).
+[`reference/RECIPES_AND_PLANS.md`](../reference/RECIPES_AND_PLANS.md).
 
 ### Checking a query without running it
 
@@ -577,5 +577,6 @@ What you will notice; the complete list, with the tracking issues, is
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-22 | Link to the recipes reference follows its promotion to `reference/RECIPES_AND_PLANS.md`. | DOC-08 promotion |
 | 2026-10-20 | `context.error` raises `ExecutionError` with the first logged message once the command returns. | `CONTEXT-ERROR-OUTCOME-DEPENDS-ON-SCHEDULING` |
 | 2026-10-19 | Created from the implemented `liquers-py`. | `design/liquers-py/` (phase-5) |

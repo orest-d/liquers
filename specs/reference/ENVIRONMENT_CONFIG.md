@@ -3,7 +3,7 @@ title: Environment Configuration
 kind: reference
 audience: both
 area: [core/context, core/store, core/assets]
-reviewed: 2026-10-10
+reviewed: 2026-10-20
 ---
 # Environment Configuration
 
@@ -81,7 +81,7 @@ assets:
 The strategies decide **whether** a value is kept, never **how much** memory the cache may use — a
 size limit belongs to `CORE-ASSET-GC`. They change no value and no plan: whether a boundary is
 reused or registered is decided when it executes. See
-[DOC-08 §Predecessor boundaries](./api/DOC_08_RECIPES_PLANS.md) and
+[RECIPES_AND_PLANS §Predecessor boundaries](./RECIPES_AND_PLANS.md#predecessor-boundaries) and
 [ASSETS §When an asset is kept for reuse](./ASSETS.md#when-an-asset-is-kept-for-reuse).
 
 All six settings apply to both built-in kinds (`Queued`, `Inline`). In code they are
@@ -214,6 +214,7 @@ yet, so no built-in path calls it today; an application that does must.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-20 | Links to `reference/api/DOC_08_RECIPES_PLANS.md` follow its promotion to `reference/RECIPES_AND_PLANS.md`. | DOC-08 promotion |
 | 2026-10-10 | `assets` gains `recipe_cache_strategy`, `query_cache_strategy` (`none` \| `result` \| `all`) and `cut_predecessors`, with the origin rule (a dependency follows its creator), the public-service example, and the accessors. | phase-5 (`design/plan-policy/`) |
 | 2026-10-08 | `dependency_audit` row: the two values described as the trusting and conservative policies; `on_load` resolves upstream recursively; the startup store audit named; links to §Consistency policies and the new guide. | phase-5 (`design/dependency-chain-analysis-cost/`) |
 | 2026-10-02 | Reviewed against `design/dependency-audit-and-expiry-provenance/`. §Format gains the `assets` key table: `dependency_audit` (`explicit` \| `on_load`), `verify_versions` (`off` \| `on_read`) and `external_change` (`user_input` \| `corrupted`), with defaults and meaning, checked against `AssetManagerOptions`' serde names. | phase-5 |

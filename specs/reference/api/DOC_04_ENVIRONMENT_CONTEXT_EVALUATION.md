@@ -274,7 +274,7 @@ one whose prefix is not cut) approximates that state. `interpreter::do_step_stat
 | `GetResource` | the bytes, with the **stored** metadata (legacy stored metadata is not handed on: a warning, and only the key) |
 | `Info`, `Warning`, `Error`, `SetCwd`, `Filename` | the input state, unchanged |
 | `Plan` | the state the nested plan produced |
-| `Action` | the result, with a copy of the asset's record corrected to describe the prefix the action completes: `query` is the step's recorded prefix (`Step::Action::query`, DOC-08); no `key`, `filename`, `data_format` or `media_type`; a recipe-declared title or description cleared. Status, log, dependencies and what commands wrote through the context are kept |
+| `Action` | the result, with a copy of the asset's record corrected to describe the prefix the action completes: `query` is the step's recorded prefix (`Step::Action::query`, [`RECIPES_AND_PLANS.md`](../RECIPES_AND_PLANS.md#plan-fields-and-execution)); no `key`, `filename`, `data_format` or `media_type`; a recipe-declared title or description cleared. Status, log, dependencies and what commands wrote through the context are kept |
 | `GetAssetDirectory`, `GetResourceDirectory` | the listing, with the same corrected copy and the listed key |
 | `GetAssetMetadata`, `GetResourceMetadata`, `GetAssetRecipe`, `UseQueryValue`, `UseKeyValue` | the value, with the corrected copy and no query |
 
@@ -285,7 +285,7 @@ Consequences a command author can rely on:
   `/out.txt` in the query names the *output* and never labels the input.
 - The input's status and log are the input's (in the cut form, another asset's); a command reads
   and writes its own asset through `Context`.
-- A prefix that only reads a key is never cut into a boundary (DOC-08), so the command receives
+- A prefix that only reads a key is never cut into a boundary ([`RECIPES_AND_PLANS.md`](../RECIPES_AND_PLANS.md#where-a-boundary-goes)), so the command receives
   the keyed asset's own state.
 - When the plan is applied to an input state (`AssetManager::apply`, `Context::apply`), the asset
   and every step state carry `is_applied: true`: their `query` names the computation, not a
@@ -300,7 +300,7 @@ is framework state, not a value a command may read or move.
 
 ### Why the working key is not part of the command-facing API
 
-The reason is *identity*, not resolution. Since freezing (DOC-08), every operand a
+The reason is *identity*, not resolution. Since freezing ([`RECIPES_AND_PLANS.md`](../RECIPES_AND_PLANS.md#freezing)), every operand a
 command receives through its plan is already absolute, so nothing needs the live
 key to resolve. What remains is what a command could do *with* it, and both routes
 break the asset model:
@@ -612,8 +612,9 @@ methods crate-private), so an asset manager can be implemented outside `liquers-
 
 | Date | Change | Source |
 |---|---|---|
-| 2026-10-20 | §Logging, progress, metadata, and outcome: `Context::error` fails the evaluation once the step returns (`ExecutionError`, first message); mid-run only `is_error` is set. Pitfall reworded. | `issues/CONTEXT-ERROR-OUTCOME-DEPENDS-ON-SCHEDULING.md` |
 | 2026-10-21 | §Logging, progress, metadata, and outcome: consecutive diagnostic steps are all logged before an error among them stops the plan. | `issues/CONTEXT-ERROR-OUTCOME-DEPENDS-ON-SCHEDULING.md` |
+| 2026-10-20 | Links to `reference/api/DOC_08_RECIPES_PLANS.md` follow its promotion to `reference/RECIPES_AND_PLANS.md`. | DOC-08 promotion |
+| 2026-10-20 | §Logging, progress, metadata, and outcome: `Context::error` fails the evaluation once the step returns (`ExecutionError`, first message); mid-run only `is_error` is set. Pitfall reworded. | `issues/CONTEXT-ERROR-OUTCOME-DEPENDS-ON-SCHEDULING.md` |
 | 2026-10-17 | `apply_ad_hoc` passes on a failed evaluation's dependencies; `apply_for` returns the failed asset. | PR #139 review |
 | 2026-10-17 | `apply_ad_hoc` volatility: `v` goes before the parent's own action; linked the run-time volatility issue. | `RUNTIME-VOLATILE-DEPENDENCY-DOES-NOT-MAKE-PARENT-VOLATILE` |
 | 2026-10-17 | §Dependency and apply methods: `Context::apply_ad_hoc`, which passes the ad-hoc dependencies on and no volatility. | `design/liquers-mustache/` |

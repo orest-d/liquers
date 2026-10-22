@@ -112,16 +112,16 @@
 //! [`crate::recipes::Recipe`] located in a particular directory. In many contexts,
 //! the CWD is undefined; for example, when a query is passed through the web API.
 //!
-//! # Interpreter instructions
+//! # Planner instructions
 //!
-//! The planner gives three action names structural meaning:
-//!
-//! - `ns` selects command namespaces. The last `ns` action in the last transform
-//!   segment is used for lookup.
-//! - A terminal `q` asks the planner to use the preceding query as a query value.
-//! - `v` marks the plan volatile and does not create a command-execution step.
-//!
-//! These are semantic rules of plan construction, not additional parser grammar.
+//! Some parts of a query are *planner instructions*, not commands:
+//! [`crate::plan::PlanBuilder`] consumes them, never looks them up in the command
+//! registry, and never emits a `Step::Action` for them. Three are written as actions —
+//! `ns` (selects command namespaces), `q` (makes the query before it a value) and `v`
+//! (makes the plan volatile from its position on) — and the fourth is the resource
+//! header instruction (`-R-meta/…`). These are semantic rules of plan construction, not
+//! additional parser grammar; each one is defined in
+//! `specs/reference/RECIPES_AND_PLANS.md` §Planner instructions.
 
 #![allow(unused_imports)]
 #![allow(dead_code)]
