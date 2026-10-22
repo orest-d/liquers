@@ -5,6 +5,7 @@ title: Environment teardown without reference cycles
 form: compact
 status: complete
 readiness: ready
+gh_pr: [176]
 autofix: not-eligible
 area: [core/assets, core/context]
 issues: [ENVIRONMENT-MANAGER-REFERENCE-CYCLE]
