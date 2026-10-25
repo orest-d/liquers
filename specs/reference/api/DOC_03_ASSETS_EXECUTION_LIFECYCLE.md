@@ -3,7 +3,7 @@ title: Assets and Execution Lifecycle Reference
 kind: reference
 audience: internal
 area: [core/assets]
-reviewed: 2026-10-12
+reviewed: 2026-10-22
 ---
 # DOC-03: Assets and Execution Lifecycle
 
@@ -381,9 +381,22 @@ default. What is left public and framework-facing — `AssetData`, `JobQueue`, `
 
 A manager is constructed **for an environment that already exists**:
 `DefaultAssetManager::new(envref)`, `DefaultAssetManager::with_capacity(envref, capacity)` and
-`ImmediateAssetManager::new(envref)` take the `EnvRef` and store it as a plain field. The manager
-therefore has no unset state: `get_envref` is a field read, and the former `set_envref` method and
-its "environment not set" panic no longer exist. `Environment::init_with_envref` is what calls
+`ImmediateAssetManager::new(envref)` take the `EnvRef` and store it **weakly** (a
+`std::sync::Weak<E>`), as does every `AssetData`, so neither the manager nor a cached asset owns
+the environment. The manager therefore has no unset state, and the former `set_envref` method and
+its "environment not set" panic no longer exist; `get_envref` upgrades the weak reference and
+panics once the environment was dropped, and `try_get_envref` (on the `AssetManager` trait,
+`AssetRef` and `AssetData`) returns an error instead. Every `Result` path of the asset module uses
+the latter.
+
+Work in flight pins the environment with a strong `EnvRef` held exactly as long as the work: the
+queued `RunClaim` and the inline `InlineRunClaim` (taken when the asset is claimed; a claim that
+finds the environment gone fails the asset so waiters wake), each entry of the job queue's `jobs`
+list (released when the queue cleans up a finished job) and a background `save_to_store`. A
+dependency on a local queue needs none: its dependent's claim pins. The metadata saver keeps only
+the store. A temporary asset's service loop holds the asset weakly and ends when it is dropped.
+Dropping the queued manager stops both its job queue and its expiration monitor. See DOC-04
+§Ownership and teardown for the environment-level contract. `Environment::init_with_envref` is what calls
 these constructors, with a reference nothing else can observe yet.
 
 | Operation | Shape | Contract |
@@ -470,6 +483,7 @@ implements a manager outside the crate against the shared manager scenarios. See
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-22 | §Manager lifecycle: the manager and assets hold the environment weakly; run claims, job-queue entries and background saves pin it; `try_get_envref`; dropping the manager stops the job queue. | `design/environment-manager-reference-cycle/` |
 | 2026-10-12 | Manager cache misses are qualified by the evaluation session: one request per dependency per evaluation. | phase-5 (`design/dependency-resolved-once-per-evaluation/`) |
 | 2026-10-10 | Identity, caching, and fast track: caching strategies decide which new assets are registered (keyed, top-level query, dependency following its creator), an existing asset is reused under every strategy, unregistered assets record `cached: Some(false)` and a reason. | phase-5, `design/plan-policy/` |
 | 2026-10-09 | §Expiration, recovery, and cancellation: cancel is a request the run decides, cooperative checks, cascade, recorded cause. Persistence step 6 and §set: a cancelled/failed/replaced run writes nothing; `cancel_for_replacement`. | phase-5 (`design/asset-cancellation-outcome/`) |

@@ -8,10 +8,10 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 209
+Total rows: 207
 - P1: 1
-- P2: 64
-- P3: 144
+- P2: 63
+- P3: 143
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -29,7 +29,6 @@ Total rows: 209
 | [`WEB-EVALUATE-RESOLVES-FAILED-ASSET-AS-NULL`](issues/WEB-EVALUATE-RESOLVES-FAILED-ASSET-AS-NULL.md) | issue | liquers-web's evaluate resolves a failed command's asset to null instead of rejecting | draft |  |  | P2 | S | web |  | 2026-10-18 |
 | [`INLINE-RUN-CLAIM-REPAIR-SKIPPED-UNDER-LOCK-CONTENTION`](issues/INLINE-RUN-CLAIM-REPAIR-SKIPPED-UNDER-LOCK-CONTENTION.md) | issue | A dropped inline run leaves its asset Processing forever when the asset lock is busy at drop time | draft | ready | eligible | P2 | M | core/assets | [design](design/inline-run-claim-repair-under-lock-contention/DESIGN.md) | 2026-10-19 |
 | [`CORE-VALUE-ENUM-OVERSIZED`](issues/CORE-VALUE-ENUM-OVERSIZED.md) | issue | Every Value occupies over 700 bytes because three variants are stored unboxed | draft | ready | not-eligible | P2 | M | core/value;lib/value | [design](design/core-value-enum-oversized/DESIGN.md) | 2026-08-18 |
-| [`ENVIRONMENT-MANAGER-REFERENCE-CYCLE`](issues/ENVIRONMENT-MANAGER-REFERENCE-CYCLE.md) | issue | Environment and asset manager hold each other with strong Arcs, so every environment leaks | draft | ready | not-eligible | P2 | M | core/assets;core/context | [design](design/environment-manager-reference-cycle/DESIGN.md) | 2026-08-27 |
 | [`ASSET-REGISTRATION-OWNERSHIP-CONTRACT`](issues/ASSET-REGISTRATION-OWNERSHIP-CONTRACT.md) | feature | Registration of a keyed asset is a manager convenience, not a contract anything can rely on | draft | needs-decision | not-eligible | P2 | M | core/assets | [design](design/asset-registration-contract/DESIGN.md) | 2026-09-03 |
 | [`ASSETS-IMPROVEMENTS`](issues/ASSETS-IMPROVEMENTS.md) | feature | The web API's request-body limit is axum's fixed 2 MiB default, not configurable or documented | accepted | needs-decision | not-eligible | P2 | M | axum;docs | [design](design/http-request-body-limit/DESIGN.md) | 2026-08-08 |
 | [`COMMAND-CANNOT-BE-RUN-WITH-A-RESTRICTED-CONTEXT`](issues/COMMAND-CANNOT-BE-RUN-WITH-A-RESTRICTED-CONTEXT.md) | feature | A command cannot be run with a restricted context | draft | needs-decision | not-eligible | P2 | M | core/context;core/commands | [design](design/pure-command-context/DESIGN.md) | 2026-09-17 |
@@ -101,7 +100,6 @@ Total rows: 209
 | [`SEARCH-CATALOG-READS-EACH-FILE-METADATA-TWICE`](issues/SEARCH-CATALOG-READS-EACH-FILE-METADATA-TWICE.md) | issue | ns-search/catalog reads each file's metadata twice, once for its info and once for its version | draft | needs-decision | not-eligible | P3 | S | lib/commands;core/assets | [design](design/search-catalog-single-metadata-read/DESIGN.md) | 2026-10-17 |
 | [`SET-BINARY-KEEPS-PREVIOUS-DEPENDENCY-EDGES`](issues/SET-BINARY-KEEPS-PREVIOUS-DEPENDENCY-EDGES.md) | issue | A set_binary that replaces a keyed asset keeps the incoming dependency edges of the value it replaced | draft | needs-decision | not-eligible | P3 | S | core/assets | [design](design/set-binary-replaces-dependency-edges/DESIGN.md) | 2026-10-18 |
 | [`TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS`](issues/TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS.md) | issue | TypeInfo cannot declare a format a type writes but cannot read back | draft | needs-decision | not-eligible | P3 | S | core/value | [phase1](design/data-format-vocabulary/phase1-high-level-design.md)  [phase2](design/data-format-vocabulary/phase2-architecture.md)  [phase3](design/data-format-vocabulary/phase3-examples.md)  [phase4](design/data-format-vocabulary/phase4-implementation.md)  | 2026-09-24 |
-| [`TEMPORARY-ASSET-NEVER-RUN-IS-KEPT-ALIVE-BY-ITS-SERVICE-LOOP`](issues/TEMPORARY-ASSET-NEVER-RUN-IS-KEPT-ALIVE-BY-ITS-SERVICE-LOOP.md) | issue | A temporary asset that is never run is kept alive forever by its own service-message loop | draft | covered | not-eligible | P3 | S | core/assets | [design](design/temporary-asset-never-run-leak/DESIGN.md) | 2026-10-18 |
 | [`BUILD-MATRIX-CI-SKIPS-NEWER-CRATES`](issues/BUILD-MATRIX-CI-SKIPS-NEWER-CRATES.md) | issue | The build-matrix workflow does not run on a change confined to liquers-template, liquers-mcp or liquers-agent | draft |  |  | P3 | S | build |  | 2026-10-20 |
 | [`CONFIGURED-RECIPE-CHOICE-DROPS-MANIFEST-PROVIDER`](issues/CONFIGURED-RECIPE-CHOICE-DROPS-MANIFEST-PROVIDER.md) | issue | Building a library environment from a configuration document silently drops the manifest recipe provider | draft |  |  | P3 | S | lib/commands;records;core/context |  | 2026-10-20 |
 | [`DOC-03-ENTRY-POINT-TABLE-SAYS-APPLY-SCHEDULES`](issues/DOC-03-ENTRY-POINT-TABLE-SAYS-APPLY-SCHEDULES.md) | issue | DOC-03's entry-point table says apply schedules its asset and takes no payload | draft |  |  | P3 | S | docs;core/assets |  | 2026-10-20 |

@@ -3,8 +3,7 @@ id: TEMPORARY-ASSET-NEVER-RUN-LEAK
 kind: design
 title: Coverage record for a temporary asset kept alive by its service loop
 form: compact
-status: in_review
-phase: architecture
+status: complete
 readiness: covered
 autofix: not-eligible
 area: [core/assets]
@@ -15,6 +14,7 @@ created: 2026-10-20
 
 Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-20: Phases 1-2 only. The work is
 covered by `environment-manager-reference-cycle`, so no independent Phase 3 or 4 is written.
+Completed 2026-10-22 with that design, which implemented its step 5 and closed this issue.
 
 ## Phase 1: High-Level Design
 

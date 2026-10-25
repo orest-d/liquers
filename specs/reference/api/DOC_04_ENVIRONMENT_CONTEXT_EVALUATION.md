@@ -3,7 +3,7 @@ title: Environment, Context and Evaluation Reference
 kind: reference
 audience: internal
 area: [core/context, core/plan]
-reviewed: 2026-10-21
+reviewed: 2026-10-22
 ---
 # DOC-04: Environment, Context, and End-to-End Evaluation
 
@@ -129,6 +129,36 @@ is the construction cycle, and the environment's `OnceLock` manager slot is wher
 it is broken. The manager itself therefore has no unset state at all: its
 environment reference is a constructor parameter, and the `set_envref` method and
 its "environment not set" panic are gone.
+
+### Ownership and teardown
+
+Only `EnvRef`s own an environment. The environment owns its manager (the `OnceLock` slot), and
+the manager owns its cached assets; both back-edges are **weak** — the manager and every
+`AssetData` hold a `std::sync::Weak<E>` — so a freshly built environment has a strong count of
+one, and dropping the last `EnvRef` drops the environment, its manager, every cached asset and
+value, and the queued manager's job-queue and expiration-monitor tasks (its `Drop` stops both).
+Before `ENVIRONMENT-MANAGER-REFERENCE-CYCLE` was fixed, those edges were strong and no environment
+was ever freed.
+
+Work in flight keeps its environment alive: a run claim (queued or inline), a job parked in the
+queue and a background save each hold a strong `EnvRef` for exactly as long as the work, so
+
+```rust,ignore
+let asset = envref.evaluate("hello").await?;
+drop(envref);
+asset.get().await?;      // still evaluates; the environment drops once it is done
+```
+
+works, and `Context::get_envref` is usable inside the command. `Context` itself holds the
+environment strongly, for the length of one evaluation. A temporary asset's service loop (the
+asset `interpreter::evaluate` evaluates in) holds the asset weakly and ends with it.
+
+An `Arc` of the manager or an `AssetRef` kept after the environment is gone is a stale handle.
+The manager's and asset's `get_envref` accessors stay infallible and **panic** naming teardown;
+`try_get_envref` (on `AssetData`, `AssetRef` and the `AssetManager` trait, with a default for a
+manager that owns its environment strongly) returns an error instead, and every fallible path in
+the asset module uses it, so `get_asset` on a stale manager is an `Err`, not a panic. There is no
+explicit `Environment::shutdown()`; that is `ENVIRONMENT-ORDERLY-SHUTDOWN`.
 
 `AssetManager::start` is synchronous and fallible. Its work is uncontended
 in-memory map writes — at startup the version map is empty, so every key inserts
@@ -612,6 +642,7 @@ methods crate-private), so an asset manager can be implemented outside `liquers-
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-22 | §Ownership and teardown: managers and assets hold the environment weakly; in-flight work pins it; the last `EnvRef` drops everything; `try_get_envref`. | `design/environment-manager-reference-cycle/` |
 | 2026-10-21 | §Logging, progress, metadata, and outcome: consecutive diagnostic steps are all logged before an error among them stops the plan. | `issues/CONTEXT-ERROR-OUTCOME-DEPENDS-ON-SCHEDULING.md` |
 | 2026-10-20 | Links to `reference/api/DOC_08_RECIPES_PLANS.md` follow its promotion to `reference/RECIPES_AND_PLANS.md`. | DOC-08 promotion |
 | 2026-10-20 | §Logging, progress, metadata, and outcome: `Context::error` fails the evaluation once the step returns (`ExecutionError`, first message); mid-run only `is_error` is set. Pitfall reworded. | `issues/CONTEXT-ERROR-OUTCOME-DEPENDS-ON-SCHEDULING.md` |

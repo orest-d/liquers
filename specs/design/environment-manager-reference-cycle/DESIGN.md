@@ -3,18 +3,19 @@ id: ENVIRONMENT-MANAGER-REFERENCE-CYCLE-DESIGN
 kind: design
 title: Environment teardown without reference cycles
 form: compact
-status: in_review
-phase: implementation
+status: complete
 readiness: ready
+gh_pr: [176]
 autofix: not-eligible
 area: [core/assets, core/context]
 issues: [ENVIRONMENT-MANAGER-REFERENCE-CYCLE]
+affects_docs: [reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md, reference/api/DOC_03_ASSETS_EXECUTION_LIFECYCLE.md]
 created: 2026-10-12
 ---
 # Environment teardown without reference cycles
 
-Bulk design (`specs/guides/autonomous_bulk_design.md`): Phases 1-4 written, not approved, nothing
-implemented.
+Bulk design (`specs/guides/autonomous_bulk_design.md`): Phases 1-4 written; implemented
+2026-10-22 with the backlog plan's corrections (see Phase 5).
 
 ## Phase 1: High-Level Design
 
@@ -230,13 +231,13 @@ Run: `CARGO_INCREMENTAL=0 cargo test -p liquers-core --test environment_teardown
 
 ### Steps
 
-- [ ] 1. `liquers-core/tests/environment_teardown.rs` — add the nine tests; every one except `teardown06` fails at HEAD — `cargo test -p liquers-core --test environment_teardown`. Rollback: delete the file.
-- [ ] 2. `assets.rs` `DefaultAssetManager`, `ImmediateAssetManager` — `Weak<E>` field, downgrade in constructors, upgrade in `get_envref`/`envref`, `try_get_envref` (trait default + overrides), `Drop` shuts down `job_queue` — teardown01, teardown07. Rollback: revert the commit.
-- [ ] 3. `assets.rs` `AssetData`, `AssetRef`, `RunClaim`, `InlineRunClaim`, `try_claim_for_run*`, `JobQueue` entries — weak `envref`, `try_get_envref`, pins — teardown02-05, teardown09. Rollback: revert steps 3 and 2 together.
-- [ ] 4. `assets.rs` spawn audit (the eight `tokio::spawn` sites in Phase 2) and `get_envref()` → `try_get_envref()?` in `Result` functions — `cargo test -p liquers-core --lib --tests`.
-- [ ] 5. `assets.rs` `AssetRef::new_temporary`, `process_service_messages` → `handle_service_message` + weak loop — teardown08; `--test asset_cancellation --test asset_failure_contract`. Rollback: revert; path 3 then leaks a task but no environment.
-- [ ] 6. Tests that lose their only `EnvRef` (`assets.rs` / `context.rs` test modules, `liquers-core/tests/`) — keep a binding — `cargo test -p liquers-core --lib --tests` and `cargo test -p liquers-lib --lib --tests`.
-- [ ] 7. Docs: `context.rs` / `assets.rs` doc comments, `DOC_04_…`, `DOC_03_…` (History row, `reviewed:`); close `ENVIRONMENT-MANAGER-REFERENCE-CYCLE` with a resolution note — `python3 scripts/docs_index.py --check`.
+- [x] 1. `liquers-core/tests/environment_teardown.rs` — add the nine tests; every one except `teardown06` fails at HEAD — `cargo test -p liquers-core --test environment_teardown`. Rollback: delete the file.
+- [x] 2. `assets.rs` `DefaultAssetManager`, `ImmediateAssetManager` — `Weak<E>` field, downgrade in constructors, upgrade in `get_envref`/`envref`, `try_get_envref` (trait default + overrides), `Drop` shuts down `job_queue` — teardown01, teardown07. Rollback: revert the commit.
+- [x] 3. `assets.rs` `AssetData`, `AssetRef`, `RunClaim`, `InlineRunClaim`, `try_claim_for_run*`, `JobQueue` entries — weak `envref`, `try_get_envref`, pins — teardown02-05, teardown09. Rollback: revert steps 3 and 2 together.
+- [x] 4. `assets.rs` spawn audit (the eight `tokio::spawn` sites in Phase 2) and `get_envref()` → `try_get_envref()?` in `Result` functions — `cargo test -p liquers-core --lib --tests`.
+- [x] 5. `assets.rs` `AssetRef::new_temporary`, `process_service_messages` → `handle_service_message` + weak loop — teardown08; `--test asset_cancellation --test asset_failure_contract`. Rollback: revert; path 3 then leaks a task but no environment.
+- [x] 6. Tests that lose their only `EnvRef` (`assets.rs` / `context.rs` test modules, `liquers-core/tests/`) — keep a binding — `cargo test -p liquers-core --lib --tests` and `cargo test -p liquers-lib --lib --tests`.
+- [x] 7. Docs: `context.rs` / `assets.rs` doc comments, `DOC_04_…`, `DOC_03_…` (History row, `reviewed:`); close `ENVIRONMENT-MANAGER-REFERENCE-CYCLE` with a resolution note — `python3 scripts/docs_index.py --check`.
 
 ### Validation
 
@@ -245,3 +246,62 @@ Run: `CARGO_INCREMENTAL=0 cargo test -p liquers-core --test environment_teardown
 `cargo test -p liquers-web --target wasm32-unknown-unknown --features debug-handles`;
 `python3 scripts/docs_index.py --check`; a diff review for debug output and edits outside
 `liquers-core` and the two reference documents.
+
+## Phase 5: Implementation Notes (2026-10-22)
+
+Implemented as planned, steps 1-3 and 5 in `9cc22b3`, steps 4 and 6 in `dd9781c`, step 7 with
+the records. Managers and `AssetData` hold `Weak<E>`; `get_envref` panics on teardown and
+`try_get_envref` is on `AssetData`, `AssetRef` and `AssetManager` (default `Ok(get_envref())`,
+overridden by both built-in managers); `RunClaim`, `InlineRunClaim` and each `JobQueue.jobs` entry
+carry a pin; `Drop for DefaultAssetManager` also shuts the job queue down; a temporary asset's
+loop holds a `WeakAssetRef` and the receiver and calls the extracted `handle_service_message`.
+
+Backlog plan §9 corrections applied: the audit covered **nine** spawn sites, including
+`MetadataSaver::save_immediately`, whose coalescing task now takes the store
+(`Arc<dyn AsyncStore>`) rather than the environment, so a pending save waiting out its interval does
+not keep the environment alive. The other sites: the background `save_to_store` task carries a pin;
+the expiration monitor and `AssetData::record_expiry` skip an asset whose environment is gone; the
+two job tasks hold their claim's pin; the `RunClaim` repair moves the pin into its task; the
+job-queue and monitor tasks hold none; `run_with_future`'s loop is awaited by its run. The sweep
+changed 93 `get_envref()` / `envref()` sites in `Result` functions to the `try_` forms.
+
+Deviations, none changing a contract:
+
+- `claim.complete()` moved after the re-park of undrained local dependencies in both job tasks, so
+  the claim's pin keeps the environment alive for them (the asset is finished, so the repair it
+  disarms has nothing to do there).
+- `JobQueue::shutdown` stores a permit (`notify_one`) besides waking waiters: the environment can
+  now be dropped by the queue loop's own cleanup, between its shutdown check and its wait, where
+  `notify_waiters` alone would leave it parked forever. `cleanup_completed_internal` releases the
+  finished entries' pins after the `jobs` lock is dropped.
+- A claim that finds the environment gone fails the asset in memory only (no store to write to).
+- `teardown05` is two tests (queued with a capacity-1 gate; inline), because an inline evaluation
+  finishes before `evaluate` returns. `teardown10_never_run_temporary_asset_is_freed` was added for
+  the absorbed issue's own example (AC-7). The assertions on counts and `Weak`s poll briefly: a
+  pin is released when its task finishes, which can be just after the value is observable.
+- Step 6 changed seven core test files: a binding kept (`envref.clone()`) where a test handed its
+  only `EnvRef` to an asset, and one fixture (`stale_dep_fixture`) that returns only the asset
+  deliberately keeps its environment for the test process.
+
+- PR #176 review: the sweep missed `get_envref` calls inside closures of `Result` functions
+  (`mark_expired_status`, so `expire()` on a retained keyed asset panicked; `set_volatile_during_run`;
+  the two map insertions of `get_nonvolatile_*_asset`). They use `try_get_envref` now, and three
+  store reads in non-`Result` helpers answer "inconclusive" / skip on teardown.
+  `teardown11_expire_after_teardown_returns_error` covers it.
+
+`TEMPORARY-ASSET-NEVER-RUN-IS-KEPT-ALIVE-BY-ITS-SERVICE-LOOP` (covered by step 5, per the backlog
+plan) is closed with this design, and its coverage record `temporary-asset-never-run-leak` is
+complete; it stays that issue's design.
+
+Validation: `cargo test -p liquers-core --lib --tests` and `cargo test -p liquers-lib --lib --tests`
+pass; `cargo check -p liquers-core --target wasm32-unknown-unknown` builds (its warnings predate
+this change, `CORE-WASM-WARNING-FREE`). Reviewed documents: DOC-04 (new §Ownership and teardown)
+and DOC-03 (§Manager lifecycle), plus the four that described the leak as open
+(`PYTHON_INTEGRATION.md`, `PYTHON_GUIDE.md`, `LANGUAGE-INTEGRATION_GUIDE.md`,
+`ASSET_MANAGER_IMPLEMENTATION_GUIDE.md`), each with a History row.
+
+liquers-py: `RUNTIME05` now passes (`bash scripts/test-liquers-py.sh` reported a strict XPASS), so
+its `xfail` is removed and `liquers-py/README.md` marks `RUNTIME` and `ENVIRON` `COMPLETE`; `EVAL`
+and `COMMAND` stay `PARTIAL` on `VALUE`. No liquers-py code changed. A replaced environment is now
+freed by `shutdown()`, not never (noted on `LANGUAGE-INTEGRATIONS-REBUILD-ENVIRONMENT-ON-REGISTRATION`).
+

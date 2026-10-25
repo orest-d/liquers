@@ -35,3 +35,9 @@ their replay tests green. Depends on that design's decision on the trait shape.
 
 Split out of `POST-INIT-COMMAND-REGISTRATION` during the 2026-10-20 bulk design, which designs the
 core mechanism and leaves the integrations' switch to this issue.
+
+Note (2026-10-22): since `ENVIRONMENT-MANAGER-REFERENCE-CYCLE` was fixed, an environment no longer
+keeps itself alive, so in liquers-py a retired environment is freed by `shutdown()` (which empties
+the retired list) rather than never. It is still held until then, although in-flight work now pins
+its own environment and the retired list is no longer needed for that.
+

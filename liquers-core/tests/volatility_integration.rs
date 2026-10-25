@@ -244,7 +244,7 @@ async fn test_context_volatility_propagation() -> Result<(), Box<dyn std::error:
     assert!(plan.is_volatile);
 
     // Create context from plan volatility
-    let assetref = liquers_core::assets::AssetRef::new_temporary(envref);
+    let assetref = liquers_core::assets::AssetRef::new_temporary(envref.clone());
     let context = Context::new(assetref, plan.is_volatile).await;
 
     // Verify context has correct volatility
@@ -260,7 +260,7 @@ async fn test_asset_to_override() -> Result<(), Box<dyn std::error::Error>> {
     let envref = env.to_ref();
 
     // Create a temporary asset
-    let assetref = liquers_core::assets::AssetRef::new_temporary(envref);
+    let assetref = liquers_core::assets::AssetRef::new_temporary(envref.clone());
 
     // Set it to Override
     assetref.to_override().await?;

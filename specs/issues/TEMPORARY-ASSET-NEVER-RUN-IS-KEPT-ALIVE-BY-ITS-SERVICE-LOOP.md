@@ -2,7 +2,7 @@
 id: TEMPORARY-ASSET-NEVER-RUN-IS-KEPT-ALIVE-BY-ITS-SERVICE-LOOP
 kind: issue
 title: A temporary asset that is never run is kept alive forever by its own service-message loop
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [core/assets]
@@ -46,3 +46,12 @@ assert!(weak.upgrade().is_none());                      // today: Some, forever
 Still present at HEAD (`18732dd`): `AssetRef::new_temporary` spawns `process_service_messages` on a
 strong clone. Covered by `environment-manager-reference-cycle` (its AC-7 and step 5, a loop holding
 a `WeakAssetRef`); coverage record: `temporary-asset-never-run-leak` (`readiness: covered`).
+
+## Resolution (2026-10-22)
+
+Fixed by design `environment-manager-reference-cycle` (step 5): `AssetRef::new_temporary` spawns a
+loop that holds a `WeakAssetRef` and the service receiver, so it ends once the asset and its senders
+are dropped. Evidence: `teardown08_temporary_asset_loop_exits` and
+`teardown10_never_run_temporary_asset_is_freed` (this issue's example) in
+`liquers-core/tests/environment_teardown.rs`.
+

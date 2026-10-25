@@ -2,7 +2,7 @@
 id: ENVIRONMENT-MANAGER-REFERENCE-CYCLE
 kind: issue
 title: Environment and asset manager hold each other with strong Arcs, so every environment leaks
-status: draft
+status: closed
 priority: P2
 complexity: M
 area: [core/assets, core/context]
@@ -143,3 +143,16 @@ environment, because the environment holding the registered closures is never dr
 is a strict `xfail` in `liquers-py/tests/test_RUNTIME_runtime.py`, which marks `RUNTIME` `BLOCKED`.
 And a late command registration rebuilds the environment and retires the old one until
 `shutdown()`, so every late registration retains one more environment.
+
+## Resolution (2026-10-22)
+
+Fixed by design `environment-manager-reference-cycle`. `DefaultAssetManager`,
+`ImmediateAssetManager` and `AssetData` hold the environment as `std::sync::Weak<E>`
+(`liquers-core/src/assets.rs`); in-flight work pins it with a strong `EnvRef` in `RunClaim`,
+`InlineRunClaim`, the job queue's entries and background saves; dropping the queued manager stops
+its job queue as well as its monitor; a temporary asset's service loop holds the asset weakly.
+A fresh environment has a strong count of 1, and dropping the last `EnvRef` drops the environment,
+its manager, its cached values and its tasks. A manager or asset kept past that answers
+`try_get_envref` with an error, which every fallible asset path uses. Evidence:
+`liquers-core/tests/environment_teardown.rs` (`teardown01`-`teardown10`, verification items 1-4).
+

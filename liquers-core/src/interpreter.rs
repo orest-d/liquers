@@ -1307,7 +1307,7 @@ mod tests {
         }
         let asset = AssetRef::new_temporary(envref.clone());
         let context = Context::new(asset.clone(), false).await;
-        let error = match apply_plan(plan, State::new(), context, envref).await {
+        let error = match apply_plan(plan, State::new(), context, envref.clone()).await {
             Ok(_) => panic!("an Error step must fail the plan"),
             Err(error) => error,
         };

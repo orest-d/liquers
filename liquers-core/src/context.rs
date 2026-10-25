@@ -223,6 +223,8 @@ pub trait Environment:
     ///
     /// The expected shape is the deferred-slot pattern the built-in environments use: hold the
     /// manager in a `OnceLock`, construct it here with the reference in hand, install it, start it.
+    /// The manager must hold the reference weakly (the built-in ones downgrade it), or the
+    /// environment and its manager keep each other alive forever.
     ///
     /// ```ignore
     /// fn init_with_envref(&self, envref: EnvRef<Self>) -> Result<(), Error> {
@@ -295,6 +297,11 @@ fn installed_manager<M>(slot: &std::sync::OnceLock<Arc<M>>) -> Arc<M> {
 /// The inner `Arc` is public for direct access to environment-specific services.
 /// Construct application references with [`Environment::to_ref`] so initialization
 /// is not skipped.
+///
+/// `EnvRef`s are the environment's only owners: its asset manager and assets hold it weakly, and
+/// work in flight pins it only while it runs. Dropping the last `EnvRef` therefore drops the
+/// environment, its manager, the cached assets and the manager's background tasks; a manager or
+/// asset handle kept beyond that reports the environment as dropped (`try_get_envref`).
 pub struct EnvRef<E: Environment>(pub Arc<E>);
 
 impl<E: Environment> EnvRef<E> {
@@ -1541,6 +1548,8 @@ pub struct GenericEnvironment<
     async_store: Arc<dyn crate::store::AsyncStore>,
     /// Commands, and the metadata registry planning reads.
     pub command_registry: CommandRegistry<Self>,
+    /// The manager, installed by `init_with_envref`. A strong edge: the manager's edge back to
+    /// the environment is weak, so dropping the last `EnvRef` drops both.
     asset_store: std::sync::OnceLock<Arc<K::Manager<Self>>>,
     /// Never `Option`: a default is resolved at construction, so there is no unconfigured state to
     /// report or to panic on.
