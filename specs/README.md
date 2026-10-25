@@ -589,6 +589,7 @@ deliberately folded behind a broader line.
 - feature `STORE-NO-DATABASE-STORAGE-MODEL`
 - feature `STORED-DERIVED-VALUES-ARE-NEVER-PRUNED`
 - feature `TEMPLATE-HAS-NO-HIGHLIGHTER`
+- feature `TEMPLATE-TOP-LEVEL-RENDER-HAS-NO-HOST`
 - feature `TEXT-EDITOR-EDITS-ARE-NEVER-SAVED`
 - feature `TYPE-REGISTRY-NOT-REALM-AWARE`
 - feature `UI-VARIADIC-ARGUMENT-LIST-EDITOR`
@@ -602,6 +603,7 @@ deliberately folded behind a broader line.
 - feature `VALUE-TYPE-DEFINITION-MACRO`
 - feature `WEB-HAS-NO-API-REFERENCE-OR-USER-GUIDE`
 - feature `WEB-HAS-NO-READ-WRITE-REMOTE-STORE`
+- feature `WEB-HAS-NO-TEMPLATE-COMMANDS`
 - feature `WEB-QUERY-EDITOR-NOT-LIVE`
 <!-- END generated: unplaced -->
 

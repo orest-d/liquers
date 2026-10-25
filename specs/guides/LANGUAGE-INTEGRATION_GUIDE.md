@@ -2,7 +2,7 @@
 title: Language Integration Guide
 kind: guide
 audience: internal
-area: [web, py, core/commands, core/plan, core/assets, core/store]
+area: [web, py, core/commands, core/plan, core/assets, core/store, core/value, lib/commands]
 reviewed: 2026-10-25
 ---
 # Liquers Language Integration Guide
@@ -64,6 +64,7 @@ Terms defined here are written in *italics* when used in their precise, normativ
 - *State*: `State<V>`, meaning a *value type* value together with Liquers metadata and execution state.
 - *Language command*: a Liquers command whose callable implementation is written in the *integrated language*.
 - *Service adapter*: an implementation of a Liquers service trait, such as `AsyncStore` or `AsyncRecipeProvider`, backed by the *integrated language*.
+- *Data node*: a value seen as a read-only tree of scalars, lists and maps through core's `DataNode` / `AsyncDataNode` traits (`liquers-core/src/data_node.rs`), read in place rather than converted.
 - *UI backend*: the renderer and event-loop implementation used to display Liquers UI elements, such as egui or a browser UI.
 - *Web handler*: a framework-compatible function that maps an HTTP request to a Liquers operation and maps its result to an HTTP response.
 - *Embedding host*: the outer process or application that owns Liquers and one or more *language runtimes*.
@@ -213,6 +214,8 @@ This risk concentrates where a section did **not** warn about difficulty. The th
 | `COMMAND` | Language command registration | Essential | `OBJECT`, `ENVIRON`, `VALUE`, `ERROR`, `RUNTIME` |
 | `ASYNCQ` | Async query execution | Profile | `EVAL`, `RUNTIME` |
 | `ASYNCCMD` | Async language commands | Optional | `COMMAND`, `ASYNCQ`, `RUNTIME` |
+| `DATANODE` | Language data as `DataNode` | Optional | `VALUE`, `ERROR`, `RUNTIME`, `ASYNCQ` (soft) |
+| `TEMPLATE` | Templates: template commands and programmatic rendering | Optional | `ENVIRON`, `EVAL`, `VALUE`, `ERROR`, `RUNTIME`, `COMMAND` (soft), `DATANODE` (soft), `ASYNCQ` (soft) |
 | `STORE` | Language-defined async store | Optional | `OBJECT`, `ENVIRON`, `ERROR`, `RUNTIME` |
 | `RECIPE` | Language-defined recipe provider | Optional | `OBJECT`, `ENVIRON`, `EVAL`, `ERROR`, `RUNTIME` |
 | `MODULE` | Load language modules from the store | Optional | `ENVIRON`, `ERROR`, `RUNTIME`, `ASYNCQ` (soft), `STORE` (soft) |
@@ -234,13 +237,17 @@ Dependencies are *hard* unless marked `(soft)`. The soft cases are those where L
 - `MODULE` → `STORE`: modules are read through the environment's store, which need not be a *language*-defined one. `STORE` matters only when a *language*-defined store is also expected to serve modules.
 - `STUBS` → `ASYNCQ`: entry points need awaitable declarations only where `ASYNCQ` is selected.
 - `PACKAGE` → `STUBS`: declarations must ship inside the artifact when `STUBS` is selected; packaging is otherwise independent of them.
+- `DATANODE` → `ASYNCQ`: only the outbound view of an *async* node needs awaitables. Without `ASYNCQ`, the design must state that such a node is refused, not blocked on.
+- `TEMPLATE` → `COMMAND`: needed to declare template commands and to render from inside a *language command*. Without it, the design offers top-level rendering only and states that template commands are registered from Rust.
+- `TEMPLATE` → `DATANODE`: lets a native structure be template data in place. Without it, data is structurally converted to the *value type* first, and the design must state the cost and what conversion refuses (§DATANODE explains why that is more than a copy).
+- `TEMPLATE` → `ASYNCQ`: a render evaluates queries, so in a *host* where `ASYNCQ` is Profile (the browser) the programmatic render is awaitable. Without `ASYNCQ`, the design must state how a render waits, as for `EVAL`.
 
 Recommended minimum profiles:
 
 - **General baseline**: `OBJECT ERROR RUNTIME VALUE ENVIRON EVAL COMMAND`
-- **Browser JavaScript**: baseline plus `ASYNCQ`; `STORE`, `RECIPE`, `UIUSE`, `UIDEF`, and web features are selected as needed
+- **Browser JavaScript**: baseline plus `ASYNCQ`; `STORE`, `RECIPE`, `DATANODE`, `TEMPLATE`, `UIUSE`, `UIDEF`, and web features are selected as needed
 - **Starlark baseline**: baseline with a deliberately restricted `VALUE`; `ASYNCQ` and `ASYNCCMD` may initially be `NA`
-- **Python baseline**: general baseline; later milestones should add `ASYNCQ`, `ASYNCCMD`, `STORE`, `RECIPE`, and selected UI/web features
+- **Python baseline**: general baseline; later milestones should add `ASYNCQ`, `ASYNCCMD`, `STORE`, `RECIPE`, `DATANODE`, `TEMPLATE`, and selected UI/web features
 
 `STUBS` and `PACKAGE` are delivery features rather than capabilities: they describe how the *integration* is declared to tooling and shipped to users, not what it can do. Any *integration* consumed outside this repository should select `PACKAGE`, and `STUBS` wherever the *integrated language* has a stub format at all.
 
@@ -915,6 +922,324 @@ def test_COMMAND02_transform_receives_state_and_parameter(env):
 
 **Meaningful tests:** `ASYNCCMD01` async command result; `ASYNCCMD02` async exception; `ASYNCCMD03` cancellation in both directions; `ASYNCCMD04` nested async evaluation; `ASYNCCMD05` concurrent calls do not corrupt callable state; `ASYNCCMD06` sync and async metadata differ correctly.
 
+### DATANODE — Language data as `DataNode`
+
+**Contract.** Let core read a *language value* as a *data node* in place, without converting it to
+the *value type* first, and let the *language* read a Liquers value's *data node* without
+converting the whole value. `DataNode` is part of `liquers-core` (`liquers-core/src/data_node.rs`),
+not of the template crate: the template renderer is its first consumer, store handlers are
+designed to reach record fields through it (`design/store-handler-field-access/`, in review), and
+any later consumer that walks data reads it the same way. This feature therefore stands on its own; `TEMPLATE` uses it when both
+are selected, and nothing in it requires templates.
+
+A *data node* answers five questions — its kind, its scalar, a named field, its items in order, and
+itself as JSON — and nothing else. There are two traits and a holder:
+
+| Type | For | Rules an adapter must keep |
+|---|---|---|
+| `DataNode` | data in memory | **Synchronous**: every method returns at once. Children are `NodeRef`s, owned (`NodeRef::Owned`) when the adapter builds them |
+| `AsyncDataNode` | data read on demand (a record source, a store folder) | `kind` is known without I/O; everything else is awaited |
+| `AnyNode` | either, behind an `Arc` | What every consumer takes. A sync consumer refuses an async node with `not_supported` rather than blocking |
+
+Two directions, and a selected `DATANODE` includes the first:
+
+1. **Inbound — an adapter.** A Rust `DataNode` implemented over a *language value*: a Python
+   `dict`/`list`/`tuple`, a JavaScript object/`Array`/`Map`, a Starlark `dict`/`list`/`struct`.
+   This is how a native structure becomes template data (`TEMPLATE`) with no copy, and how a
+   retained *opaque language value* stops being opaque to core.
+2. **Outbound — a view.** A *language*-visible read-only wrapper over a Liquers value's `AnyNode`,
+   so a *language command* can read one field of a record view or a polars frame without
+   converting the frame. Optional within the feature; mark `DATANODE11` `NA` with a reversing
+   condition if the design leaves it out.
+
+**Why the adapter is needed even where structural conversion exists.** Conversion is
+all-or-nothing. `liquers-py` converts a `dict` whose keys are all `str` and whose members all
+convert; one non-`str` key, or one member such as a `datetime`, makes the *whole* `dict` a
+`py.Object`, which is opaque, so a template renders it as nothing. An adapter answers for every part
+it can read and makes only the unreadable member opaque. It also avoids copying a large structure
+that a template reads three fields of.
+
+**Objects/API to map or implement:**
+
+- `DataNode` adapter type(s) over the *language*'s mapping, sequence and scalar types, holding an
+  owned reference (`Py<PyAny>`, `JsValue`, a frozen Starlark value) and building child adapters on
+  request
+- `NodeKind`, `Scalar` (including `Scalar::UInt` for an integer above `i64::MAX`) and `NodeRef` as
+  the adapter's answers; `index` and `len` overridden where the sequence has random access
+- `DataNode::to_json` over the same mapping, for a consumer that needs a snapshot (an override, an
+  apply input that is not a value)
+- **The hook that lets a retained foreign value answer**: `ForeignValue::data_node`, delegated from
+  `ExtValue`'s `data_node` for the `Foreign` variant. **It does not exist yet** — today the
+  `Foreign` arm returns `AnyNode::opaque()` (`liquers-lib/src/value/mod.rs`). It is an additive
+  default method (opaque by default), filed as `FOREIGN-VALUE-HAS-NO-DATA-NODE`; until it lands,
+  an adapter is reachable only where the *integration* hands an `AnyNode` to the consumer itself
+  (the programmatic render of `TEMPLATE`)
+- An opt-in protocol for the *language*'s other objects (a class whose instances should read as
+  maps), if the design offers one
+- For the outbound view: a *wrapper* over `AnyNode` with kind, scalar, field, item, length,
+  iteration and `to_json`, mapped onto the *language*'s indexing and iteration operators; awaitable
+  accessors for an async node where `ASYNCQ` is selected
+
+**The design must answer:**
+
+1. What is the mapping from each *language* type to `NodeKind`? Give it as a table beside `VALUE`'s
+   conversion table, and say where the two differ.
+2. Which objects other than plain containers read as maps — none, an opt-in protocol, or a fixed
+   list such as dataclasses — and does reading one run *language* code?
+3. Is the adapter a **live view** or a **snapshot**? A render awaits between field reads (a query
+   tag runs in between), so the *language* can mutate the structure mid-render.
+4. How is a cycle handled — by lazy navigation, and by `to_json`?
+5. On which thread, and under which lock, does a `DataNode` method run, and how is that kept from
+   deadlocking against the *language* thread that started the render?
+6. Is the outbound view offered, and how does it reach a child without borrowing from its parent?
+
+**Issues and patterns.**
+
+**The adapter and structural conversion must agree.** A template must read the same data whether
+the `dict` was adapted in place or converted to `Value::Object` first: the same kinds, the same
+scalars, the same refusals. Write the adapter's scalar mapping from `VALUE`'s, not from scratch.
+The checks that matter are the ones a fresh mapping gets wrong: a Python `bool` is an `int`
+subclass and must be tested first, or `True` reads as `1`; a JavaScript `number` is `Integer` only
+when `Number.isSafeInteger`, else `Float`; an integer above `i64::MAX` follows `VALUE`'s range
+policy — `Scalar::UInt` where `VALUE` accepts it, the same conversion error where `VALUE` refuses it
+(`liquers-py` extracts `i64` and refuses `2**63` today) — and so does one above `u64::MAX`; bytes are `Opaque`, never `Text`,
+for the reason `VALUE04` gives; a non-finite float is a `to_json` error, as in
+`try_into_json_value`. **Key order is the one sanctioned difference**: `keys()` is "in the node's
+own order", so an adapter uses the *language*'s order (Python insertion order, JavaScript's
+integer-keys-first property order), while `Value::Object` is a `BTreeMap` and sorts. Mustache does
+not iterate a map's keys, so a template never sees the difference; JSON output and a store handler
+listing fields do.
+
+**Children are owned.** `NodeRef::Borrowed` borrows from the parent; an adapter has no Rust child
+to borrow, so it returns `NodeRef::Owned(Box::new(ChildAdapter { .. }))` holding a new owned
+reference to the child *language value*, and `Scalar::Text(Cow::Owned(..))` for text. Building a
+child costs one reference-count increment, not a conversion, which is what makes reading three
+fields of a large structure cheap.
+
+**Read data, do not run code.** A lookup that runs *language* code — a JavaScript getter or
+`Proxy` trap, a Python `property` or `__getattr__`, a `__getitem__` on a `dict` subclass — runs it
+from inside the renderer, at a moment the author cannot see, and possibly reentrantly (`RUNTIME`).
+Recommended: plain containers are read through their data (Python `PyDict`/`PyList` access, not
+the mapping protocol; JavaScript own enumerable data properties via
+`Object.getOwnPropertyDescriptor`, skipping accessors and symbols), and any object that runs code
+to answer is either opaque or behind the opt-in protocol of question 2, where the author has asked
+for it.
+
+**Live, and say so.** A snapshot adapter is structural conversion under another name; the reason
+to adapt is to avoid the copy. So the expected answer to question 3 is "live": each lookup reads
+the structure as it is at that moment, and a structure mutated mid-render yields a render that
+mixes old and new fields. Document it, and let a caller who needs consistency pass a copy.
+
+**Cycles are cheap to navigate and must not overflow to JSON.** Lazy navigation of a structure
+that contains itself is finite, because a template names a finite path; `to_json` walks
+everything, so it must track the path (as `liquers-py`'s `py_to_simple` does with object
+identities) and fail with a typed conversion error, not a stack overflow.
+
+**Thread bounds and locks.** `DataNode: MaybeSend + MaybeSync`, so on native the adapter is
+`Send + Sync` and may be called on any Tokio worker that polls the render: `Py<PyAny>` satisfies
+that, and each method takes the interpreter lock for itself (`Python::attach`). That is safe only
+because the *language* thread that started the render **released the lock while it waits** — the
+rule `liquers-py` already follows for every wait (§6 Python, *The GIL*). Taking the lock per lookup
+costs a lock round trip per field; measure it on a large render before optimizing. On `wasm32` the
+bounds are vacuous and everything runs on the one thread: a lookup happens synchronously inside a
+poll, so no other JavaScript runs during it, but other microtasks do run between two lookups — the
+live-view caveat again. A Starlark adapter holds only frozen values; an unfrozen `Value<'v>` cannot
+outlive its heap and must be converted.
+
+**The outbound view cannot hold a `NodeRef`.** A child `NodeRef<'a>` borrows from its parent, so a
+*language wrapper* — which must be `'static` — cannot keep one. Two shapes work: the wrapper holds
+the root `AnyNode` plus a path and re-resolves on each access (`O(depth)` per access; simplest), or
+it holds a child only when the child is `NodeRef::Shared` or an `AnyNode`, and returns scalars as
+*language values* directly. An async node's accessors are awaitables (`ASYNCQ`); a synchronous
+accessor on one raises the core `not_supported` error through `ERROR` rather than blocking.
+
+**Meaningful tests:** `DATANODE01` a nested native mapping and sequence answer kind, field, items,
+length and keys per the mapping table; `DATANODE02` the adapter agrees with structural conversion
+over a corpus, key order excepted; `DATANODE03` scalar edges — `bool` is not an integer, `i64`
+limits, above `i64::MAX` follows `VALUE`'s range policy, a non-finite float fails `to_json`; `DATANODE04` bytes are
+opaque, not text; `DATANODE05` a structure structural conversion refuses still answers for its
+readable parts; `DATANODE06` a cyclic structure navigates lazily and `to_json` fails with a typed
+error; `DATANODE07` a lookup runs no *language* code outside the documented protocol; `DATANODE08`
+a retained foreign value reads in place through `ValueInterface::data_node`, not as opaque;
+`DATANODE09` a mutation between two lookups follows the documented live/snapshot policy;
+`DATANODE10` a lookup from a Liquers worker while the *language* thread waits on an evaluation
+completes — **conditional: only for a *language runtime* with a global lock or a thread-affine
+heap reachable from several threads**, `NA` on single-threaded `wasm32` until values cross to a
+worker; `DATANODE11` the outbound view reads one field of a large value without converting the
+whole value, and an async node is awaited or refused.
+
+```python
+def test_DATANODE05_partial_structure_still_reads(env):
+    d = {"name": "Ann", "when": datetime.now()}   # conversion makes the whole dict py.Object
+    assert lq.data_node(d)["name"] == "Ann"       # the adapter still reads `name`
+```
+
+### TEMPLATE — Templates: template commands and programmatic rendering
+
+**Contract.** Make Liquers' query-aware Mustache templates
+([`reference/TEMPLATE_LANGUAGE.md`](../reference/TEMPLATE_LANGUAGE.md),
+[`TEMPLATE_GUIDE.md`](TEMPLATE_GUIDE.md)) usable from the *integrated language* in three ways:
+
+1. **The `ns-template` commands** (`render`, `expand`, `validate`) are in the environment's
+   built-in command set, so queries and pipelines can use them.
+2. **Template commands** can be declared from the *language*: a command whose behaviour is a
+   template, with no callable — an alias of `template/render` whose head parameter is the template
+   link.
+3. **Programmatic rendering**: the *language* calls `render`, `expand` and `validate` directly,
+   with the template as text or a link and the data as a native structure — **both from the top
+   level, through the environment, and from inside a *language command*, through its context**.
+
+The environment is not optional: a template's query tags (`{{$ q}}`), apply tags (`{{$. q}}`) and
+partials (`{{> key}}`) evaluate queries and read the store. A template that uses data only can be
+rendered by `MapHost`, which refuses queries; that is a test convenience, not this feature.
+
+**Objects/API to map or implement:**
+
+- The `ns-template` commands in the built-in set: `liquers_lib::register_template_commands!`, which
+  needs `liquers-lib`'s `templates` feature (`liquers-py` registers them; `liquers-web` does not
+  yet — `WEB-HAS-NO-TEMPLATE-COMMANDS`)
+- Template-command declaration over the shared declaration format: a declaration with
+  `definition: Alias` of `template/render` and the template link as head parameter
+  ([`COMMAND_ALIASES.md`](../reference/COMMAND_ALIASES.md)), registered all or nothing like any
+  other declaration (`COMMAND`, `ENVIRON`'s validation report)
+- `render`, `expand` and `validate` functions on **two receivers with one signature**: the
+  environment handle (top level) and the *language*-visible command context (inside a command)
+- The arguments those functions take: the template (text, or a key/query naming it), the state
+  (`render` only), the data, `errors` (`strict`, `expand`, `expand_html`, `expand_md`,
+  `silent`, as `liquers_template::ErrorMode::parse` reads them), `cwd`, and HTML escaping
+- `liquers_template::{parse_template, render, ContextStack, FrameKind, RenderOptions, ErrorMode}`,
+  `validate_template` and `Diagnostic`, and `liquers_lib::template::ContextHost` (with
+  `ContextHost::node_of` for a state's frame) as the Rust side of the in-command path
+- Data frames from `DATANODE` adapters (`AnyNode::Sync(Arc::new(adapter))`) where `DATANODE` is
+  selected; otherwise from structural conversion through `ValueInterface::data_node`
+- Recovered errors (`expand`, `silent`) as warnings: in the command's log inside a command, and
+  returned or inspectable at the top level
+- Diagnostics from `validate` as *language values* with severity, message and position
+
+**The design must answer:**
+
+1. What is the programmatic entry point's shape, and which receivers have it? (Recommended: the
+   same `render` / `expand` / `validate` on the environment and on the context, so code moves
+   between a script and a command unchanged.)
+2. How is a template passed: as text, as a link, or both, and how does a caller tell them apart?
+3. How do the state and `data` map to the context stack, and is that the commands' layout exactly?
+4. Inside a command, does rendering go through the command's context, so its queries become
+   dependencies of the command's result? At the top level, which asset does the render run in?
+5. How are recovered errors and warnings returned at the top level, where there is no command log?
+6. How is HTML escaping chosen, given there is no result filename to derive it from?
+7. Is rendering awaitable, blocking, or both, and how does it obey `RUNTIME`'s reentrancy rules
+   when the template runs a *language command* that itself renders?
+8. How is a template command declared, and what does metadata inspection show for it?
+
+**Issues and patterns.**
+
+**The programmatic call is the command, called directly.** Keep the commands' frame layout, so a
+programmatic call and the equivalent query produce the same text from the same inputs, which is
+what `TEMPLATE05` asserts:
+
+| Call | Bottom frame | Top frame | `.`, `{{$. q}}` |
+|---|---|---|---|
+| `render(template, state, data)` | the state (`Data`), unless empty | `data` (`Names`), unless empty | the state |
+| `expand(template, data)` | none | `data` (`Data`) | `data` |
+
+`data` must be a map or empty, as in the commands. The usual script call — "fill this template
+from this `dict`" — is `expand(template, data)`; `render(template, state)` is "apply this
+template to a value", the programmatic form of `…/ns-template/render-~X~-R/templates/x.md~E`. Do
+not invent a third layout for convenience; a caller moving a template from a script into a
+template command would then get different output.
+
+**Inside a command, render through the command's `Context`.** Build
+`ContextHost::new(context.clone(), cwd)`, push frames, and call `liquers_template::render` —
+exactly what `liquers_lib::template::commands::render` does, but with the frames supplied by the
+*integration*: `host.node_of(&state)` for a state, an adapter or `Value::data_node` for the data.
+Through `ContextHost`, every query tag is evaluated as a dependency of the **calling command's**
+asset (or applied ad hoc, with its dependencies passed on), partials are read as dependencies,
+volatility passes on, and recovered errors become warnings in the command's log. A *language
+command* that renders is therefore invalidated when anything its template read changes, with no
+declaration. This needs the *language*-visible context of `COMMAND07`; an *integration* that
+passes none cannot offer the in-command half.
+
+**The working directory comes in as an argument.** A relative partial (`{{> ./header.md}}`) and a
+relative key in a query tag resolve against `cwd`, but a command cannot read its working directory
+from its `Context` (`Context::get_cwd_key` is crate-private, by design): it receives it as a
+default link argument, `cwd: Key = query "-R-key/."`
+([`COMMAND_REGISTRATION_GUIDE.md`](COMMAND_REGISTRATION_GUIDE.md)). A *language command* that
+renders relative templates declares that argument and passes it on; `context.render` without a
+`cwd` resolves against the root, and the design must say so rather than guess a directory.
+
+**At the top level, render inside an ad-hoc asset; never write a host that bypasses one.** There is
+no `Context` outside a command, and a host that evaluates query tags by calling the store or the
+executor directly skips the asset lifecycle — caching, dependencies, volatility, cancellation and
+the log — which `EVAL` forbids. The route that needs no new Rust surface is an ad-hoc `apply` of the
+render command: `AssetManager::apply(recipe, state, payload)` with the recipe
+`ns-template/render-~X~-R/templates/greet.md~E` (a link) or with the template text as an encoded
+parameter, applied to a state holding the data. `render` with the data as its state lays out the
+same frame as `expand` with that data, `_meta` aside. The ad-hoc result is never cached or shared
+(`Context::apply` explains why), its log carries the recovered errors, and a trailing filename
+(`…/page.html`) turns HTML escaping on. Two costs: the template text travels inside the query, and
+the data must be a `Value` — structurally converted, or a retained foreign value read through
+`ForeignValue::data_node` once that exists. A direct helper that renders frames in an ad-hoc asset
+would remove both; it is filed as `TEMPLATE-TOP-LEVEL-RENDER-HAS-NO-HOST`.
+
+**One environment, the caller's.** Both receivers already know their environment — the handle is
+one, the context belongs to one — so neither function takes an environment argument, and neither
+resolves through a global singleton when the caller has a handle (the rule `liquers-web` follows
+for handles that evaluate later).
+
+**Choose HTML escaping explicitly.** The commands turn it on when the result's filename is `.html`
+or `.htm`. A programmatic call has no filename, so it takes an explicit flag (default off) and
+maps it onto `RenderOptions::html_escape`; the top-level route may express it as the trailing
+filename. Never infer it from the template's own key: a `.md` template rendered into an HTML page
+is ordinary.
+
+**Errors.** In `strict` mode a template error raises through `ERROR` with the template position
+(`line:column`) intact — the error's position, not one in the evaluated query's text
+(`TEMPLATE_LANGUAGE.md` §6). A syntax error fails in every mode, at parse time. In a recovering
+mode the render returns text and the warnings stay reachable: in the command's log inside a
+command, and on a result object or a returned list at the top level. Silently dropping them is the
+failure mode, because `silent` output with no warnings looks like a template that worked.
+
+**Reentrancy.** A template can run a *language command* (`{{$ my_command}}`) that itself renders.
+Inside a command the render is a nested evaluation and follows `RUNTIME`'s reentrancy policy; in
+Python, a synchronous `context.render` waits the way `context.evaluate` does (`block_on` with the
+interpreter lock released), which is also what lets a `DATANODE` adapter take the lock from a
+worker. In the browser the call returns a `Promise` (`ASYNCQ`); never offer a synchronous render
+there.
+
+**Template commands are declarations, not callables.** A template command from the *language* is
+the alias of [`TEMPLATE_GUIDE.md`](TEMPLATE_GUIDE.md) §3 written in the declaration format: no
+function, the template link as head parameter, the arguments after it lining up with `render`'s
+(`data`, `errors`, `cwd` with its default link `-R-key/.`). Because the head is a link, the
+template is a dependency of every result, so editing it in the store invalidates them. Offer a
+one-call form (`env.template_command(name, template=…)`) over the general declaration path rather
+than a second registration mechanism, and show the alias in metadata inspection, so an author can
+see the command has no callable. Prefer a store key for the template; inline text works as a head
+parameter too, but cannot be edited without re-registering.
+
+**Validate before rendering.** `validate` lists every invalid tag and unknown command, positioned,
+and runs nothing; it takes the environment's command metadata registry, so it is available on both
+receivers and needs no asset. An editor or a test can call it on a template a script is about to
+render.
+
+**Meaningful tests:** `TEMPLATE01` the `ns-template` commands are in the default environment's
+built-in set; `TEMPLATE02` a template command declared from the *language* renders, and its
+metadata shows an alias with no callable; `TEMPLATE03` editing a template command's template
+invalidates its result; `TEMPLATE04` top-level `expand` over a native mapping, with a query tag,
+renders through the environment; `TEMPLATE05` a programmatic `render` and `expand` produce the same
+text as the equivalent command query; `TEMPLATE06` a render inside a *language command* makes the
+template's queries dependencies of the command's result; `TEMPLATE07` `strict` raises through
+`ERROR` with the template position, and a recovering mode returns text with the warnings
+reachable; `TEMPLATE08` HTML escaping follows the explicit flag; `TEMPLATE09` `validate` returns
+positioned diagnostics as *language values* and runs nothing; `TEMPLATE10` a template that runs a
+*language command* which itself renders completes without deadlock; `TEMPLATE11` a relative
+partial resolves against the `cwd` passed in — inside a command, the command's own `-R-key/.`
+argument.
+
+```python
+def test_TEMPLATE04_top_level_expand_over_a_dict(env):
+    assert env.expand("{{name}} has {{$ number-42}}", data={"name": "Ann"}) == "Ann has 42"
+```
+
 ### Service adapters — two rules that apply to all of them
 
 `STORE` and `RECIPE` both adapt something written in the *integrated language* to a Rust service
@@ -1334,7 +1659,7 @@ a pattern-matching name outside the listing is addressable too; `RECIPE03` recip
 
 - A store-backed module loader or resolution hook for the *integrated language*, such as a `sys.meta_path`/`sys.path_hooks` finder in Python, a `load()` resolver in Starlark, or a module resolver for a Wasm/JavaScript host
 - Module search-path configuration: an ordered list of store `Key` prefixes, configured on the environment
-- `Context::get_cwd_key` and `Recipe::cwd`/`Recipe::get_cwd` as the source of the relative resolution base
+- The command's `-R-key/.` default link argument and `Recipe::cwd`/`Recipe::get_cwd` as the source of the relative resolution base (`Context::get_cwd_key` is crate-private)
 - `Key::to_absolute`, `Key::parent`, and `Key::filename` for mapping a module name to a store key
 - A module cache with an explicit invalidation and reload policy, keyed by store key and version
 - Dependency registration, so loaded module keys participate in the tracking in `liquers-core/src/dependencies.rs` and in asset expiration
@@ -1346,7 +1671,7 @@ a pattern-matching name outside the listing is addressable too; `RECIPE03` recip
 
 The synchronous/asynchronous mismatch is the central technical problem. Python's import system is synchronous while the Liquers store is `AsyncStore`, so a store-backed finder invoked from inside an async worker can deadlock in exactly the way `ASYNCQ` describes. Prefetching module bytes before entering the *language runtime* is usually safer than bridging an async store into a synchronous import hook.
 
-Module caches are a staleness hazard: `sys.modules` will happily retain a module whose store key has since changed. State whether reload is automatic, explicit, or never, and register loaded module keys as dependencies so that editing a module expires the assets whose commands it defined — otherwise a code change silently produces stale results. `Recipe::cwd` is set automatically when recipes are loaded from a folder (`liquers-core/src/recipes.rs`), which makes it the natural default base for relative resolution. `Context` owns the live runtime CWD; integrations should read it through `Context::get_cwd_key` rather than duplicate resolution state or depend on its private storage representation. A sandboxed *integrated language* such as Starlark should map this feature onto its own `load()` resolver rather than exposing a general filesystem-like path.
+Module caches are a staleness hazard: `sys.modules` will happily retain a module whose store key has since changed. State whether reload is automatic, explicit, or never, and register loaded module keys as dependencies so that editing a module expires the assets whose commands it defined — otherwise a code change silently produces stale results. `Recipe::cwd` is set automatically when recipes are loaded from a folder (`liquers-core/src/recipes.rs`), which makes it the natural default base for relative resolution. `Context` owns the live runtime CWD, but `Context::get_cwd_key` is crate-private: a command receives its working directory as a default link argument (`dir: Key = query "-R-key/."`, [`COMMAND_REGISTRATION_GUIDE.md`](COMMAND_REGISTRATION_GUIDE.md)), and an import hook running inside a command should take it from there rather than duplicate resolution state. A sandboxed *integrated language* such as Starlark should map this feature onto its own `load()` resolver rather than exposing a general filesystem-like path.
 
 **Meaningful tests:** `MODULE01` module loads from a configured store prefix; `MODULE02` module outside the search path is not loaded; `MODULE03` relative import resolves against *cwd*; `MODULE04` absent *cwd* follows the documented policy; `MODULE05` package/submodule resolution; `MODULE06` native and standard-library modules take the documented precedence; `MODULE07` changed module bytes follow the reload policy; `MODULE08` a loaded module key is registered as a dependency and expires dependent assets; `MODULE09` an untrusted prefix is refused with a typed `ERROR`; `MODULE10` store failure maps through `ERROR`; `MODULE11` import from inside a running command does not deadlock; `MODULE12` a command registered by a store module is executable end to end.
 
@@ -1523,6 +1848,14 @@ refuse; facts from a HEAD request), so either can take a `metadata` section. `bu
 registry and `StoreConfigFunctions`, mirroring the native builder. `sync` is not exposed to pages.
 See `liquers-web/README.md` "Read-only stores and metadata sections".
 
+**Templates and data nodes in the browser.** Neither `DATANODE` nor `TEMPLATE` is implemented in
+`liquers-web`. It depends on `liquers-lib` without the `templates` feature, so the `ns-template`
+commands are not in its built-in set (`WEB-HAS-NO-TEMPLATE-COMMANDS`), and a JavaScript command
+receives no JavaScript-visible context (`COMMAND07` is scoped to the Rust side), so the in-command
+half of `TEMPLATE` waits on one. A JavaScript object adapter reads own enumerable data properties
+(`Object.getOwnPropertyDescriptor`, skipping accessors and symbols), maps `Array` to a list and a
+`Map` with string keys to a map, and runs on the one wasm thread inside the render's poll.
+
 ### Starlark
 
 Treat sandboxing and determinism as product requirements. Prefer copied Liquers primitives for ordinary *language values*. `starlark::values::Value<'v>` belongs to a `Heap`; values retained after evaluation must be frozen/owned or converted. Host functions registered through Starlark globals are a natural `COMMAND` adapter. Document whether evaluation budgets, cancellation, filesystem/network access, and async features are intentionally unavailable.
@@ -1569,6 +1902,14 @@ settled on, and the list after them is what cost time. Its contract is
   `CancelledError`. Leaving a wait does not cancel the asset; `AssetRef.cancel()` does. Serialization runs on asset-manager workers, so a codec
   that takes the GIL there goes under `tokio::task::block_in_place`.
 
+- **Templates and data nodes.** The `ns-template` commands are in the built-in set
+  (`liquers-py/src/builtins.rs`); a template command, `render` / `expand` on the environment and
+  on `Context`, and a `dict` adapter are not implemented yet (`TEMPLATE` and `DATANODE` are `NS`).
+  This matters more than it looks: a `dict` with one non-`str` key or one unconvertible member
+  becomes `py.Object`, which a template renders as nothing. A `context.render` would wait like
+  `context.evaluate` (`block_on`, interpreter lock released), which is what lets a `dict` adapter
+  take the lock per lookup from a worker.
+
 What cost time:
 
 - **`AssetRef::get` returns `Ok` for a failed asset**, holding an error state. Call `.value()` on
@@ -1605,7 +1946,7 @@ Every language-specific design should contain:
    - **If the design offers downstream crates a "bring your own value type" path, check it against the orphan rule before promising it.** The natural sketch — `impl MyIntegrationTrait for CombinedValue<SimpleValue, MyExt>` — does *not* compile from a downstream crate: the trait belongs to the integration crate and `CombinedValue` to `liquers-lib`, so both are foreign there, and `CombinedValue` is not `#[fundamental]`, meaning instantiating it with a local type does not make the self type local (E0117). The integration crate itself never notices, because its own trait is local to it. Put the extension point on the *extension* type (`MyExt`, which the downstream crate owns) and provide a blanket impl carrying it up to the value type — then the integration crate uses the same route it documents, rather than a first-class one nobody else can reach.
 4. Ownership diagrams or precise prose for every stored foreign handle.
 5. Sync, async, thread, reentrancy, cancellation, and shutdown policies.
-6. Conversion tables, including loss and serialization behavior.
+6. Conversion tables, including loss and serialization behavior — and, where `DATANODE` is selected, the data-node mapping beside them, with every difference stated.
 7. Complete command metadata and argument-binding rules.
 8. A test inventory whose logical IDs use the feature prefixes.
 9. Explicit `NA` decisions; absence is not an `NA` decision.
@@ -1631,6 +1972,8 @@ Every language-specific design should contain:
 ## 8. References
 
 - Liquers core integration boundaries: `liquers-core/src/value.rs`, `error.rs`, `context.rs`, `commands.rs`, `store.rs`, `recipes.rs`, `assets.rs`, and `maybe_send.rs`
+- Data nodes: `liquers-core/src/data_node.rs` (`DataNode`, `AsyncDataNode`, `AnyNode`); implementations to copy from in `liquers-records/src/data_node.rs`, `liquers-lib/src/polars/data_node.rs`, `liquers-lib/src/value/data_node.rs` and `liquers-lib/src/template/folder.rs`; design in [`design/liquers-mustache/data-node-interface.md`](../design/liquers-mustache/data-node-interface.md)
+- Templates: [Template Language](../reference/TEMPLATE_LANGUAGE.md), [Template Guide](TEMPLATE_GUIDE.md); `liquers-template/src/` (`render`, `TemplateHost`, `MapHost`) and `liquers-lib/src/template/` (`ContextHost`, the `ns-template` commands)
 - Shared opaque-value mechanism for every *integrated language*: `liquers-lib/src/value/foreign.rs` (`ForeignValue`) and the `ExtValue::Foreign` variant in `liquers-lib/src/value/mod.rs`
 - Command removal: `CommandRegistry::unregister` (`liquers-core/src/commands.rs`) and `CommandMetadataRegistry::remove_command` (`liquers-core/src/command_metadata.rs`)
 - A worked *integration* design following this guide: [`specs/design/liquers-web/`](../design/liquers-web/) — browser JavaScript, phases 1-4 with the 83-test disposition against the 2026-08 inventory; later additions (`ENVIRON08`, `RECORDS01`-`11`, `STORE14`-`18`) are dispositioned in [`specs/archive/2026-10-17-liquers-web-guide-conformance.md`](../archive/2026-10-17-liquers-web-guide-conformance.md)
@@ -1739,6 +2082,7 @@ in this appendix depends on data existing in the store:
 | `data/sales.csv` | WEBAPI03 | a CSV, so `ns-pl/head-10` yields `text/csv` |
 | `d/recipes.yaml` | RECIPE01–07 | `D_RECIPES_YAML` below |
 | `proj/recipes.yaml`, `proj/helper.py` | MODULE03 | `PROJ_RECIPES_YAML` below; `helper.py` is written by the test |
+| `templates/greet.md`, `name.md`, `count.md`, `page.md`, `header.md`; `d/count.txt` | DATANODE08, TEMPLATE01–11 | listed at the head of the TEMPLATE tests |
 
 The two recipe files are:
 
@@ -2385,6 +2729,172 @@ def test_ASYNCCMD06_sync_and_async_metadata_differ(env):
     async def a(state): ...
     assert env.commands.metadata("s").is_async is False
     assert env.commands.metadata("a").is_async is True
+```
+
+### DATANODE
+
+```python
+# `lq.data_node(x)` stands for "the AnyNode core sees for x": the adapter for a native
+# structure, or the outbound view of a Liquers value. A Rust-side test may call the
+# adapter's DataNode methods directly; what matters is that core's answers are asserted.
+
+def test_DATANODE01_nested_structure_answers_per_mapping_table():
+    n = lq.data_node({"a": [1, {"b": "x"}], "c": None})
+    assert n.kind == lq.NodeKind.Map and set(n.keys()) == {"a", "c"}
+    assert n["a"].kind == lq.NodeKind.List and len(n["a"]) == 2
+    assert n["a"][1]["b"].scalar == "x"
+    assert n["c"].kind == lq.NodeKind.Null
+    assert n.get("absent") is None                # missing, not an error
+
+CORPUS = [{"s": "x", "i": 3, "f": 1.5, "b": True, "n": None, "l": [1, "two", [3]]},
+          {"nested": {"deep": {"deeper": [{"k": 1}]}}}, {}, []]
+
+def test_DATANODE02_adapter_agrees_with_structural_conversion():
+    for d in CORPUS:
+        adapted, converted = lq.data_node(d), lq.data_node(lq.to_value(d))
+        assert adapted.to_json() == converted.to_json()        # key order aside
+        assert sorted(adapted.keys()) == sorted(converted.keys())
+
+def test_DATANODE03_scalar_edges():
+    assert lq.data_node(True).kind == lq.NodeKind.Bool          # not Integer: bool is an int
+    assert lq.data_node(2**63 - 1).scalar == 2**63 - 1
+    # 2**63 and 2**64 follow VALUE's documented integer range policy: Scalar::UInt (exact)
+    # where VALUE accepts the value, the same ConversionError where it refuses it.
+    assert_same_as_value_policy(lq.data_node, 2**63)
+    assert_same_as_value_policy(lq.data_node, 2**64)
+    with pytest.raises(lq.Error) as e:
+        lq.data_node(float("nan")).to_json()
+    assert e.value.error_type == lq.ErrorType.ConversionError
+
+def test_DATANODE04_bytes_are_opaque_not_text():
+    assert lq.data_node(b"abc").kind == lq.NodeKind.Opaque
+
+def test_DATANODE05_partial_structure_still_reads():
+    # Structural conversion refuses the whole dict (a non-str key, an unconvertible
+    # member) and retains it opaquely; the adapter answers for what it can read.
+    d = {"name": "Ann", "when": datetime.now(), 1: "int key"}
+    assert lq.data_node(d)["name"].scalar == "Ann"
+    assert lq.data_node(d)["when"].kind == lq.NodeKind.Opaque
+
+def test_DATANODE06_cycle_navigates_lazily_and_fails_to_json():
+    d = {"name": "loop"}; d["self"] = d
+    assert lq.data_node(d)["self"]["self"]["name"].scalar == "loop"
+    with pytest.raises(lq.Error) as e:
+        lq.data_node(d).to_json()
+    assert e.value.error_type == lq.ErrorType.ConversionError  # not RecursionError
+
+def test_DATANODE07_lookup_runs_no_language_code():
+    calls = []
+    class Watched(dict):
+        def __getitem__(self, k): calls.append(k); return super().__getitem__(k)
+    lq.data_node(Watched(a=1))["a"]
+    assert calls == []          # or: follows the opt-in protocol the design documents
+
+def test_DATANODE08_retained_foreign_value_reads_in_place(env):
+    @env.command
+    def person() -> object:                      # retained as an opaque language value
+        return Person(name="Ann")                # a class opted into the map protocol
+    # Any core consumer will do; with TEMPLATE selected, a render is the natural one.
+    assert env.evaluate("person/ns-template/render-~X~-R/templates/name.md~E") == "Ann"
+
+def test_DATANODE09_mutation_between_lookups_follows_policy():
+    d = {"a": 1}; n = lq.data_node(d)
+    d["a"] = 2
+    assert n["a"].scalar == 2   # live view; a snapshot design asserts 1 and says so
+
+@na_unless_multithreaded_runtime   # NA on wasm32: one thread; required where a GIL exists
+def test_DATANODE10_worker_lookup_while_language_thread_waits(env):
+    # The language thread blocks in evaluate (lock released); the render, polled on a
+    # worker, takes the lock for each lookup. Must finish, not deadlock.
+    assert env.expand("{{a}}", data={"a": "ok"}, timeout=5) == "ok"
+
+def test_DATANODE11_outbound_view_reads_without_converting(env):
+    frame = env.evaluate_state("-R/data/table.csv/-/ns-pl/from_csv")  # any large value
+    n = lq.data_node(frame)
+    assert n.kind == lq.NodeKind.List and n[0] is not None   # one row built, not all
+    with pytest.raises(lq.Error) as e:                       # a sync accessor on an async node
+        lq.data_node(env.evaluate_state("-R-dir/data"))["table.csv"]
+    assert e.value.error_type == lq.ErrorType.NotSupported
+```
+
+### TEMPLATE
+
+```python
+# Store content: templates/greet.md = "Hello, {{.}}!", templates/name.md = "{{name}}",
+# templates/count.md = "{{$ -R/d/count.txt}}", templates/page.md = "{{> ./header.md}}body",
+# templates/header.md = "Header ", d/count.txt = "1". `env.render` / `env.expand` /
+# `env.validate` are the top-level receiver; `context.render` etc. the in-command one.
+
+def test_TEMPLATE01_template_commands_are_built_in(env):
+    assert env.evaluate("hello/ns-template/render-~X~-R/templates/greet.md~E") == "Hello, hello!"
+    assert env.evaluate("-R/templates/greet.md/-/ns-template/validate") == []
+
+def test_TEMPLATE02_declared_template_command_renders(env):
+    env.template_command("greeting", template="-R/templates/greet.md")
+    assert env.evaluate("hello/greeting") == "Hello, hello!"
+    m = env.commands.metadata("greeting")
+    assert m.definition.alias_of == "template/render" and m.callable is None
+
+def test_TEMPLATE03_editing_the_template_invalidates_results(env, store):
+    env.template_command("greeting", template="-R/templates/greet.md")
+    assert env.evaluate("hello/greeting") == "Hello, hello!"
+    store.set(lq.parse_key("templates/greet.md"), b"Hi, {{.}}.", lq.Metadata())
+    assert env.evaluate("hello/greeting") == "Hi, hello."
+
+def test_TEMPLATE04_top_level_expand_over_a_dict(env):
+    assert env.expand("{{name}} has {{$ number-42}}", data={"name": "Ann"}) == "Ann has 42"
+
+def test_TEMPLATE05_programmatic_call_matches_the_command(env):
+    by_query = env.evaluate("hello/ns-template/render-~X~-R/templates/greet.md~E")
+    assert env.render(lq.parse_query("-R/templates/greet.md"), state="hello") == by_query
+    template = env.evaluate("-R/templates/greet.md")
+    assert env.expand(template) == env.evaluate(
+        "-R/templates/greet.md/-/ns-template/expand")       # no data: both render "Hello, !"
+
+def test_TEMPLATE06_in_command_render_records_dependencies(env, store):
+    @env.command
+    def report(context) -> str:
+        return context.render(lq.parse_query("-R/templates/count.md"))
+    assert env.evaluate("report/out.txt") == "1"
+    store.set(lq.parse_key("d/count.txt"), b"2", lq.Metadata())
+    assert env.evaluate("report/out.txt") == "2"   # the command's result was invalidated
+
+def test_TEMPLATE07_strict_raises_with_position_recovering_mode_warns(env):
+    with pytest.raises(lq.Error) as e:
+        env.expand("ok\n{{$ missing_command}}")
+    assert (e.value.position.line, e.value.position.column) == (2, 1)
+    result = env.expand("ok\n{{$ missing_command}}", errors="silent", full=True)
+    assert result.text == "ok\n" and len(result.warnings) == 1
+
+def test_TEMPLATE08_html_escaping_follows_the_flag(env):
+    assert env.expand("{{v}}", data={"v": "<b>"}) == "<b>"
+    assert env.expand("{{v}}", data={"v": "<b>"}, html=True) == "&lt;b&gt;"
+
+def test_TEMPLATE09_validate_runs_nothing(env):
+    runs = []
+    @env.command
+    def tick() -> str:
+        runs.append(1); return "t"
+    diagnostics = env.validate("{{$ tick}} {{$ no_such_command}}")
+    assert runs == [] and len(diagnostics) == 1
+    assert diagnostics[0].severity and diagnostics[0].message and diagnostics[0].position
+
+def test_TEMPLATE10_nested_language_render_does_not_deadlock(env):
+    @env.command
+    def inner(context) -> str:
+        return context.expand("{{x}}", data={"x": "in"})
+    @env.command
+    def outer(context) -> str:
+        return context.expand("[{{$ inner}}]", data={})
+    assert env.evaluate("outer", timeout=5) == "[in]"
+
+def test_TEMPLATE11_relative_partial_resolves_against_cwd(env):
+    @env.command
+    def page(context, cwd: lq.Key = lq.link("-R-key/.")) -> str:
+        return context.render(lq.parse_query("-R/templates/page.md"), cwd=cwd)
+    assert env.evaluate("-R-cwd/templates/-/page") == "Header body"
+    assert env.render(lq.parse_query("-R/templates/page.md"),
+                      cwd=lq.parse_key("templates")) == "Header body"
 ```
 
 ### STORE
@@ -3182,6 +3692,7 @@ def test_PACKAGE07_artifact_carries_declarations_license_and_metadata():
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-25 | Two features. `DATANODE`: core's `DataNode` from the *language* — an adapter so a native structure (a Python `dict`, a JavaScript object) reads in place, agreeing with structural conversion, and an optional outbound view; tests `DATANODE01`–`11`. `TEMPLATE`: the `ns-template` commands in the built-in set, template commands declared as aliases from the *language*, and programmatic `render` / `expand` / `validate` on the environment and on a command's context, keeping the commands' frame layout; tests `TEMPLATE01`–`11`. §4 rows, soft dependencies and profiles; §2 *Data node*; §7 item 6; §8 references; Appendix A blueprints. §MODULE corrected: `Context::get_cwd_key` is crate-private, so the cwd comes from a `-R-key/.` argument. Gaps filed: `FOREIGN-VALUE-HAS-NO-DATA-NODE`, `TEMPLATE-TOP-LEVEL-RENDER-HAS-NO-HOST`, `WEB-HAS-NO-TEMPLATE-COMMANDS`. | maintainer request |
 | 2026-10-25 | §ERROR: map `ErrorCategory` — base classes in a typed hierarchy, a `categories` field otherwise. | `design/key-without-recipe-answer/` |
 | 2026-10-22 | §6 Python pitfalls: built environments are now freed; the handle-counting advice stays. | `design/environment-manager-reference-cycle/` |
 | 2026-10-19 | §6 Python links the new Python integration reference and Python guide. | `design/liquers-py/` (phase-5) |
