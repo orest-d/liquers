@@ -20,7 +20,7 @@ use liquers_core::{
     assets::AssetManager,
     command_metadata::CommandKey,
     context::{EnvRef, Environment, SimpleEnvironment},
-    error::Error,
+    error::{Error, ErrorType},
     metadata::{Metadata, MetadataRecord, Status},
     parse::parse_key,
     query::Key,
@@ -125,8 +125,8 @@ async fn metadata_only_entry_on_memory_store_is_recomputed() {
 }
 
 /// Without a recipe there is nothing to re-derive the value from, so the key answers exactly as a
-/// key the store does not hold: an `Error` state saying no recipe was found — not a failed `get`
-/// and not a corrupted entry.
+/// key the store does not hold: an `Error` state with `AssetNotFound` and the key — not a failed
+/// `get` and not a corrupted entry.
 #[tokio::test]
 async fn metadata_only_entry_without_recipe_answers_like_an_absent_key() {
     let root = temp_root("norecipe").await;
@@ -143,11 +143,10 @@ async fn metadata_only_entry_without_recipe_answers_like_an_absent_key() {
         let asset = envref.get_asset_manager().get(k).await.unwrap();
         let state = asset.get().await.unwrap();
         assert_eq!(state.metadata.status(), Status::Error, "{k}");
-        assert!(
-            state.metadata.message().contains("No recipe found"),
-            "{k}: {}",
-            state.metadata.message()
-        );
+        let error = state.metadata.error_result().expect_err("an Error state carries its error");
+        assert_eq!(error.error_type, ErrorType::AssetNotFound, "{k}: {}", error.message);
+        assert_eq!(error.key.as_deref(), Some(k.encode().as_str()), "{k}");
+        assert!(error.message.contains("no recipe produces it"), "{k}: {}", error.message);
     }
     assert_eq!(calls.load(Ordering::SeqCst), 0);
 

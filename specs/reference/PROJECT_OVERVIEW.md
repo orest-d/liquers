@@ -3,7 +3,7 @@ title: Liquers Project Overview
 kind: reference
 audience: internal
 area: [core/query, core/plan, core/assets, core/store, core/value]
-reviewed: 2026-10-20
+reviewed: 2026-10-25
 ---
 # Liquers Project Overview
 
@@ -464,6 +464,11 @@ Session (user session - currently minimal)
 
 ### Error Handling
 - `liquers_core::error::Error` with `ErrorType` enum
+- Overlapping `ErrorCategory` groups of error types (`ErrorType::categories`, `is`): `Store`,
+  `KeyedAsset` and `NotFound`. A store miss is `KeyNotFound` (`Store`, `NotFound`) — the value may
+  simply not be computed yet; a key neither stored nor made by a recipe is `AssetNotFound`
+  (`KeyedAsset`, `NotFound`). Python mirrors the categories as base classes, JavaScript as
+  `LiquersError.categories`
 - Position tracking for precise error location in queries
 - Query/Key context preserved in errors
 
@@ -563,6 +568,7 @@ project's purpose, intended uses and per-crate strategy. This document describes
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-25 | Error handling: `ErrorCategory` (`Store`, `KeyedAsset`, `NotFound`) and the `KeyNotFound` / `AssetNotFound` distinction. | `design/key-without-recipe-answer/` |
 | 2026-10-20 | "Special instructions" renamed planner instructions, reduced to the `ns`-is-variadic rule and a link to their definition in `RECIPES_AND_PLANS.md`; a resource header takes at most one instruction. | DOC-08 promotion |
 | 2026-10-19 | Added `liquers-mcp` and `liquers-agent` to the crate structure and the dependency flow, and the `mem` feature of `liquers-lib`. | `design/agent-memory-mvp/` |
 | 2026-10-17 | Added `liquers-template` to the crate structure and the dependency flow `liquers-core ← liquers-template ← liquers-lib` (feature `templates`). | `design/liquers-mustache/` |

@@ -2,7 +2,7 @@
 id: MISSING-RESOURCE-REPORTED-AS-GENERAL-ERROR
 kind: issue
 title: A key that is neither stored nor made by a recipe raises a General error without its key
-status: draft
+status: closed
 priority: P2
 complexity: M
 area: [core/assets, core/error]
@@ -47,3 +47,7 @@ for key …").with_key(key)`, and `Error::with_key` writes the `query` field, no
 together with `DEGRADED-STORED-VALUE-WITHOUT-RECIPE-REPORTS-NO-RECIPE` and
 `DIRECTORY-KEY-CANNOT-BE-EVALUATED-AS-A-RESOURCE` in `design/key-without-recipe-answer/` (one root
 cause: every fast-track decline ends at the recipe provider's error).
+
+## Resolution
+
+2026-10-25, `design/key-without-recipe-answer/`. A key that is neither stored nor made by a recipe now fails with `ErrorType::AssetNotFound` (`Error::asset_not_found`), `key` set, HTTP 404; Python raises `AssetNotFoundError`, which is a `KeyedAssetError` and a `NotFoundError`. Tests: `liquers-core/src/assets.rs` `key_without_recipe_tests::missing_key_without_recipe_is_asset_not_found`, `metadata_only_key_without_recipe_is_asset_not_found`; `liquers-py/tests/test_EVAL_evaluation.py::test_EVAL_missing_resource_raises_asset_not_found`; `liquers-axum/tests/assets_api_endpoints.rs` `aae92_submit_of_an_unmakeable_key_is_asset_not_found`.

@@ -3,7 +3,7 @@ title: Record Streams
 kind: reference
 audience: internal
 area: [records, lib/value, lib/commands, web]
-reviewed: 2026-10-20
+reviewed: 2026-10-25
 ---
 
 # Record Streams
@@ -808,10 +808,10 @@ Queries (all validated with `liquers-validate`):
 ```
 
 `-R/data/orders.csv/-/ns-rec/rec_id-42` validates but is refused at run time: a CSV read without a
-schema has no `Id`. A directory is listed through the `sdir` header —
-`-R-sdir/data/-/ns-rec/file_records/files.csv` — which yields the store's listing and carries the
-directory's key into the command; a plain `-R/data/…` asks for a value *at* the key, which a
-directory does not hold, and fails.
+schema has no `Id`. A directory is listed with `-R/data/-/ns-rec/file_records/files.csv`: a store
+directory with no recipe is a `Directory` state naming its key, which the command reads. The `sdir`
+header — `-R-sdir/data/-/ns-rec/file_records/files.csv` — works too: it yields the store's listing
+and carries the directory's key into the command.
 
 ## Serialization
 
@@ -870,6 +870,7 @@ materializes to an empty batch; without one it is an error.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-25 | §Commands: a directory is listed with plain `-R/<dir>/-/ns-rec/file_records` (a `Directory` state); `-R-sdir/` still works. | `design/key-without-recipe-answer/` |
 | 2026-10-20 | §Parquet: the polars read path honours a declared schema and restores `liquers.schema` (formats table row updated). | `design/parquet-read-declared-schema/` |
 | 2026-10-19 | Crate table: `liquers-web`'s `records` feature is opt-in (release wasm 12.4 MB without it, 16.5 MB with it). | `claude/web-records-opt-in` |
 | 2026-10-13 | `ns-rec` table operations (filters, `sort`, `tail`, `drop_columns`, counts, `schema` with `records_schema` as alias); `select_columns` / `head` lazy over sources; `MappedSource`, `RecordBatch::empty`, `Column::sort_indices`, `StrictPredicate`; DataFrame input; lenient `IndexKind` / `Analyzer` / `FieldRole` deserialization; JSON-first `schema` argument; the `ns-rec` ↔ `ns-pl` comparison. | `design/record-filter-commands/` |

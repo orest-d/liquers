@@ -11,9 +11,23 @@ Liquers receives it::
 
 The subclasses are generated from the native ``ErrorType`` by ``_install``, so a variant added in
 Rust appears here without a code change.
+
+Error types also fall into overlapping categories (``ErrorType.categories()``), each with its own
+abstract base class: ``StoreError`` (every store error), ``KeyedAssetError`` (the same for keyed
+assets) and ``NotFoundError`` (``KeyNotFound`` and ``AssetNotFound``; also a ``LookupError``). A
+variant's class derives from the class of every category it is in, so one ``except`` clause can
+catch a whole category::
+
+    try:
+        env.evaluate("-R/data/missing.txt")
+    except lq.NotFoundError as e:      # KeyNotFoundError (store) or AssetNotFoundError (no recipe)
+        ...
 """
 
 _SUBCLASSES = {}
+
+# Extra Python bases of a category class, beyond ``LiquersError``.
+_CATEGORY_EXTRA_BASES = {"NotFound": (LookupError,)}
 
 
 def _subclass_name(variant_name):
@@ -72,16 +86,29 @@ def _variant_name(error_type):
 
 
 def _install(error_type_class):
-    """Generate one subclass per ErrorType variant. Returns them by name, for re-export."""
+    """Generate one class per error category and one subclass per ErrorType variant.
+
+    Returns them all by name, for re-export.
+    """
     global _ERROR_TYPE_CLASS
     _ERROR_TYPE_CLASS = error_type_class
     generated = {}
+    categories = {}
+    for category in error_type_class.all_categories():
+        class_name = category + "Error"
+        bases = (LiquersError,) + _CATEGORY_EXTRA_BASES.get(category, ())
+        # No `_error_type`: like LiquersError itself, a category class needs an explicit ErrorType.
+        categories[category] = type(class_name, bases, {"__module__": "liquers"})
+        generated[class_name] = categories[category]
     for name in dir(error_type_class):
         member = getattr(error_type_class, name)
         if not isinstance(member, error_type_class):
             continue
         class_name = _subclass_name(name)
-        subclass = type(class_name, (LiquersError,), {"_error_type": member, "__module__": "liquers"})
+        if class_name in generated:
+            raise RuntimeError(f"error class name {class_name} is both a category and a variant")
+        bases = tuple(categories[c] for c in member.categories()) or (LiquersError,)
+        subclass = type(class_name, bases, {"_error_type": member, "__module__": "liquers"})
         _SUBCLASSES[name] = subclass
         generated[class_name] = subclass
     globals().update(generated)

@@ -302,6 +302,14 @@ collapses onto the adapter's fallback type, and the distinction between "absent"
 "backend broke" is lost at the boundary. Decide this when `ERROR` is designed, not when the first
 service adapter needs it.
 
+**Map the categories too.** `ErrorType::categories()` groups types into overlapping
+`ErrorCategory` sets (`Store`, `KeyedAsset`, `NotFound`; `KeyNotFound` is in `Store` and
+`NotFound`). A language with typed exceptions gives each category a base class and derives each
+type's class from all of its categories' classes (Python: `StoreError`, `KeyedAssetError`,
+`NotFoundError`); one with a single error class exposes the names (JavaScript:
+`LiquersError.categories`, `["store", "not_found"]`). Generate both from the enums, so a new type
+or category needs no binding change.
+
 **Issues and patterns.** String-only conversion loses diagnostics. Use a structured payload and preserve the original language class/stack as context. Default an unmapped command exception to `ExecutionError`; conversion failures should be `ConversionError`, not execution failures. Never allow a foreign exception to unwind through FFI.
 
 **Meaningful tests:** `ERROR01` every `ErrorType` maps; `ERROR02` fields survive Rust-to-language-to-Rust; `ERROR03` language exception includes class and stack **as observed on the evaluation path** — raised by a *language command* and caught by the caller, not by calling the conversion helper directly; `ERROR04` invalid or non-error throw has a safe fallback; `ERROR05` no panic crosses the boundary; `ERROR06` an error *raised* in the *language* keeps its type when Liquers receives it — the reverse direction of `ERROR02`, and `NA` only where the design deliberately gives the *language* no way to construct one, which then constrains every service adapter.
@@ -3685,6 +3693,7 @@ def test_PACKAGE07_artifact_carries_declarations_license_and_metadata():
 | Date | Change | Source |
 |---|---|---|
 | 2026-10-25 | Two features. `DATANODE`: core's `DataNode` from the *language* — an adapter so a native structure (a Python `dict`, a JavaScript object) reads in place, agreeing with structural conversion, and an optional outbound view; tests `DATANODE01`–`11`. `TEMPLATE`: the `ns-template` commands in the built-in set, template commands declared as aliases from the *language*, and programmatic `render` / `expand` / `validate` on the environment and on a command's context, keeping the commands' frame layout; tests `TEMPLATE01`–`11`. §4 rows, soft dependencies and profiles; §2 *Data node*; §7 item 6; §8 references; Appendix A blueprints. §MODULE corrected: `Context::get_cwd_key` is crate-private, so the cwd comes from a `-R-key/.` argument. Gaps filed: `FOREIGN-VALUE-HAS-NO-DATA-NODE`, `TEMPLATE-TOP-LEVEL-RENDER-HAS-NO-HOST`, `WEB-HAS-NO-TEMPLATE-COMMANDS`. | maintainer request |
+| 2026-10-25 | §ERROR: map `ErrorCategory` — base classes in a typed hierarchy, a `categories` field otherwise. | `design/key-without-recipe-answer/` |
 | 2026-10-22 | §6 Python pitfalls: built environments are now freed; the handle-counting advice stays. | `design/environment-manager-reference-cycle/` |
 | 2026-10-19 | §6 Python links the new Python integration reference and Python guide. | `design/liquers-py/` (phase-5) |
 | 2026-10-19 | §6 Python: an *Errors* entry. Nested Python tracebacks are concatenated innermost first, and the cross-language structure is an open problem (`MULTI-LANGUAGE-TRACEBACK-IS-A-FLAT-STRING`). | `design/liquers-py/` (phase-5) |

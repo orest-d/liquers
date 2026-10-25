@@ -137,6 +137,8 @@ async function main(): Promise<void> {
   const notFound = new liquers.LiquersError('key_not_found', 'no such key: a.txt');
   const keyed = new liquers.LiquersError('key_not_found', 'no such key', '-R/data/a.txt');
   const errorType: string = notFound.errorType;
+  const categories: string[] = notFound.categories;
+  void categories;
   const errorQuery: string | undefined = keyed.query;
   void errorType;
   void errorQuery;

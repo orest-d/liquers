@@ -3,7 +3,7 @@ title: Store Behavioural Semantics
 kind: reference
 audience: internal
 area: [core/store, store/backends, web]
-reviewed: 2026-10-20
+reviewed: 2026-10-25
 ---
 # Store Behavioural Semantics
 
@@ -155,6 +155,11 @@ The distinction between "not there" and "could not tell" is load-bearing: a stor
 403 as `Ok(false)` from `is_dir` tells a caller a directory does not exist when the truth is that
 permission was refused. Match the backend's not-found condition specifically rather than testing
 whether a result is an error.
+
+A store answers a miss with `KeyNotFound`, which may only mean that the value has not been computed
+yet. `AssetNotFound` is the asset layer's answer for a key that is neither stored nor made by any
+recipe; a store never raises it. Both are in `ErrorCategory::NotFound`, so a caller that means
+either tests `error_type.is(ErrorCategory::NotFound)`.
 
 `listdir` follows the same distinction: an absent **addressable** directory has no children, so it
 returns `Ok([])`. This is what lets a router enumerate a newly configured member whose prefix has
@@ -645,6 +650,7 @@ commits. So:
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-25 | §4: a store miss is `KeyNotFound`, never `AssetNotFound`, which the asset layer reserves for a key that is neither stored nor made by a recipe (both are in `ErrorCategory::NotFound`). | `design/key-without-recipe-answer/` |
 | 2026-10-20 | §10: a store may return data whose record has no status; the asset layer reads it as a file with no metadata. | phase-5 (`design/js-store-page-metadata-status/`) |
 | 2026-10-16 | §11: `LocalStorageStore` and `FetchStore` (read half) offer data-only access; `FetchStore::get_stored_metadata` returns its header-derived record. | `design/store-adapters/` phase-5 review |
 | 2026-10-16 | Introduction: Liquers assumes it is the only writer of a store's metadata while it runs (outside data edits are detected, outside metadata edits are not). §13: `created` falls back to the write time on a backend without modification times; the record cache's limit stated. | `design/store-adapters/` phase-5 review |

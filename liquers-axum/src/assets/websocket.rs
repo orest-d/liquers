@@ -356,7 +356,7 @@ async fn request<E: Environment>(
             let asset = match query.key() {
                 Some(key) => {
                     if !manager.can_make(&key).await? {
-                        return Err(Error::key_not_found(&key));
+                        return Err(Error::asset_not_found(&key));
                     }
                     manager.get(&key).await?
                 }
@@ -371,7 +371,7 @@ async fn request<E: Environment>(
         Family::Key => {
             let key = parse_key(address)?;
             if !manager.can_make(&key).await? {
-                return Err(Error::key_not_found(&key));
+                return Err(Error::asset_not_found(&key));
             }
             let asset = manager.get(&key).await?;
             Ok(Subscribed {

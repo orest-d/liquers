@@ -25,6 +25,17 @@ pub enum ErrorType {
     NotSupported,
     NotAvailable,
     KeyNotFound,
+    /// Nothing is stored at the key and no recipe produces it: no evaluation can make the asset.
+    ///
+    /// Distinct from [`ErrorType::KeyNotFound`], a store miss that a recipe may still answer —
+    /// the stored value may simply not have been computed yet. Both are in
+    /// [`ErrorCategory::NotFound`].
+    AssetNotFound,
+    /// This environment cannot serve the key as an asset: its stored value has a type this build
+    /// cannot read, or a recipe claims a key the store holds as a directory. The keyed-asset
+    /// counterpart of [`ErrorType::KeyNotSupported`]; distinct from [`ErrorType::NotSupported`],
+    /// an operation that is never available.
+    AssetNotSupported,
     KeyNotSupported,
     /// A store was given a key that is not absolute — some segment is `.` or `..`.
     ///
@@ -54,6 +65,81 @@ pub enum ErrorType {
     /// [`ErrorType::ParseError`]; an unknown or unavailable store type is
     /// [`ErrorType::NotSupported`].
     ConfigurationError,
+}
+
+/// A group of error types a caller can test, or catch, at once.
+///
+/// The groups overlap — they form a directed graph, not a tree: [`ErrorType::KeyNotFound`] is both
+/// a [`ErrorCategory::Store`] error and a [`ErrorCategory::NotFound`] one. Membership is fixed per
+/// type ([`ErrorType::categories`]), never per error instance. The bindings mirror it: Python
+/// generates one base class per category, JavaScript reports the names in `categories`.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash, Copy)]
+pub enum ErrorCategory {
+    /// Raised by a store: `KeyNotFound`, `KeyNotSupported`, `KeyNotAbsolute`, `KeyReadError`,
+    /// `KeyWriteError`.
+    Store,
+    /// The counterpart of [`ErrorCategory::Store`] for keyed assets: `AssetNotFound`,
+    /// `AssetNotSupported`.
+    KeyedAsset,
+    /// Nothing at the key: `KeyNotFound` (nothing stored) and `AssetNotFound` (nothing stored and
+    /// no recipe).
+    NotFound,
+}
+
+impl ErrorCategory {
+    /// Every category, in declaration order.
+    pub const ALL: [ErrorCategory; 3] = [
+        ErrorCategory::Store,
+        ErrorCategory::KeyedAsset,
+        ErrorCategory::NotFound,
+    ];
+}
+
+impl ErrorType {
+    /// The categories this type belongs to; empty for a type in none.
+    ///
+    /// The match is exhaustive, so a new variant has to be placed here.
+    pub fn categories(&self) -> &'static [ErrorCategory] {
+        const STORE: &[ErrorCategory] = &[ErrorCategory::Store];
+        const STORE_NOT_FOUND: &[ErrorCategory] = &[ErrorCategory::Store, ErrorCategory::NotFound];
+        const ASSET: &[ErrorCategory] = &[ErrorCategory::KeyedAsset];
+        const ASSET_NOT_FOUND: &[ErrorCategory] =
+            &[ErrorCategory::KeyedAsset, ErrorCategory::NotFound];
+        match self {
+            ErrorType::KeyNotFound => STORE_NOT_FOUND,
+            ErrorType::AssetNotFound => ASSET_NOT_FOUND,
+            ErrorType::AssetNotSupported => ASSET,
+            ErrorType::KeyNotSupported
+            | ErrorType::KeyNotAbsolute
+            | ErrorType::KeyReadError
+            | ErrorType::KeyWriteError => STORE,
+            ErrorType::ArgumentMissing
+            | ErrorType::ActionNotRegistered
+            | ErrorType::CommandAlreadyRegistered
+            | ErrorType::ParseError
+            | ErrorType::ParameterError
+            | ErrorType::TooManyParameters
+            | ErrorType::ConversionError
+            | ErrorType::SerializationError
+            | ErrorType::General
+            | ErrorType::CacheNotSupported
+            | ErrorType::UnknownCommand
+            | ErrorType::NotSupported
+            | ErrorType::NotAvailable
+            | ErrorType::UnexpectedError
+            | ErrorType::ExecutionError
+            | ErrorType::DependencyVersionMismatch
+            | ErrorType::DependencyCycle
+            | ErrorType::StatusConflict
+            | ErrorType::Cancelled
+            | ErrorType::ConfigurationError => &[],
+        }
+    }
+
+    /// Whether this type belongs to `category`.
+    pub fn is(&self, category: ErrorCategory) -> bool {
+        self.categories().contains(&category)
+    }
 }
 
 /// The payload of an [`Error`], held behind a single [`Box`].
@@ -392,6 +478,25 @@ impl Error {
     }
     pub fn key_not_found(key: &Key) -> Self {
         Error::new(ErrorType::KeyNotFound, format!("Key not found: '{}'", key))
+    }
+    /// A key the store holds no value for and no recipe produces ([`ErrorType::AssetNotFound`],
+    /// `key` set).
+    pub fn asset_not_found(key: &Key) -> Self {
+        let mut error = Error::new(
+            ErrorType::AssetNotFound,
+            format!(
+                "Asset '{}' not found: the store holds no value for it and no recipe produces it",
+                key
+            ),
+        );
+        error.key = Some(key.encode());
+        error
+    }
+    /// A keyed asset this environment cannot serve ([`ErrorType::AssetNotSupported`], `key` set).
+    pub fn asset_not_supported(key: &Key, message: String) -> Self {
+        let mut error = Error::new(ErrorType::AssetNotSupported, message);
+        error.key = Some(key.encode());
+        error
     }
     pub fn key_not_supported(key: &Key, store_name: &str) -> Self {
         let mut error = Error::new(
@@ -794,5 +899,67 @@ mod tests {
         // And the round trip back into an Error is lossless.
         let rebuilt: Error = Error::from(payload);
         assert_eq!(rebuilt, Error::not_supported("no".to_string()));
+    }
+
+    #[test]
+    fn asset_not_found_sets_type_and_key() {
+        let key = crate::parse::parse_key("data/missing.txt").unwrap();
+        let error = Error::asset_not_found(&key);
+        assert_eq!(error.error_type, ErrorType::AssetNotFound);
+        assert_eq!(error.key.as_deref(), Some("data/missing.txt"));
+        assert!(error.message.contains("no recipe produces it"), "{}", error.message);
+        let error = Error::asset_not_supported(&key, "cannot".to_string());
+        assert_eq!(error.error_type, ErrorType::AssetNotSupported);
+        assert_eq!(error.key.as_deref(), Some("data/missing.txt"));
+    }
+
+    #[test]
+    fn categories_of_every_variant() {
+        use ErrorCategory::{KeyedAsset, NotFound, Store};
+        let all = [
+            ErrorType::ArgumentMissing,
+            ErrorType::ActionNotRegistered,
+            ErrorType::CommandAlreadyRegistered,
+            ErrorType::ParseError,
+            ErrorType::ParameterError,
+            ErrorType::TooManyParameters,
+            ErrorType::ConversionError,
+            ErrorType::SerializationError,
+            ErrorType::General,
+            ErrorType::CacheNotSupported,
+            ErrorType::UnknownCommand,
+            ErrorType::NotSupported,
+            ErrorType::NotAvailable,
+            ErrorType::KeyNotFound,
+            ErrorType::AssetNotFound,
+            ErrorType::AssetNotSupported,
+            ErrorType::KeyNotSupported,
+            ErrorType::KeyNotAbsolute,
+            ErrorType::KeyReadError,
+            ErrorType::KeyWriteError,
+            ErrorType::UnexpectedError,
+            ErrorType::ExecutionError,
+            ErrorType::DependencyVersionMismatch,
+            ErrorType::DependencyCycle,
+            ErrorType::StatusConflict,
+            ErrorType::Cancelled,
+            ErrorType::ConfigurationError,
+        ];
+        for t in all {
+            let expected: &[ErrorCategory] = match t {
+                ErrorType::KeyNotFound => &[Store, NotFound],
+                ErrorType::AssetNotFound => &[KeyedAsset, NotFound],
+                ErrorType::AssetNotSupported => &[KeyedAsset],
+                ErrorType::KeyNotSupported
+                | ErrorType::KeyNotAbsolute
+                | ErrorType::KeyReadError
+                | ErrorType::KeyWriteError => &[Store],
+                _ => &[],
+            };
+            assert_eq!(t.categories(), expected, "{:?}", t);
+            for c in ErrorCategory::ALL {
+                assert_eq!(t.is(c), expected.contains(&c), "{:?} {:?}", t, c);
+            }
+        }
     }
 }

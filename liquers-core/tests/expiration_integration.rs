@@ -862,6 +862,13 @@ impl AsyncStore for WP3CountingStore {
     async fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
         self.inner.get(key).await
     }
+    // `contains` is how the recipe provider finds a folder's `recipes.yaml` (`recipe_opt`).
+    async fn contains(&self, key: &Key) -> Result<bool, Error> {
+        self.inner.contains(key).await
+    }
+    async fn is_dir(&self, key: &Key) -> Result<bool, Error> {
+        self.inner.is_dir(key).await
+    }
     async fn set(&self, key: &Key, data: &[u8], metadata: &Metadata) -> Result<(), Error> {
         self.set_calls.fetch_add(1, Ordering::SeqCst);
         self.inner.set(key, data, metadata).await
@@ -914,6 +921,15 @@ impl ToOverrideGateStore {
 impl AsyncStore for ToOverrideGateStore {
     async fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
         self.inner.get(key).await
+    }
+
+    // `contains` is how the recipe provider finds a folder's `recipes.yaml` (`recipe_opt`).
+    async fn contains(&self, key: &Key) -> Result<bool, Error> {
+        self.inner.contains(key).await
+    }
+
+    async fn is_dir(&self, key: &Key) -> Result<bool, Error> {
+        self.inner.is_dir(key).await
     }
 
     async fn set(&self, key: &Key, data: &[u8], metadata: &Metadata) -> Result<(), Error> {
@@ -982,10 +998,10 @@ where
         old.id(),
         "replacement must detach the old AssetRef"
     );
-    // This fixture supplies the recipe through the evaluated query rather than the recipe
-    // provider's keyed lookup, so an externally supplied state is a Source.  The race contract
-    // is that this newer state, whatever its normal status resolution is, wins cache and store.
-    assert_eq!(current.status().await, Status::Source);
+    // The key has a recipe (the fixture's `recipes.yaml`), so an externally supplied state is an
+    // Override.  The race contract is that this newer state, whatever its normal status
+    // resolution is, wins cache and store.
+    assert_eq!(current.status().await, Status::Override);
     assert_eq!(current.get().await?.try_into_string()?, "new");
     assert_eq!(
         old.status().await,
@@ -995,7 +1011,7 @@ where
 
     let (stored_bytes, stored_metadata) = store.inner.get(&key).await?;
     assert_eq!(stored_bytes, b"new");
-    assert_eq!(stored_metadata.status(), Status::Source);
+    assert_eq!(stored_metadata.status(), Status::Override);
     Ok(())
 }
 
@@ -1155,6 +1171,11 @@ impl AsyncStore for RecipesOnlyFailingSetStore {
         } else {
             Err(Error::key_not_found(key))
         }
+    }
+
+    // `contains` is how the recipe provider finds a folder's `recipes.yaml` (`recipe_opt`).
+    async fn contains(&self, key: &Key) -> Result<bool, Error> {
+        Ok(key.encode() == "recipes.yaml")
     }
 
     async fn set(&self, key: &Key, _data: &[u8], _metadata: &Metadata) -> Result<(), Error> {

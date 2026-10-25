@@ -109,7 +109,7 @@ async fn amr01_remove_source_no_recipe_cascades() -> Result<(), Box<dyn std::err
 
     assert!(!store.contains(&notes_key).await?, "store must not hold the removed source");
     let err = am.get_asset_info(&notes_key).await.expect_err("removed source is gone");
-    assert_eq!(err.error_type, ErrorType::KeyNotFound);
+    assert_eq!(err.error_type, ErrorType::AssetNotFound);
     assert_eq!(
         am.get_asset_info(&summary_key).await?.status,
         Status::Expired,
@@ -198,7 +198,7 @@ async fn amr05_remove_nonexistent_key_not_found() -> Result<(), Box<dyn std::err
     let key = parse_key("phantom/file.txt")?;
 
     let err = within(am.remove(&key)).await.expect_err("no value, no recipe");
-    assert_eq!(err.error_type, ErrorType::KeyNotFound);
+    assert_eq!(err.error_type, ErrorType::AssetNotFound);
     Ok(())
 }
 
@@ -311,7 +311,7 @@ async fn amr15_expire_absent_key_not_found() -> Result<(), Box<dyn std::error::E
     let key = parse_key("nonexistent.txt")?;
 
     let err = within(am.expire(&key)).await.expect_err("nothing live, nothing stored, no recipe");
-    assert_eq!(err.error_type, ErrorType::KeyNotFound);
+    assert_eq!(err.error_type, ErrorType::AssetNotFound);
     Ok(())
 }
 
@@ -476,7 +476,7 @@ async fn amr30_removedir_deletes_stored_keys_recursively() -> Result<(), Box<dyn
     assert!(!store.contains(&file2).await?);
     assert!(!store.contains(&subdir_file).await?);
     let err = am.get_asset_info(&root_key).await.expect_err("directory removed");
-    assert_eq!(err.error_type, ErrorType::KeyNotFound);
+    assert_eq!(err.error_type, ErrorType::AssetNotFound);
     Ok(())
 }
 
@@ -497,7 +497,7 @@ async fn amr31_removedir_source_child_cascades_dependents() -> Result<(), Box<dy
     within(am.removedir(&data_key)).await?;
 
     let err = am.get_asset_info(&source_key).await.expect_err("source is gone");
-    assert_eq!(err.error_type, ErrorType::KeyNotFound);
+    assert_eq!(err.error_type, ErrorType::AssetNotFound);
     assert_eq!(am.get_asset_info(&derived_key).await?.status, Status::Expired, "dependent cascades");
     Ok(())
 }
@@ -535,7 +535,7 @@ async fn amr33_removedir_takes_recipe_declared_keys() -> Result<(), Box<dyn std:
     within(am.removedir(&data_key)).await?;
 
     let err = am.get_asset_info(&recipe_only_key).await.expect_err("recipe went with the directory");
-    assert_eq!(err.error_type, ErrorType::KeyNotFound);
+    assert_eq!(err.error_type, ErrorType::AssetNotFound);
     Ok(())
 }
 

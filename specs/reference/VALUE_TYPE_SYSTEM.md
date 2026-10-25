@@ -3,7 +3,7 @@ title: Value Type System
 kind: reference
 audience: internal
 area: [core/value, lib/value]
-reviewed: 2026-10-21
+reviewed: 2026-10-25
 ---
 
 # Value Type System
@@ -379,8 +379,8 @@ a differently configured environment, and decoding them is exactly what the regi
 of. `liquers-py` relies on this: with its pickle codec off it registers `py.Object` with no
 formats, so a pickle-off environment never unpickles bytes a pickle-on one stored. No built-in
 type is affected, because every one that can be stored declares a format. The error says which of
-the two reasons applies (`degraded_reason`). On the `-R/` path, a degraded key with no recipe is
-still reported as "No recipe found" (`DEGRADED-STORED-VALUE-WITHOUT-RECIPE-REPORTS-NO-RECIPE`).
+the two reasons applies (`degraded_reason`); its type is `AssetNotSupported`, with the key. On the
+`-R/` path a degraded key with no recipe fails with the same error.
 
 **An undeclared data format reads as the type's default.** When the stored metadata declares no
 `data_format` (a key without an extension, written by a state that chose none), the bytes are read
@@ -427,6 +427,7 @@ degrades on read.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-25 | §Reading: a degraded value is `AssetNotSupported`, and the `-R/` path with no recipe reports it. | `design/key-without-recipe-answer/` |
 | 2026-10-21 | §Reading: a stored value whose metadata declares no data format is read in its type's default format, not `bin`. | `design/stored-value-default-data-format/` (`STORED-VALUE-WITHOUT-DATA-FORMAT-READ-AS-BIN`) |
 | 2026-10-20 | Links to `reference/api/DOC_08_RECIPES_PLANS.md` follow its promotion to `reference/RECIPES_AND_PLANS.md`. | DOC-08 promotion |
 | 2026-10-18 | Reviewed against the implemented `liquers-py` (phase-5): §Reading's foreign decoder and formatless read rule match `liquers-lib/src/value/foreign.rs` and `liquers-core/src/assets.rs`. | `design/liquers-py/` (phase-5) |

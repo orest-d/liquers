@@ -3,7 +3,7 @@ title: Asset Evaluation — Flows and Public Surface
 kind: reference
 audience: internal
 area: [core/assets]
-reviewed: 2026-10-20
+reviewed: 2026-10-25
 ---
 # Asset Evaluation — Flows and Public Surface
 
@@ -212,7 +212,30 @@ independent questions about every recorded dependency.
 only, and every store answers such a key's `get` with `KeyNotFound` (`STORE_SEMANTICS.md` §2).
 The fast track treats that answer as "no bytes": it skips deserialization, logs no corruption, and
 falls through to evaluating the recipe. With no recipe the key answers exactly as an absent one, an
-`Error` state saying no recipe was found (`liquers-core/tests/metadata_only_entry_reload.rs`).
+`Error` state with `AssetNotFound` (`liquers-core/tests/metadata_only_entry_reload.rs`).
+
+**When nothing recomputes the key, the fast track's reason is the answer.** The fast track records
+why it declined a stored value, and the evaluation reports it when the recipe provider has no
+recipe for the key (`recipe_opt` is `None`; a provider error still propagates):
+
+| Fast track declined because | Answer with no recipe |
+|---|---|
+| nothing is stored, or a metadata-only entry, or a stored status with no value (`Recipe`) | `AssetNotFound`, `key` set |
+| a stored `Error` / `Cancelled` | the stored error, `key` set |
+| any other status that is not reused (`Expired`, `Partial`, …) | `StatusConflict` |
+| a degraded value (type not readable here) | `AssetNotSupported`, as `get_any_status` reports it |
+| unreadable bytes | the deserializer's error, `key` set |
+| an outside change treated as corrupted; a stale dependency | a `General` error saying so, `key` set |
+
+With a recipe the recipe is evaluated as before.
+
+**A store directory is a `Directory` state.** When `get` answers `KeyNotFound` and the store
+reports the key as a directory, `-R/<dir>` finishes at once, with no job: status `Directory`, value
+none, metadata naming the key with `is_dir`, which the next action receives
+(`-R/data/-/ns-rec/file_records`). The asset is evicted on the next request, like `Volatile`, so the
+directory is re-read every time, and nothing is stored for it. A recipe for a key the store holds as
+a directory is not supported: the evaluation fails with `AssetNotSupported` and the recipe is not
+run.
 
 | Question | Answered from | Catches |
 |---|---|---|
@@ -345,6 +368,7 @@ arrives mid-evaluation and must join the first rather than be turned away.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-25 | §Reusing a stored asset: with no recipe, the fast track's reason for declining is the answer (`AssetNotFound` for an absent or metadata-only key); a store directory is a `Directory` state, never cached; a recipe for a directory key fails with `AssetNotSupported`. | `design/key-without-recipe-answer/` |
 | 2026-10-20 | Links to `reference/api/DOC_08_RECIPES_PLANS.md` follow its promotion to `reference/RECIPES_AND_PLANS.md`. | DOC-08 promotion |
 | 2026-10-20 | §Reusing a stored asset: a stored record with no status and no version is first read as `Source` (no recipe) or `Ready` (recipe), with a warning; a dependency with status `None` is inconclusive. | phase-5 (`design/js-store-page-metadata-status/`) |
 | 2026-10-20 | §7: a caller parked on an inline run takes the run over when the runner's future is dropped; `INLINE-DROP-REPAIR-STRANDS-EXISTING-WAITERS` is fixed. | `design/inline-waiter-recovers-dropped-run/` |

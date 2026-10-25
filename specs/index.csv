@@ -122,7 +122,7 @@ CWD-DEFAULT-LINK-WARNS-WITHOUT-WORKING-DIRECTORY,issue,The recommended cwd defau
 CWD-KEY-LINK-NOT-CONSUMABLE-BY-COMMAND,issue,A `-R-key/` link cannot be consumed as a command argument,closed,local,,,,P1,S,core/commands;core/query,,,,plan-cwd-freeze,,2026-08-15,specs/issues/CWD-KEY-LINK-NOT-CONSUMABLE-BY-COMMAND.md
 DATA-FORMAT-CONSTANTS-AND-TOOLING,feature,"Data formats are bare string literals with no constants, validation, or generic serde path",draft,local,,needs-decision,not-eligible,P2,L,core/value;lib/value;lib/commands;macro,,,,data-format-vocabulary,,2026-08-18,specs/issues/DATA-FORMAT-CONSTANTS-AND-TOOLING.md
 DEFAULT-ASSET-MANAGER-RECIPE-OPT-SKIPS-PAYLOAD-CHECK,issue,DefaultAssetManager's recipe_opt override skips the payload-required rejection,closed,local,,ready,eligible,P2,M,core/assets,,,,default-asset-manager-recipe-opt-payload-check,,2026-09-25,specs/issues/DEFAULT-ASSET-MANAGER-RECIPE-OPT-SKIPS-PAYLOAD-CHECK.md
-DEGRADED-STORED-VALUE-WITHOUT-RECIPE-REPORTS-NO-RECIPE,issue,"Evaluating a stored value this build cannot read fails with ""No recipe found"" instead of naming the type",draft,local,,ready,not-eligible,P2,S,core/assets,,,,key-without-recipe-answer,,2026-10-18,specs/issues/DEGRADED-STORED-VALUE-WITHOUT-RECIPE-REPORTS-NO-RECIPE.md
+DEGRADED-STORED-VALUE-WITHOUT-RECIPE-REPORTS-NO-RECIPE,issue,"Evaluating a stored value this build cannot read fails with ""No recipe found"" instead of naming the type",closed,local,,ready,not-eligible,P2,S,core/assets,,,,key-without-recipe-answer,,2026-10-18,specs/issues/DEGRADED-STORED-VALUE-WITHOUT-RECIPE-REPORTS-NO-RECIPE.md
 DELEGATED-VALUE-REPERSISTED,issue,An asset that delegates to a key's owner writes the owner's value to the store again,closed,local,,covered,not-eligible,P3,S,core/assets,,,,delegated-value-persistence,,2026-08-12,specs/issues/DELEGATED-VALUE-REPERSISTED.md
 DEPENDENCY-ANALYSIS-REWALKS-UPSTREAM-PER-EVALUATION,feature,Each plan analysis re-walks the whole upstream recipe graph,draft,local,,ready,not-eligible,P3,M,core/plan;core/assets,,,,payload-requirement-skips-dependency-analysis,,2026-10-08,specs/issues/DEPENDENCY-ANALYSIS-REWALKS-UPSTREAM-PER-EVALUATION.md
 DEPENDENCY-ANALYSIS-SUMMARIES-NOT-REUSED-ACROSS-EVALUATIONS,feature,Every evaluation re-walks its whole upstream recipe graph to recompute summaries it already computed,draft,local,,,,P3,M,core/plan;core/assets,,,,,,2026-10-20,specs/issues/DEPENDENCY-ANALYSIS-SUMMARIES-NOT-REUSED-ACROSS-EVALUATIONS.md
@@ -139,7 +139,7 @@ DEPENDENT-ASSET-WEAK-REFERENCES-ARE-NEVER-PRUNED,issue,"The dependency manager n
 DESCRIBING-AN-ASSET-CAN-TRIGGER-ITS-EVALUATION,issue,Describing an asset can trigger its evaluation,closed,local,,,,P1,M,core/assets,,,,axum-assets-endpoints,,2026-09-17,specs/issues/DESCRIBING-AN-ASSET-CAN-TRIGGER-ITS-EVALUATION.md
 DESERIALIZATION-RECEIVES-NO-METADATA,issue,"Deserialization receives only bytes, a type identifier and a data format, never the stored metadata",draft,local,,needs-decision,not-eligible,P3,M,core/value;core/assets,,,,deserialization-with-metadata,,2026-10-19,specs/issues/DESERIALIZATION-RECEIVES-NO-METADATA.md
 DESIGNER-INIT-FEATURE-ACCEPTS-FLAGS-AS-NAMES,issue,"Designer init_feature.py treats any argument, including --help, as a feature name",closed,local,,ready,,P3,S,docs,,,,designer-init-argument-parsing,,2026-09-27,specs/issues/DESIGNER-INIT-FEATURE-ACCEPTS-FLAGS-AS-NAMES.md
-DIRECTORY-KEY-CANNOT-BE-EVALUATED-AS-A-RESOURCE,issue,"A query on a directory resource fails with ""No recipe found"" instead of giving a Directory state",draft,local,,ready,not-eligible,P3,M,core/assets,,,,key-without-recipe-answer,,2026-09-26,specs/issues/DIRECTORY-KEY-CANNOT-BE-EVALUATED-AS-A-RESOURCE.md
+DIRECTORY-KEY-CANNOT-BE-EVALUATED-AS-A-RESOURCE,issue,"A query on a directory resource fails with ""No recipe found"" instead of giving a Directory state",closed,local,,ready,not-eligible,P3,M,core/assets,,,,key-without-recipe-answer,,2026-09-26,specs/issues/DIRECTORY-KEY-CANNOT-BE-EVALUATED-AS-A-RESOURCE.md
 DIRECTORY-LISTING-DEPENDENCY-IS-NEVER-REGISTERED-OR-CHECKED,issue,Directory listing dependency is never registered or checked,closed,local,,,,P2,M,core/assets,,,,dependency-audit-and-expiry-provenance,,2026-09-17,specs/issues/DIRECTORY-LISTING-DEPENDENCY-IS-NEVER-REGISTERED-OR-CHECKED.md
 DOC-03-ENTRY-POINT-TABLE-SAYS-APPLY-SCHEDULES,issue,DOC-03's entry-point table says apply schedules its asset and takes no payload,draft,local,,,,P3,S,docs;core/assets,,,,,,2026-10-20,specs/issues/DOC-03-ENTRY-POINT-TABLE-SAYS-APPLY-SCHEDULES.md
 DOCS-ASYNC-STORE-WRAPPER-NO-LONGER-EXISTS,issue,"Three documents teach AsyncStoreWrapper, which no longer exists in the code",closed,local,,ready,,P2,S,docs;core/store,,,,async-store-wrapper-docs,,2026-09-02,specs/issues/DOCS-ASYNC-STORE-WRAPPER-NO-LONGER-EXISTS.md
@@ -229,7 +229,7 @@ METADATA-ONLY-ENTRY-RELOADS-AS-CORRUPTED,issue,A value stored as metadata only i
 METADATA-SAVER-SPAWNS-ON-THE-INLINE-PATH,issue,A command that logs or reports progress panics under the immediate manager on native without a tokio runtime,draft,local,,ready,eligible,P2,S,core/assets,,,,inline-metadata-save-without-runtime,,2026-10-20,specs/issues/METADATA-SAVER-SPAWNS-ON-THE-INLINE-PATH.md
 METADATA-TITLE-AND-DESCRIPTION-NEVER-POPULATED,issue,Nothing populates an asset's title or description,rejected,local,,,,P2,M,core/value;core/store,,,,,,2026-09-16,specs/issues/METADATA-TITLE-AND-DESCRIPTION-NEVER-POPULATED.md
 MID-QUERY-Q-INSTRUCTION-DISCARDS-ARGUMENTS,issue,A q instruction in the middle of a query silently drops its parameters,draft,local,,,,P3,S,core/plan,,,,,,2026-10-20,specs/issues/MID-QUERY-Q-INSTRUCTION-DISCARDS-ARGUMENTS.md
-MISSING-RESOURCE-REPORTED-AS-GENERAL-ERROR,issue,A key that is neither stored nor made by a recipe raises a General error without its key,draft,local,,ready,not-eligible,P2,M,core/assets;core/error,,,,key-without-recipe-answer,,2026-10-19,specs/issues/MISSING-RESOURCE-REPORTED-AS-GENERAL-ERROR.md
+MISSING-RESOURCE-REPORTED-AS-GENERAL-ERROR,issue,A key that is neither stored nor made by a recipe raises a General error without its key,closed,local,,ready,not-eligible,P2,M,core/assets;core/error,,,,key-without-recipe-answer,,2026-10-19,specs/issues/MISSING-RESOURCE-REPORTED-AS-GENERAL-ERROR.md
 MULTI-LANGUAGE-TRACEBACK-IS-A-FLAT-STRING,issue,An error crossing several languages carries one flat traceback string with no structure,draft,local,,,,P3,L,core/error;py;web,,,,,,2026-10-19,specs/issues/MULTI-LANGUAGE-TRACEBACK-IS-A-FLAT-STRING.md
 NEW-FOLDER-WRITE-DOES-NOT-REFRESH-THE-PARENT-LISTING,issue,A write that creates a folder does not refresh the listing of the folder above it,closed,local,,ready,eligible,P3,S,core/assets,,,,new-folder-write-ancestor-listing-refresh,,2026-10-17,specs/issues/NEW-FOLDER-WRITE-DOES-NOT-REFRESH-THE-PARENT-LISTING.md
 NEXT-PRESETS-MISREAD-PLANNER-INSTRUCTIONS,issue,find_next_presets reads planner instructions differently from the planner,draft,local,,,,P3,S,lib/commands,,,,,,2026-10-20,specs/issues/NEXT-PRESETS-MISREAD-PLANNER-INSTRUCTIONS.md
@@ -592,7 +592,7 @@ ACTIVE-06,design,Design for WEB-JS-STORE-CANNOT-EXPRESS-KEY-NOT-FOUND,superseded
 JS-STORE-PAGE-METADATA-STATUS,design,Stored data without a status is loadable,complete,local,,,,P2,S,core/assets;web,,,,js-store-page-metadata-status,,2026-10-20,specs/design/js-store-page-metadata-status/DESIGN.md
 JSON-ORIENT-INDEX-COLUMN-COLLISION,design,A schema-less indexed JSON read does not let a data column named index overwrite the index,complete,local,,ready,eligible,P3,S,records,,107,,json-orient-index-column-collision,,2026-10-08,specs/design/json-orient-index-column-collision/DESIGN.md
 JSON-TABLE-COLUMN-ORDER,design,"Schema-less JSON reads use a stable, sorted column order",complete,local,,ready,not-eligible,P3,S,records,,,,json-table-column-order,,2026-10-06,specs/design/json-table-column-order/DESIGN.md
-KEY-WITHOUT-RECIPE-ANSWER,design,What a key answers when the store cannot serve it and no recipe makes it,in_review,local,implementation,ready,not-eligible,P2,M,core/assets;core/error;py;web;axum,,,,key-without-recipe-answer,,2026-10-20,specs/design/key-without-recipe-answer/DESIGN.md
+KEY-WITHOUT-RECIPE-ANSWER,design,What a key answers when the store cannot serve it and no recipe makes it,complete,local,,ready,not-eligible,P2,M,core/assets;core/error;py;web;axum,,179,,key-without-recipe-answer,,2026-10-20,specs/design/key-without-recipe-answer/DESIGN.md
 KEYBOARD-SHORTCUTS,design,Keyboard shortcuts in UISpec,complete,local,,,,,,lib/ui,,,,keyboard-shortcuts,,2026-03-02,specs/design/keyboard-shortcuts/DESIGN.md
 KEYED-DELEGATION-HAND-OFF,design,"Keyed delegation is a hand-off, not a dependency",complete,local,,,,P0,M,core/assets,,32,,keyed-delegation-hand-off,,2026-08-12,specs/design/keyed-delegation-hand-off/DESIGN.md
 KEYED-EXPIRY-CASCADE-FIX,design,"Versions for computed keyed assets, so keyed expiry cascades",complete,local,,,,,,core/assets,,,,keyed-expiry-cascade-fix,,2026-09-05,specs/design/keyed-expiry-cascade-fix/DESIGN.md
@@ -787,11 +787,11 @@ AGENT_MEMORY_SERVICE,reference,Agent Memory Service,current,local,,,,,,lib/comma
 API_DOCS_GAP_ANALYSIS,reference,API Documentation Gap Analysis,current,local,,,,,,docs,,,,,2026-10-20,,specs/reference/api/API_DOCS_GAP_ANALYSIS.md
 DOC_01_ARCHITECTURE_REFERENCE,reference,Architecture Reference,current,local,,,,,,core/query;core/plan;core/assets,,,,,2026-08-09,,specs/reference/api/DOC_01_ARCHITECTURE_REFERENCE.md
 DOC_02_QUERY_LANGUAGE_REFERENCE,reference,Query Language Reference,current,local,,,,,,core/query,,,,,2026-10-20,,specs/reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md
-DOC_03_ASSETS_EXECUTION_LIFECYCLE,reference,Assets and Execution Lifecycle Reference,current,local,,,,,,core/assets,,,,,2026-10-22,,specs/reference/api/DOC_03_ASSETS_EXECUTION_LIFECYCLE.md
+DOC_03_ASSETS_EXECUTION_LIFECYCLE,reference,Assets and Execution Lifecycle Reference,current,local,,,,,,core/assets,,,,,2026-10-25,,specs/reference/api/DOC_03_ASSETS_EXECUTION_LIFECYCLE.md
 DOC_04_ENVIRONMENT_CONTEXT_EVALUATION,reference,"Environment, Context and Evaluation Reference",current,local,,,,,,core/context;core/plan,,,,,2026-10-22,,specs/reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md
-ASSET_LIFECYCLE,reference,Asset Evaluation — Flows and Public Surface,current,local,,,,,,core/assets,,,,,2026-10-20,,specs/reference/ASSET_LIFECYCLE.md
+ASSET_LIFECYCLE,reference,Asset Evaluation — Flows and Public Surface,current,local,,,,,,core/assets,,,,,2026-10-25,,specs/reference/ASSET_LIFECYCLE.md
 ASSET_SET_OPERATION,reference,Asset Set Operation Specification,current,local,,,,,,core/assets,,,,,2026-10-10,,specs/reference/ASSET_SET_OPERATION.md
-ASSETS,reference,Assets Specification,current,local,,,,,,core/assets,,,,,2026-10-20,,specs/reference/ASSETS.md
+ASSETS,reference,Assets Specification,current,local,,,,,,core/assets,,,,,2026-10-25,,specs/reference/ASSETS.md
 COMMAND_ALIASES,reference,Command Aliases,current,local,,,,,,core/commands;core/plan,,,,,2026-10-20,,specs/reference/COMMAND_ALIASES.md
 COMMAND_DECLARATION,reference,Command Declaration Format,current,local,,,,,,core/commands;web;py,,,,,2026-10-18,,specs/reference/COMMAND_DECLARATION.md
 CONFORMANCE_TERMS,reference,Conformance Terms,current,local,,,,,,docs,,,,,2026-09-02,,specs/reference/CONFORMANCE_TERMS.md
@@ -801,20 +801,20 @@ IMAGE_COMMAND_LIBRARY,reference,Image Command Library Specification,overdue,loca
 PAYLOAD_GUIDE,reference,Payload Specification and Usage,current,local,,,,,,core/context;core/commands,,,,,2026-10-17,,specs/reference/PAYLOAD_GUIDE.md
 POLARS_COMMAND_LIBRARY,reference,Polars Command Library Specification,current,local,,,,,,lib/polars,,,,,2026-10-14,,specs/reference/POLARS_COMMAND_LIBRARY.md
 POSITIONING,reference,Positioning and Marketing Plan (draft),current,local,,,,,,docs,,,,,2026-10-15,,specs/reference/POSITIONING.md
-PROJECT_OVERVIEW,reference,Liquers Project Overview,current,local,,,,,,core/query;core/plan;core/assets;core/store;core/value,,,,,2026-10-20,,specs/reference/PROJECT_OVERVIEW.md
-PYTHON_INTEGRATION,reference,Python Integration,current,local,,,,,,py;core/value;core/error;lib/value,,,,,2026-10-22,,specs/reference/PYTHON_INTEGRATION.md
+PROJECT_OVERVIEW,reference,Liquers Project Overview,current,local,,,,,,core/query;core/plan;core/assets;core/store;core/value,,,,,2026-10-25,,specs/reference/PROJECT_OVERVIEW.md
+PYTHON_INTEGRATION,reference,Python Integration,current,local,,,,,,py;core/value;core/error;lib/value,,,,,2026-10-25,,specs/reference/PYTHON_INTEGRATION.md
 REALMS,reference,Realms,current,local,,,,,,core/plan;core/commands;store/config,,,,,2026-10-16,,specs/reference/REALMS.md
 RECIPES_AND_PLANS,reference,Recipes and Plans Reference,current,local,,,,,,core/plan;core/query;core/assets;core/context,,,,,2026-10-22,,specs/reference/RECIPES_AND_PLANS.md
-RECORD_STREAMS,reference,Record Streams,current,local,,,,,,records;lib/value;lib/commands;web,,,,,2026-10-20,,specs/reference/RECORD_STREAMS.md
+RECORD_STREAMS,reference,Record Streams,current,local,,,,,,records;lib/value;lib/commands;web,,,,,2026-10-25,,specs/reference/RECORD_STREAMS.md
 REGISTER_COMMAND_FSD,reference,register_command! Macro Functional Specification,current,local,,,,,,macro;core/commands,,,,,2026-10-20,,specs/reference/REGISTER_COMMAND_FSD.md
 SEARCH,reference,Search,current,local,,,,,,records;lib/commands,,,,,2026-10-17,,specs/reference/SEARCH.md
 STORE_CONFIG_FSD,reference,Store Configuration Functional Specification,current,local,,,,,,store/config,,,,,2026-10-15,,specs/reference/STORE_CONFIG_FSD.md
-STORE_SEMANTICS,reference,Store Behavioural Semantics,current,local,,,,,,core/store;store/backends;web,,,,,2026-10-20,,specs/reference/STORE_SEMANTICS.md
+STORE_SEMANTICS,reference,Store Behavioural Semantics,current,local,,,,,,core/store;store/backends;web,,,,,2026-10-25,,specs/reference/STORE_SEMANTICS.md
 TEMPLATE_LANGUAGE,reference,Template Language,current,local,,,,,,core/query;lib/commands,,,,,2026-10-17,,specs/reference/TEMPLATE_LANGUAGE.md
 UI_INTERFACE_FSD,reference,UI Interface Specification,overdue,local,,,,,,lib/ui,,,,,2026-03-02,,specs/reference/UI_INTERFACE_FSD.md
-VALUE_TYPE_SYSTEM,reference,Value Type System,current,local,,,,,,core/value;lib/value,,,,,2026-10-21,,specs/reference/VALUE_TYPE_SYSTEM.md
+VALUE_TYPE_SYSTEM,reference,Value Type System,current,local,,,,,,core/value;lib/value,,,,,2026-10-25,,specs/reference/VALUE_TYPE_SYSTEM.md
 VISION,reference,Liquers Vision and Strategy,current,local,,,,,,docs,,,,,2026-10-15,,specs/reference/VISION.md
-WEB_API_SPECIFICATION,reference,Liquers Web API Specification,current,local,,,,,,axum;web,,,,,2026-10-20,,specs/reference/WEB_API_SPECIFICATION.md
+WEB_API_SPECIFICATION,reference,Liquers Web API Specification,current,local,,,,,,axum;web,,,,,2026-10-25,,specs/reference/WEB_API_SPECIFICATION.md
 AGENT_MEMORY_MIGRATION_GUIDE,guide,Agent Memory Migration Guide,current,local,,,,,,lib/commands;docs,,,,,2026-10-19,,specs/guides/AGENT_MEMORY_MIGRATION_GUIDE.md
 ASSET_MANAGER_IMPLEMENTATION_GUIDE,guide,Asset Manager Implementation Guide,current,local,,,,,,core/assets,,,,,2026-10-22,,specs/guides/ASSET_MANAGER_IMPLEMENTATION_GUIDE.md
 autonomous_bulk_design,guide,Autonomous Bulk Design Procedure,current,local,,,,,,docs;build,,,,,2026-10-08,,specs/guides/autonomous_bulk_design.md
@@ -824,7 +824,7 @@ COMMAND_REGISTRATION_GUIDE,guide,Command Registration Guide,current,local,,,,,,c
 DEPENDENCY_CONSISTENCY_GUIDE,guide,Dependency Consistency Guide,current,local,,,,,,core/assets,,,,,2026-10-08,,specs/guides/DEPENDENCY_CONSISTENCY_GUIDE.md
 ENVIRONMENT_CONSTRUCTION_GUIDE,guide,Building and Configuring an Environment,current,local,,,,,,core/context;core/assets;core/store,,,,,2026-10-11,,specs/guides/ENVIRONMENT_CONSTRUCTION_GUIDE.md
 LANGUAGE-INTEGRATION_GUIDE,guide,Language Integration Guide,current,local,,,,,,web;py;core/commands;core/plan;core/assets;core/store;core/value;lib/commands,,,,,2026-10-25,,specs/guides/LANGUAGE-INTEGRATION_GUIDE.md
-PYTHON_GUIDE,guide,Using Liquers from Python,current,local,,,,,,py,,,,,2026-10-22,,specs/guides/PYTHON_GUIDE.md
+PYTHON_GUIDE,guide,Using Liquers from Python,current,local,,,,,,py,,,,,2026-10-25,,specs/guides/PYTHON_GUIDE.md
 QUERY_ESCAPING_GUIDE,guide,Query Escaping Guide,current,local,,,,,,core/query,,,,,2026-10-07,,specs/guides/QUERY_ESCAPING_GUIDE.md
 RECORD_STREAM_GUIDE,guide,Record Stream Guide,current,local,,,,,,records;lib/value,,,,,2026-10-13,,specs/guides/RECORD_STREAM_GUIDE.md
 SEARCH_GUIDE,guide,Search Guide,current,local,,,,,,lib/commands;records,,,,,2026-10-17,,specs/guides/SEARCH_GUIDE.md

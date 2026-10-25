@@ -43,6 +43,8 @@ error_types!(
     NotSupported,
     NotAvailable,
     KeyNotFound,
+    AssetNotFound,
+    AssetNotSupported,
     KeyNotSupported,
     KeyNotAbsolute,
     KeyReadError,
@@ -204,6 +206,18 @@ fn error01_every_error_type_maps() {
         assert_eq!(wrapped.error_type(), error_type_name(*t));
         assert_eq!(wrapped.message(), "test");
     }
+}
+
+/// ERROR01b — `categories` reports the error type's categories by stable name.
+#[wasm_bindgen_test]
+fn error01b_categories_name_the_error_groups() {
+    let categories = |t: ErrorType| {
+        LiquersError::new(liquers_core::error::Error::from_error(t, "x".to_string())).categories()
+    };
+    assert_eq!(categories(ErrorType::KeyNotFound), vec!["store", "not_found"]);
+    assert_eq!(categories(ErrorType::AssetNotFound), vec!["keyed_asset", "not_found"]);
+    assert_eq!(categories(ErrorType::AssetNotSupported), vec!["keyed_asset"]);
+    assert!(categories(ErrorType::General).is_empty());
 }
 
 /// ERROR02 — fields survive Rust → JavaScript → Rust.

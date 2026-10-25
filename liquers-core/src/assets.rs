@@ -342,7 +342,7 @@ use crate::value::ValueInterface;
 use crate::{context::Context, metadata::LogEntryKind};
 use crate::{
     context::{EnvRef, Environment},
-    error::{Error, ErrorType},
+    error::{Error, ErrorCategory, ErrorType},
     metadata::{Metadata, Status},
     query::{Key, Query},
     recipes::{AsyncRecipeProvider, Recipe},
@@ -837,6 +837,11 @@ pub struct AssetData<E: Environment> {
     /// *before* asset locks. [`AssetRef::fast_track`] takes it after dropping the lock.
     pending_external_change: Option<PendingExternalChange>,
 
+    /// Why the last [`Self::try_fast_track`] declined the stored value, when it knows: the answer
+    /// [`AssetRef::evaluate_recipe_outcome`] gives when no recipe makes the key either. `None`
+    /// after a decline means the key holds no value (`AssetNotFound`).
+    fast_track_refusal: Option<FastTrackRefusal>,
+
     /// The evaluation session this asset was scheduled into, or that its run began
     /// (`crate::evaluation_session`). Weak: a session pins its assets, so a strong reference here
     /// would be a cycle. Running `Context`s hold the session strongly.
@@ -1161,6 +1166,40 @@ fn degraded_reason(type_identifier: &str, registry: &crate::type_system::TypeReg
     }
 }
 
+/// The error a degraded stored value answers with: the type cannot be read in this environment.
+/// Shared by the fast track (no recipe makes the key) and `AssetManager::get_any_status`.
+fn degraded_value_error(
+    key: &Key,
+    type_identifier: &str,
+    registry: &crate::type_system::TypeRegistry,
+) -> Error {
+    Error::asset_not_supported(
+        key,
+        format!(
+            "Type identifier '{}' {}, so the stored value cannot be materialized",
+            type_identifier,
+            degraded_reason(type_identifier, registry)
+        ),
+    )
+}
+
+/// `error` with its `key` set to `key` when it names none.
+fn keyed_error(mut error: Error, key: &Key) -> Error {
+    if error.key.is_none() {
+        error.key = Some(key.encode());
+    }
+    error
+}
+
+/// Why [`AssetData::try_fast_track`] declined a stored value (`AssetData::fast_track_refusal`).
+#[derive(Debug, Clone)]
+struct FastTrackRefusal {
+    error: Error,
+    /// The error stands even when a recipe makes the key (a recipe for a store directory);
+    /// otherwise the recipe is evaluated and the error is only the answer when there is none.
+    overrides_recipe: bool,
+}
+
 impl<E: Environment> AssetData<E> {
     /// Constructs and initializes a new AssetData
     ///
@@ -1263,6 +1302,7 @@ impl<E: Environment> AssetData<E> {
             recipe_sets_title: false,
             recipe_sets_description: false,
             pending_external_change: None,
+            fast_track_refusal: None,
             evaluation_session: std::sync::Weak::new(),
             _marker: std::marker::PhantomData,
             status: Status::None,
@@ -1417,6 +1457,32 @@ impl<E: Environment> AssetData<E> {
         self.status = Status::None;
     }
 
+    /// Decline the fast track: clear what it loaded and record why (`None`: no value is stored).
+    fn decline_fast_track(&mut self, refusal: Option<FastTrackRefusal>) {
+        self.clear_fast_track_payload();
+        self.fast_track_refusal = refusal;
+    }
+
+    /// Decline with an error that is the answer only when no recipe makes the key.
+    fn decline_fast_track_with(&mut self, error: Error) {
+        self.decline_fast_track(Some(FastTrackRefusal {
+            error,
+            overrides_recipe: false,
+        }));
+    }
+
+    /// Make this asset describe a store directory: status `Directory`, value none, `is_dir`.
+    fn become_directory(&mut self) {
+        self.data = Some(Arc::new(E::Value::none()));
+        self.binary = None;
+        self.status = Status::Directory;
+        if let Metadata::MetadataRecord(ref mut record) = self.metadata {
+            record.status = Status::Directory;
+            record.is_dir = true;
+        }
+        retype_as_none::<E>(&mut self.metadata);
+    }
+
     /// This tries to get an asset value by quickly evaluation strategies.
     /// For example, if the asset is a resource an attempt is made to deserialize it.
     /// These strategies are tried before the asset is queued for evaluation.
@@ -1491,6 +1557,7 @@ impl<E: Environment> AssetData<E> {
 
     pub async fn try_fast_track(&mut self) -> Result<bool, Error> {
         eprintln!("Trying fast track for asset {}", self.id());
+        self.fast_track_refusal = None;
         if !self.is_resource()? {
             // TODO: support for quick plans
             eprintln!("Asset {} is not a resource, cannot fast track", self.id());
@@ -1509,12 +1576,16 @@ impl<E: Environment> AssetData<E> {
                     // form, stored metadata-only by `set_state`. There is nothing to load, so the
                     // recipe re-derives it — not an error, and not corruption.
                     Err(e) if e.error_type == ErrorType::KeyNotFound => {
+                        // A store directory is contained and has no data object either.
+                        if store.is_dir(&key).await? {
+                            return self.fast_track_directory(&key).await;
+                        }
                         eprintln!(
                             "Asset {} at {} is stored without bytes; recomputing",
                             self.id(),
                             key
                         );
-                        self.clear_fast_track_payload();
+                        self.decline_fast_track(None);
                         return Ok(false);
                     }
                     Err(e) => return Err(e),
@@ -1533,7 +1604,20 @@ impl<E: Environment> AssetData<E> {
                         self.id(),
                         stored_status
                     );
-                    self.clear_fast_track_payload();
+                    let refusal = match stored_status {
+                        Status::Error | Status::Cancelled => metadata
+                            .error_result()
+                            .err()
+                            .map(|e| keyed_error(e, &key))
+                            .unwrap_or_else(|| Error::status_conflict(&key, stored_status, "read")),
+                        // No value is stored (a removed computed value keeps `Recipe`).
+                        status if !status.has_data() => {
+                            self.decline_fast_track(None);
+                            return Ok(false);
+                        }
+                        status => Error::status_conflict(&key, status, "read"),
+                    };
+                    self.decline_fast_track_with(refusal);
                     return Ok(false);
                 }
 
@@ -1556,7 +1640,11 @@ impl<E: Environment> AssetData<E> {
                             type_identifier,
                             degraded_reason(&type_identifier, registry_owner.get_type_registry())
                         );
-                        self.clear_fast_track_payload();
+                        self.decline_fast_track_with(degraded_value_error(
+                            &key,
+                            &type_identifier,
+                            registry_owner.get_type_registry(),
+                        ));
                         return Ok(false);
                     }
                     Err(e) => {
@@ -1565,7 +1653,7 @@ impl<E: Environment> AssetData<E> {
                             self.id(),
                             e
                         );
-                        self.clear_fast_track_payload();
+                        self.decline_fast_track_with(keyed_error(e, &key));
                         return Ok(false);
                     }
                 };
@@ -1599,7 +1687,14 @@ impl<E: Environment> AssetData<E> {
                                 self.id(),
                                 key
                             );
-                            self.clear_fast_track_payload();
+                            self.decline_fast_track_with(keyed_error(
+                                Error::general_error(format!(
+                                    "The content of '{}' changed outside Liquers and is treated as \
+                                     corrupted, and no recipe recomputes it",
+                                    key
+                                )),
+                                &key,
+                            ));
                             return Ok(false);
                         }
                         ExternalChangeAction::AcceptAsInput { .. }
@@ -1626,7 +1721,14 @@ impl<E: Environment> AssetData<E> {
                                     "Asset {} stale: dependency {} version mismatch (stored={:?}, DM={:?})",
                                     self.id(), dep_record.key, dep_record.version, dm_version
                                 );
-                                self.clear_fast_track_payload();
+                                let message = format!(
+                                    "The stored value of '{}' is stale (dependency {} changed), and no recipe recomputes it",
+                                    key, dep_record.key
+                                );
+                                self.decline_fast_track_with(keyed_error(
+                                    Error::general_error(message),
+                                    &key,
+                                ));
                                 return Ok(false); // Force re-evaluation
                             }
                         } else if manager.dependency_audit_policy() == DependencyAuditPolicy::OnLoad
@@ -1656,7 +1758,14 @@ impl<E: Environment> AssetData<E> {
                                     dep_record.key,
                                     dep_record.version
                                 );
-                                self.clear_fast_track_payload();
+                                let message = format!(
+                                    "The stored value of '{}' is stale (dependency {} changed), and no recipe recomputes it",
+                                    key, dep_record.key
+                                );
+                                self.decline_fast_track_with(keyed_error(
+                                    Error::general_error(message),
+                                    &key,
+                                ));
                                 return Ok(false);
                             }
                         }
@@ -1672,7 +1781,14 @@ impl<E: Environment> AssetData<E> {
                                 self.id(),
                                 dep_record.key
                             );
-                            self.clear_fast_track_payload();
+                            let message = format!(
+                                "The stored value of '{}' is stale (dependency {} is not in a reusable state), and no recipe recomputes it",
+                                key, dep_record.key
+                            );
+                            self.decline_fast_track_with(keyed_error(
+                                Error::general_error(message),
+                                &key,
+                            ));
                             return Ok(false);
                         }
                     }
@@ -1726,6 +1842,67 @@ impl<E: Environment> AssetData<E> {
             }
         }
         Ok(false)
+    }
+
+    /// The fast track for a key the store holds as a directory.
+    ///
+    /// With no recipe the asset becomes a `Directory` state at once — no job, value none — which
+    /// the next action receives. A recipe for a directory key is not supported: the fast track
+    /// declines with an `AssetNotSupported` refusal that stands even though a recipe exists, so
+    /// the evaluation fails through the normal path instead of running the recipe.
+    async fn fast_track_directory(&mut self, key: &Key) -> Result<bool, Error> {
+        let envref = self.try_get_envref()?;
+        if envref
+            .get_recipe_provider()
+            .recipe_opt(key, envref.clone())
+            .await?
+            .is_some()
+        {
+            eprintln!(
+                "Asset {}: {} is a store directory and a recipe also produces it",
+                self.id(),
+                key
+            );
+            self.decline_fast_track(Some(FastTrackRefusal {
+                error: Error::asset_not_supported(
+                    key,
+                    format!(
+                        "'{}' is a store directory and a recipe also produces it; a recipe for a \
+                         directory key is not supported",
+                        key
+                    ),
+                ),
+                overrides_recipe: true,
+            }));
+            return Ok(false);
+        }
+        // The store describes the directory (its listing in `children`, its facts); keep that, as
+        // `-R-meta/<dir>` would show it. A store that cannot describe it leaves the asset's own.
+        match envref.get_async_store().get_metadata(key).await {
+            Ok(Metadata::MetadataRecord(mut record)) => {
+                record.with_key(key.clone());
+                self.metadata = Metadata::MetadataRecord(record).into();
+            }
+            Ok(Metadata::LegacyMetadata(_)) => {}
+            Err(e) => eprintln!(
+                "Asset {}: no store metadata for the directory {}: {}",
+                self.id(),
+                key,
+                e
+            ),
+        }
+        self.become_directory();
+        self.notification_tx
+            .send(AssetNotificationMessage::JobFinished)
+            .map_err(|e| {
+                Error::general_error(format!(
+                    "Failed to send job finished notification: {}",
+                    e
+                ))
+                .with_query(&key.into())
+            })?;
+        eprintln!("Asset {} is the store directory {}", self.id(), key);
+        Ok(true)
     }
 
     /// Get a reference to the asset data
@@ -3412,6 +3589,8 @@ impl<E: Environment> AssetRef<E> {
             | ErrorType::NotSupported
             | ErrorType::NotAvailable
             | ErrorType::KeyNotFound
+            | ErrorType::AssetNotFound
+            | ErrorType::AssetNotSupported
             | ErrorType::KeyNotSupported
             | ErrorType::KeyNotAbsolute
             | ErrorType::KeyReadError
@@ -4109,11 +4288,29 @@ impl<E: Environment> AssetRef<E> {
                     // untracked asset built from a key recipe. Either way the recipe is
                     // resolved and evaluated here.
                     Some(_) | None => {
-                        let recipe = envref
+                        let refusal = self.data.write().await.fast_track_refusal.take();
+                        if let Some(FastTrackRefusal {
+                            error,
+                            overrides_recipe: true,
+                        }) = refusal
+                        {
+                            return Err(error);
+                        }
+                        let recipe = match envref
                             .clone()
                             .get_recipe_provider()
-                            .recipe(&key, envref.clone())
-                            .await?;
+                            .recipe_opt(&key, envref.clone())
+                            .await?
+                        {
+                            Some(recipe) => recipe,
+                            // Nothing can recompute the key: say why the stored value was not
+                            // used, or that there is none.
+                            None => {
+                                return Err(refusal
+                                    .map(|refusal| refusal.error)
+                                    .unwrap_or_else(|| Error::asset_not_found(&key)))
+                            }
+                        };
                         // Keys are a payload boundary: reject a keyed recipe that requires an
                         // evaluation payload, since no payload can reach a keyed asset.
                         recipe.to_plan_for_key(envref.get_command_metadata_registry(), &key)?;
@@ -6534,7 +6731,7 @@ pub trait AssetManager<E: Environment>:
     /// | stored with no status and no version (a file with no metadata) | yes | as `Override` |
     /// | computed (`Ready`, `Expired`, `Error`, in-flight, …) | yes | drop the value: the live asset is unmapped and the stored entry is rewritten as `Recipe` with its version kept; dependents are **not** expired |
     /// | none, or stored `Recipe` | yes | nothing to do |
-    /// | nothing live, nothing stored | no | `KeyNotFound` |
+    /// | nothing live, nothing stored | no | `AssetNotFound` |
     ///
     /// A live asset is cancelled, then receives [`AssetNotificationMessage::Removed`], then is
     /// unmapped. Dependents are expired before the key leaves the dependency graph, because the
@@ -6577,7 +6774,7 @@ pub trait AssetManager<E: Environment>:
         };
         let action = if !has_recipe {
             if live.is_none() && stored_metadata.is_none() {
-                return Err(Error::key_not_found(key));
+                return Err(Error::asset_not_found(key));
             }
             RemoveAction::Delete
         } else {
@@ -6651,7 +6848,7 @@ pub trait AssetManager<E: Environment>:
     ///
     /// `Ready` and `Override` become `Expired`; `Expired` is left as it is. Any other status,
     /// including `Source` (no recipe to recover from) and a recipe key with no value, is a
-    /// `StatusConflict`. A key that is neither live, stored nor a recipe is `KeyNotFound`.
+    /// `StatusConflict`. A key that is neither live, stored nor a recipe is `AssetNotFound`.
     async fn expire(&self, key: &Key) -> Result<(), Error> {
         let _mutation = self.key_mutation_lock().lock().await;
         if let Some(asset) = self.lookup_key_asset(key) {
@@ -6723,7 +6920,7 @@ pub trait AssetManager<E: Environment>:
         {
             Err(Error::status_conflict(key, Status::Recipe, "expire"))
         } else {
-            Err(Error::key_not_found(key))
+            Err(Error::asset_not_found(key))
         }
     }
 
@@ -6806,7 +7003,7 @@ pub trait AssetManager<E: Environment>:
             }
             match self.remove(&subkey).await {
                 Ok(()) => {}
-                Err(e) if e.error_type == ErrorType::KeyNotFound => {}
+                Err(e) if e.error_type.is(ErrorCategory::NotFound) => {}
                 Err(e) => return Err(e),
             }
         }
@@ -6857,7 +7054,7 @@ pub trait AssetManager<E: Environment>:
 
     /// Describe a keyed asset **without evaluating it**: the live asset's current state if there
     /// is one (including a cached `Expired`, `Error` or `Cancelled` entry, which `get` would
-    /// re-evaluate), otherwise the stored entry, otherwise the recipe. `KeyNotFound` if none.
+    /// re-evaluate), otherwise the stored entry, otherwise the recipe. `AssetNotFound` if none.
     async fn get_asset_info(&self, key: &Key) -> Result<AssetInfo, Error> {
         if let Some(assetref) = self.lookup_key_asset(key) {
             assetref.get_asset_info().await
@@ -6870,7 +7067,7 @@ pub trait AssetManager<E: Environment>:
                 if rp.can_make(key, self.try_get_envref()?).await? {
                     rp.get_asset_info(key, self.try_get_envref()?).await
                 } else {
-                    Err(Error::key_not_found(key))
+                    Err(Error::asset_not_found(key))
                 }
             }
         }
@@ -6990,8 +7187,8 @@ pub trait AssetManager<E: Environment>:
 
     /// Make a directory, and return an asset describing it (status `Directory`).
     ///
-    /// The asset is not registered in the manager and nothing is evaluated: a directory holds no
-    /// value, so `get` on its key fails, and the directory is described by the store.
+    /// The asset is not registered in the manager and nothing is evaluated. `get` on the key gives
+    /// the same state, re-read from the store on every request (a directory is never cached).
     async fn makedir(&self, key: &Key) -> Result<AssetRef<E>, Error> {
         let store = self.try_get_envref()?.get_async_store();
         store.makedir(key).await?;
@@ -7003,13 +7200,7 @@ pub trait AssetManager<E: Environment>:
             Some(key.clone()),
             self.try_get_envref()?,
         );
-        data.data = Some(Arc::new(E::Value::none()));
-        data.status = Status::Directory;
-        if let Metadata::MetadataRecord(ref mut record) = data.metadata {
-            record.status = Status::Directory;
-            record.is_dir = true;
-        }
-        retype_as_none::<E>(&mut data.metadata);
+        data.become_directory();
         Ok(data.to_ref())
     }
 
@@ -7932,12 +8123,11 @@ pub trait AssetManager<E: Environment>:
                 Ok(Some(State::from_parts(Arc::new(value), Arc::new(metadata))))
             }
             // Degraded: the caller asked for a value this environment cannot read from bytes.
-            None => Err(Error::general_error(format!(
-                "Type identifier '{}' {}, so the stored value cannot be materialized",
-                type_identifier,
-                degraded_reason(&type_identifier, envref.get_type_registry())
-            ))
-            .with_key(key)),
+            None => Err(degraded_value_error(
+                key,
+                &type_identifier,
+                envref.get_type_registry(),
+            )),
         }
     }
 
@@ -8895,7 +9085,7 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
             // pre-execution state, so this cannot spin.
             if matches!(
                 asset.status().await,
-                Status::Expired | Status::Error | Status::Cancelled | Status::Volatile
+                Status::Expired | Status::Error | Status::Cancelled | Status::Volatile | Status::Directory
             ) {
                 match query.key() {
                     Some(key) => {
@@ -9181,7 +9371,7 @@ impl<E: Environment> AssetManager<E> for DefaultAssetManager<E> {
             // call is still returned to the caller below. Used once, then evicted.
             if matches!(
                 status,
-                Status::Expired | Status::Error | Status::Cancelled | Status::Volatile
+                Status::Expired | Status::Error | Status::Cancelled | Status::Volatile | Status::Directory
             ) {
                 let _mutation = self.key_mutation_lock.lock().await;
                 AssetManager::remove_key_asset_if(self, key, asset_ref.id()).await;
@@ -10411,7 +10601,7 @@ impl<E: Environment> ImmediateAssetManager<E> {
             let status = asset_ref.status().await;
             if matches!(
                 status,
-                Status::Expired | Status::Error | Status::Cancelled | Status::Volatile
+                Status::Expired | Status::Error | Status::Cancelled | Status::Volatile | Status::Directory
             ) {
                 let asset_id = asset_ref.id();
                 let _mutation = self.key_mutation_lock.lock().await;
@@ -17299,5 +17489,278 @@ mod stored_walk_tests {
             StoredDependencyState::Confirmed(Version::new(1501))
         );
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod key_without_recipe_tests {
+    //! What a key answers when the store cannot serve it and no recipe makes it
+    //! (`specs/design/key-without-recipe-answer/`).
+    use super::*;
+    use crate::command_metadata::CommandKey;
+    use crate::context::{ImmediateEnvironment, SimpleEnvironment};
+    use crate::metadata::MetadataRecord;
+    use crate::parse::parse_key;
+    use crate::store::{AsyncMemoryStore, AsyncStore};
+    use crate::value::Value;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    async fn store_undeclared_format_record(
+        env: &SimpleEnvironment<Value>,
+        key: &Key,
+        bytes: &[u8],
+        type_identifier: &str,
+        data_format: Option<&str>,
+    ) {
+        let mut metadata = MetadataRecord::new();
+        metadata.with_key(key.clone());
+        metadata.with_type_identifier(type_identifier.to_owned());
+        metadata.data_format = data_format.map(str::to_owned);
+        metadata.with_status(Status::Source);
+        env.get_async_store()
+            .set(key, bytes, &Metadata::MetadataRecord(metadata))
+            .await
+            .expect("set");
+    }
+
+    /// A memory store with `x.txt` made by `mk`, plus whatever `files` adds.
+    async fn no_recipe_store(files: &[(&str, &[u8])]) -> AsyncMemoryStore {
+        let store = AsyncMemoryStore::new(&Key::new());
+        store
+            .set(
+                &parse_key("recipes.yaml").expect("key"),
+                b"recipes:\n  - query: mk/x.txt\n",
+                &Metadata::new(),
+            )
+            .await
+            .expect("set recipes");
+        for (k, v) in files {
+            store
+                .set(&parse_key(k).expect("key"), v, &Metadata::new())
+                .await
+                .expect("set");
+        }
+        store
+    }
+
+    fn no_recipe_env(store: AsyncMemoryStore) -> (EnvRef<SimpleEnvironment<Value>>, Arc<AtomicUsize>) {
+        let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        env.with_async_store(Box::new(store));
+        env.with_recipe_provider(Box::new(crate::recipes::DefaultRecipeProvider::new()));
+        let calls = Arc::new(AtomicUsize::new(0));
+        let counter = calls.clone();
+        env.command_registry
+            .register_command(CommandKey::new_name("mk"), move |_, _, _| {
+                counter.fetch_add(1, Ordering::SeqCst);
+                Ok(Value::from("made"))
+            })
+            .expect("register mk");
+        (env.to_ref(), calls)
+    }
+
+    /// The error an evaluated key failed with.
+    async fn key_failure<E: Environment>(envref: &EnvRef<E>, key: &str) -> Error {
+        let state = envref
+            .get_asset_manager()
+            .get(&parse_key(key).expect("key"))
+            .await
+            .expect("get")
+            .get()
+            .await
+            .expect("a failure is an Error state");
+        assert_eq!(state.metadata.status(), Status::Error, "{key}");
+        state.metadata.error_result().expect_err("an Error state carries its error")
+    }
+
+    #[tokio::test]
+    async fn missing_key_without_recipe_is_asset_not_found() {
+        let (envref, calls) = no_recipe_env(no_recipe_store(&[]).await);
+        let error = key_failure(&envref, "data/missing.txt").await;
+        assert_eq!(error.error_type, ErrorType::AssetNotFound, "{}", error.message);
+        assert!(error.error_type.is(ErrorCategory::NotFound));
+        assert_eq!(error.key.as_deref(), Some("data/missing.txt"));
+        assert!(error.message.contains("no recipe produces it"), "{}", error.message);
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn metadata_only_key_without_recipe_is_asset_not_found() {
+        let store = no_recipe_store(&[]).await;
+        let key = parse_key("y.txt").expect("key");
+        let mut record = MetadataRecord::new();
+        record.with_key(key.clone());
+        record.with_status(Status::Ready);
+        store
+            .set_metadata(&key, &Metadata::MetadataRecord(record))
+            .await
+            .expect("set_metadata");
+        let (envref, _) = no_recipe_env(store);
+        let error = key_failure(&envref, "y.txt").await;
+        assert_eq!(error.error_type, ErrorType::AssetNotFound, "{}", error.message);
+        assert_eq!(error.key.as_deref(), Some("y.txt"));
+    }
+
+    #[tokio::test]
+    async fn get_asset_info_of_unmakeable_key_is_asset_not_found() {
+        let (envref, _) = no_recipe_env(no_recipe_store(&[]).await);
+        let manager = envref.get_asset_manager();
+        let key = parse_key("nothing.txt").expect("key");
+        let error = manager.get_asset_info(&key).await.expect_err("nothing to describe");
+        assert_eq!(error.error_type, ErrorType::AssetNotFound);
+        let error = manager.remove(&key).await.expect_err("nothing to remove");
+        assert_eq!(error.error_type, ErrorType::AssetNotFound);
+    }
+
+    #[tokio::test]
+    async fn removedir_of_absent_key_stays_key_not_found() {
+        let (envref, _) = no_recipe_env(no_recipe_store(&[]).await);
+        let error = envref
+            .get_asset_manager()
+            .removedir(&parse_key("nodir").expect("key"))
+            .await
+            .expect_err("no such directory");
+        assert_eq!(error.error_type, ErrorType::KeyNotFound);
+    }
+
+    #[tokio::test]
+    async fn degraded_stored_value_without_recipe_names_the_type() {
+        let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        env.with_async_store(Box::new(no_recipe_store(&[]).await));
+        env.with_recipe_provider(Box::new(crate::recipes::DefaultRecipeProvider::new()));
+        let key = parse_key("o/obj").expect("key");
+        store_undeclared_format_record(&env, &key, b"opaque", "test.Unregistered", None).await;
+        let envref = env.to_ref();
+        // `get_any_status` (asked before anything is live) and the evaluation answer the same.
+        let same = envref
+            .get_asset_manager()
+            .get_any_status(&key)
+            .await
+            .expect_err("degraded");
+        let error = key_failure(&envref, "o/obj").await;
+        assert_eq!(error.error_type, ErrorType::AssetNotSupported, "{}", error.message);
+        assert!(error.error_type.is(ErrorCategory::KeyedAsset));
+        assert!(error.message.contains("test.Unregistered"), "{}", error.message);
+        assert!(error.message.contains("not registered"), "{}", error.message);
+        assert_eq!(error.key.as_deref(), Some("o/obj"));
+        assert_eq!(same.error_type, ErrorType::AssetNotSupported);
+        assert_eq!(same.message, error.message);
+    }
+
+    #[tokio::test]
+    async fn corrupt_stored_value_without_recipe_reports_the_read_error() {
+        let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+        env.with_async_store(Box::new(no_recipe_store(&[]).await));
+        env.with_recipe_provider(Box::new(crate::recipes::DefaultRecipeProvider::new()));
+        let key = parse_key("n.json").expect("key");
+        store_undeclared_format_record(&env, &key, b"not json {", "I64", Some("json")).await;
+        let envref = env.to_ref();
+        let error = key_failure(&envref, "n.json").await;
+        assert_ne!(error.error_type, ErrorType::AssetNotFound, "{}", error.message);
+        assert!(!error.message.contains("No recipe"), "{}", error.message);
+        assert_eq!(error.key.as_deref(), Some("n.json"));
+    }
+
+    #[tokio::test]
+    async fn stored_error_status_without_recipe_reports_the_stored_error() {
+        let store = no_recipe_store(&[]).await;
+        let key = parse_key("failed.txt").expect("key");
+        let mut record = MetadataRecord::new();
+        record.with_key(key.clone());
+        record.with_type_identifier("Text".to_owned());
+        record.with_status(Status::Error);
+        record.add_log_entry(crate::metadata::LogEntry::error(
+            "the original failure".to_string(),
+        ));
+        store
+            .set(&key, b"x", &Metadata::MetadataRecord(record))
+            .await
+            .expect("set");
+        let (envref, _) = no_recipe_env(store);
+        let error = key_failure(&envref, "failed.txt").await;
+        assert!(!error.message.contains("No recipe"), "{}", error.message);
+        assert_eq!(error.key.as_deref(), Some("failed.txt"));
+    }
+
+    #[tokio::test]
+    async fn missing_key_with_recipe_still_evaluates() {
+        let (envref, calls) = no_recipe_env(no_recipe_store(&[]).await);
+        let state = envref
+            .get_asset_manager()
+            .get(&parse_key("x.txt").expect("key"))
+            .await
+            .expect("get")
+            .get()
+            .await
+            .expect("value");
+        assert_eq!(state.try_into_string().expect("text"), "made");
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn directory_key_with_recipe_is_asset_not_supported() {
+        // `x.txt` is both a store directory and a recipe's key.
+        let store = no_recipe_store(&[("x.txt/inner.txt", b"i")]).await;
+        let (envref, calls) = no_recipe_env(store);
+        let error = key_failure(&envref, "x.txt").await;
+        assert_eq!(error.error_type, ErrorType::AssetNotSupported, "{}", error.message);
+        assert!(error.message.contains("directory"), "{}", error.message);
+        assert_eq!(error.key.as_deref(), Some("x.txt"));
+        assert_eq!(calls.load(Ordering::SeqCst), 0, "the recipe is not run");
+        let store = envref.get_async_store();
+        assert!(store.is_dir(&parse_key("x.txt").expect("key")).await.expect("is_dir"));
+    }
+
+    async fn directory_state_checks<E: Environment>(envref: EnvRef<E>) {
+        let manager = envref.get_asset_manager();
+        let data = parse_key("data").expect("key");
+        let asset = manager.get(&data).await.expect("get");
+        let state = asset.get().await.expect("a directory state");
+        assert_eq!(state.metadata.status(), Status::Directory);
+        assert_eq!(state.metadata.key().expect("key"), Some(data.clone()));
+        assert!(state.metadata.is_dir());
+        assert!(state.is_none(), "a directory holds no value");
+        let children = |state: &State<E::Value>| -> Vec<String> {
+            match &*state.metadata {
+                Metadata::MetadataRecord(record) => record
+                    .children
+                    .iter()
+                    .filter_map(|c| c.filename.clone())
+                    .collect(),
+                Metadata::LegacyMetadata(_) => Vec::new(),
+            }
+        };
+        assert!(children(&state).contains(&"a.txt".to_string()), "{:?}", children(&state));
+
+        // A write below it, then a new request: a new asset, re-read, and nothing stored at `data`.
+        envref
+            .get_async_store()
+            .set(&parse_key("data/b.txt").expect("key"), b"b", &Metadata::new())
+            .await
+            .expect("set");
+        let again = manager.get(&data).await.expect("get");
+        assert_ne!(again.id(), asset.id(), "a directory asset is never reused");
+        let state = again.get().await.expect("a directory state");
+        assert_eq!(state.metadata.status(), Status::Directory);
+        assert!(children(&state).contains(&"b.txt".to_string()), "{:?}", children(&state));
+        assert!(envref
+            .get_async_store()
+            .get(&data)
+            .await
+            .is_err_and(|e| e.error_type == ErrorType::KeyNotFound));
+    }
+
+    #[tokio::test]
+    async fn directory_key_gives_a_directory_state() {
+        let (envref, calls) = no_recipe_env(no_recipe_store(&[("data/a.txt", b"a")]).await);
+        directory_state_checks(envref).await;
+        assert_eq!(calls.load(Ordering::SeqCst), 0, "no job runs for a directory");
+    }
+
+    #[tokio::test]
+    async fn immediate_manager_directory_key_gives_a_directory_state() {
+        let mut env: ImmediateEnvironment<Value> = ImmediateEnvironment::new();
+        env.with_async_store(Box::new(no_recipe_store(&[("data/a.txt", b"a")]).await));
+        env.with_recipe_provider(Box::new(crate::recipes::DefaultRecipeProvider::new()));
+        directory_state_checks(env.to_ref()).await;
     }
 }

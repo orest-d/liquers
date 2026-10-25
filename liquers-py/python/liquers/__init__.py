@@ -69,7 +69,8 @@ from liquers._env import default_environment, evaluate
 from liquers._commands import command, first_command
 from liquers._errors import LiquersError, _install as _install_errors
 
-# One LiquersError subclass per ErrorType variant (KeyNotFoundError, ExecutionError, ...).
+# One LiquersError subclass per ErrorType variant (KeyNotFoundError, ExecutionError, ...), and one
+# base class per error category (StoreError, KeyedAssetError, NotFoundError).
 _ERROR_SUBCLASSES = _install_errors(ErrorType)
 globals().update(_ERROR_SUBCLASSES)
 

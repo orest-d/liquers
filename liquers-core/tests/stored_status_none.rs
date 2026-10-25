@@ -161,10 +161,13 @@ async fn none04_declared_status_is_kept() {
         .unwrap();
     let state = asset.get().await.unwrap();
     assert!(state.is_error().unwrap(), "a stored Error is not reused");
+    // With no recipe to recompute it, the key answers with the stored status, not "No recipe".
+    let error = state.metadata.error_result().expect_err("an Error state carries its error");
+    assert_eq!(error.key.as_deref(), Some("y.txt"), "{}", error.message);
     assert!(
-        state.metadata.message().contains("No recipe"),
-        "falls through to the recipe provider: {}",
-        state.metadata.message()
+        !error.message.contains("No recipe"),
+        "the stored status is the answer: {}",
+        error.message
     );
 }
 
