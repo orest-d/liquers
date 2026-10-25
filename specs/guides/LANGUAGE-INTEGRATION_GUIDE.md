@@ -992,8 +992,9 @@ the `dict` was adapted in place or converted to `Value::Object` first: the same 
 scalars, the same refusals. Write the adapter's scalar mapping from `VALUE`'s, not from scratch.
 The checks that matter are the ones a fresh mapping gets wrong: a Python `bool` is an `int`
 subclass and must be tested first, or `True` reads as `1`; a JavaScript `number` is `Integer` only
-when `Number.isSafeInteger`, else `Float`; an integer above `i64::MAX` is `Scalar::UInt`, and one
-above `u64::MAX` follows whatever `VALUE` does with it (state it); bytes are `Opaque`, never `Text`,
+when `Number.isSafeInteger`, else `Float`; an integer above `i64::MAX` follows `VALUE`'s range
+policy — `Scalar::UInt` where `VALUE` accepts it, the same conversion error where `VALUE` refuses it
+(`liquers-py` extracts `i64` and refuses `2**63` today) — and so does one above `u64::MAX`; bytes are `Opaque`, never `Text`,
 for the reason `VALUE04` gives; a non-finite float is a `to_json` error, as in
 `try_into_json_value`. **Key order is the one sanctioned difference**: `keys()` is "in the node's
 own order", so an adapter uses the *language*'s order (Python insertion order, JavaScript's
@@ -1047,7 +1048,7 @@ accessor on one raises the core `not_supported` error through `ERROR` rather tha
 **Meaningful tests:** `DATANODE01` a nested native mapping and sequence answer kind, field, items,
 length and keys per the mapping table; `DATANODE02` the adapter agrees with structural conversion
 over a corpus, key order excepted; `DATANODE03` scalar edges — `bool` is not an integer, `i64`
-limits, above `i64::MAX` is exact, a non-finite float fails `to_json`; `DATANODE04` bytes are
+limits, above `i64::MAX` follows `VALUE`'s range policy, a non-finite float fails `to_json`; `DATANODE04` bytes are
 opaque, not text; `DATANODE05` a structure structural conversion refuses still answers for its
 readable parts; `DATANODE06` a cyclic structure navigates lazily and `to_json` fails with a typed
 error; `DATANODE07` a lookup runs no *language* code outside the documented protocol; `DATANODE08`
@@ -2749,8 +2750,10 @@ def test_DATANODE02_adapter_agrees_with_structural_conversion():
 def test_DATANODE03_scalar_edges():
     assert lq.data_node(True).kind == lq.NodeKind.Bool          # not Integer: bool is an int
     assert lq.data_node(2**63 - 1).scalar == 2**63 - 1
-    assert lq.data_node(2**63).scalar == 2**63                  # Scalar::UInt, exact
-    # 2**64 follows VALUE's documented big-integer policy; assert that policy here.
+    # 2**63 and 2**64 follow VALUE's documented integer range policy: Scalar::UInt (exact)
+    # where VALUE accepts the value, the same ConversionError where it refuses it.
+    assert_same_as_value_policy(lq.data_node, 2**63)
+    assert_same_as_value_policy(lq.data_node, 2**64)
     with pytest.raises(lq.Error) as e:
         lq.data_node(float("nan")).to_json()
     assert e.value.error_type == lq.ErrorType.ConversionError
