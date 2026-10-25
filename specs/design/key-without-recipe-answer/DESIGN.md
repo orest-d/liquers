@@ -4,6 +4,7 @@ kind: design
 title: What a key answers when the store cannot serve it and no recipe makes it
 form: compact
 status: complete
+gh_pr: [179]
 readiness: ready
 autofix: not-eligible
 area: [core/assets, core/error, py, web, axum]
