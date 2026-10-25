@@ -1876,6 +1876,21 @@ impl<E: Environment> AssetData<E> {
             }));
             return Ok(false);
         }
+        // The store describes the directory (its listing in `children`, its facts); keep that, as
+        // `-R-meta/<dir>` would show it. A store that cannot describe it leaves the asset's own.
+        match envref.get_async_store().get_metadata(key).await {
+            Ok(Metadata::MetadataRecord(mut record)) => {
+                record.with_key(key.clone());
+                self.metadata = Metadata::MetadataRecord(record).into();
+            }
+            Ok(Metadata::LegacyMetadata(_)) => {}
+            Err(e) => eprintln!(
+                "Asset {}: no store metadata for the directory {}: {}",
+                self.id(),
+                key,
+                e
+            ),
+        }
         self.become_directory();
         self.notification_tx
             .send(AssetNotificationMessage::JobFinished)
@@ -17704,6 +17719,17 @@ mod key_without_recipe_tests {
         assert_eq!(state.metadata.key().expect("key"), Some(data.clone()));
         assert!(state.metadata.is_dir());
         assert!(state.is_none(), "a directory holds no value");
+        let children = |state: &State<E::Value>| -> Vec<String> {
+            match &*state.metadata {
+                Metadata::MetadataRecord(record) => record
+                    .children
+                    .iter()
+                    .filter_map(|c| c.filename.clone())
+                    .collect(),
+                Metadata::LegacyMetadata(_) => Vec::new(),
+            }
+        };
+        assert!(children(&state).contains(&"a.txt".to_string()), "{:?}", children(&state));
 
         // A write below it, then a new request: a new asset, re-read, and nothing stored at `data`.
         envref
@@ -17715,6 +17741,7 @@ mod key_without_recipe_tests {
         assert_ne!(again.id(), asset.id(), "a directory asset is never reused");
         let state = again.get().await.expect("a directory state");
         assert_eq!(state.metadata.status(), Status::Directory);
+        assert!(children(&state).contains(&"b.txt".to_string()), "{:?}", children(&state));
         assert!(envref
             .get_async_store()
             .get(&data)

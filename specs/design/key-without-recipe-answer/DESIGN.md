@@ -352,9 +352,10 @@ Run: `cargo test -p liquers-core --lib --tests`; `cargo test -p liquers-axum`; `
 
 ### Implementation notes (2026-10-25)
 
-- Step 3: the directory state is built from the asset's own metadata (key, `is_dir`, status) by
-  `become_directory`; `store.get_metadata` is not read, so a large directory costs no listing on
-  `get` (the Risks row on large directories no longer applies).
+- Step 3: `fast_track_directory` reads `store.get_metadata(&key)` before `become_directory`, so
+  the Directory state carries the store's `children` listing (review of PR #179: without it a
+  directory answered with no children while a live asset shadowed the store). The Risks row on
+  large directories applies: the listing is paid once, on a directory request only.
 - Step 4: `DefaultRecipeProvider::recipe_opt` finds a folder's `recipes.yaml` through
   `store.contains`, where `recipe` reads it with `get_bytes`. Three test store doubles in
   `liquers-core/tests/expiration_integration.rs` implemented `get` but not `contains`; they now
