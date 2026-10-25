@@ -19,6 +19,8 @@ pub enum ErrorType {
     NotSupported,
     NotAvailable,
     KeyNotFound,
+    AssetNotFound,
+    AssetNotSupported,
     KeyNotSupported,
     KeyNotAbsolute,
     KeyReadError,
@@ -51,6 +53,8 @@ impl From<ErrorType> for liquers_core::error::ErrorType {
             ErrorType::NotSupported => liquers_core::error::ErrorType::NotSupported,
             ErrorType::NotAvailable => liquers_core::error::ErrorType::NotAvailable,
             ErrorType::KeyNotFound => liquers_core::error::ErrorType::KeyNotFound,
+            ErrorType::AssetNotFound => liquers_core::error::ErrorType::AssetNotFound,
+            ErrorType::AssetNotSupported => liquers_core::error::ErrorType::AssetNotSupported,
             ErrorType::KeyNotSupported => liquers_core::error::ErrorType::KeyNotSupported,
             ErrorType::KeyNotAbsolute => liquers_core::error::ErrorType::KeyNotAbsolute,
             ErrorType::KeyReadError => liquers_core::error::ErrorType::KeyReadError,
@@ -87,6 +91,8 @@ impl From<liquers_core::error::ErrorType> for ErrorType {
             liquers_core::error::ErrorType::NotSupported => ErrorType::NotSupported,
             liquers_core::error::ErrorType::NotAvailable => ErrorType::NotAvailable,
             liquers_core::error::ErrorType::KeyNotFound => ErrorType::KeyNotFound,
+            liquers_core::error::ErrorType::AssetNotFound => ErrorType::AssetNotFound,
+            liquers_core::error::ErrorType::AssetNotSupported => ErrorType::AssetNotSupported,
             liquers_core::error::ErrorType::KeyNotSupported => ErrorType::KeyNotSupported,
             liquers_core::error::ErrorType::KeyNotAbsolute => ErrorType::KeyNotAbsolute,
             liquers_core::error::ErrorType::KeyReadError => ErrorType::KeyReadError,
@@ -101,6 +107,38 @@ impl From<liquers_core::error::ErrorType> for ErrorType {
             liquers_core::error::ErrorType::Cancelled => ErrorType::Cancelled,
             liquers_core::error::ErrorType::ConfigurationError => ErrorType::ConfigurationError,
         }
+    }
+}
+
+/// The name of an [`liquers_core::error::ErrorCategory`] as Python sees it: the class
+/// `<name>Error` is generated for it (`NotFound` → `NotFoundError`).
+fn category_name(category: liquers_core::error::ErrorCategory) -> &'static str {
+    match category {
+        liquers_core::error::ErrorCategory::Store => "Store",
+        liquers_core::error::ErrorCategory::KeyedAsset => "KeyedAsset",
+        liquers_core::error::ErrorCategory::NotFound => "NotFound",
+    }
+}
+
+#[pymethods]
+impl ErrorType {
+    /// The names of the categories this type belongs to, in order (`["Store", "NotFound"]` for
+    /// `KeyNotFound`). `_errors.py` derives each variant's exception class from them.
+    pub fn categories(&self) -> Vec<&'static str> {
+        liquers_core::error::ErrorType::from(*self)
+            .categories()
+            .iter()
+            .map(|c| category_name(*c))
+            .collect()
+    }
+
+    /// The names of every category, in declaration order.
+    #[staticmethod]
+    pub fn all_categories() -> Vec<&'static str> {
+        liquers_core::error::ErrorCategory::ALL
+            .iter()
+            .map(|c| category_name(*c))
+            .collect()
     }
 }
 
@@ -331,7 +369,7 @@ mod tests {
         Ok(())
     }
 
-    const ALL: [CoreErrorType; 25] = [
+    const ALL: [CoreErrorType; 27] = [
         CoreErrorType::ArgumentMissing,
         CoreErrorType::ActionNotRegistered,
         CoreErrorType::CommandAlreadyRegistered,
@@ -346,6 +384,8 @@ mod tests {
         CoreErrorType::NotSupported,
         CoreErrorType::NotAvailable,
         CoreErrorType::KeyNotFound,
+        CoreErrorType::AssetNotFound,
+        CoreErrorType::AssetNotSupported,
         CoreErrorType::KeyNotSupported,
         CoreErrorType::KeyNotAbsolute,
         CoreErrorType::KeyReadError,

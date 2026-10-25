@@ -1,10 +1,10 @@
 //! The `ERROR` bridge: Liquers `Error` ↔ JavaScript.
 //!
-//! One structured error class rather than a typed hierarchy. `ErrorType` has 23 variants, and 23
+//! One structured error class rather than a typed hierarchy. `ErrorType` has 27 variants, and 27
 //! JavaScript subclasses would be surface without benefit — the discriminant is carried as a
 //! string field instead, which is also what makes it forward-compatible.
 
-use liquers_core::error::{Error, ErrorType};
+use liquers_core::error::{Error, ErrorCategory, ErrorType};
 use liquers_core::issue_report::{Issue, IssueReport};
 use wasm_bindgen::prelude::*;
 
@@ -29,6 +29,8 @@ pub fn error_type_name(t: ErrorType) -> &'static str {
         ErrorType::NotSupported => "not_supported",
         ErrorType::NotAvailable => "not_available",
         ErrorType::KeyNotFound => "key_not_found",
+        ErrorType::AssetNotFound => "asset_not_found",
+        ErrorType::AssetNotSupported => "asset_not_supported",
         ErrorType::KeyNotSupported => "key_not_supported",
         ErrorType::KeyNotAbsolute => "key_not_absolute",
         ErrorType::KeyReadError => "key_read_error",
@@ -63,6 +65,8 @@ pub fn error_type_from_name(name: &str) -> Option<ErrorType> {
         "not_supported" => ErrorType::NotSupported,
         "not_available" => ErrorType::NotAvailable,
         "key_not_found" => ErrorType::KeyNotFound,
+        "asset_not_found" => ErrorType::AssetNotFound,
+        "asset_not_supported" => ErrorType::AssetNotSupported,
         "key_not_supported" => ErrorType::KeyNotSupported,
         "key_not_absolute" => ErrorType::KeyNotAbsolute,
         "key_read_error" => ErrorType::KeyReadError,
@@ -77,6 +81,15 @@ pub fn error_type_from_name(name: &str) -> Option<ErrorType> {
         _ => return None,
     };
     Some(t)
+}
+
+/// Stable string names for every [`ErrorCategory`], as `LiquersError.categories` reports them.
+pub fn error_category_name(c: ErrorCategory) -> &'static str {
+    match c {
+        ErrorCategory::Store => "store",
+        ErrorCategory::KeyedAsset => "keyed_asset",
+        ErrorCategory::NotFound => "not_found",
+    }
 }
 
 /// A Liquers error, visible to JavaScript.
@@ -125,6 +138,19 @@ impl LiquersError {
     #[wasm_bindgen(getter, js_name = errorType)]
     pub fn error_type(&self) -> String {
         error_type_name(self.inner.error_type).to_string()
+    }
+
+    /// The categories of the error type, such as `["store", "not_found"]` for `"key_not_found"`;
+    /// empty for a type in none. JavaScript has no typed `catch`, so this is how a page handles a
+    /// whole group at once: `e.categories.includes("not_found")`.
+    #[wasm_bindgen(getter)]
+    pub fn categories(&self) -> Vec<String> {
+        self.inner
+            .error_type
+            .categories()
+            .iter()
+            .map(|c| error_category_name(*c).to_string())
+            .collect()
     }
 
     #[wasm_bindgen(getter)]
