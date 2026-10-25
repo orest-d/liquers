@@ -22,7 +22,7 @@ Short-term priorities are:
 
 Longer-term candidates include Rhai, JavaScript/TypeScript on Node or Deno, RustPython, generic Wasm guests, C/C++, and GDScript.
 
-`liquers-py` implements every Essential feature of the Python baseline profile, designed in [`design/liquers-py/`](../design/liquers-py/DESIGN.md); none is yet `CONFORMANT`, and two are `BLOCKED` on core defects (matrix in `liquers-py/README.md`). The guide stays the definition: where the two differ, the guide wins and the difference is an issue. Its predecessor's design, [`design/python-wrapper/`](../design/python-wrapper/phase1-high-level-design.md), is superseded.
+`liquers-py` implements every Essential feature of the Python baseline profile, designed in [`design/liquers-py/`](../design/liquers-py/DESIGN.md); all seven are `COMPLETE` with every required check passing, so the profile is `CONFORMANT` (matrix in `liquers-py/README.md`). The guide stays the definition: where the two differ, the guide wins and the difference is an issue. Its predecessor's design, [`design/python-wrapper/`](../design/python-wrapper/phase1-high-level-design.md), is superseded.
 
 ### Supplying a recipe working directory
 
@@ -3692,6 +3692,7 @@ def test_PACKAGE07_artifact_carries_declarations_license_and_metadata():
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-25 | Language status: the `liquers-py` Python baseline profile is `CONFORMANT` now that its core blockers are fixed (PR #176, `key-without-recipe-answer`). | `liquers-py/README.md` |
 | 2026-10-25 | Two features. `DATANODE`: core's `DataNode` from the *language* — an adapter so a native structure (a Python `dict`, a JavaScript object) reads in place, agreeing with structural conversion, and an optional outbound view; tests `DATANODE01`–`11`. `TEMPLATE`: the `ns-template` commands in the built-in set, template commands declared as aliases from the *language*, and programmatic `render` / `expand` / `validate` on the environment and on a command's context, keeping the commands' frame layout; tests `TEMPLATE01`–`11`. §4 rows, soft dependencies and profiles; §2 *Data node*; §7 item 6; §8 references; Appendix A blueprints. §MODULE corrected: `Context::get_cwd_key` is crate-private, so the cwd comes from a `-R-key/.` argument. Gaps filed: `FOREIGN-VALUE-HAS-NO-DATA-NODE`, `TEMPLATE-TOP-LEVEL-RENDER-HAS-NO-HOST`, `WEB-HAS-NO-TEMPLATE-COMMANDS`. | maintainer request |
 | 2026-10-25 | §ERROR: map `ErrorCategory` — base classes in a typed hierarchy, a `categories` field otherwise. | `design/key-without-recipe-answer/` |
 | 2026-10-22 | §6 Python pitfalls: built environments are now freed; the handle-counting advice stays. | `design/environment-manager-reference-cycle/` |
