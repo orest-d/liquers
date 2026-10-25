@@ -8,10 +8,10 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 196
+Total rows: 207
 - P1: 1
-- P2: 61
-- P3: 134
+- P2: 63
+- P3: 143
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -23,7 +23,9 @@ Total rows: 196
 | [`WORKSPACE-SERDE-DERIVE-UNDECLARED`](issues/WORKSPACE-SERDE-DERIVE-UNDECLARED.md) | issue | Three crates use serde derive macros without declaring the `derive` feature | accepted | ready | not-eligible | P2 | S | build;core/value;lib/ui;axum | [design](design/serde-derive-feature-declared/DESIGN.md) | 2026-08-09 |
 | [`DEGRADED-STORED-VALUE-WITHOUT-RECIPE-REPORTS-NO-RECIPE`](issues/DEGRADED-STORED-VALUE-WITHOUT-RECIPE-REPORTS-NO-RECIPE.md) | issue | Evaluating a stored value this build cannot read fails with "No recipe found" instead of naming the type | draft | needs-decision | not-eligible | P2 | S | core/assets | [design](design/key-without-recipe-answer/DESIGN.md) | 2026-10-18 |
 | [`YAML-SCHEMA-FILE-CANNOT-BE-LINKED-AS-SCHEMA-TEXT`](issues/YAML-SCHEMA-FILE-CANNOT-BE-LINKED-AS-SCHEMA-TEXT.md) | issue | A plain .yaml schema file cannot be linked into to_record's schema argument | draft | needs-decision | not-eligible | P2 | S | records;lib/value | [design](design/schema-argument-structured-link/DESIGN.md) | 2026-10-20 |
+| [`PLAN-EXPIRATION-REACHES-THE-CONTEXT-ONLY-THROUGH-APPLY-RECIPE`](issues/PLAN-EXPIRATION-REACHES-THE-CONTEXT-ONLY-THROUGH-APPLY-RECIPE.md) | issue | A plan's expiration reaches the asset only through apply_recipe | draft |  |  | P2 | S | core/context |  | 2026-10-20 |
 | [`QUERY-TOKEN-CLASSES-TRUNCATE-NON-ASCII`](issues/QUERY-TOKEN-CLASSES-TRUNCATE-NON-ASCII.md) | issue | Action names, filenames and header values accept non-ASCII characters by low-byte truncation | draft |  |  | P2 | S | core/query |  | 2026-10-21 |
+| [`RECIPES-YAML-READ-ERRORS-READ-AS-NO-RECIPES`](issues/RECIPES-YAML-READ-ERRORS-READ-AS-NO-RECIPES.md) | issue | Every recipes.yaml read error is treated as an empty recipe list | draft |  |  | P2 | S | core/assets |  | 2026-10-20 |
 | [`WEB-EVALUATE-RESOLVES-FAILED-ASSET-AS-NULL`](issues/WEB-EVALUATE-RESOLVES-FAILED-ASSET-AS-NULL.md) | issue | liquers-web's evaluate resolves a failed command's asset to null instead of rejecting | draft |  |  | P2 | S | web |  | 2026-10-18 |
 | [`INLINE-RUN-CLAIM-REPAIR-SKIPPED-UNDER-LOCK-CONTENTION`](issues/INLINE-RUN-CLAIM-REPAIR-SKIPPED-UNDER-LOCK-CONTENTION.md) | issue | A dropped inline run leaves its asset Processing forever when the asset lock is busy at drop time | draft | ready | eligible | P2 | M | core/assets | [design](design/inline-run-claim-repair-under-lock-contention/DESIGN.md) | 2026-10-19 |
 | [`CORE-VALUE-ENUM-OVERSIZED`](issues/CORE-VALUE-ENUM-OVERSIZED.md) | issue | Every Value occupies over 700 bytes because three variants are stored unboxed | draft | ready | not-eligible | P2 | M | core/value;lib/value | [design](design/core-value-enum-oversized/DESIGN.md) | 2026-08-18 |
@@ -104,6 +106,9 @@ Total rows: 196
 | [`DOCS-TOOLING-TESTS-NOT-RUN-IN-CI`](issues/DOCS-TOOLING-TESTS-NOT-RUN-IN-CI.md) | issue | The unit tests of the documentation tooling are not run by CI | draft |  |  | P3 | S | docs;build |  | 2026-10-20 |
 | [`FOREIGN-VALUE-TEXT-AND-JSON-HOOKS-NEVER-CALLED`](issues/FOREIGN-VALUE-TEXT-AND-JSON-HOOKS-NEVER-CALLED.md) | issue | ForeignValue's text and JSON hooks are never called, so a foreign value cannot offer either | draft |  |  | P3 | S | lib/value |  | 2026-10-20 |
 | [`LIB-RECIPE-PROVIDERS-HAVE-NO-VALIDATION-CLI`](issues/LIB-RECIPE-PROVIDERS-HAVE-NO-VALIDATION-CLI.md) | feature | No command-line tool validates the recipes of liquers-lib's recipe provider chain | draft |  |  | P3 | S | core/validate;records |  | 2026-10-20 |
+| [`MID-QUERY-Q-INSTRUCTION-DISCARDS-ARGUMENTS`](issues/MID-QUERY-Q-INSTRUCTION-DISCARDS-ARGUMENTS.md) | issue | A q instruction in the middle of a query silently drops its parameters | draft |  |  | P3 | S | core/plan |  | 2026-10-20 |
+| [`NEXT-PRESETS-MISREAD-PLANNER-INSTRUCTIONS`](issues/NEXT-PRESETS-MISREAD-PLANNER-INSTRUCTIONS.md) | issue | find_next_presets reads planner instructions differently from the planner | draft |  |  | P3 | S | lib/commands |  | 2026-10-20 |
+| [`PLANNER-INSTRUCTION-NAMES-DUPLICATED`](issues/PLANNER-INSTRUCTION-NAMES-DUPLICATED.md) | issue | The planner instruction names are hard-coded in three crates | draft |  |  | P3 | S | core/plan;lib/commands |  | 2026-10-20 |
 | [`POLARS-DATAFRAME-JSON-NOT-SERIALIZABLE`](issues/POLARS-DATAFRAME-JSON-NOT-SERIALIZABLE.md) | issue | A polars DataFrame cannot be written or read as JSON or NDJSON | draft |  |  | P3 | S | lib/polars |  | 2026-10-20 |
 | [`PY-COMMAND-DECORATOR-CANNOT-DECLARE-ARGUMENT-METADATA`](issues/PY-COMMAND-DECORATOR-CANNOT-DECLARE-ARGUMENT-METADATA.md) | feature | Python command decorators cannot declare per-argument metadata | draft |  |  | P3 | S | py |  | 2026-10-18 |
 | [`PY-COMMAND-DECORATOR-CANNOT-SET-REALM`](issues/PY-COMMAND-DECORATOR-CANNOT-SET-REALM.md) | feature | Python command decorators cannot place a command in a realm | draft |  |  | P3 | S | py |  | 2026-10-18 |
@@ -111,6 +116,10 @@ Total rows: 196
 | [`PY-METADATA-METHODS-RAISE-PLAIN-EXCEPTION`](issues/PY-METADATA-METHODS-RAISE-PLAIN-EXCEPTION.md) | issue | Metadata, Recipe and expiration methods in liquers-py raise a plain Exception instead of the typed LiquersError | draft |  |  | P3 | S | py |  | 2026-10-20 |
 | [`PY-RECIPE-PROVIDER-NOT-CONFIGURABLE`](issues/PY-RECIPE-PROVIDER-NOT-CONFIGURABLE.md) | feature | A Python environment cannot configure a recipe provider other than the default | draft |  |  | P3 | S | py |  | 2026-10-18 |
 | [`PY-REPRS-SHOW-RUST-DEBUG-FORMAT`](issues/PY-REPRS-SHOW-RUST-DEBUG-FORMAT.md) | issue | Several Python classes' repr is Rust debug output, and Key and Query quote their text twice | draft |  |  | P3 | S | py |  | 2026-10-19 |
+| [`RECIPE-CIRCULAR-DEPENDENCY-FIELDS-ARE-DEAD`](issues/RECIPE-CIRCULAR-DEPENDENCY-FIELDS-ARE-DEAD.md) | issue | The recipe circular-dependency fields are never set or read | draft |  |  | P3 | S | core/assets |  | 2026-10-20 |
+| [`RECIPE-CWD-ERROR-DOES-NOT-NAME-THE-RECIPE`](issues/RECIPE-CWD-ERROR-DOES-NOT-NAME-THE-RECIPE.md) | issue | The explicit-cwd recipe error names the directory but not the offending recipe | draft |  |  | P3 | S | core/assets |  | 2026-10-20 |
+| [`RECIPE-LIST-SET-CWD-MUTATES-BEFORE-FAILING`](issues/RECIPE-LIST-SET-CWD-MUTATES-BEFORE-FAILING.md) | issue | RecipeList::set_cwd mutates part of the list before failing | draft |  |  | P3 | S | core/assets |  | 2026-10-20 |
+| [`RECIPE-WITHOUT-FILENAME-SILENTLY-OMITTED-FROM-LISTING`](issues/RECIPE-WITHOUT-FILENAME-SILENTLY-OMITTED-FROM-LISTING.md) | issue | A recipe with no valid filename is silently left out of the recipe listing and lookup | draft |  |  | P3 | S | core/assets |  | 2026-10-20 |
 | [`RESOURCE-DIRECTORY-STEP-PRINTS-DEBUG-OUTPUT`](issues/RESOURCE-DIRECTORY-STEP-PRINTS-DEBUG-OUTPUT.md) | issue | Every -R-dir/ and -R-sdir/ evaluation prints two debug lines to stderr | draft |  |  | P3 | S | core/plan |  | 2026-10-21 |
 | [`SIMPLE-VALUE-I32-JSON-READS-BACK-AS-I64`](issues/SIMPLE-VALUE-I32-JSON-READS-BACK-AS-I64.md) | issue | liquers-lib's base value reads an I32 written as JSON back as I64 | draft |  |  | P3 | S | lib/value |  | 2026-10-20 |
 | [`TO-OVERRIDE-KEEPS-THE-PENDING-EXPIRATION-DEADLINE`](issues/TO-OVERRIDE-KEEPS-THE-PENDING-EXPIRATION-DEADLINE.md) | issue | A value pinned with to_override still expires at the deadline its recipe scheduled | draft |  |  | P3 | S | core/assets |  | 2026-10-20 |
@@ -157,6 +166,7 @@ Total rows: 196
 | [`ASSET-EVENT-STREAM-CARRIES-ONLY-EXPIRATIONS`](issues/ASSET-EVENT-STREAM-CARRIES-ONLY-EXPIRATIONS.md) | feature | The manager event stream announces expirations only, not new versions, additions or removals | draft |  |  | P3 | M | core/assets |  | 2026-10-21 |
 | [`ASSET-EVENTS-ARE-NOT-DELIVERED-OUT-OF-PROCESS`](issues/ASSET-EVENTS-ARE-NOT-DELIVERED-OUT-OF-PROCESS.md) | feature | Manager-level asset events cannot be followed from another process | draft |  |  | P3 | M | axum |  | 2026-10-21 |
 | [`DEPENDENCY-ANALYSIS-SUMMARIES-NOT-REUSED-ACROSS-EVALUATIONS`](issues/DEPENDENCY-ANALYSIS-SUMMARIES-NOT-REUSED-ACROSS-EVALUATIONS.md) | feature | Every evaluation re-walks its whole upstream recipe graph to recompute summaries it already computed | draft |  |  | P3 | M | core/plan;core/assets |  | 2026-10-20 |
+| [`DEPENDENCY-VOLATILITY-INVISIBLE-TO-PREDECESSOR-WALK`](issues/DEPENDENCY-VOLATILITY-INVISIBLE-TO-PREDECESSOR-WALK.md) | issue | Volatility a plan inherits at finalization is invisible to the predecessor-boundary walk | draft |  |  | P3 | M | core/plan |  | 2026-10-20 |
 | [`ENUM-ALTERNATIVES-HAVE-NO-LABEL`](issues/ENUM-ALTERNATIVES-HAVE-NO-LABEL.md) | issue | An enum alternative has an alias and a value but no label or description | draft |  |  | P3 | M | core/commands;macro |  | 2026-10-20 |
 | [`EXPIRES-TEXT-FORM-DROPS-TIME-ZONE`](issues/EXPIRES-TEXT-FORM-DROPS-TIME-ZONE.md) | issue | The text form of an expiration drops the time zone of day-of-week and end-of-period rules | draft |  |  | P3 | M | core/assets |  | 2026-10-20 |
 | [`GLOBAL-ENUMS-NOT-IMPORTED-BY-LANGUAGE-INTEGRATIONS`](issues/GLOBAL-ENUMS-NOT-IMPORTED-BY-LANGUAGE-INTEGRATIONS.md) | issue | JavaScript and Python cannot supply the global enums their commands refer to | draft |  |  | P3 | M | web;py |  | 2026-10-20 |
@@ -164,6 +174,7 @@ Total rows: 196
 | [`LANGUAGE-INTEGRATIONS-REBUILD-ENVIRONMENT-ON-REGISTRATION`](issues/LANGUAGE-INTEGRATIONS-REBUILD-ENVIRONMENT-ON-REGISTRATION.md) | issue | liquers-web and liquers-py rebuild the whole environment for each late registration | draft |  |  | P3 | M | web;py |  | 2026-10-20 |
 | [`LIBRARY-CODE-CALLS-ERROR-NEW-DIRECTLY`](issues/LIBRARY-CODE-CALLS-ERROR-NEW-DIRECTLY.md) | issue | Library code constructs errors with Error::new, which CLAUDE.md forbids | draft |  |  | P3 | M | core/value;lib/value;lib/polars |  | 2026-10-20 |
 | [`MCP-SERVER-APPLIES-NO-ACCESS-POLICY`](issues/MCP-SERVER-APPLIES-NO-ACCESS-POLICY.md) | feature | The MCP server limits its query tool by a command allow-list, not by an access policy | draft |  |  | P3 | M | mcp |  | 2026-10-20 |
+| [`PLAN-SERDE-HAS-NO-COMPATIBILITY-CONTRACT`](issues/PLAN-SERDE-HAS-NO-COMPATIBILITY-CONTRACT.md) | issue | A serialized Plan has no compatibility contract | draft |  |  | P3 | M | core/plan |  | 2026-10-20 |
 | [`PY-RECORD-VALUES-CANNOT-CROSS-TO-PYTHON`](issues/PY-RECORD-VALUES-CANNOT-CROSS-TO-PYTHON.md) | feature | A record view or source evaluated from Python raises ConversionError instead of reaching Python as a table | draft |  |  | P3 | M | py;records |  | 2026-10-20 |
 | [`QUERY-BUILDER-NOT-IN-BINDINGS`](issues/QUERY-BUILDER-NOT-IN-BINDINGS.md) | feature | Python and JavaScript have no validating query builder | draft |  |  | P3 | M | py;web |  | 2026-10-21 |
 | [`RECORD-SCHEMA-NOT-RECORDED-IN-METADATA-ON-WRITE`](issues/RECORD-SCHEMA-NOT-RECORDED-IN-METADATA-ON-WRITE.md) | issue | A record view stored in a schema-less format does not record its schema in the metadata | draft |  |  | P3 | M | lib/value;core/assets |  | 2026-10-20 |

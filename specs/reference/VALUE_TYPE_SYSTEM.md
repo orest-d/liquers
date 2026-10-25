@@ -233,7 +233,7 @@ audiences, not two type axes.
 | 3 | an explicit declaration (`with_media_type`, or a caller setting `data_format`) | either, verbatim |
 
 A query with no filename seeds nothing: `Recipe::get_asset_info` declares the query's filename
-extension or no format at all (DOC-08 §Recipe contract), so the asset of an unnamed query falls
+extension or no format at all ([`RECIPES_AND_PLANS.md`](RECIPES_AND_PLANS.md#recipe-contract) §Recipe contract), so the asset of an unnamed query falls
 through to level 1. It used to declare `bin`, which no `liquers-lib` value serializes as.
 
 **Level 1 resolves rather than writes.** An absent `data_format` *means* "no format was chosen, so
@@ -428,6 +428,7 @@ degrades on read.
 | Date | Change | Source |
 |---|---|---|
 | 2026-10-21 | §Reading: a stored value whose metadata declares no data format is read in its type's default format, not `bin`. | `design/stored-value-default-data-format/` (`STORED-VALUE-WITHOUT-DATA-FORMAT-READ-AS-BIN`) |
+| 2026-10-20 | Links to `reference/api/DOC_08_RECIPES_PLANS.md` follow its promotion to `reference/RECIPES_AND_PLANS.md`. | DOC-08 promotion |
 | 2026-10-18 | Reviewed against the implemented `liquers-py` (phase-5): §Reading's foreign decoder and formatless read rule match `liquers-lib/src/value/foreign.rs` and `liquers-core/src/assets.rs`. | `design/liquers-py/` (phase-5) |
 | 2026-10-18 | §Reading: a registered type that declares no formats is read as degraded, never decoded. | `design/liquers-py/` (`FOREIGN-VALUE-CANNOT-BE-DESERIALIZED`) |
 | 2026-10-18 | §Reading a foreign value back: the process-global foreign decoder table, and foreign identifiers routed to the extension. `liquers-py` now registers `py.Object` at construction instead of owning a value type. | `design/liquers-py/` |

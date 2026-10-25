@@ -9,7 +9,7 @@ readiness: needs-decision
 autofix: not-eligible
 area: [core/query, core/plan]
 issues: [UI-VARIADIC-ARGUMENT-LIST-EDITOR]
-affects_docs: [DOC_08_RECIPES_PLANS]
+affects_docs: [specs/reference/RECIPES_AND_PLANS.md]
 created: 2026-10-21
 ---
 # Which action parameters belong to which argument, and list edits of a variadic argument
@@ -134,7 +134,7 @@ Arguments are named (`argument: &str`), matching `override_value`. Sync, no allo
 result. Errors: unknown or non-`multiple` argument and out-of-range index use
 `Error::general_error`; an omitted argument without a default uses `Error::missing_argument(i, name, &action.position)`
 (`liquers-core/src/error.rs`). Excess parameters make every edit fail (the action does not plan).
-Documents: `specs/reference/api/DOC_08_RECIPES_PLANS.md` gains "Argument slots" (History,
+Documents: `specs/reference/RECIPES_AND_PLANS.md` gains "Argument slots" (History,
 `reviewed:`); the source issue's body records the re-scope.
 
 ### Risks
@@ -178,7 +178,7 @@ Run: `cargo test -p liquers-core --lib variadic && cargo test -p liquers-core --
 - [ ] 1. `liquers-core/src/plan.rs` `ArgumentSlot`, `ArgumentSlots`, `argument_slots` + `argument_slots_agree_with_from_action` — `cargo test -p liquers-core --lib argument_slots`. Rollback: delete.
 - [ ] 2. `plan.rs` `insert_variadic_element`, `remove_variadic_element`, `move_variadic_element` + the four edit tests — `cargo test -p liquers-core --lib variadic`.
 - [ ] 3. `liquers-core/tests/variadic_slots.rs` — `cargo test -p liquers-core --test variadic_slots`.
-- [ ] 4. `specs/reference/api/DOC_08_RECIPES_PLANS.md` "Argument slots" (History, `reviewed:`); close `UI-VARIADIC-ARGUMENT-LIST-EDITOR` pointing at `NO-COMMAND-PARAMETER-EDITOR` — `python3 scripts/docs_index.py && python3 scripts/docs_index.py --check`.
+- [ ] 4. `specs/reference/RECIPES_AND_PLANS.md` "Argument slots" (History, `reviewed:`); close `UI-VARIADIC-ARGUMENT-LIST-EDITOR` pointing at `NO-COMMAND-PARAMETER-EDITOR` — `python3 scripts/docs_index.py && python3 scripts/docs_index.py --check`.
 
 ### Validation
 

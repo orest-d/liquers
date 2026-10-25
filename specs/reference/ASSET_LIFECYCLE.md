@@ -148,7 +148,7 @@ Three terms used across the asset layer and its web API:
   string, JSON body or WebSocket `arguments` (`WEB_API_SPECIFICATION.md` §2.4). `Recipe::to_plan`
   applies them, resolving names against the command the query named (for an alias, the alias's own
   arguments — its head slots cannot be overridden) and converting a mismatched JSON type with a
-  planning warning (`api/DOC_08_RECIPES_PLANS.md`).
+  planning warning ([`RECIPES_AND_PLANS.md`](RECIPES_AND_PLANS.md#recipe-contract)).
 
 **Recipes are the edge case.** A keyed recipe with `arguments` produces a *managed* keyed asset —
 it is in the key map under the recipe's key — although its query-with-overrides has no query
@@ -337,7 +337,7 @@ arrives mid-evaluation and must join the first rather than be turned away.
 | API-level contract | [`api/DOC_03_ASSETS_EXECUTION_LIFECYCLE.md`](api/DOC_03_ASSETS_EXECUTION_LIFECYCLE.md) |
 | `Status::Dependencies` semantics | [`DEPENDENCIES_STATUS.md`](DEPENDENCIES_STATUS.md) |
 | Payloads | [`PAYLOAD_GUIDE.md`](PAYLOAD_GUIDE.md) |
-| Recipes and plans | [`api/DOC_08_RECIPES_PLANS.md`](api/DOC_08_RECIPES_PLANS.md) |
+| Recipes and plans | [`RECIPES_AND_PLANS.md`](RECIPES_AND_PLANS.md) |
 | Why it is built this way | [`../design/evaluate-path-consolidation/`](../design/evaluate-path-consolidation/) |
 | The duplication this removed | [`../archive/2026-09-04-asset-lifecycle-duplication-audit.md`](../archive/2026-09-04-asset-lifecycle-duplication-audit.md) |
 
@@ -345,6 +345,7 @@ arrives mid-evaluation and must join the first rather than be turned away.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-20 | Links to `reference/api/DOC_08_RECIPES_PLANS.md` follow its promotion to `reference/RECIPES_AND_PLANS.md`. | DOC-08 promotion |
 | 2026-10-20 | §Reusing a stored asset: a stored record with no status and no version is first read as `Source` (no recipe) or `Ready` (recipe), with a warning; a dependency with status `None` is inconclusive. | phase-5 (`design/js-store-page-metadata-status/`) |
 | 2026-10-20 | §7: a caller parked on an inline run takes the run over when the runner's future is dropped; `INLINE-DROP-REPAIR-STRANDS-EXISTING-WAITERS` is fixed. | `design/inline-waiter-recovers-dropped-run/` |
 | 2026-10-17 | Steps 1 and 6: volatility can be recorded during the run and is read at finalization. | `design/runtime-volatility` |

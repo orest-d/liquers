@@ -3,13 +3,14 @@ title: API Documentation Gap Analysis
 kind: reference
 audience: internal
 area: [docs]
-reviewed: 2026-10-19
+reviewed: 2026-10-20
 ---
 # API Documentation Gap Analysis
 
 This document tracks the analysis and improvement of the Liquers API
 documentation. It is the concept inventory, gap assessment, and prioritized
-documentation backlog. DOC-01 through DOC-04 and DOC-08 are complete.
+documentation backlog. DOC-01 through DOC-04 and DOC-08 are complete; DOC-08 has since been promoted to
+[`RECIPES_AND_PLANS.md`](../RECIPES_AND_PLANS.md).
 
 ## Scope
 
@@ -378,9 +379,9 @@ consumer contract is stated in `specs/reference/STORE_SEMANTICS.md`; its API rus
 
 ### 8. Recipes and plans
 
-The completed [DOC-08 reference](DOC_08_RECIPES_PLANS.md) records the verified
-recipe schema, provider lookup rules, planning policies, execution flow, and
-remaining implementation-level gaps.
+[`RECIPES_AND_PLANS.md`](../RECIPES_AND_PLANS.md) (formerly DOC-08) records the verified
+recipe schema, provider lookup rules, planning policies and execution flow, and
+links its known limitations to issues.
 
 The relationship between query, recipe, plan, and asset is not documented
 operationally enough. The `Recipe` example in the project overview is also
@@ -638,7 +639,7 @@ Markdown files in this folder and linked from the `Analysis` column.
 | DOC-05 | Commands and registration | P0 | Baseline complete | Not started | Not started |
 | DOC-06 | Values, state, metadata, serialization | P1 | Baseline complete | Not started | Not started |
 | DOC-07 | Stores and persistence | P1 | Baseline complete | Not started | Must cover the absolute-key precondition (§7) |
-| DOC-08 | Recipes and plans | P1 | [Reference](DOC_08_RECIPES_PLANS.md) | Complete | Planning, payload requirements, finalization, and execution reviewed against HEAD |
+| DOC-08 | Recipes and plans | P1 | [Reference](../RECIPES_AND_PLANS.md) (promoted to `reference/`) | Complete | Planning, payload requirements, finalization, and execution reviewed against HEAD |
 | DOC-09 | Dependencies, expiration, volatility | P1 | Baseline complete | Not started | Not started |
 | DOC-10 | HTTP and WebSocket APIs | P1 | Baseline complete | Not started | Not started |
 | DOC-11 | Errors and diagnostics | P2 | Baseline complete | Not started | Not started |
@@ -667,6 +668,7 @@ Suggested files for further work:
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-20 | DOC-08 promoted to `reference/RECIPES_AND_PLANS.md`; tracker row and links point there. | DOC-08 promotion |
 | 2026-10-19 | §12 and DOC-12: `liquers-py` now has a guide and a contract reference; the generated API reference and stubs remain. Only §12 and the DOC-12 row were re-read against the code. | `design/liquers-py/` (phase-5) |
 | 2026-10-10 | §7 and the topic list: the synchronous `Store` trait and the `cache` module were removed; only `AsyncStore` remains to document. | `CORE-SYNC-STORE-TRAIT-OBSOLETE`, `design/sync-store-removal/` |
 | 2026-08-17 | Recorded the absolute-key precondition as required DOC-07 content in §7 and in the progress tracker. DOC-07 does not exist yet, so the rule is documented in `liquers-core::store` rustdoc meanwhile. | `design/store-key-guard/` |

@@ -9,7 +9,7 @@ readiness: needs-decision
 autofix: not-eligible
 area: [core/plan, core/assets, core/query]
 issues: [QUERY-CANNOT-MARK-CACHED-INTERMEDIATES]
-affects_docs: [specs/reference/api/DOC_08_RECIPES_PLANS.md, specs/reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md, specs/reference/PROJECT_OVERVIEW.md, specs/reference/ASSETS.md]
+affects_docs: [specs/reference/RECIPES_AND_PLANS.md, specs/reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md, specs/reference/PROJECT_OVERVIEW.md, specs/reference/ASSETS.md]
 created: 2026-10-20
 ---
 # Positional cache directives that mark which intermediates of a query are kept

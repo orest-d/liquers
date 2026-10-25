@@ -10,7 +10,10 @@
 //! which can be executed by an interpreter.  [`PlanBuilder`] performs the synchronous part of planning against a
 //! [`CommandMetadataRegistry`]: it resolves commands, converts action parameters, applies
 //! defaults, identifies links, and derives initial volatility, payload, and expiration
-//! requirements. It does not execute commands or produce an asset.
+//! requirements. It does not execute commands or produce an asset. The planner instructions
+//! `ns`, `q` and `v` and the resource header instructions (`-R-meta/…`, `-R-cwd/…`) are
+//! consumed here and never become `Step::Action`s; see the `query` module's *Planner
+//! instructions* section and `specs/reference/RECIPES_AND_PLANS.md`.
 //!
 //! Planning that depends on an environment remains asynchronous and lives in
 //! `crate::interpreter`. In particular, `finalize_plan` incorporates dependency volatility and
@@ -2101,7 +2104,8 @@ pub struct Plan {
 /// than a diagnostic. A closed set: a new source is a compile error at every match.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum VolatilitySource {
-    /// A volatile command, a volatile dependency, or the `v` instruction.
+    /// A volatile command, a link to a volatile query, or the `v` instruction. (Volatility a plan
+    /// inherits from an upstream recipe at finalization sets `Plan::is_volatile` but no source.)
     ///
     /// **Positional**: volatility starts at that point, so everything ahead of it in the chain
     /// is genuinely pure and a boundary may be cut in front of it. `v` at the head of a query
@@ -2323,7 +2327,7 @@ impl Plan {
     ///
     /// A boundary is a cache entry: the prefix becomes an asset in its own right, so it can be
     /// shared between consumers, expire on its own schedule and be scheduled alongside its
-    /// siblings. Two things make a candidate uncacheable, and the walk steps back past both:
+    /// siblings. Three things make a candidate uncacheable, and the walk steps back past each:
     ///
     /// - its plan **requires a payload** — a payload is deliberately not part of a cache key,
     ///   so a value computed from one must never end up behind a boundary;
@@ -2347,9 +2351,9 @@ impl Plan {
     ///
     /// Volatility, payload requirement, expiration and dependencies are deliberately **not**
     /// recomputed: they were computed over the fully expanded plan, which is why the cut happens
-    /// here rather than during building. Every level passed over, and the decline, appends a
-    /// planning [`Step::Info`], so a declined cut is distinguishable from a plan that had no
-    /// predecessor.
+    /// here rather than during building. Every level passed over, and each explicit decline,
+    /// appends a planning [`Step::Info`], so a declined cut is distinguishable from a plan that
+    /// had no predecessor.
     ///
     /// Returns `false` when no boundary was cut.
     pub fn cut_predecessor(&mut self, cmr: &CommandMetadataRegistry) -> Result<bool, Error> {

@@ -9,7 +9,7 @@ readiness: needs-decision
 autofix: not-eligible
 area: [core/validate, core/plan]
 issues: [VALIDATE-CANNOT-SEE-NON-STANDARD-RECIPE-PROVIDERS]
-affects_docs: [specs/reference/api/DOC_08_RECIPES_PLANS.md, .claude/skills/liquers-validate/SKILL.md]
+affects_docs: [specs/reference/RECIPES_AND_PLANS.md, .claude/skills/liquers-validate/SKILL.md]
 created: 2026-10-20
 ---
 # Validate the recipes an environment's recipe provider chain serves
