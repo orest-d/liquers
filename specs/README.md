@@ -125,6 +125,7 @@ simply stop being wanted.
 - **Application-defined metadata attributes** — planned → [`issues/CORE-METADATA-NO-APPLICATION-ATTRIBUTES.md`](issues/CORE-METADATA-NO-APPLICATION-ATTRIBUTES.md)
 - **Setting title and description from a command** — planned → [`issues/CONTEXT-CANNOT-SET-TITLE-OR-DESCRIPTION.md`](issues/CONTEXT-CANNOT-SET-TITLE-OR-DESCRIPTION.md)
 - **Base/extended value discrimination** — built → [`reference/VALUE_TYPE_SYSTEM.md`](reference/VALUE_TYPE_SYSTEM.md) §Reading *(design: [`combined-value-identifier-dispatch`](design/combined-value-identifier-dispatch/))*
+- **Error categories (`Store`, `KeyedAsset`, `NotFound`); a store miss vs an asset no recipe makes; what an unservable key answers, `-R/<dir>` as a `Directory` state** — built → [`reference/ASSET_LIFECYCLE.md`](reference/ASSET_LIFECYCLE.md) §Reusing a stored asset *(errors in [`reference/PROJECT_OVERVIEW.md`](reference/PROJECT_OVERVIEW.md), [`reference/PYTHON_INTEGRATION.md`](reference/PYTHON_INTEGRATION.md) §6; design in [`design/key-without-recipe-answer/`](design/key-without-recipe-answer/))*
 - **Serialization format choice and non-finite floats in JSON** — documented → [`guides/SERIALIZATION_GUIDE.md`](guides/SERIALIZATION_GUIDE.md) *(design: [`value-to-json-non-finite-float`](design/value-to-json-non-finite-float/))*
 
 `CORE-METADATA-TRACEBACK-SUPPORT` and `LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT` are one defect
@@ -397,7 +398,6 @@ deliberately folded behind a broader line.
 - design `js-store-page-metadata-status`
 - design `json-orient-index-column-collision`
 - design `json-table-column-order`
-- design `key-without-recipe-answer`
 - design `keyed-run-replaces-dependency-edges`
 - design `lib-build-warning-cleanup`
 - design `lib-integration-test-feature-gates`

@@ -3,7 +3,7 @@ title: Language Integration Guide
 kind: guide
 audience: internal
 area: [web, py, core/commands, core/plan, core/assets, core/store]
-reviewed: 2026-10-22
+reviewed: 2026-10-25
 ---
 # Liquers Language Integration Guide
 
@@ -294,6 +294,14 @@ and not merely that one did. Without a constructor, every failure a *language* s
 collapses onto the adapter's fallback type, and the distinction between "absent", "forbidden" and
 "backend broke" is lost at the boundary. Decide this when `ERROR` is designed, not when the first
 service adapter needs it.
+
+**Map the categories too.** `ErrorType::categories()` groups types into overlapping
+`ErrorCategory` sets (`Store`, `KeyedAsset`, `NotFound`; `KeyNotFound` is in `Store` and
+`NotFound`). A language with typed exceptions gives each category a base class and derives each
+type's class from all of its categories' classes (Python: `StoreError`, `KeyedAssetError`,
+`NotFoundError`); one with a single error class exposes the names (JavaScript:
+`LiquersError.categories`, `["store", "not_found"]`). Generate both from the enums, so a new type
+or category needs no binding change.
 
 **Issues and patterns.** String-only conversion loses diagnostics. Use a structured payload and preserve the original language class/stack as context. Default an unmapped command exception to `ExecutionError`; conversion failures should be `ConversionError`, not execution failures. Never allow a foreign exception to unwind through FFI.
 
@@ -3174,6 +3182,7 @@ def test_PACKAGE07_artifact_carries_declarations_license_and_metadata():
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-25 | §ERROR: map `ErrorCategory` — base classes in a typed hierarchy, a `categories` field otherwise. | `design/key-without-recipe-answer/` |
 | 2026-10-22 | §6 Python pitfalls: built environments are now freed; the handle-counting advice stays. | `design/environment-manager-reference-cycle/` |
 | 2026-10-19 | §6 Python links the new Python integration reference and Python guide. | `design/liquers-py/` (phase-5) |
 | 2026-10-19 | §6 Python: an *Errors* entry. Nested Python tracebacks are concatenated innermost first, and the cross-language structure is an open problem (`MULTI-LANGUAGE-TRACEBACK-IS-A-FLAT-STRING`). | `design/liquers-py/` (phase-5) |

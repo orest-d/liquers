@@ -3,7 +3,7 @@ title: Using Liquers from Python
 kind: guide
 audience: user
 area: [py]
-reviewed: 2026-10-22
+reviewed: 2026-10-25
 ---
 # Using Liquers from Python
 
@@ -510,6 +510,26 @@ Every Liquers error is raised as a subclass of `lq.LiquersError`, one per `Error
 `lq.KeyNotFoundError`, `lq.ActionNotRegisteredError`, `lq.ExecutionError`. Catch
 `lq.LiquersError` for any of them.
 
+Some types also belong to categories, each with its own base class, so one `except` catches a
+group: `lq.StoreError` (every store error), `lq.KeyedAssetError` (the same for keyed assets) and
+`lq.NotFoundError` (also a `LookupError`). A type may be in several — `ErrorType.categories()`
+lists them:
+
+```python
+import liquers as lq
+
+env = lq.Environment()
+try:
+    env.evaluate("-R/data/missing.txt")
+except lq.NotFoundError as e:
+    # KeyNotFoundError: the store has no value there (a recipe may still make it).
+    # AssetNotFoundError: nothing is stored and no recipe makes it.
+    assert type(e) is lq.AssetNotFoundError and e.key == "data/missing.txt"
+else:
+    raise AssertionError("expected a NotFoundError")
+env.shutdown()
+```
+
 | Attribute | Meaning |
 |---|---|
 | `type` | the `ErrorType` |
@@ -577,6 +597,7 @@ What you will notice; the complete list, with the tracking issues, is
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-25 | §8 Errors: the category base classes `StoreError`, `KeyedAssetError`, `NotFoundError`. | `design/key-without-recipe-answer/` |
 | 2026-10-22 | Late registration: a replaced environment is kept until `shutdown()`, no longer until exit. | `design/environment-manager-reference-cycle/` |
 | 2026-10-22 | Link to the recipes reference follows its promotion to `reference/RECIPES_AND_PLANS.md`. | DOC-08 promotion |
 | 2026-10-20 | `context.error` raises `ExecutionError` with the first logged message once the command returns. | `CONTEXT-ERROR-OUTCOME-DEPENDS-ON-SCHEDULING` |

@@ -3,7 +3,7 @@ title: Assets and Execution Lifecycle Reference
 kind: reference
 audience: internal
 area: [core/assets]
-reviewed: 2026-10-22
+reviewed: 2026-10-25
 ---
 # DOC-03: Assets and Execution Lifecycle
 
@@ -103,6 +103,9 @@ volatile evaluation ends in `Volatile` rather than `Ready`. A `Ready` or
 
 `Source`, `Override`, and `Directory` are terminal states established by store,
 override, or directory operations rather than the typical evaluation sequence.
+`get` on a key the store holds as a directory, with no recipe, gives `Directory`
+at once and is never reused: the next request re-reads the store. A key that is
+neither stored nor made by a recipe fails with `AssetNotFound`.
 `Partial` is reserved for future intermediate-result functionality and is not
 completely implemented.
 
@@ -483,6 +486,7 @@ implements a manager outside the crate against the shared manager scenarios. See
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-25 | Statuses: `get` on a store directory gives `Directory`, never reused; an unmakeable key is `AssetNotFound`. | `design/key-without-recipe-answer/` |
 | 2026-10-22 | §Manager lifecycle: the manager and assets hold the environment weakly; run claims, job-queue entries and background saves pin it; `try_get_envref`; dropping the manager stops the job queue. | `design/environment-manager-reference-cycle/` |
 | 2026-10-12 | Manager cache misses are qualified by the evaluation session: one request per dependency per evaluation. | phase-5 (`design/dependency-resolved-once-per-evaluation/`) |
 | 2026-10-10 | Identity, caching, and fast track: caching strategies decide which new assets are registered (keyed, top-level query, dependency following its creator), an existing asset is reused under every strategy, unregistered assets record `cached: Some(false)` and a reason. | phase-5, `design/plan-policy/` |

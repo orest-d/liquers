@@ -2,7 +2,7 @@
 id: DEGRADED-STORED-VALUE-WITHOUT-RECIPE-REPORTS-NO-RECIPE
 kind: issue
 title: Evaluating a stored value this build cannot read fails with "No recipe found" instead of naming the type
-status: draft
+status: closed
 priority: P2
 complexity: S
 area: [core/assets]
@@ -53,3 +53,7 @@ degraded reason and returns `Ok(false)`; the evaluation then fails in
 `design/key-without-recipe-answer/` with `MISSING-RESOURCE-REPORTED-AS-GENERAL-ERROR` (same root
 cause and change site); it cannot be fixed alone without the `liquers-py` test edit, so it is not
 eligible for automatic fixing on its own either.
+
+## Resolution
+
+2026-10-25, `design/key-without-recipe-answer/`. The fast track records why it declined a stored value; with no recipe that reason is the answer. A degraded value fails with `AssetNotSupported` naming the type and the reason, the same error `get_any_status` gives (`degraded_value_error`). Tests: `key_without_recipe_tests::degraded_stored_value_without_recipe_names_the_type`; `liquers-py` `test_VALUE_pickle_off_error_names_the_type`, no longer `xfail`.

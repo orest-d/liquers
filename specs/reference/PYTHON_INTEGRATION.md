@@ -3,7 +3,7 @@ title: Python Integration
 kind: reference
 audience: both
 area: [py, core/value, core/error, lib/value]
-reviewed: 2026-10-22
+reviewed: 2026-10-25
 ---
 # Python Integration
 
@@ -263,7 +263,11 @@ written as exhaustive matches.
 subclass for its type, built by `liquers._errors._from_native` with `type`, `message`, `query`,
 `key`, `position` and `traceback`. The subclass of a variant `X` is `XError`, or `X` when the name
 already ends in `Error`; the subclasses are generated from `ErrorType` at import, so a new variant
-needs no Python change. If `liquers._errors` cannot be imported — only in a broken installation —
+needs no Python change. Error types also fall into overlapping categories
+(`ErrorType.categories()`, from `liquers_core::error::ErrorCategory`): each has an abstract class —
+`StoreError`, `KeyedAssetError`, `NotFoundError` (also a `LookupError`) — and a variant's class
+derives from the class of every category it is in, so `KeyNotFoundError` is a `StoreError` and a
+`NotFoundError`, `AssetNotFoundError` a `KeyedAssetError` and a `NotFoundError`. If `liquers._errors` cannot be imported — only in a broken installation —
 the error becomes a plain `Exception` with the rendered message.
 
 **Python to Liquers** (`pyerr_to_error`):
@@ -310,10 +314,6 @@ parallel on the runtime; Python commands still take the GIL one at a time.
   `PY-COMMAND-DECORATOR-CANNOT-DECLARE-ARGUMENT-METADATA`); the context is passed positionally
   (`COMMAND_DECLARATION.md` §9).
 - The recipe provider cannot be configured (`PY-RECIPE-PROVIDER-NOT-CONFIGURABLE`).
-- A pickle-off read of a pickled object reports "No recipe found" rather than naming the type
-  (`DEGRADED-STORED-VALUE-WITHOUT-RECIPE-REPORTS-NO-RECIPE`).
-- A missing resource raises `GeneralError` "No recipe found for key …" with no `key`, not
-  `KeyNotFound` (`MISSING-RESOURCE-REPORTED-AS-GENERAL-ERROR`).
 - Core's progress diagnostics go to stderr and cannot be filtered (`CORE-TRACING-MIGRATION`).
 - Most classes and methods have no docstrings, and there is no generated API reference
   (`PY-API-REFERENCE-NOT-GENERATED`); `Metadata` exposes its fields as methods where `State` and
@@ -325,6 +325,7 @@ parallel on the runtime; Python commands still take the GIL one at a time.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-25 | §6: error category classes (`StoreError`, `KeyedAssetError`, `NotFoundError`); §8: the pickle-off and missing-resource limitations are fixed (`AssetNotSupportedError`, `AssetNotFoundError`). | `design/key-without-recipe-answer/` |
 | 2026-10-22 | §Shutdown, limitations: a built environment is freed (the reference cycle is fixed); `RUNTIME05` passes. | `design/environment-manager-reference-cycle/` |
 | 2026-10-20 | `context.error` raises `ExecutionError` with the first logged message once the command returns. | `CONTEXT-ERROR-OUTCOME-DEPENDS-ON-SCHEDULING` |
 | 2026-10-19 | Created from the implemented `liquers-py`. | `design/liquers-py/` (phase-5) |

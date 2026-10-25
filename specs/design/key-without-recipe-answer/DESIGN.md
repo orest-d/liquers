@@ -3,8 +3,7 @@ id: KEY-WITHOUT-RECIPE-ANSWER
 kind: design
 title: What a key answers when the store cannot serve it and no recipe makes it
 form: compact
-status: in_review
-phase: implementation
+status: complete
 readiness: ready
 autofix: not-eligible
 area: [core/assets, core/error, py, web, axum]
@@ -340,15 +339,28 @@ Run: `cargo test -p liquers-core --lib --tests`; `cargo test -p liquers-axum`; `
 
 ### Steps
 
-- [ ] 1. `error.rs` — `AssetNotFound`, `AssetNotSupported`, `ErrorCategory`, `categories` / `is`, the two constructors, error tests; the exhaustive mirrors in `liquers-py/src/error.rs`, `liquers-web/src/error.rs` (+ `categories` getter, `.d.ts`), `liquers-axum/src/api_core/error.rs` — `cargo test -p liquers-core --lib error`, `cargo test -p liquers-axum`. Rollback: revert (additive).
-- [ ] 1a. Asset-level `key_not_found` sites → `asset_not_found` (step 0 list); AC-1b tests; grep `== ErrorType::KeyNotFound` outside stores for callers that mean either miss → `is(ErrorCategory::NotFound)` — `cargo test -p liquers-core --lib --tests`, `cargo test -p liquers-axum`. Depends on 1.
-- [ ] 2. `assets.rs` — `degraded_value_error`, used by `get_any_status` — `cargo test -p liquers-core --lib degraded`.
-- [ ] 3. `assets.rs` — `fast_track_refusal`, `decline_fast_track` at every decline site — `cargo test -p liquers-core --lib fast_track` (no behaviour change). Depends on 2.
-- [ ] 4. `assets.rs` `evaluate_recipe_outcome` — `recipe_opt`, refusal or `asset_not_found`; AC-1..AC-4 tests; `metadata_only_entry_reload.rs` — `cargo test -p liquers-core --lib --tests`. Depends on 1, 3.
-- [ ] 5. `assets.rs` — `become_directory` (also in `makedir`), directory branch, the overriding refusal, three eviction sets; AC-5/AC-5a/AC-6 tests — `cargo test -p liquers-core --lib directory`. Depends on 3.
-- [ ] 6. `liquers-lib` — `records_end_to_end.rs` test; fix the comment in `src/records/commands.rs` — `cargo test -p liquers-lib --lib --tests`. Depends on 5.
-- [ ] 7. `liquers-py` — category classes in `_errors.py` (native `ErrorType.categories`), un-mark the `xfail`, add the `AssetNotFound` and category tests — `bash scripts/test-liquers-py.sh`. Depends on 1, 4.
-- [ ] 8. Phase 2 documents; close the three issues; note on `JS-STORE-RESOURCE-NOT-FOUND-WITHOUT-A-RECIPE` — `python3 scripts/docs_index.py --check`.
+- [x] 1. `error.rs` — `AssetNotFound`, `AssetNotSupported`, `ErrorCategory`, `categories` / `is`, the two constructors, error tests; the exhaustive mirrors in `liquers-py/src/error.rs`, `liquers-web/src/error.rs` (+ `categories` getter, `.d.ts`), `liquers-axum/src/api_core/error.rs` — `cargo test -p liquers-core --lib error`, `cargo test -p liquers-axum`. Rollback: revert (additive).
+- [x] 1a. Asset-level `key_not_found` sites → `asset_not_found` (step 0 list); AC-1b tests; grep `== ErrorType::KeyNotFound` outside stores for callers that mean either miss → `is(ErrorCategory::NotFound)` — `cargo test -p liquers-core --lib --tests`, `cargo test -p liquers-axum`. Depends on 1.
+- [x] 2. `assets.rs` — `degraded_value_error`, used by `get_any_status` — `cargo test -p liquers-core --lib degraded`.
+- [x] 3. `assets.rs` — `fast_track_refusal`, `decline_fast_track` at every decline site — `cargo test -p liquers-core --lib fast_track` (no behaviour change). Depends on 2.
+- [x] 4. `assets.rs` `evaluate_recipe_outcome` — `recipe_opt`, refusal or `asset_not_found`; AC-1..AC-4 tests; `metadata_only_entry_reload.rs` — `cargo test -p liquers-core --lib --tests`. Depends on 1, 3.
+- [x] 5. `assets.rs` — `become_directory` (also in `makedir`), directory branch, the overriding refusal, three eviction sets; AC-5/AC-5a/AC-6 tests — `cargo test -p liquers-core --lib directory`. Depends on 3.
+- [x] 6. `liquers-lib` — `records_end_to_end.rs` test; fix the comment in `src/records/commands.rs` — `cargo test -p liquers-lib --lib --tests`. Depends on 5.
+- [x] 7. `liquers-py` — category classes in `_errors.py` (native `ErrorType.categories`), un-mark the `xfail`, add the `AssetNotFound` and category tests — `bash scripts/test-liquers-py.sh`. Depends on 1, 4.
+- [x] 8. Phase 2 documents; close the three issues; note on `JS-STORE-RESOURCE-NOT-FOUND-WITHOUT-A-RECIPE` — `python3 scripts/docs_index.py --check`.
+
+### Implementation notes (2026-10-25)
+
+- Step 3: the directory state is built from the asset's own metadata (key, `is_dir`, status) by
+  `become_directory`; `store.get_metadata` is not read, so a large directory costs no listing on
+  `get` (the Risks row on large directories no longer applies).
+- Step 4: `DefaultRecipeProvider::recipe_opt` finds a folder's `recipes.yaml` through
+  `store.contains`, where `recipe` reads it with `get_bytes`. Three test store doubles in
+  `liquers-core/tests/expiration_integration.rs` implemented `get` but not `contains`; they now
+  forward `contains` (and `is_dir`). With the recipe visible, `set_state` on such a key gives
+  `Override`, as on any store, and the race test asserts that.
+- Step 1a: `removedir` skips a child whose `remove` answers either miss (`is(NotFound)`).
+- HTTP: `AssetNotSupported` maps to 404, as `KeyNotSupported` does.
 
 ### Validation
 

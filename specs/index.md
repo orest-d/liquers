@@ -8,10 +8,10 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 208
+Total rows: 205
 - P1: 1
-- P2: 64
-- P3: 143
+- P2: 62
+- P3: 142
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -20,7 +20,6 @@ Total rows: 208
 | [`COMMAND-NAMES-Q-AND-V-ARE-NOT-RESERVED`](issues/COMMAND-NAMES-Q-AND-V-ARE-NOT-RESERVED.md) | issue | A command named q or v registers but can never run | draft | ready | eligible | P2 | S | core/commands;core/query | [design](design/reserved-instruction-command-names/DESIGN.md) | 2026-10-19 |
 | [`CORE-VALUE-JSON-READ-IGNORES-STRUCTURED-IDENTIFIERS`](issues/CORE-VALUE-JSON-READ-IGNORES-STRUCTURED-IDENTIFIERS.md) | issue | Core Value reads structured variants written as JSON back as a different variant | draft | ready | eligible | P2 | S | core/value | [design](design/core-value-json-identifier-dispatch/DESIGN.md) | 2026-10-19 |
 | [`METADATA-SAVER-SPAWNS-ON-THE-INLINE-PATH`](issues/METADATA-SAVER-SPAWNS-ON-THE-INLINE-PATH.md) | issue | A command that logs or reports progress panics under the immediate manager on native without a tokio runtime | draft | ready | eligible | P2 | S | core/assets | [design](design/inline-metadata-save-without-runtime/DESIGN.md) | 2026-10-20 |
-| [`DEGRADED-STORED-VALUE-WITHOUT-RECIPE-REPORTS-NO-RECIPE`](issues/DEGRADED-STORED-VALUE-WITHOUT-RECIPE-REPORTS-NO-RECIPE.md) | issue | Evaluating a stored value this build cannot read fails with "No recipe found" instead of naming the type | draft | ready | not-eligible | P2 | S | core/assets | [design](design/key-without-recipe-answer/DESIGN.md) | 2026-10-18 |
 | [`WORKSPACE-SERDE-DERIVE-UNDECLARED`](issues/WORKSPACE-SERDE-DERIVE-UNDECLARED.md) | issue | Three crates use serde derive macros without declaring the `derive` feature | accepted | ready | not-eligible | P2 | S | build;core/value;lib/ui;axum | [design](design/serde-derive-feature-declared/DESIGN.md) | 2026-08-09 |
 | [`YAML-SCHEMA-FILE-CANNOT-BE-LINKED-AS-SCHEMA-TEXT`](issues/YAML-SCHEMA-FILE-CANNOT-BE-LINKED-AS-SCHEMA-TEXT.md) | issue | A plain .yaml schema file cannot be linked into to_record's schema argument | draft | needs-decision | not-eligible | P2 | S | records;lib/value | [design](design/schema-argument-structured-link/DESIGN.md) | 2026-10-20 |
 | [`PLAN-EXPIRATION-REACHES-THE-CONTEXT-ONLY-THROUGH-APPLY-RECIPE`](issues/PLAN-EXPIRATION-REACHES-THE-CONTEXT-ONLY-THROUGH-APPLY-RECIPE.md) | issue | A plan's expiration reaches the asset only through apply_recipe | draft |  |  | P2 | S | core/context |  | 2026-10-20 |
@@ -29,7 +28,6 @@ Total rows: 208
 | [`WEB-EVALUATE-RESOLVES-FAILED-ASSET-AS-NULL`](issues/WEB-EVALUATE-RESOLVES-FAILED-ASSET-AS-NULL.md) | issue | liquers-web's evaluate resolves a failed command's asset to null instead of rejecting | draft |  |  | P2 | S | web |  | 2026-10-18 |
 | [`INLINE-RUN-CLAIM-REPAIR-SKIPPED-UNDER-LOCK-CONTENTION`](issues/INLINE-RUN-CLAIM-REPAIR-SKIPPED-UNDER-LOCK-CONTENTION.md) | issue | A dropped inline run leaves its asset Processing forever when the asset lock is busy at drop time | draft | ready | eligible | P2 | M | core/assets | [design](design/inline-run-claim-repair-under-lock-contention/DESIGN.md) | 2026-10-19 |
 | [`CORE-VALUE-ENUM-OVERSIZED`](issues/CORE-VALUE-ENUM-OVERSIZED.md) | issue | Every Value occupies over 700 bytes because three variants are stored unboxed | draft | ready | not-eligible | P2 | M | core/value;lib/value | [design](design/core-value-enum-oversized/DESIGN.md) | 2026-08-18 |
-| [`MISSING-RESOURCE-REPORTED-AS-GENERAL-ERROR`](issues/MISSING-RESOURCE-REPORTED-AS-GENERAL-ERROR.md) | issue | A key that is neither stored nor made by a recipe raises a General error without its key | draft | ready | not-eligible | P2 | M | core/assets;core/error | [design](design/key-without-recipe-answer/DESIGN.md) | 2026-10-19 |
 | [`ASSET-REGISTRATION-OWNERSHIP-CONTRACT`](issues/ASSET-REGISTRATION-OWNERSHIP-CONTRACT.md) | feature | Registration of a keyed asset is a manager convenience, not a contract anything can rely on | draft | needs-decision | not-eligible | P2 | M | core/assets | [design](design/asset-registration-contract/DESIGN.md) | 2026-09-03 |
 | [`ASSETS-IMPROVEMENTS`](issues/ASSETS-IMPROVEMENTS.md) | feature | The web API's request-body limit is axum's fixed 2 MiB default, not configurable or documented | accepted | needs-decision | not-eligible | P2 | M | axum;docs | [design](design/http-request-body-limit/DESIGN.md) | 2026-08-08 |
 | [`COMMAND-CANNOT-BE-RUN-WITH-A-RESTRICTED-CONTEXT`](issues/COMMAND-CANNOT-BE-RUN-WITH-A-RESTRICTED-CONTEXT.md) | feature | A command cannot be run with a restricted context | draft | needs-decision | not-eligible | P2 | M | core/context;core/commands | [design](design/pure-command-context/DESIGN.md) | 2026-09-17 |
@@ -131,7 +129,6 @@ Total rows: 208
 | [`UNCACHED-STORED-COPY-EXPIRY-RACES-AN-INFLIGHT-EVALUATION`](issues/UNCACHED-STORED-COPY-EXPIRY-RACES-AN-INFLIGHT-EVALUATION.md) | issue | Expiring an uncached key's stored copy can be overwritten by an evaluation already in flight | draft | ready | eligible | P3 | M | core/assets | [design](design/uncached-write-back-rechecks-dependency-versions/DESIGN.md) | 2026-09-27 |
 | [`COLUMNMUT-VALIDITY-AND-VARIABLE-LENGTH-SET-ALWAYS-COPY`](issues/COLUMNMUT-VALIDITY-AND-VARIABLE-LENGTH-SET-ALWAYS-COPY.md) | issue | ColumnMut always copies validity, and rebuilds the whole column to overwrite one Text/Binary cell | draft | ready | not-eligible | P3 | M | records | [design](design/column-mut-zero-copy-validity/DESIGN.md) | 2026-09-26 |
 | [`DEPENDENCY-ANALYSIS-REWALKS-UPSTREAM-PER-EVALUATION`](issues/DEPENDENCY-ANALYSIS-REWALKS-UPSTREAM-PER-EVALUATION.md) | feature | Each plan analysis re-walks the whole upstream recipe graph | draft | ready | not-eligible | P3 | M | core/plan;core/assets | [design](design/payload-requirement-skips-dependency-analysis/DESIGN.md) | 2026-10-08 |
-| [`DIRECTORY-KEY-CANNOT-BE-EVALUATED-AS-A-RESOURCE`](issues/DIRECTORY-KEY-CANNOT-BE-EVALUATED-AS-A-RESOURCE.md) | issue | A query on a directory resource fails with "No recipe found" instead of giving a Directory state | draft | ready | not-eligible | P3 | M | core/assets | [design](design/key-without-recipe-answer/DESIGN.md) | 2026-09-26 |
 | [`AXUM-WEBSOCKET-HARDENING`](issues/AXUM-WEBSOCKET-HARDENING.md) | issue | WebSocket endpoint is not hardened | accepted | needs-decision | not-eligible | P3 | M | axum | [design](design/axum-websocket-connection-limits/DESIGN.md) | 2026-08-08 |
 | [`BENCHMARK-SUITE`](issues/BENCHMARK-SUITE.md) | feature | No reproducible benchmarks for core runtime paths | accepted | needs-decision | not-eligible | P3 | M | build | [design](design/core-benchmark-suite/DESIGN.md) | 2026-08-08 |
 | [`COLUMN-SLICE-COPIES-INSTEAD-OF-SHARING-BUFFER-STORAGE`](issues/COLUMN-SLICE-COPIES-INSTEAD-OF-SHARING-BUFFER-STORAGE.md) | issue | Column slice copies instead of sharing buffer storage | draft | needs-decision | not-eligible | P3 | M | records | [design](design/column-slice-shared-buffers/DESIGN.md) | 2026-09-26 |
