@@ -8,10 +8,10 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 208
+Total rows: 211
 - P1: 1
-- P2: 64
-- P3: 143
+- P2: 65
+- P3: 145
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -23,6 +23,7 @@ Total rows: 208
 | [`DEGRADED-STORED-VALUE-WITHOUT-RECIPE-REPORTS-NO-RECIPE`](issues/DEGRADED-STORED-VALUE-WITHOUT-RECIPE-REPORTS-NO-RECIPE.md) | issue | Evaluating a stored value this build cannot read fails with "No recipe found" instead of naming the type | draft | ready | not-eligible | P2 | S | core/assets | [design](design/key-without-recipe-answer/DESIGN.md) | 2026-10-18 |
 | [`WORKSPACE-SERDE-DERIVE-UNDECLARED`](issues/WORKSPACE-SERDE-DERIVE-UNDECLARED.md) | issue | Three crates use serde derive macros without declaring the `derive` feature | accepted | ready | not-eligible | P2 | S | build;core/value;lib/ui;axum | [design](design/serde-derive-feature-declared/DESIGN.md) | 2026-08-09 |
 | [`YAML-SCHEMA-FILE-CANNOT-BE-LINKED-AS-SCHEMA-TEXT`](issues/YAML-SCHEMA-FILE-CANNOT-BE-LINKED-AS-SCHEMA-TEXT.md) | issue | A plain .yaml schema file cannot be linked into to_record's schema argument | draft | needs-decision | not-eligible | P2 | S | records;lib/value | [design](design/schema-argument-structured-link/DESIGN.md) | 2026-10-20 |
+| [`FOREIGN-VALUE-HAS-NO-DATA-NODE`](issues/FOREIGN-VALUE-HAS-NO-DATA-NODE.md) | issue | A retained foreign value is always opaque to data-node consumers | draft |  |  | P2 | S | lib/value |  | 2026-10-25 |
 | [`PLAN-EXPIRATION-REACHES-THE-CONTEXT-ONLY-THROUGH-APPLY-RECIPE`](issues/PLAN-EXPIRATION-REACHES-THE-CONTEXT-ONLY-THROUGH-APPLY-RECIPE.md) | issue | A plan's expiration reaches the asset only through apply_recipe | draft |  |  | P2 | S | core/context |  | 2026-10-20 |
 | [`QUERY-TOKEN-CLASSES-TRUNCATE-NON-ASCII`](issues/QUERY-TOKEN-CLASSES-TRUNCATE-NON-ASCII.md) | issue | Action names, filenames and header values accept non-ASCII characters by low-byte truncation | draft |  |  | P2 | S | core/query |  | 2026-10-21 |
 | [`RECIPES-YAML-READ-ERRORS-READ-AS-NO-RECIPES`](issues/RECIPES-YAML-READ-ERRORS-READ-AS-NO-RECIPES.md) | issue | Every recipes.yaml read error is treated as an empty recipe list | draft |  |  | P2 | S | core/assets |  | 2026-10-20 |
@@ -123,6 +124,7 @@ Total rows: 208
 | [`RECIPE-WITHOUT-FILENAME-SILENTLY-OMITTED-FROM-LISTING`](issues/RECIPE-WITHOUT-FILENAME-SILENTLY-OMITTED-FROM-LISTING.md) | issue | A recipe with no valid filename is silently left out of the recipe listing and lookup | draft |  |  | P3 | S | core/assets |  | 2026-10-20 |
 | [`RESOURCE-DIRECTORY-STEP-PRINTS-DEBUG-OUTPUT`](issues/RESOURCE-DIRECTORY-STEP-PRINTS-DEBUG-OUTPUT.md) | issue | Every -R-dir/ and -R-sdir/ evaluation prints two debug lines to stderr | draft |  |  | P3 | S | core/plan |  | 2026-10-21 |
 | [`SIMPLE-VALUE-I32-JSON-READS-BACK-AS-I64`](issues/SIMPLE-VALUE-I32-JSON-READS-BACK-AS-I64.md) | issue | liquers-lib's base value reads an I32 written as JSON back as I64 | draft |  |  | P3 | S | lib/value |  | 2026-10-20 |
+| [`TEMPLATE-TOP-LEVEL-RENDER-HAS-NO-HOST`](issues/TEMPLATE-TOP-LEVEL-RENDER-HAS-NO-HOST.md) | feature | A template cannot be rendered from outside a command without encoding it into a query | draft |  |  | P3 | S | lib/commands |  | 2026-10-25 |
 | [`TO-OVERRIDE-KEEPS-THE-PENDING-EXPIRATION-DEADLINE`](issues/TO-OVERRIDE-KEEPS-THE-PENDING-EXPIRATION-DEADLINE.md) | issue | A value pinned with to_override still expires at the deadline its recipe scheduled | draft |  |  | P3 | S | core/assets |  | 2026-10-20 |
 | [`TYPE-IDENTIFIED-IN-HAS-NO-IMPLEMENTATIONS`](issues/TYPE-IDENTIFIED-IN-HAS-NO-IMPLEMENTATIONS.md) | issue | No type implements TypeIdentifiedIn, so the documented to_type_identifier example does not compile | draft |  |  | P3 | S | core/value;lib/value;docs |  | 2026-10-20 |
 | [`WEB-API-SPEC-SAYS-A-DIRECTORY-MOUNT-CANNOT-BE-READ-ONLY`](issues/WEB-API-SPEC-SAYS-A-DIRECTORY-MOUNT-CANNOT-BE-READ-ONLY.md) | issue | The web API specification says a directory mount stays writable, but mounts can be read-only | draft |  |  | P3 | S | docs;axum |  | 2026-10-20 |
@@ -181,6 +183,7 @@ Total rows: 208
 | [`RECORD-SCHEMA-NOT-RECORDED-IN-METADATA-ON-WRITE`](issues/RECORD-SCHEMA-NOT-RECORDED-IN-METADATA-ON-WRITE.md) | issue | A record view stored in a schema-less format does not record its schema in the metadata | draft |  |  | P3 | M | lib/value;core/assets |  | 2026-10-20 |
 | [`SQL-COMMAND-CANNOT-JOIN-SEVERAL-TABLES`](issues/SQL-COMMAND-CANNOT-JOIN-SEVERAL-TABLES.md) | feature | A SQL query cannot read more than one table, so stored entries cannot be joined | draft |  |  | P3 | M | lib/polars;core/commands |  | 2026-10-21 |
 | [`WEB-HAS-NO-READ-WRITE-REMOTE-STORE`](issues/WEB-HAS-NO-READ-WRITE-REMOTE-STORE.md) | feature | A browser page cannot mount a Liquers server's store read/write | draft |  |  | P3 | M | web |  | 2026-10-20 |
+| [`WEB-HAS-NO-TEMPLATE-COMMANDS`](issues/WEB-HAS-NO-TEMPLATE-COMMANDS.md) | feature | The browser environment has no template commands | draft |  |  | P3 | M | web |  | 2026-10-25 |
 | [`WEB-QUERY-EDITOR-NOT-LIVE`](issues/WEB-QUERY-EDITOR-NOT-LIVE.md) | feature | The browser query console checks and highlights a query only when it re-renders, not while typing | draft |  |  | P3 | M | lib/ui |  | 2026-10-21 |
 | [`WEB-STORE-CONFIG-NOT-APPLIED-THROUGH-ENVIRONMENT-CONFIG`](issues/WEB-STORE-CONFIG-NOT-APPLIED-THROUGH-ENVIRONMENT-CONFIG.md) | issue | liquers-web hand-rolls the environment configuration that EnvironmentConfig will own | draft |  |  | P3 | M | web;core/store;core/context |  | 2026-08-31 |
 | [`ASSET-MANAGER-CANNOT-BE-SYNCHRONIZED-WITH-THE-STORE`](issues/ASSET-MANAGER-CANNOT-BE-SYNCHRONIZED-WITH-THE-STORE.md) | feature | The asset and dependency managers cannot be explicitly synchronized with the store | draft | needs-decision | not-eligible | P3 | L | core/assets | [phase1](design/asset-manager-store-sync/phase1-high-level-design.md)  [phase2](design/asset-manager-store-sync/phase2-architecture.md)  [phase3](design/asset-manager-store-sync/phase3-examples.md)  [phase4](design/asset-manager-store-sync/phase4-implementation.md)  | 2026-10-08 |
