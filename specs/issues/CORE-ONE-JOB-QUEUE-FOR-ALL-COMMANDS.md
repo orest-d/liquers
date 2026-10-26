@@ -13,7 +13,7 @@ github:
 ## Problem
 
 The queued asset manager has one `JobQueue` (`liquers-core/src/assets.rs`), with one capacity set
-by `EnvironmentBuilder::with_job_capacity` (default 4). Every command that is not inline
+by `AssetManagerOptions::with_job_capacity` (`config.assets.job_capacity`) (default 4). Every command that is not inline
 (`cached: false`) takes a slot from it, whatever it costs. A slow Python command, a
 resource-hungry calculation and a cheap transformation compete for the same slots, so a few heavy
 jobs make every other query wait.

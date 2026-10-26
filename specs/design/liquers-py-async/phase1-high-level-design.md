@@ -23,7 +23,7 @@ assert await lq.evaluate_async("hello/fetch_len") == 5
 
 - **AC-1** Await an evaluation (was `liquers-py` AC-14)
   WHEN `await lq.evaluate_async("hello/repeat-3")` runs in an asyncio program
-  THEN it returns `"hellohellohello"` without blocking the loop; cancelling it: question 1
+  THEN it returns `"hellohellohello"` without blocking the loop; cancelling it: Decision 4
 - **AC-2** Async Python commands (was `liquers-py` AC-15)
   WHEN a command is declared as `async def`
   THEN it is awaited, its metadata marks it async, and its exceptions map as in `liquers-py` AC-7
@@ -39,7 +39,7 @@ assert await lq.evaluate_async("hello/fetch_len") == 5
   WHEN a query whose commands are all Rust is evaluated while a Python command holding the GIL is
   still running
   THEN it completes first; the GIL is never taken on a runtime worker; they share only job-queue
-  capacity (question 2)
+  capacity (Decision 5)
 - **AC-6** A pool of command loops
   WHEN an environment is built with `Environment(async_loops=4)` and several `async def` commands
   run at once
@@ -64,7 +64,7 @@ Non-goals: async stores and recipe providers; the caller's loop; several job que
 
 ## Crate Placement
 
-`liquers-py` only (`src/runtime.rs`, `src/command.rs`). `pyo3-async-runtimes` (`tokio`) is set once
+`liquers-py` only (`src/runtime.rs`, `src/command.rs`). `pyo3-async-runtimes` (`tokio-runtime`) is set once
 with `tokio::init_with_runtime` to the existing runtime, `TaskLocals` per loop; it tracks PyO3
 (0.30.0 needs `pyo3 ^0.30`), so PyO3 upgrades bump both.
 
@@ -83,16 +83,16 @@ Recorded with Orest on 2026-10-26:
    over HTTP); the pool gives parallelism on free-threaded Python.
 3. **Sync on a running loop:** raise on liquers-py's loops, warn elsewhere (AC-3).
 4. **Cancelling an awaiting task** ends only that wait, like sync `block_on`; `await
-   asset.cancel()` cancels the evaluation.
+   asset.cancel_async()` cancels the evaluation.
 5. **Job queue:** one queue, capacity exposed as `Environment(job_capacity=…)` (core
-   `EnvironmentBuilder::with_job_capacity`). Queues per kind of command are future configuration
+   `AssetManagerOptions::with_job_capacity`). Queues per kind of command are future configuration
    (`CORE-ONE-JOB-QUEUE-FOR-ALL-COMMANDS`).
 6. **Free-threaded Python** is in scope (AC-8): audited and tested here.
 
 ## Open Questions
 
-1. **Implementation detail - loop choice and pool lifetime.** Round-robin, stopped by
-   `shutdown()`; Phase 2.
+None. Loop choice and pool lifetime (an implementation detail) are settled in Phase 2: round-robin,
+stopped by `shutdown()` and at exit.
 
 ## Design Dependencies
 
@@ -104,6 +104,7 @@ Recorded with Orest on 2026-10-26:
 
 - **2026-10-26** — added AC-5, AC-6 (Orest), AC-7 (`ASYNCCMD03`); widened AC-3. Phases: 1.
 - **2026-10-26** — Orest: AC-8 (free-threaded audit) added; questions 1-2 decided. Phases: 1.
+- **2026-10-26** — test-script fixes and a free-threading classifier absorbed for AC-8. Phases: 2.
 
 ## References
 
