@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: S
 area: [core/assets]
-design:
+design: soft-consistency-refined-format
 created: 2026-10-26
 github:
 ---

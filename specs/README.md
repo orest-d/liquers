@@ -409,6 +409,7 @@ deliberately folded behind a broader line.
 - design `front-matter-yaml-agreement`
 - design `generic-serde-data-formats`
 - design `global-enum-registration`
+- design `http-accept-negotiation`
 - design `http-request-body-limit`
 - design `immediate-lazy-expiry-cascade`
 - design `immediate-set-state-status-match`
@@ -490,7 +491,9 @@ deliberately folded behind a broader line.
 - design `record-decimal-field-type`
 - design `record-schema-attribute-on-write`
 - design `record-source-row-streaming`
+- design `record-table-csv-refinements`
 - design `record-timestamp-utc`
+- design `record-uuid-time-duration-types`
 - design `records-recipe-validation-cli`
 - design `recovery-read-defers-placeholder`
 - design `refresh-command-metadata-versions`
@@ -554,6 +557,7 @@ deliberately folded behind a broader line.
 - design `styled-query-entity-tokens`
 - design `submit-eagerness-documentation`
 - design `supplied-expired-status-reason`
+- design `template-diagnostics-namespace-scope`
 - design `template-editor-ui`
 - design `template-non-scalar-text-form`
 - design `template-render-in-env`
@@ -565,10 +569,13 @@ deliberately folded behind a broader line.
 - design `type-identified-in-docs`
 - design `type-info-write-only-formats`
 - design `ui-asset-snapshot-boundary`
+- design `ui-display-conversion`
 - design `ui-query-console-error-highlight`
 - design `uncached-write-back-rechecks-dependency-versions`
+- design `unkeyed-asset-derived-version`
 - design `unmanaged-asset-registry`
 - design `unnamed-recipe-diagnostics`
+- design `unregistered-keyed-write-gate`
 - design `validate-phase-section-match`
 - design `validate-through-recipe-providers`
 - design `value-conversion-registry`
@@ -580,6 +587,7 @@ deliberately folded behind a broader line.
 - design `value-type-definition-macro`
 - design `value-type-system`
 - design `variadic-argument-slots`
+- design `variadic-key-query-link-text`
 - design `variadic-link-array-expansion`
 - design `variadic-metadata-tail-check`
 - design `web-api-spec-read-only-mount`

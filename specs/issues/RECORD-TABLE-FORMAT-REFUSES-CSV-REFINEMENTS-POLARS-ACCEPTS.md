@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: S
 area: [records]
-design:
+design: record-table-csv-refinements
 created: 2026-10-26
 github:
 ---

@@ -4,9 +4,9 @@ kind: feature
 title: A keyless query asset has no version, so nothing can tell whether it changed without re-evaluating it
 status: draft
 priority: P3
-complexity: L
+complexity: M
 area: [core/assets, records]
-design:
+design: unkeyed-asset-derived-version
 created: 2026-10-26
 github:
 ---
@@ -45,6 +45,11 @@ answer for a volatile asset and for one with an unversioned dependency. Open: wh
 computed before evaluation (offline, from the plan, as `liquers-validate` plans) or after (from the
 dependency records), and whether it must be distinguishable from a content version (bit 127 marks
 content hashes today).
+
+Complexity corrected from `L` to `M` by the bulk design (2026-10-26): every input the version needs
+is already in the asset's metadata at finalization, so the change stays in `liquers-core`
+(`prepare_version` plus a guard keeping dependency-manager edges to queries at
+`Version::unknown()`, as `DEPENDENCIES_STATUS.md` requires).
 
 ## Discovery
 

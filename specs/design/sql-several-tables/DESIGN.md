@@ -15,7 +15,10 @@ created: 2026-10-26
 
 Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-26: Phases 1-4 written, not
 approved, nothing implemented. Follow-up of [`sql-over-tables`](../sql-over-tables/DESIGN.md)
-(Phases 1-4 written, not implemented), which this design extends after it lands.
+(Phases 1-4 written, not implemented), which this design extends after it lands. Revised the same
+day: the core fix for key and query links inside a variadic argument (former AC-7 scope) moved to
+its own design, [`variadic-key-query-link-text`](../variadic-key-query-link-text/DESIGN.md), which
+this design now requires.
 
 ## Phase 1: High-Level Design
 
@@ -79,10 +82,11 @@ name, and is invalidated when either CSV or the `.sql` file changes. (Validated 
 - **AC-6** Unchanged single-table behaviour
   WHEN `ns-pl/sql` is used with no table list (every `sql-over-tables` example)
   THEN results, errors and the plan are as `sql-over-tables` specifies
-- **AC-7** Key and query links inside a variadic argument
-  WHEN any command's `multiple` argument contains a `-R-key/…` link or a `…/q` link
-  THEN the element arrives as the key's or query's encoded text (so `Vec<String>` and `Vec<Key>`
-  arguments accept it) instead of failing with a JSON conversion error
+- **AC-7** Table links arrive as query text
+  WHEN the table list holds `…/q` links
+  THEN each reaches `sql` as its query's encoded text. Provided by the required design
+  `variadic-key-query-link-text` (it changes `materialize_link_json` for every command); this
+  design only relies on it
 
 Non-goals: more than one input-table *value* channel (a variadic argument carrying DataFrames —
 rejected in Phase 2); joins in `ns-rec` or in wasm (`NO-SQL-ENGINE-IN-WASM-BUILDS`); recipe
@@ -92,8 +96,8 @@ rejected in Phase 2); joins in `ns-rec` or in wasm (`NO-SQL-ENGINE-IN-WASM-BUILD
 
 - **Readiness:** needs-decision
 - **Automatic fixing:** not-eligible — changes a command signature, so
-  `specs/command_registry.yaml` changes (auto-fix rule 4), and spans `liquers-core` and
-  `liquers-lib` (rule 6).
+  `specs/command_registry.yaml` changes (auto-fix rule 4), and readiness is `needs-decision`
+  (rule 5).
 - **Leading issue:** **Open design - table naming:** how a query names each extra table.
 - **Explanation:** the mechanism is settled by repository evidence — tables travel as query values
   and the command evaluates them through `Context::get_dependency_state`, which records each as a
@@ -109,19 +113,21 @@ rejected in Phase 2); joins in `ns-rec` or in wasm (`NO-SQL-ENGINE-IN-WASM-BUILD
      `tables: Vec<String> multiple` argument (the existing spelling stays valid, AC-6) rather than
      adding `ns-pl/sql_join`. The command becomes `async` with `context`; that is invisible in a
      query.
-  3. **Proposed resolution - variadic key/query links (AC-7):** fixed in `materialize_link_json`
-     only (encoded text when the value has no JSON form but is a key or query), not by giving
-     `Value::Key`/`Value::Query` a JSON form everywhere, so `as_bytes("json")` and the type
-     registry's write formats are unchanged.
+  3. **Inherited decision - variadic key/query links (AC-7):** whether a key or query link inside
+     a variadic argument may arrive as text reverses a decision recorded by
+     `plan-relative-resolution`; it is decided in `variadic-key-query-link-text` (recommended
+     *yes*). If it is decided *no*, this design must pick another table channel and returns to
+     Phase 2.
 
 ### Design Dependencies
 
+- `variadic-key-query-link-text` — **requires**: makes `/q` links inside a `multiple` argument
+  arrive as query text (AC-7). Lands first; it is independent of the polars work.
 - `sql-over-tables` — **requires**: the `ns-pl/sql` command, `check_read_only_sql`, the polars
   `sql` feature. This design changes that command's signature, so it lands after it (or, if both
   are implemented together, `sql-over-tables` Step 3 registers the extended signature directly).
-- `variadic-link-array-expansion` — **overlaps** (weak): it changes
-  `materialize_nested_parameter` in the same file; this design changes `materialize_link_json`.
-  Either order; an array-valued link is not a table binding.
+- `variadic-link-array-expansion` — **overlaps** (weak): an array-valued link is not a table
+  binding; no order.
 - `relational-database-access`, `external-index-reconciliation` — **overlaps** (weak): other SQL
   surfaces, no shared contract.
 
@@ -130,8 +136,10 @@ rejected in Phase 2); joins in `ns-rec` or in wasm (`NO-SQL-ENGINE-IN-WASM-BUILD
 - **Mechanism:** the only channel that carries arbitrary tables without a core redesign is a query
   value evaluated by the command (`Context::get_dependency_state` records the dependency; the
   `/q` link itself is a `UseQueryValue` step and carries no data dependency).
-- **Core defect found and fixed in scope (AC-7):** key and query links inside any `multiple`
-  argument fail today, because neither value has a JSON form. Fixing it is one function.
+- **Core prerequisite (AC-7):** key and query links inside any `multiple` argument fail today,
+  because neither value has a JSON form; the failure is pinned by
+  `multiple_parameter_non_json_link_reports_positioned_conversion_error` as a decision of
+  `plan-relative-resolution`. Moved to `variadic-key-query-link-text`, which this design requires.
 - **Spelling:** a table is `<name>-~X~<query>/q~E`; forgetting `/q` gives a DataFrame link, which
   fails JSON conversion with a message that must name `/q` (AC-4).
 - **Security:** the allow-list of `sql-over-tables` stays the guard; bound names are added to it,
@@ -156,10 +164,8 @@ scalars by `register_command!`.
 
 ### Changes
 
-- `liquers-core/src/interpreter.rs` `materialize_link_json`: when `value.try_into_json_value()`
-  fails, try `value.try_into_query()` then `value.try_into_key()` (both `ValueInterface`
-  methods) and return the encoded text as `serde_json::Value::String`; if both fail, return the
-  original JSON error. No signature changes.
+- `liquers-core/src/interpreter.rs` `materialize_link_json`: no change here; the key/query
+  fallback is `variadic-key-query-link-text`'s.
 - `liquers-lib/src/polars/sql.rs`:
 
   ```rust
@@ -204,19 +210,19 @@ scalars by `register_command!`.
   JSON conversion first) gets a message saying "end the table link with `/q`"; dependency
   evaluation errors propagate unchanged.
 - Documents: `specs/reference/POLARS_COMMAND_LIBRARY.md` (`sql` section: tables, `/q`, allow-list);
-  `specs/reference/COMMAND_DECLARATION.md` or `REGISTER_COMMAND_FSD.md` only if it states what a
-  link inside `multiple` delivers (check at Step 1); `specs/command_registry.yaml` (generated).
+  `specs/command_registry.yaml` (generated). What a link inside `multiple` delivers is documented
+  by `variadic-key-query-link-text` in `REGISTER_COMMAND_FSD.md`.
 
 ### Risks
 
 | Assessment | Finding |
 |---|---|
-| Files likely to change | `liquers-core/src/interpreter.rs`; `liquers-lib/src/polars/{sql.rs,mod.rs}`; `liquers-lib/tests/polars_commands.rs`; `specs/command_registry.yaml`; one or two references |
+| Files likely to change | `liquers-lib/src/polars/{sql.rs,mod.rs}`; `liquers-lib/tests/polars_commands.rs`; `specs/command_registry.yaml`; one or two references |
 | Existing tests likely to change | `registry_export` (regenerate); `sql-over-tables`' tests unchanged in behaviour (AC-6) |
-| Compatibility | Additive for queries. AC-7 turns a failure into text for key/query links in variadic arguments — no command relied on the failure (checked: no test asserts it) |
+| Compatibility | Additive for queries. AC-7's behaviour change (and the existing test that pins today's failure) belongs to `variadic-key-query-link-text` |
 | Concurrency / performance | Each table is a separate asset, evaluated concurrently and cached; one `DataFrame` clone per table into `LazyFrame` |
 | Security | Unchanged guard: tables only through Liquers queries; the allow-list now has more names, each bound to an evaluated value |
-| Recovery | Revert the registration to `sql-over-tables`' form; the core change stands alone |
+| Recovery | Revert the registration to `sql-over-tables`' form; the required core design stands alone |
 | Certainty | High on mechanism (`get_dependency_state`, `q` → `UseQueryValue` verified at HEAD); medium on how `ExtValue`'s `try_into_query` forwards for `CombinedValue::Base` — re-read at Step 1 |
 
 ## Phase 3: Examples and Tests
@@ -252,19 +258,19 @@ In `liquers-lib/tests/polars_commands.rs` (file gated on `polars`), with the sto
 - `test_sql_single_table_unchanged` (AC-6): Example 3 equals the `sql-over-tables` result
 - Unit, `liquers-lib/src/polars/sql.rs`: `table_bindings_pairs_and_refusals` (AC-4),
   `read_only_check_accepts_bound_names` and `read_only_check_refuses_unbound_name` (AC-5)
-- Unit, `liquers-core/src/interpreter.rs` `mod tests`: `variadic_key_link_arrives_as_text` and
-  `variadic_query_link_arrives_as_text` (AC-7) — a `multiple` `Vec<String>` test command fed
-  `~X~-R-key/a/b~E` and `~X~-R/a/b/-/q~E`; expects `"a/b"` and the encoded query
+- AC-7 is proven by `variadic-key-query-link-text`'s
+  `multiple_parameter_query_link_arrives_as_text` (core), and end to end here by
+  `test_sql_joins_two_stored_tables`, whose table is a `/q` link
 - Commands: `CARGO_INCREMENTAL=0 cargo test -p liquers-lib --test polars_commands sql`,
-  `cargo test -p liquers-lib --lib polars::sql`, `cargo test -p liquers-core --lib interpreter`
+  `cargo test -p liquers-lib --lib polars::sql`
 
 ## Phase 4: Implementation Plan
 
 ### Steps
 
-- [ ] 1. `liquers-core/src/interpreter.rs` `materialize_link_json` — key/query fallback; the two
-  AC-7 unit tests — `cargo test -p liquers-core --lib interpreter`. Re-check whether a reference
-  states what a link inside `multiple` delivers and update it. Depends on nothing.
+- [ ] 1. Prerequisite check, no code here: `variadic-key-query-link-text` is implemented (its
+  issue `VARIADIC-KEY-OR-QUERY-LINK-FAILS-TO-MATERIALIZE` is closed) —
+  `cargo test -p liquers-core --lib interpreter::tests::multiple_parameter_query_link_arrives_as_text`.
 - [ ] 2. `liquers-lib/src/polars/sql.rs` `table_bindings`, `check_read_only_sql(query, bound)` and
   their unit tests — `cargo test -p liquers-lib --lib polars::sql`. Depends on `sql-over-tables`
   being implemented.

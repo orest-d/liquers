@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: S
 area: [core/query, lib/commands]
-design:
+design: template-diagnostics-namespace-scope
 created: 2026-10-26
 github:
 ---
@@ -22,15 +22,18 @@ instructions: only the last `ns` *before an action, in the same transform segmen
 - `template_commands` (placeholder bodies) inserts every literal `ns` parameter of every segment in
   front of the defaults, so all of them apply everywhere.
 
-Inferred from reading the code at cd6d5da; not reproduced with a test.
+Inferred from reading the code at cd6d5da (unchanged at 70b9005); the planner side of each example
+below was checked with `liquers-validate`. Not reproduced with a template test.
 
 ## Problem Example
 
-`head` is registered in namespace `pl` only. The placeholder `{{$ ns-pl/head-3/ns-img/x}}` plans
-(the planner looks `head` up in `pl`), but `unknown_commands` looks it up in `[img, defaults]` and
-reports "unknown command 'head'". Likewise `{{$ ns-pl/head-3/-/x}}`: the last segment has no `ns`,
-so `head` is looked up in the defaults only. In the other direction, a template body with
-placeholders accepts a command from any `ns` anywhere in the query, which the planner would refuse.
+`head` is registered in namespace `pl` only, `fliph` in `img` only. The placeholder
+`{{$ ns-pl/head-3/ns-img/fliph}}` plans (the planner looks `head` up in `pl`), but
+`unknown_commands` looks it up in `[img, defaults]` and reports "unknown command 'head'". Likewise
+`{{$ ns-pl/head-3/-/ns-img/fliph}}`, which also plans: the last segment's `ns` is applied to the
+first. In the other direction, `{{$ ns-pl/head-{{n}}/-/head-2}}` (a body with placeholders) reports
+nothing, although the planner refuses the second `head` (no `ns` in its segment), because
+`template_commands` puts every literal `ns` in front of every lookup.
 
 ## Impact
 

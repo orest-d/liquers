@@ -102,8 +102,10 @@ a write by another process (`store-conditional-write`); the metadata saver's own
   this design edits `close` and adds a method. No order.
 - `store-conditional-write` — **overlaps**: a conditional write is the cross-process answer; not
   needed in one process.
-- `LATE-SAVE-OF-AN-UNREGISTERED-KEYED-ASSET-SURVIVES-REMOVAL` (filed with this design) — the
-  unregistered case, left out (see Non-goals).
+- `unregistered-keyed-write-gate` (design for
+  `LATE-SAVE-OF-AN-UNREGISTERED-KEYED-ASSET-SURVIVES-REMOVAL`, filed with this design) —
+  **required-by**: the unregistered case, left out (see Non-goals); it reuses this design's gate
+  and lands after it. Kept separate under overlap exclusion E1.
 
 ### Consolidated Findings
 

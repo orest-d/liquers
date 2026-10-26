@@ -6,17 +6,19 @@ status: draft
 priority: P3
 complexity: M
 area: [lib/ui, lib/value]
-design:
+design: ui-display-conversion
 created: 2026-10-26
 github:
 ---
 
 ## Problem
 
-The HTML backend (`liquers-lib/src/ui/web/html.rs`, `ext_to_html` and the `SimpleValue` arm before
-it) chooses a rendering by matching the value's variant: a `polars.DataFrame` and a `RecordView`
+Both value backends choose a rendering by matching the value's variant: the HTML backend
+(`liquers-lib/src/ui/web/html.rs`, `ext_to_html` / `simple_to_html`) and egui
+(`liquers-lib/src/egui/mod.rs`, `UIValueExtension::show`). A `polars.DataFrame` and a `RecordView`
 render as tables, while an `Array` of objects — the same data as a list of dictionaries — renders
-as generic JSON. Nothing consults the conversion registry planned by `value-conversion-registry`
+as the bare label `Array` (`<span class="lq-value lq-array">Array</span>`; egui: an italic
+`Array`), not even as JSON. Nothing consults the conversion registry planned by `value-conversion-registry`
 (`can_convert`, `ConversionPolicy::Automatic`) to find a type the view can show.
 
 ## Problem Example
@@ -26,7 +28,7 @@ fetch_people
 ```
 
 where `fetch_people` returns `[{"name": "Ann", "age": 31}, {"name": "Bo", "age": 27}]`. Today the
-view shows the JSON text. Should be: the view asks whether the value reaches a table type by an
+view shows the label `Array` (checked at `cd6d5da`). Should be: the view asks whether the value reaches a table type by an
 automatic edge (`Array → RecordView`, `Structural`), converts for display only, and shows a table.
 
 ## Impact

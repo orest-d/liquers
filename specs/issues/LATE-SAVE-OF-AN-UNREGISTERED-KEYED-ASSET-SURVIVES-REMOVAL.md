@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: M
 area: [core/assets, core/store]
-design:
+design: unregistered-keyed-write-gate
 created: 2026-10-26
 github:
 ---
@@ -25,14 +25,16 @@ closes this for the registered owner only, because it relies on reaching the ass
 
 ## Problem Example
 
-`data/u.txt` has a recipe with `cached: false`. `get(data/u.txt)` finishes `Ready`; its background
+`data/u.txt` has a recipe whose cache strategy keeps no result (`cached: none`). `get(data/u.txt)` finishes `Ready`; its background
 save is about to call `store.set`. `remove(data/u.txt)` rewrites the stored entry as `Recipe` and
 returns. The save then writes `Ready`, and a fresh process fast-tracks the removed value. With
 `set_state(data/u.txt, "user")` instead, the stored user value is overwritten by the computed one.
 For a volatile key the revived entry is `Volatile`, which the fast track refuses, so the effect is
 a stale stored copy rather than a wrong read.
 
-Inferred from reading `liquers-core/src/assets.rs` at `cd6d5da`; not reproduced.
+Inferred from reading `liquers-core/src/assets.rs` at `cd6d5da` (unchanged at `70b9005`: both
+constructors build the asset with `Some(key)` and never map it; `remove` consults only
+`lookup_key_asset`); not reproduced.
 
 ## Impact
 
