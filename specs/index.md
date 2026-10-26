@@ -8,10 +8,10 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 208
+Total rows: 209
 - P1: 1
 - P2: 63
-- P3: 144
+- P3: 145
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -175,6 +175,7 @@ Total rows: 208
 | [`LIBRARY-CODE-CALLS-ERROR-NEW-DIRECTLY`](issues/LIBRARY-CODE-CALLS-ERROR-NEW-DIRECTLY.md) | issue | Library code constructs errors with Error::new, which CLAUDE.md forbids | draft |  |  | P3 | M | core/value;lib/value;lib/polars |  | 2026-10-20 |
 | [`MCP-SERVER-APPLIES-NO-ACCESS-POLICY`](issues/MCP-SERVER-APPLIES-NO-ACCESS-POLICY.md) | feature | The MCP server limits its query tool by a command allow-list, not by an access policy | draft |  |  | P3 | M | mcp |  | 2026-10-20 |
 | [`PLAN-SERDE-HAS-NO-COMPATIBILITY-CONTRACT`](issues/PLAN-SERDE-HAS-NO-COMPATIBILITY-CONTRACT.md) | issue | A serialized Plan has no compatibility contract | draft |  |  | P3 | M | core/plan |  | 2026-10-20 |
+| [`PY-FREE-THREADED-PYTHON-NOT-SUPPORTED`](issues/PY-FREE-THREADED-PYTHON-NOT-SUPPORTED.md) | issue | liquers-py does not declare support for free-threaded Python, so its import may re-enable the GIL | draft |  |  | P3 | M | py |  | 2026-10-26 |
 | [`PY-RECORD-VALUES-CANNOT-CROSS-TO-PYTHON`](issues/PY-RECORD-VALUES-CANNOT-CROSS-TO-PYTHON.md) | feature | A record view or source evaluated from Python raises ConversionError instead of reaching Python as a table | draft |  |  | P3 | M | py;records |  | 2026-10-20 |
 | [`QUERY-BUILDER-NOT-IN-BINDINGS`](issues/QUERY-BUILDER-NOT-IN-BINDINGS.md) | feature | Python and JavaScript have no validating query builder | draft |  |  | P3 | M | py;web |  | 2026-10-21 |
 | [`RECORD-SCHEMA-NOT-RECORDED-IN-METADATA-ON-WRITE`](issues/RECORD-SCHEMA-NOT-RECORDED-IN-METADATA-ON-WRITE.md) | issue | A record view stored in a schema-less format does not record its schema in the metadata | draft |  |  | P3 | M | lib/value;core/assets |  | 2026-10-20 |
