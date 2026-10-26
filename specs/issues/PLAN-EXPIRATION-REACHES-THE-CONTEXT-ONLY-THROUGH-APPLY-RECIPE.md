@@ -4,21 +4,28 @@ kind: issue
 title: A plan's expiration reaches the asset only through apply_recipe
 status: draft
 priority: P2
-complexity: S
-area: [core/context]
-design:
+complexity: M
+area: [core/context, core/plan]
+design: plan-expiration-set-at-finalization
 created: 2026-10-20
 github:
 ---
 ## Problem
 
-`context.set_expires(...)` is called only in `GenericEnvironment::apply_recipe`
+`Context::set_expires` is called only in `GenericEnvironment::apply_recipe`
 (`liquers-core/src/context.rs`). Neither `interpreter::finalize_plan` nor `apply_plan` applies
 `plan.expires` to the context, so recipe application is a convention every `Environment`
 implementation must repeat: `to_plan`, `finalize_plan`, set the expiration, `apply_plan`. A custom
 `apply_recipe` that skips the third step (as `liquers-core/tests/environment_builder.rs` does)
 produces assets that never expire. The combination there (`plan.expires | recipe.expires`) is also
 redundant now that `to_plan` folds the recipe's `expires` in.
+
+## Problem Example
+
+In `liquers-core/tests/environment_builder.rs`, `CustomEnvironment` registers a command `expiring`
+with `expires: "in 5 min"` and evaluates the query `expiring`. Its plan expires `in 5 min`, but the
+asset's metadata says `expires: Never` and has no expiration time. In `SimpleEnvironment` the same
+query expires in five minutes. Both should.
 
 ## Impact
 

@@ -19,6 +19,18 @@ parameter (`ActionRequest.from_arguments` in `liquers-py`, `encodeParam` in `liq
 has to assemble resource segments, the `-/` transform header, action names and filenames as text,
 with no validation of those raw-emitted tokens.
 
+## Problem Example
+
+```python
+# today: assembled as text; a name containing "/" or "-" silently changes the query's meaning
+q = "-R/" + folder + "/" + name + "/-/" + "ns-rec/eq-region-" + lq.ActionRequest.from_arguments(...)
+# wanted: lq.QueryBuilder().resource(folder, name).action("eq", "region", "EU", ns="ns-rec").build()
+#         -> a Query, or a ParameterError naming the token that cannot be encoded
+```
+
+Re-checked at HEAD (2026-10-26): `design/query-builder/` is `in_review` and unimplemented (no
+`query_builder` module in `liquers-core`), so this waits for it.
+
 ## Impact
 
 Language integrations are the callers the original issue (`QUERY-BUILDER-TOOLING`) named first.

@@ -18,6 +18,16 @@ The SQL command designed in `design/sql-over-tables/` runs on polars' SQL engine
 dependencies that do not build for wasm"). A browser-only deployment (`liquers-web`) therefore has
 `ns-rec` filters and search but no SQL over its record views.
 
+## Problem Example
+
+```
+-R/data/sales.csv/-/ns-pl/sql-~X~-R/queries/by_region.sql/-/to_text~E
+```
+
+works on a native build with `polars` (once `design/sql-over-tables/` lands) and has no equivalent
+in `liquers-web`, which cannot enable `polars`. Re-checked at HEAD (2026-10-26): no SQL engine is
+a dependency of any wasm-buildable feature.
+
 ## Impact
 
 Only wasm hosts. Server, desktop and Python builds have `ns-pl/sql`. No workaround in the browser

@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: M
 area: [core/assets, core/plan]
-design:
+design: recipe-dependency-versions
 created: 2026-10-20
 github:
 ---
@@ -29,6 +29,13 @@ invalidate assets in a way not found here.
 `data/recipes.yaml` declares `r.txt` = `hello/upper`. Evaluate `data/r.txt`, which is `Ready`. Rewrite
 `recipes.yaml` so that `r.txt` = `hello/lower`, through `set_binary`. `get(data/r.txt)` still serves
 the upper-case value.
+
+Triage at HEAD (`cd6d5da`, 2026-10-26): confirmed and wider than filed. Besides recipe keys never
+getting a version, a keyed asset records **no dependency on its own recipe**: the plan walk records
+`-R-recipe/<k>` only for a read `-R/<k>` served by a recipe and for `GetAssetRecipe` steps
+(`plan.rs`; `walk_records_direct_dependencies_only` shows the exact list). So the Problem Example
+needs both a version and an own-recipe edge. A restart serves the stale stored copy as well,
+because no `-R-recipe/` key is store-resolvable for the `on_load` check.
 
 ## Impact
 

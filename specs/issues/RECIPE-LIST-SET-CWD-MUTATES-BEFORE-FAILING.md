@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: S
 area: [core/assets]
-design:
+design: recipe-list-set-cwd-validation
 created: 2026-10-20
 github:
 ---
@@ -16,6 +16,13 @@ github:
 order and returns `NotSupported` at the first recipe that already has a `cwd`, leaving the earlier
 ones mutated. (That its error does not name the recipe is
 [`RECIPE-CWD-ERROR-DOES-NOT-NAME-THE-RECIPE`](RECIPE-CWD-ERROR-DOES-NOT-NAME-THE-RECIPE.md).)
+
+## Problem Example
+
+Re-checked at HEAD (`cd6d5da`, 2026-10-26): unchanged. A `RecipeList` of three recipes, the third
+with `cwd: other`: `set_cwd("data")` returns `Err(NotSupported)` with `recipes[0].cwd` and
+`recipes[1].cwd` already set to `data`. Designed together with
+`RECIPE-CWD-ERROR-DOES-NOT-NAME-THE-RECIPE` (same function).
 
 ## Impact
 

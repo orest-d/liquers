@@ -5,7 +5,7 @@ title: Agents get only memory tools — no general surface to evaluate, validate
 status: draft
 priority: P2
 complexity: M
-area: [lib/commands, core/commands, py, docs]
+area: [mcp, core/validate, docs]
 design:
 created: 2026-10-15
 github:
@@ -103,6 +103,11 @@ re-scoped. The "deferred until `AGENT-MEMORY-MVP` reaches implementation" condit
 Re-sized L → M: what remains is one tool kind in `liquers-mcp` (validate), one field set on the
 call result (receipts), and one tool-set declaration in `liquers-agent`. The `py` area now belongs
 to the split-out issue.
+
+Re-checked at HEAD (2026-10-26): unchanged — `liquers-agent/tools/` holds only `memory.yaml`, and
+`liquers-mcp/src` calls no `validate_query` and returns no cache-hit flag. Area corrected from
+`lib/commands, core/commands, py, docs` to `mcp, core/validate, docs`: the remaining work is in
+`liquers-mcp` / `liquers-agent` and reuses the `liquers-validate` report.
 
 ## Discovery
 

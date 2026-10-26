@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: M
 area: [lib/ui]
-design:
+design: web-query-editor-live-preview
 created: 2026-10-21
 github:
 ---
@@ -22,6 +22,14 @@ Live analysis in the browser needs the typed text to reach the element (or a pur
 function) on every `input` event, and the preview node to be patched without re-rendering the
 input, which would lose focus and caret. `specs/design/ui-events/` delivers user events through
 `update()` but lists per-keystroke field sync as a non-goal.
+
+## Problem Example
+
+In `examples-web/ui_query_console_app`, the user edits the console input from `hello` to
+`hello/q/ns-lui/query_c` without pressing Go. Once `query-editor-live-validation` is implemented, it
+is still not implemented at `cd6d5da`. The preview will then keep showing `hello`, with no error.
+`Action 'query_c' not registered…` (byte 15, `liquers-validate --command hello`) appears only after
+Go. It should appear in the preview while typing, without the input losing focus.
 
 ## Impact
 

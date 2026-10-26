@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: M
 area: [core/plan]
-design:
+design: inherited-volatility-bounds-predecessor-cut
 created: 2026-10-20
 github:
 ---
@@ -17,8 +17,15 @@ upstream recipe is `volatile: true` or expires `immediately`, but never calls
 `upgrade_volatility_source`, so `Plan::volatility_source` stays `None`. `Plan::cut_predecessor`
 builds each candidate fresh with `PlanBuilder`, without dependency analysis, so it sees neither
 the inherited volatility nor its position. A boundary can therefore be cut over a prefix that reads
-such a key. `VolatilitySource::Positional`'s rustdoc used to claim "a volatile dependency" was
-recorded.
+such a key. (`VolatilitySource::Positional`'s rustdoc now says inherited volatility records no
+source; it used to claim "a volatile dependency" was recorded.)
+
+## Problem Example
+
+Recipe `vol.txt` is `volatile: true`. Finalizing `-R/vol.txt/-/upper/lower` marks the plan volatile
+("Volatile due to dependency on volatile key") and then cuts it to
+`[Evaluate(-R/vol.txt/-/upper), lower]`. Should be: no cut, because every candidate prefix reads
+`vol.txt`; the plan stays `[GetAsset(vol.txt), upper, lower]`.
 
 ## Impact
 

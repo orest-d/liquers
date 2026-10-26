@@ -46,3 +46,21 @@ dependencies (transitively) on `k` at completion, or make an expression record e
 
 Found while designing `keyed-run-replaces-dependency-edges` (bulk design, 2026-10-20), when
 checking which edges a fast-track reload restores after a run's edges are cleared.
+
+## Triage (2026-10-26, bulk design, proposed close)
+
+Not reproducible by reading HEAD (`cd6d5da`), and already not at the commit the issue cites:
+`Context::wait_for_dependency_recording` (`liquers-core/src/context.rs`) **inherits a non-keyed
+dependency's own records** into the waiting asset ("A non-keyed dependency (a cut predecessor, a
+link, a query a command evaluates) … records its run added … are inherited here"), added in
+`91f1810` (2026-10-17, `search-read-dependencies`), an ancestor of `18732dd`. So in the Problem
+Example, `k`'s stored records contain `-R/data/x.txt` (from `q`'s records) as well as `q`'s query
+key, and a reload's `load_from_records` restores the edge `x → k`. Unit evidence:
+`context::tests::submit_records_dependency_under_the_key_wait_uses` (inherited records present).
+
+Residual, by contract rather than a defect: a command that waits through `AssetRef::get()` instead
+of `Context::wait_for_dependency` bypasses both the stale-dependency policy and the inheritance;
+`Context::evaluate`'s doc says to wait through `wait_for_dependency`. A regression test at close
+(`expression_dependency_survives_reload`: evaluate `k`, fresh environment over the same store,
+`set_binary(data/x.txt)`, `k` expired) would pin it. No design created; status left to the
+maintainer.

@@ -20,6 +20,20 @@ its `ErrorType` (`error_to_pyerr`). The older wrapper classes bypass that: 22 ca
 `to_json`, `query`, `type_identifier`, `set_extension`, `error_result`, and the same on
 `MetadataRecord`), 6 in `liquers-py/src/recipes.rs`, 1 in `liquers-py/src/expiration.rs`.
 
+Re-checked at HEAD (2026-10-26): unchanged — 15 + 6 + 1 sites. The 23rd
+`PyException::new_err` (`liquers-py/src/error.rs`, `error_to_pyerr`) is the deliberate fallback when
+building the typed exception itself fails, and stays.
+
+## Problem Example
+
+```python
+try:
+    lq.Metadata.from_json("not json")
+except lq.LiquersError:
+    pass                      # expected: caught, as SerializationError
+# today: escapes as a plain Exception("..."), with no `type`, `query` or `key`
+```
+
 ## Impact
 
 `except lq.LiquersError` does not catch these failures, and the error's `type`, `query` and `key`
