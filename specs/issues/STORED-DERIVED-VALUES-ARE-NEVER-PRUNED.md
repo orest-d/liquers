@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: L
 area: [core/store, core/assets]
-design:
+design: stored-derived-value-pruning
 created: 2026-10-21
 github:
 ---
@@ -18,6 +18,14 @@ removes a stored *derived* value (one that a recipe can recompute) once it has g
 long time, or once its recipe has been removed from `recipes.yaml`. `asset-garbage-collection`
 bounds the in-memory maps and, deliberately, never touches the store. The store grows with every
 distinct recipe result ever computed.
+
+## Problem Example
+
+A server stores one `reports/<day>/summary.html` per day from a recipe in `reports/recipes.yaml`.
+After a year the store holds 365 of them, 360 never requested again, and nothing removes them.
+Deleting the folder by hand also deletes any `Override` a user placed there. Should be: one call
+drops the data of the old computed values, keeps user values and recent ones, and a dropped value
+is recomputed if it is ever requested.
 
 ## Impact
 
@@ -34,7 +42,13 @@ recomputed with the same version, unless the recipe itself is gone. Open questio
 access is recorded (store metadata writes on read are costly), and whether pruning keeps metadata
 (cheap re-verification) or removes it.
 
+At HEAD the per-key effect already exists: `AssetManager::remove` on a computed key with a recipe
+removes the data, rewrites the record as `Recipe` with its version kept and does not expire
+dependents. The guarded, race-free form is `remove_computed` (`design/assets-api-admin-operations/`).
+
 ## Discovery
 
 Split off on 2026-10-21 from `CORE-ASSET-GC` ("persists in the cache and in the store") during bulk
 design (`asset-garbage-collection` Phase 1, open question 4).
+
+Designed 2026-10-26 in `design/stored-derived-value-pruning/` (bulk design).

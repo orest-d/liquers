@@ -21,16 +21,22 @@ quotes it adds itself (`format!("Query('{:?}')", …)`, `format!("Key('{:?}')", 
 
 ## Problem Example
 
-At HEAD (2026-10-20), the same "quotes inside quotes" pattern is in five places, and seventeen
-`__repr__`s return `format!("{:?}", …)`:
+```python
+repr(lq.parse("-R/data/a.txt"))     # today:    Query('"-R/data/a.txt"')
+                                    # expected: Query('-R/data/a.txt')
+```
+
+Re-checked at HEAD (2026-10-26, `grep -n -A3 __repr__ liquers-py/src`): the "quotes inside
+quotes" pattern is in seven places, and twenty `__repr__`s return bare `format!("{:?}", …)`:
 
 ```text
-liquers-py/src/query.rs        Query('{:?}'), Key('{:?}')       -> Query('"-R/data/a.txt"')
-liquers-py/src/dependencies.rs DependencyRelation('{:?}')
-liquers-py/src/expiration.rs   Expires('{:?}'), ExpirationTime('{:?}')
-liquers-py/src/metadata.rs     '{:?}' (LogEntryKind)
-Debug only: metadata.rs (AssetInfo, Metadata, MetadataRecord, LogEntry), query.rs (5 classes),
-            command_metadata.rs (7 classes), dependencies.rs (1)
+quotes in quotes: query.rs        Query('{:?}'), Key('{:?}'), QuerySource('{:?}')
+                  dependencies.rs DependencyRelation('{:?}')
+                  expiration.rs   Expires('{:?}'), ExpirationTime('{:?}')
+                  metadata.rs     '{:?}' (LogEntryKind)
+Debug only:       query.rs (7 classes), command_metadata.rs (7), metadata.rs (DependencyRecord,
+                  Metadata, MetadataRecord, LogEntry), recipes.rs (1), dependencies.rs (1)
+Already Python-style: Version, DependencyKey, Status, AssetRef, Issue
 ```
 
 ## Impact

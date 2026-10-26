@@ -4,9 +4,9 @@ kind: issue
 title: Building a library environment from a configuration document silently drops the manifest recipe provider
 status: draft
 priority: P3
-complexity: S
+complexity: M
 area: [lib/commands, records, core/context]
-design:
+design: kind-aware-recipe-provider-choice
 created: 2026-10-20
 github:
 ---
@@ -20,6 +20,16 @@ which replaces that base, so an environment built from an `EnvironmentConfig` �
 nothing about recipes — no longer resolves manifest chunk keys. record-streams Phase 4 decision 1
 says `liquers-lib` calls `RecordsRecipeProvider::with_records_recipe_provider` on its configured
 construction paths; the trait's own doc says nothing calls it yet.
+
+## Problem Example
+
+Re-checked at HEAD (`cd6d5da`, 2026-10-26): unchanged. With `records` on,
+`default_environment_builder::<Value, ()>().with_async_store(store)` evaluates a manifest chunk key
+(`-R/data/greet.csv` from `data/chunks.manifest.yaml`); the same builder with `.with_config(config, …)`
+— any `config`, including one with no `recipes:` key — fails `AssetNotFound`, because
+`with_config` calls `with_recipe_provider_choice(Default)`. `GenericEnvironment::with_recipe_provider_choice`
+(`liquers-core/src/context.rs`) has the same effect. Re-sized S → M on 2026-10-26: the recommended
+fix adds a defaulted `AssetManagerKind` method in `liquers-core` and overrides it in `liquers-lib`.
 
 ## Impact
 

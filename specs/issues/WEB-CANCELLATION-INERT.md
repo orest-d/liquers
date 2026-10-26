@@ -5,7 +5,7 @@ title: Web cancellation surface exists but does nothing
 status: accepted
 priority: P3
 complexity: L
-area: [web]
+area: [core/assets, web]
 design: 
 created: 2026-08-08
 github:
@@ -65,7 +65,7 @@ return Ok(assetref);
 ```
 
 Moving it is nevertheless **not** a one-line change, and this is the part worth knowing before
-scoping the work: `AssetRef::get` (`assets.rs:2325`) polls state and then *waits on the
+scoping the work: `AssetRef::get` (`liquers-core/src/assets.rs`) polls state and then *waits on the
 notification channel*. It never starts a run — on native it must not, because a worker owns the
 run. Deferring the inline run out of `get_asset` without changing `get` makes `get` wait forever.
 

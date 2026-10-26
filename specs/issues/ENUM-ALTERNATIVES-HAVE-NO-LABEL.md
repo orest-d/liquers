@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: M
 area: [core/commands, macro]
-design:
+design: enum-alternative-labels
 created: 2026-10-20
 github:
 ---
@@ -17,6 +17,16 @@ github:
 the struct carries `// TODO: Label and description for alternatives`. A UI selector for
 `method: String (enum: ["nearest", "lanczos3"])` can show only the query spelling, and
 `register_command!`'s `enum:` syntax has nowhere to put a label.
+
+## Problem Example
+
+`ns-img/resize` declares `method: String = "lanczos3" (enum: ["nearest", "triangle",
+"catmullrom", "gaussian", "lanczos3"])`. `liquers-validate` on `ns-img/resize-100-100-lanczos`
+reports *"Undefined enum value for argument method. Valid values: nearest, triangle, catmullrom,
+gaussian, lanczos3"*; the MCP schema (`liquers-mcp/src/schema.rs` `enum_schema`) is
+`{"enum": ["nearest", …]}` and the egui command view prints `alias => value`. Nothing can say that
+`catmullrom` is "Catmull-Rom, cubic, sharper than triangle". Should: `enum: ["catmullrom" (label:
+"Catmull-Rom", description: "…"), …]` registers, and the MCP schema and egui view show it.
 
 ## Impact
 

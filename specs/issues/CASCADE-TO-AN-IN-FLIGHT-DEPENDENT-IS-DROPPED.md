@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: M
 area: [core/assets]
-design:
+design: cascade-marks-in-flight-dependent-stale
 created: 2026-10-21
 github:
 ---
@@ -36,6 +36,15 @@ Keyed `data/p.txt = -R/data/c.txt/-/gated_upper/p.txt` (registered, `cached` def
 which is `Processing`: the expiry is refused and dropped. `p` finishes `Ready` with `A`; a later
 `get(data/p.txt)` in the same process is expected to serve `A`. It should recompute `B` (the
 dependent takes the stale-dependency route and finishes `Expired`).
+
+Triage at HEAD (`cd6d5da`, 2026-10-26): unchanged. The example below changes the dependency's
+*version*, so once `runtime-dependency-record-superseded-check` (ready, not implemented) lands, its
+completion check (records against the version map) catches it. What that check cannot catch is a
+cascade that changes no version: an explicit `expire`, a deadline, `remove`, or a **transitive**
+cascade — `c → q → p` with `p` running after reading `q`: setting `c` expires `q` (version
+unchanged) and reaches `p`, refused; `p`'s record `q @ v(q)` still matches, and `p` finishes
+`Ready` on the value built from the old `c`. That is the remaining scope (design
+`cascade-marks-in-flight-dependent-stale`).
 
 ## Impact
 

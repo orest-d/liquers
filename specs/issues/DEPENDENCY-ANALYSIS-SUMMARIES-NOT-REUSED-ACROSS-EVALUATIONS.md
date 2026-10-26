@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: M
 area: [core/plan, core/assets]
-design:
+design: dependency-summary-reuse
 created: 2026-10-20
 github:
 ---
@@ -19,6 +19,13 @@ per scheduled dependency). Each evaluation still runs one `analyze_plan_dependen
 (`liquers-core/src/plan.rs`) over its whole upstream, starting from an empty memo. So evaluating a
 chain of *n* links one at a time remains O(n²) recipe visits, and wide fan-in over a shared upstream
 re-walks it for every dependent.
+
+## Problem Example
+
+`liquers-core/tests/dependency_chain_scaling.rs` `evaluate_chain(20)` evaluates `l0 … l20` one at a
+time. Evaluating `l20` walks `l19 … l0` although each was finalized moments before: about 691
+recipe lookups today, about 271 after the first slice. Should be: `l20` stops at `l19`, roughly 3
+lookups per link.
 
 ## Impact
 

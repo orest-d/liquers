@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: L
 area: [core/value, lib/value, core/assets]
-design:
+design: value-memory-size-budget
 created: 2026-10-21
 github:
 ---
@@ -18,6 +18,13 @@ method that estimates how much memory a value holds. The asset manager therefore
 byte budget on its cache. On 2026-10-10 the maintainer asked for one in `CORE-ASSET-GC`: an
 internet-facing service bounds its in-memory cache in bytes, separately for recipes and for ad-hoc
 queries. `asset-garbage-collection` bounds entries by count and idle time only, for this reason.
+
+## Problem Example
+
+A server with `assets: { max_cached_queries: 1000 }` (the count limit of
+`asset-garbage-collection`) answers ad-hoc `-R/data/big<i>.csv/-/ns-pl/from_csv` queries, each
+holding a 400 MB frame. Ten of them fit the count limit and take 4 GB, and there is no setting that
+says "at most 1 GiB", because no value can report its size.
 
 ## Impact
 
@@ -38,3 +45,6 @@ default.
 
 Split off on 2026-10-21 from `CORE-ASSET-GC` during bulk design (`asset-garbage-collection`
 Phase 1, open question 2).
+
+Designed 2026-10-26 in `design/value-memory-size-budget/` (bulk design). The estimate (part A)
+can land before `asset-garbage-collection`; the byte budget (part B) requires it.

@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: L
 area: [core/plan, core/value]
-design:
+design: cross-realm-transfer-planning
 created: 2026-10-20
 github:
 ---
@@ -19,6 +19,14 @@ it: `PlanBuilder` (`liquers-core/src/plan.rs`) does not know which type a step p
 know where a step runs (`CORE-MULTI-REALM-INTERPRETER`), and so cannot refuse a plan that would send
 a `js.Value` to a server or insert the conversion a `polars.DataFrame` needs before reaching a
 browser.
+
+## Problem Example
+
+`-R/data/sales.csv/-server/heavy_stats/-/to_text`, with `server` a remote realm whose
+`heavy_stats` returns a `polars.DataFrame` and a page without Polars. Should: the plan converts on
+the server (`ConvertTo RecordView`) or is refused naming the type and both realms; a `js.Value`
+sent toward the server is refused as `Untransferable`. Today nothing checks, and (with dispatch)
+the page would fail to decode the bytes.
 
 ## Impact
 

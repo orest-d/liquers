@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: S
 area: [docs, core/assets]
-design:
+design: doc-03-apply-entry-points
 created: 2026-10-20
 github:
 ---
@@ -16,11 +16,19 @@ github:
 `AssetManager::apply` with payload "No" and, on the queued manager, "Schedule ad-hoc asset"; the
 paragraph under the table repeats that `apply` returns "a handle after scheduling". At HEAD
 `AssetManager::apply(recipe, to, payload: Option<E::Payload>)` evaluates before returning on both
-managers and consumes no job-queue slot (`liquers-core/src/assets.rs`, trait doc at ~6007 and
-`DefaultAssetManager::apply` at ~8787: "runs inline in the caller's future rather than taking a
+managers and consumes no job-queue slot (`liquers-core/src/assets.rs`, the `AssetManager::apply` trait doc and
+`DefaultAssetManager::apply`: "runs inline in the caller's future rather than taking a
 job-queue slot"). The same document's later section already says `apply` absorbed
 `apply_immediately`, so the table contradicts its own text. The following-handle variant is
 `apply_queued`, which the table does not list.
+
+## Problem Example
+
+A reader wants the result of a recipe applied to a state. DOC-03's table says `apply` on the queued
+manager "Schedule[s] ad-hoc asset", so they write `manager.apply(recipe, state, None).await?` and
+then wait on the handle; or, wanting a handle to follow a long run, they pick `apply` and get a
+finished asset instead. At HEAD (`cd6d5da`, re-checked 2026-10-26) `apply` has already evaluated
+when it returns; the followable variant is `apply_queued`.
 
 ## Impact
 

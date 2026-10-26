@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: L
 area: [core/assets, core/store]
-design:
+design: streamed-keyed-persistence
 created: 2026-10-21
 github:
 ---
@@ -15,9 +15,9 @@ github:
 A keyed, non-volatile asset is serialized whole at finalization, because its content version is
 `Version::from_content(&bytes)` over the whole encoding (`AssetRef::prepare_version`,
 `liquers-core/src/assets.rs`), and the bytes are then written with `AsyncStore::set`
-(`save_to_store`). After `design/value-serialization-streaming/` a value can produce its encoding
-as a stream, and after `design/store-streaming-read-write/` a store can take one (`set_stream`), but
-the persistence path still collects: the version must be known before the asset becomes readable,
+(`save_to_store`). Once `design/value-serialization-streaming/` lands a value can produce its
+encoding as a stream, and once `design/store-streaming-read-write/` lands a store can take one
+(`set_stream`); neither exists at HEAD (cd6d5da). Even then the persistence path would still collect: the version must be known before the asset becomes readable,
 and the write must not expose a partial object.
 
 ## Problem Example
@@ -44,3 +44,6 @@ values; or keep whole serialization for keyed assets and document it. Interacts 
 
 Scoped out of `design/value-serialization-streaming/` (Phase 1 Q5) during the 2026-10-20 bulk
 design, after reading `prepare_version` and `finalize_status_with_version` at HEAD 18732dd.
+
+Designed 2026-10-26 in `design/streamed-keyed-persistence/` (bulk design; recommends the first
+option: the asset becomes readable when the streamed write and its hash complete).
