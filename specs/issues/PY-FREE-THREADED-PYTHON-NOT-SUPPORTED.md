@@ -36,4 +36,4 @@ free-threaded builds are not supported and run with the GIL.
 ## Discovery
 
 Raised by Orest (2026-10-26) while discussing where `async def` commands run in
-`design/liquers-py-async/` (Phase 1, question 1).
+`design/liquers-py-async/` (Phase 1, Decision 2).

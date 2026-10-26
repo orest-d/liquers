@@ -27,9 +27,10 @@ Synchronous use, Jupyter included, is unaffected.
 
 ## Expected behaviour
 
-As `design/liquers-py-async/` Phase 1 states: `await env.evaluate_async(q)` without blocking the
-loop, with task cancellation cancelling the asset; `async def` commands awaited on a loop owned by
-liquers-py; nested async evaluation without deadlock.
+As `design/liquers-py-async/` Phase 1 states: awaitable variants of the blocking calls, without
+blocking the loop; `async def` commands awaited on a pool of loops owned by liquers-py; cancellation
+in both directions; nested async evaluation without deadlock; pure-Rust queries never waiting on
+Python.
 
 ## Discovery
 
