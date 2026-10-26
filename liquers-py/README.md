@@ -124,12 +124,10 @@ test is named for its ID, in `tests/test_<FEATURE>_*.py`.
 | `OBJECT` | Essential | COMPLETE | — | `test_OBJECT01`–`09` |
 | `ERROR` | Essential | COMPLETE | A Python exception's class and message ride in `message`, its stack in `traceback` (`LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT`) | `test_ERROR01`–`06` |
 | `RUNTIME` | Essential | COMPLETE | `RUNTIME02` is `NA` until a Pyodide target exists | `test_RUNTIME01`, `03`–`06` |
-| `VALUE` | Essential | BLOCKED | A pickle-off read of a pickled `py.Object` refuses to unpickle, but reports "No recipe found" instead of naming the type (`DEGRADED-STORED-VALUE-WITHOUT-RECIPE-REPORTS-NO-RECIPE`, a strict `xfail`). `VALUE12` is `NA` until a `Value` wrapper with operators exists | `test_VALUE01`–`13` |
+| `VALUE` | Essential | COMPLETE | `VALUE12` is `NA` until a `Value` wrapper with operators exists | `test_VALUE01`–`13` |
 | `ENVIRON` | Essential | COMPLETE | Only the default recipe provider can be configured | `test_ENVIRON01`–`08` |
-| `EVAL` | Essential | PARTIAL | Every `EVAL` test passes; held at `PARTIAL` because its hard dependency `VALUE` is `BLOCKED`. `EVAL05`'s payload half is `NA`: the environment's payload type is `()`, so only the context half is tested. Evaluation is synchronous; async is `specs/design/liquers-py-async/` | `test_EVAL01`–`06` |
-| `COMMAND` | Essential | PARTIAL | Every `COMMAND` test passes; held at `PARTIAL` because its hard dependency `VALUE` is `BLOCKED`. No `realm=` on the decorators; `async def` commands are the async design's | `test_COMMAND01`–`14` |
+| `EVAL` | Essential | COMPLETE | `EVAL05`'s payload half is `NA`: the environment's payload type is `()`, so only the context half is tested. Evaluation is synchronous; async is `specs/design/liquers-py-async/` | `test_EVAL01`–`06` |
+| `COMMAND` | Essential | COMPLETE | No `realm=` on the decorators; `async def` commands are the async design's | `test_COMMAND01`–`14` |
 
-A feature is never claimed `COMPLETE` over a hard dependency that is not (guide §1, "Dependencies
-constrain these states"), which is why two features whose own tests all pass read `PARTIAL`.
-The remaining blocker is a defect in `liquers-core`, filed under `specs/issues/`; fixing it moves the
-features that depend on it.
+Every Essential feature is `COMPLETE` and every required check passes; each `NA` item carries
+its reversing condition. The Python baseline profile is therefore `CONFORMANT`.
