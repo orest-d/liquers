@@ -10,8 +10,8 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 
 Total rows: 209
 - P1: 1
-- P2: 63
-- P3: 145
+- P2: 64
+- P3: 144
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -53,6 +53,7 @@ Total rows: 209
 | [`LANGUAGE-GUIDE-NO-DOCUMENTATION-SECTION`](issues/LANGUAGE-GUIDE-NO-DOCUMENTATION-SECTION.md) | feature | The language integration guide says nothing about writing the integration's own documentation | draft |  |  | P2 | M | docs;web;py |  | 2026-08-30 |
 | [`LANGUAGE-STORE-TYPE-NOT-DEFINABLE`](issues/LANGUAGE-STORE-TYPE-NOT-DEFINABLE.md) | feature | A store type cannot be defined in the integrated language | draft |  |  | P2 | M | web;py;core/store;store/config |  | 2026-08-29 |
 | [`PY-API-REFERENCE-NOT-GENERATED`](issues/PY-API-REFERENCE-NOT-GENERATED.md) | feature | The Python package has no generated API reference, and most of its names have no docstring | draft |  |  | P2 | M | py;docs |  | 2026-10-19 |
+| [`PY-FREE-THREADED-SUPPORT-UNVERIFIED`](issues/PY-FREE-THREADED-SUPPORT-UNVERIFIED.md) | issue | liquers-py declares free-threaded support by PyO3 default without being audited or tested on it | draft |  |  | P2 | M | py |  | 2026-10-26 |
 | [`QUERY-CANNOT-CHOOSE-A-DATA-FORMAT`](issues/QUERY-CANNOT-CHOOSE-A-DATA-FORMAT.md) | feature | A query cannot choose a data format or a format refinement except through a filename | draft |  |  | P2 | M | lib/commands;core/value |  | 2026-10-20 |
 | [`RECIPE-DEPENDENCY-KEY-IS-NEVER-VERSIONED`](issues/RECIPE-DEPENDENCY-KEY-IS-NEVER-VERSIONED.md) | issue | Editing a recipe does not expire the assets computed from it, because recipe dependency keys never get a version | draft |  |  | P2 | M | core/assets;core/plan |  | 2026-10-20 |
 | [`WEB-HAS-NO-API-REFERENCE-OR-USER-GUIDE`](issues/WEB-HAS-NO-API-REFERENCE-OR-USER-GUIDE.md) | feature | liquers-web has no generated API reference, contract reference or user guide | draft |  |  | P2 | M | web;docs |  | 2026-10-20 |
@@ -175,7 +176,6 @@ Total rows: 209
 | [`LIBRARY-CODE-CALLS-ERROR-NEW-DIRECTLY`](issues/LIBRARY-CODE-CALLS-ERROR-NEW-DIRECTLY.md) | issue | Library code constructs errors with Error::new, which CLAUDE.md forbids | draft |  |  | P3 | M | core/value;lib/value;lib/polars |  | 2026-10-20 |
 | [`MCP-SERVER-APPLIES-NO-ACCESS-POLICY`](issues/MCP-SERVER-APPLIES-NO-ACCESS-POLICY.md) | feature | The MCP server limits its query tool by a command allow-list, not by an access policy | draft |  |  | P3 | M | mcp |  | 2026-10-20 |
 | [`PLAN-SERDE-HAS-NO-COMPATIBILITY-CONTRACT`](issues/PLAN-SERDE-HAS-NO-COMPATIBILITY-CONTRACT.md) | issue | A serialized Plan has no compatibility contract | draft |  |  | P3 | M | core/plan |  | 2026-10-20 |
-| [`PY-FREE-THREADED-PYTHON-NOT-SUPPORTED`](issues/PY-FREE-THREADED-PYTHON-NOT-SUPPORTED.md) | issue | liquers-py does not declare support for free-threaded Python, so its import may re-enable the GIL | draft |  |  | P3 | M | py |  | 2026-10-26 |
 | [`PY-RECORD-VALUES-CANNOT-CROSS-TO-PYTHON`](issues/PY-RECORD-VALUES-CANNOT-CROSS-TO-PYTHON.md) | feature | A record view or source evaluated from Python raises ConversionError instead of reaching Python as a table | draft |  |  | P3 | M | py;records |  | 2026-10-20 |
 | [`QUERY-BUILDER-NOT-IN-BINDINGS`](issues/QUERY-BUILDER-NOT-IN-BINDINGS.md) | feature | Python and JavaScript have no validating query builder | draft |  |  | P3 | M | py;web |  | 2026-10-21 |
 | [`RECORD-SCHEMA-NOT-RECORDED-IN-METADATA-ON-WRITE`](issues/RECORD-SCHEMA-NOT-RECORDED-IN-METADATA-ON-WRITE.md) | issue | A record view stored in a schema-less format does not record its schema in the metadata | draft |  |  | P3 | M | lib/value;core/assets |  | 2026-10-20 |

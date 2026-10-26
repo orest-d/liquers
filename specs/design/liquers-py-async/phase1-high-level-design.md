@@ -49,8 +49,8 @@ assert await lq.evaluate_async("hello/fetch_len") == 5
   `Environment.shutdown()`)
   THEN the command's asyncio task is cancelled on its loop and the asset ends `Cancelled`
 
-Non-goals: async stores and recipe providers; free-threaded support
-(`PY-FREE-THREADED-PYTHON-NOT-SUPPORTED`; until then AC-6's loops share the GIL); the caller's loop.
+Non-goals: async stores and recipe providers; verifying free-threaded support
+(`PY-FREE-THREADED-SUPPORT-UNVERIFIED`; on a GIL build AC-6's loops share the GIL); the caller's loop.
 
 ## Core Interactions
 
@@ -91,7 +91,7 @@ Recorded with Orest on 2026-10-26:
 
 ## Design Dependencies
 
-- `PY-FREE-THREADED-PYTHON-NOT-SUPPORTED` — **overlaps**: makes AC-6 parallel; not required.
+- `PY-FREE-THREADED-SUPPORT-UNVERIFIED` — **overlaps**: AC-6 is parallel only where it holds.
 - `executor-neutral-core` — **overlaps** (weak): the bridge relies on tokio.
 
 ## Scope Changes
