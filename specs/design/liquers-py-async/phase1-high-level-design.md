@@ -48,9 +48,14 @@ assert await lq.evaluate_async("hello/fetch_len") == 5
   WHEN the asset running an `async def` command is cancelled (`AssetRef.cancel()`, replacement,
   `Environment.shutdown()`)
   THEN the command's asyncio task is cancelled on its loop and the asset ends `Cancelled`
+- **AC-8** Free-threaded support is verified
+  WHEN liquers-py is imported on a free-threaded CPython (3.14t) and its suite runs, with Python
+  commands on several threads and loops at once
+  THEN the GIL stays disabled and every test passes; shared state reached from Python is audited
+  for races; until then the module declares `gil_used = true`
 
-Non-goals: async stores and recipe providers; verifying free-threaded support
-(`PY-FREE-THREADED-SUPPORT-UNVERIFIED`; on a GIL build AC-6's loops share the GIL); the caller's loop.
+Non-goals: async stores and recipe providers; the caller's loop; several job queues
+(`CORE-ONE-JOB-QUEUE-FOR-ALL-COMMANDS`).
 
 ## Core Interactions
 
@@ -77,26 +82,28 @@ Recorded with Orest on 2026-10-26:
    task (`liquers-core/src/assets.rs` `JobQueue`), so the caller's loop is unreachable (and absent
    over HTTP); the pool gives parallelism on free-threaded Python.
 3. **Sync on a running loop:** raise on liquers-py's loops, warn elsewhere (AC-3).
+4. **Cancelling an awaiting task** ends only that wait, like sync `block_on`; `await
+   asset.cancel()` cancels the evaluation.
+5. **Job queue:** one queue, capacity exposed as `Environment(job_capacity=…)` (core
+   `EnvironmentBuilder::with_job_capacity`). Queues per kind of command are future configuration
+   (`CORE-ONE-JOB-QUEUE-FOR-ALL-COMMANDS`).
+6. **Free-threaded Python** is in scope (AC-8): audited and tested here.
 
 ## Open Questions
 
-1. **Open design - cancelling an awaiting task.** Assets are shared and cancels cascade.
-   Recommended: it ends only that wait, like sync `block_on` (`src/environment.rs`); `await
-   asset.cancel()` cancels the evaluation. Alternative (old AC-14): cancel the asset too.
-2. **Open design - job-queue slots.** Python commands hold slots (default 4, `DefaultAssetManager`),
-   so slow ones make Rust queries wait. Recommended: one queue, `Environment(job_capacity=…)`;
-   a separate Python allowance needs a `liquers-core` change.
-3. **Implementation detail - loop choice and pool lifetime.** Round-robin, stopped by
+1. **Implementation detail - loop choice and pool lifetime.** Round-robin, stopped by
    `shutdown()`; Phase 2.
 
 ## Design Dependencies
 
-- `PY-FREE-THREADED-SUPPORT-UNVERIFIED` — **overlaps**: AC-6 is parallel only where it holds.
+- `PY-FREE-THREADED-SUPPORT-UNVERIFIED` — **absorbed** (AC-8).
+- `CORE-ONE-JOB-QUEUE-FOR-ALL-COMMANDS` — **overlaps**: would replace `job_capacity`.
 - `executor-neutral-core` — **overlaps** (weak): the bridge relies on tokio.
 
 ## Scope Changes
 
 - **2026-10-26** — added AC-5, AC-6 (Orest), AC-7 (`ASYNCCMD03`); widened AC-3. Phases: 1.
+- **2026-10-26** — Orest: AC-8 (free-threaded audit) added; questions 1-2 decided. Phases: 1.
 
 ## References
 

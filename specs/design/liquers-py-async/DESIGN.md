@@ -6,7 +6,7 @@ workflow: liquers-project
 status: in_review
 phase: high-level
 area: [py]
-issues: [PY-ASYNC-EVALUATION-NOT-SUPPORTED]
+issues: [PY-ASYNC-EVALUATION-NOT-SUPPORTED, PY-FREE-THREADED-SUPPORT-UNVERIFIED]
 affects_docs: [specs/reference/PYTHON_INTEGRATION.md, specs/guides/PYTHON_GUIDE.md, specs/guides/LANGUAGE-INTEGRATION_GUIDE.md]
 created: 2026-10-18
 ---

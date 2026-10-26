@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: M
 area: [py]
-design:
+design: liquers-py-async
 created: 2026-10-26
 github:
 ---
@@ -37,4 +37,5 @@ and the README says so.
 
 Raised by Orest (2026-10-26) while discussing where `async def` commands run in
 `design/liquers-py-async/` (Phase 1, Decision 2). Reframed after review of PR #181 showed PyO3
-0.28+ already declares the support.
+0.28+ already declares the support. Moved into `liquers-py-async` (AC-8) by Orest on
+2026-10-26.

@@ -8,9 +8,9 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 209
+Total rows: 210
 - P1: 1
-- P2: 64
+- P2: 65
 - P3: 144
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
@@ -53,7 +53,7 @@ Total rows: 209
 | [`LANGUAGE-GUIDE-NO-DOCUMENTATION-SECTION`](issues/LANGUAGE-GUIDE-NO-DOCUMENTATION-SECTION.md) | feature | The language integration guide says nothing about writing the integration's own documentation | draft |  |  | P2 | M | docs;web;py |  | 2026-08-30 |
 | [`LANGUAGE-STORE-TYPE-NOT-DEFINABLE`](issues/LANGUAGE-STORE-TYPE-NOT-DEFINABLE.md) | feature | A store type cannot be defined in the integrated language | draft |  |  | P2 | M | web;py;core/store;store/config |  | 2026-08-29 |
 | [`PY-API-REFERENCE-NOT-GENERATED`](issues/PY-API-REFERENCE-NOT-GENERATED.md) | feature | The Python package has no generated API reference, and most of its names have no docstring | draft |  |  | P2 | M | py;docs |  | 2026-10-19 |
-| [`PY-FREE-THREADED-SUPPORT-UNVERIFIED`](issues/PY-FREE-THREADED-SUPPORT-UNVERIFIED.md) | issue | liquers-py declares free-threaded support by PyO3 default without being audited or tested on it | draft |  |  | P2 | M | py |  | 2026-10-26 |
+| [`PY-FREE-THREADED-SUPPORT-UNVERIFIED`](issues/PY-FREE-THREADED-SUPPORT-UNVERIFIED.md) | issue | liquers-py declares free-threaded support by PyO3 default without being audited or tested on it | draft |  |  | P2 | M | py | [phase1](design/liquers-py-async/phase1-high-level-design.md)  [phase2](design/liquers-py-async/phase2-architecture.md)  [phase3](design/liquers-py-async/phase3-examples.md)  [phase4](design/liquers-py-async/phase4-implementation.md)  [phase5](design/liquers-py-async/phase5-documentation.md)  | 2026-10-26 |
 | [`QUERY-CANNOT-CHOOSE-A-DATA-FORMAT`](issues/QUERY-CANNOT-CHOOSE-A-DATA-FORMAT.md) | feature | A query cannot choose a data format or a format refinement except through a filename | draft |  |  | P2 | M | lib/commands;core/value |  | 2026-10-20 |
 | [`RECIPE-DEPENDENCY-KEY-IS-NEVER-VERSIONED`](issues/RECIPE-DEPENDENCY-KEY-IS-NEVER-VERSIONED.md) | issue | Editing a recipe does not expire the assets computed from it, because recipe dependency keys never get a version | draft |  |  | P2 | M | core/assets;core/plan |  | 2026-10-20 |
 | [`WEB-HAS-NO-API-REFERENCE-OR-USER-GUIDE`](issues/WEB-HAS-NO-API-REFERENCE-OR-USER-GUIDE.md) | feature | liquers-web has no generated API reference, contract reference or user guide | draft |  |  | P2 | M | web;docs |  | 2026-10-20 |
@@ -71,6 +71,7 @@ Total rows: 209
 | [`VALUE-SERIALIZATION-IS-SYNCHRONOUS-AND-WHOLE-VALUE`](issues/VALUE-SERIALIZATION-IS-SYNCHRONOUS-AND-WHOLE-VALUE.md) | feature | Serialization is synchronous and whole-value, so a large or lazy value cannot be served or stored as it is produced | draft | needs-decision | not-eligible | P2 | L | core/value;core/store;core/assets;axum | [phase1](design/value-serialization-streaming/phase1-high-level-design.md)  [phase2](design/value-serialization-streaming/phase2-architecture.md)  [phase3](design/value-serialization-streaming/phase3-examples.md)  [phase4](design/value-serialization-streaming/phase4-implementation.md)  | 2026-09-24 |
 | [`EXTENDED-FAST-TRACK`](issues/EXTENDED-FAST-TRACK.md) | feature | A cheap query waits behind long-running jobs, because commands cannot be classified for scheduling | accepted | phase2-blocked | not-eligible | P2 | L | core/assets | [phase1](design/command-execution-class/phase1-high-level-design.md)  [phase2](design/command-execution-class/phase2-architecture.md)  | 2026-08-08 |
 | [`COMMAND-INPUT-OUTPUT-TYPES-ARE-UNDECLARED`](issues/COMMAND-INPUT-OUTPUT-TYPES-ARE-UNDECLARED.md) | feature | Command metadata does not declare what type a command accepts or returns | draft |  |  | P2 | L | core/commands;core/value;macro |  | 2026-10-20 |
+| [`CORE-ONE-JOB-QUEUE-FOR-ALL-COMMANDS`](issues/CORE-ONE-JOB-QUEUE-FOR-ALL-COMMANDS.md) | issue | Every queued command shares one job queue, so commands cannot be placed by their cost | draft |  |  | P2 | L | core/assets |  | 2026-10-26 |
 | [`ERROR-TYPES-TOO-COARSE-AND-GENERAL-OVERUSED`](issues/ERROR-TYPES-TOO-COARSE-AND-GENERAL-OVERUSED.md) | issue | Error types are not clustered, and General stands in for hundreds of distinct failures | draft |  |  | P2 | L | core/error;py;web;axum |  | 2026-10-25 |
 | [`SERDE-TYPES-HAVE-NO-GENERIC-DATA-FORMATS`](issues/SERDE-TYPES-HAVE-NO-GENERIC-DATA-FORMATS.md) | feature | A serde-capable value type gets no data format without a hand-written arm per format | draft |  |  | P2 | L | core/value;lib/value |  | 2026-10-20 |
 | [`VALUE-EXTENDED-SCALAR-TYPES-MISSING`](issues/VALUE-EXTENDED-SCALAR-TYPES-MISSING.md) | feature | Value types lack fifteen scalars most target ecosystems represent distinctly | draft |  |  | P2 | L | lib/value;core/value |  | 2026-10-20 |
