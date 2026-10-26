@@ -6,7 +6,10 @@ A page constructs an environment, evaluates queries as `Promise`s, and registers
 in JavaScript. Those commands compose with the built-in Rust ones in a single query — a JavaScript
 command's result is converted structurally, so `myCommand/to_text` works.
 
-Design documents: [`specs/design/liquers-web/`](../specs/design/liquers-web/). The integration follows
+How to use it: [`specs/guides/JAVASCRIPT_GUIDE.md`](../specs/guides/JAVASCRIPT_GUIDE.md), whose
+examples `scripts/test-guide-examples.sh` runs. Its exact contract:
+[`specs/reference/JAVASCRIPT_INTEGRATION.md`](../specs/reference/JAVASCRIPT_INTEGRATION.md). Design
+documents: [`specs/design/liquers-web/`](../specs/design/liquers-web/). The integration follows
 [`specs/guides/LANGUAGE-INTEGRATION_GUIDE.md`](../specs/guides/LANGUAGE-INTEGRATION_GUIDE.md).
 
 ## Quick start
@@ -94,7 +97,7 @@ copy the page next to the output — without requiring trunk to be installed. Ar
 
 ## Testing
 
-Four harnesses, because four different things are being tested.
+Four harnesses, because four different things are being tested, plus the guide's examples.
 
 ```bash
 # 1. Conformance suites, under Node. The bulk of the tests; no browser needed. Run it both ways:
@@ -112,6 +115,9 @@ CHROMEDRIVER=$(which chromedriver) cargo test -p liquers-web \
 
 # 4. The delivery form, in a real browser.
 cd tests/e2e && npm install && npx playwright test
+
+# The examples of specs/guides/JAVASCRIPT_GUIDE.md, under Node (DOCS03). Needs wasm-bindgen.
+./scripts/test-guide-examples.sh
 ```
 
 `--features debug-handles` exposes a live count of retained JavaScript function handles, which is
@@ -169,7 +175,9 @@ to show a key.
 | `http` / `https` | `fetch`; `url_prefix` + the key minus its routing prefix | no |
 | `js` | an object the page implements, registered with `registerStoreObject` | as implemented |
 
-A page-implemented store needs only `get`. Return `null` or `undefined` from `get` or
+A page-implemented store needs `get`, and `contains` and `isDir` as well to be read by `-R/`
+queries: the recipe provider checks `contains`, and a miss asks `isDir`
+(`WEB-JS-STORE-WITH-ONLY-GET-CANNOT-BE-QUERIED`). Return `null` or `undefined` from `get` or
 `getMetadata` for an absent key — throwing signals a *failure* instead, and the two surface as
 `key_not_found` and `key_read_error`. A key that exists but has no metadata to report should
 return `{}` from `getMetadata`: `null` there means absent (before 2026-09-29 it produced an empty
@@ -305,6 +313,7 @@ updated by the change that moves it.
 | `STORE` (all three directions) | complete | 01–17 by ID; 08 is the conformance suite; 13 native | `STORE18` is `NA`, see below |
 | `STUBS` | complete | 01–07 | — |
 | `PACKAGE` | complete | 01–05, 07 | `06` is `NA`: no optional extra |
+| `DOCS` | partial | 03 by `scripts/test-guide-examples.sh`; 01, 02, 05–07 reviewed | `04` not started: no generated API reference (`WEB-API-REFERENCE-NOT-GENERATED`) |
 | `RECIPE`, `UIUSE`, `UIDEF` | not started (deferred) | — | — |
 | `MODULE`, `POLYGLOT`, `WEBSERV`, `WEBAPI` | `NA` for the shipped milestone | — | — |
 
@@ -331,6 +340,9 @@ deliberate. `store11_overlapping_prefixes_follow_document_order` pins the routin
 | Registering a command after the first evaluation rebuilds the environment, discarding its asset cache. Register before evaluating to avoid it | `POST-INIT-COMMAND-REGISTRATION` |
 | A thrown exception's class and stack reach the caller inside `message`, not as `jsClass`/`jsStack` — `liquers_core::Error` has no field to carry them through the asset lifecycle | `LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT` |
 | `registerCommand` is refused on an explicit `Environment` instance — the handle holds a shared environment with no mutable path. Register on the singleton | `POST-INIT-COMMAND-REGISTRATION` |
+| `configureStore` and `registerStoreObject` on an explicit `Environment` instance configure the singleton, not the instance | `WEB-EXPLICIT-ENVIRONMENT-CONFIGURES-THE-SINGLETON` |
+| `describeCommand` sees only the root namespace and returns `CommandMetadata`'s own shape, not the declared `LiquersCommandInfo`; `unregisterCommand` matches by name in every namespace | `WEB-DESCRIBE-COMMAND-SHAPE-DIFFERS-FROM-DECLARATION`, `WEB-COMMAND-LOOKUP-IGNORES-NAMESPACE` |
+| A `null` inside an array or object reaches JavaScript as `undefined` | `WEB-NESTED-NULL-CROSSES-AS-UNDEFINED` |
 
 All are in [`specs/issues/`](../specs/issues/), each with the condition that reverses it.
 
