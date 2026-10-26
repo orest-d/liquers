@@ -412,3 +412,48 @@ async fn eval07_keyed_query_evaluates() {
 
     reset_global();
 }
+
+/// EVAL04, second caller — a failed evaluation rejects every caller, including one that joined it
+/// while it was running (`WEB-EVALUATE-RESOLVES-FAILED-ASSET-AS-NULL`).
+///
+/// The first `evaluate` runs the command and gets its `Err` directly. The second finds the run in
+/// progress, waits for it and receives the asset, whose terminal state is the error: it used to
+/// read that state's empty value unchecked and resolve with `null`.
+#[wasm_bindgen_test]
+async fn eval04_failed_evaluation_rejects_a_concurrent_caller() {
+    use wasm_bindgen_futures::JsFuture;
+
+    fresh();
+    register_command_on(&with(
+        decl(
+            "slow_boom",
+            "return new Promise((_, reject) => setTimeout(() => reject(new Error('bang')), 20));",
+        ),
+        "async",
+        JsValue::TRUE,
+    ))
+    .expect("register slow_boom");
+
+    let first = liquers_web::evaluate("slow_boom");
+    let second = liquers_web::evaluate("slow_boom");
+    let (first, second) = with_timeout(2000, "two evaluations of a failing query", async {
+        (JsFuture::from(first).await, JsFuture::from(second).await)
+    })
+    .await;
+
+    let first = first.expect_err("the evaluation that ran the command must reject");
+    let second = second.expect_err("an evaluation that joined the failing run must reject too");
+    assert_eq!(
+        get(&second, "errorType").as_string(),
+        get(&first, "errorType").as_string(),
+        "both callers must see the same error"
+    );
+    assert!(
+        get(&second, "message")
+            .as_string()
+            .unwrap_or_default()
+            .contains("bang"),
+        "the JavaScript message must survive for the second caller"
+    );
+    reset_global();
+}

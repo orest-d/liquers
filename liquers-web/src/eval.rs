@@ -43,6 +43,9 @@ where
 {
     let manager = envref.get_asset_manager();
     let asset = manager.get_asset(&query).await?;
-    let state = asset.get().await?;
-    value_to_js_in(&envref, state.data_unchecked().as_ref())
+    // `get` returns a failed asset's terminal error state as `Ok`; `value()` turns it back into
+    // the error. A caller that joins an evaluation already running (a second `evaluate` of the
+    // same query) reaches this with that error state rather than with the command's `Err`.
+    let value = asset.get().await?.value()?;
+    value_to_js_in(&envref, value.as_ref())
 }
