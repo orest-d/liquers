@@ -196,10 +196,14 @@ pub async fn ws_events_path_handler<E: Environment>(..) -> Response;  // ws/even
 fn event_message(event: AssetEvent) -> EventMessage;  // exhaustive match, no `_` arm
 ```
 
-Forwarding task: `loop { match sub.recv().await { Event(e) => forward(e), Lagged(n) => pending
-+= n, Closed => { send Closed; break } } }`, where `forward` first tries to flush a pending
-`Lagged { count: pending }` with `tx.try_send`, then the event; a `Full` result adds 1 to
-`pending` (and keeps the `Lagged` pending). `Closed` from the queue ends the task. A replaced or
+Forwarding task: a `tokio::select!` loop over two branches. (1) `sub.recv()`: `Event(e) =>
+forward(e)`, `Lagged(n) => pending += n`, `Closed => { send Closed; break }`, where `forward` first
+tries to flush a pending `Lagged { count: pending }` with `tx.try_send`, then the event; a `Full`
+result adds 1 to `pending` (and keeps the `Lagged` pending). (2) Only while `pending > 0`:
+`tx.reserve()`, which completes when the socket queue has room; the permit sends
+`Lagged { count: pending }` and resets `pending`. Branch (2) makes the loss notice independent of
+new source events: after a burst followed by an idle source, the reader still gets `Lagged` as
+soon as it drains the queue (Codex review on PR #183). `Closed` from the queue ends the task. A replaced or
 unsubscribed scope aborts the task (as `Session::unsubscribe` does today).
 
 `websocket.rs`: `writer_task` generic over `T: Serialize + Send + 'static`; `OUTGOING_QUEUE` and
@@ -266,6 +270,9 @@ The recipe query `-R/docs/a.txt/-/to_text` validates with `liquers-validate`
 - `aev04_disabled_by_default` — AC-4 (upgrade on `ws/events` fails with 404; `ws/key` works)
 - `aev05_resubscribe_replaces_and_unsubscribe_stops` — AC-5
 - `aev06_protocol_errors_keep_connection` — AC-6
+- unit test in `events.rs`: `pending_lag_flushes_on_an_idle_source` — AC-3 (a scripted source sends
+  a burst that overflows a one-slot queue and then stays idle; once the test drains the queue, a
+  `Lagged` arrives with no further source event)
 - unit test in `events.rs`: `every_asset_event_has_a_message_type` — AC-7 (constructs each
   `AssetEvent` variant and checks the serialized `type`; the exhaustive match makes a new variant
   a compile error first)

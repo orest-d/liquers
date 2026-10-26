@@ -122,6 +122,9 @@ keys (`RECIPE-DEPENDENCY-KEY-IS-NEVER-VERSIONED`).
   records that as `plan.prologue_steps > 0`. `DefaultRecipeProvider` sets the `cwd` of every recipe
   from `recipes.yaml` (`RecipeList::set_cwd`), so this covers the normal case.
 - `upstream_graph` (the inline manager's priming) must see every node and bypasses the cache.
+- A successful keyed evaluation registers its own version (`track_asset` → `track_keyed_asset` →
+  `register_version`), so the summary is staged at finalization and promoted after that
+  registration; otherwise the evaluation would erase its own entry (Codex review, PR #183).
 - The map grows and shrinks like the dependency manager's `versions` map; no new bound is needed.
 
 ## Phase 2: Architecture
@@ -136,9 +139,24 @@ keys (`RECIPE-DEPENDENCY-KEY-IS-NEVER-VERSIONED`).
    pub(crate) async fn cache_summary(&self, key: DependencyKey, summary: DependencySummary);
    ```
 
-   Removal: in `expire_from_frontier` for the root and every expired dependent; in `remove`; in
-   `register_version` and `register_written_version` for the key itself (its value changed by other
-   means). One private `forget_summary(&self, key)`.
+   pub(crate) async fn stage_summary(&self, key: DependencyKey, summary: DependencySummary);
+   ```
+
+   A summary is **staged** at finalization and **promoted** to `summaries` only when the evaluation
+   that computed it is tracked: `track_keyed_asset` moves the staged entry into `summaries` *after*
+   its own `register_version` call. (Codex review on PR #183: `track_asset` → `track_keyed_asset` →
+   `register_version` runs on every successful keyed evaluation, so a summary cached at
+   finalization would be removed by the same evaluation's version registration.) A private
+   `staged: scc::HashMap<DependencyKey, DependencySummary>` holds the staged entries.
+
+   Removal, of both the cached and the staged entry: in `expire_from_frontier` for the root and
+   every expired dependent (a dependency that changed while the key was evaluating discards the
+   staged summary, so it is never promoted); in `remove`; in `register_written_version` for the key
+   itself; and in `register_version` for the key itself **except** when called from
+   `track_keyed_asset`, which forgets the old cached entry and then promotes the staged one. One
+   private `forget_summary(&self, key)`.
+
+   ```rust
 2. `liquers-core/src/plan.rs`: `DependencySummary` gets a `pub(crate) fn from_finalized(expires:
    Expires) -> Self` (non-volatile, no declared key). `DependencyWalk` gains `use_cache: bool`,
    `true` in `analyze_plan_dependencies` and `false` when `recorder` is set (`upstream_graph`). In
@@ -150,8 +168,9 @@ keys (`RECIPE-DEPENDENCY-KEY-IS-NEVER-VERSIONED`).
 3. `liquers-core/src/interpreter.rs` `finalize_plan_expanded`, inside the existing
    `if !plan.is_volatile { … if let Some(key) = context.owner_key().await? { … } }` block, after
    `register_plan_dependencies`: if `plan.prologue_steps > 0`, call
-   `manager.dependency_manager().cache_summary(DependencyKey::from(&key),
-   DependencySummary::from_finalized(plan.expires.clone()))`.
+   `manager.dependency_manager().stage_summary(DependencyKey::from(&key),
+   DependencySummary::from_finalized(plan.expires.clone()))`. The summary becomes visible to later
+   walks once the asset is tracked (item 1).
 
 Sync/async: `scc` async accessors, as the other maps. Errors: none new; the cache is an
 optimisation, and a miss falls back to today's walk.
@@ -210,6 +229,10 @@ In `liquers-core/tests/dependency_chain_scaling.rs` (existing `chain_env`, `eval
 
 Unit, `dependencies.rs` `mod tests`: `summary_is_forgotten_with_its_key_and_dependents` (AC-5): cache
 summaries for `a` and `b`, add edge `b → a`, `register_version(a, new)`; both entries are gone.
+`staged_summary_survives_own_tracking` (AC-1): stage a summary for `a`, run `track_keyed_asset` for
+`a` (which registers its version); `cached_summary(a)` is `Some`. `staged_summary_dropped_by_upstream_change`
+(AC-5): stage for `b` with edge `b → a`, `register_version(a, new)`, then track `b`; `cached_summary(b)`
+is `None`.
 
 Run: `CARGO_INCREMENTAL=0 cargo test -p liquers-core --test dependency_chain_scaling --test
 deep_chain_evaluation`, `cargo test -p liquers-core --lib dependencies`.
@@ -221,9 +244,9 @@ deep_chain_evaluation`, `cargo test -p liquers-core --lib dependencies`.
 Precondition (order only): `payload-requirement-skips-dependency-analysis` has landed, so AC-1's
 threshold measures this change.
 
-- [ ] 1. `dependencies.rs` — `summaries`, `cached_summary`, `cache_summary`, `forget_summary` at the four removal points; unit test `summary_is_forgotten_with_its_key_and_dependents` — `cargo test -p liquers-core --lib dependencies`. Rollback: revert.
+- [ ] 1. `dependencies.rs` — `summaries`, `staged`, `cached_summary`, `cache_summary`, `stage_summary`, promotion in `track_keyed_asset` after its `register_version`, `forget_summary` at the removal points; unit tests `summary_is_forgotten_with_its_key_and_dependents`, `staged_summary_survives_own_tracking`, `staged_summary_dropped_by_upstream_change` — `cargo test -p liquers-core --lib dependencies`. Rollback: revert.
 - [ ] 2. `plan.rs` — `DependencySummary::from_finalized`, `DependencyWalk::use_cache` (off for `upstream_graph`, `key_upstream_graph`), cache consult in `visit`, test-only switch — depends on 1 — `cargo test -p liquers-core --lib plan::tests`. Rollback: revert.
-- [ ] 3. `interpreter.rs` `finalize_plan_expanded` — `cache_summary` after `register_plan_dependencies` when `prologue_steps > 0` — depends on 2 — the four new tests in `dependency_chain_scaling.rs` pass. Rollback: revert 1-3 together.
+- [ ] 3. `interpreter.rs` `finalize_plan_expanded` — `stage_summary` after `register_plan_dependencies` when `prologue_steps > 0` — depends on 2 — the four new tests in `dependency_chain_scaling.rs` pass. Rollback: revert 1-3 together.
 - [ ] 4. Documents — `RECIPES_AND_PLANS.md`, `DEPENDENCIES_STATUS.md` (History rows, `reviewed:`) — `python3 scripts/docs_index.py --check`
 - [ ] 5. Close `DEPENDENCY-ANALYSIS-SUMMARIES-NOT-REUSED-ACROSS-EVALUATIONS` with a resolution note (and, if decision 2 was "accept", a line in `RECIPE-DEPENDENCY-KEY-IS-NEVER-VERSIONED` saying the fix also refreshes cached summaries); this design to `complete` — `python3 scripts/docs_index.py` then `--check`
 
