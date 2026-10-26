@@ -32,7 +32,8 @@ python3 -m http.server 8090 --directory liquers-web/examples-web/quickstart/dist
 `build.sh` compiles the crate for wasm32 and runs `wasm-bindgen --target web`. Its `dist/` holds
 `liquers_web.js` (an ES module), `liquers_web_bg.wasm` and `liquers_web.d.ts`, and the quick-start
 page that uses them; open `http://127.0.0.1:8090/` to see it. Copy the three generated files next to
-your own page. No bundler is involved, and the page needs no server beyond static files.
+your own page, and the generated `snippets/` folder too when the build has one (a `records` build
+does: the module imports JavaScript helpers from it), keeping its relative paths. No bundler is involved, and the page needs no server beyond static files.
 
 A page imports the module and makes two calls, in this order:
 

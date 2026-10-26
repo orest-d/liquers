@@ -29,4 +29,8 @@ rm -rf "$out"
 wasm-bindgen --target web --out-dir "$out" --out-name liquers_web \
     "$root/target/wasm32-unknown-unknown/$profile_dir/liquers_web.wasm"
 
+# `--target web` emits ES-module syntax in a `.js` file; without this, Node before 22 reads it as
+# CommonJS and fails on `export`.
+echo '{ "type": "module" }' > "$out/package.json"
+
 node "$crate/tests/guide/run-guide-examples.mjs" "$out"
