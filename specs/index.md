@@ -8,10 +8,10 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 215
+Total rows: 212
 - P1: 1
-- P2: 66
-- P3: 148
+- P2: 64
+- P3: 147
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -28,9 +28,7 @@ Total rows: 215
 | [`RECIPES-YAML-READ-ERRORS-READ-AS-NO-RECIPES`](issues/RECIPES-YAML-READ-ERRORS-READ-AS-NO-RECIPES.md) | issue | Every recipes.yaml read error is treated as an empty recipe list | draft |  |  | P2 | S | core/assets |  | 2026-10-20 |
 | [`WEB-COMMAND-LOOKUP-IGNORES-NAMESPACE`](issues/WEB-COMMAND-LOOKUP-IGNORES-NAMESPACE.md) | issue | describeCommand and unregisterCommand take a bare name, so namespaced commands cannot be addressed | draft |  |  | P2 | S | web |  | 2026-10-26 |
 | [`WEB-DESCRIBE-COMMAND-SHAPE-DIFFERS-FROM-DECLARATION`](issues/WEB-DESCRIBE-COMMAND-SHAPE-DIFFERS-FROM-DECLARATION.md) | issue | describeCommand returns raw CommandMetadata JSON, not the LiquersCommandInfo shape the .d.ts declares | draft |  |  | P2 | S | web |  | 2026-10-26 |
-| [`WEB-EVALUATE-RESOLVES-FAILED-ASSET-AS-NULL`](issues/WEB-EVALUATE-RESOLVES-FAILED-ASSET-AS-NULL.md) | issue | liquers-web's evaluate resolves a failed command's asset to null instead of rejecting | draft |  |  | P2 | S | web |  | 2026-10-18 |
 | [`WEB-JS-STORE-WITH-ONLY-GET-CANNOT-BE-QUERIED`](issues/WEB-JS-STORE-WITH-ONLY-GET-CANNOT-BE-QUERIED.md) | issue | A page-implemented store with only get, documented as enough, fails every -R/ query | draft |  |  | P2 | S | web |  | 2026-10-26 |
-| [`WEB-NESTED-NULL-CROSSES-AS-UNDEFINED`](issues/WEB-NESTED-NULL-CROSSES-AS-UNDEFINED.md) | issue | A null nested in an array or object reaches JavaScript as undefined | draft |  |  | P2 | S | web |  | 2026-10-26 |
 | [`INLINE-RUN-CLAIM-REPAIR-SKIPPED-UNDER-LOCK-CONTENTION`](issues/INLINE-RUN-CLAIM-REPAIR-SKIPPED-UNDER-LOCK-CONTENTION.md) | issue | A dropped inline run leaves its asset Processing forever when the asset lock is busy at drop time | draft | ready | eligible | P2 | M | core/assets | [design](design/inline-run-claim-repair-under-lock-contention/DESIGN.md) | 2026-10-19 |
 | [`CORE-VALUE-ENUM-OVERSIZED`](issues/CORE-VALUE-ENUM-OVERSIZED.md) | issue | Every Value occupies over 700 bytes because three variants are stored unboxed | draft | ready | not-eligible | P2 | M | core/value;lib/value | [design](design/core-value-enum-oversized/DESIGN.md) | 2026-08-18 |
 | [`ASSET-REGISTRATION-OWNERSHIP-CONTRACT`](issues/ASSET-REGISTRATION-OWNERSHIP-CONTRACT.md) | feature | Registration of a keyed asset is a manager convenience, not a contract anything can rely on | draft | needs-decision | not-eligible | P2 | M | core/assets | [design](design/asset-registration-contract/DESIGN.md) | 2026-09-03 |
@@ -130,7 +128,6 @@ Total rows: 215
 | [`TYPE-IDENTIFIED-IN-HAS-NO-IMPLEMENTATIONS`](issues/TYPE-IDENTIFIED-IN-HAS-NO-IMPLEMENTATIONS.md) | issue | No type implements TypeIdentifiedIn, so the documented to_type_identifier example does not compile | draft |  |  | P3 | S | core/value;lib/value;docs |  | 2026-10-20 |
 | [`WEB-API-SPEC-SAYS-A-DIRECTORY-MOUNT-CANNOT-BE-READ-ONLY`](issues/WEB-API-SPEC-SAYS-A-DIRECTORY-MOUNT-CANNOT-BE-READ-ONLY.md) | issue | The web API specification says a directory mount stays writable, but mounts can be read-only | draft |  |  | P3 | S | docs;axum |  | 2026-10-20 |
 | [`WEB-METADATA-STATUS-CASE-DIFFERS`](issues/WEB-METADATA-STATUS-CASE-DIFFERS.md) | issue | State.metadata().status is capitalized while Asset.status() and State.status are lowercase | draft |  |  | P3 | S | web |  | 2026-10-26 |
-| [`WEB-NESTED-BYTES-REFUSED-NOT-DEGRADED`](issues/WEB-NESTED-BYTES-REFUSED-NOT-DEGRADED.md) | issue | A Uint8Array nested in an object is refused, while the bridge documents it as degrading to numbers | draft |  |  | P3 | S | web |  | 2026-10-26 |
 | [`WEB-UNREGISTER-DEPENDS-ON-FIRST-EVALUATION`](issues/WEB-UNREGISTER-DEPENDS-ON-FIRST-EVALUATION.md) | issue | unregisterCommand removes a built-in command before the first evaluation but not after it | draft |  |  | P3 | S | web |  | 2026-10-26 |
 | [`CANCEL-CAN-OVERTAKE-A-RETURNED-COMMAND`](issues/CANCEL-CAN-OVERTAKE-A-RETURNED-COMMAND.md) | issue | A cancel can still win after the last command returned Ok, if the rest of the evaluation then suspends | draft | ready | eligible | P3 | M | core/assets | [design](design/cancel-point-of-no-return/DESIGN.md) | 2026-10-09 |
 | [`RUNTIME-DEPENDENCY-RECORD-AGAINST-SUPERSEDED-VERSION-IS-NOT-CHECKED`](issues/RUNTIME-DEPENDENCY-RECORD-AGAINST-SUPERSEDED-VERSION-IS-NOT-CHECKED.md) | issue | A dependency record added at run time is never compared with a newer registered version | draft | ready | eligible | P3 | M | core/assets | [design](design/runtime-dependency-record-superseded-check/DESIGN.md) | 2026-10-17 |
