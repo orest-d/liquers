@@ -298,8 +298,9 @@ fn is_plain_object(js: &JsValue) -> bool {
 ///
 /// Compound values go through JSON because [`ValueInterface`] offers no generic array/object
 /// constructor — `try_from_json_value` is the only shape every value type supports. **Documented
-/// limitation:** a `Uint8Array` *nested* inside an array or object degrades to an array of numbers,
-/// because JSON has no byte type. Top-level bytes are preserved exactly.
+/// limitation:** a `Uint8Array` *nested* inside an array or object is refused with
+/// `ConversionError`, because JSON has no byte type and degrading it to an array of numbers would
+/// lose the distinction `VALUE04` preserves. Top-level bytes are preserved exactly.
 fn js_to_json(js: &JsValue, depth: usize, path: &str) -> Result<serde_json::Value, Error> {
     if depth > MAX_DEPTH {
         return Err(Error::from_error(
@@ -430,8 +431,16 @@ pub fn value_to_js<V: JsValueBridge>(value: &V) -> Result<JsValue, Error> {
     json_to_js(&json)
 }
 
+/// Converts a value's JSON form. Unlike [`serialize_to_js`], a JSON `null` becomes `null`:
+/// serde-wasm-bindgen writes a unit as `undefined` by default, so a nested `null` would otherwise
+/// arrive as `undefined` while a top-level one (handled by `is_none` above) arrives as `null`.
+/// Only here, because a `null` here is data the value holds; elsewhere an absent `Option` field of
+/// a Rust struct crossing as `undefined` is the shape pages already read.
 fn json_to_js(json: &serde_json::Value) -> Result<JsValue, Error> {
-    serialize_to_js(json).map_err(|e| {
+    let serializer = serde_wasm_bindgen::Serializer::new()
+        .serialize_maps_as_objects(true)
+        .serialize_missing_as_null(true);
+    serde::Serialize::serialize(json, &serializer).map_err(|e| {
         Error::from_error(
             ErrorType::ConversionError,
             format!("Could not convert a Liquers value to JavaScript: {e}"),
@@ -442,7 +451,8 @@ fn json_to_js(json: &serde_json::Value) -> Result<JsValue, Error> {
 /// Serializes anything `serde` can serialize into a JavaScript value, with **maps as plain
 /// objects**.
 ///
-/// This is the only serializer this crate uses, and the reason is a trap:
+/// This is the serializer this crate uses (`json_to_js` adds only `null` for a JSON `null` to the
+/// same settings), and the reason is a trap:
 /// `serde_wasm_bindgen::to_value` maps `serialize_map` — which is what a `serde_json::Value::Object`
 /// and every `HashMap` go through — to a JavaScript **`Map`**, not an object. A page written the
 /// obvious way (`result.a`, `Object.keys(result)`, `JSON.stringify(result)`) then sees nothing:

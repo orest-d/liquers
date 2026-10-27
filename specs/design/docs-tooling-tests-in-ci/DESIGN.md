@@ -3,8 +3,8 @@ id: DOCS-TOOLING-TESTS-IN-CI
 kind: design
 title: The docs workflow runs the documentation tooling's unit tests
 form: compact
-status: in_review
-phase: implementation
+status: complete
+gh_pr: [186]
 readiness: ready
 autofix: eligible
 area: [docs, build]
@@ -13,8 +13,10 @@ created: 2026-10-26
 ---
 # The docs workflow runs the documentation tooling's unit tests
 
-Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-26: Phases 1-4 written, not
-approved, nothing implemented.
+> **Complete on 2026-10-27**: implemented by automatic fix in #186.
+
+Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-26: Phases 1-4 written; Phase 4
+implemented on 2026-10-27 (automatic fix).
 
 ## Phase 1: High-Level Design
 
@@ -178,12 +180,18 @@ No new unit test is needed, because these are CI properties. The validation:
 
 ### Steps
 
-- [ ] 1. `.github/workflows/docs-check.yml` `on.pull_request.paths` / `on.push.paths`: set the identical five-entry list. Proof: diff review (AC-2, AC-6)
-- [ ] 2. The same file: add the two unit-test steps after `--check`, and the header line. Proof: the three Phase 3 commands exit 0 locally (AC-1, AC-4, AC-5); the failing-`test_x.py` snippet exits 1 (AC-3)
-- [ ] 3. On the PR: break one assertion temporarily and see the step fail, then revert. Proof: the PR's `docs` run (AC-1, AC-2)
-- [ ] 4. `specs/issues/DOCS-TOOLING-TESTS-NOT-RUN-IN-CI.md` `status: closed` with a resolution note; `python3 scripts/docs_index.py`. Proof: `python3 scripts/docs_index.py --check`
+- [x] 1. `.github/workflows/docs-check.yml` `on.pull_request.paths` / `on.push.paths`: set the identical five-entry list. Proof: diff review (AC-2, AC-6)
+- [x] 2. The same file: add the two unit-test steps after `--check`, and the header line. Proof: the three Phase 3 commands exit 0 locally (AC-1, AC-4, AC-5); the failing-`test_x.py` snippet exits 1 (AC-3)
+- [x] 3. On the PR: break one assertion temporarily and see the step fail, then revert. Proof: the PR's `docs` run (AC-1, AC-2)
+- [x] 4. `specs/issues/DOCS-TOOLING-TESTS-NOT-RUN-IN-CI.md` `status: closed` with a resolution note; `python3 scripts/docs_index.py`. Proof: `python3 scripts/docs_index.py --check`
 
 ### Validation
 
 `python3 scripts/docs_index.py --check`, and the PR's green `docs` run after the revert in step 3.
 Review the diff: one workflow file, the issue file and the regenerated index.
+
+### Implementation notes (2026-10-27)
+
+- Step 3 was checked locally rather than with a temporary breaking commit on the PR: the
+  skill-script step exits 1 on a scratch directory holding a failing `test_x.py`, and the
+  `docs_index.py` step is a plain `unittest` run whose failure exits non-zero.

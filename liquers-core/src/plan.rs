@@ -48,7 +48,7 @@ use crate::metadata::{DependencyKey, Metadata, MetadataRecord, Status};
 use crate::parse::parse_key;
 use crate::query::{
     ActionParameter, ActionRequest, CwdCursor, Key, Position, Query, QuerySegment, ResourceName,
-    ResourceQuerySegment, RELATIVE_WITHOUT_CWD_WARNING,
+    ResourceQuerySegment, NS_INSTRUCTION, RELATIVE_WITHOUT_CWD_WARNING,
 };
 use crate::value::ValueInterface;
 
@@ -204,7 +204,7 @@ pub fn append_action(
         return Ok(plain_query);
     }
 
-    let ns_action = ActionRequest::new("ns".to_string())
+    let ns_action = ActionRequest::new(NS_INSTRUCTION.to_string())
         .with_parameters(vec![ActionParameter::new_string(requested_ns.to_string())]);
     Ok(append_actions(query, vec![ns_action, action]))
 }
@@ -1700,7 +1700,7 @@ impl<'c> PlanBuilder<'c> {
         action_request: &ActionRequest,
     ) -> Result<(), Error> {
         // Intercept 'v' instruction BEFORE normal action processing
-        if action_request.name == "v" {
+        if action_request.is_v() {
             // `v` resolves no command metadata, so the arity check in
             // `ResolvedParameterValues::from_action` never sees it. It takes no
             // parameters, so anything written here would be silently discarded.
@@ -1835,6 +1835,21 @@ impl<'c> PlanBuilder<'c> {
         query.clone()
     }
 
+    /// Refuses a `q` that ends `query` and carries a parameter; `q` takes none.
+    fn check_q_arity(query: &Query) -> Result<(), Error> {
+        if let Some(QuerySegment::Transform(tqs)) = query.segments.last() {
+            if let Some(q_action) = tqs.query.last() {
+                if let (true, Some(excess)) = (q_action.is_q(), q_action.parameters.first()) {
+                    return Err(Error::not_supported(
+                        "The 'q' instruction does not accept any arguments".to_string(),
+                    )
+                    .with_position(&excess.position()));
+                }
+            }
+        }
+        Ok(())
+    }
+
     fn process_query(&mut self, query: &Query) -> Result<(), Error> {
         //eprintln!("process query {}", query);
         if query.is_empty() || query.is_ns() {
@@ -1843,18 +1858,7 @@ impl<'c> PlanBuilder<'c> {
 
         // Check if query ends with "q" instruction
         if query.is_q() {
-            // Validate that "q" has no arguments
-            if let Some(QuerySegment::Transform(tqs)) = query.segments.last() {
-                if let Some(q_action) = tqs.query.last() {
-                    if let (true, Some(excess)) = (q_action.is_q(), q_action.parameters.first()) {
-                        // Already rejected before this design; it only lacked a position.
-                        return Err(Error::not_supported(
-                            "The 'q' instruction does not accept any arguments".to_string(),
-                        )
-                        .with_position(&excess.position()));
-                    }
-                }
-            }
+            Self::check_q_arity(query)?;
 
             // Check if there's a filename to process separately
             let has_filename = query.filename().is_some();
@@ -1924,6 +1928,8 @@ impl<'c> PlanBuilder<'c> {
             if !p.is_empty() {
                 // Check if predecessor ends with "q" instruction
                 if p.is_q() {
+                    // A `q` in the middle of the query takes no parameters either.
+                    Self::check_q_arity(p)?;
                     // Strip the "q" instruction and create Step::UseQueryValue
                     let query_without_q = self.strip_q_instruction(p);
                     if !query_without_q.is_empty() {
@@ -5795,6 +5801,27 @@ mod tests {
         assert!(err.message.contains("does not accept any arguments"));
         assert!(!err.position.is_unknown(), "the surplus must be positioned");
 
+        // A `q` in the middle of the query is held to the same rule. `nosuch` is unregistered
+        // on purpose: the quoted part is not planned.
+        let err = plan_for("nosuch/q-x/a", &cr).expect_err("a mid-query 'q' takes no parameters");
+        assert_eq!(err.error_type, ErrorType::NotSupported);
+        assert!(err.message.contains("does not accept any arguments"));
+        assert_eq!(err.position.offset, 9, "positioned at the parameter `x`");
+
+        // Without a parameter it still plans as a quoted value followed by the action.
+        let plan = plan_for("nosuch/q/a", &cr)?;
+        assert_eq!(plan.steps.len(), 2, "steps: {:?}", plan.steps);
+        assert!(
+            matches!(&plan.steps[0], Step::UseQueryValue(q) if q.encode() == "nosuch"),
+            "steps: {:?}",
+            plan.steps
+        );
+        assert!(
+            matches!(&plan.steps[1], Step::Action { action_name, .. } if action_name == "a"),
+            "steps: {:?}",
+            plan.steps
+        );
+
         // `ns` is variadic by design: each parameter is a namespace name. Making the special
         // instructions uniformly strict would break this.
         let mut nscr = command_metadata::CommandMetadataRegistry::new();
@@ -5806,6 +5833,17 @@ mod tests {
             "'ns' must keep accepting several namespaces"
         );
         Ok(())
+    }
+
+    /// A `q` with a parameter deep in a chain is refused, not silently dropped.
+    #[test]
+    fn mid_query_q_with_parameter_deep_in_chain_is_refused() {
+        let mut cr = command_metadata::CommandMetadataRegistry::new();
+        cr.add_command(&CommandMetadata::new("b"));
+        cr.add_command(&CommandMetadata::new("c"));
+        let err = plan_for("a/q-x/b/c", &cr).expect_err("a mid-query 'q' takes no parameters");
+        assert_eq!(err.error_type, ErrorType::NotSupported);
+        assert!(err.message.contains("does not accept any arguments"));
     }
 
     /// T8 - the check reaches a full query through PlanBuilder, not only the helper.

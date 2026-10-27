@@ -3,7 +3,7 @@ title: Python Integration
 kind: reference
 audience: both
 area: [py, core/value, core/error, lib/value]
-reviewed: 2026-10-25
+reviewed: 2026-10-27
 ---
 # Python Integration
 
@@ -169,9 +169,9 @@ code object (`co_code`, `co_consts`, `co_names`), so changing the code invalidat
 A closure, a bound method, or a callable with no code object gets a unique version on every
 registration instead, because its result depends on state the code object does not show.
 
-**Reserved names.** `ns` is refused as a command name by core. `q` and `v` are planner
-instructions too, but are not refused, so a command with either name registers and never runs
-(`COMMAND-NAMES-Q-AND-V-ARE-NOT-RESERVED`).
+**Reserved names.** `ns`, `q` and `v` are planner instructions, and core refuses all three as
+command names: the registration fails with "Command name '…' is reserved: it is a query
+instruction".
 
 **Registration.** Registering replaces whatever is registered under the key: the old command is
 unregistered first, and the decorator warns `command 'x' replaces a built-in command` (or a
@@ -325,6 +325,7 @@ parallel on the runtime; Python commands still take the GIL one at a time.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-27 | Reserved names: `q` and `v` are refused as command names like `ns`. | design `reserved-instruction-command-names` |
 | 2026-10-25 | §6: error category classes (`StoreError`, `KeyedAssetError`, `NotFoundError`); §8: the pickle-off and missing-resource limitations are fixed (`AssetNotSupportedError`, `AssetNotFoundError`). | `design/key-without-recipe-answer/` |
 | 2026-10-22 | §Shutdown, limitations: a built environment is freed (the reference cycle is fixed); `RUNTIME05` passes. | `design/environment-manager-reference-cycle/` |
 | 2026-10-20 | `context.error` raises `ExecutionError` with the first logged message once the command returns. | `CONTEXT-ERROR-OUTCOME-DEPENDS-ON-SCHEDULING` |

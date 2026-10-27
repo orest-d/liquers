@@ -3,8 +3,8 @@ id: INHERITED-VOLATILITY-BOUNDS-PREDECESSOR-CUT
 kind: design
 title: A predecessor boundary is not cut over a step that reads a volatile upstream
 form: compact
-status: in_review
-phase: implementation
+status: complete
+gh_pr: [191]
 readiness: ready
 autofix: eligible
 area: [core/plan]
@@ -12,6 +12,8 @@ issues: [DEPENDENCY-VOLATILITY-INVISIBLE-TO-PREDECESSOR-WALK]
 created: 2026-10-26
 ---
 # A predecessor boundary is not cut over a step that reads a volatile upstream
+
+> **Complete on 2026-10-27**: implemented by automatic fix in #191.
 
 Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-26: Phases 1-4 written; Phase 4
 implemented on 2026-10-27 (automatic fix).

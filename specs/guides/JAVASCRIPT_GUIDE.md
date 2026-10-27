@@ -474,9 +474,9 @@ Values cross between JavaScript and Liquers by kind:
 
 An integer outside ±(2^53 − 1) is refused rather than rounded when it goes back to JavaScript. Inside
 an array or object three things differ from the top level: NaN and the infinities become the strings
-`"NaN"`, `"inf"` and `"-inf"`; a `Uint8Array` or any other non-plain object is refused
-(`WEB-NESTED-BYTES-REFUSED-NOT-DEGRADED`); and a `null` comes back as `undefined`
-(`WEB-NESTED-NULL-CROSSES-AS-UNDEFINED`).
+`"NaN"`, `"inf"` and `"-inf"`; and a `Uint8Array` or any other non-plain object is refused, because
+JSON has no byte type. Return bytes on their own, or convert them to an array of numbers yourself. A
+nested `null` comes back as `null`.
 
 ```js
 import init, * as liquers from "./liquers_web.js";
@@ -486,7 +486,7 @@ await liquers.init();
 liquers.registerCommand({ name: "record", run: () => ({ name: "Ada", scores: [1, 2.5, null] }) });
 liquers.registerCommand({ name: "bytes", run: () => new Uint8Array([1, 2, 3]) });
 
-assert.deepStrictEqual(await liquers.evaluate("record"), { name: "Ada", scores: [1, 2.5, undefined] });
+assert.deepStrictEqual(await liquers.evaluate("record"), { name: "Ada", scores: [1, 2.5, null] });
 assert.deepStrictEqual(await liquers.evaluate("bytes"), new Uint8Array([1, 2, 3]));
 ```
 
@@ -723,3 +723,4 @@ What you will notice; the complete list, with the tracking issues, is
 | Date | Change | Source |
 |---|---|---|
 | 2026-10-26 | Created from the implemented `liquers-web`; every example runs under Node. | `WEB-HAS-NO-API-REFERENCE-OR-USER-GUIDE` |
+| 2026-10-26 | Nested values: `null` now returns as `null`; why nested bytes are refused. | `WEB-NESTED-NULL-CROSSES-AS-UNDEFINED`, `WEB-NESTED-BYTES-REFUSED-NOT-DEGRADED` |
