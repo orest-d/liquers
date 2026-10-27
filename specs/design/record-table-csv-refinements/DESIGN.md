@@ -13,8 +13,8 @@ created: 2026-10-26
 ---
 # A record view accepts the CSV separator refinements a DataFrame accepts
 
-Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-26: Phases 1-4 written, not
-approved, nothing implemented.
+Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-26: Phases 1-4 written; Phase 4
+implemented on 2026-10-27 (automatic fix).
 
 ## Phase 1: High-Level Design
 
@@ -176,12 +176,12 @@ Run: `CARGO_INCREMENTAL=0 cargo test -p liquers-records --lib formats`.
 
 ### Steps
 
-- [ ] 1. `formats/mod.rs` tests — add the three tests; the first and third fail at HEAD —
+- [x] 1. `formats/mod.rs` tests — add the three tests; the first and third fail at HEAD —
   `cargo test -p liquers-records --lib table_format_from_data_format`
-- [ ] 2. `formats/mod.rs` `TableFormat::from_data_format` — two named arms, the `csv:` fallback
+- [x] 2. `formats/mod.rs` `TableFormat::from_data_format` — two named arms, the `csv:` fallback
   through `csv_separator_refinement`, the refusal message, the doc comment — step-1 tests pass:
   `cargo test -p liquers-records --lib formats`
-- [ ] 3. `RECORD_STREAMS.md` §Table formats CSV row, History row, `reviewed:`; issue
+- [x] 3. `RECORD_STREAMS.md` §Table formats CSV row, History row, `reviewed:`; issue
   `status: closed` with a resolution note — `python3 scripts/docs_index.py --check`
 
 ### Validation
