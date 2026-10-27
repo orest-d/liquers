@@ -3,8 +3,8 @@ id: SOFT-CONSISTENCY-REFINED-FORMAT
 kind: design
 title: The write-path soft consistency check derives the expected media type from the base format
 form: compact
-status: in_review
-phase: implementation
+status: complete
+gh_pr: [199]
 readiness: ready
 autofix: eligible
 area: [core/assets]
@@ -13,8 +13,10 @@ created: 2026-10-26
 ---
 # The write-path soft consistency check derives the expected media type from the base format
 
-Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-26: Phases 1-4 written, not
-approved, nothing implemented.
+> **Complete on 2026-10-27**: implemented by automatic fix in #199.
+
+Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-26: Phases 1-4 written; Phase 4
+implemented on 2026-10-27 (automatic fix).
 
 ## Phase 1: High-Level Design
 
@@ -151,15 +153,21 @@ Run: `CARGO_INCREMENTAL=0 cargo test -p liquers-core --test type_consistency`.
 
 ### Steps
 
-- [ ] 1. `liquers-core/tests/type_consistency.rs` — add the three tests; the first two fail at HEAD —
+- [x] 1. `liquers-core/tests/type_consistency.rs` — add the three tests; the first two fail at HEAD —
   `cargo test -p liquers-core --test type_consistency refined_format`
-- [ ] 2. `liquers-core/src/assets.rs` `add_soft_consistency_warnings` and
+- [x] 2. `liquers-core/src/assets.rs` `add_soft_consistency_warnings` and
   `add_soft_consistency_warnings_enum` — wrap the lookup argument in `data_format_base(…)` — the
   step-1 tests pass, then `cargo test -p liquers-core --lib assets::tests::soft_consistency`
-- [ ] 3. Issue `SOFT-CONSISTENCY-CHECK-MISREADS-A-REFINED-DATA-FORMAT`: `status: closed` with a
+- [x] 3. Issue `SOFT-CONSISTENCY-CHECK-MISREADS-A-REFINED-DATA-FORMAT`: `status: closed` with a
   resolution note; regenerate the index — `python3 scripts/docs_index.py --check`
 
 ### Validation
 
 `cargo test -p liquers-core --lib --tests`. Diff review: two changed lines in library code, no
 `println!`, no `unwrap` outside tests.
+
+### Implementation notes (2026-10-27)
+
+- All three tests fail without the fix, not only the first two: at HEAD the divergent case
+  warns against `application/octet-stream` (the lookup of `txt:utf8`) instead of `text/plain`,
+  so the test's exact message does not match.

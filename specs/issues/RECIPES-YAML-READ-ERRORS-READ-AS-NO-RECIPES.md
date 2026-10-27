@@ -2,7 +2,7 @@
 id: RECIPES-YAML-READ-ERRORS-READ-AS-NO-RECIPES
 kind: issue
 title: Every recipes.yaml read error is treated as an empty recipe list
-status: draft
+status: closed
 priority: P2
 complexity: S
 area: [core/assets]
@@ -40,3 +40,7 @@ directory key.
 ## Discovery
 
 Found while reviewing `reference/api/DOC_08_RECIPES_PLANS.md` against the code at `96279f14` before promoting it to [`reference/RECIPES_AND_PLANS.md`](../reference/RECIPES_AND_PLANS.md) (2026-10-20).
+
+## Resolution
+
+Fixed 2026-10-27 by `design/recipes-yaml-read-errors-propagate/`. `DefaultRecipeProvider::cached_recipes` (`liquers-core/src/recipes.rs`) reads `recipes.yaml` as "no recipes" only on `KeyNotFound` or `KeyNotSupported`; any other `get_bytes` failure is returned (keyed to `recipes.yaml` when the store gave no key) and is not cached, so `recipe_opt`, `recipe`, `recipe_plan`, `assets_with_recipes` and `get_recipes` report an unreadable file instead of "no recipe". Evidence: `read_error_tests` (`unreadable_recipes_yaml_is_an_error`, `read_failure_is_not_cached`, `missing_recipes_yaml_is_no_recipes`) and the extended `default_provider_finds_no_recipe_under_an_unsupported_key`.

@@ -3,8 +3,8 @@ id: SIMPLE-VALUE-I32-JSON-READ
 kind: design
 title: liquers-lib's base value reads an I32 written as JSON back as I32
 form: compact
-status: in_review
-phase: implementation
+status: complete
+gh_pr: [210]
 readiness: ready
 autofix: eligible
 area: [lib/value]
@@ -12,6 +12,8 @@ issues: [SIMPLE-VALUE-I32-JSON-READS-BACK-AS-I64]
 created: 2026-10-26
 ---
 # liquers-lib's base value reads an I32 written as JSON back as I32
+
+> **Complete on 2026-10-27**: implemented by automatic fix in #210.
 
 Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-26: Phases 1-4 written; Phase 4
 implemented on 2026-10-27 (automatic fix).
