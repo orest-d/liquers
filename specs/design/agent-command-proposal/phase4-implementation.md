@@ -54,7 +54,7 @@ documentation. All the code is in `liquers-mcp` and `liquers-agent`.
 - Change: `stage` runs one `envref.update_commands` per call. Inside the closure, per proposal:
   check for an existing key unless `replace`, call `CommandRegistry::register_alias`, set `label` /
   `doc` / `hints["proposal"]`, and return `Err` when `CommandMetadata::check()` has errors.
-  `withdraw` runs `cr.unregister(key)`. Re-open `update_commands`' signature as merged before
+  `roll_back` runs `cr.unregister(key)` for a new key and re-registers the returned previous alias otherwise. Re-open `update_commands`' signature as merged before
   writing this step, and adapt the closure type to it. Check that its future is `Send`: that
   design boxes a non-`Send` `dyn FnOnce` for `update_command_registry`. If it is not, run the
   synchronous registry update in `tokio::task::spawn_blocking` and await only the refresh; dropping
@@ -68,7 +68,7 @@ documentation. All the code is in `liquers-mcp` and `liquers-agent`.
   `async fn propose`, `async fn list_proposals`.
 - Change: `propose` does `parse_proposal`, then `stage`, then `AsyncStore::set` of the file (a JSON
   `CommandMetadataRegistry::new()` holding the staged metadata, read back from the live registry),
-  and on a write error `withdraw`. It returns `ToolOutput { format: "json", .. }`. `list_proposals`
+  and on a write error `roll_back` with the previous metadata `stage` returned (restore a replaced proposal, unregister a new one). It returns `ToolOutput { format: "json", .. }`. `list_proposals`
   filters `get_command_metadata_registry().commands` by realm.
 - Depends on: Step 3.
 - Proof: Step 6 tests 3, 5, 8, 9 and 10.
