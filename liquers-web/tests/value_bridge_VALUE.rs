@@ -115,6 +115,33 @@ fn value02_nested_array_object_roundtrip() {
     );
 }
 
+/// VALUE02 — a `null` nested in an array or object crosses back as `null`, as a top-level one does
+/// (`WEB-NESTED-NULL-CROSSES-AS-UNDEFINED`): serde-wasm-bindgen's default writes it as `undefined`,
+/// which `JSON.stringify` drops and `=== null` rejects.
+#[wasm_bindgen_test]
+fn value02_nested_null_roundtrip() {
+    let source = js_sys::eval("({ a: null, b: [null], c: { d: null } })").expect("fixture");
+    let value = conv(&source).expect("nested nulls");
+    let back = value_to_js(&value).expect("back to JavaScript");
+
+    let a = js_sys::Reflect::get(&back, &"a".into()).expect("a");
+    assert!(a.is_null(), "a nested null must arrive as null, got {a:?}");
+    let b = js_sys::Array::from(&js_sys::Reflect::get(&back, &"b".into()).expect("b"));
+    assert!(b.get(0).is_null(), "a null array element must arrive as null");
+    let c = js_sys::Reflect::get(&back, &"c".into()).expect("c");
+    assert!(
+        js_sys::Reflect::get(&c, &"d".into()).expect("d").is_null(),
+        "a null in a nested object must arrive as null"
+    );
+    assert_eq!(
+        js_sys::JSON::stringify(&back)
+            .expect("stringify")
+            .as_string()
+            .as_deref(),
+        Some(r#"{"a":null,"b":[null],"c":{"d":null}}"#)
+    );
+}
+
 /// VALUE03 — integer boundaries. Beyond 2^53 a `number` is not exact, `BigInt` is, and a `BigInt`
 /// outside `i64` is refused rather than wrapped.
 #[wasm_bindgen_test]
@@ -210,6 +237,31 @@ fn value04_bytes_are_not_confused_with_text() {
     assert!(
         js.is_instance_of::<js_sys::Uint8Array>(),
         "bytes lost their type"
+    );
+}
+
+/// VALUE04 — a `Uint8Array` nested in an array or object is refused, naming where it is
+/// (`WEB-NESTED-BYTES-REFUSED-NOT-DEGRADED`). JSON has no byte type, and degrading the bytes to an
+/// array of numbers would lose the distinction the top-level case preserves.
+#[wasm_bindgen_test]
+fn value04_nested_bytes_are_refused() {
+    let source = js_sys::eval("({ c: new Uint8Array([1]) })").expect("fixture");
+    let error = conv(&source).expect_err("nested bytes must not convert structurally");
+    assert_eq!(
+        error.error_type,
+        liquers_core::error::ErrorType::ConversionError
+    );
+    assert!(
+        error.message.contains("$.c"),
+        "the error must name the path of the bytes: {}",
+        error.message
+    );
+
+    let in_array = js_sys::eval("[new Uint8Array([1])]").expect("fixture");
+    let error = conv(&in_array).expect_err("bytes in an array must not convert structurally");
+    assert_eq!(
+        error.error_type,
+        liquers_core::error::ErrorType::ConversionError
     );
 }
 

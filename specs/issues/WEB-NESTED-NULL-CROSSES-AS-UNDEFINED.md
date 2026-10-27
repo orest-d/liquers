@@ -2,7 +2,7 @@
 id: WEB-NESTED-NULL-CROSSES-AS-UNDEFINED
 kind: issue
 title: A null nested in an array or object reaches JavaScript as undefined
-status: draft
+status: closed
 priority: P2
 complexity: S
 area: [web]
@@ -34,3 +34,12 @@ fix — with a `VALUE02` case for it.
 ## Discovery
 
 Running the examples of `specs/guides/JAVASCRIPT_GUIDE.md` under Node (2026-10-26).
+
+## Resolution (2026-10-26)
+
+Fixed in `json_to_js` (`liquers-web/src/bridge.rs`), which now serializes a value's JSON form with
+`serialize_missing_as_null(true)` beside `serialize_maps_as_objects(true)`. The change is confined to
+value conversion: `serialize_to_js`, used for metadata and other Rust structs, is unchanged, so an
+absent `Option` field there still crosses as `undefined`. `value02_nested_null_roundtrip` in
+`liquers-web/tests/value_bridge_VALUE.rs` round-trips `{ a: null, b: [null], c: { d: null } }`; it
+failed before the fix and passes after it.
