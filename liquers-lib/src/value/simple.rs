@@ -742,11 +742,20 @@ impl DefaultValueSerializer for SimpleValue {
                 )),
             },
             // JSON alone does not say which variant it came from, so the declared type identifier
-            // is consulted first, as `liquers_core::value::Value` does. The structured variants
-            // are read as their own types; the variants `as_bytes` writes in serde's tagged form
+            // is consulted first, as `liquers_core::value::Value` does. `I32`, `F64` and the
+            // structured variants are read as their own types; the variants `as_bytes` writes in serde's tagged form
             // (`{"Array": {"value": …}}`) are read in that form, and otherwise as plain JSON, which
             // is what a hand-written file holds. Everything else is plain JSON.
             "json" => match type_identifier {
+                // Plain JSON would read every integer as `I64`.
+                "I32" => serde_json::from_slice::<i32>(b)
+                    .map(|value| SimpleValue::I32 { value })
+                    .map_err(|e| {
+                        Error::from_error(
+                            ErrorType::SerializationError,
+                            format!("JSON error reading I32 in deserialize_from_bytes: {e}"),
+                        )
+                    }),
                 // As core: a number, a `json_f64` token, or `null` (NaN).
                 "F64" => serde_json::from_slice::<serde_json::Value>(b)
                     .map_err(|e| Error::from_error(ErrorType::SerializationError, e))
@@ -882,10 +891,36 @@ mod tests {
         let bytes = value.as_bytes("json")?;
         let deserialized =
             SimpleValue::deserialize_from_bytes(&bytes, "I32", "json")?;
-        match deserialized {
-            SimpleValue::I64 { value: 42 } => Ok(()),
-            _ => Err("Expected I64 with value 42".into()),
+        assert_eq!(deserialized, value);
+        let negative = SimpleValue::I32 { value: -7 };
+        let back = SimpleValue::deserialize_from_bytes(&negative.as_bytes("json")?, "I32", "json")?;
+        assert_eq!(back, negative);
+        assert_eq!(back.identifier(), "I32");
+        Ok(())
+    }
+
+    /// AC-3 of `simple-value-i32-json-read`: a payload that is not an `i32` is refused.
+    #[test]
+    fn json_i32_with_a_mismatched_payload_is_refused() {
+        for payload in [&b"5000000000"[..], b"1.5", b"\"x\""] {
+            let error = SimpleValue::deserialize_from_bytes(payload, "I32", "json")
+                .expect_err("not an i32");
+            assert_eq!(error.error_type, ErrorType::SerializationError);
+            assert!(error.message.contains("I32"), "{}", error.message);
         }
+    }
+
+    /// AC-4: JSON with no identifier, or one the base value does not own, still reads by shape.
+    #[test]
+    fn untyped_json_integer_still_reads_as_i64() -> Result<(), Box<dyn std::error::Error>> {
+        for id in ["", "test.Foreign"] {
+            assert_eq!(
+                SimpleValue::deserialize_from_bytes(b"5", id, "json")?,
+                SimpleValue::I64 { value: 5 },
+                "identifier {id:?}"
+            );
+        }
+        Ok(())
     }
 
     #[test]
@@ -1175,7 +1210,6 @@ mod tests {
                     ("txt" | "html" | "md" | "rs" | "py" | "css" | "js", SimpleValue::None {}) => {
                         SimpleValue::Text { value: String::from_utf8(bytes.clone())? }
                     }
-                    ("json", SimpleValue::I32 { value }) => SimpleValue::I64 { value: i64::from(*value) },
                     _ => value.clone(),
                 };
                 assert_eq!(back, expected, "round trip of {id} as {format}");

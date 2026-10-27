@@ -62,8 +62,12 @@ struct Proposal { key: CommandKey, target: CommandKey, heads: Vec<CommandParamet
                   arguments: Vec<ArgumentInfo>, label: String, doc: String,
                   hint: serde_json::Value, replace: bool }
 trait ProposalBackend: Send + Sync {
-    fn stage<'a>(&'a self, proposals: Vec<Proposal>) -> BoxedFuture<'a, Result<(), Error>>;
-    fn withdraw<'a>(&'a self, key: CommandKey) -> BoxedFuture<'a, Result<(), Error>>;
+    // Ok holds, per proposal, the metadata it replaced (None when the key was new).
+    fn stage<'a>(&'a self, proposals: Vec<Proposal>)
+        -> BoxedFuture<'a, Result<Vec<Option<CommandMetadata>>, Error>>;
+    // Undo one staging: re-register `previous` when Some, else unregister `key`.
+    fn roll_back<'a>(&'a self, key: CommandKey, previous: Option<CommandMetadata>)
+        -> BoxedFuture<'a, Result<(), Error>>;
 }
 type BoxedFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 ```
@@ -72,7 +76,7 @@ type BoxedFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 (`BackendTime::now(TimePrecision::Seconds)`, `liquers_core::metadata`, taken in `new`). The backend `RegistryBackend<E> { envref: EnvRef<E> }` calls
 `envref.update_commands(|cr| …)`: per proposal, refuse an existing key unless `replace`, call
 `cr.register_alias(key, target, heads, arguments)`, set `label`, `doc` and `hints["proposal"]`, and
-refuse when `CommandMetadata::check()` has errors. `withdraw` calls `cr.unregister(key)`. Updates
+refuse when `CommandMetadata::check()` has errors; the replaced entry's metadata (a staged alias) is cloned out first and returned. `roll_back` calls `cr.unregister(key)` when there was no previous entry, and otherwise re-registers the previous alias from its metadata (`register_alias` with its target, heads and arguments, then its `label`, `doc` and hints), so a failed replacement leaves the registry as it was. Updates
 are async and serialized by `update_commands`; no lock is held across an `.await`.
 
 Propose arguments: `name` and `doc` (strings, required), `target` (`{realm?, namespace?, name}`,
@@ -83,7 +87,7 @@ copied from the target) and `replace` (default `false`). Checked before staging:
 (`allowed`), is found with `definition: Registered`, and its realm is not in
 `NON_EXECUTABLE_REALMS`. Each head is wrapped as `CommandParameterValue::Value(v)`, never
 deserialized in the tagged form, so a link head cannot be written. After staging,
-`<folder>/<name>.json` is written with `AsyncStore::set`; if that fails, the alias is withdrawn.
+`<folder>/<name>.json` is written with `AsyncStore::set`; if that fails, the staging is rolled back: a new key is unregistered and a replaced proposal is restored, matching the file still in the store.
 The result is JSON `{key, target, file, example}` (`example`: `-<realm>/<name>`).
 
 The list tool (no arguments) returns, as JSON, every command of the live registry in the staging
@@ -120,7 +124,7 @@ instructions. `BoxedFuture` is `Send` only if `update_commands`' future is (Phas
   `Error::not_supported`, naming the target and the allow-list as `check_allowed` does.
 - Target missing, an alias chain or a shape mismatch: `alias_target_not_registered`,
   `alias_chain_not_supported`, `invalid_alias`.
-- Store failures: propagated after the withdraw. Restore: per-file warnings; an unreadable folder
+- Store failures: propagated after the roll-back (a replaced proposal is restored, a new one removed). Restore: per-file warnings; an unreadable folder
   is an error.
 
 ## Relevant Commands

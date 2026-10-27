@@ -3,7 +3,7 @@ title: Asset Set Operation Specification
 kind: reference
 audience: internal
 area: [core/assets]
-reviewed: 2026-10-10
+reviewed: 2026-10-27
 ---
 # Asset Set Operation Specification
 
@@ -168,6 +168,14 @@ status (`finalize_status_with_version`, `fail_asset`, `finish_cancelled` all che
 asset's write lock), and the run installs, persists and registers a value only if it finalized. A
 replaced asset is already `Cancelled`, so its run's result is dropped. `save_to_store` additionally
 skips an asset in status `Cancelled`. External managers call `cancel_for_replacement()` the same way.
+
+A **finished** asset (`Ready`, `Error`, …) is replaced too: `cancel_for_replacement()` keeps its
+status but closes its metadata saver, which also gates the asset's value write. A value write
+already under way (a background `save_to_store` of the finished run, or the inline manager's write
+after the status flipped) is waited for, so the replacement's own store write — or `remove`'s
+rewrite, which re-reads the store after the cancel — comes after it; a value write that starts
+later finds the saver closed and is skipped (`PersistenceStatus::None`). The old value therefore
+cannot land on top of the replacement, whatever the timing.
 
 `AssetRef::to_override` discards an in-flight run the same way but keeps the asset (it becomes the
 key's `Override`), so its metadata saver stays open.
@@ -386,6 +394,7 @@ Rationale: Validation would require potentially costly de-serialization, adding 
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-27 | §Discarding a late result: replacing a finished asset waits for its value write under way and skips a later one, so a late background save cannot overwrite the replacement. | `design/replaced-asset-write-gate/` |
 | 2026-10-10 | §Store Routing names `AsyncStoreRouter`; the synchronous `StoreRouter` was removed. | `CORE-SYNC-STORE-TRAIT-OBSOLETE`, `design/sync-store-removal/` |
 | 2026-10-09 | §In-Flight Asset Handling and §Cancellation Mechanism rewritten: `cancel_for_replacement` discards a replaced run's late result (no `cancelled` flag); `cancel()` is a request the run decides; replacement notifications as sent. | phase-5 (`design/asset-cancellation-outcome/`) |
 | 2026-09-27 | Reviewed against the code for record-streams: the binary operation is `set_binary()` (was written `set()`); both operations honour the supplied metadata's `stored: false`. Repaired this History table's header | phase-5 (`design/record-streams/`) |

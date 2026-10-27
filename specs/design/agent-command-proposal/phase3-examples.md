@@ -89,7 +89,7 @@ key changed. Nothing in this design automates any of it.
   - `proposals_survive_a_restart_and_bad_files_are_skipped` (AC-4): propose, rebuild the server
     from the same config with two extra files (`broken.json`, and `gone.json` targeting
     `rec/missing`); `drafts` still works; the warnings name both files. A read-only mount case
-    checks the withdraw.
+    checks the roll-back of a new proposal (the key is absent afterwards).
   - `no_proposals_section_means_no_tools` (AC-5): the plain fixture, with a valid
     `_proposals/drafts.json` present. No `memory_propose` tool; the staged query fails with "not
     registered".
@@ -98,7 +98,9 @@ key changed. Nothing in this design automates any of it.
     case uses a second fixture whose `memory.tools` set allows `-rec-*` and `store_config-*` and
     declares `proposals`, and asserts the "cannot be executed" message, not the allow-list one.
   - `reproposal_requires_replace` (AC-8): a second `drafts` without `replace` is refused; with
-    `replace` and heads `status`, `closed`, the staged query returns `WRITES-RACE`.
+    `replace` and heads `status`, `closed`, the staged query returns `WRITES-RACE`. A failed-write
+    case on a read-only mount: a replacement of `drafts` fails, and afterwards the staged query
+    still returns the first proposal's result and its file is unchanged.
   - `proposal_file_is_a_validation_overlay` (AC-9): `ValidationRegistryBuilder::new()`, then
     `merge_str` of `specs/command_registry.yaml` and of the written file, then `build()`;
     `validate_query(staged query, 0, ValidationLevel::Plan, &cmr)` is `Ok`.

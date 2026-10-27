@@ -3,8 +3,8 @@ id: SIMPLE-VALUE-I32-JSON-READ
 kind: design
 title: liquers-lib's base value reads an I32 written as JSON back as I32
 form: compact
-status: in_review
-phase: implementation
+status: complete
+gh_pr: [210]
 readiness: ready
 autofix: eligible
 area: [lib/value]
@@ -13,8 +13,10 @@ created: 2026-10-26
 ---
 # liquers-lib's base value reads an I32 written as JSON back as I32
 
-Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-26: Phases 1-4 written, not
-approved, nothing implemented.
+> **Complete on 2026-10-27**: implemented by automatic fix in #210.
+
+Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-26: Phases 1-4 written; Phase 4
+implemented on 2026-10-27 (automatic fix).
 
 ## Phase 1: High-Level Design
 
@@ -171,10 +173,10 @@ Run: `cargo test -p liquers-lib --lib value::simple value::extended`.
 
 ### Steps
 
-- [ ] 1. `liquers-lib/src/value/simple.rs` `mod tests` — change the two expectations, add `json_i32_with_a_mismatched_payload_is_refused` and `untyped_json_integer_still_reads_as_i64`; the I32 ones fail at HEAD — `cargo test -p liquers-lib --lib value::simple`.
-- [ ] 2. `simple.rs` `deserialize_from_bytes` — the `"I32"` arm and comment — `cargo test -p liquers-lib --lib value::simple`. Rollback: revert.
-- [ ] 3. `combined_value_reads_json_i32_as_i32` — `cargo test -p liquers-lib --lib value::extended`.
-- [ ] 4. Close `SIMPLE-VALUE-I32-JSON-READS-BACK-AS-I64` with a resolution note — `python3 scripts/docs_index.py --check`.
+- [x] 1. `liquers-lib/src/value/simple.rs` `mod tests` — change the two expectations, add `json_i32_with_a_mismatched_payload_is_refused` and `untyped_json_integer_still_reads_as_i64`; the I32 ones fail at HEAD — `cargo test -p liquers-lib --lib value::simple`.
+- [x] 2. `simple.rs` `deserialize_from_bytes` — the `"I32"` arm and comment — `cargo test -p liquers-lib --lib value::simple`. Rollback: revert.
+- [x] 3. `combined_value_reads_json_i32_as_i32` — `cargo test -p liquers-lib --lib value::extended`.
+- [x] 4. Close `SIMPLE-VALUE-I32-JSON-READS-BACK-AS-I64` with a resolution note — `python3 scripts/docs_index.py --check`.
 
 ### Validation
 
