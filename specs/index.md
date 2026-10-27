@@ -8,10 +8,10 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 220
+Total rows: 219
 - P1: 1
 - P2: 66
-- P3: 153
+- P3: 152
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -86,7 +86,6 @@ Total rows: 220
 | [`CORE-WASM-BUILD-EMITS-UNUSED-WARNINGS`](issues/CORE-WASM-BUILD-EMITS-UNUSED-WARNINGS.md) | issue | A wasm32 build of liquers-core emits five unused-import and dead-code warnings | draft | ready | eligible | P3 | S | core/assets;build | [design](design/core-wasm-warning-free/DESIGN.md) | 2026-10-17 |
 | [`DOC-03-ENTRY-POINT-TABLE-SAYS-APPLY-SCHEDULES`](issues/DOC-03-ENTRY-POINT-TABLE-SAYS-APPLY-SCHEDULES.md) | issue | DOC-03's entry-point table says apply schedules its asset and takes no payload | draft | ready | eligible | P3 | S | docs;core/assets | [design](design/doc-03-apply-entry-points/DESIGN.md) | 2026-10-20 |
 | [`FOREIGN-VALUE-TEXT-AND-JSON-HOOKS-NEVER-CALLED`](issues/FOREIGN-VALUE-TEXT-AND-JSON-HOOKS-NEVER-CALLED.md) | issue | ForeignValue's text and JSON hooks are never called, so a foreign value cannot offer either | draft | ready | eligible | P3 | S | lib/value | [design](design/foreign-value-text-json-delegation/DESIGN.md) | 2026-10-20 |
-| [`MID-QUERY-Q-INSTRUCTION-DISCARDS-ARGUMENTS`](issues/MID-QUERY-Q-INSTRUCTION-DISCARDS-ARGUMENTS.md) | issue | A q instruction in the middle of a query silently drops its parameters | draft | ready | eligible | P3 | S | core/plan | [design](design/mid-query-q-arity/DESIGN.md) | 2026-10-20 |
 | [`NEXT-PRESETS-MISREAD-PLANNER-INSTRUCTIONS`](issues/NEXT-PRESETS-MISREAD-PLANNER-INSTRUCTIONS.md) | issue | find_next_presets reads planner instructions differently from the planner | draft | ready | eligible | P3 | S | lib/commands | [design](design/next-presets-follow-planner-rules/DESIGN.md) | 2026-10-20 |
 | [`PLAN-SERDE-HAS-NO-COMPATIBILITY-CONTRACT`](issues/PLAN-SERDE-HAS-NO-COMPATIBILITY-CONTRACT.md) | issue | A serialized Plan has no compatibility contract | draft | ready | eligible | P3 | S | core/plan | [design](design/plan-serialization-internal-contract/DESIGN.md) | 2026-10-20 |
 | [`RECIPE-CWD-ERROR-DOES-NOT-NAME-THE-RECIPE`](issues/RECIPE-CWD-ERROR-DOES-NOT-NAME-THE-RECIPE.md) | issue | The explicit-cwd recipe error names the directory but not the offending recipe | draft | ready | eligible | P3 | S | core/assets | [design](design/recipe-list-set-cwd-validation/DESIGN.md) | 2026-10-20 |

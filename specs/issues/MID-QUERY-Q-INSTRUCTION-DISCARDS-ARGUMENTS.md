@@ -2,7 +2,7 @@
 id: MID-QUERY-Q-INSTRUCTION-DISCARDS-ARGUMENTS
 kind: issue
 title: A q instruction in the middle of a query silently drops its parameters
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [core/plan]
@@ -38,3 +38,7 @@ appears, and `special_instructions_enforce_their_own_arity` covers the mid-query
 ## Discovery
 
 Found while reviewing `reference/api/DOC_08_RECIPES_PLANS.md` against the code at `96279f14` before promoting it to [`reference/RECIPES_AND_PLANS.md`](../reference/RECIPES_AND_PLANS.md) (2026-10-20).
+
+## Resolution
+
+Fixed 2026-10-27 by `design/mid-query-q-arity/`. `PlanBuilder::process_query` (`liquers-core/src/plan.rs`) checks the `q` arity through a private `check_q_arity` both for a trailing `q` and before stripping a `q` that ends a predecessor, so `nosuch/q-x/upper` is `NotSupported` ("The 'q' instruction does not accept any arguments"), positioned at `x`, instead of dropping the parameter. Evidence: `special_instructions_enforce_their_own_arity` (extended) and `mid_query_q_with_parameter_deep_in_chain_is_refused`; `specs/reference/RECIPES_AND_PLANS.md` §Planner instructions updated.
