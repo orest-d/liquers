@@ -115,18 +115,19 @@ outlives an environment rebuild (AC-9).
 
 ## Open Questions
 
+Decided by the standing maintainer rules (2026-10-17, 2026-10-19), not open: a mount uses the
+environment it was created from and remembers it, as other handles do. A mount made from the global
+handle follows a rebuild (AC-9); one made from `new Environment()` stays with that instance.
+
+
 1. **Payload type.** Make `WebEnvironment` `DefaultEnvironment<Value, SimpleUIPayload>`
    (recommended: the existing type `mount_web` already accepts; `evaluate` passes no payload, so
    nothing outside a mount changes) or define a web payload wrapping it, which would also carry the
    future JavaScript context but adds a type every downstream crate must name.
-2. **Which environment a mount uses.** Keep the `Environment` handle it was created from: the
-   global handle re-resolves after a rebuild, an explicit instance stays fixed (recommended; the same
-   rule `Environment.evaluate` follows). The alternative pins the `EnvRef` at mount time and
-   documents that a later `registerCommand` does not reach the UI.
-3. **AC-3 and the JavaScript context.** Implement `JS-COMMAND-CANNOT-ACCESS-CONTEXT` first and expose
+2. **AC-3 and the JavaScript context.** Implement `JS-COMMAND-CANNOT-ACCESS-CONTEXT` first and expose
    `context.element` on it (recommended), or ship AC-1 to AC-9 without AC-3 and mark `UIUSE03`
    partial until the context lands.
-4. **Event delivery.** Batch status events per driver tick, after the DOM is updated and the
+3. **Event delivery.** Batch status events per driver tick, after the DOM is updated and the
    `AppState` lock is released (recommended: callbacks may re-enter the mount safely), or deliver
    each notification as it happens, which is finer but runs page code inside the runner.
 
