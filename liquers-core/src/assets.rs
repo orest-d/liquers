@@ -551,33 +551,50 @@ impl MetadataSaver {
 
         #[cfg(not(target_arch = "wasm32"))]
         {
-            if let Some(handle) = lock.in_flight.as_ref() {
-                if !handle.is_finished() {
-                    return;
+            match envref.get_asset_manager().eval_mode() {
+                // The inline manager runs in the caller's task, which may have no tokio runtime
+                // (`futures::executor::block_on`), so it cannot spawn the coalescing worker.
+                EvalMode::Inline => {
+                    Self::persist_inline(lock, key, envref).await;
                 }
-                lock.in_flight = None;
+                EvalMode::Queued => {
+                    if let Some(handle) = lock.in_flight.as_ref() {
+                        if !handle.is_finished() {
+                            return;
+                        }
+                        lock.in_flight = None;
+                    }
+                    let saver = self.clone();
+                    // The store only: a coalescing save may wait out the interval, and must not
+                    // keep the environment alive meanwhile.
+                    let store = envref.get_async_store();
+                    lock.in_flight = Some(tokio::spawn(async move {
+                        saver.save_task(key, store).await;
+                    }));
+                }
             }
-            let saver = self.clone();
-            // The store only: a coalescing save may wait out the interval, and must not keep the
-            // environment alive meanwhile.
-            let store = envref.get_async_store();
-            lock.in_flight = Some(tokio::spawn(async move {
-                saver.save_task(key, store).await;
-            }));
         }
         #[cfg(target_arch = "wasm32")]
         {
-            // Inline synchronous persist: no spawn, no debounce, no std::time::Instant
-            // (which panics on wasm32-unknown-unknown).
-            let payload = lock.pending.take();
-            drop(lock);
-            // `stored: false` — no store write at all, not even a metadata-only entry: leaving
-            // one behind is exactly the corrupted-data-on-reload trap
-            // (METADATA-ONLY-ENTRY-RELOADS-AS-CORRUPTED).
-            if let (Some(metadata), Some(key)) = (payload, key.as_ref()) {
-                if metadata.stored() {
-                    let _ = envref.get_async_store().set_metadata(key, &metadata).await;
-                }
+            Self::persist_inline(lock, key, envref).await;
+        }
+    }
+
+    /// Inline persist of the pending metadata: no spawn, no debounce, no `std::time::Instant`
+    /// (which panics on wasm32-unknown-unknown). Used on wasm and by the inline manager.
+    async fn persist_inline<E: Environment>(
+        mut lock: tokio::sync::MutexGuard<'_, MetadataSaverState>,
+        key: Option<Key>,
+        envref: EnvRef<E>,
+    ) {
+        let payload = lock.pending.take();
+        drop(lock);
+        // `stored: false` — no store write at all, not even a metadata-only entry: leaving
+        // one behind is exactly the corrupted-data-on-reload trap
+        // (METADATA-ONLY-ENTRY-RELOADS-AS-CORRUPTED).
+        if let (Some(metadata), Some(key)) = (payload, key.as_ref()) {
+            if metadata.stored() {
+                let _ = envref.get_async_store().set_metadata(key, &metadata).await;
             }
         }
     }
@@ -640,6 +657,10 @@ pub(crate) struct CancellationRequest {
     /// Written before `requested` is set (Release), read after it is seen (Acquire).
     cause: std::sync::Mutex<Option<Error>>,
     notify: tokio::sync::Notify,
+    /// Set when a command returned `Ok` and no later step that can suspend has begun: the run
+    /// has passed its point of no return, so a request no longer drops it. A gate, not a drop:
+    /// the request stays pending and applies again once [`Self::reopen`] is called.
+    committed: AtomicBool,
 }
 
 impl CancellationRequest {
@@ -648,7 +669,25 @@ impl CancellationRequest {
             requested: AtomicBool::new(false),
             cause: std::sync::Mutex::new(None),
             notify: tokio::sync::Notify::new(),
+            committed: AtomicBool::new(false),
         }
+    }
+
+    /// A command returned `Ok`: until [`Self::reopen`], a request does not drop the run.
+    pub(crate) fn commit(&self) {
+        self.committed.store(true, Ordering::Release);
+    }
+
+    /// A step that can suspend begins (or a run starts): a request applies again, including one
+    /// made while the run was committed.
+    pub(crate) fn reopen(&self) {
+        if self.committed.swap(false, Ordering::AcqRel) && self.is_requested() {
+            self.notify.notify_waiters();
+        }
+    }
+
+    fn is_committed(&self) -> bool {
+        self.committed.load(Ordering::Acquire)
     }
 
     /// Request cancellation with `cause`. The first cause wins; returns whether this call made
@@ -682,16 +721,18 @@ impl CancellationRequest {
     pub(crate) fn clear(&self) {
         let mut guard = self.cause.lock().unwrap_or_else(|e| e.into_inner());
         self.requested.store(false, Ordering::Release);
+        self.committed.store(false, Ordering::Release);
         *guard = None;
     }
 
-    /// Completes once cancellation has been requested.
+    /// Completes once cancellation has been requested while the run is not committed.
     pub(crate) async fn requested(&self) {
         loop {
             let mut notified = std::pin::pin!(self.notify.notified());
-            // Registered before the check, so a request made in between is not lost.
+            // Registered before the check, so a request (or a reopen) made in between is not
+            // lost.
             notified.as_mut().enable();
-            if self.is_requested() {
+            if self.is_requested() && !self.is_committed() {
                 return;
             }
             notified.await;
@@ -828,6 +869,10 @@ pub struct AssetData<E: Environment> {
     recipe_sets_title: bool,
     /// The same for the description.
     recipe_sets_description: bool,
+    /// Set by a dropped [`InlineRunClaim`] that could not take the lock to repair the status it
+    /// left behind: the `Processing` / `Dependencies` status then has no live runner, and the
+    /// next inline claim takes the run over instead of waiting for it. Cleared by every claim.
+    inline_run_abandoned: Arc<AtomicBool>,
 
     /// An outside change [`Self::try_fast_track`] found in the stored bytes, waiting to be applied
     /// with [`AssetManager::apply_external_change`].
@@ -1306,6 +1351,7 @@ impl<E: Environment> AssetData<E> {
             stale_dependency: None,
             recipe_sets_title: false,
             recipe_sets_description: false,
+            inline_run_abandoned: Arc::new(AtomicBool::new(false)),
             pending_external_change: None,
             fast_track_refusal: None,
             evaluation_session: std::sync::Weak::new(),
@@ -4055,6 +4101,8 @@ impl<E: Environment> AssetRef<E> {
             return Ok(()); // Already finished
         }
         let cancellation = self.cancellation().await;
+        // Every run starts uncommitted: a commit left by an earlier run must not shield this one.
+        cancellation.reopen();
         let log_start = self.log_len().await;
         let assetref = self.clone();
         // all service messages should be processed, therefore they run in a separate task
@@ -4125,6 +4173,8 @@ impl<E: Environment> AssetRef<E> {
             None => return Ok(()),
         };
         let cancellation = self.cancellation().await;
+        // Every run starts uncommitted: a commit left by an earlier run must not shield this one.
+        cancellation.reopen();
         let log_start = self.log_len().await;
         let eval_side = async {
             let outcome = if cancellation.is_requested() {
@@ -4211,7 +4261,8 @@ impl<E: Environment> AssetRef<E> {
     /// Safe to call from several tasks: one claims the run, and the others wait for it to finish.
     /// On an asset that has already finished it returns at once. If the returned future of the
     /// running caller is dropped before completion, the asset's status is repaired to `Recipe`
-    /// and one of the waiting callers takes the run over.
+    /// and one of the waiting callers takes the run over. When the repair cannot take the lock,
+    /// the asset is marked abandoned instead, and the next inline claim takes the run over.
     pub async fn run_inline(&self, payload: Option<E::Payload>) -> Result<(), Error> {
         self.run_with_future_inline(self.compute(payload)).await
     }
@@ -9869,6 +9920,10 @@ pub(crate) struct InlineRunClaim<E: Environment> {
     /// Keeps the environment alive while the run is in flight: the asset holds it only weakly.
     _envref: EnvRef<E>,
     armed: bool,
+    /// The asset's [`AssetData::inline_run_abandoned`] mark and notification sender, cloned at
+    /// claim time so `Drop` can reach them without the lock.
+    abandoned: Arc<AtomicBool>,
+    notification_tx: watch::Sender<AssetNotificationMessage>,
 }
 
 impl<E: Environment> InlineRunClaim<E> {
@@ -9885,9 +9940,10 @@ impl<E: Environment> Drop for InlineRunClaim<E> {
         }
         // The runner vanished mid-flight (an error, a cancelled future, a panic unwinding past
         // the claim). Return the asset to a claimable status so a later caller can run it.
-        // `try_write` rather than blocking: `Drop` cannot await, and failing to repair is better
-        // than deadlocking. A missed repair leaves the asset in `Processing`, which the next
-        // caller waits on rather than double-running — the safe direction.
+        // `try_write` rather than blocking: `Drop` cannot await. When the lock is held, the
+        // status cannot be repaired here; the asset is marked abandoned instead and every
+        // receiver is woken, so the next inline claim (a parked caller retrying, or a later one)
+        // takes the run over. See `try_claim_for_run_inline`.
         //
         // `Dependencies` is repaired alongside `Processing`, exactly as the queued `RunClaim`
         // does. Both are statuses only a live runner can hold, and the runner is gone; leaving
@@ -9920,6 +9976,11 @@ impl<E: Environment> Drop for InlineRunClaim<E> {
                     // Finished, or never entered a running status; nothing to repair.
                 }
             }
+        } else {
+            // The mark is stored before the wake-up, so a woken waiter's retry sees it. The
+            // latest message is left as it is: the asset's status has not changed yet.
+            self.abandoned.store(true, Ordering::Release);
+            self.notification_tx.send_modify(|_| {});
         }
     }
 }
@@ -9951,21 +10012,23 @@ impl<E: Environment> AssetRef<E> {
     /// first rather than be turned away.
     pub(crate) async fn try_claim_for_run_inline(&self) -> Result<Option<InlineRunClaim<E>>, Error> {
         let mut lock = self.data.write().await;
-        match lock.status {
+        let take_over = match lock.status {
             Status::None | Status::Recipe | Status::Submitted => {
-                lock.set_status(Status::Processing)?;
-                let envref = lock.try_get_envref();
-                drop(lock);
-                let envref = self.fail_unless_pinned(envref).await?;
-                Ok(Some(InlineRunClaim {
-                    asset: self.clone(),
-                    _envref: envref,
-                    armed: true,
-                }))
+                lock.inline_run_abandoned.store(false, Ordering::Release);
+                true
+            }
+            // Active, unless the runner's claim was dropped without being able to repair it.
+            Status::Processing | Status::Dependencies => {
+                if lock.inline_run_abandoned.swap(false, Ordering::AcqRel) {
+                    let _ = lock.metadata.add_log_entry(LogEntry::warning(
+                        "previous inline run was dropped; running again".to_string(),
+                    ));
+                    true
+                } else {
+                    false
+                }
             }
             Status::Directory
-            | Status::Processing
-            | Status::Dependencies
             | Status::Partial
             | Status::Error
             | Status::Storing
@@ -9974,8 +10037,24 @@ impl<E: Environment> AssetRef<E> {
             | Status::Cancelled
             | Status::Source
             | Status::Override
-            | Status::Volatile => Ok(None),
+            | Status::Volatile => false,
+        };
+        if !take_over {
+            return Ok(None);
         }
+        lock.set_status(Status::Processing)?;
+        let envref = lock.try_get_envref();
+        let abandoned = lock.inline_run_abandoned.clone();
+        let notification_tx = lock.notification_tx.clone();
+        drop(lock);
+        let envref = self.fail_unless_pinned(envref).await?;
+        Ok(Some(InlineRunClaim {
+            asset: self.clone(),
+            _envref: envref,
+            armed: true,
+            abandoned,
+            notification_tx,
+        }))
     }
 }
 
@@ -15583,6 +15662,27 @@ recipes:
         );
     }
 
+    /// `cancel-point-of-no-return`: a committed run is not dropped by a request until reopened.
+    #[tokio::test]
+    async fn cancellation_request_commit_gates_requested() {
+        let request = CancellationRequest::new();
+        request.request(Error::general_error("cancel".to_string()));
+        request.commit();
+        let mut requested = Box::pin(request.requested());
+        assert!(
+            futures::poll!(requested.as_mut()).is_pending(),
+            "a committed run ignores the request"
+        );
+        assert!(request.is_requested(), "the request is kept, not dropped");
+        request.reopen();
+        assert!(
+            futures::poll!(requested.as_mut()).is_ready(),
+            "reopening applies the pending request"
+        );
+        request.clear();
+        assert!(!request.is_requested());
+    }
+
     /// Every temporary asset gets its own id from the manager, never `0`
     /// (`specs/design/temporary-asset-unique-id/`, AC-1, AC-2).
     #[tokio::test]
@@ -17281,6 +17381,104 @@ recipes:
         let asset = gate.asset();
         drop(a);
         assert_eq!(asset.status().await, Status::Recipe);
+        asset.notify_removed().await;
+        let _ = tokio::time::timeout(WAITER_TIMEOUT, b)
+            .await
+            .expect("removal releases the parked caller");
+        assert_eq!(gate.entered(), 1, "a removed asset is not run again");
+        Ok(())
+    }
+
+    // `inline-run-claim-repair-under-lock-contention`: the dropped claim cannot take the lock.
+
+    /// AC-1: A is dropped while another task reads the asset; the parked B still takes over.
+    #[tokio::test]
+    async fn inline_waiter_takes_over_run_dropped_under_contention() -> Result<(), Error> {
+        let gate = SlowGate::new(SlowFirst::Ok);
+        let envref = slow_env(gate.clone());
+        let m = envref.get_asset_manager();
+        let query = parse_query("slow")?;
+        let mut a = Box::pin(m.get_asset(&query));
+        assert!(futures::poll!(a.as_mut()).is_pending());
+        let mut b = Box::pin(m.get_asset(&query));
+        assert!(futures::poll!(b.as_mut()).is_pending());
+        let asset = gate.asset();
+        let guard = asset.data.read().await;
+        drop(a);
+        drop(guard);
+        let taken = tokio::time::timeout(WAITER_TIMEOUT, b)
+            .await
+            .expect("the parked caller must take over a run whose repair was skipped")?;
+        assert_eq!(taken.get().await?.try_into_string()?, "y");
+        assert_eq!(taken.status().await, Status::Ready);
+        assert_eq!(gate.entered(), 2);
+        Ok(())
+    }
+
+    /// AC-2: with nobody parked, the next caller runs an asset whose repair was skipped.
+    #[tokio::test]
+    async fn inline_later_caller_runs_asset_whose_repair_was_skipped() -> Result<(), Error> {
+        let gate = SlowGate::new(SlowFirst::Ok);
+        let envref = slow_env(gate.clone());
+        let m = envref.get_asset_manager();
+        let query = parse_query("slow")?;
+        let mut a = Box::pin(m.get_asset(&query));
+        assert!(futures::poll!(a.as_mut()).is_pending());
+        let asset = gate.asset();
+        let guard = asset.data.read().await;
+        drop(a);
+        drop(guard);
+        let later = tokio::time::timeout(WAITER_TIMEOUT, m.get_asset(&query))
+            .await
+            .expect("a later caller must run the asset")?;
+        assert_eq!(later.get().await?.try_into_string()?, "y");
+        assert_eq!(gate.entered(), 2);
+        Ok(())
+    }
+
+    /// AC-3: tasks reading the asset's status during a live run do not cause a second run.
+    #[tokio::test]
+    async fn inline_status_readers_do_not_cause_a_second_run() -> Result<(), Error> {
+        let gate = SlowGate::new(SlowFirst::Ok);
+        let envref = slow_env(gate.clone());
+        let m = envref.get_asset_manager();
+        let query = parse_query("slow")?;
+        let mut a = Box::pin(m.get_asset(&query));
+        assert!(futures::poll!(a.as_mut()).is_pending());
+        let mut b = Box::pin(m.get_asset(&query));
+        assert!(futures::poll!(b.as_mut()).is_pending());
+        let asset = gate.asset();
+        for _ in 0..5 {
+            assert_eq!(asset.status().await, Status::Processing);
+            assert!(futures::poll!(b.as_mut()).is_pending());
+            assert!(futures::poll!(a.as_mut()).is_pending());
+        }
+        gate.release.notify_one();
+        let (ra, rb) = tokio::time::timeout(WAITER_TIMEOUT, async { futures::join!(a, b) })
+            .await
+            .expect("both callers return once the run finishes");
+        assert_eq!(ra?.get().await?.try_into_string()?, "x");
+        assert_eq!(rb?.get().await?.try_into_string()?, "x");
+        assert_eq!(gate.entered(), 1);
+        Ok(())
+    }
+
+    /// AC-5: a skipped repair followed by removal does not re-run the asset.
+    #[tokio::test]
+    async fn inline_waiter_does_not_rerun_removed_asset_after_skipped_repair() -> Result<(), Error>
+    {
+        let gate = SlowGate::new(SlowFirst::Ok);
+        let envref = slow_env(gate.clone());
+        let m = envref.get_asset_manager();
+        let query = parse_query("slow")?;
+        let mut a = Box::pin(m.get_asset(&query));
+        assert!(futures::poll!(a.as_mut()).is_pending());
+        let mut b = Box::pin(m.get_asset(&query));
+        assert!(futures::poll!(b.as_mut()).is_pending());
+        let asset = gate.asset();
+        let guard = asset.data.read().await;
+        drop(a);
+        drop(guard);
         asset.notify_removed().await;
         let _ = tokio::time::timeout(WAITER_TIMEOUT, b)
             .await

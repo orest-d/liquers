@@ -2,7 +2,7 @@
 id: METADATA-SAVER-SPAWNS-ON-THE-INLINE-PATH
 kind: issue
 title: A command that logs or reports progress panics under the immediate manager on native without a tokio runtime
-status: draft
+status: closed
 priority: P2
 complexity: S
 area: [core/assets]
@@ -49,3 +49,12 @@ wasm branch does; the queued manager keeps its debounced background worker.
 
 Bulk design 2026-10-20 (cluster C6), while measuring tokio use in `liquers-core` for
 `CORE-TOKIO-REMOVAL` (`design/executor-neutral-core/`).
+
+## Resolution
+
+Fixed 2026-10-27 by `design/inline-metadata-save-without-runtime/`. `MetadataSaver::save_immediately` now writes inline (private `persist_inline`, shared with the
+wasm branch) when the environment's manager is `EvalMode::Inline`, and spawns the coalescing
+worker only for `EvalMode::Queued`, so an inline evaluation that logs needs no tokio runtime.
+Tests in `liquers-core/tests/manager_parametric.rs`:
+`immediate_logging_command_without_tokio_runtime`,
+`immediate_keyed_logging_command_without_tokio_runtime`.

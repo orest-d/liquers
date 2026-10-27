@@ -64,6 +64,48 @@ where
     .expect("register greet");
 }
 
+/// `log_greet`: logs "greeting", reports progress and returns "hello" — a command that writes
+/// metadata while it runs (`specs/design/inline-metadata-save-without-runtime/`).
+pub fn register_log_greet<E>(cr: &mut liquers_core::commands::CommandRegistry<E>)
+where
+    E: Environment<Value = Value>,
+{
+    cr.register_command(
+        CommandKey::new_name("log_greet"),
+        |_state, _args, ctx| -> Result<Value, Error> {
+            ctx.info("greeting")?;
+            ctx.progress(liquers_core::metadata::ProgressEntry::new(
+                "greeting".to_string(),
+                1,
+                1,
+            ))?;
+            Ok(Value::from("hello"))
+        },
+    )
+    .expect("register log_greet");
+}
+
+/// Store holding a `recipes.yaml` that maps `logged.txt` to `log_greet`.
+pub async fn log_greet_recipe_store() -> Result<AsyncMemoryStore, Error> {
+    let store = AsyncMemoryStore::new(&Key::new());
+    store
+        .set(
+            &parse_key("recipes.yaml")?,
+            b"recipes:\n  - query: log_greet/logged.txt\n",
+            &Metadata::new(),
+        )
+        .await?;
+    Ok(store)
+}
+
+/// The log messages of `metadata`; empty for legacy metadata.
+pub fn log_messages(metadata: &Metadata) -> Vec<String> {
+    metadata
+        .metadata_record()
+        .map(|record| record.log.iter().map(|e| e.message.clone()).collect())
+        .unwrap_or_default()
+}
+
 // --- keyed scenarios (keyed-recipe-ownership) ---
 //
 // Every scenario above is non-keyed, which is exactly why

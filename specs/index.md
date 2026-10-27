@@ -8,15 +8,14 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 207
+Total rows: 204
 - P1: 1
-- P2: 63
-- P3: 143
+- P2: 61
+- P3: 142
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
 | [`REMOVED-OR-REPLACED-KEY-REVIVED-BY-A-LATE-BACKGROUND-SAVE`](issues/REMOVED-OR-REPLACED-KEY-REVIVED-BY-A-LATE-BACKGROUND-SAVE.md) | issue | A background save still in flight after a key is removed or replaced writes the old value back to the store | draft | ready | eligible | P1 | M | core/assets;core/store | [design](design/replaced-asset-write-gate/DESIGN.md) | 2026-10-21 |
-| [`METADATA-SAVER-SPAWNS-ON-THE-INLINE-PATH`](issues/METADATA-SAVER-SPAWNS-ON-THE-INLINE-PATH.md) | issue | A command that logs or reports progress panics under the immediate manager on native without a tokio runtime | draft | ready | eligible | P2 | S | core/assets | [design](design/inline-metadata-save-without-runtime/DESIGN.md) | 2026-10-20 |
 | [`FOREIGN-VALUE-HAS-NO-DATA-NODE`](issues/FOREIGN-VALUE-HAS-NO-DATA-NODE.md) | issue | A retained foreign value is always opaque to data-node consumers | draft | ready | not-eligible | P2 | S | lib/value | [design](design/foreign-value-data-node/DESIGN.md) | 2026-10-25 |
 | [`WORKSPACE-SERDE-DERIVE-UNDECLARED`](issues/WORKSPACE-SERDE-DERIVE-UNDECLARED.md) | issue | Three crates use serde derive macros without declaring the `derive` feature | accepted | ready | not-eligible | P2 | S | build;core/value;lib/ui;axum | [design](design/serde-derive-feature-declared/DESIGN.md) | 2026-08-09 |
 | [`YAML-SCHEMA-FILE-CANNOT-BE-LINKED-AS-SCHEMA-TEXT`](issues/YAML-SCHEMA-FILE-CANNOT-BE-LINKED-AS-SCHEMA-TEXT.md) | issue | A plain .yaml schema file cannot be linked into to_record's schema argument | draft | needs-decision | not-eligible | P2 | S | records;lib/value | [design](design/schema-argument-structured-link/DESIGN.md) | 2026-10-20 |
@@ -25,7 +24,6 @@ Total rows: 207
 | [`WEB-COMMAND-LOOKUP-IGNORES-NAMESPACE`](issues/WEB-COMMAND-LOOKUP-IGNORES-NAMESPACE.md) | issue | describeCommand and unregisterCommand take a bare name, so namespaced commands cannot be addressed | draft |  |  | P2 | S | web |  | 2026-10-26 |
 | [`WEB-DESCRIBE-COMMAND-SHAPE-DIFFERS-FROM-DECLARATION`](issues/WEB-DESCRIBE-COMMAND-SHAPE-DIFFERS-FROM-DECLARATION.md) | issue | describeCommand returns raw CommandMetadata JSON, not the LiquersCommandInfo shape the .d.ts declares | draft |  |  | P2 | S | web |  | 2026-10-26 |
 | [`WEB-JS-STORE-WITH-ONLY-GET-CANNOT-BE-QUERIED`](issues/WEB-JS-STORE-WITH-ONLY-GET-CANNOT-BE-QUERIED.md) | issue | A page-implemented store with only get, documented as enough, fails every -R/ query | draft |  |  | P2 | S | web |  | 2026-10-26 |
-| [`INLINE-RUN-CLAIM-REPAIR-SKIPPED-UNDER-LOCK-CONTENTION`](issues/INLINE-RUN-CLAIM-REPAIR-SKIPPED-UNDER-LOCK-CONTENTION.md) | issue | A dropped inline run leaves its asset Processing forever when the asset lock is busy at drop time | draft | ready | eligible | P2 | M | core/assets | [design](design/inline-run-claim-repair-under-lock-contention/DESIGN.md) | 2026-10-19 |
 | [`CORE-VALUE-ENUM-OVERSIZED`](issues/CORE-VALUE-ENUM-OVERSIZED.md) | issue | Every Value occupies over 700 bytes because three variants are stored unboxed | draft | ready | not-eligible | P2 | M | core/value;lib/value | [design](design/core-value-enum-oversized/DESIGN.md) | 2026-08-18 |
 | [`ASSET-REGISTRATION-OWNERSHIP-CONTRACT`](issues/ASSET-REGISTRATION-OWNERSHIP-CONTRACT.md) | feature | Registration of a keyed asset is a manager convenience, not a contract anything can rely on | draft | needs-decision | not-eligible | P2 | M | core/assets | [design](design/asset-registration-contract/DESIGN.md) | 2026-09-03 |
 | [`ASSETS-IMPROVEMENTS`](issues/ASSETS-IMPROVEMENTS.md) | feature | The web API's request-body limit is axum's fixed 2 MiB default, not configurable or documented | accepted | needs-decision | not-eligible | P2 | M | axum;docs | [design](design/http-request-body-limit/DESIGN.md) | 2026-08-08 |
@@ -122,7 +120,6 @@ Total rows: 207
 | [`WEB-HAS-NO-TEMPLATE-COMMANDS`](issues/WEB-HAS-NO-TEMPLATE-COMMANDS.md) | feature | The browser environment has no template commands | draft |  |  | P3 | S | web |  | 2026-10-25 |
 | [`WEB-METADATA-STATUS-CASE-DIFFERS`](issues/WEB-METADATA-STATUS-CASE-DIFFERS.md) | issue | State.metadata().status is capitalized while Asset.status() and State.status are lowercase | draft |  |  | P3 | S | web |  | 2026-10-26 |
 | [`WEB-UNREGISTER-DEPENDS-ON-FIRST-EVALUATION`](issues/WEB-UNREGISTER-DEPENDS-ON-FIRST-EVALUATION.md) | issue | unregisterCommand removes a built-in command before the first evaluation but not after it | draft |  |  | P3 | S | web |  | 2026-10-26 |
-| [`CANCEL-CAN-OVERTAKE-A-RETURNED-COMMAND`](issues/CANCEL-CAN-OVERTAKE-A-RETURNED-COMMAND.md) | issue | A cancel can still win after the last command returned Ok, if the rest of the evaluation then suspends | draft | ready | eligible | P3 | M | core/assets | [design](design/cancel-point-of-no-return/DESIGN.md) | 2026-10-09 |
 | [`RUNTIME-DEPENDENCY-RECORD-AGAINST-SUPERSEDED-VERSION-IS-NOT-CHECKED`](issues/RUNTIME-DEPENDENCY-RECORD-AGAINST-SUPERSEDED-VERSION-IS-NOT-CHECKED.md) | issue | A dependency record added at run time is never compared with a newer registered version | draft | ready | eligible | P3 | M | core/assets | [design](design/runtime-dependency-record-superseded-check/DESIGN.md) | 2026-10-17 |
 | [`UNCACHED-STORED-COPY-EXPIRY-RACES-AN-INFLIGHT-EVALUATION`](issues/UNCACHED-STORED-COPY-EXPIRY-RACES-AN-INFLIGHT-EVALUATION.md) | issue | Expiring an uncached key's stored copy can be overwritten by an evaluation already in flight | draft | ready | eligible | P3 | M | core/assets | [design](design/uncached-write-back-rechecks-dependency-versions/DESIGN.md) | 2026-09-27 |
 | [`COLUMNMUT-VALIDITY-AND-VARIABLE-LENGTH-SET-ALWAYS-COPY`](issues/COLUMNMUT-VALIDITY-AND-VARIABLE-LENGTH-SET-ALWAYS-COPY.md) | issue | ColumnMut always copies validity, and rebuilds the whole column to overwrite one Text/Binary cell | draft | ready | not-eligible | P3 | M | records | [design](design/column-mut-zero-copy-validity/DESIGN.md) | 2026-09-26 |
