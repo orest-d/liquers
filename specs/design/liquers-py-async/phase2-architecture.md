@@ -38,12 +38,19 @@ impl LoopPool {
     /// Threads set `ON_LOOP`, `set_event_loop`, `run_forever`; waits detached; `atexit` holds a `Weak`.
     pub(crate) fn start(py: Python<'_>, size: NonZeroUsize) -> Result<Self, Error>;
     pub(crate) fn pick(&self) -> &LoopThread;              // round-robin
-    /// Cancel tasks, gather them, `shutdown_asyncgens`, `close`; join ≤ `STOP_GRACE` (5 s), else warn.
+    /// Cancel tasks, `asyncio.wait(tasks, timeout=STOP_GRACE)` (5 s), `shutdown_asyncgens`, `close`;
+    /// each thread signals a done channel, received with `recv_timeout` detached; else warn.
     pub(crate) fn stop(&self, py: Python<'_>) -> Result<(), Error>;
 }
 impl Drop for LoopPool { /* hands `stop` to a detached std::thread, never a worker */ }
 /// On `EnvCell` (rebuilds share it); started by the first async command; a failure is not cached.
 pub(crate) struct LazyLoopPool { size: NonZeroUsize, pool: Mutex<Option<Arc<LoopPool>>> }
+impl LazyLoopPool { pub(crate) fn get(&self, py: Python<'_>) -> Result<Arc<LoopPool>, Error>;
+    /// Test seam: `get` is `get_with(py, LoopPool::start)`.
+    fn get_with(&self, py: Python<'_>, start: impl FnOnce(Python<'_>, NonZeroUsize)
+        -> Result<LoopPool, Error>) -> Result<Arc<LoopPool>, Error>; }
+/// `EnvCell.shut` becomes `Arc<Shut>`: the flag plus a `tokio::sync::Notify` fired by `shutdown`.
+pub(crate) struct Shut { flag: AtomicBool, notify: Notify }
 
 thread_local! { static ON_LOOP: Cell<bool> = const { Cell::new(false) }; }
 /// AC-3: `RuntimeError` on a pool thread; else `RuntimeWarning` if a loop runs here.
@@ -51,31 +58,38 @@ pub(crate) fn check_blocking_call(py: Python<'_>, call: &str) -> PyResult<()>;
 /// Made before step 1 (a cancel during conversion is kept). `Drop` invalidates the `Context` and
 /// cancels an unfinished future via `runtime()?.spawn_blocking` + `Python::attach` (AC-7).
 struct CancelOnDrop(Arc<Mutex<Pending>>);
-struct Pending { cancelled: bool, future: Option<Py<PyAny>>, context: Context }
+struct Pending { cancelled: bool, future: Option<Py<PyAny>>, context: Option<Context> }
+impl Pending { /// Stores the future, or cancels it at once if the guard already dropped.
+    fn store(&mut self, py: Python<'_>, future: Py<PyAny>) -> PyResult<()>; }
 /// Converted (`Err` via `error_to_pyerr`) by `IntoPyObject` in the bridge's `spawn_blocking` (AC-5).
 pub(crate) enum ToPy { Value(Result<Value, Error>), State(Result<CoreState<Value>, Error>),
-    Asset(Result<CoreAssetRef<PyEnvironment>, Error>), Unit(Result<(), Error>) }
+    Asset(Result<(CoreAssetRef<PyEnvironment>, Arc<Shut>), Error>), Unit(Result<(), Error>) }
 ```
 
-`src/command.rs`: `PyCallable` gains `is_async` (`inspect.iscoroutinefunction` of the object or of
-`type(obj).__call__`) and `loops: Arc<LazyLoopPool>`; `PyCommandSpec` calls
+`src/command.rs`: `PyCallable` gains `is_async` and `loops: Arc<LazyLoopPool>`. `_register_command`
+(which has `py`) computes `is_async` with `inspect.iscoroutinefunction` on the object or on
+`type(obj).__call__`, and passes it to `PyCommandSpec::new`, which calls
 `CommandMetadata::with_async` (the Python `is_async` getter exists). For `is_async`,
 `call_py_command` delegates to `call_async_py_command` (same parameters):
 1. Create `CancelOnDrop`. On the runtime's `spawn_blocking`: `prepare_call` (split from
    `call_with_gil`), call, `run_coroutine_threadsafe` on `pick()`, attach a `#[pyclass] Completer`
    done-callback; store the future, or cancel it at once if `cancelled` is set.
 2. Await the Completer's oneshot. A dropped sender is `Error::cancelled`.
-3. On `spawn_blocking`: `result()`, converted as the sync path. `asyncio.CancelledError` maps to
-   `Error::cancelled`, so the asset ends `Cancelled`. Then disarm and invalidate the `Context`.
+3. On `spawn_blocking`: if `future.cancelled()`, `Error::cancelled`. Otherwise call `result()`,
+   converted as the sync path, with `asyncio.CancelledError` and `concurrent.futures.CancelledError`
+   both mapped to `Error::cancelled`, so the asset ends `Cancelled`. Then disarm and invalidate the
+   `Context`.
 
 A sync callable that returns a coroutine is `Error::execution_error` ("declare it `async def`").
 
 Python (`liquers._native`). Every `_async` method calls `runtime()?` first, so the bridge never
-builds its own runtime, and returns an `asyncio.Future`:
+builds its own runtime. It parses its query eagerly, so a `ParseError` raises at call time. Its
+core future races `Shut::notify` (`Error::cancelled` on shutdown, like the sync `block_on`). It
+returns an `asyncio.Future`:
 
 | Object | New |
 |---|---|
-| `Environment(...)` | `async_loops: int = 1`, `job_capacity: int \| None = None`; both checked in `__new__` |
+| `Environment(...)` | `async_loops: int = 1`, `job_capacity: int \| None = None`; extracted as `i64`, checked in `__new__` |
 | `Environment` | `evaluate_async`, `evaluate_state_async`, `get_asset_async`, `store_set_async` |
 | `AssetRef` | `get_async`, `get_state_async`, `cancel_async` (Decision 4's explicit cancel) |
 | `Context` | `evaluate_async`: `context.evaluate` + `wait_for_dependency`, as the sync `Context.evaluate` |
@@ -85,7 +99,9 @@ builds its own runtime, and returns an `asyncio.Future`:
 `ConfigurationError`. `check_blocking_call` guards `evaluate`, `evaluate_state`,
 `get_asset`, `store_set`, `shutdown`, `Context.evaluate` and `AssetRef.get` / `get_state` / `cancel`.
 Exempt with no awaitable: `AssetRef.status` / `metadata` (one lock read) and `shutdown` (sync by
-nature; on a pool thread it would join itself, so it raises there).
+nature: on a pool thread it would join itself, so it raises there with its own message). A
+top-level `env.evaluate_async` from inside a command at `job_capacity=1` waits for the slot that
+command holds, as the sync `env.evaluate` does; nested work uses `context.evaluate_async`.
 
 AC-4 holds because a nested evaluation is a core dependency wait. With no free slot, `JobQueue`
 runs the dependency inline in the waiting asset (`assets.rs`), so `job_capacity=1` cannot deadlock.
@@ -118,13 +134,13 @@ LANGUAGE-INTEGRATION_GUIDE §6 record them.
 | Blocking call on a pool thread † | `RuntimeError` naming the `_async` variant (AC-3, `ASYNCQ08` "rejected") |
 | Blocking call under another running loop | `RuntimeWarning`, then it runs (`ASYNCQ08` "works") |
 | `_async` call with no running loop | `RuntimeError` from `get_current_locals` |
-| Awaitable cancelled or dropped † | Awaiter gets `asyncio.CancelledError`; the evaluation goes on. `ASYNCQ04` / `ASYNCCMD03` use `cancel_async`; `ASYNCQ05` policy: detach |
+| Awaitable cancelled or dropped † | Awaiter gets `asyncio.CancelledError`; the evaluation goes on. `ASYNCQ04` / `ASYNCCMD03` use `cancel_async`; `ASYNCQ05` policy: detach, shown by completion rather than `live_handle_count()` (which counts registrations) |
 | Asset cancelled, replaced, or environment shut down | Awaiters raise `lq.CancelledError` (an `lq.Error`, unlike `asyncio.CancelledError`); the coroutine gets `CancelledError` (AC-7) |
 | Coroutine raises `CancelledError`, or the oneshot sender drops | `Error::cancelled` |
 | Coroutine raises anything else | As sync commands, traceback kept |
 | Coroutine ignores cancellation past `STOP_GRACE` | `shutdown()` warns and detaches the thread |
 | Sync function returns a coroutine | `Error::execution_error` |
-| `async_loops=0` or `job_capacity=0` | `Error::configuration_error`, raised in `Environment(...)` |
+| `async_loops` or `job_capacity` below 1, or `job_capacity` conflicting with `config` | `Error::configuration_error`, raised in `Environment(...)` |
 | A loop fails to start | `Error::general_error`; that command fails, and the next one retries |
 
 `ASYNCQ07` is NA, because Python has an async model. A result is an `asyncio.Future`, so it can be
@@ -143,12 +159,12 @@ The free-threaded audit (AC-8) covers every `static`, lock, atomic and `#[pyclas
 | # | Finding | Action |
 |---|---|---|
 | 1 | No action needed for these. Process state is `OnceLock` (`RUNTIME`, `builtin_keys`) and atomics (`shut`, `LIVE_HANDLES`). liquers-lib's `DECODERS` `RwLock` copies out a `fn` pointer. `Context.inner` is locked only to clone or invalidate. `_env.py` uses `threading.Lock`, and error classes are built at import. There is no `unsafe`. | None |
-| 2 | `EnvCell::lock` (`std::sync::Mutex`) is taken while attached. `register` (`specs.retain`), `unregister` and `shutdown` (`specs.clear`) can drop the last `PyCallable` under it, and that decref can run `__del__` or GC. On 3.14t, the stop-the-world waits on a thread that is attached and blocked on this lock. On a GIL build, a switch to that thread deadlocks the same way. `envref()` also holds the lock across `build()`, which stalls attached waiters (not a deadlock). | Use `MutexExt::lock_py_attached(py)`, with a py-less variant for Rust tests; drop removed specs after the guard |
+| 2 | `EnvCell::lock` (`std::sync::Mutex`) is taken while attached. `register` (`specs.retain`) and `unregister` drop the last `PyCallable` under it when the spec was never built (a built one stays pinned by the retired registry). That decref can run `__del__`, and a `__del__` that calls back into the environment re-locks on the same thread: a deterministic deadlock on every build. Across threads, a waiter blocked on the lock while attached also stalls 3.14t's stop-the-world; `envref()` holds the lock across `build()` | Drop removed specs after the guard (fixes the re-entry); take every `EnvCell` lock, and `LazyLoopPool` / `Pending`, with `MutexExt::lock_py_attached(py)`. `EnvCell` methods take `py`; Rust tests wrap them in `Python::attach` |
 | 3 | Non-frozen classes (`Query`, `Key`, `Metadata`, and others) have an atomic PyO3 borrow flag, so concurrent mutation of one object raises `RuntimeError`. Handles (`Environment`, `Context`, `AssetRef`, `State`) are `frozen`. | Document |
 | 4 | One Python command may run on many threads and loops at once; its state is the user's concern. | Document |
 
-The audit fix and the explicit `gil_used = false` land in one PR, so AC-8's interim
-`gil_used = true` never ships. It stays the fallback if a 3.14t defect is found later.
+PyO3 0.30 already defaults to `gil_used = false`; making it explicit changes nothing at run time, and
+`gil_used = true` is the fallback if a 3.14t defect is found later (AC-8).
 
 ## Documentation Architecture
 

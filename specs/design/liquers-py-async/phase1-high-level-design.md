@@ -5,6 +5,16 @@
 Let asyncio programs await evaluations and register `async def` commands (`ASYNCQ`, `ASYNCCMD`),
 without Python slowing queries that never touch it (`VISION.md`, Python data science).
 
+## Design Readiness
+
+- **Readiness:** `ready`
+- **Automatic fixing:** `not-eligible`: an `L` feature with a public Python API, designed here.
+- **Leading issue:** None.
+- **Explanation:** Every user decision is recorded (Decisions 1-6), and Phases 2-4 build on them
+  with no open contract question; pre-approved after Phase 2 on 2026-10-27.
+- **Open questions:** None. Decision log under pre-approval: none needed a
+  decision; review fixes to Phases 2-4 and the AC-5 / AC-8 wording are recorded in Scope Changes.
+
 ## Problem Example
 
 ```python
@@ -38,8 +48,8 @@ assert await lq.evaluate_async("hello/fetch_len") == 5
 - **AC-5** Pure-Rust queries never wait on Python
   WHEN a query whose commands are all Rust is evaluated while a Python command holding the GIL is
   still running
-  THEN it completes first; the GIL is never taken on a runtime worker; they share only job-queue
-  capacity (Decision 5)
+  THEN it completes first; no task queued on a runtime worker waits on the GIL; they share only
+  job-queue capacity (Decision 5)
 - **AC-6** A pool of command loops
   WHEN an environment is built with `Environment(async_loops=4)` and several `async def` commands
   run at once
@@ -52,7 +62,8 @@ assert await lq.evaluate_async("hello/fetch_len") == 5
   WHEN liquers-py is imported on a free-threaded CPython (3.14t) and its suite runs, with Python
   commands on several threads and loops at once
   THEN the GIL stays disabled and every test passes; shared state reached from Python is audited
-  for races; until then the module declares `gil_used = true`
+  for races; the module declares `gil_used = false` explicitly, with `gil_used = true` the
+  fallback if a defect is found
 
 Non-goals: async stores and recipe providers; the caller's loop; several job queues
 (`CORE-ONE-JOB-QUEUE-FOR-ALL-COMMANDS`).
@@ -105,6 +116,8 @@ stopped by `shutdown()` and at exit.
 - **2026-10-26** — added AC-5, AC-6 (Orest), AC-7 (`ASYNCCMD03`); widened AC-3. Phases: 1.
 - **2026-10-26** — Orest: AC-8 (free-threaded audit) added; questions 1-2 decided. Phases: 1.
 - **2026-10-26** — test-script fixes and a free-threading classifier absorbed for AC-8. Phases: 2.
+- **2026-10-27** — wording of AC-5 and AC-8 aligned with the code (`block_in_place` serialization;
+  PyO3 0.28+ already defaults to `gil_used = false`); no behaviour change. Phases: 1, 2.
 
 ## References
 

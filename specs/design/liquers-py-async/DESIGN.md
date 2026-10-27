@@ -4,7 +4,10 @@ kind: design
 title: Async evaluation and async commands in liquers-py
 workflow: liquers-project
 status: in_review
-phase: architecture
+phase: implementation
+readiness: ready
+autofix: not-eligible
+merged: 2026-10-26
 area: [py]
 issues: [PY-ASYNC-EVALUATION-NOT-SUPPORTED, PY-FREE-THREADED-SUPPORT-UNVERIFIED]
 affects_docs: [specs/reference/PYTHON_INTEGRATION.md, specs/guides/PYTHON_GUIDE.md, specs/guides/LANGUAGE-INTEGRATION_GUIDE.md]
@@ -14,7 +17,7 @@ created: 2026-10-18
 
 Adds `ASYNCQ` and `ASYNCCMD` to [`liquers-py`](../liquers-py/DESIGN.md), split out of that design
 on 2026-10-18 to keep it within size. It builds on the runtime, environment and command adapter of
-`liquers-py`, which is complete. Phase 1 was approved on 2026-10-26; Phases 3-5 are templates until Phase 2 is approved.
+`liquers-py`, which is complete. Phase 1 was approved on 2026-10-26. Pre-approved after Phase 2 on 2026-10-27 (`proceed all`): Phases 3-4, the implementation and Phase 5.
 
 ## Phases
 
