@@ -5,8 +5,8 @@ title: A recipe with no valid filename is silently left out of the recipe listin
 status: draft
 priority: P3
 complexity: S
-area: [core/assets]
-design:
+area: [core/assets, core/validate]
+design: unnamed-recipe-diagnostics
 created: 2026-10-20
 github:
 ---
@@ -17,6 +17,15 @@ github:
 (a query without a filename), with no diagnostic: the name index built in `cached_recipes`,
 `assets_with_recipes`, and `RecipeList::get` all use `if let Ok(Some(filename)) = recipe.filename()`
 (`liquers-core/src/recipes.rs`).
+
+## Problem Example
+
+Re-checked at HEAD (`cd6d5da`, 2026-10-26): unchanged. `data/recipes.yaml` with entries
+`-R/data/sales.csv/-/to_text/sales.txt`, `-R/data/sales.csv/-/to_text` (no filename) and
+`to_text-~X~/broken.txt` (does not parse): only `sales.txt` is listed or resolvable, and nothing
+names the other two. `liquers-validate --recipes data/recipes.yaml --cwd data` reports the second
+as `Ok` / `recipe_check: AdHoc`, although inside a folder it can never be served (the third is
+already an `Error`).
 
 ## Impact
 

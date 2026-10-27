@@ -18,6 +18,20 @@ but no `realm=`, and `Environment.unregister` and `command_metadata` look a comm
 namespace only, with the realm fixed to `""`. A Python command therefore always lives in the
 default realm, while `register_command!` accepts `realm:`.
 
+## Problem Example
+
+```python
+@lq.command(realm="server", namespace="tools")
+def shout(text: str) -> str:
+    return text.upper()
+# today:    TypeError: decorate() got an unexpected keyword argument 'realm'
+# expected: registered as realm "server", namespace "tools"; env.command_metadata("shout",
+#           namespace="tools", realm="server") finds it
+```
+
+Re-checked at HEAD (2026-10-26): `_decorator` in `liquers-py/python/liquers/_commands.py` still
+takes `name, namespace, label, doc, filename, volatile, cached, env` only.
+
 ## Impact
 
 Python authors who need a command in a non-default realm cannot declare one. No known user needs

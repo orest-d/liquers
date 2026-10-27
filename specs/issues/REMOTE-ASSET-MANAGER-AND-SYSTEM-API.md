@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: XL
 area: [axum, core/assets, web]
-design:
+design: remote-asset-manager
 created: 2026-10-20
 github:
 ---
@@ -19,6 +19,20 @@ asset manager (`liquers-core/src/assets.rs` has `DefaultAssetManager` and `Immed
 both local), and no trusted system API to carry what such a proxy needs — whole entries, versions,
 dependency records, expiration — which the user Assets API deliberately refuses
 (`design/axum-assets-endpoints/` Q10: manager-owned metadata).
+
+## Problem Example
+
+A desktop client mounts the server's store at `shared` (slice 1) and asks for
+`shared/report.html`, whose recipe needs Polars and an hour of CPU on the server. Today (once
+slice 1 lands) the client either reads a stored copy or evaluates the server's recipe itself —
+downloading the inputs and writing the result back as a client-written value — and sees none of
+the server's progress or later expiration. It should ask the server's asset manager and mirror its
+status, progress and expiration as a local `AssetRef`.
+
+Design note (2026-10-26, `design/remote-asset-manager/`): under prefix authority (the server owns
+every key under a delegated prefix) the client never writes manager-owned metadata, so the first
+slice needs only the user Assets API, `ws/key` and the manager event stream over WebSocket; the
+trusted system API is needed only for replication or split evaluation.
 
 ## Impact
 

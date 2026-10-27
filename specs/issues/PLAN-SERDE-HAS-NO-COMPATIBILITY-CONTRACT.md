@@ -4,18 +4,27 @@ kind: issue
 title: A serialized Plan has no compatibility contract
 status: draft
 priority: P3
-complexity: M
+complexity: S
 area: [core/plan]
-design:
+design: plan-serialization-internal-contract
 created: 2026-10-20
 github:
 ---
 ## Problem
 
 `Plan`, `Step` and `ParameterValue` (`liquers-core/src/plan.rs`) derive `Serialize`/`Deserialize`
-and are public, but their wire shape is not versioned. Fields added recently are `serde(default)`
+and are public, but their wire shape is not versioned. Plans leave the process through the HTTP
+recipes API (`GET resolve/{*key}`) and Python (`Plan.to_json` / `from_json`). The `Plan` rustdoc
+half-promises stability for the `serde(default)` fields. Fields added recently are `serde(default)`
 case by case; `query`, `steps` and `is_volatile` are required; a new `Step` variant cannot be read
 by an older build.
+
+## Problem Example
+
+A client stores the JSON plan from `GET resolve/data/report.csv` and reads it with `Plan.from_json`
+after an upgrade that added a `Step` variant. Nothing documents whether that is supported; it fails.
+Should be: the documentation says plans are an inspection format of one build, and to persist the
+query or recipe instead.
 
 ## Impact
 

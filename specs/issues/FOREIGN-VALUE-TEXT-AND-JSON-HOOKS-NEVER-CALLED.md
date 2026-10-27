@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: S
 area: [lib/value]
-design:
+design: foreign-value-text-json-delegation
 created: 2026-10-20
 github:
 ---
@@ -19,6 +19,14 @@ github:
 in both methods (`ExtValue::Image { .. } | ExtValue::UIElement { .. } | ExtValue::Foreign { .. } =>
 Err(ext_scalar_refusal(..))`) instead of delegating to the payload. The two trait methods are dead:
 `JsOpaque` (`liquers-web/src/value.rs`) implements both, and neither can ever run.
+
+## Problem Example
+
+A foreign value whose `try_into_json_value` returns `{"x":1,"y":2}`, wrapped as
+`Value::from(ExtValue::Foreign { value })`: `value.try_into_json_value()` returns a
+`ConversionError` today; it should return `{"x":1,"y":2}`. The same for `try_into_string` (and so
+for binding the value to a `String` command argument). Verified at HEAD (2026-10-26); no existing
+implementation (`JsOpaque`, `PyObjectValue`) returns `Ok` from either hook.
 
 ## Impact
 

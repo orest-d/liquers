@@ -19,6 +19,19 @@ After the first evaluation, a `command`, `first_command`, `unregister` or `impor
 Every rebuild discards the in-memory asset cache and keeps the replaced environment on a retired
 list.
 
+## Problem Example
+
+```python
+env = lq.Environment()
+env.evaluate("-R/data/big.csv/-/slow_summary")   # computed, held in the asset cache
+@env.command
+def extra(text: str) -> str: return text
+env.evaluate("-R/data/big.csv/-/slow_summary")   # computed again: the rebuild dropped the cache
+```
+
+Re-checked at HEAD (2026-10-26): `design/post-init-command-registration/` is `in_review` and
+unimplemented (no `EnvRef::update_commands`), so both integrations still rebuild.
+
 ## Impact
 
 Results that were not stored are recomputed after every late registration, and retired environments

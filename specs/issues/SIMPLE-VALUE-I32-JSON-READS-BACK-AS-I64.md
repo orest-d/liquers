@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: S
 area: [lib/value]
-design:
+design: simple-value-i32-json-read
 created: 2026-10-20
 github:
 ---
@@ -22,6 +22,12 @@ Two tests pin the defect as intended: `test_json_roundtrip_i32` expects `I64`, a
 `every_declared_format_round_trips` maps `("json", I32)` to an `I64` expectation. Every other
 scalar identifier round-trips (`I64`, `F64`, `Bool`, `Text`, `None`), and the structured ones are
 dispatched explicitly (`Metadata`, `AssetInfo`, `Recipe`, `CommandMetadata`).
+
+## Problem Example
+
+`SimpleValue::deserialize_from_bytes(&SimpleValue::I32 { value: 42 }.as_bytes("json")?, "I32", "json")`
+returns `I64 { value: 42 }` today; it should return `I32 { value: 42 }`. Verified at HEAD
+(2026-10-26).
 
 ## Impact
 

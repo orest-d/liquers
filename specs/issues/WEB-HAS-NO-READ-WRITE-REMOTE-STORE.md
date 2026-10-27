@@ -18,6 +18,21 @@ a fixed key list and knows nothing of Liquers metadata. A page that talks to a `
 server cannot list, write or remove its keys, or read its metadata records, except by writing the
 whole protocol in JavaScript and registering it with `registerStoreObject`.
 
+## Problem Example
+
+```javascript
+await env.configureStore({ stores: [{ type: "liquers_api", prefix: "srv",
+                                      config: { url: "https://example.org/liquer" } }] });
+await liquers.evaluate("-R/srv/data/a.csv");
+// today:    `liquers_api` is refused as an unknown store type (only fetch, memory,
+//           local_storage, js)
+// expected: the key is read through the server's Store API, and writes and listings work too
+```
+
+Re-checked at HEAD (2026-10-26): `design/remote-store-and-asset-manager/` (slice 1, the native
+client) is `in_review` and unimplemented — no `liquers_api` type exists anywhere — so this slice
+waits for it.
+
 ## Impact
 
 The browser half of the client/server shape (`VISION.md`) needs hand-written glue. Workaround: a

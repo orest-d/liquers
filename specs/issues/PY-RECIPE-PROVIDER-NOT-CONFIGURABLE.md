@@ -39,6 +39,11 @@ is called too (record-streams Phase 4 decision 1).
 A Python program cannot use manifest-based or trivial recipe providers through `config=`. It can
 still use the default provider.
 
+Re-checked at HEAD (2026-10-26): unchanged (`EnvCell::new`, `liquers-py/src/environment.rs`). Because
+`liquers-py` builds `liquers-lib` with `records`, accepting a configured choice through
+`with_config` today would silently drop `ManifestRecipeProvider`
+(`CONFIGURED-RECIPE-CHOICE-DROPS-MANIFEST-PROVIDER`); land that fix first or together.
+
 ## Expected behaviour
 
 Every `RecipeProviderChoice` that a native `DefaultEnvironment` accepts works from

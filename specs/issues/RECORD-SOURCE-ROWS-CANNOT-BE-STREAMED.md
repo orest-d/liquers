@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: L
 area: [core/value, lib/value, records, axum]
-design:
+design: record-source-row-streaming
 created: 2026-10-21
 github:
 ---
@@ -26,10 +26,13 @@ build an `EnvResolver`.
 GET /liquer/q/-R/data/sales/daily.manifest.yaml/-/ns-rec/materialize/daily.csv
 ```
 
-Today: the whole table is materialized (about three times the data resident at serving time), then
-serialized whole. Should be: the source's rows are encoded chunk by chunk as CSV (uniform schema
-checked before the header) or NDJSON (an in-band error line on failure), served as they are
-produced, with the same query.
+Today (HEAD cd6d5da): the whole table is materialized (about three times the data resident at
+serving time, refused past `max_rows`), then serialized whole. The lazy spelling,
+`…/ns-rec/to_record_source/daily.csv`, is refused: a source's only byte forms are its manifest's
+`yaml` and `json` (`ExtValue::as_bytes`). Should be: the source served with a row filename
+(`…/ns-rec/to_record_source/daily.csv` or `.ndjson`) is encoded chunk by chunk as CSV (uniform
+schema checked before the header) or NDJSON (an in-band error line on failure) and sent as it is
+produced; `materialize` keeps its bounded whole-table meaning (design Q2).
 
 ## Impact
 
@@ -41,8 +44,10 @@ query.
 An environment-aware serialization entry, recommended in `value-serialization-streaming` Phase 1
 Q1: a defaulted `serialize_stream_in<E: Environment<Value = Self>>(self: Arc<Self>, fmt,
 envref: &EnvRef<E>)` that defaults to `serialize_stream`; `CombinedValue` forwards through
-`ExtValueInterface`; `ExtValue::RecordSource` (and `materialize` immediately serialized) builds an
-`EnvResolver` and encodes batches. Alternatives (a type-erased capability passed to
+`ExtValueInterface`; `ExtValue::RecordSource` builds an `EnvResolver` and encodes batches. The
+2026-10-26 design found that override unworkable as stated — `CombinedValue<B, X>` implements the
+value trait generically and cannot prove `RecordValue`, which `EnvResolver` needs — and recommends
+an encoder registered with the `ns-rec` commands instead. Alternatives (a type-erased capability passed to
 `serialize_stream`, a resolver captured in the value) are discussed there. Mid-stream warnings and
 NDJSON error lines belong here too.
 

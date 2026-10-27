@@ -6,7 +6,7 @@ status: draft
 priority: P1
 complexity: M
 area: [core/assets, core/store]
-design:
+design: replaced-asset-write-gate
 created: 2026-10-21
 github:
 ---
@@ -38,6 +38,13 @@ Observed, not constructed: before runtime volatility landed, `liquers-core/tests
 i.e. it loaded a `Ready` copy that the first evaluation's background save wrote after the removal.
 At HEAD the test passes only because `c` is now volatile. A non-volatile key in the same sequence
 is expected to behave as before (not re-run at HEAD with a dedicated test).
+
+Triage at HEAD (`cd6d5da`, 2026-10-26): unchanged by PR #176 / #179. The window also exists on
+the inline manager (between `finalize_status_with_version` and `store.set` inside the evaluation
+future) when the mutation runs on another task. `to_override` is not affected: it keeps the asset
+and its synchronous persist rewrites the current (`Override`) metadata. The unregistered case
+(`cached: false`, volatile), which no mutation can reach through the key map, is filed separately as
+`LATE-SAVE-OF-AN-UNREGISTERED-KEYED-ASSET-SURVIVES-REMOVAL`.
 
 ## Impact
 

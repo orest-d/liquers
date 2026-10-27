@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: S
 area: [docs, axum]
-design:
+design: web-api-spec-read-only-mount
 created: 2026-10-20
 github:
 ---
@@ -18,6 +18,14 @@ writable through the Store API's `PUT`/`DELETE` routes and the Assets API's muta
 are left out (`STORE-NO-READ-ONLY-ADAPTER`)." That issue is closed: `liquers-core` has
 `ReadOnlyStore` (`liquers-core/src/store/read_only.rs`) and store configuration has `read_only`
 (`store_config.rs`), so a mount can refuse writes whatever routes are exposed.
+
+## Problem Example
+
+A deployment serves `data/` from a directory and must not let it be written. Following §9, the
+reader leaves out the Store API's write routes, which removes them for every mount. Setting
+`read_only: true` on that mount would do the job instead: `PUT /…/store/data/data/x` then answers
+501 `NotSupported`, and reads still work (`liquers-axum/tests/store_api_routes.rs`
+`read_only_store_write_is_501`). Re-checked at `cd6d5da`.
 
 ## Impact
 

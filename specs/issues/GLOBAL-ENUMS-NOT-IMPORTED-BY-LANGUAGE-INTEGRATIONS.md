@@ -25,6 +25,19 @@ itself into the registry:
 
 So such a command's argument fails at plan time with *Global enum colours not defined*.
 
+## Problem Example
+
+```javascript
+liquers.registerCommands(`
+global_enums: { colours: { name: colours, values: [{name: red}, {name: green}] } }
+commands: ...   # a command `paint` whose argument `colour` is {GlobalEnum: colours}
+`, { paint: (colour) => `painted ${colour}` });   // warns: "...global enums, which are not imported..."
+await liquers.evaluate("paint-red");   // rejects: Global enum colours not defined
+```
+
+Re-checked at HEAD (2026-10-26): unchanged in both integrations. The core registration method
+(`design/global-enum-registration/`, `in_review`) is not implemented yet.
+
 ## Impact
 
 Global enums are usable from Rust only. Low today: no in-repo command uses one. Workaround: an

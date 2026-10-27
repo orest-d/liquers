@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: L
 area: [core/value, lib/value]
-design:
+design: generic-serde-data-formats
 created: 2026-10-20
 github:
 ---
@@ -16,6 +16,14 @@ github:
 Every serialized base value is text (JSON, the text formats) or raw bytes. Where JSON's size and
 parse cost dominate (caching, moving values between processes or realms) there is no compact
 binary encoding of a Liquers value.
+
+## Problem Example
+
+A 1 MiB `Bytes` value has two stored forms today: `b`, which is raw and carries no structure, and
+`json`, which writes `[137, 80, 78, …]` at about 3.5 bytes per byte. A 10 000-element float
+`Array` exists only as JSON text. `-R/data/x.json/-/x.cbor` validates and is refused when it is
+written, because `cbor` has a media type but no codec. Should be: a self-describing binary format
+that writes the bytes as a byte string and floats natively, and reads back exactly.
 
 ## Impact
 
@@ -33,6 +41,12 @@ decoded without the type, so it must refuse to decode when the type identifier i
 unregistered. Probably built on `SERDE-TYPES-HAVE-NO-GENERIC-DATA-FORMATS`.
 
 ## Discovery
+
+Designed together with `SERDE-TYPES-HAVE-NO-GENERIC-DATA-FORMATS` in
+`specs/design/generic-serde-data-formats/` (bulk design, 2026-10-26). There, CBOR is recommended
+as the compact format, and the schema-dependent candidates are rejected because they cannot read
+the untagged core `Value`.
+
 
 Split out on 2026-10-20 in a bulk-design run from `DATA-FORMAT-CONSTANTS-AND-TOOLING` (point 5,
 added by the user on 2026-08-18).

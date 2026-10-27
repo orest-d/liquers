@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: L
 area: [core/commands, core/plan]
-design:
+design: computed-enum-alternatives
 created: 2026-10-20
 github:
 ---
@@ -19,9 +19,16 @@ github:
 stored tables, the columns of the input frame, the fonts installed. `command_metadata.rs` carries
 `// TODO: support for dynamic global enums` above `CommandMetadataRegistry`.
 
-Example: a `ns-pl/sort-<column>` argument could offer the input frame's column names in a UI and
-reject an unknown one at plan time. Today it is a plain `String`, and a misspelled column fails
-inside the command.
+An argument that depends on the input frame (`ns-pl/sort`'s `column`) cannot be checked at plan
+time at all, because the planner has no input state; it can be checked just before the command
+runs. An argument that depends only on the environment (stored tables) can be checked at plan time.
+
+## Problem Example
+
+`-R/data/sales.csv/-/ns-pl/sort-amont` validates (`liquers-validate` status `Ok`) and fails only
+inside Polars on the unknown column. Should: with `column` declared as a computed enum of the input
+frame's columns, the action is refused before the command runs, naming `region, amount, date`, and
+a UI can ask for those three names.
 
 ## Impact
 

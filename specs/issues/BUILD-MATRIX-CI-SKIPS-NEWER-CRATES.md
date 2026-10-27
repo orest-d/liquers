@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: S
 area: [build]
-design:
+design: build-matrix-path-filters
 created: 2026-10-20
 github:
 ---
@@ -22,6 +22,15 @@ the docs check and nothing else, and a broken configuration lands unseen.
 
 This is the same gap as the closed `BUILD-MATRIX-CI-SKIPS-LIQUERS-RECORDS-CHANGES`, recurring for
 the crates added after it. Each new crate repeats it.
+
+## Problem Example
+
+A PR changes only `liquers-template/src/render.rs` and breaks its wasm32 build
+(`TEMPLATE_CONFIGS` checks `--target wasm32-unknown-unknown --tests`). Because the path filters
+miss `liquers-template/**`, `build-matrix` does not run, and the PR merges with only the `docs`
+check. Re-checked at `cd6d5da`. Of the routes in Expected behaviour, `'**/*.rs'` would miss
+`include_str!` inputs such as `liquers-agent/tools/*.md` and `*.yaml`. The design uses
+`'liquers-*/**'`.
 
 ## Impact
 

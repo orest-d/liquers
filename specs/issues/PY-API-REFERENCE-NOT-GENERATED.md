@@ -23,6 +23,17 @@ The two hand-written documents cover how to use the package and how it is built
 (`guides/PYTHON_GUIDE.md`, `reference/PYTHON_INTEGRATION.md`); neither is, or should become, a
 per-method reference.
 
+## Problem Example
+
+```python
+help(lq.Query)        # lists method names with no description and no signature
+lq.Query.encode.__doc__   # None
+```
+
+Re-checked at HEAD (2026-10-26): no `pdoc`/Sphinx configuration or build script exists
+(`scripts/` has only `test-liquers-py.sh`), and no CI job runs the Python tests
+(`LANGUAGE-BINDING-TESTS-NOT-RUN-IN-CI`).
+
 ## Impact
 
 A Python user, an IDE or a coding agent has no per-class, per-method description of the API, its
@@ -36,7 +47,7 @@ signatures or its return types. `help()` and editor tooltips say nothing for mos
 2. A script, for example `scripts/build-liquers-py-docs.sh`, builds the package and generates an
    HTML API reference with a standard tool (`pdoc` is the smallest choice; Sphinx autodoc if the
    reference is to join other Python docs). `scripts/test-liquers-py.sh` runs it, so a broken
-   docstring fails the test loop; no CI job runs liquers-py's Python tests yet.
+   docstring fails the test loop.
 3. A test fails when a public name has no docstring, so coverage cannot regress.
 
 The method-versus-property inconsistency of `Metadata` is `PY-METADATA-FIELDS-ARE-METHODS`.

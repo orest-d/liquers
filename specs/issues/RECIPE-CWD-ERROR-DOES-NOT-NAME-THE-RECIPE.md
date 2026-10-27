@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: S
 area: [core/assets]
-design:
+design: recipe-list-set-cwd-validation
 created: 2026-10-20
 github:
 ---
@@ -16,6 +16,15 @@ When a `recipes.yaml` entry sets `cwd`, `RecipeList::set_cwd` (`liquers-core/src
 returns `NotSupported` ("CWD can't be explicitly specified in a recipe") and writes a diagnostic to
 stderr with `eprintln!`. The error names neither the offending recipe nor its position;
 `DefaultRecipeProvider` adds only the directory key.
+
+## Problem Example
+
+Re-checked at HEAD (`cd6d5da`, 2026-10-26): unchanged. With
+`recipes: [{query: -R/data/sales.csv/-/to_text/sales.txt}, {query: -R/data/sales.csv/-/to_text/explicit.txt, cwd: other}]`
+in `data/recipes.yaml`, every lookup in `data` fails with `NotSupported` "CWD can't be explicitly
+specified in a recipe" (key `data`), and stderr gets `Recipe already has CWD set to Some("other")`.
+Neither names `recipes[1]`. Designed together with `RECIPE-LIST-SET-CWD-MUTATES-BEFORE-FAILING`
+(same function).
 
 ## Impact
 

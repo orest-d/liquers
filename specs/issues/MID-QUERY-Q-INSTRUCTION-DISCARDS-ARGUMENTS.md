@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: S
 area: [core/plan]
-design:
+design: mid-query-q-arity
 created: 2026-10-20
 github:
 ---
@@ -17,6 +17,12 @@ github:
 arguments"). When `q` is in the middle of a query, the predecessor branch (`if p.is_q()`) strips
 it with `strip_q_instruction` and never looks at its parameters. `liquers-validate -- 'nosuch/q-x/upper'`
 (with `upper` registered) plans cleanly; `nosuch/q-x` is `NotSupported`.
+
+## Problem Example
+
+Checked at cd6d5da with `liquers-validate --command upper`: `nosuch/q-x` is `NotSupported` ("The 'q'
+instruction does not accept any arguments", offset 9), while `nosuch/q-x/upper` and `a/q-x/b/c` (`b`, `c` registered)
+plan cleanly and drop `x`. Should be: all three refused with that error.
 
 ## Impact
 

@@ -4,7 +4,7 @@ kind: feature
 title: The browser environment has no template commands
 status: draft
 priority: P3
-complexity: M
+complexity: S
 area: [web]
 design: 
 created: 2026-10-25
@@ -21,6 +21,20 @@ environment therefore has no `ns-template/render`, `expand` or `validate`, and n
 The in-command half of `TEMPLATE` additionally needs a JavaScript-visible command context, which
 `liquers-web` does not pass yet (`COMMAND07` is scoped to the Rust side,
 `liquers-web/tests/commands_COMMAND.rs`).
+
+## Problem Example
+
+```javascript
+await liquers.evaluate("ns-template/render-~X~-R/templates/hello.md~E");  // valid natively
+// today:    rejects — the browser registry has no `template` namespace
+// expected: the rendered text, as from a native liquers-lib environment
+```
+
+Re-checked at HEAD (2026-10-26): `liquers-template` already builds for wasm32 —
+`scripts/check-build-matrix.sh` checks `liquers-lib` with `--target wasm32-unknown-unknown
+--features webui,templates` — so the build question in the expected behaviour is answered. What
+remains is a `templates` feature on `liquers-web`, the registration call, and the `TEMPLATE`
+dispositions: one crate, re-sized `M` → `S`.
 
 ## Impact
 
