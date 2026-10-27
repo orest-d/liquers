@@ -63,6 +63,10 @@ copy of the column data.
   WHEN `liquers-records` is built without the `cdata` feature
   THEN no `cdata` item exists and the crate has no `unsafe` code of its own; with it, native and
   wasm32 builds pass
+- **AC-10** An inconsistent batch is refused
+  WHEN a batch whose public fields were changed after validation (a buffer shorter than `len`, a
+  validity bitmap without storage for its bits, offsets past the data) is exported
+  THEN the export fails with an error naming the field, and no pointer is handed out
 
 Non-goals: zero-copy *import* (import copies, question 2); the stream interface
 (`ArrowArrayStream`, `__arrow_c_stream__`) for a `RecordSource`; Python → records conversion; a
@@ -99,9 +103,8 @@ the pair into PyCapsules. The dependency flow is unchanged.
   the documented single exception. (b) `liquers-py`, the placement `record-streams` Phase 2 named:
   records stays unsafe-free, but the export is Python-only, needs `RecordBatch`'s fields (which
   `record-batch-private-fields` proposes to make private) and a polars or DuckDB hand-off would need
-  a second implementation. (c) A new crate `liquers-records-ffi`: clean, but one more workspace crate for
-  about 600 lines. The Phases below are written for (a); under (b) Part A moves to liquers-py
-  unchanged in content.
+  a second implementation. (c) A new crate `liquers-records-ffi`: one more crate for about 600
+  lines. Written for (a); under (b) Part A moves to liquers-py unchanged.
 - **Explanation:** the mechanism is fully specified. Arrow's buffers, our buffers and the release
   protocol line up, so a working plan exists under every answer. What is open is a crate rule the
   maintainer set.
@@ -121,8 +124,8 @@ the pair into PyCapsules. The dependency flow is unchanged.
 
 - `py-record-values-to-python` (issue `PY-RECORD-VALUES-CANNOT-CROSS-TO-PYTHON`) — **requires**,
   Part B only: Part B replaces the transport of the record-view arm that design adds and keeps its
-  Python-facing type. Part A does not depend on it. Weak overlap: the only shared contract is that
-  type, which that design owns.
+  Python-facing type, which that design owns. Part A does not depend on it. That design currently
+  records only `overlaps` toward this one; the coordinator aligns it to `required-by`.
 - `record-streams` (complete, frozen) — origin: this design is its unbuilt remainder
   (§"Arrow interoperability"). Not extended (overlap rule E4).
 - `column-slice-shared-buffers` — **overlaps**: once slices share storage, a window's pointer is
@@ -135,17 +138,12 @@ the pair into PyCapsules. The dependency flow is unchanged.
 
 ## Consolidated Findings
 
-- The crate's "no `unsafe`" rule is the only real decision. Every other choice is fixed by [CDATA]
-  or by the existing IPC writer (metadata keys, the `UTC` zone, the type subset).
-- Ownership is simple because every buffer is an `Arc`: each exported node keeps a clone of its
-  `Column` in `private_data`. No buffer is ever mutated after it is shared (`make_bytes_mut` and
-  `into_mut` copy when the `Arc` is shared), so a held export cannot observe a later edit.
-- `Column::slice` copies today, so a view exports through `materialize()`. A non-batch view
-  therefore costs one copy before the export, as `LANGUAGE-INTEGRATION_GUIDE.md` §RECORDS already
-  states.
-- Part B adds no `unsafe` to liquers-py. It relies on `ArrowSchema` / `ArrowArray` being `Send` and
-  releasing themselves on `Drop`. Part B cannot land before `py-record-values-to-python` Phase 4.
-- The two parts are two PRs with one contract. The design does not split, because Part B (about 80
-  lines) has no contract of its own.
-- Proof of the `unsafe` code is by tests that count `Arc` references (AC-3) and, where available, by
-  Miri. Miri is recommended, not required.
+- The crate's "no `unsafe`" rule is the only real decision; every other choice is fixed by [CDATA]
+  or by the IPC writer (metadata keys, the `UTC` zone, the type subset).
+- `RecordBatch`'s fields are `pub` and `Bitmap` deserializes `bits` and `len` independently, so
+  the safe exporter re-validates every buffer length before handing out a pointer (AC-10).
+- A non-batch view exports through `materialize()`, one copy (`Column::slice` copies today).
+- Part B needs no `unsafe` in liquers-py: the pair is `Send`, releases itself on `Drop`, and sits in
+  a `Mutex` inside the pyclass (PyO3 0.30 requires `Sync`). Part B waits until
+  `py-record-values-to-python` is implemented and merged.
+- Two PRs, one contract; no split, since Part B (about 80 lines) has no contract of its own.

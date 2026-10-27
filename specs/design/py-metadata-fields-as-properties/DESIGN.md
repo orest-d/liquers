@@ -19,11 +19,10 @@ Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-27: Phases 1-4 w
 
 ### Purpose
 
-`lq.Metadata` is what `State.metadata` and `AssetRef.metadata` return, and it exposes its fields
-as methods. Every neighbouring class exposes its fields as properties (`State.value`,
-`AssetRef.status`, every field of `MetadataRecord` and `AssetInfo`). A wrong guess fails
-silently: a bound method compares unequal to any string. This design turns the read-only fields
-into properties. That is a change to the Python API, so its compatibility path is a decision.
+`lq.Metadata` is what `State.metadata` and `AssetRef.metadata` return. It exposes its fields as
+methods, while `State`, `AssetRef`, `MetadataRecord` and `AssetInfo` use properties. A wrong guess
+fails silently, because a bound method compares unequal to any string. This design makes the
+read-only fields properties. That changes the Python API, so the compatibility path is a decision.
 
 ### Problem Example
 
@@ -37,183 +36,172 @@ def hello() -> str:
 
 state = env.evaluate_state("hello")
 state.metadata.type_identifier == "Text"     # today: False, silently (a bound method)
-state.metadata.type_identifier() == "Text"   # today: True; guides/PYTHON_GUIDE.md uses this form
-lq.MetadataRecord().type_identifier          # a str: the record's form is a property
-# expected: state.metadata.type_identifier == "Text" is True
+state.metadata.type_identifier() == "Text"   # today: True; expected: the first line is True
 ```
 
-(`hello` validates as one action with `liquers-validate --command hello`.) Verified at HEAD
-(`04667a80`), `liquers-py/src/metadata.rs` `impl Metadata`: the zero-argument readers are
+`hello` validates with `liquers-validate --command hello`. At HEAD (`04667a80`),
+`liquers-py/src/metadata.rs` `impl Metadata` has 13 zero-argument readers, all plain methods:
 `type_identifier`, `status`, `message`, `is_error`, `filename`, `query`, `extension`, `file_size`,
-`is_dir`, `unicode_icon`, `log`, `get_media_type` and `get_data_format`, all plain methods. The
-callers are `liquers-py/tests/test_VALUE_value_bridge.py:160`,
-`test_COMMAND_registration.py:152, 236`, `test_EVAL_evaluation.py:57, 60`, and
-`specs/guides/PYTHON_GUIDE.md` "Reading metadata": the example, the sentence before the table, and
-the table. `test_GUIDE_examples.py` runs that example. The package has no published wheel
-(`PYTHON_INTEGRATION.md` §8).
+`is_dir`, `unicode_icon`, `log`, `get_media_type` and `get_data_format`.
+
+The callers are:
+- `liquers-py/tests/test_VALUE_value_bridge.py:160`;
+- `test_COMMAND_registration.py:152, 236`;
+- `test_EVAL_evaluation.py:57, 60`;
+- `PYTHON_GUIDE.md` "Reading metadata", whose example `test_GUIDE_examples.py` runs.
+
+There is no published wheel (`PYTHON_INTEGRATION.md` §8).
 
 ### Scope and Acceptance Criteria
 
 - **AC-1** Fields read as properties
-  WHEN `state.metadata.type_identifier`, `.status`, `.message`, `.is_error`, `.filename`, `.query`,
-  `.extension`, `.file_size`, `.is_dir`, `.unicode_icon` or `.log` is read on an evaluated state
-  THEN each gives the value its method gives today (`"Text"`, `Status` `Ready`, …), with no call
-- **AC-2** Media type and data format are properties under plain names
+  WHEN one of the 11 readers from `type_identifier` to `log` is read without a call, on an
+  evaluated state
+  THEN it gives what its method gives today. `status` gives an `lq.Status`, which compares equal
+  to `"Ready"` (`PYTHON_INTEGRATION.md` §2)
+- **AC-2** Plain names for media type and data format
   WHEN `metadata.media_type` and `metadata.data_format` are read
   THEN they give what `get_media_type()` and `get_data_format()` give today
 - **AC-3** Read-only
-  WHEN a caller assigns `metadata.status = …`
-  THEN `AttributeError` is raised; the `with_*` and `set_extension` mutators are unchanged
+  WHEN a caller assigns to one of these properties
+  THEN `AttributeError` is raised; the `with_*` and `set_extension` methods are unchanged
 - **AC-4** A failing field raises
   WHEN `query`, `type_identifier` or `is_error` cannot be read (legacy metadata without the field)
-  THEN reading the property raises a `LiquersError`, typed once `py-metadata-typed-errors` lands
-- **AC-5** The old call form follows the decided compatibility path
+  THEN reading the property raises a `LiquersError` (typed once `py-metadata-typed-errors` lands)
+- **AC-5** The old call form is gone
   WHEN a caller writes `metadata.type_identifier()`
-  THEN under the recommended path it raises `TypeError: 'str' object is not callable`, and the
-  guide and README say so
+  THEN `TypeError` is raised, under the recommended answer to decision 1
 - **AC-6** Callers and documents agree
-  WHEN the Python suite and `test_GUIDE_examples.py` run
-  THEN they use the property form and pass
+  WHEN the updated callers and the guide example run
+  THEN they pass
 
-Non-goals: `get_asset_info()`, `error_result()`, `to_json()` and `from_json()` stay methods,
-because they compute, convert or raise rather than read a field. `MetadataRecord`, which is
-already consistent, does not change. There is no setter for `extension`, which stays
-`set_extension()`.
+Non-goals: `get_asset_info()`, `error_result()` and `to_json()` stay methods. `MetadataRecord`
+does not change. There is no `extension` setter.
 
 ### Design Readiness
 
 - **Readiness:** needs-decision
-- **Automatic fixing:** not-eligible. Methods become properties, a change to the Python binding's
-  interface (rule 4), and the compatibility path is an open question (rule 5).
-- **Leading issue:** the compatibility path for existing `metadata.x()` calls.
+- **Automatic fixing:** not-eligible. Turning methods into properties changes the Python API
+  (rule 4), and decision 1 is open (rule 5).
+- **Leading issue:** decision 1.
 - **Explanation:** the change is mechanical once the path is chosen. Phases 2-4 assume the
   recommendation.
 - **Open questions:**
-  1. **Open design: compatibility path.** Options:
-     (a) a clean switch with no deprecation;
-     (b) properties returning a callable value, so that `x()` keeps working with a
-     `DeprecationWarning`;
-     (c) properties under new names, with the old methods kept and deprecated.
-     **Recommended: (a).** The package is unreleased, so no installed user depends on the
-     method form. PyO3 cannot register a method and a property under one name. Option (b) cannot
-     work for `bool`, `int` or `None` (they cannot be subclassed or called), and it would make
-     `is_error` truthy whatever its value. Option (c) leaves two names per field, which is the
-     inconsistency this design removes.
-  2. **Proposed resolution: `get_media_type` / `get_data_format`.** They become `media_type` /
-     `data_format`, and the old methods are removed with the rest under (a). Their names differ, so
-     keeping them as deprecated aliases is possible; it is not recommended, for one consistent
-     break.
+  1. **Open design: compatibility path.** The options are:
+     (a) a clean switch;
+     (b) properties that return a callable value, so that `x()` works with a `DeprecationWarning`;
+     (c) properties under new names, with the methods deprecated.
+     **Recommended: (a)**, which the issue already proposes ("No deprecation period"). The package
+     is unreleased, and PyO3 cannot register a method and a property under one name. Option (b)
+     cannot work for `bool`, `int` or `None`. Option (c) keeps two names per field.
+  2. **Proposed resolution:** `get_media_type` / `get_data_format` become `media_type` /
+     `data_format`, and the old names are removed with the rest. Keeping them as aliases would be
+     possible, but it is not recommended.
 
 ### Design Dependencies
 
-- `py-metadata-typed-errors` (ready, eligible): **overlaps** (T3: `query`, `type_identifier` and
-  `is_error` are change sites in both). It is kept separate under E1, because that design is eligible and
-  this one is not. Preferred order: that design first, so that AC-4 is typed from the start. If the
-  order is reversed, the rebase is three one-line conflicts.
-- `py-python-style-reprs`: **overlaps** (weak). Its `Metadata` repr reads the same Rust accessors,
-  not the Python members.
-- `py-api-reference` (needs decision): **overlaps** (weak). Docstrings for the new
-  properties would serve it.
+- `py-metadata-typed-errors` (ready, eligible): **overlaps**, T3 (`query`, `type_identifier`,
+  `is_error`). The issue says to "land the two together". Overlap rule E1 overrides that: the
+  eligible design stays separate. That design should go first; reversed, the conflict is three
+  lines.
+- `multi-language-traceback` (its test 13) and `language-store-config-function` (its Example 1 and
+  test 6): **overlaps**. They call `asset.metadata.log()`, which becomes `TypeError` here. Whichever
+  design lands later updates the call form; both designs already record this.
+- `py-python-style-reprs`, `py-api-reference`: **overlaps** (weak). They touch the same class and
+  share no contract.
 
 ### Consolidated Findings
 
-- 13 members change: 11 keep their names and 2 are renamed. There are 5 test call sites and 1
-  guide section, all listed in the Problem Example.
-- A `#[getter]` that returns `PyResult` raises on access. That is the AC-4 behaviour, and Python's
-  `hasattr` will not swallow it, because it is not an `AttributeError`.
-- Under (a) nothing else in the repository calls the method form. `grep -rn
-  "metadata\.\w*()" liquers-py specs/guides specs/reference` at HEAD finds only the Python sites
-  listed (the Rust `get_data_format()` in `UNITTEST_GUIDE.md` and the command-library references is
-  core's API and does not change).
+- 13 members change, 2 of them renamed; there are 5 test call sites and 1 guide section.
+  `grep -rnE "metadata\.\w+\(\)"` over `liquers-py` and `specs/` finds no other Python caller. The
+  matches it does find in `UNITTEST_GUIDE.md` and the command-library references are core's Rust
+  API.
+- A `#[getter]` returning `PyResult` raises on access (AC-4). `hasattr` does not swallow it,
+  because it is not an `AttributeError`.
 
 ## Phase 2: Architecture
 
 ### Solution
 
-In `liquers-py/src/metadata.rs` `impl Metadata`, mark the 11 readers `#[getter]` with their
-current bodies and names. Then rename `get_media_type` to `media_type` and `get_data_format` to
-`data_format`, both `#[getter]`. In PyO3 a `#[getter] fn name(&self)` exposes the property `name`,
-so no `#[pyo3(name)]` is needed. The fallible getters (`query`, `type_identifier`, `is_error`) keep
-their `PyResult` return types. With no `#[setter]`, assignment raises `AttributeError` (AC-3).
+In `liquers-py/src/metadata.rs` `impl Metadata`:
+- add `#[getter]` to the 11 readers, keeping their bodies and names;
+- rename `get_media_type` to `media_type` and `get_data_format` to `data_format`, both
+  `#[getter]`.
 
-Rejected alternatives: options (b) and (c) of decision 1; a `__getattr__` shim (it is invisible to
-introspection and slower on every access).
-
-Known-issue preflight: `PY-METADATA-METHODS-RAISE-PLAIN-EXCEPTION` (P3, same methods) is ordered
-in Design Dependencies and does not block. No command namespaces are involved.
+A `#[getter] fn name` exposes the property `name`. The fallible getters keep `PyResult`. With no
+`#[setter]`, assignment raises `AttributeError`. Rejected: options (b) and (c), and a
+`__getattr__` shim, which is invisible to introspection. Known-issue preflight: none blocks. No
+command namespaces are involved.
 
 ### Changes
 
-- `liquers-py/src/metadata.rs` `impl Metadata`: 13 attributes or renames. Signatures are
-  unchanged apart from the two renames.
-- Tests: the 5 call sites drop `()`. The Phase 3 tests are added.
-- `specs/guides/PYTHON_GUIDE.md` "Reading metadata": the example uses the property form; the
-  sentence "`State.value` is a property, but `Metadata`'s fields are methods" becomes "`Metadata`'s
-  fields are properties, like `State.value`"; the table header becomes "`Metadata` property" and
-  lists the bare names, with `media_type` in place of `get_media_type()`. Add a History row.
-- `specs/reference/PYTHON_INTEGRATION.md` §8: drop the `PY-METADATA-FIELDS-ARE-METHODS` clause.
-  Add a History row and bump `reviewed:`.
-- `liquers-py/README.md`: one line under "Layout" or the conformance notes, saying that the method
-  form was removed before the first release (AC-5).
-- There are no Rust callers: `liquers-py` uses `CoreMetadata` directly.
+- `metadata.rs` `impl Metadata`: 13 attribute or rename edits.
+- The 5 test call sites drop `()`.
+- `PYTHON_GUIDE.md` "Reading metadata": the example uses the property form; "`State.value` is a
+  property, but `Metadata`'s fields are methods" becomes "`Metadata`'s fields are properties, like
+  `State.value`"; the table lists bare names. Add a History row.
+- `PYTHON_INTEGRATION.md` §8: drop the `PY-METADATA-FIELDS-ARE-METHODS` clause. Add a History row
+  and bump `reviewed:`.
+- `liquers-py/README.md`: one line saying that the method form was removed before the first
+  release.
 
 ### Risks
 
 | Risk | Mitigation | Certainty |
 |---|---|---|
-| A caller outside the repository uses `x()` | There is no published wheel; the README line documents it | high |
-| A missed call site in the suite | `test_GUIDE_examples.py` and the full suite fail loudly on `'str' object is not callable` | high |
-| A getter raising during a debugger's inspection | Only on legacy metadata without the field, as the method raises today | medium |
-| Decision 1 is (c) | Phase 4 steps 2-3 change to adding properties under new names; the tests stay | medium |
+| An outside caller uses `x()` | There is no wheel; the README line | high |
+| A missed call site | The suite and `test_GUIDE_examples.py` fail loudly | high |
+| A getter raises under a debugger | Only for legacy metadata without the field, as today | medium |
+| Decision 1 is (c) | Revise step 2; the tests stay | medium |
 
-Recovery: revert the commit. No data format changes.
+Recovery: revert.
 
 ## Phase 3: Examples and Tests
 
 ### Examples
 
 ```python
-state = env.evaluate_state("hello")
-assert state.metadata.type_identifier == "Text"
-assert state.metadata.status == "Ready" and state.metadata.is_error is False
-assert isinstance(state.metadata.media_type, str)              # a value, not a method
+m = env.evaluate_state("hello").metadata
+assert m.type_identifier == "Text" and m.status == "Ready" and m.is_error is False
+assert isinstance(m.media_type, str)
 ```
 
 ### Tests
 
-In `liquers-py/tests/test_OBJECT_conformance.py` (the wrapper conventions):
+These go in `liquers-py/tests/test_OBJECT_conformance.py`:
 
-- `test_OBJECT_metadata_fields_are_properties`: on `env.evaluate_state("hello")`, each AC-1
-  member is not callable and equals what the method returned (values fixed in the test: `"Text"`,
-  `"Ready"`, `False`, …), and `inspect.isdatadescriptor(type(m).__dict__["type_identifier"])`
-  holds (a PyO3 getter is a `getset_descriptor`): AC-1
-- `test_OBJECT_metadata_media_type_and_data_format`: `media_type` / `data_format` are strings, and
-  `get_media_type` is absent: AC-2, AC-5
-- `test_OBJECT_metadata_fields_are_read_only`: `pytest.raises(AttributeError)` on assignment;
-  `with_type_identifier("X")` then `.type_identifier == "X"` on `lq.Metadata()`: AC-3
-- `test_OBJECT_metadata_failing_field_raises`: `lq.Metadata.from_json('"not an object"')` (legacy
-  metadata that is not an object; core's `Metadata::query` returns a `General` error) then `.query`
-  raises `lq.GeneralError`. This needs `py-metadata-typed-errors`; before it, `pytest.raises(Exception)`: AC-4
-- `test_OBJECT_metadata_method_form_is_gone`: `pytest.raises(TypeError)` on
-  `state.metadata.type_identifier()`: AC-5
-- The existing suite and `test_GUIDE_examples.py` after the call-site updates: AC-6
+- `test_OBJECT_metadata_fields_are_properties`: each AC-1 member equals its fixed value
+  (`"Text"`, an `lq.Status` equal to `"Ready"`, `False`, …), and
+  `inspect.isdatadescriptor(type(m).__dict__[name])` holds: AC-1
+- `test_OBJECT_metadata_media_type_and_data_format`: both are `str`, and `get_media_type` is
+  absent: AC-2
+- `test_OBJECT_metadata_fields_are_read_only`: assignment raises `AttributeError`; on
+  `lq.Metadata()`, `with_type_identifier("X")` makes `.type_identifier == "X"`: AC-3
+- `test_OBJECT_metadata_failing_field_raises`: `lq.Metadata.from_json('"not an object"').query`
+  raises `lq.GeneralError` once `py-metadata-typed-errors` has landed, and `Exception` before
+  that: AC-4
+- `test_OBJECT_metadata_method_form_is_gone`: `state.metadata.type_identifier()` raises
+  `TypeError`: AC-5
+- These existing tests, after the call-site edits: `test_VALUE_value_bridge.py` (the test at line
+  160), `test_COMMAND_registration.py` (lines 152, 236), `test_EVAL_evaluation.py` (lines 57,
+  60), and `test_GUIDE_examples.py::test_guide_example_runs`: AC-6
 
-Run: `bash scripts/test-liquers-py.sh -k "OBJECT or GUIDE"`, then the full loop.
+Run: `bash scripts/test-liquers-py.sh -k "OBJECT or GUIDE or VALUE or COMMAND or EVAL"`.
 
 ## Phase 4: Implementation Plan
 
 ### Steps
 
-- [ ] 1. `liquers-py/tests/test_OBJECT_conformance.py`: add the five tests. Proof: `bash scripts/test-liquers-py.sh -k metadata` fails as the Problem Example shows
-- [ ] 2. `liquers-py/src/metadata.rs` `impl Metadata`: `#[getter]` on the 11 readers; rename and mark `media_type` / `data_format`. Proof: `cargo check -p liquers-py --lib --tests`; the step 1 tests pass
-- [ ] 3. The 5 test call sites and `PYTHON_GUIDE.md` "Reading metadata". Proof: `bash scripts/test-liquers-py.sh` passes in full, including `test_GUIDE_examples.py`
-- [ ] 4. `PYTHON_INTEGRATION.md` §8 and its History row and `reviewed:`; the `PYTHON_GUIDE.md` History row; the `liquers-py/README.md` line; issue `status: closed` with a resolution note; `python3 scripts/docs_index.py`. Proof: `python3 scripts/docs_index.py --check`
+- [ ] 1. `test_OBJECT_conformance.py`: add the five tests. Proof: `bash scripts/test-liquers-py.sh -k metadata` fails as the Problem Example shows
+- [ ] 2. `metadata.rs` `impl Metadata`: the getters and renames. Proof: `cargo check -p liquers-py --lib --tests`; the step 1 tests pass
+- [ ] 3. The 5 call sites and the `PYTHON_GUIDE.md` section. Proof: `bash scripts/test-liquers-py.sh` passes (AC-6)
+- [ ] 4. The `PYTHON_INTEGRATION.md` §8 edit, its History row and `reviewed:`; the guide History row; the README line; issue `status: closed` with a resolution note; `python3 scripts/docs_index.py`. Proof: `python3 scripts/docs_index.py --check`
 
-Prerequisite: decision 1 is answered. If the answer is (b) or (c), revise Phase 2 first. Preferred:
-`py-metadata-typed-errors` merged first. Rollback: revert per step.
+Prerequisite: decision 1 is answered; for (b) or (c), revise Phase 2 first. Rollback: revert per
+step.
 
 ### Validation
 
 `bash scripts/test-liquers-py.sh`, `cargo fmt -p liquers-py --check`,
-`python3 scripts/docs_index.py --check`. The diff touches only `liquers-py/`, two guides or
-references, the issue and the index.
+`python3 scripts/docs_index.py --check`. The diff touches only `liquers-py/`, the guide, the
+reference, the issue and the index.

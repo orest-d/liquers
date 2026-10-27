@@ -39,6 +39,7 @@ env.store_set("n/a.txt", "abc")
 asset = env.get_asset("-R/n/a.txt")
 assert asset.get() == "abc"
 assert any("seen by page_tag" in str(e) for e in asset.metadata.log())     # AC-1
+# (`asset.metadata.log` if py-metadata-fields-as-properties lands first)
 ```
 
 `page_tag` is registered before first use, so the first build registers it into

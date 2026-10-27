@@ -6,7 +6,7 @@ status: in_review
 phase: implementation
 readiness: needs-decision
 autofix: not-eligible
-area: [mcp, core/commands]
+area: [mcp, core/commands, docs]
 issues: [AGENT-CANNOT-PROPOSE-A-COMMAND]
 affects_docs: [specs/reference/AGENT_MEMORY_SERVICE.md, specs/reference/COMMAND_ALIASES.md, specs/reference/REALMS.md, specs/guides/COMMAND_REGISTRATION_GUIDE.md]
 created: 2026-10-27

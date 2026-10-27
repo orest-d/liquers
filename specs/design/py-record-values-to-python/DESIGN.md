@@ -71,7 +71,8 @@ All three queries validate against the committed registry (`--command table`).
   Pillow paths
 - **AC-6** The state path agrees
   WHEN `evaluate_state` returns a record view
-  THEN `state.value` is the same kind of table, and the metadata is unchanged
+  THEN `state.value` is the same kind of table, and the state's metadata still reports the
+  type identifier `RecordView`
 
 Non-goals: Python → records (`pyarrow.Table` as a command input); zero-copy hand-off
 (`records-arrow-c-data-export`); a source as a Python iterator or a `liquers` record class.
@@ -103,10 +104,14 @@ Non-goals: Python → records (`pyarrow.Table` as a command input); zero-copy ha
 
 ### Design Dependencies
 
-- `records-arrow-c-data-export` (designed in this run under that slug) — **overlaps**: the same
-  hand-off without copies. Not merged: no overlap test holds (different mechanism, crates and
-  change sites; it needs no part of this design), and it is `L`. It may later swap the IPC bytes
-  behind `ext_to_py` for the C Data Interface while keeping question 1's type. No order.
+- `records-arrow-c-data-export` — **required-by**: its Part B replaces this design's IPC
+  transport in `ext_to_py` with the C Data Interface and keeps question 1's Python type, so it
+  starts after this design lands. Not merged: no overlap test holds (different mechanism and
+  change sites), and it is `L`.
+- `language-binding-tests-in-ci` — **overlaps**: its CI runs `scripts/test-liquers-py.sh` on
+  CPython 3.9, 3.14 and 3.14t, so step 1's pyarrow install runs there. Checked on PyPI
+  (2026-10-27): 3.9 resolves pyarrow 21.0.0 (the last release with `cp39` wheels); `cp314t`
+  manylinux wheels exist from 22.0.0 to 26.0.0. PyPy has no pyarrow wheel. No order.
 - `py-api-reference` — **overlaps**: documents `evaluate`'s return types; no order.
 - `liquers-web-records-bridge` (complete) — precedent: JavaScript wraps views in its own handle
   class; Python uses the ecosystem's type instead. E4.
@@ -144,7 +149,7 @@ format `records-ipc` already builds); polars (question 1).
 
 - `liquers-py/src/value.rs` `ext_to_py` (two branches, `use liquers_lib::records::{write_table,
   TableFormat, WriteOptions}`), its doc comment.
-- `scripts/test-liquers-py.sh`: `pyarrow` added to the pip install line and the header comment.
+- `scripts/test-liquers-py.sh`: a non-fatal `pip install pyarrow` line and the header comment.
 - Documents: `specs/reference/PYTHON_INTEGRATION.md` §5 (Liquers to Python: records row, source
   refusal); `specs/guides/PYTHON_GUIDE.md` §7 Values (the table type, the materialize remedy);
   `liquers-py/README.md` "Building and testing" (pyarrow among the installed packages). History
@@ -157,6 +162,7 @@ format `records-ipc` already builds); polars (question 1).
 | pyarrow rejects the hand-written IPC file (alignment, flatbuffer detail) | AC-1/AC-2 tests; fall back to `pyarrow.ipc.open_stream` or the polars route; file an issue against `liquers-records` | medium |
 | Column types differ from expectations (text as `large_string`, ints width) | tests compare values (`to_pylist`), not Arrow type names | high |
 | A large view is copied twice | documented; zero copy is `records-arrow-c-data-export` | high |
+| No pyarrow wheel for an interpreter (PyPy; a future free-threaded release) fails the test script | install pyarrow in its own `pip install … \|\| echo` line; the tests `importorskip` it | high |
 | Feature unification changes `ExtValue` | `if let`, no `match`, as today | high |
 
 Recovery: revert `value.rs`; the refusal returns. Existing tests: none change.
@@ -180,8 +186,8 @@ In `liquers-py/tests/test_VALUE_value_bridge.py`, with a `table` first command a
 - `test_VALUE08_record_source_is_refused_naming_materialize` — no pyarrow needed: AC-4
 - `test_VALUE08_record_view_without_pyarrow_is_a_conversion_error` — `monkeypatch.setitem(sys.modules,
   "pyarrow", None)`: AC-5
-- `test_VALUE08_record_view_state_value_is_a_table` — `evaluate_state`, metadata type identifier
-  `RecordView`: AC-6
+- `test_VALUE08_record_view_state_value_is_a_table` — `evaluate_state`: `state.value` is a
+  `pyarrow.Table`, and `state.metadata` reports type identifier `RecordView`: AC-6
 
 Run: `bash scripts/test-liquers-py.sh -k VALUE08`.
 
@@ -189,7 +195,7 @@ Run: `bash scripts/test-liquers-py.sh -k VALUE08`.
 
 ### Steps
 
-- [ ] 1. `scripts/test-liquers-py.sh` — add `pyarrow` to the pip line — proof: the script prints the install and `python3 -c "import pyarrow"` succeeds in the venv
+- [ ] 1. `scripts/test-liquers-py.sh` — a separate, non-fatal `pip install pyarrow` line after the existing one, and the header comment — proof: the script prints the install and `python3 -c "import pyarrow"` succeeds in the venv
 - [ ] 2. `liquers-py/tests/test_VALUE_value_bridge.py` — the five tests, failing — proof: `bash scripts/test-liquers-py.sh -k VALUE08` fails on them only
 - [ ] 3. `liquers-py/src/value.rs` `ext_to_py` — the `RecordView` branch — proof: `bash scripts/test-liquers-py.sh -k "record_view or materialized"` (AC-1, AC-2, AC-3, AC-5, AC-6)
 - [ ] 4. Same function — the `RecordSource` refusal message — proof: `bash scripts/test-liquers-py.sh -k record_source_is_refused` (AC-4)

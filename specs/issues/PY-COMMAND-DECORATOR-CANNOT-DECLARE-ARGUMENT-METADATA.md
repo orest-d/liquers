@@ -49,3 +49,9 @@ reach `command_metadata`.
 ## Discovery
 
 Phase 5 review of `specs/design/liquers-py/` against `COMMAND_DECLARATION.md` §9, 2026-10-18.
+
+Overlap triage (bulk design, 2026-10-27): designed together with
+`PY-COMMAND-DECORATOR-CANNOT-SET-REALM` in `design/py-command-decorator-declaration-keywords/`
+(this issue leading). Test that held: T3, both add a keyword to `_decorator.decorate` / `_register`
+in `liquers-py/python/liquers/_commands.py`; T1, T2, T4 did not. Runner-up: none (no open design
+changes those functions; `language-global-enum-import` is weak overlap only).

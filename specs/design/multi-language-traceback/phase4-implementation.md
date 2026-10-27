@@ -58,7 +58,7 @@ different answer to Q1 or Q3 changes steps 1, 5 and 6.
   concatenation; every formatted stack becomes `with_traceback_segment(TracebackSegment::new("python", frames))`.
   `liquers_error_fields` reads `traceback_segments` when it is a sequence of three-item entries,
   otherwise ignores it; it reads `traceback` as today, so a segment-less error keeps its flat text.
-- Depends on: Steps 1-3.
+- Depends on: Steps 1-3, and `py-metadata-typed-errors` landed (same files).
 - Proof: `bash scripts/test-liquers-py.sh` — tests 9-13 and every existing `test_ERROR*`, in
   particular `test_ERROR_nested_python_tracebacks_are_concatenated`; its comment's "plain
   concatenation for now" is updated to name segments.
@@ -81,7 +81,9 @@ different answer to Q1 or Q3 changes steps 1, 5 and 6.
 - Change: update the documents, each `reference/` and `guides/` file with a `## History` row and a
   `reviewed:` bump; README rows; close the issue with a resolution note (§4.3); `specs/README.md`
   row; `python3 scripts/docs_index.py`, then `--check`.
-- Depends on: Steps 1-6 (or Step 5 only, if step 6 waits; the web half is then an issue, §5.6).
+- Depends on: Steps 1-6. If step 6 cannot start because `LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT`
+  is open, file the JavaScript half (AC-6, AC-5's JavaScript case) as an issue (§5.6), say so in
+  this item, and close the source only for the Python and core scope.
 - Proof: `python3 scripts/docs_index.py --check`.
 - Rollback: revert the documents.
 
@@ -89,7 +91,8 @@ different answer to Q1 or Q3 changes steps 1, 5 and 6.
 
 Steps 1-4: `cargo test -p liquers-core --lib --tests`, then `cargo test -p liquers-lib --lib --tests`
 (it builds core and exercises persistence through `liquers-lib` stores) and
-`cargo test -p liquers-axum` (its `error_to_detail` tests read `traceback`). Step 5: the Python
+`cargo test -p liquers-axum --lib error_to_detail_splits_traceback_into_lines` (the one axum
+test that reads `traceback`; optional where disk is tight). Step 5: the Python
 script. Step 6: the `liquers-web` loops above. No `cfg(feature)` or optional dependency changes, so
 `scripts/check-build-matrix.sh` is not required; `cargo check -p liquers-core --target
 wasm32-unknown-unknown` covers the wasm build of the core change. Final diff review: no

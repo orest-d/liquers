@@ -2,12 +2,10 @@
 
 ## Purpose
 
-An error that crosses several languages (Rust → Python → Rust → Python, later Rhai or Starlark)
-carries one flat traceback string, so a consumer cannot tell where one language's stack ends, which
-language it came from, or which command it belongs to. This design adds an ordered list of
-traceback **segments** beside the string, which stays as the display form. It serves VISION's
-"embedded in Python" and browser uses: a notebook, a log viewer or a page can show, filter or fold
-each language's stack.
+An error crossing several languages carries one flat traceback string, so a consumer cannot tell
+where one language's stack ends, which language it is, or which command it belongs to. This design
+adds ordered traceback **segments** beside the string, which stays as the display form, so a
+notebook, log viewer or page (VISION: embedded in Python, browser) can show each stack apart.
 
 ## Problem Example
 
@@ -26,10 +24,9 @@ def outer_calls(context):
 env.evaluate("outer_calls")   # raises lq.ExecutionError
 ```
 
-Today `raised.value.traceback` is `inner_fails`'s formatted stack followed by `outer_calls`'s
-frames, joined by a bare newline (`pyerr_to_error` in `liquers-py/src/error.rs`). Nothing marks the
-boundary or names a language or command; `Error::traceback` is `Option<String>`
-(`liquers-core/src/error.rs` `ErrorPayload`). Should be: `raised.value.traceback_segments` lists
+Today `raised.value.traceback` is the two stacks joined by a newline (`pyerr_to_error`,
+`liquers-py/src/error.rs`), with no boundary, language or command; `ErrorPayload::traceback` is
+`Option<String>`. Should be: `raised.value.traceback_segments` lists
 `("python", "inner_fails", …)` then `("python", "outer_calls", …)`, and the string shows a header
 line before each segment. Both queries validate (`--command outer_calls --command inner_fails`).
 
@@ -44,7 +41,9 @@ line before each segment. Both queries validate (`--command outer_calls --comman
   THEN `traceback` is that segment's text, unchanged (no header)
 - **AC-3** Several segments render with headers
   WHEN an error has two or more segments
-  THEN `traceback` is each segment's text preceded by `--- <language> (<command>) ---`, innermost first
+  THEN `traceback` is each segment's text preceded by `--- <language> (<command>) ---`, innermost
+  first; an empty language reads `unknown`, and ` (<command>)` is omitted when there is none
+  (`--- unknown ---`, `--- python ---`)
 - **AC-4** Persisted and backward compatible
   WHEN an error with segments is stored as `error_data` and as an error `LogEntry`, in JSON and YAML
   THEN both round-trip their segments; WHEN a record written before the field existed is read
@@ -52,83 +51,74 @@ line before each segment. Both queries validate (`--command outer_calls --comman
 - **AC-5** A language error keeps segments across a round trip
   WHEN a Liquers error passes through a Python `LiquersError` (or a JavaScript `LiquersError`) and back
   THEN its segments are unchanged, and the language's own frames are appended as one more segment
-- **AC-6** JavaScript segment
+- **AC-6** JavaScript segment (needs `LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT`)
   WHEN a JavaScript command throws an `Error` on the evaluation path
   THEN the error has one `javascript` segment holding the stack, attributed to the command
 - **AC-7** Flat text still accepted
   WHEN code sets a traceback with `Error::with_traceback` and a language then appends a segment
   THEN the earlier text is kept as a first segment of unknown language
 
-Non-goals: native Rust backtraces; the Liquers-level path between segments (queries, keys, action
-frames: `error-with-key-field`); a JavaScript exception class field; HTTP body shape (axum keeps the
-derived string as lines); an egui rendering.
+If that prerequisite is not done when steps 1-5 land, AC-6 and the JavaScript half of AC-5 are
+deferred and spun off as an issue under Phase 4 step 7. `jsClass` and `jsStack` stay as the
+prerequisite leaves them; `tracebackSegments` is independent of both, not derived from them.
+
+Non-goals: native Rust backtraces; the Liquers path between segments (`error-with-key-field`); a
+JavaScript class field; the HTTP body shape; an egui rendering.
 
 ## Core Interactions
 
-- Error (`liquers-core/src/error.rs`): segment type, payload field, rendering, attribution.
-- Value/metadata (`liquers-core/src/metadata.rs` `LogEntry`): segments copied into error log entries.
-- Plan (`liquers-core/src/interpreter.rs`): the action error path attributes segments to its command.
-- Bindings: `liquers-py` (`error.rs`, `metadata.rs`, `python/liquers/_errors.py`) and `liquers-web` (`error.rs`, `.d.ts`).
+Error (`error.rs`: type, field, rendering), metadata (`LogEntry`), plan (`interpreter.rs`
+attributes segments), bindings (`liquers-py` errors and metadata, `liquers-web` errors and `.d.ts`).
 
 ## Crate Placement
 
-The type lives in `liquers-core`, which every integration already depends on; each binding only
-fills and exposes it. Nothing goes in `liquers-lib`.
+`liquers-core` owns the type (every integration depends on it); bindings fill and expose it.
 
 ## Documentation Intent
 
-- Reference: extend `specs/reference/PYTHON_INTEGRATION.md` §6 Errors (segments replace "open").
-- Guide: extend `specs/guides/PYTHON_GUIDE.md` (error fields table) and `specs/guides/LANGUAGE-INTEGRATION_GUIDE.md` §ERROR and §6 Python.
-- Other documents: `liquers-web/README.md` `ERROR` row, `liquers-py/README.md` `ERROR` row.
-- Documents to update: the four above; `specs/README.md` gains this design's row.
+- Reference: `specs/reference/PYTHON_INTEGRATION.md` §6. Guide: `specs/guides/PYTHON_GUIDE.md`,
+  `specs/guides/LANGUAGE-INTEGRATION_GUIDE.md` §ERROR and §6 Python.
+- Other: both binding READMEs' `ERROR` rows. To update: these; `specs/README.md` row.
 
 ## Design Readiness
 
 - **Readiness:** needs-decision
-- **Automatic fixing:** not-eligible — size `L`; adds a `pub` struct and a `pub` field to
-  `liquers-core` and new attributes to the Python and JavaScript bindings (rules 1, 3 and 4).
-- **Leading issue:** **Open design - traceback shape** (Q1), because the maintainer's recorded
-  position (2026-10-19) is "a flat string for now".
-- **Explanation:** a working solution is fully specified under the recommended answers; Phases 3-4
-  follow it. The choice changes a serialized format and two binding surfaces, so it is the
-  maintainer's to make.
+- **Automatic fixing:** not-eligible — size `L`; a `pub` struct and field in `liquers-core`; new
+  Python and JavaScript attributes (rules 1, 3, 4).
+- **Leading issue:** Q1, since the maintainer's position (2026-10-19) is "a flat string for now".
+- **Explanation:** fully specified under the recommended answers; the choice changes a serialized
+  format and two binding surfaces, so it is the maintainer's.
 - **Open questions:**
-  1. **Open design - traceback shape.** (a) *Documented separator only*: the string gains headers,
-     nothing structured; cheapest, but a consumer still parses text. (b) *Segments plus derived
-     string* (**recommended**): `traceback_segments: Vec<TracebackSegment { language, command, text }>`,
-     serialized additively; `traceback` stays and is rendered from the segments with (a)'s headers,
-     so every current consumer keeps working. (c) *Fold into a language-context field*
-     (`LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT`'s option): the maintainer declined that field for
-     now. Incompatible example: under (a) a viewer splitting on `--- ` misreads a Python frame that
-     prints such a line; under (b) it reads data.
-  2. **Open design - Rust frames between segments.** Recommended: record none. A native
-     `std::backtrace` is costly, empty in most builds and meaningless to a language user; the
-     Liquers path between segments is the command attribution here plus `error-with-key-field`'s
-     action frames.
-  3. **Open design - binding surface.** Recommended: Python `LiquersError.traceback_segments` (a
-     tuple of `lq.TracebackSegment(language, command, text)`, a named tuple) and
-     `LogEntry.traceback_segments`; JavaScript `LiquersError.tracebackSegments` (an array of
-     `{language, command, text}`).
-  4. **Proposed resolution - rendering.** One segment renders as its bare text (AC-2), so the
-     single-language output does not change; headers appear only from two segments on. Language
-     names are lowercase strings (`python`, `javascript`), open-ended so a new language needs no
-     core change; an empty name means unknown.
+  1. **Open design - shape.** (a) separator headers in the string only (consumers still parse
+     text); (b) **recommended**: `traceback_segments: Vec<TracebackSegment { language, command,
+     text }>`, additive, with `traceback` rendered from it using (a)'s headers; (c) a
+     language-context field (declined by the maintainer). Under (a) a viewer splitting on `--- `
+     misreads a frame that prints such a line; under (b) it reads data.
+  2. **Open design - Rust frames.** Recommended none: no native backtrace; the Liquers path is
+     the command attribution plus `error-with-key-field`'s frames.
+  3. **Open design - binding surface.** Recommended: Python `LiquersError.traceback_segments`
+     (tuple of named tuples `lq.TracebackSegment`) and `LogEntry.traceback_segments`; JavaScript
+     `LiquersError.tracebackSegments` (array of `{language, command, text}`).
+  4. **Proposed resolution - rendering.** As AC-2/AC-3; lowercase open-ended language names, empty = unknown.
 
 ## Design Dependencies
 
 | Design / issue | Relation | Effect |
 |---|---|---|
-| `error-with-key-field` | overlaps | Shared change site (T3): both add a list to `ErrorPayload` and edit the action error mapping in `interpreter.rs`. Not merged: its Phase 4 is finished (bulk-design guide §1) and the merge would be `XL` (E2). Whichever lands second rebases; a segment's `command` uses its `Action` frame's label form. |
-| `error-type-taxonomy` | overlaps | Same file, independent; lists structured tracebacks as a non-goal. Only surviving constructors are used. |
-| `LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT` (issue) | requires | Moves the JavaScript stack from `message` to `traceback`; Phase 4 step 6 waits for it, steps 1-5 do not. |
+| `error-with-key-field` | overlaps | T3 (both extend `ErrorPayload` and the action error mapping); not merged: Phase 4 finished, merge `XL` (E2). Second to land rebases; `command` uses its `Action` frame label. |
+| `error-type-taxonomy` | overlaps | Same file, independent; only surviving constructors are used. |
+| `web-thrown-back-error-context` | overlaps | T3: both edit `js_value_as_liquers_error`; not merged (E1: it is eligible). Second to land rebases. |
+| `LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT` (issue) | requires | Step 6 (AC-6, JS half of AC-5) waits for it. |
+| `py-metadata-typed-errors` | requires | Edits `liquers-py/src/error.rs` and `metadata.rs`; it lands first, step 5 rebases. |
+| `py-metadata-fields-as-properties` | overlaps | Makes `metadata.log()` a property; whichever lands later updates test 13's call. |
+| `language-store-config-function` | overlaps | A handler's exception carries segments through the same bridges; no order. |
 
 ## Consolidated Findings
 
-- **Premise corrected:** `liquers-web` does not fill `Error::traceback`; `js_error_to_liquers`
-  appends the stack to `message`. Hence the `requires` above.
-- **Invariant:** with segments present, `traceback` is their rendering; `with_traceback` clears them.
-- **Attribution** happens in the interpreter's action error mapping, so no binding needs to know its command.
-- **Gap found, not in scope:** `liquers-web` `js_value_as_liquers_error` drops `query`, `key`,
-  `position` and `traceback` of a thrown-back `LiquersError`; step 6 restores the traceback only.
-  Reported for filing.
-- **Compatibility:** additive serde; records without segments are unchanged; no registry change.
+- `liquers-web` never fills `Error::traceback` (`js_error_to_liquers` appends to `message`): hence the `requires`.
+- With segments present `traceback` is their rendering; `with_traceback` clears them.
+- Attribution sits in the interpreter, so no binding needs its command.
+- `js_value_as_liquers_error` drops `query`, `key`, `position`, `traceback`: filed as
+  `WEB-THROWN-BACK-LIQUERSERROR-LOSES-CONTEXT` (`web-thrown-back-error-context`); step 6 restores
+  the traceback only.
+- Additive serde; no registry change.

@@ -95,8 +95,9 @@ that fails adds a warning naming it, and the rest still load (AC-4).
 `liquers-agent/src/lib.rs`: `MemorySettings` gains `#[serde(default)] pub proposals:
 Option<ProposalsDecl>`, which is attached to the built-in `memory_` set (a profile with its own
 `memory.tools` declares `proposals` in its set instead). `build_server_with` calls
-`McpServer::new(..).with_proposals()`, then `restore_proposals().await`, writes each warning with
-`eprintln!` and appends a count to the instructions.
+`McpServer::new(..).with_proposals()` and `restore_proposals().await` before its early return for
+`!builtin || !overview`, writes each warning with `eprintln!` and appends a count to the
+instructions. `BoxedFuture` is `Send` only if `update_commands`' future is (Phase 4 Step 3).
 
 ## Integration Points
 

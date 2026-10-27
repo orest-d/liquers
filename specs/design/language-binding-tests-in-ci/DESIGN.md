@@ -5,8 +5,8 @@ title: CI runs the liquers-py test loop and the liquers-web Node loop
 form: compact
 status: in_review
 phase: implementation
-readiness: ready
-autofix: eligible
+readiness: needs-decision
+autofix: not-eligible
 area: [build, py, web]
 issues: [LANGUAGE-BINDING-TESTS-NOT-RUN-IN-CI, PY-TESTS-NOT-RUN-IN-CI]
 merged: 2026-10-27
@@ -20,118 +20,135 @@ Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-27: Phases 1-4 w
 
 ### Purpose
 
-The two language bindings have test loops that only run by hand. `build-matrix` proves that
-`liquers-py` and `liquers-web` compile, not that they behave. A core change can therefore make
-their conformance tables untrue without failing any check. This design adds two workflows: one runs
-`scripts/test-liquers-py.sh` on three interpreters, the other runs the `liquers-web` Node loop
+Both language bindings have test loops that run only by hand. `build-matrix` proves that
+`liquers-py` and `liquers-web` compile, not that they behave, so a core change can make their
+conformance tables untrue without any check failing. This design adds two workflows. One runs
+`scripts/test-liquers-py.sh` on three interpreters. The other runs the `liquers-web` Node loop
 with both feature sets.
 
 ### Problem Example
 
 Verified at HEAD (`04667a80`):
 
-- `.github/workflows/` holds `build-matrix.yml` (`cargo check` rows via
-  `scripts/check-build-matrix.sh`) and `docs-check.yml`. Neither runs `pytest` or `cargo test`.
-- `scripts/test-liquers-py.sh` builds into a venv per interpreter (`PYTHON`, default `python3`),
-  installs `maturin pytest polars pillow` with pip, runs `maturin develop --features
-  debug-handles`, `pytest liquers-py/tests`, then `cargo test -p liquers-py --no-default-features
-  --lib`, adding the interpreter's `LIBDIR` to `LD_LIBRARY_PATH`.
+- `.github/workflows/` holds `build-matrix.yml` (`cargo check` only) and `docs-check.yml`.
+- `scripts/test-liquers-py.sh` makes a venv per interpreter (`PYTHON`, default `python3`) under
+  `target/` and pip-installs `maturin pytest polars pillow` (line 42, under `set -euo pipefail`).
+  It then runs `maturin develop --features debug-handles`, `pytest liquers-py/tests` and
+  `cargo test -p liquers-py --no-default-features --lib`.
 - The Node loop is `cargo test -p liquers-web --target wasm32-unknown-unknown --features
-  debug-handles` and the same with `debug-handles,records`. `.cargo/config.toml` sets the wasm32
-  runner to `wasm-bindgen-test-runner`, which must come from a `wasm-bindgen-cli` of the
-  lockfile's `wasm-bindgen` version (`Cargo.lock`: `0.2.129`). The browser-only files are gated
-  behind `browser-tests`, so this loop needs only Node.
-- `specs/reference/PYTHON_INTEGRATION.md` §8 and `liquers-py/README.md` "Supported Python" both
-  say that the suite has passed on CPython 3.13 and 3.14t locally, "not in CI".
+  debug-handles`, and the same with `,records`. The runner is `wasm-bindgen-test-runner`
+  (`.cargo/config.toml`), whose version must match the `wasm-bindgen` entry in `Cargo.lock`
+  (`0.2.129`).
+- `PYTHON_INTEGRATION.md` §8 and `liquers-py/README.md` both say that the suite has passed on 3.13
+  and 3.14t locally, "not in CI".
 
 Scenario: a core PR adds an `ErrorType` variant. `build-matrix` passes. `test_ERROR01` (Python) and
-`OBJECT06` (web, the exhaustive error-type round trip) would fail, but nothing runs them, so the
-PR merges green. It should fail in a `liquers-py` or `liquers-web` check on that PR.
+`OBJECT06` (web) would fail, but nothing runs them, so the PR merges green. It should fail on that
+PR.
 
 ### Scope and Acceptance Criteria
 
 - **AC-1** Python loop gates a PR
-  WHEN a pull request changes a file that `liquers-py` builds from, and a test in
-  `liquers-py/tests/` or a `liquers-py` Rust unit test fails
+  WHEN a PR changes a file that `liquers-py` builds from, and a Python or Rust test of
+  `liquers-py` fails
   THEN the `liquers-py` workflow fails
-- **AC-2** Three interpreters
+- **AC-2** Three interpreters, independent
   WHEN the `liquers-py` workflow runs
-  THEN it runs `scripts/test-liquers-py.sh` once on CPython 3.9, once on 3.14 and once on
-  free-threaded 3.14t, each as its own job, and a failure on one does not cancel the others
+  THEN `scripts/test-liquers-py.sh` runs as separate jobs on CPython 3.9, 3.14 and free-threaded
+  3.14t, and each job runs to its own end (failed or passed, never cancelled by another)
 - **AC-3** Web Node loop gates a PR
-  WHEN a pull request changes a file that `liquers-web` builds from, and a Node-loop test fails
-  with either feature set (`debug-handles`, `debug-handles,records`)
+  WHEN a PR changes a file that `liquers-web` builds from, and a Node-loop test fails with
+  either feature set
   THEN the `liquers-web` workflow fails
 - **AC-4** The runner matches the lockfile
-  WHEN the `liquers-web` workflow installs `wasm-bindgen-cli`
-  THEN the version is read from `Cargo.lock` at run time, so a `wasm-bindgen` bump needs no
-  workflow edit
+  WHEN the web workflow installs `wasm-bindgen-cli`
+  THEN its version is read from `Cargo.lock` at run time
 - **AC-5** Path filters cover the dependency closure
-  WHEN a change touches only `liquers-core/`, `liquers-lib/`, `liquers-records/`, `Cargo.lock`,
-  the workflow file or the binding's own directory (for Python also `liquers-store/`,
-  `liquers-template/`, `scripts/test-liquers-py.sh`)
+  WHEN a change touches only a `liquers-*` crate that the binding builds from, `Cargo.toml`,
+  `Cargo.lock`, `.cargo/**` or the workflow file (for Python also `scripts/test-liquers-py.sh`)
   THEN that binding's workflow runs; a change only under `liquers-axum/`, `liquers-mcp/` or
-  `liquers-agent/` runs neither; the `push` and `pull_request` lists are identical
-- **AC-6** The disk suffices
-  WHEN either workflow runs on a hosted `ubuntu-latest` runner
-  THEN it does not fail with "No space left on device"
+  `liquers-agent/` runs neither, and the `push` and `pull_request` lists are identical
+- **AC-6** Runner resources suffice
+  WHEN either workflow runs on `ubuntu-latest`
+  THEN it does not fail for lack of disk, and it does not evict `build-matrix`'s cache
+- **AC-7** A missing wheel is not a failure
+  WHEN no binary wheel of `polars` or `pillow` exists for the interpreter (polars on 3.14t)
+  THEN the script reports this and continues, and the tests that need the package skip
 
-Non-goals: PyPy (supported by PyO3 but never yet verified here), the browser and Playwright loops,
-`check-stubs.sh`, `test-guide-examples.sh`, any change to the test scripts or to the tests.
+Non-goals: PyPy (not yet verified anywhere; `py-pypy-ci-job`); the browser, Playwright, `check-stubs.sh` and
+guide-example loops; changes to tests.
 
 ### Design Readiness
 
-- **Readiness:** ready
-- **Automatic fixing:** eligible. This is a tooling fix: two new CI files and nothing else (rule 2).
-  It adds no Rust structure (rule 3), changes no interface, dependency or feature flag (rule 4),
-  and touches no crate (rule 6). Size `M`: two files, each under 60 lines.
-- **Leading issue:** None
-- **Explanation:** both loops already run locally, and Phase 2 resolves every remaining choice
-  from repository evidence. The `liquers-py-async` preflight said that the CI matrix and its cost
-  were the owner's call. `PY-TESTS-NOT-RUN-IN-CI` already specifies the matrix (oldest CPython,
-  newest CPython, free-threaded). The repository is public, so hosted-runner minutes cost nothing;
-  the only cost is wall time on PRs that touch the bindings' dependencies.
-- **Open questions:** None. Resolved as implementation details in Phase 2: "newest" means newest
-  stable (3.14, not the 3.15 beta); two workflows rather than one; `cargo install` rather than a
-  third-party installer action.
+- **Readiness:** needs-decision
+- **Automatic fixing:** not-eligible (rule 5) until the owner approves the CI matrix and its cost.
+  `design/liquers-py-async/` Phase 2 recorded that "the CI matrix and its cost are the owner's
+  call". Once that is approved, the design is eligible. It is a tooling fix to two new workflows
+  and one script line (rule 2). It adds no structure (rule 3), changes no interface, dependency or
+  feature flag (rule 4), and touches no crate (rule 6). Size `M`.
+- **Leading issue:** decision 1.
+- **Explanation:** both loops pass locally, and every runner choice below is settled with
+  evidence. Only the policy question is open.
+- **Open questions:**
+  1. **Proposed resolution: matrix and cost.** The matrix is CPython 3.9, 3.14 and 3.14t, plus the
+     web Node loop with two feature sets. That makes four jobs, triggered only by changes in the
+     bindings' dependency closure. The repository is public, so hosted minutes are free; the cost is
+     wall time. That time is estimated, not measured: a cold run takes about 25-35 minutes per
+     Python job and 20 for web, and a warm cached run about 10-15. The jobs run in parallel, so a PR
+     waits about as long as the slowest job. Recommended: approve.
 
 ### Design Dependencies
 
 - `build-matrix-path-filters` (complete): **overlaps**. These workflows reuse its `liquers-*/**`
-  pattern, with negations, so that a new crate is covered by default.
-- `liquers-py-async` (complete): **overlaps**. Its AC-8 (free-threaded) was proved only by local
-  runs; the 3.14t job makes it a CI property.
-- `build-matrix-disk-budget` (complete): **overlaps**. It is the same disk constraint, handled
-  in another workflow.
+  pattern, so that a new crate is covered without a workflow edit.
+- `liquers-py-async` (complete): **overlaps**. Its AC-8 (free-threaded) becomes a CI property.
+- `build-matrix-disk-budget` (complete): **overlaps**. It is the same disk constraint.
+- `py-pypy-ci-job`: **required-by**. It appends a PyPy row to the approved matrix.
 
 ### Overlap Record
 
-The two sources overlap strongly, and they form one design. **T4:** the Python half of
-`LANGUAGE-BINDING-TESTS-NOT-RUN-IN-CI` ("`scripts/test-liquers-py.sh` on one CPython") is covered
-by `PY-TESTS-NOT-RUN-IN-CI`'s wider matrix. **T3:** both sources would add the same workflow.
-**E1** does not apply, because the merged design is eligible (the web half adds no
-interface or structure), so the Python half need not stay separate. The leading source is the
-wider issue, `LANGUAGE-BINDING-TESTS-NOT-RUN-IN-CI`.
+**T4:** `LANGUAGE-BINDING-TESTS-NOT-RUN-IN-CI`'s Python half is `PY-TESTS-NOT-RUN-IN-CI` on one
+interpreter. **T3:** both would add the same workflow. E1 does not separate them, because the merged
+design is labelled as one item. The Python half on its own would raise the same matrix decision.
+The wider issue leads.
+
+### Scope Changes
+
+- **2026-10-27**: one line of `scripts/test-liquers-py.sh` is in scope (AC-7). polars ships only
+  `abi3` wheels, which a free-threaded interpreter cannot load, so on 3.14t pip falls back to the
+  sdist and would build polars from source.
 
 ### Consolidated Findings
 
-- `test-liquers-py.sh` takes the interpreter from `PYTHON`. Under `setup-python` a free-threaded
-  build's binary is `python3.14t`, so the job passes `PYTHON` from the step's `python-path`
-  output rather than relying on `python3`.
-- Each Python job builds `liquers-lib` with `polars` twice (the `dev` profile for maturin, the
-  `test` profile for `cargo test`), estimated at 8-10 GB each (`design/liquers-py/` Phase 2). The
-  job therefore frees preinstalled toolchains first and sets `CARGO_INCREMENTAL=0` (AC-6).
-- A loop that is red at HEAD would land the workflow red. Step 3 runs the workflow first and stops
-  on a real failure (see Risks).
+- **Wheels.** These are what `pip --dry-run --only-binary :all:` resolves:
+  - 3.9: `polars 1.36.1` with `polars-runtime-32 1.36.1` (`cp39-abi3`), and `pillow 11.3.0`;
+  - 3.14: `polars 2.1.0` (`cp311-abi3`) and `pillow 13.0.0`;
+  - 3.14t (run on 3.14.6t): `pillow 13.0.0` (`cp314t`); for polars there is no wheel, only
+    `polars_runtime_32-2.1.0.tar.gz`.
+  The 3.14t job therefore runs without polars. The polars tests skip (`test_VALUE_value_bridge.py`
+  and `test_GUIDE_examples.py` use `importorskip`).
+- **3.14t binary.** It is `python3.14t`, so `PYTHON` comes from setup-python's `python-path`.
+- **Disk.** Each Python job builds `liquers-lib` with polars under two profiles. That is estimated at
+  8-10 GB each (`design/liquers-py/` Phase 2), so the job frees preinstalled toolchains first.
+- **Cache.** The 10 GB repository quota is shared with `build-matrix`. Only `main` saves, and
+  only one Python job does.
 
 ## Phase 2: Architecture
 
 ### Solution
 
-Two new files, so that each binding has its own path filter and its own red mark:
+**`scripts/test-liquers-py.sh` line 42** becomes:
 
-**`.github/workflows/liquers-py-tests.yml`**: `on.pull_request.paths` and `on.push.paths`
-(branch `main`) are identical, plus `workflow_dispatch`:
+```bash
+python3 -m pip install --quiet --disable-pip-version-check maturin pytest
+for pkg in polars pillow; do
+  python3 -m pip install --quiet --disable-pip-version-check --only-binary :all: "$pkg" \
+    || echo "==> no $pkg wheel for this interpreter; its tests will skip"
+done
+```
+
+**`.github/workflows/liquers-py-tests.yml`.** `on.pull_request.paths` and `on.push.paths` (branch
+`main`) are identical, and `workflow_dispatch` is also a trigger:
 
 ```yaml
       - 'liquers-*/**'
@@ -146,22 +163,27 @@ Two new files, so that each binding has its own path filter and its own red mark
       - '.github/workflows/liquers-py-tests.yml'
 ```
 
-The job is `test`, with `strategy.fail-fast: false`, `matrix.python: ['3.9', '3.14', '3.14t']`,
-and `timeout-minutes: 75`. Its environment is `CARGO_INCREMENTAL: 0`. The steps are:
+The job `test` has `strategy.fail-fast: false`, `matrix.python: ['3.9', '3.14', '3.14t']`,
+`timeout-minutes: 75` and `env: CARGO_INCREMENTAL: 0`. Its steps are:
 
-1. `actions/checkout@v4`;
+1. `actions/checkout@v4`.
 2. "Free runner disk":
-   `sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL; df -h /`;
-3. `dtolnay/rust-toolchain@stable` and `Swatinem/rust-cache@v2` with `key: py-${{ matrix.python }}`;
-4. `actions/setup-python@v5` with `id: py` and `python-version: ${{ matrix.python }}`;
-5. `bash scripts/test-liquers-py.sh` with `env: PYTHON: ${{ steps.py.outputs.python-path }}`, then
+   `sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL; df -h /`.
+3. `dtolnay/rust-toolchain@stable`.
+4. `Swatinem/rust-cache@v2` with `shared-key: liquers-py` and
+   `save-if: ${{ github.ref == 'refs/heads/main' && matrix.python == '3.14' }}`.
+5. `actions/setup-python@v5` with `id: py` and `python-version: ${{ matrix.python }}`.
+6. `rm -rf target/liquers-py-venv-*`. A restored venv would point at a toolcache interpreter that
+   no longer exists.
+7. `bash scripts/test-liquers-py.sh` with `env: PYTHON: ${{ steps.py.outputs.python-path }}`, then
    `df -h /`.
 
-**`.github/workflows/liquers-web-tests.yml`** uses the same filter shape, with `!liquers-py/**` in
-place of `!liquers-web/**`, no `scripts/test-liquers-py.sh` entry, and its own file name. Its job is
-`node`, with `timeout-minutes: 60` and `CARGO_INCREMENTAL: 0`. The steps are: checkout; free disk;
-`dtolnay/rust-toolchain@stable` with `targets: wasm32-unknown-unknown`; rust-cache;
-`actions/setup-node@v4` with `node-version: '20'`; then:
+**`.github/workflows/liquers-web-tests.yml`** uses the same filter, with `!liquers-py/**` in place
+of `!liquers-web/**` and without the script entry. The job `node` has `timeout-minutes: 60` and
+`CARGO_INCREMENTAL: 0`. Its steps are checkout, free disk, the toolchain with
+`targets: wasm32-unknown-unknown`, and rust-cache with
+`save-if: ${{ github.ref == 'refs/heads/main' }}`. Then `actions/setup-node@v4` with
+`node-version: '22'`, and:
 
 ```yaml
       - name: Install wasm-bindgen-test-runner matching Cargo.lock
@@ -169,93 +191,92 @@ place of `!liquers-web/**`, no `scripts/test-liquers-py.sh` entry, and its own f
           ver=$(grep -A1 '^name = "wasm-bindgen"$' Cargo.lock | sed -n 's/^version = "\(.*\)"$/\1/p')
           test -n "$ver"
           cargo install wasm-bindgen-cli --version "$ver" --locked
-      - name: Node loop (debug-handles)
-        run: cargo test -p liquers-web --target wasm32-unknown-unknown --features debug-handles
-      - name: Node loop (debug-handles, records)
-        run: cargo test -p liquers-web --target wasm32-unknown-unknown --features debug-handles,records
+      - run: cargo test -p liquers-web --target wasm32-unknown-unknown --features debug-handles
+      - run: cargo test -p liquers-web --target wasm32-unknown-unknown --features debug-handles,records
 ```
 
-Each header comment says what the workflow runs and names this design.
+Each header comment names what the workflow runs and names this design.
+
+**Free-threaded interpreter: `actions/setup-python` with `3.14t`.** This is documented in
+setup-python's `docs/advanced-usage.md`: the `t` suffix, from 3.13 on. `actions/python-versions`'
+manifest lists `python-3.14.10-linux-24.04-x64-freethreaded.tar.gz`, and also
+`python-3.9.25-linux-24.04-x64`. The `v5` tag floats to the newest 5.x release.
 
 Rejected alternatives:
-- **One workflow with both jobs.** A path filter is per workflow, so a Python-only change would also
-  run the web job, and the reverse. Splitting jobs inside one file would need a third-party filter
-  action.
-- **Adding jobs to `build-matrix.yml`.** It would mix compile checks with test runs, and its runner
-  disk is already sized for `check-build-matrix.sh`.
-- **The 3.15 beta as "newest".** Wheels for `pillow` do not exist for a beta, so the job would
-  build from source or fail for reasons outside this repository. 3.15 replaces 3.14 when it is
-  released.
-- **`taiki-e/install-action` for `wasm-bindgen-cli`.** It is faster, but it is one more
-  third-party action. `cargo install --locked` costs a few minutes.
-- **Listing crates by name.** That is the defect `build-matrix-path-filters` removed.
+- **`astral-sh/setup-uv` with `uv python find 3.14t`**, as `liquers-py/README.md` does locally. It
+  is one more third-party action and a second way to find interpreters, and setup-python already
+  serves all three versions.
+- **One workflow with both jobs.** A path filter applies per workflow.
+- **Jobs in `build-matrix.yml`.** That would mix compile checks with test runs.
+- **The 3.15 beta as "newest".** There are no stable wheels for a beta. 3.15 replaces 3.14 when it
+  is released.
+- **`taiki-e/install-action`.** Another third-party action; `cargo install --locked` costs minutes.
+- **Building polars from its sdist on 3.14t.** That is a Rust build of polars inside the job.
+- **Crates listed by name.** That is the defect `build-matrix-path-filters` removed.
 
-Known-issue preflight: no open issue blocks. `LANGUAGE-INTEGRATIONS-REBUILD-ENVIRONMENT-ON-REGISTRATION`
-(P3) touches both bindings, but it is a performance issue and does not affect a pass or a fail.
+Known-issue preflight: nothing blocks.
 
 ### Changes
 
-New: `.github/workflows/liquers-py-tests.yml` and `.github/workflows/liquers-web-tests.yml`.
-Nothing else changes: no code, no script, no test, no command, and so no registry change. Two
-documents have their "not in CI" lines updated at Phase 4 step 4. These are
-`specs/reference/PYTHON_INTEGRATION.md` §8 (with a History row and a `reviewed:` bump) and
-`liquers-py/README.md` "Supported Python".
+- New: the two workflow files.
+- Changed: line 42 of `scripts/test-liquers-py.sh` and its header comment, step 2.
+- Documents (step 4):
+  - `PYTHON_INTEGRATION.md` §8: the bullet "The Python suite runs locally, on CPython 3.13 and
+    3.14t, but not in CI (`PY-TESTS-NOT-RUN-IN-CI`)" becomes "CI runs the Python suite on CPython
+    3.9, 3.14 and 3.14t (3.14t without polars, which has no free-threaded wheel); PyPy is not
+    tested". Add a History row and bump `reviewed:`.
+  - `liquers-py/README.md` "Supported Python": the same facts.
+
+No code, command or registry change.
 
 ### Risks
 
 | Risk | Mitigation | Certainty |
 |---|---|---|
-| A loop is red at HEAD (a real defect) | Step 3 runs the workflow on the PR before merge. A real failure stops the fix: the defect is filed and the workflow is not merged red, so a human decides | medium |
-| `polars` / `pillow` have no wheel for 3.9 or 3.14t | pip resolves an older wheel for 3.9 (`polars 1.36.1`, `pillow 11.3.0`, checked with `pip download`). 3.14t passed locally with both installed (`liquers-py-async` Phase 2 probe) | medium |
-| `setup-python` does not accept `3.14t` | v5 supports the `t` suffix for free-threaded builds. If it does not, the fallback is `astral-sh/setup-uv` and `uv python find 3.14t`, as `liquers-py/README.md` documents | medium |
-| Disk runs out (AC-6) | Free about 20 GB of preinstalled toolchains, `CARGO_INCREMENTAL=0`, and `df -h /` in the log | medium |
-| `pip install` without pinned versions drifts | It uses the same unpinned set that developers run locally, which is the intent | high |
-| Wall time (cold runs of 20 min or more) | The jobs run in parallel and are path-filtered; rust-cache cuts warm runs | high |
+| A loop is red at HEAD | Step 3 handles it | medium |
+| Disk runs out | About 20 GB freed, `CARGO_INCREMENTAL=0`, `df -h /` logged | medium |
+| The cache evicts `build-matrix`'s | Only `main` saves; the three Python jobs share one key saved by 3.14 | high |
+| Unpinned pip packages drift | It is the same unpinned set developers use; AC-7 covers a missing wheel | high |
+| Wall time | Parallel jobs, path filters, warm cache (decision 1) | high |
 
-Recovery: delete either workflow file. Nothing else depends on it.
+Recovery: revert the two workflow files and the script line.
 
 ## Phase 3: Examples and Tests
 
 ### Examples
 
-These are the local equivalents, run from the repository root:
-
 ```bash
-bash scripts/test-liquers-py.sh                                   # 3.13 here; CI: 3.9, 3.14, 3.14t
-PYTHON=$(uv python find 3.14t) bash scripts/test-liquers-py.sh
+PYTHON=$(uv python find 3.14t) bash scripts/test-liquers-py.sh   # prints "no polars wheel…", passes
 grep -A1 '^name = "wasm-bindgen"$' Cargo.lock | sed -n 's/^version = "\(.*\)"$/\1/p'   # 0.2.129
-cargo test -p liquers-web --target wasm32-unknown-unknown --features debug-handles
 ```
 
 ### Tests
 
-No unit test applies, because these are CI properties. The validation:
+These are CI properties, so there is no new unit test.
 
-- `wf_py_matrix_green`: on the implementing PR, all three `liquers-py` jobs pass, each log shows
-  its interpreter in the venv path (`liquers-py-venv-cpython3.14t` for the free-threaded job), and
-  `df -h /` shows space remaining: AC-2, AC-6
-- `wf_web_node_green`: on the same PR, the `liquers-web` job passes both Node steps and its install
-  step prints the lockfile version: AC-3, AC-4, AC-6
-- `wf_red_on_failure`: a temporary commit breaks one assertion in
-  `liquers-py/tests/test_ERROR_errors.py` and one in `liquers-web/tests/objects_OBJECT.rs`. Both
-  workflows fail at their test step, and the commit is then reverted: AC-1, AC-3
-- `wf_filters_review`: reading the diff shows that each file's two `paths` lists are identical and
-  match Phase 2, and that the negations come after `liquers-*/**`, as GitHub's
-  last-match-wins rule requires: AC-5
-- `wf_version_extraction`: the `ver=` line from Phase 3's examples prints `0.2.129` locally: AC-4
+- `wf_py_matrix_green`: all three Python jobs pass, and each log shows its venv tag
+  (`cpython3.14t` for the free-threaded job) and `df -h /`: AC-2, AC-6
+- `wf_web_node_green`: both Node steps pass, and the install step prints the lockfile version:
+  AC-3, AC-4, AC-6
+- `wf_red_on_failure`: a temporary commit breaks one assertion in `test_ERROR_errors.py` and one in
+  `liquers-web/tests/objects_OBJECT.rs`. Both workflows fail at their test step, and all three
+  Python jobs end `failure` rather than `cancelled`. The commit is then reverted: AC-1, AC-2, AC-3
+- `local_missing_wheel`: the Example run on 3.14t prints the skip line and passes: AC-7
+- `wf_filters_review`, a static diff check: each file's two `paths` lists are identical and match
+  Phase 2, and the negations come after `liquers-*/**`; the `save-if` lines are as in Phase 2: AC-5,
+  AC-6
 
 ## Phase 4: Implementation Plan
 
 ### Steps
 
-- [ ] 1. `.github/workflows/liquers-py-tests.yml`: write the workflow of Phase 2. Proof: `wf_filters_review`; `python3 -c 'import yaml,sys; yaml.safe_load(open(sys.argv[1]))' <file>` parses it
-- [ ] 2. `.github/workflows/liquers-web-tests.yml`: write the workflow of Phase 2. Proof: `wf_filters_review`, `wf_version_extraction`, and the YAML parse
-- [ ] 3. Open the PR and watch both workflows. Proof: `wf_py_matrix_green`, `wf_web_node_green`, then `wf_red_on_failure` (a temporary commit, then a revert). If a job fails at HEAD for a reason in code, stop: file the defect (`DOCS_STRUCTURE_GUIDE.md` §4.8), leave the PR unmerged for the maintainer, and do not use `continue-on-error`. If it fails for a runner reason (disk, wheel, `3.14t`), apply the Risks fallback and re-run; if the fallback does not help, stop the automatic fix
-- [ ] 4. `specs/reference/PYTHON_INTEGRATION.md` §8: drop "but not in CI" (add a History row and bump `reviewed:`); `liquers-py/README.md` "Supported Python": "Neither run is in CI yet" becomes "CI runs 3.9, 3.14 and 3.14t". Proof: `python3 scripts/docs_index.py --check`
-- [ ] 5. Both source issues: `status: closed`, each with a resolution note naming the PR; then `python3 scripts/docs_index.py`. Proof: `python3 scripts/docs_index.py --check`
+- [ ] 1. `.github/workflows/liquers-py-tests.yml` and `liquers-web-tests.yml` as in Phase 2. Proof: `wf_filters_review`; `python3 -c 'import yaml,sys; [yaml.safe_load(open(f)) for f in sys.argv[1:]]' <files>`
+- [ ] 2. `scripts/test-liquers-py.sh` line 42 and its header comment. Proof: `local_missing_wheel`; `bash scripts/test-liquers-py.sh` passes on 3.13
+- [ ] 3. Open the PR. Proof: `wf_py_matrix_green`, `wf_web_node_green`, then `wf_red_on_failure` (revert afterwards). A job that is red because of a defect in the code is filed under `DOCS_STRUCTURE_GUIDE.md` §4.8 and the PR is left unmerged for the maintainer, never with `continue-on-error`. A red job caused by the runner is not expected: every runner choice is settled above. If one occurs, the automatic fix stops and the design returns for review
+- [ ] 4. `PYTHON_INTEGRATION.md` §8 bullet, History row and `reviewed:`; `liquers-py/README.md` "Supported Python". Proof: `python3 scripts/docs_index.py --check`
+- [ ] 5. Both source issues `status: closed` with a resolution note; `python3 scripts/docs_index.py`. Proof: `python3 scripts/docs_index.py --check`
 
 ### Validation
 
-Both workflows are green on the PR after the revert in step 3, and `python3 scripts/docs_index.py
---check` passes. Review the diff: it should contain two workflow files, two document edits, two
-issue files and the regenerated index, and no change under any `liquers-*` crate.
+Both workflows are green after the step 3 revert, and `docs_index.py --check` passes. The diff holds
+two workflows, the script, two documents, two issues and the index.

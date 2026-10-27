@@ -1,10 +1,10 @@
 ---
 id: PY-API-REFERENCE-NOT-GENERATED
 kind: feature
-title: The Python package has no generated API reference, and most of its names have no docstring
+title: The Python package has no generated API reference
 status: draft
 priority: P2
-complexity: M
+complexity: S
 area: [py, docs]
 design: py-api-reference
 created: 2026-10-19
@@ -54,6 +54,12 @@ The method-versus-property inconsistency of `Metadata` is `PY-METADATA-FIELDS-AR
 
 Type stubs (`.pyi`, `py.typed`) are the guide's separate `STUBS` feature and are not required here,
 though a generator that reads the same docstrings would serve both.
+
+**Split on 2026-10-27.** Items 1 and 3 above (the docstrings, `text_signature`s and the coverage
+test) are now `PY-PUBLIC-NAMES-HAVE-NO-DOCSTRINGS`, designed in `design/py-docstrings/` (ready,
+eligible for automatic fixing). This feature keeps item 2, the generated reference, which needs the
+maintainer's choice of tool (`design/py-api-reference/`, question 1) and requires the docstrings
+first. Complexity lowered from `M` to `S`: one new script, one test and the documents.
 
 ## Discovery
 

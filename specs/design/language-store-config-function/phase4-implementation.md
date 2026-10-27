@@ -47,9 +47,9 @@ surface in steps 4 and 6, to Q2 the lifecycle in steps 3 and 5. No prerequisite 
 - Change: `PyStoreConfigHandler::new` composes metadata with `CommandDeclaration` as
   `PyCommandSpec::new` does and refuses an `async def` (`environment.rs` `is_coroutine_function`,
   made `pub(crate)`). Its builder converts
-  `literal_parameters` to Python with `json.loads` once, under the GIL. Its step runs
-  `Python::attach` inside `tokio::task::block_in_place` when `Handle::try_current()` reports a
-  multi-threaded runtime (directly otherwise). It wraps the record in `crate::metadata::MetadataRecord`,
+  `literal_parameters` to Python with `json.loads` once, under the GIL. Its step takes the GIL
+  through `liquers-py/src/value.rs` `attach_off_worker`, made `pub(crate)` (it already does the
+  `block_in_place`-on-a-multi-thread-runtime check). It wraps the record in `crate::metadata::MetadataRecord`,
   calls the function, reads back a `MetadataRecord` (or keeps the input on `None`), and converts an
   exception with `pyerr_to_error`. `register_handler` refuses with `Error::configuration_error` when
   `declarations.store` is `Some`, else replaces by key and calls `retire`.
@@ -71,10 +71,14 @@ surface in steps 4 and 6, to Q2 the lifecycle in steps 3 and 5. No prerequisite 
   builder), `liquers-web/src/store/mod.rs` (module), `liquers-web/src/environment.rs`
   (`REGISTERED_HANDLERS`, replay in `rebuild_with` / `rebuild_without` and the pending path before
   `apply_store`, new `register_store_config_handler_on`).
-- Change: the step renders the record with `metadata_to_js_value`, calls `run` with the record and
-  the arguments (`JSON.parse` of each literal), treats `undefined` as "keep", a `js_sys::Promise` as
-  an error, anything else through `metadata_from_js_value` (a non-record `Metadata` is an error), and
-  converts a throw with `js_error_to_liquers(.., ErrorType::ExecutionError)`.
+- Change: the step renders the record with `metadata_to_js_value(key, &Metadata::MetadataRecord(record.clone()), ..)`
+  (it takes `&Metadata`), calls `run` with it and the arguments (`JSON.parse` of each literal), and
+  reads the result: `undefined` or `null` keeps the input (checked *before* conversion, because
+  `metadata_from_js_value` turns `undefined` into an empty record); a `js_sys::Promise` is an error;
+  anything else goes through `metadata_from_js_value` (`JSON.stringify`, then
+  `serde_json::from_str::<MetadataRecord>`) and must yield `Metadata::MetadataRecord(r)`, whose `r`
+  replaces the record; `Metadata::LegacyMetadata` is an error. A throw is converted with
+  `js_error_to_liquers(.., ErrorType::ExecutionError)`.
 - Depends on: Steps 1-2.
 - Proof: `cargo check -p liquers-web --target wasm32-unknown-unknown`.
 - Rollback: revert; nothing calls it yet.

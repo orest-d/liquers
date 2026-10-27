@@ -9,16 +9,14 @@ point at the batch's buffers, and a copying importer. Each exported node owns a 
 wraps an export in a private liquers-py pyclass implementing the PyCapsule protocol and calls
 `pyarrow.record_batch(obj)`. Written for question 1 (a).
 
-Rejected: the `arrow-rs` FFI (a dependency `record-streams` ruled out); `polars-arrow`'s FFI (ties
-records to polars); zero-copy import (question 2); one top-level array per column (pyarrow builds a
-`RecordBatch` from one struct array).
+Rejected: the `arrow-rs` or `polars-arrow` FFI (a dependency, or ties to polars); zero-copy import
+(question 2); one top-level array per column (pyarrow builds a batch from one struct array).
 
 ## Known-Issue Preflight
 
 | Issue | Status | Priority | Impact on this design | Fix first? | Blocking? | Action |
 |---|---|---|---|---|---|---|
 | `PY-RECORD-VALUES-CANNOT-CROSS-TO-PYTHON` | draft | P3 | Part B edits the arm it adds | Part B only | No (Part A) | land `py-record-values-to-python` before Part B |
-| `COLUMN-SLICE-COPIES-INSTEAD-OF-SHARING-BUFFER-STORAGE` | draft | P3 | windows keep `as_bytes().as_ptr()` valid; element alignment only | No | No | none |
 | `RECORD-FIELD-TYPE-HAS-NO-DECIMAL`, `…-NO-UUID-TIME-OR-INTERVAL` | draft | P3 | new `Column` variants need a mapping row | No | No | second to land adds the row |
 | `IPC-READER-CANNOT-READ-ANY-POLARS-STRING-COLUMN` | draft | P2 | the same `U` / `vu` subset limit applies to import | No | No | refuse with a named error (AC-5) |
 
@@ -40,20 +38,16 @@ pub struct ArrowArray {
     buffers: *mut *const c_void, children: *mut *mut ArrowArray, dictionary: *mut ArrowArray,
     release: Option<unsafe extern "C" fn(*mut ArrowArray)>, private_data: *mut c_void,
 }
-// Sound: private_data owns only Arc-shared, immutable buffers and Box-allocated children.
+// Sound: [CDATA] lets `release` be called from any thread, so a struct we exported (Arc-shared,
+// immutable buffers, boxed children), one imported via `from_raw`, and one a consumer filled
+// after `empty()` may all be moved across threads and released there.
 unsafe impl Send for ArrowSchema {}
 unsafe impl Send for ArrowArray {}
 impl Drop for ArrowSchema { /* calls release when it is Some */ }
 impl Drop for ArrowArray  { /* calls release when it is Some */ }
 
-impl ArrowSchema {
-    pub fn empty() -> ArrowSchema;                 // released state, for a consumer to fill
-    pub fn is_released(&self) -> bool;
-    /// # Safety: `ptr` is a valid, unreleased [CDATA] schema; moved out, source marked released.
-    pub unsafe fn from_raw(ptr: *mut ArrowSchema) -> ArrowSchema;
-    pub fn as_mut_ptr(&mut self) -> *mut ArrowSchema;
-}
-impl ArrowArray { /* the same four methods */ }
+// Both types: `empty()` (released, for a consumer to fill), `is_released()`, `as_mut_ptr()`, and
+// `unsafe fn from_raw(ptr)` (Safety: valid and unreleased; moved out, source marked released).
 
 /// Zero-copy: the buffers are the batch's own; the batch may be dropped first.
 pub fn export_record_batch(batch: &RecordBatch) -> Result<(ArrowSchema, ArrowArray), Error>;
@@ -77,6 +71,11 @@ semantics*). Mapping (`RECORD_STREAMS.md` §"Arrow interoperability"):
 | `Vector` | `+w:<dim>` | validity | `f`, length `len × dim`, values `data` |
 | batch root | `+s` | (null validity) | one per column |
 
+Before taking any pointer the exporter re-checks the batch (its fields are `pub`; `Bitmap`
+deserializes `bits` and `len` apart): column count, `Column::validate()` (offsets `len + 1` within
+the data, `Vector` data `dim × len`, `Bool` storage), `column.len() == batch.len`, and
+`has_storage_for_len` on every validity. A failure names the field (AC-10).
+
 A missing validity is a null pointer with `null_count` 0; otherwise `null_count` is
 `len - count_ones()`. `offset` is always 0 on export. `flags` is `ARROW_FLAG_NULLABLE` when
 `FieldSchema::nullable`. Root metadata is [CDATA]'s binary key-value encoding of `liquers.schema`
@@ -92,8 +91,10 @@ fields by count, name and type (`formats/ipc.rs` `check_embedded_schema`'s rule)
 
 **Part B** (`liquers-py`): a direct dependency `liquers-records = { path = "../liquers-records",
 features = ["cdata"] }`, and in `liquers-py/src/value.rs` a private `#[pyclass] struct ArrowExport
-{ schema: Option<ArrowSchema>, array: Option<ArrowArray> }`, not added to the module. Its
-`__arrow_c_array__(requested_schema)` returns capsules named `arrow_schema` / `arrow_array`
+{ export: Mutex<Option<(ArrowSchema, ArrowArray)>> }`, not added to the module. PyO3 0.30
+requires a pyclass to be `Sync` (free-threaded builds are supported), which the `Mutex` gives
+because the pair is `Send`. `__arrow_c_array__(requested_schema)` takes the pair out and returns
+capsules named `arrow_schema` / `arrow_array`
 (`PyCapsule::new_with_destructor`); a second call raises `ValueError`; `requested_schema` is
 ignored, as the protocol permits. The record-view arm runs `materialize()`, `export_record_batch`
 and `pyarrow.record_batch(export)` when `pyarrow.__version__`'s major is 14 or more, then wraps the
@@ -108,16 +109,17 @@ recommended `pyarrow.Table`; no copy), else the IPC route. All of it is synchron
   `AlignedBuffer`, for AC-3. Nothing else changes.
 - `scripts/check-build-matrix.sh` `RECORDS_CONFIGS`: `--features cdata --tests` and
   `--target wasm32-unknown-unknown --features cdata`.
-- Part B: `liquers-py/Cargo.toml`, `liquers-py/src/value.rs` (the record-view arm of `ext_to_py`).
+- Part B: `liquers-py/Cargo.toml`, `liquers-py/src/value.rs` (the record-view arm of `ext_to_py`),
+  `scripts/test-liquers-py.sh` (installs `pyarrow>=14` unless the py-record design already does).
 
 ## Error Handling
 
-- Export: a field name with an interior NUL → `Error::general_error` naming the field.
+- Export: a field name with an interior NUL, or a buffer inconsistent with `len` (AC-10) →
+  `Error::general_error` naming the field.
 - Import: a released input, a wrong root, a child count or buffer count mismatch, a short buffer or
   an unsupported format → `Error::not_supported` (format) or `Error::general_error` (shape), naming
   the field. The array is released on every path, because it is owned and dropped.
-- Python: a missing pyarrow → the existing `py_conversion_error`; a pyarrow call failing →
-  `py_conversion_error("pyarrow.RecordBatch", e)`.
+- Python: a missing or failing pyarrow → `py_conversion_error`, as the existing paths.
 
 ## Relevant Commands
 
@@ -125,24 +127,22 @@ None. No command, namespace or `specs/command_registry.yaml` change.
 
 ## Documentation Architecture
 
-- `specs/reference/RECORD_STREAMS.md` (reference, internal, records): crates table "No `unsafe`
-  outside `cdata`"; the route table "C Data Interface: built, feature `cdata`", the mapping and
-  metadata keys; Limits drops the export.
-- `specs/reference/PYTHON_INTEGRATION.md` (reference, py): record views cross through C Data when
-  pyarrow is 14 or newer.
+- `specs/reference/RECORD_STREAMS.md` (reference, records): "No `unsafe` outside `cdata`"; C Data
+  route built, with the mapping and metadata keys; Limits drops the export.
+- `specs/reference/PYTHON_INTEGRATION.md` (reference, py): views cross through C Data (pyarrow 14+).
 - `specs/guides/LANGUAGE-INTEGRATION_GUIDE.md` §RECORDS (guide): Python as the worked case.
 - `liquers-py/README.md`: the pyarrow minimum for the zero-copy route.
-- Proposed `affects_docs`: the four above. `specs/README.md`: link this design.
+- Proposed `affects_docs`: the three under `specs/` (`liquers-py/README.md` is outside it). `specs/README.md`: link this design.
 
 ## Risks
 
 | Assessment | Finding |
 |---|---|
-| Files likely to change | `liquers-records/src/{cdata.rs (new), lib.rs, buffer.rs}`, `liquers-records/Cargo.toml`, `scripts/check-build-matrix.sh`; Part B `liquers-py/src/value.rs`, `liquers-py/Cargo.toml` |
+| Files likely to change | `liquers-records/src/{cdata.rs (new), lib.rs, buffer.rs}`, `liquers-records/Cargo.toml`, `scripts/check-build-matrix.sh`; Part B `liquers-py/src/value.rs`, `liquers-py/Cargo.toml`, `scripts/test-liquers-py.sh` |
 | Crates and workflows affected | `liquers-records` (opt-in feature), `liquers-py`; nothing else builds `cdata` |
 | Existing tests likely to change | none |
-| New validation | Phase 3 unit tests in `cdata.rs`, a pytest file, the two matrix rows; Miri on the `cdata` tests where a nightly toolchain exists |
+| New validation | Phase 3 tests, the two matrix rows; Miri where a nightly toolchain exists |
 | Compatibility / data / performance | additive, off by default; Python output type unchanged. Export is O(columns) small allocations, import one copy |
-| Security / soundness | a wrong release order or a double free is undefined behaviour: tests count `Arc` references and simulate a consumer moving a child out (AC-3). Import trusts the producer's lengths, as [CDATA] requires |
+| Security / soundness | a wrong release order, a double free or a short buffer is undefined behaviour: `Arc`-count and moved-child tests (AC-3), re-validation before export (AC-10). Import trusts the producer's lengths, as [CDATA] requires |
 | Recovery | revert the module and feature; reverting Part B's arm restores IPC |
 | Certainty | high; question 1 decides only the crate. `PyCapsule::new_with_destructor` (pyo3 0.30.1) and `pyarrow.record_batch` taking `__arrow_c_array__` (pyarrow 14) are checked at Step 6 |

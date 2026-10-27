@@ -38,8 +38,8 @@ the maintainer's answer to question 1. Under (b) Steps 1-5 are the same code in
 - Change: the mapping table of Phase 2. Every node's `ArrayPrivate` owns a clone of its `Column`,
   and `buffers` holds `as_bytes().as_ptr()` of the validity, offsets, values and data buffers. The
   `Vector` node gets an `f` child that also owns the column. Root metadata: `liquers.schema`
-  (`serde_json::to_string(&*batch.schema)`) and `liquers.chunk_id`. The match over `Column` is
-  exhaustive, with no `_ =>`.
+  (`serde_json::to_string(&*batch.schema)`) and `liquers.chunk_id`. The AC-10 re-validation runs
+  first. The match over `Column` is exhaustive, with no `_ =>`.
 - Depends on: Step 1.
 - Proof: `cargo test -p liquers-records --features cdata --lib cdata::tests::format_strings_follow_the_mapping`
   and `…::export_points_at_the_batch_buffers`.
@@ -60,12 +60,13 @@ the maintainer's answer to question 1. Under (b) Steps 1-5 are the same code in
 - Files / symbols: `cdata.rs` tests `export_outlives_the_batch_and_release_frees_it`,
   `moved_child_survives_parent_release`, and a hand-written test producer with a release counter
   (shared by Step 3's refusal test).
-- Change: tests only, plus fixes to the release callbacks that the tests expose.
+- Change: tests, plus any fix to the release callbacks or the AC-10 checks that the tests expose,
+  with `export_refuses_an_inconsistent_batch`.
 - Depends on: Steps 2-3.
 - Proof: `cargo test -p liquers-records --features cdata --lib cdata`; where a nightly toolchain
   exists, `cargo +nightly miri test -p liquers-records --features cdata --lib cdata` reports no
   undefined behaviour.
-- Rollback: not needed; tests only.
+- Rollback: revert the step's callback fixes with its tests; Steps 2-3 then stand as before.
 
 ### Step 5: build matrix and records documentation
 - Files / symbols: `scripts/check-build-matrix.sh` `RECORDS_CONFIGS` (two rows);
@@ -81,13 +82,13 @@ the maintainer's answer to question 1. Under (b) Steps 1-5 are the same code in
 
 ### Step 6: liquers-py capsule transport
 - Files / symbols: `liquers-py/Cargo.toml` (`liquers-records` with `cdata`); `liquers-py/src/value.rs`
-  private `ArrowExport` pyclass, `fn record_view_to_pyarrow`, and the record-view arm of `ext_to_py`
+  private `ArrowExport` pyclass (`Mutex<Option<(ArrowSchema, ArrowArray)>>`), `fn record_view_to_pyarrow`, and the record-view arm of `ext_to_py`
   that `py-record-values-to-python` added.
 - Change: Phase 2 Part B. Before writing it, check the pyo3 0.30.1 `PyCapsule::new_with_destructor`
   signature and that `pyarrow.record_batch` accepts an object with `__arrow_c_array__` in pyarrow 14.
   If either differs, stop and revise Phase 2. The version gate parses `pyarrow.__version__`'s
   leading integer. No `unsafe` in liquers-py.
-- Depends on: Step 5 and `py-record-values-to-python` merged.
+- Depends on: Step 5 and `py-record-values-to-python` implemented and merged.
 - Proof: `cargo check -p liquers-py`; Step 7's tests.
 - Rollback: restore the IPC-only arm; drop the dependency line.
 

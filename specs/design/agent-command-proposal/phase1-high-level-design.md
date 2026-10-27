@@ -137,7 +137,8 @@ Store (one JSON file per proposal); Query (a `-staging/` segment header). No new
 
 - `post-init-command-registration` — **requires**: `EnvRef::update_commands` (its Phase 2), which
   also refreshes metadata versions and expires the dependents of a replaced alias (AC-8). Its
-  `needs-decision` is carried here as question 1.
+  `needs-decision` is carried here as question 1. That design has no `required-by` back-link to
+  this one; it was not edited in this run, so the link is recorded only here.
 - `AGENT-WORKBENCH-SURFACE` (feature, no design) — **overlaps**: both add tool kinds to
   `ToolSetDecl` / `ToolEntry` (`liquers-mcp`). The additions are independent fields and variants,
   so either order works with a mechanical rebase. G3 was split out of it on 2026-10-21 on purpose.

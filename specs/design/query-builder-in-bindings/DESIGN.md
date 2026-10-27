@@ -13,8 +13,7 @@ created: 2026-10-27
 ---
 # Python and JavaScript expose the core query builder
 
-Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-27: Phases 1-4 written, not
-approved, nothing implemented. Written against the unimplemented `query-builder`.
+Bulk design, 2026-10-27: Phases 1-4 written, not approved, nothing implemented.
 
 ## Phase 1: High-Level Design
 
@@ -66,6 +65,9 @@ The encoded query was checked with `liquers-validate`.
 - **AC-6** Any parameter string is accepted
   WHEN a parameter is `"-5"`, `"a/b"`, `"café"` or `""`
   THEN the built query parses back to exactly that value
+- **AC-7** Only strings are parameters in Python
+  WHEN a Python parameter or segment is not a `str` (`action("eq", "n", 5)`)
+  THEN PyO3 raises `TypeError` and nothing is converted
 
 Non-goals: escaping or validating anything in the binding; a `liquers-encode` equivalent; a
 JavaScript `ActionRequest` class; link parameters from JavaScript; `Query.check_encodable` in the
@@ -92,14 +94,14 @@ sources).
      (`resource(segments)`, `action(name, parameters = [])`), because a `wasm-bindgen` export
      cannot be variadic.
   3. **Proposed resolution - parameter types.** Strings only, as in the core `action`. A Python
-     `int` raises `TypeError`; converting numbers would be a formatting rule of the binding's own.
-  4. **Assumption - core design.** The `QueryBuilder` methods and `ParameterError` texts of
-     `query-builder` Phase 2, and its answers to questions 1-3 (`ParameterError`, `.` / `..`
-     refused by `resource`, the empty parameter encodable).
+     `int` raises `TypeError` (AC-7); converting numbers would be a formatting rule of its own.
 
 ### Design Dependencies
 
-- `query-builder` (in review, `needs-decision`): **requires**. Its Step 7 links this issue.
+- `query-builder` (in review, `needs-decision`): **requires** the `QueryBuilder` methods and
+  `ParameterError` texts of its Phase 2, with its questions 1-3 answered as recommended
+  (`ParameterError`; `.` / `..` refused by `resource`; the empty parameter encodable). Its Step 7
+  links this issue.
 - `resource-name-unicode` (in review): **overlaps**. It decides what a valid key segment is; the
   wrappers inherit it through the core predicate, so neither order matters.
 - `PY-REPRS-SHOW-RUST-DEBUG-FORMAT` (designed in this run): **overlaps**. It edits `repr` of
@@ -119,7 +121,10 @@ sources).
 
 Each binding holds a `liquers_core::query_builder::QueryBuilder` by value. A step clones it, calls
 the core step, and wraps the result in a new wrapper; an `Err` maps through the binding's error
-bridge. `build()` clones and builds, so a builder can build more than once.
+bridge. `build()` clones and builds, so a builder can build more than once; the web wraps the
+result with the existing `LiquersQuery::from_query` (`objects.rs:73`, `pub`), Python with
+`Query(q)`. `action_request` passes `action.0.clone()` (the field is private to `query.rs`, where
+the wrapper lives).
 
 Rejected: re-implementing the token checks in Python or TypeScript (the drift the core builder
 removes); a mutating builder (question 1); a JSON description of the query passed to one
@@ -212,6 +217,7 @@ Python, new `liquers-py/tests/test_OBJECT_query_builder.py` (`bash scripts/test-
   value and position kind; the receiver still builds its earlier query (AC-3)
 - `test_OBJECT10_action_request_is_checked` (AC-4)
 - `test_OBJECT10_structure_errors_and_empty_builder` (AC-5)
+- `test_OBJECT10_non_string_parameter_raises_type_error`: an `int` parameter and segment (AC-7)
 
 JavaScript, `liquers-web/tests/objects_OBJECT.rs`
 (`cargo test -p liquers-web --target wasm32-unknown-unknown --features debug-handles`):

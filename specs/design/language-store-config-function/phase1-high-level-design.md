@@ -2,12 +2,10 @@
 
 ## Purpose
 
-A Python module or a web page can name the built-in `store_config` handlers in a store's
-`metadata` section, but it cannot add a handler of its own, because a handler's builder is a plain
-`fn` pointer that cannot capture a language callable. This design lets a Rust closure, and through
-it a Python or JavaScript function, be a handler. It serves VISION's "embedded in Python" and
-browser uses: an application's metadata rule (a domain field, a tag) is written where the
-application lives, and runs on every store the configuration wraps.
+Python and JavaScript can name the built-in `store_config` handlers but not add one, because a
+handler's builder is a `fn` pointer that cannot capture a callable. This design lets a closure, and
+through it a Python or JavaScript function, be a handler, so an application's metadata rule lives
+in its own language (VISION: embedded in Python, browser).
 
 ## Problem Example
 
@@ -26,13 +24,10 @@ env.store_set("n/a.txt", "abc")
 asset = env.get_asset("-R/n/a.txt")
 ```
 
-Today there is no way to register `page_tag`: `liquers-core/src/store/realm.rs` `StepBuilder` is
-`fn(Stage, &ResolvedParameterValues) -> Result<CompiledStep, Error>` and
-`StoreConfigFunctions::register_step` takes one, so neither `liquers-py` nor `liquers-web` can
-put a callable behind it. The build refuses the section, since `page_tag` is not a registered
-handler. `liquers-web/README.md` records `STORE18` as `NA` for this reason. Should be: `asset.metadata.log()`
-(the record read for `n/a.txt`) has the handler's entry; a raising `page_tag` becomes a warning on that record. The
-spec and the query validate: `liquers-validate --command store_config//page_tag -- '-store_config/media_type-fill/page_tag' '-R/n/a.txt'` → both `Ok`.
+Today nothing can register `page_tag`: `realm.rs` `StepBuilder` is a `fn` pointer, so the build
+refuses the section (`page_tag` is not a registered handler), and `liquers-web/README.md` records
+`STORE18` as `NA`. Should be: `asset.metadata.log()` has the handler's entry; a raising handler
+becomes a warning. Spec and query validate (`--command store_config//page_tag`): both `Ok`.
 
 ## Scope and Acceptance Criteria
 
@@ -71,79 +66,70 @@ Non-goals: language-defined storage models and write strategies (`ComponentBuild
 
 ## Core Interactions
 
-- Store config (`liquers-core/src/store/realm.rs`): builder type and registration.
-- Commands (`liquers-core/src/commands.rs` `CommandRegistry::store_config`): carries the new builders.
-- Bindings: `liquers-py` (declarations, rebuild, decorator) and `liquers-web` (retention, rebuild, `.d.ts`).
+Store config (`realm.rs` builder type and registration; `CommandRegistry::store_config`), bindings
+(`liquers-py` declarations and decorator, `liquers-web` retention, rebuild and `.d.ts`).
 
 ## Crate Placement
 
-The builder change is `liquers-core`, where the realm lives. Each language half lives in its
-binding crate. `liquers-store` and `liquers-lib` only register `fn` builders and need no change.
+The builder change is in `liquers-core`; each language half in its binding crate. `liquers-store`
+and `liquers-lib` register `fn` builders only and do not change.
 
 ## Documentation Intent
 
-- Reference: extend `specs/reference/STORE_CONFIG_FSD.md` (handlers defined outside Rust) and `specs/reference/PYTHON_INTEGRATION.md`.
-- Guide: extend `specs/guides/STORE_CONFIG_GUIDE.md` (a closure builder), `specs/guides/PYTHON_GUIDE.md`, `specs/guides/LANGUAGE-INTEGRATION_GUIDE.md` §STORE (`STORE18` wording, the answer to the handler question).
-- Other documents: `liquers-web/README.md` (`STORE18` required), `liquers-py/README.md` (a `STORE` row note).
-- Documents to update: the above; `specs/README.md` gains this design's row.
+- Reference: `specs/reference/STORE_CONFIG_FSD.md`, `specs/reference/PYTHON_INTEGRATION.md`.
+- Guide: `specs/guides/STORE_CONFIG_GUIDE.md`, `specs/guides/PYTHON_GUIDE.md`,
+  `specs/guides/LANGUAGE-INTEGRATION_GUIDE.md` §STORE (`STORE18` wording).
+- Other: both binding READMEs. To update: these; `specs/README.md` row.
 
 ## Design Readiness
 
 - **Readiness:** needs-decision
-- **Automatic fixing:** not-eligible — size `L`; changes the `pub` type `StepBuilder` and the
-  signature of `StoreConfigFunctions::register_step` in `liquers-core`, and adds a Python decorator
-  and a JavaScript function (rules 1 and 4).
-- **Leading issue:** **Open design - binding API** (Q1).
-- **Explanation:** the core change is small and fully determined by the code (only the builder
-  table changes; compiled closures already capture). What remains open is how each language
-  spells and times the registration, which users see.
+- **Automatic fixing:** not-eligible — size `L`; changes the `pub` type `StepBuilder` and
+  `StoreConfigFunctions::register_step`; adds a Python decorator and a JavaScript function (rules 1, 4).
+- **Leading issue:** Q1, the binding API.
+- **Explanation:** the core change is determined by the code (only the builder table changes);
+  how each language spells and times registration is user-visible and open.
 - **Open questions:**
-  1. **Open design - binding API.** (a) *Dedicated entry points* (**recommended**):
-     `@env.store_config_handler(name=…, label=…, doc=…)` in Python (the shape the guide's `STORE18`
-     blueprint already uses) and `liquers.registerStoreConfigHandler(declaration)` in JavaScript,
-     the declaration in the Command Declaration Format with realm forced to `store_config` and
-     `run` the handler. (b) *Reuse the command API* with `realm: "store_config"`: one entry point,
-     but the callable's contract (record in, record out, synchronous) differs from a command's, and
-     the Python decorators take no `realm=`. Under (b) a page passing `realm: "store_config"` to
-     `registerCommand` today gets an executor that never runs, so (b) also has to change what that
-     call means; under (a) that call is refused with a pointer to the new function.
-  2. **Open design - late registration (AC-5).** Recommended: follow each integration's existing
-     lifecycle. `liquers-py` keeps its built store across rebuilds (`Declarations::store`), so a
-     handler registered after the first build cannot reach it and is refused. `liquers-web`
-     rebuilds the store whenever it rebuilds the environment (`apply_store`), so a late handler
-     takes effect (refused instead once `language-late-registration-without-rebuild` removes that
-     rebuild). `STORE18`'s "is refused if registered after the store is built" is reworded to
+  1. **Open design - binding API.** (a) **Recommended**: dedicated `@env.store_config_handler(name=,
+     label=, doc=)` (the guide's `STORE18` blueprint) and `liquers.registerStoreConfigHandler(declaration)`
+     (realm forced to `store_config`, `run` the handler); the command entry points refuse realm
+     `store_config` with a pointer to them. (b) Reuse the command API with realm `store_config`:
+     one entry point, but a different callable contract (record in/out, synchronous). Today
+     JavaScript's `registerCommand` accepts that realm and registers an executor that never runs;
+     `py-command-decorator-declaration-keywords` adds `realm=` to the Python decorators, creating the
+     same hazard there. Under (a) both refuse it (that design recommends refusing too); under (b)
+     both route it to handler registration.
+  2. **Open design - late registration (AC-5).** Recommended: each integration's lifecycle. Python
+     keeps its built store across rebuilds (`Declarations::store`), so a late handler is refused;
+     web rebuilds the store (`apply_store`), so it takes effect (refused once
+     `language-late-registration-without-rebuild` removes that rebuild). `STORE18` reworded to
      "takes effect in a rebuilt store or is refused; never ignored".
-  3. **Open design - bytes.** Recommended: not now. A language handler gets the record and its
-     arguments only; a `needs_bytes` declaration can be added later without changing this one. A
-     listing runs the read chain per entry, and bytes would cross the bridge each time.
-  4. **Proposed resolution - return contract.** The function returns the record to keep; `None` /
-     `undefined` keeps its input; anything else is an error under the stage rules.
-  5. **Proposed resolution - Python threads.** A chain runs synchronously inside a store call on a
-     tokio worker. The Python handler takes the GIL inside `tokio::task::block_in_place` when the
-     current runtime is multi-threaded (`liquers-py`'s is), so other tasks move off that worker;
-     per-entry GIL cost is documented.
+  3. **Open design - bytes.** Recommended not now: record and arguments only; `needs_bytes` can be
+     added later. A listing runs the read chain per entry.
+  4. **Proposed resolution - return.** The record to keep; `None` / `undefined` keeps the input;
+     anything else is an error under the stage rules.
+  5. **Proposed resolution - threads.** The Python step takes the GIL through `liquers-py`'s
+     existing `attach_off_worker` (`block_in_place` on a multi-thread runtime); per-entry cost documented.
 
 ## Design Dependencies
 
 | Design / issue | Relation | Effect |
 |---|---|---|
-| `language-store-type-registration` (`LANGUAGE-STORE-TYPE-NOT-DEFINABLE`) | overlaps | Weak: the same asymmetry for store *types*; independent change sites. A Python language store it adds would be wrapped by these handlers like any store. |
-| `post-init-command-registration` | overlaps | Its `update_commands` clones `CommandRegistry`, including `store_config`; the `Arc` builders keep that clone cheap. A handler added through it reaches only stores built afterwards, which AC-5 states. |
-| `language-late-registration-without-rebuild` | overlaps | Weak: it changes the registration lifecycle this design relies on, at different change sites; no T1-T4 test holds. If it lands, web no longer rebuilds on registration, so a late handler cannot reach a built store: AC-5 then becomes "refused" in JavaScript too (Q2). |
-| `store-adapters` (complete) | — | Source of the realm and of §Language Integration item 4, which this design builds. |
+| `py-command-decorator-declaration-keywords` | overlaps (T2) | Its `realm=` decides what `realm="store_config"` on a decorator means (Q1); not merged: separate sources, merge would be `XL` (E2). Whichever lands later adds the refusal or routing. |
+| `language-store-type-registration` | overlaps | Weak: same gap for store types; a Python store it adds is wrapped like any store. |
+| `post-init-command-registration` | overlaps | Clones `CommandRegistry` incl. `store_config`; `Arc` builders keep it cheap. |
+| `language-late-registration-without-rebuild` | overlaps | Weak: changes the lifecycle AC-5 relies on (Q2). |
+| `store-config-key-scoped-handlers` | overlaps | Edits the same `compile_plan` handler arm; second to land rebases. |
+| `multi-language-traceback` | overlaps | A handler's exception carries its segments through the unchanged bridges; no order. |
+| `py-metadata-fields-as-properties` | overlaps | Makes `metadata.log()` a property; later one updates Example 1 and test 6. |
 
 ## Consolidated Findings
 
-- **Only the table changes.** `CompiledFn` and `NeedsBytesFn` are already boxed closures (with
-  `Send + Sync` off wasm), so a language closure fits them; `StepBuilder` becomes an `Arc`'d closure
-  with the same cfg pair, and `register_step` becomes generic, so every existing `fn` caller
-  (`handlers.rs`, `test_support.rs`, `liquers-lib/src/store_config.rs`) compiles unchanged.
-- **Python is not blocked on a Python store.** `liquers-py` already builds configured stores
-  through `EnvironmentBuilder`, which compiles sections against `command_registry.store_config`,
-  so a Python handler runs over the built-in stores (`memory`, `filesystem`) today.
-- **Errors keep their traceback on validate**; on read `compile` writes `Metadata handler failed:
-  {error}` as a warning, so the traceback is not in the record (Display omits it). Accepted.
-- **Guide blueprint drift (not filed here):** `STORE18`'s Python blueprint uses `record.title` and
-  `record.tags`, which `liquers-py`'s `MetadataRecord` does not expose. Phase 3 uses existing
-  accessors; the guide update in step 7 corrects the blueprint.
+- Only the builder table changes: compiled closures already capture; `register_step` becomes
+  generic, so `handlers.rs`, `test_support.rs` and `liquers-lib/src/store_config.rs` compile unchanged.
+- Python needs no Python store: `EnvironmentBuilder::build` compiles sections against
+  `command_registry.store_config`, so handlers run over `memory` and `filesystem` stores.
+- Read-stage errors become `Metadata handler failed: {error}` warnings without the traceback;
+  validate-stage errors keep it.
+- `STORE18`'s Python blueprint uses `record.title` / `record.tags`, which `liquers-py` lacks: not
+  filed separately, because this design's Phase 4 step 7 corrects the blueprint.

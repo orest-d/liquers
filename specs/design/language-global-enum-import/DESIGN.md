@@ -13,8 +13,7 @@ created: 2026-10-27
 ---
 # JavaScript and Python register the global enums their commands refer to
 
-Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-27: Phases 1-4 written, not
-approved, nothing implemented. Written against the unimplemented `global-enum-registration`.
+Bulk design, 2026-10-27: Phases 1-4 written, not approved, nothing implemented.
 
 ## Phase 1: High-Level Design
 
@@ -101,30 +100,29 @@ enums on an explicit JavaScript `Environment` instance, which cannot register co
      a scratch `CommandMetadataRegistry`, because `EnumArgument::definition_issues` is crate-private.
   3. **Proposed resolution - map key differs from `name`.** Registered under `name`, with a
      warning in the report (web) or `validate()` (Python), as core `merge_str` does.
-  4. **Assumption - core design.** `global-enum-registration` questions 1-3 as recommended: a
-     dangling reference is an `Error` at build, re-adding a name replaces, and metadata versions
-     follow the enum's content.
 
 ### Design Dependencies
 
 - `global-enum-registration` (in review, `needs-decision`): **requires**. `add_global_enum` and the
-  dangling-reference check come from it; its decisions are assumption 4.
-- `language-late-registration-without-rebuild` (this run): **overlaps**. Both touch the web replay
-  (`rebuild_with`, `rebuild_without`) and Python's `configured_builder`. T3 was considered and
-  rejected: that design keeps the replay and changes only what is done with its result, so the
-  enum replay added here carries over and no order is forced.
-- `registry-publication` (in review): **overlaps**. Its export resolves global enums into each
-  command, so an `importRealm` document holds none. Different functions.
+  dangling-reference check come from it. This design assumes its questions 1-3 as recommended: a
+  dangling reference is an `Error` at build, re-adding a name replaces, versions follow content.
+- `language-late-registration-without-rebuild` (this run): **overlaps, T3 holds**. That design
+  replaces the commands' use of `rebuild_with` / `rebuild_without` with `update_registry`, which
+  Step 2 here also edits, and both edit Python's `configured_builder` path. Whichever lands second
+  carries the enum replay into the other's replay function. Not merged: each is `M`, and they wait
+  on different `needs-decision` core designs, so a merged design would be blocked by both.
+- `registry-publication` (in review): **overlaps**. Its export inlines global enums, so an
+  `importRealm` document holds none.
 - `PY-COMMAND-DECORATOR-CANNOT-DECLARE-ARGUMENT-METADATA` (issue): **overlaps**. Once a decorator
   can declare `argument_type`, `add_global_enum` is how its enum gets in. Either order.
 
 ### Consolidated Findings
 
 - Under the core design a dangling reference fails the build. `validate_batch` checks a registry
-  holding only the batch, so it would refuse a command whose enum came in an earlier batch. It
-  must seed that registry with the environment's enums (AC-6).
+  holding only the batch, so it would refuse a command whose enum came in an earlier batch;
+  it must be seeded (AC-6).
 - Order matters for users: register the enum before, or in the same document as, the commands
-  that use it. Python is lenient here, because its build runs only at the next use.
+  that use it. Python is lenient: its build runs at the next use.
 - The issue's example writes alternatives as `{name: red}`; the field is `alias`, and
   `others_allowed` and `value_type` have no serde default. The examples here use the real form.
 
@@ -136,18 +134,22 @@ enums on an explicit JavaScript `Environment` instance, which cannot register co
 `HashMap<String, EnumArgument>`. `read_batch` returns the batch's enums beside its commands
 (a `Batch { commands, global_enums }`, crate-private). A new thread-local
 `REGISTERED_GLOBAL_ENUMS: RefCell<Vec<EnumArgument>>`, beside `REGISTERED_SPECS`, holds every
-accepted enum, one per name. `validate_batch` builds its scratch registry from the current
-environment's `global_enums` (pending or shared), then the batch's enums, then the commands.
+accepted enum, one per name. `validate_batch` builds its scratch registry from that list, then
+the batch's enums, then the commands.
 `register_commands_on` adds the enums before the commands, directly while the environment is
 pending and through `rebuild_with` otherwise. `rebuild_with` and `rebuild_without` apply
 `REGISTERED_GLOBAL_ENUMS` before replaying specs. `register_global_enum_on(spec)` follows the same
-path for one enum.
+path for one enum. `rebuild_with` gains `enums: Vec<EnumArgument>`. Seeding from the list rather than an environment
+keeps `validateCommands` pure and usable before `init()`.
 
 **Python** (`liquers-py`). `ImportedMetadata` gains `#[serde(default)] global_enums:
 HashMap<String, EnumArgument>`. `Declarations` gains `global_enums: Vec<EnumArgument>`.
-`EnvCell::import_metadata` takes the enums too; `EnvCell::add_global_enum(e)` checks `e`
-on a scratch registry, replaces by name, and calls `retire`. `configured_builder` calls
-`add_global_enum` for each before `apply_imported`.
+`EnvCell::import_metadata` takes the enums too and, like `EnvCell::add_global_enum(e)`, checks each
+on a scratch registry first, raising `ConfigurationError` and retaining nothing on failure; then it
+replaces by name and calls `retire`. `configured_builder` calls `add_global_enum` for each before
+`apply_imported`; only checked enums reach it, and an `Err` there anyway becomes an error-level
+issue in its `IssueReport`, so `validate()` still returns a report and a build still raises
+`ConfigurationError`.
 
 Rejected: inserting into the `pub` map directly (skips the core checks); resolving enums into each
 command at import (it freezes the enum, so a later replacement has no effect); a separate
@@ -189,7 +191,7 @@ fn add_global_enum(&self, py: Python<'_>, spec: &Bound<'_, PyAny>) -> PyResult<(
 | Stub check fails on the new declaration | `check-stubs.sh --build` in Step 3 | high |
 | The core adder's error text changes | Tests match the error type, not the text | medium |
 
-Recovery: revert the two crates. Existing tests: none asserts the "not imported" warning.
+Recovery: revert the two crates. No existing test asserts the "not imported" warning.
 
 ## Phase 3: Examples and Tests
 
@@ -210,23 +212,31 @@ env.evaluate("paint-red")         # "painted red", with a Python command `paint`
 JavaScript, `liquers-web/tests/environment_ENVIRON.rs`
 (`cargo test -p liquers-web --target wasm32-unknown-unknown --features debug-handles`):
 
-- `environ08_registry_global_enums_are_imported`: the Problem Example; no warning; `paint-red`
+- `environ_registry_global_enums_are_imported`: the Problem Example; no warning; `paint-red`
   gives `"painted red"` (AC-1)
-- `environ08_register_global_enum_replaces_by_name`: object and YAML string forms; a second call
-  changes the value `paint-red` resolves to (AC-3)
+- `environ_register_global_enum_replaces_by_name`: object, YAML and JSON string forms; a second
+  call changes the value `paint-red` resolves to (AC-3)
 - `environ08_invalid_global_enum_is_refused`: a repeated alias → `parameter_error`; a later
   rebuild does not bring it back (AC-4)
-- `environ08_global_enums_survive_a_rebuild`: register, evaluate, register another command,
+- `environ_global_enums_survive_a_rebuild`: register, evaluate, register another command,
   evaluate `paint-red` again (AC-5)
 - `environ08_later_batch_sees_earlier_enum`: the enum in one call, the command in the next;
-  `validateCommands` reports nothing, and an unknown enum is an error naming it (AC-6)
+  `validateCommands`, also before `init()`, reports nothing, and an unknown enum is an error
+  naming it (AC-6)
+
+`ENVIRON08` (an invalid import's report) covers only AC-4 and AC-6; the others are unnumbered, as
+`web_register_after_sharing_rebuilds` is.
+
+Unit, `liquers-web/src/command/import.rs` `tests`: `registry_global_enums_are_read_typed` (Step 1).
 
 Python, `liquers-py/tests/test_ENVIRON_environment.py` (`bash scripts/test-liquers-py.sh`):
 
-- `test_ENVIRON08_imported_global_enums_resolve` (AC-2)
-- `test_ENVIRON08_add_global_enum_from_dict_and_yaml` (AC-3)
-- `test_ENVIRON08_invalid_global_enum_raises_configuration_error` (AC-4)
-- `test_ENVIRON08_global_enums_survive_a_rebuild`: evaluate, register a command, evaluate (AC-5)
+- `test_ENVIRON_imported_global_enums_resolve` (AC-2)
+- `test_ENVIRON_add_global_enum_from_dict_yaml_and_json` (AC-3)
+- `test_ENVIRON08_invalid_global_enum_raises_configuration_error`: through `add_global_enum` and
+  through `import_metadata`; afterwards `validate()` returns a report without it and `paint-red`
+  still fails only as unknown enum, so nothing was retained (AC-4)
+- `test_ENVIRON_global_enums_survive_a_rebuild`: evaluate, register a command, evaluate (AC-5)
 - `test_ENVIRON08_validate_sees_registered_enums` (AC-6)
 
 ## Phase 4: Implementation Plan
@@ -235,9 +245,9 @@ Python, `liquers-py/tests/test_ENVIRON_environment.py` (`bash scripts/test-lique
 
 Prerequisite: `global-enum-registration` implemented.
 
-- [ ] 1. `liquers-web/src/command/import.rs` typed `global_enums`, `read_batch` returns them; `environment.rs` `validate_batch` seeding — `environ08_later_batch_sees_earlier_enum` — `cargo test -p liquers-web --target wasm32-unknown-unknown --features debug-handles environ08`
-- [ ] 2. `environment.rs` `REGISTERED_GLOBAL_ENUMS`, `register_commands_on`, `rebuild_with`, `rebuild_without`, `register_global_enum_on` — the other web tests — same command
-- [ ] 3. `liquers-web/src/lib.rs` `registerGlobalEnum`, `typescript.rs` `JsGlobalEnumSpec` — `./liquers-web/scripts/check-stubs.sh --build` and with `--records`
+- [ ] 1. `liquers-web/src/command/import.rs` typed `global_enums`, `read_batch` returns them; `environment.rs` `validate_batch` seeding from an empty `REGISTERED_GLOBAL_ENUMS` — `registry_global_enums_are_read_typed` — `cargo test -p liquers-web --target wasm32-unknown-unknown --features debug-handles --lib import`
+- [ ] 2. `environment.rs` `REGISTERED_GLOBAL_ENUMS`, `register_commands_on`, `rebuild_with` (new `enums` parameter), `rebuild_without`, `register_global_enum_on` — `environ_registry_global_enums_are_imported`, `environ_global_enums_survive_a_rebuild` — `cargo test -p liquers-web --target wasm32-unknown-unknown --features debug-handles environ`
+- [ ] 3. `liquers-web/src/lib.rs` `registerGlobalEnum`, `typescript.rs` `JsGlobalEnumSpec` — the remaining web tests (`environ_register_global_enum_replaces_by_name`, `environ08_invalid_global_enum_is_refused`, `environ08_later_batch_sees_earlier_enum`) — same command, and `./liquers-web/scripts/check-stubs.sh --build` and with `--records`
 - [ ] 4. `liquers-py/src/environment.rs` `ImportedMetadata`, `Declarations`, `EnvCell`, `Environment::add_global_enum` — the Python tests — `bash scripts/test-liquers-py.sh`
 - [ ] 5. Documents of Phase 2 with History rows — `python3 scripts/docs_index.py --check`
 - [ ] 6. `specs/issues/GLOBAL-ENUMS-NOT-IMPORTED-BY-LANGUAGE-INTEGRATIONS.md` closed with a resolution note; this design `complete` — `python3 scripts/docs_index.py` then `--check`
@@ -247,4 +257,4 @@ Rollback: steps 1-3 (web) and step 4 (Python) revert independently.
 ### Validation
 
 Both bindings' loops as in `CLAUDE.md` (web with and without `records`); `cargo fmt --check -p
-liquers-web -p liquers-py`. Diff review: two crates and the documents; no core change.
+liquers-web -p liquers-py`. Diff: two crates and the documents; no core change.

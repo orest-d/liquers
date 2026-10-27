@@ -13,8 +13,7 @@ created: 2026-10-27
 ---
 # A Python environment accepts every configured recipe provider choice
 
-Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-27: Phases 1-4 written, not
-approved, nothing implemented.
+Bulk design, 2026-10-27: Phases 1-4 written, not approved, nothing implemented.
 
 ## Phase 1: High-Level Design
 
@@ -56,7 +55,7 @@ provider and silently stop manifest chunk keys resolving
   THEN a `recipes.yaml` key and a manifest chunk key both evaluate, as today
 - **AC-3** Validation follows the configured provider
   WHEN `env.validate()` runs on a `trivial` environment
-  THEN it reports no issue caused by the choice and builds nothing
+  THEN it reports no issue caused by the choice
 - **AC-4** An unknown value is still refused
   WHEN `recipes` names no `RecipeProviderChoice`
   THEN the constructor raises `lq.LiquersError`, as today
@@ -68,13 +67,12 @@ configuration (deliberately absent, `RecipeProviderChoice` doc); changing what `
 ### Design Readiness
 
 - **Readiness:** needs-decision
-- **Automatic fixing:** not-eligible — a feature, not a fix: the documented Python contract is the
-  refusal (`PYTHON_INTEGRATION.md` §3 "refuses … any `recipes` other than `default`", guide §4), so
-  accepting `trivial` changes what the binding accepts (rules 2 and 4); and its readiness is not
-  `ready` (rule 5).
+- **Automatic fixing:** not-eligible — a feature: the documented Python contract is the refusal
+  (`PYTHON_INTEGRATION.md` §3, guide §4), so accepting `trivial` changes what the binding accepts
+  (rules 2, 4); readiness is not `ready` (rule 5).
 - **Leading issue:** question 1.
-- **Explanation:** the fix is a two-arm match in one function; what remains is whether to support
-  `trivial` at all, and the meaning of `trivial` under `liquers-lib`, which another design owns.
+- **Explanation:** the fix is a two-arm match in one function; open are whether to support
+  `trivial`, and its meaning under `liquers-lib`, which another design owns.
 - **Open questions:**
   1. **Proposed resolution - support or document:** support every `RecipeProviderChoice`
      (recommended): there are two, the builder takes both, and `trivial` is useful for a sandbox
@@ -84,28 +82,23 @@ configuration (deliberately absent, `RecipeProviderChoice` doc); changing what `
      `trivial` under `liquers-lib` means no recipes at all, manifests included (AC-1). Python
      follows whatever the builder's `with_recipe_provider_choice(Trivial)` installs, so a different
      answer there changes AC-1's manifest half and the guide sentence, not this code.
-  3. **Implementation detail - `Default` is not passed to the builder:** the builder's default is
-     already the right chain; see Phase 2.
 
 ### Design Dependencies
 
 - `kind-aware-recipe-provider-choice` (needs-decision, Phase 4 finished) — **overlaps**. Overlap
-  test **T2** holds in part: what `default` and `trivial` install for `LibKind` is that design's
-  contract. Not attached: that design is excluded from this run (bulk-design guide §1, finished
-  Phase 4), and this design does not need it, because it never names `Default` to the builder.
-  Once that design lands (either option), the `Default` arm may become a plain pass-through; no
-  order is forced.
-- `py-command-decorator-declaration-keywords`, `py-api-reference` — **overlaps**: other edits in
-  `liquers-py/src/environment.rs`, different functions. No order.
+  test **T2** holds in part (what each choice installs for `LibKind` is its contract). Not
+  attached: its Phase 4 is finished (bulk-design guide §1), and this design never names `Default`
+  to the builder, so it does not need it. After it lands, the `Default` arm may become a plain
+  pass-through; no order.
+- `py-command-decorator-declaration-keywords`, `py-api-reference` — **overlaps**: other functions
+  of `liquers-py/src/environment.rs`. No order.
 
 ### Consolidated Findings
 
-- The refusal is one `if` in `EnvCell::new`; the choice is consumed only in
-  `EnvCell::configured_builder`, which both `build` and `validate` use, so AC-3 needs no extra code.
-- Passing `Default` through would regress manifests in every Python environment; the explicit
-  match is what prevents it, and a test pins it (AC-2).
-- Documents state the refusal in three places (reference §3 and §8, guide §4 table and §10,
-  `liquers-py/README.md` `ENVIRON` row); all change.
+- The refusal is one `if` in `EnvCell::new`; `EnvCell::configured_builder` serves both `build` and
+  `validate`, so AC-3 needs no extra code.
+- Passing `Default` through would drop manifests in every Python environment; the explicit match
+  prevents it and AC-2 pins it.
 
 ## Phase 2: Architecture
 
@@ -151,16 +144,15 @@ Rejected: `with_recipe_provider_choice(self.config.recipes)` for every value (dr
 | `kind-aware-recipe-provider-choice` decides `trivial` keeps manifests | Python follows the builder; only AC-1's manifest assertion and one guide sentence change | medium |
 | A filesystem-stored manifest reads differently from the memory-store Rust fixture | AC-2 test uses the filesystem store, the common Python setup | medium |
 
-Recovery: revert the file. Tests likely to change: the refused-choice unit test only.
+Recovery: revert the file. Only the refused-choice unit test changes.
 
 ## Phase 3: Examples and Tests
 
 ### Examples
 
-The Problem Example is the primary case. Secondary: the same filesystem store with
-`data/chunks.manifest.yaml` = `manifest: record-stream`, chunk `greet/greet.csv`, and a Python
-`first_command` `greet` returning `"hello"`: `-R/data/greet.csv` is `"hello"` by default and
-raises `lq.AssetNotFoundError` with `trivial`.
+The Problem Example is primary. Secondary: the same store with `data/chunks.manifest.yaml`
+(`manifest: record-stream`, chunk `greet/greet.csv`, a Python `first_command` `greet` returning
+`"hello"`): `-R/data/greet.csv` is `"hello"` by default, `lq.AssetNotFoundError` with `trivial`.
 
 ### Tests
 

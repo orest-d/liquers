@@ -24,7 +24,9 @@ what every producer already has).
 | `LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT` | accepted | P3 | The JavaScript stack is in `message`, not `traceback` | Yes, before step 6 | No (core and Python steps are independent) | Requires; step 6 builds on it |
 | `ERROR-WITH-KEY-SETS-QUERY-FIELD` (`error-with-key-field`) | draft | P2 | Also edits `ErrorPayload` and the action error mapping | No | No | Rebase whichever lands second |
 | `ERROR-TYPES-TOO-COARSE-AND-GENERAL-OVERUSED` (`error-type-taxonomy`) | draft | P2 | Renames/removes variants; makes `Error::new` private | No | No | Use typed constructors only |
-| Unfiled: `js_value_as_liquers_error` drops `query`/`key`/`position` | — | P3 (guess) | A thrown-back error loses fields | No | No | Step 6 restores segments and `traceback` only; reported for filing |
+| `PY-METADATA-METHODS-RAISE-PLAIN-EXCEPTION` (`py-metadata-typed-errors`) | draft | P3 | Edits `liquers-py/src/error.rs` and `metadata.rs` | Yes, before step 5 | No | Step 5 rebases on it |
+| `PY-METADATA-FIELDS-ARE-METHODS` (`py-metadata-fields-as-properties`) | draft | P3 | `metadata.log()` may become a property | No | No | Later one updates test 13 |
+| `WEB-THROWN-BACK-LIQUERSERROR-LOSES-CONTEXT` (`web-thrown-back-error-context`): `js_value_as_liquers_error` drops `query`/`key`/`position` | draft | P3 | A thrown-back error loses fields; same function as step 6 (T3, kept apart by E1) | No | No | Step 6 restores segments and `traceback` only; second to land rebases |
 
 ## Interfaces
 
@@ -72,7 +74,8 @@ an empty list. No new command; no `ExtValue` variant.
 keyword `traceback_segments=()` stored as a tuple; `_from_native` gains a seventh argument.
 `liquers-py/src/metadata.rs` `LogEntry` gains a read-only getter `traceback_segments`.
 
-`liquers-web`: `LiquersError` gains getter `tracebackSegments` (`unchecked_return_type =
+`liquers-web`: `LiquersError` gains getter `tracebackSegments`, independent of `jsClass` / `jsStack` (left as
+`LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT` leaves them: alias or removal is its decision) (`unchecked_return_type =
 "LiquersTracebackSegment[]"`), declared in `src/typescript.rs` as
 `interface LiquersTracebackSegment { language: string; command?: string; text: string }`.
 

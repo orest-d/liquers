@@ -54,13 +54,17 @@ cannot be imported) stays as it is.
 ### Scope and Acceptance Criteria
 
 - **AC-1** Serialization failures are typed
-  WHEN any `from_json` / `from_yaml` of a wrapper class is given text that does not parse
+  WHEN any `from_json` / `from_yaml` of a wrapper class is given text that is not JSON (or YAML)
+  at all, such as `"{"`. Any valid JSON is not enough, because `Metadata.from_json` falls back to a
+  bare JSON value (`liquers-core` `Metadata::from_json`), so only invalid syntax fails for every class
   THEN it raises `lq.SerializationError` (a `lq.LiquersError`), with `type ==
   ErrorType.SerializationError` and the serde message in `message`
 - **AC-2** A stored error keeps its type
-  WHEN `MetadataRecord.error_result()` runs on a record holding `lq.Error(ErrorType.KeyNotFound, …)`,
-  or `Metadata.error_result()` runs after `with_error("boom")`
-  THEN it raises `lq.KeyNotFoundError`, or `lq.GeneralError` with message `boom`, respectively
+  WHEN a Python command `missing` raises `lq.KeyNotFoundError("no such key")`, and
+  `env.get_asset("missing").metadata.error_result()` is called after the asset fails (core
+  `Metadata::error_result` returns the record's `error_data`); or when `lq.Metadata()` gets
+  `with_error("boom")` and then `error_result()`
+  THEN the first raises `lq.KeyNotFoundError`, and the second `lq.GeneralError` with message `boom`
 - **AC-3** Constructor failures are typed
   WHEN `lq.Recipe("a/b-~", "t", "d")` or `lq.CommandPreset("a/b-~", "l", "d")` gets a query that
   does not parse, or `lq.ExpirationTime("not a time")` gets a spec it cannot read
@@ -70,7 +74,7 @@ cannot be imported) stays as it is.
   WHEN a caller catches these failures with `except Exception`
   THEN they are still caught, because `LiquersError` derives from `Exception`
 - **AC-5** No untyped mapping is left
-  WHEN `grep -n "PyException" liquers-py/src/*.rs` runs after the change
+  WHEN the check `ac5_no_untyped_mapping_grep` runs (`grep -n "PyException" liquers-py/src/*.rs`)
   THEN the only matches are in `error.rs`
 
 Non-goals: Python argument-validation errors that are Python's own (`PyValueError`,
@@ -80,17 +84,22 @@ Non-goals: Python argument-validation errors that are Python's own (`PyValueErro
 ### Design Readiness
 
 - **Readiness:** ready
-- **Automatic fixing:** eligible. This is a bug fix that restores the documented error mapping
-  (`PYTHON_INTEGRATION.md` §6; `LANGUAGE-INTEGRATION_GUIDE.md` `OBJECT04`, "invalid parse produces
-  `ERROR`") (rule 2). It adds one `pub(crate)` helper and no structure (rule 3). No signature,
+- **Automatic fixing:** eligible. This is a bug fix that restores intended behaviour (rule 2).
+  - The 9 Liquers-`Error` sites break §6 of `PYTHON_INTEGRATION.md` as written.
+  - The 46 serde sites are not covered by §6's wording, which speaks only of "a Liquers error".
+    The intent is plain from three sources. `LANGUAGE-INTEGRATION_GUIDE.md` `OBJECT04` says
+    "invalid parse produces `ERROR`", meaning the structured error. The issue's own expected
+    behaviour names `SerializationError`. And `liquers-core` maps every JSON failure to
+    `SerializationError` (`value.rs`). No document promises a plain `Exception` anywhere.
+  - Step 6 adds the sentence to §6 that makes this explicit. It adds one `pub(crate)` helper and no structure (rule 3). No signature,
   class or method changes, and the exceptions stay `Exception` subclasses (rule 4). All of it is in
   `liquers-py` (rule 6). Size `M`: five files of one-line edits plus a helper in `error.rs`, one crate.
 - **Leading issue:** None
 - **Explanation:** every site has a single obvious typed form. The serde-to-`SerializationError`
   mapping is the one `liquers-core` uses (`value.rs`, `Error::from_error(ErrorType::SerializationError, …)`).
-- **Open questions:** None. **Implementation detail:** `ExpirationTime`'s bad spec becomes
-  `General`, because that is what its sibling `Expires` (core's `Expires::from_str`) raises. `ParseError` would be a
-  new distinction for the reader to learn.
+- **Open questions:** None. Resolved by repository evidence: a bad `ExpirationTime` spec raises
+  `GeneralError`. Its sibling `Expires` raises exactly that for a bad spec today (core
+  `Expires::from_str` uses `Error::general_error`), so the two classes agree.
 
 ### Design Dependencies
 
@@ -102,6 +111,8 @@ Non-goals: Python argument-validation errors that are Python's own (`PyValueErro
 - `py-python-style-reprs`: **overlaps** (weak). It touches the same files, in different methods.
 - `py-api-reference` (needs decision): **overlaps** (weak). It adds docstrings to the same
   `#[pymethods]` blocks. The edits are independent, and a rebase is trivial.
+- `multi-language-traceback`: **overlaps** (weak). Its step 5 edits `liquers-py/src/error.rs` and
+  `LogEntry` in `metadata.rs`. This design goes first, and that one rebases over the helper.
 
 ### Scope Changes
 
@@ -158,8 +169,10 @@ direction (Python to Liquers) and does not block. No command namespaces are invo
 - `liquers-py/src/metadata.rs`, `recipes.rs`, `expiration.rs`, `command_metadata.rs`, `plan.rs`:
   the 56 `map_err`s, plus imports. Every change is to a method body; no signature changes.
 - `liquers-py/tests/test_ERROR_errors.py`: the Phase 3 tests.
-- Documents: none need correction, because §6 already describes the target behaviour. The
-  conformance row `ERROR` in `liquers-py/README.md` gains the new test names.
+- Documents: `PYTHON_INTEGRATION.md` §6 gains, after the `error_to_pyerr` paragraph: "A JSON or
+  YAML failure in a wrapper method (`from_json`, `to_yaml`, …) raises `SerializationError`; a bad
+  constructor argument raises the error its core constructor returns." Add a History row and bump
+  `reviewed:`. The conformance row `ERROR` in `liquers-py/README.md` gains the new test names.
 - Sync/async: everything is synchronous, as before. No command or registry changes.
 
 ### Risks
@@ -169,7 +182,7 @@ direction (Python to Liquers) and does not block. No command namespaces are invo
 | A caller relies on the exception being exactly `Exception` | `LiquersError` derives from `Exception` (AC-4). No test checks `type(e) is Exception` (`grep` of `liquers-py/tests`) | high |
 | `Python::attach` inside a `#[pymethods]` call | The thread is already attached, so `attach` is re-entrant. It is the same path every `Error` the bindings convert takes today | high |
 | A site is missed | AC-5's grep | high |
-| `with_error` on `Metadata` stores `general_error`, so AC-2's `GeneralError` checks that, not a lost type | `MetadataRecord.with_error(lq.Error(...))` keeps any type, and AC-2 covers it | high |
+| `Metadata.with_error(str)` stores a `general_error`, so its case cannot show that a type survives | AC-2's first case uses a stored `KeyNotFound` that came from a real failed evaluation. `MetadataRecord.with_error` is commented out (`metadata.rs`), and it stays out: exposing it would add a method | high |
 
 Recovery: revert the commit. Nothing persistent or serialized changes.
 
@@ -180,10 +193,14 @@ Recovery: revert the commit. Nothing persistent or serialized changes.
 ```python
 with pytest.raises(lq.SerializationError):
     lq.Plan.from_json("{")
-record = lq.MetadataRecord()
-record.with_error(lq.Error(lq.ErrorType.KeyNotFound, "missing"))
-with pytest.raises(lq.KeyNotFoundError, match="missing"):
-    record.error_result()
+@env.first_command
+def missing():
+    raise lq.KeyNotFoundError("no such key")
+asset = env.get_asset("missing")
+with pytest.raises(lq.KeyNotFoundError):
+    asset.get()
+with pytest.raises(lq.KeyNotFoundError, match="no such key"):   # today: a plain Exception
+    asset.metadata.error_result()
 ```
 
 ### Tests
@@ -194,12 +211,13 @@ Added to `liquers-py/tests/test_ERROR_errors.py`:
   `from_json` (all classes in the Phase 1 table) and every `from_yaml` (`Recipe`, `ArgumentInfo`,
   `CommandMetadata`, `CommandMetadataRegistry`, `Plan`), given `"{"` (JSON) or `"a: ["` (YAML):
   `pytest.raises(lq.SerializationError)` and `.type == ErrorType.SerializationError`: AC-1
-- `test_ERROR_stored_error_keeps_its_type`: the two cases of AC-2: AC-2
+- `test_ERROR_stored_error_keeps_its_type`: the two cases of AC-2, as in the Example (`env` fixture): AC-2
 - `test_ERROR_wrapper_constructors_raise_typed_errors`: `Recipe`, `CommandPreset` → `lq.ParseError`;
   `ExpirationTime("not a time")` → `lq.GeneralError`, as `lq.Expires("not a time")` does: AC-3
 - `test_ERROR_typed_wrapper_errors_are_still_exceptions`: `except Exception` catches
   `lq.Metadata.from_json("x")`, and `issubclass(lq.SerializationError, Exception)`: AC-4
-- AC-5 is the grep in Phase 4 Validation, a static property with no runtime test.
+- `ac5_no_untyped_mapping_grep`: a static check, not a runtime test. `grep -n "PyException" liquers-py/src/*.rs`
+  lists only `error.rs`: AC-5
 
 Run: `bash scripts/test-liquers-py.sh -k ERROR`, then the whole loop.
 
@@ -210,14 +228,13 @@ Run: `bash scripts/test-liquers-py.sh -k ERROR`, then the whole loop.
 - [ ] 1. `liquers-py/tests/test_ERROR_errors.py`: add the four tests. Proof: `bash scripts/test-liquers-py.sh -k ERROR`; AC-1, AC-2 and AC-3 fail today (AC-4 passes)
 - [ ] 2. `liquers-py/src/error.rs`: add `serialization_pyerr`. Proof: `cargo check -p liquers-py --lib --tests`
 - [ ] 3. `metadata.rs`, `recipes.rs`, `expiration.rs`: replace the 23 sites; for `ExpirationTime::new`, use `general_error`. Proof: `cargo check -p liquers-py --lib --tests`
-- [ ] 4. `command_metadata.rs`, `plan.rs`: replace the 33 sites; drop the `PyException` imports. Proof: `cargo check -p liquers-py --lib --tests` with no new warning; `grep -n "PyException" liquers-py/src/*.rs` shows only `error.rs` (AC-5)
+- [ ] 4. `command_metadata.rs`, `plan.rs`: replace the 33 sites; drop the `PyException` imports. Proof: `cargo check -p liquers-py --lib --tests` with no new warning; `ac5_no_untyped_mapping_grep` (AC-5)
 - [ ] 5. Whole loop. Proof: `bash scripts/test-liquers-py.sh` passes, with the step 1 tests now green
-- [ ] 6. `liquers-py/README.md` conformance row `ERROR`: add the new tests; `specs/issues/PY-METADATA-METHODS-RAISE-PLAIN-EXCEPTION.md` `status: closed` with a resolution note; `python3 scripts/docs_index.py`. Proof: `python3 scripts/docs_index.py --check`
+- [ ] 6. `PYTHON_INTEGRATION.md` §6: the serialization sentence (Phase 2 Changes), a History row and a `reviewed:` bump; `liquers-py/README.md` conformance row `ERROR`: add the new tests; `specs/issues/PY-METADATA-METHODS-RAISE-PLAIN-EXCEPTION.md` `status: closed` with a resolution note; `python3 scripts/docs_index.py`. Proof: `python3 scripts/docs_index.py --check`
 
 Rollback for any step: revert it. The steps are independent apart from 2 before 3 and 4.
 
 ### Validation
 
-`bash scripts/test-liquers-py.sh` (every test passes), `cargo fmt -p liquers-py --check`, the AC-5
-grep and `python3 scripts/docs_index.py --check`. Review the diff: only `liquers-py/` and the
-issue, README and index files.
+`bash scripts/test-liquers-py.sh` (every test passes), `cargo fmt -p liquers-py --check`, `ac5_no_untyped_mapping_grep` and `python3 scripts/docs_index.py --check`. Review the diff: only
+`liquers-py/`, `PYTHON_INTEGRATION.md`, the issue and the index.

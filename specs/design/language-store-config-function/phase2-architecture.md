@@ -5,20 +5,16 @@ Q4 and Q5 as stated).
 
 ## Overview
 
-`StepBuilder` becomes an `Arc`'d closure, with the same native/wasm `cfg` pair `CompiledFn` uses,
-and `StoreConfigFunctions::register_step` becomes generic over the closure, so every existing
-`fn` builder still compiles. A language builder captures the callable, turns the spec's literal
-arguments into language values once at build, and returns a `CompiledStep` that converts the
-record, calls the function and converts the result back. Each binding retains its handlers beside
-its commands and registers them into `command_registry.store_config` on every (re)build, so the
-store sections compile against them through the existing path (`EnvironmentBuilder::build` in
-Python, `apply_store` in `liquers-web`).
+`StepBuilder` becomes an `Arc`'d closure (the `cfg` pair `CompiledFn` uses) and `register_step`
+becomes generic, so `fn` builders still compile. A language builder captures the callable, converts
+the literal arguments once at build, and returns a step that converts the record, calls the function
+and converts back. Each binding retains its handlers and registers them into
+`command_registry.store_config` on every (re)build, so sections compile against them through the
+existing path (`EnvironmentBuilder::build` in Python, `apply_store` in `liquers-web`).
 
-Rejected: a second table of boxed builders beside the `fn` table (two lookups and two
-registration paths for one concept); `Box` instead of `Arc` (`StoreConfigFunctions` is `Clone`, and
-`post-init-command-registration` clones the registry); boxing `ComponentBuilder` too (no use case,
-Phase 1 non-goal); an async handler (a chain cannot await: `store-adapters` Phase 2 §4); running
-the language function per *chain* instead of per *step* (a chain mixes built-in and language steps).
+Rejected: a second, boxed table (two paths for one concept); `Box` (the table is `Clone`, and
+`post-init-command-registration` clones it); boxing `ComponentBuilder` (non-goal); async handlers
+(a chain cannot await); one call per chain (chains mix built-in and language steps).
 
 ## Known-Issue Preflight
 
@@ -27,7 +23,9 @@ the language function per *chain* instead of per *step* (a chain mixes built-in 
 | `LANGUAGE-STORE-TYPE-NOT-DEFINABLE` | draft | P2 | Python has no language store; not needed here | No | No | `overlaps` |
 | `POST-INIT-COMMAND-REGISTRATION` | accepted | P3 | Late registration means a rebuild (web) or a refusal (Python) | No | No | AC-5 states it |
 | `STORE-CONFIG-SPEC-CANNOT-SCOPE-HANDLERS-TO-A-KEY` (`store-config-key-scoped-handlers`) | draft | P3 | Edits `compile_plan`'s handler step; a language handler is then key-scopable like any | No | No | Rebase whichever lands second |
-| `MULTI-LANGUAGE-TRACEBACK-IS-A-FLAT-STRING` | draft | P3 | A handler's exception carries a traceback | No | No | Uses `pyerr_to_error` / `js_error_to_liquers` unchanged |
+| `MULTI-LANGUAGE-TRACEBACK-IS-A-FLAT-STRING` (`multi-language-traceback`) | draft | P3 | A handler's exception carries a traceback | No | No | Uses `pyerr_to_error` / `js_error_to_liquers` unchanged |
+| `PY-COMMAND-DECORATOR-CANNOT-SET-REALM` (`py-command-decorator-declaration-keywords`) | draft | P3 | Its `realm=` could register a never-running `store_config` executor | No | No | Later one adds the refusal (Q1 (a)) |
+| `PY-METADATA-FIELDS-ARE-METHODS` (`py-metadata-fields-as-properties`) | draft | P3 | `metadata.log()` may become a property | No | No | Later one updates Example 1 / test 6 |
 
 ## Interfaces
 
@@ -79,14 +77,14 @@ The function is called as `fn(record, *arguments)` with an `lq.MetadataRecord`.
 CommandMetadata, run: js_sys::Function }`, parsed with `JsCommandSpec::parse` (realm forced to
 `store_config`); module function `#[wasm_bindgen(js_name = registerStoreConfigHandler)]` in
 `src/lib.rs`; its declaration type in `src/typescript.rs`. The function is called as
-`run(record, ...arguments)` with the record as `metadata_to_js_value` renders it.
+`run(record, ...arguments)` with the record rendered by `metadata_to_js_value` (wrapped as
+`Metadata::MetadataRecord`, since it takes `&Metadata`); a returned object comes back through
+`metadata_from_js_value` and must be a `MetadataRecord` (Phase 4 step 5).
 
 ## Integration Points
 
 - `liquers-core/src/store/realm.rs`: type alias, `register_step`, `compile_plan` call site,
   `literal_parameters`, the `StoreConfigFunctions` doc comment ("plain `fn` pointers") corrected.
-- Unchanged callers, compile-checked: `store/handlers.rs`, `store/test_support.rs`,
-  `liquers-lib/src/store_config.rs`.
 - `liquers-py/src/environment.rs`: `Declarations` gains `handlers: Vec<PyStoreConfigHandler>`;
   `configured_builder` registers them after the commands; `EnvCell::register_handler` refuses when
   `declarations.store` is `Some` (built), otherwise replaces by key and calls `retire`.
@@ -108,8 +106,7 @@ CommandMetadata, run: js_sys::Function }`, parsed with `JsCommandSpec::parse` (r
 
 ## Relevant Commands
 
-No interpreter command added or changed; `specs/command_registry.yaml` does not change (it lists
-only the built-in `store_config` entries, registered in Rust). Realm: `store_config`.
+No interpreter command added or changed; `specs/command_registry.yaml` does not change. Realm: `store_config`.
 
 ## Documentation Architecture
 
@@ -132,7 +129,7 @@ only the built-in `store_config` entries, registered in Rust). Realm: `store_con
 | Existing tests likely to change | None; `fn` items coerce to the generic parameter |
 | New validation | Phase 3 tests; `cargo check -p liquers-core --target wasm32-unknown-unknown`; `check-stubs.sh --build` |
 | Compatibility | `StepBuilder` alias and `register_step` signature change (source-compatible for `fn` callers; code naming `StepBuilder` as a `fn` breaks — none in the workspace) |
-| Concurrency / performance | Python: GIL per step call; read chains run per listed entry; `block_in_place` keeps other tasks moving. JavaScript: single-threaded, a re-entrant call is impossible because a chain never awaits |
+| Concurrency / performance | Python: GIL per step call; read chains run per listed entry; `attach_off_worker` (`block_in_place`) keeps other tasks moving. JavaScript: single-threaded, a re-entrant call is impossible because a chain never awaits |
 | Security | A handler runs user code on every store access, as a command already does |
 | Recovery | Per-crate steps revert independently |
-| Certainty | High for core (code read); medium for the bindings' surface (Q1, Q2) |
+| Certainty | High for core; medium for the bindings' surface (Q1, Q2) |

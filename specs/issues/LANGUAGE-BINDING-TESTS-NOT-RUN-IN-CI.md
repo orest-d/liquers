@@ -52,4 +52,4 @@ Recorded on 2026-10-26 while writing the project-groups plan for the bulk-design
 
 Designed 2026-10-27 in `design/language-binding-tests-in-ci/` (bulk design), together with
 `PY-TESTS-NOT-RUN-IN-CI` (overlap tests T4 and T3; this issue leads). Complexity raised from `S` to
-`M`: the fix is two workflow files, one per binding, so that each has its own path filter.
+`M`: the fix is two workflow files, one per binding so that each has its own path filter, and one line of `scripts/test-liquers-py.sh` (polars has no free-threaded wheel).

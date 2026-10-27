@@ -13,6 +13,7 @@
 | 7 | Test | `liquers_records::cdata::tests::format_strings_follow_the_mapping` | every format, `+w` child, `+s` root | AC-4 |
 | 8 | Test | `liquers_records::cdata::tests::unsupported_formats_are_refused_and_released` | `i`, `U`, `vu`, dictionary | AC-5 |
 | 9 | Test | `liquers_records::cdata::tests::import_honours_a_nonzero_offset` | offset 3, bit offset 3 | AC-6 |
+| 9a | Test | `liquers_records::cdata::tests::export_refuses_an_inconsistent_batch` | mutated public fields | AC-10 |
 | 10 | Test | `liquers-py/tests/test_VALUE_records_cdata.py::test_record_view_crosses_through_c_data` | pyarrow 14+ | AC-7 |
 | 11 | Test | `liquers-py/tests/test_VALUE_records_cdata.py::test_old_pyarrow_uses_the_ipc_route` | version fallback | AC-8 |
 | 12 | Check | `scripts/check-build-matrix.sh` rows with and without `cdata`, plus `grep -rn "unsafe" liquers-records/src` showing only `cdata.rs` and doc comments | AC-9 | AC-9 |
@@ -85,12 +86,19 @@ What this adds beyond Example 1: the pair crosses as PyCapsules, and pyarrow's i
   - `unsupported_formats_are_refused_and_released` (AC-5): builds foreign arrays by hand (a test
     producer in the test module) with formats `i`, `U`, `vu` and a non-null `dictionary`; the error
     names the field and format; the test producer's release counter shows each was released once.
+    Also a `tsm:` and a `tsn:` child (refused), and an already released array (`general_error`,
+    the counter unchanged: nothing is released twice).
+  - `export_refuses_an_inconsistent_batch` (AC-10): after `RecordBatch::new`, sets `batch.len`
+    one higher, replaces a validity with a deserialized `Bitmap` whose bytes are short, and an
+    offsets buffer whose last entry passes the data; each export fails naming the field.
   - `import_honours_a_nonzero_offset` (AC-6): a hand-built `l` child with offset 3, a `u` child
     with offset 3 and a validity bitmap at bit offset 3; the imported rows are the last `len`.
 - Python (`liquers-py/tests/test_VALUE_records_cdata.py`, skipped when pyarrow is absent, as the
   polars tests are):
   - `test_record_view_crosses_through_c_data` (AC-7): Example 2, and equality with
-    `pyarrow.ipc.open_file` of the same view written as `.arrow`.
+    `pyarrow.ipc.open_file` of the same view written as `.arrow`. It also calls the private
+    export object's `__arrow_c_array__` twice through a `pyarrow.record_batch` retry and expects
+    `ValueError` on the second.
   - `test_old_pyarrow_uses_the_ipc_route` (AC-8): monkeypatches `pyarrow.__version__ = "13.0.0"`;
     the result is still equal.
 - Build (AC-9): `bash scripts/check-build-matrix.sh`; and

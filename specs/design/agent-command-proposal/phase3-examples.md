@@ -67,7 +67,7 @@ key changed. Nothing in this design automates any of it.
 |---|---|---|
 | Target `mem/write` (not in the allow-list) | `not_supported` naming the target; no file, not registered | 8 |
 | Target `rec/records_schema` (an alias) | `alias_chain_not_supported`; nothing written | 8 |
-| Target `store_config/defaults` | refused as non-executable | 8 |
+| Target `store_config/defaults`, in a custom set whose allow-list has `store_config-*` (the `memory_` allow-list would refuse it first) | refused with the non-executable message | 8 |
 | Three heads for `rec/eq` | `invalid_alias` (ParameterError) | 9 |
 | Name `q`, `a/b` or `drafts-1` | refused; the name is not one parameterless action, or is reserved | 9 |
 | Store write fails (read-only mount) | error, and `-staging/drafts` is not registered afterwards | 6 |
@@ -94,7 +94,9 @@ key changed. Nothing in this design automates any of it.
     `_proposals/drafts.json` present. No `memory_propose` tool; the staged query fails with "not
     registered".
   - `proposal_cannot_escalate` (AC-6), `proposal_breaking_alias_rules_is_refused` (AC-7): the
-    table rows. After each refusal, the folder is empty and the key is absent.
+    table rows. After each refusal, the folder is empty and the key is absent. The non-executable
+    case uses a second fixture whose `memory.tools` set allows `-rec-*` and `store_config-*` and
+    declares `proposals`, and asserts the "cannot be executed" message, not the allow-list one.
   - `reproposal_requires_replace` (AC-8): a second `drafts` without `replace` is refused; with
     `replace` and heads `status`, `closed`, the staged query returns `WRITES-RACE`.
   - `proposal_file_is_a_validation_overlay` (AC-9): `ValidationRegistryBuilder::new()`, then

@@ -55,7 +55,10 @@ documentation. All the code is in `liquers-mcp` and `liquers-agent`.
   check for an existing key unless `replace`, call `CommandRegistry::register_alias`, set `label` /
   `doc` / `hints["proposal"]`, and return `Err` when `CommandMetadata::check()` has errors.
   `withdraw` runs `cr.unregister(key)`. Re-open `update_commands`' signature as merged before
-  writing this step, and adapt the closure type to it.
+  writing this step, and adapt the closure type to it. Check that its future is `Send`: that
+  design boxes a non-`Send` `dyn FnOnce` for `update_command_registry`. If it is not, run the
+  synchronous registry update in `tokio::task::spawn_blocking` and await only the refresh; dropping
+  `+ Send` from `BoxedFuture` works only if rmcp's `call_tool` future need not be `Send`.
 - Depends on: Step 2 and `post-init-command-registration` merged.
 - Proof: `cargo check -p liquers-mcp`; exercised by Step 6.
 - Rollback: revert Steps 3-5 together.
@@ -76,7 +79,9 @@ documentation. All the code is in `liquers-mcp` and `liquers-agent`.
   `MemorySettings::proposals`, `build_server_with` (sets the built-in set's `proposals` from it;
   `memory_tool_set` is unchanged).
 - Change: Phase 2 §restore. `build_server_with` calls `.with_proposals()` and then
-  `restore_proposals().await`, writes each warning with `eprintln!`, and appends "N staged command
+  `restore_proposals().await` right after `McpServer::new`, before its early return for
+  `!builtin || !overview` (`liquers-agent/src/lib.rs`), so custom tool sets and the CLI path
+  restore too. It writes each warning with `eprintln!`, and appends "N staged command
   proposals" to the instructions when N > 0. Without a `proposals` section, nothing is read.
 - Depends on: Step 4.
 - Proof: Step 6 tests 6 and 7.
@@ -114,9 +119,10 @@ not needed. `specs/command_registry.yaml` does not change, so `registry_export` 
 ## Rollback Plan
 
 Steps 1-2 are inert without Steps 3-5 and may stay. Reverting Steps 3-5 removes the capability.
-Proposal files left in a store are then never read. If only Steps 1-2 landed, a profile with a
-`proposals` section gets two tools that answer with an error, which is the documented state until
-the backend exists.
+Proposal files left in a store are then never read. With only Steps 1-2 landed, `liquers-agent`
+has no `memory.proposals` setting (Step 5), so no shipped profile can enable the tools. A custom
+`memory.tools` set that declares `proposals` gets the two tools listed, but a call reaches
+`McpServer::recipe` (dispatch arrives in Step 4) and fails with "does not evaluate a query".
 
 ## Documentation Updates
 

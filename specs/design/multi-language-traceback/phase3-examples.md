@@ -15,7 +15,7 @@ All under Phase 1's recommended answers. Queries validated with
 | 5 | Test | `liquers_core::error::tests::flat_traceback_becomes_an_unknown_segment` | `with_traceback` then a segment | AC-7 |
 | 6 | Test | `liquers_core::error::tests::traceback_segments_round_trip_and_old_errors_load` | JSON/YAML; no key → no segments | AC-4 |
 | 7 | Test | `liquers_core::metadata::tests::error_traceback::metadata_record_from_error_persists_segments_in_json_and_yaml` | `LogEntry` and `error_data` | AC-4 |
-| 8 | Test | `liquers-core/tests/traceback_segments.rs` `action_error_segments_are_attributed_to_their_command` | Interpreter attribution | AC-1, AC-6 |
+| 8 | Test | `liquers-core/tests/traceback_segments.rs` `action_error_segments_are_attributed_to_their_command` | Interpreter attribution | AC-1 |
 | 9 | Test | `liquers-py/tests/test_ERROR_errors.py` `test_ERROR_nested_python_traceback_segments` | Problem example end to end | AC-1, AC-3 |
 | 10 | Test | `test_ERROR_single_python_segment_renders_bare` | ERROR03 text unchanged | AC-2 |
 | 11 | Test | `test_ERROR_liquers_error_segments_round_trip` | Segments set in Python come back plus one | AC-5 |
@@ -83,7 +83,8 @@ a JavaScript command calling a failing JavaScript command).
   command `relay` that evaluates `boom` through its context leaves the segment's command `boom`.
 - Python: `liquers-py/tests/test_ERROR_errors.py` — tests 9-13. Test 13 evaluates `outer_calls`
   with `env.get_asset`, expects `asset.get()` to raise, and reads the last error entry of
-  `asset.metadata.log()`.
+  `asset.metadata.log()` (a property `asset.metadata.log` if
+  `py-metadata-fields-as-properties` lands first; whichever lands later updates the call).
 - Web (Node loop): tests 14-15, registering a throwing command through `liquers.registerCommand`.
 - Commands: `cargo test -p liquers-core --lib --tests`; `bash scripts/test-liquers-py.sh`;
   `cargo test -p liquers-web --target wasm32-unknown-unknown --features debug-handles`;
