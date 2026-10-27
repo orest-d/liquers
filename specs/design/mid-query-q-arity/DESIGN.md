@@ -13,8 +13,8 @@ created: 2026-10-26
 ---
 # A q instruction with a parameter is refused wherever it appears in a query
 
-Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-26: Phases 1-4 written, not
-approved, nothing implemented.
+Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-26: Phases 1-4 written; Phase 4
+implemented on 2026-10-27 (automatic fix).
 
 ## Phase 1: High-Level Design
 
@@ -166,10 +166,10 @@ Run: `CARGO_INCREMENTAL=0 cargo test -p liquers-core --lib plan::tests`.
 
 ### Steps
 
-- [ ] 1. `plan.rs` tests — extend `special_instructions_enforce_their_own_arity`, add `mid_query_q_with_parameter_deep_in_chain_is_refused` and the `nosuch/q/a` assertion; the two refusals fail at HEAD — `cargo test -p liquers-core --lib special_instructions mid_query_q`
-- [ ] 2. `plan.rs` — add `check_q_arity`; use it in the `query.is_q()` branch and before `strip_q_instruction(p)` in the predecessor branch — depends on 1 — step 1 tests pass; `cargo test -p liquers-core --lib plan::tests`. Rollback: revert.
-- [ ] 3. `specs/reference/RECIPES_AND_PLANS.md` — `q` paragraph and Known limitations; History row, `reviewed:` — `python3 scripts/docs_index.py --check`
-- [ ] 4. Close `MID-QUERY-Q-INSTRUCTION-DISCARDS-ARGUMENTS` with a resolution note; this design to `complete` — `python3 scripts/docs_index.py` then `--check`
+- [x] 1. `plan.rs` tests — extend `special_instructions_enforce_their_own_arity`, add `mid_query_q_with_parameter_deep_in_chain_is_refused` and the `nosuch/q/a` assertion; the two refusals fail at HEAD — `cargo test -p liquers-core --lib special_instructions mid_query_q`
+- [x] 2. `plan.rs` — add `check_q_arity`; use it in the `query.is_q()` branch and before `strip_q_instruction(p)` in the predecessor branch — depends on 1 — step 1 tests pass; `cargo test -p liquers-core --lib plan::tests`. Rollback: revert.
+- [x] 3. `specs/reference/RECIPES_AND_PLANS.md` — `q` paragraph and Known limitations; History row, `reviewed:` — `python3 scripts/docs_index.py --check`
+- [x] 4. Close `MID-QUERY-Q-INSTRUCTION-DISCARDS-ARGUMENTS` with a resolution note; this design to `complete` — `python3 scripts/docs_index.py` then `--check`
 
 ### Validation
 

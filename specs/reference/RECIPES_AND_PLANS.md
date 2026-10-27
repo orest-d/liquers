@@ -3,7 +3,7 @@ title: Recipes and Plans Reference
 kind: reference
 audience: internal
 area: [core/plan, core/query, core/assets, core/context]
-reviewed: 2026-10-22
+reviewed: 2026-10-27
 ---
 # Recipes and Plans
 
@@ -341,9 +341,8 @@ expiration or dependency, and no predecessor is recorded inside it, so a boundar
 after the `q`. An `ns` inside the quoted part still applies to the actions after `q` in the same
 segment (`ns-pl/head/q/upper` looks `upper` up in `pl`), by the `ns` rule above. Its operands are
 frozen like any other query operand. `q` clears `uncached_by`. A trailing `q` with a parameter is
-`NotSupported` ("The 'q' instruction does not accept any arguments"); a `q` in the middle of a query
-currently ignores its parameters
-([`MID-QUERY-Q-INSTRUCTION-DISCARDS-ARGUMENTS`](../issues/MID-QUERY-Q-INSTRUCTION-DISCARDS-ARGUMENTS.md)).
+`NotSupported` ("The 'q' instruction does not accept any arguments"), and so is a `q` with a
+parameter in the middle of a query (`a/q-x/b`), positioned at the parameter.
 
 **`v`.** `v` takes no parameters (`v-x` is `TooManyParameters`, "instruction 'v'") and emits no
 step, so it is an identity on the value — and it is **positional**: everything from `v` onward is
@@ -863,8 +862,6 @@ not otherwise enforce this distinction.
   [`RECIPES-YAML-READ-ERRORS-READ-AS-NO-RECIPES`](../issues/RECIPES-YAML-READ-ERRORS-READ-AS-NO-RECIPES.md).
 - Volatility inherited at finalization is invisible to the predecessor walk —
   [`DEPENDENCY-VOLATILITY-INVISIBLE-TO-PREDECESSOR-WALK`](../issues/DEPENDENCY-VOLATILITY-INVISIBLE-TO-PREDECESSOR-WALK.md).
-- A mid-query `q` silently drops its parameters —
-  [`MID-QUERY-Q-INSTRUCTION-DISCARDS-ARGUMENTS`](../issues/MID-QUERY-Q-INSTRUCTION-DISCARDS-ARGUMENTS.md).
 - `DefaultRecipeProvider` skips a recipe with no valid filename in listings without a diagnostic —
   [`RECIPE-WITHOUT-FILENAME-SILENTLY-OMITTED-FROM-LISTING`](../issues/RECIPE-WITHOUT-FILENAME-SILENTLY-OMITTED-FROM-LISTING.md).
 - The explicit-`cwd` error names the directory but not the offending recipe —
@@ -887,6 +884,7 @@ not otherwise enforce this distinction.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-27 | §Planner instructions: a `q` with a parameter is `NotSupported` wherever it appears, not only at the end; the Known limitations bullet for mid-query `q` is removed. | design `mid-query-q-arity` |
 | 2026-10-22 | Carried over from DOC-08 on main: `Step::Error` and an error-level `init_steps` entry fail the plan with an `ExecutionError`, after a run of consecutive diagnostic steps is logged in full; the `apply_plan` order says where. | `issues/CONTEXT-ERROR-OUTCOME-DEPENDS-ON-SCHEDULING.md` |
 | 2026-10-20 | Promoted from `reference/api/DOC_08_RECIPES_PLANS.md` to `reference/RECIPES_AND_PLANS.md`; series wording, the dated verification log and the priority table removed (Known limitations link issues instead). Added §Planner instructions (instruction vs command; `ns`, `q` including mid-query, `v`, resource header instructions, segment headers, filenames), `to_plan_for_key`, placeholders, the `apply_plan` order, `uncached_by`, Serde defaults, a `recipes.yaml` example. Corrected: `init_steps` are logged by `apply_plan`; a `recipes.yaml` with an explicit `cwd` is refused whole; `set_cwd` writes to stderr; `to_plan` already folds `volatile`/`expires`; expiration reaches the context only in `apply_recipe`; seeding is conditional on non-volatility; circular-dependency fields are unused; the pre-pass schedules keyed dependencies only. (Earlier, until `plan-policy`, `v` anywhere marked the whole plan volatile.) | DOC-08 review, promotion |
 | 2026-10-17 | Planning contract: resource steps (`-R-stored/`, `-R-stored_meta/`, `-R-sdir/`) never make a plan volatile; `Plan::is_volatile` is the only volatility authority (the step-level `IsVolatile` impl was removed). | `design/step-volatility-impl-removal/` |
