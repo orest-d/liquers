@@ -128,7 +128,7 @@ test is named for its ID, in `tests/test_<FEATURE>_*.py`.
 |---|---|---|---|---|
 | `OBJECT` | Essential | COMPLETE | — | `test_OBJECT01`–`09` |
 | `ERROR` | Essential | COMPLETE | A Python exception's class and message ride in `message`, its stack in `traceback` (`LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT`) | `test_ERROR01`–`06` |
-| `RUNTIME` | Essential | COMPLETE | `RUNTIME02` is `NA` until a Pyodide target exists. `RUNTIME05` fails now and then: a job running at shutdown keeps its environment (`CORE-JOB-QUEUE-KEEPS-ENVIRONMENT-PINS-AFTER-SHUTDOWN`) | `test_RUNTIME01`, `03`–`06` |
+| `RUNTIME` | Essential | COMPLETE | `RUNTIME02` is `NA` until a Pyodide target exists | `test_RUNTIME01`, `03`–`06` |
 | `VALUE` | Essential | COMPLETE | `VALUE12` is `NA` until a `Value` wrapper with operators exists | `test_VALUE01`–`13` |
 | `ENVIRON` | Essential | COMPLETE | Only the default recipe provider can be configured | `test_ENVIRON01`–`08` |
 | `EVAL` | Essential | COMPLETE | `EVAL05`'s payload half is `NA`: the environment's payload type is `()`, so only the context half is tested | `test_EVAL01`–`06` |

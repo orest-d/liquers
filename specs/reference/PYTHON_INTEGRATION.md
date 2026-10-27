@@ -178,9 +178,9 @@ code object (`co_code`, `co_consts`, `co_names`), so changing the code invalidat
 A closure, a bound method, or a callable with no code object gets a unique version on every
 registration instead, because its result depends on state the code object does not show.
 
-**Reserved names.** `ns` is refused as a command name by core. `q` and `v` are planner
-instructions too, but are not refused, so a command with either name registers and never runs
-(`COMMAND-NAMES-Q-AND-V-ARE-NOT-RESERVED`).
+**Reserved names.** `ns`, `q` and `v` are planner instructions, and core refuses all three as
+command names: the registration fails with "Command name '…' is reserved: it is a query
+instruction".
 
 **Registration.** Registering replaces whatever is registered under the key: the old command is
 unregistered first, and the decorator warns `command 'x' replaces a built-in command` (or a
@@ -393,9 +393,6 @@ protect.
 - One job queue serves every command; a command cannot be given its own queue or limit
   (`CORE-ONE-JOB-QUEUE-FOR-ALL-COMMANDS`).
 - The Python suite runs locally, on CPython 3.13 and 3.14t, but not in CI (`PY-TESTS-NOT-RUN-IN-CI`).
-- An environment shut down while a command is still running may never be freed: the job queue keeps
-  that job's environment pin (`CORE-JOB-QUEUE-KEEPS-ENVIRONMENT-PINS-AFTER-SHUTDOWN`), which makes
-  `RUNTIME05` fail now and then.
 - No `realm=` or `arguments=` on the decorators (`PY-COMMAND-DECORATOR-CANNOT-SET-REALM`,
   `PY-COMMAND-DECORATOR-CANNOT-DECLARE-ARGUMENT-METADATA`); the context is passed positionally
   (`COMMAND_DECLARATION.md` §9).
@@ -411,7 +408,8 @@ protect.
 
 | Date | Change | Source |
 |---|---|---|
-| 2026-10-27 | §3 `async_loops` and `job_capacity`, the `_async` methods, shutdown stops the loop pool; §4 async commands; §7 the bridge, awaitables, loop pool, blocking-call rule, job capacity, free-threading; §8 the synchronous-only limitation is lifted. | `design/liquers-py-async/` (phase-5) |
+| 2026-10-27 | §3 `async_loops` and `job_capacity`, the `_async` methods, shutdown stops the loop pool; §4 async commands; §7 the bridge, awaitables, loop pool, blocking-call rule, job capacity, free-threading; §8 the synchronous-only limitation is lifted; the shutdown pin leak is fixed (`CORE-JOB-QUEUE-KEEPS-ENVIRONMENT-PINS-AFTER-SHUTDOWN`). | `design/liquers-py-async/` (phase-5) |
+| 2026-10-27 | Reserved names: `q` and `v` are refused as command names like `ns`. | design `reserved-instruction-command-names` |
 | 2026-10-25 | §6: error category classes (`StoreError`, `KeyedAssetError`, `NotFoundError`); §8: the pickle-off and missing-resource limitations are fixed (`AssetNotSupportedError`, `AssetNotFoundError`). | `design/key-without-recipe-answer/` |
 | 2026-10-22 | §Shutdown, limitations: a built environment is freed (the reference cycle is fixed); `RUNTIME05` passes. | `design/environment-manager-reference-cycle/` |
 | 2026-10-20 | `context.error` raises `ExecutionError` with the first logged message once the command returns. | `CONTEXT-ERROR-OUTCOME-DEPENDS-ON-SCHEDULING` |

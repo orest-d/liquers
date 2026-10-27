@@ -2,7 +2,7 @@
 id: CORE-JOB-QUEUE-KEEPS-ENVIRONMENT-PINS-AFTER-SHUTDOWN
 kind: issue
 title: A job still running at shutdown keeps its environment pin in the job queue forever
-status: draft
+status: closed
 priority: P2
 complexity: S
 area: [core/assets]
@@ -36,3 +36,12 @@ After `shutdown()` the queue holds no pins: a job still running keeps its enviro
 own context until it finishes, and a parked job, which will never start, keeps nothing. A
 likely fix: when `run` sees the shutdown flag, take the whole `jobs` list out under the lock and
 drop it after the lock is released, as `cleanup_completed_internal` does for finished jobs.
+
+## Resolution (2026-10-27)
+
+Fixed in `liquers-core/src/assets.rs`: when `JobQueue::run` sees the shutdown flag it drops every
+pin (`release_pins`), and `pin` adds none after shutdown, so a job re-parked or started later
+cannot leave one behind. A running job keeps its environment through its own claim until it
+finishes. Evidence: `teardown12_job_running_at_shutdown_releases_its_environment` and
+`teardown12_job_parked_at_shutdown_releases_its_environment` in
+`liquers-core/tests/environment_teardown.rs`, both failing before the fix.

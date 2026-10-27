@@ -84,9 +84,7 @@ def test_RUNTIME05_built_environment_releases_handles_on_shutdown():
     del running
     # The asset is Cancelled as soon as cancellation is requested, but a sync command that was
     # already running holds its registration until it notices and returns (`slow` polls every
-    # 10 ms), so the release is awaited rather than assumed at once. A job still running when the
-    # queue stops can keep its environment for good, which fails this test now and then
-    # (CORE-JOB-QUEUE-KEEPS-ENVIRONMENT-PINS-AFTER-SHUTDOWN).
+    # 10 ms), so the release is awaited rather than assumed at once.
     deadline = time.monotonic() + 5
     while lq.Environment.live_handle_count() != baseline and time.monotonic() < deadline:
         time.sleep(0.01)

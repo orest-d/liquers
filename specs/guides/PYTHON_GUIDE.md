@@ -187,9 +187,8 @@ env.shutdown()
 
 `@env.command` registers in `env`; `@lq.command` registers in the default environment, and
 `@lq.command(env=env)` is the same as `@env.command`. The function is returned unchanged, so it
-can still be called directly. `ns`, `q` and `v` are query instructions, not command names: `ns` is
-refused, and a command named `q` or `v` registers but never runs
-(`COMMAND-NAMES-Q-AND-V-ARE-NOT-RESERVED`).
+can still be called directly. `ns`, `q` and `v` are query instructions, not command names: a
+command with any of these names is refused when it is registered.
 
 ### The input
 
@@ -700,6 +699,7 @@ What you will notice; the complete list, with the tracking issues, is
 | Date | Change | Source |
 |---|---|---|
 | 2026-10-27 | §5 Async commands; §6 Awaiting a query, `job_capacity`, Threads and free-threaded Python; §10 the async limitation is lifted, and the stale memory-leak line removed (fixed 2026-10-22). | `design/liquers-py-async/` (phase-5) |
+| 2026-10-27 | Registration: a command named `ns`, `q` or `v` is refused (`q` and `v` used to register and never run). | design `reserved-instruction-command-names` |
 | 2026-10-25 | §8 Errors: the category base classes `StoreError`, `KeyedAssetError`, `NotFoundError`. | `design/key-without-recipe-answer/` |
 | 2026-10-22 | Late registration: a replaced environment is kept until `shutdown()`, no longer until exit. | `design/environment-manager-reference-cycle/` |
 | 2026-10-22 | Link to the recipes reference follows its promotion to `reference/RECIPES_AND_PLANS.md`. | DOC-08 promotion |
