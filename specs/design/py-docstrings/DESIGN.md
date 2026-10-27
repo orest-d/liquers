@@ -3,8 +3,8 @@ id: PY-DOCSTRINGS
 kind: design
 title: Every public name of the Python package has a docstring and a signature, and a test keeps it so
 form: compact
-status: in_review
-phase: implementation
+status: complete
+gh_pr: [220]
 readiness: ready
 autofix: eligible
 area: [py, docs]
@@ -12,6 +12,8 @@ issues: [PY-PUBLIC-NAMES-HAVE-NO-DOCSTRINGS]
 created: 2026-10-27
 ---
 # Every public name of the Python package has a docstring and a signature, and a test keeps it so
+
+> **Complete on 2026-10-28**: implemented by automatic fix in #220.
 
 Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-27: Phases 1-4 written. Split
 from `design/py-api-reference/` (its former Phase 4 steps 1-6), which keeps the reference

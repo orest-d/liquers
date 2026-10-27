@@ -55,5 +55,5 @@ Python reader, and each generated error class has one (`_errors.py` `_install`).
 gave every public callable a signature, so no `text_signature` was needed.
 `liquers-py/tests/test_DOCS_docstrings.py` (`test_DOCS04_*`) walks `lq.__all__` and each listed
 class's own public attributes and fails on a missing docstring or signature, so coverage cannot
-regress. Design `py-docstrings`, branch `claude/project-thread-yi0j65-py-docstrings`; checked with
+regress. Design `py-docstrings`, branch `claude/project-thread-yi0j65-py-docstrings`, PR #220; checked with
 `bash scripts/test-liquers-py.sh` (213 passed, 6 skipped; 22 Rust unit tests passed).
