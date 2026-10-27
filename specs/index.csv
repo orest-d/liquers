@@ -428,7 +428,7 @@ TEMPORARY-ASSETS-SHARE-ID-ZERO,issue,"Every temporary asset has id 0, so code th
 TEXT-EDITOR-EDITS-ARE-NEVER-SAVED,feature,The text_editor widget edits a copy of the text and never writes it back,draft,local,,needs-decision,not-eligible,P3,M,lib/egui;lib/ui,,,,text-editor-save,,2026-10-19,specs/issues/TEXT-EDITOR-EDITS-ARE-NEVER-SAVED.md
 TEXT-VALUE-CANNOT-BE-STORED-AS-MARKDOWN,issue,A Text value cannot be stored with data format md,closed,local,,ready,not-eligible,P2,S,core/value,,,,text-value-markdown-format,,2026-09-27,specs/issues/TEXT-VALUE-CANNOT-BE-STORED-AS-MARKDOWN.md
 TO-OVERRIDE-KEEPS-THE-PENDING-EXPIRATION-DEADLINE,issue,A value pinned with to_override still expires at the deadline its recipe scheduled,draft,local,,needs-decision,not-eligible,P3,S,core/assets,,,,override-ignores-recipe-deadline,,2026-10-20,specs/issues/TO-OVERRIDE-KEEPS-THE-PENDING-EXPIRATION-DEADLINE.md
-TYPE-IDENTIFIED-IN-HAS-NO-IMPLEMENTATIONS,issue,"No type implements TypeIdentifiedIn, so the documented to_type_identifier example does not compile",draft,local,,ready,eligible,P3,S,core/value;lib/value;docs,,,,type-identified-in-docs,,2026-10-20,specs/issues/TYPE-IDENTIFIED-IN-HAS-NO-IMPLEMENTATIONS.md
+TYPE-IDENTIFIED-IN-HAS-NO-IMPLEMENTATIONS,issue,"No type implements TypeIdentifiedIn, so the documented to_type_identifier example does not compile",closed,local,,ready,eligible,P3,S,core/value;lib/value;docs,,,,type-identified-in-docs,,2026-10-20,specs/issues/TYPE-IDENTIFIED-IN-HAS-NO-IMPLEMENTATIONS.md
 TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS,issue,TypeInfo cannot declare a format a type writes but cannot read back,draft,local,,needs-decision,not-eligible,P3,S,core/value,,,,data-format-vocabulary,,2026-09-24,specs/issues/TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS.md
 TYPE-REGISTRY-NOT-REALM-AWARE,feature,A query spanning two realms cannot know which types the other realm supports,draft,local,,needs-decision,not-eligible,P2,L,core/value;core/commands;core/plan;web;axum,,,,realm-type-registry,,2026-08-18,specs/issues/TYPE-REGISTRY-NOT-REALM-AWARE.md
 UI-ELEMENT-NESTED-IN-CONSOLE-HAS-NO-HANDLE,issue,A UIElement shown inside a query console is never initialised and has no handle,draft,local,,needs-decision,not-eligible,P3,M,lib/ui,,,,console-mounts-nested-element,,2026-10-19,specs/issues/UI-ELEMENT-NESTED-IN-CONSOLE-HAS-NO-HANDLE.md
@@ -901,7 +901,7 @@ STORE_CONFIG_FSD,reference,Store Configuration Functional Specification,current,
 STORE_SEMANTICS,reference,Store Behavioural Semantics,current,local,,,,,,core/store;store/backends;web,,,,,2026-10-25,,specs/reference/STORE_SEMANTICS.md
 TEMPLATE_LANGUAGE,reference,Template Language,current,local,,,,,,core/query;lib/commands,,,,,2026-10-17,,specs/reference/TEMPLATE_LANGUAGE.md
 UI_INTERFACE_FSD,reference,UI Interface Specification,overdue,local,,,,,,lib/ui,,,,,2026-03-02,,specs/reference/UI_INTERFACE_FSD.md
-VALUE_TYPE_SYSTEM,reference,Value Type System,current,local,,,,,,core/value;lib/value,,,,,2026-10-25,,specs/reference/VALUE_TYPE_SYSTEM.md
+VALUE_TYPE_SYSTEM,reference,Value Type System,current,local,,,,,,core/value;lib/value,,,,,2026-10-27,,specs/reference/VALUE_TYPE_SYSTEM.md
 VISION,reference,Liquers Vision and Strategy,current,local,,,,,,docs,,,,,2026-10-15,,specs/reference/VISION.md
 WEB_API_SPECIFICATION,reference,Liquers Web API Specification,current,local,,,,,,axum;web,,,,,2026-10-25,,specs/reference/WEB_API_SPECIFICATION.md
 AGENT_MEMORY_MIGRATION_GUIDE,guide,Agent Memory Migration Guide,current,local,,,,,,lib/commands;docs,,,,,2026-10-19,,specs/guides/AGENT_MEMORY_MIGRATION_GUIDE.md
@@ -923,6 +923,6 @@ STORE_CONFIG_GUIDE,guide,Store Configuration Guide,current,local,,,,,,store/conf
 STORE_FACTORY_GUIDE,guide,Store Factory Guide,current,local,,,,,,core/store;store/config,,,,,2026-10-16,,specs/guides/STORE_FACTORY_GUIDE.md
 STORE_IMPLEMENTATION_GUIDE,guide,Store Implementation Guide,current,local,,,,,,core/store;store/backends;web,,,,,2026-10-16,,specs/guides/STORE_IMPLEMENTATION_GUIDE.md
 TEMPLATE_GUIDE,guide,Template Guide,current,local,,,,,,core/query;lib/commands,,,,,2026-10-17,,specs/guides/TEMPLATE_GUIDE.md
-TYPE_SYSTEM_GUIDE,guide,Adding and Typing Value Types,current,local,,,,,,core/value;lib/value,,,,,2026-10-13,,specs/guides/TYPE_SYSTEM_GUIDE.md
+TYPE_SYSTEM_GUIDE,guide,Adding and Typing Value Types,current,local,,,,,,core/value;lib/value,,,,,2026-10-27,,specs/guides/TYPE_SYSTEM_GUIDE.md
 UNITTEST_GUIDE,guide,Unit Testing Guide,current,local,,,,,,build;core/assets,,,,,2026-10-20,,specs/guides/UNITTEST_GUIDE.md
 WEB_API_GUIDE,guide,Web API Guide,current,local,,,,,,axum;web,,,,,2026-10-16,,specs/guides/WEB_API_GUIDE.md

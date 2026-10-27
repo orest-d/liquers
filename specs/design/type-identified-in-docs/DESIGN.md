@@ -13,8 +13,8 @@ created: 2026-10-26
 ---
 # The documents say that no type implements TypeIdentifiedIn yet
 
-Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-26: Phases 1-4 written, not
-approved, nothing implemented.
+Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-26: Phases 1-4 written; Phase 4
+implemented on 2026-10-27 (automatic fix).
 
 ## Phase 1: High-Level Design
 
@@ -143,10 +143,10 @@ generated impls will enable, and the interim `value.identifier()`.
 
 ### Steps
 
-- [ ] 1. `specs/guides/TYPE_SYSTEM_GUIDE.md` — the paragraph, History row, `reviewed:` — `python3 scripts/docs_index.py --check`.
-- [ ] 2. `specs/reference/VALUE_TYPE_SYSTEM.md` — the sentence, History row, `reviewed:` — same command.
-- [ ] 3. `liquers-core/src/type_system.rs` — rustdoc sentence — `cargo test -p liquers-core --doc type_system`.
-- [ ] 4. Close `TYPE-IDENTIFIED-IN-HAS-NO-IMPLEMENTATIONS` with a resolution note naming the macro design as owner of the impls — `python3 scripts/docs_index.py --check`.
+- [x] 1. `specs/guides/TYPE_SYSTEM_GUIDE.md` — the paragraph, History row, `reviewed:` — `python3 scripts/docs_index.py --check`.
+- [x] 2. `specs/reference/VALUE_TYPE_SYSTEM.md` — the sentence, History row, `reviewed:` — same command.
+- [x] 3. `liquers-core/src/type_system.rs` — rustdoc sentence — `cargo test -p liquers-core --doc type_system`.
+- [x] 4. Close `TYPE-IDENTIFIED-IN-HAS-NO-IMPLEMENTATIONS` with a resolution note naming the macro design as owner of the impls — `python3 scripts/docs_index.py --check`.
 
 ### Validation
 
