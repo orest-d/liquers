@@ -100,23 +100,18 @@ API. No `liquers-core` change is expected.
 - **soft** `JS-COMMAND-CANNOT-ACCESS-CONTEXT`: lets an `onEvent` handler evaluate queries through a
   context rather than through module-level calls.
 
-## Open Questions
+## Decisions
 
-1. **The element contract.** A pure `render(props) → HTML string` plus `onEvent(props, event) →
-   props` (recommended: the same contract as Rust's `render_web`, so SSR and the driver agree and no
-   page code runs while markup is applied), with an optional `mount(container, props)` /
-   `unmount()` pair for widgets that own a canvas or a third-party component. The alternative is a
-   virtual-tree format, which is a second rendering language to specify and keep in sync.
-2. **Native events before `ui-events` lands.** Wait for `ui-events` and use its `UserEvent`
-   (recommended: one event vocabulary for Rust and JavaScript elements), or ship with
-   `data-lq-action` queries only and add `onEvent` later.
-3. **A JavaScript renderer (AC-7) in this design.** Include it as the last milestone (recommended:
-   it is what lets a React or Vue page use Liquers' element tree, and it reuses the same change
-   records the DOM driver applies), or split it into a later design and mark `UIDEF07` `NA` for
-   now.
-4. **Properties must be JSON.** Refuse non-JSON properties when the element is created (recommended:
-   they are what serializes, round-trips and crosses to a renderer), or allow opaque JavaScript
-   values that are lost on serialization.
+All recommendations accepted by the maintainer on 2026-10-27. No open questions remain.
+
+1. **The element contract.** An element type has a pure `render(props) → HTML string` and an
+   `onEvent(props, event) → props`. A widget that owns a canvas or a third-party component can add an
+   optional `mount(container, props)` / `unmount()` pair. Nothing uses a virtual-tree format.
+2. **Native events.** This design waits for `ui-events` and uses its `UserEvent`, so Rust and
+   JavaScript elements share one event vocabulary.
+3. **A JavaScript renderer (AC-7).** It stays in this design as the last milestone.
+4. **Properties must be JSON.** Properties that cannot be serialized as JSON are refused when the
+   element is created.
 
 ## References
 

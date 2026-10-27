@@ -113,23 +113,19 @@ so dropping `MountHandle` detaches the listeners but keeps the runner, the envir
 `AppState` alive (AC-5, AC-8); and `AppRunner` keeps the `EnvRef` it was built with, so a mount
 outlives an environment rebuild (AC-9).
 
-## Open Questions
+## Decisions
 
-Decided by the standing maintainer rules (2026-10-17, 2026-10-19), not open: a mount uses the
-environment it was created from and remembers it, as other handles do. A mount made from the global
-handle follows a rebuild (AC-9); one made from `new Environment()` stays with that instance.
+All recommendations accepted by the maintainer on 2026-10-27. No open questions remain.
 
-
-1. **Payload type.** Make `WebEnvironment` `DefaultEnvironment<Value, SimpleUIPayload>`
-   (recommended: the existing type `mount_web` already accepts; `evaluate` passes no payload, so
-   nothing outside a mount changes) or define a web payload wrapping it, which would also carry the
-   future JavaScript context but adds a type every downstream crate must name.
-2. **AC-3 and the JavaScript context.** Implement `JS-COMMAND-CANNOT-ACCESS-CONTEXT` first and expose
-   `context.element` on it (recommended), or ship AC-1 to AC-9 without AC-3 and mark `UIUSE03`
-   partial until the context lands.
-3. **Event delivery.** Batch status events per driver tick, after the DOM is updated and the
-   `AppState` lock is released (recommended: callbacks may re-enter the mount safely), or deliver
-   each notification as it happens, which is finer but runs page code inside the runner.
+0. **Environment (standing rules, 2026-10-17 and 2026-10-19).** A mount uses the environment it was
+   created from and remembers it, as other handles do. A mount made from the global handle follows a
+   rebuild (AC-9), and one made from `new Environment()` stays with that instance.
+1. **Payload type.** `WebEnvironment` becomes `DefaultEnvironment<Value, SimpleUIPayload>`, the type
+   `mount_web` already accepts. `evaluate` passes no payload, so nothing outside a mount changes.
+2. **AC-3 and the JavaScript context.** `JS-COMMAND-CANNOT-ACCESS-CONTEXT` is implemented first, and
+   its context exposes `context.element`. Every other criterion can ship without waiting for it.
+3. **Event delivery.** Status events are batched once per driver tick and delivered after the DOM
+   is updated and the `AppState` lock is released. A callback may therefore re-enter the mount.
 
 ## References
 

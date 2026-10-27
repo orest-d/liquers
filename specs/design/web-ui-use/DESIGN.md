@@ -18,7 +18,7 @@ their status and disposes of it. `web-ui-define` (`UIDEF`) builds on it.
 
 ## Phase Status
 
-- [x] Phase 1: High-Level Design — written 2026-10-27, awaiting review (3 open questions)
+- [x] Phase 1: High-Level Design — written 2026-10-27, reviewed; decisions recorded 2026-10-27, awaiting `proceed`
 - [ ] Phase 2: Architecture
 - [ ] Phase 3: Examples and Testing
 - [ ] Phase 4: Implementation Plan
