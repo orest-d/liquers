@@ -3,7 +3,7 @@ title: Query Language Reference
 kind: reference
 audience: internal
 area: [core/query]
-reviewed: 2026-10-20
+reviewed: 2026-10-27
 ---
 # DOC-02: Query Language, Keys, and Actions
 
@@ -402,7 +402,8 @@ lists the valid instructions.
 
 `ns`, `q` and `v` are written like actions but are **planner instructions**: the plan
 builder consumes them itself, they are never looked up as commands and never become
-an `Action` step. The resource header instruction (above) is the fourth.
+an `Action` step. The resource header instruction (above) is the fourth. Because the planner
+intercepts them, `ns`, `q` and `v` cannot be command names: registering one is an error.
 
 - `ns-a-b` selects the namespaces commands are looked up in.
 - `q` makes the query before it a value.
@@ -511,6 +512,7 @@ Completed on 2026-07-26:
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-27 | §Planner instructions: `ns`, `q` and `v` cannot be command names. | design `reserved-instruction-command-names` |
 | 2026-10-20 | §Planner instructions reduced to what an instruction is and one line per instruction, linking to `RECIPES_AND_PLANS.md` (promoted from DOC-08), which now owns their semantics. §Headers: a resource header takes at most one parameter. §Headers: corrected two stale claims — a transform header sets the realm in multi-segment queries too, and a second resource-header parameter is an error, not a warning; removed the "Realm scope" limitation and struck the two resolved P1 rows. | DOC-08 promotion |
 | 2026-10-17 | `SimpleTemplate`, `parse_simple_template` and `evaluate_simple_template` are deprecated; parametrized queries are `liquers-template`'s `QueryTemplate`. | `design/liquers-mustache/` |
 | 2026-10-11 | `Query::absolute` renamed `Query::rooted`, wire name included (no alias); its meaning is unchanged. | `design/query-leading-slash-field/` |

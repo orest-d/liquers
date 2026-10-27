@@ -48,7 +48,7 @@ use crate::metadata::{DependencyKey, Metadata, MetadataRecord, Status};
 use crate::parse::parse_key;
 use crate::query::{
     ActionParameter, ActionRequest, CwdCursor, Key, Position, Query, QuerySegment, ResourceName,
-    ResourceQuerySegment, RELATIVE_WITHOUT_CWD_WARNING,
+    ResourceQuerySegment, NS_INSTRUCTION, RELATIVE_WITHOUT_CWD_WARNING,
 };
 use crate::value::ValueInterface;
 
@@ -204,7 +204,7 @@ pub fn append_action(
         return Ok(plain_query);
     }
 
-    let ns_action = ActionRequest::new("ns".to_string())
+    let ns_action = ActionRequest::new(NS_INSTRUCTION.to_string())
         .with_parameters(vec![ActionParameter::new_string(requested_ns.to_string())]);
     Ok(append_actions(query, vec![ns_action, action]))
 }
@@ -1700,7 +1700,7 @@ impl<'c> PlanBuilder<'c> {
         action_request: &ActionRequest,
     ) -> Result<(), Error> {
         // Intercept 'v' instruction BEFORE normal action processing
-        if action_request.name == "v" {
+        if action_request.is_v() {
             // `v` resolves no command metadata, so the arity check in
             // `ResolvedParameterValues::from_action` never sees it. It takes no
             // parameters, so anything written here would be silently discarded.

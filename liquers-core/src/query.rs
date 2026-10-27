@@ -792,6 +792,15 @@ impl Display for ResourceName {
     }
 }
 
+/// Name of the `ns` planner instruction.
+pub(crate) const NS_INSTRUCTION: &str = "ns";
+/// Name of the `q` planner instruction.
+pub(crate) const Q_INSTRUCTION: &str = "q";
+/// Name of the `v` planner instruction.
+pub(crate) const V_INSTRUCTION: &str = "v";
+/// Action names the planner intercepts before command lookup; never valid command names.
+pub(crate) const RESERVED_ACTION_NAMES: [&str; 3] = [NS_INSTRUCTION, Q_INSTRUCTION, V_INSTRUCTION];
+
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 /// A command name and its ordered parameters within a transform segment.
 ///
@@ -820,7 +829,7 @@ impl ActionRequest {
         Self { parameters, ..self }
     }
     pub fn is_ns(&self) -> bool {
-        self.name == "ns"
+        self.name == NS_INSTRUCTION
     }
     pub fn ns(&self) -> Option<Vec<ActionParameter>> {
         if self.is_ns() {
@@ -830,7 +839,11 @@ impl ActionRequest {
         }
     }
     pub fn is_q(&self) -> bool {
-        self.name == "q"
+        self.name == Q_INSTRUCTION
+    }
+    /// Whether this action is the `v` (volatile) planner instruction.
+    pub(crate) fn is_v(&self) -> bool {
+        self.name == V_INSTRUCTION
     }
     pub fn encode(&self) -> String {
         if self.parameters.is_empty() {
@@ -2985,6 +2998,22 @@ mod tests {
     use crate::parse::{self, parse_key, parse_query};
 
     use super::*;
+
+    /// Every reserved action name is exactly one planner instruction, and every instruction
+    /// predicate is reached by one of them.
+    #[test]
+    fn reserved_action_names_match_instruction_predicates() {
+        let mut reached = [false; 3];
+        for name in RESERVED_ACTION_NAMES {
+            let action = ActionRequest::new(name.to_string());
+            let hits = [action.is_ns(), action.is_q(), action.is_v()];
+            assert_eq!(hits.iter().filter(|h| **h).count(), 1, "{name}");
+            for (seen, hit) in reached.iter_mut().zip(hits) {
+                *seen |= hit;
+            }
+        }
+        assert_eq!(reached, [true; 3]);
+    }
 
     /// T1 (`design/query-leading-slash-field`): the leading `/` is the `rooted` flag.
     #[test]
