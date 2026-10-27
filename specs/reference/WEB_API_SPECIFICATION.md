@@ -647,8 +647,13 @@ A mount that must not be written is made read-only where the store is configured
 routes out. Set `read_only: true` on the mount (or on the router, for every mount;
 [STORE_CONFIG_FSD.md](STORE_CONFIG_FSD.md)), or wrap the store in `ReadOnlyStore` when assembling it
 in code. Every write that reaches such a store is refused with `NotSupported`, whichever route
-issued it, and the Store API answers 501 (§3.1). Reads are served as before, and nothing is written
-on read (`liquers-axum/tests/store_api_routes.rs`, `read_only_store_write_is_501`). Leaving out
+issued it, and the Store API answers 501 (§3.1). Reads are served as before. Nothing is written on
+read over a store with data-only access (`liquers-axum/tests/store_api_routes.rs`,
+`read_only_store_write_is_501`); over one without it, `ReadOnlyStore` forwards reads unchanged and
+cannot stop them writing ([STORE_SEMANTICS.md §12](STORE_SEMANTICS.md#12-read-only-stores)). A
+`MetadataPipelineStore` assembled in code needs its own `read_only` set as well, or a pipeline with
+`persist_defaults` can still persist metadata on `get`. The configured `read_only: true` does both.
+Leaving out
 write routes remains a way to narrow what a deployment exposes, but it applies to every mount
 behind the router.
 
@@ -703,7 +708,7 @@ Not available at HEAD; listed so that no reader mistakes them for features:
 
 | Date | Change | Source |
 |---|---|---|
-| 2026-10-27 | §9: a mount is protected by the store configuration's `read_only` (or `ReadOnlyStore`), with writes answered 501 `NotSupported`; the stale reference to the closed `STORE-NO-READ-ONLY-ADAPTER` is removed. | `design/web-api-spec-read-only-mount/` |
+| 2026-10-27 | §9: a mount is protected by the store configuration's `read_only` (or `ReadOnlyStore`), with writes answered 501 `NotSupported`, and when reads may still write (a store without data-only access, a pipeline assembled in code without its own `read_only`); the stale reference to the closed `STORE-NO-READ-ONLY-ADAPTER` is removed. | `design/web-api-spec-read-only-mount/` |
 | 2026-10-25 | §Errors: `AssetNotFound` and `AssetNotSupported` map to 404; key endpoints refusing an unmakeable key answer `AssetNotFound`. | `design/key-without-recipe-answer/` |
 | 2026-10-20 | Asset removal: an entry stored with no status and no version is removed under a recipe as an `Override`. | phase-5 (`design/js-store-page-metadata-status/`) |
 | 2026-10-17 | §1, §7, Appendix A: the Query API route is `{base}/{*query}`, so a base without a trailing `/` no longer leaves a leading `/` on the query; every builder ignores a trailing `/` on its base. `AXUM-QUERY-API-QUERY-KEEPS-LEADING-SLASH` and `AXUM-API-BASE-WITH-TRAILING-SLASH-DOUBLES-THE-SEPARATOR` closed. | `design/axum-query-api-base-slash/` |
