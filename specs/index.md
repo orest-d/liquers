@@ -8,14 +8,12 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 218
-- P1: 1
+Total rows: 217
 - P2: 65
 - P3: 152
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
-| [`REMOVED-OR-REPLACED-KEY-REVIVED-BY-A-LATE-BACKGROUND-SAVE`](issues/REMOVED-OR-REPLACED-KEY-REVIVED-BY-A-LATE-BACKGROUND-SAVE.md) | issue | A background save still in flight after a key is removed or replaced writes the old value back to the store | draft | ready | eligible | P1 | M | core/assets;core/store | [design](design/replaced-asset-write-gate/DESIGN.md) | 2026-10-21 |
 | [`COMBINED-EXPIRES`](issues/COMBINED-EXPIRES.md) | feature | Combining expirations reduces end-of-day with end-of-week or end-of-month across time zones | accepted | ready | eligible | P2 | S | core/assets | [design](design/expires-cross-timezone-reduction/DESIGN.md) | 2026-08-08 |
 | [`CORE-VALUE-JSON-READ-IGNORES-STRUCTURED-IDENTIFIERS`](issues/CORE-VALUE-JSON-READ-IGNORES-STRUCTURED-IDENTIFIERS.md) | issue | Core Value reads structured variants written as JSON back as a different variant | draft | ready | eligible | P2 | S | core/value | [design](design/core-value-json-identifier-dispatch/DESIGN.md) | 2026-10-19 |
 | [`METADATA-SAVER-SPAWNS-ON-THE-INLINE-PATH`](issues/METADATA-SAVER-SPAWNS-ON-THE-INLINE-PATH.md) | issue | A command that logs or reports progress panics under the immediate manager on native without a tokio runtime | draft | ready | eligible | P2 | S | core/assets | [design](design/inline-metadata-save-without-runtime/DESIGN.md) | 2026-10-20 |

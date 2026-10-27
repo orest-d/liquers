@@ -471,6 +471,9 @@ pub struct MetadataSaver {
     /// Set once the asset was replaced: its key's store entry belongs to the replacement, so
     /// nothing more is written for it (see [`Self::close`]).
     closed: AtomicBool,
+    /// Held across the asset's value write (`save_to_store`), so [`Self::close`] can wait for a
+    /// write already under way and a later one sees `closed`.
+    value_write: Mutex<()>,
 }
 
 #[derive(Default)]
@@ -492,12 +495,14 @@ impl MetadataSaver {
             state: Mutex::new(MetadataSaverState::default()),
             interval,
             closed: AtomicBool::new(false),
+            value_write: Mutex::new(()),
         }
     }
 
-    /// Stop writing: drop the pending metadata, wait for a write already under way, and ignore
-    /// every later save. Used when the asset is replaced, so that none of its metadata — a status,
-    /// a log line from its still-running command — lands on top of the replacement's.
+    /// Stop writing: drop the pending metadata, wait for a write already under way — a metadata
+    /// save or the asset's value write — and ignore every later save. Used when the asset is
+    /// replaced, so that none of it — its value, a status, a log line from its still-running
+    /// command — lands on top of the replacement's.
     pub(crate) async fn close(&self) {
         self.closed.store(true, Ordering::SeqCst);
         #[cfg(not(target_arch = "wasm32"))]
@@ -514,6 +519,20 @@ impl MetadataSaver {
         {
             self.state.lock().await.pending = None;
         }
+        // A value write holding the gate finishes first; one that takes it later sees `closed`.
+        drop(self.value_write.lock().await);
+    }
+
+    /// Supersede the pending metadata, then take the value-write gate, held across the store
+    /// write of the asset's value and metadata. `None` when the saver is closed: the asset was
+    /// replaced, and its key's entry belongs to the replacement.
+    pub(crate) async fn begin_value_write(&self) -> Option<tokio::sync::MutexGuard<'_, ()>> {
+        self.supersede().await;
+        let guard = self.value_write.lock().await;
+        if self.closed.load(Ordering::SeqCst) {
+            return None;
+        }
+        Some(guard)
     }
 
     /// Drop the pending metadata and wait for a write already under way, without closing the
@@ -4680,8 +4699,18 @@ impl<E: Environment> AssetRef<E> {
                 // The metadata written is then read again, so a snapshot queued after it was
                 // captured above (progress finalized while this write ran in the background)
                 // is not dropped in favour of the older copy.
+                //
+                // The value-write gate is held across the write, so replacing the key (`remove`,
+                // `set_state`, `set_binary`) waits for a write under way, and a write starting
+                // after the replacement is skipped instead of reviving the old value.
                 let saver = self.data.read().await.metadata_saver.clone();
-                saver.supersede().await;
+                let Some(gate) = saver.begin_value_write().await else {
+                    eprintln!(
+                        "Asset {} was replaced, skipping store write in save_to_store",
+                        self.id()
+                    );
+                    return Ok(SaveOutcome::Skipped);
+                };
                 let metadata = self
                     .data
                     .read()
@@ -4690,6 +4719,7 @@ impl<E: Environment> AssetRef<E> {
                     .map(|(_, current)| current)
                     .unwrap_or(metadata);
                 let written = store.set(key, &data, &metadata).await;
+                drop(gate);
                 if written.is_ok() {
                     // Listings that depend on this directory see a new (or rewritten) member.
                     envref
@@ -4919,21 +4949,23 @@ impl<E: Environment> AssetRef<E> {
         Ok(true)
     }
 
-    /// Cancel this asset because it is being replaced (`set`, `set_state`, `remove`,
-    /// `to_override`). Unlike [`Self::cancel`], an in-flight asset ends `Cancelled` at once and
-    /// the result its run produces later is discarded, so it can overwrite neither the
-    /// replacement's status nor the store. A finished asset is left as it is.
+    /// Cancel this asset because it is being replaced (`set`, `set_state`, `remove`). Unlike
+    /// [`Self::cancel`], an in-flight asset ends `Cancelled` at once and the result its run
+    /// produces later is discarded, so it can overwrite neither the replacement's status nor the
+    /// store. A finished asset keeps its status, but nothing more of it is written: a value write
+    /// in progress is waited for, a later one is skipped.
     ///
     /// An external [`AssetManager`] calls this in place of `cancel()` when it replaces an asset.
     pub async fn cancel_for_replacement(&self) -> Result<(), Error> {
-        if !is_in_flight(self.status().await) {
-            return Ok(());
-        }
         // The key's store entry now belongs to the replacement: nothing more is written for this
-        // asset, including a log line its still-running command sends later.
+        // asset — a background value write of a finished run, or a log line its still-running
+        // command sends later.
         let saver = self.data.read().await.metadata_saver.clone();
         saver.close().await;
-        self.discard_run("replaced").await
+        if is_in_flight(self.status().await) {
+            self.discard_run("replaced").await?;
+        }
+        Ok(())
     }
 
     /// End an in-flight run as `Cancelled` without writing to the store, so its late result is
@@ -6748,7 +6780,7 @@ pub trait AssetManager<E: Environment>:
         if is_dir {
             return Err(Error::status_conflict(key, Status::Directory, "remove"));
         }
-        let stored_metadata = if store.contains(key).await? {
+        let mut stored_metadata = if store.contains(key).await? {
             Some(store.get_metadata(key).await?)
         } else {
             None
@@ -6810,6 +6842,13 @@ pub trait AssetManager<E: Environment>:
             asset.cancel_for_replacement().await?;
             self.untrack_expiration(asset.id());
             self.remove_key_asset(key).await;
+            // The cancel waited for a value write already in progress, which may have stored
+            // the entry read above; act on the store as the write left it.
+            stored_metadata = if store.contains(key).await? {
+                Some(store.get_metadata(key).await?)
+            } else {
+                None
+            };
         }
         let result = match action {
             RemoveAction::Nothing => Ok(()),
@@ -15190,6 +15229,45 @@ recipes:
             b"never written".to_vec()
         );
         Ok(())
+    }
+
+    /// A finished asset replaced before its value write starts writes nothing: the write that
+    /// starts later is skipped, so it cannot revive the old value under the replacement
+    /// (`specs/design/replaced-asset-write-gate/`).
+    #[tokio::test]
+    async fn save_to_store_skips_after_replacement_of_a_finished_asset(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let key = parse_key("gate/replaced_ready.txt")?;
+        let (envref, assetref) = cancelled_keyed_asset(9336, &key);
+        assetref.data.write().await.status = Status::Ready;
+        assetref.cancel_for_replacement().await?;
+        assert_eq!(assetref.save_to_store().await?, SaveOutcome::Skipped);
+        assetref.persist_with_status_tracking(false).await;
+        assert_eq!(assetref.persistence_status().await, PersistenceStatus::None);
+        assert!(!envref.get_async_store().contains(&key).await?);
+        assert_eq!(assetref.status().await, Status::Ready);
+        Ok(())
+    }
+
+    /// `close` waits for a value write holding the gate, and a write starting after it is
+    /// refused.
+    #[tokio::test]
+    async fn metadata_saver_close_waits_for_a_value_write() {
+        let saver = Arc::new(MetadataSaver::new(std::time::Duration::from_millis(100)));
+        let gate = saver.begin_value_write().await;
+        assert!(gate.is_some(), "an open saver grants the gate");
+        let closing = {
+            let saver = saver.clone();
+            tokio::spawn(async move { saver.close().await })
+        };
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        assert!(!closing.is_finished(), "close returned during the write");
+        drop(gate);
+        tokio::time::timeout(std::time::Duration::from_secs(5), closing)
+            .await
+            .expect("close finishes once the write ends")
+            .expect("close task");
+        assert!(saver.begin_value_write().await.is_none());
     }
 
     /// `stored: false` in the metadata snapshot is a skip too, even when the caller did not
