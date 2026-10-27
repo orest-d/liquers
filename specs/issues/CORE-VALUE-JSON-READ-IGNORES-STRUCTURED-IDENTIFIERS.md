@@ -2,7 +2,7 @@
 id: CORE-VALUE-JSON-READ-IGNORES-STRUCTURED-IDENTIFIERS
 kind: issue
 title: Core Value reads structured variants written as JSON back as a different variant
-status: draft
+status: closed
 priority: P2
 complexity: S
 area: [core/value]
@@ -59,3 +59,12 @@ array and reads back as `Array`, not `Object`. Design: `specs/design/core-value-
 (every core identifier read as its own payload; the untagged parse kept for an empty or foreign
 identifier). `liquers-lib`'s `SimpleValue` has the mirror defect for `I32`, filed separately as
 `SIMPLE-VALUE-I32-JSON-READS-BACK-AS-I64`.
+
+## Resolution
+
+Fixed 2026-10-27 by `design/core-value-json-identifier-dispatch/`. Core `Value::deserialize_from_bytes` now reads every core identifier in `json` as its own
+variant's payload (private helper `json_payload`), and refuses a payload of another shape with a
+`SerializationError` naming the identifier; only an empty or foreign identifier is read by shape.
+Tests in `liquers-core/src/value.rs`: `structured_identifiers_round_trip_as_json`,
+`untyped_json_reads_by_shape`, `mismatched_json_payload_is_refused`,
+`every_declared_json_identifier_round_trips`, and the extended `vts7.2` case.

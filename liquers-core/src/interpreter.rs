@@ -479,6 +479,9 @@ pub(crate) fn apply_plan_state<E: Environment>(
         for i in 0..plan.len() {
             eprintln!("Applying step {}/{}: {:?}", i + 1, plan.len(), &plan[i]);
             let step = plan[i].clone();
+            if step_can_suspend(&step) {
+                context.reopen_cancellation();
+            }
             state = do_step_state(step, state, context.clone(), envref.clone()).await?;
             // An error logged during the step (`Context::error`) fails the evaluation here, after
             // the step returned: the rest of the plan does not run and the step's value is dropped.
@@ -492,6 +495,32 @@ pub(crate) fn apply_plan_state<E: Environment>(
         Ok(state)
     }
     .maybe_boxed()
+}
+
+/// Whether `step` can suspend on work a cancel request should interrupt — a command, or a read of
+/// another asset or resource. Before such a step, a run committed by an earlier command becomes
+/// cancellable again. A nested plan answers for its own steps.
+fn step_can_suspend(step: &Step) -> bool {
+    match step {
+        Step::Action { .. }
+        | Step::Evaluate(_)
+        | Step::GetAsset(_)
+        | Step::GetAssetBinary(_)
+        | Step::GetAssetMetadata(_)
+        | Step::GetAssetRecipe(_)
+        | Step::GetAssetDirectory(_)
+        | Step::GetResource(_)
+        | Step::GetResourceMetadata(_)
+        | Step::GetResourceDirectory(_) => true,
+        Step::Info(_)
+        | Step::Warning(_)
+        | Step::Error(_)
+        | Step::SetCwd(_)
+        | Step::Filename(_)
+        | Step::UseQueryValue(_)
+        | Step::UseKeyValue(_)
+        | Step::Plan(_) => false,
+    }
 }
 
 /// Fails with the evaluation's logged error, if a command or a planning diagnostic logged one.
@@ -705,11 +734,8 @@ pub fn do_step<E: Environment>(
         .maybe_boxed(),
         Step::GetResourceDirectory(key) => async move {
             let key = context.resolve_key_from_cwd(&key)?;
-            eprintln!("Getting resource directory for key {:?}", key);
             let store = envref.get_async_store();
             let d = store.listdir_asset_info(&key).await?;
-            eprintln!("Got resource directory: {:?}", d);
-
             Ok(Arc::new(
                 <<E as Environment>::Value as ValueInterface>::from_asset_info(d),
             ))
@@ -770,8 +796,16 @@ pub fn do_step<E: Environment>(
                 }
             }
             let ce = envref.get_command_executor();
-            ce.execute_async(&command_key, input, arguments, context)
-                .await
+            let result = ce
+                .execute_async(&command_key, input, arguments, context.clone())
+                .await;
+            if result.is_ok() {
+                // The command returned: the run is past its point of no return until the next
+                // step that can suspend begins. Done in the same poll as the return, so the
+                // bookkeeping that follows cannot lose the value to a pending cancel request.
+                context.commit_cancellation();
+            }
+            result
                 .map_err(|e| {
                     // Only set command_key if not already set (to preserve inner command errors)
                     let e = if e.command_key.is_none() {
@@ -2512,6 +2546,39 @@ mod tests {
             panic!("Expected AssetInfo value");
         }
     }
+    /// `-R-sdir/` lists the store directory itself (`GetResourceDirectory`), without writing
+    /// anything to stderr.
+    #[tokio::test]
+    async fn test_sdir_lists_store_entries() -> Result<(), Box<dyn std::error::Error>> {
+        let memory_store = AsyncMemoryStore::new(&Key::new());
+        for name in ["folder/a.txt", "folder/b.txt"] {
+            memory_store
+                .set(&parse_key(name)?, b"x", &Metadata::new())
+                .await?;
+        }
+        let mut env = SimpleEnvironment::<Value>::new();
+        env.with_async_store(Box::new(memory_store));
+        let envref = env.to_ref();
+
+        let state = envref.evaluate("-R-sdir/folder").await?.get().await?;
+        assert!(!state.is_error()?);
+        let Value::AssetInfo(entries) = &**state.data_unchecked() else {
+            panic!(
+                "expected an AssetInfo listing, got {:?}",
+                state.data_unchecked()
+            );
+        };
+        let names: std::collections::HashSet<String> = entries
+            .iter()
+            .filter_map(|entry| entry.filename.clone())
+            .collect();
+        assert_eq!(
+            names,
+            ["a.txt", "b.txt"].map(String::from).into_iter().collect()
+        );
+        Ok(())
+    }
+
     #[tokio::test]
     async fn test_dir_no_recipe_yaml() {
         use crate::context::{EnvRef, Environment, SimpleEnvironment};

@@ -3,8 +3,8 @@ id: RUNTIME-DEPENDENCY-RECORD-SUPERSEDED-CHECK
 kind: design
 title: A dependency record a command adds is checked against the registered version when the run completes
 form: compact
-status: in_review
-phase: implementation
+status: complete
+gh_pr: [205]
 readiness: ready
 autofix: eligible
 area: [core/assets]
@@ -13,8 +13,10 @@ created: 2026-10-20
 ---
 # A dependency record a command adds is checked against the registered version when the run completes
 
-Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-20. Phases 1-4 are written but not
-approved, and nothing is implemented.
+> **Complete on 2026-10-27**: implemented by automatic fix in #205.
+
+Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-20: Phases 1-4 written; Phase 4
+implemented on 2026-10-27 (automatic fix).
 
 ## Phase 1: High-Level Design
 
@@ -177,16 +179,24 @@ Run: `CARGO_INCREMENTAL=0 cargo test -p liquers-core --test dependency_manager_i
 
 ### Steps
 
-- [ ] 1. Tests above. AC-1, AC-2 and AC-4 fail at HEAD. Proof: the run commands.
-- [ ] 2. `dependencies.rs` `superseded_record` and its unit test.
-- [ ] 3. `assets.rs` `AssetData::note_stale_dependency`, used by `note_expired_dependency`. Proof:
+- [x] 1. Tests above. AC-1, AC-2 and AC-4 fail at HEAD. Proof: the run commands.
+- [x] 2. `dependencies.rs` `superseded_record` and its unit test.
+- [x] 3. `assets.rs` `AssetData::note_stale_dependency`, used by `note_expired_dependency`. Proof:
   `edge_against_superseded_version_*` pass.
-- [ ] 4. `complete_evaluation` check 1. Proof: AC-1, AC-3, AC-4 tests.
-- [ ] 5. `complete_evaluation` check 2, factored as a private `expire_if_superseded(&self, records)`
+- [x] 4. `complete_evaluation` check 1. Proof: AC-1, AC-3, AC-4 tests.
+- [x] 5. `complete_evaluation` check 2, factored as a private `expire_if_superseded(&self, records)`
   so the AC-2 unit test can call it. Proof: AC-2 test. Rollback: revert steps 4-5.
-- [ ] 6. `DEPENDENCIES_STATUS.md`; close the issue. Proof: `python3 scripts/docs_index.py --check`.
+- [x] 6. `DEPENDENCIES_STATUS.md`; close the issue. Proof: `python3 scripts/docs_index.py --check`.
 
 ### Validation
 
 `cargo test -p liquers-core --lib --tests`; `cargo test -p liquers-lib --lib --tests` (search
 commands); diff review.
+
+### Implementation notes (2026-10-27)
+
+- AC-4 is tested on the query `record_d` itself rather than `record_d/upper`: with `upper`
+  appended, the planner cuts `record_d` off as a predecessor asset, so the asset holding the record
+  would again be `record_d`'s.
+- An `Expired` asset's `get` reports an error, so the scenario reads the run's value with
+  `get_any_status`, as `scenario_stale_dependency` does.

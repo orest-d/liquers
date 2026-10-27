@@ -3,8 +3,8 @@ id: FOREIGN-VALUE-TEXT-JSON-DELEGATION
 kind: design
 title: ExtValue's Foreign arm delegates text and JSON conversion to the foreign value
 form: compact
-status: in_review
-phase: implementation
+status: complete
+gh_pr: [209]
 readiness: ready
 autofix: eligible
 area: [lib/value]
@@ -12,6 +12,8 @@ issues: [FOREIGN-VALUE-TEXT-AND-JSON-HOOKS-NEVER-CALLED]
 created: 2026-10-26
 ---
 # ExtValue's Foreign arm delegates text and JSON conversion to the foreign value
+
+> **Complete on 2026-10-27**: implemented by automatic fix in #209.
 
 Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-26: Phases 1-4 written; Phase 4
 implemented on 2026-10-27 (automatic fix).
