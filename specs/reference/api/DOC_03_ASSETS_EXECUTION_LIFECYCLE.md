@@ -70,20 +70,22 @@ entry points, and behavior that is not implemented.
 | `EnvRef::evaluate` | Empty | No | Returns a fast-tracked or scheduled handle | Returns after inline evaluation |
 | `AssetManager::get_asset` | Empty | No | Fast-track or schedule | Fast-track or evaluate inline |
 | `AssetManager::get` | Empty | No | Fast-track or schedule keyed asset | Fast-track or evaluate keyed asset inline |
-| `AssetManager::apply` | Supplied | No | Schedule ad-hoc asset | Evaluate ad-hoc asset inline |
+| `AssetManager::apply` | Supplied | Optional | Evaluate before return; no queue slot | Evaluate inline before return |
+| `AssetManager::apply_queued` | Supplied | No | Queue and return a handle at once (takes a slot; not from inside an evaluation) | Evaluate inline; return the asset even when it failed |
 | `EnvRef::evaluate_immediately` | Empty | Required by signature | Evaluate before return | Evaluate inline before return |
-| `AssetManager::apply_immediately` | Supplied | Optional | Bypass queue and evaluate before return | Evaluate inline before return |
+| `AssetManager::apply_immediately` | Supplied | Optional | Deprecated: forwards to `apply` | Deprecated: forwards to `apply` |
 
 The manager-mode distinction is part of the public contract. “Evaluate” does not
 universally mean that the returned future completes only after the value is ready:
-with `DefaultAssetManager`, ordinary `evaluate`, `get_asset`, `get`, and `apply`
-return a handle after scheduling. Consumers then call `AssetRef::get`, poll, or
-subscribe. With `ImmediateAssetManager`, those operations run evaluation in the
-caller’s task.
+with `DefaultAssetManager`, ordinary `evaluate`, `get_asset` and `get` return a
+handle after scheduling. Consumers then call `AssetRef::get`, poll, or subscribe.
+With `ImmediateAssetManager`, those operations run evaluation in the caller’s task.
+`apply` always evaluates before returning, on both managers; `apply_queued` is the
+ad-hoc entry point that returns a handle to follow.
 
-`apply` and `apply_immediately` create ad-hoc assets and do not insert them into the
-manager’s key or query maps. Only the immediate path accepts a payload. The
-`apply_immediately` computation installs its value but does not persist it.
+`apply` and `apply_queued` create ad-hoc assets and insert them into no key or query
+map; they are never written to the store. Only `apply` (and the deprecated
+`apply_immediately`) take a payload.
 
 ## Typical lifecycle
 
@@ -494,11 +496,9 @@ implements a manager outside the crate against the shared manager scenarios. See
 
 | Date | Change | Source |
 |---|---|---|
-<<<<<<< HEAD
+| 2026-10-27 | §Public entry-point contract: `apply` evaluates before return with an optional payload; `apply_queued` row; `apply_immediately` deprecated. | `design/doc-03-apply-entry-points/` |
 | 2026-10-27 | §Expiration, recovery, and cancellation: a command's `Ok` return commits the run against a pending cancel until the next step that can suspend. | `design/cancel-point-of-no-return/` (`CANCEL-CAN-OVERTAKE-A-RETURNED-COMMAND`) |
-=======
 | 2026-10-27 | §Persistence contract: metadata saves are inline under the inline manager on every target, background-coalesced only under the queued manager. | `design/inline-metadata-save-without-runtime/` (`METADATA-SAVER-SPAWNS-ON-THE-INLINE-PATH`) |
->>>>>>> origin/main
 | 2026-10-25 | Statuses: `get` on a store directory gives `Directory`, never reused; an unmakeable key is `AssetNotFound`. | `design/key-without-recipe-answer/` |
 | 2026-10-22 | §Manager lifecycle: the manager and assets hold the environment weakly; run claims, job-queue entries and background saves pin it; `try_get_envref`; dropping the manager stops the job queue. | `design/environment-manager-reference-cycle/` |
 | 2026-10-12 | Manager cache misses are qualified by the evaluation session: one request per dependency per evaluation. | phase-5 (`design/dependency-resolved-once-per-evaluation/`) |
