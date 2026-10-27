@@ -2,7 +2,7 @@
 id: SOFT-CONSISTENCY-CHECK-MISREADS-A-REFINED-DATA-FORMAT
 kind: issue
 title: set_state logs a spurious media-type warning for a refined data format such as csv:comma
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [core/assets]
@@ -44,3 +44,12 @@ Both helpers map the *base* format (`base_data_format`, or the `TypeInfo`/vocabu
 
 Bulk design of `QUERY-CANNOT-CHOOSE-A-DATA-FORMAT` (2026-10-26), reading the media-type derivation
 for a refined format. Found by reading `assets.rs` and `metadata.rs`; not run.
+
+## Resolution
+
+Fixed 2026-10-27 by `design/soft-consistency-refined-format/`. The soft-consistency check now looks up the expected media type of a refined data format by its
+base (`txt:utf8` → `txt` → `text/plain`), in both `add_soft_consistency_warnings` and
+`add_soft_consistency_warnings_enum`. Tests in `liquers-core/tests/type_consistency.rs`:
+`refined_format_is_consistent_through_set_state`,
+`refined_format_with_consistent_media_type_is_silent`,
+`refined_format_with_divergent_media_type_still_warns`.

@@ -494,6 +494,29 @@ impl<E: Environment> DependencyManager<E> {
         })
     }
 
+    /// The first record whose concrete version differs from the concrete version this manager
+    /// holds for its key: a dependency rewritten after the run recorded it.
+    ///
+    /// An unknown version on either side, or a key the manager holds no version for, is skipped:
+    /// only two known versions can disagree. No I/O.
+    pub(crate) async fn superseded_record(
+        &self,
+        records: &[DependencyRecord],
+    ) -> Option<DependencyKey> {
+        for record in records {
+            if record.version.is_unknown() {
+                continue;
+            }
+            match self.get_version(&record.key).await {
+                Some(held) if !held.is_unknown() && held != record.version => {
+                    return Some(record.key.clone());
+                }
+                Some(_) | None => {}
+            }
+        }
+        None
+    }
+
     /// Register a dependency edge: `dependent` depends on `dependency` at `version`.
     ///
     /// **Records; it does not verify.** The two are different jobs: recording is in-memory, happens
@@ -1392,6 +1415,33 @@ mod tests {
         assert!(expired.contains_key(&b), "b recorded V1");
         assert!(!expired.contains_key(&c), "c recorded the written version");
         assert_eq!(dm.get_version(&a).await, Some(Version::new(2)));
+    }
+
+    #[tokio::test]
+    async fn superseded_record_skips_unknown_and_absent() {
+        let dm = DependencyManager::<TestEnv>::new();
+        let (a, b, c) = (
+            DependencyKey::new("-R/a"),
+            DependencyKey::new("-R/b"),
+            DependencyKey::new("-R/c"),
+        );
+        dm.register_version(&a, Version::new(2)).await;
+        dm.register_version(&b, Version::unknown()).await;
+        let record =
+            |key: &DependencyKey, v: u128| DependencyRecord::new(key.clone(), Version::new(v));
+        // Equal, unknown held, absent, unknown recorded: nothing is superseded.
+        let quiet = [
+            record(&a, 2),
+            record(&b, 1),
+            record(&c, 1),
+            DependencyRecord::new(a.clone(), Version::unknown()),
+        ];
+        assert_eq!(dm.superseded_record(&quiet).await, None);
+        // Two concrete versions that differ.
+        assert_eq!(
+            dm.superseded_record(&[record(&c, 1), record(&a, 1)]).await,
+            Some(a)
+        );
     }
 
     #[tokio::test]
