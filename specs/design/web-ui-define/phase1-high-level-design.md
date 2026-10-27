@@ -100,9 +100,9 @@ API. No `liquers-core` change is expected.
 - **soft** `JS-COMMAND-CANNOT-ACCESS-CONTEXT`: lets an `onEvent` handler evaluate queries through a
   context rather than through module-level calls.
 
-## Decisions
+## Open Questions
 
-All recommendations accepted by the maintainer on 2026-10-27. No open questions remain.
+None. Every recommendation was accepted by the maintainer on 2026-10-27, and is recorded below as a decision.
 
 1. **The element contract.** An element type has a pure `render(props) → HTML string` and an
    `onEvent(props, event) → props`. A widget that owns a canvas or a third-party component can add an

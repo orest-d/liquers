@@ -113,9 +113,9 @@ so dropping `MountHandle` detaches the listeners but keeps the runner, the envir
 `AppState` alive (AC-5, AC-8); and `AppRunner` keeps the `EnvRef` it was built with, so a mount
 outlives an environment rebuild (AC-9).
 
-## Decisions
+## Open Questions
 
-All recommendations accepted by the maintainer on 2026-10-27. No open questions remain.
+None. Every recommendation was accepted by the maintainer on 2026-10-27, and is recorded below as a decision.
 
 0. **Environment (standing rules, 2026-10-17 and 2026-10-19).** A mount uses the environment it was
    created from and remembers it, as other handles do. A mount made from the global handle follows a
