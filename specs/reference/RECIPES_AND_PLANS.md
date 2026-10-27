@@ -204,9 +204,9 @@ exists.
 
 The YAML root is `RecipeList { recipes: Vec<Recipe> }`. Asset names come from each recipe query's
 filename. Recipes without a valid filename are omitted from directory listing. The directory read
-maps **every** `get_bytes` error to an empty list, not only a missing file
-([`RECIPES-YAML-READ-ERRORS-READ-AS-NO-RECIPES`](../issues/RECIPES-YAML-READ-ERRORS-READ-AS-NO-RECIPES.md));
-malformed YAML from successfully read bytes is an error. `recipe_opt` asks `has_recipes` first, so a
+treats only `KeyNotFound` and `KeyNotSupported` from `get_bytes` as an empty list; any other read
+failure (a permission error, a transport error) is returned, carrying the `recipes.yaml` key, and is
+not cached; malformed YAML from successfully read bytes is an error. `recipe_opt` asks `has_recipes` first, so a
 store `contains` error is an error — except that `has_recipes` answers `false` when the store
 refuses the `recipes.yaml` key as `KeyNotSupported` (a store router does so for any key no member
 covers, such as an `http` store serving a fixed key list), so `-R/` queries under such a folder
@@ -860,8 +860,6 @@ not otherwise enforce this distinction.
   [`PLAN-SERDE-HAS-NO-COMPATIBILITY-CONTRACT`](../issues/PLAN-SERDE-HAS-NO-COMPATIBILITY-CONTRACT.md).
 - The recipe circular-dependency fields are never set or read —
   [`RECIPE-CIRCULAR-DEPENDENCY-FIELDS-ARE-DEAD`](../issues/RECIPE-CIRCULAR-DEPENDENCY-FIELDS-ARE-DEAD.md).
-- Every `recipes.yaml` read error reads as "no recipes" —
-  [`RECIPES-YAML-READ-ERRORS-READ-AS-NO-RECIPES`](../issues/RECIPES-YAML-READ-ERRORS-READ-AS-NO-RECIPES.md).
 - `DefaultRecipeProvider` skips a recipe with no valid filename in listings without a diagnostic —
   [`RECIPE-WITHOUT-FILENAME-SILENTLY-OMITTED-FROM-LISTING`](../issues/RECIPE-WITHOUT-FILENAME-SILENTLY-OMITTED-FROM-LISTING.md).
 - The explicit-`cwd` error names the directory but not the offending recipe —
@@ -884,6 +882,7 @@ not otherwise enforce this distinction.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-27 | §Provider contract: only a missing or unsupported `recipes.yaml` reads as no recipes; other read errors are returned. Known limitations bullet removed. | design `recipes-yaml-read-errors-propagate` |
 | 2026-10-27 | §Where a boundary goes: inherited volatility bounds the cut `finalize_plan` makes, at the first step reading the volatile upstream; the Known limitations bullet is removed. | design `inherited-volatility-bounds-predecessor-cut` |
 | 2026-10-27 | §Planner instructions: a `q` with a parameter is `NotSupported` wherever it appears, not only at the end; the Known limitations bullet for mid-query `q` is removed. | design `mid-query-q-arity` |
 | 2026-10-22 | Carried over from DOC-08 on main: `Step::Error` and an error-level `init_steps` entry fail the plan with an `ExecutionError`, after a run of consecutive diagnostic steps is logged in full; the `apply_plan` order says where. | `issues/CONTEXT-ERROR-OUTCOME-DEPENDS-ON-SCHEDULING.md` |
