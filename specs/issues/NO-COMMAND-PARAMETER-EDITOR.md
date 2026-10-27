@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: L
 area: [lib/ui, lib/egui]
-design:
+design: command-parameter-editor
 created: 2026-10-21
 github:
 ---
@@ -19,6 +19,14 @@ widgets. Nothing in the workspace reads `gui_info` (`grep` over `liquers-lib`, `
 `orest-d/egui-midi-test` (`src/editor.rs`, `edit_query`). So there is no in-tree form that edits
 an action's parameters, and no place for the variadic list editor of
 `UI-VARIADIC-ARGUMENT-LIST-EDITOR` to live.
+
+## Problem Example
+
+Re-checked at `cd6d5da`: the query console shows `-R-key/specs/issues/-/ns-search/field_extract`. To
+turn `flatten` (bool, default `false`) on, the user must know to write `…/field_extract-md--true`.
+Appending `-true` sets `extension` instead. Adding the field `status` to the variadic `fields` gives
+`…-md--true-status` (all validated with `liquers-validate`). No form shows these arguments, even
+though their labels, defaults and widgets are declared.
 
 ## Impact
 

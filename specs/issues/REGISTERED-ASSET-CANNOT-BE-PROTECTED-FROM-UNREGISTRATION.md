@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: L
 area: [core/assets]
-design:
+design: registered-asset-protection
 created: 2026-10-20
 github:
 ---
@@ -23,6 +23,18 @@ That is correct for caching, and it blocks one class of feature: using an asset 
 evaluation through its notification channel. They converge on the same asset only while its
 registration lasts. Operations such as `AssetManager::set_state(key, state)` racing an
 unregistration have the same need.
+
+## Problem Example
+
+```rust
+let a = m.get(&key).await?;                  // user A holds asset id 17 and listens on it
+// the deadline passes; the expiration monitor expires 17
+let b = m.get(&key).await?;                  // user B gets a new asset, id 18
+```
+
+A and B no longer share a notification channel. The same happens after a third party's `remove`
+or `set_state`. Garbage collection (`asset-garbage-collection`, not implemented) is not a cause:
+it never collects an asset whose `AssetRef` a caller holds.
 
 ## Impact
 
@@ -51,3 +63,7 @@ as not collectable (`specs/design/asset-garbage-collection/`).
 Split off on 2026-10-20 from `ASSET-REGISTRATION-OWNERSHIP-CONTRACT` (its expected behaviour, point
 3) during bulk design. The rest of that issue is designed in `asset-registration-contract`, which
 recommends deferring this part until a feature needs it.
+
+Bulk design 2026-10-26 (`design/registered-asset-protection/`, phase2-blocked): every ending of a
+registration was inventoried at HEAD; only expiry needs a lifecycle decision, and that decision
+depends on a consumer that does not exist yet.

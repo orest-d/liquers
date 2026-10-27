@@ -3,7 +3,7 @@ title: Language Integration Guide
 kind: guide
 audience: internal
 area: [web, py, core/commands, core/plan, core/assets, core/store, core/value, lib/commands]
-reviewed: 2026-10-25
+reviewed: 2026-10-26
 ---
 # Liquers Language Integration Guide
 
@@ -226,6 +226,7 @@ This risk concentrates where a section did **not** warn about difficulty. The th
 | `WEBAPI` | Integrate Liquers handlers into a language web framework | Optional | `ENVIRON`, `VALUE`, `ERROR`, `ASYNCQ` (soft) |
 | `STUBS` | Static type declarations and editor support | Optional | `OBJECT`, `ASYNCQ` (soft) |
 | `PACKAGE` | Build, packaging, and distribution | Optional | `ENVIRON`, `RUNTIME`, `STUBS` (soft) |
+| `DOCS` | Documentation for the integration's users | Optional | `ENVIRON`, `EVAL`, `COMMAND`, `PACKAGE` (soft), `STUBS` (soft) |
 
 Dependencies are *hard* unless marked `(soft)`. The soft cases are those where Liquers, not the *integrated language*, can supply the asynchrony or the callable:
 
@@ -237,6 +238,8 @@ Dependencies are *hard* unless marked `(soft)`. The soft cases are those where L
 - `MODULE` → `STORE`: modules are read through the environment's store, which need not be a *language*-defined one. `STORE` matters only when a *language*-defined store is also expected to serve modules.
 - `STUBS` → `ASYNCQ`: entry points need awaitable declarations only where `ASYNCQ` is selected.
 - `PACKAGE` → `STUBS`: declarations must ship inside the artifact when `STUBS` is selected; packaging is otherwise independent of them.
+- `DOCS` → `PACKAGE`: the user guide's installation section and the published API reference describe the artifact `PACKAGE` produces. Without it, the guide documents building from the repository.
+- `DOCS` → `STUBS`: where the *language* has declaration files, the API reference is generated from them. Without `STUBS`, it is generated from the *language*'s docstrings or equivalent.
 - `DATANODE` → `ASYNCQ`: only the outbound view of an *async* node needs awaitables. Without `ASYNCQ`, the design must state that such a node is refused, not blocked on.
 - `TEMPLATE` → `COMMAND`: needed to declare template commands and to render from inside a *language command*. Without it, the design offers top-level rendering only and states that template commands are registered from Rust.
 - `TEMPLATE` → `DATANODE`: lets a native structure be template data in place. Without it, data is structurally converted to the *value type* first, and the design must state the cost and what conversion refuses (§DATANODE explains why that is more than a copy).
@@ -249,7 +252,7 @@ Recommended minimum profiles:
 - **Starlark baseline**: baseline with a deliberately restricted `VALUE`; `ASYNCQ` and `ASYNCCMD` may initially be `NA`
 - **Python baseline**: general baseline; later milestones should add `ASYNCQ`, `ASYNCCMD`, `STORE`, `RECIPE`, `DATANODE`, `TEMPLATE`, and selected UI/web features
 
-`STUBS` and `PACKAGE` are delivery features rather than capabilities: they describe how the *integration* is declared to tooling and shipped to users, not what it can do. Any *integration* consumed outside this repository should select `PACKAGE`, and `STUBS` wherever the *integrated language* has a stub format at all.
+`STUBS`, `PACKAGE` and `DOCS` are delivery features rather than capabilities: they describe how the *integration* is declared to tooling, shipped and explained to users, not what it can do. Any *integration* consumed outside this repository should select `PACKAGE` and `DOCS`, and `STUBS` wherever the *integrated language* has a stub format at all.
 
 **Out of scope: cache.** There is deliberately no cache feature. The legacy `liquers_core::cache` module (`BinCache`, `Cache`) was removed, with `liquers-py`'s wrapper of it — assets provide caching, as noted in [PROJECT_OVERVIEW.md](../reference/PROJECT_OVERVIEW.md). An *integration* should not reintroduce a separate result cache. This is a scope decision for the guide as a whole, so it does not need a per-design `NA` entry.
 
@@ -1807,9 +1810,103 @@ Module caches are a staleness hazard: `sys.modules` will happily retain a module
 
 **Meaningful tests:** `PACKAGE01` a clean build produces the artifact for every claimed platform; `PACKAGE02` installing the artifact into a clean environment loads the module successfully; `PACKAGE03` the documented quick-start evaluates a query end to end from the installed artifact; `PACKAGE04` declared version/compatibility metadata matches the linked core; `PACKAGE05` the default Cargo feature set produces the documented *value type*; `PACKAGE06` each optional extra installs and activates its feature; `PACKAGE07` the artifact carries declarations, license, and required metadata.
 
+### DOCS — Documentation for the integration's users
+
+**Contract.** Give the people who will *use* the *integration* — who write *language commands* and
+evaluate queries from the *integrated language*, not who change Liquers — what they need to do so
+without reading the Rust sources: a contract reference, a user guide whose examples are executed, and
+an API reference generated from the public surface. Build all three on the shared references; never
+restate them.
+
+`specs/` is internal (`DOCS_STRUCTURE_GUIDE.md` §2), and an *integration*'s users are not
+contributors, so the user-facing half of this feature belongs in a future `docs/`. Until that exists,
+the two hand-written documents live in `specs/` with `audience: user` or `both`, and move to `docs/`
+— never forked — when it is created (`DOCS_STRUCTURE_GUIDE.md` §9.6). The generated reference
+belongs to the language's own tooling and is published with the artifact (`PACKAGE`).
+
+**Objects/API to map or implement:**
+
+- **A contract reference**, `specs/reference/<LANGUAGE>_INTEGRATION.md`: how the *integration* is laid
+  out (crates, modules, Cargo features), which Rust types it exposes and as what, how the environment
+  is built, configured, rebuilt and shut down, the command declaration and call path, the value
+  conversion tables in both directions, the error mapping, the runtime model (threads or event loop,
+  waits, re-entrancy, cancellation, shutdown), and the limitations, each naming its tracking issue.
+  It states what the code does at `HEAD`; the design folder states why
+- **A user guide**, `specs/guides/<LANGUAGE>_GUIDE.md`: installing or building, what the package
+  contains, a first query, configuring an environment, registering a command (its input, arguments,
+  metadata, replacement and removal, errors), running a query (values, metadata, assets,
+  cancellation, recipes, checking without running), values, errors, stores where `STORE` is
+  selected, testing, and known limitations — in the *integrated language*'s idiom, with an example
+  for every task
+- **An executed-examples test** that runs every example of the user guide against the built
+  artifact, and fails when one fails. An example it cannot run (one needing a real browser, a
+  network, credentials) is marked in the guide, with the reason, so the exclusions are visible
+- **A generated API reference** in the language's standard form — docstrings with pdoc or Sphinx for
+  Python, TypeDoc over the declarations for JavaScript — and a check that every public name carries
+  documentation
+- **Links**: the *integration*'s `README.md` and this guide's §6 entry for the *language* point at
+  the contract reference and the user guide; the guide links the reference for exact rules, and the
+  reference links the guide for usage
+
+**The design must answer:** Which of the three documents exist at the milestone that ships, and
+which are deferred with an issue? Where does the user guide live — `specs/guides/` now, `docs/`
+later, or the package's own documentation — and how is it moved without forking? What runs the
+examples: the language's test runner over extracted blocks, a doctest mechanism, or a browser
+harness? How is an example that cannot run in that harness marked? How are the examples kept
+independent of each other — a fresh environment per example, or a teardown between them? Which
+generator produces the API reference, from what (docstrings, declaration files), and what checks its
+completeness? Which shared references does each document link instead of restating?
+
+**Issues and patterns.**
+
+- **Document command declaration by reference.** The key-to-metadata mapping, the composition model,
+  the defaulting rules and the validation report are
+  [`COMMAND_DECLARATION.md`](../reference/COMMAND_DECLARATION.md). A user guide shows the
+  *language*'s *syntax* for a declaration — decorator, object literal, dict — and what the
+  *integration*'s introspection discovers, so the author knows what never needs writing, then links
+  the format for the semantics. A guide that restates the defaulting rules will drift from them, the
+  documentation form of two hand-written parsers. The same holds for the query language
+  (`PROJECT_OVERVIEW.md`), recipes (`RECIPES_AND_PLANS.md`), store configuration
+  (`STORE_CONFIG_FSD.md`) and templates (`TEMPLATE_LANGUAGE.md`).
+- **Examples show composition.** An example that writes every field misrepresents the format: it
+  suggests every field is needed. Show the shortest declaration first, then one that adds only what
+  differs — an explicit argument type, a namespace — and say what the omitted fields default to.
+- **An example nobody executes rots.** It is the documentation counterpart of a conformance test that
+  passes whatever the code does (§3). Run the user guide's examples in the routine test loop or in
+  the harness the *integration* already has; a separate, rarely run step is the same as none.
+- **Write what is missing as missing.** A feature the *integration* marks `NA`, `NS` or `BLOCKED`, or a
+  limitation it carries, is stated as unavailable in the user guide and listed with its issue in the
+  reference. Documenting it as available, because another *integration* or the Rust API has it, is
+  the documentation counterpart of a hollow conformance claim.
+- **Write for the user, not the implementer.** The reference may name Rust types and files; the user
+  guide names the *language*'s objects and links the reference for the rest. Pitfalls that cost the
+  implementer time belong in this guide's §6 entry, not in the user guide.
+- **Both hand-written documents are reference and guide documents** in the sense of
+  `DOCS_STRUCTURE_GUIDE.md` §9: `reviewed:` front-matter and a `## History` table, re-read when a
+  design in their `area` lands. A change to the *integration*'s public surface updates them in the
+  same change.
+
+**Meaningful tests:** `DOCS01` the contract reference exists and covers layout, exposed types,
+environment, commands, values, errors, the runtime model and limitations; `DOCS02` the user guide
+exists and covers installing, a first query, configuring an environment, registering a command,
+running a query, values, errors and testing, with an example for each; `DOCS03` every user-guide
+example runs against the built artifact, and every example that does not is marked with its reason;
+`DOCS04` the generated API reference builds, and every public name has documentation; `DOCS05` the
+user guide links `COMMAND_DECLARATION.md` for declaration semantics rather than restating its rules,
+and its declaration examples show only what differs from the defaults; `DOCS06` every feature marked
+`NA`, `NS` or `BLOCKED` and every listed limitation is stated as unavailable in the user guide and named
+with its issue in the reference; `DOCS07` the *integration*'s `README.md` and this guide's §6 entry
+link both documents. `DOCS01`, `DOCS02`, `DOCS05` and `DOCS06` are review checks, done when the
+documents are written and when a design in their area lands; `DOCS03` and `DOCS04` are executed.
+
 ## 6. Language-Specific Guidance
 
 ### Browser JavaScript
+
+`liquers-web` (`specs/design/liquers-web/`, `specs/design/liquers-web-store/`) is the browser
+integration. Its contract is [`reference/JAVASCRIPT_INTEGRATION.md`](../reference/JAVASCRIPT_INTEGRATION.md),
+and how to use it is [`JAVASCRIPT_GUIDE.md`](JAVASCRIPT_GUIDE.md), whose examples
+`liquers-web/scripts/test-guide-examples.sh` runs under Node.
 
 Expose async APIs as Promises and bytes as `Uint8Array`; check `BigInt`/`i64` conversions. Keep `JsValue`, DOM handles, closures, and `JsFuture` on the wasm thread. Use the wasm-selected inline asset manager and the core `MaybeSend` model. Test in an actual browser with `wasm-bindgen-test`, including rejected Promises and disposal of JS closures.
 
@@ -1968,6 +2065,9 @@ Every language-specific design should contain:
     A *language* whose thin path fails against an *integration*-independent defect should file it,
     mark the feature `BLOCKED` naming that defect, and decide **then** — with the information —
     whether to continue, rather than discovering the choice was already made.
+12. A documentation plan (§DOCS): which of the contract reference, the user guide and the generated
+    API reference ship in which milestone, what executes the guide's examples, and the issue that
+    tracks each document deferred.
 
 ## 8. References
 
@@ -3688,10 +3788,40 @@ def test_PACKAGE07_artifact_carries_declarations_license_and_metadata():
     assert artifact_metadata(built_artifact())["requires_python"] is not None
 ```
 
+### DOCS
+
+```python
+# DOCS01, DOCS02, DOCS05, DOCS06 and DOCS07 are review checks on the documents; the two below are
+# executed. `liquers-py/tests/test_GUIDE_examples.py` is a worked example of DOCS03.
+
+GUIDE = REPO / "specs/guides/PYTHON_GUIDE.md"
+
+def guide_examples():
+    # Every fenced block in the language, except those marked as not run, with the marker's reason.
+    return [b for b in fenced_blocks(GUIDE, "python") if not b.marked_not_run]
+
+@pytest.mark.parametrize("example", guide_examples(), ids=lambda b: f"line{b.line}")
+def test_DOCS03_every_guide_example_runs(example):
+    # A fresh interpreter namespace per example: one example's registrations must not make
+    # another pass.
+    exec(compile(example.code, f"{GUIDE}:{example.line}", "exec"), {})
+
+def test_DOCS03_unrun_examples_state_why():
+    for block in fenced_blocks(GUIDE, "python"):
+        if block.marked_not_run:
+            assert block.reason, f"line {block.line}: an example that is not run must say why"
+
+def test_DOCS04_every_public_name_is_documented():
+    undocumented = [n for n in lq.__all__ if not (getattr(lq, n).__doc__ or "").strip()]
+    assert undocumented == []
+    assert build_api_reference().exit_code == 0     # pdoc / Sphinx / TypeDoc
+```
+
 ## History
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-26 | New delivery feature `DOCS`: the documents an *integration* owes its users — a contract reference, a user guide with executed examples, a generated API reference — built on the shared references rather than restating them; tests `DOCS01`–`07`. §4 row, soft dependencies and the delivery-features note; §7 item 12; Appendix A blueprint. §6 Browser JavaScript links the new `reference/JAVASCRIPT_INTEGRATION.md` and `JAVASCRIPT_GUIDE.md`. | `LANGUAGE-GUIDE-NO-DOCUMENTATION-SECTION` |
 | 2026-10-25 | Language status: the `liquers-py` Python baseline profile is `CONFORMANT` now that its core blockers are fixed (PR #176, `key-without-recipe-answer`). | `liquers-py/README.md` |
 | 2026-10-25 | Two features. `DATANODE`: core's `DataNode` from the *language* — an adapter so a native structure (a Python `dict`, a JavaScript object) reads in place, agreeing with structural conversion, and an optional outbound view; tests `DATANODE01`–`11`. `TEMPLATE`: the `ns-template` commands in the built-in set, template commands declared as aliases from the *language*, and programmatic `render` / `expand` / `validate` on the environment and on a command's context, keeping the commands' frame layout; tests `TEMPLATE01`–`11`. §4 rows, soft dependencies and profiles; §2 *Data node*; §7 item 6; §8 references; Appendix A blueprints. §MODULE corrected: `Context::get_cwd_key` is crate-private, so the cwd comes from a `-R-key/.` argument. Gaps filed: `FOREIGN-VALUE-HAS-NO-DATA-NODE`, `TEMPLATE-TOP-LEVEL-RENDER-HAS-NO-HOST`, `WEB-HAS-NO-TEMPLATE-COMMANDS`. | maintainer request |
 | 2026-10-25 | §ERROR: map `ErrorCategory` — base classes in a typed hierarchy, a `categories` field otherwise. | `design/key-without-recipe-answer/` |

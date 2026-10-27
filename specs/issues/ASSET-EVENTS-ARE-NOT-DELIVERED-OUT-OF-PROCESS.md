@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: M
 area: [axum]
-design:
+design: asset-events-over-websocket
 created: 2026-10-21
 github:
 ---
@@ -18,6 +18,14 @@ github:
 warmer, a second Liquers instance) has no way to receive it. The assets WebSocket in
 `liquers-axum/src/assets/websocket.rs` follows individual assets only: it maps the per-asset
 `AssetNotificationMessage::Expired`.
+
+## Problem Example
+
+A search indexer beside a server wants every change under `docs/`. `ws/key/docs/a.txt` follows
+one asset and requests (evaluates) it; `ws/key/docs` follows the directory asset, which does not
+report its members; keys created later are never followed; and the per-asset `watch` channel
+coalesces an `Expired` followed by a recomputation into the latter. It should be able to open one
+connection scoped to `docs` and receive every expiry under it, or an explicit lag signal.
 
 ## Impact
 

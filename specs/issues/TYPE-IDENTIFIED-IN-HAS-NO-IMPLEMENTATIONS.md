@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: S
 area: [core/value, lib/value, docs]
-design:
+design: type-identified-in-docs
 created: 2026-10-20
 github:
 ---
@@ -19,6 +19,13 @@ with blanket impls for `Arc<T>` and `&T` only. No type implements it anywhere in
 §"Naming a type in Rust code" shows `to_type_identifier::<ExtValue, polars::frame::DataFrame>()   //
 "polars.DataFrame"`, and `specs/reference/VALUE_TYPE_SYSTEM.md` §"Rust types and identifiers"
 describes the bridge as in use. The example fails to compile.
+
+## Problem Example
+
+Following `TYPE_SYSTEM_GUIDE.md`, `to_type_identifier::<ExtValue, polars::frame::DataFrame>()`
+fails with `E0277: the trait bound DataFrame: TypeIdentifiedIn<ExtValue> is not satisfied`.
+Should be: either it returns `"polars.DataFrame"`, or the guide does not present it as available.
+Verified at HEAD (2026-10-26): only the definition and the `Arc<T>` / `&T` blanket impls exist.
 
 ## Impact
 

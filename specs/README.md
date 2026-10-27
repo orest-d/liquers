@@ -257,10 +257,10 @@ submit, and submitted query state is not preserved.
 - **Web API** — documented → [`reference/WEB_API_SPECIFICATION.md`](reference/WEB_API_SPECIFICATION.md) *(API base with or without a trailing slash: [`design/axum-query-api-base-slash/`](design/axum-query-api-base-slash/))*
 - **Using the web API (curl, Python)** — documented → [`guides/WEB_API_GUIDE.md`](guides/WEB_API_GUIDE.md)
 - **Assets HTTP and WebSocket API (`q/`, `key/`, `admin/`, `ws/q`, `ws/key`)** — built → [`design/axum-assets-endpoints/`](design/axum-assets-endpoints/)
-- **Language integration** — documented → [`guides/LANGUAGE-INTEGRATION_GUIDE.md`](guides/LANGUAGE-INTEGRATION_GUIDE.md) *(liquers-web claims corrected: [`design/language-guide-web-claims/`](design/language-guide-web-claims/))*
+- **Language integration** — documented → [`guides/LANGUAGE-INTEGRATION_GUIDE.md`](guides/LANGUAGE-INTEGRATION_GUIDE.md) (§DOCS: the documents an integration owes its users) *(liquers-web claims corrected: [`design/language-guide-web-claims/`](design/language-guide-web-claims/))*
 - **Assets and recipes HTTP API** — built → [`design/axum-assets-recipes-api/`](design/axum-assets-recipes-api/)
 - **Web API library** — built → [`design/web-api-library/`](design/web-api-library/)
-- **Browser and JavaScript integration** — built → [`design/liquers-web/`](design/liquers-web/) *(docs brought up to date: [`design/web-docs-stale-limitations/`](design/web-docs-stale-limitations/))*
+- **Browser and JavaScript integration** — built → [`guides/JAVASCRIPT_GUIDE.md`](guides/JAVASCRIPT_GUIDE.md) (using it), [`reference/JAVASCRIPT_INTEGRATION.md`](reference/JAVASCRIPT_INTEGRATION.md) (its contract); conformance matrix in `liquers-web/README.md`; design [`design/liquers-web/`](design/liquers-web/) *(docs brought up to date: [`design/web-docs-stale-limitations/`](design/web-docs-stale-limitations/))*
 - **Async evaluation on wasm** — built → [`design/async-wasm-refactor/`](design/async-wasm-refactor/)
 - **Python integration (liquers-py)** — built → [`guides/PYTHON_GUIDE.md`](guides/PYTHON_GUIDE.md) (using it), [`reference/PYTHON_INTEGRATION.md`](reference/PYTHON_INTEGRATION.md) (its contract), [`guides/LANGUAGE-INTEGRATION_GUIDE.md`](guides/LANGUAGE-INTEGRATION_GUIDE.md) §6 Python; conformance matrix in `liquers-py/README.md`; design [`design/liquers-py/`](design/liquers-py/) *(supersedes [`design/python-wrapper/`](design/python-wrapper/))*
 - **Executor-agnostic core** — planned → [`issues/CORE-TOKIO-REMOVAL.md`](issues/CORE-TOKIO-REMOVAL.md)
@@ -299,7 +299,9 @@ question are both measure-first items.
 ## Open issues attached to live design work
 
 <!-- BEGIN generated: issues -->
-*None.*
+| Issue | Pri | Cx | Design |
+|---|---|---|---|
+| [`REMOVED-OR-REPLACED-KEY-REVIVED-BY-A-LATE-BACKGROUND-SAVE`](issues/REMOVED-OR-REPLACED-KEY-REVIVED-BY-A-LATE-BACKGROUND-SAVE.md) | P1 | M | `replaced-asset-write-gate` |
 <!-- END generated: issues -->
 
 ## Not yet placed
@@ -313,6 +315,8 @@ deliberately folded behind a broader line.
 - `reference/api/API_DOCS_GAP_ANALYSIS.md`
 - design `access-policy-at-entry-points`
 - design `argument-gui-info-default`
+- design `asset-event-kinds`
+- design `asset-events-over-websocket`
 - design `asset-garbage-collection`
 - design `asset-manager-insert-key-asset-no-overwrite`
 - design `asset-manager-insert-key-asset-semantics`
@@ -321,14 +325,17 @@ deliberately folded behind a broader line.
 - design `assets-api-admin-operations`
 - design `async-memory-store-prefix-support`
 - design `async-store-wrapper-docs`
+- design `automatic-value-conversion`
 - design `axum-recipes-metadata-entry`
 - design `axum-store-keys-deep`
 - design `axum-store-makedir-test-unignore`
 - design `axum-store-upload-metadata`
 - design `axum-websocket-connection-limits`
 - design `build-matrix-ci`
+- design `build-matrix-path-filters`
 - design `build-sysinfo-rustc-compatibility`
 - design `cancel-point-of-no-return`
+- design `cascade-marks-in-flight-dependent-stale`
 - design `central-storage-model`
 - design `column-mut-zero-copy-validity`
 - design `column-slice-shared-buffers`
@@ -337,11 +344,15 @@ deliberately folded behind a broader line.
 - design `command-cache-flag`
 - design `command-declaration`
 - design `command-execution-class`
+- design `command-io-type-declarations`
 - design `command-metadata-descriptions-and-hints`
+- design `command-parameter-editor`
 - design `command-registry-impl-version-freshness`
 - design `command-registry-issue-fields-coverage`
 - design `command-registry-issue-fields`
+- design `command-specialization-by-input-type`
 - design `composite-variadic-arguments`
+- design `computed-enum-alternatives`
 - design `configuration-error-kind`
 - design `console-mounts-nested-element`
 - design `context-title-description`
@@ -355,6 +366,7 @@ deliberately folded behind a broader line.
 - design `core-value-enum-oversized`
 - design `core-value-json-identifier-dispatch`
 - design `core-wasm-warning-free`
+- design `cross-realm-transfer-planning`
 - design `csv-physical-lines-short-rows`
 - design `cwd-default-link-silent-root`
 - design `cwd-less-recipe-analysed-at-root`
@@ -364,31 +376,44 @@ deliberately folded behind a broader line.
 - design `dependency-edge-superseded-version`
 - design `dependency-failure-error-subject`
 - design `dependency-manager-registered-version`
+- design `dependency-summary-reuse`
 - design `deserialization-with-metadata`
 - design `designer-init-argument-parsing`
 - design `diagnostics-carry-their-origin`
+- design `doc-03-apply-entry-points`
 - design `docs-current-link-validation`
 - design `docs-dead-links`
 - design `docs-index-phase-link-targets`
 - design `docs-link-check-code-spans`
+- design `docs-tooling-tests-in-ci`
 - design `documentation-currentness-small-fixes`
+- design `enum-alternative-labels`
 - design `environment-orderly-shutdown`
 - design `error-store-name-payload`
+- design `error-type-taxonomy`
 - design `error-with-key-field`
 - design `evaluation-session-volatile-test-flake`
 - design `executor-neutral-core`
 - design `expiration-integration-suite-failing-at-head`
 - design `expires-cross-timezone-reduction`
+- design `expires-text-form-time-zone`
 - design `ext-value-description-completeness`
+- design `extended-scalar-value-types`
+- design `external-index-reconciliation`
 - design `external-manager-evaluation-session-sharing`
 - design `external-manager-replacement-surface`
 - design `finished-asset-progress-contract`
+- design `foreign-value-data-node`
+- design `foreign-value-text-json-delegation`
 - design `foreign-value-type-registration`
 - design `front-matter-yaml-agreement`
+- design `generic-serde-data-formats`
 - design `global-enum-registration`
+- design `http-accept-negotiation`
 - design `http-request-body-limit`
 - design `immediate-lazy-expiry-cascade`
 - design `immediate-set-state-status-match`
+- design `inherited-volatility-bounds-predecessor-cut`
 - design `inline-manager-flat-dynamic-dependency-runs`
 - design `inline-metadata-save-without-runtime`
 - design `inline-run-claim-repair-under-lock-contention`
@@ -399,6 +424,7 @@ deliberately folded behind a broader line.
 - design `json-orient-index-column-collision`
 - design `json-table-column-order`
 - design `keyed-run-replaces-dependency-edges`
+- design `kind-aware-recipe-provider-choice`
 - design `lib-build-warning-cleanup`
 - design `lib-integration-test-feature-gates`
 - design `lib-polars-ethnum-rust-1-98`
@@ -415,7 +441,9 @@ deliberately folded behind a broader line.
 - design `metadata-error-traceback`
 - design `metadata-only-entry-reload`
 - design `metadata-serde-partialeq`
+- design `mid-query-q-arity`
 - design `multi-realm-dispatch`
+- design `next-presets-follow-planner-rules`
 - design `null-cell-string-option`
 - design `one-based-error-positions`
 - design `opendal-derived-store-arguments`
@@ -423,15 +451,20 @@ deliberately folded behind a broader line.
 - design `opendal-list-option-config`
 - design `opendal-localfs-assetinfo-test`
 - design `ordered-json-orient-column-order`
+- design `override-ignores-recipe-deadline`
 - design `parquet-read-declared-schema`
 - design `payload-requirement-skips-dependency-analysis`
 - design `phase5-skeleton-unticked`
 - design `plan-cwd-freeze`
+- design `plan-expiration-set-at-finalization`
 - design `plan-relative-resolution`
+- design `plan-serialization-internal-contract`
 - design `plan-split-predecessor-fields`
+- design `planner-instruction-names-public`
 - design `polars-bridge-vector-columns`
 - design `polars-command-tests-via-queries`
 - design `polars-dataframe-ipc`
+- design `polars-dataframe-json`
 - design `polars-doc-example-namespace`
 - design `post-init-command-registration`
 - design `predecessor-cut-equivalence`
@@ -439,26 +472,44 @@ deliberately folded behind a broader line.
 - design `pyo3-python-3-13-support`
 - design `query-builder`
 - design `query-cache-directives`
+- design `query-data-format-command`
 - design `query-editor-live-validation`
 - design `query-leading-slash-field`
+- design `query-token-classes-ascii`
 - design `queued-manager-conditional-eviction`
 - design `realm-type-registry`
 - design `rec-id-iso-date-parsing`
+- design `recipe-circular-dependency-fields-removal`
+- design `recipe-dependency-versions`
 - design `recipe-folder-names-listing-contract`
+- design `recipe-list-set-cwd-validation`
 - design `recipe-override-addressing`
 - design `recipe-plan-declarations`
 - design `recipe-preview-shares-plan-analysis`
+- design `recipes-yaml-read-errors-propagate`
 - design `record-batch-private-fields`
+- design `record-decimal-field-type`
+- design `record-schema-attribute-on-write`
+- design `record-source-row-streaming`
+- design `record-table-csv-refinements`
 - design `record-timestamp-utc`
+- design `record-uuid-time-duration-types`
+- design `records-recipe-validation-cli`
 - design `recovery-read-defers-placeholder`
 - design `refresh-command-metadata-versions`
 - design `register-all-commands-feature-gating`
 - design `register-command-option-value`
 - design `register-command-payload-docs`
+- design `registered-asset-protection`
+- design `registry-publication`
 - design `registry-query-default-text-form`
 - design `relational-database-access`
+- design `relational-database-writes`
+- design `remote-asset-manager`
 - design `remote-store-and-asset-manager`
+- design `replaced-asset-write-gate`
 - design `reserved-instruction-command-names`
+- design `resource-directory-step-debug-output-removal`
 - design `resource-name-unicode`
 - design `root-listing-dependency-key-spelling`
 - design `runtime-dependency-record-superseded-check`
@@ -471,9 +522,12 @@ deliberately folded behind a broader line.
 - design `set-binary-replaces-dependency-edges`
 - design `shared-metadata-and-bytes`
 - design `sidecar-colliding-keys`
+- design `simple-value-i32-json-read`
 - design `simple-value-serializer-parity`
 - design `simple-value-untyped-and-scalar-reads`
+- design `soft-consistency-refined-format`
 - design `sql-over-tables`
+- design `sql-several-tables`
 - design `state-argument-serde-default`
 - design `state-lock-marker-cleanup`
 - design `storage-none-computed-values`
@@ -493,41 +547,55 @@ deliberately folded behind a broader line.
 - design `store-router-directory-above-members`
 - design `store-router-empty-prefix`
 - design `store-router-forwards-asset-info`
+- design `store-shared-buffer-write`
 - design `store-streaming-read-write`
 - design `store-test-output-hygiene`
+- design `stored-derived-value-pruning`
 - design `stored-value-default-data-format`
+- design `streamed-keyed-persistence`
 - design `stubs01-class-detection`
 - design `styled-query-entity-tokens`
 - design `submit-eagerness-documentation`
 - design `supplied-expired-status-reason`
+- design `template-diagnostics-namespace-scope`
 - design `template-editor-ui`
 - design `template-non-scalar-text-form`
+- design `template-render-in-env`
 - design `template-syntax-highlighter`
 - design `temporary-asset-never-run-leak`
 - design `temporary-asset-unique-id`
 - design `text-editor-save`
 - design `text-value-markdown-format`
+- design `type-identified-in-docs`
 - design `type-info-write-only-formats`
 - design `ui-asset-snapshot-boundary`
+- design `ui-display-conversion`
 - design `ui-query-console-error-highlight`
 - design `uncached-write-back-rechecks-dependency-versions`
+- design `unkeyed-asset-derived-version`
 - design `unmanaged-asset-registry`
+- design `unnamed-recipe-diagnostics`
+- design `unregistered-keyed-write-gate`
 - design `validate-phase-section-match`
 - design `validate-through-recipe-providers`
 - design `value-conversion-registry`
 - design `value-interface-capability-split`
+- design `value-memory-size-budget`
 - design `value-serialization-streaming`
 - design `value-serialization-writer`
 - design `value-summary`
 - design `value-type-definition-macro`
 - design `value-type-system`
 - design `variadic-argument-slots`
+- design `variadic-key-query-link-text`
 - design `variadic-link-array-expansion`
 - design `variadic-metadata-tail-check`
+- design `web-api-spec-read-only-mount`
 - design `web-environ-validation-report`
 - design `web-liquers-error-constructor`
 - design `web-object06-error-type-exhaustiveness`
 - design `web-outbound-int64-precision`
+- design `web-query-editor-live-preview`
 - design `web-records-single-cell-scalar`
 - design `web-value04-bytes-identifier`
 - design `workspace-rustfmt-check`
@@ -548,10 +616,11 @@ deliberately folded behind a broader line.
 - feature `DEPENDENCY-ANALYSIS-REWALKS-UPSTREAM-PER-EVALUATION`
 - feature `DEPENDENCY-ANALYSIS-SUMMARIES-NOT-REUSED-ACROSS-EVALUATIONS`
 - feature `ENVIRONMENT-ORDERLY-SHUTDOWN`
+- feature `EXTENDED-SCALARS-NOT-MAPPED-BY-LANGUAGE-BRIDGES`
 - feature `EXTERNAL-INDEX-HAS-NO-RECONCILIATION-CONTRACT`
+- feature `HTTP-ACCEPT-HEADER-NOT-NEGOTIATED`
 - feature `ISSUE-REPORT-PLAN-AND-METADATA-LOGGING`
 - feature `JS-COMMAND-CANNOT-ACCESS-CONTEXT`
-- feature `LANGUAGE-GUIDE-NO-DOCUMENTATION-SECTION`
 - feature `LANGUAGE-STORE-CONFIG-FUNCTION-NOT-DEFINABLE`
 - feature `LANGUAGE-STORE-TYPE-NOT-DEFINABLE`
 - feature `LIB-RECIPE-PROVIDERS-HAVE-NO-VALIDATION-CLI`
@@ -575,6 +644,7 @@ deliberately folded behind a broader line.
 - feature `QUERY-CANNOT-CHOOSE-A-DATA-FORMAT`
 - feature `QUERY-CANNOT-MARK-CACHED-INTERMEDIATES`
 - feature `RECORD-FIELD-TYPE-HAS-NO-DECIMAL`
+- feature `RECORD-FIELD-TYPE-HAS-NO-UUID-TIME-OR-INTERVAL`
 - feature `RECORD-SOURCE-ROWS-CANNOT-BE-STREAMED`
 - feature `RECORDS-ARROW-C-DATA-EXPORT-NOT-BUILT`
 - feature `REGISTERED-ASSET-CANNOT-BE-PROTECTED-FROM-UNREGISTRATION`
@@ -593,6 +663,8 @@ deliberately folded behind a broader line.
 - feature `TEXT-EDITOR-EDITS-ARE-NEVER-SAVED`
 - feature `TYPE-REGISTRY-NOT-REALM-AWARE`
 - feature `UI-VARIADIC-ARGUMENT-LIST-EDITOR`
+- feature `UI-WIDGET-DOES-NOT-CONVERT-ITS-VALUE`
+- feature `UNKEYED-ASSET-HAS-NO-VERSION`
 - feature `UNMANAGED-ASSET-NOT-FOLLOWABLE-ACROSS-CONNECTIONS`
 - feature `VALIDATE-CANNOT-SEE-NON-STANDARD-RECIPE-PROVIDERS`
 - feature `VALUE-CONVERSION-CAPABILITY`
@@ -601,7 +673,7 @@ deliberately folded behind a broader line.
 - feature `VALUE-NOT-CONVERTED-AUTOMATICALLY`
 - feature `VALUE-SERIALIZATION-IS-SYNCHRONOUS-AND-WHOLE-VALUE`
 - feature `VALUE-TYPE-DEFINITION-MACRO`
-- feature `WEB-HAS-NO-API-REFERENCE-OR-USER-GUIDE`
+- feature `WEB-API-REFERENCE-NOT-GENERATED`
 - feature `WEB-HAS-NO-READ-WRITE-REMOTE-STORE`
 - feature `WEB-HAS-NO-TEMPLATE-COMMANDS`
 - feature `WEB-QUERY-EDITOR-NOT-LIVE`
@@ -616,6 +688,7 @@ deliberately folded behind a broader line.
 - [`COMMAND_REGISTRATION_GUIDE.md`](guides/COMMAND_REGISTRATION_GUIDE.md) — This guide covers defining and registering new commands in Liquers. It covers both the `register_command!` macro approach and manual registration.
 - [`DEPENDENCY_CONSISTENCY_GUIDE.md`](guides/DEPENDENCY_CONSISTENCY_GUIDE.md) — How to choose how much inconsistency an application tolerates between runs, and how to start a
 - [`ENVIRONMENT_CONSTRUCTION_GUIDE.md`](guides/ENVIRONMENT_CONSTRUCTION_GUIDE.md) — An `Environment` owns the global services a query evaluation needs: the command registry, the
+- [`JAVASCRIPT_GUIDE.md`](guides/JAVASCRIPT_GUIDE.md) — How to use Liquers from a web page with `liquers-web`: build the WebAssembly module, load it,
 - [`LANGUAGE-INTEGRATION_GUIDE.md`](guides/LANGUAGE-INTEGRATION_GUIDE.md) — Status: Draft
 - [`PYTHON_GUIDE.md`](guides/PYTHON_GUIDE.md) — How to use Liquers from Python with the `liquers` package: build it, configure an environment,
 - [`QUERY_ESCAPING_GUIDE.md`](guides/QUERY_ESCAPING_GUIDE.md) — A Liquers query is text with structure: `/` separates path segments, `-` separates action

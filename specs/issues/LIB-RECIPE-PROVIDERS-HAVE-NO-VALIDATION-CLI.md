@@ -4,9 +4,9 @@ kind: feature
 title: No command-line tool validates the recipes of liquers-lib's recipe provider chain
 status: draft
 priority: P3
-complexity: S
+complexity: M
 area: [core/validate, records]
-design:
+design: records-recipe-validation-cli
 created: 2026-10-20
 github:
 ---
@@ -19,6 +19,15 @@ github:
 `ManifestRecipeProvider` (`liquers-records`) and whatever `liquers-lib`'s default environment chains
 — live above core, so no CLI reaches a manifest's chunk recipes; only a test or program calling the
 library does.
+
+## Problem Example
+
+`data/sales.manifest.yaml` holds the explicit chunk `-R/raw/sales/jan.csv/-/ns-rec/to_recrd/jan.csv`.
+`liquers-validate -- '<that query>'` reports "Action 'to_recrd' not registered" (checked
+2026-10-26), but only if the author copies the query out; nothing walks a manifest's chunks from
+the command line, so the error first appears when `-R/data/jan.csv` is evaluated. Requires
+`validate-through-recipe-providers` (not yet implemented). Re-sized S → M on 2026-10-26: a binary,
+a `cli` feature and a shared chain function in `liquers-records`, plus a `liquers-lib` call site.
 
 ## Impact
 

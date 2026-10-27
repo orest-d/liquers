@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: S
 area: [lib/value]
-design: 
+design: foreign-value-data-node
 created: 2026-10-25
 github:
 ---
@@ -21,6 +21,14 @@ it as nothing, and a store handler cannot read a field of it.
 This bites harder than it sounds in Python: `liquers-py`'s structural conversion is all-or-nothing,
 so a `dict` with one non-`str` key or one unconvertible member (a `datetime`) becomes `py.Object`
 as a whole, and its readable fields vanish from a template.
+
+## Problem Example
+
+`liquers-py` retains `{"name": "Ada", "born": datetime(1815, 12, 10)}` as one `py.Object`
+(structural conversion refuses the `datetime`). `Value::data_node` of that value is
+`NodeKind::Opaque` today, so a template renders `{{name}}` as nothing. Should be: the
+integration's adapter answers, `get("name")` is `Ada`. Verified at HEAD (2026-10-26): the arm is
+`ExtValue::Image { .. } | ExtValue::UIElement { .. } | ExtValue::Foreign { .. } => AnyNode::opaque()`.
 
 ## Impact
 

@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: L
 area: [lib/value, core/value]
-design:
+design: extended-scalar-value-types
 created: 2026-10-20
 github:
 ---
@@ -19,8 +19,12 @@ F64, Text, Bytes` among scalars. `specs/design/value-type-system/prior-art.md` �
 represented distinctly by at least five of the nine target ecosystems, and that they belong in
 `liquers-lib::ExtValue` behind features, not in core (§"Consequences", point 3).
 
-Example: a Polars `u64` column cell or a Python `datetime` crosses into Liquers as `I64` or `Text`,
-losing its type.
+## Problem Example
+
+A command that computes a 64-bit hash (`u64::MAX - 3`) can return only `I64`, which fails the
+range check, or `Text`. A date computed by a command is stored as `Text` and cannot be told apart
+from any other string. Should be: `Value::from(u64)` has identifier `U64`, is stored as
+`"18446744073709551612"` in JSON, and reads back as `U64`. A `NaiveDate` is a `Date`.
 
 ## Impact
 
@@ -38,6 +42,10 @@ conversion edges classified by `value-conversion-registry` (`u8 → i64` widenin
 fallible). Needs a design.
 
 ## Discovery
+
+Designed in `specs/design/extended-scalar-value-types/` (bulk design, 2026-10-26). Python and
+JavaScript bridge mappings are split off as `EXTENDED-SCALARS-NOT-MAPPED-BY-LANGUAGE-BRIDGES`.
+
 
 Moved out of `VALUE-TYPE-DEFINITION-MACRO` by its bulk design (2026-10-20), which delivers the
 generator first; the scalars need decisions the generator does not (JSON form, gating, conversion

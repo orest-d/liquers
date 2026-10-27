@@ -128,6 +128,7 @@ test is named for its ID, in `tests/test_<FEATURE>_*.py`.
 | `ENVIRON` | Essential | COMPLETE | Only the default recipe provider can be configured | `test_ENVIRON01`–`08` |
 | `EVAL` | Essential | COMPLETE | `EVAL05`'s payload half is `NA`: the environment's payload type is `()`, so only the context half is tested. Evaluation is synchronous; async is `specs/design/liquers-py-async/` | `test_EVAL01`–`06` |
 | `COMMAND` | Essential | COMPLETE | No `realm=` on the decorators; `async def` commands are the async design's | `test_COMMAND01`–`14` |
+| `DOCS` | Optional | PARTIAL | `DOCS04`: no generated API reference, most classes lack docstrings (`PY-API-REFERENCE-NOT-GENERATED`) | `DOCS03` is `test_GUIDE_examples.py`; `DOCS01`, `02`, `05`–`07` reviewed |
 
-Every Essential feature is `COMPLETE` and every required check passes; each `NA` item carries
+`DOCS` is outside the baseline profile. Every Essential feature is `COMPLETE` and every required check passes; each `NA` item carries
 its reversing condition. The Python baseline profile is therefore `CONFORMANT`.

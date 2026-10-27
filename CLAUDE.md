@@ -260,6 +260,10 @@ CHROMEDRIVER=$(which chromedriver) cargo test -p liquers-web \
 
 # The delivery form, in a real browser.
 cd liquers-web/tests/e2e && npm install && npx playwright test
+
+# The examples of specs/guides/JAVASCRIPT_GUIDE.md, under Node. Needs a wasm-bindgen CLI of the
+# crate's version (`cargo install wasm-bindgen-cli --version <Cargo.lock's>`).
+./liquers-web/scripts/test-guide-examples.sh
 ```
 
 `--features debug-handles` is test-only: it exposes a live count of retained JavaScript function

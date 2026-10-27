@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: S
 area: [core/assets]
-design:
+design: recipes-yaml-read-errors-propagate
 created: 2026-10-20
 github:
 ---
@@ -17,6 +17,15 @@ github:
 earlier `has_recipes` (`store.contains`) propagates errors, so a file that exists but cannot be read
 — a permission error, a transport failure on a remote store, a race with a removal — silently reads
 as "no recipes".
+
+## Problem Example
+
+Re-checked at HEAD (`cd6d5da`, 2026-10-26): unchanged. A file store whose `data/recipes.yaml`
+exists but is unreadable (mode `000`): `has_recipes(data)` is `Ok(true)`, then
+`cached_recipes` gets `KeyReadError` from `get_bytes`, maps it to an empty list, and
+`-R/data/top.csv` fails with `AssetNotFound` ("no recipe produces it") instead of the read error.
+`recipe` and `recipe_plan` reach `cached_recipes` without `has_recipes`, so the not-found arm must
+stay; only other errors should propagate.
 
 ## Impact
 

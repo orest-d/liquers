@@ -2,7 +2,7 @@
 id: LANGUAGE-GUIDE-NO-DOCUMENTATION-SECTION
 kind: feature
 title: The language integration guide says nothing about writing the integration's own documentation
-status: draft
+status: closed
 priority: P2
 complexity: M
 area: [docs, web, py]
@@ -103,3 +103,15 @@ and `liquers-py/tests/test_GUIDE_examples.py` of item 5 above.
 The section exists, names the documents an integration must produce, and is applied to at least one
 integration — most naturally `liquers-web`, whose user-facing documentation would then be the
 section's worked example.
+
+## Resolution (2026-10-26)
+
+`guides/LANGUAGE-INTEGRATION_GUIDE.md` has a `DOCS` feature (§4 row, §5 `DOCS — Documentation for
+the integration's users`, tests `DOCS01`–`07`, checklist item 12, an Appendix A blueprint). It
+prescribes the three documents this issue names — a contract reference in `specs/reference/`, a user
+guide in `specs/guides/` until `docs/` exists, and a generated API reference — documentation of
+command declaration by reference to `COMMAND_DECLARATION.md`, composition in examples, executed
+examples, and stating missing features as missing. Applied to `liquers-web`
+(`reference/JAVASCRIPT_INTEGRATION.md`, `guides/JAVASCRIPT_GUIDE.md`, executed by
+`liquers-web/scripts/test-guide-examples.sh`; `DOCS04` open as `WEB-API-REFERENCE-NOT-GENERATED`)
+and recorded for `liquers-py` (`DOCS04` open as `PY-API-REFERENCE-NOT-GENERATED`).

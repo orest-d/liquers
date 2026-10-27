@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: M
 area: [lib/polars, core/commands]
-design:
+design: sql-several-tables
 created: 2026-10-21
 github:
 ---
@@ -24,8 +24,23 @@ fits without a decision:
   (`convert_multiple_element`), so the number of extra tables would be fixed by the signature;
 - **keys evaluated by the command** (`tables: Vec<Key> multiple`, each loaded with
   `context.get_dependency_state`) — works for stored entries, not for derived queries, and the
-  table names would have to come from the keys;
+  table names would have to come from the keys. At HEAD (cd6d5da) even this fails when the key is
+  given as a `-R-key/…` link: a link inside a `multiple` argument is materialized through
+  `try_into_json_value` (`interpreter.rs`, `materialize_link_json`), and core `Value::Key` /
+  `Value::Query` have no JSON form;
 - **recipe overrides** naming each table — expressive, but not writable in a plain query.
+
+## Problem Example
+
+```text
+-R/data/sales.csv/-/ns-pl/sql-~X~-R/queries/by_region_name.sql/-/to_text~E
+```
+
+with the SQL `SELECT r.name, sum(s.amount) FROM self AS s JOIN regions AS r ON s.region = r.code
+GROUP BY r.name`. Today `regions` cannot be bound to `data/regions.csv` by any spelling; the
+statement can only fail as an unknown relation. Should be: a way to add `regions` to the query (the
+design recommends `…-regions-~X~-R/data/regions.csv/-/q~E`), with `regions.csv` a recorded
+dependency.
 
 ## Impact
 

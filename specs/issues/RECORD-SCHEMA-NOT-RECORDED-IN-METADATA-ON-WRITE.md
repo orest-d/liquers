@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: M
 area: [lib/value, core/assets]
-design:
+design: record-schema-attribute-on-write
 created: 2026-10-20
 github:
 ---
@@ -22,6 +22,14 @@ metadata the asset layer stores beside them.
 `specs/design/deserialization-with-metadata/` makes the *read* side honour a schema found in the
 metadata attribute `records.schema`; without a producer that only helps records an application or
 a command annotated by hand.
+
+## Problem Example
+
+A keyed recipe `data/t.csv` yields a view with `id: Int (Id role)`, `code: Text`, `amount: Float`
+and rows `(1, "123", 2.0)`, `(2, "456", 3.0)`; it is persisted as `csv`. After a restart the fast
+track reads it with an inferred schema: `code` and `amount` are `Int`, the `Id` role is gone.
+Should be: the stored record carries `attributes["records.schema"]`, and the reload (with
+`design/deserialization-with-metadata/`) has the computed schema.
 
 ## Impact
 

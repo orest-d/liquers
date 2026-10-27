@@ -2,7 +2,7 @@
 id: WEB-HAS-NO-API-REFERENCE-OR-USER-GUIDE
 kind: feature
 title: liquers-web has no generated API reference, contract reference or user guide
-status: draft
+status: closed
 priority: P2
 complexity: M
 area: [web, docs]
@@ -49,3 +49,15 @@ Project planning for `liquers-web` on 2026-10-20, while checking
 applied to `liquers-web`, and there was no web-side issue recording the missing documents.
 `PY-API-REFERENCE-NOT-GENERATED` is the Python counterpart (weak overlap: same kind of gap, separate
 crate and toolchain).
+
+## Resolution (2026-10-26)
+
+The contract reference is `reference/JAVASCRIPT_INTEGRATION.md` and the user guide
+`guides/JAVASCRIPT_GUIDE.md`; `liquers-web/scripts/test-guide-examples.sh` builds the module and runs
+every guide example under Node (`tests/guide/run-guide-examples.mjs`), 20 run and 2 marked as
+needing a page or a `records` build. The generated half — TypeDoc and a completeness check — is
+split out as `WEB-API-REFERENCE-NOT-GENERATED`. Writing the documents against a build surfaced
+`WEB-DESCRIBE-COMMAND-SHAPE-DIFFERS-FROM-DECLARATION`, `WEB-COMMAND-LOOKUP-IGNORES-NAMESPACE`,
+`WEB-UNREGISTER-DEPENDS-ON-FIRST-EVALUATION`, `WEB-NESTED-BYTES-REFUSED-NOT-DEGRADED`,
+`WEB-NESTED-NULL-CROSSES-AS-UNDEFINED`, `WEB-EXPLICIT-ENVIRONMENT-CONFIGURES-THE-SINGLETON`,
+`WEB-METADATA-STATUS-CASE-DIFFERS` and `WEB-JS-STORE-WITH-ONLY-GET-CANNOT-BE-QUERIED`.

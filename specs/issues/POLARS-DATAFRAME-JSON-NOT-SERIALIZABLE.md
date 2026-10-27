@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: S
 area: [lib/polars]
-design:
+design: polars-dataframe-json
 created: 2026-10-20
 github:
 ---
@@ -19,6 +19,13 @@ functions refuse them ("Polars … for data_format 'json' is not implemented yet
 dependency in `liquers-lib/Cargo.toml` does not enable polars' `json` feature, so `JsonWriter` /
 `JsonReader` are not available. `polars.DataFrame`'s `TypeInfo` (`liquers-lib/src/value/mod.rs`)
 correctly leaves both out, with a comment saying why.
+
+## Problem Example
+
+`-R/data/sales.csv/-/ns-pl/head-5/data.json` (valid query): the result is a `polars.DataFrame`
+declared as `json`; serving it fails with "Polars serialization for data_format 'json' is not
+implemented yet", and `set_state` refuses the format as undeclared. Should be: an array of five
+row objects, readable back into an equal frame. Verified at HEAD (2026-10-26).
 
 ## Impact
 
