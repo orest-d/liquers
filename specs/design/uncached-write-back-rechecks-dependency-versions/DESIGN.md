@@ -52,6 +52,12 @@ the fast-track version check refuses it; a fresh process serves `A`. Should be: 
 `Expired` with reason `Direct { StaleDependency { dependency: -R/data/src.txt } }`, and a fresh
 process recomputes `B`.
 
+Since `runtime-dependency-record-superseded-check` (PR #205), step 3 already compares the run's
+records with the dependency map at completion, so this exact sequence finishes `Expired` at birth
+and is written `Expired`; `AssetRef::get` then reports the stale run as an error and the value is
+read with `get_any_status`. The re-check below still covers an input rewritten after that
+comparison and before the write, and it uses the same `DependencyManager::superseded_record`.
+
 ### Scope and Acceptance Criteria
 
 - **AC-1** Input changed during the evaluation (queued manager)

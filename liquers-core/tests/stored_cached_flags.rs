@@ -804,7 +804,14 @@ where
     let run_key = u.clone();
     let evaluation = tokio::spawn(async move {
         let asset = run_env.get_asset_manager().get(&run_key).await?;
-        asset.get().await
+        // The run is stale at birth (`runtime-dependency-record-superseded-check`) and ends
+        // `Expired`, which `get` reports as an error; the value it computed is read whatever
+        // the status.
+        let _ = asset.get().await;
+        asset
+            .get_any_status()
+            .await
+            .ok_or_else(|| Error::general_error("the run kept no value".to_string()))
     });
     let deadline = std::time::Instant::now() + Duration::from_secs(10);
     while gate.entered.load(Ordering::SeqCst) == 0 {
