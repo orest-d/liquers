@@ -4,7 +4,7 @@ kind: design
 title: Async evaluation and async commands in liquers-py
 workflow: liquers-project
 gh_pr: [181]
-phase: implementation
+phase: documentation
 readiness: ready
 autofix: not-eligible
 merged: 2026-10-26

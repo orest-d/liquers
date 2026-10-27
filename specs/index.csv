@@ -90,6 +90,7 @@ CORE-EVALUATE-PATH-CONSOLIDATION,issue,Several evaluation paths duplicate each o
 CORE-FILE-STORE-LISTDIR-DROPS-METADATA-ONLY-KEYS,issue,AsyncFileStore listings drop a metadata-only key instead of reporting it,closed,local,,,,P2,S,core/store;store/backends;docs,,,,store-conformance-backlog,,2026-09-03,specs/issues/CORE-FILE-STORE-LISTDIR-DROPS-METADATA-ONLY-KEYS.md
 CORE-FILE-STORE-WRITES-METADATA-COLLIDING-KEYS,issue,AsyncFileStore refuses a sidecar-colliding key in is_supported but writes it in set,closed,local,,,,P1,L,core/store,,,,sidecar-colliding-keys,,2026-09-02,specs/issues/CORE-FILE-STORE-WRITES-METADATA-COLLIDING-KEYS.md
 CORE-IMMEDIATE-MANAGER-KEYED-RECURSION,issue,"Keyed evaluation recurses forever under ImmediateAssetManager, crashing wasm",closed,local,,,,P1,M,core/assets;web,,,,keyed-recipe-ownership,,2026-08-09,specs/issues/CORE-IMMEDIATE-MANAGER-KEYED-RECURSION.md
+CORE-JOB-QUEUE-KEEPS-ENVIRONMENT-PINS-AFTER-SHUTDOWN,issue,A job still running at shutdown keeps its environment pin in the job queue forever,draft,local,,,,P2,S,core/assets,,,,,,2026-10-27,specs/issues/CORE-JOB-QUEUE-KEEPS-ENVIRONMENT-PINS-AFTER-SHUTDOWN.md
 CORE-LEGACY-METADATA-ACCESSORS-RETURN-JSON,issue,Metadata accessors return JSON-quoted strings for legacy metadata,closed,local,,,,P1,S,core/value,,,,value-type-system,,2026-08-09,specs/issues/CORE-LEGACY-METADATA-ACCESSORS-RETURN-JSON.md
 CORE-LISTDIR-KEYS-DEEP-TESTS-THE-WRONG-KEY,issue,The listdir_keys_deep default recurses on the parent's is_dir instead of the child's,closed,local,,covered,not-eligible,P2,S,core/store;store/backends,,,,listdir-keys-deep-child-check,,2026-09-02,specs/issues/CORE-LISTDIR-KEYS-DEEP-TESTS-THE-WRONG-KEY.md
 CORE-METADATA-FORMAT-TYPE-CONSISTENCY,issue,Metadata data format and type can disagree with the value,closed,local,,,,P0,M,core/value,,,,value-type-system,,2026-08-08,specs/issues/CORE-METADATA-FORMAT-TYPE-CONSISTENCY.md
@@ -275,11 +276,11 @@ POST-INIT-COMMAND-REGISTRATION,issue,Registering a command after Environment::to
 PREDECESSOR-CUT-NOT-YET-EQUIVALENT,issue,Cutting a predecessor boundary is not yet equivalent to expanding it,closed,local,,,,P1,M,core/plan;core/assets,,,,predecessor-cut-equivalence,,2026-08-15,specs/issues/PREDECESSOR-CUT-NOT-YET-EQUIVALENT.md
 PY-ADD-PYTHON-COMMAND-ALIASES-AN-UNREGISTERED-COMMAND,issue,liquers-py's add_python_command registers an alias to a pycall command that does not exist,closed,local,,ready,not-eligible,P2,M,py,,,,liquers-py,,2026-10-17,specs/issues/PY-ADD-PYTHON-COMMAND-ALIASES-AN-UNREGISTERED-COMMAND.md
 PY-API-REFERENCE-NOT-GENERATED,feature,"The Python package has no generated API reference, and most of its names have no docstring",draft,local,,,,P2,M,py;docs,,,,,,2026-10-19,specs/issues/PY-API-REFERENCE-NOT-GENERATED.md
-PY-ASYNC-EVALUATION-NOT-SUPPORTED,feature,liquers-py has no awaitable evaluation and cannot register async def commands,in_progress,local,,ready,not-eligible,P3,L,py,,,,liquers-py-async,,2026-10-20,specs/issues/PY-ASYNC-EVALUATION-NOT-SUPPORTED.md
+PY-ASYNC-EVALUATION-NOT-SUPPORTED,feature,liquers-py has no awaitable evaluation and cannot register async def commands,closed,local,,ready,not-eligible,P3,L,py,,,,liquers-py-async,,2026-10-20,specs/issues/PY-ASYNC-EVALUATION-NOT-SUPPORTED.md
 PY-COMMAND-DECORATOR-CANNOT-DECLARE-ARGUMENT-METADATA,feature,Python command decorators cannot declare per-argument metadata,draft,local,,,,P3,S,py,,,,,,2026-10-18,specs/issues/PY-COMMAND-DECORATOR-CANNOT-DECLARE-ARGUMENT-METADATA.md
 PY-COMMAND-DECORATOR-CANNOT-SET-REALM,feature,Python command decorators cannot place a command in a realm,draft,local,,,,P3,S,py,,,,,,2026-10-18,specs/issues/PY-COMMAND-DECORATOR-CANNOT-SET-REALM.md
 PY-ENVIRONMENT-CANNOT-EVALUATE,issue,"liquers-py's Environment has no asset manager or recipe provider, so nothing can be evaluated from Python",closed,local,,,,P2,M,py,,,,,,2026-10-19,specs/issues/PY-ENVIRONMENT-CANNOT-EVALUATE.md
-PY-FREE-THREADED-SUPPORT-UNVERIFIED,issue,liquers-py declares free-threaded support by PyO3 default without being audited or tested on it,in_progress,local,,ready,not-eligible,P2,M,py,,,,liquers-py-async,,2026-10-26,specs/issues/PY-FREE-THREADED-SUPPORT-UNVERIFIED.md
+PY-FREE-THREADED-SUPPORT-UNVERIFIED,issue,liquers-py declares free-threaded support by PyO3 default without being audited or tested on it,closed,local,,ready,not-eligible,P2,M,py,,,,liquers-py-async,,2026-10-26,specs/issues/PY-FREE-THREADED-SUPPORT-UNVERIFIED.md
 PY-METADATA-FIELDS-ARE-METHODS,issue,Python Metadata exposes its fields as methods while State and AssetRef use properties,draft,local,,,,P3,S,py,,,,,,2026-10-19,specs/issues/PY-METADATA-FIELDS-ARE-METHODS.md
 PY-METADATA-METHODS-RAISE-PLAIN-EXCEPTION,issue,"Metadata, Recipe and expiration methods in liquers-py raise a plain Exception instead of the typed LiquersError",draft,local,,,,P3,S,py,,,,,,2026-10-20,specs/issues/PY-METADATA-METHODS-RAISE-PLAIN-EXCEPTION.md
 PY-MODULES-NOT-DECLARED-IN-LIB,issue,Half of liquers-py's source files are not declared as modules and never compile,closed,local,,ready,not-eligible,P2,M,py,,,,liquers-py,,2026-08-25,specs/issues/PY-MODULES-NOT-DECLARED-IN-LIB.md
@@ -652,7 +653,7 @@ LIB-INTEGRATION-TEST-FEATURE-GATES,design,Feature-gate liquers-lib integration t
 LIB-POLARS-ETHNUM-RUST-1-98,design,Polars dependency compatibility with Rust 1.98,complete,local,,ready,,P2,S,lib/polars;build,,,,lib-polars-ethnum-rust-1-98,,2026-09-01,specs/design/lib-polars-ethnum-rust-1-98/DESIGN.md
 LIBRARY-NO-PANIC-LINT,design,"No unwrap or expect in library code, enforced by a clippy lint per crate",in_review,local,implementation,needs-decision,not-eligible,P2,L,build;core/query;core/value;lib/egui;macro,,,,library-no-panic-lint,,2026-10-20,specs/design/library-no-panic-lint/DESIGN.md
 LIQUERS-MUSTACHE,design,liquers-template — a query-aware template language (Mustache syntax),complete,local,,,,,,core/query;core/value;lib/commands;lib/ui;docs,,,,liquers-mustache,,2026-10-13,specs/design/liquers-mustache/DESIGN.md
-LIQUERS-PY-ASYNC,design,Async evaluation and async commands in liquers-py,,github,implementation,ready,not-eligible,P3,L,py,,181,,liquers-py-async,,2026-10-18,specs/design/liquers-py-async/DESIGN.md
+LIQUERS-PY-ASYNC,design,Async evaluation and async commands in liquers-py,,github,documentation,ready,not-eligible,P3,L,py,,181,,liquers-py-async,,2026-10-18,specs/design/liquers-py-async/DESIGN.md
 LIQUERS-PY,design,Python integration of Liquers (liquers-py),complete,local,,ready,not-eligible,P2,M,py,,150;163,,liquers-py,,2026-10-17,specs/design/liquers-py/DESIGN.md
 LIQUERS-WEB-RECORDS-BRIDGE,design,"Complete the liquers-web records bridge — sources, streaming and the way back",complete,local,,ready,not-eligible,P2,L,web;records,,157,,liquers-web-records-bridge,,2026-10-17,specs/design/liquers-web-records-bridge/DESIGN.md
 LIQUERS-WEB-STORE,design,Browser stores for liquers-web,complete,local,,,,,,web;store/config;core/store,,,,liquers-web-store,,2026-08-09,specs/design/liquers-web-store/DESIGN.md
@@ -893,7 +894,7 @@ PAYLOAD_GUIDE,reference,Payload Specification and Usage,current,local,,,,,,core/
 POLARS_COMMAND_LIBRARY,reference,Polars Command Library Specification,current,local,,,,,,lib/polars,,,,,2026-10-14,,specs/reference/POLARS_COMMAND_LIBRARY.md
 POSITIONING,reference,Positioning and Marketing Plan (draft),current,local,,,,,,docs,,,,,2026-10-15,,specs/reference/POSITIONING.md
 PROJECT_OVERVIEW,reference,Liquers Project Overview,current,local,,,,,,core/query;core/plan;core/assets;core/store;core/value,,,,,2026-10-25,,specs/reference/PROJECT_OVERVIEW.md
-PYTHON_INTEGRATION,reference,Python Integration,current,local,,,,,,py;core/value;core/error;lib/value,,,,,2026-10-25,,specs/reference/PYTHON_INTEGRATION.md
+PYTHON_INTEGRATION,reference,Python Integration,current,local,,,,,,py;core/value;core/error;lib/value,,,,,2026-10-27,,specs/reference/PYTHON_INTEGRATION.md
 REALMS,reference,Realms,current,local,,,,,,core/plan;core/commands;store/config,,,,,2026-10-16,,specs/reference/REALMS.md
 RECIPES_AND_PLANS,reference,Recipes and Plans Reference,current,local,,,,,,core/plan;core/query;core/assets;core/context,,,,,2026-10-22,,specs/reference/RECIPES_AND_PLANS.md
 RECORD_STREAMS,reference,Record Streams,current,local,,,,,,records;lib/value;lib/commands;web,,,,,2026-10-25,,specs/reference/RECORD_STREAMS.md
@@ -915,8 +916,8 @@ COMMAND_REGISTRATION_GUIDE,guide,Command Registration Guide,current,local,,,,,,c
 DEPENDENCY_CONSISTENCY_GUIDE,guide,Dependency Consistency Guide,current,local,,,,,,core/assets,,,,,2026-10-08,,specs/guides/DEPENDENCY_CONSISTENCY_GUIDE.md
 ENVIRONMENT_CONSTRUCTION_GUIDE,guide,Building and Configuring an Environment,current,local,,,,,,core/context;core/assets;core/store,,,,,2026-10-11,,specs/guides/ENVIRONMENT_CONSTRUCTION_GUIDE.md
 JAVASCRIPT_GUIDE,guide,Using Liquers from JavaScript in the browser,current,local,,,,,,web,,,,,2026-10-26,,specs/guides/JAVASCRIPT_GUIDE.md
-LANGUAGE-INTEGRATION_GUIDE,guide,Language Integration Guide,current,local,,,,,,web;py;core/commands;core/plan;core/assets;core/store;core/value;lib/commands,,,,,2026-10-26,,specs/guides/LANGUAGE-INTEGRATION_GUIDE.md
-PYTHON_GUIDE,guide,Using Liquers from Python,current,local,,,,,,py,,,,,2026-10-25,,specs/guides/PYTHON_GUIDE.md
+LANGUAGE-INTEGRATION_GUIDE,guide,Language Integration Guide,current,local,,,,,,web;py;core/commands;core/plan;core/assets;core/store;core/value;lib/commands,,,,,2026-10-27,,specs/guides/LANGUAGE-INTEGRATION_GUIDE.md
+PYTHON_GUIDE,guide,Using Liquers from Python,current,local,,,,,,py,,,,,2026-10-27,,specs/guides/PYTHON_GUIDE.md
 QUERY_ESCAPING_GUIDE,guide,Query Escaping Guide,current,local,,,,,,core/query,,,,,2026-10-07,,specs/guides/QUERY_ESCAPING_GUIDE.md
 RECORD_STREAM_GUIDE,guide,Record Stream Guide,current,local,,,,,,records;lib/value,,,,,2026-10-13,,specs/guides/RECORD_STREAM_GUIDE.md
 SEARCH_GUIDE,guide,Search Guide,current,local,,,,,,lib/commands;records,,,,,2026-10-17,,specs/guides/SEARCH_GUIDE.md

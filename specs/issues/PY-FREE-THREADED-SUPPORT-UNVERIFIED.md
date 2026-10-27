@@ -2,7 +2,7 @@
 id: PY-FREE-THREADED-SUPPORT-UNVERIFIED
 kind: issue
 title: liquers-py declares free-threaded support by PyO3 default without being audited or tested on it
-status: in_progress
+status: closed
 priority: P2
 complexity: M
 area: [py]
@@ -39,3 +39,13 @@ Raised by Orest (2026-10-26) while discussing where `async def` commands run in
 `design/liquers-py-async/` (Phase 1, Decision 2). Reframed after review of PR #181 showed PyO3
 0.28+ already declares the support. Moved into `liquers-py-async` (AC-8) by Orest on
 2026-10-26.
+
+## Resolution (2026-10-27)
+
+Audited and tested by `design/liquers-py-async/` (Phase 2 *Concurrency*, AC-8) in PR #181. The
+audit found one deadlock, in the environment lock, fixed by taking it with `lock_py_attached` and
+releasing Python objects after the guard (`environment::tests::lock_is_taken_detached`,
+`test_FREETHREAD03`). The module now states `gil_used = false`, `pyproject.toml` has the
+free-threading classifier, and `tests/test_FREETHREAD_concurrency.py` checks on 3.14t that the GIL
+stays off and that sync and async commands run in parallel. The whole suite passes on 3.14t.
+Not covered: no CI run (`PY-TESTS-NOT-RUN-IN-CI`).

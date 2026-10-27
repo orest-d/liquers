@@ -17,12 +17,12 @@ and the existing suite stays green after every step.
 - [x] Step 1: Fix the environment lock and record the PR (17e0fabd)
 - [x] Step 2: Fix the test script for free-threaded interpreters (1b1a876a)
 - [x] Step 3: Add pyo3-async-runtimes and bind it to the runtime (1f5bdf2c)
-- [ ] Step 4: Add the loop pool, pool-thread flag and blocking-call check
-- [ ] Step 5: Guard the blocking calls
-- [ ] Step 6: Add the async_loops and job_capacity keywords and the shutdown signal
-- [ ] Step 7: Add the awaitable methods
-- [ ] Step 8: Run async def commands on the pool
-- [ ] Step 9: Declare free-threaded support and run both interpreters
+- [x] Step 4: Add the loop pool, pool-thread flag and blocking-call check (b3e7101e)
+- [x] Step 5: Guard the blocking calls (b3e7101e)
+- [x] Step 6: Add the async_loops and job_capacity keywords and the shutdown signal (b3e7101e)
+- [x] Step 7: Add the awaitable methods (b3e7101e)
+- [x] Step 8: Run async def commands on the pool (b3e7101e)
+- [x] Step 9: Declare free-threaded support and run both interpreters (b3e7101e)
 
 ## Implementation Steps
 
@@ -187,6 +187,6 @@ Each of these three gets a History row and a `reviewed:` bump. Phase 5 also upda
 `command_registry.yaml` is unchanged. Phase 5 closes both source issues.
 
 ## Phase 5 Entry Criteria
-- [ ] Implementation finished and validated on CPython 3.13 and 3.14t
-- [ ] User and review comments answered
-- [ ] Documentation checkable against implemented and tested behaviour
+- [x] Implementation finished and validated on CPython 3.13 and 3.14t
+- [x] User and review comments answered
+- [x] Documentation checkable against implemented and tested behaviour
