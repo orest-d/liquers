@@ -208,7 +208,7 @@ Run:
 - [x] 1. `liquers-py/tests/test_DOCS_docstrings.py` — the four tests; the synthetic one passes, the others fail — `bash scripts/test-liquers-py.sh -k DOCS04` lists the gaps (AC-2)
 - [x] 2. `liquers-py/src/query.rs` — docstrings for the query classes, `parse`, `parse_key` — the step-1 list shrinks
 - [x] 3. `liquers-py/src/command_metadata.rs`, `plan.rs`, `recipes.rs`, `dependencies.rs` — docstrings — as step 2
-- [ ] 4. `liquers-py/src/metadata.rs`, `expiration.rs`, `error.rs`, and the public items of `environment.rs`, `context.rs`, `asset.rs` reviewed — as step 2
+- [x] 4. `liquers-py/src/metadata.rs`, `expiration.rs`, `error.rs`, and the public items of `environment.rs`, `context.rs`, `asset.rs` reviewed — as step 2
 - [ ] 5. `liquers-py/python/liquers/_errors.py` `_install` — generated class docstrings — `bash scripts/test-liquers-py.sh -k DOCS04` passes AC-4
 - [ ] 6. `text_signature` on any constructor the signature test still fails on (likely none; stop rule in Phase 2) — `bash scripts/test-liquers-py.sh` passes in full (AC-1, AC-3); `cargo fmt -p liquers-py --check`
 - [ ] 7. `liquers-py/README.md` `DOCS` row; `specs/issues/PY-PUBLIC-NAMES-HAVE-NO-DOCSTRINGS.md` `status: closed` with a resolution note; this design `complete`; `specs/README.md` row; `python3 scripts/docs_index.py` — `python3 scripts/docs_index.py --check`

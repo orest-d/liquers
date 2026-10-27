@@ -2,6 +2,10 @@ use pyo3::{exceptions::PyException, prelude::*, types::PyAnyMethods};
 
 use crate::parse::Position;
 
+/// The kind of a Liquers error, such as `ErrorType.KeyNotFound` or `ErrorType.ParseError`.
+///
+/// Every variant has its own exception class, a subclass of `LiquersError` (`KeyNotFoundError` for
+/// `ErrorType.KeyNotFound`); an error's `type` is its `ErrorType`. See `PYTHON_GUIDE.md` §8.
 #[pyclass(from_py_object, eq, eq_int, module = "liquers")]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Copy)]
 pub enum ErrorType {
@@ -123,7 +127,10 @@ fn category_name(category: liquers_core::error::ErrorCategory) -> &'static str {
 #[pymethods]
 impl ErrorType {
     /// The names of the categories this type belongs to, in order (`["Store", "NotFound"]` for
-    /// `KeyNotFound`). `_errors.py` derives each variant's exception class from them.
+    /// `KeyNotFound`).
+    ///
+    /// Each category has an exception base class, `<name>Error`, that the type's class derives
+    /// from.
     pub fn categories(&self) -> Vec<&'static str> {
         liquers_core::error::ErrorType::from(*self)
             .categories()
@@ -132,7 +139,7 @@ impl ErrorType {
             .collect()
     }
 
-    /// The names of every category, in declaration order.
+    /// The names of every error category, in declaration order.
     #[staticmethod]
     pub fn all_categories() -> Vec<&'static str> {
         liquers_core::error::ErrorCategory::ALL
@@ -142,6 +149,10 @@ impl ErrorType {
     }
 }
 
+/// A Liquers error as a value: an `ErrorType` and a message, optionally a position.
+///
+/// `Error(error_type, message)` makes one; `throw()` raises it as the matching `LiquersError`
+/// subclass. Errors that Liquers raises arrive as those exceptions, not as `Error` objects.
 #[pyclass(from_py_object, module = "liquers")]
 #[derive(Debug, Clone)]
 pub struct Error(pub liquers_core::error::Error);
@@ -156,10 +167,12 @@ impl Error {
         ))
     }
 
+    /// A copy of the error that points at `position` in the query text.
     pub fn with_position(&self, position: Position) -> Self {
         Error(self.0.clone().with_position(&position.0))
     }
 
+    /// Raises the error as the `LiquersError` subclass of its type.
     pub fn throw(&self) -> PyResult<()> {
         Err(self.clone().into())
     }
