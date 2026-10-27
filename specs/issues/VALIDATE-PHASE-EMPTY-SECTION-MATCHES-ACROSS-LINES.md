@@ -2,7 +2,7 @@
 id: VALIDATE-PHASE-EMPTY-SECTION-MATCHES-ACROSS-LINES
 kind: issue
 title: validate_phase.py reports a filled compact section as empty when its name appears earlier in the phase
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [docs, build]
@@ -53,3 +53,7 @@ heading part, and require exactly the heading level (or deeper) rather than `##`
 
 Bulk design of `store-conformance-check-tool`, 2026-10-19: `validate_phase.py … 4` failed with
 `Validation (empty)` until step 6 stopped naming its source issue ID.
+
+## Resolution
+
+Fixed 2026-10-27 by `design/validate-phase-section-match/`. `validate_phase.py` `empty_sections` matches a section heading on one line only, so a section name that occurs in an earlier section's text no longer makes a filled section read as empty. `compact_section` and `scripts/docs_index.py` `design_phase_text` find `## Phase N` boundaries on a fence-blanked copy of the text, so a fenced example heading is not a phase boundary. Evidence: `.claude/skills/liquers-project/scripts/test_validate_phase.py` (the first tests of the skill scripts) and `PhaseTextTests` in `scripts/test_docs_index.py`.

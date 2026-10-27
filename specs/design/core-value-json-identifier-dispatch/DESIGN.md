@@ -3,8 +3,8 @@ id: CORE-VALUE-JSON-IDENTIFIER-DISPATCH
 kind: design
 title: Core Value reads JSON by its type identifier for every core variant
 form: compact
-status: in_review
-phase: implementation
+status: complete
+gh_pr: [198]
 readiness: ready
 autofix: eligible
 area: [core/value]
@@ -12,6 +12,8 @@ issues: [CORE-VALUE-JSON-READ-IGNORES-STRUCTURED-IDENTIFIERS]
 created: 2026-10-20
 ---
 # Core Value reads JSON by its type identifier for every core variant
+
+> **Complete on 2026-10-27**: implemented by automatic fix in #198.
 
 Bulk design (`specs/guides/autonomous_bulk_design.md`): Phases 1-4 written; Phase 4
 implemented on 2026-10-27 (automatic fix).
