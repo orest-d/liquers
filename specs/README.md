@@ -313,6 +313,7 @@ deliberately folded behind a broader line.
 - `reference/CONFORMANCE_TERMS.md`
 - `reference/api/API_DOCS_GAP_ANALYSIS.md`
 - design `access-policy-at-entry-points`
+- design `agent-command-proposal`
 - design `argument-gui-info-default`
 - design `asset-event-kinds`
 - design `asset-events-over-websocket`
@@ -424,6 +425,12 @@ deliberately folded behind a broader line.
 - design `json-table-column-order`
 - design `keyed-run-replaces-dependency-edges`
 - design `kind-aware-recipe-provider-choice`
+- design `language-binding-tests-in-ci`
+- design `language-bridge-extended-scalars`
+- design `language-global-enum-import`
+- design `language-late-registration-without-rebuild`
+- design `language-store-config-function`
+- design `language-store-type-registration`
 - design `lib-build-warning-cleanup`
 - design `lib-integration-test-feature-gates`
 - design `lib-polars-ethnum-rust-1-98`
@@ -440,6 +447,7 @@ deliberately folded behind a broader line.
 - design `metadata-only-entry-reload`
 - design `metadata-serde-partialeq`
 - design `mid-query-q-arity`
+- design `multi-language-traceback`
 - design `multi-realm-dispatch`
 - design `next-presets-follow-planner-rules`
 - design `null-cell-string-option`
@@ -467,7 +475,19 @@ deliberately folded behind a broader line.
 - design `post-init-command-registration`
 - design `predecessor-cut-equivalence`
 - design `pure-command-context`
+- design `py-api-reference`
+- design `py-command-decorator-declaration-keywords`
+- design `py-docstrings`
+- design `py-encoded-reprs`
+- design `py-metadata-fields-as-properties`
+- design `py-metadata-typed-errors`
+- design `py-pypy-ci-job`
+- design `py-python-style-reprs`
+- design `py-query-segment-registration`
+- design `py-recipe-provider-choice`
+- design `py-record-values-to-python`
 - design `pyo3-python-3-13-support`
+- design `query-builder-in-bindings`
 - design `query-builder`
 - design `query-cache-directives`
 - design `query-data-format-command`
@@ -492,6 +512,7 @@ deliberately folded behind a broader line.
 - design `record-table-csv-refinements`
 - design `record-timestamp-utc`
 - design `record-uuid-time-duration-types`
+- design `records-arrow-c-data-export`
 - design `records-recipe-validation-cli`
 - design `recovery-read-defers-placeholder`
 - design `refresh-command-metadata-versions`
@@ -595,6 +616,7 @@ deliberately folded behind a broader line.
 - design `web-outbound-int64-precision`
 - design `web-query-editor-live-preview`
 - design `web-records-single-cell-scalar`
+- design `web-thrown-back-error-context`
 - design `web-value04-bytes-identifier`
 - design `workspace-rustfmt-check`
 - feature `AGENT-CANNOT-PROPOSE-A-COMMAND`
@@ -635,6 +657,7 @@ deliberately folded behind a broader line.
 - feature `PY-API-REFERENCE-NOT-GENERATED`
 - feature `PY-COMMAND-DECORATOR-CANNOT-DECLARE-ARGUMENT-METADATA`
 - feature `PY-COMMAND-DECORATOR-CANNOT-SET-REALM`
+- feature `PY-NO-LANGUAGE-DEFINED-STORE`
 - feature `PY-RECIPE-PROVIDER-NOT-CONFIGURABLE`
 - feature `PY-RECORD-VALUES-CANNOT-CROSS-TO-PYTHON`
 - feature `QUERY-BUILDER-NOT-IN-BINDINGS`

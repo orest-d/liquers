@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: M
 area: [web, py, core/store, store/config]
-design: 
+design: language-store-type-registration
 created: 2026-08-29
 github:
 ---

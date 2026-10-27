@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: S
 area: [py]
-design:
+design: py-command-decorator-declaration-keywords
 created: 2026-10-18
 github:
 ---
@@ -46,3 +46,10 @@ methods accept a matching keyword. Alternatively, the realm stays fixed and the 
 
 Intentionally omitted scope of `specs/design/liquers-py/`, recorded in Phase 5 and in the
 `COMMAND` row of `liquers-py/README.md`.
+
+Overlap triage (bulk design, 2026-10-27): designed together with
+`PY-COMMAND-DECORATOR-CANNOT-DECLARE-ARGUMENT-METADATA` (leading) in
+`design/py-command-decorator-declaration-keywords/`. Test that held: T3, the same keyword list in
+`_decorator.decorate` / `_register`; T1, T2, T4 did not. Runner-up: `language-store-config-function`
+(T2 on what `realm="store_config"` means; not attached because its Phase 4 is finished, recorded as `overlaps`, and that design's
+refusal of the realm is carried as AC-7).
