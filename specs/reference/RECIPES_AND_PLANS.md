@@ -3,7 +3,7 @@ title: Recipes and Plans Reference
 kind: reference
 audience: internal
 area: [core/plan, core/query, core/assets, core/context]
-reviewed: 2026-10-22
+reviewed: 2026-10-27
 ---
 # Recipes and Plans
 
@@ -151,7 +151,8 @@ directory on `Context`, after which relative keys and links can resolve against 
 
 YAML authors must not specify `cwd`. `DefaultRecipeProvider` derives it from the containing
 `recipes.yaml` and refuses the whole file if any entry sets it: every lookup in that directory then
-fails with `NotSupported` ("CWD can't be explicitly specified in a recipe", with the directory
+fails with `NotSupported` ("CWD can't be explicitly specified in a recipe: recipes[1] (query '…')
+sets cwd 'other'", naming every offending entry by index, query and `cwd`, with the directory
 key), and the file is not cached. The field remains public and deserializable because programmatic
 recipe creation may set it — `ManifestRecipeProvider` sets each chunk recipe's `cwd` to the
 manifest's folder — and `Recipe::to_plan` validates that string as a `Key` and preserves it as the
@@ -163,10 +164,9 @@ the raw query `-R-cwd/../c/-/action-~X~-R/./hello.txt~E` first installs `a/b`, t
 to `a/c`, and finally evaluates the relative link as `-R/a/c/hello.txt`. Recipe conversion
 deliberately keeps both `SetCwd` operands and the link source-relative.
 
-`RecipeList::set_cwd` sets missing values in iteration order until it meets an explicitly populated
-`cwd`, then writes a diagnostic to stderr and returns an error, so a partially mutated list is
-possible
-([`RECIPE-LIST-SET-CWD-MUTATES-BEFORE-FAILING`](../issues/RECIPE-LIST-SET-CWD-MUTATES-BEFORE-FAILING.md)).
+`RecipeList::set_cwd` checks the whole list first: if any entry already has a `cwd` it returns that
+error and leaves the list unchanged; otherwise it sets every entry's `cwd`. It writes nothing to
+stderr.
 
 ## Provider contract
 
@@ -847,8 +847,6 @@ not otherwise enforce this distinction.
 - Complete recipe application is a convention: `to_plan`, `finalize_plan`, setting the expiration and
   `apply_plan` must be sequenced by each environment —
   [`PLAN-EXPIRATION-REACHES-THE-CONTEXT-ONLY-THROUGH-APPLY-RECIPE`](../issues/PLAN-EXPIRATION-REACHES-THE-CONTEXT-ONLY-THROUGH-APPLY-RECIPE.md).
-- `RecipeList::set_cwd` can mutate part of a list before failing —
-  [`RECIPE-LIST-SET-CWD-MUTATES-BEFORE-FAILING`](../issues/RECIPE-LIST-SET-CWD-MUTATES-BEFORE-FAILING.md).
 - Provider plan APIs (`recipe_plan`, the private `create_plan_with_init_metadata` used by
   `recipe_plan` and `get_asset_info`, `make_plan`, `finalize_plan`) perform different subsets of
   analysis —
@@ -867,8 +865,6 @@ not otherwise enforce this distinction.
   [`MID-QUERY-Q-INSTRUCTION-DISCARDS-ARGUMENTS`](../issues/MID-QUERY-Q-INSTRUCTION-DISCARDS-ARGUMENTS.md).
 - `DefaultRecipeProvider` skips a recipe with no valid filename in listings without a diagnostic —
   [`RECIPE-WITHOUT-FILENAME-SILENTLY-OMITTED-FROM-LISTING`](../issues/RECIPE-WITHOUT-FILENAME-SILENTLY-OMITTED-FROM-LISTING.md).
-- The explicit-`cwd` error names the directory but not the offending recipe —
-  [`RECIPE-CWD-ERROR-DOES-NOT-NAME-THE-RECIPE`](../issues/RECIPE-CWD-ERROR-DOES-NOT-NAME-THE-RECIPE.md).
 
 ## Tests that pin this contract
 
@@ -887,6 +883,7 @@ not otherwise enforce this distinction.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-27 | §Working directory: the explicit-`cwd` error names each offending recipe; `RecipeList::set_cwd` validates before mutating and writes nothing to stderr. Two Known limitations bullets removed. | design `recipe-list-set-cwd-validation` |
 | 2026-10-22 | Carried over from DOC-08 on main: `Step::Error` and an error-level `init_steps` entry fail the plan with an `ExecutionError`, after a run of consecutive diagnostic steps is logged in full; the `apply_plan` order says where. | `issues/CONTEXT-ERROR-OUTCOME-DEPENDS-ON-SCHEDULING.md` |
 | 2026-10-20 | Promoted from `reference/api/DOC_08_RECIPES_PLANS.md` to `reference/RECIPES_AND_PLANS.md`; series wording, the dated verification log and the priority table removed (Known limitations link issues instead). Added §Planner instructions (instruction vs command; `ns`, `q` including mid-query, `v`, resource header instructions, segment headers, filenames), `to_plan_for_key`, placeholders, the `apply_plan` order, `uncached_by`, Serde defaults, a `recipes.yaml` example. Corrected: `init_steps` are logged by `apply_plan`; a `recipes.yaml` with an explicit `cwd` is refused whole; `set_cwd` writes to stderr; `to_plan` already folds `volatile`/`expires`; expiration reaches the context only in `apply_recipe`; seeding is conditional on non-volatility; circular-dependency fields are unused; the pre-pass schedules keyed dependencies only. (Earlier, until `plan-policy`, `v` anywhere marked the whole plan volatile.) | DOC-08 review, promotion |
 | 2026-10-17 | Planning contract: resource steps (`-R-stored/`, `-R-stored_meta/`, `-R-sdir/`) never make a plan volatile; `Plan::is_volatile` is the only volatility authority (the step-level `IsVolatile` impl was removed). | `design/step-volatility-impl-removal/` |

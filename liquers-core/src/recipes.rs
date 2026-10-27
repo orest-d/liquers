@@ -952,20 +952,32 @@ impl RecipeList {
         })
     }
 
-    /// Assigns the same logical working key to every recipe that does not already have one.
+    /// Assigns the working key to every recipe.
     ///
-    /// This method mutates in iteration order. If it encounters an explicitly populated `cwd`, it
-    /// returns an error after any preceding recipes have already been changed.
+    /// Fails, leaving the list unchanged, if any recipe already has one; the error names each
+    /// such recipe by index, query and `cwd`.
     pub fn set_cwd(&mut self, cwd: String) -> Result<(), Error> {
+        let offenders: Vec<String> = self
+            .recipes
+            .iter()
+            .enumerate()
+            .filter_map(|(index, recipe)| {
+                recipe.cwd.as_ref().map(|explicit| {
+                    format!(
+                        "recipes[{index}] (query '{}') sets cwd '{explicit}'",
+                        recipe.query
+                    )
+                })
+            })
+            .collect();
+        if !offenders.is_empty() {
+            return Err(Error::not_supported(format!(
+                "CWD can't be explicitly specified in a recipe: {}",
+                offenders.join("; ")
+            )));
+        }
         for recipe in &mut self.recipes {
-            if recipe.cwd.is_none() {
-                recipe.cwd = Some(cwd.clone());
-            } else {
-                eprintln!("Recipe already has CWD set to {:?}", recipe.cwd);
-                return Err(Error::not_supported(
-                    "CWD can't be explicitly specified in a recipe".to_owned(),
-                ));
-            }
+            recipe.cwd = Some(cwd.clone());
         }
         Ok(())
     }
@@ -2731,6 +2743,78 @@ mod recipe_provider_chain_tests {
 /// A key the store refuses as unsupported holds no `recipes.yaml`: the default provider answers
 /// "no recipe" rather than failing the query that asked.
 #[cfg(test)]
+mod set_cwd_tests {
+    //! `recipe-list-set-cwd-validation`: `RecipeList::set_cwd` validates the whole list first.
+    use super::*;
+
+    fn list(entries: &[(&str, Option<&str>)]) -> Result<RecipeList, Error> {
+        let mut list = RecipeList::new();
+        for (query, cwd) in entries {
+            let mut recipe = Recipe::new(query.to_string(), String::new(), String::new())?;
+            recipe.cwd = cwd.map(str::to_owned);
+            list.add_recipe(recipe);
+        }
+        Ok(list)
+    }
+
+    #[test]
+    fn set_cwd_failure_leaves_the_list_unchanged() -> Result<(), Error> {
+        let mut recipes = list(&[
+            ("a/x.txt", None),
+            ("b/y.txt", None),
+            ("c/z.txt", Some("other")),
+        ])?;
+        let before = recipes.recipes.clone();
+        assert!(recipes.set_cwd("data".to_owned()).is_err());
+        assert_eq!(recipes.recipes, before);
+        Ok(())
+    }
+
+    #[test]
+    fn set_cwd_error_names_every_offending_recipe() -> Result<(), Error> {
+        let mut recipes = list(&[
+            ("a/x.txt", None),
+            ("b/y.txt", Some("one")),
+            ("c/z.txt", None),
+            ("d/w.txt", Some("two")),
+        ])?;
+        let err = recipes
+            .set_cwd("data".to_owned())
+            .expect_err("two offenders");
+        assert_eq!(err.error_type, ErrorType::NotSupported);
+        assert!(
+            err.message
+                .starts_with("CWD can't be explicitly specified in a recipe"),
+            "{}",
+            err.message
+        );
+        for part in [
+            "recipes[1]",
+            "b/y.txt",
+            "'one'",
+            "recipes[3]",
+            "d/w.txt",
+            "'two'",
+        ] {
+            assert!(err.message.contains(part), "{part}: {}", err.message);
+        }
+        assert!(!err.message.contains("recipes[0]"), "{}", err.message);
+        Ok(())
+    }
+
+    #[test]
+    fn set_cwd_sets_every_recipe() -> Result<(), Error> {
+        let mut recipes = list(&[("a/x.txt", None), ("b/y.txt", None)])?;
+        recipes.set_cwd("data".to_owned())?;
+        assert!(recipes
+            .recipes
+            .iter()
+            .all(|recipe| recipe.cwd.as_deref() == Some("data")));
+        Ok(())
+    }
+}
+
+#[cfg(test)]
 mod unsupported_key_tests {
     use super::*;
     use crate::context::SimpleEnvironment;
@@ -2802,6 +2886,29 @@ mod recipe_cache_tests {
             list.add_recipe(Recipe::new(query.to_string(), title.to_string(), String::new())?);
         }
         serde_yaml::to_string(&list).map_err(|e| Error::general_error(e.to_string()))
+    }
+
+    /// `recipe-list-set-cwd-validation` AC-1, through the provider.
+    #[tokio::test]
+    async fn explicit_cwd_in_recipes_yaml_names_the_recipe(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let envref = env();
+        write_recipes(
+            &envref,
+            "recipes:\n  - query: -R/data/sales.csv/-/to_text/sales.txt\n  - query: -R/data/sales.csv/-/to_text/explicit.txt\n    cwd: other\n",
+        )
+        .await?;
+        let err = DefaultRecipeProvider::new()
+            .recipe_opt(&parse_key("data/sales.txt")?, envref)
+            .await
+            .expect_err("an explicit cwd is refused");
+        assert_eq!(err.error_type, ErrorType::NotSupported);
+        // `Error::with_key` records the key in the `query` field today (`error-with-key-field`).
+        assert_eq!(err.key.as_deref().or(err.query.as_deref()), Some("data"));
+        for part in ["recipes[1]", "explicit.txt", "'other'"] {
+            assert!(err.message.contains(part), "{part}: {}", err.message);
+        }
+        Ok(())
     }
 
     #[tokio::test]
