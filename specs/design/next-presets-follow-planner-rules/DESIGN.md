@@ -13,8 +13,8 @@ created: 2026-10-26
 ---
 # Next-command presets resolve the last command as the planner does
 
-Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-26: Phases 1-4 written, not
-approved, nothing implemented.
+Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-26: Phases 1-4 written; Phase 4
+implemented on 2026-10-27 (automatic fix).
 
 ## Phase 1: High-Level Design
 
@@ -172,9 +172,9 @@ Run: `CARGO_INCREMENTAL=0 cargo test -p liquers-lib --lib utils::tests`.
 
 ### Steps
 
-- [ ] 1. `utils.rs` tests — add the five tests; AC-1 to AC-4 fail at HEAD — `cargo test -p liquers-lib --lib utils::tests`
-- [ ] 2. `utils.rs` — `is_planner_instruction`, `namespaces_from`, rewrite `find_next_presets` (index of last command, two namespace lists, realm), remove `active_namespace` / `build_namespace_list`, rustdoc sentence — depends on 1 — all `utils::tests` pass. Rollback: revert.
-- [ ] 3. Close `NEXT-PRESETS-MISREAD-PLANNER-INSTRUCTIONS` with a resolution note; this design to `complete` — `python3 scripts/docs_index.py` then `--check`
+- [x] 1. `utils.rs` tests — add the five tests; AC-1 to AC-4 fail at HEAD — `cargo test -p liquers-lib --lib utils::tests`
+- [x] 2. `utils.rs` — `is_planner_instruction`, `namespaces_from`, rewrite `find_next_presets` (index of last command, two namespace lists, realm), remove `active_namespace` / `build_namespace_list`, rustdoc sentence — depends on 1 — all `utils::tests` pass. Rollback: revert.
+- [x] 3. Close `NEXT-PRESETS-MISREAD-PLANNER-INSTRUCTIONS` with a resolution note; this design to `complete` — `python3 scripts/docs_index.py` then `--check`
 
 ### Validation
 
