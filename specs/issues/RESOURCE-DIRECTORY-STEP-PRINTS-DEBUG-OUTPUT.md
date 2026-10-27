@@ -2,7 +2,7 @@
 id: RESOURCE-DIRECTORY-STEP-PRINTS-DEBUG-OUTPUT
 kind: issue
 title: Every -R-sdir/ evaluation prints two debug lines to stderr
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [core/plan]
@@ -53,3 +53,7 @@ without the listing body).
 Seen while checking `STORE-COMMAND-NAMESPACE-MISSING` against HEAD during the bulk design of the
 store cluster (2026-10-21). Related: `CORE-TRACING-MIGRATION`, whose design moves `interpreter.rs`
 diagnostics to `tracing` and does not single these two out as lines to delete rather than migrate.
+
+## Resolution
+
+Fixed 2026-10-27 by `design/resource-directory-step-debug-output-removal/`. The two `eprintln!` calls in the `Step::GetResourceDirectory` arm of `do_step` (`liquers-core/src/interpreter.rs`) are removed, so `-R-sdir/…` writes nothing besides its value. Evidence: `test_sdir_lists_store_entries` pins the listing.

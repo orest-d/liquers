@@ -3,8 +3,8 @@ id: RESERVED-INSTRUCTION-COMMAND-NAMES
 kind: design
 title: Every planner instruction name is refused as a command name
 form: compact
-status: in_review
-phase: implementation
+status: complete
+gh_pr: [190]
 readiness: ready
 autofix: eligible
 area: [core/commands, core/query]
@@ -13,8 +13,10 @@ created: 2026-10-20
 ---
 # Every planner instruction name is refused as a command name
 
-Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-20: Phases 1-4 written and
-reviewed without phase approval. Nothing is implemented.
+> **Complete on 2026-10-27**: implemented by automatic fix in #190.
+
+Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-20: Phases 1-4 written; Phase 4
+implemented on 2026-10-27 (automatic fix).
 
 ## Phase 1: High-Level Design
 
@@ -191,19 +193,19 @@ Query example (validated, unchanged by the fix): `v` plans as the instruction, `
 
 ### Steps
 
-- [ ] 1. `liquers-core/src/query.rs` — add the four constants and `ActionRequest::is_v`, rewrite
+- [x] 1. `liquers-core/src/query.rs` — add the four constants and `ActionRequest::is_v`, rewrite
   `is_ns` / `is_q` on them, add `reserved_action_names_match_instruction_predicates` —
   `cargo test -p liquers-core --lib reserved_action_names`
-- [ ] 2. `liquers-core/src/plan.rs` `process_action` and `append_action` — use `is_v()` and
+- [x] 2. `liquers-core/src/plan.rs` `process_action` and `append_action` — use `is_v()` and
   `NS_INSTRUCTION` — `cargo test -p liquers-core --lib plan::` (existing `v`/`q` tests stay green)
-- [ ] 3. `liquers-core/src/command_metadata.rs` `CommandMetadata::check` — test against
+- [x] 3. `liquers-core/src/command_metadata.rs` `CommandMetadata::check` — test against
   `RESERVED_ACTION_NAMES`, add the two `validation_tests` — `cargo test -p liquers-core --lib validation_tests`
-- [ ] 4. `liquers-core/tests/environment_builder.rs` — add
+- [x] 4. `liquers-core/tests/environment_builder.rs` — add
   `build_refuses_a_command_named_like_an_instruction` — `cargo test -p liquers-core --test environment_builder`
-- [ ] 5. Documents — `PYTHON_INTEGRATION.md`, `PYTHON_GUIDE.md`, `DOC_02_QUERY_LANGUAGE_REFERENCE.md`:
+- [x] 5. Documents — `PYTHON_INTEGRATION.md`, `PYTHON_GUIDE.md`, `DOC_02_QUERY_LANGUAGE_REFERENCE.md`:
   state that `ns`, `q` and `v` are refused, drop the "registers but never runs" text; History row
   and `reviewed:` each — `python3 scripts/docs_index.py --check`
-- [ ] 6. Close `COMMAND-NAMES-Q-AND-V-ARE-NOT-RESERVED` (`status: closed`, resolution note naming
+- [x] 6. Close `COMMAND-NAMES-Q-AND-V-ARE-NOT-RESERVED` (`status: closed`, resolution note naming
   the tests); this design to `complete` — `python3 scripts/docs_index.py` then `--check`
 
 ### Validation

@@ -3,8 +3,8 @@ id: RECIPES-YAML-READ-ERRORS-PROPAGATE
 kind: design
 title: A recipes.yaml that exists but cannot be read is an error, not an empty recipe list
 form: compact
-status: in_review
-phase: implementation
+status: complete
+gh_pr: [194]
 readiness: ready
 autofix: eligible
 area: [core/assets]
@@ -12,6 +12,8 @@ issues: [RECIPES-YAML-READ-ERRORS-READ-AS-NO-RECIPES]
 created: 2026-10-26
 ---
 # A recipes.yaml that exists but cannot be read is an error, not an empty recipe list
+
+> **Complete on 2026-10-27**: implemented by automatic fix in #194.
 
 Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-26: Phases 1-4 written; Phase 4
 implemented on 2026-10-27 (automatic fix).
