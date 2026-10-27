@@ -20,3 +20,8 @@ def default_environment():
 def evaluate(query):
     """Evaluates ``query`` in the default environment and returns its value."""
     return default_environment().evaluate(query)
+
+
+def evaluate_async(query):
+    """Awaitable ``evaluate`` in the default environment: ``await lq.evaluate_async(query)``."""
+    return default_environment().evaluate_async(query)

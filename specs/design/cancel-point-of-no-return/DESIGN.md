@@ -3,8 +3,8 @@ id: CANCEL-POINT-OF-NO-RETURN
 kind: design
 title: A cancel cannot overtake a command that has returned Ok
 form: compact
-status: in_review
-phase: implementation
+status: complete
+gh_pr: [203]
 readiness: ready
 autofix: eligible
 area: [core/assets, core/plan]
@@ -12,6 +12,8 @@ issues: [CANCEL-CAN-OVERTAKE-A-RETURNED-COMMAND]
 created: 2026-10-20
 ---
 # A cancel cannot overtake a command that has returned Ok
+
+> **Complete on 2026-10-27**: implemented by automatic fix in #203.
 
 Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-20: Phases 1-4 written; Phase 4
 implemented on 2026-10-27 (automatic fix). Origin: `asset-cancellation-outcome` (complete) decision D2.

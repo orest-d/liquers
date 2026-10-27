@@ -3,7 +3,7 @@ title: Language Integration Guide
 kind: guide
 audience: internal
 area: [web, py, core/commands, core/plan, core/assets, core/store, core/value, lib/commands]
-reviewed: 2026-10-26
+reviewed: 2026-10-27
 ---
 # Liquers Language Integration Guide
 
@@ -1998,6 +1998,33 @@ settled on, and the list after them is what cost time. Its contract is
   outstanding at shutdown never returns. The caller sees `KeyboardInterrupt` or
   `CancelledError`. Leaving a wait does not cancel the asset; `AssetRef.cancel()` does. Serialization runs on asset-manager workers, so a codec
   that takes the GIL there goes under `tokio::task::block_in_place`.
+  Take any lock a Python thread may wait on with PyO3's `lock_py_attached`, and release Python
+  objects only after the guard is dropped: a plain `Mutex::lock` held attached stalls the
+  interpreter, and a `__del__` that calls back in re-locks on the same thread.
+- **Async** (`specs/design/liquers-py-async/`). Awaitables come from `pyo3-async-runtimes`, bound to
+  the integration's own runtime with `init_with_runtime` before its first use: each `_async` method
+  spawns the core future and wraps its `JoinHandle` (`future_into_py_with_locals`), so a dropped
+  awaitable detaches rather than cancels, and results are converted on a blocking thread. An
+  `async def` command runs on a pool of loops the environment owns
+  (`Environment(async_loops=N)`, default 1) through `run_coroutine_threadsafe`, never on the
+  caller's loop; a guard that exists before the coroutine does cancels its future when the command
+  future drops. Do not use `into_future_with_locals` for commands: dropping it leaves the task
+  running, so cancellation would not reach the coroutine. A coroutine that cancels itself surfaces
+  as `concurrent.futures.CancelledError`, a different class from `asyncio.CancelledError`; map both
+  to `Cancelled`. Python deviates from the sample tests (Appendix A) in four places, all recorded
+  in `liquers-py/README.md`:
+  - `ASYNCQ04` and `ASYNCCMD03` cancel through `AssetRef.cancel_async()`: cancelling the awaitable
+    only detaches, by policy.
+  - `ASYNCQ05`'s policy is detach, shown by the command finishing, not by `live_handle_count()`,
+    which counts registrations rather than awaitables.
+  - `ASYNCQ08` takes both of its branches: a blocking call on a liquers loop raises `RuntimeError`,
+    and one under any other running loop works with a `RuntimeWarning`.
+  - The tests call `asyncio.run` in plain test functions (no async plugin), and read metadata with
+    `env.command_metadata(name)` rather than `env.commands.metadata(name)`.
+- **Free-threaded Python.** Declare `#[pymodule(gil_used = false)]` only after auditing every
+  static, lock and `#[pyclass]`; PyO3 0.28+ defaults to it, so state it explicitly. Test on 3.14t,
+  whose venv needs its own tag (`sys.abiflags`) and whose Rust tests need `LIBDIR` on
+  `LD_LIBRARY_PATH`.
 
 - **Templates and data nodes.** The `ns-template` commands are in the built-in set
   (`liquers-py/src/builtins.rs`); a template command, `render` / `expand` on the environment and
@@ -3821,6 +3848,7 @@ def test_DOCS04_every_public_name_is_documented():
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-27 | §6 Python: *The GIL* adds the detached-lock rule; new *Async* entry (the bridge, the loop pool, cancellation, the four test deviations) and *Free-threaded Python* entry. | `design/liquers-py-async/` (phase-5) |
 | 2026-10-26 | New delivery feature `DOCS`: the documents an *integration* owes its users — a contract reference, a user guide with executed examples, a generated API reference — built on the shared references rather than restating them; tests `DOCS01`–`07`. §4 row, soft dependencies and the delivery-features note; §7 item 12; Appendix A blueprint. §6 Browser JavaScript links the new `reference/JAVASCRIPT_INTEGRATION.md` and `JAVASCRIPT_GUIDE.md`. | `LANGUAGE-GUIDE-NO-DOCUMENTATION-SECTION` |
 | 2026-10-25 | Language status: the `liquers-py` Python baseline profile is `CONFORMANT` now that its core blockers are fixed (PR #176, `key-without-recipe-answer`). | `liquers-py/README.md` |
 | 2026-10-25 | Two features. `DATANODE`: core's `DataNode` from the *language* — an adapter so a native structure (a Python `dict`, a JavaScript object) reads in place, agreeing with structural conversion, and an optional outbound view; tests `DATANODE01`–`11`. `TEMPLATE`: the `ns-template` commands in the built-in set, template commands declared as aliases from the *language*, and programmatic `render` / `expand` / `validate` on the environment and on a command's context, keeping the commands' frame layout; tests `TEMPLATE01`–`11`. §4 rows, soft dependencies and profiles; §2 *Data node*; §7 item 6; §8 references; Appendix A blueprints. §MODULE corrected: `Context::get_cwd_key` is crate-private, so the cwd comes from a `-R-key/.` argument. Gaps filed: `FOREIGN-VALUE-HAS-NO-DATA-NODE`, `TEMPLATE-TOP-LEVEL-RENDER-HAS-NO-HOST`, `WEB-HAS-NO-TEMPLATE-COMMANDS`. | maintainer request |
