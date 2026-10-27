@@ -8,10 +8,10 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 215
+Total rows: 214
 - P1: 1
 - P2: 64
-- P3: 150
+- P3: 149
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -92,7 +92,6 @@ Total rows: 215
 | [`SIMPLE-VALUE-I32-JSON-READS-BACK-AS-I64`](issues/SIMPLE-VALUE-I32-JSON-READS-BACK-AS-I64.md) | issue | liquers-lib's base value reads an I32 written as JSON back as I64 | draft | ready | eligible | P3 | S | lib/value | [design](design/simple-value-i32-json-read/DESIGN.md) | 2026-10-20 |
 | [`SOFT-CONSISTENCY-CHECK-MISREADS-A-REFINED-DATA-FORMAT`](issues/SOFT-CONSISTENCY-CHECK-MISREADS-A-REFINED-DATA-FORMAT.md) | issue | set_state logs a spurious media-type warning for a refined data format such as csv:comma | draft | ready | eligible | P3 | S | core/assets | [design](design/soft-consistency-refined-format/DESIGN.md) | 2026-10-26 |
 | [`SPECS-FRONT-MATTER-IS-NOT-VALID-YAML`](issues/SPECS-FRONT-MATTER-IS-NOT-VALID-YAML.md) | issue | Nine specs documents have front-matter that a YAML parser rejects | draft | ready | eligible | P3 | S | docs | [design](design/front-matter-yaml-agreement/DESIGN.md) | 2026-10-19 |
-| [`TEMPLATE-DIAGNOSTICS-RESOLVE-NAMESPACES-FROM-THE-WHOLE-QUERY`](issues/TEMPLATE-DIAGNOSTICS-RESOLVE-NAMESPACES-FROM-THE-WHOLE-QUERY.md) | issue | Template diagnostics look every command up in one namespace list for the whole query | draft | ready | eligible | P3 | S | core/query;lib/commands | [design](design/template-diagnostics-namespace-scope/DESIGN.md) | 2026-10-26 |
 | [`TEMPORARY-ASSETS-SHARE-ID-ZERO`](issues/TEMPORARY-ASSETS-SHARE-ID-ZERO.md) | issue | Every temporary asset has id 0, so code that identifies assets by id can confuse them | draft | ready | eligible | P3 | S | core/assets | [design](design/temporary-asset-unique-id/DESIGN.md) | 2026-10-18 |
 | [`TYPE-IDENTIFIED-IN-HAS-NO-IMPLEMENTATIONS`](issues/TYPE-IDENTIFIED-IN-HAS-NO-IMPLEMENTATIONS.md) | issue | No type implements TypeIdentifiedIn, so the documented to_type_identifier example does not compile | draft | ready | eligible | P3 | S | core/value;lib/value;docs | [design](design/type-identified-in-docs/DESIGN.md) | 2026-10-20 |
 | [`WEB-API-SPEC-SAYS-A-DIRECTORY-MOUNT-CANNOT-BE-READ-ONLY`](issues/WEB-API-SPEC-SAYS-A-DIRECTORY-MOUNT-CANNOT-BE-READ-ONLY.md) | issue | The web API specification says a directory mount stays writable, but mounts can be read-only | draft | ready | eligible | P3 | S | docs;axum | [design](design/web-api-spec-read-only-mount/DESIGN.md) | 2026-10-20 |
