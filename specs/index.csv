@@ -456,7 +456,7 @@ VARIADIC-ARGUMENT-STARVES-LATER-ARGUMENTS,issue,An argument declared after a mul
 VARIADIC-KEY-OR-QUERY-LINK-FAILS-TO-MATERIALIZE,issue,"A key or query link inside a multiple argument fails, because Key and Query values have no JSON form",draft,local,,needs-decision,not-eligible,P3,S,core/plan;core/value,,,,variadic-key-query-link-text,,2026-10-26,specs/issues/VARIADIC-KEY-OR-QUERY-LINK-FAILS-TO-MATERIALIZE.md
 VOLATILE-KEYED-RECIPE-SELF-DELEGATION,issue,Volatile keyed recipe delegates to itself,closed,local,,,,P1,M,core/assets,,,,keyed-recipe-ownership,,2026-08-08,specs/issues/VOLATILE-KEYED-RECIPE-SELF-DELEGATION.md
 WEB-API-REFERENCE-NOT-GENERATED,feature,liquers-web has no generated API reference and no check that every export is documented,draft,local,,,,P3,M,web;docs,,,,,,2026-10-26,specs/issues/WEB-API-REFERENCE-NOT-GENERATED.md
-WEB-API-SPEC-SAYS-A-DIRECTORY-MOUNT-CANNOT-BE-READ-ONLY,issue,"The web API specification says a directory mount stays writable, but mounts can be read-only",draft,local,,ready,eligible,P3,S,docs;axum,,,,web-api-spec-read-only-mount,,2026-10-20,specs/issues/WEB-API-SPEC-SAYS-A-DIRECTORY-MOUNT-CANNOT-BE-READ-ONLY.md
+WEB-API-SPEC-SAYS-A-DIRECTORY-MOUNT-CANNOT-BE-READ-ONLY,issue,"The web API specification says a directory mount stays writable, but mounts can be read-only",closed,local,,ready,eligible,P3,S,docs;axum,,,,web-api-spec-read-only-mount,,2026-10-20,specs/issues/WEB-API-SPEC-SAYS-A-DIRECTORY-MOUNT-CANNOT-BE-READ-ONLY.md
 WEB-API-SPECIFICATION-DIVERGES-FROM-IMPLEMENTATION,issue,The web API specification diverges from the implementation in three further ways,closed,local,,,,P1,S,axum;docs,,,,axum-assets-endpoints,,2026-09-16,specs/issues/WEB-API-SPECIFICATION-DIVERGES-FROM-IMPLEMENTATION.md
 WEB-BUILT-IN-STORES-HAVE-NO-DATA-ACCESS,issue,"The browser's built-in stores refuse data-only access, so they cannot take a metadata section",closed,local,,,,P3,S,web;core/store,,,,,,2026-10-15,specs/issues/WEB-BUILT-IN-STORES-HAVE-NO-DATA-ACCESS.md
 WEB-CANCELLATION-INERT,issue,Web cancellation surface exists but does nothing,accepted,local,,,,P3,L,core/assets;web,,,,,,2026-08-08,specs/issues/WEB-CANCELLATION-INERT.md
@@ -903,7 +903,7 @@ TEMPLATE_LANGUAGE,reference,Template Language,current,local,,,,,,core/query;lib/
 UI_INTERFACE_FSD,reference,UI Interface Specification,overdue,local,,,,,,lib/ui,,,,,2026-03-02,,specs/reference/UI_INTERFACE_FSD.md
 VALUE_TYPE_SYSTEM,reference,Value Type System,current,local,,,,,,core/value;lib/value,,,,,2026-10-25,,specs/reference/VALUE_TYPE_SYSTEM.md
 VISION,reference,Liquers Vision and Strategy,current,local,,,,,,docs,,,,,2026-10-15,,specs/reference/VISION.md
-WEB_API_SPECIFICATION,reference,Liquers Web API Specification,current,local,,,,,,axum;web,,,,,2026-10-25,,specs/reference/WEB_API_SPECIFICATION.md
+WEB_API_SPECIFICATION,reference,Liquers Web API Specification,current,local,,,,,,axum;web,,,,,2026-10-27,,specs/reference/WEB_API_SPECIFICATION.md
 AGENT_MEMORY_MIGRATION_GUIDE,guide,Agent Memory Migration Guide,current,local,,,,,,lib/commands;docs,,,,,2026-10-19,,specs/guides/AGENT_MEMORY_MIGRATION_GUIDE.md
 ASSET_MANAGER_IMPLEMENTATION_GUIDE,guide,Asset Manager Implementation Guide,current,local,,,,,,core/assets,,,,,2026-10-22,,specs/guides/ASSET_MANAGER_IMPLEMENTATION_GUIDE.md
 autonomous_bulk_design,guide,Autonomous Bulk Design Procedure,current,local,,,,,,docs;build,,,,,2026-10-08,,specs/guides/autonomous_bulk_design.md

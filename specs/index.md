@@ -8,10 +8,10 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 215
+Total rows: 214
 - P1: 1
 - P2: 64
-- P3: 150
+- P3: 149
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -95,7 +95,6 @@ Total rows: 215
 | [`TEMPLATE-DIAGNOSTICS-RESOLVE-NAMESPACES-FROM-THE-WHOLE-QUERY`](issues/TEMPLATE-DIAGNOSTICS-RESOLVE-NAMESPACES-FROM-THE-WHOLE-QUERY.md) | issue | Template diagnostics look every command up in one namespace list for the whole query | draft | ready | eligible | P3 | S | core/query;lib/commands | [design](design/template-diagnostics-namespace-scope/DESIGN.md) | 2026-10-26 |
 | [`TEMPORARY-ASSETS-SHARE-ID-ZERO`](issues/TEMPORARY-ASSETS-SHARE-ID-ZERO.md) | issue | Every temporary asset has id 0, so code that identifies assets by id can confuse them | draft | ready | eligible | P3 | S | core/assets | [design](design/temporary-asset-unique-id/DESIGN.md) | 2026-10-18 |
 | [`TYPE-IDENTIFIED-IN-HAS-NO-IMPLEMENTATIONS`](issues/TYPE-IDENTIFIED-IN-HAS-NO-IMPLEMENTATIONS.md) | issue | No type implements TypeIdentifiedIn, so the documented to_type_identifier example does not compile | draft | ready | eligible | P3 | S | core/value;lib/value;docs | [design](design/type-identified-in-docs/DESIGN.md) | 2026-10-20 |
-| [`WEB-API-SPEC-SAYS-A-DIRECTORY-MOUNT-CANNOT-BE-READ-ONLY`](issues/WEB-API-SPEC-SAYS-A-DIRECTORY-MOUNT-CANNOT-BE-READ-ONLY.md) | issue | The web API specification says a directory mount stays writable, but mounts can be read-only | draft | ready | eligible | P3 | S | docs;axum | [design](design/web-api-spec-read-only-mount/DESIGN.md) | 2026-10-20 |
 | [`LIB-BUILD-EMITS-UNUSED-AND-UNHANDLED-RESULT-WARNINGS`](issues/LIB-BUILD-EMITS-UNUSED-AND-UNHANDLED-RESULT-WARNINGS.md) | issue | A default liquers-lib build emits about 50 warnings, some for discarded Results | draft | ready | not-eligible | P3 | S | lib/commands;build | [design](design/lib-build-warning-cleanup/DESIGN.md) | 2026-10-11 |
 | [`POLARS-DATAFRAME-IPC-NOT-SERIALIZABLE`](issues/POLARS-DATAFRAME-IPC-NOT-SERIALIZABLE.md) | issue | A polars DataFrame cannot be written or read as Arrow IPC although polars is built with ipc | draft | ready | not-eligible | P3 | S | lib/polars | [design](design/polars-dataframe-ipc/DESIGN.md) | 2026-10-18 |
 | [`RECIPE-PLAN-ANALYSIS-RUNS-OUTSIDE-PLAN-BUILDING`](issues/RECIPE-PLAN-ANALYSIS-RUNS-OUTSIDE-PLAN-BUILDING.md) | issue | Recipe plan analysis runs outside plan building | draft | ready | not-eligible | P3 | S | core/plan;core/assets | [design](design/recipe-preview-shares-plan-analysis/DESIGN.md) | 2026-08-26 |
