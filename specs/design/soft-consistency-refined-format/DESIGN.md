@@ -3,8 +3,8 @@ id: SOFT-CONSISTENCY-REFINED-FORMAT
 kind: design
 title: The write-path soft consistency check derives the expected media type from the base format
 form: compact
-status: in_review
-phase: implementation
+status: complete
+gh_pr: [199]
 readiness: ready
 autofix: eligible
 area: [core/assets]
@@ -12,6 +12,8 @@ issues: [SOFT-CONSISTENCY-CHECK-MISREADS-A-REFINED-DATA-FORMAT]
 created: 2026-10-26
 ---
 # The write-path soft consistency check derives the expected media type from the base format
+
+> **Complete on 2026-10-27**: implemented by automatic fix in #199.
 
 Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-26: Phases 1-4 written; Phase 4
 implemented on 2026-10-27 (automatic fix).

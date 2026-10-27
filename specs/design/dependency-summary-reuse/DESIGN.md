@@ -137,8 +137,6 @@ keys (`RECIPE-DEPENDENCY-KEY-IS-NEVER-VERSIONED`).
    ```rust
    pub(crate) async fn cached_summary(&self, key: &DependencyKey) -> Option<DependencySummary>;
    pub(crate) async fn cache_summary(&self, key: DependencyKey, summary: DependencySummary);
-   ```
-
    pub(crate) async fn stage_summary(&self, key: DependencyKey, summary: DependencySummary);
    ```
 
@@ -155,8 +153,6 @@ keys (`RECIPE-DEPENDENCY-KEY-IS-NEVER-VERSIONED`).
    itself; and in `register_version` for the key itself **except** when called from
    `track_keyed_asset`, which forgets the old cached entry and then promotes the staged one. One
    private `forget_summary(&self, key)`.
-
-   ```rust
 2. `liquers-core/src/plan.rs`: `DependencySummary` gets a `pub(crate) fn from_finalized(expires:
    Expires) -> Self` (non-volatile, no declared key). `DependencyWalk` gains `use_cache: bool`,
    `true` in `analyze_plan_dependencies` and `false` when `recorder` is set (`upstream_graph`). In

@@ -3,8 +3,8 @@ id: EXPIRES-CROSS-TIMEZONE-REDUCTION
 kind: design
 title: Expiration combination reduces end-of-period rules only within one time zone
 form: compact
-status: in_review
-phase: implementation
+status: complete
+gh_pr: [196]
 readiness: ready
 autofix: eligible
 area: [core/assets]
@@ -13,8 +13,10 @@ created: 2026-10-20
 ---
 # Expiration combination reduces end-of-period rules only within one time zone
 
-Bulk design (`specs/guides/autonomous_bulk_design.md`): Phases 1-4 written, not approved, nothing
-implemented.
+> **Complete on 2026-10-27**: implemented by automatic fix in #196.
+
+Bulk design (`specs/guides/autonomous_bulk_design.md`): Phases 1-4 written; Phase 4
+implemented on 2026-10-27 (automatic fix).
 
 ## Phase 1: High-Level Design
 
@@ -184,10 +186,10 @@ Run: `CARGO_INCREMENTAL=0 cargo test -p liquers-core --lib expiration`.
 
 ### Steps
 
-- [ ] 1. `liquers-core/src/expiration.rs` `mod tests` — add `test_combine_end_of_period_across_time_zones_is_kept` and `test_combine_is_the_earliest_expiration`; confirm they fail — `cargo test -p liquers-core --lib expiration`. Rollback: delete them.
-- [ ] 2. `liquers-core/src/expiration.rs` `combine_atomic_pair` — the `if a == b` guards; change `test_combine_required_rules` to same-zone operands — `cargo test -p liquers-core --lib expiration` all green. Rollback: revert the commit. Depends on 1.
-- [ ] 3. Plan and recipe users of `|` — `cargo test -p liquers-core --lib plan` and `cargo test -p liquers-core --test expiration_integration` (unchanged behaviour for parsed rules). Depends on 2.
-- [ ] 4. Records — `specs/issues/COMBINED-EXPIRES.md` `status: closed` with a resolution naming the tests; `python3 scripts/docs_index.py` then `--check`. Depends on 3.
+- [x] 1. `liquers-core/src/expiration.rs` `mod tests` — add `test_combine_end_of_period_across_time_zones_is_kept` and `test_combine_is_the_earliest_expiration`; confirm they fail — `cargo test -p liquers-core --lib expiration`. Rollback: delete them.
+- [x] 2. `liquers-core/src/expiration.rs` `combine_atomic_pair` — the `if a == b` guards; change `test_combine_required_rules` to same-zone operands — `cargo test -p liquers-core --lib expiration` all green. Rollback: revert the commit. Depends on 1.
+- [x] 3. Plan and recipe users of `|` — `cargo test -p liquers-core --lib plan` and `cargo test -p liquers-core --test expiration_integration` (unchanged behaviour for parsed rules). Depends on 2.
+- [x] 4. Records — `specs/issues/COMBINED-EXPIRES.md` `status: closed` with a resolution naming the tests; `python3 scripts/docs_index.py` then `--check`. Depends on 3.
 
 ### Validation
 

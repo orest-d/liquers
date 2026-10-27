@@ -2,7 +2,7 @@
 id: COMBINED-EXPIRES
 kind: feature
 title: Combining expirations reduces end-of-day with end-of-week or end-of-month across time zones
-status: accepted
+status: closed
 priority: P2
 complexity: S
 area: [core/assets]
@@ -211,3 +211,11 @@ This preserves all constraints and ensures plan expiration matches earliest depe
 6. Serialization determinism test (`BTreeSet` stable order).
 7. Deserialization error test for malformed comma lists.
 8. Plan-level test: multiple dependencies with different `Expires` produce combined normalized plan expiry.
+
+## Resolution
+
+Fixed 2026-10-27 by `design/expires-cross-timezone-reduction/`. `combine_atomic_pair` now reduces two end-of-period rules only when they share a time zone
+(`tz_offset` equal, with `None` meaning the system zone); rules in different zones stay as an
+`Expires::Any` pair, whose earliest instant is picked when it is resolved. Tests:
+`test_combine_end_of_period_across_time_zones_is_kept` and the brute-force
+`test_combine_is_the_earliest_expiration` in `liquers-core/src/expiration.rs`.

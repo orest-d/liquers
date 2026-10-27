@@ -2,8 +2,9 @@
 # Build liquers-py into a virtual environment and run its tests: the Python suite under pytest,
 # then the crate's Rust unit tests.
 #
-#   1. Creates (or reuses) a venv at target/liquers-py-venv-<implementation><version> (for example
-#      `-cpython3.12`), from `python3` on PATH, so each interpreter gets its own venv.
+#   1. Creates (or reuses) a venv at target/liquers-py-venv-<implementation><version><abiflags>
+#      (for example `-cpython3.12`, or `-cpython3.14t` for a free-threaded build), from `python3` on
+#      PATH, so each interpreter gets its own venv.
 #   2. Installs maturin and pytest into it with pip, plus polars and pillow: the VALUE suite crosses
 #      a DataFrame and an image, and skips those tests (rather than failing) only if they are absent.
 #   3. `maturin develop --features debug-handles` builds the extension and installs the `liquers`
@@ -23,7 +24,7 @@ cd "$repo_root"
 
 python="${PYTHON:-python3}"
 # One venv per interpreter: reusing a venv made by another interpreter would silently ignore PYTHON.
-python_tag="$("$python" -c 'import sys; print(sys.implementation.name + "%d.%d" % sys.version_info[:2])')"
+python_tag="$("$python" -c 'import sys; print(sys.implementation.name + "%d.%d" % sys.version_info[:2] + getattr(sys, "abiflags", ""))')"
 venv="$repo_root/target/liquers-py-venv-$python_tag"
 
 if [ ! -x "$venv/bin/python" ]; then
@@ -48,7 +49,13 @@ python3 -m pytest liquers-py/tests "$@"
 
 echo "==> cargo test -p liquers-py --no-default-features --lib"
 # PyO3 picks the interpreter to link against from PYO3_PYTHON, else `python3` on PATH -- which is
-# the venv's here, so both halves of this script use the same interpreter.
+# the venv's here, so both halves of this script use the same interpreter. The test binary links
+# libpython dynamically; an interpreter installed outside the system paths (uv, pyenv) keeps it in
+# its own LIBDIR, which the loader must be told about.
+libdir="$(python3 -c 'import sysconfig; print(sysconfig.get_config_var("LIBDIR") or "")')"
+if [ -n "$libdir" ]; then
+  export LD_LIBRARY_PATH="$libdir${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+fi
 cargo test -p liquers-py --no-default-features --lib
 
 echo
