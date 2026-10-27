@@ -627,3 +627,190 @@ fn cancelled_state_returns_recorded_cause() {
     assert_eq!(error.query.as_deref(), Some("x"));
     assert!(!state.metadata.is_error().unwrap_or(true));
 }
+
+// `cancel-point-of-no-return`: once a command returned `Ok`, a cancel request no longer drops the
+// run until the next step that can suspend begins.
+
+/// A synchronous `finish_anyway` for the `cancel-point-of-no-return` tests: it records its asset,
+/// sets `started`, waits for the cancel, then waits for `locked` and returns `Ok("finished")`.
+fn finish_after_lock<E: Environment<Value = Value>>(
+    started: Arc<AtomicBool>,
+    locked: Arc<AtomicBool>,
+    slot: Arc<std::sync::Mutex<Option<AssetRef<E>>>>,
+) -> impl Fn(
+    &State<Value>,
+    liquers_core::commands::CommandArguments<E>,
+    Context<E>,
+) -> Result<Value, Error>
+       + Send
+       + Sync
+       + 'static {
+    move |_, _, context: Context<E>| {
+        *slot.lock().unwrap() = Some(context.get_asset_ref());
+        started.store(true, Ordering::SeqCst);
+        // Bounded, so a failing test cannot leave a worker thread spinning forever.
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        while !context.is_cancelled() && std::time::Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        while !locked.load(Ordering::SeqCst) && std::time::Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        Ok(Value::from("finished"))
+    }
+}
+
+/// Requests a cancel of `asset`, holds its lock while the command returns, then releases it.
+async fn cancel_while_locked<E: Environment<Value = Value>>(
+    asset: AssetRef<E>,
+    locked: &AtomicBool,
+) -> tokio::task::JoinHandle<Result<(), Error>> {
+    let canceller = asset.clone();
+    let cancel = tokio::spawn(async move { canceller.cancel().await });
+    within(async {
+        while !asset.is_cancelled().await {
+            tokio::time::sleep(Duration::from_millis(2)).await;
+        }
+    })
+    .await;
+    let guard = asset.data.write().await;
+    locked.store(true, Ordering::SeqCst);
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    drop(guard);
+    cancel
+}
+
+/// AC-1 (`cancel-point-of-no-return`): the command returned `Ok` while the asset's lock was held,
+/// so the interpreter's bookkeeping after it suspended; the pending cancel does not drop the run.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn ac13_returned_command_wins_while_lock_is_held() -> Result<(), Box<dyn std::error::Error>> {
+    let started = Arc::new(AtomicBool::new(false));
+    let locked = Arc::new(AtomicBool::new(false));
+    let slot = Arc::new(std::sync::Mutex::new(None));
+    let command = finish_after_lock::<Env>(started.clone(), locked.clone(), slot);
+    let envref = env_with(&["finish_anyway/out.txt"], move |env| {
+        env.command_registry
+            .register_command(CommandKey::new_name("finish_anyway"), command)
+            .unwrap();
+    })
+    .await;
+    let key = parse_key("out.txt")?;
+
+    let asset = envref.get_asset_manager().get(&key).await?;
+    wait_started(&started).await;
+    let cancel = cancel_while_locked(asset.clone(), &locked).await;
+    within(cancel).await??;
+
+    assert_eq!(wait_finished(&asset).await, Status::Ready);
+    assert_eq!(asset.get().await?.try_into_string()?, "finished");
+    assert!(
+        !asset.is_cancelled().await,
+        "a run that finished drops the request"
+    );
+    within(async {
+        while stored_bytes(&envref, &key).await.is_none() {
+            tokio::time::sleep(Duration::from_millis(2)).await;
+        }
+    })
+    .await;
+    assert_eq!(stored_bytes(&envref, &key).await.unwrap(), b"finished");
+    Ok(())
+}
+
+/// AC-2: the same under the inline manager.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn ac13_returned_command_wins_while_lock_is_held_inline(
+) -> Result<(), Box<dyn std::error::Error>> {
+    type Inline = liquers_core::context::ImmediateEnvironment<Value>;
+    let started = Arc::new(AtomicBool::new(false));
+    let locked = Arc::new(AtomicBool::new(false));
+    let slot = Arc::new(std::sync::Mutex::new(None));
+    let mut env = Inline::new();
+    env.command_registry
+        .register_command(
+            CommandKey::new_name("finish_anyway"),
+            finish_after_lock::<Inline>(started.clone(), locked.clone(), slot.clone()),
+        )
+        .unwrap();
+    let envref = env.to_ref();
+
+    let evaluation = {
+        let envref = envref.clone();
+        tokio::spawn(async move {
+            let asset = envref
+                .get_asset_manager()
+                .get_asset(&parse_query("finish_anyway").unwrap())
+                .await?;
+            asset.get().await
+        })
+    };
+    wait_started(&started).await;
+    let asset = slot
+        .lock()
+        .unwrap()
+        .clone()
+        .expect("the command recorded its asset");
+    let cancel = cancel_while_locked(asset.clone(), &locked).await;
+
+    let state = within(evaluation).await??;
+    within(cancel).await??;
+    assert_eq!(state.try_into_string()?, "finished");
+    assert_eq!(asset.status().await, Status::Ready);
+    Ok(())
+}
+
+/// AC-4: a cancel requested during the first command of a plan, which returns `Ok`, lands in
+/// the second command once it suspends.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn ac14_cancel_during_first_command_lands_in_the_next(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let started = Arc::new(AtomicBool::new(false));
+    let entered = Arc::new(AtomicBool::new(false));
+    let completed = Arc::new(AtomicBool::new(false));
+    let (start, enter, complete) = (started.clone(), entered.clone(), completed.clone());
+    let envref = env_with(&[], move |env| {
+        // `cached: false`, so the planner does not cut `first` off as a predecessor asset: both
+        // commands are steps of one plan, run by one asset.
+        env.command_registry
+            .register_command(
+                CommandKey::new_name("first"),
+                move |_, _, context: Context<Env>| {
+                    start.store(true, Ordering::SeqCst);
+                    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+                    while !context.is_cancelled() && std::time::Instant::now() < deadline {
+                        std::thread::sleep(Duration::from_millis(2));
+                    }
+                    Ok(Value::from("first"))
+                },
+            )
+            .unwrap()
+            .cached = Some(false);
+        env.command_registry
+            .register_async_command(CommandKey::new_name("then_wait"), move |_, _, _| {
+                let (enter, complete) = (enter.clone(), complete.clone());
+                Box::pin(async move {
+                    enter.store(true, Ordering::SeqCst);
+                    tokio::time::sleep(Duration::from_secs(60)).await;
+                    complete.store(true, Ordering::SeqCst);
+                    Ok(Value::from("never"))
+                })
+            })
+            .unwrap();
+    })
+    .await;
+
+    let asset = envref
+        .get_asset_manager()
+        .get_asset(&parse_query("first/then_wait")?)
+        .await?;
+    wait_started(&started).await;
+    within(asset.cancel()).await?;
+
+    assert_eq!(wait_finished(&asset).await, Status::Cancelled);
+    assert!(entered.load(Ordering::SeqCst), "the second command started");
+    assert!(
+        !completed.load(Ordering::SeqCst),
+        "and was dropped at its await"
+    );
+    Ok(())
+}

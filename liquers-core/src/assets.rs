@@ -657,6 +657,10 @@ pub(crate) struct CancellationRequest {
     /// Written before `requested` is set (Release), read after it is seen (Acquire).
     cause: std::sync::Mutex<Option<Error>>,
     notify: tokio::sync::Notify,
+    /// Set when a command returned `Ok` and no later step that can suspend has begun: the run
+    /// has passed its point of no return, so a request no longer drops it. A gate, not a drop:
+    /// the request stays pending and applies again once [`Self::reopen`] is called.
+    committed: AtomicBool,
 }
 
 impl CancellationRequest {
@@ -665,7 +669,25 @@ impl CancellationRequest {
             requested: AtomicBool::new(false),
             cause: std::sync::Mutex::new(None),
             notify: tokio::sync::Notify::new(),
+            committed: AtomicBool::new(false),
         }
+    }
+
+    /// A command returned `Ok`: until [`Self::reopen`], a request does not drop the run.
+    pub(crate) fn commit(&self) {
+        self.committed.store(true, Ordering::Release);
+    }
+
+    /// A step that can suspend begins (or a run starts): a request applies again, including one
+    /// made while the run was committed.
+    pub(crate) fn reopen(&self) {
+        if self.committed.swap(false, Ordering::AcqRel) && self.is_requested() {
+            self.notify.notify_waiters();
+        }
+    }
+
+    fn is_committed(&self) -> bool {
+        self.committed.load(Ordering::Acquire)
     }
 
     /// Request cancellation with `cause`. The first cause wins; returns whether this call made
@@ -699,16 +721,18 @@ impl CancellationRequest {
     pub(crate) fn clear(&self) {
         let mut guard = self.cause.lock().unwrap_or_else(|e| e.into_inner());
         self.requested.store(false, Ordering::Release);
+        self.committed.store(false, Ordering::Release);
         *guard = None;
     }
 
-    /// Completes once cancellation has been requested.
+    /// Completes once cancellation has been requested while the run is not committed.
     pub(crate) async fn requested(&self) {
         loop {
             let mut notified = std::pin::pin!(self.notify.notified());
-            // Registered before the check, so a request made in between is not lost.
+            // Registered before the check, so a request (or a reopen) made in between is not
+            // lost.
             notified.as_mut().enable();
-            if self.is_requested() {
+            if self.is_requested() && !self.is_committed() {
                 return;
             }
             notified.await;
@@ -4077,6 +4101,8 @@ impl<E: Environment> AssetRef<E> {
             return Ok(()); // Already finished
         }
         let cancellation = self.cancellation().await;
+        // Every run starts uncommitted: a commit left by an earlier run must not shield this one.
+        cancellation.reopen();
         let log_start = self.log_len().await;
         let assetref = self.clone();
         // all service messages should be processed, therefore they run in a separate task
@@ -4147,6 +4173,8 @@ impl<E: Environment> AssetRef<E> {
             None => return Ok(()),
         };
         let cancellation = self.cancellation().await;
+        // Every run starts uncommitted: a commit left by an earlier run must not shield this one.
+        cancellation.reopen();
         let log_start = self.log_len().await;
         let eval_side = async {
             let outcome = if cancellation.is_requested() {
@@ -15611,6 +15639,27 @@ recipes:
             volatile.is_volatile().await,
             "sanity: it really was volatile"
         );
+    }
+
+    /// `cancel-point-of-no-return`: a committed run is not dropped by a request until reopened.
+    #[tokio::test]
+    async fn cancellation_request_commit_gates_requested() {
+        let request = CancellationRequest::new();
+        request.request(Error::general_error("cancel".to_string()));
+        request.commit();
+        let mut requested = Box::pin(request.requested());
+        assert!(
+            futures::poll!(requested.as_mut()).is_pending(),
+            "a committed run ignores the request"
+        );
+        assert!(request.is_requested(), "the request is kept, not dropped");
+        request.reopen();
+        assert!(
+            futures::poll!(requested.as_mut()).is_ready(),
+            "reopening applies the pending request"
+        );
+        request.clear();
+        assert!(!request.is_requested());
     }
 
     /// Every temporary asset gets its own id from the manager, never `0`
