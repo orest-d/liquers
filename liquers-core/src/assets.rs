@@ -311,14 +311,20 @@
 //!
 
 use std::{
-    collections::{BTreeSet, HashMap, HashSet, VecDeque},
-    sync::atomic::{AtomicBool, AtomicUsize, Ordering},
+    collections::{BTreeSet, HashMap, HashSet},
+    sync::atomic::{AtomicBool, Ordering},
     sync::{Arc, Weak},
 };
+// Used only by the native-only manager and job queue.
+#[cfg(not(target_arch = "wasm32"))]
+use std::{collections::VecDeque, sync::atomic::AtomicUsize};
 
 use async_trait::async_trait;
+#[cfg(not(target_arch = "wasm32"))]
 use scc;
-use tokio::sync::{mpsc, watch, Mutex, Notify, RwLock};
+#[cfg(not(target_arch = "wasm32"))]
+use tokio::sync::Notify;
+use tokio::sync::{mpsc, watch, Mutex, RwLock};
 
 use crate::cache_strategy::CacheStrategy;
 use crate::command_metadata::PayloadRequirement;
@@ -467,6 +473,8 @@ enum SaveOutcome {
 /// Wasm it writes the latest pending metadata inline because no timer task is used.
 pub struct MetadataSaver {
     state: Mutex<MetadataSaverState>,
+    /// Read only by the native debounce (`save_task`); on wasm32 the saver writes inline.
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     interval: std::time::Duration,
     /// Set once the asset was replaced: its key's store entry belongs to the replacement, so
     /// nothing more is written for it (see [`Self::close`]).
