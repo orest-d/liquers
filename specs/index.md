@@ -8,9 +8,9 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 199
+Total rows: 198
 - P2: 61
-- P3: 138
+- P3: 137
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -78,7 +78,6 @@ Total rows: 199
 | [`DOC-03-ENTRY-POINT-TABLE-SAYS-APPLY-SCHEDULES`](issues/DOC-03-ENTRY-POINT-TABLE-SAYS-APPLY-SCHEDULES.md) | issue | DOC-03's entry-point table says apply schedules its asset and takes no payload | draft | ready | eligible | P3 | S | docs;core/assets | [design](design/doc-03-apply-entry-points/DESIGN.md) | 2026-10-20 |
 | [`NEXT-PRESETS-MISREAD-PLANNER-INSTRUCTIONS`](issues/NEXT-PRESETS-MISREAD-PLANNER-INSTRUCTIONS.md) | issue | find_next_presets reads planner instructions differently from the planner | draft | ready | eligible | P3 | S | lib/commands | [design](design/next-presets-follow-planner-rules/DESIGN.md) | 2026-10-20 |
 | [`PLAN-SERDE-HAS-NO-COMPATIBILITY-CONTRACT`](issues/PLAN-SERDE-HAS-NO-COMPATIBILITY-CONTRACT.md) | issue | A serialized Plan has no compatibility contract | draft | ready | eligible | P3 | S | core/plan | [design](design/plan-serialization-internal-contract/DESIGN.md) | 2026-10-20 |
-| [`RECORD-TABLE-FORMAT-REFUSES-CSV-REFINEMENTS-POLARS-ACCEPTS`](issues/RECORD-TABLE-FORMAT-REFUSES-CSV-REFINEMENTS-POLARS-ACCEPTS.md) | issue | A record view refuses csv:semicolon and csv:pipe, which a DataFrame and the type registry accept | draft | ready | eligible | P3 | S | records | [design](design/record-table-csv-refinements/DESIGN.md) | 2026-10-26 |
 | [`SPECS-FRONT-MATTER-IS-NOT-VALID-YAML`](issues/SPECS-FRONT-MATTER-IS-NOT-VALID-YAML.md) | issue | Nine specs documents have front-matter that a YAML parser rejects | draft | ready | eligible | P3 | S | docs | [design](design/front-matter-yaml-agreement/DESIGN.md) | 2026-10-19 |
 | [`TEMPLATE-DIAGNOSTICS-RESOLVE-NAMESPACES-FROM-THE-WHOLE-QUERY`](issues/TEMPLATE-DIAGNOSTICS-RESOLVE-NAMESPACES-FROM-THE-WHOLE-QUERY.md) | issue | Template diagnostics look every command up in one namespace list for the whole query | draft | ready | eligible | P3 | S | core/query;lib/commands | [design](design/template-diagnostics-namespace-scope/DESIGN.md) | 2026-10-26 |
 | [`TYPE-IDENTIFIED-IN-HAS-NO-IMPLEMENTATIONS`](issues/TYPE-IDENTIFIED-IN-HAS-NO-IMPLEMENTATIONS.md) | issue | No type implements TypeIdentifiedIn, so the documented to_type_identifier example does not compile | draft | ready | eligible | P3 | S | core/value;lib/value;docs | [design](design/type-identified-in-docs/DESIGN.md) | 2026-10-20 |
