@@ -714,3 +714,184 @@ async fn uncached_keyed_asset_stored_copy_is_expired_by_an_upstream_change_immed
     })
     .await
 }
+
+// ---------------------------------------------------------------------------
+// An uncached copy written after its input changed
+// (`specs/design/uncached-write-back-rechecks-dependency-versions/`)
+// ---------------------------------------------------------------------------
+
+/// The latch of `gated_upper`: it counts entries and waits until `open` is set.
+#[derive(Default)]
+struct UpperGate {
+    entered: std::sync::atomic::AtomicUsize,
+    open: std::sync::atomic::AtomicBool,
+}
+
+/// `gated_upper`: counts its entry, waits for the gate, and upper-cases its input.
+fn register_gated_upper<E: Environment<Value = Value>>(
+    cr: &mut liquers_core::commands::CommandRegistry<E>,
+    gate: Arc<UpperGate>,
+) {
+    use std::sync::atomic::Ordering;
+    cr.register_async_command(
+        liquers_core::command_metadata::CommandKey::new_name("gated_upper"),
+        move |state, _args, _context| {
+            let gate = gate.clone();
+            Box::pin(async move {
+                gate.entered.fetch_add(1, Ordering::SeqCst);
+                while !gate.open.load(Ordering::SeqCst) {
+                    tokio::time::sleep(Duration::from_millis(2)).await;
+                }
+                Ok(Value::from(state.try_into_string()?.to_uppercase()))
+            })
+        },
+    )
+    .expect("register gated_upper");
+}
+
+/// `data/u.txt = -R/data/src.txt/-/gated_upper`, `cached: false`.
+fn gated_upper_provider() -> Result<TaggedRecipeProvider, Error> {
+    let mut recipe = Recipe::new(
+        "-R/data/src.txt/-/gated_upper".to_string(),
+        String::new(),
+        String::new(),
+    )?;
+    recipe.cached = Some(liquers_core::cache_strategy::CacheStrategy::from(false));
+    Ok(TaggedRecipeProvider::new([(
+        parse_key("data/u.txt")?,
+        recipe,
+    )]))
+}
+
+/// Polls the stored metadata of `key` (bounded) until its status is `status`, and returns it.
+async fn stored_metadata_with_status(
+    store: &Arc<dyn AsyncStore>,
+    key: &Key,
+    status: Status,
+) -> Result<Metadata, Error> {
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        if store.contains(key).await? {
+            let metadata = store.get_metadata(key).await?;
+            if metadata.status() == status || std::time::Instant::now() > deadline {
+                return Ok(metadata);
+            }
+        } else if std::time::Instant::now() > deadline {
+            return Err(Error::general_error(format!("{key} was never written")));
+        }
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+}
+
+/// AC-1 / AC-2: `data/src.txt` changes while the uncached `data/u.txt` is evaluated from it; the
+/// copy written afterwards is `Expired`, naming the changed input.
+async fn scenario_uncached_copy_written_after_input_change<E>(
+    envref: EnvRef<E>,
+    gate: Arc<UpperGate>,
+) -> Result<(), Error>
+where
+    E: Environment<Value = Value>,
+{
+    use std::sync::atomic::Ordering;
+    let m = envref.get_asset_manager();
+    let src = parse_key("data/src.txt")?;
+    let u = parse_key("data/u.txt")?;
+    m.set_state(&src, State::new().with_data(Value::from("a")))
+        .await?;
+
+    // On the inline manager `get` evaluates in the caller's future, which waits at the gate.
+    let run_env = envref.clone();
+    let run_key = u.clone();
+    let evaluation = tokio::spawn(async move {
+        let asset = run_env.get_asset_manager().get(&run_key).await?;
+        // The run is stale at birth (`runtime-dependency-record-superseded-check`) and ends
+        // `Expired`, which `get` reports as an error; the value it computed is read whatever
+        // the status.
+        let _ = asset.get().await;
+        asset
+            .get_any_status()
+            .await
+            .ok_or_else(|| Error::general_error("the run kept no value".to_string()))
+    });
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while gate.entered.load(Ordering::SeqCst) == 0 {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "gated_upper never started"
+        );
+        tokio::time::sleep(Duration::from_millis(2)).await;
+    }
+    m.set_state(&src, State::new().with_data(Value::from("b")))
+        .await?;
+    gate.open.store(true, Ordering::SeqCst);
+    let state = evaluation
+        .await
+        .map_err(|e| Error::general_error(format!("join: {e}")))??;
+    assert_eq!(
+        state.try_into_string()?,
+        "A",
+        "the run used the input it read"
+    );
+
+    let store = envref.get_async_store();
+    let metadata = stored_metadata_with_status(&store, &u, Status::Expired).await?;
+    assert_eq!(
+        metadata.status(),
+        Status::Expired,
+        "the stored copy is stale"
+    );
+    assert_eq!(
+        metadata.expiry_reason(),
+        Some(liquers_core::metadata::ExpiryReason::Direct {
+            cause: liquers_core::metadata::ExpiryCause::StaleDependency {
+                dependency: liquers_core::metadata::DependencyKey::from(&src),
+            },
+        })
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn uncached_copy_written_after_input_change_is_expired_default() -> Result<(), Error> {
+    let gate = Arc::new(UpperGate::default());
+    let store = AsyncMemoryStore::new(&Key::new());
+    let mut env = SimpleEnvironment::<Value>::new();
+    register_gated_upper(&mut env.command_registry, gate.clone());
+    env.with_async_store(Box::new(store));
+    env.with_recipe_provider(Box::new(gated_upper_provider()?));
+    let envref = env.to_ref();
+    scenario_uncached_copy_written_after_input_change(envref.clone(), gate).await?;
+
+    // AC-3: a fresh process over the same store recomputes from the new input.
+    let u = parse_key("data/u.txt")?;
+    let src = parse_key("data/src.txt")?;
+    let snapshot = StoreSnapshot::capture(&envref.get_async_store(), &[u.clone(), src]).await?;
+    drop(envref);
+    let fresh_store = AsyncMemoryStore::new(&Key::new());
+    snapshot.replay_into(&fresh_store).await?;
+    let gate = Arc::new(UpperGate::default());
+    gate.open.store(true, std::sync::atomic::Ordering::SeqCst);
+    let mut env = SimpleEnvironment::<Value>::new();
+    register_gated_upper(&mut env.command_registry, gate.clone());
+    env.with_async_store(Box::new(fresh_store));
+    env.with_recipe_provider(Box::new(gated_upper_provider()?));
+    let envref = env.to_ref();
+    let state = envref.get_asset_manager().get(&u).await?.get().await?;
+    assert_eq!(
+        state.try_into_string()?,
+        "B",
+        "recomputed from the new input"
+    );
+    assert_eq!(gate.entered.load(std::sync::atomic::Ordering::SeqCst), 1);
+    Ok(())
+}
+
+#[tokio::test]
+async fn uncached_copy_written_after_input_change_is_expired_immediate() -> Result<(), Error> {
+    let gate = Arc::new(UpperGate::default());
+    let mut env = ImmediateEnvironment::<Value>::new();
+    register_gated_upper(&mut env.command_registry, gate.clone());
+    env.with_async_store(Box::new(AsyncMemoryStore::new(&Key::new())));
+    env.with_recipe_provider(Box::new(gated_upper_provider()?));
+    scenario_uncached_copy_written_after_input_change(env.to_ref(), gate).await
+}

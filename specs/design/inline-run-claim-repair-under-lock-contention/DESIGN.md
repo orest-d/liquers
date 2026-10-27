@@ -3,8 +3,8 @@ id: INLINE-RUN-CLAIM-REPAIR-UNDER-LOCK-CONTENTION
 kind: design
 title: A dropped inline run is recoverable even when its asset's lock is busy at drop time
 form: compact
-status: in_review
-phase: implementation
+status: complete
+gh_pr: [202]
 readiness: ready
 autofix: eligible
 area: [core/assets]
@@ -13,8 +13,10 @@ created: 2026-10-20
 ---
 # A dropped inline run is recoverable even when its asset's lock is busy at drop time
 
-Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-20: Phases 1-4 written, not
-approved, nothing implemented. Follow-up of `inline-waiter-recovers-dropped-run` (implemented in
+> **Complete on 2026-10-27**: implemented by automatic fix in #202.
+
+Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-20: Phases 1-4 written; Phase 4
+implemented on 2026-10-27 (automatic fix). Follow-up of `inline-waiter-recovers-dropped-run` (implemented in
 PR #167), which made a parked caller react to the `Drop` repair but could not help when the repair
 never happens.
 
@@ -204,10 +206,10 @@ Run: `CARGO_INCREMENTAL=0 cargo test -p liquers-core --lib inline_`, then
 
 ### Steps
 
-- [ ] 1. `liquers-core/src/assets.rs` `mod tests` — add the four new tests; `…_dropped_under_contention` and `…_whose_repair_was_skipped` time out at HEAD — `cargo test -p liquers-core --lib inline_`. Rollback: delete the tests.
-- [ ] 2. `assets.rs` `AssetData` (`inline_run_abandoned`, `new_ext`), `InlineRunClaim` (fields), `try_claim_for_run_inline` (clone fields, clear or honour the mark) — depends on 1 — `cargo test -p liquers-core --lib inline_`. Rollback: revert the commit.
-- [ ] 3. `assets.rs` `InlineRunClaim::drop` — mark and `send_modify` on a failed `try_write`; comment and `run_inline` doc updated — all tests of step 1 pass; `cargo test -p liquers-core --lib --tests`. Rollback: revert steps 2-3 together.
-- [ ] 4. `specs/reference/ASSET_LIFECYCLE.md` §7 (History row, `reviewed:`); close `INLINE-RUN-CLAIM-REPAIR-SKIPPED-UNDER-LOCK-CONTENTION` with a resolution note — `python3 scripts/docs_index.py --check`.
+- [x] 1. `liquers-core/src/assets.rs` `mod tests` — add the four new tests; `…_dropped_under_contention` and `…_whose_repair_was_skipped` time out at HEAD — `cargo test -p liquers-core --lib inline_`. Rollback: delete the tests.
+- [x] 2. `assets.rs` `AssetData` (`inline_run_abandoned`, `new_ext`), `InlineRunClaim` (fields), `try_claim_for_run_inline` (clone fields, clear or honour the mark) — depends on 1 — `cargo test -p liquers-core --lib inline_`. Rollback: revert the commit.
+- [x] 3. `assets.rs` `InlineRunClaim::drop` — mark and `send_modify` on a failed `try_write`; comment and `run_inline` doc updated — all tests of step 1 pass; `cargo test -p liquers-core --lib --tests`. Rollback: revert steps 2-3 together.
+- [x] 4. `specs/reference/ASSET_LIFECYCLE.md` §7 (History row, `reviewed:`); close `INLINE-RUN-CLAIM-REPAIR-SKIPPED-UNDER-LOCK-CONTENTION` with a resolution note — `python3 scripts/docs_index.py --check`.
 
 ### Validation
 

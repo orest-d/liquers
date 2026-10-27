@@ -4,6 +4,7 @@ extern crate serde_derive;
 
 use pyo3::prelude::*;
 
+pub mod aio;
 pub mod command_metadata;
 pub mod context;
 pub mod asset;
@@ -24,7 +25,12 @@ pub mod value;
 use crate::query::*;
 
 /// The native extension, `liquers._native`; the `liquers` package (`python/liquers/`) re-exports it.
-#[pymodule]
+///
+/// Declared safe without the GIL, so a free-threaded interpreter keeps the GIL off when it imports
+/// `liquers` (PyO3's default since 0.28, stated here so it is a decision rather than an
+/// inheritance). The audit behind it is in `specs/design/liquers-py-async/phase2-architecture.md`;
+/// `gil_used = true` is the fallback if a free-threading defect is found.
+#[pymodule(gil_used = false)]
 fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Stored `py.Object` values are read back through this decoder; an environment with the
     // pickle codec off lists no formats for the type, so the read path never reaches it there.

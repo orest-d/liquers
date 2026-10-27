@@ -2,7 +2,7 @@
 id: TEMPORARY-ASSETS-SHARE-ID-ZERO
 kind: issue
 title: Every temporary asset has id 0, so code that identifies assets by id can confuse them
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [core/assets]
@@ -40,3 +40,10 @@ so one drains the other's. Each temporary asset should have its own id.
 
 Still present at HEAD (`18732dd`): `AssetData::new_temporary` calls `new_ext(0, …)`. Design:
 `temporary-asset-unique-id` (draw the id from `AssetManager::next_id_for_asset`).
+
+## Resolution
+
+Fixed 2026-10-27 by `design/temporary-asset-unique-id/`. `AssetData::new_temporary` now takes its id from `AssetManager::next_id_for_asset` instead of
+the literal `0`, so every temporary asset (through `AssetRef::new_temporary`,
+`AssetData::new_temporary` or `create_temporary_asset`) has its own id. Test:
+`temporary_assets_have_distinct_ids` in `liquers-core/src/assets.rs`.

@@ -2,7 +2,7 @@
 id: REMOVED-OR-REPLACED-KEY-REVIVED-BY-A-LATE-BACKGROUND-SAVE
 kind: issue
 title: A background save still in flight after a key is removed or replaced writes the old value back to the store
-status: draft
+status: closed
 priority: P1
 complexity: M
 area: [core/assets, core/store]
@@ -67,3 +67,7 @@ the save checks under the lock; a conditional store write (`store-conditional-wr
 (design `evaluation-session-volatile-test-flake`, hypothesis H1). Related:
 `UNCACHED-STORED-COPY-EXPIRY-RACES-AN-INFLIGHT-EVALUATION` (another late write-back race, different
 trigger and fix site).
+
+## Resolution
+
+Fixed 2026-10-27 by `design/replaced-asset-write-gate/`. Fixed by `design/replaced-asset-write-gate/` (2026-10-27): `MetadataSaver` gates the asset's value write, `cancel_for_replacement` closes the saver of a finished asset too, so `remove` / `set_state` / `set_binary` wait for a write under way and a later one is skipped; `remove` re-reads the stored entry after the cancel.

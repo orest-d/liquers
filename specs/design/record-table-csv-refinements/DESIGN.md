@@ -3,8 +3,8 @@ id: RECORD-TABLE-CSV-REFINEMENTS
 kind: design
 title: A record view accepts the CSV separator refinements a DataFrame accepts
 form: compact
-status: in_review
-phase: implementation
+status: complete
+gh_pr: [211]
 readiness: ready
 autofix: eligible
 area: [records]
@@ -12,6 +12,8 @@ issues: [RECORD-TABLE-FORMAT-REFUSES-CSV-REFINEMENTS-POLARS-ACCEPTS]
 created: 2026-10-26
 ---
 # A record view accepts the CSV separator refinements a DataFrame accepts
+
+> **Complete on 2026-10-27**: implemented by automatic fix in #211.
 
 Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-26: Phases 1-4 written; Phase 4
 implemented on 2026-10-27 (automatic fix).

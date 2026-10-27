@@ -3,7 +3,7 @@ title: Assets Specification
 kind: reference
 audience: internal
 area: [core/assets]
-reviewed: 2026-10-25
+reviewed: 2026-10-27
 ---
 # Assets Specification
 
@@ -153,8 +153,13 @@ asset answering `None`. Because no registered asset holds such a key, `expire_de
 expires the key **in the store**: the stored metadata of a `Ready` or `Override` copy is rewritten
 as `Expired`, so a fresh process does not fast-track data the graph knows is stale. The
 non-registered-owner warning a keyed write normally records is skipped for an uncached asset, as for
-a volatile one. The race between that store expiry and an evaluation already in flight is
-`UNCACHED-STORED-COPY-EXPIRY-RACES-AN-INFLIGHT-EVALUATION`.
+a volatile one. An evaluation already in flight when an input changes writes its copy after that
+expiry ran, so after writing an uncached keyed asset re-checks its recorded inputs against the
+dependency manager: when one no longer holds the version it recorded, the stored copy is rewritten
+as `Expired` with `Direct { StaleDependency }`, under `key_mutation_lock` and only while the
+stored copy is still the one it wrote (same version and dependency records), so a value a
+concurrent `set_state` installed meanwhile is left alone. A change after the write finds the
+stored copy.
 
 An explicit install decides for itself: `set_state` and `set_binary` read the **supplied**
 metadata's `stored` flag, not the recipe's, so a caller may write a `stored: false` key by supplying
@@ -1100,6 +1105,12 @@ Keeping the version lets `AssetManager::version` answer for a dropped intermedia
 dependent's fast track (`dependency_blocks_fast_track` treats it like an absent dependency).
 Recipes themselves cannot be deleted by `remove`.
 
+A live asset is cancelled for replacement first (`AssetRef::cancel_for_replacement`). For a
+finished asset this waits for a value write of it already under way and makes any later one skip,
+and `remove` then re-reads the stored entry, so a late background save cannot bring the removed
+value back (`design/replaced-asset-write-gate/`). `set_state` and `set_binary` do the same before
+writing their own value.
+
 **Related keyed operations**, all default methods of `AssetManager` and none of them evaluating:
 
 - `contains(key)` is *stored, or listed by the recipe provider*; `can_make(key)` is *stored, or
@@ -1221,7 +1232,8 @@ command's result is held while every message the run sent is applied, and only t
 installed, stored and announced (or the failure recorded). A computed value whose run logged an
 error-level entry fails instead, with an `ExecutionError` carrying the first such entry
 (`Context::error`). A background save is not part of the run, so the store may receive the value
-after the run returns.
+after the run returns; a mutation of the key (`remove`, `set_state`, `set_binary`) waits for such
+a save already under way, and one starting after the mutation is skipped.
 
 **Post-finish messages.** Once finalized, display-mutating/control service messages
 (`UpdatePrimaryProgress`, `UpdateSecondaryProgress`, `JobSubmitted`, `JobStarted`, `Cancel`,
@@ -1281,6 +1293,8 @@ each with an `ExpiryReason` (§Why an asset is `Expired`). The rules are in
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-27 | An uncached keyed write re-checks its recorded inputs and expires the stored copy when one was superseded during the run. | `design/uncached-write-back-rechecks-dependency-versions/` |
+| 2026-10-27 | §Remove Semantics and §Settling a run: a mutation of a key waits for the replaced asset's value write under way and skips a later one; `remove` re-reads the stored entry after the cancel. | `design/replaced-asset-write-gate/` |
 | 2026-10-25 | `Directory` is reached by `get` on a store directory; an unmakeable key in `get_asset_info` is `AssetNotFound`. | `design/key-without-recipe-answer/` |
 | 2026-10-20 | New §Settling a run: the outcome is settled after the service loop drains, and a logged error fails a computed value. §Post-finish messages: a late error-level log entry no longer flips a finished asset's status. | `issues/CONTEXT-ERROR-OUTCOME-DEPENDS-ON-SCHEDULING.md` |
 | 2026-10-20 | §Content changed outside Liquers: the no-metadata rule also governs reuse. A stored `None` with no recorded version reads as `Source` without a recipe and `Ready` with one, in the fast track and the store branch of `get_any_status` / `get_binary_any_status`, with a warning in the asset's log; nothing is written back. `remove` deletes such an entry under a recipe, as an `Override`. | phase-5 (`design/js-store-page-metadata-status/`) |
