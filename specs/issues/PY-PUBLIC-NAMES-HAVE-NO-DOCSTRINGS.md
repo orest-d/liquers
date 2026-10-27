@@ -2,7 +2,7 @@
 id: PY-PUBLIC-NAMES-HAVE-NO-DOCSTRINGS
 kind: issue
 title: Most public classes, methods and error classes of the Python package have no docstring
-status: draft
+status: closed
 priority: P2
 complexity: M
 area: [py, docs]
@@ -47,3 +47,13 @@ Split on 2026-10-27 from `PY-API-REFERENCE-NOT-GENERATED` (bulk design): its des
 `design/py-api-reference/`, found that the docstrings and their check need no decision and are
 eligible for an automatic fix, while the reference generator waits for the maintainer's choice
 of tool. This issue is the docstring half.
+
+## Resolution
+
+Every public class, method, property and function of `liquers` now has a docstring written for a
+Python reader, and each generated error class has one (`_errors.py` `_install`). PyO3 already
+gave every public callable a signature, so no `text_signature` was needed.
+`liquers-py/tests/test_DOCS_docstrings.py` (`test_DOCS04_*`) walks `lq.__all__` and each listed
+class's own public attributes and fails on a missing docstring or signature, so coverage cannot
+regress. Design `py-docstrings`, branch `claude/project-thread-yi0j65-py-docstrings`; checked with
+`bash scripts/test-liquers-py.sh` (213 passed, 6 skipped; 22 Rust unit tests passed).

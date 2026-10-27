@@ -210,8 +210,23 @@ Run:
 - [x] 3. `liquers-py/src/command_metadata.rs`, `plan.rs`, `recipes.rs`, `dependencies.rs` — docstrings — as step 2
 - [x] 4. `liquers-py/src/metadata.rs`, `expiration.rs`, `error.rs`, and the public items of `environment.rs`, `context.rs`, `asset.rs` reviewed — as step 2
 - [x] 5. `liquers-py/python/liquers/_errors.py` `_install` — generated class docstrings — `bash scripts/test-liquers-py.sh -k DOCS04` passes AC-4
-- [ ] 6. `text_signature` on any constructor the signature test still fails on (likely none; stop rule in Phase 2) — `bash scripts/test-liquers-py.sh` passes in full (AC-1, AC-3); `cargo fmt -p liquers-py --check`
-- [ ] 7. `liquers-py/README.md` `DOCS` row; `specs/issues/PY-PUBLIC-NAMES-HAVE-NO-DOCSTRINGS.md` `status: closed` with a resolution note; this design `complete`; `specs/README.md` row; `python3 scripts/docs_index.py` — `python3 scripts/docs_index.py --check`
+- [x] 6. `text_signature` on any constructor the signature test still fails on (likely none; stop rule in Phase 2) — `bash scripts/test-liquers-py.sh` passes in full (AC-1, AC-3); `cargo fmt -p liquers-py --check`
+- [x] 7. `liquers-py/README.md` `DOCS` row; `specs/issues/PY-PUBLIC-NAMES-HAVE-NO-DOCSTRINGS.md` `status: closed` with a resolution note; this design `complete`; `specs/README.md` row; `python3 scripts/docs_index.py` — `python3 scripts/docs_index.py --check`
+
+Implementation notes (2026-10-27, branch `claude/project-thread-yi0j65-py-docstrings`):
+
+- Step 6 needed no `text_signature`: PyO3 0.30 gives every public function, method and class in
+  the coverage set a signature, so `test_DOCS04_every_public_callable_has_a_signature` (which also
+  checks classes, a class's signature being its constructor's) passed from step 1 on.
+- `cargo fmt -p liquers-py --check` fails at the base already (`WORKSPACE-NOT-RUSTFMT-CLEAN`). The
+  change adds no rustfmt difference: per changed file, `rustfmt --check` reports the same number
+  of diffs before and after, all in code lines this change does not touch.
+- Step 7 leaves this design `in_review`; it moves to `complete` when the PR merges.
+- Phase 5 small maintenance: the "no docstrings" limitation lines of `PYTHON_INTEGRATION.md` §8 and
+  `PYTHON_GUIDE.md` §10 were untrue once the docstrings landed, so they now name only the missing
+  API reference (and stubs); each document has a History row.
+- Found on the way: `PY-ADD-PYTHON-COMMAND-STILL-DECLARES-PYCALL-ALIASES` (filed, not fixed:
+  removing a binding method is an interface change).
 
 Rollback: revert per file; nothing depends on the comments.
 

@@ -135,7 +135,7 @@ test is named for its ID, in `tests/test_<FEATURE>_*.py`.
 | `COMMAND` | Essential | COMPLETE | No `realm=` on the decorators | `test_COMMAND01`–`14` |
 | `ASYNCQ` | Optional | COMPLETE | `ASYNCQ07` is `NA`: Python has an async model. Cancelling an awaitable detaches by policy, so `ASYNCQ04` cancels with `cancel_async()`; `ASYNCQ05` shows detach by completion; `ASYNCQ08` raises on a liquers loop and warns elsewhere. The design is `specs/design/liquers-py-async/` | `test_ASYNCQ01`–`08`, `tests/test_ASYNC_loops.py` |
 | `ASYNCCMD` | Optional | COMPLETE | All commands share one job queue (`CORE-ONE-JOB-QUEUE-FOR-ALL-COMMANDS`); `async_loops` sets the number of event loops | `test_ASYNCCMD01`–`06` |
-| `DOCS` | Optional | PARTIAL | `DOCS04`: no generated API reference, most classes lack docstrings (`PY-API-REFERENCE-NOT-GENERATED`) | `DOCS03` is `test_GUIDE_examples.py`; `DOCS01`, `02`, `05`–`07` reviewed |
+| `DOCS` | Optional | PARTIAL | `DOCS04`: every public name has a docstring and a signature, but there is no generated API reference yet (`PY-API-REFERENCE-NOT-GENERATED`) | `DOCS03` is `test_GUIDE_examples.py`; the docstring half of `DOCS04` is `test_DOCS04_*` (`tests/test_DOCS_docstrings.py`); `DOCS01`, `02`, `05`–`07` reviewed |
 
 `ASYNCQ`, `ASYNCCMD` and `DOCS` are outside the baseline profile. Every Essential feature is `COMPLETE` and every required check passes; each `NA` item carries
 its reversing condition. The Python baseline profile is therefore `CONFORMANT`.
