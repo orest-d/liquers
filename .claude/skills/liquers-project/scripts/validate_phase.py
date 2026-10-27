@@ -96,8 +96,11 @@ def front_matter(text: str) -> dict:
 
 
 def compact_section(text: str, phase: int) -> str | None:
-    match = re.search(rf"(?m)^## Phase {phase}\b.*?(?=^## Phase \d|\Z)", text, re.S)
-    return match.group(0) if match else None
+    # Find the boundaries in a copy whose fenced blocks are blanked to the same length, so a
+    # `## Phase N` line inside a code example is not taken for a phase heading.
+    blanked = FENCED_CODE.sub(lambda m: re.sub(r"[^\n]", " ", m.group(0)), text)
+    match = re.search(rf"(?m)^## Phase {phase}\b.*?(?=^## Phase \d|\Z)", blanked, re.S)
+    return text[match.start() : match.end()] if match else None
 
 
 def missing_sections(content: str, required: list, level: str) -> list[str]:
@@ -118,7 +121,7 @@ def empty_sections(content: str, required: list, level: str) -> list[str]:
     for item in required:
         for name in item if isinstance(item, tuple) else (item,):
             match = re.search(
-                rf"(?mis)^{level}#* .*?{re.escape(name)}[^\n]*\n(.*?)(?=^#{{2,{len(level)}}} |\Z)",
+                rf"(?mi)^{level}#* [^\n]*?{re.escape(name)}[^\n]*(?:\n|\Z)((?s:.*?))(?=^#{{2,{len(level)}}} |\Z)",
                 content,
             )
             if match:
