@@ -3,8 +3,8 @@ id: CORE-WASM-WARNING-FREE
 kind: design
 title: A wasm32 build of liquers-core is warning-free
 form: compact
-status: in_review
-phase: implementation
+status: complete
+gh_pr: [207]
 readiness: ready
 autofix: eligible
 area: [core/assets, build]
@@ -12,6 +12,8 @@ issues: [CORE-WASM-BUILD-EMITS-UNUSED-WARNINGS]
 created: 2026-10-20
 ---
 # A wasm32 build of liquers-core is warning-free
+
+> **Complete on 2026-10-27**: implemented by automatic fix in #207.
 
 Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-20: Phases 1-4 written; Phase 4
 implemented on 2026-10-27 (automatic fix).

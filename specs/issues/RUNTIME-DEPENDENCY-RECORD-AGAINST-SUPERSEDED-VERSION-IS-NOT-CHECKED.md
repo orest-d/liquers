@@ -2,7 +2,7 @@
 id: RUNTIME-DEPENDENCY-RECORD-AGAINST-SUPERSEDED-VERSION-IS-NOT-CHECKED
 kind: issue
 title: A dependency record added at run time is never compared with a newer registered version
-status: draft
+status: closed
 priority: P3
 complexity: M
 area: [core/assets]
@@ -55,3 +55,15 @@ read from the store and then read the bytes.
 Still present at HEAD 18732dd by reading (`AssetRef::complete_evaluation` merges the records, and
 `track_keyed_asset` / `track_asset` never compare them). Designed in
 `design/runtime-dependency-record-superseded-check/`.
+
+## Resolution
+
+Fixed 2026-10-27 by `design/runtime-dependency-record-superseded-check/`. `AssetRef::complete_evaluation` now compares the run's dependency records with the dependency
+manager's versions (`DependencyManager::superseded_record`): before finalization, a superseded
+record takes the stale route (`AssetData::note_stale_dependency`), and after `track_asset` a write
+that landed in between expires the asset (`expire_if_superseded`). Tests:
+`added_record_superseded_before_completion_marks_stale`,
+`added_record_with_current_version_stays_ready`, `added_record_with_unknown_version_stays_ready`,
+`query_asset_with_superseded_added_record_is_expired` (`liquers-core/tests/dependency_manager_integration.rs`),
+`superseded_after_tracking_expires_the_asset` (`assets.rs`) and
+`superseded_record_skips_unknown_and_absent` (`dependencies.rs`).
