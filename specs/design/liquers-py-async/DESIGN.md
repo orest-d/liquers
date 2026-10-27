@@ -3,7 +3,7 @@ id: LIQUERS-PY-ASYNC
 kind: design
 title: Async evaluation and async commands in liquers-py
 workflow: liquers-project
-status: in_review
+gh_pr: [181]
 phase: implementation
 readiness: ready
 autofix: not-eligible

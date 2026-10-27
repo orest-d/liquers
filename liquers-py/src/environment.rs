@@ -21,6 +21,11 @@
 //! so a Python command called from a tokio worker can take it. The state lock is never held across
 //! an evaluation: it is taken to read or build the environment reference and released at once.
 //!
+//! The state lock is taken with `lock_py_attached`, which detaches while it waits, so a thread
+//! blocked on it never stalls the interpreter (the GIL, or a free-threaded stop-the-world). And no
+//! Python object is dropped while it is held: a removed command's callable is released after the
+//! guard, because its `__del__` may call back into this environment and take the lock again.
+//!
 //! A wait is cut into short slices. Between two, `block_on` runs the pending signal handlers, so
 //! Ctrl-C raises `KeyboardInterrupt` in a waiting `evaluate`, and it checks the handle's shut
 //! flag, so a wait outstanding when `shutdown()` is called raises `CancelledError` instead of
@@ -28,6 +33,8 @@
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
+
+use pyo3::sync::MutexExt;
 use std::time::Duration;
 
 use liquers_core::command_metadata::{CommandKey, CommandMetadata};
@@ -118,15 +125,15 @@ impl EnvCell {
         })
     }
 
-    fn lock(&self) -> Result<MutexGuard<'_, Declarations>, Error> {
+    fn lock(&self, py: Python<'_>) -> Result<MutexGuard<'_, Declarations>, Error> {
         self.declarations
-            .lock()
+            .lock_py_attached(py)
             .map_err(|_| Error::unexpected_error("environment state lock poisoned".to_string()))
     }
 
     /// The built environment, building it first if a declaration changed.
-    pub fn envref(&self) -> Result<EnvRef<PyEnvironment>, Error> {
-        let mut declarations = self.lock()?;
+    pub fn envref(&self, py: Python<'_>) -> Result<EnvRef<PyEnvironment>, Error> {
+        let mut declarations = self.lock(py)?;
         match &declarations.state {
             EnvState::Built(envref) => return Ok(envref.clone()),
             EnvState::Shut => return Err(shut_down_error()),
@@ -143,8 +150,8 @@ impl EnvCell {
     /// Marks the environment for a rebuild after a declaration changed.
     ///
     /// Fails after `shutdown()`, so a registration on a shut environment is not silently dropped.
-    pub fn invalidate(&self) -> Result<(), Error> {
-        retire(&mut *self.lock()?)
+    pub fn invalidate(&self, py: Python<'_>) -> Result<(), Error> {
+        retire(&mut *self.lock(py)?)
     }
 
     /// The builder with every declaration applied, but no store yet.
@@ -187,16 +194,18 @@ impl EnvCell {
     }
 
     /// Every issue a build would meet, without building.
-    pub fn validate(&self) -> Result<IssueReport, Error> {
-        let declarations = self.lock()?;
+    pub fn validate(&self, py: Python<'_>) -> Result<IssueReport, Error> {
+        let declarations = self.lock(py)?;
         let (mut builder, mut issues) = self.configured_builder(&declarations)?;
         issues.append(builder.validate().clone());
         Ok(issues)
     }
 
     /// Retains a Python command and marks the environment for a rebuild. Reports what it replaced.
-    pub fn register(&self, spec: PyCommandSpec) -> Result<Replaced, Error> {
-        let mut declarations = self.lock()?;
+    pub fn register(&self, py: Python<'_>, spec: PyCommandSpec) -> Result<Replaced, Error> {
+        // Declared before the guard, so a replaced command is dropped after the lock is released.
+        let mut removed: Vec<PyCommandSpec> = Vec::new();
+        let mut declarations = self.lock(py)?;
         refuse_if_shut(&declarations)?;
         let replaced = if declarations.specs.iter().any(|s| s.key == spec.key) {
             Replaced::Python
@@ -207,7 +216,7 @@ impl EnvCell {
         } else {
             Replaced::Nothing
         };
-        declarations.specs.retain(|s| s.key != spec.key);
+        take_specs(&mut declarations.specs, &spec.key, &mut removed);
         declarations.unregistered.retain(|k| k != &spec.key);
         declarations.specs.push(spec);
         retire(&mut declarations)?;
@@ -218,12 +227,12 @@ impl EnvCell {
     ///
     /// A Python command that replaced a built-in is removed first, which brings the built-in back;
     /// a second call removes the built-in.
-    pub fn unregister(&self, key: CommandKey) -> Result<bool, Error> {
-        let mut declarations = self.lock()?;
+    pub fn unregister(&self, py: Python<'_>, key: CommandKey) -> Result<bool, Error> {
+        let mut taken: Vec<PyCommandSpec> = Vec::new();
+        let mut declarations = self.lock(py)?;
         refuse_if_shut(&declarations)?;
-        let before = declarations.specs.len();
-        declarations.specs.retain(|s| s.key != key);
-        let removed = if declarations.specs.len() != before {
+        take_specs(&mut declarations.specs, &key, &mut taken);
+        let removed = if !taken.is_empty() {
             true
         } else if !declarations.unregistered.contains(&key) && builtin_keys()?.contains(&key) {
             declarations.unregistered.push(key);
@@ -237,17 +246,18 @@ impl EnvCell {
         Ok(removed)
     }
 
-    pub fn import_metadata(&self, commands: Vec<CommandMetadata>) -> Result<(), Error> {
-        let mut declarations = self.lock()?;
+    pub fn import_metadata(&self, py: Python<'_>, commands: Vec<CommandMetadata>) -> Result<(), Error> {
+        let mut declarations = self.lock(py)?;
         refuse_if_shut(&declarations)?;
         declarations.imported.extend(commands);
         retire(&mut declarations)
     }
 
     /// Stops the current and every retired asset manager. Idempotent.
-    pub fn shutdown(&self) -> Result<(), Error> {
+    pub fn shutdown(&self, py: Python<'_>) -> Result<(), Error> {
         self.shut.store(true, Ordering::SeqCst);
-        let mut declarations = self.lock()?;
+        let specs: Vec<PyCommandSpec>;
+        let mut declarations = self.lock(py)?;
         let previous = std::mem::replace(&mut declarations.state, EnvState::Shut);
         let mut envrefs = std::mem::take(&mut declarations.retired);
         match previous {
@@ -255,14 +265,24 @@ impl EnvCell {
             EnvState::Pending | EnvState::Shut => {}
         }
         declarations.store = None;
-        // Releases the Python callables now rather than when the handle is collected.
-        declarations.specs.clear();
+        // Releases the Python callables now rather than when the handle is collected, but only
+        // once the lock is released.
+        specs = std::mem::take(&mut declarations.specs);
         drop(declarations);
+        drop(specs);
         for envref in envrefs {
             envref.get_asset_manager().shutdown();
         }
         Ok(())
     }
+}
+
+/// Moves every spec under `key` out of `specs` into `removed`, which the caller drops after its
+/// guard.
+fn take_specs(specs: &mut Vec<PyCommandSpec>, key: &CommandKey, removed: &mut Vec<PyCommandSpec>) {
+    let (taken, kept): (Vec<_>, Vec<_>) = std::mem::take(specs).into_iter().partition(|s| &s.key == key);
+    *specs = kept;
+    removed.extend(taken);
 }
 
 fn shut_down_error() -> Error {
@@ -512,7 +532,7 @@ impl Environment {
     fn evaluate(&self, py: Python<'_>, query: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
         let result = (|| -> Result<_, PyFailure> {
             let query = to_query(query)?;
-            let envref = self.cell.envref()?;
+            let envref = self.cell.envref(py)?;
             let value = block_on(py, &self.cell.shut, async move {
                 let asset = envref.evaluate(query).await?;
                 let state = asset.get().await?;
@@ -527,7 +547,7 @@ impl Environment {
     fn evaluate_state(&self, py: Python<'_>, query: &Bound<'_, PyAny>) -> PyResult<Py<crate::asset::State>> {
         let result = (|| -> Result<_, PyFailure> {
             let query = to_query(query)?;
-            let envref = self.cell.envref()?;
+            let envref = self.cell.envref(py)?;
             let state = block_on(py, &self.cell.shut, async move {
                 let asset = envref.evaluate(query).await?;
                 asset.get().await?.value_state()
@@ -541,7 +561,7 @@ impl Environment {
     fn get_asset(&self, py: Python<'_>, query: &Bound<'_, PyAny>) -> PyResult<crate::asset::AssetRef> {
         let result = (|| -> Result<_, PyFailure> {
             let query = to_query(query)?;
-            let envref = self.cell.envref()?;
+            let envref = self.cell.envref(py)?;
             let asset = block_on(py, &self.cell.shut, async move { envref.evaluate(query).await })?;
             Ok(crate::asset::AssetRef::new(asset, self.cell.shut.clone()))
         })();
@@ -565,7 +585,7 @@ impl Environment {
                 value,
                 Arc::new(Metadata::MetadataRecord(record)),
             );
-            let envref = self.cell.envref()?;
+            let envref = self.cell.envref(py)?;
             block_on(py, &self.cell.shut, async move {
                 envref.get_asset_manager().set_state(&key, state).await
             })
@@ -617,7 +637,7 @@ impl Environment {
                 self.cell.pickle,
                 self.cell.shut.clone(),
             )?;
-            Ok((self.cell.register(spec)?, warnings))
+            Ok((self.cell.register(py, spec)?, warnings))
         })();
         result
             .map(|(replaced, warnings)| (replaced.as_str(), warnings))
@@ -628,7 +648,7 @@ impl Environment {
     #[pyo3(signature = (name, namespace=""))]
     fn unregister(&self, py: Python<'_>, name: &str, namespace: &str) -> PyResult<bool> {
         self.cell
-            .unregister(CommandKey::new("", namespace, name))
+            .unregister(py, CommandKey::new("", namespace, name))
             .map_err(|e| error_to_pyerr(py, &e))
     }
 
@@ -641,7 +661,7 @@ impl Environment {
         namespace: &str,
     ) -> PyResult<crate::command_metadata::CommandMetadata> {
         let result = (|| {
-            let envref = self.cell.envref()?;
+            let envref = self.cell.envref(py)?;
             let key = CommandKey::new("", namespace, name);
             envref
                 .get_command_metadata_registry()
@@ -667,13 +687,13 @@ impl Environment {
     fn import_metadata(&self, py: Python<'_>, yaml: &str) -> PyResult<()> {
         let result = serde_yaml::from_str::<ImportedMetadata>(yaml)
             .map_err(|e| Error::configuration_error(format!("invalid command metadata: {e}")))
-            .and_then(|imported| self.cell.import_metadata(imported.commands));
+            .and_then(|imported| self.cell.import_metadata(py, imported.commands));
         result.map_err(|e| error_to_pyerr(py, &e))
     }
 
     /// Every issue the next build would meet, without building.
     fn validate(&self, py: Python<'_>) -> PyResult<Vec<Issue>> {
-        match self.cell.validate() {
+        match self.cell.validate(py) {
             Ok(report) => Ok(report.issues().iter().map(Issue::from).collect()),
             Err(e) => Err(error_to_pyerr(py, &e)),
         }
@@ -682,7 +702,7 @@ impl Environment {
     /// Stops the environment's background work. A second call does nothing; any later use raises
     /// `GeneralError`.
     fn shutdown(&self, py: Python<'_>) -> PyResult<()> {
-        self.cell.shutdown().map_err(|e| error_to_pyerr(py, &e))
+        self.cell.shutdown(py).map_err(|e| error_to_pyerr(py, &e))
     }
 }
 
@@ -690,54 +710,74 @@ impl Environment {
 mod tests {
     use super::*;
 
+    /// Runs `f` attached to an interpreter, as every `EnvCell` method expects.
+    fn attached<T>(f: impl for<'py> FnOnce(Python<'py>) -> Result<T, Error>) -> Result<T, Error> {
+        Python::initialize();
+        Python::attach(f)
+    }
+
+    fn new_cell() -> Result<EnvCell, Error> {
+        EnvCell::new(EnvironmentConfig::default(), ConversionMode::Permissive, false)
+    }
+
     #[test]
     fn a_fresh_environment_evaluates_a_builtin() -> Result<(), Error> {
-        let cell = EnvCell::new(EnvironmentConfig::default(), ConversionMode::Permissive, false)?;
-        let envref = cell.envref()?;
-        let value = runtime()?.block_on(async move {
-            let asset = envref.evaluate(parse_query("commands_doc")?).await?;
-            asset.get().await
-        })?;
-        assert!(value.try_into_string()?.contains("to_text"));
-        Ok(())
+        attached(|py| {
+            let cell = new_cell()?;
+            let envref = cell.envref(py)?;
+            let value = py.detach(|| {
+                runtime()?.block_on(async move {
+                    let asset = envref.evaluate(parse_query("commands_doc")?).await?;
+                    asset.get().await
+                })
+            })?;
+            assert!(value.try_into_string()?.contains("to_text"));
+            Ok(())
+        })
     }
 
     #[test]
     fn a_rebuild_keeps_the_store_and_retires_the_old_environment() -> Result<(), Error> {
-        let cell = EnvCell::new(EnvironmentConfig::default(), ConversionMode::Permissive, false)?;
-        let first = cell.envref()?;
-        cell.invalidate()?;
-        let second = cell.envref()?;
-        assert!(Arc::ptr_eq(&first.get_async_store(), &second.get_async_store()));
-        assert_eq!(cell.lock()?.retired.len(), 1);
-        Ok(())
+        attached(|py| {
+            let cell = new_cell()?;
+            let first = cell.envref(py)?;
+            cell.invalidate(py)?;
+            let second = cell.envref(py)?;
+            assert!(Arc::ptr_eq(&first.get_async_store(), &second.get_async_store()));
+            assert_eq!(cell.lock(py)?.retired.len(), 1);
+            Ok(())
+        })
     }
 
     #[test]
     fn shutdown_is_idempotent_and_later_use_fails() -> Result<(), Error> {
-        let cell = EnvCell::new(EnvironmentConfig::default(), ConversionMode::Permissive, false)?;
-        cell.envref()?;
-        cell.shutdown()?;
-        cell.shutdown()?;
-        assert!(cell.envref().is_err());
-        assert!(cell.invalidate().is_err());
-        Ok(())
+        attached(|py| {
+            let cell = new_cell()?;
+            cell.envref(py)?;
+            cell.shutdown(py)?;
+            cell.shutdown(py)?;
+            assert!(cell.envref(py).is_err());
+            assert!(cell.invalidate(py).is_err());
+            Ok(())
+        })
     }
 
     #[test]
     fn imported_metadata_for_an_unregistered_command_is_an_error() -> Result<(), Error> {
-        let cell = EnvCell::new(EnvironmentConfig::default(), ConversionMode::Permissive, false)?;
-        let mut ghost = CommandMetadata::new("ghost");
-        ghost.label = "Ghost".to_string();
-        cell.import_metadata(vec![ghost])?;
-        let report = cell.validate()?;
-        assert!(report.has_errors());
-        let err = match cell.envref() {
-            Ok(_) => panic!("a build with an invalid import succeeded"),
-            Err(e) => e,
-        };
-        assert_eq!(err.error_type, liquers_core::error::ErrorType::ConfigurationError);
-        Ok(())
+        attached(|py| {
+            let cell = new_cell()?;
+            let mut ghost = CommandMetadata::new("ghost");
+            ghost.label = "Ghost".to_string();
+            cell.import_metadata(py, vec![ghost])?;
+            let report = cell.validate(py)?;
+            assert!(report.has_errors());
+            let err = match cell.envref(py) {
+                Ok(_) => panic!("a build with an invalid import succeeded"),
+                Err(e) => e,
+            };
+            assert_eq!(err.error_type, liquers_core::error::ErrorType::ConfigurationError);
+            Ok(())
+        })
     }
 
     #[test]
@@ -745,5 +785,45 @@ mod tests {
         let mut config = EnvironmentConfig::default();
         config.recipes = RecipeProviderChoice::Trivial;
         assert!(EnvCell::new(config, ConversionMode::Permissive, false).is_err());
+    }
+
+    /// A thread waiting for the state lock must not keep the interpreter: here the holder needs
+    /// to attach before it can release the lock. With a plain `Mutex::lock` the waiter holds the
+    /// GIL while it blocks, and on a GIL build the two deadlock (AC-8, audit finding 2).
+    #[test]
+    fn lock_is_taken_detached() -> Result<(), Box<dyn std::error::Error>> {
+        Python::initialize();
+        let cell = Arc::new(new_cell()?);
+        let (held_tx, held_rx) = std::sync::mpsc::channel();
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        let holder = {
+            let cell = cell.clone();
+            let done_tx = done_tx.clone();
+            std::thread::spawn(move || {
+                let guard = cell.declarations.lock();
+                let _ = held_tx.send(());
+                std::thread::sleep(Duration::from_millis(200));
+                Python::attach(|_py| ());
+                drop(guard);
+                let _ = done_tx.send("holder");
+            })
+        };
+        held_rx.recv_timeout(Duration::from_secs(10))?;
+        let waiter = {
+            let cell = cell.clone();
+            std::thread::spawn(move || {
+                let validated = Python::attach(|py| cell.validate(py).is_ok());
+                let _ = done_tx.send(if validated { "waiter" } else { "waiter failed" });
+            })
+        };
+        let mut finished = vec![
+            done_rx.recv_timeout(Duration::from_secs(10))?,
+            done_rx.recv_timeout(Duration::from_secs(10))?,
+        ];
+        finished.sort_unstable();
+        assert_eq!(finished, vec!["holder", "waiter"]);
+        holder.join().map_err(|_| "holder panicked")?;
+        waiter.join().map_err(|_| "waiter panicked")?;
+        Ok(())
     }
 }

@@ -2,7 +2,7 @@
 id: PY-ASYNC-EVALUATION-NOT-SUPPORTED
 kind: feature
 title: liquers-py has no awaitable evaluation and cannot register async def commands
-status: accepted
+status: in_progress
 priority: P3
 complexity: L
 area: [py]

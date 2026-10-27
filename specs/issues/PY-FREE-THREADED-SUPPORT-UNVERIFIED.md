@@ -2,7 +2,7 @@
 id: PY-FREE-THREADED-SUPPORT-UNVERIFIED
 kind: issue
 title: liquers-py declares free-threaded support by PyO3 default without being audited or tested on it
-status: accepted
+status: in_progress
 priority: P2
 complexity: M
 area: [py]
