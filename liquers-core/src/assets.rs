@@ -1221,12 +1221,15 @@ impl<E: Environment> AssetData<E> {
         Self::new_ext(id, recipe, State::new(), key, envref)
     }
 
-    /// Creates a temporary asset data structure: id `0`, a default recipe, an empty initial
-    /// state, and **no key**, so it is never stored and never loadable — see
-    /// [keyed assets](crate::assets#keyed-assets-storing-and-persistence).
+    /// Creates a temporary asset data structure: a fresh id from the environment's asset
+    /// manager, a default recipe, an empty initial state, and **no key**, so it is never stored
+    /// and never loadable — see [keyed assets](crate::assets#keyed-assets-storing-and-persistence).
+    ///
+    /// The id is unique among the manager's assets: queues and expiration tracking key on it, so
+    /// two temporary assets must not share one.
     pub fn new_temporary(envref: EnvRef<E>) -> Self {
-        let asset = Self::new_ext(0, Recipe::default(), State::new(), None, envref);
-        asset
+        let id = envref.get_asset_manager().next_id_for_asset();
+        Self::new_ext(id, Recipe::default(), State::new(), None, envref)
     }
 
     /// Extended constructor of AssetData
@@ -15557,6 +15560,40 @@ recipes:
             volatile.is_volatile().await,
             "sanity: it really was volatile"
         );
+    }
+
+    /// Every temporary asset gets its own id from the manager, never `0`
+    /// (`specs/design/temporary-asset-unique-id/`, AC-1, AC-2).
+    #[tokio::test]
+    async fn temporary_assets_have_distinct_ids() {
+        async fn check<E: Environment<Value = Value>>(envref: EnvRef<E>, name: &str) {
+            let manager = envref.get_asset_manager();
+            let before = manager.next_id_for_asset();
+            let a = AssetRef::new_temporary(envref.clone());
+            let b = AssetData::new_temporary(envref.clone()).to_ref();
+            let c = manager.create_temporary_asset();
+            let ids = [before, a.id(), b.id(), c.id()];
+            assert!(
+                !ids.contains(&0),
+                "{name}: no temporary asset has id 0: {ids:?}"
+            );
+            let unique: std::collections::BTreeSet<u64> = ids.iter().copied().collect();
+            assert_eq!(
+                unique.len(),
+                ids.len(),
+                "{name}: ids must be distinct: {ids:?}"
+            );
+        }
+        check(
+            SimpleEnvironment::<Value>::new().to_ref(),
+            "SimpleEnvironment",
+        )
+        .await;
+        check(
+            ImmediateEnvironment::<Value>::new().to_ref(),
+            "ImmediateEnvironment",
+        )
+        .await;
     }
 
     /// `set_volatile_during_run` records volatility on the asset itself — the flag and the
