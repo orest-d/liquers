@@ -2,7 +2,7 @@
 id: RECORD-TABLE-FORMAT-REFUSES-CSV-REFINEMENTS-POLARS-ACCEPTS
 kind: issue
 title: A record view refuses csv:semicolon and csv:pipe, which a DataFrame and the type registry accept
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [records]
@@ -44,3 +44,7 @@ crate owns the shared table is a choice for the fix (`liquers-records` cannot de
 
 Bulk design of `QUERY-CANNOT-CHOOSE-A-DATA-FORMAT` (2026-10-26), comparing the two format parsers.
 Found by reading; not run.
+
+## Resolution
+
+Fixed 2026-10-27 by `design/record-table-csv-refinements/`. Fixed by `design/record-table-csv-refinements/` (2026-10-27): `TableFormat::from_data_format` accepts `csv:semicolon`, `csv:pipe` and `csv:<c>` for one usable ASCII separator, and names the accepted refinements when refusing another `csv:` name.

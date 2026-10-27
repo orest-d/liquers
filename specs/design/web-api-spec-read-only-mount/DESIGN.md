@@ -3,8 +3,8 @@ id: WEB-API-SPEC-READ-ONLY-MOUNT
 kind: design
 title: The web API specification names the read-only mount as the way to protect a store
 form: compact
-status: in_review
-phase: implementation
+status: complete
+gh_pr: [214]
 readiness: ready
 autofix: eligible
 area: [docs, axum]
@@ -12,6 +12,8 @@ issues: [WEB-API-SPEC-SAYS-A-DIRECTORY-MOUNT-CANNOT-BE-READ-ONLY]
 created: 2026-10-26
 ---
 # The web API specification names the read-only mount as the way to protect a store
+
+> **Complete on 2026-10-27**: implemented by automatic fix in #214.
 
 Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-26: Phases 1-4 written; Phase 4
 implemented on 2026-10-27 (automatic fix).

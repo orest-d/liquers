@@ -65,7 +65,7 @@ from liquers._native import (
     State,
     AssetRef,
 )
-from liquers._env import default_environment, evaluate
+from liquers._env import default_environment, evaluate, evaluate_async
 from liquers._commands import command, first_command
 from liquers._errors import LiquersError, _install as _install_errors
 
@@ -125,6 +125,7 @@ __all__ = [
     "AssetRef",
     "default_environment",
     "evaluate",
+    "evaluate_async",
     "command",
     "first_command",
     "LiquersError",

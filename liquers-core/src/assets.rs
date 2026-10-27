@@ -311,14 +311,20 @@
 //!
 
 use std::{
-    collections::{BTreeSet, HashMap, HashSet, VecDeque},
-    sync::atomic::{AtomicBool, AtomicUsize, Ordering},
+    collections::{BTreeSet, HashMap, HashSet},
+    sync::atomic::{AtomicBool, Ordering},
     sync::{Arc, Weak},
 };
+// Used only by the native-only manager and job queue.
+#[cfg(not(target_arch = "wasm32"))]
+use std::{collections::VecDeque, sync::atomic::AtomicUsize};
 
 use async_trait::async_trait;
+#[cfg(not(target_arch = "wasm32"))]
 use scc;
-use tokio::sync::{mpsc, watch, Mutex, Notify, RwLock};
+#[cfg(not(target_arch = "wasm32"))]
+use tokio::sync::Notify;
+use tokio::sync::{mpsc, watch, Mutex, RwLock};
 
 use crate::cache_strategy::CacheStrategy;
 use crate::command_metadata::PayloadRequirement;
@@ -467,10 +473,15 @@ enum SaveOutcome {
 /// Wasm it writes the latest pending metadata inline because no timer task is used.
 pub struct MetadataSaver {
     state: Mutex<MetadataSaverState>,
+    /// Read only by the native debounce (`save_task`); on wasm32 the saver writes inline.
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     interval: std::time::Duration,
     /// Set once the asset was replaced: its key's store entry belongs to the replacement, so
     /// nothing more is written for it (see [`Self::close`]).
     closed: AtomicBool,
+    /// Held across the asset's value write (`save_to_store`), so [`Self::close`] can wait for a
+    /// write already under way and a later one sees `closed`.
+    value_write: Mutex<()>,
 }
 
 #[derive(Default)]
@@ -492,12 +503,14 @@ impl MetadataSaver {
             state: Mutex::new(MetadataSaverState::default()),
             interval,
             closed: AtomicBool::new(false),
+            value_write: Mutex::new(()),
         }
     }
 
-    /// Stop writing: drop the pending metadata, wait for a write already under way, and ignore
-    /// every later save. Used when the asset is replaced, so that none of its metadata — a status,
-    /// a log line from its still-running command — lands on top of the replacement's.
+    /// Stop writing: drop the pending metadata, wait for a write already under way — a metadata
+    /// save or the asset's value write — and ignore every later save. Used when the asset is
+    /// replaced, so that none of it — its value, a status, a log line from its still-running
+    /// command — lands on top of the replacement's.
     pub(crate) async fn close(&self) {
         self.closed.store(true, Ordering::SeqCst);
         #[cfg(not(target_arch = "wasm32"))]
@@ -514,6 +527,20 @@ impl MetadataSaver {
         {
             self.state.lock().await.pending = None;
         }
+        // A value write holding the gate finishes first; one that takes it later sees `closed`.
+        drop(self.value_write.lock().await);
+    }
+
+    /// Supersede the pending metadata, then take the value-write gate, held across the store
+    /// write of the asset's value and metadata. `None` when the saver is closed: the asset was
+    /// replaced, and its key's entry belongs to the replacement.
+    pub(crate) async fn begin_value_write(&self) -> Option<tokio::sync::MutexGuard<'_, ()>> {
+        self.supersede().await;
+        let guard = self.value_write.lock().await;
+        if self.closed.load(Ordering::SeqCst) {
+            return None;
+        }
+        Some(guard)
     }
 
     /// Drop the pending metadata and wait for a write already under way, without closing the
@@ -551,33 +578,50 @@ impl MetadataSaver {
 
         #[cfg(not(target_arch = "wasm32"))]
         {
-            if let Some(handle) = lock.in_flight.as_ref() {
-                if !handle.is_finished() {
-                    return;
+            match envref.get_asset_manager().eval_mode() {
+                // The inline manager runs in the caller's task, which may have no tokio runtime
+                // (`futures::executor::block_on`), so it cannot spawn the coalescing worker.
+                EvalMode::Inline => {
+                    Self::persist_inline(lock, key, envref).await;
                 }
-                lock.in_flight = None;
+                EvalMode::Queued => {
+                    if let Some(handle) = lock.in_flight.as_ref() {
+                        if !handle.is_finished() {
+                            return;
+                        }
+                        lock.in_flight = None;
+                    }
+                    let saver = self.clone();
+                    // The store only: a coalescing save may wait out the interval, and must not
+                    // keep the environment alive meanwhile.
+                    let store = envref.get_async_store();
+                    lock.in_flight = Some(tokio::spawn(async move {
+                        saver.save_task(key, store).await;
+                    }));
+                }
             }
-            let saver = self.clone();
-            // The store only: a coalescing save may wait out the interval, and must not keep the
-            // environment alive meanwhile.
-            let store = envref.get_async_store();
-            lock.in_flight = Some(tokio::spawn(async move {
-                saver.save_task(key, store).await;
-            }));
         }
         #[cfg(target_arch = "wasm32")]
         {
-            // Inline synchronous persist: no spawn, no debounce, no std::time::Instant
-            // (which panics on wasm32-unknown-unknown).
-            let payload = lock.pending.take();
-            drop(lock);
-            // `stored: false` — no store write at all, not even a metadata-only entry: leaving
-            // one behind is exactly the corrupted-data-on-reload trap
-            // (METADATA-ONLY-ENTRY-RELOADS-AS-CORRUPTED).
-            if let (Some(metadata), Some(key)) = (payload, key.as_ref()) {
-                if metadata.stored() {
-                    let _ = envref.get_async_store().set_metadata(key, &metadata).await;
-                }
+            Self::persist_inline(lock, key, envref).await;
+        }
+    }
+
+    /// Inline persist of the pending metadata: no spawn, no debounce, no `std::time::Instant`
+    /// (which panics on wasm32-unknown-unknown). Used on wasm and by the inline manager.
+    async fn persist_inline<E: Environment>(
+        mut lock: tokio::sync::MutexGuard<'_, MetadataSaverState>,
+        key: Option<Key>,
+        envref: EnvRef<E>,
+    ) {
+        let payload = lock.pending.take();
+        drop(lock);
+        // `stored: false` — no store write at all, not even a metadata-only entry: leaving
+        // one behind is exactly the corrupted-data-on-reload trap
+        // (METADATA-ONLY-ENTRY-RELOADS-AS-CORRUPTED).
+        if let (Some(metadata), Some(key)) = (payload, key.as_ref()) {
+            if metadata.stored() {
+                let _ = envref.get_async_store().set_metadata(key, &metadata).await;
             }
         }
     }
@@ -640,6 +684,10 @@ pub(crate) struct CancellationRequest {
     /// Written before `requested` is set (Release), read after it is seen (Acquire).
     cause: std::sync::Mutex<Option<Error>>,
     notify: tokio::sync::Notify,
+    /// Set when a command returned `Ok` and no later step that can suspend has begun: the run
+    /// has passed its point of no return, so a request no longer drops it. A gate, not a drop:
+    /// the request stays pending and applies again once [`Self::reopen`] is called.
+    committed: AtomicBool,
 }
 
 impl CancellationRequest {
@@ -648,7 +696,25 @@ impl CancellationRequest {
             requested: AtomicBool::new(false),
             cause: std::sync::Mutex::new(None),
             notify: tokio::sync::Notify::new(),
+            committed: AtomicBool::new(false),
         }
+    }
+
+    /// A command returned `Ok`: until [`Self::reopen`], a request does not drop the run.
+    pub(crate) fn commit(&self) {
+        self.committed.store(true, Ordering::Release);
+    }
+
+    /// A step that can suspend begins (or a run starts): a request applies again, including one
+    /// made while the run was committed.
+    pub(crate) fn reopen(&self) {
+        if self.committed.swap(false, Ordering::AcqRel) && self.is_requested() {
+            self.notify.notify_waiters();
+        }
+    }
+
+    fn is_committed(&self) -> bool {
+        self.committed.load(Ordering::Acquire)
     }
 
     /// Request cancellation with `cause`. The first cause wins; returns whether this call made
@@ -682,16 +748,18 @@ impl CancellationRequest {
     pub(crate) fn clear(&self) {
         let mut guard = self.cause.lock().unwrap_or_else(|e| e.into_inner());
         self.requested.store(false, Ordering::Release);
+        self.committed.store(false, Ordering::Release);
         *guard = None;
     }
 
-    /// Completes once cancellation has been requested.
+    /// Completes once cancellation has been requested while the run is not committed.
     pub(crate) async fn requested(&self) {
         loop {
             let mut notified = std::pin::pin!(self.notify.notified());
-            // Registered before the check, so a request made in between is not lost.
+            // Registered before the check, so a request (or a reopen) made in between is not
+            // lost.
             notified.as_mut().enable();
-            if self.is_requested() {
+            if self.is_requested() && !self.is_committed() {
                 return;
             }
             notified.await;
@@ -828,6 +896,10 @@ pub struct AssetData<E: Environment> {
     recipe_sets_title: bool,
     /// The same for the description.
     recipe_sets_description: bool,
+    /// Set by a dropped [`InlineRunClaim`] that could not take the lock to repair the status it
+    /// left behind: the `Processing` / `Dependencies` status then has no live runner, and the
+    /// next inline claim takes the run over instead of waiting for it. Cleared by every claim.
+    inline_run_abandoned: Arc<AtomicBool>,
 
     /// An outside change [`Self::try_fast_track`] found in the stored bytes, waiting to be applied
     /// with [`AssetManager::apply_external_change`].
@@ -1063,7 +1135,8 @@ fn validate_required_metadata_fields_enum(
 fn add_soft_consistency_warnings(metadata: &mut MetadataRecord) {
     let effective_data_format = metadata.get_data_format();
     let expected_media_type =
-        crate::media_type::file_extension_to_media_type(&effective_data_format).to_string();
+        crate::media_type::file_extension_to_media_type(data_format_base(&effective_data_format))
+            .to_string();
     let entries = soft_consistency_entries(
         &effective_data_format,
         metadata.extension().as_deref(),
@@ -1082,7 +1155,8 @@ fn add_soft_consistency_warnings(metadata: &mut MetadataRecord) {
 fn add_soft_consistency_warnings_enum(metadata: &mut Metadata) -> Result<(), Error> {
     let effective_data_format = metadata.get_data_format();
     let expected_media_type =
-        crate::media_type::file_extension_to_media_type(&effective_data_format).to_string();
+        crate::media_type::file_extension_to_media_type(data_format_base(&effective_data_format))
+            .to_string();
     let entries = soft_consistency_entries(
         &effective_data_format,
         metadata.extension().as_deref(),
@@ -1201,6 +1275,21 @@ struct FastTrackRefusal {
 }
 
 impl<E: Environment> AssetData<E> {
+    /// Records that `dependency` changed after this run read it: a warning, and — the first one
+    /// wins — the `dependency` of the `Direct { StaleDependency }` reason this asset gets at
+    /// finalization. Shared by every path that finds a consumed dependency stale.
+    fn note_stale_dependency(&mut self, dependency: DependencyKey) {
+        let subject = self.expiry_subject();
+        let _ = self.metadata.add_log_entry(LogEntry::warning(format!(
+            "Dependency {} of {} expired during evaluation; using its stale value and \
+             marking {} expired for recomputation on next access",
+            dependency, subject, subject
+        )));
+        if self.stale_dependency.is_none() {
+            self.stale_dependency = Some(dependency);
+        }
+    }
+
     /// Constructs and initializes a new AssetData
     ///
     /// Arguments:
@@ -1219,12 +1308,15 @@ impl<E: Environment> AssetData<E> {
         Self::new_ext(id, recipe, State::new(), key, envref)
     }
 
-    /// Creates a temporary asset data structure: id `0`, a default recipe, an empty initial
-    /// state, and **no key**, so it is never stored and never loadable — see
-    /// [keyed assets](crate::assets#keyed-assets-storing-and-persistence).
+    /// Creates a temporary asset data structure: a fresh id from the environment's asset
+    /// manager, a default recipe, an empty initial state, and **no key**, so it is never stored
+    /// and never loadable — see [keyed assets](crate::assets#keyed-assets-storing-and-persistence).
+    ///
+    /// The id is unique among the manager's assets: queues and expiration tracking key on it, so
+    /// two temporary assets must not share one.
     pub fn new_temporary(envref: EnvRef<E>) -> Self {
-        let asset = Self::new_ext(0, Recipe::default(), State::new(), None, envref);
-        asset
+        let id = envref.get_asset_manager().next_id_for_asset();
+        Self::new_ext(id, Recipe::default(), State::new(), None, envref)
     }
 
     /// Extended constructor of AssetData
@@ -1301,6 +1393,7 @@ impl<E: Environment> AssetData<E> {
             stale_dependency: None,
             recipe_sets_title: false,
             recipe_sets_description: false,
+            inline_run_abandoned: Arc::new(AtomicBool::new(false)),
             pending_external_change: None,
             fast_track_refusal: None,
             evaluation_session: std::sync::Weak::new(),
@@ -2709,16 +2802,10 @@ impl<E: Environment> AssetRef<E> {
             dep.provenance_key()
                 .unwrap_or_else(|| DependencyKey::new(dep.expiry_subject()))
         };
-        let mut lock = self.data.write().await;
-        let subject = lock.expiry_subject();
-        let _ = lock.metadata.add_log_entry(LogEntry::warning(format!(
-            "Dependency {} of {} expired during evaluation; using its stale value and \
-             marking {} expired for recomputation on next access",
-            dependency_key, subject, subject
-        )));
-        if lock.stale_dependency.is_none() {
-            lock.stale_dependency = Some(dependency_key);
-        }
+        self.data
+            .write()
+            .await
+            .note_stale_dependency(dependency_key);
         Ok(())
     }
 
@@ -3659,19 +3746,88 @@ impl<E: Environment> AssetRef<E> {
                 tokio::spawn(async move {
                     // The asset holds its environment weakly; the save is bounded, so it pins it.
                     let _envref = envref;
-                    let result = assetref.save_to_store().await;
-                    assetref.record_persistence_result(result).await;
+                    assetref.save_and_recheck_inputs().await;
                 });
             } else {
-                let result = self.save_to_store().await;
-                self.record_persistence_result(result).await;
+                self.save_and_recheck_inputs().await;
             }
         }
         #[cfg(target_arch = "wasm32")]
         {
             let _ = save_in_background;
-            let result = self.save_to_store().await;
-            self.record_persistence_result(result).await;
+            self.save_and_recheck_inputs().await;
+        }
+    }
+
+    /// Writes the asset to the store and records the outcome; after a write, re-checks its
+    /// inputs (see [`Self::expire_written_copy_if_inputs_superseded`]).
+    async fn save_and_recheck_inputs(&self) {
+        let result = self.save_to_store().await;
+        let written = matches!(result, Ok(SaveOutcome::Written));
+        self.record_persistence_result(result).await;
+        if written {
+            self.expire_written_copy_if_inputs_superseded().await;
+        }
+    }
+
+    /// After an uncached keyed asset was written: when one of its recorded inputs no longer holds
+    /// the version it recorded, rewrite the stored copy as `Expired` with
+    /// `Direct { StaleDependency }`.
+    ///
+    /// An uncached key has no registered asset, so a cascade that reached it during the run found
+    /// at most an older stored copy, and the write then put a `Ready` copy back that a fresh
+    /// process would serve. Checking after the write closes that window: a change landing later
+    /// finds the stored copy and expires it. Registered (cached) and volatile assets are left to
+    /// the cascade. Failures are only logged, as in [`expire_stored_copy`].
+    ///
+    /// Only the revision this asset wrote is expired: under `key_mutation_lock`, the stored copy
+    /// must still carry this asset's version and dependency records, so a value installed by a
+    /// concurrent `set_state` (or a newer run's write) after this one is left alone. Only a
+    /// `Ready` asset is checked — `to_override` persists an `Override` while holding that lock,
+    /// and the lock is not reentrant.
+    async fn expire_written_copy_if_inputs_superseded(&self) {
+        // One read, released before the dependency manager is asked (lock order as in
+        // `record_dependency_on_asset`).
+        let (key, records, version) = {
+            let lock = self.data.read().await;
+            if lock.status != Status::Ready {
+                return;
+            }
+            let (records, version) = match &lock.metadata {
+                Metadata::MetadataRecord(mr) if !mr.cached() => {
+                    (mr.dependencies.clone(), lock.metadata.version())
+                }
+                Metadata::MetadataRecord(_) | Metadata::LegacyMetadata(_) => return,
+            };
+            match (&lock.key, lock.is_volatile) {
+                (Some(key), false) => (key.clone(), records, version),
+                (Some(_), true) | (None, _) => return,
+            }
+        };
+        let Ok(envref) = self.try_get_envref().await else {
+            return;
+        };
+        let manager = envref.get_asset_manager();
+        let Some(dependency) = manager
+            .dependency_manager()
+            .superseded_record(&records)
+            .await
+        else {
+            return;
+        };
+        let reason = ExpiryReason::Direct {
+            cause: ExpiryCause::StaleDependency { dependency },
+        };
+        let store = envref.get_async_store();
+        let _mutation = manager.key_mutation_lock().lock().await;
+        let written_revision = match store.get_metadata(&key).await {
+            Ok(stored) => {
+                stored.version() == version && stored.get_dependencies() == records.as_slice()
+            }
+            Err(_) => false,
+        };
+        if written_revision {
+            expire_stored_copy(&*manager, store, &key, &reason).await;
         }
     }
 
@@ -4050,6 +4206,8 @@ impl<E: Environment> AssetRef<E> {
             return Ok(()); // Already finished
         }
         let cancellation = self.cancellation().await;
+        // Every run starts uncommitted: a commit left by an earlier run must not shield this one.
+        cancellation.reopen();
         let log_start = self.log_len().await;
         let assetref = self.clone();
         // all service messages should be processed, therefore they run in a separate task
@@ -4120,6 +4278,8 @@ impl<E: Environment> AssetRef<E> {
             None => return Ok(()),
         };
         let cancellation = self.cancellation().await;
+        // Every run starts uncommitted: a commit left by an earlier run must not shield this one.
+        cancellation.reopen();
         let log_start = self.log_len().await;
         let eval_side = async {
             let outcome = if cancellation.is_requested() {
@@ -4206,7 +4366,8 @@ impl<E: Environment> AssetRef<E> {
     /// Safe to call from several tasks: one claims the run, and the others wait for it to finish.
     /// On an asset that has already finished it returns at once. If the returned future of the
     /// running caller is dropped before completion, the asset's status is repaired to `Recipe`
-    /// and one of the waiting callers takes the run over.
+    /// and one of the waiting callers takes the run over. When the repair cannot take the lock,
+    /// the asset is marked abandoned instead, and the next inline claim takes the run over.
     pub async fn run_inline(&self, payload: Option<E::Payload>) -> Result<(), Error> {
         self.run_with_future_inline(self.compute(payload)).await
     }
@@ -4468,6 +4629,20 @@ impl<E: Environment> AssetRef<E> {
                     dependencies,
                     origin,
                 } = outcome;
+                // A dependency the run recorded itself (`Context::add_dependency`) rather than
+                // waited for may have been rewritten since: nothing compared its version, and the
+                // edge that would have caught the write does not exist yet. Checked before the
+                // lock, which the dependency manager's read must not be taken under.
+                let superseded = match self.try_get_envref().await {
+                    Ok(envref) => {
+                        envref
+                            .get_asset_manager()
+                            .dependency_manager()
+                            .superseded_record(&dependencies)
+                            .await
+                    }
+                    Err(_) => None,
+                };
                 {
                     // Merge into the live metadata rather than installing a snapshot: the
                     // service-message loop is writing progress and log entries to this same
@@ -4477,6 +4652,9 @@ impl<E: Environment> AssetRef<E> {
                         // Replaced or otherwise finished while the command ran: the late result
                         // must change neither this asset nor the store (AC-8).
                         return Ok(false);
+                    }
+                    if let Some(dependency) = superseded {
+                        lock.note_stale_dependency(dependency);
                     }
                     lock.metadata
                         .with_type_identifier(value.identifier().to_string())
@@ -4585,11 +4763,64 @@ impl<E: Environment> AssetRef<E> {
                     manager
                         .expire_dependencies_result(expired, ExpiryCause::Updated { version })
                         .await;
+                    // A dependency written between the check above and `track_asset` found no
+                    // edge to this asset; now that the edges exist, a later write finds them.
+                    self.expire_if_superseded().await?;
                 }
 
                 Ok(true)
             }
         }
+    }
+
+    /// Expires this asset when one of its recorded dependencies no longer holds the version it
+    /// recorded — `Direct { StaleDependency }`, and for a keyed owner its dependents cascade with
+    /// the same cause. Called once its edges are registered, so a write after this finds them.
+    ///
+    /// A keyed asset is expired under `key_mutation_lock`, and only while no other asset is
+    /// registered for its key: expiring persists the metadata under the key, and an asset a
+    /// concurrent `set_state` replaced must not overwrite the replacement's stored metadata.
+    async fn expire_if_superseded(&self) -> Result<(), Error> {
+        let records = match &self.data.read().await.metadata {
+            Metadata::MetadataRecord(mr) => mr.dependencies.clone(),
+            Metadata::LegacyMetadata(_) => Vec::new(),
+        };
+        let envref = self.try_get_envref().await?;
+        let manager = envref.get_asset_manager();
+        let Some(dependency) = manager
+            .dependency_manager()
+            .superseded_record(&records)
+            .await
+        else {
+            return Ok(());
+        };
+        let mutation = match self.key().await {
+            Some(key) => {
+                let guard = manager.key_mutation_lock().lock().await;
+                match manager.lookup_key_asset(&key) {
+                    Some(current) if current.id() != self.id() => return Ok(()),
+                    Some(_) | None => Some(guard),
+                }
+            }
+            None => None,
+        };
+        self.expire_without_cascade(ExpiryReason::Direct {
+            cause: ExpiryCause::StaleDependency {
+                dependency: dependency.clone(),
+            },
+        })
+        .await?;
+        // The cascade takes no `key_mutation_lock`; released first all the same.
+        drop(mutation);
+        if let Some(key) = self.bound_owner_key().await.ok().flatten() {
+            manager
+                .cascade_expire_dependents(
+                    &DependencyKey::from(&key),
+                    ExpiryCause::StaleDependency { dependency },
+                )
+                .await;
+        }
+        Ok(())
     }
 
     /// Persists metadata updates to the configured async store.
@@ -4680,8 +4911,18 @@ impl<E: Environment> AssetRef<E> {
                 // The metadata written is then read again, so a snapshot queued after it was
                 // captured above (progress finalized while this write ran in the background)
                 // is not dropped in favour of the older copy.
+                //
+                // The value-write gate is held across the write, so replacing the key (`remove`,
+                // `set_state`, `set_binary`) waits for a write under way, and a write starting
+                // after the replacement is skipped instead of reviving the old value.
                 let saver = self.data.read().await.metadata_saver.clone();
-                saver.supersede().await;
+                let Some(gate) = saver.begin_value_write().await else {
+                    eprintln!(
+                        "Asset {} was replaced, skipping store write in save_to_store",
+                        self.id()
+                    );
+                    return Ok(SaveOutcome::Skipped);
+                };
                 let metadata = self
                     .data
                     .read()
@@ -4690,6 +4931,7 @@ impl<E: Environment> AssetRef<E> {
                     .map(|(_, current)| current)
                     .unwrap_or(metadata);
                 let written = store.set(key, &data, &metadata).await;
+                drop(gate);
                 if written.is_ok() {
                     // Listings that depend on this directory see a new (or rewritten) member.
                     envref
@@ -4919,21 +5161,23 @@ impl<E: Environment> AssetRef<E> {
         Ok(true)
     }
 
-    /// Cancel this asset because it is being replaced (`set`, `set_state`, `remove`,
-    /// `to_override`). Unlike [`Self::cancel`], an in-flight asset ends `Cancelled` at once and
-    /// the result its run produces later is discarded, so it can overwrite neither the
-    /// replacement's status nor the store. A finished asset is left as it is.
+    /// Cancel this asset because it is being replaced (`set`, `set_state`, `remove`). Unlike
+    /// [`Self::cancel`], an in-flight asset ends `Cancelled` at once and the result its run
+    /// produces later is discarded, so it can overwrite neither the replacement's status nor the
+    /// store. A finished asset keeps its status, but nothing more of it is written: a value write
+    /// in progress is waited for, a later one is skipped.
     ///
     /// An external [`AssetManager`] calls this in place of `cancel()` when it replaces an asset.
     pub async fn cancel_for_replacement(&self) -> Result<(), Error> {
-        if !is_in_flight(self.status().await) {
-            return Ok(());
-        }
         // The key's store entry now belongs to the replacement: nothing more is written for this
-        // asset, including a log line its still-running command sends later.
+        // asset — a background value write of a finished run, or a log line its still-running
+        // command sends later.
         let saver = self.data.read().await.metadata_saver.clone();
         saver.close().await;
-        self.discard_run("replaced").await
+        if is_in_flight(self.status().await) {
+            self.discard_run("replaced").await?;
+        }
+        Ok(())
     }
 
     /// End an in-flight run as `Cancelled` without writing to the store, so its late result is
@@ -6748,7 +6992,7 @@ pub trait AssetManager<E: Environment>:
         if is_dir {
             return Err(Error::status_conflict(key, Status::Directory, "remove"));
         }
-        let stored_metadata = if store.contains(key).await? {
+        let mut stored_metadata = if store.contains(key).await? {
             Some(store.get_metadata(key).await?)
         } else {
             None
@@ -6810,6 +7054,13 @@ pub trait AssetManager<E: Environment>:
             asset.cancel_for_replacement().await?;
             self.untrack_expiration(asset.id());
             self.remove_key_asset(key).await;
+            // The cancel waited for a value write already in progress, which may have stored
+            // the entry read above; act on the store as the write left it.
+            stored_metadata = if store.contains(key).await? {
+                Some(store.get_metadata(key).await?)
+            } else {
+                None
+            };
         }
         let result = match action {
             RemoveAction::Nothing => Ok(()),
@@ -9843,6 +10094,10 @@ pub(crate) struct InlineRunClaim<E: Environment> {
     /// Keeps the environment alive while the run is in flight: the asset holds it only weakly.
     _envref: EnvRef<E>,
     armed: bool,
+    /// The asset's [`AssetData::inline_run_abandoned`] mark and notification sender, cloned at
+    /// claim time so `Drop` can reach them without the lock.
+    abandoned: Arc<AtomicBool>,
+    notification_tx: watch::Sender<AssetNotificationMessage>,
 }
 
 impl<E: Environment> InlineRunClaim<E> {
@@ -9859,9 +10114,10 @@ impl<E: Environment> Drop for InlineRunClaim<E> {
         }
         // The runner vanished mid-flight (an error, a cancelled future, a panic unwinding past
         // the claim). Return the asset to a claimable status so a later caller can run it.
-        // `try_write` rather than blocking: `Drop` cannot await, and failing to repair is better
-        // than deadlocking. A missed repair leaves the asset in `Processing`, which the next
-        // caller waits on rather than double-running — the safe direction.
+        // `try_write` rather than blocking: `Drop` cannot await. When the lock is held, the
+        // status cannot be repaired here; the asset is marked abandoned instead and every
+        // receiver is woken, so the next inline claim (a parked caller retrying, or a later one)
+        // takes the run over. See `try_claim_for_run_inline`.
         //
         // `Dependencies` is repaired alongside `Processing`, exactly as the queued `RunClaim`
         // does. Both are statuses only a live runner can hold, and the runner is gone; leaving
@@ -9894,6 +10150,11 @@ impl<E: Environment> Drop for InlineRunClaim<E> {
                     // Finished, or never entered a running status; nothing to repair.
                 }
             }
+        } else {
+            // The mark is stored before the wake-up, so a woken waiter's retry sees it. The
+            // latest message is left as it is: the asset's status has not changed yet.
+            self.abandoned.store(true, Ordering::Release);
+            self.notification_tx.send_modify(|_| {});
         }
     }
 }
@@ -9925,21 +10186,23 @@ impl<E: Environment> AssetRef<E> {
     /// first rather than be turned away.
     pub(crate) async fn try_claim_for_run_inline(&self) -> Result<Option<InlineRunClaim<E>>, Error> {
         let mut lock = self.data.write().await;
-        match lock.status {
+        let take_over = match lock.status {
             Status::None | Status::Recipe | Status::Submitted => {
-                lock.set_status(Status::Processing)?;
-                let envref = lock.try_get_envref();
-                drop(lock);
-                let envref = self.fail_unless_pinned(envref).await?;
-                Ok(Some(InlineRunClaim {
-                    asset: self.clone(),
-                    _envref: envref,
-                    armed: true,
-                }))
+                lock.inline_run_abandoned.store(false, Ordering::Release);
+                true
+            }
+            // Active, unless the runner's claim was dropped without being able to repair it.
+            Status::Processing | Status::Dependencies => {
+                if lock.inline_run_abandoned.swap(false, Ordering::AcqRel) {
+                    let _ = lock.metadata.add_log_entry(LogEntry::warning(
+                        "previous inline run was dropped; running again".to_string(),
+                    ));
+                    true
+                } else {
+                    false
+                }
             }
             Status::Directory
-            | Status::Processing
-            | Status::Dependencies
             | Status::Partial
             | Status::Error
             | Status::Storing
@@ -9948,8 +10211,24 @@ impl<E: Environment> AssetRef<E> {
             | Status::Cancelled
             | Status::Source
             | Status::Override
-            | Status::Volatile => Ok(None),
+            | Status::Volatile => false,
+        };
+        if !take_over {
+            return Ok(None);
         }
+        lock.set_status(Status::Processing)?;
+        let envref = lock.try_get_envref();
+        let abandoned = lock.inline_run_abandoned.clone();
+        let notification_tx = lock.notification_tx.clone();
+        drop(lock);
+        let envref = self.fail_unless_pinned(envref).await?;
+        Ok(Some(InlineRunClaim {
+            asset: self.clone(),
+            _envref: envref,
+            armed: true,
+            abandoned,
+            notification_tx,
+        }))
     }
 }
 
@@ -13953,6 +14232,89 @@ recipes:
         stale.is_some()
     }
 
+    /// `runtime-dependency-record-superseded-check` AC-2: a dependency rewritten after the
+    /// completion check but before the edge existed is caught once the edges are registered.
+    #[tokio::test]
+    async fn superseded_after_tracking_expires_the_asset() {
+        let envref = expiry_test_envref();
+        let manager = envref.get_asset_manager();
+        let dm = manager.dependency_manager();
+        let a = DependencyKey::from(&parse_key("a.txt").unwrap());
+        let idx = parse_key("idx.txt").unwrap();
+        let mut d = AssetData::<SimpleEnvironment<Value>>::new(
+            manager.next_id_for_asset(),
+            idx.clone().into(),
+            Some(idx),
+            envref.clone(),
+        );
+        d.status = Status::Ready;
+        d.data = Some(Arc::new(Value::from("idx")));
+        let _ = d.metadata.set_version(Some(Version::new(5)));
+        let _ = d
+            .metadata
+            .add_dependency(DependencyRecord::new(a.clone(), Version::new(1)));
+        let asset = d.to_ref();
+        dm.register_version(&a, Version::new(1)).await;
+        let _ = dm.track_asset(&asset).await;
+        // Written in the window: the map moves on, nothing cascades.
+        dm.register_version_sync(&a, Version::new(2));
+        assert_eq!(
+            asset.status().await,
+            Status::Ready,
+            "the premise: not yet expired"
+        );
+
+        asset.expire_if_superseded().await.unwrap();
+        assert_eq!(asset.status().await, Status::Expired);
+        let reason = asset.get_metadata().await.unwrap().expiry_reason();
+        assert_eq!(
+            reason,
+            Some(ExpiryReason::Direct {
+                cause: ExpiryCause::StaleDependency { dependency: a }
+            })
+        );
+    }
+
+    /// A replaced asset is not expired by the post-tracking check: expiring would persist its
+    /// metadata under the key, over the replacement's.
+    #[tokio::test]
+    async fn superseded_after_tracking_leaves_a_replaced_asset_alone() {
+        let envref = expiry_test_envref();
+        let manager = envref.get_asset_manager();
+        let dm = manager.dependency_manager();
+        let a = DependencyKey::from(&parse_key("a.txt").unwrap());
+        let idx = parse_key("idx.txt").unwrap();
+        let mut d = AssetData::<SimpleEnvironment<Value>>::new(
+            manager.next_id_for_asset(),
+            idx.clone().into(),
+            Some(idx.clone()),
+            envref.clone(),
+        );
+        d.status = Status::Ready;
+        d.data = Some(Arc::new(Value::from("idx")));
+        let _ = d.metadata.set_version(Some(Version::new(5)));
+        let _ = d
+            .metadata
+            .add_dependency(DependencyRecord::new(a.clone(), Version::new(1)));
+        let asset = d.to_ref();
+        dm.register_version(&a, Version::new(1)).await;
+        let _ = dm.track_asset(&asset).await;
+        dm.register_version_sync(&a, Version::new(2));
+
+        let mut r = AssetData::<SimpleEnvironment<Value>>::new(
+            manager.next_id_for_asset(),
+            idx.clone().into(),
+            Some(idx.clone()),
+            envref.clone(),
+        );
+        r.status = Status::Override;
+        r.data = Some(Arc::new(Value::from("replacement")));
+        assert!(manager.try_insert_key_asset(&idx, r.to_ref()).await);
+
+        asset.expire_if_superseded().await.unwrap();
+        assert_eq!(asset.status().await, Status::Ready);
+    }
+
     /// The map already holds a different concrete version: the dependent is stale at birth.
     #[tokio::test]
     async fn edge_against_superseded_version_marks_dependent_stale() {
@@ -15212,6 +15574,45 @@ recipes:
         Ok(())
     }
 
+    /// A finished asset replaced before its value write starts writes nothing: the write that
+    /// starts later is skipped, so it cannot revive the old value under the replacement
+    /// (`specs/design/replaced-asset-write-gate/`).
+    #[tokio::test]
+    async fn save_to_store_skips_after_replacement_of_a_finished_asset(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let key = parse_key("gate/replaced_ready.txt")?;
+        let (envref, assetref) = cancelled_keyed_asset(9336, &key);
+        assetref.data.write().await.status = Status::Ready;
+        assetref.cancel_for_replacement().await?;
+        assert_eq!(assetref.save_to_store().await?, SaveOutcome::Skipped);
+        assetref.persist_with_status_tracking(false).await;
+        assert_eq!(assetref.persistence_status().await, PersistenceStatus::None);
+        assert!(!envref.get_async_store().contains(&key).await?);
+        assert_eq!(assetref.status().await, Status::Ready);
+        Ok(())
+    }
+
+    /// `close` waits for a value write holding the gate, and a write starting after it is
+    /// refused.
+    #[tokio::test]
+    async fn metadata_saver_close_waits_for_a_value_write() {
+        let saver = Arc::new(MetadataSaver::new(std::time::Duration::from_millis(100)));
+        let gate = saver.begin_value_write().await;
+        assert!(gate.is_some(), "an open saver grants the gate");
+        let closing = {
+            let saver = saver.clone();
+            tokio::spawn(async move { saver.close().await })
+        };
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        assert!(!closing.is_finished(), "close returned during the write");
+        drop(gate);
+        tokio::time::timeout(std::time::Duration::from_secs(5), closing)
+            .await
+            .expect("close finishes once the write ends")
+            .expect("close task");
+        assert!(saver.begin_value_write().await.is_none());
+    }
+
     /// `stored: false` in the metadata snapshot is a skip too, even when the caller did not
     /// check it first.
     #[tokio::test]
@@ -15555,6 +15956,61 @@ recipes:
             volatile.is_volatile().await,
             "sanity: it really was volatile"
         );
+    }
+
+    /// `cancel-point-of-no-return`: a committed run is not dropped by a request until reopened.
+    #[tokio::test]
+    async fn cancellation_request_commit_gates_requested() {
+        let request = CancellationRequest::new();
+        request.request(Error::general_error("cancel".to_string()));
+        request.commit();
+        let mut requested = Box::pin(request.requested());
+        assert!(
+            futures::poll!(requested.as_mut()).is_pending(),
+            "a committed run ignores the request"
+        );
+        assert!(request.is_requested(), "the request is kept, not dropped");
+        request.reopen();
+        assert!(
+            futures::poll!(requested.as_mut()).is_ready(),
+            "reopening applies the pending request"
+        );
+        request.clear();
+        assert!(!request.is_requested());
+    }
+
+    /// Every temporary asset gets its own id from the manager, never `0`
+    /// (`specs/design/temporary-asset-unique-id/`, AC-1, AC-2).
+    #[tokio::test]
+    async fn temporary_assets_have_distinct_ids() {
+        async fn check<E: Environment<Value = Value>>(envref: EnvRef<E>, name: &str) {
+            let manager = envref.get_asset_manager();
+            let before = manager.next_id_for_asset();
+            let a = AssetRef::new_temporary(envref.clone());
+            let b = AssetData::new_temporary(envref.clone()).to_ref();
+            let c = manager.create_temporary_asset();
+            let ids = [before, a.id(), b.id(), c.id()];
+            assert!(
+                !ids.contains(&0),
+                "{name}: no temporary asset has id 0: {ids:?}"
+            );
+            let unique: std::collections::BTreeSet<u64> = ids.iter().copied().collect();
+            assert_eq!(
+                unique.len(),
+                ids.len(),
+                "{name}: ids must be distinct: {ids:?}"
+            );
+        }
+        check(
+            SimpleEnvironment::<Value>::new().to_ref(),
+            "SimpleEnvironment",
+        )
+        .await;
+        check(
+            ImmediateEnvironment::<Value>::new().to_ref(),
+            "ImmediateEnvironment",
+        )
+        .await;
     }
 
     /// `set_volatile_during_run` records volatility on the asset itself — the flag and the
@@ -17229,6 +17685,104 @@ recipes:
         Ok(())
     }
 
+    // `inline-run-claim-repair-under-lock-contention`: the dropped claim cannot take the lock.
+
+    /// AC-1: A is dropped while another task reads the asset; the parked B still takes over.
+    #[tokio::test]
+    async fn inline_waiter_takes_over_run_dropped_under_contention() -> Result<(), Error> {
+        let gate = SlowGate::new(SlowFirst::Ok);
+        let envref = slow_env(gate.clone());
+        let m = envref.get_asset_manager();
+        let query = parse_query("slow")?;
+        let mut a = Box::pin(m.get_asset(&query));
+        assert!(futures::poll!(a.as_mut()).is_pending());
+        let mut b = Box::pin(m.get_asset(&query));
+        assert!(futures::poll!(b.as_mut()).is_pending());
+        let asset = gate.asset();
+        let guard = asset.data.read().await;
+        drop(a);
+        drop(guard);
+        let taken = tokio::time::timeout(WAITER_TIMEOUT, b)
+            .await
+            .expect("the parked caller must take over a run whose repair was skipped")?;
+        assert_eq!(taken.get().await?.try_into_string()?, "y");
+        assert_eq!(taken.status().await, Status::Ready);
+        assert_eq!(gate.entered(), 2);
+        Ok(())
+    }
+
+    /// AC-2: with nobody parked, the next caller runs an asset whose repair was skipped.
+    #[tokio::test]
+    async fn inline_later_caller_runs_asset_whose_repair_was_skipped() -> Result<(), Error> {
+        let gate = SlowGate::new(SlowFirst::Ok);
+        let envref = slow_env(gate.clone());
+        let m = envref.get_asset_manager();
+        let query = parse_query("slow")?;
+        let mut a = Box::pin(m.get_asset(&query));
+        assert!(futures::poll!(a.as_mut()).is_pending());
+        let asset = gate.asset();
+        let guard = asset.data.read().await;
+        drop(a);
+        drop(guard);
+        let later = tokio::time::timeout(WAITER_TIMEOUT, m.get_asset(&query))
+            .await
+            .expect("a later caller must run the asset")?;
+        assert_eq!(later.get().await?.try_into_string()?, "y");
+        assert_eq!(gate.entered(), 2);
+        Ok(())
+    }
+
+    /// AC-3: tasks reading the asset's status during a live run do not cause a second run.
+    #[tokio::test]
+    async fn inline_status_readers_do_not_cause_a_second_run() -> Result<(), Error> {
+        let gate = SlowGate::new(SlowFirst::Ok);
+        let envref = slow_env(gate.clone());
+        let m = envref.get_asset_manager();
+        let query = parse_query("slow")?;
+        let mut a = Box::pin(m.get_asset(&query));
+        assert!(futures::poll!(a.as_mut()).is_pending());
+        let mut b = Box::pin(m.get_asset(&query));
+        assert!(futures::poll!(b.as_mut()).is_pending());
+        let asset = gate.asset();
+        for _ in 0..5 {
+            assert_eq!(asset.status().await, Status::Processing);
+            assert!(futures::poll!(b.as_mut()).is_pending());
+            assert!(futures::poll!(a.as_mut()).is_pending());
+        }
+        gate.release.notify_one();
+        let (ra, rb) = tokio::time::timeout(WAITER_TIMEOUT, async { futures::join!(a, b) })
+            .await
+            .expect("both callers return once the run finishes");
+        assert_eq!(ra?.get().await?.try_into_string()?, "x");
+        assert_eq!(rb?.get().await?.try_into_string()?, "x");
+        assert_eq!(gate.entered(), 1);
+        Ok(())
+    }
+
+    /// AC-5: a skipped repair followed by removal does not re-run the asset.
+    #[tokio::test]
+    async fn inline_waiter_does_not_rerun_removed_asset_after_skipped_repair() -> Result<(), Error>
+    {
+        let gate = SlowGate::new(SlowFirst::Ok);
+        let envref = slow_env(gate.clone());
+        let m = envref.get_asset_manager();
+        let query = parse_query("slow")?;
+        let mut a = Box::pin(m.get_asset(&query));
+        assert!(futures::poll!(a.as_mut()).is_pending());
+        let mut b = Box::pin(m.get_asset(&query));
+        assert!(futures::poll!(b.as_mut()).is_pending());
+        let asset = gate.asset();
+        let guard = asset.data.read().await;
+        drop(a);
+        drop(guard);
+        asset.notify_removed().await;
+        let _ = tokio::time::timeout(WAITER_TIMEOUT, b)
+            .await
+            .expect("removal releases the parked caller");
+        assert_eq!(gate.entered(), 1, "a removed asset is not run again");
+        Ok(())
+    }
+
     /// AC-6: removing the asset still releases a parked caller.
     #[tokio::test]
     async fn inline_waiter_released_by_removal() -> Result<(), Error> {
@@ -17508,6 +18062,51 @@ mod stored_walk_tests {
             state(&envref, "d/l1500.txt").await,
             StoredDependencyState::Confirmed(Version::new(1501))
         );
+        Ok(())
+    }
+    /// The re-check after an uncached write expires only the revision this asset wrote: a copy
+    /// that replaced it in the store (here an `Override` with other dependencies) is left alone,
+    /// and the asset's own copy is expired.
+    #[tokio::test]
+    async fn uncached_recheck_expires_only_the_written_revision() -> TestResult {
+        let envref = env();
+        let key = parse_key("recheck/u.txt")?;
+        let src = DependencyKey::new("-R/recheck/src.txt");
+        let manager = envref.get_asset_manager();
+        let _ = manager
+            .dependency_manager()
+            .register_version(&src, Version::new(2))
+            .await;
+
+        let mut record = MetadataRecord::new();
+        record.status = Status::Ready;
+        record.cached = Some(false);
+        record.version = Some(Version::new(7));
+        record.dependencies = vec![DependencyRecord::new(src.clone(), Version::new(1))];
+        let asset =
+            AssetData::<TestEnv>::new(9801, key.clone().into(), Some(key.clone()), envref.clone())
+                .to_ref();
+        {
+            let mut lock = asset.data.write().await;
+            lock.status = Status::Ready;
+            lock.metadata = Metadata::MetadataRecord(record.clone());
+        }
+        let store = envref.get_async_store();
+
+        let mut replacement = MetadataRecord::new();
+        replacement.status = Status::Override;
+        replacement.version = Some(Version::new(9));
+        store
+            .set(&key, b"override", &Metadata::MetadataRecord(replacement))
+            .await?;
+        asset.expire_written_copy_if_inputs_superseded().await;
+        assert_eq!(store.get_metadata(&key).await?.status(), Status::Override);
+
+        store
+            .set(&key, b"written", &Metadata::MetadataRecord(record))
+            .await?;
+        asset.expire_written_copy_if_inputs_superseded().await;
+        assert_eq!(store.get_metadata(&key).await?.status(), Status::Expired);
         Ok(())
     }
 }

@@ -3,7 +3,7 @@ title: Asset Evaluation — Flows and Public Surface
 kind: reference
 audience: internal
 area: [core/assets]
-reviewed: 2026-10-25
+reviewed: 2026-10-27
 ---
 # Asset Evaluation — Flows and Public Surface
 
@@ -348,6 +348,13 @@ for it. A parked caller stops waiting without running when the asset finishes (`
 finished status) or is removed (`Removed`). Intermediate notifications — `Dependencies`,
 `Processing`, progress — do not start a second run, because the claim refuses an active status.
 
+`Drop` cannot await the asset's lock, so the inline repair is applied only when the lock is free.
+When another task holds it, the dropped claim instead marks the asset's run as abandoned and wakes
+every receiver without changing the latest notification. The next inline claim — a parked caller
+retrying, or a caller arriving later — finds the mark on the `Processing` / `Dependencies` status,
+clears it, logs a warning and takes the run over. Every successful claim clears the mark, and only
+a dropped armed claim sets it, so a live run is never taken over.
+
 A caller that does not win the claim **waits** for the running evaluation. Refusing it is wrong and
 was tried and reverted once: a genuinely async command yields, so a second legitimate request
 arrives mid-evaluation and must join the first rather than be turned away.
@@ -368,6 +375,7 @@ arrives mid-evaluation and must join the first rather than be turned away.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-27 | §7: a dropped inline claim that cannot take the lock marks the run abandoned and wakes waiters; the next inline claim takes it over. | `design/inline-run-claim-repair-under-lock-contention/` |
 | 2026-10-25 | §Reusing a stored asset: with no recipe, the fast track's reason for declining is the answer (`AssetNotFound` for an absent or metadata-only key); a store directory is a `Directory` state, never cached; a recipe for a directory key fails with `AssetNotSupported`. | `design/key-without-recipe-answer/` |
 | 2026-10-20 | Links to `reference/api/DOC_08_RECIPES_PLANS.md` follow its promotion to `reference/RECIPES_AND_PLANS.md`. | DOC-08 promotion |
 | 2026-10-20 | §Reusing a stored asset: a stored record with no status and no version is first read as `Source` (no recipe) or `Ready` (recipe), with a warning; a dependency with status `None` is inconclusive. | phase-5 (`design/js-store-page-metadata-status/`) |

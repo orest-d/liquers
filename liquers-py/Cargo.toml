@@ -26,6 +26,9 @@ futures = "0.3"
 async-trait = "0.1"
 # One multi-thread runtime per process runs every evaluation (`runtime.rs`).
 tokio = { version = "1", features = ["rt-multi-thread", "sync", "macros", "time"] }
+# Awaitable results (`_async` methods) on the caller's asyncio loop, driven by the runtime above
+# (`runtime.rs` binds it, so the bridge never builds a second one).
+pyo3-async-runtimes = { version = "0.30", features = ["tokio-runtime"] }
 serde = "1.0.229"
 serde_derive = "1.0.229"
 serde_json = "1.0.151"
