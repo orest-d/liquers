@@ -3,7 +3,7 @@ title: Recipes and Plans Reference
 kind: reference
 audience: internal
 area: [core/plan, core/query, core/assets, core/context]
-reviewed: 2026-10-22
+reviewed: 2026-10-27
 ---
 # Recipes and Plans
 
@@ -204,9 +204,9 @@ exists.
 
 The YAML root is `RecipeList { recipes: Vec<Recipe> }`. Asset names come from each recipe query's
 filename. Recipes without a valid filename are omitted from directory listing. The directory read
-maps **every** `get_bytes` error to an empty list, not only a missing file
-([`RECIPES-YAML-READ-ERRORS-READ-AS-NO-RECIPES`](../issues/RECIPES-YAML-READ-ERRORS-READ-AS-NO-RECIPES.md));
-malformed YAML from successfully read bytes is an error. `recipe_opt` asks `has_recipes` first, so a
+treats only `KeyNotFound` and `KeyNotSupported` from `get_bytes` as an empty list; any other read
+failure (a permission error, a transport error) is returned, carrying the `recipes.yaml` key, and is
+not cached; malformed YAML from successfully read bytes is an error. `recipe_opt` asks `has_recipes` first, so a
 store `contains` error is an error — except that `has_recipes` answers `false` when the store
 refuses the `recipes.yaml` key as `KeyNotSupported` (a store router does so for any key no member
 covers, such as an `http` store serving a fixed key list), so `-R/` queries under such a folder
@@ -859,8 +859,6 @@ not otherwise enforce this distinction.
   [`PLAN-SERDE-HAS-NO-COMPATIBILITY-CONTRACT`](../issues/PLAN-SERDE-HAS-NO-COMPATIBILITY-CONTRACT.md).
 - The recipe circular-dependency fields are never set or read —
   [`RECIPE-CIRCULAR-DEPENDENCY-FIELDS-ARE-DEAD`](../issues/RECIPE-CIRCULAR-DEPENDENCY-FIELDS-ARE-DEAD.md).
-- Every `recipes.yaml` read error reads as "no recipes" —
-  [`RECIPES-YAML-READ-ERRORS-READ-AS-NO-RECIPES`](../issues/RECIPES-YAML-READ-ERRORS-READ-AS-NO-RECIPES.md).
 - Volatility inherited at finalization is invisible to the predecessor walk —
   [`DEPENDENCY-VOLATILITY-INVISIBLE-TO-PREDECESSOR-WALK`](../issues/DEPENDENCY-VOLATILITY-INVISIBLE-TO-PREDECESSOR-WALK.md).
 - A mid-query `q` silently drops its parameters —
@@ -887,6 +885,7 @@ not otherwise enforce this distinction.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-27 | §Provider contract: only a missing or unsupported `recipes.yaml` reads as no recipes; other read errors are returned. Known limitations bullet removed. | design `recipes-yaml-read-errors-propagate` |
 | 2026-10-22 | Carried over from DOC-08 on main: `Step::Error` and an error-level `init_steps` entry fail the plan with an `ExecutionError`, after a run of consecutive diagnostic steps is logged in full; the `apply_plan` order says where. | `issues/CONTEXT-ERROR-OUTCOME-DEPENDS-ON-SCHEDULING.md` |
 | 2026-10-20 | Promoted from `reference/api/DOC_08_RECIPES_PLANS.md` to `reference/RECIPES_AND_PLANS.md`; series wording, the dated verification log and the priority table removed (Known limitations link issues instead). Added §Planner instructions (instruction vs command; `ns`, `q` including mid-query, `v`, resource header instructions, segment headers, filenames), `to_plan_for_key`, placeholders, the `apply_plan` order, `uncached_by`, Serde defaults, a `recipes.yaml` example. Corrected: `init_steps` are logged by `apply_plan`; a `recipes.yaml` with an explicit `cwd` is refused whole; `set_cwd` writes to stderr; `to_plan` already folds `volatile`/`expires`; expiration reaches the context only in `apply_recipe`; seeding is conditional on non-volatility; circular-dependency fields are unused; the pre-pass schedules keyed dependencies only. (Earlier, until `plan-policy`, `v` anywhere marked the whole plan volatile.) | DOC-08 review, promotion |
 | 2026-10-17 | Planning contract: resource steps (`-R-stored/`, `-R-stored_meta/`, `-R-sdir/`) never make a plan volatile; `Plan::is_volatile` is the only volatility authority (the step-level `IsVolatile` impl was removed). | `design/step-volatility-impl-removal/` |

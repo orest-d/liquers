@@ -13,8 +13,8 @@ created: 2026-10-26
 ---
 # A recipes.yaml that exists but cannot be read is an error, not an empty recipe list
 
-Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-26: Phases 1-4 written, not
-approved, nothing implemented.
+Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-26: Phases 1-4 written; Phase 4
+implemented on 2026-10-27 (automatic fix).
 
 ## Phase 1: High-Level Design
 
@@ -170,9 +170,9 @@ Run: `cargo test -p liquers-core --lib recipes`.
 
 ### Steps
 
-- [ ] 1. `liquers-core/src/recipes.rs` — add `read_error_tests` and extend `unsupported_key_tests`; `unreadable_recipes_yaml_is_an_error` fails at HEAD — `cargo test -p liquers-core --lib recipes`. Rollback: delete the tests.
-- [ ] 2. `liquers-core/src/recipes.rs` `DefaultRecipeProvider::cached_recipes` match and the two doc comments — depends on 1 — `cargo test -p liquers-core --lib recipes`, then `cargo test -p liquers-core --lib --tests`. Rollback: revert the match.
-- [ ] 3. `specs/reference/RECIPES_AND_PLANS.md` §Provider contract, History row, `reviewed:`; close `RECIPES-YAML-READ-ERRORS-READ-AS-NO-RECIPES` with a resolution note — `python3 scripts/docs_index.py --check`.
+- [x] 1. `liquers-core/src/recipes.rs` — add `read_error_tests` and extend `unsupported_key_tests`; `unreadable_recipes_yaml_is_an_error` fails at HEAD — `cargo test -p liquers-core --lib recipes`. Rollback: delete the tests.
+- [x] 2. `liquers-core/src/recipes.rs` `DefaultRecipeProvider::cached_recipes` match and the two doc comments — depends on 1 — `cargo test -p liquers-core --lib recipes`, then `cargo test -p liquers-core --lib --tests`. Rollback: revert the match.
+- [x] 3. `specs/reference/RECIPES_AND_PLANS.md` §Provider contract, History row, `reviewed:`; close `RECIPES-YAML-READ-ERRORS-READ-AS-NO-RECIPES` with a resolution note — `python3 scripts/docs_index.py --check`.
 
 ### Validation
 
