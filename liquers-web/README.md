@@ -342,7 +342,6 @@ deliberate. `store11_overlapping_prefixes_follow_document_order` pins the routin
 | `registerCommand` is refused on an explicit `Environment` instance — the handle holds a shared environment with no mutable path. Register on the singleton | `POST-INIT-COMMAND-REGISTRATION` |
 | `configureStore` and `registerStoreObject` on an explicit `Environment` instance configure the singleton, not the instance | `WEB-EXPLICIT-ENVIRONMENT-CONFIGURES-THE-SINGLETON` |
 | `describeCommand` sees only the root namespace and returns `CommandMetadata`'s own shape, not the declared `LiquersCommandInfo`; `unregisterCommand` matches by name in every namespace | `WEB-DESCRIBE-COMMAND-SHAPE-DIFFERS-FROM-DECLARATION`, `WEB-COMMAND-LOOKUP-IGNORES-NAMESPACE` |
-| A `null` inside an array or object reaches JavaScript as `undefined` | `WEB-NESTED-NULL-CROSSES-AS-UNDEFINED` |
 
 All are in [`specs/issues/`](../specs/issues/), each with the condition that reverses it.
 

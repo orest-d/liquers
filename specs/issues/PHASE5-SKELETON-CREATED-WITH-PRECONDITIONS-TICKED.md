@@ -2,7 +2,7 @@
 id: PHASE5-SKELETON-CREATED-WITH-PRECONDITIONS-TICKED
 kind: issue
 title: A new design's Phase 5 skeleton claims every completion precondition is already met
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [docs]
@@ -40,3 +40,7 @@ as an example of a finished document, not as the copied template.
 ## Discovery
 
 A reviewer of `specs/design/liquers-py/` Phase 1 found the ticked skeleton on 2026-10-18.
+
+## Resolution
+
+Fixed 2026-10-27 by `design/phase5-skeleton-unticked/`. The Summary Template in `.claude/skills/liquers-project/references/phase5-documentation.md` lists its five Completion Preconditions as `- [ ]`, with a sentence saying to tick each when its evidence exists and to name the evidence, so `init_feature.py` no longer creates a Phase 5 that claims finished work. The two untouched generated skeletons (`agent-memory-derived`, `external-index-sync`; byte-identical to the old template) are unticked. Evidence: `.claude/skills/liquers-project/scripts/test_init_feature.py`.

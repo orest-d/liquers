@@ -3,8 +3,8 @@ id: MID-QUERY-Q-ARITY
 kind: design
 title: A q instruction with a parameter is refused wherever it appears in a query
 form: compact
-status: in_review
-phase: implementation
+status: complete
+gh_pr: [189]
 readiness: ready
 autofix: eligible
 area: [core/plan]
@@ -12,6 +12,8 @@ issues: [MID-QUERY-Q-INSTRUCTION-DISCARDS-ARGUMENTS]
 created: 2026-10-26
 ---
 # A q instruction with a parameter is refused wherever it appears in a query
+
+> **Complete on 2026-10-27**: implemented by automatic fix in #189.
 
 Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-26: Phases 1-4 written; Phase 4
 implemented on 2026-10-27 (automatic fix).
