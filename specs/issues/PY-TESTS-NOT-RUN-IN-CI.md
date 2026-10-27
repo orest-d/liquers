@@ -4,9 +4,9 @@ kind: issue
 title: No CI workflow runs the liquers-py test suite, on any Python interpreter
 status: draft
 priority: P2
-complexity: S
+complexity: M
 area: [py, build]
-design:
+design: language-binding-tests-in-ci
 created: 2026-10-26
 github:
 ---
@@ -17,6 +17,14 @@ github:
 crate's Rust unit tests run only when someone runs them by hand. A change in `liquers-core` that
 breaks the Python integration, or a regression on one interpreter (3.9, 3.13, free-threaded 3.14t,
 PyPy), is not caught before merge.
+
+## Problem Example
+
+A PR changes `liquers-core`'s error mapping so that `ErrorType` gains a variant. `build-matrix`
+passes, because `liquers-py` compiles, and the PR merges. `test_ERROR01_every_error_type_maps` would
+have failed on every interpreter, and a free-threaded-only race in `test_FREETHREAD_concurrency.py`
+would have failed on 3.14t only, but neither runs until someone runs
+`PYTHON=… bash scripts/test-liquers-py.sh` by hand.
 
 ## Impact
 
@@ -33,3 +41,8 @@ free-threaded build.
 
 Found during the `design/liquers-py-async/` Phase 2 preflight (2026-10-26), while checking how the
 free-threaded audit (AC-8) would be proved.
+
+Designed 2026-10-27 in `design/language-binding-tests-in-ci/` (bulk design), merged into the design
+led by `LANGUAGE-BINDING-TESTS-NOT-RUN-IN-CI`. Overlap tests that held: **T4** (that issue's Python
+half is this issue on one interpreter; this issue adds the interpreter matrix) and **T3** (the same
+new workflow). Runner-up: none. Complexity raised from `S` to `M` with the merged scope.
