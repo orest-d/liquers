@@ -208,3 +208,91 @@ async fn state_with_no_declared_format_is_storable() -> Result<(), Box<dyn std::
     }
     Ok(())
 }
+
+// A refined data format (`txt:utf8`) is checked against its base's media type
+// (`specs/design/soft-consistency-refined-format/`).
+
+/// The log messages stored for `key`.
+async fn stored_log(
+    envref: &liquers_core::context::EnvRef<SimpleEnvironment<Value>>,
+    key: &Key,
+) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+    let metadata = envref.get_async_store().get_metadata(key).await?;
+    Ok(match metadata {
+        liquers_core::metadata::Metadata::MetadataRecord(record) => {
+            record.log.iter().map(|e| e.message.clone()).collect()
+        }
+        liquers_core::metadata::Metadata::LegacyMetadata(_) => Vec::new(),
+    })
+}
+
+/// AC-1
+#[tokio::test]
+async fn refined_format_is_consistent_through_set_state() -> Result<(), Box<dyn std::error::Error>>
+{
+    let key = parse_key("test/notes.txt")?;
+    let mut state = State::<Value>::new().with_data(Value::from("hello"));
+    state.metadata = std::sync::Arc::new(liquers_core::metadata::Metadata::MetadataRecord({
+        let mut metadata = record(&key, "Text");
+        metadata.data_format = Some("txt:utf8".to_owned());
+        metadata
+    }));
+    let envref = environment().to_ref();
+    envref.get_asset_manager().set_state(&key, state).await?;
+
+    let log = stored_log(&envref, &key).await?;
+    assert!(
+        !log.iter().any(|m| m.contains("differs from expected")),
+        "a refinement of txt is consistent with text/plain: {log:?}"
+    );
+    Ok(())
+}
+
+/// AC-2
+#[tokio::test]
+async fn refined_format_with_consistent_media_type_is_silent(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = environment();
+    let key = parse_key("test/notes.txt")?;
+    let mut metadata = record(&key, "Text");
+    metadata.data_format = Some("txt:utf8".to_owned());
+    metadata.with_media_type("text/plain".to_owned());
+    let envref = env.to_ref();
+    envref
+        .get_asset_manager()
+        .set_binary(&key, b"hello", metadata)
+        .await?;
+
+    let log = stored_log(&envref, &key).await?;
+    assert!(
+        !log.iter().any(|m| m.contains("differs from expected")),
+        "text/plain is the expected media type of txt:utf8: {log:?}"
+    );
+    Ok(())
+}
+
+/// AC-3
+#[tokio::test]
+async fn refined_format_with_divergent_media_type_still_warns(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let env = environment();
+    let key = parse_key("test/notes.txt")?;
+    let mut metadata = record(&key, "Text");
+    metadata.data_format = Some("txt:utf8".to_owned());
+    metadata.with_media_type("application/x-custom".to_owned());
+    let envref = env.to_ref();
+    envref
+        .get_asset_manager()
+        .set_binary(&key, b"hello", metadata)
+        .await?;
+
+    let log = stored_log(&envref, &key).await?;
+    let warnings = log
+        .iter()
+        .filter(|m| m.contains("differs from expected 'text/plain'"))
+        .count();
+    assert_eq!(warnings, 1, "one warning for the real divergence: {log:?}");
+    let (_binary, stored) = envref.get_async_store().get(&key).await?;
+    assert_eq!(stored.get_media_type(), "application/x-custom");
+    Ok(())
+}

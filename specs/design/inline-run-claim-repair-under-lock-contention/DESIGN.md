@@ -3,8 +3,8 @@ id: INLINE-RUN-CLAIM-REPAIR-UNDER-LOCK-CONTENTION
 kind: design
 title: A dropped inline run is recoverable even when its asset's lock is busy at drop time
 form: compact
-status: in_review
-phase: implementation
+status: complete
+gh_pr: [202]
 readiness: ready
 autofix: eligible
 area: [core/assets]
@@ -12,6 +12,8 @@ issues: [INLINE-RUN-CLAIM-REPAIR-SKIPPED-UNDER-LOCK-CONTENTION]
 created: 2026-10-20
 ---
 # A dropped inline run is recoverable even when its asset's lock is busy at drop time
+
+> **Complete on 2026-10-27**: implemented by automatic fix in #202.
 
 Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-20: Phases 1-4 written; Phase 4
 implemented on 2026-10-27 (automatic fix). Follow-up of `inline-waiter-recovers-dropped-run` (implemented in
