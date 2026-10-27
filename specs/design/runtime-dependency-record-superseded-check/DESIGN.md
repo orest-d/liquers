@@ -3,8 +3,8 @@ id: RUNTIME-DEPENDENCY-RECORD-SUPERSEDED-CHECK
 kind: design
 title: A dependency record a command adds is checked against the registered version when the run completes
 form: compact
-status: in_review
-phase: implementation
+status: complete
+gh_pr: [205]
 readiness: ready
 autofix: eligible
 area: [core/assets]
@@ -12,6 +12,8 @@ issues: [RUNTIME-DEPENDENCY-RECORD-AGAINST-SUPERSEDED-VERSION-IS-NOT-CHECKED]
 created: 2026-10-20
 ---
 # A dependency record a command adds is checked against the registered version when the run completes
+
+> **Complete on 2026-10-27**: implemented by automatic fix in #205.
 
 Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-20: Phases 1-4 written; Phase 4
 implemented on 2026-10-27 (automatic fix).

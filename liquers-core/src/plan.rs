@@ -48,7 +48,7 @@ use crate::metadata::{DependencyKey, Metadata, MetadataRecord, Status};
 use crate::parse::parse_key;
 use crate::query::{
     ActionParameter, ActionRequest, CwdCursor, Key, Position, Query, QuerySegment, ResourceName,
-    ResourceQuerySegment, RELATIVE_WITHOUT_CWD_WARNING,
+    ResourceQuerySegment, NS_INSTRUCTION, RELATIVE_WITHOUT_CWD_WARNING,
 };
 use crate::value::ValueInterface;
 
@@ -204,7 +204,7 @@ pub fn append_action(
         return Ok(plain_query);
     }
 
-    let ns_action = ActionRequest::new("ns".to_string())
+    let ns_action = ActionRequest::new(NS_INSTRUCTION.to_string())
         .with_parameters(vec![ActionParameter::new_string(requested_ns.to_string())]);
     Ok(append_actions(query, vec![ns_action, action]))
 }
@@ -1700,7 +1700,7 @@ impl<'c> PlanBuilder<'c> {
         action_request: &ActionRequest,
     ) -> Result<(), Error> {
         // Intercept 'v' instruction BEFORE normal action processing
-        if action_request.name == "v" {
+        if action_request.is_v() {
             // `v` resolves no command metadata, so the arity check in
             // `ResolvedParameterValues::from_action` never sees it. It takes no
             // parameters, so anything written here would be silently discarded.
@@ -2111,7 +2111,9 @@ pub struct Plan {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum VolatilitySource {
     /// A volatile command, a link to a volatile query, or the `v` instruction. (Volatility a plan
-    /// inherits from an upstream recipe at finalization sets `Plan::is_volatile` but no source.)
+    /// inherits from an upstream recipe at finalization sets `Plan::is_volatile` but no source;
+    /// it still bounds the cut `finalize_plan` makes, at the first step that reads the volatile
+    /// upstream.)
     ///
     /// **Positional**: volatility starts at that point, so everything ahead of it in the chain
     /// is genuinely pure and a boundary may be cut in front of it. `v` at the head of a query
@@ -2361,8 +2363,24 @@ impl Plan {
     /// appends a planning [`Step::Info`], so a declined cut is distinguishable from a plan that
     /// had no predecessor.
     ///
+    /// Volatility the plan inherits from an upstream recipe records no source and appears in no
+    /// candidate's query, so this method cannot see it. `finalize_plan` cuts through
+    /// [`Plan::cut_predecessor_bounded`] with the position the dependency analysis found, so no
+    /// boundary spans a step that reads a volatile upstream; this method applies no such bound.
+    ///
     /// Returns `false` when no boundary was cut.
     pub fn cut_predecessor(&mut self, cmr: &CommandMetadataRegistry) -> Result<bool, Error> {
+        self.cut_predecessor_bounded(cmr, None)
+    }
+
+    /// [`Plan::cut_predecessor`], with the walk also stepping back over every candidate whose
+    /// steps include step `volatile_from`: the first step that reads a volatile upstream
+    /// (inherited volatility, found by the dependency analysis).
+    pub(crate) fn cut_predecessor_bounded(
+        &mut self,
+        cmr: &CommandMetadataRegistry,
+        volatile_from: Option<usize>,
+    ) -> Result<bool, Error> {
         if self.frozen_cwd.is_none() {
             return Err(Error::general_error(
                 "Plan must be frozen before its predecessor can be cut".to_string(),
@@ -2415,6 +2433,8 @@ impl Plan {
             }
             let reason = if candidate.payload_required.is_required() {
                 "requires an evaluation payload".to_string()
+            } else if volatile_from.is_some_and(|step| cut_at > step) {
+                "reads a volatile dependency".to_string()
             } else if candidate.is_volatile {
                 "is volatile".to_string()
             } else if let Some(command) = &candidate.uncached_by {
@@ -3034,6 +3054,11 @@ struct Read {
 struct PlanScan {
     dependencies: HashSet<PlanDependency>,
     reads: Vec<Read>,
+    /// Parallel to `reads`: the index of the top-level step of the scanned plan that produced each
+    /// read. Reads inside a nested `Step::Plan` or an `Evaluate` take the index of that step.
+    read_steps: Vec<usize>,
+    /// How many nested `Step::Plan` levels the scan is inside; only the top level tags reads.
+    nesting: usize,
 }
 
 /// A recipe being analysed: the reads of its plan still to visit, and its summary so far.
@@ -3050,6 +3075,32 @@ struct Frame {
     /// Whether the recipe sets its own `cwd`, so that its reads do not depend on the caller's
     /// cursor. `false` for the plan being analysed.
     own_cwd: bool,
+    /// For the plan being analysed only, parallel to `reads`: the top-level step of each read.
+    read_steps: Vec<usize>,
+    /// For the plan being analysed only: the first step whose read makes the summary volatile,
+    /// by a declared-volatile upstream or an `immediately` expiry.
+    first_volatile_step: Option<usize>,
+}
+
+impl Frame {
+    /// Records, for the plan being analysed, the step of read `index` when what that read
+    /// contributes makes the summary volatile.
+    fn note_volatile_read(&mut self, index: usize, read: &Read, summary: &DependencySummary) {
+        if self.key.is_some() {
+            return;
+        }
+        let mut contribution = DependencySummary::default();
+        merge_read(&mut contribution, read, summary);
+        if contribution.declared_volatile.is_none() && !contribution.expires.is_volatile() {
+            return;
+        }
+        let Some(step) = self.read_steps.get(index).copied() else {
+            return;
+        };
+        if self.first_volatile_step.map_or(true, |first| step < first) {
+            self.first_volatile_step = Some(step);
+        }
+    }
 }
 
 fn merge_read(target: &mut DependencySummary, read: &Read, summary: &DependencySummary) {
@@ -3081,11 +3132,13 @@ impl<E: Environment> DependencyWalk<E> {
     /// A keyed `GetAsset*` operand ends the dependency list there: what its recipe reads is that
     /// key's own dependency, reached through the dependency manager, not this plan's. `Evaluate`
     /// and nested `Step::Plan` have no key of their own, so their dependencies pass through.
+    ///
+    /// Also returns the first top-level step of `plan` whose read makes the summary volatile.
     async fn walk_plan(
         &mut self,
         plan: &Plan,
         cursor: &mut CwdCursor,
-    ) -> Result<(HashSet<PlanDependency>, DependencySummary), Error> {
+    ) -> Result<(HashSet<PlanDependency>, DependencySummary, Option<usize>), Error> {
         let mut scan = PlanScan::default();
         self.scan_plan(plan, cursor, &mut scan)?;
         let reads = scan.reads;
@@ -3097,6 +3150,8 @@ impl<E: Environment> DependencyWalk<E> {
             next: 0,
             summary: DependencySummary::default(),
             own_cwd: false,
+            read_steps: scan.read_steps,
+            first_volatile_step: None,
         };
         let root = match self.run(root).await {
             Ok(root) => root,
@@ -3114,7 +3169,7 @@ impl<E: Environment> DependencyWalk<E> {
                 ));
             }
         }
-        Ok((dependencies, root.summary))
+        Ok((dependencies, root.summary, root.first_volatile_step))
     }
 
     /// Visit every read reachable from `root`, depth first, and return `root` finished.
@@ -3138,6 +3193,8 @@ impl<E: Environment> DependencyWalk<E> {
                             top.served.push(read.kind == ReadKind::State && summary.is_some());
                         }
                         if let Some(summary) = summary {
+                            let index = top.next - 1;
+                            top.note_volatile_read(index, &read, &summary);
                             merge_read(&mut top.summary, &read, &summary);
                         }
                     }
@@ -3185,6 +3242,9 @@ impl<E: Environment> DependencyWalk<E> {
                         cursor: CwdCursor::default(),
                         kind: frame.kind,
                     };
+                    // The parent's `next` already moved past the read that opened this frame.
+                    let index = parent.next - 1;
+                    parent.note_volatile_read(index, &read, &frame.summary);
                     merge_read(&mut parent.summary, &read, &frame.summary);
                 }
             }
@@ -3242,6 +3302,8 @@ impl<E: Environment> DependencyWalk<E> {
             summary,
             served: Vec::new(),
             own_cwd: recipe.cwd.is_some(),
+            read_steps: Vec::new(),
+            first_volatile_step: None,
         }))
     }
 
@@ -3332,7 +3394,10 @@ impl<E: Environment> DependencyWalk<E> {
                     scan.reads.extend(child.reads);
                 }
                 Step::Plan(nested_plan) => {
-                    self.scan_plan(nested_plan, cursor, scan)?;
+                    scan.nesting += 1;
+                    let nested = self.scan_plan(nested_plan, cursor, scan);
+                    scan.nesting -= 1;
+                    nested?;
                 }
                 Step::Action {
                     realm,
@@ -3385,6 +3450,9 @@ impl<E: Environment> DependencyWalk<E> {
                 | Step::Warning(_)
                 | Step::Error(_) => {}
             }
+            if scan.nesting == 0 {
+                scan.read_steps.resize(scan.reads.len(), step_index);
+            }
         }
         Ok(())
     }
@@ -3410,7 +3478,7 @@ pub(crate) fn find_dependencies<'a, E: Environment>(
 ) -> crate::maybe_send::BoxFuture<'a, Result<Vec<PlanDependency>, Error>> {
     Box::pin(async move {
         let mut walk = DependencyWalk::new(envref);
-        let (dependencies, _) = walk.walk_plan(plan, cursor).await?;
+        let (dependencies, _, _) = walk.walk_plan(plan, cursor).await?;
         Ok(sorted_dependencies(dependencies))
     })
 }
@@ -3466,6 +3534,8 @@ pub(crate) async fn upstream_graph<E: Environment>(
         next: 0,
         summary: DependencySummary::default(),
         own_cwd: false,
+        read_steps: Vec::new(),
+        first_volatile_step: None,
     };
     walk.run(root).await?;
     Ok(UpstreamGraph {
@@ -3495,6 +3565,8 @@ pub(crate) async fn key_upstream_graph<E: Environment>(
         next: 0,
         summary: DependencySummary::default(),
         own_cwd: false,
+        read_steps: Vec::new(),
+        first_volatile_step: None,
     };
     walk.run(root).await?;
     let mut nodes = walk.recorder.take().unwrap_or_default();
@@ -3513,9 +3585,25 @@ pub(crate) async fn analyze_plan_dependencies<E: Environment>(
     plan: &mut Plan,
     initial_cwd: Option<Key>,
 ) -> Result<(), Error> {
+    analyze_plan_dependencies_at(envref, plan, initial_cwd)
+        .await
+        .map(|_| ())
+}
+
+/// [`analyze_plan_dependencies`], returning where inherited volatility enters the plan: the index
+/// of the first step that reads a volatile upstream, when the plan was not volatile before the
+/// analysis and is after it. `Some(0)` when it became volatile through its dependencies but no
+/// single read did it (so nothing may be cut); `None` otherwise.
+pub(crate) async fn analyze_plan_dependencies_at<E: Environment>(
+    envref: EnvRef<E>,
+    plan: &mut Plan,
+    initial_cwd: Option<Key>,
+) -> Result<Option<usize>, Error> {
+    let was_volatile = plan.is_volatile;
     let mut cursor = CwdCursor::new(initial_cwd);
     let mut walk = DependencyWalk::new(envref);
-    let (dependencies, summary) = match walk.walk_plan(plan, &mut cursor).await {
+    let (dependencies, summary, first_volatile_step) = match walk.walk_plan(plan, &mut cursor).await
+    {
         Ok(result) => result,
         Err(error) => {
             dependency_check_error(plan, &error);
@@ -3558,7 +3646,10 @@ pub(crate) async fn analyze_plan_dependencies<E: Environment>(
             );
         }
     }
-    Ok(())
+    if plan.is_volatile && !was_volatile {
+        return Ok(Some(first_volatile_step.unwrap_or(0)));
+    }
+    Ok(None)
 }
 
 #[cfg(test)]
@@ -6603,6 +6694,111 @@ mod tests {
             recipes.push((parse_key(&format!("c/l{i}.txt"))?, reading(&format!("c/l{}.txt", i - 1))?));
         }
         Ok(CountingRecipeProvider::new(recipes))
+    }
+
+    /// A recipe for `key` running `up`, marked volatile.
+    fn volatile_recipe() -> Result<Recipe, Error> {
+        let mut recipe = Recipe::new("up".to_owned(), "vol".to_owned(), String::new())?;
+        recipe.volatile = true;
+        Ok(recipe)
+    }
+
+    /// Builds `query` and analyses it, returning where inherited volatility enters it.
+    async fn inherited_volatility_at(
+        provider: &CountingRecipeProvider,
+        query: &str,
+    ) -> Result<(Plan, Option<usize>), Error> {
+        let envref = walk_env(provider);
+        let mut plan =
+            PlanBuilder::new(parse_query(query)?, envref.get_command_metadata_registry())
+                .build()?;
+        let at = analyze_plan_dependencies_at(envref, &mut plan, None).await?;
+        Ok((plan, at))
+    }
+
+    /// inherited-volatility-bounds-predecessor-cut AC-1, AC-2: the position is the step that
+    /// reads the volatile upstream, as state or through a link.
+    #[tokio::test]
+    async fn inherited_volatility_position_is_the_reading_step() -> Result<(), Error> {
+        let provider = CountingRecipeProvider::new([
+            (parse_key("c/vol.txt")?, volatile_recipe()?),
+            (
+                parse_key("c/stable.txt")?,
+                Recipe::new("up".to_owned(), "stable".to_owned(), String::new())?,
+            ),
+        ]);
+        let (plan, at) = inherited_volatility_at(&provider, "-R/c/vol.txt/-/up/up").await?;
+        assert!(plan.is_volatile);
+        assert_eq!(at, Some(0));
+        let (plan, at) =
+            inherited_volatility_at(&provider, "-R/c/stable.txt/-/up/use-~X~-R/c/vol.txt~E/up")
+                .await?;
+        assert!(plan.is_volatile);
+        assert_eq!(at, Some(2), "steps: {:?}", plan.steps);
+        let (plan, at) = inherited_volatility_at(&provider, "-R/c/stable.txt/-/up/up").await?;
+        assert!(!plan.is_volatile);
+        assert_eq!(at, None);
+        Ok(())
+    }
+
+    /// inherited-volatility-bounds-predecessor-cut AC-3: an `immediately` upstream counts.
+    #[tokio::test]
+    async fn immediately_expiring_upstream_has_a_position() -> Result<(), Error> {
+        let mut recipe = Recipe::new("up".to_owned(), "now".to_owned(), String::new())?;
+        recipe.expires = crate::expiration::Expires::Immediately;
+        let provider = CountingRecipeProvider::new([(parse_key("c/now.txt")?, recipe)]);
+        let (plan, at) = inherited_volatility_at(&provider, "-R/c/now.txt/-/up/up").await?;
+        assert!(plan.is_volatile);
+        assert_eq!(at, Some(0));
+        Ok(())
+    }
+
+    /// inherited-volatility-bounds-predecessor-cut AC-1: no boundary spans a volatile read.
+    #[tokio::test]
+    async fn bounded_cut_steps_back_over_a_volatile_read() -> Result<(), Error> {
+        let provider = CountingRecipeProvider::new([(parse_key("c/vol.txt")?, volatile_recipe()?)]);
+        let (mut plan, at) = inherited_volatility_at(&provider, "-R/c/vol.txt/-/up/up").await?;
+        plan.freeze_cwd(None)?;
+        let steps = format!("{:?}", plan.steps);
+        let envref = walk_env(&provider);
+        let cut = plan.cut_predecessor_bounded(envref.get_command_metadata_registry(), at)?;
+        assert!(!cut);
+        assert_eq!(format!("{:?}", plan.steps), steps);
+        assert!(
+            plan.init_steps
+                .iter()
+                .any(|step| matches!(step, Step::Info(m)
+                if m.contains("reads a volatile dependency"))),
+            "the reason is recorded: {:?}",
+            plan.init_steps
+        );
+        Ok(())
+    }
+
+    /// inherited-volatility-bounds-predecessor-cut AC-2: the pure prefix ahead of the read is
+    /// still cut.
+    #[tokio::test]
+    async fn bounded_cut_keeps_the_pure_prefix() -> Result<(), Error> {
+        let provider = CountingRecipeProvider::new([
+            (parse_key("c/vol.txt")?, volatile_recipe()?),
+            (
+                parse_key("c/stable.txt")?,
+                Recipe::new("up".to_owned(), "stable".to_owned(), String::new())?,
+            ),
+        ]);
+        let (mut plan, at) =
+            inherited_volatility_at(&provider, "-R/c/stable.txt/-/up/use-~X~-R/c/vol.txt~E/up")
+                .await?;
+        plan.freeze_cwd(None)?;
+        let envref = walk_env(&provider);
+        let cut = plan.cut_predecessor_bounded(envref.get_command_metadata_registry(), at)?;
+        assert!(cut, "init: {:?}", plan.init_steps);
+        assert!(
+            matches!(&plan.steps[0], Step::Evaluate(q) if q.encode() == "-R/c/stable.txt/-/up"),
+            "steps: {:?}",
+            plan.steps
+        );
+        Ok(())
     }
 
     #[tokio::test]

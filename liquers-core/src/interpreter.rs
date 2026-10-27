@@ -11,8 +11,8 @@ use crate::{
     error::Error,
     metadata::{DependencyRecord, LogEntry, Metadata, Version},
     plan::{
-        analyze_plan_dependencies, ParameterValue, Plan, PlanBuilder, ResolvedParameterValues,
-        Step,
+        analyze_plan_dependencies, analyze_plan_dependencies_at, ParameterValue, Plan, PlanBuilder,
+        ResolvedParameterValues, Step,
     },
     query::{CwdCursor, Key, Query, TryToQuery, RELATIVE_WITHOUT_CWD_WARNING},
     recipes::Recipe,
@@ -55,6 +55,18 @@ pub async fn finalize_plan_expanded<E: Environment>(
     plan: &mut Plan,
     context: &Context<E>,
 ) -> Result<(), Error> {
+    finalize_plan_expanded_at(envref, plan, context)
+        .await
+        .map(|_| ())
+}
+
+/// [`finalize_plan_expanded`], returning the first step that reads a volatile upstream when the
+/// plan inherited its volatility (see `analyze_plan_dependencies_at`), so the cut can be bounded.
+async fn finalize_plan_expanded_at<E: Environment>(
+    envref: EnvRef<E>,
+    plan: &mut Plan,
+    context: &Context<E>,
+) -> Result<Option<usize>, Error> {
     // Freeze before any analysis: once every operand is absolute, the dependency and
     // pre-scheduling walks observe exactly what execution will, instead of each re-deriving the
     // working key with its own cursor.
@@ -65,7 +77,7 @@ pub async fn finalize_plan_expanded<E: Environment>(
     if defaulted_to_root && context.install_logical_root_if_unset() {
         context.warning(RELATIVE_WITHOUT_CWD_WARNING)?;
     }
-    analyze_plan_dependencies(envref.clone(), plan, initial_cwd).await?;
+    let volatile_from = analyze_plan_dependencies_at(envref.clone(), plan, initial_cwd).await?;
 
     if !plan.is_volatile {
         let manager = envref.get_asset_manager();
@@ -98,7 +110,7 @@ pub async fn finalize_plan_expanded<E: Environment>(
         }
     }
 
-    Ok(())
+    Ok(volatile_from)
 }
 
 /// [`finalize_plan_expanded`], then cut a predecessor boundary where it is sound to do so.
@@ -143,7 +155,7 @@ pub async fn finalize_plan<E: Environment>(
     context: &Context<E>,
     input_state: &State<E::Value>,
 ) -> Result<(), Error> {
-    finalize_plan_expanded(envref.clone(), plan, context).await?;
+    let volatile_from = finalize_plan_expanded_at(envref.clone(), plan, context).await?;
 
     if !envref.get_asset_manager().cut_predecessors() {
         // The debugging switch: a fully expanded plan, to compare against the cut one. Nothing is
@@ -155,8 +167,9 @@ pub async fn finalize_plan<E: Environment>(
         // Cut after the analysis passes deliberately: volatility, payload requirement and
         // expiration are computed over the fully expanded plan, and the cut consults them
         // rather than recomputing them. After freezing, so the boundary query is absolute and
-        // names the same asset from anywhere.
-        plan.cut_predecessor(envref.get_command_metadata_registry())?;
+        // names the same asset from anywhere. Bounded by inherited volatility, which no
+        // candidate's query shows.
+        plan.cut_predecessor_bounded(envref.get_command_metadata_registry(), volatile_from)?;
     } else {
         plan.init_info(
             "Predecessor boundary not cut: the plan is applied to an input state, which is not \
@@ -466,6 +479,9 @@ pub(crate) fn apply_plan_state<E: Environment>(
         for i in 0..plan.len() {
             eprintln!("Applying step {}/{}: {:?}", i + 1, plan.len(), &plan[i]);
             let step = plan[i].clone();
+            if step_can_suspend(&step) {
+                context.reopen_cancellation();
+            }
             state = do_step_state(step, state, context.clone(), envref.clone()).await?;
             // An error logged during the step (`Context::error`) fails the evaluation here, after
             // the step returned: the rest of the plan does not run and the step's value is dropped.
@@ -479,6 +495,32 @@ pub(crate) fn apply_plan_state<E: Environment>(
         Ok(state)
     }
     .maybe_boxed()
+}
+
+/// Whether `step` can suspend on work a cancel request should interrupt — a command, or a read of
+/// another asset or resource. Before such a step, a run committed by an earlier command becomes
+/// cancellable again. A nested plan answers for its own steps.
+fn step_can_suspend(step: &Step) -> bool {
+    match step {
+        Step::Action { .. }
+        | Step::Evaluate(_)
+        | Step::GetAsset(_)
+        | Step::GetAssetBinary(_)
+        | Step::GetAssetMetadata(_)
+        | Step::GetAssetRecipe(_)
+        | Step::GetAssetDirectory(_)
+        | Step::GetResource(_)
+        | Step::GetResourceMetadata(_)
+        | Step::GetResourceDirectory(_) => true,
+        Step::Info(_)
+        | Step::Warning(_)
+        | Step::Error(_)
+        | Step::SetCwd(_)
+        | Step::Filename(_)
+        | Step::UseQueryValue(_)
+        | Step::UseKeyValue(_)
+        | Step::Plan(_) => false,
+    }
 }
 
 /// Fails with the evaluation's logged error, if a command or a planning diagnostic logged one.
@@ -692,11 +734,8 @@ pub fn do_step<E: Environment>(
         .maybe_boxed(),
         Step::GetResourceDirectory(key) => async move {
             let key = context.resolve_key_from_cwd(&key)?;
-            eprintln!("Getting resource directory for key {:?}", key);
             let store = envref.get_async_store();
             let d = store.listdir_asset_info(&key).await?;
-            eprintln!("Got resource directory: {:?}", d);
-
             Ok(Arc::new(
                 <<E as Environment>::Value as ValueInterface>::from_asset_info(d),
             ))
@@ -757,8 +796,16 @@ pub fn do_step<E: Environment>(
                 }
             }
             let ce = envref.get_command_executor();
-            ce.execute_async(&command_key, input, arguments, context)
-                .await
+            let result = ce
+                .execute_async(&command_key, input, arguments, context.clone())
+                .await;
+            if result.is_ok() {
+                // The command returned: the run is past its point of no return until the next
+                // step that can suspend begins. Done in the same poll as the return, so the
+                // bookkeeping that follows cannot lose the value to a pending cancel request.
+                context.commit_cancellation();
+            }
+            result
                 .map_err(|e| {
                     // Only set command_key if not already set (to preserve inner command errors)
                     let e = if e.command_key.is_none() {
@@ -1265,7 +1312,7 @@ mod tests {
     use super::*;
     use crate as liquers_core;
     use crate::assets::{AssetManager, AssetRef, DependencyManagerAccess};
-    use crate::command_metadata::CommandKey;
+    use crate::command_metadata::{CommandKey, CommandMetadata};
     use crate::context::{ImmediateEnvironment, SimpleEnvironment, SimpleEnvironmentWithPayload};
     use crate::error::ErrorType;
     use crate::metadata::{
@@ -1351,6 +1398,44 @@ mod tests {
         let context = Context::new(asset, false).await;
         context.set_cwd_key(cwd);
         context
+    }
+
+    /// inherited-volatility-bounds-predecessor-cut AC-1, end to end: a plan that inherits its
+    /// volatility from the key it reads is not cut over that read.
+    #[tokio::test]
+    async fn finalize_plan_does_not_cut_over_inherited_volatility(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let store = AsyncMemoryStore::new(&Key::new());
+        store
+            .set(
+                &parse_key("recipes.yaml")?,
+                b"recipes:\n  - query: seed/vol.txt\n    volatile: true\n",
+                &Metadata::new(),
+            )
+            .await?;
+        let mut env = ImmediateEnvironment::<Value>::new();
+        let cmr = &mut env.command_registry.command_metadata_registry;
+        cmr.add_command(&CommandMetadata::new("seed"));
+        cmr.add_command(&CommandMetadata::new("upper"));
+        cmr.add_command(&CommandMetadata::new("lower"));
+        env.with_async_store(Box::new(store));
+        env.with_recipe_provider(Box::new(crate::recipes::DefaultRecipeProvider::new()));
+        let envref = env.to_ref();
+
+        let mut plan = PlanBuilder::new(
+            parse_query("-R/vol.txt/-/upper/lower")?,
+            envref.get_command_metadata_registry(),
+        )
+        .build()?;
+        let context = immediate_context(envref.clone(), None).await;
+        finalize_plan(envref, &mut plan, &context, &State::new()).await?;
+        assert!(plan.is_volatile, "the upstream recipe is volatile");
+        assert!(
+            !plan.steps.iter().any(|step| matches!(step, Step::Evaluate(_))),
+            "no boundary over the volatile read: {:?}",
+            plan.steps
+        );
+        Ok(())
     }
 
     async fn immediate_environment_with_text(
@@ -2461,6 +2546,39 @@ mod tests {
             panic!("Expected AssetInfo value");
         }
     }
+    /// `-R-sdir/` lists the store directory itself (`GetResourceDirectory`), without writing
+    /// anything to stderr.
+    #[tokio::test]
+    async fn test_sdir_lists_store_entries() -> Result<(), Box<dyn std::error::Error>> {
+        let memory_store = AsyncMemoryStore::new(&Key::new());
+        for name in ["folder/a.txt", "folder/b.txt"] {
+            memory_store
+                .set(&parse_key(name)?, b"x", &Metadata::new())
+                .await?;
+        }
+        let mut env = SimpleEnvironment::<Value>::new();
+        env.with_async_store(Box::new(memory_store));
+        let envref = env.to_ref();
+
+        let state = envref.evaluate("-R-sdir/folder").await?.get().await?;
+        assert!(!state.is_error()?);
+        let Value::AssetInfo(entries) = &**state.data_unchecked() else {
+            panic!(
+                "expected an AssetInfo listing, got {:?}",
+                state.data_unchecked()
+            );
+        };
+        let names: std::collections::HashSet<String> = entries
+            .iter()
+            .filter_map(|entry| entry.filename.clone())
+            .collect();
+        assert_eq!(
+            names,
+            ["a.txt", "b.txt"].map(String::from).into_iter().collect()
+        );
+        Ok(())
+    }
+
     #[tokio::test]
     async fn test_dir_no_recipe_yaml() {
         use crate::context::{EnvRef, Environment, SimpleEnvironment};

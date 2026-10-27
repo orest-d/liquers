@@ -1093,6 +1093,17 @@ impl<E: Environment> Context<E> {
         Ok(())
     }
 
+    /// A command of this run returned `Ok`: a pending cancel request no longer drops the run
+    /// until [`Self::reopen_cancellation`]. See `CancellationRequest::commit`.
+    pub(crate) fn commit_cancellation(&self) {
+        self.cancellation.commit();
+    }
+
+    /// A step that can suspend begins: a cancel request applies to the run again.
+    pub(crate) fn reopen_cancellation(&self) {
+        self.cancellation.reopen();
+    }
+
     /// Whether cancellation of the asset this command is evaluating has been requested.
     ///
     /// Lock-free, so a synchronous command can poll it in a loop. A command that sees `true` should

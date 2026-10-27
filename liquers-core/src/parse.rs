@@ -305,18 +305,40 @@ impl<'a> From<Span<'a>> for Position {
     }
 }
 
+// Token classes of the query grammar. All are ASCII: a `char` is tested as itself, never through
+// its low byte (`c as u8` read `Ł`, U+0141, as `A`).
+
+#[inline]
+fn is_identifier_start(c: char) -> bool {
+    c.is_ascii_alphabetic() || c == '_'
+}
+
+#[inline]
+fn is_identifier_char(c: char) -> bool {
+    c.is_ascii_alphanumeric() || c == '_'
+}
+
+#[inline]
+fn is_filename_suffix_char(c: char) -> bool {
+    is_identifier_char(c) || c == '.' || c == '-'
+}
+
+#[inline]
+fn is_header_value_char(c: char) -> bool {
+    is_identifier_char(c) || c == '.'
+}
+
 fn identifier(text: Span) -> IResult<Span, String> {
-    let (text, a) = take_while1(|c| AsChar::is_alpha(c as u8) || c == '_')(text)?;
-    let (text, b) = take_while(|c| AsChar::is_alphanum(c as u8) || c == '_')(text)?;
+    let (text, a) = take_while1(is_identifier_start)(text)?;
+    let (text, b) = take_while(is_identifier_char)(text)?;
 
     Ok((text, format!("{}{}", a, b)))
 }
 
 fn filename(text: Span) -> IResult<Span, String> {
-    let (text, a) = take_while(|c| AsChar::is_alphanum(c as u8) || c == '_')(text)?;
+    let (text, a) = take_while(is_identifier_char)(text)?;
     let (text, _dot) = nom::character::complete::char('.')(text)?;
-    let (text, b) =
-        take_while1(|c| AsChar::is_alphanum(c as u8) || c == '_' || c == '.' || c == '-')(text)?;
+    let (text, b) = take_while1(is_filename_suffix_char)(text)?;
 
     Ok((text, format!("{}.{}", a, b)))
 }
@@ -473,7 +495,7 @@ fn action_request(text: Span) -> IResult<Span, ActionRequest> {
 fn header_parameter(text: Span) -> IResult<Span, HeaderParameter> {
     let (text, _) = tag("-")(text)?;
     let position: Position = text.into();
-    let (text, parameter) = take_while(|c| (c as u8).is_alphanum() || c == '_' || c == '.')(text)?;
+    let (text, parameter) = take_while(is_header_value_char)(text)?;
     Ok((
         text,
         HeaderParameter::new(parameter.to_string()).with_position(position),
@@ -483,8 +505,8 @@ fn header_parameter(text: Span) -> IResult<Span, HeaderParameter> {
 fn full_transform_segment_header(text: Span) -> IResult<Span, SegmentHeader> {
     let position: Position = text.into();
     let (text, level_lead) = many1(tag("-")).parse(text)?;
-    let (text, lead_name) = take_while1(|c: char| (c as u8).is_alpha() && c.is_lowercase())(text)?;
-    let (text, rest_name) = take_while(|c| (c as u8).is_alphanum() || c == '_')(text)?;
+    let (text, lead_name) = take_while1(|c: char| c.is_ascii_lowercase())(text)?;
+    let (text, rest_name) = take_while(is_identifier_char)(text)?;
     let (text, parameters) = many0(header_parameter).parse(text)?;
     let (text, _) = tag("/")(text)?;
 
@@ -529,7 +551,7 @@ fn resource_segment_header(text: Span) -> IResult<Span, SegmentHeader> {
     let position: Position = text.into();
     let (text, level_lead) = many1(tag("-")).parse(text)?;
     let (text, _) = tag("R")(text)?;
-    let (text, name) = take_while(|c: char| (c as u8).is_alphanum() || c == '_')(text)?;
+    let (text, name) = take_while(is_identifier_char)(text)?;
     let (text, parameters) = many0(header_parameter).parse(text)?;
 
     Ok((
@@ -1871,14 +1893,65 @@ mod link_tests {
 
     #[test]
     fn a15_non_ascii_is_not_part_of_the_grammar() -> Result<(), Error> {
-        // The identifier grammar is ASCII-only: `identifier` tests `c as u8`, so a
-        // multi-byte char can never begin or continue an action name. A link cannot
+        // The identifier grammar is ASCII-only (`is_identifier_start` / `is_identifier_char`),
+        // so a multi-byte char can never begin or continue an action name. A link cannot
         // rescue it. Pinned because the Phase 3 plan originally assumed otherwise.
         let err = parse_query("caf\u{e9}-~X~cmd~E").expect_err("non-ASCII must be rejected");
         assert_eq!(err.error_type, ErrorType::ParseError);
         assert_eq!(err.position.offset, 3); // the 'é'
                                             // The ASCII prefix alone parses, link and all.
         assert!(parse_query("caf-~X~cmd~E").is_ok());
+        // `Ł` (U+0141) has the low byte of `A`; it is not a letter of the grammar either.
+        let err = parse_query("\u{141}oad-x").expect_err("non-ASCII must be rejected");
+        assert_eq!(err.error_type, ErrorType::ParseError);
+        assert_eq!(err.position.offset, 0);
+        Ok(())
+    }
+
+    /// query-token-classes-ascii AC-1..AC-3: a non-ASCII char whose low byte is an ASCII letter
+    /// is rejected in every token class, not read as that letter.
+    #[test]
+    fn non_ascii_low_byte_aliases_are_rejected() {
+        for query in [
+            "\u{141}oad-x",
+            "load/\u{141}\u{141}.txt",
+            "-R\u{141}/data/x.csv",
+            "-R-\u{141}/data/x.csv",
+            "-a\u{141}/x",
+            "-R-d\u{141}/data/x.csv",
+        ] {
+            let err = parse_query(query).expect_err(query);
+            assert_eq!(err.error_type, ErrorType::ParseError, "{query}");
+        }
+    }
+
+    /// query-token-classes-ascii AC-4: ASCII token classes are unchanged.
+    #[test]
+    fn ascii_token_classes_unchanged() -> Result<(), Error> {
+        for query in [
+            "load-x",
+            "_a1/b_2",
+            "load/x_1.tar.gz",
+            "-R-meta/data/x.csv",
+            "-Rname-meta/data/x.csv",
+            "-realm1/x",
+            "-R/data/x.csv/-/a/b.txt",
+        ] {
+            assert_eq!(parse_query(query)?.encode(), query);
+        }
+        Ok(())
+    }
+
+    /// query-token-classes-ascii AC-5: string parameters still carry Unicode.
+    #[test]
+    fn unicode_string_parameters_still_parse() -> Result<(), Error> {
+        for (query, value) in [
+            ("f-caf\u{e9}", "caf\u{e9}"),
+            ("f-\u{65e5}\u{672c}", "\u{65e5}\u{672c}"),
+        ] {
+            let action = parse_query(query)?.action().expect("one action");
+            assert_eq!(action.parameters[0].string_value().as_deref(), Some(value));
+        }
         Ok(())
     }
 

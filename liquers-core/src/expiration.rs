@@ -282,10 +282,21 @@ fn combine_atomic_pair(left: &Expires, right: &Expires) -> Expires {
         (Expires::Never, _) => right.clone(),
         (Expires::InDuration(a), Expires::InDuration(b)) => Expires::InDuration((*a).min(*b)),
         (Expires::AtDateTime(a), Expires::AtDateTime(b)) => Expires::AtDateTime((*a).min(*b)),
-        (Expires::EndOfDay { .. }, Expires::EndOfWeek { .. })
-        | (Expires::EndOfDay { .. }, Expires::EndOfMonth { .. }) => left.clone(),
-        (Expires::EndOfWeek { .. }, Expires::EndOfDay { .. })
-        | (Expires::EndOfMonth { .. }, Expires::EndOfDay { .. }) => right.clone(),
+        // The end of a day comes no later than the end of its week or month only in one time
+        // zone. `None` is the system zone, applied alike to every member at evaluation, so two
+        // `None` rules share a zone; any other mismatch is kept as a combination.
+        (Expires::EndOfDay { tz_offset: a }, Expires::EndOfWeek { tz_offset: b })
+        | (Expires::EndOfDay { tz_offset: a }, Expires::EndOfMonth { tz_offset: b })
+            if a == b =>
+        {
+            left.clone()
+        }
+        (Expires::EndOfWeek { tz_offset: a }, Expires::EndOfDay { tz_offset: b })
+        | (Expires::EndOfMonth { tz_offset: a }, Expires::EndOfDay { tz_offset: b })
+            if a == b =>
+        {
+            right.clone()
+        }
         _ => {
             let mut values = BTreeSet::new();
             values.insert(left.clone());
@@ -1585,20 +1596,90 @@ mod tests {
                 | Expires::InDuration(std::time::Duration::from_secs(300)),
             Expires::InDuration(std::time::Duration::from_secs(300))
         );
-        assert_eq!(
-            Expires::EndOfDay { tz_offset: None }
-                | Expires::EndOfWeek {
-                    tz_offset: Some(3600)
-                },
-            Expires::EndOfDay { tz_offset: None }
-        );
-        assert_eq!(
-            Expires::EndOfDay { tz_offset: None }
-                | Expires::EndOfMonth {
-                    tz_offset: Some(3600)
-                },
-            Expires::EndOfDay { tz_offset: None }
-        );
+        for zone in [None, Some(3600)] {
+            assert_eq!(
+                Expires::EndOfDay { tz_offset: zone } | Expires::EndOfWeek { tz_offset: zone },
+                Expires::EndOfDay { tz_offset: zone }
+            );
+            assert_eq!(
+                Expires::EndOfDay { tz_offset: zone } | Expires::EndOfMonth { tz_offset: zone },
+                Expires::EndOfDay { tz_offset: zone }
+            );
+        }
+    }
+
+    /// expires-cross-timezone-reduction AC-1: an end of day in one zone does not stand in for
+    /// the end of a week or month in another.
+    #[test]
+    fn test_combine_end_of_period_across_time_zones_is_kept() {
+        for (a, b) in [(None, Some(3600)), (Some(0), Some(50400))] {
+            let day = Expires::EndOfDay { tz_offset: a };
+            for period in [
+                Expires::EndOfWeek { tz_offset: b },
+                Expires::EndOfMonth { tz_offset: b },
+            ] {
+                for combined in [day.clone() | period.clone(), period.clone() | day.clone()] {
+                    assert!(
+                        matches!(&combined, Expires::Combination(set)
+                            if set.len() == 2 && set.contains(&day) && set.contains(&period)),
+                        "{day:?} | {period:?} -> {combined:?}"
+                    );
+                }
+                let mut set = BTreeSet::new();
+                set.insert(day.clone());
+                set.insert(period.clone());
+                assert!(
+                    matches!(Expires::Combination(set).canonise(), Expires::Combination(s) if s.len() == 2)
+                );
+            }
+        }
+    }
+
+    /// expires-cross-timezone-reduction AC-1, AC-3: combining never changes the deadline; it is
+    /// always the earlier of the two.
+    #[test]
+    fn test_combine_is_the_earliest_expiration() {
+        let zones = [None, Some(0), Some(-43200), Some(50400)];
+        let mut rules = vec![
+            Expires::Never,
+            Expires::Immediately,
+            Expires::InDuration(std::time::Duration::from_secs(60)),
+            Expires::InDuration(std::time::Duration::from_secs(3600)),
+            Expires::AtTimeOfDay {
+                hour: 6,
+                minute: 0,
+                second: 0,
+                tz_offset: Some(0),
+            },
+            Expires::AtDateTime(Utc.with_ymd_and_hms(2026, 10, 20, 12, 0, 0).unwrap()),
+        ];
+        for zone in zones {
+            rules.push(Expires::OnDayOfWeek {
+                day: 2,
+                tz_offset: zone,
+            });
+            rules.push(Expires::EndOfDay { tz_offset: zone });
+            rules.push(Expires::EndOfWeek { tz_offset: zone });
+            rules.push(Expires::EndOfMonth { tz_offset: zone });
+        }
+        let references = [
+            Utc.with_ymd_and_hms(2026, 10, 18, 23, 30, 0).unwrap(), // Sunday
+            Utc.with_ymd_and_hms(2026, 10, 31, 23, 30, 0).unwrap(), // Saturday, month end
+            Utc.with_ymd_and_hms(2026, 10, 14, 12, 0, 0).unwrap(),  // Wednesday
+        ];
+        for t in references {
+            for x in &rules {
+                for y in &rules {
+                    let expected = x.to_expiration_time(t, 0).min(y.to_expiration_time(t, 0));
+                    let combined = x.clone() | y.clone();
+                    assert_eq!(
+                        combined.to_expiration_time(t, 0),
+                        expected,
+                        "{x:?} | {y:?} = {combined:?} at {t}"
+                    );
+                }
+            }
+        }
     }
 
     #[test]
