@@ -226,7 +226,7 @@ Run: `bash scripts/test-liquers-py.sh -k ERROR`, then the whole loop.
 ### Steps
 
 - [x] 1. `liquers-py/tests/test_ERROR_errors.py`: add the four tests. Proof: `bash scripts/test-liquers-py.sh -k ERROR`; AC-1, AC-2 and AC-3 fail today (AC-4 passes)
-- [ ] 2. `liquers-py/src/error.rs`: add `serialization_pyerr`. Proof: `cargo check -p liquers-py --lib --tests`
+- [x] 2. `liquers-py/src/error.rs`: add `serialization_pyerr`. Proof: `cargo check -p liquers-py --lib --tests`
 - [ ] 3. `metadata.rs`, `recipes.rs`, `expiration.rs`: replace the 23 sites; for `ExpirationTime::new`, use `general_error`. Proof: `cargo check -p liquers-py --lib --tests`
 - [ ] 4. `command_metadata.rs`, `plan.rs`: replace the 33 sites; drop the `PyException` imports. Proof: `cargo check -p liquers-py --lib --tests` with no new warning; `ac5_no_untyped_mapping_grep` (AC-5)
 - [ ] 5. Whole loop. Proof: `bash scripts/test-liquers-py.sh` passes, with the step 1 tests now green
