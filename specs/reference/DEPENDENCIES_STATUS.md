@@ -199,6 +199,16 @@ fails fast with `Error::dependency_cycle`. That is pinned by
   dependency that expired mid-evaluation) and finishes `Expired` with
   `Direct { StaleDependency }`, to be recomputed on next access. `add_dependency` itself stays a
   pure recorder. An unknown version on either side is no evidence and marks nothing.
+
+  A dependency a command **records** (`Context::add_dependency`) instead of waiting for has no
+  edge until the run completes, so the same check runs at completion
+  (`AssetRef::complete_evaluation`): a record whose concrete version differs from the concrete
+  version the map holds takes the same stale route, for keyed and query assets alike. A write that
+  lands after that check but before `track_asset` registers the edges is caught right after it
+  (`expire_if_superseded`): the asset is expired with `Direct { StaleDependency }`, and a keyed
+  owner's dependents cascade with the same cause. A keyed asset is expired under
+  `key_mutation_lock` and only while no other asset is registered for its key, so an asset a
+  concurrent `set_state` replaced does not write its expired metadata over the replacement's.
 - **A change expires only what it provably affects.** Each edge records the version its dependent
   observed, and `register_version` spares a dependent only when that expectation is concrete and
   equal to the new version. A **first** registration is not a change, except for an edge
@@ -646,6 +656,7 @@ priming cannot see (`INLINE-MANAGER-DYNAMIC-DEPENDENCY-CHAIN-NESTS`).
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-27 | Stale-at-birth: a dependency recorded through `Context::add_dependency` is compared with the map at completion and again once the edges exist. | `design/runtime-dependency-record-superseded-check/` |
 | 2026-10-27 | An uncached keyed write re-checks its recorded inputs and expires the stored copy when one was superseded during the run. | `design/uncached-write-back-rechecks-dependency-versions/` |
 | 2026-10-18 | §Current contract, folder-listing bullet, and glossary: `refresh_listing_version` climbs to the ancestors whose membership a write that creates or empties a folder changed. | `design/new-folder-write-ancestor-listing-refresh/` |
 | 2026-10-18 | Flow B step 4: an untracked dependent list is pruned of dropped and duplicate entries as it grows, bounded by about twice its live dependents. | `design/dependent-asset-weak-reference-pruning/` |

@@ -3,8 +3,8 @@ id: UNCACHED-WRITE-BACK-RECHECKS-DEPENDENCY-VERSIONS
 kind: design
 title: An uncached key's write-back re-checks its inputs, so an expiry during the evaluation is not overwritten
 form: compact
-status: in_review
-phase: implementation
+status: complete
+gh_pr: [206]
 readiness: ready
 autofix: eligible
 area: [core/assets]
@@ -12,6 +12,8 @@ issues: [UNCACHED-STORED-COPY-EXPIRY-RACES-AN-INFLIGHT-EVALUATION]
 created: 2026-10-20
 ---
 # An uncached key's write-back re-checks its inputs, so an expiry during the evaluation is not overwritten
+
+> **Complete on 2026-10-27**: implemented by automatic fix in #206.
 
 Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-20: Phases 1-4 written; Phase 4
 implemented on 2026-10-27 (automatic fix). Origin: `record-streams` (complete), implementation-review finding
