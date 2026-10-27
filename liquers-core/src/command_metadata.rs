@@ -8,13 +8,40 @@ use crate::error::Error;
 use crate::expiration::Expires;
 use crate::issue_report::{Issue, IssueReport, IssueSeverity};
 use crate::metadata::Version;
-use crate::query::{ActionParameter, ActionRequest, Query, TryToQuery};
+use crate::query::{ActionParameter, ActionRequest, Query, TryToQuery, RESERVED_ACTION_NAMES};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 #[cfg(test)]
 mod validation_tests {
     use super::*;
+
+    #[test]
+    fn instruction_names_are_reserved_command_names() {
+        for name in ["ns", "q", "v"] {
+            for namespace in ["", "pl"] {
+                let mut cm = CommandMetadata::new(name);
+                cm.namespace = namespace.to_string();
+                let report = cm.check();
+                assert!(
+                    report.has_errors(),
+                    "{name} in '{namespace}' must be refused"
+                );
+                let text = format!("{report:?}");
+                assert!(
+                    text.contains(&format!("'{name}' is reserved")),
+                    "{name}: {text}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn names_resembling_instructions_are_not_reserved() {
+        for name in ["qq", "vv", "nsx", "value"] {
+            assert!(!CommandMetadata::new(name).check().has_errors(), "{name}");
+        }
+    }
 
     fn argument(name: &str, multiple: bool, injected: bool) -> ArgumentInfo {
         let mut argument = ArgumentInfo::argument(name);
@@ -1219,13 +1246,16 @@ impl CommandMetadata {
                 "Command name is empty",
             )]);
         }
-        if self.name == "ns" {
+        if RESERVED_ACTION_NAMES.contains(&self.name.as_str()) {
             issues.extend([Issue::command_registry(
                 IssueSeverity::Error,
                 &self.realm,
                 &self.namespace,
                 &self.name,
-                "Command name 'ns' is reserved",
+                format!(
+                    "Command name '{}' is reserved: it is a query instruction",
+                    self.name
+                ),
             )]);
         }
         for a in self.arguments.iter() {

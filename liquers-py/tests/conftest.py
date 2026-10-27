@@ -1,5 +1,7 @@
 """Shared fixtures for the conformance suites (LANGUAGE-INTEGRATION_GUIDE.md, Appendix A)."""
 
+import asyncio
+import threading
 import time
 
 import pytest
@@ -68,6 +70,34 @@ def register_fixture_commands(e):
             time.sleep(0.01)
         return "done"
 
+    @e.first_command
+    def sleepy(i: int = 0) -> int:
+        time.sleep(0.5)
+        return i
+
+    @e.first_command
+    async def nap(i: int = 0) -> int:
+        await asyncio.sleep(0.5)
+        return i
+
+    calls["started"] = threading.Event()
+    calls["saw_cancel"] = threading.Event()
+
+    @e.first_command(volatile=True)
+    async def hang():
+        calls["started"].set()
+        try:
+            await asyncio.sleep(3600)
+        except asyncio.CancelledError:
+            calls["saw_cancel"].set()
+            raise
+
+    @e.first_command(volatile=True)
+    async def where_async(i: int = 0):
+        before = threading.get_ident()
+        await asyncio.sleep(0.01)
+        return [before, threading.get_ident()]
+
 
 
 @pytest.fixture
@@ -77,3 +107,24 @@ def env():
     register_fixture_commands(e)
     yield e
     e.shutdown()
+
+
+def run_async(main, timeout=30):
+    """Runs ``asyncio.run(main())`` on a thread and returns its result, failing the test if it has
+    not finished after ``timeout`` seconds instead of hanging the suite."""
+    outcome = {}
+
+    def target():
+        try:
+            outcome["value"] = asyncio.run(main())
+        except BaseException as e:  # re-raised on the test's thread
+            outcome["error"] = e
+
+    thread = threading.Thread(target=target, daemon=True)
+    thread.start()
+    thread.join(timeout)
+    if thread.is_alive():
+        raise AssertionError(f"the async test body did not finish within {timeout} s")
+    if "error" in outcome:
+        raise outcome["error"]
+    return outcome.get("value")

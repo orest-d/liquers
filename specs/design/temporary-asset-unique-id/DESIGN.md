@@ -3,8 +3,8 @@ id: TEMPORARY-ASSET-UNIQUE-ID
 kind: design
 title: A temporary asset takes a fresh id from its manager
 form: compact
-status: in_review
-phase: implementation
+status: complete
+gh_pr: [200]
 readiness: ready
 autofix: eligible
 area: [core/assets]
@@ -12,6 +12,8 @@ issues: [TEMPORARY-ASSETS-SHARE-ID-ZERO]
 created: 2026-10-20
 ---
 # A temporary asset takes a fresh id from its manager
+
+> **Complete on 2026-10-27**: implemented by automatic fix in #200.
 
 Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-20: Phases 1-4 written; Phase 4
 implemented on 2026-10-27 (automatic fix).
