@@ -2,7 +2,7 @@
 id: BUILD-MATRIX-CI-SKIPS-NEWER-CRATES
 kind: issue
 title: The build-matrix workflow does not run on a change confined to liquers-template, liquers-mcp or liquers-agent
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [build]
@@ -47,3 +47,7 @@ a workspace member has a matrix row but no path filter.
 
 Bulk design of `workspace-rustfmt-check` and `core-benchmark-suite` (2026-10-20), while reading
 the CI configuration at main 18732dd.
+
+## Resolution
+
+Fixed 2026-10-27 by `design/build-matrix-path-filters/`. Both `paths` lists in `.github/workflows/build-matrix.yml` now name one entry, `'liquers-*/**'`, in place of the eight per-crate entries, so a change confined to `liquers-template`, `liquers-mcp`, `liquers-agent` or any future `liquers-*` crate runs the matrix. The other five triggers are unchanged. A comment above each list says a member named otherwise needs its own entry.
