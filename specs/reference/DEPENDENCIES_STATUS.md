@@ -3,7 +3,7 @@ title: Status::Dependencies Specification
 kind: reference
 audience: internal
 area: [core/assets]
-reviewed: 2026-10-18
+reviewed: 2026-10-27
 ---
 # Dependencies Status Specification
 
@@ -232,9 +232,11 @@ fails fast with `Error::dependency_cycle`. That is pinned by
   expires each expired key through its registered asset when there is one; otherwise — the normal
   case for a `cached: false` key — it rewrites the store's metadata for the key to `Expired`, only
   when a copy exists and its stored status is `Ready` or `Override`. Without that, the stored copy
-  would stay `Ready` and a fresh process would fast-track data the graph knows is stale. The race
-  with an evaluation already in flight is
-  `UNCACHED-STORED-COPY-EXPIRY-RACES-AN-INFLIGHT-EVALUATION`.
+  would stay `Ready` and a fresh process would fast-track data the graph knows is stale. An
+  evaluation already in flight writes after that expiry, so the write is followed by a re-check:
+  a recorded input whose concrete version differs from the concrete version the map holds rewrites
+  the just-written copy as `Expired` with `Direct { StaleDependency }`
+  (`AssetRef::expire_written_copy_if_inputs_superseded`).
 
 ## What a dependency record holds
 
@@ -643,6 +645,7 @@ priming cannot see (`INLINE-MANAGER-DYNAMIC-DEPENDENCY-CHAIN-NESTS`).
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-27 | An uncached keyed write re-checks its recorded inputs and expires the stored copy when one was superseded during the run. | `design/uncached-write-back-rechecks-dependency-versions/` |
 | 2026-10-18 | §Current contract, folder-listing bullet, and glossary: `refresh_listing_version` climbs to the ancestors whose membership a write that creates or empties a folder changed. | `design/new-folder-write-ancestor-listing-refresh/` |
 | 2026-10-18 | Flow B step 4: an untracked dependent list is pruned of dropped and duplicate entries as it grows, bounded by about twice its live dependents. | `design/dependent-asset-weak-reference-pruning/` |
 | 2026-10-17 | §What a dependency record holds: a non-keyed dependency's run-time records are inherited by its dependent; row for records a command adds at run time. | `design/search-read-dependencies/` |

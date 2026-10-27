@@ -3659,20 +3659,76 @@ impl<E: Environment> AssetRef<E> {
                 tokio::spawn(async move {
                     // The asset holds its environment weakly; the save is bounded, so it pins it.
                     let _envref = envref;
-                    let result = assetref.save_to_store().await;
-                    assetref.record_persistence_result(result).await;
+                    assetref.save_and_recheck_inputs().await;
                 });
             } else {
-                let result = self.save_to_store().await;
-                self.record_persistence_result(result).await;
+                self.save_and_recheck_inputs().await;
             }
         }
         #[cfg(target_arch = "wasm32")]
         {
             let _ = save_in_background;
-            let result = self.save_to_store().await;
-            self.record_persistence_result(result).await;
+            self.save_and_recheck_inputs().await;
         }
+    }
+
+    /// Writes the asset to the store and records the outcome; after a write, re-checks its
+    /// inputs (see [`Self::expire_written_copy_if_inputs_superseded`]).
+    async fn save_and_recheck_inputs(&self) {
+        let result = self.save_to_store().await;
+        let written = matches!(result, Ok(SaveOutcome::Written));
+        self.record_persistence_result(result).await;
+        if written {
+            self.expire_written_copy_if_inputs_superseded().await;
+        }
+    }
+
+    /// After an uncached keyed asset was written: when one of its recorded inputs no longer holds
+    /// the version it recorded, rewrite the stored copy as `Expired` with
+    /// `Direct { StaleDependency }`.
+    ///
+    /// An uncached key has no registered asset, so a cascade that reached it during the run found
+    /// at most an older stored copy, and the write then put a `Ready` copy back that a fresh
+    /// process would serve. Checking after the write closes that window: a change landing later
+    /// finds the stored copy and expires it. Registered (cached) and volatile assets are left to
+    /// the cascade. Failures are only logged, as in [`expire_stored_copy`].
+    async fn expire_written_copy_if_inputs_superseded(&self) {
+        // One read, released before the dependency manager is asked (lock order as in
+        // `record_dependency_on_asset`).
+        let (key, records) = {
+            let lock = self.data.read().await;
+            let records = match &lock.metadata {
+                Metadata::MetadataRecord(mr) if !mr.cached() => mr.dependencies.clone(),
+                Metadata::MetadataRecord(_) | Metadata::LegacyMetadata(_) => return,
+            };
+            match (&lock.key, lock.is_volatile) {
+                (Some(key), false) => (key.clone(), records),
+                (Some(_), true) | (None, _) => return,
+            }
+        };
+        let Ok(envref) = self.try_get_envref().await else {
+            return;
+        };
+        let manager = envref.get_asset_manager();
+        let dm = manager.dependency_manager();
+        // Only two known versions can disagree: an unknown one on either side is no evidence.
+        let mut superseded = None;
+        for record in records.iter().filter(|r| !r.version.is_unknown()) {
+            match dm.get_version(&record.key).await {
+                Some(current) if !current.is_unknown() && current != record.version => {
+                    superseded = Some(record.key.clone());
+                    break;
+                }
+                Some(_) | None => {}
+            }
+        }
+        let Some(dependency) = superseded else {
+            return;
+        };
+        let reason = ExpiryReason::Direct {
+            cause: ExpiryCause::StaleDependency { dependency },
+        };
+        expire_stored_copy(&*manager, envref.get_async_store(), &key, &reason).await;
     }
 
     /// Inform the asset that it has been submitted (sets status `Submitted`).

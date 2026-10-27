@@ -13,8 +13,8 @@ created: 2026-10-20
 ---
 # An uncached key's write-back re-checks its inputs, so an expiry during the evaluation is not overwritten
 
-Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-20: Phases 1-4 written, not
-approved, nothing implemented. Origin: `record-streams` (complete), implementation-review finding
+Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-20: Phases 1-4 written; Phase 4
+implemented on 2026-10-27 (automatic fix). Origin: `record-streams` (complete), implementation-review finding
 C1, which introduced the store-side expiry of an uncached key.
 
 ## Phase 1: High-Level Design
@@ -198,9 +198,9 @@ Run: `CARGO_INCREMENTAL=0 cargo test -p liquers-core --test stored_cached_flags`
 
 ### Steps
 
-- [ ] 1. `liquers-core/tests/stored_cached_flags.rs` — `gated_upper` fixture and the two tests; both fail at HEAD — `cargo test -p liquers-core --test stored_cached_flags uncached_copy`. Rollback: delete the tests.
-- [ ] 2. `liquers-core/src/assets.rs` — `AssetRef::expire_written_copy_if_inputs_superseded` and its calls in `persist_with_status_tracking` — depends on 1 — step 1 tests pass; `cargo test -p liquers-core --lib --tests`. Rollback: revert the commit.
-- [ ] 3. Docs: `ASSETS.md`, `DEPENDENCIES_STATUS.md` (History rows, `reviewed:`); close `UNCACHED-STORED-COPY-EXPIRY-RACES-AN-INFLIGHT-EVALUATION` with a resolution note — `python3 scripts/docs_index.py --check`.
+- [x] 1. `liquers-core/tests/stored_cached_flags.rs` — `gated_upper` fixture and the two tests; both fail at HEAD — `cargo test -p liquers-core --test stored_cached_flags uncached_copy`. Rollback: delete the tests.
+- [x] 2. `liquers-core/src/assets.rs` — `AssetRef::expire_written_copy_if_inputs_superseded` and its calls in `persist_with_status_tracking` — depends on 1 — step 1 tests pass; `cargo test -p liquers-core --lib --tests`. Rollback: revert the commit.
+- [x] 3. Docs: `ASSETS.md`, `DEPENDENCIES_STATUS.md` (History rows, `reviewed:`); close `UNCACHED-STORED-COPY-EXPIRY-RACES-AN-INFLIGHT-EVALUATION` with a resolution note — `python3 scripts/docs_index.py --check`.
 
 ### Validation
 
@@ -208,3 +208,10 @@ Run: `CARGO_INCREMENTAL=0 cargo test -p liquers-core --test stored_cached_flags`
 `cached: false`); `bash scripts/check-build-matrix.sh` (wasm32 rows: the sync persist branch);
 `python3 scripts/docs_index.py --check`; diff review for edits outside `assets.rs`, the test file and
 the two references.
+
+### Implementation notes (2026-10-27)
+
+- The version comparison is written inline in `expire_written_copy_if_inputs_superseded`. The
+  same comparison is `DependencyManager::superseded_record` in
+  `runtime-dependency-record-superseded-check`, implemented in parallel; whichever merges second
+  can call the other's helper.
