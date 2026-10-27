@@ -245,6 +245,8 @@ on wasm.
 - **Web rendering with SSR and wasm** — built → [`design/webui/`](design/webui/)
 - **Retained-mode invalidation tracking** — built → [`design/webui-fixes/`](design/webui-fixes/)
 - **UI event delivery** — designing → [`design/ui-events/`](design/ui-events/)
+- **Liquers UI from JavaScript** — designing → [`design/web-ui-use/`](design/web-ui-use/)
+- **UI elements and renderers defined in JavaScript** — designing → [`design/web-ui-define/`](design/web-ui-define/)
 - **Typed list values for `lui/children`** — built → [`design/value-list-support/`](design/value-list-support/)
 - **egui asset-manager adapter** — planned → [`issues/EGUI-ASSET-MANAGER-INTEGRATION.md`](issues/EGUI-ASSET-MANAGER-INTEGRATION.md)
 
@@ -673,6 +675,8 @@ deliberately folded behind a broader line.
 - feature `VALUE-SERIALIZATION-IS-SYNCHRONOUS-AND-WHOLE-VALUE`
 - feature `VALUE-TYPE-DEFINITION-MACRO`
 - feature `WEB-API-REFERENCE-NOT-GENERATED`
+- feature `WEB-CANNOT-DEFINE-UI-ELEMENTS`
+- feature `WEB-CANNOT-USE-A-LIQUERS-UI`
 - feature `WEB-HAS-NO-READ-WRITE-REMOTE-STORE`
 - feature `WEB-HAS-NO-TEMPLATE-COMMANDS`
 - feature `WEB-QUERY-EDITOR-NOT-LIVE`
