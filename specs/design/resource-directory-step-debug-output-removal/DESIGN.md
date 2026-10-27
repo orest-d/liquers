@@ -13,8 +13,8 @@ created: 2026-10-26
 ---
 # The store-directory step evaluates without writing debug lines to stderr
 
-Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-26: Phases 1-4 written, not
-approved, nothing implemented.
+Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-26: Phases 1-4 written; Phase 4
+implemented on 2026-10-27 (automatic fix).
 
 ## Phase 1: High-Level Design
 
@@ -136,9 +136,9 @@ Run: `CARGO_INCREMENTAL=0 cargo test -p liquers-core --lib test_sdir` and
 
 ### Steps
 
-- [ ] 1. `liquers-core/src/interpreter.rs` `tests` — add `test_sdir_lists_store_entries`; it passes at HEAD (behaviour pin) — `cargo test -p liquers-core --lib test_sdir`
-- [ ] 2. `liquers-core/src/interpreter.rs` `do_step`, `Step::GetResourceDirectory` — delete the two `eprintln!` lines — step 1 test still passes; `grep -n 'resource directory' liquers-core/src/interpreter.rs` is empty. Rollback: revert.
-- [ ] 3. Close `RESOURCE-DIRECTORY-STEP-PRINTS-DEBUG-OUTPUT` (`status: closed`, resolution note naming the test) and move this design to `complete` — `python3 scripts/docs_index.py` then `--check`
+- [x] 1. `liquers-core/src/interpreter.rs` `tests` — add `test_sdir_lists_store_entries`; it passes at HEAD (behaviour pin) — `cargo test -p liquers-core --lib test_sdir`
+- [x] 2. `liquers-core/src/interpreter.rs` `do_step`, `Step::GetResourceDirectory` — delete the two `eprintln!` lines — step 1 test still passes; `grep -n 'resource directory' liquers-core/src/interpreter.rs` is empty. Rollback: revert.
+- [x] 3. Close `RESOURCE-DIRECTORY-STEP-PRINTS-DEBUG-OUTPUT` (`status: closed`, resolution note naming the test) and move this design to `complete` — `python3 scripts/docs_index.py` then `--check`
 
 ### Validation
 
