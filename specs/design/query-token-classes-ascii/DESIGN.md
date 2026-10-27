@@ -13,8 +13,8 @@ created: 2026-10-26
 ---
 # Action names, filenames, segment headers and header values are tested as ASCII
 
-Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-26: Phases 1-4 written, not
-approved, nothing implemented.
+Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-26: Phases 1-4 written; Phase 4
+implemented on 2026-10-27 (automatic fix).
 
 ## Phase 1: High-Level Design
 
@@ -184,10 +184,10 @@ Run: `CARGO_INCREMENTAL=0 cargo test -p liquers-core --lib parse::tests` and
 
 ### Steps
 
-- [ ] 1. `parse.rs` tests — add `non_ascii_low_byte_aliases_are_rejected`, `ascii_token_classes_unchanged`, `unicode_string_parameters_still_parse`, the `Ł` case in `a15`; the rejections fail at HEAD — `cargo test -p liquers-core --lib parse::tests`
-- [ ] 2. `parse.rs` — add the four private predicates; rewrite `identifier`, `filename`, `header_parameter`, `full_transform_segment_header`, `resource_segment_header`; correct `a15`'s comment — depends on 1 — step 1 tests pass; `cargo test -p liquers-core --lib --tests`. Rollback: revert.
-- [ ] 3. `DOC_02_QUERY_LANGUAGE_REFERENCE.md` §Lexical forms — realm-name line, non-ASCII sentence; History row, `reviewed:` — `python3 scripts/docs_index.py --check`
-- [ ] 4. Close `QUERY-TOKEN-CLASSES-TRUNCATE-NON-ASCII` with a resolution note; this design to `complete` — `python3 scripts/docs_index.py` then `--check`
+- [x] 1. `parse.rs` tests — add `non_ascii_low_byte_aliases_are_rejected`, `ascii_token_classes_unchanged`, `unicode_string_parameters_still_parse`, the `Ł` case in `a15`; the rejections fail at HEAD — `cargo test -p liquers-core --lib parse::tests`
+- [x] 2. `parse.rs` — add the four private predicates; rewrite `identifier`, `filename`, `header_parameter`, `full_transform_segment_header`, `resource_segment_header`; correct `a15`'s comment — depends on 1 — step 1 tests pass; `cargo test -p liquers-core --lib --tests`. Rollback: revert.
+- [x] 3. `DOC_02_QUERY_LANGUAGE_REFERENCE.md` §Lexical forms — realm-name line, non-ASCII sentence; History row, `reviewed:` — `python3 scripts/docs_index.py --check`
+- [x] 4. Close `QUERY-TOKEN-CLASSES-TRUNCATE-NON-ASCII` with a resolution note; this design to `complete` — `python3 scripts/docs_index.py` then `--check`
 
 ### Validation
 
