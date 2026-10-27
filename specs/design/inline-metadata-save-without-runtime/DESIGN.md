@@ -13,8 +13,8 @@ created: 2026-10-20
 ---
 # The immediate manager persists metadata without spawning on native targets
 
-Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-20: Phases 1-4 written, not
-approved, nothing implemented.
+Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-20: Phases 1-4 written; Phase 4
+implemented on 2026-10-27 (automatic fix).
 
 ## Phase 1: High-Level Design
 
@@ -127,12 +127,12 @@ Run: `cargo test -p liquers-core --test manager_parametric without_tokio_runtime
 
 ### Steps
 
-- [ ] 1. `liquers-core/tests/common/manager_scenarios.rs` `register_log_greet`, and the two tests
+- [x] 1. `liquers-core/tests/common/manager_scenarios.rs` `register_log_greet`, and the two tests
   in `tests/manager_parametric.rs` — confirm they panic at HEAD (reproduction) —
   `cargo test -p liquers-core --test manager_parametric logging_command`
-- [ ] 2. `liquers-core/src/assets.rs` `MetadataSaver::save_immediately` + private `persist_inline`
+- [x] 2. `liquers-core/src/assets.rs` `MetadataSaver::save_immediately` + private `persist_inline`
   — mode-aware fork as Phase 2 — same command, both tests pass
-- [ ] 3. Regression: `cargo test -p liquers-core --lib --tests`; `cargo check -p liquers-core
+- [x] 3. Regression: `cargo test -p liquers-core --lib --tests`; `cargo check -p liquers-core
   --target wasm32-unknown-unknown` (the wasm branch now calls the shared helper)
 
 ### Validation
