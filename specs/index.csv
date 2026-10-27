@@ -49,7 +49,7 @@ BUILD-MATRIX-CI-SKIPS-NEWER-CRATES,issue,"The build-matrix workflow does not run
 BUILD-MATRIX-EXHAUSTS-SESSION-DISK,issue,The build-matrix script fills a cloud session's disk before it finishes,closed,local,,ready,eligible,P3,S,build,,,,build-matrix-disk-budget,,2026-10-17,specs/issues/BUILD-MATRIX-EXHAUSTS-SESSION-DISK.md
 BUILD-MATRIX-NOT-RUN-IN-CI,issue,The feature/target build matrix is never run automatically,closed,local,,ready,,P2,S,build;docs,,,,build-matrix-ci,,2026-08-25,specs/issues/BUILD-MATRIX-NOT-RUN-IN-CI.md
 BUILD-SYSINFO-REQUIRES-NEWER-RUSTC,issue,liquers-lib test builds fail on rustc 1.94 because a transitive sysinfo requires 1.95,closed,local,,ready,eligible,P2,S,build,,,,build-sysinfo-rustc-compatibility,,2026-09-02,specs/issues/BUILD-SYSINFO-REQUIRES-NEWER-RUSTC.md
-CANCEL-CAN-OVERTAKE-A-RETURNED-COMMAND,issue,"A cancel can still win after the last command returned Ok, if the rest of the evaluation then suspends",draft,local,,ready,eligible,P3,M,core/assets,,,,cancel-point-of-no-return,,2026-10-09,specs/issues/CANCEL-CAN-OVERTAKE-A-RETURNED-COMMAND.md
+CANCEL-CAN-OVERTAKE-A-RETURNED-COMMAND,issue,"A cancel can still win after the last command returned Ok, if the rest of the evaluation then suspends",closed,local,,ready,eligible,P3,M,core/assets,,,,cancel-point-of-no-return,,2026-10-09,specs/issues/CANCEL-CAN-OVERTAKE-A-RETURNED-COMMAND.md
 CASCADE-TO-AN-IN-FLIGHT-DEPENDENT-IS-DROPPED,issue,"An expiry cascade that reaches a registered dependent still evaluating is dropped, so it finishes Ready on a superseded input",draft,local,,needs-decision,not-eligible,P2,M,core/assets,,,,cascade-marks-in-flight-dependent-stale,,2026-10-21,specs/issues/CASCADE-TO-AN-IN-FLIGHT-DEPENDENT-IS-DROPPED.md
 COLUMN-SLICE-COPIES-INSTEAD-OF-SHARING-BUFFER-STORAGE,issue,Column slice copies instead of sharing buffer storage,draft,local,,needs-decision,not-eligible,P3,M,records,,,,column-slice-shared-buffers,,2026-09-26,specs/issues/COLUMN-SLICE-COPIES-INSTEAD-OF-SHARING-BUFFER-STORAGE.md
 COLUMNMUT-VALIDITY-AND-VARIABLE-LENGTH-SET-ALWAYS-COPY,issue,"ColumnMut always copies validity, and rebuilds the whole column to overwrite one Text/Binary cell",draft,local,,ready,not-eligible,P3,M,records,,,,column-mut-zero-copy-validity,,2026-09-26,specs/issues/COLUMNMUT-VALIDITY-AND-VARIABLE-LENGTH-SET-ALWAYS-COPY.md
@@ -874,7 +874,7 @@ AGENT_MEMORY_SERVICE,reference,Agent Memory Service,current,local,,,,,,lib/comma
 API_DOCS_GAP_ANALYSIS,reference,API Documentation Gap Analysis,current,local,,,,,,docs,,,,,2026-10-20,,specs/reference/api/API_DOCS_GAP_ANALYSIS.md
 DOC_01_ARCHITECTURE_REFERENCE,reference,Architecture Reference,current,local,,,,,,core/query;core/plan;core/assets,,,,,2026-08-09,,specs/reference/api/DOC_01_ARCHITECTURE_REFERENCE.md
 DOC_02_QUERY_LANGUAGE_REFERENCE,reference,Query Language Reference,current,local,,,,,,core/query,,,,,2026-10-20,,specs/reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md
-DOC_03_ASSETS_EXECUTION_LIFECYCLE,reference,Assets and Execution Lifecycle Reference,current,local,,,,,,core/assets,,,,,2026-10-25,,specs/reference/api/DOC_03_ASSETS_EXECUTION_LIFECYCLE.md
+DOC_03_ASSETS_EXECUTION_LIFECYCLE,reference,Assets and Execution Lifecycle Reference,current,local,,,,,,core/assets,,,,,2026-10-27,,specs/reference/api/DOC_03_ASSETS_EXECUTION_LIFECYCLE.md
 DOC_04_ENVIRONMENT_CONTEXT_EVALUATION,reference,"Environment, Context and Evaluation Reference",current,local,,,,,,core/context;core/plan,,,,,2026-10-22,,specs/reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md
 ASSET_LIFECYCLE,reference,Asset Evaluation — Flows and Public Surface,current,local,,,,,,core/assets,,,,,2026-10-25,,specs/reference/ASSET_LIFECYCLE.md
 ASSET_SET_OPERATION,reference,Asset Set Operation Specification,current,local,,,,,,core/assets,,,,,2026-10-10,,specs/reference/ASSET_SET_OPERATION.md
@@ -907,7 +907,7 @@ AGENT_MEMORY_MIGRATION_GUIDE,guide,Agent Memory Migration Guide,current,local,,,
 ASSET_MANAGER_IMPLEMENTATION_GUIDE,guide,Asset Manager Implementation Guide,current,local,,,,,,core/assets,,,,,2026-10-22,,specs/guides/ASSET_MANAGER_IMPLEMENTATION_GUIDE.md
 autonomous_bulk_design,guide,Autonomous Bulk Design Procedure,current,local,,,,,,docs;build,,,,,2026-10-08,,specs/guides/autonomous_bulk_design.md
 autonomous_issue_fixing,guide,Autonomous Issue Fixing Procedure,current,local,,,,,,docs;build,,,,,2026-10-08,,specs/guides/autonomous_issue_fixing.md
-COMMAND_DESIGN_GUIDE,guide,Command Design Guide,current,local,,,,,,core/commands,,,,,2026-10-18,,specs/guides/COMMAND_DESIGN_GUIDE.md
+COMMAND_DESIGN_GUIDE,guide,Command Design Guide,current,local,,,,,,core/commands,,,,,2026-10-27,,specs/guides/COMMAND_DESIGN_GUIDE.md
 COMMAND_REGISTRATION_GUIDE,guide,Command Registration Guide,current,local,,,,,,core/commands;macro,,,,,2026-10-20,,specs/guides/COMMAND_REGISTRATION_GUIDE.md
 DEPENDENCY_CONSISTENCY_GUIDE,guide,Dependency Consistency Guide,current,local,,,,,,core/assets,,,,,2026-10-08,,specs/guides/DEPENDENCY_CONSISTENCY_GUIDE.md
 ENVIRONMENT_CONSTRUCTION_GUIDE,guide,Building and Configuring an Environment,current,local,,,,,,core/context;core/assets;core/store,,,,,2026-10-11,,specs/guides/ENVIRONMENT_CONSTRUCTION_GUIDE.md

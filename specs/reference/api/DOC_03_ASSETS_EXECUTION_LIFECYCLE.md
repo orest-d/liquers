@@ -3,7 +3,7 @@ title: Assets and Execution Lifecycle Reference
 kind: reference
 audience: internal
 area: [core/assets]
-reviewed: 2026-10-25
+reviewed: 2026-10-27
 ---
 # DOC-03: Assets and Execution Lifecycle
 
@@ -339,7 +339,10 @@ uses:
 `Processing`, and `Partial`. A `Submitted` asset ends `Cancelled` at once. For a running
 one it is a request: the run drops its evaluation at the next suspension point and ends
 `Cancelled`, a command can check `Context::is_cancelled` / `check_cancelled`, and a run
-whose command already returned `Ok` ends ready and is stored. A command returning an
+whose command already returned `Ok` ends ready and is stored. A command's `Ok` return commits
+the run: the evaluation/cancellation race ignores the request until the next step that can
+suspend (an action or an asset/resource read) reopens it, so the bookkeeping after a command
+(metadata, a trailing filename) cannot lose its value to a request. A command returning an
 `ErrorType::Cancelled` error ends its asset `Cancelled`; a cancelled dependency cascades to
 the dependents that do not handle it. A cancelled asset records the cancellation in
 `error_data` (`is_error` false) with the root cause's key or query in its `query` field.
@@ -486,6 +489,7 @@ implements a manager outside the crate against the shared manager scenarios. See
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-27 | §Expiration, recovery, and cancellation: a command's `Ok` return commits the run against a pending cancel until the next step that can suspend. | `design/cancel-point-of-no-return/` (`CANCEL-CAN-OVERTAKE-A-RETURNED-COMMAND`) |
 | 2026-10-25 | Statuses: `get` on a store directory gives `Directory`, never reused; an unmakeable key is `AssetNotFound`. | `design/key-without-recipe-answer/` |
 | 2026-10-22 | §Manager lifecycle: the manager and assets hold the environment weakly; run claims, job-queue entries and background saves pin it; `try_get_envref`; dropping the manager stops the job queue. | `design/environment-manager-reference-cycle/` |
 | 2026-10-12 | Manager cache misses are qualified by the evaluation session: one request per dependency per evaluation. | phase-5 (`design/dependency-resolved-once-per-evaluation/`) |

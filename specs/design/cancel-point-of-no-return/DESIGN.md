@@ -13,8 +13,8 @@ created: 2026-10-20
 ---
 # A cancel cannot overtake a command that has returned Ok
 
-Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-20: Phases 1-4 written, not
-approved, nothing implemented. Origin: `asset-cancellation-outcome` (complete) decision D2.
+Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-20: Phases 1-4 written; Phase 4
+implemented on 2026-10-27 (automatic fix). Origin: `asset-cancellation-outcome` (complete) decision D2.
 
 ## Phase 1: High-Level Design
 
@@ -218,10 +218,10 @@ Run: `CARGO_INCREMENTAL=0 cargo test -p liquers-core --test asset_cancellation`,
 
 ### Steps
 
-- [ ] 1. `liquers-core/tests/asset_cancellation.rs` — add `ac13_…`, `ac13_…_inline`, `ac14_…`; the two `ac13` fail at HEAD — `cargo test -p liquers-core --test asset_cancellation`. Rollback: delete the tests.
-- [ ] 2. `assets.rs` `CancellationRequest` (`committed`, `commit`, `reopen`, `requested`, `clear`) and unit test `cancellation_request_commit_gates_requested` — `cargo test -p liquers-core --lib cancellation_request`. Rollback: revert.
-- [ ] 3. `context.rs` `commit_cancellation` / `reopen_cancellation`; `interpreter.rs` `do_step` (`Action`), `apply_plan_state`, `step_can_suspend`; `assets.rs` `run_with_future*` reopen at start — depends on 2 — step 1 tests pass; `cargo test -p liquers-core --lib --tests`. Rollback: revert steps 2-3 together.
-- [ ] 4. Docs: `COMMAND_DESIGN_GUIDE.md`, `DOC_03_ASSETS_EXECUTION_LIFECYCLE.md` (History rows, `reviewed:`); close `CANCEL-CAN-OVERTAKE-A-RETURNED-COMMAND` with a resolution note — `python3 scripts/docs_index.py --check`.
+- [x] 1. `liquers-core/tests/asset_cancellation.rs` — add `ac13_…`, `ac13_…_inline`, `ac14_…`; the two `ac13` fail at HEAD — `cargo test -p liquers-core --test asset_cancellation`. Rollback: delete the tests.
+- [x] 2. `assets.rs` `CancellationRequest` (`committed`, `commit`, `reopen`, `requested`, `clear`) and unit test `cancellation_request_commit_gates_requested` — `cargo test -p liquers-core --lib cancellation_request`. Rollback: revert.
+- [x] 3. `context.rs` `commit_cancellation` / `reopen_cancellation`; `interpreter.rs` `do_step` (`Action`), `apply_plan_state`, `step_can_suspend`; `assets.rs` `run_with_future*` reopen at start — depends on 2 — step 1 tests pass; `cargo test -p liquers-core --lib --tests`. Rollback: revert steps 2-3 together.
+- [x] 4. Docs: `COMMAND_DESIGN_GUIDE.md`, `DOC_03_ASSETS_EXECUTION_LIFECYCLE.md` (History rows, `reviewed:`); close `CANCEL-CAN-OVERTAKE-A-RETURNED-COMMAND` with a resolution note — `python3 scripts/docs_index.py --check`.
 
 ### Validation
 
@@ -229,3 +229,12 @@ Run: `CARGO_INCREMENTAL=0 cargo test -p liquers-core --test asset_cancellation`,
 that poll `is_cancelled`); `bash scripts/check-build-matrix.sh` (wasm32 rows);
 `python3 scripts/docs_index.py --check`; diff review for edits outside the three source files, the
 test file and the two documents.
+
+### Implementation notes (2026-10-27)
+
+- `ac14`: the query `first/then_wait` is not one plan by default; the planner cuts `first` off as
+  a predecessor asset, so the cancel landed on the dependent waiting in `Dependencies` and never
+  reached `then_wait`. The test registers `first` with `cached: false`, which keeps both commands
+  steps of one plan, as the scenario intends.
+- The sync test commands spin with a ten-second deadline, so a failing assertion cannot leave a
+  worker thread spinning and hang the test binary at runtime shutdown.
