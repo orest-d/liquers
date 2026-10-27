@@ -73,7 +73,36 @@ PLACEHOLDER_LEGACY = re.compile(
     r"<[A-Z][^<>]{0,400}?\b[a-z]+\s+[a-z]+\b[^<>]{0,400}?>|<(name|title|slug)>"
 )
 INLINE_CODE = re.compile(r"`[^`\n]*`")
-FENCED_CODE = re.compile(r"(?ms)^ *(```|~~~).*?^ *\1[^\n]*$")
+FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+
+
+def blank_fences(text: str) -> str:
+    """Return text with every fenced block replaced by spaces of the same length (newlines kept).
+
+    Fences are matched as CommonMark does, and as `scripts/docs_index.py` `blank_code` does: a
+    block closes only on a fence of the same character that is at least as long as its opener, so
+    a four-backtick example may contain an unmatched three-backtick line. An unclosed fence runs
+    to the end of the text.
+    """
+    out = []
+    fence = None  # (character, length) of the open fence
+    for line in text.split("\n"):
+        match = FENCE.match(line)
+        if fence is None:
+            if match:
+                fence = (match.group(1)[0], len(match.group(1)))
+                line = " " * len(line)
+        else:
+            if (
+                match
+                and match.group(1)[0] == fence[0]
+                and len(match.group(1)) >= fence[1]
+                and not line[match.end() :].strip()
+            ):
+                fence = None
+            line = " " * len(line)
+        out.append(line)
+    return "\n".join(out)
 
 
 def find_specs_dir() -> Path | None:
@@ -98,7 +127,7 @@ def front_matter(text: str) -> dict:
 def compact_section(text: str, phase: int) -> str | None:
     # Find the boundaries in a copy whose fenced blocks are blanked to the same length, so a
     # `## Phase N` line inside a code example is not taken for a phase heading.
-    blanked = FENCED_CODE.sub(lambda m: re.sub(r"[^\n]", " ", m.group(0)), text)
+    blanked = blank_fences(text)
     match = re.search(rf"(?m)^## Phase {phase}\b.*?(?=^## Phase \d|\Z)", blanked, re.S)
     return text[match.start() : match.end()] if match else None
 
@@ -244,7 +273,7 @@ def validate_phase(slug: str, phase: int) -> bool:
         print(f"[OK] Required sections present ({len(required)})")
 
     # Blank fenced code (keeping line numbers): `<T>` in Rust code is not a template hint.
-    scanned = FENCED_CODE.sub(lambda m: "\n" * m.group(0).count("\n"), content)
+    scanned = blank_fences(content)
     scanned = "\n".join(INLINE_CODE.sub("", line) for line in scanned.splitlines())
     placeholders = [
         (scanned.count("\n", 0, m.start()) + 1, " ".join(m.group(0).split())[:80])

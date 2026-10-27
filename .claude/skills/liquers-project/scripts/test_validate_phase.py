@@ -60,6 +60,19 @@ class CompactSectionTests(unittest.TestCase):
         self.assertIn("real phase 4", phase4)
         self.assertNotIn("fenced", phase4)
 
+    def test_longer_fence_may_contain_a_shorter_one(self):
+        text = (
+            "# d\n\n## Phase 1: High-Level Design\n\n"
+            "````markdown\n```rust\n## Phase 3: inside\n````\n\nreal phase 1\n\n"
+            "## Phase 2: Architecture\n\n```rust\nfn f() {}\n```\n\nreal phase 2\n"
+        )
+        phase1 = validate_phase.compact_section(text, 1)
+        phase2 = validate_phase.compact_section(text, 2)
+        self.assertIn("real phase 1", phase1)
+        self.assertIsNone(validate_phase.compact_section(text, 3))
+        self.assertIsNotNone(phase2)
+        self.assertIn("real phase 2", phase2)
+
 
 if __name__ == "__main__":
     unittest.main()
