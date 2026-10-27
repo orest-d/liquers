@@ -13,8 +13,8 @@ created: 2026-10-20
 ---
 # A wasm32 build of liquers-core is warning-free
 
-Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-20. Phases 1-4 are written but not
-approved, and nothing is implemented.
+Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-20: Phases 1-4 written; Phase 4
+implemented on 2026-10-27 (automatic fix).
 
 ## Phase 1: High-Level Design
 
@@ -134,15 +134,19 @@ No new test: the property is a build property.
 
 ### Steps
 
-- [ ] 1. `liquers-core/src/assets.rs` import block — gate `VecDeque`, `AtomicUsize`, `scc`, `Notify` — `cargo check -p liquers-core`
-- [ ] 2. `assets.rs` `MetadataSaver::interval` — `cfg_attr(..., allow(dead_code))` — `cargo check -p liquers-core`
-- [ ] 3. `liquers-core/src/store.rs` `FileLockGuard` + `impl Drop` — `#[cfg(not(target_arch = "wasm32"))]` — `cargo check -p liquers-core`
-- [ ] 4. Run `cargo check -p liquers-core --target wasm32-unknown-unknown` (after `rustup target add wasm32-unknown-unknown`) and gate any further `liquers-core` warning the same way — zero warnings (AC-1)
-- [ ] 5. `cargo test -p liquers-core --lib` and the core rows of `bash scripts/check-build-matrix.sh` — AC-2
-- [ ] 6. Close `CORE-WASM-BUILD-EMITS-UNUSED-WARNINGS` with a resolution note — `python3 scripts/docs_index.py --check`
+- [x] 1. `liquers-core/src/assets.rs` import block — gate `VecDeque`, `AtomicUsize`, `scc`, `Notify` — `cargo check -p liquers-core`
+- [x] 2. `assets.rs` `MetadataSaver::interval` — `cfg_attr(..., allow(dead_code))` — `cargo check -p liquers-core`
+- [x] 3. `liquers-core/src/store.rs` `FileLockGuard` + `impl Drop` — `#[cfg(not(target_arch = "wasm32"))]` — `cargo check -p liquers-core`
+- [x] 4. Run `cargo check -p liquers-core --target wasm32-unknown-unknown` (after `rustup target add wasm32-unknown-unknown`) and gate any further `liquers-core` warning the same way — zero warnings (AC-1)
+- [x] 5. `cargo test -p liquers-core --lib` and the core rows of `bash scripts/check-build-matrix.sh` — AC-2
+- [x] 6. Close `CORE-WASM-BUILD-EMITS-UNUSED-WARNINGS` with a resolution note — `python3 scripts/docs_index.py --check`
 
 ### Validation
 
 `cargo test -p liquers-core --lib`; the `CORE_CONFIGS` rows of the build matrix. Run `cargo fmt -p
 liquers-core` only on the touched lines (see `workspace-rustfmt-check`). Diff review: only `#[cfg]`
 attributes and import splits.
+
+### Implementation notes (2026-10-27)
+
+- The wasm32 check also reported an unused `std::path::PathBuf` import in `store.rs` (its users, `AsyncFileStore` and `FileLockGuard`, are native-only); gated the same way under step 4.
