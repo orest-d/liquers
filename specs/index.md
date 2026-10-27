@@ -8,10 +8,10 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 215
+Total rows: 214
 - P1: 1
 - P2: 64
-- P3: 150
+- P3: 149
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -82,7 +82,6 @@ Total rows: 215
 | [`REMOTE-ASSET-MANAGER-AND-SYSTEM-API`](issues/REMOTE-ASSET-MANAGER-AND-SYSTEM-API.md) | feature | A client environment cannot delegate evaluation to a server's asset manager | draft | phase2-blocked | not-eligible | P2 | XL | axum;core/assets;web | [phase1](design/remote-asset-manager/phase1-high-level-design.md)  [phase2](design/remote-asset-manager/phase2-architecture.md)  | 2026-10-20 |
 | [`CORE-STATE-LOCK-API-CLEANUP`](issues/CORE-STATE-LOCK-API-CLEANUP.md) | issue | `State` holds an `RwLock` that may not be needed | accepted | ready | eligible | P3 | S | core/value | [design](design/state-lock-marker-cleanup/DESIGN.md) | 2026-08-08 |
 | [`CORE-WASM-BUILD-EMITS-UNUSED-WARNINGS`](issues/CORE-WASM-BUILD-EMITS-UNUSED-WARNINGS.md) | issue | A wasm32 build of liquers-core emits five unused-import and dead-code warnings | draft | ready | eligible | P3 | S | core/assets;build | [design](design/core-wasm-warning-free/DESIGN.md) | 2026-10-17 |
-| [`DOC-03-ENTRY-POINT-TABLE-SAYS-APPLY-SCHEDULES`](issues/DOC-03-ENTRY-POINT-TABLE-SAYS-APPLY-SCHEDULES.md) | issue | DOC-03's entry-point table says apply schedules its asset and takes no payload | draft | ready | eligible | P3 | S | docs;core/assets | [design](design/doc-03-apply-entry-points/DESIGN.md) | 2026-10-20 |
 | [`FOREIGN-VALUE-TEXT-AND-JSON-HOOKS-NEVER-CALLED`](issues/FOREIGN-VALUE-TEXT-AND-JSON-HOOKS-NEVER-CALLED.md) | issue | ForeignValue's text and JSON hooks are never called, so a foreign value cannot offer either | draft | ready | eligible | P3 | S | lib/value | [design](design/foreign-value-text-json-delegation/DESIGN.md) | 2026-10-20 |
 | [`NEXT-PRESETS-MISREAD-PLANNER-INSTRUCTIONS`](issues/NEXT-PRESETS-MISREAD-PLANNER-INSTRUCTIONS.md) | issue | find_next_presets reads planner instructions differently from the planner | draft | ready | eligible | P3 | S | lib/commands | [design](design/next-presets-follow-planner-rules/DESIGN.md) | 2026-10-20 |
 | [`PLAN-SERDE-HAS-NO-COMPATIBILITY-CONTRACT`](issues/PLAN-SERDE-HAS-NO-COMPATIBILITY-CONTRACT.md) | issue | A serialized Plan has no compatibility contract | draft | ready | eligible | P3 | S | core/plan | [design](design/plan-serialization-internal-contract/DESIGN.md) | 2026-10-20 |
