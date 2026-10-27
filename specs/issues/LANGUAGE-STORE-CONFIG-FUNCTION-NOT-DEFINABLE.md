@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: L
 area: [web, py, core/store, store/config]
-design: 
+design: language-store-config-function
 created: 2026-10-15
 github:
 ---
@@ -19,6 +19,24 @@ realm `store_config`. Each one is a `CommandMetadata` plus a builder, registered
 builder is a plain `fn` pointer (`StepBuilder`, `ComponentBuilder`), and it cannot capture a
 JavaScript or Python callable. So a page or a Python module can configure the built-in handlers on
 its stores, but it cannot add a handler of its own, such as a domain-specific field projection.
+
+## Problem Example
+
+```python
+env = lq.Environment(config={"store": {"stores": [{"type": "memory", "prefix": "n",
+    "metadata": {"on_read": "media_type-fill/page_tag"}}]}})
+
+def page_tag(record):          # wanted: a store_config handler written in Python
+    record.info("seen by page_tag")
+    return record
+```
+
+Today nothing can register `page_tag`: `StoreConfigFunctions::register_step` takes a `StepBuilder`,
+a plain `fn` pointer that cannot capture the Python function, and neither binding has an entry
+point for it, so the section is refused because `page_tag` is not a registered handler. Expected:
+reading `n/a.txt` runs `page_tag` in the `on_read` chain, and a raising handler becomes a warning on
+the record. The spec validates (`liquers-validate --command store_config//page_tag --
+'-store_config/media_type-fill/page_tag'`). Design: `design/language-store-config-function/`.
 
 ## Impact
 

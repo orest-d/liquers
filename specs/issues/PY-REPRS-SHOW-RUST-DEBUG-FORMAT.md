@@ -4,9 +4,9 @@ kind: issue
 title: Several Python classes' repr is Rust debug output, and Key and Query quote their text twice
 status: draft
 priority: P3
-complexity: S
+complexity: M
 area: [py]
-design:
+design: py-python-style-reprs
 created: 2026-10-19
 github:
 ---
@@ -53,3 +53,8 @@ equal object where the class has a public constructor. The other classes have a 
 ## Discovery
 
 Found while writing `guides/PYTHON_GUIDE.md` for `design/liquers-py/` Phase 5 (2026-10-19).
+
+Designed 2026-10-27 in `design/py-python-style-reprs/` (bulk design). The design separates the
+plain bug (part A: `Key`, `Query`, `Expires`, `ExpirationTime`, whose quotes are filled with
+`{:?}`) from the choice of a repr convention for the other 23 classes (part B, a maintainer
+decision). Complexity raised from `S` to `M`: 27 `__repr__`s in six files of one crate.

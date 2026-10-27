@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: M
 area: [py, docs]
-design:
+design: py-api-reference
 created: 2026-10-19
 github:
 ---
