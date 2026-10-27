@@ -67,7 +67,7 @@ COMMAND-ENUM-ALTERNATIVES-CANNOT-BE-COMPUTED,feature,An enum argument's alternat
 COMMAND-INPUT-OUTPUT-TYPES-ARE-UNDECLARED,feature,Command metadata does not declare what type a command accepts or returns,draft,local,,needs-decision,not-eligible,P2,L,core/commands;core/value;macro,,,,command-io-type-declarations,,2026-10-20,specs/issues/COMMAND-INPUT-OUTPUT-TYPES-ARE-UNDECLARED.md
 COMMAND-METADATA-ENHANCEMENTS,feature,"Global enums cannot be registered, checked or versioned",accepted,local,,needs-decision,not-eligible,P2,M,core/commands;core/validate,,,,global-enum-registration,,2026-08-08,specs/issues/COMMAND-METADATA-ENHANCEMENTS.md
 COMMAND-METADATA-HAS-NO-COMMAND-LEVEL-HINTS,feature,A usage hint can be attached to an argument but not to a command,closed,local,,ready,not-eligible,P3,S,core/commands;lib/ui,,,,command-metadata-descriptions-and-hints,,2026-08-30,specs/issues/COMMAND-METADATA-HAS-NO-COMMAND-LEVEL-HINTS.md
-COMMAND-NAMES-Q-AND-V-ARE-NOT-RESERVED,issue,A command named q or v registers but can never run,draft,local,,ready,eligible,P2,S,core/commands;core/query,,,,reserved-instruction-command-names,,2026-10-19,specs/issues/COMMAND-NAMES-Q-AND-V-ARE-NOT-RESERVED.md
+COMMAND-NAMES-Q-AND-V-ARE-NOT-RESERVED,issue,A command named q or v registers but can never run,closed,local,,ready,eligible,P2,S,core/commands;core/query,,,,reserved-instruction-command-names,,2026-10-19,specs/issues/COMMAND-NAMES-Q-AND-V-ARE-NOT-RESERVED.md
 COMMAND-PANIC-HANGS-EVALUATION,issue,"A command that panics leaves its asset unfinished, so evaluation waits forever instead of failing",closed,local,,,,P1,M,core/assets,,,,,,2026-10-13,specs/issues/COMMAND-PANIC-HANGS-EVALUATION.md
 COMMAND-REGISTRY-HEADER-NAMES-GROUPS-NOT-FEATURES,issue,"The command_registry.yaml header lists group names under ""features""",closed,local,,ready,eligible,P3,S,lib/commands;build,,,,command-registry-header-feature-names,,2026-10-11,specs/issues/COMMAND-REGISTRY-HEADER-NAMES-GROUPS-NOT-FEATURES.md
 COMMAND-REGISTRY-ISSUE-NAMESPACE-NAME-SWAPPED,issue,CommandRegistryIssue constructors transpose namespace and name,closed,local,,covered,not-eligible,P3,S,core/commands,,,,command-registry-issue-fields-coverage,,2026-08-12,specs/issues/COMMAND-REGISTRY-ISSUE-NAMESPACE-NAME-SWAPPED.md
@@ -873,7 +873,7 @@ WP2-TERMINAL-OUTCOME,design,Asset terminal outcome contract,complete,local,,,,,,
 AGENT_MEMORY_SERVICE,reference,Agent Memory Service,current,local,,,,,,lib/commands;mcp,,,,,2026-10-19,,specs/reference/AGENT_MEMORY_SERVICE.md
 API_DOCS_GAP_ANALYSIS,reference,API Documentation Gap Analysis,current,local,,,,,,docs,,,,,2026-10-20,,specs/reference/api/API_DOCS_GAP_ANALYSIS.md
 DOC_01_ARCHITECTURE_REFERENCE,reference,Architecture Reference,current,local,,,,,,core/query;core/plan;core/assets,,,,,2026-08-09,,specs/reference/api/DOC_01_ARCHITECTURE_REFERENCE.md
-DOC_02_QUERY_LANGUAGE_REFERENCE,reference,Query Language Reference,current,local,,,,,,core/query,,,,,2026-10-20,,specs/reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md
+DOC_02_QUERY_LANGUAGE_REFERENCE,reference,Query Language Reference,current,local,,,,,,core/query,,,,,2026-10-27,,specs/reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md
 DOC_03_ASSETS_EXECUTION_LIFECYCLE,reference,Assets and Execution Lifecycle Reference,current,local,,,,,,core/assets,,,,,2026-10-25,,specs/reference/api/DOC_03_ASSETS_EXECUTION_LIFECYCLE.md
 DOC_04_ENVIRONMENT_CONTEXT_EVALUATION,reference,"Environment, Context and Evaluation Reference",current,local,,,,,,core/context;core/plan,,,,,2026-10-22,,specs/reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md
 ASSET_LIFECYCLE,reference,Asset Evaluation — Flows and Public Surface,current,local,,,,,,core/assets,,,,,2026-10-25,,specs/reference/ASSET_LIFECYCLE.md
@@ -890,7 +890,7 @@ PAYLOAD_GUIDE,reference,Payload Specification and Usage,current,local,,,,,,core/
 POLARS_COMMAND_LIBRARY,reference,Polars Command Library Specification,current,local,,,,,,lib/polars,,,,,2026-10-14,,specs/reference/POLARS_COMMAND_LIBRARY.md
 POSITIONING,reference,Positioning and Marketing Plan (draft),current,local,,,,,,docs,,,,,2026-10-15,,specs/reference/POSITIONING.md
 PROJECT_OVERVIEW,reference,Liquers Project Overview,current,local,,,,,,core/query;core/plan;core/assets;core/store;core/value,,,,,2026-10-25,,specs/reference/PROJECT_OVERVIEW.md
-PYTHON_INTEGRATION,reference,Python Integration,current,local,,,,,,py;core/value;core/error;lib/value,,,,,2026-10-25,,specs/reference/PYTHON_INTEGRATION.md
+PYTHON_INTEGRATION,reference,Python Integration,current,local,,,,,,py;core/value;core/error;lib/value,,,,,2026-10-27,,specs/reference/PYTHON_INTEGRATION.md
 REALMS,reference,Realms,current,local,,,,,,core/plan;core/commands;store/config,,,,,2026-10-16,,specs/reference/REALMS.md
 RECIPES_AND_PLANS,reference,Recipes and Plans Reference,current,local,,,,,,core/plan;core/query;core/assets;core/context,,,,,2026-10-22,,specs/reference/RECIPES_AND_PLANS.md
 RECORD_STREAMS,reference,Record Streams,current,local,,,,,,records;lib/value;lib/commands;web,,,,,2026-10-25,,specs/reference/RECORD_STREAMS.md
@@ -913,7 +913,7 @@ DEPENDENCY_CONSISTENCY_GUIDE,guide,Dependency Consistency Guide,current,local,,,
 ENVIRONMENT_CONSTRUCTION_GUIDE,guide,Building and Configuring an Environment,current,local,,,,,,core/context;core/assets;core/store,,,,,2026-10-11,,specs/guides/ENVIRONMENT_CONSTRUCTION_GUIDE.md
 JAVASCRIPT_GUIDE,guide,Using Liquers from JavaScript in the browser,current,local,,,,,,web,,,,,2026-10-26,,specs/guides/JAVASCRIPT_GUIDE.md
 LANGUAGE-INTEGRATION_GUIDE,guide,Language Integration Guide,current,local,,,,,,web;py;core/commands;core/plan;core/assets;core/store;core/value;lib/commands,,,,,2026-10-26,,specs/guides/LANGUAGE-INTEGRATION_GUIDE.md
-PYTHON_GUIDE,guide,Using Liquers from Python,current,local,,,,,,py,,,,,2026-10-25,,specs/guides/PYTHON_GUIDE.md
+PYTHON_GUIDE,guide,Using Liquers from Python,current,local,,,,,,py,,,,,2026-10-27,,specs/guides/PYTHON_GUIDE.md
 QUERY_ESCAPING_GUIDE,guide,Query Escaping Guide,current,local,,,,,,core/query,,,,,2026-10-07,,specs/guides/QUERY_ESCAPING_GUIDE.md
 RECORD_STREAM_GUIDE,guide,Record Stream Guide,current,local,,,,,,records;lib/value,,,,,2026-10-13,,specs/guides/RECORD_STREAM_GUIDE.md
 SEARCH_GUIDE,guide,Search Guide,current,local,,,,,,lib/commands;records,,,,,2026-10-17,,specs/guides/SEARCH_GUIDE.md
