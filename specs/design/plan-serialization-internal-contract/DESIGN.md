@@ -13,8 +13,8 @@ created: 2026-10-26
 ---
 # A serialized plan is declared an inspection format of the build that wrote it
 
-Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-26: Phases 1-4 written, not
-approved, nothing implemented.
+Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-26: Phases 1-4 written; Phase 4
+implemented on 2026-10-27 (automatic fix).
 
 ## Phase 1: High-Level Design
 
@@ -167,9 +167,9 @@ trip is already pinned.
 
 ### Steps
 
-- [ ] 1. `liquers-core/src/plan.rs` — rustdoc of `Plan`, `Step`, `ParameterValue` — `cargo test --doc -p liquers-core` and `cargo test -p liquers-core --lib recipes::tests`
-- [ ] 2. `RECIPES_AND_PLANS.md` §Serialization and Known limitations; `WEB_API_SPECIFICATION.md` `resolve` row; `PYTHON_INTEGRATION.md` sentence; History rows and `reviewed:` in each — `python3 scripts/docs_index.py --check`
-- [ ] 3. Close `PLAN-SERDE-HAS-NO-COMPATIBILITY-CONTRACT` with a resolution note ("declared an inspection format; versioning would be a new feature"); this design to `complete` — `python3 scripts/docs_index.py` then `--check`
+- [x] 1. `liquers-core/src/plan.rs` — rustdoc of `Plan`, `Step`, `ParameterValue` — `cargo test --doc -p liquers-core` and `cargo test -p liquers-core --lib recipes::tests`
+- [x] 2. `RECIPES_AND_PLANS.md` §Serialization and Known limitations; `WEB_API_SPECIFICATION.md` `resolve` row; `PYTHON_INTEGRATION.md` sentence; History rows and `reviewed:` in each — `python3 scripts/docs_index.py --check`
+- [x] 3. Close `PLAN-SERDE-HAS-NO-COMPATIBILITY-CONTRACT` with a resolution note ("declared an inspection format; versioning would be a new feature"); this design to `complete` — `python3 scripts/docs_index.py` then `--check`
 
 ### Validation
 

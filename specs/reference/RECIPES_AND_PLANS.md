@@ -797,11 +797,13 @@ executes such a plan directly and bypasses finalization.
 Recipe and plan JSON/YAML preserve source-relative query text, ordered raw `SetCwd` steps, links,
 `QuerySource`, and source positions. `Step::Action.origin` is omitted when `Direct` and defaults to
 `Direct` when absent, so plans without aliases serialize as before and older plans load. Runtime-only
-cursor state and root-fallback bookkeeping are not serialized. This is a current data contract, not
-a versioned stable wire-format guarantee
-([`PLAN-SERDE-HAS-NO-COMPATIBILITY-CONTRACT`](../issues/PLAN-SERDE-HAS-NO-COMPATIBILITY-CONTRACT.md)).
+cursor state and root-fallback bookkeeping are not serialized. A serialized plan is an **inspection
+format** of the build that wrote it: it round-trips within one build and is what the HTTP `resolve`
+endpoint and Python's `Plan.to_json` show, but it carries no compatibility guarantee across versions
+— a field may become required, a `Step` variant may appear or change. To keep something across
+versions, persist the query or the `Recipe` and rebuild the plan.
 
-`query`, `steps` and `is_volatile` are required. Every other `Plan` field — `init_steps`,
+Within that tolerance, `query`, `steps` and `is_volatile` are required. Every other `Plan` field — `init_steps`,
 `payload_required`, `expires`, `error`, `dependencies`, `frozen_cwd`, `predecessor`,
 `predecessor_steps`, `prologue_steps`, `volatility_source`, `uncached_by` — is `serde(default)`, so a
 plan serialized before freezing existed still deserializes and reads as *not frozen* rather than as
@@ -856,8 +858,6 @@ not otherwise enforce this distinction.
   [`RECIPE-PLAN-ANALYSIS-RUNS-OUTSIDE-PLAN-BUILDING`](../issues/RECIPE-PLAN-ANALYSIS-RUNS-OUTSIDE-PLAN-BUILDING.md).
 - Recipe overrides reach only the last action —
   [`RECIPE-OVERRIDE-ONLY-LAST-ACTION`](../issues/RECIPE-OVERRIDE-ONLY-LAST-ACTION.md).
-- A serialized `Plan` has no compatibility contract —
-  [`PLAN-SERDE-HAS-NO-COMPATIBILITY-CONTRACT`](../issues/PLAN-SERDE-HAS-NO-COMPATIBILITY-CONTRACT.md).
 - The recipe circular-dependency fields are never set or read —
   [`RECIPE-CIRCULAR-DEPENDENCY-FIELDS-ARE-DEAD`](../issues/RECIPE-CIRCULAR-DEPENDENCY-FIELDS-ARE-DEAD.md).
 - Every `recipes.yaml` read error reads as "no recipes" —
@@ -884,6 +884,7 @@ not otherwise enforce this distinction.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-27 | §Serialization and future plan rewriting: a serialized plan is an inspection format of one build, with no cross-version guarantee; persist the query or recipe instead. Known limitations bullet removed. | `design/plan-serialization-internal-contract/` |
 | 2026-10-27 | §Where a boundary goes: inherited volatility bounds the cut `finalize_plan` makes, at the first step reading the volatile upstream; the Known limitations bullet is removed. | design `inherited-volatility-bounds-predecessor-cut` |
 | 2026-10-27 | §Planner instructions: a `q` with a parameter is `NotSupported` wherever it appears, not only at the end; the Known limitations bullet for mid-query `q` is removed. | design `mid-query-q-arity` |
 | 2026-10-22 | Carried over from DOC-08 on main: `Step::Error` and an error-level `init_steps` entry fail the plan with an `ExecutionError`, after a run of consecutive diagnostic steps is logged in full; the `apply_plan` order says where. | `issues/CONTEXT-ERROR-OUTCOME-DEPENDS-ON-SCHEDULING.md` |

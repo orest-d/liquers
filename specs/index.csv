@@ -261,7 +261,7 @@ PLAN-DEPENDENCY-RECORDS-HARDCODE-VERSION-ZERO,issue,Plan dependency records are 
 PLAN-ERRORS-DO-NOT-NAME-THE-REALM,issue,"A command not found in a realm is reported without the realm, and mixed-realm queries plan without a warning",closed,local,,,,P3,S,core/plan;core/commands,,,,,,2026-10-15,specs/issues/PLAN-ERRORS-DO-NOT-NAME-THE-REALM.md
 PLAN-EXCESS-ACTION-PARAMETERS-DROPPED,issue,Plan builder silently drops excess action parameters,closed,local,,,,P0,M,core/plan,,,,excess-action-parameters-error,,2026-08-08,specs/issues/PLAN-EXCESS-ACTION-PARAMETERS-DROPPED.md
 PLAN-EXPIRATION-REACHES-THE-CONTEXT-ONLY-THROUGH-APPLY-RECIPE,issue,A plan's expiration reaches the asset only through apply_recipe,draft,local,,needs-decision,not-eligible,P2,M,core/context;core/plan,,,,plan-expiration-set-at-finalization,,2026-10-20,specs/issues/PLAN-EXPIRATION-REACHES-THE-CONTEXT-ONLY-THROUGH-APPLY-RECIPE.md
-PLAN-SERDE-HAS-NO-COMPATIBILITY-CONTRACT,issue,A serialized Plan has no compatibility contract,draft,local,,ready,eligible,P3,S,core/plan,,,,plan-serialization-internal-contract,,2026-10-20,specs/issues/PLAN-SERDE-HAS-NO-COMPATIBILITY-CONTRACT.md
+PLAN-SERDE-HAS-NO-COMPATIBILITY-CONTRACT,issue,A serialized Plan has no compatibility contract,closed,local,,ready,eligible,P3,S,core/plan,,,,plan-serialization-internal-contract,,2026-10-20,specs/issues/PLAN-SERDE-HAS-NO-COMPATIBILITY-CONTRACT.md
 PLAN-SPLIT-DROPS-PREDECESSOR-FIELDS,issue,Plan split drops predecessor fields,closed,local,,covered,not-eligible,P2,S,core/plan,,,,plan-split-predecessor-fields,,2026-08-26,specs/issues/PLAN-SPLIT-DROPS-PREDECESSOR-FIELDS.md
 PLANNER-INSTRUCTION-NAMES-DUPLICATED,issue,The planner instruction names are hard-coded in three crates,draft,local,,needs-decision,not-eligible,P3,L,core/query;core/plan;lib/commands,,,,planner-instruction-names-public,,2026-10-20,specs/issues/PLANNER-INSTRUCTION-NAMES-DUPLICATED.md
 PLANNING-DIAGNOSTICS-NEVER-REACH-THE-ASSET-LOG,issue,Planning diagnostics never reach the evaluated asset's log,closed,local,,,,P2,M,core/plan;core/assets,,,,,,2026-10-10,specs/issues/PLANNING-DIAGNOSTICS-NEVER-REACH-THE-ASSET-LOG.md
@@ -903,7 +903,7 @@ TEMPLATE_LANGUAGE,reference,Template Language,current,local,,,,,,core/query;lib/
 UI_INTERFACE_FSD,reference,UI Interface Specification,overdue,local,,,,,,lib/ui,,,,,2026-03-02,,specs/reference/UI_INTERFACE_FSD.md
 VALUE_TYPE_SYSTEM,reference,Value Type System,current,local,,,,,,core/value;lib/value,,,,,2026-10-25,,specs/reference/VALUE_TYPE_SYSTEM.md
 VISION,reference,Liquers Vision and Strategy,current,local,,,,,,docs,,,,,2026-10-15,,specs/reference/VISION.md
-WEB_API_SPECIFICATION,reference,Liquers Web API Specification,current,local,,,,,,axum;web,,,,,2026-10-25,,specs/reference/WEB_API_SPECIFICATION.md
+WEB_API_SPECIFICATION,reference,Liquers Web API Specification,current,local,,,,,,axum;web,,,,,2026-10-27,,specs/reference/WEB_API_SPECIFICATION.md
 AGENT_MEMORY_MIGRATION_GUIDE,guide,Agent Memory Migration Guide,current,local,,,,,,lib/commands;docs,,,,,2026-10-19,,specs/guides/AGENT_MEMORY_MIGRATION_GUIDE.md
 ASSET_MANAGER_IMPLEMENTATION_GUIDE,guide,Asset Manager Implementation Guide,current,local,,,,,,core/assets,,,,,2026-10-22,,specs/guides/ASSET_MANAGER_IMPLEMENTATION_GUIDE.md
 autonomous_bulk_design,guide,Autonomous Bulk Design Procedure,current,local,,,,,,docs;build,,,,,2026-10-08,,specs/guides/autonomous_bulk_design.md

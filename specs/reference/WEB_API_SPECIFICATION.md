@@ -3,7 +3,7 @@ title: Liquers Web API Specification
 kind: reference
 audience: internal
 area: [axum, web]
-reviewed: 2026-10-25
+reviewed: 2026-10-27
 ---
 # Liquers Web API Specification
 
@@ -566,7 +566,7 @@ Keys are parsed with `parse_key`.
 | `GET data/{*key}` | the recipe as text (`text/plain`), not enveloped |
 | `GET metadata/{*key}` | the recipe's metadata: `AsyncRecipeProvider::get_asset_info` as a `MetadataRecord` (title, description, filename, planning diagnostics) — what the Assets API's `key/metadata` returns for a recipe key |
 | `GET entry/{*key}` | a `DataEntry` with the recipe text as `data` and the same metadata, negotiated like the Assets API's: `?_entry_format=` (`cbor`, `json`, `bincode`), then `Accept`, then CBOR; `data` is base64 in JSON |
-| `GET resolve/{*key}` | `{"key": …, "query": …, "plan": {…}}`, the recipe's execution plan (`AsyncRecipeProvider::recipe_plan`); a recipe whose commands are not registered is 400 `ActionNotRegistered` |
+| `GET resolve/{*key}` | `{"key": …, "query": …, "plan": {…}}`, the recipe's execution plan (`AsyncRecipeProvider::recipe_plan`); a recipe whose commands are not registered is 400 `ActionNotRegistered`. The plan is the server build's inspection format, not a stable schema (`RECIPES_AND_PLANS.md` §Serialization and future plan rewriting) |
 
 A key with no recipe answers the recipe provider's error; its type, and so the HTTP status,
 depends on the provider.
@@ -696,6 +696,7 @@ Not available at HEAD; listed so that no reader mistakes them for features:
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-27 | Recipes API `resolve`: the returned plan is the server build's inspection format, not a stable schema. | `design/plan-serialization-internal-contract/` |
 | 2026-10-25 | §Errors: `AssetNotFound` and `AssetNotSupported` map to 404; key endpoints refusing an unmakeable key answer `AssetNotFound`. | `design/key-without-recipe-answer/` |
 | 2026-10-20 | Asset removal: an entry stored with no status and no version is removed under a recipe as an `Override`. | phase-5 (`design/js-store-page-metadata-status/`) |
 | 2026-10-17 | §1, §7, Appendix A: the Query API route is `{base}/{*query}`, so a base without a trailing `/` no longer leaves a leading `/` on the query; every builder ignores a trailing `/` on its base. `AXUM-QUERY-API-QUERY-KEEPS-LEADING-SLASH` and `AXUM-API-BASE-WITH-TRAILING-SLASH-DOUBLES-THE-SEPARATOR` closed. | `design/axum-query-api-base-slash/` |
