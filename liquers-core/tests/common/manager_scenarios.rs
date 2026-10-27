@@ -1575,3 +1575,110 @@ where
     );
     Ok(())
 }
+
+// --- runtime dependency records (`specs/design/runtime-dependency-record-superseded-check/`) ---
+
+/// `record_d`: records `-R/data/d.txt` at the version the manager reports for it (or at
+/// `Version::unknown()` when `unknown`), signals `gate.entered`, waits for `gate.release` and
+/// returns `"k"`. The dependency is recorded, not waited for, so no edge exists while it runs.
+pub fn register_record_d<E>(
+    cr: &mut liquers_core::commands::CommandRegistry<E>,
+    gate: Arc<LateGate>,
+    unknown: bool,
+) where
+    E: Environment<Value = Value>,
+{
+    cr.register_async_command(
+        CommandKey::new_name("record_d"),
+        move |_state, _args, ctx| {
+            let gate = gate.clone();
+            Box::pin(async move {
+                let d = parse_key("data/d.txt")?;
+                let version = if unknown {
+                    liquers_core::metadata::Version::unknown()
+                } else {
+                    ctx.get_envref().get_asset_manager().version(&d).await?
+                };
+                ctx.add_dependency(liquers_core::metadata::DependencyRecord::new(
+                    liquers_core::metadata::DependencyKey::from(&d),
+                    version,
+                ))
+                .await;
+                gate.entered.notify_one();
+                gate.release.notified().await;
+                Ok(Value::from("k"))
+            })
+        },
+    )
+    .expect("register record_d");
+}
+
+/// `data/k.txt = record_d`.
+pub async fn record_d_store() -> Result<AsyncMemoryStore, Error> {
+    let store = AsyncMemoryStore::new(&Key::new());
+    store
+        .set(
+            &parse_key("data/recipes.yaml")?,
+            b"recipes:\n  - query: record_d/k.txt\n",
+            &Metadata::new(),
+        )
+        .await?;
+    Ok(store)
+}
+
+/// Evaluates `data/k.txt` (or, with `query`, the non-keyed query `record_d`) while `record_d`
+/// holds a recorded dependency on `data/d.txt`; with `rewrite`, `d` is written while the command
+/// waits. Returns the evaluated asset and the value its run computed.
+pub async fn scenario_recorded_dependency_rewritten<E>(
+    envref: EnvRef<E>,
+    gate: Arc<LateGate>,
+    query: bool,
+    rewrite: bool,
+) -> Result<(liquers_core::assets::AssetRef<E>, String), Error>
+where
+    E: Environment<Value = Value>,
+{
+    let within = |what: &'static str| async move {
+        tokio::time::sleep(std::time::Duration::from_secs(20)).await;
+        Error::general_error(format!("recorded-dependency scenario stalled: {what}"))
+    };
+    let m = envref.get_asset_manager();
+    let d = parse_key("data/d.txt")?;
+    m.set_state(&d, State::new().with_data(Value::from("d1")))
+        .await?;
+
+    // On the inline manager the evaluation runs in the caller's future, which blocks at the gate.
+    let run_env = envref.clone();
+    let evaluation = tokio::spawn(async move {
+        let m = run_env.get_asset_manager();
+        let asset = if query {
+            m.get_asset(&q("record_d")).await?
+        } else {
+            m.get(&parse_key("data/k.txt")?).await?
+        };
+        // A stale run ends `Expired`, which `get` reports as an error; the value it computed is
+        // read below whatever the status.
+        let _ = asset.get().await;
+        Ok::<_, Error>(asset)
+    });
+    tokio::select! {
+        _ = gate.entered.notified() => {}
+        e = within("the command never reached the gate") => return Err(e),
+    }
+    if rewrite {
+        m.set_state(&d, State::new().with_data(Value::from("d2")))
+            .await?;
+    }
+    gate.release.notify_one();
+    let asset = tokio::select! {
+        r = evaluation => r.map_err(|e| Error::general_error(format!("join: {e}")))??,
+        e = within("the evaluation never ended") => return Err(e),
+    };
+    let value = asset
+        .get_any_status()
+        .await
+        .map(|s| s.try_into_string())
+        .transpose()?
+        .unwrap_or_default();
+    Ok((asset, value))
+}

@@ -1201,6 +1201,21 @@ struct FastTrackRefusal {
 }
 
 impl<E: Environment> AssetData<E> {
+    /// Records that `dependency` changed after this run read it: a warning, and — the first one
+    /// wins — the `dependency` of the `Direct { StaleDependency }` reason this asset gets at
+    /// finalization. Shared by every path that finds a consumed dependency stale.
+    fn note_stale_dependency(&mut self, dependency: DependencyKey) {
+        let subject = self.expiry_subject();
+        let _ = self.metadata.add_log_entry(LogEntry::warning(format!(
+            "Dependency {} of {} expired during evaluation; using its stale value and \
+             marking {} expired for recomputation on next access",
+            dependency, subject, subject
+        )));
+        if self.stale_dependency.is_none() {
+            self.stale_dependency = Some(dependency);
+        }
+    }
+
     /// Constructs and initializes a new AssetData
     ///
     /// Arguments:
@@ -2709,16 +2724,10 @@ impl<E: Environment> AssetRef<E> {
             dep.provenance_key()
                 .unwrap_or_else(|| DependencyKey::new(dep.expiry_subject()))
         };
-        let mut lock = self.data.write().await;
-        let subject = lock.expiry_subject();
-        let _ = lock.metadata.add_log_entry(LogEntry::warning(format!(
-            "Dependency {} of {} expired during evaluation; using its stale value and \
-             marking {} expired for recomputation on next access",
-            dependency_key, subject, subject
-        )));
-        if lock.stale_dependency.is_none() {
-            lock.stale_dependency = Some(dependency_key);
-        }
+        self.data
+            .write()
+            .await
+            .note_stale_dependency(dependency_key);
         Ok(())
     }
 
@@ -4468,6 +4477,20 @@ impl<E: Environment> AssetRef<E> {
                     dependencies,
                     origin,
                 } = outcome;
+                // A dependency the run recorded itself (`Context::add_dependency`) rather than
+                // waited for may have been rewritten since: nothing compared its version, and the
+                // edge that would have caught the write does not exist yet. Checked before the
+                // lock, which the dependency manager's read must not be taken under.
+                let superseded = match self.try_get_envref().await {
+                    Ok(envref) => {
+                        envref
+                            .get_asset_manager()
+                            .dependency_manager()
+                            .superseded_record(&dependencies)
+                            .await
+                    }
+                    Err(_) => None,
+                };
                 {
                     // Merge into the live metadata rather than installing a snapshot: the
                     // service-message loop is writing progress and log entries to this same
@@ -4477,6 +4500,9 @@ impl<E: Environment> AssetRef<E> {
                         // Replaced or otherwise finished while the command ran: the late result
                         // must change neither this asset nor the store (AC-8).
                         return Ok(false);
+                    }
+                    if let Some(dependency) = superseded {
+                        lock.note_stale_dependency(dependency);
                     }
                     lock.metadata
                         .with_type_identifier(value.identifier().to_string())
@@ -4585,11 +4611,48 @@ impl<E: Environment> AssetRef<E> {
                     manager
                         .expire_dependencies_result(expired, ExpiryCause::Updated { version })
                         .await;
+                    // A dependency written between the check above and `track_asset` found no
+                    // edge to this asset; now that the edges exist, a later write finds them.
+                    self.expire_if_superseded().await?;
                 }
 
                 Ok(true)
             }
         }
+    }
+
+    /// Expires this asset when one of its recorded dependencies no longer holds the version it
+    /// recorded — `Direct { StaleDependency }`, and for a keyed owner its dependents cascade with
+    /// the same cause. Called once its edges are registered, so a write after this finds them.
+    async fn expire_if_superseded(&self) -> Result<(), Error> {
+        let records = match &self.data.read().await.metadata {
+            Metadata::MetadataRecord(mr) => mr.dependencies.clone(),
+            Metadata::LegacyMetadata(_) => Vec::new(),
+        };
+        let envref = self.try_get_envref().await?;
+        let manager = envref.get_asset_manager();
+        let Some(dependency) = manager
+            .dependency_manager()
+            .superseded_record(&records)
+            .await
+        else {
+            return Ok(());
+        };
+        self.expire_without_cascade(ExpiryReason::Direct {
+            cause: ExpiryCause::StaleDependency {
+                dependency: dependency.clone(),
+            },
+        })
+        .await?;
+        if let Some(key) = self.bound_owner_key().await.ok().flatten() {
+            manager
+                .cascade_expire_dependents(
+                    &DependencyKey::from(&key),
+                    ExpiryCause::StaleDependency { dependency },
+                )
+                .await;
+        }
+        Ok(())
     }
 
     /// Persists metadata updates to the configured async store.
@@ -13931,6 +13994,49 @@ recipes:
             assert_eq!(key, &DependencyKey::from(&a));
         }
         stale.is_some()
+    }
+
+    /// `runtime-dependency-record-superseded-check` AC-2: a dependency rewritten after the
+    /// completion check but before the edge existed is caught once the edges are registered.
+    #[tokio::test]
+    async fn superseded_after_tracking_expires_the_asset() {
+        let envref = expiry_test_envref();
+        let manager = envref.get_asset_manager();
+        let dm = manager.dependency_manager();
+        let a = DependencyKey::from(&parse_key("a.txt").unwrap());
+        let idx = parse_key("idx.txt").unwrap();
+        let mut d = AssetData::<SimpleEnvironment<Value>>::new(
+            manager.next_id_for_asset(),
+            idx.clone().into(),
+            Some(idx),
+            envref.clone(),
+        );
+        d.status = Status::Ready;
+        d.data = Some(Arc::new(Value::from("idx")));
+        let _ = d.metadata.set_version(Some(Version::new(5)));
+        let _ = d
+            .metadata
+            .add_dependency(DependencyRecord::new(a.clone(), Version::new(1)));
+        let asset = d.to_ref();
+        dm.register_version(&a, Version::new(1)).await;
+        let _ = dm.track_asset(&asset).await;
+        // Written in the window: the map moves on, nothing cascades.
+        dm.register_version_sync(&a, Version::new(2));
+        assert_eq!(
+            asset.status().await,
+            Status::Ready,
+            "the premise: not yet expired"
+        );
+
+        asset.expire_if_superseded().await.unwrap();
+        assert_eq!(asset.status().await, Status::Expired);
+        let reason = asset.get_metadata().await.unwrap().expiry_reason();
+        assert_eq!(
+            reason,
+            Some(ExpiryReason::Direct {
+                cause: ExpiryCause::StaleDependency { dependency: a }
+            })
+        );
     }
 
     /// The map already holds a different concrete version: the dependent is stale at birth.
