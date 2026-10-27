@@ -5,13 +5,24 @@ name: docs
 # Offline only: no token, no network, no dependencies. The checks that need the GitHub API
 # (--sync, imported-body hashes, PR merge dates) are not implemented yet and are not run here —
 # see the guide §7.2. That keeps this job runnable in a fork and in a sandbox.
+# It also runs the documentation tooling's own unit tests (standard library only).
 
 on:
   pull_request:
-    paths: ['specs/**', 'scripts/docs_index.py', '.github/workflows/docs-check.yml']
+    paths:
+      - 'specs/**'
+      - 'scripts/docs_index.py'
+      - 'scripts/test_docs_index.py'
+      - '.claude/skills/liquers-project/scripts/**'
+      - '.github/workflows/docs-check.yml'
   push:
     branches: [main]
-    paths: ['specs/**', 'scripts/docs_index.py']
+    paths:
+      - 'specs/**'
+      - 'scripts/docs_index.py'
+      - 'scripts/test_docs_index.py'
+      - '.claude/skills/liquers-project/scripts/**'
+      - '.github/workflows/docs-check.yml'
   workflow_dispatch:
 
 jobs:
@@ -24,3 +35,13 @@ jobs:
           python-version: '3.11'
       - name: Validate specs/ and check that index.csv is current
         run: python3 scripts/docs_index.py --check
+      - name: Unit tests of docs_index.py
+        run: python3 -m unittest -v scripts/test_docs_index.py
+      - name: Unit tests of the liquers-project skill scripts
+        run: |
+          dir=.claude/skills/liquers-project/scripts
+          if compgen -G "$dir/test_*.py" > /dev/null; then
+            python3 -m unittest discover -v -s "$dir" -p 'test_*.py'
+          else
+            echo "no test_*.py in $dir; skipped"
+          fi

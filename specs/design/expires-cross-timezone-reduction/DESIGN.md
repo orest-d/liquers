@@ -3,8 +3,8 @@ id: EXPIRES-CROSS-TIMEZONE-REDUCTION
 kind: design
 title: Expiration combination reduces end-of-period rules only within one time zone
 form: compact
-status: in_review
-phase: implementation
+status: complete
+gh_pr: [196]
 readiness: ready
 autofix: eligible
 area: [core/assets]
@@ -12,6 +12,8 @@ issues: [COMBINED-EXPIRES]
 created: 2026-10-20
 ---
 # Expiration combination reduces end-of-period rules only within one time zone
+
+> **Complete on 2026-10-27**: implemented by automatic fix in #196.
 
 Bulk design (`specs/guides/autonomous_bulk_design.md`): Phases 1-4 written; Phase 4
 implemented on 2026-10-27 (automatic fix).

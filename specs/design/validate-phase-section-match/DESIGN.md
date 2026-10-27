@@ -3,8 +3,8 @@ id: VALIDATE-PHASE-SECTION-MATCH
 kind: design
 title: validate_phase.py finds a compact section's body from its own heading line
 form: compact
-status: in_review
-phase: implementation
+status: complete
+gh_pr: [187]
 readiness: ready
 autofix: eligible
 area: [docs, build]
@@ -13,8 +13,10 @@ created: 2026-10-20
 ---
 # validate_phase.py finds a compact section's body from its own heading line
 
-Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-20. Phases 1-4 are written but not
-approved, and nothing is implemented.
+> **Complete on 2026-10-27**: implemented by automatic fix in #187.
+
+Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-20: Phases 1-4 written; Phase 4
+implemented on 2026-10-27 (automatic fix).
 
 ## Phase 1: High-Level Design
 
@@ -32,7 +34,7 @@ section (the `## Phase 4` heading omitted here, for the reason in AC-4):
 ```markdown
 ### Steps
 
-- [ ] 1. Do x — close STORE-CONFORMANCE-VALIDATION-TOOL — `cargo test`
+- [x] 1. Do x — close STORE-CONFORMANCE-VALIDATION-TOOL — `cargo test`
 
 ### Validation
 
@@ -163,13 +165,23 @@ Run: `python3 -m unittest discover -s .claude/skills/liquers-project/scripts -p 
 
 ### Steps
 
-- [ ] 1. `test_validate_phase.py` with the four tests; AC-1 fails at HEAD — `python3 -m unittest discover -s .claude/skills/liquers-project/scripts -p 'test_*.py'`
-- [ ] 2. `validate_phase.py` `empty_sections` — the Phase 2 pattern — same command, all pass
-- [ ] 3. `compact_section` and `docs_index.py` `phase_text` on fence-blanked text — both unittest commands pass (AC-4)
-- [ ] 4. Re-run `validate_phase.py <slug> 1..4` on every compact design with `readiness` (loop over `specs/design/*/DESIGN.md` with `form: compact`) — no new `[FAIL]`
-- [ ] 5. Close the source issue with a resolution note — `python3 scripts/docs_index.py --check`
+- [x] 1. `test_validate_phase.py` with the four tests; AC-1 fails at HEAD — `python3 -m unittest discover -s .claude/skills/liquers-project/scripts -p 'test_*.py'`
+- [x] 2. `validate_phase.py` `empty_sections` — the Phase 2 pattern — same command, all pass
+- [x] 3. `compact_section` and `docs_index.py` `phase_text` on fence-blanked text — both unittest commands pass (AC-4)
+- [x] 4. Re-run `validate_phase.py <slug> 1..4` on every compact design with `readiness` (loop over `specs/design/*/DESIGN.md` with `form: compact`) — no new `[FAIL]`
+- [x] 5. Close the source issue with a resolution note — `python3 scripts/docs_index.py --check`
 
 ### Validation
 
 Step 4 is the regression sweep, together with `python3 scripts/docs_index.py --check` (whose
 scenario checks use `phase_text`). Diff review: two scripts, one new test file, one new test class.
+
+### Implementation notes (2026-10-27)
+
+- The `docs_index.py` function is `design_phase_text`, not `phase_text`; the new test is a new
+  class `PhaseTextTests`.
+- The step 4 sweep turned up one design whose fences were unbalanced
+  (`dependency-summary-reuse`, two stray fence lines left by a review edit). Read with fence-aware
+  phase splitting, its Phase 3 and 4 disappeared into the open fence. The stray lines are removed;
+  the sweep then shows only fixed false reports (`command-registry-header-feature-names` and
+  `search-read-dependencies` Phase 2), no new `[FAIL]`.
