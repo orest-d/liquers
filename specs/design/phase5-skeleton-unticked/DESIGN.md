@@ -3,8 +3,8 @@ id: PHASE5-SKELETON-UNTICKED
 kind: design
 title: A new design's Phase 5 skeleton starts with its completion preconditions unticked
 form: compact
-status: in_review
-phase: implementation
+status: complete
+gh_pr: [188]
 readiness: ready
 autofix: eligible
 area: [docs]
@@ -12,6 +12,8 @@ issues: [PHASE5-SKELETON-CREATED-WITH-PRECONDITIONS-TICKED]
 created: 2026-10-20
 ---
 # A new design's Phase 5 skeleton starts with its completion preconditions unticked
+
+> **Complete on 2026-10-27**: implemented by automatic fix in #188.
 
 Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-20: Phases 1-4 written; Phase 4
 implemented on 2026-10-27 (automatic fix).

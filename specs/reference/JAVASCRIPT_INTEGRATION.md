@@ -246,7 +246,8 @@ All conversion is in `bridge.rs`, generic over `V: JsValueBridge`.
 Inside an array or object, numbers follow the same integer rule; NaN and ±Infinity become the
 strings `"NaN"`, `"inf"`, `"-inf"`; `undefined` becomes `null`; own enumerable string keys are read
 with `Object.entries`; and a `Uint8Array` or any other non-plain object is `conversion_error`
-(`WEB-NESTED-BYTES-REFUSED-NOT-DEGRADED`). Depth is limited to 64, so a cyclic structure is
+naming its path. Nested bytes are refused rather than degraded to an array of numbers, because JSON
+has no byte type and the degraded form would no longer be `Bytes` (`VALUE04`). Depth is limited to 64, so a cyclic structure is
 `conversion_error` rather than a stack overflow.
 
 **Liquers to JavaScript** (`value_to_js`):
@@ -262,9 +263,9 @@ with `Object.entries`; and a `Uint8Array` or any other non-plain object is `conv
 | anything else | its JSON form (`try_into_json_value`), objects as plain objects, never `Map` |
 
 An integer outside ±(2^53 − 1), at any depth, is `conversion_error` rather than a rounded `number`
-or a `BigInt` (`VALUE03`). A `null` nested in an array or object arrives as `undefined`, because
-`serde-wasm-bindgen` writes JSON `null` as `undefined`; only a top-level `None` is `null`
-(`WEB-NESTED-NULL-CROSSES-AS-UNDEFINED`). A value with no JSON form is `conversion_error`. Conversions run *inside*
+or a `BigInt` (`VALUE03`). A `null` nested in an array or object arrives as `null`, as a top-level
+`None` does (`json_to_js` sets `serialize_missing_as_null`, which `serde-wasm-bindgen` leaves off by
+default). A value with no JSON form is `conversion_error`. Conversions run *inside*
 the environment that produced the value (`value_to_js_in`), so a handle created by the conversion
 resolves through that environment later, never through the singleton.
 
@@ -413,9 +414,6 @@ stream. A view built from a `column` descriptor is invalidated by `memory.grow` 
   after the first evaluation (`WEB-DESCRIBE-COMMAND-SHAPE-DIFFERS-FROM-DECLARATION`,
   `WEB-COMMAND-LOOKUP-IGNORES-NAMESPACE`, `WEB-UNREGISTER-DEPENDS-ON-FIRST-EVALUATION`).
 - A thrown exception's class and stack arrive inside `message` (`LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT`).
-- A second concurrent caller of a failing query may get `null` (`WEB-EVALUATE-RESOLVES-FAILED-ASSET-AS-NULL`).
-- A `Uint8Array` nested in an array or object is refused (`WEB-NESTED-BYTES-REFUSED-NOT-DEGRADED`),
-  and a nested `null` comes back as `undefined` (`WEB-NESTED-NULL-CROSSES-AS-UNDEFINED`).
 - A page-implemented store needs `contains` and `isDir` as well as `get` to be read by queries
   (`WEB-JS-STORE-WITH-ONLY-GET-CANNOT-BE-QUERIED`).
 - No IndexedDB store (`WEB-NATIVE-IO-TIER2`), no read/write store of a Liquers server
@@ -430,3 +428,4 @@ stream. A view built from a `column` descriptor is invalidated by `memory.grow` 
 | Date | Change | Source |
 |---|---|---|
 | 2026-10-26 | Created from the implemented `liquers-web`, checked against a wasm build under Node. | `WEB-HAS-NO-API-REFERENCE-OR-USER-GUIDE` |
+| 2026-10-26 | A nested `null` now arrives as `null`; a failed asset rejects every `evaluate` caller; nested bytes are refused by design. Three limitations removed. | `WEB-NESTED-NULL-CROSSES-AS-UNDEFINED`, `WEB-EVALUATE-RESOLVES-FAILED-ASSET-AS-NULL`, `WEB-NESTED-BYTES-REFUSED-NOT-DEGRADED` |
