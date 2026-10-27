@@ -156,7 +156,10 @@ non-registered-owner warning a keyed write normally records is skipped for an un
 a volatile one. An evaluation already in flight when an input changes writes its copy after that
 expiry ran, so after writing an uncached keyed asset re-checks its recorded inputs against the
 dependency manager: when one no longer holds the version it recorded, the stored copy is rewritten
-as `Expired` with `Direct { StaleDependency }`. A change after the write finds the stored copy.
+as `Expired` with `Direct { StaleDependency }`, under `key_mutation_lock` and only while the
+stored copy is still the one it wrote (same version and dependency records), so a value a
+concurrent `set_state` installed meanwhile is left alone. A change after the write finds the
+stored copy.
 
 An explicit install decides for itself: `set_state` and `set_binary` read the **supplied**
 metadata's `stored` flag, not the recipe's, so a caller may write a `stored: false` key by supplying

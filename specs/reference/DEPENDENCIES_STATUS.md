@@ -236,7 +236,8 @@ fails fast with `Error::dependency_cycle`. That is pinned by
   evaluation already in flight writes after that expiry, so the write is followed by a re-check:
   a recorded input whose concrete version differs from the concrete version the map holds rewrites
   the just-written copy as `Expired` with `Direct { StaleDependency }`
-  (`AssetRef::expire_written_copy_if_inputs_superseded`).
+  (`AssetRef::expire_written_copy_if_inputs_superseded`) — under `key_mutation_lock`, and only
+  while the stored copy still carries the version and dependency records this run wrote.
 
 ## What a dependency record holds
 
