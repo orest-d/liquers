@@ -4,9 +4,9 @@ kind: issue
 title: Metadata, Recipe and expiration methods in liquers-py raise a plain Exception instead of the typed LiquersError
 status: draft
 priority: P3
-complexity: S
+complexity: M
 area: [py]
-design:
+design: py-metadata-typed-errors
 created: 2026-10-20
 github:
 ---
@@ -50,3 +50,9 @@ subclass with its fields; a JSON parse failure that is not a Liquers `Error` map
 
 Found 2026-10-20 while checking `PY-METADATA-FIELDS-ARE-METHODS` at HEAD during the bulk-design
 pass (`grep PyException::new_err liquers-py/src`).
+
+Designed 2026-10-27 in `design/py-metadata-typed-errors/` (bulk design). Re-counted at HEAD
+(`04667a80`): 23 sites in these three files (`recipes.rs` also has one written
+`PyErr::new::<…PyException, _>`), plus 33 serde sites with the same cause in `command_metadata.rs`
+and `plan.rs`, which the design includes. Complexity raised from `S` to `M`: six files in one
+crate.

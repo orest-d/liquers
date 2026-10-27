@@ -2,7 +2,7 @@
 id: CORE-WASM-BUILD-EMITS-UNUSED-WARNINGS
 kind: issue
 title: A wasm32 build of liquers-core emits five unused-import and dead-code warnings
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [core/assets, build]
@@ -39,3 +39,7 @@ them, and the wasm32 build is warning-free.
 ## Discovery
 
 Found while checking `design/runtime-volatility` on wasm32; not caused by it.
+
+## Resolution
+
+Fixed 2026-10-27 by `design/core-wasm-warning-free/`. Fixed by `design/core-wasm-warning-free/` (2026-10-27): the native-only imports (`VecDeque`, `AtomicUsize`, `scc`, `Notify`, and `PathBuf` in `store.rs`) and `FileLockGuard` are gated like their users, and `MetadataSaver::interval` allows dead code on wasm32. `cargo check -p liquers-core --target wasm32-unknown-unknown` prints no warning.

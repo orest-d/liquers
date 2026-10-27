@@ -2,8 +2,18 @@
 
 ## Purpose
 
-Let asyncio programs await Liquers evaluations and register `async def` functions as commands,
-completing the guide's `ASYNCQ` and `ASYNCCMD` features for `liquers-py`.
+Let asyncio programs await evaluations and register `async def` commands (`ASYNCQ`, `ASYNCCMD`),
+without Python slowing queries that never touch it (`VISION.md`, Python data science).
+
+## Design Readiness
+
+- **Readiness:** `ready`
+- **Automatic fixing:** `not-eligible`: an `L` feature with a public Python API, designed here.
+- **Leading issue:** None.
+- **Explanation:** Every user decision is recorded (Decisions 1-6), and Phases 2-4 build on them
+  with no open contract question; pre-approved after Phase 2 on 2026-10-27.
+- **Open questions:** None. Decision log under pre-approval: none needed a
+  decision; review fixes to Phases 2-4 and the AC-5 / AC-8 wording are recorded in Scope Changes.
 
 ## Problem Example
 
@@ -16,59 +26,101 @@ async def fetch_len(text: str) -> int:
 assert await lq.evaluate_async("hello/fetch_len") == 5
 ```
 
-**Today** (after `liquers-py`) `lq.evaluate` is synchronous only, and an `async def` command is
-not supported. **After** this design both work, and cancelling the awaiting task cancels the
-evaluation.
+`hello`, `repeat`: `tests/test_EVAL_evaluation.py`. **Today** evaluation is sync only and
+`async def` commands are unsupported. **After** both work without blocking the caller's loop.
 
 ## Scope and Acceptance Criteria
 
 - **AC-1** Await an evaluation (was `liquers-py` AC-14)
   WHEN `await lq.evaluate_async("hello/repeat-3")` runs in an asyncio program
-  THEN it returns `"hellohellohello"` without blocking the loop, and cancelling the task cancels the
-  evaluation
+  THEN it returns `"hellohellohello"` without blocking the loop; cancelling it: Decision 4
 - **AC-2** Async Python commands (was `liquers-py` AC-15)
   WHEN a command is declared as `async def`
   THEN it is awaited, its metadata marks it async, and its exceptions map as in `liquers-py` AC-7
-- **AC-3** No blocking inside the loop (was `liquers-py` AC-16)
-  WHEN the synchronous `lq.evaluate` or `context.evaluate` is called from a coroutine on a running
-  loop (see question 2 for which loops)
-  THEN it raises `RuntimeError` pointing at the async variant
+- **AC-3** No blocking inside liquers-py's own loops (was `liquers-py` AC-16)
+  WHEN any blocking call of the binding (`evaluate`, `evaluate_state`, `context.evaluate`, an
+  `AssetRef` wait) is made on one of liquers-py's loop threads
+  THEN it raises `RuntimeError`; on any other running loop (Jupyter) it works with a `RuntimeWarning`
 - **AC-4** Nested async evaluation
   WHEN an `async def` command awaits `context.evaluate_async(...)` on a query that runs another
   `async def` command
-  THEN both complete without deadlock
+  THEN both complete without deadlock (blocking instead of awaiting is AC-3's error)
+- **AC-5** Pure-Rust queries never wait on Python
+  WHEN a query whose commands are all Rust is evaluated while a Python command holding the GIL is
+  still running
+  THEN it completes first; no task queued on a runtime worker waits on the GIL; they share only
+  job-queue capacity (Decision 5)
+- **AC-6** A pool of command loops
+  WHEN an environment is built with `Environment(async_loops=4)` and several `async def` commands
+  run at once
+  THEN they spread over four loop threads, each command wholly on one; the default is one
+- **AC-7** Cancellation reaches the coroutine
+  WHEN the asset running an `async def` command is cancelled (`AssetRef.cancel()`, replacement,
+  `Environment.shutdown()`)
+  THEN the command's asyncio task is cancelled on its loop and the asset ends `Cancelled`
+- **AC-8** Free-threaded support is verified
+  WHEN liquers-py is imported on a free-threaded CPython (3.14t) and its suite runs, with Python
+  commands on several threads and loops at once
+  THEN the GIL stays disabled and every test passes; shared state reached from Python is audited
+  for races; the module declares `gil_used = false` explicitly, with `gil_used = true` the
+  fallback if a defect is found
 
-Non-goals: async stores and recipe providers (STORE/RECIPE design).
+Non-goals: async stores and recipe providers; the caller's loop; several job queues
+(`CORE-ONE-JOB-QUEUE-FOR-ALL-COMMANDS`).
 
 ## Core Interactions
 
-- Commands: async closures awaiting a Python coroutine.
-- Assets: asyncio cancellation maps to `AssetRef::cancel`.
+- Commands: coroutines awaited on liquers-py's loops. Assets: cancellation both ways
+  (`AssetRef::cancel`). Bindings: `async_loops`; an awaitable for every blocking call (Phase 2).
 
 ## Crate Placement
 
-`liquers-py` only, on top of `liquers-py`'s runtime and command adapter. The bridge is liquers-py's
-own code, not `pyo3-async-runtimes`, so the PyO3 version stays independent.
+`liquers-py` only (`src/runtime.rs`, `src/command.rs`). `pyo3-async-runtimes` (`tokio-runtime`) is set once
+with `tokio::init_with_runtime` to the existing runtime, `TaskLocals` per loop; it tracks PyO3
+(0.30.0 needs `pyo3 ^0.30`), so PyO3 upgrades bump both.
 
 ## Documentation Intent
 
-- Reference: none.
-- Guide: `LANGUAGE-INTEGRATION_GUIDE.md` §6 Python (async notes).
-- Other documents: `liquers-py/README.md` matrix rows for ASYNCQ and ASYNCCMD.
-- Documents to update: `specs/README.md`.
+- Reference: `specs/reference/PYTHON_INTEGRATION.md`. Guides: `specs/guides/PYTHON_GUIDE.md`,
+  `specs/guides/LANGUAGE-INTEGRATION_GUIDE.md` §6. Also `liquers-py/README.md`, `specs/README.md`.
+
+## Decisions
+
+Recorded with Orest on 2026-10-26:
+
+1. **Bridge:** `pyo3-async-runtimes`, not own code; it tracks PyO3 and bridges both directions.
+2. **Command loops:** a liquers-py-owned pool, one by default (AC-6). Runs start on their own tokio
+   task (`liquers-core/src/assets.rs` `JobQueue`), so the caller's loop is unreachable (and absent
+   over HTTP); the pool gives parallelism on free-threaded Python.
+3. **Sync on a running loop:** raise on liquers-py's loops, warn elsewhere (AC-3).
+4. **Cancelling an awaiting task** ends only that wait, like sync `block_on`; `await
+   asset.cancel_async()` cancels the evaluation.
+5. **Job queue:** one queue, capacity exposed as `Environment(job_capacity=…)` (core
+   `AssetManagerOptions::with_job_capacity`). Queues per kind of command are future configuration
+   (`CORE-ONE-JOB-QUEUE-FOR-ALL-COMMANDS`).
+6. **Free-threaded Python** is in scope (AC-8): audited and tested here.
 
 ## Open Questions
 
-1. **Open design: where an `async def` command runs.** Recommended: on a background loop thread
-   owned by liquers-py, because the asset manager offers no route back to the caller's loop
-   (`Context` carries no Python handle, and its payload slot changes caching). The cost is that a
-   coroutine cannot use objects bound to the caller's loop, such as a client session created there.
-   The alternative carries the caller's loop through the evaluation.
-2. **Open design: sync `lq.evaluate` on a running loop.** AC-3 as written would break sync use in
-   Jupyter, where every cell runs on a running loop. `liquers-py` ships a sync `evaluate` that works
-   there. Recommended: raise only on liquers-py's own loop thread, and warn elsewhere.
+None. Loop choice and pool lifetime (an implementation detail) are settled in Phase 2: round-robin,
+stopped by `shutdown()` and at exit.
+
+## Design Dependencies
+
+- `PY-FREE-THREADED-SUPPORT-UNVERIFIED` — **absorbed** (AC-8).
+- `CORE-ONE-JOB-QUEUE-FOR-ALL-COMMANDS` — **overlaps**: would replace `job_capacity`.
+- `executor-neutral-core` — **overlaps** (weak): the bridge relies on tokio.
+
+## Scope Changes
+
+- **2026-10-26** — added AC-5, AC-6 (Orest), AC-7 (`ASYNCCMD03`); widened AC-3. Phases: 1.
+- **2026-10-26** — Orest: AC-8 (free-threaded audit) added; questions 1-2 decided. Phases: 1.
+- **2026-10-26** — test-script fixes and a free-threading classifier absorbed for AC-8. Phases: 2.
+- **2026-10-27** — wording of AC-5 and AC-8 aligned with the code (`block_in_place` serialization;
+  PyO3 0.28+ already defaults to `gil_used = false`); no behaviour change. Phases: 1, 2.
 
 ## References
 
 - `specs/design/liquers-py/` (scope moved from it on 2026-10-18)
 - `specs/guides/LANGUAGE-INTEGRATION_GUIDE.md` §ASYNCQ, §ASYNCCMD, Appendix A
+- `PY-ASYNC-EVALUATION-NOT-SUPPORTED`

@@ -3,8 +3,8 @@ id: TYPE-IDENTIFIED-IN-DOCS
 kind: design
 title: The documents say that no type implements TypeIdentifiedIn yet
 form: compact
-status: in_review
-phase: implementation
+status: complete
+gh_pr: [215]
 readiness: ready
 autofix: eligible
 area: [docs, core/value]
@@ -12,6 +12,8 @@ issues: [TYPE-IDENTIFIED-IN-HAS-NO-IMPLEMENTATIONS]
 created: 2026-10-26
 ---
 # The documents say that no type implements TypeIdentifiedIn yet
+
+> **Complete on 2026-10-27**: implemented by automatic fix in #215.
 
 Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-26: Phases 1-4 written; Phase 4
 implemented on 2026-10-27 (automatic fix).

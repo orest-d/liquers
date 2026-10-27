@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: M
 area: [py, web, lib/value]
-design:
+design: language-bridge-extended-scalars
 created: 2026-10-26
 github:
 ---
@@ -19,6 +19,22 @@ scalar set (`None`, `Bool`, `I32`, `I64`, `F64`, `Text`, `Bytes`). A Python `dat
 `i64::MAX`, and a JavaScript `bigint` or `Date`, cannot arrive as a typed value. Going the other
 way, the extended scalars that `specs/design/extended-scalar-value-types/` adds (`U64`, `I128`,
 `Decimal`, `Date`, `DateTime`, `Duration`, `Uuid`, …) would have no native form in either language.
+
+## Problem Example
+
+```python
+@env.first_command(volatile=True)
+def emit(n: int = 0):
+    return [datetime.date(2026, 10, 26), 2**63][n]
+
+env.evaluate("emit-0/to_text")   # today: ConversionError, the date is an opaque py.Object
+env.evaluate("emit-1")           # today: ConversionError, 2**63 is outside i64
+# expected once the extended scalars exist: "2026-10-26" (a Date), and 9223372036854775808 (a U64)
+```
+
+Checked at HEAD (2026-10-27): `liquers-py/src/value.rs` `py_to_simple` refuses `2**63` and
+`ext_to_py` refuses every extended variant but `Foreign`, `PolarsDataFrame` and `Image`;
+`liquers-web/src/bridge.rs` refuses a `Date` and a `BigInt` outside `i64`.
 
 ## Impact
 

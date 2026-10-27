@@ -2,7 +2,7 @@
 id: INLINE-RUN-CLAIM-REPAIR-SKIPPED-UNDER-LOCK-CONTENTION
 kind: issue
 title: A dropped inline run leaves its asset Processing forever when the asset lock is busy at drop time
-status: draft
+status: closed
 priority: P2
 complexity: M
 area: [core/assets]
@@ -63,3 +63,14 @@ Still reproduces at HEAD (`18732dd`): `InlineRunClaim::drop` repairs only inside
 `if let Ok(mut lock) = self.asset.data.try_write()`, and PR #167's `claim_or_wait_inline` waits for a
 notification the skipped repair never sends. Design: `inline-run-claim-repair-under-lock-contention`
 (a lock-free abandoned mark honoured by the next inline claim, plus a `send_modify` wake-up).
+
+## Resolution
+
+Fixed 2026-10-27 by `design/inline-run-claim-repair-under-lock-contention/`. A dropped `InlineRunClaim` that cannot take the asset's lock now marks the run abandoned
+(`AssetData::inline_run_abandoned`) and wakes every receiver with `send_modify`; the next
+`try_claim_for_run_inline` honours the mark on `Processing` / `Dependencies`, logs a warning and
+takes the run over. Tests in `liquers-core/src/assets.rs`:
+`inline_waiter_takes_over_run_dropped_under_contention`,
+`inline_later_caller_runs_asset_whose_repair_was_skipped`,
+`inline_status_readers_do_not_cause_a_second_run`,
+`inline_waiter_does_not_rerun_removed_asset_after_skipped_repair`.

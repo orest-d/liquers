@@ -401,6 +401,50 @@ fn immediate_keyed_eval_without_tokio_runtime() -> Result<(), Error> {
     Ok(())
 }
 
+/// A command that logs while it runs, evaluated by the inline manager with no tokio runtime:
+/// the metadata save must not spawn (`specs/design/inline-metadata-save-without-runtime/`, AC-1).
+#[test]
+fn immediate_logging_command_without_tokio_runtime() -> Result<(), Error> {
+    let mut env = ImmediateEnvironment::<Value>::new();
+    common::manager_scenarios::register_log_greet(&mut env.command_registry);
+    let envref: EnvRef<ImmediateEnvironment<Value>> = env.to_ref();
+
+    let (text, log) = futures::executor::block_on(async move {
+        let asset = envref
+            .get_asset_manager()
+            .get_asset(&"log_greet".try_to_query()?)
+            .await?;
+        let text = asset.get().await?.try_into_string()?;
+        let log = common::manager_scenarios::log_messages(&asset.get_metadata().await?);
+        Ok::<_, Error>((text, log))
+    })?;
+    assert_eq!(text, "hello");
+    assert!(log.iter().any(|m| m == "greeting"), "log: {log:?}");
+    Ok(())
+}
+
+/// The same command by key: the inline manager persists its metadata with no runtime (AC-2).
+#[test]
+fn immediate_keyed_logging_command_without_tokio_runtime() -> Result<(), Error> {
+    let mut env = ImmediateEnvironment::<Value>::new();
+    common::manager_scenarios::register_log_greet(&mut env.command_registry);
+    let store = futures::executor::block_on(common::manager_scenarios::log_greet_recipe_store())?;
+    env.with_async_store(Box::new(store));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
+    let envref: EnvRef<ImmediateEnvironment<Value>> = env.to_ref();
+
+    let (text, log) = futures::executor::block_on(async move {
+        let key = parse_key("logged.txt")?;
+        let asset = envref.get_asset_manager().get(&key).await?;
+        let text = asset.get().await?.try_into_string()?;
+        let stored = envref.get_async_store().get_metadata(&key).await?;
+        Ok::<_, Error>((text, common::manager_scenarios::log_messages(&stored)))
+    })?;
+    assert_eq!(text, "hello");
+    assert!(log.iter().any(|m| m == "greeting"), "stored log: {log:?}");
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // Readiness — the same guarantee under both managers (T6), and shared startup (T4)
 // ---------------------------------------------------------------------------

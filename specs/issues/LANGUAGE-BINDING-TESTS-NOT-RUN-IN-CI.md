@@ -4,9 +4,9 @@ kind: issue
 title: CI never runs liquers-py's Python tests or liquers-web's Node conformance suites
 status: draft
 priority: P2
-complexity: S
+complexity: M
 area: [build, py, web]
-design:
+design: language-binding-tests-in-ci
 created: 2026-10-26
 github:
 ---
@@ -49,3 +49,7 @@ disk notes in `CLAUDE.md`. The browser-only and Playwright suites may stay manua
 
 Recorded on 2026-10-26 while writing the project-groups plan for the bulk-design pass; the
 2026-10-20 backlog plan (§10.1) had noted "No CI job runs the py test loop" without filing it.
+
+Designed 2026-10-27 in `design/language-binding-tests-in-ci/` (bulk design), together with
+`PY-TESTS-NOT-RUN-IN-CI` (overlap tests T4 and T3; this issue leads). Complexity raised from `S` to
+`M`: the fix is two workflow files, one per binding so that each has its own path filter, and one line of `scripts/test-liquers-py.sh` (polars has no free-threaded wheel).

@@ -3,8 +3,8 @@ id: REPLACED-ASSET-WRITE-GATE
 kind: design
 title: A removed or replaced asset's late value write never reaches the store
 form: compact
-status: in_review
-phase: implementation
+status: complete
+gh_pr: [208]
 readiness: ready
 autofix: eligible
 area: [core/assets, core/store]
@@ -13,8 +13,10 @@ created: 2026-10-26
 ---
 # A removed or replaced asset's late value write never reaches the store
 
-Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-26: Phases 1-4 written, not
-approved, nothing implemented.
+> **Complete on 2026-10-27**: implemented by automatic fix in #208.
+
+Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-26: Phases 1-4 written; Phase 4
+implemented on 2026-10-27 (automatic fix).
 
 ## Phase 1: High-Level Design
 
@@ -238,17 +240,17 @@ Run: `CARGO_INCREMENTAL=0 cargo test -p liquers-core --test asset_manager_remove
 
 ### Steps
 
-- [ ] 1. `liquers-core/tests/asset_manager_remove_expire_describe.rs` — `HoldingStore` and the
+- [x] 1. `liquers-core/tests/asset_manager_remove_expire_describe.rs` — `HoldingStore` and the
   three `amr_late_save_*` tests; AC-1, AC-3, AC-4 fail at HEAD — `cargo test -p liquers-core --test asset_manager_remove_expire_describe amr_late_save`
-- [ ] 2. `assets.rs` `MetadataSaver` — `value_write` field, `begin_value_write`, `close` waits on
+- [x] 2. `assets.rs` `MetadataSaver` — `value_write` field, `begin_value_write`, `close` waits on
   the gate; unit test `metadata_saver_close_waits_for_a_value_write` — `cargo test -p liquers-core --lib metadata_saver_close`
-- [ ] 3. `assets.rs` `AssetRef::save_to_store` — use `begin_value_write`, hold the guard across
+- [x] 3. `assets.rs` `AssetRef::save_to_store` — use `begin_value_write`, hold the guard across
   `store.set` only — `cargo test -p liquers-core --lib assets::tests::save_to_store`
-- [ ] 4. `assets.rs` `AssetRef::cancel_for_replacement` — close for every asset, discard only in
+- [x] 4. `assets.rs` `AssetRef::cancel_for_replacement` — close for every asset, discard only in
   flight; unit test `save_to_store_skips_after_replacement_of_a_finished_asset`; step-1 tests pass —
   `cargo test -p liquers-core --test asset_manager_remove_expire_describe --test expiration_integration --test evaluation_session`.
   Rollback: revert this step.
-- [ ] 5. `ASSET_SET_OPERATION.md`, `ASSETS.md` (History rows, `reviewed:`); issue
+- [x] 5. `ASSET_SET_OPERATION.md`, `ASSETS.md` (History rows, `reviewed:`); issue
   `status: closed` with a resolution note — `python3 scripts/docs_index.py --check`
 
 ### Validation
@@ -256,3 +258,8 @@ Run: `CARGO_INCREMENTAL=0 cargo test -p liquers-core --test asset_manager_remove
 `cargo test -p liquers-core --lib --tests`, then `cargo test -p liquers-lib --lib --tests` (it
 replaces keys through `ns-*` commands); `bash scripts/check-build-matrix.sh` wasm32 rows (the gate
 uses `tokio::sync` on wasm). Diff review: no `println!`, no `unwrap` in library code.
+
+### Implementation notes (2026-10-27)
+
+- `remove` read the stored entry before `cancel_for_replacement`, so with nothing stored yet it would have left the late `Ready` copy in place. It now re-reads the store after the cancel; `amr_late_save_does_not_revive_a_removed_key` fails without that re-read.
+- The unit test for AC-2 also checks `persistence_status()` is `None` after `persist_with_status_tracking`.

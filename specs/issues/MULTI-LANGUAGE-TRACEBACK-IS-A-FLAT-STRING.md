@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: L
 area: [core/error, py, web]
-design:
+design: multi-language-traceback
 created: 2026-10-19
 github:
 ---

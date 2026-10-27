@@ -261,6 +261,18 @@ pub fn pyerr_to_error(py: Python<'_>, err: &PyErr) -> liquers_core::error::Error
         }
         return error;
     }
+    if is_cancellation(py, value) {
+        // `asyncio.CancelledError` from a cancelled coroutine, or the `concurrent.futures` one its
+        // future raises: the asset ends `Cancelled`, not `Error`.
+        let error = liquers_core::error::Error::cancelled(format!(
+            "the command was cancelled ({})",
+            value.get_type().qualname().map(|n| n.to_string()).unwrap_or_default()
+        ));
+        return match format_traceback(py, err) {
+            Some(traceback) => error.with_traceback(traceback),
+            None => error,
+        };
+    }
     let class = value
         .get_type()
         .qualname()
@@ -280,6 +292,18 @@ pub fn pyerr_to_error(py: Python<'_>, err: &PyErr) -> liquers_core::error::Error
         Some(traceback) => error.with_traceback(traceback),
         None => error,
     }
+}
+
+/// Whether an exception is `asyncio.CancelledError` or `concurrent.futures.CancelledError`.
+fn is_cancellation(py: Python<'_>, value: &Bound<'_, pyo3::exceptions::PyBaseException>) -> bool {
+    [("asyncio", "CancelledError"), ("concurrent.futures", "CancelledError")]
+        .iter()
+        .any(|(module, class)| {
+            py.import(*module)
+                .and_then(|module| module.getattr(*class))
+                .and_then(|class| value.is_instance(&class))
+                .unwrap_or(false)
+        })
 }
 
 fn liquers_error_fields(

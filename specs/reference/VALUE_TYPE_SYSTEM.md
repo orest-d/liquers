@@ -390,6 +390,12 @@ the two reasons applies (`degraded_reason`); its type is `AssetNotSupported`, wi
 in the registered type's `TypeInfo::default_data_format`, the same format the write path used
 (`State::effective_data_format`). Only an empty or unregistered identifier falls back to `bin`.
 
+**Core `Value` reads `json` by its identifier.** Because core `Value` is untagged in JSON, every
+core identifier (`None`, `Bool`, `I32`, `I64`, `F64`, `Text`, `Array`, `Object`, `Bytes`,
+`Metadata`, `AssetInfo`, `Recipe`, `CommandMetadata`, `Query`, `Key`) is read as that variant's
+payload, and a payload of another shape is a `SerializationError` naming the identifier. Only an
+empty or foreign identifier is read by the JSON's shape.
+
 A combined value (`liquers_lib::value::Value`, a `CombinedValue<SimpleValue, ExtValue>`) then
 chooses which half reads the bytes **by the identifier**, not by trying one half after the other
 (`CombinedValue::deserialize_from_bytes`):
@@ -430,6 +436,7 @@ degrades on read.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-27 | §Reading: core `Value` reads every core identifier in `json` as its own variant; only an empty or foreign identifier is read by shape. | `design/core-value-json-identifier-dispatch/` (`CORE-VALUE-JSON-READ-IGNORES-STRUCTURED-IDENTIFIERS`) |
 | 2026-10-27 | §Rust types and identifiers: no value type implements `TypeIdentifiedIn` yet; only the blanket impls exist. | `design/type-identified-in-docs/` |
 | 2026-10-25 | §Reading: a degraded value is `AssetNotSupported`, and the `-R/` path with no recipe reports it. | `design/key-without-recipe-answer/` |
 | 2026-10-21 | §Reading: a stored value whose metadata declares no data format is read in its type's default format, not `bin`. | `design/stored-value-default-data-format/` (`STORED-VALUE-WITHOUT-DATA-FORMAT-READ-AS-BIN`) |

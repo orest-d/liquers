@@ -3,8 +3,8 @@ id: WEB-API-SPEC-READ-ONLY-MOUNT
 kind: design
 title: The web API specification names the read-only mount as the way to protect a store
 form: compact
-status: in_review
-phase: implementation
+status: complete
+gh_pr: [214]
 readiness: ready
 autofix: eligible
 area: [docs, axum]
@@ -13,8 +13,10 @@ created: 2026-10-26
 ---
 # The web API specification names the read-only mount as the way to protect a store
 
-Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-26: Phases 1-4 written, not
-approved, nothing implemented.
+> **Complete on 2026-10-27**: implemented by automatic fix in #214.
+
+Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-26: Phases 1-4 written; Phase 4
+implemented on 2026-10-27 (automatic fix).
 
 ## Phase 1: High-Level Design
 
@@ -161,9 +163,9 @@ No new test is needed. The behaviour the text describes is already covered:
 
 ### Steps
 
-- [ ] 1. `specs/reference/WEB_API_SPECIFICATION.md` §9: replace the sentence with the Phase 2 paragraph. Proof: the `grep` of Phase 3 (AC-1, AC-2, AC-3)
-- [ ] 2. The same file: add the History row and bump `reviewed:`. Proof: diff review (AC-4)
-- [ ] 3. `specs/issues/WEB-API-SPEC-SAYS-A-DIRECTORY-MOUNT-CANNOT-BE-READ-ONLY.md` `status: closed` with a resolution note; `python3 scripts/docs_index.py`. Proof: `python3 scripts/docs_index.py --check`
+- [x] 1. `specs/reference/WEB_API_SPECIFICATION.md` §9: replace the sentence with the Phase 2 paragraph. Proof: the `grep` of Phase 3 (AC-1, AC-2, AC-3)
+- [x] 2. The same file: add the History row and bump `reviewed:`. Proof: diff review (AC-4)
+- [x] 3. `specs/issues/WEB-API-SPEC-SAYS-A-DIRECTORY-MOUNT-CANNOT-BE-READ-ONLY.md` `status: closed` with a resolution note; `python3 scripts/docs_index.py`. Proof: `python3 scripts/docs_index.py --check`
 
 ### Validation
 

@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: M
 area: [py, records]
-design:
+design: py-record-values-to-python
 created: 2026-10-20
 github:
 ---
@@ -22,6 +22,21 @@ DataFrames (through `polars.read_parquet`) and images; `ExtValue::RecordView` an
 ```python
 lq.evaluate("-R/data/table.csv/-/ns-rec/to_record")   # ConversionError
 ```
+
+## Problem Example
+
+```python
+@env.first_command
+def table() -> bytes:
+    return b"id,amount\na,1\nb,2"
+
+env.evaluate("table/ns-rec/to_record-csv")
+# today:  ConversionError naming "RecordView": "this value type is not exposed to Python"
+#         (ext_to_py, liquers-py/src/value.rs)
+# should: a table Python can use (design/py-record-values-to-python/: a pyarrow.Table)
+```
+
+Re-checked at HEAD (2026-10-27, `04667a80`): unchanged.
 
 ## Impact
 

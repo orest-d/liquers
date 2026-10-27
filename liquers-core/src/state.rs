@@ -8,11 +8,15 @@ use crate::{
 
 /// State encapsulates the data (Value) and metadata (Metadata) of a value.
 /// It is typically used to represent the result of an evaluation.
-/// State is meant to be chached and shared, therefore it should be considered as read-only.
-///  It is thread-safe and can be cloned.
+///
+/// A `State` is an immutable pair of shared handles, `Arc<V>` and `Arc<Metadata>`. Cloning it
+/// copies the two handles (two reference-count increments), never the data or the metadata. It
+/// has no interior mutability, so there is no lock and nothing to synchronize: it is cached and
+/// shared between tasks and threads as it is. It is changed only by building new handles —
+/// `with_data`, `with_metadata`, `set_status` and `from_value_and_metadata` do so — and a changed
+/// metadata is a copy, so every other clone keeps what it had.
 #[derive(Debug)]
 pub struct State<V: ValueInterface> {
-    // TODO: try to remove rwlock
     // `data` is private: a State is always potentially an error/cancelled state, so value
     // extraction must go through the guarded accessors (`value`, `value_state`,
     // `try_into_string`, `as_bytes`). Use `data_unchecked()` only to forward/inspect a
@@ -91,7 +95,10 @@ impl<V: ValueInterface> State<V> {
     }
 
     /// Sets the status in metadata.
-    /// Avoid this method, since it creates a copy of the metadata with a changed status.
+    ///
+    /// This clones the whole `Metadata` (the record with its log and everything else) to change
+    /// one field, and replaces this state's metadata handle; other clones of the state keep the
+    /// old metadata.
     pub fn set_status(&mut self, status: Status) -> Result<(), Error> {
         let mut metadata = (*self.metadata).clone();
         metadata.set_status(status)?;
