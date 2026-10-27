@@ -3,8 +3,8 @@ id: QUERY-TOKEN-CLASSES-ASCII
 kind: design
 title: Action names, filenames, segment headers and header values are tested as ASCII
 form: compact
-status: in_review
-phase: implementation
+status: complete
+gh_pr: [193]
 readiness: ready
 autofix: eligible
 area: [core/query]
@@ -12,6 +12,8 @@ issues: [QUERY-TOKEN-CLASSES-TRUNCATE-NON-ASCII]
 created: 2026-10-26
 ---
 # Action names, filenames, segment headers and header values are tested as ASCII
+
+> **Complete on 2026-10-27**: implemented by automatic fix in #193.
 
 Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-26: Phases 1-4 written; Phase 4
 implemented on 2026-10-27 (automatic fix).
