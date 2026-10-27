@@ -351,10 +351,12 @@ fn record_view_cell_string_option(cell: &FieldValue) -> Result<Option<String>, E
 impl ValueExtension for ExtValue {
     /// Reads as its single cell would (`specs/design/record-streams/phase2-architecture.md`
     /// §"A view as a value"): the cell's base value's own string conversion.
-    /// `RecordSource` refuses, like every other non-record variant.
+    /// `RecordSource` refuses, like every other non-record variant. A foreign value answers
+    /// itself ([`foreign::ForeignValue::try_into_string`], which refuses by default).
     fn try_into_string(&self) -> Result<String, Error> {
         match self {
-            ExtValue::Image { .. } | ExtValue::UIElement { .. } | ExtValue::Foreign { .. } => {
+            ExtValue::Foreign { value } => value.try_into_string(),
+            ExtValue::Image { .. } | ExtValue::UIElement { .. } => {
                 Err(ext_scalar_refusal(self, "string"))
             }
             #[cfg(feature = "polars")]
@@ -509,10 +511,12 @@ impl ValueExtension for ExtValue {
     /// value's JSON — the same scalar the other hooks read — and any other view the records-orient
     /// array of row objects, written by `liquers_records::to_json` rather than a second writer.
     /// This is what a link inside a `multiple` parameter binds through. `RecordSource` refuses:
-    /// its rows need `materialize`.
+    /// its rows need `materialize`. A foreign value answers itself
+    /// ([`foreign::ForeignValue::try_into_json_value`], which refuses by default).
     fn try_into_json_value(&self) -> Result<serde_json::Value, Error> {
         match self {
-            ExtValue::Image { .. } | ExtValue::UIElement { .. } | ExtValue::Foreign { .. } => {
+            ExtValue::Foreign { value } => value.try_into_json_value(),
+            ExtValue::Image { .. } | ExtValue::UIElement { .. } => {
                 Err(ext_scalar_refusal(self, "JSON"))
             }
             #[cfg(feature = "polars")]

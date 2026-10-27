@@ -2,7 +2,7 @@
 id: CANCEL-CAN-OVERTAKE-A-RETURNED-COMMAND
 kind: issue
 title: A cancel can still win after the last command returned Ok, if the rest of the evaluation then suspends
-status: draft
+status: closed
 priority: P3
 complexity: M
 area: [core/assets]
@@ -62,3 +62,13 @@ return; the awaits after it (`prefix_metadata`, a trailing `Filename` step,
 `check_resolved_volatility`, `take_pending_dependencies`) remain inside the race. More likely than
 first estimated: a cancel requested *during* a sync command is already pending when it returns.
 Origin design: `asset-cancellation-outcome` (D2). Design: `cancel-point-of-no-return`.
+
+## Resolution
+
+Fixed 2026-10-27 by `design/cancel-point-of-no-return/`. `CancellationRequest` gained a `committed` gate: a command's `Ok` return commits the run
+(`Context::commit_cancellation`, in `interpreter::do_step`), and the next step that can suspend
+(`step_can_suspend`) or a new run reopens it, so a request pending when a command returns no longer
+drops the run during the bookkeeping after it. Tests: `ac13_returned_command_wins_while_lock_is_held`,
+`ac13_returned_command_wins_while_lock_is_held_inline`,
+`ac14_cancel_during_first_command_lands_in_the_next` (`liquers-core/tests/asset_cancellation.rs`)
+and `cancellation_request_commit_gates_requested` (`assets.rs`).

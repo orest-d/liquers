@@ -2,7 +2,7 @@
 id: QUERY-TOKEN-CLASSES-TRUNCATE-NON-ASCII
 kind: issue
 title: Action names, filenames and header values accept non-ASCII characters by low-byte truncation
-status: draft
+status: closed
 priority: P2
 complexity: S
 area: [core/query]
@@ -57,3 +57,7 @@ Found on 2026-10-21 during bulk design of `RESOURCE-NAME-ASCII-ONLY` and `QUERY-
 while comparing the parser's character classes with the template validators. The fix is a bug fix
 in one crate with no interface change, so it is a candidate for automatic fixing. It should land
 before `design/query-builder/`, which reuses the predicates.
+
+## Resolution
+
+Fixed 2026-10-27 by `design/query-token-classes-ascii/`. `liquers-core/src/parse.rs` tests token classes with four private ASCII predicates (`is_identifier_start`, `is_identifier_char`, `is_filename_suffix_char`, `is_header_value_char`) instead of `c as u8`, so a character such as `Ł` (U+0141, low byte `A`) is a parse error in action names, filenames, header names, header parameters and realm names instead of being accepted. String parameters still carry Unicode. Evidence: `a15_non_ascii_is_not_part_of_the_grammar` (extended), `non_ascii_low_byte_aliases_are_rejected`, `ascii_token_classes_unchanged`, `unicode_string_parameters_still_parse`; `DOC_02_QUERY_LANGUAGE_REFERENCE.md` §Lexical forms updated.

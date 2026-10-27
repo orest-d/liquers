@@ -2,7 +2,7 @@
 id: UNCACHED-STORED-COPY-EXPIRY-RACES-AN-INFLIGHT-EVALUATION
 kind: issue
 title: Expiring an uncached key's stored copy can be overwritten by an evaluation already in flight
-status: draft
+status: closed
 priority: P3
 complexity: M
 area: [core/assets]
@@ -48,3 +48,12 @@ Still present at HEAD (`18732dd`): `save_to_store` writes with a plain `store.se
 after the write. Origin design: `record-streams` (complete; implementation-review finding C1).
 Design: `uncached-write-back-rechecks-dependency-versions`. The registered (`cached: true`) analogue
 is filed as `CASCADE-TO-AN-IN-FLIGHT-DEPENDENT-IS-DROPPED`.
+
+## Resolution
+
+Fixed 2026-10-27 by `design/uncached-write-back-rechecks-dependency-versions/`. After writing an uncached, non-volatile keyed asset, `persist_with_status_tracking` re-checks its
+recorded inputs (`AssetRef::expire_written_copy_if_inputs_superseded`): a concrete version that
+differs from the dependency manager's rewrites the stored copy as `Expired` with
+`Direct { StaleDependency }`. Tests in `liquers-core/tests/stored_cached_flags.rs`:
+`uncached_copy_written_after_input_change_is_expired_default` (including the fresh-process
+recompute) and `uncached_copy_written_after_input_change_is_expired_immediate`.

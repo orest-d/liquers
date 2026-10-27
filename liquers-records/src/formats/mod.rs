@@ -87,24 +87,52 @@ pub enum TableFormat {
 }
 
 impl TableFormat {
-    /// `csv`, `csv:comma`, `tsv`, `csv:tab`, `ndjson`, `jsonl`, `json`, `md`, `markdown`, `html`,
-    /// `feather`/`ipc`/`arrow_ipc`/`arrow`, `parquet`. Anything else is refused, naming the format.
-    /// Names and aliases match the DataFrame serializer's (`liquers-lib/src/polars/serde.rs`), so a
-    /// filename means the same thing for a `polars_dataframe` and a `RecordView`.
+    /// `csv`, `csv:comma`, `tsv`, `csv:tab`, `csv:semicolon`, `csv:pipe`, `csv:<c>` (one ASCII
+    /// character that is not a letter, a digit, `"`, CR or LF), `ndjson`, `jsonl`, `json`, `md`,
+    /// `markdown`, `html`, `feather`/`ipc`/`arrow_ipc`/`arrow`, `parquet`. Anything else is
+    /// refused, naming the format. Names and aliases match the DataFrame serializer's
+    /// (`liquers-lib/src/polars/serde.rs`), so a filename means the same thing for a
+    /// `polars_dataframe` and a `RecordView`; its underscore spellings (`csv_semicolon`, …) are
+    /// DataFrame-only.
     pub fn from_data_format(data_format: &str) -> Result<TableFormat, Error> {
         match data_format {
             "csv" | "csv:comma" => Ok(TableFormat::Csv { separator: b',' }),
             "tsv" | "csv:tab" => Ok(TableFormat::Csv { separator: b'\t' }),
+            "csv:semicolon" => Ok(TableFormat::Csv { separator: b';' }),
+            "csv:pipe" => Ok(TableFormat::Csv { separator: b'|' }),
             "ndjson" | "jsonl" => Ok(TableFormat::NdJson),
             "json" => Ok(TableFormat::Json),
             "md" | "markdown" => Ok(TableFormat::Markdown),
             "html" => Ok(TableFormat::Html),
             "feather" | "ipc" | "arrow_ipc" | "arrow" => Ok(TableFormat::Ipc),
             "parquet" => Ok(TableFormat::Parquet),
-            other => Err(Error::general_error(format!(
-                "TableFormat::from_data_format: unknown data format '{other}'"
-            ))),
+            other => match other.strip_prefix("csv:") {
+                Some(refinement) => match csv_separator_refinement(refinement) {
+                    Some(separator) => Ok(TableFormat::Csv { separator }),
+                    None => Err(Error::general_error(format!(
+                        "TableFormat::from_data_format: unknown CSV refinement '{other}'; use \
+                         csv:comma, csv:tab, csv:semicolon, csv:pipe or csv: followed by one \
+                         punctuation character"
+                    ))),
+                },
+                None => Err(Error::general_error(format!(
+                    "TableFormat::from_data_format: unknown data format '{other}'"
+                ))),
+            },
         }
+    }
+}
+
+/// The separator of a one-character `csv:<c>` refinement, when `c` can separate CSV fields: one
+/// ASCII byte that is not a letter or digit (polars lowercases a format name, so a letter would
+/// mean another separator there), a quote, CR or LF.
+fn csv_separator_refinement(refinement: &str) -> Option<u8> {
+    match refinement.as_bytes() {
+        [byte] if byte.is_ascii() && !byte.is_ascii_alphanumeric() => match byte {
+            b'"' | b'\r' | b'\n' => None,
+            separator => Some(*separator),
+        },
+        [] | [_] | [_, _, ..] => None,
     }
 }
 
@@ -225,6 +253,67 @@ mod tests {
     #[test]
     fn table_format_from_data_format_refuses_unknown_names() {
         assert!(TableFormat::from_data_format("xlsx").is_err());
+    }
+
+    #[test]
+    fn table_format_from_data_format_resolves_csv_separator_refinements() -> Result<(), Error> {
+        for (name, separator) in [
+            ("csv:semicolon", b';'),
+            ("csv:pipe", b'|'),
+            ("csv:;", b';'),
+            ("csv:|", b'|'),
+            ("csv: ", b' '),
+        ] {
+            assert_eq!(
+                TableFormat::from_data_format(name)?,
+                TableFormat::Csv { separator },
+                "{name}"
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn table_format_from_data_format_refuses_unusable_csv_refinements() {
+        for name in [
+            "csv:xy", "csv:a", "csv:7", "csv:\"", "csv:", "csv:\n", "csv:é",
+        ] {
+            let error = TableFormat::from_data_format(name).expect_err(name);
+            let message = format!("{error}");
+            assert!(message.contains(&format!("'{name}'")), "{message}");
+            assert!(message.contains("csv:semicolon"), "{message}");
+        }
+    }
+
+    #[test]
+    fn semicolon_refinement_round_trips() -> Result<(), Error> {
+        use crate::column::FieldValue;
+        use crate::mutable::{RecordBatchMut, RecordViewMut};
+        use crate::schema::{FieldSchema, FieldType};
+        use std::sync::Arc;
+
+        let schema = Arc::new(RecordSchema::new(vec![
+            FieldSchema::new("a", FieldType::Text),
+            FieldSchema::new("b", FieldType::Text),
+        ])?);
+        let mut batch = RecordBatchMut::with_capacity(schema, 1);
+        batch.append_row(&[
+            FieldValue::Text(Arc::from("x")),
+            FieldValue::Text(Arc::from("y")),
+        ])?;
+        let batch = batch.freeze()?;
+        let format = TableFormat::from_data_format("csv:semicolon")?;
+        let bytes = write_table(&batch, format, &WriteOptions::default())?;
+        let written = String::from_utf8(bytes.clone()).expect("CSV is UTF-8");
+        assert!(
+            written.contains("a;b") && written.contains("x;y"),
+            "{written}"
+        );
+        assert!(!written.contains(','), "{written}");
+        let back = read_table(&bytes, format, ReadSchema::Infer, &ReadOptions::default())?;
+        assert_eq!(back.value(0, 0)?, FieldValue::Text(Arc::from("x")));
+        assert_eq!(back.value(0, 1)?, FieldValue::Text(Arc::from("y")));
+        Ok(())
     }
 
     #[test]

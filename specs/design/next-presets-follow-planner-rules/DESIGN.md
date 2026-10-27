@@ -3,8 +3,8 @@ id: NEXT-PRESETS-FOLLOW-PLANNER-RULES
 kind: design
 title: Next-command presets resolve the last command as the planner does
 form: compact
-status: in_review
-phase: implementation
+status: complete
+gh_pr: [212]
 readiness: ready
 autofix: eligible
 area: [lib/commands]
@@ -12,6 +12,8 @@ issues: [NEXT-PRESETS-MISREAD-PLANNER-INSTRUCTIONS]
 created: 2026-10-26
 ---
 # Next-command presets resolve the last command as the planner does
+
+> **Complete on 2026-10-27**: implemented by automatic fix in #212.
 
 Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-26: Phases 1-4 written; Phase 4
 implemented on 2026-10-27 (automatic fix).

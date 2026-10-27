@@ -240,6 +240,101 @@ mod tests {
         }
     }
 
+    /// A foreign value whose language gives a faithful text and JSON form (a Python dataclass,
+    /// say).
+    #[derive(Debug)]
+    struct Faithful;
+
+    impl ForeignValue for Faithful {
+        fn origin(&self) -> &'static str {
+            "mock"
+        }
+        fn as_any(&self) -> &dyn core::any::Any {
+            self
+        }
+        fn identifier(&self) -> Cow<'static, str> {
+            "mock.Faithful".into()
+        }
+        fn type_name(&self) -> Cow<'static, str> {
+            "MockFaithful".into()
+        }
+        fn default_extension(&self) -> Cow<'static, str> {
+            "json".into()
+        }
+        fn default_filename(&self) -> Cow<'static, str> {
+            "value.json".into()
+        }
+        fn default_media_type(&self) -> Cow<'static, str> {
+            "application/json".into()
+        }
+        fn try_into_string(&self) -> Result<String, Error> {
+            Ok("point(1,2)".to_string())
+        }
+        fn try_into_json_value(&self) -> Result<serde_json::Value, Error> {
+            Ok(serde_json::json!({"x": 1, "y": 2}))
+        }
+    }
+
+    fn foreign(value: std::sync::Arc<dyn ForeignValue>) -> crate::value::Value {
+        crate::value::Value::Extended(crate::value::ExtValue::Foreign { value })
+    }
+
+    /// AC-1 of `foreign-value-text-json-delegation`: the JSON hook is reached through `Value`.
+    #[test]
+    fn foreign_json_hook_is_delegated() -> Result<(), Error> {
+        use liquers_core::value::ValueInterface;
+        let value = foreign(std::sync::Arc::new(Faithful));
+        assert_eq!(
+            value.try_into_json_value()?,
+            serde_json::json!({"x": 1, "y": 2})
+        );
+        Ok(())
+    }
+
+    /// AC-2: the text hook is reached, in both the plain and the option form.
+    #[test]
+    fn foreign_text_hook_is_delegated() -> Result<(), Error> {
+        use liquers_core::value::ValueInterface;
+        let value = foreign(std::sync::Arc::new(Faithful));
+        assert_eq!(value.try_into_string()?, "point(1,2)");
+        assert_eq!(
+            value.try_into_string_option()?,
+            Some("point(1,2)".to_string())
+        );
+        Ok(())
+    }
+
+    /// AC-3: a foreign value keeping the default hooks still refuses, naming its identifier.
+    #[test]
+    fn default_foreign_hooks_still_refuse() {
+        use liquers_core::value::ValueInterface;
+        let value = foreign(std::sync::Arc::new(Opaque));
+        for error in [
+            value.try_into_string().err(),
+            value.try_into_json_value().err(),
+        ] {
+            let error = error.expect("an opaque foreign value has no text or JSON form");
+            assert_eq!(error.error_type, ErrorType::ConversionError);
+            assert!(
+                error.message.contains(MOCK_TYPE_IDENTIFIER),
+                "{}",
+                error.message
+            );
+        }
+    }
+
+    /// AC-4: the data node does not consult the JSON form yet (`foreign-value-data-node`).
+    #[test]
+    fn foreign_data_node_is_still_opaque() {
+        use liquers_core::data_node::NodeKind;
+        use liquers_core::value::ValueInterface;
+        let value = std::sync::Arc::new(foreign(std::sync::Arc::new(Faithful)));
+        assert_eq!(
+            crate::value::Value::data_node(value).kind(),
+            NodeKind::Opaque
+        );
+    }
+
     /// `fvt3.1` — the default derives from the value's own methods and declares no formats.
     #[test]
     fn the_default_type_info_derives_from_the_value() {
