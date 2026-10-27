@@ -3,8 +3,8 @@ id: DOCS-TOOLING-TESTS-IN-CI
 kind: design
 title: The docs workflow runs the documentation tooling's unit tests
 form: compact
-status: in_review
-phase: implementation
+status: complete
+gh_pr: [186]
 readiness: ready
 autofix: eligible
 area: [docs, build]
@@ -12,6 +12,8 @@ issues: [DOCS-TOOLING-TESTS-NOT-RUN-IN-CI]
 created: 2026-10-26
 ---
 # The docs workflow runs the documentation tooling's unit tests
+
+> **Complete on 2026-10-27**: implemented by automatic fix in #186.
 
 Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-26: Phases 1-4 written; Phase 4
 implemented on 2026-10-27 (automatic fix).
