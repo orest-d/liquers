@@ -3,7 +3,7 @@ title: Record Streams
 kind: reference
 audience: internal
 area: [records, lib/value, lib/commands, web]
-reviewed: 2026-10-25
+reviewed: 2026-10-27
 ---
 
 # Record Streams
@@ -528,7 +528,7 @@ selects the schema-aware reader (strict, nothing guessed); `ReadSchema::Infer` t
 
 | Format | Data format names | Write | Read | Round trip | Crate feature |
 |---|---|---|---|---|---|
-| CSV | `csv`, `csv:comma` | yes | yes | values; types inferred; roles, labels, `Id` lost; null distinct from `""` | — |
+| CSV | `csv`, `csv:comma`; other separators: `csv:semicolon` (`;`), `csv:pipe` (`\|`), `csv:<c>` for one ASCII character that is not a letter, a digit, `"`, CR or LF | yes | yes | values; types inferred; roles, labels, `Id` lost; null distinct from `""` | — |
 | TSV | `tsv`, `csv:tab` | yes | yes | as CSV | — |
 | NDJSON | `ndjson`, `jsonl` | yes | yes | values and JSON types; roles lost | — |
 | JSON | `json` — one shape: an array of row objects | yes | yes | as NDJSON | — |
@@ -696,7 +696,7 @@ comes from the polars dtypes. On both paths a not-null field holding a null is a
 
 | Variant | Identifier / type name | Default format, filename | Data formats |
 |---|---|---|---|
-| `ExtValue::RecordView { value: Arc<dyn RecordView> }` | `RecordView` / `record_view` | `csv`, `data.csv` | `csv`, `csv:comma`, `tsv`, `csv:tab`, `ndjson`, `jsonl`, `json`, `md`, `markdown`, `html`; `ipc`, `feather`, `arrow_ipc`, `arrow` with `records-ipc`; `parquet` with `records-parquet` |
+| `ExtValue::RecordView { value: Arc<dyn RecordView> }` | `RecordView` / `record_view` | `csv`, `data.csv` | `csv`, `csv:comma`, `tsv`, `csv:tab`, `csv:semicolon`, `csv:pipe`, `csv:<c>`, `ndjson`, `jsonl`, `json`, `md`, `markdown`, `html`; `ipc`, `feather`, `arrow_ipc`, `arrow` with `records-ipc`; `parquet` with `records-parquet` |
 | `ExtValue::RecordSource { value: Arc<dyn RecordSource> }` | `RecordSource` / `record_source` | `yaml`, `manifest.yaml` | `yaml`, `json` |
 
 Both are gated on `records`. The web UI renders a view as an HTML table of at most 100 rows, egui as
@@ -870,6 +870,7 @@ materializes to an empty batch; without one it is an error.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-27 | §Table formats: the CSV separator refinements `csv:semicolon`, `csv:pipe` and `csv:<c>`, with the same meaning as for a DataFrame. | `design/record-table-csv-refinements/` |
 | 2026-10-25 | §Commands: a directory is listed with plain `-R/<dir>/-/ns-rec/file_records` (a `Directory` state); `-R-sdir/` still works. | `design/key-without-recipe-answer/` |
 | 2026-10-20 | §Parquet: the polars read path honours a declared schema and restores `liquers.schema` (formats table row updated). | `design/parquet-read-declared-schema/` |
 | 2026-10-19 | Crate table: `liquers-web`'s `records` feature is opt-in (release wasm 12.4 MB without it, 16.5 MB with it). | `claude/web-records-opt-in` |

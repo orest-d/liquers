@@ -261,6 +261,11 @@ Queued and ordinary inline evaluation use `evaluate_and_store`:
    and again after serialization). A run persists only a value it finalized, so a
    cancelled, failed or replaced run writes nothing.
 
+Metadata written while a command runs (log lines, progress, status) goes through the asset's
+`MetadataSaver`. Under the queued manager it is a coalescing background task, at most one write
+per interval. Under the inline manager, on every target, each save is written in the caller's
+task with no spawn, so an inline evaluation needs no tokio runtime.
+
 The default asset data configuration requests background persistence. The queued
 manager can therefore expose a ready in-memory value before the store write
 finishes. Inline-manager persistence is forced synchronous to preserve its
@@ -341,7 +346,10 @@ uses:
 `Processing`, and `Partial`. A `Submitted` asset ends `Cancelled` at once. For a running
 one it is a request: the run drops its evaluation at the next suspension point and ends
 `Cancelled`, a command can check `Context::is_cancelled` / `check_cancelled`, and a run
-whose command already returned `Ok` ends ready and is stored. A command returning an
+whose command already returned `Ok` ends ready and is stored. A command's `Ok` return commits
+the run: the evaluation/cancellation race ignores the request until the next step that can
+suspend (an action or an asset/resource read) reopens it, so the bookkeeping after a command
+(metadata, a trailing filename) cannot lose its value to a request. A command returning an
 `ErrorType::Cancelled` error ends its asset `Cancelled`; a cancelled dependency cascades to
 the dependents that do not handle it. A cancelled asset records the cancellation in
 `error_data` (`is_error` false) with the root cause's key or query in its `query` field.
@@ -435,7 +443,7 @@ Synchronous startup did not change that, and the distinction is per manager rath
 | P1 | Public `AssetRef::data` allows bypassing lifecycle bookkeeping | External mutation can avoid notifications, persistence status, dependency tracking, or status/metadata synchronization | Make the field private and add targeted extension methods |
 | P1 | `AssetRef::get` represents terminal failure as `Ok(State)` | This is tested behavior but surprising to callers expecting `Result::Err` for evaluation failure | Preserve if intentional, but document error-state inspection prominently across evaluation APIs |
 | P2 | `Partial` is reserved but incomplete | `Status::Partial` exists and is classified as data-bearing, but `AssetData::poll_state` hides it and no `Context::set_partial/get_partial/has_partial` implementation exists | Keep it documented as future functionality until production and retrieval semantics are implemented |
-| P2 | `MetadataSaver::save_immediately` is not immediate on native | It coalesces and throttles writes | Rename to reflect scheduling/coalescing |
+| P2 | `MetadataSaver::save_immediately` is not immediate under the queued manager | It coalesces and throttles writes there (the inline manager writes inline) | Rename to reflect scheduling/coalescing |
 | P2 | Job-queue count names overlap or mislead | `running_count` and `pending_jobs_count_sync` both return the running counter; `queued_jobs_count` includes all tracked jobs | Define and rename queue metrics |
 | P2 | `cleanup_completed` documentation lists only Ready/Error | Implementation removes every `Status::is_finished` entry | Correct the method reference |
 
@@ -489,6 +497,8 @@ implements a manager outside the crate against the shared manager scenarios. See
 | Date | Change | Source |
 |---|---|---|
 | 2026-10-27 | §Public entry-point contract: `apply` evaluates before return with an optional payload; `apply_queued` row; `apply_immediately` deprecated. | `design/doc-03-apply-entry-points/` |
+| 2026-10-27 | §Expiration, recovery, and cancellation: a command's `Ok` return commits the run against a pending cancel until the next step that can suspend. | `design/cancel-point-of-no-return/` (`CANCEL-CAN-OVERTAKE-A-RETURNED-COMMAND`) |
+| 2026-10-27 | §Persistence contract: metadata saves are inline under the inline manager on every target, background-coalesced only under the queued manager. | `design/inline-metadata-save-without-runtime/` (`METADATA-SAVER-SPAWNS-ON-THE-INLINE-PATH`) |
 | 2026-10-25 | Statuses: `get` on a store directory gives `Directory`, never reused; an unmakeable key is `AssetNotFound`. | `design/key-without-recipe-answer/` |
 | 2026-10-22 | §Manager lifecycle: the manager and assets hold the environment weakly; run claims, job-queue entries and background saves pin it; `try_get_envref`; dropping the manager stops the job queue. | `design/environment-manager-reference-cycle/` |
 | 2026-10-12 | Manager cache misses are qualified by the evaluation session: one request per dependency per evaluation. | phase-5 (`design/dependency-resolved-once-per-evaluation/`) |

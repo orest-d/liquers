@@ -8,12 +8,17 @@
 //! **Nothing borrowed from the environment is held across the call into Python.** Arguments are
 //! converted to Python objects first, then the callable runs.
 //!
+//! An `async def` callable (or an object whose `__call__` is one) runs differently: the call that
+//! makes its coroutine still happens on a blocking thread, but the coroutine runs on one of the
+//! environment's event loops (`aio.rs`), and the command's future waits for it without holding a
+//! thread. Dropping that future — the asset was cancelled or replaced, or the environment shut
+//! down — cancels the coroutine, which sees `asyncio.CancelledError` (AC-7).
+//!
 //! The metadata comes from the shared declaration pipeline: the decorator in
 //! `python/liquers/_commands.py` supplies the baseline (stage 1) and the author's keyword
 //! arguments, and [`PyCommandSpec::new`] runs stages 2–5 with `CommandDeclaration`.
 
-use std::sync::atomic::AtomicBool;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use liquers_core::command_declaration::{CommandDeclaration, StateDelivery, WarningKind};
 use liquers_core::command_metadata::{CommandKey, CommandMetadata};
@@ -27,6 +32,7 @@ use liquers_core::value::ValueInterface;
 use pyo3::prelude::*;
 use pyo3::types::{PyString, PyTuple};
 
+use crate::aio::{lock_pending, shut_down_while_waiting, store_future, CancelOnDrop, LazyLoopPool, Pending, Shut};
 use crate::context::Context;
 use crate::environment::PyEnvironment;
 use crate::error::pyerr_to_error;
@@ -65,8 +71,10 @@ pub struct PyCallable {
     pub context_index: Option<usize>,
     pub conversion: ConversionMode,
     pub pickle: bool,
-    /// The registering environment's shut flag, handed to the `Context` of each call.
-    pub shut: Arc<AtomicBool>,
+    /// The registering environment's shut signal, handed to the `Context` of each call.
+    pub shut: Arc<Shut>,
+    /// For an `async def` callable, the environment's loop pool its coroutines run on.
+    pub loops: Option<Arc<LazyLoopPool>>,
 }
 
 impl PyCallable {
@@ -76,7 +84,8 @@ impl PyCallable {
         context_index: Option<usize>,
         conversion: ConversionMode,
         pickle: bool,
-        shut: Arc<AtomicBool>,
+        shut: Arc<Shut>,
+        loops: Option<Arc<LazyLoopPool>>,
     ) -> Self {
         #[cfg(feature = "debug-handles")]
         LIVE_HANDLES.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
@@ -87,6 +96,7 @@ impl PyCallable {
             conversion,
             pickle,
             shut,
+            loops,
         }
     }
 }
@@ -124,7 +134,8 @@ impl PyCommandSpec {
     ///
     /// Returns the spec and the pipeline's warnings, for the decorator to issue as Python
     /// warnings. `ReservedStateDelivery` is left out: a state parameter with any name delivering
-    /// the value is the Python convention, not a mistake.
+    /// the value is the Python convention, not a mistake. `loops` is given for an `async def`
+    /// callable, which is then marked async in its metadata.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         object: Py<PyAny>,
@@ -134,7 +145,8 @@ impl PyCommandSpec {
         implementation: Option<&[u8]>,
         conversion: ConversionMode,
         pickle: bool,
-        shut: Arc<AtomicBool>,
+        shut: Arc<Shut>,
+        loops: Option<Arc<LazyLoopPool>>,
     ) -> Result<(Self, Vec<String>), Error> {
         let mut command = CommandDeclaration::from_introspection(baseline);
         command.enhance(declaration)?;
@@ -156,6 +168,7 @@ impl PyCommandSpec {
             .unwrap_or(StateDelivery::None)
             .effective();
         metadata.module = PYTHON_MODULE.to_string();
+        metadata.with_async(loops.is_some());
         // A changed implementation must not reuse results stored by the old one; a callable with
         // no code object gets a fresh version on every registration.
         metadata.impl_version = match implementation {
@@ -172,6 +185,7 @@ impl PyCommandSpec {
                 conversion,
                 pickle,
                 shut,
+                loops,
             )),
         };
         Ok((spec, warnings))
@@ -213,16 +227,150 @@ async fn call_py_command(
     arguments: CommandArguments<PyEnvironment>,
     context: CoreContext<PyEnvironment>,
 ) -> Result<Value, Error> {
-    let joined = tokio::task::spawn_blocking(move || {
-        Python::attach(|py| call_with_gil(py, &callable, &state, &arguments, context))
-    })
-    .await;
+    if let Some(loops) = callable.loops.clone() {
+        return call_async_py_command(callable, loops, state, arguments, context).await;
+    }
+    joined(
+        tokio::task::spawn_blocking(move || {
+            Python::attach(|py| call_with_gil(py, &callable, &state, &arguments, context))
+        })
+        .await,
+    )
+}
+
+/// The result of a blocking-thread task.
+fn joined<T>(joined: Result<Result<T, Error>, tokio::task::JoinError>) -> Result<T, Error> {
     match joined {
         Ok(result) => result,
         Err(e) if e.is_panic() => Err(Error::unexpected_error(format!(
             "a Python command panicked: {e}"
         ))),
         Err(e) => Err(Error::cancelled(format!("a Python command was cancelled: {e}"))),
+    }
+}
+
+/// Runs an `async def` command: makes the coroutine on a blocking thread, runs it on a pool loop,
+/// and waits for it without holding a thread.
+async fn call_async_py_command(
+    callable: Arc<PyCallable>,
+    loops: Arc<LazyLoopPool>,
+    state: CoreState<Value>,
+    arguments: CommandArguments<PyEnvironment>,
+    context: CoreContext<PyEnvironment>,
+) -> Result<Value, Error> {
+    let pending = Arc::new(Mutex::new(Pending::default()));
+    // Made first: from here on, dropping this future cancels whatever has been started.
+    let _guard = CancelOnDrop(pending.clone());
+    let (done_tx, done_rx) = tokio::sync::oneshot::channel::<()>();
+    let started = {
+        let callable = callable.clone();
+        let pending = pending.clone();
+        tokio::task::spawn_blocking(move || {
+            Python::attach(|py| {
+                start_coroutine(py, &callable, &loops, &pending, &state, &arguments, context, done_tx)
+            })
+        })
+        .await
+    };
+    joined(started)?;
+    let shut = callable.shut.clone();
+    tokio::select! {
+        // A dropped sender means the future was released without completing.
+        done = done_rx => done.map_err(|_| {
+            Error::cancelled("an async command's coroutine was dropped before it finished".to_string())
+        })?,
+        // A coroutine that ignores cancellation never completes; the shutdown does not wait for it.
+        () = shut.wait() => return Err(shut_down_while_waiting()),
+    }
+    let finished = tokio::task::spawn_blocking(move || {
+        Python::attach(|py| coroutine_result(py, &callable, &pending))
+    })
+    .await;
+    joined(finished)
+}
+
+/// Calls the callable, checks that it made a coroutine, and schedules it on a pool loop.
+#[allow(clippy::too_many_arguments)]
+fn start_coroutine(
+    py: Python<'_>,
+    callable: &PyCallable,
+    loops: &LazyLoopPool,
+    pending: &Mutex<Pending>,
+    state: &CoreState<Value>,
+    arguments: &CommandArguments<PyEnvironment>,
+    context: CoreContext<PyEnvironment>,
+    done_tx: tokio::sync::oneshot::Sender<()>,
+) -> Result<(), Error> {
+    let pool = loops.get(py)?;
+    let (args, context) = prepare_call(py, callable, state, arguments, context)?;
+    if let Some(context) = context {
+        if !lock_pending(pending).keep_context(context) {
+            return Err(Error::cancelled("the command was cancelled before it started".to_string()));
+        }
+    }
+    let scheduled = (|| -> PyResult<()> {
+        let coroutine = callable.object.bind(py).call1(args)?;
+        let asyncio = py.import("asyncio")?;
+        if !asyncio.call_method1("iscoroutine", (&coroutine,))?.is_truthy()? {
+            return Err(pyo3::exceptions::PyTypeError::new_err(format!(
+                "an async command returned {} instead of a coroutine",
+                coroutine.get_type().name()?
+            )));
+        }
+        let future = match asyncio.call_method1(
+            "run_coroutine_threadsafe",
+            (&coroutine, pool.pick().event_loop(py)),
+        ) {
+            Ok(future) => future,
+            Err(e) => {
+                // Never scheduled (the loop is closed): closed so Python does not warn that it was
+                // never awaited.
+                let _ = coroutine.call_method0("close");
+                return Err(e);
+            }
+        };
+        let completer = Completer {
+            done: Mutex::new(Some(done_tx)),
+        };
+        future.call_method1("add_done_callback", (completer,))?;
+        store_future(py, pending, future.unbind())
+    })();
+    scheduled.map_err(|e| pyerr_to_error(py, &e))
+}
+
+/// The coroutine's result, once its future is done; the context is invalidated here.
+fn coroutine_result(py: Python<'_>, callable: &PyCallable, pending: &Mutex<Pending>) -> Result<Value, Error> {
+    let future = lock_pending(pending).finish().ok_or_else(|| {
+        Error::cancelled("an async command's coroutine was cancelled".to_string())
+    })?;
+    let future = future.bind(py);
+    let cancelled = future
+        .call_method0("cancelled")
+        .and_then(|cancelled| cancelled.is_truthy())
+        .map_err(|e| pyerr_to_error(py, &e))?;
+    if cancelled {
+        return Err(Error::cancelled("an async command's coroutine was cancelled".to_string()));
+    }
+    let result = future.call_method0("result").map_err(|e| pyerr_to_error(py, &e))?;
+    py_to_value(&result, callable.conversion, callable.pickle)
+}
+
+/// The done callback of a coroutine's future: wakes the command that waits for it.
+#[pyclass(frozen)]
+struct Completer {
+    done: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
+}
+
+#[pymethods]
+impl Completer {
+    fn __call__(&self, _future: &Bound<'_, PyAny>) {
+        let sender = match self.done.lock() {
+            Ok(mut done) => done.take(),
+            Err(poisoned) => poisoned.into_inner().take(),
+        };
+        if let Some(sender) = sender {
+            let _ = sender.send(());
+        }
     }
 }
 
@@ -233,6 +381,39 @@ fn call_with_gil(
     arguments: &CommandArguments<PyEnvironment>,
     context: CoreContext<PyEnvironment>,
 ) -> Result<Value, Error> {
+    let (args, context) = prepare_call(py, callable, state, arguments, context)?;
+    let result = callable.object.bind(py).call1(args);
+    // The context is valid only during the call.
+    if let Some(context) = &context {
+        context.invalidate();
+    }
+    let result = result.map_err(|e| pyerr_to_error(py, &e))?;
+    if is_coroutine(py, &result)? {
+        // Closed so Python does not also warn that it was never awaited.
+        let _ = result.call_method0("close");
+        return Err(Error::execution_error(
+            "a command returned a coroutine; declare its function `async def` so it is awaited"
+                .to_string(),
+        ));
+    }
+    py_to_value(&result, callable.conversion, callable.pickle)
+}
+
+fn is_coroutine(py: Python<'_>, object: &Bound<'_, PyAny>) -> Result<bool, Error> {
+    py.import("asyncio")
+        .and_then(|asyncio| asyncio.call_method1("iscoroutine", (object,)))
+        .and_then(|is| is.is_truthy())
+        .map_err(|e| pyerr_to_error(py, &e))
+}
+
+/// The positional arguments of a call, and the `Context` handed to it, if the function takes one.
+fn prepare_call<'py>(
+    py: Python<'py>,
+    callable: &PyCallable,
+    state: &CoreState<Value>,
+    arguments: &CommandArguments<PyEnvironment>,
+    context: CoreContext<PyEnvironment>,
+) -> Result<(Bound<'py, PyTuple>, Option<Context>), Error> {
     let mut positional: Vec<Py<PyAny>> = Vec::with_capacity(arguments.len() + 2);
     match &callable.delivery {
         StateDelivery::None => {}
@@ -273,19 +454,17 @@ fn call_with_gil(
             }
         }
     }
-    let context = callable.context_index.map(|index| (index, Context::new(context, callable.shut.clone())));
-    if let Some((index, context)) = &context {
-        let object = Py::new(py, context.clone_handle())
-            .map_err(|e| pyerr_to_error(py, &e))?
-            .into_any();
-        positional.insert((*index).min(positional.len()), object);
-    }
+    let context = match callable.context_index {
+        Some(index) => {
+            let context = Context::new(context, callable.shut.clone());
+            let object = Py::new(py, context.clone_handle())
+                .map_err(|e| pyerr_to_error(py, &e))?
+                .into_any();
+            positional.insert(index.min(positional.len()), object);
+            Some(context)
+        }
+        None => None,
+    };
     let args = PyTuple::new(py, positional).map_err(|e| pyerr_to_error(py, &e))?;
-    let result = callable.object.bind(py).call1(args);
-    // The context is valid only during the call.
-    if let Some((_, context)) = &context {
-        context.invalidate();
-    }
-    let result = result.map_err(|e| pyerr_to_error(py, &e))?;
-    py_to_value(&result, callable.conversion, callable.pickle)
+    Ok((args, context))
 }

@@ -3,8 +3,8 @@ id: DOC-03-APPLY-ENTRY-POINTS
 kind: design
 title: DOC-03's entry-point table describes apply and apply_queued as implemented
 form: compact
-status: in_review
-phase: implementation
+status: complete
+gh_pr: [213]
 readiness: ready
 autofix: eligible
 area: [docs, core/assets]
@@ -12,6 +12,8 @@ issues: [DOC-03-ENTRY-POINT-TABLE-SAYS-APPLY-SCHEDULES]
 created: 2026-10-26
 ---
 # DOC-03's entry-point table describes apply and apply_queued as implemented
+
+> **Complete on 2026-10-27**: implemented by automatic fix in #213.
 
 Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-26: Phases 1-4 written; Phase 4
 implemented on 2026-10-27 (automatic fix).

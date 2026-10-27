@@ -703,3 +703,210 @@ async fn amr61_to_override_live_source_noop() -> Result<(), Box<dyn std::error::
     assert_eq!(am.get_asset_info(&key).await?.status, Status::Source, "to_override on a live Source is a no-op");
     Ok(())
 }
+
+// ==================================================================================
+// A finished run's late value write cannot outlive a replacement of its key
+// (`specs/design/replaced-asset-write-gate/`).
+// ==================================================================================
+
+/// Delegates to a memory store; the first value write of `data/c.txt` with status `Ready` signals
+/// `entered` and waits for `release`, so a test can replace the key while that write is under way.
+struct HoldingStore {
+    inner: AsyncMemoryStore,
+    held: std::sync::atomic::AtomicBool,
+    entered: std::sync::Arc<tokio::sync::Notify>,
+    release: std::sync::Arc<tokio::sync::Notify>,
+}
+
+#[async_trait::async_trait]
+impl AsyncStore for HoldingStore {
+    async fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), liquers_core::error::Error> {
+        self.inner.get(key).await
+    }
+    async fn get_bytes(&self, key: &Key) -> Result<Vec<u8>, liquers_core::error::Error> {
+        self.inner.get_bytes(key).await
+    }
+    async fn get_metadata(&self, key: &Key) -> Result<Metadata, liquers_core::error::Error> {
+        self.inner.get_metadata(key).await
+    }
+    async fn set(
+        &self,
+        key: &Key,
+        data: &[u8],
+        metadata: &Metadata,
+    ) -> Result<(), liquers_core::error::Error> {
+        if key.encode() == "data/c.txt"
+            && metadata.status() == Status::Ready
+            && !self.held.swap(true, std::sync::atomic::Ordering::SeqCst)
+        {
+            self.entered.notify_one();
+            self.release.notified().await;
+        }
+        self.inner.set(key, data, metadata).await
+    }
+    async fn set_metadata(
+        &self,
+        key: &Key,
+        metadata: &Metadata,
+    ) -> Result<(), liquers_core::error::Error> {
+        self.inner.set_metadata(key, metadata).await
+    }
+    async fn remove(&self, key: &Key) -> Result<(), liquers_core::error::Error> {
+        self.inner.remove(key).await
+    }
+    async fn contains(&self, key: &Key) -> Result<bool, liquers_core::error::Error> {
+        self.inner.contains(key).await
+    }
+    async fn is_dir(&self, key: &Key) -> Result<bool, liquers_core::error::Error> {
+        self.inner.is_dir(key).await
+    }
+    async fn listdir(&self, key: &Key) -> Result<Vec<String>, liquers_core::error::Error> {
+        self.inner.listdir(key).await
+    }
+}
+
+/// An environment whose `data/c.txt` is the recipe `make_text/c.txt`, over a [`HoldingStore`].
+/// Returns the release handle, the entered handle and the count of `make_text` runs.
+async fn held_save_env() -> (
+    EnvRef<SimpleEnvironment<Value>>,
+    std::sync::Arc<tokio::sync::Notify>,
+    std::sync::Arc<tokio::sync::Notify>,
+    std::sync::Arc<std::sync::atomic::AtomicUsize>,
+) {
+    let mut rl = RecipeList::new();
+    rl.add_recipe(
+        Recipe::new(
+            "make_text/c.txt".to_string(),
+            "C".to_string(),
+            String::new(),
+        )
+        .unwrap(),
+    );
+    let inner = AsyncMemoryStore::new(&Key::new());
+    inner
+        .set(
+            &parse_key("data/recipes.yaml").unwrap(),
+            serde_yaml::to_string(&rl).unwrap().as_bytes(),
+            &Metadata::new(),
+        )
+        .await
+        .unwrap();
+    let entered = std::sync::Arc::new(tokio::sync::Notify::new());
+    let release = std::sync::Arc::new(tokio::sync::Notify::new());
+    let runs = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let mut env: SimpleEnvironment<Value> = SimpleEnvironment::new();
+    let counter = runs.clone();
+    env.command_registry
+        .register_command(CommandKey::new_name("make_text"), move |_, _, _| {
+            counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Ok(Value::from("generated"))
+        })
+        .unwrap();
+    env.with_async_store(Box::new(HoldingStore {
+        inner,
+        held: std::sync::atomic::AtomicBool::new(false),
+        entered: entered.clone(),
+        release: release.clone(),
+    }));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
+    (env.to_ref(), entered, release, runs)
+}
+
+/// Evaluate `data/c.txt` until its value write is held, run `replace` against the key, and
+/// release the write once `replace` is waiting (or done). Returns the replacement's result.
+async fn replace_during_held_save<F, Fut>(
+    envref: &EnvRef<SimpleEnvironment<Value>>,
+    entered: &tokio::sync::Notify,
+    release: &tokio::sync::Notify,
+    replace: F,
+) -> Result<(), liquers_core::error::Error>
+where
+    F: FnOnce(EnvRef<SimpleEnvironment<Value>>) -> Fut,
+    Fut: std::future::Future<Output = Result<(), liquers_core::error::Error>> + Send + 'static,
+{
+    let key = parse_key("data/c.txt").unwrap();
+    let evaluating = {
+        let envref = envref.clone();
+        tokio::spawn(async move {
+            let am = envref.get_asset_manager();
+            let _ = am.get(&key).await?.get().await;
+            Ok::<(), liquers_core::error::Error>(())
+        })
+    };
+    within(entered.notified()).await;
+    let replacing = tokio::spawn(replace(envref.clone()));
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    release.notify_one();
+    let result = within(replacing).await.expect("replacement task");
+    let _ = within(evaluating).await;
+    result
+}
+
+/// AC-1: a `remove` of a recipe key while its finished run's value write is under way leaves
+/// the key a recipe; the late write does not bring the old value back.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn amr_late_save_does_not_revive_a_removed_key() -> Result<(), Box<dyn std::error::Error>> {
+    let (envref, entered, release, runs) = held_save_env().await;
+    let key = parse_key("data/c.txt")?;
+    replace_during_held_save(&envref, &entered, &release, |envref| async move {
+        let key = parse_key("data/c.txt").unwrap();
+        envref.get_asset_manager().remove(&key).await
+    })
+    .await?;
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+    let stored = envref.get_async_store().get_metadata(&key).await?;
+    assert_eq!(stored.status(), Status::Recipe, "the removal stands");
+    let am = envref.get_asset_manager();
+    let value = am.get(&key).await?.get().await?;
+    assert_eq!(value.try_into_string()?, "generated");
+    assert_eq!(
+        runs.load(std::sync::atomic::Ordering::SeqCst),
+        2,
+        "the next read recomputes instead of serving the removed value"
+    );
+    Ok(())
+}
+
+/// AC-3: a `set_state` while the old run's value write is under way wins.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn amr_late_save_does_not_overwrite_set_state() -> Result<(), Box<dyn std::error::Error>> {
+    let (envref, entered, release, _runs) = held_save_env().await;
+    let key = parse_key("data/c.txt")?;
+    replace_during_held_save(&envref, &entered, &release, |envref| async move {
+        let key = parse_key("data/c.txt").unwrap();
+        envref
+            .get_asset_manager()
+            .set_state(&key, State::new().with_data(Value::from("user")))
+            .await
+    })
+    .await?;
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+    let stored = envref.get_async_store().get_metadata(&key).await?;
+    assert_eq!(stored.status(), Status::Override);
+    let am = envref.get_asset_manager();
+    assert_eq!(am.get(&key).await?.get().await?.try_into_string()?, "user");
+    Ok(())
+}
+
+/// AC-4: a `set_binary` while the old run's value write is under way wins.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn amr_late_save_does_not_overwrite_set_binary() -> Result<(), Box<dyn std::error::Error>> {
+    let (envref, entered, release, _runs) = held_save_env().await;
+    let key = parse_key("data/c.txt")?;
+    replace_during_held_save(&envref, &entered, &release, |envref| async move {
+        let key = parse_key("data/c.txt").unwrap();
+        envref
+            .get_asset_manager()
+            .set_binary(&key, b"user", metadata_text())
+            .await
+    })
+    .await?;
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+    let store = envref.get_async_store();
+    assert_eq!(store.get_bytes(&key).await?, b"user".to_vec());
+    assert_eq!(store.get_metadata(&key).await?.status(), Status::Override);
+    Ok(())
+}

@@ -2,7 +2,7 @@
 id: PY-ASYNC-EVALUATION-NOT-SUPPORTED
 kind: feature
 title: liquers-py has no awaitable evaluation and cannot register async def commands
-status: draft
+status: closed
 priority: P3
 complexity: L
 area: [py]
@@ -27,11 +27,20 @@ Synchronous use, Jupyter included, is unaffected.
 
 ## Expected behaviour
 
-As `design/liquers-py-async/` Phase 1 states: `await env.evaluate_async(q)` without blocking the
-loop, with task cancellation cancelling the asset; `async def` commands awaited on a loop owned by
-liquers-py; nested async evaluation without deadlock.
+As `design/liquers-py-async/` Phase 1 states: awaitable variants of the blocking calls, without
+blocking the loop; `async def` commands awaited on a pool of loops owned by liquers-py; cancellation
+in both directions; nested async evaluation without deadlock; pure-Rust queries never waiting on
+Python.
 
 ## Discovery
 
 Filed 2026-10-20 during the bulk-design pass so that `design/liquers-py-async/` (created
 2026-10-18 with `issues: []`, split from `design/liquers-py/`) has a source issue.
+
+## Resolution (2026-10-27)
+
+Implemented by `design/liquers-py-async/` in PR #181: the `_async` methods on `Environment`,
+`AssetRef` and `Context`, `lq.evaluate_async`, and `async def` commands on the environment's loop
+pool (`Environment(async_loops=N)`). Evidence: `tests/test_ASYNCQ_evaluation.py`,
+`tests/test_ASYNCCMD_commands.py` and `tests/test_ASYNC_loops.py`, passing on CPython 3.13 and
+3.14t; `liquers-py/README.md` lists `ASYNCQ` and `ASYNCCMD` as `COMPLETE`.
