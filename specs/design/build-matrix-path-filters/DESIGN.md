@@ -3,8 +3,8 @@ id: BUILD-MATRIX-PATH-FILTERS
 kind: design
 title: The build-matrix workflow runs for a change to any liquers-* crate
 form: compact
-status: in_review
-phase: implementation
+status: complete
+gh_pr: [185]
 readiness: ready
 autofix: eligible
 area: [build]
@@ -13,8 +13,10 @@ created: 2026-10-26
 ---
 # The build-matrix workflow runs for a change to any liquers-* crate
 
-Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-26: Phases 1-4 written, not
-approved, nothing implemented.
+> **Complete on 2026-10-27**: implemented by automatic fix in #185.
+
+Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-26: Phases 1-4 written; Phase 4
+implemented on 2026-10-27 (automatic fix).
 
 ## Phase 1: High-Level Design
 
@@ -160,8 +162,8 @@ No unit test is needed, because this is a CI property. The validation:
 
 ### Steps
 
-- [ ] 1. `.github/workflows/build-matrix.yml` `on.pull_request.paths` and `on.push.paths`: replace the eight crate entries with `'liquers-*/**'` and add the comment. Proof: the Phase 3 local check (AC-1, AC-3, AC-4) and `ls -d liquers-*/` against `members` (AC-2)
-- [ ] 2. `specs/issues/BUILD-MATRIX-CI-SKIPS-NEWER-CRATES.md` `status: closed` with a resolution note; `python3 scripts/docs_index.py`. Proof: `python3 scripts/docs_index.py --check`
+- [x] 1. `.github/workflows/build-matrix.yml` `on.pull_request.paths` and `on.push.paths`: replace the eight crate entries with `'liquers-*/**'` and add the comment. Proof: the Phase 3 local check (AC-1, AC-3, AC-4) and `ls -d liquers-*/` against `members` (AC-2)
+- [x] 2. `specs/issues/BUILD-MATRIX-CI-SKIPS-NEWER-CRATES.md` `status: closed` with a resolution note; `python3 scripts/docs_index.py`. Proof: `python3 scripts/docs_index.py --check`
 
 ### Validation
 

@@ -2,7 +2,7 @@
 id: WEB-NESTED-BYTES-REFUSED-NOT-DEGRADED
 kind: issue
 title: A Uint8Array nested in an object is refused, while the bridge documents it as degrading to numbers
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [web]
@@ -32,3 +32,12 @@ Refusing is defensible (it is exact); degrading silently is what the comment pro
 ## Discovery
 
 Writing `specs/reference/JAVASCRIPT_INTEGRATION.md` and checking it against a build (2026-10-26).
+
+## Resolution (2026-10-26)
+
+Refusal is the intended behaviour, and the comment was what was wrong. Degrading would silently turn
+`Bytes` into an array of numbers, losing the distinction `VALUE04` exists to keep, and
+`specs/reference/JAVASCRIPT_INTEGRATION.md` already documented refusal. The `js_to_json` doc comment
+in `liquers-web/src/bridge.rs` now says so, and `value04_nested_bytes_are_refused` in
+`liquers-web/tests/value_bridge_VALUE.rs` pins `conversion_error` naming the path (`$.c`) for an
+object, and the same error for an array. No code behaviour changed.
