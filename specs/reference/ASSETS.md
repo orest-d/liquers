@@ -153,8 +153,13 @@ asset answering `None`. Because no registered asset holds such a key, `expire_de
 expires the key **in the store**: the stored metadata of a `Ready` or `Override` copy is rewritten
 as `Expired`, so a fresh process does not fast-track data the graph knows is stale. The
 non-registered-owner warning a keyed write normally records is skipped for an uncached asset, as for
-a volatile one. The race between that store expiry and an evaluation already in flight is
-`UNCACHED-STORED-COPY-EXPIRY-RACES-AN-INFLIGHT-EVALUATION`.
+a volatile one. An evaluation already in flight when an input changes writes its copy after that
+expiry ran, so after writing an uncached keyed asset re-checks its recorded inputs against the
+dependency manager: when one no longer holds the version it recorded, the stored copy is rewritten
+as `Expired` with `Direct { StaleDependency }`, under `key_mutation_lock` and only while the
+stored copy is still the one it wrote (same version and dependency records), so a value a
+concurrent `set_state` installed meanwhile is left alone. A change after the write finds the
+stored copy.
 
 An explicit install decides for itself: `set_state` and `set_binary` read the **supplied**
 metadata's `stored` flag, not the recipe's, so a caller may write a `stored: false` key by supplying
@@ -1288,6 +1293,7 @@ each with an `ExpiryReason` (§Why an asset is `Expired`). The rules are in
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-27 | An uncached keyed write re-checks its recorded inputs and expires the stored copy when one was superseded during the run. | `design/uncached-write-back-rechecks-dependency-versions/` |
 | 2026-10-27 | §Remove Semantics and §Settling a run: a mutation of a key waits for the replaced asset's value write under way and skips a later one; `remove` re-reads the stored entry after the cancel. | `design/replaced-asset-write-gate/` |
 | 2026-10-25 | `Directory` is reached by `get` on a store directory; an unmakeable key in `get_asset_info` is `AssetNotFound`. | `design/key-without-recipe-answer/` |
 | 2026-10-20 | New §Settling a run: the outcome is settled after the service loop drains, and a logged error fails a computed value. §Post-finish messages: a late error-level log entry no longer flips a finished asset's status. | `issues/CONTEXT-ERROR-OUTCOME-DEPENDS-ON-SCHEDULING.md` |

@@ -3,8 +3,8 @@ id: REPLACED-ASSET-WRITE-GATE
 kind: design
 title: A removed or replaced asset's late value write never reaches the store
 form: compact
-status: in_review
-phase: implementation
+status: complete
+gh_pr: [208]
 readiness: ready
 autofix: eligible
 area: [core/assets, core/store]
@@ -12,6 +12,8 @@ issues: [REMOVED-OR-REPLACED-KEY-REVIVED-BY-A-LATE-BACKGROUND-SAVE]
 created: 2026-10-26
 ---
 # A removed or replaced asset's late value write never reaches the store
+
+> **Complete on 2026-10-27**: implemented by automatic fix in #208.
 
 Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-26: Phases 1-4 written; Phase 4
 implemented on 2026-10-27 (automatic fix).

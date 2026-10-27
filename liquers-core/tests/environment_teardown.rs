@@ -352,3 +352,59 @@ async fn teardown11_expire_after_teardown_returns_error() -> TestResult {
     expire_after_teardown::<Queued>().await?;
     expire_after_teardown::<Inline>().await
 }
+
+// ---------------------------------------------------------------------------
+// CORE-JOB-QUEUE-KEEPS-ENVIRONMENT-PINS-AFTER-SHUTDOWN
+// ---------------------------------------------------------------------------
+
+/// Polls an asset until it reaches `status`, for about five seconds.
+async fn wait_for_status<E: Environment>(
+    asset: &liquers_core::assets::AssetRef<E>,
+    status: Status,
+) -> Result<(), Box<dyn std::error::Error>> {
+    for _ in 0..500 {
+        if asset.status().await == status {
+            return Ok(());
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    Err(format!("the asset never reached {status:?}").into())
+}
+
+/// A job still running when the manager shuts down finishes after the queue's loop has stopped;
+/// the queue must not keep its environment pin, or the environment is never freed.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn teardown12_job_running_at_shutdown_releases_its_environment() -> TestResult {
+    let gate = Arc::new(Semaphore::new(0));
+    let envref = build::<Queued>(gate.clone(), None).await?;
+    let running = envref.evaluate("gated-a").await?;
+    wait_for_status(&running, Status::Processing).await?;
+    envref.get_asset_manager().shutdown();
+    let env = Arc::downgrade(&envref.0);
+    drop(envref);
+    gate.add_permits(1);
+    let state = tokio::time::timeout(Duration::from_secs(5), running.get()).await??;
+    assert_eq!(state.try_into_string()?, "a");
+    drop(running);
+    assert!(eventually(|| env.upgrade().is_none()).await, "the queue kept the environment");
+    Ok(())
+}
+
+/// A job parked when the manager shuts down never starts; the queue must not keep its pin either.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn teardown12_job_parked_at_shutdown_releases_its_environment() -> TestResult {
+    let gate = Arc::new(Semaphore::new(0));
+    let envref = build::<Queued>(gate.clone(), Some(1)).await?;
+    let running = envref.evaluate("gated-a").await?;
+    let parked = envref.evaluate("gated-b").await?;
+    wait_for_status(&running, Status::Processing).await?;
+    wait_for_status(&parked, Status::Submitted).await?;
+    envref.get_asset_manager().shutdown();
+    let env = Arc::downgrade(&envref.0);
+    drop(envref);
+    gate.add_permits(2);
+    tokio::time::timeout(Duration::from_secs(5), running.get()).await??;
+    drop((running, parked));
+    assert!(eventually(|| env.upgrade().is_none()).await, "the queue kept the environment");
+    Ok(())
+}

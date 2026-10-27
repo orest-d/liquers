@@ -3,8 +3,8 @@ id: RECIPE-LIST-SET-CWD-VALIDATION
 kind: design
 title: RecipeList::set_cwd checks the whole list first and names every recipe that sets cwd
 form: compact
-status: in_review
-phase: implementation
+status: complete
+gh_pr: [195]
 readiness: ready
 autofix: eligible
 area: [core/assets]
@@ -14,8 +14,10 @@ created: 2026-10-26
 ---
 # RecipeList::set_cwd checks the whole list first and names every recipe that sets cwd
 
-Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-26: Phases 1-4 written, not
-approved, nothing implemented.
+> **Complete on 2026-10-27**: implemented by automatic fix in #195.
+
+Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-26: Phases 1-4 written; Phase 4
+implemented on 2026-10-27 (automatic fix).
 
 Merged at intake: both sources are fixed by rewriting the same ten-line function,
 `RecipeList::set_cwd` (overlap test **T3**, same change site; doing them apart forces an order and
@@ -169,12 +171,18 @@ Run: `cargo test -p liquers-core --lib recipes`.
 
 ### Steps
 
-- [ ] 1. `liquers-core/src/recipes.rs` — add the four tests; `set_cwd_failure_leaves_the_list_unchanged` and `explicit_cwd_in_recipes_yaml_names_the_recipe` fail at HEAD; `grep -rn "explicitly specified" --include=*.rs .` lists only `recipes.rs` and `validate/mod.rs` — `cargo test -p liquers-core --lib recipes`. Rollback: delete the tests.
-- [ ] 2. `liquers-core/src/recipes.rs` `RecipeList::set_cwd` body and doc comment; remove the `eprintln!` — depends on 1 — `cargo test -p liquers-core --lib --tests`. Rollback: revert the function.
-- [ ] 3. `specs/reference/RECIPES_AND_PLANS.md` (two sections, History, `reviewed:`); close both source issues with a resolution note — `python3 scripts/docs_index.py --check`.
+- [x] 1. `liquers-core/src/recipes.rs` — add the four tests; `set_cwd_failure_leaves_the_list_unchanged` and `explicit_cwd_in_recipes_yaml_names_the_recipe` fail at HEAD; `grep -rn "explicitly specified" --include=*.rs .` lists only `recipes.rs` and `validate/mod.rs` — `cargo test -p liquers-core --lib recipes`. Rollback: delete the tests.
+- [x] 2. `liquers-core/src/recipes.rs` `RecipeList::set_cwd` body and doc comment; remove the `eprintln!` — depends on 1 — `cargo test -p liquers-core --lib --tests`. Rollback: revert the function.
+- [x] 3. `specs/reference/RECIPES_AND_PLANS.md` (two sections, History, `reviewed:`); close both source issues with a resolution note — `python3 scripts/docs_index.py --check`.
 
 ### Validation
 
 `cargo test -p liquers-core --lib --tests`; `cargo test -p liquers-core --features cli --test validate_integration`
 (the mirrored sentence); `python3 scripts/docs_index.py --check`; diff review: one function, its
 tests, the reference, the two issues.
+
+### Implementation notes (2026-10-27)
+
+- `Error::with_key` stores the key in the error's `query` field (`error-with-key-field`), so the
+  provider-level test reads `key.or(query)` for the directory; and the unit tests live in a new
+  `set_cwd_tests` module (the file's general test module is `mod test`).
