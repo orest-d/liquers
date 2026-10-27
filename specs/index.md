@@ -8,10 +8,10 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 227
+Total rows: 226
 - P1: 1
 - P2: 68
-- P3: 158
+- P3: 157
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -92,7 +92,6 @@ Total rows: 227
 | [`FOREIGN-VALUE-TEXT-AND-JSON-HOOKS-NEVER-CALLED`](issues/FOREIGN-VALUE-TEXT-AND-JSON-HOOKS-NEVER-CALLED.md) | issue | ForeignValue's text and JSON hooks are never called, so a foreign value cannot offer either | draft | ready | eligible | P3 | S | lib/value | [design](design/foreign-value-text-json-delegation/DESIGN.md) | 2026-10-20 |
 | [`MID-QUERY-Q-INSTRUCTION-DISCARDS-ARGUMENTS`](issues/MID-QUERY-Q-INSTRUCTION-DISCARDS-ARGUMENTS.md) | issue | A q instruction in the middle of a query silently drops its parameters | draft | ready | eligible | P3 | S | core/plan | [design](design/mid-query-q-arity/DESIGN.md) | 2026-10-20 |
 | [`NEXT-PRESETS-MISREAD-PLANNER-INSTRUCTIONS`](issues/NEXT-PRESETS-MISREAD-PLANNER-INSTRUCTIONS.md) | issue | find_next_presets reads planner instructions differently from the planner | draft | ready | eligible | P3 | S | lib/commands | [design](design/next-presets-follow-planner-rules/DESIGN.md) | 2026-10-20 |
-| [`PHASE5-SKELETON-CREATED-WITH-PRECONDITIONS-TICKED`](issues/PHASE5-SKELETON-CREATED-WITH-PRECONDITIONS-TICKED.md) | issue | A new design's Phase 5 skeleton claims every completion precondition is already met | draft | ready | eligible | P3 | S | docs | [design](design/phase5-skeleton-unticked/DESIGN.md) | 2026-10-18 |
 | [`PLAN-SERDE-HAS-NO-COMPATIBILITY-CONTRACT`](issues/PLAN-SERDE-HAS-NO-COMPATIBILITY-CONTRACT.md) | issue | A serialized Plan has no compatibility contract | draft | ready | eligible | P3 | S | core/plan | [design](design/plan-serialization-internal-contract/DESIGN.md) | 2026-10-20 |
 | [`RECIPE-CWD-ERROR-DOES-NOT-NAME-THE-RECIPE`](issues/RECIPE-CWD-ERROR-DOES-NOT-NAME-THE-RECIPE.md) | issue | The explicit-cwd recipe error names the directory but not the offending recipe | draft | ready | eligible | P3 | S | core/assets | [design](design/recipe-list-set-cwd-validation/DESIGN.md) | 2026-10-20 |
 | [`RECIPE-LIST-SET-CWD-MUTATES-BEFORE-FAILING`](issues/RECIPE-LIST-SET-CWD-MUTATES-BEFORE-FAILING.md) | issue | RecipeList::set_cwd mutates part of the list before failing | draft | ready | eligible | P3 | S | core/assets | [design](design/recipe-list-set-cwd-validation/DESIGN.md) | 2026-10-20 |
