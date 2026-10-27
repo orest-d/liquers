@@ -4624,6 +4624,10 @@ impl<E: Environment> AssetRef<E> {
     /// Expires this asset when one of its recorded dependencies no longer holds the version it
     /// recorded — `Direct { StaleDependency }`, and for a keyed owner its dependents cascade with
     /// the same cause. Called once its edges are registered, so a write after this finds them.
+    ///
+    /// A keyed asset is expired under `key_mutation_lock`, and only while no other asset is
+    /// registered for its key: expiring persists the metadata under the key, and an asset a
+    /// concurrent `set_state` replaced must not overwrite the replacement's stored metadata.
     async fn expire_if_superseded(&self) -> Result<(), Error> {
         let records = match &self.data.read().await.metadata {
             Metadata::MetadataRecord(mr) => mr.dependencies.clone(),
@@ -4638,12 +4642,24 @@ impl<E: Environment> AssetRef<E> {
         else {
             return Ok(());
         };
+        let mutation = match self.key().await {
+            Some(key) => {
+                let guard = manager.key_mutation_lock().lock().await;
+                match manager.lookup_key_asset(&key) {
+                    Some(current) if current.id() != self.id() => return Ok(()),
+                    Some(_) | None => Some(guard),
+                }
+            }
+            None => None,
+        };
         self.expire_without_cascade(ExpiryReason::Direct {
             cause: ExpiryCause::StaleDependency {
                 dependency: dependency.clone(),
             },
         })
         .await?;
+        // The cascade takes no `key_mutation_lock`; released first all the same.
+        drop(mutation);
         if let Some(key) = self.bound_owner_key().await.ok().flatten() {
             manager
                 .cascade_expire_dependents(
@@ -14037,6 +14053,46 @@ recipes:
                 cause: ExpiryCause::StaleDependency { dependency: a }
             })
         );
+    }
+
+    /// A replaced asset is not expired by the post-tracking check: expiring would persist its
+    /// metadata under the key, over the replacement's.
+    #[tokio::test]
+    async fn superseded_after_tracking_leaves_a_replaced_asset_alone() {
+        let envref = expiry_test_envref();
+        let manager = envref.get_asset_manager();
+        let dm = manager.dependency_manager();
+        let a = DependencyKey::from(&parse_key("a.txt").unwrap());
+        let idx = parse_key("idx.txt").unwrap();
+        let mut d = AssetData::<SimpleEnvironment<Value>>::new(
+            manager.next_id_for_asset(),
+            idx.clone().into(),
+            Some(idx.clone()),
+            envref.clone(),
+        );
+        d.status = Status::Ready;
+        d.data = Some(Arc::new(Value::from("idx")));
+        let _ = d.metadata.set_version(Some(Version::new(5)));
+        let _ = d
+            .metadata
+            .add_dependency(DependencyRecord::new(a.clone(), Version::new(1)));
+        let asset = d.to_ref();
+        dm.register_version(&a, Version::new(1)).await;
+        let _ = dm.track_asset(&asset).await;
+        dm.register_version_sync(&a, Version::new(2));
+
+        let mut r = AssetData::<SimpleEnvironment<Value>>::new(
+            manager.next_id_for_asset(),
+            idx.clone().into(),
+            Some(idx.clone()),
+            envref.clone(),
+        );
+        r.status = Status::Override;
+        r.data = Some(Arc::new(Value::from("replacement")));
+        assert!(manager.try_insert_key_asset(&idx, r.to_ref()).await);
+
+        asset.expire_if_superseded().await.unwrap();
+        assert_eq!(asset.status().await, Status::Ready);
     }
 
     /// The map already holds a different concrete version: the dependent is stale at birth.

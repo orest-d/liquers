@@ -206,7 +206,9 @@ fails fast with `Error::dependency_cycle`. That is pinned by
   version the map holds takes the same stale route, for keyed and query assets alike. A write that
   lands after that check but before `track_asset` registers the edges is caught right after it
   (`expire_if_superseded`): the asset is expired with `Direct { StaleDependency }`, and a keyed
-  owner's dependents cascade with the same cause.
+  owner's dependents cascade with the same cause. A keyed asset is expired under
+  `key_mutation_lock` and only while no other asset is registered for its key, so an asset a
+  concurrent `set_state` replaced does not write its expired metadata over the replacement's.
 - **A change expires only what it provably affects.** Each edge records the version its dependent
   observed, and `register_version` spares a dependent only when that expectation is concrete and
   equal to the new version. A **first** registration is not a change, except for an edge
