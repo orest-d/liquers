@@ -119,6 +119,27 @@ fn startup_failure_propagates_from_build() {
     }
 }
 
+/// A command named like a planner instruction (`v`) could never run: the planner intercepts the
+/// name first. `build()` refuses it, naming the reserved command.
+#[test]
+fn build_refuses_a_command_named_like_an_instruction() {
+    let mut builder = EnvironmentBuilder::<Value, (), Inline>::new();
+    builder
+        .command_registry
+        .register_command(CommandKey::new_name("v"), |_state, _args, _context| {
+            Ok(Value::from(7))
+        })
+        .expect("registration itself does not validate the name");
+
+    match builder.build() {
+        Ok(_) => panic!("a command named 'v' must fail the build"),
+        Err(e) => assert!(
+            e.to_string().contains("'v' is reserved"),
+            "the error should name the reserved command, got: {e}"
+        ),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // T8 — refresh is idempotent
 // ---------------------------------------------------------------------------

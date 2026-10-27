@@ -1080,7 +1080,8 @@ fn validate_required_metadata_fields_enum(
 fn add_soft_consistency_warnings(metadata: &mut MetadataRecord) {
     let effective_data_format = metadata.get_data_format();
     let expected_media_type =
-        crate::media_type::file_extension_to_media_type(&effective_data_format).to_string();
+        crate::media_type::file_extension_to_media_type(data_format_base(&effective_data_format))
+            .to_string();
     let entries = soft_consistency_entries(
         &effective_data_format,
         metadata.extension().as_deref(),
@@ -1099,7 +1100,8 @@ fn add_soft_consistency_warnings(metadata: &mut MetadataRecord) {
 fn add_soft_consistency_warnings_enum(metadata: &mut Metadata) -> Result<(), Error> {
     let effective_data_format = metadata.get_data_format();
     let expected_media_type =
-        crate::media_type::file_extension_to_media_type(&effective_data_format).to_string();
+        crate::media_type::file_extension_to_media_type(data_format_base(&effective_data_format))
+            .to_string();
     let entries = soft_consistency_entries(
         &effective_data_format,
         metadata.extension().as_deref(),
@@ -1236,12 +1238,15 @@ impl<E: Environment> AssetData<E> {
         Self::new_ext(id, recipe, State::new(), key, envref)
     }
 
-    /// Creates a temporary asset data structure: id `0`, a default recipe, an empty initial
-    /// state, and **no key**, so it is never stored and never loadable — see
-    /// [keyed assets](crate::assets#keyed-assets-storing-and-persistence).
+    /// Creates a temporary asset data structure: a fresh id from the environment's asset
+    /// manager, a default recipe, an empty initial state, and **no key**, so it is never stored
+    /// and never loadable — see [keyed assets](crate::assets#keyed-assets-storing-and-persistence).
+    ///
+    /// The id is unique among the manager's assets: queues and expiration tracking key on it, so
+    /// two temporary assets must not share one.
     pub fn new_temporary(envref: EnvRef<E>) -> Self {
-        let asset = Self::new_ext(0, Recipe::default(), State::new(), None, envref);
-        asset
+        let id = envref.get_asset_manager().next_id_for_asset();
+        Self::new_ext(id, Recipe::default(), State::new(), None, envref)
     }
 
     /// Extended constructor of AssetData
@@ -10089,12 +10094,7 @@ impl<E: Environment + 'static> JobQueue<E> {
         let envref = asset.try_get_envref().await?;
 
         // Dedup-register in the global jobs list (as submit did before).
-        {
-            let mut jobs = self.jobs.lock().await;
-            if !jobs.iter().any(|(a, _)| a.id() == asset_id) {
-                jobs.push((asset.clone(), envref));
-            }
-        }
+        self.pin(asset, envref).await;
         self.notify.notify_one();
 
         // Reserve a capacity slot via CAS.
@@ -10150,13 +10150,7 @@ impl<E: Environment + 'static> JobQueue<E> {
     /// through `try_to_start_immediately`).
     async fn repark_as_submitted(&self, asset: &AssetRef<E>) -> Result<(), Error> {
         let envref = asset.try_get_envref().await?;
-        {
-            let mut jobs = self.jobs.lock().await;
-            let id = asset.id();
-            if !jobs.iter().any(|(a, _)| a.id() == id) {
-                jobs.push((asset.clone(), envref));
-            }
-        }
+        self.pin(asset, envref).await;
         asset.submitted().await?;
         self.notify.notify_one();
         Ok(())
@@ -10222,6 +10216,7 @@ impl<E: Environment + 'static> JobQueue<E> {
         eprintln!("Starting job queue");
         loop {
             if self.shutdown.load(Ordering::SeqCst) {
+                self.release_pins().await;
                 return;
             }
             // Check if we can start more jobs
@@ -10271,6 +10266,36 @@ impl<E: Environment + 'static> JobQueue<E> {
         // A permit too: the loop may be between its shutdown check and its wait — notably when
         // the environment is dropped by the loop's own cleanup — and `notify_waiters` stores none.
         self.notify.notify_one();
+    }
+
+    /// Registers `asset` in the jobs list with its environment pin, once per asset.
+    ///
+    /// After shutdown nothing is pinned: no cleanup pass would ever release it. The flag is read
+    /// under the lock that [`Self::release_pins`] takes, so a pin is either taken by that release
+    /// or never added.
+    async fn pin(&self, asset: &AssetRef<E>, envref: EnvRef<E>) {
+        let unused = {
+            let mut jobs = self.jobs.lock().await;
+            let id = asset.id();
+            if self.shutdown.load(Ordering::SeqCst) || jobs.iter().any(|(a, _)| a.id() == id) {
+                Some(envref)
+            } else {
+                jobs.push((asset.clone(), envref));
+                None
+            }
+        };
+        // Released outside the lock: it may be the environment's last reference.
+        drop(unused);
+    }
+
+    /// Drops every pin once the loop stops, since no cleanup pass will run after it. A job still
+    /// running keeps its environment through its own context until it finishes; a parked job will
+    /// never start, so it keeps nothing. A pin left here would hold the environment, which owns
+    /// this queue, for good.
+    async fn release_pins(&self) {
+        let pinned = std::mem::take(&mut *self.jobs.lock().await);
+        // Released outside the lock, as in `cleanup_completed_internal`.
+        drop(pinned);
     }
 
     /// Internal cleanup method that doesn't require &mut self
@@ -15552,6 +15577,40 @@ recipes:
             volatile.is_volatile().await,
             "sanity: it really was volatile"
         );
+    }
+
+    /// Every temporary asset gets its own id from the manager, never `0`
+    /// (`specs/design/temporary-asset-unique-id/`, AC-1, AC-2).
+    #[tokio::test]
+    async fn temporary_assets_have_distinct_ids() {
+        async fn check<E: Environment<Value = Value>>(envref: EnvRef<E>, name: &str) {
+            let manager = envref.get_asset_manager();
+            let before = manager.next_id_for_asset();
+            let a = AssetRef::new_temporary(envref.clone());
+            let b = AssetData::new_temporary(envref.clone()).to_ref();
+            let c = manager.create_temporary_asset();
+            let ids = [before, a.id(), b.id(), c.id()];
+            assert!(
+                !ids.contains(&0),
+                "{name}: no temporary asset has id 0: {ids:?}"
+            );
+            let unique: std::collections::BTreeSet<u64> = ids.iter().copied().collect();
+            assert_eq!(
+                unique.len(),
+                ids.len(),
+                "{name}: ids must be distinct: {ids:?}"
+            );
+        }
+        check(
+            SimpleEnvironment::<Value>::new().to_ref(),
+            "SimpleEnvironment",
+        )
+        .await;
+        check(
+            ImmediateEnvironment::<Value>::new().to_ref(),
+            "ImmediateEnvironment",
+        )
+        .await;
     }
 
     /// `set_volatile_during_run` records volatility on the asset itself — the flag and the

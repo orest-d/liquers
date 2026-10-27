@@ -3,8 +3,8 @@ id: INLINE-METADATA-SAVE-WITHOUT-RUNTIME
 kind: design
 title: The immediate manager persists metadata without spawning on native targets
 form: compact
-status: in_review
-phase: implementation
+status: complete
+gh_pr: [201]
 readiness: ready
 autofix: eligible
 area: [core/assets]
@@ -12,6 +12,8 @@ issues: [METADATA-SAVER-SPAWNS-ON-THE-INLINE-PATH]
 created: 2026-10-20
 ---
 # The immediate manager persists metadata without spawning on native targets
+
+> **Complete on 2026-10-27**: implemented by automatic fix in #201.
 
 Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-20: Phases 1-4 written; Phase 4
 implemented on 2026-10-27 (automatic fix).
