@@ -551,33 +551,50 @@ impl MetadataSaver {
 
         #[cfg(not(target_arch = "wasm32"))]
         {
-            if let Some(handle) = lock.in_flight.as_ref() {
-                if !handle.is_finished() {
-                    return;
+            match envref.get_asset_manager().eval_mode() {
+                // The inline manager runs in the caller's task, which may have no tokio runtime
+                // (`futures::executor::block_on`), so it cannot spawn the coalescing worker.
+                EvalMode::Inline => {
+                    Self::persist_inline(lock, key, envref).await;
                 }
-                lock.in_flight = None;
+                EvalMode::Queued => {
+                    if let Some(handle) = lock.in_flight.as_ref() {
+                        if !handle.is_finished() {
+                            return;
+                        }
+                        lock.in_flight = None;
+                    }
+                    let saver = self.clone();
+                    // The store only: a coalescing save may wait out the interval, and must not
+                    // keep the environment alive meanwhile.
+                    let store = envref.get_async_store();
+                    lock.in_flight = Some(tokio::spawn(async move {
+                        saver.save_task(key, store).await;
+                    }));
+                }
             }
-            let saver = self.clone();
-            // The store only: a coalescing save may wait out the interval, and must not keep the
-            // environment alive meanwhile.
-            let store = envref.get_async_store();
-            lock.in_flight = Some(tokio::spawn(async move {
-                saver.save_task(key, store).await;
-            }));
         }
         #[cfg(target_arch = "wasm32")]
         {
-            // Inline synchronous persist: no spawn, no debounce, no std::time::Instant
-            // (which panics on wasm32-unknown-unknown).
-            let payload = lock.pending.take();
-            drop(lock);
-            // `stored: false` — no store write at all, not even a metadata-only entry: leaving
-            // one behind is exactly the corrupted-data-on-reload trap
-            // (METADATA-ONLY-ENTRY-RELOADS-AS-CORRUPTED).
-            if let (Some(metadata), Some(key)) = (payload, key.as_ref()) {
-                if metadata.stored() {
-                    let _ = envref.get_async_store().set_metadata(key, &metadata).await;
-                }
+            Self::persist_inline(lock, key, envref).await;
+        }
+    }
+
+    /// Inline persist of the pending metadata: no spawn, no debounce, no `std::time::Instant`
+    /// (which panics on wasm32-unknown-unknown). Used on wasm and by the inline manager.
+    async fn persist_inline<E: Environment>(
+        mut lock: tokio::sync::MutexGuard<'_, MetadataSaverState>,
+        key: Option<Key>,
+        envref: EnvRef<E>,
+    ) {
+        let payload = lock.pending.take();
+        drop(lock);
+        // `stored: false` — no store write at all, not even a metadata-only entry: leaving
+        // one behind is exactly the corrupted-data-on-reload trap
+        // (METADATA-ONLY-ENTRY-RELOADS-AS-CORRUPTED).
+        if let (Some(metadata), Some(key)) = (payload, key.as_ref()) {
+            if metadata.stored() {
+                let _ = envref.get_async_store().set_metadata(key, &metadata).await;
             }
         }
     }
