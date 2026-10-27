@@ -3,7 +3,7 @@ title: Recipes and Plans Reference
 kind: reference
 audience: internal
 area: [core/plan, core/query, core/assets, core/context]
-reviewed: 2026-10-22
+reviewed: 2026-10-27
 ---
 # Recipes and Plans
 
@@ -562,10 +562,12 @@ Condition 3 is decided **per application**, by the caller.
 
 Candidates are built fresh, without dependency analysis. Volatility a plan inherits at finalization
 from an upstream recipe (`volatile: true`, or an `immediately` expiry) sets `is_volatile` but no
-`volatility_source`, so the per-candidate walk does not see it, and a boundary cut over a prefix
-reading such a key is evaluated as a volatile, unregistered asset — an extra asset and hop, never an
-unsound cache entry
-([`DEPENDENCY-VOLATILITY-INVISIBLE-TO-PREDECESSOR-WALK`](../issues/DEPENDENCY-VOLATILITY-INVISIBLE-TO-PREDECESSOR-WALK.md)).
+`volatility_source`, and appears in no candidate's query. The dependency analysis therefore also
+reports the first step that reads such a key, and `finalize_plan` cuts through
+`cut_predecessor_bounded`, which steps back over every candidate containing that step ("it reads a
+volatile dependency"). `-R/vol.txt/-/upper/lower` with a volatile `vol.txt` is not cut at all; in
+`-R/stable.txt/-/upper/join-~X~-R/vol.txt~E/lower`, where `join` reads the link, the pure
+`-R/stable.txt/-/upper` is still cut. The public `Plan::cut_predecessor` has no such bound.
 
 A boundary is also declined where it would be worthless: when the prefix, apart from `SetCwd`, is a
 single step reading a key (`GetAsset`, `GetAssetBinary`, `GetAssetMetadata`, `GetAssetRecipe`,
@@ -861,8 +863,6 @@ not otherwise enforce this distinction.
   [`RECIPE-CIRCULAR-DEPENDENCY-FIELDS-ARE-DEAD`](../issues/RECIPE-CIRCULAR-DEPENDENCY-FIELDS-ARE-DEAD.md).
 - Every `recipes.yaml` read error reads as "no recipes" —
   [`RECIPES-YAML-READ-ERRORS-READ-AS-NO-RECIPES`](../issues/RECIPES-YAML-READ-ERRORS-READ-AS-NO-RECIPES.md).
-- Volatility inherited at finalization is invisible to the predecessor walk —
-  [`DEPENDENCY-VOLATILITY-INVISIBLE-TO-PREDECESSOR-WALK`](../issues/DEPENDENCY-VOLATILITY-INVISIBLE-TO-PREDECESSOR-WALK.md).
 - A mid-query `q` silently drops its parameters —
   [`MID-QUERY-Q-INSTRUCTION-DISCARDS-ARGUMENTS`](../issues/MID-QUERY-Q-INSTRUCTION-DISCARDS-ARGUMENTS.md).
 - `DefaultRecipeProvider` skips a recipe with no valid filename in listings without a diagnostic —
@@ -887,6 +887,7 @@ not otherwise enforce this distinction.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-27 | §Where a boundary goes: inherited volatility bounds the cut `finalize_plan` makes, at the first step reading the volatile upstream; the Known limitations bullet is removed. | design `inherited-volatility-bounds-predecessor-cut` |
 | 2026-10-22 | Carried over from DOC-08 on main: `Step::Error` and an error-level `init_steps` entry fail the plan with an `ExecutionError`, after a run of consecutive diagnostic steps is logged in full; the `apply_plan` order says where. | `issues/CONTEXT-ERROR-OUTCOME-DEPENDS-ON-SCHEDULING.md` |
 | 2026-10-20 | Promoted from `reference/api/DOC_08_RECIPES_PLANS.md` to `reference/RECIPES_AND_PLANS.md`; series wording, the dated verification log and the priority table removed (Known limitations link issues instead). Added §Planner instructions (instruction vs command; `ns`, `q` including mid-query, `v`, resource header instructions, segment headers, filenames), `to_plan_for_key`, placeholders, the `apply_plan` order, `uncached_by`, Serde defaults, a `recipes.yaml` example. Corrected: `init_steps` are logged by `apply_plan`; a `recipes.yaml` with an explicit `cwd` is refused whole; `set_cwd` writes to stderr; `to_plan` already folds `volatile`/`expires`; expiration reaches the context only in `apply_recipe`; seeding is conditional on non-volatility; circular-dependency fields are unused; the pre-pass schedules keyed dependencies only. (Earlier, until `plan-policy`, `v` anywhere marked the whole plan volatile.) | DOC-08 review, promotion |
 | 2026-10-17 | Planning contract: resource steps (`-R-stored/`, `-R-stored_meta/`, `-R-sdir/`) never make a plan volatile; `Plan::is_volatile` is the only volatility authority (the step-level `IsVolatile` impl was removed). | `design/step-volatility-impl-removal/` |
