@@ -3,8 +3,8 @@ id: STATE-LOCK-MARKER-CLEANUP
 kind: design
 title: Replace the stale "remove rwlock" marker on State with the ownership model it no longer needs
 form: compact
-status: in_review
-phase: implementation
+status: complete
+gh_pr: [197]
 readiness: ready
 autofix: eligible
 area: [core/value]
@@ -12,6 +12,8 @@ issues: [CORE-STATE-LOCK-API-CLEANUP]
 created: 2026-10-20
 ---
 # Replace the stale "remove rwlock" marker on State with the ownership model it no longer needs
+
+> **Complete on 2026-10-27**: implemented by automatic fix in #197.
 
 Bulk design (`specs/guides/autonomous_bulk_design.md`): Phases 1-4 written; Phase 4
 implemented on 2026-10-27 (automatic fix).

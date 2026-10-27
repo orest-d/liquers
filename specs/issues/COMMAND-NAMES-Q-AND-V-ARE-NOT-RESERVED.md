@@ -2,7 +2,7 @@
 id: COMMAND-NAMES-Q-AND-V-ARE-NOT-RESERVED
 kind: issue
 title: A command named q or v registers but can never run
-status: draft
+status: closed
 priority: P2
 complexity: S
 area: [core/commands, core/query]
@@ -41,3 +41,7 @@ Reproduces at HEAD (18732dd): `CommandMetadata::check` still tests only `"ns"`
 (`plan.rs` ≈1677), and `liquers-validate --command v --command q -- v q` plans both as
 instructions. Designed in `design/reserved-instruction-command-names/` (ready, eligible for
 automatic fixing).
+
+## Resolution
+
+Fixed 2026-10-27 by `design/reserved-instruction-command-names/`. `CommandMetadata::check` refuses every name in the crate-private `RESERVED_ACTION_NAMES` (`ns`, `q`, `v`, in `liquers-core/src/query.rs`) with "Command name '…' is reserved: it is a query instruction", and the planner's instruction tests (`is_ns`, `is_q`, the new crate-private `is_v`, the `ns` action built in `plan.rs`) read the same constants. `EnvironmentBuilder::build` therefore refuses a registry holding a command named `q` or `v`. Evidence: `instruction_names_are_reserved_command_names`, `names_resembling_instructions_are_not_reserved`, `reserved_action_names_match_instruction_predicates`, and `build_refuses_a_command_named_like_an_instruction` in `liquers-core/tests/environment_builder.rs`.
