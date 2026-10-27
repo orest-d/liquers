@@ -15,8 +15,8 @@ and the existing suite stays green after every step.
 ## Progress
 
 - [x] Step 1: Fix the environment lock and record the PR (17e0fabd)
-- [ ] Step 2: Fix the test script for free-threaded interpreters
-- [ ] Step 3: Add pyo3-async-runtimes and bind it to the runtime
+- [x] Step 2: Fix the test script for free-threaded interpreters (1b1a876a)
+- [x] Step 3: Add pyo3-async-runtimes and bind it to the runtime (1f5bdf2c)
 - [ ] Step 4: Add the loop pool, pool-thread flag and blocking-call check
 - [ ] Step 5: Guard the blocking calls
 - [ ] Step 6: Add the async_loops and job_capacity keywords and the shutdown signal
