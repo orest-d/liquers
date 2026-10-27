@@ -3,8 +3,8 @@ id: RESOURCE-DIRECTORY-STEP-DEBUG-OUTPUT-REMOVAL
 kind: design
 title: The store-directory step evaluates without writing debug lines to stderr
 form: compact
-status: in_review
-phase: implementation
+status: complete
+gh_pr: [192]
 readiness: ready
 autofix: eligible
 area: [core/plan]
@@ -12,6 +12,8 @@ issues: [RESOURCE-DIRECTORY-STEP-PRINTS-DEBUG-OUTPUT]
 created: 2026-10-26
 ---
 # The store-directory step evaluates without writing debug lines to stderr
+
+> **Complete on 2026-10-27**: implemented by automatic fix in #192.
 
 Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-26: Phases 1-4 written; Phase 4
 implemented on 2026-10-27 (automatic fix).

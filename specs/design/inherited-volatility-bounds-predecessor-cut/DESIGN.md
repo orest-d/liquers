@@ -3,8 +3,8 @@ id: INHERITED-VOLATILITY-BOUNDS-PREDECESSOR-CUT
 kind: design
 title: A predecessor boundary is not cut over a step that reads a volatile upstream
 form: compact
-status: in_review
-phase: implementation
+status: complete
+gh_pr: [191]
 readiness: ready
 autofix: eligible
 area: [core/plan]
@@ -13,8 +13,10 @@ created: 2026-10-26
 ---
 # A predecessor boundary is not cut over a step that reads a volatile upstream
 
-Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-26: Phases 1-4 written, not
-approved, nothing implemented.
+> **Complete on 2026-10-27**: implemented by automatic fix in #191.
+
+Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-26: Phases 1-4 written; Phase 4
+implemented on 2026-10-27 (automatic fix).
 
 ## Phase 1: High-Level Design
 
@@ -210,11 +212,11 @@ Run: `CARGO_INCREMENTAL=0 cargo test -p liquers-core --lib plan::tests interpret
 
 ### Steps
 
-- [ ] 1. Tests — add the four `plan.rs` tests (against the new crate functions, so they compile only with step 2–3) and `finalize_plan_does_not_cut_over_inherited_volatility` (fails at HEAD) — `cargo test -p liquers-core --lib finalize_plan_does_not_cut`
-- [ ] 2. `plan.rs` — `PlanScan::read_steps`, `Frame::first_volatile_step`, `walk_plan` / `run` bookkeeping, `analyze_plan_dependencies_at` + wrapper — depends on 1 — `cargo test -p liquers-core --lib plan::tests`. Rollback: revert.
-- [ ] 3. `plan.rs` `cut_predecessor_bounded` + `cut_predecessor` wrapper; `interpreter.rs` `finalize_plan_expanded_at`, `finalize_plan`; rustdoc of `VolatilitySource` and `cut_predecessor` — depends on 2 — all step 1 tests pass; `cargo test -p liquers-core --lib --tests`. Rollback: revert 2-3 together.
-- [ ] 4. `RECIPES_AND_PLANS.md` — boundary rule, Known limitations; History row, `reviewed:` — `python3 scripts/docs_index.py --check`
-- [ ] 5. Close `DEPENDENCY-VOLATILITY-INVISIBLE-TO-PREDECESSOR-WALK` with a resolution note; this design to `complete` — `python3 scripts/docs_index.py` then `--check`
+- [x] 1. Tests — add the four `plan.rs` tests (against the new crate functions, so they compile only with step 2–3) and `finalize_plan_does_not_cut_over_inherited_volatility` (fails at HEAD) — `cargo test -p liquers-core --lib finalize_plan_does_not_cut`
+- [x] 2. `plan.rs` — `PlanScan::read_steps`, `Frame::first_volatile_step`, `walk_plan` / `run` bookkeeping, `analyze_plan_dependencies_at` + wrapper — depends on 1 — `cargo test -p liquers-core --lib plan::tests`. Rollback: revert.
+- [x] 3. `plan.rs` `cut_predecessor_bounded` + `cut_predecessor` wrapper; `interpreter.rs` `finalize_plan_expanded_at`, `finalize_plan`; rustdoc of `VolatilitySource` and `cut_predecessor` — depends on 2 — all step 1 tests pass; `cargo test -p liquers-core --lib --tests`. Rollback: revert 2-3 together.
+- [x] 4. `RECIPES_AND_PLANS.md` — boundary rule, Known limitations; History row, `reviewed:` — `python3 scripts/docs_index.py --check`
+- [x] 5. Close `DEPENDENCY-VOLATILITY-INVISIBLE-TO-PREDECESSOR-WALK` with a resolution note; this design to `complete` — `python3 scripts/docs_index.py` then `--check`
 
 ### Validation
 
@@ -222,3 +224,12 @@ Run: `CARGO_INCREMENTAL=0 cargo test -p liquers-core --lib plan::tests interpret
 (including `plan_cwd_freeze`, `deep_chain_evaluation`, `dependency_chain_scaling`, which exercise
 cuts and the walk); `cargo test -p liquers-lib --lib --tests`. Diff review: two source files and one
 document.
+
+### Implementation notes (2026-10-27)
+
+- Tests use the existing walk fixtures (`walk_env`: commands `up`, `use`), so the queries are
+  `-R/c/vol.txt/-/up/up` and `-R/c/stable.txt/-/up/use-~X~-R/c/vol.txt~E/up` rather than the
+  Phase 3 spellings with `upper`/`lower`/`join`. The end-to-end test uses a memory store with a
+  `recipes.yaml` and `DefaultRecipeProvider`.
+- Reads are tagged with their top-level step in `scan_plan` (a `nesting` counter keeps a nested
+  `Step::Plan` from tagging its own indices); `Evaluate` reads take the outer step.
