@@ -74,7 +74,13 @@ impl ExpirationTime {
             "immediately" => liquers_core::expiration::ExpirationTime::Immediately,
             _ => {
                 let dt = chrono::DateTime::parse_from_rfc3339(spec)
-                    .map_err(|e| pyo3::exceptions::PyException::new_err(e.to_string()))?
+                    .map_err(|e| {
+                        PyErr::from(crate::error::Error::from(
+                            liquers_core::error::Error::general_error(format!(
+                                "Invalid expiration time {spec:?}: {e}"
+                            )),
+                        ))
+                    })?
                     .with_timezone(&chrono::Utc);
                 liquers_core::expiration::ExpirationTime::At(dt)
             }

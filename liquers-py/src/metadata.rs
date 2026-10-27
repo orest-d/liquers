@@ -8,6 +8,7 @@ use liquers_core::metadata::{
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
+use crate::error::serialization_pyerr;
 use crate::parse::{Key, Position, Query};
 
 /// An opaque version of an asset's content: only equality matters.
@@ -144,7 +145,7 @@ impl Metadata {
         self.inner
             .get_asset_info()
             .map(|info| AssetInfo { inner: info })
-            .map_err(|e| pyo3::exceptions::PyException::new_err(e.to_string()))
+            .map_err(|e| PyErr::from(crate::error::Error::from(e)))
     }
 
     /// Sets the query; when the query names a store key, the key and filename are set too.
@@ -160,21 +161,19 @@ impl Metadata {
     pub fn from_json(json: &str) -> PyResult<Self> {
         CoreMetadata::from_json(json)
             .map(|m| Metadata { inner: m })
-            .map_err(|e| pyo3::exceptions::PyException::new_err(e.to_string()))
+            .map_err(serialization_pyerr)
     }
 
     /// True when the metadata describes a failed evaluation.
     pub fn is_error(&self) -> PyResult<bool> {
         self.inner
             .is_error()
-            .map_err(|e| pyo3::exceptions::PyException::new_err(e.to_string()))
+            .map_err(|e| PyErr::from(crate::error::Error::from(e)))
     }
 
     /// The metadata serialized as JSON.
     pub fn to_json(&self) -> PyResult<String> {
-        self.inner
-            .to_json()
-            .map_err(|e| pyo3::exceptions::PyException::new_err(e.to_string()))
+        self.inner.to_json().map_err(serialization_pyerr)
     }
 
     /// The media type of the data, such as `text/plain`.
@@ -188,7 +187,7 @@ impl Metadata {
         self.inner
             .query()
             .map(Query)
-            .map_err(|e| pyo3::exceptions::PyException::new_err(e.to_string()))
+            .map_err(|e| PyErr::from(crate::error::Error::from(e)))
     }
 
     /// Sets the type identifier of the value.
@@ -201,7 +200,7 @@ impl Metadata {
     pub fn type_identifier(&self) -> PyResult<String> {
         self.inner
             .type_identifier()
-            .map_err(|e| pyo3::exceptions::PyException::new_err(e.to_string()))
+            .map_err(|e| PyErr::from(crate::error::Error::from(e)))
     }
 
     /// The asset's filename, or `None`.
@@ -219,7 +218,7 @@ impl Metadata {
     pub fn set_extension(&mut self, extension: &str) -> PyResult<()> {
         self.inner
             .set_extension(extension)
-            .map_err(|e| pyo3::exceptions::PyException::new_err(e.to_string()))?;
+            .map_err(|e| PyErr::from(crate::error::Error::from(e)))?;
         Ok(())
     }
 
@@ -289,7 +288,7 @@ impl Metadata {
     pub fn error_result(&self) -> PyResult<()> {
         self.inner
             .error_result()
-            .map_err(|e| pyo3::exceptions::PyException::new_err(e.to_string()))
+            .map_err(|e| PyErr::from(crate::error::Error::from(e)))
     }
 
     pub fn __str__(&self) -> String {
@@ -615,7 +614,7 @@ impl MetadataRecord {
     pub fn error_result(&self) -> PyResult<()> {
         self.inner
             .error_result()
-            .map_err(|e| pyo3::exceptions::PyException::new_err(e.to_string()))
+            .map_err(|e| PyErr::from(crate::error::Error::from(e)))
     }
 
     /// Why the asset expired, as JSON text, or `None`. Meaningful only while the status is
@@ -638,8 +637,7 @@ impl MetadataRecord {
 
     /// The record serialized as JSON.
     pub fn to_json(&self) -> PyResult<String> {
-        serde_json::to_string(&self.inner)
-            .map_err(|e| pyo3::exceptions::PyException::new_err(e.to_string()))
+        serde_json::to_string(&self.inner).map_err(serialization_pyerr)
     }
 
     /// Reads a record from JSON text, as `to_json()` writes it.
@@ -647,8 +645,7 @@ impl MetadataRecord {
     /// Raises an exception when the text is not a valid metadata record.
     #[staticmethod]
     pub fn from_json(json: &str) -> PyResult<Self> {
-        let m: CoreMetadataRecord = serde_json::from_str(json)
-            .map_err(|e| pyo3::exceptions::PyException::new_err(e.to_string()))?;
+        let m: CoreMetadataRecord = serde_json::from_str(json).map_err(serialization_pyerr)?;
         Ok(MetadataRecord { inner: m })
     }
 }
@@ -809,8 +806,7 @@ impl AssetInfo {
 
     /// The summary serialized as JSON.
     pub fn to_json(&self) -> PyResult<String> {
-        serde_json::to_string(&self.inner)
-            .map_err(|e| pyo3::exceptions::PyException::new_err(e.to_string()))
+        serde_json::to_string(&self.inner).map_err(serialization_pyerr)
     }
 
     /// Reads a summary from JSON text, as `to_json()` writes it.
@@ -818,8 +814,7 @@ impl AssetInfo {
     /// Raises an exception when the text is not a valid `AssetInfo`.
     #[staticmethod]
     pub fn from_json(json: &str) -> PyResult<Self> {
-        let m: CoreAssetInfo = serde_json::from_str(json)
-            .map_err(|e| pyo3::exceptions::PyException::new_err(e.to_string()))?;
+        let m: CoreAssetInfo = serde_json::from_str(json).map_err(serialization_pyerr)?;
         Ok(AssetInfo { inner: m })
     }
 }
@@ -1063,8 +1058,7 @@ impl LogEntry {
 
     /// The entry serialized as JSON.
     pub fn to_json(&self) -> PyResult<String> {
-        serde_json::to_string(&self.inner)
-            .map_err(|e| pyo3::exceptions::PyException::new_err(e.to_string()))
+        serde_json::to_string(&self.inner).map_err(serialization_pyerr)
     }
 
     /// Reads an entry from JSON text, as `to_json()` writes it.
@@ -1072,8 +1066,7 @@ impl LogEntry {
     /// Raises an exception when the text is not a valid `LogEntry`.
     #[staticmethod]
     pub fn from_json(json: &str) -> PyResult<Self> {
-        let m: CoreLogEntry = serde_json::from_str(json)
-            .map_err(|e| pyo3::exceptions::PyException::new_err(e.to_string()))?;
+        let m: CoreLogEntry = serde_json::from_str(json).map_err(serialization_pyerr)?;
         Ok(LogEntry { inner: m })
     }
 
