@@ -14,7 +14,7 @@ and the existing suite stays green after every step.
 
 ## Progress
 
-- [ ] Step 1: Fix the environment lock and record the PR
+- [x] Step 1: Fix the environment lock and record the PR (17e0fabd)
 - [ ] Step 2: Fix the test script for free-threaded interpreters
 - [ ] Step 3: Add pyo3-async-runtimes and bind it to the runtime
 - [ ] Step 4: Add the loop pool, pool-thread flag and blocking-call check
