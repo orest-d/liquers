@@ -13,8 +13,8 @@ created: 2026-10-26
 ---
 # ExtValue's Foreign arm delegates text and JSON conversion to the foreign value
 
-Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-26: Phases 1-4 written, not
-approved, nothing implemented.
+Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-26: Phases 1-4 written; Phase 4
+implemented on 2026-10-27 (automatic fix).
 
 ## Phase 1: High-Level Design
 
@@ -170,9 +170,9 @@ Run: `cargo test -p liquers-lib --lib value::foreign`.
 
 ### Steps
 
-- [ ] 1. `liquers-lib/src/value/foreign.rs` `mod tests` — add `Faithful` and the four tests; AC-1/AC-2 fail at HEAD — `cargo test -p liquers-lib --lib value::foreign`.
-- [ ] 2. `liquers-lib/src/value/mod.rs` `ValueExtension for ExtValue` — split the `Foreign` arm off in `try_into_string` and `try_into_json_value`, delegating — `cargo test -p liquers-lib --lib value::foreign`. Rollback: revert.
-- [ ] 3. Close `FOREIGN-VALUE-TEXT-AND-JSON-HOOKS-NEVER-CALLED` (`status: closed`, resolution note) — `python3 scripts/docs_index.py --check`.
+- [x] 1. `liquers-lib/src/value/foreign.rs` `mod tests` — add `Faithful` and the four tests; AC-1/AC-2 fail at HEAD — `cargo test -p liquers-lib --lib value::foreign`.
+- [x] 2. `liquers-lib/src/value/mod.rs` `ValueExtension for ExtValue` — split the `Foreign` arm off in `try_into_string` and `try_into_json_value`, delegating — `cargo test -p liquers-lib --lib value::foreign`. Rollback: revert.
+- [x] 3. Close `FOREIGN-VALUE-TEXT-AND-JSON-HOOKS-NEVER-CALLED` (`status: closed`, resolution note) — `python3 scripts/docs_index.py --check`.
 
 ### Validation
 
