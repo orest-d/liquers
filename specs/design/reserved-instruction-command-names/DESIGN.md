@@ -3,8 +3,8 @@ id: RESERVED-INSTRUCTION-COMMAND-NAMES
 kind: design
 title: Every planner instruction name is refused as a command name
 form: compact
-status: in_review
-phase: implementation
+status: complete
+gh_pr: [190]
 readiness: ready
 autofix: eligible
 area: [core/commands, core/query]
@@ -12,6 +12,8 @@ issues: [COMMAND-NAMES-Q-AND-V-ARE-NOT-RESERVED]
 created: 2026-10-20
 ---
 # Every planner instruction name is refused as a command name
+
+> **Complete on 2026-10-27**: implemented by automatic fix in #190.
 
 Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-20: Phases 1-4 written; Phase 4
 implemented on 2026-10-27 (automatic fix).

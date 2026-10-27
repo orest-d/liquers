@@ -2,7 +2,7 @@
 id: WEB-EVALUATE-RESOLVES-FAILED-ASSET-AS-NULL
 kind: issue
 title: liquers-web's evaluate resolves a failed command's asset to null instead of rejecting
-status: draft
+status: closed
 priority: P2
 complexity: S
 area: [web]
@@ -66,3 +66,11 @@ evaluates a query whose JavaScript command throws and asserts the rejection.
 Building `liquers-py` (`specs/design/liquers-py/`, Phase 4 step 9): its first `evaluate` had the
 same shape, and a command raising `ValueError` made `evaluate` return `None`. There it was fixed
 with `state.value()?`; reading `liquers-web/src/eval.rs` showed the same pattern.
+
+## Resolution (2026-10-26)
+
+Fixed as described: `evaluate_query` in `liquers-web/src/eval.rs` reads the asset's state with
+`value()?` instead of `data_unchecked()`, so the terminal error state of a failed asset rejects.
+`eval04_failed_evaluation_rejects_a_concurrent_caller` in `liquers-web/tests/eval_EVAL.rs` starts
+two evaluations of an async command that rejects and asserts both reject with the same error; it
+failed before the fix (the second resolved) and passes after it.
