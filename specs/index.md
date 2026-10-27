@@ -8,10 +8,10 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 216
+Total rows: 213
 - P1: 1
-- P2: 66
-- P3: 149
+- P2: 65
+- P3: 147
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -19,7 +19,6 @@ Total rows: 216
 | [`COMBINED-EXPIRES`](issues/COMBINED-EXPIRES.md) | feature | Combining expirations reduces end-of-day with end-of-week or end-of-month across time zones | accepted | ready | eligible | P2 | S | core/assets | [design](design/expires-cross-timezone-reduction/DESIGN.md) | 2026-08-08 |
 | [`CORE-VALUE-JSON-READ-IGNORES-STRUCTURED-IDENTIFIERS`](issues/CORE-VALUE-JSON-READ-IGNORES-STRUCTURED-IDENTIFIERS.md) | issue | Core Value reads structured variants written as JSON back as a different variant | draft | ready | eligible | P2 | S | core/value | [design](design/core-value-json-identifier-dispatch/DESIGN.md) | 2026-10-19 |
 | [`METADATA-SAVER-SPAWNS-ON-THE-INLINE-PATH`](issues/METADATA-SAVER-SPAWNS-ON-THE-INLINE-PATH.md) | issue | A command that logs or reports progress panics under the immediate manager on native without a tokio runtime | draft | ready | eligible | P2 | S | core/assets | [design](design/inline-metadata-save-without-runtime/DESIGN.md) | 2026-10-20 |
-| [`RECIPES-YAML-READ-ERRORS-READ-AS-NO-RECIPES`](issues/RECIPES-YAML-READ-ERRORS-READ-AS-NO-RECIPES.md) | issue | Every recipes.yaml read error is treated as an empty recipe list | draft | ready | eligible | P2 | S | core/assets | [design](design/recipes-yaml-read-errors-propagate/DESIGN.md) | 2026-10-20 |
 | [`FOREIGN-VALUE-HAS-NO-DATA-NODE`](issues/FOREIGN-VALUE-HAS-NO-DATA-NODE.md) | issue | A retained foreign value is always opaque to data-node consumers | draft | ready | not-eligible | P2 | S | lib/value | [design](design/foreign-value-data-node/DESIGN.md) | 2026-10-25 |
 | [`WORKSPACE-SERDE-DERIVE-UNDECLARED`](issues/WORKSPACE-SERDE-DERIVE-UNDECLARED.md) | issue | Three crates use serde derive macros without declaring the `derive` feature | accepted | ready | not-eligible | P2 | S | build;core/value;lib/ui;axum | [design](design/serde-derive-feature-declared/DESIGN.md) | 2026-08-09 |
 | [`YAML-SCHEMA-FILE-CANNOT-BE-LINKED-AS-SCHEMA-TEXT`](issues/YAML-SCHEMA-FILE-CANNOT-BE-LINKED-AS-SCHEMA-TEXT.md) | issue | A plain .yaml schema file cannot be linked into to_record's schema argument | draft | needs-decision | not-eligible | P2 | S | records;lib/value | [design](design/schema-argument-structured-link/DESIGN.md) | 2026-10-20 |
@@ -88,8 +87,6 @@ Total rows: 216
 | [`FOREIGN-VALUE-TEXT-AND-JSON-HOOKS-NEVER-CALLED`](issues/FOREIGN-VALUE-TEXT-AND-JSON-HOOKS-NEVER-CALLED.md) | issue | ForeignValue's text and JSON hooks are never called, so a foreign value cannot offer either | draft | ready | eligible | P3 | S | lib/value | [design](design/foreign-value-text-json-delegation/DESIGN.md) | 2026-10-20 |
 | [`NEXT-PRESETS-MISREAD-PLANNER-INSTRUCTIONS`](issues/NEXT-PRESETS-MISREAD-PLANNER-INSTRUCTIONS.md) | issue | find_next_presets reads planner instructions differently from the planner | draft | ready | eligible | P3 | S | lib/commands | [design](design/next-presets-follow-planner-rules/DESIGN.md) | 2026-10-20 |
 | [`PLAN-SERDE-HAS-NO-COMPATIBILITY-CONTRACT`](issues/PLAN-SERDE-HAS-NO-COMPATIBILITY-CONTRACT.md) | issue | A serialized Plan has no compatibility contract | draft | ready | eligible | P3 | S | core/plan | [design](design/plan-serialization-internal-contract/DESIGN.md) | 2026-10-20 |
-| [`RECIPE-CWD-ERROR-DOES-NOT-NAME-THE-RECIPE`](issues/RECIPE-CWD-ERROR-DOES-NOT-NAME-THE-RECIPE.md) | issue | The explicit-cwd recipe error names the directory but not the offending recipe | draft | ready | eligible | P3 | S | core/assets | [design](design/recipe-list-set-cwd-validation/DESIGN.md) | 2026-10-20 |
-| [`RECIPE-LIST-SET-CWD-MUTATES-BEFORE-FAILING`](issues/RECIPE-LIST-SET-CWD-MUTATES-BEFORE-FAILING.md) | issue | RecipeList::set_cwd mutates part of the list before failing | draft | ready | eligible | P3 | S | core/assets | [design](design/recipe-list-set-cwd-validation/DESIGN.md) | 2026-10-20 |
 | [`RECORD-TABLE-FORMAT-REFUSES-CSV-REFINEMENTS-POLARS-ACCEPTS`](issues/RECORD-TABLE-FORMAT-REFUSES-CSV-REFINEMENTS-POLARS-ACCEPTS.md) | issue | A record view refuses csv:semicolon and csv:pipe, which a DataFrame and the type registry accept | draft | ready | eligible | P3 | S | records | [design](design/record-table-csv-refinements/DESIGN.md) | 2026-10-26 |
 | [`SIMPLE-VALUE-I32-JSON-READS-BACK-AS-I64`](issues/SIMPLE-VALUE-I32-JSON-READS-BACK-AS-I64.md) | issue | liquers-lib's base value reads an I32 written as JSON back as I64 | draft | ready | eligible | P3 | S | lib/value | [design](design/simple-value-i32-json-read/DESIGN.md) | 2026-10-20 |
 | [`SOFT-CONSISTENCY-CHECK-MISREADS-A-REFINED-DATA-FORMAT`](issues/SOFT-CONSISTENCY-CHECK-MISREADS-A-REFINED-DATA-FORMAT.md) | issue | set_state logs a spurious media-type warning for a refined data format such as csv:comma | draft | ready | eligible | P3 | S | core/assets | [design](design/soft-consistency-refined-format/DESIGN.md) | 2026-10-26 |
