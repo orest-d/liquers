@@ -84,6 +84,11 @@ state a narrower range per implementation, so PyPy 3.9 and 3.10 are inside it bu
 No environment override is needed for any supported version, including the cloud dev
 environment's CPython 3.13.
 
+**Free-threaded CPython (3.14t)** is supported: the extension declares that it does not need the
+GIL, so importing `liquers` leaves it off, and the whole suite passes on 3.14t as well as on 3.13
+(`specs/design/liquers-py-async/`). `PYTHON=$(uv python find 3.14t) bash scripts/test-liquers-py.sh`
+runs it. Neither run is in CI yet (`PY-TESTS-NOT-RUN-IN-CI`).
+
 ## Building and testing
 
 ```bash
@@ -126,9 +131,11 @@ test is named for its ID, in `tests/test_<FEATURE>_*.py`.
 | `RUNTIME` | Essential | COMPLETE | `RUNTIME02` is `NA` until a Pyodide target exists | `test_RUNTIME01`, `03`–`06` |
 | `VALUE` | Essential | COMPLETE | `VALUE12` is `NA` until a `Value` wrapper with operators exists | `test_VALUE01`–`13` |
 | `ENVIRON` | Essential | COMPLETE | Only the default recipe provider can be configured | `test_ENVIRON01`–`08` |
-| `EVAL` | Essential | COMPLETE | `EVAL05`'s payload half is `NA`: the environment's payload type is `()`, so only the context half is tested. Evaluation is synchronous; async is `specs/design/liquers-py-async/` | `test_EVAL01`–`06` |
-| `COMMAND` | Essential | COMPLETE | No `realm=` on the decorators; `async def` commands are the async design's | `test_COMMAND01`–`14` |
+| `EVAL` | Essential | COMPLETE | `EVAL05`'s payload half is `NA`: the environment's payload type is `()`, so only the context half is tested | `test_EVAL01`–`06` |
+| `COMMAND` | Essential | COMPLETE | No `realm=` on the decorators | `test_COMMAND01`–`14` |
+| `ASYNCQ` | Optional | COMPLETE | `ASYNCQ07` is `NA`: Python has an async model. Cancelling an awaitable detaches by policy, so `ASYNCQ04` cancels with `cancel_async()`; `ASYNCQ05` shows detach by completion; `ASYNCQ08` raises on a liquers loop and warns elsewhere. The design is `specs/design/liquers-py-async/` | `test_ASYNCQ01`–`08`, `tests/test_ASYNC_loops.py` |
+| `ASYNCCMD` | Optional | COMPLETE | All commands share one job queue (`CORE-ONE-JOB-QUEUE-FOR-ALL-COMMANDS`); `async_loops` sets the number of event loops | `test_ASYNCCMD01`–`06` |
 | `DOCS` | Optional | PARTIAL | `DOCS04`: no generated API reference, most classes lack docstrings (`PY-API-REFERENCE-NOT-GENERATED`) | `DOCS03` is `test_GUIDE_examples.py`; `DOCS01`, `02`, `05`–`07` reviewed |
 
-`DOCS` is outside the baseline profile. Every Essential feature is `COMPLETE` and every required check passes; each `NA` item carries
+`ASYNCQ`, `ASYNCCMD` and `DOCS` are outside the baseline profile. Every Essential feature is `COMPLETE` and every required check passes; each `NA` item carries
 its reversing condition. The Python baseline profile is therefore `CONFORMANT`.
