@@ -2,7 +2,7 @@
 id: CORE-STATE-LOCK-API-CLEANUP
 kind: issue
 title: "`State` holds an `RwLock` that may not be needed"
-status: accepted
+status: closed
 priority: P3
 complexity: S
 area: [core/value]
@@ -58,3 +58,7 @@ Re-sized `M` → `S`; the remainder (replace the marker with the ownership model
 `set_status` costs) is designed in [`state-lock-marker-cleanup`](../design/state-lock-marker-cleanup/DESIGN.md).
 No benchmark is needed for it. Copy-on-write metadata belongs to
 `SHAREABLE-METADATA-AND-BYTES-ARE-DEEP-COPIED`.
+
+## Resolution
+
+Fixed 2026-10-27 by `design/state-lock-marker-cleanup/`. The `// TODO: try to remove rwlock` marker in `liquers-core/src/state.rs` is gone (there has been no lock for a long time). `State`'s doc comment now describes the model: an immutable pair of `Arc` handles, cloned by two reference-count increments, with no interior mutability and nothing to lock, changed only by building new handles; `set_status` says what it costs (a clone of the whole `Metadata`). Comment-only change.

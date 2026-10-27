@@ -572,10 +572,11 @@ pub async fn file_records<E: Environment<Value = Value>>(
     ])?);
 
     // The directory's key arrives in the state's metadata: `-R-sdir/<dir>` (the store's listing)
-    // carries it into the next action (interpreter `do_step_state`: a listing names its key).
+    // carries it into the next action (interpreter `do_step_state`: a listing names its key), and
+    // so does `-R/<dir>`, whose asset is the directory's `Directory` state.
     let dir_key = state.metadata.key()?.ok_or_else(|| {
         Error::general_error(
-            "file_records needs a directory key in its input; use -R-sdir/<dir>/-/ns-rec/file_records"
+            "file_records needs a directory key in its input; use -R/<dir>/-/ns-rec/file_records"
                 .to_string(),
         )
     })?;
@@ -1248,13 +1249,11 @@ mod tests {
         env.with_async_store(Box::new(store));
         let envref = env.to_ref();
 
-        // A pure directory key has no recipe of its own (nothing "produces" a directory), so
-        // `evaluate("-R/data/-/ns-rec/file_records")` cannot reach `file_records` at all — the
-        // `GetAsset(data)` step it would need fails with "No recipe found for key data" before
-        // `file_records` ever runs. `file_records` only reads `state.metadata.key()`, never the
-        // state's value, so it is exercised directly here with a hand-built state/context
-        // instead — a dummy asset (an empty-recipe asset the manager never tracks) supplies the
-        // `Context`, and the state carries only the directory key in its metadata.
+        // `file_records` only reads `state.metadata.key()`, never the state's value, so it is
+        // exercised directly here with a hand-built state/context — a dummy asset (an
+        // empty-recipe asset the manager never tracks) supplies the `Context`, and the state
+        // carries only the directory key in its metadata. The query route
+        // (`-R/data/-/ns-rec/file_records`) is `records_end_to_end.rs`.
         let asset = envref.get_asset_manager().create_dummy_asset();
         let context = liquers_core::context::Context::new(asset, false).await;
         let dir_key = liquers_core::parse::parse_key("data")?;

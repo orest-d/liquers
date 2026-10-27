@@ -78,7 +78,7 @@ bindings (Python decorator and `liquers-web` registration, metadata only).
 
 ## Documentation Intent
 
-- Reference: extend `REGISTER_COMMAND_FSD.md`, `ASSET_LIFECYCLE.md`, `api/DOC_03_*`, `api/DOC_08_*`.
+- Reference: extend `REGISTER_COMMAND_FSD.md`, `ASSET_LIFECYCLE.md`, `api/DOC_03_*`, `RECIPES_AND_PLANS.md`.
 - Guide: extend `COMMAND_REGISTRATION_GUIDE.md` (when to declare `fast`).
 - Other documents: `specs/command_registry.yaml` regenerated; `liquers-py/README.md` matrix row.
 - Documents to update: the above, and `ENVIRONMENT_CONFIG.md` for a configurable lane capacity.

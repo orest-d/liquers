@@ -777,19 +777,26 @@ impl DefaultRecipeProvider {
         key: &Key,
         envref: EnvRef<E>,
     ) -> Result<Arc<CachedRecipes>, Error> {
-        let bytes = match envref
-            .get_async_store()
-            .get_bytes(&key.join("recipes.yaml"))
-            .await
-        {
+        let recipes_key = key.join("recipes.yaml");
+        let bytes = match envref.get_async_store().get_bytes(&recipes_key).await {
             Ok(bytes) => bytes,
-            Err(_) => {
+            // Only "nothing there" reads as no recipes: a missing file, or a key the store does
+            // not support (as `has_recipes` answers). Any other failure is an error, and is not
+            // cached, so a later successful read is parsed.
+            Err(error)
+                if matches!(
+                    error.error_type,
+                    ErrorType::KeyNotFound | ErrorType::KeyNotSupported
+                ) =>
+            {
                 return Ok(Arc::new(CachedRecipes {
                     bytes: Vec::new(),
                     list: RecipeList::new(),
                     by_name: HashMap::new(),
                 }))
             }
+            Err(error) if error.key.is_none() => return Err(error.with_key(&recipes_key)),
+            Err(error) => return Err(error),
         };
         if let Some(cached) = self.cache.read_async(key, |_, entry| entry.clone()).await {
             if cached.bytes == bytes {
@@ -819,8 +826,9 @@ impl DefaultRecipeProvider {
 
     /// Loads and parses `<key>/recipes.yaml`, then assigns `key` as every recipe's `cwd`.
     ///
-    /// The current implementation maps every store read failure—not only a missing file—to an
-    /// empty recipe list. Malformed YAML remains an error.
+    /// Only a missing file, or a key the store does not support, reads as an empty list; any
+    /// other read failure is an error carrying the `recipes.yaml` key. Malformed YAML is an error
+    /// too.
     pub async fn get_recipes<E: Environment>(
         &self,
         key: &Key,
@@ -952,20 +960,32 @@ impl RecipeList {
         })
     }
 
-    /// Assigns the same logical working key to every recipe that does not already have one.
+    /// Assigns the working key to every recipe.
     ///
-    /// This method mutates in iteration order. If it encounters an explicitly populated `cwd`, it
-    /// returns an error after any preceding recipes have already been changed.
+    /// Fails, leaving the list unchanged, if any recipe already has one; the error names each
+    /// such recipe by index, query and `cwd`.
     pub fn set_cwd(&mut self, cwd: String) -> Result<(), Error> {
+        let offenders: Vec<String> = self
+            .recipes
+            .iter()
+            .enumerate()
+            .filter_map(|(index, recipe)| {
+                recipe.cwd.as_ref().map(|explicit| {
+                    format!(
+                        "recipes[{index}] (query '{}') sets cwd '{explicit}'",
+                        recipe.query
+                    )
+                })
+            })
+            .collect();
+        if !offenders.is_empty() {
+            return Err(Error::not_supported(format!(
+                "CWD can't be explicitly specified in a recipe: {}",
+                offenders.join("; ")
+            )));
+        }
         for recipe in &mut self.recipes {
-            if recipe.cwd.is_none() {
-                recipe.cwd = Some(cwd.clone());
-            } else {
-                eprintln!("Recipe already has CWD set to {:?}", recipe.cwd);
-                return Err(Error::not_supported(
-                    "CWD can't be explicitly specified in a recipe".to_owned(),
-                ));
-            }
+            recipe.cwd = Some(cwd.clone());
         }
         Ok(())
     }
@@ -2731,6 +2751,78 @@ mod recipe_provider_chain_tests {
 /// A key the store refuses as unsupported holds no `recipes.yaml`: the default provider answers
 /// "no recipe" rather than failing the query that asked.
 #[cfg(test)]
+mod set_cwd_tests {
+    //! `recipe-list-set-cwd-validation`: `RecipeList::set_cwd` validates the whole list first.
+    use super::*;
+
+    fn list(entries: &[(&str, Option<&str>)]) -> Result<RecipeList, Error> {
+        let mut list = RecipeList::new();
+        for (query, cwd) in entries {
+            let mut recipe = Recipe::new(query.to_string(), String::new(), String::new())?;
+            recipe.cwd = cwd.map(str::to_owned);
+            list.add_recipe(recipe);
+        }
+        Ok(list)
+    }
+
+    #[test]
+    fn set_cwd_failure_leaves_the_list_unchanged() -> Result<(), Error> {
+        let mut recipes = list(&[
+            ("a/x.txt", None),
+            ("b/y.txt", None),
+            ("c/z.txt", Some("other")),
+        ])?;
+        let before = recipes.recipes.clone();
+        assert!(recipes.set_cwd("data".to_owned()).is_err());
+        assert_eq!(recipes.recipes, before);
+        Ok(())
+    }
+
+    #[test]
+    fn set_cwd_error_names_every_offending_recipe() -> Result<(), Error> {
+        let mut recipes = list(&[
+            ("a/x.txt", None),
+            ("b/y.txt", Some("one")),
+            ("c/z.txt", None),
+            ("d/w.txt", Some("two")),
+        ])?;
+        let err = recipes
+            .set_cwd("data".to_owned())
+            .expect_err("two offenders");
+        assert_eq!(err.error_type, ErrorType::NotSupported);
+        assert!(
+            err.message
+                .starts_with("CWD can't be explicitly specified in a recipe"),
+            "{}",
+            err.message
+        );
+        for part in [
+            "recipes[1]",
+            "b/y.txt",
+            "'one'",
+            "recipes[3]",
+            "d/w.txt",
+            "'two'",
+        ] {
+            assert!(err.message.contains(part), "{part}: {}", err.message);
+        }
+        assert!(!err.message.contains("recipes[0]"), "{}", err.message);
+        Ok(())
+    }
+
+    #[test]
+    fn set_cwd_sets_every_recipe() -> Result<(), Error> {
+        let mut recipes = list(&[("a/x.txt", None), ("b/y.txt", None)])?;
+        recipes.set_cwd("data".to_owned())?;
+        assert!(recipes
+            .recipes
+            .iter()
+            .all(|recipe| recipe.cwd.as_deref() == Some("data")));
+        Ok(())
+    }
+}
+
+#[cfg(test)]
 mod unsupported_key_tests {
     use super::*;
     use crate::context::SimpleEnvironment;
@@ -2762,10 +2854,163 @@ mod unsupported_key_tests {
         let envref = env.to_ref();
         let key = parse_key("data/input.txt")?;
 
-        assert!(!DefaultRecipeProvider::new().has_recipes(&key.parent(), envref.clone()).await?);
-        assert!(DefaultRecipeProvider::new().recipe_opt(&key, envref.clone()).await?.is_none());
-        assert!(!DefaultRecipeProvider::new().contains(&key, envref).await?);
+        assert!(
+            !DefaultRecipeProvider::new()
+                .has_recipes(&key.parent(), envref.clone())
+                .await?
+        );
+        assert!(DefaultRecipeProvider::new()
+            .recipe_opt(&key, envref.clone())
+            .await?
+            .is_none());
+        assert!(
+            !DefaultRecipeProvider::new()
+                .contains(&key, envref.clone())
+                .await?
+        );
+        // `recipe` reads the file directly; an unsupported key is still "no recipe".
+        let err = DefaultRecipeProvider::new()
+            .recipe(&key, envref)
+            .await
+            .expect_err("no recipe");
+        assert!(err.message.contains("No recipe found"), "{}", err.message);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod read_error_tests {
+    //! `recipes-yaml-read-errors-propagate`: only a missing file or an unsupported key reads as
+    //! "no recipes".
+    use super::*;
+    use crate::context::SimpleEnvironment;
+    use crate::metadata::Metadata;
+    use crate::store::{AsyncMemoryStore, AsyncStore};
+    use crate::value::Value;
+    use std::sync::Mutex;
+
+    /// Holds `recipes.yaml` but cannot read it, until `serve` gives it bytes.
+    struct UnreadableStore {
+        served: Mutex<Option<Vec<u8>>>,
+    }
+
+    impl UnreadableStore {
+        fn new() -> Self {
+            UnreadableStore {
+                served: Mutex::new(None),
+            }
+        }
+    }
+
+    #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+    #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+    impl AsyncStore for UnreadableStore {
+        async fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
+            let served = self
+                .served
+                .lock()
+                .map_err(|e| Error::general_error(e.to_string()))?
+                .clone();
+            match served {
+                Some(bytes) => Ok((bytes, Metadata::new())),
+                None => Err(Error::key_read_error(
+                    key,
+                    "unreadable",
+                    "permission denied",
+                )),
+            }
+        }
+        async fn set_metadata(&self, key: &Key, _metadata: &Metadata) -> Result<(), Error> {
+            Err(Error::key_not_supported(key, "unreadable"))
+        }
+        async fn contains(&self, _key: &Key) -> Result<bool, Error> {
+            Ok(true)
+        }
+    }
+
+    fn assert_read_error(result: Result<impl std::fmt::Debug, Error>, what: &str) {
+        let err = result.expect_err(what);
+        assert_eq!(err.error_type, ErrorType::KeyReadError, "{what}: {err}");
+        assert_eq!(err.key.as_deref(), Some("data/recipes.yaml"), "{what}");
+    }
+
+    #[tokio::test]
+    async fn unreadable_recipes_yaml_is_an_error() -> Result<(), Error> {
+        let mut env = SimpleEnvironment::<Value>::new();
+        env.with_async_store(Box::new(UnreadableStore::new()));
+        let envref = env.to_ref();
+        let provider = DefaultRecipeProvider::new();
+        let key = parse_key("data/top.csv")?;
+        let dir = key.parent();
+
+        assert_read_error(
+            provider.recipe_opt(&key, envref.clone()).await,
+            "recipe_opt",
+        );
+        assert_read_error(provider.recipe(&key, envref.clone()).await, "recipe");
+        assert_read_error(
+            provider.assets_with_recipes(&dir, envref.clone()).await,
+            "assets_with_recipes",
+        );
+        assert_read_error(provider.get_recipes(&dir, envref).await, "get_recipes");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn read_failure_is_not_cached() -> Result<(), Box<dyn std::error::Error>> {
+        let store = Arc::new(UnreadableStore::new());
+        let mut env = SimpleEnvironment::<Value>::new();
+        env.with_async_store(Box::new(SharedStore(store.clone())));
+        let envref = env.to_ref();
+        let provider = DefaultRecipeProvider::new();
+        let key = parse_key("data/top.csv")?;
+
+        assert!(provider.recipe_opt(&key, envref.clone()).await.is_err());
+        let mut list = RecipeList::new();
+        list.add_recipe(Recipe::new(
+            "make/top.csv".to_owned(),
+            "Top".to_owned(),
+            String::new(),
+        )?);
+        *store
+            .served
+            .lock()
+            .map_err(|e| Error::general_error(e.to_string()))? =
+            Some(serde_yaml::to_string(&list)?.into_bytes());
+        let recipe = provider.recipe_opt(&key, envref).await?;
+        assert_eq!(recipe.map(|r| r.title), Some("Top".to_owned()));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn missing_recipes_yaml_is_no_recipes() -> Result<(), Error> {
+        let mut env = SimpleEnvironment::<Value>::new();
+        env.with_async_store(Box::new(AsyncMemoryStore::new(&Key::new())));
+        let envref = env.to_ref();
+        let provider = DefaultRecipeProvider::new();
+        let key = parse_key("data/top.csv")?;
+
+        assert!(provider.recipe_opt(&key, envref.clone()).await?.is_none());
+        let err = provider.recipe(&key, envref).await.expect_err("no recipe");
+        assert!(err.message.contains("No recipe found"), "{}", err.message);
+        Ok(())
+    }
+
+    /// Lets the test keep a handle on the store it gives the environment.
+    struct SharedStore(Arc<UnreadableStore>);
+
+    #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+    #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+    impl AsyncStore for SharedStore {
+        async fn get(&self, key: &Key) -> Result<(Vec<u8>, Metadata), Error> {
+            self.0.get(key).await
+        }
+        async fn set_metadata(&self, key: &Key, metadata: &Metadata) -> Result<(), Error> {
+            self.0.set_metadata(key, metadata).await
+        }
+        async fn contains(&self, key: &Key) -> Result<bool, Error> {
+            self.0.contains(key).await
+        }
     }
 }
 
@@ -2802,6 +3047,29 @@ mod recipe_cache_tests {
             list.add_recipe(Recipe::new(query.to_string(), title.to_string(), String::new())?);
         }
         serde_yaml::to_string(&list).map_err(|e| Error::general_error(e.to_string()))
+    }
+
+    /// `recipe-list-set-cwd-validation` AC-1, through the provider.
+    #[tokio::test]
+    async fn explicit_cwd_in_recipes_yaml_names_the_recipe(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let envref = env();
+        write_recipes(
+            &envref,
+            "recipes:\n  - query: -R/data/sales.csv/-/to_text/sales.txt\n  - query: -R/data/sales.csv/-/to_text/explicit.txt\n    cwd: other\n",
+        )
+        .await?;
+        let err = DefaultRecipeProvider::new()
+            .recipe_opt(&parse_key("data/sales.txt")?, envref)
+            .await
+            .expect_err("an explicit cwd is refused");
+        assert_eq!(err.error_type, ErrorType::NotSupported);
+        // `Error::with_key` records the key in the `query` field today (`error-with-key-field`).
+        assert_eq!(err.key.as_deref().or(err.query.as_deref()), Some("data"));
+        for part in ["recipes[1]", "explicit.txt", "'other'"] {
+            assert!(err.message.contains(part), "{part}: {}", err.message);
+        }
+        Ok(())
     }
 
     #[tokio::test]

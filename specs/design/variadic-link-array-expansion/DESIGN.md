@@ -164,7 +164,7 @@ flattening (open question 2).
 - `liquers-core/src/commands.rs` `get_multiple`, `convert_multiple_element`: doc comments only.
 - Documents: `guides/COMMAND_REGISTRATION_GUIDE.md` §"Accepting a variable number of parameters"
   (new paragraph: a link supplies zero or more elements), `reference/REGISTER_COMMAND_FSD.md`
-  §Variadic Parameters (one rule line), `reference/api/DOC_08_RECIPES_PLANS.md` (the variadic
+  §Variadic Parameters (one rule line), `reference/RECIPES_AND_PLANS.md` (the variadic
   override paragraph near line 104). Each gets a History row and a `reviewed:` bump.
 
 No `pub` signature, command, registry or serialized form changes. Async as today: the helper awaits
@@ -234,7 +234,7 @@ record_scalar_reading` (AC-3 regression).
   `cargo test -p liquers-core --test variadic_link_expansion`
 - [ ] 5. Comments in `plan.rs` `override_link` and `commands.rs` `get_multiple` /
   `convert_multiple_element` — `cargo doc -p liquers-core --no-deps`
-- [ ] 6. Documents (COMMAND_REGISTRATION_GUIDE, REGISTER_COMMAND_FSD, DOC_08) with History rows;
+- [ ] 6. Documents (COMMAND_REGISTRATION_GUIDE, REGISTER_COMMAND_FSD, RECIPES_AND_PLANS) with History rows;
   close `LINK-IN-VARIADIC-DOES-NOT-EXPAND`; this design to `complete` —
   `python3 scripts/docs_index.py` then `--check`
 

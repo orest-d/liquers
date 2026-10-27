@@ -1359,3 +1359,16 @@ async fn aae_deep_listing_includes_the_folders_own_recipes() {
     assert!(text.contains("data/top.txt"), "the folder's own recipe is listed: {text}");
     assert!(text.contains("data/a.txt"), "{text}");
 }
+
+/// A key neither stored nor made by a recipe is an asset-level miss: `AssetNotFound`, still 404
+/// (`specs/design/key-without-recipe-answer/`, AC-1b).
+#[tokio::test]
+async fn aae92_submit_of_an_unmakeable_key_is_asset_not_found() {
+    let envref = env_with(&[]).await;
+    let app = build_app(envref);
+    let (status, json) =
+        send(app, "POST", "/api/assets/key/submit/phantom/nothing.txt", Body::empty()).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(json["error"]["type"], "AssetNotFound");
+    assert_eq!(json["error"]["key"], "phantom/nothing.txt");
+}

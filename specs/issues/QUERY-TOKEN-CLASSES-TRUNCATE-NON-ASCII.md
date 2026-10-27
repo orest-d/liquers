@@ -2,11 +2,11 @@
 id: QUERY-TOKEN-CLASSES-TRUNCATE-NON-ASCII
 kind: issue
 title: Action names, filenames and header values accept non-ASCII characters by low-byte truncation
-status: draft
+status: closed
 priority: P2
 complexity: S
 area: [core/query]
-design:
+design: query-token-classes-ascii
 created: 2026-10-21
 github:
 ---
@@ -14,20 +14,26 @@ github:
 ## Problem
 
 `parameter-entity-escaping` removed the `c as u8` truncation from string parameters and resource
-names, but four other productions in `liquers-core/src/parse.rs` still test a character by its low
+names, but five other productions in `liquers-core/src/parse.rs` still test a character by its low
 byte: `identifier` (action names), `filename`, `header_parameter`, `full_transform_segment_header`
-and `resource_segment_header` (lines 309-319, 476, 486-487, 532 at 18732dd). A code point whose low
-byte is an ASCII letter or digit is accepted; any other non-ASCII character is not. Checked with
-`liquers-validate --no-registry` at 18732dd — all four parse:
+(realm names) and `resource_segment_header` (header names). A code point whose low byte is an ASCII
+letter or digit is accepted; any other non-ASCII character is not.
+
+## Problem Example
+
+Checked with `liquers-validate --no-registry` at cd6d5da — all five parse:
 
 ```text
 Łoad-x            action name "Łoad"          (Ł is U+0141, low byte 0x41 'A')
 load/ŁŁ.txt       filename "ŁŁ.txt"
--R-Ł/data/x.csv   resource header name "Ł"
--R-dŁ/data/x.csv  header parameter "dŁ"
+-RŁ/data/x.csv    resource header name "Ł"
+-R-Ł/data/x.csv   resource header parameter "Ł"
+-aŁ/x             realm "aŁ"
 ```
 
-`DOC_02` §Lexical forms says all four are ASCII. The parser test
+`éoad-x` is refused (low byte `0xE9`). Should be: all five are parse errors too.
+
+`DOC_02` §Lexical forms says these tokens are ASCII. The parser test
 `a15_non_ascii_is_not_part_of_the_grammar` (`parse.rs`) claims "a multi-byte char can never begin
 or continue an action name", which is true for `é` (the case it checks) and false for `Ł`.
 
@@ -39,9 +45,10 @@ placeholders, the proposed `query-builder`) disagrees with the parser on them.
 
 ## Expected behaviour
 
-The four productions use ASCII predicates (`char::is_ascii_alphabetic`, `is_ascii_alphanumeric`),
-defined once in `liquers_core::escape` beside `is_resource_name_char`, so the parser and validators
-share them. `Łoad-x` fails to parse at the `Ł`. This narrows the grammar to what `DOC_02` already
+The five productions use ASCII predicates (`char::is_ascii_alphabetic`, `is_ascii_alphanumeric`).
+`Łoad-x` fails to parse at the `Ł`. The design (`query-token-classes-ascii`) keeps the predicates
+private to `parse.rs`; `query-builder` later moves them to `liquers_core::escape` as public items
+shared with the validators. This narrows the grammar to what `DOC_02` already
 documents. It is not a syntax change.
 
 ## Discovery
@@ -50,3 +57,7 @@ Found on 2026-10-21 during bulk design of `RESOURCE-NAME-ASCII-ONLY` and `QUERY-
 while comparing the parser's character classes with the template validators. The fix is a bug fix
 in one crate with no interface change, so it is a candidate for automatic fixing. It should land
 before `design/query-builder/`, which reuses the predicates.
+
+## Resolution
+
+Fixed 2026-10-27 by `design/query-token-classes-ascii/`. `liquers-core/src/parse.rs` tests token classes with four private ASCII predicates (`is_identifier_start`, `is_identifier_char`, `is_filename_suffix_char`, `is_header_value_char`) instead of `c as u8`, so a character such as `Ł` (U+0141, low byte `A`) is a parse error in action names, filenames, header names, header parameters and realm names instead of being accepted. String parameters still carry Unicode. Evidence: `a15_non_ascii_is_not_part_of_the_grammar` (extended), `non_ascii_low_byte_aliases_are_rejected`, `ascii_token_classes_unchanged`, `unicode_string_parameters_still_parse`; `DOC_02_QUERY_LANGUAGE_REFERENCE.md` §Lexical forms updated.

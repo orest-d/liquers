@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: L
 area: [axum, web, core/commands, core/value]
-design:
+design: registry-publication
 created: 2026-10-20
 github:
 ---
@@ -22,6 +22,15 @@ already has (`registerCommands` with a `command_registry.yaml` string,
 importing it today places the commands in whatever realm the file says (normally `""`), not under
 the name the page uses for the server.
 
+## Problem Example
+
+A page wants `-R/data/sales.csv/-server/heavy_stats/-/to_text`. It fails to plan with *Action
+'heavy_stats' not registered; command keys tried: 'server--heavy_stats'*. With a hand-exported
+`command_registry.yaml`, `registerCommands(yaml, impls)` refuses every command lacking a
+JavaScript implementation (*"No implementation is given for command …"*) and would keep realm `""`
+anyway. Should: the page fetches the server's registries and imports them as realm `server`; the
+query plans.
+
 ## Impact
 
 The client/server shape of `VISION.md` cannot plan a server-realm step without hand-copied
@@ -32,7 +41,8 @@ registry files that drift from the server. Workaround: export the registry at bu
 
 - A read-only route (its own builder, off by default) returning the server's executable command
   metadata (`CommandMetadataRegistry::executable_commands()`) and its type registry as a list of
-  `TypeInfo`.
+  `TypeInfo`. `TypeInfo` already serializes at HEAD, so publishing needs nothing from
+  `realm-type-registry`; only importing types does.
 - A client import that places both under a chosen realm name (`TypeRegistry::import_realm` from
   `realm-type-registry`; the command equivalent is new), so `-server/…` plans against them.
 - Freshness: how a client learns the registry changed (a version or ETag on the route).

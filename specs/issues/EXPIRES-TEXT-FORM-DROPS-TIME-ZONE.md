@@ -4,9 +4,9 @@ kind: issue
 title: The text form of an expiration drops the time zone of day-of-week and end-of-period rules
 status: draft
 priority: P3
-complexity: M
+complexity: S
 area: [core/assets]
-design:
+design: expires-text-form-time-zone
 created: 2026-10-20
 github:
 ---
@@ -23,11 +23,26 @@ Expires::EndOfMonth { tz_offset: _ } => write!(f, "end of month"),
 ```
 
 and `parse_atomic_expires` (`:483`) has no syntax for a zone on them (`eod`, `end of day`, `eow`,
-`end of week`, `eom`, `end of month`, `on <day>` all yield `tz_offset: None`). Only `AtTimeOfDay`
-round-trips its zone (`at 13:00 UTC`, `at 13:00 +02:00`). So
+`end of week`, `eom`, `end of month`, `on <day>` all yield `tz_offset: None`). `AtTimeOfDay`
+round-trips only `UTC` (and `GMT`): `Display` writes any other offset as `+HH:MM`, which
+`parse_time_of_day` does not parse (its `+HH:MM` branch is a stub returning `None`), so
+`at 13:00 +02:00` and an abbreviation such as `CET` read back zone-less. `Display` also loses the
+sign of an offset between -1 h and 0 (`-1800` → `+00:30`), and an unknown zone token
+(`at 08:30 JST`) is accepted silently as the system zone. So
 `Expires::EndOfDay { tz_offset: Some(3600) }` written to metadata reads back as
 `EndOfDay { tz_offset: None }` — the system zone of whichever process reads it — and a zoned
 combination (`COMBINED-EXPIRES`) serializes to a string that parses back zone-less and then reduces.
+
+## Problem Example
+
+```rust
+Expires::EndOfDay { tz_offset: Some(3600) }.to_string()      // "end of day" -> EndOfDay { None }
+"at 13:00 +02:00".parse::<Expires>()                          // tz_offset: None
+"at 08:30 JST".parse::<Expires>()                             // Ok, tz_offset: None
+```
+
+Re-checked at `cd6d5da`, 2026-10-26: the `at` cases above were found during bulk design; the issue
+originally assumed `at` round-tripped.
 
 ## Impact
 

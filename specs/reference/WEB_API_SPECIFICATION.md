@@ -3,7 +3,7 @@ title: Liquers Web API Specification
 kind: reference
 audience: internal
 area: [axum, web]
-reviewed: 2026-10-20
+reviewed: 2026-10-25
 ---
 # Liquers Web API Specification
 
@@ -179,7 +179,7 @@ An error's HTTP status follows its `liquers_core::error::ErrorType`
 | HTTP | ErrorType |
 |---|---|
 | 400 | `ParseError`, `ParameterError`, `ArgumentMissing`, `TooManyParameters`, `UnknownCommand`, `ActionNotRegistered`, `KeyNotAbsolute` |
-| 404 | `KeyNotFound`, `KeyNotSupported`, `NotAvailable` |
+| 404 | `KeyNotFound`, `AssetNotFound`, `KeyNotSupported`, `AssetNotSupported`, `NotAvailable` |
 | 409 | `StatusConflict`, `CommandAlreadyRegistered`, `DependencyVersionMismatch`, `DependencyCycle` |
 | 422 | `ConversionError`, `SerializationError` |
 | 499 | `Cancelled` (client closed request; 503 where 499 cannot be represented) |
@@ -188,6 +188,10 @@ An error's HTTP status follows its `liquers_core::error::ErrorType`
 
 - `KeyNotAbsolute` (400) and `KeyNotSupported` (404) are deliberately distinct: a key containing
   `.` or `..` is a malformed address, a key no store serves is an unrouted one.
+- `KeyNotFound` and `AssetNotFound` are both 404, told apart by the body's `type`: the store holds
+  no value at the key (a recipe may still make it), or nothing is stored and no recipe makes it.
+  The key endpoints that refuse a key `can_make` rejects (`submit`, `info`, subscribe) answer
+  `AssetNotFound`.
 - `StatusConflict` (409) means the operation exists but not for the asset's current status:
   removing a directory, expiring a `Source`, describing a computed value.
 - `ConfigurationError` (500) is a server-side setup fault (a missing required store key, an unset
@@ -692,6 +696,7 @@ Not available at HEAD; listed so that no reader mistakes them for features:
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-25 | §Errors: `AssetNotFound` and `AssetNotSupported` map to 404; key endpoints refusing an unmakeable key answer `AssetNotFound`. | `design/key-without-recipe-answer/` |
 | 2026-10-20 | Asset removal: an entry stored with no status and no version is removed under a recipe as an `Override`. | phase-5 (`design/js-store-page-metadata-status/`) |
 | 2026-10-17 | §1, §7, Appendix A: the Query API route is `{base}/{*query}`, so a base without a trailing `/` no longer leaves a leading `/` on the query; every builder ignores a trailing `/` on its base. `AXUM-QUERY-API-QUERY-KEEPS-LEADING-SLASH` and `AXUM-API-BASE-WITH-TRAILING-SLASH-DOUBLES-THE-SEPARATOR` closed. | `design/axum-query-api-base-slash/` |
 | 2026-10-12 | §2.4: a `GET`'s body is ignored; only `POST` carries body overrides (Codex review of PR #125). | review fix |

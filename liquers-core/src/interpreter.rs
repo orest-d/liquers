@@ -11,8 +11,8 @@ use crate::{
     error::Error,
     metadata::{DependencyRecord, LogEntry, Metadata, Version},
     plan::{
-        analyze_plan_dependencies, ParameterValue, Plan, PlanBuilder, ResolvedParameterValues,
-        Step,
+        analyze_plan_dependencies, analyze_plan_dependencies_at, ParameterValue, Plan, PlanBuilder,
+        ResolvedParameterValues, Step,
     },
     query::{CwdCursor, Key, Query, TryToQuery, RELATIVE_WITHOUT_CWD_WARNING},
     recipes::Recipe,
@@ -24,13 +24,15 @@ use crate::parse::{SimpleTemplate, SimpleTemplateElement};
 
 /// Complete plan setup after `recipe.to_plan()`, **without** cutting a boundary.
 ///
-/// - Populates `plan.dependencies` via async `find_dependencies` (which `to_plan` cannot do
-///   because it is synchronous).
+/// - Freezes every CWD-relative operand against the context's entry key.
+/// - Populates `plan.dependencies` via async `analyze_plan_dependencies` (which `to_plan`
+///   cannot do because it is synchronous).
 /// - May update `plan.is_volatile` if any dependency asset is volatile.
 /// - May update `plan.expires` based on dependency recipe expiration policies.
-/// - Seeds `context.pending_dependencies` with all plan deps at `Version(0)`.
-/// - Registers dependency edges in the `DependencyManager` for keyed plans.
-/// - Freezes every CWD-relative operand.
+/// - When the plan is not volatile, seeds the context's dependency records with the direct
+///   dependencies at the versions the dependency manager holds (`Version::unknown()` when it
+///   has none), and registers dependency edges in the `DependencyManager` for an owned (keyed)
+///   asset.
 ///
 /// This yields the **expanded** plan: every step inline, no `Step::Evaluate` boundary.
 ///
@@ -53,6 +55,18 @@ pub async fn finalize_plan_expanded<E: Environment>(
     plan: &mut Plan,
     context: &Context<E>,
 ) -> Result<(), Error> {
+    finalize_plan_expanded_at(envref, plan, context)
+        .await
+        .map(|_| ())
+}
+
+/// [`finalize_plan_expanded`], returning the first step that reads a volatile upstream when the
+/// plan inherited its volatility (see `analyze_plan_dependencies_at`), so the cut can be bounded.
+async fn finalize_plan_expanded_at<E: Environment>(
+    envref: EnvRef<E>,
+    plan: &mut Plan,
+    context: &Context<E>,
+) -> Result<Option<usize>, Error> {
     // Freeze before any analysis: once every operand is absolute, the dependency and
     // pre-scheduling walks observe exactly what execution will, instead of each re-deriving the
     // working key with its own cursor.
@@ -63,7 +77,7 @@ pub async fn finalize_plan_expanded<E: Environment>(
     if defaulted_to_root && context.install_logical_root_if_unset() {
         context.warning(RELATIVE_WITHOUT_CWD_WARNING)?;
     }
-    analyze_plan_dependencies(envref.clone(), plan, initial_cwd).await?;
+    let volatile_from = analyze_plan_dependencies_at(envref.clone(), plan, initial_cwd).await?;
 
     if !plan.is_volatile {
         let manager = envref.get_asset_manager();
@@ -96,7 +110,7 @@ pub async fn finalize_plan_expanded<E: Environment>(
         }
     }
 
-    Ok(())
+    Ok(volatile_from)
 }
 
 /// [`finalize_plan_expanded`], then cut a predecessor boundary where it is sound to do so.
@@ -107,7 +121,7 @@ pub async fn finalize_plan_expanded<E: Environment>(
 ///
 /// Everything follows from one fact: **a boundary is a cache entry, keyed by its query.**
 /// Anything feeding the prefix that is not part of that key makes the entry unsound; anything
-/// that makes the entry worthless makes the boundary pointless. There are exactly three such
+/// that makes the entry worthless makes the boundary pointless. There are exactly four such
 /// conditions, and they differ in where the answer lives:
 ///
 /// 1. **Volatility** — a boundary recomputed on every request buys none of the three things a
@@ -116,8 +130,10 @@ pub async fn finalize_plan_expanded<E: Environment>(
 /// 2. **Payload requirement** — a payload is not part of a cache key. Visible in the plan, per
 ///    candidate.
 /// 3. **Input state** — likewise not part of the key, and **not visible in the plan at all**.
+/// 4. **Not cached** — the candidate's last command declares `cached: false`. Visible in the
+///    plan, per candidate, via [`Plan::uncached_by`].
 ///
-/// [`Plan::cut_predecessor`] handles 1 and 2, because it can see them. Only the caller knows 3,
+/// [`Plan::cut_predecessor`] handles 1, 2 and 4, because it can see them. Only the caller knows 3,
 /// which is why `input_state` is a parameter here rather than something this function could
 /// infer. A boundary runs as its own asset starting from `State::new()`, so a prefix that
 /// consumes a caller's state would silently receive nothing: applying `wrap/wrap` to `"x"` with
@@ -139,7 +155,7 @@ pub async fn finalize_plan<E: Environment>(
     context: &Context<E>,
     input_state: &State<E::Value>,
 ) -> Result<(), Error> {
-    finalize_plan_expanded(envref.clone(), plan, context).await?;
+    let volatile_from = finalize_plan_expanded_at(envref.clone(), plan, context).await?;
 
     if !envref.get_asset_manager().cut_predecessors() {
         // The debugging switch: a fully expanded plan, to compare against the cut one. Nothing is
@@ -151,8 +167,9 @@ pub async fn finalize_plan<E: Environment>(
         // Cut after the analysis passes deliberately: volatility, payload requirement and
         // expiration are computed over the fully expanded plan, and the cut consults them
         // rather than recomputing them. After freezing, so the boundary query is absolute and
-        // names the same asset from anywhere.
-        plan.cut_predecessor(envref.get_command_metadata_registry())?;
+        // names the same asset from anywhere. Bounded by inherited volatility, which no
+        // candidate's query shows.
+        plan.cut_predecessor_bounded(envref.get_command_metadata_registry(), volatile_from)?;
     } else {
         plan.init_info(
             "Predecessor boundary not cut: the plan is applied to an input state, which is not \
@@ -416,6 +433,8 @@ pub(crate) fn apply_plan_state<E: Environment>(
         // not sent as `Context` log messages: those persist the metadata at once, which would
         // leave a metadata-only store entry for a keyed asset mid-evaluation.
         log_init_steps(&plan, &context).await?;
+        // An error-level planning diagnostic fails the plan before anything is scheduled.
+        fail_on_logged_error(&plan, &context)?;
 
         // A volatile plan makes its asset volatile. A managed asset was already marked when the
         // manager created it; an ad-hoc asset (`apply`, `apply_ad_hoc`) is created without a
@@ -461,13 +480,32 @@ pub(crate) fn apply_plan_state<E: Environment>(
             eprintln!("Applying step {}/{}: {:?}", i + 1, plan.len(), &plan[i]);
             let step = plan[i].clone();
             state = do_step_state(step, state, context.clone(), envref.clone()).await?;
+            // An error logged during the step (`Context::error`) fails the evaluation here, after
+            // the step returned: the rest of the plan does not run and the step's value is dropped.
+            // Consecutive diagnostic steps are all logged first, so several errors, or the info
+            // and warnings around one, reach the log together.
+            let more_diagnostics = plan[i].is_log() && i + 1 < plan.len() && plan[i + 1].is_log();
+            if !more_diagnostics {
+                fail_on_logged_error(&plan, &context)?;
+            }
         }
         Ok(state)
     }
     .maybe_boxed()
 }
 
+/// Fails with the evaluation's logged error, if a command or a planning diagnostic logged one.
+fn fail_on_logged_error<E: Environment>(plan: &Plan, context: &Context<E>) -> Result<(), Error> {
+    match context.logged_error() {
+        Some(message) => Err(Error::execution_error(message).with_query(&plan.query)),
+        None => Ok(()),
+    }
+}
+
 /// Appends a plan's planning diagnostics (`Plan::init_steps`) to the evaluating asset's log.
+///
+/// An `Error` diagnostic is also recorded as the evaluation's logged error, so the plan fails
+/// before its first step, as one logged by a command would after its step.
 ///
 /// Only `Info`, `Warning` and `Error` are diagnostics; `init_steps` holds nothing else by
 /// contract, and any other step found there is ignored rather than executed.
@@ -477,7 +515,10 @@ async fn log_init_steps<E: Environment>(plan: &Plan, context: &Context<E>) -> Re
         match step {
             Step::Info(message) => entries.push(LogEntry::info(message.clone())),
             Step::Warning(message) => entries.push(LogEntry::warning(message.clone())),
-            Step::Error(message) => entries.push(LogEntry::error(message.clone())),
+            Step::Error(message) => {
+                context.record_logged_error(message);
+                entries.push(LogEntry::error(message.clone()))
+            }
             Step::GetAsset(_)
             | Step::GetAssetBinary(_)
             | Step::GetAssetMetadata(_)
@@ -664,11 +705,8 @@ pub fn do_step<E: Environment>(
         .maybe_boxed(),
         Step::GetResourceDirectory(key) => async move {
             let key = context.resolve_key_from_cwd(&key)?;
-            eprintln!("Getting resource directory for key {:?}", key);
             let store = envref.get_async_store();
             let d = store.listdir_asset_info(&key).await?;
-            eprintln!("Got resource directory: {:?}", d);
-
             Ok(Arc::new(
                 <<E as Environment>::Value as ValueInterface>::from_asset_info(d),
             ))
@@ -1237,7 +1275,7 @@ mod tests {
     use super::*;
     use crate as liquers_core;
     use crate::assets::{AssetManager, AssetRef, DependencyManagerAccess};
-    use crate::command_metadata::CommandKey;
+    use crate::command_metadata::{CommandKey, CommandMetadata};
     use crate::context::{ImmediateEnvironment, SimpleEnvironment, SimpleEnvironmentWithPayload};
     use crate::error::ErrorType;
     use crate::metadata::{
@@ -1250,6 +1288,71 @@ mod tests {
     use crate::value::Value;
     use liquers_macro::*;
 
+    /// Consecutive diagnostic steps are all logged before an error among them stops the plan; the
+    /// failure carries the first error, and the action after them does not run.
+    #[tokio::test]
+    async fn consecutive_diagnostic_steps_are_all_logged_before_an_error_stops_the_plan(
+    ) -> Result<(), Error> {
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let mut env = SimpleEnvironment::<Value>::new();
+        let counted = calls.clone();
+        env.command_registry
+            .register_command(CommandKey::new_name("probe"), move |_, _, _| {
+                counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                Ok(Value::from("probed"))
+            })?;
+        let envref = env.to_ref();
+        let mut plan =
+            PlanBuilder::new(parse_query("probe")?, envref.get_command_metadata_registry())
+                .build()?;
+        let diagnostics = [
+            Step::Info("before".to_owned()),
+            Step::Error("first".to_owned()),
+            Step::Info("context".to_owned()),
+            Step::Error("second".to_owned()),
+            Step::Warning("also".to_owned()),
+        ];
+        for (index, step) in diagnostics.iter().cloned().enumerate() {
+            plan.steps.insert(index, step);
+        }
+        let asset = AssetRef::new_temporary(envref.clone());
+        let context = Context::new(asset.clone(), false).await;
+        let error = match apply_plan(plan, State::new(), context, envref.clone()).await {
+            Ok(_) => panic!("an Error step must fail the plan"),
+            Err(error) => error,
+        };
+        assert_eq!(error.error_type, ErrorType::ExecutionError);
+        assert_eq!(error.message, "first");
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 0, "probe must not run");
+
+        // A temporary asset has no service loop of its own: drain it here.
+        asset
+            .service_sender()
+            .await
+            .send(crate::assets::AssetServiceMessage::JobFinishing)
+            .ok();
+        asset.process_service_messages().await?;
+        let Metadata::MetadataRecord(record) = asset.get_metadata().await? else {
+            panic!("structured metadata expected");
+        };
+        let logged: Vec<(LogEntryKind, String)> = record
+            .log
+            .iter()
+            .map(|entry| (entry.kind.clone(), entry.message.clone()))
+            .collect();
+        assert_eq!(
+            logged,
+            vec![
+                (LogEntryKind::Info, "before".to_owned()),
+                (LogEntryKind::Error, "first".to_owned()),
+                (LogEntryKind::Info, "context".to_owned()),
+                (LogEntryKind::Error, "second".to_owned()),
+                (LogEntryKind::Warning, "also".to_owned()),
+            ]
+        );
+        Ok(())
+    }
+
     async fn immediate_context(
         envref: EnvRef<ImmediateEnvironment<Value>>,
         cwd: Option<Key>,
@@ -1258,6 +1361,44 @@ mod tests {
         let context = Context::new(asset, false).await;
         context.set_cwd_key(cwd);
         context
+    }
+
+    /// inherited-volatility-bounds-predecessor-cut AC-1, end to end: a plan that inherits its
+    /// volatility from the key it reads is not cut over that read.
+    #[tokio::test]
+    async fn finalize_plan_does_not_cut_over_inherited_volatility(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let store = AsyncMemoryStore::new(&Key::new());
+        store
+            .set(
+                &parse_key("recipes.yaml")?,
+                b"recipes:\n  - query: seed/vol.txt\n    volatile: true\n",
+                &Metadata::new(),
+            )
+            .await?;
+        let mut env = ImmediateEnvironment::<Value>::new();
+        let cmr = &mut env.command_registry.command_metadata_registry;
+        cmr.add_command(&CommandMetadata::new("seed"));
+        cmr.add_command(&CommandMetadata::new("upper"));
+        cmr.add_command(&CommandMetadata::new("lower"));
+        env.with_async_store(Box::new(store));
+        env.with_recipe_provider(Box::new(crate::recipes::DefaultRecipeProvider::new()));
+        let envref = env.to_ref();
+
+        let mut plan = PlanBuilder::new(
+            parse_query("-R/vol.txt/-/upper/lower")?,
+            envref.get_command_metadata_registry(),
+        )
+        .build()?;
+        let context = immediate_context(envref.clone(), None).await;
+        finalize_plan(envref, &mut plan, &context, &State::new()).await?;
+        assert!(plan.is_volatile, "the upstream recipe is volatile");
+        assert!(
+            !plan.steps.iter().any(|step| matches!(step, Step::Evaluate(_))),
+            "no boundary over the volatile read: {:?}",
+            plan.steps
+        );
+        Ok(())
     }
 
     async fn immediate_environment_with_text(
@@ -2368,6 +2509,39 @@ mod tests {
             panic!("Expected AssetInfo value");
         }
     }
+    /// `-R-sdir/` lists the store directory itself (`GetResourceDirectory`), without writing
+    /// anything to stderr.
+    #[tokio::test]
+    async fn test_sdir_lists_store_entries() -> Result<(), Box<dyn std::error::Error>> {
+        let memory_store = AsyncMemoryStore::new(&Key::new());
+        for name in ["folder/a.txt", "folder/b.txt"] {
+            memory_store
+                .set(&parse_key(name)?, b"x", &Metadata::new())
+                .await?;
+        }
+        let mut env = SimpleEnvironment::<Value>::new();
+        env.with_async_store(Box::new(memory_store));
+        let envref = env.to_ref();
+
+        let state = envref.evaluate("-R-sdir/folder").await?.get().await?;
+        assert!(!state.is_error()?);
+        let Value::AssetInfo(entries) = &**state.data_unchecked() else {
+            panic!(
+                "expected an AssetInfo listing, got {:?}",
+                state.data_unchecked()
+            );
+        };
+        let names: std::collections::HashSet<String> = entries
+            .iter()
+            .filter_map(|entry| entry.filename.clone())
+            .collect();
+        assert_eq!(
+            names,
+            ["a.txt", "b.txt"].map(String::from).into_iter().collect()
+        );
+        Ok(())
+    }
+
     #[tokio::test]
     async fn test_dir_no_recipe_yaml() {
         use crate::context::{EnvRef, Environment, SimpleEnvironment};

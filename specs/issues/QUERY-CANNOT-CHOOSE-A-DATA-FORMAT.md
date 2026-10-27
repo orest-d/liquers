@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: M
 area: [lib/commands, core/value]
-design:
+design: query-data-format-command
 created: 2026-10-20
 github:
 ---
@@ -19,6 +19,13 @@ written at all: an unescaped action parameter accepts `ALNUM`, `_`, `+` and `.`,
 to `:`, and `liquers-validate` rejects `abc/x-csv:comma` ("Can't parse query completely", checked
 2026-10-20). The level-3 override (an explicit declaration) exists only for Rust callers setting
 `MetadataRecord::data_format`.
+
+## Problem Example
+
+A user wants the five rows of `-R/data/sales.csv/-/ns-pl/head-5/data.csv` separated by `;`.
+`…/data.csv` gives commas; `abc/x-csv:comma` does not parse. Should be expressible, for example as
+`-R/data/sales.csv/-/ns-pl/head-5/data_format-csv-semicolon/data.csv` (parses and plans with the
+command declared, checked with `liquers-validate --command data_format` on 2026-10-26).
 
 ## Impact
 

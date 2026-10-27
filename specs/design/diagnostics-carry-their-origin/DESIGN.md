@@ -10,7 +10,7 @@ autofix: not-eligible
 area: [core/value, core/plan, core/validate]
 issues: [LOG-ENTRY-HAS-NO-SOURCE, ISSUE-REPORT-PLAN-AND-METADATA-LOGGING]
 merged: 2026-10-20
-affects_docs: [specs/reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md, specs/reference/api/DOC_08_RECIPES_PLANS.md, specs/reference/AGENT_MEMORY_SERVICE.md]
+affects_docs: [specs/reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md, specs/reference/RECIPES_AND_PLANS.md, specs/reference/AGENT_MEMORY_SERVICE.md]
 created: 2026-10-20
 ---
 # Log entries record their source, and plan diagnostics become typed issues

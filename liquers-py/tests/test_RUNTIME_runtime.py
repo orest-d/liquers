@@ -1,6 +1,7 @@
 """RUNTIME: threads, nesting and containment (LANGUAGE-INTEGRATION_GUIDE.md)."""
 
 import threading
+import time
 
 import pytest
 
@@ -68,11 +69,6 @@ def test_RUNTIME05_cancellation_and_shutdown_release_handles():
     assert lq.Environment.live_handle_count() == baseline
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="BLOCKED: ENVIRONMENT-MANAGER-REFERENCE-CYCLE: a built environment and its asset "
-    "manager hold each other with strong Arcs, so its registry and callables are never freed",
-)
 def test_RUNTIME05_built_environment_releases_handles_on_shutdown():
     from conftest import register_fixture_commands
 
@@ -86,6 +82,12 @@ def test_RUNTIME05_built_environment_releases_handles_on_shutdown():
     assert running.status == "Cancelled"
     environment.shutdown()
     del running
+    # The asset is Cancelled as soon as cancellation is requested, but a sync command that was
+    # already running holds its registration until it notices and returns (`slow` polls every
+    # 10 ms), so the release is awaited rather than assumed at once.
+    deadline = time.monotonic() + 5
+    while lq.Environment.live_handle_count() != baseline and time.monotonic() < deadline:
+        time.sleep(0.01)
     assert lq.Environment.live_handle_count() == baseline
 
 

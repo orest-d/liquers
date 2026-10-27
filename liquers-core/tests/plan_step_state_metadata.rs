@@ -139,13 +139,29 @@ async fn pass_through_steps_keep_the_input_metadata() -> Result<(), Box<dyn std:
     for step in [
         Step::Info("info".to_owned()),
         Step::Warning("warning".to_owned()),
-        Step::Error("error".to_owned()),
         Step::SetCwd(parse_key("data")?),
         Step::Filename(liquers_core::query::ResourceName::new("named.txt".to_owned())),
     ] {
         let seen = apply_steps(&envref, vec![step.clone()], csv_state()).await?;
         assert_eq!(seen["data_format"], "csv", "after {step:?}: {seen}");
     }
+    Ok(())
+}
+
+/// An executable `Error` step logs through `Context::error`, which fails the evaluation once the
+/// step returns, so nothing after it runs (`CONTEXT-ERROR-OUTCOME-DEPENDS-ON-SCHEDULING`).
+#[tokio::test]
+async fn an_error_step_fails_the_evaluation() -> Result<(), Box<dyn std::error::Error>> {
+    let envref = env().await?;
+    let failed = apply_steps(&envref, vec![Step::Error("error".to_owned())], csv_state()).await;
+    let Err(error) = failed else {
+        panic!("an Error step must fail the evaluation");
+    };
+    let error = error
+        .downcast::<liquers_core::error::Error>()
+        .expect("a liquers error");
+    assert_eq!(error.error_type, liquers_core::error::ErrorType::ExecutionError, "{error}");
+    assert_eq!(error.message, "error", "{error}");
     Ok(())
 }
 

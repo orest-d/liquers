@@ -358,7 +358,7 @@ async fn ac07_one_terminal_status_per_run() -> Result<(), Box<dyn std::error::Er
                 .unwrap();
         })
         .await;
-        let asset = AssetData::<Env>::new(7000 + round, parse_query("short")?.into(), None, envref)
+        let asset = AssetData::<Env>::new(7000 + round, parse_query("short")?.into(), None, envref.clone())
             .to_ref();
         let tracer = tokio::spawn(status_trace(asset.clone()));
         let runner = {
@@ -448,7 +448,7 @@ async fn ac08_to_override_discards_the_late_result() -> Result<(), Box<dyn std::
     })
     .await;
     let asset =
-        AssetData::<Env>::new(8001, parse_query("late")?.into(), None, envref).to_ref();
+        AssetData::<Env>::new(8001, parse_query("late")?.into(), None, envref.clone()).to_ref();
     let runner = {
         let asset = asset.clone();
         tokio::spawn(async move { asset.run(None).await })

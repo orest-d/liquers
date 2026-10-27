@@ -1,0 +1,431 @@
+---
+title: JavaScript Integration
+kind: reference
+audience: both
+area: [web, core/value, core/error, core/store, lib/value]
+reviewed: 2026-10-26
+---
+# JavaScript Integration
+
+How `liquers-web` connects browser JavaScript to Liquers: what the WebAssembly module exports, how
+the environment is built and rebuilt, how values, commands and errors cross the boundary, how stores
+and record streams are exposed, and how evaluation runs on the page's event loop. This is the
+contract the code implements at HEAD. How to *use* the module is
+[`guides/JAVASCRIPT_GUIDE.md`](../guides/JAVASCRIPT_GUIDE.md); the general rules for any language
+are [`guides/LANGUAGE-INTEGRATION_GUIDE.md`](../guides/LANGUAGE-INTEGRATION_GUIDE.md), whose §6
+Browser JavaScript records the choices made here and why. The conformance matrix, by feature ID, is
+in `liquers-web/README.md`; the designs are [`design/liquers-web/`](../design/liquers-web/) and
+[`design/liquers-web-store/`](../design/liquers-web-store/).
+
+## 1. Layout
+
+| Part | Where | Role |
+|---|---|---|
+| Rust crate `liquers-web` | `liquers-web/src/` | Built as a `cdylib` for `wasm32-unknown-unknown`; also an `rlib`, so a downstream crate can reuse the generic bridge (§5, *Extending*). |
+| Generated module | `wasm-bindgen` output: `liquers_web.js`, `liquers_web_bg.wasm`, `liquers_web.d.ts` | What a page imports. `--target web` gives an ES module whose default export loads the wasm. |
+| Quick start | `liquers-web/examples-web/quickstart/` | A plain page, no bundler; `build.sh` produces its `dist/`. |
+
+The crate body is `#![cfg(target_arch = "wasm32")]`: on native it compiles to an empty crate, and
+the workspace's `default-members` leave it out. `JsValue` is `!Send`, and on native the core
+`MaybeSend` markers resolve to `Send`, so the bridge types cannot exist there.
+
+| Module (`src/`) | Contents |
+|---|---|
+| `lib.rs` | The module-level functions (§3) and the `Value` wrapper class. |
+| `environment.rs` | The singleton, its rebuild, `Environment` instances, `version()`. |
+| `command/` | `spec.rs` (declaration intake, argument inference), `import.rs` (batches), `adapter.rs` (the registered closure). |
+| `bridge.rs`, `default_value.rs`, `value.rs` | Value conversion, generic over the value type; the `ExtValue` hooks; `JsOpaque`. |
+| `error.rs` | `LiquersError`, error-type names, the validation report shape. |
+| `asset.rs`, `eval.rs`, `objects.rs` | `Asset`, `State`, the `Promise` bridge, `Query`, `Key`. |
+| `store/` | The `localstorage`, `http` and `js` stores, the configuration builder, the `Store` wrapper. |
+| `records.rs` | `RecordBatch`, `RecordSource`, `RecordStream` (feature `records`). |
+| `typescript.rs` | The interfaces injected into the generated `.d.ts`. |
+
+**Cargo features.** `liquers-lib` is linked with `default-features = false, features = ["webui"]`:
+no polars, no egui, no images, no templates. `records` (off by default) adds the record handles and
+the `ns-rec` commands, taking a release build from 12.4 MB to 16.5 MB. `polars` and `egui` only forward to `liquers-lib`
+so that `#[cfg]`s agree with the linked `ExtValue`; neither is a supported browser build.
+`debug-handles` (test-only) adds a Rust-side count of retained JavaScript function handles for
+`RUNTIME05`, and
+`browser-tests` (test-only) compiles the suites that need a real `localStorage`.
+
+**Declarations.** `wasm-bindgen` generates `liquers_web.d.ts` from the exports and their doc
+comments. What it cannot see inside a `JsValue` — a command declaration, a store configuration, a
+store object, a report — is declared by `typescript_custom_section`s in `typescript.rs` and referenced
+through `typescript_type` extern types, so there is one generated file and nothing hand-maintained
+(`STUBS`). Record interfaces are a separate section, present only with `records`.
+
+## 2. Exposed types
+
+| JavaScript | Wraps | Notes |
+|---|---|---|
+| `Environment` | `LiquersEnvironment`: the singleton (`Environment.global()`) or an isolated `EnvRef` (`new Environment()`) | §3 |
+| `Value` | `liquers_lib::value::Value`, plus the environment that produced it | `toJS()`, `typeName`, `identifier`, `isOpaque` |
+| `Asset` | `AssetRef<WebEnvironment>` | every method returns a `Promise` (§7) |
+| `State` | `State<Value>`, plus its environment | `value()`, `toJS()`, `metadata()`, `log()`, `status` |
+| `Query`, `Key` | `liquers_core::query::{Query, Key}` | `parse`, `encode`, `equals`, `filename`; `Key` adds `parent`, `toAbsolute` |
+| `LiquersError` | `liquers_core::error::Error`, plus JavaScript class, stack and report | §6 |
+| `Store` | `Arc<dyn AsyncStore>` | §8 |
+| `RecordBatch`, `RecordSource`, `RecordStream` | record views and sources | §9, `records` only |
+
+`Query.equals` and `Key.equals` compare canonical encodings, since every wrapper is its own handle
+and `===` would compare handles; a key's `encode()` is therefore usable as a `Map` key. `Query.parse`
+and `Key.parse` throw a `LiquersError` with the parse position.
+
+Plain-object results are not classes: metadata, asset info, logs, command info and validation reports
+are plain objects whose shapes are declared in the `.d.ts` (where declared) or are the `serde` form of
+the core type (§3, §7).
+
+## 3. The environment
+
+**Type.** `WebEnvironment = liquers_lib::environment::DefaultEnvironment<Value, ()>`, used directly:
+it already selects the inline asset manager (`ImmediateAssetManager`) on `wasm32`. Every environment
+is built by `new_environment()`: a type registry of `Value`'s types plus `js.Value` (§5), the built-in
+commands, and the default recipe provider. There is no new `Environment` or `CommandExecutor`
+implementation.
+
+**Built-in commands.** `register_builtin_commands` registers `liquers_lib::register_core_commands!` —
+`to_text`, `to_metadata`, `commands_doc`, the `ns-dep` introspection commands — and, with `records`,
+`register_records_commands!` (the `ns-rec` namespace). Nothing else: there are no polars, image or
+`ns-template` commands (`WEB-HAS-NO-TEMPLATE-COMMANDS`).
+
+**The singleton.** One environment per module instance, held in `thread_local`s:
+
+- `init()` creates it, un-shared, and resolves a `Promise` (`ENVIRON01`). It is idempotent: a second
+  call keeps the existing environment and its commands (`ENVIRON03`). A failed `init` leaves the
+  singleton unset so a retry can succeed (`ENVIRON04`). It also installs the panic hook, which turns
+  a Rust panic into a `console.error` with its message.
+- The first evaluation, or `Environment.global()`, *shares* it (`Environment::to_ref`), after which
+  its command registry cannot be changed in place.
+- `shutdown()` clears the singleton and every retained declaration; it is idempotent (`ENVIRON06`).
+  Afterwards evaluation rejects with `not_available` until `init()` runs again.
+
+**Declarations and rebuild.** The singleton retains every accepted command (the declaration object,
+or the imported metadata with its implementation), the store configuration and the named store
+objects. While the environment is un-shared, a registration goes straight into its registry. Once it
+is shared, `registerCommand`, `registerCommands`, `unregisterCommand`, `configureStore` and
+`registerStoreObject` build a fresh environment, replay every retained declaration and the store
+configuration into it, and swap the singleton — once per call, so a batch costs one rebuild. The
+asset cache of the replaced environment is discarded; an evaluation already in flight keeps its own
+`EnvRef` and completes against the old environment (`POST-INIT-COMMAND-REGISTRATION`).
+
+**Explicit instances.** `new Environment()` builds an isolated environment and shares it at once. It
+has the built-in commands and no store, shares nothing with the singleton (`ENVIRON05`), and is never
+rebuilt. Of its methods:
+
+| Method | On a `global()` handle | On a `new Environment()` |
+|---|---|---|
+| `evaluate(query)`, `evaluateQuery(q)`, `getAsset(query)` | the singleton, re-resolved on every call so a rebuild is visible | this instance |
+| `describeCommand(name)`, `commandNames()` | the singleton | this instance |
+| `store()` | the singleton's store | this instance's store, which is none |
+| `configureStore(config)`, `registerStoreObject(name, obj)` | the singleton | **also the singleton** (`WEB-EXPLICIT-ENVIRONMENT-CONFIGURES-THE-SINGLETON`) |
+| `registerCommand(spec)` | refused, `not_supported` | refused, `not_supported` |
+
+Commands are registered through the module-level functions, which act on the singleton. An instance
+is for evaluating against the built-in set, chiefly in tests.
+
+**Module-level functions.**
+
+| Function | Does |
+|---|---|
+| `init()` | creates the singleton; `Promise<void>` |
+| `isInitialized()` | whether `init()` has completed |
+| `shutdown()` | releases the singleton |
+| `evaluate(query)` | `Promise` of the value, converted (§5) |
+| `getAsset(query)` | `Promise<Asset>` |
+| `registerCommand(spec)` | a batch of one (§4); throws on refusal |
+| `registerCommands(input, impls?)` | registers a batch, all or nothing; returns the report |
+| `validateCommands(input, impls?)` | the report `registerCommands` would act on; never throws for a bad batch, works before `init()`, never rebuilds |
+| `unregisterCommand(name)` | removes JavaScript commands named `name`; returns whether any was removed |
+| `describeCommand(name)` | the metadata of the root-namespace command `name`, or `null` |
+| `opaque(x)` | a `Value` retaining `x` by identity (§5) |
+| `encodeParam(text)` | `text` escaped as one query parameter; throws for a character the grammar cannot represent |
+| `version()` | `"liquers-web <v> (liquers-core <v>)"`, from Cargo |
+
+There is no synchronous evaluation entry point, deliberately (`ASYNCQ06`, `ASYNCQ07`).
+
+**Store.** A new environment has no store: `-R/` queries reject with `asset_not_found` and writes
+with `key_not_supported` until `configureStore` applies a configuration (§8). The recipe provider is
+the default one, reading `recipes.yaml` through that store.
+
+## 4. Commands
+
+A JavaScript command is an ordinary async command whose registered closure owns a
+`js_sys::Function`; there is no generic `jscall` alias.
+
+**Declaration.** `registerCommand(spec)` takes an object; `registerCommands(input, impls?)` takes a
+declaration, an array of them, or a JSON or YAML string in the `CommandMetadataRegistry` format
+(`commands: [...]`, the shape of `specs/command_registry.yaml`), with `impls` mapping a command name
+to a function or to `{ run, state?, async? }`. Both run the pipeline of
+[`reference/COMMAND_DECLARATION.md`](COMMAND_DECLARATION.md); stage 1 is JavaScript-specific
+(`command/spec.rs`):
+
+- `run` is removed and kept by the integration; the rest of the object, with `null` and `undefined`
+  properties dropped, is the declaration document. Any `CommandMetadata` key is accepted, though the
+  `.d.ts` declares only the common ones (`name`, `run`, `arguments`, `state`, `namespace`, `realm`,
+  `label`, `doc`, `async`, `volatile`).
+- `state` and `async` are read by the integration and are not metadata. `state` is `"none"` (the
+  default: a source command), `"value"`, `"text"` (or `"string"`) or `"state"`; the core
+  state-delivery conventions are switched off (`conventions: false`), since the mode is declared.
+  `async` is `true`, `false`, or omitted (decide per call).
+- Labels keep `liquers-web`'s historical rule: a command label defaults to the name verbatim, an
+  argument label to the name with `_` replaced by a space. `state_argument` is always present.
+- `module` is set to `"javascript"`.
+- **Argument inference.** With no `arguments` key, names are read from `run`'s source: every
+  parameter must be a plain identifier and their count must equal `Function.length`. A default, rest
+  or destructured parameter, or a bound or native function, is refused with an error naming it.
+  The first parameter is skipped when `state` is not `"none"`. Inferred arguments have type `any`
+  and no default; `describeCommand` reports `argumentsInferred: true`. Minification yields correct
+  arity and wrong names, which affects labels, not behaviour.
+
+Refused before anything is registered: a non-object, a missing or empty `name`, a missing `run`, an
+unknown `state`, the reserved namespace `web` (kept for platform commands of `liquers-web` itself),
+an argument list that cannot be inferred, and whatever `CommandDeclaration::check` and
+`CommandMetadataRegistry::check()` of the batch report as errors. Every finding of a batch is
+collected; the throw is a `parameter_error` whose message is the report's summary and whose `report`
+property is the report (`ENVIRON08`). The names `ns`, `q` and `v` are planner instructions: `ns` is
+refused by core, and a command named `q` or `v` registers but never runs
+(`COMMAND-NAMES-Q-AND-V-ARE-NOT-RESERVED`).
+
+**Report shape.** `{ issues, errorCount, warningCount, hasErrors, summary }`, each issue
+`{ severity, message, command }`, `severity` one of `debug`, `info`, `warning`, `error`, `command`
+`{ realm, namespace, name }` or `null`, `summary` the refusal message or `null`.
+
+**Replacement and removal.** Registering a key that exists replaces it and always writes
+`console.warn` — `command "x" was replaced`, or `… replaces a built-in Rust command`.
+`unregisterCommand(name)` drops every retained JavaScript declaration called `name`, **in any
+namespace**, and forgets its inference record. Before the first evaluation it also removes the
+root-namespace key from the live registry, so it removes a built-in command too; after it, it
+rebuilds without the dropped declarations, so a replaced built-in comes back and a built-in name on
+its own returns `false` (`WEB-COMMAND-LOOKUP-IGNORES-NAMESPACE`,
+`WEB-UNREGISTER-DEPENDS-ON-FIRST-EVALUATION`). Removal releases the function handle
+(`RUNTIME05`).
+
+**`describeCommand`.** Returns the `CommandMetadata` held for the root-namespace key, serialized as
+`serde` writes it, with `arguments` always an array and `argumentsInferred` added: so an argument has
+`argument_type`, a default reads `{"Value": 2}`, and empty `namespace`, `realm` and `doc` are
+absent. The declared `LiquersCommandInfo` interface does not match this
+(`WEB-DESCRIBE-COMMAND-SHAPE-DIFFERS-FROM-DECLARATION`).
+
+**Call** (`command/adapter.rs`). Arguments are converted before JavaScript is entered, and no Rust
+borrow is held across the call:
+
+1. the state, unless the mode is `none`: the converted value (`value`), the state's text (`text`,
+   via `State::try_into_string`), or a plain object `{ value, metadata, status, log }` (`state`);
+2. each argument's resolved value, converted (§5), in declaration order;
+3. `run.apply(null, args)`.
+
+There is no context argument: a JavaScript command cannot log, evaluate a dependency or check
+cancellation (`JS-COMMAND-CANNOT-ACCESS-CONTEXT`). A throw becomes an error (§6). A thenable result
+is awaited unless `async: false`, which refuses it with `execution_error`; with `async: true` a plain
+result is accepted. The result is converted structurally (§5); a `Value` from `opaque()` is kept by
+identity. A JavaScript command's implementation version is not derived from its source.
+
+## 5. Values
+
+The value type is `liquers_lib::value::Value`. A JavaScript object retained by identity is a
+`JsOpaque` inside `ExtValue::Foreign`, type identifier `js.Value`, `type_name` its constructor name.
+All conversion is in `bridge.rs`, generic over `V: JsValueBridge`.
+
+**JavaScript to Liquers** (`js_to_value`, policy `Structural`), tested in this order:
+
+| JavaScript | Value |
+|---|---|
+| a record handle (`records`) | the `RecordView` or `RecordSource` it holds; a freed handle is `conversion_error` |
+| a `Value` wrapper (marked `__liquersValueWrapper`) | its value; an opaque wrapper re-wraps the original object |
+| `null`, `undefined` | `None` (the two are not distinguished) |
+| `boolean` | `Bool` |
+| `number`, integral and within ±2^53 | `I64` |
+| other `number`, NaN and ±Infinity included | `F64` |
+| `string` | `Text` |
+| `BigInt` | `I64`; outside the `i64` range `conversion_error` |
+| `Uint8Array`, `ArrayBuffer` | `Bytes` |
+| `Array`, plain object (prototype `Object` or `null`) | through JSON (`try_from_json_value`), with the nested rules below |
+| anything else — class instance, `Map`, `Set`, `Date`, function, DOM node | `conversion_error` naming the path and constructor, suggesting `liquers.opaque(...)` |
+
+Inside an array or object, numbers follow the same integer rule; NaN and ±Infinity become the
+strings `"NaN"`, `"inf"`, `"-inf"`; `undefined` becomes `null`; own enumerable string keys are read
+with `Object.entries`; and a `Uint8Array` or any other non-plain object is `conversion_error`
+naming its path. Nested bytes are refused rather than degraded to an array of numbers, because JSON
+has no byte type and the degraded form would no longer be `Bytes` (`VALUE04`). Depth is limited to 64, so a cyclic structure is
+`conversion_error` rather than a stack overflow.
+
+**Liquers to JavaScript** (`value_to_js`):
+
+| Value | JavaScript |
+|---|---|
+| `JsOpaque` | the original object, by identity |
+| a foreign value of another runtime | `conversion_error` naming its origin |
+| record view (`records`) | a `RecordBatch`, or the cell's scalar for a single-cell view |
+| record source (`records`) | a `RecordSource` |
+| `None` | `null` |
+| `Bytes` (by identifier) | `Uint8Array` |
+| anything else | its JSON form (`try_into_json_value`), objects as plain objects, never `Map` |
+
+An integer outside ±(2^53 − 1), at any depth, is `conversion_error` rather than a rounded `number`
+or a `BigInt` (`VALUE03`). A `null` nested in an array or object arrives as `null`, as a top-level
+`None` does (`json_to_js` sets `serialize_missing_as_null`, which `serde-wasm-bindgen` leaves off by
+default). A value with no JSON form is `conversion_error`. Conversions run *inside*
+the environment that produced the value (`value_to_js_in`), so a handle created by the conversion
+resolves through that environment later, never through the singleton.
+
+**Opaque values.** `opaque(x)` is the only way a value is carried by identity. The `js.Value`
+`TypeInfo` declares no data format, so an opaque value cannot be written to a store; it lives in the
+asset that holds it and pins whatever it references for that asset's lifetime. A Rust command that
+needs a string or JSON from it gets `conversion_error`. Identity across evaluations is not promised:
+it holds while the environment keeps the asset.
+
+**Extending.** A downstream crate brings its own value type by implementing `JsExtensionBridge` for
+its *extension* type; a blanket impl lifts it to `CombinedValue<B, Ext>`. Implementing
+`JsValueBridge` for `CombinedValue<SimpleValue, MyExt>` directly is `E0117` from another crate.
+`default_value.rs` takes the same route for `ExtValue`; `tests/second_value_type.rs` is the worked
+example.
+
+## 6. Errors
+
+There is one class, `LiquersError`, not a hierarchy: the error type travels as a string.
+
+| Member | Meaning |
+|---|---|
+| `errorType` | the `ErrorType` as a stable snake-case name, such as `key_not_found`; an exhaustive match in `error_type_name` |
+| `categories` | `ErrorCategory` names of the type: `store`, `keyed_asset`, `not_found` |
+| `message` | the message |
+| `query`, `key` | where it happened, when known; `undefined` otherwise |
+| `position` | `{ offset, line, column }` of a parse error, or `null` |
+| `jsClass`, `jsStack` | class and stack of the JavaScript throw this object was made from, when it is that object |
+| `report` | the validation report of a refused batch, else `undefined` |
+| `toString()` | `"<errorType>: <message>"` |
+
+`new LiquersError(errorType, message, query?)` builds one from JavaScript; an unknown type name or a
+query that does not parse throws `TypeError`. It is a wasm-bindgen class, not a subclass of `Error`,
+so it has no JavaScript stack.
+
+**Liquers to JavaScript.** Every rejected `Promise` and every throw carries a `LiquersError`, never a
+string (`ASYNCQ02`).
+
+**JavaScript to Liquers** (`js_error_to_liquers`):
+
+- An object with a known `errorType` string — a `LiquersError`, or anything shaped like one — keeps
+  that type and its `message`; its `query` and `key` are not carried over.
+- An `Error` becomes `execution_error` (inside a command; `conversion_error` at a conversion
+  boundary) with the message `Class: message`, followed by the stack frames. The structured
+  `jsClass` and `jsStack` do not survive the asset lifecycle, so the caller sees `null` there
+  (`LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT`).
+- Any other thrown value becomes `a non-Error value was thrown: <text>`; `throw undefined` becomes
+  `undefined was thrown`.
+
+## 7. Event loop, waits and cancellation
+
+wasm is single-threaded, and all of `liquers-web` runs on the page's event loop. Every evaluation
+entry point returns a `Promise` (`wasm_bindgen_futures::future_to_promise`); nothing blocks.
+`Asset.status()`, `get()`, `cancel()` and `getAssetInfo()` are `Promise`s too, because the core
+methods behind them are async.
+
+**Immediate evaluation.** `ImmediateAssetManager` evaluates during `getAsset`, so an `Asset` is
+already terminal when the page receives it. `cancel()` therefore resolves and changes nothing
+(`WEB-CANCELLATION-INERT`); it is exposed because the shape stays when a deferring manager arrives.
+A JavaScript command that awaits yields to the event loop, so other evaluations interleave with it.
+
+**Results are reused.** A non-volatile query evaluated twice is computed once while the environment
+keeps the asset. A second caller of a query whose first evaluation is still running waits for it;
+when that evaluation fails, the second caller can receive `null` instead of the error
+(`WEB-EVALUATE-RESOLVES-FAILED-ASSET-AS-NULL`).
+
+**Status and metadata.** `Asset.status()` and `State.status` give the status as a lowercase name
+(`ready`, `error`, …, exhaustive in `status_name`). `State.metadata()` and the `state`-mode argument's
+`metadata` are the `serde` form of `MetadataRecord`, where `status` is capitalized (`Ready`)
+(`WEB-METADATA-STATUS-CASE-DIFFERS`). `State.value()` throws when the state holds an error;
+`State.log()` is always an array.
+
+**Borrow rule.** No `RefCell` borrow is held across an `await` or a call into JavaScript; every
+accessor clones the `EnvRef` out. A re-entrant call — a JavaScript command calling `evaluate` — is
+therefore safe — an `async` command may `await liquers.evaluate(…)` — though without a context the
+inner result is not recorded as a dependency of the outer one.
+
+## 8. Stores
+
+Configuration uses core's store-router format ([`reference/STORE_CONFIG_FSD.md`](STORE_CONFIG_FSD.md)),
+as an object or a YAML/JSON string; both are parsed by `liquers-core`. `configureStore` returns a
+`Promise`. Stores are tried in document order, first matching prefix wins; overlapping prefixes are
+accepted without a warning.
+
+| `type` | Backend | Writes | Config |
+|---|---|---|---|
+| `localstorage` | `window.localStorage`, full `AsyncStore` contract, directories included | yes | `namespace` (default `liquers`, no `/`), `quota_bytes` |
+| `http`, `https` | `fetch` from the global scope (window, worker, Node) of `url_prefix` + key without its routing prefix | no | `url_prefix`, `keys` (required: HTTP has no listing) |
+| `js` | an object the page registered with `registerStoreObject(name, obj)` | as implemented | `object` |
+
+`localStorage` holds strings, so bytes that are not UTF-8 are base64-encoded in an envelope. It does
+not exist under Node, so that store is tested only in a browser.
+
+**Page-implemented stores** (`store/js_store.rs`, interface `LiquersStoreObject`). Only `get` is
+declared required, but a `-R/` query calls `contains` (on the key, and on the folder's
+`recipes.yaml`) and, for a miss, `isDir`, so a store with `get` alone answers every query with
+`key_not_supported` (`WEB-JS-STORE-WITH-ONLY-GET-CANNOT-BE-QUERIED`). Each method may return a value
+or a `Promise`, except `isSupported`, which must be synchronous. The method set is resolved once, at construction. An omitted method reports
+`key_not_supported`, never an empty answer. `get` / `getMetadata` returning `null` or `undefined`
+means absent (`key_not_found`); a throw means failure (`key_read_error`, or the thrown
+`LiquersError`'s type). `getMetadata` returning `{}` means "exists, no metadata". A directory is
+recognised through `isDir`, with children from `listdir`; a throw is never treated as a directory.
+Recipes need `listdir` as well: the recipe provider lists the folder.
+
+**Policy and metadata sections.** Any entry may have `read_only: true`, refusing writes with
+`not_supported`, and a `metadata` section. A section reaches a `js` object only through its
+data-only methods — `getData`, `setData`, `removeData`, `listdirData`, `dataFacts`, all five or none,
+plus optional `renameData` and `atomicWrite` — and `getStoredMetadata` for the default `native`
+model; a section on an object without them is refused when the store is built. `localstorage` offers
+all of data-only access, `http` the read half. `Store.isReadOnly()` reports whether every write is
+refused. `LANGUAGE-INTEGRATION_GUIDE.md` §6 Browser JavaScript has the details.
+
+**The `Store` wrapper.** `get` (`Uint8Array`), `getMetadata` (the raw stored record), `getAssetInfo`
+(the effective `media_type`, `data_format`, `filename`, `is_dir`), `set(key, bytes, metadata)`,
+`setMetadata`, `remove`, `removedir`, `makedir`, `contains`, `isDir`, `listdir`, `storeName()`,
+`isReadOnly()`. Partial metadata objects are accepted and completed for the key.
+
+A `store_config` handler cannot be written in JavaScript (`LANGUAGE-STORE-CONFIG-FUNCTION-NOT-DEFINABLE`,
+`STORE18` is `NA`).
+
+## 9. Record streams
+
+With `records`, a record view crosses as a `RecordBatch` (`numRows`, `numColumns`, `schemaJson()`,
+`column(i)` — a zero-copy descriptor into wasm memory — `columnCopy(i)`, `columnView(i)`,
+`chunkIdJson()`, `sourcesJson()`), or as a scalar when it is a single cell. A record source crosses as
+a `RecordSource` (`chunks()`, `bounded`, `schemaJson()`, `manifestJson()`, `stream()` — an async
+iterable of batches — and `materialize(maxRows)`). Both are handles to the Rust object and cross back
+unchanged. `free()` releases one; a freed handle passed back is `conversion_error`. A source resolves
+its chunks through the environment that produced it. Only one `nextBatch()` may be pending on a
+stream. A view built from a `column` descriptor is invalidated by `memory.grow` and dangles after
+`free()`; `RecordColumn` in `src/records_column.js` re-creates it on demand. `RECORDS03`, `09` and
+`11` are `NA` (`liquers-web/README.md`).
+
+## 10. Limitations
+
+- Templates and data nodes: no `ns-template` commands, no template commands, no programmatic
+  `render`, no JavaScript `DataNode` adapter (`WEB-HAS-NO-TEMPLATE-COMMANDS`; `TEMPLATE`, `DATANODE`
+  not started).
+- A JavaScript command receives no context (`JS-COMMAND-CANNOT-ACCESS-CONTEXT`).
+- Cancellation is inert (`WEB-CANCELLATION-INERT`).
+- Commands cannot be registered on a `new Environment()`, and its store methods configure the
+  singleton (`POST-INIT-COMMAND-REGISTRATION`, `WEB-EXPLICIT-ENVIRONMENT-CONFIGURES-THE-SINGLETON`).
+- Registering after the first evaluation rebuilds the environment and drops its cached results
+  (`POST-INIT-COMMAND-REGISTRATION`).
+- `describeCommand` sees the root namespace only and returns a shape the `.d.ts` does not declare;
+  `unregisterCommand` matches by name across namespaces and treats built-ins differently before and
+  after the first evaluation (`WEB-DESCRIBE-COMMAND-SHAPE-DIFFERS-FROM-DECLARATION`,
+  `WEB-COMMAND-LOOKUP-IGNORES-NAMESPACE`, `WEB-UNREGISTER-DEPENDS-ON-FIRST-EVALUATION`).
+- A thrown exception's class and stack arrive inside `message` (`LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT`).
+- A page-implemented store needs `contains` and `isDir` as well as `get` to be read by queries
+  (`WEB-JS-STORE-WITH-ONLY-GET-CANNOT-BE-QUERIED`).
+- No IndexedDB store (`WEB-NATIVE-IO-TIER2`), no read/write store of a Liquers server
+  (`WEB-HAS-NO-READ-WRITE-REMOTE-STORE`), and the store configuration is not yet an
+  `EnvironmentConfig` (`WEB-STORE-CONFIG-NOT-APPLIED-THROUGH-ENVIRONMENT-CONFIG`).
+- No generated API reference beyond the `.d.ts`, and no npm package (`WEB-API-REFERENCE-NOT-GENERATED`).
+- `RECIPE` (a JavaScript recipe provider), `UIUSE`, `UIDEF`, `MODULE`, `POLYGLOT`, `WEBSERV` and
+  `WEBAPI` are not implemented; the default recipe provider works through a configured store.
+
+## History
+
+| Date | Change | Source |
+|---|---|---|
+| 2026-10-26 | Created from the implemented `liquers-web`, checked against a wasm build under Node. | `WEB-HAS-NO-API-REFERENCE-OR-USER-GUIDE` |
+| 2026-10-26 | A nested `null` now arrives as `null`; a failed asset rejects every `evaluate` caller; nested bytes are refused by design. Three limitations removed. | `WEB-NESTED-NULL-CROSSES-AS-UNDEFINED`, `WEB-EVALUATE-RESOLVES-FAILED-ASSET-AS-NULL`, `WEB-NESTED-BYTES-REFUSED-NOT-DEGRADED` |

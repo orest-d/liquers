@@ -3,7 +3,7 @@ title: Environment, Context and Evaluation Reference
 kind: reference
 audience: internal
 area: [core/context, core/plan]
-reviewed: 2026-10-17
+reviewed: 2026-10-22
 ---
 # DOC-04: Environment, Context, and End-to-End Evaluation
 
@@ -129,6 +129,36 @@ is the construction cycle, and the environment's `OnceLock` manager slot is wher
 it is broken. The manager itself therefore has no unset state at all: its
 environment reference is a constructor parameter, and the `set_envref` method and
 its "environment not set" panic are gone.
+
+### Ownership and teardown
+
+Only `EnvRef`s own an environment. The environment owns its manager (the `OnceLock` slot), and
+the manager owns its cached assets; both back-edges are **weak** — the manager and every
+`AssetData` hold a `std::sync::Weak<E>` — so a freshly built environment has a strong count of
+one, and dropping the last `EnvRef` drops the environment, its manager, every cached asset and
+value, and the queued manager's job-queue and expiration-monitor tasks (its `Drop` stops both).
+Before `ENVIRONMENT-MANAGER-REFERENCE-CYCLE` was fixed, those edges were strong and no environment
+was ever freed.
+
+Work in flight keeps its environment alive: a run claim (queued or inline), a job parked in the
+queue and a background save each hold a strong `EnvRef` for exactly as long as the work, so
+
+```rust,ignore
+let asset = envref.evaluate("hello").await?;
+drop(envref);
+asset.get().await?;      // still evaluates; the environment drops once it is done
+```
+
+works, and `Context::get_envref` is usable inside the command. `Context` itself holds the
+environment strongly, for the length of one evaluation. A temporary asset's service loop (the
+asset `interpreter::evaluate` evaluates in) holds the asset weakly and ends with it.
+
+An `Arc` of the manager or an `AssetRef` kept after the environment is gone is a stale handle.
+The manager's and asset's `get_envref` accessors stay infallible and **panic** naming teardown;
+`try_get_envref` (on `AssetData`, `AssetRef` and the `AssetManager` trait, with a default for a
+manager that owns its environment strongly) returns an error instead, and every fallible path in
+the asset module uses it, so `get_asset` on a stale manager is an `Err`, not a panic. There is no
+explicit `Environment::shutdown()`; that is `ENVIRONMENT-ORDERLY-SHUTDOWN`.
 
 `AssetManager::start` is synchronous and fallible. Its work is uncontended
 in-memory map writes — at startup the version map is empty, so every key inserts
@@ -274,7 +304,7 @@ one whose prefix is not cut) approximates that state. `interpreter::do_step_stat
 | `GetResource` | the bytes, with the **stored** metadata (legacy stored metadata is not handed on: a warning, and only the key) |
 | `Info`, `Warning`, `Error`, `SetCwd`, `Filename` | the input state, unchanged |
 | `Plan` | the state the nested plan produced |
-| `Action` | the result, with a copy of the asset's record corrected to describe the prefix the action completes: `query` is the step's recorded prefix (`Step::Action::query`, DOC-08); no `key`, `filename`, `data_format` or `media_type`; a recipe-declared title or description cleared. Status, log, dependencies and what commands wrote through the context are kept |
+| `Action` | the result, with a copy of the asset's record corrected to describe the prefix the action completes: `query` is the step's recorded prefix (`Step::Action::query`, [`RECIPES_AND_PLANS.md`](../RECIPES_AND_PLANS.md#plan-fields-and-execution)); no `key`, `filename`, `data_format` or `media_type`; a recipe-declared title or description cleared. Status, log, dependencies and what commands wrote through the context are kept |
 | `GetAssetDirectory`, `GetResourceDirectory` | the listing, with the same corrected copy and the listed key |
 | `GetAssetMetadata`, `GetResourceMetadata`, `GetAssetRecipe`, `UseQueryValue`, `UseKeyValue` | the value, with the corrected copy and no query |
 
@@ -285,7 +315,7 @@ Consequences a command author can rely on:
   `/out.txt` in the query names the *output* and never labels the input.
 - The input's status and log are the input's (in the cut form, another asset's); a command reads
   and writes its own asset through `Context`.
-- A prefix that only reads a key is never cut into a boundary (DOC-08), so the command receives
+- A prefix that only reads a key is never cut into a boundary ([`RECIPES_AND_PLANS.md`](../RECIPES_AND_PLANS.md#where-a-boundary-goes)), so the command receives
   the keyed asset's own state.
 - When the plan is applied to an input state (`AssetManager::apply`, `Context::apply`), the asset
   and every step state carry `is_applied: true`: their `query` names the computation, not a
@@ -300,7 +330,7 @@ is framework state, not a value a command may read or move.
 
 ### Why the working key is not part of the command-facing API
 
-The reason is *identity*, not resolution. Since freezing (DOC-08), every operand a
+The reason is *identity*, not resolution. Since freezing ([`RECIPES_AND_PLANS.md`](../RECIPES_AND_PLANS.md#freezing)), every operand a
 command receives through its plan is already absolute, so nothing needs the live
 key to resolve. What remains is what a command could do *with* it, and both routes
 break the asset model:
@@ -469,8 +499,19 @@ instead of registering payload-specific assets in the shared dependency graph.
 asset's service channel. `debug`, `info`, `warning`, and `error` also write to
 stderr before sending a structured log entry.
 
-`Context::error` only records an error-level log message. It does not fail the
-asset. `Context::set_error` changes the asset outcome to `Error`.
+`Context::error` logs an error-level entry and marks the evaluation failed. It does
+not interrupt the command, and the asset's status stays in flight (`Processing`) while
+the command runs; only the metadata's `is_error` flag is set. When the step returns,
+the interpreter stops the plan with an `ExecutionError` carrying the first logged
+error's message: the returned value is discarded, the remaining steps do not run, and
+the asset ends in `Error`. If the command returns `Err` instead, that error is the
+failure. The asset manager settles a run only after its service loop has drained, and fails
+a run that produced a value if an error-level entry reached the log, so a custom
+`apply_recipe` gets the same outcome. The same holds for an executable `Step::Error`, except
+that a run of consecutive `Step::Info`, `Step::Warning` and `Step::Error` steps is logged in
+full before the plan stops, so several errors, or the context around one, all reach the log. Use
+`warning` to report a problem without failing. `Context::set_error` fails the asset
+immediately.
 
 `set_filename` mutates current metadata directly. `set_expires` updates metadata
 expiration and the asset's resolved deadline. Both are public today, although
@@ -558,7 +599,7 @@ The improved reference should prevent:
 - Assuming `EnvRef::evaluate(...).await` always returns a ready value
 - Building a native queued environment outside a Tokio runtime
 - Expecting payload inheritance through keyed assets, which deliberately form a payload boundary
-- Treating `Context::error` as an asset failure
+- Logging with `Context::error` and expecting the command's returned value to survive
 - Treating `Context::apply` as dependency-tracked evaluation
 - Mutating one context clone's payload and expecting other clones to see replacement
 - Selecting `SimpleEnvironmentWithPayload` for Wasm
@@ -601,6 +642,10 @@ methods crate-private), so an asset manager can be implemented outside `liquers-
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-22 | §Ownership and teardown: managers and assets hold the environment weakly; in-flight work pins it; the last `EnvRef` drops everything; `try_get_envref`. | `design/environment-manager-reference-cycle/` |
+| 2026-10-21 | §Logging, progress, metadata, and outcome: consecutive diagnostic steps are all logged before an error among them stops the plan. | `issues/CONTEXT-ERROR-OUTCOME-DEPENDS-ON-SCHEDULING.md` |
+| 2026-10-20 | Links to `reference/api/DOC_08_RECIPES_PLANS.md` follow its promotion to `reference/RECIPES_AND_PLANS.md`. | DOC-08 promotion |
+| 2026-10-20 | §Logging, progress, metadata, and outcome: `Context::error` fails the evaluation once the step returns (`ExecutionError`, first message); mid-run only `is_error` is set. Pitfall reworded. | `issues/CONTEXT-ERROR-OUTCOME-DEPENDS-ON-SCHEDULING.md` |
 | 2026-10-17 | `apply_ad_hoc` passes on a failed evaluation's dependencies; `apply_for` returns the failed asset. | PR #139 review |
 | 2026-10-17 | `apply_ad_hoc` volatility: `v` goes before the parent's own action; linked the run-time volatility issue. | `RUNTIME-VOLATILE-DEPENDENCY-DOES-NOT-MAKE-PARENT-VOLATILE` |
 | 2026-10-17 | §Dependency and apply methods: `Context::apply_ad_hoc`, which passes the ad-hoc dependencies on and no volatility. | `design/liquers-mustache/` |

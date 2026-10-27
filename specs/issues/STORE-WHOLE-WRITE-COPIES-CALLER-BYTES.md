@@ -4,9 +4,9 @@ kind: issue
 title: A whole-object store write copies bytes the caller already holds in a shareable buffer
 status: draft
 priority: P3
-complexity: L
+complexity: M
 area: [core/store, store/backends]
-design:
+design: store-shared-buffer-write
 created: 2026-10-21
 github:
 ---
@@ -17,7 +17,8 @@ github:
 `AsyncMemoryStore` stores `Arc::from(data)`; `AsyncOpenDALStore::set` builds
 `Buffer::from_iter(data.iter().copied())` (`liquers-store/src/opendal_store.rs`), a byte-by-byte copy.
 The asset layer writes its cached binary, which after `design/shared-metadata-and-bytes/` stage B
-is already a `bytes::Bytes` that OpenDAL and the memory store could take without a copy.
+(not landed at HEAD cd6d5da) is a `bytes::Bytes` that OpenDAL and the memory store could take
+without a copy; `AssetManager::set_state` writes a freshly serialized `Vec<u8>` the same way.
 
 ## Problem Example
 
@@ -46,3 +47,7 @@ large objects.
 
 Scoped out of `design/shared-metadata-and-bytes/` (its open question 3) during the 2026-10-20 bulk
 design, while inventorying the byte path of `SHAREABLE-METADATA-AND-BYTES-ARE-DEEP-COPIED`.
+
+Designed 2026-10-26 in `design/store-shared-buffer-write/` (bulk design). Re-sized `L` → `M`: the
+recommended route (a one-chunk `set_stream`, kept by the stores that can) changes no public
+signature and sits in `liquers-core` plus a check in `liquers-store`.

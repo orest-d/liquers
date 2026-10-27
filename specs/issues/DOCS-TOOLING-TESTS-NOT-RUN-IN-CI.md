@@ -2,11 +2,11 @@
 id: DOCS-TOOLING-TESTS-NOT-RUN-IN-CI
 kind: issue
 title: The unit tests of the documentation tooling are not run by CI
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [docs, build]
-design:
+design: docs-tooling-tests-in-ci
 created: 2026-10-20
 github:
 ---
@@ -19,6 +19,17 @@ which runs only `python3 scripts/docs_index.py --check`. Its path filter also om
 `scripts/test_docs_index.py`. The `liquers-project` skill scripts (`init_feature.py`,
 `validate_phase.py`) have no tests at all. The designs `validate-phase-section-match`,
 `phase5-skeleton-unticked` and `front-matter-yaml-agreement` each add tests beside these scripts.
+
+## Problem Example
+
+Suppose a PR reintroduces the fenced-heading bug that `PhaseTextTests` in
+`scripts/test_docs_index.py` catches. The `docs` job runs only `--check`, which passes because no
+current design has a fenced `## Phase` heading, so the PR merges green. A PR that edits only
+`scripts/test_docs_index.py` does not run the workflow at all. Also, the push filter omits the
+workflow file. Note for the fix: `python3 -m unittest discover -s .claude/skills/liquers-project/scripts
+-p 'test_*.py'` with no test files prints `NO TESTS RAN` and **exits 5 on Python 3.12 and later**
+(verified on 3.13; the workflow pins 3.11, where it exits 0). The step needs a presence guard.
+Re-checked at `cd6d5da`.
 
 ## Impact
 
@@ -35,3 +46,7 @@ are stdlib-only, so the workflow's no-dependency contract holds.
 ## Discovery
 
 Bulk design of `validate-phase-section-match` and `front-matter-yaml-agreement` (2026-10-20).
+
+## Resolution
+
+Fixed 2026-10-27 by `design/docs-tooling-tests-in-ci/`. `.github/workflows/docs-check.yml` now runs `python3 -m unittest -v scripts/test_docs_index.py` and, when `.claude/skills/liquers-project/scripts/` holds a `test_*.py`, `unittest discover` there (otherwise it prints that it skipped, so an empty directory never exits 5 on Python 3.12+). Its `pull_request` and `push` filters are the same five entries and include the test file, the skill scripts and the workflow itself.

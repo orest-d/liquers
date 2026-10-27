@@ -3,7 +3,7 @@ title: Using Liquers from Python
 kind: guide
 audience: user
 area: [py]
-reviewed: 2026-10-19
+reviewed: 2026-10-27
 ---
 # Using Liquers from Python
 
@@ -187,9 +187,8 @@ env.shutdown()
 
 `@env.command` registers in `env`; `@lq.command` registers in the default environment, and
 `@lq.command(env=env)` is the same as `@env.command`. The function is returned unchanged, so it
-can still be called directly. `ns`, `q` and `v` are query instructions, not command names: `ns` is
-refused, and a command named `q` or `v` registers but never runs
-(`COMMAND-NAMES-Q-AND-V-ARE-NOT-RESERVED`).
+can still be called directly. `ns`, `q` and `v` are query instructions, not command names: a
+command with any of these names is refused when it is registered.
 
 ### The input
 
@@ -271,7 +270,7 @@ env.shutdown()
 |---|---|
 | `evaluate(query)` | evaluates `query` as a dependency of this result and returns its value |
 | `info(msg)`, `warning(msg)` | adds an entry to the result's log |
-| `error(msg)` | adds an error entry **and fails the result**: the query raises `GeneralError` with `msg`, even if the command then returns |
+| `error(msg)` | adds an error entry **and fails the result**: the command keeps running, but once it returns the query raises `ExecutionError` with the first `msg` |
 | `is_cancelled()` | whether the result was cancelled; a long command should check it and stop |
 
 The context is valid only during the call. Keeping it and using it later raises `GeneralError`.
@@ -318,8 +317,54 @@ brings the built-in back.
 
 Register commands before the first evaluation where you can. A command registered later takes
 effect on the next evaluation, by rebuilding the environment: the store is kept, but results
-already computed are not, and the replaced environment's memory is not freed until the process
-exits (`ENVIRONMENT-MANAGER-REFERENCE-CYCLE`).
+already computed are not, and the replaced environment is kept until `shutdown()`
+(`LANGUAGE-INTEGRATIONS-REBUILD-ENVIRONMENT-ON-REGISTRATION`).
+
+### Async commands
+
+A command defined with `async def` is awaited for you. Use it for work that waits on something
+else, such as a network call, so the waiting does not hold a thread:
+
+```python
+import asyncio
+import liquers as lq
+
+env = lq.Environment()
+
+@env.first_command
+def hello() -> str:
+    return "hello"
+
+@env.command
+async def fetch_len(text: str) -> int:
+    await asyncio.sleep(0.01)          # stands in for an HTTP call
+    return len(text)
+
+@env.first_command
+async def outer(context) -> str:
+    # Inside an async command, evaluate with `await context.evaluate_async(...)`.
+    return f"length {await context.evaluate_async('hello/fetch_len')}"
+
+assert env.evaluate("hello/fetch_len") == 5
+assert env.evaluate("outer") == "length 5"
+assert env.command_metadata("fetch_len").is_async
+env.shutdown()
+```
+
+The coroutine runs on an event loop that belongs to the environment, never on yours, so it may be
+evaluated from plain code (as above) or awaited (below). An environment has one such loop unless
+you ask for more with `lq.Environment(async_loops=4)`; each loop has its own thread, and a command's
+calls are spread over them.
+
+Inside an `async def` command, the blocking calls (`context.evaluate`, `env.evaluate`,
+`asset.get()` and the others) raise `RuntimeError`, because they would stop every coroutine on that
+loop. Use their `_async` forms with `await`. Blocking work of your own belongs in
+`await asyncio.to_thread(...)`.
+
+If the result is cancelled (`asset.cancel()`), or the environment shuts down, the coroutine gets
+`asyncio.CancelledError` at its next `await`. Let it propagate, after any cleanup; the result then
+ends `Cancelled`. A function that is not `async def` but returns a coroutine fails with
+`ExecutionError`.
 
 ### Errors from a command
 
@@ -415,6 +460,62 @@ wait with `KeyboardInterrupt`, and `shutdown()` ends any wait still outstanding 
 **Results are reused.** A query evaluated twice is computed once while the environment keeps the
 result. A command that must run every time is declared `volatile=True`.
 
+### Awaiting a query
+
+In async code, await the `_async` form of a call instead of blocking the event loop:
+
+```python
+import asyncio
+import liquers as lq
+
+env = lq.Environment()
+
+@env.first_command
+def hello() -> str:
+    return "hello"
+
+async def main():
+    assert await env.evaluate_async("hello") == "hello"
+    both = await asyncio.gather(env.evaluate_async("hello"), env.evaluate_async("hello"))
+    assert both == ["hello", "hello"]
+    asset = await env.get_asset_async("hello")
+    assert await asset.get_async() == "hello"
+
+asyncio.run(main())
+env.shutdown()
+```
+
+| Blocking | Awaitable |
+|---|---|
+| `env.evaluate`, `env.evaluate_state`, `env.get_asset`, `env.store_set` | `env.evaluate_async`, `env.evaluate_state_async`, `env.get_asset_async`, `env.store_set_async` |
+| `asset.get`, `asset.get_state`, `asset.cancel` | `asset.get_async`, `asset.get_state_async`, `asset.cancel_async` |
+| `context.evaluate` | `context.evaluate_async` |
+| `lq.evaluate` | `lq.evaluate_async` |
+
+An `_async` call must be made while an event loop runs (inside `async def`), or it raises
+`RuntimeError`. A bad query raises from the call itself, before any `await`. Cancelling the awaiting
+task ends only your wait: the evaluation finishes, and its result is kept. To stop the computation,
+`await asset.cancel_async()`. For a time limit, wrap the await in `asyncio.timeout(...)`. A blocking
+call made inside a running event loop still works, but warns with `RuntimeWarning`.
+
+**How many run at once.** `lq.Environment(job_capacity=8)` sets how many commands run at the same
+time; the rest wait their turn. Every command shares that one limit. A command evaluating another
+through `context.evaluate` or `context.evaluate_async` never waits for a slot it is itself holding,
+but one calling `env.evaluate` from inside a command does, and with `job_capacity=1` it waits
+forever.
+
+### Threads and free-threaded Python
+
+An environment can be used from several threads at once. On a free-threaded build of Python
+(`python3.14t`), importing `liquers` keeps the GIL off, so sync commands called from different
+threads, and async commands on different loops, really run in parallel. Two rules follow:
+
+- A command may run on several threads at once; protect any state it shares (a `threading.Lock`
+  around a counter, for example).
+- Do not change one `lq.Query`, `lq.Key` or `lq.Metadata` object from two threads at once: the
+  second change raises `RuntimeError`. The handles (`Environment`, `AssetRef`, `State`, `Context`)
+  are read-only and safe to share.
+
 ### Named results: recipes
 
 A *recipe* gives a query's result a key in the store, so `-R/data/triple.txt` computes it when no
@@ -448,7 +549,7 @@ env.shutdown()
 
 A trailing file name such as `triple.txt` also names the result and sets its media type; it can end
 any query (`hello/repeat-3/triple.txt`). How recipes are resolved is in
-[`reference/api/DOC_08_RECIPES_PLANS.md`](../reference/api/DOC_08_RECIPES_PLANS.md).
+[`reference/RECIPES_AND_PLANS.md`](../reference/RECIPES_AND_PLANS.md).
 
 ### Checking a query without running it
 
@@ -510,6 +611,26 @@ Every Liquers error is raised as a subclass of `lq.LiquersError`, one per `Error
 `lq.KeyNotFoundError`, `lq.ActionNotRegisteredError`, `lq.ExecutionError`. Catch
 `lq.LiquersError` for any of them.
 
+Some types also belong to categories, each with its own base class, so one `except` catches a
+group: `lq.StoreError` (every store error), `lq.KeyedAssetError` (the same for keyed assets) and
+`lq.NotFoundError` (also a `LookupError`). A type may be in several — `ErrorType.categories()`
+lists them:
+
+```python
+import liquers as lq
+
+env = lq.Environment()
+try:
+    env.evaluate("-R/data/missing.txt")
+except lq.NotFoundError as e:
+    # KeyNotFoundError: the store has no value there (a recipe may still make it).
+    # AssetNotFoundError: nothing is stored and no recipe makes it.
+    assert type(e) is lq.AssetNotFoundError and e.key == "data/missing.txt"
+else:
+    raise AssertionError("expected a NotFoundError")
+env.shutdown()
+```
+
 | Attribute | Meaning |
 |---|---|
 | `type` | the `ErrorType` |
@@ -564,11 +685,11 @@ way to give a test its input.
 What you will notice; the complete list, with the tracking issues, is
 [`reference/PYTHON_INTEGRATION.md`](../reference/PYTHON_INTEGRATION.md) §8.
 
-- Evaluation is synchronous; `async def` commands are not supported yet.
+- All commands share one limit on how many run at once (`job_capacity`); a command cannot have its
+  own.
 - The decorators cannot set a command's realm (a deployment-level grouping of commands) or describe
   arguments beyond their annotations.
 - Only the default recipe provider can be configured.
-- An environment's memory is never freed, even after `shutdown()`.
 - Progress lines on stderr cannot be turned off.
 - Most classes have no docstrings yet, so `help()` says little about them, and there are no type
   stubs for editors.
@@ -577,4 +698,10 @@ What you will notice; the complete list, with the tracking issues, is
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-27 | §5 Async commands; §6 Awaiting a query, `job_capacity`, Threads and free-threaded Python; §10 the async limitation is lifted, and the stale memory-leak line removed (fixed 2026-10-22). | `design/liquers-py-async/` (phase-5) |
+| 2026-10-27 | Registration: a command named `ns`, `q` or `v` is refused (`q` and `v` used to register and never run). | design `reserved-instruction-command-names` |
+| 2026-10-25 | §8 Errors: the category base classes `StoreError`, `KeyedAssetError`, `NotFoundError`. | `design/key-without-recipe-answer/` |
+| 2026-10-22 | Late registration: a replaced environment is kept until `shutdown()`, no longer until exit. | `design/environment-manager-reference-cycle/` |
+| 2026-10-22 | Link to the recipes reference follows its promotion to `reference/RECIPES_AND_PLANS.md`. | DOC-08 promotion |
+| 2026-10-20 | `context.error` raises `ExecutionError` with the first logged message once the command returns. | `CONTEXT-ERROR-OUTCOME-DEPENDS-ON-SCHEDULING` |
 | 2026-10-19 | Created from the implemented `liquers-py`. | `design/liquers-py/` (phase-5) |

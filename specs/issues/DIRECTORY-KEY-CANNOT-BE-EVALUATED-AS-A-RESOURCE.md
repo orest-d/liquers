@@ -2,7 +2,7 @@
 id: DIRECTORY-KEY-CANNOT-BE-EVALUATED-AS-A-RESOURCE
 kind: issue
 title: A query on a directory resource fails with "No recipe found" instead of giving a Directory state
-status: draft
+status: closed
 priority: P3
 complexity: M
 area: [core/assets]
@@ -69,3 +69,7 @@ the evaluation fails at the recipe provider ("No recipe found for key data", as 
 `liquers-lib/src/records/commands.rs` records). The same holds under a router for a key above its
 mounts (`AsyncStoreRouter::get` answers `KeyNotFound`, `is_dir` answers true). Designed in
 `design/key-without-recipe-answer/` (same branch as `MISSING-RESOURCE-REPORTED-AS-GENERAL-ERROR`).
+
+## Resolution
+
+2026-10-25, `design/key-without-recipe-answer/`. `-R/<dir>` with no recipe is a `Directory` state (no job, value none, the key and `is_dir` in its metadata), evicted on the next request so the directory is re-read; a recipe for a directory key fails with `AssetNotSupported` (Orest, 2026-10-25). `-R/files/-/ns-rec/file_records` now lists the directory. Tests: `key_without_recipe_tests::directory_key_gives_a_directory_state`, `immediate_manager_directory_key_gives_a_directory_state`, `directory_key_with_recipe_is_asset_not_supported`; `liquers-lib/tests/records_end_to_end.rs` `file_records_lists_a_store_directory_through_a_query`.

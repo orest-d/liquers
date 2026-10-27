@@ -84,7 +84,7 @@ retrieval. Macro: tuple element types. MCP: the tool schema of a tuple argument.
 - Reference: extend `reference/REGISTER_COMMAND_FSD.md` §Variadic Parameters and §Supported Types.
 - Guide: extend `guides/COMMAND_REGISTRATION_GUIDE.md` §"Accepting a variable number of parameters".
 - Other documents: `reference/COMMAND_DECLARATION.md` (a declared `Tuple` type);
-  `reference/api/DOC_08_RECIPES_PLANS.md` (override shapes).
+  `reference/RECIPES_AND_PLANS.md` (override shapes).
 - Documents to update: the four above, and the `specs/command_registry.yaml` changelog only if a
   shipped command adopts it (none planned).
 

@@ -2,11 +2,11 @@
 id: BUILD-MATRIX-CI-SKIPS-NEWER-CRATES
 kind: issue
 title: The build-matrix workflow does not run on a change confined to liquers-template, liquers-mcp or liquers-agent
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [build]
-design:
+design: build-matrix-path-filters
 created: 2026-10-20
 github:
 ---
@@ -23,6 +23,15 @@ the docs check and nothing else, and a broken configuration lands unseen.
 This is the same gap as the closed `BUILD-MATRIX-CI-SKIPS-LIQUERS-RECORDS-CHANGES`, recurring for
 the crates added after it. Each new crate repeats it.
 
+## Problem Example
+
+A PR changes only `liquers-template/src/render.rs` and breaks its wasm32 build
+(`TEMPLATE_CONFIGS` checks `--target wasm32-unknown-unknown --tests`). Because the path filters
+miss `liquers-template/**`, `build-matrix` does not run, and the PR merges with only the `docs`
+check. Re-checked at `cd6d5da`. Of the routes in Expected behaviour, `'**/*.rs'` would miss
+`include_str!` inputs such as `liquers-agent/tools/*.md` and `*.yaml`. The design uses
+`'liquers-*/**'`.
+
 ## Impact
 
 A wasm32 or `--tests` break in `liquers-template`, or a break in the MCP engine or agent binary, is
@@ -38,3 +47,7 @@ a workspace member has a matrix row but no path filter.
 
 Bulk design of `workspace-rustfmt-check` and `core-benchmark-suite` (2026-10-20), while reading
 the CI configuration at main 18732dd.
+
+## Resolution
+
+Fixed 2026-10-27 by `design/build-matrix-path-filters/`. Both `paths` lists in `.github/workflows/build-matrix.yml` now name one entry, `'liquers-*/**'`, in place of the eight per-crate entries, so a change confined to `liquers-template`, `liquers-mcp`, `liquers-agent` or any future `liquers-*` crate runs the matrix. The other five triggers are unchanged. A comment above each list says a member named otherwise needs its own entry.

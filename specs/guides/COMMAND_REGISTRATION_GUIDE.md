@@ -3,7 +3,7 @@ title: Command Registration Guide
 kind: guide
 audience: internal
 area: [core/commands, macro]
-reviewed: 2026-10-19
+reviewed: 2026-10-20
 ---
 # Command Registration Guide
 
@@ -215,7 +215,7 @@ an ordinary query, so `dir: Key = query "-R-key/./config"` yields
 `<cwd>/config`, and a non-key default such as
 `settings: String = query "-R/./settings.json/-/to_text"` reads a file beside the
 recipe. Freezing resolves the relative part against the entry CWD before the link is
-evaluated (see `DOC_08_RECIPES_PLANS.md`, "Freezing").
+evaluated (see [`RECIPES_AND_PLANS.md`](../reference/RECIPES_AND_PLANS.md#freezing), "Freezing").
 
 Three properties follow, and they are the reason to prefer this over ambient state:
 
@@ -1092,6 +1092,7 @@ only) action is that command ([`AGENT_MEMORY_SERVICE.md`](../reference/AGENT_MEM
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-20 | Links to `reference/api/DOC_08_RECIPES_PLANS.md` follow its promotion to `reference/RECIPES_AND_PLANS.md`. | DOC-08 promotion |
 | 2026-10-19 | §5 *Commands served as MCP tools*: one command per tool, state as a structurally filled key argument, relative defaults hidden, notes beside the value, read-only allow-lists. | `design/agent-memory-mvp/` Phase 5 |
 | 2026-10-17 | §*Registering an alias*: a head may be a link (`CommandParameterValue::Query`), `ArgumentInfo::with_default_link`, and template commands as aliases of `template/render`. | `design/liquers-mustache/` |
 | 2026-10-11 | §Common Examples: argument `description:` and command `hint <key>:`. | `design/command-metadata-descriptions-and-hints/` |

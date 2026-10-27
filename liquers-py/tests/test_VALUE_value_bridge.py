@@ -207,14 +207,11 @@ def test_VALUE_pickle_off_never_unpickles(tmp_path):
     assert not Tripwire.unpickled, "a pickle-off environment unpickled stored bytes"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="BLOCKED: DEGRADED-STORED-VALUE-WITHOUT-RECIPE-REPORTS-NO-RECIPE: the refused read "
-    "falls through to recipe lookup and reports 'No recipe found'",
-)
 def test_VALUE_pickle_off_error_names_the_type(tmp_path):
     reader = lq.Environment(config=_store_tripwire(tmp_path))
-    with pytest.raises(lq.LiquersError) as raised:
+    with pytest.raises(lq.AssetNotSupportedError) as raised:
         reader.evaluate("-R/o/obj")
     reader.shutdown()
     assert "py.Object" in raised.value.message
+    assert isinstance(raised.value, lq.KeyedAssetError)
+    assert raised.value.key == "o/obj"

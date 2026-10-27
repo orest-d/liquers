@@ -333,6 +333,25 @@ class BlankCodeTests(unittest.TestCase):
             self.assertEqual(docs_index.relative_link_errors(specs), [])
 
 
+class PhaseTextTests(unittest.TestCase):
+    def test_fenced_phase_heading_is_ignored(self):
+        text = (
+            "---\nform: compact\n---\n# d\n\n## Phase 1: High-Level Design\n\n"
+            "```markdown\n## Phase 4: Implementation Plan\n\nfenced\n```\n\nreal phase 1\n\n"
+            "## Phase 4: Implementation Plan\n\n### Steps\n\nreal phase 4\n"
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "DESIGN.md"
+            path.write_text(text, encoding="utf-8")
+            row = {"_path": path, "_fm": {"form": "compact"}}
+            phase1 = docs_index.design_phase_text(row, 1)
+            phase4 = docs_index.design_phase_text(row, 4)
+        self.assertIn("real phase 1", phase1)
+        self.assertIn("```markdown\n## Phase 4", phase1)
+        self.assertTrue(phase4.startswith("## Phase 4: Implementation Plan"))
+        self.assertNotIn("fenced", phase4)
+
+
 if __name__ == "__main__":
     unittest.main()
 

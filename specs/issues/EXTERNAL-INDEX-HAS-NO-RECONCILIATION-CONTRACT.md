@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: XL
 area: [records, core/assets, lib/commands]
-design:
+design: external-index-reconciliation
 created: 2026-10-21
 github:
 ---
@@ -19,6 +19,16 @@ record source. Liquers has no contract for feeding such a view and keeping it co
 `(id, version)` pairs, no reconciliation diff, no identity for the projection rule (tokenizer,
 embedding model), no sink trait with a test double, and no indexation policy. The in-tree search
 commands (`ns-search`) scan on every query and keep nothing between queries.
+
+## Problem Example
+
+A manifest `docs/corpus.manifest.yaml` lists 100 keyed chunks fed to a search engine. One chunk's
+file changes and another chunk is removed from the manifest. Today (HEAD cd6d5da) nothing says
+which chunk changed or that one disappeared: the only safe option is re-reading all 100 chunks and
+rebuilding the engine, and a removed chunk stays indexed until that rebuild. Should be: a
+reconciliation run reads the 100 chunk descriptors (`RecordSource::describe_chunk`, metadata
+only for stored keyed chunks), fetches the one changed chunk, deletes the removed one, and reports
+98 unchanged; a second run does nothing.
 
 ## Impact
 

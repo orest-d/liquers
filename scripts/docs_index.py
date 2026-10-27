@@ -1013,8 +1013,10 @@ def design_phase_text(row: dict, phase: int) -> str | None:
     path = Path(row["_path"])
     if row["_fm"].get("form") == "compact":
         text = path.read_text(encoding="utf-8")
-        match = re.search(rf"(?ms)^## Phase {phase}\b.*?(?=^## Phase \d|\Z)", text)
-        return match.group(0) if match else None
+        # Boundaries come from the code-blanked copy (same offsets), so a fenced `## Phase N`
+        # line in an example is not a phase heading.
+        match = re.search(rf"(?ms)^## Phase {phase}\b.*?(?=^## Phase \d|\Z)", blank_code(text))
+        return text[match.start() : match.end()] if match else None
     files = stable_paths(path.parent.glob(f"phase{phase}-*.md"))
     if not files:
         return None

@@ -9,7 +9,7 @@ autofix: not-eligible
 area: [core/plan, core/query]
 issues: [RECIPE-CANNOT-PARAMETERIZE-RESOURCE-KEY, RECIPE-OVERRIDE-ONLY-LAST-ACTION]
 merged: 2026-10-20
-affects_docs: [specs/reference/api/DOC_08_RECIPES_PLANS.md, specs/reference/TEMPLATE_LANGUAGE.md, specs/reference/AGENT_MEMORY_SERVICE.md]
+affects_docs: [specs/reference/RECIPES_AND_PLANS.md, specs/reference/TEMPLATE_LANGUAGE.md, specs/reference/AGENT_MEMORY_SERVICE.md]
 created: 2026-10-20
 ---
 # Recipe arguments that address any command and the key of a resource segment

@@ -110,3 +110,35 @@ def test_ERROR05_no_panic_crosses_the_boundary(env):
     with pytest.raises(lq.LiquersError, match="test_panic was evaluated") as raised:
         env.evaluate("test_panic")
     assert raised.value.type != lq.ErrorType.ActionNotRegistered
+
+
+def test_ERROR_category_classes():
+    """Each variant's class derives from exactly the classes of its categories (a DAG)."""
+    categories = {name: getattr(lq, name + "Error") for name in lq.ErrorType.all_categories()}
+    assert set(categories) == {"Store", "KeyedAsset", "NotFound"}
+    for cls in categories.values():
+        assert issubclass(cls, lq.LiquersError)
+        assert cls.__name__ in lq.__all__
+    assert issubclass(lq.NotFoundError, LookupError)
+    for name in dir(lq.ErrorType):
+        member = getattr(lq.ErrorType, name)
+        if not isinstance(member, lq.ErrorType):
+            continue
+        class_name = name if name.endswith("Error") else name + "Error"
+        assert class_name not in {c.__name__ for c in categories.values()}
+        cls = getattr(lq, class_name)
+        for category, category_cls in categories.items():
+            assert issubclass(cls, category_cls) == (category in member.categories()), class_name
+    assert lq.ErrorType.KeyNotFound.categories() == ["Store", "NotFound"]
+    assert lq.ErrorType.AssetNotFound.categories() == ["KeyedAsset", "NotFound"]
+    assert lq.ErrorType.General.categories() == []
+
+
+def test_ERROR_not_found_catches_both_misses():
+    for error_type in (lq.ErrorType.KeyNotFound, lq.ErrorType.AssetNotFound):
+        with pytest.raises(lq.NotFoundError):
+            raise lq.LiquersError(error_type, "missing", key="a/b")
+        with pytest.raises(LookupError):
+            raise lq.LiquersError(error_type, "missing", key="a/b")
+    with pytest.raises(lq.StoreError):
+        raise lq.KeyReadError("unreadable")

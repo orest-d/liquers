@@ -95,7 +95,7 @@ should land first, or Step 5's link test is written against unexpanded elements.
 
 ### Step 10: Documents and records
 - Files / symbols: `REGISTER_COMMAND_FSD.md`, `COMMAND_REGISTRATION_GUIDE.md`,
-  `COMMAND_DECLARATION.md`, `DOC_08_RECIPES_PLANS.md` (History rows, `reviewed:`); close
+  `COMMAND_DECLARATION.md`, `RECIPES_AND_PLANS.md` (History rows, `reviewed:`); close
   `COMMAND-COMPOSITE-VARIADIC-ARGUMENTS`; this design `complete`
 - Change: as listed
 - Depends on: Step 9

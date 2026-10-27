@@ -1,12 +1,12 @@
 ---
 id: RESOURCE-DIRECTORY-STEP-PRINTS-DEBUG-OUTPUT
 kind: issue
-title: Every -R-dir/ and -R-sdir/ evaluation prints two debug lines to stderr
-status: draft
+title: Every -R-sdir/ evaluation prints two debug lines to stderr
+status: closed
 priority: P3
 complexity: S
 area: [core/plan]
-design:
+design: resource-directory-step-debug-output-removal
 created: 2026-10-21
 github:
 ---
@@ -23,12 +23,14 @@ eprintln!("Got resource directory: {:?}", d);
 
 The second prints the whole `Debug` form of the listing — every entry's `AssetInfo` — so a large
 folder floods stderr. They read as leftovers from developing the `-R-dir/` / `-R-sdir/`
-instructions (2026-10-10), not as intended diagnostics.
+instructions (2026-10-10), not as intended diagnostics. Only `-R-sdir/` (`-R-store_directory/`,
+planned as `GetResourceDirectory`) prints. `-R-dir/` is `GetAssetDirectory` and does not; it was
+named here by mistake until the 2026-10-26 bulk design.
 
 ## Problem Example
 
 ```
--R-dir/data/-/to_text
+-R-sdir/data/-/to_text
 ```
 
 Today: besides its result, evaluating this query writes `Getting resource directory for key …` and
@@ -51,3 +53,7 @@ without the listing body).
 Seen while checking `STORE-COMMAND-NAMESPACE-MISSING` against HEAD during the bulk design of the
 store cluster (2026-10-21). Related: `CORE-TRACING-MIGRATION`, whose design moves `interpreter.rs`
 diagnostics to `tracing` and does not single these two out as lines to delete rather than migrate.
+
+## Resolution
+
+Fixed 2026-10-27 by `design/resource-directory-step-debug-output-removal/`. The two `eprintln!` calls in the `Step::GetResourceDirectory` arm of `do_step` (`liquers-core/src/interpreter.rs`) are removed, so `-R-sdir/…` writes nothing besides its value. Evidence: `test_sdir_lists_store_entries` pins the listing.

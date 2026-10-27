@@ -266,7 +266,7 @@ pub(crate) async fn key_metadata<E: Environment>(
         let record = MetadataRecord::from(info);
         return Ok(serde_json::to_value(&record).unwrap_or(serde_json::Value::Null));
     }
-    Err(Error::key_not_found(key))
+    Err(Error::asset_not_found(key))
 }
 
 /// Mode (c) for a key: `AssetManager::version`, with `Version::unknown()` (all zeros) when the
@@ -295,7 +295,7 @@ pub(crate) async fn submit_key_asset<E: Environment>(
 ) -> Result<AssetRef<E>, Error> {
     let manager = env.get_asset_manager();
     if !manager.can_make(key).await? {
-        return Err(Error::key_not_found(key));
+        return Err(Error::asset_not_found(key));
     }
     manager.get(key).await
 }

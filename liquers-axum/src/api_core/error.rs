@@ -7,7 +7,11 @@ use liquers_core::error::{Error, ErrorType};
 pub fn error_to_status_code(error_type: ErrorType) -> StatusCode {
     match error_type {
         ErrorType::KeyNotFound => StatusCode::NOT_FOUND,
+        // Nothing stored and no recipe: absent, like a store miss.
+        ErrorType::AssetNotFound => StatusCode::NOT_FOUND,
         ErrorType::KeyNotSupported => StatusCode::NOT_FOUND,
+        // The keyed-asset counterpart of `KeyNotSupported`: this server cannot serve the key.
+        ErrorType::AssetNotSupported => StatusCode::NOT_FOUND,
         // 400, not 404: the caller supplied something that is not a store address at all, which is
         // a malformed request rather than a resource that happens to be absent.
         ErrorType::KeyNotAbsolute => StatusCode::BAD_REQUEST,
@@ -67,6 +71,8 @@ pub fn error_to_detail(error: &Error) -> ErrorDetail {
 pub fn parse_error_type(type_str: &str) -> Result<ErrorType, String> {
     match type_str {
         "KeyNotFound" => Ok(ErrorType::KeyNotFound),
+        "AssetNotFound" => Ok(ErrorType::AssetNotFound),
+        "AssetNotSupported" => Ok(ErrorType::AssetNotSupported),
         "KeyNotSupported" => Ok(ErrorType::KeyNotSupported),
         "KeyNotAbsolute" => Ok(ErrorType::KeyNotAbsolute),
         "ParseError" => Ok(ErrorType::ParseError),
@@ -121,6 +127,8 @@ mod tests {
             ErrorType::NotSupported,
             ErrorType::NotAvailable,
             ErrorType::KeyNotFound,
+            ErrorType::AssetNotFound,
+            ErrorType::AssetNotSupported,
             ErrorType::KeyNotSupported,
             ErrorType::KeyNotAbsolute,
             ErrorType::KeyReadError,
@@ -149,6 +157,8 @@ mod tests {
                 | ErrorType::NotSupported
                 | ErrorType::NotAvailable
                 | ErrorType::KeyNotFound
+                | ErrorType::AssetNotFound
+                | ErrorType::AssetNotSupported
                 | ErrorType::KeyNotSupported
                 | ErrorType::KeyNotAbsolute
                 | ErrorType::KeyReadError
@@ -208,6 +218,10 @@ mod tests {
     fn test_error_to_status_code_not_found() {
         assert_eq!(
             error_to_status_code(ErrorType::KeyNotFound),
+            StatusCode::NOT_FOUND
+        );
+        assert_eq!(
+            error_to_status_code(ErrorType::AssetNotFound),
             StatusCode::NOT_FOUND
         );
         assert_eq!(
@@ -338,6 +352,8 @@ mod tests {
         // Test that all ErrorType variants have explicit status code mappings
         let all_types = vec![
             ErrorType::KeyNotFound,
+            ErrorType::AssetNotFound,
+            ErrorType::AssetNotSupported,
             ErrorType::KeyNotSupported,
             ErrorType::ParseError,
             ErrorType::UnknownCommand,

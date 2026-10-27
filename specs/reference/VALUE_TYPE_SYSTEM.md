@@ -3,7 +3,7 @@ title: Value Type System
 kind: reference
 audience: internal
 area: [core/value, lib/value]
-reviewed: 2026-10-18
+reviewed: 2026-10-27
 ---
 
 # Value Type System
@@ -233,7 +233,7 @@ audiences, not two type axes.
 | 3 | an explicit declaration (`with_media_type`, or a caller setting `data_format`) | either, verbatim |
 
 A query with no filename seeds nothing: `Recipe::get_asset_info` declares the query's filename
-extension or no format at all (DOC-08 §Recipe contract), so the asset of an unnamed query falls
+extension or no format at all ([`RECIPES_AND_PLANS.md`](RECIPES_AND_PLANS.md#recipe-contract) §Recipe contract), so the asset of an unnamed query falls
 through to level 1. It used to declare `bin`, which no `liquers-lib` value serializes as.
 
 **Level 1 resolves rather than writes.** An absent `data_format` *means* "no format was chosen, so
@@ -379,8 +379,19 @@ a differently configured environment, and decoding them is exactly what the regi
 of. `liquers-py` relies on this: with its pickle codec off it registers `py.Object` with no
 formats, so a pickle-off environment never unpickles bytes a pickle-on one stored. No built-in
 type is affected, because every one that can be stored declares a format. The error says which of
-the two reasons applies (`degraded_reason`). On the `-R/` path, a degraded key with no recipe is
-still reported as "No recipe found" (`DEGRADED-STORED-VALUE-WITHOUT-RECIPE-REPORTS-NO-RECIPE`).
+the two reasons applies (`degraded_reason`); its type is `AssetNotSupported`, with the key. On the
+`-R/` path a degraded key with no recipe fails with the same error.
+
+**An undeclared data format reads as the type's default.** When the stored metadata declares no
+`data_format` (a key without an extension, written by a state that chose none), the bytes are read
+in the registered type's `TypeInfo::default_data_format`, the same format the write path used
+(`State::effective_data_format`). Only an empty or unregistered identifier falls back to `bin`.
+
+**Core `Value` reads `json` by its identifier.** Because core `Value` is untagged in JSON, every
+core identifier (`None`, `Bool`, `I32`, `I64`, `F64`, `Text`, `Array`, `Object`, `Bytes`,
+`Metadata`, `AssetInfo`, `Recipe`, `CommandMetadata`, `Query`, `Key`) is read as that variant's
+payload, and a payload of another shape is a `SerializationError` naming the identifier. Only an
+empty or foreign identifier is read by the JSON's shape.
 
 A combined value (`liquers_lib::value::Value`, a `CombinedValue<SimpleValue, ExtValue>`) then
 chooses which half reads the bytes **by the identifier**, not by trying one half after the other
@@ -422,6 +433,10 @@ degrades on read.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-27 | §Reading: core `Value` reads every core identifier in `json` as its own variant; only an empty or foreign identifier is read by shape. | `design/core-value-json-identifier-dispatch/` (`CORE-VALUE-JSON-READ-IGNORES-STRUCTURED-IDENTIFIERS`) |
+| 2026-10-25 | §Reading: a degraded value is `AssetNotSupported`, and the `-R/` path with no recipe reports it. | `design/key-without-recipe-answer/` |
+| 2026-10-21 | §Reading: a stored value whose metadata declares no data format is read in its type's default format, not `bin`. | `design/stored-value-default-data-format/` (`STORED-VALUE-WITHOUT-DATA-FORMAT-READ-AS-BIN`) |
+| 2026-10-20 | Links to `reference/api/DOC_08_RECIPES_PLANS.md` follow its promotion to `reference/RECIPES_AND_PLANS.md`. | DOC-08 promotion |
 | 2026-10-18 | Reviewed against the implemented `liquers-py` (phase-5): §Reading's foreign decoder and formatless read rule match `liquers-lib/src/value/foreign.rs` and `liquers-core/src/assets.rs`. | `design/liquers-py/` (phase-5) |
 | 2026-10-18 | §Reading: a registered type that declares no formats is read as degraded, never decoded. | `design/liquers-py/` (`FOREIGN-VALUE-CANNOT-BE-DESERIALIZED`) |
 | 2026-10-18 | §Reading a foreign value back: the process-global foreign decoder table, and foreign identifiers routed to the extension. `liquers-py` now registers `py.Object` at construction instead of owning a value type. | `design/liquers-py/` |

@@ -18,6 +18,14 @@ allow-list; resource and asset steps are always allowed, so a query tool can rea
 serves. `specs/design/agent-memory-mvp/phase2-architecture.md` (Q on the allow-list) records that
 the allow-list "should give way to permissions checked by core" once access control exists.
 
+## Problem Example
+
+A tool set whose allow-list is `["-mem-*"]` (the `memory` tool set's form, `liquers-agent/tools/memory.yaml`) still lets its query tool return
+`-R/secrets/token.txt`: `check_allowed` (`liquers-mcp/src/server.rs`) skips resource and asset
+steps, so any key the store serves is readable. Expected: a configured principal whose policy
+denies `secrets/**` makes that call fail with an access error. Re-checked at HEAD (2026-10-26):
+unchanged; `design/access-policy-at-entry-points/` is `in_review` and unimplemented.
+
 ## Impact
 
 Low while the agent memory is single-user. A shared or hosted MCP server cannot restrict which keys

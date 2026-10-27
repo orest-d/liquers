@@ -26,6 +26,17 @@ def test_EVAL_text_resource_read_from_store(env):
     assert env.evaluate("-R/d/in.txt/-/repeat-2") == "abcabc"
 
 
+def test_EVAL_missing_resource_raises_asset_not_found(env):
+    # Nothing stored and no recipe: an asset-level miss, caught as a "not found" of either kind.
+    with pytest.raises(lq.NotFoundError) as raised:
+        env.evaluate("-R/data/missing.txt")
+    assert type(raised.value) is lq.AssetNotFoundError
+    assert raised.value.type == lq.ErrorType.AssetNotFound
+    assert raised.value.key == "data/missing.txt"
+    assert isinstance(raised.value, lq.KeyedAssetError)
+    assert not isinstance(raised.value, lq.StoreError)
+
+
 def test_EVAL01_evaluate_builtin_query(env):
     assert env.evaluate("hello/to_text") == "hello"
 
@@ -84,7 +95,7 @@ def test_EVAL06_cancellation_has_defined_terminal_result():
 
 
 def test_EVAL_context_error_fails_the_result():
-    # Core marks an asset failed when an error-level entry is logged, even if the command returns.
+    # An error-level entry fails the evaluation once the command returns, whatever it returned.
     env = lq.Environment()
 
     @env.first_command
@@ -92,6 +103,6 @@ def test_EVAL_context_error_fails_the_result():
         context.error("logged error")
         return "value"
 
-    with pytest.raises(lq.GeneralError, match="logged error"):
+    with pytest.raises(lq.ExecutionError, match="logged error"):
         env.evaluate("logs_an_error")
     env.shutdown()

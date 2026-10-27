@@ -112,16 +112,16 @@
 //! [`crate::recipes::Recipe`] located in a particular directory. In many contexts,
 //! the CWD is undefined; for example, when a query is passed through the web API.
 //!
-//! # Interpreter instructions
+//! # Planner instructions
 //!
-//! The planner gives three action names structural meaning:
-//!
-//! - `ns` selects command namespaces. The last `ns` action in the last transform
-//!   segment is used for lookup.
-//! - A terminal `q` asks the planner to use the preceding query as a query value.
-//! - `v` marks the plan volatile and does not create a command-execution step.
-//!
-//! These are semantic rules of plan construction, not additional parser grammar.
+//! Some parts of a query are *planner instructions*, not commands:
+//! [`crate::plan::PlanBuilder`] consumes them, never looks them up in the command
+//! registry, and never emits a `Step::Action` for them. Three are written as actions —
+//! `ns` (selects command namespaces), `q` (makes the query before it a value) and `v`
+//! (makes the plan volatile from its position on) — and the fourth is the resource
+//! header instruction (`-R-meta/…`). These are semantic rules of plan construction, not
+//! additional parser grammar; each one is defined in
+//! `specs/reference/RECIPES_AND_PLANS.md` §Planner instructions.
 
 #![allow(unused_imports)]
 #![allow(dead_code)]
@@ -792,6 +792,15 @@ impl Display for ResourceName {
     }
 }
 
+/// Name of the `ns` planner instruction.
+pub(crate) const NS_INSTRUCTION: &str = "ns";
+/// Name of the `q` planner instruction.
+pub(crate) const Q_INSTRUCTION: &str = "q";
+/// Name of the `v` planner instruction.
+pub(crate) const V_INSTRUCTION: &str = "v";
+/// Action names the planner intercepts before command lookup; never valid command names.
+pub(crate) const RESERVED_ACTION_NAMES: [&str; 3] = [NS_INSTRUCTION, Q_INSTRUCTION, V_INSTRUCTION];
+
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 /// A command name and its ordered parameters within a transform segment.
 ///
@@ -820,7 +829,7 @@ impl ActionRequest {
         Self { parameters, ..self }
     }
     pub fn is_ns(&self) -> bool {
-        self.name == "ns"
+        self.name == NS_INSTRUCTION
     }
     pub fn ns(&self) -> Option<Vec<ActionParameter>> {
         if self.is_ns() {
@@ -830,7 +839,11 @@ impl ActionRequest {
         }
     }
     pub fn is_q(&self) -> bool {
-        self.name == "q"
+        self.name == Q_INSTRUCTION
+    }
+    /// Whether this action is the `v` (volatile) planner instruction.
+    pub(crate) fn is_v(&self) -> bool {
+        self.name == V_INSTRUCTION
     }
     pub fn encode(&self) -> String {
         if self.parameters.is_empty() {
@@ -2985,6 +2998,22 @@ mod tests {
     use crate::parse::{self, parse_key, parse_query};
 
     use super::*;
+
+    /// Every reserved action name is exactly one planner instruction, and every instruction
+    /// predicate is reached by one of them.
+    #[test]
+    fn reserved_action_names_match_instruction_predicates() {
+        let mut reached = [false; 3];
+        for name in RESERVED_ACTION_NAMES {
+            let action = ActionRequest::new(name.to_string());
+            let hits = [action.is_ns(), action.is_q(), action.is_v()];
+            assert_eq!(hits.iter().filter(|h| **h).count(), 1, "{name}");
+            for (seen, hit) in reached.iter_mut().zip(hits) {
+                *seen |= hit;
+            }
+        }
+        assert_eq!(reached, [true; 3]);
+    }
 
     /// T1 (`design/query-leading-slash-field`): the leading `/` is the `rooted` flag.
     #[test]

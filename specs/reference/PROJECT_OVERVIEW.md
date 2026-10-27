@@ -3,7 +3,7 @@ title: Liquers Project Overview
 kind: reference
 audience: internal
 area: [core/query, core/plan, core/assets, core/store, core/value]
-reviewed: 2026-10-19
+reviewed: 2026-10-25
 ---
 # Liquers Project Overview
 
@@ -169,13 +169,14 @@ declared `multiple` consumes every remaining parameter, so a command with one is
 `register_command!` is not yet possible; see
 [`COMMAND-VARIADIC-ARGUMENTS-NOT-DECLARABLE`](../issues/COMMAND-VARIADIC-ARGUMENTS-NOT-DECLARABLE.md).)
 
-The special instructions resolve no command metadata, so each carries its own rule: `v` and `q` take
-no parameters and reject any, while **`ns` is variadic by design** — every parameter names a
-namespace, so `ns-one-two` is correct and must keep working. `v` is **positional**: a query is
-volatile from `v` onward and the prefix ahead of it stays pure and cacheable, so `v` at the head
-(`v/a/b`) is how to make the whole query volatile.
+The **planner instructions** `ns`, `q` and `v` look like actions but are consumed by the plan
+builder: they shape the plan and are never looked up as commands or run as `Action` steps
+([`RECIPES_AND_PLANS.md` §Planner instructions](RECIPES_AND_PLANS.md#planner-instructions), which
+defines each one). They resolve no command metadata, so each carries its own parameter rule, and
+**`ns` is variadic by design** — every parameter names a namespace, so `ns-one-two` is correct and
+must keep working.
 
-A resource header takes exactly one instruction, and surplus header parameters are an error on the
+A resource header takes at most one instruction, and surplus header parameters are an error on the
 same terms. Its *name*, by contrast, is only warned about and then ignored — the name is reserved
 for a future realm interpretation, and rejecting it now would refuse queries a later version
 accepts. The two are treated differently on purpose: an input that will acquire meaning is warned
@@ -463,6 +464,11 @@ Session (user session - currently minimal)
 
 ### Error Handling
 - `liquers_core::error::Error` with `ErrorType` enum
+- Overlapping `ErrorCategory` groups of error types (`ErrorType::categories`, `is`): `Store`,
+  `KeyedAsset` and `NotFound`. A store miss is `KeyNotFound` (`Store`, `NotFound`) — the value may
+  simply not be computed yet; a key neither stored nor made by a recipe is `AssetNotFound`
+  (`KeyedAsset`, `NotFound`). Python mirrors the categories as base classes, JavaScript as
+  `LiquersError.categories`
 - Position tracking for precise error location in queries
 - Query/Key context preserved in errors
 
@@ -562,6 +568,8 @@ project's purpose, intended uses and per-crate strategy. This document describes
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-25 | Error handling: `ErrorCategory` (`Store`, `KeyedAsset`, `NotFound`) and the `KeyNotFound` / `AssetNotFound` distinction. | `design/key-without-recipe-answer/` |
+| 2026-10-20 | "Special instructions" renamed planner instructions, reduced to the `ns`-is-variadic rule and a link to their definition in `RECIPES_AND_PLANS.md`; a resource header takes at most one instruction. | DOC-08 promotion |
 | 2026-10-19 | Added `liquers-mcp` and `liquers-agent` to the crate structure and the dependency flow, and the `mem` feature of `liquers-lib`. | `design/agent-memory-mvp/` |
 | 2026-10-17 | Added `liquers-template` to the crate structure and the dependency flow `liquers-core ← liquers-template ← liquers-lib` (feature `templates`). | `design/liquers-mustache/` |
 | 2026-10-16 | Key Design Decisions: Liquers is the only writer of store metadata while it runs. | `design/store-adapters/` phase-5 review |
