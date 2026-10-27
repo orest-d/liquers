@@ -8,10 +8,10 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 218
+Total rows: 217
 - P1: 1
 - P2: 65
-- P3: 152
+- P3: 151
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -131,7 +131,6 @@ Total rows: 218
 | [`WEB-METADATA-STATUS-CASE-DIFFERS`](issues/WEB-METADATA-STATUS-CASE-DIFFERS.md) | issue | State.metadata().status is capitalized while Asset.status() and State.status are lowercase | draft |  |  | P3 | S | web |  | 2026-10-26 |
 | [`WEB-UNREGISTER-DEPENDS-ON-FIRST-EVALUATION`](issues/WEB-UNREGISTER-DEPENDS-ON-FIRST-EVALUATION.md) | issue | unregisterCommand removes a built-in command before the first evaluation but not after it | draft |  |  | P3 | S | web |  | 2026-10-26 |
 | [`CANCEL-CAN-OVERTAKE-A-RETURNED-COMMAND`](issues/CANCEL-CAN-OVERTAKE-A-RETURNED-COMMAND.md) | issue | A cancel can still win after the last command returned Ok, if the rest of the evaluation then suspends | draft | ready | eligible | P3 | M | core/assets | [design](design/cancel-point-of-no-return/DESIGN.md) | 2026-10-09 |
-| [`DEPENDENCY-VOLATILITY-INVISIBLE-TO-PREDECESSOR-WALK`](issues/DEPENDENCY-VOLATILITY-INVISIBLE-TO-PREDECESSOR-WALK.md) | issue | Volatility a plan inherits at finalization is invisible to the predecessor-boundary walk | draft | ready | eligible | P3 | M | core/plan | [design](design/inherited-volatility-bounds-predecessor-cut/DESIGN.md) | 2026-10-20 |
 | [`RUNTIME-DEPENDENCY-RECORD-AGAINST-SUPERSEDED-VERSION-IS-NOT-CHECKED`](issues/RUNTIME-DEPENDENCY-RECORD-AGAINST-SUPERSEDED-VERSION-IS-NOT-CHECKED.md) | issue | A dependency record added at run time is never compared with a newer registered version | draft | ready | eligible | P3 | M | core/assets | [design](design/runtime-dependency-record-superseded-check/DESIGN.md) | 2026-10-17 |
 | [`UNCACHED-STORED-COPY-EXPIRY-RACES-AN-INFLIGHT-EVALUATION`](issues/UNCACHED-STORED-COPY-EXPIRY-RACES-AN-INFLIGHT-EVALUATION.md) | issue | Expiring an uncached key's stored copy can be overwritten by an evaluation already in flight | draft | ready | eligible | P3 | M | core/assets | [design](design/uncached-write-back-rechecks-dependency-versions/DESIGN.md) | 2026-09-27 |
 | [`COLUMNMUT-VALIDITY-AND-VARIABLE-LENGTH-SET-ALWAYS-COPY`](issues/COLUMNMUT-VALIDITY-AND-VARIABLE-LENGTH-SET-ALWAYS-COPY.md) | issue | ColumnMut always copies validity, and rebuilds the whole column to overwrite one Text/Binary cell | draft | ready | not-eligible | P3 | M | records | [design](design/column-mut-zero-copy-validity/DESIGN.md) | 2026-09-26 |
