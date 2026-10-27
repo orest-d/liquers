@@ -3,8 +3,8 @@ id: BUILD-MATRIX-PATH-FILTERS
 kind: design
 title: The build-matrix workflow runs for a change to any liquers-* crate
 form: compact
-status: in_review
-phase: implementation
+status: complete
+gh_pr: [185]
 readiness: ready
 autofix: eligible
 area: [build]
@@ -12,6 +12,8 @@ issues: [BUILD-MATRIX-CI-SKIPS-NEWER-CRATES]
 created: 2026-10-26
 ---
 # The build-matrix workflow runs for a change to any liquers-* crate
+
+> **Complete on 2026-10-27**: implemented by automatic fix in #185.
 
 Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-26: Phases 1-4 written; Phase 4
 implemented on 2026-10-27 (automatic fix).
