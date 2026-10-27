@@ -1215,4 +1215,16 @@ mod tests {
             "and ValueInterface::supports_data_format, which consults type_info, agrees"
         );
     }
+
+    /// AC-5 of `simple-value-i32-json-read`: the combined value reads a JSON `I32` as `I32`.
+    #[test]
+    fn combined_value_reads_json_i32_as_i32() -> Result<(), Box<dyn std::error::Error>> {
+        use liquers_core::value::{DefaultValueSerializer, ValueInterface};
+        let value = Value::new_base(crate::value::simple::SimpleValue::I32 { value: 3 });
+        let bytes = value.as_bytes("json")?;
+        let back = Value::deserialize_from_bytes(&bytes, "I32", "json")?;
+        assert_eq!(back.identifier(), "I32");
+        assert_eq!(back.try_into_i32()?, 3);
+        Ok(())
+    }
 }
