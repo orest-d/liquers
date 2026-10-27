@@ -3,8 +3,8 @@ id: VALIDATE-PHASE-SECTION-MATCH
 kind: design
 title: validate_phase.py finds a compact section's body from its own heading line
 form: compact
-status: in_review
-phase: implementation
+status: complete
+gh_pr: [187]
 readiness: ready
 autofix: eligible
 area: [docs, build]
@@ -12,6 +12,8 @@ issues: [VALIDATE-PHASE-EMPTY-SECTION-MATCHES-ACROSS-LINES]
 created: 2026-10-20
 ---
 # validate_phase.py finds a compact section's body from its own heading line
+
+> **Complete on 2026-10-27**: implemented by automatic fix in #187.
 
 Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-20: Phases 1-4 written; Phase 4
 implemented on 2026-10-27 (automatic fix).

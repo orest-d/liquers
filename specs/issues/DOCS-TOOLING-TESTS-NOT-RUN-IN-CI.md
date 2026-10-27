@@ -2,7 +2,7 @@
 id: DOCS-TOOLING-TESTS-NOT-RUN-IN-CI
 kind: issue
 title: The unit tests of the documentation tooling are not run by CI
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [docs, build]
@@ -46,3 +46,7 @@ are stdlib-only, so the workflow's no-dependency contract holds.
 ## Discovery
 
 Bulk design of `validate-phase-section-match` and `front-matter-yaml-agreement` (2026-10-20).
+
+## Resolution
+
+Fixed 2026-10-27 by `design/docs-tooling-tests-in-ci/`. `.github/workflows/docs-check.yml` now runs `python3 -m unittest -v scripts/test_docs_index.py` and, when `.claude/skills/liquers-project/scripts/` holds a `test_*.py`, `unittest discover` there (otherwise it prints that it skipped, so an empty directory never exits 5 on Python 3.12+). Its `pull_request` and `push` filters are the same five entries and include the test file, the skill scripts and the workflow itself.
