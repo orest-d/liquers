@@ -8,10 +8,10 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 222
+Total rows: 221
 - P1: 1
 - P2: 66
-- P3: 155
+- P3: 154
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -95,7 +95,6 @@ Total rows: 222
 | [`RECORD-TABLE-FORMAT-REFUSES-CSV-REFINEMENTS-POLARS-ACCEPTS`](issues/RECORD-TABLE-FORMAT-REFUSES-CSV-REFINEMENTS-POLARS-ACCEPTS.md) | issue | A record view refuses csv:semicolon and csv:pipe, which a DataFrame and the type registry accept | draft | ready | eligible | P3 | S | records | [design](design/record-table-csv-refinements/DESIGN.md) | 2026-10-26 |
 | [`RESOURCE-DIRECTORY-STEP-PRINTS-DEBUG-OUTPUT`](issues/RESOURCE-DIRECTORY-STEP-PRINTS-DEBUG-OUTPUT.md) | issue | Every -R-sdir/ evaluation prints two debug lines to stderr | draft | ready | eligible | P3 | S | core/plan | [design](design/resource-directory-step-debug-output-removal/DESIGN.md) | 2026-10-21 |
 | [`SIMPLE-VALUE-I32-JSON-READS-BACK-AS-I64`](issues/SIMPLE-VALUE-I32-JSON-READS-BACK-AS-I64.md) | issue | liquers-lib's base value reads an I32 written as JSON back as I64 | draft | ready | eligible | P3 | S | lib/value | [design](design/simple-value-i32-json-read/DESIGN.md) | 2026-10-20 |
-| [`SOFT-CONSISTENCY-CHECK-MISREADS-A-REFINED-DATA-FORMAT`](issues/SOFT-CONSISTENCY-CHECK-MISREADS-A-REFINED-DATA-FORMAT.md) | issue | set_state logs a spurious media-type warning for a refined data format such as csv:comma | draft | ready | eligible | P3 | S | core/assets | [design](design/soft-consistency-refined-format/DESIGN.md) | 2026-10-26 |
 | [`SPECS-FRONT-MATTER-IS-NOT-VALID-YAML`](issues/SPECS-FRONT-MATTER-IS-NOT-VALID-YAML.md) | issue | Nine specs documents have front-matter that a YAML parser rejects | draft | ready | eligible | P3 | S | docs | [design](design/front-matter-yaml-agreement/DESIGN.md) | 2026-10-19 |
 | [`TEMPLATE-DIAGNOSTICS-RESOLVE-NAMESPACES-FROM-THE-WHOLE-QUERY`](issues/TEMPLATE-DIAGNOSTICS-RESOLVE-NAMESPACES-FROM-THE-WHOLE-QUERY.md) | issue | Template diagnostics look every command up in one namespace list for the whole query | draft | ready | eligible | P3 | S | core/query;lib/commands | [design](design/template-diagnostics-namespace-scope/DESIGN.md) | 2026-10-26 |
 | [`TEMPORARY-ASSETS-SHARE-ID-ZERO`](issues/TEMPORARY-ASSETS-SHARE-ID-ZERO.md) | issue | Every temporary asset has id 0, so code that identifies assets by id can confuse them | draft | ready | eligible | P3 | S | core/assets | [design](design/temporary-asset-unique-id/DESIGN.md) | 2026-10-18 |

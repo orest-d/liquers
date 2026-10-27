@@ -1063,7 +1063,8 @@ fn validate_required_metadata_fields_enum(
 fn add_soft_consistency_warnings(metadata: &mut MetadataRecord) {
     let effective_data_format = metadata.get_data_format();
     let expected_media_type =
-        crate::media_type::file_extension_to_media_type(&effective_data_format).to_string();
+        crate::media_type::file_extension_to_media_type(data_format_base(&effective_data_format))
+            .to_string();
     let entries = soft_consistency_entries(
         &effective_data_format,
         metadata.extension().as_deref(),
@@ -1082,7 +1083,8 @@ fn add_soft_consistency_warnings(metadata: &mut MetadataRecord) {
 fn add_soft_consistency_warnings_enum(metadata: &mut Metadata) -> Result<(), Error> {
     let effective_data_format = metadata.get_data_format();
     let expected_media_type =
-        crate::media_type::file_extension_to_media_type(&effective_data_format).to_string();
+        crate::media_type::file_extension_to_media_type(data_format_base(&effective_data_format))
+            .to_string();
     let entries = soft_consistency_entries(
         &effective_data_format,
         metadata.extension().as_deref(),
