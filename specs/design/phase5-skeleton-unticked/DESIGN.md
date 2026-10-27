@@ -3,8 +3,8 @@ id: PHASE5-SKELETON-UNTICKED
 kind: design
 title: A new design's Phase 5 skeleton starts with its completion preconditions unticked
 form: compact
-status: in_review
-phase: implementation
+status: complete
+gh_pr: [188]
 readiness: ready
 autofix: eligible
 area: [docs]
@@ -13,8 +13,10 @@ created: 2026-10-20
 ---
 # A new design's Phase 5 skeleton starts with its completion preconditions unticked
 
-Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-20. Phases 1-4 are written but not
-approved, and nothing is implemented.
+> **Complete on 2026-10-27**: implemented by automatic fix in #188.
+
+Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-20: Phases 1-4 written; Phase 4
+implemented on 2026-10-27 (automatic fix).
 
 ## Phase 1: High-Level Design
 
@@ -120,10 +122,10 @@ Run: `python3 -m unittest discover -s .claude/skills/liquers-project/scripts -p 
 
 ### Steps
 
-- [ ] 1. `test_init_feature.py` with both tests; they fail at HEAD — the unittest command above
-- [ ] 2. `references/phase5-documentation.md` — untick the five items, add the evidence sentence — tests pass
-- [ ] 3. Untick the two untouched draft skeletons after the `diff` check — `grep -L '\- \[x\]' specs/design/{agent-memory-derived,external-index-sync}/phase5-documentation.md` lists both
-- [ ] 4. Close the source issue with a resolution note — `python3 scripts/docs_index.py --check`
+- [x] 1. `test_init_feature.py` with both tests; they fail at HEAD — the unittest command above
+- [x] 2. `references/phase5-documentation.md` — untick the five items, add the evidence sentence — tests pass
+- [x] 3. Untick the two untouched draft skeletons after the `diff` check — `grep -L '\- \[x\]' specs/design/{agent-memory-derived,external-index-sync}/phase5-documentation.md` lists both
+- [x] 4. Close the source issue with a resolution note — `python3 scripts/docs_index.py --check`
 
 ### Validation
 

@@ -10072,12 +10072,7 @@ impl<E: Environment + 'static> JobQueue<E> {
         let envref = asset.try_get_envref().await?;
 
         // Dedup-register in the global jobs list (as submit did before).
-        {
-            let mut jobs = self.jobs.lock().await;
-            if !jobs.iter().any(|(a, _)| a.id() == asset_id) {
-                jobs.push((asset.clone(), envref));
-            }
-        }
+        self.pin(asset, envref).await;
         self.notify.notify_one();
 
         // Reserve a capacity slot via CAS.
@@ -10133,13 +10128,7 @@ impl<E: Environment + 'static> JobQueue<E> {
     /// through `try_to_start_immediately`).
     async fn repark_as_submitted(&self, asset: &AssetRef<E>) -> Result<(), Error> {
         let envref = asset.try_get_envref().await?;
-        {
-            let mut jobs = self.jobs.lock().await;
-            let id = asset.id();
-            if !jobs.iter().any(|(a, _)| a.id() == id) {
-                jobs.push((asset.clone(), envref));
-            }
-        }
+        self.pin(asset, envref).await;
         asset.submitted().await?;
         self.notify.notify_one();
         Ok(())
@@ -10205,6 +10194,7 @@ impl<E: Environment + 'static> JobQueue<E> {
         eprintln!("Starting job queue");
         loop {
             if self.shutdown.load(Ordering::SeqCst) {
+                self.release_pins().await;
                 return;
             }
             // Check if we can start more jobs
@@ -10254,6 +10244,36 @@ impl<E: Environment + 'static> JobQueue<E> {
         // A permit too: the loop may be between its shutdown check and its wait — notably when
         // the environment is dropped by the loop's own cleanup — and `notify_waiters` stores none.
         self.notify.notify_one();
+    }
+
+    /// Registers `asset` in the jobs list with its environment pin, once per asset.
+    ///
+    /// After shutdown nothing is pinned: no cleanup pass would ever release it. The flag is read
+    /// under the lock that [`Self::release_pins`] takes, so a pin is either taken by that release
+    /// or never added.
+    async fn pin(&self, asset: &AssetRef<E>, envref: EnvRef<E>) {
+        let unused = {
+            let mut jobs = self.jobs.lock().await;
+            let id = asset.id();
+            if self.shutdown.load(Ordering::SeqCst) || jobs.iter().any(|(a, _)| a.id() == id) {
+                Some(envref)
+            } else {
+                jobs.push((asset.clone(), envref));
+                None
+            }
+        };
+        // Released outside the lock: it may be the environment's last reference.
+        drop(unused);
+    }
+
+    /// Drops every pin once the loop stops, since no cleanup pass will run after it. A job still
+    /// running keeps its environment through its own context until it finishes; a parked job will
+    /// never start, so it keeps nothing. A pin left here would hold the environment, which owns
+    /// this queue, for good.
+    async fn release_pins(&self) {
+        let pinned = std::mem::take(&mut *self.jobs.lock().await);
+        // Released outside the lock, as in `cleanup_completed_internal`.
+        drop(pinned);
     }
 
     /// Internal cleanup method that doesn't require &mut self

@@ -3,8 +3,8 @@ id: RECIPE-LIST-SET-CWD-VALIDATION
 kind: design
 title: RecipeList::set_cwd checks the whole list first and names every recipe that sets cwd
 form: compact
-status: in_review
-phase: implementation
+status: complete
+gh_pr: [195]
 readiness: ready
 autofix: eligible
 area: [core/assets]
@@ -13,6 +13,8 @@ merged: 2026-10-26
 created: 2026-10-26
 ---
 # RecipeList::set_cwd checks the whole list first and names every recipe that sets cwd
+
+> **Complete on 2026-10-27**: implemented by automatic fix in #195.
 
 Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-26: Phases 1-4 written; Phase 4
 implemented on 2026-10-27 (automatic fix).
