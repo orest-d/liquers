@@ -8,10 +8,10 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 214
+Total rows: 212
 - P1: 1
 - P2: 63
-- P3: 150
+- P3: 148
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -85,8 +85,6 @@ Total rows: 214
 | [`FOREIGN-VALUE-TEXT-AND-JSON-HOOKS-NEVER-CALLED`](issues/FOREIGN-VALUE-TEXT-AND-JSON-HOOKS-NEVER-CALLED.md) | issue | ForeignValue's text and JSON hooks are never called, so a foreign value cannot offer either | draft | ready | eligible | P3 | S | lib/value | [design](design/foreign-value-text-json-delegation/DESIGN.md) | 2026-10-20 |
 | [`NEXT-PRESETS-MISREAD-PLANNER-INSTRUCTIONS`](issues/NEXT-PRESETS-MISREAD-PLANNER-INSTRUCTIONS.md) | issue | find_next_presets reads planner instructions differently from the planner | draft | ready | eligible | P3 | S | lib/commands | [design](design/next-presets-follow-planner-rules/DESIGN.md) | 2026-10-20 |
 | [`PLAN-SERDE-HAS-NO-COMPATIBILITY-CONTRACT`](issues/PLAN-SERDE-HAS-NO-COMPATIBILITY-CONTRACT.md) | issue | A serialized Plan has no compatibility contract | draft | ready | eligible | P3 | S | core/plan | [design](design/plan-serialization-internal-contract/DESIGN.md) | 2026-10-20 |
-| [`RECIPE-CWD-ERROR-DOES-NOT-NAME-THE-RECIPE`](issues/RECIPE-CWD-ERROR-DOES-NOT-NAME-THE-RECIPE.md) | issue | The explicit-cwd recipe error names the directory but not the offending recipe | draft | ready | eligible | P3 | S | core/assets | [design](design/recipe-list-set-cwd-validation/DESIGN.md) | 2026-10-20 |
-| [`RECIPE-LIST-SET-CWD-MUTATES-BEFORE-FAILING`](issues/RECIPE-LIST-SET-CWD-MUTATES-BEFORE-FAILING.md) | issue | RecipeList::set_cwd mutates part of the list before failing | draft | ready | eligible | P3 | S | core/assets | [design](design/recipe-list-set-cwd-validation/DESIGN.md) | 2026-10-20 |
 | [`RECORD-TABLE-FORMAT-REFUSES-CSV-REFINEMENTS-POLARS-ACCEPTS`](issues/RECORD-TABLE-FORMAT-REFUSES-CSV-REFINEMENTS-POLARS-ACCEPTS.md) | issue | A record view refuses csv:semicolon and csv:pipe, which a DataFrame and the type registry accept | draft | ready | eligible | P3 | S | records | [design](design/record-table-csv-refinements/DESIGN.md) | 2026-10-26 |
 | [`SIMPLE-VALUE-I32-JSON-READS-BACK-AS-I64`](issues/SIMPLE-VALUE-I32-JSON-READS-BACK-AS-I64.md) | issue | liquers-lib's base value reads an I32 written as JSON back as I64 | draft | ready | eligible | P3 | S | lib/value | [design](design/simple-value-i32-json-read/DESIGN.md) | 2026-10-20 |
 | [`SOFT-CONSISTENCY-CHECK-MISREADS-A-REFINED-DATA-FORMAT`](issues/SOFT-CONSISTENCY-CHECK-MISREADS-A-REFINED-DATA-FORMAT.md) | issue | set_state logs a spurious media-type warning for a refined data format such as csv:comma | draft | ready | eligible | P3 | S | core/assets | [design](design/soft-consistency-refined-format/DESIGN.md) | 2026-10-26 |
