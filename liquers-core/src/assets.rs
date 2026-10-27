@@ -6235,15 +6235,30 @@ where
     E: Environment,
     M: AssetManager<E> + ?Sized,
 {
-    let stored = metadata.status();
-    if stored != Status::None {
+    let inferred = metadata.is_inferred();
+    if metadata.status() != Status::None && !inferred {
         return Ok(());
     }
-    let recorded = metadata.version().unwrap_or_else(Version::unknown);
     let has_recipe = manager
         .get_recipe_provider()
         .can_make(key, manager.try_get_envref()?)
         .await?;
+    if inferred {
+        // An inferred record says nothing the data does not (`storage-none-computed-values`):
+        // without a recipe it stands; under one, the store has no record of what made the bytes,
+        // so they are a file with no metadata, and the version check decides by the
+        // environment's `ExternalChangePolicy`.
+        if !has_recipe {
+            return Ok(());
+        }
+        metadata.set_status(Status::None)?;
+        metadata.set_version(None)?;
+        metadata.add_log_entry(LogEntry::info(format!(
+            "the record of {key} was inferred, not stored; read as a file with no metadata"
+        )))?;
+    }
+    let stored = metadata.status();
+    let recorded = metadata.version().unwrap_or_else(Version::unknown);
     let status = reusable_stored_status(stored, recorded, has_recipe);
     if status != stored {
         metadata.set_status(status)?;
@@ -6734,6 +6749,7 @@ pub trait AssetManager<E: Environment>:
     /// | any other | no | delete: the live asset, the dependency-graph entry and the stored entry; dependents are expired |
     /// | `Source`, `Override` | yes | delete the user value as above; the key falls back to its recipe |
     /// | stored with no status and no version (a file with no metadata) | yes | as `Override` |
+    /// | stored with an inferred record (`storage-none-computed-values`) | yes | drop the value: the live asset is unmapped and the stored entry is deleted, since the mount keeps no record to rewrite; dependents are **not** expired |
     /// | computed (`Ready`, `Expired`, `Error`, in-flight, …) | yes | drop the value: the live asset is unmapped and the stored entry is rewritten as `Recipe` with its version kept; dependents are **not** expired |
     /// | none, or stored `Recipe` | yes | nothing to do |
     /// | nothing live, nothing stored | no | `AssetNotFound` |
@@ -6772,6 +6788,9 @@ pub trait AssetManager<E: Environment>:
             Some(_) | None => stored_metadata.as_ref().map(|m| {
                 let recorded = m.version().unwrap_or_else(Version::unknown);
                 match m.status() {
+                    // An inferred record under a recipe keeps no trace of being user input, so
+                    // the value drops back to its recipe (`storage-none-computed-values` AC-8).
+                    _ if m.is_inferred() && has_recipe => Status::Ready,
                     Status::None if recorded.is_unknown() => Status::Override,
                     status => status,
                 }
@@ -6830,6 +6849,8 @@ pub trait AssetManager<E: Environment>:
                 }
             }
             RemoveAction::DropComputed => match stored_metadata {
+                // Nothing to rewrite: the store keeps no record here, so only the data goes.
+                Some(metadata) if metadata.is_inferred() => store.remove(key).await,
                 Some(metadata) => match dropped_computed_metadata::<E>(metadata) {
                     Some(metadata) => store.set(key, &[], &metadata).await,
                     None => store.remove(key).await,

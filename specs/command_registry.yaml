@@ -2,7 +2,7 @@
 # Regenerate: cargo run -p liquers-lib --features cli --bin export-command-registry -- \
 #               --format yaml -o specs/command_registry.yaml
 # Origin:   groups=core,lui,egui,image,polars,records,search,template,mem,store_config  features=egui,image-support,polars,records,templates,mem
-# Commands: 172
+# Commands: 173
 # CHANGELOG-BEGIN
 # 2026-08-02  initial export (95 commands: img 47, pl 26, lui 14, root 6, dep 2)
 # 2026-08-25  pl/select_columns and pl/drop_columns take a variadic `columns` argument
@@ -47,6 +47,8 @@
 #             similar, new, write, edit, check) and the store_config handler markdown_tiers.
 #             Later the same day: mem/read is volatile and also takes a key, read fresh from the
 #             store (AC-11 decision); mem/overview shows the schema's instructions.
+# 2026-10-27  store_config handler infer (on_write; design/storage-none-computed-values).
+#             MetadataRecord gains the never-stored `inferred` fact; persist_defaults retired.
 # CHANGELOG-END
 commands:
 - realm: store_config
@@ -221,6 +223,27 @@ commands:
     name: state
     label: state
     default: None
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  definition: Registered
+- realm: store_config
+  name: infer
+  label: Infer, do not store
+  doc: 'on_write: marks a record whose status is listed (all records when none is listed) as inferred, so the store does not keep it and deletes a record kept before; the next read infers it from the data again. A mount policy for sparse metadata: infer-Source keeps only the records of computed values.'
+  hints:
+    store_config: handler
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: statuses
+    label: statuses
+    default: None
+    argument_type: string
+    multiple: true
     gui_info: !TextField 40
   volatile: false
   expires: never

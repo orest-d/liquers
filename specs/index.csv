@@ -152,6 +152,7 @@ DOCS-INDEX-GENERATION-DIFFERS-BY-HOST,issue,Documentation index generation diffe
 DOCS-LINK-CHECK-READS-CODE-SPANS,issue,The docs dead-link check treats link syntax inside code spans and code blocks as links,closed,local,,ready,,P3,S,docs;build,,,,docs-link-check-code-spans,,2026-10-04,specs/issues/DOCS-LINK-CHECK-READS-CODE-SPANS.md
 DOCS-STORE-CONFIG-DESCRIBES-ASYNC-FILESTORE-AS-FUTURE-WORK,issue,Store configuration reference describes AsyncFileStore as future work,closed,local,,,,P2,S,docs;core/store,,,,documentation-currentness-small-fixes,,2026-09-04,specs/issues/DOCS-STORE-CONFIG-DESCRIBES-ASYNC-FILESTORE-AS-FUTURE-WORK.md
 DOCS-TOOLING-TESTS-NOT-RUN-IN-CI,issue,The unit tests of the documentation tooling are not run by CI,closed,local,,ready,eligible,P3,S,docs;build,,,,docs-tooling-tests-in-ci,,2026-10-20,specs/issues/DOCS-TOOLING-TESTS-NOT-RUN-IN-CI.md
+DROPPED-RECIPE-RESULT-LEAVES-AN-EMPTY-DATA-FILE,issue,Removing a computed value with a stored record leaves an empty data file at its key,draft,local,,,,P3,S,core/assets;core/store,,,,,,2026-10-27,specs/issues/DROPPED-RECIPE-RESULT-LEAVES-AN-EMPTY-DATA-FILE.md
 EGUI-ASSET-MANAGER-INTEGRATION,feature,No stable adapter between egui widgets and the asset manager,accepted,local,,needs-decision,not-eligible,P2,M,lib/egui,,,,ui-asset-snapshot-boundary,,2026-08-08,specs/issues/EGUI-ASSET-MANAGER-INTEGRATION.md
 ENUM-ALTERNATIVES-HAVE-NO-LABEL,issue,An enum alternative has an alias and a value but no label or description,draft,local,,needs-decision,not-eligible,P3,M,core/commands;macro,,,,enum-alternative-labels,,2026-10-20,specs/issues/ENUM-ALTERNATIVES-HAVE-NO-LABEL.md
 ENVIRONMENT-MANAGER-REFERENCE-CYCLE,issue,"Environment and asset manager hold each other with strong Arcs, so every environment leaks",closed,local,,ready,not-eligible,P2,M,core/assets;core/context,,,,environment-manager-reference-cycle,,2026-08-27,specs/issues/ENVIRONMENT-MANAGER-REFERENCE-CYCLE.md
@@ -317,7 +318,7 @@ RECIPE-OVERRIDE-ONLY-LAST-ACTION,issue,Argument overrides can target only the la
 RECIPE-PLAN-ANALYSIS-RUNS-OUTSIDE-PLAN-BUILDING,issue,Recipe plan analysis runs outside plan building,draft,local,,ready,not-eligible,P3,S,core/plan;core/assets,,,,recipe-preview-shares-plan-analysis,,2026-08-26,specs/issues/RECIPE-PLAN-ANALYSIS-RUNS-OUTSIDE-PLAN-BUILDING.md
 RECIPE-PROVIDER-BY-NAME,feature,"Recipe providers cannot be selected by name, so a configuration document cannot choose one",closed,local,,,,P0,S,core/assets;web,,,,recipe-provider-selection,,2026-08-27,specs/issues/RECIPE-PROVIDER-BY-NAME.md
 RECIPE-PROVIDERS-FAIL-ON-A-KEY-THE-STORE-DOES-NOT-SUPPORT,issue,Recipe providers fail a query when the store refuses the recipes.yaml or manifest key as unsupported,closed,local,,,,P1,S,core/assets;records;web,,,,record-streams,,2026-09-27,specs/issues/RECIPE-PROVIDERS-FAIL-ON-A-KEY-THE-STORE-DOES-NOT-SUPPORT.md
-RECIPE-RESULT-UNDER-STORAGE-NONE-READS-AS-SOURCE,issue,A recipe result stored in a storage-none mount reads back as Source and cannot drop back to its recipe,draft,local,,ready,not-eligible,P3,M,core/store;core/assets,,,,storage-none-computed-values,,2026-10-19,specs/issues/RECIPE-RESULT-UNDER-STORAGE-NONE-READS-AS-SOURCE.md
+RECIPE-RESULT-UNDER-STORAGE-NONE-READS-AS-SOURCE,issue,A recipe result stored in a storage-none mount reads back as Source and cannot drop back to its recipe,closed,local,,,,P3,M,core/store;core/assets,,,,storage-none-computed-values,,2026-10-19,specs/issues/RECIPE-RESULT-UNDER-STORAGE-NONE-READS-AS-SOURCE.md
 RECIPE-TO-PLAN-IGNORES-RECIPE-LEVEL-VOLATILE-AND-EXPIRES,issue,Recipe to_plan ignores recipe level volatile and expires,closed,local,,covered,not-eligible,P2,S,core/plan;core/assets,,,,recipe-plan-declarations,,2026-08-26,specs/issues/RECIPE-TO-PLAN-IGNORES-RECIPE-LEVEL-VOLATILE-AND-EXPIRES.md
 RECIPE-WITHOUT-FILENAME-SILENTLY-OMITTED-FROM-LISTING,issue,A recipe with no valid filename is silently left out of the recipe listing and lookup,draft,local,,needs-decision,not-eligible,P3,S,core/assets;core/validate,,,,unnamed-recipe-diagnostics,,2026-10-20,specs/issues/RECIPE-WITHOUT-FILENAME-SILENTLY-OMITTED-FROM-LISTING.md
 RECIPES-YAML-READ-ERRORS-READ-AS-NO-RECIPES,issue,Every recipes.yaml read error is treated as an empty recipe list,closed,local,,ready,eligible,P2,S,core/assets,,,,recipes-yaml-read-errors-propagate,,2026-10-20,specs/issues/RECIPES-YAML-READ-ERRORS-READ-AS-NO-RECIPES.md
@@ -785,7 +786,7 @@ STALE-DEPENDENCY-STATUS-FINALIZATION,design,Status is finalized before persisten
 STATE-ARGUMENT-SERDE-DEFAULT,design,Consistent state argument default in command metadata,complete,local,,ready,not-eligible,P2,S,core/commands,,114,,state-argument-serde-default,,2026-09-01,specs/design/state-argument-serde-default/DESIGN.md
 STATE-LOCK-MARKER-CLEANUP,design,"Replace the stale ""remove rwlock"" marker on State with the ownership model it no longer needs",complete,local,,ready,eligible,P3,S,core/value,,197,,state-lock-marker-cleanup,,2026-10-20,specs/design/state-lock-marker-cleanup/DESIGN.md
 STEP-VOLATILITY-IMPL-REMOVAL,design,Remove the unreachable step-level volatility check and its runtime print,complete,local,,ready,eligible,P3,S,core/plan,,146,,step-volatility-impl-removal,,2026-10-17,specs/design/step-volatility-impl-removal/DESIGN.md
-STORAGE-NONE-COMPUTED-VALUES,design,"An inferred metadata record is not stored, and under a recipe it is not trusted as a source",in_review,local,implementation,ready,not-eligible,P3,M,core/store;core/assets,,,,storage-none-computed-values,,2026-10-20,specs/design/storage-none-computed-values/DESIGN.md
+STORAGE-NONE-COMPUTED-VALUES,design,"An inferred metadata record is not stored, and under a recipe it is not trusted as a source",complete,local,,,,P3,M,core/store;core/assets,,,,storage-none-computed-values,,2026-10-20,specs/design/storage-none-computed-values/DESIGN.md
 STORE-ADAPTERS,design,Modular store configuration — metadata layouts and store adapters,complete,local,,ready,not-eligible,P2,L,core/store;store/config;store/backends;web;docs,,,,store-adapters,,2026-10-13,specs/design/store-adapters/DESIGN.md
 STORE-AND-ASSET-SEARCH,design,Search over stores and assets,complete,local,,,,,,records;core/assets;lib/commands;docs,,,,store-and-asset-search,,2026-09-17,specs/design/store-and-asset-search/DESIGN.md
 STORE-BACKEND-ABSOLUTE-KEY,design,Store backends receive a checked absolute key; the caller-facing trait checks once,in_review,local,implementation,needs-decision,not-eligible,P3,L,core/store;store/backends;web,,,,store-backend-absolute-key,,2026-10-20,specs/design/store-backend-absolute-key/DESIGN.md
@@ -874,7 +875,7 @@ WEBUI-FIXES,design,Invalidation tracking for retained-mode rendering,complete,lo
 WEBUI,design,Web-framework-independent rendering with SSR and wasm,complete,local,,,,,,lib/ui,,10,,webui,,2026-03-02,specs/design/webui/DESIGN.md
 WORKSPACE-RUSTFMT-CHECK,design,The workspace is rustfmt-clean and CI keeps it so,in_review,local,implementation,needs-decision,not-eligible,P3,M,build;docs,,,,workspace-rustfmt-check,,2026-10-20,specs/design/workspace-rustfmt-check/DESIGN.md
 WP2-TERMINAL-OUTCOME,design,Asset terminal outcome contract,complete,local,,,,,,core/assets,,7,,wp2-terminal-outcome,,2026-03-02,specs/design/wp2-terminal-outcome/DESIGN.md
-AGENT_MEMORY_SERVICE,reference,Agent Memory Service,current,local,,,,,,lib/commands;mcp,,,,,2026-10-19,,specs/reference/AGENT_MEMORY_SERVICE.md
+AGENT_MEMORY_SERVICE,reference,Agent Memory Service,current,local,,,,,,lib/commands;mcp,,,,,2026-10-27,,specs/reference/AGENT_MEMORY_SERVICE.md
 API_DOCS_GAP_ANALYSIS,reference,API Documentation Gap Analysis,current,local,,,,,,docs,,,,,2026-10-20,,specs/reference/api/API_DOCS_GAP_ANALYSIS.md
 DOC_01_ARCHITECTURE_REFERENCE,reference,Architecture Reference,current,local,,,,,,core/query;core/plan;core/assets,,,,,2026-08-09,,specs/reference/api/DOC_01_ARCHITECTURE_REFERENCE.md
 DOC_02_QUERY_LANGUAGE_REFERENCE,reference,Query Language Reference,current,local,,,,,,core/query,,,,,2026-10-27,,specs/reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md
@@ -882,7 +883,7 @@ DOC_03_ASSETS_EXECUTION_LIFECYCLE,reference,Assets and Execution Lifecycle Refer
 DOC_04_ENVIRONMENT_CONTEXT_EVALUATION,reference,"Environment, Context and Evaluation Reference",current,local,,,,,,core/context;core/plan,,,,,2026-10-22,,specs/reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md
 ASSET_LIFECYCLE,reference,Asset Evaluation — Flows and Public Surface,current,local,,,,,,core/assets,,,,,2026-10-25,,specs/reference/ASSET_LIFECYCLE.md
 ASSET_SET_OPERATION,reference,Asset Set Operation Specification,current,local,,,,,,core/assets,,,,,2026-10-10,,specs/reference/ASSET_SET_OPERATION.md
-ASSETS,reference,Assets Specification,current,local,,,,,,core/assets,,,,,2026-10-25,,specs/reference/ASSETS.md
+ASSETS,reference,Assets Specification,current,local,,,,,,core/assets,,,,,2026-10-27,,specs/reference/ASSETS.md
 COMMAND_ALIASES,reference,Command Aliases,current,local,,,,,,core/commands;core/plan,,,,,2026-10-20,,specs/reference/COMMAND_ALIASES.md
 COMMAND_DECLARATION,reference,Command Declaration Format,current,local,,,,,,core/commands;web;py,,,,,2026-10-18,,specs/reference/COMMAND_DECLARATION.md
 CONFORMANCE_TERMS,reference,Conformance Terms,current,local,,,,,,docs,,,,,2026-09-02,,specs/reference/CONFORMANCE_TERMS.md
@@ -900,8 +901,8 @@ RECIPES_AND_PLANS,reference,Recipes and Plans Reference,current,local,,,,,,core/
 RECORD_STREAMS,reference,Record Streams,current,local,,,,,,records;lib/value;lib/commands;web,,,,,2026-10-25,,specs/reference/RECORD_STREAMS.md
 REGISTER_COMMAND_FSD,reference,register_command! Macro Functional Specification,current,local,,,,,,macro;core/commands,,,,,2026-10-20,,specs/reference/REGISTER_COMMAND_FSD.md
 SEARCH,reference,Search,current,local,,,,,,records;lib/commands,,,,,2026-10-17,,specs/reference/SEARCH.md
-STORE_CONFIG_FSD,reference,Store Configuration Functional Specification,current,local,,,,,,store/config,,,,,2026-10-15,,specs/reference/STORE_CONFIG_FSD.md
-STORE_SEMANTICS,reference,Store Behavioural Semantics,current,local,,,,,,core/store;store/backends;web,,,,,2026-10-25,,specs/reference/STORE_SEMANTICS.md
+STORE_CONFIG_FSD,reference,Store Configuration Functional Specification,current,local,,,,,,store/config,,,,,2026-10-27,,specs/reference/STORE_CONFIG_FSD.md
+STORE_SEMANTICS,reference,Store Behavioural Semantics,current,local,,,,,,core/store;store/backends;web,,,,,2026-10-27,,specs/reference/STORE_SEMANTICS.md
 TEMPLATE_LANGUAGE,reference,Template Language,current,local,,,,,,core/query;lib/commands,,,,,2026-10-17,,specs/reference/TEMPLATE_LANGUAGE.md
 UI_INTERFACE_FSD,reference,UI Interface Specification,overdue,local,,,,,,lib/ui,,,,,2026-03-02,,specs/reference/UI_INTERFACE_FSD.md
 VALUE_TYPE_SYSTEM,reference,Value Type System,current,local,,,,,,core/value;lib/value,,,,,2026-10-27,,specs/reference/VALUE_TYPE_SYSTEM.md
@@ -922,7 +923,7 @@ QUERY_ESCAPING_GUIDE,guide,Query Escaping Guide,current,local,,,,,,core/query,,,
 RECORD_STREAM_GUIDE,guide,Record Stream Guide,current,local,,,,,,records;lib/value,,,,,2026-10-13,,specs/guides/RECORD_STREAM_GUIDE.md
 SEARCH_GUIDE,guide,Search Guide,current,local,,,,,,lib/commands;records,,,,,2026-10-17,,specs/guides/SEARCH_GUIDE.md
 SERIALIZATION_GUIDE,guide,Choosing a Serialization Format,current,local,,,,,,core/value;lib/value,,,,,2026-10-13,,specs/guides/SERIALIZATION_GUIDE.md
-STORE_CONFIG_GUIDE,guide,Store Configuration Guide,current,local,,,,,,store/config;core/store,,,,,2026-10-19,,specs/guides/STORE_CONFIG_GUIDE.md
+STORE_CONFIG_GUIDE,guide,Store Configuration Guide,current,local,,,,,,store/config;core/store,,,,,2026-10-27,,specs/guides/STORE_CONFIG_GUIDE.md
 STORE_FACTORY_GUIDE,guide,Store Factory Guide,current,local,,,,,,core/store;store/config,,,,,2026-10-16,,specs/guides/STORE_FACTORY_GUIDE.md
 STORE_IMPLEMENTATION_GUIDE,guide,Store Implementation Guide,current,local,,,,,,core/store;store/backends;web,,,,,2026-10-16,,specs/guides/STORE_IMPLEMENTATION_GUIDE.md
 TEMPLATE_GUIDE,guide,Template Guide,current,local,,,,,,core/query;lib/commands,,,,,2026-10-17,,specs/guides/TEMPLATE_GUIDE.md

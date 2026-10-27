@@ -3,10 +3,7 @@ id: STORAGE-NONE-COMPUTED-VALUES
 kind: design
 title: An inferred metadata record is not stored, and under a recipe it is not trusted as a source
 form: compact
-status: in_review
-phase: implementation
-readiness: ready
-autofix: not-eligible
+status: complete
 area: [core/store, core/assets]
 issues: [RECIPE-RESULT-UNDER-STORAGE-NONE-READS-AS-SOURCE]
 created: 2026-10-20
@@ -15,7 +12,7 @@ created: 2026-10-20
 
 Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-20. **Revision 2, 2026-10-27**:
 rewritten after the maintainer's decisions in the project thread "Plan status check" (summary under
-*Decisions* below). Phases 1-4 are written and await approval; nothing is implemented. The options
+*Decisions* below). Approved and implemented 2026-10-27 ("proceed all"), PR #173. The options
 compared on the way are in the project file `agent-memory-mvp/recipe-results-metadata-options.md`.
 
 ## Decisions (maintainer, 2026-10-26 and 2026-10-27)
@@ -111,8 +108,8 @@ back to its recipe.
   written), and `get_asset_info` reports `Recipe`
 - **AC-9** `persist_defaults` is retired
   WHEN a `metadata` section sets `persist_defaults`
-  THEN the build fails with an unknown-field error naming the replacement: an inferred record is
-  never stored, so storing one on read is no longer offered
+  THEN the build fails with the section's unknown-field error naming `persist_defaults` (no
+  replacement is offered: an inferred record is never stored, so storing one on read is gone)
 - **AC-10** Documented
   WHEN `STORE_SEMANTICS.md` §14, `STORE_CONFIG_GUIDE.md` §2 and §5, `STORE_CONFIG_FSD.md` (metadata
   section) or `AGENT_MEMORY_SERVICE.md` is read
@@ -266,12 +263,12 @@ Run: `cargo test -p liquers-core --lib --tests`; `cargo test -p liquers-lib --te
 
 ### Steps
 
-- [ ] 1. `metadata.rs`: field and accessors — `cargo test -p liquers-core --lib inferred`. Rollback: revert (defaulted field).
-- [ ] 2. `pipeline.rs` read and write paths; `persist_defaults` removed from `pipeline.rs`, `store_config.rs`, `store_factory.rs`, `tests/store_adapters.rs` and the `liquers-web` declaration — AC-1 to AC-4, AC-9 unit tests; `cargo test -p liquers-core --test store_conformance_CONF` unchanged. Depends on 1.
-- [ ] 3. `handlers.rs` / `realm.rs`: `infer`; regenerate `specs/command_registry.yaml` with a CHANGELOG line — AC-5 tests; `cargo test -p liquers-lib --test registry_export`. Depends on 2.
-- [ ] 4. `assets.rs`: `stored_status_and_version` and its callers — `storage_none_computed_values.rs`. Depends on 2.
-- [ ] 5. `mem_commands.rs` scenario test — `cargo test -p liquers-lib --test mem_commands`. Depends on 4.
-- [ ] 6. Documents of Phase 2; close the issue with a resolution note — `python3 scripts/docs_index.py --check`.
+- [x] 1. `metadata.rs`: field and accessors — `cargo test -p liquers-core --lib inferred`. Rollback: revert (defaulted field).
+- [x] 2. `pipeline.rs` read and write paths; `persist_defaults` removed from `pipeline.rs`, `store_config.rs`, `store_factory.rs`, `tests/store_adapters.rs` and the `liquers-web` declaration — AC-1 to AC-4, AC-9 unit tests; `cargo test -p liquers-core --test store_conformance_CONF` unchanged. Depends on 1.
+- [x] 3. `handlers.rs` / `realm.rs`: `infer`; regenerate `specs/command_registry.yaml` with a CHANGELOG line — AC-5 tests; `cargo test -p liquers-lib --test registry_export`. Depends on 2.
+- [x] 4. `assets.rs`: `stored_status_and_version` and its callers — `storage_none_computed_values.rs`. Depends on 2.
+- [x] 5. `mem_commands.rs` scenario test — `cargo test -p liquers-lib --test mem_commands`. Depends on 4.
+- [x] 6. Documents of Phase 2; close the issue with a resolution note — `python3 scripts/docs_index.py --check`.
 
 ### Validation
 

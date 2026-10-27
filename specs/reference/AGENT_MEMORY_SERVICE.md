@@ -3,7 +3,7 @@ title: Agent Memory Service
 kind: reference
 audience: internal
 area: [lib/commands, mcp]
-reviewed: 2026-10-19
+reviewed: 2026-10-27
 ---
 # Agent Memory Service
 
@@ -201,6 +201,15 @@ The memory needs no store of its own; a mount's `metadata` section
 - `on_write` with `front_matter_sync` writes record changes back into the front-matter.
 - `storage: none` keeps no sidecar: the record is re-derived on every read, so a hand edit is seen
   by the next read that loads the document. Use it for checkouts edited by hand.
+- A recipe's result written into a `storage: none` mount (an `index.md` kept in git) has no stored
+  record: the one read back is *inferred*, so the asset manager treats the file as having no
+  metadata rather than as a user's `Source`. With the environment's default
+  `assets: { external_change: user_input }` it is served as an `Override` after a restart (a hand
+  edit of it is kept); with `external_change: corrupted` it is recomputed on the first read of each
+  process, which keeps a generated file current at the cost of one evaluation. `remove` deletes it
+  and the key drops back to its recipe. To keep records for results but none for user files, use a
+  sparse mount instead: `storage: per_entry-root` with `infer-Source` at the end of `on_write`
+  (`guides/STORE_CONFIG_GUIDE.md` §5).
 - `read_only: true` on a mount, with `writable: false` on its collection, makes it reference
   material.
 
@@ -297,4 +306,5 @@ an in-process S3 endpoint and across a restart.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-27 | §8: recipe results in a `storage: none` mount are read through their inferred records (`external_change` decides), and the sparse `infer-Source` alternative. | `design/storage-none-computed-values/` |
 | 2026-10-19 | Created. | `design/agent-memory-mvp/` Phase 5 |

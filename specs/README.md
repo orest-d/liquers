@@ -160,6 +160,7 @@ expansion time rather than at runtime. That is the cheapest item here.
 - **Store adapters and configurable metadata handling (read-only mounts, metadata layouts, handlers such as front-matter, write strategies)** — documented → [`reference/STORE_SEMANTICS.md`](reference/STORE_SEMANTICS.md), [`reference/STORE_CONFIG_FSD.md`](reference/STORE_CONFIG_FSD.md); how to configure and extend: [`guides/STORE_CONFIG_GUIDE.md`](guides/STORE_CONFIG_GUIDE.md) *(design in [`design/store-adapters/`](design/store-adapters/); central and database storage models, key-scoped handlers and language-defined handlers are not built yet: see its Phase 5)*
 - **Type-enforced key absoluteness** — planned → [`issues/STORE-ABSOLUTE-KEY-NOT-TYPE-ENFORCED.md`](issues/STORE-ABSOLUTE-KEY-NOT-TYPE-ENFORCED.md)
 - **OpenDAL path normalization** — documented → [`reference/STORE_SEMANTICS.md`](reference/STORE_SEMANTICS.md) *(design in [`design/opendal-path-mapping/`](design/opendal-path-mapping/))*
+- **Sparse metadata: inferred records are never stored; a recipe result under an inferred record is read as a file with no metadata (`infer` step, `storage: none` checkouts)** — built → [`reference/STORE_SEMANTICS.md`](reference/STORE_SEMANTICS.md) §13, [`reference/ASSETS.md`](reference/ASSETS.md) *(design in [`design/storage-none-computed-values/`](design/storage-none-computed-values/))*
 - **Store behavioural semantics** — documented → [`reference/STORE_SEMANTICS.md`](reference/STORE_SEMANTICS.md); implementing and testing a store: [`guides/STORE_IMPLEMENTATION_GUIDE.md`](guides/STORE_IMPLEMENTATION_GUIDE.md) *(every in-tree store passes the conformance suite as of 2026-09-30; see [`design/store-conformance-backlog/`](design/store-conformance-backlog/))*
 - **One store trait, `AsyncStore` (the synchronous `Store` and the `cache` module are removed)** — documented → [`reference/STORE_SEMANTICS.md`](reference/STORE_SEMANTICS.md) *(design in [`design/sync-store-removal/`](design/sync-store-removal/))*
 - **Shared directory support for backends without directories** — documented → `liquers-core/src/store_dir_index.rs` *(design in [`design/opendal-path-mapping/`](design/opendal-path-mapping/))*
@@ -530,7 +531,6 @@ deliberately folded behind a broader line.
 - design `sql-several-tables`
 - design `state-argument-serde-default`
 - design `state-lock-marker-cleanup`
-- design `storage-none-computed-values`
 - design `store-backend-absolute-key`
 - design `store-command-namespace`
 - design `store-conditional-write`

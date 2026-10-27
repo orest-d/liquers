@@ -3,7 +3,7 @@ title: Store Configuration Guide
 kind: guide
 audience: internal
 area: [store/config, core/store]
-reviewed: 2026-10-19
+reviewed: 2026-10-27
 ---
 # Store Configuration Guide
 
@@ -68,14 +68,13 @@ own reads may still write default metadata.
 
 ## 2. The fields and their defaults
 
-`MetadataConfig` (`store_config.rs`) has seven fields. It is `deny_unknown_fields`, so a misspelt
+`MetadataConfig` (`store_config.rs`) has six fields. It is `deny_unknown_fields`, so a misspelt
 field, or the old free-form map, is refused when the document is parsed.
 
 | Field | Kind | Default (`METADATA_DEFAULTS`) |
 |---|---|---|
 | `storage` | storage model spec, exactly one entry | `native` |
 | `writes` | write strategy spec, exactly one entry | `direct` |
-| `persist_defaults` | bool | `false` |
 | `on_default` | handler chain | `defaults/media_type-fill/file_facts` |
 | `on_validate` | handler chain | `""` |
 | `on_write` | handler chain | `defaults/media_type-fill/file_facts` |
@@ -87,8 +86,8 @@ The authoritative copy of this table is in `STORE_CONFIG_FSD.md`, where
 - **A field you set replaces its default whole.** Nothing is merged. `on_read: file_facts` drops
   the default `media_type-fill`. To add a step, write the default out and append to it.
 - **`""` means no steps.** `on_write: ""` stores the caller's record unchanged.
-- **`persist_defaults: true`** stores the record `on_default` built the first time an entry is
-  read. A `read_only` mount never persists, whatever this says.
+- **A read never writes a record.** A record `on_default` builds is *inferred* and is not stored;
+  the former `persist_defaults` field is retired and refused as unknown.
 
 ## 3. Writing a spec
 
@@ -161,6 +160,7 @@ field) or `fill` (set it only where it is empty). The **text fields** are `title
 | `front_matter` *(liquers-lib, `records`)* | `mode = overwrite`, `fields…` (multiple; empty means `title`, `description`) | default, write, read | For a Markdown entry (by extension or `media_type`), copies the named text fields from its YAML or TOML front matter. Other entries: no effect. In `on_read` it reads the bytes only when the entry changed |
 | `front_matter_sync` *(liquers-lib, `records`)* | `fields…` (multiple; empty means `title`, `description`) | write | In `set_metadata` only, rewrites a Markdown entry's YAML front matter from the record's fields (an empty field removes its key), so the metadata write becomes a data write too. In `set`, the caller's bytes are kept. TOML front matter is left alone, with a warning |
 | `markdown_tiers` *(liquers-lib, `records`)* | `sections…` (multiple) | default, read | For a Markdown entry whose record has an empty `title` or `description`: fills `title` from the first heading and `description` from the first paragraph of the first listed section present, else the first paragraph after the front matter. Never overwrites, never writes. Put it after `front_matter`, as a fallback for documents without front matter |
+| `infer` | `statuses…` (multiple; status names as in a record, `Source`, `Override`, …; empty means every record) | write | Marks a record whose status is listed as *inferred*, so it is not stored and a record stored before is deleted; the next read infers it again from the data (`STORE_SEMANTICS.md` §13). A policy for sparse metadata, not for ordinary mounts: `on_write: defaults/media_type-fill/file_facts/infer-Source` keeps only the records of computed values. Under `native` storage a marked record fails the write. An unknown status name fails at build |
 
 `mode` comes first in `front_matter`, so its field list starts at the second parameter:
 `front_matter-fill-title-description`. `front_matter-title` fails, because `title` is not a mode.
@@ -176,7 +176,7 @@ environment cannot name them.
 | `native` | none | the backend's own metadata, through `get_stored_metadata` / `set_metadata` (the stores' existing sidecars) | what the backend reserves |
 | `per_entry` | `layout = sidecar` (`sidecar` · `root` · `prefix` · `folder`) | one object per key: `{key}.__metadata__` · `__metadata__/{key}` · `{folder}/__metadata__{name}.json` · `{folder}/__metadata__/{name}.json` | the suffix, the `__metadata__` segment or the `__metadata__` prefix |
 | `grouped` | `file = __metadata__.json` (a plain file name) | one JSON map, name → record, per folder | that file name in every folder |
-| `none` | none | nothing; every record comes from `on_default` and `on_read` — the choice for a checkout edited by hand, since a hand edit is seen at the next read and no sidecar lands beside the files | nothing |
+| `none` | none | nothing; every record comes from `on_default` and `on_read` — the choice for a checkout edited by hand, since a hand edit is seen at the next read and no sidecar lands beside the files. Every record it returns is inferred, so a recipe's result there is read as a file with no metadata (`ASSETS.md`) | nothing |
 | `central` | `mount` | declared only: in a router-level section the builder resolves the mount (an unknown one, or a member section, is a configuration error), then the build fails with "declared but not implemented yet" ([`STORE-CENTRAL-STORAGE-MODEL-NOT-IMPLEMENTED`](../issues/STORE-CENTRAL-STORAGE-MODEL-NOT-IMPLEMENTED.md)) | — |
 | `memory_central` | none | **test only** (`register_test_store_config`, under `cfg(test)` / feature `store-conformance`); an in-memory central store | nothing |
 
@@ -201,7 +201,7 @@ A client key using a reserved name is refused with `key_not_supported`, by `set`
 - A router-level `metadata` section is **central storage**: one pipeline over the router, which
   is reached through its members' data-only methods. Under it, a member's own section may name
   only `storage`, which becomes that member's *backup* copy. A member section that also names
-  handlers, `writes` or `persist_defaults` fails, naming the member. A member with no section
+  handlers or `writes` fails, naming the member. A member with no section
   keeps no backup.
 
 Only one storage model can serve central storage today: `memory_central`, which is test-only.
@@ -439,6 +439,7 @@ Language-defined entries (Python, JavaScript) are not possible yet:
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-27 | §2: `persist_defaults` retired, a read never writes a record. §5: the `infer` handler; records under `storage: none` are inferred. §6: member sections no longer mention `persist_defaults`. | `design/storage-none-computed-values/` |
 | 2026-10-19 | §5: the `markdown_tiers` handler; `storage: none` recommended for checkouts edited by hand. | `design/agent-memory-mvp/` Phase 5 |
 | 2026-10-16 | §11: `ComponentBuilder` takes a `ComponentContext` holding the router's mounts for a router-level section, so a storage model can keep records in another mount; `central` resolves its mount. | `design/store-adapters/` phase-5 review |
 | 2026-10-15 | Created by store-adapters: writing `metadata` sections (fields and defaults, spec syntax and escaping, stages, the `store_config` catalogue, router-level sections, validation, error messages) and defining a new handler, storage model or write strategy. | `design/store-adapters/` phase-5 |

@@ -3,7 +3,7 @@ title: Assets Specification
 kind: reference
 audience: internal
 area: [core/assets]
-reviewed: 2026-10-25
+reviewed: 2026-10-27
 ---
 # Assets Specification
 
@@ -119,7 +119,11 @@ it. Used once, never reused.
 A volatile value is still persisted, with `Status::Volatile` in its metadata. It is written as an
 opportunity for the user to override, not as a value to read back: `try_fast_track` accepts only a
 stored `Ready`, `Source` or `Override`. A stored record with no status at all is first read as §Content
-changed outside Liquers says for a file with no metadata.
+changed outside Liquers says for a file with no metadata. So is an **inferred** record (one the store
+built from the data rather than read, `STORE_SEMANTICS.md` §13) at a key a recipe can make: its
+status is read as `None` and its version as unknown, with an info line in the asset's log, so it is
+reused as `Ready` and the version check applies the `ExternalChangePolicy` (`user_input` →
+`Override`, `corrupted` → deleted and recomputed). Without a recipe an inferred record stands.
 
 #### `stored` and `cached`: opting out of the write and of reuse
 
@@ -1090,6 +1094,7 @@ then the stored status decides.
 | any other | no | delete: live asset, dependency-graph entry, stored entry | expired, **before** the key leaves the graph |
 | `Source`, `Override` | yes | delete the user value as above; the key falls back to its recipe | expired |
 | stored with no status and no version (a file with no metadata) | yes | as `Override`: a read would serve it as user input | expired |
+| stored with an inferred record (`storage-none-computed-values`) | yes | as computed, but the stored entry is **deleted**: the mount keeps no record to rewrite as `Recipe` | **not** expired |
 | `Ready`, `Expired`, `Error`, `Cancelled`, `Volatile`, `Partial`, in flight | yes | drop the computed value: unmap the live asset; the stored record is rewritten as `Recipe`, data-bearing fields cleared, **version kept** (legacy metadata is deleted instead) | **not** expired — a recomputation that changes the content hash cascades then |
 | none, or stored `Recipe` | yes | nothing to do (idempotent) | — |
 | nothing live, nothing stored | no | `Err(KeyNotFound)` | — |
@@ -1281,6 +1286,7 @@ each with an `ExpiryReason` (§Why an asset is `Expired`). The rules are in
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-27 | An inferred record at a recipe key is read as a file with no metadata (reuse and the version check follow `ExternalChangePolicy`); `remove` deletes such an entry as a dropped computed value, dependents not expired. | `design/storage-none-computed-values/` |
 | 2026-10-25 | `Directory` is reached by `get` on a store directory; an unmakeable key in `get_asset_info` is `AssetNotFound`. | `design/key-without-recipe-answer/` |
 | 2026-10-20 | New §Settling a run: the outcome is settled after the service loop drains, and a logged error fails a computed value. §Post-finish messages: a late error-level log entry no longer flips a finished asset's status. | `issues/CONTEXT-ERROR-OUTCOME-DEPENDS-ON-SCHEDULING.md` |
 | 2026-10-20 | §Content changed outside Liquers: the no-metadata rule also governs reuse. A stored `None` with no recorded version reads as `Source` without a recipe and `Ready` with one, in the fast track and the store branch of `get_any_status` / `get_binary_any_status`, with a warning in the asset's log; nothing is written back. `remove` deletes such an entry under a recipe, as an `Override`. | phase-5 (`design/js-store-page-metadata-status/`) |

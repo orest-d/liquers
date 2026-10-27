@@ -127,7 +127,6 @@ fn metadata_config_defaults_match_the_documented_table() -> TestResult {
     let expected = [
         ("storage", d.storage.to_string()),
         ("writes", d.writes.to_string()),
-        ("persist_defaults", d.persist_defaults.to_string()),
         ("on_default", d.on_default.to_string()),
         ("on_validate", d.on_validate.to_string()),
         ("on_write", d.on_write.to_string()),
@@ -226,13 +225,12 @@ async fn read_only_mount_from_config() -> TestResult {
     Ok(())
 }
 
-/// A router-level `read_only` reaches a member's own pipeline: a member that persists default
-/// records writes none on read.
+/// A router-level `read_only` reaches a member's own pipeline: it writes nothing on read.
 #[tokio::test]
 async fn router_read_only_stops_member_pipeline_writes() -> TestResult {
     let member = memory("m");
     member.set_data(&key("m/a.txt"), b"hello").await?;
-    let yaml = "read_only: true\nstores:\n  - type: shared\n    prefix: m\n    config: { name: m }\n    metadata: { storage: per_entry, persist_defaults: true }\n";
+    let yaml = "read_only: true\nstores:\n  - type: shared\n    prefix: m\n    config: { name: m }\n    metadata: { storage: per_entry }\n";
     let store = build(yaml, &[("m", member.clone())])?;
     let _ = store.get_metadata(&key("m/a.txt")).await?;
     let _ = store.get(&key("m/a.txt")).await?;
@@ -341,8 +339,8 @@ async fn adapted_member_behaves_the_same_through_the_router() -> TestResult {
 async fn same_section_same_behaviour() -> TestResult {
     let d = METADATA_DEFAULTS;
     let explicit = format!(
-        "{{ storage: {}, writes: {}, persist_defaults: {}, on_default: {}, on_validate: \"{}\", on_write: {}, on_read: {} }}",
-        d.storage, d.writes, d.persist_defaults, d.on_default, d.on_validate, d.on_write, d.on_read
+        "{{ storage: {}, writes: {}, on_default: {}, on_validate: \"{}\", on_write: {}, on_read: {} }}",
+        d.storage, d.writes, d.on_default, d.on_validate, d.on_write, d.on_read
     );
     let yaml = format!(
         "stores:\n  - type: memory\n    prefix: a\n    metadata: {{ storage: native }}\n  - type: memory\n    prefix: b\n    metadata: {explicit}\n"
