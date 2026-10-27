@@ -13,8 +13,8 @@ created: 2026-10-20
 ---
 # Core Value reads JSON by its type identifier for every core variant
 
-Bulk design (`specs/guides/autonomous_bulk_design.md`): Phases 1-4 written, not approved, nothing
-implemented.
+Bulk design (`specs/guides/autonomous_bulk_design.md`): Phases 1-4 written; Phase 4
+implemented on 2026-10-27 (automatic fix).
 
 ## Phase 1: High-Level Design
 
@@ -202,9 +202,9 @@ Run: `CARGO_INCREMENTAL=0 cargo test -p liquers-core --lib value::tests`.
 
 ### Steps
 
-- [ ] 1. `liquers-core/src/value.rs` `mod tests` — add the five tests (four fail at HEAD; `untyped_json_reads_by_shape` passes and guards AC-3) — `cargo test -p liquers-core --lib value::tests`. Rollback: remove the tests.
-- [ ] 2. `liquers-core/src/value.rs` `Value::deserialize_from_bytes` — explicit identifier arms and `json_payload` — `cargo test -p liquers-core --lib value::tests` all pass. Rollback: revert the commit.
-- [ ] 3. `specs/reference/VALUE_TYPE_SYSTEM.md` §Reading sentence, History row, `reviewed:`; close `CORE-VALUE-JSON-READ-IGNORES-STRUCTURED-IDENTIFIERS` (`status: closed`, resolution naming the tests) — `python3 scripts/docs_index.py --check`.
+- [x] 1. `liquers-core/src/value.rs` `mod tests` — add the five tests (four fail at HEAD; `untyped_json_reads_by_shape` passes and guards AC-3) — `cargo test -p liquers-core --lib value::tests`. Rollback: remove the tests.
+- [x] 2. `liquers-core/src/value.rs` `Value::deserialize_from_bytes` — explicit identifier arms and `json_payload` — `cargo test -p liquers-core --lib value::tests` all pass. Rollback: revert the commit.
+- [x] 3. `specs/reference/VALUE_TYPE_SYSTEM.md` §Reading sentence, History row, `reviewed:`; close `CORE-VALUE-JSON-READ-IGNORES-STRUCTURED-IDENTIFIERS` (`status: closed`, resolution naming the tests) — `python3 scripts/docs_index.py --check`.
 
 ### Validation
 

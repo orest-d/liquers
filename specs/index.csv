@@ -113,7 +113,7 @@ CORE-TOKIO-REMOVAL,issue,Core still depends on tokio primitives on wasm,accepted
 CORE-TRACING-MIGRATION,issue,Diagnostics use `eprintln!` rather than structured logging,accepted,local,,needs-decision,not-eligible,P2,M,core/error;build,,,,core-tracing-migration,,2026-08-08,specs/issues/CORE-TRACING-MIGRATION.md
 CORE-VALUE-ENUM-OVERSIZED,issue,Every Value occupies over 700 bytes because three variants are stored unboxed,draft,local,,ready,not-eligible,P2,M,core/value;lib/value,,,,core-value-enum-oversized,,2026-08-18,specs/issues/CORE-VALUE-ENUM-OVERSIZED.md
 CORE-VALUE-INTERFACE-CAPABILITY-SPLIT,issue,`ValueInterface` bundles capabilities every implementor must provide,accepted,local,,needs-decision,not-eligible,P2,L,core/value;lib/value;py,,,,value-interface-capability-split,,2026-08-08,specs/issues/CORE-VALUE-INTERFACE-CAPABILITY-SPLIT.md
-CORE-VALUE-JSON-READ-IGNORES-STRUCTURED-IDENTIFIERS,issue,Core Value reads structured variants written as JSON back as a different variant,draft,local,,ready,eligible,P2,S,core/value,,,,core-value-json-identifier-dispatch,,2026-10-19,specs/issues/CORE-VALUE-JSON-READ-IGNORES-STRUCTURED-IDENTIFIERS.md
+CORE-VALUE-JSON-READ-IGNORES-STRUCTURED-IDENTIFIERS,issue,Core Value reads structured variants written as JSON back as a different variant,closed,local,,ready,eligible,P2,S,core/value,,,,core-value-json-identifier-dispatch,,2026-10-19,specs/issues/CORE-VALUE-JSON-READ-IGNORES-STRUCTURED-IDENTIFIERS.md
 CORE-WASM-BUILD-EMITS-UNUSED-WARNINGS,issue,A wasm32 build of liquers-core emits five unused-import and dead-code warnings,draft,local,,ready,eligible,P3,S,core/assets;build,,,,core-wasm-warning-free,,2026-10-17,specs/issues/CORE-WASM-BUILD-EMITS-UNUSED-WARNINGS.md
 CROSS-PROCESS-RELOAD-IS-UNTESTED,issue,No test exercises reloading a persisted dependent in a fresh environment,closed,local,,,,P2,M,core/assets;build,,,,stale-dependency-status-finalization,,2026-09-06,specs/issues/CROSS-PROCESS-RELOAD-IS-UNTESTED.md
 CROSS-REALM-TRANSFER-NOT-PLANNED,feature,A value crossing a realm boundary is not checked or converted at planning time,draft,local,,phase2-blocked,not-eligible,P3,L,core/plan;core/value,,,,cross-realm-transfer-planning,,2026-10-20,specs/issues/CROSS-REALM-TRANSFER-NOT-PLANNED.md
@@ -900,7 +900,7 @@ STORE_CONFIG_FSD,reference,Store Configuration Functional Specification,current,
 STORE_SEMANTICS,reference,Store Behavioural Semantics,current,local,,,,,,core/store;store/backends;web,,,,,2026-10-25,,specs/reference/STORE_SEMANTICS.md
 TEMPLATE_LANGUAGE,reference,Template Language,current,local,,,,,,core/query;lib/commands,,,,,2026-10-17,,specs/reference/TEMPLATE_LANGUAGE.md
 UI_INTERFACE_FSD,reference,UI Interface Specification,overdue,local,,,,,,lib/ui,,,,,2026-03-02,,specs/reference/UI_INTERFACE_FSD.md
-VALUE_TYPE_SYSTEM,reference,Value Type System,current,local,,,,,,core/value;lib/value,,,,,2026-10-25,,specs/reference/VALUE_TYPE_SYSTEM.md
+VALUE_TYPE_SYSTEM,reference,Value Type System,current,local,,,,,,core/value;lib/value,,,,,2026-10-27,,specs/reference/VALUE_TYPE_SYSTEM.md
 VISION,reference,Liquers Vision and Strategy,current,local,,,,,,docs,,,,,2026-10-15,,specs/reference/VISION.md
 WEB_API_SPECIFICATION,reference,Liquers Web API Specification,current,local,,,,,,axum;web,,,,,2026-10-25,,specs/reference/WEB_API_SPECIFICATION.md
 AGENT_MEMORY_MIGRATION_GUIDE,guide,Agent Memory Migration Guide,current,local,,,,,,lib/commands;docs,,,,,2026-10-19,,specs/guides/AGENT_MEMORY_MIGRATION_GUIDE.md
