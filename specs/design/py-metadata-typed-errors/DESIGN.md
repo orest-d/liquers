@@ -229,7 +229,7 @@ Run: `bash scripts/test-liquers-py.sh -k ERROR`, then the whole loop.
 - [x] 2. `liquers-py/src/error.rs`: add `serialization_pyerr`. Proof: `cargo check -p liquers-py --lib --tests`
 - [x] 3. `metadata.rs`, `recipes.rs`, `expiration.rs`: replace the 23 sites; for `ExpirationTime::new`, use `general_error`. Proof: `cargo check -p liquers-py --lib --tests`
 - [x] 4. `command_metadata.rs`, `plan.rs`: replace the 33 sites; drop the `PyException` imports. Proof: `cargo check -p liquers-py --lib --tests` with no new warning; `ac5_no_untyped_mapping_grep` (AC-5)
-- [ ] 5. Whole loop. Proof: `bash scripts/test-liquers-py.sh` passes, with the step 1 tests now green
+- [x] 5. Whole loop. Proof: `bash scripts/test-liquers-py.sh` passes, with the step 1 tests now green
 - [ ] 6. `PYTHON_INTEGRATION.md` §6: the serialization sentence (Phase 2 Changes), a History row and a `reviewed:` bump; `liquers-py/README.md` conformance row `ERROR`: add the new tests; `specs/issues/PY-METADATA-METHODS-RAISE-PLAIN-EXCEPTION.md` `status: closed` with a resolution note; `python3 scripts/docs_index.py`. Proof: `python3 scripts/docs_index.py --check`
 
 Rollback for any step: revert it. The steps are independent apart from 2 before 3 and 4.
