@@ -1,3 +1,4 @@
+use crate::error::serialization_pyerr;
 use liquers_core::recipes::Recipe as CoreRecipe;
 use pyo3::{prelude::*, types::PyDict};
 
@@ -41,8 +42,7 @@ impl RecipeList {
 
     /// The recipe list serialized as JSON.
     pub fn to_json(&self) -> PyResult<String> {
-        serde_json::to_string(&self.inner)
-            .map_err(|e| pyo3::exceptions::PyException::new_err(e.to_string()))
+        serde_json::to_string(&self.inner).map_err(serialization_pyerr)
     }
 
     /// Reads a recipe list from JSON text, as `to_json()` writes it.
@@ -50,8 +50,7 @@ impl RecipeList {
     /// Raises an exception when the text is not valid JSON for `RecipeList`.
     #[staticmethod]
     pub fn from_json(json: &str) -> PyResult<Self> {
-        let inner = serde_json::from_str(json)
-            .map_err(|e| pyo3::exceptions::PyException::new_err(e.to_string()))?;
+        let inner = serde_json::from_str(json).map_err(serialization_pyerr)?;
         Ok(Self { inner })
     }
 }
@@ -62,7 +61,7 @@ impl Recipe {
     pub fn new(query: String, title: String, description: String) -> PyResult<Self> {
         Ok(Recipe {
             inner: liquers_core::recipes::Recipe::new(query, title, description)
-                .map_err(|e| PyErr::new::<pyo3::exceptions::PyException, _>(e.to_string()))?,
+                .map_err(|e| PyErr::from(crate::error::Error::from(e)))?,
         })
     }
 
@@ -118,8 +117,7 @@ impl Recipe {
 
     /// The recipe serialized as JSON.
     pub fn to_json(&self) -> PyResult<String> {
-        serde_json::to_string(&self.inner)
-            .map_err(|e| pyo3::exceptions::PyException::new_err(e.to_string()))
+        serde_json::to_string(&self.inner).map_err(serialization_pyerr)
     }
 
     /// Reads a recipe from JSON text, as `to_json()` writes it.
@@ -127,15 +125,13 @@ impl Recipe {
     /// Raises an exception when the text is not valid JSON for `Recipe`.
     #[staticmethod]
     pub fn from_json(json: &str) -> PyResult<Self> {
-        let m: CoreRecipe = serde_json::from_str(json)
-            .map_err(|e| pyo3::exceptions::PyException::new_err(e.to_string()))?;
+        let m: CoreRecipe = serde_json::from_str(json).map_err(serialization_pyerr)?;
         Ok(Recipe { inner: m })
     }
 
     /// The recipe serialized as YAML.
     pub fn to_yaml(&self) -> PyResult<String> {
-        serde_yaml::to_string(&self.inner)
-            .map_err(|e| pyo3::exceptions::PyException::new_err(e.to_string()))
+        serde_yaml::to_string(&self.inner).map_err(serialization_pyerr)
     }
 
     /// Reads a recipe from YAML text, as `to_yaml()` writes it.
@@ -143,8 +139,7 @@ impl Recipe {
     /// Raises an exception when the text is not valid YAML for `Recipe`.
     #[staticmethod]
     pub fn from_yaml(yaml: &str) -> PyResult<Self> {
-        let m: CoreRecipe = serde_yaml::from_str(yaml)
-            .map_err(|e| pyo3::exceptions::PyException::new_err(e.to_string()))?;
+        let m: CoreRecipe = serde_yaml::from_str(yaml).map_err(serialization_pyerr)?;
         Ok(Recipe { inner: m })
     }
 

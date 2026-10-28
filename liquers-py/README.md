@@ -127,7 +127,7 @@ test is named for its ID, in `tests/test_<FEATURE>_*.py`.
 | Feature | Selected level | Status | Limitations | Test evidence |
 |---|---|---|---|---|
 | `OBJECT` | Essential | COMPLETE | — | `test_OBJECT01`–`09` |
-| `ERROR` | Essential | COMPLETE | A Python exception's class and message ride in `message`, its stack in `traceback` (`LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT`) | `test_ERROR01`–`06` |
+| `ERROR` | Essential | COMPLETE | A Python exception's class and message ride in `message`, its stack in `traceback` (`LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT`) | `test_ERROR01`–`06`, `test_ERROR_wrapper_deserialization_raises_serialization_error`, `test_ERROR_stored_error_keeps_its_type`, `test_ERROR_wrapper_constructors_raise_typed_errors`, `test_ERROR_typed_wrapper_errors_are_still_exceptions` |
 | `RUNTIME` | Essential | COMPLETE | `RUNTIME02` is `NA` until a Pyodide target exists | `test_RUNTIME01`, `03`–`06` |
 | `VALUE` | Essential | COMPLETE | `VALUE12` is `NA` until a `Value` wrapper with operators exists | `test_VALUE01`–`13` |
 | `ENVIRON` | Essential | COMPLETE | Only the default recipe provider can be configured | `test_ENVIRON01`–`08` |

@@ -251,6 +251,15 @@ pub fn error_to_pyerr(py: Python<'_>, error: &liquers_core::error::Error) -> PyE
     }
 }
 
+/// A serde (JSON/YAML) failure as the `SerializationError` exception, the type liquers-core
+/// gives a serialization failure.
+pub(crate) fn serialization_pyerr(error: impl std::fmt::Display) -> PyErr {
+    PyErr::from(Error::from(liquers_core::error::Error::from_error(
+        liquers_core::error::ErrorType::SerializationError,
+        error,
+    )))
+}
+
 /// The Liquers error for a Python exception.
 ///
 /// A `LiquersError` keeps its own type and fields (ERROR06), with the Python frames it was raised

@@ -3,7 +3,9 @@ use std::{
     hash::{Hash, Hasher},
 };
 
-use pyo3::{exceptions::PyException, prelude::*, types::PyList};
+use pyo3::{prelude::*, types::PyList};
+
+use crate::error::serialization_pyerr;
 
 // TODO: Implement EnumArgumentType
 // TODO: Implement EnumArgumentAlternative
@@ -57,7 +59,7 @@ impl EnumArgument {
 
     /// The enum argument serialized as JSON.
     pub fn to_json(&self) -> PyResult<String> {
-        serde_json::to_string(&self.0).map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
+        serde_json::to_string(&self.0).map_err(serialization_pyerr)
     }
 
     /// Reads an enum argument from JSON text, as `to_json()` writes it.
@@ -65,8 +67,7 @@ impl EnumArgument {
     /// Raises an exception when the text is not valid JSON for `EnumArgument`.
     #[staticmethod]
     pub fn from_json(json: &str) -> PyResult<Self> {
-        let value =
-            serde_json::from_str(json).map_err(|e| PyErr::new::<PyException, _>(e.to_string()))?;
+        let value = serde_json::from_str(json).map_err(serialization_pyerr)?;
         Ok(Self(value))
     }
 
@@ -101,7 +102,7 @@ impl ArgumentType {
 
     /// The argument type serialized as JSON.
     pub fn to_json(&self) -> PyResult<String> {
-        serde_json::to_string(&self.0).map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
+        serde_json::to_string(&self.0).map_err(serialization_pyerr)
     }
 
     /// Reads an argument type from JSON text, as `to_json()` writes it.
@@ -109,8 +110,7 @@ impl ArgumentType {
     /// Raises an exception when the text is not valid JSON for `ArgumentType`.
     #[staticmethod]
     pub fn from_json(json: &str) -> PyResult<Self> {
-        let value =
-            serde_json::from_str(json).map_err(|e| PyErr::new::<PyException, _>(e.to_string()))?;
+        let value = serde_json::from_str(json).map_err(serialization_pyerr)?;
         Ok(Self(value))
     }
 
@@ -243,12 +243,12 @@ impl ArgumentInfo {
 
     /// The argument metadata serialized as JSON.
     fn to_json(&self) -> PyResult<String> {
-        serde_json::to_string(&self.0).map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
+        serde_json::to_string(&self.0).map_err(serialization_pyerr)
     }
 
     /// The argument metadata serialized as YAML.
     fn to_yaml(&self) -> PyResult<String> {
-        serde_yaml::to_string(&self.0).map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
+        serde_yaml::to_string(&self.0).map_err(serialization_pyerr)
     }
 
     /// Reads argument metadata from JSON text, as `to_json()` writes it.
@@ -257,7 +257,7 @@ impl ArgumentInfo {
     #[staticmethod]
     fn from_json(json: &str) -> PyResult<Self> {
         let a: liquers_core::command_metadata::ArgumentInfo =
-            serde_json::from_str(json).map_err(|e| PyErr::new::<PyException, _>(e.to_string()))?;
+            serde_json::from_str(json).map_err(serialization_pyerr)?;
         Ok(ArgumentInfo(a))
     }
 
@@ -267,7 +267,7 @@ impl ArgumentInfo {
     #[staticmethod]
     fn from_yaml(yaml: &str) -> PyResult<Self> {
         let a: liquers_core::command_metadata::ArgumentInfo =
-            serde_yaml::from_str(yaml).map_err(|e| PyErr::new::<PyException, _>(e.to_string()))?;
+            serde_yaml::from_str(yaml).map_err(serialization_pyerr)?;
         Ok(ArgumentInfo(a))
     }
 
@@ -294,8 +294,7 @@ impl ArgumentInfo {
                 Ok(pyo3::types::PyString::new(py, &query.encode()).into_any().unbind())
             }
             CommandParameterValue::Value(value) => {
-                let text = serde_json::to_string(value)
-                    .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))?;
+                let text = serde_json::to_string(value).map_err(serialization_pyerr)?;
                 Ok(py.import("json")?.call_method1("loads", (text,))?.unbind())
             }
         }
@@ -310,7 +309,7 @@ impl ArgumentInfo {
         match serde_json::to_value(&self.0.argument_type) {
             Ok(serde_json::Value::String(name)) => Ok(name),
             Ok(other) => Ok(other.to_string()),
-            Err(e) => Err(PyErr::new::<PyException, _>(e.to_string())),
+            Err(e) => Err(serialization_pyerr(e)),
         }
     }
 
@@ -351,7 +350,7 @@ impl CommandDefinition {
 
     /// The command definition serialized as JSON.
     pub fn to_json(&self) -> PyResult<String> {
-        serde_json::to_string(&self.0).map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
+        serde_json::to_string(&self.0).map_err(serialization_pyerr)
     }
 
     /// Reads a command definition from JSON text, as `to_json()` writes it.
@@ -359,8 +358,7 @@ impl CommandDefinition {
     /// Raises an exception when the text is not valid JSON for `CommandDefinition`.
     #[staticmethod]
     pub fn from_json(json: &str) -> PyResult<Self> {
-        let value =
-            serde_json::from_str(json).map_err(|e| PyErr::new::<PyException, _>(e.to_string()))?;
+        let value = serde_json::from_str(json).map_err(serialization_pyerr)?;
         Ok(Self(value))
     }
 
@@ -392,12 +390,12 @@ impl CommandPreset {
     pub fn new(action: &str, label: &str, description: &str) -> PyResult<Self> {
         liquers_core::command_metadata::CommandPreset::new(action, label, description)
             .map(Self)
-            .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
+            .map_err(|e| PyErr::from(crate::error::Error::from(e)))
     }
 
     /// The preset serialized as JSON.
     pub fn to_json(&self) -> PyResult<String> {
-        serde_json::to_string(&self.0).map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
+        serde_json::to_string(&self.0).map_err(serialization_pyerr)
     }
 
     /// Reads a preset from JSON text, as `to_json()` writes it.
@@ -405,8 +403,7 @@ impl CommandPreset {
     /// Raises an exception when the text is not valid JSON for `CommandPreset`.
     #[staticmethod]
     pub fn from_json(json: &str) -> PyResult<Self> {
-        let value =
-            serde_json::from_str(json).map_err(|e| PyErr::new::<PyException, _>(e.to_string()))?;
+        let value = serde_json::from_str(json).map_err(serialization_pyerr)?;
         Ok(Self(value))
     }
 
@@ -441,12 +438,12 @@ impl CommandMetadata {
 
     /// The command metadata serialized as JSON.
     fn to_json(&self) -> PyResult<String> {
-        serde_json::to_string(&self.0).map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
+        serde_json::to_string(&self.0).map_err(serialization_pyerr)
     }
 
     /// The command metadata serialized as YAML.
     fn to_yaml(&self) -> PyResult<String> {
-        serde_yaml::to_string(&self.0).map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
+        serde_yaml::to_string(&self.0).map_err(serialization_pyerr)
     }
 
     /// Reads command metadata from JSON text, as `to_json()` writes it.
@@ -455,7 +452,7 @@ impl CommandMetadata {
     #[staticmethod]
     fn from_json(json: &str) -> PyResult<Self> {
         let a: liquers_core::command_metadata::CommandMetadata =
-            serde_json::from_str(json).map_err(|e| PyErr::new::<PyException, _>(e.to_string()))?;
+            serde_json::from_str(json).map_err(serialization_pyerr)?;
         Ok(CommandMetadata(a))
     }
 
@@ -465,7 +462,7 @@ impl CommandMetadata {
     #[staticmethod]
     fn from_yaml(yaml: &str) -> PyResult<Self> {
         let a: liquers_core::command_metadata::CommandMetadata =
-            serde_yaml::from_str(yaml).map_err(|e| PyErr::new::<PyException, _>(e.to_string()))?;
+            serde_yaml::from_str(yaml).map_err(serialization_pyerr)?;
         Ok(CommandMetadata(a))
     }
 
@@ -625,12 +622,12 @@ impl CommandMetadataRegistry {
 
     /// The registry serialized as JSON.
     fn to_json(&self) -> PyResult<String> {
-        serde_json::to_string(&self.0).map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
+        serde_json::to_string(&self.0).map_err(serialization_pyerr)
     }
 
     /// The registry serialized as YAML.
     fn to_yaml(&self) -> PyResult<String> {
-        serde_yaml::to_string(&self.0).map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
+        serde_yaml::to_string(&self.0).map_err(serialization_pyerr)
     }
 
     /// Reads a registry from JSON text, as `to_json()` writes it.
@@ -639,7 +636,7 @@ impl CommandMetadataRegistry {
     #[staticmethod]
     fn from_json(json: &str) -> PyResult<Self> {
         let a: liquers_core::command_metadata::CommandMetadataRegistry =
-            serde_json::from_str(json).map_err(|e| PyErr::new::<PyException, _>(e.to_string()))?;
+            serde_json::from_str(json).map_err(serialization_pyerr)?;
         Ok(CommandMetadataRegistry(a))
     }
 
@@ -649,7 +646,7 @@ impl CommandMetadataRegistry {
     #[staticmethod]
     fn from_yaml(yaml: &str) -> PyResult<Self> {
         let a: liquers_core::command_metadata::CommandMetadataRegistry =
-            serde_yaml::from_str(yaml).map_err(|e| PyErr::new::<PyException, _>(e.to_string()))?;
+            serde_yaml::from_str(yaml).map_err(serialization_pyerr)?;
         Ok(CommandMetadataRegistry(a))
     }
 }

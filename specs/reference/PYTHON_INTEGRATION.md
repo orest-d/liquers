@@ -3,7 +3,7 @@ title: Python Integration
 kind: reference
 audience: both
 area: [py, core/value, core/error, lib/value]
-reviewed: 2026-10-27
+reviewed: 2026-10-28
 ---
 # Python Integration
 
@@ -298,6 +298,9 @@ derives from the class of every category it is in, so `KeyNotFoundError` is a `S
 `NotFoundError`, `AssetNotFoundError` a `KeyedAssetError` and a `NotFoundError`. If `liquers._errors` cannot be imported — only in a broken installation —
 the error becomes a plain `Exception` with the rendered message.
 
+A JSON or YAML failure in a wrapper method (`from_json`, `to_yaml`, …) raises `SerializationError`; a
+bad constructor argument raises the error its core constructor returns.
+
 **Python to Liquers** (`pyerr_to_error`):
 
 - A `LiquersError` keeps its type and fields. If it was raised through Python frames, the formatted
@@ -408,6 +411,7 @@ protect.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-28 | §6: a wrapper method's JSON/YAML failure raises `SerializationError`, and a bad constructor argument the core constructor's error; no wrapper raises a plain `Exception`. | design `py-metadata-typed-errors` |
 | 2026-10-27 | §8: every public name has a docstring now; only the generated API reference is missing. | design `py-docstrings` |
 | 2026-10-27 | §3 `async_loops` and `job_capacity`, the `_async` methods, shutdown stops the loop pool; §4 async commands; §7 the bridge, awaitables, loop pool, blocking-call rule, job capacity, free-threading; §8 the synchronous-only limitation is lifted; the shutdown pin leak is fixed (`CORE-JOB-QUEUE-KEEPS-ENVIRONMENT-PINS-AFTER-SHUTDOWN`). | `design/liquers-py-async/` (phase-5) |
 | 2026-10-27 | Reserved names: `q` and `v` are refused as command names like `ns`. | design `reserved-instruction-command-names` |
