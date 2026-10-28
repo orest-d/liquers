@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: S
 area: [py]
-design:
+design: py-metadata-fields-as-properties
 created: 2026-10-19
 github:
 ---
@@ -56,3 +56,9 @@ with it. A property that can fail (`query`, `type_identifier`, `is_error`) raise
 
 Found while writing `guides/PYTHON_GUIDE.md` for `design/liquers-py/` Phase 5 (2026-10-19); split
 from `PY-API-REFERENCE-NOT-GENERATED`. Tightened 2026-10-26 (project-groups plan).
+
+Designed 2026-10-27 in `design/py-metadata-fields-as-properties/` (bulk design; needs a decision on
+the compatibility path, recommended: a clean switch). Kept separate from
+`PY-METADATA-METHODS-RAISE-PLAIN-EXCEPTION` (`design/py-metadata-typed-errors/`) under overlap
+exclusion E1, because that one is eligible for automatic fixing and this one is not (it changes
+the Python API). They are linked as `overlaps`, and the preferred order is that one first.

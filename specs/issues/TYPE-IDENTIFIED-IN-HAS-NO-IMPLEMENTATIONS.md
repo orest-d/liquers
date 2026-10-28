@@ -2,7 +2,7 @@
 id: TYPE-IDENTIFIED-IN-HAS-NO-IMPLEMENTATIONS
 kind: issue
 title: No type implements TypeIdentifiedIn, so the documented to_type_identifier example does not compile
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [core/value, lib/value, docs]
@@ -42,3 +42,7 @@ Either implement `TypeIdentifiedIn<ExtValue>` for the `ExtValue` payload types (
 ## Discovery
 
 Bulk design of `VALUE-TYPE-DEFINITION-MACRO` (2026-10-20).
+
+## Resolution
+
+Fixed 2026-10-27 by `design/type-identified-in-docs/`. Fixed by `design/type-identified-in-docs/` (2026-10-27): `TYPE_SYSTEM_GUIDE.md`, `VALUE_TYPE_SYSTEM.md` and the trait rustdoc say no value type implements `TypeIdentifiedIn` yet. The implementations belong to `design/value-type-definition-macro/`.

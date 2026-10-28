@@ -151,7 +151,8 @@ directory on `Context`, after which relative keys and links can resolve against 
 
 YAML authors must not specify `cwd`. `DefaultRecipeProvider` derives it from the containing
 `recipes.yaml` and refuses the whole file if any entry sets it: every lookup in that directory then
-fails with `NotSupported` ("CWD can't be explicitly specified in a recipe", with the directory
+fails with `NotSupported` ("CWD can't be explicitly specified in a recipe: recipes[1] (query '…')
+sets cwd 'other'", naming every offending entry by index, query and `cwd`, with the directory
 key), and the file is not cached. The field remains public and deserializable because programmatic
 recipe creation may set it — `ManifestRecipeProvider` sets each chunk recipe's `cwd` to the
 manifest's folder — and `Recipe::to_plan` validates that string as a `Key` and preserves it as the
@@ -163,10 +164,9 @@ the raw query `-R-cwd/../c/-/action-~X~-R/./hello.txt~E` first installs `a/b`, t
 to `a/c`, and finally evaluates the relative link as `-R/a/c/hello.txt`. Recipe conversion
 deliberately keeps both `SetCwd` operands and the link source-relative.
 
-`RecipeList::set_cwd` sets missing values in iteration order until it meets an explicitly populated
-`cwd`, then writes a diagnostic to stderr and returns an error, so a partially mutated list is
-possible
-([`RECIPE-LIST-SET-CWD-MUTATES-BEFORE-FAILING`](../issues/RECIPE-LIST-SET-CWD-MUTATES-BEFORE-FAILING.md)).
+`RecipeList::set_cwd` checks the whole list first: if any entry already has a `cwd` it returns that
+error and leaves the list unchanged; otherwise it sets every entry's `cwd`. It writes nothing to
+stderr.
 
 ## Provider contract
 
@@ -204,9 +204,9 @@ exists.
 
 The YAML root is `RecipeList { recipes: Vec<Recipe> }`. Asset names come from each recipe query's
 filename. Recipes without a valid filename are omitted from directory listing. The directory read
-maps **every** `get_bytes` error to an empty list, not only a missing file
-([`RECIPES-YAML-READ-ERRORS-READ-AS-NO-RECIPES`](../issues/RECIPES-YAML-READ-ERRORS-READ-AS-NO-RECIPES.md));
-malformed YAML from successfully read bytes is an error. `recipe_opt` asks `has_recipes` first, so a
+treats only `KeyNotFound` and `KeyNotSupported` from `get_bytes` as an empty list; any other read
+failure (a permission error, a transport error) is returned, carrying the `recipes.yaml` key, and is
+not cached; malformed YAML from successfully read bytes is an error. `recipe_opt` asks `has_recipes` first, so a
 store `contains` error is an error — except that `has_recipes` answers `false` when the store
 refuses the `recipes.yaml` key as `KeyNotSupported` (a store router does so for any key no member
 covers, such as an `http` store serving a fixed key list), so `-R/` queries under such a folder
@@ -850,8 +850,6 @@ not otherwise enforce this distinction.
 - Complete recipe application is a convention: `to_plan`, `finalize_plan`, setting the expiration and
   `apply_plan` must be sequenced by each environment —
   [`PLAN-EXPIRATION-REACHES-THE-CONTEXT-ONLY-THROUGH-APPLY-RECIPE`](../issues/PLAN-EXPIRATION-REACHES-THE-CONTEXT-ONLY-THROUGH-APPLY-RECIPE.md).
-- `RecipeList::set_cwd` can mutate part of a list before failing —
-  [`RECIPE-LIST-SET-CWD-MUTATES-BEFORE-FAILING`](../issues/RECIPE-LIST-SET-CWD-MUTATES-BEFORE-FAILING.md).
 - Provider plan APIs (`recipe_plan`, the private `create_plan_with_init_metadata` used by
   `recipe_plan` and `get_asset_info`, `make_plan`, `finalize_plan`) perform different subsets of
   analysis —
@@ -860,12 +858,8 @@ not otherwise enforce this distinction.
   [`RECIPE-OVERRIDE-ONLY-LAST-ACTION`](../issues/RECIPE-OVERRIDE-ONLY-LAST-ACTION.md).
 - The recipe circular-dependency fields are never set or read —
   [`RECIPE-CIRCULAR-DEPENDENCY-FIELDS-ARE-DEAD`](../issues/RECIPE-CIRCULAR-DEPENDENCY-FIELDS-ARE-DEAD.md).
-- Every `recipes.yaml` read error reads as "no recipes" —
-  [`RECIPES-YAML-READ-ERRORS-READ-AS-NO-RECIPES`](../issues/RECIPES-YAML-READ-ERRORS-READ-AS-NO-RECIPES.md).
 - `DefaultRecipeProvider` skips a recipe with no valid filename in listings without a diagnostic —
   [`RECIPE-WITHOUT-FILENAME-SILENTLY-OMITTED-FROM-LISTING`](../issues/RECIPE-WITHOUT-FILENAME-SILENTLY-OMITTED-FROM-LISTING.md).
-- The explicit-`cwd` error names the directory but not the offending recipe —
-  [`RECIPE-CWD-ERROR-DOES-NOT-NAME-THE-RECIPE`](../issues/RECIPE-CWD-ERROR-DOES-NOT-NAME-THE-RECIPE.md).
 
 ## Tests that pin this contract
 
@@ -884,6 +878,8 @@ not otherwise enforce this distinction.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-27 | §Working directory: the explicit-`cwd` error names each offending recipe; `RecipeList::set_cwd` validates before mutating and writes nothing to stderr. Two Known limitations bullets removed. | design `recipe-list-set-cwd-validation` |
+| 2026-10-27 | §Provider contract: only a missing or unsupported `recipes.yaml` reads as no recipes; other read errors are returned. Known limitations bullet removed. | design `recipes-yaml-read-errors-propagate` |
 | 2026-10-27 | §Serialization and future plan rewriting: a serialized plan is an inspection format of one build, with no cross-version guarantee; persist the query or recipe instead. Known limitations bullet removed. | `design/plan-serialization-internal-contract/` |
 | 2026-10-27 | §Where a boundary goes: inherited volatility bounds the cut `finalize_plan` makes, at the first step reading the volatile upstream; the Known limitations bullet is removed. | design `inherited-volatility-bounds-predecessor-cut` |
 | 2026-10-27 | §Planner instructions: a `q` with a parameter is `NotSupported` wherever it appears, not only at the end; the Known limitations bullet for mid-query `q` is removed. | design `mid-query-q-arity` |

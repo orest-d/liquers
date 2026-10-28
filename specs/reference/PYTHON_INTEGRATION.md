@@ -13,7 +13,8 @@ implements at HEAD. How to *use* the package is
 [`guides/PYTHON_GUIDE.md`](../guides/PYTHON_GUIDE.md); the general rules for any language are
 [`guides/LANGUAGE-INTEGRATION_GUIDE.md`](../guides/LANGUAGE-INTEGRATION_GUIDE.md), whose §6 Python
 records the choices made here and why. The conformance matrix, by feature ID, is in
-`liquers-py/README.md`; the design is [`design/liquers-py/`](../design/liquers-py/DESIGN.md).
+`liquers-py/README.md`; the designs are [`design/liquers-py/`](../design/liquers-py/DESIGN.md) and,
+for async and free-threading, [`design/liquers-py-async/`](../design/liquers-py-async/DESIGN.md).
 
 ## 1. Layout
 
@@ -28,7 +29,7 @@ The package's own modules:
 | Module | Contents |
 |---|---|
 | `__init__.py` | Imports every class and function of `_native` **by name**, and lists them in `__all__`. A class registered in `src/lib.rs` is not public until it is added here too. |
-| `_env.py` | `default_environment()` (one `Environment`, created lazily under a lock) and `evaluate()`. |
+| `_env.py` | `default_environment()` (one `Environment`, created lazily under a lock), `evaluate()` and `evaluate_async()`. |
 | `_commands.py` | The decorators, and declaration stage 1 (§4). |
 | `_errors.py` | `LiquersError` and one subclass per `ErrorType`, generated at import (§6). |
 
@@ -73,12 +74,18 @@ string. `Key[i]` accepts negative indices and raises `IndexError` out of range.
 with `liquers-lib`'s `Value` and payload `()`, from `liquers_lib::environment::default_environment_builder`.
 The type registry is `Value`'s, plus `py.Object` (§5).
 
-**Construction.** `Environment(*, config=None, conversion="permissive", pickle=False)`. `config` is
+**Construction.** `Environment(*, config=None, conversion="permissive", pickle=False, async_loops=1,
+job_capacity=None)`. `config` is
 an `EnvironmentConfig` (`reference/ENVIRONMENT_CONFIG.md`), as a YAML string or as a `dict`
 (converted through JSON). The constructor refuses an unknown `conversion` and any `recipes` other
 than `default` with `ConfigurationError`. Nothing else is built yet. The pickle codec is a
 keyword rather than a `config` entry because `EnvironmentConfig` has no codec section. There is
 no `reset()`: a new `Environment()` is a fresh environment.
+
+`async_loops` is the number of event loops `async def` commands run on (§7). `job_capacity` sets
+`config.assets.job_capacity`, the number of commands the asset manager runs at once; a value that
+differs from one already in `config` is a conflict. Both are integers of at least 1, and anything
+else raises `ConfigurationError`.
 
 **Declarations.** The handle holds a lock-protected record of everything declared on it: the
 Python command specs in registration order (at most one per key), the keys `unregister` removed,
@@ -105,9 +112,10 @@ environment from all declarations **with the same store**. The replaced environm
 retired list, not dropped, because evaluations may still be running in it; its asset cache does
 not carry over.
 
-**Shutdown.** `shutdown()` stops the asset managers of the current and every retired environment,
-and sets a shared *shut* flag that every wait started from the handle watches (§7). It is
-idempotent. Afterwards every method that would use or change the environment raises
+**Shutdown.** `shutdown()` sets a shared *shut* signal that every wait started from the handle
+watches (§7), stops the asset managers of the current and every retired environment, then stops
+the loop pool, cancelling the coroutines still running. It is idempotent, and it raises
+`RuntimeError` when called from an `async def` command, whose loop it would have to stop. Afterwards every method that would use or change the environment raises
 `GeneralError`, registration included; `validate()` still answers. An `AssetRef` taken before
 shutdown still returns a result that is already ready, and a wait still outstanding raises
 `Cancelled`. Shutdown releases the retired environments, and a built environment is freed with
@@ -128,6 +136,7 @@ under a lock.
 | `command_metadata(name, namespace="")` | the `CommandMetadata` the built environment holds |
 | `import_metadata(yaml)` | adds command metadata from a document with a `commands` list; only an unparseable document raises here, other problems surface through `validate()` and the next build |
 | `validate()` | the issues the next build would meet, as `lq.Issue` |
+| `evaluate_async(query)`, `evaluate_state_async(query)`, `get_asset_async(query)`, `store_set_async(key, data)` | the same, awaitable (§7) |
 | `shutdown()` | stops the environment |
 | `live_handle_count()` | static, `debug-handles` only: Python callables held by every environment's registrations |
 
@@ -194,13 +203,32 @@ the GIL there, so no runtime worker waits for the GIL. It builds the positional 
 
 The context is invalidated when the call returns; a retained one raises `GeneralError`. The return
 value is converted back with the environment's conversion mode. A panic on the blocking thread
-becomes `UnexpectedError`, and a cancelled join `Cancelled`.
+becomes `UnexpectedError`, and a cancelled join `Cancelled`. A sync callable that returns a
+coroutine fails with `ExecutionError` (the coroutine is closed, not run).
+
+**Async commands.** A callable is async when `inspect.iscoroutinefunction` holds for it or, for
+an object that is not a function, for `type(obj).__call__`; its metadata then has
+`is_async = True`. Its call runs in three parts:
+
+1. On a blocking thread, as above, the arguments are built and the callable is called; the
+   coroutine it returns goes to a loop of the environment's pool, picked round-robin, with
+   `asyncio.run_coroutine_threadsafe`.
+2. The command's future waits for the coroutine's future to finish without holding a thread.
+3. On a blocking thread, the result is converted as above and the context is invalidated.
+
+A cancellation guard exists from the start of part 1. When the command's future is dropped (the
+asset is cancelled or replaced, or the environment shuts down), it cancels the coroutine's
+future, so the coroutine sees `asyncio.CancelledError`, and invalidates the context; a cancel
+that arrives during part 1 is applied as soon as the coroutine is scheduled. A coroutine that
+ends cancelled, or raises `asyncio.CancelledError` or `concurrent.futures.CancelledError`, makes
+the asset `Cancelled`. Any other exception is handled as for a sync command, traceback included.
 
 **Context.** `evaluate(query)` evaluates through the core context, as a dependency of the current
 asset, and waits with `wait_for_dependency`. `info`, `warning` and `error` append to the asset's
 log. An `error` entry also fails the evaluation: the command keeps running, and once it returns
 the query raises `ExecutionError` with the first such message, whatever the command returned
 (`Context::error` in core). `is_cancelled()` reads the asset's cancellation flag.
+`evaluate_async(query)` is the awaitable `evaluate`, for `async def` commands.
 
 ## 5. Values
 
@@ -308,12 +336,67 @@ depth that the blocking pool has threads for (tokio's default, 512).
 
 **Concurrency.** An `Environment` may be used from several Python threads at once. Its
 declarations are behind one lock, held only to read or change them, and evaluations run in
-parallel on the runtime; Python commands still take the GIL one at a time.
+parallel on the runtime. The lock is taken with PyO3's `lock_py_attached`, which detaches while it
+waits, so a waiting thread never holds the GIL (or, free-threaded, a stop-the-world); and no
+Python object is released while it is held, since a `__del__` may call back into the environment.
+On a GIL build, Python commands take the GIL one at a time.
+
+**The runtime and the bridge.** `runtime()` binds the runtime to `pyo3-async-runtimes` on first use
+(`init_with_runtime`), so the awaitable methods run on it and the bridge never builds its own. A
+query that needs no Python never waits for the GIL: Python commands and every conversion run on
+blocking threads or loop threads, and `py.Object` (de)serialization attaches only inside
+`block_in_place`, which hands the worker's queue to another thread first.
+
+**Awaitables.** Each `_async` method (`Environment.evaluate_async`, `evaluate_state_async`,
+`get_asset_async`, `store_set_async`; `AssetRef.get_async`, `get_state_async`, `cancel_async`;
+`Context.evaluate_async`; `lq.evaluate_async`) does its synchronous part at call time (the query is
+parsed, the value of `store_set_async` converted, the environment built), so those errors raise
+from the call. It then spawns the core future on the runtime, raced against the shut signal, and
+returns an `asyncio.Future` of the caller's running loop (`future_into_py_with_locals`); with no
+running loop the call raises `RuntimeError`. The result is converted to Python on a blocking
+thread. The future can be awaited more than once. Timeouts are the caller's (`asyncio.timeout`);
+progress streams are not offered.
+
+| Event | Result |
+|---|---|
+| The awaitable is cancelled, or dropped | The awaiter gets `asyncio.CancelledError`; the evaluation goes on (detach). `AssetRef.cancel_async()` cancels the asset |
+| The asset is cancelled or replaced | Awaiters raise `lq.CancelledError`; a running coroutine sees `asyncio.CancelledError` |
+| `shutdown()` | Every wait, blocking or awaited, ends with `lq.CancelledError`; running coroutines are cancelled |
+
+**The loop pool.** An environment owns `async_loops` event loops, each on its own thread
+(`liquers-py-loop-N`), started by the first async command it runs and shared by every rebuild. A
+failed start is not kept, so the next command tries again. `shutdown()` stops the pool: each loop
+cancels its tasks, waits up to 5 s (`STOP_GRACE`) for them, closes, and its thread is joined; a
+coroutine that ignores cancellation, or a thread still blocked after that, is left behind with a
+`RuntimeWarning`. An `atexit` hook stops a pool still running when the interpreter exits, and a pool
+dropped without either is stopped on a thread of its own.
+
+**Blocking calls on a loop.** A blocking method (`evaluate`, `evaluate_state`, `get_asset`,
+`store_set`, `AssetRef.get` / `get_state` / `cancel`, `Context.evaluate`) called on a pool thread
+raises `RuntimeError` naming its `_async` form, because it would stall every coroutine on that loop
+and a nested evaluation needing the loop would never finish. Called under any other running loop it
+works, with a `RuntimeWarning`. `shutdown()` raises on a pool thread. `AssetRef.status` and
+`metadata` are exempt: each reads one lock and does not wait for the asset.
+
+**Job capacity.** All commands, Rust and Python, sync and async, share the asset manager's one job
+queue (`CORE-ONE-JOB-QUEUE-FOR-ALL-COMMANDS`); `job_capacity` bounds it. A nested evaluation is a
+dependency wait, which runs the dependency inline when no slot is free, so `Context.evaluate[_async]`
+cannot deadlock even at `job_capacity=1`. A top-level `env.evaluate_async` from inside a command does
+wait for a free slot, as the sync `env.evaluate` does, and deadlocks at capacity 1.
+
+**Free-threaded Python.** The extension declares `gil_used = false`, so importing `liquers` keeps a
+free-threaded interpreter (3.14t) running without the GIL; it is tested on 3.14t. Process state is
+`OnceLock`s and atomics, and every handle class (`Environment`, `Context`, `AssetRef`, `State`,
+`Issue`) is frozen. The query and metadata classes are not frozen: PyO3 guards each with a borrow
+flag, so mutating one object from two threads at once raises `RuntimeError` instead of racing. A
+Python command may run on several threads and loops at once; its own state is its author's to
+protect.
 
 ## 8. Limitations
 
-- Synchronous only: no awaitable API and no `async def` commands
-  ([`design/liquers-py-async/`](../design/liquers-py-async/DESIGN.md)).
+- One job queue serves every command; a command cannot be given its own queue or limit
+  (`CORE-ONE-JOB-QUEUE-FOR-ALL-COMMANDS`).
+- The Python suite runs locally, on CPython 3.13 and 3.14t, but not in CI (`PY-TESTS-NOT-RUN-IN-CI`).
 - No `realm=` or `arguments=` on the decorators (`PY-COMMAND-DECORATOR-CANNOT-SET-REALM`,
   `PY-COMMAND-DECORATOR-CANNOT-DECLARE-ARGUMENT-METADATA`); the context is passed positionally
   (`COMMAND_DECLARATION.md` §9).
@@ -329,6 +412,7 @@ parallel on the runtime; Python commands still take the GIL one at a time.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-27 | §3 `async_loops` and `job_capacity`, the `_async` methods, shutdown stops the loop pool; §4 async commands; §7 the bridge, awaitables, loop pool, blocking-call rule, job capacity, free-threading; §8 the synchronous-only limitation is lifted; the shutdown pin leak is fixed (`CORE-JOB-QUEUE-KEEPS-ENVIRONMENT-PINS-AFTER-SHUTDOWN`). | `design/liquers-py-async/` (phase-5) |
 | 2026-10-27 | §2: `Plan`'s JSON/YAML round-trips within one version only. | `design/plan-serialization-internal-contract/` |
 | 2026-10-27 | Reserved names: `q` and `v` are refused as command names like `ns`. | design `reserved-instruction-command-names` |
 | 2026-10-25 | §6: error category classes (`StoreError`, `KeyedAssetError`, `NotFoundError`); §8: the pickle-off and missing-resource limitations are fixed (`AssetNotSupportedError`, `AssetNotFoundError`). | `design/key-without-recipe-answer/` |

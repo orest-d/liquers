@@ -2,7 +2,7 @@
 id: FOREIGN-VALUE-TEXT-AND-JSON-HOOKS-NEVER-CALLED
 kind: issue
 title: ForeignValue's text and JSON hooks are never called, so a foreign value cannot offer either
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [lib/value]
@@ -44,3 +44,7 @@ remove the two methods from `ForeignValue` if delegation is not wanted. A genera
 ## Discovery
 
 Bulk design of `VALUE-TYPE-DEFINITION-MACRO` (2026-10-20), reading every `ExtValue` match arm.
+
+## Resolution
+
+Fixed 2026-10-27 by `design/foreign-value-text-json-delegation/`. Fixed by `design/foreign-value-text-json-delegation/` (2026-10-27): the `Foreign` arms of `ExtValue::try_into_string` and `try_into_json_value` delegate to the foreign value, whose default hooks still refuse.

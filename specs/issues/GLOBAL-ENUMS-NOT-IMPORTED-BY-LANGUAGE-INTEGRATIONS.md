@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: M
 area: [web, py]
-design:
+design: language-global-enum-import
 created: 2026-10-20
 github:
 ---

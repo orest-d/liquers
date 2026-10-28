@@ -61,3 +61,8 @@ Raised by review on PR #19 and confirmed by probing the real evaluation path (20
 tested the bridge in isolation, where `from_thrown` fills the fields — the test was true and the
 shipped path was not. Progress noted 2026-10-11 and 2026-10-20; tightened and re-sized `M` → `S`,
 area narrowed to `web`, on 2026-10-26 (project-groups plan).
+
+Related (2026-10-27): the other branch of `js_error_to_liquers`, a `LiquersError` thrown back
+from JavaScript, drops `query`, `key` and `position` (`WEB-THROWN-BACK-LIQUERSERROR-LOSES-CONTEXT`,
+`design/web-thrown-back-error-context/`). When this issue adds the `traceback` getter,
+`js_value_as_liquers_error` should read it too, so a thrown-back error keeps its traceback.

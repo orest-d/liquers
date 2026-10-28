@@ -3,8 +3,8 @@ id: PLAN-SERIALIZATION-INTERNAL-CONTRACT
 kind: design
 title: A serialized plan is declared an inspection format of the build that wrote it
 form: compact
-status: in_review
-phase: implementation
+status: complete
+gh_pr: [217]
 readiness: ready
 autofix: eligible
 area: [core/plan, docs]
@@ -12,6 +12,8 @@ issues: [PLAN-SERDE-HAS-NO-COMPATIBILITY-CONTRACT]
 created: 2026-10-26
 ---
 # A serialized plan is declared an inspection format of the build that wrote it
+
+> **Complete on 2026-10-27**: implemented by automatic fix in #217.
 
 Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-26: Phases 1-4 written; Phase 4
 implemented on 2026-10-27 (automatic fix).
