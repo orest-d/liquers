@@ -8,11 +8,12 @@ readiness: ready
 autofix: eligible
 area: [web]
 issues: [WEB-THROWN-BACK-LIQUERSERROR-LOSES-CONTEXT]
+gh_pr: [223]
 created: 2026-10-27
 ---
 # A LiquersError thrown back from JavaScript keeps its query, key and position
 
-> **Complete on 2026-10-28**: implemented by automatic fix in #TBD.
+> **Complete on 2026-10-28**: implemented by automatic fix in #223.
 
 Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-27: Phases 1-4 written.
 
