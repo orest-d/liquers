@@ -72,6 +72,7 @@
 //! backend cannot be reached without passing.
 
 use std::collections::BTreeSet;
+#[cfg(not(target_arch = "wasm32"))]
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -1456,9 +1457,11 @@ impl AsyncFileStore {
         }
     }
 }
+#[cfg(not(target_arch = "wasm32"))]
 struct FileLockGuard {
     path: PathBuf,
 }
+#[cfg(not(target_arch = "wasm32"))]
 impl Drop for FileLockGuard {
     fn drop(&mut self) {
         let _ = std::fs::remove_file(&self.path);

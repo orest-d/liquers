@@ -3,8 +3,8 @@ id: TEMPLATE-DIAGNOSTICS-NAMESPACE-SCOPE
 kind: design
 title: Template diagnostics look each command up in the namespaces the planner would use
 form: compact
-status: in_review
-phase: implementation
+status: complete
+gh_pr: [216]
 readiness: ready
 autofix: eligible
 area: [core/query, lib/commands]
@@ -12,6 +12,8 @@ issues: [TEMPLATE-DIAGNOSTICS-RESOLVE-NAMESPACES-FROM-THE-WHOLE-QUERY]
 created: 2026-10-26
 ---
 # Template diagnostics look each command up in the namespaces the planner would use
+
+> **Complete on 2026-10-27**: implemented by automatic fix in #216.
 
 Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-26: Phases 1-4 written; Phase 4
 implemented on 2026-10-27 (automatic fix).

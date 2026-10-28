@@ -1132,6 +1132,19 @@ where
     ) -> Result<Self, Error>;
 }
 
+/// Reads a JSON payload as the type a declared identifier names.
+fn json_payload<T: serde::de::DeserializeOwned>(
+    b: &[u8],
+    type_identifier: &str,
+) -> Result<T, Error> {
+    serde_json::from_slice(b).map_err(|e| {
+        Error::from_error(
+            ErrorType::SerializationError,
+            format!("JSON error reading {type_identifier} in from_bytes: {e}"),
+        )
+    })
+}
+
 impl DefaultValueSerializer for Value {
     fn as_bytes(&self, data_format: &str) -> Result<Vec<u8>, Error> {
         match data_format {
@@ -1200,9 +1213,11 @@ impl DefaultValueSerializer for Value {
         match data_format {
             // `Value` is `#[serde(untagged)]`, so JSON alone cannot always say which variant it
             // came from: `Value::Bytes(vec![1, 2, 3])` serializes to `[1, 2, 3]` and reads back as
-            // `Value::Array`. The declared type identifier is exactly the discriminator serde
-            // lacks, so it is consulted for the ambiguous variants before falling back to shape
-            // inference. See `specs/issues/COMBINED-VALUE-DISCRIMINATION.md`.
+            // `Value::Array`, and a `Query` or `Metadata` reads back as `Text` / `Object`. The
+            // declared type identifier is exactly the discriminator serde lacks, so every core
+            // identifier reads its own variant's payload, and a payload of another shape is an
+            // error rather than a value of another type. Only an empty or foreign identifier is
+            // read by shape. See `specs/issues/COMBINED-VALUE-DISCRIMINATION.md`.
             "json" => match type_identifier {
                 // A number, a `json_f64` token, or `null` (NaN): the identifier says it is a float.
                 "F64" => serde_json::from_slice::<serde_json::Value>(b)
@@ -1222,6 +1237,19 @@ impl DefaultValueSerializer for Value {
                             format!("JSON error reading Bytes in from_bytes: {}", e),
                         )
                     }),
+                "None" => json_payload::<()>(b, type_identifier).map(|()| Value::None),
+                "Bool" => json_payload(b, type_identifier).map(Value::Bool),
+                "I32" => json_payload(b, type_identifier).map(Value::I32),
+                "I64" => json_payload(b, type_identifier).map(Value::I64),
+                "Text" => json_payload(b, type_identifier).map(Value::Text),
+                "Array" => json_payload(b, type_identifier).map(Value::Array),
+                "Object" => json_payload(b, type_identifier).map(Value::Object),
+                "Metadata" => json_payload(b, type_identifier).map(Value::Metadata),
+                "AssetInfo" => json_payload(b, type_identifier).map(Value::AssetInfo),
+                "Recipe" => json_payload(b, type_identifier).map(Value::Recipe),
+                "CommandMetadata" => json_payload(b, type_identifier).map(Value::CommandMetadata),
+                "Query" => json_payload(b, type_identifier).map(Value::Query),
+                "Key" => json_payload(b, type_identifier).map(Value::Key),
                 _ => serde_json::from_slice(b).map_err(|e| {
                     Error::from_error(
                         ErrorType::SerializationError,
@@ -1407,6 +1435,7 @@ mod tests {
             (Value::Bool(true), &["json", "txt"]),
             (Value::I32(7), &["json", "txt"]),
             (Value::I64(-9_000_000_000), &["json", "txt"]),
+            (Value::I64(5), &["json", "txt"]),
             (Value::F64(2.5), &["json", "txt"]),
             (
                 Value::Text("hello".to_string()),
@@ -1486,6 +1515,115 @@ mod tests {
         }
         let back: Value = DefaultValueSerializer::deserialize_from_bytes(b"# x", "", "md")?;
         assert_eq!(back, Value::Text("# x".to_string()));
+        Ok(())
+    }
+
+    /// Structured core values read back as their own variant from JSON, not by shape
+    /// (`specs/design/core-value-json-identifier-dispatch/`, AC-1).
+    #[test]
+    fn structured_identifiers_round_trip_as_json() -> Result<(), Box<dyn std::error::Error>> {
+        let query = crate::parse::parse_query("-R/data/x.csv/-/ns-pl/head-5")?;
+        let mut metadata = MetadataRecord::new();
+        metadata.with_title("Title".to_string());
+        metadata.info("a log entry");
+        let mut info = AssetInfo::new();
+        info.filename = Some("x.csv".to_string());
+        let values = vec![
+            Value::Metadata(metadata),
+            Value::AssetInfo(vec![info]),
+            Value::Recipe(Recipe::new(
+                query.encode(),
+                "Recipe".to_string(),
+                String::new(),
+            )?),
+            Value::CommandMetadata(CommandMetadata::new("test")),
+            Value::Query(query),
+            Value::Key(crate::parse::parse_key("data/x.csv")?),
+        ];
+        for value in values {
+            let identifier = value.identifier();
+            let bytes = value.as_bytes("json")?;
+            let back: Value =
+                DefaultValueSerializer::deserialize_from_bytes(&bytes, &identifier, "json")?;
+            assert_eq!(
+                back.identifier(),
+                identifier,
+                "{identifier} must read back as itself"
+            );
+            assert_eq!(back, value, "{identifier} must round-trip");
+        }
+        Ok(())
+    }
+
+    /// AC-3: an empty or foreign identifier still reads JSON by its shape.
+    #[test]
+    fn untyped_json_reads_by_shape() -> Result<(), Box<dyn std::error::Error>> {
+        for identifier in ["", "test.Foreign"] {
+            for (json, expected) in [
+                (&b"{\"a\":1}"[..], "Object"),
+                (&b"[1]"[..], "Array"),
+                (&b"5"[..], "I32"),
+            ] {
+                let back: Value =
+                    DefaultValueSerializer::deserialize_from_bytes(json, identifier, "json")?;
+                assert_eq!(
+                    back.identifier(),
+                    expected,
+                    "{identifier:?} reading {json:?}"
+                );
+            }
+        }
+        Ok(())
+    }
+
+    /// AC-4: a payload whose shape disagrees with its identifier is refused, not retyped.
+    #[test]
+    fn mismatched_json_payload_is_refused() {
+        for (json, identifier) in [
+            (&b"[1,2]"[..], "Metadata"),
+            (&b"\"x\""[..], "I64"),
+            (&b"5"[..], "Text"),
+        ] {
+            match <Value as DefaultValueSerializer>::deserialize_from_bytes(
+                json, identifier, "json",
+            ) {
+                Ok(v) => panic!("{json:?} as {identifier} must be refused, got {v:?}"),
+                Err(e) => {
+                    assert_eq!(e.error_type, ErrorType::SerializationError);
+                    assert!(
+                        e.message.contains(identifier),
+                        "message {:?} must name {identifier}",
+                        e.message
+                    );
+                }
+            }
+        }
+    }
+
+    /// AC-5: every identifier that declares `json` round-trips through it.
+    #[test]
+    fn every_declared_json_identifier_round_trips() -> Result<(), Box<dyn std::error::Error>> {
+        let samples = sample_values();
+        for info in Value::type_descriptions() {
+            if !info.supports_data_format("json") {
+                continue;
+            }
+            let value = samples
+                .iter()
+                .find(|v| v.identifier() == info.type_identifier)
+                .unwrap_or_else(|| panic!("no sample for {}", info.type_identifier));
+            let bytes = value.as_bytes("json")?;
+            let back: Value = DefaultValueSerializer::deserialize_from_bytes(
+                &bytes,
+                &info.type_identifier,
+                "json",
+            )?;
+            assert_eq!(
+                &back, value,
+                "{} must round-trip as json",
+                info.type_identifier
+            );
+        }
         Ok(())
     }
 

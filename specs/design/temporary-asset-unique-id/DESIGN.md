@@ -3,8 +3,8 @@ id: TEMPORARY-ASSET-UNIQUE-ID
 kind: design
 title: A temporary asset takes a fresh id from its manager
 form: compact
-status: in_review
-phase: implementation
+status: complete
+gh_pr: [200]
 readiness: ready
 autofix: eligible
 area: [core/assets]
@@ -13,8 +13,10 @@ created: 2026-10-20
 ---
 # A temporary asset takes a fresh id from its manager
 
-Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-20: Phases 1-4 written, not
-approved, nothing implemented.
+> **Complete on 2026-10-27**: implemented by automatic fix in #200.
+
+Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-20: Phases 1-4 written; Phase 4
+implemented on 2026-10-27 (automatic fix).
 
 ## Phase 1: High-Level Design
 
@@ -147,9 +149,9 @@ Run: `CARGO_INCREMENTAL=0 cargo test -p liquers-core --lib temporary_assets_have
 
 ### Steps
 
-- [ ] 1. `liquers-core/src/assets.rs` `mod tests` — add `temporary_assets_have_distinct_ids`; it fails at HEAD — `cargo test -p liquers-core --lib temporary_assets_have_distinct_ids`. Rollback: delete the test.
-- [ ] 2. `assets.rs` `AssetData::new_temporary` — id from `envref.get_asset_manager().next_id_for_asset()`, doc comments — the test of step 1 and `cargo test -p liquers-core --lib --tests`. Rollback: revert the commit.
-- [ ] 3. Records — close `TEMPORARY-ASSETS-SHARE-ID-ZERO` with a resolution note; check DOC_03 for an id mention — `python3 scripts/docs_index.py --check`.
+- [x] 1. `liquers-core/src/assets.rs` `mod tests` — add `temporary_assets_have_distinct_ids`; it fails at HEAD — `cargo test -p liquers-core --lib temporary_assets_have_distinct_ids`. Rollback: delete the test.
+- [x] 2. `assets.rs` `AssetData::new_temporary` — id from `envref.get_asset_manager().next_id_for_asset()`, doc comments — the test of step 1 and `cargo test -p liquers-core --lib --tests`. Rollback: revert the commit.
+- [x] 3. Records — close `TEMPORARY-ASSETS-SHARE-ID-ZERO` with a resolution note; check DOC_03 for an id mention — `python3 scripts/docs_index.py --check`.
 
 ### Validation
 

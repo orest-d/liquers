@@ -1,7 +1,7 @@
 use crate::value::Value;
 use liquers_core::command_metadata::CommandMetadataRegistry;
 use liquers_core::parse::parse_query;
-use liquers_core::query::{ActionParameter, QuerySegment};
+use liquers_core::query::{ActionParameter, ActionRequest, QuerySegment};
 use liquers_core::state::State;
 
 /// A resolved next-command preset with the full query already constructed.
@@ -21,6 +21,10 @@ pub struct NextPreset {
 ///
 /// Sources of presets:
 /// 1. Explicit presets from `CommandMetadata.next` of the last action in the query.
+///
+/// The last command is resolved as the planner does: planner instructions (`ns`, `q`, `v`) are
+/// skipped, it is looked up in the namespaces of the last `ns` before it, and in the segment's
+/// realm.
 ///
 /// For each preset, constructs the full output query by appending the preset's
 /// encoded action to the original query string, with `ns-<namespace>/` injection
@@ -44,24 +48,29 @@ pub fn find_next_presets(
         None => return vec![],
     };
 
-    // Find the last non-ns, non-q action
-    let last_action = match tqs.query.iter().rev().find(|a| !a.is_ns() && !a.is_q()) {
-        Some(a) => a,
-        None => return vec![],
+    // The last action that is a command, not a planner instruction
+    let Some(last_index) = tqs.query.iter().rposition(|a| !is_planner_instruction(a)) else {
+        return vec![];
     };
+    let last_action = &tqs.query[last_index];
 
-    // Determine the active namespace context from the query
-    let active_ns = active_namespace(
-        &tqs.query.iter().flat_map(|a| a.ns()).flatten().collect(),
-        registry,
-    );
+    // The command sees only an `ns` before it; an appended preset sees the whole segment's.
+    let mut command_prefix = tqs.clone();
+    command_prefix.query.truncate(last_index + 1);
+    let Some(command_namespaces) = namespaces_from(command_prefix.last_ns(), registry) else {
+        return vec![];
+    };
+    let Some(namespaces) = namespaces_from(tqs.last_ns(), registry) else {
+        return vec![];
+    };
+    let realm = tqs.name();
 
     // Look up command metadata for the last action
-    let namespaces = build_namespace_list(&active_ns, registry);
-    let cmd_meta = match registry.find_command_in_namespaces("", &namespaces, &last_action.name) {
-        Some(m) => m,
-        None => return vec![],
-    };
+    let cmd_meta =
+        match registry.find_command_in_namespaces(&realm, &command_namespaces, &last_action.name) {
+            Some(m) => m,
+            None => return vec![],
+        };
 
     // Build presets from metadata.next
     let base_query = query.trim_end_matches('/');
@@ -71,7 +80,7 @@ pub fn find_next_presets(
             preset.ns.clone()
         } else {
             let preset_meta =
-                registry.find_command_in_namespaces("", &namespaces, &preset.action.name);
+                registry.find_command_in_namespaces(&realm, &namespaces, &preset.action.name);
             if preset_meta.is_some() {
                 "".to_string()
             } else {
@@ -103,30 +112,29 @@ pub fn find_next_presets(
     result
 }
 
-/// Determine the active namespace from ns action parameters.
-/// Returns the last namespace set by `ns-<name>` actions, or empty string if none.
-fn active_namespace(
-    ns_params: &Vec<ActionParameter>,
-    _registry: &CommandMetadataRegistry,
-) -> String {
-    // The ns action parameters encode the namespace(s)
-    // e.g. ns-lui sets namespace to "lui"
-    ns_params.last().map(|p| p.encode()).unwrap_or_default()
+/// Whether the action is a planner instruction rather than a command (`RECIPES_AND_PLANS.md`
+/// §Planner instructions). `v` has no public predicate in `liquers-core` yet
+/// (`planner-instruction-names-public`).
+fn is_planner_instruction(action: &ActionRequest) -> bool {
+    action.is_ns() || action.is_q() || action.name == "v"
 }
 
-/// Build the list of namespaces to search, starting with the active namespace
-/// and including the registry's default namespaces.
-fn build_namespace_list(active_ns: &str, registry: &CommandMetadataRegistry) -> Vec<String> {
+/// The namespaces a command is looked up in, as the planner builds them: those of the `ns`
+/// instruction, then the registry's defaults. `None` when an `ns` parameter is not a plain
+/// string, which the planner refuses.
+fn namespaces_from(
+    ns: Option<Vec<ActionParameter>>,
+    registry: &CommandMetadataRegistry,
+) -> Option<Vec<String>> {
     let mut namespaces = Vec::new();
-    if !active_ns.is_empty() {
-        namespaces.push(active_ns.to_string());
-    }
-    for ns in &registry.default_namespaces {
-        if !namespaces.contains(ns) {
-            namespaces.push(ns.clone());
+    for parameter in ns.unwrap_or_default() {
+        match parameter {
+            ActionParameter::String(s, _) => namespaces.push(s),
+            ActionParameter::Link(_, _) => return None,
         }
     }
-    namespaces
+    namespaces.extend(registry.default_namespaces.iter().cloned());
+    Some(namespaces)
 }
 
 #[cfg(test)]
@@ -134,7 +142,6 @@ mod tests {
     use super::*;
     use liquers_core::command_metadata::{CommandMetadata, CommandPreset};
     use liquers_core::metadata::Metadata;
-    use liquers_core::query::ActionRequest;
     use std::sync::Arc;
 
     fn make_state() -> State<Value> {
@@ -232,5 +239,84 @@ mod tests {
             result[0].query,
             "text-Hello/uppercase/ns-special/special_cmd"
         );
+    }
+
+    fn preset(action: &str, ns: &str) -> CommandPreset {
+        CommandPreset {
+            action: ActionRequest::new(action.to_string()),
+            ns: ns.to_string(),
+            label: action.to_string(),
+            description: String::new(),
+        }
+    }
+
+    /// `head` in namespace `pl` with a `tail` preset; `tail` lives in `pl` too.
+    fn registry_with_pl_head(next: CommandPreset) -> CommandMetadataRegistry {
+        let mut registry = CommandMetadataRegistry::new();
+        let mut head = CommandMetadata::new("head");
+        head.namespace = "pl".to_string();
+        head.next.push(next);
+        registry.add_command(&head);
+        let mut tail = CommandMetadata::new("tail");
+        tail.namespace = "pl".to_string();
+        registry.add_command(&tail);
+        registry
+    }
+
+    /// AC-1: a trailing `v` is a planner instruction, not the last command.
+    #[test]
+    fn test_trailing_v_is_skipped() {
+        let state = make_state();
+        let registry = make_registry_with_preset();
+        let result = find_next_presets("text-Hello/uppercase/v", &state, &registry);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].query, "text-Hello/uppercase/v/lowercase");
+    }
+
+    /// AC-2: every namespace of the last `ns` applies, not only its last parameter.
+    #[test]
+    fn test_all_namespaces_of_ns_apply() {
+        let state = make_state();
+        let registry = registry_with_pl_head(preset("tail", ""));
+        let result = find_next_presets("ns-pl-img/head", &state, &registry);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].label, "tail");
+    }
+
+    /// AC-3: an `ns` after the command does not apply to it.
+    #[test]
+    fn test_only_ns_before_the_command_applies() {
+        let state = make_state();
+        let registry = registry_with_pl_head(preset("tail", ""));
+        let result = find_next_presets("ns-pl/head/ns-img", &state, &registry);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].label, "tail");
+    }
+
+    /// AC-4: the command is looked up in the segment's realm.
+    #[test]
+    fn test_segment_realm_applies() {
+        let state = make_state();
+        let mut registry = CommandMetadataRegistry::new();
+        let mut cmd = CommandMetadata::new("cmd");
+        cmd.realm = "r".to_string();
+        cmd.next.push(preset("next", ""));
+        registry.add_command(&cmd);
+        let result = find_next_presets("-r/cmd", &state, &registry);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].label, "next");
+    }
+
+    /// AC-5: a preset appended after a trailing `ns-img` needs no injection when it lives there.
+    #[test]
+    fn test_preset_after_trailing_ns_is_not_injected() {
+        let state = make_state();
+        let mut registry = registry_with_pl_head(preset("show", "img"));
+        let mut show = CommandMetadata::new("show");
+        show.namespace = "img".to_string();
+        registry.add_command(&show);
+        let result = find_next_presets("ns-pl/head/ns-img", &state, &registry);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].query, "ns-pl/head/ns-img/show");
     }
 }

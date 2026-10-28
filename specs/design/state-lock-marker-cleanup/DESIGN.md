@@ -3,8 +3,8 @@ id: STATE-LOCK-MARKER-CLEANUP
 kind: design
 title: Replace the stale "remove rwlock" marker on State with the ownership model it no longer needs
 form: compact
-status: in_review
-phase: implementation
+status: complete
+gh_pr: [197]
 readiness: ready
 autofix: eligible
 area: [core/value]
@@ -13,8 +13,10 @@ created: 2026-10-20
 ---
 # Replace the stale "remove rwlock" marker on State with the ownership model it no longer needs
 
-Bulk design (`specs/guides/autonomous_bulk_design.md`): Phases 1-4 written, not approved, nothing
-implemented.
+> **Complete on 2026-10-27**: implemented by automatic fix in #197.
+
+Bulk design (`specs/guides/autonomous_bulk_design.md`): Phases 1-4 written; Phase 4
+implemented on 2026-10-27 (automatic fix).
 
 ## Phase 1: High-Level Design
 
@@ -142,9 +144,9 @@ No new test: the change is documentation. Proof:
 
 ### Steps
 
-- [ ] 1. `liquers-core/src/state.rs` `State` doc and struct body — remove the marker, write the model (AC-1, AC-2) — `grep -niE 'rwlock|TODO' liquers-core/src/state.rs` empty; `cargo test -p liquers-core --lib state::`. Rollback: revert.
-- [ ] 2. `liquers-core/src/state.rs` `State::set_status` doc — state the cost (AC-2) — `cargo doc -p liquers-core --no-deps`.
-- [ ] 3. Close `CORE-STATE-LOCK-API-CLEANUP` (`status: closed`, `## Resolution` naming the commit), design `status: complete` — `python3 scripts/docs_index.py --check`.
+- [x] 1. `liquers-core/src/state.rs` `State` doc and struct body — remove the marker, write the model (AC-1, AC-2) — `grep -niE 'rwlock|TODO' liquers-core/src/state.rs` empty; `cargo test -p liquers-core --lib state::`. Rollback: revert.
+- [x] 2. `liquers-core/src/state.rs` `State::set_status` doc — state the cost (AC-2) — `cargo doc -p liquers-core --no-deps`.
+- [x] 3. Close `CORE-STATE-LOCK-API-CLEANUP` (`status: closed`, `## Resolution` naming the commit), design `status: complete` — `python3 scripts/docs_index.py --check`.
 
 ### Validation
 
