@@ -1,7 +1,10 @@
 use liquers_core::parse::parse_query;
-use pyo3::{exceptions::PyException, prelude::*};
+use pyo3::prelude::*;
 
-use crate::{command_metadata::CommandMetadataRegistry, error::Error};
+use crate::{
+    command_metadata::CommandMetadataRegistry,
+    error::{serialization_pyerr, Error},
+};
 
 /// One step of a `Plan`: fetch a resource, run an action, set a filename, log a message, ...
 ///
@@ -32,7 +35,7 @@ impl Step {
 
     /// The step serialized as JSON.
     fn to_json(&self) -> PyResult<String> {
-        serde_json::to_string(&self.0).map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
+        serde_json::to_string(&self.0).map_err(serialization_pyerr)
     }
 
     /// Reads a step from JSON text, as `to_json()` writes it.
@@ -41,7 +44,7 @@ impl Step {
     #[staticmethod]
     fn from_json(json: &str) -> PyResult<Self> {
         let s: liquers_core::plan::Step =
-            serde_json::from_str(json).map_err(|e| PyErr::new::<PyException, _>(e.to_string()))?;
+            serde_json::from_str(json).map_err(serialization_pyerr)?;
         Ok(Self(s))
     }
 }
@@ -64,7 +67,7 @@ impl ParameterValue {
 
     /// The parameter value serialized as JSON.
     fn to_json(&self) -> PyResult<String> {
-        serde_json::to_string(&self.0).map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
+        serde_json::to_string(&self.0).map_err(serialization_pyerr)
     }
 
     /// Reads a parameter value from JSON text, as `to_json()` writes it.
@@ -73,7 +76,7 @@ impl ParameterValue {
     #[staticmethod]
     fn from_json(json: &str) -> PyResult<Self> {
         let s: liquers_core::plan::ParameterValue =
-            serde_json::from_str(json).map_err(|e| PyErr::new::<PyException, _>(e.to_string()))?;
+            serde_json::from_str(json).map_err(serialization_pyerr)?;
         Ok(Self(s))
     }
 }
@@ -94,7 +97,7 @@ impl ResolvedParameterValues {
 
     /// The resolved parameter values serialized as JSON.
     fn to_json(&self) -> PyResult<String> {
-        serde_json::to_string(&self.0).map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
+        serde_json::to_string(&self.0).map_err(serialization_pyerr)
     }
 
     /// Reads resolved parameter values from JSON text, as `to_json()` writes it.
@@ -103,7 +106,7 @@ impl ResolvedParameterValues {
     #[staticmethod]
     fn from_json(json: &str) -> PyResult<Self> {
         let s: liquers_core::plan::ResolvedParameterValues =
-            serde_json::from_str(json).map_err(|e| PyErr::new::<PyException, _>(e.to_string()))?;
+            serde_json::from_str(json).map_err(serialization_pyerr)?;
         Ok(Self(s))
     }
 }
@@ -124,12 +127,12 @@ impl Plan {
 
     /// The plan serialized as JSON.
     fn to_json(&self) -> PyResult<String> {
-        serde_json::to_string(&self.0).map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
+        serde_json::to_string(&self.0).map_err(serialization_pyerr)
     }
 
     /// The plan serialized as YAML.
     fn to_yaml(&self) -> PyResult<String> {
-        serde_yaml::to_string(&self.0).map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
+        serde_yaml::to_string(&self.0).map_err(serialization_pyerr)
     }
 
     /// Reads a plan from JSON text, as `to_json()` writes it.
@@ -138,7 +141,7 @@ impl Plan {
     #[staticmethod]
     fn from_json(json: &str) -> PyResult<Self> {
         let p: liquers_core::plan::Plan =
-            serde_json::from_str(json).map_err(|e| PyErr::new::<PyException, _>(e.to_string()))?;
+            serde_json::from_str(json).map_err(serialization_pyerr)?;
         Ok(Plan(p))
     }
 
@@ -148,7 +151,7 @@ impl Plan {
     #[staticmethod]
     fn from_yaml(yaml: &str) -> PyResult<Self> {
         let p: liquers_core::plan::Plan =
-            serde_yaml::from_str(yaml).map_err(|e| PyErr::new::<PyException, _>(e.to_string()))?;
+            serde_yaml::from_str(yaml).map_err(serialization_pyerr)?;
         Ok(Plan(p))
     }
 }
