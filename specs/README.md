@@ -260,7 +260,7 @@ submit, and submitted query state is not preserved.
 - **Language integration** — documented → [`guides/LANGUAGE-INTEGRATION_GUIDE.md`](guides/LANGUAGE-INTEGRATION_GUIDE.md) (§DOCS: the documents an integration owes its users) *(liquers-web claims corrected: [`design/language-guide-web-claims/`](design/language-guide-web-claims/))*
 - **Assets and recipes HTTP API** — built → [`design/axum-assets-recipes-api/`](design/axum-assets-recipes-api/)
 - **Web API library** — built → [`design/web-api-library/`](design/web-api-library/)
-- **Browser and JavaScript integration** — built → [`guides/JAVASCRIPT_GUIDE.md`](guides/JAVASCRIPT_GUIDE.md) (using it), [`reference/JAVASCRIPT_INTEGRATION.md`](reference/JAVASCRIPT_INTEGRATION.md) (its contract); conformance matrix in `liquers-web/README.md`; design [`design/liquers-web/`](design/liquers-web/) *(docs brought up to date: [`design/web-docs-stale-limitations/`](design/web-docs-stale-limitations/))*
+- **Browser and JavaScript integration** — built → [`guides/JAVASCRIPT_GUIDE.md`](guides/JAVASCRIPT_GUIDE.md) (using it), [`reference/JAVASCRIPT_INTEGRATION.md`](reference/JAVASCRIPT_INTEGRATION.md) (its contract); conformance matrix in `liquers-web/README.md`; design [`design/liquers-web/`](design/liquers-web/) *(docs brought up to date: [`design/web-docs-stale-limitations/`](design/web-docs-stale-limitations/); a thrown-back `LiquersError` keeps its context: [`design/web-thrown-back-error-context/`](design/web-thrown-back-error-context/))*
 - **Async evaluation on wasm** — built → [`design/async-wasm-refactor/`](design/async-wasm-refactor/)
 - **Python integration (liquers-py)** — built → [`guides/PYTHON_GUIDE.md`](guides/PYTHON_GUIDE.md) (using it), [`reference/PYTHON_INTEGRATION.md`](reference/PYTHON_INTEGRATION.md) (its contract), [`guides/LANGUAGE-INTEGRATION_GUIDE.md`](guides/LANGUAGE-INTEGRATION_GUIDE.md) §6 Python; conformance matrix in `liquers-py/README.md`; design [`design/liquers-py/`](design/liquers-py/) *(supersedes [`design/python-wrapper/`](design/python-wrapper/))*
 - **Python async and free-threading (awaitable evaluation, `async def` commands, the loop pool, 3.14t)** — built → [`reference/PYTHON_INTEGRATION.md`](reference/PYTHON_INTEGRATION.md) §7, [`guides/PYTHON_GUIDE.md`](guides/PYTHON_GUIDE.md) §5 Async commands and §6 Awaiting a query; design [`design/liquers-py-async/`](design/liquers-py-async/)
@@ -616,7 +616,6 @@ deliberately folded behind a broader line.
 - design `web-outbound-int64-precision`
 - design `web-query-editor-live-preview`
 - design `web-records-single-cell-scalar`
-- design `web-thrown-back-error-context`
 - design `web-value04-bytes-identifier`
 - design `workspace-rustfmt-check`
 - feature `AGENT-CANNOT-PROPOSE-A-COMMAND`

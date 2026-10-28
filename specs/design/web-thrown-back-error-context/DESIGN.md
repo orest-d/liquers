@@ -3,8 +3,7 @@ id: WEB-THROWN-BACK-ERROR-CONTEXT
 kind: design
 title: A LiquersError thrown back from JavaScript keeps its query, key and position
 form: compact
-status: in_review
-phase: implementation
+status: complete
 readiness: ready
 autofix: eligible
 area: [web]
@@ -12,6 +11,8 @@ issues: [WEB-THROWN-BACK-LIQUERSERROR-LOSES-CONTEXT]
 created: 2026-10-27
 ---
 # A LiquersError thrown back from JavaScript keeps its query, key and position
+
+> **Complete on 2026-10-28**: implemented by automatic fix in #TBD.
 
 Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-27: Phases 1-4 written.
 
@@ -174,7 +175,7 @@ Run with `cargo test -p liquers-web --target wasm32-unknown-unknown --features d
 
 - [x] 1. `liquers-web/tests/objects_OBJECT.rs` and `tests/store_js_STORE.rs` — the four tests — `cargo test -p liquers-web --target wasm32-unknown-unknown --features debug-handles` fails on AC-1 and AC-3
 - [x] 2. `liquers-web/src/error.rs` `js_value_as_liquers_error`, `position_from_js` — the same command passes, and with `--features debug-handles,records`; `cargo fmt -p liquers-web --check`
-- [ ] 3. `specs/reference/JAVASCRIPT_INTEGRATION.md` §6 sentence, History row, `reviewed:`; issue `status: closed` with a resolution note; this design `complete`; `specs/README.md` row; `python3 scripts/docs_index.py` — `python3 scripts/docs_index.py --check`
+- [x] 3. `specs/reference/JAVASCRIPT_INTEGRATION.md` §6 sentence, History row, `reviewed:`; issue `status: closed` with a resolution note; this design `complete`; `specs/README.md` row; `python3 scripts/docs_index.py` — `python3 scripts/docs_index.py --check`
 
 Rollback: revert per step.
 
