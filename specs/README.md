@@ -264,6 +264,7 @@ submit, and submitted query state is not preserved.
 - **Async evaluation on wasm** — built → [`design/async-wasm-refactor/`](design/async-wasm-refactor/)
 - **Python integration (liquers-py)** — built → [`guides/PYTHON_GUIDE.md`](guides/PYTHON_GUIDE.md) (using it), [`reference/PYTHON_INTEGRATION.md`](reference/PYTHON_INTEGRATION.md) (its contract), [`guides/LANGUAGE-INTEGRATION_GUIDE.md`](guides/LANGUAGE-INTEGRATION_GUIDE.md) §6 Python; conformance matrix in `liquers-py/README.md`; design [`design/liquers-py/`](design/liquers-py/) *(supersedes [`design/python-wrapper/`](design/python-wrapper/))*
 - **Python async and free-threading (awaitable evaluation, `async def` commands, the loop pool, 3.14t)** — built → [`reference/PYTHON_INTEGRATION.md`](reference/PYTHON_INTEGRATION.md) §7, [`guides/PYTHON_GUIDE.md`](guides/PYTHON_GUIDE.md) §5 Async commands and §6 Awaiting a query; design [`design/liquers-py-async/`](design/liquers-py-async/)
+- **`repr` of `Key`, `Expires` and `ExpirationTime` evaluates back (`Key('data/a.txt')`)** — built → `liquers-py/src/query.rs` `quoted`; design [`design/py-encoded-reprs/`](design/py-encoded-reprs/) *(`Query` and the other classes: [`design/py-python-style-reprs/`](design/py-python-style-reprs/))*
 - **Executor-agnostic core** — planned → [`issues/CORE-TOKIO-REMOVAL.md`](issues/CORE-TOKIO-REMOVAL.md)
 - **Browser stores (localStorage, fetch, JS, routing)** — built → [`design/liquers-web-store/`](design/liquers-web-store/) *(conformance gaps closed: [`design/web-store-conformance-tests/`](design/web-store-conformance-tests/))*
 - **Browser-native store and command backend** — planned → [`issues/WEB-NATIVE-IO-TIER2.md`](issues/WEB-NATIVE-IO-TIER2.md)
@@ -478,11 +479,9 @@ deliberately folded behind a broader line.
 - design `py-api-reference`
 - design `py-command-decorator-declaration-keywords`
 - design `py-docstrings`
-- design `py-encoded-reprs`
 - design `py-metadata-fields-as-properties`
 - design `py-metadata-typed-errors`
 - design `py-pypy-ci-job`
-- design `py-python-style-reprs`
 - design `py-query-segment-registration`
 - design `py-recipe-provider-choice`
 - design `py-record-values-to-python`

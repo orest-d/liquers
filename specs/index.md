@@ -8,9 +8,9 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 199
+Total rows: 197
 - P2: 61
-- P3: 138
+- P3: 136
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -75,7 +75,6 @@ Total rows: 199
 | [`VALUE-TYPE-DEFINITION-MACRO`](issues/VALUE-TYPE-DEFINITION-MACRO.md) | feature | Value types and their registry entries are hand-written instead of generated | draft | needs-decision | not-eligible | P2 | XL | macro;lib/value;core/value | [phase1](design/value-type-definition-macro/phase1-high-level-design.md)  [phase2](design/value-type-definition-macro/phase2-architecture.md)  [phase3](design/value-type-definition-macro/phase3-examples.md)  [phase4](design/value-type-definition-macro/phase4-implementation.md)  | 2026-08-18 |
 | [`NO-RELATIONAL-DATABASE-ACCESS-LAYER`](issues/NO-RELATIONAL-DATABASE-ACCESS-LAYER.md) | feature | No access layer from Liquers into relational databases | draft | phase2-blocked | not-eligible | P2 | XL | lib/value;lib/commands;store/backends | [phase1](design/relational-database-access/phase1-high-level-design.md)  [phase2](design/relational-database-access/phase2-architecture.md)  | 2026-09-20 |
 | [`REMOTE-ASSET-MANAGER-AND-SYSTEM-API`](issues/REMOTE-ASSET-MANAGER-AND-SYSTEM-API.md) | feature | A client environment cannot delegate evaluation to a server's asset manager | draft | phase2-blocked | not-eligible | P2 | XL | axum;core/assets;web | [phase1](design/remote-asset-manager/phase1-high-level-design.md)  [phase2](design/remote-asset-manager/phase2-architecture.md)  | 2026-10-20 |
-| [`PY-ENCODED-REPRS-QUOTE-THE-DEBUG-STRING`](issues/PY-ENCODED-REPRS-QUOTE-THE-DEBUG-STRING.md) | issue | The reprs of Key, Expires and ExpirationTime put Rust debug text inside Python quotes | draft | ready | eligible | P3 | S | py | [design](design/py-encoded-reprs/DESIGN.md) | 2026-10-27 |
 | [`SPECS-FRONT-MATTER-IS-NOT-VALID-YAML`](issues/SPECS-FRONT-MATTER-IS-NOT-VALID-YAML.md) | issue | Nine specs documents have front-matter that a YAML parser rejects | draft | ready | eligible | P3 | S | docs | [design](design/front-matter-yaml-agreement/DESIGN.md) | 2026-10-19 |
 | [`WEB-THROWN-BACK-LIQUERSERROR-LOSES-CONTEXT`](issues/WEB-THROWN-BACK-LIQUERSERROR-LOSES-CONTEXT.md) | issue | A LiquersError thrown back from JavaScript keeps only its type and message | draft | ready | eligible | P3 | S | web | [design](design/web-thrown-back-error-context/DESIGN.md) | 2026-10-27 |
 | [`LIB-BUILD-EMITS-UNUSED-AND-UNHANDLED-RESULT-WARNINGS`](issues/LIB-BUILD-EMITS-UNUSED-AND-UNHANDLED-RESULT-WARNINGS.md) | issue | A default liquers-lib build emits about 50 warnings, some for discarded Results | draft | ready | not-eligible | P3 | S | lib/commands;build | [design](design/lib-build-warning-cleanup/DESIGN.md) | 2026-10-11 |

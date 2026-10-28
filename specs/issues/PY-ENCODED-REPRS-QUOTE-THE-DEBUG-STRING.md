@@ -2,7 +2,7 @@
 id: PY-ENCODED-REPRS-QUOTE-THE-DEBUG-STRING
 kind: issue
 title: The reprs of Key, Expires and ExpirationTime put Rust debug text inside Python quotes
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [py]
@@ -52,3 +52,16 @@ Split on 2026-10-27 from `PY-REPRS-SHOW-RUST-DEBUG-FORMAT` (bulk design). Its de
 `design/py-python-style-reprs/`, found that these sites are a plain bug that needs no repr
 convention. `Query` was first included and moved back on review the same day, because it cannot be
 rebuilt from its repr.
+
+## Resolution
+
+Closed on 2026-10-28 by automatic fix, design `design/py-encoded-reprs/`, branch
+`claude/project-thread-yi0j65-py-encoded-reprs`. A new `pub(crate)` helper
+`liquers-py/src/query.rs` `quoted` writes a text as Python's `repr` of a `str` does; `Key::__repr__`
+quotes `encode()` with it and `Expires::__repr__` / `ExpirationTime::__repr__` quote their
+`Display` text, so `repr(lq.parse_key("data/a.txt"))` is `Key('data/a.txt')`,
+`repr(lq.Expires("in 5 min"))` is `Expires('in 5 min')` and `repr(lq.ExpirationTime("never"))` is
+`ExpirationTime('never')`, each evaluating back to an equal object. `Query::__repr__` is unchanged
+and stays with `PY-REPRS-SHOW-RUST-DEBUG-FORMAT`. Tests: `test_OBJECT_repr_key_quoted_once`,
+`test_OBJECT_repr_expiration_uses_text_form` in `liquers-py/tests/test_OBJECT_encoded_reprs.py`;
+`bash scripts/test-liquers-py.sh` passes.
