@@ -402,8 +402,8 @@ protect.
   (`COMMAND_DECLARATION.md` §9).
 - The recipe provider cannot be configured (`PY-RECIPE-PROVIDER-NOT-CONFIGURABLE`).
 - Core's progress diagnostics go to stderr and cannot be filtered (`CORE-TRACING-MIGRATION`).
-- Most classes and methods have no docstrings, and there is no generated API reference
-  (`PY-API-REFERENCE-NOT-GENERATED`); `Metadata` exposes its fields as methods where `State` and
+- There is no generated API reference (`PY-API-REFERENCE-NOT-GENERATED`), although every public
+  name has a docstring (`tests/test_DOCS_docstrings.py` keeps it so); `Metadata` exposes its fields as methods where `State` and
 `AssetRef` use properties (`PY-METADATA-FIELDS-ARE-METHODS`); `repr` of several classes is Rust's debug format
   (`PY-REPRS-SHOW-RUST-DEBUG-FORMAT`).
 - No Pyodide target, no type stubs, no published wheel.
@@ -412,6 +412,7 @@ protect.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-27 | §8: every public name has a docstring now; only the generated API reference is missing. | design `py-docstrings` |
 | 2026-10-27 | §3 `async_loops` and `job_capacity`, the `_async` methods, shutdown stops the loop pool; §4 async commands; §7 the bridge, awaitables, loop pool, blocking-call rule, job capacity, free-threading; §8 the synchronous-only limitation is lifted; the shutdown pin leak is fixed (`CORE-JOB-QUEUE-KEEPS-ENVIRONMENT-PINS-AFTER-SHUTDOWN`). | `design/liquers-py-async/` (phase-5) |
 | 2026-10-27 | §2: `Plan`'s JSON/YAML round-trips within one version only. | `design/plan-serialization-internal-contract/` |
 | 2026-10-27 | Reserved names: `q` and `v` are refused as command names like `ns`. | design `reserved-instruction-command-names` |
