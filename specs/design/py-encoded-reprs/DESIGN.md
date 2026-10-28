@@ -8,11 +8,12 @@ readiness: ready
 autofix: eligible
 area: [py]
 issues: [PY-ENCODED-REPRS-QUOTE-THE-DEBUG-STRING]
+gh_pr: [222]
 created: 2026-10-27
 ---
 # Key, Expires and ExpirationTime reprs quote their text form once
 
-> **Complete on 2026-10-28**: implemented by automatic fix in #TBD.
+> **Complete on 2026-10-28**: implemented by automatic fix in #222.
 
 Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-27: Phases 1-4 written. Split
 from `design/py-python-style-reprs/` (its former part A), which keeps the repr convention for the
