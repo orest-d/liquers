@@ -169,7 +169,7 @@ Run: `bash scripts/test-liquers-py.sh -k encoded_reprs`.
 ### Steps
 
 - [x] 1. `liquers-py/tests/test_OBJECT_encoded_reprs.py` — the two tests — `bash scripts/test-liquers-py.sh -k encoded_reprs` fails as in the Problem Example
-- [ ] 2. `liquers-py/src/query.rs` `quoted` (unless `py-python-style-reprs` already added it) and `Key::__repr__`; `expiration.rs` `Expires::__repr__`, `ExpirationTime::__repr__` — `bash scripts/test-liquers-py.sh` passes in full; `cargo fmt -p liquers-py --check`
+- [x] 2. `liquers-py/src/query.rs` `quoted` (unless `py-python-style-reprs` already added it) and `Key::__repr__`; `expiration.rs` `Expires::__repr__`, `ExpirationTime::__repr__` — `bash scripts/test-liquers-py.sh` passes in full; `cargo fmt -p liquers-py --check`
 - [ ] 3. `specs/issues/PY-ENCODED-REPRS-QUOTE-THE-DEBUG-STRING.md` `status: closed` with a resolution note; this design `status: complete`; `specs/README.md` row; `python3 scripts/docs_index.py` — `python3 scripts/docs_index.py --check`
 
 Rollback: revert per step.

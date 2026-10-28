@@ -4,8 +4,17 @@ use std::{
 };
 
 use pyo3::prelude::*;
+use pyo3::types::PyString;
 
 use crate::error::Error;
+
+/// `text` as Python's `repr` of a `str` writes it; never fails.
+pub(crate) fn quoted(py: Python<'_>, text: &str) -> String {
+    PyString::new(py, text)
+        .repr()
+        .map(|r| r.to_string())
+        .unwrap_or_else(|_| format!("'{text}'"))
+}
 
 /// A place in a query's text: byte offset, line and column.
 ///
@@ -401,8 +410,8 @@ impl Key {
         Ok(ResourceName(self.0 .0[position as usize].clone()))
     }
 
-    pub fn __repr__(&self) -> String {
-        format!("Key('{:?}')", self.0.encode())
+    pub fn __repr__(&self, py: Python<'_>) -> String {
+        format!("Key({})", quoted(py, &self.0.encode()))
     }
 
     pub fn __str__(&self) -> String {

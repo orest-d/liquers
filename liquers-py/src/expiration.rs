@@ -3,6 +3,7 @@ use std::str::FromStr;
 use pyo3::prelude::*;
 
 use crate::error::Error;
+use crate::query::quoted;
 
 /// When an asset's value expires, relative to when it is made.
 ///
@@ -40,8 +41,8 @@ impl Expires {
         self.0.to_string()
     }
 
-    pub fn __repr__(&self) -> String {
-        format!("Expires('{:?}')", self.0)
+    pub fn __repr__(&self, py: Python<'_>) -> String {
+        format!("Expires({})", quoted(py, &self.0.to_string()))
     }
 
     pub fn __str__(&self) -> String {
@@ -115,8 +116,8 @@ impl ExpirationTime {
         self.0.is_immediately()
     }
 
-    pub fn __repr__(&self) -> String {
-        format!("ExpirationTime('{:?}')", self.0)
+    pub fn __repr__(&self, py: Python<'_>) -> String {
+        format!("ExpirationTime({})", quoted(py, &self.0.to_string()))
     }
 
     pub fn __str__(&self) -> String {
