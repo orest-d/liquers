@@ -8,9 +8,9 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 202
+Total rows: 199
 - P2: 61
-- P3: 141
+- P3: 138
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -78,9 +78,6 @@ Total rows: 202
 | [`PLAN-SERDE-HAS-NO-COMPATIBILITY-CONTRACT`](issues/PLAN-SERDE-HAS-NO-COMPATIBILITY-CONTRACT.md) | issue | A serialized Plan has no compatibility contract | draft | ready | eligible | P3 | S | core/plan | [design](design/plan-serialization-internal-contract/DESIGN.md) | 2026-10-20 |
 | [`PY-ENCODED-REPRS-QUOTE-THE-DEBUG-STRING`](issues/PY-ENCODED-REPRS-QUOTE-THE-DEBUG-STRING.md) | issue | The reprs of Key, Expires and ExpirationTime put Rust debug text inside Python quotes | draft | ready | eligible | P3 | S | py | [design](design/py-encoded-reprs/DESIGN.md) | 2026-10-27 |
 | [`SPECS-FRONT-MATTER-IS-NOT-VALID-YAML`](issues/SPECS-FRONT-MATTER-IS-NOT-VALID-YAML.md) | issue | Nine specs documents have front-matter that a YAML parser rejects | draft | ready | eligible | P3 | S | docs | [design](design/front-matter-yaml-agreement/DESIGN.md) | 2026-10-19 |
-| [`TEMPLATE-DIAGNOSTICS-RESOLVE-NAMESPACES-FROM-THE-WHOLE-QUERY`](issues/TEMPLATE-DIAGNOSTICS-RESOLVE-NAMESPACES-FROM-THE-WHOLE-QUERY.md) | issue | Template diagnostics look every command up in one namespace list for the whole query | draft | ready | eligible | P3 | S | core/query;lib/commands | [design](design/template-diagnostics-namespace-scope/DESIGN.md) | 2026-10-26 |
-| [`TYPE-IDENTIFIED-IN-HAS-NO-IMPLEMENTATIONS`](issues/TYPE-IDENTIFIED-IN-HAS-NO-IMPLEMENTATIONS.md) | issue | No type implements TypeIdentifiedIn, so the documented to_type_identifier example does not compile | draft | ready | eligible | P3 | S | core/value;lib/value;docs | [design](design/type-identified-in-docs/DESIGN.md) | 2026-10-20 |
-| [`WEB-API-SPEC-SAYS-A-DIRECTORY-MOUNT-CANNOT-BE-READ-ONLY`](issues/WEB-API-SPEC-SAYS-A-DIRECTORY-MOUNT-CANNOT-BE-READ-ONLY.md) | issue | The web API specification says a directory mount stays writable, but mounts can be read-only | draft | ready | eligible | P3 | S | docs;axum | [design](design/web-api-spec-read-only-mount/DESIGN.md) | 2026-10-20 |
 | [`WEB-THROWN-BACK-LIQUERSERROR-LOSES-CONTEXT`](issues/WEB-THROWN-BACK-LIQUERSERROR-LOSES-CONTEXT.md) | issue | A LiquersError thrown back from JavaScript keeps only its type and message | draft | ready | eligible | P3 | S | web | [design](design/web-thrown-back-error-context/DESIGN.md) | 2026-10-27 |
 | [`LIB-BUILD-EMITS-UNUSED-AND-UNHANDLED-RESULT-WARNINGS`](issues/LIB-BUILD-EMITS-UNUSED-AND-UNHANDLED-RESULT-WARNINGS.md) | issue | A default liquers-lib build emits about 50 warnings, some for discarded Results | draft | ready | not-eligible | P3 | S | lib/commands;build | [design](design/lib-build-warning-cleanup/DESIGN.md) | 2026-10-11 |
 | [`POLARS-DATAFRAME-IPC-NOT-SERIALIZABLE`](issues/POLARS-DATAFRAME-IPC-NOT-SERIALIZABLE.md) | issue | A polars DataFrame cannot be written or read as Arrow IPC although polars is built with ipc | draft | ready | not-eligible | P3 | S | lib/polars | [design](design/polars-dataframe-ipc/DESIGN.md) | 2026-10-18 |

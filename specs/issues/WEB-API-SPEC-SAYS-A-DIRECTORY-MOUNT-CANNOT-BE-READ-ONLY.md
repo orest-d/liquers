@@ -2,7 +2,7 @@
 id: WEB-API-SPEC-SAYS-A-DIRECTORY-MOUNT-CANNOT-BE-READ-ONLY
 kind: issue
 title: The web API specification says a directory mount stays writable, but mounts can be read-only
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [docs, axum]
@@ -41,3 +41,7 @@ directory, and what a write to it answers through the APIs; History row and `rev
 
 Found 2026-10-20 while designing `access-policy-at-entry-points` (bulk design), which rewrites §9
 later; this correction does not need to wait for it.
+
+## Resolution
+
+Fixed 2026-10-27 by `design/web-api-spec-read-only-mount/`. Fixed by `design/web-api-spec-read-only-mount/` (2026-10-27): `WEB_API_SPECIFICATION.md` §9 names `read_only: true` (or `ReadOnlyStore`) as the way to protect a mount, with writes answered 501 `NotSupported`.
