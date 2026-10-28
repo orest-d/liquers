@@ -61,6 +61,10 @@ frozen; the others hold their own copy of the value.
 | `Context`, `AssetRef` | a command's context and an asset reference, each watching its environment's shut flag |
 | `State` | a snapshot of a value, converted to Python, and a copy of its metadata |
 
+`Plan.to_json` / `to_yaml` and `Plan.from_json` / `from_yaml` round-trip within one version
+only: a serialized plan is an inspection format, not a stable schema (`RECIPES_AND_PLANS.md`
+§Serialization and future plan rewriting); persist the query or recipe instead.
+
 `Status` compares equal to its variant's name (`asset.status == "Ready"`) and hashes as that
 string. `Key[i]` accepts negative indices and raises `IndexError` out of range.
 
@@ -414,6 +418,7 @@ protect.
 | 2026-10-28 | §6: a wrapper method's JSON/YAML failure raises `SerializationError`, and a bad constructor argument the core constructor's error; no wrapper raises a plain `Exception`. | design `py-metadata-typed-errors` |
 | 2026-10-27 | §8: every public name has a docstring now; only the generated API reference is missing. | design `py-docstrings` |
 | 2026-10-27 | §3 `async_loops` and `job_capacity`, the `_async` methods, shutdown stops the loop pool; §4 async commands; §7 the bridge, awaitables, loop pool, blocking-call rule, job capacity, free-threading; §8 the synchronous-only limitation is lifted; the shutdown pin leak is fixed (`CORE-JOB-QUEUE-KEEPS-ENVIRONMENT-PINS-AFTER-SHUTDOWN`). | `design/liquers-py-async/` (phase-5) |
+| 2026-10-27 | §2: `Plan`'s JSON/YAML round-trips within one version only. | `design/plan-serialization-internal-contract/` |
 | 2026-10-27 | Reserved names: `q` and `v` are refused as command names like `ns`. | design `reserved-instruction-command-names` |
 | 2026-10-25 | §6: error category classes (`StoreError`, `KeyedAssetError`, `NotFoundError`); §8: the pickle-off and missing-resource limitations are fixed (`AssetNotSupportedError`, `AssetNotFoundError`). | `design/key-without-recipe-answer/` |
 | 2026-10-22 | §Shutdown, limitations: a built environment is freed (the reference cycle is fixed); `RUNTIME05` passes. | `design/environment-manager-reference-cycle/` |
