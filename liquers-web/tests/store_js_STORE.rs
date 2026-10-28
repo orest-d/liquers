@@ -505,6 +505,31 @@ async fn store_delegate_throwing_a_constructed_error_keeps_its_type() {
     }
 }
 
+/// AC-3 of `web-thrown-back-error-context` — a delegate that throws a page-constructed
+/// `LiquersError` with a query reports that query, not only its type and message.
+#[wasm_bindgen_test]
+async fn store_delegate_throwing_a_constructed_error_keeps_its_query() {
+    let error = liquers_web::error::LiquersError::construct(
+        "key_not_found",
+        "no such key: a.txt".to_string(),
+        Some("-R/d/a.txt".to_string()),
+    )
+    .expect("constructs");
+    let factory = js_sys::Function::new_with_args("err", "return { get(key) { throw err; } };");
+    let delegate = factory
+        .call1(&JsValue::NULL, &JsValue::from(error))
+        .expect("builds the delegate");
+    let store = JsStore::new(&key("d"), "typedq", delegate.unchecked_into()).expect("adapts");
+    match store.get(&key("d/a.txt")).await {
+        Err(e) => {
+            assert_eq!(e.error_type, ErrorType::KeyNotFound, "{}", e.message);
+            assert_eq!(e.message, "no such key: a.txt");
+            assert_eq!(e.query.as_deref(), Some("-R/d/a.txt"));
+        }
+        Ok(_) => panic!("a thrown error gave data"),
+    }
+}
+
 /// STORE12c — documented break: `getMetadata` returning `null` now means absent, even when
 /// `get` has data. It used to yield an empty record.
 #[wasm_bindgen_test]

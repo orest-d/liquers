@@ -6,6 +6,7 @@
 
 use liquers_core::error::{Error, ErrorCategory, ErrorType};
 use liquers_core::issue_report::{Issue, IssueReport};
+use liquers_core::query::Position;
 use wasm_bindgen::prelude::*;
 
 /// Stable string names for every [`ErrorType`].
@@ -338,7 +339,48 @@ fn js_value_as_liquers_error(thrown: &JsValue) -> Option<Error> {
         .ok()
         .and_then(|m| m.as_string())
         .unwrap_or_default();
-    Some(Error::from_error(error_type, message))
+    let mut error = Error::from_error(error_type, message);
+    // A field is copied only when it has the type its getter returns: look-alike objects are
+    // accepted, and an ill-typed field on one is dropped rather than coerced or refused.
+    let string_field = |name: &str| {
+        js_sys::Reflect::get(thrown, &JsValue::from_str(name))
+            .ok()
+            .and_then(|v| v.as_string())
+    };
+    error.query = string_field("query");
+    error.key = string_field("key");
+    if let Some(position) = js_sys::Reflect::get(thrown, &JsValue::from_str("position"))
+        .ok()
+        .and_then(|p| position_from_js(&p))
+    {
+        error.position = position;
+    }
+    Some(error)
+}
+
+/// Reads a `{offset, line, column}` object, as the `position` getter returns it.
+///
+/// `None` unless `value` is an object whose three fields are finite, non-negative numbers, and
+/// for a position that is unknown, so the caller keeps its default.
+fn position_from_js(value: &JsValue) -> Option<Position> {
+    if !value.is_object() {
+        return None;
+    }
+    let number = |name: &str| {
+        js_sys::Reflect::get(value, &JsValue::from_str(name))
+            .ok()?
+            .as_f64()
+            .filter(|n| n.is_finite() && *n >= 0.0)
+    };
+    let position = Position::new(
+        number("offset")? as usize,
+        number("line")? as u32,
+        number("column")? as usize,
+    );
+    if position.is_unknown() {
+        return None;
+    }
+    Some(position)
 }
 
 /// A validation report as JavaScript sees it (`LiquersIssueReport` in the `.d.ts`).

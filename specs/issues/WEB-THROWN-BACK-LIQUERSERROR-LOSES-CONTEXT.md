@@ -2,7 +2,7 @@
 id: WEB-THROWN-BACK-LIQUERSERROR-LOSES-CONTEXT
 kind: issue
 title: A LiquersError thrown back from JavaScript keeps only its type and message
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [web]
@@ -57,3 +57,15 @@ Found during the 2026-10-27 bulk design of the Python backlog, comparing the err
 the two bindings. Not covered by `LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT`, which is about a
 JavaScript `Error` (the other branch of `js_error_to_liquers`) putting its class and stack in the
 message; this is the `LiquersError` branch.
+
+## Resolution
+
+2026-10-28, `design/web-thrown-back-error-context/`. `liquers-web/src/error.rs`
+`js_value_as_liquers_error` now copies `query` and `key` when they are strings and `position` when
+it is an `{offset, line, column}` object of finite, non-negative numbers (private
+`position_from_js`); an ill-typed field on a look-alike is dropped. The traceback is still not
+carried (`LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT`). Tests: `tests/objects_OBJECT.rs`
+`error02_fields_survive_rust_language_rust` (now compares query, key and position),
+`error02b_absent_fields_stay_absent`, `error02c_ill_typed_look_alike_fields_are_ignored`;
+`tests/store_js_STORE.rs` `store_delegate_throwing_a_constructed_error_keeps_its_query`. Both Node
+loops (`debug-handles`, `debug-handles,records`) pass.
