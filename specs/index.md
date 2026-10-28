@@ -8,8 +8,8 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 199
-- P2: 62
+Total rows: 198
+- P2: 61
 - P3: 137
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
@@ -21,7 +21,6 @@ Total rows: 199
 | [`WEB-COMMAND-LOOKUP-IGNORES-NAMESPACE`](issues/WEB-COMMAND-LOOKUP-IGNORES-NAMESPACE.md) | issue | describeCommand and unregisterCommand take a bare name, so namespaced commands cannot be addressed | draft |  |  | P2 | S | web |  | 2026-10-26 |
 | [`WEB-DESCRIBE-COMMAND-SHAPE-DIFFERS-FROM-DECLARATION`](issues/WEB-DESCRIBE-COMMAND-SHAPE-DIFFERS-FROM-DECLARATION.md) | issue | describeCommand returns raw CommandMetadata JSON, not the LiquersCommandInfo shape the .d.ts declares | draft |  |  | P2 | S | web |  | 2026-10-26 |
 | [`WEB-JS-STORE-WITH-ONLY-GET-CANNOT-BE-QUERIED`](issues/WEB-JS-STORE-WITH-ONLY-GET-CANNOT-BE-QUERIED.md) | issue | A page-implemented store with only get, documented as enough, fails every -R/ query | draft |  |  | P2 | S | web |  | 2026-10-26 |
-| [`PY-PUBLIC-NAMES-HAVE-NO-DOCSTRINGS`](issues/PY-PUBLIC-NAMES-HAVE-NO-DOCSTRINGS.md) | issue | Most public classes, methods and error classes of the Python package have no docstring | draft | ready | eligible | P2 | M | py;docs | [design](design/py-docstrings/DESIGN.md) | 2026-10-27 |
 | [`CORE-VALUE-ENUM-OVERSIZED`](issues/CORE-VALUE-ENUM-OVERSIZED.md) | issue | Every Value occupies over 700 bytes because three variants are stored unboxed | draft | ready | not-eligible | P2 | M | core/value;lib/value | [design](design/core-value-enum-oversized/DESIGN.md) | 2026-08-18 |
 | [`ASSET-REGISTRATION-OWNERSHIP-CONTRACT`](issues/ASSET-REGISTRATION-OWNERSHIP-CONTRACT.md) | feature | Registration of a keyed asset is a manager convenience, not a contract anything can rely on | draft | needs-decision | not-eligible | P2 | M | core/assets | [design](design/asset-registration-contract/DESIGN.md) | 2026-09-03 |
 | [`ASSETS-IMPROVEMENTS`](issues/ASSETS-IMPROVEMENTS.md) | feature | The web API's request-body limit is axum's fixed 2 MiB default, not configurable or documented | accepted | needs-decision | not-eligible | P2 | M | axum;docs | [design](design/http-request-body-limit/DESIGN.md) | 2026-08-08 |
@@ -107,12 +106,12 @@ Total rows: 199
 | [`TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS`](issues/TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS.md) | issue | TypeInfo cannot declare a format a type writes but cannot read back | draft | needs-decision | not-eligible | P3 | S | core/value | [phase1](design/data-format-vocabulary/phase1-high-level-design.md)  [phase2](design/data-format-vocabulary/phase2-architecture.md)  [phase3](design/data-format-vocabulary/phase3-examples.md)  [phase4](design/data-format-vocabulary/phase4-implementation.md)  | 2026-09-24 |
 | [`VARIADIC-KEY-OR-QUERY-LINK-FAILS-TO-MATERIALIZE`](issues/VARIADIC-KEY-OR-QUERY-LINK-FAILS-TO-MATERIALIZE.md) | issue | A key or query link inside a multiple argument fails, because Key and Query values have no JSON form | draft | needs-decision | not-eligible | P3 | S | core/plan;core/value | [design](design/variadic-key-query-link-text/DESIGN.md) | 2026-10-26 |
 | [`LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT`](issues/LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT.md) | issue | Language exception class and stack are lost in transport | accepted |  |  | P3 | S | web |  | 2026-08-08 |
+| [`PY-ADD-PYTHON-COMMAND-STILL-DECLARES-PYCALL-ALIASES`](issues/PY-ADD-PYTHON-COMMAND-STILL-DECLARES-PYCALL-ALIASES.md) | issue | CommandMetadataRegistry.add_python_command is still public and declares aliases of a pycall command that does not exist | draft |  |  | P3 | S | py |  | 2026-10-27 |
 | [`TEMPLATE-DIAGNOSTICS-CHECK-COMMANDS-A-Q-QUOTES`](issues/TEMPLATE-DIAGNOSTICS-CHECK-COMMANDS-A-Q-QUOTES.md) | issue | Template diagnostics report unknown commands in a query part that a later q quotes, which the planner never resolves | draft |  |  | P3 | S | core/query;lib/commands |  | 2026-10-26 |
 | [`VALIDATE-PHASE-COMPACT-SIZE-IGNORES-SOURCE-COMPLEXITY`](issues/VALIDATE-PHASE-COMPACT-SIZE-IGNORES-SOURCE-COMPLEXITY.md) | issue | validate_phase.py checks every compact design against the M size limit | draft |  |  | P3 | S | docs;build |  | 2026-10-27 |
 | [`WEB-HAS-NO-TEMPLATE-COMMANDS`](issues/WEB-HAS-NO-TEMPLATE-COMMANDS.md) | feature | The browser environment has no template commands | draft |  |  | P3 | S | web |  | 2026-10-25 |
 | [`WEB-METADATA-STATUS-CASE-DIFFERS`](issues/WEB-METADATA-STATUS-CASE-DIFFERS.md) | issue | State.metadata().status is capitalized while Asset.status() and State.status are lowercase | draft |  |  | P3 | S | web |  | 2026-10-26 |
 | [`WEB-UNREGISTER-DEPENDS-ON-FIRST-EVALUATION`](issues/WEB-UNREGISTER-DEPENDS-ON-FIRST-EVALUATION.md) | issue | unregisterCommand removes a built-in command before the first evaluation but not after it | draft |  |  | P3 | S | web |  | 2026-10-26 |
-| [`PY-METADATA-METHODS-RAISE-PLAIN-EXCEPTION`](issues/PY-METADATA-METHODS-RAISE-PLAIN-EXCEPTION.md) | issue | Metadata, Recipe and expiration methods in liquers-py raise a plain Exception instead of the typed LiquersError | draft | ready | eligible | P3 | M | py | [design](design/py-metadata-typed-errors/DESIGN.md) | 2026-10-20 |
 | [`COLUMNMUT-VALIDITY-AND-VARIABLE-LENGTH-SET-ALWAYS-COPY`](issues/COLUMNMUT-VALIDITY-AND-VARIABLE-LENGTH-SET-ALWAYS-COPY.md) | issue | ColumnMut always copies validity, and rebuilds the whole column to overwrite one Text/Binary cell | draft | ready | not-eligible | P3 | M | records | [design](design/column-mut-zero-copy-validity/DESIGN.md) | 2026-09-26 |
 | [`DEPENDENCY-ANALYSIS-REWALKS-UPSTREAM-PER-EVALUATION`](issues/DEPENDENCY-ANALYSIS-REWALKS-UPSTREAM-PER-EVALUATION.md) | feature | Each plan analysis re-walks the whole upstream recipe graph | draft | ready | not-eligible | P3 | M | core/plan;core/assets | [design](design/payload-requirement-skips-dependency-analysis/DESIGN.md) | 2026-10-08 |
 | [`ASSET-EVENT-STREAM-CARRIES-ONLY-EXPIRATIONS`](issues/ASSET-EVENT-STREAM-CARRIES-ONLY-EXPIRATIONS.md) | feature | The manager event stream announces expirations only, not new versions, additions or removals | draft | needs-decision | not-eligible | P3 | M | core/assets | [design](design/asset-event-kinds/DESIGN.md) | 2026-10-21 |

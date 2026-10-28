@@ -2,7 +2,7 @@
 id: PY-METADATA-METHODS-RAISE-PLAIN-EXCEPTION
 kind: issue
 title: Metadata, Recipe and expiration methods in liquers-py raise a plain Exception instead of the typed LiquersError
-status: draft
+status: closed
 priority: P3
 complexity: M
 area: [py]
@@ -56,3 +56,15 @@ Designed 2026-10-27 in `design/py-metadata-typed-errors/` (bulk design). Re-coun
 `PyErr::new::<…PyException, _>`), plus 33 serde sites with the same cause in `command_metadata.rs`
 and `plan.rs`, which the design includes. Complexity raised from `S` to `M`: six files in one
 crate.
+
+## Resolution
+
+Closed on 2026-10-28 by automatic fix, design `design/py-metadata-typed-errors/`, branch
+`claude/project-thread-yi0j65-py-metadata-typed-errors`. All 56 sites now raise the typed
+`LiquersError`: the 9 that carry a Liquers `Error` go through `error_to_pyerr`, the 46 serde
+failures raise `SerializationError` (new `pub(crate)` helper `serialization_pyerr` in
+`liquers-py/src/error.rs`), and a bad `ExpirationTime` spec raises `GeneralError`, as `Expires`
+does. Only `error.rs`'s deliberate fallback still mentions `PyException`. Tests:
+`test_ERROR_wrapper_deserialization_raises_serialization_error`, `test_ERROR_stored_error_keeps_its_type`,
+`test_ERROR_wrapper_constructors_raise_typed_errors`, `test_ERROR_typed_wrapper_errors_are_still_exceptions`
+in `liquers-py/tests/test_ERROR_errors.py`; `bash scripts/test-liquers-py.sh` passes.
