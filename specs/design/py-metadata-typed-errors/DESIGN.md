@@ -8,11 +8,12 @@ readiness: ready
 autofix: eligible
 area: [py]
 issues: [PY-METADATA-METHODS-RAISE-PLAIN-EXCEPTION]
+gh_pr: [221]
 created: 2026-10-27
 ---
 # Every liquers-py wrapper method raises the typed LiquersError
 
-> **Complete on 2026-10-28**: implemented by automatic fix in #TBD.
+> **Complete on 2026-10-28**: implemented by automatic fix in #221.
 
 Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-27: Phases 1-4 written.
 

@@ -2,7 +2,7 @@
 id: TEMPLATE-DIAGNOSTICS-RESOLVE-NAMESPACES-FROM-THE-WHOLE-QUERY
 kind: issue
 title: Template diagnostics look every command up in one namespace list for the whole query
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [core/query, lib/commands]
@@ -53,3 +53,7 @@ once in `diagnostics.rs`. `find_next_presets` has the same rule
 Found on 2026-10-26 during the bulk design of `PLANNER-INSTRUCTION-NAMES-DUPLICATED` and
 `NEXT-PRESETS-MISREAD-PLANNER-INSTRUCTIONS`, while listing every copy of the planner's instruction
 handling. Related: `planner-instruction-names-public` (same file, instruction names only).
+
+## Resolution
+
+Fixed 2026-10-27 by `design/template-diagnostics-namespace-scope/`. Fixed by `design/template-diagnostics-namespace-scope/` (2026-10-27): `validate_template` looks each action up in the namespaces of the last `ns` before it in its own transform segment, then the defaults; a placeholder namespace defers only the rest of its segment.
