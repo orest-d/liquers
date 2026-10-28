@@ -172,7 +172,7 @@ Run with `cargo test -p liquers-web --target wasm32-unknown-unknown --features d
 
 ### Steps
 
-- [ ] 1. `liquers-web/tests/objects_OBJECT.rs` and `tests/store_js_STORE.rs` — the four tests — `cargo test -p liquers-web --target wasm32-unknown-unknown --features debug-handles` fails on AC-1 and AC-3
+- [x] 1. `liquers-web/tests/objects_OBJECT.rs` and `tests/store_js_STORE.rs` — the four tests — `cargo test -p liquers-web --target wasm32-unknown-unknown --features debug-handles` fails on AC-1 and AC-3
 - [ ] 2. `liquers-web/src/error.rs` `js_value_as_liquers_error`, `position_from_js` — the same command passes, and with `--features debug-handles,records`; `cargo fmt -p liquers-web --check`
 - [ ] 3. `specs/reference/JAVASCRIPT_INTEGRATION.md` §6 sentence, History row, `reviewed:`; issue `status: closed` with a resolution note; this design `complete`; `specs/README.md` row; `python3 scripts/docs_index.py` — `python3 scripts/docs_index.py --check`
 
