@@ -3,8 +3,7 @@ id: PY-ENCODED-REPRS
 kind: design
 title: Key, Expires and ExpirationTime reprs quote their text form once
 form: compact
-status: in_review
-phase: implementation
+status: complete
 readiness: ready
 autofix: eligible
 area: [py]
@@ -12,6 +11,8 @@ issues: [PY-ENCODED-REPRS-QUOTE-THE-DEBUG-STRING]
 created: 2026-10-27
 ---
 # Key, Expires and ExpirationTime reprs quote their text form once
+
+> **Complete on 2026-10-28**: implemented by automatic fix in #TBD.
 
 Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-27: Phases 1-4 written. Split
 from `design/py-python-style-reprs/` (its former part A), which keeps the repr convention for the
@@ -170,7 +171,7 @@ Run: `bash scripts/test-liquers-py.sh -k encoded_reprs`.
 
 - [x] 1. `liquers-py/tests/test_OBJECT_encoded_reprs.py` — the two tests — `bash scripts/test-liquers-py.sh -k encoded_reprs` fails as in the Problem Example
 - [x] 2. `liquers-py/src/query.rs` `quoted` (unless `py-python-style-reprs` already added it) and `Key::__repr__`; `expiration.rs` `Expires::__repr__`, `ExpirationTime::__repr__` — `bash scripts/test-liquers-py.sh` passes in full; `cargo fmt -p liquers-py --check`
-- [ ] 3. `specs/issues/PY-ENCODED-REPRS-QUOTE-THE-DEBUG-STRING.md` `status: closed` with a resolution note; this design `status: complete`; `specs/README.md` row; `python3 scripts/docs_index.py` — `python3 scripts/docs_index.py --check`
+- [x] 3. `specs/issues/PY-ENCODED-REPRS-QUOTE-THE-DEBUG-STRING.md` `status: closed` with a resolution note; this design `status: complete`; `specs/README.md` row; `python3 scripts/docs_index.py` — `python3 scripts/docs_index.py --check`
 
 Rollback: revert per step.
 

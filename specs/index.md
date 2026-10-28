@@ -8,9 +8,9 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 202
+Total rows: 201
 - P2: 61
-- P3: 141
+- P3: 140
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -76,7 +76,6 @@ Total rows: 202
 | [`NO-RELATIONAL-DATABASE-ACCESS-LAYER`](issues/NO-RELATIONAL-DATABASE-ACCESS-LAYER.md) | feature | No access layer from Liquers into relational databases | draft | phase2-blocked | not-eligible | P2 | XL | lib/value;lib/commands;store/backends | [phase1](design/relational-database-access/phase1-high-level-design.md)  [phase2](design/relational-database-access/phase2-architecture.md)  | 2026-09-20 |
 | [`REMOTE-ASSET-MANAGER-AND-SYSTEM-API`](issues/REMOTE-ASSET-MANAGER-AND-SYSTEM-API.md) | feature | A client environment cannot delegate evaluation to a server's asset manager | draft | phase2-blocked | not-eligible | P2 | XL | axum;core/assets;web | [phase1](design/remote-asset-manager/phase1-high-level-design.md)  [phase2](design/remote-asset-manager/phase2-architecture.md)  | 2026-10-20 |
 | [`PLAN-SERDE-HAS-NO-COMPATIBILITY-CONTRACT`](issues/PLAN-SERDE-HAS-NO-COMPATIBILITY-CONTRACT.md) | issue | A serialized Plan has no compatibility contract | draft | ready | eligible | P3 | S | core/plan | [design](design/plan-serialization-internal-contract/DESIGN.md) | 2026-10-20 |
-| [`PY-ENCODED-REPRS-QUOTE-THE-DEBUG-STRING`](issues/PY-ENCODED-REPRS-QUOTE-THE-DEBUG-STRING.md) | issue | The reprs of Key, Expires and ExpirationTime put Rust debug text inside Python quotes | draft | ready | eligible | P3 | S | py | [design](design/py-encoded-reprs/DESIGN.md) | 2026-10-27 |
 | [`SPECS-FRONT-MATTER-IS-NOT-VALID-YAML`](issues/SPECS-FRONT-MATTER-IS-NOT-VALID-YAML.md) | issue | Nine specs documents have front-matter that a YAML parser rejects | draft | ready | eligible | P3 | S | docs | [design](design/front-matter-yaml-agreement/DESIGN.md) | 2026-10-19 |
 | [`TEMPLATE-DIAGNOSTICS-RESOLVE-NAMESPACES-FROM-THE-WHOLE-QUERY`](issues/TEMPLATE-DIAGNOSTICS-RESOLVE-NAMESPACES-FROM-THE-WHOLE-QUERY.md) | issue | Template diagnostics look every command up in one namespace list for the whole query | draft | ready | eligible | P3 | S | core/query;lib/commands | [design](design/template-diagnostics-namespace-scope/DESIGN.md) | 2026-10-26 |
 | [`TYPE-IDENTIFIED-IN-HAS-NO-IMPLEMENTATIONS`](issues/TYPE-IDENTIFIED-IN-HAS-NO-IMPLEMENTATIONS.md) | issue | No type implements TypeIdentifiedIn, so the documented to_type_identifier example does not compile | draft | ready | eligible | P3 | S | core/value;lib/value;docs | [design](design/type-identified-in-docs/DESIGN.md) | 2026-10-20 |
