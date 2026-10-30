@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: S
 area: [py]
-design: py-recipe-provider-choice
+design: recipe-provider-chain-config
 created: 2026-10-18
 github:
 ---
@@ -54,3 +54,8 @@ guide's §6 Python with the reason.
 
 Intentionally omitted scope of `specs/design/liquers-py/`, recorded in Phase 5 and in the
 `ENVIRON` row of `liquers-py/README.md`.
+
+## Design
+
+Moved 2026-10-30 to `recipe-provider-chain-config`, which absorbs this issue (Phase 1 question 6,
+accepted by Orest); the earlier design is superseded.

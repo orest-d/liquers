@@ -116,6 +116,11 @@ the chain-always environment. `liquers-lib`: the `manifest` entry and its defaul
 
 ## Open Questions
 
+**Resolved at the Phase 1 gate, 2026-10-30 (Orest, `proceed`): every question below is accepted as
+recommended; question 6 is applied (both issues absorbed, both designs superseded). Orest also asked
+for named entries (AC-12).**
+
+
 1. **Proposed resolution — names.** The `recipes.yaml` entry is `recipes_yaml`, and `default`
    means "the kind's configured default list", both as the scalar and as a list entry that splices
    that list in place (`[default, {type: python, …}]`). This avoids `default` meaning one provider

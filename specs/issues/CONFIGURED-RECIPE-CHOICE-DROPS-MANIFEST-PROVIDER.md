@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: M
 area: [lib/commands, records, core/context]
-design: kind-aware-recipe-provider-choice
+design: recipe-provider-chain-config
 created: 2026-10-20
 github:
 ---
@@ -48,3 +48,8 @@ way, a test that a configured build serves a manifest chunk.
 ## Discovery
 
 Found 2026-10-20 during the bulk-design pass while sizing `PY-RECIPE-PROVIDER-NOT-CONFIGURABLE`.
+
+## Design
+
+Moved 2026-10-30 to `recipe-provider-chain-config`, which absorbs this issue (Phase 1 question 6,
+accepted by Orest); the earlier design is superseded.

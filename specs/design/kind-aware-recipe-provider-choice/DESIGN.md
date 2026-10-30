@@ -3,15 +3,15 @@ id: KIND-AWARE-RECIPE-PROVIDER-CHOICE
 kind: design
 title: A recipe provider chosen by name resolves through the environment kind, so liquers-lib keeps its manifest provider
 form: compact
-status: in_review
-phase: implementation
-readiness: needs-decision
-autofix: not-eligible
+status: superseded
 area: [core/context, lib/commands, records]
 issues: [CONFIGURED-RECIPE-CHOICE-DROPS-MANIFEST-PROVIDER]
+superseded_by: recipe-provider-chain-config
 created: 2026-10-26
 ---
 # A recipe provider chosen by name resolves through the environment kind
+
+> **Superseded 2026-10-30** by [`recipe-provider-chain-config`](../recipe-provider-chain-config/DESIGN.md) (Phase 1 question 6, accepted by Orest): the recipe provider chain becomes a configured list, so the single-keyword mechanism patched here is replaced. Its source issue moved to that design. Nothing here was implemented.
 
 Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-26: Phases 1-4 written, not
 approved, nothing implemented.

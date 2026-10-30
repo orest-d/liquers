@@ -3,15 +3,15 @@ id: PY-RECIPE-PROVIDER-CHOICE
 kind: design
 title: A Python environment accepts every configured recipe provider choice
 form: compact
-status: in_review
-phase: implementation
-readiness: needs-decision
-autofix: not-eligible
+status: superseded
 area: [py]
 issues: [PY-RECIPE-PROVIDER-NOT-CONFIGURABLE]
+superseded_by: recipe-provider-chain-config
 created: 2026-10-27
 ---
 # A Python environment accepts every configured recipe provider choice
+
+> **Superseded 2026-10-30** by [`recipe-provider-chain-config`](../recipe-provider-chain-config/DESIGN.md) (Phase 1 question 6, accepted by Orest): the recipe provider chain becomes a configured list, so the single-keyword mechanism patched here is replaced. Its source issue moved to that design. Nothing here was implemented.
 
 Bulk design, 2026-10-27: Phases 1-4 written, not approved, nothing implemented.
 

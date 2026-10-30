@@ -425,7 +425,6 @@ deliberately folded behind a broader line.
 - design `json-orient-index-column-collision`
 - design `json-table-column-order`
 - design `keyed-run-replaces-dependency-edges`
-- design `kind-aware-recipe-provider-choice`
 - design `language-binding-tests-in-ci`
 - design `language-bridge-extended-scalars`
 - design `language-global-enum-import`
@@ -483,7 +482,6 @@ deliberately folded behind a broader line.
 - design `py-metadata-typed-errors`
 - design `py-pypy-ci-job`
 - design `py-query-segment-registration`
-- design `py-recipe-provider-choice`
 - design `py-record-values-to-python`
 - design `pyo3-python-3-13-support`
 - design `query-builder-in-bindings`
