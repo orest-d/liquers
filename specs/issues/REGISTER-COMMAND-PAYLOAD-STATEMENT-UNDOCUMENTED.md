@@ -1,7 +1,7 @@
 ---
 id: REGISTER-COMMAND-PAYLOAD-STATEMENT-UNDOCUMENTED
 kind: issue
-title: The `payload: required` metadata statement is implemented but documented nowhere
+title: "The `payload: required` metadata statement is implemented but documented nowhere"
 status: closed
 priority: P2
 complexity: S

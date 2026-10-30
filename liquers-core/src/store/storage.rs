@@ -16,7 +16,7 @@ use crate::command_metadata::{
     ArgumentInfo, ArgumentType, CommandMetadata, CommandMetadataRegistry, EnumArgument,
 };
 use crate::error::{Error, ErrorType};
-use crate::metadata::Metadata;
+use crate::metadata::{Metadata, MetadataRecord};
 use crate::plan::ResolvedParameterValues;
 use crate::query::Key;
 
@@ -70,6 +70,13 @@ pub trait MetadataStorage: crate::maybe_send::MaybeSend + crate::maybe_send::May
         Ok(Vec::new())
     }
 
+    /// Whether a key's record can be absent while its data is present. `false` for a model whose
+    /// record is the backend's own entry (`native`), where deleting the record deletes the data:
+    /// such a model cannot leave an inferred record unstored.
+    fn records_apart_from_data(&self) -> bool {
+        true
+    }
+
     /// The unit of locking and caching a key belongs to: its folder for a grouped model, `None`
     /// when each key stands alone.
     fn group_of(&self, _key: &Key) -> Option<Key> {
@@ -96,19 +103,32 @@ pub trait MetadataStorage: crate::maybe_send::MaybeSend + crate::maybe_send::May
     }
 }
 
+/// `record` as it is stored: never marked inferred, since a stored record is not inferred by
+/// definition (`MetadataRecord::inferred`). Borrowed when there is nothing to clear.
+fn stored_form(record: &MetadataRecord) -> std::borrow::Cow<'_, MetadataRecord> {
+    if record.inferred {
+        let mut stored = record.clone();
+        stored.inferred = false;
+        std::borrow::Cow::Owned(stored)
+    } else {
+        std::borrow::Cow::Borrowed(record)
+    }
+}
+
 /// A record as JSON, the way the file store writes its sidecars.
 pub fn encode_metadata(metadata: &Metadata) -> Result<Vec<u8>, Error> {
     match metadata {
-        Metadata::MetadataRecord(record) => serde_json::to_vec_pretty(record),
+        Metadata::MetadataRecord(record) => serde_json::to_vec_pretty(stored_form(record).as_ref()),
         Metadata::LegacyMetadata(value) => serde_json::to_vec_pretty(value),
     }
     .map_err(|e| Error::from_error(ErrorType::SerializationError, e))
 }
 
 /// A record read back: a [`crate::metadata::MetadataRecord`] when it parses as one, otherwise kept
-/// as legacy metadata, losslessly.
+/// as legacy metadata, losslessly. A record read back is never inferred.
 pub fn decode_metadata(bytes: &[u8]) -> Result<Metadata, Error> {
-    if let Ok(record) = serde_json::from_slice(bytes) {
+    if let Ok(mut record) = serde_json::from_slice::<MetadataRecord>(bytes) {
+        record.inferred = false;
         return Ok(Metadata::MetadataRecord(record));
     }
     serde_json::from_slice(bytes)
@@ -119,15 +139,18 @@ pub fn decode_metadata(bytes: &[u8]) -> Result<Metadata, Error> {
 /// A record as a JSON value, for a group file.
 fn metadata_to_value(metadata: &Metadata) -> Result<serde_json::Value, Error> {
     match metadata {
-        Metadata::MetadataRecord(record) => serde_json::to_value(record)
+        Metadata::MetadataRecord(record) => serde_json::to_value(stored_form(record).as_ref())
             .map_err(|e| Error::from_error(ErrorType::SerializationError, e)),
         Metadata::LegacyMetadata(value) => Ok(value.clone()),
     }
 }
 
 fn metadata_from_value(value: serde_json::Value) -> Metadata {
-    match serde_json::from_value(value.clone()) {
-        Ok(record) => Metadata::MetadataRecord(record),
+    match serde_json::from_value::<MetadataRecord>(value.clone()) {
+        Ok(mut record) => {
+            record.inferred = false;
+            Metadata::MetadataRecord(record)
+        }
         Err(_) => Metadata::LegacyMetadata(value),
     }
 }
@@ -168,6 +191,10 @@ impl MetadataStorage for NativeStorage {
 
     async fn get(&self, backend: &dyn AsyncStore, key: &Key) -> Result<Option<Metadata>, Error> {
         backend.get_stored_metadata(key).await
+    }
+
+    fn records_apart_from_data(&self) -> bool {
+        false
     }
 
     async fn plan(

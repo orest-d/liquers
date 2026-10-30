@@ -3,7 +3,7 @@ title: Store Configuration Functional Specification
 kind: reference
 audience: internal
 area: [store/config]
-reviewed: 2026-10-15
+reviewed: 2026-10-27
 ---
 # Functional Specification Document (FSD): Store Configuration
 
@@ -127,7 +127,6 @@ no steps.
 |---|---|
 | `storage` | `native` |
 | `writes` | `direct` |
-| `persist_defaults` | `false` |
 | `on_default` | `defaults/media_type-fill/file_facts` |
 | `on_validate` | `""` |
 | `on_write` | `defaults/media_type-fill/file_facts` |
@@ -136,8 +135,9 @@ no steps.
 The defaults are `liquers_core::store_config::METADATA_DEFAULTS`; a test in
 `liquers-core/tests/store_adapters.rs` compares that constant with this table.
 `MetadataConfig::resolved` applies them. `storage` and `writes` name a component; the four `on_*`
-fields name handler chains; `persist_defaults` is a boolean (store a record `on_default`
-synthesized the first time it is read). The entries, their parameters and how to register a new one
+fields name handler chains. A record `on_default` builds is *inferred* and never stored, so a read
+never writes (the former `persist_defaults` field is retired and refused as unknown); a Write step
+may mark any record inferred to keep it out of the store (`infer`, `STORE_SEMANTICS.md` §13). The entries, their parameters and how to register a new one
 are in [`guides/STORE_CONFIG_GUIDE.md`](../guides/STORE_CONFIG_GUIDE.md); what each stage and
 component does at run time is [`STORE_SEMANTICS.md` §13–§16](STORE_SEMANTICS.md#13-configured-metadata-the-pipeline-storage-models-and-reserved-names).
 
@@ -841,6 +841,7 @@ its store together. Everything on this page applies unchanged to that document's
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-27 | Metadata section: `persist_defaults` retired (refused as an unknown field); inferred records are never stored. | `design/storage-none-computed-values/` |
 | 2026-10-15 | `read_only` and the typed `metadata` section replace the reserved map; the defaults table; router-level sections need `build_store`. Phase 5: the spec mechanism (a `store_config` query, realm prefix optional and filled before planning, compiled at build), build-time error formats, central storage and member backups, the wrapping order in §Store Instantiation; the entry catalogue now points to `STORE_CONFIG_GUIDE.md`. | `design/store-adapters/` Phase 4 step 10, phase-5 |
 | 2026-10-10 | Related components: `liquers_core::store` has one store trait, `AsyncStore`; the synchronous `Store` was removed. | `CORE-SYNC-STORE-TRAIT-OBSOLETE`, `design/sync-store-removal/` |
 | 2026-10-07 | Recorded that OpenDAL argument lists are derived from the linked service config, with Liquers' hand-written docs merged by name; still `Partial`; a compiled-out service reports the hand-written list. | `design/opendal-derived-store-arguments/` |

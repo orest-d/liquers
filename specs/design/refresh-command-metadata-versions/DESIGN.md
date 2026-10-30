@@ -7,11 +7,7 @@ status: complete
 area: [core/commands, macro, core/context, core/assets]
 gh_pr: []
 issues: [MACRO-LEAVES-STALE-METADATA-VERSION]
-affects_docs:
-  - specs/reference/COMMAND_DECLARATION.md
-  - specs/reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md
-  - specs/guides/COMMAND_REGISTRATION_GUIDE.md
-  - specs/guides/UNITTEST_GUIDE.md
+affects_docs: [specs/reference/COMMAND_DECLARATION.md, specs/reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md, specs/guides/COMMAND_REGISTRATION_GUIDE.md, specs/guides/UNITTEST_GUIDE.md]
 created: 2026-08-30
 superseded_by:
 ---

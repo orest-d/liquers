@@ -1,7 +1,7 @@
 ---
 id: CORE-VALUE-INTERFACE-CAPABILITY-SPLIT
 kind: issue
-title: `ValueInterface` bundles capabilities every implementor must provide
+title: "`ValueInterface` bundles capabilities every implementor must provide"
 status: accepted
 priority: P2
 complexity: L

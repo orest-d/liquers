@@ -150,7 +150,9 @@ fn objects(root: &Path) -> Vec<String> {
 #[tokio::test]
 async fn s3_mount_round_trip() -> Res {
     let f = fixture().await?;
-    let today = "2026-10-19";
+    // The id takes the date of the call, not the `date` field.
+    let today = liquers_lib::mem::write::today();
+    let event = format!("user/memories/events/{today}-tea-tasting.md");
     {
         let server = server(&f).await?;
         let overview = server.call("memory_overview", Map::new()).await?;
@@ -163,12 +165,12 @@ async fn s3_mount_round_trip() -> Res {
                     "collection": "events",
                     "title": "Tea tasting",
                     "description": "Went to a tea tasting",
-                    "fields": {"date": today},
+                    "fields": {"date": &today},
                     "format": "json",
                 })),
             )
             .await?;
-        assert!(created.text.contains("user/memories/events/2026-10-19-tea-tasting.md"), "{}", created.text);
+        assert!(created.text.contains(&event), "{}", created.text);
         server
             .call(
                 "memory_new",
@@ -195,7 +197,7 @@ async fn s3_mount_round_trip() -> Res {
             .call("memory_list", args(json!({"path": "user", "depth": 0, "format": "json"})))
             .await?;
         assert!(listed.text.contains("user/memories/preferences/tea.md"), "{}", listed.text);
-        assert!(listed.text.contains("2026-10-19-tea-tasting.md"), "{}", listed.text);
+        assert!(listed.text.contains(&format!("{today}-tea-tasting.md")), "{}", listed.text);
         let found = server
             .call("memory_search", args(json!({"text": "tea", "path": "user", "format": "json"})))
             .await?;
@@ -221,7 +223,7 @@ async fn s3_mount_round_trip() -> Res {
     let tier = server
         .call(
             "memory_read",
-            args(json!({"key": "user/memories/events/2026-10-19-tea-tasting.md", "tier": "l0"})),
+            args(json!({"key": &event, "tier": "l0"})),
         )
         .await?;
     assert_eq!(tier.text.trim(), "Tea tasting");

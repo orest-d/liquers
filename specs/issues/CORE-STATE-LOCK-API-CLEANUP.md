@@ -1,7 +1,7 @@
 ---
 id: CORE-STATE-LOCK-API-CLEANUP
 kind: issue
-title: `State` holds an `RwLock` that may not be needed
+title: "`State` holds an `RwLock` that may not be needed"
 status: closed
 priority: P3
 complexity: S

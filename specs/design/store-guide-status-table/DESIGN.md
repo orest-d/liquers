@@ -1,7 +1,7 @@
 ---
 id: STORE-GUIDE-STATUS-TABLE
 kind: design
-title: Store guide status table: generator or honest hand maintenance
+title: "Store guide status table: generator or honest hand maintenance"
 status: complete
 gh_pr: [120]
 readiness: ready

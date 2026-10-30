@@ -178,8 +178,6 @@ export interface LiquersStoreMetadata {
   storage?: string;
   /** `direct` (default), `atomic`, `transactional`. */
   writes?: string;
-  /** Store the record `on_default` synthesized the first time it is read. Default `false`. */
-  persist_defaults?: boolean;
   on_default?: string;
   on_validate?: string;
   on_write?: string;
