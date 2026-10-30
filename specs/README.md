@@ -245,13 +245,14 @@ on wasm.
 - **Query console element** — built → [`design/query-console-element/`](design/query-console-element/)
 - **Web rendering with SSR and wasm** — built → [`design/webui/`](design/webui/)
 - **Retained-mode invalidation tracking** — built → [`design/webui-fixes/`](design/webui-fixes/)
-- **UI event delivery** — designing → [`design/ui-events/`](design/ui-events/)
+- **UI event delivery** — built → [`design/ui-events/`](design/ui-events/)
 - **Typed list values for `lui/children`** — built → [`design/value-list-support/`](design/value-list-support/)
 - **egui asset-manager adapter** — planned → [`issues/EGUI-ASSET-MANAGER-INTEGRATION.md`](issues/EGUI-ASSET-MANAGER-INTEGRATION.md)
 
-`design/ui-events/` covers the interaction half of the browser backend — `webui-fixes` did the
-rendering half — and its two open issues are the ones a user actually notices: Enter does not
-submit, and submitted query state is not preserved.
+`design/ui-events/` built the interaction half of the browser backend — `webui-fixes` did the
+rendering half: backend-neutral `UIEvent`s delivered through `update()`, declared in `data-lq-*`
+markup, with Enter, Go and menu shortcuts working in the browser. Further event kinds (change,
+drop, focus, pointer) are `issues/UI-EVENTS-HAVE-NO-POINTER-DRAG-OR-CHANGE-KINDS.md`.
 
 ### Bindings and servers
 
@@ -680,7 +681,6 @@ deliberately folded behind a broader line.
 - feature `TEMPLATE-TOP-LEVEL-RENDER-HAS-NO-HOST`
 - feature `TEXT-EDITOR-EDITS-ARE-NEVER-SAVED`
 - feature `TYPE-REGISTRY-NOT-REALM-AWARE`
-- feature `UI-EVENTS-HAVE-NO-POINTER-DRAG-OR-CHANGE-KINDS`
 - feature `UI-VARIADIC-ARGUMENT-LIST-EDITOR`
 - feature `UI-WIDGET-DOES-NOT-CONVERT-ITS-VALUE`
 - feature `UNKEYED-ASSET-HAS-NO-VERSION`

@@ -9,6 +9,7 @@ pub mod app;
 #[cfg(feature = "polars")]
 pub mod dataframe;
 pub mod html;
+pub(crate) mod keys;
 pub mod widgets;
 
 pub use app::render_app_ssr;

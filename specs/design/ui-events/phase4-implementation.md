@@ -2,14 +2,14 @@
 
 ## Progress
 
-- [ ] Step 1: Vocabulary types and the two new enum variants
-- [ ] Step 2: Runner delivery of `AppMessage::UIEvent`
-- [ ] Step 3: Key-event conversion, keyboard routing and markup helpers
-- [ ] Step 4: Query console handles `Submit` and declares its fields
-- [ ] Step 5: `UISpecElement` emits menu shortcuts
-- [ ] Step 6: Browser driver routing
-- [ ] Step 7: Playwright cases and the web example
-- [ ] Step 8: Reference, records and final checks
+- [x] Step 1: Vocabulary types and the two new enum variants
+- [x] Step 2: Runner delivery of `AppMessage::UIEvent`
+- [x] Step 3: Key-event conversion, keyboard routing and markup helpers
+- [x] Step 4: Query console handles `Submit` and declares its fields
+- [x] Step 5: `UISpecElement` emits menu shortcuts
+- [x] Step 6: Browser driver routing
+- [x] Step 7: Playwright cases and the web example
+- [x] Step 8: Reference, records and final checks
 
 ## Overview
 
@@ -94,7 +94,7 @@ unchanged. Test `render_web_emits_shortcut_attribute`.
 features `NodeList`, `HtmlTextAreaElement`.
 **Change:** replace `dispatch_dom_event` with `dispatch_click`, `dispatch_keydown(ev, ctx, root)`,
 `send_field_event` and `run_action` as Phase 2; the keydown closure in `mount_web` captures a
-clone of `root`. Read `is_composing`, `key`, `code`, `ctrl_key || meta_key`, `alt_key`,
+clone of `root` and is attached to the document (implemented deviation: see `DESIGN.md`). Read `is_composing`, `key`, `code`, `ctrl_key || meta_key`, `alt_key`,
 `shift_key` from `KeyboardEvent`; `editable` / `single_line` from the target's tag and input
 `type`; `event` from its `data-lq-event`. `prevent_default` only after a dispatch.
 **Proof:** `cargo check -p liquers-lib --target wasm32-unknown-unknown --no-default-features

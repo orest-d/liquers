@@ -35,7 +35,8 @@ menu:
     items:
     - !button
       label: New Console
-      shortcut: Ctrl+N
+      # Alt+N, not Ctrl+N: Chrome never delivers Ctrl+N/T/W to a page.
+      shortcut: Alt+N
       action:
         query: "hello/q/ns-lui/query_console/add-child"
     - !separator null

@@ -2,9 +2,9 @@
 id: UI-EVENTS
 kind: design
 title: UI event delivery to widgets
-status: in_review
-phase: implementation
-readiness: needs-decision
+status: complete
+phase:
+readiness: ready
 autofix: not-eligible
 area: [lib/ui]
 gh_pr: []
@@ -44,7 +44,7 @@ are non-goals of this increment.
 - [x] Phase 2: Solution & Architecture — drafted 2026-10-19
 - [x] Phase 3: Examples & Testing — drafted 2026-10-19
 - [x] Phase 4: Implementation Plan — drafted 2026-10-19, 8 steps
-- [ ] Implementation Complete
+- [x] Implementation Complete — 2026-10-30, all 8 steps
 
 **Reviewed 2026-10-30** against main: every symbol named in Phases 2-4 exists as described.
 Changes from that review: types renamed `UserEvent` → `UIEvent` (Orest), platform-independence
@@ -52,8 +52,13 @@ principle added to Phase 1, `value-accessor` marked abandoned. `ui-asset-snapsho
 separate design (independent contracts; a small textual overlap in `runner.rs` and
 `AssetViewElement::update`).
 
-Readiness `needs-decision`: the public vocabulary shape (Phase 1 leading question) awaits
-confirmation; the recommended answer is assumed throughout.
+**Decided 2026-10-30 (Orest):** one `UpdateMessage::UI(UIEvent)` variant with a closed
+`UIEventKind` (the recommended answer); the four proposed resolutions accepted.
+
+**Implemented 2026-10-30.** One deviation from Phase 2: the keydown listener is attached to the
+document rather than the mount root, because with nothing focused the browser targets `<body>`,
+outside the root, and a menu shortcut must still fire there. Only nodes inside the root can declare
+a field event. Found in passing: `WEBUI-MOUNT-HANDLE-DROP-LEAVES-LISTENERS-ATTACHED`.
 
 ## Notes
 

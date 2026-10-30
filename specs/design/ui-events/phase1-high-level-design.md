@@ -120,7 +120,7 @@ Naming: `UIEvent` / `UIEventKind`, following `UIElement`, `UIHandle`, `UIContext
 
 ## Design Readiness
 
-- **Readiness:** needs-decision
+- **Readiness:** ready (vocabulary shape decided 2026-10-30: one variant, closed kind enum)
 - **Automatic fixing:** not-eligible: adds a public `UpdateMessage` variant, `AppMessage` variant
   and the `UIEvent` / `UIEventKind` types (rules 3 and 4).
 - **Leading issue:** **Open design - vocabulary shape:** one `UpdateMessage::UI(UIEvent)`

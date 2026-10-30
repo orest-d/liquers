@@ -607,7 +607,7 @@ impl UIElement for UISpecElement {
 
 #[cfg(feature = "webui")]
 fn render_top_level_item_web(item: &TopLevelItem) -> String {
-    use crate::ui::web::html::{action_attr, escape_html};
+    use crate::ui::web::html::{action_attr, escape_html, shortcut_attr};
     match item {
         TopLevelItem::Menu { label, items, .. } => {
             let mut sub = String::new();
@@ -620,9 +620,15 @@ fn render_top_level_item_web(item: &TopLevelItem) -> String {
                 sub
             )
         }
-        TopLevelItem::Button { label, action, .. } => format!(
-            "<button class=\"lq-menu-button\"{}>{}</button>",
+        TopLevelItem::Button {
+            label,
+            action,
+            shortcut,
+            ..
+        } => format!(
+            "<button class=\"lq-menu-button\"{}{}>{}</button>",
             action_attr(action),
+            shortcut.as_deref().map(shortcut_attr).unwrap_or_default(),
             escape_html(label)
         ),
     }
@@ -630,11 +636,17 @@ fn render_top_level_item_web(item: &TopLevelItem) -> String {
 
 #[cfg(feature = "webui")]
 fn render_menu_item_web(item: &MenuItem) -> String {
-    use crate::ui::web::html::{action_attr, escape_html};
+    use crate::ui::web::html::{action_attr, escape_html, shortcut_attr};
     match item {
-        MenuItem::Button { label, action, .. } => format!(
-            "<button class=\"lq-menu-button\"{}>{}</button>",
+        MenuItem::Button {
+            label,
+            action,
+            shortcut,
+            ..
+        } => format!(
+            "<button class=\"lq-menu-button\"{}{}>{}</button>",
             action_attr(action),
+            shortcut.as_deref().map(shortcut_attr).unwrap_or_default(),
             escape_html(label)
         ),
         MenuItem::Submenu { label, items, .. } => {

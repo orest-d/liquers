@@ -38,6 +38,8 @@ pub enum UpdateMessage {
     /// Full asset snapshot pushed by AppRunner.
     /// Delivered whenever the monitored asset's state changes.
     AssetUpdate(super::message::AssetSnapshot),
+    /// User interaction addressed to this element (backend-neutral; see `ui::event`).
+    UI(super::event::UIEvent),
 }
 
 /// Element's response to an update.
@@ -537,6 +539,7 @@ impl UIElement for AssetViewElement {
             UpdateMessage::Timer { .. } => UpdateResponse::Unchanged,
             UpdateMessage::Custom(_) => UpdateResponse::Unchanged,
             UpdateMessage::AssetUpdate(_) => UpdateResponse::Unchanged,
+            UpdateMessage::UI(_) => UpdateResponse::Unchanged,
         }
     }
 

@@ -47,6 +47,12 @@ pub enum AppMessage {
         input: String,
         query: String,
     },
+    /// Deliver a user interaction to the element at `handle` as `UpdateMessage::UI`.
+    /// Sent by a backend driver (e.g. the web driver on Enter or a `data-lq-event` click).
+    UIEvent {
+        handle: UIHandle,
+        event: super::event::UIEvent,
+    },
     /// Request application quit.
     Quit,
     /// Save application state to disk.

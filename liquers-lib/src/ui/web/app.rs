@@ -40,11 +40,14 @@ mod browser {
 
     use crate::ui::action::{dispatch_action, UiAction};
     use crate::ui::app_state::{AppState, Invalidation, UIChange};
+    use crate::ui::event::{UIEvent, UIEventKind};
     use crate::ui::handle::UIHandle;
     use crate::ui::message::{AppMessage, AppMessageReceiver, AppMessageSender};
     use crate::ui::payload::{SimpleUIPayload, UIPayload};
     use crate::ui::runner::AppRunner;
+    use crate::ui::shortcuts::KeyboardShortcut;
     use crate::ui::ui_context::UIContext;
+    use crate::ui::web::keys::{route_keydown, KeyPress, KeyRoute, KeyTarget};
     use crate::value::Value;
 
     /// Owns the delegated event listeners and the root element, keeping the mount alive.
@@ -72,15 +75,10 @@ mod browser {
             .map(UIHandle)
     }
 
-    /// The single delegated handler: find the nearest `data-lq-action`, parse the `UiAction`,
-    /// and dispatch it (reading the live input value for `Apply`).
-    fn dispatch_dom_event(ev: &web_sys::Event, ctx: &UIContext) {
-        if ev.type_() == "keydown" {
-            match ev.dyn_ref::<web_sys::KeyboardEvent>() {
-                Some(ke) if ke.key() == "Enter" => {}
-                _ => return,
-            }
-        }
+    /// Delegated click handler. An editable node (an input clicked to place the caret) is never
+    /// an activation. Otherwise the nearest `data-lq-event` sends a UI event to its owning
+    /// element, and the nearest `data-lq-action` runs its `UiAction`.
+    fn dispatch_click(ev: &web_sys::Event, ctx: &UIContext) {
         let target = match ev
             .target()
             .and_then(|t| t.dyn_into::<web_sys::Element>().ok())
@@ -88,17 +86,179 @@ mod browser {
             Some(t) => t,
             None => return,
         };
-        let node = match target.closest("[data-lq-action]").ok().flatten() {
+        if is_editable(&target) {
+            return;
+        }
+        let node = match target
+            .closest("[data-lq-event],[data-lq-action]")
+            .ok()
+            .flatten()
+        {
             Some(n) => n,
             None => return,
         };
+        let dispatched = match node
+            .get_attribute("data-lq-event")
+            .and_then(|name| UIEventKind::from_name(&name))
+        {
+            Some(kind) => send_field_event(&node, kind, ctx),
+            None => run_action(&node, ctx),
+        };
+        if dispatched {
+            ev.prevent_default();
+        }
+    }
+
+    /// Delegated keydown handler: `route_keydown` decides between a field's declared event, a
+    /// menu shortcut and the browser. The default is prevented only when something ran.
+    fn dispatch_keydown(ev: &web_sys::Event, ctx: &UIContext, root: &web_sys::Element) {
+        let ke = match ev.dyn_ref::<web_sys::KeyboardEvent>() {
+            Some(ke) => ke,
+            None => return,
+        };
+        let target = ev
+            .target()
+            .and_then(|t| t.dyn_into::<web_sys::Element>().ok());
+        // A field outside this mount is still a field (typing there stays native), but only a
+        // node inside the mount can declare an event for one of our elements.
+        let event_name = target
+            .as_ref()
+            .filter(|t| root.contains(Some(t.as_ref())))
+            .and_then(|t| t.get_attribute("data-lq-event"));
+        let key = ke.key();
+        let code = ke.code();
+        let press = KeyPress {
+            key: &key,
+            code: &code,
+            command: ke.ctrl_key() || ke.meta_key(),
+            alt: ke.alt_key(),
+            shift: ke.shift_key(),
+            composing: ke.is_composing(),
+        };
+        let key_target = KeyTarget {
+            editable: target.as_ref().map(is_editable).unwrap_or(false),
+            single_line: target.as_ref().map(is_single_line).unwrap_or(false),
+            event: event_name.as_deref(),
+        };
+        let dispatched = match route_keydown(&press, &key_target) {
+            KeyRoute::FieldEvent(kind) => match &target {
+                Some(t) => send_field_event(t, kind, ctx),
+                None => false,
+            },
+            KeyRoute::Shortcut(shortcut) => run_shortcut(root, &shortcut, ctx),
+            KeyRoute::Native => false,
+        };
+        if dispatched {
+            ev.prevent_default();
+        }
+    }
+
+    fn is_editable(el: &web_sys::Element) -> bool {
+        match el.tag_name().as_str() {
+            "INPUT" | "TEXTAREA" | "SELECT" => true,
+            _ => el
+                .dyn_ref::<web_sys::HtmlElement>()
+                .map(|h| h.is_content_editable())
+                .unwrap_or(false),
+        }
+    }
+
+    /// A single-line text `<input>` (not a checkbox, button, …), where Enter can be claimed.
+    fn is_single_line(el: &web_sys::Element) -> bool {
+        match el.dyn_ref::<web_sys::HtmlInputElement>() {
+            Some(input) => matches!(
+                input.type_().as_str(),
+                "" | "text" | "search" | "url" | "email" | "tel" | "password" | "number"
+            ),
+            None => false,
+        }
+    }
+
+    /// Send `kind` to the element owning `node`, with the live values of the `data-lq-field`s
+    /// that element owns directly (fields of nested elements belong to those elements).
+    fn send_field_event(node: &web_sys::Element, kind: UIEventKind, ctx: &UIContext) -> bool {
+        let owner = match nearest_element_handle(node) {
+            Some(h) => h,
+            None => return false,
+        };
+        let mut event = UIEvent::new(kind);
+        let owner_node = node
+            .closest(&format!("#ui-element-{}", owner.0))
+            .ok()
+            .flatten();
+        if let Some(owner_node) = owner_node {
+            if let Ok(fields) = owner_node.query_selector_all("[data-lq-field]") {
+                for i in 0..fields.length() {
+                    let field = match fields
+                        .item(i)
+                        .and_then(|n| n.dyn_into::<web_sys::Element>().ok())
+                    {
+                        Some(f) => f,
+                        None => continue,
+                    };
+                    if nearest_element_handle(&field) != Some(owner) {
+                        continue;
+                    }
+                    let name = match field.get_attribute("data-lq-field") {
+                        Some(n) => n,
+                        None => continue,
+                    };
+                    if let Some(value) = read_field_value(&field) {
+                        event = event.with_field(name, Value::from(value));
+                    }
+                }
+            }
+        }
+        ctx.send_ui_event(owner, event);
+        true
+    }
+
+    /// The live text of an `<input>` or `<textarea>`; `None` for anything else.
+    fn read_field_value(field: &web_sys::Element) -> Option<String> {
+        if let Some(input) = field.dyn_ref::<web_sys::HtmlInputElement>() {
+            return Some(input.value());
+        }
+        field
+            .dyn_ref::<web_sys::HtmlTextAreaElement>()
+            .map(|t| t.value())
+    }
+
+    /// Run the first rendered node whose `data-lq-shortcut` parses to `shortcut`.
+    fn run_shortcut(root: &web_sys::Element, shortcut: &KeyboardShortcut, ctx: &UIContext) -> bool {
+        let nodes = match root.query_selector_all("[data-lq-shortcut]") {
+            Ok(n) => n,
+            Err(_) => return false,
+        };
+        for i in 0..nodes.length() {
+            let node = match nodes
+                .item(i)
+                .and_then(|n| n.dyn_into::<web_sys::Element>().ok())
+            {
+                Some(n) => n,
+                None => continue,
+            };
+            let matches = node
+                .get_attribute("data-lq-shortcut")
+                .and_then(|s| KeyboardShortcut::parse(&s).ok())
+                .map(|s| &s == shortcut)
+                .unwrap_or(false);
+            if matches {
+                return run_action(&node, ctx);
+            }
+        }
+        false
+    }
+
+    /// Parse and dispatch the `data-lq-action` on `node` (reading the live input value for
+    /// `Apply`). Returns false when the node carries no valid action.
+    fn run_action(node: &web_sys::Element, ctx: &UIContext) -> bool {
         let json = match node.get_attribute("data-lq-action") {
             Some(a) => a,
-            None => return,
+            None => return false,
         };
         let action: UiAction = match serde_json::from_str(&json) {
             Ok(a) => a,
-            Err(_) => return,
+            Err(_) => return false,
         };
         match &action {
             UiAction::Apply {
@@ -113,9 +273,9 @@ mod browser {
                     query: query.clone(),
                 });
             }
-            _ => dispatch_action(&action, ctx, nearest_element_handle(&node)),
+            _ => dispatch_action(&action, ctx, nearest_element_handle(node)),
         }
-        ev.prevent_default();
+        true
     }
 
     /// Re-render all roots into `root` via innerHTML — the whole-tree path.
@@ -384,15 +544,23 @@ mod browser {
 
         let click_ctx = ctx.clone();
         let click = Closure::wrap(Box::new(move |ev: web_sys::Event| {
-            dispatch_dom_event(&ev, &click_ctx);
+            dispatch_click(&ev, &click_ctx);
         }) as Box<dyn FnMut(web_sys::Event)>);
         let keydown_ctx = ctx.clone();
+        let keydown_root = root.clone();
         let keydown = Closure::wrap(Box::new(move |ev: web_sys::Event| {
-            dispatch_dom_event(&ev, &keydown_ctx);
+            dispatch_keydown(&ev, &keydown_ctx, &keydown_root);
         }) as Box<dyn FnMut(web_sys::Event)>);
         root.add_event_listener_with_callback("click", click.as_ref().unchecked_ref())
             .map_err(|_| Error::general_error("failed to attach click listener".to_string()))?;
-        root.add_event_listener_with_callback("keydown", keydown.as_ref().unchecked_ref())
+        // Keys go to the document, not the root: with nothing focused the browser targets
+        // `<body>`, outside the root, and a menu shortcut must still work there.
+        let key_target: web_sys::EventTarget = match web_sys::window().and_then(|w| w.document()) {
+            Some(doc) => doc.into(),
+            None => root.clone().into(),
+        };
+        key_target
+            .add_event_listener_with_callback("keydown", keydown.as_ref().unchecked_ref())
             .map_err(|_| Error::general_error("failed to attach keydown listener".to_string()))?;
 
         let loop_root = root.clone();

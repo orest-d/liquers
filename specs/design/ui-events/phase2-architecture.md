@@ -121,7 +121,7 @@ editable target whose `event` parses -> `FieldEvent`; Tab -> `Native`; editable 
   snapshot callers pass `UpdateMessage::AssetUpdate(snapshot)`. `process_messages` gains the
   `AppMessage::UIEvent` arm calling it; a `Missing` outcome is ignored.
 - `ui/web/app.rs` (wasm `browser` module): split `dispatch_dom_event` into `dispatch_click` and
-  `dispatch_keydown(ev, ctx, root)`. Click: nearest `[data-lq-event],[data-lq-action]`; an
+  `dispatch_keydown(ev, ctx, root)` (keydown listens on the document; see `DESIGN.md`). Click: nearest `[data-lq-event],[data-lq-action]`; an
   editable node (`INPUT`, `TEXTAREA`, `SELECT`) is ignored; `data-lq-event` goes to
   `send_field_event`, `data-lq-action` to the existing `UiAction` path (factored as `run_action`,
   keeping the `Apply` branch). Keydown: build `KeyPress`/`KeyTarget`, call `route_keydown`;

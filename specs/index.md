@@ -8,9 +8,9 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 196
-- P2: 61
-- P3: 135
+Total rows: 194
+- P2: 58
+- P3: 136
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -44,9 +44,6 @@ Total rows: 196
 | [`STORE-CONFORMANCE-VALIDATION-TOOL`](issues/STORE-CONFORMANCE-VALIDATION-TOOL.md) | issue | No way to run the conformance suite against a store outside a test binary | accepted | needs-decision | not-eligible | P2 | M | store/backends;core/store | [design](design/store-conformance-check-tool/DESIGN.md) | 2026-09-02 |
 | [`STORE-WRITE-HAS-NO-PRECONDITION`](issues/STORE-WRITE-HAS-NO-PRECONDITION.md) | issue | A store write has no precondition, so concurrent writers clobber silently | draft | needs-decision | not-eligible | P2 | M | core/store | [design](design/store-conditional-write/DESIGN.md) | 2026-09-15 |
 | [`VALUE-SERIALIZATION-HAS-NO-INCREMENTAL-WRITER`](issues/VALUE-SERIALIZATION-HAS-NO-INCREMENTAL-WRITER.md) | feature | Value serialization has no incremental writer | draft | needs-decision | not-eligible | P2 | M | core/value | [design](design/value-serialization-writer/DESIGN.md) | 2026-09-17 |
-| [`WEBUI-MENU-SHORTCUTS-IGNORED`](issues/WEBUI-MENU-SHORTCUTS-IGNORED.md) | issue | UISpec menu keyboard shortcuts do nothing in the browser | draft | needs-decision | not-eligible | P2 | M | lib/ui | [phase1](design/ui-events/phase1-high-level-design.md)  [phase2](design/ui-events/phase2-architecture.md)  [phase3](design/ui-events/phase3-examples.md)  [phase4](design/ui-events/phase4-implementation.md)  | 2026-10-19 |
-| [`WEBUI-QUERY-CONSOLE-ENTER-KEY-SUBMIT`](issues/WEBUI-QUERY-CONSOLE-ENTER-KEY-SUBMIT.md) | issue | Enter key does not submit in the browser query console | accepted | needs-decision | not-eligible | P2 | M | lib/ui | [phase1](design/ui-events/phase1-high-level-design.md)  [phase2](design/ui-events/phase2-architecture.md)  [phase3](design/ui-events/phase3-examples.md)  [phase4](design/ui-events/phase4-implementation.md)  | 2026-08-08 |
-| [`WEBUI-SUBMIT-QUERY-STATE-NOT-PRESERVED`](issues/WEBUI-SUBMIT-QUERY-STATE-NOT-PRESERVED.md) | issue | Submitted query state is not preserved in the browser | accepted | needs-decision | not-eligible | P2 | M | lib/ui | [phase1](design/ui-events/phase1-high-level-design.md)  [phase2](design/ui-events/phase2-architecture.md)  [phase3](design/ui-events/phase3-examples.md)  [phase4](design/ui-events/phase4-implementation.md)  | 2026-08-08 |
 | [`AGENT-WORKBENCH-SURFACE`](issues/AGENT-WORKBENCH-SURFACE.md) | feature | Agents get only memory tools — no general surface to evaluate, validate, inspect or propose | draft |  |  | P2 | M | mcp;core/validate;docs |  | 2026-10-15 |
 | [`EXPRESSION-DEPENDENCY-RECORD-IS-LOST-ON-RELOAD`](issues/EXPRESSION-DEPENDENCY-RECORD-IS-LOST-ON-RELOAD.md) | issue | A keyed asset that read a key only through a non-keyed expression is not expired by that key after a reload | draft |  |  | P2 | M | core/assets |  | 2026-10-20 |
 | [`JS-COMMAND-CANNOT-ACCESS-CONTEXT`](issues/JS-COMMAND-CANNOT-ACCESS-CONTEXT.md) | feature | A JavaScript command cannot access the execution context | draft |  |  | P2 | M | web |  | 2026-08-29 |
@@ -110,6 +107,7 @@ Total rows: 196
 | [`WEB-HAS-NO-TEMPLATE-COMMANDS`](issues/WEB-HAS-NO-TEMPLATE-COMMANDS.md) | feature | The browser environment has no template commands | draft |  |  | P3 | S | web |  | 2026-10-25 |
 | [`WEB-METADATA-STATUS-CASE-DIFFERS`](issues/WEB-METADATA-STATUS-CASE-DIFFERS.md) | issue | State.metadata().status is capitalized while Asset.status() and State.status are lowercase | draft |  |  | P3 | S | web |  | 2026-10-26 |
 | [`WEB-UNREGISTER-DEPENDS-ON-FIRST-EVALUATION`](issues/WEB-UNREGISTER-DEPENDS-ON-FIRST-EVALUATION.md) | issue | unregisterCommand removes a built-in command before the first evaluation but not after it | draft |  |  | P3 | S | web |  | 2026-10-26 |
+| [`WEBUI-MOUNT-HANDLE-DROP-LEAVES-LISTENERS-ATTACHED`](issues/WEBUI-MOUNT-HANDLE-DROP-LEAVES-LISTENERS-ATTACHED.md) | issue | Dropping the web MountHandle leaves its event listeners attached to freed closures | draft |  |  | P3 | S | lib/ui |  | 2026-10-30 |
 | [`COLUMNMUT-VALIDITY-AND-VARIABLE-LENGTH-SET-ALWAYS-COPY`](issues/COLUMNMUT-VALIDITY-AND-VARIABLE-LENGTH-SET-ALWAYS-COPY.md) | issue | ColumnMut always copies validity, and rebuilds the whole column to overwrite one Text/Binary cell | draft | ready | not-eligible | P3 | M | records | [design](design/column-mut-zero-copy-validity/DESIGN.md) | 2026-09-26 |
 | [`DEPENDENCY-ANALYSIS-REWALKS-UPSTREAM-PER-EVALUATION`](issues/DEPENDENCY-ANALYSIS-REWALKS-UPSTREAM-PER-EVALUATION.md) | feature | Each plan analysis re-walks the whole upstream recipe graph | draft | ready | not-eligible | P3 | M | core/plan;core/assets | [design](design/payload-requirement-skips-dependency-analysis/DESIGN.md) | 2026-10-08 |
 | [`ASSET-EVENT-STREAM-CARRIES-ONLY-EXPIRATIONS`](issues/ASSET-EVENT-STREAM-CARRIES-ONLY-EXPIRATIONS.md) | feature | The manager event stream announces expirations only, not new versions, additions or removals | draft | needs-decision | not-eligible | P3 | M | core/assets | [design](design/asset-event-kinds/DESIGN.md) | 2026-10-21 |
