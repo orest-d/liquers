@@ -46,7 +46,7 @@ use liquers_core::error::Error;
 use liquers_core::issue_report::{Issue as CoreIssue, IssueReport, IssueSeverity};
 use liquers_core::metadata::{Metadata, MetadataRecord};
 use liquers_core::parse::{parse_key, parse_query};
-use liquers_core::recipes::RecipeProviderChoice;
+use liquers_core::recipes::RecipesConfig;
 use liquers_core::assets::AssetManager;
 use liquers_core::state::State;
 use liquers_core::store::{AsyncMemoryStore, AsyncStore};
@@ -111,7 +111,7 @@ impl EnvCell {
         pickle: bool,
         async_loops: NonZeroUsize,
     ) -> Result<Self, Error> {
-        if config.recipes != RecipeProviderChoice::default() {
+        if config.recipes != RecipesConfig::KindDefault {
             return Err(Error::configuration_error(
                 "a recipe provider other than the default cannot be configured from Python yet"
                     .to_string(),
@@ -929,7 +929,7 @@ mod tests {
     #[test]
     fn a_non_default_recipe_provider_is_refused() {
         let mut config = EnvironmentConfig::default();
-        config.recipes = RecipeProviderChoice::Trivial;
+        config.recipes = RecipesConfig::Chain(Vec::new());
         assert!(EnvCell::new(config, ConversionMode::Permissive, false, NonZeroUsize::MIN).is_err());
     }
 
