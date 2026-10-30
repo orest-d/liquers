@@ -134,8 +134,12 @@ the chain-always environment. `liquers-lib`: the `manifest` entry and its defaul
    a key both `recipes.yaml` and a manifest define resolves from `recipes.yaml` in
    `[recipes_yaml, manifest]` but fails in `[manifest, recipes_yaml]` (the manifest provider refuses
    the clash itself), and a malformed `recipes.yaml` blocks keys a later provider could make.
-   Recommended: a key two providers define is a configuration error in any order (the manifest
-   provider's existing rule, made the chain's rule); a failing provider still stops the chain,
+   The manifest provider learns of the clash by reading `recipes.yaml` itself
+   (`liquers-records/src/provider.rs` `check_no_recipes_yaml_collision`, through a fresh
+   `DefaultRecipeProvider`), not by asking the chain: it refuses even when `recipes_yaml` is not in
+   the list, and sees no clash with any other provider. Recommended: a key two providers in the
+   list define is an error in any order, detected by the chain; the manifest provider's own
+   `recipes.yaml` read is removed; a failing provider still stops the chain,
    since skipping it hides a broken recipe. A duplicate entry (`[manifest, manifest]`) is a
    configuration error.
 6. **Blocking, owner decision — the two existing designs.** This design absorbs
