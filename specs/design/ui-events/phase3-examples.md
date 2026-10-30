@@ -29,8 +29,8 @@ The console renders:
 ```
 
 The user types `about` and presses Enter. `route_keydown` returns `FieldEvent(Submit)`; the
-driver sends `AppMessage::UserEvent { handle: UIHandle(3), event: UserEvent { kind: Submit,
-fields: [("query", Value::from("about"))] } }`. The runner delivers `UpdateMessage::User`; the
+driver sends `AppMessage::UIEvent { handle: UIHandle(3), event: UIEvent { kind: Submit,
+fields: [("query", Value::from("about"))] } }`. The runner delivers `UpdateMessage::UI`; the
 console sets `query_text = "about"`, pushes it to history and sends `RequestAssetUpdates { handle:
 3, query: "about" }`. The content shows "Liquers query console — browser port" and the
 re-rendered input keeps `about`. Clicking Go produces the same event.
@@ -49,9 +49,9 @@ delivers Ctrl+N to a page; the egui example keeps `Ctrl+N`.
 ```rust
 fn update(&mut self, message: &UpdateMessage, ctx: &UIContext) -> UpdateResponse {
     match message {
-        UpdateMessage::User(event) => match &event.kind {
-            UserEventKind::Named(name) if name == "reset" => { self.count = 0; UpdateResponse::NeedsRepaint }
-            UserEventKind::Named(_) | UserEventKind::Submit => UpdateResponse::Unchanged,
+        UpdateMessage::UI(event) => match &event.kind {
+            UIEventKind::Named(name) if name == "reset" => { self.count = 0; UpdateResponse::NeedsRepaint }
+            UIEventKind::Named(_) | UIEventKind::Submit => UpdateResponse::Unchanged,
         },
         UpdateMessage::AssetNotification(_) | UpdateMessage::AssetUpdate(_)
         | UpdateMessage::Timer { .. } | UpdateMessage::Custom(_) => UpdateResponse::Unchanged,
@@ -90,12 +90,12 @@ parent: field ownership is the nearest `ui-element-` ancestor.
 ### Unit Tests
 
 `liquers-lib/src/ui/event.rs`:
-- `user_event_kind_from_name` (AC-7): `submit`, a custom name, empty.
-- `user_event_field_lookup` (AC-7): `with_field` then `field`, missing name is `None`.
+- `ui_event_kind_from_name` (AC-7): `submit`, a custom name, empty.
+- `ui_event_field_lookup` (AC-7): `with_field` then `field`, missing name is `None`.
 
 `liquers-lib/src/ui/widgets/query_console_element.rs`:
 - `test_user_submit_sets_query_history_and_requests_updates` (AC-1, AC-2): handle set, initial
-  `hello`; `update(User(Submit, query=about))` returns `NeedsRepaint`, `query_text == "about"`,
+  `hello`; `update(UI(Submit, query=about))` returns `NeedsRepaint`, `query_text == "about"`,
   history ends with `about`, the channel holds `RequestAssetUpdates { query: "about" }`.
 - `test_user_submit_without_field_resubmits_current_query` (AC-2).
 - `test_user_named_event_is_unchanged` (AC-7).
@@ -128,13 +128,13 @@ parent: field ownership is the nearest `ui-element-` ancestor.
 ### Integration Tests
 
 `liquers-lib/tests/ui_runner.rs`:
-- `user_event_reaches_element_and_records_repaint` (AC-7): a test element records the `User`
-  event and answers `NeedsRepaint`; after `AppMessage::UserEvent` and `run()`, it saw `Submit`
+- `ui_event_reaches_element_and_records_repaint` (AC-7): a test element records the `UI`
+  event and answers `NeedsRepaint`; after `AppMessage::UIEvent` and `run()`, it saw `Submit`
   with the field, and `take_invalidation()` contains `UIChange::Replaced { handle }`.
-- `user_event_for_missing_element_is_ignored` (AC-7): no panic, no invalidation.
+- `ui_event_for_missing_element_is_ignored` (AC-7): no panic, no invalidation.
 
 `liquers-lib/tests/query_console_integration.rs`:
-- `test_user_submit_event_evaluates_new_query` (AC-1, AC-2, AC-3): console created with `hello`
+- `test_ui_submit_event_evaluates_new_query` (AC-1, AC-2, AC-3): console created with `hello`
   plus a second registered command; a `Submit` event with the second query makes the next
   `AssetUpdate` carry its value and leaves `query_text` and history on it.
 

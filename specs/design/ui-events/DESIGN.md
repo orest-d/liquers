@@ -11,7 +11,7 @@ gh_pr: []
 issues: [WEBUI-SUBMIT-QUERY-STATE-NOT-PRESERVED, WEBUI-QUERY-CONSOLE-ENTER-KEY-SUBMIT, WEBUI-MENU-SHORTCUTS-IGNORED]
 merged: 2026-10-19
 affects_docs: [UI_INTERFACE_FSD]
-created: 2026-03-02
+created: 2026-07-25
 superseded_by:
 ---
 # ui-events Design Tracking
@@ -45,6 +45,12 @@ are non-goals of this increment.
 - [x] Phase 3: Examples & Testing — drafted 2026-10-19
 - [x] Phase 4: Implementation Plan — drafted 2026-10-19, 8 steps
 - [ ] Implementation Complete
+
+**Reviewed 2026-10-30** against main: every symbol named in Phases 2-4 exists as described.
+Changes from that review: types renamed `UserEvent` → `UIEvent` (Orest), platform-independence
+principle added to Phase 1, `value-accessor` marked abandoned. `ui-asset-snapshot-boundary` stays a
+separate design (independent contracts; a small textual overlap in `runner.rs` and
+`AssetViewElement::update`).
 
 Readiness `needs-decision`: the public vocabulary shape (Phase 1 leading question) awaits
 confirmation; the recommended answer is assumed throughout.

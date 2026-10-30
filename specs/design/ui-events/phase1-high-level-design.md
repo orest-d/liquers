@@ -55,12 +55,32 @@ bypassing the element that owns the field. The Playwright "known gaps" cases in
   composition, or is typed into an editable field without Ctrl/Cmd or Alt
   THEN nothing is dispatched and the browser default is not prevented
 - **AC-7** Vocabulary is backend-neutral
-  WHEN a `UserEvent` is sent as `AppMessage::UserEvent` on a native `AppRunner`
-  THEN the target element receives `UpdateMessage::User` and its repaint verdict is recorded
+  WHEN a `UIEvent` is sent as `AppMessage::UIEvent` on a native `AppRunner`
+  THEN the target element receives `UpdateMessage::UI` and its repaint verdict is recorded
 
 Non-goals: egui adopting the vocabulary (it keeps inline input handling); per-keystroke field sync;
 the imperative per-element mount hook (canvas, drag-and-drop, `scroll`); propagation between
 elements; generalising `UiAction::Apply` to several fields; retiring `lui/submit`; `value-accessor`.
+
+## Principle: platform-independent events
+
+A `UIEvent` describes what the user meant (`Submit`, `Named("reset")`) plus the owning element's
+field values as `Value`, never how a device produced it. Each backend's driver translates its own
+native input (DOM events, egui responses, a future ratatui/crossterm loop) into a `UIEvent`
+addressed by `UIHandle`; no `web_sys`, egui or terminal type appears in it. Handles belong to the
+shared `AppState`, so the event reaches its element whichever backend drew it, including nested
+UIs (ratatui inside egui inside a web page).
+
+Platform-dependent and therefore outside the event: how interest is declared (`data-lq-*` markup
+is the web backend's form; other backends declare in their own rendering), key routing between
+nested hosts (which layer sees a key first; a driver rule, designed when nesting is real), and raw
+low-level input. Pointer or drag input, if ever needed, becomes a neutral kind with element-local
+logical coordinates; `UpdateMessage::Custom` stays the escape hatch for anything truly
+backend-specific.
+
+Naming: `UIEvent` / `UIEventKind`, following `UIElement`, `UIHandle`, `UIContext`, `UIChange`.
+"User event" was rejected (Orest, 2026-10-30): it reads as a user-defined event, which here is the
+`Named` kind.
 
 ## Core Interactions
 
@@ -88,9 +108,9 @@ elements; generalising `UiAction::Apply` to several fields; retiring `lui/submit
 
 - **Readiness:** needs-decision
 - **Automatic fixing:** not-eligible: adds a public `UpdateMessage` variant, `AppMessage` variant
-  and the `UserEvent` / `UserEventKind` types (rules 3 and 4).
-- **Leading issue:** **Open design - vocabulary shape:** one `UpdateMessage::User(UserEvent)`
-  variant whose closed `UserEventKind` enum (`Submit`, `Named(String)`) grows by need, versus one
+  and the `UIEvent` / `UIEventKind` types (rules 3 and 4).
+- **Leading issue:** **Open design - vocabulary shape:** one `UpdateMessage::UI(UIEvent)`
+  variant whose closed `UIEventKind` enum (`Submit`, `Named(String)`) grows by need, versus one
   variant per event kind. Every `UIElement` matches `UpdateMessage` exhaustively, so the choice
   sets what each future event costs. Recommended: one variant with a closed kind enum.
 - **Explanation:** Both defects and W5 are confirmed at HEAD and a working, testable solution is
@@ -116,7 +136,7 @@ elements; generalising `UiAction::Apply` to several fields; retiring `lui/submit
   recording and focus/caret restore in `liquers-lib/src/ui/web/app.rs`.
 - `keyboard-shortcuts` (complete): **requires**, satisfied. Reuses `KeyboardShortcut` and
   `Key::from_name`.
-- `value-accessor` (draft): **overlaps**. The binding layer beneath this naming layer; not a
+- `value-accessor` (abandoned): **overlaps** historically. The binding layer beneath this naming layer; not a
   prerequisite. Field values travel as `Value`, so an accessor can slot in later.
 - `ui-asset-snapshot-boundary` (in review, written in parallel on 2026-10-19): **overlaps**. Both
   edit `AssetViewElement::update` and `ui/runner.rs` (it: monitoring and polling; here:
@@ -132,7 +152,7 @@ elements; generalising `UiAction::Apply` to several fields; retiring `lui/submit
 - Fixing W2 needs a user-to-element message: any fix "inside" `lui/submit` would need downcasting
   `dyn UIElement` or a console-specific `Custom` payload, a private copy of this contract. That is
   why the issues stay here rather than in a separate compact design.
-- Adding `UpdateMessage::User` breaks exhaustive matches in `element.rs`, two widgets, two test
+- Adding `UpdateMessage::UI` breaks exhaustive matches in `element.rs`, two widgets, two test
   files and two examples (listed in Phase 4); that is the intended signal.
 - Keydown Enter no longer dispatches `data-lq-action`: native `<button>` activation already turns
   Enter into a click, and `.lq-go` becomes a `<button>` so it is keyboard reachable.
