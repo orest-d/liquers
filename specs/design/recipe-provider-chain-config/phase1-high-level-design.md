@@ -60,11 +60,14 @@ Both keys evaluate; `recipes: []` resolves nothing; no `recipes:` gives the crat
   without `records`)
   THEN the build fails with a configuration error naming the entry, the known types and, if
   unavailable, the responsible feature
-- **AC-7** Order is visible in the outcome
-  WHEN an earlier provider fails for a key (the manifest provider refuses a chunk name its sibling
-  `recipes.yaml` also defines)
-  THEN evaluation fails with that error rather than trying later providers, so `[recipes_yaml,
-  manifest]` and `[manifest, recipes_yaml]` differ, as documented
+- **AC-7** One recipe, any order
+  WHEN exactly one provider in the list has a recipe for a key and the others answer "no recipe"
+  THEN that recipe is used whatever the order of the list
+- **AC-11** Order decides only conflicts and failures, as documented
+  WHEN two providers have a recipe for the same key, or an earlier provider fails for it (a
+  malformed `recipes.yaml`)
+  THEN the outcome follows the documented rule of question 5, the same for every order where the
+  rule says so
 - **AC-8** Code builds the same chains
   WHEN code builds an environment without a document, through the existing setters or a new list
   form
@@ -78,6 +81,10 @@ Both keys evaluate; `recipes: []` resolves nothing; no `recipes:` gives the crat
   WHEN a configuration is serialized and parsed again
   THEN it describes the same chain, in one canonical form
 
+- **AC-12** Named entries and parameterized entries are the same thing
+  WHEN an entry is written as a bare name (`manifest`) or as `{type: manifest}`
+  THEN both build the same provider; the map form is needed only to pass arguments
+  (`{type: python, object: notes}`), and a crate registers the names it supplies
 Non-goals: the Python and JavaScript recipe-provider adapters (liquers-py M4 RECIPE; this design
 gives integrations the way to supply entry types such as `python`); per-folder chains; validating
 recipes from non-standard providers (`VALIDATE-CANNOT-SEE-NON-STANDARD-RECIPE-PROVIDERS`).
@@ -122,14 +129,21 @@ the chain-always environment. `liquers-lib`: the `manifest` entry and its defaul
 4. **Proposed resolution — how a crate supplies entry types.** A factory chain mirroring the store
    factories (declared type names with arguments and availability, first claim wins), so AC-6 can
    name a missing feature. Where it is passed is Phase 2.
-5. **Proposed resolution — duplicates.** `[recipes_yaml, recipes_yaml]` is a configuration error;
-   a provider asked twice is never intended.
+5. **Open design — conflicts and failures.** Today the chain uses the first provider that has a
+   recipe, and an error from an earlier provider stops it. That makes two cases order-dependent:
+   a key both `recipes.yaml` and a manifest define resolves from `recipes.yaml` in
+   `[recipes_yaml, manifest]` but fails in `[manifest, recipes_yaml]` (the manifest provider refuses
+   the clash itself), and a malformed `recipes.yaml` blocks keys a later provider could make.
+   Recommended: a key two providers define is a configuration error in any order (the manifest
+   provider's existing rule, made the chain's rule); a failing provider still stops the chain,
+   since skipping it hides a broken recipe. A duplicate entry (`[manifest, manifest]`) is a
+   configuration error.
 6. **Blocking, owner decision — the two existing designs.** This design absorbs
    `CONFIGURED-RECIPE-CHOICE-DROPS-MANIFEST-PROVIDER` and `PY-RECIPE-PROVIDER-NOT-CONFIGURABLE`,
    and `kind-aware-recipe-provider-choice` and `py-recipe-provider-choice` become `superseded`.
    Recorded at this gate; the front-matter of all four is updated when it is accepted.
 7. **Implementation detail — the chain contract.** "No recipe" means not mine; an error means the
-   provider owns the key and failed (AC-7). The chain's own doc table, which says `contains` goes
+   provider owns the key and failed (AC-7, AC-11). The chain's own doc table, which says `contains` goes
    through `recipe_opt`, is corrected to the code.
 
 ## Design Dependencies
