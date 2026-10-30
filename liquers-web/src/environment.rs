@@ -101,15 +101,11 @@ pub fn new_environment() -> Result<WebEnvironment, Error> {
 
     let mut env = WebEnvironment::new_with_type_registry(types);
     crate::builtins::register_builtin_commands(&mut env)?;
-    // Required, not optional — but not because anything panics. An unconfigured environment
-    // resolves recipes *trivially*, i.e. finds none, so every `-R/` query would fail with
-    // `KeyNotFound` whatever the store contains. `RecipeProviderChoice::Default` reads recipes
-    // through the environment's store, which is what this crate wants; with no store configured it
-    // simply finds none, and `-R/` fails with `KeyNotFound` as it should.
-    //
-    // (This comment used to cite a panic in `DefaultEnvironment::get_recipe_provider`. That was
-    // `LIB-RECIPE-PROVIDER-PANIC`, since closed; the provider field is a non-optional `Arc` now
-    // and there is no panic to avoid.)
+    // `WebEnvironment` is a `LibKind` environment, so `new_with_type_registry` already resolves
+    // the kind's default list — `[recipes_yaml, manifest]` with the `records` feature,
+    // `[recipes_yaml]` without (`specs/design/recipe-provider-chain-config/`). This call states
+    // that choice explicitly and resolves the same list, so manifests are kept either way. With no
+    // store configured it simply finds no recipes, and `-R/` fails with `KeyNotFound` as it should.
     env.with_default_recipe_provider();
     Ok(env)
 }
