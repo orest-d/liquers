@@ -3,8 +3,8 @@ id: RECIPE-PROVIDER-CHAIN-CONFIG
 kind: design
 title: The recipe provider chain is configured as an ordered list of provider entries
 workflow: liquers-project
-status: in_review
-phase: architecture
+status: approved
+phase: implementation
 area: [core/context, lib/commands, records, py, web]
 issues: [RECIPE-PROVIDER-CHAIN-NOT-CONFIGURABLE, CONFIGURED-RECIPE-CHOICE-DROPS-MANIFEST-PROVIDER, PY-RECIPE-PROVIDER-NOT-CONFIGURABLE]
 merged: 2026-10-30
@@ -14,7 +14,7 @@ created: 2026-10-30
 # The recipe provider chain is configured as an ordered list of provider entries
 
 Raised by Orest on 2026-10-30 in place of the Pre-M4 fixes `kind-aware-recipe-provider-choice` and
-`py-recipe-provider-choice`. Phase 1 approved 2026-10-30 (`proceed`), with every open question resolved as recommended. Phase 2 written and awaiting its gate.
+`py-recipe-provider-choice`. Phase 1 approved 2026-10-30 (`proceed`), with every open question resolved as recommended. Phase 2 approved 2026-10-30 with `proceed all`: Pre-approved after Phase 2 on 2026-10-30. Phases 3 and 4 written and reviewed; implementation in progress.
 
 ## Phases
 

@@ -39,8 +39,8 @@ Both keys evaluate; `recipes: []` resolves nothing; no `recipes:` gives the crat
 
 - **AC-1** The list is the chain
   WHEN a document lists provider entries under `recipes`
-  THEN the environment asks exactly those providers, in that order; the first that has a recipe
-  for the key makes it
+  THEN the environment asks exactly those providers, listed in that order; the one that has a
+  recipe for the key makes it (two having one is AC-11)
 - **AC-2** An empty list resolves nothing
   WHEN `recipes: []`
   THEN no key resolves through a recipe
@@ -89,8 +89,9 @@ Non-goals: the Python and JavaScript recipe-provider adapters (liquers-py M4 REC
 gives integrations the way to supply entry types such as `python`); per-folder chains; validating
 recipes from non-standard providers (`VALIDATE-CANNOT-SEE-NON-STANDARD-RECIPE-PROVIDERS`).
 
-Migration: documents without `recipes:` gain manifest support in `liquers-lib` builds
-(`liquers-agent` builds without `records`, so it is unaffected).
+Migration: documents without `recipes:` gain manifest support in `liquers-lib` builds with
+`records`. `liquers-agent` is built without `records` on its own, but gains it in a workspace
+build, where features unify.
 
 ## Core Interactions
 
@@ -154,6 +155,13 @@ for named entries (AC-12).**
 7. **Implementation detail — the chain contract.** "No recipe" means not mine; an error means the
    provider owns the key and failed (AC-7, AC-11). The chain's own doc table, which says `contains` goes
    through `recipe_opt`, is corrected to the code.
+
+## Scope Changes
+
+- 2026-10-30, at the Phase 2 gate: AC-1's wording ("the first that has a recipe makes it")
+  aligned with question 5 as accepted (every member asked, two owners an error), and the
+  migration note corrected for `liquers-agent`. No criterion added or removed. Under the
+  `proceed all` pre-approval.
 
 ## Design Dependencies
 

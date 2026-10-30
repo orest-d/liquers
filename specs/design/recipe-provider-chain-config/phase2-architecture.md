@@ -20,7 +20,7 @@ second `with_config` argument (breaks every caller).
 | `RECIPE-PROVIDER-CHAIN-NOT-CONFIGURABLE` | draft | P2 | Source | — | No | Closed by this design |
 | `CONFIGURED-RECIPE-CHOICE-DROPS-MANIFEST-PROVIDER`, `PY-RECIPE-PROVIDER-NOT-CONFIGURABLE` | draft | P3 | Absorbed sources | — | No | Closed by this design (AC-3, AC-9) |
 | `VALIDATE-CANNOT-SEE-NON-STANDARD-RECIPE-PROVIDERS`, `LIB-RECIPE-PROVIDERS-HAVE-NO-VALIDATION-CLI` | draft | P3 | Both need "the environment's chain"; `resolve_recipes` defines it | No | No | Note in their designs at Phase 5 |
-| `WEB-EXPLICIT-ENVIRONMENT-CONFIGURES-THE-SINGLETON` | draft | P2 | The AC-9 web test must build through the singleton path | No | No | Test uses the singleton and `shutdown()` |
+| `WEB-EXPLICIT-ENVIRONMENT-CONFIGURES-THE-SINGLETON` | draft | P2 | A wasm test would have to build through the singleton | No | No | The AC-9 web path is tested natively instead (Phase 3): `WebEnvironment` is `DefaultEnvironment<Value>` built with `with_default_recipe_provider()` |
 | `LANGUAGE-STORE-TYPE-NOT-DEFINABLE` | draft | P2 | Store-side twin of "an integration supplies an entry type" | No | No | Same factory shape, no dependency |
 
 `RECIPE-ONLY-FOLDER-NAMES-…` and `LANGUAGE-INTEGRATIONS-REBUILD-…` are unaffected. Command
@@ -139,13 +139,13 @@ liquers-lib")` without it. `RecordsRecipeProvider::with_records_recipe_provider`
 detects every clash.
 
 `liquers-py/src/environment.rs` `EnvCell`: the refusal goes, and `configured_builder` calls
-`with_recipes`. `liquers-web`: no code change. Its `with_default_recipe_provider()` now resolves the
+`with_recipes`. `liquers-web`: no code change beyond a comment. Its `with_default_recipe_provider()` now resolves the
 kind's list.
 
 ## Integration Points
 
 Per crate as in Interfaces: core `recipes.rs`, `environment_builder.rs`, `environment_config.rs`,
-`context.rs`; lib `environment.rs`; records `provider.rs`; py `environment.rs`; web tests only.
+`context.rs`; lib `environment.rs`; records `provider.rs`; py `environment.rs`; web: the comment at `environment.rs:106` only, its setter path tested natively.
 
 ## Error Handling
 
@@ -185,6 +185,9 @@ Also `liquers-py/README.md` (`ENVIRON` row), `liquers-web/README.md`, and `specs
 | Performance | Every member is asked per keyed lookup. The removed collision check was an *uncached* `recipes.yaml` parse per manifest match; the added work is the manifest provider's cached name lookup, and a metadata read for generated-looking names, on `recipes.yaml` keys. Net about even. Measure before adding a "never overlaps" opt-out |
 | Recovery and certainty | Revert per crate; old documents parse throughout. High certainty, except the cost of the strict error rule (Phase 2 gate question) |
 
-**Question for the gate:** should an error from a member that does not own the key fail the lookup
-(recommended: order-independent, and a broken manifest is a broken folder)? The alternative is to
-ignore it once another member answers, which hides the error and depends on order.
+**Decided at the Phase 2 gate (Orest, 2026-10-30, `proceed all`):** an error from any member fails
+the lookup, owner or not; recipe providers should rarely fail, and a failure is substantial.
+
+**Migration hazard:** code that appends a raw `ManifestRecipeProvider` with
+`with_appended_recipe_provider` after a default that already holds `manifest` makes every chunk a
+two-owner error. `with_records_recipe_provider` avoids it; the hazard is documented.
