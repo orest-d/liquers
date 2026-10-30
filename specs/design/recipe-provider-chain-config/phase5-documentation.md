@@ -122,6 +122,7 @@ planned for M4. Nothing else remains.
   `--no-default-features --features records` (8 tests).
 - `cargo test -p liquers-records --all-features --lib --tests`: passes.
 - `bash scripts/test-liquers-py.sh`: 244 passed and 6 skipped, plus 21 Rust unit tests.
-- `bash scripts/check-build-matrix.sh`, `cargo test -p liquers-agent` and `cargo test -p liquers-axum`:
-  see the PR's final validation comment.
+- `bash scripts/check-build-matrix.sh` (wasm32 included): all 44 configurations OK.
+- After merging `main`: `cargo test -p liquers-core --lib --tests`, `cargo test -p liquers-agent` and
+  `cargo test -p liquers-axum` pass; CI green on the PR head.
 - `python3 scripts/docs_index.py --check`: clean.
