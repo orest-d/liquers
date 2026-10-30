@@ -2,7 +2,7 @@
 id: NEXT-PRESETS-MISREAD-PLANNER-INSTRUCTIONS
 kind: issue
 title: find_next_presets reads planner instructions differently from the planner
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [lib/commands]
@@ -45,3 +45,7 @@ helper is `PLANNER-INSTRUCTION-NAMES-DUPLICATED`.
 ## Discovery
 
 Found while reviewing `reference/api/DOC_08_RECIPES_PLANS.md` against the code at `96279f14` before promoting it to [`reference/RECIPES_AND_PLANS.md`](../reference/RECIPES_AND_PLANS.md) (2026-10-20).
+
+## Resolution
+
+Fixed 2026-10-27 by `design/next-presets-follow-planner-rules/`. Fixed by `design/next-presets-follow-planner-rules/` (2026-10-27): `find_next_presets` skips `v` with the other planner instructions, looks the last command up in every namespace of the last `ns` before it and in the segment realm, and checks an appended preset against the whole segment's last `ns`.

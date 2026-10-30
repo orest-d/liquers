@@ -3,7 +3,7 @@ title: Liquers Web API Specification
 kind: reference
 audience: internal
 area: [axum, web]
-reviewed: 2026-10-25
+reviewed: 2026-10-27
 ---
 # Liquers Web API Specification
 
@@ -566,7 +566,7 @@ Keys are parsed with `parse_key`.
 | `GET data/{*key}` | the recipe as text (`text/plain`), not enveloped |
 | `GET metadata/{*key}` | the recipe's metadata: `AsyncRecipeProvider::get_asset_info` as a `MetadataRecord` (title, description, filename, planning diagnostics) — what the Assets API's `key/metadata` returns for a recipe key |
 | `GET entry/{*key}` | a `DataEntry` with the recipe text as `data` and the same metadata, negotiated like the Assets API's: `?_entry_format=` (`cbor`, `json`, `bincode`), then `Accept`, then CBOR; `data` is base64 in JSON |
-| `GET resolve/{*key}` | `{"key": …, "query": …, "plan": {…}}`, the recipe's execution plan (`AsyncRecipeProvider::recipe_plan`); a recipe whose commands are not registered is 400 `ActionNotRegistered` |
+| `GET resolve/{*key}` | `{"key": …, "query": …, "plan": {…}}`, the recipe's execution plan (`AsyncRecipeProvider::recipe_plan`); a recipe whose commands are not registered is 400 `ActionNotRegistered`. The plan is the server build's inspection format, not a stable schema (`RECIPES_AND_PLANS.md` §Serialization and future plan rewriting) |
 
 A key with no recipe answers the recipe provider's error; its type, and so the HTTP status,
 depends on the provider.
@@ -641,9 +641,21 @@ route acts with the environment's full rights. The design is `CORE-SESSION-AND-K
 
 Until it exists, the Assets API's `read_only()` and `with_admin(false)` (§5.6) and the Store API's
 default without `with_destructive_gets()` limit what a deployment exposes, and an embedding
-application can put its own authentication in front of the routers as an axum layer. A store
-mounted from a directory stays writable through the Store API's `PUT`/`DELETE` routes and the
-Assets API's mutations unless those are left out (`STORE-NO-READ-ONLY-ADAPTER`).
+application can put its own authentication in front of the routers as an axum layer.
+
+A mount that must not be written is made read-only where the store is configured, not by leaving
+routes out. Set `read_only: true` on the mount (or on the router, for every mount;
+[STORE_CONFIG_FSD.md](STORE_CONFIG_FSD.md)), or wrap the store in `ReadOnlyStore` when assembling it
+in code. Every write that reaches such a store is refused with `NotSupported`, whichever route
+issued it, and the Store API answers 501 (§3.1). Reads are served as before. Nothing is written on
+read over a store with data-only access (`liquers-axum/tests/store_api_routes.rs`,
+`read_only_store_write_is_501`); over one without it, `ReadOnlyStore` forwards reads unchanged and
+cannot stop them writing ([STORE_SEMANTICS.md §12](STORE_SEMANTICS.md#12-read-only-stores)). A
+`MetadataPipelineStore` assembled in code needs its own `read_only` set as well, or a pipeline with
+`persist_defaults` can still persist metadata on `get`. The configured `read_only: true` does both.
+Leaving out
+write routes remains a way to narrow what a deployment exposes, but it applies to every mount
+behind the router.
 
 ---
 
@@ -696,6 +708,8 @@ Not available at HEAD; listed so that no reader mistakes them for features:
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-27 | §9: a mount is protected by the store configuration's `read_only` (or `ReadOnlyStore`), with writes answered 501 `NotSupported`, and when reads may still write (a store without data-only access, a pipeline assembled in code without its own `read_only`); the stale reference to the closed `STORE-NO-READ-ONLY-ADAPTER` is removed. | `design/web-api-spec-read-only-mount/` |
+| 2026-10-27 | Recipes API `resolve`: the returned plan is the server build's inspection format, not a stable schema. | `design/plan-serialization-internal-contract/` |
 | 2026-10-25 | §Errors: `AssetNotFound` and `AssetNotSupported` map to 404; key endpoints refusing an unmakeable key answer `AssetNotFound`. | `design/key-without-recipe-answer/` |
 | 2026-10-20 | Asset removal: an entry stored with no status and no version is removed under a recipe as an `Override`. | phase-5 (`design/js-store-page-metadata-status/`) |
 | 2026-10-17 | §1, §7, Appendix A: the Query API route is `{base}/{*query}`, so a base without a trailing `/` no longer leaves a leading `/` on the query; every builder ignores a trailing `/` on its base. `AXUM-QUERY-API-QUERY-KEEPS-LEADING-SLASH` and `AXUM-API-BASE-WITH-TRAILING-SLASH-DOUBLES-THE-SEPARATOR` closed. | `design/axum-query-api-base-slash/` |

@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: M
 area: [py, web]
-design:
+design: query-builder-in-bindings
 created: 2026-10-21
 github:
 ---

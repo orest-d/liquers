@@ -246,6 +246,8 @@ impl ActionOrigin {
 /// [`Step::Filename`] and [`Step::SetCwd`] change execution context without producing data.
 /// [`Step::Info`], [`Step::Warning`], and [`Step::Error`] in `Plan::steps` are executable
 /// diagnostics; a `Step::Error` logs an error but is not the same as [`Plan::error`].
+///
+/// Its serialized form is an inspection format of one build, as [`Plan`]'s is.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum Step {
     /// Load the evaluated state of the asset at a logical key.
@@ -430,6 +432,8 @@ fn resource_query_step_matches(resource: &ResourceQuerySegment, step: &Step) -> 
 /// [`ParameterValue::Placeholder`] is permitted while building a recipe so a named override can
 /// fill the value later. [`ParameterValue::None`] is an intermediate unresolved state and should
 /// not remain in an executable plan.
+///
+/// Its serialized form is an inspection format of one build, as [`Plan`]'s is.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum ParameterValue {
     /// Default value of the parameter from the command metadata.
@@ -2007,8 +2011,12 @@ impl<'c> PlanBuilder<'c> {
 /// first pass; environment-backed dependency analysis may subsequently update volatility,
 /// expiration, diagnostics, and dependencies before the interpreter executes [`Self::steps`].
 ///
-/// Serde derives expose the current internal representation. Except for fields explicitly marked
-/// with `serde(default)`, this module does not define a stable cross-version wire format.
+/// The serialized form is an **inspection format** of the build that wrote it: it round-trips
+/// within one build and is what the HTTP `resolve` endpoint and Python's `Plan.to_json` show. It
+/// carries no compatibility guarantee across versions — a field may become required, a `Step`
+/// variant may appear or change. Persist the query or the `Recipe` and rebuild the plan instead.
+/// `serde(default)` on some fields lets an older plan load where that happens to work; it is not a
+/// promise.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Plan {
     /// Query from which this plan was built.
@@ -2365,7 +2373,7 @@ impl Plan {
     ///
     /// Volatility the plan inherits from an upstream recipe records no source and appears in no
     /// candidate's query, so this method cannot see it. `finalize_plan` cuts through
-    /// [`Plan::cut_predecessor_bounded`] with the position the dependency analysis found, so no
+    /// `cut_predecessor_bounded` with the position the dependency analysis found, so no
     /// boundary spans a step that reads a volatile upstream; this method applies no such bound.
     ///
     /// Returns `false` when no boundary was cut.

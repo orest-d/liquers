@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: L
 area: [mcp, core/commands, py, docs]
-design:
+design: agent-command-proposal
 created: 2026-10-21
 github:
 ---
@@ -31,6 +31,13 @@ as a Python function, but there is no tool to submit either. Wanted: a call such
 `liquers_propose(kind=alias, name=normalize_region, …)` that registers the command in a staging
 realm that is disabled unless the profile enables it, stamps proposer, session and date in its
 metadata, and lists it for a person to promote.
+
+`normalize_region` itself is not expressible as an alias at HEAD (04667a8): no registered command
+recodes values, so it needs the Python slice. An alias that is expressible today, and which the
+design uses as its example: `drafts`, an alias of `rec/eq` with heads `status`, `draft`, so that
+`-R-key/./-/ns-mem/list-0-false-1000/-staging/drafts/drafts.csv` returns the rows of
+`…/ns-rec/eq-status-draft/drafts.csv` (both validated with `liquers-validate`, the first with the
+proposal as a `--registry-file` overlay).
 
 ## Impact
 

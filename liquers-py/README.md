@@ -127,7 +127,7 @@ test is named for its ID, in `tests/test_<FEATURE>_*.py`.
 | Feature | Selected level | Status | Limitations | Test evidence |
 |---|---|---|---|---|
 | `OBJECT` | Essential | COMPLETE | — | `test_OBJECT01`–`09` |
-| `ERROR` | Essential | COMPLETE | A Python exception's class and message ride in `message`, its stack in `traceback` (`LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT`) | `test_ERROR01`–`06` |
+| `ERROR` | Essential | COMPLETE | A Python exception's class and message ride in `message`, its stack in `traceback` (`LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT`) | `test_ERROR01`–`06`, `test_ERROR_wrapper_deserialization_raises_serialization_error`, `test_ERROR_stored_error_keeps_its_type`, `test_ERROR_wrapper_constructors_raise_typed_errors`, `test_ERROR_typed_wrapper_errors_are_still_exceptions` |
 | `RUNTIME` | Essential | COMPLETE | `RUNTIME02` is `NA` until a Pyodide target exists | `test_RUNTIME01`, `03`–`06` |
 | `VALUE` | Essential | COMPLETE | `VALUE12` is `NA` until a `Value` wrapper with operators exists | `test_VALUE01`–`13` |
 | `ENVIRON` | Essential | COMPLETE | Only the default recipe provider can be configured | `test_ENVIRON01`–`08` |
@@ -135,7 +135,7 @@ test is named for its ID, in `tests/test_<FEATURE>_*.py`.
 | `COMMAND` | Essential | COMPLETE | No `realm=` on the decorators | `test_COMMAND01`–`14` |
 | `ASYNCQ` | Optional | COMPLETE | `ASYNCQ07` is `NA`: Python has an async model. Cancelling an awaitable detaches by policy, so `ASYNCQ04` cancels with `cancel_async()`; `ASYNCQ05` shows detach by completion; `ASYNCQ08` raises on a liquers loop and warns elsewhere. The design is `specs/design/liquers-py-async/` | `test_ASYNCQ01`–`08`, `tests/test_ASYNC_loops.py` |
 | `ASYNCCMD` | Optional | COMPLETE | All commands share one job queue (`CORE-ONE-JOB-QUEUE-FOR-ALL-COMMANDS`); `async_loops` sets the number of event loops | `test_ASYNCCMD01`–`06` |
-| `DOCS` | Optional | PARTIAL | `DOCS04`: no generated API reference, most classes lack docstrings (`PY-API-REFERENCE-NOT-GENERATED`) | `DOCS03` is `test_GUIDE_examples.py`; `DOCS01`, `02`, `05`–`07` reviewed |
+| `DOCS` | Optional | PARTIAL | `DOCS04`: every public name has a docstring and a signature, but there is no generated API reference yet (`PY-API-REFERENCE-NOT-GENERATED`) | `DOCS03` is `test_GUIDE_examples.py`; the docstring half of `DOCS04` is `test_DOCS04_*` (`tests/test_DOCS_docstrings.py`); `DOCS01`, `02`, `05`–`07` reviewed |
 
 `ASYNCQ`, `ASYNCCMD` and `DOCS` are outside the baseline profile. Every Essential feature is `COMPLETE` and every required check passes; each `NA` item carries
 its reversing condition. The Python baseline profile is therefore `CONFORMANT`.

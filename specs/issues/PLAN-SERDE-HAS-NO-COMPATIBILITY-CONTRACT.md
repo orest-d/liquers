@@ -2,7 +2,7 @@
 id: PLAN-SERDE-HAS-NO-COMPATIBILITY-CONTRACT
 kind: issue
 title: A serialized Plan has no compatibility contract
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [core/plan]
@@ -39,3 +39,7 @@ supported schema.
 ## Discovery
 
 Found while reviewing `reference/api/DOC_08_RECIPES_PLANS.md` against the code at `96279f14` before promoting it to [`reference/RECIPES_AND_PLANS.md`](../reference/RECIPES_AND_PLANS.md) (2026-10-20).
+
+## Resolution
+
+Fixed 2026-10-27 by `design/plan-serialization-internal-contract/`. Fixed by `design/plan-serialization-internal-contract/` (2026-10-27): the serialized plan is declared an inspection format of the build that wrote it, with no cross-version guarantee, in the `Plan`/`Step`/`ParameterValue` rustdoc, `RECIPES_AND_PLANS.md`, `WEB_API_SPECIFICATION.md` and `PYTHON_INTEGRATION.md`. A versioned schema would be a new feature.

@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: S
 area: [py]
-design:
+design: py-recipe-provider-choice
 created: 2026-10-18
 github:
 ---

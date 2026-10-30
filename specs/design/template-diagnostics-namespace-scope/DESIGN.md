@@ -3,8 +3,8 @@ id: TEMPLATE-DIAGNOSTICS-NAMESPACE-SCOPE
 kind: design
 title: Template diagnostics look each command up in the namespaces the planner would use
 form: compact
-status: in_review
-phase: implementation
+status: complete
+gh_pr: [216]
 readiness: ready
 autofix: eligible
 area: [core/query, lib/commands]
@@ -13,8 +13,10 @@ created: 2026-10-26
 ---
 # Template diagnostics look each command up in the namespaces the planner would use
 
-Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-26: Phases 1-4 written, not
-approved, nothing implemented.
+> **Complete on 2026-10-27**: implemented by automatic fix in #216.
+
+Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-26: Phases 1-4 written; Phase 4
+implemented on 2026-10-27 (automatic fix).
 
 ## Phase 1: High-Level Design
 
@@ -178,16 +180,20 @@ Run: `CARGO_INCREMENTAL=0 cargo test -p liquers-template --lib diagnostics`.
 
 ### Steps
 
-- [ ] 1. `diagnostics.rs` tests — add the five tests; AC-1, AC-2, AC-3 and AC-4 tests fail at
+- [x] 1. `diagnostics.rs` tests — add the five tests; AC-1, AC-2, AC-3 and AC-4 tests fail at
   HEAD — `cargo test -p liquers-template --lib diagnostics`
-- [ ] 2. `diagnostics.rs` `unknown_commands` with `lookup_namespaces`; remove `namespaces` —
+- [x] 2. `diagnostics.rs` `unknown_commands` with `lookup_namespaces`; remove `namespaces` —
   AC-1/AC-2 tests pass: `cargo test -p liquers-template --lib diagnostics`
-- [ ] 3. `diagnostics.rs` `template_commands` per-segment scope and `dynamic` — all tests pass:
+- [x] 3. `diagnostics.rs` `template_commands` per-segment scope and `dynamic` — all tests pass:
   `cargo test -p liquers-template --lib diagnostics`
-- [ ] 4. Issue `status: closed` with a resolution note — `python3 scripts/docs_index.py --check`
+- [x] 4. Issue `status: closed` with a resolution note — `python3 scripts/docs_index.py --check`
 
 ### Validation
 
 `cargo test -p liquers-template --lib --tests`; `cargo test -p liquers-lib --no-default-features
 --features templates --lib --tests` (the `ns-template` commands report these diagnostics). Diff
 review: no `println!`, no `unwrap` outside tests, no `_ =>` arm added.
+
+### Implementation notes (2026-10-27)
+
+- The Problem Example's multi-segment queries (`ns-pl/head-3/-/ns-img/fliph`, …) parse with the part before `/-/` as a **resource** key (`-R/ns-pl/head-3/-/…`), so they never exercised two transform segments. The tests use a leading `-/` (`-/ns-pl/head-3/-/ns-img/fliph`), which makes the first segment a transform; `liquers-validate` confirms the planner's answers for these forms (`Ok`, and `Action 'head' not registered` for `-/ns-img/fliph/-/head-3`).

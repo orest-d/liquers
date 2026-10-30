@@ -261,10 +261,11 @@ submit, and submitted query state is not preserved.
 - **Language integration** — documented → [`guides/LANGUAGE-INTEGRATION_GUIDE.md`](guides/LANGUAGE-INTEGRATION_GUIDE.md) (§DOCS: the documents an integration owes its users) *(liquers-web claims corrected: [`design/language-guide-web-claims/`](design/language-guide-web-claims/))*
 - **Assets and recipes HTTP API** — built → [`design/axum-assets-recipes-api/`](design/axum-assets-recipes-api/)
 - **Web API library** — built → [`design/web-api-library/`](design/web-api-library/)
-- **Browser and JavaScript integration** — built → [`guides/JAVASCRIPT_GUIDE.md`](guides/JAVASCRIPT_GUIDE.md) (using it), [`reference/JAVASCRIPT_INTEGRATION.md`](reference/JAVASCRIPT_INTEGRATION.md) (its contract); conformance matrix in `liquers-web/README.md`; design [`design/liquers-web/`](design/liquers-web/) *(docs brought up to date: [`design/web-docs-stale-limitations/`](design/web-docs-stale-limitations/))*
+- **Browser and JavaScript integration** — built → [`guides/JAVASCRIPT_GUIDE.md`](guides/JAVASCRIPT_GUIDE.md) (using it), [`reference/JAVASCRIPT_INTEGRATION.md`](reference/JAVASCRIPT_INTEGRATION.md) (its contract); conformance matrix in `liquers-web/README.md`; design [`design/liquers-web/`](design/liquers-web/) *(docs brought up to date: [`design/web-docs-stale-limitations/`](design/web-docs-stale-limitations/); a thrown-back `LiquersError` keeps its context: [`design/web-thrown-back-error-context/`](design/web-thrown-back-error-context/))*
 - **Async evaluation on wasm** — built → [`design/async-wasm-refactor/`](design/async-wasm-refactor/)
 - **Python integration (liquers-py)** — built → [`guides/PYTHON_GUIDE.md`](guides/PYTHON_GUIDE.md) (using it), [`reference/PYTHON_INTEGRATION.md`](reference/PYTHON_INTEGRATION.md) (its contract), [`guides/LANGUAGE-INTEGRATION_GUIDE.md`](guides/LANGUAGE-INTEGRATION_GUIDE.md) §6 Python; conformance matrix in `liquers-py/README.md`; design [`design/liquers-py/`](design/liquers-py/) *(supersedes [`design/python-wrapper/`](design/python-wrapper/))*
 - **Python async and free-threading (awaitable evaluation, `async def` commands, the loop pool, 3.14t)** — built → [`reference/PYTHON_INTEGRATION.md`](reference/PYTHON_INTEGRATION.md) §7, [`guides/PYTHON_GUIDE.md`](guides/PYTHON_GUIDE.md) §5 Async commands and §6 Awaiting a query; design [`design/liquers-py-async/`](design/liquers-py-async/)
+- **`repr` of `Key`, `Expires` and `ExpirationTime` evaluates back (`Key('data/a.txt')`)** — built → `liquers-py/src/query.rs` `quoted`; design [`design/py-encoded-reprs/`](design/py-encoded-reprs/) *(`Query` and the other classes: [`design/py-python-style-reprs/`](design/py-python-style-reprs/))*
 - **Executor-agnostic core** — planned → [`issues/CORE-TOKIO-REMOVAL.md`](issues/CORE-TOKIO-REMOVAL.md)
 - **Browser stores (localStorage, fetch, JS, routing)** — built → [`design/liquers-web-store/`](design/liquers-web-store/) *(conformance gaps closed: [`design/web-store-conformance-tests/`](design/web-store-conformance-tests/))*
 - **Browser-native store and command backend** — planned → [`issues/WEB-NATIVE-IO-TIER2.md`](issues/WEB-NATIVE-IO-TIER2.md)
@@ -301,9 +302,7 @@ question are both measure-first items.
 ## Open issues attached to live design work
 
 <!-- BEGIN generated: issues -->
-| Issue | Pri | Cx | Design |
-|---|---|---|---|
-| [`REMOVED-OR-REPLACED-KEY-REVIVED-BY-A-LATE-BACKGROUND-SAVE`](issues/REMOVED-OR-REPLACED-KEY-REVIVED-BY-A-LATE-BACKGROUND-SAVE.md) | P1 | M | `replaced-asset-write-gate` |
+*None.*
 <!-- END generated: issues -->
 
 ## Not yet placed
@@ -316,6 +315,7 @@ deliberately folded behind a broader line.
 - `reference/CONFORMANCE_TERMS.md`
 - `reference/api/API_DOCS_GAP_ANALYSIS.md`
 - design `access-policy-at-entry-points`
+- design `agent-command-proposal`
 - design `argument-gui-info-default`
 - design `asset-event-kinds`
 - design `asset-events-over-websocket`
@@ -427,6 +427,12 @@ deliberately folded behind a broader line.
 - design `json-table-column-order`
 - design `keyed-run-replaces-dependency-edges`
 - design `kind-aware-recipe-provider-choice`
+- design `language-binding-tests-in-ci`
+- design `language-bridge-extended-scalars`
+- design `language-global-enum-import`
+- design `language-late-registration-without-rebuild`
+- design `language-store-config-function`
+- design `language-store-type-registration`
 - design `lib-build-warning-cleanup`
 - design `lib-integration-test-feature-gates`
 - design `lib-polars-ethnum-rust-1-98`
@@ -443,6 +449,7 @@ deliberately folded behind a broader line.
 - design `metadata-only-entry-reload`
 - design `metadata-serde-partialeq`
 - design `mid-query-q-arity`
+- design `multi-language-traceback`
 - design `multi-realm-dispatch`
 - design `next-presets-follow-planner-rules`
 - design `null-cell-string-option`
@@ -470,7 +477,17 @@ deliberately folded behind a broader line.
 - design `post-init-command-registration`
 - design `predecessor-cut-equivalence`
 - design `pure-command-context`
+- design `py-api-reference`
+- design `py-command-decorator-declaration-keywords`
+- design `py-docstrings`
+- design `py-metadata-fields-as-properties`
+- design `py-metadata-typed-errors`
+- design `py-pypy-ci-job`
+- design `py-query-segment-registration`
+- design `py-recipe-provider-choice`
+- design `py-record-values-to-python`
 - design `pyo3-python-3-13-support`
+- design `query-builder-in-bindings`
 - design `query-builder`
 - design `query-cache-directives`
 - design `query-data-format-command`
@@ -495,6 +512,7 @@ deliberately folded behind a broader line.
 - design `record-table-csv-refinements`
 - design `record-timestamp-utc`
 - design `record-uuid-time-duration-types`
+- design `records-arrow-c-data-export`
 - design `records-recipe-validation-cli`
 - design `recovery-read-defers-placeholder`
 - design `refresh-command-metadata-versions`
@@ -637,6 +655,7 @@ deliberately folded behind a broader line.
 - feature `PY-API-REFERENCE-NOT-GENERATED`
 - feature `PY-COMMAND-DECORATOR-CANNOT-DECLARE-ARGUMENT-METADATA`
 - feature `PY-COMMAND-DECORATOR-CANNOT-SET-REALM`
+- feature `PY-NO-LANGUAGE-DEFINED-STORE`
 - feature `PY-RECIPE-PROVIDER-NOT-CONFIGURABLE`
 - feature `PY-RECORD-VALUES-CANNOT-CROSS-TO-PYTHON`
 - feature `QUERY-BUILDER-NOT-IN-BINDINGS`

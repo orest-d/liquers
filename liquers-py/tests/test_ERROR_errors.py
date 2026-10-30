@@ -142,3 +142,80 @@ def test_ERROR_not_found_catches_both_misses():
             raise lq.LiquersError(error_type, "missing", key="a/b")
     with pytest.raises(lq.StoreError):
         raise lq.KeyReadError("unreadable")
+
+
+# Design py-metadata-typed-errors: the wrapper classes' own failures raise the typed LiquersError.
+_JSON_CLASSES = [
+    "Metadata",
+    "MetadataRecord",
+    "AssetInfo",
+    "LogEntry",
+    "RecipeList",
+    "Recipe",
+    "EnumArgument",
+    "ArgumentType",
+    "ArgumentInfo",
+    "CommandDefinition",
+    "CommandPreset",
+    "CommandMetadata",
+    "CommandMetadataRegistry",
+    "Step",
+    "ParameterValue",
+    "ResolvedParameterValues",
+    "Plan",
+]
+_YAML_CLASSES = ["Recipe", "ArgumentInfo", "CommandMetadata", "CommandMetadataRegistry", "Plan"]
+
+
+@pytest.mark.parametrize(
+    "class_name, method, text",
+    [(name, "from_json", "{") for name in _JSON_CLASSES]
+    + [(name, "from_yaml", "a: [") for name in _YAML_CLASSES],
+)
+def test_ERROR_wrapper_deserialization_raises_serialization_error(class_name, method, text):
+    parse = getattr(getattr(lq, class_name), method)
+    with pytest.raises(lq.SerializationError) as raised:
+        parse(text)
+    assert isinstance(raised.value, lq.LiquersError)
+    assert raised.value.type == lq.ErrorType.SerializationError
+    assert raised.value.message
+
+
+def test_ERROR_stored_error_keeps_its_type(env):
+    @env.first_command
+    def missing():
+        raise lq.KeyNotFoundError("no such key")
+
+    asset = env.get_asset("missing")
+    with pytest.raises(lq.KeyNotFoundError):
+        asset.get()
+    with pytest.raises(lq.KeyNotFoundError, match="no such key"):
+        asset.metadata.error_result()
+
+    metadata = lq.Metadata()
+    metadata.with_error("boom")
+    with pytest.raises(lq.GeneralError) as raised:
+        metadata.error_result()
+    assert raised.value.message == "boom"
+
+
+def test_ERROR_wrapper_constructors_raise_typed_errors():
+    with pytest.raises(lq.ParseError):
+        lq.Recipe("a/b-~", "t", "d")
+    with pytest.raises(lq.ParseError):
+        lq.CommandPreset("a/b-~", "l", "d")
+    with pytest.raises(lq.GeneralError):
+        lq.Expires("not a time")
+    with pytest.raises(lq.GeneralError):
+        lq.ExpirationTime("not a time")
+
+
+def test_ERROR_typed_wrapper_errors_are_still_exceptions():
+    assert issubclass(lq.SerializationError, Exception)
+    try:
+        lq.Metadata.from_json("x")
+    except Exception as e:  # noqa: BLE001 - an existing handler of this form must still catch it
+        caught = e
+    else:
+        caught = None
+    assert caught is not None

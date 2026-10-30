@@ -691,13 +691,14 @@ What you will notice; the complete list, with the tracking issues, is
   arguments beyond their annotations.
 - Only the default recipe provider can be configured.
 - Progress lines on stderr cannot be turned off.
-- Most classes have no docstrings yet, so `help()` says little about them, and there are no type
-  stubs for editors.
+- There are no type stubs for editors and no generated API reference; `help()` on a class or
+  method shows its docstring and signature.
 
 ## History
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-27 | §10: the missing-docstrings limitation is lifted; type stubs and a generated reference remain. | design `py-docstrings` |
 | 2026-10-27 | §5 Async commands; §6 Awaiting a query, `job_capacity`, Threads and free-threaded Python; §10 the async limitation is lifted, and the stale memory-leak line removed (fixed 2026-10-22). | `design/liquers-py-async/` (phase-5) |
 | 2026-10-27 | Registration: a command named `ns`, `q` or `v` is refused (`q` and `v` used to register and never run). | design `reserved-instruction-command-names` |
 | 2026-10-25 | §8 Errors: the category base classes `StoreError`, `KeyedAssetError`, `NotFoundError`. | `design/key-without-recipe-answer/` |

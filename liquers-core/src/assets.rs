@@ -311,14 +311,20 @@
 //!
 
 use std::{
-    collections::{BTreeSet, HashMap, HashSet, VecDeque},
-    sync::atomic::{AtomicBool, AtomicUsize, Ordering},
+    collections::{BTreeSet, HashMap, HashSet},
+    sync::atomic::{AtomicBool, Ordering},
     sync::{Arc, Weak},
 };
+// Used only by the native-only manager and job queue.
+#[cfg(not(target_arch = "wasm32"))]
+use std::{collections::VecDeque, sync::atomic::AtomicUsize};
 
 use async_trait::async_trait;
+#[cfg(not(target_arch = "wasm32"))]
 use scc;
-use tokio::sync::{mpsc, watch, Mutex, Notify, RwLock};
+#[cfg(not(target_arch = "wasm32"))]
+use tokio::sync::Notify;
+use tokio::sync::{mpsc, watch, Mutex, RwLock};
 
 use crate::cache_strategy::CacheStrategy;
 use crate::command_metadata::PayloadRequirement;
@@ -467,10 +473,15 @@ enum SaveOutcome {
 /// Wasm it writes the latest pending metadata inline because no timer task is used.
 pub struct MetadataSaver {
     state: Mutex<MetadataSaverState>,
+    /// Read only by the native debounce (`save_task`); on wasm32 the saver writes inline.
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     interval: std::time::Duration,
     /// Set once the asset was replaced: its key's store entry belongs to the replacement, so
     /// nothing more is written for it (see [`Self::close`]).
     closed: AtomicBool,
+    /// Held across the asset's value write (`save_to_store`), so [`Self::close`] can wait for a
+    /// write already under way and a later one sees `closed`.
+    value_write: Mutex<()>,
 }
 
 #[derive(Default)]
@@ -492,12 +503,14 @@ impl MetadataSaver {
             state: Mutex::new(MetadataSaverState::default()),
             interval,
             closed: AtomicBool::new(false),
+            value_write: Mutex::new(()),
         }
     }
 
-    /// Stop writing: drop the pending metadata, wait for a write already under way, and ignore
-    /// every later save. Used when the asset is replaced, so that none of its metadata — a status,
-    /// a log line from its still-running command — lands on top of the replacement's.
+    /// Stop writing: drop the pending metadata, wait for a write already under way — a metadata
+    /// save or the asset's value write — and ignore every later save. Used when the asset is
+    /// replaced, so that none of it — its value, a status, a log line from its still-running
+    /// command — lands on top of the replacement's.
     pub(crate) async fn close(&self) {
         self.closed.store(true, Ordering::SeqCst);
         #[cfg(not(target_arch = "wasm32"))]
@@ -514,6 +527,20 @@ impl MetadataSaver {
         {
             self.state.lock().await.pending = None;
         }
+        // A value write holding the gate finishes first; one that takes it later sees `closed`.
+        drop(self.value_write.lock().await);
+    }
+
+    /// Supersede the pending metadata, then take the value-write gate, held across the store
+    /// write of the asset's value and metadata. `None` when the saver is closed: the asset was
+    /// replaced, and its key's entry belongs to the replacement.
+    pub(crate) async fn begin_value_write(&self) -> Option<tokio::sync::MutexGuard<'_, ()>> {
+        self.supersede().await;
+        let guard = self.value_write.lock().await;
+        if self.closed.load(Ordering::SeqCst) {
+            return None;
+        }
+        Some(guard)
     }
 
     /// Drop the pending metadata and wait for a write already under way, without closing the
@@ -1248,6 +1275,21 @@ struct FastTrackRefusal {
 }
 
 impl<E: Environment> AssetData<E> {
+    /// Records that `dependency` changed after this run read it: a warning, and — the first one
+    /// wins — the `dependency` of the `Direct { StaleDependency }` reason this asset gets at
+    /// finalization. Shared by every path that finds a consumed dependency stale.
+    fn note_stale_dependency(&mut self, dependency: DependencyKey) {
+        let subject = self.expiry_subject();
+        let _ = self.metadata.add_log_entry(LogEntry::warning(format!(
+            "Dependency {} of {} expired during evaluation; using its stale value and \
+             marking {} expired for recomputation on next access",
+            dependency, subject, subject
+        )));
+        if self.stale_dependency.is_none() {
+            self.stale_dependency = Some(dependency);
+        }
+    }
+
     /// Constructs and initializes a new AssetData
     ///
     /// Arguments:
@@ -2760,16 +2802,10 @@ impl<E: Environment> AssetRef<E> {
             dep.provenance_key()
                 .unwrap_or_else(|| DependencyKey::new(dep.expiry_subject()))
         };
-        let mut lock = self.data.write().await;
-        let subject = lock.expiry_subject();
-        let _ = lock.metadata.add_log_entry(LogEntry::warning(format!(
-            "Dependency {} of {} expired during evaluation; using its stale value and \
-             marking {} expired for recomputation on next access",
-            dependency_key, subject, subject
-        )));
-        if lock.stale_dependency.is_none() {
-            lock.stale_dependency = Some(dependency_key);
-        }
+        self.data
+            .write()
+            .await
+            .note_stale_dependency(dependency_key);
         Ok(())
     }
 
@@ -3710,19 +3746,88 @@ impl<E: Environment> AssetRef<E> {
                 tokio::spawn(async move {
                     // The asset holds its environment weakly; the save is bounded, so it pins it.
                     let _envref = envref;
-                    let result = assetref.save_to_store().await;
-                    assetref.record_persistence_result(result).await;
+                    assetref.save_and_recheck_inputs().await;
                 });
             } else {
-                let result = self.save_to_store().await;
-                self.record_persistence_result(result).await;
+                self.save_and_recheck_inputs().await;
             }
         }
         #[cfg(target_arch = "wasm32")]
         {
             let _ = save_in_background;
-            let result = self.save_to_store().await;
-            self.record_persistence_result(result).await;
+            self.save_and_recheck_inputs().await;
+        }
+    }
+
+    /// Writes the asset to the store and records the outcome; after a write, re-checks its
+    /// inputs (see [`Self::expire_written_copy_if_inputs_superseded`]).
+    async fn save_and_recheck_inputs(&self) {
+        let result = self.save_to_store().await;
+        let written = matches!(result, Ok(SaveOutcome::Written));
+        self.record_persistence_result(result).await;
+        if written {
+            self.expire_written_copy_if_inputs_superseded().await;
+        }
+    }
+
+    /// After an uncached keyed asset was written: when one of its recorded inputs no longer holds
+    /// the version it recorded, rewrite the stored copy as `Expired` with
+    /// `Direct { StaleDependency }`.
+    ///
+    /// An uncached key has no registered asset, so a cascade that reached it during the run found
+    /// at most an older stored copy, and the write then put a `Ready` copy back that a fresh
+    /// process would serve. Checking after the write closes that window: a change landing later
+    /// finds the stored copy and expires it. Registered (cached) and volatile assets are left to
+    /// the cascade. Failures are only logged, as in [`expire_stored_copy`].
+    ///
+    /// Only the revision this asset wrote is expired: under `key_mutation_lock`, the stored copy
+    /// must still carry this asset's version and dependency records, so a value installed by a
+    /// concurrent `set_state` (or a newer run's write) after this one is left alone. Only a
+    /// `Ready` asset is checked — `to_override` persists an `Override` while holding that lock,
+    /// and the lock is not reentrant.
+    async fn expire_written_copy_if_inputs_superseded(&self) {
+        // One read, released before the dependency manager is asked (lock order as in
+        // `record_dependency_on_asset`).
+        let (key, records, version) = {
+            let lock = self.data.read().await;
+            if lock.status != Status::Ready {
+                return;
+            }
+            let (records, version) = match &lock.metadata {
+                Metadata::MetadataRecord(mr) if !mr.cached() => {
+                    (mr.dependencies.clone(), lock.metadata.version())
+                }
+                Metadata::MetadataRecord(_) | Metadata::LegacyMetadata(_) => return,
+            };
+            match (&lock.key, lock.is_volatile) {
+                (Some(key), false) => (key.clone(), records, version),
+                (Some(_), true) | (None, _) => return,
+            }
+        };
+        let Ok(envref) = self.try_get_envref().await else {
+            return;
+        };
+        let manager = envref.get_asset_manager();
+        let Some(dependency) = manager
+            .dependency_manager()
+            .superseded_record(&records)
+            .await
+        else {
+            return;
+        };
+        let reason = ExpiryReason::Direct {
+            cause: ExpiryCause::StaleDependency { dependency },
+        };
+        let store = envref.get_async_store();
+        let _mutation = manager.key_mutation_lock().lock().await;
+        let written_revision = match store.get_metadata(&key).await {
+            Ok(stored) => {
+                stored.version() == version && stored.get_dependencies() == records.as_slice()
+            }
+            Err(_) => false,
+        };
+        if written_revision {
+            expire_stored_copy(&*manager, store, &key, &reason).await;
         }
     }
 
@@ -4524,6 +4629,20 @@ impl<E: Environment> AssetRef<E> {
                     dependencies,
                     origin,
                 } = outcome;
+                // A dependency the run recorded itself (`Context::add_dependency`) rather than
+                // waited for may have been rewritten since: nothing compared its version, and the
+                // edge that would have caught the write does not exist yet. Checked before the
+                // lock, which the dependency manager's read must not be taken under.
+                let superseded = match self.try_get_envref().await {
+                    Ok(envref) => {
+                        envref
+                            .get_asset_manager()
+                            .dependency_manager()
+                            .superseded_record(&dependencies)
+                            .await
+                    }
+                    Err(_) => None,
+                };
                 {
                     // Merge into the live metadata rather than installing a snapshot: the
                     // service-message loop is writing progress and log entries to this same
@@ -4533,6 +4652,9 @@ impl<E: Environment> AssetRef<E> {
                         // Replaced or otherwise finished while the command ran: the late result
                         // must change neither this asset nor the store (AC-8).
                         return Ok(false);
+                    }
+                    if let Some(dependency) = superseded {
+                        lock.note_stale_dependency(dependency);
                     }
                     lock.metadata
                         .with_type_identifier(value.identifier().to_string())
@@ -4641,11 +4763,64 @@ impl<E: Environment> AssetRef<E> {
                     manager
                         .expire_dependencies_result(expired, ExpiryCause::Updated { version })
                         .await;
+                    // A dependency written between the check above and `track_asset` found no
+                    // edge to this asset; now that the edges exist, a later write finds them.
+                    self.expire_if_superseded().await?;
                 }
 
                 Ok(true)
             }
         }
+    }
+
+    /// Expires this asset when one of its recorded dependencies no longer holds the version it
+    /// recorded — `Direct { StaleDependency }`, and for a keyed owner its dependents cascade with
+    /// the same cause. Called once its edges are registered, so a write after this finds them.
+    ///
+    /// A keyed asset is expired under `key_mutation_lock`, and only while no other asset is
+    /// registered for its key: expiring persists the metadata under the key, and an asset a
+    /// concurrent `set_state` replaced must not overwrite the replacement's stored metadata.
+    async fn expire_if_superseded(&self) -> Result<(), Error> {
+        let records = match &self.data.read().await.metadata {
+            Metadata::MetadataRecord(mr) => mr.dependencies.clone(),
+            Metadata::LegacyMetadata(_) => Vec::new(),
+        };
+        let envref = self.try_get_envref().await?;
+        let manager = envref.get_asset_manager();
+        let Some(dependency) = manager
+            .dependency_manager()
+            .superseded_record(&records)
+            .await
+        else {
+            return Ok(());
+        };
+        let mutation = match self.key().await {
+            Some(key) => {
+                let guard = manager.key_mutation_lock().lock().await;
+                match manager.lookup_key_asset(&key) {
+                    Some(current) if current.id() != self.id() => return Ok(()),
+                    Some(_) | None => Some(guard),
+                }
+            }
+            None => None,
+        };
+        self.expire_without_cascade(ExpiryReason::Direct {
+            cause: ExpiryCause::StaleDependency {
+                dependency: dependency.clone(),
+            },
+        })
+        .await?;
+        // The cascade takes no `key_mutation_lock`; released first all the same.
+        drop(mutation);
+        if let Some(key) = self.bound_owner_key().await.ok().flatten() {
+            manager
+                .cascade_expire_dependents(
+                    &DependencyKey::from(&key),
+                    ExpiryCause::StaleDependency { dependency },
+                )
+                .await;
+        }
+        Ok(())
     }
 
     /// Persists metadata updates to the configured async store.
@@ -4736,8 +4911,18 @@ impl<E: Environment> AssetRef<E> {
                 // The metadata written is then read again, so a snapshot queued after it was
                 // captured above (progress finalized while this write ran in the background)
                 // is not dropped in favour of the older copy.
+                //
+                // The value-write gate is held across the write, so replacing the key (`remove`,
+                // `set_state`, `set_binary`) waits for a write under way, and a write starting
+                // after the replacement is skipped instead of reviving the old value.
                 let saver = self.data.read().await.metadata_saver.clone();
-                saver.supersede().await;
+                let Some(gate) = saver.begin_value_write().await else {
+                    eprintln!(
+                        "Asset {} was replaced, skipping store write in save_to_store",
+                        self.id()
+                    );
+                    return Ok(SaveOutcome::Skipped);
+                };
                 let metadata = self
                     .data
                     .read()
@@ -4746,6 +4931,7 @@ impl<E: Environment> AssetRef<E> {
                     .map(|(_, current)| current)
                     .unwrap_or(metadata);
                 let written = store.set(key, &data, &metadata).await;
+                drop(gate);
                 if written.is_ok() {
                     // Listings that depend on this directory see a new (or rewritten) member.
                     envref
@@ -4975,21 +5161,23 @@ impl<E: Environment> AssetRef<E> {
         Ok(true)
     }
 
-    /// Cancel this asset because it is being replaced (`set`, `set_state`, `remove`,
-    /// `to_override`). Unlike [`Self::cancel`], an in-flight asset ends `Cancelled` at once and
-    /// the result its run produces later is discarded, so it can overwrite neither the
-    /// replacement's status nor the store. A finished asset is left as it is.
+    /// Cancel this asset because it is being replaced (`set`, `set_state`, `remove`). Unlike
+    /// [`Self::cancel`], an in-flight asset ends `Cancelled` at once and the result its run
+    /// produces later is discarded, so it can overwrite neither the replacement's status nor the
+    /// store. A finished asset keeps its status, but nothing more of it is written: a value write
+    /// in progress is waited for, a later one is skipped.
     ///
     /// An external [`AssetManager`] calls this in place of `cancel()` when it replaces an asset.
     pub async fn cancel_for_replacement(&self) -> Result<(), Error> {
-        if !is_in_flight(self.status().await) {
-            return Ok(());
-        }
         // The key's store entry now belongs to the replacement: nothing more is written for this
-        // asset, including a log line its still-running command sends later.
+        // asset — a background value write of a finished run, or a log line its still-running
+        // command sends later.
         let saver = self.data.read().await.metadata_saver.clone();
         saver.close().await;
-        self.discard_run("replaced").await
+        if is_in_flight(self.status().await) {
+            self.discard_run("replaced").await?;
+        }
+        Ok(())
     }
 
     /// End an in-flight run as `Cancelled` without writing to the store, so its late result is
@@ -6820,7 +7008,7 @@ pub trait AssetManager<E: Environment>:
         if is_dir {
             return Err(Error::status_conflict(key, Status::Directory, "remove"));
         }
-        let stored_metadata = if store.contains(key).await? {
+        let mut stored_metadata = if store.contains(key).await? {
             Some(store.get_metadata(key).await?)
         } else {
             None
@@ -6885,6 +7073,13 @@ pub trait AssetManager<E: Environment>:
             asset.cancel_for_replacement().await?;
             self.untrack_expiration(asset.id());
             self.remove_key_asset(key).await;
+            // The cancel waited for a value write already in progress, which may have stored
+            // the entry read above; act on the store as the write left it.
+            stored_metadata = if store.contains(key).await? {
+                Some(store.get_metadata(key).await?)
+            } else {
+                None
+            };
         }
         let result = match action {
             RemoveAction::Nothing => Ok(()),
@@ -14058,6 +14253,89 @@ recipes:
         stale.is_some()
     }
 
+    /// `runtime-dependency-record-superseded-check` AC-2: a dependency rewritten after the
+    /// completion check but before the edge existed is caught once the edges are registered.
+    #[tokio::test]
+    async fn superseded_after_tracking_expires_the_asset() {
+        let envref = expiry_test_envref();
+        let manager = envref.get_asset_manager();
+        let dm = manager.dependency_manager();
+        let a = DependencyKey::from(&parse_key("a.txt").unwrap());
+        let idx = parse_key("idx.txt").unwrap();
+        let mut d = AssetData::<SimpleEnvironment<Value>>::new(
+            manager.next_id_for_asset(),
+            idx.clone().into(),
+            Some(idx),
+            envref.clone(),
+        );
+        d.status = Status::Ready;
+        d.data = Some(Arc::new(Value::from("idx")));
+        let _ = d.metadata.set_version(Some(Version::new(5)));
+        let _ = d
+            .metadata
+            .add_dependency(DependencyRecord::new(a.clone(), Version::new(1)));
+        let asset = d.to_ref();
+        dm.register_version(&a, Version::new(1)).await;
+        let _ = dm.track_asset(&asset).await;
+        // Written in the window: the map moves on, nothing cascades.
+        dm.register_version_sync(&a, Version::new(2));
+        assert_eq!(
+            asset.status().await,
+            Status::Ready,
+            "the premise: not yet expired"
+        );
+
+        asset.expire_if_superseded().await.unwrap();
+        assert_eq!(asset.status().await, Status::Expired);
+        let reason = asset.get_metadata().await.unwrap().expiry_reason();
+        assert_eq!(
+            reason,
+            Some(ExpiryReason::Direct {
+                cause: ExpiryCause::StaleDependency { dependency: a }
+            })
+        );
+    }
+
+    /// A replaced asset is not expired by the post-tracking check: expiring would persist its
+    /// metadata under the key, over the replacement's.
+    #[tokio::test]
+    async fn superseded_after_tracking_leaves_a_replaced_asset_alone() {
+        let envref = expiry_test_envref();
+        let manager = envref.get_asset_manager();
+        let dm = manager.dependency_manager();
+        let a = DependencyKey::from(&parse_key("a.txt").unwrap());
+        let idx = parse_key("idx.txt").unwrap();
+        let mut d = AssetData::<SimpleEnvironment<Value>>::new(
+            manager.next_id_for_asset(),
+            idx.clone().into(),
+            Some(idx.clone()),
+            envref.clone(),
+        );
+        d.status = Status::Ready;
+        d.data = Some(Arc::new(Value::from("idx")));
+        let _ = d.metadata.set_version(Some(Version::new(5)));
+        let _ = d
+            .metadata
+            .add_dependency(DependencyRecord::new(a.clone(), Version::new(1)));
+        let asset = d.to_ref();
+        dm.register_version(&a, Version::new(1)).await;
+        let _ = dm.track_asset(&asset).await;
+        dm.register_version_sync(&a, Version::new(2));
+
+        let mut r = AssetData::<SimpleEnvironment<Value>>::new(
+            manager.next_id_for_asset(),
+            idx.clone().into(),
+            Some(idx.clone()),
+            envref.clone(),
+        );
+        r.status = Status::Override;
+        r.data = Some(Arc::new(Value::from("replacement")));
+        assert!(manager.try_insert_key_asset(&idx, r.to_ref()).await);
+
+        asset.expire_if_superseded().await.unwrap();
+        assert_eq!(asset.status().await, Status::Ready);
+    }
+
     /// The map already holds a different concrete version: the dependent is stale at birth.
     #[tokio::test]
     async fn edge_against_superseded_version_marks_dependent_stale() {
@@ -15315,6 +15593,45 @@ recipes:
             b"never written".to_vec()
         );
         Ok(())
+    }
+
+    /// A finished asset replaced before its value write starts writes nothing: the write that
+    /// starts later is skipped, so it cannot revive the old value under the replacement
+    /// (`specs/design/replaced-asset-write-gate/`).
+    #[tokio::test]
+    async fn save_to_store_skips_after_replacement_of_a_finished_asset(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let key = parse_key("gate/replaced_ready.txt")?;
+        let (envref, assetref) = cancelled_keyed_asset(9336, &key);
+        assetref.data.write().await.status = Status::Ready;
+        assetref.cancel_for_replacement().await?;
+        assert_eq!(assetref.save_to_store().await?, SaveOutcome::Skipped);
+        assetref.persist_with_status_tracking(false).await;
+        assert_eq!(assetref.persistence_status().await, PersistenceStatus::None);
+        assert!(!envref.get_async_store().contains(&key).await?);
+        assert_eq!(assetref.status().await, Status::Ready);
+        Ok(())
+    }
+
+    /// `close` waits for a value write holding the gate, and a write starting after it is
+    /// refused.
+    #[tokio::test]
+    async fn metadata_saver_close_waits_for_a_value_write() {
+        let saver = Arc::new(MetadataSaver::new(std::time::Duration::from_millis(100)));
+        let gate = saver.begin_value_write().await;
+        assert!(gate.is_some(), "an open saver grants the gate");
+        let closing = {
+            let saver = saver.clone();
+            tokio::spawn(async move { saver.close().await })
+        };
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        assert!(!closing.is_finished(), "close returned during the write");
+        drop(gate);
+        tokio::time::timeout(std::time::Duration::from_secs(5), closing)
+            .await
+            .expect("close finishes once the write ends")
+            .expect("close task");
+        assert!(saver.begin_value_write().await.is_none());
     }
 
     /// `stored: false` in the metadata snapshot is a skip too, even when the caller did not
@@ -17766,6 +18083,51 @@ mod stored_walk_tests {
             state(&envref, "d/l1500.txt").await,
             StoredDependencyState::Confirmed(Version::new(1501))
         );
+        Ok(())
+    }
+    /// The re-check after an uncached write expires only the revision this asset wrote: a copy
+    /// that replaced it in the store (here an `Override` with other dependencies) is left alone,
+    /// and the asset's own copy is expired.
+    #[tokio::test]
+    async fn uncached_recheck_expires_only_the_written_revision() -> TestResult {
+        let envref = env();
+        let key = parse_key("recheck/u.txt")?;
+        let src = DependencyKey::new("-R/recheck/src.txt");
+        let manager = envref.get_asset_manager();
+        let _ = manager
+            .dependency_manager()
+            .register_version(&src, Version::new(2))
+            .await;
+
+        let mut record = MetadataRecord::new();
+        record.status = Status::Ready;
+        record.cached = Some(false);
+        record.version = Some(Version::new(7));
+        record.dependencies = vec![DependencyRecord::new(src.clone(), Version::new(1))];
+        let asset =
+            AssetData::<TestEnv>::new(9801, key.clone().into(), Some(key.clone()), envref.clone())
+                .to_ref();
+        {
+            let mut lock = asset.data.write().await;
+            lock.status = Status::Ready;
+            lock.metadata = Metadata::MetadataRecord(record.clone());
+        }
+        let store = envref.get_async_store();
+
+        let mut replacement = MetadataRecord::new();
+        replacement.status = Status::Override;
+        replacement.version = Some(Version::new(9));
+        store
+            .set(&key, b"override", &Metadata::MetadataRecord(replacement))
+            .await?;
+        asset.expire_written_copy_if_inputs_superseded().await;
+        assert_eq!(store.get_metadata(&key).await?.status(), Status::Override);
+
+        store
+            .set(&key, b"written", &Metadata::MetadataRecord(record))
+            .await?;
+        asset.expire_written_copy_if_inputs_superseded().await;
+        assert_eq!(store.get_metadata(&key).await?.status(), Status::Expired);
         Ok(())
     }
 }

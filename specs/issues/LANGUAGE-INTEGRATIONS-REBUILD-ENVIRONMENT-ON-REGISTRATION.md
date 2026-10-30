@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: M
 area: [web, py]
-design:
+design: language-late-registration-without-rebuild
 created: 2026-10-20
 github:
 ---
