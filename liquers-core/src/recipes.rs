@@ -1633,6 +1633,58 @@ pub fn expand_recipes(
     Ok(expanded)
 }
 
+/// A recipe provider standing in for a chain that could not be resolved: every lookup fails with
+/// the resolution error.
+///
+/// Installed by the infallible keyword setters
+/// ([`crate::context::GenericEnvironment::with_recipe_provider_choice`]) when a kind's own default
+/// list does not resolve, so the failure surfaces on use rather than as a panic.
+pub struct UnresolvedRecipeProvider {
+    error: Error,
+}
+
+impl UnresolvedRecipeProvider {
+    pub fn new(error: Error) -> Self {
+        UnresolvedRecipeProvider { error }
+    }
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+impl<E: Environment> AsyncRecipeProvider<E> for UnresolvedRecipeProvider {
+    async fn has_recipes(&self, _key: &Key, _envref: EnvRef<E>) -> Result<bool, Error> {
+        Err(self.error.clone())
+    }
+
+    async fn assets_with_recipes(
+        &self,
+        _key: &Key,
+        _envref: EnvRef<E>,
+    ) -> Result<Vec<ResourceName>, Error> {
+        Err(self.error.clone())
+    }
+
+    async fn recipe_plan(&self, _key: &Key, _envref: EnvRef<E>) -> Result<Plan, Error> {
+        Err(self.error.clone())
+    }
+
+    async fn recipe(&self, _key: &Key, _envref: EnvRef<E>) -> Result<Recipe, Error> {
+        Err(self.error.clone())
+    }
+
+    async fn recipe_opt(&self, _key: &Key, _envref: EnvRef<E>) -> Result<Option<Recipe>, Error> {
+        Err(self.error.clone())
+    }
+
+    async fn contains(&self, _key: &Key, _envref: EnvRef<E>) -> Result<bool, Error> {
+        Err(self.error.clone())
+    }
+
+    async fn get_asset_info(&self, _key: &Key, _envref: EnvRef<E>) -> Result<AssetInfo, Error> {
+        Err(self.error.clone())
+    }
+}
+
 /// A recipe provider that consults several providers.
 ///
 /// This is how a folder ends up served by more than one source of recipes without either

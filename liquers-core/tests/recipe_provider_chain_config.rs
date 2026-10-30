@@ -368,3 +368,75 @@ async fn appended_provider_after_a_configured_list_is_consulted(
     );
     Ok(())
 }
+
+/// AC-8: `GenericEnvironment::try_with_recipes` installs a list, and refuses an unknown type
+/// without changing what is installed.
+#[tokio::test]
+async fn try_with_recipes_on_an_environment() -> Result<(), Box<dyn std::error::Error>> {
+    let store = AsyncMemoryStore::new(&Key::new());
+    store
+        .set(
+            &parse_key("data/recipes.yaml")?,
+            RECIPES_YAML,
+            &Metadata::new(),
+        )
+        .await?;
+    let mut env = Env::new();
+    env.with_async_store(Box::new(store));
+    env.try_with_recipes(recipes("[recipes_yaml]"))?;
+    let error = match env.try_with_recipes(recipes("[bogus]")) {
+        Ok(_) => panic!("an unknown entry type should be refused"),
+        Err(error) => error,
+    };
+    assert_eq!(error.error_type, ErrorType::ConfigurationError);
+    assert!(error.message.contains("'bogus'"), "{}", error.message);
+    let envref = env.to_ref();
+    assert_eq!(
+        recipe_query(&envref, "data/a.txt").await?.as_deref(),
+        Some("hello/a.txt")
+    );
+
+    // The keyword wrappers are the same lists.
+    let mut env = Env::new();
+    env.with_default_recipe_provider();
+    env.with_trivial_recipe_provider();
+    let envref = env.to_ref();
+    assert_eq!(recipe_query(&envref, "data/a.txt").await?, None);
+    Ok(())
+}
+
+/// A kind whose own default list names an entry type nothing declares.
+struct Unbuildable;
+
+impl AssetManagerKind for Unbuildable {
+    type Manager<E: Environment> = <Inline as AssetManagerKind>::Manager<E>;
+
+    fn build<E: Environment>(
+        envref: EnvRef<E>,
+        options: &liquers_core::environment_builder::AssetManagerOptions,
+    ) -> Result<Arc<Self::Manager<E>>, Error> {
+        Inline::build(envref, options)
+    }
+
+    fn default_recipes() -> Vec<RecipeProviderEntry> {
+        vec![RecipeProviderEntry::named("missing")]
+    }
+}
+
+/// AC-8: the infallible keyword setter does not panic on an unbuildable kind default; lookups
+/// return the resolution error instead.
+#[tokio::test]
+async fn unbuildable_kind_default_fails_lookups_not_construction(
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut env = GenericEnvironment::<Value, (), Unbuildable>::new();
+    env.with_default_recipe_provider();
+    let envref = env.to_ref();
+    let error = envref
+        .get_recipe_provider()
+        .recipe_opt(&parse_key("data/a.txt")?, envref.clone())
+        .await
+        .expect_err("the lookup reports the resolution error");
+    assert_eq!(error.error_type, ErrorType::ConfigurationError);
+    assert!(error.message.contains("'missing'"), "{}", error.message);
+    Ok(())
+}
