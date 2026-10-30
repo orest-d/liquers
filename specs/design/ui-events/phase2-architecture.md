@@ -134,6 +134,7 @@ editable target whose `event` parses -> `FieldEvent`; Tab -> `Native`; editable 
 - `widgets/query_console_element.rs`: `render_web` puts `data-lq-field="query"` and
   `data-lq-event="submit"` on the input and renders Go as
   `<button type="button" class="lq-go" data-lq-event="submit">`; the `Apply` action is dropped.
+  egui's Enter and Go call the same private `handle_ui_event` inline instead of `submit_query`.
   On `UI(Submit)`, `update` sets `query_text` from field `query` (kept if absent), calls
   `submit_query` and answers `NeedsRepaint`; `Named(_)` answers `Unchanged`.
 - `widgets/ui_spec_element.rs`: `render_top_level_item_web` / `render_menu_item_web` add

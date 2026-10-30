@@ -35,12 +35,12 @@ invalidation. This first increment fixes the three browser defects that motivate
 
 The sources share one design because they strongly overlap (`overlap.md` T2, T4): each fix depends
 on the user-to-element contract this design defines, and a maintainer moved them here from
-`webui-fixes`. Egui adoption, per-keystroke sync, an imperative mount hook and event propagation
+`webui-fixes`. Further event kinds, routing egui through the channel, per-keystroke sync, an imperative mount hook and event propagation
 are non-goals of this increment.
 
 ## Phase Status
 
-- [x] Phase 1: High-Level Design — reviewed 2026-10-19; scenarios AC-1 to AC-7
+- [x] Phase 1: High-Level Design — reviewed 2026-10-19; scenarios AC-1 to AC-8
 - [x] Phase 2: Solution & Architecture — drafted 2026-10-19
 - [x] Phase 3: Examples & Testing — drafted 2026-10-19
 - [x] Phase 4: Implementation Plan — drafted 2026-10-19, 8 steps

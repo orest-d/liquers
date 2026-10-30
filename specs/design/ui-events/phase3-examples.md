@@ -14,7 +14,7 @@ for wasm32, so DOM routing is proven by Playwright and its decision logic by the
 | 1 | Example | Enter submits the console | AC-1, AC-2 |
 | 2 | Example | Menu shortcut in the browser | AC-5, AC-6 |
 | 3 | Example | A custom element reacts to a named event | AC-7 |
-| 4 | Tests | Unit, integration and Playwright suites below | AC-1 to AC-7 |
+| 4 | Tests | Unit, integration and Playwright suites below | AC-1 to AC-8 |
 
 ## Example 1: Enter submits the console
 
@@ -94,14 +94,16 @@ parent: field ownership is the nearest `ui-element-` ancestor.
 - `ui_event_field_lookup` (AC-7): `with_field` then `field`, missing name is `None`.
 
 `liquers-lib/src/ui/widgets/query_console_element.rs`:
-- `test_user_submit_sets_query_history_and_requests_updates` (AC-1, AC-2): handle set, initial
+- `test_ui_submit_sets_query_history_and_requests_updates` (AC-1, AC-2): handle set, initial
   `hello`; `update(UI(Submit, query=about))` returns `NeedsRepaint`, `query_text == "about"`,
   history ends with `about`, the channel holds `RequestAssetUpdates { query: "about" }`.
-- `test_user_submit_without_field_resubmits_current_query` (AC-2).
-- `test_user_named_event_is_unchanged` (AC-7).
-- `test_expired_after_user_submit_requests_submitted_query` (AC-3): submit `about`, then an
+- `test_ui_submit_without_field_resubmits_current_query` (AC-2).
+- `test_ui_named_event_is_unchanged` (AC-7).
+- `egui_and_web_submit_share_outcome` (AC-8, `cfg(feature = "egui")`): the egui submit path
+  and `update(UI(Submit, query=about))` leave the same `query_text`, history and requested query.
+- `test_expired_after_ui_submit_requests_submitted_query` (AC-3): submit `about`, then an
   `AssetUpdate` with `Status::Expired`; the next request carries `about`.
-- `test_volatile_refresh_after_user_submit_uses_submitted_query` (AC-3, `#[tokio::test]`, modelled
+- `test_volatile_refresh_after_ui_submit_uses_submitted_query` (AC-3, `#[tokio::test]`, modelled
   on `test_volatile_asset_schedules_delayed_refresh`).
 - `test_render_web_declares_query_field_and_submit_event` (AC-1, AC-4; `cfg(feature = "webui")`):
   the input carries `data-lq-field="query"` and `data-lq-event="submit"`, Go is a

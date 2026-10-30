@@ -67,10 +67,12 @@ query_console_integration`.
 **Files:** `liquers-lib/src/ui/widgets/query_console_element.rs`.
 **Change:** private `handle_ui_event(&mut self, event: &UIEvent, ctx: &UIContext) ->
 UpdateResponse` as Phase 2 (`Submit`: set `query_text` from field `query` when present, then
-`submit_query`; `Named(_)`: `Unchanged`). `render_web`: field and event attributes on the input,
+`submit_query`; `Named(_)`: `Unchanged`). In `show_in_egui` (the `show_toolbar` Go button and the
+Enter check), replace the direct `submit_query` calls with `handle_ui_event` and a `Submit` event
+carrying field `query` (AC-8). `render_web`: field and event attributes on the input,
 Go as `<button type="button" class="lq-go" data-lq-event="submit">`, the `UiAction::Apply` and its
 `use` removed. Attributes come from the Step 3 helpers. Unit tests from Phase 3 for
-this file, and `test_ui_submit_event_evaluates_new_query` in
+this file, `egui_and_web_submit_share_outcome` (AC-8, `cfg(feature = "egui")`), and `test_ui_submit_event_evaluates_new_query` in
 `tests/query_console_integration.rs`.
 **Proof:** `cargo test -p liquers-lib --features webui --lib widgets::query_console_element`;
 `cargo test -p liquers-lib --test query_console_integration`.

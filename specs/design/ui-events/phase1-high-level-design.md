@@ -57,8 +57,14 @@ bypassing the element that owns the field. The Playwright "known gaps" cases in
 - **AC-7** Vocabulary is backend-neutral
   WHEN a `UIEvent` is sent as `AppMessage::UIEvent` on a native `AppRunner`
   THEN the target element receives `UpdateMessage::UI` and its repaint verdict is recorded
+- **AC-8** egui and web share the submit logic
+  WHEN the console's egui Enter or Go fires
+  THEN it calls the same `handle_ui_event` with `UIEventKind::Submit` that `update()` calls for the
+  web, and `query_text`, history and the requested query match the web outcome
 
-Non-goals: egui adopting the vocabulary (it keeps inline input handling); per-keystroke field sync;
+Non-goals: routing egui input through the message channel (egui calls the element's handler
+inline, see below); event kinds beyond `Submit` and `Named` (`Change`, `Drop`, focus, pointer:
+`UI-EVENTS-HAVE-NO-POINTER-DRAG-OR-CHANGE-KINDS`); per-keystroke field sync;
 the imperative per-element mount hook (canvas, drag-and-drop, `scroll`); propagation between
 elements; generalising `UiAction::Apply` to several fields; retiring `lui/submit`; `value-accessor`.
 
@@ -77,6 +83,14 @@ nested hosts (which layer sees a key first; a driver rule, designed when nesting
 low-level input. Pointer or drag input, if ever needed, becomes a neutral kind with element-local
 logical coordinates; `UpdateMessage::Custom` stays the escape hatch for anything truly
 backend-specific.
+
+egui shares the handler, not the channel. One `UIElement` implements both `show_in_egui` and
+`render_web` when both features are on, and `update()` is backend-neutral. `show_in_egui` takes
+`&mut self`, so egui calls the same private `handle_ui_event` inline when its Enter or Go fires
+(no round trip, no frame of delay); the web driver reaches it through `AppMessage::UIEvent` and
+`update()`. Both backends then run one submit logic. Menu shortcuts are not `UIEvent`s in either
+backend: they run the menu item's `UiAction` (egui through `consume_shortcut`, web through the
+`data-lq-shortcut` scan).
 
 Naming: `UIEvent` / `UIEventKind`, following `UIElement`, `UIHandle`, `UIContext`, `UIChange`.
 "User event" was rejected (Orest, 2026-10-30): it reads as a user-defined event, which here is the
