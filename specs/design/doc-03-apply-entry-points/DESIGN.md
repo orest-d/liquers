@@ -3,8 +3,8 @@ id: DOC-03-APPLY-ENTRY-POINTS
 kind: design
 title: DOC-03's entry-point table describes apply and apply_queued as implemented
 form: compact
-status: in_review
-phase: implementation
+status: complete
+gh_pr: [213]
 readiness: ready
 autofix: eligible
 area: [docs, core/assets]
@@ -13,8 +13,10 @@ created: 2026-10-26
 ---
 # DOC-03's entry-point table describes apply and apply_queued as implemented
 
-Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-26: Phases 1-4 written, not
-approved, nothing implemented.
+> **Complete on 2026-10-27**: implemented by automatic fix in #213.
+
+Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-26: Phases 1-4 written; Phase 4
+implemented on 2026-10-27 (automatic fix).
 
 ## Phase 1: High-Level Design
 
@@ -146,9 +148,9 @@ No code tests. Checks:
 
 ### Steps
 
-- [ ] 1. `DOC_03_ASSETS_EXECUTION_LIFECYCLE.md` table rows (Solution 1) — compare with `assets.rs`
-- [ ] 2. The two paragraphs (Solution 2-3) — the `grep` check
-- [ ] 3. History row and `reviewed:`; issue `status: closed` with a resolution note;
+- [x] 1. `DOC_03_ASSETS_EXECUTION_LIFECYCLE.md` table rows (Solution 1) — compare with `assets.rs`
+- [x] 2. The two paragraphs (Solution 2-3) — the `grep` check
+- [x] 3. History row and `reviewed:`; issue `status: closed` with a resolution note;
   `python3 scripts/docs_index.py` then `--check`
 
 ### Validation

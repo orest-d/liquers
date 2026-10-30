@@ -9,9 +9,10 @@
 mod common;
 
 use common::manager_scenarios::{
-    late_dependency_store, register_greet, register_late_dependency_commands,
+    late_dependency_store, record_d_store, register_greet, register_late_dependency_commands,
+    register_record_d, replacing_install_store, scenario_recorded_dependency_rewritten,
     scenario_replaced_run_cannot_restore_a_cleared_edge,
-    scenario_replacing_install_drops_unlisted_edges, replacing_install_store, LateGate,
+    scenario_replacing_install_drops_unlisted_edges, LateGate,
 };
 use liquers_core::parse::parse_key;
 use liquers_core::recipes::DefaultRecipeProvider;
@@ -19,7 +20,7 @@ use liquers_core::{
     assets::AssetManager,
     context::{Context, Environment, ImmediateEnvironment, SimpleEnvironment},
     error::Error,
-    metadata::{DependencyKey, Version},
+    metadata::{DependencyKey, ExpiryCause, ExpiryReason, Status, Version},
     query::Key,
     value::Value,
 };
@@ -209,4 +210,87 @@ async fn replaced_run_cannot_restore_a_cleared_edge() -> Result<(), Error> {
             .map_err(|e| Error::general_error(format!("immediate, via_child={via_child}: {e}")))?;
     }
     Ok(())
+}
+
+// `runtime-dependency-record-superseded-check`: a dependency a command recorded (rather than
+// waited for) and that is rewritten before the run completes, on both built-in managers.
+
+/// Runs [`scenario_recorded_dependency_rewritten`] on both managers; `check` gets the manager's
+/// name, the asset and the value its run returned.
+async fn on_both_managers(
+    query: bool,
+    rewrite: bool,
+    unknown: bool,
+    check: impl Fn(&str, Status, Option<ExpiryReason>, &str),
+) -> Result<(), Error> {
+    let gate = LateGate::new();
+    let mut env = SimpleEnvironment::<Value>::new();
+    register_record_d(&mut env.command_registry, gate.clone(), unknown);
+    env.with_async_store(Box::new(record_d_store().await?));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
+    let (asset, value) =
+        scenario_recorded_dependency_rewritten(env.to_ref(), gate, query, rewrite).await?;
+    let reason = asset.get_metadata().await?.expiry_reason();
+    check("default", asset.status().await, reason, &value);
+
+    let gate = LateGate::new();
+    let mut env = ImmediateEnvironment::<Value>::new();
+    register_record_d(&mut env.command_registry, gate.clone(), unknown);
+    env.with_async_store(Box::new(record_d_store().await?));
+    env.with_recipe_provider(Box::new(DefaultRecipeProvider::new()));
+    let (asset, value) =
+        scenario_recorded_dependency_rewritten(env.to_ref(), gate, query, rewrite).await?;
+    let reason = asset.get_metadata().await?.expiry_reason();
+    check("immediate", asset.status().await, reason, &value);
+    Ok(())
+}
+
+fn stale_on_d() -> Option<ExpiryReason> {
+    Some(ExpiryReason::Direct {
+        cause: ExpiryCause::StaleDependency {
+            dependency: DependencyKey::new("-R/data/d.txt"),
+        },
+    })
+}
+
+/// AC-1: the keyed asset finishes `Expired`, naming `d`, and its value is returned once.
+#[tokio::test]
+async fn added_record_superseded_before_completion_marks_stale() -> Result<(), Error> {
+    on_both_managers(false, true, false, |manager, status, reason, value| {
+        assert_eq!(value, "k", "{manager}: the run's value is returned");
+        assert_eq!(status, Status::Expired, "{manager}");
+        assert_eq!(reason, stale_on_d(), "{manager}");
+    })
+    .await
+}
+
+/// AC-3: no write while the command runs — the asset is `Ready`.
+#[tokio::test]
+async fn added_record_with_current_version_stays_ready() -> Result<(), Error> {
+    on_both_managers(false, false, false, |manager, status, _, value| {
+        assert_eq!(value, "k", "{manager}");
+        assert_eq!(status, Status::Ready, "{manager}");
+    })
+    .await
+}
+
+/// AC-3: a record with an unknown version cannot be superseded.
+#[tokio::test]
+async fn added_record_with_unknown_version_stays_ready() -> Result<(), Error> {
+    on_both_managers(false, true, true, |manager, status, _, value| {
+        assert_eq!(value, "k", "{manager}");
+        assert_eq!(status, Status::Ready, "{manager}");
+    })
+    .await
+}
+
+/// AC-4: a non-keyed query asset is expired the same way.
+#[tokio::test]
+async fn query_asset_with_superseded_added_record_is_expired() -> Result<(), Error> {
+    on_both_managers(true, true, false, |manager, status, reason, value| {
+        assert_eq!(value, "k", "{manager}");
+        assert_eq!(status, Status::Expired, "{manager}");
+        assert_eq!(reason, stale_on_d(), "{manager}");
+    })
+    .await
 }

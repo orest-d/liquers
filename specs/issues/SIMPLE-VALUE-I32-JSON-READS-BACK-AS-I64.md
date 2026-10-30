@@ -2,7 +2,7 @@
 id: SIMPLE-VALUE-I32-JSON-READS-BACK-AS-I64
 kind: issue
 title: liquers-lib's base value reads an I32 written as JSON back as I64
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [lib/value]
@@ -50,3 +50,7 @@ read back as `I32`, and structured variants read back as `Object`/`Array`) is
 Found 2026-10-20 in a bulk-design run while confirming `CORE-VALUE-JSON-READ-IGNORES-STRUCTURED-IDENTIFIERS`
 at HEAD: `SimpleValue`'s `"json"` arm and its tests were read for comparison. Not run; the tests
 named above assert the current behaviour.
+
+## Resolution
+
+Fixed 2026-10-27 by `design/simple-value-i32-json-read/`. Fixed by `design/simple-value-i32-json-read/` (2026-10-27): `SimpleValue::deserialize_from_bytes` reads JSON declared `I32` as an `i32`, refusing any other payload with a `SerializationError`.

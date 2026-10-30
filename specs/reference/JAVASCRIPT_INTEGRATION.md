@@ -3,7 +3,7 @@ title: JavaScript Integration
 kind: reference
 audience: both
 area: [web, core/value, core/error, core/store, lib/value]
-reviewed: 2026-10-26
+reviewed: 2026-10-28
 ---
 # JavaScript Integration
 
@@ -306,7 +306,8 @@ string (`ASYNCQ02`).
 **JavaScript to Liquers** (`js_error_to_liquers`):
 
 - An object with a known `errorType` string — a `LiquersError`, or anything shaped like one — keeps
-  that type and its `message`; its `query` and `key` are not carried over.
+  that type and its `message`; its `query`, `key` and `position` are carried over when they have
+  the types the `LiquersError` getters return, and an ill-typed field is dropped.
 - An `Error` becomes `execution_error` (inside a command; `conversion_error` at a conversion
   boundary) with the message `Class: message`, followed by the stack frames. The structured
   `jsClass` and `jsStack` do not survive the asset lifecycle, so the caller sees `null` there
@@ -429,3 +430,4 @@ stream. A view built from a `column` descriptor is invalidated by `memory.grow` 
 |---|---|---|
 | 2026-10-26 | Created from the implemented `liquers-web`, checked against a wasm build under Node. | `WEB-HAS-NO-API-REFERENCE-OR-USER-GUIDE` |
 | 2026-10-26 | A nested `null` now arrives as `null`; a failed asset rejects every `evaluate` caller; nested bytes are refused by design. Three limitations removed. | `WEB-NESTED-NULL-CROSSES-AS-UNDEFINED`, `WEB-EVALUATE-RESOLVES-FAILED-ASSET-AS-NULL`, `WEB-NESTED-BYTES-REFUSED-NOT-DEGRADED` |
+| 2026-10-28 | A thrown-back `LiquersError` keeps its `query`, `key` and `position` (§6); the sentence describing their loss is corrected. | `WEB-THROWN-BACK-LIQUERSERROR-LOSES-CONTEXT` |

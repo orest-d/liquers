@@ -453,6 +453,7 @@ pub struct Issue {
     /// `"debug"`, `"info"`, `"warning"` or `"error"`.
     #[pyo3(get)]
     severity: String,
+    /// The finding, as text.
     #[pyo3(get)]
     message: String,
     /// The command key (`realm-namespace-name`) the finding is about, if any.
@@ -489,9 +490,12 @@ impl From<&CoreIssue> for Issue {
     }
 }
 
-/// A Liquers environment: commands, a store and an asset manager.
+/// A Liquers environment: commands, a store and the assets evaluated in it.
 ///
-/// Built lazily on first use from everything declared on it; see the module documentation.
+/// `Environment()` takes keyword arguments only: `config` (a dict or YAML text configuring the
+/// store and the asset manager), `conversion`, `pickle`, `async_loops` and `job_capacity`. It is
+/// built on first use from the commands registered on it, and runs until `shutdown()`. See
+/// `PYTHON_GUIDE.md` §4.
 #[pyclass(frozen, name = "Environment", module = "liquers")]
 pub struct Environment {
     pub cell: Arc<EnvCell>,
@@ -660,7 +664,7 @@ impl Environment {
     /// Writes a value to the store under `key`.
     ///
     /// A value with no byte form — an opaque Python object with the pickle codec off — raises
-    /// `SerializationError` (AC-6).
+    /// `SerializationError`.
     fn store_set(&self, py: Python<'_>, key: &str, data: &Bound<'_, PyAny>) -> PyResult<()> {
         check_blocking_call(py, "store_set")?;
         let result = (|| -> Result<_, PyFailure> {

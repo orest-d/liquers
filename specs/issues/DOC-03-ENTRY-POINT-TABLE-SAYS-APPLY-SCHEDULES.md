@@ -2,7 +2,7 @@
 id: DOC-03-ENTRY-POINT-TABLE-SAYS-APPLY-SCHEDULES
 kind: issue
 title: DOC-03's entry-point table says apply schedules its asset and takes no payload
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [docs, core/assets]
@@ -46,3 +46,7 @@ for `apply_queued` (queued handle, takes a slot, not from inside an evaluation â
 
 Bulk-design triage of `EXTENDED-FAST-TRACK`, 2026-10-20, checking its `apply()` items against
 HEAD (commit 18732dd).
+
+## Resolution
+
+Fixed 2026-10-27 by `design/doc-03-apply-entry-points/`. Fixed by `design/doc-03-apply-entry-points/` (2026-10-27): DOC-03 Â§Public entry-point contract describes `apply` (evaluates before return, optional payload), `apply_queued` and the deprecated `apply_immediately` as implemented.

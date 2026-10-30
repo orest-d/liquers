@@ -98,7 +98,11 @@ def _install(error_type_class):
         class_name = category + "Error"
         bases = (LiquersError,) + _CATEGORY_EXTRA_BASES.get(category, ())
         # No `_error_type`: like LiquersError itself, a category class needs an explicit ErrorType.
-        categories[category] = type(class_name, bases, {"__module__": "liquers"})
+        namespace = {
+            "__module__": "liquers",
+            "__doc__": f"Base class of every error in the {category} category.",
+        }
+        categories[category] = type(class_name, bases, namespace)
         generated[class_name] = categories[category]
     for name in dir(error_type_class):
         member = getattr(error_type_class, name)
@@ -108,7 +112,12 @@ def _install(error_type_class):
         if class_name in generated:
             raise RuntimeError(f"error class name {class_name} is both a category and a variant")
         bases = tuple(categories[c] for c in member.categories()) or (LiquersError,)
-        subclass = type(class_name, bases, {"_error_type": member, "__module__": "liquers"})
+        namespace = {
+            "_error_type": member,
+            "__module__": "liquers",
+            "__doc__": f"Raised for ErrorType.{name}.",
+        }
+        subclass = type(class_name, bases, namespace)
         _SUBCLASSES[name] = subclass
         generated[class_name] = subclass
     globals().update(generated)

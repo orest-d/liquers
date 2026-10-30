@@ -3,7 +3,9 @@ use std::{
     hash::{Hash, Hasher},
 };
 
-use pyo3::{exceptions::PyException, prelude::*, types::PyList};
+use pyo3::{prelude::*, types::PyList};
+
+use crate::error::serialization_pyerr;
 
 // TODO: Implement EnumArgumentType
 // TODO: Implement EnumArgumentAlternative
@@ -15,9 +17,10 @@ use pyo3::{exceptions::PyException, prelude::*, types::PyList};
 // TODO: Implement CommandPreset
 // TODO: Implement CommandDefinition
 
-/// Type of an enum argument, see EnumArgument
-/// This is a restricted version of ArgumentType to prevent circular type definition
-
+/// The value type of an enum argument's alternatives: string, integer, float, boolean, their
+/// optional forms, or any.
+///
+/// A narrower set than `ArgumentType`, used by `EnumArgument`.
 #[pyclass(from_py_object, eq, eq_int, module = "liquers")]
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum EnumArgumentType {
@@ -39,6 +42,10 @@ pub enum EnumArgumentType {
     Any,
 }
 
+/// An argument whose value is one of a fixed set of named alternatives.
+///
+/// `EnumArgument(name, typ)` makes one named `name` whose alternatives have the value type `typ`
+/// (an `EnumArgumentType`).
 #[pyclass(from_py_object, module = "liquers")]
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct EnumArgument(pub liquers_core::command_metadata::EnumArgument);
@@ -50,14 +57,17 @@ impl EnumArgument {
         Self(liquers_core::command_metadata::EnumArgument::new(name).with_value_type(typ.into()))
     }
 
+    /// The enum argument serialized as JSON.
     pub fn to_json(&self) -> PyResult<String> {
-        serde_json::to_string(&self.0).map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
+        serde_json::to_string(&self.0).map_err(serialization_pyerr)
     }
 
+    /// Reads an enum argument from JSON text, as `to_json()` writes it.
+    ///
+    /// Raises an exception when the text is not valid JSON for `EnumArgument`.
     #[staticmethod]
     pub fn from_json(json: &str) -> PyResult<Self> {
-        let value =
-            serde_json::from_str(json).map_err(|e| PyErr::new::<PyException, _>(e.to_string()))?;
+        let value = serde_json::from_str(json).map_err(serialization_pyerr)?;
         Ok(Self(value))
     }
 
@@ -75,25 +85,32 @@ impl EnumArgument {
     }
 }
 
+/// The type of a command argument, as recorded in command metadata.
+///
+/// `ArgumentInfo.argument_type` gives the same information as a string.
 #[pyclass(from_py_object, module = "liquers")]
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct ArgumentType(pub liquers_core::command_metadata::ArgumentType);
 
 #[pymethods]
 impl ArgumentType {
+    /// The argument type that accepts a value of any type.
     #[staticmethod]
     pub fn any() -> Self {
         Self(liquers_core::command_metadata::ArgumentType::Any)
     }
 
+    /// The argument type serialized as JSON.
     pub fn to_json(&self) -> PyResult<String> {
-        serde_json::to_string(&self.0).map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
+        serde_json::to_string(&self.0).map_err(serialization_pyerr)
     }
 
+    /// Reads an argument type from JSON text, as `to_json()` writes it.
+    ///
+    /// Raises an exception when the text is not valid JSON for `ArgumentType`.
     #[staticmethod]
     pub fn from_json(json: &str) -> PyResult<Self> {
-        let value =
-            serde_json::from_str(json).map_err(|e| PyErr::new::<PyException, _>(e.to_string()))?;
+        let value = serde_json::from_str(json).map_err(serialization_pyerr)?;
         Ok(Self(value))
     }
 
@@ -153,6 +170,10 @@ impl From<liquers_core::command_metadata::EnumArgumentType> for EnumArgumentType
     }
 }
 
+/// The full name of a command: realm, namespace and name.
+///
+/// `CommandKey(realm, namespace, name)`; an empty realm or namespace is the default one. Keys
+/// compare and hash by value.
 #[pyclass(module = "liquers")]
 pub struct CommandKey(pub liquers_core::command_metadata::CommandKey);
 
@@ -165,16 +186,19 @@ impl CommandKey {
         ))
     }
 
+    /// The realm the command belongs to; empty for the default realm.
     #[getter]
     fn realm(&self) -> String {
         self.0.realm.clone()
     }
 
+    /// The namespace the command belongs to; empty for the root namespace.
     #[getter]
     fn namespace(&self) -> String {
         self.0.namespace.clone()
     }
 
+    /// The command name, as written in a query.
     #[getter]
     fn name(&self) -> String {
         self.0.name.clone()
@@ -201,6 +225,10 @@ impl CommandKey {
     }
 }
 
+/// The metadata of one command argument: name, label, type, default and whether it is variadic.
+///
+/// `ArgumentInfo(name)` describes an argument of any type with no default. Read it from
+/// `CommandMetadata.arguments`.
 #[pyclass(module = "liquers")]
 pub struct ArgumentInfo(liquers_core::command_metadata::ArgumentInfo);
 
@@ -213,39 +241,50 @@ impl ArgumentInfo {
         ))
     }
 
+    /// The argument metadata serialized as JSON.
     fn to_json(&self) -> PyResult<String> {
-        serde_json::to_string(&self.0).map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
+        serde_json::to_string(&self.0).map_err(serialization_pyerr)
     }
 
+    /// The argument metadata serialized as YAML.
     fn to_yaml(&self) -> PyResult<String> {
-        serde_yaml::to_string(&self.0).map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
+        serde_yaml::to_string(&self.0).map_err(serialization_pyerr)
     }
 
+    /// Reads argument metadata from JSON text, as `to_json()` writes it.
+    ///
+    /// Raises an exception when the text is not valid JSON for `ArgumentInfo`.
     #[staticmethod]
     fn from_json(json: &str) -> PyResult<Self> {
         let a: liquers_core::command_metadata::ArgumentInfo =
-            serde_json::from_str(json).map_err(|e| PyErr::new::<PyException, _>(e.to_string()))?;
+            serde_json::from_str(json).map_err(serialization_pyerr)?;
         Ok(ArgumentInfo(a))
     }
 
+    /// Reads argument metadata from YAML text, as `to_yaml()` writes it.
+    ///
+    /// Raises an exception when the text is not valid YAML for `ArgumentInfo`.
     #[staticmethod]
     fn from_yaml(yaml: &str) -> PyResult<Self> {
         let a: liquers_core::command_metadata::ArgumentInfo =
-            serde_yaml::from_str(yaml).map_err(|e| PyErr::new::<PyException, _>(e.to_string()))?;
+            serde_yaml::from_str(yaml).map_err(serialization_pyerr)?;
         Ok(ArgumentInfo(a))
     }
 
+    /// The argument name.
     #[getter]
     fn name(&self) -> String {
         self.0.name.clone()
     }
 
+    /// A short human-readable label for the argument.
     #[getter]
     fn label(&self) -> String {
         self.0.label.clone()
     }
 
-    /// The default as a Python value: `None` when there is none, a query's text for a link.
+    /// The default as a Python value: `None` when there is none, the query's text for a default
+    /// link.
     #[getter]
     fn default(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         use liquers_core::command_metadata::CommandParameterValue;
@@ -255,25 +294,26 @@ impl ArgumentInfo {
                 Ok(pyo3::types::PyString::new(py, &query.encode()).into_any().unbind())
             }
             CommandParameterValue::Value(value) => {
-                let text = serde_json::to_string(value)
-                    .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))?;
+                let text = serde_json::to_string(value).map_err(serialization_pyerr)?;
                 Ok(py.import("json")?.call_method1("loads", (text,))?.unbind())
             }
         }
     }
 
-    /// The argument type as its serialized name: `"string"`, `"int"`, `"float"`, `"bool"`,
-    /// `"int_opt"`, …, or `"any"`.
+    /// The argument type as its serialized name.
+    ///
+    /// One of `"string"`, `"int"`, `"float"`, `"bool"`, `"int_opt"`, `"float_opt"`, `"bool_opt"`,
+    /// ..., or `"any"`.
     #[getter]
     fn argument_type(&self) -> PyResult<String> {
         match serde_json::to_value(&self.0.argument_type) {
             Ok(serde_json::Value::String(name)) => Ok(name),
             Ok(other) => Ok(other.to_string()),
-            Err(e) => Err(PyErr::new::<PyException, _>(e.to_string())),
+            Err(e) => Err(serialization_pyerr(e)),
         }
     }
 
-    /// Whether the argument takes every remaining query parameter (`*args`).
+    /// True when the argument takes every remaining query parameter, like `*args`.
     #[getter]
     fn multiple(&self) -> bool {
         self.0.multiple
@@ -293,25 +333,32 @@ impl ArgumentInfo {
     }
 }
 
+/// How a command is implemented: registered code, or an alias of another command.
+///
+/// Part of `CommandMetadata`.
 #[pyclass(from_py_object, module = "liquers")]
 #[derive(Debug, Clone, PartialEq)]
 pub struct CommandDefinition(pub liquers_core::command_metadata::CommandDefinition);
 
 #[pymethods]
 impl CommandDefinition {
+    /// The definition of a command implemented by a registered function.
     #[staticmethod]
     pub fn registered() -> Self {
         Self(liquers_core::command_metadata::CommandDefinition::Registered)
     }
 
+    /// The command definition serialized as JSON.
     pub fn to_json(&self) -> PyResult<String> {
-        serde_json::to_string(&self.0).map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
+        serde_json::to_string(&self.0).map_err(serialization_pyerr)
     }
 
+    /// Reads a command definition from JSON text, as `to_json()` writes it.
+    ///
+    /// Raises an exception when the text is not valid JSON for `CommandDefinition`.
     #[staticmethod]
     pub fn from_json(json: &str) -> PyResult<Self> {
-        let value =
-            serde_json::from_str(json).map_err(|e| PyErr::new::<PyException, _>(e.to_string()))?;
+        let value = serde_json::from_str(json).map_err(serialization_pyerr)?;
         Ok(Self(value))
     }
 
@@ -329,6 +376,10 @@ impl CommandDefinition {
     }
 }
 
+/// A ready-made action offered for a command, with a label and a description.
+///
+/// `CommandPreset(action, label, description)`; `action` is query text and raises an exception when
+/// it does not parse.
 #[pyclass(from_py_object, module = "liquers")]
 #[derive(Debug, Clone, PartialEq)]
 pub struct CommandPreset(pub liquers_core::command_metadata::CommandPreset);
@@ -339,17 +390,20 @@ impl CommandPreset {
     pub fn new(action: &str, label: &str, description: &str) -> PyResult<Self> {
         liquers_core::command_metadata::CommandPreset::new(action, label, description)
             .map(Self)
-            .map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
+            .map_err(|e| PyErr::from(crate::error::Error::from(e)))
     }
 
+    /// The preset serialized as JSON.
     pub fn to_json(&self) -> PyResult<String> {
-        serde_json::to_string(&self.0).map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
+        serde_json::to_string(&self.0).map_err(serialization_pyerr)
     }
 
+    /// Reads a preset from JSON text, as `to_json()` writes it.
+    ///
+    /// Raises an exception when the text is not valid JSON for `CommandPreset`.
     #[staticmethod]
     pub fn from_json(json: &str) -> PyResult<Self> {
-        let value =
-            serde_json::from_str(json).map_err(|e| PyErr::new::<PyException, _>(e.to_string()))?;
+        let value = serde_json::from_str(json).map_err(serialization_pyerr)?;
         Ok(Self(value))
     }
 
@@ -367,6 +421,10 @@ impl CommandPreset {
     }
 }
 
+/// The metadata of a registered command: its name, namespace, realm, arguments and flags.
+///
+/// `Environment.command_metadata(name)` returns the metadata of a registered command. See
+/// `PYTHON_GUIDE.md` §5, "Metadata".
 #[pyclass(from_py_object, module = "liquers")]
 #[derive(Debug, Clone)]
 pub struct CommandMetadata(pub liquers_core::command_metadata::CommandMetadata);
@@ -378,81 +436,99 @@ impl CommandMetadata {
         CommandMetadata(liquers_core::command_metadata::CommandMetadata::new(name))
     }
 
+    /// The command metadata serialized as JSON.
     fn to_json(&self) -> PyResult<String> {
-        serde_json::to_string(&self.0).map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
+        serde_json::to_string(&self.0).map_err(serialization_pyerr)
     }
 
+    /// The command metadata serialized as YAML.
     fn to_yaml(&self) -> PyResult<String> {
-        serde_yaml::to_string(&self.0).map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
+        serde_yaml::to_string(&self.0).map_err(serialization_pyerr)
     }
 
+    /// Reads command metadata from JSON text, as `to_json()` writes it.
+    ///
+    /// Raises an exception when the text is not valid JSON for `CommandMetadata`.
     #[staticmethod]
     fn from_json(json: &str) -> PyResult<Self> {
         let a: liquers_core::command_metadata::CommandMetadata =
-            serde_json::from_str(json).map_err(|e| PyErr::new::<PyException, _>(e.to_string()))?;
+            serde_json::from_str(json).map_err(serialization_pyerr)?;
         Ok(CommandMetadata(a))
     }
 
+    /// Reads command metadata from YAML text, as `to_yaml()` writes it.
+    ///
+    /// Raises an exception when the text is not valid YAML for `CommandMetadata`.
     #[staticmethod]
     fn from_yaml(yaml: &str) -> PyResult<Self> {
         let a: liquers_core::command_metadata::CommandMetadata =
-            serde_yaml::from_str(yaml).map_err(|e| PyErr::new::<PyException, _>(e.to_string()))?;
+            serde_yaml::from_str(yaml).map_err(serialization_pyerr)?;
         Ok(CommandMetadata(a))
     }
 
+    /// The command name, as written in a query.
     #[getter]
     fn name(&self) -> String {
         self.0.name.clone()
     }
 
+    /// The namespace the command is registered in; empty for the root namespace.
     #[getter]
     fn namespace(&self) -> String {
         self.0.namespace.clone()
     }
 
+    /// The realm the command is registered in; empty for the default realm.
     #[getter]
     fn realm(&self) -> String {
         self.0.realm.clone()
     }
 
+    /// A short human-readable label for the command.
     #[getter]
     fn label(&self) -> String {
         self.0.label.clone()
     }
 
+    /// The command's documentation text; for a Python command, its function's docstring unless one
+    /// was given.
     #[getter]
     fn doc(&self) -> String {
         self.0.doc.clone()
     }
 
+    /// The default filename of the command's result (for example `text.txt`), or empty.
     #[getter]
     fn filename(&self) -> String {
         self.0.filename.clone()
     }
 
-    /// `"python"` for a command registered from Python.
+    /// Where the command was registered from: `"python"` for a command registered from Python.
     #[getter]
     fn module(&self) -> String {
         self.0.module.clone()
     }
 
-    /// Whether the command's output is kept for reuse.
+    /// True when the command's output is kept for reuse.
     #[getter]
     fn cached(&self) -> bool {
         self.0.cached()
     }
 
-    /// The query arguments, in order: the state and `context` are not among them.
+    /// The query arguments, in order, as `ArgumentInfo` objects; the input state and `context` are
+    /// not among them.
     #[getter]
     fn arguments(&self) -> Vec<ArgumentInfo> {
         self.0.arguments.iter().cloned().map(ArgumentInfo).collect()
     }
 
+    /// True for an async command.
     #[getter]
     fn is_async(&self) -> bool {
         self.0.is_async
     }
 
+    /// True when the command's result is never reused: it is recomputed on every evaluation.
     #[getter]
     fn volatile(&self) -> bool {
         self.0.volatile
@@ -460,8 +536,8 @@ impl CommandMetadata {
 
     /// Whether the command needs an evaluation payload: `"none"` or `"required"`.
     ///
-    /// Returned as a string rather than a Python enum, since there are only two states.
-    /// A command that requires a payload is also `volatile`.
+    /// A string rather than an enum, since there are only two states. A command that requires a
+    /// payload is also `volatile`.
     #[getter]
     fn payload_required(&self) -> String {
         self.0.payload_required.to_string()
@@ -481,6 +557,9 @@ impl CommandMetadata {
     }
 }
 
+/// A collection of command metadata, without the implementations.
+///
+/// Enough to build a plan (`build_plan`) without running anything.
 #[pyclass(module = "liquers")]
 pub struct CommandMetadataRegistry(pub liquers_core::command_metadata::CommandMetadataRegistry);
 
@@ -491,9 +570,14 @@ impl CommandMetadataRegistry {
         CommandMetadataRegistry(liquers_core::command_metadata::CommandMetadataRegistry::new())
     }
 
+    /// Adds the metadata of one command.
     fn add_command(&mut self, command: &CommandMetadata) {
         self.0.add_command(&command.0);
     }
+    /// Adds metadata for a Python function declared as an alias of a `pycall` command.
+    ///
+    /// No environment registers `pycall`, so a command declared this way cannot run. Register
+    /// Python commands with `Environment.command` instead (`PYTHON_GUIDE.md` §5).
     pub fn add_python_command(
         &mut self,
         namespace: &str,
@@ -536,25 +620,33 @@ impl CommandMetadataRegistry {
         Ok(())
     }
 
+    /// The registry serialized as JSON.
     fn to_json(&self) -> PyResult<String> {
-        serde_json::to_string(&self.0).map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
+        serde_json::to_string(&self.0).map_err(serialization_pyerr)
     }
 
+    /// The registry serialized as YAML.
     fn to_yaml(&self) -> PyResult<String> {
-        serde_yaml::to_string(&self.0).map_err(|e| PyErr::new::<PyException, _>(e.to_string()))
+        serde_yaml::to_string(&self.0).map_err(serialization_pyerr)
     }
 
+    /// Reads a registry from JSON text, as `to_json()` writes it.
+    ///
+    /// Raises an exception when the text is not valid JSON for `CommandMetadataRegistry`.
     #[staticmethod]
     fn from_json(json: &str) -> PyResult<Self> {
         let a: liquers_core::command_metadata::CommandMetadataRegistry =
-            serde_json::from_str(json).map_err(|e| PyErr::new::<PyException, _>(e.to_string()))?;
+            serde_json::from_str(json).map_err(serialization_pyerr)?;
         Ok(CommandMetadataRegistry(a))
     }
 
+    /// Reads a registry from YAML text, as `to_yaml()` writes it.
+    ///
+    /// Raises an exception when the text is not valid YAML for `CommandMetadataRegistry`.
     #[staticmethod]
     fn from_yaml(yaml: &str) -> PyResult<Self> {
         let a: liquers_core::command_metadata::CommandMetadataRegistry =
-            serde_yaml::from_str(yaml).map_err(|e| PyErr::new::<PyException, _>(e.to_string()))?;
+            serde_yaml::from_str(yaml).map_err(serialization_pyerr)?;
         Ok(CommandMetadataRegistry(a))
     }
 }

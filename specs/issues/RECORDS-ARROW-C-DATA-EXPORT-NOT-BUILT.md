@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: L
 area: [records, py]
-design: record-streams
+design: records-arrow-c-data-export
 created: 2026-09-27
 github:
 ---
@@ -25,6 +25,15 @@ built. Today a batch reaches those systems in one of three ways, each of which c
 
 There is no `liquers-py` path at all.
 
+## Problem Example
+
+A Rust caller holding a 10-million-row `RecordBatch` that wants it in pyarrow can only serialize it
+with `write_table(view, TableFormat::Ipc, …)` (feature `ipc`), which copies every buffer into a byte
+vector that pyarrow then reads and copies again; no `ArrowArray` / `ArrowSchema` exists anywhere in
+the workspace (HEAD 04667a8). Wanted: `liquers_records::cdata::export_record_batch(&batch)` returns
+a C Data pair pointing at the batch's own buffers, and a record view evaluated from Python reaches
+`pyarrow.record_batch` through it without a copy of the column data.
+
 ## Expected behaviour
 
 A C Data export (and import) for `RecordBatch` in `liquers-records`, with the release callback
@@ -32,6 +41,14 @@ keeping the `Arc`-shared buffers alive. Then a pyo3 conversion in `liquers-py` t
 batch. Phase 2 lists the three places where the layout is not 1:1 with Arrow's
 (`Vector`→`FixedSizeList`, `Text` offsets, the dictionary-less `Source`), and those need their
 mapping.
+
+## Design
+
+The `design:` field used to point at `record-streams`, the complete (frozen) design this feature is
+the unbuilt remainder of. Since 2026-10-27 it points at its own design,
+[`design/records-arrow-c-data-export/`](../design/records-arrow-c-data-export/DESIGN.md) (bulk
+design; readiness `needs-decision`: whether `liquers-records` may hold the `unsafe` C Data module).
+`record-streams` is not extended (overlap rule E4).
 
 ## Discovery
 

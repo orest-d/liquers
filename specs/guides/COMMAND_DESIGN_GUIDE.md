@@ -3,7 +3,7 @@ title: Command Design Guide
 kind: guide
 audience: internal
 area: [core/commands]
-reviewed: 2026-10-18
+reviewed: 2026-10-27
 ---
 # Command Design Guide
 
@@ -70,9 +70,12 @@ A **sync** command blocks its worker thread for its entire run and cannot be sto
 It must check `is_cancelled()` itself or it will run to completion. A long sync command that never
 checks makes `cancel()` time out after five seconds (it still returns `Ok`).
 
-Cancellation takes effect at the next genuine suspension point of the whole evaluation. Once the last
-step of the plan has returned and nothing else awaits, the result is installed and stored; this is
-not cancellable.
+Cancellation takes effect at the next genuine suspension point of the whole evaluation. Once a
+command has returned `Ok`, a pending request no longer drops the run until a later step that can
+suspend (another command, or a read of an asset or resource) begins; then it applies again, at that
+step's first suspension. So a command that returns `Ok` after the request is never undone by the
+interpreter's own bookkeeping after it: when it is the last command, the result is installed and
+stored, and this is not cancellable.
 
 ### Returning a cancellation
 
@@ -200,6 +203,7 @@ output is not worth keeping*.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-27 | §Sync versus async: a command's `Ok` return commits the run until the next step that can suspend. | `design/cancel-point-of-no-return/` (`CANCEL-CAN-OVERTAKE-A-RETURNED-COMMAND`) |
 | 2026-10-18 | "When to design a command as an alias", *A bridge*: `liquers-py` no longer aliases a `pycall` command; it registers a closure per Python function. | `design/liquers-py/` (phase-5) |
 | 2026-10-17 | Added: a command does not declare `volatile` for the volatility of the queries it reads; `Context::set_volatile`. | `design/runtime-volatility` |
 | 2026-10-17 | §Aliases: a template command (an alias of `template/render`) for text assembled from queries. | `design/liquers-mustache/` |

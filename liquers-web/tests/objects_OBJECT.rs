@@ -6,6 +6,7 @@
 #![cfg(target_arch = "wasm32")]
 
 use liquers_core::error::ErrorType;
+use liquers_core::query::Position;
 use liquers_web::error::{error_type_from_name, error_type_name, LiquersError};
 use liquers_web::{LiquersKey, LiquersQuery};
 use wasm_bindgen::prelude::*;
@@ -223,8 +224,11 @@ fn error01b_categories_name_the_error_groups() {
 /// ERROR02 — fields survive Rust → JavaScript → Rust.
 #[wasm_bindgen_test]
 fn error02_fields_survive_rust_language_rust() {
-    let err =
+    let mut err =
         liquers_core::error::Error::from_error(ErrorType::KeyNotFound, "no such key".to_string());
+    err.query = Some("-R/data/a.txt".to_string());
+    err.key = Some("data/a.txt".to_string());
+    err.position = Position::new(3, 1, 4);
     let js = liquers_web::error::liquers_error_to_js(err);
 
     // Out to JavaScript.
@@ -238,6 +242,45 @@ fn error02_fields_survive_rust_language_rust() {
     let back = liquers_web::error::js_error_to_liquers(js, ErrorType::General);
     assert_eq!(back.error_type, ErrorType::KeyNotFound, "type must survive");
     assert_eq!(back.message, "no such key", "message must survive verbatim");
+    assert_eq!(
+        back.query.as_deref(),
+        Some("-R/data/a.txt"),
+        "query must survive"
+    );
+    assert_eq!(back.key.as_deref(), Some("data/a.txt"), "key must survive");
+    assert_eq!(
+        back.position,
+        Position::new(3, 1, 4),
+        "position must survive"
+    );
+}
+
+/// ERROR02b — fields that were absent stay absent after the round trip.
+#[wasm_bindgen_test]
+fn error02b_absent_fields_stay_absent() {
+    let err = liquers_core::error::Error::from_error(ErrorType::KeyNotFound, "m".to_string());
+    let js = liquers_web::error::liquers_error_to_js(err);
+    let back = liquers_web::error::js_error_to_liquers(js, ErrorType::General);
+    assert_eq!(back.error_type, ErrorType::KeyNotFound);
+    assert_eq!(back.query, None);
+    assert_eq!(back.key, None);
+    assert!(back.position.is_unknown(), "{:?}", back.position);
+}
+
+/// ERROR02c — a look-alike object whose `query`, `key` and `position` have the wrong types keeps
+/// its type and message and drops those fields, without an error or a panic.
+#[wasm_bindgen_test]
+fn error02c_ill_typed_look_alike_fields_are_ignored() {
+    let build = js_sys::Function::new_no_args(
+        r#"return { errorType: "key_not_found", message: "m", query: 42, key: {}, position: "x" };"#,
+    );
+    let thrown = build.call0(&JsValue::NULL).expect("builds the object");
+    let back = liquers_web::error::js_error_to_liquers(thrown, ErrorType::General);
+    assert_eq!(back.error_type, ErrorType::KeyNotFound);
+    assert_eq!(back.message, "m");
+    assert_eq!(back.query, None);
+    assert_eq!(back.key, None);
+    assert!(back.position.is_unknown(), "{:?}", back.position);
 }
 
 /// ERROR03 — a JavaScript exception carries its class and stack across.
