@@ -142,6 +142,11 @@ detects every clash.
 `with_recipes`. `liquers-web`: no code change. Its `with_default_recipe_provider()` now resolves the
 kind's list.
 
+## Integration Points
+
+Per crate as in Interfaces: core `recipes.rs`, `environment_builder.rs`, `environment_config.rs`,
+`context.rs`; lib `environment.rs`; records `provider.rs`; py `environment.rs`; web tests only.
+
 ## Error Handling
 
 | Case | Error |
