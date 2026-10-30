@@ -1,5 +1,29 @@
 # Phase 1: High-Level Design — web-ui-use
 
+## Design Readiness
+
+Decision log of the pre-approved run (`proceed all`, 2026-10-30).
+
+- **Readiness:** needs-decision
+- **Automatic fixing:** not-eligible. It adds exported JavaScript classes and changes
+  `WebEnvironment`'s type (rules 3 and 4); complexity `L`.
+- **Leading issue:** **Proposed resolution, the page API:** `show` and `UISubscription`
+  (Scope Changes, 2026-10-30).
+- **Explanation:** Phases 2–4 specify a working solution under the four Phase 1 decisions. What is
+  left are API refinements that Phase 2 found and the user has not yet seen.
+- **Open questions:**
+  1. **Proposed resolution, `submit` versus `show`:** `submit(query, handle?)` runs a query as a
+     control's action does, and its commands place results. `show(query, handle?)` makes the
+     query's value an element (a new root, or a replacement) and returns its handle.
+  2. **Proposed resolution, subscriptions:** `on` returns a `UISubscription` with `dispose()`,
+     because a returned function would be a `Closure` that leaks if never called.
+  3. **Proposed resolution, stale results:** the runner drops a pending node's result when the
+     node's source changed while it was evaluating. This is a fix to shared backend code, and it
+     changes egui as well (only the newest query lands).
+  4. **Limitation, not blocking:** on wasm, a query awaiting a Promise freezes the UI loop, so
+     progress is never painted (`WEB-UI-FREEZES-WHILE-A-QUERY-AWAITS`, filed 2026-10-30, needs its
+     own design).
+
 ## Purpose
 
 Let a page use the Liquers UI that already runs in the browser: mount the query console, a
@@ -31,10 +55,10 @@ environment (`liquers-lib/examples-web/ui_spec_demo`), because:
 
 ```js
 const ui = await liquers.mountUI(app, { query: "hello/q/ns-lui/query_console" });
-const off = ui.on("status", (e) => log(e.handle, e.status));   // "evaluating" ... "ready"
-ui.submit("commands_doc");        // to the root element; renders its result
-ui.elements();                    // [{ handle: 1, typeName: "QueryConsoleElement", title, status }]
-off();                            // no further callbacks
+const sub = ui.on("status", (e) => log(e.handle, e.status));   // "evaluating" ... "ready"
+ui.show("commands_doc");          // a second root element showing the query's result
+ui.elements();                    // [{ handle: 1, typeName: "QueryConsoleElement", title, status }, …]
+sub.dispose();                    // no further callbacks
 ui.dispose();                     // listeners detached, driver loop stopped, container emptied
 ```
 
@@ -55,7 +79,7 @@ ui.dispose();                     // listeners detached, driver loop stopped, co
   THEN `cb` receives that element's statuses in order, ending in `ready` or `error`, after the DOM
   for that tick is applied
 - **AC-5** Unsubscribing releases callbacks (`UIUSE05`)
-  WHEN the page calls the function `on` returned, or `ui.dispose()`
+  WHEN the page disposes the subscription `on` returned, or calls `ui.dispose()`
   THEN no further callbacks run and the retained-handle count returns to its earlier value
 - **AC-6** A stale result is ignored (`UIUSE06`)
   WHEN an element is submitted query B while its query A is still evaluating
@@ -71,6 +95,10 @@ ui.dispose();                     // listeners detached, driver loop stopped, co
 - **AC-9** A mount follows registration
   WHEN a page registers a command after mounting a UI on the global environment
   THEN later UI queries can use that command
+- **AC-10** Show a query's result
+  WHEN a page calls `ui.show(query)` or `ui.show(query, handle)`
+  THEN the query's value appears as a new root element, or replaces that element, and `show`
+  returns the element's handle
 
 Non-goals: egui in the browser (`eframe`'s web runner; liquers-web is built without `egui`), saving
 and loading the element tree (`AppMessage::Serialize`), server-side rendering from JavaScript
@@ -126,6 +154,16 @@ None. Every recommendation was accepted by the maintainer on 2026-10-27, and is 
    its context exposes `context.element`. Every other criterion can ship without waiting for it.
 3. **Event delivery.** Status events are batched once per driver tick and delivered after the DOM
    is updated and the `AppState` lock is released. A callback may therefore re-enter the mount.
+
+## Scope Changes
+
+- **2026-10-30, Phase 2 (pre-approved).** `submit` runs a query the way a control's action does,
+  and commands place their own results (`AppRunner::process_messages`). So it cannot "render its
+  result", as the problem example claimed. Added `show` (AC-10), which places a query's value
+  through `AppState::insert_source`, and corrected the example. `on` returns a `UISubscription`
+  with `dispose()`, not a function: a function would be a `Closure` that leaks when the page never
+  calls it. Size unchanged. Phases 1 and 2 updated. Recorded in the decision log as a proposed
+  resolution.
 
 ## References
 

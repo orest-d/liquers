@@ -1,5 +1,30 @@
 # Phase 1: High-Level Design — web-ui-define
 
+## Design Readiness
+
+Decision log of the pre-approved run (`proceed all`, 2026-10-30).
+
+- **Readiness:** needs-decision
+- **Automatic fixing:** not-eligible. It adds exported JavaScript functions and classes and a
+  public `liquers-lib` element type (rules 3 and 4); complexity `L`.
+- **Leading issue:** **Blocking for Step 6 only, `ui-events`:** `onEvent` needs `ui-events`'
+  `UserEvent` (decision 2). That design is in review with readiness `needs-decision`: its leading
+  question is one `UpdateMessage::User` variant with a closed `UserEventKind`, which it recommends,
+  versus one variant per event kind. Until it is approved and implemented, Steps 1–5 can ship and
+  `UIDEF03` stays partial.
+- **Explanation:** Phases 2–4 specify a working solution under the four Phase 1 decisions. The
+  event half waits on another design's approval.
+- **Open questions:**
+  1. **Blocking (Step 6), `ui-events` approval:** as the leading issue.
+  2. **Proposed resolution, delegate registry per thread:** a definition is visible on the thread
+     that registered it. In the browser that is the one thread, and it is how `UIDEF08`'s thread
+     affinity is met.
+  3. **Proposed resolution, `mount` lifecycle:** `mount` runs again whenever the element's markup
+     is replaced, after the previous cleanup. A canvas widget redraws on each props change, rather
+     than receiving an `update` call.
+  4. **Proposed resolution, markup trust:** `render`'s string is inserted as HTML, as Rust
+     `render_web` markup is. The page escapes its own data; the guide says so.
+
 ## Purpose
 
 Let a page add to the Liquers UI in JavaScript: define an element type that behaves like a built-in

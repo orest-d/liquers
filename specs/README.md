@@ -247,6 +247,7 @@ on wasm.
 - **UI event delivery** — designing → [`design/ui-events/`](design/ui-events/)
 - **Liquers UI from JavaScript** — designing → [`design/web-ui-use/`](design/web-ui-use/)
 - **UI elements and renderers defined in JavaScript** — designing → [`design/web-ui-define/`](design/web-ui-define/)
+- **Execution context for JavaScript commands** — designing → [`design/js-command-context/`](design/js-command-context/)
 - **Typed list values for `lui/children`** — built → [`design/value-list-support/`](design/value-list-support/)
 - **egui asset-manager adapter** — planned → [`issues/EGUI-ASSET-MANAGER-INTEGRATION.md`](issues/EGUI-ASSET-MANAGER-INTEGRATION.md)
 

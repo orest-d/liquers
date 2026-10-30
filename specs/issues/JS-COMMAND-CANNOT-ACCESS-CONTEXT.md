@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: M
 area: [web]
-design:
+design: js-command-context
 created: 2026-08-29
 github:
 ---
