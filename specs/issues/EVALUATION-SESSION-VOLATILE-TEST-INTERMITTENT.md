@@ -1,7 +1,7 @@
 ---
 id: EVALUATION-SESSION-VOLATILE-TEST-INTERMITTENT
 kind: issue
-title: volatile_dependency_has_one_value_per_evaluation fails intermittently: a later evaluation sometimes reuses the volatile value
+title: "volatile_dependency_has_one_value_per_evaluation fails intermittently: a later evaluation sometimes reuses the volatile value"
 status: closed
 priority: P2
 complexity: S

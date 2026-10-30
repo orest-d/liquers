@@ -56,9 +56,7 @@ pub struct PipelineParts {
     pub storage: Arc<dyn MetadataStorage>,
     pub chains: StageChains,
     pub writes: Arc<dyn WriteStrategy>,
-    /// Store the record the `on_default` chain synthesized, the first time it is read.
-    pub persist_defaults: bool,
-    /// The mount is read-only: never persist defaults, never write on read (no recovery, no
+    /// The mount is read-only: never write on read (no recovery, no
     /// backup copy). The caller's writes are refused by the decorator above.
     pub read_only: bool,
     /// Members' backups, under central storage.
@@ -79,7 +77,6 @@ impl PipelineParts {
             storage,
             chains: StageChains::empty(),
             writes,
-            persist_defaults: false,
             read_only: false,
             backups: Vec::new(),
             version_verification: None,
@@ -100,7 +97,6 @@ pub struct MetadataPipelineStore {
     storage: Arc<dyn MetadataStorage>,
     chains: StageChains,
     writes: Arc<dyn WriteStrategy>,
-    persist_defaults: bool,
     read_only: bool,
     backups: Vec<Backup>,
     version_verification: Option<crate::environment_builder::VersionVerification>,
@@ -135,7 +131,6 @@ impl MetadataPipelineStore {
             storage: parts.storage,
             chains: parts.chains,
             writes: parts.writes,
-            persist_defaults: parts.persist_defaults && !parts.read_only,
             read_only: parts.read_only,
             backups: parts.backups,
             version_verification: parts.version_verification,
@@ -506,10 +501,6 @@ impl MetadataPipelineStore {
                 };
                 let mut out = StepOut::default();
                 self.chains.default.run(&mut record, &facts_in, &mut out)?;
-                if self.persist_defaults {
-                    let metadata = Metadata::MetadataRecord(record.clone());
-                    self.commit(key, None, Some(&metadata)).await?;
-                }
                 (record, None)
             }
         };
@@ -527,6 +518,9 @@ impl MetadataPipelineStore {
         }
         let mut out = StepOut::default();
         self.chains.read.run(&mut record, &facts_in, &mut out)?;
+        // A fact, set after the read chain so no step can change it: a record read from storage is
+        // never inferred, whatever its bytes say; one the default chain built always is.
+        record.inferred = previous.is_none();
         if let Some(warning) = &warning {
             record.warning(warning);
         }
@@ -569,10 +563,30 @@ impl MetadataPipelineStore {
             previous,
             operation,
         };
+        // The flag is the store's fact, never a caller's request: a record read and sent back
+        // is stored as on any mount. Only an `on_write` step (`infer`) may set it again.
+        record.inferred = false;
         let mut out = StepOut::default();
         self.chains.validate.run(record, &facts_in, &mut out)?;
         self.chains.write.run(record, &facts_in, &mut out)?;
         Ok(out.data)
+    }
+
+    /// The record to store for a prepared `record`: `None` when it is inferred, so that the key
+    /// has no stored record (an existing one is deleted in the same write).
+    fn record_to_store(&self, key: &Key, record: &MetadataRecord) -> Result<Option<Metadata>, Error> {
+        if !record.inferred {
+            return Ok(Some(Metadata::MetadataRecord(record.clone())));
+        }
+        if !self.storage.records_apart_from_data() {
+            return Err(Error::not_supported(format!(
+                "The record of '{key}' is marked inferred, but storage '{}' keeps a record with \
+                 its data and cannot leave it unstored; use a storage model that keeps records \
+                 apart (per_entry, grouped, none)",
+                self.storage.name()
+            )));
+        }
+        Ok(None)
     }
 
     /// Sets `created` and `etag` from the backend's facts after a data commit, rewriting the
@@ -669,8 +683,11 @@ impl AsyncStore for MetadataPipelineStore {
         let replaced =
             self.prepare_record(key, &mut record, None, Some(data), previous.as_ref(), "set")?;
         let data = replaced.as_deref().unwrap_or(data);
-        let stored = Metadata::MetadataRecord(record.clone());
-        self.commit(key, Some(Some(data)), Some(&stored)).await?;
+        let stored = self.record_to_store(key, &record)?;
+        self.commit(key, Some(Some(data)), stored.as_ref()).await?;
+        if stored.is_none() {
+            return Ok(());
+        }
         self.record_backend_facts(key, &mut record).await
     }
 
@@ -715,16 +732,16 @@ impl AsyncStore for MetadataPipelineStore {
             previous.as_ref(),
             "set_metadata",
         )?;
+        let stored = self.record_to_store(key, &record)?;
         match &replaced {
             Some(data) => {
-                let stored = Metadata::MetadataRecord(record.clone());
-                self.commit(key, Some(Some(data)), Some(&stored)).await?;
+                self.commit(key, Some(Some(data)), stored.as_ref()).await?;
+                if stored.is_none() {
+                    return Ok(());
+                }
                 self.record_backend_facts(key, &mut record).await
             }
-            None => {
-                let stored = Metadata::MetadataRecord(record);
-                self.commit(key, None, Some(&stored)).await
-            }
+            None => self.commit(key, None, stored.as_ref()).await,
         }
     }
 
@@ -883,7 +900,8 @@ impl AsyncStore for MetadataPipelineStore {
 mod tests {
     use super::*;
     use crate::command_metadata::CommandMetadataRegistry;
-    use crate::metadata::Version;
+    use crate::metadata::{Status, Version};
+    use crate::store::storage::encode_metadata;
     use crate::parse::parse_key;
     use crate::store::realm::{
         register_builtin_store_config, register_test_store_config, ComponentContext, ComponentKind,
@@ -900,7 +918,6 @@ mod tests {
         on_validate: &'a str,
         on_write: &'a str,
         on_read: &'a str,
-        persist_defaults: bool,
         read_only: bool,
     }
 
@@ -913,7 +930,6 @@ mod tests {
                 on_validate: "",
                 on_write: "defaults/media_type-fill/file_facts",
                 on_read: "media_type-fill/file_facts",
-                persist_defaults: false,
                 read_only: false,
             }
         }
@@ -959,7 +975,6 @@ mod tests {
             write: f.compile(spec.on_write, Stage::Write, &cmr)?,
             read: f.compile(spec.on_read, Stage::Read, &cmr)?,
         };
-        parts.persist_defaults = spec.persist_defaults;
         parts.read_only = spec.read_only;
         MetadataPipelineStore::new(parts)
     }
@@ -1095,7 +1110,6 @@ mod tests {
             recording.clone(),
             &Spec {
                 storage: "none",
-                persist_defaults: true,
                 ..Spec::default()
             },
         )?;
@@ -1113,45 +1127,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn persist_defaults_true_stores_the_default_once() -> Result<(), Error> {
-        let raw = memory();
-        let key = parse_key("a.md")?;
-        raw.set_data(&key, b"# A").await?;
-        let recording = Arc::new(RecordingStore::new(raw.clone()));
-        let store = pipeline(
-            recording.clone(),
-            &Spec {
-                persist_defaults: true,
-                ..Spec::default()
-            },
-        )?;
-        let first = as_record(store.get_metadata(&key).await?)?;
-        recording.clear();
-        let second = as_record(store.get_metadata(&key).await?)?;
-        assert!(writes_of(&recording).is_empty());
-        assert_eq!(first.updated, second.updated);
-        assert!(objects(raw.as_ref())
-            .await?
-            .contains(&"a.md.__metadata__".to_string()));
-        // A fresh pipeline reads the stored record and writes nothing.
-        let recording = Arc::new(RecordingStore::new(raw.clone()));
-        let fresh = pipeline(
-            recording.clone(),
-            &Spec {
-                persist_defaults: true,
-                ..Spec::default()
-            },
-        )?;
-        assert_eq!(
-            as_record(fresh.get_metadata(&key).await?)?.updated,
-            first.updated
-        );
-        assert!(writes_of(&recording).is_empty());
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn persist_defaults_false_writes_nothing_and_is_stable() -> Result<(), Error> {
+    async fn default_records_write_nothing_and_are_stable() -> Result<(), Error> {
         let raw = memory();
         let key = parse_key("a.md")?;
         raw.set_data(&key, b"# A").await?;
@@ -1523,7 +1499,6 @@ mod tests {
             backend,
             &Spec {
                 storage: "native",
-                persist_defaults: true,
                 ..Spec::default()
             },
         )?;
@@ -1607,7 +1582,6 @@ mod tests {
         let store = pipeline(
             recording.clone(),
             &Spec {
-                persist_defaults: true,
                 read_only: true,
                 writes: "transactional",
                 ..Spec::default()
@@ -1705,6 +1679,199 @@ mod tests {
             }
         }
         let _ = std::fs::remove_dir_all(&root);
+        Ok(())
+    }
+
+    // --- `design/storage-none-computed-values/`: inferred records ---
+
+    fn ready_record(title: &str) -> Metadata {
+        let mut record = MetadataRecord::new();
+        record.title = title.to_string();
+        record.status = Status::Ready;
+        Metadata::MetadataRecord(record)
+    }
+
+    /// AC-1: a record the default chain built is inferred; one read from storage is not, even when
+    /// its stored bytes claim otherwise.
+    #[tokio::test]
+    async fn default_record_is_inferred_and_stored_record_is_not() -> Result<(), Error> {
+        let raw = memory();
+        let key = parse_key("a.md")?;
+        raw.set_data(&key, b"# A").await?;
+        let store = pipeline(raw.clone(), &Spec::default())?;
+        assert!(store.get_metadata(&key).await?.is_inferred());
+        assert!(store.get(&key).await?.1.is_inferred());
+        store.set(&key, b"# A", &record("A")).await?;
+        assert!(!store.get_metadata(&key).await?.is_inferred());
+        let listed = store.listdir_asset_info(&Key::new()).await?;
+        assert_eq!(listed.len(), 1);
+        // A record stored by hand with the flag set still reads back as stored.
+        let other = parse_key("b.md")?;
+        raw.set_data(&other, b"# B").await?;
+        let mut forged = MetadataRecord::new();
+        forged.inferred = true;
+        let forged = serde_json::to_vec(&forged)
+            .map_err(|e| Error::from_error(crate::error::ErrorType::SerializationError, e))?;
+        raw.set_data(&parse_key("b.md.__metadata__")?, &forged).await?;
+        assert!(!store.get_metadata(&other).await?.is_inferred());
+        Ok(())
+    }
+
+    /// AC-2: no storage model keeps the flag.
+    #[tokio::test]
+    async fn every_storage_model_drops_the_flag() -> Result<(), Error> {
+        for storage in ["per_entry", "per_entry-root", "per_entry-prefix", "per_entry-folder", "grouped"] {
+            let raw = memory();
+            let key = parse_key("docs/a.md")?;
+            let store = pipeline(
+                raw.clone(),
+                &Spec {
+                    storage,
+                    on_write: "",
+                    ..Spec::default()
+                },
+            )?;
+            // `on_write: ""` stores the caller's record as it is, flag cleared on the way in.
+            let mut sent = MetadataRecord::new();
+            sent.inferred = true;
+            store.set(&key, b"# A", &Metadata::MetadataRecord(sent)).await?;
+            for name in objects(raw.as_ref()).await? {
+                if name == "docs/a.md" {
+                    continue;
+                }
+                let bytes = raw.get_data(&parse_key(&name)?).await?;
+                let text = String::from_utf8_lossy(&bytes);
+                assert!(!text.contains("inferred"), "{storage}: {name}: {text}");
+            }
+            assert!(!store.get_metadata(&key).await?.is_inferred(), "{storage}");
+        }
+        let mut record = MetadataRecord::new();
+        record.inferred = true;
+        let encoded = encode_metadata(&Metadata::MetadataRecord(record))?;
+        assert!(!String::from_utf8_lossy(&encoded).contains("inferred"));
+        Ok(())
+    }
+
+    /// AC-3: a record read and sent back is stored, as on any mount.
+    #[tokio::test]
+    async fn incoming_inferred_flag_is_cleared() -> Result<(), Error> {
+        let raw = memory();
+        let key = parse_key("a.md")?;
+        raw.set_data(&key, b"# A").await?;
+        let store = pipeline(raw.clone(), &Spec::default())?;
+        let mut read = as_record(store.get_metadata(&key).await?)?;
+        assert!(read.inferred);
+        read.title = "Edited".to_string();
+        store
+            .set_metadata(&key, &Metadata::MetadataRecord(read))
+            .await?;
+        assert!(objects(raw.as_ref())
+            .await?
+            .contains(&"a.md.__metadata__".to_string()));
+        let fresh = pipeline(raw.clone(), &Spec::default())?;
+        let reread = as_record(fresh.get_metadata(&key).await?)?;
+        assert_eq!(reread.title, "Edited");
+        assert!(!reread.inferred);
+        Ok(())
+    }
+
+    /// AC-4, AC-5: `infer-Source` keeps no record for a user value and deletes the record a
+    /// computed value had; a computed value keeps its record.
+    #[tokio::test]
+    async fn inferred_record_is_not_stored_and_deletes_the_old_one() -> Result<(), Error> {
+        let raw = memory();
+        let key = parse_key("docs/index.md")?;
+        let spec = Spec {
+            storage: "per_entry-root",
+            on_write: "defaults/media_type-fill/file_facts/infer-Source",
+            ..Spec::default()
+        };
+        let store = pipeline(raw.clone(), &spec)?;
+        store.set(&key, b"# Index", &ready_record("Index")).await?;
+        assert!(objects(raw.as_ref())
+            .await?
+            .contains(&"__metadata__/docs/index.md".to_string()));
+        let stored = as_record(store.get_metadata(&key).await?)?;
+        assert_eq!(stored.status, Status::Ready);
+        assert!(!stored.inferred);
+        // The user writes the key: no record is kept, and the computed one is gone.
+        store.set(&key, b"# Mine", &record("Mine")).await?;
+        assert_eq!(objects(raw.as_ref()).await?, vec!["docs/index.md".to_string()]);
+        let read = as_record(store.get_metadata(&key).await?)?;
+        assert!(read.inferred);
+        assert_eq!(read.status, Status::Source);
+        assert_eq!(store.get_bytes(&key).await?, b"# Mine".to_vec());
+        // set_metadata of a user value under the same policy keeps nothing either.
+        store.set_metadata(&key, &record("Title")).await?;
+        assert_eq!(objects(raw.as_ref()).await?, vec!["docs/index.md".to_string()]);
+        Ok(())
+    }
+
+    /// AC-5: `infer` with no status marks every record, `storage: none` included.
+    #[tokio::test]
+    async fn infer_without_statuses_marks_all() -> Result<(), Error> {
+        let raw = memory();
+        let key = parse_key("a.txt")?;
+        let store = pipeline(
+            raw.clone(),
+            &Spec {
+                on_write: "defaults/infer",
+                ..Spec::default()
+            },
+        )?;
+        store.set(&key, b"x", &ready_record("R")).await?;
+        assert_eq!(objects(raw.as_ref()).await?, vec!["a.txt".to_string()]);
+        let none = pipeline(
+            memory(),
+            &Spec {
+                storage: "none",
+                on_write: "defaults/infer-Ready",
+                ..Spec::default()
+            },
+        )?;
+        none.set(&key, b"x", &ready_record("R")).await?;
+        assert!(none.get_metadata(&key).await?.is_inferred());
+        Ok(())
+    }
+
+    /// AC-5: an unknown status, or `infer` outside `on_write`, fails at build.
+    #[test]
+    fn infer_refuses_unknown_status_and_other_stages() -> Result<(), Error> {
+        let bad_status = pipeline(
+            memory(),
+            &Spec {
+                on_write: "infer-Sourcey",
+                ..Spec::default()
+            },
+        );
+        assert!(matches!(&bad_status, Err(e) if e.message.contains("Sourcey")));
+        let bad_stage = pipeline(
+            memory(),
+            &Spec {
+                on_read: "infer",
+                ..Spec::default()
+            },
+        );
+        assert!(bad_stage.is_err());
+        Ok(())
+    }
+
+    /// A model that keeps the record with the data cannot leave it unstored: the write is refused,
+    /// nothing is deleted.
+    #[tokio::test]
+    async fn native_storage_refuses_an_inferred_record() -> Result<(), Error> {
+        let raw = memory();
+        let key = parse_key("a.txt")?;
+        let store = pipeline(
+            raw.clone(),
+            &Spec {
+                storage: "native",
+                on_write: "defaults/infer",
+                ..Spec::default()
+            },
+        )?;
+        let refused = store.set(&key, b"x", &record("A")).await;
+        assert!(matches!(&refused, Err(e) if e.message.contains("native")), "{refused:?}");
         Ok(())
     }
 }

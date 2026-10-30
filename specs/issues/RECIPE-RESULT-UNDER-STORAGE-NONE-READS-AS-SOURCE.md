@@ -2,7 +2,7 @@
 id: RECIPE-RESULT-UNDER-STORAGE-NONE-READS-AS-SOURCE
 kind: issue
 title: A recipe result stored in a storage-none mount reads back as Source and cannot drop back to its recipe
-status: draft
+status: closed
 priority: P3
 complexity: M
 area: [core/store, core/assets]
@@ -46,3 +46,13 @@ than filed: with no stored dependency records, a later process fast-tracks the o
 `Source` even after its inputs changed. Found while testing `design/agent-memory-mvp/` (complete),
 which this issue no longer links as its design. Designed in `design/storage-none-computed-values/`
 (recommended: do not write computed values into a mount that keeps no metadata).
+
+## Resolution
+
+Fixed by `specs/design/storage-none-computed-values/` (PR #173). A record the store builds rather
+than reads is now flagged `inferred` (never stored). At a key a recipe can make, the asset manager
+reads data under an inferred record as a file with no metadata, so the environment's
+`external_change` policy decides between `Override` and recomputation, and `remove` deletes the
+data and drops the key back to its recipe (`get_asset_info` reports `Recipe`). The original
+scenario is `recipe_results_drop_back_to_recipe_in_a_storage_none_mount` in
+`liquers-lib/tests/mem_commands.rs`.

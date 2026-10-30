@@ -698,6 +698,31 @@ async fn recipe_results_drop_back_to_recipe() -> Res {
     Ok(())
 }
 
+/// `storage-none-computed-values` AC-8: in the memory's own `storage: none` mount a recipe result's
+/// record is inferred, so `remove` deletes the result file and the key drops back to its recipe,
+/// instead of the file being read and deleted as a user's `Source`.
+#[tokio::test]
+async fn recipe_results_drop_back_to_recipe_in_a_storage_none_mount() -> Res {
+    let f = fixture("recipe-drop-none").await?;
+    let key = parse_key("notes/derived.md")?;
+    let path = f.dir.join("mem/notes/derived.md");
+    f.env.get_asset_manager().get(&key).await?.get().await?;
+    // The value is written to the store in the background; remove once it has landed.
+    for _ in 0..200 {
+        if path.exists() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    assert!(path.exists(), "the result is written into the checkout");
+    assert!(f.env.get_async_store().get_metadata(&key).await?.is_inferred());
+    f.env.get_asset_manager().remove(&key).await?;
+    assert!(!path.exists(), "the result file is deleted");
+    let info = f.env.get_asset_manager().get_asset_info(&key).await?;
+    assert_eq!(info.status, Status::Recipe);
+    Ok(())
+}
+
 /// AC-7 (Phase 2 preflight): writes keep no live asset for the keys they write.
 #[tokio::test]
 async fn many_writes_do_not_grow_retained_assets() -> Res {
