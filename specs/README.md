@@ -503,6 +503,7 @@ deliberately folded behind a broader line.
 - design `recipe-override-addressing`
 - design `recipe-plan-declarations`
 - design `recipe-preview-shares-plan-analysis`
+- design `recipe-provider-chain-config`
 - design `recipes-yaml-read-errors-propagate`
 - design `record-batch-private-fields`
 - design `record-decimal-field-type`
@@ -661,6 +662,7 @@ deliberately folded behind a broader line.
 - feature `QUERY-BUILDER-NOT-IN-BINDINGS`
 - feature `QUERY-CANNOT-CHOOSE-A-DATA-FORMAT`
 - feature `QUERY-CANNOT-MARK-CACHED-INTERMEDIATES`
+- feature `RECIPE-PROVIDER-CHAIN-NOT-CONFIGURABLE`
 - feature `RECORD-FIELD-TYPE-HAS-NO-DECIMAL`
 - feature `RECORD-FIELD-TYPE-HAS-NO-UUID-TIME-OR-INTERVAL`
 - feature `RECORD-SOURCE-ROWS-CANNOT-BE-STREAMED`
