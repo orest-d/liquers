@@ -3,7 +3,7 @@ title: Recipes and Plans Reference
 kind: reference
 audience: internal
 area: [core/plan, core/query, core/assets, core/context]
-reviewed: 2026-10-27
+reviewed: 2026-10-30
 ---
 # Recipes and Plans
 
@@ -221,56 +221,61 @@ empty read, are not cached.
 
 ### Composing providers: `RecipeProviderChain`
 
-`RecipeProviderChain` consults several providers in order and is itself an `AsyncRecipeProvider`:
+Every environment's recipe provider is a `RecipeProviderChain`, configured as an ordered list of
+entries (`recipes:`; [`ENVIRONMENT_CONFIG.md`](ENVIRONMENT_CONFIG.md) §The recipe provider chain).
+A chain is itself an `AsyncRecipeProvider`, and it **asks every member**: a key is owned by the one
+member with a recipe for it, whatever the order.
 
 | Method | Chain behaviour |
 |---|---|
-| `recipe_opt` | The first provider answering `Some`; an `Err` from an earlier provider propagates without consulting the rest |
-| `contains` | `true` if any provider's `contains` is |
-| `can_make` | `true` if any provider's **`recipe_opt`** answers `Some` |
-| `directory_changed` | forwarded to every provider, in order |
-| `has_recipes` | `true` if any provider's does |
-| `assets_with_recipes` | The union, in provider order, without duplicates |
-| `recipe`, `recipe_plan`, `get_asset_info` | Delegated whole to the provider that has the key; otherwise the same not-found error `DefaultRecipeProvider` returns |
+| `recipe_opt`, `can_make` | The owner's answer. An `Err` from any member fails the lookup; two members answering `Some` is a `ConfigurationError` naming both |
+| `recipe`, `recipe_plan`, `get_asset_info` | Delegated whole to the owner; with none, `No recipe found for key …`, the not-found error `DefaultRecipeProvider` returns |
+| `contains` | `true` if any member's `contains` is |
+| `has_recipes` | `true` if any member's does |
+| `assets_with_recipes` | The union, in member order, without duplicates |
+| `directory_changed` | forwarded to every member, in order |
 
-A chain is built in code: `EnvironmentBuilder::with_appended_recipe_provider` (composed at
-`build()` after the configured or kind-default base) or
-`GenericEnvironment::with_appended_recipe_provider` (wraps the current provider). `liquers-lib`
-with its `records` feature defaults to `[DefaultRecipeProvider, ManifestRecipeProvider]`
-(`LibKind::default_recipe_provider`); the second is a generative provider synthesizing recipes for
-keyed record chunks named by a `*.manifest.yaml`; it lists only explicit chunks (`contains`) and
-produces template chunks (`can_make`, through the default). A build that replaces the base provider
-(`with_recipe_provider`, `with_recipe_provider_choice`, or a configuration document's `recipes:`
-key) loses the manifest provider unless it also calls
-`RecordsRecipeProvider::with_records_recipe_provider()`. An `Err` from the manifest provider (for
-example, a malformed manifest) propagates through the chain for every key in that folder that
-`recipes.yaml` does not define. See
-[`ENVIRONMENT_CONFIG.md`](ENVIRONMENT_CONFIG.md) §The recipe provider chain.
+So a provider answers "no recipe" for a key it does not own and fails only when something is
+substantially wrong; an `Err` from the manifest provider (a malformed manifest, say) fails every
+lookup in that folder, `recipes.yaml` keys included. Members are named — by entry type when
+resolved from a list (`RecipeProviderChain::named`, `names()`), `#n` by position from
+`RecipeProviderChain::new` / `push` — so errors can say which provider failed or which two clash.
+
+**Entry types** are declared by a `RecipeProviderFactory` (`RecipeProviderTypeInfo`,
+`RecipeProviderTypeMap`, `ChainedRecipeProviderFactory`, modelled on store factories), and a list is
+turned into a chain by `resolve_recipes(recipes, default_list, factory)`: `KindDefault` and each
+`default` entry expand to the kind's list, a name occurring twice is refused, and each entry is
+built by the first factory declaring its type (an unknown or unavailable type is a
+`ConfigurationError` naming the entry and its position). `liquers-core` declares `recipes_yaml`
+(`DefaultRecipeProvider`); `liquers-lib` declares `manifest` (`ManifestRecipeProvider`, unavailable
+without `records`), a generative provider synthesizing recipes for keyed record chunks named by a
+`*.manifest.yaml`; it lists only explicit chunks (`contains`) and produces template chunks
+(`can_make`). It does not read the folder's `recipes.yaml`: a chunk name that file also defines is
+the chain's two-owner error. An integration adds its own types with
+`EnvironmentBuilder::with_recipe_provider_factory`.
+
+Code can still add providers: `EnvironmentBuilder::with_appended_recipe_provider` (member `#n`,
+after the base and earlier appended items), `with_appended_recipe_entry` (skipped when that entry is
+already present, which is how `RecordsRecipeProvider::with_records_recipe_provider()` adds
+`manifest` without duplicating it), and `GenericEnvironment::with_appended_recipe_provider` (wraps
+the current provider).
 
 ### Selecting a provider by name
 
-`RecipeProviderChoice` names the two built-in providers so a configuration document can select one
-as data (`recipes: default|trivial`, `EnvironmentConfig.recipes`). It is a field-free `Copy` enum;
-`provider()` returns `Arc<dyn AsyncRecipeProvider<E>>` and `boxed_provider()` returns `Box<…>`,
-matching the two setter shapes in use. Both matches are exhaustive, so a third built-in provider is a
-compile error rather than a silent fallback.
+`RecipeProviderChoice` keeps the two keywords as a type: `Default` and `Trivial`. It converts into
+`RecipesConfig` (`Default` → `KindDefault`, the kind's list; `Trivial` → `[]`), and that is what
+`with_recipe_provider_choice` does on the builder and on `GenericEnvironment`.
+`RecipeProviderChoice::provider()` still returns the bare `DefaultRecipeProvider` or
+`TrivialRecipeProvider` for code that wants one provider rather than a kind's list.
 
-| Choice | Provider | Names accepted on input | Emitted |
+| Keyword in `recipes:` | Meaning | Names accepted on input | Emitted |
 |---|---|---|---|
-| `RecipeProviderChoice::Default` | `DefaultRecipeProvider` | `default` | `default` |
-| `RecipeProviderChoice::Trivial` | `TrivialRecipeProvider` | `trivial`, `none`, `no_recipes` | `trivial` |
+| `default` (or the key absent) | `RecipesConfig::KindDefault`, the kind's list | `default` | key omitted in a document, `default` alone |
+| `trivial` | `RecipesConfig::Chain([])` | `trivial`, `none`, `no_recipes`, `[]` | `[]` |
 
-`Default` is the `#[default]` variant: a document that says nothing about recipes gets working
-recipes. That is the *document* default and is deliberately not the same as an environment
-constructor's unconfigured default, which is per asset-manager kind: `Trivial` for the
-`liquers-core` kinds, `Default` (plus the manifest provider with `records`) for `liquers-lib`'s
-`LibKind`. `FromStr` accepts the same names as Deserialize and reports an unknown one as an error;
-`Display` and serialization emit the canonical name.
-
-The set is closed and there is no registration hook. A host with its own `AsyncRecipeProvider`
-still passes the value to the environment directly — custom providers vary too much to be named
-here — or appends it to a chain (§Composing providers). No "chain" choice exists either: a choice is
-data and cannot name a provider living in another crate.
+An unknown keyword is a parse error naming the accepted ones. The document default is deliberately
+not the same as an environment constructor's unconfigured chain, which is per asset-manager kind:
+`[]` for the `liquers-core` kinds, the kind's list for `liquers-lib`'s `LibKind`.
 
 ## Planning contract
 
@@ -878,6 +883,7 @@ not otherwise enforce this distinction.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-30 | §Composing providers rewritten for `design/recipe-provider-chain-config/`: every environment holds a chain built from a `recipes:` list; every member is asked (any `Err` fails, two owners is a `ConfigurationError` naming both); named members; entry types, factories and `resolve_recipes`; the manifest provider no longer reads `recipes.yaml`; `with_appended_recipe_entry`. §Selecting a provider by name: `RecipeProviderChoice` converts into `RecipesConfig`, and the closed set with no registration hook is replaced by entry types any crate can declare. | phase-5 (`design/recipe-provider-chain-config/`) |
 | 2026-10-27 | §Working directory: the explicit-`cwd` error names each offending recipe; `RecipeList::set_cwd` validates before mutating and writes nothing to stderr. Two Known limitations bullets removed. | design `recipe-list-set-cwd-validation` |
 | 2026-10-27 | §Provider contract: only a missing or unsupported `recipes.yaml` reads as no recipes; other read errors are returned. Known limitations bullet removed. | design `recipes-yaml-read-errors-propagate` |
 | 2026-10-27 | §Serialization and future plan rewriting: a serialized plan is an inspection format of one build, with no cross-version guarantee; persist the query or recipe instead. Known limitations bullet removed. | `design/plan-serialization-internal-contract/` |

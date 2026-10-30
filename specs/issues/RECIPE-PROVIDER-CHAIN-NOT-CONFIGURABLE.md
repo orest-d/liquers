@@ -2,7 +2,7 @@
 id: RECIPE-PROVIDER-CHAIN-NOT-CONFIGURABLE
 kind: feature
 title: A configuration document cannot describe the recipe provider chain, only pick one built-in provider
-status: draft
+status: closed
 priority: P2
 complexity: L
 area: [core/context, lib/commands, records, py, web]
@@ -10,6 +10,18 @@ design: recipe-provider-chain-config
 created: 2026-10-30
 github:
 ---
+## Resolution
+
+Implemented by `specs/design/recipe-provider-chain-config/` (PR #224). `recipes:` is a
+`RecipesConfig`: absent or `default` is the manager kind's list, `trivial` is `[]`, and a list of
+entries (a bare name or `{type: …}` with arguments) is the chain. Entry types are declared by
+`RecipeProviderFactory` implementations (`recipes_yaml` in core, `manifest` in `liquers-lib`), an
+integration chains its own with `EnvironmentBuilder::with_recipe_provider_factory`, and every
+environment's provider is a `RecipeProviderChain` that asks every member. Evidence:
+`liquers-core/tests/recipe_provider_chain_config.rs`, `recipes_config_tests` and
+`recipe_provider_chain_tests` in `liquers-core/src/recipes.rs`,
+`liquers-lib/tests/recipe_provider_chain_config.rs`.
+
 ## Problem
 
 An environment's recipe providers are a `RecipeProviderChain` (`liquers-core/src/recipes.rs`), but

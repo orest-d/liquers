@@ -3,7 +3,7 @@ title: Python Integration
 kind: reference
 audience: both
 area: [py, core/value, core/error, lib/value]
-reviewed: 2026-10-28
+reviewed: 2026-10-30
 ---
 # Python Integration
 
@@ -77,8 +77,9 @@ The type registry is `Value`'s, plus `py.Object` (§5).
 **Construction.** `Environment(*, config=None, conversion="permissive", pickle=False, async_loops=1,
 job_capacity=None)`. `config` is
 an `EnvironmentConfig` (`reference/ENVIRONMENT_CONFIG.md`), as a YAML string or as a `dict`
-(converted through JSON). The constructor refuses an unknown `conversion` and any `recipes` other
-than `default` with `ConfigurationError`. Nothing else is built yet. The pickle codec is a
+(converted through JSON). The constructor refuses an unknown `conversion` with
+`ConfigurationError`; a malformed `config` (an unknown `recipes` keyword among them) fails to parse.
+Nothing else is built yet. The pickle codec is a
 keyword rather than a `config` entry because `EnvironmentConfig` has no codec section. There is
 no `reset()`: a new `Environment()` is a fresh environment.
 
@@ -104,7 +105,10 @@ use.
 **Store.** The first build constructs the store: an `AsyncMemoryStore` at the root when
 `config.store.stores` is empty, otherwise the configured router through
 `liquers_store::store_factory::default_store_factory()`. The asset manager takes `config.assets`.
-The recipe provider is the builder's default chain.
+The recipe provider chain is `config.recipes`, resolved against `liquers-lib`'s `LibKind`: absent or
+`default` is `[recipes_yaml, manifest]`, `trivial` or `[]` resolves nothing, and a list such as
+`["recipes_yaml"]` or `[{"type": "manifest"}]` is that chain (`reference/ENVIRONMENT_CONFIG.md`
+§The recipe provider chain). An unknown entry type fails the build with `ConfigurationError`.
 
 **Rebuild.** The environment is built on first use. A later `command`, `first_command`,
 `unregister` or `import_metadata` marks it for a rebuild, and the next use builds a new
@@ -403,7 +407,8 @@ protect.
 - No `realm=` or `arguments=` on the decorators (`PY-COMMAND-DECORATOR-CANNOT-SET-REALM`,
   `PY-COMMAND-DECORATOR-CANNOT-DECLARE-ARGUMENT-METADATA`); the context is passed positionally
   (`COMMAND_DECLARATION.md` §9).
-- The recipe provider cannot be configured (`PY-RECIPE-PROVIDER-NOT-CONFIGURABLE`).
+- A recipe provider cannot be written in Python yet; the chain only places the built-in entry
+  types (`PY-NO-LANGUAGE-DEFINED-RECIPE-PROVIDER`, liquers-py M4).
 - Core's progress diagnostics go to stderr and cannot be filtered (`CORE-TRACING-MIGRATION`).
 - There is no generated API reference (`PY-API-REFERENCE-NOT-GENERATED`), although every public
   name has a docstring (`tests/test_DOCS_docstrings.py` keeps it so); `Metadata` exposes its fields as methods where `State` and
@@ -415,6 +420,7 @@ protect.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-30 | §3: `config.recipes` accepts every value (`default`, `trivial`, a list of entries); the constructor no longer refuses a non-default `recipes`. Known limitations: the recipe-provider limitation now names a Python-written provider only. | design `recipe-provider-chain-config` |
 | 2026-10-28 | §6: a wrapper method's JSON/YAML failure raises `SerializationError`, and a bad constructor argument the core constructor's error; no wrapper raises a plain `Exception`. | design `py-metadata-typed-errors` |
 | 2026-10-27 | §8: every public name has a docstring now; only the generated API reference is missing. | design `py-docstrings` |
 | 2026-10-27 | §3 `async_loops` and `job_capacity`, the `_async` methods, shutdown stops the loop pool; §4 async commands; §7 the bridge, awaitables, loop pool, blocking-call rule, job capacity, free-threading; §8 the synchronous-only limitation is lifted; the shutdown pin leak is fixed (`CORE-JOB-QUEUE-KEEPS-ENVIRONMENT-PINS-AFTER-SHUTDOWN`). | `design/liquers-py-async/` (phase-5) |

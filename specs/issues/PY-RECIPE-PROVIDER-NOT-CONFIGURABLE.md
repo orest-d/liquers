@@ -2,7 +2,7 @@
 id: PY-RECIPE-PROVIDER-NOT-CONFIGURABLE
 kind: feature
 title: A Python environment cannot configure a recipe provider other than the default
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [py]
@@ -10,6 +10,14 @@ design: recipe-provider-chain-config
 created: 2026-10-18
 github:
 ---
+
+## Resolution
+
+Fixed by `specs/design/recipe-provider-chain-config/` (PR #224). `Environment(config=…)` accepts
+every `recipes` value, applied with `EnvironmentBuilder::with_recipes`; an unknown entry type fails
+the first use with `ConfigurationError`. Evidence: `test_ENVIRON_recipes_*` in
+`liquers-py/tests/test_ENVIRON_environment.py`. A recipe provider written in Python remains open as
+`PY-NO-LANGUAGE-DEFINED-RECIPE-PROVIDER`.
 
 ## Problem
 

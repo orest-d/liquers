@@ -9,16 +9,16 @@ which also carries the design.
 
 ## Progress
 
-- [ ] Step 1: `RecipeProviderEntry` and `RecipesConfig` with their serde forms
-- [ ] Step 2: entry-type factories and `resolve_recipes`
-- [ ] Step 3: the chain asks every member
-- [ ] Step 4: the builder, the kind and the configuration document
-- [ ] Step 5: `GenericEnvironment` setters
-- [ ] Step 6: the manifest provider's own clash check removed
-- [ ] Step 7: `LibKind`, `manifest` and `with_records_recipe_provider`
-- [ ] Step 8: `liquers-py` accepts every `recipes` value
-- [ ] Step 9: feature matrix and full test loops
-- [ ] Step 10: documents and records
+- [x] Step 1: `RecipeProviderEntry` and `RecipesConfig` with their serde forms (`21fe1ba`)
+- [x] Step 2: entry-type factories and `resolve_recipes` (`21fe1ba`)
+- [x] Step 3: the chain asks every member (`21fe1ba`)
+- [x] Step 4: the builder, the kind and the configuration document (`6ca02b6`)
+- [x] Step 5: `GenericEnvironment` setters (`e73b570`)
+- [x] Step 6: the manifest provider's own clash check removed (`57eb44f`)
+- [x] Step 7: `LibKind`, `manifest` and `with_records_recipe_provider` (`4297b59`)
+- [x] Step 8: `liquers-py` accepts every `recipes` value (`ed54f26`)
+- [x] Step 9: feature matrix and full test loops (validation, no commit)
+- [x] Step 10: documents and records (this documentation commit)
 
 ## Implementation Steps
 
@@ -144,6 +144,6 @@ commit. `specs/command_registry.yaml` is not affected, since no command changes.
 
 ## Phase 5 Entry Criteria
 
-- [ ] Implementation finished and validated
-- [ ] User and review comments answered
-- [ ] Documentation checkable against implemented and tested behaviour
+- [x] Implementation finished and validated
+- [x] User and review comments answered
+- [x] Documentation checkable against implemented and tested behaviour
