@@ -47,7 +47,7 @@ pub struct DelegatedElement {
     pub kind: String,
     pub props: serde_json::Value,
     pub title: String,
-    #[serde(skip)] handle: Option<UIHandle>,
+    handle: Option<UIHandle>,          // serialized, like every other element's handle
 }
 #[typetag::serde] impl UIElement for DelegatedElement { /* type_name "DelegatedElement" */ }
 
@@ -90,8 +90,8 @@ pub async fn run_headless<E>(options: HeadlessOptions<E>, app_state: Arc<tokio::
 ```
 
 This is the same loop as `mount_web_with`, with `on_tick` in place of `apply_invalidation`. It
-returns the `MountHandle` that `web-ui-use` makes stoppable; with no root and no listeners, `stop`
-only sets the flag.
+returns the `MountHandle` that `web-ui-use` makes stoppable. Its root and listener fields become
+`Option`s, so a headless handle has none, and `stop` only sets the flag.
 
 **liquers-web** (`src/ui_define.rs`, new):
 
@@ -101,14 +101,15 @@ defineElement(def: { type: string; render: (props: any) => string;
   title?: string }): void;                       // a second define of a type replaces it
 undefineElement(type: string): boolean;
 element(type: string, props?: any, title?: string): UIElement;     // the web-ui-use handle
-mountUI(renderer: UIRenderer, options?: MountOptions): Promise<UIMount>;  // overload: no container
+mountRenderer(renderer: UIRenderer, options?: MountOptions): Promise<UIMount>;  // no container
 interface UIRenderer { render(tree: UITree, changes: UIChangeRecord[] | "all"): void; dispose?(): void }
 interface UITree { roots: number[]; elements: Record<number, UITreeElement> }
 interface UITreeElement { handle: number; parent: number | null; children: number[];
   typeName: string; title: string; status: string; html: string; kind?: string; props?: any }
 type UIChangeRecord = { inserted: number; parent: number | null; index: number }
                     | { removed: number; parent: number | null } | { replaced: number };
-interface UIUserEvent { kind: string; fields: Record<string, any> }   // from ui-events' UserEvent
+interface UIUserEvent { handle: number; kind: string; fields: Record<string, any> }  // ui-events' UserEvent, plus the element
+// UIElement (web-ui-use) gains: readonly kind?: string; readonly props?: any   (DelegatedElement only)
 // UIMount gains: dispatchEvent(handle: number, kind: string, fields?: object): void
 ```
 
@@ -117,10 +118,14 @@ interface UIUserEvent { kind: string; fields: Record<string, any> }   // from ui
   `serde_wasm_bindgen` through the crate's map-as-object serializer, and reads the result back with
   `js_to_value(…, Structural)` followed by a JSON check.
 - `element()` refuses props that are not JSON (decision 4) with a `ConversionError`.
+- While `on_event` runs, `JsElementDelegate` records the handle being updated in a thread-local,
+  and `show(q, thatHandle)` is refused: `deliver_update` puts the element back after the handler,
+  which would silently undo the replacement.
 - Redefining a type calls `invalidate_all()` on every live mount's `AppState`. liquers-web keeps a
   weak list of mounts for this.
 - `mount` reconciliation runs in `on_tick`. It keeps
-  `HashMap<UIHandle, (web_sys::Element, Option<Function>)>`. A `[data-lq-delegate]` node that has
+  `HashMap<UIHandle, (web_sys::Element, Option<Function>)>`, and uses `querySelectorAll`, which
+  needs the web-sys `NodeList` feature. A `[data-lq-delegate]` node that has
   no entry, or whose node differs from the stored one, is mounted with its element's props, read
   by `try_lock` (the lock is free in `on_tick`). An entry whose node is no longer connected has
   its cleanup function called and is dropped.
@@ -128,13 +133,13 @@ interface UIUserEvent { kind: string; fields: Record<string, any> }   // from ui
   and then passes `Changes` as `UIChangeRecord`s, with the tree refreshed for the handles they
   name. `html` is `render_element_web(handle, state)`. `dispatchEvent` sends `AppMessage::UserEvent`.
 
-Everything is sync except `mountUI`.
+Everything is sync except `mountRenderer`.
 
 ## Integration Points
 
 - `liquers-lib/src/ui/widgets/mod.rs` and `ui/mod.rs`: the module, its re-exports, and
   `ui/web/mod.rs` for `headless`.
-- `liquers-web/src/ui.rs` (from `web-ui-use`): the renderer overload of `mountUI`, the mount list
+- `liquers-web/src/ui.rs` (from `web-ui-use`): `mountRenderer`, the mount list
   and the reconciliation hook.
 - `liquers-web/src/ui_define.rs` (new), `lib.rs` exports, `typescript.rs` declarations.
 - The `live_handle_count` counter covers delegate functions, `mount` cleanup functions and
@@ -145,9 +150,11 @@ Everything is sync except `mountUI`.
 | Case | Error |
 |---|---|
 | `defineElement` without `type` or `render`, or `render` not a function | `Error::general_error(…)` naming the field |
+| `mountRenderer` with an object that has no `render` function | `Error::general_error(…)` |
 | props are not JSON (functions, class instances, cycles) | `Error::from_error(ErrorType::ConversionError, …)` naming the type |
-| `render` throws, or returns something other than a string | `js_error_to_liquers(…, ExecutionError)`, rendered in the element as an escaped error box and sent as an `Error` status event |
-| `onEvent` throws | `ExecutionError`; props are unchanged, and the error goes to `console.error` and a status event |
+| `render` throws, or returns something other than a string | `js_error_to_liquers(…, ExecutionError)`, rendered in the element as an escaped error box and written to `console.error` |
+| `onEvent` throws | `ExecutionError`; props are unchanged, and the error goes to `console.error` |
+| `show(q, h)` from inside `onEvent` for `h` itself | `Error::general_error(…)`: the element is being updated |
 | `mount` throws | `console.error`; the element keeps its markup |
 | unknown kind | no error: the placeholder (AC-5) |
 | `ui.show` called from inside `render` | the busy-lock error from `web-ui-use`; `submit` works, because it is a message |

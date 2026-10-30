@@ -50,7 +50,7 @@ liquers.defineElement({
 ## Example 3: A page renderer
 
 ```js
-const ui = await liquers.mountUI({
+const ui = await liquers.mountRenderer({
   render(tree, changes) {
     if (changes === "all") rebuild(tree); else patch(tree, changes);
   },
@@ -68,10 +68,10 @@ The query in Example 3 needs a store holding `docs/readme.md`. The test uses
 | Symptom | Expected behaviour | Test |
 |---|---|---|
 | a tree saved, then restored before `defineElement` | placeholder naming `gauge`; correct markup once defined | `delegated_unknown_kind_renders_placeholder`, `uidef05_restored_element_renders_after_define` |
-| `render` throws or returns a number | an escaped error box in the element, and an `error` status event | `uidef01b_render_failure_is_contained` |
+| `render` throws or returns a number | an escaped error box in the element, and `console.error` | `uidef01b_render_failure_is_contained` |
 | `element("gauge", { f: () => 1 })` | `ConversionError` | `uidef02b_non_json_props_refused` |
 | `render` calls `ui.show(...)` | `show` throws the busy-lock error; `ui.submit` from `render` works on the next tick | `uidef08_reentry_from_render_is_deferred_or_refused` |
-| `onEvent` calls `ui.show(...)` | it succeeds, because the lock is free during `update` | `uidef08b_on_event_may_call_back` |
+| `onEvent` calls `ui.show(...)` | it succeeds, because the lock is free during `update`; `show` on its own handle is refused | `uidef08b_on_event_may_call_back` |
 | `defineElement` twice | existing instances re-render with the new `render` | `uidef01c_redefine_rerenders` |
 | `undefineElement`, then dispose | functions released (`live_handle_count` back to baseline) | `uidef06_dispose_releases_callbacks` |
 
@@ -82,7 +82,8 @@ The query in Example 3 needs a store holding `docs/readme.md`. The test uses
   - `delegated_unknown_kind_renders_placeholder` (AC-5).
   - `delegated_serde_roundtrip_keeps_kind_and_props` (AC-2): `serde_json` round trip of
     `Box<dyn UIElement>`.
-  - `delegated_ssr_matches_render_web` (AC-4): `render_app_ssr` and `render_element_web` agree.
+  - `delegated_markup_wraps_and_escapes` (AC-4, AC-5): the wrapper carries the handle and
+    `data-lq-delegate`, and the placeholder and the error box escape their text.
   - `delegated_user_event_replaces_props` (AC-2, AC-3, after `ui-events`).
   - Run: `cargo test -p liquers-lib --lib ui::widgets::delegated_element` (also with
     `--no-default-features --features webui`).
@@ -90,19 +91,23 @@ The query in Example 3 needs a store holding `docs/readme.md`. The test uses
   - `uidef01_element_handle_renders_defined_markup` (AC-1): `liquers.element(...).renderHtml()`.
   - `uidef01b_render_failure_is_contained` and `uidef01c_redefine_rerenders` (AC-1).
   - `uidef02_props_roundtrip_through_a_command` (AC-2): a page command returns
-    `element("gauge", {value: 3})`, and a second command reads its props back.
+    `element("gauge", {value: 3})`, and a second command reads `kind` and `props` back from the
+    handle it receives.
   - `uidef02b_non_json_props_refused` (AC-2).
   - `uidef05_restored_element_renders_after_define` (AC-5).
-  - `uidef06_dispose_releases_callbacks` (AC-6).
+  - `uidef06_dispose_releases_callbacks` (AC-6): undefining a type releases its functions.
 - Browser, `liquers-web/tests/ui_browser_UIDEF.rs` (`--features browser-tests,debug-handles`):
-  - `uidef03_event_reaches_only_its_instance` (AC-3): Example 1 with two gauges.
-  - `uidef06b_mount_cleanup_runs_on_replace_and_remove` (AC-6): Example 2.
+  - `uidef03_event_reaches_only_its_instance` (AC-3): Example 1 with two gauges; the event carries
+    the gauge's own handle.
+  - `uidef04_dom_matches_ssr` (AC-4): the mounted container's markup equals `render_app_ssr` of the
+    same `AppState`.
+  - `uidef06b_mount_cleanup_runs_on_replace_and_remove` (AC-6): Example 2; disposing the mount
+    runs the remaining cleanups and releases the renderer.
   - `uidef07_renderer_receives_tree_and_changes` (AC-7): Example 3. The first call is `"all"`;
     after `show`, the call carries an `inserted` record, and `dispatchEvent` reaches the element.
   - `uidef08_reentry_from_render_is_deferred_or_refused` and `uidef08b_on_event_may_call_back`
     (AC-8).
-- AC-4 is proved natively, by `delegated_ssr_matches_render_web`, and in the browser, by
-  `uidef03`. egui is not claimed, so it has no test. `README.md` records `UIDEF04` with that scope.
+- AC-4 is proved in the browser, by `uidef04_dom_matches_ssr`. egui is not claimed, so it has no test. `README.md` records `UIDEF04` with that scope.
 
 ## Learning Log
 

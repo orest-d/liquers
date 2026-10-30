@@ -22,7 +22,12 @@ Decision log of the pre-approved run (`proceed all`, 2026-10-30).
   3. **Proposed resolution, `mount` lifecycle:** `mount` runs again whenever the element's markup
      is replaced, after the previous cleanup. A canvas widget redraws on each props change, rather
      than receiving an `update` call.
-  4. **Proposed resolution, markup trust:** `render`'s string is inserted as HTML, as Rust
+  4. **Proposed resolution, page renderer entry point:** `mountRenderer(renderer, options)` is a
+     separate function, not an overload of `mountUI`. It keeps `mountUI`'s container check typed.
+  5. **Proposed resolution, errors in callbacks:** a throwing `render`, `onEvent` or `mount` is
+     shown in the element and written to `console.error`. It is not a status event, because
+     status events come from the runner, which never sees these calls.
+  6. **Proposed resolution, markup trust:** `render`'s string is inserted as HTML, as Rust
      `render_web` markup is. The page escapes its own data; the guide says so.
 
 ## Purpose
@@ -73,18 +78,20 @@ untouched.
   defined it)
   THEN it renders a placeholder naming the type, and renders properly once the type is defined
 - **AC-6** Disposal releases callbacks (`UIDEF06`)
-  WHEN the page undefines a type, or disposes the last mount using it
-  THEN its retained JavaScript functions are released and the handle count returns to its earlier
-  value
+  WHEN the page undefines a type, or disposes a mount
+  THEN the type's functions (on undefine), or the mount's `mount` cleanups and renderer (on dispose),
+  are released, and the handle count returns to its earlier value
 - **AC-7** A JavaScript renderer shows a standard element (`UIDEF07`)
-  WHEN a page mounts with `{ renderer }` instead of a container, and the tree holds a built-in
+  WHEN a page calls `mountRenderer(renderer, options)` instead of `mountUI`, and the tree holds a built-in
   element such as `markdown`
   THEN the renderer receives the tree and each element's markup or value, re-renders on change
   notifications, and can send actions back
-- **AC-8** Callbacks never run under the UI lock (`UIDEF08`)
-  WHEN a `render` or `onEvent` callback submits a query, or an element's evaluation finishes while a
-  callback is running
-  THEN the work is applied on the next driver tick, with no `already borrowed` panic or lost update
+- **AC-8** Callbacks cannot corrupt the UI (`UIDEF08`)
+  WHEN a `render` or `onEvent` callback calls back into the mount, or an element's evaluation
+  finishes while a callback is running
+  THEN calls that need the UI lock from inside `render` (which runs under it) or that target the
+  element being updated are refused with a `LiquersError`, every other call is applied on the next
+  tick, and nothing panics or loses an update
 
 Non-goals: egui elements written in JavaScript; hot reload beyond re-rendering existing instances;
 accessibility beyond the page's own markup.
@@ -96,8 +103,7 @@ accessibility beyond the page's own markup.
   that publishes the tree and changes instead of writing the DOM.
 - **Value types**: a JavaScript-defined element is an `ExtValue::UIElement` like any other, so it
   can be stored, passed between commands and mounted.
-- **Bindings**: `defineElement`, `undefineElement`, `element(type, props)`, and the `renderer` option
-  of `mountUI`.
+- **Bindings**: `defineElement`, `undefineElement`, `element(type, props)`, and `mountRenderer`.
 
 ## Crate Placement
 
@@ -137,6 +143,13 @@ None. Every recommendation was accepted by the maintainer on 2026-10-27, and is 
 3. **A JavaScript renderer (AC-7).** It stays in this design as the last milestone.
 4. **Properties must be JSON.** Properties that cannot be serialized as JSON are refused when the
    element is created.
+
+## Scope Changes
+
+- **2026-10-30, Phase 2 review (pre-approved).** AC-6 now names the two things that release
+  functions, undefining a type and disposing a mount, because the registry is per thread, not per
+  mount. AC-8 now says what happens inside `render`, which runs under the UI lock. The page
+  renderer has its own entry point, `mountRenderer`. Size unchanged; Phases 1–4 updated.
 
 ## References
 

@@ -20,7 +20,9 @@ Decision log of the pre-approved run (`proceed all`, 2026-10-30).
   3. **Proposed resolution, stale results:** the runner drops a pending node's result when the
      node's source changed while it was evaluating. This is a fix to shared backend code, and it
      changes egui as well (only the newest query lands).
-  4. **Limitation, not blocking:** on wasm, a query awaiting a Promise freezes the UI loop, so
+  4. **Proposed resolution, status names:** events use core's `Status` names, the same strings
+     `Asset.status` reports. Progress is therefore `"processing"`; core has no `"evaluating"`.
+  5. **Limitation, not blocking:** on wasm, a query awaiting a Promise freezes the UI loop, so
      progress is never painted (`WEB-UI-FREEZES-WHILE-A-QUERY-AWAITS`, filed 2026-10-30, needs its
      own design).
 
@@ -55,7 +57,7 @@ environment (`liquers-lib/examples-web/ui_spec_demo`), because:
 
 ```js
 const ui = await liquers.mountUI(app, { query: "hello/q/ns-lui/query_console" });
-const sub = ui.on("status", (e) => log(e.handle, e.status));   // "evaluating" ... "ready"
+const sub = ui.on("status", (e) => log(e.handle, e.status));   // "processing" ... "ready"
 ui.show("commands_doc");          // a second root element showing the query's result
 ui.elements();                    // [{ handle: 1, typeName: "QueryConsoleElement", title, status }, …]
 sub.dispose();                    // no further callbacks
@@ -137,9 +139,10 @@ unchanged.
 - **required-by** `web-ui-define`.
 
 Defects found in the backend and owned by this design: `mount_web`'s `spawn_local` loop never ends,
-so dropping `MountHandle` detaches the listeners but keeps the runner, the environment and the
-`AppState` alive (AC-5, AC-8); and `AppRunner` keeps the `EnvRef` it was built with, so a mount
-outlives an environment rebuild (AC-9).
+so dropping `MountHandle` keeps the runner, the environment and the `AppState` alive; and its
+listeners are not removed either, so they throw once their `Closure`s are dropped (AC-5,
+AC-8). `AppRunner` keeps the `EnvRef` it was built with, so a mount outlives an environment
+rebuild (AC-9). A pending node's late result overwrites a newer source (AC-6).
 
 ## Open Questions
 

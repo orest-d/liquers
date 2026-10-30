@@ -12,7 +12,7 @@ done first if needed; only Step 8's `uiuse03` waits for it.
 
 ## Progress
 
-- [ ] Step 1: Implement `js-command-context` (its own Phase 4, Steps 1–4)
+- [ ] Step 1: Implement `js-command-context` (its own Phase 4, Steps 1–5)
 - [ ] Step 2: Runner event outbox, `replace_envref` and stale-result check
 - [ ] Step 3: `mount_web_with` and a stoppable `MountHandle`
 - [ ] Step 4: Web payload `SimpleUIPayload` and `lui` in the builtins
@@ -32,18 +32,19 @@ done first if needed; only Step 8's `uiuse03` waits for it.
 
 ### Step 2: Runner events, environment replacement, stale results
 - Files / symbols: `liquers-lib/src/ui/runner.rs` `AppRunner` (`events`, `evaluating` now keeps the
-  query text), `RunnerEvent`, `replace_envref`, `take_events`; re-export in `ui/mod.rs`.
+  query text, and the pending-node filter compares it), `RunnerEvent`, `replace_envref`, `take_events`; re-export in `ui/mod.rs`.
 - Change: as Phase 2. The five event sites; the source re-check in `evaluate_pending_nodes` and
   `poll_evaluating_nodes`; no `_ =>` arms.
 - Depends on: none.
-- Proof: `cargo test -p liquers-lib --test ui_runner` (the four new tests) and the whole
+- Proof: `cargo test -p liquers-lib --test ui_runner` (the existing 7 tests and the four new ones) and the whole
   `cargo test -p liquers-lib --lib --tests`.
 - Rollback: revert the commit. The additions are internal, and `mount_web` does not read them yet.
 
 ### Step 3: `mount_web_with` and a stoppable `MountHandle`
 - Files / symbols: `liquers-lib/src/ui/web/app.rs` `browser::{MountOptions, mount_web_with,
   MountHandle::stop, is_running, Drop}`; `mount_web` delegates.
-- Change: a stop flag, listener removal, root emptied, `current_env` before each tick, `on_tick`
+- Change: a stop flag checked after `run` and after `on_tick`, listener removal, root emptied, the
+  false comment on `MountHandle` corrected, `current_env` before each tick, `on_tick`
   after `apply_invalidation`. The plain driver drains `take_events`.
 - Depends on: Step 2.
 - Proof: `cargo check -p liquers-lib --target wasm32-unknown-unknown --no-default-features --features webui`;

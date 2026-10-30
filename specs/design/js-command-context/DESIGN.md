@@ -110,30 +110,41 @@ of closures (four retained `Closure`s per call, and nothing to invalidate).
       fn info(&self, m: &str) -> Result<(), Error>;  fn warning(&self, m: &str) -> Result<(), Error>;
       fn error(&self, m: &str) -> Result<(), Error>; fn is_cancelled(&self) -> bool;
       fn element(&self) -> Option<u64>;
-      fn evaluate(&self, query: String) -> BoxFuture<'static, Result<JsValue, Error>>;
+      fn evaluate(&self, query: String) -> LocalBoxFuture<'static, Result<JsValue, Error>>;  // not Send on wasm
   }
   impl<E: Environment> ContextOps for Context<E> where E::Value: JsValueBridge, E::Payload: JsPayload
   #[wasm_bindgen(js_name = Context)] pub struct LiquersContext { slot: Rc<RefCell<Option<Rc<dyn ContextOps>>>> }
   // methods: info, warning, error, isCancelled, element (getter, number | null), evaluate → Promise
   ```
-  `evaluate` runs `context.evaluate(&query)` and then `wait_for_dependency`, then
+  `element` converts the `u64` to `f64`, so JavaScript sees a `number` and not a `bigint`.
+  `evaluate` parses the text with `parse_query`, then runs `context.evaluate(&query)` (which takes a
+  `&Query`) and `wait_for_dependency`, then
   `value_to_js_in(&envref, …)`. The method clones the `Rc` out of the slot before it awaits, so
   the slot is never borrowed across the await or across a call into JavaScript.
 - `liquers-web/src/command/spec.rs`: `prepare_javascript_document` writes `conventions` as an
   object, with every convention off except `context` (unless the page set `context: false`).
-  `JsCommandSpec` gains `context_position: Option<usize>`, read from `registration.context`.
-  `infer_arguments` treats a parameter named `context` the same way.
-- `liquers-web/src/command/adapter.rs` `call_js_command`: adds the bound `E::Payload: JsPayload`,
-  inserts the context at `context_position`, and invalidates it after `apply` and after the
-  awaited promise settles, on success and on failure.
+  `JsCommandSpec` gains `context_position: Option<usize>`, an index into the arguments `run`
+  receives. `registration.context` counts only the public `arguments`, so the position is that
+  value plus one when `state_mode` takes a state, because `call_js_command` pushes the state first.
+  `infer_arguments` already counts the state as a parameter. When it finds a parameter named
+  `context`, it records that index directly and removes the parameter from the inferred arguments.
+  With the state convention off, core's `ContextBeforeState` warning would misfire for a context
+  in first position. `spec.rs` drops that one warning for JavaScript, whose state is declared by
+  `state:`, not by position.
+- `liquers-web/src/command/adapter.rs` `call_js_command`: adds the bound `E::Payload: JsPayload`
+  and inserts the context at `context_position`. A drop guard owns the slot and clears it when
+  `call_js_command` returns, on every path, including `?` on `apply` and the "declared sync but
+  returned a Promise" refusal. A context therefore lives until the returned promise settles,
+  which AC-3 needs, and no longer.
 - `register_js_command` and the environment functions take the new bound. `WebEnvironment` meets it
   today, with `()`, and still meets it after `web-ui-use` changes the payload to `SimpleUIPayload`.
 - Errors: a context used after its call uses `Error::general_error("the context is used after its
   command returned; it is valid only during the call")`, the same text `liquers-py` uses. A failure
   inside `evaluate` is passed through unchanged.
 - `liquers-web/src/typescript.rs`: a hand-declared `Context` interface is not needed, because the
-  class is generated. The `run` type in `CommandDeclaration` gains a `context: Context` parameter
-  in its documentation comment.
+  class is generated. `LiquersCommandSpec` gains
+  `conventions?: { context?: boolean }` (AC-6 would otherwise fail TypeScript's excess-property
+  check), and its documentation comment gains the `context: Context` parameter of `run`.
 
 ### Risks
 
@@ -158,7 +169,8 @@ In `liquers-web/tests/commands_COMMAND.rs` (Node loop,
 
 - `command07_context_injection`, rewritten: an info entry is in the evaluated state's log (AC-2).
 - `command07b_context_position_declared_and_inferred`: a declared argument and an inferred
-  parameter both receive the context, and `describeCommand(n).arguments` omits it (AC-1).
+  parameter both receive the context, also for a `state: "value"` command where the state comes
+  first, and `describeCommand(n).arguments` omits it (AC-1).
 - `command07c_context_error_fails_evaluation` (AC-2).
 - `command07d_context_evaluate_returns_value_and_records_dependency`: the value is checked, and the
   dependency is checked through the `dep` introspection commands (AC-3).
@@ -177,7 +189,8 @@ In `liquers-web/tests/commands_COMMAND.rs` (Node loop,
 - [ ] 2. `command/context.rs` — `JsPayload`, `ContextOps`, `LiquersContext` — proof: builds for
   `wasm32-unknown-unknown`
 - [ ] 3. `adapter.rs` — insert the context and invalidate it — proof: `command07` through `command07f`
-- [ ] 4. Docs: `reference/JAVASCRIPT_INTEGRATION.md` "Context" section with a `## History` row;
+- [ ] 4. `typescript.rs` `conventions` field — proof: `check-stubs.sh --build`
+- [ ] 5. Docs: `reference/JAVASCRIPT_INTEGRATION.md` "Context" section with a `## History` row;
   `guides/JAVASCRIPT_GUIDE.md` example (run by `scripts/test-guide-examples.sh`);
   `liquers-web/README.md` (`COMMAND07` no longer overstated); close
   `JS-COMMAND-CANNOT-ACCESS-CONTEXT` — proof: `docs_index.py --check`

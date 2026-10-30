@@ -58,14 +58,16 @@ impl<E: Environment> AppRunner<E> {
 
 | Where | Event |
 |---|---|
-| `evaluate_pending_nodes`, when the progress element is set | `Evaluating` |
+| `evaluate_pending_nodes`, when the progress element is set | `Processing` (core has no `Evaluating` status) |
 | `poll_evaluating_nodes`, when an element is set | `Ready` |
 | every `AssetViewElement::new_error` site | `Error` with the error |
 | the two root-query `eprintln!`s | `handle: None`, `Error` (the `eprintln!`s stay) |
 | `deliver_snapshot`, when the outcome is `Delivered` | `snapshot.status` |
 
 **Stale results (AC-6).** `evaluating` becomes `HashMap<UIHandle, (AssetRef<E>, String)>`, keeping
-the query text it started. `evaluate_pending_nodes` checks again, after its `evaluate(...).await`,
+the query text it started. `evaluate_pending_nodes` no longer skips a pending handle that has an
+entry: it skips it only when the entry's text equals the node's current source. Otherwise it
+replaces the entry, so B does not wait for A. It also checks again, after its `evaluate(...).await`,
 that `get_source(handle)` is still `ElementSource::Query` of that text. `poll_evaluating_nodes` does
 the same before it sets an element. When the source has changed, the result is dropped and no event
 is recorded. The node is still pending, so the next tick evaluates the new query.
@@ -95,9 +97,12 @@ impl MountHandle { pub fn stop(&self); pub fn is_running(&self) -> bool; }
 impl Drop for MountHandle { /* stop() */ }
 ```
 
-`stop` sets an `Rc<Cell<bool>>` that the loop checks after each tick. It calls
+`stop` sets an `Rc<Cell<bool>>`. The loop checks it right after `runner.run` returns, before
+`apply_invalidation` and before `on_tick`, and again after `on_tick`. A `dispose()` made while
+`run` was awaiting therefore never paints into the emptied root. It calls
 `remove_event_listener_with_callback` for both listeners (today, dropping the `Closure`s leaves
-stale listeners that throw when they fire) and empties the root. The loop then returns, which drops
+stale listeners that throw when they fire, despite the comment on `MountHandle`, which Step 3
+corrects) and empties the root. The loop then returns, which drops
 the runner, its `EnvRef` and its `AppState` clone. `mount_web` keeps its signature and delegates,
 with no `current_env` and no `on_tick`.
 
@@ -109,7 +114,8 @@ pub type WebEnvironment = DefaultEnvironment<Value, SimpleUIPayload>;    // envi
 #[wasm_bindgen(js_name = UISubscription)] pub struct LiquersUISubscription { … dispose() }
 #[wasm_bindgen(js_name = UIElement)] pub struct LiquersUIElement { value: Arc<dyn UIElement>, id: u32 }
 #[wasm_bindgen(js_name = mountUI)]
-pub fn mount_ui(container: web_sys::Element, options: Option<JsMountOptions>) -> js_sys::Promise;
+pub fn mount_ui(container: JsValue, options: Option<JsMountOptions>) -> js_sys::Promise;
+// `container` is checked with `dyn_into::<web_sys::Element>()`, so a non-element is a typed refusal
 // and LiquersEnvironment::mount_ui with the same signature, on its own EnvHandle
 ```
 
@@ -131,11 +137,18 @@ class UIElement { readonly typeName: string; readonly title: string; renderHtml(
 
 - `query` becomes `AppState::add_node(None, 0, ElementSource::Query(q))`. The runner evaluates it,
   as it evaluates any pending node.
-- `spec` (YAML text, or an object serialized to JSON, which `UISpec::from_yaml` accepts) becomes a
-  root `UISpecElement`, placed and given `init` the way `ui_spec_demo` does it.
+- `spec` becomes a root `UISpecElement`. YAML text goes through `UISpec::from_yaml`. An object goes
+  through `serde_wasm_bindgen::from_value::<UISpec>` directly. It cannot go through
+  `from_yaml`: serde_yaml 0.9 needs a `!tag` for enum variants, which JSON cannot write. The
+  element is placed and given `init` the way `ui_spec_demo` does it.
 - `show` is `AppState::insert_source(&InsertionPoint::Root | Instead(h), ElementSource::Query(q))`.
 - `submit` sends `AppMessage::SubmitQuery`.
 - The status strings are `asset::status_name`, the same names `Asset.status` uses.
+- Handles cross as JavaScript `number`, not `bigint`. A `u64` would export as `bigint`, so
+  `UIHandle.0` is converted to `f64` (exact below 2^53) and read back with a range check.
+- `MountInner` keeps `statuses: RefCell<HashMap<UIHandle, Status>>`, updated from the events in
+  `on_tick`. `elements()` reads the tree with `try_lock` and its status from this map, because the
+  runner's own state is inside the driver future.
 - The `UIElement` handle uses the `records.rs` handle-registry idiom (`__liquersUIElementHandle`
   getter, an id-to-`Arc` map), so `from_js_custom` gives Rust the same `Arc` back.
   `default_value.rs` maps `ExtValue::UIElement` both ways.
@@ -161,11 +174,11 @@ async.
 
 | Case | Error |
 |---|---|
-| no `window` or `document` (Worker, Node) | `Error::from_error(ErrorType::NotSupported, "mountUI needs a DOM …")` |
+| no `window` or `document` (Worker, Node), or `container` is not an `Element` | `Error::not_supported("mountUI needs a DOM element …")` |
 | `query` and `spec` both given; `spec` not a `UISpec` | `Error::general_error(…)`, and `UISpec::from_yaml`'s own error |
 | unparsable `query` (checked before the DOM, so Node can test it) | the `parse_query` error |
 | a call on a disposed mount, or a handle that does not exist | `Error::general_error("the UI mount has been disposed")`, `Error::general_error("no UI element N")` |
-| `AppState` lock busy during `show` or `elements` | `Error::general_error(…)` (only if a lock is held across an await; not today) |
+| `AppState` lock busy during `show` or `elements` | `Error::general_error(…)`. The runner holds no guard across an await, so this happens only when the call is made from inside a render (`web-ui-define`'s `render` callback runs under the guard) |
 | a page callback throws | caught, `console.error`, the loop continues |
 | evaluation failure | unchanged backend path (an error element); now also an `Error` event |
 
@@ -206,7 +219,7 @@ or the whole mount, while it runs. `stop` only sets the flag, and the loop exits
 | Files likely to change | the 2 liquers-lib files above; 8 liquers-web files; 1 new test file per loop |
 | Crates and workflows affected | `liquers-lib` (`webui`), `liquers-web`; the wasm rows of `check-build-matrix.sh` |
 | Existing tests likely to change | `eval05`; `liquers-lib/examples-web` Playwright specs still pass, since `mount_web` is unchanged for them |
-| New validation | runner unit tests (native), Node-loop tests, `browser-tests` mount tests, one Playwright spec |
+| New validation | four tests added to the existing `liquers-lib/tests/ui_runner.rs`; Node-loop tests, `browser-tests` mount tests, one Playwright spec |
 | Compatibility | `WebEnvironment` changes type: a downstream crate that named `DefaultEnvironment<Value, ()>` through the alias must follow it. A page command named `context` (via `js-command-context`) |
 | Performance | `lui` adds about 14 commands to the `.wasm`, plus the runner per mount; the tick is unchanged (16 ms) |
 | Security | `spec` and query text come from the page itself; markup is rendered by existing escaping (`html::escape_html`) |

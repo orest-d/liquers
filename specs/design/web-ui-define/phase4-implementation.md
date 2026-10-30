@@ -28,7 +28,9 @@ Prerequisites:
   `ui/widgets/mod.rs`, `ui/mod.rs` re-exports.
 - Change: as Phase 2. `on_event` is in the trait from the start, with its parameter type taken
   from `ui-events`. Until that lands, the trait method takes `&serde_json::Value` (the event as
-  data), and Step 6 changes it to `&UserEvent`. The type is internal, so the change is local.
+  data), and Step 6 changes it to `&UserEvent`. The trait is public but has no implementor
+  outside this design until then, so the change touches only `JsElementDelegate` and the test
+  delegate.
 - Depends on: none.
 - Proof: `cargo test -p liquers-lib --lib ui::widgets::delegated_element`, and with
   `--no-default-features --features webui`.
@@ -46,12 +48,13 @@ Prerequisites:
 - Files / symbols: `liquers-web/src/ui.rs` `MountInner` (reconciliation map, called from the
   `on_tick` closure built in `mount_ui`).
 - Depends on: Step 2.
-- Proof: `uidef06b_mount_cleanup_runs_on_replace_and_remove` (browser loop).
+- Proof: `uidef06b_mount_cleanup_runs_on_replace_and_remove` and `uidef04_dom_matches_ssr`
+  (browser loop). `Cargo.toml` gains the web-sys `NodeList` feature.
 - Rollback: revert; elements without `mount` are unaffected.
 
 ### Step 4: Renderer mount
 - Files / symbols: `liquers-lib/src/ui/web/headless.rs` (new) `HeadlessOptions`, `run_headless`;
-  `liquers-web/src/ui.rs` renderer overload, `UITree` and `UIChangeRecord` construction,
+  `MountHandle`'s root and listener fields become `Option`; `liquers-web/src/ui.rs` `mountRenderer`, `UITree` and `UIChangeRecord` construction,
   `dispatchEvent`. It is declared in Step 4, and until Step 6 it throws `NotSupported` naming
   `ui-events`.
 - Depends on: `web-ui-use` Step 3.

@@ -11,7 +11,7 @@ it does (`ActionNotRegistered`). `a~` is meant not to parse, and it does not (`P
 |---|---|---|---|---|
 | 1 | Example | Mount the query console | mount, status events, `show`, dispose | AC-1, AC-4, AC-5, AC-8, AC-10 |
 | 2 | Example | A menu action reaches a page command | `UISpec` button → JavaScript command → `context.element` | AC-3 |
-| 3 | Test | `liquers-lib/tests/ui_runner.rs` (native) | runner events, environment replacement, stale results | AC-4, AC-6, AC-7, AC-9 |
+| 3 | Test | `liquers-lib/tests/ui_runner.rs` (native; extends the existing 7 tests) | runner events, environment replacement, stale results | AC-4, AC-6, AC-7, AC-9 |
 | 4 | Test | `liquers-web/tests/ui_UIUSE.rs` (Node loop) | element handles, refusals, `lui` registration | AC-2, AC-7, AC-8 |
 | 5 | Test | `liquers-web/tests/ui_browser_UIUSE.rs` (`browser-tests`) | the mount in a real DOM | AC-1, AC-3 to AC-10 |
 | 6 | Test | `liquers-web/tests/e2e/ui.spec.ts` (Playwright) | the delivered package in a page | AC-1, AC-10 |
@@ -29,7 +29,7 @@ const ui = await liquers.mountUI(document.getElementById("app"),
 const sub = ui.on("status", (e) => events.push([e.handle, e.status]));
 const h = ui.show("commands_doc");          // returns the new root's handle
 // after a tick: #app contains #ui-element-1 (the console) and #ui-element-<h>
-// events: [[1, "evaluating"], [1, "ready"], [h, "evaluating"], [h, "ready"]]
+// events: [[1, "processing"], [1, "ready"], [h, "processing"], [h, "ready"]]
 // (the first pair may arrive before `on` subscribes, if the first tick has already run)
 sub.dispose();
 ui.dispose();                               // #app is empty; ui.running === false
@@ -76,12 +76,13 @@ that handle as `context.element`.
 
 - Native, `liquers-lib/tests/ui_runner.rs` (`DefaultEnvironment<Value, SimpleUIPayload>`, as in
   `ui_invalidation.rs`):
-  - `runner_events_record_evaluating_then_ready` (AC-4): a pending query node yields
-    `Evaluating`, then `Ready`, in that order, and `take_events` drains them.
+  - `runner_events_record_processing_then_ready` (AC-4): a pending query node yields
+    `Processing`, then `Ready`, in that order, and `take_events` drains them.
   - `runner_events_record_errors_with_and_without_handle` (AC-7): a failing pending node gives
     `Error` with its handle; a failing root `SubmitQuery` gives `handle: None`.
   - `runner_drops_result_when_source_changed` (AC-6): the source is replaced between `evaluate`
-    and `poll_evaluating_nodes`; the node ends with the new query's element.
+    and `poll_evaluating_nodes`; the node ends with the new query's element, and the new query
+    starts on the next tick without waiting for the old one.
   - `runner_replace_envref_used_by_later_evaluations` (AC-9): a command registered only in the
     second environment works after `replace_envref`.
 - Node loop, `liquers-web/tests/ui_UIUSE.rs`
@@ -111,7 +112,10 @@ that handle as `context.element`.
   - `uiuse07b_failed_element_reports_error_event` (AC-7).
   - `uiuse08b_dispose_from_inside_a_callback` and `uiuse08c_calls_after_dispose_reject` (AC-8).
   - `uiuse09_mount_follows_rebuild` (AC-9).
-  - `uiuse10_show_adds_and_replaces` (AC-10).
+  - `uiuse10_show_adds_and_replaces` (AC-10): `show` returns a `number`, not a `bigint`.
+  - `uiuse01b_object_spec_with_menu` (AC-1): a spec passed as an object, with a `button` menu item.
+  - `uiuse08d_dispose_while_a_query_awaits` (AC-8): nothing is painted into the container after
+    `dispose()`.
 - Playwright, `liquers-web/tests/e2e/ui.spec.ts`: on a quickstart page that mounts the console,
   `mounts the console and shows a query` (AC-1, AC-10).
 - Commands to run: `cargo test -p liquers-lib --lib --tests`; the two liquers-web commands above;
