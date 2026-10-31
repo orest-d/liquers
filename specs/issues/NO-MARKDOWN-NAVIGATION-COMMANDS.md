@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: L
 area: [lib/commands]
-design: 
+design: markdown-navigation
 created: 2026-10-11
 github:
 ---
@@ -73,7 +73,8 @@ Proposal: project file `agent-memory-mvp/markdown-commands-proposal.md` (thread 
 check"). A new default-on `markdown` feature in `liquers-lib`. Commands take one document; commands
 over a folder may exist beside them. Writing commands, editing and rendering move to
 `NO-QUERY-AWARE-MARKDOWN-PARSER`, which also decides between a temporary `pulldown-cmark` and a
-Liquers-owned parser.
+Liquers-owned parser. Chosen the same day: our own block layer first, with links and code spans
+(`design/markdown-navigation/`).
 
 ## Discovery
 

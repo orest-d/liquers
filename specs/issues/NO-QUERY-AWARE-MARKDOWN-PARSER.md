@@ -112,8 +112,9 @@ template crate and the renderers share. Requirements collected so far, for discu
   rendering). Options: Markdown-aware templates, template-aware Markdown, or two passes.
 - **Which formats** can be generated from the model, and which belong to it versus to
   per-format renderers in `liquers-lib`.
-- **Temporary `pulldown-cmark`** for the first Markdown commands, or the parser first: see
-  `NO-MARKDOWN-NAVIGATION-COMMANDS`.
+- **Temporary `pulldown-cmark`** for the first Markdown commands, or the parser first: decided
+  2026-10-31, our own block layer first (`design/markdown-navigation/`), with links and code
+  spans; `pulldown-cmark` may serve as a test oracle.
 
 ## Discovery
 

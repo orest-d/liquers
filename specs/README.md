@@ -444,6 +444,7 @@ deliberately folded behind a broader line.
 - design `manifest-chunk-error-identity`
 - design `manifest-over-stored-csv-test`
 - design `markdown-empty-text-and-tables`
+- design `markdown-navigation`
 - design `memory-store-metadata-only-entry`
 - design `metadata-application-attributes`
 - design `metadata-error-traceback`
