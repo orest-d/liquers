@@ -307,7 +307,7 @@ updated by the change that moves it.
 | `VALUE` / RECORDS | complete, opt-in | 01, 02, 04–08, 10, `tests/records_RECORDS.rs` | behind the `records` feature; `03`, `09` and `11` are `NA`, see below |
 | `ENVIRON` | complete | 01–08; 08 in `tests/environment_ENVIRON.rs` | — |
 | `EVAL` | complete | 01–07 | `EVAL06` pins inert cancellation (`WEB-CANCELLATION-INERT`) |
-| `COMMAND` | complete | 01–14, DECL01–03 | — |
+| `COMMAND` | complete | 01–14, 07b–07f, DECL01–04 | `COMMAND07`: a command receives a `Context` (`info`, `warning`, `error`, `evaluate`, `isCancelled`, `element`). An existing command with an argument named `context` now receives the context; `conventions: { context: false }` keeps the old behaviour |
 | `ASYNCQ` | complete | 01–06, 08 | `07` is `NA`: JavaScript has its own async model |
 | `ASYNCCMD` | complete | 01–06 | — |
 | `STORE` (all three directions) | complete | 01–17 by ID; 08 is the conformance suite; 13 native | `STORE18` is `NA`, see below |

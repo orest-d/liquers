@@ -3,7 +3,7 @@ title: Using Liquers from JavaScript in the browser
 kind: guide
 audience: user
 area: [web]
-reviewed: 2026-10-26
+reviewed: 2026-10-31
 ---
 # Using Liquers from JavaScript in the browser
 
@@ -230,9 +230,39 @@ liquers.registerCommand({
 assert.strictEqual(await liquers.evaluate("later"), "done");
 ```
 
-An async command can evaluate another query with `await liquers.evaluate(…)`. A JavaScript command
-has no execution context, though: it cannot write to its result's log, make another query a
-dependency of its result, or check for cancellation (`JS-COMMAND-CANNOT-ACCESS-CONTEXT`).
+### The context
+
+Name a parameter (or a declared argument) `context` and the command receives its execution
+context there. It is not a query argument. The context writes to the result's log, evaluates
+another query as a dependency of the result, and says which UI element ran the command:
+
+```js
+import init, * as liquers from "./liquers_web.js";
+
+await init();
+await liquers.init();
+liquers.registerCommand({ name: "inner", run: () => "inner value" });
+liquers.registerCommand({
+  name: "report",
+  async: true,
+  run: async (context) => {
+    context.info("fetching");
+    const inner = await context.evaluate("inner");
+    return `${inner} (element: ${context.element})`;
+  },
+});
+
+assert.strictEqual(await liquers.evaluate("report"), "inner value (element: null)");
+const state = await (await liquers.getAsset("report")).get();
+assert(state.log().some((entry) => entry.message === "fetching"));
+```
+
+`context.warning(m)` logs a warning; `context.error(m)` logs an error and makes the evaluation
+fail once `run` returns. `context.isCancelled()` is always `false` for now. `context.element` is
+`null` outside a UI. Use the context only during the call: keeping it and using it later throws.
+
+A command that really has an argument called `context` declares
+`conventions: { context: false }`.
 
 ### Metadata
 
@@ -397,7 +427,8 @@ failed), `getAssetInfo()` and `cancel()`. `State.toJS()` gives the value as `eva
 `state.value()` gives it as a `Value`, with its type `identifier` and `typeName`. `metadata()` is a
 plain object; note that its `status` is capitalized (`"Ready"`), while `asset.status()` and
 `state.status` are lowercase (`WEB-METADATA-STATUS-CASE-DIFFERS`). The log holds Liquers' own
-entries, such as detected dependencies; a JavaScript command cannot add to it yet.
+entries, such as detected dependencies, and whatever a command writes through its context
+(§5, "The context").
 
 **Cancelling.** `asset.cancel()` exists, but does nothing yet: in the browser a query is evaluated
 before `getAsset` resolves, so there is nothing left to cancel (`WEB-CANCELLATION-INERT`).
@@ -706,8 +737,6 @@ What you will notice; the complete list, with the tracking issues, is
 - **No templates.** The `ns-template` commands, template commands and programmatic rendering are
   not in the browser build (`WEB-HAS-NO-TEMPLATE-COMMANDS`).
 - **No Polars or image commands**; the browser build has the core and record commands only.
-- **No context in a command**: a JavaScript command cannot log, declare a dependency or check for
-  cancellation.
 - **Cancellation does nothing yet.**
 - **One environment per page** for commands and stores; `new Environment()` is for isolated
   evaluation only.
@@ -724,3 +753,4 @@ What you will notice; the complete list, with the tracking issues, is
 |---|---|---|
 | 2026-10-26 | Created from the implemented `liquers-web`; every example runs under Node. | `WEB-HAS-NO-API-REFERENCE-OR-USER-GUIDE` |
 | 2026-10-26 | Nested values: `null` now returns as `null`; why nested bytes are refused. | `WEB-NESTED-NULL-CROSSES-AS-UNDEFINED`, `WEB-NESTED-BYTES-REFUSED-NOT-DEGRADED` |
+| 2026-10-31 | §5 "The context": a command receives an execution context; the limitation is removed. | design `js-command-context` |

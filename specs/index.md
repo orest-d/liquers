@@ -9,8 +9,8 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
 Total rows: 198
-- P2: 61
-- P3: 137
+- P2: 60
+- P3: 138
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -31,7 +31,6 @@ Total rows: 198
 | [`CORE-TRACING-MIGRATION`](issues/CORE-TRACING-MIGRATION.md) | issue | Diagnostics use `eprintln!` rather than structured logging | accepted | needs-decision | not-eligible | P2 | M | core/error;build | [design](design/core-tracing-migration/DESIGN.md) | 2026-08-08 |
 | [`EGUI-ASSET-MANAGER-INTEGRATION`](issues/EGUI-ASSET-MANAGER-INTEGRATION.md) | feature | No stable adapter between egui widgets and the asset manager | accepted | needs-decision | not-eligible | P2 | M | lib/egui | [design](design/ui-asset-snapshot-boundary/DESIGN.md) | 2026-08-08 |
 | [`IPC-READER-CANNOT-READ-ANY-POLARS-STRING-COLUMN`](issues/IPC-READER-CANNOT-READ-ANY-POLARS-STRING-COLUMN.md) | issue | The Arrow IPC reader cannot read a String/Binary column from any polars IpcWriter setting | draft | needs-decision | not-eligible | P2 | M | records | [design](design/ipc-reader-polars-text-columns/DESIGN.md) | 2026-09-27 |
-| [`JS-COMMAND-CANNOT-ACCESS-CONTEXT`](issues/JS-COMMAND-CANNOT-ACCESS-CONTEXT.md) | feature | A JavaScript command cannot access the execution context | draft | needs-decision | not-eligible | P2 | M | web | [design](design/js-command-context/DESIGN.md) | 2026-08-29 |
 | [`LANGUAGE-BINDING-TESTS-NOT-RUN-IN-CI`](issues/LANGUAGE-BINDING-TESTS-NOT-RUN-IN-CI.md) | issue | CI never runs liquers-py's Python tests or liquers-web's Node conformance suites | draft | needs-decision | not-eligible | P2 | M | build;py;web | [design](design/language-binding-tests-in-ci/DESIGN.md) | 2026-10-26 |
 | [`LANGUAGE-STORE-TYPE-NOT-DEFINABLE`](issues/LANGUAGE-STORE-TYPE-NOT-DEFINABLE.md) | feature | A store type cannot be defined in the integrated language | draft | needs-decision | not-eligible | P2 | M | web;py;core/store;store/config | [design](design/language-store-type-registration/DESIGN.md) | 2026-08-29 |
 | [`LATE-SAVE-OF-AN-UNREGISTERED-KEYED-ASSET-SURVIVES-REMOVAL`](issues/LATE-SAVE-OF-AN-UNREGISTERED-KEYED-ASSET-SURVIVES-REMOVAL.md) | issue | A late value write of an unregistered keyed asset (cached false, volatile) lands after the key is removed or replaced | draft | needs-decision | not-eligible | P2 | M | core/assets;core/store | [design](design/unregistered-keyed-write-gate/DESIGN.md) | 2026-10-26 |
@@ -107,6 +106,7 @@ Total rows: 198
 | [`TEMPLATE-DIAGNOSTICS-CHECK-COMMANDS-A-Q-QUOTES`](issues/TEMPLATE-DIAGNOSTICS-CHECK-COMMANDS-A-Q-QUOTES.md) | issue | Template diagnostics report unknown commands in a query part that a later q quotes, which the planner never resolves | draft |  |  | P3 | S | core/query;lib/commands |  | 2026-10-26 |
 | [`VALIDATE-PHASE-COMPACT-SIZE-IGNORES-SOURCE-COMPLEXITY`](issues/VALIDATE-PHASE-COMPACT-SIZE-IGNORES-SOURCE-COMPLEXITY.md) | issue | validate_phase.py checks every compact design against the M size limit | draft |  |  | P3 | S | docs;build |  | 2026-10-27 |
 | [`WEB-HAS-NO-TEMPLATE-COMMANDS`](issues/WEB-HAS-NO-TEMPLATE-COMMANDS.md) | feature | The browser environment has no template commands | draft |  |  | P3 | S | web |  | 2026-10-25 |
+| [`WEB-IMPORTED-COMMAND-RECEIVES-NO-CONTEXT`](issues/WEB-IMPORTED-COMMAND-RECEIVES-NO-CONTEXT.md) | issue | A JavaScript command bound to imported metadata cannot receive the context | draft |  |  | P3 | S | web |  | 2026-10-31 |
 | [`WEB-METADATA-STATUS-CASE-DIFFERS`](issues/WEB-METADATA-STATUS-CASE-DIFFERS.md) | issue | State.metadata().status is capitalized while Asset.status() and State.status are lowercase | draft |  |  | P3 | S | web |  | 2026-10-26 |
 | [`WEB-UNREGISTER-DEPENDS-ON-FIRST-EVALUATION`](issues/WEB-UNREGISTER-DEPENDS-ON-FIRST-EVALUATION.md) | issue | unregisterCommand removes a built-in command before the first evaluation but not after it | draft |  |  | P3 | S | web |  | 2026-10-26 |
 | [`WEBUI-MOUNT-HANDLE-DROP-LEAVES-LISTENERS-ATTACHED`](issues/WEBUI-MOUNT-HANDLE-DROP-LEAVES-LISTENERS-ATTACHED.md) | issue | Dropping the web MountHandle leaves its event listeners attached to freed closures | draft |  |  | P3 | S | lib/ui |  | 2026-10-30 |

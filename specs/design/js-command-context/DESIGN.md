@@ -5,7 +5,7 @@ title: A JavaScript command receives the execution context
 form: compact
 workflow: liquers-project
 status: in_review
-phase: implementation
+phase: documentation
 readiness: needs-decision
 autofix: not-eligible
 area: [web]
@@ -184,13 +184,13 @@ In `liquers-web/tests/commands_COMMAND.rs` (Node loop,
 
 ### Steps
 
-- [ ] 1. `spec.rs` — the context convention and `context_position`; `infer_arguments` — proof:
+- [x] 1. `spec.rs` — the context convention and `context_position`; `infer_arguments` — proof:
   `command07b`, `decl04`
-- [ ] 2. `command/context.rs` — `JsPayload`, `ContextOps`, `LiquersContext` — proof: builds for
+- [x] 2. `command/context.rs` — `JsPayload`, `ContextOps`, `LiquersContext` — proof: builds for
   `wasm32-unknown-unknown`
-- [ ] 3. `adapter.rs` — insert the context and invalidate it — proof: `command07` through `command07f`
-- [ ] 4. `typescript.rs` `conventions` field — proof: `check-stubs.sh --build`
-- [ ] 5. Docs: `reference/JAVASCRIPT_INTEGRATION.md` "Context" section with a `## History` row;
+- [x] 3. `adapter.rs` — insert the context and invalidate it — proof: `command07` through `command07f`
+- [x] 4. `typescript.rs` `conventions` field — proof: `check-stubs.sh --build`
+- [x] 5. Docs: `reference/JAVASCRIPT_INTEGRATION.md` "Context" section with a `## History` row;
   `guides/JAVASCRIPT_GUIDE.md` example (run by `scripts/test-guide-examples.sh`);
   `liquers-web/README.md` (`COMMAND07` no longer overstated); close
   `JS-COMMAND-CANNOT-ACCESS-CONTEXT` — proof: `docs_index.py --check`

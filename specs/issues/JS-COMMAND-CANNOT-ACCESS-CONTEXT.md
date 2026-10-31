@@ -2,7 +2,7 @@
 id: JS-COMMAND-CANNOT-ACCESS-CONTEXT
 kind: feature
 title: A JavaScript command cannot access the execution context
-status: draft
+status: closed
 priority: P2
 complexity: M
 area: [web]
@@ -71,3 +71,13 @@ re-entrant `evaluate`. `COMMAND07` is rewritten to observe a log entry and a nes
 
 Found while classifying the macro's wrapping decisions for `COMMAND-DECLARATION-FORMAT`
 (2026-08-29); re-checked 2026-10-20 and tightened 2026-10-26 (project-groups plan).
+
+## Resolution
+
+Closed 2026-10-31 by design `js-command-context`. An argument or parameter named `context` receives
+a `Context` class (`liquers-web/src/command/context.rs`) with `info`, `warning`, `error`,
+`evaluate`, `isCancelled` and `element`, valid only during its call; `conventions: { context: false }`
+opts out. Evidence: `command07_context_injection` and `command07b`–`command07f` in
+`liquers-web/tests/commands_COMMAND.rs`, `decl04_context_convention_can_be_disabled` in
+`commands_DECLARATION.rs`, and the guide example run by `scripts/test-guide-examples.sh`.
+Imported metadata receives no context; that gap is `WEB-IMPORTED-COMMAND-RECEIVES-NO-CONTEXT`.

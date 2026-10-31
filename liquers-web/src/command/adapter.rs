@@ -20,6 +20,7 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
 
 use crate::bridge::{js_to_value, value_to_js_in, ConversionPolicy, JsValueBridge};
+use crate::command::context::{ContextGuard, JsPayload};
 use crate::command::spec::{IsAsync, JsCommandSpec, StateMode};
 use crate::error::js_error_to_liquers;
 
@@ -83,6 +84,7 @@ pub fn register_js_command<E>(
 where
     E: Environment,
     E::Value: JsValueBridge,
+    E::Payload: JsPayload,
 {
     let JsCommandSpec {
         key,
@@ -91,6 +93,7 @@ where
         is_async,
         run,
         arguments_inferred,
+        context_position,
     } = spec;
 
     INFERRED_ARGUMENTS.with(|cell| {
@@ -108,6 +111,7 @@ where
         state_mode,
         is_async,
         key.name.clone(),
+        context_position,
     ));
 
     let for_async = shared.clone();
@@ -132,10 +136,19 @@ pub struct CallableSpec {
     pub state_mode: StateMode,
     pub is_async: IsAsync,
     pub name: String,
+    /// Where `run` receives the execution context, counting the state; see
+    /// [`JsCommandSpec::context_position`].
+    pub context_position: Option<usize>,
 }
 
 impl CallableSpec {
-    fn new(run: js_sys::Function, state_mode: StateMode, is_async: IsAsync, name: String) -> Self {
+    fn new(
+        run: js_sys::Function,
+        state_mode: StateMode,
+        is_async: IsAsync,
+        name: String,
+        context_position: Option<usize>,
+    ) -> Self {
         #[cfg(feature = "debug-handles")]
         LIVE_HANDLES.with(|cell| cell.set(cell.get() + 1));
         CallableSpec {
@@ -143,6 +156,7 @@ impl CallableSpec {
             state_mode,
             is_async,
             name,
+            context_position,
         }
     }
 }
@@ -167,6 +181,7 @@ pub async fn call_js_command<E>(
 where
     E: Environment,
     E::Value: JsValueBridge,
+    E::Payload: JsPayload,
 {
     let js_args = js_sys::Array::new();
     // Values handed to JavaScript are converted inside the command's own environment, so a handle
@@ -219,6 +234,19 @@ where
         let value = args.get_value(i, "argument")?;
         js_args.push(&value_to_js(&value)?);
     }
+
+    // The execution context, inserted where the declaration put it. The guard empties its slot
+    // when this function returns, on every path, so a context kept by the page stops working once
+    // the call (and its promise) has settled.
+    let _context_guard = match callable.context_position {
+        Some(position) => {
+            let (guard, js_context) = ContextGuard::new(Rc::new(context.clone()));
+            let position = position.min(js_args.length() as usize) as u32;
+            js_args.splice(position, 0, &JsValue::from(js_context));
+            Some(guard)
+        }
+        None => None,
+    };
 
     let result = callable
         .run
