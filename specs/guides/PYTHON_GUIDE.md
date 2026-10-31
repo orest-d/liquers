@@ -3,7 +3,7 @@ title: Using Liquers from Python
 kind: guide
 audience: user
 area: [py]
-reviewed: 2026-10-30
+reviewed: 2026-10-31
 ---
 # Using Liquers from Python
 
@@ -33,7 +33,7 @@ while working on the bindings themselves. A Rust toolchain is required. `polars`
 optional: they are needed only to exchange DataFrames and images.
 
 The distribution is called `liquers-py`; the package is imported as `liquers`, conventionally as
-`lq`. CPython 3.9 to 3.15 and PyPy 3.11 or newer are supported.
+`lq`. CPython 3.10 to 3.15 and PyPy 3.11 or newer are supported.
 
 Liquers writes progress lines to stderr while it evaluates, and they cannot be turned off yet
 (`CORE-TRACING-MIGRATION`). Stdout is left alone.
@@ -715,6 +715,7 @@ What you will notice; the complete list, with the tracking issues, is
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-31 | §1: the supported range starts at CPython 3.10 (3.9 is past its end of life). | Orest, CI matrix decision for `language-binding-tests-in-ci` |
 | 2026-10-30 | §4 `config`: `recipes` accepts every value; §6 Named results: choosing recipe providers with `recipes`. §10: the limitation narrows to a provider written in Python. | design `recipe-provider-chain-config` |
 | 2026-10-27 | §10: the missing-docstrings limitation is lifted; type stubs and a generated reference remain. | design `py-docstrings` |
 | 2026-10-27 | §5 Async commands; §6 Awaiting a query, `job_capacity`, Threads and free-threaded Python; §10 the async limitation is lifted, and the stale memory-leak line removed (fixed 2026-10-22). | `design/liquers-py-async/` (phase-5) |

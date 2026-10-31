@@ -1,0 +1,68 @@
+name: liquers-web-tests
+
+# Runs liquers-web's conformance suites under Node (wasm-bindgen-test-runner), with and without the
+# `records` feature. The browser and Playwright loops are not run here.
+# Design: specs/design/language-binding-tests-in-ci/.
+
+on:
+  pull_request:
+    paths:
+      # every workspace crate is a liquers-* directory; the negations drop crates liquers-web does
+      # not build from
+      - 'liquers-*/**'
+      - '!liquers-py/**'
+      - '!liquers-axum/**'
+      - '!liquers-mcp/**'
+      - '!liquers-agent/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.cargo/**'
+      - '.github/workflows/liquers-web-tests.yml'
+  push:
+    branches: [main]
+    paths:
+      # every workspace crate is a liquers-* directory; the negations drop crates liquers-web does
+      # not build from
+      - 'liquers-*/**'
+      - '!liquers-py/**'
+      - '!liquers-axum/**'
+      - '!liquers-mcp/**'
+      - '!liquers-agent/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.cargo/**'
+      - '.github/workflows/liquers-web-tests.yml'
+  workflow_dispatch:
+
+jobs:
+  node:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      CARGO_INCREMENTAL: 0
+    steps:
+      - uses: actions/checkout@v4
+      - name: Free runner disk
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL; df -h /
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      # Cargo.lock is not committed (.gitignore), so resolve it here; the runner must match the
+      # wasm-bindgen version the build resolves to.
+      - name: Resolve Cargo.lock
+        run: cargo generate-lockfile
+      - name: Install wasm-bindgen-test-runner matching Cargo.lock
+        run: |
+          ver=$(grep -A1 '^name = "wasm-bindgen"$' Cargo.lock | sed -n 's/^version = "\(.*\)"$/\1/p')
+          test -n "$ver"
+          echo "wasm-bindgen $ver"
+          cargo install wasm-bindgen-cli --version "$ver" --locked
+      - run: cargo test -p liquers-web --target wasm32-unknown-unknown --features debug-handles
+      - run: cargo test -p liquers-web --target wasm32-unknown-unknown --features debug-handles,records
+      - run: df -h /

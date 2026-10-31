@@ -232,7 +232,10 @@ async fn call_py_command(
     }
     joined(
         tokio::task::spawn_blocking(move || {
-            Python::attach(|py| call_with_gil(py, &callable, &state, &arguments, context))
+            let asset = context.get_asset_ref();
+            crate::exit::command_call(asset, |py| {
+                call_with_gil(py, &callable, &state, &arguments, context)
+            })
         })
         .await,
     )
@@ -266,7 +269,8 @@ async fn call_async_py_command(
         let callable = callable.clone();
         let pending = pending.clone();
         tokio::task::spawn_blocking(move || {
-            Python::attach(|py| {
+            let asset = context.get_asset_ref();
+            crate::exit::command_call(asset, |py| {
                 start_coroutine(py, &callable, &loops, &pending, &state, &arguments, context, done_tx)
             })
         })
@@ -283,7 +287,7 @@ async fn call_async_py_command(
         () = shut.wait() => return Err(shut_down_while_waiting()),
     }
     let finished = tokio::task::spawn_blocking(move || {
-        Python::attach(|py| coroutine_result(py, &callable, &pending))
+        crate::exit::attach_tracked(|py| coroutine_result(py, &callable, &pending))
     })
     .await;
     joined(finished)

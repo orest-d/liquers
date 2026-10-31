@@ -247,7 +247,7 @@ impl LoopThread {
             .name(format!("liquers-py-loop-{index}"))
             .spawn(move || {
                 ON_LOOP.with(|flag| flag.set(true));
-                let outcome = Python::attach(|py| -> LoopOutcome {
+                let outcome = crate::exit::attach_tracked(|py| -> LoopOutcome {
                     let started = py
                         .import("asyncio")
                         .and_then(|asyncio| asyncio.call_method0("new_event_loop"))
@@ -423,7 +423,7 @@ impl Drop for LoopPool {
         let _ = std::thread::Builder::new()
             .name("liquers-py-loop-stop".to_string())
             .spawn(move || {
-                Python::attach(|py| {
+                crate::exit::attach_tracked(|py| {
                     let _ = stop_loops(py, &loops);
                 });
             });
@@ -590,7 +590,7 @@ pub(crate) fn cancel_on_blocking_thread(future: Py<PyAny>) {
     match runtime() {
         Ok(runtime) => {
             runtime.spawn_blocking(move || {
-                Python::attach(|py| {
+                crate::exit::attach_tracked(|py| {
                     let _ = future.bind(py).call_method0("cancel");
                 })
             });
