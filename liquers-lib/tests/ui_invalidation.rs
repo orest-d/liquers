@@ -104,7 +104,8 @@ impl UIElement for QuietElement {
             UpdateMessage::AssetUpdate(_)
             | UpdateMessage::AssetNotification(_)
             | UpdateMessage::Timer { .. }
-            | UpdateMessage::Custom(_) => UpdateResponse::Unchanged,
+            | UpdateMessage::Custom(_)
+            | UpdateMessage::UI(_) => UpdateResponse::Unchanged,
         }
     }
 }
@@ -302,4 +303,72 @@ async fn pending_evaluation_records_changes() {
             .any(|c| matches!(c, UIChange::Replaced { handle: h } if *h == handle)),
         "installing an element on a pending node must be recorded, got {recorded:?}"
     );
+}
+
+/// ui-events AC-7 — a `UIEvent` sent as `AppMessage::UIEvent` reaches the element as
+/// `UpdateMessage::UI`, its `NeedsRepaint` is recorded, and the submitted query is evaluated.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn ui_event_reaches_element_and_records_repaint() {
+    use liquers_core::value::ValueInterface;
+    use liquers_lib::ui::{UIEvent, UIEventKind};
+
+    let (app_state, ui_context, mut runner) = harness();
+    let handle = {
+        let mut state = app_state.lock().await;
+        let h = state
+            .add_node(None, 0, ElementSource::None)
+            .expect("add root node");
+        state
+            .set_element(h, {
+                let mut console = QueryConsoleElement::new("Console".into(), String::new());
+                console.set_handle(h);
+                Box::new(console)
+            })
+            .expect("set console");
+        h
+    };
+    drain(&app_state).await;
+
+    ui_context.send_ui_event(
+        handle,
+        UIEvent::new(UIEventKind::Submit).with_field("query", Value::from("hello".to_string())),
+    );
+    runner.run(&app_state).await.expect("runner.run");
+
+    let recorded = changes(&app_state).await;
+    assert!(
+        recorded
+            .iter()
+            .any(|c| matches!(c, UIChange::Replaced { handle: h } if *h == handle)),
+        "a console that consumed a UI event must be marked out of date, got {recorded:?}"
+    );
+
+    let mut value = None;
+    for _ in 0..200 {
+        {
+            let state = app_state.lock().await;
+            if let Ok(Some(elem)) = state.get_element(handle) {
+                value = elem.get_value().and_then(|v| v.try_into_string().ok());
+            }
+        }
+        if value.is_some() {
+            break;
+        }
+        runner.run(&app_state).await.expect("runner.run");
+        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+    }
+    assert_eq!(value.as_deref(), Some("Hello from test!"));
+}
+
+/// ui-events — an event addressed to an element that does not exist is dropped quietly.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn ui_event_for_missing_element_is_ignored() {
+    use liquers_lib::ui::{UIEvent, UIEventKind};
+
+    let (app_state, ui_context, mut runner) = harness();
+    drain(&app_state).await;
+    ui_context.send_ui_event(UIHandle(999), UIEvent::new(UIEventKind::Submit));
+    runner.run(&app_state).await.expect("runner.run");
+    let mut state = app_state.lock().await;
+    assert!(matches!(state.take_invalidation(), Invalidation::None));
 }

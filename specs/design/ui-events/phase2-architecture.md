@@ -2,8 +2,8 @@
 
 ## Overview
 
-A user action becomes a `UserEvent` (a kind plus the owning element's declared field values),
-sent as `AppMessage::UserEvent` and delivered by `AppRunner` as `UpdateMessage::User` through the
+A user action becomes a `UIEvent` (a kind plus the owning element's declared field values),
+sent as `AppMessage::UIEvent` and delivered by `AppRunner` as `UpdateMessage::UI` through the
 take-update-put path used for snapshots. The web driver finds nodes by markup (`data-lq-event`,
 `data-lq-field`, `data-lq-shortcut`) and routes `keydown` through one pure, natively tested
 function: a field's Enter action, then menu shortcuts, then the browser. The console handles
@@ -25,7 +25,7 @@ function: a field's Enter action, then menu shortcuts, then the browser. The con
 |---|---|---|
 | the three sources | all reproduced at HEAD | n/a |
 | `UI-QUERY-EDITOR-LACKS-LIVE-VALIDATION` (P2, L, no design) | will want per-keystroke field events (a non-goal here) | no |
-| `value-accessor` (design, draft) | binding layer beneath fields | no |
+| `value-accessor` (design, abandoned) | binding layer beneath fields | no |
 
 No open design edits these symbols. Namespaces involved: `lui` (unchanged).
 
@@ -36,7 +36,7 @@ New module `liquers-lib/src/ui/event.rs`, re-exported from `ui/mod.rs`:
 ```rust
 /// What the user did, independent of backend. Closed: a new kind is a deliberate change.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum UserEventKind {
+pub enum UIEventKind {
     /// The control's default/submit action: Enter in a field, a submit button.
     Submit,
     /// An element-defined event named in markup (`data-lq-event="refresh"`).
@@ -45,8 +45,8 @@ pub enum UserEventKind {
 
 /// A user action addressed to one element, carrying its declared fields' live values.
 #[derive(Clone, Debug)]
-pub struct UserEvent {
-    pub kind: UserEventKind,
+pub struct UIEvent {
+    pub kind: UIEventKind,
     /// `(field name, value)` in document order; text fields arrive as text `Value`s.
     pub fields: Vec<(String, Value)>,
 }
@@ -56,17 +56,17 @@ Changed enums (one variant each):
 
 ```rust
 // element.rs
-pub enum UpdateMessage { /* existing four */ User(super::event::UserEvent) }
+pub enum UpdateMessage { /* existing four */ UI(super::event::UIEvent) }
 // message.rs
-pub enum AppMessage { /* existing */ UserEvent { handle: UIHandle, event: UserEvent } }
+pub enum AppMessage { /* existing */ UIEvent { handle: UIHandle, event: UIEvent } }
 ```
 
-Ownership: `UserEvent` is moved through the channel; `Value` is already `Clone + Send` (it travels
+Ownership: `UIEvent` is moved through the channel; `Value` is already `Clone + Send` (it travels
 in `AssetSnapshot`), so `AppMessage` keeps `Debug + Clone`. No serde: the event is in-process.
 
 ## Trait Implementations
 
-No new trait or method. Each exhaustive `UIElement::update` gains `UpdateMessage::User(_)`,
+No new trait or method. Each exhaustive `UIElement::update` gains `UpdateMessage::UI(_)`,
 answering `Unchanged` except in `QueryConsoleElement` (no `_ =>` arms).
 
 ## Sync vs Async
@@ -79,18 +79,18 @@ answering `Unchanged` except in `QueryConsoleElement` (no `_ =>` arms).
 
 ```rust
 // event.rs
-impl UserEventKind {
+impl UIEventKind {
     /// `"submit"` -> Submit; other non-empty -> Named; empty -> None.
     pub fn from_name(name: &str) -> Option<Self>;
     pub fn name(&self) -> &str;
 }
-impl UserEvent {
-    pub fn new(kind: UserEventKind) -> Self;
+impl UIEvent {
+    pub fn new(kind: UIEventKind) -> Self;
     pub fn with_field(self, name: impl Into<String>, value: Value) -> Self;
     pub fn field(&self, name: &str) -> Option<&Value>;
 }
 // ui_context.rs
-impl UIContext { pub fn send_user_event(&self, handle: UIHandle, event: UserEvent); }
+impl UIContext { pub fn send_ui_event(&self, handle: UIHandle, event: UIEvent); }
 // shortcuts.rs (all targets): None for a bare modifier or an unknown key.
 impl KeyboardShortcut {
     pub fn from_key_event(key: &str, code: &str, command: bool, alt: bool, shift: bool)
@@ -98,14 +98,14 @@ impl KeyboardShortcut {
 }
 // web/html.rs
 pub fn field_attr(name: &str) -> String;            // ` data-lq-field="…"`, escaped
-pub fn event_attr(kind: &UserEventKind) -> String;  // ` data-lq-event="…"`
+pub fn event_attr(kind: &UIEventKind) -> String;  // ` data-lq-event="…"`
 pub fn shortcut_attr(shortcut: &str) -> String;     // ` data-lq-shortcut="…"`
 // web/keys.rs (new, webui, all targets; crate-private)
 pub(crate) struct KeyPress<'a> { pub key: &'a str, pub code: &'a str, pub command: bool,
     pub alt: bool, pub shift: bool, pub composing: bool }
 pub(crate) struct KeyTarget<'a> { pub editable: bool, pub single_line: bool,
     pub event: Option<&'a str> }
-pub(crate) enum KeyRoute { FieldEvent(UserEventKind), Shortcut(KeyboardShortcut), Native }
+pub(crate) enum KeyRoute { FieldEvent(UIEventKind), Shortcut(KeyboardShortcut), Native }
 pub(crate) fn route_keydown(press: &KeyPress<'_>, target: &KeyTarget<'_>) -> KeyRoute;
 ```
 
@@ -119,9 +119,9 @@ editable target whose `event` parses -> `FieldEvent`; Tab -> `Native`; editable 
 - `ui/runner.rs`: generalise private `deliver_snapshot` into
   `deliver_update(handle, message: UpdateMessage, app_state, sender) -> DeliveryOutcome`; the
   snapshot callers pass `UpdateMessage::AssetUpdate(snapshot)`. `process_messages` gains the
-  `AppMessage::UserEvent` arm calling it; a `Missing` outcome is ignored.
+  `AppMessage::UIEvent` arm calling it; a `Missing` outcome is ignored.
 - `ui/web/app.rs` (wasm `browser` module): split `dispatch_dom_event` into `dispatch_click` and
-  `dispatch_keydown(ev, ctx, root)`. Click: nearest `[data-lq-event],[data-lq-action]`; an
+  `dispatch_keydown(ev, ctx, root)` (keydown listens on the document; see `DESIGN.md`). Click: nearest `[data-lq-event],[data-lq-action]`; an
   editable node (`INPUT`, `TEXTAREA`, `SELECT`) is ignored; `data-lq-event` goes to
   `send_field_event`, `data-lq-action` to the existing `UiAction` path (factored as `run_action`,
   keeping the `Apply` branch). Keydown: build `KeyPress`/`KeyTarget`, call `route_keydown`;
@@ -134,7 +134,8 @@ editable target whose `event` parses -> `FieldEvent`; Tab -> `Native`; editable 
 - `widgets/query_console_element.rs`: `render_web` puts `data-lq-field="query"` and
   `data-lq-event="submit"` on the input and renders Go as
   `<button type="button" class="lq-go" data-lq-event="submit">`; the `Apply` action is dropped.
-  On `User(Submit)`, `update` sets `query_text` from field `query` (kept if absent), calls
+  egui's Enter and Go call the same private `handle_ui_event` inline instead of `submit_query`.
+  On `UI(Submit)`, `update` sets `query_text` from field `query` (kept if absent), calls
   `submit_query` and answers `NeedsRepaint`; `Named(_)` answers `Unchanged`.
 - `widgets/ui_spec_element.rs`: `render_top_level_item_web` / `render_menu_item_web` add
   `shortcut_attr` for a `Some(shortcut)` on buttons (submenus carry none).

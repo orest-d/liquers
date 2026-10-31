@@ -2,7 +2,7 @@
 id: WEBUI-MENU-SHORTCUTS-IGNORED
 kind: issue
 title: UISpec menu keyboard shortcuts do nothing in the browser
-status: draft
+status: closed
 priority: P2
 complexity: M
 area: [lib/ui]
@@ -10,6 +10,15 @@ design: ui-events
 created: 2026-10-19
 github:
 ---
+## Resolution
+
+Fixed by `specs/design/ui-events/`. `UISpecElement::render_web` writes `data-lq-shortcut` on
+menu buttons; a document-level keydown listener matches the key combination
+(`KeyboardShortcut::from_key_event`) against them and runs the first match's `UiAction`. Browsers
+withhold some combinations (Chrome Ctrl+N/T/W), so the example's New Console moved to Alt+N.
+Evidence: `webui_ssr.rs` `render_web_emits_shortcut_attribute`; `keys.rs`
+`modified_keys_are_shortcuts_even_in_a_field`; Playwright `the menu shortcut adds a console, also
+from inside the input`.
 
 ## Problem
 

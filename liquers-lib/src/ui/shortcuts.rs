@@ -635,6 +635,52 @@ impl KeyboardShortcut {
         s.parse()
     }
 
+    /// Build a shortcut from a browser-style key event (`KeyboardEvent.key` / `.code`).
+    ///
+    /// The logical `key` is tried first and the physical `code` (`KeyN`) second, so a
+    /// shortcut still matches when a modifier or a non-Latin layout changes the produced
+    /// character (macOS Option+N yields `Dead`). `command` is the semantic modifier
+    /// (`ctrlKey || metaKey`). Returns `None` for a bare modifier press or an unknown key.
+    pub fn from_key_event(
+        key: &str,
+        code: &str,
+        command: bool,
+        alt: bool,
+        shift: bool,
+    ) -> Option<Self> {
+        let is_modifier = |name: &str| {
+            matches!(
+                name.to_lowercase().as_str(),
+                "control"
+                    | "shift"
+                    | "alt"
+                    | "altgraph"
+                    | "meta"
+                    | "os"
+                    | "controlleft"
+                    | "controlright"
+                    | "shiftleft"
+                    | "shiftright"
+                    | "altleft"
+                    | "altright"
+                    | "metaleft"
+                    | "metaright"
+            )
+        };
+        if is_modifier(key) || is_modifier(code) {
+            return None;
+        }
+        let key = Key::from_name(key).or_else(|| Key::from_name(code))?;
+        Some(Self::new(
+            Modifiers {
+                alt,
+                shift,
+                ctrl: command,
+            },
+            key,
+        ))
+    }
+
     /// Convert to egui::KeyboardShortcut
     #[cfg(feature = "egui")]
     pub fn to_egui(&self) -> egui::KeyboardShortcut {
@@ -869,6 +915,33 @@ mod tests {
         );
         assert!(Modifiers::none().is_empty());
         assert!(!Modifiers::command().is_empty());
+    }
+
+    #[test]
+    fn from_key_event_prefers_key_then_code() {
+        let alt_n = KeyboardShortcut::from_key_event("n", "KeyN", false, true, false);
+        assert_eq!(alt_n, KeyboardShortcut::parse("Alt+N").ok());
+        // macOS Option+N produces a dead key; the physical code still identifies N.
+        let dead = KeyboardShortcut::from_key_event("Dead", "KeyN", false, true, false);
+        assert_eq!(dead, KeyboardShortcut::parse("Alt+N").ok());
+        let ctrl_s = KeyboardShortcut::from_key_event("S", "KeyS", true, false, true);
+        assert_eq!(ctrl_s, KeyboardShortcut::parse("Ctrl+Shift+S").ok());
+    }
+
+    #[test]
+    fn from_key_event_rejects_modifiers_and_unknown_keys() {
+        assert_eq!(
+            KeyboardShortcut::from_key_event("Control", "ControlLeft", true, false, false),
+            None
+        );
+        assert_eq!(
+            KeyboardShortcut::from_key_event("Shift", "ShiftRight", false, false, true),
+            None
+        );
+        assert_eq!(
+            KeyboardShortcut::from_key_event("Unidentified", "Unidentified", false, false, false),
+            None
+        );
     }
 
     #[test]

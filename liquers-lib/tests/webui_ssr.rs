@@ -77,3 +77,80 @@ async fn ssr_escapes_hostile_text_value() -> Result<(), Box<dyn std::error::Erro
     assert!(html.contains("&lt;script&gt;"), "html: {html}");
     Ok(())
 }
+
+/// ui-events: a menu button with a `shortcut` declares it as `data-lq-shortcut`; one without does not.
+#[tokio::test]
+async fn render_web_emits_shortcut_attribute() -> Result<(), Box<dyn std::error::Error>> {
+    let spec = UISpec::from_yaml(
+        r#"
+menu:
+  items:
+  - !menu
+    label: File
+    items:
+    - !button
+      label: New Console
+      shortcut: Alt+N
+      action:
+        query: "hello/q/ns-lui/query_console/add-child"
+    - !button
+      label: Plain
+      action: quit
+  - !button
+    label: Top
+    shortcut: Ctrl+Shift+T
+    action: quit
+layout: vertical
+"#,
+    )?;
+    let mut state = DirectAppState::new();
+    let root = state.add_node(None, 0, ElementSource::None)?;
+    let mut el = UISpecElement::from_spec("Main".into(), spec);
+    el.set_handle(root);
+    state.set_element(root, Box::new(el))?;
+    let app_state: Arc<tokio::sync::Mutex<dyn AppState>> = Arc::new(tokio::sync::Mutex::new(state));
+
+    let html = render_app_ssr(&app_state).await?;
+
+    assert!(
+        html.contains("data-lq-shortcut=\"Alt+N\">New Console</button>"),
+        "html: {html}"
+    );
+    assert!(
+        html.contains("data-lq-shortcut=\"Ctrl+Shift+T\">Top</button>"),
+        "html: {html}"
+    );
+    assert_eq!(html.matches("data-lq-shortcut").count(), 2, "html: {html}");
+    Ok(())
+}
+
+/// ui-events: the console's input is field `query` and both the input and the Go button declare
+/// `submit`; the Go control is a keyboard-reachable `<button>` and no `Apply` action remains.
+#[tokio::test]
+async fn query_console_declares_field_and_submit_event() -> Result<(), Box<dyn std::error::Error>> {
+    use liquers_lib::ui::QueryConsoleElement;
+    let mut state = DirectAppState::new();
+    let root = state.add_node(None, 0, ElementSource::None)?;
+    let mut el = QueryConsoleElement::new("Console".into(), "hello".into());
+    el.set_handle(root);
+    state.set_element(root, Box::new(el))?;
+    let app_state: Arc<tokio::sync::Mutex<dyn AppState>> = Arc::new(tokio::sync::Mutex::new(state));
+
+    let html = render_app_ssr(&app_state).await?;
+
+    assert!(
+        html.contains(&format!(
+            "<input id=\"qc-input-{}\" class=\"lq-query-input\" value=\"hello\" data-lq-field=\"query\" data-lq-event=\"submit\"/>",
+            root.0
+        )),
+        "html: {html}"
+    );
+    assert!(
+        html.contains(
+            "<button type=\"button\" class=\"lq-go\" data-lq-event=\"submit\">Go</button>"
+        ),
+        "html: {html}"
+    );
+    assert!(!html.contains("ns-lui/submit"), "html: {html}");
+    Ok(())
+}

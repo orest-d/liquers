@@ -2,7 +2,7 @@
 id: WEBUI-QUERY-CONSOLE-ENTER-KEY-SUBMIT
 kind: issue
 title: Enter key does not submit in the browser query console
-status: accepted
+status: closed
 priority: P2
 complexity: M
 area: [lib/ui]
@@ -10,6 +10,14 @@ design: ui-events
 created: 2026-08-08
 github:
 ---
+## Resolution
+
+Fixed by `specs/design/ui-events/`. The console input declares `data-lq-field="query"
+data-lq-event="submit"`; the web driver's keyboard router (`ui/web/keys.rs` `route_keydown`) turns
+an unmodified Enter on it into a `Submit` UI event. Clicking into the input is not an activation.
+Evidence: `keys.rs` `enter_in_declared_field_is_a_field_event`; Playwright `pressing Enter in the
+input submits it`, `clicking into the input does not submit`.
+
 Source: PR #10 review (chatgpt-codex-connector, 2026-07-22) — `liquers-lib/src/ui/widgets/query_console_element.rs:461`
 
 ## Problem

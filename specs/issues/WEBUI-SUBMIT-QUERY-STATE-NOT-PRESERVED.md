@@ -2,7 +2,7 @@
 id: WEBUI-SUBMIT-QUERY-STATE-NOT-PRESERVED
 kind: issue
 title: Submitted query state is not preserved in the browser
-status: accepted
+status: closed
 priority: P2
 complexity: M
 area: [lib/ui]
@@ -10,6 +10,17 @@ design: ui-events
 created: 2026-08-08
 github:
 ---
+## Resolution
+
+Fixed by `specs/design/ui-events/`. The console no longer submits through `UiAction::Apply` /
+`lui/submit`: Go (and Enter) send `UIEvent { kind: Submit, fields: [query] }` to the console,
+whose `update` sets `query_text`, pushes history and requests the submitted query, so the
+re-rendered input, history and volatile/expiry refresh all use it. Evidence:
+`query_console_element.rs` `test_ui_submit_sets_query_history_and_requests_updates`,
+`test_expired_after_ui_submit_requests_submitted_query`; `tests/ui_invalidation.rs`
+`ui_event_reaches_element_and_records_repaint`; Playwright `clicking Go submits the typed query and
+the console keeps it`.
+
 Source: PR #10 review (chatgpt-codex-connector, 2026-07-22) — `liquers-lib/src/ui/commands.rs:367`
 
 ## Problem
