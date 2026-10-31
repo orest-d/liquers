@@ -536,7 +536,7 @@ fields }`: `kind` is `UIEventKind::name()`, `fields` the event's values through 
 reconciles the container's `[data-lq-delegate]` nodes against a map of handle → (node, cleanup):
 an entry whose node is no longer connected has its cleanup run and is dropped; a node with no entry
 (or a different node for the handle) is passed to the type's `mount(node, props)`, and a function
-it returns is kept as the cleanup. Disposing the mount runs the remaining cleanups. A throwing
+it returns is kept as the cleanup. Disposing the mount runs the remaining cleanups; a `mount` that disposes the mount itself has its returned cleanup run at once. A throwing
 `mount` is reported, and the element keeps its markup. The pass is skipped while no definition has
 a `mount` and nothing is mounted.
 
@@ -547,7 +547,9 @@ changed something the renderer's `render(tree, changes)` is called with this as 
 object: `changes` is `"all"` for `Invalidation::All` (the first tick among them), otherwise the
 `UIChange`s as `{ inserted, parent, index }`, `{ removed, parent }` or `{ replaced }`. `tree` is
 always the whole tree, `{ roots, elements }`, each element `{ handle, parent, children, typeName,
-title, status, html, kind?, props? }`, where `html` is `render_element_web`. A throwing renderer is
+title, status, html, kind?, props? }`, where `html` is `render_element_web`. The tick's status events are recorded before the tree is
+built, and an element whose status changed with no tree change is passed as `{ replaced }`. A
+throwing renderer is
 reported and called again on the next change. `dispose()` calls the renderer's `dispose`.
 
 Every retained page function (definitions, cleanups, renderers) is counted in

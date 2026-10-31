@@ -360,6 +360,16 @@ impl MountInner {
 
     /// Records the tick's events and calls the subscribers, after the DOM was updated and with no
     /// lock held. A throwing callback is reported to `console.error` and does not stop the loop.
+    /// Records the latest status of each element named by `events`.
+    fn record_statuses(&self, events: &[RunnerEvent]) {
+        let mut statuses = self.statuses.borrow_mut();
+        for event in events {
+            if let Some(handle) = event.handle {
+                statuses.insert(handle, event.status);
+            }
+        }
+    }
+
     fn on_tick(&self, events: Vec<RunnerEvent>) {
         if self.invalidate_pending.get() {
             if let Ok(mut state) = self.app_state.try_lock() {
@@ -371,14 +381,7 @@ impl MountInner {
         if events.is_empty() {
             return;
         }
-        {
-            let mut statuses = self.statuses.borrow_mut();
-            for event in &events {
-                if let Some(handle) = event.handle {
-                    statuses.insert(handle, event.status);
-                }
-            }
-        }
+        self.record_statuses(&events);
         let subscribers: Vec<Rc<Subscriber>> = self.subscribers.borrow().clone();
         if subscribers.is_empty() {
             return;
@@ -491,6 +494,11 @@ impl MountInner {
                 }
             };
             let entry = MountedNode::new(node, cleanup);
+            // The page function may have disposed the mount; its cleanup must still run.
+            if self.check_running().is_err() {
+                entry.unmount();
+                return;
+            }
             let previous = self.mounted.borrow_mut().insert(handle, entry);
             if let Some(previous) = previous {
                 // A mount function that re-rendered its own element; its first node is gone.
@@ -501,10 +509,35 @@ impl MountInner {
 
     /// Calls the page renderer with the tree and what changed, when something did. A throwing
     /// renderer is reported to `console.error`; the next change calls it again.
-    fn render_to_renderer(&self, invalidation: Invalidation) {
+    ///
+    /// The tick's status events are recorded first, so the tree carries them; an element whose
+    /// status changed without a tree change is passed as `replaced`.
+    fn render_to_renderer(&self, invalidation: Invalidation, events: &[RunnerEvent]) {
         let renderer = match self.renderer.borrow().clone() {
             Some(r) => r,
             None => return,
+        };
+        self.record_statuses(events);
+        let invalidation = match invalidation {
+            Invalidation::None => {
+                let mut changed: Vec<UIHandle> = Vec::new();
+                for handle in events.iter().filter_map(|e| e.handle) {
+                    if !changed.contains(&handle) {
+                        changed.push(handle);
+                    }
+                }
+                if changed.is_empty() {
+                    Invalidation::None
+                } else {
+                    Invalidation::Changes(
+                        changed
+                            .into_iter()
+                            .map(|handle| UIChange::Replaced { handle })
+                            .collect(),
+                    )
+                }
+            }
+            other @ (Invalidation::All | Invalidation::Changes(_)) => other,
         };
         let changes: JsValue = match &invalidation {
             Invalidation::None => return,
@@ -869,7 +902,7 @@ pub async fn mount_renderer_with(
     let on_tick: Box<dyn FnMut(Invalidation, Vec<RunnerEvent>)> =
         Box::new(move |invalidation, events| {
             if let Some(inner) = weak.upgrade() {
-                inner.render_to_renderer(invalidation);
+                inner.render_to_renderer(invalidation, &events);
                 inner.on_tick(events);
             }
         });

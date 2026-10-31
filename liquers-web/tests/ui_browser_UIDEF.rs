@@ -573,3 +573,64 @@ async fn uidef01e_define_from_inside_render_rerenders() {
     undefine_element("b01e".into());
     reset_global();
 }
+
+/// The renderer's tree carries the tick's statuses: a failing query reaches it as `error`.
+#[wasm_bindgen_test]
+async fn uidef07c_renderer_sees_current_status() {
+    fresh();
+    register_command_on(&decl_with_params("boom", &[], "throw new Error('no');")).expect("boom");
+    let (calls, renderer) = recording_renderer();
+    let ui = JsFuture::from(liquers_web::ui::mount_renderer(
+        renderer,
+        Some(options("boom")),
+    ))
+    .await
+    .expect("mountRenderer");
+    until("an error status in the tree", || {
+        (0..calls.length()).any(|i| {
+            let tree = js_sys::Array::from(&calls.get(i)).get(1);
+            js_sys::Object::values(&get(&tree, "elements").unchecked_into())
+                .iter()
+                .any(|e| get(&e, "status").as_string().as_deref() == Some("error"))
+        })
+    })
+    .await;
+    call(&ui, "dispose", &[]).expect("dispose");
+    reset_global();
+}
+
+/// A `mount` that disposes the UI still has its returned cleanup run.
+#[wasm_bindgen_test]
+async fn uidef06d_cleanup_runs_when_mount_disposes_the_ui() {
+    fresh();
+    set_global("__log", &js_sys::Array::new().into());
+    let def = obj();
+    set(&def, "type", &JsValue::from_str("self06d"));
+    set(&def, "render", &func("() => '<i>x</i>'").into());
+    set(
+        &def,
+        "mount",
+        &func(
+            "() => { globalThis.__ui.dispose(); \
+             return () => globalThis.__log.push('cleaned'); }",
+        )
+        .into(),
+    );
+    define_element(def.into()).expect("define");
+    register_element_command("self", "self06d");
+    let app = container();
+    // Mounted empty, so the mount is in reach before the element is placed.
+    let ui = JsFuture::from(liquers_web::ui::mount_ui(
+        app.clone().into(),
+        Some(obj().into()),
+    ))
+    .await
+    .expect("mount");
+    set_global("__ui", &ui);
+    call(&ui, "show", &[JsValue::from_str("self-1")]).expect("show");
+    until("the cleanup", || global_log("__log") == vec!["cleaned"]).await;
+    assert_eq!(get(&ui, "running").as_bool(), Some(false));
+    set_global("__ui", &JsValue::UNDEFINED);
+    undefine_element("self06d".into());
+    reset_global();
+}
