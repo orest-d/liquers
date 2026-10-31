@@ -3,7 +3,7 @@ title: Record Streams
 kind: reference
 audience: internal
 area: [records, lib/value, lib/commands, web]
-reviewed: 2026-10-27
+reviewed: 2026-10-30
 ---
 
 # Record Streams
@@ -337,7 +337,7 @@ stream reaching the template, or a provider lookup) — not when the manifest is
 | per-chunk `arguments` / `links` on an explicit chunk whose query has no filename; shared `arguments` / `links` when any explicit chunk has no filename | `with_key` |
 | a key with no filename | `with_key` |
 | **any** per-chunk or shared `arguments` / `links` on a manifest with **no key** — every chunk of a keyless manifest is unkeyed, so they could not be applied | `to_record_source` (liquers-lib) and `ManifestSource::stream` |
-| a chunk name that the folder's `recipes.yaml` also defines | `ManifestRecipeProvider`, when it is about to answer |
+| a chunk name that the folder's `recipes.yaml` also defines | the recipe provider chain, which names both providers (the manifest provider itself no longer reads `recipes.yaml`) |
 
 ### Keyed and keyless manifests
 
@@ -385,13 +385,14 @@ chunk's key is resolved without the folder listing (it names its manifest by pre
 explicit chunks and non-canonical names depend on it.
 A store's `KeyNotFound` or `KeyNotSupported` for a manifest or folder means "no manifest here".
 
-**Provider chain.** With `records`, `LibKind::default_recipe_provider()` is
-`RecipeProviderChain::new([DefaultRecipeProvider, ManifestRecipeProvider])`: a `recipes.yaml` entry
-wins. A build that replaces the base provider (`with_recipe_provider`,
-`with_recipe_provider_choice`) loses the manifest provider unless it calls
-`RecordsRecipeProvider::with_records_recipe_provider()`; no configured-construction path in the tree
-calls it yet. Chain semantics are documented on `RecipeProviderChain` (`liquers-core/src/recipes.rs`)
-and in [`ENVIRONMENT_CONFIG.md`](ENVIRONMENT_CONFIG.md).
+**Provider chain.** The provider is the `manifest` entry type of a `recipes:` list, declared by
+`liquers-lib` (unavailable without `records`). With `records`, `LibKind`'s default list is
+`[recipes_yaml, manifest]`, so absent or `default` keeps it, and an explicit list keeps it only if it
+names `manifest`. The chain asks every member: a chunk name a `recipes.yaml` also defines is a
+configuration error naming both, and a malformed manifest fails every lookup in its folder.
+`RecordsRecipeProvider::with_records_recipe_provider()` appends the entry when missing and is a
+no-op otherwise. Chain semantics: [`ENVIRONMENT_CONFIG.md`](ENVIRONMENT_CONFIG.md) §The recipe
+provider chain.
 
 ### `stored` and `cached`
 
@@ -870,6 +871,7 @@ materializes to an empty batch; without one it is an error.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-30 | Manifest validation: the `recipes.yaml` name clash is the chain's two-owner error. §Provider chain: the `manifest` entry type, `LibKind`'s list, every member asked, `with_records_recipe_provider` idempotent. | design `recipe-provider-chain-config` |
 | 2026-10-27 | §Table formats: the CSV separator refinements `csv:semicolon`, `csv:pipe` and `csv:<c>`, with the same meaning as for a DataFrame. | `design/record-table-csv-refinements/` |
 | 2026-10-25 | §Commands: a directory is listed with plain `-R/<dir>/-/ns-rec/file_records` (a `Directory` state); `-R-sdir/` still works. | `design/key-without-recipe-answer/` |
 | 2026-10-20 | §Parquet: the polars read path honours a declared schema and restores `liquers.schema` (formats table row updated). | `design/parquet-read-declared-schema/` |

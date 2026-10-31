@@ -93,6 +93,7 @@ volatility work all landed in `assets.rs`.
 - **Cancellation outcome and cooperative command cancellation** — built → [`guides/COMMAND_DESIGN_GUIDE.md`](guides/COMMAND_DESIGN_GUIDE.md) §Cooperative cancellation *(contract in [`reference/ASSETS.md`](reference/ASSETS.md) Scenario 4; design in [`design/asset-cancellation-outcome/`](design/asset-cancellation-outcome/))*
 - **Listed vs producible recipe keys, manifest-cache freshness, complete deep listings** — built → [`design/recipe-provider-listing-contract/`](design/recipe-provider-listing-contract/) *(contract in [`reference/RECIPES_AND_PLANS.md`](reference/RECIPES_AND_PLANS.md) §Provider contract; manifest freshness in [`reference/RECORD_STREAMS.md`](reference/RECORD_STREAMS.md) and [`guides/RECORD_STREAM_GUIDE.md`](guides/RECORD_STREAM_GUIDE.md))*
 - **Recipe-provider selection by name** — built → [`design/recipe-provider-selection/`](design/recipe-provider-selection/) *(contract in [`reference/RECIPES_AND_PLANS.md`](reference/RECIPES_AND_PLANS.md))*
+- **Recipe-provider chain configured as a list (`recipes:` entries, entry-type factories, every member asked)** — documented → [`reference/ENVIRONMENT_CONFIG.md`](reference/ENVIRONMENT_CONFIG.md) §The recipe provider chain, [`reference/RECIPES_AND_PLANS.md`](reference/RECIPES_AND_PLANS.md) §Composing providers *(design in [`design/recipe-provider-chain-config/`](design/recipe-provider-chain-config/))*
 - **Dependency audit, audit policy and listing dependencies** — documented → [`reference/DEPENDENCIES_STATUS.md`](reference/DEPENDENCIES_STATUS.md) *(design in [`design/dependency-audit-and-expiry-provenance/`](design/dependency-audit-and-expiry-provenance/))*
 - **Expiry reasons, and content changed outside Liquers** — documented → [`reference/ASSETS.md`](reference/ASSETS.md) *(design in [`design/dependency-audit-and-expiry-provenance/`](design/dependency-audit-and-expiry-provenance/))*
 - **Dependency records and consistency policies (trusting `explicit` / conservative `on_load`, startup store audit)** — documented → [`reference/DEPENDENCIES_STATUS.md`](reference/DEPENDENCIES_STATUS.md) §What a dependency record holds, §Consistency policies; how to choose: [`guides/DEPENDENCY_CONSISTENCY_GUIDE.md`](guides/DEPENDENCY_CONSISTENCY_GUIDE.md) *(design in [`design/dependency-chain-analysis-cost/`](design/dependency-chain-analysis-cost/))*
@@ -426,7 +427,6 @@ deliberately folded behind a broader line.
 - design `json-orient-index-column-collision`
 - design `json-table-column-order`
 - design `keyed-run-replaces-dependency-edges`
-- design `kind-aware-recipe-provider-choice`
 - design `language-binding-tests-in-ci`
 - design `language-bridge-extended-scalars`
 - design `language-global-enum-import`
@@ -484,7 +484,6 @@ deliberately folded behind a broader line.
 - design `py-metadata-typed-errors`
 - design `py-pypy-ci-job`
 - design `py-query-segment-registration`
-- design `py-recipe-provider-choice`
 - design `py-record-values-to-python`
 - design `pyo3-python-3-13-support`
 - design `query-builder-in-bindings`
@@ -655,8 +654,8 @@ deliberately folded behind a broader line.
 - feature `PY-API-REFERENCE-NOT-GENERATED`
 - feature `PY-COMMAND-DECORATOR-CANNOT-DECLARE-ARGUMENT-METADATA`
 - feature `PY-COMMAND-DECORATOR-CANNOT-SET-REALM`
+- feature `PY-NO-LANGUAGE-DEFINED-RECIPE-PROVIDER`
 - feature `PY-NO-LANGUAGE-DEFINED-STORE`
-- feature `PY-RECIPE-PROVIDER-NOT-CONFIGURABLE`
 - feature `PY-RECORD-VALUES-CANNOT-CROSS-TO-PYTHON`
 - feature `QUERY-BUILDER-NOT-IN-BINDINGS`
 - feature `QUERY-CANNOT-CHOOSE-A-DATA-FORMAT`

@@ -16,11 +16,12 @@ use liquers_core::{
     context::{EnvRef, Environment, GenericEnvironment},
     environment_builder::{AssetManagerKind, AssetManagerOptions, DefaultKind, EnvironmentBuilder},
     error::Error,
-    recipes::{AsyncRecipeProvider, RecipeProviderChoice},
+    recipes::{
+        resolve_recipes, AsyncRecipeProvider, ChainedRecipeProviderFactory, RecipeProviderEntry,
+        RecipeProviderTypeInfo, RecipeProviderTypeMap, RecipesConfig, UnresolvedRecipeProvider,
+    },
     value::ValueInterface,
 };
-#[cfg(feature = "records")]
-use liquers_core::recipes::RecipeProviderChain;
 
 /// The library environment's kind: `DefaultKind`'s asset manager, with `liquers-lib`'s recipe
 /// default.
@@ -46,39 +47,86 @@ impl AssetManagerKind for LibKind {
         DefaultKind::build(envref, options)
     }
 
-    /// Reads recipes through the environment's store — the library default, and the reason this
-    /// kind exists.
+    /// The kind's default list, resolved: reads recipes through the environment's store — the
+    /// library default, and the reason this kind exists.
     ///
-    /// **With `records` on**, the chain also carries [`liquers_records::ManifestRecipeProvider`],
-    /// consulted after [`RecipeProviderChoice::Default`]: a plain `recipes.yaml` entry always wins
-    /// (`ManifestRecipeProvider` itself refuses a chunk name a sibling `recipes.yaml` also
-    /// defines), and a manifest's explicit and template-generated chunk keys become addressable
-    /// from anywhere `-R/…` is, exactly as a `recipes.yaml` entry is — not only through the source
-    /// that names them. Without `records`, this is unchanged: `RecipeProviderChoice::Default`
-    /// alone, as before the record-streams work.
+    /// **With `records` on**, the list is `[recipes_yaml, manifest]`: a manifest's explicit and
+    /// template-generated chunk keys become addressable from anywhere `-R/…` is, exactly as a
+    /// `recipes.yaml` entry is, not only through the source that names them. A chunk name the
+    /// folder's `recipes.yaml` also defines is refused by the chain, naming both providers.
+    /// Without `records` it is `[recipes_yaml]`.
     ///
     /// `ManifestRecipeProvider` has no bound on `E::Value`, so this compiles for every
     /// [`DefaultEnvironment`], whether or not its value type implements
-    /// [`liquers_records::RecordValue`] — the provider only ever parses a manifest's own bytes
-    /// into a [`liquers_records::ManifestSpec`], never the environment's value type.
+    /// `liquers_records::RecordValue` — the provider only ever parses a manifest's own bytes,
+    /// never the environment's value type.
     ///
-    /// A build that replaces the *base* provider (`with_recipe_provider` /
-    /// `with_recipe_provider_choice`, e.g. from a configuration document) bypasses this default
-    /// entirely and loses manifest support unless it also calls
-    /// [`RecordsRecipeProvider::with_records_recipe_provider`] (Phase 4 decision 1,
-    /// `specs/design/record-streams/phase4-implementation.md`).
+    /// A configuration (a document's `recipes:`, `with_recipes`, `with_recipe_provider_choice`)
+    /// resolves against the same list, so `default` keeps manifests; an explicit list keeps them
+    /// only if it names `manifest` (`specs/design/recipe-provider-chain-config/`).
     fn default_recipe_provider<E: Environment>() -> Arc<dyn AsyncRecipeProvider<E>> {
-        #[cfg(feature = "records")]
-        {
-            Arc::new(RecipeProviderChain::new(vec![
-                RecipeProviderChoice::Default.provider::<E>(),
-                Arc::new(liquers_records::ManifestRecipeProvider::new()),
-            ]))
+        match resolve_recipes(
+            &RecipesConfig::KindDefault,
+            &Self::default_recipes(),
+            &Self::recipe_provider_factory::<E>(),
+        ) {
+            Ok(chain) => Arc::new(chain),
+            Err(error) => Arc::new(UnresolvedRecipeProvider::new(error)),
         }
-        #[cfg(not(feature = "records"))]
-        {
-            RecipeProviderChoice::Default.provider()
+    }
+
+    /// An unconfigured builder resolves the kind's default list, as `new()` does.
+    fn unconfigured_recipes() -> RecipesConfig {
+        RecipesConfig::KindDefault
+    }
+
+    fn default_recipes() -> Vec<RecipeProviderEntry> {
+        let mut entries = vec![RecipeProviderEntry::named("recipes_yaml")];
+        if cfg!(feature = "records") {
+            entries.push(RecipeProviderEntry::named("manifest"));
         }
+        entries
+    }
+
+    /// `liquers-core`'s entry types plus `manifest`, which is declared unavailable without the
+    /// `records` feature so a list naming it says why it cannot be built.
+    fn recipe_provider_factory<E: Environment>() -> ChainedRecipeProviderFactory<E> {
+        ChainedRecipeProviderFactory::new()
+            .chain(Box::new(
+                liquers_core::recipes::core_recipe_provider_factory(),
+            ))
+            .chain(Box::new(lib_recipe_provider_factory::<E>()))
+    }
+}
+
+/// The recipe provider entry types `liquers-lib` adds: `manifest`.
+pub fn lib_recipe_provider_factory<E: Environment>() -> RecipeProviderTypeMap<E> {
+    let info = RecipeProviderTypeInfo::new("manifest")
+        .with_label("Record-stream manifests")
+        .with_doc(
+            "Chunk recipes synthesized from each folder's *.manifest.yaml files (liquers-records).",
+        );
+    #[cfg(feature = "records")]
+    {
+        RecipeProviderTypeMap::new().with_provider_type(
+            info,
+            Box::new(|_entry| {
+                Ok(Arc::new(liquers_records::ManifestRecipeProvider::new())
+                    as Arc<dyn AsyncRecipeProvider<E>>)
+            }),
+        )
+    }
+    #[cfg(not(feature = "records"))]
+    {
+        RecipeProviderTypeMap::new().with_provider_type(
+            info.unavailable("enable the records feature of liquers-lib"),
+            Box::new(|_entry| {
+                Err(Error::configuration_error(
+                    "the manifest recipe provider needs the records feature of liquers-lib"
+                        .to_string(),
+                ))
+            }),
+        )
     }
 }
 
@@ -92,18 +140,19 @@ pub trait CommandRegistryAccess: Environment {
 /// natively and [`Inline`](liquers_core::environment_builder::Inline) on wasm, which is exactly
 /// what the `cfg` import pair this replaced was emulating.
 ///
-/// **Its default recipe provider differs from the core builder's.** Construct it with
-/// [`default_environment_builder`], which configures [`RecipeProviderChoice::Default`]; a bare
-/// `EnvironmentBuilder::new()` configures `Trivial` and would silently stop resolving `-R/`
-/// queries for an application that relied on the library default.
+/// **Its default recipe provider differs from the core one.** [`LibKind`] resolves its default
+/// list (`[recipes_yaml, manifest]` with `records`) when nothing is configured, where a core kind
+/// resolves the empty chain and would silently stop resolving `-R/` queries for an application
+/// that relied on the library default.
 pub type DefaultEnvironment<V, P = ()> = GenericEnvironment<V, P, LibKind>;
 
 /// A builder carrying `liquers-lib`'s defaults.
 ///
-/// The one difference from `EnvironmentBuilder::new()` is the recipe provider:
-/// [`RecipeProviderChoice::Default`] reads recipes through the environment's store, which is what
-/// every `liquers-lib` consumer has always got and what `-R/` queries need. `liquers-core`'s
-/// builder defaults to `Trivial` and is right to: it has no opinion about recipes.
+/// The one difference from a core kind's `EnvironmentBuilder::new()` is the recipe provider:
+/// [`LibKind`]'s default list reads recipes through the environment's store (and manifests, with
+/// `records`), which is what every `liquers-lib` consumer has always got and what `-R/` queries
+/// need. A core builder defaults to the empty chain and is right to: it has no opinion about
+/// recipes.
 pub fn default_environment_builder<V: ValueInterface, P: PayloadType>(
 ) -> EnvironmentBuilder<V, P, LibKind> {
     // No explicit provider: `LibKind::default_recipe_provider` supplies it, so the builder and the
@@ -148,21 +197,14 @@ impl PolarsCommandRegistration for EnvironmentBuilder<crate::value::Value, (), L
 /// is defined in `liquers-core`, so Rust does not permit an inherent `impl` for it here even with
 /// `LibKind` fixed.
 ///
-/// [`LibKind::default_recipe_provider`] already carries `ManifestRecipeProvider` after
-/// [`RecipeProviderChoice::Default`], so an unconfigured [`default_environment_builder`] needs
-/// nothing further. This method matters for a build that replaces the *base* provider —
-/// [`EnvironmentBuilder::with_recipe_provider`] or
-/// [`EnvironmentBuilder::with_recipe_provider_choice`], which a configuration document's own
-/// choice would go through — and would otherwise lose keyed-chunk support with nothing to say so
-/// (Phase 4 decision 1, `specs/design/record-streams/phase4-implementation.md`: "`liquers-lib`
-/// adds `with_records_recipe_provider()` to its builder and calls it on its own configured
-/// construction paths, so a server built from a configuration document serves keyed chunks too").
-/// `liquers-lib` has no such configured-construction path yet — nothing here calls it — so this is
-/// the surface a future one (an `EnvironmentConfig`-driven builder, e.g.) is expected to call.
+/// [`LibKind`]'s default list already holds `manifest`, and so does any configuration naming
+/// `default`; this method matters for an explicit list or a base provider that leaves it out. It
+/// appends the `manifest` entry, which is skipped when the chain already has one, so it never adds
+/// a second manifest provider.
 #[cfg(feature = "records")]
 pub trait RecordsRecipeProvider {
-    /// Appends [`liquers_records::ManifestRecipeProvider`] after whatever base recipe provider
-    /// this builder already has, so manifest chunk keys resolve regardless of the configured base.
+    /// Appends the `manifest` entry after this builder's recipe providers unless it is already
+    /// among them, so manifest chunk keys resolve regardless of the configured base.
     fn with_records_recipe_provider(self) -> Self;
 }
 
@@ -171,7 +213,7 @@ impl<V: ValueInterface, P: PayloadType> RecordsRecipeProvider
     for EnvironmentBuilder<V, P, LibKind>
 {
     fn with_records_recipe_provider(self) -> Self {
-        self.with_appended_recipe_provider(Arc::new(liquers_records::ManifestRecipeProvider::new()))
+        self.with_appended_recipe_entry(RecipeProviderEntry::named("manifest"))
     }
 }
 

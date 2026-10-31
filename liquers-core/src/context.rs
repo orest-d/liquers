@@ -1640,11 +1640,11 @@ impl<
         self
     }
 
-    /// Appends a provider, consulted after the one currently installed.
+    /// Appends a provider, asked after the one currently installed.
     ///
     /// Replaces `self.recipe_provider` with
-    /// `RecipeProviderChain::new(vec![current, provider])` — the current provider first, so it
-    /// keeps priority, then the newly appended one. A chain nested in a chain (calling this
+    /// `RecipeProviderChain::new(vec![current, provider])`. Every member of a chain is asked, so
+    /// a key both serve is a configuration error naming both. A chain nested in a chain (calling this
     /// method twice, or after [`Self::with_recipe_provider_choice`] installed one) is correct,
     /// merely one indirection deeper: [`crate::recipes::RecipeProviderChain`] implements
     /// [`AsyncRecipeProvider`] itself, so nothing downstream distinguishes a two-level chain from
@@ -1666,15 +1666,36 @@ impl<
         self
     }
 
-    /// Selects one of the built-in recipe providers by name.
+    /// Installs the recipe provider chain a `recipes:` list describes, resolved through the
+    /// kind's entry types ([`crate::environment_builder::AssetManagerKind::recipe_provider_factory`])
+    /// and default list ([`crate::environment_builder::AssetManagerKind::default_recipes`]).
+    ///
+    /// Replaces the installed provider, appended ones included. An unknown, unavailable or
+    /// duplicate entry is a configuration error and leaves the environment unchanged.
+    pub fn try_with_recipes(
+        &mut self,
+        recipes: crate::recipes::RecipesConfig,
+    ) -> Result<&mut Self, Error> {
+        let factory = K::recipe_provider_factory::<Self>();
+        let chain = crate::recipes::resolve_recipes(&recipes, &K::default_recipes(), &factory)?;
+        self.recipe_provider = Arc::new(chain);
+        Ok(self)
+    }
+
+    /// Selects the recipe providers by keyword: `Default` is the kind's default list, `Trivial`
+    /// the empty chain.
     ///
     /// The same vocabulary [`crate::environment_builder::EnvironmentBuilder`] and a configuration
-    /// document use, so the choice is spelled one way everywhere.
+    /// document use, so the choice is spelled one way everywhere. Infallible: should the kind's
+    /// own default list not resolve, the installed provider fails every lookup with that error
+    /// rather than this setter panicking.
     pub fn with_recipe_provider_choice(
         &mut self,
         choice: crate::recipes::RecipeProviderChoice,
     ) -> &mut Self {
-        self.recipe_provider = choice.provider();
+        if let Err(error) = self.try_with_recipes(choice.into()) {
+            self.recipe_provider = Arc::new(crate::recipes::UnresolvedRecipeProvider::new(error));
+        }
         self
     }
 

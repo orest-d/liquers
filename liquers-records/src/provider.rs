@@ -18,7 +18,7 @@ use liquers_core::error::{Error, ErrorType};
 use liquers_core::metadata::Version;
 use liquers_core::plan::Plan;
 use liquers_core::query::{Key, Query, ResourceName};
-use liquers_core::recipes::{AsyncRecipeProvider, DefaultRecipeProvider, Recipe};
+use liquers_core::recipes::{AsyncRecipeProvider, Recipe};
 use liquers_core::store::AsyncStore;
 
 use crate::manifest::ManifestSpec;
@@ -43,8 +43,8 @@ struct CachedManifest {
 /// Serves recipes for a manifest's chunks — explicit and template-generated alike — so they are
 /// addressable by key exactly as `recipes.yaml` entries are (phase2-architecture.md §B).
 ///
-/// **This provider sits on the interpreter's hot path.** In the `liquers-lib` provider chain it is
-/// consulted for every key `recipes.yaml` does not define — i.e. every plain `-R/…` file — and
+/// **This provider sits on the interpreter's hot path.** A recipe provider chain asks every member
+/// for every key, so in `liquers-lib`'s chain it is consulted for every `-R/…` key — and
 /// each `get(key)` on the asset manager resolves the recipe more than once (`is_volatile`, then
 /// evaluation). Two caches keep that cheap:
 ///
@@ -67,6 +67,9 @@ struct CachedManifest {
 ///   directory and its subtree. A change made behind Liquers' back (directly on disk) is not
 ///   noticed until [`ManifestRecipeProvider::clear_cache`] is called or the provider is rebuilt.
 ///   A listing fill that races an invalidation is never kept (see `generation`).
+///
+/// It answers only for its own chunks and does not read a sibling `recipes.yaml`: a chunk name
+/// that one also defines is refused by the chain, which names both providers.
 ///
 /// A name that does not look like a generated chunk, and whose folder holds no manifest at all,
 /// costs exactly one `listdir` (cached thereafter) and no `get` — a plain file with no manifest is
@@ -188,31 +191,6 @@ impl ManifestRecipeProvider {
             Err(error) if is_absent(&error) => Ok(None),
             Err(error) => Err(error),
         }
-    }
-
-    /// Refuses a chunk name that the folder's own `recipes.yaml` also defines
-    /// (phase2-architecture.md §A: "a chunk name that a sibling `recipes.yaml` also defines" is a
-    /// collision refused at load). Read fresh every time, via core's public
-    /// `DefaultRecipeProvider::get_recipes` — only reached once a manifest has already matched
-    /// `name`, so a folder with no `recipes.yaml` (the common case) pays for this exactly when it
-    /// is about to answer `Some`, never on a lookup that would answer `None` anyway.
-    async fn check_no_recipes_yaml_collision<E: Environment>(
-        folder: &Key,
-        name: &str,
-        envref: &EnvRef<E>,
-        manifest_key: &Key,
-    ) -> Result<(), Error> {
-        let recipes = DefaultRecipeProvider::new()
-            .get_recipes(folder, envref.clone())
-            .await?;
-        if recipes.get(name).is_some() {
-            return Err(Error::general_error(format!(
-                "chunk \"{name}\" is defined both by manifest '{manifest_key}' and by '{}'",
-                folder.join("recipes.yaml")
-            ))
-            .with_key(&folder.join(name)));
-        }
-        Ok(())
     }
 }
 
@@ -359,13 +337,6 @@ impl<E: Environment> AsyncRecipeProvider<E> for ManifestRecipeProvider {
                         if index as usize >= source.spec().chunks.len() {
                             let query = template.query_at(index, Some(&name))?;
                             let recipe = template_chunk_recipe(source.spec(), &folder, query);
-                            Self::check_no_recipes_yaml_collision(
-                                &folder,
-                                &name,
-                                &envref,
-                                &manifest_key,
-                            )
-                            .await?;
                             return Ok(Some(recipe));
                         }
                     }
@@ -387,13 +358,6 @@ impl<E: Environment> AsyncRecipeProvider<E> for ManifestRecipeProvider {
                 if let Some(filename) = chunk.filename()? {
                     if filename.encode() == name {
                         let recipe = explicit_chunk_recipe(source.spec(), &folder, chunk);
-                        Self::check_no_recipes_yaml_collision(
-                            &folder,
-                            &name,
-                            &envref,
-                            &manifest_key,
-                        )
-                        .await?;
                         return Ok(Some(recipe));
                     }
                 }
@@ -937,8 +901,11 @@ arguments:
     }
 
     #[tokio::test]
-    async fn a_chunk_name_the_sibling_recipes_yaml_also_defines_is_refused(
+    async fn the_manifest_provider_answers_a_chunk_a_sibling_recipes_yaml_also_defines(
     ) -> Result<(), Box<dyn std::error::Error>> {
+        // The provider no longer reads the sibling `recipes.yaml`: it answers for its own chunk,
+        // and the clash is the recipe provider chain's to refuse, for any two members
+        // (`specs/design/recipe-provider-chain-config/`).
         let store = AsyncMemoryStore::new(&Key::new());
         set_yaml(
             &store,
@@ -965,11 +932,27 @@ arguments:
         let provider = ManifestRecipeProvider::new();
 
         let key = parse_key("data/sales/orders_eu.csv")?;
-        let result = AsyncRecipeProvider::recipe_opt(&provider, &key, envref.clone()).await;
-        assert!(result.is_err(), "a name defined by both should be refused");
-        let message = result.unwrap_err().message.clone();
-        assert!(message.contains("orders_eu.csv"));
-        assert!(message.contains("manifest") && message.contains("recipes.yaml"));
+        let recipe = AsyncRecipeProvider::recipe_opt(&provider, &key, envref.clone())
+            .await?
+            .expect("the manifest's own chunk");
+        assert_eq!(recipe.title, "Orders (EU)");
+
+        let chain = liquers_core::recipes::RecipeProviderChain::named(vec![
+            (
+                "recipes_yaml".to_string(),
+                std::sync::Arc::new(liquers_core::recipes::DefaultRecipeProvider::new())
+                    as std::sync::Arc<dyn AsyncRecipeProvider<_>>,
+            ),
+            ("manifest".to_string(), std::sync::Arc::new(provider)),
+        ]);
+        let error = AsyncRecipeProvider::recipe_opt(&chain, &key, envref.clone())
+            .await
+            .expect_err("the chain refuses a key two members define");
+        assert!(
+            error.message.contains("'recipes_yaml'") && error.message.contains("'manifest'"),
+            "{}",
+            error.message
+        );
         Ok(())
     }
 

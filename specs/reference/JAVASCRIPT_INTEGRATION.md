@@ -3,7 +3,7 @@ title: JavaScript Integration
 kind: reference
 audience: both
 area: [web, core/value, core/error, core/store, lib/value]
-reviewed: 2026-10-28
+reviewed: 2026-10-30
 ---
 # JavaScript Integration
 
@@ -81,7 +81,7 @@ the core type (§3, §7).
 **Type.** `WebEnvironment = liquers_lib::environment::DefaultEnvironment<Value, ()>`, used directly:
 it already selects the inline asset manager (`ImmediateAssetManager`) on `wasm32`. Every environment
 is built by `new_environment()`: a type registry of `Value`'s types plus `js.Value` (§5), the built-in
-commands, and the default recipe provider. There is no new `Environment` or `CommandExecutor`
+commands, and `liquers-lib`'s default recipe provider chain. There is no new `Environment` or `CommandExecutor`
 implementation.
 
 **Built-in commands.** `register_builtin_commands` registers `liquers_lib::register_core_commands!` —
@@ -146,7 +146,10 @@ There is no synchronous evaluation entry point, deliberately (`ASYNCQ06`, `ASYNC
 
 **Store.** A new environment has no store: `-R/` queries reject with `asset_not_found` and writes
 with `key_not_supported` until `configureStore` applies a configuration (§8). The recipe provider is
-the default one, reading `recipes.yaml` through that store.
+`LibKind`'s default chain, read through that store: `recipes.yaml` files, and with the `records`
+feature also record-stream manifests (`[recipes_yaml, manifest]`,
+`reference/ENVIRONMENT_CONFIG.md` §The recipe provider chain). A chunk name both define is an
+error naming both providers.
 
 ## 4. Commands
 
@@ -428,6 +431,7 @@ stream. A view built from a `column` descriptor is invalidated by `memory.grow` 
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-30 | §3: the recipe provider is `LibKind`'s default chain, so a `records` build serves manifest chunks. | design `recipe-provider-chain-config` |
 | 2026-10-26 | Created from the implemented `liquers-web`, checked against a wasm build under Node. | `WEB-HAS-NO-API-REFERENCE-OR-USER-GUIDE` |
 | 2026-10-26 | A nested `null` now arrives as `null`; a failed asset rejects every `evaluate` caller; nested bytes are refused by design. Three limitations removed. | `WEB-NESTED-NULL-CROSSES-AS-UNDEFINED`, `WEB-EVALUATE-RESOLVES-FAILED-ASSET-AS-NULL`, `WEB-NESTED-BYTES-REFUSED-NOT-DEGRADED` |
 | 2026-10-28 | A thrown-back `LiquersError` keeps its `query`, `key` and `position` (§6); the sentence describing their loss is corrected. | `WEB-THROWN-BACK-LIQUERSERROR-LOSES-CONTEXT` |
