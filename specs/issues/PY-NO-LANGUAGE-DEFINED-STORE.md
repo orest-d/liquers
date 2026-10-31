@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: L
 area: [py, core/store, store/config]
-design:
+design: liquers-py-store
 created: 2026-10-27
 github:
 ---

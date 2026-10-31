@@ -5,8 +5,8 @@ title: A recipe provider cannot be written in Python, and liquers-py has no RECI
 status: draft
 priority: P3
 complexity: M
-area: [py, core/context]
-design:
+area: [py, core/assets, core/context]
+design: liquers-py-recipes
 created: 2026-10-30
 github:
 ---
