@@ -127,6 +127,8 @@ The wider issue leads.
   traceback. `test_ERROR03_language_exception_includes_class_and_stack` and
   `test_ERROR_nested_python_tracebacks_are_concatenated` failed on 3.10 before the fix; the whole
   suite passes on 3.10 and 3.13 after it.
+- **2026-10-31**: `Cargo.lock` is not committed (`.gitignore`), so the web job's first CI run failed
+  reading it. The job now runs `cargo generate-lockfile` before reading the `wasm-bindgen` version.
 
 - **2026-10-27**: one line of `scripts/test-liquers-py.sh` is in scope (AC-7). polars ships only
   `abi3` wheels, which a free-threaded interpreter cannot load, so on 3.14t pip falls back to the

@@ -53,6 +53,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      # Cargo.lock is not committed (.gitignore), so resolve it here; the runner must match the
+      # wasm-bindgen version the build resolves to.
+      - name: Resolve Cargo.lock
+        run: cargo generate-lockfile
       - name: Install wasm-bindgen-test-runner matching Cargo.lock
         run: |
           ver=$(grep -A1 '^name = "wasm-bindgen"$' Cargo.lock | sed -n 's/^version = "\(.*\)"$/\1/p')
