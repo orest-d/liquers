@@ -5,8 +5,9 @@
 #   1. Creates (or reuses) a venv at target/liquers-py-venv-<implementation><version><abiflags>
 #      (for example `-cpython3.12`, or `-cpython3.14t` for a free-threaded build), from `python3` on
 #      PATH, so each interpreter gets its own venv.
-#   2. Installs maturin and pytest into it with pip, plus polars and pillow: the VALUE suite crosses
-#      a DataFrame and an image, and skips those tests (rather than failing) only if they are absent.
+#   2. Installs maturin and pytest into it with pip, plus polars and pillow from wheels only: the
+#      VALUE suite crosses a DataFrame and an image, and skips those tests (rather than failing) when
+#      a package has no wheel for the interpreter (polars on free-threaded 3.14t).
 #   3. `maturin develop --features debug-handles` builds the extension and installs the `liquers`
 #      package into the venv. `debug-handles` is test-only: it lets RUNTIME05 count the Python
 #      callables the registrations hold.
@@ -39,7 +40,13 @@ fi
 source "$venv/bin/activate"
 
 echo "==> installing maturin, pytest, polars and pillow"
-python3 -m pip install --quiet --disable-pip-version-check maturin pytest polars pillow
+python3 -m pip install --quiet --disable-pip-version-check maturin pytest
+# Wheels only: polars ships abi3 wheels, which a free-threaded interpreter cannot load, and building
+# it from its sdist is a long Rust build. Its tests skip without it.
+for pkg in polars pillow; do
+  python3 -m pip install --quiet --disable-pip-version-check --only-binary :all: "$pkg" \
+    || echo "==> no $pkg wheel for this interpreter; its tests will skip"
+done
 
 echo "==> maturin develop --features debug-handles"
 maturin develop --manifest-path liquers-py/Cargo.toml --features debug-handles

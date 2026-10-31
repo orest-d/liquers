@@ -3,9 +3,9 @@
 
 The coverage set is every name in ``lq.__all__`` plus, for each class listed there, the public
 names (not starting with ``_``) in the class's *own* ``__dict__``. Values are read with
-``getattr(cls, name)`` rather than from ``__dict__``: on CPython 3.9 a ``staticmethod`` object found
-in ``__dict__`` carries ``staticmethod``'s own ``__doc__`` (a false pass), and ``inspect.signature``
-raises on it. Enum members (instances of their own class) are values, not API, and are skipped.
+``getattr(cls, name)`` rather than from ``__dict__``: a ``staticmethod`` object found in ``__dict__``
+is the descriptor, not the function (on CPython 3.9 it even carried ``staticmethod``'s own ``__doc__``,
+a false pass). Enum members (instances of their own class) are values, not API, and are skipped.
 """
 
 import inspect

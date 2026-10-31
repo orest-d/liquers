@@ -13,6 +13,7 @@ pub mod command;
 pub mod dependencies;
 pub mod environment;
 pub mod error;
+pub mod exit;
 pub mod expiration;
 pub mod metadata;
 pub mod parse;
@@ -94,6 +95,9 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<crate::context::Context>()?;
     m.add_class::<crate::asset::State>()?;
     m.add_class::<crate::asset::AssetRef>()?;
+
+    // Registered first, so it runs after every environment's own `atexit` hooks.
+    crate::exit::register(m)?;
 
     Ok(())
 }

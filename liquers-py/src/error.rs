@@ -367,9 +367,16 @@ fn optional_string(value: &Bound<'_, pyo3::exceptions::PyBaseException>, name: &
 }
 
 fn format_traceback(py: Python<'_>, err: &PyErr) -> Option<String> {
+    // The three-argument form, with the traceback PyO3 holds: before CPython 3.12 a fetched
+    // exception's `__traceback__` is not set, so `format_exception(value)` alone has no frames.
     let lines = py
         .import("traceback")
-        .and_then(|tb| tb.call_method1("format_exception", (err.value(py),)))
+        .and_then(|tb| {
+            tb.call_method1(
+                "format_exception",
+                (err.get_type(py), err.value(py), err.traceback(py)),
+            )
+        })
         .ok()?;
     let joined = py
         .eval(c"''.join", None, None)

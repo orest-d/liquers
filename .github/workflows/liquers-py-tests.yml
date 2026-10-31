@@ -1,0 +1,70 @@
+name: liquers-py-tests
+
+# Runs the liquers-py test loop (scripts/test-liquers-py.sh: maturin develop, pytest, then the
+# crate's Rust unit tests) on the oldest supported CPython, the newest stable one and the
+# free-threaded build. Design: specs/design/language-binding-tests-in-ci/.
+
+on:
+  pull_request:
+    paths:
+      # every workspace crate is a liquers-* directory; the negations drop crates liquers-py does
+      # not build from
+      - 'liquers-*/**'
+      - '!liquers-web/**'
+      - '!liquers-axum/**'
+      - '!liquers-mcp/**'
+      - '!liquers-agent/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.cargo/**'
+      - 'scripts/test-liquers-py.sh'
+      - '.github/workflows/liquers-py-tests.yml'
+  push:
+    branches: [main]
+    paths:
+      # every workspace crate is a liquers-* directory; the negations drop crates liquers-py does
+      # not build from
+      - 'liquers-*/**'
+      - '!liquers-web/**'
+      - '!liquers-axum/**'
+      - '!liquers-mcp/**'
+      - '!liquers-agent/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - '.cargo/**'
+      - 'scripts/test-liquers-py.sh'
+      - '.github/workflows/liquers-py-tests.yml'
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.10', '3.14', '3.14t']
+    env:
+      CARGO_INCREMENTAL: 0
+    steps:
+      - uses: actions/checkout@v4
+      - name: Free runner disk
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL; df -h /
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: liquers-py
+          save-if: ${{ github.ref == 'refs/heads/main' && matrix.python == '3.14' }}
+      - name: Install system OpenSSL headers
+        run: sudo apt-get update && sudo apt-get install -y libssl-dev
+      - uses: actions/setup-python@v5
+        id: py
+        with:
+          python-version: ${{ matrix.python }}
+      # A restored venv would point at a toolcache interpreter that no longer exists.
+      - run: rm -rf target/liquers-py-venv-*
+      - name: Run the liquers-py test loop
+        run: bash scripts/test-liquers-py.sh
+        env:
+          PYTHON: ${{ steps.py.outputs.python-path }}
+      - run: df -h /
