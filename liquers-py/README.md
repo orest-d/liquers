@@ -77,9 +77,10 @@ re-exports every class and function of the extension by name. A class registered
 
 ## Supported Python
 
-**CPython 3.9 to 3.15; PyPy 3.11 or newer.** These are the versions PyO3 0.30 supports, and
-`pyproject.toml` declares `requires-python = ">=3.9,<3.16"` to match CPython. That field cannot
-state a narrower range per implementation, so PyPy 3.9 and 3.10 are inside it but fail the build.
+**CPython 3.10 to 3.15; PyPy 3.11 or newer.** PyO3 0.30 also builds for CPython 3.9, but 3.9
+reached its end of life in October 2025, so the floor is 3.10 (decided 2026-10-31).
+`pyproject.toml` declares `requires-python = ">=3.10,<3.16"` to match CPython. That field cannot
+state a narrower range per implementation, so PyPy 3.10 is inside it but fails the build.
 
 No environment override is needed for any supported version, including the cloud dev
 environment's CPython 3.13.
@@ -87,7 +88,9 @@ environment's CPython 3.13.
 **Free-threaded CPython (3.14t)** is supported: the extension declares that it does not need the
 GIL, so importing `liquers` leaves it off, and the whole suite passes on 3.14t as well as on 3.13
 (`specs/design/liquers-py-async/`). `PYTHON=$(uv python find 3.14t) bash scripts/test-liquers-py.sh`
-runs it. Neither run is in CI yet (`PY-TESTS-NOT-RUN-IN-CI`).
+runs it. CI runs the suite on CPython 3.10, 3.14 and 3.14t (`.github/workflows/liquers-py-tests.yml`);
+3.14t runs without polars, which has no free-threaded wheel, so its polars tests skip. PyPy is not
+tested in CI.
 
 ## Building and testing
 

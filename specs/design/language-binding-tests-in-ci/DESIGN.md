@@ -5,7 +5,7 @@ title: CI runs the liquers-py test loop and the liquers-web Node loop
 form: compact
 status: in_review
 phase: implementation
-readiness: needs-decision
+readiness: ready
 autofix: not-eligible
 area: [build, py, web]
 issues: [LANGUAGE-BINDING-TESTS-NOT-RUN-IN-CI, PY-TESTS-NOT-RUN-IN-CI]
@@ -54,7 +54,7 @@ PR.
   THEN the `liquers-py` workflow fails
 - **AC-2** Three interpreters, independent
   WHEN the `liquers-py` workflow runs
-  THEN `scripts/test-liquers-py.sh` runs as separate jobs on CPython 3.9, 3.14 and free-threaded
+  THEN `scripts/test-liquers-py.sh` runs as separate jobs on CPython 3.10, 3.14 and free-threaded
   3.14t, and each job runs to its own end (failed or passed, never cancelled by another)
 - **AC-3** Web Node loop gates a PR
   WHEN a PR changes a file that `liquers-web` builds from, and a Node-loop test fails with
@@ -90,7 +90,9 @@ guide-example loops; changes to tests.
 - **Explanation:** both loops pass locally, and every runner choice below is settled with
   evidence. Only the policy question is open.
 - **Open questions:**
-  1. **Proposed resolution: matrix and cost.** The matrix is CPython 3.9, 3.14 and 3.14t, plus the
+  1. **Resolved 2026-10-31 (Orest): CPython 3.10, 3.14 and 3.14t,** with the supported floor raised
+     from 3.9 to 3.10, since 3.9 is past its end of life (Scope Changes). Originally proposed: the
+     matrix is CPython 3.9, 3.14 and 3.14t, plus the
      web Node loop with two feature sets. That makes four jobs, triggered only by changes in the
      bindings' dependency closure. The repository is public, so hosted minutes are free; the cost is
      wall time. That time is estimated, not measured: a cold run takes about 25-35 minutes per
@@ -114,6 +116,18 @@ The wider issue leads.
 
 ### Scope Changes
 
+- **2026-10-31**: at the decision Orest raised the supported CPython floor to 3.10, so the oldest
+  job is 3.10 and the floor change rides this PR: `liquers-py/pyproject.toml`
+  (`requires-python = ">=3.10,<3.16"`), `liquers-py/README.md`, `specs/guides/PYTHON_GUIDE.md` §1
+  and `CLAUDE.md`. The workflow also installs `libssl-dev`, as `build-matrix.yml` does, because
+  `liquers-lib` links the system OpenSSL.
+- **2026-10-31**: running the suite on 3.10 found a defect: a Python traceback carried no frames
+  before CPython 3.12, because `format_traceback` (`liquers-py/src/error.rs`) passed only the
+  exception value, whose `__traceback__` PyO3 does not set there. It now passes type, value and
+  traceback. `test_ERROR03_language_exception_includes_class_and_stack` and
+  `test_ERROR_nested_python_tracebacks_are_concatenated` failed on 3.10 before the fix; the whole
+  suite passes on 3.10 and 3.13 after it.
+
 - **2026-10-27**: one line of `scripts/test-liquers-py.sh` is in scope (AC-7). polars ships only
   `abi3` wheels, which a free-threaded interpreter cannot load, so on 3.14t pip falls back to the
   sdist and would build polars from source.
@@ -121,7 +135,8 @@ The wider issue leads.
 ### Consolidated Findings
 
 - **Wheels.** These are what `pip --dry-run --only-binary :all:` resolves:
-  - 3.9: `polars 1.36.1` with `polars-runtime-32 1.36.1` (`cp39-abi3`), and `pillow 11.3.0`;
+  - 3.10 (checked 2026-10-31): `polars 2.0.0` with `polars-runtime-32 2.0.0` (`cp310-abi3`), and
+    `pillow 12.3.0` (`cp310`);
   - 3.14: `polars 2.1.0` (`cp311-abi3`) and `pillow 13.0.0`;
   - 3.14t (run on 3.14.6t): `pillow 13.0.0` (`cp314t`); for polars there is no wheel, only
     `polars_runtime_32-2.1.0.tar.gz`.
@@ -163,7 +178,7 @@ done
       - '.github/workflows/liquers-py-tests.yml'
 ```
 
-The job `test` has `strategy.fail-fast: false`, `matrix.python: ['3.9', '3.14', '3.14t']`,
+The job `test` has `strategy.fail-fast: false`, `matrix.python: ['3.10', '3.14', '3.14t']`,
 `timeout-minutes: 75` and `env: CARGO_INCREMENTAL: 0`. Its steps are:
 
 1. `actions/checkout@v4`.
@@ -200,7 +215,7 @@ Each header comment names what the workflow runs and names this design.
 **Free-threaded interpreter: `actions/setup-python` with `3.14t`.** This is documented in
 setup-python's `docs/advanced-usage.md`: the `t` suffix, from 3.13 on. `actions/python-versions`'
 manifest lists `python-3.14.10-linux-24.04-x64-freethreaded.tar.gz`, and also
-`python-3.9.25-linux-24.04-x64`. The `v5` tag floats to the newest 5.x release.
+`python-3.10.22-linux-24.04-x64` (checked 2026-10-31). The `v5` tag floats to the newest 5.x release.
 
 Rejected alternatives:
 - **`astral-sh/setup-uv` with `uv python find 3.14t`**, as `liquers-py/README.md` does locally. It
@@ -223,8 +238,8 @@ Known-issue preflight: nothing blocks.
 - Documents (step 4):
   - `PYTHON_INTEGRATION.md` §8: the bullet "The Python suite runs locally, on CPython 3.13 and
     3.14t, but not in CI (`PY-TESTS-NOT-RUN-IN-CI`)" becomes "CI runs the Python suite on CPython
-    3.9, 3.14 and 3.14t (3.14t without polars, which has no free-threaded wheel); PyPy is not
-    tested". Add a History row and bump `reviewed:`.
+    3.10, 3.14 and 3.14t (3.14t without polars, which has no free-threaded wheel); PyPy is not
+    tested". Add a History row and bump `reviewed:`. (With the 2026-10-31 decision: 3.10.)
   - `liquers-py/README.md` "Supported Python": the same facts.
 
 No code, command or registry change.
@@ -270,10 +285,10 @@ These are CI properties, so there is no new unit test.
 
 ### Steps
 
-- [ ] 1. `.github/workflows/liquers-py-tests.yml` and `liquers-web-tests.yml` as in Phase 2. Proof: `wf_filters_review`; `python3 -c 'import yaml,sys; [yaml.safe_load(open(f)) for f in sys.argv[1:]]' <files>`
-- [ ] 2. `scripts/test-liquers-py.sh` line 42 and its header comment. Proof: `local_missing_wheel`; `bash scripts/test-liquers-py.sh` passes on 3.13
+- [x] 1. `.github/workflows/liquers-py-tests.yml` and `liquers-web-tests.yml` as in Phase 2. Proof: `wf_filters_review`; `python3 -c 'import yaml,sys; [yaml.safe_load(open(f)) for f in sys.argv[1:]]' <files>`
+- [x] 2. `scripts/test-liquers-py.sh` line 42 and its header comment. Proof: `local_missing_wheel`; `bash scripts/test-liquers-py.sh` passes on 3.13
 - [ ] 3. Open the PR. Proof: `wf_py_matrix_green`, `wf_web_node_green`, then `wf_red_on_failure` (revert afterwards). A job that is red because of a defect in the code is filed under `DOCS_STRUCTURE_GUIDE.md` §4.8 and the PR is left unmerged for the maintainer, never with `continue-on-error`. A red job caused by the runner is not expected: every runner choice is settled above. If one occurs, the automatic fix stops and the design returns for review
-- [ ] 4. `PYTHON_INTEGRATION.md` §8 bullet, History row and `reviewed:`; `liquers-py/README.md` "Supported Python". Proof: `python3 scripts/docs_index.py --check`
+- [x] 4. `PYTHON_INTEGRATION.md` §8 bullet, History row and `reviewed:`; `liquers-py/README.md` "Supported Python". Proof: `python3 scripts/docs_index.py --check`
 - [ ] 5. Both source issues `status: closed` with a resolution note; `python3 scripts/docs_index.py`. Proof: `python3 scripts/docs_index.py --check`
 
 ### Validation

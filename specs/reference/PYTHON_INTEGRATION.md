@@ -3,7 +3,7 @@ title: Python Integration
 kind: reference
 audience: both
 area: [py, core/value, core/error, lib/value]
-reviewed: 2026-10-30
+reviewed: 2026-10-31
 ---
 # Python Integration
 
@@ -403,7 +403,8 @@ protect.
 
 - One job queue serves every command; a command cannot be given its own queue or limit
   (`CORE-ONE-JOB-QUEUE-FOR-ALL-COMMANDS`).
-- The Python suite runs locally, on CPython 3.13 and 3.14t, but not in CI (`PY-TESTS-NOT-RUN-IN-CI`).
+- CI runs the Python suite on CPython 3.10, 3.14 and 3.14t (3.14t without polars, which has no
+  free-threaded wheel); PyPy is not tested (`py-pypy-ci-job`).
 - No `realm=` or `arguments=` on the decorators (`PY-COMMAND-DECORATOR-CANNOT-SET-REALM`,
   `PY-COMMAND-DECORATOR-CANNOT-DECLARE-ARGUMENT-METADATA`); the context is passed positionally
   (`COMMAND_DECLARATION.md` §9).
@@ -420,6 +421,7 @@ protect.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-31 | §8: CI runs the Python suite on CPython 3.10, 3.14 and 3.14t; the supported floor is 3.10. | design `language-binding-tests-in-ci` |
 | 2026-10-30 | §3: `config.recipes` accepts every value (`default`, `trivial`, a list of entries); the constructor no longer refuses a non-default `recipes`. Known limitations: the recipe-provider limitation now names a Python-written provider only. | design `recipe-provider-chain-config` |
 | 2026-10-28 | §6: a wrapper method's JSON/YAML failure raises `SerializationError`, and a bad constructor argument the core constructor's error; no wrapper raises a plain `Exception`. | design `py-metadata-typed-errors` |
 | 2026-10-27 | §8: every public name has a docstring now; only the generated API reference is missing. | design `py-docstrings` |
