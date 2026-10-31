@@ -825,8 +825,13 @@ impl LiquersEnvironment {
 
     /// Mounts a Liquers UI into a DOM element on **this** environment; see the module-level
     /// `mountUI`. On the singleton, the mount follows a rebuilt environment.
-    #[wasm_bindgen(js_name = mountUI)]
-    pub fn mount_ui(&self, container: JsValue, options: JsValue) -> js_sys::Promise {
+    #[wasm_bindgen(js_name = mountUI, unchecked_return_type = "Promise<UIMount>")]
+    pub fn mount_ui(
+        &self,
+        #[wasm_bindgen(unchecked_param_type = "Element")] container: JsValue,
+        #[wasm_bindgen(unchecked_param_type = "MountOptions")] options: Option<JsValue>,
+    ) -> js_sys::Promise {
+        let options = options.unwrap_or(JsValue::UNDEFINED);
         let envref = match self.resolve() {
             Ok(envref) => envref,
             Err(e) => return js_sys::Promise::reject(&liquers_error_to_js(e)),

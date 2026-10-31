@@ -93,7 +93,7 @@ async fn uiuse02c_freed_ui_element_is_refused() {
 }
 
 async fn mount_rejection(options: JsValue) -> JsValue {
-    let promise = liquers_web::ui::mount_ui(JsValue::NULL, options);
+    let promise = liquers_web::ui::mount_ui(JsValue::NULL, Some(options));
     match JsFuture::from(promise).await {
         Ok(v) => panic!("mountUI must reject here, resolved with {v:?}"),
         Err(e) => e,

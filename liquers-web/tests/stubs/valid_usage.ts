@@ -65,6 +65,25 @@ async function main(): Promise<void> {
     run: (context: string) => context,
   });
 
+  // A mounted UI.
+  const app = document.createElement('div');
+  const ui: liquers.UIMount = await liquers.mountUI(app, { query: 'hello/q/ns-lui/query_console' });
+  const sub: liquers.UISubscription = ui.on('status', (e: liquers.UIStatusEvent) => {
+    const h: number | null = e.handle;
+    if (e.error) console.error(e.error.message, h, e.status);
+  });
+  const shown: number = ui.show('hello');
+  ui.show('hello', shown);
+  ui.submit('hello', shown);
+  for (const info of ui.elements()) {
+    const name: string | null = info.typeName;
+    console.log(info.handle, info.parent, name, info.title, info.status);
+  }
+  const running: boolean = ui.running;
+  sub.dispose();
+  if (running) ui.dispose();
+  await liquers.mountUI(app, { spec: 'layout: !vertical null' });
+
   // STUBS04 — `registerCommand` neither wraps nor returns the function, so the declared signature
   // of a command's implementation survives registration. `named` is still callable with its own
   // parameter types; a decorator-style API could not promise that.

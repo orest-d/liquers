@@ -269,6 +269,34 @@ export interface LiquersStoreObject {
   atomicWrite?: boolean;
 }
 
+/**
+ * What `mountUI` shows first: the value of `query`, or the UI `spec` (YAML text or an object, as
+ * `UISpec` serializes). Not both.
+ */
+export interface MountOptions {
+  query?: string;
+  spec?: string | object;
+}
+
+/** A status change of one element of a mounted UI. */
+export interface UIStatusEvent {
+  /** The element, or `null` for a root query with no element to show its error. */
+  handle: number | null;
+  /** The status name, as `Asset.status()` reports it (`"processing"`, `"ready"`, `"error"`, …). */
+  status: string;
+  error?: LiquersError;
+}
+
+/** One node of a mounted UI's element tree, as `UIMount.elements()` lists it (depth first). */
+export interface UIElementInfo {
+  handle: number;
+  parent: number | null;
+  /** `null` while the node waits for its query's value. */
+  typeName: string | null;
+  title: string;
+  status: string;
+}
+
 /** What `dataFacts` reports about a data object without reading it. */
 export interface LiquersDataFacts {
   size: number;

@@ -423,8 +423,12 @@ pub(crate) async fn mount_ui_with(
 ///
 /// `options` is `{ query }` (a query whose value is shown as the first element) or `{ spec }` (a
 /// UI spec, as YAML text or an object). Resolves to a `UIMount`.
-#[wasm_bindgen(js_name = mountUI)]
-pub fn mount_ui(container: JsValue, options: JsValue) -> js_sys::Promise {
+#[wasm_bindgen(js_name = mountUI, unchecked_return_type = "Promise<UIMount>")]
+pub fn mount_ui(
+    #[wasm_bindgen(unchecked_param_type = "Element")] container: JsValue,
+    #[wasm_bindgen(unchecked_param_type = "MountOptions")] options: Option<JsValue>,
+) -> js_sys::Promise {
+    let options = options.unwrap_or(JsValue::UNDEFINED);
     wasm_bindgen_futures::future_to_promise(async move {
         let envref = crate::environment::shared_env().map_err(liquers_error_to_js)?;
         let current: Box<dyn FnMut() -> Option<EnvRef<WebEnvironment>>> =
@@ -467,13 +471,15 @@ impl LiquersUIMount {
     /// `{ handle, status, error? }`, after the page was updated.
     pub fn on(
         &self,
-        kind: String,
+        #[wasm_bindgen(unchecked_param_type = "\"status\"")] kind: String,
+        #[wasm_bindgen(unchecked_param_type = "(event: UIStatusEvent) => void")]
         callback: js_sys::Function,
     ) -> Result<LiquersUISubscription, JsValue> {
         self.on_inner(kind, callback).map_err(liquers_error_to_js)
     }
 
     /// The element tree, depth first: `{ handle, parent, typeName, title, status }` for each node.
+    #[wasm_bindgen(unchecked_return_type = "UIElementInfo[]")]
     pub fn elements(&self) -> Result<js_sys::Array, JsValue> {
         self.elements_inner().map_err(liquers_error_to_js)
     }
