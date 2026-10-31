@@ -44,7 +44,8 @@ version = "0.3"
 # Deliberately not `Request`/`RequestInit` either: the request options are a plain object built
 # with `js_sys`, which keeps the code off an API that has changed shape across web-sys releases.
 # `Element`/`Document` for `mountUI`'s container check.
-features = ["console", "Window", "Storage", "Response", "Headers", "Element", "Document"]
+features = ["console", "Window", "Storage", "Response", "Headers", "Element", "Document",
+    "HtmlElement", "Node"]
 
 [dev-dependencies]
 # The shared AsyncStore conformance suite. A dev-dependency, so the feature never reaches the
