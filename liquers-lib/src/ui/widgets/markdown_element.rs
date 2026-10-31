@@ -111,6 +111,7 @@ impl UIElement for MarkdownElement {
             UpdateMessage::AssetNotification(_) => UpdateResponse::Unchanged,
             UpdateMessage::Timer { .. } => UpdateResponse::Unchanged,
             UpdateMessage::Custom(_) => UpdateResponse::Unchanged,
+            UpdateMessage::UI(_) => UpdateResponse::Unchanged,
         }
     }
 

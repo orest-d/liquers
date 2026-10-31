@@ -7,16 +7,15 @@ Decision log of the pre-approved run (`proceed all`, 2026-10-30).
 - **Readiness:** needs-decision
 - **Automatic fixing:** not-eligible. It adds exported JavaScript functions and classes and a
   public `liquers-lib` element type (rules 3 and 4); complexity `L`.
-- **Leading issue:** none blocking. `ui-events` is implemented in PR #225 (2026-10-31, open, not
-  yet on `main`): `UIEvent { kind: UIEventKind, fields }`, `UIEventKind::{Submit, Named}`,
+- **Leading issue:** none blocking. `ui-events` is built and on `main` (PR #225, merged
+  2026-10-31): `UIEvent { kind: UIEventKind, fields }`, `UIEventKind::{Submit, Named}`,
   `UpdateMessage::UI`, `AppMessage::UIEvent { handle, event }` and `data-lq-event` markup. This
-  design now uses those names. Implementation starts after that PR merges.
+  design now uses those names.
 - **Explanation:** Phases 2–4 specify a working solution under the four Phase 1 decisions and the
   `ui-events` API as implemented.
 - **Open questions:**
-  1. **Dependency, `ui-events` (PR #225) merged:** Step 1 takes `&UIEvent` from the start, so it
-     needs that PR on `main`. If the PR's names change before it merges, only `on_event`'s
-     parameter and the Step 6 arms follow.
+  1. **Resolved, `ui-events` dependency:** PR #225 merged on 2026-10-31, so Step 1 takes
+     `&UIEvent` from the start.
   2. **Proposed resolution, delegate registry per thread:** a definition is visible on the thread
      that registered it. In the browser that is the one thread, and it is how `UIDEF08`'s thread
      affinity is met.
@@ -124,7 +123,7 @@ API. No `liquers-core` change is expected.
 
 - **requires** `web-ui-use`: mounting, the payload type, the stoppable driver and the event
   subscription this design extends.
-- **requires (native events)** `ui-events` (implemented in PR #225, not yet merged): its
+- **requires (native events)** `ui-events` (built, PR #225): its
   `UIEvent`, `UpdateMessage::UI` and `data-lq-event` markup are how a click reaches an element's
   `update`. Without it an element can only use `data-lq-action` queries.
 - **overlaps** `console-mounts-nested-element`: a JavaScript element returned into a console needs

@@ -34,7 +34,7 @@ Rejected alternatives:
 | `WEB-CANCELLATION-INERT` | accepted | P3 | no UI cancellation | no | no | non-goal |
 | `POST-INIT-COMMAND-REGISTRATION` | accepted | P3 | a rebuild drops the asset cache under a live mount | no | no | AC-9 re-resolves the environment; the cache loss is documented |
 | `UI-INTERFACE-FSD-DESCRIBES-UNBUILT-API` | draft | P2 | the reference cannot be cited | no | no | the design cites code, not the FSD |
-| `ui-events` | implemented in PR #225, not yet merged | P2 | it moves `keydown` to the document and edits `mount_web`, which Step 3 restructures | yes | Step 3 only | merge PR #225 first and build Step 3 on its `mount_web` |
+| `ui-events` | built (PR #225, merged 2026-10-31) | P2 | it moves `keydown` to the document and edits `mount_web`, which Step 3 restructures | done | no | Step 3 builds on its `mount_web` |
 | `WEBUI-MOUNT-HANDLE-DROP-LEAVES-LISTENERS-ATTACHED` (filed by `ui-events`) | draft | P3 | the same defect Step 3 fixes | yes | no | closed by Step 3 |
 | `WEBUI-SHORTCUTS-RUN-IN-EVERY-MOUNT` (filed 2026-10-31) | draft | P3 | with two mounts, an unfocused menu shortcut runs in both, because each listens on the document | no | no | inherited from `ui-events`; documented |
 | `ui-asset-snapshot-boundary`, `console-mounts-nested-element` | designs in review | — | they change backend internals, but not the three additions | no | no | the additions are kept independent of them |

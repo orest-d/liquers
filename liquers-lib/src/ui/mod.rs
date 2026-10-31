@@ -2,6 +2,7 @@ pub mod action;
 pub mod app_state;
 pub mod commands;
 pub mod element;
+pub mod event;
 pub mod handle;
 pub mod message;
 pub mod payload;
@@ -19,6 +20,7 @@ pub use element::{
     AssetViewElement, AssetViewMode, ElementSource, Placeholder, StateViewElement, UIElement,
     UpdateMessage, UpdateResponse,
 };
+pub use event::{UIEvent, UIEventKind};
 pub use handle::UIHandle;
 pub use message::{
     app_message_channel, AppMessage, AppMessageReceiver, AppMessageSender, AssetSnapshot,

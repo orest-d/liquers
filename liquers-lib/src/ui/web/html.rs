@@ -37,6 +37,22 @@ pub fn action_attr(action: &UiAction) -> String {
     }
 }
 
+/// ` data-lq-field="…"` — declares a field whose live value travels with this element's UI events.
+pub fn field_attr(name: &str) -> String {
+    format!(" data-lq-field=\"{}\"", escape_html(name))
+}
+
+/// ` data-lq-event="…"` — the UI event a click (or Enter, on a single-line field) sends to the
+/// owning element.
+pub fn event_attr(kind: &crate::ui::event::UIEventKind) -> String {
+    format!(" data-lq-event=\"{}\"", escape_html(kind.name()))
+}
+
+/// ` data-lq-shortcut="…"` — a keyboard shortcut that activates this node's `data-lq-action`.
+pub fn shortcut_attr(shortcut: &str) -> String {
+    format!(" data-lq-shortcut=\"{}\"", escape_html(shortcut))
+}
+
 /// Render any `Value` (base or `ExtValue`) to an HTML fragment. `app_state` is used only to
 /// recurse when the value is itself a `UIElement`.
 pub fn value_to_html(value: &Value, app_state: &dyn AppState) -> String {
@@ -203,6 +219,21 @@ fn image_to_html(image: &image::DynamicImage) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn markup_helpers_escape_and_name() {
+        use crate::ui::event::UIEventKind;
+        assert_eq!(super::field_attr("q\"x"), " data-lq-field=\"q&quot;x\"");
+        assert_eq!(
+            super::event_attr(&UIEventKind::Submit),
+            " data-lq-event=\"submit\""
+        );
+        assert_eq!(
+            super::event_attr(&UIEventKind::Named("reset".to_string())),
+            " data-lq-event=\"reset\""
+        );
+        assert_eq!(super::shortcut_attr("Alt+N"), " data-lq-shortcut=\"Alt+N\"");
+    }
+
     use super::*;
     use crate::ui::app_state::DirectAppState;
     use liquers_core::value::ValueInterface;

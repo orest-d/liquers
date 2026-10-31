@@ -9,6 +9,7 @@ use liquers_core::state::State;
 
 use crate::ui::app_state::AppState;
 use crate::ui::element::{UIElement, UpdateMessage, UpdateResponse};
+use crate::ui::event::{UIEvent, UIEventKind};
 use crate::ui::handle::UIHandle;
 use crate::ui::message::AppMessage;
 use crate::ui::ui_context::UIContext;
@@ -111,6 +112,25 @@ impl QueryConsoleElement {
                 handle,
                 query: self.query_text.clone(),
             });
+        }
+    }
+
+    /// Handle a backend-neutral user event. Shared by every backend: the web driver reaches it
+    /// through `update(UpdateMessage::UI)`, egui calls it inline from `show_in_egui`.
+    ///
+    /// `Submit` takes the query from field `query` when present (the browser input), keeps
+    /// `query_text` otherwise (egui edits it in place), then submits.
+    fn handle_ui_event(&mut self, event: &UIEvent, ctx: &UIContext) -> UpdateResponse {
+        match &event.kind {
+            UIEventKind::Submit => {
+                use liquers_core::value::ValueInterface;
+                if let Some(text) = event.field("query").and_then(|v| v.try_into_string().ok()) {
+                    self.query_text = text;
+                }
+                self.submit_query(ctx);
+                UpdateResponse::NeedsRepaint
+            }
+            UIEventKind::Named(_) => UpdateResponse::Unchanged,
         }
     }
 
@@ -254,7 +274,7 @@ impl QueryConsoleElement {
                     .hint_text("Enter query..."),
             );
             if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                self.submit_query(ctx);
+                self.handle_ui_event(&UIEvent::new(UIEventKind::Submit), ctx);
             }
 
             // Data/Metadata toggle button
@@ -380,7 +400,7 @@ impl UIElement for QueryConsoleElement {
         Ok(())
     }
 
-    fn update(&mut self, message: &UpdateMessage, _ctx: &UIContext) -> UpdateResponse {
+    fn update(&mut self, message: &UpdateMessage, ctx: &UIContext) -> UpdateResponse {
         match message {
             UpdateMessage::AssetUpdate(snapshot) => {
                 // Full snapshot pushed by AppRunner.
@@ -412,17 +432,18 @@ impl UIElement for QueryConsoleElement {
                 }
 
                 if is_volatile && snapshot.value.is_some() {
-                    self.schedule_volatile_refresh(_ctx);
+                    self.schedule_volatile_refresh(ctx);
                 }
 
                 if is_expired {
-                    self.request_asset_updates(_ctx);
+                    self.request_asset_updates(ctx);
                 }
                 UpdateResponse::NeedsRepaint
             }
             UpdateMessage::AssetNotification(_) => UpdateResponse::Unchanged,
             UpdateMessage::Timer { .. } => UpdateResponse::Unchanged,
             UpdateMessage::Custom(_) => UpdateResponse::Unchanged,
+            UpdateMessage::UI(event) => self.handle_ui_event(event, ctx),
         }
     }
 
@@ -451,28 +472,23 @@ impl UIElement for QueryConsoleElement {
 
     #[cfg(feature = "webui")]
     fn render_web(&self, app_state: &dyn AppState) -> String {
-        use crate::ui::action::UiAction;
-        use crate::ui::web::html::{action_attr, escape_html, value_to_html};
+        use crate::ui::web::html::{escape_html, event_attr, field_attr, value_to_html};
         use crate::ui::web::{element_dom_id, widgets};
 
         let dom_id = element_dom_id(self.handle());
         let hid = self.handle().map(|h| h.0).unwrap_or(0);
         let input_id = format!("qc-input-{}", hid);
 
-        // Toolbar: query input + a Go control carrying Apply { query: "ns-lui/submit" }.
-        let go_attr = match self.handle() {
-            Some(h) => action_attr(&UiAction::Apply {
-                handle: h,
-                input_id: input_id.clone(),
-                query: "ns-lui/submit".to_string(),
-            }),
-            None => String::new(),
-        };
+        // Toolbar: the query input is field `query`; Enter in it and the Go button both send a
+        // `Submit` UI event to this element, carrying the typed text.
+        let submit = event_attr(&UIEventKind::Submit);
         let toolbar = format!(
-            "<div class=\"lq-qc-toolbar\"><input id=\"{}\" class=\"lq-query-input\" value=\"{}\"/><span class=\"lq-go\"{}>Go</span>{}</div>",
+            "<div class=\"lq-qc-toolbar\"><input id=\"{}\" class=\"lq-query-input\" value=\"{}\"{}{}/><button type=\"button\" class=\"lq-go\"{}>Go</button>{}</div>",
             input_id,
             escape_html(&self.query_text),
-            go_attr,
+            field_attr("query"),
+            submit,
+            submit,
             widgets::status_html(self.status)
         );
 
@@ -516,6 +532,98 @@ mod tests {
             Arc::new(tokio::sync::Mutex::new(DirectAppState::new()));
         let ctx = UIContext::new(app_state, tx);
         (ctx, rx)
+    }
+
+    // ─── UI events (ui-events) ──────────────────────────────────────────────
+
+    fn submit_event(query: &str) -> UIEvent {
+        UIEvent::new(UIEventKind::Submit).with_field("query", Value::from(query.to_string()))
+    }
+
+    fn requested_query(rx: &mut crate::ui::message::AppMessageReceiver) -> Option<String> {
+        match rx.try_recv() {
+            Ok(AppMessage::RequestAssetUpdates { query, .. }) => Some(query),
+            Ok(AppMessage::SubmitQuery { .. })
+            | Ok(AppMessage::ApplyToInput { .. })
+            | Ok(AppMessage::UIEvent { .. })
+            | Ok(AppMessage::Quit)
+            | Ok(AppMessage::Serialize { .. })
+            | Ok(AppMessage::Deserialize { .. })
+            | Err(_) => None,
+        }
+    }
+
+    #[test]
+    fn test_ui_submit_sets_query_history_and_requests_updates() {
+        let mut c = QueryConsoleElement::new("C".to_string(), "hello".to_string());
+        let (ctx, mut rx) = create_test_context();
+        c.set_handle(UIHandle(1));
+        let response = c.update(&UpdateMessage::UI(submit_event("about")), &ctx);
+        assert_eq!(response, UpdateResponse::NeedsRepaint);
+        assert_eq!(c.query_text, "about");
+        assert_eq!(c.history.last().map(String::as_str), Some("about"));
+        assert_eq!(requested_query(&mut rx).as_deref(), Some("about"));
+    }
+
+    #[test]
+    fn test_ui_submit_without_field_resubmits_current_query() {
+        let mut c = QueryConsoleElement::new("C".to_string(), "hello".to_string());
+        let (ctx, mut rx) = create_test_context();
+        c.set_handle(UIHandle(1));
+        let response = c.update(&UpdateMessage::UI(UIEvent::new(UIEventKind::Submit)), &ctx);
+        assert_eq!(response, UpdateResponse::NeedsRepaint);
+        assert_eq!(c.query_text, "hello");
+        assert_eq!(requested_query(&mut rx).as_deref(), Some("hello"));
+    }
+
+    #[test]
+    fn test_ui_named_event_is_unchanged() {
+        let mut c = QueryConsoleElement::new("C".to_string(), "hello".to_string());
+        let (ctx, mut rx) = create_test_context();
+        c.set_handle(UIHandle(1));
+        let event = UIEvent::new(UIEventKind::Named("reset".to_string()));
+        assert_eq!(
+            c.update(&UpdateMessage::UI(event), &ctx),
+            UpdateResponse::Unchanged
+        );
+        assert_eq!(requested_query(&mut rx), None);
+        assert!(c.history.is_empty());
+    }
+
+    /// AC-8: egui edits `query_text` in place and sends a field-less `Submit`; the web sends the
+    /// typed text as field `query`. Both end in the same state and request.
+    #[test]
+    fn egui_and_web_submit_share_outcome() {
+        let (ctx, mut rx) = create_test_context();
+        let mut web = QueryConsoleElement::new("C".to_string(), "hello".to_string());
+        web.set_handle(UIHandle(1));
+        web.update(&UpdateMessage::UI(submit_event("about")), &ctx);
+
+        let mut egui_like = QueryConsoleElement::new("C".to_string(), "hello".to_string());
+        egui_like.set_handle(UIHandle(1));
+        egui_like.query_text = "about".to_string();
+        egui_like.handle_ui_event(&UIEvent::new(UIEventKind::Submit), &ctx);
+
+        assert_eq!(web.query_text, egui_like.query_text);
+        assert_eq!(web.history, egui_like.history);
+        assert_eq!(requested_query(&mut rx), requested_query(&mut rx));
+    }
+
+    #[test]
+    fn test_expired_after_ui_submit_requests_submitted_query() {
+        let mut c = QueryConsoleElement::new("C".to_string(), "hello".to_string());
+        let (ctx, mut rx) = create_test_context();
+        c.set_handle(UIHandle(1));
+        c.update(&UpdateMessage::UI(submit_event("about")), &ctx);
+        let _ = requested_query(&mut rx);
+        let snapshot = AssetSnapshot {
+            value: None,
+            metadata: Metadata::new(),
+            error: None,
+            status: Status::Expired,
+        };
+        c.update(&UpdateMessage::AssetUpdate(snapshot), &ctx);
+        assert_eq!(requested_query(&mut rx).as_deref(), Some("about"));
     }
 
     // ─── 1. Construction (4 tests) ──────────────────────────────────────────
@@ -924,6 +1032,7 @@ mod tests {
                 AppMessage::RequestAssetUpdates { query, .. } => assert_eq!(query, "p2"),
                 AppMessage::SubmitQuery { .. }
                 | AppMessage::ApplyToInput { .. }
+                | AppMessage::UIEvent { .. }
                 | AppMessage::Quit
                 | AppMessage::Serialize { .. }
                 | AppMessage::Deserialize { .. } => panic!("Expected RequestAssetUpdates"),

@@ -33,7 +33,7 @@ Rejected alternatives:
 | Issue | Status | Priority | Impact on this design | Fix first? | Blocking? | Action |
 |---|---|---|---|---|---|---|
 | `web-ui-use` (`WEB-CANNOT-USE-A-LIQUERS-UI`) | designed | P2 | mounts, `UIElement` handles, `on_tick` and `take_events` | yes | yes | implemented first |
-| `ui-events` (`WEBUI-SUBMIT-QUERY-STATE-NOT-PRESERVED` and 2 others) | implemented in PR #225, not yet merged | P2 | `UIEvent`, `UIEventKind`, `UpdateMessage::UI`, `AppMessage::UIEvent`, `data-lq-event` (decision 2) | yes | yes, for Step 1 onward | merge PR #225 first |
+| `ui-events` (`WEBUI-SUBMIT-QUERY-STATE-NOT-PRESERVED` and 2 others) | built (PR #225, merged 2026-10-31) | P2 | `UIEvent`, `UIEventKind`, `UpdateMessage::UI`, `AppMessage::UIEvent`, `data-lq-event` (decision 2) | done | no | used as built |
 | `console-mounts-nested-element` | design in review | P3 | a delegated element shown inside a console has no handle | no | no | noted; it works once that lands |
 | `WEB-UI-FREEZES-WHILE-A-QUERY-AWAITS` | draft | P2 | an async `onEvent` follow-up query freezes the page | no | no | inherited limitation |
 

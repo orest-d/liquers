@@ -2,20 +2,20 @@
 
 ## Progress
 
-- [ ] Step 1: Vocabulary types and the two new enum variants
-- [ ] Step 2: Runner delivery of `AppMessage::UserEvent`
-- [ ] Step 3: Key-event conversion, keyboard routing and markup helpers
-- [ ] Step 4: Query console handles `Submit` and declares its fields
-- [ ] Step 5: `UISpecElement` emits menu shortcuts
-- [ ] Step 6: Browser driver routing
-- [ ] Step 7: Playwright cases and the web example
-- [ ] Step 8: Reference, records and final checks
+- [x] Step 1: Vocabulary types and the two new enum variants
+- [x] Step 2: Runner delivery of `AppMessage::UIEvent`
+- [x] Step 3: Key-event conversion, keyboard routing and markup helpers
+- [x] Step 4: Query console handles `Submit` and declares its fields
+- [x] Step 5: `UISpecElement` emits menu shortcuts
+- [x] Step 6: Browser driver routing
+- [x] Step 7: Playwright cases and the web example
+- [x] Step 8: Reference, records and final checks
 
 ## Overview
 
 **Feature:** ui-events, first increment (W1, W2, W5).
 
-**Architecture:** `UserEvent` delivered through `update()` as `UpdateMessage::User`, declared in
+**Architecture:** `UIEvent` delivered through `update()` as `UpdateMessage::UI`, declared in
 markup, routed in the browser by a pure keyboard function (Phase 2).
 
 **Estimated complexity:** Medium; one crate (`liquers-lib`), no command or format change.
@@ -27,26 +27,26 @@ enum). A different answer changes Steps 1, 2, 4 and 6 only in variant names.
 
 ### Step 1: Vocabulary types and the two new enum variants
 
-**Files:** new `liquers-lib/src/ui/event.rs`; `ui/mod.rs` (`pub mod event;`, re-export `UserEvent`,
-`UserEventKind`); `ui/element.rs` `UpdateMessage::User`; `ui/message.rs` `AppMessage::UserEvent`;
-`ui/ui_context.rs` `UIContext::send_user_event`.
-**Change:** types and signatures exactly as Phase 2. Add the `UpdateMessage::User(_) =>
+**Files:** new `liquers-lib/src/ui/event.rs`; `ui/mod.rs` (`pub mod event;`, re-export `UIEvent`,
+`UIEventKind`); `ui/element.rs` `UpdateMessage::UI`; `ui/message.rs` `AppMessage::UIEvent`;
+`ui/ui_context.rs` `UIContext::send_ui_event`.
+**Change:** types and signatures exactly as Phase 2. Add the `UpdateMessage::UI(_) =>
 UpdateResponse::Unchanged` arm to `AssetViewElement::update` (`element.rs`),
 `MarkdownElement::update`, `QueryConsoleElement::update` (temporary, replaced in Step 4), the test
 elements in `liquers-lib/tests/ui_invalidation.rs` and `tests/ui_runner.rs`, and
 `liquers-lib/examples/ui_button_app.rs`, `liquers-lib/examples-web/ui_button_app/src/lib.rs`.
-Add the `AppMessage::UserEvent` arm to `AppRunner::process_messages` as a no-op until Step 2.
-Tests `user_event_kind_from_name`, `user_event_field_lookup`.
+Add the `AppMessage::UIEvent` arm to `AppRunner::process_messages` as a no-op until Step 2.
+Tests `ui_event_kind_from_name`, `ui_event_field_lookup`.
 **Proof:** `cargo test -p liquers-lib --lib ui::event`; `cargo check -p liquers-lib --examples`.
 **Rollback:** revert the step; nothing depends on it yet.
 
-### Step 2: Runner delivery of `AppMessage::UserEvent`
+### Step 2: Runner delivery of `AppMessage::UIEvent`
 
 **Files:** `liquers-lib/src/ui/runner.rs`.
 **Change:** rename private `deliver_snapshot` to `deliver_update(handle, message: UpdateMessage,
-…)`; its three callers pass `UpdateMessage::AssetUpdate(…)`. The `UserEvent` arm calls it and
-ignores `Missing`. Tests `user_event_reaches_element_and_records_repaint`,
-`user_event_for_missing_element_is_ignored` in `tests/ui_runner.rs`.
+…)`; its three callers pass `UpdateMessage::AssetUpdate(…)`. The `UIEvent` arm calls it and
+ignores `Missing`. Tests `ui_event_reaches_element_and_records_repaint`,
+`ui_event_for_missing_element_is_ignored` in `tests/ui_runner.rs`.
 **Proof:** `cargo test -p liquers-lib --test ui_runner --test ui_invalidation --test
 query_console_integration`.
 **Rollback:** revert; Step 1 stands alone.
@@ -65,12 +65,14 @@ query_console_integration`.
 ### Step 4: Query console handles `Submit` and declares its fields
 
 **Files:** `liquers-lib/src/ui/widgets/query_console_element.rs`.
-**Change:** private `handle_user_event(&mut self, event: &UserEvent, ctx: &UIContext) ->
+**Change:** private `handle_ui_event(&mut self, event: &UIEvent, ctx: &UIContext) ->
 UpdateResponse` as Phase 2 (`Submit`: set `query_text` from field `query` when present, then
-`submit_query`; `Named(_)`: `Unchanged`). `render_web`: field and event attributes on the input,
+`submit_query`; `Named(_)`: `Unchanged`). In `show_in_egui` (the `show_toolbar` Go button and the
+Enter check), replace the direct `submit_query` calls with `handle_ui_event` and a `Submit` event
+carrying field `query` (AC-8). `render_web`: field and event attributes on the input,
 Go as `<button type="button" class="lq-go" data-lq-event="submit">`, the `UiAction::Apply` and its
 `use` removed. Attributes come from the Step 3 helpers. Unit tests from Phase 3 for
-this file, and `test_user_submit_event_evaluates_new_query` in
+this file, `egui_and_web_submit_share_outcome` (AC-8, `cfg(feature = "egui")`), and `test_ui_submit_event_evaluates_new_query` in
 `tests/query_console_integration.rs`.
 **Proof:** `cargo test -p liquers-lib --features webui --lib widgets::query_console_element`;
 `cargo test -p liquers-lib --test query_console_integration`.
@@ -92,7 +94,7 @@ unchanged. Test `render_web_emits_shortcut_attribute`.
 features `NodeList`, `HtmlTextAreaElement`.
 **Change:** replace `dispatch_dom_event` with `dispatch_click`, `dispatch_keydown(ev, ctx, root)`,
 `send_field_event` and `run_action` as Phase 2; the keydown closure in `mount_web` captures a
-clone of `root`. Read `is_composing`, `key`, `code`, `ctrl_key || meta_key`, `alt_key`,
+clone of `root` and is attached to the document (implemented deviation: see `DESIGN.md`). Read `is_composing`, `key`, `code`, `ctrl_key || meta_key`, `alt_key`,
 `shift_key` from `KeyboardEvent`; `editable` / `single_line` from the target's tag and input
 `type`; `event` from its `data-lq-event`. `prevent_default` only after a dispatch.
 **Proof:** `cargo check -p liquers-lib --target wasm32-unknown-unknown --no-default-features

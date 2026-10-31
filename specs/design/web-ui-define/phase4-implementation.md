@@ -9,7 +9,7 @@ that, the `onEvent` half.
 Prerequisites:
 
 - `web-ui-use`, all steps.
-- `ui-events`, merged. It is implemented in PR #225 (open on 2026-10-31). Step 1 uses its
+- `ui-events`, merged in PR #225 on 2026-10-31. Step 1 uses its
   `UIEvent` type; Step 6 uses its messages and markup.
 
 ## Progress
@@ -28,7 +28,7 @@ Prerequisites:
   `ui/widgets/mod.rs`, `ui/mod.rs` re-exports.
 - Change: as Phase 2. `on_event` is in the trait from the start, taking `&UIEvent`; `update`
   answers `Unchanged` to `UpdateMessage::UI` until Step 6.
-- Depends on: `ui-events` merged (PR #225).
+- Depends on: none (`ui-events` is on `main`).
 - Proof: `cargo test -p liquers-lib --lib ui::widgets::delegated_element`, and with
   `--no-default-features --features webui`.
 - Rollback: revert; nothing else uses it yet.

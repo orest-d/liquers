@@ -24,7 +24,7 @@ struct MonitoredAsset<E: Environment> {
     notification_rx: tokio::sync::watch::Receiver<AssetNotificationMessage>,
 }
 
-/// Result of pushing a snapshot at an element.
+/// Result of pushing an update at an element.
 enum DeliveryOutcome {
     /// The element no longer exists — the caller stops monitoring it.
     Missing,
@@ -172,6 +172,16 @@ where
                             }
                         }
                     }
+                }
+                AppMessage::UIEvent { handle, event } => {
+                    // An event for an element removed meanwhile is dropped.
+                    let _ = Self::deliver_update(
+                        handle,
+                        UpdateMessage::UI(event),
+                        app_state,
+                        &self.sender,
+                    )
+                    .await;
                 }
                 AppMessage::Quit => {
                     // Delegate quit handling to the application layer.
@@ -408,8 +418,13 @@ where
                 let snapshot = Self::build_snapshot(&asset_ref).await;
 
                 // 4. Deliver snapshot to element
-                let outcome =
-                    Self::deliver_snapshot(handle, snapshot, app_state, &self.sender).await;
+                let outcome = Self::deliver_update(
+                    handle,
+                    UpdateMessage::AssetUpdate(snapshot),
+                    app_state,
+                    &self.sender,
+                )
+                .await;
 
                 // 5. Store in monitoring map (replaces existing if any).
                 //    If the element doesn't exist, don't start monitoring.
@@ -434,7 +449,13 @@ where
                     error: Some(e),
                     status: Status::Error,
                 };
-                Self::deliver_snapshot(handle, error_snapshot, app_state, &self.sender).await;
+                Self::deliver_update(
+                    handle,
+                    UpdateMessage::AssetUpdate(error_snapshot),
+                    app_state,
+                    &self.sender,
+                )
+                .await;
             }
         }
     }
@@ -455,9 +476,13 @@ where
                 let snapshot = Self::build_snapshot(&monitored.asset_ref).await;
 
                 // Deliver to element
-                let outcome =
-                    Self::deliver_snapshot(*handle, snapshot.clone(), app_state, &self.sender)
-                        .await;
+                let outcome = Self::deliver_update(
+                    *handle,
+                    UpdateMessage::AssetUpdate(snapshot),
+                    app_state,
+                    &self.sender,
+                )
+                .await;
                 match outcome {
                     DeliveryOutcome::Delivered(_) => {}
                     DeliveryOutcome::Missing => to_remove.push(*handle),
@@ -508,16 +533,16 @@ where
         }
     }
 
-    /// Deliver an AssetSnapshot to an element via update().
+    /// Deliver an update message (an asset snapshot or a user event) to an element via update().
     ///
     /// Uses the extract-update-replace pattern to avoid holding the AppState lock while calling
     /// update() (which requires a UIContext that references AppState). The element's
     /// `UpdateResponse` is carried back to the caller, which turns `NeedsRepaint` into a
     /// `UIChange::Replaced` record — `put_element` deliberately records nothing, because it is
     /// also the render path.
-    async fn deliver_snapshot(
+    async fn deliver_update(
         handle: UIHandle,
-        snapshot: AssetSnapshot,
+        message: UpdateMessage,
         app_state: &Arc<tokio::sync::Mutex<dyn AppState>>,
         sender: &AppMessageSender,
     ) -> DeliveryOutcome {
@@ -532,7 +557,7 @@ where
 
         // Create UIContext and call update (lock not held)
         let ctx = UIContext::new(app_state.clone(), sender.clone()).with_handle(Some(handle));
-        let response = element.update(&UpdateMessage::AssetUpdate(snapshot), &ctx);
+        let response = element.update(&message, &ctx);
 
         // Put element back, and record the element's own repaint verdict.
         {

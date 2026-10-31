@@ -10,10 +10,18 @@ const watchErrors = (page: any, errors: string[]) => {
 };
 const elements = (page: any) => page.locator('[id^="ui-element-"]');
 
-// The query console in the browser. NOTE: two of its interactions are known-broken and are the
-// subject of specs/design/ui-events/ — W1 (Enter in the input does nothing) and W2 (the submitted query
-// never reaches the element, so the input reverts). This spec drives what works today, and the
-// last test documents the gap by asserting the *current* behaviour rather than the desired one.
+// The query console in the browser (specs/design/ui-events/): Enter and Go both send a `Submit`
+// UI event carrying the typed query to the console, which owns it from then on; clicking into the
+// input is not an activation; the menu's `Alt+N` shortcut runs its item.
+const openConsole = async (page: any) => {
+  await page.goto('/');
+  await page.locator('.lq-menubar').getByText('New Console').click();
+  await expect(page.locator('.lq-QueryConsoleElement')).toHaveCount(1, { timeout: 20_000 });
+  await expect(page.locator('.lq-qc-content')).toContainText('Hello from the query console!', {
+    timeout: 20_000,
+  });
+};
+
 test('the menu opens a query console showing its result', async ({ page }) => {
   const errors: string[] = [];
   watchErrors(page, errors);
@@ -33,57 +41,72 @@ test('the menu opens a query console showing its result', async ({ page }) => {
   expect(errors, `browser errors:\n${errors.join('\n')}`).toEqual([]);
 });
 
-test('clicking Go re-submits the query in the input', async ({ page }) => {
+test('clicking Go submits the typed query and the console keeps it', async ({ page }) => {
   const errors: string[] = [];
   watchErrors(page, errors);
-
-  await page.goto('/');
-  await page.locator('.lq-menubar').getByText('New Console').click();
-  await expect(page.locator('.lq-QueryConsoleElement')).toHaveCount(1, { timeout: 20_000 });
+  await openConsole(page);
 
   await page.locator('.lq-query-input').fill('about');
   await page.locator('.lq-go').click();
 
-  // The typed query really is evaluated…
   await expect(page.locator('.lq-qc-content')).toContainText(
     'Liquers query console — browser port',
     { timeout: 20_000 },
   );
-
-  errors.length = 0; // the assertions below are about behaviour, not errors
-  expect(errors).toEqual([]);
+  // W2: the re-rendered input shows the submitted query, not the one the console started with.
+  await expect(page.locator('.lq-query-input')).toHaveValue('about');
+  expect(errors, `browser errors:\n${errors.join('\n')}`).toEqual([]);
 });
 
-// Regression guard for the *known defects* W1 and W2 (specs/design/ui-events/). These assert today's
-// broken behaviour deliberately: when ui-events lands, they should start failing, which is the
-// signal to rewrite them as the desired behaviour rather than to loosen them.
-test.describe('known gaps — see specs/design/ui-events/', () => {
-  test('W2: the input reverts to the previous query after submitting', async ({ page }) => {
-    await page.goto('/');
-    await page.locator('.lq-menubar').getByText('New Console').click();
-    await expect(page.locator('.lq-QueryConsoleElement')).toHaveCount(1, { timeout: 20_000 });
+test('pressing Enter in the input submits it', async ({ page }) => {
+  const errors: string[] = [];
+  watchErrors(page, errors);
+  await openConsole(page);
 
-    await page.locator('.lq-query-input').fill('about');
-    await page.locator('.lq-go').click();
-    await expect(page.locator('.lq-qc-content')).toContainText('browser port', { timeout: 20_000 });
+  await page.locator('.lq-query-input').fill('about');
+  await page.locator('.lq-query-input').press('Enter');
 
-    // Desired: 'about'. Actual: the element still holds the query it was created with.
-    await expect(page.locator('.lq-query-input')).toHaveValue('hello');
-  });
+  await expect(page.locator('.lq-qc-content')).toContainText(
+    'Liquers query console — browser port',
+    { timeout: 20_000 },
+  );
+  await expect(page.locator('.lq-query-input')).toHaveValue('about');
+  expect(errors, `browser errors:\n${errors.join('\n')}`).toEqual([]);
+});
 
-  test('W1: pressing Enter in the input does not submit', async ({ page }) => {
-    await page.goto('/');
-    await page.locator('.lq-menubar').getByText('New Console').click();
-    await expect(page.locator('.lq-QueryConsoleElement')).toHaveCount(1, { timeout: 20_000 });
-    await expect(page.locator('.lq-qc-content')).toContainText('Hello from the query console!', {
-      timeout: 20_000,
-    });
+test('clicking into the input does not submit', async ({ page }) => {
+  await openConsole(page);
 
-    await page.locator('.lq-query-input').fill('about');
-    await page.locator('.lq-query-input').press('Enter');
-    await page.waitForTimeout(1000);
+  await page.locator('.lq-query-input').fill('about');
+  await page.locator('.lq-query-input').click();
+  await page.waitForTimeout(1000);
 
-    // Desired: the 'about' result. Actual: unchanged, because the Enter key reaches no action.
-    await expect(page.locator('.lq-qc-content')).toContainText('Hello from the query console!');
-  });
+  await expect(page.locator('.lq-qc-content')).toContainText('Hello from the query console!');
+  await expect(page.locator('.lq-query-input')).toHaveValue('about');
+});
+
+test('the menu shortcut adds a console, also from inside the input', async ({ page }) => {
+  const errors: string[] = [];
+  watchErrors(page, errors);
+  await openConsole(page);
+
+  // Focus on nothing in particular: the key targets <body>, outside the mount root.
+  await page.locator('body').click({ position: { x: 1, y: 1 } });
+  await page.keyboard.press('Alt+N');
+  await expect(page.locator('.lq-QueryConsoleElement')).toHaveCount(2, { timeout: 20_000 });
+
+  await page.locator('.lq-query-input').first().press('Alt+N');
+  await expect(page.locator('.lq-QueryConsoleElement')).toHaveCount(3, { timeout: 20_000 });
+  expect(errors, `browser errors:\n${errors.join('\n')}`).toEqual([]);
+});
+
+test('typing a shortcut letter in the input only edits the text', async ({ page }) => {
+  await openConsole(page);
+
+  await page.locator('.lq-query-input').fill('');
+  await page.locator('.lq-query-input').pressSequentially('n');
+  await page.waitForTimeout(1000);
+
+  await expect(page.locator('.lq-QueryConsoleElement')).toHaveCount(1);
+  await expect(page.locator('.lq-query-input')).toHaveValue('n');
 });

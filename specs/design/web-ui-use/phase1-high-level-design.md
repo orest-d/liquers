@@ -134,7 +134,7 @@ unchanged.
 
 - **requires (AC-3 only)** `JS-COMMAND-CANNOT-ACCESS-CONTEXT`: a JavaScript command has no context
   today, so it cannot learn which element triggered it. Every other criterion is independent.
-- **requires (Step 3 only)** `ui-events` (implemented in PR #225, not yet merged): it changes
+- **requires (Step 3 only)** `ui-events` (merged in PR #225, 2026-10-31): it changes
   `mount_web`'s listeners, which Step 3 restructures, so Step 3 is built on it.
 - **overlaps** `console-mounts-nested-element` (in review, backend-internal): this design forwards
   whatever the backend does and does not need it first.
