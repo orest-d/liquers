@@ -8,9 +8,10 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 195
+Total rows: 196
 - P2: 59
 - P3: 136
+- P4: 1
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -209,3 +210,4 @@ Total rows: 195
 | [`CORE-MULTI-REALM-INTERPRETER`](issues/CORE-MULTI-REALM-INTERPRETER.md) | issue | The interpreter supports a single realm | accepted | phase2-blocked | not-eligible | P3 | XL | core/plan;core/commands | [phase1](design/multi-realm-dispatch/phase1-high-level-design.md)  [phase2](design/multi-realm-dispatch/phase2-architecture.md)  | 2026-08-08 |
 | [`CORE-TOKIO-REMOVAL`](issues/CORE-TOKIO-REMOVAL.md) | issue | Core still depends on tokio primitives on wasm | accepted | phase2-blocked | not-eligible | P3 | XL | core/assets | [phase1](design/executor-neutral-core/phase1-high-level-design.md)  [phase2](design/executor-neutral-core/phase2-architecture.md)  | 2026-08-08 |
 | [`NO-WRITE-PATH-FROM-RECORDS-INTO-A-RELATIONAL-DATABASE`](issues/NO-WRITE-PATH-FROM-RECORDS-INTO-A-RELATIONAL-DATABASE.md) | feature | Records cannot be written into a relational database (no INSERT, UPDATE, DELETE or transactions) | draft | phase2-blocked | not-eligible | P3 | XL | records;lib/commands;store/backends | [phase1](design/relational-database-writes/phase1-high-level-design.md)  [phase2](design/relational-database-writes/phase2-architecture.md)  | 2026-10-21 |
+| [`WEB-ONEVENT-SHOW-GUARD-IGNORES-THE-MOUNT`](issues/WEB-ONEVENT-SHOW-GUARD-IGNORES-THE-MOUNT.md) | issue | show() from an onEvent is refused for the same handle number in another mount | draft |  |  | P4 | S | web |  | 2026-10-31 |

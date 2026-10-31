@@ -199,3 +199,28 @@ In `liquers-web/tests/commands_COMMAND.rs` (Node loop,
 
 The whole Node loop with and without `records`, `check-stubs.sh --build` (the new `Context` class in
 the `.d.ts`), and `scripts/check-build-matrix.sh` for the wasm rows.
+
+## Phase 5: Documentation
+
+Built as approved. A JavaScript command declares or infers a `context` parameter
+(`conventions: { context: false }` opts out) and receives a `Context` valid only during its call:
+`info`, `warning`, `error`, `isCancelled`, `evaluate` (a Promise of the value) and `element` (the UI
+element the command was run for, or `null`). A use after the call throws. Nothing was omitted;
+`ContextGuard`, which empties the context when the call ends, also on a throw, is the mechanism
+behind that refusal.
+
+Documents: [`reference/JAVASCRIPT_INTEGRATION.md`](../../reference/JAVASCRIPT_INTEGRATION.md) §4
+"Context" and [`guides/JAVASCRIPT_GUIDE.md`](../../guides/JAVASCRIPT_GUIDE.md) §5 "The context",
+each with a History row and `reviewed:` 2026-10-31; `guides/LANGUAGE-INTEGRATION_GUIDE.md` §6;
+`liquers-web/README.md` `COMMAND` row; `specs/README.md` marks the design built.
+
+Issues: closed `JS-COMMAND-CANNOT-ACCESS-CONTEXT`; filed `WEB-IMPORTED-COMMAND-RECEIVES-NO-CONTEXT`
+(a function bound to imported registry metadata gets no context, because a `CommandMetadata`
+carries no `registration.context` record).
+
+Learning: the context is a borrowed, call-scoped object in a language that can keep references
+forever, so it is a type-erased handle into a slot the call empties, not a wrapper of the Rust
+`Context` itself.
+
+Validation: `command07`–`command07f` and `decl04` in the Node loop with and without `records`,
+`check-stubs.sh --build`, `test-guide-examples.sh`, `docs_index.py --check`, and the build matrix.

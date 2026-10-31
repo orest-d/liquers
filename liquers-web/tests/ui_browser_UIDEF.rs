@@ -524,3 +524,52 @@ async fn uidef08b_on_event_may_call_back() {
     undefine_element("cb08b".into());
     reset_global();
 }
+
+/// A type defined from inside a render (the UI lock held) still re-renders its elements, on the
+/// next tick.
+#[wasm_bindgen_test]
+async fn uidef01e_define_from_inside_render_rerenders() {
+    fresh();
+    let closure = Closure::<dyn Fn(JsValue) -> Result<(), JsValue>>::new(define_element);
+    set_global("__lqDefine", closure.as_ref().unchecked_ref());
+    closure.forget();
+    set_global("__redefine", &JsValue::FALSE);
+    let b = obj();
+    set(&b, "type", &JsValue::from_str("b01e"));
+    set(&b, "render", &func("() => '<u>B1</u>'").into());
+    define_element(b.into()).expect("define b");
+    let a = obj();
+    set(&a, "type", &JsValue::from_str("a01e"));
+    set(
+        &a,
+        "render",
+        &func(
+            "() => { if (globalThis.__redefine) { globalThis.__redefine = false; \
+             globalThis.__lqDefine({ type: 'b01e', render: () => '<u>B2</u>' }); } \
+             return '<i>A</i>'; }",
+        )
+        .into(),
+    );
+    define_element(a.into()).expect("define a");
+    register_element_command("b", "b01e");
+    register_element_command("a", "a01e");
+    let app = container();
+    let ui = mount(&app, "b-1").await;
+    call(&ui, "show", &[JsValue::from_str("a-1")]).expect("show a");
+    until("both elements", || {
+        let html = app.inner_html();
+        html.contains("<u>B1</u>") && html.contains("<i>A</i>")
+    })
+    .await;
+    // b renders before a; a's render then redefines b while the lock is held.
+    set_global("__redefine", &JsValue::TRUE);
+    crate_invalidate(&ui);
+    until("b redrawn with its new definition", || {
+        app.inner_html().contains("<u>B2</u>")
+    })
+    .await;
+    call(&ui, "dispose", &[]).expect("dispose");
+    undefine_element("a01e".into());
+    undefine_element("b01e".into());
+    reset_global();
+}

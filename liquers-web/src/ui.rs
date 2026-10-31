@@ -231,7 +231,7 @@ thread_local! {
 
 /// Marks every live mount's tree for a full re-render on its next tick, dropping the entries of
 /// mounts that are gone. A mount whose lock is busy (a definition made from inside a render) is
-/// skipped.
+/// marked after its tick instead.
 pub(crate) fn invalidate_live_mounts() {
     let mounts: Vec<Rc<MountInner>> = LIVE_MOUNTS.with(|list| {
         let mut list = list.borrow_mut();
@@ -239,8 +239,9 @@ pub(crate) fn invalidate_live_mounts() {
         list.iter().filter_map(|weak| weak.upgrade()).collect()
     });
     for mount in mounts {
-        if let Ok(mut state) = mount.app_state.try_lock() {
-            state.invalidate_all();
+        match mount.app_state.try_lock() {
+            Ok(mut state) => state.invalidate_all(),
+            Err(_) => mount.invalidate_pending.set(true),
         }
     }
 }
@@ -309,6 +310,8 @@ struct MountInner {
     mounted: RefCell<HashMap<UIHandle, MountedNode>>,
     /// The page's renderer, for a renderer mount; `None` once disposed.
     renderer: RefCell<Option<Rc<Renderer>>>,
+    /// A full re-render asked for while the lock was busy, applied after the tick.
+    invalidate_pending: Cell<bool>,
 }
 
 /// A page renderer: the object, its `render` and optional `dispose`. Counted in
@@ -358,6 +361,12 @@ impl MountInner {
     /// Records the tick's events and calls the subscribers, after the DOM was updated and with no
     /// lock held. A throwing callback is reported to `console.error` and does not stop the loop.
     fn on_tick(&self, events: Vec<RunnerEvent>) {
+        if self.invalidate_pending.get() {
+            if let Ok(mut state) = self.app_state.try_lock() {
+                state.invalidate_all();
+                self.invalidate_pending.set(false);
+            }
+        }
         self.reconcile_mounts();
         if events.is_empty() {
             return;
@@ -786,6 +795,7 @@ fn new_inner(
         root,
         mounted: RefCell::new(HashMap::new()),
         renderer: RefCell::new(renderer.map(Rc::new)),
+        invalidate_pending: Cell::new(false),
     });
     LIVE_MOUNTS.with(|list| list.borrow_mut().push(Rc::downgrade(&inner)));
     inner

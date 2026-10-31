@@ -510,7 +510,7 @@ the element shows a label: egui is not a claimed backend (`NA`). `UIElement::as_
 
 | Function | Does |
 |---|---|
-| `defineElement({ type, render, onEvent?, mount?, title? })` | registers a `JsElementDelegate`; a second define of a type replaces it, and every live mount re-renders (`invalidate_all`) |
+| `defineElement({ type, render, onEvent?, mount?, title? })` | registers a `JsElementDelegate`; a second define of a type replaces it, and every live mount re-renders (`invalidate_all`; a mount whose lock is held, from inside a render, after its tick) |
 | `undefineElement(type)` | removes it and releases its functions; `true` if it was defined |
 | `element(type, props?, title?)` | a `DelegatedElement` as a `UIElement` handle; the type need not be defined yet |
 | `mountRenderer(renderer, options?)` | a mount with no container; resolves to a `UIMount` |
