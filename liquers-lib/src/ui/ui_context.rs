@@ -70,6 +70,11 @@ impl UIContext {
         let _ = self.sender.send(message);
     }
 
+    /// Deliver a user interaction to the element at `handle` (as `UpdateMessage::UI`).
+    pub fn send_ui_event(&self, handle: UIHandle, event: super::event::UIEvent) {
+        let _ = self.sender.send(AppMessage::UIEvent { handle, event });
+    }
+
     /// Submit a query for the current handle (set via `with_handle`).
     /// No-op if no current handle is set.
     pub fn submit_query_current(&self, query: impl Into<String>) {

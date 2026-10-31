@@ -74,6 +74,8 @@ web-sys = { version = "0.3", optional = true, features = [
   "Event", "EventTarget", "InputEvent", "KeyboardEvent", "DomTokenList",
   # HtmlCollection: Element::children(), used to insert a child node at a given index.
   "HtmlCollection",
+  # NodeList: query_selector_all for data-lq-field / data-lq-shortcut; HtmlTextAreaElement: field values.
+  "NodeList", "HtmlTextAreaElement",
 ] }
 
 tokio = { version = "1.53.1", features = ["sync", "rt", "macros", "time"] }

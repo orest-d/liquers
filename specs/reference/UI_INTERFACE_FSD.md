@@ -3,7 +3,7 @@ title: UI Interface Specification
 kind: reference
 audience: internal
 area: [lib/ui]
-reviewed: 2026-03-02
+reviewed: 2026-10-30
 ---
 # UI Interface Specification
 
@@ -328,6 +328,57 @@ fn create_button(context: &Context) -> Result<Value, Error> {
 ```
 
 Platform-specific code executes the query when event fires.
+
+> The sketch above is the original concept. What is implemented is two tiers: an action that is
+> data (`UiAction` in `data-lq-action`, dispatched by the backend, e.g. a menu item's query), and
+> a native tier where the element handles the interaction itself through `update()`, below.
+
+### UI events (implemented)
+
+User interaction reaches an element as `UpdateMessage::UI(UIEvent)` (`liquers-lib/src/ui/event.rs`),
+sent as `AppMessage::UIEvent { handle, event }` (or `UIContext::send_ui_event`) and delivered by
+`AppRunner` through the same take/update/put path as `AssetUpdate` snapshots; `NeedsRepaint` is
+recorded as `UIChange::Replaced`. An event for a removed element is dropped. Delivery is to the
+owning element only: there is no propagation.
+
+```rust
+pub enum UIEventKind { Submit, Named(String) }      // closed; a new kind is a deliberate change
+pub struct UIEvent { pub kind: UIEventKind, pub fields: Vec<(String, Value)> }
+```
+
+A `UIEvent` is **backend-neutral**: it says what the user meant plus the owning element's field
+values as Liquers `Value`s (text fields arrive as text), never which device produced it. Each
+backend's driver translates its own input into it; no `web_sys` or egui type appears in it, and
+because handles belong to the shared `AppState` the event reaches its element whichever backend drew
+it. egui calls an element's handler inline from `show_in_egui` instead of going through the
+channel (the query console's Enter does), so both backends share one handling path.
+
+**Web declarations.** `render_web` declares interest in markup (helpers in `ui/web/html.rs`):
+
+| Attribute | On | Meaning |
+|---|---|---|
+| `data-lq-field="name"` | `<input>`, `<textarea>` | its live value travels with the owner's events as field `name` |
+| `data-lq-event="submit"` / `"name"` | any node | a click sends that event to the owning element; on a single-line input, so does Enter |
+| `data-lq-shortcut="Alt+N"` | a node with `data-lq-action` | the key combination runs that node's action |
+| `data-lq-action='…'` | any node | a click runs the serialized `UiAction` |
+
+The owner is the nearest enclosing `ui-element-{n}`; fields of a nested element belong to it.
+Clicking into an editable field is never an activation.
+
+**Keyboard precedence (web).** One listener on the document routes every key press
+(`ui/web/keys.rs` `route_keydown`), in order: IME composition is left alone; Enter without
+modifiers on a single-line input that declares `data-lq-event` sends that event; Tab is left
+alone; inside an editable field a key without Ctrl/Cmd or Alt is left alone (typing); otherwise
+the combination is matched against the rendered `data-lq-shortcut`s and the first match runs.
+The default is prevented only when something ran, so native button activation (Enter/Space on a
+focused button is a click) is untouched. Shortcuts are matched by logical key first, then by the
+physical code, so macOS Option combinations and non-Latin layouts still match.
+
+**Limits.** Browsers never deliver some combinations to a page (Chrome: Ctrl+N, Ctrl+T, Ctrl+W),
+so a web menu should not rely on them; the query console example uses Alt+N. In egui, menu
+shortcuts are consumed by `UISpecElement` itself (`consume_shortcut`) and run their `UiAction`;
+in neither backend is a shortcut a `UIEvent`. Kinds beyond `Submit` and `Named` (field change,
+drop, focus, pointer) are not yet defined (`UI-EVENTS-HAVE-NO-POINTER-DRAG-OR-CHANGE-KINDS`).
 
 ## Use Cases
 
@@ -687,3 +738,4 @@ Candidate universal operations identified across use cases:
 | Date | Change | Source |
 |---|---|---|
 | 2026-03-02 | Present at repository import; content unchanged since. Not reviewed against the implementation. | migration |
+| 2026-10-30 | Event Handling: implemented UI events (`UIEvent`, `data-lq-*` markup, keyboard precedence, limits). Only that section was reviewed against the implementation. | ui-events |
