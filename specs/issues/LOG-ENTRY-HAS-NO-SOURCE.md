@@ -23,6 +23,12 @@ Found while building `liquers-mcp`, which returns a command's notes to the agent
 content block: with every Info entry included, an agent reading one document got four lines of
 dependency diagnostics before the command's own note.
 
+
+2026-10-31: the prefix list has already fallen behind. A `memory_new` call through
+`liquers-agent mcp` returned, as notes, `Volatile due to command '/mem/new'`, `Volatile: its plan is
+volatile` and `Dependency -R-dir/notes of … expired during evaluation; using its stale value …`
+(from `liquers-core/src/plan.rs` and `assets.rs`), none of which `ENGINE_NOTE_PREFIXES` lists.
+
 ## Impact
 
 - `liquers-mcp` recognises engine lines by their text (`ENGINE_NOTE_PREFIXES` in

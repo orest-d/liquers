@@ -30,6 +30,11 @@ shows at its default level, with the chatter available at `debug` for that modul
 Diagnostics cannot be filtered by level or module, carry no span context, and cannot be routed
 anywhere but stderr. For an async asset lifecycle with concurrent evaluations, interleaved
 unstructured lines are close to unreadable.
+- **A closed stderr kills the process.** `eprintln!` panics when it cannot write. 2026-10-31:
+  `liquers-agent … search … 2>&1 | head -1` exits 101 at once, and with `| head -20` it hung
+  instead (a panicked task left the waiter blocked). Every evaluation writes dozens of lines
+  (`Trying fast track for asset …`, `Waiting for dependency …`), so anything that reads a little
+  of stderr and stops trips it. `tracing` with a writer that ignores errors would not.
 
 ## Expected behaviour
 
