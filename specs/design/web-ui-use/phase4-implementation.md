@@ -46,7 +46,7 @@ done first if needed; only Step 8's `uiuse03` waits for it.
 - Change: a stop flag checked after `run` and after `on_tick`, listener removal, root emptied, the
   false comment on `MountHandle` corrected, `current_env` before each tick, `on_tick`
   after `apply_invalidation`. The plain driver drains `take_events`.
-- Depends on: Step 2.
+- Depends on: Step 2 and `ui-events` merged (PR #225).
 - Proof: `cargo check -p liquers-lib --target wasm32-unknown-unknown --no-default-features --features webui`;
   `liquers-lib/examples-web` builds with `trunk build` and its Playwright specs still pass
   (`cd liquers-lib/examples-web && npx playwright test`), after a `cargo clean`.
@@ -91,7 +91,8 @@ done first if needed; only Step 8's `uiuse03` waits for it.
 
 ### Step 9: Documentation and records
 - Files: as Phase 2's documentation architecture; `liquers-web/README.md` conformance row
-  (`UIUSE` complete); `WEB-CANNOT-USE-A-LIQUERS-UI` → `closed` with a resolution note;
+  (`UIUSE` complete); `WEB-CANNOT-USE-A-LIQUERS-UI` and
+  `WEBUI-MOUNT-HANDLE-DROP-LEAVES-LISTENERS-ATTACHED` → `closed` with a resolution note;
   `specs/README.md` entry → built.
 - Proof: `python3 scripts/docs_index.py --check`; `./liquers-web/scripts/test-guide-examples.sh`.
 

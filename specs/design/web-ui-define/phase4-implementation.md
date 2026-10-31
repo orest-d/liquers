@@ -4,13 +4,13 @@
 
 The order is: the language-neutral element first, then the JavaScript delegate and `element()`,
 then the `mount` reconciliation, then the renderer mount (decision 3: the last milestone). After
-that, the `onEvent` half is switched on once `ui-events` has landed.
+that, the `onEvent` half.
 
 Prerequisites:
 
 - `web-ui-use`, all steps.
-- `ui-events`, implemented. It is a design in review, with readiness `needs-decision`, and it is
-  not approved. Steps 1–5 do not need it; Step 6 does.
+- `ui-events`, merged. It is implemented in PR #225 (open on 2026-10-31). Step 1 uses its
+  `UIEvent` type; Step 6 uses its messages and markup.
 
 ## Progress
 
@@ -19,19 +19,16 @@ Prerequisites:
 - [ ] Step 3: `mount` reconciliation in the mount's `on_tick`
 - [ ] Step 4: `run_headless` and the renderer form of `mountUI`
 - [ ] Step 5: Declarations, the stubs check, and documentation of Steps 1–4
-- [ ] Step 6: `onEvent` through `ui-events` (needs `ui-events` implemented)
+- [ ] Step 6: `onEvent` through `ui-events` (uses `ui-events`' messages)
 
 ## Implementation Steps
 
 ### Step 1: `DelegatedElement`
 - Files / symbols: `liquers-lib/src/ui/widgets/delegated_element.rs` (new),
   `ui/widgets/mod.rs`, `ui/mod.rs` re-exports.
-- Change: as Phase 2. `on_event` is in the trait from the start, with its parameter type taken
-  from `ui-events`. Until that lands, the trait method takes `&serde_json::Value` (the event as
-  data), and Step 6 changes it to `&UserEvent`. The trait is public but has no implementor
-  outside this design until then, so the change touches only `JsElementDelegate` and the test
-  delegate.
-- Depends on: none.
+- Change: as Phase 2. `on_event` is in the trait from the start, taking `&UIEvent`; `update`
+  answers `Unchanged` to `UpdateMessage::UI` until Step 6.
+- Depends on: `ui-events` merged (PR #225).
 - Proof: `cargo test -p liquers-lib --lib ui::widgets::delegated_element`, and with
   `--no-default-features --features webui`.
 - Rollback: revert; nothing else uses it yet.
@@ -55,8 +52,7 @@ Prerequisites:
 ### Step 4: Renderer mount
 - Files / symbols: `liquers-lib/src/ui/web/headless.rs` (new) `HeadlessOptions`, `run_headless`;
   `MountHandle`'s root and listener fields become `Option`; `liquers-web/src/ui.rs` `mountRenderer`, `UITree` and `UIChangeRecord` construction,
-  `dispatchEvent`. It is declared in Step 4, and until Step 6 it throws `NotSupported` naming
-  `ui-events`.
+  `dispatchEvent`. It is declared in Step 4, and until Step 6 it throws `NotSupported`.
 - Depends on: `web-ui-use` Step 3.
 - Proof: `uidef07_renderer_receives_tree_and_changes`, without its `dispatchEvent` assertion
   until Step 6 (browser loop);
@@ -71,10 +67,10 @@ Prerequisites:
   `python3 scripts/docs_index.py --check`; `./liquers-web/scripts/test-guide-examples.sh`.
 
 ### Step 6: `onEvent`
-- Files / symbols: `delegated_element.rs` `update` (the `UpdateMessage::User` arm, the trait
-  parameter becomes `&UserEvent`); `ui_define.rs` `on_event`; `ui.rs` `dispatchEvent` sends
-  `AppMessage::UserEvent`.
-- Depends on: `ui-events` implemented.
+- Files / symbols: `delegated_element.rs` `update` (the `UpdateMessage::UI` arm calls
+  `on_event`); `ui_define.rs` `on_event` and the `UIUserEvent` conversion; `ui.rs` `dispatchEvent`
+  sends `AppMessage::UIEvent`.
+- Depends on: Steps 1–5.
 - Proof: `delegated_user_event_replaces_props`; `uidef03`, `uidef08b`, and `uidef07`'s
   `dispatchEvent` assertion; `README.md` `UIDEF` row complete; `WEB-CANNOT-DEFINE-UI-ELEMENTS` →
   `closed`.
@@ -88,7 +84,7 @@ loop after a `cargo clean`. At the end: `bash scripts/check-build-matrix.sh`.
 
 ## Rollback Plan
 
-Every step is additive. If `ui-events` is never approved, Steps 1–5 stand on their own. The
+Every step is additive. If Step 6 has to wait, Steps 1–5 stand on their own. The
 remainder (Step 6) then becomes an issue (`DOCS_STRUCTURE_GUIDE.md` §5.6), and `UIDEF03` is
 recorded as partial in the README.
 

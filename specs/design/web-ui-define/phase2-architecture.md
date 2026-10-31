@@ -10,7 +10,7 @@ events to an `ElementDelegate`, which it looks up by `kind` in a registry kept p
 liquers-web supplies one delegate type, `JsElementDelegate`, which holds the page's `render`,
 `onEvent` and optional `mount` functions. A missing delegate renders a placeholder (AC-5).
 
-**Events arrive as `ui-events` `UpdateMessage::User`.** The runner delivers them with the element
+**Events arrive as `ui-events` `UpdateMessage::UI`.** The runner delivers them with the element
 taken out of `AppState` and the lock released, so `onEvent` may call back into the mount.
 
 **`mount` and `unmount` run after a tick.** liquers-web reconciles the container's
@@ -33,7 +33,7 @@ Rejected alternatives:
 | Issue | Status | Priority | Impact on this design | Fix first? | Blocking? | Action |
 |---|---|---|---|---|---|---|
 | `web-ui-use` (`WEB-CANNOT-USE-A-LIQUERS-UI`) | designed | P2 | mounts, `UIElement` handles, `on_tick` and `take_events` | yes | yes | implemented first |
-| `ui-events` (`WEBUI-SUBMIT-QUERY-STATE-NOT-PRESERVED` and 2 others) | design in review, `needs-decision`, not implemented | P2 | `UserEvent`, `UpdateMessage::User`, `data-lq-event` (decision 2) | yes | **yes, for AC-3 and the `onEvent` half of AC-2** | the maintainer must approve and land it; everything else can go ahead |
+| `ui-events` (`WEBUI-SUBMIT-QUERY-STATE-NOT-PRESERVED` and 2 others) | implemented in PR #225, not yet merged | P2 | `UIEvent`, `UIEventKind`, `UpdateMessage::UI`, `AppMessage::UIEvent`, `data-lq-event` (decision 2) | yes | yes, for Step 1 onward | merge PR #225 first |
 | `console-mounts-nested-element` | design in review | P3 | a delegated element shown inside a console has no handle | no | no | noted; it works once that lands |
 | `WEB-UI-FREEZES-WHILE-A-QUERY-AWAITS` | draft | P2 | an async `onEvent` follow-up query freezes the page | no | no | inherited limitation |
 
@@ -56,7 +56,7 @@ pub trait ElementDelegate {
     /// Markup for `element`, inside the node `render_web` wraps around it.
     fn render(&self, element: &DelegatedElement) -> Result<String, Error>;
     /// New props, or `None` to keep them.
-    fn on_event(&self, element: &DelegatedElement, event: &UserEvent)
+    fn on_event(&self, element: &DelegatedElement, event: &UIEvent)
         -> Result<Option<serde_json::Value>, Error>;
 }
 pub fn register_delegate(kind: &str, delegate: Rc<dyn ElementDelegate>) -> Option<Rc<dyn ElementDelegate>>;
@@ -72,7 +72,7 @@ thread-affinity rule `UIDEF08` asks for.
 `render_web` wraps the delegate's markup in
 `<div id="ui-element-N" class="lq-element lq-delegated" data-lq-delegate="{kind}">`. When there is
 no delegate, it writes an escaped placeholder naming the kind. When the delegate returns an error,
-it writes an escaped error box. `update(UpdateMessage::User(e))` calls `on_event`, replaces `props`
+it writes an escaped error box. `update(UpdateMessage::UI(e))` calls `on_event`, replaces `props`
 when it returns `Some`, and answers `NeedsRepaint`. Every other message answers `Unchanged`, and the
 match has no `_ =>` arm. `show_in_egui` shows a label saying the kind cannot be rendered in egui.
 
@@ -108,11 +108,14 @@ interface UITreeElement { handle: number; parent: number | null; children: numbe
   typeName: string; title: string; status: string; html: string; kind?: string; props?: any }
 type UIChangeRecord = { inserted: number; parent: number | null; index: number }
                     | { removed: number; parent: number | null } | { replaced: number };
-interface UIUserEvent { handle: number; kind: string; fields: Record<string, any> }  // ui-events' UserEvent, plus the element
+interface UIUserEvent { handle: number; kind: string; fields: Record<string, any> }  // ui-events' UIEvent, plus the element
 // UIElement (web-ui-use) gains: readonly kind?: string; readonly props?: any   (DelegatedElement only)
 // UIMount gains: dispatchEvent(handle: number, kind: string, fields?: object): void
 ```
 
+- `UIUserEvent` is built from the `UIEvent`: `kind` is `UIEventKind::name()` (`"submit"` or the
+  markup name), `fields` maps each `(name, Value)` through `value_to_js`, and `handle` is the
+  element's own handle, which the `UIEvent` does not carry.
 - `JsElementDelegate { render: Function, on_event: Option<Function>, mount: Option<Function> }`
   implements `ElementDelegate`. It calls the functions with `props` converted by
   `serde_wasm_bindgen` through the crate's map-as-object serializer, and reads the result back with
@@ -131,7 +134,9 @@ interface UIUserEvent { handle: number; kind: string; fields: Record<string, any
   its cleanup function called and is dropped.
 - A renderer mount builds `UITree` from `AppState` on its first tick and on `Invalidation::All`,
   and then passes `Changes` as `UIChangeRecord`s, with the tree refreshed for the handles they
-  name. `html` is `render_element_web(handle, state)`. `dispatchEvent` sends `AppMessage::UserEvent`.
+  name. `html` is `render_element_web(handle, state)`. `dispatchEvent` sends `AppMessage::UIEvent { handle, event }`,
+  with `kind` read by `UIEventKind::from_name` (an empty kind is refused with
+  `Error::general_error`) and `fields` converted to `Value`s by `js_to_value`.
 
 Everything is sync except `mountRenderer`.
 
@@ -196,4 +201,4 @@ function runs. The `Rc` or the entry is cloned out first.
 | Performance | one JavaScript call per delegated element per render; the reconciliation is one `querySelectorAll` per tick, only while a mount has delegated elements |
 | Security | `render`'s markup is the page's own and is inserted as HTML, like Rust `render_web`; the guide says so, and the placeholder and error box escape their text |
 | Recovery | each part is additive, and the renderer mount can be left out (it is the last milestone) |
-| Certainty | high for the element and the delegate; the `onEvent` half depends on `ui-events`' final shape, so a change there reaches only `on_event`'s parameter |
+| Certainty | high for the element and the delegate; the `onEvent` half follows `ui-events` as implemented in PR #225; a rename before it merges reaches only `on_event`'s parameter |

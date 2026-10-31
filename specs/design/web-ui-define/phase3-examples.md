@@ -4,8 +4,8 @@ The queries were checked with `liquers-validate --command gauge`. `gauge-50` and
 `gauge-50/ns-lui/add-child` both return `Ok`.
 
 The tests that use `onEvent` (AC-2's event half, AC-3, AC-8's `onEvent` half) need `ui-events`
-(`UpdateMessage::User`, `data-lq-event`). They are written now and enabled in the step after
-`ui-events` lands (Phase 4). Every other test runs without it.
+(`UpdateMessage::UI`, `data-lq-event`), implemented in PR #225. They are enabled in Step 6
+(Phase 4). Every other test runs without it.
 
 ## Overview Table
 
@@ -84,7 +84,7 @@ The query in Example 3 needs a store holding `docs/readme.md`. The test uses
     `Box<dyn UIElement>`.
   - `delegated_markup_wraps_and_escapes` (AC-4, AC-5): the wrapper carries the handle and
     `data-lq-delegate`, and the placeholder and the error box escape their text.
-  - `delegated_user_event_replaces_props` (AC-2, AC-3, after `ui-events`).
+  - `delegated_user_event_replaces_props` (AC-2, AC-3, Step 6).
   - Run: `cargo test -p liquers-lib --lib ui::widgets::delegated_element` (also with
     `--no-default-features --features webui`).
 - Node loop, `liquers-web/tests/ui_define_UIDEF.rs` (`--features debug-handles`):

@@ -134,8 +134,10 @@ unchanged.
 
 - **requires (AC-3 only)** `JS-COMMAND-CANNOT-ACCESS-CONTEXT`: a JavaScript command has no context
   today, so it cannot learn which element triggered it. Every other criterion is independent.
-- **overlaps** `ui-events` and `console-mounts-nested-element` (both in review, backend-internal):
-  this design forwards whatever the backend does and needs neither first.
+- **requires (Step 3 only)** `ui-events` (implemented in PR #225, not yet merged): it changes
+  `mount_web`'s listeners, which Step 3 restructures, so Step 3 is built on it.
+- **overlaps** `console-mounts-nested-element` (in review, backend-internal): this design forwards
+  whatever the backend does and does not need it first.
 - **required-by** `web-ui-define`.
 
 Defects found in the backend and owned by this design: `mount_web`'s `spawn_local` loop never ends,
@@ -167,6 +169,10 @@ None. Every recommendation was accepted by the maintainer on 2026-10-27, and is 
   with `dispose()`, not a function: a function would be a `Closure` that leaks when the page never
   calls it. Size unchanged. Phases 1 and 2 updated. Recorded in the decision log as a proposed
   resolution.
+
+- **2026-10-31, `ui-events` implemented (PR #225).** Step 3 now builds on its `mount_web`, removes
+  the `keydown` listener from the document, and closes
+  `WEBUI-MOUNT-HANDLE-DROP-LEAVES-LISTENERS-ATTACHED`. Scope unchanged.
 
 ## References
 

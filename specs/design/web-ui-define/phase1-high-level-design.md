@@ -7,15 +7,16 @@ Decision log of the pre-approved run (`proceed all`, 2026-10-30).
 - **Readiness:** needs-decision
 - **Automatic fixing:** not-eligible. It adds exported JavaScript functions and classes and a
   public `liquers-lib` element type (rules 3 and 4); complexity `L`.
-- **Leading issue:** **Blocking for Step 6 only, `ui-events`:** `onEvent` needs `ui-events`'
-  `UserEvent` (decision 2). That design is in review with readiness `needs-decision`: its leading
-  question is one `UpdateMessage::User` variant with a closed `UserEventKind`, which it recommends,
-  versus one variant per event kind. Until it is approved and implemented, Steps 1–5 can ship and
-  `UIDEF03` stays partial.
-- **Explanation:** Phases 2–4 specify a working solution under the four Phase 1 decisions. The
-  event half waits on another design's approval.
+- **Leading issue:** none blocking. `ui-events` is implemented in PR #225 (2026-10-31, open, not
+  yet on `main`): `UIEvent { kind: UIEventKind, fields }`, `UIEventKind::{Submit, Named}`,
+  `UpdateMessage::UI`, `AppMessage::UIEvent { handle, event }` and `data-lq-event` markup. This
+  design now uses those names. Implementation starts after that PR merges.
+- **Explanation:** Phases 2–4 specify a working solution under the four Phase 1 decisions and the
+  `ui-events` API as implemented.
 - **Open questions:**
-  1. **Blocking (Step 6), `ui-events` approval:** as the leading issue.
+  1. **Dependency, `ui-events` (PR #225) merged:** Step 1 takes `&UIEvent` from the start, so it
+     needs that PR on `main`. If the PR's names change before it merges, only `on_event`'s
+     parameter and the Step 6 arms follow.
   2. **Proposed resolution, delegate registry per thread:** a definition is visible on the thread
      that registered it. In the browser that is the one thread, and it is how `UIDEF08`'s thread
      affinity is met.
@@ -123,9 +124,9 @@ API. No `liquers-core` change is expected.
 
 - **requires** `web-ui-use`: mounting, the payload type, the stoppable driver and the event
   subscription this design extends.
-- **requires (native events)** `ui-events` (in review, not implemented): its `UserEvent` and
-  `data-lq-event` markup are how a click reaches an element's `update`. Without it an element can
-  only use `data-lq-action` queries.
+- **requires (native events)** `ui-events` (implemented in PR #225, not yet merged): its
+  `UIEvent`, `UpdateMessage::UI` and `data-lq-event` markup are how a click reaches an element's
+  `update`. Without it an element can only use `data-lq-action` queries.
 - **overlaps** `console-mounts-nested-element`: a JavaScript element returned into a console needs
   the console to mount it as a child node to receive events.
 - **soft** `JS-COMMAND-CANNOT-ACCESS-CONTEXT`: lets an `onEvent` handler evaluate queries through a
@@ -138,7 +139,7 @@ None. Every recommendation was accepted by the maintainer on 2026-10-27, and is 
 1. **The element contract.** An element type has a pure `render(props) → HTML string` and an
    `onEvent(props, event) → props`. A widget that owns a canvas or a third-party component can add an
    optional `mount(container, props)` / `unmount()` pair. Nothing uses a virtual-tree format.
-2. **Native events.** This design waits for `ui-events` and uses its `UserEvent`, so Rust and
+2. **Native events.** This design waits for `ui-events` and uses its `UIEvent`, so Rust and
    JavaScript elements share one event vocabulary.
 3. **A JavaScript renderer (AC-7).** It stays in this design as the last milestone.
 4. **Properties must be JSON.** Properties that cannot be serialized as JSON are refused when the
@@ -150,6 +151,11 @@ None. Every recommendation was accepted by the maintainer on 2026-10-27, and is 
   functions, undefining a type and disposing a mount, because the registry is per thread, not per
   mount. AC-8 now says what happens inside `render`, which runs under the UI lock. The page
   renderer has its own entry point, `mountRenderer`. Size unchanged; Phases 1–4 updated.
+
+- **2026-10-31, `ui-events` implemented (PR #225).** Its names replace the ones this design
+  assumed: `UserEvent` → `UIEvent`, `UserEventKind` → `UIEventKind`, `UpdateMessage::User` →
+  `UpdateMessage::UI`, `AppMessage::UserEvent` → `AppMessage::UIEvent { handle, event }`. The
+  temporary `&serde_json::Value` parameter of Step 1 is dropped. Scope unchanged.
 
 ## References
 

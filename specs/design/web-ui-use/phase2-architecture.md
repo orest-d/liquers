@@ -34,7 +34,10 @@ Rejected alternatives:
 | `WEB-CANCELLATION-INERT` | accepted | P3 | no UI cancellation | no | no | non-goal |
 | `POST-INIT-COMMAND-REGISTRATION` | accepted | P3 | a rebuild drops the asset cache under a live mount | no | no | AC-9 re-resolves the environment; the cache loss is documented |
 | `UI-INTERFACE-FSD-DESCRIBES-UNBUILT-API` | draft | P2 | the reference cannot be cited | no | no | the design cites code, not the FSD |
-| `ui-events`, `ui-asset-snapshot-boundary`, `console-mounts-nested-element` | designs in review | — | they change backend internals, but not the three additions | no | no | the additions are kept independent of them |
+| `ui-events` | implemented in PR #225, not yet merged | P2 | it moves `keydown` to the document and edits `mount_web`, which Step 3 restructures | yes | Step 3 only | merge PR #225 first and build Step 3 on its `mount_web` |
+| `WEBUI-MOUNT-HANDLE-DROP-LEAVES-LISTENERS-ATTACHED` (filed by `ui-events`) | draft | P3 | the same defect Step 3 fixes | yes | no | closed by Step 3 |
+| `WEBUI-SHORTCUTS-RUN-IN-EVERY-MOUNT` (filed 2026-10-31) | draft | P3 | with two mounts, an unfocused menu shortcut runs in both, because each listens on the document | no | no | inherited from `ui-events`; documented |
+| `ui-asset-snapshot-boundary`, `console-mounts-nested-element` | designs in review | — | they change backend internals, but not the three additions | no | no | the additions are kept independent of them |
 
 ## Interfaces
 
@@ -100,9 +103,10 @@ impl Drop for MountHandle { /* stop() */ }
 `stop` sets an `Rc<Cell<bool>>`. The loop checks it right after `runner.run` returns, before
 `apply_invalidation` and before `on_tick`, and again after `on_tick`. A `dispose()` made while
 `run` was awaiting therefore never paints into the emptied root. It calls
-`remove_event_listener_with_callback` for both listeners (today, dropping the `Closure`s leaves
+`remove_event_listener_with_callback` for both listeners, `click` on the root and `keydown` on the
+target it was added to (the document since `ui-events`, so `MountHandle` keeps that target). Today, dropping the `Closure`s leaves
 stale listeners that throw when they fire, despite the comment on `MountHandle`, which Step 3
-corrects) and empties the root. The loop then returns, which drops
+corrects; this is `WEBUI-MOUNT-HANDLE-DROP-LEAVES-LISTENERS-ATTACHED`) and empties the root. The loop then returns, which drops
 the runner, its `EnvRef` and its `AppState` clone. `mount_web` keeps its signature and delegates,
 with no `current_env` and no `on_tick`.
 
