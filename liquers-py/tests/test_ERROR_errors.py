@@ -18,7 +18,7 @@ def test_every_error_type_has_a_subclass():
 
 def test_base_constructor_dispatches_to_the_subclass():
     err = lq.LiquersError(lq.ErrorType.KeyNotFound, "no such key", key="a/b")
-    assert type(err) is lq.ParseError  # wf_red_on_failure: deliberately wrong, reverted next
+    assert type(err) is lq.KeyNotFoundError
     assert err.type == lq.ErrorType.KeyNotFound
     assert err.message == "no such key"
     assert err.key == "a/b"
