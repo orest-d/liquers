@@ -8,9 +8,9 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 198
-- P2: 60
-- P3: 138
+Total rows: 196
+- P2: 59
+- P3: 137
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -65,7 +65,6 @@ Total rows: 198
 | [`VALUE-EXTENDED-SCALAR-TYPES-MISSING`](issues/VALUE-EXTENDED-SCALAR-TYPES-MISSING.md) | feature | Value types lack fifteen scalars most target ecosystems represent distinctly | draft | needs-decision | not-eligible | P2 | L | lib/value;core/value | [phase1](design/extended-scalar-value-types/phase1-high-level-design.md)  [phase2](design/extended-scalar-value-types/phase2-architecture.md)  [phase3](design/extended-scalar-value-types/phase3-examples.md)  [phase4](design/extended-scalar-value-types/phase4-implementation.md)  | 2026-10-20 |
 | [`VALUE-NOT-CONVERTED-AUTOMATICALLY`](issues/VALUE-NOT-CONVERTED-AUTOMATICALLY.md) | feature | A command's state or link argument is not converted to the type the command declares | draft | needs-decision | not-eligible | P2 | L | core/commands;core/value;core/plan | [phase1](design/automatic-value-conversion/phase1-high-level-design.md)  [phase2](design/automatic-value-conversion/phase2-architecture.md)  [phase3](design/automatic-value-conversion/phase3-examples.md)  [phase4](design/automatic-value-conversion/phase4-implementation.md)  | 2026-10-20 |
 | [`VALUE-SERIALIZATION-IS-SYNCHRONOUS-AND-WHOLE-VALUE`](issues/VALUE-SERIALIZATION-IS-SYNCHRONOUS-AND-WHOLE-VALUE.md) | feature | Serialization is synchronous and whole-value, so a large or lazy value cannot be served or stored as it is produced | draft | needs-decision | not-eligible | P2 | L | core/value;core/store;core/assets;axum | [phase1](design/value-serialization-streaming/phase1-high-level-design.md)  [phase2](design/value-serialization-streaming/phase2-architecture.md)  [phase3](design/value-serialization-streaming/phase3-examples.md)  [phase4](design/value-serialization-streaming/phase4-implementation.md)  | 2026-09-24 |
-| [`WEB-CANNOT-USE-A-LIQUERS-UI`](issues/WEB-CANNOT-USE-A-LIQUERS-UI.md) | feature | A page cannot mount, drive or observe a Liquers UI through liquers-web | draft | needs-decision | not-eligible | P2 | L | web;lib/ui | [phase1](design/web-ui-use/phase1-high-level-design.md)  [phase2](design/web-ui-use/phase2-architecture.md)  [phase3](design/web-ui-use/phase3-examples.md)  [phase4](design/web-ui-use/phase4-implementation.md)  [phase5](design/web-ui-use/phase5-documentation.md)  | 2026-10-27 |
 | [`EXTENDED-FAST-TRACK`](issues/EXTENDED-FAST-TRACK.md) | feature | A cheap query waits behind long-running jobs, because commands cannot be classified for scheduling | accepted | phase2-blocked | not-eligible | P2 | L | core/assets | [phase1](design/command-execution-class/phase1-high-level-design.md)  [phase2](design/command-execution-class/phase2-architecture.md)  | 2026-08-08 |
 | [`CORE-ONE-JOB-QUEUE-FOR-ALL-COMMANDS`](issues/CORE-ONE-JOB-QUEUE-FOR-ALL-COMMANDS.md) | issue | Every queued command shares one job queue, so commands cannot be placed by their cost | draft |  |  | P2 | L | core/assets |  | 2026-10-26 |
 | [`WEB-UI-FREEZES-WHILE-A-QUERY-AWAITS`](issues/WEB-UI-FREEZES-WHILE-A-QUERY-AWAITS.md) | issue | The browser UI stops updating while any of its queries awaits a Promise | draft |  |  | P2 | L | lib/ui;core/assets;web |  | 2026-10-30 |
@@ -109,7 +108,6 @@ Total rows: 198
 | [`WEB-IMPORTED-COMMAND-RECEIVES-NO-CONTEXT`](issues/WEB-IMPORTED-COMMAND-RECEIVES-NO-CONTEXT.md) | issue | A JavaScript command bound to imported metadata cannot receive the context | draft |  |  | P3 | S | web |  | 2026-10-31 |
 | [`WEB-METADATA-STATUS-CASE-DIFFERS`](issues/WEB-METADATA-STATUS-CASE-DIFFERS.md) | issue | State.metadata().status is capitalized while Asset.status() and State.status are lowercase | draft |  |  | P3 | S | web |  | 2026-10-26 |
 | [`WEB-UNREGISTER-DEPENDS-ON-FIRST-EVALUATION`](issues/WEB-UNREGISTER-DEPENDS-ON-FIRST-EVALUATION.md) | issue | unregisterCommand removes a built-in command before the first evaluation but not after it | draft |  |  | P3 | S | web |  | 2026-10-26 |
-| [`WEBUI-MOUNT-HANDLE-DROP-LEAVES-LISTENERS-ATTACHED`](issues/WEBUI-MOUNT-HANDLE-DROP-LEAVES-LISTENERS-ATTACHED.md) | issue | Dropping the web MountHandle leaves its event listeners attached to freed closures | draft |  |  | P3 | S | lib/ui |  | 2026-10-30 |
 | [`WEBUI-SHORTCUTS-RUN-IN-EVERY-MOUNT`](issues/WEBUI-SHORTCUTS-RUN-IN-EVERY-MOUNT.md) | issue | With two web UI mounts on one page, an unfocused menu shortcut runs in both | draft |  |  | P3 | S | lib/ui;web |  | 2026-10-31 |
 | [`COLUMNMUT-VALIDITY-AND-VARIABLE-LENGTH-SET-ALWAYS-COPY`](issues/COLUMNMUT-VALIDITY-AND-VARIABLE-LENGTH-SET-ALWAYS-COPY.md) | issue | ColumnMut always copies validity, and rebuilds the whole column to overwrite one Text/Binary cell | draft | ready | not-eligible | P3 | M | records | [design](design/column-mut-zero-copy-validity/DESIGN.md) | 2026-09-26 |
 | [`DEPENDENCY-ANALYSIS-REWALKS-UPSTREAM-PER-EVALUATION`](issues/DEPENDENCY-ANALYSIS-REWALKS-UPSTREAM-PER-EVALUATION.md) | feature | Each plan analysis re-walks the whole upstream recipe graph | draft | ready | not-eligible | P3 | M | core/plan;core/assets | [design](design/payload-requirement-skips-dependency-analysis/DESIGN.md) | 2026-10-08 |

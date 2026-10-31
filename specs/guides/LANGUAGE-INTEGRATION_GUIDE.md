@@ -1951,6 +1951,16 @@ refuse; facts from a HEAD request), so either can take a `metadata` section. `bu
 registry and `StoreConfigFunctions`, mirroring the native builder. `sync` is not exposed to pages.
 See `liquers-web/README.md` "Read-only stores and metadata sections".
 
+**A Liquers UI in the browser** (`UIUSE`, `specs/design/web-ui-use/`). `mountUI` drives the
+`liquers-lib` web backend inside a page. Three backend changes were needed and are reusable by any
+integration that mounts a UI: `AppRunner` records `RunnerEvent`s for the integration to drain after
+each tick (`take_events`), so status reaches *language* callbacks after the DOM update and with no
+lock held; `replace_envref` lets a mount follow a rebuilt environment; and the runner drops a result
+whose node changed source meanwhile, which on wasm is the normal case, because the inline asset
+manager evaluates inside `run`. `MountHandle` is stoppable (`stop`, drop), which removes its
+listeners and ends the driver loop. A UI element crosses as a handle so it comes back as the same
+`Arc`.
+
 **Templates and data nodes in the browser.** Neither `DATANODE` nor `TEMPLATE` is implemented in
 `liquers-web`. It depends on `liquers-lib` without the `templates` feature, so the `ns-template`
 commands are not in its built-in set (`WEB-HAS-NO-TEMPLATE-COMMANDS`). A JavaScript command
@@ -3854,6 +3864,7 @@ def test_DOCS04_every_public_name_is_documented():
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-31 | §6 Browser JavaScript: `UIUSE` is implemented (`mountUI`); the reusable backend changes it needed. | design `web-ui-use` |
 | 2026-10-31 | §6 Browser JavaScript: a JavaScript command now receives a language-visible `Context`, so `TEMPLATE`'s in-command half no longer waits on one. | design `js-command-context` |
 | 2026-10-30 | §RECIPE: a language provider is supplied as a recipe-provider entry type placed by the `recipes:` list; a chain asks every member (two owners and any member's error fail), which corrects the claim that a chain's `contains` goes through `recipe_opt`. | design `recipe-provider-chain-config` |
 | 2026-10-27 | §6 Python: *The GIL* adds the detached-lock rule; new *Async* entry (the bridge, the loop pool, cancellation, the four test deviations) and *Free-threaded Python* entry. | `design/liquers-py-async/` (phase-5) |

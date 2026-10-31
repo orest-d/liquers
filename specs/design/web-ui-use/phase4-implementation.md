@@ -12,15 +12,15 @@ done first if needed; only Step 8's `uiuse03` waits for it.
 
 ## Progress
 
-- [ ] Step 1: Implement `js-command-context` (its own Phase 4, Steps 1–5)
-- [ ] Step 2: Runner event outbox, `replace_envref` and stale-result check
-- [ ] Step 3: `mount_web_with` and a stoppable `MountHandle`
-- [ ] Step 4: Web payload `SimpleUIPayload` and `lui` in the builtins
-- [ ] Step 5: `UIElement` handle in both directions
-- [ ] Step 6: `mountUI`, `UIMount`, `UISubscription` (Node-testable parts)
-- [ ] Step 7: Declarations and the stubs check
-- [ ] Step 8: Browser tests and the Playwright spec
-- [ ] Step 9: Documentation, conformance row, issue status
+- [x] Step 1: Implement `js-command-context` (its own Phase 4, Steps 1–5)
+- [x] Step 2: Runner event outbox, `replace_envref` and stale-result check
+- [x] Step 3: `mount_web_with` and a stoppable `MountHandle`
+- [x] Step 4: Web payload `SimpleUIPayload` and `lui` in the builtins
+- [x] Step 5: `UIElement` handle in both directions
+- [x] Step 6: `mountUI`, `UIMount`, `UISubscription` (Node-testable parts)
+- [x] Step 7: Declarations and the stubs check
+- [x] Step 8: Browser tests and the Playwright spec
+- [x] Step 9: Documentation, conformance row, issue status
 
 ## Implementation Steps
 

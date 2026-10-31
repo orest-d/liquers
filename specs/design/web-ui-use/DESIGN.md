@@ -4,7 +4,7 @@ kind: design
 title: Mount, drive and observe a Liquers UI from JavaScript (UIUSE)
 workflow: liquers-project
 status: in_review
-phase: implementation
+phase: documentation
 readiness: needs-decision
 autofix: not-eligible
 area: [web, lib/ui]

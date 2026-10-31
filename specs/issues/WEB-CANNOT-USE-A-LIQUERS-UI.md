@@ -2,7 +2,7 @@
 id: WEB-CANNOT-USE-A-LIQUERS-UI
 kind: feature
 title: A page cannot mount, drive or observe a Liquers UI through liquers-web
-status: draft
+status: closed
 priority: P2
 complexity: L
 area: [web, lib/ui]
@@ -43,3 +43,12 @@ See `specs/design/web-ui-use/`.
 ## Discovery
 
 Starting the UI features of the language integration guide for liquers-web (2026-10-27).
+
+## Resolution
+
+Closed 2026-10-31 by design `web-ui-use`: `mountUI` / `UIMount` / `UISubscription` / `UIElement`
+in `liquers-web/src/ui.rs`, on the runner events, environment replacement, stale-result check and
+stoppable mount added to `liquers-lib/src/ui/`. Evidence: `liquers-lib/tests/ui_runner.rs` (four
+new tests), `liquers-web/tests/ui_UIUSE.rs` (Node), `liquers-web/tests/ui_browser_UIUSE.rs`
+(`UIUSE01`–`10`, browser) and `liquers-web/tests/e2e/ui.spec.ts`. The freeze while a query awaits
+remains, as `WEB-UI-FREEZES-WHILE-A-QUERY-AWAITS`.

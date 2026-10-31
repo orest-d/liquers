@@ -108,7 +108,7 @@ assert(env.commandNames().includes("hello"));
 
 **Lifecycle.** `liquers.shutdown()` releases the environment and every command registered on it;
 afterwards `evaluate` rejects with `not_available` until `liquers.init()` runs again. A page rarely
-needs it; tests do (§11).
+needs it; tests do (§12).
 
 **Register first, then evaluate.** Commands registered before the first evaluation go straight into
 the environment. One registered later still works, but rebuilds the environment: the commands and
@@ -699,7 +699,55 @@ source.free();
 Column access without copying, chunk listings and the other methods are described in
 `liquers-web/README.md` ("Record streams") and the reference §9.
 
-## 11. Testing your commands
+## 11. Showing a Liquers UI
+
+`mountUI` puts a Liquers user interface into an element of your page. Give it the query whose
+value is the first element, or a UI spec:
+
+<!-- example: not run — mountUI needs a DOM element, which Node does not have -->
+```js
+import init, * as liquers from "./liquers_web.js";
+
+await init();
+await liquers.init();
+const ui = await liquers.mountUI(document.getElementById("app"), {
+  query: "hello/q/ns-lui/query_console",
+});
+const sub = ui.on("status", (e) => console.log(e.handle, e.status, e.error?.message));
+const h = ui.show("commands_doc");     // a second element, showing the query's value
+ui.show("commands_doc/to_text", h);    // ... now showing another query instead
+ui.submit("hello/ns-lui/add-child", h);// runs a query as a button would, for element h
+console.log(ui.elements());            // [{ handle, parent, typeName, title, status }, ...]
+sub.dispose();
+ui.dispose();                          // the element is emptied; ui.running is false
+```
+
+`{ spec }` takes the YAML a Liquers app is described in (a `menu`, a `layout`, `init` queries), or
+the same as an object. A command that runs from a button of the UI can name the element it was run
+for through its context (`context.element`, §5). Status names are those of `asset.status()`:
+`"processing"` while an element's query runs, then `"ready"` or `"error"`, with the error.
+
+A query whose value is a UI element gives you a `UIElement` handle, which you can look at without
+mounting anything:
+
+```js
+import init, * as liquers from "./liquers_web.js";
+
+await init();
+await liquers.init();
+liquers.registerCommand({ name: "hello", run: () => "Hello" });
+const console_ = await liquers.evaluate("hello/q/ns-lui/query_console");
+assert.strictEqual(console_.typeName, "QueryConsoleElement");
+assert(console_.renderHtml().includes("lq-"));
+console_.free();
+```
+
+Passed back to Liquers (returned from a command, for example) the handle is the same element.
+
+The page does not repaint while a query is being evaluated, so a slow query freezes the UI until
+it finishes (`WEB-UI-FREEZES-WHILE-A-QUERY-AWAITS`).
+
+## 12. Testing your commands
 
 Give each test a fresh environment, so that registrations do not leak between tests: shut the
 environment down after each test and initialize it again before the next.
@@ -729,15 +777,17 @@ await withEnvironment(async () => {
 A page-implemented store (§9) is the simplest way to give a test its input. The module runs under
 Node as well as in a browser, as these examples do, except for `localStorage`.
 
-## 12. Known limitations
+## 13. Known limitations
 
 What you will notice; the complete list, with the tracking issues, is
-[`reference/JAVASCRIPT_INTEGRATION.md`](../reference/JAVASCRIPT_INTEGRATION.md) §10.
+[`reference/JAVASCRIPT_INTEGRATION.md`](../reference/JAVASCRIPT_INTEGRATION.md) §11.
 
 - **No templates.** The `ns-template` commands, template commands and programmatic rendering are
   not in the browser build (`WEB-HAS-NO-TEMPLATE-COMMANDS`).
 - **No Polars or image commands**; the browser build has the core and record commands only.
 - **Cancellation does nothing yet.**
+- **A slow query freezes a mounted UI** until it finishes, and with two UIs on one page an
+  unfocused menu shortcut runs in both.
 - **One environment per page** for commands and stores; `new Environment()` is for isolated
   evaluation only.
 - **Late registration** rebuilds the environment and forgets computed results.
@@ -754,3 +804,4 @@ What you will notice; the complete list, with the tracking issues, is
 | 2026-10-26 | Created from the implemented `liquers-web`; every example runs under Node. | `WEB-HAS-NO-API-REFERENCE-OR-USER-GUIDE` |
 | 2026-10-26 | Nested values: `null` now returns as `null`; why nested bytes are refused. | `WEB-NESTED-NULL-CROSSES-AS-UNDEFINED`, `WEB-NESTED-BYTES-REFUSED-NOT-DEGRADED` |
 | 2026-10-31 | §5 "The context": a command receives an execution context; the limitation is removed. | design `js-command-context` |
+| 2026-10-31 | §11 "Showing a Liquers UI" (`mountUI`, `UIElement`); §11–12 renumbered to §12–13. | design `web-ui-use` |

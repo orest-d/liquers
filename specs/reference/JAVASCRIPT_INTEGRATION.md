@@ -68,6 +68,8 @@ through `typescript_type` extern types, so there is one generated file and nothi
 | `Context` | a command's `Context<E>`, type-erased, valid only during its call | §4 "Context" |
 | `Store` | `Arc<dyn AsyncStore>` | §8 |
 | `RecordBatch`, `RecordSource`, `RecordStream` | record views and sources | §9, `records` only |
+| `UIMount`, `UISubscription` | a mounted `liquers-lib` web UI and a status subscription | §10 |
+| `UIElement` | `Arc<dyn liquers_lib::ui::UIElement>` | §10; `typeName`, `title`, `renderHtml()` |
 
 `Query.equals` and `Key.equals` compare canonical encodings, since every wrapper is its own handle
 and `===` would compare handles; a key's `encode()` is therefore usable as a `Map` key. `Query.parse`
@@ -426,7 +428,71 @@ stream. A view built from a `column` descriptor is invalidated by `memory.grow` 
 `free()`; `RecordColumn` in `src/records_column.js` re-creates it on demand. `RECORDS03`, `09` and
 `11` are `NA` (`liquers-web/README.md`).
 
-## 10. Limitations
+## 10. User interface
+
+`mountUI(container, options)` (`ui.rs`; also `Environment.mountUI`) mounts the `liquers-lib` web
+backend (`liquers_lib::ui::mount_web_with`) into a DOM element and resolves to a `UIMount`. The
+environment's payload is `liquers_lib::ui::SimpleUIPayload` (`WebEnvironment =
+DefaultEnvironment<Value, SimpleUIPayload>`), and the 14 `lui` commands are built in
+(`register_lui_commands!` in `builtins.rs`), so a command run from the UI knows its element and can
+place others.
+
+**Options.** `{ query }` adds a root node whose source is the query, which the runner evaluates as
+it evaluates any pending node. `{ spec }` places a root `UISpecElement` and calls its `init`, which
+submits the spec's `init` queries: YAML text goes through `UISpec::from_yaml`, and an object through
+`serde_wasm_bindgen` into `UISpec` (serde's externally tagged form, since JSON cannot write YAML
+tags). Both together, a `query` that does not parse (checked first, so the refusal needs no DOM),
+or a `spec` that is not a `UISpec` reject the promise. No `window`/`document`, or a `container`
+that is not an `Element`, rejects with `not_supported`.
+
+| `UIMount` member | Does |
+|---|---|
+| `running` | `false` after `dispose()` |
+| `submit(query, handle?)` | sends `AppMessage::SubmitQuery`, as a control's query action does; commands place their own results |
+| `show(query, handle?)` | `AppState::insert_source` at `Root`, or `Instead(handle)`; returns the element's handle |
+| `on("status", cb)` | a `UISubscription`; `cb` receives `{ handle, status, error? }` |
+| `elements()` | the tree, depth first: `{ handle, parent, typeName, title, status }` |
+| `dispose()` | stops the mount (idempotent) and drops its subscriptions |
+
+Handles cross as `number` (`UIHandle.0` as `f64`) and are read back with a range check. `show` and
+`elements` take the `AppState` lock with `try_lock`; the runner holds no guard across an await, so
+they fail only when called from inside a render. An unknown handle, or any call but `dispose` on a
+disposed mount, throws a `LiquersError` (`general`).
+
+**Status events.** `AppRunner` records a `RunnerEvent { handle, status, error }` when it sets a
+progress element (`processing`; core has no "evaluating" status), when it sets an element from a
+result (`ready`), at every error element (`error`, with the error), for a failing root query
+(`handle: null`), and for each delivered asset snapshot (the snapshot's status). The driver drains
+them after each tick, once the DOM is updated and no lock is held, and passes them to `on_tick`;
+the mount updates the statuses `elements()` reports and calls the subscribers. A throwing callback
+is reported to `console.error`, and later callbacks still run; the subscriber list is cloned
+first, so a callback may dispose its subscription or the mount. Undrained events (a native
+backend that never reads them) are capped at 1024, oldest dropped.
+
+**Stale results.** The runner remembers the query text each in-flight evaluation started, and
+before it lands a result checks that the node's source is still that query; a node whose source
+changed (a `show(B, h)` while A was awaiting) is evaluated again and A's result is dropped.
+
+**Rebuilds.** `MountOptions::current_env` is called before each tick; an environment that differs
+by `Arc` identity replaces the runner's (`AppRunner::replace_envref`), so a mount on the singleton
+can use a command registered after it was mounted. Results cached by the old environment are lost,
+as for any rebuild (`POST-INIT-COMMAND-REGISTRATION`).
+
+**Disposal.** `MountHandle::stop` (and drop) removes the `click` listener from the container and
+the `keydown` listener from the document, empties the container and sets a flag the driver loop
+checks after `run` and after `on_tick`, so a stop made while a query was awaiting never paints. The
+loop then returns and drops the runner, its `EnvRef` and its `AppState` clone.
+
+**`UIElement`.** A UI element value converts to a `UIElement` handle (`default_value.rs`) and back
+as the same `Arc`, through the `records.rs` registry idiom (`__liquersUIElementHandle`, an
+id-to-`Arc` map emptied by `free()`). A freed handle is refused. `renderHtml()` renders the element
+on its own, against an empty `DirectAppState`.
+
+Limits: the page does not repaint while a query awaits, because the inline asset manager evaluates
+inside the driver's `run` (`WEB-UI-FREEZES-WHILE-A-QUERY-AWAITS`); cancellation is inert; with two
+mounts on one page an unfocused menu shortcut runs in both (`WEBUI-SHORTCUTS-RUN-IN-EVERY-MOUNT`).
+
+## 11. Limitations
 
 - Templates and data nodes: no `ns-template` commands, no template commands, no programmatic
   `render`, no JavaScript `DataNode` adapter (`WEB-HAS-NO-TEMPLATE-COMMANDS`; `TEMPLATE`, `DATANODE`
@@ -449,13 +515,16 @@ stream. A view built from a `column` descriptor is invalidated by `memory.grow` 
   (`WEB-HAS-NO-READ-WRITE-REMOTE-STORE`), and the store configuration is not yet an
   `EnvironmentConfig` (`WEB-STORE-CONFIG-NOT-APPLIED-THROUGH-ENVIRONMENT-CONFIG`).
 - No generated API reference beyond the `.d.ts`, and no npm package (`WEB-API-REFERENCE-NOT-GENERATED`).
-- `RECIPE` (a JavaScript recipe provider), `UIUSE`, `UIDEF`, `MODULE`, `POLYGLOT`, `WEBSERV` and
-  `WEBAPI` are not implemented; the default recipe provider works through a configured store.
+- `RECIPE` (a JavaScript recipe provider), `UIDEF`, `MODULE`, `POLYGLOT`, `WEBSERV` and `WEBAPI`
+  are not implemented; the default recipe provider works through a configured store.
+- The UI does not repaint while a query awaits (`WEB-UI-FREEZES-WHILE-A-QUERY-AWAITS`), and an
+  unfocused menu shortcut runs in every mount (`WEBUI-SHORTCUTS-RUN-IN-EVERY-MOUNT`).
 
 ## History
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-31 | §10 "User interface": `mountUI`, `UIMount`, `UISubscription`, `UIElement`; the payload is `SimpleUIPayload` and `lui` is built in; §10 Limitations becomes §11. | design `web-ui-use` |
 | 2026-10-31 | §2, §4: a JavaScript command receives a `Context` (`info`, `warning`, `error`, `evaluate`, `isCancelled`, `element`); `conventions: { context: false }` opts out. Limitation removed. | design `js-command-context` |
 | 2026-10-30 | §3: the recipe provider is `LibKind`'s default chain, so a `records` build serves manifest chunks. | design `recipe-provider-chain-config` |
 | 2026-10-26 | Created from the implemented `liquers-web`, checked against a wasm build under Node. | `WEB-HAS-NO-API-REFERENCE-OR-USER-GUIDE` |
