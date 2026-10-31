@@ -129,6 +129,16 @@ The wider issue leads.
   suite passes on 3.10 and 3.13 after it.
 - **2026-10-31**: `Cargo.lock` is not committed (`.gitignore`), so the web job's first CI run failed
   reading it. The job now runs `cargo generate-lockfile` before reading the `wasm-bindgen` version.
+- **2026-10-31**: on CI, 3.10 passed every test and then aborted as the interpreter exited
+  ("Fatal Python error: PyGILState_Release", or a segfault). Cause: a Python command still running
+  on a runtime blocking thread when the interpreter finalized. Before CPython 3.14 such a thread is
+  ended as it takes the GIL back, and the unwind through liquers-py's frames releases a thread
+  state that is no longer current. A script exiting with a running command crashed 3.10 every time
+  and 3.13 never. Fixed with an `atexit` hook (`liquers-py/src/exit.rs`) that refuses new command
+  calls, cancels the running ones and waits up to 5 s for every liquers-thread attach; covered by
+  `test_RUNTIME_interpreter_exit_with_a_running_command`. Also: RUNTIME05's handle baseline is
+  taken after `gc.collect()`, since a collection during its wait took the count under a baseline
+  that still held earlier tests' garbage (seen once in 25 local 3.10 runs).
 
 - **2026-10-27**: one line of `scripts/test-liquers-py.sh` is in scope (AC-7). polars ships only
   `abi3` wheels, which a free-threaded interpreter cannot load, so on 3.14t pip falls back to the

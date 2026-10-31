@@ -378,6 +378,16 @@ coroutine that ignores cancellation, or a thread still blocked after that, is le
 `RuntimeWarning`. An `atexit` hook stops a pool still running when the interpreter exits, and a pool
 dropped without either is stopped on a thread of its own.
 
+**Interpreter exit.** Every time a liquers-owned thread (a runtime blocking thread, a loop thread)
+attaches to the interpreter, the attach is counted, and a Python command call also records its
+asset (`liquers-py/src/exit.rs`). An `atexit` hook registered at import runs after every pool's
+hook: it refuses new command calls with `Cancelled`, requests cancellation of the running ones,
+and waits up to 5 s for every counted attach to end. A command still running after that (one that
+never checks `context.is_cancelled()`) is left behind with a `RuntimeWarning`. Without the wait, a
+command attached on another thread when the interpreter finalizes aborts the process on CPython
+before 3.14 (`PyGILState_Release`), which is why this hook exists. Environments are not shut down
+by it.
+
 **Blocking calls on a loop.** A blocking method (`evaluate`, `evaluate_state`, `get_asset`,
 `store_set`, `AssetRef.get` / `get_state` / `cancel`, `Context.evaluate`) called on a pool thread
 raises `RuntimeError` naming its `_async` form, because it would stall every coroutine on that loop
@@ -403,6 +413,8 @@ protect.
 
 - One job queue serves every command; a command cannot be given its own queue or limit
   (`CORE-ONE-JOB-QUEUE-FOR-ALL-COMMANDS`).
+- Exiting while a command ignores cancellation for more than 5 s can still abort the process on
+  CPython before 3.14 (`PY-EXIT-WITH-UNCANCELLABLE-COMMAND-CRASHES-BEFORE-3-14`).
 - CI runs the Python suite on CPython 3.10, 3.14 and 3.14t (3.14t without polars, which has no
   free-threaded wheel); PyPy is not tested (`py-pypy-ci-job`).
 - No `realm=` or `arguments=` on the decorators (`PY-COMMAND-DECORATOR-CANNOT-SET-REALM`,
@@ -421,7 +433,7 @@ protect.
 
 | Date | Change | Source |
 |---|---|---|
-| 2026-10-31 | §8: CI runs the Python suite on CPython 3.10, 3.14 and 3.14t; the supported floor is 3.10. | design `language-binding-tests-in-ci` |
+| 2026-10-31 | §8: CI runs the Python suite on CPython 3.10, 3.14 and 3.14t; the supported floor is 3.10. §7: interpreter exit cancels the running Python commands and waits for them; §8 names the case it cannot cover. | design `language-binding-tests-in-ci` |
 | 2026-10-30 | §3: `config.recipes` accepts every value (`default`, `trivial`, a list of entries); the constructor no longer refuses a non-default `recipes`. Known limitations: the recipe-provider limitation now names a Python-written provider only. | design `recipe-provider-chain-config` |
 | 2026-10-28 | §6: a wrapper method's JSON/YAML failure raises `SerializationError`, and a bad constructor argument the core constructor's error; no wrapper raises a plain `Exception`. | design `py-metadata-typed-errors` |
 | 2026-10-27 | §8: every public name has a docstring now; only the generated API reference is missing. | design `py-docstrings` |

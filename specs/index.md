@@ -8,9 +8,9 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 194
+Total rows: 195
 - P2: 61
-- P3: 133
+- P3: 134
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -162,6 +162,7 @@ Total rows: 194
 | [`WORKSPACE-NOT-RUSTFMT-CLEAN`](issues/WORKSPACE-NOT-RUSTFMT-CLEAN.md) | issue | The workspace is not rustfmt-clean, so formatting drift hides in every diff | draft | needs-decision | not-eligible | P3 | M | build;docs | [design](design/workspace-rustfmt-check/DESIGN.md) | 2026-08-29 |
 | [`AGENT-MEMORY-HAS-NO-MIGRATE-COMMAND`](issues/AGENT-MEMORY-HAS-NO-MIGRATE-COMMAND.md) | feature | Agent memory schema changes are applied by hand, with no migrate command | draft |  |  | P3 | M | lib/commands | [brainstorm](design/agent-memory-mvp/brainstorm-workflow-improvements.md)  [execution](design/agent-memory-mvp/execution-plan.md)  [interfaces](design/agent-memory-mvp/interfaces-and-mcp.md)  [memory](design/agent-memory-mvp/memory-systems-survey.md)  [migration](design/agent-memory-mvp/migration-guide-draft.md)  [phase1](design/agent-memory-mvp/phase1-high-level-design.md)  [phase2](design/agent-memory-mvp/phase2-architecture.md)  [phase3](design/agent-memory-mvp/phase3-examples.md)  [phase4](design/agent-memory-mvp/phase4-implementation.md)  [phase5](design/agent-memory-mvp/phase5-documentation.md)  [service](design/agent-memory-mvp/service-specification.md)  [template](design/agent-memory-mvp/template-language-evaluation.md)  [tiers](design/agent-memory-mvp/tiers-and-storage.md)  [workbench](design/agent-memory-mvp/workbench-direction.md)  [workflow](design/agent-memory-mvp/workflow-porting.md)  | 2026-10-17 |
 | [`MCP-SERVER-APPLIES-NO-ACCESS-POLICY`](issues/MCP-SERVER-APPLIES-NO-ACCESS-POLICY.md) | feature | The MCP server limits its query tool by a command allow-list, not by an access policy | draft |  |  | P3 | M | mcp |  | 2026-10-20 |
+| [`PY-EXIT-WITH-UNCANCELLABLE-COMMAND-CRASHES-BEFORE-3-14`](issues/PY-EXIT-WITH-UNCANCELLABLE-COMMAND-CRASHES-BEFORE-3-14.md) | issue | Exiting Python while a command ignores cancellation can still abort the process before CPython 3.14 | draft |  |  | P3 | M | py |  | 2026-10-31 |
 | [`PY-NO-LANGUAGE-DEFINED-RECIPE-PROVIDER`](issues/PY-NO-LANGUAGE-DEFINED-RECIPE-PROVIDER.md) | feature | A recipe provider cannot be written in Python, and liquers-py has no RECIPE feature | draft |  |  | P3 | M | py;core/context |  | 2026-10-30 |
 | [`WEB-API-REFERENCE-NOT-GENERATED`](issues/WEB-API-REFERENCE-NOT-GENERATED.md) | feature | liquers-web has no generated API reference and no check that every export is documented | draft |  |  | P3 | M | web;docs |  | 2026-10-26 |
 | [`WEB-HAS-NO-READ-WRITE-REMOTE-STORE`](issues/WEB-HAS-NO-READ-WRITE-REMOTE-STORE.md) | feature | A browser page cannot mount a Liquers server's store read/write | draft |  |  | P3 | M | web |  | 2026-10-20 |
