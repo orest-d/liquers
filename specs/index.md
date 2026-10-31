@@ -8,8 +8,8 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 194
-- P2: 58
+Total rows: 192
+- P2: 56
 - P3: 136
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
@@ -22,8 +22,6 @@ Total rows: 194
 | [`WEB-DESCRIBE-COMMAND-SHAPE-DIFFERS-FROM-DECLARATION`](issues/WEB-DESCRIBE-COMMAND-SHAPE-DIFFERS-FROM-DECLARATION.md) | issue | describeCommand returns raw CommandMetadata JSON, not the LiquersCommandInfo shape the .d.ts declares | draft |  |  | P2 | S | web |  | 2026-10-26 |
 | [`WEB-JS-STORE-WITH-ONLY-GET-CANNOT-BE-QUERIED`](issues/WEB-JS-STORE-WITH-ONLY-GET-CANNOT-BE-QUERIED.md) | issue | A page-implemented store with only get, documented as enough, fails every -R/ query | draft |  |  | P2 | S | web |  | 2026-10-26 |
 | [`CORE-VALUE-ENUM-OVERSIZED`](issues/CORE-VALUE-ENUM-OVERSIZED.md) | issue | Every Value occupies over 700 bytes because three variants are stored unboxed | draft | ready | not-eligible | P2 | M | core/value;lib/value | [design](design/core-value-enum-oversized/DESIGN.md) | 2026-08-18 |
-| [`LANGUAGE-BINDING-TESTS-NOT-RUN-IN-CI`](issues/LANGUAGE-BINDING-TESTS-NOT-RUN-IN-CI.md) | issue | CI never runs liquers-py's Python tests or liquers-web's Node conformance suites | draft | ready | not-eligible | P2 | M | build;py;web | [design](design/language-binding-tests-in-ci/DESIGN.md) | 2026-10-26 |
-| [`PY-TESTS-NOT-RUN-IN-CI`](issues/PY-TESTS-NOT-RUN-IN-CI.md) | issue | No CI workflow runs the liquers-py test suite, on any Python interpreter | draft | ready | not-eligible | P2 | M | py;build | [design](design/language-binding-tests-in-ci/DESIGN.md) | 2026-10-26 |
 | [`ASSET-REGISTRATION-OWNERSHIP-CONTRACT`](issues/ASSET-REGISTRATION-OWNERSHIP-CONTRACT.md) | feature | Registration of a keyed asset is a manager convenience, not a contract anything can rely on | draft | needs-decision | not-eligible | P2 | M | core/assets | [design](design/asset-registration-contract/DESIGN.md) | 2026-09-03 |
 | [`ASSETS-IMPROVEMENTS`](issues/ASSETS-IMPROVEMENTS.md) | feature | The web API's request-body limit is axum's fixed 2 MiB default, not configurable or documented | accepted | needs-decision | not-eligible | P2 | M | axum;docs | [design](design/http-request-body-limit/DESIGN.md) | 2026-08-08 |
 | [`CASCADE-TO-AN-IN-FLIGHT-DEPENDENT-IS-DROPPED`](issues/CASCADE-TO-AN-IN-FLIGHT-DEPENDENT-IS-DROPPED.md) | issue | An expiry cascade that reaches a registered dependent still evaluating is dropped, so it finishes Ready on a superseded input | draft | needs-decision | not-eligible | P2 | M | core/assets | [design](design/cascade-marks-in-flight-dependent-stale/DESIGN.md) | 2026-10-21 |

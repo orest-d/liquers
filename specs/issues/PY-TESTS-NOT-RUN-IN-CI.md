@@ -2,7 +2,7 @@
 id: PY-TESTS-NOT-RUN-IN-CI
 kind: issue
 title: No CI workflow runs the liquers-py test suite, on any Python interpreter
-status: draft
+status: closed
 priority: P2
 complexity: M
 area: [py, build]
@@ -10,6 +10,17 @@ design: language-binding-tests-in-ci
 created: 2026-10-26
 github:
 ---
+## Resolution
+
+Fixed by `specs/design/language-binding-tests-in-ci/` (PR #226).
+`.github/workflows/liquers-py-tests.yml` runs `scripts/test-liquers-py.sh` on CPython 3.10, 3.14 and
+3.14t. `.github/workflows/liquers-web-tests.yml` runs the liquers-web Node conformance suites with
+`debug-handles` and with `debug-handles,records`. Evidence: all four jobs green on the PR. A
+temporary commit that broke one assertion in `test_ERROR_errors.py` and one in
+`liquers-web/tests/objects_OBJECT.rs` turned all four jobs `failure` (none `cancelled`), and was
+reverted. The first CI runs on 3.10 found two defects, both fixed in the same PR: tracebacks with
+no frames, and an abort at interpreter exit. PyPy in CI remains open as `py-pypy-ci-job`.
+
 ## Problem
 
 `.github/workflows/` has `build-matrix.yml` and `docs-check.yml`. Neither runs

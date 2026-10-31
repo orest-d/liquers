@@ -3,8 +3,7 @@ id: LANGUAGE-BINDING-TESTS-IN-CI
 kind: design
 title: CI runs the liquers-py test loop and the liquers-web Node loop
 form: compact
-status: in_review
-phase: implementation
+status: complete
 readiness: ready
 autofix: not-eligible
 area: [build, py, web]
@@ -299,9 +298,9 @@ These are CI properties, so there is no new unit test.
 
 - [x] 1. `.github/workflows/liquers-py-tests.yml` and `liquers-web-tests.yml` as in Phase 2. Proof: `wf_filters_review`; `python3 -c 'import yaml,sys; [yaml.safe_load(open(f)) for f in sys.argv[1:]]' <files>`
 - [x] 2. `scripts/test-liquers-py.sh` line 42 and its header comment. Proof: `local_missing_wheel`; `bash scripts/test-liquers-py.sh` passes on 3.13
-- [ ] 3. Open the PR. Proof: `wf_py_matrix_green`, `wf_web_node_green`, then `wf_red_on_failure` (revert afterwards). A job that is red because of a defect in the code is filed under `DOCS_STRUCTURE_GUIDE.md` §4.8 and the PR is left unmerged for the maintainer, never with `continue-on-error`. A red job caused by the runner is not expected: every runner choice is settled above. If one occurs, the automatic fix stops and the design returns for review
+- [x] 3. Open the PR. Proof: `wf_py_matrix_green`, `wf_web_node_green`, then `wf_red_on_failure` (revert afterwards). A job that is red because of a defect in the code is filed under `DOCS_STRUCTURE_GUIDE.md` §4.8 and the PR is left unmerged for the maintainer, never with `continue-on-error`. A red job caused by the runner is not expected: every runner choice is settled above. If one occurs, the automatic fix stops and the design returns for review
 - [x] 4. `PYTHON_INTEGRATION.md` §8 bullet, History row and `reviewed:`; `liquers-py/README.md` "Supported Python". Proof: `python3 scripts/docs_index.py --check`
-- [ ] 5. Both source issues `status: closed` with a resolution note; `python3 scripts/docs_index.py`. Proof: `python3 scripts/docs_index.py --check`
+- [x] 5. Both source issues `status: closed` with a resolution note; `python3 scripts/docs_index.py`. Proof: `python3 scripts/docs_index.py --check`
 
 ### Validation
 
