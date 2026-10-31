@@ -130,7 +130,7 @@ test is named for its ID, in `tests/test_<FEATURE>_*.py`.
 | `ERROR` | Essential | COMPLETE | A Python exception's class and message ride in `message`, its stack in `traceback` (`LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT`) | `test_ERROR01`–`06`, `test_ERROR_wrapper_deserialization_raises_serialization_error`, `test_ERROR_stored_error_keeps_its_type`, `test_ERROR_wrapper_constructors_raise_typed_errors`, `test_ERROR_typed_wrapper_errors_are_still_exceptions` |
 | `RUNTIME` | Essential | COMPLETE | `RUNTIME02` is `NA` until a Pyodide target exists | `test_RUNTIME01`, `03`–`06` |
 | `VALUE` | Essential | COMPLETE | `VALUE12` is `NA` until a `Value` wrapper with operators exists | `test_VALUE01`–`13` |
-| `ENVIRON` | Essential | COMPLETE | Only the default recipe provider can be configured | `test_ENVIRON01`–`08` |
+| `ENVIRON` | Essential | COMPLETE | `config["recipes"]` chooses among the built-in recipe providers; one written in Python is the `RECIPE` feature (`PY-NO-LANGUAGE-DEFINED-RECIPE-PROVIDER`) | `test_ENVIRON01`–`08`, `test_ENVIRON_recipes_*` |
 | `EVAL` | Essential | COMPLETE | `EVAL05`'s payload half is `NA`: the environment's payload type is `()`, so only the context half is tested | `test_EVAL01`–`06` |
 | `COMMAND` | Essential | COMPLETE | No `realm=` on the decorators | `test_COMMAND01`–`14` |
 | `ASYNCQ` | Optional | COMPLETE | `ASYNCQ07` is `NA`: Python has an async model. Cancelling an awaitable detaches by policy, so `ASYNCQ04` cancels with `cancel_async()`; `ASYNCQ05` shows detach by completion; `ASYNCQ08` raises on a liquers loop and warns elsewhere. The design is `specs/design/liquers-py-async/` | `test_ASYNCQ01`–`08`, `tests/test_ASYNC_loops.py` |

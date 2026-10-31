@@ -3,7 +3,7 @@ title: Language Integration Guide
 kind: guide
 audience: internal
 area: [web, py, core/commands, core/plan, core/assets, core/store, core/value, lib/commands]
-reviewed: 2026-10-27
+reviewed: 2026-10-30
 ---
 # Liquers Language Integration Guide
 
@@ -1622,9 +1622,12 @@ whether it applies.
 - `AsyncRecipeProvider<E>` *service adapter*
 - Language-visible recipe-provider protocol/base class/interface
 - `Recipe`, `RecipeList`, `Plan`, `Key`, `ResourceName`, and `AssetInfo`
-- Provider composition/precedence/configuration object where multiple providers are supported —
-  in Rust, `RecipeProviderChain`, installed by `EnvironmentBuilder::with_appended_recipe_provider`
-  or `GenericEnvironment::with_appended_recipe_provider`, which consult the base provider first
+- Provider composition and configuration — in Rust, every environment's provider is a
+  `RecipeProviderChain` configured as a `recipes:` list of entries. Supply the language provider as
+  an **entry type**: declare it in a `RecipeProviderFactory` and chain that with
+  `EnvironmentBuilder::with_recipe_provider_factory`, so a configuration places it in the list
+  (`{type: python, object: notes}`, its constructor looking the object up in a registry the
+  integration owns). `with_appended_recipe_provider` remains for a provider supplied in code
 
 **The design must answer:** Does the provider return `Recipe`, query text, or plain data? Which methods may use Liquers defaults? May provider callbacks evaluate queries? How are caching, invalidation, volatility, and provider precedence handled?
 
@@ -1638,13 +1641,16 @@ a chunk of a record stream with no known count — legitimately has **addressabl
 inheriting the default makes it deny keys it could perfectly well produce, silently. Such a provider
 must override `contains` to match the pattern rather than search a list.
 
-**A chain answers containment through `recipe_opt`, not through each provider's `contains`.**
-`RecipeProviderChain::contains` is true when any provider's `recipe_opt` answers `Some`, and
-`recipe`, `recipe_plan` and `get_asset_info` delegate whole to the first provider that does — so a
-provider joining a chain need not have overridden `contains` correctly, but its `recipe_opt` must
-answer for every name it can produce. Listing is the union, in provider order. `liquers-lib` with
-`records` chains `ManifestRecipeProvider`, a generative provider for keyed record chunks, after
-`DefaultRecipeProvider` (`reference/ENVIRONMENT_CONFIG.md`).
+**A chain asks every member, so precedence is not a design question.** A key is owned by the one
+member whose `recipe_opt` answers `Some`; `recipe`, `recipe_plan` and `get_asset_info` delegate whole
+to it. Two members answering `Some` for one key is a configuration error naming both, and an error
+from **any** member fails the lookup, owner or not. A language provider therefore answers "no
+recipe" cheaply for every key it does not own and raises only for something substantial — an
+exception for one malformed file fails every lookup the chain makes. `contains` is any member's
+`contains`, so a generative provider still overrides it as above; listing is the union, in member
+order. `liquers-lib`'s default list with `records` is `[recipes_yaml, manifest]`, the second a
+generative provider for keyed record chunks (`reference/ENVIRONMENT_CONFIG.md` §The recipe provider
+chain).
 
 This does not conflict with `reference/STORE_SEMANTICS.md`, which constrains `contains` and `listdir`
 on **stores**. A recipe provider sits above the store, and the asset key space is legitimately larger
@@ -3848,6 +3854,7 @@ def test_DOCS04_every_public_name_is_documented():
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-30 | §RECIPE: a language provider is supplied as a recipe-provider entry type placed by the `recipes:` list; a chain asks every member (two owners and any member's error fail), which corrects the claim that a chain's `contains` goes through `recipe_opt`. | design `recipe-provider-chain-config` |
 | 2026-10-27 | §6 Python: *The GIL* adds the detached-lock rule; new *Async* entry (the bridge, the loop pool, cancellation, the four test deviations) and *Free-threaded Python* entry. | `design/liquers-py-async/` (phase-5) |
 | 2026-10-26 | New delivery feature `DOCS`: the documents an *integration* owes its users — a contract reference, a user guide with executed examples, a generated API reference — built on the shared references rather than restating them; tests `DOCS01`–`07`. §4 row, soft dependencies and the delivery-features note; §7 item 12; Appendix A blueprint. §6 Browser JavaScript links the new `reference/JAVASCRIPT_INTEGRATION.md` and `JAVASCRIPT_GUIDE.md`. | `LANGUAGE-GUIDE-NO-DOCUMENTATION-SECTION` |
 | 2026-10-25 | Language status: the `liquers-py` Python baseline profile is `CONFORMANT` now that its core blockers are fixed (PR #176, `key-without-recipe-answer`). | `liquers-py/README.md` |

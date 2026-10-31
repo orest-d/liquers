@@ -3,7 +3,7 @@ title: Record Stream Guide
 kind: guide
 audience: internal
 area: [records, lib/value]
-reviewed: 2026-10-13
+reviewed: 2026-10-30
 ---
 
 # Record Stream Guide
@@ -406,9 +406,9 @@ first differing field. To obtain a schema to paste in, run
 
 ### 3.4 Read it
 
-With `records` on, `LibKind`'s default recipe provider is a chain:
-`[DefaultRecipeProvider, ManifestRecipeProvider]`. A `recipes.yaml` entry always wins, and every
-chunk key becomes addressable from anywhere `-R/` is. All of these queries validate:
+With `records` on, `LibKind`'s default recipe provider list is `[recipes_yaml, manifest]`, so every
+chunk key is addressable from anywhere `-R/` is. A chunk name the folder's `recipes.yaml` also
+defines is an error naming both providers: a key has one owner. All of these queries validate:
 
 | Query | Result |
 |---|---|
@@ -438,11 +438,10 @@ for chunk in ["data/first.csv", "data/x_0001.csv", "data/x_0002.csv"] {
 <sub>`liquers-lib/tests/record_manifest_resource_key.rs`,
 `materialize_keys_the_chunks_of_a_manifest_fetched_as_a_resource`</sub>
 
-If you build an environment whose **base** provider is replaced, for example
-`with_recipe_provider_choice(...)` from a configuration document, the manifest provider is dropped.
-Call `.with_records_recipe_provider()` (trait `liquers_lib::environment::RecordsRecipeProvider`) to
-add it back. See `with_records_recipe_provider_serves_a_manifest_chunk_over_a_trivial_base` in
-`liquers-lib/src/environment.rs`.
+A configuration document keeps manifests when its `recipes:` is absent or `default`, or lists
+`manifest`; `recipes: [recipes_yaml]` drops them. `.with_records_recipe_provider()` (trait
+`liquers_lib::environment::RecordsRecipeProvider`) adds the `manifest` entry when it is missing and
+does nothing otherwise. See `liquers-lib/tests/recipe_provider_chain_config.rs`.
 
 ---
 
@@ -888,7 +887,7 @@ Each of these was hit during implementation or review.
     (`COLUMN-SLICE-COPIES-INSTEAD-OF-SHARING-BUFFER-STORAGE`). A pointer taken into that copy
     dangles as soon as the copy drops, which is why the web descriptor reads `inner.columns[i]`
     directly.
-14. **A replaced recipe provider drops manifests** (§3.4). In addition, the provider's folder
+14. **A `recipes:` list without `manifest` drops manifests** (§3.4). In addition, the provider's folder
     listing is cached and never refreshed (`MANIFEST-PROVIDER-FOLDER-LISTING-NEVER-REFRESHES`): a
     manifest added to a running server's folder does not serve its **explicit** chunk keys.
 15. **Stored chunks are written in the background.** The asset manager's metadata saver debounces
@@ -952,6 +951,7 @@ write-only. Parquet is written here and read back only through polars
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-30 | §3.4: manifests are the `manifest` entry of `LibKind`'s recipe list; a `recipes.yaml` clash names both providers; `with_records_recipe_provider` is idempotent. Pitfall 14 reworded. | design `recipe-provider-chain-config` |
 | 2026-10-13 | §5: the `ns-rec` table operations (filters, `sort`, `tail`, `drop_columns`, counts), laziness over sources, and handing over to `ns-pl`; sort is no longer absent. §6.5: query-level bridge. | `design/record-filter-commands/` |
 | 2026-10-11 | §2.1: which role to give a field so `ns-search/search` finds it; `with_media_type` for JSON columns. | phase-5, `design/store-and-asset-search/` |
 | 2026-10-10 | "`context` as its last parameter" restated as the recommendation: the macro now accepts `context` at any position. | phase-5, `design/context-param-order/` |
