@@ -47,6 +47,24 @@ async function main(): Promise<void> {
     },
   });
 
+  // The execution context, in the position of an argument named `context`.
+  liquers.registerCommand({
+    name: 'report',
+    async: true,
+    run: async (context: liquers.Context) => {
+      context.info('fetching');
+      const where: number | null = context.element;
+      if (context.isCancelled()) return String(where);
+      return await context.evaluate('hello');
+    },
+  });
+  liquers.registerCommand({
+    name: 'plain_context',
+    arguments: [{ name: 'context' }],
+    conventions: { context: false },
+    run: (context: string) => context,
+  });
+
   // STUBS04 — `registerCommand` neither wraps nor returns the function, so the declared signature
   // of a command's implementation survives registration. `named` is still callable with its own
   // parameter types; a decorator-style API could not promise that.

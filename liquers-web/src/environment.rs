@@ -33,7 +33,11 @@ use liquers_core::issue_report::IssueReport;
 
 /// The concrete environment. A type alias, not a newtype, so a downstream crate can substitute its
 /// own `DefaultEnvironment<MyValue, P>` and reuse every generic function in this crate.
-pub type WebEnvironment = DefaultEnvironment<Value, ()>;
+///
+/// The payload is `SimpleUIPayload`, so a command run from a mounted UI (`mountUI`) knows the
+/// element that triggered it and can change the element tree (the `lui` commands). An evaluation
+/// outside a UI carries no payload.
+pub type WebEnvironment = DefaultEnvironment<Value, liquers_lib::ui::SimpleUIPayload>;
 
 thread_local! {
     /// The environment while it is still mutable — before it has been shared.
@@ -817,6 +821,27 @@ impl LiquersEnvironment {
             Ok(parsed) => crate::eval::evaluate_to_promise(envref, parsed),
             Err(e) => js_sys::Promise::reject(&liquers_error_to_js(e)),
         }
+    }
+
+    /// Mounts a Liquers UI into a DOM element on **this** environment; see the module-level
+    /// `mountUI`. On the singleton, the mount follows a rebuilt environment.
+    #[wasm_bindgen(js_name = mountUI)]
+    pub fn mount_ui(&self, container: JsValue, options: JsValue) -> js_sys::Promise {
+        let envref = match self.resolve() {
+            Ok(envref) => envref,
+            Err(e) => return js_sys::Promise::reject(&liquers_error_to_js(e)),
+        };
+        let current: Option<Box<dyn FnMut() -> Option<EnvRef<WebEnvironment>>>> =
+            match &self.handle {
+                EnvHandle::Global => Some(Box::new(|| shared_env().ok())),
+                EnvHandle::Explicit(_) => None,
+            };
+        wasm_bindgen_futures::future_to_promise(async move {
+            crate::ui::mount_ui_with(container, options, envref, current)
+                .await
+                .map(JsValue::from)
+                .map_err(liquers_error_to_js)
+        })
     }
 
     /// Evaluates an already-parsed query on this environment.

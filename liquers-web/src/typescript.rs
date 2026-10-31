@@ -65,7 +65,9 @@ export interface LiquersCommandSpec {
   name: string;
   /**
    * Required. The implementation. Receives the state first when `state` is anything but
-   * `"none"`, then the declared arguments in order.
+   * `"none"`, then the declared arguments in order. An argument (or, when `arguments` is
+   * omitted, a parameter) named `context` receives the execution `Context` in its position
+   * instead, and is not a query argument.
    */
   run: (...args: any[]) => any;
   /**
@@ -89,6 +91,11 @@ export interface LiquersCommandSpec {
    */
   async?: boolean;
   volatile?: boolean;
+  /**
+   * `{ context: false }` makes an argument named `context` an ordinary argument instead of the
+   * execution context.
+   */
+  conventions?: { context?: boolean };
 }
 
 /**

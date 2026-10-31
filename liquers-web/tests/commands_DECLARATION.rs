@@ -147,3 +147,34 @@ fn decl03_numeric_defaults_arrive_as_numbers() {
         "a numeric default arrives as a number: {default}"
     );
 }
+
+/// DECL04 — `conventions: { context: false }` keeps an argument named `context` ordinary.
+#[wasm_bindgen_test]
+async fn decl04_context_convention_can_be_disabled() {
+    common::fresh();
+    let spec = obj();
+    set(&spec, "name", &JsValue::from_str("plain"));
+    set(
+        &spec,
+        "run",
+        &js_sys::Function::new_with_args("context", "return 'got ' + context;").into(),
+    );
+    set(&spec, "arguments", &args(vec![arg("context", None, None)]));
+    let conventions = obj();
+    set(&conventions, "context", &JsValue::FALSE);
+    set(&spec, "conventions", &conventions.into());
+    liquers_web::environment::register_command_on(&spec.into()).expect("register");
+
+    let described = liquers_web::environment::describe_command_on("plain").expect("describe");
+    let arguments = js_sys::Array::from(&common::get(&described, "arguments"));
+    assert_eq!(arguments.length(), 1, "`context` stays a query argument");
+    assert_eq!(
+        common::eval_to_js("plain-x")
+            .await
+            .expect("evaluate")
+            .as_string()
+            .as_deref(),
+        Some("got x")
+    );
+    liquers_web::environment::reset_global();
+}

@@ -3,7 +3,7 @@ title: JavaScript Integration
 kind: reference
 audience: both
 area: [web, core/value, core/error, core/store, lib/value]
-reviewed: 2026-10-30
+reviewed: 2026-10-31
 ---
 # JavaScript Integration
 
@@ -65,6 +65,7 @@ through `typescript_type` extern types, so there is one generated file and nothi
 | `State` | `State<Value>`, plus its environment | `value()`, `toJS()`, `metadata()`, `log()`, `status` |
 | `Query`, `Key` | `liquers_core::query::{Query, Key}` | `parse`, `encode`, `equals`, `filename`; `Key` adds `parent`, `toAbsolute` |
 | `LiquersError` | `liquers_core::error::Error`, plus JavaScript class, stack and report | §6 |
+| `Context` | a command's `Context<E>`, type-erased, valid only during its call | §4 "Context" |
 | `Store` | `Arc<dyn AsyncStore>` | §8 |
 | `RecordBatch`, `RecordSource`, `RecordStream` | record views and sources | §9, `records` only |
 
@@ -166,10 +167,11 @@ to a function or to `{ run, state?, async? }`. Both run the pipeline of
 - `run` is removed and kept by the integration; the rest of the object, with `null` and `undefined`
   properties dropped, is the declaration document. Any `CommandMetadata` key is accepted, though the
   `.d.ts` declares only the common ones (`name`, `run`, `arguments`, `state`, `namespace`, `realm`,
-  `label`, `doc`, `async`, `volatile`).
+  `label`, `doc`, `async`, `volatile`, `conventions`).
 - `state` and `async` are read by the integration and are not metadata. `state` is `"none"` (the
   default: a source command), `"value"`, `"text"` (or `"string"`) or `"state"`; the core
-  state-delivery conventions are switched off (`conventions: false`), since the mode is declared.
+  state-delivery convention is switched off, since the mode is declared. The `context` convention
+  stays on unless the page writes `conventions: { context: false }` (or `conventions: false`).
   `async` is `true`, `false`, or omitted (decide per call).
 - Labels keep `liquers-web`'s historical rule: a command label defaults to the name verbatim, an
   argument label to the name with `_` replaced by a space. `state_argument` is always present.
@@ -177,7 +179,8 @@ to a function or to `{ run, state?, async? }`. Both run the pipeline of
 - **Argument inference.** With no `arguments` key, names are read from `run`'s source: every
   parameter must be a plain identifier and their count must equal `Function.length`. A default, rest
   or destructured parameter, or a bound or native function, is refused with an error naming it.
-  The first parameter is skipped when `state` is not `"none"`. Inferred arguments have type `any`
+  The first parameter is skipped when `state` is not `"none"`, and a parameter named `context` is
+  the context (below), not an argument. Inferred arguments have type `any`
   and no default; `describeCommand` reports `argumentsInferred: true`. Minification yields correct
   arity and wrong names, which affects labels, not behaviour.
 
@@ -216,13 +219,34 @@ borrow is held across the call:
 1. the state, unless the mode is `none`: the converted value (`value`), the state's text (`text`,
    via `State::try_into_string`), or a plain object `{ value, metadata, status, log }` (`state`);
 2. each argument's resolved value, converted (§5), in declaration order;
-3. `run.apply(null, args)`.
+3. the `Context`, inserted where the declaration placed it (below);
+4. `run.apply(null, args)`.
 
-There is no context argument: a JavaScript command cannot log, evaluate a dependency or check
-cancellation (`JS-COMMAND-CANNOT-ACCESS-CONTEXT`). A throw becomes an error (§6). A thenable result
+A throw becomes an error (§6). A thenable result
 is awaited unless `async: false`, which refuses it with `execution_error`; with `async: true` a plain
 result is accepted. The result is converted structurally (§5); a `Value` from `opaque()` is kept by
 identity. A JavaScript command's implementation version is not derived from its source.
+
+**Context** (`command/context.rs`, `COMMAND07`). An argument named `context`, in any position, or
+an inferred parameter of that name, is the execution context: core's `context` convention removes it
+from `arguments` and records its index in `registration.context`, and `run` receives a `Context` at
+that index (counted after the state, when the command takes one). It is not a query argument and
+`describeCommand` does not list it. The class follows `liquers-py`'s `lq.Context`:
+
+| Member | Does |
+|---|---|
+| `info(m)`, `warning(m)`, `error(m)` | add an entry to the asset's log; after `error` the evaluation fails once `run` returns, with that message |
+| `evaluate(query)` | `Promise` of the query's value, parsed with `parse_query`, evaluated as a dependency of this asset (`Context::evaluate` and `wait_for_dependency`), converted in this environment; a failure rejects with a `LiquersError` |
+| `isCancelled()` | core's cancellation flag; always `false` today (`WEB-CANCELLATION-INERT`) |
+| `element` | the handle of the UI element whose action ran the command, as a `number`, or `null` outside a UI |
+
+`element` comes from the environment's payload through the `JsPayload` trait: `()` answers `null`,
+and `liquers_lib::ui::SimpleUIPayload` answers its handle. `call_js_command` therefore requires
+`E::Payload: JsPayload`. A context lives until `run` (or its promise) settles: a drop guard empties
+its slot when the call ends, on every path, and every member then throws a `LiquersError` saying the
+context is valid only during the call. A command bound to imported metadata (`registerCommands`
+with a registry document) receives no context, because imported metadata has no `registration`
+record (`WEB-IMPORTED-COMMAND-RECEIVES-NO-CONTEXT`).
 
 ## 5. Values
 
@@ -343,8 +367,8 @@ when that evaluation fails, the second caller can receive `null` instead of the 
 
 **Borrow rule.** No `RefCell` borrow is held across an `await` or a call into JavaScript; every
 accessor clones the `EnvRef` out. A re-entrant call — a JavaScript command calling `evaluate` — is
-therefore safe — an `async` command may `await liquers.evaluate(…)` — though without a context the
-inner result is not recorded as a dependency of the outer one.
+therefore safe — an `async` command may `await liquers.evaluate(…)` — though only
+`context.evaluate(…)` records the inner result as a dependency of the outer one.
 
 ## 8. Stores
 
@@ -407,7 +431,8 @@ stream. A view built from a `column` descriptor is invalidated by `memory.grow` 
 - Templates and data nodes: no `ns-template` commands, no template commands, no programmatic
   `render`, no JavaScript `DataNode` adapter (`WEB-HAS-NO-TEMPLATE-COMMANDS`; `TEMPLATE`, `DATANODE`
   not started).
-- A JavaScript command receives no context (`JS-COMMAND-CANNOT-ACCESS-CONTEXT`).
+- A command bound to imported metadata receives no context
+  (`WEB-IMPORTED-COMMAND-RECEIVES-NO-CONTEXT`).
 - Cancellation is inert (`WEB-CANCELLATION-INERT`).
 - Commands cannot be registered on a `new Environment()`, and its store methods configure the
   singleton (`POST-INIT-COMMAND-REGISTRATION`, `WEB-EXPLICIT-ENVIRONMENT-CONFIGURES-THE-SINGLETON`).
@@ -431,6 +456,7 @@ stream. A view built from a `column` descriptor is invalidated by `memory.grow` 
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-31 | §2, §4: a JavaScript command receives a `Context` (`info`, `warning`, `error`, `evaluate`, `isCancelled`, `element`); `conventions: { context: false }` opts out. Limitation removed. | design `js-command-context` |
 | 2026-10-30 | §3: the recipe provider is `LibKind`'s default chain, so a `records` build serves manifest chunks. | design `recipe-provider-chain-config` |
 | 2026-10-26 | Created from the implemented `liquers-web`, checked against a wasm build under Node. | `WEB-HAS-NO-API-REFERENCE-OR-USER-GUIDE` |
 | 2026-10-26 | A nested `null` now arrives as `null`; a failed asset rejects every `evaluate` caller; nested bytes are refused by design. Three limitations removed. | `WEB-NESTED-NULL-CROSSES-AS-UNDEFINED`, `WEB-EVALUATE-RESOLVES-FAILED-ASSET-AS-NULL`, `WEB-NESTED-BYTES-REFUSED-NOT-DEGRADED` |

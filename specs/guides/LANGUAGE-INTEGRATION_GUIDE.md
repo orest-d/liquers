@@ -3,7 +3,7 @@ title: Language Integration Guide
 kind: guide
 audience: internal
 area: [web, py, core/commands, core/plan, core/assets, core/store, core/value, lib/commands]
-reviewed: 2026-10-30
+reviewed: 2026-10-31
 ---
 # Liquers Language Integration Guide
 
@@ -1953,9 +1953,9 @@ See `liquers-web/README.md` "Read-only stores and metadata sections".
 
 **Templates and data nodes in the browser.** Neither `DATANODE` nor `TEMPLATE` is implemented in
 `liquers-web`. It depends on `liquers-lib` without the `templates` feature, so the `ns-template`
-commands are not in its built-in set (`WEB-HAS-NO-TEMPLATE-COMMANDS`), and a JavaScript command
-receives no JavaScript-visible context (`COMMAND07` is scoped to the Rust side), so the in-command
-half of `TEMPLATE` waits on one. A JavaScript object adapter reads own enumerable data properties
+commands are not in its built-in set (`WEB-HAS-NO-TEMPLATE-COMMANDS`). A JavaScript command
+receives a JavaScript-visible `Context` (`COMMAND07`, `liquers-web/src/command/context.rs`), so the
+in-command half of `TEMPLATE` waits only on the template commands. A JavaScript object adapter reads own enumerable data properties
 (`Object.getOwnPropertyDescriptor`, skipping accessors and symbols), maps `Array` to a list and a
 `Map` with string keys to a map, and runs on the one wasm thread inside the render's poll.
 
@@ -3854,6 +3854,7 @@ def test_DOCS04_every_public_name_is_documented():
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-31 | §6 Browser JavaScript: a JavaScript command now receives a language-visible `Context`, so `TEMPLATE`'s in-command half no longer waits on one. | design `js-command-context` |
 | 2026-10-30 | §RECIPE: a language provider is supplied as a recipe-provider entry type placed by the `recipes:` list; a chain asks every member (two owners and any member's error fail), which corrects the claim that a chain's `contains` goes through `recipe_opt`. | design `recipe-provider-chain-config` |
 | 2026-10-27 | §6 Python: *The GIL* adds the detached-lock rule; new *Async* entry (the bridge, the loop pool, cancellation, the four test deviations) and *Free-threaded Python* entry. | `design/liquers-py-async/` (phase-5) |
 | 2026-10-26 | New delivery feature `DOCS`: the documents an *integration* owes its users — a contract reference, a user guide with executed examples, a generated API reference — built on the shared references rather than restating them; tests `DOCS01`–`07`. §4 row, soft dependencies and the delivery-features note; §7 item 12; Appendix A blueprint. §6 Browser JavaScript links the new `reference/JAVASCRIPT_INTEGRATION.md` and `JAVASCRIPT_GUIDE.md`. | `LANGUAGE-GUIDE-NO-DOCUMENTATION-SECTION` |
