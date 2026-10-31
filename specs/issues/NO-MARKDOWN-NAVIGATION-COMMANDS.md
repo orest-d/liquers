@@ -67,6 +67,14 @@ command with a `unit` or `kind` argument versus several; whether section address
 query (`-R/doc.md/-/ns-md/section-Phase~.2`); and which Markdown parser to use (`pulldown-cmark` is
 already a dependency of the `webui` feature).
 
+## Decisions (maintainer, 2026-10-31)
+
+Proposal: project file `agent-memory-mvp/markdown-commands-proposal.md` (thread "Plan status
+check"). A new default-on `markdown` feature in `liquers-lib`. Commands take one document; commands
+over a folder may exist beside them. Writing commands, editing and rendering move to
+`NO-QUERY-AWARE-MARKDOWN-PARSER`, which also decides between a temporary `pulldown-cmark` and a
+Liquers-owned parser.
+
 ## Discovery
 
 Raised by the user on 2026-10-11 while reviewing `store-and-asset-search` revision 8, where `md_split`
