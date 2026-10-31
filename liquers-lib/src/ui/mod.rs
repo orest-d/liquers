@@ -33,6 +33,7 @@ pub use runner::{AppRunner, ElementStatusInfo, RunnerEvent};
 pub use shortcuts::{find_conflicts, validate_shortcut_strings, Key, KeyboardShortcut, Modifiers};
 pub use ui_context::UIContext;
 pub use widgets::QueryConsoleElement;
+pub use widgets::{DelegatedElement, ElementDelegate};
 pub use widgets::UISpecElement;
 
 #[cfg(feature = "egui")]
