@@ -1,6 +1,6 @@
 //! The built-in handlers of the `store_config` realm (`specs/design/store-adapters/`, Phase 2 §4
 //! catalogue): `defaults`, `set`, `require`, `media_type`, `file_facts`, `content_hash` and
-//! `updated`. Each is a [`CommandMetadata`] built next to its [`StepBuilder`] and registered by
+//! `updated`, plus `infer` (`specs/design/storage-none-computed-values/`). Each is a [`CommandMetadata`] built next to its [`StepBuilder`] and registered by
 //! [`register_builtin_handlers`].
 
 use crate::command_metadata::{
@@ -213,6 +213,17 @@ pub fn register_builtin_handlers(
         ),
         build_updated,
     )?;
+
+    let mut infer = handler(
+        "infer",
+        "Infer, do not store",
+        "on_write: marks a record whose status is listed (all records when none is listed) as \
+         inferred, so the store does not keep it and deletes a record kept before; the next read \
+         infers it from the data again. A mount policy for sparse metadata: infer-Source keeps \
+         only the records of computed values.",
+    );
+    infer.with_argument(ArgumentInfo::string_argument("statuses").set_multiple());
+    functions.register_step(cmr, infer, build_infer)?;
     Ok(())
 }
 
@@ -471,6 +482,26 @@ fn build_updated(
     check_stage("updated", stage, &[Stage::Write])?;
     Ok(CompiledStep::new(Box::new(|record, _facts, _out| {
         record.set_updated_now();
+        Ok(())
+    })))
+}
+
+fn build_infer(stage: Stage, parameters: &ResolvedParameterValues) -> Result<CompiledStep, Error> {
+    check_stage("infer", stage, &[Stage::Write])?;
+    let mut statuses = Vec::new();
+    for name in string_list_parameter(parameters, "statuses")? {
+        let status: Status = serde_json::from_value(serde_json::Value::String(name.clone()))
+            .map_err(|_| {
+                Error::configuration_error(format!(
+                    "'infer' names an unknown status '{name}' (for example Source, Ready, Override)"
+                ))
+            })?;
+        statuses.push(status);
+    }
+    Ok(CompiledStep::new(Box::new(move |record, _facts, _out| {
+        if statuses.is_empty() || statuses.contains(&record.status) {
+            record.inferred = true;
+        }
         Ok(())
     })))
 }

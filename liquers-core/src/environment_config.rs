@@ -16,7 +16,9 @@
 //!         path: ${LIQUERS_DATA}
 //!     - type: memory
 //!       prefix: tmp
-//! recipes: default
+//! recipes:                 # absent or `default`: the kind's list; `trivial` or `[]`: none
+//!   - recipes_yaml
+//!   - manifest
 //! assets:
 //!   job_capacity: 8
 //! ```
@@ -50,7 +52,7 @@ use crate::error::Error;
 use crate::store_config::StoreRouterConfig;
 use crate::store_factory::StoreFactory;
 use crate::commands::PayloadType;
-use crate::recipes::RecipeProviderChoice;
+use crate::recipes::RecipesConfig;
 use crate::value::ValueInterface;
 
 /// Everything about an environment that can be written down rather than compiled in.
@@ -64,16 +66,16 @@ pub struct EnvironmentConfig {
     #[serde(default)]
     pub store: StoreRouterConfig,
 
-    /// Which built-in recipe provider.
+    /// The recipe-provider chain, as a list of entries (`specs/design/recipe-provider-chain-config/`).
     ///
-    /// Absent means [`RecipeProviderChoice::Default`], the *document* default: a configuration
-    /// saying nothing about recipes most plausibly wants them to work. Note this is **not** the
-    /// unconfigured default of [`EnvironmentBuilder::new`], which is `Trivial`. Applying a
-    /// configuration is an explicit act, and it says so — a bare builder resolves recipes
-    /// trivially, and the same builder with `EnvironmentConfig::default()` applied resolves them
-    /// through the store.
-    #[serde(default)]
-    pub recipes: RecipeProviderChoice,
+    /// Absent (or `default`) means [`RecipesConfig::KindDefault`], the *document* default: the
+    /// manager kind's default list (`[recipes_yaml]` in core, `[recipes_yaml, manifest]` in
+    /// `liquers-lib` with `records`). A configuration saying nothing about recipes most plausibly
+    /// wants them to work. This is **not** the unconfigured default of a bare core
+    /// [`EnvironmentBuilder::new`], which is the empty chain. `trivial` (aliases `none`,
+    /// `no_recipes`) is the empty chain `[]`. Written back, `KindDefault` omits the key.
+    #[serde(default, skip_serializing_if = "RecipesConfig::is_kind_default")]
+    pub recipes: RecipesConfig,
 
     /// Per-manager settings. The manager *kind* is not here; see the module documentation.
     #[serde(default)]
@@ -144,7 +146,7 @@ impl<V: ValueInterface, P: PayloadType, K: AssetManagerKind> EnvironmentBuilder<
     /// caller's job either way.
     pub fn with_config(self, config: EnvironmentConfig, factory: Box<dyn StoreFactory>) -> Self {
         self.with_store_config(config.store, factory)
-            .with_recipe_provider_choice(config.recipes)
+            .with_recipes(config.recipes)
             .with_asset_manager_options(config.assets)
     }
 }
@@ -188,21 +190,28 @@ assets:
         let config = EnvironmentConfig::from_yaml(SAMPLE).expect("parse yaml");
         assert_eq!(config.store.stores.len(), 1);
         assert_eq!(config.store.stores[0].store_type, "memory");
-        assert_eq!(config.recipes, RecipeProviderChoice::Trivial);
+        assert_eq!(config.recipes, RecipesConfig::Chain(Vec::new()));
         assert_eq!(config.assets.job_capacity, Some(8));
 
         let json = config.to_json().expect("to json");
         let from_json = EnvironmentConfig::from_json(&json).expect("from json");
         assert_eq!(from_json.store.stores[0].prefix, "tmp");
-        assert_eq!(from_json.recipes, RecipeProviderChoice::Trivial);
+        assert_eq!(from_json.recipes, RecipesConfig::Chain(Vec::new()));
 
         let yaml = config.to_yaml().expect("to yaml");
         let from_yaml = EnvironmentConfig::from_yaml(&yaml).expect("from yaml");
         assert_eq!(from_yaml.assets.job_capacity, Some(8));
+        assert_eq!(from_yaml.recipes, RecipesConfig::Chain(Vec::new()));
+
+        // AC-10: the kind default is written by omitting the key, so it reads back as itself.
+        let default_yaml = EnvironmentConfig::default().to_yaml().expect("to yaml");
+        assert!(!default_yaml.contains("recipes"), "{default_yaml}");
+        let reread = EnvironmentConfig::from_yaml(&default_yaml).expect("from yaml");
+        assert_eq!(reread.recipes, RecipesConfig::KindDefault);
     }
 
-    /// T15 (the asymmetry half): an absent `recipes:` key means `Default`, which is **not** the
-    /// bare builder's `Trivial`.
+    /// T15 (the asymmetry half): an absent `recipes:` key means the kind default, which is
+    /// **not** the bare core builder's empty chain.
     ///
     /// Deliberate, and the kind of default that is obvious in a reference and surprising in
     /// practice, so it is pinned here: applying an otherwise-empty configuration changes how
@@ -212,12 +221,12 @@ assets:
         let config = EnvironmentConfig::from_yaml("store:\n  stores: []\n").expect("parse");
         assert_eq!(
             config.recipes,
-            RecipeProviderChoice::Default,
-            "the document default is Default — a config saying nothing about recipes wants them"
+            RecipesConfig::KindDefault,
+            "the document default is the kind default — a config saying nothing about recipes wants them"
         );
         assert_eq!(
             EnvironmentConfig::default().recipes,
-            RecipeProviderChoice::Default
+            RecipesConfig::KindDefault
         );
     }
 
@@ -227,7 +236,7 @@ assets:
     #[test]
     fn an_unknown_key_is_currently_ignored() {
         let config = EnvironmentConfig::from_yaml("manager: queued\n").expect("parse");
-        assert_eq!(config.recipes, RecipeProviderChoice::Default);
+        assert_eq!(config.recipes, RecipesConfig::KindDefault);
         assert!(config.store.stores.is_empty());
     }
 

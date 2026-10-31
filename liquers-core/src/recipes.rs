@@ -1085,7 +1085,607 @@ impl fmt::Display for RecipeProviderChoice {
     }
 }
 
-/// A recipe provider that consults several providers in order.
+/// The `recipes:` keywords that mean "no recipes at all", accepted for the scalar form only.
+const TRIVIAL_KEYWORDS: [&str; 3] = ["trivial", "none", "no_recipes"];
+
+/// The entry type that splices the environment kind's default list into a configured list.
+pub const DEFAULT_RECIPES_ENTRY: &str = "default";
+
+/// One entry of a configured recipe provider chain (`specs/design/recipe-provider-chain-config/`).
+///
+/// Written either as a bare name (`manifest`) or as a map with a `type` and the provider's
+/// arguments (`{type: python, object: notes}`). The two forms are the same entry: a bare name is a
+/// map with no arguments, and an entry without arguments is written back as the bare name.
+///
+/// ```
+/// use liquers_core::recipes::RecipeProviderEntry;
+///
+/// let bare: RecipeProviderEntry = serde_yaml::from_str("manifest").unwrap();
+/// let map: RecipeProviderEntry = serde_yaml::from_str("{type: manifest}").unwrap();
+/// assert_eq!(bare, map);
+/// assert_eq!(serde_yaml::to_string(&map).unwrap().trim(), "manifest");
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RecipeProviderEntry {
+    /// The `type:` value, naming an entry type some [`RecipeProviderFactory`] declares.
+    pub provider_type: String,
+    /// Every other key of the map form, in a stable order.
+    pub arguments: std::collections::BTreeMap<String, Value>,
+}
+
+impl RecipeProviderEntry {
+    /// An entry with no arguments.
+    pub fn named(provider_type: &str) -> Self {
+        RecipeProviderEntry {
+            provider_type: provider_type.to_string(),
+            arguments: std::collections::BTreeMap::new(),
+        }
+    }
+
+    /// Adds an argument.
+    pub fn with_argument(mut self, name: &str, value: impl Into<Value>) -> Self {
+        self.arguments.insert(name.to_string(), value.into());
+        self
+    }
+}
+
+impl serde::Serialize for RecipeProviderEntry {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeMap;
+        if self.arguments.is_empty() {
+            return serializer.serialize_str(&self.provider_type);
+        }
+        let mut map = serializer.serialize_map(Some(self.arguments.len() + 1))?;
+        map.serialize_entry("type", &self.provider_type)?;
+        for (name, value) in &self.arguments {
+            map.serialize_entry(name, value)?;
+        }
+        map.end()
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for RecipeProviderEntry {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct EntryVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for EntryVisitor {
+            type Value = RecipeProviderEntry;
+
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.write_str("a recipe provider name, or a map with a `type` and its arguments")
+            }
+
+            fn visit_str<Err: serde::de::Error>(self, name: &str) -> Result<Self::Value, Err> {
+                Ok(RecipeProviderEntry::named(name))
+            }
+
+            fn visit_map<M: serde::de::MapAccess<'de>>(
+                self,
+                mut map: M,
+            ) -> Result<Self::Value, M::Error> {
+                let mut provider_type = None;
+                let mut arguments = std::collections::BTreeMap::new();
+                while let Some(name) = map.next_key::<String>()? {
+                    if name == "type" {
+                        provider_type = Some(map.next_value::<String>()?);
+                    } else {
+                        arguments.insert(name, map.next_value::<Value>()?);
+                    }
+                }
+                match provider_type {
+                    Some(provider_type) => Ok(RecipeProviderEntry {
+                        provider_type,
+                        arguments,
+                    }),
+                    None => Err(serde::de::Error::custom(
+                        "a recipe provider entry written as a map needs a `type`",
+                    )),
+                }
+            }
+        }
+
+        deserializer.deserialize_any(EntryVisitor)
+    }
+}
+
+/// The `recipes:` value of an environment configuration: which recipe providers the environment's
+/// chain holds, in order.
+///
+/// | Written | Means |
+/// |---|---|
+/// | absent, or `default` | [`RecipesConfig::KindDefault`]: the environment kind's default list |
+/// | `trivial`, `none`, `no_recipes` | an empty chain: no recipes at all |
+/// | a list | exactly those entries, in that order; an entry `default` splices the kind's list |
+///
+/// Serialization is canonical: [`RecipesConfig::KindDefault`] writes `default` (and a containing
+/// document omits the key, see [`RecipesConfig::is_kind_default`]); a chain writes a list, `[]`
+/// included.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum RecipesConfig {
+    /// The list a document without `recipes:` means for this environment kind
+    /// (`AssetManagerKind::default_recipes`).
+    #[default]
+    KindDefault,
+    /// An explicit list of entries.
+    Chain(Vec<RecipeProviderEntry>),
+}
+
+impl RecipesConfig {
+    /// For `skip_serializing_if`: the default is written by leaving the key out.
+    pub fn is_kind_default(&self) -> bool {
+        match self {
+            RecipesConfig::KindDefault => true,
+            RecipesConfig::Chain(_) => false,
+        }
+    }
+}
+
+impl From<RecipeProviderChoice> for RecipesConfig {
+    fn from(choice: RecipeProviderChoice) -> Self {
+        match choice {
+            RecipeProviderChoice::Default => RecipesConfig::KindDefault,
+            RecipeProviderChoice::Trivial => RecipesConfig::Chain(Vec::new()),
+        }
+    }
+}
+
+impl serde::Serialize for RecipesConfig {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self {
+            RecipesConfig::KindDefault => serializer.serialize_str(DEFAULT_RECIPES_ENTRY),
+            RecipesConfig::Chain(entries) => entries.serialize(serializer),
+        }
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for RecipesConfig {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct RecipesVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for RecipesVisitor {
+            type Value = RecipesConfig;
+
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.write_str(
+                    "`default`, `trivial` (aliases: none, no_recipes), or a list of recipe providers",
+                )
+            }
+
+            fn visit_unit<Err: serde::de::Error>(self) -> Result<Self::Value, Err> {
+                Ok(RecipesConfig::KindDefault)
+            }
+
+            fn visit_str<Err: serde::de::Error>(self, keyword: &str) -> Result<Self::Value, Err> {
+                if keyword == DEFAULT_RECIPES_ENTRY {
+                    Ok(RecipesConfig::KindDefault)
+                } else if TRIVIAL_KEYWORDS.contains(&keyword) {
+                    Ok(RecipesConfig::Chain(Vec::new()))
+                } else {
+                    Err(Err::custom(format!(
+                        "unknown recipes keyword '{}'; expected default, trivial (aliases: none, \
+                         no_recipes), or a list of recipe providers",
+                        keyword
+                    )))
+                }
+            }
+
+            fn visit_seq<A: serde::de::SeqAccess<'de>>(
+                self,
+                mut seq: A,
+            ) -> Result<Self::Value, A::Error> {
+                let mut entries = Vec::new();
+                while let Some(entry) = seq.next_element::<RecipeProviderEntry>()? {
+                    if TRIVIAL_KEYWORDS.contains(&entry.provider_type.as_str()) {
+                        return Err(serde::de::Error::custom(format!(
+                            "'{}' is not a recipe provider; write `recipes: []` for no recipes",
+                            entry.provider_type
+                        )));
+                    }
+                    entries.push(entry);
+                }
+                Ok(RecipesConfig::Chain(entries))
+            }
+        }
+
+        deserializer.deserialize_any(RecipesVisitor)
+    }
+}
+
+/// What a [`RecipeProviderFactory`] declares about one entry type.
+///
+/// The argument and availability types are the store factory's, since an entry type is described
+/// the same way a store type is.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct RecipeProviderTypeInfo {
+    /// The `type:` value (or bare name) of an entry, e.g. `recipes_yaml`, `manifest`.
+    pub provider_type: String,
+    pub label: String,
+    pub doc: String,
+    #[serde(default)]
+    pub arguments: Vec<crate::store_factory::StoreArgumentInfo>,
+    #[serde(default)]
+    pub availability: crate::store_factory::StoreTypeAvailability,
+}
+
+impl RecipeProviderTypeInfo {
+    pub fn new(provider_type: &str) -> Self {
+        RecipeProviderTypeInfo {
+            provider_type: provider_type.to_string(),
+            label: provider_type.to_string(),
+            doc: String::new(),
+            arguments: Vec::new(),
+            availability: crate::store_factory::StoreTypeAvailability::Available,
+        }
+    }
+
+    pub fn with_label(mut self, label: &str) -> Self {
+        self.label = label.to_string();
+        self
+    }
+
+    pub fn with_doc(mut self, doc: &str) -> Self {
+        self.doc = doc.to_string();
+        self
+    }
+
+    pub fn with_argument(mut self, argument: crate::store_factory::StoreArgumentInfo) -> Self {
+        self.arguments.push(argument);
+        self
+    }
+
+    /// Mark the type known but not constructible here, naming the feature or target responsible.
+    pub fn unavailable(mut self, reason: &str) -> Self {
+        self.availability =
+            crate::store_factory::StoreTypeAvailability::Unavailable(reason.to_string());
+        self
+    }
+
+    /// The configuration error building this type at `position` in a list meets, if it cannot be
+    /// built here.
+    pub fn unavailability_error(&self, position: usize) -> Option<Error> {
+        match &self.availability {
+            crate::store_factory::StoreTypeAvailability::Available => None,
+            crate::store_factory::StoreTypeAvailability::Unavailable(reason) => {
+                Some(Error::configuration_error(format!(
+                    "Recipe provider '{}' (entry {}) is not available in this build: {}",
+                    self.provider_type, position, reason
+                )))
+            }
+        }
+    }
+
+    fn is_available(&self) -> bool {
+        match self.availability {
+            crate::store_factory::StoreTypeAvailability::Available => true,
+            crate::store_factory::StoreTypeAvailability::Unavailable(_) => false,
+        }
+    }
+}
+
+/// Builds recipe providers from configured entries, for entry types the rest of the system does
+/// not know about.
+///
+/// The recipe counterpart of [`crate::store_factory::StoreFactory`], generic over the environment
+/// because a recipe provider is. No `Send`/`Sync` bound, for the same reason: a factory lives in a
+/// builder and is consumed while the environment is built.
+pub trait RecipeProviderFactory<E: Environment> {
+    /// Entry types this factory declares.
+    fn provider_types(&self) -> Vec<RecipeProviderTypeInfo>;
+
+    /// Builds a provider from an entry whose type this factory declares.
+    fn create(&self, entry: &RecipeProviderEntry)
+        -> Result<Arc<dyn AsyncRecipeProvider<E>>, Error>;
+}
+
+/// Builds one recipe provider from its entry.
+pub type RecipeProviderConstructor<E> =
+    Box<dyn Fn(&RecipeProviderEntry) -> Result<Arc<dyn AsyncRecipeProvider<E>>, Error>>;
+
+/// A [`RecipeProviderFactory`] assembled from named constructors.
+///
+/// Ordered by type name, so error messages listing the known types are deterministic.
+pub struct RecipeProviderTypeMap<E: Environment> {
+    entries:
+        std::collections::BTreeMap<String, (RecipeProviderTypeInfo, RecipeProviderConstructor<E>)>,
+}
+
+impl<E: Environment> Default for RecipeProviderTypeMap<E> {
+    fn default() -> Self {
+        RecipeProviderTypeMap {
+            entries: std::collections::BTreeMap::new(),
+        }
+    }
+}
+
+impl<E: Environment> RecipeProviderTypeMap<E> {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_provider_type(
+        mut self,
+        info: RecipeProviderTypeInfo,
+        create: RecipeProviderConstructor<E>,
+    ) -> Self {
+        self.entries
+            .insert(info.provider_type.clone(), (info, create));
+        self
+    }
+}
+
+impl<E: Environment> RecipeProviderFactory<E> for RecipeProviderTypeMap<E> {
+    fn provider_types(&self) -> Vec<RecipeProviderTypeInfo> {
+        self.entries
+            .values()
+            .map(|(info, _)| info.clone())
+            .collect()
+    }
+
+    fn create(
+        &self,
+        entry: &RecipeProviderEntry,
+    ) -> Result<Arc<dyn AsyncRecipeProvider<E>>, Error> {
+        match self.entries.get(entry.provider_type.as_str()) {
+            Some((_, create)) => create(entry),
+            None => Err(unknown_recipe_provider_error(
+                entry,
+                None,
+                &self.provider_types(),
+            )),
+        }
+    }
+}
+
+/// Several factories consulted in order; the **first** that declares an entry type builds it.
+///
+/// Assembled like [`crate::store_factory::ChainedStoreFactory`]: an integration's factory is
+/// chained before a library's, and a library's before core's, so a name can be overridden by
+/// chaining earlier.
+pub struct ChainedRecipeProviderFactory<E: Environment> {
+    factories: Vec<Box<dyn RecipeProviderFactory<E>>>,
+}
+
+impl<E: Environment> Default for ChainedRecipeProviderFactory<E> {
+    fn default() -> Self {
+        ChainedRecipeProviderFactory {
+            factories: Vec::new(),
+        }
+    }
+}
+
+impl<E: Environment> ChainedRecipeProviderFactory<E> {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Consults `factory` after everything already in the chain.
+    pub fn chain(mut self, factory: Box<dyn RecipeProviderFactory<E>>) -> Self {
+        self.factories.push(factory);
+        self
+    }
+
+    /// Consults `factory` before everything already in the chain.
+    pub fn chain_first(mut self, factory: Box<dyn RecipeProviderFactory<E>>) -> Self {
+        self.factories.insert(0, factory);
+        self
+    }
+
+    /// The declaration of `provider_type` this chain dispatches to, with its factory.
+    fn declaring(
+        &self,
+        provider_type: &str,
+    ) -> Option<(&dyn RecipeProviderFactory<E>, RecipeProviderTypeInfo)> {
+        self.factories.iter().find_map(|factory| {
+            factory
+                .provider_types()
+                .into_iter()
+                .find(|info| info.provider_type == provider_type)
+                .map(|info| (factory.as_ref(), info))
+        })
+    }
+
+    /// Builds the entry at `position` of a list, with errors naming the entry and its position.
+    fn create_at(
+        &self,
+        entry: &RecipeProviderEntry,
+        position: usize,
+    ) -> Result<Arc<dyn AsyncRecipeProvider<E>>, Error> {
+        match self.declaring(&entry.provider_type) {
+            Some((factory, info)) => match info.unavailability_error(position) {
+                Some(error) => Err(error),
+                None => factory.create(entry).map_err(|mut error| {
+                    error.message = format!(
+                        "Recipe provider '{}' (entry {}): {}",
+                        entry.provider_type, position, error.message
+                    );
+                    error
+                }),
+            },
+            None => Err(unknown_recipe_provider_error(
+                entry,
+                Some(position),
+                &self.provider_types(),
+            )),
+        }
+    }
+}
+
+impl<E: Environment> RecipeProviderFactory<E> for ChainedRecipeProviderFactory<E> {
+    /// The union, earlier members winning, so the list matches the dispatch.
+    fn provider_types(&self) -> Vec<RecipeProviderTypeInfo> {
+        let mut seen: std::collections::BTreeMap<String, RecipeProviderTypeInfo> =
+            std::collections::BTreeMap::new();
+        for factory in &self.factories {
+            for info in factory.provider_types() {
+                seen.entry(info.provider_type.clone()).or_insert(info);
+            }
+        }
+        seen.into_values().collect()
+    }
+
+    fn create(
+        &self,
+        entry: &RecipeProviderEntry,
+    ) -> Result<Arc<dyn AsyncRecipeProvider<E>>, Error> {
+        match self.declaring(&entry.provider_type) {
+            Some((factory, info)) => match info.unavailability_error(0) {
+                Some(error) => Err(error),
+                None => factory.create(entry),
+            },
+            None => Err(unknown_recipe_provider_error(
+                entry,
+                None,
+                &self.provider_types(),
+            )),
+        }
+    }
+}
+
+/// The configuration error for an entry type no factory declares, listing the types that exist.
+pub fn unknown_recipe_provider_error(
+    entry: &RecipeProviderEntry,
+    position: Option<usize>,
+    known: &[RecipeProviderTypeInfo],
+) -> Error {
+    let available: Vec<&str> = known
+        .iter()
+        .filter(|info| info.is_available())
+        .map(|info| info.provider_type.as_str())
+        .collect();
+    let at = match position {
+        Some(position) => format!(" (entry {})", position),
+        None => String::new(),
+    };
+    Error::configuration_error(format!(
+        "Unknown recipe provider '{}'{}. Known recipe providers: {}.",
+        entry.provider_type,
+        at,
+        if available.is_empty() {
+            "none".to_string()
+        } else {
+            available.join(", ")
+        }
+    ))
+}
+
+/// The entry types `liquers-core` implements: `recipes_yaml`, the [`DefaultRecipeProvider`].
+pub fn core_recipe_provider_factory<E: Environment>() -> RecipeProviderTypeMap<E> {
+    RecipeProviderTypeMap::new().with_provider_type(
+        RecipeProviderTypeInfo::new("recipes_yaml")
+            .with_label("recipes.yaml")
+            .with_doc(
+                "Recipes read from each folder's recipes.yaml through the environment's store.",
+            ),
+        Box::new(|_entry| {
+            Ok(Arc::new(DefaultRecipeProvider::new()) as Arc<dyn AsyncRecipeProvider<E>>)
+        }),
+    )
+}
+
+/// Resolves a configured `recipes:` value into the environment's chain.
+///
+/// [`RecipesConfig::KindDefault`] and every entry of type [`DEFAULT_RECIPES_ENTRY`] expand to
+/// `default_list`; an entry name occurring twice after expansion is a configuration error; each
+/// entry is built through `factory`. This is the single definition of an environment's chain:
+/// the builder, the environment's own setters and any validation tool call it.
+pub fn resolve_recipes<E: Environment>(
+    recipes: &RecipesConfig,
+    default_list: &[RecipeProviderEntry],
+    factory: &ChainedRecipeProviderFactory<E>,
+) -> Result<RecipeProviderChain<E>, Error> {
+    let entries = expand_recipes(recipes, default_list)?;
+    let mut members = Vec::with_capacity(entries.len());
+    for (position, entry) in entries.iter().enumerate() {
+        members.push((
+            entry.provider_type.clone(),
+            factory.create_at(entry, position)?,
+        ));
+    }
+    Ok(RecipeProviderChain::named(members))
+}
+
+/// The entries `recipes` names after splicing in `default_list`, refusing a duplicate name.
+pub fn expand_recipes(
+    recipes: &RecipesConfig,
+    default_list: &[RecipeProviderEntry],
+) -> Result<Vec<RecipeProviderEntry>, Error> {
+    let listed: Vec<RecipeProviderEntry> = match recipes {
+        RecipesConfig::KindDefault => default_list.to_vec(),
+        RecipesConfig::Chain(entries) => entries.clone(),
+    };
+    let mut expanded = Vec::with_capacity(listed.len());
+    for entry in listed {
+        if entry.provider_type == DEFAULT_RECIPES_ENTRY {
+            expanded.extend(default_list.iter().cloned());
+        } else {
+            expanded.push(entry);
+        }
+    }
+    let mut seen = std::collections::HashSet::new();
+    for entry in &expanded {
+        if !seen.insert(entry.provider_type.as_str()) {
+            return Err(Error::configuration_error(format!(
+                "Recipe provider '{}' is listed more than once in the recipe provider chain",
+                entry.provider_type
+            )));
+        }
+    }
+    Ok(expanded)
+}
+
+/// A recipe provider standing in for a chain that could not be resolved: every lookup fails with
+/// the resolution error.
+///
+/// Installed by the infallible keyword setters
+/// ([`crate::context::GenericEnvironment::with_recipe_provider_choice`]) when a kind's own default
+/// list does not resolve, so the failure surfaces on use rather than as a panic.
+pub struct UnresolvedRecipeProvider {
+    error: Error,
+}
+
+impl UnresolvedRecipeProvider {
+    pub fn new(error: Error) -> Self {
+        UnresolvedRecipeProvider { error }
+    }
+}
+
+#[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+#[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+impl<E: Environment> AsyncRecipeProvider<E> for UnresolvedRecipeProvider {
+    async fn has_recipes(&self, _key: &Key, _envref: EnvRef<E>) -> Result<bool, Error> {
+        Err(self.error.clone())
+    }
+
+    async fn assets_with_recipes(
+        &self,
+        _key: &Key,
+        _envref: EnvRef<E>,
+    ) -> Result<Vec<ResourceName>, Error> {
+        Err(self.error.clone())
+    }
+
+    async fn recipe_plan(&self, _key: &Key, _envref: EnvRef<E>) -> Result<Plan, Error> {
+        Err(self.error.clone())
+    }
+
+    async fn recipe(&self, _key: &Key, _envref: EnvRef<E>) -> Result<Recipe, Error> {
+        Err(self.error.clone())
+    }
+
+    async fn recipe_opt(&self, _key: &Key, _envref: EnvRef<E>) -> Result<Option<Recipe>, Error> {
+        Err(self.error.clone())
+    }
+
+    async fn contains(&self, _key: &Key, _envref: EnvRef<E>) -> Result<bool, Error> {
+        Err(self.error.clone())
+    }
+
+    async fn get_asset_info(&self, _key: &Key, _envref: EnvRef<E>) -> Result<AssetInfo, Error> {
+        Err(self.error.clone())
+    }
+}
+
+/// A recipe provider that consults several providers.
 ///
 /// This is how a folder ends up served by more than one source of recipes without either
 /// provider having to know about the other (`NO-RECIPE-PROVIDER-CHAIN`). The record-stream
@@ -1093,55 +1693,102 @@ impl fmt::Display for RecipeProviderChoice {
 /// chunk recipes synthesized from a manifest, and neither `DefaultRecipeProvider` nor a
 /// generative provider can be replaced by the other without losing what it serves.
 ///
+/// Every environment's recipe provider is a chain, configured as a list by
+/// [`RecipesConfig`] and built by [`resolve_recipes`] (`specs/design/recipe-provider-chain-config/`).
+///
 /// # Chain behaviour
+///
+/// A key is owned by the one member that has a recipe for it, whatever the order of the list.
+/// Every member is asked, so two rules are independent of order too: an error from any member
+/// fails the lookup, and two members having a recipe for the same key is a configuration error
+/// naming both. A recipe provider should therefore answer "no recipe" for a key it does not own,
+/// and fail only when something is substantially wrong.
 ///
 /// | Method | Behaviour |
 /// |---|---|
-/// | [`recipe_opt`](AsyncRecipeProvider::recipe_opt) | the first provider, in order, that answers `Some`; an `Err` from an earlier provider is propagated without consulting the rest |
-/// | [`contains`](AsyncRecipeProvider::contains) | `true` if any provider's `recipe_opt` answers `Some` |
-/// | [`has_recipes`](AsyncRecipeProvider::has_recipes) | `true` if any provider does |
-/// | [`assets_with_recipes`](AsyncRecipeProvider::assets_with_recipes) | the union, in provider order, without duplicates |
-/// | [`recipe`](AsyncRecipeProvider::recipe), [`recipe_plan`](AsyncRecipeProvider::recipe_plan), [`get_asset_info`](AsyncRecipeProvider::get_asset_info) | delegated to the provider that has the recipe; when none does, the same not-found error [`DefaultRecipeProvider`] returns for a missing key |
+/// | [`recipe_opt`](AsyncRecipeProvider::recipe_opt), [`can_make`](AsyncRecipeProvider::can_make) | the owner's answer; an error from any member, or two owners, fails |
+/// | [`recipe`](AsyncRecipeProvider::recipe), [`recipe_plan`](AsyncRecipeProvider::recipe_plan), [`get_asset_info`](AsyncRecipeProvider::get_asset_info) | delegated to the owner; when there is none, the same not-found error [`DefaultRecipeProvider`] returns for a missing key |
+/// | [`contains`](AsyncRecipeProvider::contains) | `true` if any member's `contains` is |
+/// | [`has_recipes`](AsyncRecipeProvider::has_recipes) | `true` if any member's is |
+/// | [`assets_with_recipes`](AsyncRecipeProvider::assets_with_recipes) | the union, in member order, without duplicates |
 ///
-/// [`RecipeProviderChoice`] is deliberately **not** extended with a "chain" variant: a choice is
-/// data in a configuration document and cannot name a provider that lives in another crate — a
-/// manifest provider in `liquers-records`, for example, which this trait's own doc comment
-/// anticipates ("a custom recipe provider ... implementing this trait"). A chain is built in code
-/// instead: see `EnvironmentBuilder::with_appended_recipe_provider` and
-/// [`crate::context::GenericEnvironment::with_appended_recipe_provider`].
+/// Members are named — by their entry type when the chain comes from a configuration, by
+/// position (`#0`, `#1`, …) when built with [`RecipeProviderChain::new`] — so errors can say
+/// which provider failed or which two clash.
 pub struct RecipeProviderChain<E: Environment> {
-    providers: Vec<Arc<dyn AsyncRecipeProvider<E>>>,
+    providers: Vec<(String, Arc<dyn AsyncRecipeProvider<E>>)>,
 }
 
 impl<E: Environment> RecipeProviderChain<E> {
-    /// Builds a chain from providers in consultation order — the first entry is consulted first.
+    /// Builds a chain from providers in list order, naming them by position.
     pub fn new(providers: Vec<Arc<dyn AsyncRecipeProvider<E>>>) -> Self {
+        RecipeProviderChain {
+            providers: providers
+                .into_iter()
+                .enumerate()
+                .map(|(position, provider)| (format!("#{}", position), provider))
+                .collect(),
+        }
+    }
+
+    /// Builds a chain from named providers in list order.
+    pub fn named(providers: Vec<(String, Arc<dyn AsyncRecipeProvider<E>>)>) -> Self {
         RecipeProviderChain { providers }
     }
 
-    /// Appends a provider, consulted after every provider already in the chain.
+    /// Appends a provider after every provider already in the chain, named by its position.
     pub fn push(&mut self, provider: Arc<dyn AsyncRecipeProvider<E>>) {
-        self.providers.push(provider);
+        let name = format!("#{}", self.providers.len());
+        self.providers.push((name, provider));
     }
 
-    /// Finds the position of the first provider, in order, whose `recipe_opt` answers `Some` for
-    /// `key`.
-    ///
-    /// Used by every per-key method that must act *through* that specific provider — `recipe`,
-    /// `recipe_plan` and `get_asset_info` delegate the whole call rather than reconstructing the
-    /// answer from the recipe alone, so a provider's own behaviour (beyond what `recipe_opt`
-    /// reports) is preserved.
-    async fn provider_index_for(
+    /// Appends a named provider.
+    pub fn push_named(&mut self, name: String, provider: Arc<dyn AsyncRecipeProvider<E>>) {
+        self.providers.push((name, provider));
+    }
+
+    /// The members' names, in list order.
+    pub fn names(&self) -> Vec<String> {
+        self.providers
+            .iter()
+            .map(|(name, _)| name.clone())
+            .collect()
+    }
+
+    /// The number of members.
+    pub fn len(&self) -> usize {
+        self.providers.len()
+    }
+
+    /// Whether the chain has no members, and so resolves no recipes.
+    pub fn is_empty(&self) -> bool {
+        self.providers.is_empty()
+    }
+
+    /// The member that owns `key`, with its recipe. Asks every member: an error from any of them
+    /// fails, and a second owner is a configuration error naming both.
+    async fn owner_of(
         &self,
         key: &Key,
         envref: EnvRef<E>,
-    ) -> Result<Option<usize>, Error> {
-        for (index, provider) in self.providers.iter().enumerate() {
-            if provider.recipe_opt(key, envref.clone()).await?.is_some() {
-                return Ok(Some(index));
+    ) -> Result<Option<(usize, Recipe)>, Error> {
+        let mut owner: Option<(usize, Recipe)> = None;
+        for (index, (name, provider)) in self.providers.iter().enumerate() {
+            if let Some(recipe) = provider.recipe_opt(key, envref.clone()).await? {
+                match &owner {
+                    Some((first, _)) => {
+                        return Err(Error::configuration_error(format!(
+                            "Key {} has a recipe from two recipe providers, '{}' and '{}'; \
+                             a key may be defined by only one",
+                            key, self.providers[*first].0, name
+                        ))
+                        .with_key(key));
+                    }
+                    None => owner = Some((index, recipe)),
+                }
             }
         }
-        Ok(None)
+        Ok(owner)
     }
 
     /// The error reported when no provider in the chain has a recipe for `key`, mirroring
@@ -1155,7 +1802,7 @@ impl<E: Environment> RecipeProviderChain<E> {
 #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
 impl<E: Environment> AsyncRecipeProvider<E> for RecipeProviderChain<E> {
     async fn has_recipes(&self, key: &Key, envref: EnvRef<E>) -> Result<bool, Error> {
-        for provider in &self.providers {
+        for (_, provider) in &self.providers {
             if provider.has_recipes(key, envref.clone()).await? {
                 return Ok(true);
             }
@@ -1170,7 +1817,7 @@ impl<E: Environment> AsyncRecipeProvider<E> for RecipeProviderChain<E> {
     ) -> Result<Vec<ResourceName>, Error> {
         let mut seen: std::collections::HashSet<ResourceName> = std::collections::HashSet::new();
         let mut assets = Vec::new();
-        for provider in &self.providers {
+        for (_, provider) in &self.providers {
             for name in provider.assets_with_recipes(key, envref.clone()).await? {
                 if seen.insert(name.clone()) {
                     assets.push(name);
@@ -1181,30 +1828,25 @@ impl<E: Environment> AsyncRecipeProvider<E> for RecipeProviderChain<E> {
     }
 
     async fn recipe_plan(&self, key: &Key, envref: EnvRef<E>) -> Result<Plan, Error> {
-        match self.provider_index_for(key, envref.clone()).await? {
-            Some(index) => self.providers[index].recipe_plan(key, envref).await,
+        match self.owner_of(key, envref.clone()).await? {
+            Some((index, _)) => self.providers[index].1.recipe_plan(key, envref).await,
             None => Err(Self::no_recipe_error(key)),
         }
     }
 
     async fn recipe(&self, key: &Key, envref: EnvRef<E>) -> Result<Recipe, Error> {
-        match self.provider_index_for(key, envref.clone()).await? {
-            Some(index) => self.providers[index].recipe(key, envref).await,
+        match self.owner_of(key, envref.clone()).await? {
+            Some((index, _)) => self.providers[index].1.recipe(key, envref).await,
             None => Err(Self::no_recipe_error(key)),
         }
     }
 
     async fn recipe_opt(&self, key: &Key, envref: EnvRef<E>) -> Result<Option<Recipe>, Error> {
-        for provider in &self.providers {
-            if let Some(recipe) = provider.recipe_opt(key, envref.clone()).await? {
-                return Ok(Some(recipe));
-            }
-        }
-        Ok(None)
+        Ok(self.owner_of(key, envref).await?.map(|(_, recipe)| recipe))
     }
 
     async fn contains(&self, key: &Key, envref: EnvRef<E>) -> Result<bool, Error> {
-        for provider in &self.providers {
+        for (_, provider) in &self.providers {
             if provider.contains(key, envref.clone()).await? {
                 return Ok(true);
             }
@@ -1213,23 +1855,22 @@ impl<E: Environment> AsyncRecipeProvider<E> for RecipeProviderChain<E> {
     }
 
     async fn can_make(&self, key: &Key, envref: EnvRef<E>) -> Result<bool, Error> {
-        Ok(self.provider_index_for(key, envref).await?.is_some())
+        Ok(self.owner_of(key, envref).await?.is_some())
     }
 
     async fn directory_changed(&self, dir: &Key) {
-        for provider in &self.providers {
+        for (_, provider) in &self.providers {
             provider.directory_changed(dir).await;
         }
     }
 
     async fn get_asset_info(&self, key: &Key, envref: EnvRef<E>) -> Result<AssetInfo, Error> {
-        match self.provider_index_for(key, envref.clone()).await? {
-            Some(index) => self.providers[index].get_asset_info(key, envref).await,
+        match self.owner_of(key, envref.clone()).await? {
+            Some((index, _)) => self.providers[index].1.get_asset_info(key, envref).await,
             None => Err(Self::no_recipe_error(key)),
         }
     }
 }
-
 
 /// An override value converted to its argument's type: a value, or a link (an enum alias whose
 /// alternative is a query). The note, when present, becomes a planning warning.
@@ -2510,13 +3151,133 @@ mod recipe_provider_chain_tests {
         TestEnv::new().to_ref()
     }
 
+    /// AC-7: a key only one member has a recipe for resolves whatever the order.
     #[tokio::test]
-    async fn first_some_wins() -> Result<(), Error> {
-        let provider1 = MockProvider::new(vec![("a", None)]);
-        let provider2 = MockProvider::new(vec![("a", Some(Recipe::default()))]);
-        let chain = RecipeProviderChain::new(vec![Arc::new(provider1), Arc::new(provider2)]);
+    async fn single_some_is_used() -> Result<(), Error> {
         let key = parse_key("a")?;
-        assert!(chain.recipe_opt(&key, envref()).await?.is_some());
+        for owner_first in [true, false] {
+            let owner: Arc<dyn AsyncRecipeProvider<TestEnv>> =
+                Arc::new(MockProvider::new(vec![("a", Some(Recipe::default()))]));
+            let other: Arc<dyn AsyncRecipeProvider<TestEnv>> =
+                Arc::new(MockProvider::new(vec![("a", None)]));
+            let members = if owner_first {
+                vec![owner, other]
+            } else {
+                vec![other, owner]
+            };
+            let chain = RecipeProviderChain::new(members);
+            assert!(chain.recipe_opt(&key, envref()).await?.is_some());
+            assert!(chain.can_make(&key, envref()).await?);
+        }
+        Ok(())
+    }
+
+    /// AC-11: two members with a recipe for one key fail with a configuration error naming both,
+    /// in either order.
+    #[tokio::test]
+    async fn a_key_two_members_define_is_refused_in_any_order() -> Result<(), Error> {
+        let key = parse_key("a")?;
+        for (first, second) in [("first", "second"), ("second", "first")] {
+            let chain = RecipeProviderChain::named(vec![
+                (
+                    first.to_string(),
+                    Arc::new(MockProvider::new(vec![("a", Some(Recipe::default()))]))
+                        as Arc<dyn AsyncRecipeProvider<TestEnv>>,
+                ),
+                (
+                    second.to_string(),
+                    Arc::new(MockProvider::new(vec![("a", Some(Recipe::default()))])),
+                ),
+            ]);
+            let error = chain
+                .recipe_opt(&key, envref())
+                .await
+                .expect_err("two owners must be refused");
+            assert_eq!(error.error_type, ErrorType::ConfigurationError);
+            assert!(error.message.contains(first) && error.message.contains(second));
+            let first_at = error
+                .message
+                .find(&format!("'{}'", first))
+                .expect("first named");
+            let second_at = error
+                .message
+                .find(&format!("'{}'", second))
+                .expect("second named");
+            assert!(first_at < second_at, "members are named in list order");
+            assert!(chain.recipe(&key, envref()).await.is_err());
+            assert!(chain.can_make(&key, envref()).await.is_err());
+        }
+        Ok(())
+    }
+
+    /// AC-11: a failing member fails the lookup even when another member owns the key, in either
+    /// order.
+    #[tokio::test]
+    async fn a_failing_member_fails_the_lookup_in_any_order() -> Result<(), Error> {
+        struct Failing;
+        #[cfg_attr(not(target_arch = "wasm32"), async_trait)]
+        #[cfg_attr(target_arch = "wasm32", async_trait(?Send))]
+        impl AsyncRecipeProvider<TestEnv> for Failing {
+            async fn has_recipes(&self, _key: &Key, _e: EnvRef<TestEnv>) -> Result<bool, Error> {
+                Ok(false)
+            }
+            async fn assets_with_recipes(
+                &self,
+                _key: &Key,
+                _envref: EnvRef<TestEnv>,
+            ) -> Result<Vec<ResourceName>, Error> {
+                Ok(Vec::new())
+            }
+            async fn recipe_plan(&self, key: &Key, _e: EnvRef<TestEnv>) -> Result<Plan, Error> {
+                Err(Error::key_not_found(key))
+            }
+            async fn recipe(&self, key: &Key, _e: EnvRef<TestEnv>) -> Result<Recipe, Error> {
+                Err(Error::key_not_found(key))
+            }
+            async fn recipe_opt(
+                &self,
+                _key: &Key,
+                _e: EnvRef<TestEnv>,
+            ) -> Result<Option<Recipe>, Error> {
+                Err(Error::general_error("malformed".to_string()))
+            }
+        }
+        let key = parse_key("a")?;
+        for failing_first in [true, false] {
+            let owner: Arc<dyn AsyncRecipeProvider<TestEnv>> =
+                Arc::new(MockProvider::new(vec![("a", Some(Recipe::default()))]));
+            let failing: Arc<dyn AsyncRecipeProvider<TestEnv>> = Arc::new(Failing);
+            let members = if failing_first {
+                vec![failing, owner]
+            } else {
+                vec![owner, failing]
+            };
+            let chain = RecipeProviderChain::new(members);
+            let error = chain.recipe_opt(&key, envref()).await.expect_err("fails");
+            assert_eq!(error.message, "malformed");
+        }
+        Ok(())
+    }
+
+    /// AC-1: members carry their names in list order; `new` and `push` name them by position.
+    #[tokio::test]
+    async fn named_chain_reports_member_names() -> Result<(), Error> {
+        let chain: RecipeProviderChain<TestEnv> = RecipeProviderChain::named(vec![
+            ("recipes_yaml".to_string(), Arc::new(TrivialRecipeProvider)),
+            ("manifest".to_string(), Arc::new(TrivialRecipeProvider)),
+        ]);
+        assert_eq!(chain.names(), vec!["recipes_yaml", "manifest"]);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn push_names_members_by_position() -> Result<(), Error> {
+        let mut chain: RecipeProviderChain<TestEnv> =
+            RecipeProviderChain::new(vec![Arc::new(TrivialRecipeProvider)]);
+        chain.push(Arc::new(TrivialRecipeProvider));
+        assert_eq!(chain.names(), vec!["#0", "#1"]);
+        assert_eq!(chain.len(), 2);
+        assert!(!chain.is_empty());
         Ok(())
     }
 
@@ -2665,8 +3426,12 @@ mod recipe_provider_chain_tests {
 
     #[tokio::test]
     async fn chain_forwards_directory_changed() -> Result<(), Error> {
-        let first = Arc::new(RecordingProvider { seen: Default::default() });
-        let second = Arc::new(RecordingProvider { seen: Default::default() });
+        let first = Arc::new(RecordingProvider {
+            seen: Default::default(),
+        });
+        let second = Arc::new(RecordingProvider {
+            seen: Default::default(),
+        });
         let chain = RecipeProviderChain::new(vec![first.clone(), second.clone()]);
         chain.directory_changed(&parse_key("a/b")?).await;
         assert_eq!(*first.seen.lock().unwrap(), vec![parse_key("a/b")?]);
@@ -2676,7 +3441,9 @@ mod recipe_provider_chain_tests {
 
     #[tokio::test]
     async fn default_directory_changed_is_a_no_op() -> Result<(), Error> {
-        MockProvider::new(vec![]).directory_changed(&parse_key("a")?).await;
+        MockProvider::new(vec![])
+            .directory_changed(&parse_key("a")?)
+            .await;
         Ok(())
     }
 
@@ -2699,7 +3466,10 @@ mod recipe_provider_chain_tests {
             "a",
             Some(Recipe::default()),
         )])));
-        assert!(chain.recipe_opt(&parse_key("a")?, envref()).await?.is_some());
+        assert!(chain
+            .recipe_opt(&parse_key("a")?, envref())
+            .await?
+            .is_some());
         Ok(())
     }
 
@@ -2726,8 +3496,14 @@ mod recipe_provider_chain_tests {
         let mut appended_recipe = Recipe::default();
         appended_recipe.title = "appended".to_string();
 
-        let configured_provider = MockProvider::new(vec![("a", Some(configured_recipe))]);
-        let appended_provider = MockProvider::new(vec![("a", Some(appended_recipe))]);
+        let configured_provider = MockProvider::new(vec![
+            ("a", Some(configured_recipe)),
+            ("only/configured", Some(Recipe::default())),
+        ]);
+        let appended_provider = MockProvider::new(vec![
+            ("a", Some(appended_recipe)),
+            ("only/appended", Some(Recipe::default())),
+        ]);
 
         let envref = EnvironmentBuilder::<Value>::new()
             .with_recipe_provider(Arc::new(configured_provider))
@@ -2735,15 +3511,19 @@ mod recipe_provider_chain_tests {
             .build()?;
 
         let provider = envref.get_recipe_provider();
-        let key = parse_key("a")?;
-        let recipe = provider
-            .recipe_opt(&key, envref.clone())
-            .await?
-            .expect("the chain must resolve a recipe from one of its providers");
-        assert_eq!(
-            recipe.title, "configured",
-            "the configured provider is consulted first"
-        );
+        // Both members are consulted: each serves its own keys…
+        for key in ["only/configured", "only/appended"] {
+            assert!(provider
+                .recipe_opt(&parse_key(key)?, envref.clone())
+                .await?
+                .is_some());
+        }
+        // …and a key both define is refused rather than silently given to the first (AC-11).
+        let error = provider
+            .recipe_opt(&parse_key("a")?, envref.clone())
+            .await
+            .expect_err("a key two members define is a configuration error");
+        assert_eq!(error.error_type, ErrorType::ConfigurationError);
         Ok(())
     }
 }
@@ -3140,6 +3920,189 @@ mod recipe_cache_tests {
         let from_new = DefaultRecipeProvider::new().recipe(&key, envref.clone()).await?;
         let from_default = DefaultRecipeProvider::default().recipe(&key, envref).await?;
         assert_eq!(from_new.title, from_default.title);
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod recipes_config_tests {
+    //! `recipe-provider-chain-config` Phase 3: the `recipes:` forms, factories and resolution.
+    use super::*;
+    use crate::{context::SimpleEnvironment, value::Value};
+
+    type TestEnv = SimpleEnvironment<Value>;
+
+    fn parse(yaml: &str) -> Result<RecipesConfig, serde_yaml::Error> {
+        serde_yaml::from_str(yaml)
+    }
+
+    fn names(list: &[&str]) -> RecipesConfig {
+        RecipesConfig::Chain(list.iter().map(|n| RecipeProviderEntry::named(n)).collect())
+    }
+
+    /// AC-4: `default` is the kind's default, as an absent key is.
+    #[test]
+    fn absent_and_default_mean_kind_default() -> Result<(), Box<dyn std::error::Error>> {
+        assert_eq!(parse("default")?, RecipesConfig::KindDefault);
+        assert_eq!(parse("~")?, RecipesConfig::KindDefault);
+        assert_eq!(RecipesConfig::default(), RecipesConfig::KindDefault);
+        Ok(())
+    }
+
+    /// AC-2, AC-4: the trivial keywords are an empty chain.
+    #[test]
+    fn trivial_aliases_mean_an_empty_chain() -> Result<(), Box<dyn std::error::Error>> {
+        for keyword in ["trivial", "none", "no_recipes", "[]"] {
+            assert_eq!(
+                parse(keyword)?,
+                RecipesConfig::Chain(Vec::new()),
+                "{keyword}"
+            );
+        }
+        Ok(())
+    }
+
+    /// AC-4: an unknown keyword is still an error, naming what is accepted.
+    #[test]
+    fn unknown_keyword_is_a_parse_error() {
+        let error = parse("bogus").expect_err("unknown keyword");
+        let message = error.to_string();
+        assert!(
+            message.contains("bogus") && message.contains("trivial"),
+            "{message}"
+        );
+    }
+
+    #[test]
+    fn trivial_is_not_a_list_entry() {
+        for list in ["[trivial]", "[recipes_yaml, none]"] {
+            assert!(parse(list).is_err(), "{list}");
+        }
+    }
+
+    /// AC-12: a bare name and `{type: name}` are the same entry; arguments ride in the map form.
+    #[test]
+    fn bare_name_equals_type_map() -> Result<(), Box<dyn std::error::Error>> {
+        assert_eq!(parse("[manifest]")?, parse("[{type: manifest}]")?);
+        let with_argument = parse("[{type: python, object: notes}]")?;
+        assert_eq!(
+            with_argument,
+            RecipesConfig::Chain(vec![
+                RecipeProviderEntry::named("python").with_argument("object", "notes")
+            ])
+        );
+        assert!(
+            parse("[{object: notes}]").is_err(),
+            "a map entry needs a type"
+        );
+        Ok(())
+    }
+
+    /// AC-10: one canonical form: the kind default writes `default`, a chain writes a list (`[]`
+    /// included), a bare entry stays bare.
+    #[test]
+    fn recipes_config_round_trips_canonically() -> Result<(), Box<dyn std::error::Error>> {
+        for (input, canonical) in [
+            ("default", "default"),
+            ("trivial", "[]"),
+            (
+                "[recipes_yaml, {type: manifest}]",
+                "- recipes_yaml\n- manifest",
+            ),
+            (
+                "[{type: python, object: notes}]",
+                "- type: python\n  object: notes",
+            ),
+        ] {
+            let config = parse(input)?;
+            let written = serde_yaml::to_string(&config)?;
+            assert_eq!(written.trim(), canonical, "{input}");
+            assert_eq!(parse(&written)?, config, "{input}");
+        }
+        Ok(())
+    }
+
+    fn factory() -> ChainedRecipeProviderFactory<TestEnv> {
+        ChainedRecipeProviderFactory::new().chain(Box::new(core_recipe_provider_factory()))
+    }
+
+    #[test]
+    fn default_entry_splices_the_default_list() -> Result<(), Error> {
+        let default_list = vec![RecipeProviderEntry::named("recipes_yaml")];
+        assert_eq!(
+            expand_recipes(&names(&["default"]), &default_list)?,
+            default_list
+        );
+        assert_eq!(
+            expand_recipes(&RecipesConfig::KindDefault, &default_list)?,
+            default_list
+        );
+        let chain = resolve_recipes(&RecipesConfig::KindDefault, &default_list, &factory())?;
+        assert_eq!(chain.names(), vec!["recipes_yaml"]);
+        Ok(())
+    }
+
+    #[test]
+    fn duplicate_entry_is_refused() {
+        let error =
+            expand_recipes(&names(&["recipes_yaml", "recipes_yaml"]), &[]).expect_err("duplicate");
+        assert_eq!(error.error_type, ErrorType::ConfigurationError);
+        assert!(error.message.contains("recipes_yaml"));
+    }
+
+    #[test]
+    fn unknown_entry_type_names_entry_position_and_known_types() {
+        let error = resolve_recipes(&names(&["recipes_yaml", "nosuch"]), &[], &factory())
+            .err()
+            .expect("unknown type");
+        assert_eq!(error.error_type, ErrorType::ConfigurationError);
+        assert!(error.message.contains("'nosuch'"), "{}", error.message);
+        assert!(error.message.contains("entry 1"), "{}", error.message);
+        assert!(error.message.contains("recipes_yaml"), "{}", error.message);
+    }
+
+    #[test]
+    fn unavailable_entry_type_names_the_reason() {
+        let factory = factory().chain_first(Box::new(
+            RecipeProviderTypeMap::<TestEnv>::new().with_provider_type(
+                RecipeProviderTypeInfo::new("manifest").unavailable("enable the records feature"),
+                Box::new(|_| {
+                    Ok(Arc::new(TrivialRecipeProvider) as Arc<dyn AsyncRecipeProvider<TestEnv>>)
+                }),
+            ),
+        ));
+        let error = resolve_recipes(&names(&["manifest"]), &[], &factory)
+            .err()
+            .expect("unavailable");
+        assert_eq!(error.error_type, ErrorType::ConfigurationError);
+        assert!(
+            error.message.contains("records feature"),
+            "{}",
+            error.message
+        );
+        assert!(error.message.contains("entry 0"), "{}", error.message);
+    }
+
+    #[test]
+    fn earlier_factory_overrides_a_name() -> Result<(), Error> {
+        let factory = factory().chain_first(Box::new(
+            RecipeProviderTypeMap::<TestEnv>::new().with_provider_type(
+                RecipeProviderTypeInfo::new("recipes_yaml").with_doc("override"),
+                Box::new(|_| {
+                    Ok(Arc::new(TrivialRecipeProvider) as Arc<dyn AsyncRecipeProvider<TestEnv>>)
+                }),
+            ),
+        ));
+        let types = factory.provider_types();
+        assert_eq!(types.len(), 1);
+        assert_eq!(types[0].doc, "override");
+        Ok(())
+    }
+
+    #[test]
+    fn empty_chain_resolves_nothing() -> Result<(), Error> {
+        let chain = resolve_recipes(&RecipesConfig::Chain(Vec::new()), &[], &factory())?;
+        assert!(chain.is_empty());
         Ok(())
     }
 }

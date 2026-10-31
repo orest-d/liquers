@@ -1,7 +1,7 @@
 ---
 id: MACRO-QUERY-VALIDATION-AND-HINTS
 kind: issue
-title: `register_command!` does not validate queries or implement hints
+title: "`register_command!` does not validate queries or implement hints"
 status: accepted
 priority: P3
 complexity: M

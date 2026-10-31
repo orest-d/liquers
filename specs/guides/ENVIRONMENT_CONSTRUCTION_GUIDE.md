@@ -3,7 +3,7 @@ title: Building and Configuring an Environment
 kind: guide
 audience: both
 area: [core/context, core/assets, core/store]
-reviewed: 2026-10-11
+reviewed: 2026-10-30
 ---
 # Building and Configuring an Environment
 
@@ -39,8 +39,9 @@ Everything that needs `&mut` happens on the builder; `build()` consumes it.
 |---|---|
 | Commands | `&mut builder.command_registry`, a public field |
 | Store | `.with_async_store(Arc<dyn AsyncStore>)`, or `.with_store_config(config, factory)` |
-| Recipe provider | `.with_recipe_provider_choice(RecipeProviderChoice::Default)` (the base) |
-| More recipe providers | `.with_appended_recipe_provider(Arc<dyn AsyncRecipeProvider<_>>)`, consulted after the base |
+| Recipe providers | `.with_recipes(RecipesConfig)`, a list of entries, or `.with_recipe_provider_choice(RecipeProviderChoice::Default)` for the kind's list |
+| More recipe providers | `.with_appended_recipe_entry(entry)` (skipped when present), `.with_appended_recipe_provider(Arc<dyn AsyncRecipeProvider<_>>)` |
+| Your own entry types | `.with_recipe_provider_factory(Box<dyn RecipeProviderFactory<_>>)`, consulted before the kind's |
 | Type registry | `.with_type_registry(registry)` |
 | Manager options | `.with_asset_manager_options(AssetManagerOptions)` — see §Manager options |
 | Everything at once | `.with_config(EnvironmentConfig, factory)` |
@@ -175,7 +176,9 @@ store:
         path: ${LIQUERS_DATA}
     - type: memory
       prefix: tmp
-recipes: default          # default | trivial
+recipes:                  # absent / default | trivial | a list
+  - recipes_yaml
+  - manifest              # liquers-lib with records
 assets:
   job_capacity: 8               # queued only
   dependency_audit: on_load     # explicit | on_load
@@ -197,16 +200,18 @@ let envref = builder.build()?;
 
 Two behaviours worth knowing, because both are quiet:
 
-- **An absent `recipes:` key means `default`, not `trivial`.** That is the *document* default — a
-  configuration saying nothing about recipes most plausibly wants them to work — and it is
-  deliberately not the unconfigured default of `EnvironmentBuilder::new()`, which is `Trivial`. So
-  applying even an empty configuration changes how recipes resolve.
+- **An absent `recipes:` key means `default`, the kind's list, not `trivial`.** That is the
+  *document* default — a configuration saying nothing about recipes most plausibly wants them to
+  work — and it is deliberately not the unconfigured chain of a core `EnvironmentBuilder::new()`,
+  which is empty. So applying even an empty configuration changes how recipes resolve.
 - **An unset `${VAR}` fails the build.** The expander has no default-value syntax, so a missing
   variable is an error rather than an empty path.
 
 Store construction and `${VAR}` expansion are deferred to `build()`, which is what keeps the
 setters infallible: a malformed configuration, an unset variable or a store type no factory claims
-all surface there, with the error naming the store types the chain does support.
+all surface there, with the error naming the store types the chain does support. So do a
+`recipes` entry type no factory declares (named with its position and the known types), one
+unavailable in this build (`manifest` without `records`), and an entry listed twice.
 
 Their error types tell a host which kind of fault it is: a document that does not parse is
 `ParseError` (store and environment documents alike), a missing required store key or an unset
@@ -225,36 +230,64 @@ Which backends exist is a build fact, so the factory chain is an argument rather
 let mut builder = liquers_lib::environment::default_environment_builder::<Value, ()>();
 ```
 
-`liquers-core`'s kinds default to `RecipeProviderChoice::Trivial` — core has no opinion about
-recipes. `liquers-lib`'s `LibKind` defaults to `Default`, which reads recipes through the store, and
-that is what every `liquers-lib` consumer has always got. Building a `DefaultEnvironment` from a
-bare `EnvironmentBuilder::<Value>::new()` — which is `DefaultKind`, not `LibKind` — resolves no
-recipes, and nothing stops compiling.
+`liquers-core`'s kinds default to the empty chain — core has no opinion about recipes.
+`liquers-lib`'s `LibKind` defaults to its list, `[recipes_yaml, manifest]` with the `records` feature
+and `[recipes_yaml]` without, which reads recipes through the store; that is what every
+`liquers-lib` consumer has always got. Building a `DefaultEnvironment` from a bare
+`EnvironmentBuilder::<Value>::new()` — which is `DefaultKind`, not `LibKind` — resolves no recipes,
+and nothing stops compiling.
 
-The default lives on the **kind** (`AssetManagerKind::default_recipe_provider`) rather than in one
+The default lives on the **kind** (`AssetManagerKind::default_recipes`, with
+`default_recipe_provider` for `new()` and `unconfigured_recipes` for a builder) rather than in one
 place, because the kind is the only thing that still distinguishes the two once both are
 `GenericEnvironment`. `DefaultEnvironment<V, ()>` and `SimpleEnvironment<V>` would otherwise be the
 same type natively, and a type alias cannot change what `new()` does. So both of these are correct
 and they differ:
 
 ```rust,ignore
-DefaultEnvironment::<Value>::new()               // LibKind    → recipes through the store
+DefaultEnvironment::<Value>::new()               // LibKind    → recipes.yaml (and manifests)
 SimpleEnvironment::<Value>::new()                // Queued     → no recipes
 ```
 
-**Recipe providers form a chain.** The base provider (a `RecipeProviderChoice` or
-`.with_recipe_provider(...)`) is consulted first, then each provider added with
-`.with_appended_recipe_provider(...)` in order; the first `Some` wins, and listings are the union.
-A later base setter replaces only the base and keeps the appended providers. With the `records`
-feature on, `LibKind`'s default is already the chain `[Default, ManifestRecipeProvider]`, so keyed
-manifest chunks resolve with no setup. A build that sets a base provider — including
-`.with_config(...)` with any document — replaces that default chain. Put the manifest provider
-back with the extension trait:
+**Recipe providers form a chain, configured as a list.** Every member is asked for every key; a key
+is owned by the one member that has a recipe for it, so the order does not decide which recipe is
+used. Two members with a recipe for the same key is a configuration error naming both, and an
+error from any member fails the lookup — so a provider answers "no recipe" for keys it does not own.
+A configuration naming `default` (or saying nothing) keeps `LibKind`'s manifests; an explicit list
+keeps them only if it names `manifest`:
+
+```yaml
+recipes: [recipes_yaml]              # recipes.yaml only, no manifest chunks
+recipes: [default, {type: mine}]     # the kind's list, then an integration's provider
+```
+
+`with_records_recipe_provider()` appends the `manifest` entry when it is missing and does nothing
+otherwise:
 
 ```rust,ignore
 use liquers_lib::environment::RecordsRecipeProvider;
-let builder = builder.with_recipe_provider_choice(choice).with_records_recipe_provider();
+let builder = builder.with_recipes(recipes).with_records_recipe_provider();
 ```
+
+Do **not** append a raw `ManifestRecipeProvider` with `.with_appended_recipe_provider(...)` to a
+chain that already holds `manifest`: two manifest providers own every chunk, which is a two-owner
+error for each.
+
+**Your own entry type.** Declare it in a `RecipeProviderTypeMap` and chain it with
+`.with_recipe_provider_factory(...)`; a document can then place it anywhere in the list, with
+arguments:
+
+```rust,ignore
+let mine = RecipeProviderTypeMap::new().with_provider_type(
+    RecipeProviderTypeInfo::new("fixed").with_doc("Answers one key."),
+    Box::new(|entry| Ok(Arc::new(Fixed::from_entry(entry)?) as Arc<dyn AsyncRecipeProvider<_>>)),
+);
+let builder = builder
+    .with_recipe_provider_factory(Box::new(mine))
+    .with_recipes(serde_yaml::from_str("[recipes_yaml, {type: fixed, key: data/extra.txt}]")?);
+```
+
+`liquers-core/tests/recipe_provider_chain_config.rs` is this example, runnable.
 
 See [`ENVIRONMENT_CONFIG.md`](../reference/ENVIRONMENT_CONFIG.md) for the chain's contract and
 [`RECORD_STREAM_GUIDE.md`](RECORD_STREAM_GUIDE.md) for manifests.
@@ -390,6 +423,7 @@ is the moment when that is safe: it runs before anything else can observe the re
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-30 | The recipe provider chain is a list: §Building gains `with_recipes`, `with_appended_recipe_entry`, `with_recipe_provider_factory`; §Configuring from a document shows the list and the entry errors; §Library defaults rewritten (kind lists, every member asked, two-owner error, `with_records_recipe_provider` idempotent, the raw-manifest hazard, declaring an entry type). | design `recipe-provider-chain-config` |
 | 2026-10-11 | §Configuration documents: the error type of each configuration fault (`ParseError`, `ConfigurationError`, `NotSupported`). | `design/configuration-error-kind/` |
 | 2026-10-10 | New §Choosing caching strategies: `with_recipe_cache_strategy`, `with_query_cache_strategy`, `with_cut_predecessors`, the strategy table, the public-service and memory-constrained setups; the configuration example gains the three keys. | phase-5, `design/plan-policy/` |
 | 2026-10-08 | §Manager options links the new dependency consistency guide (choosing `dependency_audit`, the startup store audit). | phase-5 (`design/dependency-chain-analysis-cost/`) |

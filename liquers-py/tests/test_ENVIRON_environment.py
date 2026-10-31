@@ -125,3 +125,72 @@ def test_ENVIRON07_documented_operations_callable_in_every_state(operation, life
     else:
         OPERATIONS[operation](environment)
         environment.shutdown()
+
+
+_RECIPES_YAML = "recipes:\n  - query: hello/hello.txt\n"
+_MANIFEST = "manifest: record-stream\nchunks:\n  - query: greeting/greet.csv\n"
+
+
+def _recipes_environment(tmp_path, recipes=None):
+    """A filesystem store at ``d`` holding a ``recipes.yaml`` recipe and a manifest chunk, under
+    the ``recipes`` value given (absent when ``None``). Each call gets a fresh folder, because an
+    evaluated recipe stores its result and a later environment would read it back."""
+    root = tmp_path / str(len(list(tmp_path.iterdir())))
+    root.mkdir()
+    config = {"store": {"stores": [{"type": "filesystem", "prefix": "d",
+                                    "config": {"path": str(root)}}]}}
+    if recipes is not None:
+        config["recipes"] = recipes
+    environment = lq.Environment(config=config)
+
+    @environment.first_command
+    def hello() -> str:
+        return "hello"
+
+    @environment.first_command
+    def greeting() -> str:
+        return "greetings"
+
+    environment.store_set("d/recipes.yaml", _RECIPES_YAML)
+    environment.store_set("d/chunks.manifest.yaml", _MANIFEST)
+    return environment
+
+
+def test_ENVIRON_recipes_trivial_and_empty_list_resolve_nothing(tmp_path):
+    for recipes in ("trivial", "none", []):
+        environment = _recipes_environment(tmp_path, recipes)
+        for query in ("-R/d/hello.txt", "-R/d/greet.csv"):
+            with pytest.raises(lq.LiquersError):
+                environment.evaluate(query)
+        environment.shutdown()
+
+
+def test_ENVIRON_recipes_default_keeps_recipes_and_manifests(tmp_path):
+    for recipes in (None, "default", ["default"]):
+        environment = _recipes_environment(tmp_path, recipes)
+        assert environment.evaluate("-R/d/hello.txt") == "hello"
+        assert environment.evaluate("-R/d/greet.csv") == "greetings"
+        environment.shutdown()
+
+
+def test_ENVIRON_recipes_explicit_list(tmp_path):
+    environment = _recipes_environment(tmp_path, ["recipes_yaml"])
+    assert environment.evaluate("-R/d/hello.txt") == "hello"
+    with pytest.raises(lq.LiquersError):
+        environment.evaluate("-R/d/greet.csv")
+    environment.shutdown()
+
+    environment = _recipes_environment(tmp_path, [{"type": "manifest"}])
+    assert environment.evaluate("-R/d/greet.csv") == "greetings"
+    with pytest.raises(lq.LiquersError):
+        environment.evaluate("-R/d/hello.txt")
+    environment.shutdown()
+
+
+def test_ENVIRON_recipes_unknown_value_is_refused(tmp_path):
+    with pytest.raises(lq.LiquersError):
+        lq.Environment(config={"recipes": "bogus"})
+    environment = lq.Environment(config={"recipes": ["recipes_yaml", "no_such_provider"]})
+    with pytest.raises(lq.ConfigurationError, match="no_such_provider"):
+        environment.evaluate("commands_doc")
+    environment.shutdown()

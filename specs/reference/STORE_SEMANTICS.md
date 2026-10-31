@@ -3,7 +3,7 @@ title: Store Behavioural Semantics
 kind: reference
 audience: internal
 area: [core/store, store/backends, web]
-reviewed: 2026-10-25
+reviewed: 2026-10-27
 ---
 # Store Behavioural Semantics
 
@@ -527,10 +527,28 @@ writes; a record object edited outside the process while the data object is unch
 until the data changes or the process restarts. A directory's record is `default_metadata(key,
 true)` with its children (§2).
 
-**`persist_defaults`** (default `false`): a record synthesized by `on_default` is stored the first
-time it is read, through the write strategy; with `false` a read never writes. A pipeline built for
-a read-only mount never persists, never recovers and never restores a backup, whatever the section
-says.
+**Inferred records.** `MetadataRecord::inferred` says whether a record was built by `on_default`
+(`true`) or read from the storage model (`false`). The pipeline sets it on every read; it is never
+stored (every storage model encodes the record without it, and a decoded record reads as `false`),
+and a caller cannot set it (it is cleared on the record handed to `set` and `set_metadata` before
+`on_validate`). **An inferred record is not stored:** when the record leaving `on_write` is
+inferred — only a Write step marks one, the `infer` entry of §14 — the data is written as usual,
+no record is written, and a record stored before is deleted (`plan(.., None)`). The next read infers
+it again from the data. This is a mount **policy for sparse metadata** (an agent memory's checkout,
+where user files need no records); a mount without such a step stores every record as before. The
+`native` model keeps the record inside the data object and cannot omit it, so an inferred record
+there fails the write (`NotSupported`). A read never writes: a record built by `on_default` is not
+stored on read (the former `persist_defaults` option is retired; a section naming it fails the build
+as an unknown field). A pipeline built for a read-only mount never recovers and never restores a
+backup, whatever the section says.
+
+What the asset manager makes of an inferred record is in `ASSETS.md`: without a recipe it stands
+(a `Source`); at a key a recipe can make, the data is read as **a file with no metadata** (status
+`None`, version unknown), so the environment's `ExternalChangePolicy` decides — `user_input` keeps
+it as an `Override`, `corrupted` deletes it and the recipe recomputes — and `remove` drops it back to
+its recipe by deleting the data. A hand edit of such a result is not detected by a version check,
+since no version was stored; under `user_input` it is adopted, under `corrupted` it is recomputed
+on the next process's first read.
 
 **`created` and `etag`.** After every write that changes the data object, the pipeline reads
 `data_facts` and stores the backend's modification time as `created` and its ETag as `etag`,
@@ -557,10 +575,12 @@ reading a record that has them parses it as `LegacyMetadata`, losing nothing but
 
 *Enforced by:* the `store/pipeline.rs` and `store/storage.rs` unit tests (among them
 `per_entry_reserved_names_are_refused_by_the_pipeline`, `storage_none_never_writes`,
-`persist_defaults_false_writes_nothing_and_is_stable`, `read_only_pipeline_never_persists`,
+`default_records_write_nothing_and_are_stable`, `read_only_pipeline_never_persists`,
+`default_record_is_inferred_and_stored_record_is_not`, `every_storage_model_drops_the_flag`,
+`inferred_record_is_not_stored_and_deletes_the_old_one`, `native_storage_refuses_an_inferred_record`,
 `listing_reads_no_bytes_for_unchanged_entries`, `created_comes_from_backend_facts_after_commit`,
 `legacy_record_bypasses_chains`, `the_pipeline_reports_no_data_access`), the central-storage tests of
-`tests/store_adapters.rs`, and conformance suites `A2`–`A5` (core) and `A3` over OpenDAL fs
+`tests/store_adapters.rs`, `tests/storage_none_computed_values.rs`, and conformance suites `A2`–`A5` (core) and `A3` over OpenDAL fs
 (`liquers-store`).
 
 ## 14. Handler stages
@@ -582,7 +602,9 @@ sees `FactsIn`: the key, the `DataFacts`, the bytes when it asked for them or th
 them (`set`), the record as stored (`previous`) and the operation name. Change detection compares
 with `previous`, not with the record being built. A chain's `needs_bytes` is evaluated first, so the
 bytes are read only when some step needs them. A Write step may replace the data
-(`StepOut::data`, front-matter write-back), which turns a `set_metadata` into a data write.
+(`StepOut::data`, front-matter write-back), which turns a `set_metadata` into a data write. A Write
+step may also mark the record inferred (`infer-<statuses…>`, every status when none is named), so
+that it is not stored (§13); it is the only stage where the mark has an effect.
 
 An entry in a stage it does not allow, an unknown entry, a non-literal parameter, a resource,
 asset or CWD step, a header naming another realm, or a component written in a handler field (or the
@@ -650,6 +672,7 @@ commits. So:
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-27 | §13: inferred records — the `inferred` fact, never stored; an inferred record is not stored and deletes the stored one; the `native` model refuses it; what the asset manager makes of it. `persist_defaults` retired. §14: the `infer` Write step. | `design/storage-none-computed-values/` |
 | 2026-10-25 | §4: a store miss is `KeyNotFound`, never `AssetNotFound`, which the asset layer reserves for a key that is neither stored nor made by a recipe (both are in `ErrorCategory::NotFound`). | `design/key-without-recipe-answer/` |
 | 2026-10-20 | §10: a store may return data whose record has no status; the asset layer reads it as a file with no metadata. | phase-5 (`design/js-store-page-metadata-status/`) |
 | 2026-10-16 | §11: `LocalStorageStore` and `FetchStore` (read half) offer data-only access; `FetchStore::get_stored_metadata` returns its header-derived record. | `design/store-adapters/` phase-5 review |

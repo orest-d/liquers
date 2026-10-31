@@ -2,14 +2,24 @@
 id: CONFIGURED-RECIPE-CHOICE-DROPS-MANIFEST-PROVIDER
 kind: issue
 title: Building a library environment from a configuration document silently drops the manifest recipe provider
-status: draft
+status: closed
 priority: P3
 complexity: M
 area: [lib/commands, records, core/context]
-design: kind-aware-recipe-provider-choice
+design: recipe-provider-chain-config
 created: 2026-10-20
 github:
 ---
+
+## Resolution
+
+Fixed by `specs/design/recipe-provider-chain-config/` (PR #224). `LibKind`'s default list is
+`[recipes_yaml, manifest]` with `records`, and a configuration document (absent `recipes:` or
+`default`), `with_recipe_provider_choice(Default)` and `with_default_recipe_provider()` (the
+`liquers-web` path) all resolve that list, so manifests are kept. `with_records_recipe_provider()`
+appends the `manifest` entry only when it is missing. Evidence:
+`configured_lib_build_keeps_manifests`, `default_recipe_provider_setter_keeps_manifests` and
+`records_recipe_provider_is_not_added_twice` in `liquers-lib/tests/recipe_provider_chain_config.rs`.
 
 ## Problem
 
@@ -48,3 +58,8 @@ way, a test that a configured build serves a manifest chunk.
 ## Discovery
 
 Found 2026-10-20 during the bulk-design pass while sizing `PY-RECIPE-PROVIDER-NOT-CONFIGURABLE`.
+
+## Design
+
+Moved 2026-10-30 to `recipe-provider-chain-config`, which absorbs this issue (Phase 1 question 6,
+accepted by Orest); the earlier design is superseded.

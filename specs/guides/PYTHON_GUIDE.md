@@ -3,7 +3,7 @@ title: Using Liquers from Python
 kind: guide
 audience: user
 area: [py]
-reviewed: 2026-10-27
+reviewed: 2026-10-30
 ---
 # Using Liquers from Python
 
@@ -116,7 +116,7 @@ The prefix stays in the path: under this configuration the key `data/note.txt` i
 
 | Argument | Default | Meaning |
 |---|---|---|
-| `config` | none | The environment configuration, as a `dict` or a YAML string: `store` (where data lives), `assets` (asset manager options). The format is [`reference/ENVIRONMENT_CONFIG.md`](../reference/ENVIRONMENT_CONFIG.md). With no `store`, the store is in memory. `recipes` must be left at `default`. |
+| `config` | none | The environment configuration, as a `dict` or a YAML string: `store` (where data lives), `assets` (asset manager options). The format is [`reference/ENVIRONMENT_CONFIG.md`](../reference/ENVIRONMENT_CONFIG.md). With no `store`, the store is in memory. `recipes` (where recipes come from) is described under "Named results: recipes". |
 | `conversion` | `"permissive"` | What happens to a Python object with no Liquers equivalent: `"permissive"` keeps it as an opaque object, `"strict"` refuses it with `ConversionError` (§7). |
 | `pickle` | `False` | Whether opaque objects can be written to the store, as pickle. Leave it off unless you trust everything the store holds: reading pickle runs code. |
 
@@ -151,9 +151,10 @@ know are ignored, so check the spelling of a setting that seems to have no effec
 **Lifecycle.** An environment is built on first use, from the commands registered on it, and keeps
 running until `shutdown()`. `shutdown()` is idempotent; afterwards every use raises `GeneralError`
 (a wait still outstanding raises `CancelledError`). Call it when you are done with an environment
-you made, typically in a `finally` or a test fixture. An invalid `conversion` or `recipes` is
+you made, typically in a `finally` or a test fixture. An invalid `conversion` or a malformed `config` is
 refused by the constructor, but a store that cannot be built, such as one of an unknown type
-(`NotSupportedError`), is reported by the first use.
+(`NotSupportedError`), or an unknown recipe provider (`ConfigurationError`), is reported by the
+first use.
 
 **The default environment.** `lq.default_environment()` returns one shared environment, created on
 first use with the default settings. `lq.evaluate` and the bare `@lq.command` decorators use it.
@@ -551,6 +552,22 @@ A trailing file name such as `triple.txt` also names the result and sets its med
 any query (`hello/repeat-3/triple.txt`). How recipes are resolved is in
 [`reference/RECIPES_AND_PLANS.md`](../reference/RECIPES_AND_PLANS.md).
 
+Recipes come from a list of *recipe providers*, the `recipes` key of `config`. Left out, it is
+`default`: `recipes.yaml` files and record-stream manifests (`*.manifest.yaml`, whose chunks are
+named results too). To choose, give the list:
+
+| `recipes` | Recipes from |
+|---|---|
+| left out, `"default"` | `recipes.yaml` and manifests |
+| `["recipes_yaml"]` | `recipes.yaml` only |
+| `["manifest"]`, or `[{"type": "manifest"}]` | manifests only |
+| `"trivial"`, `"none"`, `[]` | nowhere: `-R/` reads only what is stored |
+
+The order does not decide anything: a key may be named by only one provider, and a key two of them
+name is a `ConfigurationError` naming both. An unknown provider name is a `ConfigurationError` at
+first use. The full grammar is
+[`reference/ENVIRONMENT_CONFIG.md`](../reference/ENVIRONMENT_CONFIG.md) §The recipe provider chain.
+
 ### Checking a query without running it
 
 `lq.parse(text)` parses a query and raises `ParseError` when it is malformed; `.encode()` gives its
@@ -689,7 +706,7 @@ What you will notice; the complete list, with the tracking issues, is
   own.
 - The decorators cannot set a command's realm (a deployment-level grouping of commands) or describe
   arguments beyond their annotations.
-- Only the default recipe provider can be configured.
+- A recipe provider cannot be written in Python yet; `recipes` chooses among the built-in ones.
 - Progress lines on stderr cannot be turned off.
 - There are no type stubs for editors and no generated API reference; `help()` on a class or
   method shows its docstring and signature.
@@ -698,6 +715,7 @@ What you will notice; the complete list, with the tracking issues, is
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-30 | §4 `config`: `recipes` accepts every value; §6 Named results: choosing recipe providers with `recipes`. §10: the limitation narrows to a provider written in Python. | design `recipe-provider-chain-config` |
 | 2026-10-27 | §10: the missing-docstrings limitation is lifted; type stubs and a generated reference remain. | design `py-docstrings` |
 | 2026-10-27 | §5 Async commands; §6 Awaiting a query, `job_capacity`, Threads and free-threaded Python; §10 the async limitation is lifted, and the stale memory-leak line removed (fixed 2026-10-22). | `design/liquers-py-async/` (phase-5) |
 | 2026-10-27 | Registration: a command named `ns`, `q` or `v` is refused (`q` and `v` used to register and never run). | design `reserved-instruction-command-names` |

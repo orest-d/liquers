@@ -1317,6 +1317,16 @@ pub struct MetadataRecord {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub is_applied: bool,
 
+    /// Whether the record was inferred: synthesized from the data by a store's `on_default` chain
+    /// rather than read from its storage, or marked so by an `infer` step on the way in.
+    ///
+    /// A fact the store reports, never a request: the metadata pipeline clears it on every
+    /// incoming write, never stores it, and does not store a record that is still inferred after
+    /// its `on_write` chain (`STORE_SEMANTICS.md` §14). Under a recipe the asset manager reads an
+    /// inferred record as a file with no metadata. Skipped when `false`, defaulted on load.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub inferred: bool,
+
     /// Expiration specification (human-readable, e.g. "in 5 min", "never")
     #[serde(default)]
     pub expires: Expires,
@@ -2930,6 +2940,24 @@ impl Metadata {
         }
     }
 
+    /// Whether the record was inferred from the data rather than read from storage (see
+    /// [`MetadataRecord::inferred`]). Legacy metadata is never inferred.
+    pub fn is_inferred(&self) -> bool {
+        match self {
+            Metadata::MetadataRecord(mr) => mr.inferred,
+            Metadata::LegacyMetadata(_) => false,
+        }
+    }
+
+    /// Mark the record inferred, or not. Legacy metadata cannot carry the fact and is left as it
+    /// is.
+    pub fn set_inferred(&mut self, inferred: bool) {
+        match self {
+            Metadata::MetadataRecord(mr) => mr.inferred = inferred,
+            Metadata::LegacyMetadata(_) => {}
+        }
+    }
+
     /// Returns whether the value was produced by applying a plan to a supplied input state, so
     /// that its query is not self-describing (see [`MetadataRecord::is_applied`]). Legacy
     /// metadata reads an `is_applied` key, absent = `false`.
@@ -4474,6 +4502,26 @@ mod tests {
 
         metadata.set_status(Status::Ready).unwrap();
         assert!(metadata.expiry_reason().is_none());
+    }
+
+    /// `design/storage-none-computed-values/` AC-1, AC-2: the flag is omitted when `false`, an
+    /// older record loads as not inferred, and the accessors read and set it.
+    #[test]
+    fn inferred_is_skipped_when_false_and_defaults_false() -> Result<(), Box<dyn std::error::Error>> {
+        let mut record = MetadataRecord::new();
+        let json = serde_json::to_string(&record)?;
+        assert!(!json.contains("inferred"), "{json}");
+        let reloaded: MetadataRecord = serde_json::from_str(&json)?;
+        assert!(!reloaded.inferred);
+        record.inferred = true;
+        let mut metadata = Metadata::MetadataRecord(record);
+        assert!(metadata.is_inferred());
+        metadata.set_inferred(false);
+        assert!(!metadata.is_inferred());
+        let mut legacy = Metadata::LegacyMetadata(serde_json::json!({}));
+        legacy.set_inferred(true);
+        assert!(!legacy.is_inferred());
+        Ok(())
     }
 
     /// Phase 3 test 26 (AC-12) of `design/plan-step-state-metadata/`: `is_applied` is omitted

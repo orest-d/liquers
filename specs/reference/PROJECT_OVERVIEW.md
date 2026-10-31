@@ -3,7 +3,7 @@ title: Liquers Project Overview
 kind: reference
 audience: internal
 area: [core/query, core/plan, core/assets, core/store, core/value]
-reviewed: 2026-10-25
+reviewed: 2026-10-30
 ---
 # Liquers Project Overview
 
@@ -277,11 +277,11 @@ pub struct Recipe {
 reuse respectively; an existing stored copy is still read, neither is volatility, and an uncached
 asset remains its key's dependency-graph node (`specs/reference/ASSETS.md`).
 
-**Recipe providers form a chain.** The environment's `AsyncRecipeProvider` may be a
-`RecipeProviderChain`, which consults providers in order — the first to answer `recipe_opt` for a
-key serves it. A provider is appended in code with `with_appended_recipe_provider` (on
-`EnvironmentBuilder` or `GenericEnvironment`); `RecipeProviderChoice` still selects only the base.
-`liquers-lib` with `records` defaults to `[DefaultRecipeProvider, ManifestRecipeProvider]`:
+**Recipe providers form a chain.** The environment's `AsyncRecipeProvider` is always a
+`RecipeProviderChain`, configured as a `recipes:` list of entry types that factories declare (as
+store types are). Every member is asked: the one member with a recipe for a key owns it, two owners
+is a configuration error, and any member's error fails the lookup. `liquers-lib` with `records`
+defaults to `[recipes_yaml, manifest]`:
 alongside the enumerable `recipes.yaml` lists, the manifest provider is **generative** — it
 synthesizes a recipe for each keyed record chunk a `*.manifest.yaml` names or its template
 produces, so chunks with no known count are addressable by key without being listed
@@ -568,6 +568,7 @@ project's purpose, intended uses and per-crate strategy. This document describes
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-30 | §Recipes: every environment's recipe provider is a chain configured as a list; every member is asked. | design `recipe-provider-chain-config` |
 | 2026-10-25 | Error handling: `ErrorCategory` (`Store`, `KeyedAsset`, `NotFound`) and the `KeyNotFound` / `AssetNotFound` distinction. | `design/key-without-recipe-answer/` |
 | 2026-10-20 | "Special instructions" renamed planner instructions, reduced to the `ns`-is-variadic rule and a link to their definition in `RECIPES_AND_PLANS.md`; a resource header takes at most one instruction. | DOC-08 promotion |
 | 2026-10-19 | Added `liquers-mcp` and `liquers-agent` to the crate structure and the dependency flow, and the `mem` feature of `liquers-lib`. | `design/agent-memory-mvp/` |

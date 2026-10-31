@@ -32,7 +32,11 @@ use crate::assets::ExternalChangePolicy;
 use crate::context::{EnvRef, Environment, GenericEnvironment};
 use crate::error::Error;
 use crate::issue_report::IssueReport;
-use crate::recipes::{AsyncRecipeProvider, RecipeProviderChain, RecipeProviderChoice};
+use crate::recipes::{
+    core_recipe_provider_factory, expand_recipes, AsyncRecipeProvider,
+    ChainedRecipeProviderFactory, RecipeProviderChain, RecipeProviderChoice, RecipeProviderEntry,
+    RecipeProviderFactory, RecipesConfig,
+};
 use crate::store::AsyncStore;
 use crate::store_config::StoreRouterConfig;
 use crate::store_factory::{StoreFactory, StoreRouterBuilder};
@@ -204,6 +208,48 @@ pub trait AssetManagerKind: 'static {
     fn default_recipe_provider<E: Environment>() -> Arc<dyn AsyncRecipeProvider<E>> {
         RecipeProviderChoice::Trivial.provider()
     }
+
+    /// The recipe providers an unconfigured [`EnvironmentBuilder`] resolves, as a configuration.
+    ///
+    /// Must describe the same chain as [`Self::default_recipe_provider`]; it exists so the builder
+    /// can resolve the unconfigured case through [`crate::recipes::resolve_recipes`] like any
+    /// other, which is what lets an appended entry see what is already there. Defaults to the
+    /// empty chain, the core behaviour.
+    fn unconfigured_recipes() -> RecipesConfig {
+        RecipesConfig::Chain(Vec::new())
+    }
+
+    /// The list a configuration document without `recipes:` means
+    /// ([`RecipesConfig::KindDefault`]). Defaults to `[recipes_yaml]`: a document that says nothing
+    /// about recipes most plausibly wants them to work.
+    fn default_recipes() -> Vec<RecipeProviderEntry> {
+        vec![RecipeProviderEntry::named("recipes_yaml")]
+    }
+
+    /// The recipe provider entry types this kind knows. Defaults to `liquers-core`'s
+    /// (`recipes_yaml`); a kind adds its crate's types, and a builder chains an integration's
+    /// before them ([`EnvironmentBuilder::with_recipe_provider_factory`]).
+    fn recipe_provider_factory<E: Environment>() -> ChainedRecipeProviderFactory<E> {
+        ChainedRecipeProviderFactory::new().chain(Box::new(core_recipe_provider_factory()))
+    }
+}
+
+/// The base of a builder's recipe provider chain: the last of the recipe setters wins.
+enum RecipeBase<E: Environment> {
+    /// Nothing configured: [`AssetManagerKind::unconfigured_recipes`].
+    Unset,
+    /// One provider supplied in code.
+    Provider(Arc<dyn AsyncRecipeProvider<E>>),
+    /// A configured list, resolved at build.
+    Config(RecipesConfig),
+}
+
+/// A recipe provider added after the base, in call order.
+enum AppendedRecipe<E: Environment> {
+    /// Built from an entry; skipped when an entry of that name is already in the chain.
+    Entry(RecipeProviderEntry),
+    /// Supplied in code.
+    Provider(Arc<dyn AsyncRecipeProvider<E>>),
 }
 
 /// Native queued execution: [`crate::assets::DefaultAssetManager`], with a job queue and an
@@ -304,10 +350,12 @@ pub struct EnvironmentBuilder<
     /// A public field rather than an accessor: `register_command!` needs a `&mut CommandRegistry`,
     /// which cannot be threaded through a by-value setter chain.
     pub command_registry: CommandRegistry<GenericEnvironment<V, P, K>>,
-    recipe_provider: Option<Arc<dyn AsyncRecipeProvider<GenericEnvironment<V, P, K>>>>,
-    /// Providers appended after the configured (or default) one, composed into a
-    /// [`RecipeProviderChain`] by [`Self::build`]. See [`Self::with_appended_recipe_provider`].
-    appended_recipe_providers: Vec<Arc<dyn AsyncRecipeProvider<GenericEnvironment<V, P, K>>>>,
+    recipe_base: RecipeBase<GenericEnvironment<V, P, K>>,
+    /// Providers appended after the base, composed into one [`RecipeProviderChain`] by
+    /// [`Self::build`]. See [`Self::with_appended_recipe_provider`].
+    appended_recipes: Vec<AppendedRecipe<GenericEnvironment<V, P, K>>>,
+    /// Entry-type factories chained before the kind's ([`Self::with_recipe_provider_factory`]).
+    recipe_provider_factories: Vec<Box<dyn RecipeProviderFactory<GenericEnvironment<V, P, K>>>>,
     manager_options: AssetManagerOptions,
     validation_report: IssueReport,
     _payload: PhantomData<P>,
@@ -335,8 +383,9 @@ impl<V: ValueInterface, P: PayloadType, K: AssetManagerKind> EnvironmentBuilder<
             async_store: None,
             store_config: None,
             command_registry: CommandRegistry::new(),
-            recipe_provider: None,
-            appended_recipe_providers: Vec::new(),
+            recipe_base: RecipeBase::Unset,
+            appended_recipes: Vec::new(),
+            recipe_provider_factories: Vec::new(),
             manager_options: AssetManagerOptions::default(),
             validation_report: IssueReport::default(),
             _payload: PhantomData,
@@ -387,47 +436,129 @@ impl<V: ValueInterface, P: PayloadType, K: AssetManagerKind> EnvironmentBuilder<
         self
     }
 
-    /// Supplies a recipe provider.
+    /// Supplies a recipe provider as the whole base of the chain.
+    ///
+    /// The last of [`Self::with_recipe_provider`], [`Self::with_recipe_provider_choice`] and
+    /// [`Self::with_recipes`] wins; appended providers are kept.
     pub fn with_recipe_provider(
         mut self,
         provider: Arc<dyn AsyncRecipeProvider<GenericEnvironment<V, P, K>>>,
     ) -> Self {
-        self.recipe_provider = Some(provider);
+        self.recipe_base = RecipeBase::Provider(provider);
         self
     }
 
-    /// Selects one of the built-in recipe providers by name.
-    ///
-    /// The data-expressible half of [`Self::with_recipe_provider`], so a configuration document
-    /// and hand-written code spell the choice identically.
+    /// Selects the recipe providers by keyword: [`RecipeProviderChoice::Default`] is the kind's
+    /// default list ([`AssetManagerKind::default_recipes`]), [`RecipeProviderChoice::Trivial`] the
+    /// empty chain. The same as [`Self::with_recipes`] with the keyword's [`RecipesConfig`].
     pub fn with_recipe_provider_choice(self, choice: RecipeProviderChoice) -> Self {
-        let provider = choice.provider::<GenericEnvironment<V, P, K>>();
-        self.with_recipe_provider(provider)
+        self.with_recipes(choice.into())
     }
 
-    /// Appends a provider consulted after the configured one — or after
-    /// [`AssetManagerKind::default_recipe_provider`] when none is configured.
+    /// Configures the recipe provider chain as a list of entries, as a document's `recipes:` does.
     ///
-    /// [`Self::build`] composes `RecipeProviderChain::new([base, appended…])`, so the base is
-    /// always tried first and every appended provider keeps its relative order. This is a `Vec`
-    /// rather than "push onto the configured provider" because the builder holds the base as an
-    /// `Arc<dyn AsyncRecipeProvider<…>>`: it cannot be recognized as a chain without a downcast
-    /// the trait does not offer, nor pushed onto once shared. A later [`Self::with_recipe_provider`]
-    /// or [`Self::with_recipe_provider_choice`] call replaces only the base and keeps every
-    /// appended provider (Phase 4 decision 1,
-    /// `specs/design/record-streams/phase4-implementation.md`).
+    /// Resolution is deferred to [`Self::build`], so an unknown or unavailable entry type
+    /// surfaces there (`specs/design/recipe-provider-chain-config/`).
+    pub fn with_recipes(mut self, recipes: RecipesConfig) -> Self {
+        self.recipe_base = RecipeBase::Config(recipes);
+        self
+    }
+
+    /// Adds recipe provider entry types, consulted **before** the kind's own
+    /// ([`AssetManagerKind::recipe_provider_factory`]), so an integration may override a name, as
+    /// store factories can. Factories added later are consulted before earlier ones.
+    pub fn with_recipe_provider_factory(
+        mut self,
+        factory: Box<dyn RecipeProviderFactory<GenericEnvironment<V, P, K>>>,
+    ) -> Self {
+        self.recipe_provider_factories.push(factory);
+        self
+    }
+
+    /// Appends an entry after the base, unless an entry of that name is already in the chain.
     ///
-    /// [`RecipeProviderChoice`] is deliberately not extended with a "chain" choice: a choice is
-    /// data in a configuration document and cannot name a provider living in another crate — a
-    /// manifest provider in `liquers-records`, for example. This setter is the code-side
-    /// equivalent, mirroring
-    /// [`crate::context::GenericEnvironment::with_appended_recipe_provider`].
+    /// The idempotent way for a crate to add its provider: `liquers-lib`'s
+    /// `with_records_recipe_provider` appends `manifest` this way, so it cannot add a second
+    /// manifest provider to a default that already holds one.
+    pub fn with_appended_recipe_entry(mut self, entry: RecipeProviderEntry) -> Self {
+        self.appended_recipes.push(AppendedRecipe::Entry(entry));
+        self
+    }
+
+    /// Appends a provider consulted after the base and everything appended before it.
+    ///
+    /// [`Self::build`] composes one [`RecipeProviderChain`] of the base, then the appended entries
+    /// and providers in call order. Every member of a chain is asked for every key, so a provider
+    /// appended here that serves keys a base member also serves makes those keys a configuration
+    /// error: appending a second `ManifestRecipeProvider` after a default that already holds
+    /// `manifest`, for example. Prefer [`Self::with_appended_recipe_entry`] for a provider that
+    /// has an entry type.
     pub fn with_appended_recipe_provider(
         mut self,
         provider: Arc<dyn AsyncRecipeProvider<GenericEnvironment<V, P, K>>>,
     ) -> Self {
-        self.appended_recipe_providers.push(provider);
+        self.appended_recipes
+            .push(AppendedRecipe::Provider(provider));
         self
+    }
+
+    /// The factory chain this builder resolves entries through: its own factories, latest first,
+    /// then the kind's.
+    fn resolved_recipe_provider_factory(
+        factories: Vec<Box<dyn RecipeProviderFactory<GenericEnvironment<V, P, K>>>>,
+    ) -> ChainedRecipeProviderFactory<GenericEnvironment<V, P, K>> {
+        let mut chained = K::recipe_provider_factory::<GenericEnvironment<V, P, K>>();
+        for factory in factories {
+            chained = chained.chain_first(factory);
+        }
+        chained
+    }
+
+    /// Resolves the recipe base and the appended providers into the environment's chain.
+    fn build_recipe_chain(
+        recipe_base: RecipeBase<GenericEnvironment<V, P, K>>,
+        appended: Vec<AppendedRecipe<GenericEnvironment<V, P, K>>>,
+        factories: Vec<Box<dyn RecipeProviderFactory<GenericEnvironment<V, P, K>>>>,
+    ) -> Result<RecipeProviderChain<GenericEnvironment<V, P, K>>, Error> {
+        let factory = Self::resolved_recipe_provider_factory(factories);
+        let default_list = K::default_recipes();
+        let mut chain = match recipe_base {
+            RecipeBase::Unset => crate::recipes::resolve_recipes(
+                &K::unconfigured_recipes(),
+                &default_list,
+                &factory,
+            )?,
+            RecipeBase::Config(recipes) => {
+                crate::recipes::resolve_recipes(&recipes, &default_list, &factory)?
+            }
+            RecipeBase::Provider(provider) => {
+                RecipeProviderChain::named(vec![("provider".to_string(), provider)])
+            }
+        };
+        let mut names = chain.names();
+        for item in appended {
+            match item {
+                AppendedRecipe::Entry(entry) => {
+                    // An entry of type `default` splices the kind's list, as in a document.
+                    let expanded =
+                        expand_recipes(&RecipesConfig::Chain(vec![entry]), &default_list)?;
+                    for entry in expanded {
+                        if names.iter().any(|name| name == &entry.provider_type) {
+                            continue;
+                        }
+                        let provider = factory.create(&entry)?;
+                        names.push(entry.provider_type.clone());
+                        chain.push_named(entry.provider_type, provider);
+                    }
+                }
+                AppendedRecipe::Provider(provider) => {
+                    let name = format!("#{}", names.len());
+                    names.push(name.clone());
+                    chain.push_named(name, provider);
+                }
+            }
+        }
+        Ok(chain)
     }
 
     /// Supplies per-manager construction settings.
@@ -483,18 +614,13 @@ impl<V: ValueInterface, P: PayloadType, K: AssetManagerKind> EnvironmentBuilder<
                 (None, None) => Arc::new(crate::store::NoAsyncStore),
             };
 
-        let base_recipe_provider = self
-            .recipe_provider
-            .unwrap_or_else(K::default_recipe_provider);
+        // Every environment holds a chain (`specs/design/recipe-provider-chain-config/`).
         let recipe_provider: Arc<dyn AsyncRecipeProvider<GenericEnvironment<V, P, K>>> =
-            if self.appended_recipe_providers.is_empty() {
-                base_recipe_provider
-            } else {
-                let mut providers = Vec::with_capacity(1 + self.appended_recipe_providers.len());
-                providers.push(base_recipe_provider);
-                providers.extend(self.appended_recipe_providers);
-                Arc::new(RecipeProviderChain::new(providers))
-            };
+            Arc::new(Self::build_recipe_chain(
+                self.recipe_base,
+                self.appended_recipes,
+                self.recipe_provider_factories,
+            )?);
 
         let environment = GenericEnvironment::assemble(
             self.type_registry,
@@ -806,13 +932,20 @@ mod tests {
     fn core_builder_defaults_to_the_trivial_provider() {
         let builder = EnvironmentBuilder::<Value, (), Inline>::new();
         assert!(
-            builder.recipe_provider.is_none(),
-            "an unconfigured builder holds no provider; build() resolves Trivial"
+            matches!(builder.recipe_base, RecipeBase::Unset),
+            "an unconfigured builder holds no provider; build() resolves the empty chain"
+        );
+        assert_eq!(
+            Inline::unconfigured_recipes(),
+            RecipesConfig::Chain(Vec::new())
         );
 
         let configured = EnvironmentBuilder::<Value, (), Inline>::new()
             .with_recipe_provider_choice(RecipeProviderChoice::Default);
-        assert!(configured.recipe_provider.is_some());
+        assert!(matches!(
+            configured.recipe_base,
+            RecipeBase::Config(RecipesConfig::KindDefault)
+        ));
     }
 
     /// A store and a store configuration are mutually exclusive, and saying both is an error

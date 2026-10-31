@@ -3,8 +3,7 @@ id: FRONT-MATTER-YAML-AGREEMENT
 kind: design
 title: docs_index.py accepts only front-matter that a YAML parser reads the same way
 form: compact
-status: in_review
-phase: implementation
+status: complete
 readiness: ready
 autofix: eligible
 area: [docs]
@@ -13,8 +12,8 @@ created: 2026-10-20
 ---
 # docs_index.py accepts only front-matter that a YAML parser reads the same way
 
-Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-20. Phases 1-4 are written but not
-approved, and nothing is implemented. The issue was found by the completed design
+Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-20. Implemented 2026-10-21 at the
+maintainer's choice ("Derived path": the first prerequisite of `agent-memory-derived`). The issue was found by the completed design
 `agent-memory-mvp` (Step 11); this design replaces that link.
 
 ## Phase 1: High-Level Design
@@ -149,14 +148,26 @@ Run: `python3 -m unittest scripts/test_docs_index.py`.
 
 ### Steps
 
-- [ ] 1. Tests for AC-1, AC-2, AC-4 (fail at HEAD) — `python3 -m unittest scripts/test_docs_index.py`
-- [ ] 2. `_scalar` in `parse_front_matter` — AC-1 test passes
-- [ ] 3. `front_matter_yaml_errors` wired into `check()`; `new` quoting — AC-2, AC-4 tests pass; `--check` now lists exactly the nine
-- [ ] 4. Quote the nine titles; regenerate with `python3 scripts/docs_index.py` — `--check` passes; AC-3, AC-5 tests pass
-- [ ] 5. `DOCS_STRUCTURE_GUIDE.md` §4.6 and §7.2, History row, `reviewed:` — `--check`
-- [ ] 6. Close the source issue with a resolution note — `--check`
+- [x] 1. Tests for AC-1, AC-2, AC-4 (fail at HEAD) — `python3 -m unittest scripts/test_docs_index.py`
+- [x] 2. `_scalar` in `parse_front_matter` — AC-1 test passes
+- [x] 3. `front_matter_yaml_errors` wired into `check()`; `new` quoting — AC-2, AC-4 tests pass; `--check` now lists exactly the nine
+- [x] 4. Quote the nine titles; regenerate with `python3 scripts/docs_index.py` — `--check` passes; AC-3, AC-5 tests pass
+- [x] 5. `DOCS_STRUCTURE_GUIDE.md` §4.6 and §7.2, History row, `reviewed:` — `--check`
+- [x] 6. Close the source issue with a resolution note — `--check`
 
 ### Validation
 
 `python3 -m unittest scripts/test_docs_index.py`; `python3 scripts/docs_index.py --check`;
 `git diff specs/index.csv` shows only quote-free titles and the closed issue.
+
+### Outcome
+
+All six steps done. The new check found one more divergence the issue did not list:
+`specs/design/command-declaration/DESIGN.md` wrote `issues:` as a flow list over four lines, which
+YAML reads as a list and `parse_front_matter` read as a broken string. It is now on one line, and
+`--check` refuses a list that is not (`list must be on one line`). `{ } [ ] ,` joined the refused
+leading characters for the same reason. Review (Codex, PR #173) added two rules: a `title`
+YAML would type (`null`, `true`, a number, a date) must be quoted, and a line that is not a flat
+`key: value` is refused. The second found `refresh-command-metadata-versions/DESIGN.md`, whose
+`affects_docs` was a block list `docs_index.py` read as empty; it is now a one-line list. `python3 -m unittest scripts/test_docs_index.py` (57 tests,
+including the PyYAML agreement test) and `--check` pass.

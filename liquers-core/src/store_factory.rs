@@ -871,7 +871,6 @@ fn pipeline(
         write: functions.compile(&resolved.on_write, Stage::Write, registry)?,
         read: functions.compile(&resolved.on_read, Stage::Read, registry)?,
     };
-    parts.persist_defaults = resolved.persist_defaults;
     parts.read_only = read_only;
     parts.backups = backups;
     parts.version_verification = functions.version_verification(&resolved.on_read, registry)?;

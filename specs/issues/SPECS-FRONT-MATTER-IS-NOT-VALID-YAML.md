@@ -2,7 +2,7 @@
 id: SPECS-FRONT-MATTER-IS-NOT-VALID-YAML
 kind: issue
 title: Nine specs documents have front-matter that a YAML parser rejects
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [docs]
@@ -52,3 +52,10 @@ the two readers agree.
 ## Discovery
 
 `liquers-agent check` over the "liquers-specs" profile (agent-memory-mvp Step 11).
+
+## Resolution
+
+Fixed 2026-10-21 by `front-matter-yaml-agreement`: the nine titles are double-quoted,
+`parse_front_matter` unquotes, `--check` refuses an unquoted value YAML would misread (guide §4.6,
+§7.2 check 17), `docs_index.py new` quotes such a title, and a test compares both readers over the
+repository. `yaml.safe_load` now accepts every indexed document's front-matter.

@@ -1,7 +1,7 @@
 ---
 id: CORE-RECIPES-EXPAND-PREDECESSORS-CRASH
 kind: issue
-title: `disable_expand_predecessors` crashes an evaluation test
+title: "`disable_expand_predecessors` crashes an evaluation test"
 status: closed
 priority: P0
 complexity: M

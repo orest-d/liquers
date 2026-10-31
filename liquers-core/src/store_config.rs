@@ -95,9 +95,6 @@ pub struct MetadataConfig {
     /// The write strategy (`direct`, `atomic`, `transactional`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub writes: Option<String>,
-    /// Store the record `on_default` synthesized the first time it is read.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub persist_defaults: Option<bool>,
     /// Handlers that build the record of an entry that has none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub on_default: Option<String>,
@@ -117,7 +114,6 @@ pub struct MetadataConfig {
 pub struct MetadataDefaults {
     pub storage: &'static str,
     pub writes: &'static str,
-    pub persist_defaults: bool,
     pub on_default: &'static str,
     pub on_validate: &'static str,
     pub on_write: &'static str,
@@ -129,7 +125,6 @@ pub struct MetadataDefaults {
 pub const METADATA_DEFAULTS: MetadataDefaults = MetadataDefaults {
     storage: "native",
     writes: "direct",
-    persist_defaults: false,
     on_default: "defaults/media_type-fill/file_facts",
     on_validate: "",
     on_write: "defaults/media_type-fill/file_facts",
@@ -141,7 +136,6 @@ pub const METADATA_DEFAULTS: MetadataDefaults = MetadataDefaults {
 pub struct ResolvedMetadataConfig {
     pub storage: String,
     pub writes: String,
-    pub persist_defaults: bool,
     pub on_default: String,
     pub on_validate: String,
     pub on_write: String,
@@ -157,7 +151,6 @@ impl MetadataConfig {
     /// True when the section names handlers or a write strategy, not only a storage model.
     pub fn names_more_than_storage(&self) -> bool {
         self.writes.is_some()
-            || self.persist_defaults.is_some()
             || self.on_default.is_some()
             || self.on_validate.is_some()
             || self.on_write.is_some()
@@ -173,7 +166,6 @@ impl MetadataConfig {
         ResolvedMetadataConfig {
             storage: or(&self.storage, d.storage),
             writes: or(&self.writes, d.writes),
-            persist_defaults: self.persist_defaults.unwrap_or(d.persist_defaults),
             on_default: or(&self.on_default, d.on_default),
             on_validate: or(&self.on_validate, d.on_validate),
             on_write: or(&self.on_write, d.on_write),
