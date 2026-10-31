@@ -172,7 +172,7 @@ mod tests {
 
 **Minimum Rust: 1.95** (`[workspace.package] rust-version` in `Cargo.toml`, set by the egui 0.36 / sysinfo 0.39 dependencies; a minimum, not a pin — on an older toolchain run `rustup update stable`).
 
-**`liquers-py` supports CPython 3.9–3.15 and PyPy 3.11 or newer** (PyO3 0.30); no build override
+**`liquers-py` supports CPython 3.10–3.15 and PyPy 3.11 or newer** (PyO3 0.30); no build override
 is needed — see `liquers-py/README.md`. Its tests run with `bash scripts/test-liquers-py.sh`
 (venv under `target/`, `maturin develop`, pytest, then its Rust unit tests).
 

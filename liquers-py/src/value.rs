@@ -197,9 +197,9 @@ fn attach_off_worker<T>(f: impl for<'py> FnOnce(Python<'py>) -> T) -> T {
         Err(_) => false,
     };
     if on_worker {
-        tokio::task::block_in_place(|| Python::attach(f))
+        tokio::task::block_in_place(|| crate::exit::attach_tracked(f))
     } else {
-        Python::attach(f)
+        crate::exit::attach_tracked(f)
     }
 }
 

@@ -1,5 +1,9 @@
 """RUNTIME: threads, nesting and containment (LANGUAGE-INTEGRATION_GUIDE.md)."""
 
+import gc
+import subprocess
+import sys
+import textwrap
 import threading
 import time
 
@@ -72,6 +76,9 @@ def test_RUNTIME05_cancellation_and_shutdown_release_handles():
 def test_RUNTIME05_built_environment_releases_handles_on_shutdown():
     from conftest import register_fixture_commands
 
+    # Environments of earlier tests left in reference cycles are collected now, not during the
+    # wait below, where their released handles would take the count under the baseline.
+    gc.collect()
     baseline = lq.Environment.live_handle_count()
     environment = lq.Environment()
     register_fixture_commands(environment)
@@ -136,3 +143,36 @@ def test_RUNTIME06_panic_and_exception_containment(env):
         env.evaluate("test_panic")
     assert raised.value.type != lq.ErrorType.ActionNotRegistered
     assert env.evaluate("hello") == "hello"  # the process and the environment carry on
+
+
+def test_RUNTIME_interpreter_exit_with_a_running_command():
+    """The interpreter exits while a sync command runs on a liquers thread, its environment never
+    shut down: the exit hook cancels the command and waits for it, so no liquers thread is inside
+    Python when the interpreter finalizes (before CPython 3.14 that aborted the process)."""
+    script = textwrap.dedent(
+        """
+        import time
+        import liquers as lq
+
+        env = lq.Environment()
+
+        @env.first_command(volatile=True)
+        def busy(context) -> str:
+            while not context.is_cancelled():
+                time.sleep(0.01)
+            raise lq.CancelledError("busy was cancelled")
+
+        env.get_asset("busy")
+        time.sleep(0.2)
+        print("exiting")
+        """
+    )
+    for _ in range(3):
+        start = time.monotonic()
+        completed = subprocess.run(
+            [sys.executable, "-c", script], capture_output=True, text=True, timeout=30
+        )
+        assert completed.returncode == 0, completed.stderr[-2000:]
+        assert completed.stdout.strip() == "exiting"
+        assert "left behind" not in completed.stderr
+        assert time.monotonic() - start < 10
