@@ -1961,6 +1961,15 @@ manager evaluates inside `run`. `MountHandle` is stoppable (`stop`, drop), which
 listeners and ends the driver loop. A UI element crosses as a handle so it comes back as the same
 `Arc`.
 
+**Elements defined in the browser** (`UIDEF`, `specs/design/web-ui-define/`). `typetag` tags are
+static, so a *language* cannot add a Rust element type at run time. One type,
+`liquers_lib::ui::DelegatedElement`, stands for every language-defined element: it holds a kind
+and JSON props, and looks its behaviour up in a per-thread registry of `ElementDelegate`s, which
+any integration can fill. Only the data is serialized, so a restored tree renders a placeholder
+until the kind is defined again. Events reach it as `ui-events`' `UpdateMessage::UI`, with the UI
+lock released. A *language* that renders the tree itself uses `run_headless`, the browser driver
+loop without the DOM, which hands it each tick's `Invalidation`.
+
 **Templates and data nodes in the browser.** Neither `DATANODE` nor `TEMPLATE` is implemented in
 `liquers-web`. It depends on `liquers-lib` without the `templates` feature, so the `ns-template`
 commands are not in its built-in set (`WEB-HAS-NO-TEMPLATE-COMMANDS`). A JavaScript command
@@ -3864,6 +3873,7 @@ def test_DOCS04_every_public_name_is_documented():
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-31 | §6 Browser JavaScript: `UIDEF` is implemented (`defineElement`, `mountRenderer`); `DelegatedElement` and `run_headless` are reusable. | design `web-ui-define` |
 | 2026-10-31 | §6 Browser JavaScript: `UIUSE` is implemented (`mountUI`); the reusable backend changes it needed. | design `web-ui-use` |
 | 2026-10-31 | §6 Browser JavaScript: a JavaScript command now receives a language-visible `Context`, so `TEMPLATE`'s in-command half no longer waits on one. | design `js-command-context` |
 | 2026-10-30 | §RECIPE: a language provider is supplied as a recipe-provider entry type placed by the `recipes:` list; a chain asks every member (two owners and any member's error fail), which corrects the claim that a chain's `contains` goes through `recipe_opt`. | design `recipe-provider-chain-config` |

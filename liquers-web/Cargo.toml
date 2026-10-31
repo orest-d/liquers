@@ -43,9 +43,10 @@ version = "0.3"
 # specs/design/liquers-web-store/phase2-architecture.md.
 # Deliberately not `Request`/`RequestInit` either: the request options are a plain object built
 # with `js_sys`, which keeps the code off an API that has changed shape across web-sys releases.
-# `Element`/`Document` for `mountUI`'s container check.
+# `Element`/`Document` for `mountUI`'s container check; `NodeList` for the `mount` reconciliation
+# of page-defined elements.
 features = ["console", "Window", "Storage", "Response", "Headers", "Element", "Document",
-    "HtmlElement", "Node"]
+    "HtmlElement", "Node", "NodeList"]
 
 [dev-dependencies]
 # The shared AsyncStore conformance suite. A dev-dependency, so the feature never reaches the

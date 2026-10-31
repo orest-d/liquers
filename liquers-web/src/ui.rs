@@ -18,8 +18,9 @@ use liquers_core::context::EnvRef;
 use liquers_core::error::Error;
 use liquers_core::metadata::Status;
 use liquers_lib::ui::{
-    app_message_channel, AppMessage, AppMessageSender, AppState, DirectAppState, ElementSource,
-    InsertionPoint, RunnerEvent, UIContext, UIElement, UIHandle,
+    app_message_channel, AppMessage, AppMessageSender, AppState, DelegatedElement, DirectAppState,
+    ElementSource, InsertionPoint, Invalidation, RunnerEvent, UIChange, UIContext, UIElement,
+    UIEvent, UIEventKind, UIHandle,
 };
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
@@ -119,12 +120,34 @@ impl LiquersUIElement {
         self.value.render_web(&empty)
     }
 
+    /// The type of an element made by `element()`; `undefined` for any other element.
+    #[wasm_bindgen(getter)]
+    pub fn kind(&self) -> Option<String> {
+        delegated(&self.value).map(|d| d.kind.clone())
+    }
+
+    /// The props of an element made by `element()` (a copy); `undefined` for any other element.
+    #[wasm_bindgen(getter, unchecked_return_type = "any")]
+    pub fn props(&self) -> JsValue {
+        match delegated(&self.value) {
+            Some(d) => crate::bridge::json_to_js(&d.props).unwrap_or(JsValue::UNDEFINED),
+            None => JsValue::UNDEFINED,
+        }
+    }
+
     /// The registry id that lets this handle cross back into Liquers as the same element. Not for
     /// pages to use; its presence is how the bridge recognizes an element handle.
     #[wasm_bindgen(getter, js_name = __liquersUIElementHandle)]
     pub fn handle_id(&self) -> u32 {
         self.id
     }
+}
+
+/// `element` as the [`DelegatedElement`] a page defined, if it is one.
+fn delegated(element: &Arc<dyn UIElement>) -> Option<&DelegatedElement> {
+    element
+        .as_any()
+        .and_then(|any| any.downcast_ref::<DelegatedElement>())
 }
 
 /// The element `js` stands for, when it is a live [`LiquersUIElement`] handle; `None` for anything
@@ -201,6 +224,75 @@ impl Drop for Subscriber {
     }
 }
 
+thread_local! {
+    /// The page's live mounts, so a change of element definitions can re-render them.
+    static LIVE_MOUNTS: RefCell<Vec<Weak<MountInner>>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Marks every live mount's tree for a full re-render on its next tick, dropping the entries of
+/// mounts that are gone. A mount whose lock is busy (a definition made from inside a render) is
+/// skipped.
+pub(crate) fn invalidate_live_mounts() {
+    let mounts: Vec<Rc<MountInner>> = LIVE_MOUNTS.with(|list| {
+        let mut list = list.borrow_mut();
+        list.retain(|weak| weak.strong_count() > 0);
+        list.iter().filter_map(|weak| weak.upgrade()).collect()
+    });
+    for mount in mounts {
+        if let Ok(mut state) = mount.app_state.try_lock() {
+            state.invalidate_all();
+        }
+    }
+}
+
+/// A page-defined element's node that its `mount` function has run on, and the cleanup it
+/// returned. The cleanup is counted in `live_handle_count` while held.
+struct MountedNode {
+    node: web_sys::Element,
+    cleanup: Option<js_sys::Function>,
+}
+
+impl MountedNode {
+    fn new(node: web_sys::Element, cleanup: Option<js_sys::Function>) -> Self {
+        #[cfg(feature = "debug-handles")]
+        if cleanup.is_some() {
+            crate::command::adapter::count_handles(1, true);
+        }
+        MountedNode { node, cleanup }
+    }
+
+    /// Runs the cleanup, if any. A throwing cleanup is reported to `console.error`.
+    fn unmount(mut self) {
+        if let Some(cleanup) = self.cleanup.take() {
+            #[cfg(feature = "debug-handles")]
+            crate::command::adapter::count_handles(1, false);
+            if let Err(thrown) = cleanup.call0(&JsValue::NULL) {
+                web_sys::console::error_2(
+                    &JsValue::from_str("liquers: an element's mount cleanup threw"),
+                    &thrown,
+                );
+            }
+        }
+    }
+}
+
+impl Drop for MountedNode {
+    fn drop(&mut self) {
+        #[cfg(feature = "debug-handles")]
+        if self.cleanup.is_some() {
+            crate::command::adapter::count_handles(1, false);
+        }
+    }
+}
+
+/// The handle in a `ui-element-N` DOM id.
+fn handle_of_node(node: &web_sys::Element) -> Option<UIHandle> {
+    node.id()
+        .strip_prefix("ui-element-")
+        .and_then(|n| n.parse::<u64>().ok())
+        .map(UIHandle)
+}
+
 /// The state a mount shares with its driver's `on_tick` callback and its subscriptions.
 struct MountInner {
     app_state: Arc<tokio::sync::Mutex<dyn AppState>>,
@@ -211,6 +303,39 @@ struct MountInner {
     statuses: RefCell<HashMap<UIHandle, Status>>,
     subscribers: RefCell<Vec<Rc<Subscriber>>>,
     next_subscriber: Cell<u32>,
+    /// The container, for the `mount` reconciliation; `None` for a renderer mount.
+    root: Option<web_sys::Element>,
+    /// Page-defined elements whose `mount` has run, by handle.
+    mounted: RefCell<HashMap<UIHandle, MountedNode>>,
+    /// The page's renderer, for a renderer mount; `None` once disposed.
+    renderer: RefCell<Option<Rc<Renderer>>>,
+}
+
+/// A page renderer: the object, its `render` and optional `dispose`. Counted in
+/// `live_handle_count` while held.
+struct Renderer {
+    object: JsValue,
+    render: js_sys::Function,
+    dispose: Option<js_sys::Function>,
+}
+
+impl Renderer {
+    fn new(object: JsValue, render: js_sys::Function, dispose: Option<js_sys::Function>) -> Self {
+        #[cfg(feature = "debug-handles")]
+        crate::command::adapter::count_handles(1, true);
+        Renderer {
+            object,
+            render,
+            dispose,
+        }
+    }
+}
+
+impl Drop for Renderer {
+    fn drop(&mut self) {
+        #[cfg(feature = "debug-handles")]
+        crate::command::adapter::count_handles(1, false);
+    }
 }
 
 impl MountInner {
@@ -233,6 +358,7 @@ impl MountInner {
     /// Records the tick's events and calls the subscribers, after the DOM was updated and with no
     /// lock held. A throwing callback is reported to `console.error` and does not stop the loop.
     fn on_tick(&self, events: Vec<RunnerEvent>) {
+        self.reconcile_mounts();
         if events.is_empty() {
             return;
         }
@@ -269,6 +395,261 @@ impl MountInner {
             }
         }
     }
+}
+
+impl MountInner {
+    /// Runs page `mount` functions on the delegated nodes that are new since the last tick, and
+    /// the cleanups of those that were replaced or removed. Called after the DOM was updated, with
+    /// no lock held; no borrow is held while a page function runs.
+    fn reconcile_mounts(&self) {
+        let root = match &self.root {
+            Some(root) => root,
+            None => return,
+        };
+        let tracking = !self.mounted.borrow().is_empty();
+        if !tracking && !crate::ui_define::any_mount_function() {
+            return;
+        }
+        // Nodes no longer in the page: their element was removed or re-rendered.
+        let gone: Vec<MountedNode> = {
+            let mut mounted = self.mounted.borrow_mut();
+            let handles: Vec<UIHandle> = mounted
+                .iter()
+                .filter(|(_, m)| !m.node.is_connected())
+                .map(|(h, _)| *h)
+                .collect();
+            handles
+                .into_iter()
+                .filter_map(|h| mounted.remove(&h))
+                .collect()
+        };
+        for node in gone {
+            node.unmount();
+        }
+        let nodes = match root.query_selector_all("[data-lq-delegate]") {
+            Ok(nodes) => nodes,
+            Err(_) => return,
+        };
+        for i in 0..nodes.length() {
+            let node: web_sys::Element = match nodes.item(i).and_then(|n| n.dyn_into().ok()) {
+                Some(node) => node,
+                None => continue,
+            };
+            let handle = match handle_of_node(&node) {
+                Some(h) => h,
+                None => continue,
+            };
+            let current = self.mounted.borrow().get(&handle).map(|m| m.node == node);
+            match current {
+                Some(true) => continue,
+                Some(false) => {
+                    let replaced = self.mounted.borrow_mut().remove(&handle);
+                    if let Some(replaced) = replaced {
+                        replaced.unmount();
+                    }
+                }
+                None => {}
+            }
+            let kind = node.get_attribute("data-lq-delegate").unwrap_or_default();
+            let mount = match crate::ui_define::mount_function(&kind) {
+                Some(f) => f,
+                None => continue,
+            };
+            // The lock is free in `on_tick`; when it is not, the node is mounted on a later tick.
+            let props = match self.app_state.try_lock() {
+                Ok(state) => match state.get_element(handle) {
+                    Ok(Some(element)) => element
+                        .as_any()
+                        .and_then(|a| a.downcast_ref::<DelegatedElement>())
+                        .map(|d| d.props.clone()),
+                    Ok(None) | Err(_) => None,
+                },
+                Err(_) => continue,
+            };
+            let props = match props.map(|p| crate::bridge::json_to_js(&p)) {
+                Some(Ok(p)) => p,
+                Some(Err(_)) | None => continue,
+            };
+            let cleanup = match mount.call2(&JsValue::NULL, &node, &props) {
+                Ok(result) => result.dyn_into::<js_sys::Function>().ok(),
+                Err(thrown) => {
+                    web_sys::console::error_3(
+                        &JsValue::from_str("liquers: the mount function of element type"),
+                        &JsValue::from_str(&kind),
+                        &thrown,
+                    );
+                    None
+                }
+            };
+            let entry = MountedNode::new(node, cleanup);
+            let previous = self.mounted.borrow_mut().insert(handle, entry);
+            if let Some(previous) = previous {
+                // A mount function that re-rendered its own element; its first node is gone.
+                previous.unmount();
+            }
+        }
+    }
+
+    /// Calls the page renderer with the tree and what changed, when something did. A throwing
+    /// renderer is reported to `console.error`; the next change calls it again.
+    fn render_to_renderer(&self, invalidation: Invalidation) {
+        let renderer = match self.renderer.borrow().clone() {
+            Some(r) => r,
+            None => return,
+        };
+        let changes: JsValue = match &invalidation {
+            Invalidation::None => return,
+            Invalidation::All => JsValue::from_str("all"),
+            Invalidation::Changes(changes) => {
+                let list = js_sys::Array::new();
+                for change in changes {
+                    list.push(&change_record_to_js(change));
+                }
+                list.into()
+            }
+        };
+        let tree = match self.tree_to_js() {
+            Ok(tree) => tree,
+            // The lock is free in `on_tick`; if not, the changes are lost and the whole tree is
+            // redrawn on the next tick.
+            Err(_) => {
+                if let Ok(mut state) = self.app_state.try_lock() {
+                    state.invalidate_all();
+                }
+                return;
+            }
+        };
+        if let Err(thrown) = renderer.render.call2(&renderer.object, &tree, &changes) {
+            web_sys::console::error_2(
+                &JsValue::from_str("liquers: the UI renderer threw"),
+                &thrown,
+            );
+        }
+    }
+
+    /// `{ roots, elements }`: every node of the tree, by handle.
+    fn tree_to_js(&self) -> Result<JsValue, Error> {
+        let state = self
+            .app_state
+            .try_lock()
+            .map_err(|_| Error::general_error("the UI is busy".to_string()))?;
+        let statuses = self.statuses.borrow().clone();
+        let roots = js_sys::Array::new();
+        for root in state.roots() {
+            roots.push(&JsValue::from_f64(handle_to_js(root)));
+        }
+        let elements = js_sys::Object::new();
+        let mut stack: Vec<UIHandle> = state.roots();
+        while let Some(handle) = stack.pop() {
+            let element = state.get_element(handle).ok().flatten();
+            let object = js_sys::Object::new();
+            set(&object, "handle", &JsValue::from_f64(handle_to_js(handle)));
+            set(
+                &object,
+                "parent",
+                &match state.parent(handle).ok().flatten() {
+                    Some(p) => JsValue::from_f64(handle_to_js(p)),
+                    None => JsValue::NULL,
+                },
+            );
+            let children = state.children(handle).unwrap_or_default();
+            let child_list = js_sys::Array::new();
+            for child in &children {
+                child_list.push(&JsValue::from_f64(handle_to_js(*child)));
+            }
+            set(&object, "children", &child_list.into());
+            set(
+                &object,
+                "typeName",
+                &match element {
+                    Some(e) => JsValue::from_str(e.type_name()),
+                    None => JsValue::NULL,
+                },
+            );
+            set(
+                &object,
+                "title",
+                &JsValue::from_str(&element.map(|e| e.title()).unwrap_or_default()),
+            );
+            let status = match statuses.get(&handle) {
+                Some(s) => crate::asset::status_name(*s),
+                None => match element {
+                    Some(_) => "ready",
+                    None => "none",
+                },
+            };
+            set(&object, "status", &JsValue::from_str(status));
+            set(
+                &object,
+                "html",
+                &JsValue::from_str(&liquers_lib::ui::web::render_element_web(handle, &*state)),
+            );
+            if let Some(d) = element
+                .and_then(|e| e.as_any())
+                .and_then(|a| a.downcast_ref::<DelegatedElement>())
+            {
+                set(&object, "kind", &JsValue::from_str(&d.kind));
+                set(&object, "props", &crate::bridge::json_to_js(&d.props)?);
+            }
+            set(&elements, &handle.0.to_string(), &object.into());
+            stack.extend(children);
+        }
+        let tree = js_sys::Object::new();
+        set(&tree, "roots", &roots.into());
+        set(&tree, "elements", &elements.into());
+        Ok(tree.into())
+    }
+
+    /// Runs every remaining cleanup, when the mount is disposed.
+    fn unmount_all(&self) {
+        let all: Vec<MountedNode> = self.mounted.borrow_mut().drain().map(|(_, m)| m).collect();
+        for node in all {
+            node.unmount();
+        }
+    }
+}
+
+fn handle_or_null(handle: Option<UIHandle>) -> JsValue {
+    match handle {
+        Some(h) => JsValue::from_f64(handle_to_js(h)),
+        None => JsValue::NULL,
+    }
+}
+
+/// `{ inserted, parent, index }`, `{ removed, parent }` or `{ replaced }`.
+fn change_record_to_js(change: &UIChange) -> JsValue {
+    let object = js_sys::Object::new();
+    match change {
+        UIChange::Inserted {
+            parent,
+            handle,
+            index,
+        } => {
+            set(
+                &object,
+                "inserted",
+                &JsValue::from_f64(handle_to_js(*handle)),
+            );
+            set(&object, "parent", &handle_or_null(*parent));
+            set(&object, "index", &JsValue::from_f64(*index as f64));
+        }
+        UIChange::Removed { parent, handle } => {
+            set(
+                &object,
+                "removed",
+                &JsValue::from_f64(handle_to_js(*handle)),
+            );
+            set(&object, "parent", &handle_or_null(*parent));
+        }
+        UIChange::Replaced { handle } => {
+            set(
+                &object,
+                "replaced",
+                &JsValue::from_f64(handle_to_js(*handle)),
+            );
+        }
+    }
+    object.into()
 }
 
 fn set(object: &js_sys::Object, key: &str, value: &JsValue) {
@@ -357,18 +738,11 @@ fn container_element(container: JsValue) -> Result<web_sys::Element, Error> {
         .map_err(|_| Error::not_supported("mountUI needs a DOM element to mount into".to_string()))
 }
 
-/// Mounts a UI into `container` on the environment `envref`, which `current_env` re-resolves on
-/// each tick when given.
-pub(crate) async fn mount_ui_with(
-    container: JsValue,
-    options: JsValue,
-    envref: EnvRef<WebEnvironment>,
-    current_env: Option<Box<dyn FnMut() -> Option<EnvRef<WebEnvironment>>>>,
-) -> Result<LiquersUIMount, Error> {
-    let initial = parse_options(&options)?;
-    let root = container_element(container)?;
-
-    let (sender, receiver) = app_message_channel();
+/// The initial UI state of a mount, from its parsed options.
+fn initial_state(
+    initial: Initial,
+    sender: &AppMessageSender,
+) -> Result<Arc<tokio::sync::Mutex<dyn AppState>>, Error> {
     let mut direct = DirectAppState::new();
     let mut spec_root = None;
     match initial {
@@ -393,15 +767,45 @@ pub(crate) async fn mount_ui_with(
             .map_err(|_| Error::general_error("the new UI state is busy".to_string()))?;
         state.set_element(handle, Box::new(element))?;
     }
+    Ok(app_state)
+}
 
+fn new_inner(
+    app_state: Arc<tokio::sync::Mutex<dyn AppState>>,
+    sender: AppMessageSender,
+    root: Option<web_sys::Element>,
+    renderer: Option<Renderer>,
+) -> Rc<MountInner> {
     let inner = Rc::new(MountInner {
-        app_state: app_state.clone(),
-        sender: sender.clone(),
+        app_state,
+        sender,
         handle: RefCell::new(None),
         statuses: RefCell::new(HashMap::new()),
         subscribers: RefCell::new(Vec::new()),
         next_subscriber: Cell::new(1),
+        root,
+        mounted: RefCell::new(HashMap::new()),
+        renderer: RefCell::new(renderer.map(Rc::new)),
     });
+    LIVE_MOUNTS.with(|list| list.borrow_mut().push(Rc::downgrade(&inner)));
+    inner
+}
+
+/// Mounts a UI into `container` on the environment `envref`, which `current_env` re-resolves on
+/// each tick when given. The Rust form of `mountUI`, for integrations and tests that need the
+/// mount's [`LiquersUIMount::app_state`].
+pub async fn mount_ui_with(
+    container: JsValue,
+    options: JsValue,
+    envref: EnvRef<WebEnvironment>,
+    current_env: Option<Box<dyn FnMut() -> Option<EnvRef<WebEnvironment>>>>,
+) -> Result<LiquersUIMount, Error> {
+    let initial = parse_options(&options)?;
+    let root = container_element(container)?;
+
+    let (sender, receiver) = app_message_channel();
+    let app_state = initial_state(initial, &sender)?;
+    let inner = new_inner(app_state.clone(), sender.clone(), Some(root.clone()), None);
     let weak: Weak<MountInner> = Rc::downgrade(&inner);
     let on_tick: Box<dyn FnMut(Vec<RunnerEvent>)> = Box::new(move |events| {
         if let Some(inner) = weak.upgrade() {
@@ -417,6 +821,78 @@ pub(crate) async fn mount_ui_with(
         liquers_lib::ui::mount_web_with(root, mount_options, app_state, sender, receiver).await?;
     *inner.handle.borrow_mut() = Some(handle);
     Ok(LiquersUIMount { inner })
+}
+
+/// Reads a page renderer: an object with a `render` function and an optional `dispose`.
+fn parse_renderer(renderer: JsValue) -> Result<Renderer, Error> {
+    let function = |key: &str| {
+        js_sys::Reflect::get(&renderer, &JsValue::from_str(key))
+            .ok()
+            .and_then(|f| f.dyn_into::<js_sys::Function>().ok())
+    };
+    if !renderer.is_object() {
+        return Err(Error::general_error(
+            "mountRenderer needs a renderer object { render(tree, changes), dispose? }".to_string(),
+        ));
+    }
+    let render = function("render").ok_or_else(|| {
+        Error::general_error("mountRenderer's renderer needs a `render` function".to_string())
+    })?;
+    let dispose = function("dispose");
+    Ok(Renderer::new(renderer, render, dispose))
+}
+
+/// Mounts a UI with no container: `renderer` receives the element tree and what changed after
+/// each tick, and renders it itself. The Rust form of `mountRenderer`.
+pub async fn mount_renderer_with(
+    renderer: JsValue,
+    options: JsValue,
+    envref: EnvRef<WebEnvironment>,
+    current_env: Option<Box<dyn FnMut() -> Option<EnvRef<WebEnvironment>>>>,
+) -> Result<LiquersUIMount, Error> {
+    let renderer = parse_renderer(renderer)?;
+    let initial = parse_options(&options)?;
+    let (sender, receiver) = app_message_channel();
+    let app_state = initial_state(initial, &sender)?;
+    let inner = new_inner(app_state.clone(), sender.clone(), None, Some(renderer));
+    let weak: Weak<MountInner> = Rc::downgrade(&inner);
+    let on_tick: Box<dyn FnMut(Invalidation, Vec<RunnerEvent>)> =
+        Box::new(move |invalidation, events| {
+            if let Some(inner) = weak.upgrade() {
+                inner.render_to_renderer(invalidation);
+                inner.on_tick(events);
+            }
+        });
+    let options = liquers_lib::ui::HeadlessOptions {
+        envref,
+        current_env,
+        on_tick,
+    };
+    let handle = liquers_lib::ui::run_headless(options, app_state, sender, receiver).await?;
+    *inner.handle.borrow_mut() = Some(handle);
+    Ok(LiquersUIMount { inner })
+}
+
+/// Mounts a Liquers UI that a page renders itself, on the global environment.
+///
+/// `renderer.render(tree, changes)` is called after each tick that changed something: `changes` is
+/// `"all"` on the first call and whenever the whole tree must be redrawn, otherwise the list of
+/// changes, in order. `tree` is always the whole current tree. `options` is as `mountUI`'s.
+#[wasm_bindgen(js_name = mountRenderer, unchecked_return_type = "Promise<UIMount>")]
+pub fn mount_renderer(
+    #[wasm_bindgen(unchecked_param_type = "UIRenderer")] renderer: JsValue,
+    #[wasm_bindgen(unchecked_param_type = "MountOptions")] options: Option<JsValue>,
+) -> js_sys::Promise {
+    let options = options.unwrap_or(JsValue::UNDEFINED);
+    wasm_bindgen_futures::future_to_promise(async move {
+        let envref = crate::environment::shared_env().map_err(liquers_error_to_js)?;
+        let current: Box<dyn FnMut() -> Option<EnvRef<WebEnvironment>>> =
+            Box::new(|| crate::environment::shared_env().ok());
+        mount_renderer_with(renderer, options, envref, Some(current))
+            .await
+            .map(JsValue::from)
+            .map_err(liquers_error_to_js)
+    })
 }
 
 /// Mounts a Liquers UI into a DOM element, on the global environment.
@@ -467,6 +943,20 @@ impl LiquersUIMount {
         self.show_inner(query, handle).map_err(liquers_error_to_js)
     }
 
+    /// Sends a user event to the element `handle`, as a click on its `data-lq-event` markup does:
+    /// `kind` is `"submit"` or an event name, and `fields` (an object) its field values. For a
+    /// renderer, which has no markup Liquers listens to.
+    #[wasm_bindgen(js_name = dispatchEvent)]
+    pub fn dispatch_event(
+        &self,
+        handle: f64,
+        kind: String,
+        #[wasm_bindgen(unchecked_param_type = "Record<string, any>")] fields: Option<JsValue>,
+    ) -> Result<(), JsValue> {
+        self.dispatch_event_inner(handle, kind, fields.unwrap_or(JsValue::UNDEFINED))
+            .map_err(liquers_error_to_js)
+    }
+
     /// Subscribes to element status changes. The only kind is `"status"`; the callback receives
     /// `{ handle, status, error? }`, after the page was updated.
     pub fn on(
@@ -493,6 +983,18 @@ impl LiquersUIMount {
         }
         let dropped: Vec<Rc<Subscriber>> = self.inner.subscribers.borrow_mut().drain(..).collect();
         drop(dropped);
+        self.inner.unmount_all();
+        let renderer = self.inner.renderer.borrow_mut().take();
+        if let Some(renderer) = renderer {
+            if let Some(dispose) = &renderer.dispose {
+                if let Err(thrown) = dispose.call0(&renderer.object) {
+                    web_sys::console::error_2(
+                        &JsValue::from_str("liquers: the UI renderer's dispose threw"),
+                        &thrown,
+                    );
+                }
+            }
+        }
     }
 }
 
@@ -517,6 +1019,43 @@ impl LiquersUIMount {
             .map_err(|_| Error::general_error("the UI mount has been disposed".to_string()))
     }
 
+    fn dispatch_event_inner(
+        &self,
+        handle: f64,
+        kind: String,
+        fields: JsValue,
+    ) -> Result<(), Error> {
+        self.inner.check_running()?;
+        let handle = handle_from_js(handle)?;
+        let kind = UIEventKind::from_name(&kind).ok_or_else(|| {
+            Error::general_error(
+                "dispatchEvent needs an event kind (\"submit\" or a name)".to_string(),
+            )
+        })?;
+        let mut event = UIEvent::new(kind);
+        if !(fields.is_undefined() || fields.is_null()) {
+            if !fields.is_object() {
+                return Err(Error::general_error(
+                    "dispatchEvent `fields` must be an object".to_string(),
+                ));
+            }
+            let object: &js_sys::Object = fields.unchecked_ref();
+            for key in js_sys::Object::keys(object).iter() {
+                let name = key.as_string().unwrap_or_default();
+                let value = js_sys::Reflect::get(&fields, &key).unwrap_or(JsValue::UNDEFINED);
+                let value: liquers_lib::value::Value = crate::bridge::js_to_value(
+                    &value,
+                    crate::bridge::ConversionPolicy::Structural,
+                )?;
+                event = event.with_field(name, value);
+            }
+        }
+        self.inner
+            .sender
+            .send(AppMessage::UIEvent { handle, event })
+            .map_err(|_| Error::general_error("the UI mount has been disposed".to_string()))
+    }
+
     fn show_inner(&self, query: String, handle: Option<f64>) -> Result<f64, Error> {
         self.inner.check_running()?;
         liquers_core::parse::parse_query(&query)?;
@@ -528,6 +1067,13 @@ impl LiquersUIMount {
         })?;
         let point = match handle {
             Some(h) => {
+                if crate::ui_define::element_being_updated() == Some(h) {
+                    return Err(Error::general_error(format!(
+                        "UI element {} is being updated by its onEvent; return new props instead \
+                         of replacing it",
+                        h.0
+                    )));
+                }
                 if !state.node_exists(h) {
                     return Err(Error::general_error(format!("no UI element {}", h.0)));
                 }

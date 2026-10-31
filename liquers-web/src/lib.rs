@@ -48,6 +48,7 @@ pub mod records;
 pub mod store;
 pub mod typescript;
 pub mod ui;
+pub mod ui_define;
 pub mod value;
 
 pub use asset::{LiquersAsset, LiquersState};
@@ -57,6 +58,7 @@ pub use environment::{version, LiquersEnvironment, WebEnvironment};
 pub use error::LiquersError;
 pub use objects::{LiquersKey, LiquersQuery};
 pub use ui::{LiquersUIElement, LiquersUIMount, LiquersUISubscription};
+pub use ui_define::{define_element, element, undefine_element, JsElementDelegate};
 pub use value::{JsOpaque, ORIGIN_JAVASCRIPT};
 
 use wasm_bindgen::prelude::*;

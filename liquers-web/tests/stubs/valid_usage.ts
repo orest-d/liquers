@@ -84,6 +84,37 @@ async function main(): Promise<void> {
   if (running) ui.dispose();
   await liquers.mountUI(app, { spec: 'layout: !vertical null' });
 
+  // A page-defined element, shown in a mount or drawn by the page's own renderer.
+  const gauge: liquers.ElementDefinition = {
+    type: 'gauge',
+    title: 'Gauge',
+    render: (p) => `<span>${p.value}%</span><button data-lq-event="inc">+</button>`,
+    onEvent: (p, e: liquers.UIUserEvent) => (e.kind === 'inc' ? { ...p, value: p.value + 1 } : undefined),
+    mount: (node: Element, p) => {
+      node.setAttribute('data-v', String(p.value));
+      return () => node.removeAttribute('data-v');
+    },
+  };
+  liquers.defineElement(gauge);
+  const made: liquers.UIElement = liquers.element('gauge', { value: 50 }, 'CPU');
+  const kind: string | undefined = made.kind;
+  const props: any = made.props;
+  void kind;
+  void props;
+  const renderer: liquers.UIRenderer = {
+    render(tree: liquers.UITree, changes: liquers.UIChangeRecord[] | 'all') {
+      for (const root of tree.roots) {
+        const node: liquers.UITreeElement = tree.elements[root];
+        console.log(node.html, node.children, node.kind, changes === 'all');
+      }
+    },
+  };
+  const drawn: liquers.UIMount = await liquers.mountRenderer(renderer, { query: 'gauge-50' });
+  drawn.dispatchEvent(1, 'inc', { note: 'x' });
+  drawn.dispose();
+  const removed: boolean = liquers.undefineElement('gauge');
+  void removed;
+
   // STUBS04 — `registerCommand` neither wraps nor returns the function, so the declared signature
   // of a command's implementation survives registration. `named` is still callable with its own
   // parameter types; a decorator-style API could not promise that.

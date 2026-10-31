@@ -747,6 +747,98 @@ Passed back to Liquers (returned from a command, for example) the handle is the 
 The page does not repaint while a query is being evaluated, so a slow query freezes the UI until
 it finishes (`WEB-UI-FREEZES-WHILE-A-QUERY-AWAITS`).
 
+### Define an element
+
+`defineElement` adds a kind of element written in JavaScript. `render` turns the element's props
+into markup; `onEvent` turns an event into new props; `element(type, props)` makes one, which any
+command can return:
+
+```js
+import init, * as liquers from "./liquers_web.js";
+
+await init();
+await liquers.init();
+liquers.defineElement({
+  type: "gauge",
+  render: (p) => `<span class="v">${p.value}%</span><button data-lq-event="inc">+</button>`,
+  onEvent: (p, e) => (e.kind === "inc" ? { ...p, value: p.value + 1 } : undefined),
+});
+liquers.registerCommand({
+  name: "gauge",
+  arguments: [{ name: "v", type: "int" }],
+  run: (v) => liquers.element("gauge", { value: v }),
+});
+const gauge = await liquers.evaluate("gauge-50");
+assert.strictEqual(gauge.kind, "gauge");
+assert.strictEqual(gauge.props.value, 50);
+assert(gauge.renderHtml().includes('<span class="v">50%</span>'));
+```
+
+Mounted with `mountUI(app, { query: "gauge-50" })`, a click on the button sends the `inc` event to
+that gauge only: `onEvent` receives `{ handle, kind, fields }`, and the element is redrawn with the
+props it returns (`undefined` keeps them). Props must be JSON data; a function, a `Date` or a
+cycle is refused with a `conversion_error`.
+
+Where each function runs matters:
+
+- `render` runs while the UI paints. Keep it a function of the props; `ui.show` throws there
+  (`ui.submit` is fine).
+- `onEvent` runs with the UI free, so it may call `ui.show` and `ui.submit`, except to replace its
+  own element: return new props instead.
+- `mount(node, props)`, when given, runs once the element's node is in the page (to draw on a
+  canvas, start a timer, attach a library). Return a function to clean up: it runs when the node
+  is replaced or removed, and when the mount is disposed.
+
+<!-- example: not run — mount needs a page's DOM, and draw stands for the page's own drawing code -->
+```js
+liquers.defineElement({
+  type: "spark",
+  render: () => `<canvas width="80" height="20"></canvas>`,
+  mount: (node, p) => {
+    const timer = setInterval(() => draw(node.querySelector("canvas"), p), 1000);
+    return () => clearInterval(timer);
+  },
+});
+```
+
+The markup `render` returns is inserted as HTML, like the markup of the built-in elements: escape
+any text that comes from users. Defining a type again replaces it, and its elements are redrawn;
+`undefineElement(type)` removes it, and its elements show a placeholder until it is defined again.
+A saved UI that holds elements of a type keeps their props, so it shows them once the page defines
+the type.
+
+### Render the tree yourself
+
+A page with its own framework can take the element tree instead of a container.
+`mountRenderer(renderer, options)` calls `renderer.render(tree, changes)` after every change:
+
+```js
+import init, * as liquers from "./liquers_web.js";
+
+await init();
+await liquers.init();
+liquers.defineElement({ type: "gauge", render: (p) => `<b>${p.value}</b>`,
+  onEvent: (p) => ({ value: p.value + 1 }) });
+liquers.registerCommand({ name: "gauge", arguments: [{ name: "v", type: "int" }],
+  run: (v) => liquers.element("gauge", { value: v }) });
+let seen;
+const shown = new Promise((resolve) => { seen = resolve; });
+const ui = await liquers.mountRenderer({
+  render(tree, changes) {
+    // changes is "all" (draw everything) or [{ inserted }, { removed }, { replaced }, ...]
+    const gauge = tree.elements[tree.roots[0]];
+    if (gauge && gauge.props && gauge.props.value === 51) seen(gauge.html);
+  },
+}, { query: "gauge-50" });
+ui.dispatchEvent(1, "inc");   // what a click on the gauge would send
+assert.strictEqual(await shown, '<div id="ui-element-1" class="lq-element lq-delegated" data-lq-delegate="gauge"><b>51</b></div>');
+ui.dispose();
+```
+
+Each element of the tree has its `handle`, `parent`, `children`, `typeName`, `title`, `status` and
+`html` (its markup, children included), and a page-defined one its `kind` and `props`. Since
+Liquers does not see the page's markup, the renderer forwards user events with `dispatchEvent`.
+
 ## 12. Testing your commands
 
 Give each test a fresh environment, so that registrations do not leak between tests: shut the
@@ -788,6 +880,7 @@ What you will notice; the complete list, with the tracking issues, is
 - **Cancellation does nothing yet.**
 - **A slow query freezes a mounted UI** until it finishes, and with two UIs on one page an
   unfocused menu shortcut runs in both.
+- **Elements you define show in the browser only**, not in the desktop (egui) UI.
 - **One environment per page** for commands and stores; `new Environment()` is for isolated
   evaluation only.
 - **Late registration** rebuilds the environment and forgets computed results.
@@ -805,3 +898,4 @@ What you will notice; the complete list, with the tracking issues, is
 | 2026-10-26 | Nested values: `null` now returns as `null`; why nested bytes are refused. | `WEB-NESTED-NULL-CROSSES-AS-UNDEFINED`, `WEB-NESTED-BYTES-REFUSED-NOT-DEGRADED` |
 | 2026-10-31 | §5 "The context": a command receives an execution context; the limitation is removed. | design `js-command-context` |
 | 2026-10-31 | §11 "Showing a Liquers UI" (`mountUI`, `UIElement`); §11–12 renumbered to §12–13. | design `web-ui-use` |
+| 2026-10-31 | §11 "Define an element" and "Render the tree yourself" (`defineElement`, `element`, `mountRenderer`). | design `web-ui-define` |

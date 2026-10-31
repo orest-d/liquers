@@ -55,6 +55,20 @@ thread_local! {
     static LIVE_HANDLES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
+/// Counts `n` more retained page functions (or `n` fewer, with `acquired == false`) in
+/// [`live_handle_count`], for holders other than `CallableSpec`: element definitions, `mount`
+/// cleanups and renderers.
+#[cfg(feature = "debug-handles")]
+pub(crate) fn count_handles(n: usize, acquired: bool) {
+    LIVE_HANDLES.with(|cell| {
+        cell.set(if acquired {
+            cell.get() + n
+        } else {
+            cell.get().saturating_sub(n)
+        })
+    });
+}
+
 /// Whether a command's argument list was inferred rather than declared.
 pub fn arguments_were_inferred(key: &CommandKey) -> bool {
     INFERRED_ARGUMENTS.with(|cell| cell.borrow().contains(key))

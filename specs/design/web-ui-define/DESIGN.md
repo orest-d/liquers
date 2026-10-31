@@ -4,7 +4,7 @@ kind: design
 title: Define UI elements and renderers in JavaScript (UIDEF)
 workflow: liquers-project
 status: in_review
-phase: implementation
+phase: documentation
 readiness: needs-decision
 autofix: not-eligible
 area: [web, lib/ui]
@@ -26,7 +26,7 @@ stopping. The decision log is in Phase 1's Design Readiness section.
 - [x] Phase 1: High-Level Design — decisions recorded 2026-10-27
 - [x] Phase 2: Architecture — 2026-10-30
 - [x] Phase 3: Examples and Testing — 2026-10-30
-- [x] Phase 4: Implementation Plan — 2026-10-30; at the pre-implementation stop
+- [x] Phase 4: Implementation Plan — 2026-10-30; implemented 2026-10-31
 - [ ] Phase 5: Documentation
 
 ## Phases

@@ -2,7 +2,7 @@
 id: WEB-CANNOT-DEFINE-UI-ELEMENTS
 kind: feature
 title: A page cannot define a UI element type or a UI backend in JavaScript
-status: draft
+status: closed
 priority: P3
 complexity: L
 area: [web, lib/ui]
@@ -33,3 +33,14 @@ inside the web backend, and can run the element tree with a renderer of its own.
 ## Discovery
 
 Starting the UI features of the language integration guide for liquers-web (2026-10-27).
+
+## Resolution
+
+Closed 2026-10-31 by design `web-ui-define`: `DelegatedElement`, `ElementDelegate` and the
+per-thread delegate registry in `liquers-lib/src/ui/widgets/delegated_element.rs`;
+`run_headless` and the shared driver loop in `liquers-lib/src/ui/web/app.rs`; `defineElement`,
+`undefineElement`, `element` (`liquers-web/src/ui_define.rs`), and `mountRenderer`,
+`UIMount.dispatchEvent` and the `mount` reconciliation (`liquers-web/src/ui.rs`). Evidence: the
+`delegated_element` unit tests, `liquers-web/tests/ui_define_UIDEF.rs` (Node) and
+`liquers-web/tests/ui_browser_UIDEF.rs` (browser). egui shows a label for such an element; it is
+not a claimed backend.

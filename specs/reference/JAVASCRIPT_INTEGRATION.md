@@ -69,7 +69,7 @@ through `typescript_type` extern types, so there is one generated file and nothi
 | `Store` | `Arc<dyn AsyncStore>` | §8 |
 | `RecordBatch`, `RecordSource`, `RecordStream` | record views and sources | §9, `records` only |
 | `UIMount`, `UISubscription` | a mounted `liquers-lib` web UI and a status subscription | §10 |
-| `UIElement` | `Arc<dyn liquers_lib::ui::UIElement>` | §10; `typeName`, `title`, `renderHtml()` |
+| `UIElement` | `Arc<dyn liquers_lib::ui::UIElement>` | §10; `typeName`, `title`, `renderHtml()`; `kind`, `props` for a page-defined element |
 
 `Query.equals` and `Key.equals` compare canonical encodings, since every wrapper is its own handle
 and `===` would compare handles; a key's `encode()` is therefore usable as a `Map` key. `Query.parse`
@@ -492,6 +492,67 @@ Limits: the page does not repaint while a query awaits, because the inline asset
 inside the driver's `run` (`WEB-UI-FREEZES-WHILE-A-QUERY-AWAITS`); cancellation is inert; with two
 mounts on one page an unfocused menu shortcut runs in both (`WEBUI-SHORTCUTS-RUN-IN-EVERY-MOUNT`).
 
+### Elements and renderers
+
+**One Rust type for every page-defined element.** `liquers_lib::ui::DelegatedElement` (typetag
+`"DelegatedElement"`, all targets) carries a `kind`, JSON `props` and a `title`, and looks up its
+behaviour by `kind` in a per-thread registry of `ElementDelegate`s (`register_delegate`,
+`unregister_delegate`, `delegate_for`). Only the data is serialized, so a restored tree renders an
+escaped placeholder (`lq-undefined`) for a kind that is not defined, and its markup once it is.
+`render_web` wraps the delegate's markup in `<div id="ui-element-N" class="lq-element
+lq-delegated" data-lq-delegate="{kind}">`; a failing delegate renders an escaped error box
+(`lq-error`). `update(UpdateMessage::UI(e))` calls the delegate's `on_event` and, when it returns
+new props, replaces them and answers `NeedsRepaint`; every other message is `Unchanged`. In egui
+the element shows a label: egui is not a claimed backend (`NA`). `UIElement::as_any` (default
+`None`) lets an integration downcast to it.
+
+**The page's API** (`ui_define.rs`):
+
+| Function | Does |
+|---|---|
+| `defineElement({ type, render, onEvent?, mount?, title? })` | registers a `JsElementDelegate`; a second define of a type replaces it, and every live mount re-renders (`invalidate_all`) |
+| `undefineElement(type)` | removes it and releases its functions; `true` if it was defined |
+| `element(type, props?, title?)` | a `DelegatedElement` as a `UIElement` handle; the type need not be defined yet |
+| `mountRenderer(renderer, options?)` | a mount with no container; resolves to a `UIMount` |
+| `UIMount.dispatchEvent(handle, kind, fields?)` | sends `AppMessage::UIEvent`, as a `data-lq-event` click does |
+
+`props` must be JSON data: functions, symbols, bigints, non-finite numbers, class instances (a
+`Date`, a `Map`, a handle) and cycles are refused with `conversion_error`, naming what was found
+and where; `undefined` in an object is left out, as `JSON.stringify` does. Props are a
+`serde_json::Value`, so object keys come back sorted. They reach the page's functions through the
+crate's JSON serializer (objects, not `Map`s).
+
+**Call contexts.** `render(props)` runs while the driver paints, under the `AppState` lock; it
+must return a string, and a throw or another type becomes the element's error box and a
+`console.error`. `show` from inside it throws the busy-lock error; `submit` works, because it is a
+message. `onEvent(props, event)` runs inside `AppRunner::run` through `ui-events`'
+`deliver_update`, with the element taken out and the lock released, so it may call `show` and
+`submit`; `show(q, h)` for its own element is refused (`general`: the element is being updated,
+and the runner would put it back over the replacement). It returns the new props, or `undefined`
+to keep them; a throw keeps them and goes to `console.error`. The event is `{ handle, kind,
+fields }`: `kind` is `UIEventKind::name()`, `fields` the event's values through `value_to_js`.
+
+**`mount`.** After each tick of a container mount (in `on_tick`, no lock held) the mount
+reconciles the container's `[data-lq-delegate]` nodes against a map of handle → (node, cleanup):
+an entry whose node is no longer connected has its cleanup run and is dropped; a node with no entry
+(or a different node for the handle) is passed to the type's `mount(node, props)`, and a function
+it returns is kept as the cleanup. Disposing the mount runs the remaining cleanups. A throwing
+`mount` is reported, and the element keeps its markup. The pass is skipped while no definition has
+a `mount` and nothing is mounted.
+
+**Renderers.** `mountRenderer` runs `liquers_lib::ui::run_headless`: the same driver loop as
+`mount_web_with` (both use one `spawn_driver_loop`), with no DOM. A `MountHandle` holds its DOM
+parts as an `Option`, so a headless handle's `stop` only ends the loop. After each tick that
+changed something the renderer's `render(tree, changes)` is called with this as the renderer
+object: `changes` is `"all"` for `Invalidation::All` (the first tick among them), otherwise the
+`UIChange`s as `{ inserted, parent, index }`, `{ removed, parent }` or `{ replaced }`. `tree` is
+always the whole tree, `{ roots, elements }`, each element `{ handle, parent, children, typeName,
+title, status, html, kind?, props? }`, where `html` is `render_element_web`. A throwing renderer is
+reported and called again on the next change. `dispose()` calls the renderer's `dispose`.
+
+Every retained page function (definitions, cleanups, renderers) is counted in
+`live_handle_count` under `debug-handles`.
+
 ## 11. Limitations
 
 - Templates and data nodes: no `ns-template` commands, no template commands, no programmatic
@@ -515,15 +576,17 @@ mounts on one page an unfocused menu shortcut runs in both (`WEBUI-SHORTCUTS-RUN
   (`WEB-HAS-NO-READ-WRITE-REMOTE-STORE`), and the store configuration is not yet an
   `EnvironmentConfig` (`WEB-STORE-CONFIG-NOT-APPLIED-THROUGH-ENVIRONMENT-CONFIG`).
 - No generated API reference beyond the `.d.ts`, and no npm package (`WEB-API-REFERENCE-NOT-GENERATED`).
-- `RECIPE` (a JavaScript recipe provider), `UIDEF`, `MODULE`, `POLYGLOT`, `WEBSERV` and `WEBAPI`
+- `RECIPE` (a JavaScript recipe provider), `MODULE`, `POLYGLOT`, `WEBSERV` and `WEBAPI`
   are not implemented; the default recipe provider works through a configured store.
 - The UI does not repaint while a query awaits (`WEB-UI-FREEZES-WHILE-A-QUERY-AWAITS`), and an
   unfocused menu shortcut runs in every mount (`WEBUI-SHORTCUTS-RUN-IN-EVERY-MOUNT`).
+- A page-defined element renders only in the web backend; egui shows a label.
 
 ## History
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-31 | §10 "Elements and renderers": `defineElement`, `undefineElement`, `element`, `mountRenderer`, `dispatchEvent`; `DelegatedElement`; `UIElement.kind`/`props`. `UIDEF` removed from Limitations. | design `web-ui-define` |
 | 2026-10-31 | §10 "User interface": `mountUI`, `UIMount`, `UISubscription`, `UIElement`; the payload is `SimpleUIPayload` and `lui` is built in; §10 Limitations becomes §11. | design `web-ui-use` |
 | 2026-10-31 | §2, §4: a JavaScript command receives a `Context` (`info`, `warning`, `error`, `evaluate`, `isCancelled`, `element`); `conventions: { context: false }` opts out. Limitation removed. | design `js-command-context` |
 | 2026-10-30 | §3: the recipe provider is `LibKind`'s default chain, so a `records` build serves manifest chunks. | design `recipe-provider-chain-config` |

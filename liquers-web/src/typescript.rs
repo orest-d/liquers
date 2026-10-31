@@ -297,6 +297,69 @@ export interface UIElementInfo {
   status: string;
 }
 
+/** A user event delivered to a page-defined element's `onEvent`. */
+export interface UIUserEvent {
+  /** The element the event reached. */
+  handle: number | null;
+  /** `"submit"` or the `data-lq-event` name. */
+  kind: string;
+  /** The element's field values, by name. */
+  fields: Record<string, any>;
+}
+
+/**
+ * A UI element type defined by the page (`defineElement`). `render` returns the element's markup
+ * from its props, and runs while the UI paints: it must not call `UIMount.show`. `onEvent`
+ * returns the new props, or `undefined` to keep them. `mount` runs once the element's node is in
+ * the page, and may return a cleanup that runs when the node is replaced or removed.
+ */
+export interface ElementDefinition {
+  type: string;
+  render: (props: any) => string;
+  onEvent?: (props: any, event: UIUserEvent) => any;
+  mount?: (node: Element, props: any) => (() => void) | void;
+  /** The default title of the type's elements. */
+  title?: string;
+}
+
+/** One node of the tree a `UIRenderer` receives. */
+export interface UITreeElement {
+  handle: number;
+  parent: number | null;
+  children: number[];
+  /** `null` while the node waits for its query's value. */
+  typeName: string | null;
+  title: string;
+  status: string;
+  /** The element's web markup, children included. */
+  html: string;
+  /** For an element made by `element()`: its type. */
+  kind?: string;
+  /** For an element made by `element()`: its props. */
+  props?: any;
+}
+
+/** A mounted UI's whole element tree. */
+export interface UITree {
+  roots: number[];
+  elements: Record<number, UITreeElement>;
+}
+
+/** One change of the tree since the renderer's previous call, in order. */
+export type UIChangeRecord =
+  | { inserted: number; parent: number | null; index: number }
+  | { removed: number; parent: number | null }
+  | { replaced: number };
+
+/**
+ * A page that renders a UI itself (`mountRenderer`). `changes` is `"all"` when the whole tree
+ * must be drawn (the first call among them), otherwise what changed.
+ */
+export interface UIRenderer {
+  render(tree: UITree, changes: UIChangeRecord[] | "all"): void;
+  dispose?(): void;
+}
+
 /** What `dataFacts` reports about a data object without reading it. */
 export interface LiquersDataFacts {
   size: number;

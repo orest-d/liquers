@@ -141,6 +141,10 @@ impl UIElement for DelegatedElement {
         Box::new(self.clone())
     }
 
+    fn as_any(&self) -> Option<&dyn std::any::Any> {
+        Some(self)
+    }
+
     fn init(&mut self, handle: UIHandle, _ctx: &UIContext) -> Result<(), Error> {
         self.set_handle(handle);
         Ok(())

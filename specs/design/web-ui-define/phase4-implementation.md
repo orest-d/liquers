@@ -14,12 +14,30 @@ Prerequisites:
 
 ## Progress
 
-- [ ] Step 1: `DelegatedElement`, `ElementDelegate` and the per-thread registry
-- [ ] Step 2: `defineElement`, `undefineElement`, `element()` and `JsElementDelegate` (render only)
-- [ ] Step 3: `mount` reconciliation in the mount's `on_tick`
-- [ ] Step 4: `run_headless` and the renderer form of `mountUI`
-- [ ] Step 5: Declarations, the stubs check, and documentation of Steps 1–4
-- [ ] Step 6: `onEvent` through `ui-events` (uses `ui-events`' messages)
+- [x] Step 1: `DelegatedElement`, `ElementDelegate` and the per-thread registry
+- [x] Step 2: `defineElement`, `undefineElement`, `element()` and `JsElementDelegate` (render only)
+- [x] Step 3: `mount` reconciliation in the mount's `on_tick`
+- [x] Step 4: `run_headless` and the renderer form of `mountUI`
+- [x] Step 5: Declarations, the stubs check, and documentation of Steps 1–4
+- [x] Step 6: `onEvent` through `ui-events` (uses `ui-events`' messages)
+
+## As built
+
+Done 2026-10-31. Differences from the plan, none of which changes the interface:
+
+- `run_headless` and `HeadlessOptions` are in `ui/web/app.rs` beside `mount_web_with`, not in a
+  new `headless.rs`: both drivers now run one `spawn_driver_loop`, which needs `MountHandle`'s
+  private fields. `MountHandle` holds its DOM parts as one `Option<DomParts>`.
+- `UIElement` gains `as_any()` (default `None`), so liquers-web can read a `DelegatedElement`'s
+  kind and props back from an `Arc<dyn UIElement>`.
+- Props are read from JavaScript by a direct JSON walk (`ui_define::js_to_json`), not
+  `js_to_value` followed by a check: it names what is not JSON and where, and finds cycles.
+- `update` called `on_event` from Step 1, since `ui-events` was already on `main`; Step 6 was
+  its JavaScript half (`UIUserEvent`, `dispatchEvent`).
+- The renderer receives the whole tree on every call, rebuilt from `AppState`, rather than a tree
+  patched for the handles the changes name. Simpler, and O(n) per changed tick.
+- `UIDEF08`'s re-entry tests are in the browser loop, as planned; `UIDEF06c` (a throwing `mount`)
+  and `UIDEF07b` (a renderer without `render`) were added.
 
 ## Implementation Steps
 

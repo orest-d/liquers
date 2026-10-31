@@ -315,7 +315,8 @@ updated by the change that moves it.
 | `PACKAGE` | complete | 01–05, 07 | `06` is `NA`: no optional extra |
 | `DOCS` | partial | 03 by `scripts/test-guide-examples.sh`; 01, 02, 05–07 reviewed | `04` not started: no generated API reference (`WEB-API-REFERENCE-NOT-GENERATED`) |
 | `UIUSE` | complete | 01–10 in `tests/ui_browser_UIUSE.rs` (`browser-tests`), 02, 07, 08 also in `tests/ui_UIUSE.rs` (Node); `tests/e2e/ui.spec.ts` | `mountUI` / `UIMount`; the page does not repaint while a query awaits (`WEB-UI-FREEZES-WHILE-A-QUERY-AWAITS`); `UIUSE05` needs `--features debug-handles` |
-| `RECIPE`, `UIDEF` | not started (deferred) | — | — |
+| `UIDEF` | complete | 01, 02, 05, 06 in `tests/ui_define_UIDEF.rs` (Node); 03, 04, 06b, 07, 08 in `tests/ui_browser_UIDEF.rs` (`browser-tests`); native `ui::widgets::delegated_element` tests | `defineElement`, `element`, `mountRenderer`; `UIDEF04` is claimed for the web backend only (egui shows a label); `UIDEF06` needs `--features debug-handles` |
+| `RECIPE` | not started (deferred) | — | — |
 | `MODULE`, `POLYGLOT`, `WEBSERV`, `WEBAPI` | `NA` for the shipped milestone | — | — |
 
 **`RECORDS03` is `NA`**: there is no Arrow route out of the browser build; it becomes required if an

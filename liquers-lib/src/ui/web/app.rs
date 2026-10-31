@@ -57,13 +57,19 @@ mod browser {
     /// [`MountHandle::stop`] (and dropping the handle) removes the `click` listener from the root
     /// and the `keydown` listener from the target it was added to (the document), empties the
     /// root, and makes the driver loop return at its next check, which drops the runner, its
-    /// environment and its `AppState` clone.
+    /// environment and its `AppState` clone. A headless mount ([`run_headless`]) has no DOM part;
+    /// stopping it only ends the loop.
     pub struct MountHandle {
+        dom: Option<DomParts>,
+        stopped: Rc<Cell<bool>>,
+    }
+
+    /// The DOM a browser mount attached to.
+    struct DomParts {
         root: web_sys::Element,
         key_target: web_sys::EventTarget,
         click: Closure<dyn FnMut(web_sys::Event)>,
         keydown: Closure<dyn FnMut(web_sys::Event)>,
-        stopped: Rc<Cell<bool>>,
     }
 
     impl MountHandle {
@@ -72,14 +78,17 @@ mod browser {
             if self.stopped.replace(true) {
                 return;
             }
-            let _ = self
-                .root
-                .remove_event_listener_with_callback("click", self.click.as_ref().unchecked_ref());
-            let _ = self.key_target.remove_event_listener_with_callback(
-                "keydown",
-                self.keydown.as_ref().unchecked_ref(),
-            );
-            self.root.set_inner_html("");
+            if let Some(dom) = &self.dom {
+                let _ = dom.root.remove_event_listener_with_callback(
+                    "click",
+                    dom.click.as_ref().unchecked_ref(),
+                );
+                let _ = dom.key_target.remove_event_listener_with_callback(
+                    "keydown",
+                    dom.keydown.as_ref().unchecked_ref(),
+                );
+                dom.root.set_inner_html("");
+            }
         }
 
         /// Whether the mount is still running (not stopped).
@@ -615,7 +624,7 @@ mod browser {
     {
         let MountOptions {
             envref,
-            mut current_env,
+            current_env,
             mut on_tick,
         } = options;
         let ctx = UIContext::new(app_state.clone(), sender.clone());
@@ -641,10 +650,46 @@ mod browser {
             .add_event_listener_with_callback("keydown", keydown.as_ref().unchecked_ref())
             .map_err(|_| Error::general_error("failed to attach keydown listener".to_string()))?;
 
+        let paint_root = root.clone();
+        let paint_state = app_state.clone();
+        let after_run: Box<dyn FnMut(Invalidation, Vec<RunnerEvent>)> =
+            Box::new(move |invalidation, events| {
+                apply_invalidation(&paint_root, &paint_state, &invalidation);
+                if let Some(f) = on_tick.as_mut() {
+                    f(events);
+                }
+            });
+        let stopped =
+            spawn_driver_loop(envref, current_env, app_state, sender, receiver, after_run);
+
+        Ok(MountHandle {
+            dom: Some(DomParts {
+                root,
+                key_target,
+                click,
+                keydown,
+            }),
+            stopped,
+        })
+    }
+
+    /// The driver loop shared by the browser and headless mounts: runs the runner, takes the
+    /// tick's invalidation, and hands it with the tick's events to `after_run`, with no lock held.
+    /// Returns the flag that stops it.
+    fn spawn_driver_loop<E>(
+        envref: EnvRef<E>,
+        mut current_env: Option<Box<dyn FnMut() -> Option<EnvRef<E>>>>,
+        app_state: Arc<tokio::sync::Mutex<dyn AppState>>,
+        sender: AppMessageSender,
+        receiver: AppMessageReceiver,
+        mut after_run: Box<dyn FnMut(Invalidation, Vec<RunnerEvent>)>,
+    ) -> Rc<Cell<bool>>
+    where
+        E: Environment<Value = Value>,
+        E::Payload: UIPayload + From<SimpleUIPayload>,
+    {
         let stopped = Rc::new(Cell::new(false));
         let loop_stopped = stopped.clone();
-        let loop_root = root.clone();
-        let loop_state = app_state.clone();
         let mut current = envref.clone();
         let mut runner = AppRunner::new(envref, receiver, sender);
         wasm_bindgen_futures::spawn_local(async move {
@@ -658,7 +703,7 @@ mod browser {
                         current = next;
                     }
                 }
-                let _ = runner.run(&loop_state).await;
+                let _ = runner.run(&app_state).await;
                 // A stop made while `run` was awaiting must not paint into the emptied root.
                 if loop_stopped.get() {
                     break;
@@ -666,32 +711,57 @@ mod browser {
                 // Rendering follows what the model says changed. `DirectAppState` starts at
                 // `All`, so the first paint needs no special case; when the lock is busy the
                 // records stay pending and are applied on a later tick.
-                let invalidation = match loop_state.try_lock() {
+                let invalidation = match app_state.try_lock() {
                     Ok(mut state) => state.take_invalidation(),
                     Err(_) => Invalidation::None,
                 };
-                apply_invalidation(&loop_root, &loop_state, &invalidation);
-                // Drained every tick, also when nobody listens, so the outbox stays empty.
+                // Events are drained every tick, also when nobody listens, so the outbox stays
+                // empty.
                 let events = runner.take_events();
-                if let Some(f) = on_tick.as_mut() {
-                    f(events);
-                }
+                after_run(invalidation, events);
                 if loop_stopped.get() {
                     break;
                 }
                 gloo_timers::future::TimeoutFuture::new(16).await;
             }
         });
+        stopped
+    }
 
-        Ok(MountHandle {
-            root,
-            key_target,
-            click,
-            keydown,
-            stopped,
-        })
+    /// Options of [`run_headless`].
+    pub struct HeadlessOptions<E: Environment> {
+        /// The environment the runner starts with.
+        pub envref: EnvRef<E>,
+        /// As [`MountOptions::current_env`].
+        pub current_env: Option<Box<dyn FnMut() -> Option<EnvRef<E>>>>,
+        /// Called after each tick with what changed and the tick's runner events, with no lock
+        /// held. The first tick of a fresh `DirectAppState` carries `Invalidation::All`.
+        pub on_tick: Box<dyn FnMut(Invalidation, Vec<RunnerEvent>)>,
+    }
+
+    /// The driver of [`mount_web_with`] without a DOM: the caller renders, from the invalidation
+    /// `on_tick` receives. User events reach elements as `AppMessage::UIEvent` on `sender`.
+    pub async fn run_headless<E>(
+        options: HeadlessOptions<E>,
+        app_state: Arc<tokio::sync::Mutex<dyn AppState>>,
+        sender: AppMessageSender,
+        receiver: AppMessageReceiver,
+    ) -> Result<MountHandle, Error>
+    where
+        E: Environment<Value = Value>,
+        E::Payload: UIPayload + From<SimpleUIPayload>,
+    {
+        let HeadlessOptions {
+            envref,
+            current_env,
+            on_tick,
+        } = options;
+        let stopped = spawn_driver_loop(envref, current_env, app_state, sender, receiver, on_tick);
+        Ok(MountHandle { dom: None, stopped })
     }
 }
 
 #[cfg(all(feature = "webui", target_arch = "wasm32"))]
-pub use browser::{mount_web, mount_web_with, MountHandle, MountOptions};
+pub use browser::{
+    mount_web, mount_web_with, run_headless, HeadlessOptions, MountHandle, MountOptions,
+};
