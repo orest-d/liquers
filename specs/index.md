@@ -10,8 +10,7 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 
 Total rows: 196
 - P2: 59
-- P3: 136
-- P4: 1
+- P3: 137
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -108,6 +107,7 @@ Total rows: 196
 | [`WEB-HAS-NO-TEMPLATE-COMMANDS`](issues/WEB-HAS-NO-TEMPLATE-COMMANDS.md) | feature | The browser environment has no template commands | draft |  |  | P3 | S | web |  | 2026-10-25 |
 | [`WEB-IMPORTED-COMMAND-RECEIVES-NO-CONTEXT`](issues/WEB-IMPORTED-COMMAND-RECEIVES-NO-CONTEXT.md) | issue | A JavaScript command bound to imported metadata cannot receive the context | draft |  |  | P3 | S | web |  | 2026-10-31 |
 | [`WEB-METADATA-STATUS-CASE-DIFFERS`](issues/WEB-METADATA-STATUS-CASE-DIFFERS.md) | issue | State.metadata().status is capitalized while Asset.status() and State.status are lowercase | draft |  |  | P3 | S | web |  | 2026-10-26 |
+| [`WEB-ONEVENT-SHOW-GUARD-IGNORES-THE-MOUNT`](issues/WEB-ONEVENT-SHOW-GUARD-IGNORES-THE-MOUNT.md) | issue | show() from an onEvent is refused for the same handle number in another mount | draft |  |  | P3 | S | web |  | 2026-10-31 |
 | [`WEB-UNREGISTER-DEPENDS-ON-FIRST-EVALUATION`](issues/WEB-UNREGISTER-DEPENDS-ON-FIRST-EVALUATION.md) | issue | unregisterCommand removes a built-in command before the first evaluation but not after it | draft |  |  | P3 | S | web |  | 2026-10-26 |
 | [`WEBUI-SHORTCUTS-RUN-IN-EVERY-MOUNT`](issues/WEBUI-SHORTCUTS-RUN-IN-EVERY-MOUNT.md) | issue | With two web UI mounts on one page, an unfocused menu shortcut runs in both | draft |  |  | P3 | S | lib/ui;web |  | 2026-10-31 |
 | [`COLUMNMUT-VALIDITY-AND-VARIABLE-LENGTH-SET-ALWAYS-COPY`](issues/COLUMNMUT-VALIDITY-AND-VARIABLE-LENGTH-SET-ALWAYS-COPY.md) | issue | ColumnMut always copies validity, and rebuilds the whole column to overwrite one Text/Binary cell | draft | ready | not-eligible | P3 | M | records | [design](design/column-mut-zero-copy-validity/DESIGN.md) | 2026-09-26 |
@@ -210,4 +210,3 @@ Total rows: 196
 | [`CORE-MULTI-REALM-INTERPRETER`](issues/CORE-MULTI-REALM-INTERPRETER.md) | issue | The interpreter supports a single realm | accepted | phase2-blocked | not-eligible | P3 | XL | core/plan;core/commands | [phase1](design/multi-realm-dispatch/phase1-high-level-design.md)  [phase2](design/multi-realm-dispatch/phase2-architecture.md)  | 2026-08-08 |
 | [`CORE-TOKIO-REMOVAL`](issues/CORE-TOKIO-REMOVAL.md) | issue | Core still depends on tokio primitives on wasm | accepted | phase2-blocked | not-eligible | P3 | XL | core/assets | [phase1](design/executor-neutral-core/phase1-high-level-design.md)  [phase2](design/executor-neutral-core/phase2-architecture.md)  | 2026-08-08 |
 | [`NO-WRITE-PATH-FROM-RECORDS-INTO-A-RELATIONAL-DATABASE`](issues/NO-WRITE-PATH-FROM-RECORDS-INTO-A-RELATIONAL-DATABASE.md) | feature | Records cannot be written into a relational database (no INSERT, UPDATE, DELETE or transactions) | draft | phase2-blocked | not-eligible | P3 | XL | records;lib/commands;store/backends | [phase1](design/relational-database-writes/phase1-high-level-design.md)  [phase2](design/relational-database-writes/phase2-architecture.md)  | 2026-10-21 |
-| [`WEB-ONEVENT-SHOW-GUARD-IGNORES-THE-MOUNT`](issues/WEB-ONEVENT-SHOW-GUARD-IGNORES-THE-MOUNT.md) | issue | show() from an onEvent is refused for the same handle number in another mount | draft |  |  | P4 | S | web |  | 2026-10-31 |

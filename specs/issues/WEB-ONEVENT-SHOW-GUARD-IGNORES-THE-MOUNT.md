@@ -3,7 +3,7 @@ id: WEB-ONEVENT-SHOW-GUARD-IGNORES-THE-MOUNT
 kind: issue
 title: show() from an onEvent is refused for the same handle number in another mount
 status: draft
-priority: P4
+priority: P3
 complexity: S
 area: [web]
 design:
