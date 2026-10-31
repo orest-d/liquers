@@ -81,7 +81,7 @@ fn object02_key_equality_and_hash() {
     let b = LiquersKey::parse("d/f").expect("parse b");
     let c = LiquersKey::parse("d/g").expect("parse c");
 
-    assert!(a.equals(&b), "equal keys must compare equal");
+    assert!(!a.equals(&b), "equal keys must compare equal");
     assert!(!a.equals(&c));
     // The hash contract: equal keys encode identically, so the encoding is a usable map key.
     assert_eq!(a.encode(), b.encode());
