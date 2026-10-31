@@ -12,6 +12,10 @@ github:
 ---
 ## Problem
 
+> **2026-10-31:** the sketch below is superseded. Orest decided that a configuration names a
+> Python-registered *factory* (`type` is its unique name, the entry's arguments its parameters);
+> see the design folder in `design:`.
+
 `liquers-py` cannot adapt a Python object to `AsyncStore`. Direction 1 of the language-integration
 guide's `STORE` feature ("a store written in the *integrated language*",
 `specs/guides/LANGUAGE-INTEGRATION_GUIDE.md` §STORE) has no implementation: there is no Python

@@ -3,75 +3,88 @@
 ## Purpose
 
 Let a Python program back Liquers with storage that only Python reaches (an internal API, an ORM, a
-dictionary in a notebook), and compose it with the Rust stores from one configuration document:
-the `STORE` feature, directions 1, 2 and 3, of `LANGUAGE-INTEGRATION_GUIDE.md` (`VISION.md`, Python
-data science). It is milestone M4 of the liquers-py plan, together with
-[`liquers-py-recipes`](../liquers-py-recipes/DESIGN.md).
+dictionary in a notebook), declared as a store *type* with arguments and composed with the Rust
+stores from one configuration document: the `STORE` feature, directions 1, 2 and 3, of
+`LANGUAGE-INTEGRATION_GUIDE.md` (`VISION.md`, Python data science). Milestone M4 of the liquers-py
+plan, with [`liquers-py-recipes`](../liquers-py-recipes/DESIGN.md).
 
 ## Design Readiness
 
 - **Readiness:** `needs-decision`
 - **Automatic fixing:** `not-eligible`: an `L` feature with a new public Python API.
 - **Leading issue:** Open design question 1 (the minimum method set).
-- **Explanation:** questions 1-3 have viable alternatives and wait for Orest; questions 4-13 have
-  one defensible answer each and are shown for review. Provisional until the Phase 4 consistency pass.
+- **Explanation:** Decisions 1-2 are Orest's; questions 1-3 have viable alternatives and wait for
+  him; questions 4-12 have one defensible answer each and are shown for review. Provisional until
+  the Phase 4 consistency pass.
 - **Open questions:**
   1. **Open design - minimum method set** (`WEB-JS-STORE-WITH-ONLY-GET-CANNOT-BE-QUERIED`).
      Recommended: only `get` is mandatory, because a `-R/` query also calls `contains`,
      `get_metadata` and `is_dir`, and these are *derived* when absent: `get_metadata` from `get`;
      `contains` from it, an absent key answering `False`, never an error; `is_dir` `False` when
-     `listdir` is absent too (a flat store). `listdir` without `is_dir` is refused at registration.
-     Every other absent method raises `KeyNotSupported` naming it. A derived `contains` costs a
-     second `get` per read, so the guide recommends writing it. liquers-web takes the same rule in
-     its own PR. Alternative: all four mandatory for a queried store.
-  2. **Open design - registering after the store is built.** Recommended: `register_store_object`
-     raises `ConfigurationError` once the environment's store exists (after the first `evaluate`,
-     `store_set` or `env.store`), since a rebuilt router would start with empty in-memory mounts;
-     `Environment(stores={...})` registers at construction. Alternative: rebuild the store and
-     document the loss. A late *command* keeps rebuilding and dropping the asset cache
-     (`LANGUAGE-INTEGRATIONS-REBUILD-ENVIRONMENT-ON-REGISTRATION`), documented as an open problem.
-  3. **Open design - Python access to stores.** Recommended: `env.store` is an `lq.Store` over the
-     built store, with blocking methods and `_async` twins (the `evaluate` / `evaluate_async`
-     convention), including `is_read_only()` and `sync()` (its report's warnings readable);
-     `lq.Store.from_object(obj)` and `lq.Store.from_config(entry)` give one store held directly
-     (`STORE05` must not go through a router). After `shutdown()` an `lq.Store` refuses every call.
-  4. **Proposed resolution - naming.** Entry type `python`, object in `config.object`, as
-     liquers-web's `js`. `register_store_object` is an `Environment` method, where a future
-     store-*type* registration would sit too (`language-store-type-registration` question 1);
-     Python store types stay out of scope (`LANGUAGE-STORE-TYPE-NOT-DEFINABLE`).
-  5. **Proposed resolution - routing.** The prefix and relative-key checks run in Rust; a Python
-     `is_supported` is asked only for keys under the mount's prefix, so a key routed to a Rust mount
-     never takes the GIL. Absent means supported; a raised exception means not supported. It must
-     be a `def`: an `async def is_supported` is refused at registration.
-  6. **Proposed resolution - sync and async methods.** Each other method may be `def` or
-     `async def`, detected once at registration: `def` runs on the blocking pool with the GIL taken
-     there, `async def` on liquers-py's command loops (`liquers-py-async` Decision 2).
-  7. **Proposed resolution - what crosses.** Keys as `lq.Key`, whole, not stripped of the prefix
-     (as `JsStore` and the Rust backends see them); data as `bytes`, copied both ways
-     (`SHAREABLE-METADATA-AND-BYTES-ARE-DEEP-COPIED`); metadata as `lq.Metadata`, accepted back
-     also as a `dict`. `get` returns `bytes`, `(bytes, metadata)` or `None`; returned metadata wins
-     over what the key implies, and missing fields are filled from the key as for any store
-     without metadata (so `hello.txt` reads as text, `STORE10`).
-  8. **Proposed resolution - data-only access.** `get_data`, `set_data`, `remove_data`,
-     `listdir_data` and `data_facts` all or none (none: no `metadata` section); `rename_data` and
-     `get_stored_metadata` optional; an `atomic_write = True` attribute declares atomic writes.
-     `data_facts` returns `None` or `{size, modified, etag, precision}`, `modified` an aware
-     `datetime` or RFC 3339 text, brought to canonical form by `BackendTime::parse`.
-  9. **Proposed resolution - absent versus failure.** `None` means absent (`KeyNotFound`); a raised
-     `lq.LiquersError` keeps its type; any other exception is `KeyReadError` on a read and
-     `KeyWriteError` on a write, with the Python traceback. Against today's error types
-     (`ERROR-TYPES-TOO-COARSE-AND-GENERAL-OVERUSED` may refine it).
-  10. **Proposed resolution - consistency and re-entry.** The adapter adds no locking: concurrent
-      calls reach the object concurrently, and atomicity is the object's (`STORE06` asserts no torn
-      value, last write wins). A method may evaluate queries through its `Environment` under the
-      `RUNTIME` rules; reading its own store from inside its own method can deadlock the object and
-      is documented, not prevented. A store "without writes" (`is_read_only()`) lacks every write method.
-  11. **Proposed resolution - relative keys.** Refused with `KeyNotAbsolute` before Python is called
-      (`Key::as_absolute`); `STORE-ABSOLUTE-KEY-NOT-TYPE-ENFORCED` is deferred past M4.
-  12. **Proposed resolution - STORE18 is `NA`**, linking `LANGUAGE-STORE-CONFIG-FUNCTION-NOT-DEFINABLE`;
-      `STORE12`'s override half is `NA`: `python` is no other factory's type name.
-  13. **Proposed resolution - shutdown.** `shutdown()` drops every registered object and the store;
-      no `close()` is called (`ENVIRONMENT-ORDERLY-SHUTDOWN`).
+     `listdir` is absent too (a flat store). `listdir` without `is_dir` is refused. Every other
+     absent method raises `KeyNotSupported` naming it. A derived `contains` costs a second `get`
+     per read, so the guide recommends writing it. liquers-web takes the same rule in its own PR.
+     Alternative: all four mandatory for a queried store.
+  2. **Open design - Python access to stores.** Recommended: `env.store` is an `lq.Store` over the
+     environment's current store (resolved on each call, so a rebuild is followed), with blocking
+     methods and `_async` twins, including `is_read_only()` and `sync()` (its warnings readable);
+     `lq.Store.from_object(obj)` adapts one object directly (`STORE05` must not go through a
+     router). After `shutdown()` an `lq.Store` refuses every call.
+  3. **Open design - Python `store_config` handlers in M4.** Decision 2's first stage names them.
+     Recommended: not in M4: `STORE18` stays `NA` linking `LANGUAGE-STORE-CONFIG-FUNCTION-NOT-DEFINABLE`,
+     and `language-store-config-function` adds them to the same stage later. Alternative: take that
+     design into M4 (`L`, a core `StepBuilder` change).
+  4. **Proposed resolution - the factory declaration.** `env.register_store_factory(type, factory,
+     *, label="", doc="", arguments=None)`: `arguments` is derived from the factory's keyword
+     parameters (rules in Phase 2) or given as `lq.StoreArgumentInfo`s. liquers-py checks required
+     arguments, fills defaults and refuses unknown `config:` keys (unless the factory takes
+     `**kwargs`), since core leaves that to each factory; `prefix` is passed when declared.
+  5. **Proposed resolution - unique names.** A name any built-in factory resolves (`memory`,
+     `filesystem`, any OpenDAL name) or another Python type holds is refused at registration, and
+     the Python factory is chained *after* the built-ins, so a built-in always wins; `STORE12`'s
+     override half is `NA` for that reason.
+  6. **Proposed resolution - the factory call.** A callable (a function or a class), not
+     `async def`: `StoreFactory::create` is synchronous. It runs at build with the GIL; an exception
+     is a `ConfigurationError` naming the mount, and its result is adapted at once. It **may not
+     use its environment**: the build holds the environment's lock, so such a call raises
+     `ConfigurationError` rather than deadlocking.
+  7. **Proposed resolution - routing.** The prefix and relative-key checks run in Rust; a Python
+     `is_supported` (a `def`) is asked only for keys under the mount's prefix, so a key routed to a
+     Rust mount never takes the GIL. Absent means supported; an exception means not supported.
+  8. **Proposed resolution - sync and async methods.** Every other method may be `def` (blocking
+     pool, GIL taken there) or `async def` (liquers-py's command loops, `liquers-py-async` Decision 2).
+  9. **Proposed resolution - what crosses.** Keys as `lq.Key`, whole (as the Rust backends see
+     them); data as `bytes`, copied both ways; metadata as `lq.Metadata` or a `dict`. `get` returns
+     `bytes`, `(bytes, metadata)` or `None`; returned metadata wins over the key, missing fields are
+     filled from it (`STORE10`). `None` is `KeyNotFound`; a raised `lq.LiquersError` keeps its
+     type; any other exception is `KeyReadError` or `KeyWriteError` with the traceback.
+  10. **Proposed resolution - data-only access.** `get_data`, `set_data`, `remove_data`,
+      `listdir_data`, `data_facts` all or none; `rename_data`, `get_stored_metadata` optional;
+      `atomic_write = True` declares atomic writes. `data_facts` returns `None` or `{size,
+      modified, etag, precision}`, `modified` an aware `datetime` or RFC 3339 text
+      (`BackendTime::parse`).
+  11. **Proposed resolution - consistency and re-entry.** No adapter locking; atomicity is the
+      object's (`STORE06`). A store method may evaluate queries under the `RUNTIME` rules; reading
+      its own store from inside itself can deadlock and is documented. `is_read_only()` is true
+      when every write method is absent.
+  12. **Proposed resolution - keys and shutdown.** A relative key is refused with `KeyNotAbsolute`
+      before Python is called (`STORE-ABSOLUTE-KEY-NOT-TYPE-ENFORCED` deferred); `shutdown()` drops
+      every factory and store object, after releasing the lock, and calls no `close()`.
+
+## Decisions
+
+Orest, 2026-10-31:
+
+1. **A configuration names a factory.** "The type completely specifies the factory and it has an
+   arbitrary (free, unique) name"; the factory's parameters are the entry's arguments (`config:`
+   for a store). No fixed `python` type and no object registry: Python registers store *types*,
+   absorbing the Python half of `LANGUAGE-STORE-TYPE-NOT-DEFINABLE`.
+2. **Staged use; rebuilding any time is acceptable.** Recommended flow: "(i) register factories
+   (store and recipe provider), register store_config commands and eventually in the future other
+   commands necessary for configuration of the environment, e.g. access (ii) build environment from
+   configuration (iii) use environment" (`store_config` handlers: question 3). A late registration
+   marks the environment for a rebuild that keeps the built store: a store factory registered after
+   a failed build lets the next use build the store.
 
 ## Problem Example
 
@@ -79,20 +92,23 @@ data science). It is milestone M4 of the liquers-py plan, together with
 import liquers as lq
 
 class Notes:                                    # a store with one method
-    def __init__(self):
-        self.files = {"notes/hello.txt": b"Hello"}
+    def __init__(self, files):
+        self.files = files
     def get(self, key):                         # bytes, (bytes, metadata), or None if absent
         return self.files.get(str(key))
 
+def notes(prefix, greeting: str = "Hi"):        # the arguments are the factory's parameters
+    return Notes({f"{prefix}/hello.txt": greeting.encode()})
+
 env = lq.Environment(config={"store": {"stores": [
-    {"type": "python", "prefix": "notes", "config": {"object": "notes"}},
+    {"type": "notes", "prefix": "notes", "config": {"greeting": "Hello"}},
     {"type": "memory", "prefix": "scratch"}]}})
-env.register_store_object("notes", Notes())
-assert env.evaluate("-R/notes/hello.txt") == "Hello"
+env.register_store_factory("notes", notes, doc="Notes kept in a dict")    # (i) register
+assert env.evaluate("-R/notes/hello.txt") == "Hello"                     # (ii) build, (iii) use
 ```
 
-**Today** there is no `register_store_object`, no store protocol and no `python` type: the build
-fails with an unknown store type. **After** the query reads through `Notes.get`.
+**Today** there is no store factory registration and no store protocol: the build fails with an
+unknown store type `notes`. **After** the factory builds the mount and the query reads `Notes.get`.
 
 ## Scope and Acceptance Criteria
 
@@ -100,15 +116,14 @@ fails with an unknown store type. **After** the query reads through `Notes.get`.
   WHEN the problem example runs
   THEN `-R/notes/hello.txt` evaluates to `"Hello"`, and `-R/notes/absent.txt` raises `AssetNotFoundError`
 - **AC-2** The protocol is resolved once
-  WHEN an object without `get`, with `listdir` but no `is_dir`, or with an `async def is_supported` is registered
-  THEN registration raises `ConfigurationError` naming the method; a method added later changes nothing
+  WHEN a factory returns an object without `get`, with `listdir` but no `is_dir`, or with an `async def is_supported`
+  THEN the build raises `ConfigurationError` naming the mount and the method; a method added later changes nothing
 - **AC-3** Absent and failure stay distinct
   WHEN a Python method returns `None`, raises `lq.LiquersError`, or raises another exception
   THEN the caller sees `KeyNotFound`, that error's type, or a read/write error with the traceback
 - **AC-4** Absent optional methods are loud or derived
   WHEN a store lacks an optional method
-  THEN the call raises `KeyNotSupported` naming it, except the derived methods of question 1 and
-  `is_supported` (absent means supported)
+  THEN the call raises `KeyNotSupported` naming it, except question 1's derived methods and `is_supported`
 - **AC-5** Relative keys are refused
   WHEN a key with a `.` or `..` segment reaches a Python store, directly or routed
   THEN it fails with `KeyNotAbsolute` and Python is not called (`STORE05`, `STORE05b`)
@@ -125,8 +140,8 @@ fails with an unknown store type. **After** the query reads through `Notes.get`.
   WHEN a configuration has overlapping prefixes, a `read_only` mount over a writable one, and an unmatched key
   THEN the first match wins, writes do not fall through, and the key is absent (`STORE09`, `STORE11`)
 - **AC-10** Store types from a document
-  WHEN a document names the memory, file and an OpenDAL type, and one gated off in this build
-  THEN the first three build; the last is refused naming the missing feature (`STORE12`, `STORE13`)
+  WHEN a document names the memory, file, an OpenDAL and a Python type, and one gated off in this build
+  THEN the first four build; the last is refused naming the missing feature (`STORE12`, `STORE13`)
 - **AC-11** `read_only` on a Python mount
   WHEN a Python mount carries `read_only: true`
   THEN every write is refused before Python is called, and `is_read_only()` is true (`STORE14`)
@@ -134,59 +149,69 @@ fails with an unknown store type. **After** the query reads through `Notes.get`.
   WHEN a Python mount without the data-only methods carries a `metadata` section
   THEN the build fails naming the mount and the missing methods (`STORE15`)
 - **AC-13** Records round-trip
-  WHEN every store that takes a `metadata` section (the Python one with data-only methods included)
-  is configured with `per_entry` and then `grouped` storage
+  WHEN every store that takes a `metadata` section is configured with `per_entry`, then `grouped`
   THEN records round-trip, the default `on_read` chain applies, and a Python `get` is never called
   for metadata (`STORE16`)
 - **AC-14** Backend time compares equal
   WHEN a record's `created` comes from `data_facts` and the entry is re-read
   THEN it compares equal with a fresh reading, for each such store (`STORE17`)
-- **AC-15** Registration and release
-  WHEN a document names an unregistered object, a command is registered after the first query,
-  or `shutdown()` is called
-  THEN the build fails naming the object; the rebuild keeps the store; shutdown releases every
-  registered object (a `debug-handles` count) and a held `lq.Store` refuses further calls
+- **AC-15** Late registration and release
+  WHEN a factory or a command is registered after the first use, or `shutdown()` is called
+  THEN the next use rebuilds with the store kept (a factory after a failed build lets it build);
+  shutdown releases every factory and store object (a `debug-handles` count) and a held
+  `lq.Store` refuses further calls
+- **AC-16** A Python store type is declared
+  WHEN a factory is registered, then a mount omits a required argument, adds an unknown one, the
+  name is taken, the factory raises, or it calls its environment
+  THEN `store_types()` lists the type with its arguments; each failure raises `ConfigurationError`
+  naming the mount and the cause (the taken name at registration), and none hangs
 
-Non-goals: Python store types; Python `store_config` handlers (STORE18); recipe providers; new Rust
-backends; calling `close()`; reconfiguring a built store.
+Non-goals: Python `store_config` handlers (question 3); recipe providers; new Rust backends;
+calling `close()`.
 
 ## Core Interactions
 
-- Store: an `AsyncStore` adapter, a `StoreFactory` for `python` chained before
-  `default_store_factory()`; `read_only` and `metadata` applied by `StoreRouterBuilder` unchanged.
-- Bindings: `register_store_object`, `Environment(stores=…)`, `env.store`, `lq.Store`.
-- Errors: Python exceptions to store errors (ERROR bridge).
+Store: an `AsyncStore` adapter and one `StoreFactory` holding the Python types, chained after
+`default_store_factory()`; `read_only` and `metadata` applied by `StoreRouterBuilder` unchanged.
+Bindings: `register_store_factory`, `lq.StoreArgumentInfo`, `env.store`, `lq.Store`.
 
 ## Crate Placement
 
-`liquers-py` only: a new `src/store/` (adapter, factory, `lq.Store`). No core change is planned;
-the adapter follows `AsyncStore` as it is.
+`liquers-py` only, a new `src/store/`; `StoreTypeInfo` / `StoreArgumentInfo` already describe a type.
 
 ## Documentation Intent
 
-- Reference: a §Stores in `specs/reference/PYTHON_INTEGRATION.md` (protocol table, derived methods,
-  error map, threading, configuration); `python` in `specs/reference/STORE_CONFIG_FSD.md`'s type tables.
-- Guide: a "Stores" chapter in `specs/guides/PYTHON_GUIDE.md` (writing a store, mounting it, the
-  Rust stores, `env.store`).
-- API: docstrings on every new class and method (`test_DOCS_docstrings.py`).
-- Also `liquers-py/README.md` (STORE row), `LANGUAGE-INTEGRATION_GUIDE.md` §6 Python, `specs/README.md`.
-- Open problems documented: the copies, no store types, STORE18, late registration and the
-  rebuild's cache loss, the derived `contains` cost, self-reading deadlock.
+- Reference: a §Stores in `PYTHON_INTEGRATION.md` (factories, protocol, derived methods, errors,
+  threading, staged use); `STORE_CONFIG_FSD.md` (integration-registered types in `store_types()`).
+- Guide: a "Stores" chapter in `PYTHON_GUIDE.md`. API: docstrings on every new class and method.
+- Also `liquers-py/README.md` (STORE row); `LANGUAGE-INTEGRATION_GUIDE.md` §STORE ("What the
+  language cannot contribute: a store type" now holds only for JavaScript) and §6 Python;
+  `LANGUAGE-STORE-TYPE-NOT-DEFINABLE` narrowed to web; `PY-NO-LANGUAGE-DEFINED-STORE`'s sketch
+  marked superseded; `specs/README.md`.
+- Open problems: the copies; STORE18; Python types invisible to `liquers-validate` and the
+  registry export, so a document naming one is not portable; the derived `contains` cost;
+  self-reading deadlock; a late command's rebuild drops the asset cache.
 
 ## Design Dependencies
 
-- `PY-NO-LANGUAGE-DEFINED-STORE` — **implemented** by this design.
-- `liquers-py-recipes` — **sibling** (M4); same registration and method-dispatch rules.
-- `language-store-type-registration` — **required by**: its Python half needs this adapter.
-- `language-store-config-function` — **overlaps**; would make STORE18 apply.
+- `PY-NO-LANGUAGE-DEFINED-STORE` — **implemented**; `LANGUAGE-STORE-TYPE-NOT-DEFINABLE` — Python half
+  **absorbed** (Decision 1).
+- `liquers-py-recipes` — **sibling**; same factory model and method dispatch.
+- `language-store-type-registration` — **overlaps**: liquers-web's counterpart.
+- `language-store-config-function` — **overlaps** (question 3).
 - `WEB-JS-STORE-WITH-ONLY-GET-CANNOT-BE-QUERIED` — **overlaps** (question 1); fixed in its own PR.
-- `WEB-EXPLICIT-ENVIRONMENT-CONFIGURES-THE-SINGLETON` — avoided: registration acts on its own
-  `Environment`; liquers-py has no singleton store.
-- `language-late-registration-without-rebuild` — **overlaps** (question 2): would remove the
-  command rebuild that AC-15 keeps the store across.
+- `language-late-registration-without-rebuild` — **overlaps** (Decision 2).
+
+## Scope Changes
+
+- **2026-10-31** — Orest: a configuration names a Python *factory* (Decision 1) in place of a
+  `python` type with a registered object; late registration rebuilds (Decision 2). Added AC-16;
+  AC-2, AC-10, AC-15 reworded. Questions renumbered from the first draft: former 2 (late
+  registration) and 4 (naming) retired into the decisions; former 3 is 2; former 12 split into 3
+  (STORE18) and 5 (STORE12); new 4 and 6 (factories); former 5 is 7, 6 is 8, 7 and 9 merged into 9,
+  8 is 10, 10 is 11, 11 and 13 merged into 12. Size: still `L`. Phases: 1.
 
 ## References
 
 - `specs/guides/LANGUAGE-INTEGRATION_GUIDE.md` §Service adapters, §STORE, Appendix A STORE
-- `liquers-web/src/store/js_store.rs` (the JavaScript counterpart); `specs/guides/STORE_IMPLEMENTATION_GUIDE.md`
-- `/mnt/project-files/plans/liquers-py-implementation-plan.md` Pre-M4 B, M4
+- `liquers-web/src/store/js_store.rs`; `specs/guides/STORE_IMPLEMENTATION_GUIDE.md`, `STORE_FACTORY_GUIDE.md`

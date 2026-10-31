@@ -17,10 +17,10 @@ created: 2026-10-31
 
 The `RECIPE` feature of liquers-py, milestone M4 of the liquers-py plan together with
 [`liquers-py-store`](../liquers-py-store/DESIGN.md). It builds on the configurable recipe provider
-chain (`recipe-provider-chain-config`, PR #224): a Python provider is one more entry type in
-`config["recipes"]`, declared through `EnvironmentBuilder::with_recipe_provider_factory` (the
-plan's M4 says `with_appended_recipe_provider`; PR #224 made the factory the route for a configured
-entry, so this deliberately updates the plan). Compact form, since the source issue is `M`.
+chain (`recipe-provider-chain-config`, PR #224): Python registers recipe provider *factories*, each
+an entry type of `config["recipes"]`, declared through `EnvironmentBuilder::with_recipe_provider_factory`
+(the plan's M4 says `with_appended_recipe_provider`; PR #224 made the factory the route for a
+configured entry, so this deliberately updates the plan). Compact form, since the source issue is `M`.
 
 ## Phase 1: High-Level Design
 
@@ -37,22 +37,24 @@ data science).
 import liquers as lq
 
 class Reports:                                  # a provider with one method
+    def __init__(self, folder):
+        self.folder = folder
     def recipe_opt(self, key):                  # an lq.Recipe, query text, or None if not mine
-        if str(key.parent()) == "reports":
+        if str(key.parent()) == self.folder:
             return f"hello/{key.filename()}"    # cwd defaults to the key's folder
         return None
 
-env = lq.Environment(config={"recipes": ["recipes_yaml", {"type": "python", "object": "reports"}]})
-env.register_recipe_provider("reports", Reports())
+env = lq.Environment(config={"recipes": ["recipes_yaml", {"type": "reports", "folder": "reports"}]})
+env.register_recipe_provider_factory("reports", Reports)   # (i) register; parameters = entry arguments
 
-@env.command
+@env.first_command
 def hello():
     return "Hello"
 
 assert env.evaluate("-R/reports/summary.txt") == "Hello"
 ```
 
-**Today** `python` is an unknown entry type and the build fails. **After** the chain asks
+**Today** `reports` is an unknown entry type and the build fails. **After** the chain asks
 `Reports.recipe_opt` for every key, and `reports/summary.txt` evaluates `hello/summary.txt`.
 
 ### Scope and Acceptance Criteria
@@ -72,11 +74,13 @@ assert env.evaluate("-R/reports/summary.txt") == "Hello"
   WHEN a provider method raises (`RECIPE04`)
   THEN the lookup fails with that `lq.LiquersError`'s type, or `ExecutionError`, carrying the
   Python traceback
-- **AC-5** The protocol is resolved once
-  WHEN an object without `recipe_opt` is registered, or a configuration names an unregistered object
-  THEN registration, or the build, raises `ConfigurationError` naming the method or the object
+- **AC-5** The factory and the protocol are checked
+  WHEN a factory is registered under a taken name, an entry lacks a required argument or adds an
+  unknown one, the factory raises or calls its environment, or it returns an object without `recipe_opt`
+  THEN registration refuses the name; the build raises `ConfigurationError` naming the entry and
+  the cause, and none hangs
 - **AC-6** Listing and containment
-  WHEN a provider has `list(folder)`, and another lacks it
+  WHEN a provider has `assets_with_recipes(folder)`, and another lacks it
   THEN every listed name is contained and addressable, and an unlisted name its `recipe_opt`
   answers is addressable too (`RECIPE02`); the second lists nothing and contains nothing, yet its
   keys evaluate (question 1)
@@ -87,80 +91,104 @@ assert env.evaluate("-R/reports/summary.txt") == "Hello"
   WHEN a provider method evaluates a query through its environment (`RECIPE07`)
   THEN it completes under the `RUNTIME` rules, with no deadlock; `def` and `async def` both work
 - **AC-9** Inspecting the chain
-  WHEN Python calls `env.recipes.recipe_opt(key)`, `recipe(key)`, `list(folder)`, `contains(key)`
-  or their `_async` twins
+  WHEN Python calls `env.recipes.recipe_opt(key)`, `recipe(key)`, `assets_with_recipes(folder)`,
+  `contains(key)` or their `_async` twins
   THEN it gets the chain's answers (`RECIPE01`-`RECIPE03`, `RECIPE05`)
 - **AC-10** Registration timing and release
-  WHEN a provider is registered after the first query, or `shutdown()` is called
-  THEN the next use builds a new chain with the store kept (a provider holds no data, unlike a
-  store object); shutdown releases every provider object (a `debug-handles` count)
-- **AC-11** Several Python providers
-  WHEN a chain holds two Python providers (question 2)
-  THEN both are asked for every key, and two answering for one key is a configuration error naming both
+  WHEN a factory is registered after the first use, or `shutdown()` is called
+  THEN the next use rebuilds the environment and its chain with the store kept (`liquers-py-store`
+  Decision 2), so a factory registered after a failed build lets it build; shutdown releases every
+  factory and provider object (a `debug-handles` count)
+- ~~**AC-11** Several Python providers~~ — replaced by AC-12 when the registration model changed
+  (Scope Changes, 2026-10-31).
+- **AC-12** One factory, several entries
+  WHEN a chain lists the `reports` type twice with different arguments
+  THEN both providers are asked for every key (question 2); an identical entry listed twice, or a
+  built-in type listed twice, is still a configuration error
 
 Non-goals: caching recipes in the adapter (a provider caches itself); Python recipe providers in
 `liquers-validate` (`VALIDATE-CANNOT-SEE-NON-STANDARD-RECIPE-PROVIDERS`, documented as a limitation);
 stores.
 
-Core interactions: recipes (`AsyncRecipeProvider` adapter, a `RecipeProviderFactory` for `python`
-through `EnvironmentBuilder::with_recipe_provider_factory`); bindings (`register_recipe_provider`,
-`Environment(recipe_providers=…)`, `env.recipes`). Crate: `liquers-py` (a new
-`src/recipe_provider.rs`; `src/recipes.rs` keeps the `Recipe` wrappers). `recipe_plan` needs the
-plan's dependency analysis, which core keeps private (`create_plan_with_init_metadata`,
-`analyze_plan_dependencies`): a small core visibility change, decided in Phase 2.
+Core interactions: recipes (`AsyncRecipeProvider` adapter, one `RecipeProviderFactory` holding every
+Python type, through `EnvironmentBuilder::with_recipe_provider_factory`); bindings
+(`register_recipe_provider_factory`, `env.recipes`). Crates: `liquers-py` (a new
+`src/recipe_provider.rs`; `src/recipes.rs` keeps the `Recipe` wrappers), and `liquers-core` for
+question 2 and for `recipe_plan`'s dependency analysis, which core keeps private
+(`create_plan_with_init_metadata`, `analyze_plan_dependencies`): a small visibility change, Phase 2.
 
-Documentation intent: a §Recipe providers in `specs/reference/PYTHON_INTEGRATION.md` (protocol,
-derived methods, errors, threading); a "Recipe providers" section in `specs/guides/PYTHON_GUIDE.md`
-§6 beside "Named results: recipes", stating the listing contract
+Documentation intent: a §Recipe providers in `specs/reference/PYTHON_INTEGRATION.md` (factory
+registration, protocol, derived methods, errors, threading); a "Recipe providers" section in
+`specs/guides/PYTHON_GUIDE.md` §6 beside "Named results: recipes", stating the listing contract
 (`RECIPE-ONLY-FOLDER-NAMES-HIDE-A-CREATED-FOLDER-FROM-ITS-PARENT`) and that `liquers-validate` cannot
-see Python recipes; the `python` row of `specs/reference/ENVIRONMENT_CONFIG.md`'s entry types;
-docstrings on every new class and method; the `RECIPE` row of `liquers-py/README.md`;
-`LANGUAGE-INTEGRATION_GUIDE.md` §6 Python; `specs/README.md`. Open problems documented: the rebuild
-on late registration drops the asset cache (`LANGUAGE-INTEGRATIONS-REBUILD-ENVIRONMENT-ON-REGISTRATION`).
+see Python recipes; `specs/reference/ENVIRONMENT_CONFIG.md` (integration-registered entry types,
+the duplicate rule of question 2); docstrings on every new class and method; the `RECIPE` row of
+`liquers-py/README.md`; `LANGUAGE-INTEGRATION_GUIDE.md` §RECIPE and §6 Python; `specs/README.md`.
+The superseded `{type: python, object: …}` sketch is replaced in `LANGUAGE-INTEGRATION_GUIDE.md`
+§RECIPE, `ENVIRONMENT_CONFIG.md` (`[default, {type: python, …}]`) and
+`PY-NO-LANGUAGE-DEFINED-RECIPE-PROVIDER`. Open problems documented: every Python provider takes
+the GIL on every key lookup, since the chain asks every member; a late registration drops the asset
+cache (`LANGUAGE-INTEGRATIONS-REBUILD-ENVIRONMENT-ON-REGISTRATION`); a provider changing its answer
+does not expire assets (`RECIPE-DEPENDENCY-KEY-IS-NEVER-VERSIONED`).
 
 ### Design Readiness
 
 - **Readiness:** `needs-decision`
-- **Automatic fixing:** `not-eligible`: a new public Python API.
-- **Leading issue:** Open design question 1.
-- **Explanation:** the chain already defines ownership, errors and listing; what remains is the
-  Python surface, and questions 1-2 change what a provider author writes.
+- **Automatic fixing:** `not-eligible`: a new public Python API and a core rule change.
+- **Leading issue:** Open design question 2.
+- **Explanation:** the chain already defines ownership, errors and listing, and Orest's decisions
+  (`liquers-py-store` Decisions 1-2) fix the registration model; questions 1-2 remain for him.
 - **Open questions:**
-  1. **Open design - an absent `list`.** Recommended: the provider lists nothing and contains
-     nothing (it is generative: addressable ⊋ listed, which the guide allows), so the chain's
-     listing is the other members'; its keys are still found through `recipe_opt`. This departs
-     from the guide's "absent optional method fails loudly" rule because in a chain a failing member
-     fails *every* listing. Alternative: `KeyNotSupported`, making `list` mandatory in practice.
-  2. **Open design - several Python providers.** The chain refuses an entry type listed twice
-     (`expand_recipes`), so today a chain holds one `python` entry. Recommended: the entry takes
-     `object: name` or `objects: [a, b]`, and the adapter asks them in order with the chain's own
-     rules (one owner per key, any error fails). Alternatives: a core change keying duplicates on
-     type and `object`; or one Python provider per chain, documented.
-  3. **Open design - registration API.** Recommended: `env.register_recipe_provider(name, obj)`
-     and `Environment(recipe_providers={...})`, names separate from store objects, mirroring
-     `liquers-py-store` question 2. Unlike a store object a late provider is accepted: the chain
-     is rebuilt and holds no data, only the asset cache is lost.
+  1. **Open design - an absent `assets_with_recipes`.** The method is the protocol's listing and
+     is supported. Recommended when it is absent: the provider lists nothing and contains nothing
+     (it is generative: addressable ⊋ listed, which the guide allows), so the chain's listing is
+     the other members'; its keys are still found through `recipe_opt`. This departs from the
+     guide's "absent optional method fails loudly" rule because in a chain a failing member fails
+     *every* listing. Alternative: `KeyNotSupported`, making it mandatory in practice.
+  2. **Open design - the same type twice.** `recipe-provider-chain-config` made an entry type listed
+     twice a configuration error (`expand_recipes`), which forbids one factory with two argument
+     sets. Recommended: a type may opt in with `repeatable` on `RecipeProviderTypeInfo` (default
+     false, set for Python types only), so `[default, {type: manifest, x: 1}]` stays refused; an
+     *identical* entry is always refused; a member keeps its bare type as its name unless repeated,
+     then `type#position` (`liquers-core`, `ENVIRONMENT_CONFIG.md`). Alternative: keep the rule; a
+     factory then appears once per chain.
+  3. **Proposed resolution - the factory declaration**, as `liquers-py-store` questions 4-6:
+     `env.register_recipe_provider_factory(type, factory, *, label="", doc="", arguments=None)`;
+     arguments from the factory's keyword parameters or a list of `lq.StoreArgumentInfo` (core's
+     `RecipeProviderTypeInfo` reuses it), checked and defaulted by liquers-py, unknown keys refused
+     unless it takes `**kwargs`; a unique name (not a type of the kind's factory, nor `default`,
+     `trivial`, `none`, `no_recipes`); a callable, not `async def`, called at build, which may not
+     use its environment; its result inspected at once.
   4. **Proposed resolution - return forms.** `recipe_opt` returns an `lq.Recipe`, query text, or
      `None`; anything else (a `dict` included) fails the lookup with `ExecutionError` naming the
      type. A recipe without `cwd` gets the key's folder, as `recipes_yaml` sets it.
   5. **Proposed resolution - containment is listing.** `contains` is core's meaning ("listed"):
-     taken from `contains(key)` when the provider has it, else from `list`; "producible" is
-     `can_make`, whose core default already asks `recipe_opt`.
+     taken from `contains(key)` when the provider has it, else from `assets_with_recipes`;
+     "producible" is `can_make`, whose core default already asks `recipe_opt`.
   6. **Proposed resolution - the adapter implements** `recipe`, `recipe_plan`, `has_recipes` and
-     `assets_with_recipes` (required trait methods) from `recipe_opt` and `list`; `get_asset_info`
-     takes core's default; an optional `directory_changed(folder)` is forwarded.
-  7. **Proposed resolution - sync and async**, keys as `lq.Key`, the protocol inspected at
-     registration: as `liquers-py-store` questions 6 and 7. A callback may evaluate through its
-     `Environment` under the `RUNTIME` rules (AC-8); evaluating the key it is resolving recurses,
-     which is documented.
+     `assets_with_recipes` (required trait methods) from `recipe_opt` and the Python listing;
+     `get_asset_info` takes core's default; an optional `directory_changed(folder)` is forwarded.
+  7. **Proposed resolution - sync and async**, keys as `lq.Key`: as `liquers-py-store` questions 8
+     and 9. A callback may evaluate through its `Environment` under the `RUNTIME` rules (AC-8);
+     evaluating the key it is resolving recurses, which is documented.
 
 ### Design Dependencies
 
 - `PY-NO-LANGUAGE-DEFINED-RECIPE-PROVIDER` — **implemented** by this design.
-- `recipe-provider-chain-config` — **required** (complete): the chain and the factory seam.
-- `liquers-py-store` — **sibling**; same registration and method-dispatch rules.
+- `recipe-provider-chain-config` — **required** (complete): the chain and the factory seam; its
+  duplicate rule is revisited (question 2).
+- `liquers-py-store` — **sibling**; same factory model (its Decisions 1-2) and method dispatch.
 - `language-late-registration-without-rebuild` — **ordering**: it removes the command rebuild; if
-  it lands first, AC-10's late provider needs its own rebuild of the chain, stated in Phase 2.
+  it lands first, AC-10's late factory needs its own rebuild, stated in Phase 2.
+
+### Scope Changes
+
+- **2026-10-31** — Orest: a configuration names a Python *factory*, its arguments the factory's
+  parameters, in place of `{type: python, object: …}`; `assets_with_recipes` is the Python listing
+  method; late registration rebuilds. AC-5, AC-6, AC-9, AC-10 reworded; AC-11 replaced by AC-12.
+  Questions: the former 3 (registration API) retired into the store design's decisions, so 3 is
+  now the factory declaration; former 2 (several providers) became the core duplicate rule. Adds a
+  small `liquers-core` change (question 2). Phases: 1.
 
 ### References
 

@@ -12,6 +12,10 @@ github:
 ---
 ## Problem
 
+> **2026-10-31:** the sketch below is superseded. Orest decided that a configuration names a
+> Python-registered *factory* (`type` is its unique name, the entry's arguments its parameters);
+> see the design folder in `design:`.
+
 `liquers-py` cannot adapt a Python object to `AsyncRecipeProvider`, so the language-integration
 guide's optional `RECIPE` feature (`specs/guides/LANGUAGE-INTEGRATION_GUIDE.md` §RECIPE) has no
 implementation. Since `design/recipe-provider-chain-config/` a Python environment can configure the
