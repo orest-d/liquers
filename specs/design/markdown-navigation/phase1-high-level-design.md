@@ -32,13 +32,14 @@ With this design:
 -R/specs/reference/AGENT_MEMORY_SERVICE.md/-/ns-md/section-8
 -R/specs/reference/AGENT_MEMORY_SERVICE.md/-/ns-md/links
 -R/specs/reference/ASSETS.md/-/ns-md/table-History
--R/specs/design/runtime-volatility/DESIGN.md/-/ns-md/section-Phase~.2-Solution
+-R/specs/design/runtime-volatility/DESIGN.md/-/ns-md/section-phase~.2.solution
 ```
 
 The outline is a few hundred bytes of records (level, heading, number, line range, size). The
 agent picks `8`, reads only that section, and takes the `links` rows of the section to follow.
-All five queries were checked with `liquers-validate` (`--command md/<name>`); the last addresses
-a path, one parameter per heading (`~.` is a space).
+All five queries were checked with `liquers-validate` (`--command md/<name>`). `8` is a section
+number: the 8th section under the title. The last is a path: the section whose heading contains
+"solution" inside the one containing "phase 2" (`~.` is a space in a query).
 
 ## Scope and Acceptance Criteria
 
@@ -48,11 +49,20 @@ a path, one parameter per heading (`~.` is a space).
   (from a `## 3.2 …` prefix, else empty), `slug`, `line`, `end_line`, `words`; ATX and setext
   headings both count, and `#` lines inside fenced, indented or HTML blocks do not
 - **AC-2** Section by address
-  WHEN `ns-md/section-<address…>` is applied
+  WHEN `ns-md/section-<address>` is applied
   THEN it returns that section's text, its subsections included unless `children=false`, its
-  heading line included unless `heading=false`; an address is a heading's text, its number prefix,
-  its slug, or a path given as one parameter per heading, matched ignoring case and surrounding
-  whitespace
+  heading line included unless `heading=false`; the address is a path of steps separated by `.`,
+  each step choosing among the subsections of the previous one (the first, among the sections
+  under a lone top-level title)
+- **AC-11** Address steps
+  WHEN a step consists of digits only
+  THEN it is a section number: `1.2.3` is the 3rd subsection of the 2nd subsection of section 1,
+  counted in document order; any other step is text, matched case-insensitively against the
+  heading's words, exact before prefix before contained, so `phase~.1` does not match "Phase 10";
+  `..` is a literal dot, so `3..2` is the text "3.2" and matches `## Section 3.2`
+- **AC-12** Addresses in the outline
+  WHEN `ns-md/outline` lists a heading
+  THEN its record carries `address`, the section-number path (`2.1`) that AC-2 resolves back to it
 - **AC-3** Ambiguous or missing address
   WHEN an address matches no section, or more than one
   THEN the command fails with an error naming the address and, for several, every candidate with
@@ -116,15 +126,18 @@ commands, the records output and the moved `ns-mem` and `markdown_tiers` code st
 
 ## Open Questions
 
-1. **Crate:** a new `liquers-markdown` crate (recommended, for the template crate later) or a
-   module in `liquers-lib`.
-2. **Section path syntax:** one parameter per heading, `section-Phase~.2-Solution` (recommended:
-   no new escape), or one parameter with a separator such as `>`.
-3. **Folder commands:** add `ns-md/outline` and `ns-md/links` over a folder now, or later on demand
-   (recommended: later; `md_split` keeps its folder input).
-4. **`md_split`:** keep it as an alias of `ns-md/sections` (recommended) or deprecate it.
-5. **Tables:** reuse `liquers-records`' Markdown table reader on the table's text (recommended) or
-   give the block layer its own table cells.
+Decided by the maintainer on 2026-11-01: a new `liquers-markdown` crate; folder commands later
+(`md_split` keeps its folder input); tables through `liquers-records`' Markdown table reader;
+`ns-search/md_split-section` stays as a thin wrapper over `ns-md/sections`, `unit=line` as it is;
+the path syntax of AC-2 and AC-11.
+
+1. **Step scope:** a step matches direct subsections only (recommended, with an error that
+   suggests the full path when a deeper section would match) or any section below.
+2. **Lone title:** a single top-level `#` heading is skipped, so `1` is the first `##`
+   (recommended).
+
+A section number changes when a section is inserted before it, so stored references (templates,
+recipes) should use text steps; the reference will say so.
 
 ## Design Dependencies
 
