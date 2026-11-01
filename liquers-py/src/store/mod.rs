@@ -3,6 +3,8 @@
 //! [`StoreArgumentInfo`] declares one configuration argument of a Python store or recipe provider
 //! type. The adapter, the factory and the `lq.Store` handle live in this module's submodules.
 
+pub(crate) mod adapter;
+
 use liquers_core::error::Error;
 use liquers_core::store_factory::{StoreArgumentInfo as CoreStoreArgumentInfo, StoreArgumentType};
 use pyo3::prelude::*;
