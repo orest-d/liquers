@@ -18,7 +18,7 @@ The `STUBS` feature for liquers-py: milestone M5 of the liquers-py plan, togethe
 [`liquers-py-records`](../liquers-py-records/DESIGN.md) and
 [`liquers-py-package`](../liquers-py-package/DESIGN.md). Full form (`L`).
 
-Phase 1 written and reviewed twice on 2026-11-01; waiting at the Phase 1 gate for Orest's decisions.
+Phase 1 written and reviewed twice on 2026-11-01. Orest decided its questions the same day (Phase 1 Decisions); revised and reviewed again, it is back at the Phase 1 gate, waiting for `proceed`.
 
 ## Phases
 

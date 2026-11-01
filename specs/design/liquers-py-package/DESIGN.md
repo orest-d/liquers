@@ -18,7 +18,7 @@ The release half of the `PACKAGE` feature for liquers-py (the build half was M0)
 the liquers-py plan, together with [`liquers-py-records`](../liquers-py-records/DESIGN.md) and
 [`liquers-py-stubs`](../liquers-py-stubs/DESIGN.md). Full form (`L`).
 
-Phase 1 written and reviewed twice on 2026-11-01; waiting at the Phase 1 gate for Orest's decisions.
+Phase 1 written and reviewed twice on 2026-11-01. Orest decided its questions the same day (Phase 1 Decisions); revised and reviewed again, it is back at the Phase 1 gate, waiting for `proceed`.
 
 ## Phases
 

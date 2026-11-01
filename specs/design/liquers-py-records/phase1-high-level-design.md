@@ -12,14 +12,13 @@ for `VISION.md`'s Python data science use case. Milestone M5 of the liquers-py p
 
 - **Readiness:** `needs-decision`
 - **Automatic fixing:** `not-eligible`: an `L` feature with new public Python classes.
-- **Leading issue:** question 1, which also decides the fate of the bulk design
-  `py-record-values-to-python`.
-- **Explanation:** the guide and the liquers-py plan (§3.2, §4) recommend wrappers with an Arrow
-  exit; an unapproved bulk design for the same issue chose the opposite (a `pyarrow.Table` as the
-  value). Only Orest can choose between them. Questions 3 and 8 change a scope or a crate format
-  and are his to confirm; the others have recommendations.
+- **Leading issue:** None; questions 1-8 are decided (Decisions below).
+- **Explanation:** Orest decided questions 1-8 on 2026-11-01 and added constructors, `to_list` /
+  `to_dict`, dataframe conversion and field declarations (Decisions 1-2). Question 9 is the
+  proposed shape of those additions, to be confirmed at this gate; the design is otherwise ready
+  for Phase 2.
 - **Open questions:**
-  1. **Open design - what a record view becomes in Python.** Recommended: an `lq.RecordView`
+  1. **Decided (Decision 1) - what a record view becomes in Python.** Recommended: an `lq.RecordView`
      wrapper over the `Arc<dyn RecordView>`, carrying the schema with its field roles, the chunk
      id and the origins, with `.to_arrow()` and `.to_pandas()` (the plan's exits) and
      `.to_polars()` (an addition: it reads the IPC bytes with `polars.read_ipc`, so it needs only
@@ -29,28 +28,28 @@ for `VISION.md`'s Python data science use case. Milestone M5 of the liquers-py p
      needed to read any record result, a source is refused, and roles survive only as metadata.
      Overlap: T2 decides (both answer "what does a record result become in Python"; T4 does not
      hold cleanly, because that design's AC-4 and AC-5 contradict this one); E1 (neither is
-     eligible), E2 (`L` + `M` stays `L`), E3 (no PR), E4 and E5 do not exclude. If 1 is taken as
-     recommended, this design absorbs `PY-RECORD-VALUES-CANNOT-CROSS-TO-PYTHON` (`merged:`), that
-     design becomes `superseded` with `superseded_by: liquers-py-records`, its IPC transport is
-     reused behind the exits, and its AC-6 (a state reports `RecordView`) becomes part of AC-1.
-  2. **Proposed resolution - pyarrow is an extra.** Never a build or install dependency: imported
+     eligible), E2 (`L` + `M` stays `L`), E3 (no PR), E4 and E5 do not exclude. Taken as
+     recommended: this design absorbed `PY-RECORD-VALUES-CANNOT-CROSS-TO-PYTHON` (`merged:
+     2026-11-01`), `py-record-values-to-python` is `superseded`, its IPC transport is reused
+     behind the exits, and its AC-6 (a state reports `RecordView`) is part of AC-1.
+  2. **Decided (Decision 3) - pyarrow is an extra.** Never a build or install dependency: imported
      when an exit needs it, `ConversionError` naming the extra when absent (as polars and Pillow
      today); `liquers-py[arrow]` installs it (`liquers-py-package`). PyPy has no pyarrow wheel, so
      those tests skip there.
-  3. **Open design - Python data into records.** Recommended: a `lq.RecordView` returned by a
+  3. **Decided (Decisions 2, 3) - Python data into records.** Recommended: a `lq.RecordView` returned by a
      command crosses back as the same `Arc` (no copy, RECORDS01), and a `pyarrow.Table` or
      `pyarrow.RecordBatch` crosses as a `RecordView` through IPC bytes (the plan's §3.2 row). What
      `liquers-records`' IPC reader refuses is normalized in Python first, when no value is lost:
      `large_*` and view types to 32-bit offsets, narrower integers to 64-bit, `float32` to
      `float64`, dictionaries decoded, `date64` to `date32`, timestamps to microseconds; anything
      else (an overflow, a lossy timestamp, nesting) is a `ConversionError` naming the column.
-     Alternative: outbound only in M5.
-  4. **Proposed resolution - what is exposed** (guide question 3). `RecordView`, `RecordSource`,
+     Alternative (not taken): outbound only in M5.
+  4. **Decided (Decision 3) - what is exposed** (guide question 3). `RecordView`, `RecordSource`,
      `RecordColumn`, `RecordSchema`, `FieldSchema`, `FieldType`, `KeyRole`, `ChunkOrigin`; cells
      as Python scalars (`FieldValue` has no class); the view constructors `select_columns`,
      `slice`, `row`, `cell`. Hidden: the view structs, `Bitmap`, `Buffer<T>`, `AlignedBuffer`,
      the mutable table, resolvers and manifests' internals. Filtering stays in queries (`ns-rec`).
-  5. **Proposed resolution - lent buffers.** A column of a `RecordBatch` is taken from the batch
+  5. **Decided (Decision 3) - lent buffers.** A column of a `RecordBatch` is taken from the batch
      itself (`as_batch`), sharing its `Arc`ed buffers; any other view's column is read once
      (`column`, which copies) and then lent the same way. Fixed-width columns (`Int`, `UInt`,
      `Float`, `Date`, `Timestamp`, `Vector` as rows of `dim`) expose a read-only buffer
@@ -58,9 +57,9 @@ for `VISION.md`'s Python data science use case. Milestone M5 of the liquers-py p
      every column exposes `validity`, and `to_list()` is the always-correct copy. A memoryview
      holds its column object, so the allocation outlives every view of it (no `memory.grow`
      analogue on native: RECORDS05 holds, and is tested). The column class is immutable, so it is
-     safe on free-threaded builds. The limited API has the buffer protocol only from 3.11, which
-     sets `liquers-py-package`'s `abi3` floor.
-  6. **Proposed resolution - traversal** (guide questions 4 and 5). `for view in source` pulls the
+     safe on free-threaded builds. The limited API has the buffer protocol only from 3.11, below
+     `liquers-py-package`'s 3.14 wheel floor.
+  6. **Decided (Decision 3) - traversal** (guide questions 4 and 5). `for view in source` pulls the
      source's own stream one chunk at a time (route 2, waiting with the interpreter lock
      released, safe inside a command), and `async for` awaits the same stream. This departs from
      the guide's preferred route 1 on purpose: evaluating each chunk id directly skips what the
@@ -74,11 +73,11 @@ for `VISION.md`'s Python data science use case. Milestone M5 of the liquers-py p
      `RECORDS09` is `NA`: Python has an async model (reverses with a Pyodide target, where
      waiting is impossible, as `RUNTIME02`). `RECORDS11` is `NA`: Python does not implement the
      traits in M5 (reverses if Python-defined views are selected).
-  7. **Proposed resolution - a single cell.** A one-row, one-column view reaches Python as its
+  7. **Decided (Decision 3) - a single cell.** A one-row, one-column view reaches Python as its
      scalar, as in liquers-web (RECORDS10), so the result type depends on the data; this is
      documented, and `state.record_view()` returns the view whatever its shape.
      `view.item()` on any other view raises `ConversionError` naming its shape.
-  8. **Open design - Arrow metadata** (guide question 2). Roles ride in `liquers.schema`; the chunk
+  8. **Decided (Decision 3) - Arrow metadata** (guide question 2). Roles ride in `liquers.schema`; the chunk
      id rides in the batch message (`liquers.chunk_id`), which pyarrow's `read_all()` drops, and
      origins do not ride at all. Recommended: the IPC writer and reader gain a per-batch
      `liquers.origins` key beside `liquers.chunk_id` (re-based by `RecordBatch::concat` like the
@@ -86,7 +85,36 @@ for `VISION.md`'s Python data science use case. Milestone M5 of the liquers-py p
      `liquers-records`' format, and `.to_arrow()` copies roles, chunk id and origins into the
      table's schema metadata. Only `.to_arrow()` promises metadata; pandas and polars drop it.
      No producer in the tree fills origins yet (`RECORD_STREAMS.md` §ChunkOrigin), so the tests
-     build their fixture from IPC bytes carrying them. Alternative: assert their loss.
+     build their fixture from IPC bytes carrying them. Alternative (not taken): assert their loss.
+  9. **Proposed resolution - building records in Python** (Decisions 1, 2). Constructors on
+     `lq.RecordView`: `from_records(rows)` (a list of dicts), `from_dict(columns)` (a dict of
+     lists), `from_pandas(df)`, `from_polars(df)` and `from_arrow(table)`, each taking an optional
+     `fields=`. With no `fields` the schema is inferred (by `liquers-records`' inference rules for
+     plain Python data, from the Arrow types for dataframes); `fields` may be a whole
+     `lq.RecordSchema`, or a dict naming only the fields to declare, each as an `lq.FieldType`, its
+     name (`"int"`) or an `lq.FieldSchema` (type, role, label), the rest still inferred; a value
+     that does not fit its declared type is a `ConversionError` naming field and row. Plain
+     Python data goes through `liquers-records`' JSON reader (orients `records` and `columns`, no
+     pyarrow needed); pandas through Arrow (pyarrow, the `[arrow]` extra) and question 3's
+     normalization; polars through Arrow when pyarrow is installed, else through the existing
+     polars bridge (`liquers-lib/src/records/polars.rs`), so it never needs pyarrow. The way back:
+     `view.to_list()` (a list of row dicts) and `view.to_dict()` (a dict of column lists), beside
+     the Arrow exits. A dataframe a command returns still crosses as today (polars as a DataFrame
+     value, pandas as `py.Object`); the constructors are the explicit way to records, so nothing
+     is guessed.
+
+## Decisions
+
+Orest, 2026-11-01 (on the Phase 1 gate list):
+
+1. **Question 1 as recommended** (wrappers), "but there should also be a convenient way to
+   construct a record - from pandas, polars, list of dictionaries or dictionary of lists. So there
+   should also be to_list and to_dict." (question 9, AC-16, AC-17).
+2. **Question 3 as recommended**, and "there should be a convenient way to convert pandas and
+   polars dataframe to records - probably via arrow. There should be an option to specify fields
+   data (e.g. types...) - both automatically and explicitly." (question 9, AC-18).
+3. **Questions 8 (origins) and 6 (traversal) as recommended**; the other proposed resolutions
+   stand.
 
 ## Problem Example
 
@@ -157,8 +185,19 @@ here validate (`liquers-validate --command table`).
   WHEN `shutdown()` is called while a source is held, and it is then iterated
   THEN iteration raises `lq.GeneralError`, while a held view's columns still read
 
+- **AC-16** Records are built from Python data
+  WHEN `RecordView.from_records`, `from_dict`, `from_pandas`, `from_polars` and `from_arrow` are given the same three rows
+  THEN each returns a view with those rows and the same inferred schema, and `from_polars` works without pyarrow
+- **AC-17** Records go back to Python data
+  WHEN `to_list()` and `to_dict()` are called on a view with nulls
+  THEN they give the list of row dicts and the dict of column lists, nulls as `None`, and `from_records(view.to_list())` reproduces the view
+- **AC-18** Fields are declared or inferred
+  WHEN a constructor gets no `fields`, a dict declaring one field's type and another's `Id` role, a whole `RecordSchema`, and a value that does not fit its declared type
+  THEN the first infers every field, the second declares those two and infers the rest, the third uses the schema as given, and the last raises `ConversionError` naming field and row
+
 Non-goals: zero-copy Arrow (`records-arrow-c-data-export`); Python-implemented views or sources
-(`RECORDS11`); a Python filter predicate; the mutable table; writing manifests from Python.
+(`RECORDS11`); a Python filter predicate; the mutable table; writing manifests from Python; a
+dataframe returned by a command becoming records without a constructor.
 
 ## Core Interactions
 
@@ -177,24 +216,25 @@ key in `liquers-records/src/formats/ipc.rs`. No `liquers-lib` change.
 - Reference: a §Records in `PYTHON_INTEGRATION.md` (the classes, conversion rows in both
   directions, buffers and lifetimes, traversal routes and why route 2 leads, threading, the
   copies); `RECORD_STREAMS.md` (the `liquers.origins` key).
-- Guide: a "Records" chapter in `PYTHON_GUIDE.md` (reading a table, columns as buffers and lists,
-  walking a stream, leaving for pyarrow, pandas or polars). API: docstrings on every new class, and
+- Guide: a "Records" chapter in `PYTHON_GUIDE.md` (reading a table, building one from Python data
+  or a dataframe with inferred or declared fields, columns as buffers and lists, walking a stream,
+  leaving for pyarrow, pandas or polars). API: docstrings on every new class, and
   the module doc of `liquers-records/src/formats/ipc.rs`.
 - Other: `liquers-py/README.md` (a `VALUE`/RECORDS row with the two `NA`s);
   `LANGUAGE-INTEGRATION_GUIDE.md` §RECORDS (what liquers-py does, beside liquers-web; the route
   choice) and §6 Python.
 - Documents to update: `PYTHON_INTEGRATION.md` §5 (the records refusal); the values table of
   `PYTHON_GUIDE.md` §7; `RECORD_STREAMS.md` §"Arrow IPC" ("`sources` are not written") and
-  §ChunkOrigin; on absorption, `py-record-values-to-python`, its issue, and
-  `records-arrow-c-data-export` (below); `specs/README.md`.
+  §ChunkOrigin; `records-arrow-c-data-export`'s phases when it resumes (its `DESIGN.md`
+  carries a note); `specs/README.md`.
 - Open problems documented: every Arrow exit copies; the IPC reader's refused types; Python cannot
   define a view; a one-cell result changes type; no producer fills origins.
 
 ## Design Dependencies
 
 - `PY-RECORD-SOURCES-CANNOT-BE-TRAVERSED-FROM-PYTHON` — **implemented** by this design.
-- `PY-RECORD-VALUES-CANNOT-CROSS-TO-PYTHON` / `py-record-values-to-python` — **absorbed** if
-  question 1 is taken as recommended (otherwise this design narrows to everything but the value type).
+- `PY-RECORD-VALUES-CANNOT-CROSS-TO-PYTHON` — **merged** 2026-11-01 (Decision 1);
+  `py-record-values-to-python` — **superseded** by this design.
 - `records-arrow-c-data-export` — **required-by**: its Part B replaces the copy behind the exits;
   its question 3 and AC-1 (origins not carried) must then carry them, and its AC-7 and AC-8 must
   target `.to_arrow()` instead of `py-record-values-to-python`'s value.
@@ -204,9 +244,16 @@ key in `liquers-records/src/formats/ipc.rs`. No `liquers-lib` change.
   variants extend question 5's buffer rules. `column-slice-shared-buffers`,
   `record-batch-private-fields` — **overlap**: they change how a batch's columns are reached.
 - `liquers-py-stubs` — **required-by**: declares these classes. `liquers-py-package` —
-  **required-by**: the `[arrow]` extra; it must keep the `abi3` floor at 3.11 or above (question 5).
+  **required-by**: the `[arrow]` extra; its wheels start at 3.14, above the buffer protocol's 3.11
+  floor in the limited API (question 5).
 - `py-api-reference` — **overlaps**: documents the new classes. `liquers-web-records-bridge`
   (complete) — precedent, E4.
+
+## Scope Changes
+
+- **2026-11-01** — Orest at the Phase 1 gate: constructors from Python data and dataframes,
+  `to_list` / `to_dict`, and fields declared or inferred (Decisions 1, 2). Added question 9 and
+  AC-16 to AC-18; `PY-RECORD-VALUES-CANNOT-CROSS-TO-PYTHON` merged. Size: still `L`. Phases: 1.
 
 ## References
 

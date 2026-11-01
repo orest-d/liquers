@@ -491,7 +491,6 @@ deliberately folded behind a broader line.
 - design `py-metadata-typed-errors`
 - design `py-pypy-ci-job`
 - design `py-query-segment-registration`
-- design `py-record-values-to-python`
 - design `pyo3-python-3-13-support`
 - design `query-builder-in-bindings`
 - design `query-builder`

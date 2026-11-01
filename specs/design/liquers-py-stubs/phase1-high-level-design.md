@@ -12,12 +12,11 @@ Python integration" priority. Milestone M5 of the liquers-py plan, with
 
 - **Readiness:** `needs-decision`
 - **Automatic fixing:** `not-eligible`: an `L` feature, new development dependencies.
-- **Leading issue:** question 1.
-- **Explanation:** the plan (§4 `STUBS`) already chose hand-written declarations verified by
-  `stubtest` and two checkers; question 1 asks Orest to confirm that against the generated
-  alternative, which has moved since the plan was written. The rest are proposed resolutions.
+- **Leading issue:** None; questions 1, 3 and 5 are decided (Decisions below).
+- **Explanation:** Orest accepted the recommendations on 2026-11-01. The remaining proposed
+  resolutions stand; question 8 follows the records design's decision.
 - **Open questions:**
-  1. **Open design - written or generated.** Recommended: hand-written `.pyi` for the native
+  1. **Decided (Decision 1) - written or generated.** As recommended: hand-written `.pyi` for the native
      extension, inline annotations in the pure-Python modules, and `mypy.stubtest` failing the test
      loop on any mismatch with the runtime, so a declaration cannot drift silently (the guide's
      rule). Alternative: generate `_native.pyi` from PyO3's introspection data (PyO3's
@@ -40,7 +39,7 @@ Python integration" priority. Milestone M5 of the liquers-py plan, with
      `_native.pyi`; the classes are therefore declared in `liquers/__init__.pyi` under their
      runtime home `liquers`, and a pytest compares `dir(liquers._native)` with the declared names
      (AC-3).
-  3. **Proposed resolution - values are `Any`.** `evaluate` and `State.value` return `Any`, because
+  3. **Decided (Decision 1) - values are `Any`.** `evaluate` and `State.value` return `Any`, because
      the result depends on the query and may be any retained Python object; a `Query | str`
      argument, a wrapper class or an error is declared exactly. Unions such as `str | bytes |
      RecordView | …` would claim a structure the bridge does not promise (guide: "be honest about
@@ -53,7 +52,7 @@ Python integration" priority. Milestone M5 of the liquers-py plan, with
      and `(fn: None = None, *, name, namespace, label, doc, filename, volatile, cached, env)`,
      with private type variables. They live in `__init__.pyi`, since `command` is built by a
      factory (`_commands._decorator`) that inline annotations cannot overload.
-  5. **Proposed resolution - the checks.** `scripts/test-liquers-py.sh` runs `stubtest liquers`
+  5. **Decided (Decision 1) - the checks.** `scripts/test-liquers-py.sh` runs `stubtest liquers`
      (allowlist checked in, each entry justified), then mypy `--strict` and pyright `strict` on
      `liquers-py/tests/typing/good/` (must pass) and `bad/` (each intended error carries a
      `# type: ignore[<code>]` / `# pyright: ignore[<rule>]`; mypy `--strict` reports an unused
@@ -73,11 +72,18 @@ Python integration" priority. Milestone M5 of the liquers-py plan, with
   7. **Proposed resolution - `NA` and `NS` features.** Nothing is declared for a feature liquers-py
      does not implement (`WEBSERV`, `UIUSE`, `TEMPLATE` rendering, …); declarations grow with the
      features, in the same change (a reviewed rule in `PYTHON_INTEGRATION.md`).
-  8. **Proposed resolution - order.** The record items (in AC-4 and AC-7) follow
-     `liquers-py-records` question 1: with the recommended wrappers they declare `lq.RecordView`
-     and `lq.RecordSource` once that design's Phase 2 fixes their API; with a `pyarrow.Table` value
-     they shrink to nothing (the value is `Any`). `STUBS07`'s wheel half is tested by
+  8. **Proposed resolution - order.** `liquers-py-records` chose wrappers (its Decision 1), so the
+     stubs declare `lq.RecordView`, `lq.RecordSource`, `lq.RecordColumn` and the schema classes,
+     with the constructors (`from_records`, `from_dict`, `from_pandas`, `from_polars`,
+     `from_arrow`, `fields=`) and `to_list` / `to_dict`, once that design's Phase 2 fixes their API.
+     pandas, polars and pyarrow types appear only under `TYPE_CHECKING`, so a checker without
+     them installed sees `Any` there, not an error. `STUBS07`'s wheel half is tested by
      `liquers-py-package` against the built wheel.
+
+## Decisions
+
+1. Orest, 2026-11-01 (gate items 5-7): questions 1 (hand-written, checked), 3 (values are `Any`)
+   and 5 (the checks, on one CI leg, CPython 3.14) as recommended.
 
 ## Problem Example
 
@@ -113,7 +119,7 @@ fails the test loop before it reaches a user.
   WHEN a class is registered in `lib.rs`, or a method added to a `#[pymethods]` block, without a declaration, or a declared one is removed
   THEN `scripts/test-liquers-py.sh` fails naming it (STUBS03)
 - **AC-4** Representative use type-checks
-  WHEN mypy `--strict` and pyright `strict` check `tests/typing/good/` (queries, environments, commands, stores, recipe providers, errors, records, async)
+  WHEN mypy `--strict` and pyright `strict` check `tests/typing/good/` (queries, environments, commands, stores, recipe providers, errors, records and their constructors, async)
   THEN both report no error (STUBS02)
 - **AC-5** Wrong use is rejected
   WHEN they check `tests/typing/bad/` (`lq.parse(42)`, a wrong keyword, awaiting a typed sync result such as `env.evaluate_state(q)`, a missing argument)

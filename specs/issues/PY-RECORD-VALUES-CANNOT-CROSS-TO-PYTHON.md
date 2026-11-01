@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: M
 area: [py, records]
-design: py-record-values-to-python
+design: liquers-py-records
 created: 2026-10-20
 github:
 ---
@@ -57,3 +57,8 @@ its transport without changing the Python-facing type.
 Found 2026-10-20 during the bulk-design pass while assessing `RECORDS-ARROW-C-DATA-EXPORT-NOT-BUILT`,
 whose "no `liquers-py` path at all" is in fact two gaps: no zero-copy export, and no conversion of
 any kind.
+
+Merged into `liquers-py-records` on 2026-11-01 (Orest's decision on its Phase 1 question 1): a
+view crosses as an `lq.RecordView` wrapper with Arrow exits; `py-record-values-to-python` is
+superseded.
+
