@@ -452,6 +452,7 @@ against the real command set with no setup. Useful variations:
 |---|---|
 | Parse only, ignore the registry | `--no-registry` |
 | A command that does not exist yet | `--command my_new_command` (accepts any arguments) |
+| An environment with `default_namespaces:` configured | `--default-namespace pl` (repeatable) |
 | A design that *changes* an existing signature | `--registry-file specs/command_registry.yaml --registry-file <proposal>.yaml --allow-overwrite` |
 | A whole `recipes.yaml` | `--recipes recipes.yaml --cwd <folder>` |
 | Many queries | positional list, or `--query-file -` (one per line, `#` comments skipped) |

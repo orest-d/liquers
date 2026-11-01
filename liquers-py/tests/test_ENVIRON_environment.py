@@ -194,3 +194,17 @@ def test_ENVIRON_recipes_unknown_value_is_refused(tmp_path):
     with pytest.raises(lq.ConfigurationError, match="no_such_provider"):
         environment.evaluate("commands_doc")
     environment.shutdown()
+
+
+def test_default_namespaces_from_config():
+    """`default_namespaces:` in the configuration makes an unqualified action resolve there."""
+    environment = lq.Environment(config={"default_namespaces": ["nsx"]})
+
+    @environment.command(namespace="nsx")
+    def loud():
+        return "LOUD"
+
+    assert environment.evaluate("loud") == "LOUD"
+    assert environment.evaluate("ns-nsx/loud") == "LOUD"
+    assert "to_text" in environment.evaluate("commands_doc")  # root is still searched
+    environment.shutdown()

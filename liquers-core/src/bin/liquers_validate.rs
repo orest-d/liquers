@@ -92,6 +92,11 @@ struct Cli {
     #[arg(long, value_name = "SPEC")]
     command: Vec<String>,
 
+    /// Search NS after any `ns`, as an environment configured with `default_namespaces:` would;
+    /// root is appended unless listed. Repeatable, highest priority first.
+    #[arg(long, value_name = "NS")]
+    default_namespace: Vec<String>,
+
     /// Permit a merged command to replace one already defined.
     #[arg(long)]
     allow_overwrite: bool,
@@ -211,6 +216,9 @@ fn assemble_registry(cli: &Cli) -> Result<(CommandMetadataRegistry, RegistryProv
     }
     for spec in &cli.command {
         builder.add_permissive_command(spec)?;
+    }
+    if !cli.default_namespace.is_empty() {
+        builder = builder.with_default_namespaces(cli.default_namespace.clone());
     }
 
     Ok(builder.build())
