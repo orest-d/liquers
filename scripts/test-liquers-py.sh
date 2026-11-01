@@ -12,7 +12,7 @@
 #      package into the venv. `debug-handles` is test-only: it lets RUNTIME05 count the Python
 #      callables the registrations hold.
 #   4. `pytest liquers-py/tests`.
-#   5. `cargo test -p liquers-py --no-default-features --lib` (links libpython; see Cargo.toml).
+#   5. `cargo test -p liquers-py --no-default-features --features debug-handles --lib` (links libpython; see Cargo.toml).
 #
 # The venvs live under target/, so `cargo clean` removes them and the next run recreates them.
 # Set PYTHON to build against an interpreter other than `python3`; it gets a venv of its own.
@@ -54,7 +54,7 @@ maturin develop --manifest-path liquers-py/Cargo.toml --features debug-handles
 echo "==> pytest liquers-py/tests"
 python3 -m pytest liquers-py/tests "$@"
 
-echo "==> cargo test -p liquers-py --no-default-features --lib"
+echo "==> cargo test -p liquers-py --no-default-features --features debug-handles --lib"
 # PyO3 picks the interpreter to link against from PYO3_PYTHON, else `python3` on PATH -- which is
 # the venv's here, so both halves of this script use the same interpreter. The test binary links
 # libpython dynamically; an interpreter installed outside the system paths (uv, pyenv) keeps it in
@@ -63,7 +63,7 @@ libdir="$(python3 -c 'import sysconfig; print(sysconfig.get_config_var("LIBDIR")
 if [ -n "$libdir" ]; then
   export LD_LIBRARY_PATH="$libdir${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 fi
-cargo test -p liquers-py --no-default-features --lib
+cargo test -p liquers-py --no-default-features --features debug-handles --lib
 
 echo
 echo "liquers-py: all tests passed."

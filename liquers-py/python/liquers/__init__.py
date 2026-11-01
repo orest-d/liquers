@@ -58,12 +58,15 @@ from liquers._native import (
     # Recipes
     Recipe,
     RecipeList,
+    RecipeProviders,
     # Environments
     Environment,
     Issue,
     Context,
     State,
     AssetRef,
+    StoreArgumentInfo,
+    Store,
 )
 from liquers._env import default_environment, evaluate, evaluate_async
 from liquers._commands import command, first_command
@@ -118,11 +121,14 @@ __all__ = [
     "build_plan",
     "Recipe",
     "RecipeList",
+    "RecipeProviders",
     "Environment",
     "Issue",
     "Context",
     "State",
     "AssetRef",
+    "StoreArgumentInfo",
+    "Store",
     "default_environment",
     "evaluate",
     "evaluate_async",

@@ -18,9 +18,12 @@ pub mod expiration;
 pub mod metadata;
 pub mod parse;
 pub mod plan;
+pub mod pycall;
 pub mod query;
+pub mod recipe_provider;
 pub mod recipes;
 pub mod runtime;
+pub mod store;
 pub mod value;
 
 use crate::query::*;
@@ -39,6 +42,8 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
         crate::value::PY_OBJECT_TYPE_IDENTIFIER,
         crate::value::decode_pickle,
     );
+    m.add_class::<store::StoreArgumentInfo>()?;
+    m.add_class::<store::handle::Store>()?;
     m.add_class::<Position>()?;
     m.add_class::<ActionParameter>()?;
     m.add_class::<ResourceName>()?;
@@ -89,6 +94,7 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     m.add_class::<crate::recipes::Recipe>()?;
     m.add_class::<crate::recipes::RecipeList>()?;
+    m.add_class::<crate::recipe_provider::RecipeProviders>()?;
 
     m.add_class::<crate::environment::Environment>()?;
     m.add_class::<crate::environment::Issue>()?;

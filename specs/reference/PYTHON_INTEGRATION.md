@@ -2,8 +2,8 @@
 title: Python Integration
 kind: reference
 audience: both
-area: [py, core/value, core/error, lib/value]
-reviewed: 2026-10-31
+area: [py, core/value, core/error, lib/value, core/store, store/config, core/assets]
+reviewed: 2026-11-01
 ---
 # Python Integration
 
@@ -14,7 +14,9 @@ implements at HEAD. How to *use* the package is
 [`guides/LANGUAGE-INTEGRATION_GUIDE.md`](../guides/LANGUAGE-INTEGRATION_GUIDE.md), whose §6 Python
 records the choices made here and why. The conformance matrix, by feature ID, is in
 `liquers-py/README.md`; the designs are [`design/liquers-py/`](../design/liquers-py/DESIGN.md) and,
-for async and free-threading, [`design/liquers-py-async/`](../design/liquers-py-async/DESIGN.md).
+for async and free-threading, [`design/liquers-py-async/`](../design/liquers-py-async/DESIGN.md);
+for stores and recipe providers, [`design/liquers-py-store/`](../design/liquers-py-store/DESIGN.md)
+and [`design/liquers-py-recipes/`](../design/liquers-py-recipes/DESIGN.md).
 
 ## 1. Layout
 
@@ -32,6 +34,7 @@ The package's own modules:
 | `_env.py` | `default_environment()` (one `Environment`, created lazily under a lock), `evaluate()` and `evaluate_async()`. |
 | `_commands.py` | The decorators, and declaration stage 1 (§4). |
 | `_errors.py` | `LiquersError` and one subclass per `ErrorType`, generated at import (§6). |
+| `_factories.py` | `_declare`: a store or recipe provider factory's declaration from its signature (§9, §10). |
 
 Cargo features: `extension-module` (default) leaves the Python symbols to the loading interpreter,
 which a wheel needs and a Rust test binary cannot link with, so Rust tests run with
@@ -55,6 +58,8 @@ frozen; the others hold their own copy of the value.
 | `Metadata`, `MetadataRecord`, `AssetInfo`, `Status`, `LogEntry`, `LogEntryKind`, `Version`, `DependencyKey`, `DependencyRecord` | `liquers_core::metadata` |
 | `Plan`, `Step`, `ParameterValue`, `ResolvedParameterValues`, `build_plan` | `liquers_core::plan` |
 | `Recipe`, `RecipeList` | `liquers_core::recipes` |
+| `Store`, `StoreArgumentInfo` | a handle on a store (§9) and one declared factory argument (`liquers_core::store_factory::StoreArgumentInfo`) |
+| `RecipeProviders` | a handle on the environment's recipe provider chain (§10) |
 | `Expires`, `ExpirationTime`, `DependencyRelation`, `PlanDependency` | expiration and dependency types |
 | `ErrorType`, `Error` | `liquers_core::error`; `Error` is a data object, not the exception (§6) |
 | `Environment`, `Issue` | the environment handle (§3) and one `IssueReport` finding |
@@ -103,15 +108,21 @@ it does not construct the store, so a store that cannot be built is reported onl
 use.
 
 **Store.** The first build constructs the store: an `AsyncMemoryStore` at the root when
-`config.store.stores` is empty, otherwise the configured router through
-`liquers_store::store_factory::default_store_factory()`. The asset manager takes `config.assets`.
-The recipe provider chain is `config.recipes`, resolved against `liquers-lib`'s `LibKind`: absent or
+`config.store.stores` is empty, otherwise the configured router through a factory chain of
+`liquers_store::store_factory::default_store_factory()` then the Python store types registered
+with `register_store_factory` (§9). The asset manager takes `config.assets`.
+The recipe provider chain is `config.recipes`, resolved against `liquers-lib`'s `LibKind` and the
+Python entry types registered with `register_recipe_provider_factory` (§10): absent or
 `default` is `[recipes_yaml, manifest]`, `trivial` or `[]` resolves nothing, and a list such as
 `["recipes_yaml"]` or `[{"type": "manifest"}]` is that chain (`reference/ENVIRONMENT_CONFIG.md`
 §The recipe provider chain). An unknown entry type fails the build with `ConfigurationError`.
+A factory runs during the build, which holds the environment's lock: a factory that uses its
+own environment gets `ConfigurationError` ("may not use its environment") instead of waiting for
+itself.
 
 **Rebuild.** The environment is built on first use. A later `command`, `first_command`,
-`unregister` or `import_metadata` marks it for a rebuild, and the next use builds a new
+`unregister`, `import_metadata`, `register_store_factory` or `register_recipe_provider_factory`
+marks it for a rebuild, and the next use builds a new
 environment from all declarations **with the same store**. The replaced environment is moved to a
 retired list, not dropped, because evaluations may still be running in it; its asset cache does
 not carry over.
@@ -420,8 +431,19 @@ protect.
 - No `realm=` or `arguments=` on the decorators (`PY-COMMAND-DECORATOR-CANNOT-SET-REALM`,
   `PY-COMMAND-DECORATOR-CANNOT-DECLARE-ARGUMENT-METADATA`); the context is passed positionally
   (`COMMAND_DECLARATION.md` §9).
-- A recipe provider cannot be written in Python yet; the chain only places the built-in entry
-  types (`PY-NO-LANGUAGE-DEFINED-RECIPE-PROVIDER`, liquers-py M4).
+- Every registration rebuilds the environment and drops its asset cache
+  (`LANGUAGE-INTEGRATIONS-REBUILD-ENVIRONMENT-ON-REGISTRATION`). The store is built once and kept,
+  so only a build that failed for want of a store type is affected by registering it.
+- `store_config` handlers cannot be written in Python (`LANGUAGE-STORE-CONFIG-FUNCTION-NOT-DEFINABLE`);
+  a Python mount runs the Rust ones (§9).
+- A Python store type may not take a built-in store type's name, nor a Python recipe provider
+  type a built-in entry type's name or a keyword.
+- `env.recipes.recipe(key)` for a key no member has raises `GeneralError`, not `KeyNotFoundError`
+  (`RECIPE-MISSING-RECIPE-IS-A-GENERAL-ERROR`). Python recipe providers are invisible to
+  `liquers-validate` (`VALIDATE-CANNOT-SEE-NON-STANDARD-RECIPE-PROVIDERS`). A provider's changed
+  answer does not expire assets made from its earlier one (`RECIPE-DEPENDENCY-KEY-IS-NEVER-VERSIONED`).
+- Stores and recipe providers have no `close()`; they are released by `shutdown()`
+  (`ENVIRONMENT-ORDERLY-SHUTDOWN`).
 - Core's progress diagnostics go to stderr and cannot be filtered (`CORE-TRACING-MIGRATION`).
 - There is no generated API reference (`PY-API-REFERENCE-NOT-GENERATED`), although every public
   name has a docstring (`tests/test_DOCS_docstrings.py` keeps it so); `Metadata` exposes its fields as methods where `State` and
@@ -429,10 +451,114 @@ protect.
   (`PY-REPRS-SHOW-RUST-DEBUG-FORMAT`).
 - No Pyodide target, no type stubs, no published wheel.
 
+## 9. Stores
+
+**Registration.** `Environment.register_store_factory(type, factory, *, label="", doc="",
+arguments=None)` declares the store type `type`. A configuration entry
+`{"type": type, "prefix": …, "config": {…}}` is then built by calling `factory` with the
+`config:` keys as keywords, plus `prefix=` (the mount's prefix as text) when the factory has a
+parameter of that name. `_factories._declare` reads the declaration from the factory's signature:
+each keyword parameter is a `StoreArgumentInfo` (a default makes it optional; `bool`, `int`/`float`,
+`str`, `list`, `dict` annotations or defaults give the argument type, anything else `any`), and
+`**kwargs` accepts undeclared keys (`ArgumentCoverage::Partial`). Positional-only and `*args`
+parameters, a parameter named `type`, a default with no JSON form and an `async def` factory are
+refused; `arguments=[StoreArgumentInfo(…)]` declares a factory whose signature cannot be inspected.
+At build a missing required key, an undeclared key, a raising factory (its traceback kept) and an
+awaitable result are each a `ConfigurationError` naming the mount. Registration refuses a built-in
+type name (`memory`, `filesystem`, `fs`, any `opendal_*`, …) and a second registration of a name.
+`Environment.store_types()` lists the built-in types then the Python ones, as dicts.
+
+**Protocol.** The returned object is adapted once (`liquers-py/src/store/adapter.rs`
+`StoreMethods::resolve`); a method added later is not seen. Each method may be `def` or
+`async def`, takes `lq.Key` (then `bytes` data and `lq.Metadata` where it writes), and is used
+whenever present:
+
+| Method | When absent |
+|---|---|
+| `get(key)` → `bytes`, `(bytes, metadata)` or `None` | required |
+| `get_metadata(key)` | derived from `get`; a directory (`is_dir`) gets a directory record |
+| `contains(key)` | derived from `get_metadata` (or `get`), a directory included |
+| `listdir(key)` → names or `lq.Key`s | `listdir_data` when the data methods are provided, else `KeyNotSupported`; `is_dir` is then `False` (a flat store) |
+| `is_dir(key)` | required when `listdir` is present |
+| `set`, `set_metadata`, `remove`, `removedir`, `makedir` | `KeyNotSupported` naming the method; a store with no write method is read-only |
+| `is_supported(key)` (plain `def` only) | every absolute key under the prefix is supported |
+| `get_data`, `set_data`, `remove_data`, `listdir_data`, `data_facts` | all five or none; when none, data-only access is derived from `get` and `listdir` (writes through `set` and `remove`) |
+| `rename_data`, `get_stored_metadata` | not offered / `get_metadata`, else no stored metadata |
+
+Metadata may be returned as `lq.Metadata`, `lq.MetadataRecord`, a `dict` or `None`; missing fields
+are filled from the key as for any store. `None` from `get` is absence (`KeyNotFound`); a raised
+`LiquersError` keeps its type; any other exception is `KeyReadError` / `KeyWriteError` with the
+Python traceback; a wrong return type is a read error naming the method. A relative or escaping
+key (`a/../../x`) is refused with `KeyNotAbsolute` before Python is called. The attributes
+`atomic_write = True` and `data_access = False` declare the store's write atomicity and opt it out
+of data-only access.
+
+**Configuration stays effective.** A Python mount is wrapped like any mount: `read_only` refuses
+every write before Python is called, and a `metadata:` section runs the Rust `on_write` / `on_read`
+chains around the store's data-only access (`reference/STORE_CONFIG_FSD.md`). A `metadata:`
+section on a store without data-only access (no `listdir`, or `data_access = False`) fails the
+build naming the mount.
+
+**Threads.** Every store call runs Python off the runtime's workers: a `def` method on the
+blocking pool, an `async def` method on the environment's loop pool (§7). A query on a Rust mount
+therefore never waits for a Python store call. Only `is_supported`, synchronous by the trait,
+attaches on the calling thread, and only for keys under the mount's prefix.
+
+**`lq.Store`.** `env.store` is the environment's store with every mount and layer, resolved on
+each call so a rebuild is followed. `lq.Store.from_object(obj, prefix="")` adapts an object
+directly, without an environment, with a private loop that `close()` stops. Its methods are the
+store's: `get`/`get_bytes`, `get_metadata`, `set`, `set_metadata`, `remove`, `removedir`,
+`makedir`, `contains`, `is_dir`, `listdir`, `sync` (settles interrupted writes, returning the
+repaired keys), `is_supported`, `is_read_only`, each with an `_async` twin except the last two. After `shutdown()` (or `close()`) every call raises.
+
+**Staged use.** The recommended order is: register the factories (store, recipe provider), build
+the environment from its configuration on first use, then use it. Registering later is allowed and
+rebuilds (§3).
+
+## 10. Recipe providers
+
+**Registration.** `Environment.register_recipe_provider_factory(type, factory, *, label="",
+doc="", arguments=None)` declares the `recipes:` entry type `type`; an entry `{"type": type, …}`
+is built by calling `factory` with the entry's other keys as keywords. The declaration is read as
+for a store factory (§9), with no exempt parameter. The name may not be one of `LibKind`'s entry
+types (`recipes_yaml`, `manifest`, …), a keyword (`default`, `trivial`, `none`, `no_recipes`) or
+one registered before, because Python types are consulted before the built-in ones. The same type
+may be listed several times with different arguments; each entry is a member, named `type#position`
+when its type repeats. An entry identical to an earlier one fails the build.
+
+**Protocol.** The provider object is adapted once (`liquers-py/src/recipe_provider.rs`); each
+method may be `def` or `async def` and receives `lq.Key`:
+
+| Method | Meaning | When absent |
+|---|---|---|
+| `recipe_opt(key)` | `lq.Recipe`, query text, or `None` for "not mine" | required |
+| `assets_with_recipes(folder)` | names, or `lq.Key`s directly in `folder`, that it lists | lists nothing |
+| `contains(key)` | whether `key` is listed | membership in the listing |
+| `directory_changed(folder)` | called after each write the asset manager mediates; a raised exception is reported on stderr and ignored | not called |
+
+A recipe without a `cwd` gets the key's folder. Query text becomes `Recipe(query)`, and text that
+does not parse is the parse error. Another return type, or a listed entry outside `folder`, is an
+`ExecutionError`; a raised `LiquersError` keeps its type, any other exception is `ExecutionError`
+with the traceback. `can_make` is "`recipe_opt` is not `None`", so a provider may make keys it does
+not list. Two members answering one key is a `ConfigurationError` naming both. A recipe's plan is
+`Recipe::plan_with_dependencies`, the one the built-in providers build, so `volatile` and `expires`
+reach the plan and the asset.
+
+**`env.recipes`** (`lq.RecipeProviders`) asks the built chain, every member included:
+`recipe_opt`, `recipe`, `recipe_plan` (an `lq.Plan`), `assets_with_recipes` (a list of
+`lq.ResourceName`), `contains`, `can_make`, each with an `_async` twin. After `shutdown()` every
+call raises. `lq.Recipe(query, title="", description="", *, cwd=None, volatile=False,
+expires=None)` builds a recipe; every field is a settable property.
+
+**Threads.** Provider methods run as store methods do (§9); a provider may evaluate through its
+own environment from `recipe_opt`. Every Python provider is asked for every key it could own, so
+`recipe_opt` should answer `None` quickly for keys outside its folder.
+
 ## History
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-01 | §9 Stores and §10 Recipe providers written in Python (registration, protocol, threads, `lq.Store`, `env.recipes`); §1-§3 and §8 updated; the Python recipe provider limitation is lifted. | `design/liquers-py-store/`, `design/liquers-py-recipes/` (phase-5) |
 | 2026-10-31 | §8: CI runs the Python suite on CPython 3.10, 3.14 and 3.14t; the supported floor is 3.10. §7: interpreter exit cancels the running Python commands and waits for them; §8 names the case it cannot cover. | design `language-binding-tests-in-ci` |
 | 2026-10-30 | §3: `config.recipes` accepts every value (`default`, `trivial`, a list of entries); the constructor no longer refuses a non-default `recipes`. Known limitations: the recipe-provider limitation now names a Python-written provider only. | design `recipe-provider-chain-config` |
 | 2026-10-28 | §6: a wrapper method's JSON/YAML failure raises `SerializationError`, and a bad constructor argument the core constructor's error; no wrapper raises a plain `Exception`. | design `py-metadata-typed-errors` |

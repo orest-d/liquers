@@ -61,6 +61,7 @@ encoding, and the interpreter that turns a plan into asset evaluation.
 - **CWD-relative nested query resolution** — documented → [`reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md`](reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md)
 - **Excess action parameters rejected** — built → [`design/excess-action-parameters-error/`](design/excess-action-parameters-error/) *(rule documented in [`reference/PROJECT_OVERVIEW.md`](reference/PROJECT_OVERVIEW.md) §Query Language)*
 - **Variadic command arguments (`multiple`)** — documented → [`reference/REGISTER_COMMAND_FSD.md`](reference/REGISTER_COMMAND_FSD.md) §Variadic Parameters *(how-to in [`guides/COMMAND_REGISTRATION_GUIDE.md`](guides/COMMAND_REGISTRATION_GUIDE.md); design in [`design/variadic-arguments-declaration/`](design/variadic-arguments-declaration/))* *(empty elements: [`design/variadic-empty-element-conversion/`](design/variadic-empty-element-conversion/))*
+- **Default plan namespaces set by the environment configuration (implicit `ns`)** — designed → [`design/plan-default-namespaces/`](design/plan-default-namespaces/)
 - **Programmatic query builder** — planned → [`issues/QUERY-BUILDER-TOOLING.md`](issues/QUERY-BUILDER-TOOLING.md)
 - **Realms: what a realm is, a foreign realm that is addressable but not executable (`store_config`)** — documented → [`reference/REALMS.md`](reference/REALMS.md) *(design in [`design/store-adapters/`](design/store-adapters/))*
 - **Multi-realm dispatch** — planned → [`issues/CORE-MULTI-REALM-INTERPRETER.md`](issues/CORE-MULTI-REALM-INTERPRETER.md)
@@ -271,6 +272,7 @@ drop, focus, pointer) are `issues/UI-EVENTS-HAVE-NO-POINTER-DRAG-OR-CHANGE-KINDS
 - **Async evaluation on wasm** — built → [`design/async-wasm-refactor/`](design/async-wasm-refactor/)
 - **Python integration (liquers-py)** — built → [`guides/PYTHON_GUIDE.md`](guides/PYTHON_GUIDE.md) (using it), [`reference/PYTHON_INTEGRATION.md`](reference/PYTHON_INTEGRATION.md) (its contract), [`guides/LANGUAGE-INTEGRATION_GUIDE.md`](guides/LANGUAGE-INTEGRATION_GUIDE.md) §6 Python; conformance matrix in `liquers-py/README.md`; design [`design/liquers-py/`](design/liquers-py/) *(supersedes [`design/python-wrapper/`](design/python-wrapper/))*
 - **Python async and free-threading (awaitable evaluation, `async def` commands, the loop pool, 3.14t)** — built → [`reference/PYTHON_INTEGRATION.md`](reference/PYTHON_INTEGRATION.md) §7, [`guides/PYTHON_GUIDE.md`](guides/PYTHON_GUIDE.md) §5 Async commands and §6 Awaiting a query; design [`design/liquers-py-async/`](design/liquers-py-async/)
+- **Python stores and recipe providers (stores and recipe providers written in Python, registered as store types and recipe provider types, `env.store`, `env.recipes`)** — built → [`reference/PYTHON_INTEGRATION.md`](reference/PYTHON_INTEGRATION.md) §9 and §10, [`guides/PYTHON_GUIDE.md`](guides/PYTHON_GUIDE.md) §4 A store written in Python and §6 Recipe providers written in Python; designs [`design/liquers-py-store/`](design/liquers-py-store/), [`design/liquers-py-recipes/`](design/liquers-py-recipes/)
 - **Language-binding tests in CI (liquers-py on 3.10, 3.14, 3.14t; liquers-web under Node)** — built → `.github/workflows/liquers-py-tests.yml`, `.github/workflows/liquers-web-tests.yml`; [`reference/PYTHON_INTEGRATION.md`](reference/PYTHON_INTEGRATION.md) §8; design [`design/language-binding-tests-in-ci/`](design/language-binding-tests-in-ci/)
 - **`repr` of `Key`, `Expires` and `ExpirationTime` evaluates back (`Key('data/a.txt')`)** — built → `liquers-py/src/query.rs` `quoted`; design [`design/py-encoded-reprs/`](design/py-encoded-reprs/) *(`Query` and the other classes: [`design/py-python-style-reprs/`](design/py-python-style-reprs/))*
 - **Executor-agnostic core** — planned → [`issues/CORE-TOKIO-REMOVAL.md`](issues/CORE-TOKIO-REMOVAL.md)
@@ -659,11 +661,10 @@ deliberately folded behind a broader line.
 - feature `NO-SQL-ENGINE-IN-WASM-BUILDS`
 - feature `NO-TEMPLATE-EDITOR-UI`
 - feature `NO-WRITE-PATH-FROM-RECORDS-INTO-A-RELATIONAL-DATABASE`
+- feature `PLAN-DEFAULT-NAMESPACES-NOT-CONFIGURABLE`
 - feature `PY-API-REFERENCE-NOT-GENERATED`
 - feature `PY-COMMAND-DECORATOR-CANNOT-DECLARE-ARGUMENT-METADATA`
 - feature `PY-COMMAND-DECORATOR-CANNOT-SET-REALM`
-- feature `PY-NO-LANGUAGE-DEFINED-RECIPE-PROVIDER`
-- feature `PY-NO-LANGUAGE-DEFINED-STORE`
 - feature `PY-RECORD-VALUES-CANNOT-CROSS-TO-PYTHON`
 - feature `QUERY-BUILDER-NOT-IN-BINDINGS`
 - feature `QUERY-CANNOT-CHOOSE-A-DATA-FORMAT`

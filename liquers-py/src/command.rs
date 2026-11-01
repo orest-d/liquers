@@ -32,7 +32,11 @@ use liquers_core::value::ValueInterface;
 use pyo3::prelude::*;
 use pyo3::types::{PyString, PyTuple};
 
-use crate::aio::{lock_pending, shut_down_while_waiting, store_future, CancelOnDrop, LazyLoopPool, Pending, Shut};
+use crate::aio::{lock_pending, shut_down_while_waiting, CancelOnDrop, LazyLoopPool, Pending, Shut};
+use crate::pycall::{joined, schedule_coroutine, LiveHandle};
+
+/// What a command's panic and cancel messages name.
+const COMMAND: &str = "a Python command";
 use crate::context::Context;
 use crate::environment::PyEnvironment;
 use crate::error::pyerr_to_error;
@@ -75,6 +79,7 @@ pub struct PyCallable {
     pub shut: Arc<Shut>,
     /// For an `async def` callable, the environment's loop pool its coroutines run on.
     pub loops: Option<Arc<LazyLoopPool>>,
+    _handle: LiveHandle,
 }
 
 impl PyCallable {
@@ -87,8 +92,6 @@ impl PyCallable {
         shut: Arc<Shut>,
         loops: Option<Arc<LazyLoopPool>>,
     ) -> Self {
-        #[cfg(feature = "debug-handles")]
-        LIVE_HANDLES.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         PyCallable {
             object,
             delivery,
@@ -97,27 +100,8 @@ impl PyCallable {
             pickle,
             shut,
             loops,
+            _handle: LiveHandle::new(),
         }
-    }
-}
-
-#[cfg(feature = "debug-handles")]
-static LIVE_HANDLES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-
-/// How many Python callables the registrations of every environment currently hold.
-///
-/// Test-only, behind `debug-handles`, for `RUNTIME05`: Python cannot observe a Rust drop
-/// deterministically, so the count of live [`PyCallable`]s — each owning exactly one callable — is
-/// what the test asserts on.
-#[cfg(feature = "debug-handles")]
-pub fn live_handle_count() -> usize {
-    LIVE_HANDLES.load(std::sync::atomic::Ordering::SeqCst)
-}
-
-#[cfg(feature = "debug-handles")]
-impl Drop for PyCallable {
-    fn drop(&mut self) {
-        LIVE_HANDLES.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
     }
 }
 
@@ -238,18 +222,8 @@ async fn call_py_command(
             })
         })
         .await,
+        COMMAND,
     )
-}
-
-/// The result of a blocking-thread task.
-fn joined<T>(joined: Result<Result<T, Error>, tokio::task::JoinError>) -> Result<T, Error> {
-    match joined {
-        Ok(result) => result,
-        Err(e) if e.is_panic() => Err(Error::unexpected_error(format!(
-            "a Python command panicked: {e}"
-        ))),
-        Err(e) => Err(Error::cancelled(format!("a Python command was cancelled: {e}"))),
-    }
 }
 
 /// Runs an `async def` command: makes the coroutine on a blocking thread, runs it on a pool loop,
@@ -276,7 +250,7 @@ async fn call_async_py_command(
         })
         .await
     };
-    joined(started)?;
+    joined(started, COMMAND)?;
     let shut = callable.shut.clone();
     tokio::select! {
         // A dropped sender means the future was released without completing.
@@ -290,7 +264,7 @@ async fn call_async_py_command(
         crate::exit::attach_tracked(|py| coroutine_result(py, &callable, &pending))
     })
     .await;
-    joined(finished)
+    joined(finished, COMMAND)
 }
 
 /// Calls the callable, checks that it made a coroutine, and schedules it on a pool loop.
@@ -312,33 +286,9 @@ fn start_coroutine(
             return Err(Error::cancelled("the command was cancelled before it started".to_string()));
         }
     }
-    let scheduled = (|| -> PyResult<()> {
-        let coroutine = callable.object.bind(py).call1(args)?;
-        let asyncio = py.import("asyncio")?;
-        if !asyncio.call_method1("iscoroutine", (&coroutine,))?.is_truthy()? {
-            return Err(pyo3::exceptions::PyTypeError::new_err(format!(
-                "an async command returned {} instead of a coroutine",
-                coroutine.get_type().name()?
-            )));
-        }
-        let future = match asyncio.call_method1(
-            "run_coroutine_threadsafe",
-            (&coroutine, pool.pick().event_loop(py)),
-        ) {
-            Ok(future) => future,
-            Err(e) => {
-                // Never scheduled (the loop is closed): closed so Python does not warn that it was
-                // never awaited.
-                let _ = coroutine.call_method0("close");
-                return Err(e);
-            }
-        };
-        let completer = Completer {
-            done: Mutex::new(Some(done_tx)),
-        };
-        future.call_method1("add_done_callback", (completer,))?;
-        store_future(py, pending, future.unbind())
-    })();
+    let scheduled = callable.object.bind(py).call1(args).and_then(|coroutine| {
+        schedule_coroutine(py, coroutine, pool.pick().event_loop(py), pending, done_tx)
+    });
     scheduled.map_err(|e| pyerr_to_error(py, &e))
 }
 
@@ -357,25 +307,6 @@ fn coroutine_result(py: Python<'_>, callable: &PyCallable, pending: &Mutex<Pendi
     }
     let result = future.call_method0("result").map_err(|e| pyerr_to_error(py, &e))?;
     py_to_value(&result, callable.conversion, callable.pickle)
-}
-
-/// The done callback of a coroutine's future: wakes the command that waits for it.
-#[pyclass(frozen)]
-struct Completer {
-    done: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
-}
-
-#[pymethods]
-impl Completer {
-    fn __call__(&self, _future: &Bound<'_, PyAny>) {
-        let sender = match self.done.lock() {
-            Ok(mut done) => done.take(),
-            Err(poisoned) => poisoned.into_inner().take(),
-        };
-        if let Some(sender) = sender {
-            let _ = sender.send(());
-        }
-    }
 }
 
 fn call_with_gil(
@@ -404,10 +335,7 @@ fn call_with_gil(
 }
 
 fn is_coroutine(py: Python<'_>, object: &Bound<'_, PyAny>) -> Result<bool, Error> {
-    py.import("asyncio")
-        .and_then(|asyncio| asyncio.call_method1("iscoroutine", (object,)))
-        .and_then(|is| is.is_truthy())
-        .map_err(|e| pyerr_to_error(py, &e))
+    crate::pycall::is_coroutine(py, object).map_err(|e| pyerr_to_error(py, &e))
 }
 
 /// The positional arguments of a call, and the `Context` handed to it, if the function takes one.

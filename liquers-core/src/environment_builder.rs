@@ -543,7 +543,10 @@ impl<V: ValueInterface, P: PayloadType, K: AssetManagerKind> EnvironmentBuilder<
                     let expanded =
                         expand_recipes(&RecipesConfig::Chain(vec![entry]), &default_list)?;
                     for entry in expanded {
-                        if names.iter().any(|name| name == &entry.provider_type) {
+                        // Skipped when any member has its type: an appended entry is idempotent
+                        // (`with_records_recipe_provider` appends a bare `manifest`), so a repeated
+                        // type comes from a document only. A repeated member is `type#position`.
+                        if has_member_of_type(&names, &entry.provider_type) {
                             continue;
                         }
                         let provider = factory.create(&entry)?;
@@ -633,8 +636,31 @@ impl<V: ValueInterface, P: PayloadType, K: AssetManagerKind> EnvironmentBuilder<
     }
 }
 
+/// Whether a chain whose members are `names` has a member of `provider_type`. A member is named by
+/// its type, or `type#position` when its type repeats; a provider supplied in code is `#position`.
+fn has_member_of_type(names: &[String], provider_type: &str) -> bool {
+    names
+        .iter()
+        .any(|name| name.split('#').next() == Some(provider_type))
+}
+
 #[cfg(test)]
 mod tests {
+
+    /// liquers-py-recipes AC-12: an appended entry is skipped when any member has its type, a
+    /// repeated (`type#position`) member included, so `with_records_recipe_provider` stays
+    /// idempotent when a document repeats a type.
+    #[test]
+    fn an_appended_entry_is_skipped_when_its_type_is_listed() {
+        let names: Vec<String> = ["recipes_yaml", "convert#1", "convert#2", "#3"]
+            .iter()
+            .map(|n| n.to_string())
+            .collect();
+        assert!(super::has_member_of_type(&names, "recipes_yaml"));
+        assert!(super::has_member_of_type(&names, "convert"));
+        assert!(!super::has_member_of_type(&names, "manifest"));
+        assert!(!super::has_member_of_type(&names, "conv"));
+    }
 
     /// plan-policy: `AssetManagerOptions` derives `Default`, so the cut switch must still default
     /// to "cut" — the trap a plain `bool` field would fall into.
