@@ -39,3 +39,10 @@ assert_type(env.recipes.recipe_opt("hello.txt"), lq.Recipe | None)
 assert_type(env.recipes.assets_with_recipes(""), list[lq.ResourceName])
 wrapped = lq.Store.from_object(DictStore("x"), "x")
 assert_type(wrapped, lq.Store)
+recipe = lq.Recipe("hello", cwd="data")
+recipe.title = "Hello"
+recipe.volatile = True
+assert_type(recipe.title, str)
+record = lq.MetadataRecord()
+record.media_type = "text/plain"
+assert_type(record.key, lq.Key | None)
