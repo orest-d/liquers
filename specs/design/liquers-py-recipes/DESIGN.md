@@ -103,8 +103,8 @@ assert env.evaluate("-R/reports/summary.txt") == "Hello"
   (Scope Changes, 2026-10-31).
 - **AC-12** One factory, several entries
   WHEN a chain lists the `reports` type twice with different arguments
-  THEN both providers are asked for every key (question 2); an identical entry listed twice, or a
-  built-in type listed twice, is still a configuration error
+  THEN both providers are asked for every key (question 2); an identical entry listed twice is
+  still a configuration error
 
 Non-goals: caching recipes in the adapter (a provider caches itself); Python recipe providers in
 `liquers-validate` (`VALIDATE-CANNOT-SEE-NON-STANDARD-RECIPE-PROVIDERS`, documented as a limitation);
@@ -135,7 +135,7 @@ does not expire assets (`RECIPE-DEPENDENCY-KEY-IS-NEVER-VERSIONED`).
 
 - **Readiness:** `needs-decision`
 - **Automatic fixing:** `not-eligible`: a new public Python API and a core rule change.
-- **Leading issue:** Open design question 2.
+- **Leading issue:** Open design question 1.
 - **Explanation:** the chain already defines ownership, errors and listing, and Orest's decisions
   (`liquers-py-store` Decisions 1-2) fix the registration model; questions 1-2 remain for him.
 - **Open questions:**
@@ -145,7 +145,12 @@ does not expire assets (`RECIPE-DEPENDENCY-KEY-IS-NEVER-VERSIONED`).
      the other members'; its keys are still found through `recipe_opt`. This departs from the
      guide's "absent optional method fails loudly" rule because in a chain a failing member fails
      *every* listing. Alternative: `KeyNotSupported`, making it mandatory in practice.
-  2. **Open design - the same type twice.** `recipe-provider-chain-config` made an entry type listed
+  2. **Decided (Orest, 2026-11-01) - the same type twice.** "Types with (different) arguments can
+     be repeated", for example one provider type making PNG from SVG and another entry of it making
+     JPG from SVG. So for *every* type an identical entry (type and arguments) is refused and the
+     same type with different arguments is allowed; the `repeatable` opt-in below is dropped. Two
+     such members claiming one key is the chain's ownership error, as for any two members.
+     Original question: `recipe-provider-chain-config` made an entry type listed
      twice a configuration error (`expand_recipes`), which forbids one factory with two argument
      sets. Recommended: a type may opt in with `repeatable` on `RecipeProviderTypeInfo` (default
      false, set for Python types only), so `[default, {type: manifest, x: 1}]` stays refused; an
@@ -189,6 +194,8 @@ does not expire assets (`RECIPE-DEPENDENCY-KEY-IS-NEVER-VERSIONED`).
   Questions: the former 3 (registration API) retired into the store design's decisions, so 3 is
   now the factory declaration; former 2 (several providers) became the core duplicate rule. Adds a
   small `liquers-core` change (question 2). Phases: 1.
+- **2026-11-01** — Orest decided question 2: any type may repeat with different arguments. AC-12
+  reworded. Phases: 1.
 
 ### References
 

@@ -12,12 +12,11 @@ plan, with [`liquers-py-recipes`](../liquers-py-recipes/DESIGN.md).
 
 - **Readiness:** `needs-decision`
 - **Automatic fixing:** `not-eligible`: an `L` feature with a new public Python API.
-- **Leading issue:** Open design question 1 (the minimum method set).
-- **Explanation:** Decisions 1-2 are Orest's; questions 1-3 have viable alternatives and wait for
-  him; questions 4-12 have one defensible answer each and are shown for review. Provisional until
+- **Leading issue:** Open design question 3 (`store_config` from Python).
+- **Explanation:** Decisions 1-4 are Orest's; question 3 is under discussion with him; questions 4-12 have one defensible answer each and are shown for review. Provisional until
   the Phase 4 consistency pass.
 - **Open questions:**
-  1. **Open design - minimum method set** (`WEB-JS-STORE-WITH-ONLY-GET-CANNOT-BE-QUERIED`).
+  1. **Decided (Decision 3) - minimum method set** (`WEB-JS-STORE-WITH-ONLY-GET-CANNOT-BE-QUERIED`).
      Recommended: only `get` is mandatory, because a `-R/` query also calls `contains`,
      `get_metadata` and `is_dir`, and these are *derived* when absent: `get_metadata` from `get`;
      `contains` from it, an absent key answering `False`, never an error; `is_dir` `False` when
@@ -25,7 +24,7 @@ plan, with [`liquers-py-recipes`](../liquers-py-recipes/DESIGN.md).
      absent method raises `KeyNotSupported` naming it. A derived `contains` costs a second `get`
      per read, so the guide recommends writing it. liquers-web takes the same rule in its own PR.
      Alternative: all four mandatory for a queried store.
-  2. **Open design - Python access to stores.** Recommended: `env.store` is an `lq.Store` over the
+  2. **Decided (Decision 4) - Python access to stores.** Recommended: `env.store` is an `lq.Store` over the
      environment's current store (resolved on each call, so a rebuild is followed), with blocking
      methods and `_async` twins, including `is_read_only()` and `sync()` (its warnings readable);
      `lq.Store.from_object(obj)` adapts one object directly (`STORE05` must not go through a
@@ -85,6 +84,12 @@ Orest, 2026-10-31:
    configuration (iii) use environment" (`store_config` handlers: question 3). A late registration
    marks the environment for a rebuild that keeps the built store: a store factory registered after
    a failed build lets the next use build the store.
+
+Orest, 2026-11-01:
+
+3. **Question 1 as recommended**: only `get` is mandatory and the other three are derived when
+   absent, "but the methods also can be provided": a provided method is always used.
+4. **Question 2 as recommended** (`env.store`, `lq.Store.from_object`).
 
 ## Problem Example
 
@@ -206,7 +211,7 @@ Bindings: `register_store_factory`, `lq.StoreArgumentInfo`, `env.store`, `lq.Sto
 
 - **2026-10-31** — Orest: a configuration names a Python *factory* (Decision 1) in place of a
   `python` type with a registered object; late registration rebuilds (Decision 2). Added AC-16;
-  AC-2, AC-10, AC-15 reworded. Questions renumbered from the first draft: former 2 (late
+  AC-2, AC-10, AC-15 reworded. Questions 1-2 decided 2026-11-01 (Decisions 3-4). Questions renumbered from the first draft: former 2 (late
   registration) and 4 (naming) retired into the decisions; former 3 is 2; former 12 split into 3
   (STORE18) and 5 (STORE12); new 4 and 6 (factories); former 5 is 7, 6 is 8, 7 and 9 merged into 9,
   8 is 10, 10 is 11, 11 and 13 merged into 12. Size: still `L`. Phases: 1.
