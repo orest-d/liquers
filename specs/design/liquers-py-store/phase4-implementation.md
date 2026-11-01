@@ -12,7 +12,7 @@ can run in parallel. The web counterpart of Decision 3 is not a step: it stays w
 
 ## Progress
 
-- [ ] Step 1: extract the Python call path into `pycall.rs`
+- [x] Step 1: extract the Python call path into `pycall.rs` — 7e31f8e
 - [ ] Step 2: derive factory declarations in `_factories.py`
 - [ ] Step 3: the `PyStore` adapter and its method table
 - [ ] Step 4: the store factory, registration, the build guard and `lq.Store`
