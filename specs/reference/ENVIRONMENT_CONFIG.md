@@ -3,7 +3,7 @@ title: Environment Configuration
 kind: reference
 audience: both
 area: [core/context, core/store, core/assets]
-reviewed: 2026-10-30
+reviewed: 2026-11-01
 ---
 # Environment Configuration
 
@@ -129,7 +129,7 @@ setters infallible and chainable; three failures surface at `build()` instead:
 | Store type no factory in the chain claims | Names the type, and lists the types the chain supports |
 | `${VAR}` referencing an unset variable | The expander has no default-value syntax, so this is an error rather than an empty value |
 | Both a store and a store configuration supplied | Rejected rather than resolved by a silent precedence rule |
-| A `recipes` entry type no factory declares, one unavailable in this build, or one listed twice | Names the entry and its position; an unknown type lists the known ones, an unavailable one says why |
+| A `recipes` entry type no factory declares, one unavailable in this build, or an entry listed twice with the same arguments | Names the entry and its position; an unknown type lists the known ones, an unavailable one says why |
 | `assets.job_capacity: 0` | Rejected. The queue starts work only while `running_count < capacity`, so zero would accept every evaluation and run none — a hang with no error, which is strictly worse than a rejected configuration |
 | `assets.job_capacity` set against an inline kind | Rejected. `Inline` has no job queue, and silently ignoring the setting would hide the mistake |
 
@@ -182,10 +182,13 @@ written back bare.
 |---|---|---|
 | `recipes_yaml` | `liquers-core` (`core_recipe_provider_factory`) | `DefaultRecipeProvider`: each folder's `recipes.yaml`, read through the store (a folder whose `recipes.yaml` key the store refuses as unsupported simply has none) |
 | `manifest` | `liquers-lib` (`lib_recipe_provider_factory`) | `ManifestRecipeProvider`: chunk recipes from each folder's `*.manifest.yaml`. Declared unavailable without `liquers-lib`'s `records` feature |
-| `default` | — | Not a provider: splices the kind's default list in place, so `[default, {type: python, …}]` extends it |
+| `default` | — | Not a provider: splices the kind's default list in place, so `[default, {type: reports, folder: reports}]` extends it with an integration's entry type |
+| *integration types* | the integration (`EnvironmentBuilder::with_recipe_provider_factory`) | e.g. a Python factory registered with `Environment.register_recipe_provider_factory` (`reference/PYTHON_INTEGRATION.md` §10); the entry's other keys are its arguments |
 
 `trivial` and its aliases are keywords for the whole value only; as a list entry they are refused.
-An entry type listed twice (directly or through `default`) is a configuration error, as is an
+An entry type may be listed several times with different arguments (one converter for `.png`,
+one for `.jpg`); each entry is its own member. An entry **identical** to an earlier one — same
+type, same arguments, directly or through `default` — is a configuration error, as is an
 unknown type (the error names the entry, its position and the known types) or one unavailable in
 the build (the error says why). These surface at `build()`.
 
@@ -213,8 +216,10 @@ order of the list:
 So a recipe provider answers "no recipe" for a key it does not own and fails only when something
 is substantially wrong (decided at the Phase 2 gate). The clash between a manifest chunk and a
 sibling `recipes.yaml` entry is this rule; `ManifestRecipeProvider` no longer reads `recipes.yaml`
-itself. Members are named by entry type, or `#n` by position when supplied in code, so errors can
-say which.
+itself. Members are named by entry type — `type#position` when the type occurs more than once in the
+chain (`convert#0`, `convert#2`) — or `#n` by position when supplied in code, so errors can say
+which. An appended provider (`with_appended_recipe_provider`, `with_records_recipe_provider`) is
+skipped when a member already has its entry type.
 
 **Setters.** The last of the three base setters wins; appended items are kept.
 
@@ -263,6 +268,7 @@ and the default gains `manifest`.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-01 | §The recipe provider chain: one entry type may repeat with different arguments, only an identical entry is refused; repeated types name their members `type#position`; integration entry types (Python) in the entries table, replacing the `{type: python, …}` placeholder. | `design/liquers-py-recipes/` (phase-5) |
 | 2026-10-30 | `recipes` is a `RecipesConfig`: an ordered list of entries (bare name or `{type: …}`), `default` the kind's list, `trivial` the empty list. §The recipe provider chain rewritten: entry types and factories, `resolve_recipes`, every member asked (any error fails, two owners is an error naming both), the setters including `with_recipes`, `with_appended_recipe_entry` and `try_with_recipes`, `LibKind`'s list, the migration hazard. Build-time failures gain the entry errors. | phase-5 (`design/recipe-provider-chain-config/`) |
 | 2026-10-20 | Links to `reference/api/DOC_08_RECIPES_PLANS.md` follow its promotion to `reference/RECIPES_AND_PLANS.md`. | DOC-08 promotion |
 | 2026-10-10 | `assets` gains `recipe_cache_strategy`, `query_cache_strategy` (`none` \| `result` \| `all`) and `cut_predecessors`, with the origin rule (a dependency follows its creator), the public-service example, and the accessors. | phase-5 (`design/plan-policy/`) |

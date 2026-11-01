@@ -2,7 +2,7 @@
 id: PY-NO-LANGUAGE-DEFINED-RECIPE-PROVIDER
 kind: feature
 title: A recipe provider cannot be written in Python, and liquers-py has no RECIPE feature
-status: draft
+status: closed
 priority: P3
 complexity: L
 area: [py, core/assets, core/context]
@@ -44,3 +44,11 @@ env.recipe_provider("notes", Notes())          # no such method; "python" is an 
 Planned as part of liquers-py M4 (STORE/RECIPE) in `/mnt/project-files/plans/liquers-py-implementation-plan.md`.
 Every member of a chain is asked for every key, so the adapter must answer "no recipe" cheaply and
 fail only on a substantial error; a Python exception becomes a failed lookup for every key.
+
+## Resolution (2026-11-01)
+
+Built by `design/liquers-py-recipes/` in PR #229 (commits 836b00a, 30fe5c7): Python recipe provider
+entry types (`Environment.register_recipe_provider_factory`), repeated entry types in the core chain,
+`Recipe::plan_with_dependencies`, `env.recipes` and the `lq.Recipe` keywords. Evidence:
+`liquers-py/tests/test_RECIPE_*.py` (`RECIPE01`–`07`), the `RECIPE` row of `liquers-py/README.md`;
+contract in `reference/PYTHON_INTEGRATION.md` §10.

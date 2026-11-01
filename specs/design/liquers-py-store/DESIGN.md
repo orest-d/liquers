@@ -4,7 +4,7 @@ kind: design
 title: Stores written in Python, and configured store routers in liquers-py
 workflow: liquers-project
 status: in_review
-phase: implementation
+phase: documentation
 readiness: ready
 autofix: not-eligible
 area: [py, core/store, store/config]

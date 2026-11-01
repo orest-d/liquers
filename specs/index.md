@@ -8,9 +8,9 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 198
+Total rows: 196
 - P2: 57
-- P3: 141
+- P3: 139
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -168,8 +168,6 @@ Total rows: 198
 | [`WEB-API-REFERENCE-NOT-GENERATED`](issues/WEB-API-REFERENCE-NOT-GENERATED.md) | feature | liquers-web has no generated API reference and no check that every export is documented | draft |  |  | P3 | M | web;docs |  | 2026-10-26 |
 | [`WEB-HAS-NO-READ-WRITE-REMOTE-STORE`](issues/WEB-HAS-NO-READ-WRITE-REMOTE-STORE.md) | feature | A browser page cannot mount a Liquers server's store read/write | draft |  |  | P3 | M | web |  | 2026-10-20 |
 | [`WEB-STORE-CONFIG-NOT-APPLIED-THROUGH-ENVIRONMENT-CONFIG`](issues/WEB-STORE-CONFIG-NOT-APPLIED-THROUGH-ENVIRONMENT-CONFIG.md) | issue | liquers-web hand-rolls the environment configuration that EnvironmentConfig will own | draft |  |  | P3 | M | web;core/store;core/context |  | 2026-08-31 |
-| [`PY-NO-LANGUAGE-DEFINED-RECIPE-PROVIDER`](issues/PY-NO-LANGUAGE-DEFINED-RECIPE-PROVIDER.md) | feature | A recipe provider cannot be written in Python, and liquers-py has no RECIPE feature | draft | ready | not-eligible | P3 | L | py;core/assets;core/context | [phase1](design/liquers-py-recipes/phase1-high-level-design.md)  [phase2](design/liquers-py-recipes/phase2-architecture.md)  [phase3](design/liquers-py-recipes/phase3-examples.md)  [phase4](design/liquers-py-recipes/phase4-implementation.md)  [phase5](design/liquers-py-recipes/phase5-documentation.md)  | 2026-10-30 |
-| [`PY-NO-LANGUAGE-DEFINED-STORE`](issues/PY-NO-LANGUAGE-DEFINED-STORE.md) | feature | A store cannot be written in Python, and liquers-py has no STORE feature | draft | ready | not-eligible | P3 | L | py;core/store;store/config | [phase1](design/liquers-py-store/phase1-high-level-design.md)  [phase2](design/liquers-py-store/phase2-architecture.md)  [phase3](design/liquers-py-store/phase3-examples.md)  [phase4](design/liquers-py-store/phase4-implementation.md)  [phase5](design/liquers-py-store/phase5-documentation.md)  | 2026-10-27 |
 | [`AGENT-CANNOT-PROPOSE-A-COMMAND`](issues/AGENT-CANNOT-PROPOSE-A-COMMAND.md) | feature | An agent has no sanctioned way to propose a new command into a staging area | draft | needs-decision | not-eligible | P3 | L | mcp;core/commands;py;docs | [phase1](design/agent-command-proposal/phase1-high-level-design.md)  [phase2](design/agent-command-proposal/phase2-architecture.md)  [phase3](design/agent-command-proposal/phase3-examples.md)  [phase4](design/agent-command-proposal/phase4-implementation.md)  | 2026-10-21 |
 | [`ASSET-MANAGER-CANNOT-BE-SYNCHRONIZED-WITH-THE-STORE`](issues/ASSET-MANAGER-CANNOT-BE-SYNCHRONIZED-WITH-THE-STORE.md) | feature | The asset and dependency managers cannot be explicitly synchronized with the store | draft | needs-decision | not-eligible | P3 | L | core/assets | [phase1](design/asset-manager-store-sync/phase1-high-level-design.md)  [phase2](design/asset-manager-store-sync/phase2-architecture.md)  [phase3](design/asset-manager-store-sync/phase3-examples.md)  [phase4](design/asset-manager-store-sync/phase4-implementation.md)  | 2026-10-08 |
 | [`ASSETS-API-ADMIN-OPERATIONS`](issues/ASSETS-API-ADMIN-OPERATIONS.md) | feature | Manager status and a guarded remove have no assets API endpoint | draft | needs-decision | not-eligible | P3 | L | axum;core/assets | [phase1](design/assets-api-admin-operations/phase1-high-level-design.md)  [phase2](design/assets-api-admin-operations/phase2-architecture.md)  [phase3](design/assets-api-admin-operations/phase3-examples.md)  [phase4](design/assets-api-admin-operations/phase4-implementation.md)  | 2026-09-27 |

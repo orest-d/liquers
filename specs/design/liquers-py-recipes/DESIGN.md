@@ -4,7 +4,7 @@ kind: design
 title: Recipe providers written in Python
 workflow: liquers-project
 status: in_review
-phase: implementation
+phase: documentation
 readiness: ready
 autofix: not-eligible
 area: [py, core/assets, core/context]

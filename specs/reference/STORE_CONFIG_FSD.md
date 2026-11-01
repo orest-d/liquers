@@ -3,7 +3,7 @@ title: Store Configuration Functional Specification
 kind: reference
 audience: internal
 area: [store/config]
-reviewed: 2026-10-27
+reviewed: 2026-11-01
 ---
 # Functional Specification Document (FSD): Store Configuration
 
@@ -674,6 +674,7 @@ argument. Each crate offers a `default_store_factory()` as the convenience:
 | `liquers-core` | `memory`, `filesystem` | core only |
 | `liquers-store` | the OpenDAL types | core, then OpenDAL |
 | `liquers-web` | `localstorage`, `js`, `http`, `https` | core, then browser — **not** OpenDAL, which is not in its graph |
+| `liquers-py` | the types registered with `Environment.register_store_factory` | `liquers-store`'s, then the Python types; a Python type may not take a name the earlier factories declare (`reference/PYTHON_INTEGRATION.md` §9) |
 
 ```rust
 use liquers_core::store_factory::StoreRouterBuilder;
@@ -841,6 +842,7 @@ its store together. Everything on this page applies unchanged to that document's
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-01 | Factory model: `liquers-py` chains integration-registered (Python) store types after `liquers-store`'s; they appear in `store_types()` and in the unknown-type message. | `design/liquers-py-store/` (phase-5) |
 | 2026-10-27 | Metadata section: `persist_defaults` retired (refused as an unknown field); inferred records are never stored. | `design/storage-none-computed-values/` |
 | 2026-10-15 | `read_only` and the typed `metadata` section replace the reserved map; the defaults table; router-level sections need `build_store`. Phase 5: the spec mechanism (a `store_config` query, realm prefix optional and filled before planning, compiled at build), build-time error formats, central storage and member backups, the wrapping order in §Store Instantiation; the entry catalogue now points to `STORE_CONFIG_GUIDE.md`. | `design/store-adapters/` Phase 4 step 10, phase-5 |
 | 2026-10-10 | Related components: `liquers_core::store` has one store trait, `AsyncStore`; the synchronous `Store` was removed. | `CORE-SYNC-STORE-TRAIT-OBSOLETE`, `design/sync-store-removal/` |
