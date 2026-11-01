@@ -12,12 +12,12 @@ data science use case. Milestone M5 of the liquers-py plan, with
 
 - **Readiness:** `needs-decision`
 - **Automatic fixing:** `not-eligible`: a release pipeline that publishes outside the repository.
-- **Leading issue:** None; questions 1-9 are decided (Decisions below).
-- **Explanation:** Orest decided the gate list on 2026-11-01. Question 4's version mechanism is
-  the proposed shape of Decision 4, to be confirmed at this gate. Plan items that changed: the
-  "vendored OpenSSL" has nothing to vendor (question 7); wheels start at 3.14 (Decision 2), so
-  the `cp310` and `abi3-py311` builds are gone; versions are one workspace version, reported by
-  core through every environment (Decision 4).
+- **Leading issue:** question 4, which reading of "maintained in core as a constant" (Decision 4).
+- **Explanation:** on 2026-11-01 Orest decided questions 1-3, 5, 7, 8 and 9 (Decisions 1-7).
+  Question 4 is the mechanism behind Decision 4, with two readings to choose from; questions 6,
+  10 and 11 were not on the gate list and stand as proposed. Plan items that changed: nothing to
+  vendor for OpenSSL (question 7); wheels start at 3.14, so no `cp310` or `abi3-py311` build; one
+  version, kept in core and reported by every environment.
 - **Open questions:**
   1. **Decided (Decision 1) - platforms.** Wheels: Linux x86_64 and aarch64 (`manylinux_2_28`,
      each on a native runner, `ubuntu-24.04-arm` for aarch64), macOS arm64, Windows x86_64 and
@@ -25,15 +25,18 @@ data science use case. Milestone M5 of the liquers-py plan, with
      (`PY-PYPY-SUPPORT-UNVERIFIED`), 32-bit. `liquers-py/README.md`'s "Supported Python" says
      which of its claims are wheels.
   2. **Decided (Decision 2) - ABI.** Wheels for CPython 3.14 and newer only: per platform one
-     `abi3` wheel (`abi3-py314`), and free-threaded `cp314t` and `cp315t` wheels (or one `abi3t`
-     wheel if 3.15 has the free-threaded stable ABI, which Phase 2 checks): three builds per
-     platform, fifteen in all. 3.10 to 3.13 stay supported from source. The 3.14 floor is above
+     `abi3` wheel (`abi3-py314`), and free-threaded `cp314t` and `cp315t` wheels: three builds per
+     platform, fifteen in all. PyO3 0.30 already offers PEP 803's `abi3t` (from 3.15), so
+     `abi3t-py315` may replace `cp315t` (still three builds; it cannot replace `cp314t`); Phase 2
+     checks that liquers-py compiles under it and that maturin tags it. 3.10 to 3.13 stay supported from source. The 3.14 floor is above
      the 3.11 the buffer protocol needs in the limited API (`liquers-py-records`). liquers-py and
-     `pyo3-async-runtimes` already compile with `pyo3/abi3-py311` (checked 2026-11-01). The abi3
+     `pyo3-async-runtimes` compile with `pyo3/abi3-py311` (checked 2026-11-01; `abi3-py314`,
+     which PyO3 0.30.1 has, only relaxes that and is rechecked in Phase 2). The abi3
      build is a crate feature (`abi3 = ["pyo3/abi3-py314"]`) passed only to that job, so a source
      build on an older interpreter is unaffected. `requires-python = "<3.16"` stays as the tested
      ceiling and is raised per release, although it stops an `abi3` wheel from reaching 3.16
-     unasked.
+     unasked. On 3.10 to 3.13, pip falls back to the sdist and a long Rust build; the README says so
+     and suggests `--only-binary :all:` to fail fast instead.
   3. **Decided (Decision 3) - publishing, irreversible.** As recommended: a `liquers-py-release` workflow on a
      `liquers-py-v*` tag builds every wheel and the sdist, tests them (AC-2 to AC-7), attaches them
      to a GitHub release and uploads to TestPyPI (`skip-existing`, so a re-run is safe); the PyPI
@@ -42,16 +45,20 @@ data science use case. Milestone M5 of the liquers-py plan, with
      and tests the whole matrix without publishing. Orest registers the publisher for
      `liquers-py` on PyPI and TestPyPI (the name is free on both, checked 2026-11-01).
      Alternatives (not taken): GitHub releases only in M5, or automatic PyPI upload on tag.
-  4. **Proposed resolution - version and build tool** (Decision 4). Built with maturin
-     (`maturin-action` in CI). One version for all of Liquers: `[workspace.package] version =
-     "0.1.0"`, and every crate, liquers-py included, takes `version.workspace = true`, so the
-     manifest is the one place it is edited. Core keeps it as its constant `liquers_core::VERSION`
-     (`liquers-core/src/lib.rs`, already `env!("CARGO_PKG_VERSION")`), and the `Environment` trait
-     gains a provided method returning it, so every environment reports the version it was built
-     with. Python: `env.version` and `lq.__version__` (the distribution's metadata, equal to it).
-     `liquers-web`'s `version()` already reports `liquers_core::VERSION`; other bindings follow
-     through the trait. A test asserts that every crate and the wheel agree (PACKAGE04).
-     Alternative: a hand-written literal in core, checked against the manifests by a test.
+  4. **Open design - where the version lives** (Decision 4). Built with maturin
+     (`maturin-action` in CI). Either way all crates of the root workspace share one version, the
+     `Environment` trait gains a provided `liquers_version()` returning core's constant (documented
+     as not to be overridden), Python exposes `env.liquers_version` and `lq.__version__`,
+     liquers-web's JavaScript environment gains the same accessor beside its free `version()`, and
+     a test compares every crate, environment and the wheel in normalized form (PEP 440 against
+     Cargo), so a later pre-release still compares equal (PACKAGE04). The two readings:
+     - **(a) recommended - the manifest is the source, core holds the constant.**
+       `[workspace.package] version = "0.1.0"`, every crate `version.workspace = true`, and
+       `liquers_core::VERSION` stays `env!("CARGO_PKG_VERSION")` (`liquers-core/src/lib.rs`, as
+       today). One place to edit, and Cargo, maturin and the constant can never disagree.
+     - **(b) a literal in core's source** (`pub const VERSION: &str = "0.1.0";`), with every
+       manifest kept equal by the test. Closest to the words, but two places to edit per release,
+       held together only by the test.
   5. **Decided (Decision 4) - the first release is `0.1.0`.** No alpha or beta releases are
      defined.
   6. **Proposed resolution - what a wheel contains.** The test build's Cargo features
@@ -62,16 +69,20 @@ data science use case. Milestone M5 of the liquers-py plan, with
      named `[profile.wheel]` (inheriting `release`; strip, thin LTO, one codegen unit) is measured
      in Phase 2 against PyPI's 100 MB file limit. If a wheel is still too big, the plan's fallback
      is wheels split by feature, which changes PACKAGE05's contract and returns to Orest.
-  7. **Proposed resolution - native libraries.** Nothing to vendor: liquers-py links no OpenSSL
+  7. **Decided (Decision 7) - native libraries.** Nothing to vendor: liquers-py links no OpenSSL
      (`cargo tree -p liquers-py -i openssl-sys -e normal --target all` finds nothing; TLS is
      `rustls` with `aws-lc-rs` and `ring`). `aws-lc-sys` 0.47 builds with a C compiler alone
-     (pregenerated bindings, prebuilt NASM objects on Windows); release jobs set
+     (pregenerated bindings, prebuilt NASM objects on Windows x86_64), except on Windows arm64,
+     where it and `ring` need clang (`clang-cl`): that job installs LLVM if the runner lacks it and
+     sets `CC`; release jobs set
      `AWS_LC_SYS_USE_SYSTEM=0` so a runner's library is never picked up. `auditwheel`,
      `delocate` and `dumpbin` verify that a wheel needs no extra system library. The stale
      OpenSSL requirement in `CLAUDE.md`, the guide's §PACKAGE and CI is
      `OPENSSL-BUILD-REQUIREMENT-IS-STALE`, fixed in its own PR, which owns the guide's sentence.
   8. **Decided (Decision 5) - license.** `AGPL-3.0-or-later`, declared on every crate for now,
-     `liquers-template` included (it declares `MIT` today), and in the wheel's metadata. A
+     `liquers-template` included (it declares `MIT` today; all its commits are this project's),
+     and in the wheel's metadata. Its `tests/spec/*.json`, copied from mustache/spec, stay MIT
+     under their own `tests/spec/LICENSE`, and are not in any package. A
      third-party notices file generated by `cargo-about` ships inside the wheel, since it links
      many crates statically.
   9. **Decided (Decision 6) - reproducible inputs.** `Cargo.lock` is not committed (`.gitignore`),
@@ -87,17 +98,17 @@ data science use case. Milestone M5 of the liquers-py plan, with
 
 ## Decisions
 
-Orest, 2026-11-01 (on the Phase 1 gate list):
+Orest, 2026-11-01, on gate items 8-13 and the side item, quoted:
 
-1. Platforms: "I want wheels also for Windows arm64, the macOS x86_64 is enough source only."
-2. ABI: "It is enough to support wheels for python 3.14(t) and further."
-3. Publishing as recommended (TestPyPI on tag, PyPI after approval per release).
-4. Version: "0.1.0 is ok. Versioning needs to be consistent with the rest of the liquers - so the
-   version should be maintained in core as a constant and it should be accessible via (every)
-   environment." (question 4, AC-10).
-5. License: "use or-later, for now on every crate".
-6. Lockfile: pinned by the release workflow.
-7. The OpenSSL fix in its own PR (`OPENSSL-BUILD-REQUIREMENT-IS-STALE`).
+1. Item 8, question 1: "I want wheels also for Windows arm64, the macOS x86_64 is enough source only."
+2. Item 9, question 2: "It is enough to support wheels for python 3.14(t) and further."
+3. Item 10, question 3: "ok".
+4. Item 11, questions 4 and 5: "We'll not define alpha and beta releases, 0.1.0 is ok. Versioning
+   needs to be consistent with the rest of the liquers - so the version should be maintained in
+   core as a constant and it should be accessible via (every) environment."
+5. Item 12, question 8: "use or-later, for now on every crate".
+6. Item 13, question 9: "pin it with release workflow".
+7. Side item, question 7: "OK, make an OpenSSL fix in a separate PR" (PR #241).
 
 ## Problem Example
 
@@ -123,7 +134,7 @@ platform, the second line prints the version, and the README's quick-start runs 
   WHEN the README's marked quick-start block runs in that venv
   THEN it exits 0 and prints its documented output (PACKAGE03)
 - **AC-4** Versions agree
-  WHEN an installed wheel's metadata version, `lq.__version__` and `lq.Environment().version` are compared
+  WHEN an installed wheel's metadata version, `lq.__version__` and `lq.Environment().liquers_version` are compared in normalized form
   THEN they are equal (PACKAGE04)
 - **AC-5** The documented value type
   WHEN the default wheel is installed
@@ -137,12 +148,15 @@ platform, the second line prints the version, and the README's quick-start runs 
 - **AC-8** Publishing is approved per release
   WHEN a `liquers-py-v*` tag is pushed
   THEN wheels reach the GitHub release and TestPyPI, and PyPI only after the environment's approval (question 3)
-- **AC-10** One version, reported by every environment
-  WHEN `lq.__version__`, `env.version`, the `Environment` trait's version of a Rust environment, `liquers_core::VERSION` and every crate's manifest are compared
-  THEN all equal the workspace version, and every crate declares `AGPL-3.0-or-later`
 - **AC-9** Each extra activates its feature
-  WHEN the wheel is installed with each extra, and without it
+  WHEN the wheel is installed with each extra, and without it, on each platform where that extra's package publishes a wheel (Phase 2 lists them; Windows arm64 is checked first)
   THEN `lq.require(extra)` succeeds only with that extra installed, naming the missing package otherwise (PACKAGE06)
+- **AC-10** One version, reported by every environment
+  WHEN `liquers_core::VERSION`, a Rust environment's `liquers_version()`, Python's `env.liquers_version` and `lq.__version__`, liquers-web's environment accessor and every root workspace member's manifest are compared in normalized form
+  THEN all are the one workspace version
+- **AC-11** One license
+  WHEN every root workspace member's manifest and the wheel's metadata are read
+  THEN each declares `AGPL-3.0-or-later`
 
 Non-goals: conda packages; PyPy, musllinux and macOS x86_64 wheels; wheels below 3.14; a UI or server extra (M6);
 publishing the generated API reference with the artifact, which the guide's §DOCS suggests, until
@@ -150,14 +164,16 @@ publishing the generated API reference with the artifact, which the guide's §DO
 
 ## Core Interactions
 
-Core: the `Environment` trait gains a provided version method over `liquers_core::VERSION`.
-Bindings: `lq.__version__`, `env.version`, `lq.require`. Build: one workspace version and license
+Core: the `Environment` trait gains a provided `liquers_version()` over `liquers_core::VERSION`.
+Bindings: `lq.__version__`, `env.liquers_version`, `lq.require`; liquers-web's environment
+accessor. Build: one workspace version and license
 in every `Cargo.toml`, `pyproject.toml` metadata and extras, an `abi3` feature, a wheel profile,
 two workflows.
 
 ## Crate Placement
 
-`liquers-core/src/context.rs` (`Environment`, one provided method, additive); every crate's
+`liquers-core/src/context.rs` (`Environment`, one provided method, additive);
+`liquers-web/src/environment.rs` (the accessor); every root workspace member's
 `Cargo.toml` (`version.workspace`, `license`); `liquers-py/pyproject.toml`,
 `liquers-py/python/liquers/__init__.py`;
 `.github/workflows/liquers-py-release.yml` and a pull-request job; `liquers-py/tests/package/`
@@ -173,7 +189,10 @@ two workflows.
   version).
 - Other: `liquers-py/README.md` (install, a `PACKAGE` row, how to cut a release);
   `LANGUAGE-INTEGRATION_GUIDE.md` §6 Python.
-- Documents to update: the "no published wheel" limitation in `PYTHON_INTEGRATION.md` §8; the
+- Documents to update: the "no published wheel" limitation in `PYTHON_INTEGRATION.md` §8;
+  `LANGUAGE-INTEGRATION_GUIDE.md` Appendix A `PACKAGE04` (its `__core_version__` example becomes
+  the environment's version); `JAVASCRIPT_INTEGRATION.md` (the accessor); the license: README
+  wording, the notices file, `liquers-template`'s manifest; the
   README's "Supported Python" (wheels versus source-only, PyPy); `CLAUDE.md`'s liquers-py line if
   the supported set changes; `specs/README.md`.
 - Open problems documented: source-only platforms; wheel size; the hand-made release approval;
@@ -183,18 +202,19 @@ two workflows.
 
 - `PY-NO-PUBLISHED-WHEELS` — **implemented** by this design.
 - `liquers-py-stubs` — **requires**: the files AC-6 checks. `liquers-py-records` — **requires**:
-  the `[arrow]` extra and the 3.11 buffer floor (question 2).
+  the `[arrow]` extra.
 - `OPENSSL-BUILD-REQUIREMENT-IS-STALE` — **overlaps** (T3, kept apart by E1); its own PR.
 - `py-pypy-ci-job` — **overlaps**: PyPy stays source-only here whatever it decides.
 - `py-api-reference` — **overlaps**: the generated reference is not shipped yet (non-goals).
-- `liquers-web` `version()` — precedent for reporting `liquers_core::VERSION`; unchanged.
+- `liquers-web` `version()` — precedent for reporting `liquers_core::VERSION`; kept, and its environment gains the accessor (Decision 4).
 - `language-binding-tests-in-ci` (complete) — precedent for the test workflow this reuses.
 
 ## Scope Changes
 
 - **2026-11-01** — Orest at the Phase 1 gate (Decisions 1-6): Windows arm64 added, macOS x86_64
   source-only, wheels from 3.14 only, `0.1.0`, one version kept in core and reported by every
-  environment, `AGPL-3.0-or-later` on every crate. Added AC-10; questions 1-5, 8, 9 decided. The
+  environment, `AGPL-3.0-or-later` on every crate, and the lockfile pinned. Added AC-10 and
+  AC-11; questions 1-3, 5, 7-9 decided, question 4 to confirm. Approved: Orest at the gate. The
   version and license now touch every crate's manifest and one core trait method. Size: still
   `L`. Phases: 1.
 

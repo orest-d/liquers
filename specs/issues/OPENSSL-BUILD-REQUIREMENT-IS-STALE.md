@@ -2,7 +2,7 @@
 id: OPENSSL-BUILD-REQUIREMENT-IS-STALE
 kind: issue
 title: The build documents a system OpenSSL requirement that nothing in the workspace links
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [build, docs]
@@ -42,8 +42,14 @@ for the wheels" turned out to have nothing to vendor.
 
 Triage: overlaps `liquers-py-package` (T3, a shared change site: the guide's §PACKAGE OpenSSL
 sentence and the CI workflows), kept separate by E1, since this fix is eligible for automatic
-fixing (`P3`, `S`, documentation and CI only, no interface change) and the design is not. Spin-off:
-to be fixed in its own branch and pull request, not in the M5 design PR; that PR owns the guide's
-OpenSSL sentence. Not started yet: this session works on one designated branch, so the second
-branch waits for the owner's go-ahead.
+fixing (`P3`, `S`, documentation and CI only, no interface change) and the design is not. Fixed
+as a spin-off in its own pull request, which owns the guide's sentence.
 
+## Resolution
+
+Closed 2026-11-01 (branch `claude/openssl-build-requirement-stale`). `CLAUDE.md` §"Applied
+measures" item 2 now says no build links OpenSSL except `liquers-axum`'s test targets (its
+dev-dependency `reqwest` uses `native-tls`, and feature unification then pulls OpenSSL into
+opendal's `reqwest` too; `cargo tree -p liquers-axum -i openssl-sys -e normal,dev`). The guide's
+§PACKAGE vendoring sentence is corrected, with a History row. The `libssl-dev` steps are dropped
+from `build-matrix.yml` (it checks `liquers-axum` without its tests) and `liquers-py-tests.yml`.

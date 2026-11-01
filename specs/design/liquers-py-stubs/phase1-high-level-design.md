@@ -12,7 +12,7 @@ Python integration" priority. Milestone M5 of the liquers-py plan, with
 
 - **Readiness:** `needs-decision`
 - **Automatic fixing:** `not-eligible`: an `L` feature, new development dependencies.
-- **Leading issue:** None; questions 1, 3 and 5 are decided (Decisions below).
+- **Leading issue:** confirmation, at this gate, of the proposed resolutions 2, 4 and 6-8; questions 1, 3 and 5 are decided (Decisions below).
 - **Explanation:** Orest accepted the recommendations on 2026-11-01. The remaining proposed
   resolutions stand; question 8 follows the records design's decision.
 - **Open questions:**
@@ -82,8 +82,9 @@ Python integration" priority. Milestone M5 of the liquers-py plan, with
 
 ## Decisions
 
-1. Orest, 2026-11-01 (gate items 5-7): questions 1 (hand-written, checked), 3 (values are `Any`)
-   and 5 (the checks, on one CI leg, CPython 3.14) as recommended.
+1. Orest, 2026-11-01, on gate items 5-7 (this design's questions 1, 3 and 5): "5. ok 6. ok 7. ok"
+   — hand-written and checked declarations, values as `Any`, and the checks on one CI leg
+   (CPython 3.14), as recommended.
 
 ## Problem Example
 
@@ -176,6 +177,13 @@ under `python-source` in the wheel.
 - `py-metadata-fields-as-properties`, `py-python-style-reprs`, `py-query-segment-registration`,
   `py-command-decorator-declaration-keywords` — **overlap**: each changes the surface; whichever
   lands second updates the declarations (AC-3 enforces it).
+
+## Scope Changes
+
+- **2026-11-01** — `liquers-py-records` chose wrappers and added constructors, `to_list` /
+  `to_dict` and `fields=` (its Decisions 1, 2), so question 8 and AC-4 name the record classes and
+  their constructors (for example `lq.RecordView.from_dict({"a": [1, 2]}, fields={"a": "int"})` must
+  type-check). Approved with that design's gate decisions by Orest. Size: still `L`. Phases: 1.
 
 ## References
 

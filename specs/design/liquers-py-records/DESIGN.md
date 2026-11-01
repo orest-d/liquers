@@ -21,7 +21,7 @@ with [`liquers-py-stubs`](../liquers-py-stubs/DESIGN.md) and
 decided Phase 1 question 1 for wrappers, so it took over `PY-RECORD-VALUES-CANNOT-CROSS-TO-PYTHON`
 from the bulk design `py-record-values-to-python`, now superseded.
 
-Phase 1 written and reviewed twice on 2026-11-01. Orest decided its questions the same day (Phase 1 Decisions); revised and reviewed again, it is back at the Phase 1 gate, waiting for `proceed`.
+Phase 1 written and reviewed twice on 2026-11-01. Orest decided its questions the same day (Phase 1 Decisions); revised and reviewed twice again, it is back at the Phase 1 gate, waiting for `proceed`.
 
 ## Phases
 
