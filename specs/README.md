@@ -319,6 +319,7 @@ deliberately folded behind a broader line.
 - `reference/api/API_DOCS_GAP_ANALYSIS.md`
 - design `access-policy-at-entry-points`
 - design `agent-command-proposal`
+- design `api-documentation-rules`
 - design `argument-gui-info-default`
 - design `asset-event-kinds`
 - design `asset-events-over-websocket`
@@ -392,6 +393,7 @@ deliberately folded behind a broader line.
 - design `docs-link-check-code-spans`
 - design `docs-tooling-tests-in-ci`
 - design `documentation-currentness-small-fixes`
+- design `documentation-site-tool`
 - design `enum-alternative-labels`
 - design `environment-orderly-shutdown`
 - design `error-store-name-payload`
@@ -622,6 +624,7 @@ deliberately folded behind a broader line.
 - feature `AGENT-CANNOT-PROPOSE-A-COMMAND`
 - feature `AGENT-MEMORY-HAS-NO-INDEXES-OR-CONTEXT-PACKS`
 - feature `AGENT-MEMORY-HAS-NO-MIGRATE-COMMAND`
+- feature `API-DOCS-HAVE-NO-CONTENT-RULES`
 - feature `ASSET-EVENT-STREAM-CARRIES-ONLY-EXPIRATIONS`
 - feature `ASSET-EVENTS-ARE-NOT-DELIVERED-OUT-OF-PROCESS`
 - feature `ASSET-MANAGER-CANNOT-BE-SYNCHRONIZED-WITH-THE-STORE`
@@ -687,6 +690,7 @@ deliberately folded behind a broader line.
 - feature `UI-WIDGET-DOES-NOT-CONVERT-ITS-VALUE`
 - feature `UNKEYED-ASSET-HAS-NO-VERSION`
 - feature `UNMANAGED-ASSET-NOT-FOLLOWABLE-ACROSS-CONNECTIONS`
+- feature `USER-DOCUMENTATION-CANNOT-BE-GENERATED`
 - feature `VALIDATE-CANNOT-SEE-NON-STANDARD-RECIPE-PROVIDERS`
 - feature `VALUE-CONVERSION-CAPABILITY`
 - feature `VALUE-EXTENDED-SCALAR-TYPES-MISSING`
