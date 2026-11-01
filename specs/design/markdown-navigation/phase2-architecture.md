@@ -70,7 +70,7 @@ impl Document {
 }
 impl Link { pub fn resolve(&self, document_key: &liquers_core::query::Key) -> Option<liquers_core::query::Key>; }
 
-pub enum Step { Number(usize), Text(String) }
+pub enum Step { Number(usize), Text(String), Any, AnyDepth } // `3`, `phase 1`, `_`, `__`
 pub struct Address(pub Vec<Step>);
 impl Address { pub fn parse(text: &str) -> Result<Address, liquers_core::error::Error>; }
 impl std::fmt::Display for Address {}                       // inverse of parse: "." joins, ".." escapes
@@ -94,12 +94,15 @@ parsed. A target is a **query** when it begins with `-` or contains `/-/` and `p
 accepts it; query text is never split by Markdown markup (AC-8).
 
 **Addresses** (AC-2, AC-11). `Address::parse` splits on `.`, reading `..` as a literal dot; an
-empty step or empty address is an error. A step of ASCII digits only is `Number`, anything else
-`Text`. Resolution walks from the root's children (the sections under a lone top-level title,
-pending the maintainer's revised point 2): `Number(n)` takes the `n`-th child; `Text(t)` takes the
+empty step or empty address is an error. A step of ASCII digits only is `Number`, `_` is `Any`,
+`__` is `AnyDepth`, anything else `Text`. Resolution keeps a set of candidate sections, starting
+from the top-level sections (no title skipped): `Number(n)` takes each candidate's `n`-th child;
+`Any` takes all their children; `AnyDepth` keeps the candidates and adds all their descendants;
+`Text(t)` takes the
 children whose heading words match `t`, ignoring case, preferring exact over word-prefix over
-contained-words, so `phase 1` never matches "Phase 10". A step matches direct children only; when
-nothing matches but a deeper section would, the error names its full address.
+contained-words, so `phase 1` never matches "Phase 10". At the end exactly one section must
+remain (AC-3). Without wildcards a step matches direct children only; when nothing matches but a
+deeper section would, the error names its full address.
 
 **Commands** (`liquers-lib/src/markdown/commands.rs`, after `COMMAND_REGISTRATION_GUIDE.md`; sync
 `fn`, since parsing never waits and the input is already a text value):
@@ -182,4 +185,4 @@ realm `store_config`.
 | New validation | crate unit tests per rule; a round-trip and tiling test over every `specs/**/*.md` (AC-7); dead-link findings over `specs/` compared before and after |
 | Compatibility / data / concurrency / performance / security | `dead_links` newly sees reference-style links, so it may report links the scanner missed (stated in AC-5's test as an expected difference, not a regression). Linear time; `markdown_tiers` runs on every read, so the parse of a 100 KB document is benchmarked in the crate's tests. No unsafe, no I/O |
 | Recovery | each step reverts on its own: the crate and `ns-md` are additive; the callers switch one module at a time behind passing tests |
-| Certainty and open questions | High for blocks and sections; medium for list and HTML-block edge cases. Open: the maintainer's revised point 2 (the lone title) |
+| Certainty and open questions | High for blocks and sections; medium for list and HTML-block edge cases. No open questions |

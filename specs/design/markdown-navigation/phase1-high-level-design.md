@@ -29,16 +29,16 @@ With this design:
 
 ```
 -R/specs/reference/AGENT_MEMORY_SERVICE.md/-/ns-md/outline
--R/specs/reference/AGENT_MEMORY_SERVICE.md/-/ns-md/section-8
+-R/specs/reference/AGENT_MEMORY_SERVICE.md/-/ns-md/section-_.8
 -R/specs/reference/AGENT_MEMORY_SERVICE.md/-/ns-md/links
 -R/specs/reference/ASSETS.md/-/ns-md/table-History
 -R/specs/design/runtime-volatility/DESIGN.md/-/ns-md/section-phase~.2.solution
 ```
 
 The outline is a few hundred bytes of records (level, heading, number, line range, size). The
-agent picks `8`, reads only that section, and takes the `links` rows of the section to follow.
-All five queries were checked with `liquers-validate` (`--command md/<name>`). `8` is a section
-number: the 8th section under the title. The last is a path: the section whose heading contains
+agent picks `_.8`, reads only that section, and takes the `links` rows of the section to follow.
+All five queries were checked with `liquers-validate` (`--command md/<name>`). `_.8` is the 8th
+subsection of any top-level section, here the document's only `#` title. The last is a path: the section whose heading contains
 "solution" inside the one containing "phase 2" (`~.` is a space in a query).
 
 ## Scope and Acceptance Criteria
@@ -52,14 +52,18 @@ number: the 8th section under the title. The last is a path: the section whose h
   WHEN `ns-md/section-<address>` is applied
   THEN it returns that section's text, its subsections included unless `children=false`, its
   heading line included unless `heading=false`; the address is a path of steps separated by `.`,
-  each step choosing among the subsections of the previous one (the first, among the sections
-  under a lone top-level title)
+  each step choosing among the subsections of the previous one (the first, among the top-level
+  sections, whatever their heading level); no heading is skipped, so a document's `#` title is
+  section `1`
 - **AC-11** Address steps
   WHEN a step consists of digits only
   THEN it is a section number: `1.2.3` is the 3rd subsection of the 2nd subsection of section 1,
   counted in document order; any other step is text, matched case-insensitively against the
   heading's words, exact before prefix before contained, so `phase~.1` does not match "Phase 10";
-  `..` is a literal dot, so `3..2` is the text "3.2" and matches `## Section 3.2`
+  `..` is a literal dot, so `3..2` is the text "3.2" and matches `## Section 3.2`; `_` is any one
+  section at that level, and `__` any sections at any depth (zero or more levels), so `_.8` is §8
+  under the title and `__.history` the History section wherever it is; a wildcard path still
+  resolves to one section, or AC-3 applies
 - **AC-12** Addresses in the outline
   WHEN `ns-md/outline` lists a heading
   THEN its record carries `address`, the section-number path (`2.1`) that AC-2 resolves back to it
@@ -132,10 +136,10 @@ Decided by the maintainer on 2026-11-01: a new `liquers-markdown` crate; folder 
 `ns-search/md_split-section` stays as a thin wrapper over `ns-md/sections`, `unit=line` as it is;
 the path syntax of AC-2 and AC-11.
 
-1. **Step scope:** a step matches direct subsections only (recommended, with an error that
-   suggests the full path when a deeper section would match) or any section below.
-2. **Lone title:** a single top-level `#` heading is skipped, so `1` is the first `##`
-   (recommended).
+Also decided on 2026-11-01: no title is skipped (skipping a lone `#` gives inconsistent numbers
+once a document has two), a step matches direct subsections only, and the wildcards `_` (one
+level) and `__` (any depth) give the "any" that skipping was meant to provide. `*` cannot be used:
+the query parser refuses it in a parameter.
 
 A section number changes when a section is inserted before it, so stored references (templates,
 recipes) should use text steps; the reference will say so.
