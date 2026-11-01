@@ -678,13 +678,29 @@ async fn create_plan_with_init_metadata<E: Environment>(
     envref: EnvRef<E>,
     key: Option<&Key>,
 ) -> Result<Plan, Error> {
-    let cmr = envref.get_command_metadata_registry();
-    let mut plan = match key {
-        Some(key) => recipe.to_plan_for_key(cmr, key)?,
-        None => recipe.to_plan(cmr)?,
-    };
-    let _ = analyze_plan_dependencies(envref, &mut plan, None).await; // TODO: looks suspicious, this should be done in plan building or checking
-    Ok(plan)
+    recipe.plan_with_dependencies(envref, key).await
+}
+
+impl Recipe {
+    /// The recipe's plan for `key` (or, without a key, its ad-hoc plan) with dependency analysis,
+    /// as [`DefaultRecipeProvider`] builds it. For a recipe provider outside this crate (a Python
+    /// one, `specs/design/liquers-py-recipes/`), so its `recipe_plan` matches the built-in one.
+    ///
+    /// A failing dependency analysis is ignored, as it is for the built-in providers
+    /// (`RECIPE-PLAN-ANALYSIS-RUNS-OUTSIDE-PLAN-BUILDING`).
+    pub async fn plan_with_dependencies<E: Environment>(
+        &self,
+        envref: EnvRef<E>,
+        key: Option<&Key>,
+    ) -> Result<Plan, Error> {
+        let cmr = envref.get_command_metadata_registry();
+        let mut plan = match key {
+            Some(key) => self.to_plan_for_key(cmr, key)?,
+            None => self.to_plan(cmr)?,
+        };
+        let _ = analyze_plan_dependencies(envref, &mut plan, None).await; // TODO: looks suspicious, this should be done in plan building or checking
+        Ok(plan)
+    }
 }
 
 /// Provider used when an environment has no configured recipes.
@@ -1585,8 +1601,9 @@ pub fn core_recipe_provider_factory<E: Environment>() -> RecipeProviderTypeMap<E
 /// Resolves a configured `recipes:` value into the environment's chain.
 ///
 /// [`RecipesConfig::KindDefault`] and every entry of type [`DEFAULT_RECIPES_ENTRY`] expand to
-/// `default_list`; an entry name occurring twice after expansion is a configuration error; each
-/// entry is built through `factory`. This is the single definition of an environment's chain:
+/// `default_list`; an entry listed twice, type and arguments alike, is a configuration error; each
+/// entry is built through `factory`. A member is named by its type when the type occurs once in
+/// the chain, and `type#position` (position from 0) when it repeats with different arguments. This is the single definition of an environment's chain:
 /// the builder, the environment's own setters and any validation tool call it.
 pub fn resolve_recipes<E: Environment>(
     recipes: &RecipesConfig,
@@ -1596,15 +1613,25 @@ pub fn resolve_recipes<E: Environment>(
     let entries = expand_recipes(recipes, default_list)?;
     let mut members = Vec::with_capacity(entries.len());
     for (position, entry) in entries.iter().enumerate() {
-        members.push((
-            entry.provider_type.clone(),
-            factory.create_at(entry, position)?,
-        ));
+        let repeated = entries
+            .iter()
+            .filter(|other| other.provider_type == entry.provider_type)
+            .count()
+            > 1;
+        let name = if repeated {
+            format!("{}#{position}", entry.provider_type)
+        } else {
+            entry.provider_type.clone()
+        };
+        members.push((name, factory.create_at(entry, position)?));
     }
     Ok(RecipeProviderChain::named(members))
 }
 
-/// The entries `recipes` names after splicing in `default_list`, refusing a duplicate name.
+/// The entries `recipes` names after splicing in `default_list`, refusing an entry listed twice.
+///
+/// One type may occur several times with different arguments (one provider type making PNG from
+/// SVG and another entry of it making JPG); only an identical entry is refused.
 pub fn expand_recipes(
     recipes: &RecipesConfig,
     default_list: &[RecipeProviderEntry],
@@ -1621,12 +1648,11 @@ pub fn expand_recipes(
             expanded.push(entry);
         }
     }
-    let mut seen = std::collections::HashSet::new();
-    for entry in &expanded {
-        if !seen.insert(entry.provider_type.as_str()) {
+    for (position, entry) in expanded.iter().enumerate() {
+        if expanded[..position].contains(entry) {
+            let shown = serde_json::to_string(entry).unwrap_or_else(|_| entry.provider_type.clone());
             return Err(Error::configuration_error(format!(
-                "Recipe provider '{}' is listed more than once in the recipe provider chain",
-                entry.provider_type
+                "Recipe provider entry {shown} is listed more than once in the recipe provider chain"
             )));
         }
     }
@@ -3912,6 +3938,26 @@ mod recipe_cache_tests {
         Ok(())
     }
 
+    /// `liquers-py-recipes` Phase 4 step 2: the public plan builder is the built-in provider's.
+    #[tokio::test]
+    async fn plan_with_dependencies_matches_the_default_provider(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut environment = TestEnv::new();
+        environment.with_async_store(Box::new(AsyncMemoryStore::new(&Key::new())));
+        environment
+            .get_mut_command_metadata_registry()
+            .add_command(&crate::command_metadata::CommandMetadata::new("make"));
+        let envref = environment.to_ref();
+        write_recipes(&envref, &yaml(&[("-R/data/in.txt/-/make/a.txt", "A")])?).await?;
+        let key = parse_key("data/a.txt")?;
+        let provider = DefaultRecipeProvider::new();
+        let built_in = provider.recipe_plan(&key, envref.clone()).await?;
+        let recipe = provider.recipe(&key, envref.clone()).await?;
+        let public = recipe.plan_with_dependencies(envref, Some(&key)).await?;
+        assert_eq!(serde_json::to_value(&public)?, serde_json::to_value(&built_in)?);
+        Ok(())
+    }
+
     #[tokio::test]
     async fn default_recipe_provider_new_equals_default() -> Result<(), Box<dyn std::error::Error>> {
         let envref = env();
@@ -4039,6 +4085,51 @@ mod recipes_config_tests {
         );
         let chain = resolve_recipes(&RecipesConfig::KindDefault, &default_list, &factory())?;
         assert_eq!(chain.names(), vec!["recipes_yaml"]);
+        Ok(())
+    }
+
+    /// A factory with one entry type, `convert`, that takes any arguments.
+    fn convert_factory() -> ChainedRecipeProviderFactory<TestEnv> {
+        ChainedRecipeProviderFactory::new().chain(Box::new(RecipeProviderTypeMap::new().with_provider_type(
+            RecipeProviderTypeInfo::new("convert"),
+            Box::new(|_entry| Ok(Arc::new(TrivialRecipeProvider) as Arc<dyn AsyncRecipeProvider<TestEnv>>)),
+        )))
+    }
+
+    fn convert(ext: &str) -> RecipeProviderEntry {
+        RecipeProviderEntry::named("convert").with_argument("ext", ext)
+    }
+
+    /// liquers-py-recipes AC-12: an identical entry listed twice is refused.
+    #[test]
+    fn expand_recipes_refuses_an_identical_entry() {
+        let chain = RecipesConfig::Chain(vec![convert(".png"), convert(".png")]);
+        let error = expand_recipes(&chain, &[]).expect_err("identical entries");
+        assert_eq!(error.error_type, ErrorType::ConfigurationError);
+        assert!(error.message.contains("convert") && error.message.contains(".png"), "{}", error.message);
+    }
+
+    /// liquers-py-recipes AC-12: one type with two argument sets makes two members.
+    #[test]
+    fn the_same_type_with_different_arguments_makes_two_members() -> Result<(), Error> {
+        let chain = RecipesConfig::Chain(vec![convert(".png"), convert(".jpg")]);
+        assert_eq!(expand_recipes(&chain, &[])?.len(), 2);
+        let resolved = resolve_recipes(&chain, &[], &convert_factory())?;
+        assert_eq!(resolved.len(), 2);
+        Ok(())
+    }
+
+    /// liquers-py-recipes AC-12: a repeated type is named by position; a unique one by its type.
+    #[test]
+    fn repeated_type_members_are_named_by_position() -> Result<(), Error> {
+        let factory = convert_factory().chain(Box::new(core_recipe_provider_factory()));
+        let chain = RecipesConfig::Chain(vec![
+            RecipeProviderEntry::named("recipes_yaml"),
+            convert(".png"),
+            convert(".jpg"),
+        ]);
+        let resolved = resolve_recipes(&chain, &[], &factory)?;
+        assert_eq!(resolved.names(), vec!["recipes_yaml", "convert#1", "convert#2"]);
         Ok(())
     }
 
