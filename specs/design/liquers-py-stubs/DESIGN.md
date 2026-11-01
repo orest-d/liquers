@@ -5,7 +5,7 @@ title: Type declarations for the liquers Python package, checked against the run
 workflow: liquers-project
 status: draft
 phase: architecture
-readiness: needs-decision
+readiness: ready
 autofix: not-eligible
 area: [py]
 issues: [PY-NO-TYPE-DECLARATIONS]

@@ -80,6 +80,17 @@ Python integration" priority. Milestone M5 of the liquers-py plan, with
      them installed sees `Any` there, not an error. `STUBS07`'s wheel half is tested by
      `liquers-py-package` against the built wheel.
 
+- **Decision log (pre-approved phases; none needs Orest):**
+  - Phase 2: question 2 is read as "classes declared in `__init__.pyi` under `liquers`;
+    `_native.pyi` re-exports them" (its first sentence and its last two disagreed).
+  - Phase 2/3: question 8 is met by declaring the exits and dataframe parameters `Any` (pyarrow
+    ships no type information, so a precise type would be *Unknown* under pyright strict); the
+    stubs import no third-party package.
+  - Phase 3: M5 lands package, records, then stubs, in one branch, so every declared name exists
+    when stubtest first runs.
+  - Phase 2: `liquers-py-package`'s `__version__`, `require` and `Environment.liquers_version`
+    are declared here; each design declares its own names when it adds them.
+
 ## Decisions
 
 1. Orest, 2026-11-01, on gate items 5-7 (this design's questions 1, 3 and 5): "5. ok 6. ok 7. ok"
@@ -170,7 +181,8 @@ under `python-source` in the wheel.
 
 - `PY-NO-TYPE-DECLARATIONS` — **implemented** by this design.
 - `liquers-py-records` — **requires**: its classes are declared here (question 8).
-- `liquers-py-package` — **required-by**: ships the files (STUBS07).
+- `liquers-py-package` — **required-by**: ships the files (STUBS07); and **requires**-side
+  overlap: its `__version__`, `require` and `liquers_version` are declared here (decision log).
 - `py-record-values-to-python` — **overlaps**: decides with records question 1 whether records are
   declared at all (question 8).
 - `py-pypy-ci-job`, `language-binding-tests-in-ci` (complete) — **overlap**: both run or rewrite
@@ -186,6 +198,11 @@ under `python-source` in the wheel.
   `to_dict` and `fields=` (its Decisions 1, 2), so question 8 and AC-4 name the record classes and
   their constructors (for example `lq.RecordView.from_dict({"a": [1, 2]}, fields={"a": "int"})` must
   type-check). Approved with that design's gate decisions by Orest. Size: still `L`. Phases: 1.
+
+- **2026-11-01** — Phase 2 (pre-approved): the layout reading of question 2, plain third-party
+  imports in the stub, and the package design's names (decision log), so the declarations have
+  one home and stay checkable; in Phase 3, `Any` for third-party types and the landing order.
+  Approved: pre-approval of 2026-11-01. Size: still `L`. Phases: 1, 2, 3.
 
 ## References
 

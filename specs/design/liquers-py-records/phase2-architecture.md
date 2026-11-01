@@ -2,207 +2,222 @@
 
 ## Overview
 
-A new `liquers-py/src/records/` module wraps the `Arc`s that `ExtValue::RecordView` and
-`ExtValue::RecordSource` hold in frozen PyO3 classes. Each wrapper reads its data through the
-`RecordView` / `RecordSource` traits and never copies the table. The conversion that makes a
-source learns which environment it serves for: `value_to_py` gains a `Scope`. Column buffers are
-lent through the buffer protocol from the column object, which holds the `Column` and with it
-the `Arc`s of every buffer. Arrow is reached through `liquers-records`' IPC writer and reader. The
-reader and writer gain a per-batch `liquers.origins` key. A small pure-Python module, `_records.py`,
-does the pyarrow work: it normalizes a table on the way in and copies metadata on the way out.
-Plain Python data is built in Rust with `ColumnMut`, with declared fields cast in Rust.
+A new `liquers-py/src/records/` module wraps the `Arc`s held by `ExtValue::RecordView` and
+`ExtValue::RecordSource` in frozen PyO3 classes. The wrappers read through the traits and never
+copy a table.
+
+- `value_to_py` gains a `Scope`: what a source resolves its chunks in.
+- A column object holds its `Column`, so its `Arc`ed buffers outlive every `memoryview` of it.
+- Arrow is reached through `liquers-records`' IPC writer and reader, which gain a per-batch
+  `liquers.origins` key.
+- A pure-Python `_records.py` does the pyarrow work: normalizing in, copying metadata out.
+- Plain Python data is built in Rust with `ColumnMut`.
 
 Rejected:
-- **The value is a `pyarrow.Table`** (`py-record-values-to-python`). This was Decision 1.
-- **Route 1 traversal as the default.** This was Decision 4.
-- **Building plain data through the JSON reader.** That reader sorts columns by name and infers
-  types from text (Phase 1 question 9).
-- **A thread-local "current environment" during conversion**, as in liquers-web's
-  `conversion_env`. A conversion here can run on any thread, and the explicit `Scope` argument is
-  checked by the compiler at each of its call sites.
-- **Normalizing Arrow in Rust.** That needs Arrow kernels that `liquers-records` does not have.
-  pyarrow's `cast` already does this, and pyarrow is present whenever such a table is.
+- A thread-local "current environment" during conversion, as in liquers-web's `conversion_env`:
+  a conversion here runs on any thread, and an explicit argument is checked at every call site.
+- Arrow normalization in Rust: it needs kernels `liquers-records` lacks, and pyarrow's `cast` is
+  present whenever such a table is.
+- The others were decided at Phase 1 (Decisions 1, 4, 5).
 
 ## Known-Issue Preflight
 
 | Issue | Status | Priority | Impact on this design | Fix first? | Blocking? | Action |
 |---|---|---|---|---|---|---|
-| `POLARS-BRIDGE-TRUNCATES-SUB-MICROSECOND-DATETIMES` | draft | P3 | `from_polars` cuts nanoseconds without a word | No | No | Eligible for automatic fixing: a spin-off PR; until it lands, the guide says so |
-| `IPC-READER-CANNOT-READ-ANY-POLARS-STRING-COLUMN` | draft | P2 | pyarrow's `string_view` / `large_string` would be refused | No | No | Designed around: `_records.py` casts to `string` / `binary` first (question 3) |
-| `POLARS-BRIDGE-VECTOR-COLUMNS-REFUSED` | draft | P3 | `from_polars` of a vector column fails | No | No | Documented open problem |
-| `COLUMN-SLICE-COPIES-INSTEAD-OF-SHARING-BUFFER-STORAGE` | draft | P3 | `RecordView::column` copies for a view that is not a batch | No | No | Designed around: read the batch's own column when `as_batch` is `Some` (question 5) |
-| `RECORD-BATCH-FIELDS-CAN-BE-MUTATED-PAST-VALIDATION` | draft | P3 | None: wrappers never mutate | No | No | None |
-| `ERROR-TYPES-TOO-COARSE-AND-GENERAL-OVERUSED` | draft | P2 | Traversal after shutdown uses `GeneralError` (AC-15) | No | No | Follows today's convention |
-| `PY-REPRS-SHOW-RUST-DEBUG-FORMAT` | draft | P3 | New classes need a `repr` | No | No | New classes get Python-style reprs now (`RecordView(rows=2, fields=['id', 'amount'])`) |
+| `POLARS-BRIDGE-TRUNCATES-SUB-MICROSECOND-DATETIMES` | draft | P3 | `from_polars` cuts nanoseconds | No | No | Eligible for automatic fixing (assessed in its file): a spin-off PR |
+| `IPC-READER-CANNOT-READ-ANY-POLARS-STRING-COLUMN` | draft | P2 | `string_view` / `large_string` refused | No | No | `_records.py` casts to `string` / `binary` first |
+| `POLARS-BRIDGE-VECTOR-COLUMNS-REFUSED` | draft | P3 | `from_polars` refuses vectors | No | No | Documented open problem |
+| `COLUMN-SLICE-COPIES-INSTEAD-OF-SHARING-BUFFER-STORAGE` | draft | P3 | `RecordView::column` copies off a batch | No | No | Lend `as_batch().columns[i]` when present |
+| `ERROR-TYPES-TOO-COARSE-AND-GENERAL-OVERUSED` | draft | P2 | AC-15 uses `GeneralError` | No | No | Existing convention |
+| `PY-REPRS-SHOW-RUST-DEBUG-FORMAT` (design `py-python-style-reprs`) | in review | P3 | New classes need reprs | No | No | Follow that design's convention when it lands; Rust debug form until then |
 
 ## Interfaces
 
-**Rust, `liquers-py/src/value.rs`** (changed). These calls are sync: a conversion never waits.
+**Conversion** (`liquers-py/src/value.rs`). All sync: a conversion never waits.
 
 ```rust
-/// What a conversion to Python is for: the environment a `RecordSource` resolves its chunks in.
-#[derive(Clone)]
-pub struct Scope { origin: Option<crate::records::SourceOrigin> }
+pub struct Scope { origin: Option<SourceOrigin> }          // Clone by hand
 impl Scope {
-    pub fn env(cell: Arc<EnvCell>) -> Scope;                         // evaluate*, State, AssetRef
-    pub fn command(context: &crate::context::Context, envref: EnvRef<PyEnvironment>, shut: Arc<Shut>) -> Scope;
-    pub fn detached() -> Scope;                                      // unit tests; traversal refuses
+    pub fn env(cell: &Arc<EnvCell>) -> Scope;               // holds Weak<EnvCell>
+    pub fn command(context: &crate::context::Context, envref: &EnvRef<PyEnvironment>, shut: Arc<Shut>) -> Scope;
+    pub fn detached() -> Scope;                             // unit tests; a source refuses to traverse
 }
-pub fn value_to_py(py: Python<'_>, value: &Value, scope: &Scope) -> Result<Py<PyAny>, Error>; // + scope
-// py_to_value gains the record arms: lq.RecordView / lq.RecordSource → the same Arc (RECORDS01);
-// a pyarrow.Table / pyarrow.RecordBatch → RecordView through `_records.arrow_to_ipc` + `read_table`.
+pub fn value_to_py(py: Python<'_>, value: &Value, scope: &Scope) -> Result<Py<PyAny>, Error>;
 ```
 
-**Rust, `liquers-py/src/records/`** (new): `mod.rs` (the classes), `schema.rs`, `build.rs` (plain
-data and casts), `arrow.rs` (IPC both ways), `buffer.rs` (the buffer protocol, the only `unsafe`,
-each block with a `SAFETY` comment).
+- **Out.** In `ext_to_py`, a RecordView with one row and one payload field, or no payload field
+  and an `Id` or a sole field (liquers-web's `is_single_cell`), becomes its `FieldValue` as a
+  Python scalar (RECORDS10). Any other view becomes `lq.RecordView`, and a source becomes
+  `lq.RecordSource`.
+- **In.** `py_to_value` turns an `lq.RecordView` / `RecordSource` back into the same `Arc`
+  (RECORDS01). A `pyarrow.Table` / `RecordBatch`, recognized by type name without importing,
+  goes through `_records.arrow_to_ipc` and then `read_table`.
 
-```rust
-pub enum SourceOrigin {
-    /// From `Environment.evaluate*`: rebuild-safe, re-resolved at each traversal; refuses once shut.
-    Env(Arc<EnvCell>),
-    /// From a command's arguments: `ContextResolver` while the command's context is valid
-    /// (dependencies recorded), then `EnvResolver` on that environment; refuses once shut.
-    Command { context: crate::context::Context, envref: EnvRef<PyEnvironment>, shut: Arc<Shut> },
-}
-#[pyclass(frozen, name = "RecordView", module = "liquers")]   pub struct RecordView   { inner: Arc<dyn records::RecordView> }
-#[pyclass(frozen, name = "RecordSource", module = "liquers")] pub struct RecordSource { inner: Arc<dyn records::RecordSource>, origin: Option<SourceOrigin> }
-#[pyclass(frozen, name = "RecordColumn", module = "liquers")] pub struct RecordColumn { name: String, column: Column }   // Column's buffers are Arc-shared
-#[pyclass(frozen, name = "RecordBuffer", module = "liquers")] pub struct RecordBuffer { column: Py<RecordColumn>, part: Part }  // offsets, data, validity, bitmap
-#[pyclass(frozen, name = "RecordStream", module = "liquers")] pub struct RecordStream { state: Mutex<StreamState> }       // one traversal
-#[pyclass(frozen, eq, name = "FieldType", module = "liquers")] pub enum FieldType { Bool, Int, UInt, Float, Text, Binary, Date, Timestamp, Vector }
-#[pyclass(frozen, eq, name = "KeyRole", module = "liquers")]   pub enum KeyRole { Id, Source, Data }   // `Data` is Rust's KeyRole::None
-#[pyclass(frozen, name = "FieldSchema" | "RecordSchema" | "ChunkOrigin" | "RecordChunk", module = "liquers")]  // wrap the owned Rust values
-#[cfg(feature = "debug-handles")] #[pyfunction] pub fn live_record_handle_count() -> usize;  // RECORDS06
-```
+**Where a source resolves** (`records/resolver.rs`). `SourceOrigin` holds `Weak<EnvCell>` or
+`Weak<PyEnvironment>` plus `Arc<Shut>`, never a strong reference. A source captured by a command
+closure would otherwise make a cycle the GC cannot see (`RecipeProviders` holds `Weak` for the
+same reason). `PyChunkResolver: ChunkResolver` decides on every `evaluate` / `metadata` /
+`read_resource` call:
+- while the command's context handle is valid, through `ContextResolver`, which records
+  dependencies;
+- otherwise through `EnvResolver` on the upgraded environment;
+- when the environment is gone or shut, with `shut_down_error()`.
 
-The extension adds one class, `RecordBuffer`, to question 4's list, plus the stream and chunk
-classes the iteration needs. It is the object `memoryview` reads for one part of a column. It has
-no methods beyond the buffer protocol, `format` and `len`.
+It decides per call, not when the stream opens, so a stream kept past its command stays safe.
+`prepare_call` (`command.rs`) now always builds the `crate::context::Context` wrapper first, uses
+it for `Scope::command`, and invalidates it after the call, even when the function takes no
+`context`.
 
-**Python surface** (Phase 3 tests it; `liquers-py-stubs` declares it):
+**Scope plumbing.** These signatures gain a `&Scope`:
+- `asset::State::from_core(py, state, scope)`, with `State` keeping the core
+  `Arc<dyn RecordView>` for `record_view()`;
+- `AssetRef::new(asset, shut, scope)`.
 
-| Class | Members |
-|---|---|
-| `RecordView` | `schema`, `chunk_id` (an `lq.Query` or `None`), `origins`, `len()`, `num_columns`, `column(name_or_index)`, `columns()`, `value(row, col)`, `select_columns(names)`, `slice(offset, length)`, `row(i)`, `cell(row, col)`, `item()`, `to_list()`, `to_dict()`, `to_arrow()`, `to_pandas()`, `to_polars()`. Static: `from_records(rows, *, fields=None)`, `from_dict(columns, *, fields=None)`, `from_pandas(df, *, fields=None)`, `from_polars(df, *, fields=None)`, `from_arrow(table, *, fields=None)` |
-| `RecordColumn` | `name`, `type`, `len()`, `null_count`, `validity`, `offsets` / `data` (Text, Binary; `data` is the bitmap for Bool), `dim` (Vector), `to_list()`, `[i]`, and the buffer protocol for fixed widths (`q`, `Q`, `d`, `i` for Date days, `q` for Timestamp µs, `f` shaped `(rows, dim)` for Vector) |
-| `RecordSource` | `chunks()` → `list[RecordChunk]` (`index`, `kind` = `"query"` / `"key"` / `"memory"`, `query`, `evaluable`), `bounded`, `schema`, `manifest` (a dict or `None`), `__iter__` / `__aiter__` → `RecordStream`, `chunk(index)` / `chunk_async(index)`, `materialize(max_rows)` / `materialize_async(max_rows)` |
-| `RecordStream` | `__next__` (waits without holding the interpreter lock, via `environment::block_on`), `__anext__` (via `aio::awaitable`); a second call while one is still waiting raises `GeneralError` |
-| `RecordSchema(fields, *, type_identifier=None)`, `FieldSchema(name, type, *, role=KeyRole.Data, label=None, description="", nullable=True)` | `names`, `fields`, `field(name)`, `len()`; `FieldSchema` getters for every argument |
-| `ChunkOrigin` | `asset`, `chunk` (each an `lq.Query`), `to_dict()` (adds `info` and `locator`) |
-| `State` | adds `record_view()`, which returns the view whatever its shape (AC-10) and raises `ConversionError` otherwise |
+`awaitable` takes a plain `fn` wrapper, so the scope travels inside the future's output: the
+`ToPy::{Value, State, Asset}` variants take `(…, Scope)`. A new `ToPy::Next(Result<Option<…>,
+Error>)` raises `StopAsyncIteration` at the end of a stream.
 
-`chunk(index)` takes the position in `chunks()`, as `ns-rec/rowid` does, rather than the id. A
-`RecordChunk` carries its query, so an id is never needed. The same code serves both: the body of
-`rowid` that fetches one chunk moves to a public
-`liquers-lib/src/records/commands.rs` `pub async fn read_chunk(source: Arc<dyn RecordSource>,
-resolver: Arc<dyn ChunkResolver>, index: usize) -> Result<Arc<dyn RecordView>, Error>`. Through
-the source's manifest it fetches only that chunk, and otherwise it walks the stream. `rowid` calls
-it. This is a small `liquers-lib` change, recorded in Phase 1's scope changes.
+**Classes** (`records/{mod,schema,column,buffer,build,arrow,resolver}.rs`; `buffer.rs` holds the
+only `unsafe`, each block with a `SAFETY` note). Every one is `#[pyclass(frozen, module = "liquers")]`:
 
-**The builder** (`build.rs`). The steps:
+| Class | Holds | Members |
+|---|---|---|
+| `RecordView` | `Arc<dyn RecordView>` | `schema`, `chunk_id` (`Key \| Query \| None`), `origins`, `len()`, `num_columns`, `column(name \| index)`, `columns()`, `value(row, col)`, `select_columns`, `slice`, `row`, `cell`, `item()`, `to_list()`, `to_dict()`, `to_arrow()`, `to_pandas()`, `to_polars()`; static `from_records`, `from_dict`, `from_pandas`, `from_polars`, `from_arrow` (each `fields=None`) |
+| `RecordColumn` | name, `Column` | `name`, `type`, `len()`, `null_count`, `validity`, `offsets`, `data`, `dim`, `to_list()`, `[i]`; buffer protocol for fixed widths only |
+| `RecordBuffer` | the column, which part, and its shape and strides | buffer protocol, `format`, `len()` |
+| `RecordSource` | `Arc<dyn RecordSource>`, `SourceOrigin` | `chunks()`, `bounded`, `schema`, `manifest`, `__iter__`, `__aiter__`, `chunk(index)`, `chunk_async`, `materialize(max_rows)`, `materialize_async` |
+| `RecordStream` | `Mutex<StreamState>`, taken with `try_lock` | `__next__`, `__anext__`; a second call while one waits fails instead of blocking |
+| `RecordChunk` | index, kind, query | `index`, `kind` (`"query"`, `"key"`, or `"memory"` from `InMemorySource::is_placeholder_chunk_id`), `query`, `evaluable` |
+| `RecordSchema(fields, *, type_identifier=None)` | `Arc<RecordSchema>` | `fields`, `names`, `field(name)`, `len()`, `type_identifier`, `to_dict()` |
+| `FieldSchema` | `FieldSchema` | getters `name`, `type`, `key`, `label`, `description`, `nullable` |
+| `FieldType`, `KeyRole` | enums | `FieldType.Bool` … `Vector`; `KeyRole.Id`, `Source`, `Data` |
+| `ChunkOrigin` | `ChunkOrigin` | `asset`, `chunk` (`lq.Query`), `to_dict()` (adds `info`, `locator`) |
 
-1. Read the rows, or the columns, once. Record the key order as first seen, and give a missing key
-   a null.
-2. Infer each column's type from the Python values, using the table in Phase 1 question 9. A `bool`
-   is tested before `int`. An `int` outside `i64` raises `ConversionError`.
-3. Apply `fields=`. The values accepted for it:
-   - `None`;
-   - a dict mapping a name to an `lq.FieldType`, a lowercase name or a `FieldSchema`;
-   - a `RecordSchema`.
-4. Cast each declared column, with `cast(value: &FieldValue, to: FieldType) -> Result<FieldValue,
-   Error>`:
-   - between the numeric types when no value is lost;
-   - `Text` parsed by `FieldValue::parse_text`;
-   - anything to `Text` by its display form;
-   - `Date` and `Timestamp` from ISO text.
+- **Constructors.** `FieldSchema(type, *, name=None, key="data", label=None, description="",
+  nullable=True)` takes the type first. Inside `fields=` the dict key supplies the name, and a
+  `RecordSchema` requires one. `key` is Rust's `FieldSchema::key` (the structural role, as in
+  `liquers.schema` JSON; Rust's separate `role` is index intent and is not exposed in M5). It
+  takes a `KeyRole` or `"id"`, `"source"` or `"data"`; `KeyRole.Data` is Rust's `KeyRole::None`,
+  because `None` is a Python keyword.
+- **Narrowing never collapses.** `select_columns`, `slice` and `row` always return an
+  `lq.RecordView`, even when the result is one cell. Only a conversion out of a value
+  (`evaluate`, a command's argument) applies the single-cell rule.
+- **Buffer formats.** Fixed widths export `q` (Int, and Timestamp in µs), `Q`, `d`, `i` (Date in
+  days), and `f` with shape `(rows, dim)` (Vector). Bool data and `validity` export packed `B`
+  bytes, whose trailing bits may be unmasked.
+- **Blocking calls.** `__next__`, `chunk`, `materialize` and `to_arrow` call
+  `check_blocking_call` first, so they raise inside an `async def` command, as
+  `Context.evaluate` does. They wait with `environment::block_on`, without holding the
+  interpreter lock.
+- **`chunk(index)`** takes the position in `chunks()`, as `ns-rec/rowid` does, and is answered by
+  a new `liquers-records/src/sources.rs` `pub async fn read_chunk(source, resolver, index) ->
+  Result<Arc<dyn RecordView>, Error>`. Through a manifest it reads only that chunk:
+  `describe_chunk`, then `evaluate`, then `view_from_chunk_value`, then `place_chunk`. Without one
+  it walks the stream. Its error texts are neutral. `rowid` (`liquers-lib/src/records/commands.rs`)
+  calls it in place of its private `chunk_id_at` / `walk_to_chunk`.
+- **`debug-handles`.** `live_record_handle_count()` is a module function that counts live
+  wrappers (RECORDS06).
 
-   A failure is `ConversionError` naming the field and the row.
-5. `ColumnMut::push`, then `freeze`, then `RecordBatch::new`. `RecordSchema::new` checks the roles,
-   and an `Id` holding a null is refused.
+**Builder** (`build.rs`). Phase 1 question 9 fixes the steps. The details:
+- `int` beyond `i64` is a `ConversionError`.
+- A declared field is cast by `cast(&FieldValue, FieldType) -> Result<FieldValue, Error>`:
+  - numbers convert when no value is lost;
+  - `Text` parses through `FieldValue::parse_text`;
+  - anything else turns into `Text` through the CSV writer's cell formatter;
+  - each failure names the field and the row.
+- `build.rs` checks an `Id` column's `null_count` itself, since `RecordSchema::new` checks only
+  that roles are unique.
+- A pandas int column holding `None` is `float64`, which arrives as `Float` unless the frame uses
+  `Int64` or `fields=` declares `int`. This is documented in the inference table.
 
-Dataframes take the same `fields=` step after they are read.
-- `from_pandas`: `_records.pandas_to_arrow`, then `from_arrow`.
-- `from_polars`: the DataFrame crosses as it does today, through Parquet into a Rust `DataFrame`,
-  then `liquers_lib::records::polars::dataframe_to_record_batch`.
-- `from_arrow`: `_records.arrow_to_ipc` (normalize, then write IPC), then
-  `read_table(bytes, TableFormat::Ipc, ReadSchema::Infer)`.
+**Arrow** (`arrow.rs` and `_records.py`, imported lazily). The exits and entrances:
+- `to_arrow` writes IPC with `write_table(view, Ipc, &WriteOptions)` with the lock released. It
+  then calls `_records.ipc_to_arrow(data: bytes, chunk_id: str | None, origins: str | None) ->
+  pa.Table`, which reads with `pa.ipc.open_file(...).read_all()` and copies `liquers.chunk_id`
+  and `liquers.origins` into the schema metadata.
+- `to_pandas` is `to_arrow().to_pandas()`. `to_polars` is `polars.read_ipc` on the same bytes.
+- `_records` imports pyarrow and pandas inside each function, through `_extras.require`, so a
+  test can block a package per call. `_records.arrow_to_ipc(table) -> bytes` writes an
+  uncompressed IPC file (`pa.ipc.new_file`; the reader refuses compressed bodies) and first applies Phase 1 question 3's normalization column by
+  column:
+  - `large_*` and view types to `string` / `binary`;
+  - `int8`-`int32` to `int64`, and `uint8`-`uint32` to `uint64`;
+  - `float16` and `float32` to `float64`;
+  - dictionaries decoded;
+  - `date64` to `date32`;
+  - timestamps to `us`, refused when that loses a value.
 
-**Arrow exits** (`arrow.rs`, `_records.py`). `to_arrow`:
-1. `view.materialize()`.
-2. `write_table(Ipc)` writes the bytes in Rust with the GIL released.
-3. `_records.ipc_to_arrow(bytes, chunk_id, origins)` reads them with `pyarrow.ipc.open_file(...).read_all()`.
-4. It copies `liquers.chunk_id` and `liquers.origins` into the table's schema metadata, beside the
-   `liquers.schema` that is already there.
+  Anything else raises a `ConversionError` naming the column. Rust reads the result with
+  `read_table(…, Ipc, ReadSchema::Infer, &ReadOptions)`.
+- `_records.pandas_to_arrow(df) -> pa.Table` is `pa.Table.from_pandas(df, preserve_index=False)`.
+- **Missing packages.** Each exit names its own extra, using `_extras.py`'s mapping
+  (`liquers-py-package`): `[arrow]` for pyarrow, `[pandas]` for pandas with pyarrow, and
+  `[polars]` for polars.
 
-`to_pandas` is `to_arrow().to_pandas()`. `to_polars` is `polars.read_ipc(BytesIO(bytes))`.
-
-**`liquers-records/src/formats/ipc.rs`** (changed, additive). `LIQUERS_ORIGINS_KEY =
-"liquers.origins"` is the JSON `Vec<ChunkOrigin>` of a batch's `sources`. It is written beside
-`liquers.chunk_id` when the vector is not empty, and read back into `RecordBatch::new`'s `sources`.
-`RecordBatch::concat` re-bases it as it does today. It is dropped with a stale `liquers.schema`,
-because a schema that no longer matches cannot locate its `Source` column.
+**`liquers-records/src/formats/ipc.rs`** (additive). `LIQUERS_ORIGINS_KEY = "liquers.origins"`
+holds the JSON of a batch's `sources`. It is written beside `liquers.chunk_id` when the batch has
+sources, read back into `RecordBatch::new`, and re-based by `concat`. It is dropped with a stale
+`liquers.schema`, which can no longer locate the `Source` column.
 
 ## Integration Points
 
-- `liquers-py/src/value.rs`: `Scope`; the record arms in `ext_to_py` and `py_to_ext`.
-- The callers of `value_to_py`, which pass a scope:
-  - `environment.rs` (`evaluate`, `get` / `store_get`);
-  - `asset.rs` (`State::from_core`, `AssetRef`);
-  - `context.rs` (`evaluate`);
-  - `command.rs` `prepare_call` (`Scope::command` from the core context it is about to wrap);
-  - `aio.rs` (`ToPy::Value` and `ToPy::State` carry a `Scope`).
-- `liquers-py/src/lib.rs`: registers the classes, and `live_record_handle_count` under
-  `debug-handles`.
-- `liquers-py/python/liquers/__init__.py`: exports the classes. New `_records.py` (pyarrow and
-  pandas helpers, imported lazily).
-- `liquers-records/src/formats/ipc.rs`: origins. `liquers-lib/src/records/commands.rs`: `read_chunk`.
+- **liquers-py.**
+  - `value.rs`, plus the callers of `value_to_py`: `environment.rs`, `asset.rs`, `context.rs`,
+    `command.rs`, `aio.rs`.
+  - `records/*`.
+  - `lib.rs`, which registers the classes.
+  - `python/liquers/__init__.py` (exports) and `_records.py`.
+  - `scripts/test-liquers-py.sh`, which adds `pyarrow` and `pandas` to its wheel-only install
+    loop; a leg without wheels skips.
+- **liquers-records.** `formats/ipc.rs` and `sources.rs` (`read_chunk`).
+- **liquers-lib.** `records/commands.rs`: `rowid` calls `read_chunk`.
 
 ## Error Handling
 
 | Case | Constructor |
 |---|---|
-| pyarrow, pandas or polars absent | `Error::conversion_error_with_message(what, "Python", "needs liquers-py[arrow]")` (the existing `py_conversion_error` shape) |
-| A column that cannot be normalized or bridged; a cast or inference failure; an `int` too large; `item()` on a larger view | `Error::conversion_error_with_message`, naming the column (and row, and the view's shape) |
-| A source with no environment, or used after `shutdown()` | `Error::general_error` (AC-15), or the existing `shut_down_error()` |
-| A row over `max_rows`; schemas that differ | the source's own errors, passed through |
-| A second `__next__` / `__anext__` while one waits | `Error::general_error("RecordStream: a previous call is still waiting")` |
-| A lent buffer requested writable | `BufferError` (PyO3 `PyBufferError`), the buffer protocol's own error |
+| A package is missing; a column cannot be normalized, bridged, inferred or cast; an int is too large; `item()` on a larger view | `Error::conversion_error_with_message`, naming the extra, column, row or shape |
+| A source with no environment, or used after `shutdown()` | `shut_down_error()` (`GeneralError`) |
+| `shutdown()` during a wait | `shut_down_while_waiting()` (`Cancelled`) |
+| Over `max_rows`; chunk schemas differ | the source's own errors |
+| A second `__next__` while one is waiting | `Error::general_error` |
+| A writable buffer is requested | `PyBufferError` |
 
 ## Relevant Commands
 
-No new commands. Interacts with `ns-rec` (`to_record`, `to_record_source`, `select_columns`,
-`slice`, `row`, `rowid`, `to_json`). The view methods call the same `liquers-records` view
-constructors these commands call, so AC-14 compares them directly. The namespace is `rec`.
+No new commands. `select_columns`, `slice` and `row` call the view constructors their `ns-rec`
+commands call. `ns-rec` has no `cell` command, so `cell(r, c)` is checked against
+`…/row-r/select_columns-c`, whose single cell `evaluate` returns as a scalar (AC-14).
+`to_record`, `to_record_source` and `to_json` are used by the tests.
 
 ## Concurrency
 
-All the classes are frozen. Their data is immutable `Arc`s, so they are safe on a free-threaded
-build with no lock, except the one `Mutex` inside `RecordStream`. Waiting on a stream releases the
-interpreter lock (`block_on` and `py.detach`). The IPC writing and reading of `to_arrow` and
-`from_arrow` run under `py.detach`. A source consumed inside a sync command waits as `Context.evaluate` does.
+The wrappers hold immutable `Arc`s, so they are free-threading safe without locks. The one
+exception is `RecordStream`, which keeps its stream state behind a `Mutex`. IPC encoding and
+decoding run under `py.detach`.
 
 ## Documentation Architecture
 
-| Path | Kind | Change |
-|---|---|---|
-| `specs/reference/PYTHON_INTEGRATION.md` | reference, py | New §Records: the classes, `Scope` and where a source resolves, the builder's inference and cast tables, the Arrow routes, buffers and their lifetime, traversal, the open problems. §5 drops the records refusal |
-| `specs/guides/PYTHON_GUIDE.md` | guide, py | New "Records" chapter; the values table in §7 |
-| `specs/reference/RECORD_STREAMS.md` | reference, records | §"Arrow IPC" adds `liquers.origins`; §ChunkOrigin |
-| `specs/guides/LANGUAGE-INTEGRATION_GUIDE.md` | guide | §RECORDS: what liquers-py does; §6 Python: what cost time |
-| `liquers-py/README.md` | readme | A RECORDS row with the two `NA`s |
-| `specs/README.md` | map | The design's row |
+These match `DESIGN.md` `affects_docs`. Each changed reference or guide adds a `## History` row
+and bumps `reviewed:`.
 
-`affects_docs` is unchanged from Phase 1.
+| Path | Change |
+|---|---|
+| `specs/reference/PYTHON_INTEGRATION.md` | New §Records: the classes, `Scope` and resolution, the inference and cast tables, Arrow routes and normalization, buffers and lifetimes, traversal, the open problems. §5 drops the records refusal |
+| `specs/guides/PYTHON_GUIDE.md` | New "Records" chapter; the values table in §7 |
+| `specs/reference/RECORD_STREAMS.md` | §"Arrow IPC": `liquers.origins`, replacing "`sources` are not written"; §ChunkOrigin; `read_chunk` |
+| `specs/guides/LANGUAGE-INTEGRATION_GUIDE.md` | §RECORDS: what liquers-py does; §6 Python |
+| `liquers-py/README.md`, `specs/README.md` | A RECORDS row with the two `NA`s; the design's row |
+| API | Docstrings on every class and method; the module docs of `ipc.rs` and `liquers-py/src/records/mod.rs` |
 
 ## Risks
 
 | Assessment | Finding |
 |---|---|
-| Files likely to change | `liquers-py/src/{value,environment,asset,context,command,aio,lib}.rs`, `liquers-py/src/records/*`, `liquers-py/python/liquers/{__init__,_records}.py`, `liquers-records/src/formats/ipc.rs`, `liquers-lib/src/records/commands.rs` |
-| Crates and workflows affected | liquers-py; liquers-records (`ipc` feature); liquers-lib (one function moves); `liquers-py-tests.yml` installs pyarrow and pandas where wheels exist |
-| Existing tests likely to change | `test_VALUE_value_bridge.py`: the "records are refused" case becomes the AC-1 test. The Rust unit tests in `value.rs` pass `Scope::detached()` |
-| New validation | `test_RECORDS_*.py` (Phase 3); IPC origins round-trip tests in `ipc.rs`; a `read_chunk` unit test |
-| Compatibility / data / concurrency / performance / security | IPC files gain an optional key. Old readers ignore it, and a file without it reads as before. Every Arrow exit copies, which is documented. The buffer protocol is `unsafe` FFI, confined to `buffer.rs` and read-only. It needs the limited API at 3.11 or above, or a non-abi3 build |
-| Recovery | Every change is additive. Reverting the Python module leaves records refused, as they are today |
-| Certainty and open questions | High. One implementation detail is settled here: `chunk(index)` takes a position. No user decision is open |
+| Files likely to change | Those under Integration Points |
+| Crates and workflows affected | liquers-py, liquers-records, liquers-lib (`rowid` only); `scripts/test-liquers-py.sh` |
+| Existing tests likely to change | `value.rs` unit tests pass `Scope::detached()`; `rowid`'s tests (`records_end_to_end.rs`, `record_manifest_resource_key.rs`) must still pass |
+| New validation | `test_RECORDS_*.py`; IPC origins round trip; `read_chunk` and `PyChunkResolver` unit tests |
+| Compatibility / data / concurrency / performance / security | IPC gains an optional key that old readers ignore. Every Arrow exit copies. The buffer protocol is `unsafe` FFI, read-only, and needs 3.11+ in the limited API (wheels are 3.14+) |
+| Recovery | Additive. Reverting leaves records refused, as they are today |
+| Certainty and open questions | High. The decision log in Phase 1 records this phase's choices. None needs Orest |

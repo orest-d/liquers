@@ -97,6 +97,16 @@ data science use case. Milestone M5 of the liquers-py plan, with
       extracts the marked block, runs it in a clean venv from the built wheel, and compares the
       output.
 
+- **Decision log (pre-approved phases; none needs Orest):**
+  - Phase 2: a `[pandas]` extra (pyarrow and pandas) beside question 6's list, since
+    `liquers-py-records`' `to_pandas` / `from_pandas` need both.
+  - Phase 2: extras whose package has no wheel on a platform are excluded by markers (pyarrow on
+    Windows arm64); polars cannot be excluded on free-threaded builds (no marker exists) and is
+    documented; AC-9 runs where a wheel exists.
+  - Phase 2: `cp315t`, not `abi3t-py315` (measured: it does not import), and
+    `Environment.liquers_version` returns the constant without building the environment.
+  - Phase 2: `liquers-markdown`, created after Phase 1, is relicensed too (Decision 5, "every crate").
+
 ## Decisions
 
 Orest, 2026-11-01, on gate items 8-13 and the side item, quoted:
@@ -220,6 +230,10 @@ two workflows.
   AC-11; questions 1-3, 5, 7-9 decided, question 4 to confirm. Approved: Orest at the gate. The
   version and license now touch every crate's manifest and one core trait method. Size: still
   `L`. Phases: 1.
+- **2026-11-01** — Phase 2 (pre-approved): a `[pandas]` extra, platform markers on extras, and
+  `liquers-markdown` relicensed with the others (decision log), so that every documented extra
+  installs from wheels and the records exits name an extra that works. Approved: pre-approval of
+  2026-11-01. Size: still `L`. Phases: 1, 2.
 
 ## References
 

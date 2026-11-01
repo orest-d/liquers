@@ -34,3 +34,11 @@ sub-microsecond parts converts as today.
 
 Found 2026-11-01 by the second codebase review of `liquers-py-records` Phase 1 (question 9's polars
 route).
+
+## Triage
+
+2026-11-01 (`liquers-py-records` Phase 2): **eligible for automatic fixing** (`auto-fix.md`): `S`,
+a bug fix restoring the plainly intended behaviour (no silent loss, as the Arrow inbound path
+already refuses), no new structure or interface, one crate (`liquers-lib`). Of the two expected
+behaviours, refusing is the one consistent with the Arrow path, and is the fix to make. To be fixed
+in its own spin-off PR.

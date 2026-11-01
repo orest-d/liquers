@@ -114,6 +114,27 @@ for `VISION.md`'s Python data science use case. Milestone M5 of the liquers-py p
      - A dataframe a command *returns* still crosses as today (polars as a DataFrame value, pandas
        as `py.Object`); the constructors are the explicit way to records, so nothing is guessed.
 
+- **Decision log (pre-approved phases; none needs Orest):**
+  - Phase 2: `source.chunk(index)` takes a position in `chunks()`, as `ns-rec/rowid` does (AC-13
+    reworded); answered by a new `liquers-records` `read_chunk`, which `rowid` reuses.
+  - Phase 2: classes `RecordBuffer` (one part of a column, for `memoryview`), `RecordStream` and
+    `RecordChunk` join question 4's list, with `RecordView.value(row, col)` and
+    `State.record_view()`.
+  - Phase 2: `FieldSchema(type, *, name=None, key=…)`: type first, the name from the `fields=`
+    key; the structural role is `key`, as in Rust and `liquers.schema` (Rust's `role` is index
+    intent), given as `KeyRole` or `"id"` / `"source"` / `"data"` (`KeyRole.Data` is Rust's
+    `KeyRole::None`).
+  - Phase 3: AC-9's missing-package error names the extra of the missing package
+    (`to_pandas` names `[pandas]`), AC-14 checks `cell` against `row` and `select_columns`
+    (there is no `ns-rec/cell`), and one committed IPC fixture carries every type, an `Id`, a
+    `Source` column, origins and a chunk id.
+  - Phase 2: a missing package names its own extra: `[arrow]` (pyarrow), `[pandas]` (pandas and
+    pyarrow, added in `liquers-py-package`), `[polars]`.
+  - Phase 3: AC-6 counts chunk evaluations (unkeyed manifest chunks are evaluated, never read
+    from a store), so "a counting store" became "each chunk's evaluation counted".
+  - Phase 2: sources hold their environment weakly and resolve per call, through the command's
+    context while it is valid.
+
 ## Decisions
 
 Orest, 2026-11-01, on gate items 1-4 (this design's questions 1, 3, 8 and 6), quoted:
@@ -169,7 +190,7 @@ here validate (`liquers-validate --command table`).
   WHEN every view, column and source object is dropped
   THEN a test-only live record-handle count (`debug-handles`) returns to its baseline (RECORDS06)
 - **AC-6** A stored stream is walked one chunk at a time
-  WHEN a manifest-backed source of three CSV chunks is iterated with `for`, the chunks read by a counting store
+  WHEN a manifest-backed source of three CSV chunks is iterated with `for`, each chunk's evaluation counted
   THEN three views arrive in order with the manifest's schema, and each step has read one more chunk (RECORDS07)
 - **AC-7** The async walk agrees
   WHEN the same source is iterated with `async for`
@@ -179,7 +200,7 @@ here validate (`liquers-validate --command table`).
   THEN the first returns one view of every row and the second raises an error naming the limit
 - **AC-9** Arrow is an exit, with metadata
   WHEN `.to_arrow()`, `.to_pandas()` and `.to_polars()` are called on the AC-2 view
-  THEN each holds the view's rows; the Arrow table's schema metadata carries roles, chunk id and origins; with pyarrow absent the first two raise `ConversionError` naming `liquers-py[arrow]` (RECORDS03)
+  THEN each holds the view's rows; the Arrow table's schema metadata carries roles, chunk id and origins; with pyarrow absent `to_arrow` raises `ConversionError` naming `liquers-py[arrow]` and `to_pandas` naming `liquers-py[pandas]` (RECORDS03)
 - **AC-10** A single cell is a scalar
   WHEN a query ends in a one-row, one-column view
   THEN `evaluate` returns the Python scalar and `state.record_view()` the view (RECORDS10)
@@ -190,11 +211,11 @@ here validate (`liquers-validate --command table`).
   WHEN `item()` is called on a two-row view
   THEN it raises `ConversionError` naming the shape (RECORDS10)
 - **AC-13** Chunks are listed without evaluation
-  WHEN `chunks()` is called on the manifest source and on an in-memory source, then `source.chunk(id)` on the second manifest chunk
+  WHEN `chunks()` is called on the manifest source and on an in-memory source, then `source.chunk(1)` (the second listed chunk)
   THEN the manifest's ids arrive with no chunk read, the in-memory ids are marked not evaluable, and `chunk` returns that chunk's view as the stream gives it
 - **AC-14** Views are narrowed without leaving Liquers
   WHEN `select_columns`, `slice`, `row` and `cell` are applied to a view
-  THEN each returns the narrowed view (or cell value) the matching `ns-rec` command gives
+  THEN each returns the narrowed view the matching `ns-rec` command gives, and `cell` the value `row` and `select_columns` give
 - **AC-15** Shutdown ends traversal
   WHEN `shutdown()` is called while a source is held, and it is then iterated
   THEN iteration raises `lq.GeneralError`, while a held view's columns still read
@@ -221,8 +242,10 @@ classes of question 4.
 
 ## Crate Placement
 
-`liquers-py` (a new `src/records.rs`, as the plan's §3.6 named it); the additive `liquers.origins`
-key in `liquers-records/src/formats/ipc.rs`. No `liquers-lib` change.
+`liquers-py` (a new `src/records/` module; the plan's §3.6 named a single `records.rs`); the
+additive `liquers.origins` key in `liquers-records/src/formats/ipc.rs` and a `read_chunk` in
+`liquers-records/src/sources.rs`; in `liquers-lib`, only `ns-rec/rowid` calling `read_chunk`
+(scope change below).
 
 ## Documentation Intent
 
@@ -269,9 +292,14 @@ key in `liquers-records/src/formats/ipc.rs`. No `liquers-lib` change.
 - **2026-11-01** — Orest at the Phase 1 gate: constructors from Python data and dataframes,
   `to_list` / `to_dict`, and fields declared or inferred (Decisions 1, 2), so Python users can
   move tables in and out without writing Arrow code, for example
-  `lq.RecordView.from_pandas(df, fields={"id": lq.FieldSchema("text", role="Id")})`. Added
+  `lq.RecordView.from_pandas(df, fields={"id": lq.FieldSchema("text", key="id")})`. Added
   question 9 and AC-16 to AC-18; `PY-RECORD-VALUES-CANNOT-CROSS-TO-PYTHON` merged. Approved: Orest
   at the gate, 2026-11-01. Size: still `L`. Phases: 1.
+- **2026-11-01** — Phase 2 (pre-approved): one chunk read by position through a new
+  `liquers-records` `read_chunk`, shared with `ns-rec/rowid` so the two cannot diverge (AC-13
+  reworded from `chunk(id)`); three helper classes and two members; AC-9 and AC-14 reworded in
+  Phase 3 (decision log). Approved:
+  pre-approval of 2026-11-01. Size: still `L`. Phases: 1, 2.
 
 ## References
 

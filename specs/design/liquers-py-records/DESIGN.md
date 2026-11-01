@@ -5,7 +5,7 @@ title: "Record views and sources in liquers-py: wrappers, chunked iteration and 
 workflow: liquers-project
 status: draft
 phase: architecture
-readiness: needs-decision
+readiness: ready
 autofix: not-eligible
 area: [py, records]
 issues: [PY-RECORD-SOURCES-CANNOT-BE-TRAVERSED-FROM-PYTHON, PY-RECORD-VALUES-CANNOT-CROSS-TO-PYTHON]

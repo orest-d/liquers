@@ -5,11 +5,11 @@ title: Release wheels for liquers-py, built and tested in GitHub Actions
 workflow: liquers-project
 status: draft
 phase: architecture
-readiness: needs-decision
+readiness: ready
 autofix: not-eligible
 area: [py, build]
 issues: [PY-NO-PUBLISHED-WHEELS]
-affects_docs: [specs/reference/PYTHON_INTEGRATION.md, specs/guides/PYTHON_GUIDE.md, specs/guides/LANGUAGE-INTEGRATION_GUIDE.md, liquers-py/README.md, specs/README.md]
+affects_docs: [specs/reference/PYTHON_INTEGRATION.md, specs/guides/PYTHON_GUIDE.md, specs/guides/LANGUAGE-INTEGRATION_GUIDE.md, specs/reference/PROJECT_OVERVIEW.md, specs/reference/JAVASCRIPT_INTEGRATION.md, liquers-py/README.md, specs/README.md]
 created: 2026-11-01
 ---
 # liquers-py-package — release wheels for liquers-py
