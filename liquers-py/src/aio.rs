@@ -145,6 +145,10 @@ pub(crate) enum ToPy {
     Recipe(Result<Option<liquers_core::recipes::Recipe>, Error>),
     Plan(Result<liquers_core::plan::Plan, Error>),
     ResourceNames(Result<Vec<liquers_core::query::ResourceName>, Error>),
+    /// One step of a record stream: a chunk, or `None` at the end (`StopAsyncIteration`).
+    Next(Result<Option<Arc<dyn liquers_records::RecordView>>, Error>),
+    /// A record view, as `lq.RecordView` whatever its shape (no single-cell rule).
+    View(Result<Arc<dyn liquers_records::RecordView>, Error>),
 }
 
 impl<'py> IntoPyObject<'py> for ToPy {
@@ -184,6 +188,18 @@ impl<'py> IntoPyObject<'py> for ToPy {
             }),
             ToPy::Plan(result) => result.and_then(|plan| {
                 Py::new(py, crate::plan::Plan(plan))
+                    .map(Py::into_any)
+                    .map_err(|e| pyerr_to_error(py, &e))
+            }),
+            ToPy::Next(result) => match result {
+                Ok(Some(view)) => Py::new(py, crate::records::view::RecordView::new(view))
+                    .map(Py::into_any)
+                    .map_err(|e| pyerr_to_error(py, &e)),
+                Ok(None) => return Err(pyo3::exceptions::PyStopAsyncIteration::new_err(())),
+                Err(e) => Err(e),
+            },
+            ToPy::View(result) => result.and_then(|view| {
+                Py::new(py, crate::records::view::RecordView::new(view))
                     .map(Py::into_any)
                     .map_err(|e| pyerr_to_error(py, &e))
             }),

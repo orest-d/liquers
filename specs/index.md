@@ -8,9 +8,9 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 207
+Total rows: 208
 - P2: 62
-- P3: 145
+- P3: 146
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -103,6 +103,7 @@ Total rows: 207
 | [`TO-OVERRIDE-KEEPS-THE-PENDING-EXPIRATION-DEADLINE`](issues/TO-OVERRIDE-KEEPS-THE-PENDING-EXPIRATION-DEADLINE.md) | issue | A value pinned with to_override still expires at the deadline its recipe scheduled | draft | needs-decision | not-eligible | P3 | S | core/assets | [design](design/override-ignores-recipe-deadline/DESIGN.md) | 2026-10-20 |
 | [`TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS`](issues/TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS.md) | issue | TypeInfo cannot declare a format a type writes but cannot read back | draft | needs-decision | not-eligible | P3 | S | core/value | [phase1](design/data-format-vocabulary/phase1-high-level-design.md)  [phase2](design/data-format-vocabulary/phase2-architecture.md)  [phase3](design/data-format-vocabulary/phase3-examples.md)  [phase4](design/data-format-vocabulary/phase4-implementation.md)  | 2026-09-24 |
 | [`VARIADIC-KEY-OR-QUERY-LINK-FAILS-TO-MATERIALIZE`](issues/VARIADIC-KEY-OR-QUERY-LINK-FAILS-TO-MATERIALIZE.md) | issue | A key or query link inside a multiple argument fails, because Key and Query values have no JSON form | draft | needs-decision | not-eligible | P3 | S | core/plan;core/value | [design](design/variadic-key-query-link-text/DESIGN.md) | 2026-10-26 |
+| [`BYTES-VALUE-HAS-NO-NAMED-DATA-FORMAT`](issues/BYTES-VALUE-HAS-NO-NAMED-DATA-FORMAT.md) | issue | A bytes value cannot be serialized in a named data format such as csv, so raw CSV bytes cannot be a record chunk | draft |  |  | P3 | S | core/value;records |  | 2026-11-01 |
 | [`DROPPED-RECIPE-RESULT-LEAVES-AN-EMPTY-DATA-FILE`](issues/DROPPED-RECIPE-RESULT-LEAVES-AN-EMPTY-DATA-FILE.md) | issue | Removing a computed value with a stored record leaves an empty data file at its key | draft |  |  | P3 | S | core/assets;core/store |  | 2026-10-27 |
 | [`LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT`](issues/LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT.md) | issue | Language exception class and stack are lost in transport | accepted |  |  | P3 | S | web |  | 2026-08-08 |
 | [`PLAN-DEFAULT-LINK-PROMOTION-USES-THE-QUERYS-LAST-NS`](issues/PLAN-DEFAULT-LINK-PROMOTION-USES-THE-QUERYS-LAST-NS.md) | issue | Relative default links are promoted using the query's last ns, not each action's own | draft |  |  | P3 | S | core/plan |  | 2026-11-01 |

@@ -327,7 +327,13 @@ fn simple_to_py(py: Python<'_>, value: &SimpleValue) -> Result<Py<PyAny>, Error>
 /// compiles an `egui` user turns `UiCommand` and `Widget` on here). A `match` would therefore be
 /// exhaustive in one build and fail in another; every variant not handled below is refused with
 /// its identifier, which is the documented behaviour for each of them.
-fn ext_to_py(py: Python<'_>, value: &ExtValue, _scope: &Scope) -> Result<Py<PyAny>, Error> {
+fn ext_to_py(py: Python<'_>, value: &ExtValue, scope: &Scope) -> Result<Py<PyAny>, Error> {
+    if let ExtValue::RecordSource { value: source } = value {
+        // The source keeps where it came from, to read its chunks there later.
+        return Py::new(py, crate::records::source::RecordSource::new(source.clone(), scope.origin()))
+            .map(Py::into_any)
+            .map_err(|e| py_conversion_error("RecordSource", e));
+    }
     if let ExtValue::RecordView { value: view } = value {
         // A one-row view of one value field is its cell (RECORDS10); any other is a view.
         if liquers_lib::value::record_view_is_single_cell(view.as_ref()) {
@@ -548,6 +554,9 @@ fn py_to_ext(object: &Bound<'_, PyAny>) -> Result<Option<ExtValue>, Error> {
     if let Ok(view) = object.cast::<crate::records::view::RecordView>() {
         // The same `Arc` back (RECORDS01): identity, chunk id and origins are kept.
         return Ok(Some(ExtValue::RecordView { value: view.get().inner.clone() }));
+    }
+    if let Ok(source) = object.cast::<crate::records::source::RecordSource>() {
+        return Ok(Some(ExtValue::RecordSource { value: source.get().inner.clone() }));
     }
     let type_name = qualified_type_name(object);
     if type_name == "pyarrow.lib.Table" || type_name == "pyarrow.lib.RecordBatch" {

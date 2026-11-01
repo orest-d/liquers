@@ -76,6 +76,9 @@ from liquers._native import (
     RecordView,
     RecordColumn,
     RecordBuffer,
+    RecordSource,
+    RecordStream,
+    RecordChunk,
     # The Liquers version in PEP 440 form; deliberately not in __all__ (OBJECT08).
     __version__,
 )
@@ -149,6 +152,9 @@ __all__ = [
     "RecordView",
     "RecordColumn",
     "RecordBuffer",
+    "RecordSource",
+    "RecordStream",
+    "RecordChunk",
     "default_environment",
     "evaluate",
     "evaluate_async",

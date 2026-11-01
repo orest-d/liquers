@@ -22,6 +22,7 @@ pub mod column;
 pub mod convert;
 pub mod resolver;
 pub mod schema;
+pub mod source;
 pub mod view;
 
 pub use resolver::{PyChunkResolver, Scope, SourceOrigin};
@@ -70,6 +71,9 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<view::RecordView>()?;
     m.add_class::<column::RecordColumn>()?;
     m.add_class::<column::RecordBuffer>()?;
+    m.add_class::<source::RecordSource>()?;
+    m.add_class::<source::RecordStream>()?;
+    m.add_class::<source::RecordChunk>()?;
     #[cfg(feature = "debug-handles")]
     m.add_function(pyo3::wrap_pyfunction!(live_record_handle_count, m)?)?;
     Ok(())
