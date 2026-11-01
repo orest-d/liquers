@@ -815,3 +815,32 @@ async fn check_reports_rules_by_name() -> Res {
     assert!(notes(&state).iter().any(|n| n.starts_with("unsupported: index.csv is stale")), "{:?}", notes(&state));
     Ok(())
 }
+
+/// markdown-navigation AC-5: `dead_links` now also checks reference-style links, and ignores
+/// links inside code spans and fenced blocks as before.
+#[tokio::test]
+async fn dead_links_checks_reference_links() -> Res {
+    let f = fixture_with(
+        "check_reference_links",
+        &[(
+            "issues/E-REF.md",
+            "---\nid: E-REF\ntitle: Ref\ndescription: d\nstatus: open\n---\n# Ref\n\nSee [the spec][gone], `[x](./CODE.md)`.\n\n[gone]: ./GONE.md\n",
+        )],
+    )
+    .await?;
+    let state = call(&f.env, "-R-key/./-/ns-mem/check/check.md", serde_json::json!({})).await?;
+    let view = view(&state)?;
+    let rules = column(&view, "rule")?;
+    let keys = column(&view, "key")?;
+    let messages = column(&view, "message")?;
+    let dead: Vec<&String> = rules
+        .iter()
+        .zip(&keys)
+        .zip(&messages)
+        .filter(|((r, k), _)| *r == "dead_links" && *k == "issues/E-REF.md")
+        .map(|(_, m)| m)
+        .collect();
+    assert_eq!(dead.len(), 1, "{dead:?}");
+    assert!(dead[0].contains("GONE.md") && !dead[0].contains("CODE.md"), "{dead:?}");
+    Ok(())
+}

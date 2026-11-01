@@ -8,7 +8,7 @@ use liquers_core::error::Error;
 use liquers_core::metadata::{DependencyKey, MetadataRecord, Status, Version};
 use liquers_core::query::Key;
 
-use crate::search::md_split::{blank_front_matter, find_section};
+use crate::search::md_split::find_section;
 
 use super::front_matter::{value_text, FrontMatterDoc};
 use super::layout::{join_path, read_bytes, relative_path, CollectionSchema, MemoryLayout};
@@ -179,7 +179,7 @@ fn append_row(text: &str, section: &str, row: &str) -> Result<String, Error> {
     if row.contains('\n') {
         return Err(Error::general_error("row must be a single line".to_string()));
     }
-    let (_, start, end) = find_section(&blank_front_matter(text), section)
+    let (_, start, end) = find_section(text, section)
         .ok_or_else(|| Error::general_error(format!("no section '{section}' in the document")))?;
     let lines: Vec<&str> = text.split_inclusive('\n').collect();
     let mut last = start - 1;
