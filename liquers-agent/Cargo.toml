@@ -14,7 +14,7 @@ path = "src/main.rs"
 
 [dependencies]
 liquers-core = { path = "../liquers-core" }
-liquers-lib = { path = "../liquers-lib", default-features = false, features = ["mem"] }
+liquers-lib = { path = "../liquers-lib", default-features = false, features = ["mem", "markdown"] }
 liquers-store = { path = "../liquers-store" }
 liquers-mcp = { path = "../liquers-mcp" }
 # register_all_commands! expands to register_command!, which names these two crates.
