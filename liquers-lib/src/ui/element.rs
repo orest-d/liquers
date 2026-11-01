@@ -87,6 +87,13 @@ pub trait UIElement:
     /// Clone this element into a new boxed trait object.
     fn clone_boxed(&self) -> Box<dyn UIElement>;
 
+    /// This element as `Any`, for an integration that needs its concrete type. Default: `None`;
+    /// an element overrides it only when some caller needs to downcast it
+    /// ([`crate::ui::DelegatedElement`] does, so a language can read its kind and props back).
+    fn as_any(&self) -> Option<&dyn std::any::Any> {
+        None
+    }
+
     /// Called once after the element is registered in AppState.
     /// Default: stores the handle via set_handle.
     ///

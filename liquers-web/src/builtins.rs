@@ -32,5 +32,7 @@ pub fn register_builtin_commands(env: &mut WebEnvironment) -> Result<(), Error> 
     // command builds by hand. Registered here, so every rebuild keeps it.
     #[cfg(feature = "records")]
     liquers_lib::register_records_commands!(cr)?;
+    // The `lui` namespace: the commands a mounted UI runs to place and change elements.
+    liquers_lib::register_lui_commands!(cr)?;
     Ok(())
 }

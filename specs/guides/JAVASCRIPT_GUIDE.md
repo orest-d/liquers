@@ -3,7 +3,7 @@ title: Using Liquers from JavaScript in the browser
 kind: guide
 audience: user
 area: [web]
-reviewed: 2026-10-26
+reviewed: 2026-10-31
 ---
 # Using Liquers from JavaScript in the browser
 
@@ -108,7 +108,7 @@ assert(env.commandNames().includes("hello"));
 
 **Lifecycle.** `liquers.shutdown()` releases the environment and every command registered on it;
 afterwards `evaluate` rejects with `not_available` until `liquers.init()` runs again. A page rarely
-needs it; tests do (§11).
+needs it; tests do (§12).
 
 **Register first, then evaluate.** Commands registered before the first evaluation go straight into
 the environment. One registered later still works, but rebuilds the environment: the commands and
@@ -230,9 +230,39 @@ liquers.registerCommand({
 assert.strictEqual(await liquers.evaluate("later"), "done");
 ```
 
-An async command can evaluate another query with `await liquers.evaluate(…)`. A JavaScript command
-has no execution context, though: it cannot write to its result's log, make another query a
-dependency of its result, or check for cancellation (`JS-COMMAND-CANNOT-ACCESS-CONTEXT`).
+### The context
+
+Name a parameter (or a declared argument) `context` and the command receives its execution
+context there. It is not a query argument. The context writes to the result's log, evaluates
+another query as a dependency of the result, and says which UI element ran the command:
+
+```js
+import init, * as liquers from "./liquers_web.js";
+
+await init();
+await liquers.init();
+liquers.registerCommand({ name: "inner", run: () => "inner value" });
+liquers.registerCommand({
+  name: "report",
+  async: true,
+  run: async (context) => {
+    context.info("fetching");
+    const inner = await context.evaluate("inner");
+    return `${inner} (element: ${context.element})`;
+  },
+});
+
+assert.strictEqual(await liquers.evaluate("report"), "inner value (element: null)");
+const state = await (await liquers.getAsset("report")).get();
+assert(state.log().some((entry) => entry.message === "fetching"));
+```
+
+`context.warning(m)` logs a warning; `context.error(m)` logs an error and makes the evaluation
+fail once `run` returns. `context.isCancelled()` is always `false` for now. `context.element` is
+`null` outside a UI. Use the context only during the call: keeping it and using it later throws.
+
+A command that really has an argument called `context` declares
+`conventions: { context: false }`.
 
 ### Metadata
 
@@ -397,7 +427,8 @@ failed), `getAssetInfo()` and `cancel()`. `State.toJS()` gives the value as `eva
 `state.value()` gives it as a `Value`, with its type `identifier` and `typeName`. `metadata()` is a
 plain object; note that its `status` is capitalized (`"Ready"`), while `asset.status()` and
 `state.status` are lowercase (`WEB-METADATA-STATUS-CASE-DIFFERS`). The log holds Liquers' own
-entries, such as detected dependencies; a JavaScript command cannot add to it yet.
+entries, such as detected dependencies, and whatever a command writes through its context
+(§5, "The context").
 
 **Cancelling.** `asset.cancel()` exists, but does nothing yet: in the browser a query is evaluated
 before `getAsset` resolves, so there is nothing left to cancel (`WEB-CANCELLATION-INERT`).
@@ -668,7 +699,147 @@ source.free();
 Column access without copying, chunk listings and the other methods are described in
 `liquers-web/README.md` ("Record streams") and the reference §9.
 
-## 11. Testing your commands
+## 11. Showing a Liquers UI
+
+`mountUI` puts a Liquers user interface into an element of your page. Give it the query whose
+value is the first element, or a UI spec:
+
+<!-- example: not run — mountUI needs a DOM element, which Node does not have -->
+```js
+import init, * as liquers from "./liquers_web.js";
+
+await init();
+await liquers.init();
+const ui = await liquers.mountUI(document.getElementById("app"), {
+  query: "hello/q/ns-lui/query_console",
+});
+const sub = ui.on("status", (e) => console.log(e.handle, e.status, e.error?.message));
+const h = ui.show("commands_doc");     // a second element, showing the query's value
+ui.show("commands_doc/to_text", h);    // ... now showing another query instead
+ui.submit("hello/ns-lui/add-child", h);// runs a query as a button would, for element h
+console.log(ui.elements());            // [{ handle, parent, typeName, title, status }, ...]
+sub.dispose();
+ui.dispose();                          // the element is emptied; ui.running is false
+```
+
+`{ spec }` takes the YAML a Liquers app is described in (a `menu`, a `layout`, `init` queries), or
+the same as an object. A command that runs from a button of the UI can name the element it was run
+for through its context (`context.element`, §5). Status names are those of `asset.status()`:
+`"processing"` while an element's query runs, then `"ready"` or `"error"`, with the error.
+
+A query whose value is a UI element gives you a `UIElement` handle, which you can look at without
+mounting anything:
+
+```js
+import init, * as liquers from "./liquers_web.js";
+
+await init();
+await liquers.init();
+liquers.registerCommand({ name: "hello", run: () => "Hello" });
+const console_ = await liquers.evaluate("hello/q/ns-lui/query_console");
+assert.strictEqual(console_.typeName, "QueryConsoleElement");
+assert(console_.renderHtml().includes("lq-"));
+console_.free();
+```
+
+Passed back to Liquers (returned from a command, for example) the handle is the same element.
+
+The page does not repaint while a query is being evaluated, so a slow query freezes the UI until
+it finishes (`WEB-UI-FREEZES-WHILE-A-QUERY-AWAITS`).
+
+### Define an element
+
+`defineElement` adds a kind of element written in JavaScript. `render` turns the element's props
+into markup; `onEvent` turns an event into new props; `element(type, props)` makes one, which any
+command can return:
+
+```js
+import init, * as liquers from "./liquers_web.js";
+
+await init();
+await liquers.init();
+liquers.defineElement({
+  type: "gauge",
+  render: (p) => `<span class="v">${p.value}%</span><button data-lq-event="inc">+</button>`,
+  onEvent: (p, e) => (e.kind === "inc" ? { ...p, value: p.value + 1 } : undefined),
+});
+liquers.registerCommand({
+  name: "gauge",
+  arguments: [{ name: "v", type: "int" }],
+  run: (v) => liquers.element("gauge", { value: v }),
+});
+const gauge = await liquers.evaluate("gauge-50");
+assert.strictEqual(gauge.kind, "gauge");
+assert.strictEqual(gauge.props.value, 50);
+assert(gauge.renderHtml().includes('<span class="v">50%</span>'));
+```
+
+Mounted with `mountUI(app, { query: "gauge-50" })`, a click on the button sends the `inc` event to
+that gauge only: `onEvent` receives `{ handle, kind, fields }`, and the element is redrawn with the
+props it returns (`undefined` keeps them). Props must be JSON data; a function, a `Date` or a
+cycle is refused with a `conversion_error`.
+
+Where each function runs matters:
+
+- `render` runs while the UI paints. Keep it a function of the props; `ui.show` throws there
+  (`ui.submit` is fine).
+- `onEvent` runs with the UI free, so it may call `ui.show` and `ui.submit`, except to replace its
+  own element: return new props instead.
+- `mount(node, props)`, when given, runs once the element's node is in the page (to draw on a
+  canvas, start a timer, attach a library). Return a function to clean up: it runs when the node
+  is replaced or removed, and when the mount is disposed.
+
+<!-- example: not run — mount needs a page's DOM, and draw stands for the page's own drawing code -->
+```js
+liquers.defineElement({
+  type: "spark",
+  render: () => `<canvas width="80" height="20"></canvas>`,
+  mount: (node, p) => {
+    const timer = setInterval(() => draw(node.querySelector("canvas"), p), 1000);
+    return () => clearInterval(timer);
+  },
+});
+```
+
+The markup `render` returns is inserted as HTML, like the markup of the built-in elements: escape
+any text that comes from users. Defining a type again replaces it, and its elements are redrawn;
+`undefineElement(type)` removes it, and its elements show a placeholder until it is defined again.
+A saved UI that holds elements of a type keeps their props, so it shows them once the page defines
+the type.
+
+### Render the tree yourself
+
+A page with its own framework can take the element tree instead of a container.
+`mountRenderer(renderer, options)` calls `renderer.render(tree, changes)` after every change:
+
+```js
+import init, * as liquers from "./liquers_web.js";
+
+await init();
+await liquers.init();
+liquers.defineElement({ type: "gauge", render: (p) => `<b>${p.value}</b>`,
+  onEvent: (p) => ({ value: p.value + 1 }) });
+liquers.registerCommand({ name: "gauge", arguments: [{ name: "v", type: "int" }],
+  run: (v) => liquers.element("gauge", { value: v }) });
+let seen;
+const shown = new Promise((resolve) => { seen = resolve; });
+const ui = await liquers.mountRenderer({
+  render(tree, changes) {
+    // changes is "all" (draw everything) or [{ inserted }, { removed }, { replaced }, ...]
+    const gauge = tree.elements[tree.roots[0]];
+    if (gauge && gauge.props && gauge.props.value === 51) seen(gauge.html);
+  },
+}, { query: "gauge-50" });
+ui.dispatchEvent(1, "inc");   // what a click on the gauge would send
+assert.strictEqual(await shown, '<div id="ui-element-1" class="lq-element lq-delegated" data-lq-delegate="gauge"><b>51</b></div>');
+ui.dispose();
+```
+
+Each element of the tree has its `handle`, `parent`, `children`, `typeName`, `title`, `status` and
+`html` (its markup, children included), and a page-defined one its `kind` and `props`. Since
+Liquers does not see the page's markup, the renderer forwards user events with `dispatchEvent`.
+
+## 12. Testing your commands
 
 Give each test a fresh environment, so that registrations do not leak between tests: shut the
 environment down after each test and initialize it again before the next.
@@ -698,17 +869,18 @@ await withEnvironment(async () => {
 A page-implemented store (§9) is the simplest way to give a test its input. The module runs under
 Node as well as in a browser, as these examples do, except for `localStorage`.
 
-## 12. Known limitations
+## 13. Known limitations
 
 What you will notice; the complete list, with the tracking issues, is
-[`reference/JAVASCRIPT_INTEGRATION.md`](../reference/JAVASCRIPT_INTEGRATION.md) §10.
+[`reference/JAVASCRIPT_INTEGRATION.md`](../reference/JAVASCRIPT_INTEGRATION.md) §11.
 
 - **No templates.** The `ns-template` commands, template commands and programmatic rendering are
   not in the browser build (`WEB-HAS-NO-TEMPLATE-COMMANDS`).
 - **No Polars or image commands**; the browser build has the core and record commands only.
-- **No context in a command**: a JavaScript command cannot log, declare a dependency or check for
-  cancellation.
 - **Cancellation does nothing yet.**
+- **A slow query freezes a mounted UI** until it finishes, and with two UIs on one page an
+  unfocused menu shortcut runs in both.
+- **Elements you define show in the browser only**, not in the desktop (egui) UI.
 - **One environment per page** for commands and stores; `new Environment()` is for isolated
   evaluation only.
 - **Late registration** rebuilds the environment and forgets computed results.
@@ -724,3 +896,6 @@ What you will notice; the complete list, with the tracking issues, is
 |---|---|---|
 | 2026-10-26 | Created from the implemented `liquers-web`; every example runs under Node. | `WEB-HAS-NO-API-REFERENCE-OR-USER-GUIDE` |
 | 2026-10-26 | Nested values: `null` now returns as `null`; why nested bytes are refused. | `WEB-NESTED-NULL-CROSSES-AS-UNDEFINED`, `WEB-NESTED-BYTES-REFUSED-NOT-DEGRADED` |
+| 2026-10-31 | §5 "The context": a command receives an execution context; the limitation is removed. | design `js-command-context` |
+| 2026-10-31 | §11 "Showing a Liquers UI" (`mountUI`, `UIElement`); §11–12 renumbered to §12–13. | design `web-ui-use` |
+| 2026-10-31 | §11 "Define an element" and "Render the tree yourself" (`defineElement`, `element`, `mountRenderer`). | design `web-ui-define` |

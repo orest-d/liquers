@@ -30,6 +30,8 @@ serde-wasm-bindgen = "0.6"
 console_error_panic_hook = "0.1"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+# The UI state lock (`liquers_lib::ui::AppState` lives behind a tokio mutex).
+tokio = { version = "1", default-features = false, features = ["sync"] }
 # Named by the `register_core_commands!` expansion.
 futures = "0.3"
 
@@ -41,7 +43,10 @@ version = "0.3"
 # specs/design/liquers-web-store/phase2-architecture.md.
 # Deliberately not `Request`/`RequestInit` either: the request options are a plain object built
 # with `js_sys`, which keeps the code off an API that has changed shape across web-sys releases.
-features = ["console", "Window", "Storage", "Response", "Headers"]
+# `Element`/`Document` for `mountUI`'s container check; `NodeList` for the `mount` reconciliation
+# of page-defined elements.
+features = ["console", "Window", "Storage", "Response", "Headers", "Element", "Document",
+    "HtmlElement", "Node", "NodeList"]
 
 [dev-dependencies]
 # The shared AsyncStore conformance suite. A dev-dependency, so the feature never reaches the
