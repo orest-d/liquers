@@ -113,6 +113,19 @@ def env():
     e.shutdown()
 
 
+def handle_baseline():
+    """The live handle count to compare against, after collecting garbage.
+
+    Environments of earlier tests left in reference cycles release their handles when the cycle
+    collector runs. Collecting first keeps that from happening during the test, where it would
+    take the count under the baseline.
+    """
+    import gc
+
+    gc.collect()
+    return lq.Environment.live_handle_count()
+
+
 def run_async(main, timeout=30):
     """Runs ``asyncio.run(main())`` on a thread and returns its result, failing the test if it has
     not finished after ``timeout`` seconds instead of hanging the suite."""
