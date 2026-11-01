@@ -8,9 +8,9 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 197
+Total rows: 198
 - P2: 57
-- P3: 140
+- P3: 141
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -101,6 +101,7 @@ Total rows: 197
 | [`DROPPED-RECIPE-RESULT-LEAVES-AN-EMPTY-DATA-FILE`](issues/DROPPED-RECIPE-RESULT-LEAVES-AN-EMPTY-DATA-FILE.md) | issue | Removing a computed value with a stored record leaves an empty data file at its key | draft |  |  | P3 | S | core/assets;core/store |  | 2026-10-27 |
 | [`LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT`](issues/LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT.md) | issue | Language exception class and stack are lost in transport | accepted |  |  | P3 | S | web |  | 2026-08-08 |
 | [`PY-ADD-PYTHON-COMMAND-STILL-DECLARES-PYCALL-ALIASES`](issues/PY-ADD-PYTHON-COMMAND-STILL-DECLARES-PYCALL-ALIASES.md) | issue | CommandMetadataRegistry.add_python_command is still public and declares aliases of a pycall command that does not exist | draft |  |  | P3 | S | py |  | 2026-10-27 |
+| [`RECIPE-MISSING-RECIPE-IS-A-GENERAL-ERROR`](issues/RECIPE-MISSING-RECIPE-IS-A-GENERAL-ERROR.md) | issue | Asking a recipe provider for a recipe it does not have raises a General error, not KeyNotFound | draft |  |  | P3 | S | core/assets;core/error |  | 2026-11-01 |
 | [`RUSTDOC-STORE-SUBMODULE-LINKS-UNRESOLVED`](issues/RUSTDOC-STORE-SUBMODULE-LINKS-UNRESOLVED.md) | issue | Intra-doc links in the store submodules and value.rs do not resolve | draft |  |  | P3 | S | docs;core/store;core/value |  | 2026-11-01 |
 | [`TEMPLATE-DIAGNOSTICS-CHECK-COMMANDS-A-Q-QUOTES`](issues/TEMPLATE-DIAGNOSTICS-CHECK-COMMANDS-A-Q-QUOTES.md) | issue | Template diagnostics report unknown commands in a query part that a later q quotes, which the planner never resolves | draft |  |  | P3 | S | core/query;lib/commands |  | 2026-10-26 |
 | [`VALIDATE-PHASE-COMPACT-SIZE-IGNORES-SOURCE-COMPLEXITY`](issues/VALIDATE-PHASE-COMPACT-SIZE-IGNORES-SOURCE-COMPLEXITY.md) | issue | validate_phase.py checks every compact design against the M size limit | draft |  |  | P3 | S | docs;build |  | 2026-10-27 |

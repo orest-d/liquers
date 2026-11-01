@@ -10,11 +10,11 @@ Steps 1-3 here can run in parallel with that work. No issue has to be fixed firs
 
 ## Progress
 
-- [ ] Step 1: repeated recipe provider types in `liquers-core`
-- [ ] Step 2: a public plan constructor for a recipe
-- [ ] Step 3: `lq.Recipe` keyword constructor and properties
-- [ ] Step 4: the Python recipe provider adapter, factory and `env.recipes`
-- [ ] Step 5: exports, docstrings and the conformance row
+- [x] Step 1: repeated recipe provider types in `liquers-core` — 836b00a
+- [x] Step 2: a public plan constructor for a recipe — 836b00a
+- [x] Step 3: `lq.Recipe` keyword constructor and properties — 30fe5c7
+- [x] Step 4: the Python recipe provider adapter, factory and `env.recipes` — 30fe5c7
+- [x] Step 5: exports, docstrings and the conformance row — 30fe5c7
 
 ## Implementation Steps
 
@@ -117,6 +117,6 @@ Each changed `reference/` or `guides/` document gets a `## History` row and a `r
 
 ## Phase 5 Entry Criteria
 
-- [ ] Implementation finished and validated
+- [x] Implementation finished and validated
 - [ ] User and review comments answered
 - [ ] Documentation checkable against implemented and tested behaviour
