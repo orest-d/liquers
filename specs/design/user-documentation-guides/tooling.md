@@ -135,7 +135,9 @@ contain. Measured that way:
   `{{< include >}}` shortcodes, which also collide visually with Mustache.
 - **mdBook** is the easiest: CommonMark with tables and footnotes, plain relative `.md` links
   (which map onto Liquers keys), and a plain list of chapters (`SUMMARY.md`). Its own
-  `{{#include}}` looks like a Mustache section and is not used.
+  `{{#include}}` looks like a Mustache section and is not used until Liquers templates read it
+  (`TEMPLATE-HAS-NO-MDBOOK-INCLUDE-SYNTAX`); then it becomes the preferred include, since it works
+  under plain mdBook too.
 
 Rule for every chapter, enforced by `liquers-docs check`:
 - CommonMark plus tables and footnotes only.
