@@ -49,6 +49,10 @@ moved out of that design by the maintainer on 2026-11-01:
    and refused under a key. Gated on `design/access-policy-at-entry-points/`.
 4. Later: a raw request body (`Content-Type: text/csv`) as the starting state.
 
+Open, decided later by the maintainer (2026-11-01): whether recipes, or something similar, define
+these endpoints, and whether they may also define commands. At HEAD of the composite design, recipes
+define assets only, and a placeholder in a recipe pipeline is a planning error.
+
 A design is needed (complexity `L`).
 
 ## Discovery

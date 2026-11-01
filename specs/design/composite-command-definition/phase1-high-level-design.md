@@ -60,7 +60,7 @@ a query, the composite's pipeline, then the query again. It returns the same row
 query, cached under its own query like any command's result.
 
 As a **recipe**, the list goes to `is_in`, which is not the last action. That is impossible today,
-because overrides reach only the last action:
+because overrides reach only the last action (the recipe's exact shape is decided in Phase 2):
 
 ```yaml
 - query: -R/data/sales.csv/-/ns-pl/from_csv
@@ -104,9 +104,9 @@ The pipeline form, everywhere:
 - **AC-10** Text-form identity
   WHEN a pipeline is text-form
   THEN its plan, including each step's prefix query, equals the plan of its equivalent query, so its prefixes are shared with direct queries
-- **AC-11** Unbound placeholder
-  WHEN a placeholder of an argument has no binding
-  THEN the argument's default applies, as for an omitted parameter; a value element (`{placeholder}`) with no binding is `ArgumentMissing`
+- **AC-11** Placeholders only in command definitions
+  WHEN a pipeline that is not a command's definition (a recipe's pipeline, or one planned on its own) contains a placeholder
+  THEN planning fails with an unresolved-placeholder error naming it; inside a definition, every placeholder is a declared argument, so it always has a value, a default or an `ArgumentMissing` error (AC-3)
 - **AC-16** Queries and pipelines combine in one plan
   WHEN a query calls a composite and continues after it, or a pipeline contains `{query: …}` elements, or a recipe has a query and a pipeline
   THEN the planner processes query actions and pipeline elements into one plan, in order, each receiving the previous one's state
@@ -136,14 +136,11 @@ The pipeline form, everywhere:
 Recipes (b):
 
 - **AC-15** Recipe pipeline
-  WHEN a recipe has a `pipeline` instead of a `query` (`query: q` is the same as `pipeline: [{query: q}]`)
-  THEN it plans and runs as that pipeline; `arguments` and `links` bind its placeholders; its filename is its last element, or ends its last `{query}` fragment, and a filename anywhere else is an error; a name that is no placeholder keeps today's meaning (an argument of the last action)
-- **AC-22** Composites defined by recipes
-  WHEN a `recipes.yaml` entry declares `command: <ns>/<name>` and `parameters` (`ArgumentInfo`s)
-  THEN the environment registers it as a composite whose pipeline is the entry's query and pipeline, when the recipe provider is loaded
-
+  WHEN a recipe has a `pipeline`, in a form compatible with today's recipe syntax (exact shape: Phase 2)
+  THEN it plans and runs as that pipeline, with literal values for any step's arguments, so a list, map or long text can reach an action other than the last; every existing recipe is unchanged
 Retired:
 
+- ~~**AC-22**~~ commands defined by `recipes.yaml` entries: recipes define assets, not commands (2026-11-01). Commands with pipelines are defined in the command metadata.
 - ~~**AC-9**~~ placeholders in recipe query text: query text has no placeholders (2026-11-01), so AC-15 replaces it.
 - ~~**AC-12**, **AC-13**, **AC-14**~~ web API binding, request values as the start state, managed text forms: moved to [`WEB-API-CANNOT-RUN-PIPELINES-OR-RECIPE-ENDPOINTS`](../../issues/WEB-API-CANNOT-RUN-PIPELINES-OR-RECIPE-ENDPOINTS.md) (scope split, 2026-11-01).
 
@@ -161,7 +158,7 @@ any command.
 - Commands: `CommandDefinition::Composite`, registration, validation and export in the metadata registry.
 - Plans: `PlanBuilder` takes pipeline elements as well as queries, and expands composites into
   them; new `Step::UseValue`; the interpreter supplies `{state: true}`.
-- Assets / recipes: `Recipe` gains `pipeline`; the recipe provider registers composites (AC-22).
+- Assets / recipes: `Recipe` gains `pipeline`, with literal values only (AC-15).
 - Validation: `liquers-validate` accepts pipelines; `specs/command_registry.yaml` carries composites.
 - Consumers: `liquers-mcp` serves a composite as a tool like any command.
 
@@ -200,22 +197,22 @@ Analysis: [`notation-and-integration.md`](./notation-and-integration.md) (shape,
 payload) and [`pipeline-and-plan.md`](./pipeline-and-plan.md) (plans, recipes, lists, positional
 arguments).
 
-3. **Commands defined in `recipes.yaml`** (AC-22). A way to define these commands without Rust: a
-   `recipes.yaml` entry that names `command: <ns>/<name>` and declares `parameters` is registered
-   as a pipeline command when the recipe provider loads. Recommended: yes. The alternative is to
-   define them only in Rust and registry files.
-15. **Pipeline and plan** (`pipeline-and-plan.md` §1). Recommended U1: the pipeline is the planner's
-    input language (query → pipeline → plan), so a query and its pipeline plan identically by
-    construction, and every `Step` an author can mean has a pipeline element.
-16. **Recipe pipeline order** (replaces Q10, §2). Recommended: a recipe has either `query` or
-    `pipeline`; `{query: …}` elements give every order, and the filename is the last element, as in
-    a query.
-17. **A list for a single argument** (replaces Q8's open part, §3). Recommended: AC-23; `{array}` /
-    `{object}` constructors from sources deferred.
-18. **Positional arguments** (replaces Q13, §4). Recommended: one action element with `parameters`
-    and `arguments` under Python's rule (AC-17). Alternative: two element kinds, never mixed.
-19. **Name** (§5). Recommended: `CommandDefinition::Pipeline` ("pipeline alias") instead of
-    *composite*, since this is an alias whose body is a pipeline.
+19. **Name.** Recommended: `CommandDefinition::Pipeline` ("pipeline alias") instead of
+    *composite*, because this is an alias whose body is a pipeline.
+
+Deferred to Phase 2 by the maintainer (2026-11-01):
+
+- **Builder** (`pipeline-and-plan.md` §1, Q15 accepted in principle). Keep the existing
+  `PlanBuilder` and add a pipeline builder (`PipelineBuilder`, `Pipeline::to_plan`). Phase 2 decides
+  how the two share code and how a query and a pipeline combine in one plan.
+- **Recipe syntax** (Q16). A recipe pipeline stays compatible with the existing recipe syntax; the
+  exact shape and the filename rule are decided in Phase 2.
+- **Variadic arguments** (Q8, Q17, Q18). A dedicated Phase 2 section covers variadics: lists for
+  `multiple` and for single (`any`) arguments, splicing, empty lists, positional and named
+  arguments, and several placeholders into one variadic.
+
+Recipes do not define commands (Q3, decided). Whether recipes, or something like them, will define
+web endpoints or commands is left to the follow-up issue.
 
 ## Scope Changes
 
@@ -231,6 +228,10 @@ arguments).
   `recipe-override-addressing`, whose positional addressing is dropped. Added AC-23 (a list for a
   single argument) and AC-24 (pipelines express queries); AC-6, AC-15 and AC-17 revised (an
   `IssueReport`, either query or pipeline, positional and named arguments). Questions 15–19 added.
+- **2026-11-01, maintainer review 4.** Recipes define assets, not commands: AC-22 retired. Recipe
+  pipelines carry literal values only, and a placeholder outside a command definition is a planning
+  error (AC-11, AC-15 revised). The builder design, the recipe syntax and the variadic rules are
+  decided in Phase 2.
 
 ## Design Dependencies
 
