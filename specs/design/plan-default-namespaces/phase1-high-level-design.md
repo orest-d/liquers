@@ -4,21 +4,20 @@
 
 - **Readiness:** `needs-decision`
 - **Automatic fixing:** `not-eligible` — adds public items (`Environment::default_namespaces`,
-  `EnvironmentBuilder::with_default_namespaces`, a registry field, a configuration key) and spans
+  `EnvironmentBuilder::with_default_namespaces`, `CommandMetadataRegistry::lookup_namespaces`, a configuration key) and spans
   `liquers-core`, `liquers-template`, `liquers-lib` and `liquers-py` (`auto-fix.md` rules 3, 4, 6).
 - **Leading issue:** whether a configured list implies root (question 1).
 - **Explanation:** the user settled the lookup semantics on 2026-11-01 (see Scope Changes); the
   remaining questions have recommended answers and Phases 2-4 are written for them.
 - **Open questions:**
   1. **Open design question — root after a configured list.** `default_namespaces: [pl]` in
-     `EnvironmentConfig` replaces the main realm's registry chain. Recommended: root is appended
+     `EnvironmentConfig` replaces the registry's chain. Recommended: root is appended
      when the list does not name it (`[pl]` → `["pl", "", "root"]`), so configuring a namespace
      never makes core commands unreachable; a list that names `root` keeps its own order. The
      registry field keeps its current meaning — the whole chain, exactly as written — so code that
      sets it is unaffected.
-  2. **Proposed resolution — a realm without an entry uses the main chain.** The new per-realm map
-     overrides `default_namespaces` only for the realms it names, so today's behaviour (one chain
-     for every realm) is what an empty map means.
+  2. ~~**Proposed resolution — a realm without an entry uses the main chain.**~~ Removed
+     2026-11-01: per-realm chains are deferred (Scope Changes).
   3. **Proposed resolution — generated queries stay portable.** `plan::append_action` emits a bare
      action only when it resolves to the requested command both with the environment's chain and
      with the registry default `["", "root"]`; otherwise it writes `ns-<ns>`, `ns-root` included
@@ -35,10 +34,16 @@
 **2026-11-01, user review.** (a) An explicit `ns` adds to the chain — its namespaces first, highest
 priority first, then the defaults — instead of replacing a configured list; this is today's rule,
 verified below, so the planner's lookup does not change. The former AC-5 (bare `ns` searches root
-only) is dropped. (b) Defaults are held per realm in the registry, which every environment has,
-because not every environment is built from `EnvironmentConfig`. (c) `EnvironmentConfig` sets the
-main realm only and takes precedence over the registry. The separate `implicit_namespaces` field
-of the first draft is gone.
+only) is dropped. (b) The defaults stay in the registry, which every environment has, because
+not every environment is built from `EnvironmentConfig`. (c) `EnvironmentConfig` takes precedence
+over the registry. The separate `implicit_namespaces` field of the first draft is gone.
+
+**2026-11-01, later the same day.** Per-realm chains (a `realm_default_namespaces` map and the
+former AC-12) are taken out of this design. The user wants the registry organised by realm, each
+realm with its own `default_namespaces`; that is filed as `COMMAND-REGISTRY-NOT-ORGANIZED-BY-REALM`.
+This design keeps the single chain the registry has today, used for every realm, so that the later
+reorganisation only has to move one field. The configuration key is meant for the main realm; until
+the reorganisation it sets the one chain.
 
 **Verified current logic** (`liquers-core/src/plan.rs` `namespaces_for_query`,
 `command_metadata.rs` `find_command_in_namespaces`): the list is the parameters of the last `ns`
@@ -96,25 +101,24 @@ first.
   with the configured chain and with `["", "root"]`
 - **AC-9** Other resolvers agree with the planner
   WHEN template diagnostics, template parameter overrides and `next` presets resolve an action
-  THEN they use the same chain as the planner, per realm
+  THEN they use the same chain as the planner
 - **AC-10** Offline validation can follow the environment
   WHEN `liquers-validate --default-namespace pl -- '-R/data/sales.csv/-/head-3'` runs
   THEN it plans with `head` resolved to `pl/head`; without the flag it reports the error as today
 - **AC-11** Exported registry unchanged by default
-  WHEN the command registry is exported with no per-realm chains set
-  THEN the output is as before (no new key); an export with per-realm chains carries them
-- **AC-12** A realm has its own chain
-  WHEN the registry sets `img` as the chain of realm `py` and nothing for the main realm
-  THEN an action in a `-py/…` segment is looked up in `img` (after any `ns`), while a main-realm
-  action still uses `["", "root"]`
+  WHEN the command registry is exported from a builder that set no namespaces
+  THEN the output is as before, and an export after `default_namespaces: [pl]` carries
+  `default_namespaces: [pl, '', root]`
+- ~~**AC-12** A realm has its own chain~~ — moved 2026-11-01 to
+  `COMMAND-REGISTRY-NOT-ORGANIZED-BY-REALM` (Scope Changes).
 
 Non-goals: per-user or per-session namespaces; changing the chain after `build()`; setting
-non-main realms from `EnvironmentConfig`; renaming `default_namespaces`; configuring namespaces
+per-realm chains (`COMMAND-REGISTRY-NOT-ORGANIZED-BY-REALM`); renaming `default_namespaces`; configuring namespaces
 through `liquers-web`'s JavaScript API (it can call the builder setter later).
 
 ## Core Interactions
 
-- Query / plan: the namespace chain for an action, per realm.
+- Query / plan: the namespace chain for an action.
 - Commands: `CommandMetadataRegistry` holds the chains and states the lookup rule once.
 - Environment: `EnvironmentConfig`, `EnvironmentBuilder`, `Environment` accessor.
 - Validation: a `liquers-validate` flag; registry overlay merge.
@@ -131,7 +135,7 @@ builder. No new crate dependency.
 ## Documentation Intent
 
 - Reference: extend `reference/ENVIRONMENT_CONFIG.md` (new key) and
-  `reference/RECIPES_AND_PLANS.md` §Planner instructions (`ns` paragraph: chain, per-realm defaults).
+  `reference/RECIPES_AND_PLANS.md` §Planner instructions (`ns` paragraph: the chain and where its defaults come from).
 - Guide: extend `guides/ENVIRONMENT_CONSTRUCTION_GUIDE.md` with a short "default namespaces" section.
 - Other documents: the `liquers-validate` flag in `CLAUDE.md`'s validation table.
 - Documents to update: `specs/README.md` capability line, `specs/index.csv`.

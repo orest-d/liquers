@@ -17,14 +17,14 @@ Triage design (`.claude/skills/liquers-project/references/issue-triage.md`, case
 Phases 1-4 written under the bulk-design rules; awaiting review. GitHub #235.
 
 The command metadata registry already holds the namespace chain the planner falls back on
-(`default_namespaces`, `["", "root"]`); this design makes it settable **per realm** in the registry
-and, for the main realm, from `EnvironmentConfig` (`default_namespaces:`), which takes precedence.
+(`default_namespaces`, `["", "root"]`); this design makes it settable from `EnvironmentConfig`
+(`default_namespaces:`), which takes precedence over the registry, and from the builder.
 Lookup stays a first-match chain: the namespaces of the last `ns` before the action, then the
-realm's defaults. `Environment::default_namespaces(realm)` reports the chain.
+registry's chain. `Environment::default_namespaces()` reports the chain.
 
 Revised 2026-11-01 after the user's review: an explicit `ns` **extends** the defaults (it is
-searched first, then the defaults) rather than replacing them; defaults are per realm in the
-registry; the configuration covers the main realm only.
+searched first, then the defaults) rather than replacing them. Per-realm chains were drafted and
+then deferred the same day to `COMMAND-REGISTRY-NOT-ORGANIZED-BY-REALM`.
 
 ## Phases
 
