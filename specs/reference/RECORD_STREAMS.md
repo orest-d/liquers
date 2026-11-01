@@ -3,7 +3,7 @@ title: Record Streams
 kind: reference
 audience: internal
 area: [records, lib/value, lib/commands, web]
-reviewed: 2026-10-30
+reviewed: 2026-11-01
 ---
 
 # Record Streams
@@ -490,7 +490,7 @@ pointer:
 |---|---|---|
 | Arrow IPC file (Feather v2) | yes — serialization | **built**, `liquers-records` `ipc` feature (see Table formats) |
 | typed arrays over wasm memory | none | **built**, `liquers-web` (see Browser sharing) |
-| polars `DataFrame` | yes | **built as Rust API only**: `liquers_lib::records::polars::{record_batch_to_dataframe, dataframe_to_record_batch}` (feature `polars`). No command exposes it. Roles are lost; no `Id` is guessed; `Vector` columns are refused; a `Timestamp` becomes `Datetime(µs, "UTC")`, and a `Datetime` of any unit and zone (naive taken as UTC) becomes a `Timestamp` with its epoch value unshifted |
+| polars `DataFrame` | yes | **built as Rust API only**: `liquers_lib::records::polars::{record_batch_to_dataframe, dataframe_to_record_batch}` (feature `polars`). No command exposes it. Roles are lost; no `Id` is guessed; `Vector` columns are refused; a `Timestamp` becomes `Datetime(µs, "UTC")`, and a `Datetime` of any unit and zone (naive taken as UTC) becomes a `Timestamp` with its epoch value unshifted; a nanosecond `Datetime` holding a sub-microsecond part is refused with a `ConversionError` naming the column and row, rather than truncated |
 | Arrow C Data Interface (`liquers-py`, polars-arrow) | none | **not built** |
 
 ## Browser sharing
@@ -871,6 +871,7 @@ materializes to an empty batch; without one it is an error.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-01 | Polars bridge: a nanosecond `Datetime` with a sub-microsecond part is refused instead of silently truncated (`POLARS-BRIDGE-TRUNCATES-SUB-MICROSECOND-DATETIMES`). | issue fix |
 | 2026-10-30 | Manifest validation: the `recipes.yaml` name clash is the chain's two-owner error. §Provider chain: the `manifest` entry type, `LibKind`'s list, every member asked, `with_records_recipe_provider` idempotent. | design `recipe-provider-chain-config` |
 | 2026-10-27 | §Table formats: the CSV separator refinements `csv:semicolon`, `csv:pipe` and `csv:<c>`, with the same meaning as for a DataFrame. | `design/record-table-csv-refinements/` |
 | 2026-10-25 | §Commands: a directory is listed with plain `-R/<dir>/-/ns-rec/file_records` (a `Directory` state); `-R-sdir/` still works. | `design/key-without-recipe-answer/` |

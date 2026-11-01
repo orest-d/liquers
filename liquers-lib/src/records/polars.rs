@@ -153,6 +153,35 @@ fn polars_dtype_to_field_type(dtype: &DataType, name: &str) -> Result<FieldType,
     }
 }
 
+/// Refuses a nanosecond `Datetime` series holding a value with a sub-microsecond part: the cast to
+/// microseconds below would drop it silently, and the Arrow inbound path refuses the same loss.
+/// Other units convert to microseconds exactly, so only nanoseconds are checked.
+fn refuse_sub_microsecond_values(series: &Series) -> Result<(), Error> {
+    match series.dtype() {
+        DataType::Datetime(TimeUnit::Nanoseconds, _) => {
+            let physical = series.to_physical_repr();
+            let ca = physical.i64().map_err(|e| Error::from_error(ErrorType::ConversionError, e))?;
+            let first_lossy = ca
+                .iter()
+                .enumerate()
+                .find_map(|(row, value)| value.filter(|v| v % 1000 != 0).map(|_| row));
+            match first_lossy {
+                Some(row) => Err(Error::conversion_error_with_message(
+                    series.name(),
+                    "a Timestamp (microseconds)",
+                    &format!(
+                        "polars Datetime(ns) row {row} has sub-microsecond precision, which would \
+                         be lost; round the column to microseconds first"
+                    ),
+                )),
+                None => Ok(()),
+            }
+        }
+        // Milliseconds and microseconds convert exactly; the caller only passes `Datetime` series.
+        _ => Ok(()),
+    }
+}
+
 /// Appends every row of `series` (already known to be `field_type`) onto `column`, casting to the
 /// canonical physical width for its `FieldType` first (`Int64`/`UInt64`/`Float64`, or Parquet's own
 /// physical repr for `Date`/`Timestamp`). Exhaustive over [`FieldType`] — a Liquers-owned enum — per
@@ -220,6 +249,7 @@ fn append_series_values(column: &mut ColumnMut, series: &Series, field_type: Fie
             } else {
                 Some(TimeZone::UTC)
             };
+            refuse_sub_microsecond_values(series)?;
             let normalized = series
                 .cast(&DataType::Datetime(TimeUnit::Microseconds, time_zone))
                 .map_err(|e| Error::from_error(ErrorType::ConversionError, e))?;
@@ -465,6 +495,34 @@ mod tests {
         )?;
         let error = record_batch_to_dataframe(&batch).expect_err("Vector is refused");
         assert!(format!("{error}").to_lowercase().contains("vector"));
+        Ok(())
+    }
+
+    fn nanosecond_frame(values: &[Option<i64>]) -> Result<DataFrame, Error> {
+        let series = Series::new("ts".into(), values)
+            .cast(&DataType::Datetime(TimeUnit::Nanoseconds, None))
+            .map_err(|e| Error::from_error(ErrorType::ConversionError, e))?;
+        DataFrame::new(values.len(), vec![series.into_column()]).map_err(|e| Error::from_error(ErrorType::ConversionError, e))
+    }
+
+    #[test]
+    fn bridge_refuses_sub_microsecond_datetimes_naming_column_and_row() -> Result<(), Error> {
+        let df = nanosecond_frame(&[Some(1_000), None, Some(2_000_999)])?;
+        let error = dataframe_to_record_batch(&df).expect_err("a lossy cast is refused");
+        assert_eq!(error.error_type, ErrorType::ConversionError);
+        let message = format!("{error}");
+        assert!(message.contains("'ts'"), "{message}");
+        assert!(message.contains("row 2"), "{message}");
+        Ok(())
+    }
+
+    #[test]
+    fn bridge_converts_whole_microsecond_nanosecond_datetimes() -> Result<(), Error> {
+        let df = nanosecond_frame(&[Some(1_000), None, Some(-2_000)])?;
+        let batch = dataframe_to_record_batch(&df)?;
+        assert_eq!(batch.value(0, 0)?, FieldValue::Timestamp(1));
+        assert_eq!(batch.value(1, 0)?, FieldValue::Null);
+        assert_eq!(batch.value(2, 0)?, FieldValue::Timestamp(-2));
         Ok(())
     }
 }
