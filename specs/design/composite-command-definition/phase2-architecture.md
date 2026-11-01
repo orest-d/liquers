@@ -1,249 +1,324 @@
-# Phase 2: Solution & Architecture — Composite command definitions
+# Phase 2: Solution & Architecture — Pipeline commands
 
-> **Superseded draft (2026-11-01).** This draft assumes `$name` placeholders in query text, which
-> the maintainer dropped in favour of the pipeline mechanism (Phase 1, Scope Changes). It is kept
-> only until Phase 2 is rewritten after Phase 1's approval. Its planner, composite-expansion,
-> dependency and error sections still largely apply to pipelines.
-
-Drafted together with Phase 1, before Phase 1's gate, so that the three uses can be reviewed
-against one mechanism. It follows Phase 1's recommended answers; a different answer at the gate
-reopens this phase.
+Rewritten on 2026-11-01 after Phase 1's approval. It replaces the earlier draft, which assumed
+placeholders in query text. Shapes and names were explored in
+[`notation-and-integration.md`](./notation-and-integration.md) §2 and
+[`pipeline-and-plan.md`](./pipeline-and-plan.md); this document is the decision.
 
 ## Overview
 
-One mechanism, used three ways. A **placeholder** is a new kind of query parameter (`$name`) and a
-new leading query element (`$name/…`). The **plan builder binds** placeholders from a binding map,
-by name, while it resolves each action's parameters, so a bound value enters the plan as the
-`ParameterValue` a written parameter or a link would have produced, with any JSON value allowed. A
-**composite command** is registry metadata whose body is a placeholder query. The builder expands
-it into a nested plan bound from the call's resolved arguments. A **recipe** and an **HTTP
-request** pass their named values as bindings. When every binding has a text form, the builder
-also records the substituted prefix query on each step, so caching and sharing behave as if the
-values had been written in place.
+A **`Pipeline`** (new `liquers-core/src/pipeline.rs`) is a serde list of elements: the author-facing,
+stable counterpart of a `Plan`'s steps. A new **`PipelineBuilder`** plans it. The existing
+`PlanBuilder` stays as it is for queries, and both share one crate-private **`PlanAssembly`**, the
+state the two append steps to. That makes a plan that mixes queries and pipelines one assembly:
+a query calls a pipeline command, a pipeline embeds `{query: …}` text, and a recipe runs a pipeline
+after its query. A **pipeline command** is `CommandDefinition::Pipeline`. The planner expands it,
+from either builder, into a nested `Step::PipelineCommand` whose body is planned with the call's
+arguments bound to the body's placeholders. A value element becomes the current state through the
+new `Step::UseValue`.
+
+Two rules keep the new path honest:
+
+- **Text-form runs delegate.** A maximal run of elements that has a query text form
+  (`Pipeline::to_query`) is planned by `PlanBuilder` on that text, so a text-form pipeline plans
+  *exactly* as its query (AC-10, AC-24). Only elements without a text form (a structured value, a
+  value as state, a nested pipeline, `{state}`) go through `PipelineBuilder`'s own code.
+- **Named arguments reuse overrides.** An action element is resolved by building the positional
+  part with `ResolvedParameterValues::from_action`, then applying each named argument through the
+  existing override path (`override_value` / `override_link` and `convert_override`). The
+  conversion, enum and variadic rules of recipe overrides therefore apply unchanged.
 
 Rejected alternatives:
 
-- **Textual macro expansion** (substitute, re-encode, re-parse): a list, map or long text has no
-  text form, and re-lexing values is the injection the template language's hygienic slots exist to
-  prevent (`TEMPLATE_LANGUAGE.md` §2).
-- **Reusing `liquers-template`'s `QueryTemplate`**: `liquers-core` cannot depend on it, and its
-  `{{x}}` slots are rendered by Mustache, not bound by the planner.
-- **Positional addresses** (`1.values`, `design/recipe-override-addressing/`): the caller must
-  count actions, and the address breaks when the query is edited. A placeholder is written where the
-  value goes. (Phase 1, question 2.)
-- **Composite as a Rust executor** that evaluates its body with `Context::evaluate`: it would hide
-  the body from planning, so no volatility, payload, expiration or dependency of the body would be
-  known before running it.
-- **Generalising `CommandDefinition::Alias`**: kept unchanged. It plans to a single `Step::Action`,
-  it is pinned by `liquers-core/tests/command_alias.rs`, and an alias can be described as a
-  one-command composite in the documentation without migrating it.
+- **Replacing `PlanBuilder`** (`pipeline-and-plan.md` U1 in full: every query converted to a
+  pipeline first). The maintainer chose to keep the old builder. Delegating text-form runs gives
+  the same guarantee without touching the query path, which `parse.rs` and the plan tests pin.
+- **Flattening a pipeline command's steps into the caller's plan** with an `ActionOrigin::Pipeline`
+  tag. `{state}` then needs a runtime marker of where the command's input began, and
+  `cut_predecessor` would need a rule not to cut inside it. A nested step has both properties by
+  construction.
+- **An untyped `serde_json::Value` body** checked at planning. It gives no schema for authors or
+  tools, and pushes every shape error to run time.
 
 ## Known-Issue Preflight
 
 | Issue | Status | Priority | Impact on this design | Fix first? | Blocking? | Action |
 |---|---|---|---|---|---|---|
-| `RECIPE-OVERRIDE-ONLY-LAST-ACTION` | draft | P3 | Solved for queries that use placeholders; last-action overrides stay as they are | No | No | Close it as covered when this ships, if Phase 1 question 2 is accepted |
-| `RECIPE-CANNOT-PARAMETERIZE-RESOURCE-KEY` | draft | P3 | Keys are a non-goal; `@key` remains its answer | No | No | None |
-| `LINK-IN-VARIADIC-DOES-NOT-EXPAND` | draft | P3 | A link bound to a `multiple` slot gives one element, as a written link does | No | No | Same rule here; documented |
-| `VARIADIC-KEY-OR-QUERY-LINK-FAILS-TO-MATERIALIZE` | not-eligible | P3 | Same limit for bound links inside a `multiple` slot | No | No | Inherits its fix |
-| `VALUE-NOT-CONVERTED-AUTOMATICALLY` | draft | P2 | A bound link's result is not converted to the slot's type, as with written links | No | No | Inherits its fix |
-| `plan-default-namespaces` (PR #236) | in review | — | AC-7 resolves body commands through its default namespace chain (per-realm defaults are deferred to `COMMAND-REGISTRY-NOT-ORGANIZED-BY-REALM`) | No | No | Uses whichever chain is at HEAD |
+| `RECIPE-OVERRIDE-ONLY-LAST-ACTION` | draft | P3 | Owned by this design: solved by recipe pipelines (AC-15) | — | — | Close when AC-15 ships |
+| `LINK-IN-VARIADIC-DOES-NOT-EXPAND` | draft | P3 | A link inside a variadic gives one element, in pipelines as in queries | No | No | Same rule; §Variadic arguments |
+| `VARIADIC-KEY-OR-QUERY-LINK-FAILS-TO-MATERIALIZE` | not-eligible | P3 | Same limit for `{link}` inside `{multiple}` | No | No | Inherits its fix |
+| `VARIADIC-EMPTY-ELEMENT-CONVERSION` | eligible | P3 | Defines the empty-element rule this design relies on | No | No | Follow its rule |
+| `VALUE-NOT-CONVERTED-AUTOMATICALLY` | draft | P2 | A link's result is not converted to the slot's type | No | No | Inherits its fix |
+| `COMMAND-COMPOSITE-VARIADIC-ARGUMENTS` | draft | P3 | Tuple elements would make a list element valid in a variadic | No | No | §Variadic arguments, rule V3 |
+| `plan-default-namespaces` (PR #236) | in review | — | Elements without `ns` resolve through its chain (AC-7) | No | No | Uses the chain at HEAD |
 
 ## Interfaces
 
-**Query (`liquers-core/src/query.rs`, `parse.rs`).** Sync: pure syntax.
+**Pipeline types** (`liquers-core/src/pipeline.rs`, new). Sync: pure data. Owned, `Serialize`,
+`Deserialize`, `Clone`, `PartialEq`, `Debug`. `Value` is core's `Value`.
 
 ```rust
-pub enum ActionParameter {
-    String(String, Position),
-    Link(Query, Position),
-    /// `$name`: filled from a binding when the query is planned.
-    Placeholder(String, Position),
+pub struct Pipeline(pub Vec<PipelineElement>);
+
+/// Told apart by its key, as written: `{action: …}`, `{query: …}`, … (custom `Deserialize`, so an
+/// unknown key is an error that names it instead of serde's "did not match any variant").
+pub enum PipelineElement {
+    Action(ActionElement),
+    Resource { resource: String, mode: Option<String> },  // mode: a resource header instruction
+    Cwd { cwd: String },                                  // SetCwd
+    Key { key: String },                                  // UseKeyValue
+    Query { query: String },                              // embedded query text (no placeholders)
+    Value { value: Value },                               // `{value: …}` → UseValue
+    Placeholder { placeholder: String },                  // the bound value → UseValue (a link: Evaluate)
+    Quote,                                                // `{quote: true}` → UseQueryValue of the text so far;
+                                                          // an error when what precedes has no text form
+    Volatile,                                             // `{volatile: true}`, as `v`
+    Filename { filename: String },                        // last element only
 }
 
-pub enum QuerySegment {
-    Resource(ResourceQuerySegment),
-    Transform(TransformQuerySegment),
-    /// `$name/…`: the query starts from the value bound to `name`. First segment only.
-    Placeholder(PlaceholderSegment),
+pub struct ActionElement {
+    pub action: String,
+    pub ns: Option<Namespaces>,          // `Namespaces`: a string or a list (untagged), as `ns-a-b`
+    pub realm: Option<String>,
+    pub parameters: Vec<Source>,         // positional, consumed first
+    pub arguments: BTreeMap<String, Source>, // by name; BTreeMap: deterministic order
 }
-pub struct PlaceholderSegment { pub name: String, pub position: Position }
 
-impl Query {
-    /// Placeholder names in order of first occurrence, links included.
-    pub fn placeholders(&self) -> Vec<String>;
-}
-```
-
-`$` is already entity-encoded by the encoder (it is no unescaped parameter character), so a literal
-`$` in a string parameter keeps its current encoding. A `$name` anywhere other than a whole
-parameter or the first element is a `ParseError`.
-
-**Bindings (`liquers-core/src/plan.rs`).** Serde, owned.
-
-```rust
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-pub struct Bindings(pub BTreeMap<String, Binding>);   // BTreeMap: deterministic order
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub enum Binding {
+pub enum Source {                       // externally tagged: `{value: …}`, `{placeholder: …}`, …
     Value(Value),
-    Link(Query),
-    /// The input state of the composite at expansion depth `level`.
-    State { level: u16 },
+    Placeholder(String),
+    Link(String),                        // query text
+    Pipeline(Pipeline),                  // a nested pipeline, evaluated as a link
+    State(bool),                         // `{state: true}`: the pipeline command's input
+    Multiple(Vec<Source>),               // elements of a variadic argument
 }
 
-impl<'a> PlanBuilder<'a> {
-    pub fn with_bindings(self, bindings: Bindings) -> Self;
+impl Pipeline {
+    pub fn to_query(&self) -> Option<Query>;                 // text form, if any
+    pub fn placeholders(&self) -> BTreeSet<String>;
+    pub fn to_plan(&self, cmr: &CommandMetadataRegistry) -> Result<Plan, Error>; // PipelineBuilder
+}
+impl Query {
+    pub fn to_pipeline(&self) -> Pipeline;                   // syntactic, positional, total
 }
 ```
 
-`ResolvedParameterValues::from_action` resolves a `Placeholder` like the parameter it stands for:
-`Value` → `ParameterValue::ParameterValue` (converted by the slot's `ArgumentType`, as
-`convert_override` does today; a list into a `multiple` slot gives one element per entry, spliced
-among written elements), `Link` → `ParameterLink`, `State` → the new
-`ParameterValue::State(name, level)`, unbound → the slot's default, as an empty parameter. A
-`PlaceholderSegment` plans as `Step::UseValue(Value)` (new), `Step::Evaluate(query)` for a link,
-nothing for `$state`, and `missing_argument` when unbound.
+A bare scalar or array is accepted where a `Source` is expected, as `{value: …}`, as
+`CommandParameterValue`'s deserializer already does. A map must be tagged, so `{value: {a: 1}}`
+stays unambiguous.
 
-**Text form (AC-10, AC-14).** A binding is *text-form* when it is a string, number, boolean, or a
-list of those bound to a `multiple` slot. While every binding consumed so far is text-form, the
-builder keeps `Step::Action::query` as the substituted prefix (each value encoded with
-`encode_token`, list elements as separate parameters). The first other binding clears it for that
-step and every later one, exactly as a recipe override does today. `Plan::text_form_query()`
-returns the final step's query, if any. A **start placeholder bound to a value is never
-text-form**, whatever the value: the query grammar has no literal-value element, so `Step::UseValue`
-has no query text (a CSV string written first would read as an action). A request whose query
-starts that way is unmanaged (AC-14). A start placeholder bound to a link is text-form when the
-link is: it plans as `Step::Evaluate(link)`, whose text is the link query itself.
-
-**Commands (`command_metadata.rs`, `commands.rs`).** Sync: registration.
+**Command definition** (`command_metadata.rs`, `commands.rs`). Sync: registration.
 
 ```rust
 pub enum CommandDefinition {
     Registered,
     Alias { command: CommandKey, head_parameters: Vec<CommandParameterValue> },
-    /// Body as encoded query text, so the registry YAML stays readable.
-    Composite { body: String },
+    Pipeline { pipeline: Pipeline },
 }
-
-impl CommandRegistry<E> {
-    pub fn register_composite(&mut self, key: CommandKey, body: &str,
+impl<E: Environment> CommandRegistry<E> {
+    pub fn register_pipeline(&mut self, key: CommandKey, pipeline: Pipeline,
         arguments: Vec<ArgumentInfo>) -> Result<&mut CommandMetadata, Error>;
 }
-impl CommandMetadataRegistry {
-    /// Parses and checks a composite's body (AC-6); also called by the planner.
-    pub fn composite_body(&self, composite: &CommandMetadata) -> Result<Query, Error>;
-}
 ```
 
-`register_composite` parses the body, checks that every placeholder is an argument or the state
-argument's name, infers the type, `multiple`, default and `gui_info` of an argument declared as
-`ArgumentType::Any` with no default from the first slot it fills (Phase 1, question 4), and sets
-`state_argument: None` when the body starts with a resource segment or a placeholder other than
-`$state`. Like `register_alias`, it needs the body's commands to be registered first. A
-deserialized composite is not inferred: it is planned as declared. An unused argument is a warning
-written to stderr at registration and an `Info` in the plan.
+The placeholders are the command's `arguments`, as ordinary `ArgumentInfo`s, and `state_argument`
+is set as usual. `register_pipeline` sets `state_argument: None` when the first element is a
+resource, `key`, `value` or a source command (AC-5). It fills an omitted `argument_type`,
+`multiple` or `gui_info` from the slot each placeholder first fills (AC-3). It refuses the
+registration when the check below reports an error. A pipeline command has no executor and no
+`impl_version`. Its `metadata_version` covers the pipeline.
 
-YAML: `definition: !Composite { body: "ns-pl/from_csv/is_in-region-$regions/sort-$by-f/head-$n" }`.
-A composite has no executor and no `impl_version`. Its `metadata_version` covers the body.
+**Checks** (`CommandMetadataRegistry::check`, `issue_report.rs`). `CommandMetadata::check` gains
+the registry-free checks: placeholders not declared as arguments, `injected` arguments, `{state}`
+in a source command, a filename that is not last. `CommandMetadataRegistry::check` adds the checks
+that need the registry: unknown step commands, a named argument that is not an argument of its
+step, a type conflict between two slots of one placeholder, and cycles. Each is an
+`Issue::CommandRegistry` with the pipeline command's key, `Error` or `Warning` (an unused argument,
+an inferred type).
 
-**Plan step (`plan.rs`).**
+**Plan** (`plan.rs`). Sync.
 
 ```rust
-Step::Composite {
-    realm: String, ns: String, name: String,       // the composite's key
-    position: Position,
-    parameters: ResolvedParameterValues,           // the composite's own arguments
-    query: Option<Query>,                          // the calling prefix, as for Action
-    plan: Box<Plan>,                               // the expanded body
+pub enum Step {
+    // … existing variants …
+    UseValue(Value),
+    PipelineCommand {
+        realm: String, ns: String, name: String,   // the pipeline command
+        position: Position,
+        parameters: ResolvedParameterValues,       // its own arguments, as resolved at the call
+        query: Option<Query>,                      // the calling prefix, as `Action::query`
+        plan: Box<Plan>,                           // the expanded body
+    },
+}
+pub enum ParameterValue {
+    // … existing variants …
+    /// The input state of the enclosing pipeline command at nesting `level` (0 = outermost).
+    State(String, u16),
+    /// A nested pipeline with no text form, evaluated as an unmanaged dependency.
+    PlanLink(String, Box<Plan>),
+}
+pub struct PipelineBuilder<'c> { /* registry, PlanAssembly, bindings, expansion stack, level */ }
+impl<'c> PipelineBuilder<'c> {
+    pub fn new(pipeline: Pipeline, cmr: &'c CommandMetadataRegistry) -> Self;
+    pub fn build(&mut self) -> Result<Plan, Error>;
 }
 ```
 
-## Planning
+`PlanAssembly` (crate-private) holds what `PlanBuilder` keeps today: the `Plan` under
+construction, `is_volatile`, `payload_required`, `expires`, `uncached_by`, plus the running prefix
+query (`Option<Query>`, `None` from the first element without a text form). `PlanBuilder` keeps
+its public API and moves those fields into an assembly. Its `process_action` gains the
+`Pipeline` arm described below. `apply_command_flags` and the step push move to the assembly, so
+both builders call the same code.
 
-`PlanBuilder::process_action` gains a third arm for `CommandDefinition::Composite`:
+**Interpreter** (`interpreter.rs`). Async, as every step is. `Step::UseValue` returns its value.
+`Step::PipelineCommand` runs `apply_plan_state` on its body with the input it receives, and
+pushes that input on a per-evaluation frame stack. `ParameterValue::State(_, level)` reads the
+frame at `level` when the action's arguments are assembled, beside the existing link loop.
+`PlanLink` is evaluated with an empty state through `apply_plan_state`. Its result is recorded in
+the log, but not as a keyed dependency, because it has no query identity.
 
-1. Resolve the call against the composite's own arguments (`from_action`), so arity, defaults,
-   `ParameterError` and `missing_argument` name the composite.
-2. Turn them into the body's `Bindings`: each resolved argument becomes `Value` / `Link`, a
-   `ParameterValue::State` passes on unchanged, and the state argument's name becomes
-   `State { level: depth }`.
-3. Build the body with a child `PlanBuilder`: the same registry, those bindings, the composite's
-   realm, its own namespace prepended to the default namespace chain (AC-7: the caller's `ns` does
-   not apply), and the expansion stack plus this key. A key already on the stack is
-   `Error::composite_cycle`; a depth over 16 is the same error.
-4. Fold the child plan's volatility, payload requirement and expiration into the parent, with the
-   composite's own flags (as an alias does), and push `Step::Composite`. The child keeps its own
-   prefixes (`query` per step), so a body prefix such as `-R/data/sales.csv/-/ns-pl/from_csv` is
-   shared with direct queries (AC-10).
+## Planning a pipeline, and combining it with queries
 
-**Recipe overrides of a composite.** `Recipe::to_plan` splits its names: a name that is a
-placeholder of the recipe's query becomes a binding (`with_bindings`), and the rest keep today's
-meaning. When the last action is a composite, the remaining names are passed to the builder as that
-action's bindings before expansion, because overriding `Step::Composite::parameters` after building
-would leave the expanded body stale. For any other last action the post-build override loop is
-unchanged.
+`PipelineBuilder::build` walks the elements:
 
-**Cut and freeze.** `Plan::cut_predecessor` treats `Step::Composite` as one action: no boundary falls
-inside its body. `finalize_plan` freezes the body's relative operands against the caller's working
-key, the rule a command's default link follows.
+1. **A text-form run** (consecutive elements whose `to_query` exists) is converted to its query and
+   handed to `PlanBuilder::process_query` on the shared assembly, prefixed with the running prefix
+   query, so step prefixes match the direct query.
+2. **`Action`** without a text form: the command is looked up through the element's `realm` and
+   `ns`, else the default chain (AC-7). `from_action` builds the positional part with placeholders
+   allowed, then named arguments are applied as overrides and placeholders as bindings. Any slot
+   still `ParameterValue::Placeholder` is `missing_argument`. The running prefix becomes `None`.
+3. **`Value`** is `Step::UseValue`. **`Placeholder`** is `Step::UseValue` of its bound value, or
+   `Step::Evaluate` of a bound link; unbound, it is `missing_argument`.
+4. **`Query`**: parsed and handled as a text-form run.
+5. **`Filename`**: `Step::Filename`, the last element only.
+
+**Expansion of a pipeline command** (in either builder's action arm): resolve the call against
+the command's own arguments (`from_action`, or by name from a pipeline element), so arity and
+missing-argument errors name the pipeline command. Turn each resolved argument into a binding:
+`Value`, `Link`, `State(level)`. Build the body with a child `PipelineBuilder` that has those
+bindings, `level + 1`, and the expansion stack plus this key. A key already on the stack, or a
+depth over 16, is `Error::pipeline_cycle`. Fold the body's volatility, payload and expiration into
+the caller, with the command's own flags, as an alias does, and push `Step::PipelineCommand`. The
+body's own step prefixes are the calling prefix followed by the body's text form, so a text-form
+body shares its intermediates with direct queries.
+
+**Outside a definition** (a recipe's pipeline, or `Pipeline::to_plan`) there are no bindings, so a
+placeholder is an error at planning (AC-11): "Unresolved placeholder 'p' in pipeline element 3".
+
+**Cut and freeze.** `Plan::cut_predecessor` treats `Step::PipelineCommand` as one action and never
+cuts inside it. `finalize_plan` freezes a body's relative operands against the caller's working
+key, as for a command's default link. The dependency scan (`DependencyWalk`,
+`schedule_plan_dependencies_from`) descends into the body and records the pipeline command's
+metadata key, as it records an alias's.
+
+## Recipes
+
+Compatible with today's syntax. `Recipe` gains one optional field:
+
+```rust
+#[serde(skip_serializing_if = "Option::is_none", default)]
+pub pipeline: Option<Pipeline>,
+```
+
+| `query` | `pipeline` | Plans as |
+|---|---|---|
+| set | absent | today, unchanged |
+| set | set | the query's steps, then the pipeline, then the query's filename. The query still names the asset, so `Recipe::key`, `filename`, `data_format`, `store_to_key` and every recipe provider listing are unchanged |
+| empty | set | the pipeline alone; its trailing `{filename}` names the asset |
+
+`arguments` and `links` keep their meaning, an override of the plan's last action, which with a
+pipeline is the pipeline's last action. A placeholder in a recipe pipeline is an error (AC-11).
+`has_arguments` counts a pipeline without a text form, so such a recipe gets no query identity as
+an unkeyed recipe, exactly as overrides do today. A keyed recipe stays managed under its key.
+
+## Variadic arguments
+
+This section settles the rules that Phase 1 left to Phase 2 (questions 8, 17 and 18). A
+**variadic** argument is one declared `multiple`; it consumes every remaining positional parameter.
+
+| # | Case | Rule |
+|---|---|---|
+| V1 | Positional `parameters` | Fill slots in order. Once the variadic slot is reached, every remaining source is one element, as in a query (`is_in-region-a-b`). Several placeholders into one variadic: `parameters: [{value: region}, {placeholder: a}, {placeholder: b}]` |
+| V2 | Named `arguments` | Fill slots the positional ones did not reach. A name for a slot already filled positionally is a `ParameterError` (Python's rule). A variadic given by name takes `{multiple: […]}`, a list value, or a placeholder bound to a list |
+| V3 | A list for a variadic | Its entries are the elements. A list *element* is accepted only where the element type allows it (`any`, or the tuple elements of `COMMAND-COMPOSITE-VARIADIC-ARGUMENTS`); write it `{multiple: [{value: [a, b]}]}` |
+| V4 | Splicing | A placeholder bound to a list, inside `{multiple}` or in a positional variadic tail, is spliced in place: `[{value: a}, {placeholder: cols}, {value: b}]` gives `a`, the elements of `cols`, `b`. A scalar binding is one element |
+| V5 | A list for a single argument | An `any` argument receives the whole `Value::Array`. A scalar-typed argument is a `ConversionError`, as `convert_override` refuses a list today; there is no silent JSON text. The pipeline loses its text form from that step |
+| V6 | Empty list | For a variadic: no elements, the variadic's default. For `any`: the value `[]`, which is not the default |
+| V7 | Links | `{link}` or `{pipeline}` inside a variadic is one element; an array result does not expand (`LINK-IN-VARIADIC-DOES-NOT-EXPAND`) |
+| V8 | A pipeline command's own variadic | Must be its last parameter-consuming argument. Called from a query, it takes the remaining parameters; from a pipeline, V1–V4 apply. Its placeholder may fill a variadic slot (V4) or an `any` slot (V5), and anything else is an `invalid_pipeline` issue |
+| V9 | `ns` | A string or a list of identifiers; not a source, so no placeholder |
+
+Deferred: `{array: […]}` and `{object: {…}}` constructors that build a value from sources. Each
+source would have to be materialized first, which runs into
+`VARIADIC-KEY-OR-QUERY-LINK-FAILS-TO-MATERIALIZE`.
 
 ## Integration Points
 
-- `liquers-core/src/parse.rs`, `query.rs`: the two grammar forms, encoding, `placeholders()`; every
-  exhaustive match over `ActionParameter` and `QuerySegment` (`plan.rs`, `validate/`).
-- `command_metadata.rs`: the variant, `composite_body`, the dependency key; `commands.rs`:
-  `register_composite`.
-- `plan.rs`: `Bindings`, `ParameterValue::State`, `Step::Composite`, `Step::UseValue`, the
-  composite arm, text-form prefixes; `recipes.rs`: binding split in `to_plan`, `text_form_query`.
-- `interpreter.rs`: `do_step_state` runs `Step::Composite` through `apply_plan_state` and pushes its
-  input on a per-evaluation frame stack that `ParameterValue::State(_, level)` reads;
-  `schedule_plan_dependencies_from` and the dependency scan descend into the body and add the
-  composite's metadata key; `Step::UseValue` returns its value.
-- `liquers-core/src/validate/`: placeholders and composites in `liquers-validate` output; the
-  registry exporter writes `!Composite`.
-- `liquers-axum/src/api_core/overrides.rs` `OverrideRequest::to_recipe`: accept placeholder names
-  of the query; when `Recipe::text_form_query` gives a query and no last-action override is
-  present, serve that query through the managed path (AC-14). WebSocket `subscribe` uses the same
-  function. No new route.
-- `liquers-py`, `liquers-web`: the new enum variants pass through their query and metadata
-  bridges; their exhaustive matches need an arm. No new binding API.
+- `liquers-core`: `pipeline.rs` (new); `command_metadata.rs` (variant, checks, export);
+  `commands.rs` (`register_pipeline`); `plan.rs` (`PlanAssembly`, `PipelineBuilder`, the
+  `Pipeline` arm, two `Step` and two `ParameterValue` variants, cut and dependency scan);
+  `interpreter.rs` (the new steps and parameters, the frame stack); `recipes.rs` (`pipeline`,
+  making `convert_override` crate-visible); `validate/` (`--pipeline <file>`, a text form in the
+  output). Every exhaustive `match` over `Step`, `ParameterValue` or `CommandDefinition` gains
+  arms.
+- `liquers-lib`: the registry exporter writes `!Pipeline`; no command changes.
+- `liquers-py`, `liquers-web`: arms for the new variants in their plan and metadata bridges. No new
+  API (Phase 1 non-goal).
+- `liquers-mcp`: none; a pipeline command is listed and called as any command.
 
 ## Error Handling
 
 | Failure | Constructor |
 |---|---|
-| Malformed `$`, or a placeholder segment that is not first | `ParseError` from `parse.rs`, positioned |
-| Body does not parse, unknown placeholder, two slots disagree on an inferred type | new `Error::invalid_composite(key, problem)` (`ParameterError`) |
-| Cycle or depth over 16 | new `Error::composite_cycle(chain)` (`ParameterError`) |
-| Binding name that is neither a placeholder nor a last-action argument | existing `not_in_last_action`, message extended with "or a placeholder" |
-| Unbound start placeholder; required composite argument missing | `Error::missing_argument` |
-| Bound value that does not convert; list or map inside a link (question 5) | `Error::conversion_error` |
-| Error raised in the body | the step's error plus `Error::with_composite(key, step)`: " (in composite 'sales/top_in', step 3 'sort')", like `with_alias` |
+| Malformed pipeline document (unknown element key, filename not last) | `Error::general_error` from the custom `Deserialize`, naming the element index; as an `IssueReport` entry at registration |
+| Undeclared placeholder, `injected` argument, unknown step argument, conflicting slot types | `Issue::CommandRegistry` (`Error`); `register_pipeline` returns new `Error::invalid_pipeline(key, report)` (`ParameterError`) |
+| Cycle, or depth over 16 | new `Error::pipeline_cycle(chain)` (`ParameterError`) |
+| Unresolved placeholder outside a definition; missing argument | `Error::missing_argument` with the element index |
+| Positional and named for one slot; unknown or `injected` name | `ParameterError`, as for overrides (`not_in_last_action` reworded for elements) |
+| Value that does not convert (V5) | `Error::conversion_error` |
+| Error inside a body | the step's error plus new `Error::with_pipeline(key, element)`, " (in pipeline command 'sales/top_in', element 3 'sort')", like `with_alias` |
 
 ## Relevant Commands
 
-No new command. Example composites only (`sales/top_in` in Phase 1). Namespaces involved: `pl`
-in the examples; a composite lives in whatever namespace it is registered in.
+None new. Namespaces in the examples: `pl`. A pipeline command lives in whatever namespace it is
+registered under.
 
 ## Documentation Architecture
 
-`affects_docs`: `reference/COMPOSITE_COMMANDS.md` (new; internal; `core/commands`, `core/plan`),
-`reference/COMMAND_ALIASES.md`, `reference/RECIPES_AND_PLANS.md`,
-`reference/WEB_API_SPECIFICATION.md`, `reference/PROJECT_OVERVIEW.md`,
-`reference/COMMAND_DECLARATION.md`, `guides/COMMAND_REGISTRATION_GUIDE.md`,
-`guides/COMMAND_DESIGN_GUIDE.md`, `guides/WEB_API_GUIDE.md`. `specs/README.md` links the design
-under command definitions now, and the reference once Phase 5 completes.
+`affects_docs`: `reference/PIPELINE_COMMANDS.md` (new; internal; `core/commands`, `core/plan`:
+pipeline shape, `Source`s, pipeline commands, planning, caching, variadic rules V1–V9);
+`reference/COMMAND_ALIASES.md` (aliases versus pipeline commands); `reference/RECIPES_AND_PLANS.md`
+(`Recipe::pipeline`, `Step::UseValue`, `Step::PipelineCommand`, the end of the P1 gap
+"overrides … last action"); `reference/PROJECT_OVERVIEW.md` §Recipes (query encoding unchanged);
+`reference/COMMAND_DECLARATION.md` §4.1 (`definition: !Pipeline`);
+`guides/COMMAND_REGISTRATION_GUIDE.md` (registering a pipeline command);
+`guides/COMMAND_DESIGN_GUIDE.md` §Aliases (alias, pipeline command or Rust). Each gets a History
+row and a `reviewed:` bump. `specs/README.md` keeps linking the design until the reference exists.
 
 ## Risks
 
 | Assessment | Finding |
 |---|---|
-| Files likely to change | about 15 in `liquers-core`, 2 in `liquers-axum`, match arms in `liquers-py` and `liquers-web` |
-| Crates and workflows affected | core, axum, py, web; `check-build-matrix.sh` (new enum arms); the registry export |
-| Existing tests likely to change | none by behaviour; exhaustive-match tests over `Step` and `QuerySegment` gain arms |
-| New validation | parser round-trip of `$`, plan equality for text-form bindings (AC-10), dependency invalidation on body edit, cycle detection, HTTP managed-path selection |
-| Compatibility / data / concurrency / performance / security | no existing query changes meaning; serialized plans gain two variants, older readers cannot load a plan using them. Binding never re-lexes a value, so a bound string cannot add a segment or an action. Parsing pays one extra branch only on `$` |
-| Recovery | each crate's change is additive; reverting removes the variants |
-| Certainty and open questions | high for the planner path, which reuses the alias and override machinery; the frame stack for `$state` across nested composites is the least tested idea, and Phase 3 must prove it |
+| Files likely to change | about 10 in `liquers-core`; match arms in `liquers-lib`, `liquers-py`, `liquers-web` |
+| Crates and workflows affected | core, lib (export), py, web; `check-build-matrix.sh`; `registry_export` tests |
+| Existing tests likely to change | none by behaviour. Moving `PlanBuilder` state into `PlanAssembly` is a refactor that the plan tests (`plan.rs`, `tests/command_alias.rs`) must keep green unchanged |
+| New validation | text-form equality for every query in the parser corpus (`to_pipeline` then `to_plan` equals `PlanBuilder`, AC-24); expansion, `{state}` across nested levels, cycles, V1–V9, recipe compatibility |
+| Compatibility / data / concurrency / performance / security | no query, recipe or plan changes meaning; serialized plans gain variants (inspection format, no guarantee). Query parsing is untouched. A value is never re-lexed, so it cannot add a step |
+| Recovery | additive; reverting removes the variants and the field |
+| Certainty and open questions | high for the delegation and override reuse. The `PlanAssembly` extraction is the largest change to existing code, and the `{state}` frame stack is new; Phase 3 must prove both |
+
+## Decisions for the gate
+
+1. **Nested `Step::PipelineCommand`** rather than flattened steps. Recommended (Overview).
+2. **Text-form runs delegate to `PlanBuilder`.** Recommended: AC-10 and AC-24 then hold by
+   construction.
+3. **Recipe with both fields:** query, then pipeline, then the query's filename. Recommended: no
+   recipe provider or key changes. Alternative: forbid both fields together.
+4. **Bare scalars and arrays as `{value}` shorthand.** Recommended: yes, as registry defaults
+   already allow.
+5. **Positional and named under Python's rule** (V1, V2). Recommended. Alternative: two element
+   kinds, never mixed.
+6. **`PlanLink`** for a nested pipeline with no text form, evaluated unmanaged. Recommended.
+   Alternative: refuse nested pipelines without a text form.

@@ -1,4 +1,4 @@
-# Phase 1: High-Level Design — Composite commands and pipelines
+# Phase 1: High-Level Design — Pipeline commands
 
 ## Purpose
 
@@ -18,11 +18,11 @@ definition or a recipe, and every caller writes a short, cacheable query.
   [`notation-and-integration.md`](./notation-and-integration.md) §2.
 - **Source**: what an action argument is given, by name: `{value: …}` (any JSON), `{placeholder:
   name}`, `{link: "<query>"}`, `{pipeline: […]}` (a nested pipeline evaluated as a link), `{state:
-  true}` (the input state of the enclosing composite), or `{multiple: […]}` (elements of a variadic
+  true}` (the input state of the enclosing pipeline command), or `{multiple: […]}` (elements of a variadic
   argument).
 - **Placeholder**: a named hole in a pipeline. It exists **only in pipelines**; query text gains no
   placeholder syntax (decided 2026-11-01).
-- **Composite command**: `CommandDefinition::Composite { pipeline }`, a command whose arguments are
+- **Pipeline command**: `CommandDefinition::Pipeline { pipeline }`, a command whose arguments are
   its declared placeholders and whose body is a pipeline. Calling it runs the body on its input with
   the arguments bound to the placeholders. (This is unrelated to the *composite variadic elements*
   of `design/composite-variadic-arguments/`.)
@@ -38,7 +38,7 @@ A pipeline every caller repeats today (validated with `liquers-validate`):
 ```
 
 An alias cannot name this: it runs three commands, and `pl/is_in` fixes `column = region`, which
-is not a leading argument of any single target. **Should**, as a composite in the registry:
+is not a leading argument of any single target. **Should**, as a pipeline command in the registry:
 
 ```yaml
 - namespace: sales
@@ -47,7 +47,7 @@ is not a leading argument of any single target. **Should**, as a composite in th
   - { name: by, argument_type: string, default: !Value amount }
   - { name: n, argument_type: int, default: !Value 10 }
   - { name: regions, argument_type: string, multiple: true }
-  definition: !Composite
+  definition: !Pipeline
     pipeline:
     - { action: from_csv, ns: pl }
     - { action: is_in, ns: pl, arguments: { column: { value: region }, values: { placeholder: regions } } }
@@ -56,7 +56,7 @@ is not a leading argument of any single target. **Should**, as a composite in th
 ```
 
 With it, `-R/data/sales.csv/-/ns-sales/top_in-amount-5-EU-US/ns-pl/tail-2` mixes the two forms:
-a query, the composite's pipeline, then the query again. It returns the same rows as the long
+a query, the pipeline command's pipeline, then the query again. It returns the same rows as the long
 query, cached under its own query like any command's result.
 
 As a **recipe**, the list goes to `is_in`, which is not the last action. That is impossible today,
@@ -72,32 +72,32 @@ because overrides reach only the last action (the recipe's exact shape is decide
 
 ## Scope and Acceptance Criteria
 
-Composite commands in the registry (a):
+Pipeline commands in the registry (a):
 
-- **AC-1** Composite runs its pipeline
-  WHEN a registered composite is called from a query with positional parameters
-  THEN the result equals running its pipeline on the composite's input, with each placeholder replaced by the matching argument
+- **AC-1** A pipeline command runs its pipeline
+  WHEN a registered pipeline command is called from a query with positional parameters
+  THEN the result equals running its pipeline on the pipeline command's input, with each placeholder replaced by the matching argument
 - **AC-2** Arguments in any order and position
-  WHEN a composite's arguments are ordered differently from the steps they fill, or one placeholder is used twice
+  WHEN a pipeline command's arguments are ordered differently from the steps they fill, or one placeholder is used twice
   THEN each use receives its argument
 - **AC-3** Declared placeholders and defaults
   WHEN an argument is omitted
-  THEN its declared default applies; with no default it is `ArgumentMissing` naming the composite argument; an omitted `argument_type`, `multiple` or `gui_info` is taken from the slot the placeholder fills
+  THEN its declared default applies; with no default it is `ArgumentMissing` naming the pipeline command argument; an omitted `argument_type`, `multiple` or `gui_info` is taken from the slot the placeholder fills
 - **AC-4** Input state as an argument
   WHEN a step argument's source is `{state: true}`
-  THEN that argument receives the composite's input state
+  THEN that argument receives the pipeline command's input state
 - **AC-5** A value as the current state
   WHEN a pipeline element is `{value: …}` or `{placeholder: name}`
-  THEN the following step receives that value as its state (`Step::UseValue`); a composite whose first element is one of these is a source command (`state_argument: None`)
+  THEN the following step receives that value as its state (`Step::UseValue`); a pipeline command whose first element is one of these is a source command (`state_argument: None`)
 - **AC-6** Registration validation
-  WHEN a composite is registered or deserialized, and a placeholder is not a declared argument, an argument is `injected`, or an argument name is not an argument of its step's command
+  WHEN a pipeline command is registered or deserialized, and a placeholder is not a declared argument, an argument is `injected`, or an argument name is not an argument of its step's command
   THEN each problem is an `Issue::CommandRegistry` in the registry's `IssueReport` (`CommandMetadata::check`); an error-severity issue refuses registration and nothing is registered; an argument that no placeholder uses is a warning
 - **AC-7** Hygiene and nesting
-  WHEN a composite's steps name commands
-  THEN they resolve through each element's own `ns` and `realm`, else the default namespaces, never the caller's `ns`; a pipeline may call aliases and composites, and a cycle is a planning error naming the cycle
+  WHEN a pipeline command's steps name commands
+  THEN they resolve through each element's own `ns` and `realm`, else the default namespaces, never the caller's `ns`; a pipeline may call aliases and pipeline commands, and a cycle is a planning error naming the cycle
 - **AC-8** Caching, dependencies and errors
-  WHEN a composite's result is computed
-  THEN it is cached under the calling query; the composite's metadata is a dependency, so editing its pipeline invalidates the result; the steps' volatility, payload requirement and expiration apply; and an error in a step names the composite and the step
+  WHEN a pipeline command's result is computed
+  THEN it is cached under the calling query; the pipeline command's metadata is a dependency, so editing its pipeline invalidates the result; the steps' volatility, payload requirement and expiration apply; and an error in a step names the pipeline command and the step
 
 The pipeline form, everywhere:
 
@@ -108,7 +108,7 @@ The pipeline form, everywhere:
   WHEN a pipeline that is not a command's definition (a recipe's pipeline, or one planned on its own) contains a placeholder
   THEN planning fails with an unresolved-placeholder error naming it; inside a definition, every placeholder is a declared argument, so it always has a value, a default or an `ArgumentMissing` error (AC-3)
 - **AC-16** Queries and pipelines combine in one plan
-  WHEN a query calls a composite and continues after it, or a pipeline contains `{query: …}` elements, or a recipe has a query and a pipeline
+  WHEN a query calls a pipeline command and continues after it, or a pipeline contains `{query: …}` elements, or a recipe has a query and a pipeline
   THEN the planner processes query actions and pipeline elements into one plan, in order, each receiving the previous one's state
 - **AC-17** Positional and named arguments
   WHEN an action element gives `parameters` (positional, the last ones filling a variadic) and/or `arguments` (by name, in any order, leaving some out)
@@ -121,9 +121,9 @@ The pipeline form, everywhere:
   THEN it receives one element per entry, with the list spliced in place; a list for a non-variadic slot, unless its type is `any`, is a `ParameterError`
 - **AC-20** Injection and payload are forwarded
   WHEN a step's command has `injected` arguments or `payload: required`
-  THEN the arguments are injected from the caller's context and the composite is `payload: required`, exactly as for a direct call
+  THEN the arguments are injected from the caller's context and the pipeline command is `payload: required`, exactly as for a direct call
 - **AC-21** Round trip and validation
-  WHEN a composite or a pipeline is serialized (registry export, YAML, JSON) and read back, or given to `liquers-validate`
+  WHEN a pipeline command or a pipeline is serialized (registry export, YAML, JSON) and read back, or given to `liquers-validate`
   THEN it is unchanged, and the validator plans it, reporting its text form when it has one
 
 - **AC-23** A list for a single argument
@@ -146,21 +146,21 @@ Retired:
 
 Non-goals: placeholder syntax in query text (no change to query encoding); web API routes,
 endpoint recipes, MCP serving and payload sources (the follow-up issue above); an `injected`
-composite argument; replacing `CommandDefinition::Alias`; Python and JavaScript registration
+pipeline command argument; replacing `CommandDefinition::Alias`; Python and JavaScript registration
 helpers (both read the metadata form as it is).
 
-**Web API in this design.** No route changes. HTTP overrides keep working against a composite: a
-composite's arguments are its own `ArgumentInfo`s, so `?n=5` on `…/ns-sales/top_in` sets `n` as for
+**Web API in this design.** No route changes. HTTP overrides keep working against a pipeline command: a
+pipeline command's arguments are its own `ArgumentInfo`s, so `?n=5` on `…/ns-sales/top_in` sets `n` as for
 any command.
 
 ## Core Interactions
 
-- Commands: `CommandDefinition::Composite`, registration, validation and export in the metadata registry.
-- Plans: `PlanBuilder` takes pipeline elements as well as queries, and expands composites into
+- Commands: `CommandDefinition::Pipeline`, registration, validation and export in the metadata registry.
+- Plans: `PlanBuilder` takes pipeline elements as well as queries, and expands pipeline commands into
   them; new `Step::UseValue`; the interpreter supplies `{state: true}`.
 - Assets / recipes: `Recipe` gains `pipeline`, with literal values only (AC-15).
-- Validation: `liquers-validate` accepts pipelines; `specs/command_registry.yaml` carries composites.
-- Consumers: `liquers-mcp` serves a composite as a tool like any command.
+- Validation: `liquers-validate` accepts pipelines; `specs/command_registry.yaml` carries pipeline commands.
+- Consumers: `liquers-mcp` serves a pipeline command as a tool like any command.
 
 ## Crate Placement
 
@@ -170,12 +170,12 @@ and a new `pipeline.rs` for the serde types): every consumer plans through core.
 
 ## Documentation Intent
 
-- Reference: new `specs/reference/PIPELINES_AND_COMPOSITES.md` (pipeline shape, composites,
-  planning, caching); extend `COMMAND_ALIASES.md` (relation to composites), `RECIPES_AND_PLANS.md`
+- Reference: new `specs/reference/PIPELINE_COMMANDS.md` (pipeline shape, pipeline commands,
+  planning, caching); extend `COMMAND_ALIASES.md` (relation to pipeline commands), `RECIPES_AND_PLANS.md`
   (recipe `pipeline`, mixed planning, `Step::UseValue`), `COMMAND_DECLARATION.md` §4.1
   (`definition`). `PROJECT_OVERVIEW.md` §Recipes gains `pipeline`; its query encoding is unchanged.
-- Guide: extend `COMMAND_REGISTRATION_GUIDE.md` (registering a composite) and
-  `COMMAND_DESIGN_GUIDE.md` §Aliases (alias, composite or Rust).
+- Guide: extend `COMMAND_REGISTRATION_GUIDE.md` (registering a pipeline command) and
+  `COMMAND_DESIGN_GUIDE.md` §Aliases (alias, pipeline command or Rust).
 - Documents to update: the above, each with a History row and a `reviewed:` bump.
 
 ## Open Questions
@@ -183,7 +183,7 @@ and a new `pipeline.rs` for the serde types): every consumer plans through core.
 Decided on 2026-11-01:
 
 - No placeholders in query text: the pipeline is the only mechanism.
-- The pipeline is the structured form for composites and recipes, and the planner mixes it with
+- The pipeline is the structured form for pipeline commands and recipes, and the planner mixes it with
   queries (`Step::UseValue` for a value element). The web part is a separate follow-up.
 - Every placeholder is a declared `ArgumentInfo` of the command, with the pipeline held in its
   `CommandDefinition`; problems are reported through `IssueReport`.
@@ -197,8 +197,8 @@ Analysis: [`notation-and-integration.md`](./notation-and-integration.md) (shape,
 payload) and [`pipeline-and-plan.md`](./pipeline-and-plan.md) (plans, recipes, lists, positional
 arguments).
 
-19. **Name.** Recommended: `CommandDefinition::Pipeline` ("pipeline alias") instead of
-    *composite*, because this is an alias whose body is a pipeline.
+- The variant is `CommandDefinition::Pipeline` (a "pipeline command", an alias whose body is a
+  pipeline), not *composite* (question 19, decided 2026-11-01).
 
 Deferred to Phase 2 by the maintainer (2026-11-01):
 
@@ -228,6 +228,8 @@ web endpoints or commands is left to the follow-up issue.
   `recipe-override-addressing`, whose positional addressing is dropped. Added AC-23 (a list for a
   single argument) and AC-24 (pipelines express queries); AC-6, AC-15 and AC-17 revised (an
   `IssueReport`, either query or pipeline, positional and named arguments). Questions 15–19 added.
+- **2026-11-01, approval.** Question 19 decided: `CommandDefinition::Pipeline`; this document says
+  *pipeline command* where it said *composite*. Phase 1 approved.
 - **2026-11-01, maintainer review 4.** Recipes define assets, not commands: AC-22 retired. Recipe
   pipelines carry literal values only, and a placeholder outside a command definition is a planning
   error (AC-11, AC-15 revised). The builder design, the recipe syntax and the variadic rules are
@@ -235,9 +237,9 @@ web endpoints or commands is left to the follow-up issue.
 
 ## Design Dependencies
 
-- `command-alias-contract` (complete) — origin; composites follow its validation and dependency rules.
+- `command-alias-contract` (complete) — origin; pipeline commands follow its validation and dependency rules.
 - `recipe-override-addressing` — **overlaps**: its positional addressing is dropped in favour of pipelines (2026-11-01); it keeps the `@key` hole.
-- `agent-command-proposal` — **overlaps**: it proposes alias commands; composites widen what it can propose.
+- `agent-command-proposal` — **overlaps**: it proposes alias commands; pipeline commands widen what it can propose.
 - `plan-default-namespaces` (PR #236) — **requires** its lookup chain for AC-7.
 - `WEB-API-CANNOT-RUN-PIPELINES-OR-RECIPE-ENDPOINTS` — **required-by**: the web follow-up builds on the pipeline types.
 
