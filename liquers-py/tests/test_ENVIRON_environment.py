@@ -211,3 +211,17 @@ def test_ENVIRON_liquers_version_after_shutdown():
     environment.shutdown()
     # Every other use raises after shutdown; the version is a constant and does not.
     assert environment.liquers_version == lq.default_environment().liquers_version
+
+
+def test_default_namespaces_from_config():
+    """`default_namespaces:` in the configuration makes an unqualified action resolve there."""
+    environment = lq.Environment(config={"default_namespaces": ["nsx"]})
+
+    @environment.command(namespace="nsx")
+    def loud():
+        return "LOUD"
+
+    assert environment.evaluate("loud") == "LOUD"
+    assert environment.evaluate("ns-nsx/loud") == "LOUD"
+    assert "to_text" in environment.evaluate("commands_doc")  # root is still searched
+    environment.shutdown()

@@ -181,6 +181,12 @@ pub trait Environment:
     /// Returns the mutable registry used while the environment is still owned.
     fn get_mut_command_metadata_registry(&mut self) -> &mut CommandMetadataRegistry;
 
+    /// The namespaces a query searches after those of its last `ns`, highest priority first: the
+    /// registry's `default_namespaces`, `["", "root"]` unless configured.
+    fn default_namespaces(&self) -> &[String] {
+        &self.get_command_metadata_registry().default_namespaces
+    }
+
     /// Returns the registry of value types this build knows.
     ///
     /// Mirrors [`Environment::get_command_metadata_registry`]: built once at construction from
@@ -341,6 +347,11 @@ impl<E: Environment> EnvRef<E> {
     /// Returns the command metadata registry.
     pub fn get_command_metadata_registry(&self) -> &CommandMetadataRegistry {
         self.0.get_command_metadata_registry()
+    }
+    /// The namespaces a query searches after those of its last `ns`
+    /// ([`Environment::default_namespaces`]).
+    pub fn default_namespaces(&self) -> &[String] {
+        self.0.default_namespaces()
     }
     /// Returns the command executor.
     pub fn get_command_executor(&self) -> &E::CommandExecutor {

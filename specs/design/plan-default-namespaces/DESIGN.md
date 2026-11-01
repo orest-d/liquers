@@ -2,9 +2,9 @@
 id: PLAN-DEFAULT-NAMESPACES
 kind: design
 title: Default namespaces for plan building, held by the environment and set by its configuration
-status: in_review
-phase: implementation
-readiness: needs-decision
+status: complete
+gh_pr: [242]
+readiness: ready
 autofix: not-eligible
 area: [core/plan, core/context, core/commands]
 issues: [PLAN-DEFAULT-NAMESPACES-NOT-CONFIGURABLE]
@@ -12,6 +12,9 @@ affects_docs: [reference/ENVIRONMENT_CONFIG.md, reference/RECIPES_AND_PLANS.md, 
 created: 2026-11-01
 ---
 # Default namespaces for plan building
+
+> **Complete on 2026-11-01**: the user accepted the Phase 1 recommendations (`proceed`) and the
+> plan was implemented in one PR after the design PR #236.
 
 Triage design (`.claude/skills/liquers-project/references/issue-triage.md`, case 3b), 2026-11-01:
 Phases 1-4 written under the bulk-design rules; awaiting review. GitHub #235.

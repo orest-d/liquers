@@ -2,7 +2,7 @@
 id: PLAN-DEFAULT-NAMESPACES-NOT-CONFIGURABLE
 kind: feature
 title: An environment cannot name default namespaces for plan building
-status: draft
+status: closed
 priority: P2
 complexity: L
 area: [core/plan, core/context, core/commands]
@@ -47,11 +47,19 @@ configuration; a Rust embedding can mutate the registry field directly.
   JSON and TOML documents and the Python binding get them), and so does `EnvironmentBuilder`.
 - When not specified, behaviour is unchanged: only the root namespace is searched.
 
-Designed in design/plan-default-namespaces/ — readiness: needs-decision; automatic fixing:
-not-eligible.
+Designed in design/plan-default-namespaces/ — readiness: ready; automatic fixing: not-eligible.
 
 ## Discovery
 
 User request in the project thread, 2026-11-01 (GitHub #235). `specs/index.csv` searched for
 `namespace` and `default_namespaces`: no duplicate; related closed design
 `template-diagnostics-namespace-scope` shares the lookup rule this extends.
+
+## Resolution
+
+Closed 2026-11-01. Implemented as designed in `design/plan-default-namespaces/` (design PR #236,
+implementation PR following it): `default_namespaces:` in `EnvironmentConfig`,
+`EnvironmentBuilder::with_default_namespaces`, `Environment::default_namespaces()`, and
+`CommandMetadataRegistry::lookup_namespaces` used by the planner, template diagnostics and `next`
+presets. Evidence: `liquers-core/tests/plan_default_namespaces.rs` and the `plan::tests` named in
+Phase 3. Per-realm chains were split off as `COMMAND-REGISTRY-NOT-ORGANIZED-BY-REALM`.

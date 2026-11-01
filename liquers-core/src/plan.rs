@@ -60,16 +60,14 @@ fn normalize_namespace(ns: &str) -> &str {
     }
 }
 
-fn namespaces_for_query(
-    query: &Query,
-    cmr: &CommandMetadataRegistry,
-) -> Result<Vec<String>, Error> {
+/// The namespaces of the last `ns` in `query`'s last transform segment, as plain strings.
+fn explicit_namespaces(query: &Query) -> Result<Vec<String>, Error> {
     let mut namespaces = Vec::new();
     if let Some(ns) = query.last_ns() {
         for x in ns.iter() {
             match x {
                 ActionParameter::String(s, _) => namespaces.push(s.to_string()),
-                _ => {
+                ActionParameter::Link(..) => {
                     return Err(Error::not_supported(
                         "Only string parameters are supported in ns".into(),
                     ));
@@ -77,10 +75,21 @@ fn namespaces_for_query(
             }
         }
     }
-    cmr.default_namespaces.iter().for_each(|x| {
-        namespaces.push(x.clone());
-    });
     Ok(namespaces)
+}
+
+/// The lookup chain for the next action of `query`: its last `ns`, then the registry's default
+/// namespaces ([`CommandMetadataRegistry::lookup_namespaces`]).
+fn namespaces_for_query(
+    query: &Query,
+    cmr: &CommandMetadataRegistry,
+) -> Result<Vec<String>, Error> {
+    Ok(cmr.lookup_namespaces(&explicit_namespaces(query)?))
+}
+
+/// The registry's default chain when nothing is configured: root only.
+fn unconfigured_namespaces() -> Vec<String> {
+    CommandMetadataRegistry::new().default_namespaces
 }
 
 /// Rewrites `query` so every *relative* default link becomes an explicit query link.
@@ -188,20 +197,35 @@ pub fn append_action(
 ) -> Result<Query, Error> {
     let plain_query = append_actions(query, vec![action.clone()]);
 
-    let namespaces = namespaces_for_query(query, cmr)?;
+    let explicit = explicit_namespaces(query)?;
     let realm = query.last_transform_realm();
-    let resolved_plain = cmr.find_command_in_namespaces(&realm, &namespaces, &action.name);
-
     let requested_ns = normalize_namespace(ns);
-    if resolved_plain
-        .as_ref()
-        .is_some_and(|m| normalize_namespace(&m.namespace) == requested_ns)
-    {
+    let resolves_to_requested = |namespaces: &Vec<String>| {
+        cmr.find_command_in_namespaces(&realm, namespaces, &action.name)
+            .is_some_and(|m| normalize_namespace(&m.namespace) == requested_ns)
+    };
+
+    // The bare action must mean the same here and in an environment with the unconfigured chain,
+    // so a generated query stays portable (`specs/design/plan-default-namespaces/`).
+    let configured = cmr.lookup_namespaces(&explicit);
+    let mut unconfigured = explicit.clone();
+    unconfigured.extend(unconfigured_namespaces());
+    let configured_ok = resolves_to_requested(&configured);
+    if configured_ok && resolves_to_requested(&unconfigured) {
         return Ok(plain_query);
     }
 
     if requested_ns.is_empty() {
-        return Ok(plain_query);
+        // A root command is appended bare unless a configured default namespace shadows it.
+        if configured_ok
+            || configured == unconfigured
+            || cmr.find_command(&realm, "", &action.name).is_none()
+        {
+            return Ok(plain_query);
+        }
+        let ns_action = ActionRequest::new(NS_INSTRUCTION.to_string())
+            .with_parameters(vec![ActionParameter::new_string("root".to_string())]);
+        return Ok(append_actions(query, vec![ns_action, action]));
     }
 
     let ns_action = ActionRequest::new(NS_INSTRUCTION.to_string())
@@ -7396,6 +7420,136 @@ mod tests {
         let plan = PlanBuilder::new(parse_query("-R/data/x.txt/-/a/b")?, &cmr).build()?;
         assert_eq!(action_realms(&plan).len(), 2);
         assert!(PlanBuilder::new(parse_query("-r/a")?, &cmr).build().is_err());
+        Ok(())
+    }
+
+    // ---- default namespaces (specs/design/plan-default-namespaces/) ----
+
+    /// A registry with `pl/head`, `lui/x`, root `to_text`, and `x` in both root and `pl`.
+    fn namespace_registry(default_namespaces: &[&str]) -> CommandMetadataRegistry {
+        let mut cmr = CommandMetadataRegistry::new();
+        for (namespace, name) in [("pl", "head"), ("lui", "x"), ("root", "to_text"), ("root", "x"), ("pl", "x")] {
+            let mut cmd = CommandMetadata::new(name);
+            cmd.namespace = namespace.to_string();
+            cmr.add_command(&cmd);
+        }
+        if !default_namespaces.is_empty() {
+            let configured: Vec<String> = default_namespaces.iter().map(|s| s.to_string()).collect();
+            cmr.default_namespaces = CommandMetadataRegistry::default_namespace_chain(&configured);
+        }
+        cmr
+    }
+
+    /// `(namespace, name)` of every action step, root written as `""`.
+    fn resolved_actions(query: &str, cmr: &CommandMetadataRegistry) -> Result<Vec<(String, String)>, Error> {
+        resolved_query_actions(&parse_query(query)?, cmr)
+    }
+
+    fn resolved_query_actions(query: &Query, cmr: &CommandMetadataRegistry) -> Result<Vec<(String, String)>, Error> {
+        let plan = PlanBuilder::new(query.clone(), cmr).build()?;
+        Ok(plan
+            .steps
+            .iter()
+            .filter_map(|step| match step {
+                Step::Action { ns, action_name, .. } => {
+                    Some((normalize_namespace(ns).to_string(), action_name.clone()))
+                }
+                _ => None,
+            })
+            .collect())
+    }
+
+    /// AC-1
+    #[test]
+    fn configured_namespace_resolves_unqualified_action() -> Result<(), Error> {
+        let cmr = namespace_registry(&["pl"]);
+        let bare = resolved_actions("-R/data/sales.csv/-/head", &cmr)?;
+        assert_eq!(bare, vec![("pl".to_string(), "head".to_string())]);
+        assert_eq!(bare, resolved_actions("-R/data/sales.csv/-/ns-pl/head", &cmr)?);
+
+        let unconfigured = namespace_registry(&[]);
+        let error = resolved_actions("-R/data/sales.csv/-/head", &unconfigured).unwrap_err();
+        assert_eq!(error.error_type, crate::error::ErrorType::ActionNotRegistered);
+        Ok(())
+    }
+
+    /// AC-2
+    #[test]
+    fn default_chain_is_unchanged() -> Result<(), Error> {
+        let cmr = namespace_registry(&[]);
+        assert_eq!(cmr.default_namespaces, vec!["".to_string(), "root".to_string()]);
+        assert_eq!(cmr.lookup_namespaces(&["pl".to_string()]), vec!["pl", "", "root"]);
+        assert_eq!(resolved_actions("-R/a/-/x", &cmr)?, vec![("".to_string(), "x".to_string())]);
+        Ok(())
+    }
+
+    /// AC-3: `ns` is searched first, then the defaults; first match wins.
+    #[test]
+    fn explicit_ns_is_searched_before_defaults() -> Result<(), Error> {
+        let cmr = namespace_registry(&["pl"]);
+        assert_eq!(cmr.lookup_namespaces(&["lui".to_string()]), vec!["lui", "pl", "", "root"]);
+        assert_eq!(resolved_actions("-R/a/-/ns-lui/x", &cmr)?, vec![("lui".to_string(), "x".to_string())]);
+        // `head` is not in `lui`, so the chain continues to the configured `pl`.
+        assert_eq!(resolved_actions("-R/a/-/ns-lui/head", &cmr)?, vec![("pl".to_string(), "head".to_string())]);
+        Ok(())
+    }
+
+    /// AC-4
+    #[test]
+    fn root_searched_after_configured_namespaces() -> Result<(), Error> {
+        let cmr = namespace_registry(&["pl"]);
+        assert_eq!(cmr.default_namespaces, vec!["pl", "", "root"]);
+        assert_eq!(resolved_actions("-R/a/-/to_text", &cmr)?, vec![("".to_string(), "to_text".to_string())]);
+        assert_eq!(resolved_actions("-R/a/-/x", &cmr)?, vec![("pl".to_string(), "x".to_string())]);
+
+        // A list that names root keeps its own order.
+        let root_first = namespace_registry(&["root", "pl"]);
+        assert_eq!(root_first.default_namespaces, vec!["root", "pl"]);
+        assert_eq!(resolved_actions("-R/a/-/x", &root_first)?, vec![("".to_string(), "x".to_string())]);
+        Ok(())
+    }
+
+    /// AC-3: each transform segment uses its own last `ns`, then the shared chain.
+    #[test]
+    fn second_segment_uses_its_own_ns_then_defaults() -> Result<(), Error> {
+        let cmr = namespace_registry(&["pl"]);
+        let actions = resolved_actions("-R/a/-/ns-lui/x/-/x", &cmr)?;
+        assert_eq!(
+            actions,
+            vec![("lui".to_string(), "x".to_string()), ("pl".to_string(), "x".to_string())]
+        );
+        Ok(())
+    }
+
+    /// AC-8
+    #[test]
+    fn append_action_keeps_ns_under_configured_chain() -> Result<(), Error> {
+        let cmr = namespace_registry(&["pl"]);
+        let unconfigured = namespace_registry(&[]);
+        let query = parse_query("-R-bin/data.txt")?;
+
+        let head = append_action(&query, "pl", ActionRequest::new("head".to_string()), &cmr)?;
+        assert_eq!(head.encode(), "-R-bin/data.txt/ns-pl/head");
+
+        let root_x = append_action(&query, "root", ActionRequest::new("x".to_string()), &cmr)?;
+        assert_eq!(root_x.encode(), "-R-bin/data.txt/ns-root/x");
+
+        let pl_x = append_action(&query, "pl", ActionRequest::new("x".to_string()), &cmr)?;
+        assert_eq!(pl_x.encode(), "-R-bin/data.txt/ns-pl/x");
+
+        // Each generated query plans to the requested command under both chains.
+        for (generated, expected) in [(&head, ("pl", "head")), (&root_x, ("", "x")), (&pl_x, ("pl", "x"))] {
+            let expected = vec![(expected.0.to_string(), expected.1.to_string())];
+            assert_eq!(resolved_query_actions(generated, &cmr)?, expected);
+            assert_eq!(resolved_query_actions(generated, &unconfigured)?, expected);
+        }
+
+        // A root command nothing shadows is still appended bare.
+        let to_text = append_action(&query, "root", ActionRequest::new("to_text".to_string()), &cmr)?;
+        assert_eq!(to_text.encode(), "-R-bin/data.txt/to_text");
+        // Unconfigured, output is as before.
+        let root_x = append_action(&query, "root", ActionRequest::new("x".to_string()), &unconfigured)?;
+        assert_eq!(root_x.encode(), "-R-bin/data.txt/x");
         Ok(())
     }
 }

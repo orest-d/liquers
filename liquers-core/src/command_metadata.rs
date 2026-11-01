@@ -1386,7 +1386,58 @@ impl CommandMetadataRegistry {
         for command in &self.commands {
             report.append(command.check());
         }
+        report.append(self.check_default_namespaces());
         report
+    }
+
+    /// Checks [`Self::default_namespaces`]: a namespace no registered command lives in is a
+    /// warning, most likely a misspelling. Root (`""` or `root`) is exempt.
+    fn check_default_namespaces(&self) -> IssueReport {
+        let mut report = IssueReport::default();
+        for namespace in &self.default_namespaces {
+            if namespace.is_empty() || namespace == DEFAULT_NAMESPACE {
+                continue;
+            }
+            if !self
+                .commands
+                .iter()
+                .any(|command| &command.namespace == namespace)
+            {
+                report.extend([Issue::generic(
+                    IssueSeverity::Warning,
+                    format!("Default namespace '{namespace}' contains no registered command"),
+                )]);
+            }
+        }
+        report
+    }
+
+    /// The namespaces an action is looked up in, highest priority first: `explicit` — the
+    /// parameters of the last `ns` before the action in its transform segment — then
+    /// [`Self::default_namespaces`]. [`Self::find_command_in_namespaces`] takes the first match.
+    ///
+    /// The one statement of the lookup chain; the planner, template diagnostics and `next` presets
+    /// all build their lists here (`specs/design/plan-default-namespaces/`).
+    pub fn lookup_namespaces(&self, explicit: &[String]) -> Vec<String> {
+        let mut namespaces = Vec::with_capacity(explicit.len() + self.default_namespaces.len());
+        namespaces.extend(explicit.iter().cloned());
+        namespaces.extend(self.default_namespaces.iter().cloned());
+        namespaces
+    }
+
+    /// The default chain for a configured list of namespaces: the list, then root unless the list
+    /// names it (`""` or `root`). `[pl]` gives `["pl", "", "root"]`; `[pl, root, img]` is kept as
+    /// written. Used by `EnvironmentBuilder::with_default_namespaces` and `liquers-validate`.
+    pub fn default_namespace_chain(configured: &[String]) -> Vec<String> {
+        let mut chain = configured.to_vec();
+        if !configured
+            .iter()
+            .any(|ns| ns.is_empty() || ns == DEFAULT_NAMESPACE)
+        {
+            chain.push(String::new());
+            chain.push(DEFAULT_NAMESPACE.to_string());
+        }
+        chain
     }
 
     pub fn get_global_enum(&self, name: &str) -> Option<&EnumArgument> {
@@ -2200,5 +2251,45 @@ mod tests {
         assert!(back.is_option());
         let json = serde_json::to_string(&EnumArgumentType::BooleanOption).expect("serialize");
         assert_eq!(json, "\"bool_opt\"");
+    }
+
+    /// AC-7 (warning half): a default namespace no command lives in is reported, root is exempt.
+    #[test]
+    fn namespace_chain_checks() {
+        let mut registry = CommandMetadataRegistry::new();
+        let mut head = CommandMetadata::new("head");
+        head.namespace = "pl".to_string();
+        registry.add_command(&head);
+        assert!(registry.check().is_empty(), "{}", registry.check());
+
+        registry.default_namespaces = CommandMetadataRegistry::default_namespace_chain(&[
+            "pl".to_string(),
+            "plx".to_string(),
+        ]);
+        let report = registry.check();
+        assert_eq!(report.warning_count(), 1, "{report}");
+        assert!(!report.has_errors(), "{report}");
+        assert!(report.to_string().contains("plx"), "{report}");
+    }
+
+    /// AC-11: the registry's serialized form is unchanged — no new field — and carries a
+    /// configured chain in `default_namespaces`.
+    #[test]
+    fn registry_export_carries_configured_chain() {
+        let registry = CommandMetadataRegistry::new();
+        let yaml = serde_yaml::to_string(&registry).expect("serialize");
+        assert!(
+            yaml.contains("default_namespaces:\n- ''\n- root\n"),
+            "{yaml}"
+        );
+
+        let mut configured = CommandMetadataRegistry::new();
+        configured.default_namespaces =
+            CommandMetadataRegistry::default_namespace_chain(&["pl".to_string()]);
+        let yaml = serde_yaml::to_string(&configured).expect("serialize");
+        assert!(
+            yaml.contains("default_namespaces:\n- pl\n- ''\n- root\n"),
+            "{yaml}"
+        );
     }
 }
