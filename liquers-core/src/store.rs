@@ -403,6 +403,10 @@ pub trait AsyncStore: crate::maybe_send::MaybeSend + crate::maybe_send::MaybeSyn
     // (`MetadataPipelineStore`) and the read-only decorator build on. Every one defaults to a
     // refusal, so no existing implementation changes and a store that does not offer data-only
     // access says so through [`AsyncStore::data_capabilities`] rather than failing later.
+    //
+    // A store implements these, never the `store_config` handlers: the pipeline runs the handlers
+    // over them, and `StoreRouterBuilder` installs it for a mount with a `metadata` section
+    // (`store::pipeline` module docs).
 
     /// The bytes of a data object, never touching metadata.
     async fn get_data(&self, key: &Key) -> Result<Vec<u8>, Error> {
@@ -442,6 +446,10 @@ pub trait AsyncStore: crate::maybe_send::MaybeSend + crate::maybe_send::MaybeSyn
     }
 
     /// Which of the data-only methods this store implements. All `false` by default.
+    ///
+    /// `data_access: true` is what lets a mount of this store take a `metadata` section: the
+    /// builder then wraps it in a [`MetadataPipelineStore`], which runs the section's handlers.
+    /// With `false`, such a section fails the build.
     fn data_capabilities(&self) -> DataCapabilities {
         DataCapabilities::default()
     }
