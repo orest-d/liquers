@@ -8,7 +8,7 @@ use liquers_core::context::{EnvRef, Environment};
 use liquers_core::error::Error;
 use liquers_core::query::Key;
 
-use crate::search::md_split::{blank_front_matter, sections};
+use crate::search::md_split::sections;
 
 use super::front_matter::{value_items, value_text, FrontMatterDoc};
 use super::layout::{load_yaml, CollectionSchema, FieldEquals, FieldType};
@@ -214,7 +214,7 @@ pub fn document_violations(
         ));
     }
     if !collection.sections.is_empty() {
-        let present: Vec<String> = sections(&blank_front_matter(text))
+        let present: Vec<String> = sections(text, true)
             .into_iter()
             .filter_map(|(heading, _, _, _)| heading)
             .map(|h| h.rsplit(" > ").next().unwrap_or(&h).to_lowercase())

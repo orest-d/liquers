@@ -53,8 +53,6 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - name: Install system OpenSSL headers
-        run: sudo apt-get update && sudo apt-get install -y libssl-dev
       - name: Install mdbook, pandoc and typst (pinned release binaries)
         run: |
           mkdir -p "$HOME/.local/bin"

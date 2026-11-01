@@ -13,6 +13,11 @@ created: 2026-10-26
 ---
 # Delegating evaluation of a key prefix to a server's asset manager
 
+**Parked 2026-11-01 by Orest.** The client/server system is planned but not yet defined, and the
+standing rule is a single (browser) environment, so this design waits until client/server is
+defined. Status stays `in_review`; nothing here is to be implemented before then. When it is picked
+up, reconcile it with the 2026-10-19 note that multiple realms will each have their own environment.
+
 Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-26: Phases 1-2 written, not
 approved, nothing implemented. Phases 3-4 are intentionally absent (`phase2-blocked`): the
 authority rule is a blocking question (Phase 1, Design Readiness), and every transport and identity

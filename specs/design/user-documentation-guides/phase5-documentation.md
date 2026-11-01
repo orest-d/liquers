@@ -91,6 +91,8 @@ capability lines under *Build and repository* (the user guides; API documentatio
 - `DRAFT-MARKERS-LOOK-ALIKE`: draft HTML styles every marker kind the same way.
 - `GUIDE-SECTION-ANCHORS-DIFFER-BETWEEN-RENDERERS`: section links between chapters break in EPUB
   and PDF.
+- `LIQUERS-DOCS-DUPLICATES-MARKDOWN-PARSING`: `liquers-markdown` landed on `main` in parallel;
+  `liquers-docs` should read Markdown through it.
 - `LIQUERS-DOCS-HAS-NO-LIVE-PREVIEW` (feature): the mdBook preprocessor step toward a Liquers-based
   documentation tool.
 

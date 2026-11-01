@@ -94,9 +94,7 @@ fn query(tag: &QueryTag, cmr: Option<&CommandMetadataRegistry>, out: &mut Vec<Di
 /// The namespaces an action is looked up in, as the planner builds them: those of the last `ns`
 /// before it in its own transform segment, then the registry's defaults.
 fn lookup_namespaces(segment_ns: &[String], cmr: &CommandMetadataRegistry) -> Vec<String> {
-    let mut namespaces = segment_ns.to_vec();
-    namespaces.extend(cmr.default_namespaces.iter().cloned());
-    namespaces
+    cmr.lookup_namespaces(segment_ns)
 }
 
 fn unknown(name: &str, realm: &str, position: &Position, out: &mut Vec<Diagnostic>) {
@@ -327,5 +325,18 @@ mod tests {
         let d = diagnose("{{$ known/head-3}}");
         assert_eq!(d.len(), 1, "{d:#?}");
         assert!(d[0].message.contains("'head'"), "{d:#?}");
+    }
+
+    /// plan-default-namespaces AC-9: a configured default namespace resolves an action the
+    /// template names without `ns`, as the planner does.
+    #[test]
+    fn diagnostics_use_configured_chain() {
+        let mut cmr = ns_registry();
+        assert_eq!(validate_template("{{$ head-3}}", TemplateSyntax::Mustache, Some(&cmr)).len(), 1);
+        cmr.default_namespaces = CommandMetadataRegistry::default_namespace_chain(&["pl".to_string()]);
+        let d = validate_template("{{$ head-3}}", TemplateSyntax::Mustache, Some(&cmr));
+        assert!(d.is_empty(), "{d:#?}");
+        let d = validate_template("{{$ ns-img/head-3}}", TemplateSyntax::Mustache, Some(&cmr));
+        assert!(d.is_empty(), "`ns` is searched first, then the defaults: {d:#?}");
     }
 }

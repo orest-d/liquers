@@ -9,7 +9,7 @@ rust-version.workspace = true
 crate-type = ["rlib", "cdylib"]
 
 [features]
-default = ["egui", "image-support", "polars", "records", "records-ipc", "records-parquet", "templates", "mem"]
+default = ["egui", "image-support", "polars", "records", "records-ipc", "records-parquet", "templates", "mem", "markdown"]
 # Command-line tools. Not in `default` — see the same note in liquers-core.
 cli = ["dep:clap"]
 image-support = ["imageproc"]
@@ -22,7 +22,7 @@ webui = ["dep:web-sys", "dep:wasm-bindgen", "dep:js-sys", "dep:wasm-bindgen-futu
 #polars = ["dep:polars", "dep:reqwest", "dep:openssl"]
 polars = ["dep:polars"]
 # Columnar record streams: a tabular value type with an Arrow-compatible layout (liquers-records).
-records = ["dep:liquers-records"]
+records = ["dep:liquers-records", "dep:liquers-markdown"]
 # Arrow IPC (Feather v2) and the Parquet writer for record views.
 records-ipc = ["records", "liquers-records/ipc"]
 records-parquet = ["records", "liquers-records/parquet"]
@@ -30,11 +30,15 @@ records-parquet = ["records", "liquers-records/parquet"]
 templates = ["dep:liquers-template"]
 # Agent memory: the `ns-mem` commands over Markdown documents with front-matter.
 mem = ["records", "dep:indexmap"]
+# Markdown navigation: the `ns-md` commands (liquers-markdown). The parser itself comes with
+# `records`, whose search, store-config and memory code reads Markdown through it.
+markdown = ["records"]
 
 [dependencies]
 liquers-core={path="../liquers-core"}
 liquers-records = { path = "../liquers-records", optional = true }
 liquers-template = { path = "../liquers-template", optional = true }
+liquers-markdown = { path = "../liquers-markdown", optional = true }
 clap = { version = "4", features = ["derive"], optional = true }
 liquers-macro={path="../liquers-macro"}
 serde = "1.0.229"

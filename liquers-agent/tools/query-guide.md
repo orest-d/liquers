@@ -1,7 +1,7 @@
 # Queries over this memory
 
 `memory_query` evaluates one Liquers query. It may use only the read-only commands of the
-namespaces `mem`, `rec` and `search`; anything else is refused before it runs.
+namespaces `mem`, `rec`, `search` and `md`; anything else is refused before it runs.
 
 ## Shape
 
@@ -33,7 +33,23 @@ Inside an argument, write `~_` for `-`, `~.` for a space, `~/` for `/` and `~~` 
 The fourth lists every memory (depth 0 is unlimited), keeps the drafts and sorts them by title.
 `list` applies its own `limit` before `eq` filters, so raise the limit when you filter.
 
+## One document, one section
+
+```text
+-R/./notes/idea.md/-/ns-md/outline/outline.md
+-R/./notes/idea.md/-/ns-md/section-_.problem/problem.md
+-R/./notes/idea.md/-/ns-md/links-_.2/links.md
+```
+
+These navigate a document without reading all of it: `outline` lists its headings with their
+`address`, `section-<address>` returns one section, and `links` the links in it, with the key
+each relative link resolves to. An address is a path of steps separated by `.`: a section
+number (`1.2`), heading text (`phase~.2.solution`, matched without case on whole words) or `_`
+for any one section, so `_.2` is section 2 under the document's title. `..` is a literal dot and
+`__` an underscore. `table-<address>` returns the table in a section as records.
+
 ## Commands
 
 The arguments, defaults and documentation of every allowed command are in
-`liquers://commands/mem`, `liquers://commands/rec` and `liquers://commands/search`.
+`liquers://commands/mem`, `liquers://commands/rec`, `liquers://commands/search` and
+`liquers://commands/md`.

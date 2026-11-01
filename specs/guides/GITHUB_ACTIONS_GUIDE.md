@@ -23,7 +23,7 @@ workflow is described here in the pull request that adds it.
 
 All of them also run on `workflow_dispatch` (the *Run workflow* button). The Rust ones share a
 pattern: `dtolnay/rust-toolchain@stable`, `Swatinem/rust-cache@v2` (saved only from `main`
-where the cache would otherwise be thrashed), system OpenSSL headers (`libssl-dev`), and, where
+where the cache would otherwise be thrashed), and, where
 the build is large, a *Free runner disk* step that removes preinstalled toolchains the job does
 not use. `Cargo.lock` is not committed, so a job that needs an exact dependency version resolves
 it first (`cargo generate-lockfile` in `liquers-web-tests.yml`).

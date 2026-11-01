@@ -57,8 +57,6 @@ jobs:
         with:
           shared-key: liquers-py
           save-if: ${{ github.ref == 'refs/heads/main' && matrix.python == '3.14' }}
-      - name: Install system OpenSSL headers
-        run: sudo apt-get update && sudo apt-get install -y libssl-dev
       - uses: actions/setup-python@v5
         id: py
         with:

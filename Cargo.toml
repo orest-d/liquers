@@ -1,12 +1,12 @@
 [workspace]
 resolver = "2"
-members=["liquers-core", "liquers-py", "liquers-store", "liquers-axum", "liquers-macro", "liquers-lib", "liquers-web", "liquers-records", "liquers-template", "liquers-mcp", "liquers-agent", "liquers-docs"]
+members=["liquers-core", "liquers-py", "liquers-store", "liquers-axum", "liquers-macro", "liquers-lib", "liquers-web", "liquers-records", "liquers-template", "liquers-markdown", "liquers-mcp", "liquers-agent", "liquers-docs"]
 
 # liquers-web is wasm32-only: it is excluded from the default set so that `cargo build`,
 # `cargo test` and `cargo check` at the workspace root keep working on native without
 # building it. Build it explicitly with `-p liquers-web --target wasm32-unknown-unknown`.
 # See specs/design/liquers-web/phase4-implementation.md, Step 8.
-default-members = ["liquers-core", "liquers-py", "liquers-store", "liquers-axum", "liquers-macro", "liquers-lib", "liquers-records", "liquers-template", "liquers-mcp"]
+default-members = ["liquers-core", "liquers-py", "liquers-store", "liquers-axum", "liquers-macro", "liquers-lib", "liquers-records", "liquers-template", "liquers-markdown", "liquers-mcp"]
 
 # Minimum supported Rust version, inherited by every member. A minimum, not a pin: newer toolchains
 # keep working. It is the highest `rust-version` among the resolved dependencies (egui 0.36 and

@@ -13,6 +13,9 @@ created: 2026-10-27
 ---
 # Traceback segments for errors that cross several languages
 
+**Parked 2026-11-01 by Orest.** The traceback stays a flat string for now (his position of
+2026-10-19, confirmed on 2026-11-01). Status stays `in_review`; question 1 is answered "not now".
+
 Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-27: Phases 1-4 written and
 reviewed without phase approval. Nothing is implemented. Recommended model: an ordered list of
 `TracebackSegment { language, command, text }` beside `Error::traceback`, which stays as the
