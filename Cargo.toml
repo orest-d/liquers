@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members=["liquers-core", "liquers-py", "liquers-store", "liquers-axum", "liquers-macro", "liquers-lib", "liquers-web", "liquers-records", "liquers-template", "liquers-mcp", "liquers-agent"]
+members=["liquers-core", "liquers-py", "liquers-store", "liquers-axum", "liquers-macro", "liquers-lib", "liquers-web", "liquers-records", "liquers-template", "liquers-mcp", "liquers-agent", "liquers-docs"]
 
 # liquers-web is wasm32-only: it is excluded from the default set so that `cargo build`,
 # `cargo test` and `cargo check` at the workspace root keep working on native without

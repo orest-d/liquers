@@ -14,8 +14,8 @@ GitHub Pages with Source "GitHub Actions" before the first `main` deploy.
 
 ## Progress
 
-- [ ] Step 1: `liquers-docs` crate — configuration, markers, neutral check, include command
-- [ ] Step 2: `liquers-docs` — environment, expansion, build tree, CLI
+- [x] Step 1: `liquers-docs` crate — configuration, markers, neutral check, include command
+- [x] Step 2: `liquers-docs` — environment, expansion, build tree, CLI
 - [ ] Step 3: `docs/` skeleton — three guides, shared fragments, home book, theme
 - [ ] Step 4: `scripts/build-docs.sh`, `docs-site.yml`, `CODEOWNERS`
 - [ ] Step 5: `docs_index.py` — chapters, `HISTORY.md` rows, check 18, `chapters-for`, Actions guide check

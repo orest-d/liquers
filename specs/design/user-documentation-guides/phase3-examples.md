@@ -58,7 +58,7 @@ A Python function becomes a command with `@command` …   (hand-written)
 
 ## 5.2 Defaults
 
-{{$ -R/specs/reference/COMMAND_DECLARATION.md/-/ns-docs/include-Argument~_defaults}}
+{{$ -R/specs/reference/COMMAND_DECLARATION.md/-/ns-docs/include-Argument~.defaults}}
 
 TBD: 5.3 Namespaces and realms.
 ```
@@ -67,7 +67,7 @@ TBD: 5.3 Namespaces and realms.
 `docs-site.zip`. In it, `guides/python/05-commands.html` shows the included rules and the `TBD:`
 box. The run's log lists the chapter in the marker report. Validation: the include query parses
 (`liquers-validate --command docs/include`, as `ns-docs` commands are not in the committed
-registry). `~_` is a space, and the heading matches `### 4.3 Argument defaults` without its
+registry). `~.` is a space (corrected in Phase 4: `~_` decodes to `-`), and the heading matches `### 4.3 Argument defaults` without its
 number.
 
 ## Example 2: releasing on `main`
@@ -111,3 +111,7 @@ surprise, the PR job also runs `liquers-docs check --release`.
 - `ns-docs` commands are not in `specs/command_registry.yaml` (it exports `liquers-lib` only), so a
   chapter's queries validate with `--command`, or with `liquers-docs check`, which uses the real
   registry.
+- Phase 4: in a query argument a space is `~.`, not `~_` (which decodes to `-`). A clean
+  `liquers-validate` result did not show this; the expansion test did. An ad-hoc query has no
+  working directory, so `liquers-docs` passes the chapter's folder as `expand`'s `cwd` argument;
+  `{{> ../_shared/x.md}}` then resolves, and the include is a recorded dependency.

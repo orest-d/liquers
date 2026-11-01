@@ -1,0 +1,29 @@
+[package]
+name = "liquers-docs"
+version = "0.1.0"
+edition = "2021"
+rust-version.workspace = true
+description = "Builds the Liquers user guides: expands chapter templates and writes mdBook and Pandoc sources"
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "liquers-docs"
+path = "src/main.rs"
+
+[dependencies]
+liquers-core = { path = "../liquers-core" }
+liquers-lib = { path = "../liquers-lib", default-features = false, features = ["templates", "mem"] }
+liquers-store = { path = "../liquers-store" }
+# register_command! expands to code naming this crate.
+liquers-macro = { path = "../liquers-macro" }
+clap = { version = "4", features = ["derive"] }
+futures = "0.3.34"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+serde_yaml = "0.9.34"
+tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros"] }
+
+[dev-dependencies]
+tokio = { version = "1.53.1", features = ["full"] }
