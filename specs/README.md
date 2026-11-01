@@ -442,6 +442,9 @@ deliberately folded behind a broader line.
 - design `lib-integration-test-feature-gates`
 - design `lib-polars-ethnum-rust-1-98`
 - design `library-no-panic-lint`
+- design `liquers-py-package`
+- design `liquers-py-records`
+- design `liquers-py-stubs`
 - design `liquers-web-records-bridge`
 - design `listdir-keys-deep-child-check`
 - design `macro-argument-hints-and-query-literals`
@@ -660,6 +663,9 @@ deliberately folded behind a broader line.
 - feature `PY-API-REFERENCE-NOT-GENERATED`
 - feature `PY-COMMAND-DECORATOR-CANNOT-DECLARE-ARGUMENT-METADATA`
 - feature `PY-COMMAND-DECORATOR-CANNOT-SET-REALM`
+- feature `PY-NO-PUBLISHED-WHEELS`
+- feature `PY-NO-TYPE-DECLARATIONS`
+- feature `PY-RECORD-SOURCES-CANNOT-BE-TRAVERSED-FROM-PYTHON`
 - feature `PY-RECORD-VALUES-CANNOT-CROSS-TO-PYTHON`
 - feature `QUERY-BUILDER-NOT-IN-BINDINGS`
 - feature `QUERY-CANNOT-CHOOSE-A-DATA-FORMAT`
