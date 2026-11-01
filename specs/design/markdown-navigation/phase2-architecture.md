@@ -70,7 +70,7 @@ impl Document {
 }
 impl Link { pub fn resolve(&self, document_key: &liquers_core::query::Key) -> Option<liquers_core::query::Key>; }
 
-pub enum Step { Number(usize), Text(String), Any, AnyDepth } // `3`, `phase 1`, `_`, `__`
+pub enum Step { Number(usize), Text(String), Any } // `3`, `phase 1`, `_`
 pub struct Address(pub Vec<Step>);
 impl Address { pub fn parse(text: &str) -> Result<Address, liquers_core::error::Error>; }
 impl std::fmt::Display for Address {}                       // inverse of parse: "." joins, ".." escapes
@@ -94,14 +94,15 @@ parsed. A target is a **query** when it begins with `-` or contains `/-/` and `p
 accepts it; query text is never split by Markdown markup (AC-8).
 
 **Addresses** (AC-2, AC-11). `Address::parse` splits on `.`, reading `..` as a literal dot; an
-empty step or empty address is an error. A step of ASCII digits only is `Number`, `_` is `Any`,
-`__` is `AnyDepth`, anything else `Text`. Resolution keeps a set of candidate sections, starting
+empty step or empty address is an error. A step of ASCII digits only is `Number`, a step that is
+exactly `_` is `Any`, anything else `Text`, in which `__` reads as a literal `_` and any other `_`
+is refused as reserved. Resolution keeps a set of candidate sections, starting
 from the top-level sections (no title skipped): `Number(n)` takes each candidate's `n`-th child;
-`Any` takes all their children; `AnyDepth` keeps the candidates and adds all their descendants;
+`Any` takes all their children;
 `Text(t)` takes the
 children whose heading words match `t`, ignoring case, preferring exact over word-prefix over
 contained-words, so `phase 1` never matches "Phase 10". At the end exactly one section must
-remain (AC-3). Without wildcards a step matches direct children only; when nothing matches but a
+remain (AC-3). A step matches direct children only; when nothing matches but a
 deeper section would, the error names its full address.
 
 **Commands** (`liquers-lib/src/markdown/commands.rs`, after `COMMAND_REGISTRATION_GUIDE.md`; sync
@@ -150,7 +151,7 @@ reporting its warnings in the error-free path through `context.warning` (so `tab
 
 | Case | Error |
 |---|---|
-| Empty address, empty step (`a..`, leading `.`) | `Error::general_error("md: invalid address '…': …")` |
+| Empty address, empty step (trailing or leading `.`), a reserved `_` (`my_var`) | `Error::general_error("md: invalid address '…': …")` |
 | No section matches | `Error::general_error` naming the address, the step that failed and, if a deeper section matches, its full address |
 | Several sections match a step | `Error::general_error` listing each candidate's address, heading and line |
 | No `n`-th table in the section | `Error::general_error` naming the section's address and the count found |

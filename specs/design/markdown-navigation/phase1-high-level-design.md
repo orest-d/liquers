@@ -60,9 +60,10 @@ subsection of any top-level section, here the document's only `#` title. The las
   THEN it is a section number: `1.2.3` is the 3rd subsection of the 2nd subsection of section 1,
   counted in document order; any other step is text, matched case-insensitively against the
   heading's words, exact before prefix before contained, so `phase~.1` does not match "Phase 10";
-  `..` is a literal dot, so `3..2` is the text "3.2" and matches `## Section 3.2`; `_` is any one
-  section at that level, and `__` any sections at any depth (zero or more levels), so `_.8` is §8
-  under the title and `__.history` the History section wherever it is; a wildcard path still
+  `..` is a literal dot, so `3..2` is the text "3.2" and matches `## Section 3.2`; `_` alone is a
+  placeholder for any one section at that level, so `_.8` is §8 under the title; `__` is a literal
+  underscore (`my__var` matches "my_var"), and any other `_` in a step is reserved and refused, so
+  it can gain a meaning later; a placeholder path still
   resolves to one section, or AC-3 applies
 - **AC-12** Addresses in the outline
   WHEN `ns-md/outline` lists a heading
@@ -137,8 +138,8 @@ Decided by the maintainer on 2026-11-01: a new `liquers-markdown` crate; folder 
 the path syntax of AC-2 and AC-11.
 
 Also decided on 2026-11-01: no title is skipped (skipping a lone `#` gives inconsistent numbers
-once a document has two), a step matches direct subsections only, and the wildcards `_` (one
-level) and `__` (any depth) give the "any" that skipping was meant to provide. `*` cannot be used:
+once a document has two), a step matches direct subsections only, and `_` is the placeholder
+(`__` escapes an underscore; other underscore forms are reserved). `*` cannot be used:
 the query parser refuses it in a parameter.
 
 A section number changes when a section is inserted before it, so stored references (templates,
