@@ -1833,10 +1833,14 @@ an API reference generated from the public surface. Build all three on the share
 restate them.
 
 `specs/` is internal (`DOCS_STRUCTURE_GUIDE.md` §2), and an *integration*'s users are not
-contributors, so the user-facing half of this feature belongs in a future `docs/`. Until that exists,
-the two hand-written documents live in `specs/` with `audience: user` or `both`, and move to `docs/`
-— never forked — when it is created (`DOCS_STRUCTURE_GUIDE.md` §9.6). The generated reference
-belongs to the language's own tooling and is published with the artifact (`PACKAGE`).
+contributors. Their book-like documentation is a user guide in `docs/guides/<language>/`, parallel
+to the Rust, Python and Web guides: the same chapters with the same numbers
+([`USER_DOCS_EDITING_GUIDE.md`](USER_DOCS_EDITING_GUIDE.md)). It is *written from* the two documents
+below, which stay in `specs/` as the agent-maintained contract and topic guide; a chapter names them
+in its `sources:` and includes from them where wording must match, rather than copying
+(`DOCS_STRUCTURE_GUIDE.md` §9.6). A new language's guide starts as the skeleton of the others, every
+chapter `outline`. The generated reference belongs to the language's own tooling and is published
+with the artifact (`PACKAGE`) and on the documentation site.
 
 **Objects/API to map or implement:**
 
@@ -1863,8 +1867,8 @@ belongs to the language's own tooling and is published with the artifact (`PACKA
   reference links the guide for usage
 
 **The design must answer:** Which of the three documents exist at the milestone that ships, and
-which are deferred with an issue? Where does the user guide live — `specs/guides/` now, `docs/`
-later, or the package's own documentation — and how is it moved without forking? What runs the
+which are deferred with an issue? Which chapters of the `docs/guides/<language>/` user guide does
+the milestone draft, and which stay `outline`? What runs the
 examples: the language's test runner over extracted blocks, a doctest mechanism, or a browser
 harness? How is an example that cannot run in that harness marked? How are the examples kept
 independent of each other — a fresh environment per example, or a teardown between them? Which
@@ -3892,6 +3896,7 @@ def test_DOCS04_every_public_name_is_documented():
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-01 | §DOCS: an integration's users get a guide in `docs/guides/<language>/`, parallel to the others and written from the contract reference and topic guide, which stay in `specs/`; the design question asks which chapters a milestone drafts. | `design/user-documentation-guides/` (phase-5) |
 | 2026-11-01 | §PACKAGE: the repository no longer links OpenSSL (TLS is `rustls`); the vendoring sentence says so. | `OPENSSL-BUILD-REQUIREMENT-IS-STALE` |
 | 2026-11-01 | §STORE: a language store *type* is possible through a bridging factory (`liquers-py` has one; `liquers-web` not yet). §RECIPE: the entry type names a language-registered factory with its arguments, replacing the `{type: python, object: …}` registry example; repeated types; `Recipe::plan_with_dependencies`. §6 Python: stores and recipe providers. | `design/liquers-py-store/`, `design/liquers-py-recipes/` (phase-5) |
 | 2026-10-31 | §6 Browser JavaScript: `UIDEF` is implemented (`defineElement`, `mountRenderer`); `DelegatedElement` and `run_headless` are reusable. | design `web-ui-define` |

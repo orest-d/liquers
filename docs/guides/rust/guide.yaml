@@ -1,0 +1,24 @@
+title: Liquers for Rust
+language: rust
+authors: [Orest Dubay]
+chapters:
+  - index.md
+  - 01-introduction.md
+  - 02-installing.md
+  - 03-queries.md
+  - 04-values.md
+  - 05-commands.md
+  - 06-stores.md
+  - 07-assets.md
+  - 08-environment.md
+  - 09-data.md
+  - 10-templates.md
+  - 11-ui.md
+  - 12-serving.md
+  - 13-search.md
+  - 14-testing.md
+  - 15-troubleshooting.md
+  - a-query-syntax.md
+  - b-command-library.md
+  - c-glossary.md
+  - d-sister-guides.md

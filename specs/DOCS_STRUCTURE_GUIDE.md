@@ -57,8 +57,12 @@ tracked document — issues, features, designs, references and guides — not ju
 | `issues/` | One file per defect, gap or proposed feature. | Something is wrong or missing and someone might fix it. |
 | `archive/` | Documents that were true on a date: audits, reviews, plans, superseded designs, worked examples. | **Read-only by rule.** Never edit a file here; if its content still matters, promote a fresh copy elsewhere. |
 
-`docs/` (a future sibling of `specs/`) is for **user-facing** documentation. `specs/` is internal:
-it addresses contributors, designers and coding agents. See §9.6.
+`docs/`, a sibling of `specs/`, is for **user-facing** documentation: the home page of the
+published site and the three user guides in `docs/guides/` (*Liquers for Rust*, *for Python*, *for
+the Web*), built by `liquers-docs` and `scripts/build-docs.sh` and published by CI. `specs/` is
+internal: it addresses contributors, designers and coding agents. See §9.6, and
+[`guides/USER_DOCS_EDITING_GUIDE.md`](guides/USER_DOCS_EDITING_GUIDE.md) for how chapters are
+written.
 
 ### Naming
 
@@ -102,7 +106,7 @@ and a YAML list in front-matter.
 | `axum` | `liquers-axum` — HTTP REST API |
 | `web` | `liquers-web` — browser/JavaScript bindings |
 | `py` | `liquers-py` — Python bindings |
-| `docs` | `specs/`, `docs/`, `README.md`, `CLAUDE.md`, skills |
+| `docs` | `specs/`, `docs/` (home page and user guides), `liquers-docs/`, `README.md`, `CLAUDE.md`, skills |
 | `build` | Cargo profiles, CI, `scripts/`, test infrastructure |
 
 ---
@@ -127,9 +131,10 @@ rejected. Closed items stay exactly where they are and remain linked; the CSV se
 | `design` | A design effort (§5). | `design/<slug>/DESIGN.md` |
 | `reference` | A description of how the system is (§9). | `reference/<NAME>.md` |
 | `guide` | Task-oriented how-to (§9). | `guides/<NAME>.md` |
+| `chapter` | A chapter of a user guide (§9.6). Its id is `<guide>/<file stem>`; its `status` is its own (`outline`, `draft`, `review`, `ready`). | `docs/guides/<guide>/<file>.md` (outside `specs/`) |
 
-The last three appear in `index.csv` but not in `issues/`. `kind` is what lets one index carry all
-five without the columns colliding — a design has a `phase` and no `priority`, a reference has a
+The last four appear in `index.csv` but not in `issues/`. `kind` is what lets one index carry all
+six without the columns colliding — a design has a `phase` and no `priority`, a reference has a
 `reviewed` date and neither.
 
 ### 4.3 Status
@@ -847,6 +852,18 @@ tooling, no network and no Python can still record what it found.
     YAML and needs no YAML library; `scripts/test_docs_index.py` compares both readers over the
     repository where PyYAML is installed.
 
+18. Nothing under `docs/` links into `specs/` (§9.6). Links inside code are text.
+19. Every user-guide chapter (`kind: chapter`) has a title and a status from §4.2, and each of its
+    `sources:` names an existing `specs/` document. **Warnings:** a `reviewed:` date with no row
+    naming the chapter and that date in its guide's `HISTORY.md`; a `reviewed:` more than 92 days
+    old (§9.4).
+20. **Warning:** a workflow in `.github/workflows/` that
+    [`guides/GITHUB_ACTIONS_GUIDE.md`](guides/GITHUB_ACTIONS_GUIDE.md) does not name.
+
+`liquers-docs check` adds the chapter rules that need the templates expanded: includes resolve,
+markers fit the status, no renderer-specific syntax, every relative link resolves inside `docs/`
+(`guides/USER_DOCS_EDITING_GUIDE.md`). It runs in `docs-site.yml`, not in `docs-check.yml`.
+
 Checks 12, 13 and 15 are **not implemented yet** — 12 needs the git diff, 13 needs cross-document
 Phase 5 validation, and 15 needs the API. `--sync` is likewise unbuilt. Everything else runs
 offline with no token.
@@ -1109,23 +1126,28 @@ from an incidental edit.
 
 ### 9.6 Audience: `specs/` versus `docs/`
 
-`specs/` is internal — contributors, designers, coding agents. A future `docs/` is user-facing:
-someone using Liquers rather than modifying it. The `audience` field (§9.1) generalizes a
-convention `LANGUAGE-INTEGRATION_GUIDE.md` already uses.
+`specs/` is internal — contributors, designers, coding agents. `docs/` is user-facing: someone using
+Liquers rather than modifying it. The `audience` field (§9.1) generalizes a convention
+`LANGUAGE-INTEGRATION_GUIDE.md` already uses.
 
-Nothing moves on account of it yet. It is recorded now so that creating `docs/` later is a filter
-over existing metadata rather than a re-reading of thirty documents.
+The user guides in `docs/guides/` are **written from** `specs/`, not moved out of it. A topic guide
+in `specs/guides/` (`PYTHON_GUIDE.md`, `TEMPLATE_GUIDE.md`, …) stays an agent-maintained working
+document; a chapter is a book-like text for users, edited by hand, that names the `specs/`
+documents it is drafted from in its `sources:`. Wording that must stay identical — a syntax table,
+a glossary — is *included* from `specs/` at build time rather than copied
+(`guides/USER_DOCS_EDITING_GUIDE.md` §5).
 
-Two rules apply from the start:
+Rules:
 
-- **Move, never fork.** A document that becomes user-facing moves to `docs/` and leaves nothing
-  behind. Two copies that were identical once and differ now is a known failure in this repository.
-- **`docs/` must not link into `specs/`.** Internal documents churn — designs get archived, issues
-  get resolved — and user-facing documentation must not break when they do. The reverse direction,
-  `specs/` linking into `docs/`, is fine.
-
-When a document moves to `docs/`, the review obligation moves with it. `docs/` is user-facing,
-which makes a stale claim there worse, not better.
+- **Include, never fork.** Text that must match a specification is included by the build; a
+  chapter does not hold a copy of it.
+- **`docs/` must not link into `specs/`** (check 18). Internal documents churn — designs get
+  archived, issues get resolved — and user-facing documentation must not break when they do. The
+  reverse direction, `specs/` linking into `docs/`, is fine.
+- **The review obligation covers chapters.** A chapter carries `reviewed:` and a row in its guide's
+  `HISTORY.md` per review (check 19). When a design lands, Phase 5 lists the chapters whose
+  `sources:` intersect its `affects_docs` (`docs_index.py chapters-for`) and reviews them with the
+  `specs/` documents (§9.3). The 92-day fallback (§9.4) applies to reviewed chapters too.
 
 ---
 
@@ -1138,6 +1160,7 @@ which makes a stale claim there worse, not better.
 | The reasoning for a change you are about to make | `design/<slug>/` | §5 |
 | A description of how the system works now | `reference/` | §9.1 — and a `## History` |
 | Instructions for doing a task in this repo | `guides/` | §9.1 — and a `## History` |
+| Documentation for people *using* Liquers | a chapter of `docs/guides/<guide>/` | `title`, `status`, `sources`, `reviewed` — `guides/USER_DOCS_EDITING_GUIDE.md` |
 | A review, audit or status report, true on a date | `archive/YYYY-MM-DD-*.md` | none |
 | Anything that will be regenerated | mark it `# GENERATED`, add a `--check` | none |
 
@@ -1152,6 +1175,7 @@ neither.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-01 | §2, §3: `docs/` exists (home page, user guides, `liquers-docs`). §4.2: kind `chapter`. §7.2: checks 18-20 (no `docs/` link into `specs/`, chapter rules, workflow coverage). §9.6 rewritten: user guides are written from `specs/` and include from it; chapters are reviewed like `specs/` documents. §10: where a user-facing chapter goes. | `design/user-documentation-guides/` (phase-5) |
 | 2026-10-21 | §4.6: front-matter is YAML; when to double-quote a value. §7.2 check 17: unquoted values YAML would misread are refused, quoted values are unquoted on reading. | `SPECS-FRONT-MATTER-IS-NOT-VALID-YAML`, `design/front-matter-yaml-agreement/` |
 | 2026-10-19 | §3: area `mcp` for `liquers-mcp` and `liquers-agent`. §4.8.1: filing through the agent memory's `memory_new`. | `design/agent-memory-mvp/` Phase 5 |
 | 2026-10-08 | §5.2.1, §7.2 check 16: acceptance scenarios (`AC-<n>` WHEN/THEN) in Phase 1, cited by Phase 3 tests and checked only when defined; a Phase 4 progress checklist; open designs without scenarios carry a note and are counted in one warning. | maintainer decision |

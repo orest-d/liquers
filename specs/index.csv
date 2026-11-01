@@ -6,6 +6,7 @@ AGENT-MEMORY-HAS-NO-MIGRATE-COMMAND,feature,"Agent memory schema changes are app
 AGENT-MEMORY-SERVICE,feature,"A memory service for agents, built on the liquers stack",closed,local,,,,P2,XL,axum;lib/commands;core/store;docs,,,,agent-memory-mvp,,2026-09-15,specs/issues/AGENT-MEMORY-SERVICE.md
 AGENT-WORKBENCH-SURFACE,feature,"Agents get only memory tools — no general surface to evaluate, validate, inspect or propose",draft,local,,,,P2,M,mcp;core/validate;docs,,,,,,2026-10-15,specs/issues/AGENT-WORKBENCH-SURFACE.md
 ANY-STATUS-READ-MISSES-STORED-VALUE-OF-UNLOADED-LIVE-ASSET,issue,Recovery reads return None while a concurrent get has mapped the key but not loaded it,closed,local,,ready,,P3,S,core/assets,,,,recovery-read-defers-placeholder,,2026-10-02,specs/issues/ANY-STATUS-READ-MISSES-STORED-VALUE-OF-UNLOADED-LIVE-ASSET.md
+API-DOCS-HAVE-NO-CONTENT-RULES,feature,"API documentation has no content rules, no place in the design process and no user-facing home",accepted,local,,,,P2,L,docs,232,,,api-documentation-rules,,2026-11-01,specs/issues/API-DOCS-HAVE-NO-CONTENT-RULES.md
 ARGUMENT-DECLARATION-IS-ALL-OR-NOTHING,feature,Declared arguments replace inferred ones instead of augmenting them,closed,local,,,,P3,M,core/commands;web;py,,,,,,2026-08-29,specs/issues/ARGUMENT-DECLARATION-IS-ALL-OR-NOTHING.md
 ARGUMENT-GUI-INFO-HAS-THREE-DEFAULTS,issue,An argument's default gui_info differs depending on how the command was registered,closed,local,,ready,,P2,S,core/commands;macro;web,,,,argument-gui-info-default,,2026-08-30,specs/issues/ARGUMENT-GUI-INFO-HAS-THREE-DEFAULTS.md
 ARGUMENT-INFO-HAS-NO-DESCRIPTION,issue,ArgumentInfo has no per-argument description,closed,local,,ready,not-eligible,P3,S,core/commands;macro,,,,command-metadata-descriptions-and-hints,,2026-09-24,specs/issues/ARGUMENT-INFO-HAS-NO-DESCRIPTION.md
@@ -153,6 +154,7 @@ DOCS-INDEX-GENERATION-DIFFERS-BY-HOST,issue,Documentation index generation diffe
 DOCS-LINK-CHECK-READS-CODE-SPANS,issue,The docs dead-link check treats link syntax inside code spans and code blocks as links,closed,local,,ready,,P3,S,docs;build,,,,docs-link-check-code-spans,,2026-10-04,specs/issues/DOCS-LINK-CHECK-READS-CODE-SPANS.md
 DOCS-STORE-CONFIG-DESCRIBES-ASYNC-FILESTORE-AS-FUTURE-WORK,issue,Store configuration reference describes AsyncFileStore as future work,closed,local,,,,P2,S,docs;core/store,,,,documentation-currentness-small-fixes,,2026-09-04,specs/issues/DOCS-STORE-CONFIG-DESCRIBES-ASYNC-FILESTORE-AS-FUTURE-WORK.md
 DOCS-TOOLING-TESTS-NOT-RUN-IN-CI,issue,The unit tests of the documentation tooling are not run by CI,closed,local,,ready,eligible,P3,S,docs;build,,,,docs-tooling-tests-in-ci,,2026-10-20,specs/issues/DOCS-TOOLING-TESTS-NOT-RUN-IN-CI.md
+DRAFT-MARKERS-LOOK-ALIKE,issue,Draft builds show every editorial marker the same way,draft,local,,,,P3,S,docs,,,,,,2026-11-01,specs/issues/DRAFT-MARKERS-LOOK-ALIKE.md
 DROPPED-RECIPE-RESULT-LEAVES-AN-EMPTY-DATA-FILE,issue,Removing a computed value with a stored record leaves an empty data file at its key,draft,local,,,,P3,S,core/assets;core/store,,,,,,2026-10-27,specs/issues/DROPPED-RECIPE-RESULT-LEAVES-AN-EMPTY-DATA-FILE.md
 EGUI-ASSET-MANAGER-INTEGRATION,feature,No stable adapter between egui widgets and the asset manager,accepted,local,,needs-decision,not-eligible,P2,M,lib/egui,,,,ui-asset-snapshot-boundary,,2026-08-08,specs/issues/EGUI-ASSET-MANAGER-INTEGRATION.md
 ENUM-ALTERNATIVES-HAVE-NO-LABEL,issue,An enum alternative has an alias and a value but no label or description,draft,local,,needs-decision,not-eligible,P3,M,core/commands;macro,,,,enum-alternative-labels,,2026-10-20,specs/issues/ENUM-ALTERNATIVES-HAVE-NO-LABEL.md
@@ -187,6 +189,7 @@ FOREIGN-VALUE-TEXT-AND-JSON-HOOKS-NEVER-CALLED,issue,"ForeignValue's text and JS
 FOREIGN-VALUE-TYPES-NOT-REGISTERED,issue,A foreign language value cannot be registered in the type registry,closed,local,,,,P1,M,core/value;lib/value;web;py,,,,foreign-value-type-registration,,2026-08-18,specs/issues/FOREIGN-VALUE-TYPES-NOT-REGISTERED.md
 FREE-FUNCTION-EVALUATE-BAKES-A-BIN-DATA-FORMAT,issue,Every unkeyed/ad-hoc asset declares a bin data format it usually cannot serialize as,closed,local,,ready,not-eligible,P2,M,core/plan,,,,plan-step-state-metadata,,2026-09-26,specs/issues/FREE-FUNCTION-EVALUATE-BAKES-A-BIN-DATA-FORMAT.md
 GLOBAL-ENUMS-NOT-IMPORTED-BY-LANGUAGE-INTEGRATIONS,issue,JavaScript and Python cannot supply the global enums their commands refer to,draft,local,,needs-decision,not-eligible,P3,M,web;py,,,,language-global-enum-import,,2026-10-20,specs/issues/GLOBAL-ENUMS-NOT-IMPORTED-BY-LANGUAGE-INTEGRATIONS.md
+GUIDE-SECTION-ANCHORS-DIFFER-BETWEEN-RENDERERS,issue,Section links between chapters break in the EPUB and PDF,draft,local,,,,P3,S,docs,,,,,,2026-11-01,specs/issues/GUIDE-SECTION-ANCHORS-DIFFER-BETWEEN-RENDERERS.md
 HTTP-ACCEPT-HEADER-NOT-NEGOTIATED,feature,"The HTTP API reads Accept only for its envelope encoding, never to convert and serialize the value",draft,local,,needs-decision,not-eligible,P3,L,axum;core/value,,,,http-accept-negotiation,,2026-10-26,specs/issues/HTTP-ACCEPT-HEADER-NOT-NEGOTIATED.md
 HTTP-STORE-METADATA-DROPS-THE-EXTENSION-MEDIA-TYPE,issue,liquers-web's http store reports no media type for a key whose extension determines one,closed,local,,,,P2,S,web;core/store,,,,store-conformance-backlog,,2026-09-27,specs/issues/HTTP-STORE-METADATA-DROPS-THE-EXTENSION-MEDIA-TYPE.md
 IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-DOES-NOT-CASCADE,issue,"On the immediate manager, an elapsed deadline expires the asset but not its dependents",closed,local,,ready,,P3,S,core/assets,,,,immediate-lazy-expiry-cascade,,2026-10-02,specs/issues/IMMEDIATE-MANAGER-LAZY-DEADLINE-EXPIRY-DOES-NOT-CASCADE.md
@@ -220,6 +223,8 @@ LIB-RECIPE-PROVIDERS-HAVE-NO-VALIDATION-CLI,feature,No command-line tool validat
 LIBRARY-CODE-CALLS-ERROR-NEW-DIRECTLY,issue,"Library code constructs errors with Error::new, which CLAUDE.md forbids",draft,local,,needs-decision,not-eligible,P3,M,core/value;lib/value;lib/polars,,,,error-type-taxonomy,,2026-10-20,specs/issues/LIBRARY-CODE-CALLS-ERROR-NEW-DIRECTLY.md
 LIBRARY-CODE-USES-UNWRAP-AND-EXPECT,issue,Library code uses unwrap and expect despite the no-panic rule,draft,local,,needs-decision,not-eligible,P2,L,core/query;core/value;lib/egui;macro;build,,,,library-no-panic-lint,,2026-08-17,specs/issues/LIBRARY-CODE-USES-UNWRAP-AND-EXPECT.md
 LINK-IN-VARIADIC-DOES-NOT-EXPAND,issue,A link inside a variadic argument yields one element even when it resolves to an array,draft,local,,needs-decision,not-eligible,P3,M,core/plan;core/commands,,,,variadic-link-array-expansion,,2026-08-25,specs/issues/LINK-IN-VARIADIC-DOES-NOT-EXPAND.md
+LIQUERS-DOCS-DUPLICATES-MARKDOWN-PARSING,issue,liquers-docs parses Markdown with its own helpers instead of liquers-markdown,draft,local,,,,P3,S,docs,,,,,,2026-11-01,specs/issues/LIQUERS-DOCS-DUPLICATES-MARKDOWN-PARSING.md
+LIQUERS-DOCS-HAS-NO-LIVE-PREVIEW,feature,"liquers-docs is not an mdBook preprocessor, so there is no live preview",draft,local,,,,P3,M,docs,,,,,,2026-11-01,specs/issues/LIQUERS-DOCS-HAS-NO-LIVE-PREVIEW.md
 LOCAL-STORAGE-STORE-FAILS-CONFORMANCE-IN-A-BROWSER,issue,"LocalStorageStore fails three conformance rules, and its conformance test never runs in a browser",closed,local,,,,P2,M,web;core/store,,,,store-conformance-backlog,,2026-09-27,specs/issues/LOCAL-STORAGE-STORE-FAILS-CONFORMANCE-IN-A-BROWSER.md
 LOG-ENTRY-HAS-NO-SOURCE,issue,A state's log does not record whether an entry came from the command or from the engine,draft,local,,needs-decision,not-eligible,P3,M,core/value;core/plan,,,,diagnostics-carry-their-origin,,2026-10-19,specs/issues/LOG-ENTRY-HAS-NO-SOURCE.md
 MACRO-LEAVES-STALE-METADATA-VERSION,issue,"A macro-registered command's metadata_version is computed from its bare key, not its content",closed,local,,,,P1,S,core/commands;macro;core/assets,,,,refresh-command-metadata-versions,,2026-08-30,specs/issues/MACRO-LEAVES-STALE-METADATA-VERSION.md
@@ -239,6 +244,7 @@ METADATA-SAVER-SPAWNS-ON-THE-INLINE-PATH,issue,A command that logs or reports pr
 METADATA-TITLE-AND-DESCRIPTION-NEVER-POPULATED,issue,Nothing populates an asset's title or description,rejected,local,,,,P2,M,core/value;core/store,,,,,,2026-09-16,specs/issues/METADATA-TITLE-AND-DESCRIPTION-NEVER-POPULATED.md
 MID-QUERY-Q-INSTRUCTION-DISCARDS-ARGUMENTS,issue,A q instruction in the middle of a query silently drops its parameters,closed,local,,ready,eligible,P3,S,core/plan,,,,mid-query-q-arity,,2026-10-20,specs/issues/MID-QUERY-Q-INSTRUCTION-DISCARDS-ARGUMENTS.md
 MISSING-RESOURCE-REPORTED-AS-GENERAL-ERROR,issue,A key that is neither stored nor made by a recipe raises a General error without its key,closed,local,,ready,not-eligible,P2,M,core/assets;core/error,,,,key-without-recipe-answer,,2026-10-19,specs/issues/MISSING-RESOURCE-REPORTED-AS-GENERAL-ERROR.md
+MODULE-DOCS-DO-NOT-FOLLOW-THE-API-DOC-RULES,issue,"Existing module docs lack purpose, usage, related concepts and examples",draft,local,,,,P3,L,docs;core/commands;core/value;lib/commands;axum;py,,,,,,2026-11-01,specs/issues/MODULE-DOCS-DO-NOT-FOLLOW-THE-API-DOC-RULES.md
 MULTI-LANGUAGE-TRACEBACK-IS-A-FLAT-STRING,issue,An error crossing several languages carries one flat traceback string with no structure,draft,local,,needs-decision,not-eligible,P3,L,core/error;py;web,,,,multi-language-traceback,,2026-10-19,specs/issues/MULTI-LANGUAGE-TRACEBACK-IS-A-FLAT-STRING.md
 NEW-FOLDER-WRITE-DOES-NOT-REFRESH-THE-PARENT-LISTING,issue,A write that creates a folder does not refresh the listing of the folder above it,closed,local,,ready,eligible,P3,S,core/assets,,,,new-folder-write-ancestor-listing-refresh,,2026-10-17,specs/issues/NEW-FOLDER-WRITE-DOES-NOT-REFRESH-THE-PARENT-LISTING.md
 NEXT-PRESETS-MISREAD-PLANNER-INSTRUCTIONS,issue,find_next_presets reads planner instructions differently from the planner,closed,local,,ready,eligible,P3,S,lib/commands,,,,next-presets-follow-planner-rules,,2026-10-20,specs/issues/NEXT-PRESETS-MISREAD-PLANNER-INSTRUCTIONS.md
@@ -317,6 +323,7 @@ QUERY-BUILDER-TOOLING,issue,No programmatic builder for constructing queries,acc
 QUERY-CANNOT-CHOOSE-A-DATA-FORMAT,feature,A query cannot choose a data format or a format refinement except through a filename,draft,local,,needs-decision,not-eligible,P2,M,lib/commands;core/value,,,,query-data-format-command,,2026-10-20,specs/issues/QUERY-CANNOT-CHOOSE-A-DATA-FORMAT.md
 QUERY-CANNOT-MARK-CACHED-INTERMEDIATES,feature,A query cannot mark which of its intermediates are worth caching,draft,local,,needs-decision,not-eligible,P3,M,core/plan;core/assets;core/query,,,,query-cache-directives,,2026-10-10,specs/issues/QUERY-CANNOT-MARK-CACHED-INTERMEDIATES.md
 QUERY-DOCS-CLAIM-LINK-PARAMETERS-DO-NOT-PARSE,issue,"query.rs module docs say link parameters do not parse, but they do",closed,local,,,,P3,S,core/query;docs,,,,,,2026-10-13,specs/issues/QUERY-DOCS-CLAIM-LINK-PARAMETERS-DO-NOT-PARSE.md
+QUERY-SYNTAX-HAS-NO-INCLUDABLE-SECTION,issue,Query Language section of PROJECT_OVERVIEW cannot be included in the user guides,draft,local,,,,P3,S,docs,,,,,,2026-11-01,specs/issues/QUERY-SYNTAX-HAS-NO-INCLUDABLE-SECTION.md
 QUERY-TOKEN-CLASSES-TRUNCATE-NON-ASCII,issue,"Action names, filenames and header values accept non-ASCII characters by low-byte truncation",closed,local,,ready,eligible,P2,S,core/query,,,,query-token-classes-ascii,,2026-10-21,specs/issues/QUERY-TOKEN-CLASSES-TRUNCATE-NON-ASCII.md
 QUEUED-MANAGER-EVICTION-RACE,issue,The queued manager's cache evictions can delete a replacement asset,closed,local,,ready,,P2,S,core/assets,,,,queued-manager-conditional-eviction,,2026-08-09,specs/issues/QUEUED-MANAGER-EVICTION-RACE.md
 QUEUED-MANAGER-STARTUP-READINESS,issue,Queued asset manager accepts work before it is ready to run it,closed,local,,,,P1,L,core/assets,,,,environment-builder,,2026-08-08,specs/issues/QUEUED-MANAGER-STARTUP-READINESS.md
@@ -445,6 +452,7 @@ SUPPLIED-EXPIRED-STATUS-STORED-WITHOUT-REASON,issue,set_binary and set_state acc
 TEMPLATE-DIAGNOSTICS-CHECK-COMMANDS-A-Q-QUOTES,issue,"Template diagnostics report unknown commands in a query part that a later q quotes, which the planner never resolves",draft,local,,,,P3,S,core/query;lib/commands,,,,,,2026-10-26,specs/issues/TEMPLATE-DIAGNOSTICS-CHECK-COMMANDS-A-Q-QUOTES.md
 TEMPLATE-DIAGNOSTICS-RESOLVE-NAMESPACES-FROM-THE-WHOLE-QUERY,issue,Template diagnostics look every command up in one namespace list for the whole query,closed,local,,ready,eligible,P3,S,core/query;lib/commands,,,,template-diagnostics-namespace-scope,,2026-10-26,specs/issues/TEMPLATE-DIAGNOSTICS-RESOLVE-NAMESPACES-FROM-THE-WHOLE-QUERY.md
 TEMPLATE-HAS-NO-HIGHLIGHTER,feature,Templates cannot be rendered with syntax highlighting,draft,local,,needs-decision,not-eligible,P3,L,lib/ui;lib/egui;lib/commands,,,,template-syntax-highlighter,,2026-10-17,specs/issues/TEMPLATE-HAS-NO-HIGHLIGHTER.md
+TEMPLATE-HAS-NO-MDBOOK-INCLUDE-SYNTAX,feature,Liquers templates cannot read mdBook's {{#include}} syntax,draft,local,,,,P3,M,lib/commands;docs,,,,,,2026-11-01,specs/issues/TEMPLATE-HAS-NO-MDBOOK-INCLUDE-SYNTAX.md
 TEMPLATE-NON-SCALAR-HAS-NO-TEXT-FORM,issue,"A template cannot index into a Query or Key value, and inserts other non-scalars as JSON",draft,local,,needs-decision,not-eligible,P3,M,lib/commands,,,,template-non-scalar-text-form,,2026-10-17,specs/issues/TEMPLATE-NON-SCALAR-HAS-NO-TEXT-FORM.md
 TEMPLATE-TOP-LEVEL-RENDER-HAS-NO-HOST,feature,A template cannot be rendered from outside a command without encoding it into a query,draft,local,,needs-decision,not-eligible,P3,M,lib/commands,,,,template-render-in-env,,2026-10-25,specs/issues/TEMPLATE-TOP-LEVEL-RENDER-HAS-NO-HOST.md
 TEMPORARY-ASSET-NEVER-RUN-IS-KEPT-ALIVE-BY-ITS-SERVICE-LOOP,issue,A temporary asset that is never run is kept alive forever by its own service-message loop,closed,local,,covered,not-eligible,P3,S,core/assets,,,,temporary-asset-never-run-leak,,2026-10-18,specs/issues/TEMPORARY-ASSET-NEVER-RUN-IS-KEPT-ALIVE-BY-ITS-SERVICE-LOOP.md
@@ -465,6 +473,9 @@ UI-WIDGET-DOES-NOT-CONVERT-ITS-VALUE,feature,"A UI view renders a value only by 
 UNCACHED-STORED-COPY-EXPIRY-RACES-AN-INFLIGHT-EVALUATION,issue,Expiring an uncached key's stored copy can be overwritten by an evaluation already in flight,closed,local,,ready,eligible,P3,M,core/assets,,,,uncached-write-back-rechecks-dependency-versions,,2026-09-27,specs/issues/UNCACHED-STORED-COPY-EXPIRY-RACES-AN-INFLIGHT-EVALUATION.md
 UNKEYED-ASSET-HAS-NO-VERSION,feature,"A keyless query asset has no version, so nothing can tell whether it changed without re-evaluating it",draft,local,,needs-decision,not-eligible,P3,M,core/assets;records,,,,unkeyed-asset-derived-version,,2026-10-26,specs/issues/UNKEYED-ASSET-HAS-NO-VERSION.md
 UNMANAGED-ASSET-NOT-FOLLOWABLE-ACROSS-CONNECTIONS,feature,An unmanaged asset can be followed only by the connection that requested it,draft,local,,needs-decision,not-eligible,P3,M,axum;core/context,,,,unmanaged-asset-registry,,2026-10-12,specs/issues/UNMANAGED-ASSET-NOT-FOLLOWABLE-ACROSS-CONNECTIONS.md
+USER-DOCUMENTATION-CANNOT-BE-GENERATED,feature,"Nothing generates the user documentation site, and Liquers cannot build one from templates",closed,local,,,,P2,L,docs;build;lib/commands,233,,,user-documentation-guides,,2026-11-01,specs/issues/USER-DOCUMENTATION-CANNOT-BE-GENERATED.md
+USER-GUIDE-EXAMPLES-ARE-NOT-EXECUTED,issue,User guide chapter examples are not executed,draft,local,,,,P2,M,docs;build,,,,,,2026-11-01,specs/issues/USER-GUIDE-EXAMPLES-ARE-NOT-EXECUTED.md
+USER-GUIDES-LIVE-IN-SPECS,feature,"Liquers has no public user guides, in any format, and nothing publishes documentation on the web",closed,local,,,,P2,L,docs;build,,,,user-documentation-guides,,2026-11-01,specs/issues/USER-GUIDES-LIVE-IN-SPECS.md
 V-INSTRUCTION-IS-WHOLE-PLAN-NOT-POSITIONAL,issue,The `v` instruction marks the whole plan volatile rather than the steps after it,closed,local,,,,P3,M,core/plan;core/query,,,,plan-policy,,2026-08-26,specs/issues/V-INSTRUCTION-IS-WHOLE-PLAN-NOT-POSITIONAL.md
 VALIDATE-CANNOT-SEE-NON-STANDARD-RECIPE-PROVIDERS,feature,liquers-validate cannot validate recipes served by a non-standard or generative recipe provider,draft,local,,needs-decision,not-eligible,P3,M,core/commands;core/plan,,,,validate-through-recipe-providers,,2026-09-25,specs/issues/VALIDATE-CANNOT-SEE-NON-STANDARD-RECIPE-PROVIDERS.md
 VALIDATE-COMMAND-STUB-REJECTS-POSITIONAL-EMPTIES,issue,A liquers-validate --command stub rejects a query with empty positional parameters,closed,local,,ready,eligible,P3,S,core/validate,,,,variadic-empty-element-conversion,,2026-10-12,specs/issues/VALIDATE-COMMAND-STUB-REJECTS-POSITIONAL-EMPTIES.md
@@ -534,6 +545,7 @@ ACCESS-POLICY-AT-ENTRY-POINTS,design,Principals and a key-pattern access policy 
 AGENT-COMMAND-PROPOSAL,design,"An agent proposes alias commands into a staging realm, for a person to promote",in_review,local,implementation,needs-decision,not-eligible,P3,L,mcp;core/commands;docs,,,,agent-command-proposal,,2026-10-27,specs/design/agent-command-proposal/DESIGN.md
 AGENT-MEMORY-DERIVED,design,"Agent memory — templates, indexes and context packs",draft,local,high-level,,,P3,L,lib/commands;docs,,,,agent-memory-derived,,2026-10-17,specs/design/agent-memory-derived/DESIGN.md
 AGENT-MEMORY-MVP,design,MVP for an agent memory service on the liquers stack,complete,local,,,,P2,XL,lib/commands;core/store;docs,,,,agent-memory-mvp,,2026-09-15,specs/design/agent-memory-mvp/DESIGN.md
+API-DOCUMENTATION-RULES,design,"Rules for API documentation, in the design process, and a home for user documentation",in_review,local,architecture,,,P2,L,docs,232,,,api-documentation-rules,,2026-11-01,specs/design/api-documentation-rules/DESIGN.md
 ARGUMENT-GUI-INFO-DEFAULT,design,Consistent default GUI metadata for command arguments,complete,local,,ready,,P2,S,core/commands;macro;web,,,,argument-gui-info-default,,2026-09-01,specs/design/argument-gui-info-default/DESIGN.md
 ARGUMENT-INFO-DESCRIPTION,design,Per-argument description in ArgumentInfo and register_command!,superseded,local,,,,P3,S,core/commands;macro,,,,argument-info-description,,2026-10-06,specs/design/argument-info-description/DESIGN.md
 ASSET-CANCELLATION-OUTCOME,design,Deterministic asset cancellation outcome and cooperative command cancellation,complete,local,,,,P2,L,core/assets;core/commands,,,,asset-cancellation-outcome,,2026-10-09,specs/design/asset-cancellation-outcome/DESIGN.md
@@ -628,6 +640,7 @@ DOCS-INDEX-PHASE-LINK-TARGETS,design,Resolvable design-phase links in the genera
 DOCS-LINK-CHECK-CODE-SPANS,design,The docs dead-link check ignores code spans and fenced blocks,complete,local,,ready,,P3,S,docs;build,,,,docs-link-check-code-spans,,2026-10-06,specs/design/docs-link-check-code-spans/DESIGN.md
 DOCS-TOOLING-TESTS-IN-CI,design,The docs workflow runs the documentation tooling's unit tests,complete,local,,ready,eligible,P3,S,docs;build,,186,,docs-tooling-tests-in-ci,,2026-10-26,specs/design/docs-tooling-tests-in-ci/DESIGN.md
 DOCS-CURRENTNESS-SMALL-FIXES,design,Keep small current documentation claims and rustdoc links accurate,complete,local,,,,,,docs;build;core/plan;core/store;core/value,,,,documentation-currentness-small-fixes,,2026-09-04,specs/design/documentation-currentness-small-fixes/DESIGN.md
+DOCUMENTATION-SITE-TOOL,design,"A documentation tool builds the user documentation site with rustdoc, Liquers queries and Mustache",superseded,local,,,,P2,L,docs;build;lib/commands,233,,,documentation-site-tool,,2026-11-01,specs/design/documentation-site-tool/DESIGN.md
 ENUM-ALTERNATIVE-LABELS,design,An enum alternative carries an optional label and description,in_review,local,implementation,needs-decision,not-eligible,P3,M,core/commands;macro,,,,enum-alternative-labels,,2026-10-26,specs/design/enum-alternative-labels/DESIGN.md
 ENVIRONMENT-BUILDER,design,Environment builder,complete,local,,,,,,core/assets;core/context,,44;53,,environment-builder,,2026-08-27,specs/design/environment-builder/DESIGN.md
 ENVIRONMENT-MANAGER-REFERENCE-CYCLE-DESIGN,design,Environment teardown without reference cycles,complete,local,,ready,not-eligible,P2,M,core/assets;core/context,,176,,environment-manager-reference-cycle,,2026-10-12,specs/design/environment-manager-reference-cycle/DESIGN.md
@@ -902,6 +915,7 @@ UNKEYED-ASSET-DERIVED-VERSION,design,A keyless query asset carries a version der
 UNMANAGED-ASSET-REGISTRY,design,A server-wide registry that lets an unmanaged evaluation be followed by id,in_review,local,implementation,needs-decision,not-eligible,P3,M,axum;docs,,,,unmanaged-asset-registry,,2026-10-20,specs/design/unmanaged-asset-registry/DESIGN.md
 UNNAMED-RECIPE-DIAGNOSTICS,design,"Report recipes.yaml entries that the default provider cannot name, instead of dropping them silently",in_review,local,implementation,needs-decision,not-eligible,P3,S,core/assets;core/validate,,,,unnamed-recipe-diagnostics,,2026-10-26,specs/design/unnamed-recipe-diagnostics/DESIGN.md
 UNREGISTERED-KEYED-WRITE-GATE,design,A keyed mutation also stops the value writes of unregistered assets of the same key,in_review,local,implementation,needs-decision,not-eligible,P2,M,core/assets;core/store,,,,unregistered-keyed-write-gate,,2026-10-26,specs/design/unregistered-keyed-write-gate/DESIGN.md
+USER-DOCUMENTATION-GUIDES,design,"Public user guides for Rust, Python and the Web, in several formats, published by CI",in_review,local,documentation,,,,,docs;build,,,,user-documentation-guides,,2026-11-01,specs/design/user-documentation-guides/DESIGN.md
 VALIDATE-PHASE-SECTION-MATCH,design,validate_phase.py finds a compact section's body from its own heading line,complete,local,,ready,eligible,P3,S,docs;build,,187,,validate-phase-section-match,,2026-10-20,specs/design/validate-phase-section-match/DESIGN.md
 VALIDATE-THROUGH-RECIPE-PROVIDERS,design,Validate the recipes an environment's recipe provider chain serves,in_review,local,implementation,needs-decision,not-eligible,P3,M,core/validate;core/plan,,,,validate-through-recipe-providers,,2026-10-20,specs/design/validate-through-recipe-providers/DESIGN.md
 VALUE-ACCESSOR,design,Value accessor abstraction,abandoned,local,,,,,,core/value,,,,value-accessor,,2026-03-02,specs/design/value-accessor/DESIGN.md
@@ -982,6 +996,7 @@ COMMAND_DESIGN_GUIDE,guide,Command Design Guide,current,local,,,,,,core/commands
 COMMAND_REGISTRATION_GUIDE,guide,Command Registration Guide,current,local,,,,,,core/commands;macro,,,,,2026-10-20,,specs/guides/COMMAND_REGISTRATION_GUIDE.md
 DEPENDENCY_CONSISTENCY_GUIDE,guide,Dependency Consistency Guide,current,local,,,,,,core/assets,,,,,2026-10-08,,specs/guides/DEPENDENCY_CONSISTENCY_GUIDE.md
 ENVIRONMENT_CONSTRUCTION_GUIDE,guide,Building and Configuring an Environment,current,local,,,,,,core/context;core/assets;core/store,,,,,2026-11-01,,specs/guides/ENVIRONMENT_CONSTRUCTION_GUIDE.md
+GITHUB_ACTIONS_GUIDE,guide,GitHub Actions Guide,current,local,,,,,,build;docs,,,,,2026-11-01,,specs/guides/GITHUB_ACTIONS_GUIDE.md
 JAVASCRIPT_GUIDE,guide,Using Liquers from JavaScript in the browser,current,local,,,,,,web,,,,,2026-10-31,,specs/guides/JAVASCRIPT_GUIDE.md
 LANGUAGE-INTEGRATION_GUIDE,guide,Language Integration Guide,current,local,,,,,,web;py;core/commands;core/plan;core/assets;core/store;core/value;lib/commands,,,,,2026-11-01,,specs/guides/LANGUAGE-INTEGRATION_GUIDE.md
 PYTHON_GUIDE,guide,Using Liquers from Python,current,local,,,,,,py,,,,,2026-11-01,,specs/guides/PYTHON_GUIDE.md
@@ -995,4 +1010,65 @@ STORE_IMPLEMENTATION_GUIDE,guide,Store Implementation Guide,current,local,,,,,,c
 TEMPLATE_GUIDE,guide,Template Guide,current,local,,,,,,core/query;lib/commands,,,,,2026-10-17,,specs/guides/TEMPLATE_GUIDE.md
 TYPE_SYSTEM_GUIDE,guide,Adding and Typing Value Types,current,local,,,,,,core/value;lib/value,,,,,2026-10-27,,specs/guides/TYPE_SYSTEM_GUIDE.md
 UNITTEST_GUIDE,guide,Unit Testing Guide,current,local,,,,,,build;core/assets,,,,,2026-10-20,,specs/guides/UNITTEST_GUIDE.md
+USER_DOCS_EDITING_GUIDE,guide,User Documentation Editing Guide,current,local,,,,,,docs,,,,,2026-11-01,,specs/guides/USER_DOCS_EDITING_GUIDE.md
 WEB_API_GUIDE,guide,Web API Guide,current,local,,,,,,axum;web,,,,,2026-10-16,,specs/guides/WEB_API_GUIDE.md
+python/01-introduction,chapter,Introduction,outline,local,,,,,,docs,,,,,,,docs/guides/python/01-introduction.md
+python/02-installing,chapter,Installing and setting up,outline,local,,,,,,docs,,,,,,,docs/guides/python/02-installing.md
+python/03-queries,chapter,Queries,outline,local,,,,,,docs,,,,,,,docs/guides/python/03-queries.md
+python/04-values,chapter,"Values, state and metadata",outline,local,,,,,,docs,,,,,,,docs/guides/python/04-values.md
+python/05-commands,chapter,Commands,outline,local,,,,,,docs,,,,,,,docs/guides/python/05-commands.md
+python/06-stores,chapter,Stores,outline,local,,,,,,docs,,,,,,,docs/guides/python/06-stores.md
+python/07-assets,chapter,"Recipes, assets and caching",outline,local,,,,,,docs,,,,,,,docs/guides/python/07-assets.md
+python/08-environment,chapter,The environment,outline,local,,,,,,docs,,,,,,,docs/guides/python/08-environment.md
+python/09-data,chapter,Working with data,outline,local,,,,,,docs,,,,,,,docs/guides/python/09-data.md
+python/10-templates,chapter,Templates,outline,local,,,,,,docs,,,,,,,docs/guides/python/10-templates.md
+python/11-ui,chapter,User interfaces,outline,local,,,,,,docs,,,,,,,docs/guides/python/11-ui.md
+python/12-serving,chapter,Serving and embedding,outline,local,,,,,,docs,,,,,,,docs/guides/python/12-serving.md
+python/13-search,chapter,Search and agent memory,outline,local,,,,,,docs,,,,,,,docs/guides/python/13-search.md
+python/14-testing,chapter,Testing,outline,local,,,,,,docs,,,,,,,docs/guides/python/14-testing.md
+python/15-troubleshooting,chapter,Troubleshooting,outline,local,,,,,,docs,,,,,,,docs/guides/python/15-troubleshooting.md
+python/a-query-syntax,chapter,Query syntax,outline,local,,,,,,docs,,,,,,,docs/guides/python/a-query-syntax.md
+python/b-command-library,chapter,Command library,outline,local,,,,,,docs,,,,,,,docs/guides/python/b-command-library.md
+python/c-glossary,chapter,Glossary,outline,local,,,,,,docs,,,,,,,docs/guides/python/c-glossary.md
+python/d-sister-guides,chapter,Sister guides,outline,local,,,,,,docs,,,,,,,docs/guides/python/d-sister-guides.md
+python/index,chapter,Preface,outline,local,,,,,,docs,,,,,,,docs/guides/python/index.md
+rust/01-introduction,chapter,Introduction,outline,local,,,,,,docs,,,,,,,docs/guides/rust/01-introduction.md
+rust/02-installing,chapter,Installing and setting up,outline,local,,,,,,docs,,,,,,,docs/guides/rust/02-installing.md
+rust/03-queries,chapter,Queries,outline,local,,,,,,docs,,,,,,,docs/guides/rust/03-queries.md
+rust/04-values,chapter,"Values, state and metadata",outline,local,,,,,,docs,,,,,,,docs/guides/rust/04-values.md
+rust/05-commands,chapter,Commands,outline,local,,,,,,docs,,,,,,,docs/guides/rust/05-commands.md
+rust/06-stores,chapter,Stores,outline,local,,,,,,docs,,,,,,,docs/guides/rust/06-stores.md
+rust/07-assets,chapter,"Recipes, assets and caching",outline,local,,,,,,docs,,,,,,,docs/guides/rust/07-assets.md
+rust/08-environment,chapter,The environment,outline,local,,,,,,docs,,,,,,,docs/guides/rust/08-environment.md
+rust/09-data,chapter,Working with data,outline,local,,,,,,docs,,,,,,,docs/guides/rust/09-data.md
+rust/10-templates,chapter,Templates,outline,local,,,,,,docs,,,,,,,docs/guides/rust/10-templates.md
+rust/11-ui,chapter,User interfaces,outline,local,,,,,,docs,,,,,,,docs/guides/rust/11-ui.md
+rust/12-serving,chapter,Serving and embedding,outline,local,,,,,,docs,,,,,,,docs/guides/rust/12-serving.md
+rust/13-search,chapter,Search and agent memory,outline,local,,,,,,docs,,,,,,,docs/guides/rust/13-search.md
+rust/14-testing,chapter,Testing,outline,local,,,,,,docs,,,,,,,docs/guides/rust/14-testing.md
+rust/15-troubleshooting,chapter,Troubleshooting,outline,local,,,,,,docs,,,,,,,docs/guides/rust/15-troubleshooting.md
+rust/a-query-syntax,chapter,Query syntax,outline,local,,,,,,docs,,,,,,,docs/guides/rust/a-query-syntax.md
+rust/b-command-library,chapter,Command library,outline,local,,,,,,docs,,,,,,,docs/guides/rust/b-command-library.md
+rust/c-glossary,chapter,Glossary,outline,local,,,,,,docs,,,,,,,docs/guides/rust/c-glossary.md
+rust/d-sister-guides,chapter,Sister guides,outline,local,,,,,,docs,,,,,,,docs/guides/rust/d-sister-guides.md
+rust/index,chapter,Preface,outline,local,,,,,,docs,,,,,,,docs/guides/rust/index.md
+web/01-introduction,chapter,Introduction,outline,local,,,,,,docs,,,,,,,docs/guides/web/01-introduction.md
+web/02-installing,chapter,Installing and setting up,outline,local,,,,,,docs,,,,,,,docs/guides/web/02-installing.md
+web/03-queries,chapter,Queries,outline,local,,,,,,docs,,,,,,,docs/guides/web/03-queries.md
+web/04-values,chapter,"Values, state and metadata",outline,local,,,,,,docs,,,,,,,docs/guides/web/04-values.md
+web/05-commands,chapter,Commands,outline,local,,,,,,docs,,,,,,,docs/guides/web/05-commands.md
+web/06-stores,chapter,Stores,outline,local,,,,,,docs,,,,,,,docs/guides/web/06-stores.md
+web/07-assets,chapter,"Recipes, assets and caching",outline,local,,,,,,docs,,,,,,,docs/guides/web/07-assets.md
+web/08-environment,chapter,The environment,outline,local,,,,,,docs,,,,,,,docs/guides/web/08-environment.md
+web/09-data,chapter,Working with data,outline,local,,,,,,docs,,,,,,,docs/guides/web/09-data.md
+web/10-templates,chapter,Templates,outline,local,,,,,,docs,,,,,,,docs/guides/web/10-templates.md
+web/11-ui,chapter,User interfaces,outline,local,,,,,,docs,,,,,,,docs/guides/web/11-ui.md
+web/12-serving,chapter,Serving and embedding,outline,local,,,,,,docs,,,,,,,docs/guides/web/12-serving.md
+web/13-search,chapter,Search and agent memory,outline,local,,,,,,docs,,,,,,,docs/guides/web/13-search.md
+web/14-testing,chapter,Testing,outline,local,,,,,,docs,,,,,,,docs/guides/web/14-testing.md
+web/15-troubleshooting,chapter,Troubleshooting,outline,local,,,,,,docs,,,,,,,docs/guides/web/15-troubleshooting.md
+web/a-query-syntax,chapter,Query syntax,outline,local,,,,,,docs,,,,,,,docs/guides/web/a-query-syntax.md
+web/b-command-library,chapter,Command library,outline,local,,,,,,docs,,,,,,,docs/guides/web/b-command-library.md
+web/c-glossary,chapter,Glossary,outline,local,,,,,,docs,,,,,,,docs/guides/web/c-glossary.md
+web/d-sister-guides,chapter,Sister guides,outline,local,,,,,,docs,,,,,,,docs/guides/web/d-sister-guides.md
+web/index,chapter,Preface,outline,local,,,,,,docs,,,,,,,docs/guides/web/index.md

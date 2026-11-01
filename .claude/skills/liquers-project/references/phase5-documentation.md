@@ -72,6 +72,21 @@ Review every kept document against implemented code and tests, not the design. U
 instructions. Even when no prose change is needed, add a History row recording the review and bump
 `reviewed:` to the same date.
 
+### User-guide chapters
+
+List the chapters of the public user guides written from those documents:
+
+```bash
+python3 scripts/docs_index.py chapters-for <every affects_docs entry>
+```
+
+Review each listed chapter that is past `outline` against the implemented behaviour
+(`specs/guides/USER_DOCS_EDITING_GUIDE.md` §7). A chapter that is still right gets a new
+`reviewed:` date and a row in its guide's `HISTORY.md`. One that is wrong is fixed in the same
+change, or gets a `CHECK:` marker and an issue in `specs/issues/`. Chapters are hand-edited: change
+their text only within the design's scope, and record each one in the summary. Run
+`cargo run -p liquers-docs -- check`; a renamed `specs/` heading that a chapter includes fails it.
+
 ### Links and capability map
 
 Update `specs/README.md` in the same change. Once a capability has current reference or guide
@@ -125,6 +140,10 @@ explain why. Link to reference/guide documents for detail.>
 ### Existing Documents Reviewed or Updated
 <Authoritative `affects_docs` set, review result, and History/reviewed updates>
 
+### User-Guide Chapters
+<Output of `docs_index.py chapters-for`, and for each chapter: reviewed, fixed, or marked `CHECK:`
+with an issue; or `None`>
+
 ### Links and Capability Map
 <Links added, updated, or replaced in `specs/README.md` and other documentation>
 
@@ -161,6 +180,8 @@ deferred remainder must have an issue rather than a partial design status.>
 - [ ] Guides provide actionable, repeatable instructions without relying on the design
 - [ ] `affects_docs` is authoritative and every listed document was reviewed against implemented code
 - [ ] Every reviewed document has matching `reviewed:` and newest History dates
+- [ ] Every chapter `docs_index.py chapters-for` lists for `affects_docs` was reviewed, fixed or
+  marked `CHECK:` with an issue; `liquers-docs check` passes
 - [ ] `specs/README.md` and other relevant links point to the highest-stage current document
 - [ ] Documentation checks pass
 - [ ] If integration changed relevant content, post-merge consistency was rechecked

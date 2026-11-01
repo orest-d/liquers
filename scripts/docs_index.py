@@ -23,6 +23,7 @@ import datetime as _dt
 import html
 import io
 import json
+import os
 import re
 import subprocess
 import sys
@@ -131,7 +132,9 @@ COMPLEXITIES = set(COMPLEXITY_ORDER)
 NEEDS_DESIGN = {"L", "XL"}
 # §6: issues before designs before guides before reference documents — open questions above the
 # answers. `feature` shares the issues block; it is an issue whose problem is an absence.
-KIND_ORDER = {"issue": 0, "feature": 0, "design": 1, "guide": 2, "reference": 3}
+KIND_ORDER = {"issue": 0, "feature": 0, "design": 1, "guide": 2, "reference": 3, "chapter": 4}
+CHAPTER_STATUS = {"outline", "draft", "review", "ready"}  # docs/guides chapters
+NOT_CHAPTERS = {"HISTORY.md", "README.md"}
 AUDIENCES = {"internal", "user", "both"}
 REVIEW_DAYS = 92  # §9.4
 
@@ -605,8 +608,136 @@ def collect() -> list[dict]:
                 }
             )
 
+    rows.extend(collect_chapters(REPO))
     join_design_sources(rows)
     return rows
+
+
+def collect_chapters(repo: Path) -> list[dict]:
+    """The chapters of the user guides, `docs/guides/<guide>/*.md` (§2, kind `chapter`).
+
+    Their `status` is the chapter's own (`outline` … `ready`); `reviewed:` dates, `sources:`
+    and the guide's `HISTORY.md` are checked by `chapter_checks`. `_shared/` fragments are not
+    chapters.
+    """
+    rows: list[dict] = []
+    for path in stable_paths((repo / "docs" / "guides").glob("*/*.md")):
+        if path.parent.name.startswith("_") or path.name in NOT_CHAPTERS:
+            continue
+        f, _ = parse_front_matter(path.read_text(encoding="utf-8"))
+        rows.append(
+            {
+                "id": f"{path.parent.name}/{path.stem}",
+                "kind": "chapter",
+                "title": f.get("title", ""),
+                "status": f.get("status", ""),
+                "status_source": "local",
+                "phase": "",
+                "readiness": "",
+                "autofix": "",
+                "priority": "",
+                "complexity": "",
+                "area": "docs",
+                "gh_issue": "",
+                "gh_pr": "",
+                "branch": "",
+                "design": "",
+                "reviewed": str(f.get("reviewed", "") or ""),
+                "created": "",
+                "file": path.relative_to(repo).as_posix(),
+                "_fm": f,
+                "_path": path,
+            }
+        )
+    return rows
+
+
+def chapter_checks(rows: list[dict], repo: Path, today=None) -> tuple[list[str], list[str]]:
+    """Chapter rules (§4.2 `chapter`): a known status; `sources:` naming existing `specs/`
+    documents; `reviewed:` with a row in the guide's `HISTORY.md` (warning) and inside the
+    92-day review (warning)."""
+    errors: list[str] = []
+    warnings: list[str] = []
+    today = today or _dt.date.today()
+    for r in rows:
+        if r["kind"] != "chapter":
+            continue
+        f, where = r["_fm"], r["file"]
+        if not f:
+            errors.append(f"{where}: no front-matter")
+            continue
+        if f.get("status") not in CHAPTER_STATUS:
+            errors.append(f"{where}: status '{f.get('status')}' not in {sorted(CHAPTER_STATUS)}")
+        if not f.get("title"):
+            errors.append(f"{where}: no title")
+        for source in _list(f, "sources"):
+            if not (repo / "specs" / source).exists():
+                errors.append(f"{where}: source '{source}' is not a specs/ document")
+        reviewed = str(f.get("reviewed", "") or "")
+        if reviewed:
+            history = r["_path"].parent / "HISTORY.md"
+            text = history.read_text(encoding="utf-8") if history.exists() else ""
+            if not any(reviewed in line and r["_path"].name in line for line in text.splitlines()):
+                warnings.append(
+                    f"{where}: reviewed {reviewed} has no row in "
+                    f"{history.relative_to(repo).as_posix()}"
+                )
+            try:
+                age = (today - _dt.date.fromisoformat(reviewed)).days
+            except ValueError:
+                errors.append(f"{where}: reviewed '{reviewed}' is not a date")
+            else:
+                if age > REVIEW_DAYS:
+                    warnings.append(
+                        f"{where}: last reviewed {reviewed} (>{REVIEW_DAYS} days, §9.4)"
+                    )
+    return errors, warnings
+
+
+def docs_link_errors(repo: Path) -> list[str]:
+    """CHECK 18: nothing under `docs/` links into `specs/`, which is not published (§2)."""
+    errors: list[str] = []
+    docs = repo / "docs"
+    for path in stable_paths(docs.rglob("*.md")):
+        text = blank_code(path.read_text(encoding="utf-8"))
+        for m in RELATIVE_LINK_RE.finditer(text):
+            target = m.group(1).split("#", 1)[0].split()[0] if m.group(1).strip() else ""
+            if not target or ":" in target.split("/", 1)[0]:
+                continue
+            resolved = os.path.normpath(os.path.join(path.parent.relative_to(repo), target))
+            if resolved == "specs" or resolved.startswith("specs" + os.sep):
+                errors.append(
+                    f"{path.relative_to(repo).as_posix()}: links into specs/ ({m.group(1)}); "
+                    f"include the text instead (check 18)"
+                )
+    return errors
+
+
+def actions_guide_warnings(repo: Path) -> list[str]:
+    """Every workflow is described in `specs/guides/GITHUB_ACTIONS_GUIDE.md` (warning)."""
+    guide = repo / "specs" / "guides" / "GITHUB_ACTIONS_GUIDE.md"
+    workflows = stable_paths((repo / ".github" / "workflows").glob("*.yml"))
+    if not workflows:
+        return []
+    if not guide.exists():
+        return ["specs/guides/GITHUB_ACTIONS_GUIDE.md is missing; it describes every workflow"]
+    text = guide.read_text(encoding="utf-8")
+    return [
+        f"{w.relative_to(repo).as_posix()}: not described in specs/guides/GITHUB_ACTIONS_GUIDE.md"
+        for w in workflows
+        if w.name not in text
+    ]
+
+
+def chapters_for(rows: list[dict], spec: str) -> list[str]:
+    """The chapters whose `sources:` name `spec` (a path relative to `specs/`, or with the
+    `specs/` prefix): the user-guide chapters a change to that document may make wrong."""
+    spec = spec.removeprefix("specs/")
+    return [
+        r["file"]
+        for r in rows
+        if r["kind"] == "chapter" and spec in _list(r["_fm"], "sources")
+    ]
 
 
 def join_design_sources(rows: list[dict]) -> None:
@@ -1227,6 +1358,8 @@ def check(rows: list[dict]) -> tuple[list[str], list[str]]:
             if sb and sb not in designs:
                 errors.append(f"{where}: superseded_by '{sb}' does not exist")
 
+        elif r["kind"] == "chapter":
+            continue  # chapter_checks
         else:  # reference | guide
             if f.get("audience") not in AUDIENCES:
                 errors.append(f"{where}: audience '{f.get('audience')}' not in §9.6")
@@ -1248,6 +1381,12 @@ def check(rows: list[dict]) -> tuple[list[str], list[str]]:
                 warnings.append(
                     f"{where}: last reviewed {f['reviewed']} (>{REVIEW_DAYS} days, §9.4)"
                 )
+
+    chapter_errors, chapter_warnings = chapter_checks(rows, REPO)
+    errors.extend(chapter_errors)
+    warnings.extend(chapter_warnings)
+    errors.extend(docs_link_errors(REPO))
+    warnings.extend(actions_guide_warnings(REPO))
 
     # CHECK 7 — committed generated indexes match what regeneration would produce.
     idx = SPECS / "index.csv"
@@ -1418,6 +1557,11 @@ def main() -> int:
     n.add_argument("--design", default="")
     n.add_argument("--id", default="")
     n.add_argument("--force", action="store_true", help="file despite near-duplicates")
+    c = sub.add_parser(
+        "chapters-for",
+        help="list the user-guide chapters whose sources: name a specs/ document",
+    )
+    c.add_argument("spec", nargs="+", help="e.g. guides/PYTHON_GUIDE.md")
     ap.add_argument("--check", action="store_true", help="validate only; never writes")
     ap.add_argument(
         "--sort",
@@ -1433,6 +1577,11 @@ def main() -> int:
 
     if args.cmd == "new":
         return cmd_new(args)
+    if args.cmd == "chapters-for":
+        rows = collect()
+        for chapter in sorted({c for spec in args.spec for c in chapters_for(rows, spec)}):
+            print(chapter)
+        return 0
 
     if args.sync:
         print(

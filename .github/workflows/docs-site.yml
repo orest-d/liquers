@@ -1,0 +1,109 @@
+name: docs-site
+
+# Builds the documentation site (docs/: the user guides, the home page, the Rust API reference)
+# and publishes it to GitHub Pages. Only sources are committed; the site exists only as a build
+# output. See specs/guides/GITHUB_ACTIONS_GUIDE.md and specs/guides/USER_DOCS_EDITING_GUIDE.md.
+#
+# - Pull requests: `liquers-docs check` (draft and release rules), a draft build, and the site as
+#   a downloadable artifact (`docs-site`). Changes under specs/ trigger it too, because a chapter
+#   may include a specs/ section that the change renamed.
+# - Push to main: a release build (only `ready` chapters), deployed to Pages. Needs the
+#   repository's Settings → Pages → Source set to "GitHub Actions".
+
+on:
+  pull_request:
+    paths:
+      - 'docs/**'
+      - 'specs/**'
+      - 'liquers-docs/**'
+      - 'scripts/build-docs.sh'
+      - '.github/workflows/docs-site.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - 'specs/**'
+      - 'liquers-docs/**'
+      - 'liquers-core/**'
+      - 'liquers-lib/**'
+      - 'scripts/build-docs.sh'
+      - '.github/workflows/docs-site.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  MDBOOK_VERSION: 0.5.4
+  PANDOC_VERSION: 3.12
+  TYPST_VERSION: 0.15.1
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      CARGO_INCREMENTAL: 0
+    steps:
+      - uses: actions/checkout@v4
+      # cargo doc builds the workspace with its default features (Polars, egui, images).
+      - name: Free runner disk
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL; df -h /
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Install mdbook, pandoc and typst (pinned release binaries)
+        run: |
+          mkdir -p "$HOME/.local/bin"
+          curl -sSL "https://github.com/rust-lang/mdBook/releases/download/v${MDBOOK_VERSION}/mdbook-v${MDBOOK_VERSION}-x86_64-unknown-linux-gnu.tar.gz" \
+            | tar -xz -C "$HOME/.local/bin"
+          curl -sSL "https://github.com/jgm/pandoc/releases/download/${PANDOC_VERSION}/pandoc-${PANDOC_VERSION}-linux-amd64.tar.gz" \
+            | tar -xz --strip-components=2 -C "$HOME/.local/bin" "pandoc-${PANDOC_VERSION}/bin/pandoc"
+          curl -sSL "https://github.com/typst/typst/releases/download/v${TYPST_VERSION}/typst-x86_64-unknown-linux-musl.tar.xz" \
+            | tar -xJ --strip-components=1 -C "$HOME/.local/bin" "typst-x86_64-unknown-linux-musl/typst"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Tool versions
+        run: mdbook --version && pandoc --version | head -1 && typst --version
+      - name: Check the guides (draft rules)
+        run: cargo run -q -p liquers-docs -- check
+      - name: Check the guides (release rules)
+        run: cargo run -q -p liquers-docs -- check --release
+      - name: Build the site (draft on pull requests, release on main)
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            bash scripts/build-docs.sh --out target/docs-site
+          else
+            bash scripts/build-docs.sh --release --out target/docs-site
+          fi
+      - name: Verify outputs
+        run: bash scripts/build-docs.sh --verify-only --out target/docs-site
+      - name: Upload the site as an artifact (pull requests)
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: docs-site
+          path: target/docs-site
+          retention-days: 14
+      - name: Upload the site for Pages (main)
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: target/docs-site
+
+  deploy:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
