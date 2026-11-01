@@ -3,7 +3,7 @@
 ## Completion Preconditions
 
 - [x] Implementation is finished and validated
-- [ ] All user comments are answered or incorporated (results presented to the maintainer)
+- [x] All user comments are answered or incorporated (results presented; maintainer: "proceed all", 2026-11-01)
 - [x] All review comments are answered or incorporated
 - [x] Documentation is consistent with the implemented and tested behavior
 - [x] Documentation is included in the implementation PR when practical
@@ -72,7 +72,7 @@ Also updated:
 
 - `MARKDOWN-CODE-BLOCKS-FRONT-MATTER-AND-BACKLINKS-ARE-NOT-COMMANDS` covers the rest of
   `NO-MARKDOWN-NAVIGATION-COMMANDS`: fenced blocks, front matter, folder input and incoming links.
-- `NO-MARKDOWN-NAVIGATION-COMMANDS` is `in_progress`. It closes when the PR merges.
+- `NO-MARKDOWN-NAVIGATION-COMMANDS` is closed with this slice.
 - `NO-QUERY-AWARE-MARKDOWN-PARSER` records which of its requirements landed.
 
 ## Important Learning

@@ -2,7 +2,7 @@
 id: NO-MARKDOWN-NAVIGATION-COMMANDS
 kind: feature
 title: Markdown documents cannot be navigated, filtered or interpreted by structure
-status: in_progress
+status: closed
 priority: P3
 complexity: L
 area: [lib/commands]
@@ -83,8 +83,10 @@ The first slice is implemented by `design/markdown-navigation/` (PR #228): `ns-m
 `ns-search/md_split`, `ns-mem` and `markdown_tiers` moved onto it
 (`specs/reference/MARKDOWN.md`). The rest of this issue's command set, fenced blocks by language,
 front matter as a command, commands over a folder and incoming links, is
-`MARKDOWN-CODE-BLOCKS-FRONT-MATTER-AND-BACKLINKS-ARE-NOT-COMMANDS`. This issue closes when the PR
-merges.
+`MARKDOWN-CODE-BLOCKS-FRONT-MATTER-AND-BACKLINKS-ARE-NOT-COMMANDS`.
+
+**Resolution:** closed with the first slice (PR #228; tests `liquers-lib/tests/markdown_commands.rs`,
+`liquers-markdown`); the remainder is tracked by the issue above.
 
 ## Discovery
 

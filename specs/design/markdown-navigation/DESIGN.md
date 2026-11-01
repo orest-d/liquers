@@ -3,8 +3,7 @@ id: MARKDOWN-NAVIGATION
 kind: design
 title: Markdown navigation commands on a Liquers block parser
 workflow: liquers-project
-status: in_review
-phase: documentation
+status: complete
 area: [lib/commands, records]
 issues: [NO-MARKDOWN-NAVIGATION-COMMANDS]
 affects_docs: [specs/reference/MARKDOWN.md, specs/reference/AGENT_MEMORY_SERVICE.md, specs/reference/PROJECT_OVERVIEW.md, CLAUDE.md, liquers-agent/tools/query-guide.md]

@@ -8,9 +8,9 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 203
+Total rows: 202
 - P2: 60
-- P3: 143
+- P3: 142
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -208,7 +208,6 @@ Total rows: 203
 | [`REGISTERED-ASSET-CANNOT-BE-PROTECTED-FROM-UNREGISTRATION`](issues/REGISTERED-ASSET-CANNOT-BE-PROTECTED-FROM-UNREGISTRATION.md) | feature | A registered asset cannot be protected from unregistration, so asset users cannot rely on converging on one asset | draft | phase2-blocked | not-eligible | P3 | L | core/assets | [phase1](design/registered-asset-protection/phase1-high-level-design.md)  [phase2](design/registered-asset-protection/phase2-architecture.md)  | 2026-10-20 |
 | [`AGENT-MEMORY-HAS-NO-INDEXES-OR-CONTEXT-PACKS`](issues/AGENT-MEMORY-HAS-NO-INDEXES-OR-CONTEXT-PACKS.md) | feature | Agent memory derives nothing from its documents — no rendered templates, index assets or context packs | draft |  |  | P3 | L | lib/commands;docs | [phase1](design/agent-memory-derived/phase1-high-level-design.md)  [phase2](design/agent-memory-derived/phase2-architecture.md)  [phase3](design/agent-memory-derived/phase3-examples.md)  [phase4](design/agent-memory-derived/phase4-implementation.md)  [phase5](design/agent-memory-derived/phase5-documentation.md)  | 2026-10-21 |
 | [`COMMAND-REGISTRY-NOT-ORGANIZED-BY-REALM`](issues/COMMAND-REGISTRY-NOT-ORGANIZED-BY-REALM.md) | issue | The command metadata registry is a flat list, so a realm cannot have its own default namespaces | draft |  |  | P3 | L | core/commands;core/plan |  | 2026-11-01 |
-| [`NO-MARKDOWN-NAVIGATION-COMMANDS`](issues/NO-MARKDOWN-NAVIGATION-COMMANDS.md) | feature | Markdown documents cannot be navigated, filtered or interpreted by structure | in_progress |  |  | P3 | L | lib/commands | [phase1](design/markdown-navigation/phase1-high-level-design.md)  [phase2](design/markdown-navigation/phase2-architecture.md)  [phase3](design/markdown-navigation/phase3-examples.md)  [phase4](design/markdown-navigation/phase4-implementation.md)  [phase5](design/markdown-navigation/phase5-documentation.md)  | 2026-10-11 |
 | [`NO-SOURCE-CODE-AND-API-DOC-NAVIGATION`](issues/NO-SOURCE-CODE-AND-API-DOC-NAVIGATION.md) | feature | Source code and API documentation cannot be navigated or extracted | draft |  |  | P3 | L | lib/commands |  | 2026-10-11 |
 | [`NO-SQL-ENGINE-IN-WASM-BUILDS`](issues/NO-SQL-ENGINE-IN-WASM-BUILDS.md) | feature | SQL over records is unavailable in wasm builds, where polars does not build | draft |  |  | P3 | L | records;lib/commands;web |  | 2026-10-21 |
 | [`UI-EVENTS-HAVE-NO-POINTER-DRAG-OR-CHANGE-KINDS`](issues/UI-EVENTS-HAVE-NO-POINTER-DRAG-OR-CHANGE-KINDS.md) | feature | UI events cannot express field changes, focus, drag-and-drop or pointer input | draft |  |  | P3 | L | lib/ui | [phase1](design/ui-events/phase1-high-level-design.md)  [phase2](design/ui-events/phase2-architecture.md)  [phase3](design/ui-events/phase3-examples.md)  [phase4](design/ui-events/phase4-implementation.md)  | 2026-10-30 |
