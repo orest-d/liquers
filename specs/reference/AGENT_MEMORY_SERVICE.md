@@ -3,7 +3,7 @@ title: Agent Memory Service
 kind: reference
 audience: internal
 area: [lib/commands, mcp]
-reviewed: 2026-10-27
+reviewed: 2026-11-01
 ---
 # Agent Memory Service
 
@@ -134,6 +134,15 @@ Behaviour worth knowing:
 - **Supersession**: `write` with `supersedes` writes the new memory with `supersedes:` and then sets
   `superseded_by` on the old one, logging both. `list` and `search` hide a superseded memory unless
   `include_superseded` is set.
+- **Sections and links** (`read section`, `search unit=section`, `edit section`, the `sections`
+  and `dead_links` rules, the L0/L1 tiers) come from the `liquers-markdown` parser
+  ([`MARKDOWN.md`](MARKDOWN.md)): setext headings count, a `#` line in an HTML or indented block
+  does not, and `dead_links` also checks reference-style links. A section name here is the exact
+  heading or `A > B` path; for numbers, text prefixes and placeholders use `ns-md`.
+- **Navigating one document** without reading all of it is `ns-md`, which the agent's query tool
+  allows: `-R/./<key>/-/ns-md/outline` lists the headings with their addresses,
+  `ns-md/section-<address>` returns one section, `ns-md/links-<address>` its links with resolved
+  keys ([`MARKDOWN.md`](MARKDOWN.md) §5).
 - **Versions** are `Version::from_content` of the bytes, 32 hex digits. `read` reports the same
   value `commit` compares, so `expected_version` from a read is what a write must pass. A mismatch
   is `Error::dependency_version_mismatch`.
@@ -306,5 +315,6 @@ an in-process S3 endpoint and across a restart.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-01 | §4: sections, tiers and dead links come from the `liquers-markdown` parser; documents are navigated with `ns-md`, which the agent's query tool allows. | `design/markdown-navigation/` |
 | 2026-10-27 | §8: recipe results in a `storage: none` mount are read through their inferred records (`external_change` decides), and the sparse `infer-Source` alternative. | `design/storage-none-computed-values/` |
 | 2026-10-19 | Created. | `design/agent-memory-mvp/` Phase 5 |

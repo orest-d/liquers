@@ -136,12 +136,16 @@ LIB_CONFIGS=(
   "--no-default-features --features templates,records --tests"
   # `mem` pulls `records` in; every row above it is the build without it (design/agent-memory-mvp).
   "--no-default-features --features mem --tests"
+  # `markdown` (the ns-md commands) pulls `records` in, which already carries the parser
+  # (design/markdown-navigation).
+  "--no-default-features --features markdown --tests"
   "--tests"
   "--target wasm32-unknown-unknown --no-default-features --features webui"
   "--target wasm32-unknown-unknown --no-default-features --features webui,records"
   "--target wasm32-unknown-unknown --no-default-features --features webui,records,records-ipc"
   "--target wasm32-unknown-unknown --no-default-features --features webui,templates"
   "--target wasm32-unknown-unknown --no-default-features --features webui,mem"
+  "--target wasm32-unknown-unknown --no-default-features --features webui,markdown"
 )
 
 # liquers-records has no default features: each format behind its own flag, and every one of them
@@ -156,6 +160,13 @@ RECORDS_CONFIGS=(
 # liquers-template depends on liquers-core only and adds no async runtime, so it must build for
 # wasm32 too (design/liquers-mustache, AC-13).
 TEMPLATE_CONFIGS=(
+  "--tests"
+  "--target wasm32-unknown-unknown --tests"
+)
+
+# liquers-markdown depends on liquers-core only and is pure parsing, so it must build for wasm32
+# too (design/markdown-navigation).
+MARKDOWN_CONFIGS=(
   "--tests"
   "--target wasm32-unknown-unknown --tests"
 )
@@ -229,6 +240,10 @@ done
 
 for args in "${TEMPLATE_CONFIGS[@]}"; do
   check liquers-template "$args"
+done
+
+for args in "${MARKDOWN_CONFIGS[@]}"; do
+  check liquers-markdown "$args"
 done
 
 for args in "${WEB_CONFIGS[@]}"; do

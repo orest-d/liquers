@@ -1,8 +1,8 @@
 # Liquers command registry — GENERATED, do not edit by hand.
 # Regenerate: cargo run -p liquers-lib --features cli --bin export-command-registry -- \
 #               --format yaml -o specs/command_registry.yaml
-# Origin:   groups=core,lui,egui,image,polars,records,search,template,mem,store_config  features=egui,image-support,polars,records,templates,mem
-# Commands: 173
+# Origin:   groups=core,lui,egui,image,polars,records,search,template,mem,markdown,store_config  features=egui,image-support,polars,records,templates,mem,markdown
+# Commands: 178
 # CHANGELOG-BEGIN
 # 2026-08-02  initial export (95 commands: img 47, pl 26, lui 14, root 6, dep 2)
 # 2026-08-25  pl/select_columns and pl/drop_columns take a variadic `columns` argument
@@ -49,6 +49,8 @@
 #             store (AC-11 decision); mem/overview shows the schema's instructions.
 # 2026-10-27  store_config handler infer (on_write; design/storage-none-computed-values).
 #             MetadataRecord gains the never-stored `inferred` fact; persist_defaults retired.
+# 2026-11-01  markdown-navigation: new group markdown (ns-md: outline, section, sections,
+#             links, table) on the liquers-markdown block parser.
 # CHANGELOG-END
 commands:
 - realm: store_config
@@ -4180,6 +4182,110 @@ commands:
   volatile: true
   expires: never
   is_async: true
+  definition: Registered
+- namespace: md
+  name: outline
+  label: Outline
+  doc: 'The headings of a Markdown document as records: n, level, heading, address, number, path, slug, line, end_line, words. address is the section-number path that ns-md/section takes'
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  definition: Registered
+- namespace: md
+  name: section
+  label: Section
+  doc: 'The text of one section of a Markdown document. address: steps separated by ''.'', each a section number (1.2), heading text (phase~.2.solution; ''..'' is a literal dot) or ''_'' for any one section; ''__'' is an underscore. children=false drops the subsections, heading=false the heading line'
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: address
+    label: address
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  - name: children
+    label: children
+    default: !Value true
+    argument_type: bool
+    gui_info: !TextField 40
+  - name: heading
+    label: heading
+    default: !Value true
+    argument_type: bool
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  definition: Registered
+- namespace: md
+  name: sections
+  label: Sections
+  doc: 'The sections of a Markdown document (or of one section, by address) as records: the outline''s fields and text; level=N keeps sections of that level'
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: address
+    label: address
+    default: !Value ''
+    argument_type: string
+    gui_info: !TextField 40
+  - name: level
+    label: level
+    default: !Value 0
+    argument_type: int
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  definition: Registered
+- namespace: md
+  name: links
+  label: Links
+  doc: 'The links and images of a Markdown document (or of one section) as records: kind, text, target, target_kind (relative, anchor, url, query), anchor, key (a relative target resolved against the input''s key), section, line'
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: address
+    label: address
+    default: !Value ''
+    argument_type: string
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
+  definition: Registered
+- namespace: md
+  name: table
+  label: Table
+  doc: The n-th Markdown table inside a section, as records, read as the records Markdown table format reads a table
+  state_argument:
+    name: state
+    label: state
+    default: None
+    gui_info: !TextField 40
+  arguments:
+  - name: address
+    label: address
+    default: None
+    argument_type: string
+    gui_info: !TextField 40
+  - name: n
+    label: n
+    default: !Value 1
+    argument_type: int
+    gui_info: !TextField 40
+  volatile: false
+  expires: never
   definition: Registered
 default_namespaces:
 - ''
