@@ -4,7 +4,7 @@ kind: design
 title: Stores written in Python, and configured store routers in liquers-py
 workflow: liquers-project
 status: draft
-phase: high-level
+phase: architecture
 readiness: ready
 autofix: not-eligible
 area: [py, core/store, store/config]
@@ -18,6 +18,8 @@ The `STORE` feature of liquers-py, directions 1, 2 and 3: milestone M4 of the li
 together with [`liquers-py-recipes`](../liquers-py-recipes/DESIGN.md). It is the design the plan's
 Pre-M4 item 1 asked for, and it takes the Pre-M4 part B decisions (Phase 1, Design Readiness).
 Full form, since the source issue is `L`.
+
+Phase 1 approved by Orest on 2026-11-01 (`proceed all`). Pre-approved after Phase 1 on 2026-11-01: Phases 2-4, the implementation and Phase 5, with a stop before implementation only if the decision log needs a decision.
 
 ## Phases
 
