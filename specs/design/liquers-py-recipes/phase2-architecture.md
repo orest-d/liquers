@@ -85,12 +85,13 @@ impl RecipeProviderFactory<PyEnvironment> for PyRecipeProviderFactory {
 }
 #[pyclass(frozen, name = "RecipeProviders", module = "liquers")]
 pub struct RecipeProviders { cell: Weak<EnvCell> }
-// recipe_opt, recipe, recipe_plan (an lq.Plan), assets_with_recipes, contains, can_make, each with
-// an `_async` twin; after shutdown every call raises.
+// recipe_opt, recipe, recipe_plan (an lq.Plan), assets_with_recipes (a list of lq.ResourceName,
+// names in the folder as the core trait returns them), contains, can_make, each with an `_async`
+// twin; after shutdown every call raises.
 // Environment: register_recipe_provider_factory(type, factory, *, label="", doc="", arguments=None);
 //              #[getter] recipes -> RecipeProviders
 // lq.Recipe: keyword constructor (query, title="", description="", *, cwd=None, volatile=False,
-//            expires=None); get/set properties cwd, volatile, expires (an lq.Expires)
+//            expires=None); get/set properties cwd (str | None), volatile, expires (an lq.Expires)
 ```
 
 Provider methods may be `def` or `async def` (detected once), receive `lq.Key`, and a listing
