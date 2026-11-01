@@ -23,13 +23,23 @@ Python integration" priority. Milestone M5 of the liquers-py plan, with
      rule). Alternative: generate `_native.pyi` from PyO3's introspection data (PyO3's
      `experimental-inspect` feature and maturin's stub output). It covers only the extension, not
      the decorators or the error classes made at import, is marked experimental, and its output
-     would still need the same checks; revisit when it is stable (an issue is filed then, not now).
+     would still need the same checks. PyO3 0.30's guide calls it "still in active development"
+     and does not support a module declared as a function, which `_native` is
+     (`liquers-py/src/lib.rs`), so generating would first need the module rewritten in the
+     declarative form. Revisit when it is stable (an issue is filed then, not now). A cheap step
+     toward it is allowed meanwhile: return annotations in `#[pyo3(signature = …)]`.
   2. **Proposed resolution - layout.** `liquers/_native.pyi` declares every extension class and
      function; `liquers/__init__.pyi` declares the package as checkers should see it, including
      the `LiquersError` subclasses that `__init__.py` creates with `globals().update` (invisible to
      a checker otherwise); `_commands.py`, `_env.py`, `_errors.py`, `_factories.py` carry inline
      annotations; `liquers/py.typed` marks the package. Private modules are not part of the surface
-     (`STUBS01` lists `liquers` and `liquers._native`).
+     (`STUBS01` lists `liquers` and `liquers._native`). Python has a static type system and a
+     stub format (PEP 484, PEP 561). No generic Rust type is exposed: every wrapper is concrete.
+     Every class declares `module = "liquers"` (`liquers-py/src/environment.rs` and the others), and
+     `_native` has no `__all__`, so stubtest alone does not report a class missing from
+     `_native.pyi`; the classes are therefore declared in `liquers/__init__.pyi` under their
+     runtime home `liquers`, and a pytest compares `dir(liquers._native)` with the declared names
+     (AC-3).
   3. **Proposed resolution - values are `Any`.** `evaluate` and `State.value` return `Any`, because
      the result depends on the query and may be any retained Python object; a `Query | str`
      argument, a wrapper class or an error is declared exactly. Unions such as `str | bytes |
@@ -39,20 +49,34 @@ Python integration" priority. Milestone M5 of the liquers-py plan, with
      environment-bound forms are overloaded for the bare and the keyword form and typed with
      `ParamSpec`, returning the decorated callable's own type (they return the function unchanged
      at run time, `_commands._register`), so an `async def` command stays a coroutine function.
+     The overloads mirror the runtime signature so stubtest accepts them: `(fn: Callable[_P, _R])`
+     and `(fn: None = None, *, name, namespace, label, doc, filename, volatile, cached, env)`,
+     with private type variables. They live in `__init__.pyi`, since `command` is built by a
+     factory (`_commands._decorator`) that inline annotations cannot overload.
   5. **Proposed resolution - the checks.** `scripts/test-liquers-py.sh` runs `stubtest liquers`
      (allowlist checked in, each entry justified), then mypy `--strict` and pyright `strict` on
      `liquers-py/tests/typing/good/` (must pass) and `bad/` (each intended error carries a
-     `# type: ignore[<code>]` / `# pyright: ignore[<rule>]`, and unused-ignore reporting makes an
-     accepted bad line fail). Checker versions are pinned in the script; pyright comes from its
-     PyPI wrapper. A pytest module runs the same commands so each `STUBSnn` has a named test.
+     `# type: ignore[<code>]` / `# pyright: ignore[<rule>]`; mypy `--strict` reports an unused
+     ignore, and a pyright configuration sets `enableTypeIgnoreComments: false` and
+     `reportUnnecessaryTypeIgnoreComment: error`, so an accepted bad line fails both). Signatures
+     are asserted with `assert_type`, not by matching `reveal_type` text, which differs between
+     checkers. Checker versions are pinned in the script; pyright comes from its
+     PyPI wrapper, pinned as `pyright[nodejs]` so it needs no separate Node. The checks run on one CI leg, CPython 3.14 (mypy
+     has no compiled wheels for 3.14t or PyPy, and stubtest's answers can differ by interpreter);
+     the other legs skip them with a message. The checks run once, from a pytest module
+     (`test_STUBS_declarations.py`), so each `STUBSnn` has a named test and the script does not run
+     them a second time. Phase 2 builds `_native` once and records stubtest's raw output (PyO3's
+     comparison, hash and `__new__` signatures) before sizing the allowlist.
   6. **Proposed resolution - test-only surface.** `debug-handles` methods (`live_handle_count`, the
-     record-handle count) are not declared; stubtest's allowlist names them, since the test loop
-     builds with that feature and a wheel never does.
+     record-handle count) are not declared; stubtest's allowlist names them, and stubtest runs only
+     against the test build (with that feature), never against a wheel.
   7. **Proposed resolution - `NA` and `NS` features.** Nothing is declared for a feature liquers-py
      does not implement (`WEBSERV`, `UIUSE`, `TEMPLATE` rendering, …); declarations grow with the
      features, in the same change (a reviewed rule in `PYTHON_INTEGRATION.md`).
-  8. **Proposed resolution - order.** Written after `liquers-py-records` Phase 2 fixes the record
-     classes' API, so the stubs land with them; `STUBS07`'s wheel half is tested by
+  8. **Proposed resolution - order.** The record items (in AC-4 and AC-7) follow
+     `liquers-py-records` question 1: with the recommended wrappers they declare `lq.RecordView`
+     and `lq.RecordSource` once that design's Phase 2 fixes their API; with a `pyarrow.Table` value
+     they shrink to nothing (the value is `Any`). `STUBS07`'s wheel half is tested by
      `liquers-py-package` against the built wheel.
 
 ## Problem Example
@@ -64,16 +88,17 @@ import liquers as lq
 def repeat(text: str, count: int = 2) -> str:
     return text * count
 
-reveal_type(repeat)      # should be: def (text: str, count: int = 2) -> str
+reveal_type(repeat)      # should be: (text: str, count: int = 2) -> str
 lq.parse(42)             # should be: a checker error (argument type)
 q = lq.parse("a/b")
-reveal_type(q)           # should be: liquers._native.Query
+reveal_type(q)           # should be: liquers.Query (its runtime home)
 ```
 
 **Today** the package has no `py.typed` and no `.pyi`, so mypy stops at `import liquers` with
 `import-untyped` ("module is installed, but missing library stubs or py.typed marker", its
 documented behaviour), every name is `Any`, and `lq.parse(42)` is accepted until it raises at run
-time. **After** the three comments hold under mypy and pyright, and a renamed or removed method
+time. **After** the three comments hold under mypy and pyright (each prints the types in its own
+words: mypy omits default values), and a renamed or removed method
 fails the test loop before it reaches a user.
 
 ## Scope and Acceptance Criteria
@@ -85,23 +110,26 @@ fails the test loop before it reaches a user.
   WHEN `stubtest liquers` runs against the built extension
   THEN it reports no missing, extra or mismatched name beyond the justified allowlist (STUBS03)
 - **AC-3** A drift fails the loop
-  WHEN a method is added to a `#[pymethods]` block without a declaration, or a declared one is removed
-  THEN `scripts/test-liquers-py.sh` fails naming it
+  WHEN a class is registered in `lib.rs`, or a method added to a `#[pymethods]` block, without a declaration, or a declared one is removed
+  THEN `scripts/test-liquers-py.sh` fails naming it (STUBS03)
 - **AC-4** Representative use type-checks
   WHEN mypy `--strict` and pyright `strict` check `tests/typing/good/` (queries, environments, commands, stores, recipe providers, errors, records, async)
   THEN both report no error (STUBS02)
 - **AC-5** Wrong use is rejected
-  WHEN they check `tests/typing/bad/` (`lq.parse(42)`, a wrong keyword, awaiting a sync result, a missing argument)
+  WHEN they check `tests/typing/bad/` (`lq.parse(42)`, a wrong keyword, awaiting a typed sync result such as `env.evaluate_state(q)`, a missing argument)
   THEN each intended line is an error and no other line is (STUBS06)
 - **AC-6** Commands keep their signatures
-  WHEN `repeat` above, a `first_command`, an `env.command(name=…)` and an `async def` command are revealed
+  WHEN `repeat` above, a `first_command`, a bare `@env.command`, an `env.command(name=…)` and an `async def` command are revealed
   THEN each reveals its own parameters and return type (STUBS04)
 - **AC-7** Async entry points are awaitable
   WHEN `evaluate_async`, `AssetRef.get_async`, `Store.get_async` and `RecordSource.materialize_async` are checked
   THEN each is declared as returning an awaitable of its result (STUBS05)
 - **AC-8** Errors are declared
   WHEN every `LiquersError` subclass `_errors._install` creates is compared with the declarations
-  THEN each is declared with its base classes, and `except lq.KeyNotFoundError` type-checks
+  THEN each is declared with its base classes, and `except lq.KeyNotFoundError` type-checks (the guide's error declarations)
+
+`STUBS07` (declarations and `py.typed` in the distributed artifact) is `liquers-py-package` AC-6;
+AC-1 checks the same files in the development install.
 
 Non-goals: generated stubs (question 1); a typed `Value` union (question 3); stubs for liquers-web;
 publishing the API reference (`py-api-reference`).
@@ -125,6 +153,8 @@ under `python-source` in the wheel.
   what stays `Any`). API: the `.pyi` files feed `pdoc`'s signatures (`py-api-reference`).
 - Other: `liquers-py/README.md` (a `STUBS` row; adding a class now means its declaration too, in
   §Layout); `LANGUAGE-INTEGRATION_GUIDE.md` §6 Python (what cost time).
+- Documents to update: the "no type stubs" limitation removed from `PYTHON_INTEGRATION.md` §8 and
+  `PYTHON_GUIDE.md` §10; `specs/README.md` status.
 - Open problems documented: hand-written upkeep; values are `Any`; generated stubs revisited later.
 
 ## Design Dependencies
@@ -132,6 +162,10 @@ under `python-source` in the wheel.
 - `PY-NO-TYPE-DECLARATIONS` — **implemented** by this design.
 - `liquers-py-records` — **requires**: its classes are declared here (question 8).
 - `liquers-py-package` — **required-by**: ships the files (STUBS07).
+- `py-record-values-to-python` — **overlaps**: decides with records question 1 whether records are
+  declared at all (question 8).
+- `py-pypy-ci-job`, `language-binding-tests-in-ci` (complete) — **overlap**: both run or rewrite
+  `scripts/test-liquers-py.sh`, which the checks join; the checks skip on PyPy (question 5).
 - `py-api-reference` — **overlaps**: pdoc reads the stubs; no order.
 - `py-metadata-fields-as-properties`, `py-python-style-reprs`, `py-query-segment-registration`,
   `py-command-decorator-declaration-keywords` — **overlap**: each changes the surface; whichever

@@ -18,9 +18,9 @@ library and "requires OpenSSL development headers (`libssl-dev`)", and both
 `liquers-lib/Cargo.toml` has the `openssl` dependency commented out (`#openssl = …`,
 `#polars = ["dep:polars", "dep:reqwest", "dep:openssl"]`), and
 `cargo tree -i openssl-sys --workspace --target all -e normal` prints nothing (2026-11-01): no
-workspace build links OpenSSL. TLS reaches the graph through `rustls` with `aws-lc-rs` and `ring`
-(opendal, polars' `object_store`). `openssl-sys` remains in `Cargo.lock` only through an optional
-`reqwest` `native-tls` path no enabled feature selects. `LANGUAGE-INTEGRATION_GUIDE.md` §PACKAGE
+library or binary links OpenSSL. (Without `-e normal` it does, through `liquers-axum`'s
+dev-dependency `reqwest` with default TLS, so only that crate's tests need it.) TLS reaches the graph through `rustls` with `aws-lc-rs` and `ring`
+(opendal, polars' `object_store`). `openssl-sys` is in the local lockfile through that dev-dependency. `LANGUAGE-INTEGRATION_GUIDE.md` §PACKAGE
 cites the same choice as this repository's example of not vendoring.
 
 ## Impact
@@ -32,10 +32,18 @@ matters for the wheel builds of `liquers-py-package`.
 ## Expected behaviour
 
 `CLAUDE.md`, the guide's §PACKAGE sentence and the two workflows state the actual requirement
-(no OpenSSL; a C toolchain for `aws-lc-sys`/`ring`), and the `libssl-dev` steps are dropped once a
-CI run confirms they are unneeded.
+(no OpenSSL; a C toolchain for `aws-lc-sys`/`ring`), and the `libssl-dev` steps stay only where `liquers-axum`'s tests
+are built, once a CI run confirms where they are needed.
 
 ## Discovery
 
 Found 2026-11-01 while writing Phase 1 of `liquers-py-package`, whose plan item "vendored OpenSSL
 for the wheels" turned out to have nothing to vendor.
+
+Triage: overlaps `liquers-py-package` (T3, a shared change site: the guide's §PACKAGE OpenSSL
+sentence and the CI workflows), kept separate by E1, since this fix is eligible for automatic
+fixing (`P3`, `S`, documentation and CI only, no interface change) and the design is not. Spin-off:
+to be fixed in its own branch and pull request, not in the M5 design PR; that PR owns the guide's
+OpenSSL sentence. Not started yet: this session works on one designated branch, so the second
+branch waits for the owner's go-ahead.
+

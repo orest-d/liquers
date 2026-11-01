@@ -34,8 +34,10 @@ iterator, a bounded materialize, read-only column buffers and an Arrow exit. Des
 
 ## Discovery
 
-Filed 2026-11-01 when the M5 design folder was created. Strong overlap (T2, T4) with
-`PY-RECORD-VALUES-CANNOT-CROSS-TO-PYTHON` (design `py-record-values-to-python`), which covers only
-what Python type a view becomes. Kept as a separate issue because that design is a different,
-unapproved answer to the shared question; `liquers-py-records` Phase 1 question 1 asks whether to
-absorb it.
+Filed 2026-11-01 when the M5 design folder was created. Overlap triage: the only strong
+candidate is `PY-RECORD-VALUES-CANNOT-CROSS-TO-PYTHON` (design `py-record-values-to-python`),
+decided by T2 (both answer what a record result becomes in Python; T4 fails because that design
+refuses a source and requires pyarrow). No exclusion applies. Filed separately for now because
+the shared contract is an open owner decision (`liquers-py-records` Phase 1 question 1); if it is
+decided for wrappers, that issue is merged into `liquers-py-records` and its design superseded.
+Runner-up: `RECORDS-ARROW-C-DATA-EXPORT-NOT-BUILT` (weak: zero-copy transport only).
