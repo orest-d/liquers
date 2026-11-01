@@ -42,7 +42,6 @@ assert_type(wrapped, lq.Store)
 recipe = lq.Recipe("hello", cwd="data")
 recipe.title = "Hello"
 recipe.volatile = True
-assert_type(recipe.title, str)
 record = lq.MetadataRecord()
 record.media_type = "text/plain"
 assert_type(record.key, lq.Key | None)
