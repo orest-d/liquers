@@ -2,7 +2,7 @@
 id: USER-GUIDES-LIVE-IN-SPECS
 kind: feature
 title: Liquers has no public user guides, in any format, and nothing publishes documentation on the web
-status: accepted
+status: closed
 priority: P2
 complexity: L
 area: [docs, build]
@@ -48,3 +48,14 @@ First filed on 2026-11-01 by `design/api-documentation-rules/` Phase 2 as "move 
 guides from `specs/` to `docs/`". The same day the owner rejected moving them and restated the
 need as above, refined in a second review (guides, not books; the formats). The ID is kept, as IDs are never renamed (`DOCS_STRUCTURE_GUIDE.md` §4.1), and the
 title and body were rewritten.
+
+## Resolution (2026-11-01)
+
+Implemented by `design/user-documentation-guides` (PR #234). `docs/guides/{rust,python,web}/` holds
+three parallel guides (20 outline chapters each, written from `specs/` through their `sources:`),
+`liquers-docs` expands and checks them, `scripts/build-docs.sh` renders HTML with and without
+search, EPUB and PDF, and `.github/workflows/docs-site.yml` publishes the site to GitHub Pages
+from `main`. How to write chapters: `specs/guides/USER_DOCS_EDITING_GUIDE.md`; CI:
+`specs/guides/GITHUB_ACTIONS_GUIDE.md`. Writing the chapters is editorial work, not part of this
+feature; follow-ups are filed separately (`USER-GUIDE-EXAMPLES-ARE-NOT-EXECUTED`,
+`QUERY-SYNTAX-HAS-NO-INCLUDABLE-SECTION`).

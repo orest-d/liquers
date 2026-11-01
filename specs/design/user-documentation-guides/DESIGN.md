@@ -4,7 +4,7 @@ kind: design
 title: Public user guides for Rust, Python and the Web, in several formats, published by CI
 workflow: liquers-project
 status: in_review
-phase: implementation
+phase: documentation
 area: [docs, build]
 issues: [USER-GUIDES-LIVE-IN-SPECS, USER-DOCUMENTATION-CANNOT-BE-GENERATED]
 merged: 2026-11-01

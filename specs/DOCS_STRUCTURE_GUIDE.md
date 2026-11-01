@@ -1175,7 +1175,7 @@ neither.
 
 | Date | Change | Source |
 |---|---|---|
-| 2026-11-01 | §2, §3: `docs/` exists (home page, user guides, `liquers-docs`). §4.2: kind `chapter`. §7.2: checks 18-20 (no `docs/` link into `specs/`, chapter rules, workflow coverage). §9.6 rewritten: user guides are written from `specs/` and include from it; chapters are reviewed like `specs/` documents. §10: where a user-facing chapter goes. | `design/user-documentation-guides/` |
+| 2026-11-01 | §2, §3: `docs/` exists (home page, user guides, `liquers-docs`). §4.2: kind `chapter`. §7.2: checks 18-20 (no `docs/` link into `specs/`, chapter rules, workflow coverage). §9.6 rewritten: user guides are written from `specs/` and include from it; chapters are reviewed like `specs/` documents. §10: where a user-facing chapter goes. | `design/user-documentation-guides/` (phase-5) |
 | 2026-10-21 | §4.6: front-matter is YAML; when to double-quote a value. §7.2 check 17: unquoted values YAML would misread are refused, quoted values are unquoted on reading. | `SPECS-FRONT-MATTER-IS-NOT-VALID-YAML`, `design/front-matter-yaml-agreement/` |
 | 2026-10-19 | §3: area `mcp` for `liquers-mcp` and `liquers-agent`. §4.8.1: filing through the agent memory's `memory_new`. | `design/agent-memory-mvp/` Phase 5 |
 | 2026-10-08 | §5.2.1, §7.2 check 16: acceptance scenarios (`AC-<n>` WHEN/THEN) in Phase 1, cited by Phase 3 tests and checked only when defined; a Phase 4 progress checklist; open designs without scenarios carry a note and are counted in one warning. | maintainer decision |

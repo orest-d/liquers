@@ -180,5 +180,5 @@ What differs from Phases 2-3, and why:
 ## Phase 5 Entry Criteria
 
 - [x] Implementation finished and validated (CI run of `docs-site.yml` pending)
-- [ ] User and review comments answered
-- [ ] Documentation checkable against implemented and tested behaviour
+- [x] User and review comments answered
+- [x] Documentation checkable against implemented and tested behaviour

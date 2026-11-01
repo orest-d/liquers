@@ -3896,7 +3896,7 @@ def test_DOCS04_every_public_name_is_documented():
 
 | Date | Change | Source |
 |---|---|---|
-| 2026-11-01 | §DOCS: an integration's users get a guide in `docs/guides/<language>/`, parallel to the others and written from the contract reference and topic guide, which stay in `specs/`; the design question asks which chapters a milestone drafts. | `design/user-documentation-guides/` |
+| 2026-11-01 | §DOCS: an integration's users get a guide in `docs/guides/<language>/`, parallel to the others and written from the contract reference and topic guide, which stay in `specs/`; the design question asks which chapters a milestone drafts. | `design/user-documentation-guides/` (phase-5) |
 | 2026-11-01 | §STORE: a language store *type* is possible through a bridging factory (`liquers-py` has one; `liquers-web` not yet). §RECIPE: the entry type names a language-registered factory with its arguments, replacing the `{type: python, object: …}` registry example; repeated types; `Recipe::plan_with_dependencies`. §6 Python: stores and recipe providers. | `design/liquers-py-store/`, `design/liquers-py-recipes/` (phase-5) |
 | 2026-10-31 | §6 Browser JavaScript: `UIDEF` is implemented (`defineElement`, `mountRenderer`); `DelegatedElement` and `run_headless` are reusable. | design `web-ui-define` |
 | 2026-10-31 | §6 Browser JavaScript: `UIUSE` is implemented (`mountUI`); the reusable backend changes it needed. | design `web-ui-use` |

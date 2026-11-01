@@ -86,4 +86,4 @@ Not implemented yet; each gets a design and a section here when it is.
 
 | Date | Change | Source |
 |---|---|---|
-| 2026-11-01 | Created: the five workflows, `docs-site.yml` and its Pages setup, adding a workflow, reserved publishing sections. | `design/user-documentation-guides` |
+| 2026-11-01 | Created: the five workflows, `docs-site.yml` and its Pages setup, adding a workflow, reserved publishing sections. | `design/user-documentation-guides` (phase-5) |

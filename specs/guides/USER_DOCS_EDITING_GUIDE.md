@@ -186,4 +186,4 @@ artifact of its `docs-site` run.
 
 | Date | Change | Source |
 |---|---|---|
-| 2026-11-01 | Created: layout, chapter format, style, markers, includes, tool-neutral rule, maintenance, building. | `design/user-documentation-guides` |
+| 2026-11-01 | Created: layout, chapter format, style, markers, includes, tool-neutral rule, maintenance, building. | `design/user-documentation-guides` (phase-5) |
