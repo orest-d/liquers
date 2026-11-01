@@ -19,7 +19,8 @@ HTTP requests bind them, including the value a query starts from.
 
 Phase 2 was drafted together with Phase 1, before Phase 1's gate, so the three uses (registry,
 recipes, web API) can be reviewed against one mechanism. Phase 1 is the phase awaiting approval;
-answers to its open questions may reopen Phase 2.
+answers to its open questions may reopen Phase 2. The maintainer's review of 2026-11-01 added
+questions 7–12; Phase 2 is revised once they are answered.
 
 ## Phase Status
 
@@ -33,3 +34,4 @@ answers to its open questions may reopen Phase 2.
 
 - [Phase 1](./phase1-high-level-design.md)
 - [Phase 2](./phase2-architecture.md)
+- [Notation and integration analysis](./notation-and-integration.md) — syntax, pipeline notation, variadics, payload, recipes and web API (review of 2026-11-01)

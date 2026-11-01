@@ -139,23 +139,50 @@ mapping. No new dependency.
 
 ## Open Questions
 
-1. **Placeholder syntax.** `$name` (recommended: free in the grammar, URL-safe, short) or the
-   template language's `{{name}}` (one syntax across Liquers, but braces need percent-encoding in a
-   URL and read as Mustache, which is evaluated differently).
+Questions 1 and 7–12 come from the maintainer's review of 2026-11-01. Their analysis, pros and
+cons are in [`notation-and-integration.md`](./notation-and-integration.md) (§ numbers below).
+
+1. **Placeholder syntax** (§1). Recommended (revised 2026-11-01): **both**, with the template
+   language's `{{name}}` canonical and `$name` a shorthand for a whole parameter. `QueryTemplate`
+   moves from `liquers-template` into core, so names, positions and rules are shared, and binding
+   happens in the planner. Earlier recommendation: `$name` alone.
 2. **Overlap with `recipe-override-addressing`** (AC-1/AC-2 there: `1.values`, `is_in.values`).
    Placeholders name holes in the text instead of addressing positions. Recommended: placeholders
    replace ordinal and name addressing for recipes and HTTP, and that design keeps only the key hole
    (`@key`). Merging or superseding designs is the maintainer's decision.
-3. **How composites are loaded without Rust.** Recommended: an `EnvironmentConfig` list of
-   command-definition files (YAML, `Alias` and `Composite` only), read at environment build;
-   `design/agent-command-proposal/`'s staging realm can then propose composites as well as aliases.
-4. **Argument inference.** Recommended: an argument declared without a type takes `argument_type`,
-   `multiple`, default and `gui_info` from the first slot it fills; two slots that disagree are a
-   `ParameterError` unless the argument is declared.
-5. **Inside a link, only text-form bindings?** Recommended: yes for this design (a link is a
-   separate query with its own identity); a list or map inside a link is a `ConversionError`.
+3. **How composites are loaded without Rust.** Recommended (revised, §7.2): a `recipes.yaml` entry
+   with declared `parameters` and a `command:` name registers a composite. This replaces the earlier
+   recommendation of an `EnvironmentConfig` list of definition files.
+4. **Argument inference.** Recommended: every placeholder is a declared `ArgumentInfo` (§3).
+   Inference only fills an omitted type, `multiple` or `gui_info` from the slot, and the export
+   writes the result.
+5. **Inside a link, only text-form bindings?** Recommended: yes for query text; a nested
+   `pipeline` source (§2) is the way to pass a non-text value into a link.
 6. **A raw request body as the starting state** (`POST` of a CSV with `Content-Type: text/csv`).
    Recommended: later; this design binds a start placeholder from JSON or a link only.
+7. **Structured pipeline notation** (§2). Recommended: adopt it everywhere (registry, recipes, web
+   API), as the structured form of a query, with named arguments, per-action `ns` / `realm`, and
+   `value` / `placeholder` / `link` / `pipeline` / `multiple` sources.
+8. **Variadic arguments** (§4). Recommended: the rules of the §4 table, including list splicing.
+9. **Payload and injection** (§5). Recommended: forward injection and payload requirements (free);
+   an `injected` composite argument is an error; a `payload` source is specified, but implemented
+   later, behind the access-policy design.
+10. **Recipe pipeline order** (§6). Recommended: the query first, then the pipeline, plus an
+    embedded `{ query: … }` element, which covers pipeline-then-query.
+11. **Web API recipe routes** (§7.1). Recommended: `POST q/recipe/data|entry|submit` and WebSocket
+    `subscribe` with `recipe`; the existing override bodies are unchanged.
+12. **Endpoint recipes for agents** (§7.2). Recommended: in scope (listing with argument schemas,
+    and a call route); MCP serving is a follow-up.
+
+## Scope Changes
+
+- **2026-11-01, maintainer review.** Added the structured pipeline notation, placeholder
+  declarations, variadic rules, payload and injection analysis, recipe pipelines and endpoint
+  recipes (questions 7–12, `notation-and-integration.md`), and revised questions 1, 3 and 4. Phases
+  1 and 2 are not yet rewritten around the new questions. Once they are answered, Phase 1 gains
+  scenarios for the pipeline form, recipe pipelines and endpoints, and Phase 2 is revised
+  accordingly. If these all stay in scope, the work is `XL` and likely splits into two designs
+  (core: placeholders, composites, pipelines; web: recipe routes and endpoints).
 
 ## Design Dependencies
 
