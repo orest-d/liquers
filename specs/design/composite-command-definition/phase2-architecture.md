@@ -106,7 +106,11 @@ list of those bound to a `multiple` slot. While every binding consumed so far is
 builder keeps `Step::Action::query` as the substituted prefix (each value encoded with
 `encode_token`, list elements as separate parameters). The first other binding clears it for that
 step and every later one, exactly as a recipe override does today. `Plan::text_form_query()`
-returns the final step's query, if any.
+returns the final step's query, if any. A **start placeholder bound to a value is never
+text-form**, whatever the value: the query grammar has no literal-value element, so `Step::UseValue`
+has no query text (a CSV string written first would read as an action). A request whose query
+starts that way is unmanaged (AC-14). A start placeholder bound to a link is text-form when the
+link is: it plans as `Step::Evaluate(link)`, whose text is the link query itself.
 
 **Commands (`command_metadata.rs`, `commands.rs`).** Sync: registration.
 

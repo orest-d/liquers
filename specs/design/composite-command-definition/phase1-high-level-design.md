@@ -103,7 +103,7 @@ Web API (c):
   WHEN a query starts with `$name/` and the request binds `name`
   THEN the query runs on that value
 - **AC-14** Managed when the query has a text form
-  WHEN every binding of a request is text-form (AC-10) and it carries no other override
+  WHEN every binding of a request is text-form (AC-10; a start placeholder bound to a value never is) and it carries no other override
   THEN it is served as the substituted query, as a managed asset where today's rules make it one; otherwise it is unmanaged, as overrides are today
 
 Non-goals: placeholders in a resource key, a segment header, an action name or a filename (keys:
