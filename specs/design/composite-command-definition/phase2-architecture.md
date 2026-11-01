@@ -42,7 +42,7 @@ Rejected alternatives:
 | `LINK-IN-VARIADIC-DOES-NOT-EXPAND` | draft | P3 | A link bound to a `multiple` slot gives one element, as a written link does | No | No | Same rule here; documented |
 | `VARIADIC-KEY-OR-QUERY-LINK-FAILS-TO-MATERIALIZE` | not-eligible | P3 | Same limit for bound links inside a `multiple` slot | No | No | Inherits its fix |
 | `VALUE-NOT-CONVERTED-AUTOMATICALLY` | draft | P2 | A bound link's result is not converted to the slot's type, as with written links | No | No | Inherits its fix |
-| `plan-default-namespaces` (PR #236) | in review | — | AC-7 resolves body commands through the per-realm default namespace chain | No | No | Uses whichever chain is at HEAD |
+| `plan-default-namespaces` (PR #236) | in review | — | AC-7 resolves body commands through its default namespace chain (per-realm defaults are deferred to `COMMAND-REGISTRY-NOT-ORGANIZED-BY-REALM`) | No | No | Uses whichever chain is at HEAD |
 
 ## Interfaces
 
@@ -161,7 +161,7 @@ Step::Composite {
    `ParameterValue::State` passes on unchanged, and the state argument's name becomes
    `State { level: depth }`.
 3. Build the body with a child `PlanBuilder`: the same registry, those bindings, the composite's
-   realm, its own namespace prepended to the realm's default chain (AC-7: the caller's `ns` does
+   realm, its own namespace prepended to the default namespace chain (AC-7: the caller's `ns` does
    not apply), and the expansion stack plus this key. A key already on the stack is
    `Error::composite_cycle`; a depth over 16 is the same error.
 4. Fold the child plan's volatility, payload requirement and expiration into the parent, with the
