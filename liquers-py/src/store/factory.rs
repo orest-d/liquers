@@ -13,12 +13,10 @@ use liquers_core::error::Error;
 use liquers_core::query::Key;
 use liquers_core::store::AsyncStore;
 use liquers_core::store_config::StoreConfig;
-use liquers_core::store_factory::{ArgumentCoverage, StoreArgumentInfo, StoreFactory, StoreTypeInfo};
+use liquers_core::store_factory::{ArgumentCoverage, StoreFactory, StoreTypeInfo};
 use pyo3::prelude::*;
-use pyo3::types::PyDict;
 
 use crate::aio::{LazyLoopPool, Shut};
-use crate::error::pyerr_to_error;
 use crate::pycall::LiveHandle;
 use crate::store::adapter::PyStore;
 
@@ -69,44 +67,13 @@ impl PyStoreType {
     }
 
     fn arguments_for(&self, config: &StoreConfig) -> Result<Vec<(String, serde_json::Value)>, Error> {
-        let mount = describe(config);
-        let mut values = Vec::new();
-        for argument in &self.info.arguments {
-            match config.config.get(&argument.name) {
-                Some(value) => values.push((argument.name.clone(), value.clone())),
-                None if argument.required => {
-                    return Err(Error::configuration_error(format!(
-                        "{mount}: the required argument '{}' is missing from `config:`",
-                        argument.name
-                    )))
-                }
-                None => {
-                    if let Some(default) = &argument.default {
-                        values.push((argument.name.clone(), default.clone()));
-                    }
-                }
-            }
-        }
-        let known = |name: &str| self.info.arguments.iter().any(|a: &StoreArgumentInfo| a.name == name);
-        let mut unknown: Vec<&String> = config.config.keys().filter(|k| !known(k)).collect();
-        unknown.sort();
-        if !unknown.is_empty() {
-            if !self.takes_kwargs {
-                return Err(Error::configuration_error(format!(
-                    "{mount}: unknown `config:` key(s) {}; the factory takes {}",
-                    unknown.iter().map(|k| format!("'{k}'")).collect::<Vec<_>>().join(", "),
-                    if self.info.arguments.is_empty() {
-                        "none".to_string()
-                    } else {
-                        self.info.arguments.iter().map(|a| format!("'{}'", a.name)).collect::<Vec<_>>().join(", ")
-                    }
-                )));
-            }
-            for key in unknown {
-                values.push((key.clone(), config.config[key].clone()));
-            }
-        }
-        Ok(values)
+        super::bind_arguments(
+            &describe(config),
+            "`config:`",
+            &self.info.arguments,
+            self.takes_kwargs,
+            config.config.iter().collect(),
+        )
     }
 }
 
@@ -140,38 +107,9 @@ impl StoreFactory for PyStoreFactory {
         let mount = describe(config);
         // Re-entrant: the build holds the GIL already.
         Python::attach(|py| -> Result<Box<dyn AsyncStore>, Error> {
-            let called = (|| -> PyResult<Py<PyAny>> {
-                let kwargs = PyDict::new(py);
-                for (name, value) in &arguments {
-                    kwargs.set_item(name, super::json_to_py(py, value)?)?;
-                }
-                if store_type.takes_prefix {
-                    kwargs.set_item("prefix", config.prefix.clone())?;
-                }
-                Ok(store_type.factory.bind(py).call((), Some(&kwargs))?.unbind())
-            })();
-            let object = match called {
-                Ok(object) => object,
-                Err(e) => {
-                    let cause = pyerr_to_error(py, &e);
-                    let error = Error::configuration_error(format!("{mount}: the factory raised: {}", cause.message));
-                    return Err(match cause.traceback.clone() {
-                        Some(traceback) => error.with_traceback(traceback),
-                        None => error,
-                    });
-                }
-            };
+            let prefix_argument = store_type.takes_prefix.then(|| ("prefix", config.prefix.clone()));
+            let object = super::call_factory(py, &store_type.factory, &arguments, prefix_argument, &mount, "store")?;
             let object = object.bind(py);
-            if crate::pycall::is_coroutine(py, object).unwrap_or(false)
-                || object.hasattr("__await__").unwrap_or(false)
-            {
-                if crate::pycall::is_coroutine(py, object).unwrap_or(false) {
-                    let _ = object.call_method0("close");
-                }
-                return Err(Error::configuration_error(format!(
-                    "{mount}: the factory returned an awaitable; a store factory must return the store itself"
-                )));
-            }
             let store = PyStore::adapt(py, &config.store_type, &prefix, object, self.loops.clone(), self.shut.clone())?;
             Ok(Box::new(store))
         })

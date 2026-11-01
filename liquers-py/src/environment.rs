@@ -59,6 +59,7 @@ use pyo3::types::{PyDict, PyString};
 use crate::aio::{awaitable, check_blocking_call, refuse_shutdown_on_loop, shut_down_while_waiting, LazyLoopPool, Shut, ToPy};
 use crate::command::{register_py_command, PyCommandSpec, Replaced};
 use crate::store::factory::{PyStoreFactory, PyStoreType};
+use crate::recipe_provider::{PyRecipeProviderFactory, PyRecipeProviderType};
 use liquers_core::store_factory::{ChainedStoreFactory, StoreFactory, StoreTypeInfo};
 use crate::error::{error_to_pyerr, pyerr_to_error, PyFailure};
 use crate::runtime::runtime;
@@ -93,6 +94,8 @@ struct Declarations {
     imported: Vec<CommandMetadata>,
     /// Python store types, in registration order (`register_store_factory`).
     store_types: Vec<Arc<PyStoreType>>,
+    /// Python recipe provider types, in registration order (`register_recipe_provider_factory`).
+    recipe_types: Vec<Arc<PyRecipeProviderType>>,
 }
 
 /// The shared state behind an `lq.Environment`.
@@ -123,6 +126,7 @@ impl EnvCell {
                 unregistered: Vec::new(),
                 imported: Vec::new(),
                 store_types: Vec::new(),
+                recipe_types: Vec::new(),
             }),
             config,
             conversion,
@@ -178,7 +182,12 @@ impl EnvCell {
         let mut builder = default_environment_builder::<Value, ()>()
             .with_type_registry(types)
             .with_asset_manager_options(self.config.assets.clone())
-            .with_recipes(self.config.recipes.clone());
+            .with_recipes(self.config.recipes.clone())
+            .with_recipe_provider_factory(Box::new(PyRecipeProviderFactory {
+                types: declarations.recipe_types.clone(),
+                loops: self.loops.clone(),
+                shut: self.shut.clone(),
+            }));
         crate::builtins::register(&mut builder.command_registry)?;
         for key in &declarations.unregistered {
             builder.command_registry.unregister(key.clone());
@@ -231,7 +240,7 @@ impl EnvCell {
     /// Registers a Python store type; refused when the name is taken. Marks the environment for a
     /// rebuild, which keeps the store if one was built (so the type serves only a configuration
     /// whose earlier build failed for want of it).
-    pub fn register_store_type(&self, py: Python<'_>, store_type: PyStoreType) -> Result<(), Error> {
+    pub(crate) fn register_store_type(&self, py: Python<'_>, store_type: PyStoreType) -> Result<(), Error> {
         let name = store_type.info.store_type.clone();
         let mut declarations = self.lock(py)?;
         refuse_if_shut(&declarations)?;
@@ -247,6 +256,26 @@ impl EnvCell {
             )));
         }
         declarations.store_types.push(Arc::new(store_type));
+        retire(&mut declarations)
+    }
+
+    /// Registers a Python recipe provider type; refused when the name is one of the kind's entry
+    /// types, a keyword, or registered before. Marks the environment for a rebuild.
+    pub(crate) fn register_recipe_provider_type(&self, py: Python<'_>, provider_type: PyRecipeProviderType) -> Result<(), Error> {
+        let name = provider_type.info.provider_type.clone();
+        if crate::recipe_provider::reserved_names().iter().any(|n| *n == name) {
+            return Err(Error::configuration_error(format!(
+                "recipe provider type '{name}' is a built-in entry type or keyword; choose another name"
+            )));
+        }
+        let mut declarations = self.lock(py)?;
+        refuse_if_shut(&declarations)?;
+        if declarations.recipe_types.iter().any(|t| t.info.provider_type == name) {
+            return Err(Error::configuration_error(format!(
+                "recipe provider type '{name}' is already registered"
+            )));
+        }
+        declarations.recipe_types.push(Arc::new(provider_type));
         retire(&mut declarations)
     }
 
@@ -329,9 +358,11 @@ impl EnvCell {
         // once the lock is released.
         specs = std::mem::take(&mut declarations.specs);
         let store_types = std::mem::take(&mut declarations.store_types);
+        let recipe_types = std::mem::take(&mut declarations.recipe_types);
         drop(declarations);
         drop(specs);
         drop(store_types);
+        drop(recipe_types);
         drop(store);
         for envref in envrefs {
             envref.get_asset_manager().shutdown();
@@ -948,6 +979,38 @@ impl Environment {
         let registered = PyStoreType::new(py, r#type, factory, &label, &doc, arguments)
             .and_then(|store_type| self.cell.register_store_type(py, store_type));
         registered.map_err(|e| error_to_pyerr(py, &e))
+    }
+
+    /// Registers `factory` as the recipe provider entry type `type`, which a `recipes:` entry can
+    /// then name (`{"type": type, …}`; the entry's other keys are the factory's arguments).
+    ///
+    /// `factory` is any callable that is not `async def`; its keyword parameters are the entry's
+    /// arguments (a default makes one optional). Pass `arguments=[StoreArgumentInfo(…)]` when its
+    /// signature cannot be inspected. It returns the provider: an object with `recipe_opt(key)`
+    /// (returning `lq.Recipe`, query text or `None`) and optionally `assets_with_recipes(folder)`,
+    /// `contains(key)` and `directory_changed(folder)`, each `def` or `async def`. It is called when
+    /// the environment is built, and may not use the environment. The name may not be a built-in
+    /// entry type, a keyword (`default`, `trivial`, `none`, `no_recipes`) or one registered before.
+    #[pyo3(signature = (r#type, factory, *, label=String::new(), doc=String::new(), arguments=None))]
+    fn register_recipe_provider_factory(
+        &self,
+        py: Python<'_>,
+        r#type: &str,
+        factory: &Bound<'_, PyAny>,
+        label: String,
+        doc: String,
+        arguments: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<()> {
+        let registered = PyRecipeProviderType::new(py, r#type, factory, &label, &doc, arguments)
+            .and_then(|provider_type| self.cell.register_recipe_provider_type(py, provider_type));
+        registered.map_err(|e| error_to_pyerr(py, &e))
+    }
+
+    /// The environment's recipe provider chain, every configured member included: an
+    /// `lq.RecipeProviders`.
+    #[getter]
+    fn recipes(&self) -> crate::recipe_provider::RecipeProviders {
+        crate::recipe_provider::RecipeProviders::of_environment(&self.cell)
     }
 
     /// The environment's store, with every configured mount: an `lq.Store`.

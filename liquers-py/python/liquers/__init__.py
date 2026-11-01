@@ -58,6 +58,7 @@ from liquers._native import (
     # Recipes
     Recipe,
     RecipeList,
+    RecipeProviders,
     # Environments
     Environment,
     Issue,
@@ -120,6 +121,7 @@ __all__ = [
     "build_plan",
     "Recipe",
     "RecipeList",
+    "RecipeProviders",
     "Environment",
     "Issue",
     "Context",

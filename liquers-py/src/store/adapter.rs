@@ -297,14 +297,6 @@ where
     f
 }
 
-/// Pins a closure to the higher-ranked signature of a result conversion.
-fn converter<T, F>(f: F) -> F
-where
-    F: for<'py> FnOnce(Python<'py>, Bound<'py, PyAny>) -> Result<T, Error> + Send + 'static,
-{
-    f
-}
-
 /// The arguments after the key.
 enum Extra {
     None,

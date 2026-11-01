@@ -96,7 +96,7 @@ impl Store {
 }
 
 /// A key from `lq.Key` or text.
-fn key_of(py: Python<'_>, key: &Bound<'_, PyAny>) -> PyResult<CoreKey> {
+pub(crate) fn key_of(py: Python<'_>, key: &Bound<'_, PyAny>) -> PyResult<CoreKey> {
     if let Ok(k) = key.cast::<crate::query::Key>() {
         return Ok(k.borrow().0.clone());
     }

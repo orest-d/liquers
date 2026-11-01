@@ -140,6 +140,9 @@ pub(crate) enum ToPy {
     Metadata(Result<liquers_core::metadata::Metadata, Error>),
     Bool(Result<bool, Error>),
     Strings(Result<Vec<String>, Error>),
+    Recipe(Result<Option<liquers_core::recipes::Recipe>, Error>),
+    Plan(Result<liquers_core::plan::Plan, Error>),
+    ResourceNames(Result<Vec<liquers_core::query::ResourceName>, Error>),
 }
 
 impl<'py> IntoPyObject<'py> for ToPy {
@@ -168,6 +171,25 @@ impl<'py> IntoPyObject<'py> for ToPy {
             ToPy::Bool(result) => result.map(|b| pyo3::types::PyBool::new(py, b).to_owned().into_any().unbind()),
             ToPy::Strings(result) => result.and_then(|names| {
                 pyo3::types::PyList::new(py, names)
+                    .map(|list| list.into_any().unbind())
+                    .map_err(|e| pyerr_to_error(py, &e))
+            }),
+            ToPy::Recipe(result) => result.and_then(|recipe| match recipe {
+                Some(inner) => Py::new(py, crate::recipes::Recipe { inner })
+                    .map(Py::into_any)
+                    .map_err(|e| pyerr_to_error(py, &e)),
+                None => Ok(py.None()),
+            }),
+            ToPy::Plan(result) => result.and_then(|plan| {
+                Py::new(py, crate::plan::Plan(plan))
+                    .map(Py::into_any)
+                    .map_err(|e| pyerr_to_error(py, &e))
+            }),
+            ToPy::ResourceNames(result) => result.and_then(|names| {
+                let names: PyResult<Vec<Py<crate::query::ResourceName>>> =
+                    names.into_iter().map(|n| Py::new(py, crate::query::ResourceName(n))).collect();
+                names
+                    .and_then(|names| pyo3::types::PyList::new(py, names))
                     .map(|list| list.into_any().unbind())
                     .map_err(|e| pyerr_to_error(py, &e))
             }),

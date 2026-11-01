@@ -175,3 +175,102 @@ pub(crate) fn declare(
         exempt_taken,
     })
 }
+
+/// The keyword arguments a factory is called with: each declared argument from `given` (or its
+/// default), refusing a missing required one, and the undeclared keys, refused unless the factory
+/// takes `**kwargs`. `subject` and `section` name the entry and where its arguments are written
+/// in error messages. Shared by store and recipe provider factories.
+pub(crate) fn bind_arguments(
+    subject: &str,
+    section: &str,
+    declared: &[CoreStoreArgumentInfo],
+    takes_kwargs: bool,
+    given: Vec<(&String, &serde_json::Value)>,
+) -> Result<Vec<(String, serde_json::Value)>, Error> {
+    let lookup = |name: &str| given.iter().find(|(k, _)| k.as_str() == name).map(|(_, v)| *v);
+    let mut values = Vec::new();
+    for argument in declared {
+        match lookup(&argument.name) {
+            Some(value) => values.push((argument.name.clone(), value.clone())),
+            None if argument.required => {
+                return Err(Error::configuration_error(format!(
+                    "{subject}: the required argument '{}' is missing from {section}",
+                    argument.name
+                )))
+            }
+            None => {
+                if let Some(default) = &argument.default {
+                    values.push((argument.name.clone(), default.clone()));
+                }
+            }
+        }
+    }
+    let known = |name: &str| declared.iter().any(|a| a.name == name);
+    let mut unknown: Vec<(&String, &serde_json::Value)> =
+        given.iter().filter(|(k, _)| !known(k)).copied().collect();
+    unknown.sort_by(|a, b| a.0.cmp(b.0));
+    if !unknown.is_empty() {
+        if !takes_kwargs {
+            return Err(Error::configuration_error(format!(
+                "{subject}: unknown {section} key(s) {}; the factory takes {}",
+                unknown.iter().map(|(k, _)| format!("'{k}'")).collect::<Vec<_>>().join(", "),
+                if declared.is_empty() {
+                    "none".to_string()
+                } else {
+                    declared.iter().map(|a| format!("'{}'", a.name)).collect::<Vec<_>>().join(", ")
+                }
+            )));
+        }
+        for (key, value) in unknown {
+            values.push((key.clone(), value.clone()));
+        }
+    }
+    Ok(values)
+}
+
+/// Calls a factory with `arguments` (and `extra`, when given) as keywords, inside a build.
+///
+/// A raised exception becomes a `ConfigurationError` naming `subject` that keeps the traceback;
+/// an awaitable result is refused (closed first, if a coroutine), since a factory runs
+/// synchronously. `what` names the product in that message ("store", "recipe provider").
+pub(crate) fn call_factory(
+    py: Python<'_>,
+    factory: &Py<PyAny>,
+    arguments: &[(String, serde_json::Value)],
+    extra: Option<(&str, String)>,
+    subject: &str,
+    what: &str,
+) -> Result<Py<PyAny>, Error> {
+    let called = (|| -> PyResult<Py<PyAny>> {
+        let kwargs = pyo3::types::PyDict::new(py);
+        for (name, value) in arguments {
+            kwargs.set_item(name, json_to_py(py, value)?)?;
+        }
+        if let Some((name, value)) = extra {
+            kwargs.set_item(name, value)?;
+        }
+        Ok(factory.bind(py).call((), Some(&kwargs))?.unbind())
+    })();
+    let object = match called {
+        Ok(object) => object,
+        Err(e) => {
+            let cause = pyerr_to_error(py, &e);
+            let error = Error::configuration_error(format!("{subject}: the factory raised: {}", cause.message));
+            return Err(match cause.traceback.clone() {
+                Some(traceback) => error.with_traceback(traceback),
+                None => error,
+            });
+        }
+    };
+    let bound = object.bind(py);
+    let coroutine = crate::pycall::is_coroutine(py, bound).unwrap_or(false);
+    if coroutine || bound.hasattr("__await__").unwrap_or(false) {
+        if coroutine {
+            let _ = bound.call_method0("close");
+        }
+        return Err(Error::configuration_error(format!(
+            "{subject}: the factory returned an awaitable; a {what} factory must return the {what} itself"
+        )));
+    }
+    Ok(object)
+}

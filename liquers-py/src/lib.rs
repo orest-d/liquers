@@ -20,6 +20,7 @@ pub mod parse;
 pub mod plan;
 pub mod pycall;
 pub mod query;
+pub mod recipe_provider;
 pub mod recipes;
 pub mod runtime;
 pub mod store;
@@ -93,6 +94,7 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     m.add_class::<crate::recipes::Recipe>()?;
     m.add_class::<crate::recipes::RecipeList>()?;
+    m.add_class::<crate::recipe_provider::RecipeProviders>()?;
 
     m.add_class::<crate::environment::Environment>()?;
     m.add_class::<crate::environment::Issue>()?;
