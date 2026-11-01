@@ -2,15 +2,16 @@
 
 ## Design Readiness
 
-- **Readiness:** `needs-decision`
+- **Readiness:** `ready`
 - **Automatic fixing:** `not-eligible` — adds public items (`Environment::default_namespaces`,
   `EnvironmentBuilder::with_default_namespaces`, `CommandMetadataRegistry::lookup_namespaces`, a configuration key) and spans
   `liquers-core`, `liquers-template`, `liquers-lib` and `liquers-py` (`auto-fix.md` rules 3, 4, 6).
-- **Leading issue:** whether a configured list implies root (question 1).
-- **Explanation:** the user settled the lookup semantics on 2026-11-01 (see Scope Changes); the
-  remaining questions have recommended answers and Phases 2-4 are written for them.
+- **Leading issue:** None.
+- **Explanation:** the user settled the lookup semantics on 2026-11-01 (see Scope Changes) and
+  accepted every recommendation below the same day; Phases 2-4 are written for them.
+- **Decisions (2026-11-01, user):** questions 1 and 3-5 resolved as recommended.
 - **Open questions:**
-  1. **Open design question — root after a configured list.** `default_namespaces: [pl]` in
+  1. **Decided — root after a configured list.** `default_namespaces: [pl]` in
      `EnvironmentConfig` replaces the registry's chain. Recommended: root is appended
      when the list does not name it (`[pl]` → `["pl", "", "root"]`), so configuring a namespace
      never makes core commands unreachable; a list that names `root` keeps its own order. The
@@ -18,13 +19,15 @@
      sets it is unaffected.
   2. ~~**Proposed resolution — a realm without an entry uses the main chain.**~~ Removed
      2026-11-01: per-realm chains are deferred (Scope Changes).
-  3. **Proposed resolution — generated queries stay portable.** `plan::append_action` emits a bare
+  3. **Decided — generated queries stay portable.** `plan::append_action` emits a bare
      action only when it resolves to the requested command both with the environment's chain and
      with the registry default `["", "root"]`; otherwise it writes `ns-<ns>`, `ns-root` included
      when a configured namespace would shadow a root command.
-  4. **Proposed resolution — invalid entries.** An empty-string entry in a configured list is a
+  4. **Decided — invalid entries.** An empty-string entry in a configured list is a
      `ConfigurationError`; a namespace in which no registered command lives is a build warning.
-  5. **Proposed resolution — stored values and changed configuration.** A recipe's text does not
+     In the registry's own chain `""` stays legal: `CommandKey::new` reads it as root, and the
+     default chain is `["", "root"]`.
+  5. **Decided — stored values and changed configuration.** A recipe's text does not
      change when the configuration does, so a value stored under one configuration may be served
      under another that resolves the same query to a different command. Documented, not
      prevented; a recipe that must be portable writes its `ns`.

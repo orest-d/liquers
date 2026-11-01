@@ -329,7 +329,17 @@ extension) becomes `Step::Filename`, naming the result and its format. Both are 
 end of this section.
 
 **`ns`.** `ns-a-b` names namespaces searched, in order, before the registry's
-`default_namespaces`. Only the last `ns` before an action in the same transform segment applies — a
+`default_namespaces`. The whole list is a first-match chain: a command is looked up in each
+namespace in turn and the first registered one is used
+(`CommandMetadataRegistry::lookup_namespaces`, then `find_command_in_namespaces`). An `ns` therefore
+adds to the chain and never removes the defaults: with defaults `[pl, "", root]`, `ns-lui/x` tries
+`lui`, then `pl`, then root. `default_namespaces` is `["", "root"]` unless the environment sets
+another chain — in code on the registry, or with `default_namespaces:` in its configuration, which
+appends root unless listed and takes precedence ([ENVIRONMENT_CONFIG](./ENVIRONMENT_CONFIG.md)). One
+chain serves every realm. A query that relies on a configured default means something different in
+an environment without it; a recipe meant to run anywhere writes its `ns`, and `plan::append_action`
+writes one (`ns-root` included) whenever a configured namespace would change what a bare action
+resolves to. Only the last `ns` before an action in the same transform segment applies — a
 later `ns` replaces an earlier one rather than adding to it — and it does not carry across a `-/`
 segment boundary. In `ns-pl/head-3/ns-img/x`, `head` is looked up in `pl` and `x` in `img`, not in
 `pl`. `ns` emits no step and leaves `uncached_by` unchanged; a non-string parameter is
@@ -884,6 +894,7 @@ not otherwise enforce this distinction.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-01 | §Planner instructions, `ns`: the lookup is a first-match chain, `ns` first then `default_namespaces`, which an environment may configure (`default_namespaces:`); `append_action` keeps generated queries portable. | `design/plan-default-namespaces/` |
 | 2026-11-01 | Known limitations: the plan `create_plan_with_init_metadata` builds is exposed as the public `Recipe::plan_with_dependencies`, used by providers outside the crate. | `design/liquers-py-recipes/` (phase-5) |
 | 2026-10-30 | §Composing providers rewritten for `design/recipe-provider-chain-config/`: every environment holds a chain built from a `recipes:` list; every member is asked (any `Err` fails, two owners is a `ConfigurationError` naming both); named members; entry types, factories and `resolve_recipes`; the manifest provider no longer reads `recipes.yaml`; `with_appended_recipe_entry`. §Selecting a provider by name: `RecipeProviderChoice` converts into `RecipesConfig`, and the closed set with no registration hook is replaced by entry types any crate can declare. | phase-5 (`design/recipe-provider-chain-config/`) |
 | 2026-10-27 | §Working directory: the explicit-`cwd` error names each offending recipe; `RecipeList::set_cwd` validates before mutating and writes nothing to stderr. Two Known limitations bullets removed. | design `recipe-list-set-cwd-validation` |

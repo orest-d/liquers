@@ -188,6 +188,11 @@ impl EnvCell {
                 loops: self.loops.clone(),
                 shut: self.shut.clone(),
             }));
+        // Fields are applied one by one rather than through `with_config`, so a new field of
+        // `EnvironmentConfig` has to be listed here too.
+        if let Some(namespaces) = &self.config.default_namespaces {
+            builder = builder.with_default_namespaces(namespaces.clone());
+        }
         crate::builtins::register(&mut builder.command_registry)?;
         for key in &declarations.unregistered {
             builder.command_registry.unregister(key.clone());

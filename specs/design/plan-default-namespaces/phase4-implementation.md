@@ -8,12 +8,12 @@ No prerequisite issue.
 
 ## Progress
 
-- [ ] Step 1: `lookup_namespaces`, chain checks
-- [ ] Step 2: Planner uses `lookup_namespaces`; `append_action` stays portable
-- [ ] Step 3: Builder setter, configuration key, `Environment::default_namespaces`, Python builder
-- [ ] Step 4: Template and lib resolvers use `lookup_namespaces`
-- [ ] Step 5: `liquers-validate` flag and overlay merge
-- [ ] Step 6: Documentation
+- [x] Step 1: `lookup_namespaces`, chain checks
+- [x] Step 2: Planner uses `lookup_namespaces`; `append_action` stays portable
+- [x] Step 3: Builder setter, configuration key, `Environment::default_namespaces`, Python builder
+- [x] Step 4: Template and lib resolvers use `lookup_namespaces`
+- [x] Step 5: `liquers-validate` flag
+- [x] Step 6: Documentation
 
 ## Implementation Steps
 
@@ -90,6 +90,21 @@ As Step 6, with History rows and `reviewed:` bumps on each reference and guide d
 `specs/command_registry.yaml` is not regenerated (no command changes; field skipped when empty).
 
 ## Phase 5 Entry Criteria
-- [ ] Implementation finished and validated
+- [x] Implementation finished and validated
 - [ ] User and review comments answered
 - [ ] Documentation checkable against implemented and tested behaviour
+
+## Implementation Notes
+
+Recorded 2026-11-01, against the plan above:
+
+- Two public helpers beyond Phase 2: `CommandMetadataRegistry::default_namespace_chain` (the
+  "root appended unless listed" rule, shared by the builder and `liquers-validate`) and
+  `EnvRef::default_namespaces`, delegating to the `Environment` method.
+- The empty-entry `ConfigurationError` is raised by the builder for a configured list; the
+  registry check only warns about namespaces with no command, since `""` in the registry is root.
+- `liquers-validate`'s flag goes through `ValidationRegistryBuilder::with_default_namespaces`, so the
+  report's provenance shows the configured chain; no overlay-merge change was needed.
+- Found in passing: `plan::promote_relative_default_links` looks every action up with the whole
+  query's last `ns`, not the `ns` of the action's own segment. Filed as
+  `PLAN-DEFAULT-LINK-PROMOTION-USES-THE-QUERYS-LAST-NS`.

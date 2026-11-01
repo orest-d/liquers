@@ -126,15 +126,14 @@ fn namespaces_from(
     ns: Option<Vec<ActionParameter>>,
     registry: &CommandMetadataRegistry,
 ) -> Option<Vec<String>> {
-    let mut namespaces = Vec::new();
+    let mut explicit = Vec::new();
     for parameter in ns.unwrap_or_default() {
         match parameter {
-            ActionParameter::String(s, _) => namespaces.push(s),
+            ActionParameter::String(s, _) => explicit.push(s),
             ActionParameter::Link(_, _) => return None,
         }
     }
-    namespaces.extend(registry.default_namespaces.iter().cloned());
-    Some(namespaces)
+    Some(registry.lookup_namespaces(&explicit))
 }
 
 #[cfg(test)]
@@ -318,5 +317,19 @@ mod tests {
         let result = find_next_presets("ns-pl/head/ns-img", &state, &registry);
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].query, "ns-pl/head/ns-img/show");
+    }
+
+    /// plan-default-namespaces AC-9: `next` presets resolve the last command through the
+    /// configured chain, and a preset in a configured namespace still carries its `ns`.
+    #[test]
+    fn next_presets_use_configured_chain() {
+        let state = make_state();
+        let mut registry = registry_with_pl_head(preset("tail", "pl"));
+        assert!(find_next_presets("head", &state, &registry).is_empty());
+        registry.default_namespaces =
+            CommandMetadataRegistry::default_namespace_chain(&["pl".to_string()]);
+        let result = find_next_presets("head", &state, &registry);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].query, "head/ns-pl/tail");
     }
 }
