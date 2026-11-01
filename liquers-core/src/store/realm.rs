@@ -11,6 +11,19 @@
 //! Each entry is registered in code, next to its builder ([`register_builtin_store_config`] for the
 //! built-ins), as a [`CommandMetadata`] plus either a [`StepBuilder`] (a handler) or a
 //! [`ComponentBuilder`] (a storage model or a write strategy).
+//!
+//! # Where the compiled chains run
+//!
+//! Only in [`MetadataPipelineStore`](crate::store::MetadataPipelineStore), which holds one [`CompiledChain`](crate::store::realm::CompiledChain) per stage and runs it
+//! around a data backend's data-only methods. No store implements handlers, and nothing calls
+//! [`CompiledChain::run`](crate::store::realm::CompiledChain::run) outside the pipeline except tests. The pipeline is built automatically by
+//! [`crate::store_factory::StoreRouterBuilder`] for each mount with a non-empty `metadata` section
+//! (and by `EnvironmentBuilder` with a store configuration, which uses that builder); see the
+//! [`pipeline`](crate::store::pipeline) module for the call path, the cases with no pipeline, the stores that can
+//! be wrapped, and a runnable example.
+//!
+//! The usual sources of the registry and the functions are [`StoreConfigFunctions::builtin`](crate::store::realm::StoreConfigFunctions::builtin) and,
+//! in an environment, `CommandRegistry::store_config` beside `command_metadata_registry`.
 
 use crate::command_metadata::{CommandKey, CommandMetadata, CommandMetadataRegistry};
 use crate::environment_builder::VersionVerification;
