@@ -106,6 +106,12 @@ data science use case. Milestone M5 of the liquers-py plan, with
   - Phase 2: `cp315t`, not `abi3t-py315` (measured: it does not import), and
     `Environment.liquers_version` returns the constant without building the environment.
   - Phase 2: `liquers-markdown`, created after Phase 1, is relicensed too (Decision 5, "every crate").
+  - Phase 3 review: AC-9's "succeeds only with that extra installed" applies where the extra is
+    available. Where the platform cannot have it (`arrow`/`pandas` on Windows arm64, `polars` on a
+    free-threaded interpreter), `require` says it is not available instead of advising an
+    install, and `"all"` covers only what the platform can have. AC-8 is conceptual (it
+    publishes); its parts are checked by named workflow steps. The wheel-size limit becomes a
+    check (90 MB).
 
 ## Decisions
 

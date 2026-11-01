@@ -74,8 +74,8 @@ it for `Scope::command`, and invalidates it after the call, even when the functi
 - `AssetRef::new(asset, shut, scope)`.
 
 `awaitable` takes a plain `fn` wrapper, so the scope travels inside the future's output: the
-`ToPy::{Value, State, Asset}` variants take `(…, Scope)`. A new `ToPy::Next(Result<Option<…>,
-Error>)` raises `StopAsyncIteration` at the end of a stream.
+`ToPy::{Value, State, Asset}` variants take `(…, Scope)`. A new `ToPy::Next(Result<Option<Arc<dyn
+RecordView>>, Error>)` raises `StopAsyncIteration` at the end of a stream.
 
 **Classes** (`records/{mod,schema,column,buffer,build,arrow,resolver}.rs`; `buffer.rs` holds the
 only `unsafe`, each block with a `SAFETY` note). Every one is `#[pyclass(frozen, module = "liquers")]`:

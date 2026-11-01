@@ -60,16 +60,21 @@ fn liquers_version(&self) -> &'static str { crate::VERSION }
 - `Environment.liquers_version`: a property returning `liquers_core::VERSION` directly. Reading it
   must neither build the environment nor fail after `shutdown()`. A test asserts that it equals
   the built environment's trait value.
-- `lq.require(extra: str) -> None`, in a new `_extras.py`. It imports the extra's modules:
+- `lq.require(extra: str) -> None`, in a new `_extras.py`. It imports the modules the extra
+  provides on this interpreter:
   - `polars` for `"polars"`;
   - `PIL` for `"images"`;
   - `pyarrow` for `"arrow"`;
   - `pyarrow` and `pandas` for `"pandas"`;
-  - every one of those for `"all"`.
+  - for `"all"`, every one of those that the extras table gives this platform a wheel for.
 
-  It raises `ModuleNotFoundError` naming the module and `pip install 'liquers-py[<extra>]'`; an
-  unknown extra raises `ValueError`. The mapping is shared with `liquers-py-records`' error
-  messages.
+  A missing module raises `ModuleNotFoundError: No module named 'PIL'; install it with pip
+  install 'liquers-py[images]'`. An extra this platform cannot have (the table's last column:
+  `arrow` and `pandas` on Windows arm64, `polars` on a free-threaded interpreter, detected by
+  `sysconfig.get_config_var("Py_GIL_DISABLED")`) raises `ModuleNotFoundError: liquers-py[arrow]
+  is not available on this platform: pyarrow has no wheel for Windows arm64`, with no install
+  advice. An unknown extra raises `ValueError`. The table lives in `_extras.py` as one dict,
+  shared with `liquers-py-records`' error messages and with `test_extras`.
 - `__init__.py` re-exports `__version__` and `require`. `liquers-py-stubs` declares both.
 
 **liquers-web.** A `liquersVersion` getter on the JavaScript `Environment` returns
@@ -93,7 +98,7 @@ falls back to a source build of a third-party package. Checked on PyPI on 2026-1
 
 | Extra | Package (version) | Wheels exist for | No wheel → marker excludes it |
 |---|---|---|---|
-| `polars` | polars 2.1 (runtime `cp311-abi3`) | every platform, GIL builds | free-threaded interpreters (an abi3 library does not load there): documented, `require` explains |
+| `polars` | polars 2.1 (runtime `cp311-abi3`) | every platform, GIL builds | free-threaded interpreters (an abi3 library does not load there): documented; `require` says it is not available |
 | `images` | pillow 13.0 | every platform and ABI | — |
 | `arrow` | pyarrow 26.0 | Linux, macOS arm64, Windows x86_64; `cp314` and `cp314t` | Windows arm64: `pyarrow; not (sys_platform == "win32" and platform_machine == "ARM64")` |
 | `pandas` | pandas 3.1, plus `arrow` | every platform and ABI | as `arrow` on Windows arm64 |
@@ -129,35 +134,48 @@ The three builds per platform:
 
 **`liquers-py-release.yml`.** Each job lists the jobs it needs.
 
-1. `lock`: runs `cargo generate-lockfile`, then `scripts/check-workspace-metadata.py`, which
-   checks the tag against the workspace version, every member's `version.workspace` and
-   `license.workspace` (AC-10, AC-11), and the two LICENSE copies. It uploads `Cargo.lock`.
+1. `lock`: runs `cargo generate-lockfile`, then `scripts/check-workspace-metadata.py [--root
+   DIR] [--tag TAG]` (the tag comes from `GITHUB_REF_NAME` on a tag run and is left out on a
+   manual run, which skips that check). It checks the tag against the workspace version, every member's `version.workspace` and
+   `license.workspace` (AC-10, AC-11), and the two LICENSE copies, and runs `cargo package -p
+   liquers-template --list` to confirm `tests/spec` is left out. It uploads `Cargo.lock`.
 2. `notices` (needs 1): runs `cargo about generate -m liquers-py/Cargo.toml --features <the
    wheel's> --all-features=false` once per target triple and merges the results.
    `liquers-py/about.toml` lists the accepted licenses, `AGPL-3.0-or-later` included, and
    `about.hbs` is the template.
 3. `sdist` (needs 1 and 2): `maturin sdist`, with the lock and the notices.
-4. `wheels` (needs 1 and 2): the matrix above. Each wheel is then checked with `auditwheel show`,
-   `delocate-listdeps` (after `pip install delocate`) or `dumpbin /dependents` (inside
-   `ilammy/msvc-dev-cmd`); this is AC-7.
-5. `test` (needs 4): on the build's own runner, a fresh venv with no Rust installs the wheel and
-   runs `pytest liquers-py/tests/package` (AC-2 to AC-6, AC-9). The sdist is built and tested
-   once, on Linux.
-6. On a tag only:
-   - `github-release` (needs 3 and 5; `contents: write`): `softprops/action-gh-release`.
-   - `testpypi` (needs 3 and 5; environment `testpypi`; `id-token: write`):
-     `pypa/gh-action-pypi-publish` with TestPyPI's `repository-url` and `skip-existing: true`.
+4. `wheels` (needs 1 and 2): the matrix above, built with `--auditwheel check` so that nothing
+   is grafted into the wheel. `scripts/check-wheel.py <wheel>` then unpacks it and fails when:
+   - it holds a `*.libs/` directory or any `libssl*` / `libcrypto*` file;
+   - the native library links anything outside the platform's allow-list in
+     `liquers-py/packaging/allowed-libraries.toml`: the manylinux_2_28 policy (read from
+     `auditwheel show`), macOS's `/usr/lib/` and `/System/Library/` (from
+     `delocate-listdeps --all`), or Windows' system DLLs, the `api-ms-win-*` set, the VC
+     runtime and `python3*.dll` (from `dumpbin /dependents` inside `ilammy/msvc-dev-cmd`);
+   - it is over 90 MB, which leaves a margin under PyPI's 100 MB limit.
+
+   This is AC-7.
+5. `dist` (needs 3 and 4): `scripts/check-wheel.py --dist dist/` fails unless `dist/` holds
+   exactly the fifteen expected tags and one sdist, and the sdist holds `Cargo.lock` (AC-1).
+6. `test` (needs 4): on the build's own runner, a fresh venv installs the wheel file directly and
+   runs `pytest liquers-py/tests/package` (AC-2 to AC-6, AC-9). `test-sdist` (needs 3) installs
+   the sdist on Linux with Rust and runs the same suite's `test_import_and_version`.
+7. On a tag only:
+   - `github-release` (needs 5 and 6; `contents: write`): `softprops/action-gh-release`.
+   - `testpypi` (needs 5 and 6; environment `testpypi`; `id-token: write`):
+     `pypa/gh-action-pypi-publish` with TestPyPI's `repository-url` and `skip-existing: true`,
+     then downloads `liquers-py==X` from TestPyPI and compares its hashes with `dist/`.
    - `pypi` (needs `testpypi`; environment `pypi`, which Orest protects with a required reviewer;
      `id-token: write`).
 
-**`liquers-py-package.yml`** runs jobs 1, 2, 4 and 5 for Linux x86_64 abi3 only. It is
+**`liquers-py-package.yml`** runs jobs 1, 2, 4 and 6 for Linux x86_64 abi3 only. It is
 triggered by changes to:
 - `liquers-py/{pyproject.toml,README.md,LICENSE,about.toml,about.hbs}`;
 - `liquers-py/python/liquers/**`;
 - `liquers-py/tests/package/**`;
 - both workflows;
 - the workspace `Cargo.toml`;
-- `scripts/check-workspace-metadata.py`.
+- `scripts/check-workspace-metadata.py`, `scripts/check-wheel.py` and their tests.
 
 ## Integration Points
 
@@ -167,7 +185,8 @@ triggered by changes to:
 - `liquers-web/src/environment.rs`, and `liquers-web/tests/e2e/package.spec.ts`: its PACKAGE04 and
   PACKAGE07 tests read `^version = "…"` from `liquers-web` and `liquers-core`, so they now read
   `[workspace.package]` instead.
-- Two workflows; `scripts/check-workspace-metadata.py`; `liquers-py/tests/package/`;
+- Two workflows; `scripts/check-workspace-metadata.py`, `scripts/check-wheel.py` and their tests;
+  `liquers-py/packaging/allowed-libraries.toml`; `liquers-py/tests/package/`;
   `.gitignore`.
 
 ## Error Handling

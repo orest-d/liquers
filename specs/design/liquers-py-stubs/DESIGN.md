@@ -4,7 +4,7 @@ kind: design
 title: Type declarations for the liquers Python package, checked against the runtime
 workflow: liquers-project
 status: draft
-phase: architecture
+phase: examples
 readiness: ready
 autofix: not-eligible
 area: [py]
@@ -19,6 +19,8 @@ The `STUBS` feature for liquers-py: milestone M5 of the liquers-py plan, togethe
 [`liquers-py-package`](../liquers-py-package/DESIGN.md). Full form (`L`).
 
 Phase 1 written and reviewed twice on 2026-11-01, revised after Orest's decisions and reviewed twice again, and approved the same day.
+
+Phases 2 and 3 written on 2026-11-01, each reviewed twice (conformity, soundness) and revised.
 
 **Pre-approved after Phase 1 on 2026-11-01** (Orest: "proceed all"): Phases 2-4, the implementation and Phase 5 run without gates; reviews still run, user decisions go to the Phase 1 decision log, and work stops before implementation only if one of them needs Orest.
 

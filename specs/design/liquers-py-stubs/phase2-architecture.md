@@ -35,7 +35,8 @@ Rejected:
 
 **Files** (new, under `liquers-py/python/liquers/`):
 - `__init__.pyi`: the surface, in the order of `__init__.py`'s `__all__`.
-- `_native.pyi`: `from liquers import X as X` for every name `_native` registers.
+- `_native.pyi`: `from liquers import X as X` for every name `_native` registers, and its
+  `__all__`.
 - `py.typed`: empty. maturin ships everything under `python-source`.
 
 **Typed forms** (excerpt):
@@ -54,6 +55,7 @@ def command(fn: None = None, *, name: str | None = None, namespace: str = "", la
 # (measured: accepted against the runtime's (fn=None, **options))
 __version__: str
 def require(extra: str) -> None: ...              # liquers-py-package
+@final
 class Environment:
     def __init__(self, *, config: dict[str, Any] | str | None = None,
                  conversion: Literal["permissive", "strict"] = "permissive", pickle: bool = False,
@@ -62,6 +64,7 @@ class Environment:
     def evaluate_async(self, query: Query | str) -> Awaitable[Any]: ...
     @property
     def liquers_version(self) -> str: ...         # liquers-py-package
+@final
 class RecordColumn:                               # fixed-width columns only lend a buffer
     def __buffer__(self, flags: int, /) -> memoryview: ...
 class KeyNotFoundError(StoreError, NotFoundError): ...   # bases in ErrorType::categories order
@@ -74,6 +77,8 @@ class KeyNotFoundError(StoreError, NotFoundError): ...   # bases in ErrorType::c
 - A `Query | str` parameter accepts both forms.
 - The PyO3 enums are classes whose members are class attributes of their own type
   (`ErrorType.KeyNotFound: ErrorType`, `KeyRole.Data: KeyRole`).
+- Every native class is `@final` (measured below); the error classes are not, since Python code
+  may subclass them.
 - Comparison and hash dunders are declared, not allowlisted (`__eq__`, `__lt__`, `__hash__:
   ClassVar[None]`).
 - The record classes are declared with the members in `liquers-py-records` Phase 2's table, typed
@@ -109,7 +114,23 @@ built, `LookupError` included.
 nothing else: the stubs import no third-party package. A comment in the script says the pins are raised deliberately. Each other
 leg skips with a reason.
 
-**The allowlist, from measurement.** STUBTEST-RAW-OUTPUT
+**The allowlist, from measurement.** On 2026-11-01, stubtest (mypy 2.4.1) was run against the
+installed 0.1.0 abi3 wheel with `stubgen --inspect-mode` stubs, patched until they type-checked.
+It reported 192 errors in four kinds:
+- 48 `cannot be subclassed at runtime, but isn't marked with @final`, and the same 48 as `is a
+  disjoint base at runtime`. These are all the native classes, since none sets `subclass`. Marking
+  a class `@final` clears both. Adding `@disjoint_base` as well is itself an error ("remove
+  @disjoint_base"). **Rule: every native class is declared `@final`**, which is true: Python
+  cannot subclass it.
+- 120 `variable differs from runtime type`. These are stubgen artefacts (it declares methods as
+  `method_descriptor` variables) and do not occur in hand-written stubs.
+- 12 parameter mismatches on `parse`, `parse_key` and `build_plan`, where stubgen wrote `*args,
+  **kwargs`. These are artefacts too: the runtime signatures are exact.
+- `liquers._native.__all__ is not present in stub`. `_native.pyi` therefore declares `__all__`.
+
+The allowlist then holds only the two `debug-handles` names, which exist in the test build:
+`liquers.Environment.live_handle_count` and `liquers._native.live_record_handle_count`. The
+error classes produced no finding of their own.
 
 **Annotations.** `_commands.py`, `_env.py`, `_errors.py` and `_factories.py` are annotated by
 this design. `_records.py` and `_extras.py` are annotated by the designs that create them
