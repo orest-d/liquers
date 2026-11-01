@@ -11,7 +11,8 @@ use liquers_docs::Severity;
 type Res = Result<(), Box<dyn std::error::Error>>;
 
 fn fixture(name: &str, files: &[(&str, &str)]) -> Result<PathBuf, std::io::Error> {
-    let root = std::env::temp_dir().join(format!("liquers-docs-build-{name}-{}", std::process::id()));
+    let root =
+        std::env::temp_dir().join(format!("liquers-docs-build-{name}-{}", std::process::id()));
     if root.exists() {
         std::fs::remove_dir_all(&root)?;
     }
@@ -48,7 +49,10 @@ async fn build_tree_feeds_both_renderers() -> Res {
     let root = fixture("tree", &files())?;
     let out = root.join("target/docs-build");
     let findings = build(&root, &out, BuildMode::Draft).await?;
-    assert!(findings.iter().all(|f| f.severity == Severity::Warning), "{findings:?}");
+    assert!(
+        findings.iter().all(|f| f.severity == Severity::Warning),
+        "{findings:?}"
+    );
 
     let summary = std::fs::read_to_string(out.join("python/src/SUMMARY.md"))?;
     assert_eq!(
@@ -63,18 +67,31 @@ async fn build_tree_feeds_both_renderers() -> Res {
     assert!(out.join("python/theme/liquers.css").is_file());
 
     let appendix = std::fs::read_to_string(out.join("python/src/a-query-syntax.md"))?;
-    assert!(appendix.contains("Segments are separated by `/-/`."), "{appendix}");
+    assert!(
+        appendix.contains("Segments are separated by `/-/`."),
+        "{appendix}"
+    );
     let intro = std::fs::read_to_string(out.join("python/src/01-introduction.md"))?;
-    assert!(intro.contains("> **PURPOSE:** orient the reader."), "{intro}");
-    assert!(!intro.starts_with("---"), "front matter is removed: {intro}");
+    assert!(
+        intro.contains("> **PURPOSE:** orient the reader."),
+        "{intro}"
+    );
+    assert!(
+        !intro.starts_with("---"),
+        "front matter is removed: {intro}"
+    );
 
     let pandoc = std::fs::read_to_string(out.join("python.md"))?;
     assert!(pandoc.starts_with("---\n"));
     assert!(pandoc.contains("title: Liquers for Python"));
     assert!(pandoc.contains("- Orest Dubay"));
     let preface = pandoc.find("# Preface {#index}").ok_or("preface")?;
-    let intro = pandoc.find("# 1. Introduction {#01-introduction}").ok_or("intro")?;
-    let appendix = pandoc.find("# A. Query syntax {#a-query-syntax}").ok_or("appendix")?;
+    let intro = pandoc
+        .find("# 1. Introduction {#01-introduction}")
+        .ok_or("intro")?;
+    let appendix = pandoc
+        .find("# A. Query syntax {#a-query-syntax}")
+        .ok_or("appendix")?;
     assert!(preface < intro && intro < appendix);
     assert!(pandoc.contains("[installing](#02-installing)"));
 
@@ -84,9 +101,15 @@ async fn build_tree_feeds_both_renderers() -> Res {
     assert!(out.join("home/src/guides/index.md").is_file());
 
     let release = build(&root, &out, BuildMode::Release).await?;
-    assert!(release.iter().all(|f| f.severity == Severity::Warning), "{release:?}");
+    assert!(
+        release.iter().all(|f| f.severity == Severity::Warning),
+        "{release:?}"
+    );
     let installing = std::fs::read_to_string(out.join("python/src/02-installing.md"))?;
-    assert_eq!(installing, "# 2. Installing\n\n*This chapter is in preparation.*\n");
+    assert_eq!(
+        installing,
+        "# 2. Installing\n\n*This chapter is in preparation.*\n"
+    );
     let intro = std::fs::read_to_string(out.join("python/src/01-introduction.md"))?;
     assert!(!intro.contains("PURPOSE"));
     let _ = std::fs::remove_dir_all(&root);
@@ -109,17 +132,32 @@ async fn findings_name_the_problem() -> Res {
         .map(|f| format!("{}:{} {}", f.file, f.line, f.message))
         .collect();
     assert_eq!(errors.len(), 3, "{errors:?}");
-    assert!(errors.iter().any(|e| e.contains(":10 link '../../../specs/README.md' points into specs/")));
-    assert!(errors.iter().any(|e| e.contains("link '03-gone.md' does not resolve")));
+    assert!(errors
+        .iter()
+        .any(|e| e.contains(":10 link '../../../specs/README.md' points into specs/")));
+    assert!(errors
+        .iter()
+        .any(|e| e.contains("link '03-gone.md' does not resolve")));
     assert!(errors.iter().any(|e| e.contains(":12 a fenced div")));
     let warnings: Vec<String> = draft
         .iter()
         .filter(|f| f.severity == Severity::Warning)
         .map(|f| format!("{}:{} {}", f.file, f.line, f.message))
         .collect();
-    assert!(warnings.iter().any(|w| w.contains("notes.md") && w.contains("not listed")), "{warnings:?}");
-    assert!(warnings.iter().any(|w| w.contains("2026-12-24 has no row")), "{warnings:?}");
-    assert!(warnings.iter().any(|w| w.contains(":8 TBD:")), "{warnings:?}");
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w.contains("notes.md") && w.contains("not listed")),
+        "{warnings:?}"
+    );
+    assert!(
+        warnings.iter().any(|w| w.contains("2026-12-24 has no row")),
+        "{warnings:?}"
+    );
+    assert!(
+        warnings.iter().any(|w| w.contains(":8 TBD:")),
+        "{warnings:?}"
+    );
 
     let release = check(&root, BuildMode::Release).await?;
     assert!(release

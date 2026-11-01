@@ -30,9 +30,8 @@ impl GuideConfig {
     /// Reads `<dir>/guide.yaml`.
     pub fn load(dir: &Path) -> Result<Self, Error> {
         let path = dir.join("guide.yaml");
-        let text = std::fs::read_to_string(&path).map_err(|e| {
-            Error::general_error(format!("Cannot read {}: {e}", path.display()))
-        })?;
+        let text = std::fs::read_to_string(&path)
+            .map_err(|e| Error::general_error(format!("Cannot read {}: {e}", path.display())))?;
         Self::parse(&path.display().to_string(), &text)
     }
 }
@@ -86,6 +85,9 @@ mod tests {
         assert_eq!(ChapterKind::of("index.md"), ChapterKind::Preface);
         assert_eq!(ChapterKind::of("01-introduction.md"), ChapterKind::Numbered);
         assert_eq!(ChapterKind::of("a-query-syntax.md"), ChapterKind::Appendix);
-        assert_eq!(ChapterKind::appendix_letter("b-command-library.md"), Some('B'));
+        assert_eq!(
+            ChapterKind::appendix_letter("b-command-library.md"),
+            Some('B')
+        );
     }
 }

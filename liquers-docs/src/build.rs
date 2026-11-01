@@ -191,7 +191,10 @@ fn history_has(history: &str, file: &str, date: &str) -> bool {
 }
 
 /// Reads, expands and checks every guide.
-pub async fn process(repo_root: &Path, mode: BuildMode) -> Result<(BuildTree, Vec<Finding>), Error> {
+pub async fn process(
+    repo_root: &Path,
+    mode: BuildMode,
+) -> Result<(BuildTree, Vec<Finding>), Error> {
     let env = build_environment(repo_root)?;
     let mut findings = Vec::new();
     let mut guides = Vec::new();
@@ -281,7 +284,12 @@ pub async fn process(repo_root: &Path, mode: BuildMode) -> Result<(BuildTree, Ve
             // Markers that arrive through a partial or include have no line in this file; a
             // ready chapter must not hide one there.
             if chapter.meta.status == ChapterStatus::Ready {
-                let blocking = |text: &str| notes(text).iter().filter(|n| n.marker.blocks_release()).count();
+                let blocking = |text: &str| {
+                    notes(text)
+                        .iter()
+                        .filter(|n| n.marker.blocks_release())
+                        .count()
+                };
                 let from_fragments = blocking(&expanded).saturating_sub(blocking(&chapter.body));
                 if from_fragments > 0 {
                     findings.push(finding(
@@ -313,7 +321,10 @@ pub async fn process(repo_root: &Path, mode: BuildMode) -> Result<(BuildTree, Ve
     }
 
     let mut home = Vec::new();
-    for (source, target) in [("docs/index.md", "index.md"), ("docs/guides/index.md", "guides/index.md")] {
+    for (source, target) in [
+        ("docs/index.md", "index.md"),
+        ("docs/guides/index.md", "guides/index.md"),
+    ] {
         let path = repo_root.join(source);
         match std::fs::read_to_string(&path) {
             Ok(text) => {
@@ -481,7 +492,10 @@ pub fn write_tree(tree: &BuildTree, out: &Path) -> Result<(), Error> {
         remove(&book)?;
         remove(&out.join(format!("{}.md", guide.name)))?;
         let site_path = format!("{SITE_PATH}/guides/{}/", guide.name);
-        write(&book.join("book.toml"), &book_toml(&guide.config.title, &site_path, true))?;
+        write(
+            &book.join("book.toml"),
+            &book_toml(&guide.config.title, &site_path, true),
+        )?;
         write(&book.join("theme/liquers.css"), &theme)?;
         write(&book.join("src/SUMMARY.md"), &summary(guide, tree.mode))?;
         for chapter in &guide.chapters {
@@ -493,7 +507,10 @@ pub fn write_tree(tree: &BuildTree, out: &Path) -> Result<(), Error> {
                 std::fs::copy(asset, &target).map_err(|e| io_error(&target, e))?;
             }
         }
-        write(&out.join(format!("{}.md", guide.name)), &pandoc_document(guide))?;
+        write(
+            &out.join(format!("{}.md", guide.name)),
+            &pandoc_document(guide),
+        )?;
         index.push_str(&format!(
             "{}\t{}\t{}\n",
             guide.name,
@@ -503,7 +520,10 @@ pub fn write_tree(tree: &BuildTree, out: &Path) -> Result<(), Error> {
     }
     let home = out.join("home");
     remove(&home)?;
-    write(&home.join("book.toml"), &book_toml("Liquers", &format!("{SITE_PATH}/"), true))?;
+    write(
+        &home.join("book.toml"),
+        &book_toml("Liquers", &format!("{SITE_PATH}/"), true),
+    )?;
     write(&home.join("theme/liquers.css"), &theme)?;
     let mut summary = String::from("# Summary\n\n[Liquers](index.md)\n");
     for (file, text) in &tree.home {

@@ -25,7 +25,10 @@ fn guides_are_parallel() -> Res {
         let dir = root.join("docs/guides").join(guide);
         let config = GuideConfig::load(&dir)?;
         assert_eq!(&config.language, guide);
-        assert_eq!(config.chapters.first().map(String::as_str), Some("index.md"));
+        assert_eq!(
+            config.chapters.first().map(String::as_str),
+            Some("index.md")
+        );
         match &first {
             Some(chapters) => assert_eq!(chapters, &config.chapters, "{guide} differs"),
             None => first = Some(config.chapters.clone()),

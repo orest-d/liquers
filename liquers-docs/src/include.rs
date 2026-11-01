@@ -63,8 +63,15 @@ pub fn include_section(source: &str, text: &str, wanted: &str) -> Result<String,
             }
         }
     }
-    let first = body.iter().position(|l| !l.trim().is_empty()).unwrap_or(body.len());
-    let last = body.iter().rposition(|l| !l.trim().is_empty()).map(|p| p + 1).unwrap_or(first);
+    let first = body
+        .iter()
+        .position(|l| !l.trim().is_empty())
+        .unwrap_or(body.len());
+    let last = body
+        .iter()
+        .rposition(|l| !l.trim().is_empty())
+        .map(|p| p + 1)
+        .unwrap_or(first);
     Ok(body[first..last.max(first)].join("\n"))
 }
 
@@ -143,7 +150,11 @@ pub fn command_table_markdown(source: &str, text: &str) -> Result<String, Error>
             ));
             current = Some(namespace.clone());
         }
-        let cell = |s: &str| s.replace('|', "\\|").replace('<', "&lt;").replace('>', "&gt;");
+        let cell = |s: &str| {
+            s.replace('|', "\\|")
+                .replace('<', "&lt;")
+                .replace('>', "&gt;")
+        };
         out.push_str(&format!(
             "| `{}` | {} | {} |\n",
             name,
@@ -175,7 +186,10 @@ mod tests {
         assert!(body.contains("# not a heading"));
         assert!(!body.contains("4.4 Next"));
         assert!(!body.contains("4.3"));
-        assert_eq!(include_section("doc.md", DOC, "4.3 argument DEFAULTS").expect("found"), body);
+        assert_eq!(
+            include_section("doc.md", DOC, "4.3 argument DEFAULTS").expect("found"),
+            body
+        );
         let arguments = include_section("doc.md", DOC, "Arguments").expect("found");
         assert!(arguments.contains("### 4.4 Next"));
     }

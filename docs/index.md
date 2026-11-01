@@ -1,6 +1,6 @@
 # Liquers
 
-Liquers names computations with queries. A query such as `-R/data/sales.csv/-/pl/head-10` reads
+Liquers names computations with queries. A query such as `-R/data/sales.csv/-/ns-pl/head-10` reads
 a file and applies commands to it; the result is cached as an *asset*, and the same query always
 names the same result. Commands are ordinary functions, written in Rust, Python or JavaScript.
 

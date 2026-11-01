@@ -21,7 +21,7 @@ GitHub Pages with Source "GitHub Actions" before the first `main` deploy.
 - [x] Step 5: `docs_index.py` — chapters, `HISTORY.md` rows, check 18, `chapters-for`, Actions guide check
 - [x] Step 6: `USER_DOCS_EDITING_GUIDE.md`, `GITHUB_ACTIONS_GUIDE.md`
 - [x] Step 7: contract and pointer updates — `DOCS_STRUCTURE_GUIDE.md`, `CLAUDE.md`, `LANGUAGE-INTEGRATION_GUIDE.md`, skill, `specs/README.md`
-- [ ] Step 8: a full local build where the tools can be installed; regenerate indexes
+- [x] Step 8: a full local build where the tools can be installed; regenerate indexes
 
 ## Implementation Steps
 
@@ -150,8 +150,35 @@ Every step is additive.
 - `specs/command_registry.yaml` is unchanged: the `ns-docs` commands are registered by
   `liquers-docs`, not by `liquers-lib`.
 
+## Implementation Notes
+
+What differs from Phases 2-3, and why:
+
+- **A second command, `ns-docs/command_table`.** Appendix B needs the registry as Markdown tables;
+  a template over the parsed YAML would have been longer and more fragile than one small command.
+- **`build_environment` is synchronous**, like `liquers-agent`'s; only expansion is async.
+- **The chapter's folder is passed as `expand`'s `cwd` argument.** An ad-hoc query has no working
+  directory, so `-R-key/.` resolved to the root and `{{> ../_shared/x.md}}` failed. With the
+  folder passed, `..` partials resolve and the include is a recorded dependency
+  (`tests/expand.rs`). In a query argument a space is `~.`, not `~_` (Phase 3 corrected).
+- **Markers in a draft build are quoted paragraphs** (`> **TBD:** …`): plain CommonMark that both
+  renderers style, with no renderer-specific class. Every marker kind looks the same; telling
+  `TBD:` from `PURPOSE:` by colour would need raw HTML in the build tree.
+- **Markers from fragments.** A `TBD:` that reaches a `ready` chapter through a partial has no line
+  in the chapter, so `liquers-docs` counts the markers before and after expansion and reports the
+  difference (`markers_from_fragments_count_in_ready_chapters`).
+- **mdBook empties its destination**, so the home book is built aside and copied into the site.
+- **Pandoc's Typst template.** Older Pandoc (3.1) writes an empty font list that Typst 0.15
+  refuses; the script names Typst's embedded *Libertinus Serif*.
+- **Appendix A is not an include yet.** `PROJECT_OVERVIEW.md`'s *Query Language* section holds
+  relative links, which `ns-docs/include` refuses by design; the chapter's `EDITOR:` note asks for
+  a link-free subsection. Appendix C includes the glossary section, which has none.
+- **Local build (Step 8):** mdbook 0.5.4, Pandoc 3.1.3 and Typst 0.15.1 built every guide's HTML,
+  offline zip, EPUB and PDF, and `--verify` passed. `cargo doc` was not run locally (`--skip-api`,
+  disk budget); the PR's `docs-site` run builds and verifies it.
+
 ## Phase 5 Entry Criteria
 
-- [ ] Implementation finished and validated
+- [x] Implementation finished and validated (CI run of `docs-site.yml` pending)
 - [ ] User and review comments answered
 - [ ] Documentation checkable against implemented and tested behaviour

@@ -254,7 +254,10 @@ mod tests {
     #[test]
     fn release_replaces_unready_chapter() {
         let (release, _) = apply_markers(BODY, ChapterStatus::Draft, BuildMode::Release);
-        assert_eq!(release, "# 5. Commands\n\n*This chapter is in preparation.*\n");
+        assert_eq!(
+            release,
+            "# 5. Commands\n\n*This chapter is in preparation.*\n"
+        );
         let (draft, _) = apply_markers(BODY, ChapterStatus::Outline, BuildMode::Draft);
         assert!(draft.contains("Text."));
     }

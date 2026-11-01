@@ -30,7 +30,10 @@ pub fn check_neutral(text: &str) -> Vec<Finding> {
             if !in_code {
                 let info = trimmed.trim_start_matches(['`', '~']).trim_start();
                 if info.starts_with('{') {
-                    push(format!("a MyST directive fence ({}) is renderer syntax", trimmed));
+                    push(format!(
+                        "a MyST directive fence ({}) is renderer syntax",
+                        trimmed
+                    ));
                 }
             }
             in_code = true;

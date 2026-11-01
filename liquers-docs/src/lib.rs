@@ -84,7 +84,11 @@ impl std::fmt::Display for Finding {
             Severity::Error => "error",
         };
         if self.line > 0 {
-            write!(f, "{severity}: {}:{}: {}", self.file, self.line, self.message)
+            write!(
+                f,
+                "{severity}: {}:{}: {}",
+                self.file, self.line, self.message
+            )
         } else {
             write!(f, "{severity}: {}: {}", self.file, self.message)
         }

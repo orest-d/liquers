@@ -11,7 +11,10 @@ use liquers_docs::markers::BuildMode;
 use liquers_docs::{Finding, Severity};
 
 #[derive(Parser)]
-#[command(name = "liquers-docs", about = "Build and check the Liquers user guides")]
+#[command(
+    name = "liquers-docs",
+    about = "Build and check the Liquers user guides"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -69,7 +72,10 @@ fn finish(findings: &[Finding]) -> ExitCode {
     for finding in findings {
         eprintln!("{finding}");
     }
-    let errors = findings.iter().filter(|f| f.severity == Severity::Error).count();
+    let errors = findings
+        .iter()
+        .filter(|f| f.severity == Severity::Error)
+        .count();
     let warnings = findings.len() - errors;
     println!("{errors} errors, {warnings} warnings");
     if errors > 0 {
@@ -84,33 +90,48 @@ async fn main() -> ExitCode {
     let cli = Cli::parse();
     let result = match cli.command {
         Command::Build { root, out, release } => {
-            let out = if out.is_absolute() { out } else { root.join(out) };
+            let out = if out.is_absolute() {
+                out
+            } else {
+                root.join(out)
+            };
             build(&root, &out, mode(release)).await.map(|f| finish(&f))
         }
         Command::Check {
             root,
             release,
             format,
-        } => check(&root, mode(release)).await.map(|findings| match format {
-            Format::Text => finish(&findings),
-            Format::Json => {
-                println!("{}", serde_json::to_string_pretty(&findings).unwrap_or_default());
-                if findings.iter().any(|f| f.severity == Severity::Error) {
-                    ExitCode::FAILURE
-                } else {
-                    ExitCode::SUCCESS
+        } => check(&root, mode(release))
+            .await
+            .map(|findings| match format {
+                Format::Text => finish(&findings),
+                Format::Json => {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&findings).unwrap_or_default()
+                    );
+                    if findings.iter().any(|f| f.severity == Severity::Error) {
+                        ExitCode::FAILURE
+                    } else {
+                        ExitCode::SUCCESS
+                    }
                 }
-            }
-        }),
+            }),
         Command::Report { root, format } => report(&root).await.map(|rows| {
             match format {
                 Format::Json => {
-                    println!("{}", serde_json::to_string_pretty(&rows).unwrap_or_default())
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&rows).unwrap_or_default()
+                    )
                 }
                 Format::Text => {
                     for row in &rows {
-                        let markers: Vec<String> =
-                            row.markers.iter().map(|(m, n)| format!("{m} {n}")).collect();
+                        let markers: Vec<String> = row
+                            .markers
+                            .iter()
+                            .map(|(m, n)| format!("{m} {n}"))
+                            .collect();
                         println!(
                             "{}/{}\t{}\t{}\t{}",
                             row.guide,

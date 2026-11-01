@@ -61,7 +61,9 @@ impl Chapter {
     pub fn parse(source: &str, text: &str) -> Result<Self, Error> {
         let (yaml, body, body_offset) = split_front_matter(text);
         let yaml = yaml.ok_or_else(|| {
-            Error::general_error(format!("{source}: a chapter must start with front matter (---)"))
+            Error::general_error(format!(
+                "{source}: a chapter must start with front matter (---)"
+            ))
         })?;
         let meta: ChapterMeta = from_json_or_yaml(source, yaml)?;
         Ok(Chapter {

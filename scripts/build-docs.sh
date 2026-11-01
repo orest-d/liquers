@@ -97,7 +97,11 @@ if have pandoc; then
         pandoc "$TREE/$name.md" --from markdown --toc --split-level=1 \
             --resource-path="$TREE/$name/src" -o "$OUT/downloads/$slug.epub"
         if [ "$SKIP_PDF" = 0 ] && have "$PDF_ENGINE"; then
-            pandoc "$TREE/$name.md" --from markdown --toc --pdf-engine="$PDF_ENGINE" \
+            # Typst embeds Libertinus Serif; naming it keeps the PDF independent of the fonts
+            # installed (and older Pandoc templates fail on an empty font list).
+            font=()
+            [ "$PDF_ENGINE" = typst ] && font=(-V "mainfont=Libertinus Serif")
+            pandoc "$TREE/$name.md" --from markdown --toc --pdf-engine="$PDF_ENGINE" "${font[@]}" \
                 --resource-path="$TREE/$name/src" -o "$OUT/downloads/$slug.pdf"
         fi
     done

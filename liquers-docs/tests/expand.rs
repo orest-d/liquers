@@ -44,12 +44,17 @@ async fn chapter_expands_partials_and_includes() -> Res {
     let key = parse_key("docs/guides/python/05-commands.md")?;
     let text = expand_chapter(&env, &key).await?;
     assert!(text.contains("A query is a path."), "{text}");
-    assert!(text.contains("A default is used when the argument is omitted."), "{text}");
+    assert!(
+        text.contains("A default is used when the argument is omitted."),
+        "{text}"
+    );
     assert!(text.contains("#### Links"), "{text}");
     assert!(!text.contains("Not included."), "{text}");
     assert!(!text.contains("{{"), "{text}");
 
-    let query = parse_query("-R/docs/guides/python/05-commands.md/-/ns-template/expand--strict-docs~/guides~/python")?;
+    let query = parse_query(
+        "-R/docs/guides/python/05-commands.md/-/ns-template/expand--strict-docs~/guides~/python",
+    )?;
     let asset = env.get_asset_manager().get_asset(&query).await?;
     let dependencies: Vec<DependencyKey> = asset
         .get_metadata()
@@ -60,7 +65,9 @@ async fn chapter_expands_partials_and_includes() -> Res {
         .collect();
     let printed: Vec<String> = dependencies.iter().map(|d| d.to_string()).collect();
     assert!(
-        printed.iter().any(|d| d.contains("specs/reference/DECL.md")),
+        printed
+            .iter()
+            .any(|d| d.contains("specs/reference/DECL.md")),
         "the include is a recorded dependency: {printed:?}"
     );
     cleanup(&root);
@@ -74,7 +81,9 @@ async fn missing_section_fails_the_expansion() -> Res {
     let root = fixture("missing", &files)?;
     let env = build_environment(&root)?;
     let key = parse_key("docs/guides/python/05-commands.md")?;
-    let error = expand_chapter(&env, &key).await.expect_err("missing section");
+    let error = expand_chapter(&env, &key)
+        .await
+        .expect_err("missing section");
     assert!(error.to_string().contains("Argument defaults"), "{error}");
     cleanup(&root);
     Ok(())

@@ -112,7 +112,11 @@ pub fn strip_number(text: &str) -> &str {
         && first.chars().any(|c| c.is_ascii_digit());
     let letter = first.len() == 2
         && first.ends_with('.')
-        && first.chars().next().map(|c| c.is_ascii_uppercase()).unwrap_or(false);
+        && first
+            .chars()
+            .next()
+            .map(|c| c.is_ascii_uppercase())
+            .unwrap_or(false);
     if numeric || letter {
         text[first.len()..].trim_start()
     } else {
@@ -184,7 +188,10 @@ pub fn is_absolute_url(target: &str) -> bool {
 /// Splits `---` YAML front matter from the body. Returns the YAML (if any), the body, and the
 /// number of lines before the body, so findings in the body can report file line numbers.
 pub fn split_front_matter(text: &str) -> (Option<&str>, &str, usize) {
-    let rest = match text.strip_prefix("---\n").or_else(|| text.strip_prefix("---\r\n")) {
+    let rest = match text
+        .strip_prefix("---\n")
+        .or_else(|| text.strip_prefix("---\r\n"))
+    {
         Some(rest) => rest,
         None => return (None, text, 0),
     };
@@ -214,7 +221,10 @@ mod tests {
 
     #[test]
     fn headings_and_numbers() {
-        assert_eq!(heading("### 4.3 Argument defaults"), Some((3, "4.3 Argument defaults".to_string())));
+        assert_eq!(
+            heading("### 4.3 Argument defaults"),
+            Some((3, "4.3 Argument defaults".to_string()))
+        );
         assert_eq!(heading("#hashtag"), None);
         assert_eq!(strip_number("4.3 Argument defaults"), "Argument defaults");
         assert_eq!(strip_number("1. Installing"), "Installing");
@@ -228,7 +238,10 @@ mod tests {
             link_targets("see [a](x.md#y) and ![i](img.png \"t\") but not `[c](d)`"),
             vec!["x.md#y".to_string(), "img.png".to_string()]
         );
-        assert_eq!(link_targets("[ref]: https://e.org"), vec!["https://e.org".to_string()]);
+        assert_eq!(
+            link_targets("[ref]: https://e.org"),
+            vec!["https://e.org".to_string()]
+        );
         assert!(is_absolute_url("https://e.org"));
         assert!(!is_absolute_url("../specs/x.md"));
     }
