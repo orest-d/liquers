@@ -22,6 +22,7 @@ pub mod pycall;
 pub mod query;
 pub mod recipes;
 pub mod runtime;
+pub mod store;
 pub mod value;
 
 use crate::query::*;
@@ -40,6 +41,7 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
         crate::value::PY_OBJECT_TYPE_IDENTIFIER,
         crate::value::decode_pickle,
     );
+    m.add_class::<store::StoreArgumentInfo>()?;
     m.add_class::<Position>()?;
     m.add_class::<ActionParameter>()?;
     m.add_class::<ResourceName>()?;

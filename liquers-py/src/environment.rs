@@ -432,7 +432,7 @@ pub fn to_query(query: &Bound<'_, PyAny>) -> Result<liquers_core::query::Query, 
 }
 
 /// A JSON-compatible Python object (the decorator's documents) as JSON.
-fn py_to_json(py: Python<'_>, object: &Bound<'_, PyAny>) -> Result<serde_json::Value, Error> {
+pub(crate) fn py_to_json(py: Python<'_>, object: &Bound<'_, PyAny>) -> Result<serde_json::Value, Error> {
     let text = py
         .import("json")
         .and_then(|json| json.call_method1("dumps", (object,)))
