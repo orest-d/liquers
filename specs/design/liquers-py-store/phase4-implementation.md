@@ -15,8 +15,8 @@ can run in parallel. The web counterpart of Decision 3 is not a step: it stays w
 - [x] Step 1: extract the Python call path into `pycall.rs` — 7e31f8e
 - [x] Step 2: derive factory declarations in `_factories.py` — 99f4151
 - [x] Step 3: the `PyStore` adapter and its method table — c9e9b39
-- [ ] Step 4: the store factory, registration, the build guard and `lq.Store`
-- [ ] Step 5: exports, docstrings and the conformance row
+- [x] Step 4: the store factory, registration, the build guard and `lq.Store` — 2c98d84
+- [x] Step 5: exports, docstrings and the conformance row — 2c98d84
 
 ## Implementation Steps
 
@@ -74,7 +74,8 @@ can run in parallel. The web counterpart of Decision 3 is not a step: it stays w
   `src/store/handle.rs` (`Store`, `StoreSource`, `Store.from_object`, `close`);
   `src/environment.rs` (`Declarations.store_types`, `EnvCell::build`, `envref`, `invalidate`,
   `shutdown`, a thread-local `BUILDING` list, `Environment.register_store_factory`,
-  `#[getter] store`, `store_types`); `src/exit.rs` (the registry of `Direct` loop pools).
+  `#[getter] store`, `store_types`). (A `Direct` handle's pool registers its own `atexit` stop, as
+  every pool does, so `exit.rs` needs no registry.)
 - Change: `build()` passes `ChainedStoreFactory::new()` chaining `default_store_factory()` then
   `PyStoreFactory` to `with_store_config`. Registration refuses a name in
   `default_store_factory().store_types()`, one starting with `opendal_`, or a registered type;

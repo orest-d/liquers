@@ -124,7 +124,8 @@ finalized with `finalize_metadata(update=false)`, as `FileStore::get` does.
 | `get_metadata` | `get_metadata(key)` → metadata or `None` | from `get`; a directory (`is_dir`) gets directory metadata with `listdir` children |
 | `contains` | `contains(key)` | derived from `get_metadata`; `KeyNotFound` → `False` |
 | `is_dir` | `is_dir(key)` | `False` without `listdir`; refused at adaptation with `listdir` |
-| `listdir`, `set`, `set_metadata`, `remove`, `removedir`, `makedir` | same names | `key_not_supported` naming the method |
+| `listdir` | `listdir(key)` | `listdir_data` when the five data methods are provided (the pipeline lists through `listdir`); else `key_not_supported` |
+| `set`, `set_metadata`, `remove`, `removedir`, `makedir` | same names | `key_not_supported` naming the method |
 | `is_supported` | `is_supported(key)`, a `def` | supported; an exception or interpreter exit → `false` |
 | data-only five | same names, all or none | **derived** when `get` and `listdir` exist: `get_data` = `get`'s bytes, `listdir_data` = `listdir`, `set_data` / `remove_data` = `set` with empty metadata / `remove` (else `key_not_supported`), `data_facts` = `{size: len(data), modified: None, etag: None}`; none (`data_access` false) without `listdir` or with `data_access = False` |
 | `rename_data` | same | no rename |
@@ -158,8 +159,8 @@ absolute key under the mount's prefix: a Rust mount's keys reach it only where p
   the shared `LiveHandle`, also counting store objects, store types and recipe providers
   (`live_handle_count()` and the `debug-handles` comment in `liquers-py/Cargo.toml` updated).
 - `liquers-py/src/exit.rs`: `py_call(subject, f)` (`command_call` without the asset);
-  `attach_tracked` unchanged, used by `is_supported`; a `Direct` handle's loop pool is stopped by
-  the existing exit hook through a registry of live pools.
+  `attach_tracked` unchanged, used by `is_supported`; a `Direct` handle's loop pool, like every
+  pool, registers its own `atexit` stop when it starts.
 - `liquers-py/src/error.rs`: `pyerr_to_store_error(py, err, key, store, write)`.
 - `liquers-py/src/lib.rs`, `python/liquers/_factories.py` (new), `__init__.py`, `tests/`.
 - No change in `liquers-core`, `liquers-store` or `liquers-lib`.
