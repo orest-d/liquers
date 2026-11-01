@@ -143,7 +143,7 @@ pub fn command_table_markdown(source: &str, text: &str) -> Result<String, Error>
             ));
             current = Some(namespace.clone());
         }
-        let cell = |s: &str| s.replace('|', "\\|");
+        let cell = |s: &str| s.replace('|', "\\|").replace('<', "&lt;").replace('>', "&gt;");
         out.push_str(&format!(
             "| `{}` | {} | {} |\n",
             name,

@@ -318,7 +318,9 @@ Regenerated on every run. Anything listed here is missing from the capability ma
 deliberately folded behind a broader line.
 
 <!-- BEGIN generated: unplaced -->
+- `guides/GITHUB_ACTIONS_GUIDE.md`
 - `guides/TYPE_SYSTEM_GUIDE.md`
+- `guides/USER_DOCS_EDITING_GUIDE.md`
 - `reference/CONFORMANCE_TERMS.md`
 - `reference/api/API_DOCS_GAP_ANALYSIS.md`
 - design `access-policy-at-entry-points`
@@ -716,6 +718,7 @@ deliberately folded behind a broader line.
 - [`COMMAND_REGISTRATION_GUIDE.md`](guides/COMMAND_REGISTRATION_GUIDE.md) — This guide covers defining and registering new commands in Liquers. It covers both the `register_command!` macro approach and manual registration.
 - [`DEPENDENCY_CONSISTENCY_GUIDE.md`](guides/DEPENDENCY_CONSISTENCY_GUIDE.md) — How to choose how much inconsistency an application tolerates between runs, and how to start a
 - [`ENVIRONMENT_CONSTRUCTION_GUIDE.md`](guides/ENVIRONMENT_CONSTRUCTION_GUIDE.md) — An `Environment` owns the global services a query evaluation needs: the command registry, the
+- [`GITHUB_ACTIONS_GUIDE.md`](guides/GITHUB_ACTIONS_GUIDE.md) — What each workflow in `.github/workflows/` does, when it runs, what it needs, and how to add one.
 - [`JAVASCRIPT_GUIDE.md`](guides/JAVASCRIPT_GUIDE.md) — How to use Liquers from a web page with `liquers-web`: build the WebAssembly module, load it,
 - [`LANGUAGE-INTEGRATION_GUIDE.md`](guides/LANGUAGE-INTEGRATION_GUIDE.md) — Status: Draft
 - [`PYTHON_GUIDE.md`](guides/PYTHON_GUIDE.md) — How to use Liquers from Python with the `liquers` package: build it, configure an environment,
@@ -729,6 +732,7 @@ deliberately folded behind a broader line.
 - [`TEMPLATE_GUIDE.md`](guides/TEMPLATE_GUIDE.md) — How to write Liquers templates, render them, and turn one into a command. The language itself is
 - [`TYPE_SYSTEM_GUIDE.md`](guides/TYPE_SYSTEM_GUIDE.md) — How to add a value type so the system can describe it, store it and read it back. For *why* the
 - [`UNITTEST_GUIDE.md`](guides/UNITTEST_GUIDE.md) — This guide explains how to write comprehensive unit tests for the Liquers query evaluation flow, covering environment setup, command registration, query evaluat
+- [`USER_DOCS_EDITING_GUIDE.md`](guides/USER_DOCS_EDITING_GUIDE.md) — How to write, check and maintain the public user guides in `docs/guides/`: *Liquers for Rust*,
 - [`WEB_API_GUIDE.md`](guides/WEB_API_GUIDE.md) — This guide shows how to use a Liquers server over HTTP and WebSocket: evaluating queries, running
 - [`autonomous_bulk_design.md`](guides/autonomous_bulk_design.md) — This is the binding procedure for a coding agent asked to create or finish design documents for
 - [`autonomous_issue_fixing.md`](guides/autonomous_issue_fixing.md) — This is the binding procedure for a coding agent asked to fix an issue autonomously. The words
