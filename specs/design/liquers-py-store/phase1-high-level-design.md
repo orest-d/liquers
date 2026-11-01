@@ -13,8 +13,14 @@ plan, with [`liquers-py-recipes`](../liquers-py-recipes/DESIGN.md).
 - **Readiness:** `ready`
 - **Automatic fixing:** `not-eligible`: an `L` feature with a new public Python API.
 - **Leading issue:** None.
-- **Explanation:** Decisions 1-5 are Orest's and settle questions 1-3; questions 4-12 have one defensible answer each and are shown for review. Provisional until
-  the Phase 4 consistency pass.
+- **Explanation:** Phase 1 approved by Orest on 2026-11-01 (`proceed all`), pre-approving Phases
+  2-4, the implementation and Phase 5. Decisions 1-5 are his; questions 4-12 are explicit
+  assumptions taken as recommended. Provisional until the Phase 4 consistency pass.
+- **Decision log (pre-approval):** (a) Phase 2 review: derived data-only access needs `get` and
+  `listdir` (the pipeline lists objects and recovers staged writes), so a store without `listdir`
+  takes no `metadata` section and is refused at build (AC-12) rather than failing at run time; and
+  a derived `get_stored_metadata` reads only a provided `get_metadata`. A narrowing of Decision 5's
+  "any Python store", in its spirit; **shown to Orest at the pre-implementation stop.**
 - **Open questions:**
   1. **Decided (Decision 3) - minimum method set** (`WEB-JS-STORE-WITH-ONLY-GET-CANNOT-BE-QUERIED`).
      Recommended: only `get` is mandatory, because a `-R/` query also calls `contains`,
@@ -60,10 +66,10 @@ plan, with [`liquers-py-recipes`](../liquers-py-recipes/DESIGN.md).
   10. **Proposed resolution - data-only access.** `get_data`, `set_data`, `remove_data`,
       `listdir_data`, `data_facts` all or none; `rename_data`, `get_stored_metadata` optional;
       `atomic_write = True` declares atomic writes. When they are absent the adapter derives them
-      (Decision 5): `get_data` from `get`, `set_data` from `set` with empty metadata, `remove_data`
-      from `remove`, `listdir_data` from `listdir`, `data_facts` from `get_metadata` (else the data's
-      size, at the cost of a read), `get_stored_metadata` from `get_metadata`. A provided method
-      always wins; `data_access = False` on the object opts out. `data_facts` returns `None` or `{size,
+      (Decision 5) when `get` and `listdir` exist: `get_data` from `get`, `set_data` from `set` with
+      empty metadata, `remove_data` from `remove`, `listdir_data` from `listdir`, `data_facts` as the
+      data's size (a read) with no time or ETag, `get_stored_metadata` from a provided
+      `get_metadata` only. A provided method always wins; `data_access = False` opts out. `data_facts` returns `None` or `{size,
       modified, etag, precision}`, `modified` an aware `datetime` or RFC 3339 text
       (`BackendTime::parse`).
   11. **Proposed resolution - consistency and re-entry.** No adapter locking; atomicity is the
@@ -162,10 +168,11 @@ unknown store type `notes`. **After** the factory builds the mount and the query
   WHEN a Python mount carries `read_only: true`
   THEN every write is refused before Python is called, and `is_read_only()` is true (`STORE14`)
 - **AC-12** A `metadata` section needs data-only access
-  WHEN a Python mount whose object sets `data_access = False` carries a `metadata` section
+  WHEN a Python mount whose object sets `data_access = False`, or has no `listdir`, carries a `metadata` section
   THEN the build fails naming the mount and the missing capability (`STORE15`)
 - **AC-13** Records round-trip
-  WHEN every store that takes a `metadata` section is configured with `per_entry`, then `grouped`
+  WHEN every store providing its data-only methods (the Rust ones and a Python store with them) is
+  configured with `per_entry`, then `grouped`
   THEN records round-trip, the default `on_read` chain applies, and a Python `get` is never called
   for metadata (`STORE16`)
 - **AC-14** Backend time compares equal
@@ -226,7 +233,7 @@ Bindings: `register_store_factory`, `lq.StoreArgumentInfo`, `env.store`, `lq.Sto
 
 - **2026-10-31** — Orest: a configuration names a Python *factory* (Decision 1) in place of a
   `python` type with a registered object; late registration rebuilds (Decision 2). Added AC-16;
-  AC-2, AC-10, AC-15 reworded. Questions 1-3 decided 2026-11-01 (Decisions 3-5); AC-17 added and AC-12 reworded for Decision 5. Questions renumbered from the first draft: former 2 (late
+  AC-2, AC-10, AC-15 reworded. Questions 1-3 decided 2026-11-01 (Decisions 3-5); AC-17 added and AC-12 reworded for Decision 5. **2026-11-01** (Phase 2 review): AC-12 and AC-13 narrowed to the derivation's requirements (decision log (a)). Phases: 1, 2. Questions renumbered from the first draft: former 2 (late
   registration) and 4 (naming) retired into the decisions; former 3 is 2; former 12 split into 3
   (STORE18) and 5 (STORE12); new 4 and 6 (factories); former 5 is 7, 6 is 8, 7 and 9 merged into 9,
   8 is 10, 10 is 11, 11 and 13 merged into 12. Size: still `L`. Phases: 1.

@@ -67,8 +67,8 @@ assert env.evaluate("-R/reports/summary.txt") == "Hello"
   WHEN a provider method evaluates a query through its environment (`RECIPE07`)
   THEN it completes under the `RUNTIME` rules, with no deadlock; `def` and `async def` both work
 - **AC-9** Inspecting the chain
-  WHEN Python calls `env.recipes.recipe_opt(key)`, `recipe(key)`, `assets_with_recipes(folder)`,
-  `contains(key)` or their `_async` twins
+  WHEN Python calls `env.recipes.recipe_opt(key)`, `recipe(key)`, `recipe_plan(key)`,
+  `assets_with_recipes(folder)`, `contains(key)`, `can_make(key)` or their `_async` twins
   THEN it gets the chain's answers (`RECIPE01`-`RECIPE03`, `RECIPE05`)
 - **AC-10** Registration timing and release
   WHEN a factory is registered after the first use, or `shutdown()` is called
@@ -120,8 +120,12 @@ does not expire assets (`RECIPE-DEPENDENCY-KEY-IS-NEVER-VERSIONED`).
 - **Readiness:** `ready`
 - **Automatic fixing:** `not-eligible`: a new public Python API and a core rule change.
 - **Leading issue:** None.
-- **Explanation:** the chain already defines ownership, errors and listing, and Orest's decisions
-  (`liquers-py-store` Decisions 1-2) fix the registration model; questions 1-2 remain for him.
+- **Explanation:** Phase 1 approved by Orest on 2026-11-01 (`proceed all`), pre-approving Phases
+  2-4, the implementation and Phase 5. Questions 1-2 are his decisions; questions 3-7 are explicit
+  assumptions taken as recommended. Provisional until the Phase 4 consistency pass.
+- **Decision log (pre-approval):** (a) Phase 2 review: an *appended* entry (liquers-lib's
+  `with_records_recipe_provider` appends a bare `manifest`) is still skipped when any member has its
+  type, so the repeat rule of question 2 applies to documents only. Within question 2; no decision needed.
 - **Open questions:**
   1. **Decided (Orest, 2026-11-01, as recommended) - an absent `assets_with_recipes`.** The method is the protocol's listing and
      is supported. Recommended when it is absent: the provider lists nothing and contains nothing

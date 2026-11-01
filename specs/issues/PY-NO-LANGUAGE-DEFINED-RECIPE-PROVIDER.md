@@ -4,7 +4,7 @@ kind: feature
 title: A recipe provider cannot be written in Python, and liquers-py has no RECIPE feature
 status: draft
 priority: P3
-complexity: M
+complexity: L
 area: [py, core/assets, core/context]
 design: liquers-py-recipes
 created: 2026-10-30

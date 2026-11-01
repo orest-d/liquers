@@ -9,7 +9,7 @@ readiness: ready
 autofix: not-eligible
 area: [py, core/assets, core/context]
 issues: [PY-NO-LANGUAGE-DEFINED-RECIPE-PROVIDER]
-affects_docs: [specs/reference/PYTHON_INTEGRATION.md, specs/reference/ENVIRONMENT_CONFIG.md, specs/guides/PYTHON_GUIDE.md, specs/guides/LANGUAGE-INTEGRATION_GUIDE.md, liquers-py/README.md, specs/README.md]
+affects_docs: [specs/reference/PYTHON_INTEGRATION.md, specs/reference/ENVIRONMENT_CONFIG.md, specs/reference/RECIPES_AND_PLANS.md, specs/guides/PYTHON_GUIDE.md, specs/guides/ENVIRONMENT_CONSTRUCTION_GUIDE.md, specs/guides/LANGUAGE-INTEGRATION_GUIDE.md, liquers-py/README.md, specs/README.md]
 created: 2026-10-31
 ---
 # liquers-py-recipes — recipe providers written in Python
@@ -19,7 +19,7 @@ The `RECIPE` feature of liquers-py, milestone M4 of the liquers-py plan together
 chain (`recipe-provider-chain-config`, PR #224): Python registers recipe provider *factories*, each
 an entry type of `config["recipes"]`, declared through `EnvironmentBuilder::with_recipe_provider_factory`
 (the plan's M4 says `with_appended_recipe_provider`; PR #224 made the factory the route for a
-configured entry, so this deliberately updates the plan). Full form since 2026-11-01: the source issue is `M`, but the design grew to `L` (Phase 1, Scope Changes).
+configured entry, so this deliberately updates the plan). Full form since 2026-11-01: the source issue was `M` and is now `L` (Phase 1, Scope Changes).
 
 Phase 1 approved by Orest on 2026-11-01 (`proceed all`). Pre-approved after Phase 1 on 2026-11-01: Phases 2-4, the implementation and Phase 5, with a stop before implementation only if the decision log needs a decision.
 
