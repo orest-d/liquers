@@ -3,8 +3,8 @@ id: LIQUERS-PY-STUBS
 kind: design
 title: Type declarations for the liquers Python package, checked against the runtime
 workflow: liquers-project
-status: approved
-phase: implementation
+status: in_review
+phase: documentation
 readiness: ready
 autofix: not-eligible
 area: [py]

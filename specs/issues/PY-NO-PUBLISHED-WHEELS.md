@@ -2,7 +2,7 @@
 id: PY-NO-PUBLISHED-WHEELS
 kind: feature
 title: liquers-py has no published wheels, so installing it needs a Rust toolchain and a long build
-status: draft
+status: in_progress
 priority: P2
 complexity: L
 area: [py, build]
@@ -35,3 +35,12 @@ optional extras for polars, Pillow and pyarrow. Design: `specs/design/liquers-py
 
 Filed 2026-11-01 when the M5 design folders were created. Weak overlap: `PY-PYPY-SUPPORT-UNVERIFIED`
 (PyPy is a claimed interpreter; whether wheels are built for it is a question of this design).
+
+## Progress
+
+2026-11-01: `design/liquers-py-package/` (PR #240) built the release pipeline
+(`.github/workflows/liquers-py-release.yml`): fifteen wheels and an sdist, each wheel tested in a
+fresh venv and checked for linked libraries, then TestPyPI, then PyPI behind the protected `pypi`
+environment. Nothing is published yet. This closes when the first release (`liquers-py-v0.1.0`) is
+on PyPI, which needs Orest: the trusted publishers registered on TestPyPI and PyPI, the tag, and
+his approval of the `pypi` job. Contract: `reference/PYTHON_INTEGRATION.md` §12.

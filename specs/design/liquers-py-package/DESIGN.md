@@ -3,8 +3,8 @@ id: LIQUERS-PY-PACKAGE
 kind: design
 title: Release wheels for liquers-py, built and tested in GitHub Actions
 workflow: liquers-project
-status: approved
-phase: implementation
+status: in_review
+phase: documentation
 readiness: ready
 autofix: not-eligible
 area: [py, build]

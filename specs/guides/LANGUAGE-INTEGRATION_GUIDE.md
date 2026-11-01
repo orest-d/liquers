@@ -481,6 +481,22 @@ module; a binding should weigh the same cost before making records part of its d
 `02`, `04`-`08` and `10` run in `liquers-web/tests/records_RECORDS.rs`; `03`, `09` and `11` are
 `NA` (no Arrow route; JavaScript has an async model; JavaScript cannot implement the traits).
 
+**What `liquers-py` does — wrappers, with Arrow as an exit.** Python has both routes, so
+`liquers-py` (`design/liquers-py-records/`) wraps the same `Arc`s (`lq.RecordView`,
+`lq.RecordSource`, `RecordColumn`, the schema classes) and adds copying exits and entrances for
+pyarrow, pandas and polars. Columns are lent through Python's buffer protocol, read-only, so numpy
+shares their memory with no copy and a buffer outlives its view. The Arrow exit writes Arrow IPC in
+Rust and reads it with pyarrow, which keeps the schema's roles, the chunk id and the origins in the
+table's metadata (`liquers.origins` was added to the IPC writer for this); the entrance normalizes
+what liquers' IPC reader refuses (wide strings, narrow numbers, dictionaries) before reading.
+polars crosses as Parquet through the polars bridge, so it needs no pyarrow. A source carries its
+resolution scope: inside a command it reads through the command's context, so chunks become
+dependencies, and afterwards through a weak handle on the environment, so it never keeps an
+environment alive. Traversal is one chunk per `next()`, both synchronously and with `async for`, and
+`chunk(i)` opens one chunk only (`liquers_records::read_chunk`). `RECORDS01`-`08` and `10` run in
+`liquers-py/tests/test_RECORDS_*.py`; `09` and `11` are `NA` (Python has an async model; Python does
+not implement the traits). Contract: `reference/PYTHON_INTEGRATION.md` §11.
+
 A single-cell view reads as a scalar (`record-streams` Phase 2, "A view as a value"), so a wrapper
 should expose that as the *language*'s own scalar rather than as a one-by-one table.
 
@@ -2079,10 +2095,36 @@ What cost time:
   finishes, so count after the work is done.
 - **The `extension-module` feature cannot link a test binary.** Run the crate's Rust tests with
   `--no-default-features`; `scripts/test-liquers-py.sh` runs both halves.
+- **`abi3t` is not usable yet.** maturin builds a `cp315-abi3.abi3t` wheel, but its library is
+  named `.abi3t-<platform>.so` and the interpreter loads only `.abi3t.so`, so it does not import
+  (`PY-ABI3T-WHEEL-NOT-USED`); ship one wheel per free-threaded version instead.
+- **An extra whose package has no wheel** for a platform would make pip build it from source.
+  Exclude it with an environment marker, and have `require` say it is unavailable there; there is
+  no marker for a free-threaded interpreter, so that case is documented.
+- **stubtest finds submodules itself**; naming `liquers._native` as well fails with "Duplicate
+  module". pyright needs the interpreter (`--pythonpath`) to find an installed package, and narrows
+  a property on assignment, so assert its declared type before setting it. pyarrow ships no type
+  information, so declare its objects as `Any` rather than *Unknown*.
 - **Rust tests that load a Python module race.** Executing a module can release the GIL, so two
   tests installing the same module replace each other's classes; load it once, under a
   `PyOnceLock`.
 
+- **Records** (`specs/design/liquers-py-records/`). Wrappers over the same `Arc`s, with pyarrow,
+  pandas and polars as copying exits and entrances, and columns lent through the buffer protocol
+  (§RECORDS, "What `liquers-py` does"). The protocol's `__getbuffer__` is `unsafe` FFI; it is
+  available in the limited API from 3.11, which the 3.14 abi3 wheel satisfies. The limited API has
+  no `PyDate`, so dates are built through the `datetime` module. A source's wrapper holds the
+  environment weakly with its shut flag, and inside a command the command's `Context`, which is
+  invalidated when the command returns.
+- **Packaging** (`specs/design/liquers-py-package/`). Wheels are built by `PyO3/maturin-action` for
+  five platforms: one `cp314-abi3` (`pyo3/abi3-py314`) and two free-threaded builds (`cp314t`,
+  `cp315t`) each, since an abi3 library does not load on a free-threaded interpreter. Each wheel is
+  tested in a fresh venv on its own runner and checked for linked libraries before TestPyPI, then
+  PyPI behind a protected environment. One workspace version is reported by every binding
+  (`Environment::liquers_version`).
+- **Type declarations** (`specs/design/liquers-py-stubs/`). Hand-written `.pyi` files, kept honest
+  by `mypy.stubtest` and by typed samples under mypy `--strict` and pyright `strict`. Declare the
+  decorators with `ParamSpec` overloads so a decorated command keeps its signature.
 - **Stores and recipe providers.** Both are *factories*: `register_store_factory(type, factory)`
   and `register_recipe_provider_factory(type, factory)` declare a type whose arguments are read
   from the factory's signature (`_factories._declare`), and the configuration document places it.
@@ -3842,7 +3884,9 @@ def test_PACKAGE03_quickstart_evaluates_a_query_end_to_end():
         assert r.exit_code == 0 and r.stdout.strip() != ""
 
 def test_PACKAGE04_version_metadata_matches_linked_core():
-    assert lq.__core_version__ == cargo_locked_version("liquers-core")
+    # The environment reports the Liquers version it was built with (`Environment::liquers_version`).
+    assert lq.Environment().liquers_version == cargo_workspace_version()
+    assert lq.__version__ == pep440(cargo_workspace_version())
 
 def test_PACKAGE05_default_feature_set_produces_documented_value_type():
     assert lq.value_type_name() == DOCUMENTED_DEFAULT_VALUE_TYPE
@@ -3892,6 +3936,7 @@ def test_DOCS04_every_public_name_is_documented():
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-01 | §RECORDS: what `liquers-py` does (wrappers, buffers, Arrow/pandas/polars exits, scope, traversal, dispositions). Appendix A `PACKAGE04` uses the environment's version. §6 Python: records, packaging and type declarations, and what cost time (abi3t, extras without wheels, stubtest and pyright). | `design/liquers-py-records/`, `design/liquers-py-package/`, `design/liquers-py-stubs/` (phase-5) |
 | 2026-11-01 | §PACKAGE: the repository no longer links OpenSSL (TLS is `rustls`); the vendoring sentence says so. | `OPENSSL-BUILD-REQUIREMENT-IS-STALE` |
 | 2026-11-01 | §STORE: a language store *type* is possible through a bridging factory (`liquers-py` has one; `liquers-web` not yet). §RECIPE: the entry type names a language-registered factory with its arguments, replacing the `{type: python, object: …}` registry example; repeated types; `Recipe::plan_with_dependencies`. §6 Python: stores and recipe providers. | `design/liquers-py-store/`, `design/liquers-py-recipes/` (phase-5) |
 | 2026-10-31 | §6 Browser JavaScript: `UIDEF` is implemented (`defineElement`, `mountRenderer`); `DelegatedElement` and `run_headless` are reusable. | design `web-ui-define` |

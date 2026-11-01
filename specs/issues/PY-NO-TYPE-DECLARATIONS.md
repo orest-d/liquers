@@ -2,7 +2,7 @@
 id: PY-NO-TYPE-DECLARATIONS
 kind: feature
 title: liquers-py ships no type declarations, so type checkers see the package as untyped
-status: draft
+status: closed
 priority: P2
 complexity: L
 area: [py]
@@ -34,3 +34,11 @@ drift (`STUBS01`-`STUBS07`). Design: `specs/design/liquers-py-stubs/`.
 
 Filed 2026-11-01 when the M5 design folders were created (liquers-py plan, M5); the limitation was
 documented but had no issue.
+
+## Resolution
+
+Closed 2026-11-01 by `design/liquers-py-stubs/` (PR #240). The package ships `py.typed`,
+`__init__.pyi` and `_native.pyi`; the pure-Python modules are annotated.
+`liquers-py/tests/test_STUBS_declarations.py` runs stubtest against the runtime, compares the native
+names and the generated error classes, and checks typed samples under mypy `--strict` and pyright
+`strict`. Contract: `reference/PYTHON_INTEGRATION.md` §13.

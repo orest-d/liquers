@@ -20,13 +20,13 @@ in parallel with Step 2.
 
 ## Progress
 
-- [ ] Step 1: one workspace version and license, and their checker
-- [ ] Step 2: `liquers_version` in core, Python and JavaScript
-- [ ] Step 3: `lq.require` and the extras table
-- [ ] Step 4: package metadata, the `wheel` profile, notices and the quick-start
-- [ ] Step 5: the wheel and `dist/` checker
-- [ ] Step 6: the installed-wheel tests
-- [ ] Step 7: the release and PR workflows, and their first run
+- [x] Step 1 (ce719aa): one workspace version and license, and their checker
+- [x] Step 2 (ce719aa): `liquers_version` in core, Python and JavaScript
+- [x] Step 3 (ce719aa): `lq.require` and the extras table
+- [x] Step 4 (ce719aa): package metadata, the `wheel` profile, notices and the quick-start
+- [x] Step 5 (ce719aa): the wheel and `dist/` checker
+- [x] Step 6 (ce719aa): the installed-wheel tests
+- [x] Step 7 (ce719aa): the release and PR workflows, and their first run (the PR workflow ran; the release workflow's first full run is outstanding, Phase 5 Conformance)
 
 ## Implementation Steps
 
@@ -196,6 +196,6 @@ release left to Orest.
 
 ## Phase 5 Entry Criteria
 
-- [ ] Implementation finished and validated
-- [ ] User and review comments answered
-- [ ] Documentation checkable against implemented and tested behaviour
+- [x] Implementation finished and validated
+- [x] User and review comments answered
+- [x] Documentation checkable against implemented and tested behaviour

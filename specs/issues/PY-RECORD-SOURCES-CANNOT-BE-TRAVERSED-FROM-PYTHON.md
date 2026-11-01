@@ -2,7 +2,7 @@
 id: PY-RECORD-SOURCES-CANNOT-BE-TRAVERSED-FROM-PYTHON
 kind: feature
 title: A record source cannot be walked chunk by chunk from Python, and record columns cannot be read in place
-status: draft
+status: closed
 priority: P2
 complexity: L
 area: [py, records]
@@ -41,3 +41,12 @@ refuses a source and requires pyarrow). No exclusion applies. Filed separately f
 the shared contract is an open owner decision (`liquers-py-records` Phase 1 question 1); if it is
 decided for wrappers, that issue is merged into `liquers-py-records` and its design superseded.
 Runner-up: `RECORDS-ARROW-C-DATA-EXPORT-NOT-BUILT` (weak: zero-copy transport only).
+
+## Resolution
+
+Closed 2026-11-01 by `design/liquers-py-records/` (PR #240). A record source reaches Python as
+`lq.RecordSource`: `chunks()` lists without evaluating, `iter` / `async for` read one chunk per
+step, `chunk(i)` opens one chunk (`liquers_records::read_chunk`), `materialize(max_rows)` is
+bounded; inside a command chunks become dependencies, afterwards the source reads through the
+environment, held weakly. Evidence: `liquers-py/tests/test_RECORDS_sources.py` (`RECORDS07`,
+`08`). Contract: `reference/PYTHON_INTEGRATION.md` §11.

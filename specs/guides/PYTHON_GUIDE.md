@@ -18,19 +18,29 @@ installed.
 
 ## 1. Installing
 
-The package is not published yet. Build it from the repository root into a virtual environment
-with [maturin](https://www.maturin.rs):
+```bash
+pip install liquers-py              # imported as `liquers`
+pip install 'liquers-py[all]'       # with polars, pillow, pyarrow and pandas
+```
+
+Wheels are published for CPython 3.14 and later (the regular and the free-threaded builds) on Linux
+x86_64 and aarch64, macOS arm64, and Windows x86_64 and arm64. On any other interpreter or platform
+(CPython 3.10-3.13, PyPy, macOS x86_64, musllinux) pip builds from the source distribution, which
+needs a Rust toolchain (1.95 or newer) and a C compiler and takes several minutes. Until the first
+release is on PyPI, or to work on the bindings, build from the repository root with
+[maturin](https://www.maturin.rs):
 
 ```bash
 python -m venv .venv && . .venv/bin/activate
-pip install maturin polars pillow
+pip install maturin
 maturin develop --release -m liquers-py/Cargo.toml   # builds the extension and installs `liquers`
 ```
 
-The first build compiles the Rust libraries, Polars included, so it takes several minutes and a few
-gigabytes of disk. `--release` makes the package much faster; leave it out for a quicker build
-while working on the bindings themselves. A Rust toolchain is required. `polars` and `pillow` are
-optional: they are needed only to exchange DataFrames and images.
+The optional Python packages are *extras*: `polars` (DataFrames), `images` (pillow), `arrow`
+(pyarrow) and `pandas` (pyarrow and pandas), or `all`. `lq.require("arrow")` checks for one and
+raises `ModuleNotFoundError` with the `pip install` command that adds it. pyarrow has no wheel for
+Windows arm64 and polars none for free-threaded Python, so those extras are unavailable there.
+`lq.__version__` is the Liquers version.
 
 The distribution is called `liquers-py`; the package is imported as `liquers`, conventionally as
 `lq`. CPython 3.10 to 3.15 and PyPy 3.11 or newer are supported.
@@ -50,12 +60,16 @@ traceback is readable.
 | `liquers._env` | `default_environment()` and `evaluate()`. |
 | `liquers._commands` | The `command` and `first_command` decorators. |
 | `liquers._errors` | `LiquersError` and its subclasses, one per `ErrorType`. |
+| `liquers._records` | The pyarrow, pandas and polars side of the record classes. |
+| `liquers._extras` | `require()` and the table of extras. |
 
 The public names, by purpose:
 
 | Purpose | Names |
 |---|---|
 | Running queries | `Environment`, `default_environment`, `evaluate`, `AssetRef`, `State` |
+| Tables | `RecordView`, `RecordColumn`, `RecordBuffer`, `RecordSchema`, `FieldSchema`, `FieldType`, `KeyRole`, `ChunkOrigin`, `RecordSource`, `RecordStream`, `RecordChunk` |
+| The package | `require`, `__version__` |
 | Writing commands | `command`, `first_command`, `Context` |
 | Errors | `LiquersError`, `KeyNotFoundError`, `ExecutionError`, … (one per `ErrorType`), `ErrorType` |
 | Results' metadata | `Metadata`, `MetadataRecord`, `AssetInfo`, `Status`, `LogEntry`, `LogEntryKind`, `Version` |
@@ -722,6 +736,8 @@ Values cross between Python and Liquers by kind:
 | `dict` with `str` keys | object | `dict` |
 | `polars.DataFrame` | Polars DataFrame | `polars.DataFrame` |
 | `PIL.Image.Image` | image | `PIL.Image.Image` |
+| `lq.RecordView`, `pyarrow.Table` | record view | `lq.RecordView`; one row of one field as its value |
+| `lq.RecordSource` | record source | `lq.RecordSource` |
 | `lq.Query`, `lq.Key`, `lq.Recipe`, `lq.MetadataRecord`, `lq.CommandMetadata` | the same | the same |
 | anything else | an opaque Python object | the same object |
 
@@ -754,6 +770,106 @@ receives the same object. Liquers cannot look inside it: a Rust command given on
 `pickle=True`; without it, writing one raises `SerializationError`, and stored pickle bytes are
 never unpickled. With `conversion="strict"`, such an object is refused with `ConversionError` as
 soon as a command returns it.
+
+### Records
+
+A table in Liquers is a *record view* (`specs/reference/RECORD_STREAMS.md`): typed columns with a
+schema. It reaches Python as `lq.RecordView`, whose cells are read without a copy, and goes back
+into a query unchanged. Build one from rows or columns; field types are inferred, or declared with
+`fields=`:
+
+```python
+import liquers as lq
+
+env = lq.Environment()
+
+@env.first_command
+def sales():
+    return lq.RecordView.from_records(
+        [{"region": "north", "amount": 120}, {"region": "south", "amount": 80.5}],
+        fields={"amount": "float"},
+    )
+
+view = env.evaluate("sales")
+assert isinstance(view, lq.RecordView)
+assert view.schema.names == ["region", "amount"]
+assert view.schema.field("amount").type == lq.FieldType.Float
+assert view.to_list() == [{"region": "north", "amount": 120.0}, {"region": "south", "amount": 80.5}]
+assert view.column("amount").to_list() == [120.0, 80.5]
+assert memoryview(view.column("amount")).tolist() == [120.0, 80.5]   # lent, read-only
+assert env.evaluate("sales/ns-rec/nrows") == 2                       # a Rust command
+assert env.evaluate("sales/ns-rec/head-1").to_dict() == {"region": ["north"], "amount": [120.0]}
+env.shutdown()
+```
+
+- **Reading.** `len(view)`, `view.column(name or index)`, `view.value(row, col)`, `view.to_list()`
+  (one dict per row), `view.to_dict()` (one list per column). `select_columns`, `slice`, `row` and
+  `cell` narrow it. A view of exactly one row and one field reaches Python as that cell's value.
+- **Cells.** `None` for a null; `bool`, `int`, `float`, `str`, `bytes`; `datetime.date`; a
+  timezone-aware UTC `datetime.datetime` for a timestamp; a list of floats for a vector.
+- **Inference.** One Python type per field, except that `int` and `float` together make `Float`; any
+  other mix is a `ConversionError` naming the field and the row. An all-`None` field is `Text`.
+- **`fields=`** is a dict from field name to a type (`lq.FieldType.Int`, or its name `"int"`) or an
+  `lq.FieldSchema`, or an `lq.RecordSchema`. A declared type converts every cell, refusing one that
+  would change: `"1"` becomes `1` in an `int` field, `1.5` is refused there. `FieldSchema` adds a
+  label, a description, a key role (`lq.KeyRole.Id` refuses nulls) and `nullable=False`.
+- **Columns as buffers.** A numeric, date, timestamp or vector column supports the buffer
+  protocol, so `numpy.asarray(view.column("amount"))` shares its memory. The buffer is read-only and
+  keeps the data alive after the view is gone. `column.validity`, `offsets` and `data` give the
+  null bitmap and a text column's parts the same way.
+
+**pyarrow, pandas and polars.** `view.to_arrow()`, `view.to_pandas()` and `view.to_polars()` copy
+the view out; `lq.RecordView.from_arrow(table)`, `from_pandas(df)` and `from_polars(df)` copy one in,
+each with `fields=`. A `pyarrow.Table` returned from a command becomes a record view by itself. Only
+`to_arrow` keeps the schema's roles and labels, the chunk id and the origins, in the table's schema
+metadata. These need the `arrow`, `pandas` or `polars` extra (§1); without it they raise
+`ConversionError` naming the extra.
+
+```python
+import liquers as lq
+import pyarrow as pa
+
+table = pa.table({"id": ["a", "b"], "n": pa.array([1, None], type=pa.int32())})
+view = lq.RecordView.from_arrow(table)       # int32 becomes a 64-bit Int field
+assert view.to_dict() == {"id": ["a", "b"], "n": [1, None]}
+assert view.to_arrow().column("n").to_pylist() == [1, None]
+```
+
+A pandas integer column with a missing value is a float column in pandas, so it arrives as `Float`
+unless `fields=` declares it `"int"`.
+
+**Record sources.** A source is a table read in chunks, such as a manifest listing many files. It
+reaches Python as `lq.RecordSource`, and iterating it reads one chunk per step, so a large source
+is never loaded whole:
+
+```python
+import liquers as lq
+
+env = lq.Environment()
+
+@env.first_command
+def part(i: int = 0):
+    return lq.RecordView.from_records([{"id": f"r{i}", "n": float(i)}])
+
+@env.first_command
+def manifest():
+    return {"manifest": "record-stream", "chunks": [{"query": f"part-{i}"} for i in range(3)]}
+
+source = env.evaluate("manifest/ns-rec/to_record_source")
+assert [c.query.encode() for c in source.chunks()] == ["part-0", "part-1", "part-2"]  # nothing runs
+assert [chunk.to_list() for chunk in source] == [[{"id": f"r{i}", "n": float(i)}] for i in range(3)]
+assert source.chunk(2).to_dict() == {"id": ["r2"], "n": [2.0]}      # only chunk 2 runs
+assert len(source.materialize()) == 3                              # all of it, at most 1 000 000 rows
+env.shutdown()
+```
+
+`async for chunk in source`, `await source.chunk_async(i)` and `await
+source.materialize_async(max_rows)` are the awaitable forms; inside an `async def` command only they
+may be used, as for `evaluate` (§6, "Awaiting a query"). A chunk read inside a command becomes a
+dependency of that command's result. A source kept after its command returns reads through the
+environment, and stops with `GeneralError` once the environment is shut down. A chunk command
+returns a view: one returning CSV bytes cannot be a chunk yet
+(`BYTES-VALUE-HAS-NO-NAMED-DATA-FORMAT`).
 
 ## 8. Errors
 
@@ -830,6 +946,25 @@ def test_repeat(env):
 `env.store_set(key, value)` writes a value into the environment's store, which is the simplest
 way to give a test its input.
 
+### Type checking
+
+The package ships type declarations (`py.typed`, `__init__.pyi`), so mypy, pyright and editors check
+calls into `liquers`. A decorated command keeps its own signature:
+
+```python
+import liquers as lq
+
+@lq.command
+def repeat(text: str, count: int = 2) -> str:
+    return text * count
+
+assert repeat("ab", 2) == "abab"   # a checker knows this returns str, and refuses repeat(1)
+```
+
+What a query returns, `State.value` and a command's inputs are `Any`: a checker cannot know what a
+query produces. Objects of pyarrow, pandas and polars are `Any` too, since pyarrow publishes no type
+information. Run your checker as usual, for example `mypy --strict your_package` or `pyright`.
+
 ## 10. Known limitations
 
 What you will notice; the complete list, with the tracking issues, is
@@ -842,13 +977,17 @@ What you will notice; the complete list, with the tracking issues, is
 - A store cannot run its own `store_config` handlers in Python; the configured Rust ones run around it.
 - `env.recipes.recipe(key)` for a key nobody has raises `GeneralError`, not `KeyNotFoundError`.
 - Progress lines on stderr cannot be turned off.
-- There are no type stubs for editors and no generated API reference; `help()` on a class or
-  method shows its docstring and signature.
+- There is no generated API reference; `help()` on a class or method shows its docstring and
+  signature, and the type declarations give editors the signatures.
+- A record view or source cannot be implemented in Python, and moving a table to or from pyarrow,
+  pandas or polars copies it.
+- Wheels exist for CPython 3.14 and later on five platforms; elsewhere pip builds from source.
 
 ## History
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-01 | §1 Installing with pip and the extras; §7 Records (views, `fields=`, buffers, pyarrow/pandas/polars, sources); §9 Type checking; §10 updated. | `design/liquers-py-records/`, `design/liquers-py-package/`, `design/liquers-py-stubs/` (phase-5) |
 | 2026-11-01 | §4 A store written in Python; §6 Recipe providers written in Python; §2 the store and recipe classes; §10 the recipe-provider limitation is lifted. | `design/liquers-py-store/`, `design/liquers-py-recipes/` (phase-5) |
 | 2026-10-31 | §1: the supported range starts at CPython 3.10 (3.9 is past its end of life). | Orest, CI matrix decision for `language-binding-tests-in-ci` |
 | 2026-10-30 | §4 `config`: `recipes` accepts every value; §6 Named results: choosing recipe providers with `recipes`. §10: the limitation narrows to a provider written in Python. | design `recipe-provider-chain-config` |

@@ -777,6 +777,7 @@ fn environ08_registry_without_commands_is_refused() {
 #[wasm_bindgen_test]
 fn environment_reports_liquers_version() {
     reset_global();
+    init_global().expect("init");
     let global = LiquersEnvironment::global().expect("global handle");
     assert_eq!(global.liquers_version(), liquers_core::VERSION);
     let explicit = LiquersEnvironment::from_envref(build_environment().expect("build"));

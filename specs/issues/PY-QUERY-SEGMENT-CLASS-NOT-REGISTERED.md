@@ -45,3 +45,9 @@ Either `QuerySegment` is a registered, exported class like the other query class
 
 Found by review of `design/py-docstrings/` on 2026-10-27 (bulk design of the Python backlog):
 `QuerySegment` is returned by `Query.segments` but absent from `__all__`.
+
+## Note (2026-11-01)
+
+`design/liquers-py-stubs/` declares the class under the stub-only private name `_QuerySegment` in
+`liquers-py/python/liquers/__init__.pyi`, so `Query.segments` is typed. When the class is
+registered and exported, rename the declaration to `QuerySegment` and add it to `_native.pyi`.

@@ -3,7 +3,7 @@ title: Record Streams
 kind: reference
 audience: internal
 area: [records, lib/value, lib/commands, web]
-reviewed: 2026-10-30
+reviewed: 2026-11-01
 ---
 
 # Record Streams
@@ -215,8 +215,12 @@ writer below ([`guides/SERIALIZATION_GUIDE.md`](../guides/SERIALIZATION_GUIDE.md
 **A streamed chunk is placed at its chunk index.** Both sources' streams pass each chunk's view
 through `place_chunk(view, chunk_index, Some(chunk_id), Some(rows_counted_so_far))`: a `RecordBatch`
 is re-stamped (shallow clone, one run, the chunk id), any other view is wrapped in a `PlacedView`.
-Whatever ids the view had on its own are superseded. **A chunk read on its own** (`ns-rec/rowid`
-over a source) is placed with `first_number: None`: its rows have `RowId`s but no row number.
+Whatever ids the view had on its own are superseded. **A chunk read on its own** is placed with
+`first_number: None`: its rows have `RowId`s but no row number. `liquers_records::read_chunk(source,
+resolver, index)` is that read: through a manifest it opens only chunk `index` (the same steps a
+traversal takes for it, `uniform_schema` checked), and for any other source it walks the stream up
+to it. A template chunk beyond the known prefix, or an index past the end, is an error naming the
+range. `ns-rec/rowid` over a source and liquers-py's `RecordSource.chunk(i)` both use it.
 `RecordBatch::concat` joins the runs, so a materialized multi-chunk table keeps every row's
 `RowId` and number.
 
@@ -244,7 +248,8 @@ origin is stored once per source rather than per row.
 
 `RecordBatch::concat` rebases an `Int` / `UInt` `Source` column onto the joined dictionary and
 refuses any other `Source` column type. **No producer in the tree fills `sources` yet**, and
-`describe_chunk` builds its origin with `info: None, locator: None`.
+`describe_chunk` builds its origin with `info: None, locator: None`. The Arrow IPC format writes
+and reads them (§Arrow IPC), and liquers-py exposes them as `lq.ChunkOrigin` (`asset`, `chunk`).
 
 ## Provenance and validity
 
@@ -535,7 +540,7 @@ selects the schema-aware reader (strict, nothing guessed); `ReadSchema::Infer` t
 | JSON | `json` — one shape: an array of row objects | yes | yes | as NDJSON | — |
 | Markdown | `md`, `markdown` — GFM pipe table | yes | yes | presentation: headers are labels; types inferred; null is an empty cell, `""` is `<!---->` | — |
 | HTML | `html` | yes | **no** (`not_supported`) | presentation only | — |
-| Arrow IPC file | `feather`, `ipc`, `arrow_ipc`, `arrow` | yes | yes | **lossless**: types, nulls, schema with roles, `chunk_id` | `ipc` |
+| Arrow IPC file | `feather`, `ipc`, `arrow_ipc`, `arrow` | yes | yes | **lossless**: types, nulls, schema with roles, `chunk_id`, origins | `ipc` |
 | Parquet | `parquet` | yes | **not here** — `liquers-lib` reads it through polars | everything, when written by Liquers (`liquers.schema`); values and types otherwise | `parquet` (write) |
 
 Without its feature, `Ipc` / `Parquet` refuse with `not_supported`, naming the feature. All writers
@@ -653,8 +658,13 @@ cell, label and description escapes `& < > " '`.
 
 `formats/ipc.rs`, feature `ipc`. The writer materializes the view and writes one record batch per
 file. The `RecordSchema` travels as JSON under `liquers.schema` in the Arrow schema's
-`custom_metadata`, the `chunk_id` under `liquers.chunk_id` in the batch message's; `rows` and
-`sources` are not written.
+`custom_metadata`, the `chunk_id` under `liquers.chunk_id` in the batch message's, and a non-empty
+`sources` under `liquers.origins` (`LIQUERS_ORIGINS_KEY`) in the batch message's, as a JSON list of
+`ChunkOrigin`. `rows` are not written. The reader restores `sources` from `liquers.origins`, and
+drops them when the schema has no `KeyRole::Source` field to index them (a file whose
+`liquers.schema` is stale); a file without the key reads as before. Origins are what lets a table
+that left through Arrow (liquers-py's `RecordView.to_arrow`, `PYTHON_INTEGRATION.md` §11) carry its
+provenance.
 
 **Supported subset (read):** `Int(64, signed/unsigned)`, `FloatingPoint(Double)`, `Utf8`, `Binary`,
 `Bool`, `Date(Day)`, `Timestamp(Microsecond)` (any zone, or none, read as epoch µs without shifting), `FixedSizeList<Float32>`, with
@@ -871,6 +881,7 @@ materializes to an empty batch; without one it is an error.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-01 | §Arrow IPC: `liquers.origins` carries `sources` (written when non-empty, dropped on read without a `Source` field). §Rows: `read_chunk`, shared by `ns-rec/rowid` and liquers-py. §ChunkOrigin and §Table formats updated. | `design/liquers-py-records/` (phase-5) |
 | 2026-10-30 | Manifest validation: the `recipes.yaml` name clash is the chain's two-owner error. §Provider chain: the `manifest` entry type, `LibKind`'s list, every member asked, `with_records_recipe_provider` idempotent. | design `recipe-provider-chain-config` |
 | 2026-10-27 | §Table formats: the CSV separator refinements `csv:semicolon`, `csv:pipe` and `csv:<c>`, with the same meaning as for a DataFrame. | `design/record-table-csv-refinements/` |
 | 2026-10-25 | §Commands: a directory is listed with plain `-R/<dir>/-/ns-rec/file_records` (a `Directory` state); `-R-sdir/` still works. | `design/key-without-recipe-answer/` |
