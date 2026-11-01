@@ -10,7 +10,7 @@ autofix: not-eligible
 area: [py, records]
 issues: [PY-RECORD-SOURCES-CANNOT-BE-TRAVERSED-FROM-PYTHON, PY-RECORD-VALUES-CANNOT-CROSS-TO-PYTHON]
 merged: 2026-11-01
-affects_docs: [specs/reference/PYTHON_INTEGRATION.md, specs/reference/RECORD_STREAMS.md, specs/guides/PYTHON_GUIDE.md, specs/guides/LANGUAGE-INTEGRATION_GUIDE.md, liquers-py/README.md, specs/README.md]
+affects_docs: [specs/reference/PYTHON_INTEGRATION.md, specs/reference/RECORD_STREAMS.md, specs/guides/PYTHON_GUIDE.md, specs/guides/LANGUAGE-INTEGRATION_GUIDE.md, specs/reference/PROJECT_OVERVIEW.md, liquers-py/README.md, specs/README.md]
 created: 2026-11-01
 ---
 # liquers-py-records — record views and sources from Python

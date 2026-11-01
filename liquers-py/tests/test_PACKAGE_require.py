@@ -31,6 +31,7 @@ def test_PACKAGE_require_missing_module(monkeypatch):
     ],
 )
 def test_PACKAGE_require_not_available_here(monkeypatch, extra, patch, reason):
+    monkeypatch.setitem(sys.modules, "polars" if extra == "polars" else "pyarrow", None)
     if patch == "windows_arm64":
         monkeypatch.setattr(_extras.sys, "platform", "win32")
         monkeypatch.setattr(_extras.platform, "machine", lambda: "ARM64")
@@ -47,14 +48,34 @@ def test_PACKAGE_require_not_available_here(monkeypatch, extra, patch, reason):
     assert "pip install" not in message
 
 
+def test_PACKAGE_require_uses_an_importable_module_where_no_wheel_is(monkeypatch):
+    # polars built from source on a free-threaded interpreter is used, not refused.
+    monkeypatch.setattr(_extras, "_unavailable", lambda extra: "no wheel")
+    monkeypatch.setattr(_extras.importlib, "import_module", lambda module: None)
+    lq.require("polars")
+
+
 def test_PACKAGE_require_all_skips_what_is_not_available(monkeypatch):
     imported = []
+
+    def import_module(module):
+        imported.append(module)
+        if module == "pyarrow":
+            raise ModuleNotFoundError(module)
+
     monkeypatch.setattr(
         _extras, "_unavailable", lambda extra: "x" if extra in ("arrow", "pandas") else None
     )
-    monkeypatch.setattr(_extras.importlib, "import_module", imported.append)
+    monkeypatch.setattr(_extras.importlib, "import_module", import_module)
     lq.require("all")
-    assert imported == ["polars", "PIL"]
+    assert imported == ["polars", "PIL", "pyarrow", "pyarrow"]
+
+
+def test_PACKAGE_require_all_reports_a_missing_available_module(monkeypatch):
+    monkeypatch.setattr(_extras, "_unavailable", lambda extra: None)
+    monkeypatch.setitem(sys.modules, "PIL", None)
+    with pytest.raises(ModuleNotFoundError, match="liquers-py\\[images\\]"):
+        lq.require("all")
 
 
 def test_PACKAGE_require_unknown_extra():

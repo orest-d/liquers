@@ -575,12 +575,12 @@ frozen, so they are safe on a free-threaded interpreter without locks.
 
 | Class | Wraps | Members |
 |---|---|---|
-| `RecordView` | `Arc<dyn RecordView>` | `schema`, `chunk_id` (`lq.Key`, `lq.Query` or `None`), `origins`, `len()`, `num_columns`, `column(name or index)`, `columns()`, `value(row, col)`, `select_columns(*cols)`, `slice(offset, length)` (clamped), `row(i)`, `cell(row, col)`, `item()`, `to_list()` (row dicts), `to_dict()` (column lists); `from_records`, `from_dict`, `from_arrow`, `from_pandas`, `from_polars`; `to_arrow`, `to_pandas`, `to_polars` |
+| `RecordView` | `Arc<dyn RecordView>` | `schema`, `chunk_id` (`lq.Key`, `lq.Query` or `None`), `origins`, `len()`, `num_columns`, `column(name or index)`, `columns()`, `value(row, col)`, `select_columns(*cols)`, `slice(offset, length)` (clamped), `row(i)` (a one-row `RecordView`), `cell(row, col)`, `item()`, `to_list()` (row dicts), `to_dict()` (column lists); `from_records`, `from_dict`, `from_arrow`, `from_pandas`, `from_polars`; `to_arrow`, `to_pandas`, `to_polars` |
 | `RecordColumn` | one `ColumnMut` | `name`, `type`, `null_count`, `dim`, `len()`, `[i]` (negative indices), `to_list()`, `validity` / `offsets` / `data` (each an `lq.RecordBuffer` or `None`); the buffer protocol for fixed-width columns |
 | `RecordBuffer` | one part of a column | `format`, `len()`, the buffer protocol |
-| `RecordSchema`, `FieldSchema`, `FieldType`, `KeyRole`, `ChunkOrigin` | the schema types | `FieldSchema(type, *, name=None, key=None, label=None, description="", nullable=True)`; `RecordSchema(fields, *, type_identifier=None)` with `fields`, `names`, `field(name)` (`KeyError`), `to_dict()`; `KeyRole.Data` is Rust's `KeyRole::None` |
-| `RecordSource` | `Arc<dyn RecordSource>` and where it reads from | `schema`, `bounded`, `manifest` (a dict or `None`), `chunks()`, `chunk(i)` / `chunk_async(i)`, `materialize(max_rows=1_000_000)` / `materialize_async`, `iter()` and `aiter()` |
-| `RecordStream` | one traversal | `next()` and `anext()`, one chunk per step |
+| `RecordSchema`, `FieldSchema`, `FieldType`, `KeyRole`, `ChunkOrigin` | the schema types | `FieldSchema(type, *, name=None, key=None, label=None, description="", nullable=True)`; `RecordSchema(fields, *, type_identifier=None)` with `fields`, `names`, `type_identifier`, `field(name)` (`KeyError`), `to_dict()`; `ChunkOrigin.to_dict()`; `KeyRole.Data` is Rust's `KeyRole::None`, so `to_dict()` reports it as `"key": "None"` |
+| `RecordSource` | `Arc<dyn RecordSource>` and where it reads from | `schema`, `bounded`, `manifest` (a dict or `None`), `chunks()`, `chunk(i)` / `chunk_async(i)`, `materialize(max_rows=1_000_000)` / `materialize_async`, `iter(source)` and `aiter(source)` |
+| `RecordStream` | one traversal | `next(stream)` and `await anext(stream)` (or `for` / `async for`), one chunk per step |
 | `RecordChunk` | one entry of `chunks()` | `index`, `kind` (`"query"`, `"key"` or `"memory"`), `query`, `evaluable` |
 
 **Crossing.** `ExtValue::RecordView` reaches Python as `lq.RecordView`, except a view of exactly one
@@ -634,7 +634,7 @@ its values through the buffer protocol: `memoryview(column)` or `numpy.asarray(c
 formats `q`, `Q`, `d`, `i`, `q` and a 2-D `f` of shape `(rows, dim)`. The parts are lent the same
 way: `validity` and a `Bool` column's `data` are bitmaps (`B`), `offsets` are `i`, a `Text` or
 `Binary` column's `data` is `B`. Every buffer is read-only: a writable request raises
-`BufferError`, and a column of `Bool`, `Text` or `Binary` has no buffer of its own. A buffer keeps
+`BufferError` (a writer such as `struct.pack_into` reports it as `TypeError`), and a column of `Bool`, `Text` or `Binary` has no buffer of its own. A buffer keeps
 its column alive, so it outlives the view it came from, and the data never moves.
 
 **Where a source reads its chunks** (`liquers-py/src/records/resolver.rs`). Each wrapper of a
@@ -648,14 +648,15 @@ environment in reach (`Scope::detached`) raises `GeneralError` saying it has non
 read keeps working.
 
 **Traversal.** `iter(source)` and `aiter(source)` open a `RecordStream` that reads one chunk per
-step, so a manifest of a thousand chunks evaluates one per `next()`. `chunk(i)` reads only chunk
+step, so a manifest of a thousand chunks evaluates one per `next(stream)`. `chunk(i)` reads only chunk
 `i` (`liquers_records::read_chunk`); `chunks()` lists the chunks without evaluating any.
 `materialize(max_rows)` concatenates every chunk into one view and refuses a source with more rows.
 A step taken while another step of the same stream is still running raises `GeneralError`
 ("another step of this record stream…"). A shutdown while a step waits ends that step with
-`CancelledError`. The synchronous calls (`next()`, `chunk`, `materialize`, `to_arrow`) follow the
-blocking-call rule of §7: on a liquers loop thread they raise `RuntimeError` naming the `_async`
-variant.
+`CancelledError`. The synchronous reads (`next(stream)`, `chunk`, `materialize`) follow the
+blocking-call rule of §7: on a liquers loop thread they raise `RuntimeError` naming what to use
+instead (`await anext(stream)` or `async for`, `chunk_async`, `materialize_async`). The
+conversions (`to_arrow`, `to_pandas`, `to_polars`) wait for nothing on the loop and are allowed.
 
 **Open problems.**
 - Python cannot implement the view or source traits, so a Python object cannot be a lazy source
@@ -680,7 +681,7 @@ codegen unit) and the crate's default features:
 |---|---|---|
 | Linux x86_64, aarch64 | `ubuntu-24.04`, `ubuntu-24.04-arm`, in the manylinux_2_28 container | `cp314-abi3` (`--features abi3`, PyO3's `abi3-py314`), `cp314t`, `cp315t` |
 | macOS arm64 | `macos-15` | the same three |
-| Windows x86_64, arm64 | `windows-2025`, `windows-11-arm` (LLVM's `clang-cl` for `aws-lc-sys` and `ring`) | the same three |
+| Windows x86_64, arm64 | `windows-2025`, `windows-11-arm` (on arm64, LLVM's `clang-cl` for `aws-lc-sys` and `ring`) | the same three |
 
 Everything else installs from the sdist, which needs Rust 1.95 and a C compiler: CPython
 3.10-3.13, PyPy 3.11+, macOS x86_64, musllinux. `abi3t` is not used: the wheel maturin builds for
@@ -688,11 +689,14 @@ it does not import (`PY-ABI3T-WHEEL-NOT-USED`). The Linux abi3 wheel measured 30
 
 **Extras and `require`.** `[project.optional-dependencies]` declares `polars`, `images` (pillow),
 `arrow` (pyarrow), `pandas` (pyarrow and pandas) and `all`. A package with no wheel for a platform
-is excluded by an environment marker (pyarrow on Windows arm64), so an install never builds a
-third-party package from source; polars on a free-threaded interpreter has no marker and is
-documented instead. `lq.require(extra)` (`python/liquers/_extras.py`) imports the extra's modules
-and raises `ModuleNotFoundError` naming the `pip install 'liquers-py[extra]'` that fixes it, or
-saying the extra is not available on this platform; an unknown extra is a `ValueError`.
+is excluded by an environment marker where a marker can name the platform (pyarrow on Windows
+arm64), so that install builds nothing from source. No marker names a free-threaded interpreter, so
+`[polars]` and `[all]` there would make pip build polars' runtime from its sdist; the guide says to
+leave them out. `lq.require(extra)` (`python/liquers/_extras.py`) imports the extra's modules first,
+so a module that is importable is used whatever its origin. A missing one raises
+`ModuleNotFoundError` saying the extra is not available on this platform when the platform has no
+wheel for it, and otherwise naming the `pip install 'liquers-py[extra]'` that fixes it; an unknown
+extra is a `ValueError`. `require("all")` skips an extra with no wheel here whose module is missing.
 
 **Native requirements.** A wheel links only system libraries: TLS is rustls with `aws-lc-rs`
 built in (`AWS_LC_SYS_USE_SYSTEM=0`), and nothing is grafted. `scripts/check-wheel.py` checks each
@@ -705,7 +709,8 @@ not committed.
 `lock` (one `Cargo.lock`; `scripts/check-workspace-metadata.py` checks the tag against the
 workspace version and every crate's inherited version and license), `notices`, `sdist`, the
 fifteen `wheels`, `dist` (exactly the expected set), `test` (each wheel installed in a fresh venv
-on its own runner, running `liquers-py/tests/package/`), then `github-release`, `testpypi` (whose
+on its own runner, running `liquers-py/tests/package/`), `test-sdist` (the sdist built from source on
+Linux and imported), then `github-release`, `testpypi` (whose
 uploaded files are compared with the built ones), and `pypi`. Publishing uses trusted publishing,
 and the `pypi` job waits for the protected `pypi` environment's reviewer: **a release reaches PyPI
 only when Orest approves it.** A manual run, or a pull request changing the workflow, builds and
@@ -730,7 +735,9 @@ same declarations. The six pure-Python modules carry inline annotations.
 - **Values are `Any`**: a query's result, `State.value`, a command's inputs and outputs.
 - **Third-party types are `Any`** too, with a comment naming the runtime type (`to_arrow() -> Any
   # pyarrow.Table`): pyarrow ships no type information, so a precise type would be *Unknown* under
-  pyright strict. The stubs import no third-party package.
+  pyright strict. The stubs import no third-party runtime package; `ParamSpec`, `Self` and
+  `TypeAlias` come from `typing_extensions`, which every checker bundles, so the stubs also serve
+  a checker targeting Python 3.10.
 - **The decorators keep the function's signature**: `command` and `first_command` are overloaded,
   bare (`Callable[_P, _R] -> Callable[_P, _R]`) and with options (returning a decorator protocol),
   on the module and on `Environment`; an `async def` command stays a coroutine function.
@@ -757,7 +764,7 @@ declarations from the PyO3 signatures can be revisited when PyO3's own stub gene
 
 | Date | Change | Source |
 |---|---|---|
-| 2026-11-01 | §11 Records (classes, crossing, building with `fields=`, Arrow/pandas/polars routes, buffers, where a source reads, traversal), §12 Packaging (version, wheels, extras, native requirements, the release pipeline and its approval), §13 Type declarations; §1, §2, §5 and §8 updated: records cross to Python, type stubs and published wheels exist. | `design/liquers-py-records/`, `design/liquers-py-package/`, `design/liquers-py-stubs/` (phase-5) |
+| 2026-11-01 | §11 Records (classes, crossing, building with `fields=`, Arrow/pandas/polars routes, buffers, where a source reads, traversal and its blocking-call messages), §12 Packaging (version, wheels, extras and `require`'s import-first rule, native requirements, the release pipeline and its approval), §13 Type declarations; §1, §2, §5 and §8 updated: records cross to Python, type stubs exist and release wheels are built. | `design/liquers-py-records/`, `design/liquers-py-package/`, `design/liquers-py-stubs/` (phase-5) |
 | 2026-11-01 | §9 Stores and §10 Recipe providers written in Python (registration, protocol, threads, `lq.Store`, `env.recipes`); §1-§3 and §8 updated; the Python recipe provider limitation is lifted. | `design/liquers-py-store/`, `design/liquers-py-recipes/` (phase-5) |
 | 2026-10-31 | §8: CI runs the Python suite on CPython 3.10, 3.14 and 3.14t; the supported floor is 3.10. §7: interpreter exit cancels the running Python commands and waits for them; §8 names the case it cannot cover. | design `language-binding-tests-in-ci` |
 | 2026-10-30 | §3: `config.recipes` accepts every value (`default`, `trivial`, a list of entries); the constructor no longer refuses a non-default `recipes`. Known limitations: the recipe-provider limitation now names a Python-written provider only. | design `recipe-provider-chain-config` |

@@ -16,13 +16,15 @@ Step 3 declares its `arguments=` and `realm=`; if after, that design updates the
 
 ## Progress
 
-- [x] Step 1: the typing harness and the pinned checkers
-- [x] Step 2: `py.typed`, `_native.pyi`, and the core surface of `__init__.pyi`
-- [x] Step 3: commands, decorators, stores, recipe providers, async and errors
-- [x] Step 4: the record classes and `State.record_view()`
-- [x] Step 5: annotations in the six pure-Python modules
-- [x] Step 6: the good and bad samples, under both checkers
-- [x] Step 7: the drift tests and the wheel's stub files
+- [x] Step 1 (12e0254): the typing harness and the pinned checkers
+- [x] Step 2 (12e0254): `py.typed`, `_native.pyi`, and the core surface of `__init__.pyi`
+- [x] Step 3 (12e0254, 29a2785, 6779e5d): commands, decorators, stores, recipe providers, async and errors
+- [x] Step 4 (12e0254): the record classes and `State.record_view()`
+- [x] Step 5 (12e0254): annotations in the six pure-Python modules
+- [x] Step 6 (12e0254): the good and bad samples, under both checkers
+- [x] Step 7 (12e0254): the drift tests and the wheel's stub files
+
+Steps 1-7 landed in one commit; the setters followed in two.
 
 Deviations, found while implementing:
 - `fields=` is typed `dict[str, FieldType | str | FieldSchema] | RecordSchema | None`, not
@@ -37,6 +39,10 @@ Deviations, found while implementing:
   modules outside their package and misreads `import liquers`.
 - pyright is given the interpreter (`--pythonpath sys.executable`); without it, it does not find the
   installed package and reports every name as unknown.
+- Settable properties needed setters (29a2785, 6779e5d): stubtest does not check whether a
+  property is settable, so the first draft declared every Rust `#[setter]` property read-only and
+  the samples that assign `recipe.title` or a `MetadataRecord` field failed under both checkers.
+  38 properties now declare a setter, taken from the Rust `#[setter]`s.
 - The pyright wrapper fetched its npm package on the first run, as Phase 2 expected.
 - The declarations were drafted from the Rust `#[pymethods]` signatures and the runtime's
   `__text_signature__`s by a one-off script, then typed by hand; stubtest passed with no finding

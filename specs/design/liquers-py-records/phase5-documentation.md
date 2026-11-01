@@ -76,6 +76,8 @@ None. The usage is a new section of the existing Python guide.
   - §2 the class list;
   - §10.
 - `specs/guides/LANGUAGE-INTEGRATION_GUIDE.md`: §RECORDS "What `liquers-py` does", and §6 Python.
+- `specs/reference/PROJECT_OVERVIEW.md`: the crate tree's liquers-py line names record views and
+  sources.
 - `liquers-py/README.md`: the `RECORDS` row with its two `NA`s.
 - `specs/README.md`: the M5 row.
 - API docs: the module docs of `liquers-records/src/formats/ipc.rs` and

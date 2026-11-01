@@ -33,6 +33,7 @@ libraries = [
     "crypt32.dll",
     "ntdll.dll",
     "ole32.dll",
+    "combase.dll",
     "oleaut32.dll",
     "secur32.dll",
     "shell32.dll",

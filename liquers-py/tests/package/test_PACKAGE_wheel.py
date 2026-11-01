@@ -162,8 +162,12 @@ def test_extras(tmp_path, extra):
     venv.create(target, with_pip=True)
     python = target / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
     reason = None if extra == "all" else _extras._unavailable(extra)
+    # Request only extras with a wheel here: no marker can leave polars out on a free-threaded
+    # interpreter, so `[polars]` and `[all]` there would need a source build.
+    wanted = [e for e in (_extras.EXTRAS if extra == "all" else [extra]) if _extras._unavailable(e) is None]
+    requirement = f"{wheel}[{','.join(wanted)}]" if wanted else str(wheel)
     subprocess.run(
-        [str(python), "-m", "pip", "install", "--only-binary", ":all:", f"{wheel}[{extra}]"],
+        [str(python), "-m", "pip", "install", "--only-binary", ":all:", requirement],
         check=True, timeout=900,
     )
     probe = subprocess.run(

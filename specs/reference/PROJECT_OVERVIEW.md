@@ -91,7 +91,7 @@ liquers-core (foundation - all core abstractions)
     │
     └── liquers-py (Python bindings via PyO3)
         ├─ Value bridge, Python commands, stores and recipe providers, record views and sources
-        └─ Published as the `liquers-py` wheels (CPython 3.14+), typed by hand-written stubs
+        └─ Built as the `liquers-py` wheels (CPython 3.14+; none published yet), typed by hand-written stubs
 ```
 
 **One version.** Every crate inherits `version` and `license` (`AGPL-3.0-or-later`) from the
@@ -580,7 +580,7 @@ project's purpose, intended uses and per-crate strategy. This document describes
 
 | Date | Change | Source |
 |---|---|---|
-| 2026-11-01 | One workspace version and license; `Environment::liquers_version`; what `liquers-py` provides. | `design/liquers-py-package/`, `design/liquers-py-records/` (phase-5) |
+| 2026-11-01 | One workspace version and license; `Environment::liquers_version`; what `liquers-py` provides (its wheels built, none published yet). | `design/liquers-py-package/`, `design/liquers-py-records/` (phase-5) |
 | 2026-11-01 | Added `liquers-markdown` to the crate structure and the dependency flow, and the `markdown` feature (`ns-md`). | `design/markdown-navigation/` |
 | 2026-10-30 | §Recipes: every environment's recipe provider is a chain configured as a list; every member is asked. | design `recipe-provider-chain-config` |
 | 2026-10-25 | Error handling: `ErrorCategory` (`Store`, `KeyedAsset`, `NotFound`) and the `KeyNotFound` / `AssetNotFound` distinction. | `design/key-without-recipe-answer/` |

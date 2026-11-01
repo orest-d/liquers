@@ -188,6 +188,7 @@ def test_RECORDS_concurrent_next_is_refused():
 def test_RECORDS_blocking_calls_inside_async_command_raise(menv):
     env, _ = menv
     errors = {}
+    converted = []
     has_pyarrow = _has("pyarrow")
 
     @env.command
@@ -204,16 +205,17 @@ def test_RECORDS_blocking_calls_inside_async_command_raise(menv):
                 errors[name] = str(error)
         views = [chunk async for chunk in value]
         if has_pyarrow:
-            try:
-                views[0].to_arrow()
-            except RuntimeError as error:
-                errors["to_arrow"] = str(error)
+            # A conversion waits for nothing on the loop, so it is allowed.
+            converted.append(views[0].to_arrow().num_rows)
         return len(views)
 
     assert env.evaluate("manifest/ns-rec/to_record_source/walk") == 3
-    expected = {"for", "chunk", "materialize"} | ({"to_arrow"} if has_pyarrow else set())
-    assert set(errors) == expected
-    assert all("_async" in message or "block" in message for message in errors.values())
+    assert set(errors) == {"for", "chunk", "materialize"}
+    # Each message names a call that exists.
+    assert "await anext(stream)" in errors["for"]
+    assert "await chunk_async(...)" in errors["chunk"]
+    assert "await materialize_async(...)" in errors["materialize"]
+    assert len(converted) == (1 if has_pyarrow else 0)
 
 
 def _has(module):
@@ -238,11 +240,13 @@ def test_RECORDS_shutdown_ends_traversal():
     # Shut down while a step waits: that step ends Cancelled.
     env = lq.Environment()
     entered = threading.Event()
+    finished = threading.Event()
 
     @env.first_command(volatile=True)
     def stall():
         entered.set()
         time.sleep(3)
+        finished.set()
         return lq.RecordView.from_records([{"id": "x"}])
 
     @env.first_command
@@ -264,6 +268,10 @@ def test_RECORDS_shutdown_ends_traversal():
     env.shutdown()
     thread.join(10)
     assert isinstance(outcome.get("error"), lq.CancelledError)
+    # The command itself runs on; wait for it, so its registration is released inside this test
+    # rather than during a later one that counts live handles (RUNTIME05).
+    assert finished.wait(10)
+    time.sleep(0.2)
 
 
 def test_RECORDS_materialize_of_differing_chunks():

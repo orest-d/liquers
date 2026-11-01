@@ -18,17 +18,8 @@ installed.
 
 ## 1. Installing
 
-```bash
-pip install liquers-py              # imported as `liquers`
-pip install 'liquers-py[all]'       # with polars, pillow, pyarrow and pandas
-```
-
-Wheels are published for CPython 3.14 and later (the regular and the free-threaded builds) on Linux
-x86_64 and aarch64, macOS arm64, and Windows x86_64 and arm64. On any other interpreter or platform
-(CPython 3.10-3.13, PyPy, macOS x86_64, musllinux) pip builds from the source distribution, which
-needs a Rust toolchain (1.95 or newer) and a C compiler and takes several minutes. Until the first
-release is on PyPI, or to work on the bindings, build from the repository root with
-[maturin](https://www.maturin.rs):
+No release is on PyPI yet (`PY-NO-PUBLISHED-WHEELS`), so for now build from the repository root
+with [maturin](https://www.maturin.rs), which is also how to work on the bindings:
 
 ```bash
 python -m venv .venv && . .venv/bin/activate
@@ -36,10 +27,26 @@ pip install maturin
 maturin develop --release -m liquers-py/Cargo.toml   # builds the extension and installs `liquers`
 ```
 
+From the first release (`liquers-py-v0.1.0`) on, install it with pip:
+
+```bash
+pip install liquers-py              # imported as `liquers`
+pip install 'liquers-py[all]'       # with polars, pillow, pyarrow and pandas
+```
+
+Wheels are built for CPython 3.14 and later (the regular and the free-threaded builds) on Linux
+x86_64 and aarch64, macOS arm64, and Windows x86_64 and arm64. On any other interpreter or platform
+(CPython 3.10-3.13, PyPy, macOS x86_64, musllinux) pip builds from the source distribution, which
+needs a Rust toolchain (1.95 or newer) and a C compiler and takes several minutes.
+
 The optional Python packages are *extras*: `polars` (DataFrames), `images` (pillow), `arrow`
 (pyarrow) and `pandas` (pyarrow and pandas), or `all`. `lq.require("arrow")` checks for one and
 raises `ModuleNotFoundError` with the `pip install` command that adds it. pyarrow has no wheel for
-Windows arm64 and polars none for free-threaded Python, so those extras are unavailable there.
+Windows arm64, so the `arrow` and `pandas` extras install nothing there (`all` leaves them out).
+polars has none for free-threaded Python, and no install marker can say so: on a free-threaded
+interpreter leave out `[polars]` and `[all]`, which would make pip build polars from source, and
+request the other extras by name (`'liquers-py[images,arrow,pandas]'`). A module that is importable
+anyway, built from source say, is used.
 `lq.__version__` is the Liquers version.
 
 The distribution is called `liquers-py`; the package is imported as `liquers`, conventionally as
@@ -775,7 +782,9 @@ soon as a command returns it.
 
 A table in Liquers is a *record view* (`specs/reference/RECORD_STREAMS.md`): typed columns with a
 schema. It reaches Python as `lq.RecordView`, whose cells are read without a copy, and goes back
-into a query unchanged. Build one from rows or columns; field types are inferred, or declared with
+into a query unchanged. A one-cell view reaches Python as its scalar; `env.evaluate_state(query)
+.record_view()` keeps it a view. `view.row(i)` is a one-row view, and `to_list()` gives row dicts.
+Build one from rows or columns; field types are inferred, or declared with
 `fields=`:
 
 ```python
@@ -987,7 +996,7 @@ What you will notice; the complete list, with the tracking issues, is
 
 | Date | Change | Source |
 |---|---|---|
-| 2026-11-01 | §1 Installing with pip and the extras; §7 Records (views, `fields=`, buffers, pyarrow/pandas/polars, sources); §9 Type checking; §10 updated. | `design/liquers-py-records/`, `design/liquers-py-package/`, `design/liquers-py-stubs/` (phase-5) |
+| 2026-11-01 | §1 Installing: from source until the first release, then pip; the extras and where they install nothing; §7 Records (views, `fields=`, buffers, pyarrow/pandas/polars, sources); §9 Type checking; §10 updated. | `design/liquers-py-records/`, `design/liquers-py-package/`, `design/liquers-py-stubs/` (phase-5) |
 | 2026-11-01 | §4 A store written in Python; §6 Recipe providers written in Python; §2 the store and recipe classes; §10 the recipe-provider limitation is lifted. | `design/liquers-py-store/`, `design/liquers-py-recipes/` (phase-5) |
 | 2026-10-31 | §1: the supported range starts at CPython 3.10 (3.9 is past its end of life). | Orest, CI matrix decision for `language-binding-tests-in-ci` |
 | 2026-10-30 | §4 `config`: `recipes` accepts every value; §6 Named results: choosing recipe providers with `recipes`. §10: the limitation narrows to a provider written in Python. | design `recipe-provider-chain-config` |

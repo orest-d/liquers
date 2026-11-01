@@ -265,7 +265,6 @@ impl RecordView {
     /// (`liquers.chunk_id`) and the origins (`liquers.origins`) in its schema metadata. Needs
     /// `liquers-py[arrow]`.
     fn to_arrow(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
-        crate::aio::check_blocking_call(py, "to_arrow")?;
         crate::records::arrow::to_arrow(py, &self.inner).map_err(|e| error_to_pyerr(py, &e))
     }
 

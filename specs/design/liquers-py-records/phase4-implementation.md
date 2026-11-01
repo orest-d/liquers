@@ -29,7 +29,7 @@ with their docstrings, since `test_DOCS_docstrings.py` checks every exported nam
 - [x] Step 5 (af95ce1): construction from plain Python data, with `fields=`
 - [x] Step 6 (af95ce1): Arrow, pandas and polars exits and entrances
 - [x] Step 7 (1ec82f1): `RecordSource`, `RecordStream` and `RecordChunk`
-- [x] Step 8: conformance rows and the README
+- [x] Step 8 (0d0d8c7): conformance rows and the README
 
 Deviations from the steps below, found while implementing:
 - Writing to a read-only buffer raises `TypeError` from `struct.pack_into` ("read-write buffer"),

@@ -22,7 +22,7 @@ use liquers_records::{
 use pyo3::exceptions::PyStopIteration;
 use pyo3::prelude::*;
 
-use crate::aio::{awaitable, check_blocking_call, Shut, ToPy};
+use crate::aio::{awaitable, check_blocking, check_blocking_call, Shut, ToPy};
 use crate::environment::{block_on, shut_down_error};
 use crate::error::error_to_pyerr;
 use crate::records::resolver::{PyChunkResolver, SourceOrigin};
@@ -283,7 +283,7 @@ impl RecordStream {
 
     /// The next chunk as an `lq.RecordView`; `StopIteration` at the end.
     fn __next__(&self, py: Python<'_>) -> PyResult<RecordView> {
-        check_blocking_call(py, "__next__")?;
+        check_blocking(py, "next(stream)", "`await anext(stream)` or `async for`")?;
         if self.shut.is_set() {
             return Err(error_to_pyerr(py, &shut_down_error()));
         }

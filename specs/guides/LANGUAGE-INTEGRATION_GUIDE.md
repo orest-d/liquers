@@ -2101,6 +2101,10 @@ What cost time:
 - **An extra whose package has no wheel** for a platform would make pip build it from source.
   Exclude it with an environment marker, and have `require` say it is unavailable there; there is
   no marker for a free-threaded interpreter, so that case is documented.
+- **PyO3's `module = "liquers"` decides where the stubs go.** Every class is defined in the native
+  `liquers._native` but reports `__module__ == "liquers"`, so stubtest looks each one up in
+  `liquers/__init__.pyi`; declare it there and have `_native.pyi` re-export it, or stubtest
+  reports every class as missing.
 - **stubtest finds submodules itself**; naming `liquers._native` as well fails with "Duplicate
   module". pyright needs the interpreter (`--pythonpath`) to find an installed package, and narrows
   a property on assignment, so assert its declared type before setting it. pyarrow ships no type
@@ -3936,7 +3940,7 @@ def test_DOCS04_every_public_name_is_documented():
 
 | Date | Change | Source |
 |---|---|---|
-| 2026-11-01 | §RECORDS: what `liquers-py` does (wrappers, buffers, Arrow/pandas/polars exits, scope, traversal, dispositions). Appendix A `PACKAGE04` uses the environment's version. §6 Python: records, packaging and type declarations, and what cost time (abi3t, extras without wheels, stubtest and pyright). | `design/liquers-py-records/`, `design/liquers-py-package/`, `design/liquers-py-stubs/` (phase-5) |
+| 2026-11-01 | §RECORDS: what `liquers-py` does (wrappers, buffers, Arrow/pandas/polars exits, scope, traversal, dispositions). Appendix A `PACKAGE04` uses the environment's version. §6 Python: records, packaging and type declarations, and what cost time (abi3t, extras without wheels, PyO3's `module=`, stubtest and pyright). | `design/liquers-py-records/`, `design/liquers-py-package/`, `design/liquers-py-stubs/` (phase-5) |
 | 2026-11-01 | §PACKAGE: the repository no longer links OpenSSL (TLS is `rustls`); the vendoring sentence says so. | `OPENSSL-BUILD-REQUIREMENT-IS-STALE` |
 | 2026-11-01 | §STORE: a language store *type* is possible through a bridging factory (`liquers-py` has one; `liquers-web` not yet). §RECIPE: the entry type names a language-registered factory with its arguments, replacing the `{type: python, object: …}` registry example; repeated types; `Recipe::plan_with_dependencies`. §6 Python: stores and recipe providers. | `design/liquers-py-store/`, `design/liquers-py-recipes/` (phase-5) |
 | 2026-10-31 | §6 Browser JavaScript: `UIDEF` is implemented (`defineElement`, `mountRenderer`); `DelegatedElement` and `run_headless` are reusable. | design `web-ui-define` |

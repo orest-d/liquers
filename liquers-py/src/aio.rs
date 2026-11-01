@@ -64,9 +64,15 @@ thread_local! {
 /// nested evaluation needing the same loop would never finish, so it raises `RuntimeError`. Under
 /// any other running loop it works, with a `RuntimeWarning` naming the `_async` variant.
 pub(crate) fn check_blocking_call(py: Python<'_>, call: &str) -> PyResult<()> {
+    check_blocking(py, &format!("{call}()"), &format!("`await {call}_async(...)`"))
+}
+
+/// [`check_blocking_call`] for a call whose non-blocking form is not `<call>_async`: `call` is
+/// how the message names the call, `instead` what to use in its place.
+pub(crate) fn check_blocking(py: Python<'_>, call: &str, instead: &str) -> PyResult<()> {
     if ON_LOOP.with(|flag| flag.get()) {
         return Err(PyRuntimeError::new_err(format!(
-            "{call}() would block the liquers event loop it is called on; use `await {call}_async(...)` in an async command"
+            "{call} would block the liquers event loop it is called on; use {instead} in an async command"
         )));
     }
     let running = py.import("asyncio")?.call_method0("_get_running_loop")?;
@@ -75,7 +81,7 @@ pub(crate) fn check_blocking_call(py: Python<'_>, call: &str) -> PyResult<()> {
         py.import("warnings")?.call_method1(
             "warn",
             (
-                format!("{call}() blocks the running event loop until it returns; use `await {call}_async(...)`"),
+                format!("{call} blocks the running event loop until it returns; use {instead}"),
                 warning,
                 2,
             ),
