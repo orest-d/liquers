@@ -45,7 +45,7 @@ query_tool:
     express: composing a listing with filters and sorts, or another output format. Read
     liquers://memory/query-guide first.
   allow: ["-mem-overview", "-mem-describe", "-mem-list", "-mem-search", "-mem-read",
-          "-mem-similar", "-mem-check", "-rec-*", "-search-*"]
+          "-mem-similar", "-mem-check", "-rec-*", "-search-*", "-md-*"]
 resources:
   - { kind: tool, uri_template: "liquers://memory/{+key}", tool: read, argument: key }
   - kind: text
@@ -53,4 +53,4 @@ resources:
     name: query-guide
     description: "Liquers queries over this memory, for memory_query"
     text: ""
-  - { kind: commands, uri_template: "liquers://commands/{namespace}", namespaces: [mem, rec, search] }
+  - { kind: commands, uri_template: "liquers://commands/{namespace}", namespaces: [mem, rec, search, md] }

@@ -54,6 +54,8 @@ enum Group {
     Template,
     /// The `ns-mem` commands (feature `mem`).
     Mem,
+    /// The `ns-md` commands (feature `markdown`).
+    Markdown,
     /// The `store_config` realm: store configuration entries, declared but never executed.
     #[value(name = "store_config")]
     StoreConfig,
@@ -71,6 +73,7 @@ impl Group {
             Group::Search => "search",
             Group::Template => "template",
             Group::Mem => "mem",
+            Group::Markdown => "markdown",
             Group::StoreConfig => "store_config",
         }
     }
@@ -86,6 +89,7 @@ impl Group {
             Group::Records | Group::Search => Some("records"),
             Group::Template => Some("templates"),
             Group::Mem => Some("mem"),
+            Group::Markdown => Some("markdown"),
         }
     }
 
@@ -100,10 +104,11 @@ impl Group {
             Group::Search => cfg!(feature = "records"),
             Group::Template => cfg!(feature = "templates"),
             Group::Mem => cfg!(feature = "mem"),
+            Group::Markdown => cfg!(feature = "markdown"),
         }
     }
 
-    fn all() -> [Group; 10] {
+    fn all() -> [Group; 11] {
         [
             Group::Core,
             Group::Lui,
@@ -114,6 +119,7 @@ impl Group {
             Group::Search,
             Group::Template,
             Group::Mem,
+            Group::Markdown,
             Group::StoreConfig,
         ]
     }
@@ -296,6 +302,10 @@ fn build_registry(groups: &[Group]) -> Result<CommandMetadataRegistry, Error> {
                 Group::Mem => {
                     #[cfg(feature = "mem")]
                     liquers_lib::register_mem_commands!(cr)?;
+                }
+                Group::Markdown => {
+                    #[cfg(feature = "markdown")]
+                    liquers_lib::register_markdown_commands!(cr)?;
                 }
                 // Every command registry declares the realm's built-ins when it is created;
                 // the group adds liquers-lib's own entries and decides whether they are kept.

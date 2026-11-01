@@ -73,5 +73,10 @@ async fn register_all_commands_registers_the_enabled_domains() -> Result<(), Err
         cfg!(feature = "records"),
         "search commands"
     );
+    assert_eq!(
+        has(&registry, "md", "outline"),
+        cfg!(feature = "markdown"),
+        "markdown commands"
+    );
     Ok(())
 }
