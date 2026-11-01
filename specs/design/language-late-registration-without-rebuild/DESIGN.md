@@ -13,6 +13,13 @@ created: 2026-10-27
 ---
 # liquers-web and liquers-py apply late registrations to the running environment
 
+**Review 2026-11-01.** Overtaken in part by `liquers-py-store` and `liquers-py-recipes` (merged
+2026-11-01): `retire()` in `liquers-py/src/environment.rs` is now also called by
+`register_store_type` and `register_recipe_provider_type`. This design removes `retire` and
+`Declarations::retired`, so it must keep a rebuild path for store and recipe provider types, or
+cover them too. Still blocked on `post-init-command-registration` (`EnvRef::update_commands` is not
+on main).
+
 Bulk design, 2026-10-27: Phases 1-4 written, not approved, nothing implemented.
 
 ## Phase 1: High-Level Design

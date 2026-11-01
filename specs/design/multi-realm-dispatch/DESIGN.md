@@ -13,6 +13,11 @@ created: 2026-10-20
 ---
 # Dispatching a query's realm to another environment or host
 
+**Parked 2026-11-01 by Orest.** The client/server system is planned but not yet defined, and the
+standing rule is a single (browser) environment, so this design waits until client/server is
+defined. Status stays `in_review`; nothing here is to be implemented before then. When it is picked
+up, reconcile it with the 2026-10-19 note that multiple realms will each have their own environment.
+
 Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-20: Phases 1-2 written, not
 approved, nothing implemented. Phases 3-4 are intentionally absent: what unit of a query is sent to
 another realm (one action, or the query prefix that ends in it) is a blocking question, and the
