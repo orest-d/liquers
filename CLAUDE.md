@@ -14,6 +14,8 @@ liquers-agent/    # Agent memory binary: ns-mem tools over MCP stdio and the CLI
 liquers-axum/     # HTTP REST API server
 liquers-web/      # Browser/JavaScript bindings (wasm32-only)
 liquers-py/       # Python bindings (PyO3)
+liquers-docs/     # Builds the user guides: expands chapter templates, writes mdBook/Pandoc sources
+docs/             # User documentation: the site's home page and the user guides (docs/guides/)
 specs/            # Internal documentation — see specs/README.md
   reference/      #   how the system is; must be true at HEAD
   guides/         #   how to work on it
@@ -45,9 +47,17 @@ blank, since review corrects a wrong guess and nothing corrects an empty field. 
 `specs/index.csv` first so you do not file a duplicate.
 
 **Do not open a GitHub issue.** That happens when work starts, not when a problem is recorded.
+Only file one when the owner explicitly asks for it.
 
 Template, field vocabularies and the full procedure: `specs/DOCS_STRUCTURE_GUIDE.md` §4.8. Filing
 needs no network, no account and no permission — record what you found and carry on.
+
+**User guides.** `docs/guides/{rust,python,web}/` holds three book-like guides for people *using*
+Liquers, with the same chapters in each. They are hand-edited, written *from* `specs/` (each
+chapter's `sources:`) and published to GitHub Pages by `.github/workflows/docs-site.yml`; nothing
+under `docs/` links into `specs/`. Read `specs/guides/USER_DOCS_EDITING_GUIDE.md` before editing a
+chapter. Edit one only when asked or within a design; a design's Phase 5 reviews the chapters
+`python3 scripts/docs_index.py chapters-for <affects_docs>` lists.
 
 Also:
 - Never edit a file under `specs/archive/`. An issue or feature document owns its `status:` even
@@ -188,7 +198,13 @@ cargo test -p liquers-lib --lib --tests     # the normal loop: unit + integratio
 cargo test -p liquers-records --all-features --lib --tests   # records work: builds core only
 cargo test -p liquers-mcp                   # MCP engine: builds core only
 cargo test -p liquers-agent                 # agent memory end to end (needs Rust 1.96: s3s)
+cargo test -p liquers-docs                  # user-guide builder; also checks the real docs/guides
 ```
+
+The documentation site builds with `bash scripts/build-docs.sh --skip-api` (needs `mdbook`,
+`pandoc` and `typst`; a missing tool skips its step) into `target/docs-site/`;
+`cargo run -p liquers-docs -- check` checks the guides with none of them. CI and Pages:
+`specs/guides/GITHUB_ACTIONS_GUIDE.md`.
 
 `liquers-lib` is where most work lands and it transitively builds `liquers-core`, `liquers-macro`
 and `liquers-store`. Run the browser tests **separately, after `cargo clean`** — they build a
