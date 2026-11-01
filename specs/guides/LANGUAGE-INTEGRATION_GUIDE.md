@@ -3,7 +3,7 @@ title: Language Integration Guide
 kind: guide
 audience: internal
 area: [web, py, core/commands, core/plan, core/assets, core/store, core/value, lib/commands]
-reviewed: 2026-10-31
+reviewed: 2026-11-01
 ---
 # Liquers Language Integration Guide
 
@@ -1318,8 +1318,11 @@ in another, described by a document it can edit. Decide explicitly which directi
   in Rust, around the store
 
 **A limitation worth knowing before you design around it:** the seam is for the *integration* — Rust
-code — not for the *language*. A store type contributed from JavaScript or Python is **not
-supported**. See "What the *language* cannot contribute" below.
+code — not for the *language*, unless the integration bridges it. `liquers-py` does: a Python
+factory registered with `register_store_factory` is a store type in a bridging `StoreFactory`
+chained after the built-in ones (§6 Python). `liquers-web` does not yet, so a store type
+contributed from JavaScript is **not supported**. See "What the *language* cannot contribute"
+below.
 
 **The design must answer:** Which methods are mandatory versus safely defaulted? Are bytes copied or viewed? Are keys normalized? What are atomicity and consistency guarantees? How are language sync methods scheduled? Can callbacks re-enter Liquers?
 
@@ -1376,8 +1379,9 @@ questions rely on:
 #### What the *language* cannot contribute: a store *type*
 
 Direction 1 lets the *language* define a store **instance** — a value adapted to `AsyncStore`. It
-does **not** let the language define a store **type**, and the difference bites exactly where a
-configuration document is involved.
+does not by itself let the language define a store **type**, and the difference bites exactly where a
+configuration document is involved. An integration can close the gap with a bridging factory, as
+`liquers-py` does (§6 Python); what follows is the situation in `liquers-web`, which has not.
 
 In `liquers-web` a page registers an object by name and a document reaches it through the single
 Rust-defined type `js`:
@@ -1626,8 +1630,12 @@ whether it applies.
   `RecipeProviderChain` configured as a `recipes:` list of entries. Supply the language provider as
   an **entry type**: declare it in a `RecipeProviderFactory` and chain that with
   `EnvironmentBuilder::with_recipe_provider_factory`, so a configuration places it in the list
-  (`{type: python, object: notes}`, its constructor looking the object up in a registry the
-  integration owns). `with_appended_recipe_provider` remains for a provider supplied in code
+  (`{type: reports, folder: reports}`: the type names a *factory* the language registered, and
+  the entry's other keys are its arguments, as for a store type; `liquers-py`'s
+  `register_recipe_provider_factory`). One type may be listed several times with different
+  arguments, each a member named `type#position`; only an identical entry is refused. Build the
+  plan with `Recipe::plan_with_dependencies`, as the built-in providers do.
+  `with_appended_recipe_provider` remains for a provider supplied in code
 
 **The design must answer:** Does the provider return `Recipe`, query text, or plain data? Which methods may use Liquers defaults? May provider callbacks evaluate queries? How are caching, invalidation, volatility, and provider precedence handled?
 
@@ -2074,6 +2082,17 @@ What cost time:
 - **Rust tests that load a Python module race.** Executing a module can release the GIL, so two
   tests installing the same module replace each other's classes; load it once, under a
   `PyOnceLock`.
+
+- **Stores and recipe providers.** Both are *factories*: `register_store_factory(type, factory)`
+  and `register_recipe_provider_factory(type, factory)` declare a type whose arguments are read
+  from the factory's signature (`_factories._declare`), and the configuration document places it.
+  The factory runs during the build, which holds the environment's lock, so a thread-local build
+  guard turns a factory's use of its own environment into a `ConfigurationError` rather than a
+  deadlock. The object is resolved once into a method table; every call runs Python off the
+  runtime's workers (`def` on the blocking pool, `async def` on the loop pool, through the shared
+  `pycall.rs`). A Python store gets data-only access derived from `get` and `listdir` (writes through `set`/`remove`),
+  so `read_only` and `metadata:` run in Rust around it and configuration stays effective with no
+  Python `store_config` handler. Contracts: `reference/PYTHON_INTEGRATION.md` §9 and §10.
 
 `MetadataRecord` and `AssetInfo` expose the backend's `created` (an RFC 3339 string) and `etag` as
 read-only properties. A configured store's handlers run in Rust, so they cost no interpreter lock.
@@ -3873,6 +3892,7 @@ def test_DOCS04_every_public_name_is_documented():
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-01 | §STORE: a language store *type* is possible through a bridging factory (`liquers-py` has one; `liquers-web` not yet). §RECIPE: the entry type names a language-registered factory with its arguments, replacing the `{type: python, object: …}` registry example; repeated types; `Recipe::plan_with_dependencies`. §6 Python: stores and recipe providers. | `design/liquers-py-store/`, `design/liquers-py-recipes/` (phase-5) |
 | 2026-10-31 | §6 Browser JavaScript: `UIDEF` is implemented (`defineElement`, `mountRenderer`); `DelegatedElement` and `run_headless` are reusable. | design `web-ui-define` |
 | 2026-10-31 | §6 Browser JavaScript: `UIUSE` is implemented (`mountUI`); the reusable backend changes it needed. | design `web-ui-use` |
 | 2026-10-31 | §6 Browser JavaScript: a JavaScript command now receives a language-visible `Context`, so `TEMPLATE`'s in-command half no longer waits on one. | design `js-command-context` |

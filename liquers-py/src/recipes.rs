@@ -1,4 +1,5 @@
 use crate::error::serialization_pyerr;
+use crate::expiration::Expires;
 use liquers_core::recipes::Recipe as CoreRecipe;
 use pyo3::{prelude::*, types::PyDict};
 
@@ -57,12 +58,60 @@ impl RecipeList {
 
 #[pymethods]
 impl Recipe {
+    /// `Recipe(query, title="", description="", *, cwd=None, volatile=False, expires=None)`.
+    ///
+    /// `cwd` is the folder the query's relative parts resolve against (a recipe provider's
+    /// answer without one gets the key's folder); `expires` is an `lq.Expires`, `None` meaning
+    /// the default (never).
     #[new]
-    pub fn new(query: String, title: String, description: String) -> PyResult<Self> {
-        Ok(Recipe {
-            inner: liquers_core::recipes::Recipe::new(query, title, description)
-                .map_err(|e| PyErr::from(crate::error::Error::from(e)))?,
-        })
+    #[pyo3(signature = (query, title=String::new(), description=String::new(), *, cwd=None,
+        volatile=false, expires=None))]
+    pub fn new(
+        query: String,
+        title: String,
+        description: String,
+        cwd: Option<String>,
+        volatile: bool,
+        expires: Option<Expires>,
+    ) -> PyResult<Self> {
+        let mut inner = liquers_core::recipes::Recipe::new(query, title, description)
+            .map_err(|e| PyErr::from(crate::error::Error::from(e)))?;
+        inner.cwd = cwd;
+        inner.volatile = volatile;
+        if let Some(expires) = expires {
+            inner.expires = expires.0;
+        }
+        Ok(Recipe { inner })
+    }
+
+    /// The folder the query's relative parts resolve against, or `None`. Settable.
+    #[getter]
+    pub fn cwd(&self) -> Option<String> {
+        self.inner.cwd.clone()
+    }
+    #[setter]
+    pub fn set_cwd(&mut self, cwd: Option<String>) {
+        self.inner.cwd = cwd;
+    }
+
+    /// Whether the recipe's result is volatile (recomputed on every use). Settable.
+    #[getter]
+    pub fn volatile(&self) -> bool {
+        self.inner.volatile
+    }
+    #[setter]
+    pub fn set_volatile(&mut self, volatile: bool) {
+        self.inner.volatile = volatile;
+    }
+
+    /// When the recipe's result expires, as an `lq.Expires`. Settable.
+    #[getter]
+    pub fn expires(&self) -> Expires {
+        Expires(self.inner.expires.clone())
+    }
+    #[setter]
+    pub fn set_expires(&mut self, expires: Expires) {
+        self.inner.expires = expires.0;
     }
 
     /// The recipe's query, as text. Settable.

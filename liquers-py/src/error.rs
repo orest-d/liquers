@@ -316,6 +316,34 @@ pub fn pyerr_to_error(py: Python<'_>, err: &PyErr) -> liquers_core::error::Error
     }
 }
 
+/// The Liquers error for an exception a Python store method raised.
+///
+/// A `LiquersError` keeps its own type (a store may raise `lq.KeyNotFoundError`), and a
+/// cancellation stays `Cancelled`; any other exception is a read error (`write` false) or a write
+/// error of `store` on `key`, carrying the Python traceback (STORE, AC-3).
+pub(crate) fn pyerr_to_store_error(
+    py: Python<'_>,
+    err: &PyErr,
+    key: &liquers_core::query::Key,
+    store: &str,
+    write: bool,
+) -> liquers_core::error::Error {
+    let value = err.value(py);
+    if liquers_error_fields(py, value).is_some() || is_cancellation(py, value) {
+        return pyerr_to_error(py, err);
+    }
+    let mapped = pyerr_to_error(py, err);
+    let error = if write {
+        liquers_core::error::Error::key_write_error(key, store, &mapped.message)
+    } else {
+        liquers_core::error::Error::key_read_error(key, store, &mapped.message)
+    };
+    match mapped.traceback.clone() {
+        Some(traceback) => error.with_traceback(traceback),
+        None => error,
+    }
+}
+
 /// Whether an exception is `asyncio.CancelledError` or `concurrent.futures.CancelledError`.
 fn is_cancellation(py: Python<'_>, value: &Bound<'_, pyo3::exceptions::PyBaseException>) -> bool {
     [("asyncio", "CancelledError"), ("concurrent.futures", "CancelledError")]

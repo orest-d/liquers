@@ -3,7 +3,7 @@ title: Using Liquers from Python
 kind: guide
 audience: user
 area: [py]
-reviewed: 2026-10-31
+reviewed: 2026-11-01
 ---
 # Using Liquers from Python
 
@@ -61,7 +61,8 @@ The public names, by purpose:
 | Results' metadata | `Metadata`, `MetadataRecord`, `AssetInfo`, `Status`, `LogEntry`, `LogEntryKind`, `Version` |
 | The query language | `parse`, `parse_key`, `Query`, `Key`, `ActionRequest`, `ActionParameter`, the segment classes, `Position` |
 | Commands' metadata | `CommandMetadata`, `CommandKey`, `ArgumentInfo`, `ArgumentType`, `CommandMetadataRegistry`, … |
-| Plans and recipes | `build_plan`, `Plan`, `Step`, `Recipe`, `RecipeList` |
+| Plans and recipes | `build_plan`, `Plan`, `Step`, `Recipe`, `RecipeList`, `RecipeProviders` (`env.recipes`) |
+| Stores | `Store` (`env.store`, `Store.from_object`), `StoreArgumentInfo` |
 | Configuration checks | `Issue` (from `Environment.validate()`) |
 
 `lq.Error` is a plain data object describing a Liquers error. It is not an exception; what is raised
@@ -155,6 +156,87 @@ you made, typically in a `finally` or a test fixture. An invalid `conversion` or
 refused by the constructor, but a store that cannot be built, such as one of an unknown type
 (`NotSupportedError`), or an unknown recipe provider (`ConfigurationError`), is reported by the
 first use.
+
+### A store written in Python
+
+A store is any object with a `get(key)` method returning `bytes`, or `None` when it has nothing
+there. Register a *factory* for it under a type name, and the configuration names that type like a
+built-in one; the entry's `config:` keys are the factory's keyword arguments, and a `prefix`
+parameter receives the mount's prefix:
+
+```python
+import liquers as lq
+
+class Notes:
+    """A read-only store kept in a dict."""
+    def __init__(self, prefix, greeting: str = "Hi"):
+        self.files = {f"{prefix}/hello.txt": greeting.encode()}
+    def get(self, key):
+        return self.files.get(str(key))
+
+env = lq.Environment(config={"store": {"stores": [
+    {"type": "notes", "prefix": "notes", "config": {"greeting": "Hello"}},
+    {"type": "memory", "prefix": "scratch"}]}})
+env.register_store_factory("notes", Notes, doc="Notes kept in a dict")
+
+assert env.evaluate("-R/notes/hello.txt") == "Hello"
+assert env.store.get("notes/hello.txt") == b"Hello"
+try:
+    env.store.set("notes/new.txt", b"x")          # Notes has no `set`
+except lq.KeyNotSupportedError:
+    pass
+env.store.set("scratch/x.txt", b"written")        # the memory mount takes it
+env.shutdown()
+```
+
+Register factories before the first use: the environment is built from the configuration then.
+Registering later rebuilds it, which keeps the store and drops cached results. A factory runs while
+the environment is built and must not use the environment.
+
+Add methods as the store needs them; each may be `def` or `async def`, receives `lq.Key`, and is
+used whenever present:
+
+| Method | Gives the store | Without it |
+|---|---|---|
+| `get(key)` → `bytes`, `(bytes, metadata)` or `None` | reading | — (required) |
+| `listdir(key)` → names, and `is_dir(key)` | directory listing | a flat store |
+| `set(key, data, metadata)`, `remove(key)`, `makedir(key)`, `removedir(key)`, `set_metadata(key, metadata)` | writing | the store is read-only, and the write raises `KeyNotSupportedError` |
+| `get_metadata(key)`, `contains(key)` | a cheaper answer | worked out from `get` |
+| `is_supported(key)` (a plain `def`) | refusing some keys | every key under the prefix is supported |
+
+Metadata is `lq.Metadata`, `lq.MetadataRecord`, a `dict` or `None`; a media type left out is taken
+from the key's extension. Raise `lq.KeyNotFoundError` (or any `LiquersError`) to choose the error;
+any other exception becomes `KeyReadError` or `KeyWriteError` carrying your traceback.
+
+The mount's configuration applies to a Python store as to any other: `read_only: true` refuses
+writes before your code is called, and a `metadata:` section (sidecar records, the `on_write` /
+`on_read` chains of [`reference/STORE_CONFIG_FSD.md`](../reference/STORE_CONFIG_FSD.md)) works on
+a store with `get` and `listdir` (writes go through `set` and `remove`). A store that implements the five data-only
+methods (`get_data`, `set_data`, `remove_data`, `listdir_data`, `data_facts`) is used through
+them instead; set `data_access = False` on one that must not take a `metadata:` section.
+
+To check a store without an environment, adapt it directly; `close()` releases it:
+
+```python
+import liquers as lq
+
+class Flat:
+    def get(self, key):
+        return b"one" if str(key) == "a/one.txt" else None
+
+store = lq.Store.from_object(Flat())
+assert store.get("a/one.txt") == b"one"
+assert store.contains("a/one.txt") and not store.contains("a/two.txt")
+assert store.get_metadata("a/one.txt").get_asset_info().media_type == "text/plain"
+assert store.is_read_only()
+store.close()
+```
+
+Every `lq.Store` data method has an awaitable `_async` twin (`await env.store.get_async(key)`);
+`is_supported` and `is_read_only` do not.
+`env.store_types()` lists the types a configuration can name, built-in and registered. The
+contract, with the threads each call runs on, is
+[`reference/PYTHON_INTEGRATION.md`](../reference/PYTHON_INTEGRATION.md) §9.
 
 **The default environment.** `lq.default_environment()` returns one shared environment, created on
 first use with the default settings. `lq.evaluate` and the bare `@lq.command` decorators use it.
@@ -568,6 +650,57 @@ name is a `ConfigurationError` naming both. An unknown provider name is a `Confi
 first use. The full grammar is
 [`reference/ENVIRONMENT_CONFIG.md`](../reference/ENVIRONMENT_CONFIG.md) §The recipe provider chain.
 
+### Recipe providers written in Python
+
+When the names cannot be listed in a file, because they follow a pattern, write a provider: an
+object whose `recipe_opt(key)` returns the recipe for `key`, as `lq.Recipe` or query text, or
+`None` when the key is not its own. Register a factory for it under a type name; a `recipes`
+entry `{"type": …}` names it, and the entry's other keys are the factory's arguments:
+
+```python
+import liquers as lq
+
+class Reports:
+    def __init__(self, folder):
+        self.folder = folder
+    def recipe_opt(self, key):
+        if str(key.parent()) != self.folder:
+            return None                                   # not mine: answer quickly
+        if key.filename() == "fresh.txt":
+            return lq.Recipe("hello", volatile=True)
+        return f"hello/{key.filename()}"                  # runs in the key's folder
+
+env = lq.Environment(config={"recipes": ["recipes_yaml", {"type": "reports", "folder": "reports"}]})
+env.register_recipe_provider_factory("reports", Reports)
+
+@env.first_command
+def hello() -> str:
+    return "Hello"
+
+assert env.evaluate("-R/reports/summary.txt") == "Hello"
+assert env.recipes.recipe(lq.parse_key("reports/summary.txt")).cwd == "reports"
+assert env.recipes.recipe_opt(lq.parse_key("elsewhere/x.txt")) is None
+env.shutdown()
+```
+
+`recipe_opt` may be `async def`. A provider whose keys should show up in a folder's listing also
+implements `assets_with_recipes(folder)`, returning the names it lists there; without it, its keys
+still evaluate but are not listed (`can_make` is true, `contains` false). It may implement
+`contains(key)` as a cheaper membership test, and `directory_changed(folder)` to drop a cache
+when something is written below `folder`.
+
+One factory can serve several entries with different arguments, such as one converter for
+`.png` and one for `.jpg`; listing the same entry twice is a `ConfigurationError`. A key may still
+belong to only one member of the chain: two members answering it is a `ConfigurationError` naming
+both (`convert#0` and `convert#2` when a type repeats). The names `recipes_yaml`, `manifest`,
+`default`, `trivial`, `none` and `no_recipes` are taken.
+
+`env.recipes` asks the whole chain: `recipe_opt`, `recipe`, `recipe_plan`, `assets_with_recipes`,
+`contains` and `can_make`, each with an `_async` twin. `lq.Recipe(query, title="",
+description="", *, cwd=None, volatile=False, expires=None)` builds a recipe; `expires` is an
+`lq.Expires`. Python providers are not seen by `liquers-validate`. The contract is
+[`reference/PYTHON_INTEGRATION.md`](../reference/PYTHON_INTEGRATION.md) §10.
+
 ### Checking a query without running it
 
 `lq.parse(text)` parses a query and raises `ParseError` when it is malformed; `.encode()` gives its
@@ -663,7 +796,7 @@ Errors you will meet early:
 | Situation | Raised |
 |---|---|
 | A command name that is not registered | `ActionNotRegisteredError` |
-| A key that is neither in the store nor made by a recipe | `GeneralError`, "No recipe found for key …", with no `key` (`MISSING-RESOURCE-REPORTED-AS-GENERAL-ERROR`) |
+| A key that is neither in the store nor made by a recipe | `AssetNotFoundError`, with `key` set |
 | A malformed query | `ParseError` |
 | An exception inside a Python command | `ExecutionError` |
 | A value that cannot be converted | `ConversionError` |
@@ -706,7 +839,8 @@ What you will notice; the complete list, with the tracking issues, is
   own.
 - The decorators cannot set a command's realm (a deployment-level grouping of commands) or describe
   arguments beyond their annotations.
-- A recipe provider cannot be written in Python yet; `recipes` chooses among the built-in ones.
+- A store cannot run its own `store_config` handlers in Python; the configured Rust ones run around it.
+- `env.recipes.recipe(key)` for a key nobody has raises `GeneralError`, not `KeyNotFoundError`.
 - Progress lines on stderr cannot be turned off.
 - There are no type stubs for editors and no generated API reference; `help()` on a class or
   method shows its docstring and signature.
@@ -715,6 +849,7 @@ What you will notice; the complete list, with the tracking issues, is
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-01 | §4 A store written in Python; §6 Recipe providers written in Python; §2 the store and recipe classes; §10 the recipe-provider limitation is lifted. | `design/liquers-py-store/`, `design/liquers-py-recipes/` (phase-5) |
 | 2026-10-31 | §1: the supported range starts at CPython 3.10 (3.9 is past its end of life). | Orest, CI matrix decision for `language-binding-tests-in-ci` |
 | 2026-10-30 | §4 `config`: `recipes` accepts every value; §6 Named results: choosing recipe providers with `recipes`. §10: the limitation narrows to a provider written in Python. | design `recipe-provider-chain-config` |
 | 2026-10-27 | §10: the missing-docstrings limitation is lifted; type stubs and a generated reference remain. | design `py-docstrings` |
