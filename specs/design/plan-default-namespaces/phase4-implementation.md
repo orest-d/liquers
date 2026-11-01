@@ -8,8 +8,8 @@ No prerequisite issue.
 
 ## Progress
 
-- [ ] Step 1: Registry field, `lookup_namespaces`, checks
-- [ ] Step 2: Planner uses `lookup_namespaces`; `append_action` stays portable
+- [ ] Step 1: Per-realm chains, `lookup_namespaces`, checks
+- [ ] Step 2: Planner uses `lookup_namespaces` per realm; `append_action` stays portable
 - [ ] Step 3: Builder setter, configuration key, `Environment::default_namespaces`, Python builder
 - [ ] Step 4: Template and lib resolvers use `lookup_namespaces`
 - [ ] Step 5: `liquers-validate` flag and overlay merge
@@ -19,18 +19,19 @@ No prerequisite issue.
 
 ### Step 1: Registry field, `lookup_namespaces`, checks
 - Files / symbols: `liquers-core/src/command_metadata.rs` `CommandMetadataRegistry`, `new`, `check`
-- Change: add `implicit_namespaces` (serde default, skip when empty); add `lookup_namespaces`;
-  extend `check` with the empty-entry error and unknown-namespace warning.
+- Change: add `realm_default_namespaces` (serde default, skip when empty), `realm_namespaces`,
+  `lookup_namespaces`, `set_realm_namespaces`; extend `check` with the empty-entry error and
+  unknown-namespace warning.
 - Depends on: none
 - Proof: `cargo test -p liquers-core --lib command_metadata` — tests 11, 12
 - Rollback: revert the file; nothing else reads the field yet
 
 ### Step 2: Planner
 - Files / symbols: `liquers-core/src/plan.rs` `namespaces_for_query`, `append_action`
-- Change: `namespaces_for_query` parses `ns` as today and calls `lookup_namespaces`;
-  `append_action` returns the plain query only when it resolves to the requested namespace with
-  and without `implicit_namespaces` (private helper with a flag); otherwise `ns-<ns>`, or `ns-root`
-  when a configured namespace shadows a requested root command.
+- Change: `namespaces_for_query` takes the realm, parses `ns` as today and calls
+  `lookup_namespaces`; `append_action` returns the plain query only when it resolves to the
+  requested namespace with the environment's chain and with `["", "root"]`; otherwise `ns-<ns>`, or
+  `ns-root` when a configured namespace shadows a requested root command.
 - Depends on: Step 1
 - Proof: `cargo test -p liquers-core --lib plan::tests` — tests 3-8, existing plan tests green
 - Rollback: revert; Step 1 alone is inert
@@ -39,26 +40,27 @@ No prerequisite issue.
 - Files / symbols: `environment_builder.rs` `EnvironmentBuilder::{default_namespaces, with_default_namespaces, build}`;
   `environment_config.rs` `EnvironmentConfig::default_namespaces`, `with_config`;
   `context.rs` `Environment::default_namespaces`; `liquers-py/src/environment.rs` `EnvCell::configured_builder`
-- Change: as Phase 2; `build()` writes the field before `validate()`; the Python builder applies
-  the key.
+- Change: as Phase 2; `build()` replaces the main chain (root appended when not listed) before
+  `validate()`; the Python builder applies the key.
 - Depends on: Step 1
 - Proof: `cargo test -p liquers-core --lib environment_config` (tests 9, 10) and
   `cargo test -p liquers-core --test plan_default_namespaces` (test 13),
   `bash scripts/test-liquers-py.sh` (test 18)
-- Rollback: revert; the registry field can still be set by hand
+- Rollback: revert; the registry chains can still be set by hand
 
 ### Step 4: Template and lib resolvers (parallel with Step 5)
 - Files / symbols: `liquers-template/src/diagnostics.rs` `lookup_namespaces`,
   `liquers-template/src/query/instantiate.rs` override lookup, `liquers-lib/src/utils.rs` `namespaces_from`
-- Change: delegate to `CommandMetadataRegistry::lookup_namespaces`; keep each site's own handling of
-  link parameters.
+- Change: delegate to `CommandMetadataRegistry::lookup_namespaces` with the segment's realm; keep
+  each site's own handling of link parameters.
 - Depends on: Step 1
 - Proof: `cargo test -p liquers-template` (test 14), `cargo test -p liquers-lib --lib --tests` (test 15, 17)
 - Rollback: revert per file
 
 ### Step 5: Validation tooling (parallel with Step 4)
 - Files / symbols: `liquers-core/src/validate/registry.rs` merge; `liquers-core/src/bin/liquers_validate.rs` `Cli`
-- Change: union `implicit_namespaces` on merge; repeatable `--default-namespace`.
+- Change: overlay chains replace the base's per realm on merge; repeatable `--default-namespace`
+  sets the main chain by the builder's rule.
 - Depends on: Step 1
 - Proof: `cargo test -p liquers-core --features cli --lib validate` (test 16) and
   `cargo run -p liquers-core --features cli --bin liquers-validate -- --default-namespace pl -- '-R/data/sales.csv/-/head-3'`

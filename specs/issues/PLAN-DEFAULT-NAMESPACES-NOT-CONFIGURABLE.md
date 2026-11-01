@@ -38,10 +38,13 @@ configuration; a Rust embedding can mutate the registry field directly.
 
 ## Expected behaviour
 
-- An environment can declare **default namespaces**, searched while building a plan as if the
-  query carried an implicit `ns` instruction.
-- They are held by the `Environment` and settable through `EnvironmentConfig` (so YAML, JSON and
-  TOML documents and the Python binding get them) and through `EnvironmentBuilder`.
+- An environment can declare **default namespaces**, searched while building a plan after the
+  namespaces of the query's last `ns` (highest priority first, first match wins) — the chain the
+  planner already uses, with configurable defaults.
+- The command metadata registry holds the defaults **per realm**, so an environment not built from
+  a configuration document can still set them.
+- `EnvironmentConfig` sets them for the main realm, taking precedence over the registry (so YAML,
+  JSON and TOML documents and the Python binding get them), and so does `EnvironmentBuilder`.
 - When not specified, behaviour is unchanged: only the root namespace is searched.
 
 Designed in design/plan-default-namespaces/ — readiness: needs-decision; automatic fixing:

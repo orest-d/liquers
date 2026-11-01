@@ -16,11 +16,15 @@ created: 2026-11-01
 Triage design (`.claude/skills/liquers-project/references/issue-triage.md`, case 3b), 2026-11-01:
 Phases 1-4 written under the bulk-design rules; awaiting review. GitHub #235.
 
-An environment names namespaces that every query searches as if it began with an implicit `ns`
-instruction. They are set by `default_namespaces:` in `EnvironmentConfig` or by
-`EnvironmentBuilder::with_default_namespaces`, kept on the command metadata registry so every
-resolver sees them, and reported by `Environment::default_namespaces()`. Unset, nothing changes:
-only root is searched.
+The command metadata registry already holds the namespace chain the planner falls back on
+(`default_namespaces`, `["", "root"]`); this design makes it settable **per realm** in the registry
+and, for the main realm, from `EnvironmentConfig` (`default_namespaces:`), which takes precedence.
+Lookup stays a first-match chain: the namespaces of the last `ns` before the action, then the
+realm's defaults. `Environment::default_namespaces(realm)` reports the chain.
+
+Revised 2026-11-01 after the user's review: an explicit `ns` **extends** the defaults (it is
+searched first, then the defaults) rather than replacing them; defaults are per realm in the
+registry; the configuration covers the main realm only.
 
 ## Phases
 
