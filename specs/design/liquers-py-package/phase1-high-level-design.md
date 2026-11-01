@@ -10,12 +10,13 @@ data science use case. Milestone M5 of the liquers-py plan, with
 
 ## Design Readiness
 
-- **Readiness:** `needs-decision`
+- **Readiness:** `ready` (Phase 1 approved; decision log below)
 - **Automatic fixing:** `not-eligible`: a release pipeline that publishes outside the repository.
-- **Leading issue:** question 4, which reading of "maintained in core as a constant" (Decision 4).
-- **Explanation:** on 2026-11-01 Orest decided questions 1-3, 5, 7, 8 and 9 (Decisions 1-7).
-  Question 4 is the mechanism behind Decision 4, with two readings to choose from; questions 6,
-  10 and 11 were not on the gate list and stand as proposed. Plan items that changed: nothing to
+- **Leading issue:** none open at Phase 1. The first PyPI upload stays behind Orest's per-release
+  approval (question 3), which pre-approval does not cover.
+- **Explanation:** on 2026-11-01 Orest decided questions 1-3, 5, 7, 8 and 9 (Decisions 1-7), took
+  reading (a) of question 4 (Decision 8) and approved Phase 1 with every later phase pre-approved
+  ("proceed all"). Questions 6, 10 and 11 stand as proposed. Plan items that changed: nothing to
   vendor for OpenSSL (question 7); wheels start at 3.14, so no `cp310` or `abi3-py311` build; one
   version, kept in core and reported by every environment.
 - **Open questions:**
@@ -45,7 +46,7 @@ data science use case. Milestone M5 of the liquers-py plan, with
      and tests the whole matrix without publishing. Orest registers the publisher for
      `liquers-py` on PyPI and TestPyPI (the name is free on both, checked 2026-11-01).
      Alternatives (not taken): GitHub releases only in M5, or automatic PyPI upload on tag.
-  4. **Open design - where the version lives** (Decision 4). Built with maturin
+  4. **Decided (Decision 8) - where the version lives** (Decision 4): reading (a). Built with maturin
      (`maturin-action` in CI). Either way all crates of the root workspace share one version, the
      `Environment` trait gains a provided `liquers_version()` returning core's constant (documented
      as not to be overridden), Python exposes `env.liquers_version` and `lq.__version__`,
@@ -61,7 +62,7 @@ data science use case. Milestone M5 of the liquers-py plan, with
        held together only by the test.
   5. **Decided (Decision 4) - the first release is `0.1.0`.** No alpha or beta releases are
      defined.
-  6. **Proposed resolution - what a wheel contains.** The test build's Cargo features
+  6. **Accepted at the gate - what a wheel contains.** The test build's Cargo features
      (`image-support`, `polars`, `records`, `records-ipc`, `records-parquet`, `templates`), never
      `debug-handles`, no `egui` (M6 decides UI): one value type in every wheel (PACKAGE05). Python
      extras add only Python packages: `[polars]`, `[images]` (Pillow), `[arrow]` (pyarrow),
@@ -88,10 +89,10 @@ data science use case. Milestone M5 of the liquers-py plan, with
   9. **Decided (Decision 6) - reproducible inputs.** `Cargo.lock` is not committed (`.gitignore`),
      so the release workflow resolves the lockfile once and hands it to every job, and the sdist
      ships it.
-  10. **Proposed resolution - CI cost.** The release workflow runs on tags and by hand only; a
+  10. **Accepted at the gate - CI cost.** The release workflow runs on tags and by hand only; a
       `liquers-py-package` job on pull requests that touch packaging files builds one Linux x86_64
       wheel and runs AC-2 to AC-7 against it.
-  11. **Proposed resolution - the quick-start.** `liquers-py/README.md` gains an "Install" block
+  11. **Accepted at the gate - the quick-start.** `liquers-py/README.md` gains an "Install" block
       (`pip install liquers-py`), and its quick-start is changed to print its result; PACKAGE03
       extracts the marked block, runs it in a clean venv from the built wheel, and compares the
       output.
@@ -108,7 +109,9 @@ Orest, 2026-11-01, on gate items 8-13 and the side item, quoted:
    core as a constant and it should be accessible via (every) environment."
 5. Item 12, question 8: "use or-later, for now on every crate".
 6. Item 13, question 9: "pin it with release workflow".
-7. Side item, question 7: "OK, make an OpenSSL fix in a separate PR" (PR #241).
+7. Side item, question 7: "OK, make an OpenSSL fix in a separate PR" (PR #241, merged).
+8. Round 2, question 4: "Agreed with 1 and 2, proceed all" — reading (a), the workspace manifest
+   as the source and `liquers_core::VERSION` reading it, and every later phase pre-approved.
 
 ## Problem Example
 

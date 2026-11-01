@@ -10,11 +10,11 @@ Python integration" priority. Milestone M5 of the liquers-py plan, with
 
 ## Design Readiness
 
-- **Readiness:** `needs-decision`
+- **Readiness:** `ready` (Phase 1 approved; decision log below)
 - **Automatic fixing:** `not-eligible`: an `L` feature, new development dependencies.
-- **Leading issue:** confirmation, at this gate, of the proposed resolutions 2, 4 and 6-8; questions 1, 3 and 5 are decided (Decisions below).
-- **Explanation:** Orest accepted the recommendations on 2026-11-01. The remaining proposed
-  resolutions stand; question 8 follows the records design's decision.
+- **Leading issue:** none open at Phase 1.
+- **Explanation:** Orest decided questions 1, 3 and 5 (Decision 1) and approved Phase 1 with every
+  later phase pre-approved (Decision 2); the proposed resolutions 2, 4 and 6-8 stand.
 - **Open questions:**
   1. **Decided (Decision 1) - written or generated.** As recommended: hand-written `.pyi` for the native
      extension, inline annotations in the pure-Python modules, and `mypy.stubtest` failing the test
@@ -27,7 +27,7 @@ Python integration" priority. Milestone M5 of the liquers-py plan, with
      (`liquers-py/src/lib.rs`), so generating would first need the module rewritten in the
      declarative form. Revisit when it is stable (an issue is filed then, not now). A cheap step
      toward it is allowed meanwhile: return annotations in `#[pyo3(signature = …)]`.
-  2. **Proposed resolution - layout.** `liquers/_native.pyi` declares every extension class and
+  2. **Accepted at the gate - layout.** `liquers/_native.pyi` declares every extension class and
      function; `liquers/__init__.pyi` declares the package as checkers should see it, including
      the `LiquersError` subclasses that `__init__.py` creates with `globals().update` (invisible to
      a checker otherwise); `_commands.py`, `_env.py`, `_errors.py`, `_factories.py` carry inline
@@ -44,7 +44,7 @@ Python integration" priority. Milestone M5 of the liquers-py plan, with
      argument, a wrapper class or an error is declared exactly. Unions such as `str | bytes |
      RecordView | …` would claim a structure the bridge does not promise (guide: "be honest about
      what is not statically known").
-  4. **Proposed resolution - decorators keep signatures.** `command`, `first_command` and the
+  4. **Accepted at the gate - decorators keep signatures.** `command`, `first_command` and the
      environment-bound forms are overloaded for the bare and the keyword form and typed with
      `ParamSpec`, returning the decorated callable's own type (they return the function unchanged
      at run time, `_commands._register`), so an `async def` command stays a coroutine function.
@@ -66,13 +66,13 @@ Python integration" priority. Milestone M5 of the liquers-py plan, with
      (`test_STUBS_declarations.py`), so each `STUBSnn` has a named test and the script does not run
      them a second time. Phase 2 builds `_native` once and records stubtest's raw output (PyO3's
      comparison, hash and `__new__` signatures) before sizing the allowlist.
-  6. **Proposed resolution - test-only surface.** `debug-handles` methods (`live_handle_count`, the
+  6. **Accepted at the gate - test-only surface.** `debug-handles` methods (`live_handle_count`, the
      record-handle count) are not declared; stubtest's allowlist names them, and stubtest runs only
      against the test build (with that feature), never against a wheel.
-  7. **Proposed resolution - `NA` and `NS` features.** Nothing is declared for a feature liquers-py
+  7. **Accepted at the gate - `NA` and `NS` features.** Nothing is declared for a feature liquers-py
      does not implement (`WEBSERV`, `UIUSE`, `TEMPLATE` rendering, …); declarations grow with the
      features, in the same change (a reviewed rule in `PYTHON_INTEGRATION.md`).
-  8. **Proposed resolution - order.** `liquers-py-records` chose wrappers (its Decision 1), so the
+  8. **Accepted at the gate - order.** `liquers-py-records` chose wrappers (its Decision 1), so the
      stubs declare `lq.RecordView`, `lq.RecordSource`, `lq.RecordColumn` and the schema classes,
      with the constructors (`from_records`, `from_dict`, `from_pandas`, `from_polars`,
      `from_arrow`, `fields=`) and `to_list` / `to_dict`, once that design's Phase 2 fixes their API.
@@ -85,6 +85,8 @@ Python integration" priority. Milestone M5 of the liquers-py plan, with
 1. Orest, 2026-11-01, on gate items 5-7 (this design's questions 1, 3 and 5): "5. ok 6. ok 7. ok"
    — hand-written and checked declarations, values as `Any`, and the checks on one CI leg
    (CPython 3.14), as recommended.
+2. Orest, 2026-11-01, round 2: "Agreed with 1 and 2, proceed all" — Phase 1 approved with the
+   proposed resolutions, and every later phase pre-approved.
 
 ## Problem Example
 

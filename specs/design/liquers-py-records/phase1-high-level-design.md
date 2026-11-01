@@ -10,13 +10,13 @@ for `VISION.md`'s Python data science use case. Milestone M5 of the liquers-py p
 
 ## Design Readiness
 
-- **Readiness:** `needs-decision`
+- **Readiness:** `ready` (Phase 1 approved; decision log below)
 - **Automatic fixing:** `not-eligible`: an `L` feature with new public Python classes.
-- **Leading issue:** question 9, the shape of Decisions 1 and 2, to be confirmed at this gate.
-- **Explanation:** Orest decided questions 1, 3, 6 and 8 on 2026-11-01 and added constructors,
-  `to_list` / `to_dict`, dataframe conversion and field declarations (Decisions 1-4). Questions 2,
-  4, 5 and 7 were not objected to and stand as proposed; question 9 is the proposed shape of the
-  additions.
+- **Leading issue:** none open at Phase 1. Later phases add their decisions to the log at the end
+  of this section.
+- **Explanation:** Orest decided questions 1, 3, 6 and 8 and added the constructors (Decisions
+  1-4), confirmed question 9's shape (Decision 5), and approved Phase 1 with every later phase
+  pre-approved ("proceed all", 2026-11-01). Questions 2, 4, 5 and 7 stand as proposed.
 - **Open questions:**
   1. **Decided (Decision 1) - what a record view becomes in Python.** Taken: an `lq.RecordView`
      wrapper over the `Arc<dyn RecordView>`, carrying the schema with its field roles, the chunk
@@ -32,7 +32,7 @@ for `VISION.md`'s Python data science use case. Milestone M5 of the liquers-py p
      recommended: this design absorbed `PY-RECORD-VALUES-CANNOT-CROSS-TO-PYTHON` (`merged:
      2026-11-01`), `py-record-values-to-python` is `superseded`, its IPC transport is reused
      behind the exits, and its AC-6 (a state reports `RecordView`) is part of AC-1.
-  2. **Proposed resolution (no objection at the gate) - pyarrow is an extra.** Never a build or install dependency: imported
+  2. **Accepted at the gate - pyarrow is an extra.** Never a build or install dependency: imported
      when an exit needs it, `ConversionError` naming the extra when absent (as polars and Pillow
      today); `liquers-py[arrow]` installs it (`liquers-py-package`). PyPy has no pyarrow wheel, so
      those tests skip there.
@@ -44,12 +44,12 @@ for `VISION.md`'s Python data science use case. Milestone M5 of the liquers-py p
      `float64`, dictionaries decoded, `date64` to `date32`, timestamps to microseconds; anything
      else (an overflow, a lossy timestamp, nesting) is a `ConversionError` naming the column.
      Alternative (not taken): outbound only in M5.
-  4. **Proposed resolution (no objection at the gate) - what is exposed** (guide question 3). `RecordView`, `RecordSource`,
+  4. **Accepted at the gate - what is exposed** (guide question 3). `RecordView`, `RecordSource`,
      `RecordColumn`, `RecordSchema`, `FieldSchema`, `FieldType`, `KeyRole`, `ChunkOrigin`; cells
      as Python scalars (`FieldValue` has no class); the view constructors `select_columns`,
      `slice`, `row`, `cell`. Hidden: the view structs, `Bitmap`, `Buffer<T>`, `AlignedBuffer`,
      the mutable table, resolvers and manifests' internals. Filtering stays in queries (`ns-rec`).
-  5. **Proposed resolution (no objection at the gate) - lent buffers.** A column of a `RecordBatch` is taken from the batch
+  5. **Accepted at the gate - lent buffers.** A column of a `RecordBatch` is taken from the batch
      itself (`as_batch`), sharing its `Arc`ed buffers; any other view's column is read once
      (`column`, which copies) and then lent the same way. Fixed-width columns (`Int`, `UInt`,
      `Float`, `Date`, `Timestamp`, `Vector` as rows of `dim`) expose a read-only buffer
@@ -73,7 +73,7 @@ for `VISION.md`'s Python data science use case. Milestone M5 of the liquers-py p
      `RECORDS09` is `NA`: Python has an async model (reverses with a Pyodide target, where
      waiting is impossible, as `RUNTIME02`). `RECORDS11` is `NA`: Python does not implement the
      traits in M5 (reverses if Python-defined views are selected).
-  7. **Proposed resolution (no objection at the gate) - a single cell.** A one-row, one-column view reaches Python as its
+  7. **Accepted at the gate - a single cell.** A one-row, one-column view reaches Python as its
      scalar, as in liquers-web (RECORDS10), so the result type depends on the data; this is
      documented, and `state.record_view()` returns the view whatever its shape.
      `view.item()` on any other view raises `ConversionError` naming its shape.
@@ -86,7 +86,7 @@ for `VISION.md`'s Python data science use case. Milestone M5 of the liquers-py p
      table's schema metadata. Only `.to_arrow()` promises metadata; pandas and polars drop it.
      No producer in the tree fills origins yet (`RECORD_STREAMS.md` §ChunkOrigin), so the tests
      build their fixture from IPC bytes carrying them. Alternative (not taken): assert their loss.
-  9. **Proposed resolution - building records in Python** (Decisions 1, 2). Constructors on
+  9. **Decided (Decision 5) - building records in Python** (Decisions 1, 2). Constructors on
      `lq.RecordView`: `from_records(rows)` (a list of dicts), `from_dict(columns)` (a dict of
      lists), `from_pandas(df)`, `from_polars(df)` and `from_arrow(table)`, each with an optional
      `fields=`; the way back is `view.to_list()` (row dicts) and `view.to_dict()` (column lists).
@@ -126,6 +126,9 @@ Orest, 2026-11-01, on gate items 1-4 (this design's questions 1, 3, 8 and 6), qu
    - both automatically and explicitly." (question 9, AC-18).
 3. Question 8 (origins): "ok".
 4. Question 6 (traversal): "ok".
+5. Round 2, on question 9 (polars through the existing bridge, not Arrow; plain data built in
+   Rust; `fields=` partial or whole): "Agreed with 1 and 2, proceed all" — question 9 as
+   proposed, and every later phase pre-approved.
 
 ## Problem Example
 
