@@ -91,7 +91,7 @@ Composite commands in the registry (a):
   THEN the following step receives that value as its state (`Step::UseValue`); a composite whose first element is one of these is a source command (`state_argument: None`)
 - **AC-6** Registration validation
   WHEN a composite is registered or deserialized, and a placeholder is not a declared argument, an argument is `injected`, or an argument name is not an argument of its step's command
-  THEN registration fails with `ParameterError`, and nothing is registered; an argument that no placeholder uses is a warning
+  THEN each problem is an `Issue::CommandRegistry` in the registry's `IssueReport` (`CommandMetadata::check`); an error-severity issue refuses registration and nothing is registered; an argument that no placeholder uses is a warning
 - **AC-7** Hygiene and nesting
   WHEN a composite's steps name commands
   THEN they resolve through each element's own `ns` and `realm`, else the default namespaces, never the caller's `ns`; a pipeline may call aliases and composites, and a cycle is a planning error naming the cycle
@@ -110,9 +110,9 @@ The pipeline form, everywhere:
 - **AC-16** Queries and pipelines combine in one plan
   WHEN a query calls a composite and continues after it, or a pipeline contains `{query: …}` elements, or a recipe has a query and a pipeline
   THEN the planner processes query actions and pipeline elements into one plan, in order, each receiving the previous one's state
-- **AC-17** Named arguments
-  WHEN an action element gives arguments by name, in any order, leaving some out
-  THEN each is matched to its `ArgumentInfo`; the omitted ones take their defaults; an unknown or `injected` name is a `ParameterError`
+- **AC-17** Positional and named arguments
+  WHEN an action element gives `parameters` (positional, the last ones filling a variadic) and/or `arguments` (by name, in any order, leaving some out)
+  THEN the positional ones fill slots first and the named ones the rest; omitted ones take their defaults; an unknown or `injected` name, or a name for a slot already filled positionally, is a `ParameterError`
 - **AC-18** Nested pipeline as an argument
   WHEN an argument's source is `{pipeline: […]}`
   THEN it is evaluated like a link and recorded as a dependency; a text-form nested pipeline is exactly the link with its query
@@ -126,11 +126,18 @@ The pipeline form, everywhere:
   WHEN a composite or a pipeline is serialized (registry export, YAML, JSON) and read back, or given to `liquers-validate`
   THEN it is unchanged, and the validator plans it, reporting its text form when it has one
 
+- **AC-23** A list for a single argument
+  WHEN a list (`Value::Array`) is given to a non-variadic argument
+  THEN an `any` argument receives the whole array, and a scalar-typed argument is a `ConversionError`; the pipeline is not text-form from that step on
+- **AC-24** Pipelines express queries
+  WHEN any query is converted to a pipeline (`Query::to_pipeline`, syntactic) and planned
+  THEN the plan equals the query's plan, and converting the pipeline back gives the same query
+
 Recipes (b):
 
 - **AC-15** Recipe pipeline
-  WHEN a recipe has a `pipeline`, alone or after its `query`
-  THEN the pipeline runs on the query's result (or from nothing); `arguments` and `links` bind the pipeline's placeholders; the asset name comes from the pipeline's `filename` element; a name that is no placeholder keeps today's meaning (an argument of the last action)
+  WHEN a recipe has a `pipeline` instead of a `query` (`query: q` is the same as `pipeline: [{query: q}]`)
+  THEN it plans and runs as that pipeline; `arguments` and `links` bind its placeholders; its filename is its last element, or ends its last `{query}` fragment, and a filename anywhere else is an error; a name that is no placeholder keeps today's meaning (an argument of the last action)
 - **AC-22** Composites defined by recipes
   WHEN a `recipes.yaml` entry declares `command: <ns>/<name>` and `parameters` (`ArgumentInfo`s)
   THEN the environment registers it as a composite whose pipeline is the entry's query and pipeline, when the recipe provider is loaded
@@ -176,34 +183,39 @@ and a new `pipeline.rs` for the serde types): every consumer plans through core.
 
 ## Open Questions
 
-Decided on 2026-11-01: no placeholders in query text (the pipeline is the only mechanism); the
-pipeline is the structured form for composites and recipes, and the planner mixes it with queries
-in any order (`Step::UseValue` for a value element); the web part is a separate follow-up.
-Analysis: [`notation-and-integration.md`](./notation-and-integration.md).
+Decided on 2026-11-01:
 
-2. **Overlap with `recipe-override-addressing`.** That design (not approved) lets recipe
-   `arguments` reach an earlier action of a *query* by position (`1.values`: argument `values` of
-   the second command) and fill a resource key (`@key`). A recipe that needs an earlier argument
-   can now put that action in its pipeline instead. Recommended: drop that design's positional
-   addressing (its AC-1/AC-2) and keep only `@key`. That design is yours to amend.
-3. **Defining composites without Rust.** Recommended: AC-22 (`recipes.yaml` entries with `command:`).
-4. **Argument declarations.** Recommended: every placeholder is a declared argument; only an
-   omitted type, `multiple` or `gui_info` is taken from the slot (AC-3).
-8. **Variadic rules.** Recommended: `notation-and-integration.md` §4, as in AC-19.
-9. **Payload and injection.** Recommended: forward injected arguments and payload requirements
-   (AC-20); refuse an `injected` composite argument; leave payload *values* as sources to the
-   follow-up.
-10. **Recipe order.** Recommended: query first, then pipeline, plus `{query: …}` elements (AC-15,
-    AC-16).
-13. **Positional `parameters` in an action element.** Recommended: allowed, but not mixed with
-    `arguments` for the same slot (a written query converts to positional parameters when the
-    registry does not know the command yet).
-14. **Namespace inheritance.** Recommended: an element without `ns` uses the default namespaces,
-    never an `ns` of the surrounding query (AC-7). Alternative: inherit the caller's last `ns`
-    (shorter pipelines, but a composite's behaviour would depend on where it is called).
+- No placeholders in query text: the pipeline is the only mechanism.
+- The pipeline is the structured form for composites and recipes, and the planner mixes it with
+  queries (`Step::UseValue` for a value element). The web part is a separate follow-up.
+- Every placeholder is a declared `ArgumentInfo` of the command, with the pipeline held in its
+  `CommandDefinition`; problems are reported through `IssueReport`.
+- Pipelines have nothing to do with injection or the payload: both are forwarded as for a direct
+  call (AC-20).
+- An element without `ns` uses the default namespaces, never the caller's `ns` (AC-7).
+- `recipe-override-addressing`'s positional addressing (`1.values`) is dropped; pipelines replace
+  it (`RECIPE-OVERRIDE-ONLY-LAST-ACTION` now belongs to this design).
 
-Questions 1, 5, 6, 7, 11 and 12 are settled or moved: 1 and 7 by the decisions above, 5 because
-query text has no placeholders, and 6, 11 and 12 to the follow-up issue.
+Analysis: [`notation-and-integration.md`](./notation-and-integration.md) (shape, variadics,
+payload) and [`pipeline-and-plan.md`](./pipeline-and-plan.md) (plans, recipes, lists, positional
+arguments).
+
+3. **Commands defined in `recipes.yaml`** (AC-22). A way to define these commands without Rust: a
+   `recipes.yaml` entry that names `command: <ns>/<name>` and declares `parameters` is registered
+   as a pipeline command when the recipe provider loads. Recommended: yes. The alternative is to
+   define them only in Rust and registry files.
+15. **Pipeline and plan** (`pipeline-and-plan.md` §1). Recommended U1: the pipeline is the planner's
+    input language (query → pipeline → plan), so a query and its pipeline plan identically by
+    construction, and every `Step` an author can mean has a pipeline element.
+16. **Recipe pipeline order** (replaces Q10, §2). Recommended: a recipe has either `query` or
+    `pipeline`; `{query: …}` elements give every order, and the filename is the last element, as in
+    a query.
+17. **A list for a single argument** (replaces Q8's open part, §3). Recommended: AC-23; `{array}` /
+    `{object}` constructors from sources deferred.
+18. **Positional arguments** (replaces Q13, §4). Recommended: one action element with `parameters`
+    and `arguments` under Python's rule (AC-17). Alternative: two element kinds, never mixed.
+19. **Name** (§5). Recommended: `CommandDefinition::Pipeline` ("pipeline alias") instead of
+    *composite*, since this is an alias whose body is a pipeline.
 
 ## Scope Changes
 
@@ -215,11 +227,15 @@ query text has no placeholders, and 6, 11 and 12 to the follow-up issue.
   payload sources move to `WEB-API-CANNOT-RUN-PIPELINES-OR-RECIPE-ENDPOINTS`. AC-9, AC-12–AC-14 are
   retired; AC-15–AC-22 are added. This design stays `L` (core only). Phase 2 is rewritten after
   this phase is approved.
+- **2026-11-01, maintainer review 3.** `RECIPE-OVERRIDE-ONLY-LAST-ACTION` moves here from
+  `recipe-override-addressing`, whose positional addressing is dropped. Added AC-23 (a list for a
+  single argument) and AC-24 (pipelines express queries); AC-6, AC-15 and AC-17 revised (an
+  `IssueReport`, either query or pipeline, positional and named arguments). Questions 15–19 added.
 
 ## Design Dependencies
 
 - `command-alias-contract` (complete) — origin; composites follow its validation and dependency rules.
-- `recipe-override-addressing` — **overlaps** (question 2).
+- `recipe-override-addressing` — **overlaps**: its positional addressing is dropped in favour of pipelines (2026-11-01); it keeps the `@key` hole.
 - `agent-command-proposal` — **overlaps**: it proposes alias commands; composites widen what it can propose.
 - `plan-default-namespaces` (PR #236) — **requires** its lookup chain for AC-7.
 - `WEB-API-CANNOT-RUN-PIPELINES-OR-RECIPE-ENDPOINTS` — **required-by**: the web follow-up builds on the pipeline types.

@@ -6,7 +6,7 @@ status: draft
 priority: P3
 complexity: M
 area: [core/plan]
-design: recipe-override-addressing
+design: composite-command-definition
 created: 2026-10-17
 github:
 ---
@@ -49,3 +49,8 @@ Designed together with `RECIPE-CANNOT-PARAMETERIZE-RESOURCE-KEY` in
 `specs/design/recipe-override-addressing/` (bulk design 2026-10-20; strong overlap T2/T3). Still
 reproduces at HEAD: `Plan::override_value` / `override_link` (`liquers-core/src/plan.rs`) and
 `Recipe::to_plan` / `not_in_last_action` (`liquers-core/src/recipes.rs`) are unchanged.
+
+**2026-11-01, maintainer decision.** Positional addressing (`1.values`, `is_in.values`) is dropped.
+An argument of an earlier action is given through a recipe **pipeline** instead
+(`specs/design/composite-command-definition/`, AC-15), so this issue moves to that design.
+`recipe-override-addressing` keeps only the resource-key hole (`@key`).

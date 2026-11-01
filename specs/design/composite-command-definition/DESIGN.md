@@ -6,7 +6,7 @@ workflow: liquers-project
 status: in_review
 phase: high-level
 area: [core/commands, core/plan, core/assets]
-issues: [COMMAND-CANNOT-BE-DEFINED-AS-A-COMMAND-SEQUENCE]
+issues: [COMMAND-CANNOT-BE-DEFINED-AS-A-COMMAND-SEQUENCE, RECIPE-OVERRIDE-ONLY-LAST-ACTION]
 affects_docs: [reference/PIPELINES_AND_COMPOSITES.md, reference/COMMAND_ALIASES.md, reference/RECIPES_AND_PLANS.md, reference/PROJECT_OVERVIEW.md, reference/COMMAND_DECLARATION.md, guides/COMMAND_REGISTRATION_GUIDE.md, guides/COMMAND_DESIGN_GUIDE.md]
 created: 2026-11-01
 ---
@@ -34,4 +34,5 @@ predates those decisions and is rewritten after Phase 1's approval.
 
 - [Phase 1](./phase1-high-level-design.md)
 - [Phase 2](./phase2-architecture.md)
+- [Pipelines, plans and recipes](./pipeline-and-plan.md) — pipeline vs plan, recipe order, lists, positional arguments (review 3, 2026-11-01)
 - [Notation and integration analysis](./notation-and-integration.md) — syntax, pipeline notation, variadics, payload, recipes and web API (review of 2026-11-01)
