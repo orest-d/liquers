@@ -397,7 +397,6 @@ deliberately folded behind a broader line.
 - design `docs-link-check-code-spans`
 - design `docs-tooling-tests-in-ci`
 - design `documentation-currentness-small-fixes`
-- design `documentation-site-tool`
 - design `enum-alternative-labels`
 - design `environment-orderly-shutdown`
 - design `error-store-name-payload`

@@ -3,8 +3,8 @@ id: DOCUMENTATION-SITE-TOOL
 kind: design
 title: A documentation tool builds the user documentation site with rustdoc, Liquers queries and Mustache
 workflow: liquers-project
-status: in_review
-phase: architecture
+status: superseded
+superseded_by: user-documentation-guides
 area: [docs, build, lib/commands]
 issues: [USER-DOCUMENTATION-CANNOT-BE-GENERATED]
 affects_docs: [guides/TEMPLATE_GUIDE.md]
@@ -14,7 +14,7 @@ created: 2026-11-01
 
 GitHub #233, requested 2026-11-01. Phase 1 approved (`proceed`, 2026-11-01); Phase 2 written and awaiting review; nothing implemented. Requires [`api-documentation-rules`](../api-documentation-rules/DESIGN.md), which defines the `docs/` sources this tool builds.
 
-**2026-11-01 amendment pending:** [`user-documentation-guides`](../user-documentation-guides/DESIGN.md) evaluates rendering tools for the guides (HTML with and without search, EPUB, PDF) and the tool's implementation options (the agent memory CLI, a thin `liquers-py` wrapper, this crate), and takes over this design's CI question. This design is revised, or superseded, by that design's decision. Applied here at Phase 3.
+**Superseded 2026-11-01** by [`user-documentation-guides`](../user-documentation-guides/DESIGN.md) (owner's `proceed` at its Phase 2 gate, recommendation 1). Moved there: the build script, the homepage, API-reference placement, CI and the `liquers-docs` crate, reshaped as a preprocessing step for mdBook and Pandoc. Dropped: this design's own Markdown-to-HTML, page layout and `ns-docs/site` / `md_to_html` / `commands` commands. Its Phases 1-2 stay as the record of the reasoning.
 
 ## Phases
 

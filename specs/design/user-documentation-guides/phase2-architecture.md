@@ -136,11 +136,11 @@ enable = true          # MDBOOK_OUTPUT__HTML__SEARCH__ENABLE=false for the offli
   - `theme/liquers.css`.
   - `README.md`.
 - **`.github/workflows/docs-site.yml`:**
-  - **Pull requests** touching `docs/**`, `liquers-docs/**`, `scripts/build-docs.sh` or the
-    workflow:
+  - **Pull requests** touching `docs/**`, `specs/**` (an include may break), `liquers-docs/**`,
+    `scripts/build-docs.sh` or the workflow:
     1. Install Rust, then `mdbook` and `pandoc` (pinned release binaries), then `typst` (pinned
        release).
-    2. `liquers-docs check`.
+    2. `liquers-docs check` and `liquers-docs check --release`.
     3. `build-docs.sh`.
     4. `actions/upload-artifact`.
   - **Push to `main`:** the same with `--release`, then `actions/upload-pages-artifact` and
@@ -169,9 +169,17 @@ enable = true          # MDBOOK_OUTPUT__HTML__SEARCH__ENABLE=false for the offli
 
 ## Relevant Commands
 
-None new. Used: `ns-template/expand` for chapters, `ns-mem/read` for section includes
-(`{{$ -R/specs/guides/PYTHON_GUIDE.md/-/ns-mem/read-full-<heading>}}`), and `commands_doc` /
-the committed registry for appendix B (decided in Phase 3).
+One new command, registered by `liquers-docs` (not `liquers-lib`):
+
+```rust
+register_command!(cr, fn include(state, heading: String) -> result
+    namespace: "docs" label: "Include a section"
+    doc: "The body of the Markdown section with this heading (number optional), subsections included, own heading dropped; fails when absent or when it holds a relative link")?;
+```
+
+Used: `ns-template/expand` for chapters, `ns-docs/include` for section includes
+(`{{$ -R/specs/guides/PYTHON_GUIDE.md/-/ns-docs/include-Installing}}`; Phase 3 found that
+`ns-mem/read`'s section drops subsections), and the committed registry for appendix B.
 
 ## Documentation Architecture
 

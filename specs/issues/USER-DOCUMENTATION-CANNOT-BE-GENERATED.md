@@ -6,7 +6,7 @@ status: accepted
 priority: P2
 complexity: L
 area: [docs, build, lib/commands]
-design: documentation-site-tool
+design: user-documentation-guides
 created: 2026-11-01
 github: 233
 ---
