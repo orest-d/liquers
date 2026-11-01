@@ -72,8 +72,13 @@ def test_PACKAGE_require_all_skips_what_is_not_available(monkeypatch):
 
 
 def test_PACKAGE_require_all_reports_a_missing_available_module(monkeypatch):
+    def import_module(module):
+        if module == "PIL":
+            raise ModuleNotFoundError(module)
+
+    # Whatever this interpreter has installed, only PIL is missing.
     monkeypatch.setattr(_extras, "_unavailable", lambda extra: None)
-    monkeypatch.setitem(sys.modules, "PIL", None)
+    monkeypatch.setattr(_extras.importlib, "import_module", import_module)
     with pytest.raises(ModuleNotFoundError, match="liquers-py\\[images\\]"):
         lq.require("all")
 
