@@ -44,6 +44,7 @@ use crate::context::Context;
 use crate::environment::PyEnvironment;
 use crate::error::{error_to_pyerr, pyerr_to_error};
 use crate::runtime::runtime;
+use crate::records::Scope;
 use crate::value::{value_to_py, Value};
 
 /// How long a stopping loop waits for its cancelled coroutines before it closes anyway.
@@ -132,9 +133,10 @@ pub(crate) fn shut_down_while_waiting() -> Error {
 
 /// What an awaitable resolves to, converted to Python on a blocking thread.
 pub(crate) enum ToPy {
-    Value(Result<Arc<Value>, Error>),
-    State(Result<CoreState<Value>, Error>),
-    Asset(Result<(CoreAssetRef<PyEnvironment>, Arc<Shut>), Error>),
+    /// A value, and the scope a record source in it resolves in.
+    Value(Result<(Arc<Value>, Scope), Error>),
+    State(Result<(CoreState<Value>, Scope), Error>),
+    Asset(Result<(CoreAssetRef<PyEnvironment>, Arc<Shut>, Scope), Error>),
     Unit(Result<(), Error>),
     Bytes(Result<Vec<u8>, Error>),
     Metadata(Result<liquers_core::metadata::Metadata, Error>),
@@ -152,12 +154,12 @@ impl<'py> IntoPyObject<'py> for ToPy {
 
     fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
         let converted = match self {
-            ToPy::Value(result) => result.and_then(|value| value_to_py(py, value.as_ref())),
+            ToPy::Value(result) => result.and_then(|(value, scope)| value_to_py(py, value.as_ref(), &scope)),
             ToPy::State(result) => result
-                .and_then(|state| crate::asset::State::from_core(py, &state))
+                .and_then(|(state, scope)| crate::asset::State::from_core(py, &state, &scope))
                 .map(Py::into_any),
-            ToPy::Asset(result) => result.and_then(|(asset, shut)| {
-                Py::new(py, crate::asset::AssetRef::new(asset, shut))
+            ToPy::Asset(result) => result.and_then(|(asset, shut, scope)| {
+                Py::new(py, crate::asset::AssetRef::new(asset, shut, scope))
                     .map(Py::into_any)
                     .map_err(|e| pyerr_to_error(py, &e))
             }),

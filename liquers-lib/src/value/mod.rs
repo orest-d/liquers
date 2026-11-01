@@ -324,7 +324,7 @@ fn record_view_cell_string(cell: &FieldValue) -> Result<String, Error> {
 /// asked first so that `try_into_json_value` can tell "not a scalar shape" (an array of rows) from
 /// a real failure.
 #[cfg(feature = "records")]
-fn record_view_is_single_cell(view: &dyn RecordView) -> bool {
+pub fn record_view_is_single_cell(view: &dyn RecordView) -> bool {
     let schema = view.schema();
     let payload = schema.payload_fields().len();
     view.len() == 1

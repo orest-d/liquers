@@ -20,6 +20,9 @@ liquers-core={path="../liquers-core"}
 liquers-lib = { path = "../liquers-lib", default-features = false, features = ["image-support", "polars", "records", "records-ipc", "records-parquet", "templates"] }
 # Linked because the liquers-lib command macros expand into this crate and name these crates.
 liquers-macro = { path = "../liquers-macro" }
+# The record traits the `lq.RecordView` / `lq.RecordSource` wrappers read through, and the IPC
+# format the Arrow exits go through (`src/records/`). Already in the graph through liquers-lib.
+liquers-records = { path = "../liquers-records", features = ["ipc"] }
 # Already in the graph through liquers-lib; named here for its store factory chain (memory,
 # filesystem, then the OpenDAL types), which a configured `lq.Environment(config=…)` builds with.
 liquers-store = { path = "../liquers-store" }

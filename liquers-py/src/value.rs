@@ -23,6 +23,8 @@ use pyo3::IntoPyObjectExt;
 
 pub use liquers_lib::value::Value;
 
+use crate::records::Scope;
+
 /// The type identifier of a retained Python object.
 ///
 /// `py.Object`, not a bare `Object`: a bare name asserts that Liquers owns the concept, and a
@@ -244,10 +246,13 @@ fn into_py<'py, T: IntoPyObjectExt<'py>>(
 }
 
 /// Converts a Liquers value to a Python object. Needs the GIL.
-pub fn value_to_py(py: Python<'_>, value: &Value) -> Result<Py<PyAny>, Error> {
+///
+/// `scope` is where a record source among the result resolves its chunks
+/// ([`crate::records::Scope`]).
+pub fn value_to_py(py: Python<'_>, value: &Value, scope: &Scope) -> Result<Py<PyAny>, Error> {
     match value {
         Value::Base(simple) => simple_to_py(py, simple),
-        Value::Extended(ext) => ext_to_py(py, ext),
+        Value::Extended(ext) => ext_to_py(py, ext, scope),
     }
 }
 
@@ -322,7 +327,16 @@ fn simple_to_py(py: Python<'_>, value: &SimpleValue) -> Result<Py<PyAny>, Error>
 /// compiles an `egui` user turns `UiCommand` and `Widget` on here). A `match` would therefore be
 /// exhaustive in one build and fail in another; every variant not handled below is refused with
 /// its identifier, which is the documented behaviour for each of them.
-fn ext_to_py(py: Python<'_>, value: &ExtValue) -> Result<Py<PyAny>, Error> {
+fn ext_to_py(py: Python<'_>, value: &ExtValue, _scope: &Scope) -> Result<Py<PyAny>, Error> {
+    if let ExtValue::RecordView { value: view } = value {
+        // A one-row view of one value field is its cell (RECORDS10); any other is a view.
+        if liquers_lib::value::record_view_is_single_cell(view.as_ref()) {
+            return crate::records::convert::field_value_to_py(py, &view.single_cell()?);
+        }
+        return Py::new(py, crate::records::view::RecordView::new(view.clone()))
+            .map(Py::into_any)
+            .map_err(|e| py_conversion_error("RecordView", e));
+    }
     if let ExtValue::Foreign { value: foreign } = value {
         return match foreign.as_any().downcast_ref::<PyObjectValue>() {
             Some(object) => Ok(object.object(py)),
@@ -531,6 +545,10 @@ fn wrapper_to_simple(object: &Bound<'_, PyAny>) -> Option<SimpleValue> {
 
 /// Polars DataFrames and PIL images, recognised by type without importing their libraries.
 fn py_to_ext(object: &Bound<'_, PyAny>) -> Result<Option<ExtValue>, Error> {
+    if let Ok(view) = object.cast::<crate::records::view::RecordView>() {
+        // The same `Arc` back (RECORDS01): identity, chunk id and origins are kept.
+        return Ok(Some(ExtValue::RecordView { value: view.get().inner.clone() }));
+    }
     let type_name = qualified_type_name(object);
     let py = object.py();
     if type_name == "polars.dataframe.frame.DataFrame" || type_name == "polars.DataFrame" {
@@ -588,7 +606,7 @@ mod tests {
     fn roundtrip(py: Python<'_>, code: &str) -> Result<Py<PyAny>, Box<dyn std::error::Error>> {
         let object = py.eval(&std::ffi::CString::new(code)?, None, None)?;
         let value = py_to_value(&object, ConversionMode::Strict, false)?;
-        Ok(value_to_py(py, &value)?)
+        Ok(value_to_py(py, &value, &Scope::detached())?)
     }
 
     #[test]
@@ -663,7 +681,7 @@ mod tests {
             let object = py.eval(c"object()", None, None)?;
             let value = py_to_value(&object, ConversionMode::Permissive, false)?;
             assert_eq!(value.identifier(), PY_OBJECT_TYPE_IDENTIFIER);
-            let back = value_to_py(py, &value)?.into_bound(py);
+            let back = value_to_py(py, &value, &Scope::detached())?.into_bound(py);
             assert!(back.is(&object), "permissive mode keeps the same object");
             let err = py_to_value(&object, ConversionMode::Strict, false)
                 .err()

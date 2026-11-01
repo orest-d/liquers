@@ -22,6 +22,7 @@ pub mod pycall;
 pub mod query;
 pub mod recipe_provider;
 pub mod recipes;
+pub mod records;
 pub mod runtime;
 pub mod store;
 pub mod value;
@@ -101,6 +102,7 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<crate::context::Context>()?;
     m.add_class::<crate::asset::State>()?;
     m.add_class::<crate::asset::AssetRef>()?;
+    crate::records::register(m)?;
 
     // The Liquers version, in the form Python packaging uses (PEP 440); `liquers.__version__`.
     m.add("__version__", pep440(liquers_core::VERSION))?;
