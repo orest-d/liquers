@@ -20,7 +20,7 @@ plan, with [`liquers-py-recipes`](../liquers-py-recipes/DESIGN.md).
   `listdir` (the pipeline lists objects and recovers staged writes), so a store without `listdir`
   takes no `metadata` section and is refused at build (AC-12) rather than failing at run time; and
   a derived `get_stored_metadata` reads only a provided `get_metadata`. A narrowing of Decision 5's
-  "any Python store", in its spirit; **needs decision** (pre-implementation stop).
+  "any Python store", in its spirit; **decided** by Orest on 2026-11-01: narrowing accepted.
   (b) Phase 4 review: the router calls `is_supported` synchronously from its async methods, so a
   Python `is_supported` takes the GIL on a runtime worker. It is asked only for absolute keys under
   the mount's prefix, so a Rust mount's keys never reach it unless prefixes overlap; it goes

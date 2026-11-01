@@ -129,5 +129,5 @@ bump; `python3 scripts/docs_index.py` regenerates `specs/index.csv`. No command 
 ## Phase 5 Entry Criteria
 
 - [x] Implementation finished and validated — steps 1-5 ticked; liquers-py suite 349 passed
-- [x] User and review comments answered — except decision log (a), still with Orest and implemented as recommended
+- [x] User and review comments answered — decision log (a) accepted by Orest on 2026-11-01
 - [x] Documentation checkable against implemented and tested behaviour — guide examples run (`test_GUIDE_examples.py`)

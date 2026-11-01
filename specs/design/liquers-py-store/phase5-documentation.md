@@ -4,8 +4,8 @@
 
 - [x] Implementation is finished and validated: Phase 4 steps 1-5 (7e31f8e..2c98d84); liquers-py
   suite 346 passed, 8 skipped, 1 xpassed on CPython 3.13; Rust unit tests 25 passed; PR #229 CI
-- [ ] All user comments are answered or incorporated: decision log (a) (a store without `listdir`
-  takes no `metadata:` section) is still open with Orest; implemented as recommended
+- [x] All user comments are answered or incorporated: decision log (a) (a store without `listdir`
+  takes no `metadata:` section) accepted by Orest on 2026-11-01, as implemented
 - [x] All review comments are answered or incorporated: two reviewer passes per phase, findings fixed
 - [x] Documentation is consistent with the implemented and tested behavior: the guide's examples
   run (`test_GUIDE_examples.py`, 20 passed)
@@ -28,7 +28,7 @@ the store's methods with `_async` twins. A thread-local build guard turns a fact
 environment into a `ConfigurationError` instead of a deadlock.
 
 Conformance to the request and the approved design: as approved, with the decision log (a)
-narrowing (a `metadata:` section needs `listdir`) taken as recommended while it awaits Orest.
+narrowing (a `metadata:` section needs `listdir`), accepted by Orest on 2026-11-01.
 Added during implementation: `listdir` falls back to `listdir_data` for a store that has only the
 data methods (found by `STORE16`); the shared `bind_arguments` / `call_factory` helpers in
 `src/store/mod.rs`, reused by recipe provider factories. Omitted: the liquers-web follow-up for
@@ -83,8 +83,7 @@ Closed: `PY-NO-LANGUAGE-DEFINED-STORE`. Progress noted on `LANGUAGE-STORE-TYPE-N
 
 Requested: Python stores, configured routers, configuration effective for Python stores (Orest,
 2026-11-01). Approved: Phases 1-4 with Decisions 1-5. Implemented: all of it; `STORE18` is `NA`
-(`LANGUAGE-STORE-CONFIG-FUNCTION-NOT-DEFINABLE`). Remaining: decision log (a), whose other answer
-would derive a listing-free `metadata:` mode (an issue if chosen); the OpenDAL issue and the
+(`LANGUAGE-STORE-CONFIG-FUNCTION-NOT-DEFINABLE`). Remaining: the OpenDAL issue and the
 liquers-web follow-ups (`WEB-JS-STORE-BYTES-WITHOUT-METADATA-READ-AS-BINARY`,
 `WEB-JS-STORE-WITH-ONLY-GET-CANNOT-BE-QUERIED`).
 
