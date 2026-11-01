@@ -128,3 +128,23 @@ async fn findings_name_the_problem() -> Res {
     let _ = std::fs::remove_dir_all(&root);
     Ok(())
 }
+
+#[tokio::test]
+async fn markers_from_fragments_count_in_ready_chapters() -> Res {
+    let mut files = files();
+    files[5] = (
+        "docs/guides/python/index.md",
+        "---\ntitle: Preface\nstatus: ready\n---\n# Preface\n\n{{> ../_shared/open.md}}\n",
+    );
+    files.push(("docs/guides/_shared/open.md", "TBD: write the shared part."));
+    let root = fixture("fragments", &files)?;
+    let release = check(&root, BuildMode::Release).await?;
+    assert!(
+        release.iter().any(|f| f.severity == Severity::Error
+            && f.file.ends_with("python/index.md")
+            && f.message.contains("included fragments")),
+        "{release:?}"
+    );
+    let _ = std::fs::remove_dir_all(&root);
+    Ok(())
+}

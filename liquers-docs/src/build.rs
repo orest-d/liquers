@@ -278,6 +278,23 @@ pub async fn process(repo_root: &Path, mode: BuildMode) -> Result<(BuildTree, Ve
                     chapter.body.clone()
                 }
             };
+            // Markers that arrive through a partial or include have no line in this file; a
+            // ready chapter must not hide one there.
+            if chapter.meta.status == ChapterStatus::Ready {
+                let blocking = |text: &str| notes(text).iter().filter(|n| n.marker.blocks_release()).count();
+                let from_fragments = blocking(&expanded).saturating_sub(blocking(&chapter.body));
+                if from_fragments > 0 {
+                    findings.push(finding(
+                        &rel,
+                        0,
+                        match mode {
+                            BuildMode::Draft => Severity::Warning,
+                            BuildMode::Release => Severity::Error,
+                        },
+                        format!("{from_fragments} TBD:/CHECK: markers come from included fragments of a ready chapter"),
+                    ));
+                }
+            }
             let (text, _) = apply_markers(&expanded, chapter.meta.status, mode);
             chapters.push(ChapterOutput {
                 file: file.clone(),
