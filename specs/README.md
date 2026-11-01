@@ -250,6 +250,7 @@ on wasm.
 - **Liquers UI from JavaScript** — built → [`design/web-ui-use/`](design/web-ui-use/)
 - **UI elements and renderers defined in JavaScript** — built → [`design/web-ui-define/`](design/web-ui-define/)
 - **Execution context for JavaScript commands** — built → [`design/js-command-context/`](design/js-command-context/)
+- **A browser UI that stays responsive while a query waits** — designing → [`design/ui-runner-nonblocking-evaluation/`](design/ui-runner-nonblocking-evaluation/)
 - **Typed list values for `lui/children`** — built → [`design/value-list-support/`](design/value-list-support/)
 - **egui asset-manager adapter** — planned → [`issues/EGUI-ASSET-MANAGER-INTEGRATION.md`](issues/EGUI-ASSET-MANAGER-INTEGRATION.md)
 

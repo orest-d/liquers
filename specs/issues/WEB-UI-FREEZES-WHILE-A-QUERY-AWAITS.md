@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: L
 area: [lib/ui, core/assets, web]
-design:
+design: ui-runner-nonblocking-evaluation
 created: 2026-10-30
 github:
 ---
