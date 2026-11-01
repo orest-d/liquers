@@ -4,7 +4,11 @@
 //! back and concatenates them ([`read_ipc`], via [`RecordBatch::concat`]). The [`RecordSchema`]
 //! travels as JSON in the Arrow `Schema`'s `custom_metadata`, under the key `liquers.schema`, so
 //! roles, labels and the `Id` field survive a round trip; a batch's `chunk_id` travels the same
-//! way, under `liquers.chunk_id`, in the `RecordBatch` message's own `custom_metadata`. See
+//! way, under `liquers.chunk_id`, in the `RecordBatch` message's own `custom_metadata`, and so do
+//! its `sources` (the [`ChunkOrigin`](crate::batch::ChunkOrigin)s its `Source`-role column
+//! indexes), under [`LIQUERS_ORIGINS_KEY`] (`liquers.origins`). Both keys are optional; the
+//! origins are dropped on read when the schema read has no `Source`-role field, as happens when a
+//! stale `liquers.schema` is ignored. See
 //! `specs/design/record-streams/phase2-architecture.md` §"Tier 2 — Arrow IPC file (Feather v2)"
 //! and §"Where our layout meets Arrow's, and three places it does not line up 1:1" for the design,
 //! and its §"Still no claim of full Arrow support" for the accepted scope: reading refuses
@@ -46,7 +50,7 @@ use crate::buffer::{AlignedBuffer, Bitmap, Buffer};
 use crate::column::{Column, FieldValue};
 use crate::formats::ReadSchema;
 use crate::mutable::ColumnMut;
-use crate::schema::{FieldSchema, FieldType, RecordSchema};
+use crate::schema::{FieldSchema, FieldType, KeyRole, RecordSchema};
 
 type TableOffset = WIPOffset<TableFinishedWIPOffset>;
 
@@ -161,6 +165,11 @@ const COMPRESSION_ZSTD: i8 = 1;
 
 const LIQUERS_SCHEMA_KEY: &str = "liquers.schema";
 const LIQUERS_CHUNK_ID_KEY: &str = "liquers.chunk_id";
+/// A batch's `sources` (its [`ChunkOrigin`](crate::batch::ChunkOrigin) dictionary, which the
+/// `Source`-role column indexes), as JSON, beside `liquers.chunk_id` in the `RecordBatch`
+/// message's `custom_metadata`. Optional: written only when the batch has sources, and ignored by
+/// any reader that does not know it.
+pub const LIQUERS_ORIGINS_KEY: &str = "liquers.origins";
 
 /// The file's magic string — `"ARROW1"`, per `File.fbs`'s header comment. The file opens with it
 /// plus two zero padding bytes (eight in total, keeping the first message 8-byte aligned) and
@@ -519,14 +528,20 @@ pub(crate) fn write_ipc(view: &dyn RecordView) -> Result<Vec<u8>, Error> {
         builder.push_slot_always(RB_VT_BUFFERS, buffers_vec);
         builder.end_table(start)
     };
-    let chunk_metadata_vec = match &batch.chunk_id {
-        Some(chunk_id) => {
-            let json = serde_json::to_string(chunk_id)
-                .map_err(|e| Error::from_error(ErrorType::SerializationError, e))?;
-            let kv = write_key_value(&mut builder, LIQUERS_CHUNK_ID_KEY, &json);
-            Some(builder.create_vector(&[kv]))
-        }
-        None => None,
+    let mut chunk_metadata = Vec::new();
+    if let Some(chunk_id) = &batch.chunk_id {
+        let json = serde_json::to_string(chunk_id).map_err(|e| Error::from_error(ErrorType::SerializationError, e))?;
+        chunk_metadata.push(write_key_value(&mut builder, LIQUERS_CHUNK_ID_KEY, &json));
+    }
+    if !batch.sources.is_empty() {
+        let json =
+            serde_json::to_string(&batch.sources).map_err(|e| Error::from_error(ErrorType::SerializationError, e))?;
+        chunk_metadata.push(write_key_value(&mut builder, LIQUERS_ORIGINS_KEY, &json));
+    }
+    let chunk_metadata_vec = if chunk_metadata.is_empty() {
+        None
+    } else {
+        Some(builder.create_vector(&chunk_metadata))
     };
     let rb_message = {
         let start = builder.start_table();
@@ -1405,22 +1420,30 @@ fn read_one_record_batch(
         columns.push(column);
     }
 
-    let chunk_id = {
-        let metadata = message.table_vector_field(MESSAGE_VT_CUSTOM_METADATA)?;
-        let mut chunk_id = None;
-        for kv in &metadata {
-            if kv.string_field(KEYVALUE_VT_KEY)? == Some(LIQUERS_CHUNK_ID_KEY) {
-                if let Some(json) = kv.string_field(KEYVALUE_VT_VALUE)? {
-                    chunk_id = Some(
-                        serde_json::from_str(json).map_err(|e| Error::from_error(ErrorType::ConversionError, e))?,
-                    );
-                }
+    let metadata = message.table_vector_field(MESSAGE_VT_CUSTOM_METADATA)?;
+    let mut chunk_id = None;
+    let mut sources = Vec::new();
+    for kv in &metadata {
+        let key = kv.string_field(KEYVALUE_VT_KEY)?;
+        if key == Some(LIQUERS_CHUNK_ID_KEY) {
+            if let Some(json) = kv.string_field(KEYVALUE_VT_VALUE)? {
+                chunk_id =
+                    Some(serde_json::from_str(json).map_err(|e| Error::from_error(ErrorType::ConversionError, e))?);
+            }
+        } else if key == Some(LIQUERS_ORIGINS_KEY) {
+            if let Some(json) = kv.string_field(KEYVALUE_VT_VALUE)? {
+                sources = serde_json::from_str(json).map_err(|e| Error::from_error(ErrorType::ConversionError, e))?;
             }
         }
-        chunk_id
-    };
+    }
+    // The origins are indexed by the `Source`-role column. A schema with no such field (a stale
+    // `liquers.schema` that was ignored, so the schema was derived from the Arrow fields, or a
+    // declared schema without one) can no longer locate them, so they are dropped with it.
+    if !schema.fields.iter().any(|field| field.key == KeyRole::Source) {
+        sources = Vec::new();
+    }
 
-    RecordBatch::new(schema.clone(), columns, chunk_id, None, Vec::new())
+    RecordBatch::new(schema.clone(), columns, chunk_id, None, sources)
 }
 
 /// Reads an Arrow IPC file (Feather v2) written by [`write_ipc`] or another Arrow implementation,
@@ -1927,6 +1950,134 @@ mod tests {
             let field_table = fb::FbTable::root(&bytes, 0)?;
             assert_eq!(decode_arrow_field(&field_table)?.data_type, FieldType::Timestamp, "zone {zone}");
         }
+        Ok(())
+    }
+
+    // --- liquers.origins ------------------------------------------------------------------------
+
+    use crate::batch::{ChunkId, ChunkOrigin};
+    use crate::column::FieldValue;
+    use liquers_core::parse::{parse_key, parse_query};
+
+    fn origin(name: &str) -> ChunkOrigin {
+        let query = parse_query(name).expect("parse");
+        ChunkOrigin { asset: query.clone(), chunk: query, info: None, locator: None }
+    }
+
+    fn sourced_batch() -> Result<RecordBatch, Error> {
+        let schema = Arc::new(RecordSchema::new(vec![
+            FieldSchema::new("x", FieldType::Int),
+            FieldSchema::new("src", FieldType::UInt).with_key(KeyRole::Source),
+        ])?);
+        let mut batch = RecordBatchMut::with_capacity(schema, 2);
+        batch.append_row(&[FieldValue::Int(1), FieldValue::UInt(0)])?;
+        batch.append_row(&[FieldValue::Int(2), FieldValue::UInt(1)])?;
+        let mut batch = batch.freeze()?;
+        batch.sources = vec![origin("-R/a.csv"), origin("-R/b.csv")];
+        Ok(batch)
+    }
+
+    #[test]
+    fn ipc_round_trips_origins() -> Result<(), Error> {
+        let batch = sourced_batch()?;
+        let read_back = read_ipc(&write_ipc(&batch)?, ReadSchema::Infer)?;
+        assert_eq!(read_back.sources, batch.sources);
+        assert_eq!(read_back.value(1, 1)?, FieldValue::UInt(1));
+        Ok(())
+    }
+
+    #[test]
+    fn ipc_without_origins_reads_as_before() -> Result<(), Error> {
+        let mut batch = sourced_batch()?;
+        batch.sources = Vec::new();
+        let bytes = write_ipc(&batch)?;
+        assert_eq!(bytes.windows(LIQUERS_ORIGINS_KEY.len()).filter(|w| *w == LIQUERS_ORIGINS_KEY.as_bytes()).count(), 0);
+        let read_back = read_ipc(&bytes, ReadSchema::Infer)?;
+        assert!(read_back.sources.is_empty());
+        assert_eq!(read_back.schema.fields[1].key, KeyRole::Source);
+        Ok(())
+    }
+
+    #[test]
+    fn stale_schema_drops_origins() -> Result<(), Error> {
+        // A declared schema without the `Source` role cannot locate the origins any more, nor can
+        // a schema derived from the Arrow fields once `liquers.schema` is ignored.
+        let bytes = write_ipc(&sourced_batch()?)?;
+        let declared = RecordSchema::new(vec![FieldSchema::new("x", FieldType::Int), FieldSchema::new("src", FieldType::UInt)])?;
+        let read_back = read_ipc(&bytes, ReadSchema::Declared(&declared))?;
+        assert!(read_back.sources.is_empty());
+        Ok(())
+    }
+
+    /// The committed fixture liquers-py's record tests read with `to_record-feather`, so they need
+    /// no pyarrow (`specs/design/liquers-py-records/phase3-examples.md`, "The fixture").
+    fn python_fixture() -> Result<RecordBatch, Error> {
+        let schema = Arc::new(RecordSchema::new(vec![
+            FieldSchema::new("id", FieldType::Text).with_key(KeyRole::Id).not_null(),
+            FieldSchema::new("src", FieldType::UInt).with_key(KeyRole::Source),
+            FieldSchema::new("flag", FieldType::Bool),
+            FieldSchema::new("count", FieldType::Int),
+            FieldSchema::new("score", FieldType::Float).with_label("Score"),
+            FieldSchema::new("name", FieldType::Text),
+            FieldSchema::new("blob", FieldType::Binary),
+            FieldSchema::new("day", FieldType::Date),
+            FieldSchema::new("at", FieldType::Timestamp),
+            FieldSchema::new("vec", FieldType::Vector),
+        ])?);
+        let text = |s: &str| FieldValue::Text(Arc::from(s));
+        let bytes = |b: &[u8]| FieldValue::Bytes(Arc::from(b));
+        let vector = |v: [f32; 2]| FieldValue::Vector(Arc::from(v.to_vec()));
+        let rows = vec![
+            vec![text("a"), FieldValue::UInt(0), FieldValue::Bool(true), FieldValue::Int(1), FieldValue::Float(0.5),
+                 text("alpha"), bytes(b"\x00\x01"), FieldValue::Date(19_700), FieldValue::Timestamp(1_700_000_000_000_001),
+                 vector([1.0, 2.0])],
+            vec![text("b"), FieldValue::UInt(1), FieldValue::Bool(false), FieldValue::Int(-2), FieldValue::Float(1.5),
+                 text("beta"), bytes(b"xy"), FieldValue::Date(0), FieldValue::Timestamp(0), vector([3.0, 4.0])],
+            vec![text("c"), FieldValue::Null, FieldValue::Null, FieldValue::Null, FieldValue::Null, FieldValue::Null,
+                 FieldValue::Null, FieldValue::Null, FieldValue::Null, FieldValue::Null],
+            vec![text("d"), FieldValue::UInt(1), FieldValue::Bool(true), FieldValue::Int(i64::MAX), FieldValue::Float(-0.25),
+                 text("\u{e9}t\u{e9}"), bytes(b""), FieldValue::Date(-1), FieldValue::Timestamp(-1), vector([5.0, -6.0])],
+        ];
+        let mut batch = RecordBatchMut::with_capacity(schema, rows.len());
+        for row in &rows {
+            batch.append_row(row)?;
+        }
+        let mut batch = batch.freeze()?;
+        batch.chunk_id = Some(ChunkId::Key(parse_key("fx/part-0.csv")?));
+        batch.sources = vec![origin("-R/fx/source-a.csv"), origin("-R/fx/source-b.csv")];
+        Ok(batch)
+    }
+
+    fn python_fixture_path() -> std::path::PathBuf {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../liquers-py/tests/data/records_all_types.feather")
+    }
+
+    /// Writes the fixture, only when `LIQUERS_UPDATE_FIXTURES=1`; otherwise does nothing, so a
+    /// routine run never changes a committed file.
+    #[test]
+    fn ipc_writes_the_python_fixture() -> Result<(), Box<dyn std::error::Error>> {
+        if std::env::var("LIQUERS_UPDATE_FIXTURES").as_deref() != Ok("1") {
+            return Ok(());
+        }
+        let path = python_fixture_path();
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(&path, write_ipc(&python_fixture()?)?)?;
+        Ok(())
+    }
+
+    #[test]
+    fn python_fixture_is_current() -> Result<(), Box<dyn std::error::Error>> {
+        let committed = std::fs::read(python_fixture_path())?;
+        assert!(
+            committed == write_ipc(&python_fixture()?)?,
+            "liquers-py/tests/data/records_all_types.feather is stale: rerun with LIQUERS_UPDATE_FIXTURES=1 \
+             cargo test -p liquers-records --features ipc ipc_writes_the_python_fixture"
+        );
+        let read_back = read_ipc(&committed, ReadSchema::Infer)?;
+        assert_eq!(read_back.sources.len(), 2);
+        assert_eq!(read_back.len, 4);
         Ok(())
     }
 }

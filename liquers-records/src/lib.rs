@@ -32,6 +32,7 @@ pub use formats::{
     read_table, read_table_with_report, write_table, ReadOptions, ReadReport, ReadSchema,
     TableFormat, WriteOptions,
 };
+pub use formats::csv::format_field_value;
 pub use formats::shapes::{from_json, to_json, JsonOrient};
 pub use manifest::{ChunkNaming, ChunkTemplate, ManifestKind, ManifestSpec};
 pub use mutable::{ColumnMut, RecordBatchMut, RecordViewMut};
@@ -40,7 +41,7 @@ pub use schema::{
     Analyzer, FieldRole, FieldSchema, FieldType, IndexKind, KeyRole, RecordSchema, VectorMetric,
 };
 pub use sources::{
-    view_from_chunk_value, ContextResolver, EnvResolver, InMemorySource, ManifestSource, MappedSource,
+    read_chunk, view_from_chunk_value, ContextResolver, EnvResolver, InMemorySource, ManifestSource, MappedSource,
     ViewMap, ViewMapFn,
 };
 pub use value::{
