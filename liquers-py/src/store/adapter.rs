@@ -580,8 +580,12 @@ impl AsyncStore for PyStore {
 
     async fn listdir(&self, key: &Key) -> Result<Vec<String>, Error> {
         key.as_absolute()?;
-        let method = self.methods.listdir.as_ref().ok_or_else(|| self.missing(key, "listdir"))?;
-        self.names(method, key, "listdir").await
+        match (&self.methods.listdir, &self.methods.data) {
+            (Some(method), _) => self.names(method, key, "listdir").await,
+            // A store offering data-only access lists its data objects.
+            (None, DataAccess::Provided(data)) => self.names(&data.listdir_data, key, "listdir_data").await,
+            (None, DataAccess::Derived | DataAccess::None) => Err(self.missing(key, "listdir")),
+        }
     }
 
     async fn get_data(&self, key: &Key) -> Result<Vec<u8>, Error> {

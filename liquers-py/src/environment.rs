@@ -58,6 +58,8 @@ use pyo3::types::{PyDict, PyString};
 
 use crate::aio::{awaitable, check_blocking_call, refuse_shutdown_on_loop, shut_down_while_waiting, LazyLoopPool, Shut, ToPy};
 use crate::command::{register_py_command, PyCommandSpec, Replaced};
+use crate::store::factory::{PyStoreFactory, PyStoreType};
+use liquers_core::store_factory::{ChainedStoreFactory, StoreFactory, StoreTypeInfo};
 use crate::error::{error_to_pyerr, pyerr_to_error, PyFailure};
 use crate::runtime::runtime;
 use crate::value::{py_to_value, py_type_info, value_to_py, ConversionMode, Value};
@@ -89,6 +91,8 @@ struct Declarations {
     unregistered: Vec<CommandKey>,
     /// Command metadata from `import_metadata`, applied last, so it can describe any command.
     imported: Vec<CommandMetadata>,
+    /// Python store types, in registration order (`register_store_factory`).
+    store_types: Vec<Arc<PyStoreType>>,
 }
 
 /// The shared state behind an `lq.Environment`.
@@ -118,6 +122,7 @@ impl EnvCell {
                 specs: Vec::new(),
                 unregistered: Vec::new(),
                 imported: Vec::new(),
+                store_types: Vec::new(),
             }),
             config,
             conversion,
@@ -128,6 +133,13 @@ impl EnvCell {
     }
 
     fn lock(&self, py: Python<'_>) -> Result<MutexGuard<'_, Declarations>, Error> {
+        // A factory runs while its environment is built, under this lock: using the environment
+        // from it would wait for itself.
+        if is_building(self) {
+            return Err(Error::configuration_error(
+                "a factory may not use its environment while the environment is being built".to_string(),
+            ));
+        }
         self.declarations
             .lock_py_attached(py)
             .map_err(|_| Error::unexpected_error("environment state lock poisoned".to_string()))
@@ -141,7 +153,10 @@ impl EnvCell {
             EnvState::Shut => return Err(shut_down_error()),
             EnvState::Pending => {}
         }
-        let envref = self.build(&declarations)?;
+        let envref = {
+            let _building = BuildGuard::enter(self);
+            self.build(&declarations)?
+        };
         if declarations.store.is_none() {
             declarations.store = Some(envref.get_async_store());
         }
@@ -186,14 +201,53 @@ impl EnvCell {
             None if self.config.store.stores.is_empty() => {
                 builder.with_async_store(Arc::new(AsyncMemoryStore::new(&Key::new())))
             }
-            None => builder.with_store_config(
-                self.config.store.clone(),
-                Box::new(liquers_store::store_factory::default_store_factory()),
-            ),
+            None => builder.with_store_config(self.config.store.clone(), Box::new(self.store_factory(declarations))),
         };
         // The asset manager spawns its workers on the ambient runtime.
         let _guard = runtime()?.enter();
         builder.build()
+    }
+
+    /// The store factory chain: the built-in types, then the Python ones.
+    fn store_factory(&self, declarations: &Declarations) -> ChainedStoreFactory {
+        ChainedStoreFactory::new()
+            .chain(Box::new(liquers_store::store_factory::default_store_factory()))
+            .chain(Box::new(PyStoreFactory {
+                types: declarations.store_types.clone(),
+                loops: self.loops.clone(),
+                shut: self.shut.clone(),
+            }))
+    }
+
+    /// The store types a configuration can name: the built-in ones, then the Python ones.
+    pub fn store_types(&self, py: Python<'_>) -> Result<Vec<StoreTypeInfo>, Error> {
+        let declarations = self.lock(py)?;
+        refuse_if_shut(&declarations)?;
+        let builtin = liquers_store::store_factory::default_store_factory().store_types();
+        let python = declarations.store_types.iter().map(|t| t.info.clone());
+        Ok(builtin.into_iter().chain(python).collect())
+    }
+
+    /// Registers a Python store type; refused when the name is taken. Marks the environment for a
+    /// rebuild, which keeps the store if one was built (so the type serves only a configuration
+    /// whose earlier build failed for want of it).
+    pub fn register_store_type(&self, py: Python<'_>, store_type: PyStoreType) -> Result<(), Error> {
+        let name = store_type.info.store_type.clone();
+        let mut declarations = self.lock(py)?;
+        refuse_if_shut(&declarations)?;
+        let builtin = liquers_store::store_factory::default_store_factory().store_types();
+        if builtin.iter().any(|t| t.store_type == name) || name.starts_with("opendal_") {
+            return Err(Error::configuration_error(format!(
+                "store type '{name}' is a built-in store type; choose another name"
+            )));
+        }
+        if declarations.store_types.iter().any(|t| t.info.store_type == name) {
+            return Err(Error::configuration_error(format!(
+                "store type '{name}' is already registered"
+            )));
+        }
+        declarations.store_types.push(Arc::new(store_type));
+        retire(&mut declarations)
     }
 
     /// Every issue a build would meet, without building.
@@ -270,12 +324,15 @@ impl EnvCell {
             EnvState::Built(envref) => envrefs.push(envref),
             EnvState::Pending | EnvState::Shut => {}
         }
-        declarations.store = None;
+        let store = declarations.store.take();
         // Releases the Python callables now rather than when the handle is collected, but only
         // once the lock is released.
         specs = std::mem::take(&mut declarations.specs);
+        let store_types = std::mem::take(&mut declarations.store_types);
         drop(declarations);
         drop(specs);
+        drop(store_types);
+        drop(store);
         for envref in envrefs {
             envref.get_asset_manager().shutdown();
         }
@@ -289,6 +346,38 @@ fn take_specs(specs: &mut Vec<PyCommandSpec>, key: &CommandKey, removed: &mut Ve
     let (taken, kept): (Vec<_>, Vec<_>) = std::mem::take(specs).into_iter().partition(|s| &s.key == key);
     *specs = kept;
     removed.extend(taken);
+}
+
+thread_local! {
+    /// The environments being built on this thread, by address.
+    static BUILDING: std::cell::RefCell<Vec<usize>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Marks an environment as being built on this thread until dropped.
+struct BuildGuard(usize);
+
+impl BuildGuard {
+    fn enter(cell: &EnvCell) -> Self {
+        let id = cell as *const EnvCell as usize;
+        BUILDING.with(|building| building.borrow_mut().push(id));
+        BuildGuard(id)
+    }
+}
+
+impl Drop for BuildGuard {
+    fn drop(&mut self) {
+        BUILDING.with(|building| {
+            let mut building = building.borrow_mut();
+            if let Some(index) = building.iter().rposition(|id| *id == self.0) {
+                building.remove(index);
+            }
+        });
+    }
+}
+
+fn is_building(cell: &EnvCell) -> bool {
+    let id = cell as *const EnvCell as usize;
+    BUILDING.with(|building| building.borrow().contains(&id))
 }
 
 pub(crate) fn shut_down_error() -> Error {
@@ -836,6 +925,45 @@ impl Environment {
             Ok(report) => Ok(report.issues().iter().map(Issue::from).collect()),
             Err(e) => Err(error_to_pyerr(py, &e)),
         }
+    }
+
+    /// Registers `factory` as the store type `type`, which a store configuration entry can then
+    /// name (`{"type": type, "prefix": …, "config": {…}}`).
+    ///
+    /// `factory` is any callable that is not `async def`; its keyword parameters are the entry's
+    /// `config:` arguments (a default makes one optional), and a parameter named `prefix` receives
+    /// the mount's prefix. Pass `arguments=[StoreArgumentInfo(…)]` when its signature cannot be
+    /// inspected. It is called when the environment is built, and may not use the environment.
+    /// The name may not be a built-in store type or one registered before.
+    #[pyo3(signature = (r#type, factory, *, label=String::new(), doc=String::new(), arguments=None))]
+    fn register_store_factory(
+        &self,
+        py: Python<'_>,
+        r#type: &str,
+        factory: &Bound<'_, PyAny>,
+        label: String,
+        doc: String,
+        arguments: Option<&Bound<'_, PyAny>>,
+    ) -> PyResult<()> {
+        let registered = PyStoreType::new(py, r#type, factory, &label, &doc, arguments)
+            .and_then(|store_type| self.cell.register_store_type(py, store_type));
+        registered.map_err(|e| error_to_pyerr(py, &e))
+    }
+
+    /// The environment's store, with every configured mount: an `lq.Store`.
+    #[getter]
+    fn store(&self) -> crate::store::handle::Store {
+        crate::store::handle::Store::of_environment(&self.cell)
+    }
+
+    /// The store types a configuration can name, built-in then Python, each a dict with
+    /// `store_type`, `label`, `doc`, `arguments`, `availability` and `coverage`.
+    fn store_types(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        let listed = self.cell.store_types(py).and_then(|types| {
+            serde_json::to_value(&types).map_err(|e| Error::general_error(e.to_string()))
+        });
+        let listed = listed.map_err(|e| error_to_pyerr(py, &e))?;
+        crate::store::json_to_py(py, &listed)
     }
 
     /// Stops the environment's background work. A second call does nothing; any later use raises

@@ -65,6 +65,7 @@ from liquers._native import (
     State,
     AssetRef,
     StoreArgumentInfo,
+    Store,
 )
 from liquers._env import default_environment, evaluate, evaluate_async
 from liquers._commands import command, first_command
@@ -125,6 +126,7 @@ __all__ = [
     "State",
     "AssetRef",
     "StoreArgumentInfo",
+    "Store",
     "default_environment",
     "evaluate",
     "evaluate_async",

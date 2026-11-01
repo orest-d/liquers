@@ -42,6 +42,7 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
         crate::value::decode_pickle,
     );
     m.add_class::<store::StoreArgumentInfo>()?;
+    m.add_class::<store::handle::Store>()?;
     m.add_class::<Position>()?;
     m.add_class::<ActionParameter>()?;
     m.add_class::<ResourceName>()?;

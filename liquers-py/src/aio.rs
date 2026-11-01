@@ -136,6 +136,10 @@ pub(crate) enum ToPy {
     State(Result<CoreState<Value>, Error>),
     Asset(Result<(CoreAssetRef<PyEnvironment>, Arc<Shut>), Error>),
     Unit(Result<(), Error>),
+    Bytes(Result<Vec<u8>, Error>),
+    Metadata(Result<liquers_core::metadata::Metadata, Error>),
+    Bool(Result<bool, Error>),
+    Strings(Result<Vec<String>, Error>),
 }
 
 impl<'py> IntoPyObject<'py> for ToPy {
@@ -155,6 +159,18 @@ impl<'py> IntoPyObject<'py> for ToPy {
                     .map_err(|e| pyerr_to_error(py, &e))
             }),
             ToPy::Unit(result) => result.map(|()| py.None()),
+            ToPy::Bytes(result) => result.map(|data| pyo3::types::PyBytes::new(py, &data).into_any().unbind()),
+            ToPy::Metadata(result) => result.and_then(|metadata| {
+                Py::new(py, crate::metadata::Metadata { inner: metadata })
+                    .map(Py::into_any)
+                    .map_err(|e| pyerr_to_error(py, &e))
+            }),
+            ToPy::Bool(result) => result.map(|b| pyo3::types::PyBool::new(py, b).to_owned().into_any().unbind()),
+            ToPy::Strings(result) => result.and_then(|names| {
+                pyo3::types::PyList::new(py, names)
+                    .map(|list| list.into_any().unbind())
+                    .map_err(|e| pyerr_to_error(py, &e))
+            }),
         };
         converted
             .map(|object| object.into_bound(py))

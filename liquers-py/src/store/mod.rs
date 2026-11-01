@@ -4,6 +4,8 @@
 //! type. The adapter, the factory and the `lq.Store` handle live in this module's submodules.
 
 pub(crate) mod adapter;
+pub(crate) mod factory;
+pub mod handle;
 
 use liquers_core::error::Error;
 use liquers_core::store_factory::{StoreArgumentInfo as CoreStoreArgumentInfo, StoreArgumentType};
