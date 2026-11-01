@@ -48,3 +48,24 @@ fn every_spec_document_round_trips() {
     }
     assert!(headings > 1000);
 }
+
+/// The addresses `specs/reference/MARKDOWN.md` and the design use as examples resolve against the
+/// documents they name (liquers-validate checks only that the queries parse).
+#[test]
+fn documented_addresses_resolve() {
+    let specs = Path::new(env!("CARGO_MANIFEST_DIR")).join("../specs");
+    for (file, address, heading) in [
+        ("reference/AGENT_MEMORY_SERVICE.md", "_.storage", "8. Storage"),
+        ("reference/AGENT_MEMORY_SERVICE.md", "_.8", "8. Storage"),
+        ("reference/AGENT_MEMORY_SERVICE.md", "1.8", "8. Storage"),
+        ("reference/ASSETS.md", "_.history", "History"),
+        ("design/runtime-volatility/DESIGN.md", "_.phase 2.solution", "Solution"),
+    ] {
+        let text = std::fs::read_to_string(specs.join(file)).expect("readable");
+        let doc = Document::parse(&text);
+        let id = doc
+            .resolve(&liquers_markdown::Address::parse(address).expect("parses"))
+            .unwrap_or_else(|e| panic!("{file} {address}: {e}"));
+        assert_eq!(doc.sections()[id].heading, heading, "{file} {address}");
+    }
+}

@@ -23,10 +23,10 @@ It reads the outline first (a few hundred bytes), then one section.
 
 | n | level | heading | address | number | line | end_line | words |
 |---|---|---|---|---|---|---|---|
-| 0 | 1 | Agent Memory Service | 1 | | 8 | 330 | … |
+| 0 | 1 | Agent Memory Service | 1 | | 8 | 310 | … |
 | 1 | 2 | 1. Layers | 1.1 | 1 | 17 | 27 | … |
 | 8 | 2 | 8. Storage | 1.8 | 8 | 192 | 219 | … |
-| 11 | 2 | History | 1.11 | | 305 | 330 | … |
+| 11 | 2 | History | 1.11 | | 305 | 310 | … |
 
 (`path` and `slug` columns omitted here.) The agent picks row 8; any of these read the same text:
 
@@ -47,24 +47,24 @@ subsections (`children=false`; `f` reads as false), `section-_.8-t-f` the headin
 ```
 
 `links` returns one row per link inside §8: `text`, `target` (`../guides/STORE_CONFIG_GUIDE.md`),
-`kind` (`relative`), `key` (`specs/guides/STORE_CONFIG_GUIDE.md`, resolved against the input's
-key), `section` (`1.8`), `line`. A target like `-R/data/a~~b.csv/-/to_text` has `kind = query`
-and is kept whole. `table` returns the History table as records with the columns `Date`,
-`Change`, `Source`, read by the records Markdown table reader; `n=2` would take the second table.
+`target_kind` (`relative`), `key` (`specs/guides/STORE_CONFIG_GUIDE.md`, resolved against the input's
+key), `section` (`1.8`), `line`. A target like `-R/data/a_b.csv/-/replace-a~~b-x_y` has `target_kind = query`
+and is kept whole. `table` returns the History table as records with the columns `date`,
+`change`, `source` (labelled Date, Change, Source), read by the records Markdown table reader; `n=2` would take the second table.
 
 ## Example 3: Addresses by text
 
 ```
--R/specs/design/runtime-volatility/DESIGN.md/-/ns-md/section-phase~.2.solution
+-R/specs/design/runtime-volatility/DESIGN.md/-/ns-md/section-_.phase~.2.solution
 ```
 
-Step `phase 2` (`~.` is a space) matches the top-level-or-child heading whose words start with
-"phase 2", exact before word-prefix before contained, so "Phase 20" is not a candidate when
-"Phase 2" exists; `solution` then matches among its direct subsections. Other forms:
+`_` takes the document's title; step `phase 2` (`~.` is a space) matches among its direct
+subsections the heading with the whole words "phase 2" (exact, then prefix, then contained;
+"Phase 20" never matches); `solution` then matches among that section's subsections. Other forms:
 
 | Address | Meaning |
 |---|---|
-| `3..2` | the text "3.2": matches `## Section 3.2` among the top-level sections |
+| `3..2` | the text "3.2": matches a top-level `# Section 3.2` |
 | `1.3..2` | under section 1, the subsection whose heading contains "3.2" |
 | `_._.history` | a `History` section two levels down, under any sections |
 | `my__var` | the text "my_var" |
@@ -85,47 +85,63 @@ Step `phase 2` (`~.` is a space) matches the top-level-or-child heading whose wo
 | `table` in a section with no table | error naming the address and "0 tables" | `table_missing_is_an_error` |
 | Link inside a code span | not a link | `links_inside_code_spans_are_ignored` |
 | Reference-style link | reported with its definition's target | `reference_links_resolve_definitions` |
-| `markdown` feature off | no `md` namespace; build passes | build-matrix row; `markdown_feature_off_has_no_md_commands` |
-| 100 KB document | parses in linear time | `parses_a_large_document_quickly` |
+| `markdown` feature off | no `md` namespace; build passes | build-matrix row; `register_all_commands_registers_the_enabled_domains` |
+| 100 KB document | parses; blocks tile it | `parses_a_large_document` |
+| Line-initial autolink, prose `<T>`, a custom tag alone on its line | paragraph, paragraph, HTML block | `autolinks_and_inline_tags_do_not_open_html_blocks` |
+| `/abs`, `mailto:`, `ftp://` targets | `url`, not checked by `dead_links` | `absolute_paths_and_schemes_are_urls` |
+| Link climbing above the store root | `OutsideRoot`: dead | `link_resolve_against_key` |
 
 ## Test Plan
 
 - Unit, `liquers-markdown/src/block.rs`: `blocks_tile_the_input` (AC-7), `setext_headings_are_sections` (AC-1),
   `hash_lines_in_code_html_and_front_matter_are_not_headings` (AC-1), `unclosed_fence_runs_to_end` (AC-7),
-  `degenerate_inputs_round_trip` (AC-7), `front_matter_agrees_with_records` (AC-7: same end as
-  `liquers_records::search::front_matter_end` on a set of inputs; a dev-dependency).
+  `degenerate_inputs_round_trip` (AC-7), `atx_heading_text_drops_closing_hashes` (AC-1),
+  `autolinks_and_inline_tags_do_not_open_html_blocks` (AC-1), `table_interrupts_a_paragraph` (AC-6),
+  `front_matter_agrees_with_records` (AC-7: same end as
+  `liquers_records::search::front_matter_end` on a set of inputs; a dev-dependency); in `lib.rs`
+  `front_matter_text` (AC-7).
 - Unit, `liquers-markdown/src/section.rs`: `sections_nest_by_level` (AC-1, AC-2), `section_numbers_and_addresses` (AC-12),
   `section_text_children_and_heading_flags` (AC-2), `find_by_heading_matches_own_or_path` (AC-9),
-  `title_and_first_paragraph` (AC-9), `parses_a_large_document_quickly` (AC-7).
+  `title_and_first_paragraph` (AC-9), `parses_a_large_document` (AC-7).
 - Unit, `liquers-markdown/src/address.rs`: `address_parse_steps` (AC-11: numbers, text, `..`, `_`, `__`,
   reserved `_`, empty steps), `address_display_round_trips` (AC-11), `address_text_prefers_exact_then_prefix` (AC-11),
   `address_placeholder_matches_any` (AC-11), `address_ambiguous_lists_candidates` (AC-3),
   `address_missing_names_deeper_match` (AC-3), `address_number_out_of_range` (AC-3).
 - Unit, `liquers-markdown/src/inline.rs`: `inline_links_images_and_autolinks` (AC-5),
   `reference_links_resolve_definitions` (AC-5), `links_inside_code_spans_are_ignored` (AC-5),
-  `query_targets_are_queries` (AC-8: `~~`, `_`, `*` kept, `kind = query`), `link_resolve_against_key` (AC-5).
+  `query_targets_are_queries` (AC-8: `~~` and `_` kept in a link target and a code span, both read as
+  queries), `link_resolve_against_key` (AC-5), `absolute_paths_and_schemes_are_urls` (AC-5),
+  `links_know_their_section_and_line` (AC-5).
 - Integration, `liquers-markdown/tests/specs_round_trip.rs`: `every_spec_document_round_trips` (AC-7: concatenated
   block texts equal the file, blocks contiguous, lines consistent).
 - Integration, `liquers-lib/tests/markdown_commands.rs` (gated on `markdown`): `outline_lists_headings` (AC-1, AC-12),
   `section_by_number_text_and_placeholder` (AC-2, AC-11), `section_flags` (AC-2), `section_errors_name_candidates` (AC-3),
   `sections_level_filter` (AC-4), `links_resolve_against_the_input_key` (AC-5), `table_under_heading` (AC-6),
   `table_missing_is_an_error` (AC-6).
-- Integration, `liquers-lib/tests/register_all_commands.rs`: `markdown_feature_off_has_no_md_commands` (AC-10, gated on
-  `not(feature = "markdown")`) and the registry export test with the new group (AC-10).
+- Integration, `liquers-lib/tests/register_all_commands.rs`: `register_all_commands_registers_the_enabled_domains`
+  asserts `md/outline` is registered exactly when `markdown` is on (AC-10); `registry_export.rs` gains the group (AC-10).
 - Regression (AC-4, AC-9): the existing tests in `liquers-lib/tests/search_commands.rs` (`md_split`), `mem_commands.rs`
   (`read` section, `edit` row, `check` sections and dead links, `search unit=section`), `store_config` tests
-  (`markdown_tiers`), `mem/tiers.rs` and `liquers-agent`'s tests, unchanged. A new
-  `md_split_counts_setext_and_ignores_html_headings` in `search_commands.rs` records the two
-  intended changes (AC-4, AC-9), and `dead_links_checks_reference_links` in `mem_commands.rs` the third (AC-5).
+  (`markdown_tiers`), `mem/tiers.rs` and `liquers-agent`'s tests, unchanged (the
+  `md_split.rs` unit tests only gain the adapter's `skip_front_matter` argument). New in `md_split.rs`,
+  whose `sections` adapter `md_split` and `ns-mem/search` share: `md_split_counts_setext_and_ignores_html_headings`
+  records the two intended changes (AC-4, AC-9), `front_matter_is_not_a_preamble_when_skipped` the
+  `ns-mem` preamble rule (AC-9); `dead_links_checks_reference_links` in `mem_commands.rs` the third (AC-5).
 - Commands: `cargo test -p liquers-markdown`; `cargo test -p liquers-lib --lib --tests`;
   `cargo test -p liquers-lib --no-default-features --features records --lib --tests`;
   `cargo test -p liquers-agent`; the build-matrix rows for `markdown`, one at a time.
 
 ## Learning Log
 
-- All queries above were checked with `liquers-validate --command md/<name>`; `ns-md/section-_.8`
+- All queries above parse under `liquers-validate --command md/<name>`; `ns-md/section-_.8`
   parses with `_.8` as one parameter. `*` is refused by the query parser, which is why `_` is the
-  placeholder.
+  placeholder. `~~` is refused inside a resource key (`-R/data/a~~b.csv` does not parse), so the
+  AC-8 example puts it in an action parameter. Validation does not show that an address resolves:
+  the first draft's `phase~.2.solution` would not have, since the title is section 1.
+- Over `specs/` (2442 relative links) the old `dead_links` scanner, ported to a script, and
+  `Document::links` find exactly the same relative targets; no document there uses reference links.
+- Tests that expect a command error must call `State::error_result`: an evaluation that fails
+  in a command returns an error state, not `Err`.
 - `children` and `heading` are positional after the address, so `section-_.8-f` is the short
   form of `children=false`.
 - `md_split`'s section rows span to the next heading of the same or a higher level (the section

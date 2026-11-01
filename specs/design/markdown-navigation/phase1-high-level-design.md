@@ -17,11 +17,11 @@ to. Today the nearest queries are
 
 ```
 -R/specs/reference/AGENT_MEMORY_SERVICE.md/-/ns-search/md_split-section
--R-key/specs/reference/AGENT_MEMORY_SERVICE.md/-/ns-mem/read-full-Storage
+-R-key/specs/reference/AGENT_MEMORY_SERVICE.md/-/ns-mem/read-full-8.~.Storage
 ```
 
 The first returns every section with its whole text; the second works only for memory documents,
-only by exact heading text, and returns text. Neither lists links. The line scanner behind both
+only by the exact heading text (`8. Storage`, not `Storage`), and returns text. Neither lists links. The line scanner behind both
 (`liquers-lib/src/search/md_split.rs`) misses setext headings and counts a `#` line inside an HTML
 block or an indented code block as a heading.
 
@@ -32,14 +32,14 @@ With this design:
 -R/specs/reference/AGENT_MEMORY_SERVICE.md/-/ns-md/section-_.8
 -R/specs/reference/AGENT_MEMORY_SERVICE.md/-/ns-md/links
 -R/specs/reference/ASSETS.md/-/ns-md/table-History
--R/specs/design/runtime-volatility/DESIGN.md/-/ns-md/section-phase~.2.solution
+-R/specs/design/runtime-volatility/DESIGN.md/-/ns-md/section-_.phase~.2.solution
 ```
 
 The outline is a few hundred bytes of records (level, heading, number, line range, size). The
 agent picks `_.8`, reads only that section, and takes the `links` rows of the section to follow.
-All five queries were checked with `liquers-validate` (`--command md/<name>`). `_.8` is the 8th
-subsection of any top-level section, here the document's only `#` title. The last is a path: the section whose heading contains
-"solution" inside the one containing "phase 2" (`~.` is a space in a query).
+All five queries parse and plan under `liquers-validate` (`--command md/<name>`), which checks syntax, not that an address resolves. `_.8` is the 8th
+subsection of any top-level section, here the document's only `#` title. The last is a path: under the title, the section whose heading contains
+"phase 2", then its subsection containing "solution" (`~.` is a space in a query).
 
 ## Scope and Acceptance Criteria
 
@@ -59,7 +59,7 @@ subsection of any top-level section, here the document's only `#` title. The las
   WHEN a step consists of digits only
   THEN it is a section number: `1.2.3` is the 3rd subsection of the 2nd subsection of section 1,
   counted in document order; any other step is text, matched case-insensitively against the
-  heading's words, exact before prefix before contained, so `phase~.1` does not match "Phase 10";
+  heading's whole words, exact before prefix before contained, so `phase~.1` never matches "Phase 10";
   `..` is a literal dot, so `3..2` is the text "3.2" and matches `## Section 3.2`; `_` alone is a
   placeholder for any one section at that level, so `_.8` is §8 under the title; `__` is a literal
   underscore (`my__var` matches "my_var"), and any other `_` in a step is reserved and refused, so
@@ -81,8 +81,10 @@ subsection of any top-level section, here the document's only `#` title. The las
   WHEN `ns-md/links` is applied to a document stored under a key
   THEN it returns one record per link and image: `text`, `target`, `kind` (`relative`, `anchor`,
   `url`, `query`), `key` (the target resolved against the document's key, when it is one),
-  `section`, `line`; `ns-mem/check`'s `dead_links` findings are unchanged when it reads them,
-  except that reference-style links (`[x][ref]`), which the old scanner skipped, are now checked too
+  `section`, `line`; `ns-mem/check`'s `dead_links` findings are unchanged when it reads them
+  (a link climbing above the root stays dead; `/abs` and scheme targets are `url`, not checked),
+  except that reference-style links (`[x][ref]`), which the old scanner skipped, are now checked,
+  and links inside indented or HTML blocks no longer are
 - **AC-6** Table under a heading
   WHEN `ns-md/table-<address…>` is applied
   THEN it returns the first Markdown table in that section (`n=` for a later one) as a record
@@ -91,7 +93,7 @@ subsection of any top-level section, here the document's only `#` title. The las
   WHEN any Markdown document under `specs/` is parsed and written back with no edit
   THEN the output equals the input byte for byte, and every block knows its byte range and lines
 - **AC-8** Queries are not Markdown
-  WHEN a link target or a code span holds a Liquers query (`-R/data/a~~b.csv/-/to_text`)
+  WHEN a link target or a code span holds a Liquers query (`-R/data/a_b.csv/-/replace-a~~b-x_y`)
   THEN the query text is kept intact (`~~`, `_` and `*` read as query characters, not markup)
   and a link whose target parses as a query has `kind = query`
 - **AC-9** One parser for the memory
@@ -154,7 +156,12 @@ taken by the author, reversible in review:
   path, and setext headings and HTML-block `#` lines change the rows as AC-4 and AC-9 intend.
 - `first_paragraph` (L1 tier) reads the first `Paragraph` block; a document that opens with a
   list gets no paragraph from the list, where the scanner joined its lines.
-- `dead_links` newly checks reference-style links (AC-5).
+- `dead_links` newly checks reference-style links (AC-5). Over `specs/` the old scanner and the
+  parser find the same 2442 relative links.
+- `first_paragraph` keeps the scanner's rule of leaving out lines that start with `|`, so a pipe
+  line without a delimiter row (not a table) does not become the L1 tier.
+- The agent binary builds `liquers-lib` with `markdown`, and its query tool allows `ns-md`
+  (`liquers-agent/tools/memory.yaml`, query guide), since the agent is the commands' first user.
 
 ## Design Dependencies
 

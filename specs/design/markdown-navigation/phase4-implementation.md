@@ -9,12 +9,12 @@ build matrix and documents close the work. No prerequisite issue.
 
 ## Progress
 
-- [ ] Step 1: create the `liquers-markdown` crate: blocks
-- [ ] Step 2: sections, addresses and lookups
-- [ ] Step 3: inline links and code spans
-- [ ] Step 4: the `ns-md` commands and the `markdown` feature
-- [ ] Step 5: move `md_split`, `ns-mem` and `markdown_tiers` onto the parser
-- [ ] Step 6: registry, build matrix, workspace documents
+- [x] Step 1: create the `liquers-markdown` crate: blocks — 9a6e60d2
+- [x] Step 2: sections, addresses and lookups — 9a6e60d2
+- [x] Step 3: inline links and code spans — 9a6e60d2
+- [x] Step 4: the `ns-md` commands and the `markdown` feature — d324a8c6
+- [x] Step 5: move `md_split`, `ns-mem` and `markdown_tiers` onto the parser — d324a8c6
+- [x] Step 6: registry, build matrix, workspace documents — d324a8c6
 
 ## Implementation Steps
 
@@ -22,7 +22,7 @@ build matrix and documents close the work. No prerequisite issue.
 
 - Files / symbols: `liquers-markdown/Cargo.toml` (`liquers-core`; dev: `liquers-records`),
   `src/lib.rs`, `src/block.rs` (`Span`, `Block`, `BlockKind`, `FrontMatterFormat`, `parse_blocks`);
-  root `Cargo.toml` `members` and `default-members`.
+  `tests/specs_round_trip.rs`; root `Cargo.toml` `members` and `default-members`.
 - Change: the block scanner of Phase 2's parsing rules; `Document::parse`, `text`, `blocks`,
   `front_matter`.
 - Depends on: none.
@@ -53,7 +53,8 @@ build matrix and documents close the work. No prerequisite issue.
 
 - Files / symbols: `liquers-lib/Cargo.toml` (`records` adds `dep:liquers-markdown`;
   `markdown = ["records"]` in `default`), `liquers-lib/src/markdown/{mod,commands}.rs`,
-  `register_markdown_commands!` and its stand-in, `register_all_commands!`, `src/lib.rs`.
+  `register_markdown_commands!` and its stand-in, `register_all_commands!`, `src/lib.rs`;
+  `liquers-lib/tests/markdown_commands.rs`.
 - Change: `outline`, `section`, `sections`, `links`, `table` as Phase 2.
 - Depends on: Step 3.
 - Proof: `cargo test -p liquers-lib --test markdown_commands`.
@@ -62,10 +63,12 @@ build matrix and documents close the work. No prerequisite issue.
 ### Step 5: move `md_split`, `ns-mem` and `markdown_tiers` onto the parser
 
 - Files / symbols: `search/md_split.rs` (`md_split` rows from `Document::sections`; the scanner
-  functions deleted), `mem/read.rs`, `write.rs`, `rules.rs`, `tiers.rs`, `check.rs` (`dead_links`
-  on `Document::links`), `store_config.rs` (`build_markdown_tiers`).
+  replaced by adapters over `Document`), `mem/read.rs`, `write.rs`, `rules.rs`, `check.rs`
+  (`dead_links` on `Document::links`); `tiers.rs` and `store_config.rs` (`build_markdown_tiers`)
+  keep calling the adapters; `liquers-agent` (`Cargo.toml` features, `tools/memory.yaml`,
+  `tools/query-guide.md`).
 - Change: internals only; command signatures unchanged.
-- Depends on: Step 3. Can run in parallel with Step 4.
+- Depends on: Step 4, which gives `liquers-lib` its `liquers-markdown` dependency.
 - Proof: `cargo test -p liquers-lib --lib --tests` with the regression tests of Phase 3 unchanged,
   and the new `md_split_counts_setext_and_ignores_html_headings` and
   `dead_links_checks_reference_links`; `cargo test -p liquers-agent`.
@@ -73,7 +76,7 @@ build matrix and documents close the work. No prerequisite issue.
 
 ### Step 6: registry, build matrix, workspace documents
 
-- Files / symbols: `liquers-lib/src/bin/export-command-registry` group list,
+- Files / symbols: `liquers-lib/src/bin/export_command_registry.rs` group list,
   `specs/command_registry.yaml` (regenerated, CHANGELOG line), `tests/registry_export.rs` gate,
   `scripts/check-build-matrix.sh` (`markdown` row, `liquers-markdown` wasm32 check).
 - Change: as Phase 2's integration points.

@@ -2,7 +2,7 @@
 id: NO-MARKDOWN-NAVIGATION-COMMANDS
 kind: feature
 title: Markdown documents cannot be navigated, filtered or interpreted by structure
-status: draft
+status: in_progress
 priority: P3
 complexity: L
 area: [lib/commands]
@@ -75,6 +75,16 @@ over a folder may exist beside them. Writing commands, editing and rendering mov
 `NO-QUERY-AWARE-MARKDOWN-PARSER`, which also decides between a temporary `pulldown-cmark` and a
 Liquers-owned parser. Chosen the same day: our own block layer first, with links and code spans
 (`design/markdown-navigation/`).
+
+## Progress (2026-11-01)
+
+The first slice is implemented by `design/markdown-navigation/` (PR #228): `ns-md/outline`,
+`section`, `sections`, `links` and `table` on the `liquers-markdown` parser, with
+`ns-search/md_split`, `ns-mem` and `markdown_tiers` moved onto it
+(`specs/reference/MARKDOWN.md`). The rest of this issue's command set, fenced blocks by language,
+front matter as a command, commands over a folder and incoming links, is
+`MARKDOWN-CODE-BLOCKS-FRONT-MATTER-AND-BACKLINKS-ARE-NOT-COMMANDS`. This issue closes when the PR
+merges.
 
 ## Discovery
 

@@ -226,6 +226,7 @@ MACRO-QUERY-VALIDATION-AND-HINTS,issue,`register_command!` does not validate que
 MACRO-TESTS-PRINT-TO-STDOUT,issue,liquers-macro unit tests print generated tokens to stdout,closed,local,,,,P3,S,macro,,,,context-param-order,,2026-10-10,specs/issues/MACRO-TESTS-PRINT-TO-STDOUT.md
 MANIFEST-CHUNK-SCHEMA-ERROR-DOES-NOT-NAME-THE-CHUNK,issue,A chunk that violates a manifest's uniform_schema is refused without naming which chunk,closed,local,,ready,not-eligible,P3,S,records,,,,manifest-chunk-error-identity,,2026-10-07,specs/issues/MANIFEST-CHUNK-SCHEMA-ERROR-DOES-NOT-NAME-THE-CHUNK.md
 MANIFEST-PROVIDER-FOLDER-LISTING-NEVER-REFRESHES,issue,ManifestRecipeProvider's per-folder manifest listing cache never refreshes,closed,local,,ready,,P2,S,records,,,,recipe-provider-listing-contract,,2026-09-26,specs/issues/MANIFEST-PROVIDER-FOLDER-LISTING-NEVER-REFRESHES.md
+MARKDOWN-CODE-BLOCKS-FRONT-MATTER-AND-BACKLINKS-ARE-NOT-COMMANDS,feature,"Fenced blocks, front matter, folders and incoming links cannot be read with ns-md",draft,local,,,,P3,M,lib/commands,,,,,,2026-11-01,specs/issues/MARKDOWN-CODE-BLOCKS-FRONT-MATTER-AND-BACKLINKS-ARE-NOT-COMMANDS.md
 MARKDOWN-TABLE-CANNOT-DISTINGUISH-NULL-FROM-EMPTY-TEXT,issue,"A Markdown table reads an empty Text cell back as null, and reads only the first table",closed,local,,ready,not-eligible,P3,S,records,,,,markdown-empty-text-and-tables,,2026-09-27,specs/issues/MARKDOWN-TABLE-CANNOT-DISTINGUISH-NULL-FROM-EMPTY-TEXT.md
 MCP-SERVER-APPLIES-NO-ACCESS-POLICY,feature,"The MCP server limits its query tool by a command allow-list, not by an access policy",draft,local,,,,P3,M,mcp,,,,,,2026-10-20,specs/issues/MCP-SERVER-APPLIES-NO-ACCESS-POLICY.md
 MEDIA-TYPES-MISSING-FOR-TABULAR-FORMATS,issue,The extension-to-media-type table lacks or mislabels the common tabular formats,closed,local,,,,P3,S,core/value;axum,,,,axum-assets-endpoints,,2026-09-24,specs/issues/MEDIA-TYPES-MISSING-FOR-TABULAR-FORMATS.md
@@ -243,7 +244,7 @@ NEXT-PRESETS-MISREAD-PLANNER-INSTRUCTIONS,issue,find_next_presets reads planner 
 NO-COMMAND-PARAMETER-EDITOR,feature,No UI renders a command's arguments as an editable form from their gui_info,draft,local,,needs-decision,not-eligible,P3,L,lib/ui;lib/egui,,,,command-parameter-editor,,2026-10-21,specs/issues/NO-COMMAND-PARAMETER-EDITOR.md
 NO-COMPACT-BINARY-DATA-FORMAT,feature,There is no compact binary data format for caching and cross-process transfer,draft,local,,needs-decision,not-eligible,P3,L,core/value;lib/value,,,,generic-serde-data-formats,,2026-10-20,specs/issues/NO-COMPACT-BINARY-DATA-FORMAT.md
 NO-END-TO-END-TEST-OF-A-MANIFEST-OVER-STORED-CSV-FILES,issue,"No test reads a manifest whose chunks are stored CSV files, the design's motivating case",closed,local,,ready,eligible,P3,S,records,,,,manifest-over-stored-csv-test,,2026-09-27,specs/issues/NO-END-TO-END-TEST-OF-A-MANIFEST-OVER-STORED-CSV-FILES.md
-NO-MARKDOWN-NAVIGATION-COMMANDS,feature,"Markdown documents cannot be navigated, filtered or interpreted by structure",draft,local,,,,P3,L,lib/commands,,,,markdown-navigation,,2026-10-11,specs/issues/NO-MARKDOWN-NAVIGATION-COMMANDS.md
+NO-MARKDOWN-NAVIGATION-COMMANDS,feature,"Markdown documents cannot be navigated, filtered or interpreted by structure",in_progress,local,,,,P3,L,lib/commands,,,,markdown-navigation,,2026-10-11,specs/issues/NO-MARKDOWN-NAVIGATION-COMMANDS.md
 NO-QUERY-AWARE-MARKDOWN-PARSER,feature,Liquers has no Markdown parser that knows queries and templates and can edit and render a document,draft,local,,,,P2,XL,lib/commands;records,,,,,,2026-10-31,specs/issues/NO-QUERY-AWARE-MARKDOWN-PARSER.md
 NO-QUERY-AWARE-TEMPLATE-LANGUAGE,feature,No template language understands Liquers queries and values,closed,local,,,,P2,XL,core/query;lib/commands,,,,liquers-mustache,,2026-10-13,specs/issues/NO-QUERY-AWARE-TEMPLATE-LANGUAGE.md
 NO-RECIPE-PROVIDER-CHAIN,feature,"An environment holds one recipe provider, with no way to compose several",closed,local,,,,P3,S,core/assets,,,,record-streams,,2026-09-20,specs/issues/NO-RECIPE-PROVIDER-CHAIN.md
@@ -698,7 +699,7 @@ MANIFEST-CHUNK-ERROR-IDENTITY,design,A manifest chunk read error names the chunk
 MANIFEST-FOLDER-LISTING-INVALIDATION,design,Invalidating ManifestRecipeProvider's folder cache when a directory changes,superseded,local,,,,P2,S,records,,,,manifest-folder-listing-invalidation,,2026-10-04,specs/design/manifest-folder-listing-invalidation/DESIGN.md
 MANIFEST-OVER-STORED-CSV-TEST,design,End-to-end test of a manifest over stored CSV files,complete,local,,ready,eligible,P3,S,records,,,,manifest-over-stored-csv-test,,2026-10-06,specs/design/manifest-over-stored-csv-test/DESIGN.md
 MARKDOWN-EMPTY-TEXT-AND-TABLES,design,Markdown tables round-trip empty text and state the one-table rule,complete,local,,ready,not-eligible,P3,S,records,,,,markdown-empty-text-and-tables,,2026-10-06,specs/design/markdown-empty-text-and-tables/DESIGN.md
-MARKDOWN-NAVIGATION,design,Markdown navigation commands on a Liquers block parser,in_review,local,implementation,,,P3,L,lib/commands;records,,,,markdown-navigation,,2026-10-31,specs/design/markdown-navigation/DESIGN.md
+MARKDOWN-NAVIGATION,design,Markdown navigation commands on a Liquers block parser,in_review,local,documentation,,,P3,L,lib/commands;records,,,,markdown-navigation,,2026-10-31,specs/design/markdown-navigation/DESIGN.md
 MEMORY-STORE-METADATA-ONLY-ENTRY,design,A metadata-only entry has no data object on every store,complete,local,,ready,,P2,S,core/store,,,,memory-store-metadata-only-entry,,2026-10-06,specs/design/memory-store-metadata-only-entry/DESIGN.md
 MENU-PANE-LAYOUT,design,Menu bar and configurable pane layout,complete,local,,,,,,lib/ui,,,,menu-pane-layout,,2026-03-02,specs/design/menu-pane-layout/DESIGN.md
 METADATA-APPLICATION-ATTRIBUTES,design,An open attribute map in MetadataRecord for application-defined facts,in_review,local,implementation,needs-decision,not-eligible,P2,M,core/value;core/store;core/context,,,,metadata-application-attributes,,2026-10-19,specs/design/metadata-application-attributes/DESIGN.md
@@ -928,7 +929,7 @@ WEBUI-FIXES,design,Invalidation tracking for retained-mode rendering,complete,lo
 WEBUI,design,Web-framework-independent rendering with SSR and wasm,complete,local,,,,,,lib/ui,,10,,webui,,2026-03-02,specs/design/webui/DESIGN.md
 WORKSPACE-RUSTFMT-CHECK,design,The workspace is rustfmt-clean and CI keeps it so,in_review,local,implementation,needs-decision,not-eligible,P3,M,build;docs,,,,workspace-rustfmt-check,,2026-10-20,specs/design/workspace-rustfmt-check/DESIGN.md
 WP2-TERMINAL-OUTCOME,design,Asset terminal outcome contract,complete,local,,,,,,core/assets,,7,,wp2-terminal-outcome,,2026-03-02,specs/design/wp2-terminal-outcome/DESIGN.md
-AGENT_MEMORY_SERVICE,reference,Agent Memory Service,current,local,,,,,,lib/commands;mcp,,,,,2026-10-27,,specs/reference/AGENT_MEMORY_SERVICE.md
+AGENT_MEMORY_SERVICE,reference,Agent Memory Service,current,local,,,,,,lib/commands;mcp,,,,,2026-11-01,,specs/reference/AGENT_MEMORY_SERVICE.md
 API_DOCS_GAP_ANALYSIS,reference,API Documentation Gap Analysis,current,local,,,,,,docs,,,,,2026-10-20,,specs/reference/api/API_DOCS_GAP_ANALYSIS.md
 DOC_01_ARCHITECTURE_REFERENCE,reference,Architecture Reference,current,local,,,,,,core/query;core/plan;core/assets,,,,,2026-08-09,,specs/reference/api/DOC_01_ARCHITECTURE_REFERENCE.md
 DOC_02_QUERY_LANGUAGE_REFERENCE,reference,Query Language Reference,current,local,,,,,,core/query,,,,,2026-10-27,,specs/reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md
@@ -944,10 +945,11 @@ DEPENDENCIES_STATUS,reference,Status::Dependencies Specification,current,local,,
 ENVIRONMENT_CONFIG,reference,Environment Configuration,current,local,,,,,,core/context;core/store;core/assets,,,,,2026-10-30,,specs/reference/ENVIRONMENT_CONFIG.md
 IMAGE_COMMAND_LIBRARY,reference,Image Command Library Specification,overdue,local,,,,,,lib/image,,,,,2026-03-02,,specs/reference/IMAGE_COMMAND_LIBRARY.md
 JAVASCRIPT_INTEGRATION,reference,JavaScript Integration,current,local,,,,,,web;core/value;core/error;core/store;lib/value,,,,,2026-10-31,,specs/reference/JAVASCRIPT_INTEGRATION.md
+MARKDOWN,reference,Markdown Navigation,current,local,,,,,,lib/commands;records,,,,,2026-11-01,,specs/reference/MARKDOWN.md
 PAYLOAD_GUIDE,reference,Payload Specification and Usage,current,local,,,,,,core/context;core/commands,,,,,2026-10-17,,specs/reference/PAYLOAD_GUIDE.md
 POLARS_COMMAND_LIBRARY,reference,Polars Command Library Specification,current,local,,,,,,lib/polars,,,,,2026-10-14,,specs/reference/POLARS_COMMAND_LIBRARY.md
 POSITIONING,reference,Positioning and Marketing Plan (draft),current,local,,,,,,docs,,,,,2026-10-15,,specs/reference/POSITIONING.md
-PROJECT_OVERVIEW,reference,Liquers Project Overview,current,local,,,,,,core/query;core/plan;core/assets;core/store;core/value,,,,,2026-10-30,,specs/reference/PROJECT_OVERVIEW.md
+PROJECT_OVERVIEW,reference,Liquers Project Overview,current,local,,,,,,core/query;core/plan;core/assets;core/store;core/value,,,,,2026-11-01,,specs/reference/PROJECT_OVERVIEW.md
 PYTHON_INTEGRATION,reference,Python Integration,current,local,,,,,,py;core/value;core/error;lib/value,,,,,2026-10-31,,specs/reference/PYTHON_INTEGRATION.md
 REALMS,reference,Realms,current,local,,,,,,core/plan;core/commands;store/config,,,,,2026-10-16,,specs/reference/REALMS.md
 RECIPES_AND_PLANS,reference,Recipes and Plans Reference,current,local,,,,,,core/plan;core/query;core/assets;core/context,,,,,2026-10-30,,specs/reference/RECIPES_AND_PLANS.md

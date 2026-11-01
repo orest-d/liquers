@@ -116,6 +116,15 @@ template crate and the renderers share. Requirements collected so far, for discu
   2026-10-31, our own block layer first (`design/markdown-navigation/`), with links and code
   spans; `pulldown-cmark` may serve as a test oracle.
 
+## Progress (2026-11-01)
+
+`design/markdown-navigation/` built the first layer as the `liquers-markdown` crate
+(`specs/reference/MARKDOWN.md`): requirements 1–3 for blocks (lossless tiling, spans, never
+fails), 4 (sections and one address rule), 5 except nested list and quote structure, 6 for code
+spans, links, images, reference links and autolinks (no emphasis), and 7 for link targets and code
+spans (fenced `liquers` blocks not yet); 13 except a wasm32 build run in this session. Open: nested
+blocks, emphasis, Mustache tags (8), the editing API (9, 10), renderers (11) and escaping (12).
+
 ## Discovery
 
 Raised by the maintainer on 2026-10-31 in project thread "Plan status check", while deciding the
