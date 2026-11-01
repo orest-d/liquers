@@ -116,3 +116,11 @@ The guide's §STORE names three directions — a store written in the integrated
 *integration* provides, and composition/configuration — and its extension-seam guidance is about the
 *integration* (a Rust crate) contributing types. A store type contributed by the *language* is not a
 direction it offers.
+
+## Progress (2026-11-01)
+
+Python has it: `liquers-py`'s `register_store_factory` declares a store type with its arguments
+(read from the factory's signature) through a bridging `StoreFactory` chained after the built-in
+ones (`design/liquers-py-store/`, `reference/PYTHON_INTEGRATION.md` §9). The language-neutral
+declaration questioned above stayed in the integration (`liquers/_factories.py`). JavaScript
+(`liquers-web`) still has only `registerStoreObject`, so the issue stays open for it.

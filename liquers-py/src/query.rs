@@ -115,7 +115,7 @@ impl ActionParameter {
 /// A `Key` is a sequence of resource names; `key[i]` returns one.
 #[pyclass(from_py_object, module = "liquers")]
 #[derive(Clone)]
-pub struct ResourceName(liquers_core::query::ResourceName);
+pub struct ResourceName(pub(crate) liquers_core::query::ResourceName);
 
 #[pymethods]
 impl ResourceName {

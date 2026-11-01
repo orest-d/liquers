@@ -3,7 +3,7 @@ title: Building and Configuring an Environment
 kind: guide
 audience: both
 area: [core/context, core/assets, core/store]
-reviewed: 2026-10-30
+reviewed: 2026-11-01
 ---
 # Building and Configuring an Environment
 
@@ -211,7 +211,8 @@ Store construction and `${VAR}` expansion are deferred to `build()`, which is wh
 setters infallible: a malformed configuration, an unset variable or a store type no factory claims
 all surface there, with the error naming the store types the chain does support. So do a
 `recipes` entry type no factory declares (named with its position and the known types), one
-unavailable in this build (`manifest` without `records`), and an entry listed twice.
+unavailable in this build (`manifest` without `records`), and an entry listed twice with the same
+arguments (one type with different arguments is several providers, which is allowed).
 
 Their error types tell a host which kind of fault it is: a document that does not parse is
 `ParseError` (store and environment documents alike), a missing required store key or an unset
@@ -423,6 +424,7 @@ is the moment when that is safe: it runs before anything else can observe the re
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-01 | Build errors: only an identical `recipes` entry is refused; a type with different arguments may repeat. | `design/liquers-py-recipes/` (phase-5) |
 | 2026-10-30 | The recipe provider chain is a list: §Building gains `with_recipes`, `with_appended_recipe_entry`, `with_recipe_provider_factory`; §Configuring from a document shows the list and the entry errors; §Library defaults rewritten (kind lists, every member asked, two-owner error, `with_records_recipe_provider` idempotent, the raw-manifest hazard, declaring an entry type). | design `recipe-provider-chain-config` |
 | 2026-10-11 | §Configuration documents: the error type of each configuration fault (`ParseError`, `ConfigurationError`, `NotSupported`). | `design/configuration-error-kind/` |
 | 2026-10-10 | New §Choosing caching strategies: `with_recipe_cache_strategy`, `with_query_cache_strategy`, `with_cut_predecessors`, the strategy table, the public-service and memory-constrained setups; the configuration example gains the three keys. | phase-5, `design/plan-policy/` |
