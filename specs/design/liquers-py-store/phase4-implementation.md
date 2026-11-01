@@ -14,7 +14,7 @@ can run in parallel. The web counterpart of Decision 3 is not a step: it stays w
 
 - [x] Step 1: extract the Python call path into `pycall.rs` — 7e31f8e
 - [x] Step 2: derive factory declarations in `_factories.py` — 99f4151
-- [ ] Step 3: the `PyStore` adapter and its method table
+- [x] Step 3: the `PyStore` adapter and its method table — c9e9b39
 - [ ] Step 4: the store factory, registration, the build guard and `lq.Store`
 - [ ] Step 5: exports, docstrings and the conformance row
 
