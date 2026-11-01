@@ -2,15 +2,19 @@
 id: PY-NO-LANGUAGE-DEFINED-STORE
 kind: feature
 title: A store cannot be written in Python, and liquers-py has no STORE feature
-status: draft
+status: closed
 priority: P3
 complexity: L
 area: [py, core/store, store/config]
-design:
+design: liquers-py-store
 created: 2026-10-27
 github:
 ---
 ## Problem
+
+> **2026-10-31:** the sketch below is superseded. Orest decided that a configuration names a
+> Python-registered *factory* (`type` is its unique name, the entry's arguments its parameters);
+> see the design folder in `design:`.
 
 `liquers-py` cannot adapt a Python object to `AsyncStore`. Direction 1 of the language-integration
 guide's `STORE` feature ("a store written in the *integrated language*",
@@ -77,3 +81,11 @@ no issue tracked. Checked against `liquers-py/README.md` (no `STORE` row) and
 `LANGUAGE-INTEGRATION_GUIDE.md` §STORE (direction 1). Not a duplicate of
 `LANGUAGE-STORE-TYPE-NOT-DEFINABLE`, which is about store *types* and whose design covers only
 `liquers-web`; that design's step 5 should file its Python half as requiring this feature.
+
+## Resolution (2026-11-01)
+
+Built by `design/liquers-py-store/` in PR #229 (commits 7e31f8e..2c98d84): Python store types
+(`Environment.register_store_factory`), the `PyStore` adapter with derived data-only access, configured
+routers with `read_only` and `metadata:` around Python mounts, and `lq.Store` (`env.store`,
+`Store.from_object`). Evidence: `liquers-py/tests/test_STORE_*.py` (`STORE01`–`17`; `STORE18` `NA`),
+the `STORE` row of `liquers-py/README.md`; contract in `reference/PYTHON_INTEGRATION.md` §9.
