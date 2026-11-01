@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use liquers_core::context::{Context, Environment};
 use liquers_core::error::Error;
+use liquers_core::metadata::Status;
 use liquers_core::state::State;
 use liquers_macro::register_command;
 
@@ -516,4 +517,170 @@ layout: !windows null
         Some(root_handle),
         "element handle should be set"
     );
+}
+
+// ─── Runner events, stale results, environment replacement (design web-ui-use) ─
+
+/// A command that takes long enough for a test to change the node's source meanwhile.
+async fn slow(_state: State<Value>) -> Result<Value, Error> {
+    tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
+    Ok(Value::from("slow result"))
+}
+
+fn setup_env_with_slow() -> DefaultEnvironment<Value, SimpleUIPayload> {
+    let mut env = setup_env();
+    let cr = env.get_mut_command_registry();
+    register_command!(cr, async fn slow(state) -> result).expect("register slow");
+    env
+}
+
+fn single_pending(query: &str) -> (Arc<tokio::sync::Mutex<dyn AppState>>, UIHandle) {
+    let mut direct_state = DirectAppState::new();
+    let handle = direct_state
+        .add_node(None, 0, ElementSource::Query(query.to_string()))
+        .expect("add node");
+    (Arc::new(tokio::sync::Mutex::new(direct_state)), handle)
+}
+
+/// Runs the runner until no evaluation is in flight, or fails after about two seconds.
+async fn run_until_idle(
+    runner: &mut AppRunner<DefaultEnvironment<Value, SimpleUIPayload>>,
+    app_state: &Arc<tokio::sync::Mutex<dyn AppState>>,
+) {
+    for _ in 0..200 {
+        runner.run(app_state).await.expect("runner.run");
+        let idle = !runner.has_evaluating() && app_state.lock().await.pending_nodes().is_empty();
+        if idle {
+            return;
+        }
+        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+    }
+    panic!("the runner did not become idle");
+}
+
+/// AC-4: a pending node records `Processing`, then `Ready`, and `take_events` drains them.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn runner_events_record_processing_then_ready() {
+    let envref = setup_env().to_ref();
+    let (app_state, handle) = single_pending("hello");
+    let (msg_tx, msg_rx) = app_message_channel();
+    let mut runner = AppRunner::new(envref, msg_rx, msg_tx);
+
+    run_until_idle(&mut runner, &app_state).await;
+    let events = runner.take_events();
+    let statuses: Vec<(Option<UIHandle>, Status)> =
+        events.iter().map(|e| (e.handle, e.status)).collect();
+    assert_eq!(
+        statuses,
+        vec![
+            (Some(handle), Status::Processing),
+            (Some(handle), Status::Ready)
+        ]
+    );
+    assert!(events.iter().all(|e| e.error.is_none()));
+    assert!(runner.take_events().is_empty(), "take_events drains");
+}
+
+/// AC-7: a failing node records `Error` with its handle; a failing root query has no handle.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn runner_events_record_errors_with_and_without_handle() {
+    let envref = setup_env().to_ref();
+    let (app_state, handle) = single_pending("nonexistent_command_xyz");
+    let (msg_tx, msg_rx) = app_message_channel();
+    let ui_context = UIContext::new(app_state.clone(), msg_tx.clone());
+    let mut runner = AppRunner::new(envref, msg_rx, msg_tx);
+
+    run_until_idle(&mut runner, &app_state).await;
+    let events = runner.take_events();
+    let last = events.last().expect("an event");
+    assert_eq!(last.handle, Some(handle));
+    assert_eq!(last.status, Status::Error);
+    assert!(last.error.is_some(), "the error is carried");
+
+    ui_context.submit_root_query("another_nonexistent_command");
+    runner.run(&app_state).await.expect("runner.run");
+    let events = runner.take_events();
+    assert!(
+        events
+            .iter()
+            .any(|e| e.handle.is_none() && e.status == Status::Error && e.error.is_some()),
+        "a failing root query is reported without a handle: {events:?}"
+    );
+}
+
+/// AC-6: a result whose node changed source meanwhile is dropped, and the new query runs at once.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn runner_drops_result_when_source_changed() {
+    let envref = setup_env_with_slow().to_ref();
+    let (app_state, handle) = single_pending("slow");
+    let (msg_tx, msg_rx) = app_message_channel();
+    let mut runner = AppRunner::new(envref, msg_rx, msg_tx);
+
+    // Start the slow query; it is still running after this tick.
+    runner.run(&app_state).await.expect("runner.run");
+    assert!(runner.has_evaluating(), "slow is in flight");
+
+    // Show something else on the same node, as `ui.show(query, handle)` does.
+    app_state
+        .lock()
+        .await
+        .insert_source(
+            &liquers_lib::ui::InsertionPoint::Instead(handle),
+            ElementSource::Query("hello".to_string()),
+        )
+        .expect("replace source");
+
+    run_until_idle(&mut runner, &app_state).await;
+    let state = app_state.lock().await;
+    let value = state
+        .get_element(handle)
+        .expect("get")
+        .expect("element")
+        .get_value()
+        .expect("value");
+    assert_eq!(
+        value.try_into_string().expect("text"),
+        "Hello from test!",
+        "the new query's result is shown, not the stale one"
+    );
+    drop(state);
+
+    // The stale evaluation finishing later must not overwrite it.
+    tokio::time::sleep(tokio::time::Duration::from_millis(400)).await;
+    runner.run(&app_state).await.expect("runner.run");
+    let state = app_state.lock().await;
+    let value = state
+        .get_element(handle)
+        .expect("get")
+        .expect("element")
+        .get_value()
+        .expect("value");
+    assert_eq!(value.try_into_string().expect("text"), "Hello from test!");
+    let readies = runner
+        .take_events()
+        .iter()
+        .filter(|e| e.status == Status::Ready)
+        .count();
+    assert_eq!(readies, 1, "only the current query reports Ready");
+}
+
+/// AC-9: evaluations after `replace_envref` use the new environment.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn runner_replace_envref_used_by_later_evaluations() {
+    let first = setup_env().to_ref();
+    let second = setup_env_with_slow().to_ref();
+    let (app_state, handle) = single_pending("slow");
+    let (msg_tx, msg_rx) = app_message_channel();
+    let mut runner = AppRunner::new(first, msg_rx, msg_tx);
+    runner.replace_envref(second);
+
+    run_until_idle(&mut runner, &app_state).await;
+    let state = app_state.lock().await;
+    let value = state
+        .get_element(handle)
+        .expect("get")
+        .expect("element")
+        .get_value()
+        .expect("value");
+    assert_eq!(value.try_into_string().expect("text"), "slow result");
 }

@@ -2,11 +2,11 @@
 id: WEBUI-MOUNT-HANDLE-DROP-LEAVES-LISTENERS-ATTACHED
 kind: issue
 title: Dropping the web MountHandle leaves its event listeners attached to freed closures
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [lib/ui]
-design:
+design: web-ui-use
 created: 2026-10-30
 github:
 ---
@@ -34,3 +34,10 @@ targets) and stops the runner loop, or the doc comment says the handle must outl
 
 Noticed while moving the keydown listener to the document in the `ui-events` implementation
 (2026-10-30).
+
+## Resolution
+
+Closed 2026-10-31 by design `web-ui-use` (Phase 4 Step 3): `MountHandle::stop`, also run on drop,
+removes the `click` listener from the root and the `keydown` listener from the document, empties
+the root, and ends the driver loop (`liquers-lib/src/ui/web/app.rs`). Evidence: `uiuse05`,
+`uiuse08b`–`uiuse08d` in `liquers-web/tests/ui_browser_UIUSE.rs`.

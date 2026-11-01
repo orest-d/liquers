@@ -50,6 +50,7 @@ mkdir -p "$here/dist"
 wasm-bindgen --target web --out-dir "$here/dist" --out-name liquers_web "$wasm"
 
 cp "$here/index.html" "$here/dist/index.html"
+cp "$here/ui.html" "$here/dist/ui.html"
 
 # Fixture files the `STORE` e2e tests fetch over HTTP. They live here rather than under tests/
 # because the fetch store needs them served by the *same* static server as the page, and this is

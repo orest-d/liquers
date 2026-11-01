@@ -436,7 +436,7 @@ pub fn value_to_js<V: JsValueBridge>(value: &V) -> Result<JsValue, Error> {
 /// arrive as `undefined` while a top-level one (handled by `is_none` above) arrives as `null`.
 /// Only here, because a `null` here is data the value holds; elsewhere an absent `Option` field of
 /// a Rust struct crossing as `undefined` is the shape pages already read.
-fn json_to_js(json: &serde_json::Value) -> Result<JsValue, Error> {
+pub(crate) fn json_to_js(json: &serde_json::Value) -> Result<JsValue, Error> {
     let serializer = serde_wasm_bindgen::Serializer::new()
         .serialize_maps_as_objects(true)
         .serialize_missing_as_null(true);

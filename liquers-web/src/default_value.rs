@@ -43,8 +43,10 @@ impl JsExtensionBridge for ExtValue {
         if let Some(value) = record_handle_value(js)? {
             return Ok(Some(value));
         }
-        #[cfg(not(feature = "records"))]
-        let _ = js;
+        // A UI element handle crosses back as the same element `Arc`.
+        if let Some(value) = crate::ui::ui_element_value(js)? {
+            return Ok(Some(ExtValue::UIElement { value }));
+        }
         Ok(None)
     }
 
@@ -52,7 +54,10 @@ impl JsExtensionBridge for ExtValue {
         match self {
             ExtValue::Image { .. } => Ok(None),
             ExtValue::Foreign { .. } => Ok(None),
-            ExtValue::UIElement { .. } => Ok(None),
+            // A UI element crosses as a handle, so it comes back as the same element.
+            ExtValue::UIElement { value } => {
+                Ok(Some(crate::ui::LiquersUIElement::new(value.clone()).into()))
+            }
             #[cfg(feature = "polars")]
             ExtValue::PolarsDataFrame { .. } => Ok(None),
             #[cfg(feature = "egui")]

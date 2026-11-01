@@ -65,7 +65,9 @@ export interface LiquersCommandSpec {
   name: string;
   /**
    * Required. The implementation. Receives the state first when `state` is anything but
-   * `"none"`, then the declared arguments in order.
+   * `"none"`, then the declared arguments in order. An argument (or, when `arguments` is
+   * omitted, a parameter) named `context` receives the execution `Context` in its position
+   * instead, and is not a query argument.
    */
   run: (...args: any[]) => any;
   /**
@@ -89,6 +91,11 @@ export interface LiquersCommandSpec {
    */
   async?: boolean;
   volatile?: boolean;
+  /**
+   * `{ context: false }` makes an argument named `context` an ordinary argument instead of the
+   * execution context.
+   */
+  conventions?: { context?: boolean };
 }
 
 /**
@@ -260,6 +267,97 @@ export interface LiquersStoreObject {
   getStoredMetadata?(key: string): object | null | undefined | Promise<object | null | undefined>;
   /** `true` when `setData` replaces an object atomically. */
   atomicWrite?: boolean;
+}
+
+/**
+ * What `mountUI` shows first: the value of `query`, or the UI `spec` (YAML text or an object, as
+ * `UISpec` serializes). Not both.
+ */
+export interface MountOptions {
+  query?: string;
+  spec?: string | object;
+}
+
+/** A status change of one element of a mounted UI. */
+export interface UIStatusEvent {
+  /** The element, or `null` for a root query with no element to show its error. */
+  handle: number | null;
+  /** The status name, as `Asset.status()` reports it (`"processing"`, `"ready"`, `"error"`, …). */
+  status: string;
+  error?: LiquersError;
+}
+
+/** One node of a mounted UI's element tree, as `UIMount.elements()` lists it (depth first). */
+export interface UIElementInfo {
+  handle: number;
+  parent: number | null;
+  /** `null` while the node waits for its query's value. */
+  typeName: string | null;
+  title: string;
+  status: string;
+}
+
+/** A user event delivered to a page-defined element's `onEvent`. */
+export interface UIUserEvent {
+  /** The element the event reached. */
+  handle: number | null;
+  /** `"submit"` or the `data-lq-event` name. */
+  kind: string;
+  /** The element's field values, by name. */
+  fields: Record<string, any>;
+}
+
+/**
+ * A UI element type defined by the page (`defineElement`). `render` returns the element's markup
+ * from its props, and runs while the UI paints: it must not call `UIMount.show`. `onEvent`
+ * returns the new props, or `undefined` to keep them. `mount` runs once the element's node is in
+ * the page, and may return a cleanup that runs when the node is replaced or removed.
+ */
+export interface ElementDefinition {
+  type: string;
+  render: (props: any) => string;
+  onEvent?: (props: any, event: UIUserEvent) => any;
+  mount?: (node: Element, props: any) => (() => void) | void;
+  /** The default title of the type's elements. */
+  title?: string;
+}
+
+/** One node of the tree a `UIRenderer` receives. */
+export interface UITreeElement {
+  handle: number;
+  parent: number | null;
+  children: number[];
+  /** `null` while the node waits for its query's value. */
+  typeName: string | null;
+  title: string;
+  status: string;
+  /** The element's web markup, children included. */
+  html: string;
+  /** For an element made by `element()`: its type. */
+  kind?: string;
+  /** For an element made by `element()`: its props. */
+  props?: any;
+}
+
+/** A mounted UI's whole element tree. */
+export interface UITree {
+  roots: number[];
+  elements: Record<number, UITreeElement>;
+}
+
+/** One change of the tree since the renderer's previous call, in order. */
+export type UIChangeRecord =
+  | { inserted: number; parent: number | null; index: number }
+  | { removed: number; parent: number | null }
+  | { replaced: number };
+
+/**
+ * A page that renders a UI itself (`mountRenderer`). `changes` is `"all"` when the whole tree
+ * must be drawn (the first call among them), otherwise what changed.
+ */
+export interface UIRenderer {
+  render(tree: UITree, changes: UIChangeRecord[] | "all"): void;
+  dispose?(): void;
 }
 
 /** What `dataFacts` reports about a data object without reading it. */
