@@ -118,5 +118,5 @@ Each changed `reference/` or `guides/` document gets a `## History` row and a `r
 ## Phase 5 Entry Criteria
 
 - [x] Implementation finished and validated
-- [ ] User and review comments answered
-- [ ] Documentation checkable against implemented and tested behaviour
+- [x] User and review comments answered — repeated types and the factory model (Orest, 2026-10-31 and 2026-11-01)
+- [x] Documentation checkable against implemented and tested behaviour — guide examples run (`test_GUIDE_examples.py`)

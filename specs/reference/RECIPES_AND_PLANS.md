@@ -884,7 +884,7 @@ not otherwise enforce this distinction.
 
 | Date | Change | Source |
 |---|---|---|
-| 2026-11-01 | Known limitations: `create_plan_with_init_metadata` is now the public `Recipe::plan_with_dependencies`, used by providers outside the crate. | `design/liquers-py-recipes/` (phase-5) |
+| 2026-11-01 | Known limitations: the plan `create_plan_with_init_metadata` builds is exposed as the public `Recipe::plan_with_dependencies`, used by providers outside the crate. | `design/liquers-py-recipes/` (phase-5) |
 | 2026-10-30 | §Composing providers rewritten for `design/recipe-provider-chain-config/`: every environment holds a chain built from a `recipes:` list; every member is asked (any `Err` fails, two owners is a `ConfigurationError` naming both); named members; entry types, factories and `resolve_recipes`; the manifest provider no longer reads `recipes.yaml`; `with_appended_recipe_entry`. §Selecting a provider by name: `RecipeProviderChoice` converts into `RecipesConfig`, and the closed set with no registration hook is replaced by entry types any crate can declare. | phase-5 (`design/recipe-provider-chain-config/`) |
 | 2026-10-27 | §Working directory: the explicit-`cwd` error names each offending recipe; `RecipeList::set_cwd` validates before mutating and writes nothing to stderr. Two Known limitations bullets removed. | design `recipe-list-set-cwd-validation` |
 | 2026-10-27 | §Provider contract: only a missing or unsupported `recipes.yaml` reads as no recipes; other read errors are returned. Known limitations bullet removed. | design `recipes-yaml-read-errors-propagate` |

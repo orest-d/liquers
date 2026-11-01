@@ -476,13 +476,13 @@ whenever present:
 | Method | When absent |
 |---|---|
 | `get(key)` → `bytes`, `(bytes, metadata)` or `None` | required |
-| `get_metadata(key)` | derived from `get` |
-| `contains(key)` | derived from `get` |
-| `listdir(key)` → names or `lq.Key`s | `KeyNotSupported`; `is_dir` is then `False` (a flat store) |
+| `get_metadata(key)` | derived from `get`; a directory (`is_dir`) gets a directory record |
+| `contains(key)` | derived from `get_metadata` (or `get`), a directory included |
+| `listdir(key)` → names or `lq.Key`s | `listdir_data` when the data methods are provided, else `KeyNotSupported`; `is_dir` is then `False` (a flat store) |
 | `is_dir(key)` | required when `listdir` is present |
 | `set`, `set_metadata`, `remove`, `removedir`, `makedir` | `KeyNotSupported` naming the method; a store with no write method is read-only |
-| `is_supported(key)` (plain `def` only) | supported |
-| `get_data`, `set_data`, `remove_data`, `listdir_data`, `data_facts` | all five or none; when none, data-only access is derived from `get`, `set`, `remove` and `listdir` |
+| `is_supported(key)` (plain `def` only) | every absolute key under the prefix is supported |
+| `get_data`, `set_data`, `remove_data`, `listdir_data`, `data_facts` | all five or none; when none, data-only access is derived from `get` and `listdir` (writes through `set` and `remove`) |
 | `rename_data`, `get_stored_metadata` | not offered / `get_metadata`, else no stored metadata |
 
 Metadata may be returned as `lq.Metadata`, `lq.MetadataRecord`, a `dict` or `None`; missing fields
@@ -508,8 +508,8 @@ attaches on the calling thread, and only for keys under the mount's prefix.
 each call so a rebuild is followed. `lq.Store.from_object(obj, prefix="")` adapts an object
 directly, without an environment, with a private loop that `close()` stops. Its methods are the
 store's: `get`/`get_bytes`, `get_metadata`, `set`, `set_metadata`, `remove`, `removedir`,
-`makedir`, `contains`, `is_dir`, `listdir`, `is_supported`, `is_read_only`, each with an `_async`
-twin except the last two. After `shutdown()` (or `close()`) every call raises.
+`makedir`, `contains`, `is_dir`, `listdir`, `sync` (settles interrupted writes, returning the
+repaired keys), `is_supported`, `is_read_only`, each with an `_async` twin except the last two. After `shutdown()` (or `close()`) every call raises.
 
 **Staged use.** The recommended order is: register the factories (store, recipe provider), build
 the environment from its configuration on first use, then use it. Registering later is allowed and
@@ -534,7 +534,7 @@ method may be `def` or `async def` and receives `lq.Key`:
 | `recipe_opt(key)` | `lq.Recipe`, query text, or `None` for "not mine" | required |
 | `assets_with_recipes(folder)` | names, or `lq.Key`s directly in `folder`, that it lists | lists nothing |
 | `contains(key)` | whether `key` is listed | membership in the listing |
-| `directory_changed(folder)` | called after each write the asset manager mediates | not called |
+| `directory_changed(folder)` | called after each write the asset manager mediates; a raised exception is reported on stderr and ignored | not called |
 
 A recipe without a `cwd` gets the key's folder. Query text becomes `Recipe(query)`, and text that
 does not parse is the parse error. Another return type, or a listed entry outside `folder`, is an
@@ -548,7 +548,7 @@ reach the plan and the asset.
 `recipe_opt`, `recipe`, `recipe_plan` (an `lq.Plan`), `assets_with_recipes` (a list of
 `lq.ResourceName`), `contains`, `can_make`, each with an `_async` twin. After `shutdown()` every
 call raises. `lq.Recipe(query, title="", description="", *, cwd=None, volatile=False,
-expires=None)` builds a recipe; `cwd`, `volatile` and `expires` are settable properties.
+expires=None)` builds a recipe; every field is a settable property.
 
 **Threads.** Provider methods run as store methods do (§9); a provider may evaluate through its
 own environment from `recipe_opt`. Every Python provider is asked for every key it could own, so

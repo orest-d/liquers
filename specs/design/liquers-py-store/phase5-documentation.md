@@ -40,7 +40,10 @@ data methods (found by `STORE16`); the shared `bind_arguments` / `call_factory` 
 None: the contract is a new §9 Stores of `reference/PYTHON_INTEGRATION.md`, as planned.
 
 ### New Guide Documents
-None: `guides/PYTHON_GUIDE.md` §4 gained "A store written in Python", as planned.
+None: `guides/PYTHON_GUIDE.md` §4 gained "A store written in Python". Phase 2 planned a chapter
+"Stores"; it became a subsection of §4 Configuring an environment, because a Python store is
+reached through the store configuration and a new chapter would have renumbered §5-§10, which other
+documents cite.
 
 ### Existing Documents Reviewed or Updated
 `affects_docs`: `reference/PYTHON_INTEGRATION.md` (§1-§3, §8, new §9), `reference/STORE_CONFIG_FSD.md`
@@ -57,6 +60,10 @@ the guide sections.
 
 - `STORE-OPENDAL-FS-CONCURRENT-WRITES-TO-ONE-KEY-FAIL` (P2): ten concurrent writes to one key of an
   OpenDAL `fs` store sometimes fail (about 1 in 30); `STORE06[fs]` is a non-strict `xfail`.
+- `WEB-JS-STORE-BYTES-WITHOUT-METADATA-READ-AS-BINARY` (filed in Phase 1): a page store returning
+  data without metadata may read a `.txt` key as bytes; deferred work for liquers-web, its own PR.
+- `VALIDATE-PHASE-PHASE1-SIZE-COUNTS-EXCLUDED-SECTIONS` (filed in Phase 1): the phase validator
+  counts the problem example and readiness section against Phase 1's size limit.
 
 Closed: `PY-NO-LANGUAGE-DEFINED-STORE`. Progress noted on `LANGUAGE-STORE-TYPE-NOT-DEFINABLE`
 (done for Python, open for JavaScript).
@@ -77,7 +84,9 @@ Closed: `PY-NO-LANGUAGE-DEFINED-STORE`. Progress noted on `LANGUAGE-STORE-TYPE-N
 Requested: Python stores, configured routers, configuration effective for Python stores (Orest,
 2026-11-01). Approved: Phases 1-4 with Decisions 1-5. Implemented: all of it; `STORE18` is `NA`
 (`LANGUAGE-STORE-CONFIG-FUNCTION-NOT-DEFINABLE`). Remaining: decision log (a), whose other answer
-would derive a listing-free `metadata:` mode (an issue if chosen); the OpenDAL issue above.
+would derive a listing-free `metadata:` mode (an issue if chosen); the OpenDAL issue and the
+liquers-web follow-ups (`WEB-JS-STORE-BYTES-WITHOUT-METADATA-READ-AS-BINARY`,
+`WEB-JS-STORE-WITH-ONLY-GET-CANNOT-BE-QUERIED`).
 
 ## Validation
 

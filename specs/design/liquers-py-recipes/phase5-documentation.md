@@ -4,10 +4,10 @@
 
 - [x] Implementation is finished and validated: Phase 4 steps 1-5 (836b00a, 30fe5c7); `cargo test
   -p liquers-core` recipe tests (76) and `cargo test -p liquers-lib --lib --tests` pass; liquers-py
-  suite 346 passed; PR #229 CI
+  suite 349 passed; PR #229 CI
 - [x] All user comments are answered or incorporated: repeated types with different arguments
   (Orest, 2026-11-01); factory model with free type names and arguments (2026-10-31)
-- [x] All review comments are answered or incorporated: compact form, author passes per phase
+- [x] All review comments are answered or incorporated: full form; two reviewer passes per phase, findings fixed
 - [x] Documentation is consistent with the implemented and tested behavior: guide examples run
 - [x] Documentation is included in the implementation PR when practical: PR #229
 
@@ -43,7 +43,8 @@ types, member names, integration entry types replacing `{type: python, …}`),
 `reference/RECIPES_AND_PLANS.md` (`Recipe::plan_with_dependencies`), `guides/PYTHON_GUIDE.md`,
 `guides/ENVIRONMENT_CONSTRUCTION_GUIDE.md` (the identical-entry rule),
 `guides/LANGUAGE-INTEGRATION_GUIDE.md` (§RECIPE factory model, §6 Python), `liquers-py/README.md`
-(`RECIPE` row, `ENVIRON` limitation lifted), `specs/README.md`. Each has a 2026-11-01 History row.
+(`RECIPE` row, `ENVIRON` limitation lifted), `specs/README.md`. Each changed `reference/` and
+`guides/` document has a 2026-11-01 History row and `reviewed:`.
 
 ### Links and Capability Map
 `specs/README.md`: the "Python stores and recipe providers" line is "built".

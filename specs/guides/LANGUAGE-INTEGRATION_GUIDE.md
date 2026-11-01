@@ -2071,7 +2071,7 @@ What cost time:
   guard turns a factory's use of its own environment into a `ConfigurationError` rather than a
   deadlock. The object is resolved once into a method table; every call runs Python off the
   runtime's workers (`def` on the blocking pool, `async def` on the loop pool, through the shared
-  `pycall.rs`). A Python store gets data-only access derived from `get`/`set`/`remove`/`listdir`,
+  `pycall.rs`). A Python store gets data-only access derived from `get` and `listdir` (writes through `set`/`remove`),
   so `read_only` and `metadata:` run in Rust around it and configuration stays effective with no
   Python `store_config` handler. Contracts: `reference/PYTHON_INTEGRATION.md` §9 and §10.
 

@@ -218,8 +218,9 @@ is substantially wrong (decided at the Phase 2 gate). The clash between a manife
 sibling `recipes.yaml` entry is this rule; `ManifestRecipeProvider` no longer reads `recipes.yaml`
 itself. Members are named by entry type — `type#position` when the type occurs more than once in the
 chain (`convert#0`, `convert#2`) — or `#n` by position when supplied in code, so errors can say
-which. An appended provider (`with_appended_recipe_provider`, `with_records_recipe_provider`) is
-skipped when a member already has its entry type.
+which. An appended entry (`with_appended_recipe_entry`, which `with_records_recipe_provider` uses)
+is skipped when a member already has its type; a provider appended with
+`with_appended_recipe_provider` is always added, named `#n`.
 
 **Setters.** The last of the three base setters wins; appended items are kept.
 

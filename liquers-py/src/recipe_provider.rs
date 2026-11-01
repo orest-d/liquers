@@ -424,7 +424,8 @@ impl RecipeProviders {
         self.deferred(py, |c, e| async move { c.recipe_opt(&key, e).await }, ToPy::Recipe)
     }
 
-    /// The recipe for `key` (an `lq.Recipe`). Raises `KeyNotFoundError` when no member has one.
+    /// The recipe for `key` (an `lq.Recipe`). Raises `GeneralError` when no member has one
+    /// (`RECIPE-MISSING-RECIPE-IS-A-GENERAL-ERROR`).
     fn recipe(&self, py: Python<'_>, key: &Bound<'_, PyAny>) -> PyResult<crate::recipes::Recipe> {
         let key = key_of(py, key)?;
         let inner = self.blocking(py, |c, e| async move { c.recipe(&key, e).await })?;

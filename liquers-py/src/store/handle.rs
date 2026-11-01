@@ -31,8 +31,8 @@ enum StoreSource {
 ///
 /// `env.store` is an environment's store; `Store.from_object(obj, prefix="")` adapts a Python
 /// object implementing the store protocol directly. Keys are `lq.Key` or key text, data is
-/// `bytes`, metadata `lq.Metadata` (`lq.MetadataRecord` and `dict` are accepted too). Every method
-/// has an awaitable `_async` twin. After the environment's `shutdown()`, or `close()` of a direct
+/// `bytes`, metadata `lq.Metadata` (`lq.MetadataRecord` and `dict` are accepted too). Every data
+/// method has an awaitable `_async` twin; `is_supported` and `is_read_only` do not. After the environment's `shutdown()`, or `close()` of a direct
 /// handle, every call raises. See `PYTHON_GUIDE.md`, "Stores".
 #[pyclass(frozen, name = "Store", module = "liquers")]
 pub struct Store {

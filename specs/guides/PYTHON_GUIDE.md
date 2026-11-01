@@ -211,7 +211,7 @@ any other exception becomes `KeyReadError` or `KeyWriteError` carrying your trac
 The mount's configuration applies to a Python store as to any other: `read_only: true` refuses
 writes before your code is called, and a `metadata:` section (sidecar records, the `on_write` /
 `on_read` chains of [`reference/STORE_CONFIG_FSD.md`](../reference/STORE_CONFIG_FSD.md)) works on
-a store with `get`, `set`, `remove` and `listdir`. A store that implements the five data-only
+a store with `get` and `listdir` (writes go through `set` and `remove`). A store that implements the five data-only
 methods (`get_data`, `set_data`, `remove_data`, `listdir_data`, `data_facts`) is used through
 them instead; set `data_access = False` on one that must not take a `metadata:` section.
 
@@ -232,7 +232,8 @@ assert store.is_read_only()
 store.close()
 ```
 
-Every `lq.Store` method has an awaitable `_async` twin (`await env.store.get_async(key)`).
+Every `lq.Store` data method has an awaitable `_async` twin (`await env.store.get_async(key)`);
+`is_supported` and `is_read_only` do not.
 `env.store_types()` lists the types a configuration can name, built-in and registered. The
 contract, with the threads each call runs on, is
 [`reference/PYTHON_INTEGRATION.md`](../reference/PYTHON_INTEGRATION.md) §9.
@@ -795,7 +796,7 @@ Errors you will meet early:
 | Situation | Raised |
 |---|---|
 | A command name that is not registered | `ActionNotRegisteredError` |
-| A key that is neither in the store nor made by a recipe | `GeneralError`, "No recipe found for key …", with no `key` (`MISSING-RESOURCE-REPORTED-AS-GENERAL-ERROR`) |
+| A key that is neither in the store nor made by a recipe | `AssetNotFoundError`, with `key` set |
 | A malformed query | `ParseError` |
 | An exception inside a Python command | `ExecutionError` |
 | A value that cannot be converted | `ConversionError` |
