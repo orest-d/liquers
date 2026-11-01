@@ -10,10 +10,10 @@ plan, with [`liquers-py-recipes`](../liquers-py-recipes/DESIGN.md).
 
 ## Design Readiness
 
-- **Readiness:** `needs-decision`
+- **Readiness:** `ready`
 - **Automatic fixing:** `not-eligible`: an `L` feature with a new public Python API.
-- **Leading issue:** Open design question 3 (`store_config` from Python).
-- **Explanation:** Decisions 1-4 are Orest's; question 3 is under discussion with him; questions 4-12 have one defensible answer each and are shown for review. Provisional until
+- **Leading issue:** None.
+- **Explanation:** Decisions 1-5 are Orest's and settle questions 1-3; questions 4-12 have one defensible answer each and are shown for review. Provisional until
   the Phase 4 consistency pass.
 - **Open questions:**
   1. **Decided (Decision 3) - minimum method set** (`WEB-JS-STORE-WITH-ONLY-GET-CANNOT-BE-QUERIED`).
@@ -29,8 +29,8 @@ plan, with [`liquers-py-recipes`](../liquers-py-recipes/DESIGN.md).
      methods and `_async` twins, including `is_read_only()` and `sync()` (its warnings readable);
      `lq.Store.from_object(obj)` adapts one object directly (`STORE05` must not go through a
      router). After `shutdown()` an `lq.Store` refuses every call.
-  3. **Open design - Python `store_config` handlers in M4.** Decision 2's first stage names them.
-     Recommended: not in M4: `STORE18` stays `NA` linking `LANGUAGE-STORE-CONFIG-FUNCTION-NOT-DEFINABLE`,
+  3. **Decided (Decision 5) - `store_config` and Python stores.** Original question: Python
+     `store_config` handlers in M4? Recommended: not in M4: `STORE18` stays `NA` linking `LANGUAGE-STORE-CONFIG-FUNCTION-NOT-DEFINABLE`,
      and `language-store-config-function` adds them to the same stage later. Alternative: take that
      design into M4 (`L`, a core `StepBuilder` change).
   4. **Proposed resolution - the factory declaration.** `env.register_store_factory(type, factory,
@@ -59,7 +59,11 @@ plan, with [`liquers-py-recipes`](../liquers-py-recipes/DESIGN.md).
      type; any other exception is `KeyReadError` or `KeyWriteError` with the traceback.
   10. **Proposed resolution - data-only access.** `get_data`, `set_data`, `remove_data`,
       `listdir_data`, `data_facts` all or none; `rename_data`, `get_stored_metadata` optional;
-      `atomic_write = True` declares atomic writes. `data_facts` returns `None` or `{size,
+      `atomic_write = True` declares atomic writes. When they are absent the adapter derives them
+      (Decision 5): `get_data` from `get`, `set_data` from `set` with empty metadata, `remove_data`
+      from `remove`, `listdir_data` from `listdir`, `data_facts` from `get_metadata` (else the data's
+      size, at the cost of a read), `get_stored_metadata` from `get_metadata`. A provided method
+      always wins; `data_access = False` on the object opts out. `data_facts` returns `None` or `{size,
       modified, etag, precision}`, `modified` an aware `datetime` or RFC 3339 text
       (`BackendTime::parse`).
   11. **Proposed resolution - consistency and re-entry.** No adapter locking; atomicity is the
@@ -90,6 +94,13 @@ Orest, 2026-11-01:
 3. **Question 1 as recommended**: only `get` is mandatory and the other three are derived when
    absent, "but the methods also can be provided": a provided method is always used.
 4. **Question 2 as recommended** (`env.store`, `lq.Store.from_object`).
+5. **`store_config` stays effective (options A+B).** Python need not implement `store_config`
+   handlers yet (`STORE18` `NA`), but it must be able to call them, or a Python store must be
+   wrapped by default so the configuration takes effect. So the chains run in Rust around the
+   store (A: a mount's `metadata` section wraps it in the pipeline, and everything Python reads or
+   writes through `env.store` passes through it), and data-only access is derived when the store
+   does not provide it (B, question 10), so any Python store takes a `metadata` section. A chain
+   callable from Python (`env.store_config(spec)`) is left for later.
 
 ## Problem Example
 
@@ -151,8 +162,8 @@ unknown store type `notes`. **After** the factory builds the mount and the query
   WHEN a Python mount carries `read_only: true`
   THEN every write is refused before Python is called, and `is_read_only()` is true (`STORE14`)
 - **AC-12** A `metadata` section needs data-only access
-  WHEN a Python mount without the data-only methods carries a `metadata` section
-  THEN the build fails naming the mount and the missing methods (`STORE15`)
+  WHEN a Python mount whose object sets `data_access = False` carries a `metadata` section
+  THEN the build fails naming the mount and the missing capability (`STORE15`)
 - **AC-13** Records round-trip
   WHEN every store that takes a `metadata` section is configured with `per_entry`, then `grouped`
   THEN records round-trip, the default `on_read` chain applies, and a Python `get` is never called
@@ -160,6 +171,10 @@ unknown store type `notes`. **After** the factory builds the mount and the query
 - **AC-14** Backend time compares equal
   WHEN a record's `created` comes from `data_facts` and the entry is re-read
   THEN it compares equal with a fresh reading, for each such store (`STORE17`)
+- **AC-17** Configuration stays effective on a minimal store
+  WHEN a store with only `get`, `set`, `remove` and `listdir`/`is_dir` is mounted with a `metadata` section
+  THEN it builds through derived data-only access, records round-trip under `per_entry`, and the
+  configured `on_read` and `on_write` chains run on every access through `env.store` and queries
 - **AC-15** Late registration and release
   WHEN a factory or a command is registered after the first use, or `shutdown()` is called
   THEN the next use rebuilds with the store kept (a factory after a failed build lets it build);
@@ -211,7 +226,7 @@ Bindings: `register_store_factory`, `lq.StoreArgumentInfo`, `env.store`, `lq.Sto
 
 - **2026-10-31** — Orest: a configuration names a Python *factory* (Decision 1) in place of a
   `python` type with a registered object; late registration rebuilds (Decision 2). Added AC-16;
-  AC-2, AC-10, AC-15 reworded. Questions 1-2 decided 2026-11-01 (Decisions 3-4). Questions renumbered from the first draft: former 2 (late
+  AC-2, AC-10, AC-15 reworded. Questions 1-3 decided 2026-11-01 (Decisions 3-5); AC-17 added and AC-12 reworded for Decision 5. Questions renumbered from the first draft: former 2 (late
   registration) and 4 (naming) retired into the decisions; former 3 is 2; former 12 split into 3
   (STORE18) and 5 (STORE12); new 4 and 6 (factories); former 5 is 7, 6 is 8, 7 and 9 merged into 9,
   8 is 10, 10 is 11, 11 and 13 merged into 12. Size: still `L`. Phases: 1.

@@ -5,7 +5,7 @@ title: Stores written in Python, and configured store routers in liquers-py
 workflow: liquers-project
 status: draft
 phase: high-level
-readiness: needs-decision
+readiness: ready
 autofix: not-eligible
 area: [py, core/store, store/config]
 issues: [PY-NO-LANGUAGE-DEFINED-STORE]
