@@ -5,7 +5,7 @@ title: A command cannot be defined as a sequence of other commands with placehol
 status: draft
 priority: P2
 complexity: L
-area: [core/commands, core/plan, core/query, core/assets, axum]
+area: [core/commands, core/plan, core/assets]
 design: composite-command-definition
 created: 2026-11-01
 github: 237
@@ -68,3 +68,9 @@ Requested by the maintainer on 2026-11-01, while reviewing the per-realm default
 (`plan-default-namespaces`): "a sequence of commands as a new command", with placeholders in any
 argument, initial state passed as an argument and an argument passed as initial state, designed
 for command aliases, recipes and the web API.
+
+## Design
+
+`specs/design/composite-command-definition/`. On 2026-11-01 the maintainer chose structured
+pipelines as the only placeholder mechanism (no placeholder syntax in query text), and moved the web
+API part (point 3 above) to `WEB-API-CANNOT-RUN-PIPELINES-OR-RECIPE-ENDPOINTS`.

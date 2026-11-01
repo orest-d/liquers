@@ -142,7 +142,7 @@ serves both. Solve them together.
 - **Enum parameters** — designing → [`design/register-command-enum/`](design/register-command-enum/)
 - **Query-aware templates (`liquers-template`: Mustache with query tags, parametrized queries, template commands)** — built → [`reference/TEMPLATE_LANGUAGE.md`](reference/TEMPLATE_LANGUAGE.md) *(how to: [`guides/TEMPLATE_GUIDE.md`](guides/TEMPLATE_GUIDE.md); design in [`design/liquers-mustache/`](design/liquers-mustache/))*
 - **Command aliases** — documented → [`reference/COMMAND_ALIASES.md`](reference/COMMAND_ALIASES.md) *(when to use one: [`guides/COMMAND_DESIGN_GUIDE.md`](guides/COMMAND_DESIGN_GUIDE.md) §Aliases; design in [`design/command-alias-contract/`](design/command-alias-contract/))*
-- **Composite commands and query placeholders (sequences of commands as one command; placeholders in recipes and HTTP requests)** — designing → [`design/composite-command-definition/`](design/composite-command-definition/)
+- **Composite commands and pipelines (sequences of commands as one command; structured pipelines in recipes)** — designing → [`design/composite-command-definition/`](design/composite-command-definition/)
 - **Language-neutral command declaration** — documented → [`reference/COMMAND_DECLARATION.md`](reference/COMMAND_DECLARATION.md)
 - **Command metadata enhancements** — planned → [`issues/COMMAND-METADATA-ENHANCEMENTS.md`](issues/COMMAND-METADATA-ENHANCEMENTS.md)
 - **Macro query validation and hints** — planned → [`issues/MACRO-QUERY-VALIDATION-AND-HINTS.md`](issues/MACRO-QUERY-VALIDATION-AND-HINTS.md)
@@ -697,6 +697,7 @@ deliberately folded behind a broader line.
 - feature `VALUE-NOT-CONVERTED-AUTOMATICALLY`
 - feature `VALUE-SERIALIZATION-IS-SYNCHRONOUS-AND-WHOLE-VALUE`
 - feature `VALUE-TYPE-DEFINITION-MACRO`
+- feature `WEB-API-CANNOT-RUN-PIPELINES-OR-RECIPE-ENDPOINTS`
 - feature `WEB-API-REFERENCE-NOT-GENERATED`
 - feature `WEB-HAS-NO-READ-WRITE-REMOTE-STORE`
 - feature `WEB-HAS-NO-TEMPLATE-COMMANDS`

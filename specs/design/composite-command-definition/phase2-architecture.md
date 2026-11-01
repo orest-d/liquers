@@ -1,5 +1,10 @@
 # Phase 2: Solution & Architecture — Composite command definitions
 
+> **Superseded draft (2026-11-01).** This draft assumes `$name` placeholders in query text, which
+> the maintainer dropped in favour of the pipeline mechanism (Phase 1, Scope Changes). It is kept
+> only until Phase 2 is rewritten after Phase 1's approval. Its planner, composite-expansion,
+> dependency and error sections still largely apply to pipelines.
+
 Drafted together with Phase 1, before Phase 1's gate, so that the three uses can be reviewed
 against one mechanism. It follows Phase 1's recommended answers; a different answer at the gate
 reopens this phase.

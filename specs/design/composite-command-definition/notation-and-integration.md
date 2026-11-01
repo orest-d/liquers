@@ -9,6 +9,10 @@ and Phase 2 follows them once they are answered.
 
 ## 1. Placeholder syntax
 
+> **Decided 2026-11-01:** neither. Query text gets no placeholders, and placeholders exist only in
+> pipelines (§2). This section is kept for the reasoning. §5's payload sources and §7 moved to
+> `WEB-API-CANNOT-RUN-PIPELINES-OR-RECIPE-ENDPOINTS`.
+
 **How `liquers-template` placeholders work at HEAD** (`liquers-template/src/query/`,
 `specs/reference/TEMPLATE_LANGUAGE.md` §2):
 
