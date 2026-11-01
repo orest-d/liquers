@@ -273,6 +273,7 @@ PLAN-SERDE-HAS-NO-COMPATIBILITY-CONTRACT,issue,A serialized Plan has no compatib
 PLAN-SPLIT-DROPS-PREDECESSOR-FIELDS,issue,Plan split drops predecessor fields,closed,local,,covered,not-eligible,P2,S,core/plan,,,,plan-split-predecessor-fields,,2026-08-26,specs/issues/PLAN-SPLIT-DROPS-PREDECESSOR-FIELDS.md
 PLANNER-INSTRUCTION-NAMES-DUPLICATED,issue,The planner instruction names are hard-coded in three crates,draft,local,,needs-decision,not-eligible,P3,L,core/query;core/plan;lib/commands,,,,planner-instruction-names-public,,2026-10-20,specs/issues/PLANNER-INSTRUCTION-NAMES-DUPLICATED.md
 PLANNING-DIAGNOSTICS-NEVER-REACH-THE-ASSET-LOG,issue,Planning diagnostics never reach the evaluated asset's log,closed,local,,,,P2,M,core/plan;core/assets,,,,,,2026-10-10,specs/issues/PLANNING-DIAGNOSTICS-NEVER-REACH-THE-ASSET-LOG.md
+POLARS-BRIDGE-TRUNCATES-SUB-MICROSECOND-DATETIMES,issue,The polars bridge silently drops sub-microsecond precision from a nanosecond Datetime column,closed,local,,,,P3,S,records;lib/polars,,,,,,2026-11-01,specs/issues/POLARS-BRIDGE-TRUNCATES-SUB-MICROSECOND-DATETIMES.md
 POLARS-BRIDGE-VECTOR-COLUMNS-REFUSED,issue,The RecordBatch <-> DataFrame bridge cannot convert Vector columns,draft,local,,needs-decision,not-eligible,P3,M,records;lib/polars,,,,polars-bridge-vector-columns,,2026-09-27,specs/issues/POLARS-BRIDGE-VECTOR-COLUMNS-REFUSED.md
 POLARS-COLLECT-PANICS-ON-CURRENT-THREAD-RUNTIME,issue,ns-pl commands panic inside LazyFrame::collect on a current-thread tokio runtime,closed,local,,,,P2,M,lib/polars,,,,,,2026-10-13,specs/issues/POLARS-COLLECT-PANICS-ON-CURRENT-THREAD-RUNTIME.md
 POLARS-COMMAND-TESTS-BYPASS-COMMANDS,issue,The polars command integration tests never invoke a polars command,closed,local,,ready,eligible,P2,M,lib/polars;build,,,,polars-command-tests-via-queries,,2026-08-25,specs/issues/POLARS-COMMAND-TESTS-BYPASS-COMMANDS.md
@@ -964,7 +965,7 @@ PROJECT_OVERVIEW,reference,Liquers Project Overview,current,local,,,,,,core/quer
 PYTHON_INTEGRATION,reference,Python Integration,current,local,,,,,,py;core/value;core/error;lib/value;core/store;store/config;core/assets,,,,,2026-11-01,,specs/reference/PYTHON_INTEGRATION.md
 REALMS,reference,Realms,current,local,,,,,,core/plan;core/commands;store/config,,,,,2026-10-16,,specs/reference/REALMS.md
 RECIPES_AND_PLANS,reference,Recipes and Plans Reference,current,local,,,,,,core/plan;core/query;core/assets;core/context,,,,,2026-11-01,,specs/reference/RECIPES_AND_PLANS.md
-RECORD_STREAMS,reference,Record Streams,current,local,,,,,,records;lib/value;lib/commands;web,,,,,2026-10-30,,specs/reference/RECORD_STREAMS.md
+RECORD_STREAMS,reference,Record Streams,current,local,,,,,,records;lib/value;lib/commands;web,,,,,2026-11-01,,specs/reference/RECORD_STREAMS.md
 REGISTER_COMMAND_FSD,reference,register_command! Macro Functional Specification,current,local,,,,,,macro;core/commands,,,,,2026-10-20,,specs/reference/REGISTER_COMMAND_FSD.md
 SEARCH,reference,Search,current,local,,,,,,records;lib/commands,,,,,2026-10-17,,specs/reference/SEARCH.md
 STORE_CONFIG_FSD,reference,Store Configuration Functional Specification,current,local,,,,,,store/config,,,,,2026-11-01,,specs/reference/STORE_CONFIG_FSD.md
