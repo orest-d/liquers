@@ -94,6 +94,27 @@ pub(crate) fn command_call<T>(
     Python::attach(f)
 }
 
+/// Runs a call into a Python store or recipe provider attached, unless the interpreter is
+/// exiting: then it is refused with `Cancelled` naming `subject`. Counted like every attach, so
+/// the exit hook waits for it; it has no asset to cancel.
+pub(crate) fn py_call<T>(
+    subject: &str,
+    f: impl for<'py> FnOnce(Python<'py>) -> Result<T, Error>,
+) -> Result<T, Error> {
+    let _tracked = Tracked::new(None);
+    if exiting() {
+        return Err(Error::cancelled(format!(
+            "the Python interpreter is exiting; {subject} was not called"
+        )));
+    }
+    Python::attach(f)
+}
+
+/// True once the exit hook has started.
+pub(crate) fn exiting() -> bool {
+    EXITING.load(Ordering::SeqCst)
+}
+
 /// The module's `atexit` hook: cancels the running Python commands and waits for them.
 #[pyfunction]
 pub(crate) fn at_exit(py: Python<'_>) -> PyResult<()> {

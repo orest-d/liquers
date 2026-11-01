@@ -18,6 +18,7 @@ pub mod expiration;
 pub mod metadata;
 pub mod parse;
 pub mod plan;
+pub mod pycall;
 pub mod query;
 pub mod recipes;
 pub mod runtime;

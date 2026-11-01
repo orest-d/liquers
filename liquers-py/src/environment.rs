@@ -816,7 +816,7 @@ impl Environment {
     #[cfg(feature = "debug-handles")]
     #[staticmethod]
     fn live_handle_count() -> usize {
-        crate::command::live_handle_count()
+        crate::pycall::live_handle_count()
     }
 
     /// Imports command metadata from YAML: a document with a `commands` list.
