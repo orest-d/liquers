@@ -31,8 +31,9 @@ class Reports:
 
 env = lq.Environment(config={"recipes": ["recipes_yaml", {"type": "reports", "folder": "reports"}]})
 env.register_recipe_provider_factory("reports", Reports)
-register_fixture_commands(env)                               # hello -> "hello"
-assert env.evaluate("-R/reports/summary.txt") == "hello"
+@env.first_command
+def hello(): return "Hello"
+assert env.evaluate("-R/reports/summary.txt") == "Hello"
 assert env.recipes.recipe(lq.parse_key("reports/summary.txt")).cwd == "reports"
 assert json.loads(env.recipes.recipe_plan(lq.parse_key("reports/fresh.txt")).to_json())["is_volatile"]
 with pytest.raises(lq.AssetNotFoundError):
@@ -92,7 +93,9 @@ Python (`liquers-py/tests/`):
   - `test_RECIPE_not_mine_and_ownership_conflict` (AC-2): `None` defers to `recipes_yaml`; two
     providers claiming `reports/x.txt` raise naming both.
   - `test_RECIPE_return_forms` (AC-3): `lq.Recipe`, a string, a recipe with its own `cwd`; the
-    refused types.
+    refused types; unparsable query text gives the parse error.
+  - `test_RECIPE_recipe_keyword_constructor_and_properties` (AC-3, AC-7): no provider; the keyword
+    constructor and the `cwd`, `volatile`, `expires` setters round-trip, positional calls work.
   - `test_RECIPE04_provider_error_maps_through_error` (AC-4): error types and traceback text.
   - `test_RECIPE02_list_and_contains_are_consistent` (AC-6): Example 2's listing; each listed name
     is contained and has a recipe; `art/other.png` has one (`recipe_opt`, `can_make`).

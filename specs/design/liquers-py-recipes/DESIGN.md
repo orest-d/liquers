@@ -3,8 +3,8 @@ id: LIQUERS-PY-RECIPES
 kind: design
 title: Recipe providers written in Python
 workflow: liquers-project
-status: draft
-phase: architecture
+status: in_review
+phase: implementation
 readiness: ready
 autofix: not-eligible
 area: [py, core/assets, core/context]
@@ -21,7 +21,7 @@ an entry type of `config["recipes"]`, declared through `EnvironmentBuilder::with
 (the plan's M4 says `with_appended_recipe_provider`; PR #224 made the factory the route for a
 configured entry, so this deliberately updates the plan). Full form since 2026-11-01: the source issue was `M` and is now `L` (Phase 1, Scope Changes).
 
-Phase 1 approved by Orest on 2026-11-01 (`proceed all`). Pre-approved after Phase 1 on 2026-11-01: Phases 2-4, the implementation and Phase 5, with a stop before implementation only if the decision log needs a decision.
+Phase 1 approved by Orest on 2026-11-01 (`proceed all`). Pre-approved after Phase 1 on 2026-11-01: Phases 2-4, the implementation and Phase 5, with a stop before implementation only if the decision log needs a decision. (The skill offers `proceed all` at the Phase 2 gate; Orest gave it at Phase 1, so the remaining gates were run with their two reviewer passes and no stop.)
 
 ## Phases
 

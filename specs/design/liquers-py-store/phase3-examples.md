@@ -119,16 +119,18 @@ Fixture `DictStore`: the whole protocol on a dict (metadata kept, `set_metadata`
   - `test_STORE_type_declaration_and_failures` (AC-16): `store_types()` lists `greeting` optional;
     missing, unknown, raising (traceback), coroutine-returning, environment-using factories, and
     taken names (`memory`, `fs`, `opendal_fs`, a second `notes`), each `ConfigurationError`.
-  - `test_STORE_declare_from_signature` (AC-16): `_declare`'s rules.
+  - `test_STORE_declare_from_signature` (AC-16): `_declare`'s rules and `arguments=` with
+    `lq.StoreArgumentInfo`s.
   - `test_STORE_late_registration_and_release` (AC-15): (a) a document naming `notes` fails, the
     factory is registered, the next `evaluate` builds; (b) after a use and a `scratch` write, a
     late command and a late factory rebuild with the write kept; `live_handle_count()` returns to
     baseline after `shutdown()`, and a held `lq.Store` raises.
-- Rust `liquers-py/src/store/adapter.rs`: `method_table_records_presence_and_kind` (AC-2),
+- Rust: `pycall::tests::live_handle_counts_create_and_drop` (AC-15); `store::adapter::tests`
+  `method_table_records_presence_and_kind` (AC-2),
   `data_access_is_derived_only_with_get_and_listdir` (AC-12, AC-17),
   `get_stored_metadata_needs_a_provided_get_metadata` (AC-17).
 - Commands: `bash scripts/test-liquers-py.sh -k STORE` (pytest), then
-  `cargo test -p liquers-py --no-default-features --lib store::`; CI 3.10, 3.14, 3.14t.
+  `cargo test -p liquers-py --no-default-features --features debug-handles --lib`; CI 3.10, 3.14, 3.14t.
 
 Queries validated (`--command greet`): `-R/notes/hello.txt`, `-R/notes/absent.txt`,
 `-R/scratch/x.txt`, `-R/n/a.md`, `-R/d/in.txt/-/greet`, each a `GetAsset` of the intended key.

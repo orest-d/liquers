@@ -39,9 +39,10 @@ No blocker. Command namespaces: none.
 
 ```rust
 // expand_recipes: refuse an entry equal to an earlier one (type and arguments), not a repeated type.
-// resolve_recipes: a member is named by its type when the type occurs once in the chain, else
-// "type#position". EnvironmentBuilder::build keeps the expanded entries (not only names), and an
-// appended entry is still skipped when any member has its type (with_records_recipe_provider
+// resolve_recipes (signature unchanged; other callers in liquers-lib and context.rs): a member
+// is named by its type when the type occurs once in the chain, else "type#position".
+// EnvironmentBuilder's build_recipe_chain calls expand_recipes itself to collect member types, and
+// an appended entry is still skipped when any member has its type (with_records_recipe_provider
 // appends a bare `manifest` idempotently), so repeats come from documents only.
 impl Recipe {
     /// The recipe's plan for `key` with dependency analysis, as DefaultRecipeProvider builds it
@@ -56,8 +57,8 @@ impl Recipe {
 an `async def` on the loop pool; `create` is synchronous by the trait and runs during `build()`):
 
 ```rust
-struct RecipeMethods { recipe_opt: PyMethod, assets_with_recipes: Option<PyMethod>,
-    contains: Option<PyMethod>, directory_changed: Option<PyMethod> }
+struct RecipeMethods { recipe_opt: Arc<PyMethod>, assets_with_recipes: Option<Arc<PyMethod>>,
+    contains: Option<Arc<PyMethod>>, directory_changed: Option<Arc<PyMethod>> }
 pub(crate) struct PyRecipeProvider { name: String, methods: Arc<RecipeMethods>,
     loops: Arc<LazyLoopPool>, shut: Arc<Shut>, _handle: LiveHandle }
 #[async_trait] impl AsyncRecipeProvider<PyEnvironment> for PyRecipeProvider {
@@ -76,7 +77,7 @@ pub(crate) struct PyRecipeProvider { name: String, methods: Arc<RecipeMethods>,
 }
 pub(crate) struct PyRecipeProviderType { info: RecipeProviderTypeInfo, factory: Py<PyAny>,
     takes_kwargs: bool, _handle: LiveHandle }
-pub(crate) struct PyRecipeProviderFactory { types: Arc<Vec<PyRecipeProviderType>>,
+pub(crate) struct PyRecipeProviderFactory { types: Vec<Arc<PyRecipeProviderType>>,
     loops: Arc<LazyLoopPool>, shut: Arc<Shut> }
 impl RecipeProviderFactory<PyEnvironment> for PyRecipeProviderFactory {
     fn provider_types(&self) -> Vec<RecipeProviderTypeInfo>;
@@ -123,6 +124,7 @@ Python type, or a keyword (`default`, `trivial`, `none`, `no_recipes`), because
 |---|---|
 | A provider method raises | `pyerr_to_error`: its `LiquersError` type, or `ExecutionError` with the traceback |
 | `recipe_opt` returns another type | `Error::execution_error` naming the type |
+| `recipe_opt` returns query text that does not parse | the parse error, naming the key |
 | Missing `recipe_opt`, taken name, bad arguments, factory raised, environment used during the build | `Error::configuration_error` naming the entry (`create_at` adds its position) |
 | An identical entry listed twice | `Error::configuration_error` from `expand_recipes` |
 | Two members claim one key | the chain's existing `configuration_error`, naming `type#position` when the type repeats |

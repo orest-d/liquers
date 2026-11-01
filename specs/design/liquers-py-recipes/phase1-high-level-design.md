@@ -122,7 +122,7 @@ does not expire assets (`RECIPE-DEPENDENCY-KEY-IS-NEVER-VERSIONED`).
 - **Leading issue:** None.
 - **Explanation:** Phase 1 approved by Orest on 2026-11-01 (`proceed all`), pre-approving Phases
   2-4, the implementation and Phase 5. Questions 1-2 are his decisions; questions 3-7 are explicit
-  assumptions taken as recommended. Provisional until the Phase 4 consistency pass.
+  assumptions taken as recommended. The Phase 4 consistency pass (2026-11-01) left them standing.
 - **Decision log (pre-approval):** (a) Phase 2 review: an *appended* entry (liquers-lib's
   `with_records_recipe_provider` appends a bare `manifest`) is still skipped when any member has its
   type, so the repeat rule of question 2 applies to documents only. Within question 2; no decision needed.

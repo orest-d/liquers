@@ -15,12 +15,17 @@ plan, with [`liquers-py-recipes`](../liquers-py-recipes/DESIGN.md).
 - **Leading issue:** None.
 - **Explanation:** Phase 1 approved by Orest on 2026-11-01 (`proceed all`), pre-approving Phases
   2-4, the implementation and Phase 5. Decisions 1-5 are his; questions 4-12 are explicit
-  assumptions taken as recommended. Provisional until the Phase 4 consistency pass.
+  assumptions taken as recommended. The Phase 4 consistency pass (2026-11-01) left them standing.
 - **Decision log (pre-approval):** (a) Phase 2 review: derived data-only access needs `get` and
   `listdir` (the pipeline lists objects and recovers staged writes), so a store without `listdir`
   takes no `metadata` section and is refused at build (AC-12) rather than failing at run time; and
   a derived `get_stored_metadata` reads only a provided `get_metadata`. A narrowing of Decision 5's
-  "any Python store", in its spirit; **shown to Orest at the pre-implementation stop.**
+  "any Python store", in its spirit; **needs decision** (pre-implementation stop).
+  (b) Phase 4 review: the router calls `is_supported` synchronously from its async methods, so a
+  Python `is_supported` takes the GIL on a runtime worker. It is asked only for absolute keys under
+  the mount's prefix, so a Rust mount's keys never reach it unless prefixes overlap; it goes
+  through the exit gate and answers `false` while the interpreter exits. Documented; within
+  Decision 5's goal, no decision needed.
 - **Open questions:**
   1. **Decided (Decision 3) - minimum method set** (`WEB-JS-STORE-WITH-ONLY-GET-CANNOT-BE-QUERIED`).
      Recommended: only `get` is mandatory, because a `-R/` query also calls `contains`,
@@ -233,10 +238,12 @@ Bindings: `register_store_factory`, `lq.StoreArgumentInfo`, `env.store`, `lq.Sto
 
 - **2026-10-31** — Orest: a configuration names a Python *factory* (Decision 1) in place of a
   `python` type with a registered object; late registration rebuilds (Decision 2). Added AC-16;
-  AC-2, AC-10, AC-15 reworded. Questions 1-3 decided 2026-11-01 (Decisions 3-5); AC-17 added and AC-12 reworded for Decision 5. **2026-11-01** (Phase 2 review): AC-12 and AC-13 narrowed to the derivation's requirements (decision log (a)). Phases: 1, 2. Questions renumbered from the first draft: former 2 (late
+  AC-2, AC-10, AC-15 reworded. Questions 1-3 decided 2026-11-01 (Decisions 3-5); AC-17 added and AC-12 reworded for Decision 5. Questions renumbered from the first draft: former 2 (late
   registration) and 4 (naming) retired into the decisions; former 3 is 2; former 12 split into 3
   (STORE18) and 5 (STORE12); new 4 and 6 (factories); former 5 is 7, 6 is 8, 7 and 9 merged into 9,
   8 is 10, 10 is 11, 11 and 13 merged into 12. Size: still `L`. Phases: 1.
+- **2026-11-01** — Phase 2 review: AC-12 and AC-13 narrowed to the derivation's requirements
+  (decision log (a)). Phases: 1, 2.
 
 ## References
 

@@ -18,7 +18,7 @@ method" rule); an async `is_supported` (the trait method is synchronous).
 
 | Issue | Status | Priority | Impact | Fix first? | Blocking? | Action |
 |---|---|---|---|---|---|---|
-| `WEB-JS-STORE-WITH-ONLY-GET-CANNOT-BE-QUERIED` | draft | P2 | Same rule for web (Decision 3) | No | No | Own PR (Phase 4 last step) |
+| `WEB-JS-STORE-WITH-ONLY-GET-CANNOT-BE-QUERIED` | draft | P2 | Same rule for web (Decision 3) | No | No | Own PR after this design |
 | `WEB-JS-STORE-BYTES-WITHOUT-METADATA-READ-AS-BINARY` | draft | P3 | Python seeds metadata from the key | No | No | Own PR after verification |
 | `STORE-ABSOLUTE-KEY-NOT-TYPE-ENFORCED` | draft | P3 | Adapter calls `Key::as_absolute` | No | No | Deferred past M4 |
 | `LANGUAGE-STORE-CONFIG-FUNCTION-NOT-DEFINABLE` | draft | P3 | `STORE18` `NA` | No | No | The `NA` reason |
@@ -47,10 +47,16 @@ impl PyMethod {
 /// `def`: spawn_blocking + exit::py_call (refused once the interpreter exits); `async def`: a
 /// coroutine on `loops`, cancelled on drop (command.rs's CancelOnDrop). `subject` names the
 /// store or provider in cancellation and exit messages.
+/// Converts the return value, or maps the exception (pyerr_to_store_error, pyerr_to_error),
+/// while the GIL is held, so the async side never attaches a second time.
+pub(crate) trait FromPyReturn: Send + 'static {
+    type Output: Send + 'static;
+    fn convert(self, py: Python<'_>, ret: Bound<'_, PyAny>) -> Result<Self::Output, Error>;
+    fn failure(&self, py: Python<'_>, err: PyErr) -> Error;
+}
 pub(crate) async fn call<A, R>(m: Arc<PyMethod>, loops: Arc<LazyLoopPool>, shut: Arc<Shut>,
-    subject: String, args: A, convert: R) -> Result<R::Output, PyFailure>
-where A: FnOnce(Python<'_>) -> PyResult<Py<PyTuple>> + Send + 'static,
-      R: FromPyReturn + Send + 'static, R::Output: Send + 'static;
+    subject: String, args: A, convert: R) -> Result<R::Output, Error>
+where A: FnOnce(Python<'_>) -> PyResult<Py<PyTuple>> + Send + 'static, R: FromPyReturn;
 
 // src/store/adapter.rs
 struct StoreMethods {               // resolved once, at adaptation
@@ -93,6 +99,7 @@ enum StoreSource { Environment(Weak<EnvCell>), Direct { store: Arc<dyn AsyncStor
 
 #[pyclass(frozen, name = "StoreArgumentInfo", module = "liquers")]
 pub struct StoreArgumentInfo(pub liquers_core::store_factory::StoreArgumentInfo);
+// #[new] (name, argument_type="string", *, required=False, default=None, label="", doc="")
 
 // src/environment.rs
 struct Declarations { /* … */ store_types: Vec<Arc<PyStoreType>> }
@@ -129,10 +136,12 @@ Under a `metadata` section the pipeline writes reserved names through `set_data`
 sidecars or folders, `.__staged__` objects, journals: `liquers-core/src/store/storage.rs`,
 `writes.rs`), so a Python store with writes must accept them; documented.
 
-**Sync or async.** Every `AsyncStore` method is async and uses `pycall::call`, so a runtime worker
-never takes the GIL. `is_supported` and `StoreFactory::create` are synchronous by the trait:
-`is_supported` takes the GIL on the calling thread only when the object has the method and the key
-is absolute and under the prefix; `create` runs inside `build()`, which holds the GIL.
+**Sync or async.** Every async `AsyncStore` method uses `pycall::call`, so it never takes the GIL
+on a runtime worker. `is_supported` and `StoreFactory::create` are synchronous by the trait.
+The router calls `is_supported` from its async methods, so a provided one takes the GIL on the
+worker, through `exit::attach_tracked` (answering `false` once `EXITING` is set), and only for an
+absolute key under the mount's prefix: a Rust mount's keys reach it only where prefixes overlap
+(Phase 1 decision log (b)). `create` runs inside `build()`, which holds the GIL.
 
 ## Integration Points
 
@@ -148,7 +157,9 @@ is absolute and under the prefix; `create` runs inside `build()`, which holds th
 - `liquers-py/src/command.rs`: the call path moves to `src/pycall.rs`; `PyCallable`'s counter becomes
   the shared `LiveHandle`, also counting store objects, store types and recipe providers
   (`live_handle_count()` and the `debug-handles` comment in `liquers-py/Cargo.toml` updated).
-- `liquers-py/src/exit.rs`: `py_call(subject, f)`, `attach_tracked` with the `EXITING` check.
+- `liquers-py/src/exit.rs`: `py_call(subject, f)` (`command_call` without the asset);
+  `attach_tracked` unchanged, used by `is_supported`; a `Direct` handle's loop pool is stopped by
+  the existing exit hook through a registry of live pools.
 - `liquers-py/src/error.rs`: `pyerr_to_store_error(py, err, key, store, write)`.
 - `liquers-py/src/lib.rs`, `python/liquers/_factories.py` (new), `__init__.py`, `tests/`.
 - No change in `liquers-core`, `liquers-store` or `liquers-lib`.
