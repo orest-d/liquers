@@ -83,8 +83,12 @@ the root fallback; renaming it would change every exported registry and is out o
 
 - `liquers-core/src/plan.rs` `namespaces_for_query`: keep the `ns` parameter parsing (non-string is
   `NotSupported`), then `cmr.lookup_namespaces(explicit.as_deref())`. `append_action` resolves the
-  "plain" candidate with `lookup_namespaces` on a clone whose `implicit_namespaces` is empty — in
-  practice a private helper taking a flag — so the emitted query carries `ns-<ns>` (AC-8).
+  plain candidate twice, with the configured lookup and with `implicit_namespaces` ignored (a private
+  helper taking a flag). It returns the plain query only when both resolve to the requested
+  namespace. Otherwise it appends `ns-<ns>`, and for a requested root command it appends `ns-root`
+  instead of returning the plain query unconditionally as today. With no implicit namespaces both
+  lookups are equal and the requested-root early return stays as it is, so output is unchanged
+  (AC-8).
 - `liquers-core/src/environment_builder.rs` `build()`: before `validate()`, copy
   `self.default_namespaces` into `command_registry.command_metadata_registry.implicit_namespaces`
   when `Some`. `with_config` (in `environment_config.rs`) calls `with_default_namespaces` only when
@@ -97,7 +101,9 @@ the root fallback; renaming it would change every exported registry and is out o
 - `liquers-template/src/diagnostics.rs` `lookup_namespaces` and
   `liquers-template/src/query/instantiate.rs` (override lookup): call the registry method.
 - `liquers-lib/src/utils.rs` `namespaces_from`: call the registry method.
-- `liquers-py`: none — `EnvironmentConfig` documents pass through.
+- `liquers-py/src/environment.rs` `EnvCell::configured_builder`: it applies `assets` and `recipes`
+  one by one instead of calling `with_config`, so add
+  `.with_default_namespaces(…)` when `self.config.default_namespaces` is `Some`.
 
 ## Error Handling
 
@@ -130,7 +136,7 @@ when empty). Namespaces this interacts with: any non-root one — `pl`, `lui`, `
 | Assessment | Finding |
 |---|---|
 | Files likely to change | `command_metadata.rs`, `plan.rs`, `context.rs`, `environment_builder.rs`, `environment_config.rs`, `validate/registry.rs`, `bin/liquers_validate.rs`, template `diagnostics.rs` + `query/instantiate.rs`, lib `utils.rs` |
-| Crates and workflows affected | core, template, lib; Python only through config |
+| Crates and workflows affected | core, template, lib, py (one builder call) |
 | Existing tests likely to change | Struct-literal constructions of `CommandMetadataRegistry`, if any outside `new()`; validate report tests that print the registry |
 | New validation | Registry check for implicit namespaces |
 | Compatibility | Additive serde field with default and skip; no change when unset. A query's meaning now depends on the environment, as recipes already depend on registered commands |

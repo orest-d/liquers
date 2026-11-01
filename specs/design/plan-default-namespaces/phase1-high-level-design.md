@@ -21,8 +21,11 @@
      root and cannot remove it; listing `root` explicitly is allowed and only changes its position.
      Removing root would break every query that uses a core command.
   3. **Proposed resolution — generated queries stay portable.** `plan::append_action`, which adds
-     an `ns-<ns>` when an appended command would not resolve to the requested namespace, ignores the
-     configured list, so a query a UI builds in one environment means the same in another.
+     an `ns-<ns>` when an appended command would not resolve to the requested namespace, emits the
+     bare action only when it resolves to the requested command both with and without the
+     configured list; otherwise it writes the `ns`, `ns-root` included when a configured namespace
+     would shadow a root command. A query a UI builds in one environment then means the same in
+     another, and with no list configured the output is today's.
   4. **Proposed resolution — an unknown namespace warns.** A configured namespace in which no
      registered command lives is a build-time warning in the validation report, not an error; an
      empty string is a `ConfigurationError`.
@@ -72,14 +75,17 @@ the second query plans exactly like the first.
   THEN `head` is looked up in root only, as without configuration
 - **AC-6** Configuration round-trip and composition
   WHEN `default_namespaces` is read from YAML or JSON, written back, or applied by `with_config`
-  THEN the list survives the round-trip in order, an absent key is not written, and an absent key
-  leaves a list set by `with_default_namespaces` in place
+  THEN the list survives the round-trip in order, an absent key is not written, an absent key
+  leaves a list set by `with_default_namespaces` in place, and a Python environment built from the
+  document resolves an unqualified action in the configured namespace
 - **AC-7** Invalid entries
   WHEN a configured entry is the empty string, or names a namespace no registered command uses
   THEN `build()` fails with `ConfigurationError` for the first, and reports a warning for the second
 - **AC-8** Generated queries stay portable
-  WHEN `append_action` appends `pl/head` to a query in an environment configured with `[pl]`
-  THEN the result still carries `ns-pl`
+  WHEN `append_action` appends `pl/head`, or a root `x` that `pl/x` would shadow, to a query in an
+  environment configured with `[pl]`
+  THEN the result carries `ns-pl`, respectively `ns-root`, and plans to the requested command both
+  with and without the configured list
 - **AC-9** Other resolvers agree with the planner
   WHEN template diagnostics, template parameter overrides and `next` presets resolve an action
   THEN they use the same namespace list as the planner, implicit namespaces included
@@ -101,13 +107,15 @@ configuring namespaces in `liquers-web`'s JavaScript API (it can call the builde
 - Commands: `CommandMetadataRegistry` holds the list and computes lookup lists for every resolver.
 - Environment: `EnvironmentConfig`, `EnvironmentBuilder`, `Environment` accessor.
 - Validation: a `liquers-validate` flag; registry overlay merge.
-- Bindings: Python gets the key through `EnvironmentConfig` documents with no binding change.
+- Bindings: Python reads `EnvironmentConfig` documents, but `liquers-py`'s `EnvCell::configured_builder`
+  applies fields one by one rather than through `with_config`, so it gains one call.
 
 ## Crate Placement
 
 `liquers-core` holds the field, the lookup rule, configuration and builder. `liquers-template`
 (`diagnostics.rs`, `query/instantiate.rs`) and `liquers-lib` (`utils.rs`) replace their copies of
-the lookup rule with the core one. No new crate dependency.
+the lookup rule with the core one. `liquers-py` (`environment.rs`) passes the configured list to its
+builder. No new crate dependency.
 
 ## Documentation Intent
 

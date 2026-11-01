@@ -10,7 +10,7 @@ No prerequisite issue.
 
 - [ ] Step 1: Registry field, `lookup_namespaces`, checks
 - [ ] Step 2: Planner uses `lookup_namespaces`; `append_action` stays portable
-- [ ] Step 3: Builder setter, configuration key, `Environment::default_namespaces`
+- [ ] Step 3: Builder setter, configuration key, `Environment::default_namespaces`, Python builder
 - [ ] Step 4: Template and lib resolvers use `lookup_namespaces`
 - [ ] Step 5: `liquers-validate` flag and overlay merge
 - [ ] Step 6: Documentation
@@ -28,7 +28,9 @@ No prerequisite issue.
 ### Step 2: Planner
 - Files / symbols: `liquers-core/src/plan.rs` `namespaces_for_query`, `append_action`
 - Change: `namespaces_for_query` parses `ns` as today and calls `lookup_namespaces`;
-  `append_action`'s plain resolution ignores `implicit_namespaces` (private helper with a flag).
+  `append_action` returns the plain query only when it resolves to the requested namespace with
+  and without `implicit_namespaces` (private helper with a flag); otherwise `ns-<ns>`, or `ns-root`
+  when a configured namespace shadows a requested root command.
 - Depends on: Step 1
 - Proof: `cargo test -p liquers-core --lib plan::tests` — tests 3-8, existing plan tests green
 - Rollback: revert; Step 1 alone is inert
@@ -36,11 +38,13 @@ No prerequisite issue.
 ### Step 3: Builder, configuration, accessor
 - Files / symbols: `environment_builder.rs` `EnvironmentBuilder::{default_namespaces, with_default_namespaces, build}`;
   `environment_config.rs` `EnvironmentConfig::default_namespaces`, `with_config`;
-  `context.rs` `Environment::default_namespaces`
-- Change: as Phase 2; `build()` writes the field before `validate()`.
+  `context.rs` `Environment::default_namespaces`; `liquers-py/src/environment.rs` `EnvCell::configured_builder`
+- Change: as Phase 2; `build()` writes the field before `validate()`; the Python builder applies
+  the key.
 - Depends on: Step 1
 - Proof: `cargo test -p liquers-core --lib environment_config` (tests 9, 10) and
-  `cargo test -p liquers-core --test plan_default_namespaces` (test 13)
+  `cargo test -p liquers-core --test plan_default_namespaces` (test 13),
+  `bash scripts/test-liquers-py.sh` (test 18)
 - Rollback: revert; the registry field can still be set by hand
 
 ### Step 4: Template and lib resolvers (parallel with Step 5)
@@ -70,8 +74,8 @@ No prerequisite issue.
 
 Each step's proof as it lands; at the end `cargo test -p liquers-core --lib --tests`,
 `cargo test -p liquers-template`, `cargo test -p liquers-lib --lib --tests`. No `cfg(feature)` or
-optional dependency changes, so the build matrix is not required; `cargo test -p liquers-py` via
-`bash scripts/test-liquers-py.sh` is optional since the binding code does not change.
+optional dependency changes, so the build matrix is not required. `bash scripts/test-liquers-py.sh`
+runs for Step 3, since the Python builder changes.
 
 ## Rollback Plan
 

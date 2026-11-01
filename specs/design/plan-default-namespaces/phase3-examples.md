@@ -11,7 +11,7 @@
 | 5 | Test | `liquers_core::plan::tests::explicit_ns_replaces_implicit_namespaces` | Replace semantics | AC-3 |
 | 6 | Test | `liquers_core::plan::tests::root_searched_after_implicit_namespaces` | Order | AC-4 |
 | 7 | Test | `liquers_core::plan::tests::bare_ns_searches_root_only` | Opt-out | AC-5 |
-| 8 | Test | `liquers_core::plan::tests::append_action_keeps_ns_under_implicit_namespaces` | Portability | AC-8 |
+| 8 | Test | `liquers_core::plan::tests::append_action_keeps_ns_under_implicit_namespaces` | `ns-pl` kept; shadowed root `x` gets `ns-root`; both plan to the requested command with and without the list | AC-8 |
 | 9 | Test | `liquers_core::environment_config::tests::default_namespaces_round_trip` | Serde | AC-6 |
 | 10 | Test | `liquers_core::environment_config::tests::absent_default_namespaces_keeps_builder_setting` | Composition | AC-6 |
 | 11 | Test | `liquers_core::command_metadata::tests::implicit_namespace_checks` | Error and warning | AC-7 |
@@ -21,6 +21,7 @@
 | 15 | Test | `liquers_lib::utils::tests::next_presets_use_implicit_namespaces` | Presets agree | AC-9 |
 | 16 | Test | `liquers_core::validate::tests::default_namespace_flag_resolves_unqualified_action` | CLI flag | AC-10 |
 | 17 | Test | `liquers-lib/tests/registry_export.rs` (existing) | Committed registry still fresh | AC-11 |
+| 18 | Test | `liquers-py/tests/test_ENVIRON_environment.py::test_default_namespaces_from_config` | Python builder applies the key | AC-6 |
 
 ## Example 1: Polars environment from YAML
 
@@ -47,7 +48,7 @@ let state = envref.evaluate_immediately("-R/data/sales.csv/-/head-3", None).awai
 ```
 
 Lookup list for `head`: `["pl", "", "root"]`. The same document read by `liquers-py` gives the
-same result with no binding change.
+same result once its builder applies the key (test 18).
 
 ## Example 2: Escaping the implicit list
 
@@ -81,6 +82,7 @@ The last row is what a recipe meant to run anywhere should keep writing.
 - Integration: `liquers-core/tests/plan_default_namespaces.rs` test 13 — `Inline` environment from
   YAML with a memory store, one command registered in namespace `x`.
 - Unit: template test 14 and lib test 15.
+- Python: `liquers-py/tests/` test 18, run by `bash scripts/test-liquers-py.sh`.
 - Command to run: `cargo test -p liquers-core --lib --tests`, `cargo test -p liquers-template`,
   `cargo test -p liquers-lib --lib --tests`.
 
