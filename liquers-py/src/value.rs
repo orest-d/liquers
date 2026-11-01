@@ -550,6 +550,10 @@ fn py_to_ext(object: &Bound<'_, PyAny>) -> Result<Option<ExtValue>, Error> {
         return Ok(Some(ExtValue::RecordView { value: view.get().inner.clone() }));
     }
     let type_name = qualified_type_name(object);
+    if type_name == "pyarrow.lib.Table" || type_name == "pyarrow.lib.RecordBatch" {
+        // An Arrow table enters records, through IPC bytes (the plan's §3.2 row).
+        return Ok(Some(ExtValue::RecordView { value: crate::records::arrow::from_arrow(object)? }));
+    }
     let py = object.py();
     if type_name == "polars.dataframe.frame.DataFrame" || type_name == "polars.DataFrame" {
         let buffer = py

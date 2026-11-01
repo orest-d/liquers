@@ -15,7 +15,9 @@
 
 use pyo3::prelude::*;
 
+pub mod arrow;
 pub mod buffer;
+pub mod build;
 pub mod column;
 pub mod convert;
 pub mod resolver;

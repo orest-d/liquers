@@ -238,6 +238,82 @@ impl RecordView {
         Ok(dict.unbind())
     }
 
+    /// A view from a list of dicts, one per row. Columns follow the first-seen key order; a
+    /// missing key is a null. `fields=` declares some fields (a dict from name to a type, its
+    /// lowercase name or an `lq.FieldSchema`) or all of them (an `lq.RecordSchema`); the rest are
+    /// inferred.
+    #[staticmethod]
+    #[pyo3(signature = (rows, *, fields=None))]
+    fn from_records(py: Python<'_>, rows: &Bound<'_, PyAny>, fields: Option<&Bound<'_, PyAny>>) -> PyResult<RecordView> {
+        let built = crate::records::build::read_records(rows)
+            .and_then(|raw| Ok((raw, crate::records::build::Fields::extract(fields)?)))
+            .and_then(|(raw, fields)| crate::records::build::build(raw, fields));
+        RecordView::wrap(py, built)
+    }
+
+    /// A view from a dict of equally long lists, one per column. `fields=` as for `from_records`.
+    #[staticmethod]
+    #[pyo3(signature = (columns, *, fields=None))]
+    fn from_dict(py: Python<'_>, columns: &Bound<'_, PyAny>, fields: Option<&Bound<'_, PyAny>>) -> PyResult<RecordView> {
+        let built = crate::records::build::read_dict(columns)
+            .and_then(|raw| Ok((raw, crate::records::build::Fields::extract(fields)?)))
+            .and_then(|(raw, fields)| crate::records::build::build(raw, fields));
+        RecordView::wrap(py, built)
+    }
+
+    /// The view as a `pyarrow.Table` (a copy), with the roles (`liquers.schema`), the chunk id
+    /// (`liquers.chunk_id`) and the origins (`liquers.origins`) in its schema metadata. Needs
+    /// `liquers-py[arrow]`.
+    fn to_arrow(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        crate::aio::check_blocking_call(py, "to_arrow")?;
+        crate::records::arrow::to_arrow(py, &self.inner).map_err(|e| error_to_pyerr(py, &e))
+    }
+
+    /// The view as a `pandas.DataFrame` (a copy, through Arrow; metadata is dropped). Needs
+    /// `liquers-py[pandas]`.
+    fn to_pandas(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        crate::records::arrow::to_pandas(py, &self.inner).map_err(|e| error_to_pyerr(py, &e))
+    }
+
+    /// The view as a `polars.DataFrame` (a copy; metadata is dropped). Needs `liquers-py[polars]`.
+    fn to_polars(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        crate::records::arrow::to_polars(py, &self.inner).map_err(|e| error_to_pyerr(py, &e))
+    }
+
+    /// A view of a `pyarrow.Table` or `RecordBatch` (a copy). Narrow integers and floats, large
+    /// and view strings, dictionaries, `date64` and timestamps of other units are normalized
+    /// first when no value is lost; any other column raises `ConversionError` naming it.
+    /// `fields=` as for `from_records`. Needs `liquers-py[arrow]`.
+    #[staticmethod]
+    #[pyo3(signature = (table, *, fields=None))]
+    fn from_arrow(py: Python<'_>, table: &Bound<'_, PyAny>, fields: Option<&Bound<'_, PyAny>>) -> PyResult<RecordView> {
+        let built = crate::records::build::Fields::extract(fields)
+            .and_then(|fields| crate::records::arrow::with_fields(crate::records::arrow::from_arrow(table)?, fields));
+        RecordView::wrap(py, built)
+    }
+
+    /// A view of a `pandas.DataFrame` (a copy, through Arrow; the index is dropped). An integer
+    /// column holding `None` is `float64` in pandas and arrives as `Float`, unless the frame uses
+    /// `Int64` or `fields=` declares it. Needs `liquers-py[pandas]`.
+    #[staticmethod]
+    #[pyo3(signature = (df, *, fields=None))]
+    fn from_pandas(py: Python<'_>, df: &Bound<'_, PyAny>, fields: Option<&Bound<'_, PyAny>>) -> PyResult<RecordView> {
+        let built = crate::records::build::Fields::extract(fields)
+            .and_then(|fields| crate::records::arrow::with_fields(crate::records::arrow::from_pandas(df)?, fields));
+        RecordView::wrap(py, built)
+    }
+
+    /// A view of a `polars.DataFrame` (a copy, through the polars bridge; no pyarrow needed). A
+    /// column the bridge cannot carry (a list, a decimal, a duration) raises `ConversionError`
+    /// naming it. Needs `liquers-py[polars]`.
+    #[staticmethod]
+    #[pyo3(signature = (df, *, fields=None))]
+    fn from_polars(py: Python<'_>, df: &Bound<'_, PyAny>, fields: Option<&Bound<'_, PyAny>>) -> PyResult<RecordView> {
+        let built = crate::records::build::Fields::extract(fields)
+            .and_then(|fields| crate::records::arrow::with_fields(crate::records::arrow::from_polars(df)?, fields));
+        RecordView::wrap(py, built)
+    }
+
     fn __repr__(&self) -> String {
         let names: Vec<&str> = self.inner.schema().fields.iter().map(|f| f.name.as_str()).collect();
         format!("RecordView({} rows, fields=[{}])", self.inner.len(), names.join(", "))
