@@ -771,3 +771,19 @@ fn environ08_registry_without_commands_is_refused() {
     let summary = get(&report, "summary").as_string().unwrap_or_default();
     assert!(summary.contains("commands"), "{summary}");
 }
+
+/// `liquersVersion` — every environment reports the one workspace version (liquers-py-package
+/// AC-10), from the global handle and from an explicit instance alike, without building anything.
+#[wasm_bindgen_test]
+fn environment_reports_liquers_version() {
+    reset_global();
+    let global = LiquersEnvironment::global().expect("global handle");
+    assert_eq!(global.liquers_version(), liquers_core::VERSION);
+    let explicit = LiquersEnvironment::from_envref(build_environment().expect("build"));
+    assert_eq!(explicit.liquers_version(), liquers_core::VERSION);
+    assert_eq!(
+        Environment::liquers_version(explicit.resolve().expect("resolve").0.as_ref()),
+        liquers_core::VERSION
+    );
+    reset_global();
+}

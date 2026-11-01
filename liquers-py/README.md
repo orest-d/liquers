@@ -2,9 +2,73 @@
 
 Python bindings for Liquers, built with [PyO3](https://pyo3.rs) and [maturin](https://www.maturin.rs).
 
-How to use it is [`specs/guides/PYTHON_GUIDE.md`](../specs/guides/PYTHON_GUIDE.md): configuring an
-environment, registering commands, running queries, values and errors. How it is built on the Rust
-crates is [`specs/reference/PYTHON_INTEGRATION.md`](../specs/reference/PYTHON_INTEGRATION.md).
+How to use it is [`specs/guides/PYTHON_GUIDE.md`](https://github.com/orest-d/liquers/blob/main/specs/guides/PYTHON_GUIDE.md):
+configuring an environment, registering commands, running queries, values and errors. How it is
+built on the Rust crates is
+[`specs/reference/PYTHON_INTEGRATION.md`](https://github.com/orest-d/liquers/blob/main/specs/reference/PYTHON_INTEGRATION.md).
+
+Licensed under the GNU Affero General Public License, version 3 or (at your option) any later
+version (`AGPL-3.0-or-later`), like every Liquers crate. The wheel also carries
+`THIRD-PARTY-NOTICES.html`, the licenses of the Rust crates compiled into it.
+
+## Installing
+
+```bash
+pip install liquers-py                 # the package, imported as `liquers`
+pip install 'liquers-py[all]'          # with every optional Python package
+```
+
+**Wheels** are published for CPython 3.14 and later, on Linux x86_64 and aarch64 (manylinux_2_28),
+macOS arm64, and Windows x86_64 and arm64: one `cp314-abi3` wheel for every GIL-enabled CPython
+from 3.14, and `cp314t` / `cp315t` wheels for the free-threaded builds. Everything else installs
+from the source distribution, which needs a Rust toolchain (1.95 or newer) and a C compiler: CPython
+3.10-3.13, PyPy 3.11+, macOS x86_64 and musllinux. `pip install --only-binary :all: liquers-py`
+refuses that fallback.
+
+**Extras** install the Python packages an optional feature needs. `lq.require(extra)` imports them
+or says what is missing:
+
+| Extra | Installs | Needed for |
+|---|---|---|
+| `polars` | polars | DataFrames as `polars.DataFrame` |
+| `images` | pillow | images as PIL images |
+| `arrow` | pyarrow | `RecordView.to_arrow()` / `from_arrow()` |
+| `pandas` | pyarrow, pandas | `RecordView.to_pandas()` / `from_pandas()` |
+| `all` | all of the above | |
+
+pyarrow has no wheel for Windows arm64, so `arrow` and `pandas` are left out there, and polars has
+none for a free-threaded interpreter; `lq.require` reports either as not available on that
+platform.
+
+**Quick start.**
+
+<!-- quickstart -->
+```python
+import liquers as lq
+
+@lq.first_command
+def hello() -> str:
+    return "world"
+
+@lq.command
+def greet(text: str, greeting: str = "Hello") -> str:
+    return f"{greeting}, {text}!"
+
+print(lq.evaluate("hello/greet-Hi"))
+```
+<!-- /quickstart -->
+
+prints
+
+<!-- quickstart-output -->
+```text
+Hi, world!
+```
+<!-- /quickstart-output -->
+
+`lq.__version__` is the Liquers version (PEP 440 form), the same as `Environment().liquers_version`.
+
+## Using it
 
 The distribution is named `liquers-py`; the package it installs is imported as `liquers`:
 

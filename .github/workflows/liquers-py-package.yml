@@ -1,0 +1,93 @@
+name: liquers-py-package
+
+# On pull requests that touch packaging: builds the Linux x86_64 abi3 wheel the way the release does
+# (liquers-py-release.yml jobs lock, notices, wheels, test), checks it, and runs the installed-wheel
+# tests against it. Publishes nothing. Design: specs/design/liquers-py-package/phase2-architecture.md.
+
+on:
+  pull_request:
+    paths:
+      - 'liquers-py/pyproject.toml'
+      - 'liquers-py/Cargo.toml'
+      - 'liquers-py/README.md'
+      - 'liquers-py/LICENSE'
+      - 'liquers-py/about.toml'
+      - 'liquers-py/about.hbs'
+      - 'liquers-py/packaging/**'
+      - 'liquers-py/src/**'
+      - 'liquers-py/python/liquers/**'
+      - 'liquers-py/tests/package/**'
+      - 'Cargo.toml'
+      - 'scripts/check-workspace-metadata.py'
+      - 'scripts/check-wheel.py'
+      - 'scripts/test_check_workspace_metadata.py'
+      - 'scripts/test_check_wheel.py'
+      - 'scripts/test_release_workflow.py'
+      - '.github/workflows/liquers-py-package.yml'
+      - '.github/workflows/liquers-py-release.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  wheel:
+    name: build, check and test the Linux x86_64 abi3 wheel
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - name: Lock and check the workspace
+        id: version
+        run: |
+          python -m pip install pyyaml
+          cargo generate-lockfile
+          echo "version=$(python scripts/check-workspace-metadata.py --print-version)" >> "$GITHUB_OUTPUT"
+          python -m unittest -v scripts/test_check_workspace_metadata.py \
+            scripts/test_check_wheel.py scripts/test_release_workflow.py
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-about
+      - name: Third-party notices
+        run: |
+          cargo about generate --locked -m liquers-py/Cargo.toml -c liquers-py/about.toml \
+            -o liquers-py/python/liquers/THIRD-PARTY-NOTICES.html liquers-py/about.hbs
+      - uses: PyO3/maturin-action@v1
+        with:
+          target: x86_64
+          manylinux: '2_28'
+          docker-options: -e AWS_LC_SYS_USE_SYSTEM=0
+          args: >-
+            --manifest-path liquers-py/Cargo.toml --profile wheel --locked --out dist
+            --auditwheel check -i python3.14 --features abi3
+      - name: Check linked libraries and size
+        run: |
+          python -m pip install auditwheel
+          wheel=$(ls dist/*.whl)
+          python -m auditwheel show "$wheel" | tee deps.txt
+          python scripts/check-wheel.py "$wheel" --deps deps.txt
+      - name: Installed-wheel tests
+        env:
+          LIQUERS_PY_WHEEL_TEST: '1'
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          python -m venv "$RUNNER_TEMP/v"
+          wheel="$GITHUB_WORKSPACE/$(ls dist/*.whl)"
+          "$RUNNER_TEMP/v/bin/python" -m pip install "$wheel" pytest packaging
+          cd "$RUNNER_TEMP"
+          LIQUERS_PY_WHEEL="$wheel" "$RUNNER_TEMP/v/bin/python" -m pytest -v \
+            --rootdir "$GITHUB_WORKSPACE/liquers-py/tests/package" \
+            --confcutdir "$GITHUB_WORKSPACE/liquers-py/tests/package" -p no:cacheprovider \
+            "$GITHUB_WORKSPACE/liquers-py/tests/package"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: liquers-py-wheel-linux-x86_64-abi3
+          path: dist/*.whl

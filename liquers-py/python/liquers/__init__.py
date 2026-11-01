@@ -67,9 +67,12 @@ from liquers._native import (
     AssetRef,
     StoreArgumentInfo,
     Store,
+    # The Liquers version in PEP 440 form; deliberately not in __all__ (OBJECT08).
+    __version__,
 )
 from liquers._env import default_environment, evaluate, evaluate_async
 from liquers._commands import command, first_command
+from liquers._extras import require
 from liquers._errors import LiquersError, _install as _install_errors
 
 # One LiquersError subclass per ErrorType variant (KeyNotFoundError, ExecutionError, ...), and one
@@ -134,6 +137,7 @@ __all__ = [
     "evaluate_async",
     "command",
     "first_command",
+    "require",
     "LiquersError",
     *sorted(_ERROR_SUBCLASSES),
 ]

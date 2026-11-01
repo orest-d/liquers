@@ -8,6 +8,10 @@ import pytest
 
 import liquers as lq
 
+# The installed-wheel tests (liquers-py-package) have their own conftest and run only against a
+# wheel in a fresh venv, from the release workflow; the development loop does not collect them.
+collect_ignore = ["package"]
+
 
 def na(reason):
     """A feature marked NA keeps its tests present, skipped with the reason the design records."""

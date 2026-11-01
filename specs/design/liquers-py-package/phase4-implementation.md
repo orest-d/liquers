@@ -101,7 +101,7 @@ in parallel with Step 2.
 - Change: as Phase 2. The README states the license and which platforms are source-only.
   `[tool.maturin]` sets no profile.
 - Depends on: Steps 1 and 3 (the extras).
-- Proof (prerequisite `cargo install cargo-about --locked`):
+- Proof (prerequisite `cargo install cargo-about --locked --features cli`):
   - Phase 2's `notices` command writes `python/liquers/THIRD-PARTY-NOTICES.html`, which proves
     every dependency license is accepted;
   - `maturin build --profile wheel --features abi3 -o /tmp/w` then builds a `cp314-abi3` wheel

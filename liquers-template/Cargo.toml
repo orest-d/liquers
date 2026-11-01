@@ -1,10 +1,11 @@
 [package]
 name = "liquers-template"
-version = "0.1.0"
+version.workspace = true
 edition = "2021"
 rust-version.workspace = true
 description = "Query-aware Mustache templates for Liquers"
-license = "MIT"
+license.workspace = true
+exclude = ["tests/spec", "tests/spec.rs", "tests/node.rs"]
 
 # Depends on liquers-core only, and adds no async runtime: rendering uses `futures` and core's
 # `maybe_send`, so the crate builds for wasm32 as it does natively

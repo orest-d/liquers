@@ -177,7 +177,9 @@ mod tests {
 **Minimum Rust: 1.95** (`[workspace.package] rust-version` in `Cargo.toml`, set by the egui 0.36 / sysinfo 0.39 dependencies; a minimum, not a pin — on an older toolchain run `rustup update stable`).
 
 **`liquers-py` supports CPython 3.10–3.15 and PyPy 3.11 or newer** (PyO3 0.30); no build override
-is needed — see `liquers-py/README.md`. Its tests run with `bash scripts/test-liquers-py.sh`
+is needed — see `liquers-py/README.md`. Published wheels cover CPython 3.14+ only (`cp314-abi3`,
+`cp314t`, `cp315t` on five platforms, `.github/workflows/liquers-py-release.yml`); every other
+interpreter builds from the sdist. Its tests run with `bash scripts/test-liquers-py.sh`
 (venv under `target/`, `maturin develop`, pytest, then its Rust unit tests).
 
 Rust debug builds of this workspace are large — large enough that a full build does not fit in a

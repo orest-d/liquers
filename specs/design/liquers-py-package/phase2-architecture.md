@@ -107,7 +107,7 @@ falls back to a source build of a third-party package. Checked on PyPI on 2026-1
 |---|---|---|---|
 | `polars` | polars 2.1 (runtime `cp311-abi3`) | every platform, GIL builds | free-threaded interpreters (an abi3 library does not load there): documented; `require` says it is not available |
 | `images` | pillow 13.0 | every platform and ABI | — |
-| `arrow` | pyarrow 26.0 | Linux, macOS arm64, Windows x86_64; `cp314` and `cp314t` | Windows arm64: `pyarrow; not (sys_platform == "win32" and platform_machine == "ARM64")` |
+| `arrow` | pyarrow 26.0 | Linux, macOS arm64, Windows x86_64; `cp314` and `cp314t` | Windows arm64: `pyarrow; sys_platform != "win32" or platform_machine != "ARM64"` (PEP 508 has no `not`) |
 | `pandas` | pandas 3.1, plus `arrow` | every platform and ABI | as `arrow` on Windows arm64 |
 
 There is no standard marker for a free-threaded interpreter yet, so `polars` on 3.14t cannot be

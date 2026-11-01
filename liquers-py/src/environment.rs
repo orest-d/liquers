@@ -1019,6 +1019,14 @@ impl Environment {
         crate::store::handle::Store::of_environment(&self.cell)
     }
 
+    /// The Liquers version this extension was built with, as Rust writes it (`"0.1.0"`); the
+    /// same for every Liquers crate and every environment. `liquers.__version__` is its PEP 440
+    /// form. Reading it neither builds the environment nor fails after `shutdown()`.
+    #[getter]
+    fn liquers_version(&self) -> &'static str {
+        liquers_core::VERSION
+    }
+
     /// The store types a configuration can name, built-in then Python, each a dict with
     /// `store_type`, `label`, `doc`, `arguments`, `availability` and `coverage`.
     fn store_types(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
@@ -1049,6 +1057,18 @@ mod tests {
 
     fn new_cell() -> Result<EnvCell, Error> {
         EnvCell::new(EnvironmentConfig::default(), ConversionMode::Permissive, false, NonZeroUsize::MIN)
+    }
+
+    #[test]
+    fn liquers_version_is_core_version() -> Result<(), Error> {
+        attached(|py| {
+            let cell = new_cell()?;
+            let envref = cell.envref(py)?;
+            let reported = liquers_core::context::Environment::liquers_version(envref.0.as_ref());
+            assert_eq!(reported, liquers_core::VERSION);
+            assert_eq!(crate::pep440(reported), crate::pep440(liquers_core::VERSION));
+            Ok(())
+        })
     }
 
     #[test]

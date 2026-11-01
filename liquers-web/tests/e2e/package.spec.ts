@@ -106,14 +106,23 @@ test.describe('PACKAGE — the delivery form works', () => {
    */
   test('PACKAGE04 version metadata matches linked core', async ({ page }) => {
     const root = resolve(__dirname, '../../..');
-    const versionOf = (manifest: string): string => {
-      const text = readFileSync(resolve(root, manifest), 'utf8');
-      const match = text.match(/^version\s*=\s*"([^"]+)"/m);
-      expect(match, `no version in ${manifest}`).not.toBeNull();
+    // Every member inherits `[workspace.package] version` (liquers-py-package), so the version
+    // both crates are built with is the workspace's.
+    const workspaceVersion = (): string => {
+      const text = readFileSync(resolve(root, 'Cargo.toml'), 'utf8');
+      const section = text.split(/^\[workspace\.package\]\s*$/m)[1] ?? '';
+      const match = section.split(/^\[/m)[0].match(/^version\s*=\s*"([^"]+)"/m);
+      expect(match, 'no version in [workspace.package]').not.toBeNull();
       return match![1];
     };
-    const webVersion = versionOf('liquers-web/Cargo.toml');
-    const coreVersion = versionOf('liquers-core/Cargo.toml');
+    const inherits = (manifest: string): void => {
+      const text = readFileSync(resolve(root, manifest), 'utf8');
+      expect(text, `${manifest} inherits the workspace version`).toMatch(/^version\.workspace\s*=\s*true/m);
+    };
+    inherits('liquers-web/Cargo.toml');
+    inherits('liquers-core/Cargo.toml');
+    const webVersion = workspaceVersion();
+    const coreVersion = workspaceVersion();
 
     await page.goto('/index.html');
     await page.waitForFunction(() => (globalThis as any).__liquersQuickstart?.ready === true);
@@ -147,7 +156,8 @@ test.describe('PACKAGE — the delivery form works', () => {
 
     // Metadata: the crate's own version, reachable from the page rather than only from Cargo.toml.
     const manifest = readFileSync(resolve(root, 'liquers-web/Cargo.toml'), 'utf8');
-    expect(manifest).toMatch(/^version\s*=\s*"/m);
+    expect(manifest).toMatch(/^version\.workspace\s*=\s*true/m);
+    expect(readFileSync(resolve(root, 'Cargo.toml'), 'utf8')).toMatch(/^version\s*=\s*"/m);
     expect(manifest).toMatch(/^description\s*=\s*"/m);
   });
 });
