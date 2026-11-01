@@ -7,6 +7,7 @@
 mod common;
 use common::{arg, args, decl, decl_with_params, eval_to_js, fresh, func, obj, set, with};
 
+use liquers_core::assets::AssetManager;
 use liquers_web::environment::{
     describe_command_on, has_command, register_command_on, reset_global, unregister_command_on,
 };
@@ -209,17 +210,41 @@ async fn command06_duplicate_and_unregister_policy() {
     reset_global();
 }
 
-/// COMMAND07 — context injection.
-///
-/// Scoped to what this milestone provides: the adapter passes a `Context` through to the callable
-/// invocation, and a command executes inside a real asset context. A JavaScript-visible context
-/// object is not part of this phase.
+/// Evaluates a query on the global environment and returns its state's metadata as JSON text,
+/// for assertions on the log and on recorded dependencies.
+async fn evaluated_metadata_json(query: &str) -> String {
+    let envref = liquers_web::environment::shared_env().expect("env");
+    let parsed = liquers_core::parse::parse_query(query).expect("parse");
+    let asset = envref
+        .get_asset_manager()
+        .get_asset(&parsed)
+        .await
+        .expect("asset");
+    let state = asset.get().await.expect("state");
+    serde_json::to_string(&*state.metadata).expect("metadata json")
+}
+
+/// A spec `{ name, run, arguments? }` with `run` from source text.
+fn ctx_decl(name: &str, run: &str, arguments: Option<JsValue>) -> JsValue {
+    let spec = obj();
+    set(&spec, "name", &JsValue::from_str(name));
+    set(&spec, "run", &func(run).into());
+    if let Some(a) = arguments {
+        set(&spec, "arguments", &a);
+    }
+    spec.into()
+}
+
+/// COMMAND07 — context injection: a command logs through its context.
 #[wasm_bindgen_test]
 async fn command07_context_injection() {
     fresh();
-    register_command_on(&decl("ctx", "return 'ran';")).expect("register");
-    // Executing at all proves the command ran inside a context created by the asset manager;
-    // without one, the interpreter could not have invoked it.
+    register_command_on(&ctx_decl(
+        "ctx",
+        "(context) => { context.info('fetching'); return 'ran'; }",
+        None,
+    ))
+    .expect("register");
     assert_eq!(
         eval_to_js("ctx")
             .await
@@ -227,6 +252,222 @@ async fn command07_context_injection() {
             .as_string()
             .as_deref(),
         Some("ran")
+    );
+    let metadata = evaluated_metadata_json("ctx").await;
+    assert!(
+        metadata.contains("fetching"),
+        "the info entry is in the log: {metadata}"
+    );
+    reset_global();
+}
+
+/// COMMAND07b — the context arrives where it is declared or inferred, and is not an argument.
+#[wasm_bindgen_test]
+async fn command07b_context_position_declared_and_inferred() {
+    fresh();
+    // Declared, after an argument.
+    register_command_on(&ctx_decl(
+        "declared",
+        "(x, context) => { context.warning('odd'); return x + (typeof context.info); }",
+        Some(args(vec![arg("x", None, None), arg("context", None, None)])),
+    ))
+    .expect("register declared");
+    assert_eq!(
+        eval_to_js("declared-a")
+            .await
+            .expect("declared")
+            .as_string()
+            .as_deref(),
+        Some("afunction")
+    );
+    let described = describe_command_on("declared").expect("describe");
+    let names: Vec<String> = js_sys::Array::from(&common::get(&described, "arguments"))
+        .iter()
+        .map(|a| common::get(&a, "name").as_string().unwrap_or_default())
+        .collect();
+    assert_eq!(
+        names,
+        vec!["x".to_string()],
+        "context is not a query argument"
+    );
+
+    // Inferred, in first position.
+    register_command_on(&ctx_decl(
+        "inferred",
+        "(context, x) => x + (typeof context.info)",
+        None,
+    ))
+    .expect("register inferred");
+    assert_eq!(
+        eval_to_js("inferred-b")
+            .await
+            .expect("inferred")
+            .as_string()
+            .as_deref(),
+        Some("bfunction")
+    );
+
+    // A state command: the state comes first, then the context.
+    register_command_on(&decl("hello", "return 'hi';")).expect("register hello");
+    register_command_on(&with(
+        ctx_decl(
+            "withstate",
+            "(text, context, n) => text + n + (typeof context.info)",
+            None,
+        ),
+        "state",
+        JsValue::from_str("text"),
+    ))
+    .expect("register withstate");
+    assert_eq!(
+        eval_to_js("hello/withstate-1")
+            .await
+            .expect("withstate")
+            .as_string()
+            .as_deref(),
+        Some("hi1function")
+    );
+    register_command_on(&with(
+        ctx_decl(
+            "withstate2",
+            "(text, n, context) => text + n + (typeof context.info)",
+            Some(args(vec![arg("n", None, None), arg("context", None, None)])),
+        ),
+        "state",
+        JsValue::from_str("text"),
+    ))
+    .expect("register withstate2");
+    assert_eq!(
+        eval_to_js("hello/withstate2-2")
+            .await
+            .expect("withstate2")
+            .as_string()
+            .as_deref(),
+        Some("hi2function")
+    );
+    reset_global();
+}
+
+/// COMMAND07c — `context.error` fails the evaluation once `run` returns.
+#[wasm_bindgen_test]
+async fn command07c_context_error_fails_evaluation() {
+    fresh();
+    register_command_on(&ctx_decl(
+        "fails",
+        "(context) => { context.error('it broke'); return 'ignored'; }",
+        None,
+    ))
+    .expect("register");
+    let err = match eval_to_js("fails").await {
+        Err(e) => e,
+        Ok(v) => panic!("a logged error must fail the evaluation, got {v:?}"),
+    };
+    assert!(err.message.contains("it broke"), "{}", err.message);
+    reset_global();
+}
+
+/// COMMAND07d — `context.evaluate` returns the value and records the dependency.
+#[wasm_bindgen_test]
+async fn command07d_context_evaluate_returns_value_and_records_dependency() {
+    fresh();
+    register_command_on(&decl("inner", "return 'inner value';")).expect("register inner");
+    let spec = with(
+        ctx_decl(
+            "outer",
+            "async (context) => (await context.evaluate('inner')) + '!'",
+            None,
+        ),
+        "async",
+        JsValue::TRUE,
+    );
+    register_command_on(&spec).expect("register outer");
+    assert_eq!(
+        eval_to_js("outer")
+            .await
+            .expect("outer")
+            .as_string()
+            .as_deref(),
+        Some("inner value!")
+    );
+    let metadata = evaluated_metadata_json("outer").await;
+    let dependencies = metadata
+        .split("\"dependencies\"")
+        .nth(1)
+        .unwrap_or_default()
+        .to_string();
+    assert!(
+        dependencies.contains("inner"),
+        "the nested query is a recorded dependency: {metadata}"
+    );
+
+    // A failing nested query rejects with its error.
+    register_command_on(&with(
+        ctx_decl(
+            "badouter",
+            "async (context) => { try { await context.evaluate('nosuchcommand'); return 'no'; } \
+             catch (e) { return 'caught ' + (typeof e.message === 'string'); } }",
+            None,
+        ),
+        "async",
+        JsValue::TRUE,
+    ))
+    .expect("register badouter");
+    assert_eq!(
+        eval_to_js("badouter")
+            .await
+            .expect("badouter")
+            .as_string()
+            .as_deref(),
+        Some("caught true")
+    );
+    reset_global();
+}
+
+/// COMMAND07e — outside a UI, `context.element` is `null`.
+#[wasm_bindgen_test]
+async fn command07e_context_element_is_null_outside_ui() {
+    fresh();
+    register_command_on(&ctx_decl(
+        "where",
+        "(context) => context.element === null ? 'null' : String(context.element)",
+        None,
+    ))
+    .expect("register");
+    assert_eq!(
+        eval_to_js("where")
+            .await
+            .expect("where")
+            .as_string()
+            .as_deref(),
+        Some("null")
+    );
+    reset_global();
+}
+
+/// COMMAND07f — a context kept after its call throws.
+#[wasm_bindgen_test]
+async fn command07f_context_invalid_after_return() {
+    fresh();
+    register_command_on(&ctx_decl(
+        "keeper",
+        "(context) => { globalThis.__keptContext = context; return 'kept'; }",
+        None,
+    ))
+    .expect("register");
+    eval_to_js("keeper").await.expect("keeper");
+    let kept =
+        js_sys::Reflect::get(&js_sys::global(), &JsValue::from_str("__keptContext")).expect("kept");
+    let info: js_sys::Function = common::get(&kept, "info").unchecked_into();
+    let thrown = info
+        .call1(&kept, &JsValue::from_str("late"))
+        .expect_err("a stale context must throw");
+    let message = common::get(&thrown, "message")
+        .as_string()
+        .unwrap_or_default();
+    assert!(message.contains("valid only during the call"), "{message}");
+    let _ = js_sys::Reflect::delete_property(
+        &js_sys::global().into(),
+        &JsValue::from_str("__keptContext"),
     );
     reset_global();
 }

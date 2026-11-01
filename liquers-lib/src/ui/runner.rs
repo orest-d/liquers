@@ -24,6 +24,25 @@ struct MonitoredAsset<E: Environment> {
     notification_rx: tokio::sync::watch::Receiver<AssetNotificationMessage>,
 }
 
+/// A status change of one element, recorded by the runner and read by the backend after `run`.
+///
+/// A backend that shows status to its user (the browser mount's `status` subscription) drains these
+/// with [`AppRunner::take_events`] after each `run`. They are plain data, recorded in order.
+#[derive(Debug, Clone)]
+pub struct RunnerEvent {
+    /// The element, or `None` for a root query with no element to show its error.
+    pub handle: Option<UIHandle>,
+    /// `Processing` when an evaluation starts, `Ready` or `Error` when it ends, or a monitored
+    /// asset's status.
+    pub status: Status,
+    /// The error, when `status` is `Error`.
+    pub error: Option<Error>,
+}
+
+/// How many undrained events the runner keeps. A backend that never calls `take_events` (the egui
+/// examples) loses the oldest instead of growing without bound.
+const MAX_PENDING_EVENTS: usize = 1024;
+
 /// Result of pushing an update at an element.
 enum DeliveryOutcome {
     /// The element no longer exists — the caller stops monitoring it.
@@ -44,10 +63,13 @@ enum DeliveryOutcome {
 /// (EnvRef, AssetRef) that would otherwise create cyclic type dependencies.
 pub struct AppRunner<E: Environment> {
     envref: EnvRef<E>,
-    evaluating: HashMap<UIHandle, AssetRef<E>>,
+    /// In-flight evaluations, with the query text each one started, so a node whose source changed
+    /// meanwhile is evaluated again instead of receiving the stale result.
+    evaluating: HashMap<UIHandle, (AssetRef<E>, String)>,
     monitoring: HashMap<UIHandle, MonitoredAsset<E>>,
     message_rx: AppMessageReceiver,
     sender: AppMessageSender,
+    events: Vec<RunnerEvent>,
 }
 
 impl<E> AppRunner<E>
@@ -71,6 +93,37 @@ where
             monitoring: HashMap::new(),
             message_rx,
             sender,
+            events: Vec::new(),
+        }
+    }
+
+    /// Uses `envref` for every evaluation started from now on. Evaluations already in flight keep
+    /// the environment they started in.
+    pub fn replace_envref(&mut self, envref: EnvRef<E>) {
+        self.envref = envref;
+    }
+
+    /// Drains the status events recorded since the last call, in recording order.
+    pub fn take_events(&mut self) -> Vec<RunnerEvent> {
+        std::mem::take(&mut self.events)
+    }
+
+    fn record(&mut self, handle: Option<UIHandle>, status: Status, error: Option<Error>) {
+        if self.events.len() >= MAX_PENDING_EVENTS {
+            self.events.remove(0);
+        }
+        self.events.push(RunnerEvent {
+            handle,
+            status,
+            error,
+        });
+    }
+
+    /// Whether `handle`'s source is still the query `text`.
+    fn source_is(state: &dyn AppState, handle: UIHandle, text: &str) -> bool {
+        match state.get_source(handle) {
+            Ok(ElementSource::Query(q)) => q == text,
+            Ok(ElementSource::None) | Ok(ElementSource::Recipe(_)) | Err(_) => false,
         }
     }
 
@@ -142,6 +195,7 @@ where
                             let state = asset_ref.poll_state().await;
                             if let Some(s) = state {
                                 if let Err(e) = s.error_result() {
+                                    self.record(handle, Status::Error, Some(e.clone()));
                                     if let Some(h) = handle {
                                         let mut app = app_state.lock().await;
                                         Self::set_element_and_init(
@@ -159,6 +213,7 @@ where
                         }
                         Err(e) => {
                             // On error: set error element (if we have a handle)
+                            self.record(handle, Status::Error, Some(e.clone()));
                             if let Some(h) = handle {
                                 let mut state = app_state.lock().await;
                                 Self::set_element_and_init(
@@ -246,6 +301,7 @@ where
             Ok(asset_ref) => {
                 if let Some(s) = asset_ref.poll_state().await {
                     if let Err(e) = s.error_result() {
+                        self.record(Some(handle), Status::Error, Some(e.clone()));
                         let mut app = app_state.lock().await;
                         Self::set_element_and_init(
                             &mut *app,
@@ -258,6 +314,7 @@ where
                 }
             }
             Err(e) => {
+                self.record(Some(handle), Status::Error, Some(e.clone()));
                 let mut app = app_state.lock().await;
                 Self::set_element_and_init(
                     &mut *app,
@@ -281,10 +338,15 @@ where
             state
                 .pending_nodes()
                 .into_iter()
-                .filter(|h| !self.evaluating.contains_key(h))
                 .filter_map(|h| match state.get_source(h) {
                     Ok(ElementSource::Query(q)) => Some((h, q.clone())),
                     Ok(ElementSource::None) | Ok(ElementSource::Recipe(_)) | Err(_) => None,
+                })
+                // An evaluation of the same text is already in flight; one of another text is
+                // stale, and is replaced below.
+                .filter(|(h, q)| match self.evaluating.get(h) {
+                    Some((_, started)) => started != q,
+                    None => true,
                 })
                 .collect()
         }; // Lock released here
@@ -292,6 +354,8 @@ where
         for (handle, query) in pending {
             let ui_context =
                 UIContext::new(app_state.clone(), self.sender.clone()).with_handle(Some(handle));
+
+            self.evaluating.remove(&handle);
 
             // 1. Set progress element (quick lock)
             {
@@ -303,14 +367,27 @@ where
                     &ui_context,
                 );
             }
+            self.record(Some(handle), Status::Processing, None);
 
-            // 2. Start async evaluation (no payload) — returns AssetRef immediately
-            match self.envref.evaluate(&query).await {
+            // 2. Start async evaluation (no payload). On wasm this awaits the whole evaluation,
+            //    during which the node's source may be replaced.
+            let started = self.envref.evaluate(&query).await;
+            let current = {
+                let state = app_state.lock().await;
+                Self::source_is(&*state, handle, &query)
+            };
+            if !current {
+                // The node now shows something else; it is pending again and the next tick
+                // evaluates its new source. Nothing is recorded for the stale query.
+                continue;
+            }
+            match started {
                 Ok(asset_ref) => {
                     // 3. Track for polling in Phase 3
-                    self.evaluating.insert(handle, asset_ref);
+                    self.evaluating.insert(handle, (asset_ref, query));
                 }
                 Err(e) => {
+                    self.record(Some(handle), Status::Error, Some(e.clone()));
                     let mut state = app_state.lock().await;
                     Self::set_element_and_init(
                         &mut *state,
@@ -332,7 +409,7 @@ where
         let completed: Vec<UIHandle> = self
             .evaluating
             .iter()
-            .filter_map(|(handle, asset_ref)| {
+            .filter_map(|(handle, (asset_ref, _))| {
                 if asset_ref.try_poll_state().is_some() {
                     Some(*handle)
                 } else {
@@ -342,8 +419,8 @@ where
             .collect();
 
         for handle in completed {
-            let asset_ref = match self.evaluating.remove(&handle) {
-                Some(ar) => ar,
+            let (asset_ref, query) = match self.evaluating.remove(&handle) {
+                Some(entry) => entry,
                 None => continue,
             };
             let ui_context =
@@ -356,8 +433,13 @@ where
             };
 
             let mut app = app_state.lock().await;
+            if !Self::source_is(&*app, handle, &query) {
+                // The source changed while the query ran: drop the stale result.
+                continue;
+            }
             match state.error_result() {
                 Ok(()) => {
+                    self.record(Some(handle), Status::Ready, None);
                     // Check if value is already a UIElement
                     if let Ok(ui_elem) = state.data_unchecked().as_ui_element() {
                         Self::set_element_and_init(
@@ -380,6 +462,9 @@ where
                         drop(app);
                         let element = AssetViewElement::from_asset_ref::<E>(title, asset_ref).await;
                         let mut app = app_state.lock().await;
+                        if !Self::source_is(&*app, handle, &query) {
+                            continue;
+                        }
                         Self::set_element_and_init(
                             &mut *app,
                             handle,
@@ -389,6 +474,7 @@ where
                     }
                 }
                 Err(e) => {
+                    self.record(Some(handle), Status::Error, Some(e.clone()));
                     Self::set_element_and_init(
                         &mut *app,
                         handle,
@@ -418,6 +504,8 @@ where
                 let snapshot = Self::build_snapshot(&asset_ref).await;
 
                 // 4. Deliver snapshot to element
+                let status = snapshot.status;
+                let error = snapshot.error.clone();
                 let outcome = Self::deliver_update(
                     handle,
                     UpdateMessage::AssetUpdate(snapshot),
@@ -425,6 +513,10 @@ where
                     &self.sender,
                 )
                 .await;
+                match outcome {
+                    DeliveryOutcome::Delivered(_) => self.record(Some(handle), status, error),
+                    DeliveryOutcome::Missing => {}
+                }
 
                 // 5. Store in monitoring map (replaces existing if any).
                 //    If the element doesn't exist, don't start monitoring.
@@ -449,13 +541,20 @@ where
                     error: Some(e),
                     status: Status::Error,
                 };
-                Self::deliver_update(
+                let error = error_snapshot.error.clone();
+                let outcome = Self::deliver_update(
                     handle,
                     UpdateMessage::AssetUpdate(error_snapshot),
                     app_state,
                     &self.sender,
                 )
                 .await;
+                match outcome {
+                    DeliveryOutcome::Delivered(_) => {
+                        self.record(Some(handle), Status::Error, error)
+                    }
+                    DeliveryOutcome::Missing => {}
+                }
             }
         }
     }
@@ -465,6 +564,7 @@ where
     /// Remove entries where the element no longer exists (auto-stop).
     async fn poll_monitored_assets(&mut self, app_state: &Arc<tokio::sync::Mutex<dyn AppState>>) {
         let mut to_remove = Vec::new();
+        let mut delivered = Vec::new();
 
         for (handle, monitored) in self.monitoring.iter_mut() {
             // Check if notification has changed (non-blocking)
@@ -476,6 +576,8 @@ where
                 let snapshot = Self::build_snapshot(&monitored.asset_ref).await;
 
                 // Deliver to element
+                let status = snapshot.status;
+                let error = snapshot.error.clone();
                 let outcome = Self::deliver_update(
                     *handle,
                     UpdateMessage::AssetUpdate(snapshot),
@@ -484,7 +586,7 @@ where
                 )
                 .await;
                 match outcome {
-                    DeliveryOutcome::Delivered(_) => {}
+                    DeliveryOutcome::Delivered(_) => delivered.push((*handle, status, error)),
                     DeliveryOutcome::Missing => to_remove.push(*handle),
                 }
             } else {
@@ -494,6 +596,10 @@ where
                     to_remove.push(*handle);
                 }
             }
+        }
+
+        for (handle, status, error) in delivered {
+            self.record(Some(handle), status, error);
         }
 
         // Remove entries for elements that no longer exist (auto-stop)

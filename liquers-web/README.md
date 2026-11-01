@@ -307,14 +307,16 @@ updated by the change that moves it.
 | `VALUE` / RECORDS | complete, opt-in | 01, 02, 04–08, 10, `tests/records_RECORDS.rs` | behind the `records` feature; `03`, `09` and `11` are `NA`, see below |
 | `ENVIRON` | complete | 01–08; 08 in `tests/environment_ENVIRON.rs` | — |
 | `EVAL` | complete | 01–07 | `EVAL06` pins inert cancellation (`WEB-CANCELLATION-INERT`) |
-| `COMMAND` | complete | 01–14, DECL01–03 | — |
+| `COMMAND` | complete | 01–14, 07b–07f, DECL01–04 | `COMMAND07`: a command receives a `Context` (`info`, `warning`, `error`, `evaluate`, `isCancelled`, `element`). An existing command with an argument named `context` now receives the context; `conventions: { context: false }` keeps the old behaviour |
 | `ASYNCQ` | complete | 01–06, 08 | `07` is `NA`: JavaScript has its own async model |
 | `ASYNCCMD` | complete | 01–06 | — |
 | `STORE` (all three directions) | complete | 01–17 by ID; 08 is the conformance suite; 13 native | `STORE18` is `NA`, see below |
 | `STUBS` | complete | 01–07 | — |
 | `PACKAGE` | complete | 01–05, 07 | `06` is `NA`: no optional extra |
 | `DOCS` | partial | 03 by `scripts/test-guide-examples.sh`; 01, 02, 05–07 reviewed | `04` not started: no generated API reference (`WEB-API-REFERENCE-NOT-GENERATED`) |
-| `RECIPE`, `UIUSE`, `UIDEF` | not started (deferred) | — | — |
+| `UIUSE` | complete | 01–10 in `tests/ui_browser_UIUSE.rs` (`browser-tests`), 02, 07, 08 also in `tests/ui_UIUSE.rs` (Node); `tests/e2e/ui.spec.ts` | `mountUI` / `UIMount`; the page does not repaint while a query awaits (`WEB-UI-FREEZES-WHILE-A-QUERY-AWAITS`); `UIUSE05` needs `--features debug-handles` |
+| `UIDEF` | complete | 01, 02, 05, 06 in `tests/ui_define_UIDEF.rs` (Node); 03, 04, 06b, 07, 08 in `tests/ui_browser_UIDEF.rs` (`browser-tests`); native `ui::widgets::delegated_element` tests | `defineElement`, `element`, `mountRenderer`; `UIDEF04` is claimed for the web backend only (egui shows a label); `UIDEF06` needs `--features debug-handles` |
+| `RECIPE` | not started (deferred) | — | — |
 | `MODULE`, `POLYGLOT`, `WEBSERV`, `WEBAPI` | `NA` for the shipped milestone | — | — |
 
 **`RECORDS03` is `NA`**: there is no Arrow route out of the browser build; it becomes required if an

@@ -29,11 +29,14 @@ pub use payload::{AppStateRef, SimpleUIPayload, UIPayload};
 pub use resolve::{
     insertion_point_to_add_args, resolve_navigation, resolve_position, InsertionPoint,
 };
-pub use runner::{AppRunner, ElementStatusInfo};
+pub use runner::{AppRunner, ElementStatusInfo, RunnerEvent};
 pub use shortcuts::{find_conflicts, validate_shortcut_strings, Key, KeyboardShortcut, Modifiers};
 pub use ui_context::UIContext;
 pub use widgets::QueryConsoleElement;
 pub use widgets::UISpecElement;
+pub use widgets::{
+    delegate_for, register_delegate, unregister_delegate, DelegatedElement, ElementDelegate,
+};
 
 #[cfg(feature = "egui")]
 pub use element::render_element;
@@ -41,7 +44,9 @@ pub use element::render_element;
 #[cfg(feature = "webui")]
 pub use web::{element_dom_id, render_app_ssr, render_element_web};
 #[cfg(all(feature = "webui", target_arch = "wasm32"))]
-pub use web::{mount_web, MountHandle};
+pub use web::{
+    mount_web, mount_web_with, run_headless, HeadlessOptions, MountHandle, MountOptions,
+};
 
 // ─── Cross-Platform Helpers ─────────────────────────────────────────────────
 

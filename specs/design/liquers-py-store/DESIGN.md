@@ -3,8 +3,7 @@ id: LIQUERS-PY-STORE
 kind: design
 title: Stores written in Python, and configured store routers in liquers-py
 workflow: liquers-project
-status: in_review
-phase: documentation
+status: complete
 readiness: ready
 autofix: not-eligible
 area: [py, core/store, store/config]
@@ -20,6 +19,8 @@ Pre-M4 item 1 asked for, and it takes the Pre-M4 part B decisions (Phase 1, Desi
 Full form, since the source issue is `L`.
 
 Phase 1 approved by Orest on 2026-11-01 (`proceed all`). Pre-approved after Phase 1 on 2026-11-01: Phases 2-4, the implementation and Phase 5, with a stop before implementation only if the decision log needs a decision. (The skill offers `proceed all` at the Phase 2 gate; Orest gave it at Phase 1, so the remaining gates were run with their two reviewer passes and no stop.)
+
+Phase 5 approved by Orest on 2026-11-01; the design is complete.
 
 ## Phases
 

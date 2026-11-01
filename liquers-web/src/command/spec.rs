@@ -87,6 +87,9 @@ pub struct JsCommandSpec {
     /// Whether the argument list was inferred rather than declared. Reported by
     /// `describeCommand` so inference is never invisible (`COMMAND05`).
     pub arguments_inferred: bool,
+    /// Where `run` receives the execution context: an index into the parameters it is called
+    /// with, the state (when the command takes one) included. `None` when it takes no context.
+    pub context_position: Option<usize>,
 }
 
 fn reflect_get(obj: &JsValue, key: &str) -> Option<JsValue> {
@@ -235,9 +238,8 @@ impl JsCommandSpec {
             .to_string();
 
         // JavaScript declares its state mode explicitly rather than by naming the first argument,
-        // so the core state-delivery convention must not run — nor the `context` one, since a
-        // JavaScript command cannot reach the context at all
-        // (JS-COMMAND-CANNOT-ACCESS-CONTEXT).
+        // so the core state-delivery convention must not run. The `context` one does, unless the
+        // page turned it off (`conventions: { context: false }`).
         let state_mode = match document.get("state").and_then(|v| v.as_str()) {
             Some(s) => StateMode::parse(s).map_err(|e| refuse(e.message.clone()))?,
             // A command with no declared state is a source command. Inference below cannot change
@@ -251,7 +253,8 @@ impl JsCommandSpec {
         };
 
         let arguments_inferred = document.get("arguments").is_none();
-        prepare_javascript_document(&mut document, &name);
+        let context_convention = context_convention_enabled(&document);
+        prepare_javascript_document(&mut document, &name, context_convention);
 
         let mut declaration = CommandDeclaration::from_document(document);
         declaration
@@ -262,13 +265,26 @@ impl JsCommandSpec {
         if report.has_errors() {
             return Err(report);
         }
+        // `registration.context` counts the declared arguments only; `run` receives the state
+        // first when it takes one.
+        let state_offset = if state_mode.takes_state() { 1 } else { 0 };
+        let mut context_position = declaration
+            .registration()
+            .get("context")
+            .and_then(|v| v.as_u64())
+            .map(|p| p as usize + state_offset);
         let mut metadata = declaration.build().map_err(|e| refuse(e.message.clone()))?;
         metadata.module = "javascript".to_string();
 
         if arguments_inferred {
-            for argument in
-                infer_arguments(&run, state_mode, &name).map_err(|e| refuse(e.message.clone()))?
-            {
+            let inferred =
+                infer_arguments(&run, state_mode, &name).map_err(|e| refuse(e.message.clone()))?;
+            for (position, argument) in inferred.into_iter().enumerate() {
+                if context_convention && argument.name == "context" && context_position.is_none() {
+                    // An inferred parameter's index already counts the state.
+                    context_position = Some(position + state_offset);
+                    continue;
+                }
                 metadata.arguments.push(argument);
             }
         }
@@ -281,6 +297,7 @@ impl JsCommandSpec {
             is_async,
             run,
             arguments_inferred,
+            context_position,
         })
     }
 
@@ -339,6 +356,9 @@ impl JsCommandSpec {
             is_async,
             run: run.unchecked_into(),
             arguments_inferred: false,
+            // Imported metadata carries no `registration` record, and its argument list is what
+            // the planner binds, so the context is never inserted into an imported command.
+            context_position: None,
         })
     }
 }
@@ -362,16 +382,21 @@ fn reserved_namespace_message() -> String {
 ///   where the shared rule would capitalise it;
 /// * **`state_argument`** is always present, which is what `CommandMetadata::from_key` gave every
 ///   JavaScript command before and what the conformance suite's metadata assertions expect;
-/// * **conventions are off**, because JavaScript declares its state mode explicitly.
+/// * **the state convention is off**, because JavaScript declares its state mode explicitly. The
+///   `context` convention stays on unless the page wrote `conventions: { context: false }` (or
+///   `conventions: false`).
 ///
 /// See open question 2 of `specs/design/command-declaration/phase2-architecture.md`: unifying the
 /// two label rules is defensible but is a deliberate behaviour change, not something to slip in.
-fn prepare_javascript_document(document: &mut serde_json::Value, name: &str) {
+fn prepare_javascript_document(document: &mut serde_json::Value, name: &str, context: bool) {
     let map = match document.as_object_mut() {
         Some(map) => map,
         None => return,
     };
-    map.insert("conventions".to_string(), serde_json::Value::Bool(false));
+    map.insert(
+        "conventions".to_string(),
+        serde_json::json!({ "state": false, "context": context }),
+    );
 
     let label_missing = map
         .get("label")
@@ -412,6 +437,18 @@ fn prepare_javascript_document(document: &mut serde_json::Value, name: &str) {
                 );
             }
         }
+    }
+}
+
+/// Whether the page left the `context` convention on. Only an explicit `false` turns it off, as in
+/// core's reading of `conventions`.
+fn context_convention_enabled(document: &serde_json::Value) -> bool {
+    match document.get("conventions") {
+        Some(serde_json::Value::Bool(false)) => false,
+        Some(serde_json::Value::Object(map)) => {
+            !matches!(map.get("context"), Some(serde_json::Value::Bool(false)))
+        }
+        Some(_) | None => true,
     }
 }
 
