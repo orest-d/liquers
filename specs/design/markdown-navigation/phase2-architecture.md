@@ -1,42 +1,185 @@
-# Phase 2: Solution & Architecture — markdown-navigation
+# Phase 2: Solution & Architecture — Markdown navigation on a Liquers block parser
 
 ## Overview
-<The chosen solution in 2-4 sentences. Rejected alternatives, one line each with the reason.>
+
+A new crate, `liquers-markdown` (on `liquers-core` only), parses a text into a **flat, lossless
+list of blocks** that tiles the input, builds a **section tree** over the headings, finds **links
+and code spans** inside inline text, and resolves **section addresses**. `liquers-lib` gets an
+`ns-md` namespace of five sync commands over it (feature `markdown`), and every current user of the
+line scanner `liquers-lib/src/search/md_split.rs` moves onto it; the scanner is deleted.
+
+Rejected: `pulldown-cmark` (decided 2026-10-31: not lossless or editable, no query awareness); a
+nested block tree now (a list or quote is one block, enough for navigation; nesting can come later
+without changing sections); the parser in `liquers-records` (not about records; templates need it).
 
 ## Known-Issue Preflight
+
 | Issue | Status | Priority | Impact on this design | Fix first? | Blocking? | Action |
 |---|---|---|---|---|---|---|
-<Open issues linked to this design or touching its areas and integration points; `None found` if
-none. A blocker is resolved first or designed around, and is at least P1.>
+| `NO-MARKDOWN-NAVIGATION-COMMANDS` | draft | P3 | Source; first slice | — | No | Closed by Phase 5 for this slice, or narrowed |
+| `NO-QUERY-AWARE-MARKDOWN-PARSER` | draft | P2 | Builds its block layer and inline links/code spans | — | No | Stays open; Phase 5 records what landed |
+| `NO-SOURCE-CODE-AND-API-DOC-NAVIGATION` | draft | — | Uses `md_split-line`, which is kept unchanged | No | No | None |
+
+No open issue blocks the design.
 
 ## Interfaces
-<New and changed items only, as Rust signatures without bodies: structs and enums (with ownership:
-`Arc` / `Box` / owned, and serde), trait impls and bounds, public functions, ExtValue variants,
-commands (`register_command!` DSL line). For each: sync or async, and why. Write `None` for a
-category that does not apply.>
+
+**`liquers-markdown/src/lib.rs`** (sync throughout: pure parsing of an in-memory string).
+
+```rust
+pub struct Span { pub start: usize, pub end: usize, pub line: usize, pub end_line: usize } // bytes; lines 1-based, inclusive
+pub enum FrontMatterFormat { Yaml, Toml }
+pub enum BlockKind {
+    FrontMatter(FrontMatterFormat),
+    Heading { level: u8, setext: bool, text: Span },   // text: the heading's own text
+    Paragraph, List, BlockQuote, Table,
+    FencedCode { info: String }, IndentedCode,
+    Html, ThematicBreak, Blank,
+}
+pub struct Block { pub kind: BlockKind, pub span: Span }
+
+pub struct Section {
+    pub level: u8, pub heading: String, pub number: Option<String>, // "3.2" of "## 3.2 Foo"
+    pub address: String, pub path: Vec<String>, pub slug: String,  // "2.1"; headings from the top; anchor
+    pub block: usize, pub span: Span,                               // heading block; to its last subsection
+    pub parent: Option<usize>, pub children: Vec<usize>,
+}
+pub enum LinkKind { Inline, Reference, Autolink, Image }
+pub enum TargetKind { Relative, Anchor, Url, Query }
+pub struct Link {
+    pub kind: LinkKind, pub text: String, pub target: String, pub target_kind: TargetKind,
+    pub anchor: Option<String>, pub query: Option<liquers_core::query::Query>,
+    pub span: Span, pub section: Option<usize>,
+}
+pub struct CodeSpan { pub text: String, pub span: Span, pub query: Option<liquers_core::query::Query> }
+
+pub struct Document { /* text: String, blocks, sections, inline cache */ }
+impl Document {
+    pub fn parse(text: &str) -> Document;                 // never fails (AC-7)
+    pub fn text(&self) -> &str;
+    pub fn blocks(&self) -> &[Block];
+    pub fn sections(&self) -> &[Section];
+    pub fn section_text(&self, id: usize, children: bool, heading: bool) -> &str;
+    pub fn resolve(&self, address: &Address) -> Result<usize, liquers_core::error::Error>;
+    pub fn find_by_heading(&self, name: &str) -> Option<usize>; // ns-mem's rule: own heading or "A > B"
+    pub fn links(&self) -> Vec<Link>;
+    pub fn code_spans(&self) -> Vec<CodeSpan>;
+    pub fn title(&self) -> Option<&str>;                  // first heading (was first_heading)
+    pub fn first_paragraph(&self, within: Option<usize>) -> Option<String>; // was first_paragraph / section_paragraph
+    pub fn front_matter(&self) -> Option<(FrontMatterFormat, &str)>;
+}
+impl Link { pub fn resolve(&self, document_key: &liquers_core::query::Key) -> Option<liquers_core::query::Key>; }
+
+pub enum Step { Number(usize), Text(String) }
+pub struct Address(pub Vec<Step>);
+impl Address { pub fn parse(text: &str) -> Result<Address, liquers_core::error::Error>; }
+impl std::fmt::Display for Address {}                       // inverse of parse: "." joins, ".." escapes
+```
+
+Ownership: `Document` owns its `String` and plain vectors; the commands build one per call and
+drop it, so no `Arc` is needed. No serde: records are the external form.
+
+**Parsing rules** (the ones navigation depends on; CommonMark where stated). Front matter only
+at byte 0, `---`/`+++` to the matching close, as `liquers_records::search::front_matter_end`
+reads it (a test pins the two together). Fences: 3+ backticks or tildes, closed by a fence of the
+same character at least as long, or the end of the text (CommonMark). ATX headings `#`–`######`
+followed by a space or the line end, up to 3 spaces of indent; setext headings are a paragraph
+followed by a `===` or `---` line. A line indented 4+ spaces outside a list is indented code. An
+HTML block opens on a line starting with `<tag`, `</tag` or `<!--` and runs to a blank line (to
+`-->` for comments). A table is a pipe line followed by a delimiter row. List and quote blocks
+run to the first blank line followed by a line that does not continue them. Inline: code spans by
+backtick runs (CommonMark), then `[text](target "title")`, `![…](…)`, `[text][ref]` with
+`[ref]: target` definitions, and `<scheme:…>` autolinks, outside code spans; emphasis is not
+parsed. A target is a **query** when it begins with `-` or contains `/-/` and `parse_query`
+accepts it; query text is never split by Markdown markup (AC-8).
+
+**Addresses** (AC-2, AC-11). `Address::parse` splits on `.`, reading `..` as a literal dot; an
+empty step or empty address is an error. A step of ASCII digits only is `Number`, anything else
+`Text`. Resolution walks from the root's children (the sections under a lone top-level title,
+pending the maintainer's revised point 2): `Number(n)` takes the `n`-th child; `Text(t)` takes the
+children whose heading words match `t`, ignoring case, preferring exact over word-prefix over
+contained-words, so `phase 1` never matches "Phase 10". A step matches direct children only; when
+nothing matches but a deeper section would, the error names its full address.
+
+**Commands** (`liquers-lib/src/markdown/commands.rs`, after `COMMAND_REGISTRATION_GUIDE.md`; sync
+`fn`, since parsing never waits and the input is already a text value):
+
+```rust
+register_command!(cr, fn outline(state) -> result namespace: "md" label: "Outline"
+    doc: "The headings of a Markdown document as records: n, level, heading, address, number, path, slug, line, end_line, words")?;
+register_command!(cr, fn section(state, address: String, children: bool = true, heading: bool = true) -> result
+    namespace: "md" label: "Section" doc: "…")?;
+register_command!(cr, fn sections(state, address: String = "", level: i64 = 0) -> result namespace: "md" …)?;
+register_command!(cr, fn links(state, address: String = "") -> result namespace: "md" …)?;
+register_command!(cr, fn table(state, address: String, n: i64 = 1) -> result namespace: "md" …)?;
+```
+
+The input is the document's text (`state.try_into_string()`); the key that `links` resolves
+against is the input's own `state.metadata` key, as the guide says for "the input's description".
+`address=""` means the whole document for `sections` and `links`. `table` takes the `n`-th
+`Table` block inside the section and reads its bytes with
+`liquers_records::formats::read_table_with_report(…, TableFormat::Markdown, ReadSchema::Infer, …)`,
+reporting its warnings in the error-free path through `context.warning` (so `table` gains a
+`context` parameter). Every reader returns `Value::from_record_view`, except `section` (text).
 
 ## Integration Points
-<Files and modules to create or modify, per crate, with the call sites affected.>
+
+- **New crate** `liquers-markdown/` (workspace member and default member; `Cargo.toml` with
+  `liquers-core` only); `lib.rs`, `block.rs`, `inline.rs`, `section.rs`, `address.rs`.
+- **`liquers-lib/Cargo.toml`:** `records` adds `dep:liquers-markdown` (its search, store-config and
+  `mem` code needs the parser); new `markdown = ["records"]` in `default`, gating only `ns-md`.
+- **`liquers-lib/src/markdown/`** (new, `#[cfg(feature = "markdown")]`): commands, record schemas,
+  `register_markdown_commands!`, and its no-op stand-in in `commands.rs` beside the others, called
+  from `register_all_commands!`.
+- **`search/md_split.rs`:** the scanner functions go; `md_split` builds rows from
+  `Document::sections` (row 0 for text before the first heading, as now).
+- **`mem/read.rs`, `write.rs`, `rules.rs`, `tiers.rs`:** `sections`/`find_section`/
+  `blank_front_matter`/`first_heading`/`first_paragraph`/`section_paragraph` become `Document`
+  calls; `ns-mem/read section` and `edit section` keep their matching rule via `find_by_heading`.
+- **`mem/check.rs` `dead_links`:** iterates `Document::links()` with `TargetKind::Relative` and
+  `Link::resolve`, replacing its private scanner and `strip_inline_code`.
+- **`store_config.rs` `markdown_tiers`:** `Document::title` and `first_paragraph`.
+- **Registry and matrix:** `specs/command_registry.yaml` gains the `markdown` group (export group
+  list, Origin header, and the "all groups" gate of `liquers-lib/tests/registry_export.rs`);
+  `scripts/check-build-matrix.sh` gains a `markdown` row and `liquers-markdown`'s wasm32 check.
 
 ## Error Handling
-<Failure cases and the `Error` constructor each uses (no `Error::new`).>
+
+| Case | Error |
+|---|---|
+| Empty address, empty step (`a..`, leading `.`) | `Error::general_error("md: invalid address '…': …")` |
+| No section matches | `Error::general_error` naming the address, the step that failed and, if a deeper section matches, its full address |
+| Several sections match a step | `Error::general_error` listing each candidate's address, heading and line |
+| No `n`-th table in the section | `Error::general_error` naming the section's address and the count found |
+| Table bytes unreadable | the records reader's error, unchanged |
+| Input is not text | `try_into_string`'s conversion error |
+
+Parsing itself has no error (AC-7).
 
 ## Relevant Commands
-<New commands with signatures; existing namespaces this interacts with (e.g. `pl`, `lui`). Write
-signatures after reading `specs/guides/COMMAND_REGISTRATION_GUIDE.md`: an argument that depends on
-location (the working directory, a sibling file) is a default link such as `query "-R-key/."`.>
+
+New: the five `ns-md` commands. Same signatures and output, new internals: `ns-search/md_split`,
+`ns-mem/read`, `edit`, `check`, `search`, and `markdown_tiers`. Namespaces: `md`, `search`, `mem`,
+realm `store_config`.
 
 ## Documentation Architecture
-<For each document to create or update: exact path, kind, audience, area, and the change. The
-proposed `affects_docs` set. Links to add in `specs/README.md`.>
+
+- `specs/reference/MARKDOWN.md` (new; reference, internal, `lib/commands`): the block model and
+  its rules above, sections and addresses (with the warning that section numbers move when a
+  section is inserted, so stored references use text steps), the five commands and their fields.
+- `specs/reference/AGENT_MEMORY_SERVICE.md` §4: navigating a document with `ns-md`.
+- `specs/reference/PROJECT_OVERVIEW.md` and `CLAUDE.md`: the new crate, its place in the
+  dependency flow, the `markdown` feature in the feature lists.
+- `liquers-agent` query guide: name `ns-md/outline` and `section` where it suggests `md_split`.
+- `affects_docs`: those four; `specs/README.md` gains a link to `MARKDOWN.md` at Phase 5.
 
 ## Risks
+
 | Assessment | Finding |
 |---|---|
-| Files likely to change | |
-| Crates and workflows affected | |
-| Existing tests likely to change | |
-| New validation | |
-| Compatibility / data / concurrency / performance / security | |
-| Recovery | |
-| Certainty and open questions | |
+| Files and crates | as Integration Points; `liquers-agent` through `mem`; `liquers-web`'s wasm32 build links the crate with `records` |
+| Existing tests likely to change | none by intent (AC-9); `md_split` unit tests move to the crate. Two behaviour changes are intended: setext headings now count, and `#` lines in HTML or indented blocks no longer do |
+| New validation | crate unit tests per rule; a round-trip and tiling test over every `specs/**/*.md` (AC-7); dead-link findings over `specs/` compared before and after |
+| Compatibility / data / concurrency / performance / security | `dead_links` newly sees reference-style links, so it may report links the scanner missed (stated in AC-5's test as an expected difference, not a regression). Linear time; `markdown_tiers` runs on every read, so the parse of a 100 KB document is benchmarked in the crate's tests. No unsafe, no I/O |
+| Recovery | each step reverts on its own: the crate and `ns-md` are additive; the callers switch one module at a time behind passing tests |
+| Certainty and open questions | High for blocks and sections; medium for list and HTML-block edge cases. Open: the maintainer's revised point 2 (the lone title) |

@@ -4,7 +4,7 @@ kind: design
 title: Markdown navigation commands on a Liquers block parser
 workflow: liquers-project
 status: in_review
-phase: high-level
+phase: architecture
 area: [lib/commands, records]
 issues: [NO-MARKDOWN-NAVIGATION-COMMANDS]
 affects_docs: [specs/reference/AGENT_MEMORY_SERVICE.md, specs/reference/PROJECT_OVERVIEW.md]

@@ -76,7 +76,8 @@ number: the 8th section under the title. The last is a path: the section whose h
   WHEN `ns-md/links` is applied to a document stored under a key
   THEN it returns one record per link and image: `text`, `target`, `kind` (`relative`, `anchor`,
   `url`, `query`), `key` (the target resolved against the document's key, when it is one),
-  `section`, `line`; `ns-mem/check`'s `dead_links` findings are unchanged when it reads them
+  `section`, `line`; `ns-mem/check`'s `dead_links` findings are unchanged when it reads them,
+  except that reference-style links (`[x][ref]`), which the old scanner skipped, are now checked too
 - **AC-6** Table under a heading
   WHEN `ns-md/table-<address…>` is applied
   THEN it returns the first Markdown table in that section (`n=` for a later one) as a record
