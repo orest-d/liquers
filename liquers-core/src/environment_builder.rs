@@ -590,8 +590,11 @@ impl<V: ValueInterface, P: PayloadType, K: AssetManagerKind> EnvironmentBuilder<
 
     /// Writes the configured default namespaces into the registry. An empty entry is refused: root
     /// is written `root`, so an empty string is a mistake such as a trailing separator.
+    ///
+    /// Idempotent and non-consuming, so [`Self::validate`] and [`Self::build`] both see the chain
+    /// the environment will have.
     fn apply_default_namespaces(&mut self) -> Result<(), Error> {
-        let Some(configured) = self.default_namespaces.take() else {
+        let Some(configured) = self.default_namespaces.as_ref() else {
             return Ok(());
         };
         if configured.iter().any(|ns| ns.is_empty()) {
@@ -600,13 +603,20 @@ impl<V: ValueInterface, P: PayloadType, K: AssetManagerKind> EnvironmentBuilder<
             )));
         }
         self.command_registry.command_metadata_registry.default_namespaces =
-            crate::command_metadata::CommandMetadataRegistry::default_namespace_chain(&configured);
+            crate::command_metadata::CommandMetadataRegistry::default_namespace_chain(configured);
         Ok(())
     }
 
     /// Rebuilds and returns diagnostics for the configuration currently held by this builder.
     pub fn validate(&mut self) -> &IssueReport {
+        let namespaces = self.apply_default_namespaces();
         self.validation_report = self.command_registry.command_metadata_registry.check();
+        if let Err(error) = namespaces {
+            self.validation_report.extend([crate::issue_report::Issue::generic(
+                crate::issue_report::IssueSeverity::Error,
+                error.message.clone(),
+            )]);
+        }
         &self.validation_report
     }
 

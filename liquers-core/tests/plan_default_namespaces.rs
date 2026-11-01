@@ -86,3 +86,20 @@ fn empty_default_namespace_is_a_configuration_error() -> Result<(), Box<dyn std:
     }
     Ok(())
 }
+
+/// AC-7: `validate()` sees the configured chain before `build()`: an empty entry is an error and
+/// an unknown namespace a warning, and validating does not consume the setting.
+#[test]
+fn validate_checks_the_configured_chain() -> Result<(), Box<dyn std::error::Error>> {
+    let mut builder = builder_from("store:\n  stores: []\ndefault_namespaces: [x, '']\n")?;
+    assert!(builder.validate().has_errors());
+
+    let mut builder = builder_from("store:\n  stores: []\ndefault_namespaces: [x, typo]\n")?;
+    let report = builder.validate().clone();
+    assert!(!report.has_errors(), "{report}");
+    assert_eq!(report.warning_count(), 1, "{report}");
+    assert!(report.to_string().contains("typo"), "{report}");
+    let envref = builder.build()?;
+    assert_eq!(envref.default_namespaces(), ["x", "typo", "", "root"]);
+    Ok(())
+}

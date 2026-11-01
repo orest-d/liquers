@@ -3,6 +3,7 @@ id: PLAN-DEFAULT-NAMESPACES
 kind: design
 title: Default namespaces for plan building, held by the environment and set by its configuration
 status: complete
+gh_pr: [242]
 readiness: ready
 autofix: not-eligible
 area: [core/plan, core/context, core/commands]
