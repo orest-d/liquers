@@ -602,6 +602,7 @@ deliberately folded behind a broader line.
 - design `unmanaged-asset-registry`
 - design `unnamed-recipe-diagnostics`
 - design `unregistered-keyed-write-gate`
+- design `user-documentation-books`
 - design `validate-phase-section-match`
 - design `validate-through-recipe-providers`
 - design `value-conversion-registry`
@@ -692,6 +693,7 @@ deliberately folded behind a broader line.
 - feature `UNKEYED-ASSET-HAS-NO-VERSION`
 - feature `UNMANAGED-ASSET-NOT-FOLLOWABLE-ACROSS-CONNECTIONS`
 - feature `USER-DOCUMENTATION-CANNOT-BE-GENERATED`
+- feature `USER-GUIDES-LIVE-IN-SPECS`
 - feature `VALIDATE-CANNOT-SEE-NON-STANDARD-RECIPE-PROVIDERS`
 - feature `VALUE-CONVERSION-CAPABILITY`
 - feature `VALUE-EXTENDED-SCALAR-TYPES-MISSING`

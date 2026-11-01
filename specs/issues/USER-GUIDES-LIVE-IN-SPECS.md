@@ -1,38 +1,46 @@
 ---
 id: USER-GUIDES-LIVE-IN-SPECS
-kind: issue
-title: User-facing guides and their contract references live in the internal specs tree
-status: draft
-priority: P3
-complexity: M
-area: [docs, py, web]
-design:
+kind: feature
+title: Liquers has no public, book-length user documentation, and nothing publishes documentation on the web
+status: accepted
+priority: P2
+complexity: L
+area: [docs, build]
+design: user-documentation-books
 created: 2026-11-01
 github:
 ---
 ## Problem
 
-`guides/PYTHON_GUIDE.md` and `guides/JAVASCRIPT_GUIDE.md` (`audience: user`) and the contract
-references they build on (`reference/PYTHON_INTEGRATION.md`, `reference/JAVASCRIPT_INTEGRATION.md`,
-`audience: user`) sit in `specs/`, which is internal. Once `docs/` exists
-(`design/api-documentation-rules/`), these belong in it ("move, never fork",
-`DOCS_STRUCTURE_GUIDE.md` §9.6).
+All of Liquers' how-to material lives in `specs/guides/`. These are short, topic-specific guides
+that agents maintain alongside the code: they address contributors and coding agents, are updated
+by every design that touches them, and move with the code. The user-audience ones among them
+(`PYTHON_GUIDE.md`, `JAVASCRIPT_GUIDE.md`, `ENVIRONMENT_CONSTRUCTION_GUIDE.md`, …) are the nearest
+thing to user documentation there is.
+
+What does not exist is documentation **written for users**: larger, book-like documents that
+introduce Liquers, teach it in order and are edited by hand for quality. Nothing is published
+either: there is no website, no GitHub Pages deployment and no CI job that builds or deploys any
+documentation.
 
 ## Impact
 
-The user documentation site starts without its two most complete user guides; users are sent into
-the internal tree.
+A newcomer must read internal, agent-oriented guides that assume the codebase, in no particular
+order. Nothing can be linked from a README, a package index or an announcement.
 
 ## Expected behaviour
 
-Move each guide with its contract reference into `docs/guides/<language>-developer/`, rewriting
-their links into `specs/` (17 at 2026-11-01: 8 in the Python guide, 9 in the JavaScript one) to
-`docs/` targets or prose, and updating the paths in `liquers-py/tests/test_GUIDE_examples.py`,
-`liquers-web/scripts/test-guide-examples.sh`, `liquers-web/tests/guide/run-guide-examples.mjs`,
-seven `liquers-py/src` doc comments, both READMEs, `CLAUDE.md` and
-`LANGUAGE-INTEGRATION_GUIDE.md`.
+The owner on 2026-11-01:
+
+1. `specs/guides/` stays: agent-maintained, topic-specific guides. Nothing moves out of it.
+2. Public user documentation consists of larger, book-like documents, possibly hand-edited, held
+   to a high quality standard.
+3. The documentation is visible on the web, for example through GitHub Pages.
+4. The CI that builds and publishes it is part of the same design.
 
 ## Discovery
 
-Found in `design/api-documentation-rules/` Phase 2 (2026-11-01), which first planned the move
-(Phase 1 question 6) and split it off when the link and path count made it a change of its own.
+First filed on 2026-11-01 by `design/api-documentation-rules/` Phase 2 as "move the user-audience
+guides from `specs/` to `docs/`". The same day the owner rejected moving them and restated the
+need as above. The ID is kept, as IDs are never renamed (`DOCS_STRUCTURE_GUIDE.md` §4.1), and the
+title and body were rewritten.

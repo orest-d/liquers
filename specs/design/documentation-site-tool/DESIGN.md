@@ -14,6 +14,8 @@ created: 2026-11-01
 
 GitHub #233, requested 2026-11-01. Phase 1 approved (`proceed`, 2026-11-01); Phase 2 written and awaiting review; nothing implemented. Requires [`api-documentation-rules`](../api-documentation-rules/DESIGN.md), which defines the `docs/` sources this tool builds.
 
+**2026-11-01 amendment pending:** [`user-documentation-books`](../user-documentation-books/DESIGN.md) adds books (manifests, table of contents, chapter navigation, example extraction) to this tool and takes over Phase 1 question 5 (CI and GitHub Pages). Applied here at Phase 3.
+
 ## Phases
 
 - [Phase 1](./phase1-high-level-design.md)
