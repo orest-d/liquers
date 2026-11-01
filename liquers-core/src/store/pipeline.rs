@@ -7,8 +7,77 @@
 //! `on_write`, planned by the storage model and committed, data and metadata together, by the
 //! [`WriteStrategy`].
 //!
-//! The pipeline is not a data backend: it reports no data-only access, so a [`super::ReadOnlyStore`]
+//! The pipeline is not a data backend: it reports no data-only access, so a [`ReadOnlyStore`](crate::store::ReadOnlyStore)
 //! above it forwards every read to it and the configured chains run.
+//!
+//! # Who runs the handlers
+//!
+//! **This store does, and nothing else.** A store backend never implements or calls `store_config`
+//! handlers; it implements the data-only methods of [`AsyncStore`] (`get_data`, `set_data`,
+//! `data_facts`, `get_stored_metadata`, …, with an honest
+//! [`AsyncStore::data_capabilities`]) and the pipeline is wrapped around it. Which stage runs on
+//! which call:
+//!
+//! | Call on the pipeline | Chains run |
+//! |---|---|
+//! | `get`, `get_metadata` (and the asset-info reads built on them) | `on_default` when the storage model holds no record, then `on_read` (an `on_read` error becomes a warning in the record) |
+//! | `set`, `set_metadata` | `on_validate` (an error refuses the write), then `on_write`, then the storage model and the write strategy commit |
+//!
+//! **The wrapping is automatic** for a configured mount: [`crate::store_factory::StoreRouterBuilder`]
+//! wraps every mount whose `metadata` section is non-empty, and `build_store` also wraps the router
+//! when the document has a router-level section. [`crate::environment_builder::EnvironmentBuilder`]
+//! with a store configuration builds through `build_store`, compiling the sections against the
+//! environment's own registry, so entries a library registered (`front_matter` in `liquers-lib`)
+//! are nameable. The section is compiled once, at build; no lookup happens per call.
+//!
+//! **There is no pipeline**, and so no handler runs, for:
+//! - a mount with no `metadata` section or `metadata: {}`: the backend's own
+//!   `default_metadata` / `finalize_metadata` apply, and [`crate::store_config::METADATA_DEFAULTS`]
+//!   do not;
+//! - a store given to `EnvironmentBuilder::with_async_store` or otherwise built in code, unless the
+//!   caller builds the pipeline from [`PipelineParts`] itself
+//!   (`STORE-METADATA-SECTION-CANNOT-WRAP-A-BUILT-STORE`).
+//!
+//! A backend without data-only access cannot be wrapped: [`MetadataPipelineStore::new`] refuses
+//! it, which fails the build naming the mount. In tree, `AsyncMemoryStore`, `AsyncFileStore`,
+//! `AsyncOpenDALStore` (`liquers-store`), `LocalStorageStore`, `FetchStore` and a `JsStore` with the
+//! data methods (`liquers-web`) have it, as do an `AsyncStoreRouter` or `SharedStore` over such
+//! stores; `NoAsyncStore` does not.
+//!
+//! Configuring a section: `specs/guides/STORE_CONFIG_GUIDE.md` Part 1. Writing a handler:
+//! [`realm`](crate::store::realm) and the guide's Part 2. Worked tests: `liquers-core/tests/store_adapters.rs`.
+//!
+//! # Example
+//!
+//! A memory mount whose writes get a title from `on_write`, built the way an environment builds
+//! its store:
+//!
+//! ```
+//! use liquers_core::metadata::Metadata;
+//! use liquers_core::parse::parse_key;
+//! use liquers_core::store_factory::{core_store_factory, StoreRouterBuilder};
+//!
+//! # fn main() -> Result<(), liquers_core::error::Error> {
+//! let yaml = r#"
+//! stores:
+//!   - type: memory
+//!     prefix: notes
+//!     metadata:
+//!       on_write: defaults/media_type-fill/set-title-Untitled-fill
+//! "#;
+//! // `build_store` wraps the `notes` mount in a MetadataPipelineStore compiled from its section.
+//! let store = StoreRouterBuilder::from_yaml(yaml, Box::new(core_store_factory()))?.build_store()?;
+//!
+//! let key = parse_key("notes/a.txt")?;
+//! futures::executor::block_on(async {
+//!     store.set(&key, b"hello", &Metadata::new()).await?;
+//!     let record = store.get_metadata(&key).await?;
+//!     assert_eq!(record.title(), "Untitled"); // set by the `set` handler
+//!     assert_eq!(record.get_media_type(), "text/plain"); // set by `media_type-fill`
+//!     Ok(())
+//! })
+//! # }
+//! ```
 
 use std::sync::Arc;
 
@@ -91,7 +160,12 @@ struct CacheEntry {
     facts: DataFacts,
 }
 
-/// The metadata layer above a data backend.
+/// The metadata layer above a data backend: the store that runs a mount's `store_config` handlers,
+/// storage model and write strategy.
+///
+/// Built by [`crate::store_factory::StoreRouterBuilder`] from a mount's `metadata` section (see the
+/// [module documentation](self) for when that happens, when it does not, and an example), or by
+/// hand from [`PipelineParts`].
 pub struct MetadataPipelineStore {
     backend: Arc<dyn AsyncStore>,
     storage: Arc<dyn MetadataStorage>,

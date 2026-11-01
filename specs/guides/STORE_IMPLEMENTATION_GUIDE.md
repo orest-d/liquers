@@ -3,7 +3,7 @@ title: Store Implementation Guide
 kind: guide
 audience: internal
 area: [core/store, store/backends, web]
-reviewed: 2026-10-16
+reviewed: 2026-11-01
 ---
 # Store Implementation Guide
 
@@ -228,7 +228,10 @@ Declare what your store is meant to do, then let the report tell you whether it 
 
 `read_only` and `metadata` sit on the mount, not inside `config`, and are applied *around* your
 store by the builder ([`reference/STORE_SEMANTICS.md`](../reference/STORE_SEMANTICS.md) §11–§16).
-They need nothing from your store except the **data-only methods** of `AsyncStore`. All of them have
+They need nothing from your store except the **data-only methods** of `AsyncStore`. **Your store
+does not implement `store_config` handlers**, and does not call them: the builder wraps a mount that
+has a `metadata` section in a `MetadataPipelineStore`, which runs the handlers over these methods
+(`STORE_CONFIG_GUIDE.md` §1, "Who runs the handlers"). All of them have
 refusing defaults, so a store that skips them still compiles and works unadapted — but a `metadata`
 section on its mount fails the build ("does not offer data-only access", naming the mount), and
 `ReadOnlyStore` can only forward its reads.
@@ -497,6 +500,7 @@ result changes.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-01 | §4a: a store implements data-only access, never the `store_config` handlers; the pipeline the builder installs runs them. | `design/store-config-handlers-usage-docs/` |
 | 2026-10-16 | §7: the core router suite is renamed `C6` → `C8`, since `C6`–`C7` are `liquers-store`'s OpenDAL suites. | `design/store-adapters/` phase-5 review |
 | 2026-10-15 | §9: suites `A1`–`A7`, adapted stores built from configuration (read-only, each storage model and layout, central storage, each write strategy, a front-matter read chain), and `A3` over OpenDAL fs through its new data-only methods; all conformant. Phase 5: new §4a, implementing data-only access so a mount can take `read_only` / `metadata`, with a pointer to `STORE_CONFIG_GUIDE.md` for handlers, storage models and write strategies; §1 table row; §7 suite list. | `design/store-adapters/` Phase 4 step 11, phase-5 |
 | 2026-10-13 | §Prefix: the router asks every covering member for `is_dir` and `listdir`, and forwards `get_asset_info` / `listdir_asset_info` to members; `AssetManager` asks `contains` first. §9: suite `C6`, a router composing every directory answer. | `design/store-router-forwards-asset-info/` |
