@@ -3,7 +3,7 @@ id: LIQUERS-PY-RECORDS
 kind: design
 title: "Record views and sources in liquers-py: wrappers, chunked iteration and an Arrow exit"
 workflow: liquers-project
-status: draft
+status: approved
 phase: implementation
 readiness: ready
 autofix: not-eligible
@@ -23,9 +23,12 @@ from the bulk design `py-record-values-to-python`, now superseded.
 
 Phase 1 written and reviewed twice on 2026-11-01, revised after Orest's decisions and reviewed twice again, and approved the same day.
 
-Phases 2 and 3 written on 2026-11-01, each reviewed twice (conformity, soundness) and revised.
+Phases 2, 3 and 4 written on 2026-11-01, each reviewed twice (conformity, soundness; the Phase 4
+conformity review included the consistency pass over all phases) and revised. The pre-implementation
+check found no decision that needs Orest, so the design is `approved` under the pre-approval and
+implementation starts.
 
-**Pre-approved after Phase 1 on 2026-11-01** (Orest: "proceed all"): Phases 2-4, the implementation and Phase 5 run without gates; reviews still run, user decisions go to the Phase 1 decision log, and work stops before implementation only if one of them needs Orest.
+**Pre-approved after Phase 1 on 2026-11-01** (Orest: "proceed all", given at the Phase 1 gate, earlier than the skill's Phase 2 offer, and covering Phases 2-5): Phases 2-4, the implementation and Phase 5 run without gates; reviews still run, user decisions go to the Phase 1 decision log, and work stops before implementation only if one of them needs Orest.
 
 ## Phases
 

@@ -134,6 +134,11 @@ for `VISION.md`'s Python data science use case. Milestone M5 of the liquers-py p
     from a store), so "a counting store" became "each chunk's evaluation counted".
   - Phase 2: sources hold their environment weakly and resolve per call, through the command's
     context while it is valid.
+  - Phase 4 review: lands after `liquers-py-package` (its `_extras.py`) and before the stubs;
+    `test_constructors_agree` uses microsecond data until the polars spin-off (PR #244) merges;
+    a missing package surfaces as `lq.ConversionError` (`_records.py` wraps `require`'s
+    `ModuleNotFoundError`); `rowid` reads a stored keyed chunk as iteration does
+    (`read_resource`); `SourceOrigin` holds `Weak<PyEnvironment>`. None needs Orest.
 
 ## Decisions
 

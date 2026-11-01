@@ -27,7 +27,7 @@ Rejected:
 
 | Issue | Status | Priority | Impact on this design | Fix first? | Blocking? | Action |
 |---|---|---|---|---|---|---|
-| `PY-NO-TYPE-DECLARATIONS` (`liquers-py-stubs`) | draft | P2 | AC-6 needs its files | No | No | Lands first within M5 |
+| `PY-NO-TYPE-DECLARATIONS` (`liquers-py-stubs`) | draft | P2 | AC-6's stub half needs its files | No | No | Lands last within M5; it adds AC-6's `.pyi` / `py.typed` assertions |
 | `PY-RECORD-VALUES-CANNOT-CROSS-TO-PYTHON`, `PY-RECORD-SOURCES-…` (`liquers-py-records`) | draft | P2 | The `[arrow]` / `[pandas]` extras serve them | No | No | Same release |
 | `PY-PYPY-SUPPORT-UNVERIFIED` | draft | P3 | PyPy stays source-only | No | No | README states it |
 | `PY-API-REFERENCE-NOT-GENERATED` | draft | P3 | No reference ships with the wheel | No | No | Non-goal |
@@ -41,9 +41,12 @@ Rejected:
 - Every member declares `version.workspace = true` and `license.workspace = true`.
 - `liquers-template` and `liquers-markdown` drop `MIT`. `liquers-markdown` has no third-party
   files. `liquers-template/tests/spec/` keeps its own MIT `LICENSE` and is left out of the crate
-  package (`exclude = ["tests/spec"]`; `src/mustache/encode.rs` skips missing spec files).
+  package (`exclude = ["tests/spec", "tests/spec.rs", "tests/node.rs"]`: the two test files need the
+  MIT spec files, so the packaged crate carries neither).
 - `[profile.wheel]` inherits `release` and adds `strip = true`, `lto = "thin"` and
-  `codegen-units = 1`. `[tool.maturin] profile = "wheel"` makes the sdist use it too.
+  `codegen-units = 1`. The release jobs pass `--profile wheel`. `pyproject.toml` does not set
+  `[tool.maturin] profile`, because `maturin develop` would read it too and the test loop would
+  become an 18-minute build. An install from the sdist therefore uses Cargo's `release`.
 - `liquers-py/Cargo.toml` gains `abi3 = ["pyo3/abi3-py314"]`, which only the abi3 job passes.
 
 **liquers-core.** `Environment` gets a provided method, so no implementor changes:
@@ -76,7 +79,10 @@ fn liquers_version(&self) -> &'static str { crate::VERSION }
   is not available on this platform: pyarrow has no wheel for Windows arm64`, with no install
   advice. An unknown extra raises `ValueError`. The table lives in `_extras.py` as one dict,
   shared with `liquers-py-records`' error messages and with `test_extras`.
-- `__init__.py` re-exports `__version__` and `require`. `liquers-py-stubs` declares both.
+- `__init__.py` imports `__version__` and lists `require` in `__all__`. `__version__` stays out of
+  `__all__`, since `test_OBJECT08` refuses underscore names there. `require` and the
+  `liquers_version` getter carry docstrings (`test_DOCS_docstrings.py`). `liquers-py-stubs`
+  declares all three.
 
 **liquers-web.** A `liquersVersion` getter on the JavaScript `Environment` returns
 `liquers_core::VERSION`. The free `version()` returns the longer `"liquers-web X (liquers-core
@@ -137,11 +143,14 @@ The three builds per platform:
 
 1. `lock`: runs `cargo generate-lockfile`, then `scripts/check-workspace-metadata.py [--root
    DIR] [--tag TAG]` (the tag comes from `GITHUB_REF_NAME` on a tag run and is left out on a
-   manual run, which skips that check). It checks the tag against the workspace version, every member's `version.workspace` and
-   `license.workspace` (AC-10, AC-11), and the two LICENSE copies, and runs `cargo package -p
-   liquers-template --list` to confirm `tests/spec` is left out. It uploads `Cargo.lock`.
-2. `notices` (needs 1): runs `cargo about generate -m liquers-py/Cargo.toml --features <the
-   wheel's> --all-features=false` once per target triple and merges the results.
+   manual run, which skips that check). It checks the tag against the workspace version, every
+   member's `version.workspace` and `license.workspace` (AC-10, AC-11), and the two LICENSE
+   copies. It runs `cargo package -p liquers-template --list` to confirm `tests/spec/` is left
+   out, and `python3 -m unittest` over `scripts/test_check_*.py` and
+   `scripts/test_release_workflow.py`. It uploads `Cargo.lock`.
+2. `notices` (needs 1): runs `cargo about generate -m liquers-py/Cargo.toml -c
+   liquers-py/about.toml --features <the wheel's> -o <triple>.html liquers-py/about.hbs` once per
+   target triple, and merges the results into `python/liquers/THIRD-PARTY-NOTICES.html`.
    `liquers-py/about.toml` lists the accepted licenses, `AGPL-3.0-or-later` included, and
    `about.hbs` is the template.
 3. `sdist` (needs 1 and 2): `maturin sdist`, with the lock and the notices.
@@ -159,7 +168,8 @@ The three builds per platform:
 5. `dist` (needs 3 and 4): `scripts/check-wheel.py --dist dist/` fails unless `dist/` holds
    exactly the fifteen expected tags and one sdist, and the sdist holds `Cargo.lock` (AC-1).
 6. `test` (needs 4): on the build's own runner, a fresh venv installs the wheel file directly and
-   runs `pytest liquers-py/tests/package` (AC-2 to AC-6, AC-9). `test-sdist` (needs 3) installs
+   runs `pytest --rootdir liquers-py/tests/package --confcutdir liquers-py/tests/package -p
+   no:cacheprovider liquers-py/tests/package` (AC-2 to AC-6, AC-9). `test-sdist` (needs 3) installs
    the sdist on Linux with Rust and runs the same suite's `test_import_and_version`.
 7. On a tag only:
    - `github-release` (needs 5 and 6; `contents: write`): `softprops/action-gh-release`.
@@ -171,16 +181,29 @@ The three builds per platform:
 
 **`liquers-py-package.yml`** runs jobs 1, 2, 4 and 6 for Linux x86_64 abi3 only. It is
 triggered by changes to:
-- `liquers-py/{pyproject.toml,README.md,LICENSE,about.toml,about.hbs}`;
+- `liquers-py/{pyproject.toml,Cargo.toml,README.md,LICENSE,about.toml,about.hbs}`, and
+  `liquers-py/src/**`, so a change that breaks the abi3 build is seen before a release;
 - `liquers-py/python/liquers/**`;
 - `liquers-py/tests/package/**`;
 - both workflows;
 - the workspace `Cargo.toml`;
-- `scripts/check-workspace-metadata.py`, `scripts/check-wheel.py` and their tests.
+- `scripts/check-workspace-metadata.py`, `scripts/check-wheel.py`, `scripts/test_release_workflow.py`
+  and their tests.
+
+`scripts/test_release_workflow.py` (unittest, with PyYAML installed in `lock`) checks the release
+workflow statically: every publishing job has the tag-only `if:`, `pypi` needs `testpypi` and
+declares `environment: pypi` and `id-token: write`. `check-wheel.py` takes the manylinux policy
+as `--manylinux 2_28`, so a host-built wheel can be checked against its own tag.
+
+**Out-of-repository setup (Orest).** Before the first tag: register the trusted publisher
+(`orest-d/liquers`, `liquers-py-release.yml`, environments `testpypi` and `pypi`) on TestPyPI and on
+PyPI, and give the `pypi` environment a required reviewer.
 
 ## Integration Points
 
 - Every root `Cargo.toml`. `liquers-core/src/context.rs`. `liquers-py/src/{lib,environment}.rs`.
+- `scripts/check-build-matrix.sh` gains a `liquers-py --features abi3 --lib` row.
+- `liquers-web/tests/stubs/valid_usage.ts` uses `liquersVersion`.
 - `liquers-py/python/liquers/{__init__,_extras}.py` and the `.pyi` files (`liquers-py-stubs`).
 - `liquers-py/{pyproject.toml,LICENSE,README.md,about.toml,about.hbs}`.
 - `liquers-web/src/environment.rs`, and `liquers-web/tests/e2e/package.spec.ts`: its PACKAGE04 and
@@ -213,6 +236,7 @@ Each changed reference or guide document adds a History row and bumps `reviewed:
 | `specs/reference/JAVASCRIPT_INTEGRATION.md` | `liquersVersion` |
 | `specs/guides/LANGUAGE-INTEGRATION_GUIDE.md` | Appendix A `PACKAGE04` uses the environment's version. §6 Python covers the release route and what cost time (abi3t, extras without wheels) |
 | `liquers-py/README.md` | Install; which platforms are wheels and which source-only (PyPy, macOS x86_64, musllinux, 3.10-3.13), with `--only-binary :all:`; the license wording; a `PACKAGE` row; quick-start markers; how to cut a release |
+| `CLAUDE.md` | The liquers-py line adds that published wheels cover CPython 3.14+ (abi3, 3.14t, 3.15t); source builds keep 3.10-3.15 and PyPy |
 | `specs/README.md` | The design's row |
 
 ## Risks

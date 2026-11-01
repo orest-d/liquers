@@ -35,8 +35,8 @@ Rejected:
 
 **Files** (new, under `liquers-py/python/liquers/`):
 - `__init__.pyi`: the surface, in the order of `__init__.py`'s `__all__`.
-- `_native.pyi`: `from liquers import X as X` for every name `_native` registers, and its
-  `__all__`.
+- `_native.pyi`: `from liquers import X as X` for every name `_native` registers, its `__all__`,
+  and `__version__: str` (the module attribute `liquers-py-package` adds).
 - `py.typed`: empty. maturin ships everything under `python-source`.
 
 **Typed forms** (excerpt):
@@ -67,6 +67,7 @@ class Environment:
 @final
 class RecordColumn:                               # fixed-width columns only lend a buffer
     def __buffer__(self, flags: int, /) -> memoryview: ...
+    def __release_buffer__(self, buffer: memoryview, /) -> None: ...   # RecordBuffer likewise
 class KeyNotFoundError(StoreError, NotFoundError): ...   # bases in ErrorType::categories order
 ```
 
@@ -110,8 +111,10 @@ built, `LookupError` included.
 
 **The typing leg.** It runs where `sys.implementation.name == "cpython"`, the version is 3.14, and
 `abiflags` has no `t`. There `scripts/test-liquers-py.sh` installs exact pins of current releases:
-`mypy==2.4.1`, `pyright[nodejs]==1.1.414` (Node comes as a wheel, so nothing is downloaded), and
-nothing else: the stubs import no third-party package. A comment in the script says the pins are raised deliberately. Each other
+`mypy==2.4.1`, `pyright[nodejs]==1.1.414`, and nothing else: the stubs import no third-party
+package. Node comes as a wheel, but the `pyright` wrapper fetches the matching npm package on
+its first run into `~/.cache/pyright-python`, which `liquers-py-tests.yml` caches; Step 1 of Phase
+4 confirms this on the pin. A comment in the script says the pins are raised deliberately. Each other
 leg skips with a reason.
 
 **The allowlist, from measurement.** On 2026-11-01, stubtest (mypy 2.4.1) was run against the
@@ -133,8 +136,10 @@ The allowlist then holds only the two `debug-handles` names, which exist in the 
 error classes produced no finding of their own.
 
 **Annotations.** `_commands.py`, `_env.py`, `_errors.py` and `_factories.py` are annotated by
-this design. `_records.py` and `_extras.py` are annotated by the designs that create them
-(records and package), and stubtest checks them all.
+this design, and so are `_records.py` and `_extras.py`, which the sibling designs create.
+stubtest checks them all, and `test_package_sources_pass_mypy` runs `mypy --strict` over them
+with `tests/typing/mypy.ini` (`__init__.py` is read through its stub, so the stub is what it
+checks there).
 
 **Landing order.** M5 is implemented in one branch: `liquers-py-package`, then
 `liquers-py-records`, then this design, last. The stubs are written once every name they declare
@@ -146,7 +151,8 @@ question 7's rule: the change that adds a name declares it.
 - `liquers-py/python/liquers/`: two `.pyi` files, `py.typed`, and annotations.
 - `liquers-py/tests/typing/`, and `liquers-py/tests/test_STUBS_declarations.py`.
 - `scripts/test-liquers-py.sh`: the typing leg's installs.
-- `liquers-py-package` AC-6: the wheel holds these files.
+- `liquers-py-package` AC-6: this design adds the `.pyi` and `py.typed` assertions to its
+  `test_wheel_contents`, which runs in the `liquers-py-package.yml` `test` job.
 
 ## Error Handling
 

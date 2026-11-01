@@ -7,7 +7,8 @@
 | 1 | Example | Install and run the quick-start | A user's first five minutes | AC-2, AC-3, AC-4 |
 | 2 | Example | Cut a release | The maintainer's path, approval included | AC-8 (conceptual) |
 | 3 | Test | `liquers-py/tests/package/test_PACKAGE_wheel.py` | The installed wheel | AC-2 to AC-6, AC-9 |
-| 4 | Test | `scripts/test_check_workspace_metadata.py`, `scripts/test_check_wheel.py` | Manifests, wheels, `dist/` | AC-1, AC-7, AC-10, AC-11 |
+| 4 | Test | `scripts/test_check_workspace_metadata.py`, `test_check_wheel.py`, `test_release_workflow.py` (unittest) | Manifests, wheels, `dist/`, publishing gates | AC-1, AC-7, AC-8, AC-10, AC-11 |
+| 4a | Test | `liquers-py/tests/test_PACKAGE_require.py` (development venv) | `require`'s messages | AC-9 |
 | 5 | Test | `liquers_version` tests in core, py and web | Every environment reports it | AC-10 |
 | 6 | Test | Named workflow steps | What only CI can see | AC-1, AC-7, AC-8 |
 
@@ -70,12 +71,13 @@ steps below, and its approval by the environment setting.
 | `dist/` with a tag missing or an sdist without `Cargo.lock` | Fails, naming it | `test_check_wheel.py::test_incomplete_dist_is_refused` |
 | `require("arrow")` / `("pandas")` on Windows arm64, `("polars")` on a free-threaded build | `ModuleNotFoundError` "not available on this platform", no install advice | `test_extras` |
 | `require("all")` there | Succeeds with the others installed | `test_extras` |
-| `require("images")` without Pillow | The exact message naming `PIL` and `pip install 'liquers-py[images]'` | `test_require_names_a_missing_module` |
+| `require("images")` without Pillow | The exact message naming `PIL` and `pip install 'liquers-py[images]'` | `test_require_names_a_missing_module` (bare venv), `test_PACKAGE_require_missing_module` (Pillow hidden with `monkeypatch.setitem(sys.modules, "PIL", None)`) |
 | `require("nope")` | `ValueError` | `test_require_refuses_an_unknown_extra` |
 | `liquers_version` after `shutdown()` | Returns the version, does not raise | `test_ENVIRON_liquers_version_after_shutdown` |
 | A Cargo pre-release `0.2.0-rc.1` | `__version__ == "0.2.0rc1"` | `pep440_rewrites_prereleases` |
-| A build without `THIRD-PARTY-NOTICES.html` | Builds; only `test_wheel_contents` fails | the PR workflow's `maturin develop`, which never generates it |
-| `liquers-template` packaged without `tests/spec` | `cargo package -p liquers-template --list` omits it, and its tests skip the missing files | `lock` runs the listing |
+| A build without `THIRD-PARTY-NOTICES.html` | Builds | `maturin develop` in `scripts/test-liquers-py.sh` never generates it, and every run of that script is this case |
+| `liquers-template` packaged without the MIT spec files | `cargo package -p liquers-template --list` lists no `tests/spec/`, `tests/spec.rs` or `tests/node.rs` | `lock` runs the listing |
+| A publishing job without the tag-only `if:`, or `pypi` without `environment: pypi` | Fails, naming the job | `test_release_workflow.py` |
 
 Windows arm64's `clang-cl` and the manylinux 3.15t interpreter are not edge cases: if either is
 wrong, its `wheels` cell fails, and the `dist` step names the missing tag.
@@ -93,18 +95,21 @@ wrong, its `wheels` cell fails, and the `dist` step names the missing tag.
     `lq.__version__` and of `lq.Environment().liquers_version` are equal.
   - `test_documented_value_types` (AC-5) runs in the bare venv, through the registry, so no
     extra is needed. A fixture registers `table` (returns `"a,b\n1,2"`) and `svg` (returns a 4×4
-    SVG); `evaluate_state(q).metadata.type_identifier()` is checked:
+    SVG). For each query, `env.get_asset(q)` is polled until its `status` is `Ready` (30 s limit),
+    and `asset.metadata.type_identifier()` is checked. `AssetRef.metadata` never converts the
+    value, while `evaluate_state` would import polars or PIL:
     - `table/ns-pl/from_csv` → `polars.DataFrame`;
     - `svg/ns-img/svg_to_image-4-4` → `Image`;
     - `table/ns-rec/to_record-csv` → `RecordView`;
     - a command returning `object()` → `py.Object`.
 
     `command_metadata` is checked for one built-in each of `polars`, `image-support`, `records`
-    and `templates`. `records-ipc` and `records-parquet` are checked by reading committed
-    fixtures, `tests/data/records_all_types.feather` and `tests/package/data/small.parquet`, with
-    `ns-rec/to_record-feather` and `ns-rec/to_record-parquet`.
-  - `test_wheel_contents` (AC-6): from `importlib.metadata.files` and `METADATA`, the five
-    files (`py.typed`, `__init__.pyi`, `_native.pyi`, `LICENSE`, `THIRD-PARTY-NOTICES.html`),
+    and `templates`. `records-ipc` and `records-parquet` are checked by reading this design's
+    committed fixtures `tests/package/data/small.{feather,parquet}` with
+    `ns-rec/to_record-feather` and `ns-rec/to_record-parquet`, again through the asset's metadata.
+  - `test_wheel_contents` (AC-6): from `importlib.metadata.files` and `METADATA`, `LICENSE` and
+    `THIRD-PARTY-NOTICES.html` (`liquers-py-stubs` adds `py.typed`, `__init__.pyi` and
+    `_native.pyi` to this test when it lands, last in M5),
     `Requires-Python`, `License-Expression: AGPL-3.0-or-later`, and one `Provides-Extra` per
     extra.
   - `test_extras` (AC-9): parametrized over extra × platform × ABI from `_extras.py`'s table.
@@ -117,9 +122,15 @@ wrong, its `wheels` cell fails, and the `dist` step names the missing tag.
 - `liquers-py/tests/test_ENVIRON_environment.py`, run by `scripts/test-liquers-py.sh`:
   `test_ENVIRON_liquers_version_is_core_version` and `test_ENVIRON_liquers_version_after_shutdown`
   (AC-10).
-- `scripts/test_check_workspace_metadata.py` (pytest, in `lock` and the PR workflow), using
+- `liquers-py/tests/test_PACKAGE_require.py` (development venv, run by `scripts/test-liquers-py.sh`):
+  `test_PACKAGE_require_missing_module`, `test_PACKAGE_require_not_available_here` (monkeypatched
+  `sys.platform`, `platform.machine()` and `Py_GIL_DISABLED`) and
+  `test_PACKAGE_require_unknown_extra` (AC-9).
+- `scripts/test_check_workspace_metadata.py` (unittest, in `lock` and the PR workflow), using
   `--root <tmp copy>`: `test_workspace_is_consistent` (AC-10, AC-11) and the four rows above.
 - `scripts/test_check_wheel.py`: the four rows above, on synthetic wheels (AC-1, AC-7).
+- `scripts/test_release_workflow.py`: `test_publishing_jobs_are_tag_only`,
+  `test_pypi_waits_for_testpypi_and_its_environment` (AC-8's parts).
 - Rust unit tests:
   - `liquers-core/src/context.rs`: `default_environment_reports_liquers_version` (AC-10).
   - `liquers-py/src/environment.rs`: `liquers_version_is_core_version`, against the built
@@ -128,9 +139,9 @@ wrong, its `wheels` cell fails, and the `dist` step names the missing tag.
   - `liquers-web/tests/environment_ENVIRON.rs`: `environment_reports_liquers_version` (AC-10).
   - `liquers-web/tests/e2e/package.spec.ts`: PACKAGE04 and PACKAGE07 read `[workspace.package]`.
 - Workflow steps, every run: `check-wheel.py` per wheel (AC-7); the `dist` step (AC-1). On a tag:
-  the TestPyPI hash comparison, and `pypi` declaring `environment: pypi` (AC-8's parts).
+  the TestPyPI hash comparison (AC-8's parts).
 - Commands:
-  - `python3 -m pytest scripts/test_check_workspace_metadata.py scripts/test_check_wheel.py`;
+  - `python3 -m unittest discover -s scripts -p 'test_*.py'`;
   - `cargo test -p liquers-core --lib liquers_version`;
   - `cargo test -p liquers-py --no-default-features --features debug-handles --lib`;
   - `cargo test -p liquers-web --target wasm32-unknown-unknown --features debug-handles --test
@@ -142,9 +153,9 @@ wrong, its `wheels` cell fails, and the `dist` step names the missing tag.
 
 - A query's first segment is an action: `world/greet` calls a command named `world`. The
   quick-start starts from a source command, and `liquers-validate` caught the draft.
-- The package tests run from `tests/package` with `--rootdir` there, so pytest stops looking for
-  `conftest.py` at that directory and `liquers-py/tests/conftest.py` (fixture commands, store
-  fixtures) does not load. The wheel is installed as a file; GitHub runners ship Rust, so "no
+- The package tests run with `--rootdir` and `--confcutdir` at `tests/package`. Since pytest 8.1
+  `liquers-py/pyproject.toml` could otherwise become the inifile and pull in
+  `liquers-py/tests/conftest.py` (fixture commands, store fixtures). The wheel is installed as a file; GitHub runners ship Rust, so "no
   Rust" is not what makes the test honest.
 - A resource query returns stored text or bytes, not a DataFrame: the type test goes through a
   command. Converting a DataFrame or image into Python imports polars or PIL, so type checks use

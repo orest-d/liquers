@@ -12,7 +12,7 @@ Python integration" priority. Milestone M5 of the liquers-py plan, with
 
 - **Readiness:** `ready` (Phase 1 approved; decision log below)
 - **Automatic fixing:** `not-eligible`: an `L` feature, new development dependencies.
-- **Leading issue:** none open at Phase 1.
+- **Leading issue:** `PY-NO-TYPE-DECLARATIONS`, which this design implements.
 - **Explanation:** Orest decided questions 1, 3 and 5 (Decision 1) and approved Phase 1 with every
   later phase pre-approved (Decision 2); the proposed resolutions 2, 4 and 6-8 stand.
 - **Open questions:**
@@ -77,7 +77,8 @@ Python integration" priority. Milestone M5 of the liquers-py plan, with
      with the constructors (`from_records`, `from_dict`, `from_pandas`, `from_polars`,
      `from_arrow`, `fields=`) and `to_list` / `to_dict`, once that design's Phase 2 fixes their API.
      pandas, polars and pyarrow types appear only under `TYPE_CHECKING`, so a checker without
-     them installed sees `Any` there, not an error. `STUBS07`'s wheel half is tested by
+     them installed sees `Any` there, not an error. *(Superseded by the decision log: they are
+     declared `Any`, and the stubs import no third-party package.)* `STUBS07`'s wheel half is tested by
      `liquers-py-package` against the built wheel.
 
 - **Decision log (pre-approved phases; none needs Orest):**
@@ -90,6 +91,11 @@ Python integration" priority. Milestone M5 of the liquers-py plan, with
     when stubtest first runs.
   - Phase 2: `liquers-py-package`'s `__version__`, `require` and `Environment.liquers_version`
     are declared here; each design declares its own names when it adds them.
+  - Phase 2 measurement: every native class is `@final` (stubtest requires it); the allowlist is
+    re-measured once the record classes exist (Phase 4 Step 4).
+  - Phase 4 review: this design annotates all six pure-Python modules, `_records.py` and
+    `_extras.py` included; it adds the `.pyi` / `py.typed` half of `liquers-py-package`'s
+    `test_wheel_contents`. None needs Orest.
 
 ## Decisions
 
@@ -183,8 +189,8 @@ under `python-source` in the wheel.
 - `liquers-py-records` — **requires**: its classes are declared here (question 8).
 - `liquers-py-package` — **required-by**: ships the files (STUBS07); and **requires**-side
   overlap: its `__version__`, `require` and `liquers_version` are declared here (decision log).
-- `py-record-values-to-python` — **overlaps**: decides with records question 1 whether records are
-  declared at all (question 8).
+- `py-record-values-to-python` — **superseded** by `liquers-py-records` (Orest's gate answer on
+  records question 1); records are declared (question 8).
 - `py-pypy-ci-job`, `language-binding-tests-in-ci` (complete) — **overlap**: both run or rewrite
   `scripts/test-liquers-py.sh`, which the checks join; the checks skip on PyPy (question 5).
 - `py-api-reference` — **overlaps**: pdoc reads the stubs; no order.
@@ -199,8 +205,8 @@ under `python-source` in the wheel.
   their constructors (for example `lq.RecordView.from_dict({"a": [1, 2]}, fields={"a": "int"})` must
   type-check). Approved with that design's gate decisions by Orest. Size: still `L`. Phases: 1.
 
-- **2026-11-01** — Phase 2 (pre-approved): the layout reading of question 2, plain third-party
-  imports in the stub, and the package design's names (decision log), so the declarations have
+- **2026-11-01** — Phase 2 (pre-approved): the layout reading of question 2, third-party
+  types declared `Any` with no imports, and the package design's names (decision log), so the declarations have
   one home and stay checkable; in Phase 3, `Any` for third-party types and the landing order.
   Approved: pre-approval of 2026-11-01. Size: still `L`. Phases: 1, 2, 3.
 

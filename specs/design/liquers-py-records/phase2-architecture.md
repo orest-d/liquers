@@ -38,7 +38,7 @@ Rejected:
 ```rust
 pub struct Scope { origin: Option<SourceOrigin> }          // Clone by hand
 impl Scope {
-    pub fn env(cell: &Arc<EnvCell>) -> Scope;               // holds Weak<EnvCell>
+    pub fn env(py: Python<'_>, cell: &Arc<EnvCell>) -> Scope; // Weak to the built environment
     pub fn command(context: &crate::context::Context, envref: &EnvRef<PyEnvironment>, shut: Arc<Shut>) -> Scope;
     pub fn detached() -> Scope;                             // unit tests; a source refuses to traverse
 }
@@ -46,21 +46,24 @@ pub fn value_to_py(py: Python<'_>, value: &Value, scope: &Scope) -> Result<Py<Py
 ```
 
 - **Out.** In `ext_to_py`, a RecordView with one row and one payload field, or no payload field
-  and an `Id` or a sole field (liquers-web's `is_single_cell`), becomes its `FieldValue` as a
+  and an `Id` or a sole field (liquers-lib's `record_view_is_single_cell`, made `pub`), becomes its `FieldValue` as a
   Python scalar (RECORDS10). Any other view becomes `lq.RecordView`, and a source becomes
   `lq.RecordSource`.
 - **In.** `py_to_value` turns an `lq.RecordView` / `RecordSource` back into the same `Arc`
   (RECORDS01). A `pyarrow.Table` / `RecordBatch`, recognized by type name without importing,
   goes through `_records.arrow_to_ipc` and then `read_table`.
 
-**Where a source resolves** (`records/resolver.rs`). `SourceOrigin` holds `Weak<EnvCell>` or
-`Weak<PyEnvironment>` plus `Arc<Shut>`, never a strong reference. A source captured by a command
+**Where a source resolves** (`records/resolver.rs`). `SourceOrigin` holds `Weak<PyEnvironment>`
+plus `Arc<Shut>`, never a strong reference. `Scope::env` reads the built environment from the cell
+while it holds the interpreter, so the resolver later rebuilds `EnvRef(arc)` on a tokio thread
+without attaching to Python. A source captured by a command
 closure would otherwise make a cycle the GC cannot see (`RecipeProviders` holds `Weak` for the
 same reason). `PyChunkResolver: ChunkResolver` decides on every `evaluate` / `metadata` /
 `read_resource` call:
 - while the command's context handle is valid, through `ContextResolver`, which records
   dependencies;
 - otherwise through `EnvResolver` on the upgraded environment;
+  (`crate::context::Context` gains a `pub(crate) fn is_valid(&self) -> bool` for this);
 - when the environment is gone or shut, with `shut_down_error()`.
 
 It decides per call, not when the stream opens, so a stream kept past its command stays safe.
@@ -75,7 +78,9 @@ it for `Scope::command`, and invalidates it after the call, even when the functi
 
 `awaitable` takes a plain `fn` wrapper, so the scope travels inside the future's output: the
 `ToPy::{Value, State, Asset}` variants take `(…, Scope)`. A new `ToPy::Next(Result<Option<Arc<dyn
-RecordView>>, Error>)` raises `StopAsyncIteration` at the end of a stream.
+RecordView>>, Error>)` raises `StopAsyncIteration` at the end of a stream, and `ToPy::View(Result<Arc<dyn
+RecordView>, Error>)` returns `chunk_async` / `materialize_async` results as `lq.RecordView`,
+without the single-cell rule.
 
 **Classes** (`records/{mod,schema,column,buffer,build,arrow,resolver}.rs`; `buffer.rs` holds the
 only `unsafe`, each block with a `SAFETY` note). Every one is `#[pyclass(frozen, module = "liquers")]`:
@@ -110,11 +115,13 @@ only `unsafe`, each block with a `SAFETY` note). Every one is `#[pyclass(frozen,
   `Context.evaluate` does. They wait with `environment::block_on`, without holding the
   interpreter lock.
 - **`chunk(index)`** takes the position in `chunks()`, as `ns-rec/rowid` does, and is answered by
-  a new `liquers-records/src/sources.rs` `pub async fn read_chunk(source, resolver, index) ->
-  Result<Arc<dyn RecordView>, Error>`. Through a manifest it reads only that chunk:
-  `describe_chunk`, then `evaluate`, then `view_from_chunk_value`, then `place_chunk`. Without one
-  it walks the stream. Its error texts are neutral. `rowid` (`liquers-lib/src/records/commands.rs`)
-  calls it in place of its private `chunk_id_at` / `walk_to_chunk`.
+  a new `liquers-records/src/sources.rs` `pub async fn read_chunk(source: Arc<dyn RecordSource>,
+  resolver: Arc<dyn ChunkResolver>, index: usize) -> Result<Arc<dyn RecordView>, Error>`. Through
+  a manifest it reads only that chunk with `ManifestSource`'s existing private `read_chunk` logic
+  (a keyed chunk through `read_resource`, as iteration does), then `place_chunk`, so `chunk(i)`
+  and iteration agree. Without a manifest it walks the stream. Its error texts are neutral. `rowid` (`liquers-lib/src/records/commands.rs`)
+  calls it in place of its private `chunk_id_at` / `walk_to_chunk`; for a stored keyed chunk it now
+  reads the resource, as iteration does, where it evaluated before.
 - **`debug-handles`.** `live_record_handle_count()` is a module function that counts live
   wrappers (RECORDS06).
 
@@ -123,7 +130,8 @@ only `unsafe`, each block with a `SAFETY` note). Every one is `#[pyclass(frozen,
 - A declared field is cast by `cast(&FieldValue, FieldType) -> Result<FieldValue, Error>`:
   - numbers convert when no value is lost;
   - `Text` parses through `FieldValue::parse_text`;
-  - anything else turns into `Text` through the CSV writer's cell formatter;
+  - anything else turns into `Text` through the CSV writer's cell formatter, which becomes public as
+    `liquers_records::format_field_value` (today `pub(crate) format_value` in `formats/csv.rs`);
   - each failure names the field and the row.
 - `build.rs` checks an `Id` column's `null_count` itself, since `RecordSchema::new` checks only
   that roles are unique.
@@ -152,11 +160,13 @@ only `unsafe`, each block with a `SAFETY` note). Every one is `#[pyclass(frozen,
 - `_records.pandas_to_arrow(df) -> pa.Table` is `pa.Table.from_pandas(df, preserve_index=False)`.
 - **Missing packages.** Each exit names its own extra, using `_extras.py`'s mapping
   (`liquers-py-package`): `[arrow]` for pyarrow, `[pandas]` for pandas with pyarrow, and
-  `[polars]` for polars.
+  `[polars]` for polars. `_records.py` catches `require`'s `ModuleNotFoundError` and raises
+  `lq.ConversionError` with the same text, as AC-9 says.
 
 **`liquers-records/src/formats/ipc.rs`** (additive). `LIQUERS_ORIGINS_KEY = "liquers.origins"`
 holds the JSON of a batch's `sources`. It is written beside `liquers.chunk_id` when the batch has
-sources, read back into `RecordBatch::new`, and re-based by `concat`. It is dropped with a stale
+sources, and read back into each batch's `sources` before `read_ipc` concatenates;
+`RecordBatch::concat` already re-bases them. It is dropped with a stale
 `liquers.schema`, which can no longer locate the `Source` column.
 
 ## Integration Points
@@ -169,8 +179,8 @@ sources, read back into `RecordBatch::new`, and re-based by `concat`. It is drop
   - `python/liquers/__init__.py` (exports) and `_records.py`.
   - `scripts/test-liquers-py.sh`, which adds `pyarrow` and `pandas` to its wheel-only install
     loop; a leg without wheels skips.
-- **liquers-records.** `formats/ipc.rs` and `sources.rs` (`read_chunk`).
-- **liquers-lib.** `records/commands.rs`: `rowid` calls `read_chunk`.
+- **liquers-records.** `formats/ipc.rs`, `formats/csv.rs` (`format_field_value` made public) and `sources.rs` (`read_chunk`).
+- **liquers-lib.** `records/commands.rs`: `rowid` calls `read_chunk`; `value/mod.rs`: `record_view_is_single_cell` made `pub`.
 
 ## Error Handling
 

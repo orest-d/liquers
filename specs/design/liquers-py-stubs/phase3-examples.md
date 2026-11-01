@@ -61,18 +61,21 @@ repeat(1)               # type: ignore[arg-type]  # pyright: ignore[reportArgume
 source("x")             # type: ignore[arg-type]  # pyright: ignore[reportArgumentType]
 bare("x")               # type: ignore[arg-type]  # pyright: ignore[reportArgumentType]
 twice("x")              # type: ignore[arg-type]  # pyright: ignore[reportArgumentType]
-fetch(1)                # type: ignore[arg-type]  # pyright: ignore[reportArgumentType]
 async def f() -> None:
+    await fetch(1)      # type: ignore[arg-type]  # pyright: ignore[reportArgumentType]
     await env.evaluate_state("a")   # type: ignore[misc]  # pyright: ignore[reportGeneralTypeIssues]
 ```
 
-A wrong argument fails for each of the five forms. A stub that dropped the parameters (`Callable[...,
+A wrong argument fails for each of the five forms. `fetch(1)` is awaited inside `f`, so it is not
+also an unused coroutine (`unused-coroutine`, `reportUnusedCoroutine`), which the `arg-type`
+ignore would not cover. A stub that dropped the parameters (`Callable[...,
 _R]`) would therefore leave those ignores unused, and both checkers flag an unused ignore
 (`warn_unused_ignores`, `reportUnnecessaryTypeIgnoreComment`).
 
 ## Example 2: a drifted declaration fails the loop
 
-`test_stubtest_reports_drift` copies the installed stubs into a temporary directory and runs
+`test_stubtest_reports_drift` copies the installed `liquers` tree, every `.py`, `.pyi` and
+`py.typed` but not the extension, into a temporary directory and runs
 stubtest with `MYPYPATH` pointing at the copy. It has two cases, and each asserts a non-zero exit
 whose output names the drift:
 - `[missing]` deletes `def evaluate_state`, and expects `liquers.Environment.evaluate_state is
@@ -93,7 +96,7 @@ declared)` names a synthetic extra class.
 |---|---|---|
 | A leg other than CPython 3.14 with the GIL | Every STUBS test skips, naming the leg | each test's `skipif` |
 | An allowlist entry no longer needed | stubtest exits 1, "unused allowlist entry" | `test_stubtest_passes` (no `--ignore-unused-allowlist`) |
-| A checker checks no files (bad path or exclude) | Fails | `test_bad_samples_fail_exactly` |
+| A checker checks no files (bad path or exclude) | Fails | `test_bad_samples_fail_exactly`; `test_good_samples_pass` asserts the checker's file count (mypy's "N source files", pyright's `filesAnalyzed`) is at least 7 |
 | A new `ErrorType` variant in Rust | It is named | `test_error_classes_are_declared` |
 | A `debug-handles` name | Excluded or allowlisted, as above | `test_native_names_are_declared`, `test_stubtest_passes` |
 
@@ -105,6 +108,10 @@ exit code of 0 would also hold if the checker had checked nothing:
 
 ## Test Plan
 
+- `test_checkers_are_pinned`: the installed mypy and pyright are the pinned versions, so a
+  changed result is never a silent checker upgrade.
+- `test_package_sources_pass_mypy` (AC-4): `mypy --strict --config-file <typing>/mypy.ini` over
+  the six pure-Python modules reports nothing.
 - `test_declaration_files_exist` (AC-1): `importlib.resources.files("liquers")` holds
   `__init__.pyi`, `_native.pyi` and `py.typed`.
 - `test_stubtest_passes` (AC-2): `python -m mypy.stubtest liquers --allowlist
@@ -126,6 +133,8 @@ exit code of 0 would also hold if the checker had checked nothing:
 - `test_bad_samples_fail_exactly[mypy]` and `[pyright]` (AC-5, AC-6): the two runs above.
 - `test_error_classes_are_declared` (AC-8): the names of `liquers._ERROR_SUBCLASSES` and of
   each class's `__bases__` equal the stub's `ClassDef` names and bases.
+- `liquers-py/tests/package/test_PACKAGE_wheel.py::test_wheel_contents` (AC-1 on the wheel,
+  `STUBS07`) gains `py.typed`, `__init__.pyi` and `_native.pyi`; it runs in `liquers-py-package.yml`.
 - Command to run: `bash scripts/test-liquers-py.sh -k STUBS`, on CPython 3.14.
 
 ## Learning Log

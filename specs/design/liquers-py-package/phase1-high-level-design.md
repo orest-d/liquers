@@ -112,6 +112,12 @@ data science use case. Milestone M5 of the liquers-py plan, with
     install, and `"all"` covers only what the platform can have. AC-8 is conceptual (it
     publishes); its parts are checked by named workflow steps. The wheel-size limit becomes a
     check (90 MB).
+  - Phase 4 review: AC-6's stub files are asserted by `liquers-py-stubs`, which lands last;
+    `[tool.maturin] profile` is not set (it would slow `maturin develop`), so an sdist install
+    builds with Cargo's `release`; `CLAUDE.md`'s liquers-py line gains the wheel set. Orest's
+    out-of-repository setup before the first tag: trusted publishers on TestPyPI and PyPI, and a
+    required reviewer on `pypi`. If a wheel cell (Windows arm64, manylinux 3.15t) cannot be
+    built, that changes the approved wheel set and goes to Orest: **needs decision** only then.
 
 ## Decisions
 

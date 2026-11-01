@@ -14,8 +14,9 @@
 | 8 | Test | Rust: `ipc.rs`, `sources.rs`, `liquers-py/src/records/resolver.rs` | AC-2, AC-13, AC-15 |
 
 **The fixture.** `liquers-py/tests/data/records_all_types.feather` is committed. It is written
-by the Rust test `ipc_writes_the_python_fixture` and compared byte for byte by
-`python_fixture_is_current`. It holds four rows with these fields: `id` (Text, key `Id`), `src`
+by the Rust test `ipc_writes_the_python_fixture`, which writes only when
+`LIQUERS_UPDATE_FIXTURES=1`, and compared byte for byte by `python_fixture_is_current`, which runs
+by default. It holds four rows with these fields: `id` (Text, key `Id`), `src`
 (UInt, key `Source`), and one each of Bool, Int, Float, Text, Binary, Date, Timestamp and Vector
 (`dim` 2). Every field except `id` has a null. It also carries two origins and the chunk id
 `-R/fx/part-0.csv`. Python reads it with `ipc_bytes/ns-rec/to_record-feather`, so no pyarrow is
@@ -118,6 +119,8 @@ Python tests live in `liquers-py/tests/`. Any test that needs pyarrow, pandas or
 `pytest.importorskip` in its body.
 
 - **`test_RECORDS_views.py`**
+  - `test_schema_classes_construct`, `test_schema_to_dict_matches_liquers_schema` and
+    `test_schema_refuses_duplicate_id`: the schema classes on their own (AC-18's declarations).
   - `test_view_reaches_python` (AC-1): through `evaluate` and through `evaluate_state`, whose
     metadata reports `RecordView`.
   - `test_view_round_trips_with_identity` (AC-2): a Python command returns the fixture view. The
@@ -148,8 +151,8 @@ Python tests live in `liquers-py/tests/`. Any test that needs pyarrow, pandas or
     - `chunk(1)` is `r1`, with the manifest's `Float`.
   - `test_shutdown_ends_traversal` (AC-15), and the edge-case tests above.
 - **`test_RECORDS_build.py`**
-  - `test_constructors_agree` (AC-16): runs `from_records`, `from_dict`, `from_pandas` (with `n`
-    as `Int64`), `from_polars` and `from_arrow` on the AC-16 rows.
+  - `test_constructors_agree[from_records|from_dict|from_pandas|from_polars|from_arrow]` (AC-16):
+    each route on the AC-16 rows (`from_pandas` with `n` as `Int64`) equals `from_records`'s view.
   - `test_to_list_and_to_dict_round_trip` (AC-17).
   - `test_fields_inferred_declared_or_given[from_records|from_pandas]` (AC-18): four cases for each
     route.
@@ -174,7 +177,9 @@ Python tests live in `liquers-py/tests/`. Any test that needs pyarrow, pandas or
   - `cargo test -p liquers-lib --lib --tests rowid`, which runs `records_end_to_end.rs` and
     `record_manifest_resource_key.rs` through the name filter.
 
-`RECORDS09` and `RECORDS11` stay as skips marked `na(...)`.
+Each test that proves a conformance scenario carries its ID, as the existing suites do
+(`test_RECORDS01_view_round_trips_with_identity`); the names above omit it for brevity.
+`RECORDS09` and `RECORDS11` are added as skips marked `na(...)`.
 
 ## Learning Log
 
