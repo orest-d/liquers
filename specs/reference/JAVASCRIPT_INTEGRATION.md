@@ -3,7 +3,7 @@ title: JavaScript Integration
 kind: reference
 audience: both
 area: [web, core/value, core/error, core/store, lib/value]
-reviewed: 2026-10-30
+reviewed: 2026-10-31
 ---
 # JavaScript Integration
 
@@ -65,8 +65,11 @@ through `typescript_type` extern types, so there is one generated file and nothi
 | `State` | `State<Value>`, plus its environment | `value()`, `toJS()`, `metadata()`, `log()`, `status` |
 | `Query`, `Key` | `liquers_core::query::{Query, Key}` | `parse`, `encode`, `equals`, `filename`; `Key` adds `parent`, `toAbsolute` |
 | `LiquersError` | `liquers_core::error::Error`, plus JavaScript class, stack and report | §6 |
+| `Context` | a command's `Context<E>`, type-erased, valid only during its call | §4 "Context" |
 | `Store` | `Arc<dyn AsyncStore>` | §8 |
 | `RecordBatch`, `RecordSource`, `RecordStream` | record views and sources | §9, `records` only |
+| `UIMount`, `UISubscription` | a mounted `liquers-lib` web UI and a status subscription | §10 |
+| `UIElement` | `Arc<dyn liquers_lib::ui::UIElement>` | §10; `typeName`, `title`, `renderHtml()`; `kind`, `props` for a page-defined element |
 
 `Query.equals` and `Key.equals` compare canonical encodings, since every wrapper is its own handle
 and `===` would compare handles; a key's `encode()` is therefore usable as a `Map` key. `Query.parse`
@@ -166,10 +169,11 @@ to a function or to `{ run, state?, async? }`. Both run the pipeline of
 - `run` is removed and kept by the integration; the rest of the object, with `null` and `undefined`
   properties dropped, is the declaration document. Any `CommandMetadata` key is accepted, though the
   `.d.ts` declares only the common ones (`name`, `run`, `arguments`, `state`, `namespace`, `realm`,
-  `label`, `doc`, `async`, `volatile`).
+  `label`, `doc`, `async`, `volatile`, `conventions`).
 - `state` and `async` are read by the integration and are not metadata. `state` is `"none"` (the
   default: a source command), `"value"`, `"text"` (or `"string"`) or `"state"`; the core
-  state-delivery conventions are switched off (`conventions: false`), since the mode is declared.
+  state-delivery convention is switched off, since the mode is declared. The `context` convention
+  stays on unless the page writes `conventions: { context: false }` (or `conventions: false`).
   `async` is `true`, `false`, or omitted (decide per call).
 - Labels keep `liquers-web`'s historical rule: a command label defaults to the name verbatim, an
   argument label to the name with `_` replaced by a space. `state_argument` is always present.
@@ -177,7 +181,8 @@ to a function or to `{ run, state?, async? }`. Both run the pipeline of
 - **Argument inference.** With no `arguments` key, names are read from `run`'s source: every
   parameter must be a plain identifier and their count must equal `Function.length`. A default, rest
   or destructured parameter, or a bound or native function, is refused with an error naming it.
-  The first parameter is skipped when `state` is not `"none"`. Inferred arguments have type `any`
+  The first parameter is skipped when `state` is not `"none"`, and a parameter named `context` is
+  the context (below), not an argument. Inferred arguments have type `any`
   and no default; `describeCommand` reports `argumentsInferred: true`. Minification yields correct
   arity and wrong names, which affects labels, not behaviour.
 
@@ -216,13 +221,34 @@ borrow is held across the call:
 1. the state, unless the mode is `none`: the converted value (`value`), the state's text (`text`,
    via `State::try_into_string`), or a plain object `{ value, metadata, status, log }` (`state`);
 2. each argument's resolved value, converted (§5), in declaration order;
-3. `run.apply(null, args)`.
+3. the `Context`, inserted where the declaration placed it (below);
+4. `run.apply(null, args)`.
 
-There is no context argument: a JavaScript command cannot log, evaluate a dependency or check
-cancellation (`JS-COMMAND-CANNOT-ACCESS-CONTEXT`). A throw becomes an error (§6). A thenable result
+A throw becomes an error (§6). A thenable result
 is awaited unless `async: false`, which refuses it with `execution_error`; with `async: true` a plain
 result is accepted. The result is converted structurally (§5); a `Value` from `opaque()` is kept by
 identity. A JavaScript command's implementation version is not derived from its source.
+
+**Context** (`command/context.rs`, `COMMAND07`). An argument named `context`, in any position, or
+an inferred parameter of that name, is the execution context: core's `context` convention removes it
+from `arguments` and records its index in `registration.context`, and `run` receives a `Context` at
+that index (counted after the state, when the command takes one). It is not a query argument and
+`describeCommand` does not list it. The class follows `liquers-py`'s `lq.Context`:
+
+| Member | Does |
+|---|---|
+| `info(m)`, `warning(m)`, `error(m)` | add an entry to the asset's log; after `error` the evaluation fails once `run` returns, with that message |
+| `evaluate(query)` | `Promise` of the query's value, parsed with `parse_query`, evaluated as a dependency of this asset (`Context::evaluate` and `wait_for_dependency`), converted in this environment; a failure rejects with a `LiquersError` |
+| `isCancelled()` | core's cancellation flag; always `false` today (`WEB-CANCELLATION-INERT`) |
+| `element` | the handle of the UI element whose action ran the command, as a `number`, or `null` outside a UI |
+
+`element` comes from the environment's payload through the `JsPayload` trait: `()` answers `null`,
+and `liquers_lib::ui::SimpleUIPayload` answers its handle. `call_js_command` therefore requires
+`E::Payload: JsPayload`. A context lives until `run` (or its promise) settles: a drop guard empties
+its slot when the call ends, on every path, and every member then throws a `LiquersError` saying the
+context is valid only during the call. A command bound to imported metadata (`registerCommands`
+with a registry document) receives no context, because imported metadata has no `registration`
+record (`WEB-IMPORTED-COMMAND-RECEIVES-NO-CONTEXT`).
 
 ## 5. Values
 
@@ -343,8 +369,8 @@ when that evaluation fails, the second caller can receive `null` instead of the 
 
 **Borrow rule.** No `RefCell` borrow is held across an `await` or a call into JavaScript; every
 accessor clones the `EnvRef` out. A re-entrant call — a JavaScript command calling `evaluate` — is
-therefore safe — an `async` command may `await liquers.evaluate(…)` — though without a context the
-inner result is not recorded as a dependency of the outer one.
+therefore safe — an `async` command may `await liquers.evaluate(…)` — though only
+`context.evaluate(…)` records the inner result as a dependency of the outer one.
 
 ## 8. Stores
 
@@ -402,12 +428,140 @@ stream. A view built from a `column` descriptor is invalidated by `memory.grow` 
 `free()`; `RecordColumn` in `src/records_column.js` re-creates it on demand. `RECORDS03`, `09` and
 `11` are `NA` (`liquers-web/README.md`).
 
-## 10. Limitations
+## 10. User interface
+
+`mountUI(container, options)` (`ui.rs`; also `Environment.mountUI`) mounts the `liquers-lib` web
+backend (`liquers_lib::ui::mount_web_with`) into a DOM element and resolves to a `UIMount`. The
+environment's payload is `liquers_lib::ui::SimpleUIPayload` (`WebEnvironment =
+DefaultEnvironment<Value, SimpleUIPayload>`), and the 14 `lui` commands are built in
+(`register_lui_commands!` in `builtins.rs`), so a command run from the UI knows its element and can
+place others.
+
+**Options.** `{ query }` adds a root node whose source is the query, which the runner evaluates as
+it evaluates any pending node. `{ spec }` places a root `UISpecElement` and calls its `init`, which
+submits the spec's `init` queries: YAML text goes through `UISpec::from_yaml`, and an object through
+`serde_wasm_bindgen` into `UISpec` (serde's externally tagged form, since JSON cannot write YAML
+tags). Both together, a `query` that does not parse (checked first, so the refusal needs no DOM),
+or a `spec` that is not a `UISpec` reject the promise. No `window`/`document`, or a `container`
+that is not an `Element`, rejects with `not_supported`.
+
+| `UIMount` member | Does |
+|---|---|
+| `running` | `false` after `dispose()` |
+| `submit(query, handle?)` | sends `AppMessage::SubmitQuery`, as a control's query action does; commands place their own results |
+| `show(query, handle?)` | `AppState::insert_source` at `Root`, or `Instead(handle)`; returns the element's handle |
+| `on("status", cb)` | a `UISubscription`; `cb` receives `{ handle, status, error? }` |
+| `elements()` | the tree, depth first: `{ handle, parent, typeName, title, status }` |
+| `dispose()` | stops the mount (idempotent) and drops its subscriptions |
+
+Handles cross as `number` (`UIHandle.0` as `f64`) and are read back with a range check. `show` and
+`elements` take the `AppState` lock with `try_lock`; the runner holds no guard across an await, so
+they fail only when called from inside a render. An unknown handle, or any call but `dispose` on a
+disposed mount, throws a `LiquersError` (`general`).
+
+**Status events.** `AppRunner` records a `RunnerEvent { handle, status, error }` when it sets a
+progress element (`processing`; core has no "evaluating" status), when it sets an element from a
+result (`ready`), at every error element (`error`, with the error), for a failing root query
+(`handle: null`), and for each delivered asset snapshot (the snapshot's status). The driver drains
+them after each tick, once the DOM is updated and no lock is held, and passes them to `on_tick`;
+the mount updates the statuses `elements()` reports and calls the subscribers. A throwing callback
+is reported to `console.error`, and later callbacks still run; the subscriber list is cloned
+first, so a callback may dispose its subscription or the mount. Undrained events (a native
+backend that never reads them) are capped at 1024, oldest dropped.
+
+**Stale results.** The runner remembers the query text each in-flight evaluation started, and
+before it lands a result checks that the node's source is still that query; a node whose source
+changed (a `show(B, h)` while A was awaiting) is evaluated again and A's result is dropped.
+
+**Rebuilds.** `MountOptions::current_env` is called before each tick; an environment that differs
+by `Arc` identity replaces the runner's (`AppRunner::replace_envref`), so a mount on the singleton
+can use a command registered after it was mounted. Results cached by the old environment are lost,
+as for any rebuild (`POST-INIT-COMMAND-REGISTRATION`).
+
+**Disposal.** `MountHandle::stop` (and drop) removes the `click` listener from the container and
+the `keydown` listener from the document, empties the container and sets a flag the driver loop
+checks after `run` and after `on_tick`, so a stop made while a query was awaiting never paints. The
+loop then returns and drops the runner, its `EnvRef` and its `AppState` clone.
+
+**`UIElement`.** A UI element value converts to a `UIElement` handle (`default_value.rs`) and back
+as the same `Arc`, through the `records.rs` registry idiom (`__liquersUIElementHandle`, an
+id-to-`Arc` map emptied by `free()`). A freed handle is refused. `renderHtml()` renders the element
+on its own, against an empty `DirectAppState`.
+
+Limits: the page does not repaint while a query awaits, because the inline asset manager evaluates
+inside the driver's `run` (`WEB-UI-FREEZES-WHILE-A-QUERY-AWAITS`); cancellation is inert; with two
+mounts on one page an unfocused menu shortcut runs in both (`WEBUI-SHORTCUTS-RUN-IN-EVERY-MOUNT`).
+
+### Elements and renderers
+
+**One Rust type for every page-defined element.** `liquers_lib::ui::DelegatedElement` (typetag
+`"DelegatedElement"`, all targets) carries a `kind`, JSON `props` and a `title`, and looks up its
+behaviour by `kind` in a per-thread registry of `ElementDelegate`s (`register_delegate`,
+`unregister_delegate`, `delegate_for`). Only the data is serialized, so a restored tree renders an
+escaped placeholder (`lq-undefined`) for a kind that is not defined, and its markup once it is.
+`render_web` wraps the delegate's markup in `<div id="ui-element-N" class="lq-element
+lq-delegated" data-lq-delegate="{kind}">`; a failing delegate renders an escaped error box
+(`lq-error`). `update(UpdateMessage::UI(e))` calls the delegate's `on_event` and, when it returns
+new props, replaces them and answers `NeedsRepaint`; every other message is `Unchanged`. In egui
+the element shows a label: egui is not a claimed backend (`NA`). `UIElement::as_any` (default
+`None`) lets an integration downcast to it.
+
+**The page's API** (`ui_define.rs`):
+
+| Function | Does |
+|---|---|
+| `defineElement({ type, render, onEvent?, mount?, title? })` | registers a `JsElementDelegate`; a second define of a type replaces it, and every live mount re-renders (`invalidate_all`; a mount whose lock is held, from inside a render, after its tick) |
+| `undefineElement(type)` | removes it and releases its functions; `true` if it was defined |
+| `element(type, props?, title?)` | a `DelegatedElement` as a `UIElement` handle; the type need not be defined yet |
+| `mountRenderer(renderer, options?)` | a mount with no container; resolves to a `UIMount` |
+| `UIMount.dispatchEvent(handle, kind, fields?)` | sends `AppMessage::UIEvent`, as a `data-lq-event` click does |
+
+`props` must be JSON data: functions, symbols, bigints, non-finite numbers, class instances (a
+`Date`, a `Map`, a handle) and cycles are refused with `conversion_error`, naming what was found
+and where; `undefined` in an object is left out, as `JSON.stringify` does. Props are a
+`serde_json::Value`, so object keys come back sorted. They reach the page's functions through the
+crate's JSON serializer (objects, not `Map`s).
+
+**Call contexts.** `render(props)` runs while the driver paints, under the `AppState` lock; it
+must return a string, and a throw or another type becomes the element's error box and a
+`console.error`. `show` from inside it throws the busy-lock error; `submit` works, because it is a
+message. `onEvent(props, event)` runs inside `AppRunner::run` through `ui-events`'
+`deliver_update`, with the element taken out and the lock released, so it may call `show` and
+`submit`; `show(q, h)` for its own element is refused (`general`: the element is being updated,
+and the runner would put it back over the replacement). It returns the new props, or `undefined`
+to keep them; a throw keeps them and goes to `console.error`. The event is `{ handle, kind,
+fields }`: `kind` is `UIEventKind::name()`, `fields` the event's values through `value_to_js`.
+
+**`mount`.** After each tick of a container mount (in `on_tick`, no lock held) the mount
+reconciles the container's `[data-lq-delegate]` nodes against a map of handle → (node, cleanup):
+an entry whose node is no longer connected has its cleanup run and is dropped; a node with no entry
+(or a different node for the handle) is passed to the type's `mount(node, props)`, and a function
+it returns is kept as the cleanup. Disposing the mount runs the remaining cleanups; a `mount` that disposes the mount itself has its returned cleanup run at once. A throwing
+`mount` is reported, and the element keeps its markup. The pass is skipped while no definition has
+a `mount` and nothing is mounted.
+
+**Renderers.** `mountRenderer` runs `liquers_lib::ui::run_headless`: the same driver loop as
+`mount_web_with` (both use one `spawn_driver_loop`), with no DOM. A `MountHandle` holds its DOM
+parts as an `Option`, so a headless handle's `stop` only ends the loop. After each tick that
+changed something the renderer's `render(tree, changes)` is called with this as the renderer
+object: `changes` is `"all"` for `Invalidation::All` (the first tick among them), otherwise the
+`UIChange`s as `{ inserted, parent, index }`, `{ removed, parent }` or `{ replaced }`. `tree` is
+always the whole tree, `{ roots, elements }`, each element `{ handle, parent, children, typeName,
+title, status, html, kind?, props? }`, where `html` is `render_element_web`. The tick's status events are recorded before the tree is
+built, and an element whose status changed with no tree change is passed as `{ replaced }`. A
+throwing renderer is
+reported and called again on the next change. `dispose()` calls the renderer's `dispose`.
+
+Every retained page function (definitions, cleanups, renderers) is counted in
+`live_handle_count` under `debug-handles`.
+
+## 11. Limitations
 
 - Templates and data nodes: no `ns-template` commands, no template commands, no programmatic
   `render`, no JavaScript `DataNode` adapter (`WEB-HAS-NO-TEMPLATE-COMMANDS`; `TEMPLATE`, `DATANODE`
   not started).
-- A JavaScript command receives no context (`JS-COMMAND-CANNOT-ACCESS-CONTEXT`).
+- A command bound to imported metadata receives no context
+  (`WEB-IMPORTED-COMMAND-RECEIVES-NO-CONTEXT`).
 - Cancellation is inert (`WEB-CANCELLATION-INERT`).
 - Commands cannot be registered on a `new Environment()`, and its store methods configure the
   singleton (`POST-INIT-COMMAND-REGISTRATION`, `WEB-EXPLICIT-ENVIRONMENT-CONFIGURES-THE-SINGLETON`).
@@ -424,13 +578,19 @@ stream. A view built from a `column` descriptor is invalidated by `memory.grow` 
   (`WEB-HAS-NO-READ-WRITE-REMOTE-STORE`), and the store configuration is not yet an
   `EnvironmentConfig` (`WEB-STORE-CONFIG-NOT-APPLIED-THROUGH-ENVIRONMENT-CONFIG`).
 - No generated API reference beyond the `.d.ts`, and no npm package (`WEB-API-REFERENCE-NOT-GENERATED`).
-- `RECIPE` (a JavaScript recipe provider), `UIUSE`, `UIDEF`, `MODULE`, `POLYGLOT`, `WEBSERV` and
-  `WEBAPI` are not implemented; the default recipe provider works through a configured store.
+- `RECIPE` (a JavaScript recipe provider), `MODULE`, `POLYGLOT`, `WEBSERV` and `WEBAPI`
+  are not implemented; the default recipe provider works through a configured store.
+- The UI does not repaint while a query awaits (`WEB-UI-FREEZES-WHILE-A-QUERY-AWAITS`), and an
+  unfocused menu shortcut runs in every mount (`WEBUI-SHORTCUTS-RUN-IN-EVERY-MOUNT`).
+- A page-defined element renders only in the web backend; egui shows a label.
 
 ## History
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-10-31 | §10 "Elements and renderers": `defineElement`, `undefineElement`, `element`, `mountRenderer`, `dispatchEvent`; `DelegatedElement`; `UIElement.kind`/`props`. `UIDEF` removed from Limitations. | design `web-ui-define` |
+| 2026-10-31 | §10 "User interface": `mountUI`, `UIMount`, `UISubscription`, `UIElement`; the payload is `SimpleUIPayload` and `lui` is built in; §10 Limitations becomes §11. | design `web-ui-use` |
+| 2026-10-31 | §2, §4: a JavaScript command receives a `Context` (`info`, `warning`, `error`, `evaluate`, `isCancelled`, `element`); `conventions: { context: false }` opts out. Limitation removed. | design `js-command-context` |
 | 2026-10-30 | §3: the recipe provider is `LibKind`'s default chain, so a `records` build serves manifest chunks. | design `recipe-provider-chain-config` |
 | 2026-10-26 | Created from the implemented `liquers-web`, checked against a wasm build under Node. | `WEB-HAS-NO-API-REFERENCE-OR-USER-GUIDE` |
 | 2026-10-26 | A nested `null` now arrives as `null`; a failed asset rejects every `evaluate` caller; nested bytes are refused by design. Three limitations removed. | `WEB-NESTED-NULL-CROSSES-AS-UNDEFINED`, `WEB-EVALUATE-RESOLVES-FAILED-ASSET-AS-NULL`, `WEB-NESTED-BYTES-REFUSED-NOT-DEGRADED` |

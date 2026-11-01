@@ -47,6 +47,74 @@ async function main(): Promise<void> {
     },
   });
 
+  // The execution context, in the position of an argument named `context`.
+  liquers.registerCommand({
+    name: 'report',
+    async: true,
+    run: async (context: liquers.Context) => {
+      context.info('fetching');
+      const where: number | null = context.element;
+      if (context.isCancelled()) return String(where);
+      return await context.evaluate('hello');
+    },
+  });
+  liquers.registerCommand({
+    name: 'plain_context',
+    arguments: [{ name: 'context' }],
+    conventions: { context: false },
+    run: (context: string) => context,
+  });
+
+  // A mounted UI.
+  const app = document.createElement('div');
+  const ui: liquers.UIMount = await liquers.mountUI(app, { query: 'hello/q/ns-lui/query_console' });
+  const sub: liquers.UISubscription = ui.on('status', (e: liquers.UIStatusEvent) => {
+    const h: number | null = e.handle;
+    if (e.error) console.error(e.error.message, h, e.status);
+  });
+  const shown: number = ui.show('hello');
+  ui.show('hello', shown);
+  ui.submit('hello', shown);
+  for (const info of ui.elements()) {
+    const name: string | null = info.typeName;
+    console.log(info.handle, info.parent, name, info.title, info.status);
+  }
+  const running: boolean = ui.running;
+  sub.dispose();
+  if (running) ui.dispose();
+  await liquers.mountUI(app, { spec: 'layout: !vertical null' });
+
+  // A page-defined element, shown in a mount or drawn by the page's own renderer.
+  const gauge: liquers.ElementDefinition = {
+    type: 'gauge',
+    title: 'Gauge',
+    render: (p) => `<span>${p.value}%</span><button data-lq-event="inc">+</button>`,
+    onEvent: (p, e: liquers.UIUserEvent) => (e.kind === 'inc' ? { ...p, value: p.value + 1 } : undefined),
+    mount: (node: Element, p) => {
+      node.setAttribute('data-v', String(p.value));
+      return () => node.removeAttribute('data-v');
+    },
+  };
+  liquers.defineElement(gauge);
+  const made: liquers.UIElement = liquers.element('gauge', { value: 50 }, 'CPU');
+  const kind: string | undefined = made.kind;
+  const props: any = made.props;
+  void kind;
+  void props;
+  const renderer: liquers.UIRenderer = {
+    render(tree: liquers.UITree, changes: liquers.UIChangeRecord[] | 'all') {
+      for (const root of tree.roots) {
+        const node: liquers.UITreeElement = tree.elements[root];
+        console.log(node.html, node.children, node.kind, changes === 'all');
+      }
+    },
+  };
+  const drawn: liquers.UIMount = await liquers.mountRenderer(renderer, { query: 'gauge-50' });
+  drawn.dispatchEvent(1, 'inc', { note: 'x' });
+  drawn.dispose();
+  const removed: boolean = liquers.undefineElement('gauge');
+  void removed;
+
   // STUBS04 — `registerCommand` neither wraps nor returns the function, so the declared signature
   // of a command's implementation survives registration. `named` is still callable with its own
   // parameter types; a decorator-style API could not promise that.

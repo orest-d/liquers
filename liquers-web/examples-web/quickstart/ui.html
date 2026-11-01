@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Liquers — a UI in a page</title>
+    <style>
+      body { font: 15px/1.5 system-ui, sans-serif; max-width: 46rem; margin: 3rem auto; padding: 0 1rem; }
+      #events { font-family: ui-monospace, monospace; white-space: pre; color: #555; }
+    </style>
+  </head>
+  <body>
+    <h1>Liquers — a UI in a page</h1>
+    <p>The query console, mounted with <code>mountUI</code>. Status changes are listed below it.</p>
+    <div id="app"></div>
+    <div id="events"></div>
+
+    <script type="module">
+      // Built by `build.sh`, which writes `liquers_web.js` next to this page.
+      import init, * as liquers from "./liquers_web.js";
+
+      await init();
+      await liquers.init();
+      const ui = await liquers.mountUI(document.getElementById("app"), {
+        query: "hello/q/ns-lui/query_console",
+      });
+      const log = document.getElementById("events");
+      ui.on("status", (e) => {
+        log.textContent += `${e.handle} ${e.status}${e.error ? " " + e.error.message : ""}\n`;
+      });
+      // Exposed for the Playwright spec (`tests/e2e/ui.spec.ts`).
+      globalThis.__liquersUI = { ui, ready: true };
+    </script>
+  </body>
+</html>

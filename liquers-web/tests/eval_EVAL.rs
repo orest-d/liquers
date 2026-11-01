@@ -182,15 +182,20 @@ async fn eval05_payload_and_context_reach_a_command() {
         Some("HELLO, WORLD!HELLO, WORLD!")
     );
 
-    // The documented payload behaviour: this environment declares `Payload = ()`, and no command
-    // requires one, so evaluation proceeds without a payload being supplied.
+    // The documented payload behaviour: this environment's payload is the UI payload, which only
+    // a mounted UI supplies (`mountUI`). No command here requires one, so evaluation proceeds
+    // without a payload being supplied.
+    fn payload_is_ui_payload<E>()
+    where
+        E: liquers_core::context::Environment<Payload = liquers_lib::ui::SimpleUIPayload>,
+    {
+    }
+    payload_is_ui_payload::<liquers_web::WebEnvironment>();
     let envref = shared_env().expect("env");
-    let _: &() =
-        &<liquers_web::WebEnvironment as liquers_core::context::Environment>::Payload::default();
     let query = liquers_core::parse::parse_query("hello").expect("parse");
     assert!(
         get_asset_for(envref, query).await.is_ok(),
-        "a query needs no payload when Payload = ()"
+        "a query needs no payload unless a command requires one"
     );
     reset_global();
 }

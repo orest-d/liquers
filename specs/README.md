@@ -247,6 +247,9 @@ on wasm.
 - **Web rendering with SSR and wasm** — built → [`design/webui/`](design/webui/)
 - **Retained-mode invalidation tracking** — built → [`design/webui-fixes/`](design/webui-fixes/)
 - **UI event delivery** — built → [`design/ui-events/`](design/ui-events/)
+- **Liquers UI from JavaScript** — built → [`design/web-ui-use/`](design/web-ui-use/)
+- **UI elements and renderers defined in JavaScript** — built → [`design/web-ui-define/`](design/web-ui-define/)
+- **Execution context for JavaScript commands** — built → [`design/js-command-context/`](design/js-command-context/)
 - **Typed list values for `lui/children`** — built → [`design/value-list-support/`](design/value-list-support/)
 - **egui asset-manager adapter** — planned → [`issues/EGUI-ASSET-MANAGER-INTEGRATION.md`](issues/EGUI-ASSET-MANAGER-INTEGRATION.md)
 
@@ -449,6 +452,7 @@ deliberately folded behind a broader line.
 - design `metadata-application-attributes`
 - design `metadata-error-traceback`
 - design `metadata-only-entry-reload`
+- design `metadata-section-on-built-store`
 - design `metadata-serde-partialeq`
 - design `mid-query-q-arity`
 - design `multi-language-traceback`
@@ -553,6 +557,7 @@ deliberately folded behind a broader line.
 - design `store-backend-absolute-key`
 - design `store-command-namespace`
 - design `store-conditional-write`
+- design `store-config-handlers-usage-docs`
 - design `store-config-key-scoped-handlers`
 - design `store-conformance-check-tool`
 - design `store-conformance-suite`
@@ -639,7 +644,6 @@ deliberately folded behind a broader line.
 - feature `EXTERNAL-INDEX-HAS-NO-RECONCILIATION-CONTRACT`
 - feature `HTTP-ACCEPT-HEADER-NOT-NEGOTIATED`
 - feature `ISSUE-REPORT-PLAN-AND-METADATA-LOGGING`
-- feature `JS-COMMAND-CANNOT-ACCESS-CONTEXT`
 - feature `LANGUAGE-STORE-CONFIG-FUNCTION-NOT-DEFINABLE`
 - feature `LANGUAGE-STORE-TYPE-NOT-DEFINABLE`
 - feature `LIB-RECIPE-PROVIDERS-HAVE-NO-VALIDATION-CLI`
@@ -676,6 +680,7 @@ deliberately folded behind a broader line.
 - feature `STORE-COMMAND-NAMESPACE-MISSING`
 - feature `STORE-CONFIG-FROM-URI`
 - feature `STORE-CONFIG-SPEC-CANNOT-SCOPE-HANDLERS-TO-A-KEY`
+- feature `STORE-METADATA-SECTION-CANNOT-WRAP-A-BUILT-STORE`
 - feature `STORE-NO-DATABASE-STORAGE-MODEL`
 - feature `STORED-DERIVED-VALUES-ARE-NEVER-PRUNED`
 - feature `TEMPLATE-HAS-NO-HIGHLIGHTER`
