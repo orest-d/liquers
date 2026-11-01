@@ -2,6 +2,14 @@
 //! catalogue): `defaults`, `set`, `require`, `media_type`, `file_facts`, `content_hash` and
 //! `updated`, plus `infer` (`specs/design/storage-none-computed-values/`). Each is a [`CommandMetadata`] built next to its [`StepBuilder`] and registered by
 //! [`register_builtin_handlers`].
+//!
+//! A handler shapes a [`MetadataRecord`] in one stage of a mount's `metadata` section
+//! (`on_default`, `on_validate`, `on_write`, `on_read`). Stores neither implement nor call
+//! handlers: [`MetadataPipelineStore`](crate::store::MetadataPipelineStore) runs them, and
+//! [`crate::store_factory::StoreRouterBuilder`] puts that pipeline around every mount whose section
+//! is non-empty. A mount without a section runs no handler at all. See the [`pipeline`](crate::store::pipeline)
+//! module for the call path and an example, and `specs/guides/STORE_CONFIG_GUIDE.md` §5 for the
+//! catalogue.
 
 use crate::command_metadata::{
     ArgumentInfo, ArgumentType, CommandMetadata, CommandMetadataRegistry, EnumArgument,

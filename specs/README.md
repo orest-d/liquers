@@ -451,6 +451,7 @@ deliberately folded behind a broader line.
 - design `metadata-application-attributes`
 - design `metadata-error-traceback`
 - design `metadata-only-entry-reload`
+- design `metadata-section-on-built-store`
 - design `metadata-serde-partialeq`
 - design `mid-query-q-arity`
 - design `multi-language-traceback`
@@ -555,6 +556,7 @@ deliberately folded behind a broader line.
 - design `store-backend-absolute-key`
 - design `store-command-namespace`
 - design `store-conditional-write`
+- design `store-config-handlers-usage-docs`
 - design `store-config-key-scoped-handlers`
 - design `store-conformance-check-tool`
 - design `store-conformance-suite`
@@ -676,6 +678,7 @@ deliberately folded behind a broader line.
 - feature `STORE-COMMAND-NAMESPACE-MISSING`
 - feature `STORE-CONFIG-FROM-URI`
 - feature `STORE-CONFIG-SPEC-CANNOT-SCOPE-HANDLERS-TO-A-KEY`
+- feature `STORE-METADATA-SECTION-CANNOT-WRAP-A-BUILT-STORE`
 - feature `STORE-NO-DATABASE-STORAGE-MODEL`
 - feature `STORED-DERIVED-VALUES-ARE-NEVER-PRUNED`
 - feature `TEMPLATE-HAS-NO-HIGHLIGHTER`

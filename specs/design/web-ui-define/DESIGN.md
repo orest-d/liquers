@@ -3,9 +3,8 @@ id: WEB-UI-DEFINE
 kind: design
 title: Define UI elements and renderers in JavaScript (UIDEF)
 workflow: liquers-project
-status: in_review
-phase: documentation
-readiness: needs-decision
+status: complete
+readiness: ready
 autofix: not-eligible
 area: [web, lib/ui]
 issues: [WEB-CANNOT-DEFINE-UI-ELEMENTS]
@@ -27,7 +26,7 @@ stopping. The decision log is in Phase 1's Design Readiness section.
 - [x] Phase 2: Architecture — 2026-10-30
 - [x] Phase 3: Examples and Testing — 2026-10-30
 - [x] Phase 4: Implementation Plan — 2026-10-30; implemented 2026-10-31
-- [ ] Phase 5: Documentation
+- [x] Phase 5: Documentation — 2026-10-31; accepted 2026-11-01
 
 ## Phases
 

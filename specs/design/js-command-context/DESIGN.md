@@ -4,9 +4,8 @@ kind: design
 title: A JavaScript command receives the execution context
 form: compact
 workflow: liquers-project
-status: in_review
-phase: documentation
-readiness: needs-decision
+status: complete
+readiness: ready
 autofix: not-eligible
 area: [web]
 issues: [JS-COMMAND-CANNOT-ACCESS-CONTEXT]

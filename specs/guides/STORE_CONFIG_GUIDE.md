@@ -3,7 +3,7 @@ title: Store Configuration Guide
 kind: guide
 audience: internal
 area: [store/config, core/store]
-reviewed: 2026-10-27
+reviewed: 2026-11-01
 ---
 # Store Configuration Guide
 
@@ -60,9 +60,27 @@ three things:
 - **what** a record contains, through four handler chains (`on_default`, `on_validate`,
   `on_write`, `on_read`).
 
+### Who runs the handlers
+
+- **Not the store.** No store implements or calls handlers. A store implements the data-only
+  methods of `AsyncStore` (`STORE_IMPLEMENTATION_GUIDE.md` §4a), and the `MetadataPipelineStore`
+  around it runs the chains: `on_default` then `on_read` on `get` / `get_metadata`, `on_validate`
+  then `on_write` on `set` / `set_metadata`.
+- **The wrapper is automatic** for a configured mount, as listed above. `EnvironmentBuilder` with
+  `with_store_config` builds through `build_store` (§6), so an environment's mounts are wrapped the
+  same way.
+- **No handler runs** on a mount with no section (so `METADATA_DEFAULTS` do not apply to it either),
+  or on a store given to `EnvironmentBuilder::with_async_store` or built in code. Such a store can
+  be wrapped only by hand, from `PipelineParts`
+  ([`STORE-METADATA-SECTION-CANNOT-WRAP-A-BUILT-STORE`](../issues/STORE-METADATA-SECTION-CANNOT-WRAP-A-BUILT-STORE.md)).
+
+The rustdoc of the `liquers_core::store::pipeline` module says the same and carries a runnable
+example (a memory mount whose `on_write` sets a title); `liquers-core/tests/store_adapters.rs` has
+the full set of cases.
+
 **A section needs a backend with data-only access** (`AsyncStore::data_capabilities().data_access`).
-`AsyncMemoryStore`, `AsyncFileStore`, `AsyncOpenDALStore` and a `JsStore` with the five data
-methods have it. On any other store, a section fails the build. `read_only` alone works on any
+`AsyncMemoryStore`, `AsyncFileStore`, `AsyncOpenDALStore`, `LocalStorageStore`, `FetchStore` and a
+`JsStore` with the five data methods have it, as does a router or `SharedStore` over such stores. On any other store, a section fails the build. `read_only` alone works on any
 store, but over a store without data access the builder prints a warning to stderr: the store's
 own reads may still write default metadata.
 
@@ -439,6 +457,7 @@ Language-defined entries (Python, JavaScript) are not possible yet:
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-01 | §1: "Who runs the handlers" — stores never implement handlers, the pipeline runs them, the builder wraps automatically, and the cases with no pipeline; `LocalStorageStore`, `FetchStore` and routers added to the stores with data access; pointer to the rustdoc example. | `design/store-config-handlers-usage-docs/` |
 | 2026-10-27 | §2: `persist_defaults` retired, a read never writes a record. §5: the `infer` handler; records under `storage: none` are inferred. §6: member sections no longer mention `persist_defaults`. | `design/storage-none-computed-values/` |
 | 2026-10-19 | §5: the `markdown_tiers` handler; `storage: none` recommended for checkouts edited by hand. | `design/agent-memory-mvp/` Phase 5 |
 | 2026-10-16 | §11: `ComponentBuilder` takes a `ComponentContext` holding the router's mounts for a router-level section, so a storage model can keep records in another mount; `central` resolves its mount. | `design/store-adapters/` phase-5 review |

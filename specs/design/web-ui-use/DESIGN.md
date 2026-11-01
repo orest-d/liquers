@@ -3,9 +3,8 @@ id: WEB-UI-USE
 kind: design
 title: Mount, drive and observe a Liquers UI from JavaScript (UIUSE)
 workflow: liquers-project
-status: in_review
-phase: documentation
-readiness: needs-decision
+status: complete
+readiness: ready
 autofix: not-eligible
 area: [web, lib/ui]
 issues: [WEB-CANNOT-USE-A-LIQUERS-UI]
@@ -27,7 +26,7 @@ stopping. The decision log is in Phase 1's Design Readiness section.
 - [x] Phase 2: Architecture — 2026-10-30
 - [x] Phase 3: Examples and Testing — 2026-10-30
 - [x] Phase 4: Implementation Plan — 2026-10-30; at the pre-implementation stop
-- [ ] Phase 5: Documentation
+- [x] Phase 5: Documentation — 2026-10-31; accepted 2026-11-01
 
 ## Phases
 

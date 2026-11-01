@@ -8,9 +8,9 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 195
+Total rows: 197
 - P2: 57
-- P3: 138
+- P3: 140
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -94,12 +94,14 @@ Total rows: 195
 | [`REGISTRY-QUERY-DEFAULT-NOT-WRITABLE-AS-TEXT`](issues/REGISTRY-QUERY-DEFAULT-NOT-WRITABLE-AS-TEXT.md) | issue | A default link argument cannot be written as query text in a registry file | draft | needs-decision | not-eligible | P3 | S | core/commands;core/validate | [design](design/registry-query-default-text-form/DESIGN.md) | 2026-10-17 |
 | [`SEARCH-CATALOG-READS-EACH-FILE-METADATA-TWICE`](issues/SEARCH-CATALOG-READS-EACH-FILE-METADATA-TWICE.md) | issue | ns-search/catalog reads each file's metadata twice, once for its info and once for its version | draft | needs-decision | not-eligible | P3 | S | lib/commands;core/assets | [design](design/search-catalog-single-metadata-read/DESIGN.md) | 2026-10-17 |
 | [`SET-BINARY-KEEPS-PREVIOUS-DEPENDENCY-EDGES`](issues/SET-BINARY-KEEPS-PREVIOUS-DEPENDENCY-EDGES.md) | issue | A set_binary that replaces a keyed asset keeps the incoming dependency edges of the value it replaced | draft | needs-decision | not-eligible | P3 | S | core/assets | [design](design/set-binary-replaces-dependency-edges/DESIGN.md) | 2026-10-18 |
+| [`STORE-METADATA-SECTION-CANNOT-WRAP-A-BUILT-STORE`](issues/STORE-METADATA-SECTION-CANNOT-WRAP-A-BUILT-STORE.md) | feature | A metadata section cannot be applied to a store built in code | draft | needs-decision | not-eligible | P3 | S | core/store;store/config | [design](design/metadata-section-on-built-store/DESIGN.md) | 2026-11-01 |
 | [`TO-OVERRIDE-KEEPS-THE-PENDING-EXPIRATION-DEADLINE`](issues/TO-OVERRIDE-KEEPS-THE-PENDING-EXPIRATION-DEADLINE.md) | issue | A value pinned with to_override still expires at the deadline its recipe scheduled | draft | needs-decision | not-eligible | P3 | S | core/assets | [design](design/override-ignores-recipe-deadline/DESIGN.md) | 2026-10-20 |
 | [`TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS`](issues/TYPE-INFO-CANNOT-DECLARE-WRITE-ONLY-FORMATS.md) | issue | TypeInfo cannot declare a format a type writes but cannot read back | draft | needs-decision | not-eligible | P3 | S | core/value | [phase1](design/data-format-vocabulary/phase1-high-level-design.md)  [phase2](design/data-format-vocabulary/phase2-architecture.md)  [phase3](design/data-format-vocabulary/phase3-examples.md)  [phase4](design/data-format-vocabulary/phase4-implementation.md)  | 2026-09-24 |
 | [`VARIADIC-KEY-OR-QUERY-LINK-FAILS-TO-MATERIALIZE`](issues/VARIADIC-KEY-OR-QUERY-LINK-FAILS-TO-MATERIALIZE.md) | issue | A key or query link inside a multiple argument fails, because Key and Query values have no JSON form | draft | needs-decision | not-eligible | P3 | S | core/plan;core/value | [design](design/variadic-key-query-link-text/DESIGN.md) | 2026-10-26 |
 | [`DROPPED-RECIPE-RESULT-LEAVES-AN-EMPTY-DATA-FILE`](issues/DROPPED-RECIPE-RESULT-LEAVES-AN-EMPTY-DATA-FILE.md) | issue | Removing a computed value with a stored record leaves an empty data file at its key | draft |  |  | P3 | S | core/assets;core/store |  | 2026-10-27 |
 | [`LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT`](issues/LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT.md) | issue | Language exception class and stack are lost in transport | accepted |  |  | P3 | S | web |  | 2026-08-08 |
 | [`PY-ADD-PYTHON-COMMAND-STILL-DECLARES-PYCALL-ALIASES`](issues/PY-ADD-PYTHON-COMMAND-STILL-DECLARES-PYCALL-ALIASES.md) | issue | CommandMetadataRegistry.add_python_command is still public and declares aliases of a pycall command that does not exist | draft |  |  | P3 | S | py |  | 2026-10-27 |
+| [`RUSTDOC-STORE-SUBMODULE-LINKS-UNRESOLVED`](issues/RUSTDOC-STORE-SUBMODULE-LINKS-UNRESOLVED.md) | issue | Intra-doc links in the store submodules and value.rs do not resolve | draft |  |  | P3 | S | docs;core/store;core/value |  | 2026-11-01 |
 | [`TEMPLATE-DIAGNOSTICS-CHECK-COMMANDS-A-Q-QUOTES`](issues/TEMPLATE-DIAGNOSTICS-CHECK-COMMANDS-A-Q-QUOTES.md) | issue | Template diagnostics report unknown commands in a query part that a later q quotes, which the planner never resolves | draft |  |  | P3 | S | core/query;lib/commands |  | 2026-10-26 |
 | [`VALIDATE-PHASE-COMPACT-SIZE-IGNORES-SOURCE-COMPLEXITY`](issues/VALIDATE-PHASE-COMPACT-SIZE-IGNORES-SOURCE-COMPLEXITY.md) | issue | validate_phase.py checks every compact design against the M size limit | draft |  |  | P3 | S | docs;build |  | 2026-10-27 |
 | [`WEB-HAS-NO-TEMPLATE-COMMANDS`](issues/WEB-HAS-NO-TEMPLATE-COMMANDS.md) | feature | The browser environment has no template commands | draft |  |  | P3 | S | web |  | 2026-10-25 |

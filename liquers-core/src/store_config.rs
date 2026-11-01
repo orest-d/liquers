@@ -77,6 +77,10 @@ pub struct StoreConfig {
 
     /// How this mount's metadata is stored and shaped. No section, or an empty one, keeps today's
     /// behaviour with the store unwrapped.
+    ///
+    /// A non-empty section makes [`crate::store_factory::StoreRouterBuilder`] wrap the mount in a
+    /// [`crate::store::MetadataPipelineStore`], which runs its handlers; the store type needs
+    /// data-only access for that ([`crate::store::AsyncStore::data_capabilities`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub metadata: Option<MetadataConfig>,
 }
@@ -86,6 +90,13 @@ pub struct StoreConfig {
 /// Every component is a `store_config` spec: a query of the realm `store_config`, whose realm
 /// prefix may be omitted. A field left out takes its value from [`METADATA_DEFAULTS`]; a field that
 /// is set replaces its default whole, and `""` means no steps.
+///
+/// The section is compiled once, when the store is built, into a
+/// [`crate::store::MetadataPipelineStore`] around the mount's store; that pipeline, not the store,
+/// runs the handlers on every read and write. The builder applies it automatically
+/// ([`crate::store_factory::StoreRouterBuilder`], and `EnvironmentBuilder::with_store_config`
+/// through it). Call path, limits and a runnable example: [`crate::store::pipeline`]. How to write
+/// one: `specs/guides/STORE_CONFIG_GUIDE.md`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct MetadataConfig {
@@ -122,6 +133,9 @@ pub struct MetadataDefaults {
 
 /// The defaults of a metadata section: today's behaviour made explicit, plus the facts that cost
 /// no extra read. Documented in `STORE_CONFIG_FSD.md`; a test compares the two.
+///
+/// They fill the fields a *present* section leaves out. A mount with no section gets no pipeline,
+/// so none of these chains runs on it.
 pub const METADATA_DEFAULTS: MetadataDefaults = MetadataDefaults {
     storage: "native",
     writes: "direct",
