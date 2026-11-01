@@ -4,7 +4,7 @@ kind: design
 title: Type declarations for the liquers Python package, checked against the runtime
 workflow: liquers-project
 status: draft
-phase: examples
+phase: implementation
 readiness: ready
 autofix: not-eligible
 area: [py]

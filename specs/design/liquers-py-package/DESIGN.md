@@ -4,7 +4,7 @@ kind: design
 title: Release wheels for liquers-py, built and tested in GitHub Actions
 workflow: liquers-project
 status: draft
-phase: examples
+phase: implementation
 readiness: ready
 autofix: not-eligible
 area: [py, build]

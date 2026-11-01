@@ -4,7 +4,7 @@ kind: design
 title: "Record views and sources in liquers-py: wrappers, chunked iteration and an Arrow exit"
 workflow: liquers-project
 status: draft
-phase: examples
+phase: implementation
 readiness: ready
 autofix: not-eligible
 area: [py, records]

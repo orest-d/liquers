@@ -6,7 +6,8 @@ The version and the license are stated once, in `[workspace.package]`, and every
 member inherits them. `liquers_core::VERSION` keeps reading the version at compile time; the
 `Environment` trait reports it, and Python and JavaScript expose it.
 
-- **`liquers-py-release.yml`** runs on a `liquers-py-v*` tag, and by hand.
+- **`liquers-py-release.yml`** runs on a `liquers-py-v*` tag, by hand, and on a pull request that
+  changes the workflow itself (which publishes nothing, as a manual run does).
   1. It resolves one `Cargo.lock` and generates the third-party notices.
   2. It builds the sdist and fifteen wheels with `PyO3/maturin-action`.
   3. It tests every wheel in a clean venv on its own runner, and checks it for system libraries.
