@@ -4,7 +4,7 @@ kind: design
 title: Markdown navigation commands on a Liquers block parser
 workflow: liquers-project
 status: in_review
-phase: architecture
+phase: implementation
 area: [lib/commands, records]
 issues: [NO-MARKDOWN-NAVIGATION-COMMANDS]
 affects_docs: [specs/reference/AGENT_MEMORY_SERVICE.md, specs/reference/PROJECT_OVERVIEW.md]
@@ -14,6 +14,8 @@ created: 2026-10-31
 
 First slice of `NO-MARKDOWN-NAVIGATION-COMMANDS` on the block layer of `NO-QUERY-AWARE-MARKDOWN-PARSER`
 (maintainer's choice "Own block layer", 2026-10-31).
+
+Pre-approved after Phase 2 on 2026-11-01.
 
 ## Phases
 

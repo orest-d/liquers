@@ -145,6 +145,17 @@ the query parser refuses it in a parameter.
 A section number changes when a section is inserted before it, so stored references (templates,
 recipes) should use text steps; the reference will say so.
 
+## Design Readiness
+
+Decision log (pre-approval of 2026-11-01). Blocking: none. Needs decision: none. Assumptions
+taken by the author, reversible in review:
+
+- `ns-search/md_split-section` rows keep their shape; their `heading` column stays the `A > B`
+  path, and setext headings and HTML-block `#` lines change the rows as AC-4 and AC-9 intend.
+- `first_paragraph` (L1 tier) reads the first `Paragraph` block; a document that opens with a
+  list gets no paragraph from the list, where the scanner joined its lines.
+- `dead_links` newly checks reference-style links (AC-5).
+
 ## Design Dependencies
 
 - Implements the first slice of `NO-MARKDOWN-NAVIGATION-COMMANDS` and the block layer of
