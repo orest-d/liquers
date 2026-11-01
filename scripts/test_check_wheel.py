@@ -100,12 +100,12 @@ class CheckWheelTests(unittest.TestCase):
                 _wheel(self.dir, f"liquers_py-0.1.0-{python_tag}-{abi_tag}-{tag}.whl", {})
         _sdist(self.dir, with_lock=True)
         self.assertEqual(cw.check_dist(self.dir), [])
-        (self.dir / "liquers_py-0.1.0-cp315t-cp315t-win_arm64.whl").unlink()
+        (self.dir / "liquers_py-0.1.0-cp315-cp315t-win_arm64.whl").unlink()
         (self.dir / "liquers_py-0.1.0.tar.gz").unlink()
         _sdist(self.dir, with_lock=False)
         findings = cw.check_dist(self.dir)
         self.assertEqual(sorted(findings), sorted([
-            "missing wheel for win_arm64 cp315t-cp315t",
+            "missing wheel for win_arm64 cp315-cp315t",
             "liquers_py-0.1.0.tar.gz: no Cargo.lock in the sdist",
         ]))
 

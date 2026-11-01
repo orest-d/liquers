@@ -39,7 +39,7 @@ PLATFORMS = {
     "win_amd64": re.compile(r"win_amd64"),
     "win_arm64": re.compile(r"win_arm64"),
 }
-BUILDS = {("cp314", "abi3"), ("cp314t", "cp314t"), ("cp315t", "cp315t")}
+BUILDS = {("cp314", "abi3"), ("cp314", "cp314t"), ("cp315", "cp315t")}
 
 
 def wheel_tags(name: str) -> tuple[str, str, str]:
