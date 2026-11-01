@@ -22,14 +22,27 @@ with their docstrings, since `test_DOCS_docstrings.py` checks every exported nam
 
 ## Progress
 
-- [ ] Step 1: `liquers.origins` in IPC, `read_chunk`, and `rowid` on it
-- [ ] Step 2: `Scope`, `SourceOrigin` and `PyChunkResolver`, threaded through every conversion
-- [ ] Step 3: the schema classes
-- [ ] Step 4: `RecordView`, `RecordColumn`, `RecordBuffer`, and records crossing the bridge
-- [ ] Step 5: construction from plain Python data, with `fields=`
-- [ ] Step 6: Arrow, pandas and polars exits and entrances
-- [ ] Step 7: `RecordSource`, `RecordStream` and `RecordChunk`
-- [ ] Step 8: conformance rows and the README
+- [x] Step 1 (36cead9): `liquers.origins` in IPC, `read_chunk`, and `rowid` on it
+- [x] Step 2 (ad45f3a): `Scope`, `SourceOrigin` and `PyChunkResolver`, threaded through every conversion
+- [x] Step 3 (ad45f3a): the schema classes
+- [x] Step 4 (ad45f3a): `RecordView`, `RecordColumn`, `RecordBuffer`, and records crossing the bridge
+- [x] Step 5 (af95ce1): construction from plain Python data, with `fields=`
+- [x] Step 6 (af95ce1): Arrow, pandas and polars exits and entrances
+- [x] Step 7 (1ec82f1): `RecordSource`, `RecordStream` and `RecordChunk`
+- [x] Step 8: conformance rows and the README
+
+Deviations from the steps below, found while implementing:
+- Writing to a read-only buffer raises `TypeError` from `struct.pack_into` ("read-write buffer"),
+  not `BufferError`; `RECORDS04` checks that and `memoryview(...).readonly`.
+- A view with no fields has no rows (a `RecordBatch` takes its length from its columns).
+- The `liquers.chunk_id` metadata `to_arrow` writes is the serde form of the key (its segments),
+  the same JSON the IPC batch message holds, not the encoded key string.
+- The polars bridge reports an unbridgeable dtype as `NotSupported`; `from_polars` maps it to
+  `ConversionError`, as on the Arrow route.
+- The resolver's context path is tested through a dependency cycle on the context's own query:
+  only the context resolver can see that cycle.
+- Manifest chunks in the tests are views: raw CSV bytes cannot be serialized as `csv`
+  (`BYTES-VALUE-HAS-NO-NAMED-DATA-FORMAT`, filed).
 
 ## Implementation Steps
 

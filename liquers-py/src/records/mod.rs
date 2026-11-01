@@ -9,7 +9,15 @@
 //! - [`column`] and [`buffer`]: `RecordColumn`, `RecordBuffer` and the read-only buffer protocol.
 //! - [`schema`]: `FieldType`, `KeyRole`, `FieldSchema`, `RecordSchema`, `ChunkOrigin`.
 //! - [`convert`]: cells to Python scalars and back.
-//! - [`resolver`]: where a source reads its chunks ([`Scope`]).
+//! - [`build`]: views built from plain Python data (`from_records`, `from_dict`, `fields=`).
+//! - [`arrow`]: the Arrow, pandas and polars exits and entrances, all through copied bytes.
+//! - [`source`]: `RecordSource`, `RecordStream` and `RecordChunk`, traversed one chunk per step.
+//! - [`resolver`]: where a source reads its chunks ([`Scope`]). Inside a command that is its
+//!   context, so chunks become dependencies; afterwards it is the environment, held weakly, so a
+//!   source never keeps an environment alive, and one shut down ends every traversal.
+//!
+//! Conformance: `RECORDS01`–`10` in `tests/test_RECORDS_*.py`; `RECORDS09` and `RECORDS11` are
+//! `NA` (see `liquers-py/README.md`).
 //!
 //! See `specs/design/liquers-py-records/` and `specs/reference/PYTHON_INTEGRATION.md` §Records.
 
