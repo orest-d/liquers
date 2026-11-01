@@ -291,10 +291,12 @@ Measured on a cold `cargo test -p liquers-lib --lib --tests` (`cargo clean` befo
    a failing assertion still reports its own `file:line`, because that comes from `#[track_caller]`
    rather than debug info. What is lost is line numbers in `RUST_BACKTRACE` frames and full
    debugger support — recover either temporarily with `RUSTFLAGS="-Cdebuginfo=2" cargo test …`.
-2. **System OpenSSL** — `liquers-lib`'s `openssl` dependency no longer uses `features =
-   ["vendored"]`, so it links the system library instead of compiling OpenSSL from source. Small on
-   disk, but ~90 s off every cold build. Requires OpenSSL development headers (`libssl-dev`);
-   re-add `vendored` if you build where they are absent.
+2. **No vendored OpenSSL** — `liquers-lib` no longer depends on `openssl` at all (first it stopped
+   vendoring it, which took ~90 s off every cold build, then the dependency was removed). TLS comes
+   from `rustls` with `aws-lc-rs` and `ring`, which need only a C compiler. The one exception is
+   `liquers-axum`'s test targets: its dev-dependency `reqwest` uses the default `native-tls`, so
+   `cargo test -p liquers-axum` needs OpenSSL development headers (`libssl-dev`); no other build
+   does (`cargo tree -i openssl-sys -e normal` is empty for every crate).
 3. **`CARGO_INCREMENTAL=0`** for one-shot/CI-style runs. Incremental caches reached ~2 GB here and
    buy nothing when the build is not repeated.
 
