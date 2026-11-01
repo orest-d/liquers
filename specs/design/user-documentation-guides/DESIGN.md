@@ -1,7 +1,7 @@
 ---
-id: USER-DOCUMENTATION-BOOKS
+id: USER-DOCUMENTATION-GUIDES
 kind: design
-title: Hand-edited user documentation books, published with the API references on GitHub Pages
+title: Public user guides for Rust, Python and the Web, in several formats, published by CI
 workflow: liquers-project
 status: in_review
 phase: high-level
@@ -10,9 +10,9 @@ issues: [USER-GUIDES-LIVE-IN-SPECS]
 affects_docs: [DOCS_STRUCTURE_GUIDE.md, guides/LANGUAGE-INTEGRATION_GUIDE.md]
 created: 2026-11-01
 ---
-# Hand-edited user documentation books, published with the API references on GitHub Pages
+# Public user guides for Rust, Python and the Web, in several formats, published by CI
 
-Requested 2026-11-01. Phase 1 written and awaiting review; nothing implemented. Builds on
+Requested 2026-11-01. Phase 1 revision 2 (after the owner's review) awaiting review; nothing implemented. Supporting: [guide outlines](guide-outlines.md), [tooling](tooling.md). Builds on
 [`api-documentation-rules`](../api-documentation-rules/DESIGN.md) and
 [`documentation-site-tool`](../documentation-site-tool/DESIGN.md), and owns publishing and CI.
 

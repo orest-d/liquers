@@ -14,7 +14,7 @@ created: 2026-11-01
 
 GitHub #233, requested 2026-11-01. Phase 1 approved (`proceed`, 2026-11-01); Phase 2 written and awaiting review; nothing implemented. Requires [`api-documentation-rules`](../api-documentation-rules/DESIGN.md), which defines the `docs/` sources this tool builds.
 
-**2026-11-01 amendment pending:** [`user-documentation-books`](../user-documentation-books/DESIGN.md) adds books (manifests, table of contents, chapter navigation, example extraction) to this tool and takes over Phase 1 question 5 (CI and GitHub Pages). Applied here at Phase 3.
+**2026-11-01 amendment pending:** [`user-documentation-guides`](../user-documentation-guides/DESIGN.md) evaluates rendering tools for the guides (HTML with and without search, EPUB, PDF) and the tool's implementation options (the agent memory CLI, a thin `liquers-py` wrapper, this crate), and takes over this design's CI question. This design is revised, or superseded, by that design's decision. Applied here at Phase 3.
 
 ## Phases
 

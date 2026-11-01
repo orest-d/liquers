@@ -1,12 +1,12 @@
 ---
 id: USER-GUIDES-LIVE-IN-SPECS
 kind: feature
-title: Liquers has no public, book-length user documentation, and nothing publishes documentation on the web
+title: Liquers has no public user guides, in any format, and nothing publishes documentation on the web
 status: accepted
 priority: P2
 complexity: L
 area: [docs, build]
-design: user-documentation-books
+design: user-documentation-guides
 created: 2026-11-01
 github:
 ---
@@ -32,15 +32,19 @@ order. Nothing can be linked from a README, a package index or an announcement.
 
 The owner on 2026-11-01:
 
-1. `specs/guides/` stays: agent-maintained, topic-specific guides. Nothing moves out of it.
-2. Public user documentation consists of larger, book-like documents, possibly hand-edited, held
-   to a high quality standard.
-3. The documentation is visible on the web, for example through GitHub Pages.
-4. The CI that builds and publishes it is part of the same design.
+1. `specs/guides/` stays: agent-maintained, topic-specific guides. Nothing moves out of it; it is
+   the basis from which the public guides are written.
+2. Public user guides in `docs/guides/` are larger, book-like documents, possibly hand-edited,
+   held to a high quality standard, covering the `specs/guides/` topics as chapters. Three to
+   start: Liquers for Rust, for Python and for the Web, with parallel structure.
+3. They can be generated as HTML (with and without embedded search), EPUB and possibly PDF (via
+   LaTeX or Typst), are visible on the web through GitHub Pages, and `main` holds only sources.
+4. A skeleton, a build script and the CI that builds and publishes them are part of the same
+   design, as are an editing guide and a guide to the GitHub Actions.
 
 ## Discovery
 
 First filed on 2026-11-01 by `design/api-documentation-rules/` Phase 2 as "move the user-audience
 guides from `specs/` to `docs/`". The same day the owner rejected moving them and restated the
-need as above. The ID is kept, as IDs are never renamed (`DOCS_STRUCTURE_GUIDE.md` §4.1), and the
+need as above, refined in a second review (guides, not books; the formats). The ID is kept, as IDs are never renamed (`DOCS_STRUCTURE_GUIDE.md` §4.1), and the
 title and body were rewritten.

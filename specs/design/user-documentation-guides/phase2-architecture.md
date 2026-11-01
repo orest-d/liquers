@@ -1,4 +1,4 @@
-# Phase 2: Solution & Architecture — user-documentation-books
+# Phase 2: Solution & Architecture — user-documentation-guides
 
 ## Overview
 <The chosen solution in 2-4 sentences. Rejected alternatives, one line each with the reason.>

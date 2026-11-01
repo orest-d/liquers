@@ -1,4 +1,4 @@
-# Phase 5: Documentation - user-documentation-books
+# Phase 5: Documentation - user-documentation-guides
 
 ## Completion Preconditions
 

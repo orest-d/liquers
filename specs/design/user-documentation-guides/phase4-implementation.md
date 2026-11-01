@@ -1,4 +1,4 @@
-# Phase 4: Implementation Plan — user-documentation-books
+# Phase 4: Implementation Plan — user-documentation-guides
 
 ## Overview
 <What gets built, in what order, and why that order. Prerequisites: issues to fix first.>

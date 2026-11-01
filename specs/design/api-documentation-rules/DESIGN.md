@@ -14,7 +14,7 @@ created: 2026-11-01
 
 GitHub #232, requested 2026-11-01. Phase 1 approved (`proceed`, 2026-11-01); Phase 2 written and awaiting review; nothing implemented. The site build is the companion design [`documentation-site-tool`](../documentation-site-tool/DESIGN.md).
 
-**2026-11-01 amendment pending:** the owner kept `specs/guides/` and asked for book-like user documentation instead of moving the guides; [`user-documentation-books`](../user-documentation-books/DESIGN.md) replaces `docs/guides/` with `docs/books/` and `getting-started/` with first book chapters. Applied here at Phase 3.
+**2026-11-01 amendment pending:** the owner keeps `specs/guides/` as the agent-maintained basis for public guides written in `docs/guides/` (not moved there); [`user-documentation-guides`](../user-documentation-guides/DESIGN.md) defines those guides, their formats, publishing and CI, so this design's `docs/guides/` layout, `getting-started/` pages and question 6 are replaced by it. Applied here at Phase 3.
 
 ## Phases
 

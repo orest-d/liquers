@@ -1,4 +1,4 @@
-# Phase 3: Examples & Use-cases — user-documentation-books
+# Phase 3: Examples & Use-cases — user-documentation-guides
 
 ## Overview Table
 | # | Kind | Name | Shows / checks | Scenarios |

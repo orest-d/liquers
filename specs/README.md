@@ -602,7 +602,7 @@ deliberately folded behind a broader line.
 - design `unmanaged-asset-registry`
 - design `unnamed-recipe-diagnostics`
 - design `unregistered-keyed-write-gate`
-- design `user-documentation-books`
+- design `user-documentation-guides`
 - design `validate-phase-section-match`
 - design `validate-through-recipe-providers`
 - design `value-conversion-registry`
