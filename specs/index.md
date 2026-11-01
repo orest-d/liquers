@@ -8,8 +8,8 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 196
-- P2: 56
+Total rows: 197
+- P2: 57
 - P3: 140
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
@@ -45,6 +45,7 @@ Total rows: 196
 | [`AGENT-WORKBENCH-SURFACE`](issues/AGENT-WORKBENCH-SURFACE.md) | feature | Agents get only memory tools — no general surface to evaluate, validate, inspect or propose | draft |  |  | P2 | M | mcp;core/validate;docs |  | 2026-10-15 |
 | [`EXPRESSION-DEPENDENCY-RECORD-IS-LOST-ON-RELOAD`](issues/EXPRESSION-DEPENDENCY-RECORD-IS-LOST-ON-RELOAD.md) | issue | A keyed asset that read a key only through a non-keyed expression is not expired by that key after a reload | draft |  |  | P2 | M | core/assets |  | 2026-10-20 |
 | [`JS-COMMAND-CANNOT-ACCESS-CONTEXT`](issues/JS-COMMAND-CANNOT-ACCESS-CONTEXT.md) | feature | A JavaScript command cannot access the execution context | draft |  |  | P2 | M | web |  | 2026-08-29 |
+| [`STORE-OPENDAL-FS-CONCURRENT-WRITES-TO-ONE-KEY-FAIL`](issues/STORE-OPENDAL-FS-CONCURRENT-WRITES-TO-ONE-KEY-FAIL.md) | issue | Concurrent writes to one key of an OpenDAL fs store can fail with a write error | draft |  |  | P2 | M | store/backends |  | 2026-11-01 |
 | [`WEB-EXPLICIT-ENVIRONMENT-CONFIGURES-THE-SINGLETON`](issues/WEB-EXPLICIT-ENVIRONMENT-CONFIGURES-THE-SINGLETON.md) | issue | configureStore and registerStoreObject on a new Environment() configure the singleton instead | draft |  |  | P2 | M | web |  | 2026-10-26 |
 | [`ASSET-EXPIRATION-EVENTS-CANNOT-BE-OBSERVED-EXCEPT-PER-ASSET`](issues/ASSET-EXPIRATION-EVENTS-CANNOT-BE-OBSERVED-EXCEPT-PER-ASSET.md) | feature | Asset expiration events cannot be observed except per asset | draft | needs-decision | not-eligible | P2 | L | core/assets | [indexation](design/external-index-sync/indexation-policy.md)  [interoperability](design/external-index-sync/interoperability-layer.md)  [phase1](design/external-index-sync/phase1-high-level-design.md)  [phase2](design/external-index-sync/phase2-architecture.md)  [phase3](design/external-index-sync/phase3-examples.md)  [phase4](design/external-index-sync/phase4-implementation.md)  [phase5](design/external-index-sync/phase5-documentation.md)  | 2026-09-17 |
 | [`COMMAND-INPUT-OUTPUT-TYPES-ARE-UNDECLARED`](issues/COMMAND-INPUT-OUTPUT-TYPES-ARE-UNDECLARED.md) | feature | Command metadata does not declare what type a command accepts or returns | draft | needs-decision | not-eligible | P2 | L | core/commands;core/value;macro | [phase1](design/command-io-type-declarations/phase1-high-level-design.md)  [phase2](design/command-io-type-declarations/phase2-architecture.md)  [phase3](design/command-io-type-declarations/phase3-examples.md)  [phase4](design/command-io-type-declarations/phase4-implementation.md)  | 2026-10-20 |
