@@ -8,9 +8,9 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 200
+Total rows: 201
 - P2: 59
-- P3: 141
+- P3: 142
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -167,6 +167,7 @@ Total rows: 200
 | [`MCP-SERVER-APPLIES-NO-ACCESS-POLICY`](issues/MCP-SERVER-APPLIES-NO-ACCESS-POLICY.md) | feature | The MCP server limits its query tool by a command allow-list, not by an access policy | draft |  |  | P3 | M | mcp |  | 2026-10-20 |
 | [`PY-EXIT-WITH-UNCANCELLABLE-COMMAND-CRASHES-BEFORE-3-14`](issues/PY-EXIT-WITH-UNCANCELLABLE-COMMAND-CRASHES-BEFORE-3-14.md) | issue | Exiting Python while a command ignores cancellation can still abort the process before CPython 3.14 | draft |  |  | P3 | M | py |  | 2026-10-31 |
 | [`PY-NO-LANGUAGE-DEFINED-RECIPE-PROVIDER`](issues/PY-NO-LANGUAGE-DEFINED-RECIPE-PROVIDER.md) | feature | A recipe provider cannot be written in Python, and liquers-py has no RECIPE feature | draft |  |  | P3 | M | py;core/context |  | 2026-10-30 |
+| [`USER-GUIDES-LIVE-IN-SPECS`](issues/USER-GUIDES-LIVE-IN-SPECS.md) | issue | User-facing guides and their contract references live in the internal specs tree | draft |  |  | P3 | M | docs;py;web |  | 2026-11-01 |
 | [`WEB-API-REFERENCE-NOT-GENERATED`](issues/WEB-API-REFERENCE-NOT-GENERATED.md) | feature | liquers-web has no generated API reference and no check that every export is documented | draft |  |  | P3 | M | web;docs |  | 2026-10-26 |
 | [`WEB-HAS-NO-READ-WRITE-REMOTE-STORE`](issues/WEB-HAS-NO-READ-WRITE-REMOTE-STORE.md) | feature | A browser page cannot mount a Liquers server's store read/write | draft |  |  | P3 | M | web |  | 2026-10-20 |
 | [`WEB-STORE-CONFIG-NOT-APPLIED-THROUGH-ENVIRONMENT-CONFIG`](issues/WEB-STORE-CONFIG-NOT-APPLIED-THROUGH-ENVIRONMENT-CONFIG.md) | issue | liquers-web hand-rolls the environment configuration that EnvironmentConfig will own | draft |  |  | P3 | M | web;core/store;core/context |  | 2026-08-31 |
