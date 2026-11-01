@@ -2,7 +2,7 @@
 
 ## Completion Preconditions
 
-- [x] Implementation is finished and validated (locally; the PR's `docs-site` run is its CI proof)
+- [x] Implementation is finished and validated (locally and in the PR's `docs-site` run)
 - [x] All user comments are answered or incorporated
 - [x] All review comments are answered or incorporated (none on the implementation yet)
 - [x] Documentation is consistent with the implemented and tested behavior
@@ -122,4 +122,6 @@ partially implemented.
   every guide's HTML (with search), offline zip (without), EPUB and PDF; `verify: ok`.
 - `python3 -m unittest scripts.test_docs_index`: 64 tests pass (new `ChapterTests`,
   `ActionsGuideTests`); `python3 scripts/docs_index.py --check`: 0 errors.
+- PR #234's `docs-site` run (mdbook 0.5.4, Pandoc 3.12, Typst 0.15.1, `cargo doc`): build and
+  *Verify outputs* pass; `deploy` skipped, as on every pull request.
 - `liquers-project` skill script tests pass; `validate_phase.py user-documentation-guides 5`.
