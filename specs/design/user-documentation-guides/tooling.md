@@ -1,6 +1,13 @@
 # Rendering tools, formats and the Liquers preprocessing tool
 
 Part of Phase 1 of `user-documentation-guides` (the owner's questions 5 and 6, 2026-11-01).
+
+**Decided 2026-11-01 (owner):** mdBook renders the HTML site and Pandoc renders EPUB and PDF, from
+the same Markdown that a Rust `liquers-docs` tool produces; chapters stay tool-neutral (§5); a
+Liquers-based documentation tool is the long-term direction (§6). The Quarto recommendation and
+option (b) below are kept as the record of the evaluation; they were not chosen. The owner found
+Quarto notebook-oriented in look and community, and preferred a Rust-oriented toolchain that
+Liquers can grow into.
 Tool facts come from the projects' own pages and a March 2026 survey, checked 2026-11-01 (sources
 at the end). Phase 2 re-checks versions before anything is pinned.
 
@@ -38,7 +45,7 @@ Not considered further:
 - **Typst alone.** PDF only; its HTML export is experimental.
 - **HonKit.** Development has slowed.
 
-**Recommendation: Quarto.** It is the only tool with all four formats natively, from the same
+**Recommendation at the time (not chosen): Quarto.** It is the only tool with all four formats natively, from the same
 sources, with search that can be switched off per build. It also gives one theme across three
 books, an active maintainer and a single-binary install. It can execute the Python guide's examples
 through Jupyter against the real `liquers` package. Rust examples run as doctests, and Web
@@ -97,7 +104,9 @@ The renderer then runs: `quarto render build/guides/<guide> --profile html|html-
 | Dogfooding | the agent memory | the Python package, as a user would use it | the Rust crates |
 | Risk | many processes; shell parsing of the output; the allow-list is a safety boundary bent for a build | the PyO3 wheel must build in the docs job | most code to maintain |
 
-**Recommendation: (b).** It is the smallest tool that does everything in §3. It uses the package
+**Recommendation at the time (not chosen): (b).** Superseded by the Rust tool: with mdBook, a
+Rust preprocessor over `liquers-lib` (`templates`, `mem`) is the natural fit and starts the path of
+§6. It is the smallest tool that does everything in §3. It uses the package
 that the Python guide's examples need installed anyway. It is a real-world use of `liquers-py`, so
 the documentation exercises it. Its one gap (section includes) is a small, separate change. Use (a)
 only to prototype includes before (b) exists. Keep (c) in reserve if (b)'s build time or PyO3 in CI
@@ -115,3 +124,40 @@ Sources:
 - [Material for MkDocs: status](https://pydevtools.com/handbook/reference/mkdocs-material/)
 - [mdbook-epub](https://docs.rs/crate/mdbook-epub/0.5.4)
 - [mdbook-typst](https://docs.rs/crate/mdbook-typst/latest)
+
+## 5. Tool-neutral chapters
+
+What a future Liquers tool would have to reimplement is whatever tool-specific syntax the chapters
+contain. Measured that way:
+- **Sphinx** is the hardest to leave: directives and roles (`{toctree}`, `{ref}`, `(label)=`) and a
+  global label index carry the structure and every reference.
+- **Quarto** is in between: Pandoc fenced divs, attributes, `@ref` cross-references, and
+  `{{< include >}}` shortcodes, which also collide visually with Mustache.
+- **mdBook** is the easiest: CommonMark with tables and footnotes, plain relative `.md` links
+  (which map onto Liquers keys), and a plain list of chapters (`SUMMARY.md`). Its own
+  `{{#include}}` looks like a Mustache section and is not used.
+
+Rule for every chapter, enforced by `liquers-docs check`:
+- CommonMark plus tables and footnotes only.
+- Liquers templates for includes and generated content.
+- Relative links for references.
+- The markers of `guide-outlines.md` §4; multi-paragraph notes use a marker paragraph per note
+  rather than a fenced div.
+- Structure lives in `guide.yaml`; `SUMMARY.md` and `book.toml` are generated.
+- No renderer syntax: no `{{#include}}`, `{{#playground}}`, `::: div`, `{.class}`, `@ref`,
+  directives or roles.
+
+## 6. The path to a Liquers documentation tool
+
+Each step keeps every chapter unchanged:
+
+1. **Now:** `liquers-docs build` expands the guides into a build tree; mdBook and Pandoc render it.
+2. **mdBook preprocessor:** `liquers-docs` speaks mdBook's preprocessor protocol, so `mdbook build`
+   runs Liquers itself, and `mdbook serve` previews with live template expansion.
+3. **mdBook backend:** an additional output (`[output.liquers]`) writes what mdBook does not, for
+   example search records for `ns-search` and a memory profile over the guides, so agents read them
+   through `ns-mem`.
+4. **liquers-doc:** Liquers renders the HTML site itself (Markdown to HTML as a command, layout as a
+   template, site search as a query over the records of step 3), and mdBook becomes optional.
+
+The original Python LiQuer was used to build documentation, so this is a tried use case.

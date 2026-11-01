@@ -1,8 +1,8 @@
 # Phase 1: High-Level Design — User guides, their formats, publishing and CI
 
-Revision 2, 2026-11-01. It follows the owner's review of revision 1 (book folders) the same day:
-the folder is `docs/guides/`, `specs/guides/` stays and is the basis the public guides are written
-from, and the six answers below. Supporting documents: [`guide-outlines.md`](guide-outlines.md)
+Revision 3, 2026-11-01. It follows the owner's reviews the same day: the folder is `docs/guides/`;
+`specs/guides/` stays and is the basis the public guides are written from; the decisions below,
+including mdBook + Pandoc as renderers. Supporting documents: [`guide-outlines.md`](guide-outlines.md)
 (question 1) and [`tooling.md`](tooling.md) (questions 5 and 6).
 
 ## Purpose
@@ -78,23 +78,23 @@ pipelines themselves (only their place in the Actions guide); a custom domain.
 
 ## Core Interactions
 
-Templates (`ns-template`, partials, query tags) and a section read over `specs/` for the
-preprocessing; `liquers-py` for the tool (question 6); a renderer (question 5); CI workflows and
-GitHub Pages; the API references from `api-documentation-rules` and `documentation-site-tool`.
+Templates (`ns-template`, partials, query tags) and section reads (`ns-mem/read`) over `specs/`
+for the preprocessing, in a small Rust tool; mdBook for the HTML site and Pandoc for EPUB and PDF;
+CI workflows and GitHub Pages; the API references from `api-documentation-rules`.
 
 ## Crate Placement
 
-No library change, except the section include if `liquers-py` lacks it (`tooling.md` §4): either
-the `mem` feature in `liquers-py` or a section command in `liquers-lib`'s `template` module. The
-tool is a Python package under `scripts/docs/` using `liquers`; the workflows are in
-`.github/workflows/`.
+No library change. The preprocessing tool is the `liquers-docs` crate (`documentation-site-tool`,
+reshaped to stage 1 only): a binary over `liquers-lib` with `templates` and `mem`, so whole-file
+and section includes need no new command. It is a workspace member outside `default-members`. The
+build script is `scripts/build-docs.sh`; the workflows are in `.github/workflows/`.
 
 ## Documentation Intent
 
 - Reference: none.
 - Guides: new `specs/guides/USER_DOCS_EDITING_GUIDE.md` and `specs/guides/GITHUB_ACTIONS_GUIDE.md`
   (both internal).
-- API docs: none beyond the section command, if added.
+- API docs: the `liquers-docs` modules, per `API_DOCUMENTATION_GUIDE.md`.
 - Other documents: the `docs/guides/` skeleton; `docs/README.md` (building the docs).
 - Documents to update: `DOCS_STRUCTURE_GUIDE.md` (§2, §4.2 a `chapter` kind, §9.6 rewritten:
   `specs/guides/` is the basis of `docs/guides/`, nothing moves); `CLAUDE.md`;
@@ -113,30 +113,34 @@ tool is a Python package under `scripts/docs/` using `liquers`; the workflows ar
 5. Evaluate the renderer options (look, integration, consistent appearance, search, maturity).
 6. Chapters are templates; propose what the tool must do; consider the agent memory system or a
    thin `liquers-py` wrapper.
+7. Renderer: **mdBook** for the HTML site (with and without search) and **Pandoc** for EPUB and
+   PDF, fed by a Liquers preprocessing step. Chapters stay **tool-neutral**: CommonMark, Liquers
+   templates, relative links, our markers, structure in `guide.yaml`; no mdBook, Pandoc, MyST or
+   Quarto syntax in a chapter. A Liquers-based documentation tool (liquers-doc) is the long-term
+   direction, reached step by step without changing a chapter (`tooling.md` §5-6).
 
 ## Open Questions
 
-1. **Renderer (open design).** Recommended: **Quarto**, the only one producing all four formats
-   natively with switchable search and one shared theme; runner-up mdBook. See `tooling.md` §2.
-2. **Tool implementation (open design).** Recommended: **(b)**, a thin Python wrapper over
-   `liquers-py`, which the Python examples need installed anyway; (a) the agent memory CLI only for
-   a prototype; (c) the Rust crate in reserve. `documentation-site-tool` is then revised to the
-   homepage and API-reference assembly, or superseded. See `tooling.md` §4.
-3. **Section includes in `liquers-py` (open design).** Recommended: a small
-   `ns-template` section command usable from any build, rather than enabling the whole `mem`
-   feature in the Python package.
-4. **PDF engine (proposed resolution).** Typst by default (fast, a single binary); LaTeX as a
-   profile for print-quality output.
-5. **Who may edit (proposed resolution).** Anyone, through a PR. An agent edits a chapter only
+1. **How Liquers hands chapters to mdBook (open design).** Recommended: the tool expands every
+   guide into a build tree of plain Markdown with a generated `SUMMARY.md` and `book.toml`, which
+   mdBook and Pandoc both read. Using mdBook's preprocessor protocol (the book as JSON on stdin)
+   is the next step towards liquers-doc, not the first one: a build tree serves both renderers and
+   is easy to inspect.
+2. **PDF engine (proposed resolution).** Typst by default (a single binary, fast); LaTeX through a
+   Pandoc option for print-quality output.
+3. **Who may edit (proposed resolution).** Anyone, through a PR. An agent edits a chapter only
    when asked or within a design that lists it, and a person reviews every chapter that reaches
    `ready`.
+4. **Search across the three guides (proposed resolution).** mdBook searches one book at a time;
+   accepted for now. A cross-guide search is a liquers-doc feature (`tooling.md` §6).
 
 ## Design Dependencies
 
 - `api-documentation-rules` — **requires** its `docs/` root and link rules; its `docs/guides/`
   layout is replaced by `guide-outlines.md`, its `getting-started/` pages become chapters 1-2.
-- `documentation-site-tool` — **overlaps**: revised or superseded by question 2; its CI question
-  moves here.
+- `documentation-site-tool` — **overlaps**: its `liquers-docs` crate is reshaped into the
+  preprocessing tool (no Markdown-to-HTML, no page layout; mdBook and Pandoc render), and its CI
+  question moves here. Revised at its Phase 3.
 - `py-api-reference`, `WEB-API-REFERENCE-NOT-GENERATED` — **overlaps**: the API references the
   homepage links.
 

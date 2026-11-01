@@ -120,8 +120,8 @@ A line or paragraph that starts with one of these words, in capitals and followe
 | `EDITOR:` | a note or instruction to editors | shown, muted | removed |
 | `CHECK:` | a claim to verify against the code before release | shown, highlighted | **fails** in a `ready` chapter |
 
-Multi-paragraph notes use a fenced div with the marker as its class (`::: tbd` … `:::`), which is
-Pandoc/Quarto syntax and renders as plain text on GitHub. The build tool lists every marker per
+A note longer than one paragraph starts each of its paragraphs with the marker. No fenced divs
+or other renderer syntax are used, so chapters stay tool-neutral (`tooling.md` §5). The build tool lists every marker per
 guide (`TBD` report), so the remaining work is always visible. The markers never appear in a
 `specs/` include.
 
