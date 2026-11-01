@@ -1,0 +1,11 @@
+# Names stubtest may find at run time without a declaration. Each entry needs a reason; an entry
+# that stops matching fails stubtest (no --ignore-unused-allowlist).
+
+# `debug-handles` builds only (the test build): a live count of retained Python handles.
+liquers.Environment.live_handle_count
+# `debug-handles` builds only: a live count of record wrappers.
+liquers._native.live_record_handle_count
+# Follows from the entry above: at run time `_native.__all__` lists `live_record_handle_count` in a
+# `debug-handles` build, which `_native.pyi` does not declare. `test_native_names_are_declared`
+# compares the names themselves.
+liquers._native.__all__

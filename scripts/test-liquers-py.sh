@@ -9,6 +9,8 @@
 #      wheels only: the VALUE suite crosses a DataFrame and an image, the RECORDS suite leaves for
 #      Arrow and pandas, and each skips those tests (rather than failing) when a package has no
 #      wheel for the interpreter (polars on free-threaded 3.14t).
+#      On CPython 3.14 with the GIL (the typing leg) it also installs the pinned type checkers,
+#      mypy and pyright, for the STUBS suite; every other interpreter skips that suite.
 #   3. `maturin develop --features debug-handles` builds the extension and installs the `liquers`
 #      package into the venv. `debug-handles` is test-only: it lets RUNTIME05 count the Python
 #      callables the registrations hold.
@@ -49,6 +51,16 @@ for pkg in polars pillow pyarrow pandas; do
   python3 -m pip install --quiet --disable-pip-version-check --only-binary :all: "$pkg" \
     || echo "==> no $pkg wheel for this interpreter; its tests will skip"
 done
+
+# The typing leg: CPython 3.14, not free-threaded. The checkers are pinned exactly, so a changed
+# result is never a silent checker upgrade (`test_checkers_are_pinned`); raise both pins
+# deliberately, together with any stub or sample a new release needs. pyright[nodejs] brings Node
+# as a wheel; the `pyright` wrapper downloads its npm package on first run into
+# ~/.cache/pyright-python.
+if python3 -c 'import sys; raise SystemExit(not (sys.implementation.name == "cpython" and sys.version_info[:2] == (3, 14) and "t" not in sys.abiflags))'; then
+  echo "==> installing the pinned type checkers (typing leg)"
+  python3 -m pip install --quiet --disable-pip-version-check "mypy==2.4.1" "pyright[nodejs]==1.1.414"
+fi
 
 echo "==> maturin develop --features debug-handles"
 maturin develop --manifest-path liquers-py/Cargo.toml --features debug-handles

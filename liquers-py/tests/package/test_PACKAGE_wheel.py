@@ -118,7 +118,13 @@ def test_documented_value_types():
 
 def test_wheel_contents():
     files = {str(path).replace("\\", "/") for path in importlib.metadata.files("liquers-py") or []}
-    for expected in ("liquers/THIRD-PARTY-NOTICES.html",):
+    # The notices, and the type declarations (liquers-py-stubs, STUBS07).
+    for expected in (
+        "liquers/THIRD-PARTY-NOTICES.html",
+        "liquers/py.typed",
+        "liquers/__init__.pyi",
+        "liquers/_native.pyi",
+    ):
         assert expected in files, sorted(files)
     assert any(name.endswith("/licenses/LICENSE") or name.endswith("/LICENSE") for name in files)
     metadata = importlib.metadata.metadata("liquers-py")

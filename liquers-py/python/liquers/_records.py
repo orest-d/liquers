@@ -21,6 +21,7 @@ that provides it. See ``specs/design/liquers-py-records/phase2-architecture.md``
 from __future__ import annotations
 
 import json
+from typing import Any
 
 from liquers._extras import require
 
@@ -28,27 +29,28 @@ CHUNK_ID_KEY = b"liquers.chunk_id"
 ORIGINS_KEY = b"liquers.origins"
 
 
-def _conversion_error(message):
+def _conversion_error(message: str) -> Exception:
     import liquers
 
-    return liquers.ConversionError(message)
+    error: Exception = liquers.ConversionError(message)
+    return error
 
 
-def _require(extra):
+def _require(extra: str) -> None:
     try:
         require(extra)
     except ModuleNotFoundError as error:
         raise _conversion_error(str(error)) from None
 
 
-def _pyarrow():
+def _pyarrow() -> Any:
     _require("arrow")
     import pyarrow
 
     return pyarrow
 
 
-def ipc_to_arrow(data: bytes, chunk_id: str | None, origins: str | None):
+def ipc_to_arrow(data: bytes, chunk_id: str | None, origins: str | None) -> Any:
     """The ``pyarrow.Table`` of an IPC file, with the batch's chunk id and origins (which
     ``read_all()`` drops with the batch message) copied into the schema metadata."""
     pa = _pyarrow()
@@ -61,7 +63,7 @@ def ipc_to_arrow(data: bytes, chunk_id: str | None, origins: str | None):
     return table.replace_schema_metadata(metadata)
 
 
-def _normalize(pa, name, column):
+def _normalize(pa: Any, name: str, column: Any) -> Any:
     """``column`` in a type liquers' IPC reader takes, or a ConversionError naming it."""
     import pyarrow.compute as pc
 
@@ -105,7 +107,7 @@ def _normalize(pa, name, column):
     raise _conversion_error(f"column {name!r}: Arrow type {t} has no record field type")
 
 
-def arrow_to_ipc(table) -> bytes:
+def arrow_to_ipc(table: Any) -> bytes:
     """An uncompressed IPC file of ``table`` (a ``pyarrow.Table`` or ``RecordBatch``), normalized."""
     pa = _pyarrow()
     if isinstance(table, pa.RecordBatch):
@@ -123,10 +125,11 @@ def arrow_to_ipc(table) -> bytes:
     sink = pa.BufferOutputStream()
     with pa.ipc.new_file(sink, normalized.schema) as writer:
         writer.write_table(normalized)
-    return sink.getvalue().to_pybytes()
+    data: bytes = sink.getvalue().to_pybytes()
+    return data
 
 
-def pandas_to_arrow(df):
+def pandas_to_arrow(df: Any) -> Any:
     """``df`` as a ``pyarrow.Table``, without its index."""
     _require("pandas")
     import pyarrow as pa
@@ -134,13 +137,13 @@ def pandas_to_arrow(df):
     return pa.Table.from_pandas(df, preserve_index=False)
 
 
-def arrow_to_pandas(table):
+def arrow_to_pandas(table: Any) -> Any:
     """A ``pandas.DataFrame`` of ``table``."""
     _require("pandas")
     return table.to_pandas()
 
 
-def ipc_to_polars(data: bytes):
+def ipc_to_polars(data: bytes) -> Any:
     """A ``polars.DataFrame`` read from IPC bytes."""
     _require("polars")
     import io
@@ -150,7 +153,7 @@ def ipc_to_polars(data: bytes):
     return polars.read_ipc(io.BytesIO(data))
 
 
-def polars_to_parquet(df) -> bytes:
+def polars_to_parquet(df: Any) -> bytes:
     """``df`` as Parquet bytes, the form DataFrames already cross in."""
     _require("polars")
     import io

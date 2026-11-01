@@ -16,13 +16,31 @@ Step 3 declares its `arguments=` and `realm=`; if after, that design updates the
 
 ## Progress
 
-- [ ] Step 1: the typing harness and the pinned checkers
-- [ ] Step 2: `py.typed`, `_native.pyi`, and the core surface of `__init__.pyi`
-- [ ] Step 3: commands, decorators, stores, recipe providers, async and errors
-- [ ] Step 4: the record classes and `State.record_view()`
-- [ ] Step 5: annotations in the six pure-Python modules
-- [ ] Step 6: the good and bad samples, under both checkers
-- [ ] Step 7: the drift tests and the wheel's stub files
+- [x] Step 1: the typing harness and the pinned checkers
+- [x] Step 2: `py.typed`, `_native.pyi`, and the core surface of `__init__.pyi`
+- [x] Step 3: commands, decorators, stores, recipe providers, async and errors
+- [x] Step 4: the record classes and `State.record_view()`
+- [x] Step 5: annotations in the six pure-Python modules
+- [x] Step 6: the good and bad samples, under both checkers
+- [x] Step 7: the drift tests and the wheel's stub files
+
+Deviations, found while implementing:
+- `fields=` is typed `dict[str, FieldType | str | FieldSchema] | RecordSchema | None`, not
+  `Mapping[...]`: the runtime accepts only a `dict` (`build.rs` casts to `PyDict`), and the stubs
+  declare what the runtime takes. The same holds for `from_records`' rows and `from_dict`'s columns.
+- The stubtest allowlist has a third entry, `liquers._native.__all__`: in a `debug-handles` build the
+  runtime `__all__` lists `live_record_handle_count`, which the stub does not declare.
+  `test_native_names_are_declared` compares the names themselves.
+- `mypy.ini` ignores missing imports of `pyarrow.*` and `pandas.*`, which `_records.py` imports
+  lazily and which ship no types; polars ships its own.
+- `test_package_sources_pass_mypy` runs `mypy -p liquers`: given file paths, mypy checks the
+  modules outside their package and misreads `import liquers`.
+- pyright is given the interpreter (`--pythonpath sys.executable`); without it, it does not find the
+  installed package and reports every name as unknown.
+- The pyright wrapper fetched its npm package on the first run, as Phase 2 expected.
+- The declarations were drafted from the Rust `#[pymethods]` signatures and the runtime's
+  `__text_signature__`s by a one-off script, then typed by hand; stubtest passed with no finding
+  beyond the allowlist.
 
 ## Implementation Steps
 

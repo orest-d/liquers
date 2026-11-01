@@ -137,7 +137,11 @@ environment, registering commands included, raises `lq.GeneralError`.
 This is a mixed Rust/Python project. The Rust crate (`src/`) builds the native extension
 `liquers._native`; the Python package around it is `python/liquers/`, whose `__init__.py`
 re-exports every class and function of the extension by name. A class registered in
-`src/lib.rs` is not reachable as `liquers.<Name>` until it is added to `__init__.py` as well.
+`src/lib.rs` is not reachable as `liquers.<Name>` until it is added to `__init__.py` as well, and
+it must be declared in `__init__.pyi` (and re-exported from `_native.pyi`): the type declarations
+are written by hand, and `tests/test_STUBS_declarations.py` fails on a name, method or parameter
+that the runtime has and the declarations do not, or the other way round. `py.typed` marks the
+package as typed.
 
 ## Supported Python
 
@@ -205,7 +209,8 @@ test is named for its ID, in `tests/test_<FEATURE>_*.py`.
 | `STORE` | Optional | COMPLETE | Directions 1-3. `STORE18` is `NA`: Python cannot define `store_config` handlers yet (`LANGUAGE-STORE-CONFIG-FUNCTION-NOT-DEFINABLE`); a Python mount runs the Rust pipeline instead. `STORE12`'s override half is `NA`: a Python type cannot take a built-in name. `STORE06` on the OpenDAL `fs` type is an allowed failure (`STORE-OPENDAL-FS-CONCURRENT-WRITES-TO-ONE-KEY-FAIL`). The design is `specs/design/liquers-py-store/` | `test_STORE01`–`17` (`tests/test_STORE_conformance.py`, `test_STORE_configured.py`), `tests/test_STORE_python_protocol.py`, `tests/test_STORE_registration.py` |
 | `RECIPE` | Optional | COMPLETE | A provider is registered as a factory (`register_recipe_provider_factory`) and placed by a `recipes:` entry; one type with different arguments makes several members. `env.recipes.recipe(key)` for a key no member has raises `GeneralError`, not `KeyNotFoundError` (`RECIPE-MISSING-RECIPE-IS-A-GENERAL-ERROR`). Python providers are invisible to `liquers-validate` (`VALIDATE-CANNOT-SEE-NON-STANDARD-RECIPE-PROVIDERS`). The design is `specs/design/liquers-py-recipes/` | `test_RECIPE01`–`07` (`tests/test_RECIPE_python_providers.py`), `tests/test_RECIPE_registration.py` |
 | `RECORDS` | Optional | COMPLETE | `RECORDS09` is `NA`: Python has an async model (`async for`). `RECORDS11` is `NA`: Python does not implement the view or source traits (`liquers-py-records` Decision 4). Arrow, pandas and polars exits copy; the column buffers are lent, read-only. A command returning raw CSV bytes cannot be a manifest chunk (`BYTES-VALUE-HAS-NO-NAMED-DATA-FORMAT`). The design is `specs/design/liquers-py-records/` | `test_RECORDS01`–`10` (`tests/test_RECORDS_views.py`, `_columns.py`, `_arrow.py`, `_sources.py`), `tests/test_RECORDS_build.py` |
+| `STUBS` | Optional | COMPLETE | Values are `Any` (a query result, `State.value`, a command's inputs), and so are pyarrow, pandas and polars objects, which ship no type information. The checks run on CPython 3.14 with the GIL only, with mypy and pyright pinned. The design is `specs/design/liquers-py-stubs/` | `tests/test_STUBS_declarations.py` (stubtest, name and error-class comparisons, typed samples under `tests/typing/` with mypy `--strict` and pyright `strict`); `test_wheel_contents` |
 | `DOCS` | Optional | PARTIAL | `DOCS04`: every public name has a docstring and a signature, but there is no generated API reference yet (`PY-API-REFERENCE-NOT-GENERATED`) | `DOCS03` is `test_GUIDE_examples.py`; the docstring half of `DOCS04` is `test_DOCS04_*` (`tests/test_DOCS_docstrings.py`); `DOCS01`, `02`, `05`–`07` reviewed |
 
-`ASYNCQ`, `ASYNCCMD`, `STORE`, `RECIPE`, `RECORDS` and `DOCS` are outside the baseline profile. Every Essential feature is `COMPLETE` and every required check passes; each `NA` item carries
+`ASYNCQ`, `ASYNCCMD`, `STORE`, `RECIPE`, `RECORDS`, `STUBS` and `DOCS` are outside the baseline profile. Every Essential feature is `COMPLETE` and every required check passes; each `NA` item carries
 its reversing condition. The Python baseline profile is therefore `CONFORMANT`.

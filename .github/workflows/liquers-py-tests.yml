@@ -59,6 +59,12 @@ jobs:
         id: py
         with:
           python-version: ${{ matrix.python }}
+      # pyright's npm package, which the `pyright` wrapper downloads on its first run (typing leg).
+      - uses: actions/cache@v4
+        if: matrix.python == '3.14'
+        with:
+          path: ~/.cache/pyright-python
+          key: pyright-python-1.1.414
       # A restored venv would point at a toolcache interpreter that no longer exists.
       - run: rm -rf target/liquers-py-venv-*
       - name: Run the liquers-py test loop
