@@ -26,7 +26,7 @@ in parallel with Step 2.
 - [x] Step 4 (ce719aa): package metadata, the `wheel` profile, notices and the quick-start
 - [x] Step 5 (ce719aa): the wheel and `dist/` checker
 - [x] Step 6 (ce719aa): the installed-wheel tests
-- [x] Step 7 (ce719aa): the release and PR workflows, and their first run (the PR workflow ran; the release workflow's first full run is outstanding, Phase 5 Conformance; filed as a closing condition of `PY-NO-PUBLISHED-WHEELS`)
+- [x] Step 7 (ce719aa): the release and PR workflows, and their first run (the PR workflow ran; the release workflow's first full run passed on PR #240 at cd4dd02, Phase 5 Conformance)
 
 ## Implementation Steps
 

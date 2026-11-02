@@ -2,8 +2,8 @@
 
 ## Completion Preconditions
 
-- [x] Implementation is finished and validated, except the release workflow's full five-platform
-  run, which happens on its first manual run or tag (see Conformance)
+- [x] Implementation is finished and validated; the release workflow's full five-platform run
+  passed on PR #240 (see Conformance)
 - [x] All user comments are answered or incorporated
 - [x] All review comments are answered or incorporated
 - [x] Documentation is consistent with the implemented and tested behavior
@@ -81,11 +81,14 @@ None new.
 
 ## Conformance and Remaining Work
 
-The implemented scope matches the approved one. Two things are still to be seen.
-- **The full wheel matrix** (Windows arm64's `clang-cl`, the manylinux 3.15t interpreter) has not
-  run yet. It runs on the first manual run of `liquers-py-release.yml`, which publishes nothing.
-  The `PACKAGE` row is `PARTIAL` until it passes.
-- **The first publication** is Orest's, and is tracked by `PY-NO-PUBLISHED-WHEELS`.
+The implemented scope matches the approved one.
+- **The full wheel matrix** passed on PR #240 (commit cd4dd02, 2026-11-02): all fifteen wheels,
+  the release-set check, each wheel's tests on its own runner and the sdist. Getting there took
+  three fixes: Windows wheels link `combase.dll`, a system DLL the allow-list lacked; a
+  free-threaded wheel's file tags are `cp314-cp314t`, not `cp314t-cp314t`; and `test_extras`
+  requests only extras with a wheel on the interpreter.
+- **The first publication** is Orest's, and is tracked by `PY-NO-PUBLISHED-WHEELS`. The `PACKAGE`
+  row stays `PARTIAL` until it happens.
 
 ## Validation
 

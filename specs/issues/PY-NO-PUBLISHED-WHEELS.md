@@ -41,8 +41,8 @@ Filed 2026-11-01 when the M5 design folders were created. Weak overlap: `PY-PYPY
 2026-11-01: `design/liquers-py-package/` (PR #240) built the release pipeline
 (`.github/workflows/liquers-py-release.yml`): fifteen wheels and an sdist, each wheel tested in a
 fresh venv and checked for linked libraries, then TestPyPI, then PyPI behind the protected `pypi`
-environment. Nothing is published yet. Its first full run is also outstanding: a pull request
-builds all fifteen wheels, but the five-platform `test` matrix (Windows arm64 with `clang-cl`, the
-3.15t wheels among them) has not passed yet. This closes when that run has passed and the first
-release (`liquers-py-v0.1.0`) is on PyPI, which needs Orest: the trusted publishers registered on TestPyPI and PyPI, the tag, and
+environment. Nothing is published yet. 2026-11-02: the first full run passed on PR #240
+(commit cd4dd02): fifteen wheels, the release-set check, every wheel's tests on its own runner
+(Windows arm64 with `clang-cl` and the 3.15t wheels among them) and the sdist. This closes when the
+first release (`liquers-py-v0.1.0`) is on PyPI, which needs Orest: the trusted publishers registered on TestPyPI and PyPI, the tag, and
 his approval of the `pypi` job. Contract: `reference/PYTHON_INTEGRATION.md` §12.
