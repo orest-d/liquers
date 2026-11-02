@@ -248,7 +248,7 @@ never a reason: `encode_token` escapes any string.
 | S1 | scalar `value` (string, integer, float, bool) | its text; an `f64` in shortest round-trip form | always. Read back with the registry it takes the argument's declared type, so it keeps its type; for an argument of type `any` or `text`, a non-string scalar comes back as text (the one canonical-form change) |
 | S2 | `value` that is an array of scalars | consecutive parameters | the argument is the command's `multiple` argument and the last one written |
 | S3 | `multiple` of sources | consecutive parameters | as S2, and each element obeys S1, S5 or S6 |
-| S4 | `value` that is null, an object, bytes, an array for a single argument, or any non-scalar | — | never |
+| S4 | `value` that is null, an object, or an array for a single argument | — | never |
 | S5 | `link` | `~X~…~E` | the text parses and is representable |
 | S6 | `pipeline` (nested) | `~X~…~E` | the nested pipeline is representable |
 | S7 | `placeholder`, `state` | — | never (they exist only inside a command definition, AC-11) |
@@ -404,19 +404,19 @@ Opened by the scope change of 2026-11-02 and reviewed by the maintainer the same
   script never hand-escapes a query. Recommended now: no separate binary. `liquers-validate` gains
   pipeline support (the maintainer's "validation tool enhanced for pipelines"), and the shell
   argument form becomes one of its inputs (AC-35).
-- **Q25 — how an argument value is held (open, recommendation).** `PipelineEditor` must hold any
-  JSON value as an argument, and `QueryEditor` is `PipelineEditor` plus the representability
-  check. The options:
-
-  | Option | Exact floats | Conversion before the plan | Notes |
-  |---|---|---|---|
-  | A. `liquers_core::Value` (today's `Source::Value`) | yes: `F64` in memory, shortest round-trip text in a query | **none**: `ParameterValue` already holds `Value` | already a superset of JSON (null, bool, `I32`/`I64`, `F64`, text, array, object); its serde is what recipes and command defaults use |
-  | B. `serde_json::Value` | yes with `arbitrary_precision`, otherwise `f64` | to `Value` at planning, every time | a second value type in core, and a new feature flag |
-  | C. text only (the superseded builder) | no type; exact only as text | text → type at planning, as for a query | loses the type a pipeline was written with |
-
-  Recommended: **A**. It is a JSON value in everything that matters, keeps floats exact, and goes
-  into the plan with no conversion. Its non-JSON variants (`Bytes`, `Recipe`, `Query`, …) are
-  allowed in a pipeline but are never representable (S4).
+- **Q25 — how an argument value is held (decided: B, `serde_json::Value`).** The maintainer chose
+  it on 2026-11-02. The core `Value` would tie the pipeline to one value type, while an
+  environment's `Value` only has to implement `ValueInterface`. A pipeline that is plain JSON, as a
+  plan is, is what the validation tool and later tools need. Consequences for Phase 2:
+  - Floats are exact when `serde_json`'s `float_roundtrip` feature is on. `arbitrary_precision` is
+    not used, because Cargo feature unification would change `serde_json::Number` for every crate
+    in the build.
+  - NaN and ±infinity have no JSON number, so they use the existing non-finite token convention
+    (`liquers-core/src/value.rs`, `to_json` / `from_json`).
+  - The planner converts a JSON argument to the plan's parameter value, a cheap one-time step. A
+    `value` element becomes the state through the environment's `ValueInterface`.
+  - Rejected: A, the core `Value` (ties the pipeline to it, and its non-JSON variants would need
+    their own serde rules); C, text only (loses the type).
 
 ## Scope Changes
 
@@ -448,8 +448,7 @@ Opened by the scope change of 2026-11-02 and reviewed by the maintainer the same
 - **2026-11-02, maintainer review 5.** The registry is required to convert a pipeline to a query,
   and the editors hold it (Q20, AC-37). Typed scalars keep their type, and there is a three-step
   namespace placement (Q21). Q22 and Q23 accepted. `liquers-encode` is folded into
-  `liquers-validate`, which gains pipeline support (Q24, AC-35). Q25 is reopened with three
-  options. AC-38 (host binding of placeholders) is added for the records-manifest follow-up. Two
+  `liquers-validate`, which gains pipeline support (Q24, AC-35). Q25 decided later the same day: `serde_json::Value` (option B). AC-38 (host binding of placeholders) is added for the records-manifest follow-up. Two
   follow-up issues were filed, to be designed right after this one:
   `MANIFEST-TEMPLATE-BATCH-ONLY-AT-THE-END-OF-THE-QUERY` and
   `RECIPES-CANNOT-DESCRIBE-A-SELF-CONTAINED-ASSET-TREE`.
