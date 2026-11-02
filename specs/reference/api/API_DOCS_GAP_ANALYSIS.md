@@ -3,7 +3,7 @@ title: API Documentation Gap Analysis
 kind: reference
 audience: internal
 area: [docs]
-reviewed: 2026-10-20
+reviewed: 2026-11-02
 ---
 # API Documentation Gap Analysis
 
@@ -482,9 +482,9 @@ README with its conformance matrix, a usage guide with executed examples
 ([`guides/PYTHON_GUIDE.md`](../../guides/PYTHON_GUIDE.md)) covering the module map, environment
 configuration, commands, queries, value conversion and errors, and a contract reference
 ([`reference/PYTHON_INTEGRATION.md`](../PYTHON_INTEGRATION.md)) covering naming, conversion,
-error mapping and what is not exposed. What remains is the per-class reference: most names have no
-docstring and nothing generates an API reference (`PY-API-REFERENCE-NOT-GENERATED`), and there are
-no `.pyi` type stubs.
+error mapping and what is not exposed. Every public name has a docstring (`py-docstrings`), and
+`scripts/build-liquers-py-docs.sh` renders the per-class reference with pdoc, published on the
+documentation site (`py-api-reference`). What remains is `.pyi` type stubs.
 
 #### Recommended documentation
 
@@ -643,7 +643,7 @@ Markdown files in this folder and linked from the `Analysis` column.
 | DOC-09 | Dependencies, expiration, volatility | P1 | Baseline complete | Not started | Not started |
 | DOC-10 | HTTP and WebSocket APIs | P1 | Baseline complete | Not started | Not started |
 | DOC-11 | Errors and diagnostics | P2 | Baseline complete | Not started | Not started |
-| DOC-12 | Python bindings | P2 | Baseline complete | Partial: [guide](../../guides/PYTHON_GUIDE.md) and [reference](../PYTHON_INTEGRATION.md); generated API reference and stubs not started (`PY-API-REFERENCE-NOT-GENERATED`) | Guide examples executed against the built package |
+| DOC-12 | Python bindings | P2 | Baseline complete | Partial: [guide](../../guides/PYTHON_GUIDE.md), [reference](../PYTHON_INTEGRATION.md) and the generated API reference (pdoc, on the documentation site); stubs not started | Guide examples executed against the built package |
 | DOC-13 | Feature flags and platforms | P2 | Baseline complete | Not started | Not started |
 | DOC-14 | Higher-level libraries | P2 | Baseline complete | Not started | Not started |
 | DOC-15 | Session and authorization | P2 | Baseline complete | Not started | Not started |
@@ -668,6 +668,7 @@ Suggested files for further work:
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-02 | §12 and DOC-12: the Python API reference is generated and published; only stubs remain. Only §12 and the DOC-12 row were re-read. | design `py-api-reference` |
 | 2026-10-20 | DOC-08 promoted to `reference/RECIPES_AND_PLANS.md`; tracker row and links point there. | DOC-08 promotion |
 | 2026-10-19 | §12 and DOC-12: `liquers-py` now has a guide and a contract reference; the generated API reference and stubs remain. Only §12 and the DOC-12 row were re-read against the code. | `design/liquers-py/` (phase-5) |
 | 2026-10-10 | §7 and the topic list: the synchronous `Store` trait and the `cache` module were removed; only `AsyncStore` remains to document. | `CORE-SYNC-STORE-TRAIT-OBSOLETE`, `design/sync-store-removal/` |

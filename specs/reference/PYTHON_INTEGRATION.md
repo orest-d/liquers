@@ -3,7 +3,7 @@ title: Python Integration
 kind: reference
 audience: both
 area: [py, core/value, core/error, lib/value, core/store, store/config, core/assets]
-reviewed: 2026-11-01
+reviewed: 2026-11-02
 ---
 # Python Integration
 
@@ -445,8 +445,9 @@ protect.
 - Stores and recipe providers have no `close()`; they are released by `shutdown()`
   (`ENVIRONMENT-ORDERLY-SHUTDOWN`).
 - Core's progress diagnostics go to stderr and cannot be filtered (`CORE-TRACING-MIGRATION`).
-- There is no generated API reference (`PY-API-REFERENCE-NOT-GENERATED`), although every public
-  name has a docstring (`tests/test_DOCS_docstrings.py` keeps it so); `Metadata` exposes its fields as methods where `State` and
+- Every public name has a docstring (`tests/test_DOCS_docstrings.py` keeps it so), and
+  `scripts/build-liquers-py-docs.sh` renders them as an API reference with pdoc, published at
+  <https://orest-d.github.io/liquers/api/python/liquers.html>; `Metadata` exposes its fields as methods where `State` and
 `AssetRef` use properties (`PY-METADATA-FIELDS-ARE-METHODS`); `repr` of several classes is Rust's debug format
   (`PY-REPRS-SHOW-RUST-DEBUG-FORMAT`).
 - No Pyodide target, no type stubs, no published wheel.
@@ -558,6 +559,7 @@ own environment from `recipe_opt`. Every Python provider is asked for every key 
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-02 | §8: the generated API reference exists (pdoc, published on the documentation site); the limitation is lifted. | design `py-api-reference` |
 | 2026-11-01 | §9 Stores and §10 Recipe providers written in Python (registration, protocol, threads, `lq.Store`, `env.recipes`); §1-§3 and §8 updated; the Python recipe provider limitation is lifted. | `design/liquers-py-store/`, `design/liquers-py-recipes/` (phase-5) |
 | 2026-10-31 | §8: CI runs the Python suite on CPython 3.10, 3.14 and 3.14t; the supported floor is 3.10. §7: interpreter exit cancels the running Python commands and waits for them; §8 names the case it cannot cover. | design `language-binding-tests-in-ci` |
 | 2026-10-30 | §3: `config.recipes` accepts every value (`default`, `trivial`, a list of entries); the constructor no longer refuses a non-default `recipes`. Known limitations: the recipe-provider limitation now names a Python-written provider only. | design `recipe-provider-chain-config` |

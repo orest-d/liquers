@@ -101,8 +101,10 @@ bash scripts/test-liquers-py.sh
 run from the repository root, does the whole loop: it creates (or reuses) a virtual environment at
 `target/liquers-py-venv-<interpreter>` (one per interpreter, so `PYTHON=python3.13 bash
 scripts/test-liquers-py.sh` really tests 3.13), installs `maturin`, `pytest`, `polars` and `pillow`
-into it, runs `maturin develop --features debug-handles` to build and install the `liquers` package,
-runs `pytest liquers-py/tests`, and then runs the crate's Rust
+(and `pdoc`) into it, runs `maturin develop --features debug-handles` to build and install the
+`liquers` package, runs `pytest liquers-py/tests`, builds the API reference with
+`scripts/build-liquers-py-docs.sh` (into `target/liquers-py-docs/`; published at
+<https://orest-d.github.io/liquers/api/python/liquers.html>), and then runs the crate's Rust
 unit tests. Extra arguments are passed to pytest (`bash scripts/test-liquers-py.sh -k parse`).
 `cargo clean` removes the environment along with the rest of `target/`; the next run recreates it.
 
@@ -140,7 +142,7 @@ test is named for its ID, in `tests/test_<FEATURE>_*.py`.
 | `ASYNCCMD` | Optional | COMPLETE | All commands share one job queue (`CORE-ONE-JOB-QUEUE-FOR-ALL-COMMANDS`); `async_loops` sets the number of event loops | `test_ASYNCCMD01`–`06` |
 | `STORE` | Optional | COMPLETE | Directions 1-3. `STORE18` is `NA`: Python cannot define `store_config` handlers yet (`LANGUAGE-STORE-CONFIG-FUNCTION-NOT-DEFINABLE`); a Python mount runs the Rust pipeline instead. `STORE12`'s override half is `NA`: a Python type cannot take a built-in name. `STORE06` on the OpenDAL `fs` type is an allowed failure (`STORE-OPENDAL-FS-CONCURRENT-WRITES-TO-ONE-KEY-FAIL`). The design is `specs/design/liquers-py-store/` | `test_STORE01`–`17` (`tests/test_STORE_conformance.py`, `test_STORE_configured.py`), `tests/test_STORE_python_protocol.py`, `tests/test_STORE_registration.py` |
 | `RECIPE` | Optional | COMPLETE | A provider is registered as a factory (`register_recipe_provider_factory`) and placed by a `recipes:` entry; one type with different arguments makes several members. `env.recipes.recipe(key)` for a key no member has raises `GeneralError`, not `KeyNotFoundError` (`RECIPE-MISSING-RECIPE-IS-A-GENERAL-ERROR`). Python providers are invisible to `liquers-validate` (`VALIDATE-CANNOT-SEE-NON-STANDARD-RECIPE-PROVIDERS`). The design is `specs/design/liquers-py-recipes/` | `test_RECIPE01`–`07` (`tests/test_RECIPE_python_providers.py`), `tests/test_RECIPE_registration.py` |
-| `DOCS` | Optional | PARTIAL | `DOCS04`: every public name has a docstring and a signature, but there is no generated API reference yet (`PY-API-REFERENCE-NOT-GENERATED`) | `DOCS03` is `test_GUIDE_examples.py`; the docstring half of `DOCS04` is `test_DOCS04_*` (`tests/test_DOCS_docstrings.py`); `DOCS01`, `02`, `05`–`07` reviewed |
+| `DOCS` | Optional | PASS | `DOCS04`: every public name has a docstring and a signature, and `scripts/build-liquers-py-docs.sh` renders them with pdoc (published on the documentation site) | `DOCS03` is `test_GUIDE_examples.py`; `DOCS04` is `test_DOCS04_*` (`tests/test_DOCS_docstrings.py`, `tests/test_DOCS_api_reference.py`) and the script, which `test-liquers-py.sh` runs; `DOCS01`, `02`, `05`–`07` reviewed |
 
 `ASYNCQ`, `ASYNCCMD`, `STORE`, `RECIPE` and `DOCS` are outside the baseline profile. Every Essential feature is `COMPLETE` and every required check passes; each `NA` item carries
 its reversing condition. The Python baseline profile is therefore `CONFORMANT`.

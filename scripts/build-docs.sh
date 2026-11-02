@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 # Builds the documentation site: the three user guides (HTML with and without search, EPUB, PDF),
-# the home page and the Rust API reference, assembled into one folder ready for GitHub Pages.
+# the home page and the API references (every Rust crate, Python, JavaScript), assembled into one
+# folder ready for GitHub Pages.
 #
 #   bash scripts/build-docs.sh [--release] [--out DIR] [--skip-api] [--skip-pdf] [--latex]
 #                              [--verify | --verify-only]
 #
 #   --release   release build: only `ready` chapters, writer notes removed; every tool is required
 #   --out DIR   the site folder (default target/docs-site)
-#   --skip-api  do not run `cargo doc` (the slowest step)
+#   --skip-api  do not build the API references (the slowest step)
 #   --skip-pdf  do not build PDFs
 #   --latex     build PDFs through LaTeX (xelatex) instead of Typst
 #   --verify    check the assembled site has every expected file, then exit non-zero if not
@@ -15,7 +16,10 @@
 #
 # Steps: liquers-docs writes the build tree (target/docs-build); mdBook renders each book twice
 # (search on, and search off for the offline zip); Pandoc renders EPUB and PDF; cargo doc renders
-# the API. A missing mdbook, pandoc or typst skips its step with a notice, except under --release.
+# the Rust API of every crate (liquers-web for wasm32), scripts/build-liquers-py-docs.sh the
+# Python API (pdoc) and scripts/build-liquers-web-docs.sh the JavaScript API (TypeDoc). A missing
+# tool (mdbook, pandoc, typst, python3, npx, wasm-bindgen, the wasm32 target) skips its step with
+# a notice, except under --release. Generated output is never committed: it exists only in --out.
 # See specs/guides/USER_DOCS_EDITING_GUIDE.md and specs/guides/GITHUB_ACTIONS_GUIDE.md.
 
 set -euo pipefail
@@ -38,7 +42,7 @@ while [ $# -gt 0 ]; do
         --latex) PDF_ENGINE=xelatex ;;
         --verify) VERIFY=1 ;;
         --verify-only) VERIFY=1; VERIFY_ONLY=1 ;;
-        -h|--help) sed -n '2,19p' "$0"; exit 0 ;;
+        -h|--help) sed -n '2,23p' "$0"; exit 0 ;;
         *) echo "build-docs.sh: unknown option $1" >&2; exit 2 ;;
     esac
     shift
@@ -124,11 +128,34 @@ fi
 } > "$OUT/downloads/index.html"
 
 if [ "$SKIP_API" = 0 ]; then
+    # Every workspace crate: the native ones in one rustdoc tree, then liquers-web (wasm32-only)
+    # documented for its own target and copied into the same tree. Its types from other crates
+    # are plain text, not links: rustdoc links only the crates of its own run.
     echo "== cargo doc" >&2
-    cargo doc -q --no-deps --workspace --exclude liquers-py --exclude liquers-web
+    cargo doc -q --no-deps --workspace --exclude liquers-web
     mkdir -p "$OUT/api"
     rm -rf "$OUT/api/rust"
     cp -r "$ROOT/target/doc" "$OUT/api/rust"
+    if rustup target list --installed 2>/dev/null | grep -qx wasm32-unknown-unknown; then
+        cargo doc -q --no-deps -p liquers-web --target wasm32-unknown-unknown
+        cp -r "$ROOT/target/wasm32-unknown-unknown/doc/liquers_web" "$OUT/api/rust/"
+        mkdir -p "$OUT/api/rust/src"
+        cp -r "$ROOT/target/wasm32-unknown-unknown/doc/src/liquers_web" "$OUT/api/rust/src/"
+    elif [ "$RELEASE" = 1 ]; then
+        echo "build-docs.sh: the wasm32-unknown-unknown target is required for a release build" >&2
+        exit 1
+    else
+        echo "notice: no wasm32-unknown-unknown target; skipping liquers-web's Rust API" >&2
+        SKIPPED+=(wasm32)
+    fi
+    echo "== Python API (pdoc)" >&2
+    if have python3; then
+        bash "$ROOT/scripts/build-liquers-py-docs.sh" --out "$OUT/api/python"
+    fi
+    echo "== JavaScript API (TypeDoc)" >&2
+    if have npx && have wasm-bindgen; then
+        bash "$ROOT/scripts/build-liquers-web-docs.sh" --features records --out "$OUT/api/js"
+    fi
 fi
 
 else
@@ -166,7 +193,12 @@ if [ "$VERIFY" = 1 ]; then
         expect "downloads/$slug.epub"
         [ "$SKIP_PDF" = 0 ] && expect "downloads/$slug.pdf"
     done
-    [ "$SKIP_API" = 0 ] && expect api/rust/liquers_core/index.html
+    if [ "$SKIP_API" = 0 ]; then
+        # Every API page the home page links to.
+        while read -r target; do
+            expect "$target"
+        done < <(grep -o '](api/[^)#]*' "$ROOT/docs/index.md" | sed 's/^](//')
+    fi
     if [ "$missing" = 1 ]; then
         exit 1
     fi

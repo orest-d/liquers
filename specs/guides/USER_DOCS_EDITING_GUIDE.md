@@ -3,7 +3,7 @@ title: User Documentation Editing Guide
 kind: guide
 audience: internal
 area: [docs]
-reviewed: 2026-11-01
+reviewed: 2026-11-02
 ---
 # User Documentation Editing Guide
 
@@ -178,7 +178,10 @@ bash scripts/build-docs.sh --skip-api         # the site in target/docs-site
 ```
 
 `build-docs.sh` needs `mdbook`, `pandoc` and, for PDFs, `typst` (`--latex` uses `xelatex`
-instead); a missing tool skips its step with a notice. Open `target/docs-site/index.html` in a
+instead), and for the API references Python 3, Node, the wasm32 target and `wasm-bindgen`; a
+missing tool skips its step with a notice. The API references are linked from `docs/index.md`,
+one line per crate: a crate added to the workspace gets its line there, or `liquers-docs check`
+fails. They are never written into `docs/`. Open `target/docs-site/index.html` in a
 browser to read the result. Every pull request also uploads the draft site as the `docs-site`
 artifact of its `docs-site` run.
 
@@ -186,4 +189,5 @@ artifact of its `docs-site` run.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-02 | §8: the API references the build adds, their tools, and the home page's link per crate. | `design/user-documentation-guides` (phase-4 addendum) |
 | 2026-11-01 | Created: layout, chapter format, style, markers, includes, tool-neutral rule, maintenance, building. | `design/user-documentation-guides` (phase-5) |

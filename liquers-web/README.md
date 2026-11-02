@@ -313,7 +313,7 @@ updated by the change that moves it.
 | `STORE` (all three directions) | complete | 01–17 by ID; 08 is the conformance suite; 13 native | `STORE18` is `NA`, see below |
 | `STUBS` | complete | 01–07 | — |
 | `PACKAGE` | complete | 01–05, 07 | `06` is `NA`: no optional extra |
-| `DOCS` | partial | 03 by `scripts/test-guide-examples.sh`; 01, 02, 05–07 reviewed | `04` not started: no generated API reference (`WEB-API-REFERENCE-NOT-GENERATED`) |
+| `DOCS` | partial | 03 by `scripts/test-guide-examples.sh`; 01, 02, 05–07 reviewed; the API reference by `scripts/build-liquers-web-docs.sh` (TypeDoc, published at <https://orest-d.github.io/liquers/api/js/index.html>) | `04` half done: nothing checks that every export has a doc comment (`WEB-API-REFERENCE-NOT-GENERATED`) |
 | `UIUSE` | complete | 01–10 in `tests/ui_browser_UIUSE.rs` (`browser-tests`), 02, 07, 08 also in `tests/ui_UIUSE.rs` (Node); `tests/e2e/ui.spec.ts` | `mountUI` / `UIMount`; the page does not repaint while a query awaits (`WEB-UI-FREEZES-WHILE-A-QUERY-AWAITS`); `UIUSE05` needs `--features debug-handles` |
 | `UIDEF` | complete | 01, 02, 05, 06 in `tests/ui_define_UIDEF.rs` (Node); 03, 04, 06b, 07, 08 in `tests/ui_browser_UIDEF.rs` (`browser-tests`); native `ui::widgets::delegated_element` tests | `defineElement`, `element`, `mountRenderer`; `UIDEF04` is claimed for the web backend only (egui shows a label); `UIDEF06` needs `--features debug-handles` |
 | `RECIPE` | not started (deferred) | — | — |

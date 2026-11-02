@@ -183,6 +183,54 @@ fn check_links(repo_root: &Path, file: &str, body: &str, offset: usize) -> Vec<F
     findings
 }
 
+/// The `members` of the workspace's `Cargo.toml`, read without a TOML parser: the quoted names
+/// between `members` `=` `[` and the closing `]`, which may span lines.
+pub fn workspace_members(cargo_toml: &str) -> Vec<String> {
+    let Some(start) = cargo_toml
+        .lines()
+        .position(|l| l.trim_start().starts_with("members"))
+    else {
+        return Vec::new();
+    };
+    let rest: String = cargo_toml
+        .lines()
+        .skip(start)
+        .collect::<Vec<_>>()
+        .join("\n");
+    let Some(open) = rest.find('[') else {
+        return Vec::new();
+    };
+    let list = &rest[open + 1..];
+    let list = &list[..list.find(']').unwrap_or(list.len())];
+    list.split(',')
+        .map(|item| item.trim().trim_matches('"').to_string())
+        .filter(|item| !item.is_empty())
+        .collect()
+}
+
+/// The home page must link every workspace crate's API reference
+/// (`api/rust/<crate_name>/index.html`), so a new crate cannot be left off the site.
+fn check_api_links(repo_root: &Path, home: &str) -> Vec<Finding> {
+    let Ok(cargo_toml) = std::fs::read_to_string(repo_root.join("Cargo.toml")) else {
+        return Vec::new();
+    };
+    workspace_members(&cargo_toml)
+        .into_iter()
+        .filter(|member| {
+            let crate_name = member.rsplit('/').next().unwrap_or(member).replace('-', "_");
+            !home.contains(&format!("](api/rust/{crate_name}/index.html)"))
+        })
+        .map(|member| {
+            finding(
+                "docs/index.md",
+                0,
+                Severity::Error,
+                format!("the API reference section does not link the workspace crate {member}"),
+            )
+        })
+        .collect()
+}
+
 /// Whether the guide's `HISTORY.md` has a row naming this chapter and date.
 fn history_has(history: &str, file: &str, date: &str) -> bool {
     history
@@ -332,6 +380,9 @@ pub async fn process(
                     f.file = source.to_string();
                     f
                 }));
+                if source == "docs/index.md" {
+                    findings.extend(check_api_links(repo_root, &text));
+                }
                 home.push((target.to_string(), text));
             }
             Err(_) => findings.push(finding(source, 0, Severity::Error, "missing".to_string())),
@@ -603,6 +654,14 @@ pub async fn report(repo_root: &Path) -> Result<Vec<ChapterReport>, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn workspace_members_reads_one_line_and_many() {
+        let one = "[workspace]\nmembers=[\"liquers-core\", \"liquers-py\"]\n\ndefault-members = [\"x\"]\n";
+        assert_eq!(workspace_members(one), vec!["liquers-core", "liquers-py"]);
+        let many = "[workspace]\nmembers = [\n  \"a\",\n  \"tools/b-c\",\n]\n";
+        assert_eq!(workspace_members(many), vec!["a", "tools/b-c"]);
+    }
 
     fn chapter(file: &str, title: &str, status: ChapterStatus, text: &str) -> ChapterOutput {
         ChapterOutput {

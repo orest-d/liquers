@@ -289,7 +289,7 @@ POST-INIT-COMMAND-REGISTRATION,issue,Registering a command after Environment::to
 PREDECESSOR-CUT-NOT-YET-EQUIVALENT,issue,Cutting a predecessor boundary is not yet equivalent to expanding it,closed,local,,,,P1,M,core/plan;core/assets,,,,predecessor-cut-equivalence,,2026-08-15,specs/issues/PREDECESSOR-CUT-NOT-YET-EQUIVALENT.md
 PY-ADD-PYTHON-COMMAND-ALIASES-AN-UNREGISTERED-COMMAND,issue,liquers-py's add_python_command registers an alias to a pycall command that does not exist,closed,local,,ready,not-eligible,P2,M,py,,,,liquers-py,,2026-10-17,specs/issues/PY-ADD-PYTHON-COMMAND-ALIASES-AN-UNREGISTERED-COMMAND.md
 PY-ADD-PYTHON-COMMAND-STILL-DECLARES-PYCALL-ALIASES,issue,CommandMetadataRegistry.add_python_command is still public and declares aliases of a pycall command that does not exist,draft,local,,,,P3,S,py,,,,,,2026-10-27,specs/issues/PY-ADD-PYTHON-COMMAND-STILL-DECLARES-PYCALL-ALIASES.md
-PY-API-REFERENCE-NOT-GENERATED,feature,The Python package has no generated API reference,draft,local,,needs-decision,not-eligible,P2,S,py;docs,,,,py-api-reference,,2026-10-19,specs/issues/PY-API-REFERENCE-NOT-GENERATED.md
+PY-API-REFERENCE-NOT-GENERATED,feature,The Python package has no generated API reference,closed,local,,ready,not-eligible,P2,S,py;docs,,,,py-api-reference,,2026-10-19,specs/issues/PY-API-REFERENCE-NOT-GENERATED.md
 PY-ASYNC-EVALUATION-NOT-SUPPORTED,feature,liquers-py has no awaitable evaluation and cannot register async def commands,closed,local,,ready,not-eligible,P3,L,py,,,,liquers-py-async,,2026-10-20,specs/issues/PY-ASYNC-EVALUATION-NOT-SUPPORTED.md
 PY-COMMAND-DECORATOR-CANNOT-DECLARE-ARGUMENT-METADATA,feature,Python command decorators cannot declare per-argument metadata,draft,local,,needs-decision,not-eligible,P3,S,py,,,,py-command-decorator-declaration-keywords,,2026-10-18,specs/issues/PY-COMMAND-DECORATOR-CANNOT-DECLARE-ARGUMENT-METADATA.md
 PY-COMMAND-DECORATOR-CANNOT-SET-REALM,feature,Python command decorators cannot place a command in a realm,draft,local,,needs-decision,not-eligible,P3,S,py,,,,py-command-decorator-declaration-keywords,,2026-10-18,specs/issues/PY-COMMAND-DECORATOR-CANNOT-SET-REALM.md
@@ -378,6 +378,7 @@ RUNTIME-DEPENDENCY-RECORD-AGAINST-SUPERSEDED-VERSION-IS-NOT-CHECKED,issue,A depe
 RUNTIME-VOLATILE-DEPENDENCY-DOES-NOT-MAKE-PARENT-VOLATILE,issue,A volatile dependency a command evaluates through its context does not make the command's result volatile,closed,local,,,,P2,M,core/context,,,,runtime-volatility,,2026-10-17,specs/issues/RUNTIME-VOLATILE-DEPENDENCY-DOES-NOT-MAKE-PARENT-VOLATILE.md
 RUSTDOC-PUBLIC-DOCS-LINK-PRIVATE-ITEMS,issue,"Public rustdoc in three modules links to private or absent items, so the links render as plain text",closed,local,,,,P3,S,core/value;core/plan;core/store,,,,documentation-currentness-small-fixes,,2026-09-04,specs/issues/RUSTDOC-PUBLIC-DOCS-LINK-PRIVATE-ITEMS.md
 RUSTDOC-STORE-SUBMODULE-LINKS-UNRESOLVED,issue,Intra-doc links in the store submodules and value.rs do not resolve,draft,local,,,,P3,S,docs;core/store;core/value,,,,,,2026-11-01,specs/issues/RUSTDOC-STORE-SUBMODULE-LINKS-UNRESOLVED.md
+RUSTDOC-WASM-CRATE-NOT-MERGED-INTO-API-TREE,issue,liquers-web's Rust API page does not link the other crates and is missing from the API search,draft,local,,,,P3,S,web;docs,,,,,,2026-11-02,specs/issues/RUSTDOC-WASM-CRATE-NOT-MERGED-INTO-API-TREE.md
 SAVE-TO-STORE-REPORTS-CANCELLED-WRITE-AS-PERSISTED,issue,A write skipped because the asset was cancelled is recorded as a successful persist,closed,local,,ready,,P2,S,core/assets,,,,save-to-store-skip-outcome,,2026-09-04,specs/issues/SAVE-TO-STORE-REPORTS-CANCELLED-WRITE-AS-PERSISTED.md
 SCHEMA-LESS-JSON-ORIENT-INDEX-COLUMN-OVERWRITTEN,issue,A schema-less read of an indexed JSON orient silently drops the index when a data column is named index,closed,local,,ready,eligible,P3,S,records,,,,json-orient-index-column-collision,,2026-10-08,specs/issues/SCHEMA-LESS-JSON-ORIENT-INDEX-COLUMN-OVERWRITTEN.md
 SCHEMA-LESS-JSON-READS-SORT-COLUMNS-ALPHABETICALLY,issue,A JSON table read without a schema gets its columns in alphabetical order,closed,local,,ready,not-eligible,P3,S,records,,,,json-table-column-order,,2026-09-26,specs/issues/SCHEMA-LESS-JSON-READS-SORT-COLUMNS-ALPHABETICALLY.md
@@ -768,7 +769,7 @@ POLARS-DOC-EXAMPLE-NAMESPACE,design,Polars reference examples select the pl name
 POST-INIT-COMMAND-REGISTRATION-DESIGN,design,Registering commands into a shared environment,in_review,local,implementation,needs-decision,not-eligible,P3,L,core/commands;core/context,,,,post-init-command-registration,,2026-10-20,specs/design/post-init-command-registration/DESIGN.md
 PREDECESSOR-CUT-EQUIVALENCE,design,Make cutting a predecessor boundary observably equivalent to expanding it,complete,local,,,,,,core/plan;core/assets;core/context,,43,,predecessor-cut-equivalence,,2026-08-26,specs/design/predecessor-cut-equivalence/DESIGN.md
 PURE-COMMAND-CONTEXT-DESIGN,design,Running a command with a pure context,in_review,local,implementation,needs-decision,not-eligible,P2,M,core/context;core/commands,,,,pure-command-context,,2026-10-19,specs/design/pure-command-context/DESIGN.md
-PY-API-REFERENCE,design,A script generates the Python package's API reference from its docstrings,in_review,local,implementation,needs-decision,not-eligible,P2,S,py;docs,,,,py-api-reference,,2026-10-27,specs/design/py-api-reference/DESIGN.md
+PY-API-REFERENCE,design,A script generates the Python package's API reference from its docstrings,complete,local,,ready,not-eligible,P2,S,py;docs,,234,,py-api-reference,,2026-10-27,specs/design/py-api-reference/DESIGN.md
 PY-COMMAND-DECORATOR-DECLARATION-KEYWORDS,design,The Python command decorators declare per-argument metadata and a realm,in_review,local,implementation,needs-decision,not-eligible,P3,S,py,,,,py-command-decorator-declaration-keywords,,2026-10-27,specs/design/py-command-decorator-declaration-keywords/DESIGN.md
 PY-DOCSTRINGS,design,"Every public name of the Python package has a docstring and a signature, and a test keeps it so",complete,local,,ready,eligible,P2,M,py;docs,,220,,py-docstrings,,2026-10-27,specs/design/py-docstrings/DESIGN.md
 PY-ENCODED-REPRS,design,"Key, Expires and ExpirationTime reprs quote their text form once",complete,local,,ready,eligible,P3,S,py,,222,,py-encoded-reprs,,2026-10-27,specs/design/py-encoded-reprs/DESIGN.md
@@ -955,7 +956,7 @@ WEBUI,design,Web-framework-independent rendering with SSR and wasm,complete,loca
 WORKSPACE-RUSTFMT-CHECK,design,The workspace is rustfmt-clean and CI keeps it so,in_review,local,implementation,needs-decision,not-eligible,P3,M,build;docs,,,,workspace-rustfmt-check,,2026-10-20,specs/design/workspace-rustfmt-check/DESIGN.md
 WP2-TERMINAL-OUTCOME,design,Asset terminal outcome contract,complete,local,,,,,,core/assets,,7,,wp2-terminal-outcome,,2026-03-02,specs/design/wp2-terminal-outcome/DESIGN.md
 AGENT_MEMORY_SERVICE,reference,Agent Memory Service,current,local,,,,,,lib/commands;mcp,,,,,2026-11-01,,specs/reference/AGENT_MEMORY_SERVICE.md
-API_DOCS_GAP_ANALYSIS,reference,API Documentation Gap Analysis,current,local,,,,,,docs,,,,,2026-10-20,,specs/reference/api/API_DOCS_GAP_ANALYSIS.md
+API_DOCS_GAP_ANALYSIS,reference,API Documentation Gap Analysis,current,local,,,,,,docs,,,,,2026-11-02,,specs/reference/api/API_DOCS_GAP_ANALYSIS.md
 DOC_01_ARCHITECTURE_REFERENCE,reference,Architecture Reference,current,local,,,,,,core/query;core/plan;core/assets,,,,,2026-08-09,,specs/reference/api/DOC_01_ARCHITECTURE_REFERENCE.md
 DOC_02_QUERY_LANGUAGE_REFERENCE,reference,Query Language Reference,current,local,,,,,,core/query,,,,,2026-10-27,,specs/reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md
 DOC_03_ASSETS_EXECUTION_LIFECYCLE,reference,Assets and Execution Lifecycle Reference,current,local,,,,,,core/assets,,,,,2026-10-27,,specs/reference/api/DOC_03_ASSETS_EXECUTION_LIFECYCLE.md
@@ -969,13 +970,13 @@ CONFORMANCE_TERMS,reference,Conformance Terms,current,local,,,,,,docs,,,,,2026-0
 DEPENDENCIES_STATUS,reference,Status::Dependencies Specification,current,local,,,,,,core/assets,,,,,2026-10-27,,specs/reference/DEPENDENCIES_STATUS.md
 ENVIRONMENT_CONFIG,reference,Environment Configuration,current,local,,,,,,core/context;core/store;core/assets,,,,,2026-11-01,,specs/reference/ENVIRONMENT_CONFIG.md
 IMAGE_COMMAND_LIBRARY,reference,Image Command Library Specification,overdue,local,,,,,,lib/image,,,,,2026-03-02,,specs/reference/IMAGE_COMMAND_LIBRARY.md
-JAVASCRIPT_INTEGRATION,reference,JavaScript Integration,current,local,,,,,,web;core/value;core/error;core/store;lib/value,,,,,2026-10-31,,specs/reference/JAVASCRIPT_INTEGRATION.md
+JAVASCRIPT_INTEGRATION,reference,JavaScript Integration,current,local,,,,,,web;core/value;core/error;core/store;lib/value,,,,,2026-11-02,,specs/reference/JAVASCRIPT_INTEGRATION.md
 MARKDOWN,reference,Markdown Navigation,current,local,,,,,,lib/commands;records,,,,,2026-11-01,,specs/reference/MARKDOWN.md
 PAYLOAD_GUIDE,reference,Payload Specification and Usage,current,local,,,,,,core/context;core/commands,,,,,2026-10-17,,specs/reference/PAYLOAD_GUIDE.md
 POLARS_COMMAND_LIBRARY,reference,Polars Command Library Specification,current,local,,,,,,lib/polars,,,,,2026-10-14,,specs/reference/POLARS_COMMAND_LIBRARY.md
 POSITIONING,reference,Positioning and Marketing Plan (draft),current,local,,,,,,docs,,,,,2026-10-15,,specs/reference/POSITIONING.md
 PROJECT_OVERVIEW,reference,Liquers Project Overview,current,local,,,,,,core/query;core/plan;core/assets;core/store;core/value,,,,,2026-11-01,,specs/reference/PROJECT_OVERVIEW.md
-PYTHON_INTEGRATION,reference,Python Integration,current,local,,,,,,py;core/value;core/error;lib/value;core/store;store/config;core/assets,,,,,2026-11-01,,specs/reference/PYTHON_INTEGRATION.md
+PYTHON_INTEGRATION,reference,Python Integration,current,local,,,,,,py;core/value;core/error;lib/value;core/store;store/config;core/assets,,,,,2026-11-02,,specs/reference/PYTHON_INTEGRATION.md
 REALMS,reference,Realms,current,local,,,,,,core/plan;core/commands;store/config,,,,,2026-10-16,,specs/reference/REALMS.md
 RECIPES_AND_PLANS,reference,Recipes and Plans Reference,current,local,,,,,,core/plan;core/query;core/assets;core/context,,,,,2026-11-01,,specs/reference/RECIPES_AND_PLANS.md
 RECORD_STREAMS,reference,Record Streams,current,local,,,,,,records;lib/value;lib/commands;web,,,,,2026-10-30,,specs/reference/RECORD_STREAMS.md
@@ -996,10 +997,10 @@ COMMAND_DESIGN_GUIDE,guide,Command Design Guide,current,local,,,,,,core/commands
 COMMAND_REGISTRATION_GUIDE,guide,Command Registration Guide,current,local,,,,,,core/commands;macro,,,,,2026-10-20,,specs/guides/COMMAND_REGISTRATION_GUIDE.md
 DEPENDENCY_CONSISTENCY_GUIDE,guide,Dependency Consistency Guide,current,local,,,,,,core/assets,,,,,2026-10-08,,specs/guides/DEPENDENCY_CONSISTENCY_GUIDE.md
 ENVIRONMENT_CONSTRUCTION_GUIDE,guide,Building and Configuring an Environment,current,local,,,,,,core/context;core/assets;core/store,,,,,2026-11-01,,specs/guides/ENVIRONMENT_CONSTRUCTION_GUIDE.md
-GITHUB_ACTIONS_GUIDE,guide,GitHub Actions Guide,current,local,,,,,,build;docs,,,,,2026-11-01,,specs/guides/GITHUB_ACTIONS_GUIDE.md
+GITHUB_ACTIONS_GUIDE,guide,GitHub Actions Guide,current,local,,,,,,build;docs,,,,,2026-11-02,,specs/guides/GITHUB_ACTIONS_GUIDE.md
 JAVASCRIPT_GUIDE,guide,Using Liquers from JavaScript in the browser,current,local,,,,,,web,,,,,2026-10-31,,specs/guides/JAVASCRIPT_GUIDE.md
 LANGUAGE-INTEGRATION_GUIDE,guide,Language Integration Guide,current,local,,,,,,web;py;core/commands;core/plan;core/assets;core/store;core/value;lib/commands,,,,,2026-11-01,,specs/guides/LANGUAGE-INTEGRATION_GUIDE.md
-PYTHON_GUIDE,guide,Using Liquers from Python,current,local,,,,,,py,,,,,2026-11-01,,specs/guides/PYTHON_GUIDE.md
+PYTHON_GUIDE,guide,Using Liquers from Python,current,local,,,,,,py,,,,,2026-11-02,,specs/guides/PYTHON_GUIDE.md
 QUERY_ESCAPING_GUIDE,guide,Query Escaping Guide,current,local,,,,,,core/query,,,,,2026-10-07,,specs/guides/QUERY_ESCAPING_GUIDE.md
 RECORD_STREAM_GUIDE,guide,Record Stream Guide,current,local,,,,,,records;lib/value,,,,,2026-10-30,,specs/guides/RECORD_STREAM_GUIDE.md
 SEARCH_GUIDE,guide,Search Guide,current,local,,,,,,lib/commands;records,,,,,2026-10-17,,specs/guides/SEARCH_GUIDE.md
@@ -1010,7 +1011,7 @@ STORE_IMPLEMENTATION_GUIDE,guide,Store Implementation Guide,current,local,,,,,,c
 TEMPLATE_GUIDE,guide,Template Guide,current,local,,,,,,core/query;lib/commands,,,,,2026-10-17,,specs/guides/TEMPLATE_GUIDE.md
 TYPE_SYSTEM_GUIDE,guide,Adding and Typing Value Types,current,local,,,,,,core/value;lib/value,,,,,2026-10-27,,specs/guides/TYPE_SYSTEM_GUIDE.md
 UNITTEST_GUIDE,guide,Unit Testing Guide,current,local,,,,,,build;core/assets,,,,,2026-10-20,,specs/guides/UNITTEST_GUIDE.md
-USER_DOCS_EDITING_GUIDE,guide,User Documentation Editing Guide,current,local,,,,,,docs,,,,,2026-11-01,,specs/guides/USER_DOCS_EDITING_GUIDE.md
+USER_DOCS_EDITING_GUIDE,guide,User Documentation Editing Guide,current,local,,,,,,docs,,,,,2026-11-02,,specs/guides/USER_DOCS_EDITING_GUIDE.md
 WEB_API_GUIDE,guide,Web API Guide,current,local,,,,,,axum;web,,,,,2026-10-16,,specs/guides/WEB_API_GUIDE.md
 python/01-introduction,chapter,Introduction,outline,local,,,,,,docs,,,,,,,docs/guides/python/01-introduction.md
 python/02-installing,chapter,Installing and setting up,outline,local,,,,,,docs,,,,,,,docs/guides/python/02-installing.md

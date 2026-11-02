@@ -177,6 +177,26 @@ What differs from Phases 2-3, and why:
   offline zip, EPUB and PDF, and `--verify` passed. `cargo doc` was not run locally (`--skip-api`,
   disk budget); the PR's `docs-site` run builds and verifies it.
 
+## Addendum 2026-11-02: every API reference on the site
+
+The owner asked that the site carry the API documentation of every crate, the Python API and the
+`liquers-web` API, generated only into the deployed site (never into `docs/`), linked from the
+home page and from the repository `README.md`.
+
+- `build-docs.sh`: `cargo doc` covers every native crate (now with `liquers-py`), and
+  `liquers-web` is documented for wasm32 and copied into the same rustdoc tree. Its types from
+  other crates are plain text rather than links, and it is missing from that tree's crate list
+  and search: rustdoc links and indexes only the crates of one run, and merging runs needs
+  unstable flags (`RUSTDOC-WASM-CRATE-NOT-MERGED-INTO-API-TREE`). The Python reference is
+  `scripts/build-liquers-py-docs.sh` (pdoc; this implements `design/py-api-reference`), the
+  JavaScript one `scripts/build-liquers-web-docs.sh` (TypeDoc over the quick-start build's
+  `liquers_web.d.ts`, with `records`). Verify checks every `api/...` link of `docs/index.md`.
+- `docs/index.md` lists every crate; `liquers-docs check` fails when a workspace member has no
+  link (`check_api_links`, unit test `workspace_members_reads_one_line_and_many`).
+- `docs-site.yml`: wasm32 target, Python, Node and `wasm-bindgen` installed; `main` pushes
+  trigger on every crate and `Cargo.toml`.
+- `README.md`: a *Documentation* section linking the site and the three references.
+
 ## Phase 5 Entry Criteria
 
 - [x] Implementation finished and validated (CI run of `docs-site.yml` pending)

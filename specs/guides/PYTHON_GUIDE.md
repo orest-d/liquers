@@ -3,7 +3,7 @@ title: Using Liquers from Python
 kind: guide
 audience: user
 area: [py]
-reviewed: 2026-11-01
+reviewed: 2026-11-02
 ---
 # Using Liquers from Python
 
@@ -842,13 +842,16 @@ What you will notice; the complete list, with the tracking issues, is
 - A store cannot run its own `store_config` handlers in Python; the configured Rust ones run around it.
 - `env.recipes.recipe(key)` for a key nobody has raises `GeneralError`, not `KeyNotFoundError`.
 - Progress lines on stderr cannot be turned off.
-- There are no type stubs for editors and no generated API reference; `help()` on a class or
-  method shows its docstring and signature.
+- There are no type stubs for editors; `help()` on a class or method shows its docstring and
+  signature. The same docstrings make the API reference,
+  <https://orest-d.github.io/liquers/api/python/liquers.html>; build it locally with
+  `bash scripts/build-liquers-py-docs.sh` (into `target/liquers-py-docs/`).
 
 ## History
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-02 | The generated API reference: where it is published and how to build it. | design `py-api-reference` |
 | 2026-11-01 | §4 A store written in Python; §6 Recipe providers written in Python; §2 the store and recipe classes; §10 the recipe-provider limitation is lifted. | `design/liquers-py-store/`, `design/liquers-py-recipes/` (phase-5) |
 | 2026-10-31 | §1: the supported range starts at CPython 3.10 (3.9 is past its end of life). | Orest, CI matrix decision for `language-binding-tests-in-ci` |
 | 2026-10-30 | §4 `config`: `recipes` accepts every value; §6 Named results: choosing recipe providers with `recipes`. §10: the limitation narrows to a provider written in Python. | design `recipe-provider-chain-config` |

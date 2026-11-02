@@ -28,7 +28,11 @@ published by CI:
   (a `specs/` section by heading, with its subsections) and `ns-docs/command_table`. CLI: `build`,
   `check [--release]`, `report`. 26 tests, including one over the real `docs/guides/`.
 - **`scripts/build-docs.sh`**: mdBook twice (with search online, without it for the offline zip),
-  Pandoc for EPUB and PDF (Typst, or LaTeX with `--latex`), `cargo doc`, assembly, `--verify`.
+  Pandoc for EPUB and PDF (Typst, or LaTeX with `--latex`), the API references, assembly,
+  `--verify`. The references (added 2026-11-02): `cargo doc` for every crate (`liquers-web` for
+  wasm32, copied into the same tree), pdoc for Python (`scripts/build-liquers-py-docs.sh`),
+  TypeDoc for JavaScript (`scripts/build-liquers-web-docs.sh`); the home page links each crate,
+  checked by `liquers-docs check`, and the repository `README.md` links the site.
 - **`.github/workflows/docs-site.yml`**: check and draft build on pull requests (the site as an
   artifact), release build and GitHub Pages deployment on `main`. `.github/CODEOWNERS` asks the
   owner to review `docs/guides/`.
@@ -42,8 +46,11 @@ HTML with and without search, EPUB, PDF via Typst or LaTeX) and the approved des
 Pandoc, a Rust preprocessor, tool-neutral chapters). Added: `ns-docs/command_table` and the check
 for markers arriving through fragments. Changed from Phase 2: the chapter folder is passed as the
 template's `cwd`, and `build_environment` is synchronous ([implementation notes](phase4-implementation.md#implementation-notes)).
-Not done here, by scope: writing chapter text (editorial work); Python and JavaScript API
-references (existing issues).
+Not done here, by scope: writing chapter text (editorial work). The Python and JavaScript API
+references were first out of scope and were added on the owner's request of 2026-11-02
+([addendum](phase4-implementation.md#addendum-2026-11-02-every-api-reference-on-the-site));
+this closed `PY-API-REFERENCE-NOT-GENERATED` (`design/py-api-reference` complete) and did half of
+`WEB-API-REFERENCE-NOT-GENERATED` (the coverage check remains).
 
 ## Documentation Delivered
 
@@ -56,7 +63,8 @@ build is described in the two guides below and in `liquers-docs`' module documen
   format and statuses, style, markers, includes and their rules, the tool-neutral rule,
   maintenance, building and previewing.
 - [`guides/GITHUB_ACTIONS_GUIDE.md`](../../guides/GITHUB_ACTIONS_GUIDE.md): every workflow,
-  `docs-site.yml` and the Pages setup, adding a workflow, reserved PyPI and npm sections.
+  `docs-site.yml`, the site's layout and the Pages setup, adding a workflow, reserved PyPI and npm
+  sections.
 - `docs/README.md`: what the `docs/` folder holds, for anyone opening it.
 
 ### Existing Documents Reviewed or Updated
@@ -72,6 +80,10 @@ Authoritative `affects_docs`: `DOCS_STRUCTURE_GUIDE.md`, `guides/LANGUAGE-INTEGR
   `POSITIONING.md`, `CONFORMANCE_TERMS.md`, `api/API_DOCS_GAP_ANALYSIS.md`,
   `AGENT_MEMORY_MIGRATION_GUIDE.md`, `UNITTEST_GUIDE.md`, `autonomous_issue_fixing.md`,
   `autonomous_bulk_design.md`: none describes user documentation, its build or CI.
+- For the API references (2026-11-02): `reference/PYTHON_INTEGRATION.md` §8,
+  `guides/PYTHON_GUIDE.md` §10, `reference/JAVASCRIPT_INTEGRATION.md` (limitations),
+  `reference/api/API_DOCS_GAP_ANALYSIS.md` §12 and DOC-12, `liquers-py/README.md`,
+  `liquers-web/README.md`, the repository `README.md`.
 - Also updated: `CLAUDE.md` (structure, the user-guides rule, the test and build commands), the
   `liquers-project` skill (`phase5-documentation.md` and `review-checklist.md`: review the
   chapters `chapters-for` lists).
