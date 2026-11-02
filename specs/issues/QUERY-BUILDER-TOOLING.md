@@ -6,7 +6,7 @@ status: accepted
 priority: P2
 complexity: L
 area: [core/query, core/validate]
-design: query-builder
+design: composite-command-definition
 created: 2026-08-08
 github:
 ---
@@ -81,3 +81,10 @@ fetches a file named `to_text`.
 
 Designed in `design/query-builder/` (first slice: core builder, `Query::check_encodable`,
 `liquers-encode`, shared token predicates); binding classes become a follow-up issue.
+
+## Design
+
+Designed first in `specs/design/query-builder/` (2026-10-21). That design was merged into
+`specs/design/composite-command-definition/` on 2026-11-02, at the maintainer's request: the builder
+becomes the pipeline's `QueryEditor`, a wrapper over `PipelineEditor` that refuses edits leaving it
+without a query form.

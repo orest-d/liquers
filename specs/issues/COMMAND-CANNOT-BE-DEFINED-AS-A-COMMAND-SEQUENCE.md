@@ -4,8 +4,8 @@ kind: feature
 title: A command cannot be defined as a sequence of other commands with placeholders
 status: draft
 priority: P2
-complexity: L
-area: [core/commands, core/plan, core/assets]
+complexity: XL
+area: [core/commands, core/plan, core/assets, core/query, core/validate]
 design: composite-command-definition
 created: 2026-11-01
 github: 237
@@ -74,3 +74,6 @@ for command aliases, recipes and the web API.
 `specs/design/composite-command-definition/`. On 2026-11-01 the maintainer chose structured
 pipelines as the only placeholder mechanism (no placeholder syntax in query text), and moved the web
 API part (point 3 above) to `WEB-API-CANNOT-RUN-PIPELINES-OR-RECIPE-ENDPOINTS`.
+
+On 2026-11-02 the scope grew to the pipeline as a query builder and editor: `QUERY-BUILDER-TOOLING`
+and its design were merged in, which makes the work `XL`.

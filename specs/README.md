@@ -142,7 +142,7 @@ serves both. Solve them together.
 - **Enum parameters** — designing → [`design/register-command-enum/`](design/register-command-enum/)
 - **Query-aware templates (`liquers-template`: Mustache with query tags, parametrized queries, template commands)** — built → [`reference/TEMPLATE_LANGUAGE.md`](reference/TEMPLATE_LANGUAGE.md) *(how to: [`guides/TEMPLATE_GUIDE.md`](guides/TEMPLATE_GUIDE.md); design in [`design/liquers-mustache/`](design/liquers-mustache/))*
 - **Command aliases** — documented → [`reference/COMMAND_ALIASES.md`](reference/COMMAND_ALIASES.md) *(when to use one: [`guides/COMMAND_DESIGN_GUIDE.md`](guides/COMMAND_DESIGN_GUIDE.md) §Aliases; design in [`design/command-alias-contract/`](design/command-alias-contract/))*
-- **Composite commands and pipelines (sequences of commands as one command; structured pipelines in recipes)** — designing → [`design/composite-command-definition/`](design/composite-command-definition/)
+- **Pipelines (sequences of commands as one command; structured pipelines in recipes; the pipeline as query builder and editor)** — designing → [`design/composite-command-definition/`](design/composite-command-definition/)
 - **Language-neutral command declaration** — documented → [`reference/COMMAND_DECLARATION.md`](reference/COMMAND_DECLARATION.md)
 - **Command metadata enhancements** — planned → [`issues/COMMAND-METADATA-ENHANCEMENTS.md`](issues/COMMAND-METADATA-ENHANCEMENTS.md)
 - **Macro query validation and hints** — planned → [`issues/MACRO-QUERY-VALIDATION-AND-HINTS.md`](issues/MACRO-QUERY-VALIDATION-AND-HINTS.md)
@@ -494,7 +494,6 @@ deliberately folded behind a broader line.
 - design `py-record-values-to-python`
 - design `pyo3-python-3-13-support`
 - design `query-builder-in-bindings`
-- design `query-builder`
 - design `query-cache-directives`
 - design `query-data-format-command`
 - design `query-editor-live-validation`

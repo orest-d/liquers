@@ -1,4 +1,4 @@
-# Phase 1: High-Level Design — Pipeline commands
+# Phase 1: High-Level Design — Pipelines
 
 ## Purpose
 
@@ -8,6 +8,12 @@ literal value, a placeholder, a link, a nested pipeline or the input state. Reci
 pipeline to carry complex data that query text cannot express. This keeps the query the one
 addressable unit (VISION) for reusable pipelines: a long or structured value is written once, in a
 definition or a recipe, and every caller writes a short, cacheable query.
+
+The pipeline is also the **structured form of queries and recipes** (merged 2026-11-02 with
+`QUERY-BUILDER-TOOLING`). Every query and recipe converts to a pipeline, and a pipeline converts
+back to a query whenever it is *representable*. A `PipelineEditor` edits pipelines; a thin
+`QueryEditor` over it is the validating query builder that code assembling queries from data
+needs, instead of concatenating text.
 
 ## Terminology
 
@@ -26,8 +32,14 @@ definition or a recipe, and every caller writes a short, cacheable query.
   its declared placeholders and whose body is a pipeline. Calling it runs the body on its input with
   the arguments bound to the placeholders. (This is unrelated to the *composite variadic elements*
   of `design/composite-variadic-arguments/`.)
-- **Text form**: a pipeline whose sources are all scalars, lists of scalars for variadic arguments,
-  or links has an equivalent query. It plans exactly as that query does.
+- **Representable**: a pipeline that converts to a query (its *text form*). The exact rules are
+  in §Representability rules below; in short, every element and source has a query spelling: a
+  scalar, a list of scalars for a variadic, a link, or a representable nested pipeline. A
+  representable pipeline plans exactly as its query.
+- **Canonical form**: what a conversion produces. Converting a query to a pipeline and back gives
+  the query's canonical encoding, and converting again changes nothing (idempotence).
+- **`PipelineEditor`** edits a pipeline with validated steps. **`QueryEditor`** is a thin wrapper
+  that refuses any edit after which the pipeline would no longer be representable.
 
 ## Problem Example
 
@@ -133,6 +145,45 @@ The pipeline form, everywhere:
   WHEN any query is converted to a pipeline (`Query::to_pipeline`, syntactic) and planned
   THEN the plan equals the query's plan, and converting the pipeline back gives the same query
 
+Conversion, representability and editing (merged scope, 2026-11-02):
+
+- **AC-25** Every query is a pipeline
+  WHEN any query that `parse_query` accepts is converted (`Pipeline::try_from(&query)`)
+  THEN the conversion succeeds without a registry; it fails only for a hand-built `Query` that `check_encodable` refuses (AC-33)
+- **AC-26** Query round trip
+  WHEN a query is converted to a pipeline and back
+  THEN the result is the query's canonical form, which plans exactly as the query; for a query already in canonical form it is the same query, and its encoding is equal
+- **AC-27** Idempotence
+  WHEN a pipeline is converted to a query and back, then to a query and back again
+  THEN the second round changes nothing, as pipeline and as query
+- **AC-28** A pipeline from a query is representable
+  WHEN a pipeline originates from a query (`try_from`) and has been edited only through `QueryEditor`
+  THEN it converts to a query
+- **AC-29** Non-representability is reported exactly
+  WHEN a pipeline that is not representable is converted to a query
+  THEN the error names the first offending element and argument and the rule it breaks (§Representability rules, by rule id), and nothing else is converted
+- **AC-30** Every recipe is a pipeline
+  WHEN a recipe is converted (`Recipe::to_pipeline`)
+  THEN its query, its `pipeline`, its `arguments` and `links` (as named arguments of the last action), its `cwd` and its `volatile` become one pipeline that plans as `Recipe::to_plan` does; its asset declarations (`title`, `description`, `expires`, `stored`, `cached`) stay on the recipe
+- **AC-31** Editing a pipeline
+  WHEN a `PipelineEditor` appends, inserts, replaces, moves or removes an element, or sets or removes an argument, namespace or realm of an action
+  THEN the edit is applied, or it is refused with a `ParameterError` naming the value and its position kind (for example a key segment `my file.csv`), and the pipeline is unchanged
+- **AC-32** The query editor keeps a query
+  WHEN a `QueryEditor` is asked for an edit that would make its pipeline non-representable (a list for a single argument, a placeholder, a value as state)
+  THEN it refuses the edit with the representability reason and stays unchanged; `QueryEditor::query()` always succeeds
+- **AC-33** Hand-built queries can be checked
+  WHEN `Query::check_encodable` is called on a programmatically assembled query
+  THEN it is `Ok` exactly when `parse_query(&q.encode())` reproduces `q`, and otherwise names the first offending token
+- **AC-34** One definition of each token class
+  WHEN the parser, the editors, `check_encodable` or `liquers-template` validate an action name, namespace, key segment, header value or filename
+  THEN they call the same `liquers_core::escape` predicates
+- **AC-35** The encode CLI
+  WHEN `liquers-encode` is given resources, actions and their arguments as separate shell arguments, or a pipeline file
+  THEN it prints the encoded query and exits 0, or exits 1 with the representability or token error on stderr and empty stdout, or 2 for a malformed invocation
+- **AC-36** An empty parameter is encodable
+  WHEN `encodeParam("")` is called in `liquers-web`, or an editor is given an empty parameter
+  THEN the result is the empty token, which parses back as one empty parameter
+
 Recipes (b):
 
 - **AC-15** Recipe pipeline
@@ -144,7 +195,9 @@ Retired:
 - ~~**AC-9**~~ placeholders in recipe query text: query text has no placeholders (2026-11-01), so AC-15 replaces it.
 - ~~**AC-12**, **AC-13**, **AC-14**~~ web API binding, request values as the start state, managed text forms: moved to [`WEB-API-CANNOT-RUN-PIPELINES-OR-RECIPE-ENDPOINTS`](../../issues/WEB-API-CANNOT-RUN-PIPELINES-OR-RECIPE-ENDPOINTS.md) (scope split, 2026-11-01).
 
-Non-goals: placeholder syntax in query text (no change to query encoding); web API routes,
+Non-goals: Python and JavaScript wrappers for the editors (`QUERY-BUILDER-NOT-IN-BINDINGS`,
+`design/query-builder-in-bindings/`, which moves from `QueryBuilder` to `QueryEditor`); placeholder
+syntax in query text (no change to query encoding); web API routes,
 endpoint recipes, MCP serving and payload sources (the follow-up issue above); an `injected`
 pipeline command argument; replacing `CommandDefinition::Alias`; Python and JavaScript registration
 helpers (both read the metadata form as it is).
@@ -153,30 +206,121 @@ helpers (both read the metadata form as it is).
 pipeline command's arguments are its own `ArgumentInfo`s, so `?n=5` on `…/ns-sales/top_in` sets `n` as for
 any command.
 
+## Representability rules
+
+A pipeline is **representable** when every rule below holds. `Query::try_from(&pipeline)` checks
+them in element order, and the first rule that fails is the error (AC-29): `NotRepresentable` with
+the element index, the argument (by position or name) and the rule id. Token classes are those of
+DOC_02 §Lexical forms, tested by the shared `escape` predicates (AC-34). String parameters are
+never a reason: `encode_token` escapes any string.
+
+**Whole pipeline**
+
+| Id | Rule |
+|---|---|
+| P1 | No `value` or `placeholder` element: a value as the current state has no query spelling. |
+| P2 | A `filename` element is last (also a validity rule for every pipeline). |
+| P3 | `rooted` (a leading `/`) and an explicit resource-segment header name are carried as they are. |
+
+**Elements**
+
+| Id | Element | Query spelling | Representable when |
+|---|---|---|---|
+| E1 | `action` | `name-p1-p2` | `action` is an identifier and not `ns`, `q` or `v`; every source obeys S1–S7 |
+| E2 | `action` with `ns` | `ns-a-b/name-…` | each namespace is an identifier. An `ns` lasts to the end of its segment, so an action without `ns` after one with `ns` starts a new `-/` segment |
+| E3 | `action` with `realm` | a new segment `-realm/name-…` | `realm` is a realm name |
+| E4 | `resource` | `-R/a/b` or `-R-mode/a/b` | every key segment is a resource name; `mode` is a header value |
+| E5 | `cwd`, `key` | `-R-cwd/…`, `-R-key/…` | as E4 |
+| E6 | `query` | its text, spliced at a segment boundary | it parses and obeys these rules after splicing |
+| E7 | `quote`, `volatile` | `q`, `v` | always |
+| E8 | `filename` | the last token | it is a filename |
+
+**Sources of an action argument**
+
+| Id | Source | Query spelling | Representable when |
+|---|---|---|---|
+| S1 | scalar `value` (string, integer, float, bool) | its text | always; a non-string becomes its text (canonical form) |
+| S2 | `value` that is an array of scalars | consecutive parameters | the argument is the command's `multiple` argument and the last one written |
+| S3 | `multiple` of sources | consecutive parameters | as S2, and each element obeys S1, S5 or S6 |
+| S4 | `value` that is null, an object, bytes, an array for a single argument, or any non-scalar | — | never |
+| S5 | `link` | `~X~…~E` | the text parses and is representable |
+| S6 | `pipeline` (nested) | `~X~…~E` | the nested pipeline is representable |
+| S7 | `placeholder`, `state` | — | never (they exist only inside a command definition, AC-11) |
+
+**Named arguments**
+
+| Id | Rule |
+|---|---|
+| N1 | A query has positional parameters only. Without a registry, a named argument is not representable. |
+| N2 | With a registry (`to_query_with`), named arguments are placed by the command's parameter order; a gap before one is filled with that parameter's default, as text. |
+| N3 | A gap at a required parameter (no default), or at an `injected` one, is not representable. |
+| N4 | An argument given both by position and by name is invalid for any pipeline, not only for a query. |
+
+**Guarantees.** `Pipeline::try_from(&query)` produces only representable elements (rooted flag,
+resources, header instructions, `ns`/`q`/`v`, actions with positional scalar and link sources,
+filename), so AC-28 holds by construction and `QueryEditor` preserves it by checking each edit
+against these rules. The canonical form (Q21) normalizes only what has one spelling in a query:
+S1's typed scalars, N2's names, a repeated or trailing `ns`, empty segments and source positions.
+
 ## Core Interactions
 
-- Commands: `CommandDefinition::Pipeline`, registration, validation and export in the metadata registry.
-- Plans: `PlanBuilder` takes pipeline elements as well as queries, and expands pipeline commands into
-  them; new `Step::UseValue`; the interpreter supplies `{state: true}`.
-- Assets / recipes: `Recipe` gains `pipeline`, with literal values only (AC-15).
-- Validation: `liquers-validate` accepts pipelines; `specs/command_registry.yaml` carries pipeline commands.
+- Pipeline (new module `liquers_core::pipeline`): the types and their serde form; fallible
+  conversion to and from `Query` (`TryFrom` both ways) and from `Recipe`; the representability
+  check; `PipelineEditor` and the `QueryEditor` wrapper over it; the pipeline planner.
+- Commands: `CommandDefinition::Pipeline`, registration, validation and export in the metadata
+  registry.
+- Plans: the existing `PlanBuilder` is kept for queries; the pipeline planner takes queries and
+  pipeline elements in one plan and expands pipeline commands; new `Step::UseValue`; the
+  interpreter supplies `{state: true}`.
+- Assets / recipes: `Recipe` gains `pipeline`, with literal values only (AC-15), and
+  `Recipe::to_pipeline` (AC-30).
+- Query: `Query::check_encodable`; the token predicates in `liquers_core::escape`, used by
+  `parse.rs`, the representability check and the editors (AC-33, AC-34).
+- Validate: `liquers-validate` accepts pipelines; a second `cli` binary, `liquers-encode` (AC-35);
+  `specs/command_registry.yaml` carries pipeline commands.
+- Template: `liquers-template/src/query/instantiate.rs` validators delegate to the core predicates.
+- Web: `liquers-web/src/encode.rs` `encode_param` accepts the empty string (AC-36). No route
+  changes (the follow-up issue).
 - Consumers: `liquers-mcp` serves a pipeline command as a tool like any command.
 
 ## Crate Placement
 
-`liquers-core` (`command_metadata.rs`, `commands.rs`, `plan.rs`, `interpreter.rs`, `recipes.rs`,
-and a new `pipeline.rs` for the serde types): every consumer plans through core. No change to
-`parse.rs` or to query encoding. No new dependency.
+`liquers-core`, because every consumer plans through core and the editor must be usable from
+every integration. The pipeline gets its own module, `liquers-core/src/pipeline/`:
+
+| File | Holds |
+|---|---|
+| `mod.rs` | `Pipeline`, `PipelineElement`, `ActionElement`, `Source`; serde |
+| `convert.rs` | query ↔ pipeline, recipe → pipeline, representability, canonical form |
+| `editor.rs` | `PipelineEditor`, `ActionEditor`, `QueryEditor` |
+| `plan.rs` | the pipeline planner (`Pipeline::to_plan`), sharing assembly code with `PlanBuilder` |
+
+Also touched: `command_metadata.rs`, `commands.rs`, `plan.rs`, `interpreter.rs`, `recipes.rs`,
+`escape.rs`, `parse.rs` (the shared predicates only; the grammar and the encoding are unchanged),
+and a `liquers-encode` binary behind the existing `cli` feature. No new dependency.
 
 ## Documentation Intent
 
-- Reference: new `specs/reference/PIPELINE_COMMANDS.md` (pipeline shape, pipeline commands,
-  planning, caching); extend `COMMAND_ALIASES.md` (relation to pipeline commands), `RECIPES_AND_PLANS.md`
-  (recipe `pipeline`, mixed planning, `Step::UseValue`), `COMMAND_DECLARATION.md` §4.1
-  (`definition`). `PROJECT_OVERVIEW.md` §Recipes gains `pipeline`; its query encoding is unchanged.
-- Guide: extend `COMMAND_REGISTRATION_GUIDE.md` (registering a pipeline command) and
-  `COMMAND_DESIGN_GUIDE.md` §Aliases (alias, pipeline command or Rust).
-- Documents to update: the above, each with a History row and a `reviewed:` bump.
+- **New reference `specs/reference/PIPELINES.md`**: the pipeline model and serde form, sources,
+  pipeline commands, recipe pipelines, planning and caching, the representability rules, the
+  canonical form and the round trip, the editors.
+- **New guide `specs/guides/PIPELINE_GUIDE.md`**: building and editing a pipeline in Rust, turning a
+  query into a pipeline and back, writing a pipeline command, a recipe pipeline, what to do with a
+  not-representable error.
+- **Pipelines referenced wherever they apply**, each with a History row and a `reviewed:` bump:
+  - query: `PROJECT_OVERVIEW.md` §Query Language (a query is a pipeline; encoding unchanged) and
+    Technical Debt (the raw-emission caveat), `api/DOC_02_QUERY_LANGUAGE_REFERENCE.md`
+    §Programmatic construction (`QueryEditor`, `check_encodable`), `QUERY_ESCAPING_GUIDE.md`
+    (the editor first, then `liquers-encode`);
+  - command metadata and registration: `COMMAND_ALIASES.md` (relation to pipeline commands),
+    `COMMAND_DECLARATION.md` §4.1 (`definition`), `COMMAND_REGISTRATION_GUIDE.md` (a section on
+    the pipeline alias: when to use it, how to declare its placeholders, how to register it, with
+    a link to the reference), `COMMAND_DESIGN_GUIDE.md` §Aliases (alias, pipeline command or Rust);
+  - plan and recipes: `RECIPES_AND_PLANS.md` (recipe `pipeline`, mixed planning, `Step::UseValue`)
+    and `PROJECT_OVERVIEW.md` §Recipes;
+  - templates: `TEMPLATE_LANGUAGE.md` (the shared predicates);
+  - tooling: `CLAUDE.md` §Validating queries and the `liquers-validate` skill (`liquers-encode`);
+  - web API: later, in `WEB-API-CANNOT-RUN-PIPELINES-OR-RECIPE-ENDPOINTS`.
 
 ## Open Questions
 
@@ -214,6 +358,31 @@ Deferred to Phase 2 by the maintainer (2026-11-01):
 Recipes do not define commands (Q3, decided). Whether recipes, or something like them, will define
 web endpoints or commands is left to the follow-up issue.
 
+Opened by the scope change of 2026-11-02, with a recommendation each; Phase 2 answers them unless
+the maintainer decides otherwise at this gate:
+
+- **Q20 — the registry in `to_query`.** A named argument has no place in a query without knowing the
+  command's parameter order. Recommended: `Query::try_from(&pipeline)` works without a registry and
+  refuses named arguments; `pipeline.to_query_with(&registry)` places them, filling a gap before a
+  named argument with the parameter's default as text. A pipeline from a query has no named
+  arguments, so AC-28 needs no registry.
+- **Q21 — the canonical form.** What the round trip may normalize. Recommended: typed scalars become
+  their text (`5` and `"5"` encode the same), named arguments become positional, a repeated or
+  trailing `ns` is dropped, empty segments are dropped, and source positions are lost. Nothing that
+  changes the plan is normalized.
+- **Q22 — editor style.** Recommended: `&mut self` methods returning `Result<&mut Self, Error>`,
+  so edits chain with `?` and a refused edit leaves the editor unchanged; plus a consuming
+  `PipelineBuilder`-like constructor chain for the common "build from scratch" case.
+- **Q23 — naming.** `QueryEditor` replaces the superseded design's `QueryBuilder`. Recommended:
+  keep only `QueryEditor` (one name, as requested), with `QueryEditor::new()` covering building
+  from scratch.
+- **Q24 — `liquers-encode` input.** Recommended: shell arguments as in the superseded design, plus
+  `--pipeline <file|->` reading a pipeline in JSON or YAML; both go through `QueryEditor`, so the
+  CLI refuses exactly what the editor refuses.
+- **Q25 — scalar values in a query-editable pipeline.** Recommended: `QueryEditor` accepts a typed
+  scalar (`5`, `true`, `2.5`) and stores it as given; it converts to its text in the query, which is
+  a canonical-form normalization (Q21), so a round trip turns it into a string.
+
 ## Scope Changes
 
 - **2026-11-01, maintainer review 1.** Added the pipeline notation, declarations, variadics,
@@ -234,6 +403,13 @@ web endpoints or commands is left to the follow-up issue.
   pipelines carry literal values only, and a placeholder outside a command definition is a planning
   error (AC-11, AC-15 revised). The builder design, the recipe syntax and the variadic rules are
   decided in Phase 2.
+- **2026-11-02, scope extension.** The maintainer merged `QUERY-BUILDER-TOOLING` and the
+  `query-builder` design (now superseded) into this one: the pipeline has fallible conversion to
+  and from a query, lives in its own module, and has a `PipelineEditor` with a `QueryEditor`
+  wrapper that refuses non-representable edits. Every query and recipe is a pipeline, the round
+  trip is idempotent, and every pipeline from a query converts back. A pipeline reference and a
+  pipeline guide are added, and the related documents refer to them. Added AC-25–AC-36 and
+  questions 20–25. Phase 1 is reopened for approval, and the design grows from `L` to `XL`.
 
 ## Design Dependencies
 
@@ -242,8 +418,14 @@ web endpoints or commands is left to the follow-up issue.
 - `agent-command-proposal` — **overlaps**: it proposes alias commands; pipeline commands widen what it can propose.
 - `plan-default-namespaces` (PR #236) — **requires** its lookup chain for AC-7.
 - `WEB-API-CANNOT-RUN-PIPELINES-OR-RECIPE-ENDPOINTS` — **required-by**: the web follow-up builds on the pipeline types.
+- `query-builder` — **superseded by this design** (2026-11-02); its reasoning and Phase 1 decisions are adopted.
+- `query-builder-in-bindings` — **required-by**: exposing the builder in Python and JavaScript now targets `QueryEditor`.
+- `parameter-entity-escaping` (complete) — **origin** of the query-builder part: it made `encode_token` total.
+- `resource-name-unicode` — **overlaps**: what a valid key segment is; both call `escape::is_resource_name`, so whichever lands second needs no change.
+- `query-token-classes-ascii` (complete) — **origin**: it made the token classes ASCII, but its character predicates are private to `parse.rs`; this design makes them public token predicates in `escape.rs` (AC-34).
 
 ## References
 
 - Issue: [`COMMAND-CANNOT-BE-DEFINED-AS-A-COMMAND-SEQUENCE`](../../issues/COMMAND-CANNOT-BE-DEFINED-AS-A-COMMAND-SEQUENCE.md) (gh#237)
-- `specs/reference/COMMAND_ALIASES.md`, `specs/reference/RECIPES_AND_PLANS.md`
+- Issue: [`QUERY-BUILDER-TOOLING`](../../issues/QUERY-BUILDER-TOOLING.md), merged 2026-11-02; superseded design [`query-builder`](../query-builder/DESIGN.md)
+- `specs/reference/COMMAND_ALIASES.md`, `specs/reference/RECIPES_AND_PLANS.md`, `specs/reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md`
