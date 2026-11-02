@@ -3,8 +3,7 @@ id: LIQUERS-PY-STUBS
 kind: design
 title: Type declarations for the liquers Python package, checked against the runtime
 workflow: liquers-project
-status: in_review
-phase: documentation
+status: complete
 readiness: ready
 autofix: not-eligible
 area: [py]
@@ -26,6 +25,8 @@ check found no decision that needs Orest, so the design is `approved` under the 
 implementation starts.
 
 **Pre-approved after Phase 1 on 2026-11-01** (Orest: "proceed all", given at the Phase 1 gate, earlier than the skill's Phase 2 offer, and covering Phases 2-5): Phases 2-4, the implementation and Phase 5 run without gates; reviews still run, user decisions go to the Phase 1 decision log, and work stops before implementation only if one of them needs Orest.
+
+Phase 5 approved by Orest on 2026-11-02; the design is complete.
 
 ## Phases
 
