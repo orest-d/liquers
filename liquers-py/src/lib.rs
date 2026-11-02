@@ -22,6 +22,7 @@ pub mod pycall;
 pub mod query;
 pub mod recipe_provider;
 pub mod recipes;
+pub mod records;
 pub mod runtime;
 pub mod store;
 pub mod value;
@@ -101,9 +102,59 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<crate::context::Context>()?;
     m.add_class::<crate::asset::State>()?;
     m.add_class::<crate::asset::AssetRef>()?;
+    crate::records::register(m)?;
+
+    // The Liquers version, in the form Python packaging uses (PEP 440); `liquers.__version__`.
+    m.add("__version__", pep440(liquers_core::VERSION))?;
 
     // Registered first, so it runs after every environment's own `atexit` hooks.
     crate::exit::register(m)?;
 
     Ok(())
+}
+
+/// The PEP 440 form of a Cargo (SemVer) version, written the way maturin writes a wheel's version:
+/// the pre-release suffixes `-alpha.N`, `-beta.N` and `-rc.N` become `aN`, `bN` and `rcN`. A
+/// version without a pre-release (`0.1.0`) is returned unchanged; build metadata (`+…`) is kept.
+pub fn pep440(cargo: &str) -> String {
+    let (core, build) = match cargo.split_once('+') {
+        Some((core, build)) => (core, Some(build)),
+        None => (cargo, None),
+    };
+    let mut out = match core.split_once('-') {
+        Some((release, pre)) => {
+            let (label, number) = match pre.split_once('.') {
+                Some((label, number)) => (label, number),
+                None => (pre, "0"),
+            };
+            let short = match label {
+                "alpha" | "a" => "a",
+                "beta" | "b" => "b",
+                "rc" => "rc",
+                other => return format!("{release}.dev0+{other}.{number}"),
+            };
+            format!("{release}{short}{number}")
+        }
+        None => core.to_string(),
+    };
+    if let Some(build) = build {
+        out.push('+');
+        out.push_str(build);
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::pep440;
+
+    #[test]
+    fn pep440_rewrites_prereleases() {
+        assert_eq!(pep440("0.1.0"), "0.1.0");
+        assert_eq!(pep440("0.2.0-alpha.1"), "0.2.0a1");
+        assert_eq!(pep440("0.2.0-beta.3"), "0.2.0b3");
+        assert_eq!(pep440("0.2.0-rc.1"), "0.2.0rc1");
+        assert_eq!(pep440("0.2.0-rc"), "0.2.0rc0");
+        assert_eq!(pep440("1.0.0+abc"), "1.0.0+abc");
+    }
 }

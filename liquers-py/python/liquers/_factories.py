@@ -22,11 +22,13 @@ A callable whose signature cannot be inspected (some builtins) needs ``arguments
 import inspect
 import json
 import typing
+from collections.abc import Callable, Collection, Iterable
+from typing import Any
 
 _JSON_SCALARS = (type(None), bool, int, float, str)
 
 
-def _is_json(value):
+def _is_json(value: object) -> bool:
     if isinstance(value, _JSON_SCALARS):
         return True
     if isinstance(value, (list, tuple)):
@@ -36,7 +38,7 @@ def _is_json(value):
     return False
 
 
-def _type_of_annotation(annotation):
+def _type_of_annotation(annotation: Any) -> str | None:
     if annotation is inspect.Parameter.empty or annotation is typing.Any:
         return None
     origin = typing.get_origin(annotation) or annotation
@@ -53,7 +55,7 @@ def _type_of_annotation(annotation):
     return "any"
 
 
-def _type_of_value(value):
+def _type_of_value(value: object) -> str:
     if isinstance(value, bool):
         return "boolean"
     if isinstance(value, (int, float)):
@@ -67,7 +69,13 @@ def _type_of_value(value):
     return "any"
 
 
-def _declare(factory, arguments=None, *, exempt=(), reserved=()):
+def _declare(
+    factory: Callable[..., Any],
+    arguments: Iterable[Any] | None = None,
+    *,
+    exempt: Collection[str] = (),
+    reserved: Collection[str] = (),
+) -> tuple[str, bool, list[str]]:
     """The declaration of ``factory``: ``(arguments_json, takes_kwargs, exempt_taken)``.
 
     ``arguments_json`` is a JSON list of argument records (the fields of ``lq.StoreArgumentInfo``);
@@ -83,20 +91,21 @@ def _declare(factory, arguments=None, *, exempt=(), reserved=()):
     except (TypeError, ValueError):
         signature = None
     if arguments is not None:
-        records = [json.loads(a.to_json()) for a in arguments]
-        for record in records:
-            if record["name"] in reserved:
-                raise ValueError(f"'{record['name']}' is reserved and cannot be a factory argument")
+        declared = [json.loads(a.to_json()) for a in arguments]
+        for entry in declared:
+            if entry["name"] in reserved:
+                raise ValueError(f"'{entry['name']}' is reserved and cannot be a factory argument")
         if signature is None:
-            return json.dumps(records), True, [n for n in exempt]
-        takes_kwargs = any(p.kind is p.VAR_KEYWORD for p in signature.parameters.values())
-        taken = [n for n in exempt if n in signature.parameters]
-        return json.dumps(records), takes_kwargs, taken
+            return json.dumps(declared), True, [n for n in exempt]
+        kwargs = any(p.kind is p.VAR_KEYWORD for p in signature.parameters.values())
+        return json.dumps(declared), kwargs, [n for n in exempt if n in signature.parameters]
     if signature is None:
         raise TypeError(
             f"the signature of {factory!r} cannot be inspected; declare its arguments with arguments=[lq.StoreArgumentInfo(...)]"
         )
-    records, takes_kwargs, taken = [], False, []
+    records: list[dict[str, Any]] = []
+    takes_kwargs = False
+    taken: list[str] = []
     for name, parameter in signature.parameters.items():
         if parameter.kind is parameter.VAR_KEYWORD:
             takes_kwargs = True
@@ -110,7 +119,7 @@ def _declare(factory, arguments=None, *, exempt=(), reserved=()):
             continue
         if name in reserved:
             raise ValueError(f"parameter '{name}' is reserved and cannot be a factory argument")
-        record = {"name": name, "label": name, "doc": "", "required": parameter.default is parameter.empty}
+        record: dict[str, Any] = {"name": name, "label": name, "doc": "", "required": parameter.default is parameter.empty}
         argument_type = _type_of_annotation(parameter.annotation)
         if parameter.default is not parameter.empty:
             if not _is_json(parameter.default):

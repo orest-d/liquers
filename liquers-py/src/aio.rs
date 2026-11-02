@@ -44,6 +44,7 @@ use crate::context::Context;
 use crate::environment::PyEnvironment;
 use crate::error::{error_to_pyerr, pyerr_to_error};
 use crate::runtime::runtime;
+use crate::records::Scope;
 use crate::value::{value_to_py, Value};
 
 /// How long a stopping loop waits for its cancelled coroutines before it closes anyway.
@@ -63,9 +64,15 @@ thread_local! {
 /// nested evaluation needing the same loop would never finish, so it raises `RuntimeError`. Under
 /// any other running loop it works, with a `RuntimeWarning` naming the `_async` variant.
 pub(crate) fn check_blocking_call(py: Python<'_>, call: &str) -> PyResult<()> {
+    check_blocking(py, &format!("{call}()"), &format!("`await {call}_async(...)`"))
+}
+
+/// [`check_blocking_call`] for a call whose non-blocking form is not `<call>_async`: `call` is
+/// how the message names the call, `instead` what to use in its place.
+pub(crate) fn check_blocking(py: Python<'_>, call: &str, instead: &str) -> PyResult<()> {
     if ON_LOOP.with(|flag| flag.get()) {
         return Err(PyRuntimeError::new_err(format!(
-            "{call}() would block the liquers event loop it is called on; use `await {call}_async(...)` in an async command"
+            "{call} would block the liquers event loop it is called on; use {instead} in an async command"
         )));
     }
     let running = py.import("asyncio")?.call_method0("_get_running_loop")?;
@@ -74,7 +81,7 @@ pub(crate) fn check_blocking_call(py: Python<'_>, call: &str) -> PyResult<()> {
         py.import("warnings")?.call_method1(
             "warn",
             (
-                format!("{call}() blocks the running event loop until it returns; use `await {call}_async(...)`"),
+                format!("{call} blocks the running event loop until it returns; use {instead}"),
                 warning,
                 2,
             ),
@@ -132,9 +139,10 @@ pub(crate) fn shut_down_while_waiting() -> Error {
 
 /// What an awaitable resolves to, converted to Python on a blocking thread.
 pub(crate) enum ToPy {
-    Value(Result<Arc<Value>, Error>),
-    State(Result<CoreState<Value>, Error>),
-    Asset(Result<(CoreAssetRef<PyEnvironment>, Arc<Shut>), Error>),
+    /// A value, and the scope a record source in it resolves in.
+    Value(Result<(Arc<Value>, Scope), Error>),
+    State(Result<(CoreState<Value>, Scope), Error>),
+    Asset(Result<(CoreAssetRef<PyEnvironment>, Arc<Shut>, Scope), Error>),
     Unit(Result<(), Error>),
     Bytes(Result<Vec<u8>, Error>),
     Metadata(Result<liquers_core::metadata::Metadata, Error>),
@@ -143,6 +151,10 @@ pub(crate) enum ToPy {
     Recipe(Result<Option<liquers_core::recipes::Recipe>, Error>),
     Plan(Result<liquers_core::plan::Plan, Error>),
     ResourceNames(Result<Vec<liquers_core::query::ResourceName>, Error>),
+    /// One step of a record stream: a chunk, or `None` at the end (`StopAsyncIteration`).
+    Next(Result<Option<Arc<dyn liquers_records::RecordView>>, Error>),
+    /// A record view, as `lq.RecordView` whatever its shape (no single-cell rule).
+    View(Result<Arc<dyn liquers_records::RecordView>, Error>),
 }
 
 impl<'py> IntoPyObject<'py> for ToPy {
@@ -152,12 +164,12 @@ impl<'py> IntoPyObject<'py> for ToPy {
 
     fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
         let converted = match self {
-            ToPy::Value(result) => result.and_then(|value| value_to_py(py, value.as_ref())),
+            ToPy::Value(result) => result.and_then(|(value, scope)| value_to_py(py, value.as_ref(), &scope)),
             ToPy::State(result) => result
-                .and_then(|state| crate::asset::State::from_core(py, &state))
+                .and_then(|(state, scope)| crate::asset::State::from_core(py, &state, &scope))
                 .map(Py::into_any),
-            ToPy::Asset(result) => result.and_then(|(asset, shut)| {
-                Py::new(py, crate::asset::AssetRef::new(asset, shut))
+            ToPy::Asset(result) => result.and_then(|(asset, shut, scope)| {
+                Py::new(py, crate::asset::AssetRef::new(asset, shut, scope))
                     .map(Py::into_any)
                     .map_err(|e| pyerr_to_error(py, &e))
             }),
@@ -182,6 +194,18 @@ impl<'py> IntoPyObject<'py> for ToPy {
             }),
             ToPy::Plan(result) => result.and_then(|plan| {
                 Py::new(py, crate::plan::Plan(plan))
+                    .map(Py::into_any)
+                    .map_err(|e| pyerr_to_error(py, &e))
+            }),
+            ToPy::Next(result) => match result {
+                Ok(Some(view)) => Py::new(py, crate::records::view::RecordView::new(view))
+                    .map(Py::into_any)
+                    .map_err(|e| pyerr_to_error(py, &e)),
+                Ok(None) => return Err(pyo3::exceptions::PyStopAsyncIteration::new_err(())),
+                Err(e) => Err(e),
+            },
+            ToPy::View(result) => result.and_then(|view| {
+                Py::new(py, crate::records::view::RecordView::new(view))
                     .map(Py::into_any)
                     .map_err(|e| pyerr_to_error(py, &e))
             }),

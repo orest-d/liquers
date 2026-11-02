@@ -318,13 +318,15 @@ pub(crate) fn parse_scalar(text: &str, field_type: FieldType) -> Result<FieldVal
     }
 }
 
-/// `pub(crate)`: [`super::shapes`] reuses this to turn an `Id` value into a JSON object key —
+/// The canonical text of one cell: `None` for a null, otherwise what the CSV writer writes.
+/// Public so a binding that casts a value to `Text` (liquers-py's record builder) writes the same
+/// text the CSV writer would. [`super::shapes`] reuses this to turn an `Id` value into a JSON object key —
 /// `columns`/`index` keys are always strings (phase2-architecture.md §"JSON shapes are
 /// conversions") — and `crate::sources::ChunkOrigin::locator_query` reuses it for the same reason,
 /// one level up: a row's `Id` becomes the trailing string parameter of a locator query. One
 /// canonical `FieldValue -> String` conversion, matching every variant, rather than a second one
 /// duplicated at the call site.
-pub(crate) fn format_value(value: &FieldValue) -> Result<Option<String>, Error> {
+pub fn format_field_value(value: &FieldValue) -> Result<Option<String>, Error> {
     match value {
         FieldValue::Null => Ok(None),
         FieldValue::Bool(v) => Ok(Some(if *v { "true".to_string() } else { "false".to_string() })),
@@ -681,7 +683,7 @@ pub(crate) fn write_csv(
         let mut cells = Vec::with_capacity(schema.fields.len());
         for col in 0..schema.fields.len() {
             let value = view.value(row, col)?;
-            cells.push(render_cell(format_value(&value)?, separator));
+            cells.push(render_cell(format_field_value(&value)?, separator));
         }
         out.push_str(&cells.join(&sep_str));
         out.push('\n');

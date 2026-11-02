@@ -71,7 +71,7 @@ impl Store {
         F: FnOnce(Arc<dyn AsyncStore>) -> Fut,
         Fut: std::future::Future<Output = Result<T, Error>> + Send,
     {
-        crate::aio::check_blocking_call(py, "a Store method")?;
+        crate::aio::check_blocking(py, "a Store method", "its `_async` variant (`await store.get_async(key)`)")?;
         let result = (|| -> Result<T, PyFailure> {
             let (store, shut) = self.resolve(py)?;
             block_on(py, &shut, f(store))

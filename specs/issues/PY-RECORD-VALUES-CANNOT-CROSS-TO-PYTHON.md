@@ -2,11 +2,11 @@
 id: PY-RECORD-VALUES-CANNOT-CROSS-TO-PYTHON
 kind: feature
 title: A record view or source evaluated from Python raises ConversionError instead of reaching Python as a table
-status: draft
+status: closed
 priority: P3
 complexity: M
 area: [py, records]
-design: py-record-values-to-python
+design: liquers-py-records
 created: 2026-10-20
 github:
 ---
@@ -57,3 +57,16 @@ its transport without changing the Python-facing type.
 Found 2026-10-20 during the bulk-design pass while assessing `RECORDS-ARROW-C-DATA-EXPORT-NOT-BUILT`,
 whose "no `liquers-py` path at all" is in fact two gaps: no zero-copy export, and no conversion of
 any kind.
+
+Merged into `liquers-py-records` on 2026-11-01 (Orest's decision on its Phase 1 question 1): a
+view crosses as an `lq.RecordView` wrapper with Arrow exits; `py-record-values-to-python` is
+superseded.
+
+## Resolution
+
+Closed 2026-11-01 by `design/liquers-py-records/` (PR #240). A record view reaches Python as
+`lq.RecordView` (a single cell as its scalar) and goes back as the same `Arc`; columns are lent
+through the read-only buffer protocol; views are built from Python data with `fields=` and cross to
+and from pyarrow, pandas and polars. Evidence: `liquers-py/tests/test_RECORDS_views.py`,
+`_columns.py`, `_build.py`, `_arrow.py` (`RECORDS01`-`06`, `10`). Contract:
+`reference/PYTHON_INTEGRATION.md` §11.

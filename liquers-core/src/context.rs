@@ -165,6 +165,16 @@ pub trait Environment:
     /// Asset manager implementation and its queued or inline execution model.
     type AssetManager: AssetManager<Self>;
 
+    /// The Liquers version this environment was built with: [`crate::VERSION`], the workspace
+    /// version (`[workspace.package] version`), the same for every Liquers crate.
+    ///
+    /// Provided so every environment reports it without each implementor repeating it; not meant
+    /// to be overridden. Language integrations expose it (Python `Environment.liquers_version`,
+    /// JavaScript `Environment.liquersVersion`).
+    fn liquers_version(&self) -> &'static str {
+        crate::VERSION
+    }
+
     /// Returns the registry used for planning and command metadata lookup.
     fn get_command_metadata_registry(&self) -> &CommandMetadataRegistry;
 
@@ -1846,6 +1856,13 @@ mod tests {
     use crate::value::Value;
 
     type TestEnvironment = ImmediateEnvironment<Value>;
+
+    #[test]
+    fn default_environment_reports_liquers_version() {
+        let env = SimpleEnvironment::<Value>::new();
+        assert_eq!(env.liquers_version(), crate::VERSION);
+        assert_eq!(TestEnvironment::new().liquers_version(), env!("CARGO_PKG_VERSION"));
+    }
 
     fn add_stale_command_version(
         registry: &mut CommandMetadataRegistry,

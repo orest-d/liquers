@@ -19,6 +19,12 @@ complete design `record-streams` (§"Arrow interoperability"), which is frozen a
 
 Two PRs, one contract: Part A, the export and import in `liquers-records` behind the feature
 `cdata`. Part B, the `liquers-py` transport to `pyarrow`, after `py-record-values-to-python`.
+
+**Note, 2026-11-01:** `py-record-values-to-python` is superseded by `liquers-py-records`, where a
+view reaches Python as an `lq.RecordView` wrapper and pyarrow is reached through `.to_arrow()`.
+Part B, its AC-7 and AC-8 now target `.to_arrow()` instead of `ext_to_py`, and its question 3 /
+AC-1 must carry origins (`liquers.origins`, `liquers-py-records` question 8). The phases below
+still name the old design and are revised when this design is resumed.
 Leading decision: whether `liquers-records` may hold this `unsafe` module (Phase 1, question 1).
 
 ## Phases

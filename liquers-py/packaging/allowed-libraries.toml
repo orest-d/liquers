@@ -1,0 +1,57 @@
+# The system libraries a liquers-py wheel's native extension may link, per platform. Checked by
+# scripts/check-wheel.py in the release workflow's `wheels` job (liquers-py-package AC-7). Anything
+# else, an OpenSSL library above all, fails the job: TLS comes from rustls with aws-lc-rs and ring,
+# compiled in.
+#
+# Names are matched case-insensitively. A trailing `*` matches any suffix.
+
+[linux]
+# The manylinux_2_28 policy's own allow-list is read from `auditwheel show`; these are the libraries
+# that policy permits and the extension is known to use.
+libraries = [
+    "libc.so.6",
+    "libm.so.6",
+    "libdl.so.2",
+    "libpthread.so.0",
+    "librt.so.1",
+    "libgcc_s.so.1",
+    "ld-linux-x86-64.so.2",
+    "ld-linux-aarch64.so.1",
+    "linux-vdso.so.1",
+]
+
+[macos]
+# Anything under these directories is part of the operating system.
+prefixes = ["/usr/lib/", "/System/Library/"]
+
+[windows]
+libraries = [
+    "kernel32.dll",
+    "advapi32.dll",
+    "bcrypt.dll",
+    "bcryptprimitives.dll",
+    "crypt32.dll",
+    "ntdll.dll",
+    "ole32.dll",
+    "combase.dll",
+    "oleaut32.dll",
+    "secur32.dll",
+    "shell32.dll",
+    "user32.dll",
+    "userenv.dll",
+    "ws2_32.dll",
+    "ncrypt.dll",
+    "iphlpapi.dll",
+    "psapi.dll",
+    "powrprof.dll",
+    "pdh.dll",
+    "netapi32.dll",
+    "dbghelp.dll",
+    "api-ms-win-*",
+    "vcruntime140.dll",
+    "vcruntime140_1.dll",
+    "msvcp140.dll",
+    "ucrtbase.dll",
+    "python3.dll",
+    "python3*.dll",
+]

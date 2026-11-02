@@ -20,6 +20,8 @@ pub mod html;
 pub mod infer;
 #[cfg(feature = "ipc")]
 mod ipc;
+#[cfg(feature = "ipc")]
+pub use ipc::LIQUERS_ORIGINS_KEY;
 pub mod markdown;
 pub mod ndjson;
 #[cfg(feature = "parquet")]

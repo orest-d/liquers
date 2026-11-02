@@ -6,6 +6,7 @@ import json
 import pytest
 
 import liquers as lq
+from conftest import handle_baseline
 from liquers._factories import _declare
 
 
@@ -152,7 +153,7 @@ def test_STORE_late_registration_and_release():
     from store_fixtures import Notes
 
     assert hasattr(lq.Environment, "live_handle_count"), "build with --features debug-handles"
-    baseline = lq.Environment.live_handle_count()
+    baseline = handle_baseline()
     env = lq.Environment(config={"store": {"stores": [
         {"type": "notes", "prefix": "n"}, {"type": "memory", "prefix": "scratch"}]}})
     with pytest.raises(lq.LiquersError):

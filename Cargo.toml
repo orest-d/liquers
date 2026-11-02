@@ -14,6 +14,11 @@ default-members = ["liquers-core", "liquers-py", "liquers-store", "liquers-axum"
 # raises the floor. See specs/design/build-sysinfo-rustc-compatibility/.
 [workspace.package]
 rust-version = "1.95"
+# One version and one license for every member (liquers-py-package). `liquers_core::VERSION` reads
+# the version at compile time, and every environment reports it (`Environment::liquers_version`).
+# The release workflow checks a `liquers-py-v*` tag against it (scripts/check-workspace-metadata.py).
+version = "0.1.0"
+license = "AGPL-3.0-or-later"
 
 # Debug info dominates the size of `target/` and is the difference between a test run that fits in
 # a constrained environment and one that does not: measured on `cargo test -p liquers-lib --lib
@@ -27,3 +32,13 @@ debug = "line-tables-only"
 
 [profile.test]
 debug = 0
+
+# The profile the release wheels are built with (`maturin build --profile wheel`, in
+# .github/workflows/liquers-py-release.yml). Measured on 2026-11-01: the Linux x86_64 abi3 wheel is
+# 30.9 MB (85.7 MB library), in about 18 minutes on four cores. Not used by any development build;
+# see specs/design/liquers-py-package/phase2-architecture.md.
+[profile.wheel]
+inherits = "release"
+strip = true
+lto = "thin"
+codegen-units = 1

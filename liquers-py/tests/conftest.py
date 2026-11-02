@@ -8,6 +8,10 @@ import pytest
 
 import liquers as lq
 
+# The installed-wheel tests (liquers-py-package) have their own conftest and run only against a
+# wheel in a fresh venv, from the release workflow; the development loop does not collect them.
+collect_ignore = ["package"]
+
 
 def na(reason):
     """A feature marked NA keeps its tests present, skipped with the reason the design records."""
@@ -107,6 +111,19 @@ def env():
     register_fixture_commands(e)
     yield e
     e.shutdown()
+
+
+def handle_baseline():
+    """The live handle count to compare against, after collecting garbage.
+
+    Environments of earlier tests left in reference cycles release their handles when the cycle
+    collector runs. Collecting first keeps that from happening during the test, where it would
+    take the count under the baseline.
+    """
+    import gc
+
+    gc.collect()
+    return lq.Environment.live_handle_count()
 
 
 def run_async(main, timeout=30):

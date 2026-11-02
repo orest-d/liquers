@@ -1,10 +1,10 @@
 [package]
 name = "liquers-markdown"
-version = "0.1.0"
+version.workspace = true
 edition = "2021"
 rust-version.workspace = true
 description = "A lossless, query-aware Markdown block parser for Liquers"
-license = "MIT"
+license.workspace = true
 
 # Depends on liquers-core only and is pure parsing over an in-memory string, so it builds for
 # wasm32 as it does natively (specs/design/markdown-navigation/phase2-architecture.md).

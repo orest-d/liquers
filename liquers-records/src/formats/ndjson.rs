@@ -27,7 +27,7 @@ use crate::schema::{FieldSchema, FieldType, RecordSchema};
 
 // ---------------------------------------------------------------------------------------------
 // Scalar <-> JSON conversions (shared by the declared and the post-inference readers, and by the
-// writer — the JSON analogue of csv.rs's `parse_scalar`/`format_value`)
+// writer — the JSON analogue of csv.rs's `parse_scalar`/`format_field_value`)
 // ---------------------------------------------------------------------------------------------
 
 /// `true` only for `Value::Null` — named so a call site reads as a question, not a `matches!`.

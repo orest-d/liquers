@@ -1,0 +1,352 @@
+name: liquers-py-release
+
+# Builds, checks and tests the liquers-py sdist and fifteen wheels (five platforms x cp314-abi3,
+# cp314t, cp315t), and on a `liquers-py-v*` tag publishes them: to a GitHub release and TestPyPI,
+# then to PyPI once the protected `pypi` environment is approved. A manual run or a pull request
+# that changes this file builds and tests everything and publishes nothing.
+# Design: specs/design/liquers-py-package/phase2-architecture.md.
+#
+# Before the first tag (Orest, outside the repository): register this workflow as a trusted
+# publisher (environments `testpypi` and `pypi`) on TestPyPI and on PyPI, and give the `pypi`
+# environment a required reviewer.
+
+on:
+  push:
+    tags: ['liquers-py-v*']
+  pull_request:
+    paths:
+      - '.github/workflows/liquers-py-release.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_INCREMENTAL: 0
+  CARGO_TERM_COLOR: always
+
+jobs:
+  lock:
+    name: lock and check the workspace
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install pyyaml
+      - name: Resolve one Cargo.lock for every artifact
+        run: cargo generate-lockfile
+      - name: Check version, license and tag
+        id: version
+        run: |
+          tag=""
+          if [[ "$GITHUB_REF" == refs/tags/liquers-py-v* ]]; then tag="$GITHUB_REF_NAME"; fi
+          version=$(python scripts/check-workspace-metadata.py ${tag:+--tag "$tag"} --print-version)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Script tests
+        run: |
+          python -m unittest -v scripts/test_check_workspace_metadata.py \
+            scripts/test_check_wheel.py scripts/test_release_workflow.py
+      - name: liquers-template is packaged without the MIT spec files
+        run: |
+          listed=$(cargo package -p liquers-template --list --allow-dirty)
+          if grep -E '^tests/(spec/|spec\.rs|node\.rs)' <<<"$listed"; then exit 1; fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cargo-lock
+          path: Cargo.lock
+
+  notices:
+    name: third-party notices
+    needs: lock
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: cargo-lock
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-about
+      - name: Generate the notices for every wheel target
+        run: |
+          cargo about generate --locked -m liquers-py/Cargo.toml -c liquers-py/about.toml \
+            -o liquers-py/python/liquers/THIRD-PARTY-NOTICES.html liquers-py/about.hbs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: notices
+          path: liquers-py/python/liquers/THIRD-PARTY-NOTICES.html
+
+  sdist:
+    needs: [lock, notices]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: cargo-lock
+      - uses: actions/download-artifact@v4
+        with:
+          name: notices
+          path: liquers-py/python/liquers
+      - uses: PyO3/maturin-action@v1
+        with:
+          command: sdist
+          args: --manifest-path liquers-py/Cargo.toml --out dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-sdist
+          path: dist/*.tar.gz
+
+  wheels:
+    name: wheel ${{ matrix.platform }} ${{ matrix.build }}
+    needs: [lock, notices]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [linux-x86_64, linux-aarch64, macos-arm64, windows-x86_64, windows-arm64]
+        build: [abi3, cp314t, cp315t]
+        include:
+          - { platform: linux-x86_64, runner: ubuntu-24.04, target: x86_64 }
+          - { platform: linux-aarch64, runner: ubuntu-24.04-arm, target: aarch64 }
+          - { platform: macos-arm64, runner: macos-15, target: aarch64-apple-darwin }
+          - { platform: windows-x86_64, runner: windows-2025, target: x86_64-pc-windows-msvc }
+          - { platform: windows-arm64, runner: windows-11-arm, target: aarch64-pc-windows-msvc }
+          - { build: abi3, python: '3.14', features: '--features abi3' }
+          - { build: cp314t, python: '3.14t', features: '' }
+          - { build: cp315t, python: '3.15t', features: '' }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: cargo-lock
+      - uses: actions/download-artifact@v4
+        with:
+          name: notices
+          path: liquers-py/python/liquers
+      - uses: actions/setup-python@v5
+        if: ${{ !startsWith(matrix.platform, 'linux') }}
+        id: py
+        with:
+          python-version: ${{ matrix.python }}
+      - name: LLVM for aws-lc-sys and ring (Windows arm64)
+        if: matrix.platform == 'windows-arm64'
+        shell: pwsh
+        run: |
+          if (-not (Get-Command clang-cl -ErrorAction SilentlyContinue)) { choco install llvm -y }
+          "C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_PATH -Append
+          "CC=clang-cl" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "CXX=clang-cl" | Out-File -FilePath $env:GITHUB_ENV -Append
+      - name: Build (manylinux container)
+        if: startsWith(matrix.platform, 'linux')
+        uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.target }}
+          manylinux: '2_28'
+          docker-options: -e AWS_LC_SYS_USE_SYSTEM=0
+          args: >-
+            --manifest-path liquers-py/Cargo.toml --profile wheel --locked --out dist
+            --auditwheel check -i python${{ matrix.python }} ${{ matrix.features }}
+      - name: Build
+        if: ${{ !startsWith(matrix.platform, 'linux') }}
+        uses: PyO3/maturin-action@v1
+        env:
+          AWS_LC_SYS_USE_SYSTEM: '0'
+        with:
+          target: ${{ matrix.target }}
+          args: >-
+            --manifest-path liquers-py/Cargo.toml --profile wheel --locked --out dist
+            -i ${{ steps.py.outputs.python-path }} ${{ matrix.features }}
+      - name: Check linked libraries and size (Linux)
+        if: startsWith(matrix.platform, 'linux')
+        run: |
+          python3 -m pip install --user auditwheel
+          for wheel in dist/*.whl; do
+            python3 -m auditwheel show "$wheel" > deps.txt
+            cat deps.txt
+            python3 scripts/check-wheel.py "$wheel" --deps deps.txt
+          done
+      - name: Check linked libraries and size (macOS)
+        if: startsWith(matrix.platform, 'macos')
+        run: |
+          python -m pip install delocate
+          for wheel in dist/*.whl; do
+            delocate-listdeps --all "$wheel" > deps.txt
+            cat deps.txt
+            python scripts/check-wheel.py "$wheel" --deps deps.txt
+          done
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: startsWith(matrix.platform, 'windows')
+      - name: Check linked libraries and size (Windows)
+        if: startsWith(matrix.platform, 'windows')
+        shell: bash
+        run: |
+          for wheel in dist/*.whl; do
+            rm -rf unpacked && mkdir unpacked && python -m zipfile -e "$wheel" unpacked
+            for pyd in unpacked/liquers/*.pyd; do dumpbin //dependents "$pyd"; done > deps.txt
+            cat deps.txt
+            python scripts/check-wheel.py "$wheel" --deps deps.txt
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.platform }}-${{ matrix.build }}
+          path: dist/*.whl
+
+  dist:
+    name: check the release set
+    needs: [sdist, wheels]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: dist-*
+          path: dist
+          merge-multiple: true
+      - run: ls -la dist && python3 scripts/check-wheel.py --dist dist
+
+  test:
+    name: test ${{ matrix.platform }} ${{ matrix.build }}
+    needs: [lock, wheels]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [linux-x86_64, linux-aarch64, macos-arm64, windows-x86_64, windows-arm64]
+        build: [abi3, cp314t, cp315t]
+        include:
+          - { platform: linux-x86_64, runner: ubuntu-24.04 }
+          - { platform: linux-aarch64, runner: ubuntu-24.04-arm }
+          - { platform: macos-arm64, runner: macos-15 }
+          - { platform: windows-x86_64, runner: windows-2025 }
+          - { platform: windows-arm64, runner: windows-11-arm }
+          - { build: abi3, python: '3.14' }
+          - { build: cp314t, python: '3.14t' }
+          - { build: cp315t, python: '3.15t' }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist-${{ matrix.platform }}-${{ matrix.build }}
+          path: dist
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install the wheel into a fresh venv and run the package tests
+        shell: bash
+        env:
+          LIQUERS_PY_WHEEL_TEST: '1'
+          RELEASE_VERSION: ${{ needs.lock.outputs.version }}
+        run: |
+          python -m venv "$RUNNER_TEMP/v"
+          if [[ "$RUNNER_OS" == "Windows" ]]; then bin="$RUNNER_TEMP/v/Scripts"; else bin="$RUNNER_TEMP/v/bin"; fi
+          wheel=$(ls dist/*.whl)
+          "$bin/python" -m pip install "$wheel" pytest packaging
+          cd "$RUNNER_TEMP"
+          LIQUERS_PY_WHEEL="$GITHUB_WORKSPACE/$wheel" "$bin/python" -m pytest -v \
+            --rootdir "$GITHUB_WORKSPACE/liquers-py/tests/package" \
+            --confcutdir "$GITHUB_WORKSPACE/liquers-py/tests/package" -p no:cacheprovider \
+            "$GITHUB_WORKSPACE/liquers-py/tests/package"
+
+  test-sdist:
+    name: test the sdist
+    needs: [lock, sdist]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist-sdist
+          path: dist
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - name: Install from the sdist and import it
+        env:
+          LIQUERS_PY_WHEEL_TEST: '1'
+          RELEASE_VERSION: ${{ needs.lock.outputs.version }}
+        run: |
+          python -m venv "$RUNNER_TEMP/v"
+          "$RUNNER_TEMP/v/bin/python" -m pip install dist/*.tar.gz pytest packaging
+          cd "$RUNNER_TEMP"
+          "$RUNNER_TEMP/v/bin/python" -m pytest -v -k test_import_and_version \
+            --rootdir "$GITHUB_WORKSPACE/liquers-py/tests/package" \
+            --confcutdir "$GITHUB_WORKSPACE/liquers-py/tests/package" -p no:cacheprovider \
+            "$GITHUB_WORKSPACE/liquers-py/tests/package"
+
+  github-release:
+    if: startsWith(github.ref, 'refs/tags/liquers-py-v')
+    needs: [dist, test, test-sdist]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: dist-*
+          path: dist
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+
+  testpypi:
+    if: startsWith(github.ref, 'refs/tags/liquers-py-v')
+    needs: [lock, dist, test, test-sdist]
+    runs-on: ubuntu-24.04
+    environment: testpypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: dist-*
+          path: dist
+          merge-multiple: true
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          skip-existing: true
+      - name: The files on TestPyPI are the ones built here
+        env:
+          VERSION: ${{ needs.lock.outputs.version }}
+        run: |
+          sleep 60
+          curl -sSf "https://test.pypi.org/pypi/liquers-py/$(python3 -c "
+          import os; v=os.environ['VERSION']
+          for a,b in (('-alpha.','a'),('-beta.','b'),('-rc.','rc')): v=v.replace(a,b)
+          print(v)")/json" > release.json
+          python3 - <<'PY'
+          import hashlib, json, pathlib, sys
+          published = {f["filename"]: f["digests"]["sha256"] for f in json.load(open("release.json"))["urls"]}
+          built = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in pathlib.Path("dist").iterdir()}
+          if published != built:
+              print("TestPyPI files differ from dist/:", sorted(set(published) ^ set(built)), file=sys.stderr)
+              sys.exit(1)
+          PY
+
+  pypi:
+    if: startsWith(github.ref, 'refs/tags/liquers-py-v')
+    needs: [testpypi]
+    runs-on: ubuntu-24.04
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: dist-*
+          path: dist
+          merge-multiple: true
+      - uses: pypa/gh-action-pypi-publish@release/v1

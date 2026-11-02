@@ -196,6 +196,23 @@ def test_ENVIRON_recipes_unknown_value_is_refused(tmp_path):
     environment.shutdown()
 
 
+def test_ENVIRON_liquers_version_is_core_version():
+    environment = lq.Environment()
+    assert environment.liquers_version == lq.Environment().liquers_version
+    assert isinstance(environment.liquers_version, str)
+    # `__version__` is the PEP 440 form of the same version; for a release they are equal.
+    if "-" not in environment.liquers_version:
+        assert lq.__version__ == environment.liquers_version
+    environment.shutdown()
+
+
+def test_ENVIRON_liquers_version_after_shutdown():
+    environment = lq.Environment()
+    environment.shutdown()
+    # Every other use raises after shutdown; the version is a constant and does not.
+    assert environment.liquers_version == lq.default_environment().liquers_version
+
+
 def test_default_namespaces_from_config():
     """`default_namespaces:` in the configuration makes an unqualified action resolve there."""
     environment = lq.Environment(config={"default_namespaces": ["nsx"]})

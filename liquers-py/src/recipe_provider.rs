@@ -378,7 +378,7 @@ impl RecipeProviders {
         F: FnOnce(Chain, EnvRef<PyEnvironment>) -> Fut,
         Fut: std::future::Future<Output = Result<T, Error>> + Send,
     {
-        crate::aio::check_blocking_call(py, "a RecipeProviders method")?;
+        crate::aio::check_blocking(py, "a RecipeProviders method", "its `_async` variant")?;
         let result = (|| -> Result<T, PyFailure> {
             let (chain, envref, shut) = self.resolve(py)?;
             block_on(py, &shut, f(chain, envref))

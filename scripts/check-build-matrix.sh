@@ -278,6 +278,9 @@ check liquers-store "--features store-conformance --lib --tests"
 # bindings are the code most exposed to a dependency upgrade. Native only: there is no wasm32 Python
 # target. The check needs a Python 3 interpreter that PyO3 supports, found on `PATH`.
 check liquers-py "--lib --tests"
+# The stable-ABI build the release wheels use (`cp314-abi3`, liquers-py-package): the limited API
+# refuses some PyO3 calls the full build allows, so it is checked on its own.
+check liquers-py "--features abi3 --lib"
 
 if [ ${#retried[@]} -ne 0 ]; then
   echo
