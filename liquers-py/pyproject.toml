@@ -1,9 +1,19 @@
 [build-system]
-requires = ["maturin>=1.5,<2.0"]
+# 1.9 or newer: PEP 639 license metadata (`license` as an SPDX expression, `license-files`).
+requires = ["maturin>=1.9,<2.0"]
 build-backend = "maturin"
 
 [project]
 name = "liquers-py"
+description = "Liquers: query-driven data pipelines with cached, composable assets, from Python"
+readme = "README.md"
+# The same license as every Liquers crate (`[workspace.package] license`). PEP 639 paths cannot
+# leave the project, so `LICENSE` here is a copy of the repository's, kept equal by
+# scripts/check-workspace-metadata.py.
+license = "AGPL-3.0-or-later"
+license-files = ["LICENSE"]
+authors = [{ name = "Orest Dubay" }]
+keywords = ["data", "pipeline", "query", "cache", "polars", "records"]
 # CPython 3.10 to 3.15 and PyPy 3.11 or newer (PyO3 0.30 reaches down to 3.9, which is past its
 # end of life and not supported here); see README.md
 requires-python = ">=3.10,<3.16"
@@ -12,8 +22,36 @@ classifiers = [
     "Programming Language :: Python :: Implementation :: CPython",
     "Programming Language :: Python :: Implementation :: PyPy",
     "Programming Language :: Python :: Free Threading :: 2 - Beta",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: 3.15",
 ]
 dynamic = ["version"]
+
+[project.urls]
+Homepage = "https://github.com/orest-d/liquers"
+Source = "https://github.com/orest-d/liquers"
+Issues = "https://github.com/orest-d/liquers/issues"
+
+# The Python packages each optional feature needs; `liquers/_extras.py` (`EXTRAS`, `lq.require`)
+# is the same table and must change with it. A package with no wheel for a platform is left out
+# by a marker, so an install never builds a third-party package from source (checked on PyPI
+# 2026-11-01). polars has no wheel for a free-threaded interpreter, which no marker can express;
+# `lq.require("polars")` reports it as not available there.
+[project.optional-dependencies]
+polars = ["polars>=1.30"]
+images = ["pillow>=11"]
+arrow = ['pyarrow>=20; sys_platform != "win32" or platform_machine != "ARM64"']
+pandas = [
+    'pyarrow>=20; sys_platform != "win32" or platform_machine != "ARM64"',
+    'pandas>=2.2; sys_platform != "win32" or platform_machine != "ARM64"',
+]
+all = [
+    "polars>=1.30",
+    "pillow>=11",
+    'pyarrow>=20; sys_platform != "win32" or platform_machine != "ARM64"',
+    'pandas>=2.2; sys_platform != "win32" or platform_machine != "ARM64"',
+]
 
 [tool.maturin]
 # Mixed Rust/Python project: the pure-Python package `liquers` lives under `python/`, and the
@@ -21,3 +59,5 @@ dynamic = ["version"]
 python-source = "python"
 module-name = "liquers._native"
 features = ["pyo3/extension-module"]
+# No `profile` here: `maturin develop` would read it too. The release jobs pass `--profile wheel`
+# (the workspace's stripped, thin-LTO profile); an install from the sdist builds with `release`.

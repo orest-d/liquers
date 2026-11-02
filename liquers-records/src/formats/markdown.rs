@@ -437,7 +437,7 @@ pub(crate) fn write_markdown(
                 | FieldValue::Date(_)
                 | FieldValue::Timestamp(_)
                 | FieldValue::Vector(_) => {
-                    let cell_text = super::csv::format_value(&value)?.unwrap_or_default();
+                    let cell_text = super::csv::format_field_value(&value)?.unwrap_or_default();
                     cells.push(escape_markdown_cell(&cell_text));
                 }
             }

@@ -2,9 +2,76 @@
 
 Python bindings for Liquers, built with [PyO3](https://pyo3.rs) and [maturin](https://www.maturin.rs).
 
-How to use it is [`specs/guides/PYTHON_GUIDE.md`](../specs/guides/PYTHON_GUIDE.md): configuring an
-environment, registering commands, running queries, values and errors. How it is built on the Rust
-crates is [`specs/reference/PYTHON_INTEGRATION.md`](../specs/reference/PYTHON_INTEGRATION.md).
+How to use it is [`specs/guides/PYTHON_GUIDE.md`](https://github.com/orest-d/liquers/blob/main/specs/guides/PYTHON_GUIDE.md):
+configuring an environment, registering commands, running queries, values and errors. How it is
+built on the Rust crates is
+[`specs/reference/PYTHON_INTEGRATION.md`](https://github.com/orest-d/liquers/blob/main/specs/reference/PYTHON_INTEGRATION.md).
+
+Licensed under the GNU Affero General Public License, version 3 or (at your option) any later
+version (`AGPL-3.0-or-later`), like every Liquers crate. The wheel also carries
+`THIRD-PARTY-NOTICES.html`, the licenses of the Rust crates compiled into it.
+
+## Installing
+
+```bash
+pip install liquers-py                 # the package, imported as `liquers`
+pip install 'liquers-py[all]'          # with every optional Python package
+```
+
+No release is on PyPI yet (`PY-NO-PUBLISHED-WHEELS`); until then build from source as in
+"Building and testing" below. From the first release (`liquers-py-v0.1.0`) on:
+
+**Wheels** are built for CPython 3.14 and later, on Linux x86_64 and aarch64 (manylinux_2_28),
+macOS arm64, and Windows x86_64 and arm64: one `cp314-abi3` wheel for every GIL-enabled CPython
+from 3.14, and `cp314t` / `cp315t` wheels for the free-threaded builds. Everything else installs
+from the source distribution, which needs a Rust toolchain (1.95 or newer) and a C compiler: CPython
+3.10-3.13, PyPy 3.11+, macOS x86_64 and musllinux. `pip install --only-binary :all: liquers-py`
+refuses that fallback.
+
+**Extras** install the Python packages an optional feature needs. `lq.require(extra)` imports them
+or says what is missing:
+
+| Extra | Installs | Needed for |
+|---|---|---|
+| `polars` | polars | DataFrames as `polars.DataFrame` |
+| `images` | pillow | images as PIL images |
+| `arrow` | pyarrow | `RecordView.to_arrow()` / `from_arrow()` |
+| `pandas` | pyarrow, pandas | `RecordView.to_pandas()` / `from_pandas()` |
+| `all` | all of the above | |
+
+pyarrow has no wheel for Windows arm64, so `arrow` and `pandas` are left out there, and polars has
+none for a free-threaded interpreter; `lq.require` reports either as not available on that
+platform.
+
+**Quick start.**
+
+<!-- quickstart -->
+```python
+import liquers as lq
+
+@lq.first_command
+def hello() -> str:
+    return "world"
+
+@lq.command
+def greet(text: str, greeting: str = "Hello") -> str:
+    return f"{greeting}, {text}!"
+
+print(lq.evaluate("hello/greet-Hi"))
+```
+<!-- /quickstart -->
+
+prints
+
+<!-- quickstart-output -->
+```text
+Hi, world!
+```
+<!-- /quickstart-output -->
+
+`lq.__version__` is the Liquers version (PEP 440 form), the same as `Environment().liquers_version`.
+
+## Using it
 
 The distribution is named `liquers-py`; the package it installs is imported as `liquers`:
 
@@ -73,7 +140,11 @@ environment, registering commands included, raises `lq.GeneralError`.
 This is a mixed Rust/Python project. The Rust crate (`src/`) builds the native extension
 `liquers._native`; the Python package around it is `python/liquers/`, whose `__init__.py`
 re-exports every class and function of the extension by name. A class registered in
-`src/lib.rs` is not reachable as `liquers.<Name>` until it is added to `__init__.py` as well.
+`src/lib.rs` is not reachable as `liquers.<Name>` until it is added to `__init__.py` as well, and
+it must be declared in `__init__.pyi` (and re-exported from `_native.pyi`): the type declarations
+are written by hand, and `tests/test_STUBS_declarations.py` fails on a name, method or parameter
+that the runtime has and the declarations do not, or the other way round. `py.typed` marks the
+package as typed.
 
 ## Supported Python
 
@@ -100,8 +171,9 @@ bash scripts/test-liquers-py.sh
 
 run from the repository root, does the whole loop: it creates (or reuses) a virtual environment at
 `target/liquers-py-venv-<interpreter>` (one per interpreter, so `PYTHON=python3.13 bash
-scripts/test-liquers-py.sh` really tests 3.13), installs `maturin`, `pytest`, `polars` and `pillow`
-into it, runs `maturin develop --features debug-handles` to build and install the `liquers` package,
+scripts/test-liquers-py.sh` really tests 3.13), installs `maturin`, `pytest`, `polars`, `pillow`,
+`pyarrow` and `pandas` into it (wheels only; a test needing a missing package skips), and on
+CPython 3.14 with the GIL the pinned `mypy` and `pyright` for the `STUBS` checks, runs `maturin develop --features debug-handles` to build and install the `liquers` package,
 runs `pytest liquers-py/tests`, and then runs the crate's Rust
 unit tests. Extra arguments are passed to pytest (`bash scripts/test-liquers-py.sh -k parse`).
 `cargo clean` removes the environment along with the rest of `target/`; the next run recreates it.
@@ -120,6 +192,25 @@ Python symbols for the loading interpreter to supply, so a test binary built wit
 Python test modules are named for the feature they test, `test_<FEATURE>_<topic>.py`
 (`specs/guides/LANGUAGE-INTEGRATION_GUIDE.md` §3). The one exception is `test_GUIDE_examples.py`,
 which runs every example in `specs/guides/PYTHON_GUIDE.md`.
+
+## Releasing
+
+`.github/workflows/liquers-py-release.yml` builds the sdist and fifteen wheels (five platforms;
+`cp314-abi3`, `cp314t` and `cp315t` each), tests every wheel in a fresh venv on its own runner, and
+checks what it links. To release:
+
+1. Raise `version` in the workspace `Cargo.toml` (`[workspace.package]`); every crate inherits it.
+2. Push the tag `liquers-py-v<version>`. The `lock` job refuses a tag that differs from the
+   workspace version.
+3. The workflow publishes to the GitHub release and to TestPyPI, and checks that TestPyPI holds the
+   files it built.
+4. The `pypi` job waits for a reviewer of the protected `pypi` environment. Approving it publishes
+   to PyPI, which cannot be undone: a release can be yanked, never replaced.
+
+Before the first tag, register the trusted publisher (`orest-d/liquers`, `liquers-py-release.yml`,
+environments `testpypi` and `pypi`) on TestPyPI and PyPI, and give the `pypi` environment a
+required reviewer. A manual run of the workflow builds and tests everything and publishes nothing.
+`specs/reference/PYTHON_INTEGRATION.md` §12 describes the pipeline.
 
 ## Conformance
 
@@ -140,7 +231,10 @@ test is named for its ID, in `tests/test_<FEATURE>_*.py`.
 | `ASYNCCMD` | Optional | COMPLETE | All commands share one job queue (`CORE-ONE-JOB-QUEUE-FOR-ALL-COMMANDS`); `async_loops` sets the number of event loops | `test_ASYNCCMD01`–`06` |
 | `STORE` | Optional | COMPLETE | Directions 1-3. `STORE18` is `NA`: Python cannot define `store_config` handlers yet (`LANGUAGE-STORE-CONFIG-FUNCTION-NOT-DEFINABLE`); a Python mount runs the Rust pipeline instead. `STORE12`'s override half is `NA`: a Python type cannot take a built-in name. `STORE06` on the OpenDAL `fs` type is an allowed failure (`STORE-OPENDAL-FS-CONCURRENT-WRITES-TO-ONE-KEY-FAIL`). The design is `specs/design/liquers-py-store/` | `test_STORE01`–`17` (`tests/test_STORE_conformance.py`, `test_STORE_configured.py`), `tests/test_STORE_python_protocol.py`, `tests/test_STORE_registration.py` |
 | `RECIPE` | Optional | COMPLETE | A provider is registered as a factory (`register_recipe_provider_factory`) and placed by a `recipes:` entry; one type with different arguments makes several members. `env.recipes.recipe(key)` for a key no member has raises `GeneralError`, not `KeyNotFoundError` (`RECIPE-MISSING-RECIPE-IS-A-GENERAL-ERROR`). Python providers are invisible to `liquers-validate` (`VALIDATE-CANNOT-SEE-NON-STANDARD-RECIPE-PROVIDERS`). The design is `specs/design/liquers-py-recipes/` | `test_RECIPE01`–`07` (`tests/test_RECIPE_python_providers.py`), `tests/test_RECIPE_registration.py` |
+| `RECORDS` | Optional | COMPLETE | `RECORDS09` is `NA`: Python has an async model (`async for`). `RECORDS11` is `NA`: Python does not implement the view or source traits (`liquers-py-records` Decision 4). Arrow, pandas and polars exits copy; the column buffers are lent, read-only. A command returning raw CSV bytes cannot be a manifest chunk (`BYTES-VALUE-HAS-NO-NAMED-DATA-FORMAT`). The design is `specs/design/liquers-py-records/` | `test_RECORDS01`–`10` (`tests/test_RECORDS_views.py`, `_columns.py`, `_arrow.py`, `_sources.py`), `tests/test_RECORDS_build.py` |
+| `PACKAGE` | Optional | PARTIAL | The release half (`specs/design/liquers-py-package/`). `PACKAGE01` (an artifact for every claimed platform) is checked by the release workflow's `dist` job, which passed with all fifteen wheels and every wheel's tests on the five platforms on 2026-11-02 (PR #240); pull requests that do not touch the workflow build and test the Linux x86_64 abi3 wheel only. It stays `PARTIAL` because nothing is published until the first tag and Orest's approval (`PY-NO-PUBLISHED-WHEELS`) | `tests/package/test_PACKAGE_wheel.py`, run against an installed wheel: `PACKAGE02` `test_import_and_version`, `03` `test_quickstart_runs`, `04` `test_versions_agree`, `05` `test_documented_value_types`, `06` `test_extras`, `07` `test_wheel_contents` |
+| `STUBS` | Optional | COMPLETE | Values are `Any` (a query result, `State.value`, a command's inputs), and so are pyarrow, pandas and polars objects: pyarrow and pandas ship no type information, and polars objects are `Any` for consistency. The checks run on CPython 3.14 with the GIL only, with mypy and pyright pinned. The design is `specs/design/liquers-py-stubs/` | `tests/test_STUBS_declarations.py` (stubtest, name and error-class comparisons, typed samples under `tests/typing/` with mypy `--strict` and pyright `strict`); `test_wheel_contents` |
 | `DOCS` | Optional | PARTIAL | `DOCS04`: every public name has a docstring and a signature, but there is no generated API reference yet (`PY-API-REFERENCE-NOT-GENERATED`) | `DOCS03` is `test_GUIDE_examples.py`; the docstring half of `DOCS04` is `test_DOCS04_*` (`tests/test_DOCS_docstrings.py`); `DOCS01`, `02`, `05`–`07` reviewed |
 
-`ASYNCQ`, `ASYNCCMD`, `STORE`, `RECIPE` and `DOCS` are outside the baseline profile. Every Essential feature is `COMPLETE` and every required check passes; each `NA` item carries
+`ASYNCQ`, `ASYNCCMD`, `STORE`, `RECIPE`, `RECORDS`, `PACKAGE`, `STUBS` and `DOCS` are outside the baseline profile. Every Essential feature is `COMPLETE` and every required check passes; each `NA` item carries
 its reversing condition. The Python baseline profile is therefore `CONFORMANT`.

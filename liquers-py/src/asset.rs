@@ -22,6 +22,7 @@ use crate::aio::{awaitable, check_blocking_call, Shut, ToPy};
 use crate::environment::{block_on, PyEnvironment};
 use crate::error::{error_to_pyerr, pyerr_to_error};
 use crate::metadata::{Metadata, Status};
+use crate::records::Scope;
 use crate::value::{value_to_py, Value};
 
 /// A value and its metadata.
@@ -29,11 +30,13 @@ use crate::value::{value_to_py, Value};
 pub struct State {
     value: Py<PyAny>,
     metadata: Py<Metadata>,
+    /// The record view behind the value, kept whatever its shape (`record_view()`).
+    record_view: Option<Arc<dyn liquers_records::RecordView>>,
 }
 
 impl State {
-    pub fn from_core(py: Python<'_>, state: &CoreState<Value>) -> Result<Py<State>, Error> {
-        let value = value_to_py(py, state.data_unchecked().as_ref())?;
+    pub fn from_core(py: Python<'_>, state: &CoreState<Value>, scope: &Scope) -> Result<Py<State>, Error> {
+        let value = value_to_py(py, state.data_unchecked().as_ref(), scope)?;
         let metadata = Py::new(
             py,
             Metadata {
@@ -41,7 +44,11 @@ impl State {
             },
         )
         .map_err(|e| pyerr_to_error(py, &e))?;
-        Py::new(py, State { value, metadata }).map_err(|e| pyerr_to_error(py, &e))
+        let record_view = match state.data_unchecked().as_ref() {
+            Value::Extended(liquers_lib::value::ExtValue::RecordView { value: view }) => Some(view.clone()),
+            Value::Extended(_) | Value::Base(_) => None,
+        };
+        Py::new(py, State { value, metadata, record_view }).map_err(|e| pyerr_to_error(py, &e))
     }
 }
 
@@ -57,6 +64,12 @@ impl State {
     #[getter]
     fn metadata(&self, py: Python<'_>) -> Py<Metadata> {
         self.metadata.clone_ref(py)
+    }
+
+    /// The value as an `lq.RecordView` whatever its shape (a one-cell view included, which
+    /// `value` gives as its scalar), or `None` when the value is not a record view.
+    fn record_view(&self) -> Option<crate::records::view::RecordView> {
+        self.record_view.clone().map(crate::records::view::RecordView::new)
     }
 
     fn __repr__(&self, py: Python<'_>) -> String {
@@ -76,11 +89,13 @@ pub struct AssetRef {
     inner: CoreAssetRef<PyEnvironment>,
     /// The shut signal of the environment that made it, so a wait ends when that is shut down.
     shut: Arc<Shut>,
+    /// Where a record source in its value resolves.
+    scope: Scope,
 }
 
 impl AssetRef {
-    pub fn new(inner: CoreAssetRef<PyEnvironment>, shut: Arc<Shut>) -> Self {
-        AssetRef { inner, shut }
+    pub fn new(inner: CoreAssetRef<PyEnvironment>, shut: Arc<Shut>, scope: Scope) -> Self {
+        AssetRef { inner, shut, scope }
     }
 }
 
@@ -92,7 +107,7 @@ impl AssetRef {
         let asset = self.inner.clone();
         let value = block_on(py, &self.shut, async move { asset.get().await?.value() })
             .map_err(|e| e.into_pyerr(py))?;
-        value_to_py(py, &value).map_err(|e| error_to_pyerr(py, &e))
+        value_to_py(py, &value, &self.scope).map_err(|e| error_to_pyerr(py, &e))
     }
 
     /// Waits for the result and returns it as a `State`, metadata included.
@@ -101,7 +116,7 @@ impl AssetRef {
         let asset = self.inner.clone();
         let state = block_on(py, &self.shut, async move { asset.get().await?.value_state() })
             .map_err(|e| e.into_pyerr(py))?;
-        State::from_core(py, &state).map_err(|e| error_to_pyerr(py, &e))
+        State::from_core(py, &state, &self.scope).map_err(|e| error_to_pyerr(py, &e))
     }
 
     /// The current status, without waiting.
@@ -132,13 +147,15 @@ impl AssetRef {
     /// Awaitable `get`.
     fn get_async<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         let asset = self.inner.clone();
-        awaitable(py, &self.shut, async move { asset.get().await?.value() }, ToPy::Value)
+        let scope = self.scope.clone();
+        awaitable(py, &self.shut, async move { Ok((asset.get().await?.value()?, scope)) }, ToPy::Value)
     }
 
     /// Awaitable `get_state`.
     fn get_state_async<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         let asset = self.inner.clone();
-        awaitable(py, &self.shut, async move { asset.get().await?.value_state() }, ToPy::State)
+        let scope = self.scope.clone();
+        awaitable(py, &self.shut, async move { Ok((asset.get().await?.value_state()?, scope)) }, ToPy::State)
     }
 
     /// Awaitable `cancel`: the explicit cancel, since cancelling an awaitable only detaches it.

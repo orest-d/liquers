@@ -18,6 +18,7 @@ use pyo3::prelude::*;
 use crate::aio::{awaitable, check_blocking_call, Shut, ToPy};
 use crate::environment::{block_on, PyEnvironment};
 use crate::error::{error_to_pyerr, PyFailure};
+use crate::records::Scope;
 use crate::value::value_to_py;
 
 /// The execution context of a running Python command.
@@ -52,6 +53,25 @@ impl Context {
         }
     }
 
+    /// Whether the command that received this context is still running.
+    #[cfg_attr(not(test), allow(dead_code))] // the resolver asks `core()`; its tests ask this
+    pub(crate) fn is_valid(&self) -> bool {
+        self.core().is_some()
+    }
+
+    /// The core context while it is valid.
+    pub(crate) fn core(&self) -> Option<CoreContext<PyEnvironment>> {
+        match self.inner.lock() {
+            Ok(inner) => inner.clone(),
+            Err(poisoned) => poisoned.into_inner().clone(),
+        }
+    }
+
+    /// The scope a value this command receives is converted in.
+    pub(crate) fn scope(&self, envref: &liquers_core::context::EnvRef<PyEnvironment>) -> Scope {
+        Scope::command(self, envref, self.shut.clone())
+    }
+
     fn get(&self) -> Result<CoreContext<PyEnvironment>, Error> {
         let inner = self
             .inner
@@ -74,12 +94,13 @@ impl Context {
         let result = (|| -> Result<_, PyFailure> {
             let query = crate::environment::to_query(query)?;
             let context = self.get()?;
+            let scope = self.scope(&context.get_envref());
             let value = block_on(py, &self.shut, async move {
                 let asset = context.evaluate(&query).await?;
                 let state = context.wait_for_dependency(&asset).await?;
                 state.value()
             })?;
-            Ok(value_to_py(py, &value)?)
+            Ok(value_to_py(py, &value, &scope)?)
         })();
         result.map_err(|e| e.into_pyerr(py))
     }
@@ -91,13 +112,14 @@ impl Context {
             Ok((crate::environment::to_query(query)?, self.get()?))
         })();
         let (query, context) = prepared.map_err(|e| error_to_pyerr(py, &e))?;
+        let scope = self.scope(&context.get_envref());
         awaitable(
             py,
             &self.shut,
             async move {
                 let asset = context.evaluate(&query).await?;
                 let state = context.wait_for_dependency(&asset).await?;
-                state.value()
+                Ok((state.value()?, scope))
             },
             ToPy::Value,
         )

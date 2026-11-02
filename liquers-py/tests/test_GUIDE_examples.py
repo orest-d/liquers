@@ -22,8 +22,9 @@ def test_the_guide_has_examples():
 @pytest.mark.parametrize("index", range(len(BLOCKS)))
 def test_guide_example_runs(index, tmp_path):
     block = BLOCKS[index]
-    if "polars" in block:
-        pytest.importorskip("polars")
+    for module in ("polars", "pyarrow"):
+        if module in block:
+            pytest.importorskip(module)
     script = tmp_path / f"test_example_{index}.py"
     script.write_text(block)
     if "def test_" in block:

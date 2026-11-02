@@ -24,13 +24,15 @@ catch a whole category::
         ...
 """
 
-_SUBCLASSES = {}
+from typing import Any
+
+_SUBCLASSES: dict[str, type["LiquersError"]] = {}
 
 # Extra Python bases of a category class, beyond ``LiquersError``.
-_CATEGORY_EXTRA_BASES = {"NotFound": (LookupError,)}
+_CATEGORY_EXTRA_BASES: dict[str, tuple[type, ...]] = {"NotFound": (LookupError,)}
 
 
-def _subclass_name(variant_name):
+def _subclass_name(variant_name: str) -> str:
     return variant_name if variant_name.endswith("Error") else variant_name + "Error"
 
 
@@ -38,14 +40,21 @@ class LiquersError(Exception):
     """A Liquers error. ``type`` is the ``ErrorType``; the other fields mirror the Rust error."""
 
     #: The ErrorType a subclass stands for; ``None`` on the base class.
-    _error_type = None
+    _error_type: Any = None
 
-    def __new__(cls, *args, **kwargs):
+    def __new__(cls, *args: Any, **kwargs: Any) -> "LiquersError":
         if cls is LiquersError and args and _is_error_type(args[0]):
             cls = _SUBCLASSES.get(_variant_name(args[0]), LiquersError)
         return super().__new__(cls)
 
-    def __init__(self, *args, query=None, key=None, position=None, traceback=None):
+    def __init__(
+        self,
+        *args: Any,
+        query: str | None = None,
+        key: str | None = None,
+        position: Any = None,
+        traceback: str | None = None,
+    ) -> None:
         if args and _is_error_type(args[0]):
             error_type, args = args[0], args[1:]
         else:
@@ -63,37 +72,37 @@ class LiquersError(Exception):
         self.position = position
         self.traceback = traceback
 
-    def __str__(self):
+    def __str__(self) -> str:
         return self.message
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"{type(self).__name__}({self.message!r})"
 
 
 # Reported as `liquers.LiquersError`, where users import it from (OBJECT08).
 LiquersError.__module__ = "liquers"
 
-_ERROR_TYPE_CLASS = None
+_ERROR_TYPE_CLASS: Any = None
 
 
-def _is_error_type(value):
+def _is_error_type(value: object) -> bool:
     return _ERROR_TYPE_CLASS is not None and isinstance(value, _ERROR_TYPE_CLASS)
 
 
-def _variant_name(error_type):
+def _variant_name(error_type: object) -> str:
     # PyO3 renders a simple enum member as "ErrorType.Variant".
     return repr(error_type).rsplit(".", 1)[-1]
 
 
-def _install(error_type_class):
+def _install(error_type_class: Any) -> dict[str, type["LiquersError"]]:
     """Generate one class per error category and one subclass per ErrorType variant.
 
     Returns them all by name, for re-export.
     """
     global _ERROR_TYPE_CLASS
     _ERROR_TYPE_CLASS = error_type_class
-    generated = {}
-    categories = {}
+    generated: dict[str, type[LiquersError]] = {}
+    categories: dict[str, type[LiquersError]] = {}
     for category in error_type_class.all_categories():
         class_name = category + "Error"
         bases = (LiquersError,) + _CATEGORY_EXTRA_BASES.get(category, ())
@@ -124,7 +133,14 @@ def _install(error_type_class):
     return generated
 
 
-def _from_native(error_type, message, query, key, position, traceback):
+def _from_native(
+    error_type: Any,
+    message: str,
+    query: str | None,
+    key: str | None,
+    position: Any,
+    traceback: str | None,
+) -> "LiquersError":
     """Called from Rust to build the exception for a Liquers error."""
     cls = _SUBCLASSES.get(_variant_name(error_type), LiquersError)
     return cls(error_type, message, query=query, key=key, position=position, traceback=traceback)

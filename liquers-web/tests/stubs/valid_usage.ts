@@ -215,6 +215,8 @@ async function main(): Promise<void> {
   const param: string = liquers.encodeParam('two words');
   const ready: boolean = liquers.isInitialized();
   const v: string = liquers.version();
+  const liquersVersion: string = new liquers.Environment().liquersVersion;
+  void liquersVersion;
   liquers.unregisterCommand('named');
   liquers.shutdown();
   void param;

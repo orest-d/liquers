@@ -26,3 +26,4 @@ specs/index.html
 # `maturin develop` copies the built extension into the mixed-layout package
 liquers-py/python/liquers/_native*.so
 liquers-py/python/liquers/_native*.pyd
+liquers-py/python/liquers/THIRD-PARTY-NOTICES.html
