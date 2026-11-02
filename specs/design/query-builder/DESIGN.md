@@ -22,7 +22,7 @@ request: pipelines overlap queries and plans, so the query builder becomes the p
 - `QueryBuilder` → `QueryEditor`, a thin wrapper over `PipelineEditor` that refuses every edit
   leaving the pipeline without a query form.
 - The token predicates in `escape.rs`, `Query::check_encodable`, the explicit `-/` header, the
-  `liquers-encode` CLI, the shared predicates in `liquers-template`, and the empty `encodeParam`
+  `liquers-encode` CLI (folded into `liquers-validate`, Q24), the shared predicates in `liquers-template`, and the empty `encodeParam`
   → the same, in that design's Phase 1 (AC-31 to AC-36).
 - `QUERY-BUILDER-TOOLING` is now one of that design's sources.
 

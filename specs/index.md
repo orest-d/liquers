@@ -8,8 +8,8 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 201
-- P2: 60
+Total rows: 203
+- P2: 62
 - P3: 141
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
@@ -44,6 +44,7 @@ Total rows: 201
 | [`VALUE-SERIALIZATION-HAS-NO-INCREMENTAL-WRITER`](issues/VALUE-SERIALIZATION-HAS-NO-INCREMENTAL-WRITER.md) | feature | Value serialization has no incremental writer | draft | needs-decision | not-eligible | P2 | M | core/value | [design](design/value-serialization-writer/DESIGN.md) | 2026-09-17 |
 | [`AGENT-WORKBENCH-SURFACE`](issues/AGENT-WORKBENCH-SURFACE.md) | feature | Agents get only memory tools — no general surface to evaluate, validate, inspect or propose | draft |  |  | P2 | M | mcp;core/validate;docs |  | 2026-10-15 |
 | [`EXPRESSION-DEPENDENCY-RECORD-IS-LOST-ON-RELOAD`](issues/EXPRESSION-DEPENDENCY-RECORD-IS-LOST-ON-RELOAD.md) | issue | A keyed asset that read a key only through a non-keyed expression is not expired by that key after a reload | draft |  |  | P2 | M | core/assets |  | 2026-10-20 |
+| [`MANIFEST-TEMPLATE-BATCH-ONLY-AT-THE-END-OF-THE-QUERY`](issues/MANIFEST-TEMPLATE-BATCH-ONLY-AT-THE-END-OF-THE-QUERY.md) | feature | A records manifest template can put the batch offset and size only at the end of its query | draft |  |  | P2 | M | records;core/plan |  | 2026-11-02 |
 | [`STORE-OPENDAL-FS-CONCURRENT-WRITES-TO-ONE-KEY-FAIL`](issues/STORE-OPENDAL-FS-CONCURRENT-WRITES-TO-ONE-KEY-FAIL.md) | issue | Concurrent writes to one key of an OpenDAL fs store can fail with a write error | draft |  |  | P2 | M | store/backends |  | 2026-11-01 |
 | [`UI-INTERFACE-FSD-DESCRIBES-UNBUILT-API`](issues/UI-INTERFACE-FSD-DESCRIBES-UNBUILT-API.md) | issue | UI_INTERFACE_FSD describes a UI API that was never built | draft |  |  | P2 | M | docs;lib/ui |  | 2026-10-27 |
 | [`WEB-EXPLICIT-ENVIRONMENT-CONFIGURES-THE-SINGLETON`](issues/WEB-EXPLICIT-ENVIRONMENT-CONFIGURES-THE-SINGLETON.md) | issue | configureStore and registerStoreObject on a new Environment() configure the singleton instead | draft |  |  | P2 | M | web |  | 2026-10-26 |
@@ -74,6 +75,7 @@ Total rows: 201
 | [`NO-RELATIONAL-DATABASE-ACCESS-LAYER`](issues/NO-RELATIONAL-DATABASE-ACCESS-LAYER.md) | feature | No access layer from Liquers into relational databases | draft | phase2-blocked | not-eligible | P2 | XL | lib/value;lib/commands;store/backends | [phase1](design/relational-database-access/phase1-high-level-design.md)  [phase2](design/relational-database-access/phase2-architecture.md)  | 2026-09-20 |
 | [`REMOTE-ASSET-MANAGER-AND-SYSTEM-API`](issues/REMOTE-ASSET-MANAGER-AND-SYSTEM-API.md) | feature | A client environment cannot delegate evaluation to a server's asset manager | draft | phase2-blocked | not-eligible | P2 | XL | axum;core/assets;web | [phase1](design/remote-asset-manager/phase1-high-level-design.md)  [phase2](design/remote-asset-manager/phase2-architecture.md)  | 2026-10-20 |
 | [`COMMAND-CANNOT-BE-DEFINED-AS-A-COMMAND-SEQUENCE`](issues/COMMAND-CANNOT-BE-DEFINED-AS-A-COMMAND-SEQUENCE.md) | feature | A command cannot be defined as a sequence of other commands with placeholders | draft |  |  | P2 | XL | core/commands;core/plan;core/assets;core/query;core/validate | [notation](design/composite-command-definition/notation-and-integration.md)  [phase1](design/composite-command-definition/phase1-high-level-design.md)  [phase2](design/composite-command-definition/phase2-architecture.md)  [pipeline](design/composite-command-definition/pipeline-and-plan.md)  | 2026-11-01 |
+| [`RECIPES-CANNOT-DESCRIBE-A-SELF-CONTAINED-ASSET-TREE`](issues/RECIPES-CANNOT-DESCRIBE-A-SELF-CONTAINED-ASSET-TREE.md) | feature | A recipes folder cannot be used as a self-contained, editable tree of assets | draft |  |  | P2 | XL | core/assets;core/store;core/validate |  | 2026-11-02 |
 | [`LIB-BUILD-EMITS-UNUSED-AND-UNHANDLED-RESULT-WARNINGS`](issues/LIB-BUILD-EMITS-UNUSED-AND-UNHANDLED-RESULT-WARNINGS.md) | issue | A default liquers-lib build emits about 50 warnings, some for discarded Results | draft | ready | not-eligible | P3 | S | lib/commands;build | [design](design/lib-build-warning-cleanup/DESIGN.md) | 2026-10-11 |
 | [`POLARS-DATAFRAME-IPC-NOT-SERIALIZABLE`](issues/POLARS-DATAFRAME-IPC-NOT-SERIALIZABLE.md) | issue | A polars DataFrame cannot be written or read as Arrow IPC although polars is built with ipc | draft | ready | not-eligible | P3 | S | lib/polars | [design](design/polars-dataframe-ipc/DESIGN.md) | 2026-10-18 |
 | [`RECIPE-PLAN-ANALYSIS-RUNS-OUTSIDE-PLAN-BUILDING`](issues/RECIPE-PLAN-ANALYSIS-RUNS-OUTSIDE-PLAN-BUILDING.md) | issue | Recipe plan analysis runs outside plan building | draft | ready | not-eligible | P3 | S | core/plan;core/assets | [design](design/recipe-preview-shares-plan-analysis/DESIGN.md) | 2026-08-26 |
