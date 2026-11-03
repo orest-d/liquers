@@ -12,11 +12,11 @@ updates. The rustdoc job ships with the four clean crates. Prerequisite for wide
 - [x] Step 2: Write `scripts/check_api_docs.py` and its tests — a1ce5f1
 - [x] Step 3: Document `liquers_core::commands` — a1ce5f1
 - [x] Step 4: Document the `liquers` Python package — a1ce5f1
-- [ ] Step 5: Document `liquers_web` and its `@packageDocumentation`
+- [x] Step 5: Document `liquers_web` and its `@packageDocumentation` — a1ce5f1, 1a16426
 - [x] Step 6: Put the rules into the `liquers-project` skill — a1ce5f1
 - [x] Step 7: CI: the checker step and the rustdoc job — a1ce5f1
 - [x] Step 8: Update the specs, `CLAUDE.md` and the READMEs — a1ce5f1
-- [ ] Step 9: Spin off the intra-doc link fix
+- [x] Step 9: Spin off the intra-doc link fix — child session `session_01Dx1JCYavM4zMRMrJXoe9fX`, branch `claude/rustdoc-intra-doc-links` (its PR is its proof; status in Phase 5)
 
 ## Implementation Steps
 
