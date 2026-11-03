@@ -8,9 +8,9 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 214
+Total rows: 213
 - P2: 62
-- P3: 152
+- P3: 151
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -78,7 +78,6 @@ Total rows: 214
 | [`NO-QUERY-AWARE-MARKDOWN-PARSER`](issues/NO-QUERY-AWARE-MARKDOWN-PARSER.md) | feature | Liquers has no Markdown parser that knows queries and templates and can edit and render a document | draft |  |  | P2 | XL | lib/commands;records |  | 2026-10-31 |
 | [`LIB-BUILD-EMITS-UNUSED-AND-UNHANDLED-RESULT-WARNINGS`](issues/LIB-BUILD-EMITS-UNUSED-AND-UNHANDLED-RESULT-WARNINGS.md) | issue | A default liquers-lib build emits about 50 warnings, some for discarded Results | draft | ready | not-eligible | P3 | S | lib/commands;build | [design](design/lib-build-warning-cleanup/DESIGN.md) | 2026-10-11 |
 | [`POLARS-DATAFRAME-IPC-NOT-SERIALIZABLE`](issues/POLARS-DATAFRAME-IPC-NOT-SERIALIZABLE.md) | issue | A polars DataFrame cannot be written or read as Arrow IPC although polars is built with ipc | draft | ready | not-eligible | P3 | S | lib/polars | [design](design/polars-dataframe-ipc/DESIGN.md) | 2026-10-18 |
-| [`RECIPE-PLAN-ANALYSIS-RUNS-OUTSIDE-PLAN-BUILDING`](issues/RECIPE-PLAN-ANALYSIS-RUNS-OUTSIDE-PLAN-BUILDING.md) | issue | Recipe plan analysis runs outside plan building | draft | ready | not-eligible | P3 | S | core/plan;core/assets | [design](design/recipe-preview-shares-plan-analysis/DESIGN.md) | 2026-08-26 |
 | [`ROOT-LISTING-DEPENDENCY-KEY-HAS-TWO-SPELLINGS`](issues/ROOT-LISTING-DEPENDENCY-KEY-HAS-TWO-SPELLINGS.md) | issue | The root directory listing dependency has two spellings, so a dependent that recorded one is never expired | draft | ready | not-eligible | P3 | S | core/assets | [design](design/root-listing-dependency-key-spelling/DESIGN.md) | 2026-10-17 |
 | [`COMBINED-VALUE-DATA-NODE-COPIES-BASE-VALUE`](issues/COMBINED-VALUE-DATA-NODE-COPIES-BASE-VALUE.md) | issue | A base value is copied whole to become a data node | draft | needs-decision | not-eligible | P3 | S | lib/value | [design](design/combined-value-shared-data-node/DESIGN.md) | 2026-10-17 |
 | [`CWD-DEFAULT-LINK-WARNS-WITHOUT-WORKING-DIRECTORY`](issues/CWD-DEFAULT-LINK-WARNS-WITHOUT-WORKING-DIRECTORY.md) | issue | The recommended cwd default link warns on every evaluation without a working directory | draft | needs-decision | not-eligible | P3 | S | core/query | [design](design/cwd-default-link-silent-root/DESIGN.md) | 2026-10-17 |
