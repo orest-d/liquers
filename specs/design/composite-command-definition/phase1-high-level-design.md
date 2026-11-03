@@ -452,18 +452,18 @@ Opened by the maintainer's review of 2026-11-03, analysed in
 Updated after the maintainer's answers of 2026-11-03; overview of the structures in
 [`recipe-and-pipeline-structures.md`](./recipe-and-pipeline-structures.md):
 
-- **Q26 — the recipe's shape (open, recommendation).** The maintainer proposed extending the
+- **Q26 — the recipe's shape (decided 2026-11-03: A within D).** The maintainer proposed extending the
   classic recipe: an optional `pipeline` that runs before the optional `query`, with `arguments`
   and `links` still on the query's last action. Evaluated as option A and recommended, with a
   dead-pipeline check (a query starting with a resource would discard the pipeline's state).
   Compared with an enum body (B), a recipe trait (C, deferred until a second recipe kind exists)
   and a hierarchy of structures (D).
-- **Q27 — asset declarations (open, recommendation).** The asset block is agreed. Recommended: it
+- **Q27 — asset declarations (decided 2026-11-03: on the recipe).** The asset block is agreed. Recommended: it
   lives, with `title` and `description`, on the **recipe**, not the pipeline. The hierarchy is:
   steps (a pipeline command's body) ⊂ `Pipeline` (query-equivalent) ⊂ `Recipe` (asset
   definition). A standalone pipeline that needs declarations is sent as a recipe with only a
   `pipeline`.
-- **Q28 — state elements (mostly agreed; naming open).** The named splice element (`{query}` /
+- **Q28 — state elements (decided 2026-11-03).** The named splice element (`{query}` /
   `{steps}`) is dropped. A bare string in an element list is query text, inlined. `evaluate` keeps
   its name: the query or pipeline runs as its own cached asset and its result becomes the state.
   An inlined query continues from the current state as part of this pipeline.
@@ -471,7 +471,7 @@ Updated after the maintainer's answers of 2026-11-03; overview of the structures
   managed by the asset manager, because they have no query to act as an asset key, so they are not
   cached on their own. Inside a keyed recipe they are managed and cached through the key. This is
   the price of a pipeline's extra expressiveness.
-- **Q30 — title and description (open, recommendation):** on the recipe, not the pipeline (see Q27).
+- **Q30 — title and description (decided 2026-11-03):** on the recipe, not the pipeline (see Q27).
 
 ## Scope Changes
 
@@ -507,6 +507,7 @@ Updated after the maintainer's answers of 2026-11-03; overview of the structures
   follow-up issues were filed, to be designed right after this one:
   `MANIFEST-TEMPLATE-BATCH-ONLY-AT-THE-END-OF-THE-QUERY` and
   `RECIPES-CANNOT-DESCRIBE-A-SELF-CONTAINED-ASSET-TREE`.
+- **2026-11-03, approval.** Q26–Q30 decided as recommended; Phase 1 approved again ("agreed with recommendations, proceed").
 - **2026-11-03, maintainer review 8.** Q29 decided. For Q26 the maintainer proposed a recipe with a pipeline that runs before its query. For Q27 and Q30 the maintainer proposed a hierarchy of structures, or a recipe trait. These are analysed in `recipe-and-pipeline-structures.md`, and AC-15 and AC-30 now follow the recommendation.
 - **2026-11-03, maintainer review 7.** A resource segment's name is its realm too; segments of the same realm form one pipeline; the header level is reserved for an s-expression-like nesting of queries (`-/a/--/b/--/c/---/d/--e` as `(a (b (c d) e))`, with header parameters possibly acting like Scheme keywords) and is out of scope: any level other than `-` is refused (AC-40, P3, P4).
 - **2026-11-03, maintainer review 6.** The pipeline is a struct scoped to one realm, with an

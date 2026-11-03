@@ -4,7 +4,7 @@ kind: design
 title: Pipelines - pipeline commands, recipe pipelines and the pipeline as query builder and editor
 workflow: liquers-project
 status: in_review
-phase: high-level
+phase: architecture
 area: [core/commands, core/plan, core/assets, core/query, core/validate, web]
 issues: [COMMAND-CANNOT-BE-DEFINED-AS-A-COMMAND-SEQUENCE, QUERY-BUILDER-TOOLING, RECIPE-OVERRIDE-ONLY-LAST-ACTION]
 merged: 2026-11-02
@@ -26,13 +26,13 @@ Decided on 2026-11-01: no placeholders in query text; the web API part moved to
 **Scope extended on 2026-11-02.** The query builder (`QUERY-BUILDER-TOOLING`, design
 `query-builder`, now superseded) is merged in: the pipeline converts to and from a query, lives in
 its own module, and is edited through `PipelineEditor`, with `QueryEditor` as a wrapper that keeps
-it convertible to a query. Phase 1 is back in review for the extension (AC-25–AC-40, questions
-20–30; review 6 on 2026-11-03). The Phase 2 draft predates it and is revised after re-approval.
+it convertible to a query. Phase 1 was approved again on 2026-11-03 with the extension (AC-25–AC-40, questions 20–30).
+Phase 2 was rewritten for it and is in review.
 
 ## Phase Status
 
-- [ ] Phase 1: High-Level Design (approved 2026-11-01; reopened 2026-11-02 for the scope extension)
-- [ ] Phase 2: Architecture (draft; revised after Phase 1 re-approval)
+- [x] Phase 1: High-Level Design (approved 2026-11-01; reopened 2026-11-02; approved again 2026-11-03)
+- [ ] Phase 2: Architecture (in review; rewritten 2026-11-03 for the approved scope)
 - [ ] Phase 3: Examples and Tests
 - [ ] Phase 4: Implementation Plan
 - [ ] Phase 5: Documentation
@@ -40,7 +40,7 @@ it convertible to a query. Phase 1 is back in review for the extension (AC-25–
 ## Links
 
 - [Phase 1](./phase1-high-level-design.md)
-- [Phase 2](./phase2-architecture.md) — draft of 2026-11-01, before the scope extension
+- [Phase 2](./phase2-architecture.md)
 - Superseded and merged: [query-builder](../query-builder/DESIGN.md) (2026-11-02)
 - [Recipes and pipelines: which structure holds what](./recipe-and-pipeline-structures.md) — recipe options A–D, the structure hierarchy, splice vs evaluate (review 8, 2026-11-03)
 - [Pipeline structure, state sources and recipe shape](./pipeline-structure-and-sources.md) — realm-scoped struct, state elements, nested pipelines, declarations, recipe shape, `Value::Pipeline` (review 6, 2026-11-03)
