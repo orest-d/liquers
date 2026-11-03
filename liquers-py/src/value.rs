@@ -284,7 +284,7 @@ fn simple_to_py(py: Python<'_>, value: &SimpleValue) -> Result<Py<PyAny>, Error>
         SimpleValue::Metadata { value } => into_py(
             py,
             crate::metadata::MetadataRecord {
-                inner: value.clone(),
+                inner: value.as_ref().clone(),
             },
             "metadata",
         ),
@@ -306,16 +306,16 @@ fn simple_to_py(py: Python<'_>, value: &SimpleValue) -> Result<Py<PyAny>, Error>
         SimpleValue::Recipe { value } => into_py(
             py,
             crate::recipes::Recipe {
-                inner: value.clone(),
+                inner: value.as_ref().clone(),
             },
             "recipe",
         ),
         SimpleValue::CommandMetadata { value } => into_py(
             py,
-            crate::command_metadata::CommandMetadata(value.clone()),
+            crate::command_metadata::CommandMetadata(value.as_ref().clone()),
             "command metadata",
         ),
-        SimpleValue::Query { value } => into_py(py, crate::query::Query(value.clone()), "query"),
+        SimpleValue::Query { value } => into_py(py, crate::query::Query(value.as_ref().clone()), "query"),
         SimpleValue::Key { value } => into_py(py, crate::query::Key(value.clone()), "key"),
     }
 }
@@ -532,19 +532,19 @@ fn dict_to_simple(
 /// The liquers wrappers that carry a structural Liquers value.
 fn wrapper_to_simple(object: &Bound<'_, PyAny>) -> Option<SimpleValue> {
     if let Ok(q) = object.extract::<crate::query::Query>() {
-        return Some(SimpleValue::Query { value: q.0 });
+        return Some(SimpleValue::Query { value: std::sync::Arc::new(q.0) });
     }
     if let Ok(k) = object.extract::<crate::query::Key>() {
         return Some(SimpleValue::Key { value: k.0 });
     }
     if let Ok(r) = object.extract::<crate::recipes::Recipe>() {
-        return Some(SimpleValue::Recipe { value: r.inner });
+        return Some(SimpleValue::Recipe { value: std::sync::Arc::new(r.inner) });
     }
     if let Ok(m) = object.extract::<crate::metadata::MetadataRecord>() {
-        return Some(SimpleValue::Metadata { value: m.inner });
+        return Some(SimpleValue::Metadata { value: std::sync::Arc::new(m.inner) });
     }
     if let Ok(c) = object.extract::<crate::command_metadata::CommandMetadata>() {
-        return Some(SimpleValue::CommandMetadata { value: c.0 });
+        return Some(SimpleValue::CommandMetadata { value: std::sync::Arc::new(c.0) });
     }
     None
 }

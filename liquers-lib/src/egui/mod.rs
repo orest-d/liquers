@@ -153,7 +153,7 @@ impl UIValueExtension for Value {
             }
             Self::Base(SimpleValue::Query { value }) => {
                 ui.label("Query:");
-                display_styled_query(ui, value.clone());
+                display_styled_query(ui, value.as_ref().clone());
             }
             Self::Base(SimpleValue::Key { value }) => {
                 ui.label("Key:");
