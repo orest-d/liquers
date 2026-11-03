@@ -181,6 +181,13 @@ pub trait Environment:
     /// Returns the mutable registry used while the environment is still owned.
     fn get_mut_command_metadata_registry(&mut self) -> &mut CommandMetadataRegistry;
 
+    /// A shareable snapshot of the command metadata registry, for the pipeline editors and other
+    /// code that keeps the registry beyond one call. Later registrations do not reach a snapshot
+    /// already taken.
+    fn command_metadata_snapshot(&self) -> Arc<CommandMetadataRegistry> {
+        Arc::new(self.get_command_metadata_registry().clone())
+    }
+
     /// The namespaces a query searches after those of its last `ns`, highest priority first: the
     /// registry's `default_namespaces`, `["", "root"]` unless configured.
     fn default_namespaces(&self) -> &[String] {
@@ -347,6 +354,11 @@ impl<E: Environment> EnvRef<E> {
     /// Returns the command metadata registry.
     pub fn get_command_metadata_registry(&self) -> &CommandMetadataRegistry {
         self.0.get_command_metadata_registry()
+    }
+    /// A shareable snapshot of the command metadata registry
+    /// ([`Environment::command_metadata_snapshot`]).
+    pub fn command_metadata_snapshot(&self) -> Arc<CommandMetadataRegistry> {
+        self.0.command_metadata_snapshot()
     }
     /// The namespaces a query searches after those of its last `ns`
     /// ([`Environment::default_namespaces`]).

@@ -41,7 +41,9 @@ use crate::error::Error;
 use crate::query::Position;
 
 mod convert;
+mod editor;
 pub use convert::{ArgRef, ElementPath};
+pub use editor::{ActionEditor, PipelineEditor, QueryEditor};
 
 /// A value together with where it came from.
 ///

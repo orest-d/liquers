@@ -777,18 +777,17 @@ fn key_of(
             &format!("placeholder '{name}' as a key"),
         )),
         Operand::Literal(text) => {
-            let key = parse_key(text).map_err(|e| not_representable(rule, path, pos, &e.message))?;
-            for name in key.0.iter() {
-                if !is_resource_name(&name.name) {
+            for segment in text.split('/').filter(|s| !s.is_empty()) {
+                if !is_resource_name(segment) {
                     return Err(not_representable(
                         rule,
                         path,
                         pos,
-                        &format!("'{}' is not a resource name", name.name),
+                        &format!("'{segment}' is not a resource name"),
                     ));
                 }
             }
-            Ok(key)
+            parse_key(text).map_err(|e| not_representable(rule, path, pos, &e.message))
         }
     }
 }
@@ -1057,6 +1056,17 @@ impl Pipeline {
     /// are placed so every action resolves to the command its element names (Q21). An action
     /// the registry cannot resolve is an error.
     pub fn to_query_with(&self, cmr: &CommandMetadataRegistry) -> Result<Query, Error> {
+        self.to_query_impl(cmr, false)
+    }
+
+    /// As [`Pipeline::to_query_with`], but an action the registry cannot resolve is written as it
+    /// stands (its own `ns`, positional parameters only) instead of failing. The query editor
+    /// uses it so an action can be named before its namespace is set.
+    pub(crate) fn to_query_lenient(&self, cmr: &CommandMetadataRegistry) -> Result<Query, Error> {
+        self.to_query_impl(cmr, true)
+    }
+
+    fn to_query_impl(&self, cmr: &CommandMetadataRegistry, lenient: bool) -> Result<Query, Error> {
         let mut flat = Flattener::default();
         let mut header = Some(self.header_parameters.clone());
         flat.pipeline(self, true, &ElementPath::default(), &mut header)?;
@@ -1155,7 +1165,7 @@ impl Pipeline {
                             position: Position::unknown(),
                         })
                     };
-                    let query = write_transform(&t, cmr)?;
+                    let query = write_transform(&t, cmr, lenient)?;
                     segments.push(QuerySegment::Transform(TransformQuerySegment {
                         header,
                         query,
@@ -1196,7 +1206,11 @@ impl Pipeline {
 }
 
 /// Places namespaces in one transform segment (Q21) and writes its actions.
-fn write_transform(t: &RawTransform, cmr: &CommandMetadataRegistry) -> Result<Vec<ActionRequest>, Error> {
+fn write_transform(
+    t: &RawTransform,
+    cmr: &CommandMetadataRegistry,
+    lenient: bool,
+) -> Result<Vec<ActionRequest>, Error> {
     // Resolve every action to its target command first.
     let mut targets: Vec<Option<(CommandKey, CommandMetadata)>> = Vec::with_capacity(t.items.len());
     for item in t.items.iter() {
@@ -1226,11 +1240,29 @@ fn write_transform(t: &RawTransform, cmr: &CommandMetadataRegistry) -> Result<Ve
                         }
                     }
                 }
-                let md = resolve_action(cmr, &t.realm, element).map_err(|e| match pos {
-                    Some(p) => e.with_position(p),
-                    None => e,
-                })?;
-                targets.push(Some((md.key(), md)));
+                match resolve_action(cmr, &t.realm, element) {
+                    Ok(md) => targets.push(Some((md.key(), md))),
+                    Err(_) if lenient => {
+                        if !element.arguments.is_empty() {
+                            return Err(not_representable(
+                                "N1",
+                                path,
+                                pos,
+                                &format!(
+                                    "'{}' is not resolved, so its named arguments cannot be placed",
+                                    element.action
+                                ),
+                            ));
+                        }
+                        targets.push(None)
+                    }
+                    Err(e) => {
+                        return Err(match pos {
+                            Some(p) => e.with_position(p),
+                            None => e,
+                        })
+                    }
+                }
             }
             Flat::Instruction { .. } | Flat::Resource { .. } => targets.push(None),
         }
@@ -1241,9 +1273,12 @@ fn write_transform(t: &RawTransform, cmr: &CommandMetadataRegistry) -> Result<Ve
                 .find_command_in_namespaces(&t.realm, &cmr.lookup_namespaces(explicit), &element.action)
                 .map(|md| &md.key() == key)
                 .unwrap_or(false),
-            (Flat::Action { .. }, None)
-            | (Flat::Instruction { .. }, _)
-            | (Flat::Resource { .. }, _) => true,
+            // An unresolved action (lenient mode) needs exactly its own `ns`, if it names one.
+            (Flat::Action { element, .. }, None) => match &element.ns {
+                Some(ns) => explicit == ns.0.as_slice(),
+                None => true,
+            },
+            (Flat::Instruction { .. }, _) | (Flat::Resource { .. }, _) => true,
         }
     };
     // A `q` quotes everything before it, so no `ns` may move across one: namespaces are placed
@@ -1337,12 +1372,32 @@ fn write_transform(t: &RawTransform, cmr: &CommandMetadataRegistry) -> Result<Ve
                     position: pos.clone().unwrap_or_else(Position::unknown),
                 });
             }
+            (
+                Flat::Action {
+                    element, pos, path, ..
+                },
+                None,
+            ) => {
+                let parameters = element
+                    .parameters
+                    .iter()
+                    .enumerate()
+                    .map(|(i, p)| {
+                        single_parameter(&p.item, &p.position(), cmr, &path.argument(ArgRef::Position(i)), pos)
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                out.push(ActionRequest {
+                    name: element.action.clone(),
+                    parameters,
+                    position: pos.clone().unwrap_or_else(Position::unknown),
+                });
+            }
             (Flat::Instruction { name, pos, .. }, _) => out.push(ActionRequest {
                 name: (*name).to_owned(),
                 parameters: vec![],
                 position: pos.clone().unwrap_or_else(Position::unknown),
             }),
-            (Flat::Action { .. }, None) | (Flat::Resource { .. }, _) => {}
+            (Flat::Resource { .. }, _) => {}
         }
     }
     Ok(out)

@@ -236,3 +236,11 @@ Decisions made while implementing, none of which changes an approved contract:
   each for a stated reason: a header level, and `q` with a parameter.
 - The per-rule tests are one table-driven test, `not_representable_each_rule`, with an assertion
   per rule id.
+- `Environment::command_metadata_snapshot` clones the registry on each call instead of caching an
+  `Arc` in `CommandRegistry`: the registry is a public field mutated in place in many places
+  (`get_mut_command_metadata_registry`), so no cache could be invalidated reliably. An editor
+  holds its snapshot for its whole life, so the clone is paid once per editor.
+- The query editor checks each edit with a lenient conversion: an action the registry cannot
+  resolve yet is written as it stands (its own `ns`, positional parameters only), so
+  `q.action("sort")?.ns("pl")` works and `query()` never fails. `PipelineEditor::for_definition`
+  is the editor for a pipeline command's body; only it accepts placeholders and the input state.
