@@ -8,12 +8,15 @@ liquers-macro/    # register_command! function-like proc-macro
 liquers-store/    # Storage backends (OpenDAL integration, config)
 liquers-records/  # Record streams: columnar tables, views, sources, manifests, table formats
 liquers-template/ # Query-aware Mustache templates (parser, renderer, query templates)
+liquers-markdown/ # Lossless, query-aware Markdown block parser (sections, addresses, links)
 liquers-lib/      # Command library, Rich value types (Polars DataFrames, egui UI, images)
 liquers-mcp/      # Commands served as MCP tools (rmcp; depends on liquers-core only)
 liquers-agent/    # Agent memory binary: ns-mem tools over MCP stdio and the CLI
 liquers-axum/     # HTTP REST API server
 liquers-web/      # Browser/JavaScript bindings (wasm32-only)
 liquers-py/       # Python bindings (PyO3)
+liquers-docs/     # Builds the user guides: expands chapter templates, writes mdBook/Pandoc sources
+docs/             # User documentation: the site's home page and the user guides (docs/guides/)
 specs/            # Internal documentation — see specs/README.md
   reference/      #   how the system is; must be true at HEAD
   guides/         #   how to work on it
@@ -25,8 +28,9 @@ specs/            # Internal documentation — see specs/README.md
 **Dependency flow**: `liquers-core` ← `liquers-macro` ← `liquers-store` ← `liquers-lib` ← `liquers-axum` / `liquers-web`;
 `liquers-core` ← `liquers-records` ← `liquers-lib` (feature `records`). `liquers-records` depends on
 `liquers-core` only, so a crate built on records need not pull in `liquers-lib`. Likewise
-`liquers-core` ← `liquers-template` ← `liquers-lib` (feature `templates`), and
-`liquers-core` ← `liquers-mcp` ← `liquers-agent` (which also uses `liquers-lib` with `mem`).
+`liquers-core` ← `liquers-template` ← `liquers-lib` (feature `templates`),
+`liquers-core` ← `liquers-markdown` ← `liquers-lib` (with `records`; feature `markdown` adds `ns-md`), and
+`liquers-core` ← `liquers-mcp` ← `liquers-agent` (which also uses `liquers-lib` with `mem` and `markdown`).
 
 **Key specs**: See `specs/reference/VISION.md` for the project's purpose, vision and strategy (background for design and review work), `specs/reference/PROJECT_OVERVIEW.md` for architecture, `specs/reference/REGISTER_COMMAND_FSD.md` for macro details, `specs/reference/ASSETS.md` for asset lifecycle.
 
@@ -45,9 +49,17 @@ blank, since review corrects a wrong guess and nothing corrects an empty field. 
 `specs/index.csv` first so you do not file a duplicate.
 
 **Do not open a GitHub issue.** That happens when work starts, not when a problem is recorded.
+Only file one when the owner explicitly asks for it.
 
 Template, field vocabularies and the full procedure: `specs/DOCS_STRUCTURE_GUIDE.md` §4.8. Filing
 needs no network, no account and no permission — record what you found and carry on.
+
+**User guides.** `docs/guides/{rust,python,web}/` holds three book-like guides for people *using*
+Liquers, with the same chapters in each. They are hand-edited, written *from* `specs/` (each
+chapter's `sources:`) and published to GitHub Pages by `.github/workflows/docs-site.yml`; nothing
+under `docs/` links into `specs/`. Read `specs/guides/USER_DOCS_EDITING_GUIDE.md` before editing a
+chapter. Edit one only when asked or within a design; a design's Phase 5 reviews the chapters
+`python3 scripts/docs_index.py chapters-for <affects_docs>` lists.
 
 Also:
 - Never edit a file under `specs/archive/`. An issue or feature document owns its `status:` even
@@ -82,6 +94,8 @@ Also:
   as MCP tools in `liquers-mcp/`; the binary, its built-in tool set and query guide in
   `liquers-agent/` (`specs/reference/AGENT_MEMORY_SERVICE.md`). This repository's specs as a
   memory: `memory/liquers-specs.yaml`
+- Markdown parsing (blocks, sections, addresses, links): `liquers-markdown/src/`; the `ns-md`
+  commands: `liquers-lib/src/markdown/` (reference: `specs/reference/MARKDOWN.md`)
 - Template language (parser, renderer, query templates, hosts): `liquers-template/src/`; the
   `ns-template` commands, `ContextHost` and the store folder node: `liquers-lib/src/template/`
   (reference: `specs/reference/TEMPLATE_LANGUAGE.md`)
@@ -173,7 +187,9 @@ mod tests {
 **Minimum Rust: 1.95** (`[workspace.package] rust-version` in `Cargo.toml`, set by the egui 0.36 / sysinfo 0.39 dependencies; a minimum, not a pin — on an older toolchain run `rustup update stable`).
 
 **`liquers-py` supports CPython 3.10–3.15 and PyPy 3.11 or newer** (PyO3 0.30); no build override
-is needed — see `liquers-py/README.md`. Its tests run with `bash scripts/test-liquers-py.sh`
+is needed — see `liquers-py/README.md`. Release wheels cover CPython 3.14+ only (`cp314-abi3`,
+`cp314t`, `cp315t` on five platforms, `.github/workflows/liquers-py-release.yml`); every other
+interpreter builds from the sdist (none is on PyPI yet: `PY-NO-PUBLISHED-WHEELS`). Its tests run with `bash scripts/test-liquers-py.sh`
 (venv under `target/`, `maturin develop`, pytest, then its Rust unit tests).
 
 Rust debug builds of this workspace are large — large enough that a full build does not fit in a
@@ -187,8 +203,15 @@ they are worth so nobody removes them by accident.
 cargo test -p liquers-lib --lib --tests     # the normal loop: unit + integration, no examples
 cargo test -p liquers-records --all-features --lib --tests   # records work: builds core only
 cargo test -p liquers-mcp                   # MCP engine: builds core only
+cargo test -p liquers-markdown              # Markdown parser: builds core only
 cargo test -p liquers-agent                 # agent memory end to end (needs Rust 1.96: s3s)
+cargo test -p liquers-docs                  # user-guide builder; also checks the real docs/guides
 ```
+
+The documentation site builds with `bash scripts/build-docs.sh --skip-api` (needs `mdbook`,
+`pandoc` and `typst`; a missing tool skips its step) into `target/docs-site/`;
+`cargo run -p liquers-docs -- check` checks the guides with none of them. CI and Pages:
+`specs/guides/GITHUB_ACTIONS_GUIDE.md`.
 
 `liquers-lib` is where most work lands and it transitively builds `liquers-core`, `liquers-macro`
 and `liquers-store`. Run the browser tests **separately, after `cargo clean`** — they build a
@@ -205,7 +228,7 @@ crate's test binaries at once, which is what exhausts the allowance.
 ### Feature matrix
 
 The default loop builds one feature configuration. `egui`, `image-support`, `polars`, `webui`,
-`records`, `records-ipc`, `records-parquet`, `templates` and `mem` are all optional (all but `webui` on by default), and a missing `#[cfg]` compiles fine with the defaults on while breaking a
+`records`, `records-ipc`, `records-parquet`, `templates`, `mem` and `markdown` are all optional (all but `webui` on by default), and a missing `#[cfg]` compiles fine with the defaults on while breaking a
 minimal or wasm build. `scripts/check-build-matrix.sh` checks every configuration, library **and
 test targets**, plus the wasm32 target, `liquers-store`'s feature split and `liquers-records`' own
 `ipc` / `parquet` features:
@@ -228,6 +251,7 @@ cargo test -p liquers-lib --no-default-features --features webui --lib --tests
 cargo test -p liquers-lib --no-default-features --features records --lib --tests
 cargo test -p liquers-lib --no-default-features --features templates --lib --tests
 cargo test -p liquers-lib --no-default-features --features mem --lib --tests
+cargo test -p liquers-lib --no-default-features --features markdown --lib --tests
 cargo test -p liquers-records --lib --tests                 # no formats beyond the built-in ones
 ```
 
@@ -235,7 +259,7 @@ Each test file that needs an optional dependency is gated — `#![cfg(feature = 
 when the whole file needs it, `#[cfg(feature = "…")]` on the single test when it does not — so a
 reduced configuration runs the subset that applies instead of failing to compile. Tests comparing
 against `specs/command_registry.yaml`, which is exported with the default features, are gated on
-all six groups (`egui`, `image-support`, `polars`, `records`, `templates`, `mem`).
+all seven groups (`egui`, `image-support`, `polars`, `records`, `templates`, `mem`, `markdown`).
 
 ### liquers-web
 
@@ -291,10 +315,12 @@ Measured on a cold `cargo test -p liquers-lib --lib --tests` (`cargo clean` befo
    a failing assertion still reports its own `file:line`, because that comes from `#[track_caller]`
    rather than debug info. What is lost is line numbers in `RUST_BACKTRACE` frames and full
    debugger support — recover either temporarily with `RUSTFLAGS="-Cdebuginfo=2" cargo test …`.
-2. **System OpenSSL** — `liquers-lib`'s `openssl` dependency no longer uses `features =
-   ["vendored"]`, so it links the system library instead of compiling OpenSSL from source. Small on
-   disk, but ~90 s off every cold build. Requires OpenSSL development headers (`libssl-dev`);
-   re-add `vendored` if you build where they are absent.
+2. **No vendored OpenSSL** — `liquers-lib` no longer depends on `openssl` at all (first it stopped
+   vendoring it, which took ~90 s off every cold build, then the dependency was removed). TLS comes
+   from `rustls` with `aws-lc-rs` and `ring`, which need only a C compiler. The one exception is
+   `liquers-axum`'s test targets: its dev-dependency `reqwest` uses the default `native-tls`, so
+   `cargo test -p liquers-axum` needs OpenSSL development headers (`libssl-dev`); no other build
+   does (`cargo tree -i openssl-sys -e normal` is empty for every crate).
 3. **`CARGO_INCREMENTAL=0`** for one-shot/CI-style runs. Incremental caches reached ~2 GB here and
    buy nothing when the build is not repeated.
 
@@ -444,6 +470,7 @@ against the real command set with no setup. Useful variations:
 |---|---|
 | Parse only, ignore the registry | `--no-registry` |
 | A command that does not exist yet | `--command my_new_command` (accepts any arguments) |
+| An environment with `default_namespaces:` configured | `--default-namespace pl` (repeatable) |
 | A design that *changes* an existing signature | `--registry-file specs/command_registry.yaml --registry-file <proposal>.yaml --allow-overwrite` |
 | A whole `recipes.yaml` | `--recipes recipes.yaml --cwd <folder>` |
 | Many queries | positional list, or `--query-file -` (one per line, `#` comments skipped) |

@@ -14,6 +14,7 @@ on:
       - '!liquers-axum/**'
       - '!liquers-mcp/**'
       - '!liquers-agent/**'
+      - '!liquers-docs/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - '.cargo/**'
@@ -29,6 +30,7 @@ on:
       - '!liquers-axum/**'
       - '!liquers-mcp/**'
       - '!liquers-agent/**'
+      - '!liquers-docs/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - '.cargo/**'
@@ -55,12 +57,16 @@ jobs:
         with:
           shared-key: liquers-py
           save-if: ${{ github.ref == 'refs/heads/main' && matrix.python == '3.14' }}
-      - name: Install system OpenSSL headers
-        run: sudo apt-get update && sudo apt-get install -y libssl-dev
       - uses: actions/setup-python@v5
         id: py
         with:
           python-version: ${{ matrix.python }}
+      # pyright's npm package, which the `pyright` wrapper downloads on its first run (typing leg).
+      - uses: actions/cache@v4
+        if: matrix.python == '3.14'
+        with:
+          path: ~/.cache/pyright-python
+          key: pyright-python-1.1.414
       # A restored venv would point at a toolcache interpreter that no longer exists.
       - run: rm -rf target/liquers-py-venv-*
       - name: Run the liquers-py test loop

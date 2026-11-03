@@ -165,11 +165,27 @@ pub trait Environment:
     /// Asset manager implementation and its queued or inline execution model.
     type AssetManager: AssetManager<Self>;
 
+    /// The Liquers version this environment was built with: [`crate::VERSION`], the workspace
+    /// version (`[workspace.package] version`), the same for every Liquers crate.
+    ///
+    /// Provided so every environment reports it without each implementor repeating it; not meant
+    /// to be overridden. Language integrations expose it (Python `Environment.liquers_version`,
+    /// JavaScript `Environment.liquersVersion`).
+    fn liquers_version(&self) -> &'static str {
+        crate::VERSION
+    }
+
     /// Returns the registry used for planning and command metadata lookup.
     fn get_command_metadata_registry(&self) -> &CommandMetadataRegistry;
 
     /// Returns the mutable registry used while the environment is still owned.
     fn get_mut_command_metadata_registry(&mut self) -> &mut CommandMetadataRegistry;
+
+    /// The namespaces a query searches after those of its last `ns`, highest priority first: the
+    /// registry's `default_namespaces`, `["", "root"]` unless configured.
+    fn default_namespaces(&self) -> &[String] {
+        &self.get_command_metadata_registry().default_namespaces
+    }
 
     /// Returns the registry of value types this build knows.
     ///
@@ -331,6 +347,11 @@ impl<E: Environment> EnvRef<E> {
     /// Returns the command metadata registry.
     pub fn get_command_metadata_registry(&self) -> &CommandMetadataRegistry {
         self.0.get_command_metadata_registry()
+    }
+    /// The namespaces a query searches after those of its last `ns`
+    /// ([`Environment::default_namespaces`]).
+    pub fn default_namespaces(&self) -> &[String] {
+        self.0.default_namespaces()
     }
     /// Returns the command executor.
     pub fn get_command_executor(&self) -> &E::CommandExecutor {
@@ -1835,6 +1856,13 @@ mod tests {
     use crate::value::Value;
 
     type TestEnvironment = ImmediateEnvironment<Value>;
+
+    #[test]
+    fn default_environment_reports_liquers_version() {
+        let env = SimpleEnvironment::<Value>::new();
+        assert_eq!(env.liquers_version(), crate::VERSION);
+        assert_eq!(TestEnvironment::new().liquers_version(), env!("CARGO_PKG_VERSION"));
+    }
 
     fn add_stale_command_version(
         registry: &mut CommandMetadataRegistry,

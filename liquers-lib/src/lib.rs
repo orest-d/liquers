@@ -3,6 +3,8 @@ pub mod commands;
 pub mod egui;
 pub mod environment;
 pub mod image;
+#[cfg(feature = "markdown")]
+pub mod markdown;
 #[cfg(feature = "mem")]
 pub mod mem;
 #[cfg(feature = "polars")]

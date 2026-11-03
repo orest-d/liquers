@@ -248,16 +248,16 @@ fn argument_name(
         return Err(not_found("an override needs a final action".to_string()));
     };
     let realm = segment.name();
-    let mut namespaces = Vec::new();
+    let mut explicit = Vec::new();
     if let Some(ns) = query.last_ns() {
         for parameter in ns {
             match parameter {
-                ActionParameter::String(s, _) => namespaces.push(s),
+                ActionParameter::String(s, _) => explicit.push(s),
                 ActionParameter::Link(..) => {}
             }
         }
     }
-    namespaces.extend(cmr.default_namespaces.iter().cloned());
+    let namespaces = cmr.lookup_namespaces(&explicit);
     let command = cmr
         .find_command_in_namespaces(&realm, &namespaces, &action.name)
         .ok_or_else(|| {

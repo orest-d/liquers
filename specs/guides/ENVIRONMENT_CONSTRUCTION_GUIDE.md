@@ -187,6 +187,7 @@ assets:
   recipe_cache_strategy: all    # none | result | all
   query_cache_strategy: all     # none | result | all
   cut_predecessors: true        # false: never cut (debugging)
+default_namespaces: [pl]        # unqualified actions also search pl, before root
 ```
 
 ```rust,ignore
@@ -218,6 +219,16 @@ Their error types tell a host which kind of fault it is: a document that does no
 `ParseError` (store and environment documents alike), a missing required store key or an unset
 `${VAR}` is `ConfigurationError`, and a store type that is unknown or unavailable in this build is
 `NotSupported`.
+
+**Default namespaces.** `default_namespaces: [pl]` lets queries write `head-3` where they would
+write `ns-pl/head-3`: a command is looked up in the namespaces of the query's last `ns`, then in
+this list, then in root, and the first match wins. In code the same is
+`with_default_namespaces(["pl"])`, or, for an environment not built through the builder, the
+registry's `default_namespaces` field, which holds the whole chain as written. The document wins
+over both. Two things to keep in mind: a configured namespace can shadow a root command of the same
+name, and a query that leans on the configuration does not mean the same elsewhere, so recipes
+meant to be portable keep their `ns`. Validate such queries with
+`liquers-validate --default-namespace pl`.
 
 Which backends exist is a build fact, so the factory chain is an argument rather than a field:
 `liquers-core` supplies `default_store_factory()` (memory, plus filesystem off wasm),
@@ -424,6 +435,7 @@ is the moment when that is safe: it runs before anything else can observe the re
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-01 | §Configuring from a document: `default_namespaces`, its precedence over the registry, shadowing and portability, `liquers-validate --default-namespace`. | `design/plan-default-namespaces/` |
 | 2026-11-01 | Build errors: only an identical `recipes` entry is refused; a type with different arguments may repeat. | `design/liquers-py-recipes/` (phase-5) |
 | 2026-10-30 | The recipe provider chain is a list: §Building gains `with_recipes`, `with_appended_recipe_entry`, `with_recipe_provider_factory`; §Configuring from a document shows the list and the entry errors; §Library defaults rewritten (kind lists, every member asked, two-owner error, `with_records_recipe_provider` idempotent, the raw-manifest hazard, declaring an entry type). | design `recipe-provider-chain-config` |
 | 2026-10-11 | §Configuration documents: the error type of each configuration fault (`ParseError`, `ConfigurationError`, `NotSupported`). | `design/configuration-error-kind/` |

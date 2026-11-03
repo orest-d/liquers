@@ -481,6 +481,22 @@ module; a binding should weigh the same cost before making records part of its d
 `02`, `04`-`08` and `10` run in `liquers-web/tests/records_RECORDS.rs`; `03`, `09` and `11` are
 `NA` (no Arrow route; JavaScript has an async model; JavaScript cannot implement the traits).
 
+**What `liquers-py` does — wrappers, with Arrow as an exit.** Python has both routes, so
+`liquers-py` (`design/liquers-py-records/`) wraps the same `Arc`s (`lq.RecordView`,
+`lq.RecordSource`, `RecordColumn`, the schema classes) and adds copying exits and entrances for
+pyarrow, pandas and polars. Columns are lent through Python's buffer protocol, read-only, so numpy
+shares their memory with no copy and a buffer outlives its view. The Arrow exit writes Arrow IPC in
+Rust and reads it with pyarrow, which keeps the schema's roles, the chunk id and the origins in the
+table's metadata (`liquers.origins` was added to the IPC writer for this); the entrance normalizes
+what liquers' IPC reader refuses (wide strings, narrow numbers, dictionaries) before reading.
+polars crosses as Parquet through the polars bridge, so it needs no pyarrow. A source carries its
+resolution scope: inside a command it reads through the command's context, so chunks become
+dependencies, and afterwards through a weak handle on the environment, so it never keeps an
+environment alive. Traversal is one chunk per `next()`, both synchronously and with `async for`, and
+`chunk(i)` opens one chunk only (`liquers_records::read_chunk`). `RECORDS01`-`08` and `10` run in
+`liquers-py/tests/test_RECORDS_*.py`; `09` and `11` are `NA` (Python has an async model; Python does
+not implement the traits). Contract: `reference/PYTHON_INTEGRATION.md` §11.
+
 A single-cell view reads as a scalar (`record-streams` Phase 2, "A view as a value"), so a wrapper
 should expose that as the *language*'s own scalar rather than as a one-by-one table.
 
@@ -1820,7 +1836,7 @@ Module caches are a staleness hazard: `sys.modules` will happily retain a module
 
 **The design must answer:** Which build tool is used — `maturin`, `wasm-pack`, `trunk`, `cargo`, or the language's own packager? Which Cargo features are enabled by default, and which are exposed as installable extras? Which targets, platforms, and ABIs are published, and which remain source-only? Is the artifact version locked to, ranged against, or independent of the Liquers core version? Are native dependencies vendored or taken from the system? How is a Wasm artifact delivered — ES module, bundler-specific, or inline? What exactly does a new user run to install the *integration* and evaluate a first query?
 
-**Issues and patterns.** Cargo feature selection is part of the public contract, not a build detail: a feature that changes the *value type* changes what `VALUE` promises, so the default set belongs in the design. Prefer locking the core version, since `OBJECT` and `VALUE` *wrappers* track Rust types that are not yet stable across releases. Vendoring native dependencies trades build time for portability — this repository takes the opposite choice for `openssl`, documented in `CLAUDE.md`, which makes system development headers a stated build requirement rather than an accident. A Wasm artifact that assumes a bundler silently excludes plain `<script type="module">` users; state which delivery forms are supported. A quick-start that a new user can run end to end is the cheapest test that packaging actually works.
+**Issues and patterns.** Cargo feature selection is part of the public contract, not a build detail: a feature that changes the *value type* changes what `VALUE` promises, so the default set belongs in the design. Prefer locking the core version, since `OBJECT` and `VALUE` *wrappers* track Rust types that are not yet stable across releases. Vendoring native dependencies trades build time for portability; the cheapest native dependency is none, which is where this repository ended up for TLS: `openssl` was first taken from the system instead of vendored, then replaced by `rustls` (with `aws-lc-rs` and `ring`, which build with a C compiler alone), so an artifact needs no system TLS library (`CLAUDE.md`). Whatever the choice, state it as a build requirement rather than leave it an accident. A Wasm artifact that assumes a bundler silently excludes plain `<script type="module">` users; state which delivery forms are supported. A quick-start that a new user can run end to end is the cheapest test that packaging actually works.
 
 **Meaningful tests:** `PACKAGE01` a clean build produces the artifact for every claimed platform; `PACKAGE02` installing the artifact into a clean environment loads the module successfully; `PACKAGE03` the documented quick-start evaluates a query end to end from the installed artifact; `PACKAGE04` declared version/compatibility metadata matches the linked core; `PACKAGE05` the default Cargo feature set produces the documented *value type*; `PACKAGE06` each optional extra installs and activates its feature; `PACKAGE07` the artifact carries declarations, license, and required metadata.
 
@@ -1833,10 +1849,14 @@ an API reference generated from the public surface. Build all three on the share
 restate them.
 
 `specs/` is internal (`DOCS_STRUCTURE_GUIDE.md` §2), and an *integration*'s users are not
-contributors, so the user-facing half of this feature belongs in a future `docs/`. Until that exists,
-the two hand-written documents live in `specs/` with `audience: user` or `both`, and move to `docs/`
-— never forked — when it is created (`DOCS_STRUCTURE_GUIDE.md` §9.6). The generated reference
-belongs to the language's own tooling and is published with the artifact (`PACKAGE`).
+contributors. Their book-like documentation is a user guide in `docs/guides/<language>/`, parallel
+to the Rust, Python and Web guides: the same chapters with the same numbers
+([`USER_DOCS_EDITING_GUIDE.md`](USER_DOCS_EDITING_GUIDE.md)). It is *written from* the two documents
+below, which stay in `specs/` as the agent-maintained contract and topic guide; a chapter names them
+in its `sources:` and includes from them where wording must match, rather than copying
+(`DOCS_STRUCTURE_GUIDE.md` §9.6). A new language's guide starts as the skeleton of the others, every
+chapter `outline`. The generated reference belongs to the language's own tooling and is published
+with the artifact (`PACKAGE`) and on the documentation site.
 
 **Objects/API to map or implement:**
 
@@ -1863,8 +1883,8 @@ belongs to the language's own tooling and is published with the artifact (`PACKA
   reference links the guide for usage
 
 **The design must answer:** Which of the three documents exist at the milestone that ships, and
-which are deferred with an issue? Where does the user guide live — `specs/guides/` now, `docs/`
-later, or the package's own documentation — and how is it moved without forking? What runs the
+which are deferred with an issue? Which chapters of the `docs/guides/<language>/` user guide does
+the milestone draft, and which stay `outline`? What runs the
 examples: the language's test runner over extracted blocks, a doctest mechanism, or a browser
 harness? How is an example that cannot run in that harness marked? How are the examples kept
 independent of each other — a fresh environment per example, or a teardown between them? Which
@@ -2079,10 +2099,40 @@ What cost time:
   finishes, so count after the work is done.
 - **The `extension-module` feature cannot link a test binary.** Run the crate's Rust tests with
   `--no-default-features`; `scripts/test-liquers-py.sh` runs both halves.
+- **`abi3t` is not usable yet.** maturin builds a `cp315-abi3.abi3t` wheel, but its library is
+  named `.abi3t-<platform>.so` and the interpreter loads only `.abi3t.so`, so it does not import
+  (`PY-ABI3T-WHEEL-NOT-USED`); ship one wheel per free-threaded version instead.
+- **An extra whose package has no wheel** for a platform would make pip build it from source.
+  Exclude it with an environment marker, and have `require` say it is unavailable there; there is
+  no marker for a free-threaded interpreter, so that case is documented.
+- **PyO3's `module = "liquers"` decides where the stubs go.** Every class is defined in the native
+  `liquers._native` but reports `__module__ == "liquers"`, so stubtest looks each one up in
+  `liquers/__init__.pyi`; declare it there and have `_native.pyi` re-export it, or stubtest
+  reports every class as missing.
+- **stubtest finds submodules itself**; naming `liquers._native` as well fails with "Duplicate
+  module". pyright needs the interpreter (`--pythonpath`) to find an installed package, and narrows
+  a property on assignment, so assert its declared type before setting it. pyarrow ships no type
+  information, so declare its objects as `Any` rather than *Unknown*.
 - **Rust tests that load a Python module race.** Executing a module can release the GIL, so two
   tests installing the same module replace each other's classes; load it once, under a
   `PyOnceLock`.
 
+- **Records** (`specs/design/liquers-py-records/`). Wrappers over the same `Arc`s, with pyarrow,
+  pandas and polars as copying exits and entrances, and columns lent through the buffer protocol
+  (§RECORDS, "What `liquers-py` does"). The protocol's `__getbuffer__` is `unsafe` FFI; it is
+  available in the limited API from 3.11, which the 3.14 abi3 wheel satisfies. The limited API has
+  no `PyDate`, so dates are built through the `datetime` module. A source's wrapper holds the
+  environment weakly with its shut flag, and inside a command the command's `Context`, which is
+  invalidated when the command returns.
+- **Packaging** (`specs/design/liquers-py-package/`). Wheels are built by `PyO3/maturin-action` for
+  five platforms: one `cp314-abi3` (`pyo3/abi3-py314`) and two free-threaded builds (`cp314t`,
+  `cp315t`) each, since an abi3 library does not load on a free-threaded interpreter. Each wheel is
+  tested in a fresh venv on its own runner and checked for linked libraries before TestPyPI, then
+  PyPI behind a protected environment. One workspace version is reported by every binding
+  (`Environment::liquers_version`).
+- **Type declarations** (`specs/design/liquers-py-stubs/`). Hand-written `.pyi` files, kept honest
+  by `mypy.stubtest` and by typed samples under mypy `--strict` and pyright `strict`. Declare the
+  decorators with `ParamSpec` overloads so a decorated command keeps its signature.
 - **Stores and recipe providers.** Both are *factories*: `register_store_factory(type, factory)`
   and `register_recipe_provider_factory(type, factory)` declare a type whose arguments are read
   from the factory's signature (`_factories._declare`), and the configuration document places it.
@@ -3842,7 +3892,9 @@ def test_PACKAGE03_quickstart_evaluates_a_query_end_to_end():
         assert r.exit_code == 0 and r.stdout.strip() != ""
 
 def test_PACKAGE04_version_metadata_matches_linked_core():
-    assert lq.__core_version__ == cargo_locked_version("liquers-core")
+    # The environment reports the Liquers version it was built with (`Environment::liquers_version`).
+    assert lq.Environment().liquers_version == cargo_workspace_version()
+    assert lq.__version__ == pep440(cargo_workspace_version())
 
 def test_PACKAGE05_default_feature_set_produces_documented_value_type():
     assert lq.value_type_name() == DOCUMENTED_DEFAULT_VALUE_TYPE
@@ -3892,6 +3944,9 @@ def test_DOCS04_every_public_name_is_documented():
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-01 | §DOCS: an integration's users get a guide in `docs/guides/<language>/`, parallel to the others and written from the contract reference and topic guide, which stay in `specs/`; the design question asks which chapters a milestone drafts. | `design/user-documentation-guides/` (phase-5) |
+| 2026-11-01 | §RECORDS: what `liquers-py` does (wrappers, buffers, Arrow/pandas/polars exits, scope, traversal, dispositions). Appendix A `PACKAGE04` uses the environment's version. §6 Python: records, packaging and type declarations, and what cost time (abi3t, extras without wheels, PyO3's `module=`, stubtest and pyright). | `design/liquers-py-records/`, `design/liquers-py-package/`, `design/liquers-py-stubs/` (phase-5) |
+| 2026-11-01 | §PACKAGE: the repository no longer links OpenSSL (TLS is `rustls`); the vendoring sentence says so. | `OPENSSL-BUILD-REQUIREMENT-IS-STALE` |
 | 2026-11-01 | §STORE: a language store *type* is possible through a bridging factory (`liquers-py` has one; `liquers-web` not yet). §RECIPE: the entry type names a language-registered factory with its arguments, replacing the `{type: python, object: …}` registry example; repeated types; `Recipe::plan_with_dependencies`. §6 Python: stores and recipe providers. | `design/liquers-py-store/`, `design/liquers-py-recipes/` (phase-5) |
 | 2026-10-31 | §6 Browser JavaScript: `UIDEF` is implemented (`defineElement`, `mountRenderer`); `DelegatedElement` and `run_headless` are reusable. | design `web-ui-define` |
 | 2026-10-31 | §6 Browser JavaScript: `UIUSE` is implemented (`mountUI`); the reusable backend changes it needed. | design `web-ui-use` |

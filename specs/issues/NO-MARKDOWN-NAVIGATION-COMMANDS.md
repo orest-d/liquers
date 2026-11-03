@@ -2,11 +2,11 @@
 id: NO-MARKDOWN-NAVIGATION-COMMANDS
 kind: feature
 title: Markdown documents cannot be navigated, filtered or interpreted by structure
-status: draft
+status: closed
 priority: P3
 complexity: L
 area: [lib/commands]
-design: 
+design: markdown-navigation
 created: 2026-10-11
 github:
 ---
@@ -66,6 +66,27 @@ with `ns-search` and `ns-rec`. Candidates:
 command with a `unit` or `kind` argument versus several; whether section addressing should be a
 query (`-R/doc.md/-/ns-md/section-Phase~.2`); and which Markdown parser to use (`pulldown-cmark` is
 already a dependency of the `webui` feature).
+
+## Decisions (maintainer, 2026-10-31)
+
+Proposal: project file `agent-memory-mvp/markdown-commands-proposal.md` (thread "Plan status
+check"). A new default-on `markdown` feature in `liquers-lib`. Commands take one document; commands
+over a folder may exist beside them. Writing commands, editing and rendering move to
+`NO-QUERY-AWARE-MARKDOWN-PARSER`, which also decides between a temporary `pulldown-cmark` and a
+Liquers-owned parser. Chosen the same day: our own block layer first, with links and code spans
+(`design/markdown-navigation/`).
+
+## Progress (2026-11-01)
+
+The first slice is implemented by `design/markdown-navigation/` (PR #228): `ns-md/outline`,
+`section`, `sections`, `links` and `table` on the `liquers-markdown` parser, with
+`ns-search/md_split`, `ns-mem` and `markdown_tiers` moved onto it
+(`specs/reference/MARKDOWN.md`). The rest of this issue's command set, fenced blocks by language,
+front matter as a command, commands over a folder and incoming links, is
+`MARKDOWN-CODE-BLOCKS-FRONT-MATTER-AND-BACKLINKS-ARE-NOT-COMMANDS`.
+
+**Resolution:** closed with the first slice (PR #228; tests `liquers-lib/tests/markdown_commands.rs`,
+`liquers-markdown`); the remainder is tracked by the issue above.
 
 ## Discovery
 

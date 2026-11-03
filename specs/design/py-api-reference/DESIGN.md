@@ -3,9 +3,9 @@ id: PY-API-REFERENCE
 kind: design
 title: A script generates the Python package's API reference from its docstrings
 form: compact
-status: in_review
-phase: implementation
-readiness: needs-decision
+status: complete
+gh_pr: [234]
+readiness: ready
 autofix: not-eligible
 area: [py, docs]
 issues: [PY-API-REFERENCE-NOT-GENERATED]
@@ -13,8 +13,10 @@ created: 2026-10-27
 ---
 # A script generates the Python package's API reference from its docstrings
 
-Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-27: Phases 1-4 written, not
-approved, nothing implemented. The docstrings and their checks were split off the same day into
+Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-27: Phases 1-4 written.
+Implemented 2026-11-02 in PR #234, when the owner asked for the Python API reference on the
+documentation site (`design/user-documentation-guides`); that request took question 1's
+recommendation, `pdoc`. The docstrings and their checks were split off the same day into
 `design/py-docstrings/`; see Scope Changes.
 
 ## Phase 1: High-Level Design
@@ -181,9 +183,9 @@ Run: `bash scripts/test-liquers-py.sh -k DOCS04`, and
 
 Precondition: `py-docstrings` has landed. Former steps 1-6 are its Phase 4.
 
-- [ ] 7. `scripts/build-liquers-py-docs.sh` (new), the reference test, `scripts/test-liquers-py.sh` call — proof: `bash scripts/build-liquers-py-docs.sh`; `bash scripts/test-liquers-py.sh -k DOCS04` (AC-4)
-- [ ] 8. Documents listed in Phase 2 §Changes, History rows, `reviewed:` — proof: `python3 scripts/docs_index.py --check`
-- [ ] 9. `docs_script_fails_on_generator_error` (AC-5), the temporary change reverted; issue `status: closed` with a resolution note; `python3 scripts/docs_index.py` — proof: `python3 scripts/docs_index.py --check`
+- [x] 7. `scripts/build-liquers-py-docs.sh` (new), the reference test, `scripts/test-liquers-py.sh` call — proof: `bash scripts/build-liquers-py-docs.sh`; `bash scripts/test-liquers-py.sh -k DOCS04` (AC-4)
+- [x] 8. Documents listed in Phase 2 §Changes, History rows, `reviewed:` — proof: `python3 scripts/docs_index.py --check`
+- [x] 9. `docs_script_fails_on_generator_error` (AC-5), the temporary change reverted; issue `status: closed` with a resolution note; `python3 scripts/docs_index.py` — proof: `python3 scripts/docs_index.py --check`
 
 Steps are numbered from 7 so that references to them stay valid. Rollback: revert per file; nothing depends on the script.
 
@@ -192,3 +194,14 @@ Steps are numbered from 7 so that references to them stay valid. Rollback: rever
 `bash scripts/test-liquers-py.sh` (whole suite, generator included),
 `python3 scripts/docs_index.py --check`. Review the diff: no change under `liquers-py/src/`, no
 `specs/command_registry.yaml` change.
+
+### Implementation Notes
+
+- 2026-11-02: implemented as planned, with three additions. The script takes `--out DIR`, so
+  `scripts/build-docs.sh` writes the reference straight to the site's `api/python/`. Inside an
+  active virtual environment it uses that environment as it is; otherwise it builds the package
+  into `target/liquers-py-docs-venv` without test-only features, so the published reference does
+  not show `live_handle_count`. AC-5 is the pytest
+  `test_DOCS04_docs_script_fails_on_generator_error` (the script with `liquers_missing` exits
+  non-zero) instead of a temporarily edited `test-liquers-py.sh`. Publication, which question 2
+  deferred to `PACKAGE`, comes from the documentation site instead.

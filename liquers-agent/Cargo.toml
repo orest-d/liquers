@@ -1,8 +1,9 @@
 [package]
 name = "liquers-agent"
-version = "0.1.0"
+version.workspace = true
 edition = "2021"
 rust-version.workspace = true
+license.workspace = true
 description = "A file-based agent memory served over MCP and the command line"
 
 [lib]
@@ -14,7 +15,7 @@ path = "src/main.rs"
 
 [dependencies]
 liquers-core = { path = "../liquers-core" }
-liquers-lib = { path = "../liquers-lib", default-features = false, features = ["mem"] }
+liquers-lib = { path = "../liquers-lib", default-features = false, features = ["mem", "markdown"] }
 liquers-store = { path = "../liquers-store" }
 liquers-mcp = { path = "../liquers-mcp" }
 # register_all_commands! expands to register_command!, which names these two crates.

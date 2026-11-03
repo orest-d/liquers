@@ -29,6 +29,16 @@ TypeDoc (or equivalent) over the generated `.d.ts`, run by `scripts/check-stubs.
 exported class, function, method or getter has no comment. The Python counterpart is
 `PY-API-REFERENCE-NOT-GENERATED`.
 
+## Progress
+
+2026-11-02 (`design/user-documentation-guides`, on the owner's request that the site carry every
+API reference): `scripts/build-liquers-web-docs.sh` builds the quick-start page with `records` and
+runs TypeDoc over its `liquers_web.d.ts`; `scripts/build-docs.sh` publishes the result at
+`api/js/` of the documentation site. It runs from the documentation build rather than from
+`check-stubs.sh`. What remains is the check: TypeDoc runs with `--validation.notDocumented false`,
+because several exports still have no comment; turning it on (and failing) is the rest of this
+issue.
+
 ## Discovery
 
 Split from `WEB-HAS-NO-API-REFERENCE-OR-USER-GUIDE` when its contract reference and user guide were

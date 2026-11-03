@@ -37,6 +37,9 @@ pub struct ValidationRegistryBuilder {
     registry: CommandMetadataRegistry,
     provenance: RegistryProvenance,
     allow_overwrite: bool,
+    /// Replaces the merged registry's `default_namespaces` at [`Self::build`], by the rule
+    /// `EnvironmentBuilder::with_default_namespaces` applies.
+    default_namespaces: Option<Vec<String>>,
 }
 
 impl Default for ValidationRegistryBuilder {
@@ -51,7 +54,15 @@ impl ValidationRegistryBuilder {
             registry: CommandMetadataRegistry::new(),
             provenance: RegistryProvenance::default(),
             allow_overwrite: false,
+            default_namespaces: None,
         }
+    }
+
+    /// Validate as an environment configured with `default_namespaces:` would plan: these
+    /// namespaces, then root unless listed, replace the merged chain.
+    pub fn with_default_namespaces(mut self, namespaces: Vec<String>) -> Self {
+        self.default_namespaces = Some(namespaces);
+        self
     }
 
     /// Permit a merged command to replace one already present.
@@ -130,6 +141,10 @@ impl ValidationRegistryBuilder {
     }
 
     pub fn build(mut self) -> (CommandMetadataRegistry, RegistryProvenance) {
+        if let Some(configured) = self.default_namespaces.take() {
+            self.registry.default_namespaces =
+                CommandMetadataRegistry::default_namespace_chain(&configured);
+        }
         self.provenance.command_count = self.registry.commands.len();
         self.provenance
             .default_namespaces
@@ -312,6 +327,30 @@ mod tests {
 
         assert!(registry.default_namespaces.contains(&"pl".to_string()));
         assert!(provenance.default_namespaces.contains(&"pl".to_string()));
+        Ok(())
+    }
+
+    /// AC-10: `--default-namespace` validates as a configured environment would plan.
+    #[test]
+    fn default_namespace_flag_resolves_unqualified_action() -> Result<(), Error> {
+        let mut builder =
+            ValidationRegistryBuilder::new().with_default_namespaces(vec!["pl".to_string()]);
+        builder.merge_str("pl.yaml", &registry_yaml("head", "pl"))?;
+        let (registry, provenance) = builder.build();
+        assert_eq!(registry.default_namespaces, vec!["pl", "", "root"]);
+        assert_eq!(provenance.default_namespaces, vec!["pl", "", "root"]);
+        let namespaces = registry.lookup_namespaces(&[]);
+        assert!(registry
+            .find_command_in_namespaces("", &namespaces, "head")
+            .is_some());
+
+        let mut plain = ValidationRegistryBuilder::new();
+        plain.merge_str("pl.yaml", &registry_yaml("head", "pl"))?;
+        let (registry, _) = plain.build();
+        let namespaces = registry.lookup_namespaces(&[]);
+        assert!(registry
+            .find_command_in_namespaces("", &namespaces, "head")
+            .is_none());
         Ok(())
     }
 }

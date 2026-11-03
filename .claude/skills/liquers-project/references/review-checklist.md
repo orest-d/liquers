@@ -81,6 +81,8 @@ find.
 - [ ] Every document in `affects_docs` reviewed against the code and tests, with a History row and a
   `reviewed:` bump (§9.2).
 - [ ] Planned reference and guide documents exist; `specs/README.md` links to them.
+- [ ] User-guide chapters whose `sources:` intersect `affects_docs` (`docs_index.py chapters-for`)
+  reviewed: `reviewed:` and a `HISTORY.md` row, a fix, or a `CHECK:` marker with an issue.
 - [ ] Completed issues `closed` with a resolution note; discovered problems triaged, each with its
   outcome.
 - [ ] `python3 scripts/docs_index.py --check` passes.

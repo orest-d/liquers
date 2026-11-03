@@ -3,7 +3,7 @@ title: Liquers Project Overview
 kind: reference
 audience: internal
 area: [core/query, core/plan, core/assets, core/store, core/value]
-reviewed: 2026-10-30
+reviewed: 2026-11-01
 ---
 # Liquers Project Overview
 
@@ -60,12 +60,16 @@ liquers-core (foundation - all core abstractions)
     │   ├─ Mustache parser, renderer and encoder; hygienic {{$ q}} query tags
     │   └─ TemplateHost: how a renderer evaluates queries and loads partials
     │
+    ├── liquers-markdown (lossless, query-aware Markdown block parser; depends on liquers-core only)
+    │   └─ Blocks that tile the text, a section tree and addresses, links and code spans
+    │
     ├── liquers-lib (rich value types + UI)
     │   ├─ Extended value types (DataFrames, Images, UI commands, records)
     │   ├─ Polars integration for tabular data
     │   ├─ Record values and the ns-rec commands (feature `records`, over liquers-records)
     │   ├─ The ns-template commands (feature `templates`, over liquers-template)
     │   ├─ The ns-mem agent memory commands (feature `mem`, over records)
+    │   ├─ The ns-md Markdown navigation commands (feature `markdown`, over liquers-markdown)
     │   ├─ egui-based interactive UI
     │   └─ Implements Environment trait
     │
@@ -86,8 +90,14 @@ liquers-core (foundation - all core abstractions)
     │   └─ wasm32-only; excluded from the workspace default-members
     │
     └── liquers-py (Python bindings via PyO3)
-        └─ FFI wrappers for Python interoperability
+        ├─ Value bridge, Python commands, stores and recipe providers, record views and sources
+        └─ Built as the `liquers-py` wheels (CPython 3.14+; none published yet), typed by hand-written stubs
 ```
+
+**One version.** Every crate inherits `version` and `license` (`AGPL-3.0-or-later`) from the
+workspace's `[workspace.package]`. `liquers_core::VERSION` is that version, and every environment
+reports it through the provided `Environment::liquers_version()`; Python reads it as
+`Environment.liquers_version` and `liquers.__version__`, JavaScript as `liquersVersion`.
 
 **Dependency flow**: `liquers-core` ← `liquers-macro` ← `liquers-store` ← `liquers-lib` ←
 `liquers-axum` / `liquers-web`, and `liquers-core` ← `liquers-records` ← `liquers-lib` (feature
@@ -95,8 +105,10 @@ liquers-core (foundation - all core abstractions)
 records need not pull in `liquers-lib`; it reaches its own value type through the `RecordValue`
 adapter trait. Likewise `liquers-core` ← `liquers-template` ← `liquers-lib` (feature `templates`, on
 by default); a template reads its data through core's `DataNode`
-([`TEMPLATE_LANGUAGE.md`](TEMPLATE_LANGUAGE.md)). `liquers-core` ← `liquers-mcp` ← `liquers-agent`,
-which also depends on `liquers-lib` (feature `mem`) and `liquers-store`
+([`TEMPLATE_LANGUAGE.md`](TEMPLATE_LANGUAGE.md)). `liquers-core` ← `liquers-markdown` ← `liquers-lib`
+(with `records`, which reads Markdown through it; feature `markdown` adds `ns-md`)
+([`MARKDOWN.md`](MARKDOWN.md)). `liquers-core` ← `liquers-mcp` ← `liquers-agent`,
+which also depends on `liquers-lib` (features `mem`, `markdown`) and `liquers-store`
 ([`AGENT_MEMORY_SERVICE.md`](AGENT_MEMORY_SERVICE.md)).
 
 ### liquers-core Module Structure
@@ -568,6 +580,8 @@ project's purpose, intended uses and per-crate strategy. This document describes
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-01 | One workspace version and license; `Environment::liquers_version`; what `liquers-py` provides (its wheels built, none published yet). | `design/liquers-py-package/`, `design/liquers-py-records/` (phase-5) |
+| 2026-11-01 | Added `liquers-markdown` to the crate structure and the dependency flow, and the `markdown` feature (`ns-md`). | `design/markdown-navigation/` |
 | 2026-10-30 | §Recipes: every environment's recipe provider is a chain configured as a list; every member is asked. | design `recipe-provider-chain-config` |
 | 2026-10-25 | Error handling: `ErrorCategory` (`Store`, `KeyedAsset`, `NotFound`) and the `KeyNotFound` / `AssetNotFound` distinction. | `design/key-without-recipe-answer/` |
 | 2026-10-20 | "Special instructions" renamed planner instructions, reduced to the `ns`-is-variadic rule and a link to their definition in `RECIPES_AND_PLANS.md`; a resource header takes at most one instruction. | DOC-08 promotion |

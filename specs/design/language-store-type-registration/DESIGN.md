@@ -13,7 +13,15 @@ created: 2026-10-27
 ---
 # A page defines a store type, with its arguments, for the store configuration
 
-Bulk design, 2026-10-27: Phases 1-4 written, not approved, nothing implemented. Scope is `liquers-web`; the Python half is a follow-up (question 5).
+Bulk design, 2026-10-27: Phases 1-4 written, not approved, nothing implemented. Scope is `liquers-web`.
+
+**Revised 2026-11-01 after review.** `liquers-py` shipped Python store types the same day
+(`Environment.register_store_factory`, `PyStoreFactory`, design `liquers-py-store`), so the Python
+half of the issue is done. Orest decided (2026-11-01) that the JavaScript store types follow the
+Python rules, and that new registration calls are `Environment` methods that refuse on an explicit
+instance. This revision applies both: the method is `registerStoreFactory`, a second registration
+of a name is refused, `config:` keys are checked strictly, refusals are `configuration_error`, and
+`storeTypes()` lists the types. Phase 1 is still not approved.
 
 ## Phase 1: High-Level Design
 
@@ -21,9 +29,10 @@ Bulk design, 2026-10-27: Phases 1-4 written, not approved, nothing implemented. 
 
 A page can register a store *object* under a name and reach it through the one Rust-defined type
 `js`, but it cannot define a store *type*: a `type:` name of its own, with described arguments,
-built by a constructor it supplies. This design adds `registerStoreType(spec)` to `liquers-web`,
-backed by the existing factory seam, so a page-defined type is resolved, listed and documented
-like the Rust-defined ones.
+built by a constructor it supplies. This design adds `Environment.registerStoreFactory(type, create, options)` to
+`liquers-web`, backed by the existing factory seam, so a page-defined type is resolved, listed and
+documented like the Rust-defined ones. It follows `liquers-py`'s `register_store_factory`
+(`liquers-py/src/store/factory.rs`) wherever the two languages allow the same rule.
 
 ### Problem Example
 
@@ -36,14 +45,14 @@ in `STORE_OBJECTS` and replays them in `apply_store`.
 
 ```javascript
 const env = liquers.Environment.global();
-env.registerStoreType({
-  store_type: "kv", doc: "A page-provided key-value store",
+env.registerStoreFactory("kv", (config) => makeKvStore(config.bucket), {   // returns a store object, as for `js`
+  doc: "A page-provided key-value store",
   arguments: [{ name: "bucket", label: "Bucket", doc: "Bucket name", argument_type: "string", required: true }],
-  create: (config) => makeKvStore(config.bucket),     // returns a store object, as for `js`
 });
 await env.configureStore({ stores: [{ type: "kv", prefix: "kv", config: { bucket: "b1" } }] });
 await liquers.evaluate("-R/kv/hello.txt");
-// today:    registerStoreType does not exist; `type: kv` is refused as unknown, and the message
+env.storeTypes().map((t) => t.store_type);   // [..., "kv"]
+// today:    registerStoreFactory does not exist; `type: kv` is refused as unknown, and the message
 //           lists only the Rust-defined types
 // expected: the store is built through `create`, the query reads from it, and `kv` is listed
 ```
@@ -57,81 +66,106 @@ The query was checked with `liquers-validate`.
   THEN the store is built by calling `create(config, prefix)` and adapting its result as a `js`
   store object is adapted, and a resource query reads from it
 - **AC-2** It is listed
-  WHEN a configuration names an unknown type
-  THEN the refusal lists the page-defined types among the available ones
-- **AC-3** Declared arguments are honoured
-  WHEN an entry omits a required argument, or omits one with a default
-  THEN the first fails before `create` runs, naming the type and the argument; the second reaches
-  `create` with the default filled in
+  WHEN a configuration names an unknown type, or the page calls `env.storeTypes()`
+  THEN the refusal lists the page-defined types among the available ones, and `storeTypes()`
+  returns the built-in types then the page-defined ones, each as a `StoreTypeInfo` object
+  (`store_type`, `label`, `doc`, `arguments`, `availability`, `coverage`), as Python's
+  `store_types()` does
+- **AC-3** Declared arguments are honoured, strictly
+  WHEN an entry omits a required argument, omits one with a default, or gives a key that is not
+  declared
+  THEN the first fails before `create` runs with `configuration_error`, naming the type, prefix and
+  argument; the second reaches `create` with the default filled in; the third fails the same way,
+  naming the unknown key, unless the registration set `otherArguments: true`, in which case it
+  reaches `create` and the type's `coverage` is `Partial` (Python's `**kwargs` rule)
 - **AC-4** A bad constructor is reported
   WHEN `create` throws, returns a Promise, or returns an object without `get`
-  THEN building the store fails with an error naming the type, and the previous store stays
+  THEN building the store fails with `configuration_error` naming the type (a thrown value's
+  message kept), and the previous store stays
 - **AC-5** A Rust type name is refused
   WHEN the registered name is one a Rust factory in the chain declares (`memory`, `filesystem`,
   which core declares as unavailable on wasm32, `localstorage`, `js`, `http`, `https`)
-  THEN `registerStoreType` throws, naming the type
+  THEN `registerStoreFactory` throws `configuration_error`, naming the type, as Python's
+  "is a built-in store type; choose another name"
 - **AC-6** Order and retention
   WHEN the type is registered after `configureStore`, and later registrations of any kind follow
   THEN the configuration is re-applied with the type, and the type stays resolvable after each,
   whether that registration rebuilds the environment or updates it in place
-- **AC-7** Replacement
+- **AC-7** A name is registered once
   WHEN a type is registered again under the same name
-  THEN the new declaration and constructor are used from the next build on
+  THEN `registerStoreFactory` throws `configuration_error` ("store type 'kv' is already
+  registered"), as Python does, and the first registration stays in effect
+- **AC-9** Only on the page environment
+  WHEN `registerStoreFactory` is called on an explicit `new Environment()`
+  THEN it throws `not_supported`, as `registerCommand` on an instance does, and nothing is
+  registered anywhere (the decision of 2026-11-01; it lifts with
+  `WEB-EXPLICIT-ENVIRONMENT-CONFIGURES-THE-SINGLETON`)
 - **AC-8** A re-applied configuration keeps the store object
-  WHEN the configuration is re-applied (a later `registerStoreObject` / `registerStoreType`, a
+  WHEN the configuration is re-applied (a later `registerStoreObject` / `registerStoreFactory`, a
   rebuild) and an entry's type, prefix and `config` are unchanged
   THEN `create` is not called again, and an in-memory page store keeps its contents
 
-Non-goals: Python (question 5); asynchronous constructors; a `storeTypes()` listing API (the
-refusal message is today's only listing, for Rust types too); `store_config` handlers defined in
+Non-goals: Python (done in `liquers-py-store`); asynchronous constructors; unregistering a type;
+`store_config` handlers defined in
 the language (`LANGUAGE-STORE-CONFIG-FUNCTION-NOT-DEFINABLE`); removing `js`, which stays the quick
 path for a one-off store.
 
 ### Design Readiness
 
 - **Readiness:** needs-decision
-- **Automatic fixing:** not-eligible. It adds a method to the JavaScript `Environment` class and a
-  TypeScript type (rule 4), and readiness is `needs-decision` (rule 5).
-- **Leading issue:** **Open design - where the method lives.**
+- **Automatic fixing:** not-eligible. It adds methods to the JavaScript `Environment` class and a
+  TypeScript type (rule 4), and Phase 1 is not approved.
+- **Leading issue:** none open. The two open designs were decided by Orest on 2026-11-01
+  (questions 1 and 7); the rest are proposed resolutions.
 - **Explanation:** the language-neutral half already exists (`StoreTypeInfo` is serde), and
   `JsStore::new` already adapts a page object. The bridge is a table of declarations plus
   constructor callbacks inside `WebStoreFactory`, retained like `STORE_OBJECTS`. That is `M` in
   one crate.
 - **Open questions:**
-  1. **Open design - placement.** Recommended: `Environment.registerStoreType(spec)`, beside
-     `registerStoreObject` and `configureStore`, with the same singleton semantics
-     (`WEB-EXPLICIT-ENVIRONMENT-CONFIGURES-THE-SINGLETON`). The alternative, module-level
-     `liquers.registerStoreType` as the issue sketches, would split the store API across two
-     receivers.
+  1. **Decided 2026-11-01 - placement.** `Environment.registerStoreFactory` and
+     `Environment.storeTypes`, beside `registerStoreObject` and `configureStore`. On an explicit
+     instance both refuse with `not_supported` (AC-9) rather than acting on the singleton, which
+     is what `configureStore` still does (`WEB-EXPLICIT-ENVIRONMENT-CONFIGURES-THE-SINGLETON`).
+     The rule for every new registration call: an `Environment` method, refused on an explicit
+     instance until instances can be configured.
   2. **Proposed resolution - synchronous constructor.** `StoreFactory::create` is synchronous, so
      `create` must return the object; a thenable is refused with a message saying so. An object
      whose methods return Promises is fine, as for `js`.
   3. **Proposed resolution - collisions.** A name declared by `core_store_factory()` or
      `WebStoreFactory`'s own types is refused at registration, since under first-wins chaining it
-     could never resolve.
-  4. **Proposed resolution - arguments and coverage.** Required arguments are checked and defaults
-     filled before `create`; unlisted keys pass through, as Rust types allow. `coverage` defaults
-     to `Complete` and may be `{Partial: {authority}}`; `availability` is always `Available`.
-     Absent `label` / `doc`, on the type and on each `arguments[]` entry, default to the name /
-     empty, as `StoreTypeInfo::new` and `StoreArgumentInfo::new` do; the spec is read through a
-     crate-private serde mirror with those defaults, then converted.
-  5. **Proposed resolution - scope.** `liquers-web` only. `liquers-py` has no `STORE` feature: no
-     store can be written in Python yet, so a Python store *type* first needs the store adapter
-     itself. Covering both would be `L`. The issue keeps its Python half until a follow-up issue
-     takes it (Step 5).
+     could never resolve (Python's rule; the browser chain has no `opendal_*` types to reserve).
+     An empty name is refused too.
+  4. **Decided 2026-11-01 (follow Python) - arguments and coverage.** A JavaScript function's
+     parameters cannot be inspected, so `options.arguments` is the declaration; without it the
+     type takes no arguments. Required arguments are checked and defaults filled before `create`.
+     An undeclared key is refused (AC-3), unless `options.otherArguments` is `true`, which makes
+     `coverage` `{Partial: {authority: "the JavaScript factory of store type 'kv'"}}`, the
+     authority text Python uses; otherwise `coverage` is `Complete`. `availability` is always
+     `Available`. Absent `label` / `doc`, on the type and on each `arguments[]` entry, default to
+     the name / empty, as Python and `StoreTypeInfo::new` do; `arguments[]` is read through a
+     crate-private serde mirror with those defaults, then converted. Refusals use
+     `Error::configuration_error`, as Python's do.
+  5. **Resolved - scope.** `liquers-web` only. The Python half shipped in `liquers-py-store`
+     (2026-11-01), so the issue closes when this lands (Step 5).
   6. **Proposed resolution - constructed objects are retained.** `apply_store` builds a fresh
      `WebStoreFactory` each time, so `create` would run on every re-apply and a page's in-memory
      store would lose its contents. Each object `create` returns is kept in `STORE_TYPE_INSTANCES`
-     under (type, prefix, canonical `config` JSON) and reused; re-registering a type drops its
-     instances (AC-7). The alternative documents the loss.
+     under (type, prefix, canonical `config` JSON) and reused; `reset_global` drops them. This
+     differs from Python, whose rebuild keeps the built store whole, because the web build
+     re-applies its configuration (AC-6); the observable result, a store that keeps its contents,
+     is the same. The alternative documents the loss.
+  7. **Decided 2026-11-01 (follow Python) - re-registration and naming.** A name is registered
+     once (AC-7); the method is named for the factory, as in Python (`registerStoreFactory` /
+     `register_store_factory`), and the listing is `storeTypes()` / `store_types()`.
 
 ### Design Dependencies
 
 - `language-store-config-function` (this run): **overlaps**. The same asymmetry for `store_config`
   handlers; a different seam (`StoreConfigFunctions`, not `StoreFactory`). Both may add retained
   state applied in `apply_store`; T3 rejected, since adjacent additions force no order.
-- `WEB-EXPLICIT-ENVIRONMENT-CONFIGURES-THE-SINGLETON` (issue): **overlaps**. `registerStoreType`
-  inherits that limitation; fixing it fixes both methods.
+- `WEB-EXPLICIT-ENVIRONMENT-CONFIGURES-THE-SINGLETON` (issue): **overlaps**. `registerStoreFactory`
+  refuses on an explicit instance instead of inheriting that limitation (AC-9); fixing the issue
+  lifts the refusal for both.
 - `language-late-registration-without-rebuild` (this run): **overlaps**. Both edit
   `liquers-web/src/environment.rs`. After it lands, command registration no longer rebuilds or
   re-applies the store; store paths still do. AC-6 holds in both cases, so either order.
@@ -144,30 +178,36 @@ path for a one-off store.
   constructors go into `WebStoreFactory` itself and both signatures stay.
 - Calling `create` happens inside `build_store`, which `apply_store` already runs with no
   `RefCell` borrow held, as the crate's borrow rule requires.
-- `LANGUAGE-INTEGRATION_GUIDE.md` §STORE offers no direction for a store type contributed by the
-  language; this design adds it and the test `STORE19`.
+- `LANGUAGE-INTEGRATION_GUIDE.md` §STORE (2026-11-01) describes the bridging factory Python uses
+  and says `liquers-web` has none yet; it has no test ID for it. This design adds `STORE19` for a
+  language-defined store type, and `liquers-py`'s `tests/test_STORE_registration.py` takes the ID
+  in the same change, so both integrations are checked against one test.
 
 ## Phase 2: Architecture
 
 ### Solution
 
 `WebStoreFactory` gains `types: BTreeMap<String, (StoreTypeInfo, js_sys::Function)>`.
-`store_types()` appends their infos; `create()`'s fallback arm looks the name up, checks
-required arguments, fills defaults, converts `config.config` to a plain object
+`store_types()` appends their infos; `create()`'s fallback arm looks the name up, binds the
+arguments as `liquers-py`'s `store::bind_arguments` does (required, defaults, unknown keys refused
+unless `Partial`), converts the bound arguments to a plain object
 (`bridge::serialize_to_js`), calls `create.call2(&JsValue::NULL, &config, &prefix)`, refuses a
 thenable (`crate::command::is_thenable`) or a non-object, and returns
 `JsStore::new(&prefix, &store_type, object)`. Before calling, it looks in the instances it was
 given (question 6); a new object is recorded for `apply_store` to retain. A thrown value goes through
-`error::js_error_to_liquers(thrown, ErrorType::General)` with the type named.
+`error::js_error_to_liquers(thrown, ErrorType::ConfigurationError)` with the type named.
 
 `environment.rs`: `STORE_TYPES: RefCell<Vec<(StoreTypeInfo, js_sys::Function)>>` and
 `STORE_TYPE_INSTANCES` beside `STORE_OBJECTS`; `apply_store` registers both and retains new
-instances; `reset_global` clears them; `register_store_type_on(spec)` parses the spec,
-checks the name (AC-5), replaces by name, and re-applies the configuration when one is installed,
+instances; `reset_global` clears them; `register_store_type_on(type, create, options)` parses the options,
+checks the name (AC-5, AC-7), appends, and re-applies the configuration when one is installed,
 restoring the previous list on failure, exactly as `register_store_object_on` does.
+`LiquersEnvironment::register_store_factory` and `store_types` refuse an `EnvHandle::Explicit`
+handle with `not_supported` (AC-9).
 
 Rejected: a second factory in the chain (changes `build_router` / `build_store`); module-level
-placement (question 1); awaiting a Promise from `create` (the factory trait is synchronous).
+placement (question 1); replacing a registered type (question 7); passing undeclared keys through
+(question 4); awaiting a Promise from `create` (the factory trait is synchronous).
 
 Known issues: none blocks.
 
@@ -176,27 +216,33 @@ Known issues: none blocks.
 ```rust
 // liquers-web/src/store/builder.rs
 impl WebStoreFactory {
-    /// Adds a page-defined store type. Errors when `info.store_type` is a built-in type.
+    /// Adds a page-defined store type. Errors when `info.store_type` is a built-in type or
+    /// already registered.
     pub fn register_type(&mut self, info: StoreTypeInfo, create: js_sys::Function) -> Result<(), Error>;
     /// Instances to reuse (question 6); `apply_store` keeps only those the new config uses.
     pub fn with_instances(self, instances: Vec<(InstanceKey, JsValue)>) -> Self;
 }
 // liquers-web/src/environment.rs
-pub fn register_store_type_on(spec: &JsValue) -> Result<(), Error>;
+pub fn register_store_type_on(store_type: &str, create: js_sys::Function, options: &JsValue) -> Result<(), Error>;
 // #[wasm_bindgen] impl LiquersEnvironment
-#[wasm_bindgen(js_name = registerStoreType)]
-pub fn register_store_type(&self, spec: crate::typescript::JsStoreTypeSpec) -> Result<(), JsValue>;
+#[wasm_bindgen(js_name = registerStoreFactory)]
+pub fn register_store_factory(&self, store_type: String, create: js_sys::Function,
+    options: Option<crate::typescript::JsStoreFactoryOptions>) -> Result<(), JsValue>;
+#[wasm_bindgen(js_name = storeTypes)]
+pub fn store_types(&self) -> Result<crate::typescript::JsStoreTypeInfoArray, JsValue>;
 ```
 
-- `liquers-web/src/typescript.rs`: `LiquersStoreTypeSpec` (`store_type`, `label?`, `doc?`,
-  `arguments?`, `coverage?`, `create(config, prefix): LiquersStoreObject`) and the extern
-  `JsStoreTypeSpec`.
-- Errors: `Error::general_error` naming the type for refusals; the thrown value's message kept.
+- `liquers-web/src/typescript.rs`: `LiquersStoreFactoryOptions` (`label?`, `doc?`, `arguments?`,
+  `otherArguments?`), `LiquersStoreTypeInfo`, the factory type
+  `(config, prefix) => LiquersStoreObject`, and the extern types.
+- Errors: `Error::configuration_error` naming the type for refusals; the thrown value's message
+  kept; `not_supported` on an explicit instance.
 - Sync only; no command; `specs/command_registry.yaml` unchanged.
 - Documents (History row, `reviewed:` bump): `guides/JAVASCRIPT_GUIDE.md` store section (a
-  `registerStoreType` example); `guides/LANGUAGE-INTEGRATION_GUIDE.md` §STORE (a fourth
-  direction: a store type from the language, and `STORE19`); `liquers-web/README.md` store table
-  and `STORE` row. Proposed `affects_docs`: the two under `specs/`.
+  `registerStoreFactory` example); `reference/JAVASCRIPT_INTEGRATION.md` (the two methods);
+  `guides/LANGUAGE-INTEGRATION_GUIDE.md` §STORE (`liquers-web` now bridges the factory too, and
+  `STORE19`); `liquers-web/README.md` store table and `STORE` row; `liquers-py/README.md` `STORE`
+  row (`STORE19`). Proposed `affects_docs`: the three under `specs/`.
 
 ### Risks
 
@@ -214,7 +260,9 @@ Recovery: revert the crate; `js` stores are untouched.
 ### Examples
 
 The Problem Example, with `makeKvStore` returning `{ get: (key) => ({ data: bytes[key], metadata: {} }) }`.
-An entry without `bucket` fails with "store type 'kv' requires argument 'bucket'".
+An entry without `bucket` fails with `configuration_error` "store type 'kv' at prefix 'kv': the
+required argument 'bucket' is missing from `config:`", Python's wording; an entry with
+`config: { bucket: "b1", colour: "red" }` fails naming `colour`.
 
 ### Tests
 
@@ -222,30 +270,36 @@ An entry without `bucket` fails with "store type 'kv' requires argument 'bucket'
 (`cargo test -p liquers-web --target wasm32-unknown-unknown --features debug-handles`):
 
 - `store19_page_defined_type_is_constructible`: the Problem Example reads `hello.txt` (AC-1)
-- `store19_unknown_type_lists_page_defined_types` (AC-2)
-- `store19_required_argument_and_default` (AC-3)
+- `store19_unknown_type_lists_page_defined_types` and `store19_store_types_lists_page_defined_types` (AC-2)
+- `store19_required_argument_and_default`, `store19_undeclared_key_is_refused` and
+  `store19_other_arguments_is_partial` (AC-3)
 - `store19_bad_constructor_keeps_the_previous_store`: throwing, a Promise, no `get` (AC-4)
 - `store19_built_in_name_is_refused` for each of the six names (AC-5)
 - `store19_type_registered_after_configuration_applies` and
   `store19_type_survives_later_registrations` (a command, a store object) (AC-6)
-- `store19_reregistration_replaces` (AC-7)
+- `store19_second_registration_is_refused` (AC-7)
+- `store19_explicit_instance_refuses` (AC-9)
 - `store19_reapplied_configuration_keeps_the_object`: a counting `create`, a written value still
   read after `registerStoreObject` (AC-8)
 - `store19_argument_label_and_doc_default`: an `arguments[]` entry with only `name` (question 4)
 
 Unit, `liquers-web/src/store/builder.rs` `tests`: `register_type_refuses_built_in_names` (AC-5).
-Stubs: one `registerStoreType` use in `tests/stubs/valid_usage.ts`, an async `create` in
-`invalid_usage.ts` (AC-4).
+Stubs: one `registerStoreFactory` and one `storeTypes` use in `tests/stubs/valid_usage.ts`, an
+async `create` in `invalid_usage.ts` (AC-4).
+
+Python: rename the store-type tests in `liquers-py/tests/test_STORE_registration.py` to carry
+`STORE19` (no behaviour change).
 
 ## Phase 4: Implementation Plan
 
 ### Steps
 
 - [ ] 1. `liquers-web/src/store/builder.rs` `WebStoreFactory::{register_type, store_types, create}` — `register_type_refuses_built_in_names` — `cargo test -p liquers-web --target wasm32-unknown-unknown --features debug-handles --lib builder`
-- [ ] 2. `liquers-web/src/environment.rs` `STORE_TYPES`, `STORE_TYPE_INSTANCES`, `apply_store`, `register_store_type_on`, `LiquersEnvironment::register_store_type` — all `store19_*` tests — `cargo test -p liquers-web --target wasm32-unknown-unknown --features debug-handles store19`, also with `,records`
+- [ ] 2. `liquers-web/src/environment.rs` `STORE_TYPES`, `STORE_TYPE_INSTANCES`, `apply_store`, `register_store_type_on`, `LiquersEnvironment::{register_store_factory, store_types}` — all `store19_*` tests — `cargo test -p liquers-web --target wasm32-unknown-unknown --features debug-handles store19`, also with `,records`
 - [ ] 3. `liquers-web/src/typescript.rs` and `tests/stubs/*.ts` — `./liquers-web/scripts/check-stubs.sh --build` and `--build --records`
 - [ ] 4. Documents of Phase 2 with History rows — `./liquers-web/scripts/test-guide-examples.sh` and `python3 scripts/docs_index.py --check`
-- [ ] 5. `specs/issues/LANGUAGE-STORE-TYPE-NOT-DEFINABLE.md`: file the Python half as its own issue (it requires `PY-NO-LANGUAGE-DEFINED-STORE`, the Python `STORE` feature, filed 2026-10-27), then close this one with a resolution note; this design `complete` — `python3 scripts/docs_index.py` then `--check`
+- [ ] 5. `liquers-py/tests/test_STORE_registration.py`: the `STORE19` names — `bash scripts/test-liquers-py.sh`
+- [ ] 6. `specs/issues/LANGUAGE-STORE-TYPE-NOT-DEFINABLE.md`: close with a resolution note naming both designs; this design `complete` — `python3 scripts/docs_index.py` then `--check`
 
 Rollback: steps 1-3 revert together; documents separately.
 

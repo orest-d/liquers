@@ -1,11 +1,14 @@
 //! `ns-search/md_split` — a proof of concept for Markdown navigation
 //! (`NO-MARKDOWN-NAVIGATION-COMMANDS`): Markdown sections, or lines of any text file, as records.
+//! Sections come from the `liquers-markdown` block parser; the helpers below adapt it for
+//! `ns-mem` and the `markdown_tiers` store step.
 
 use std::sync::Arc;
 
 use liquers_core::context::{Context, Environment};
 use liquers_core::error::Error;
 use liquers_core::state::State;
+use liquers_markdown::Document;
 
 use crate::records::{
     FieldRole, FieldSchema, FieldType, FieldValue, KeyRole, RecordBatchMut, RecordSchema,
@@ -15,145 +18,47 @@ use crate::value::{ExtValueInterface, Value};
 
 use super::extract::{document_rows, document_text, documents};
 
-/// One section: `(heading path, level, first line, last line)`, lines 1-based. Section 0 — the
-/// text before the first heading — has no heading and level 0.
-pub(crate) fn sections(text: &str) -> Vec<(Option<String>, usize, usize, usize)> {
-    let lines: Vec<&str> = text.lines().collect();
-    let mut headings: Vec<(usize, usize, String)> = Vec::new(); // (line index, level, title)
-    let mut in_fence = false;
-    for (i, line) in lines.iter().enumerate() {
-        let trimmed = line.trim_start();
-        if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
-            in_fence = !in_fence;
-            continue;
-        }
-        if in_fence {
-            continue;
-        }
-        let level = trimmed.chars().take_while(|&c| c == '#').count();
-        if (1..=6).contains(&level) && trimmed[level..].starts_with(' ') {
-            headings.push((i, level, trimmed[level..].trim().to_string()));
-        }
-    }
+/// One section: `(heading path, level, first line, last line)`, lines 1-based; a section runs to
+/// its last subsection. Section 0, the text before the first heading, has no heading and level
+/// 0; with `skip_front_matter` the front matter does not count as such text.
+pub(crate) fn sections(text: &str, skip_front_matter: bool) -> Vec<(Option<String>, usize, usize, usize)> {
+    let doc = Document::parse(text);
     let mut out = Vec::new();
-    let first = headings.first().map(|(i, _, _)| *i).unwrap_or(lines.len());
-    if lines[..first].iter().any(|line| !line.trim().is_empty()) {
-        out.push((None, 0, 1, first));
+    let first = doc.sections().first().map(|s| s.span.start).unwrap_or(text.len());
+    let from = if skip_front_matter { doc.front_matter_end() } else { 0 };
+    if first > from && !text[from..first].trim().is_empty() {
+        let last_line = text[..first].lines().count();
+        out.push((None, 0, 1, last_line));
     }
-    let mut path: Vec<(usize, String)> = Vec::new();
-    for (h, (start, level, title)) in headings.iter().enumerate() {
-        while path.last().is_some_and(|(l, _)| *l >= *level) {
-            path.pop();
-        }
-        path.push((*level, title.clone()));
-        let end = headings[h + 1..]
-            .iter()
-            .find(|(_, l, _)| *l <= *level)
-            .map(|(i, _, _)| *i)
-            .unwrap_or(lines.len());
-        let heading = path.iter().map(|(_, t)| t.as_str()).collect::<Vec<_>>().join(" > ");
-        out.push((Some(heading), *level, start + 1, end));
+    for s in doc.sections() {
+        out.push((Some(s.path.join(" > ")), usize::from(s.level), s.span.line, s.span.end_line));
     }
     out
 }
 
 /// The first heading of a Markdown text (any level), after any front-matter.
 pub(crate) fn first_heading(text: &str) -> Option<String> {
-    let body = &text[liquers_records::search::front_matter_end(text)..];
-    let mut in_fence = false;
-    for line in body.lines() {
-        let trimmed = line.trim_start();
-        if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
-            in_fence = !in_fence;
-            continue;
-        }
-        if !in_fence {
-            if let Some(title) = heading_title(trimmed) {
-                return Some(title);
-            }
-        }
-    }
-    None
-}
-
-fn heading_title(trimmed: &str) -> Option<String> {
-    let level = trimmed.chars().take_while(|&c| c == '#').count();
-    if (1..=6).contains(&level) && trimmed[level..].starts_with(' ') {
-        let title = trimmed[level..].trim();
-        (!title.is_empty()).then(|| title.to_string())
-    } else {
-        None
-    }
-}
-
-/// The first paragraph of `lines`: consecutive prose lines joined by spaces, skipping headings,
-/// fenced code, tables and HTML comments.
-fn paragraph_of<'a>(lines: impl Iterator<Item = &'a str>) -> Option<String> {
-    let mut in_fence = false;
-    let mut in_comment = false;
-    let mut out: Vec<&str> = Vec::new();
-    for line in lines {
-        let trimmed = line.trim();
-        if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
-            in_fence = !in_fence;
-            if !out.is_empty() {
-                break;
-            }
-            continue;
-        }
-        if in_comment {
-            if trimmed.contains("-->") {
-                in_comment = false;
-            }
-            continue;
-        }
-        if trimmed.starts_with("<!--") {
-            in_comment = !trimmed.contains("-->");
-            continue;
-        }
-        let skip = in_fence || heading_title(trimmed).is_some() || trimmed.starts_with('|');
-        if trimmed.is_empty() || skip {
-            if !out.is_empty() {
-                break;
-            }
-            continue;
-        }
-        out.push(trimmed);
-    }
-    (!out.is_empty()).then(|| out.join(" "))
+    Document::parse(text).title().map(str::to_string)
 }
 
 /// The first paragraph after the front-matter.
 pub(crate) fn first_paragraph(text: &str) -> Option<String> {
-    paragraph_of(text[liquers_records::search::front_matter_end(text)..].lines())
+    Document::parse(text).first_paragraph(None)
 }
 
 /// The lines (1-based, inclusive) of the section named `name`: its full heading path
 /// (`A > B`) or its own heading, compared without case. The first match wins.
 pub(crate) fn find_section(text: &str, name: &str) -> Option<(String, usize, usize)> {
-    let name = name.trim();
-    sections(&blank_front_matter(text)).into_iter().find_map(|(heading, _, start, end)| {
-        let heading = heading?;
-        let own = heading.rsplit(" > ").next().unwrap_or(&heading);
-        (heading.eq_ignore_ascii_case(name) || own.eq_ignore_ascii_case(name))
-            .then_some((heading.clone(), start, end))
-    })
-}
-
-/// `text` with its front-matter lines emptied, so a YAML comment is not taken for a heading and
-/// line numbers still count from the top of the file.
-pub(crate) fn blank_front_matter(text: &str) -> String {
-    let end = liquers_records::search::front_matter_end(text);
-    let lines = text[..end].lines().count();
-    let mut out = "\n".repeat(lines);
-    out.push_str(&text[end..]);
-    out
+    let doc = Document::parse(text);
+    let s = &doc.sections()[doc.find_by_heading(name)?];
+    Some((s.path.join(" > "), s.span.line, s.span.end_line))
 }
 
 /// The first paragraph of the section named `name` (see [`find_section`]).
 pub(crate) fn section_paragraph(text: &str, name: &str) -> Option<String> {
-    let (_, start, end) = find_section(text, name)?;
-    paragraph_of(text.lines().skip(start).take(end.saturating_sub(start)))
+    let doc = Document::parse(text);
+    let id = doc.find_by_heading(name)?;
+    doc.first_paragraph(Some(id))
 }
 
 fn schema() -> Result<Arc<RecordSchema>, Error> {
@@ -203,7 +108,7 @@ pub async fn md_split<E: Environment<Value = Value>>(
         let key = &document.key;
         if by_section {
             let lines: Vec<&str> = body.lines().collect();
-            for (n, (heading, level, start, end)) in sections(&body).into_iter().enumerate() {
+            for (n, (heading, level, start, end)) in sections(&body, false).into_iter().enumerate() {
                 batch.append_row(&[
                     text(&format!("{key}#{n}")),
                     text(key),
@@ -254,7 +159,7 @@ mod tests {
     #[test]
     fn sections_follow_heading_levels_and_skip_fences() {
         let text = "intro\n# A\none\n## B\ntwo\n```\n# not a heading\n```\n# C\nthree";
-        let got = sections(text);
+        let got = sections(text, false);
         assert_eq!(
             got,
             vec![
@@ -264,5 +169,22 @@ mod tests {
                 (Some("C".to_string()), 1, 9, 10),
             ]
         );
+    }
+
+    #[test]
+    fn md_split_counts_setext_and_ignores_html_headings() {
+        let text = "Title\n=====\n\n<div>\n# not a heading\n</div>\n\n    # indented code\n\nSub\n---\nbody\n";
+        let got = sections(text, false);
+        assert_eq!(
+            got,
+            vec![(Some("Title".to_string()), 1, 1, 12), (Some("Title > Sub".to_string()), 2, 10, 12)]
+        );
+    }
+
+    #[test]
+    fn front_matter_is_not_a_preamble_when_skipped() {
+        let text = "---\na: 1\n---\n# T\n";
+        assert_eq!(sections(text, true), vec![(Some("T".to_string()), 1, 4, 4)]);
+        assert_eq!(sections(text, false)[0], (None, 0, 1, 3));
     }
 }

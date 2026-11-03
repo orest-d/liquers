@@ -1,0 +1,24 @@
+/* The shared style of the Liquers books (home and the three guides). mdBook copies it into each
+   book as theme/liquers.css; keep it small, the mdBook themes do the rest. */
+
+:root {
+    --liquers-accent: #2b6cb0;
+    --liquers-note-bg: rgba(43, 108, 176, 0.08);
+    --liquers-note-border: #2b6cb0;
+}
+
+/* Editorial markers become quoted paragraphs in a draft build ("> **TBD:** ..."). */
+.content blockquote {
+    background: var(--liquers-note-bg);
+    border-inline-start: 4px solid var(--liquers-note-border);
+    padding: 0.4em 1em;
+    margin: 1em 0;
+}
+
+.content blockquote p {
+    margin: 0.3em 0;
+}
+
+.content table {
+    font-size: 0.95em;
+}

@@ -37,7 +37,7 @@ use crate::batch::{
     RecordStreamExt, RecordView,
 };
 use crate::column::FieldValue;
-use crate::formats::csv::format_value;
+use crate::formats::csv::format_field_value;
 use crate::formats::{read_table, ReadOptions, ReadSchema, TableFormat};
 use crate::manifest::{ChunkNaming, ChunkTemplate, ManifestSpec};
 use crate::schema::RecordSchema;
@@ -53,7 +53,7 @@ impl ChunkOrigin {
     /// `<asset>/-/ns-<namespace>/<command>-<leading_parameters...>-<id>`. `None` when there is no
     /// locator (the common case: `rec_id` is the guaranteed path then, not this), or when `id` has
     /// no string form a query parameter can carry (`FieldValue::Null`; see
-    /// [`crate::formats::csv::format_value`]).
+    /// [`crate::formats::csv::format_field_value`]).
     ///
     /// Built on the parsed `Query` AST — never by string concatenation — so the result always
     /// means "apply this action to `self.asset`", never "a resource literally named this"
@@ -64,7 +64,7 @@ impl ChunkOrigin {
     /// `-R/f.csv/ns-csv/row-42`.
     pub fn locator_query(&self, id: &FieldValue) -> Option<Query> {
         let locator = self.locator.as_ref()?;
-        let id_text = format_value(id).ok()??;
+        let id_text = format_field_value(id).ok()??;
 
         let mut parameters: Vec<ActionParameter> = locator
             .leading_parameters
@@ -333,21 +333,7 @@ impl ManifestSource {
         id: &ChunkId,
         resolver: &Arc<dyn ChunkResolver>,
     ) -> Result<Arc<dyn RecordView>, Error> {
-        let declared = self.spec.uniform_schema.as_deref();
-        match id {
-            ChunkId::Key(key) => match resolver.read_resource(key.clone()).await {
-                Ok((bytes, metadata)) => parse_chunk_bytes(&bytes, &metadata, declared),
-                Err(error) if error.error_type == ErrorType::KeyNotFound => {
-                    let value = resolver.evaluate(Self::chunk_query(id)).await?;
-                    view_from_chunk_value(value, declared)
-                }
-                Err(error) => Err(error),
-            },
-            ChunkId::Query(query) => {
-                let value = resolver.evaluate(query.clone()).await?;
-                view_from_chunk_value(value, declared)
-            }
-        }
+        read_manifest_chunk(id, self.spec.uniform_schema.as_deref(), resolver).await
     }
 
     /// Where a fresh traversal starts: the first explicit chunk, or straight to the template
@@ -442,6 +428,84 @@ impl ManifestSource {
             },
         }
     }
+}
+
+/// [`ManifestSource::read_chunk`]'s body, shared with [`read_chunk`], so reading one chunk by its
+/// index and reaching it by iteration go through the same steps.
+async fn read_manifest_chunk(
+    id: &ChunkId,
+    declared: Option<&RecordSchema>,
+    resolver: &Arc<dyn ChunkResolver>,
+) -> Result<Arc<dyn RecordView>, Error> {
+    match id {
+        ChunkId::Key(key) => match resolver.read_resource(key.clone()).await {
+            Ok((bytes, metadata)) => parse_chunk_bytes(&bytes, &metadata, declared),
+            Err(error) if error.error_type == ErrorType::KeyNotFound => {
+                let value = resolver.evaluate(ManifestSource::chunk_query(id)).await?;
+                view_from_chunk_value(value, declared)
+            }
+            Err(error) => Err(error),
+        },
+        ChunkId::Query(query) => {
+            let value = resolver.evaluate(query.clone()).await?;
+            view_from_chunk_value(value, declared)
+        }
+    }
+}
+
+/// The chunk at position `index` of `chunks`, or an error saying why there is none.
+fn chunk_id_at(chunks: ChunkList<'_>, index: usize) -> Result<ChunkId, Error> {
+    match chunks {
+        ChunkList::Known(ids) => ids
+            .get(index)
+            .cloned()
+            .ok_or_else(|| Error::general_error(format!("chunk {index} out of range (0..{})", ids.len()))),
+        ChunkList::Unbounded { computed } => computed.get(index).cloned().ok_or_else(|| {
+            Error::general_error(format!(
+                "chunk {index} is not yet known for this source (only {} chunk(s) discovered so far); \
+                 a traversal walks further into it",
+                computed.len()
+            ))
+        }),
+    }
+}
+
+/// One chunk of `source`, by its position in [`RecordSource::chunks`], placed at that index with
+/// its id (its row number stays unknown, as for any chunk read on its own).
+///
+/// - **A source with a manifest** reads only that chunk, through the same steps iteration takes
+///   (a keyed chunk through `read_resource`, falling back to evaluation when the store does not
+///   hold it; an unkeyed chunk evaluated), parsed or checked with the manifest's
+///   `uniform_schema`, so `read_chunk(i)` and the `i`-th chunk of a traversal agree.
+/// - **Any other source** (an [`InMemorySource`], whose ids are placeholders, or a
+///   [`MappedSource`]) has no resolvable chunk ids, so its stream is walked up to — and no
+///   further than — the addressed chunk.
+///
+/// Used by `ns-rec/rowid` and by liquers-py's `RecordSource.chunk`.
+pub async fn read_chunk(
+    source: Arc<dyn RecordSource>,
+    resolver: Arc<dyn ChunkResolver>,
+    index: usize,
+) -> Result<Arc<dyn RecordView>, Error> {
+    if let Some(spec) = source.manifest() {
+        let id = chunk_id_at(source.chunks(), index)?;
+        let view = read_manifest_chunk(&id, spec.uniform_schema.as_deref(), &resolver)
+            .await
+            .map_err(|error| name_chunk(error, index as u64, &id))?;
+        return Ok(place_chunk(view, index as u64, Some(id), None));
+    }
+    let mut stream = source.stream(resolver).await?;
+    let mut position = 0usize;
+    while let Some(view) = futures::StreamExt::next(&mut stream).await {
+        let view = view?;
+        if position == index {
+            return Ok(view);
+        }
+        position += 1;
+    }
+    Err(Error::general_error(format!(
+        "chunk {index} out of range (only {position} chunk(s) in this source)"
+    )))
 }
 
 /// `error`, with its message prefixed by the chunk it came from: `chunk <global index> (<key>): `,
@@ -1171,6 +1235,48 @@ mod tests {
             RecordSchema::new(vec![FieldSchema::new("id", FieldType::Int).with_key(KeyRole::Id)])
                 .expect("schema"),
         )
+    }
+
+    #[tokio::test]
+    async fn read_chunk_reads_only_the_addressed_manifest_chunk() -> Result<(), Box<dyn std::error::Error>> {
+        let spec = ManifestSpec {
+            chunks: (0..3)
+                .map(|i| Recipe { query: format!("part-{i}"), ..Default::default() })
+                .collect(),
+            ..ManifestSpec::default()
+        };
+        let source: Arc<dyn RecordSource> = Arc::new(ManifestSource::new(spec, None)?);
+        // Only chunk 1 can be evaluated: touching chunk 0 or 2 would fail the read.
+        let view = tiny_batch(&[10, 11]) as Arc<dyn RecordView>;
+        let resolver: Arc<dyn ChunkResolver> =
+            Arc::new(FixtureResolver::new().with_evaluation("part-1", ChunkValue::View(view)));
+
+        let chunk = read_chunk(source.clone(), resolver.clone(), 1).await?;
+        assert_eq!(chunk.len(), 2);
+        assert_eq!(chunk.row_id(0)?.chunk, 1);
+        match chunk.chunk_id() {
+            Some(ChunkId::Query(query)) => assert_eq!(query.encode(), "part-1"),
+            other => panic!("expected the chunk's query id, got {other:?}"),
+        }
+
+        let error = read_chunk(source, resolver, 3).await.err().ok_or("chunk 3 should not exist")?;
+        assert!(error.message.contains("chunk 3 out of range (0..3)"), "{}", error.message);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn read_chunk_walks_an_in_memory_source() -> Result<(), Box<dyn std::error::Error>> {
+        let views = vec![tiny_batch(&[1]) as Arc<dyn RecordView>, tiny_batch(&[2, 3]) as Arc<dyn RecordView>];
+        let source: Arc<dyn RecordSource> = Arc::new(InMemorySource::new(views));
+        let resolver: Arc<dyn ChunkResolver> = Arc::new(NeverResolver);
+
+        let chunk = read_chunk(source.clone(), resolver.clone(), 1).await?;
+        assert_eq!(chunk.len(), 2);
+        assert_eq!(chunk.value(0, 0)?, FieldValue::Int(2));
+
+        let error = read_chunk(source, resolver, 2).await.err().ok_or("chunk 2 should not exist")?;
+        assert!(error.message.contains("only 2 chunk(s)"), "{}", error.message);
+        Ok(())
     }
 
     #[tokio::test]

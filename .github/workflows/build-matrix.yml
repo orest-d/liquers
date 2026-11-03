@@ -35,7 +35,5 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
-      - name: Install system OpenSSL headers
-        run: sudo apt-get update && sudo apt-get install -y libssl-dev
       - name: Run the feature/target build matrix
         run: bash scripts/check-build-matrix.sh

@@ -124,3 +124,11 @@ Python has it: `liquers-py`'s `register_store_factory` declares a store type wit
 ones (`design/liquers-py-store/`, `reference/PYTHON_INTEGRATION.md` §9). The language-neutral
 declaration questioned above stayed in the integration (`liquers/_factories.py`). JavaScript
 (`liquers-web`) still has only `registerStoreObject`, so the issue stays open for it.
+
+## Python half delivered, 2026-11-01
+
+`liquers-py` closes the gap for Python: `Environment.register_store_factory(type, factory, …)`
+registers a store type in a bridging `PyStoreFactory` chained after the built-in factories, and
+`Environment.store_types()` lists it (design `liquers-py-store`, complete). What remains is the
+`liquers-web` half, designed in `language-store-type-registration`, which Orest decided on
+2026-11-01 should follow the Python rules. The issue closes when that lands.

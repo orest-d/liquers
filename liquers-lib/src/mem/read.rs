@@ -15,7 +15,7 @@ use crate::records::{
     RecordView, RecordViewMut,
 };
 use crate::search::catalog::infos;
-use crate::search::md_split::{blank_front_matter, find_section, sections};
+use crate::search::md_split::{find_section, sections};
 use crate::search::{extension_of, read_text};
 use crate::value::Value;
 
@@ -292,10 +292,9 @@ pub(crate) async fn search_memories<E: Environment<Value = Value>>(
         let key = relative_path(root, &doc.key);
         let full = doc.text.clone().unwrap_or_default();
         let parts: Vec<(String, usize, String)> = if by_section {
-            let blanked = blank_front_matter(&full);
             let lines: Vec<&str> = full.lines().collect();
             // Each section's own text: up to the next heading of any level.
-            let found = sections(&blanked);
+            let found = sections(&full, true);
             let starts: Vec<usize> = found.iter().map(|(_, _, start, _)| *start).collect();
             found
                 .into_iter()

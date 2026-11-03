@@ -357,6 +357,9 @@ pub struct EnvironmentBuilder<
     /// Entry-type factories chained before the kind's ([`Self::with_recipe_provider_factory`]).
     recipe_provider_factories: Vec<Box<dyn RecipeProviderFactory<GenericEnvironment<V, P, K>>>>,
     manager_options: AssetManagerOptions,
+    /// Namespaces searched after any `ns`, replacing the registry's chain at [`Self::build`].
+    /// `None` leaves the registry's `default_namespaces` as it is.
+    default_namespaces: Option<Vec<String>>,
     validation_report: IssueReport,
     _payload: PhantomData<P>,
     _kind: PhantomData<K>,
@@ -387,6 +390,7 @@ impl<V: ValueInterface, P: PayloadType, K: AssetManagerKind> EnvironmentBuilder<
             appended_recipes: Vec::new(),
             recipe_provider_factories: Vec::new(),
             manager_options: AssetManagerOptions::default(),
+            default_namespaces: None,
             validation_report: IssueReport::default(),
             _payload: PhantomData,
             _kind: PhantomData,
@@ -570,9 +574,49 @@ impl<V: ValueInterface, P: PayloadType, K: AssetManagerKind> EnvironmentBuilder<
         self
     }
 
+    /// Namespaces a query searches after those of its last `ns`, highest priority first.
+    ///
+    /// At [`Self::build`] they replace the registry's `default_namespaces`, with root appended
+    /// unless the list names it (`[pl]` searches `pl`, then root). An empty list means root only.
+    /// Applied by `default_namespaces:` in a configuration document. See
+    /// `specs/design/plan-default-namespaces/`.
+    pub fn with_default_namespaces<S: Into<String>>(
+        mut self,
+        namespaces: impl IntoIterator<Item = S>,
+    ) -> Self {
+        self.default_namespaces = Some(namespaces.into_iter().map(Into::into).collect());
+        self
+    }
+
+    /// Writes the configured default namespaces into the registry. An empty entry is refused: root
+    /// is written `root`, so an empty string is a mistake such as a trailing separator.
+    ///
+    /// Idempotent and non-consuming, so [`Self::validate`] and [`Self::build`] both see the chain
+    /// the environment will have.
+    fn apply_default_namespaces(&mut self) -> Result<(), Error> {
+        let Some(configured) = self.default_namespaces.as_ref() else {
+            return Ok(());
+        };
+        if configured.iter().any(|ns| ns.is_empty()) {
+            return Err(Error::configuration_error(format!(
+                "default_namespaces {configured:?} contains an empty entry; write the root namespace as 'root'"
+            )));
+        }
+        self.command_registry.command_metadata_registry.default_namespaces =
+            crate::command_metadata::CommandMetadataRegistry::default_namespace_chain(configured);
+        Ok(())
+    }
+
     /// Rebuilds and returns diagnostics for the configuration currently held by this builder.
     pub fn validate(&mut self) -> &IssueReport {
+        let namespaces = self.apply_default_namespaces();
         self.validation_report = self.command_registry.command_metadata_registry.check();
+        if let Err(error) = namespaces {
+            self.validation_report.extend([crate::issue_report::Issue::generic(
+                crate::issue_report::IssueSeverity::Error,
+                error.message.clone(),
+            )]);
+        }
         &self.validation_report
     }
 
@@ -587,6 +631,7 @@ impl<V: ValueInterface, P: PayloadType, K: AssetManagerKind> EnvironmentBuilder<
     /// and registered into the dependency manager before it is handed back. Delegates to
     /// [`Environment::try_to_ref`] rather than reimplementing that sequence.
     pub fn build(mut self) -> Result<EnvRef<GenericEnvironment<V, P, K>>, Error> {
+        self.apply_default_namespaces()?;
         let validation_report = self.validate().clone();
         if !validation_report.is_empty() {
             validation_report.emit();

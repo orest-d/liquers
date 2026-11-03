@@ -3,7 +3,7 @@ title: JavaScript Integration
 kind: reference
 audience: both
 area: [web, core/value, core/error, core/store, lib/value]
-reviewed: 2026-10-31
+reviewed: 2026-11-02
 ---
 # JavaScript Integration
 
@@ -123,6 +123,7 @@ rebuilt. Of its methods:
 | `store()` | the singleton's store | this instance's store, which is none |
 | `configureStore(config)`, `registerStoreObject(name, obj)` | the singleton | **also the singleton** (`WEB-EXPLICIT-ENVIRONMENT-CONFIGURES-THE-SINGLETON`) |
 | `registerCommand(spec)` | refused, `not_supported` | refused, `not_supported` |
+| `liquersVersion` (getter) | `liquers_core::VERSION`, the workspace version (`Environment::liquers_version`) | the same |
 
 Commands are registered through the module-level functions, which act on the singleton. An instance
 is for evaluating against the built-in set, chiefly in tests.
@@ -143,7 +144,7 @@ is for evaluating against the built-in set, chiefly in tests.
 | `describeCommand(name)` | the metadata of the root-namespace command `name`, or `null` |
 | `opaque(x)` | a `Value` retaining `x` by identity (§5) |
 | `encodeParam(text)` | `text` escaped as one query parameter; throws for a character the grammar cannot represent |
-| `version()` | `"liquers-web <v> (liquers-core <v>)"`, from Cargo |
+| `version()` | `"liquers-web <v> (liquers-core <v>)"`, from Cargo; every crate shares the workspace version, so both are the same |
 
 There is no synchronous evaluation entry point, deliberately (`ASYNCQ06`, `ASYNCQ07`).
 
@@ -577,7 +578,10 @@ Every retained page function (definitions, cleanups, renderers) is counted in
 - No IndexedDB store (`WEB-NATIVE-IO-TIER2`), no read/write store of a Liquers server
   (`WEB-HAS-NO-READ-WRITE-REMOTE-STORE`), and the store configuration is not yet an
   `EnvironmentConfig` (`WEB-STORE-CONFIG-NOT-APPLIED-THROUGH-ENVIRONMENT-CONFIG`).
-- No generated API reference beyond the `.d.ts`, and no npm package (`WEB-API-REFERENCE-NOT-GENERATED`).
+- The API reference is generated from the `.d.ts` by `scripts/build-liquers-web-docs.sh`
+  (TypeDoc) and published at <https://orest-d.github.io/liquers/api/js/index.html>, but nothing
+  checks that every export carries a doc comment (`WEB-API-REFERENCE-NOT-GENERATED`); no npm
+  package.
 - `RECIPE` (a JavaScript recipe provider), `MODULE`, `POLYGLOT`, `WEBSERV` and `WEBAPI`
   are not implemented; the default recipe provider works through a configured store.
 - The UI does not repaint while a query awaits (`WEB-UI-FREEZES-WHILE-A-QUERY-AWAITS`), and an
@@ -588,6 +592,8 @@ Every retained page function (definitions, cleanups, renderers) is counted in
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-02 | Known limitations: the generated API reference (TypeDoc) exists; the documentation-coverage check is still missing. | `WEB-API-REFERENCE-NOT-GENERATED` (partial) |
+| 2026-11-01 | §3: the `liquersVersion` getter on `Environment`; `version()` reports the one workspace version twice. | `design/liquers-py-package/` (phase-5) |
 | 2026-10-31 | §10 "Elements and renderers": `defineElement`, `undefineElement`, `element`, `mountRenderer`, `dispatchEvent`; `DelegatedElement`; `UIElement.kind`/`props`. `UIDEF` removed from Limitations. | design `web-ui-define` |
 | 2026-10-31 | §10 "User interface": `mountUI`, `UIMount`, `UISubscription`, `UIElement`; the payload is `SimpleUIPayload` and `lui` is built in; §10 Limitations becomes §11. | design `web-ui-use` |
 | 2026-10-31 | §2, §4: a JavaScript command receives a `Context` (`info`, `warning`, `error`, `evaluate`, `isCancelled`, `element`); `conventions: { context: false }` opts out. Limitation removed. | design `js-command-context` |

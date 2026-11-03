@@ -136,12 +136,16 @@ LIB_CONFIGS=(
   "--no-default-features --features templates,records --tests"
   # `mem` pulls `records` in; every row above it is the build without it (design/agent-memory-mvp).
   "--no-default-features --features mem --tests"
+  # `markdown` (the ns-md commands) pulls `records` in, which already carries the parser
+  # (design/markdown-navigation).
+  "--no-default-features --features markdown --tests"
   "--tests"
   "--target wasm32-unknown-unknown --no-default-features --features webui"
   "--target wasm32-unknown-unknown --no-default-features --features webui,records"
   "--target wasm32-unknown-unknown --no-default-features --features webui,records,records-ipc"
   "--target wasm32-unknown-unknown --no-default-features --features webui,templates"
   "--target wasm32-unknown-unknown --no-default-features --features webui,mem"
+  "--target wasm32-unknown-unknown --no-default-features --features webui,markdown"
 )
 
 # liquers-records has no default features: each format behind its own flag, and every one of them
@@ -156,6 +160,13 @@ RECORDS_CONFIGS=(
 # liquers-template depends on liquers-core only and adds no async runtime, so it must build for
 # wasm32 too (design/liquers-mustache, AC-13).
 TEMPLATE_CONFIGS=(
+  "--tests"
+  "--target wasm32-unknown-unknown --tests"
+)
+
+# liquers-markdown depends on liquers-core only and is pure parsing, so it must build for wasm32
+# too (design/markdown-navigation).
+MARKDOWN_CONFIGS=(
   "--tests"
   "--target wasm32-unknown-unknown --tests"
 )
@@ -231,6 +242,10 @@ for args in "${TEMPLATE_CONFIGS[@]}"; do
   check liquers-template "$args"
 done
 
+for args in "${MARKDOWN_CONFIGS[@]}"; do
+  check liquers-markdown "$args"
+done
+
 for args in "${WEB_CONFIGS[@]}"; do
   check liquers-web "$args"
 done
@@ -263,6 +278,9 @@ check liquers-store "--features store-conformance --lib --tests"
 # bindings are the code most exposed to a dependency upgrade. Native only: there is no wasm32 Python
 # target. The check needs a Python 3 interpreter that PyO3 supports, found on `PATH`.
 check liquers-py "--lib --tests"
+# The stable-ABI build the release wheels use (`cp314-abi3`, liquers-py-package): the limited API
+# refuses some PyO3 calls the full build allows, so it is checked on its own.
+check liquers-py "--features abi3 --lib"
 
 if [ ${#retried[@]} -ne 0 ]; then
   echo

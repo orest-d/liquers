@@ -45,6 +45,7 @@ assets:
   recipe_cache_strategy: all    # none | result | all
   query_cache_strategy: all     # none | result | all
   cut_predecessors: true        # false: never cut (debugging)
+default_namespaces: [pl]        # searched after any ns, then root
 ```
 
 | Field | Type | Default when absent | Meaning |
@@ -52,6 +53,7 @@ assets:
 | `store` | `StoreRouterConfig` | empty router | Store list and routing prefixes. See [Store Configuration](./STORE_CONFIG_FSD.md); the format is not restated here. |
 | `recipes` | `RecipesConfig` | **`default`** | The recipe provider chain, as an ordered list of entries — see §The recipe provider chain. `default` is the manager kind's default list; `trivial` (aliases `none`, `no_recipes`) is the empty list `[]`. |
 | `assets` | `AssetManagerOptions` | all unset | Per-manager settings, below. |
+| `default_namespaces` | list of strings | absent: the command registry's chain stands (`["", "root"]` unless code set another) | Namespaces a query searches after those of its last `ns`, highest priority first, the first match winning; root is appended unless the list names it (`[pl]` → `pl`, then root; `[]` → root only). Replaces the registry's `default_namespaces` at `build()`, so it takes precedence over a chain set in code. Meant for the main realm; the registry has one chain for every realm until [`COMMAND-REGISTRY-NOT-ORGANIZED-BY-REALM`](../issues/COMMAND-REGISTRY-NOT-ORGANIZED-BY-REALM.md). See [RECIPES_AND_PLANS §Planner instructions](./RECIPES_AND_PLANS.md#planner-instructions). |
 
 `assets` (`AssetManagerOptions`, `liquers-core/src/environment_builder.rs`). A field at its default
 is omitted when the options are serialized.
@@ -117,7 +119,7 @@ let envref = builder.build()?;
 ```
 
 `with_config` is equivalent to `with_store_config` + `with_recipes` +
-`with_asset_manager_options`, and reads in the same direction as every other setter, so a document
+`with_asset_manager_options`, plus `with_default_namespaces` when the document has the key, and reads in the same direction as every other setter, so a document
 and hand-written configuration compose in either order — document first then overridden in code, or
 the reverse.
 
@@ -131,6 +133,7 @@ setters infallible and chainable; three failures surface at `build()` instead:
 | Both a store and a store configuration supplied | Rejected rather than resolved by a silent precedence rule |
 | A `recipes` entry type no factory declares, one unavailable in this build, or an entry listed twice with the same arguments | Names the entry and its position; an unknown type lists the known ones, an unavailable one says why |
 | `assets.job_capacity: 0` | Rejected. The queue starts work only while `running_count < capacity`, so zero would accept every evaluation and run none — a hang with no error, which is strictly worse than a rejected configuration |
+| An empty string in `default_namespaces` | `ConfigurationError`. Root is written `root`; an empty entry is a mistake such as a trailing separator. A namespace no registered command lives in is only a warning in the build's validation report |
 | `assets.job_capacity` set against an inline kind | Rejected. `Inline` has no job queue, and silently ignoring the setting would hide the mistake |
 
 Use `with_store_config_unexpanded` where there are no environment variables to expand — a browser
@@ -269,6 +272,7 @@ and the default gains `manifest`.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-01 | `default_namespaces`: namespaces searched after a query's `ns`, root appended unless listed, replacing the command registry's chain; field row, sample, `with_config` equivalence, the empty-entry build failure. | `design/plan-default-namespaces/` |
 | 2026-11-01 | §The recipe provider chain: one entry type may repeat with different arguments, only an identical entry is refused; repeated types name their members `type#position`; integration entry types (Python) in the entries table, replacing the `{type: python, …}` placeholder. | `design/liquers-py-recipes/` (phase-5) |
 | 2026-10-30 | `recipes` is a `RecipesConfig`: an ordered list of entries (bare name or `{type: …}`), `default` the kind's list, `trivial` the empty list. §The recipe provider chain rewritten: entry types and factories, `resolve_recipes`, every member asked (any error fails, two owners is an error naming both), the setters including `with_recipes`, `with_appended_recipe_entry` and `try_with_recipes`, `LibKind`'s list, the migration hazard. Build-time failures gain the entry errors. | phase-5 (`design/recipe-provider-chain-config/`) |
 | 2026-10-20 | Links to `reference/api/DOC_08_RECIPES_PLANS.md` follow its promotion to `reference/RECIPES_AND_PLANS.md`. | DOC-08 promotion |

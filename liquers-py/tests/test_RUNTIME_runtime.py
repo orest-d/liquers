@@ -10,7 +10,7 @@ import time
 import pytest
 
 import liquers as lq
-from conftest import na
+from conftest import na, handle_baseline
 
 
 def test_RUNTIME02_wasm_accepts_non_send_callback():
@@ -55,7 +55,7 @@ def test_RUNTIME_two_threads_evaluate_concurrently(env):
 def test_RUNTIME05_cancellation_and_shutdown_release_handles():
     """What is released today: the callables of an environment that was never built."""
     assert hasattr(lq.Environment, "live_handle_count"), "build with --features debug-handles"
-    baseline = lq.Environment.live_handle_count()
+    baseline = handle_baseline()
     environment = lq.Environment()
 
     @environment.first_command
@@ -76,10 +76,7 @@ def test_RUNTIME05_cancellation_and_shutdown_release_handles():
 def test_RUNTIME05_built_environment_releases_handles_on_shutdown():
     from conftest import register_fixture_commands
 
-    # Environments of earlier tests left in reference cycles are collected now, not during the
-    # wait below, where their released handles would take the count under the baseline.
-    gc.collect()
-    baseline = lq.Environment.live_handle_count()
+    baseline = handle_baseline()
     environment = lq.Environment()
     register_fixture_commands(environment)
     running = environment.get_asset("slow-60")

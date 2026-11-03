@@ -80,6 +80,13 @@ pub struct EnvironmentConfig {
     /// Per-manager settings. The manager *kind* is not here; see the module documentation.
     #[serde(default)]
     pub assets: AssetManagerOptions,
+
+    /// Namespaces a query searches after those of its last `ns`, highest priority first; root is
+    /// appended unless listed (`specs/design/plan-default-namespaces/`). Absent: the command
+    /// registry's own chain stands. Present: it replaces it. Meant for the main realm; the registry
+    /// holds one chain for every realm until `COMMAND-REGISTRY-NOT-ORGANIZED-BY-REALM`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_namespaces: Option<Vec<String>>,
 }
 
 impl EnvironmentConfig {
@@ -139,15 +146,21 @@ impl EnvironmentConfig {
 }
 
 impl<V: ValueInterface, P: PayloadType, K: AssetManagerKind> EnvironmentBuilder<V, P, K> {
-    /// Applies a whole configuration document: store, recipes and manager options at once.
+    /// Applies a whole configuration document: store, recipes, manager options and default
+    /// namespaces at once.
     ///
-    /// Equivalent to the three matching setters, and composes with hand-written configuration in
+    /// Equivalent to the matching setters, and composes with hand-written configuration in
     /// either order — document first then overridden in code, or the reverse. Commands are the
     /// caller's job either way.
     pub fn with_config(self, config: EnvironmentConfig, factory: Box<dyn StoreFactory>) -> Self {
-        self.with_store_config(config.store, factory)
+        let builder = self
+            .with_store_config(config.store, factory)
             .with_recipes(config.recipes)
-            .with_asset_manager_options(config.assets)
+            .with_asset_manager_options(config.assets);
+        match config.default_namespaces {
+            Some(namespaces) => builder.with_default_namespaces(namespaces),
+            None => builder,
+        }
     }
 }
 
@@ -350,5 +363,36 @@ assets:
         assert!(!manager.cut_predecessors());
 
         assert!(EnvironmentConfig::from_yaml("assets:\n  query_cache_strategy: some\n").is_err());
+    }
+
+    /// AC-6: `default_namespaces` round-trips in order, and an absent key is not written.
+    #[test]
+    fn default_namespaces_round_trip() {
+        let config = EnvironmentConfig::from_yaml("default_namespaces: [pl, lui]\n").expect("parse");
+        assert_eq!(config.default_namespaces, Some(vec!["pl".to_string(), "lui".to_string()]));
+        let json = config.to_json().expect("to json");
+        let back = EnvironmentConfig::from_json(&json).expect("from json");
+        assert_eq!(back.default_namespaces, config.default_namespaces);
+
+        let absent = EnvironmentConfig::from_yaml("store:\n  stores: []\n").expect("parse");
+        assert_eq!(absent.default_namespaces, None);
+        let yaml = absent.to_yaml().expect("to yaml");
+        assert!(!yaml.contains("default_namespaces"), "{yaml}");
+    }
+
+    /// AC-6: a present key replaces a chain set in code; an absent key leaves the setter's alone;
+    /// `[]` means root only.
+    #[test]
+    fn absent_default_namespaces_keeps_builder_setting() {
+        let build = |yaml: &str| {
+            EnvironmentBuilder::<Value, (), Inline>::new()
+                .with_default_namespaces(["lui"])
+                .with_config(EnvironmentConfig::from_yaml(yaml).expect("parse"), Box::new(default_store_factory()))
+                .build()
+                .expect("build")
+        };
+        assert_eq!(build("store:\n  stores: []\n").default_namespaces(), ["lui", "", "root"]);
+        assert_eq!(build("default_namespaces: [pl]\n").default_namespaces(), ["pl", "", "root"]);
+        assert_eq!(build("default_namespaces: []\n").default_namespaces(), ["", "root"]);
     }
 }

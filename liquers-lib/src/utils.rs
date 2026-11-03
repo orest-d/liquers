@@ -81,8 +81,10 @@ pub fn find_next_presets(
         } else {
             let preset_meta =
                 registry.find_command_in_namespaces(&realm, &namespaces, &preset.action.name);
-            if preset_meta.is_some() {
-                "".to_string()
+            if let Some(found) = preset_meta {
+                // The command the lookup chain selects; `append_action` adds its `ns` when a
+                // configured default namespace is what selects it.
+                found.namespace
             } else {
                 registry
                     .commands
@@ -126,15 +128,14 @@ fn namespaces_from(
     ns: Option<Vec<ActionParameter>>,
     registry: &CommandMetadataRegistry,
 ) -> Option<Vec<String>> {
-    let mut namespaces = Vec::new();
+    let mut explicit = Vec::new();
     for parameter in ns.unwrap_or_default() {
         match parameter {
-            ActionParameter::String(s, _) => namespaces.push(s),
+            ActionParameter::String(s, _) => explicit.push(s),
             ActionParameter::Link(_, _) => return None,
         }
     }
-    namespaces.extend(registry.default_namespaces.iter().cloned());
-    Some(namespaces)
+    Some(registry.lookup_namespaces(&explicit))
 }
 
 #[cfg(test)]
@@ -318,5 +319,33 @@ mod tests {
         let result = find_next_presets("ns-pl/head/ns-img", &state, &registry);
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].query, "ns-pl/head/ns-img/show");
+    }
+
+    /// plan-default-namespaces AC-9: `next` presets resolve the last command through the
+    /// configured chain, and a preset in a configured namespace still carries its `ns`.
+    #[test]
+    fn next_presets_use_configured_chain() {
+        let state = make_state();
+        let mut registry = registry_with_pl_head(preset("tail", "pl"));
+        assert!(find_next_presets("head", &state, &registry).is_empty());
+        registry.default_namespaces =
+            CommandMetadataRegistry::default_namespace_chain(&["pl".to_string()]);
+        let result = find_next_presets("head", &state, &registry);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].query, "head/ns-pl/tail");
+    }
+
+    /// An unhinted preset keeps the command the configured chain selects, even when root has one
+    /// of the same name.
+    #[test]
+    fn unhinted_preset_follows_the_configured_chain() {
+        let state = make_state();
+        let mut registry = registry_with_pl_head(preset("tail", ""));
+        registry.add_command(&CommandMetadata::new("tail"));
+        registry.default_namespaces =
+            CommandMetadataRegistry::default_namespace_chain(&["pl".to_string()]);
+        let result = find_next_presets("head", &state, &registry);
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].query, "head/ns-pl/tail");
     }
 }

@@ -353,53 +353,23 @@ async fn dead_links<E: Environment>(
     let store = envref.get_async_store();
     let mut out = Vec::new();
     let mut seen = BTreeSet::new();
-    let mut in_fence = false;
-    for line in text.lines() {
-        let trimmed = line.trim_start();
-        if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
-            in_fence = !in_fence;
+    for link in liquers_markdown::Document::parse(text).links() {
+        if link.target_kind != liquers_markdown::TargetKind::Relative || !seen.insert(link.target.clone()) {
             continue;
         }
-        if in_fence {
+        let resolved = match link.resolve(key) {
+            Some(liquers_markdown::Resolved::Key(resolved)) => resolved,
+            Some(liquers_markdown::Resolved::OutsideRoot) => {
+                out.push(link.target.clone());
+                continue;
+            }
+            None => continue,
+        };
+        if !in_scope(&resolved) {
             continue;
         }
-        let line = strip_inline_code(line);
-        let mut rest = line.as_str();
-        while let Some(i) = rest.find("](") {
-            let after = &rest[i + 2..];
-            let Some(close) = after.find(')') else { break };
-            let raw = &after[..close];
-            rest = &after[close..];
-            if raw.starts_with("http://") || raw.starts_with("https://") {
-                continue;
-            }
-            let target = raw.split('#').next().unwrap_or("");
-            if target.is_empty() || target.starts_with('/') || target.contains("://") || target.starts_with("mailto:") {
-                continue;
-            }
-            if !seen.insert(raw.to_string()) {
-                continue;
-            }
-            let mut resolved = key.parent();
-            let mut outside = false;
-            for part in target.split('/') {
-                match part {
-                    "" | "." => {}
-                    ".." => {
-                        if resolved.is_empty() {
-                            outside = true;
-                        }
-                        resolved = resolved.parent();
-                    }
-                    name => resolved = resolved.join(name),
-                }
-            }
-            if !outside && !in_scope(&resolved) {
-                continue;
-            }
-            if outside || !(store.contains(&resolved).await? || store.is_dir(&resolved).await?) {
-                out.push(raw.to_string());
-            }
+        if !(store.contains(&resolved).await? || store.is_dir(&resolved).await?) {
+            out.push(link.target.clone());
         }
     }
     Ok(out)
@@ -457,22 +427,6 @@ async fn design_phase<E: Environment>(
         }
     }
     Ok(Some(parts.join("\n")))
-}
-
-fn strip_inline_code(line: &str) -> String {
-    let mut out = String::with_capacity(line.len());
-    let mut in_code = false;
-    for c in line.chars() {
-        if c == '`' {
-            in_code = !in_code;
-            out.push(' ');
-        } else if in_code {
-            out.push(' ');
-        } else {
-            out.push(c);
-        }
-    }
-    out
 }
 
 /// The report as a record view `rule, key, severity, message`.

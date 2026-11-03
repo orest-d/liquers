@@ -11,6 +11,20 @@ storage.
 > way, and `specs/archive/` what was true on a date. The Rust public API and its tests
 > remain authoritative where they disagree with any of them.
 
+## Documentation
+
+The documentation site is <https://orest-d.github.io/liquers/>. It holds the user guides
+(*Liquers for Rust*, *for Python* and *for the Web*, also as EPUB, PDF and offline HTML) and the
+generated API references:
+
+- Rust, one per crate: <https://orest-d.github.io/liquers/api/rust/liquers_core/index.html> and
+  the others listed on the home page
+- Python: <https://orest-d.github.io/liquers/api/python/liquers.html>
+- JavaScript (`liquers-web`): <https://orest-d.github.io/liquers/api/js/index.html>
+
+It is built from `docs/` and the source code by `scripts/build-docs.sh` and deployed from `main`
+by `.github/workflows/docs-site.yml`; nothing generated is committed.
+
 ## API reference
 
 Generate the Rust API reference from a source checkout:
@@ -28,7 +42,10 @@ cargo doc -p liquers-axum --no-deps
 cargo doc -p liquers-lib --no-deps --no-default-features
 ```
 
-The generated workspace index is `target/doc/index.html`.
+The generated workspace index is `target/doc/index.html`. The Python and JavaScript references:
+`bash scripts/build-liquers-py-docs.sh` (pdoc, into `target/liquers-py-docs/`) and
+`bash scripts/build-liquers-web-docs.sh` (TypeDoc, into `target/liquers-web-docs/`). The whole
+site, with every reference: `bash scripts/build-docs.sh` (into `target/docs-site/`).
 
 Current supporting references:
 

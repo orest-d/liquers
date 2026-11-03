@@ -1,0 +1,3 @@
+# Owners are asked to review changes to their paths.
+# The user guides are hand-edited, book-like documents (specs/guides/USER_DOCS_EDITING_GUIDE.md).
+/docs/guides/ @orest-d
