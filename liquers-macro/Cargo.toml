@@ -1,8 +1,9 @@
 [package]
 name = "liquers-macro"
-version = "0.1.0"
+version.workspace = true
 edition = "2021"
 rust-version.workspace = true
+license.workspace = true
 
 [lib]
 proc-macro = true

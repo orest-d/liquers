@@ -46,7 +46,7 @@ fn is_canonical_int(text: &str) -> bool {
 /// (Phase 2's `Int` rule). A column of integers alone is `Int`, tried first.
 ///
 /// **Non-finite values**: exactly `NaN`, `inf` and `-inf` — the spellings this crate's writers
-/// produce for them (`csv::format_value`, Rust's `{:?}`) — so a `Float` column holding them
+/// produce for them (`csv::format_field_value`, Rust's `{:?}`) — so a `Float` column holding them
 /// round-trips; other spellings (`nan`, `Infinity`) stay text rather than guessing.
 fn is_float_literal(text: &str) -> bool {
     if matches!(text, "NaN" | "inf" | "-inf") {

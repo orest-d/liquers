@@ -63,6 +63,7 @@ use crate::recipe_provider::{PyRecipeProviderFactory, PyRecipeProviderType};
 use liquers_core::store_factory::{ChainedStoreFactory, StoreFactory, StoreTypeInfo};
 use crate::error::{error_to_pyerr, pyerr_to_error, PyFailure};
 use crate::runtime::runtime;
+use crate::records::Scope;
 use crate::value::{py_to_value, py_type_info, value_to_py, ConversionMode, Value};
 
 /// The environment every Python handle builds.
@@ -743,12 +744,13 @@ impl Environment {
         let result = (|| -> Result<_, PyFailure> {
             let query = to_query(query)?;
             let envref = self.cell.envref(py)?;
+            let scope = Scope::from_envref(&envref, self.cell.shut.clone());
             let value = block_on(py, &self.cell.shut, async move {
                 let asset = envref.evaluate(query).await?;
                 let state = asset.get().await?;
                 state.value()
             })?;
-            Ok(value_to_py(py, &value)?)
+            Ok(value_to_py(py, &value, &scope)?)
         })();
         result.map_err(|e| e.into_pyerr(py))
     }
@@ -759,11 +761,12 @@ impl Environment {
         let result = (|| -> Result<_, PyFailure> {
             let query = to_query(query)?;
             let envref = self.cell.envref(py)?;
+            let scope = Scope::from_envref(&envref, self.cell.shut.clone());
             let state = block_on(py, &self.cell.shut, async move {
                 let asset = envref.evaluate(query).await?;
                 asset.get().await?.value_state()
             })?;
-            Ok(crate::asset::State::from_core(py, &state)?)
+            Ok(crate::asset::State::from_core(py, &state, &scope)?)
         })();
         result.map_err(|e| e.into_pyerr(py))
     }
@@ -774,8 +777,9 @@ impl Environment {
         let result = (|| -> Result<_, PyFailure> {
             let query = to_query(query)?;
             let envref = self.cell.envref(py)?;
+            let scope = Scope::from_envref(&envref, self.cell.shut.clone());
             let asset = block_on(py, &self.cell.shut, async move { envref.evaluate(query).await })?;
-            Ok(crate::asset::AssetRef::new(asset, self.cell.shut.clone()))
+            Ok(crate::asset::AssetRef::new(asset, self.cell.shut.clone(), scope))
         })();
         result.map_err(|e| e.into_pyerr(py))
     }
@@ -802,12 +806,13 @@ impl Environment {
     /// evaluation goes on.
     fn evaluate_async<'py>(&self, py: Python<'py>, query: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
         let (query, envref) = self.query_and_envref(py, query)?;
+        let scope = Scope::from_envref(&envref, self.cell.shut.clone());
         awaitable(
             py,
             &self.cell.shut,
             async move {
                 let asset = envref.evaluate(query).await?;
-                asset.get().await?.value()
+                Ok((asset.get().await?.value()?, scope))
             },
             ToPy::Value,
         )
@@ -816,12 +821,13 @@ impl Environment {
     /// Awaitable `evaluate_state`.
     fn evaluate_state_async<'py>(&self, py: Python<'py>, query: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
         let (query, envref) = self.query_and_envref(py, query)?;
+        let scope = Scope::from_envref(&envref, self.cell.shut.clone());
         awaitable(
             py,
             &self.cell.shut,
             async move {
                 let asset = envref.evaluate(query).await?;
-                asset.get().await?.value_state()
+                Ok((asset.get().await?.value_state()?, scope))
             },
             ToPy::State,
         )
@@ -831,10 +837,11 @@ impl Environment {
     fn get_asset_async<'py>(&self, py: Python<'py>, query: &Bound<'py, PyAny>) -> PyResult<Bound<'py, PyAny>> {
         let (query, envref) = self.query_and_envref(py, query)?;
         let shut = self.cell.shut.clone();
+        let scope = Scope::from_envref(&envref, shut.clone());
         awaitable(
             py,
             &self.cell.shut,
-            async move { Ok((envref.evaluate(query).await?, shut)) },
+            async move { Ok((envref.evaluate(query).await?, shut, scope)) },
             ToPy::Asset,
         )
     }
@@ -1024,6 +1031,14 @@ impl Environment {
         crate::store::handle::Store::of_environment(&self.cell)
     }
 
+    /// The Liquers version this extension was built with, as Rust writes it (`"0.1.0"`); the
+    /// same for every Liquers crate and every environment. `liquers.__version__` is its PEP 440
+    /// form. Reading it neither builds the environment nor fails after `shutdown()`.
+    #[getter]
+    fn liquers_version(&self) -> &'static str {
+        liquers_core::VERSION
+    }
+
     /// The store types a configuration can name, built-in then Python, each a dict with
     /// `store_type`, `label`, `doc`, `arguments`, `availability` and `coverage`.
     fn store_types(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
@@ -1054,6 +1069,18 @@ mod tests {
 
     fn new_cell() -> Result<EnvCell, Error> {
         EnvCell::new(EnvironmentConfig::default(), ConversionMode::Permissive, false, NonZeroUsize::MIN)
+    }
+
+    #[test]
+    fn liquers_version_is_core_version() -> Result<(), Error> {
+        attached(|py| {
+            let cell = new_cell()?;
+            let envref = cell.envref(py)?;
+            let reported = liquers_core::context::Environment::liquers_version(envref.0.as_ref());
+            assert_eq!(reported, liquers_core::VERSION);
+            assert_eq!(crate::pep440(reported), crate::pep440(liquers_core::VERSION));
+            Ok(())
+        })
     }
 
     #[test]

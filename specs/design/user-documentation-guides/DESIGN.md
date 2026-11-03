@@ -3,8 +3,8 @@ id: USER-DOCUMENTATION-GUIDES
 kind: design
 title: Public user guides for Rust, Python and the Web, in several formats, published by CI
 workflow: liquers-project
-status: in_review
-phase: documentation
+status: complete
+gh_pr: [234]
 area: [docs, build]
 issues: [USER-GUIDES-LIVE-IN-SPECS, USER-DOCUMENTATION-CANNOT-BE-GENERATED]
 merged: 2026-11-01

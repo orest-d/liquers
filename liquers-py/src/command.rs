@@ -281,10 +281,8 @@ fn start_coroutine(
 ) -> Result<(), Error> {
     let pool = loops.get(py)?;
     let (args, context) = prepare_call(py, callable, state, arguments, context)?;
-    if let Some(context) = context {
-        if !lock_pending(pending).keep_context(context) {
-            return Err(Error::cancelled("the command was cancelled before it started".to_string()));
-        }
+    if !lock_pending(pending).keep_context(context) {
+        return Err(Error::cancelled("the command was cancelled before it started".to_string()));
     }
     let scheduled = callable.object.bind(py).call1(args).and_then(|coroutine| {
         schedule_coroutine(py, coroutine, pool.pick().event_loop(py), pending, done_tx)
@@ -318,10 +316,9 @@ fn call_with_gil(
 ) -> Result<Value, Error> {
     let (args, context) = prepare_call(py, callable, state, arguments, context)?;
     let result = callable.object.bind(py).call1(args);
-    // The context is valid only during the call.
-    if let Some(context) = &context {
-        context.invalidate();
-    }
+    // The context is valid only during the call; a record source the command received resolves
+    // through the environment from here on.
+    context.invalidate();
     let result = result.map_err(|e| pyerr_to_error(py, &e))?;
     if is_coroutine(py, &result)? {
         // Closed so Python does not also warn that it was never awaited.
@@ -338,22 +335,29 @@ fn is_coroutine(py: Python<'_>, object: &Bound<'_, PyAny>) -> Result<bool, Error
     crate::pycall::is_coroutine(py, object).map_err(|e| pyerr_to_error(py, &e))
 }
 
-/// The positional arguments of a call, and the `Context` handed to it, if the function takes one.
+/// The positional arguments of a call, and the `Context` wrapper of the call.
+///
+/// The wrapper is always made, even when the function takes no `context`: a record source among
+/// the arguments resolves through it while the command runs, so its chunks are recorded as
+/// dependencies (`records/resolver.rs`). The caller invalidates it when the command ends.
 fn prepare_call<'py>(
     py: Python<'py>,
     callable: &PyCallable,
     state: &CoreState<Value>,
     arguments: &CommandArguments<PyEnvironment>,
     context: CoreContext<PyEnvironment>,
-) -> Result<(Bound<'py, PyTuple>, Option<Context>), Error> {
+) -> Result<(Bound<'py, PyTuple>, Context), Error> {
+    let envref = context.get_envref();
+    let context = Context::new(context, callable.shut.clone());
+    let scope = context.scope(&envref);
     let mut positional: Vec<Py<PyAny>> = Vec::with_capacity(arguments.len() + 2);
     match &callable.delivery {
         StateDelivery::None => {}
         StateDelivery::State => {
-            positional.push(crate::asset::State::from_core(py, state)?.into_any());
+            positional.push(crate::asset::State::from_core(py, state, &scope)?.into_any());
         }
         StateDelivery::Value | StateDelivery::Reserved(_) => {
-            positional.push(value_to_py(py, state.data_unchecked().as_ref())?);
+            positional.push(value_to_py(py, state.data_unchecked().as_ref(), &scope)?);
         }
         StateDelivery::Text => {
             let text = state.try_into_string()?;
@@ -369,7 +373,7 @@ fn prepare_call<'py>(
                             "an element of the multiple argument '{name}' was not resolved"
                         ))
                     })?;
-                    positional.push(value_to_py(py, &Value::try_from_json_value(&json)?)?);
+                    positional.push(value_to_py(py, &Value::try_from_json_value(&json)?, &scope)?);
                 }
             }
             ParameterValue::DefaultValue(_, _)
@@ -382,21 +386,16 @@ fn prepare_call<'py>(
             | ParameterValue::Placeholder(_)
             | ParameterValue::Injected(_)
             | ParameterValue::None => {
-                positional.push(value_to_py(py, &arguments.get_value(i, "argument")?)?);
+                positional.push(value_to_py(py, &arguments.get_value(i, "argument")?, &scope)?);
             }
         }
     }
-    let context = match callable.context_index {
-        Some(index) => {
-            let context = Context::new(context, callable.shut.clone());
-            let object = Py::new(py, context.clone_handle())
-                .map_err(|e| pyerr_to_error(py, &e))?
-                .into_any();
-            positional.insert(index.min(positional.len()), object);
-            Some(context)
-        }
-        None => None,
-    };
+    if let Some(index) = callable.context_index {
+        let object = Py::new(py, context.clone_handle())
+            .map_err(|e| pyerr_to_error(py, &e))?
+            .into_any();
+        positional.insert(index.min(positional.len()), object);
+    }
     let args = PyTuple::new(py, positional).map_err(|e| pyerr_to_error(py, &e))?;
     Ok((args, context))
 }

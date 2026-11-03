@@ -6,6 +6,7 @@ import threading
 import pytest
 
 import liquers as lq
+from conftest import handle_baseline
 from test_RECIPE_python_providers import Convert, Reports, convert_environment
 
 
@@ -83,7 +84,7 @@ def test_RECIPE_factory_and_protocol_checked():
 def test_RECIPE_late_registration_and_release():
     # AC-10: (a) a factory registered after a failed build lets the next use build.
     assert hasattr(lq.Environment, "live_handle_count"), "build with --features debug-handles"
-    baseline = lq.Environment.live_handle_count()
+    baseline = handle_baseline()
     env = lq.Environment(config={
         "recipes": ["recipes_yaml", {"type": "reports", "folder": "reports"}],
         "store": {"stores": [{"type": "memory", "prefix": ""}]}})

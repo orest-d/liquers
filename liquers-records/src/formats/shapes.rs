@@ -425,7 +425,7 @@ fn to_json_columns(view: &dyn RecordView) -> Result<Value, Error> {
     let mut keys = Vec::with_capacity(view.len());
     for row in 0..view.len() {
         let key = match id_col {
-            Some(col) => csv::format_value(&view.value(row, col)?)?.unwrap_or_default(),
+            Some(col) => csv::format_field_value(&view.value(row, col)?)?.unwrap_or_default(),
             None => row.to_string(),
         };
         keys.push(key);
@@ -484,7 +484,7 @@ fn to_json_index(view: &dyn RecordView) -> Result<Value, Error> {
     let mut obj = Map::with_capacity(view.len());
     for row in 0..view.len() {
         let key = match id_col {
-            Some(col) => csv::format_value(&view.value(row, col)?)?.unwrap_or_default(),
+            Some(col) => csv::format_field_value(&view.value(row, col)?)?.unwrap_or_default(),
             None => row.to_string(),
         };
         let mut inner = Map::with_capacity(payload_cols.len());
