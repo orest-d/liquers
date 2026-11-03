@@ -771,3 +771,101 @@ class FrontMatterYamlTests(unittest.TestCase):
                 if value:
                     with self.subTest(file=r["file"], key=key):
                         self.assertEqual(str(loaded.get(key)), value)
+
+
+class ChapterTests(unittest.TestCase):
+    """docs/guides chapters: kind `chapter`, their checks, check 18 and `chapters-for`."""
+
+    def tree(self, root: Path, chapter: str, history: str = "") -> None:
+        (root / "specs" / "guides").mkdir(parents=True)
+        (root / "specs" / "guides" / "PYTHON_GUIDE.md").write_text("x", encoding="utf-8")
+        guide = root / "docs" / "guides" / "python"
+        guide.mkdir(parents=True)
+        (root / "docs" / "guides" / "_shared").mkdir()
+        (root / "docs" / "guides" / "_shared" / "q.md").write_text("TBD: x", encoding="utf-8")
+        (guide / "05-commands.md").write_text(chapter, encoding="utf-8")
+        (guide / "HISTORY.md").write_text(history, encoding="utf-8")
+
+    def test_chapters_are_indexed_and_checked(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self.tree(
+                root,
+                "---\ntitle: Commands\nstatus: draft\n"
+                "sources: [guides/PYTHON_GUIDE.md, guides/GONE.md]\nreviewed: 2026-01-02\n---\n# 5\n",
+            )
+            rows = docs_index.collect_chapters(root)
+            self.assertEqual([r["id"] for r in rows], ["python/05-commands"])
+            self.assertEqual(rows[0]["kind"], "chapter")
+            self.assertEqual(rows[0]["status"], "draft")
+            import datetime
+
+            errors, warnings = docs_index.chapter_checks(rows, root, datetime.date(2026, 11, 1))
+            self.assertEqual(
+                errors,
+                ["docs/guides/python/05-commands.md: source 'guides/GONE.md' is not a specs/ document"],
+            )
+            self.assertEqual(len(warnings), 2)
+            self.assertIn("has no row in docs/guides/python/HISTORY.md", warnings[0])
+            self.assertIn(">92 days", warnings[1])
+
+    def test_history_row_and_status(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self.tree(
+                root,
+                "---\ntitle: Commands\nstatus: finished\nreviewed: 2026-10-30\n---\n",
+                "| 2026-10-30 | 05-commands.md | reviewed |\n",
+            )
+            import datetime
+
+            rows = docs_index.collect_chapters(root)
+            errors, warnings = docs_index.chapter_checks(rows, root, datetime.date(2026, 11, 1))
+            self.assertEqual(len(errors), 1)
+            self.assertIn("status 'finished'", errors[0])
+            self.assertEqual(warnings, [])
+
+    def test_links_into_specs_are_errors(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self.tree(
+                root,
+                "---\ntitle: C\nstatus: draft\n---\n[a](../../../specs/guides/PYTHON_GUIDE.md) "
+                "[b](../rust/05-commands.md) `[c](../../../specs/x.md)` [d](https://e.org/specs/x)\n",
+            )
+            errors = docs_index.docs_link_errors(root)
+            self.assertEqual(len(errors), 1)
+            self.assertIn("links into specs/ (../../../specs/guides/PYTHON_GUIDE.md)", errors[0])
+
+    def test_chapters_for_a_spec(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self.tree(root, "---\ntitle: C\nstatus: draft\nsources: [guides/PYTHON_GUIDE.md]\n---\n")
+            rows = docs_index.collect_chapters(root)
+            expected = ["docs/guides/python/05-commands.md"]
+            self.assertEqual(docs_index.chapters_for(rows, "guides/PYTHON_GUIDE.md"), expected)
+            self.assertEqual(docs_index.chapters_for(rows, "specs/guides/PYTHON_GUIDE.md"), expected)
+            self.assertEqual(docs_index.chapters_for(rows, "guides/OTHER.md"), [])
+
+
+class ActionsGuideTests(unittest.TestCase):
+    """Every workflow is described in GITHUB_ACTIONS_GUIDE.md (a warning otherwise)."""
+
+    def test_undescribed_workflow_warns(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / ".github" / "workflows").mkdir(parents=True)
+            (root / ".github" / "workflows" / "docs-site.yml").write_text("", encoding="utf-8")
+            (root / ".github" / "workflows" / "other.yml").write_text("", encoding="utf-8")
+            self.assertEqual(len(docs_index.actions_guide_warnings(root)), 1)
+            (root / "specs" / "guides").mkdir(parents=True)
+            (root / "specs" / "guides" / "GITHUB_ACTIONS_GUIDE.md").write_text(
+                "## docs-site.yml\n", encoding="utf-8"
+            )
+            self.assertEqual(
+                docs_index.actions_guide_warnings(root),
+                [".github/workflows/other.yml: not described in specs/guides/GITHUB_ACTIONS_GUIDE.md"],
+            )
+
+    def test_the_real_workflows_are_described(self):
+        self.assertEqual(docs_index.actions_guide_warnings(docs_index.REPO), [])

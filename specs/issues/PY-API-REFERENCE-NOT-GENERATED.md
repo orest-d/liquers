@@ -2,7 +2,7 @@
 id: PY-API-REFERENCE-NOT-GENERATED
 kind: feature
 title: The Python package has no generated API reference
-status: draft
+status: closed
 priority: P2
 complexity: S
 area: [py, docs]
@@ -60,6 +60,14 @@ test) are now `PY-PUBLIC-NAMES-HAVE-NO-DOCSTRINGS`, designed in `design/py-docst
 eligible for automatic fixing). This feature keeps item 2, the generated reference, which needs the
 maintainer's choice of tool (`design/py-api-reference/`, question 1) and requires the docstrings
 first. Complexity lowered from `M` to `S`: one new script, one test and the documents.
+
+## Resolution
+
+Closed 2026-11-02 by `design/py-api-reference`: `scripts/build-liquers-py-docs.sh` renders the
+reference with pdoc (the recommended generator; the owner asked for the Python API reference on
+the documentation site, which settled question 1), `scripts/test-liquers-py.sh` runs it, and
+`tests/test_DOCS_api_reference.py` checks it. `scripts/build-docs.sh` publishes it at
+`api/python/` of the documentation site.
 
 ## Discovery
 

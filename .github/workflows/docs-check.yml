@@ -11,6 +11,7 @@ on:
   pull_request:
     paths:
       - 'specs/**'
+      - 'docs/**'
       - 'scripts/docs_index.py'
       - 'scripts/test_docs_index.py'
       - '.claude/skills/liquers-project/scripts/**'
@@ -19,6 +20,7 @@ on:
     branches: [main]
     paths:
       - 'specs/**'
+      - 'docs/**'
       - 'scripts/docs_index.py'
       - 'scripts/test_docs_index.py'
       - '.claude/skills/liquers-project/scripts/**'
