@@ -8,14 +8,14 @@ updates. The rustdoc job ships with the four clean crates. Prerequisite for wide
 `RUSTDOC-STORE-SUBMODULE-LINKS-UNRESOLVED`, fixed in a spin-off (Step 9), not in this PR.
 
 ## Progress
-- [ ] Step 1: Write `specs/guides/API_DOCUMENTATION_GUIDE.md`
-- [ ] Step 2: Write `scripts/check_api_docs.py` and its tests
-- [ ] Step 3: Document `liquers_core::commands`
-- [ ] Step 4: Document the `liquers` Python package
+- [x] Step 1: Write `specs/guides/API_DOCUMENTATION_GUIDE.md` — a1ce5f1
+- [x] Step 2: Write `scripts/check_api_docs.py` and its tests — a1ce5f1
+- [x] Step 3: Document `liquers_core::commands` — a1ce5f1
+- [x] Step 4: Document the `liquers` Python package — a1ce5f1
 - [ ] Step 5: Document `liquers_web` and its `@packageDocumentation`
-- [ ] Step 6: Put the rules into the `liquers-project` skill
-- [ ] Step 7: CI: the checker step and the rustdoc job
-- [ ] Step 8: Update the specs, `CLAUDE.md` and the READMEs
+- [x] Step 6: Put the rules into the `liquers-project` skill — a1ce5f1
+- [x] Step 7: CI: the checker step and the rustdoc job — a1ce5f1
+- [x] Step 8: Update the specs, `CLAUDE.md` and the READMEs — a1ce5f1
 - [ ] Step 9: Spin off the intra-doc link fix
 
 ## Implementation Steps

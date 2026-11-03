@@ -282,8 +282,11 @@ def example_blocks(body: list[str], language: str) -> list[tuple[int, int]]:
 
 def check_doc(doc: ModuleDoc, root: Path) -> list[Finding]:
     rel = doc.path.relative_to(root).as_posix() if doc.path.is_relative_to(root) else str(doc.path)
-    warn = lambda message, line=doc.line: Finding(rel, line, "warning", message)  # noqa: E731
     findings: list[Finding] = []
+
+    def warn(message: str) -> Finding:
+        return Finding(rel, doc.line, "warning", message)
+
     if not doc.text.strip():
         return [warn("no module doc" if doc.language != "javascript" else "no @packageDocumentation block")]
     purpose, parts = sections(doc.text)

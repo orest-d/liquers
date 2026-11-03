@@ -184,9 +184,9 @@ check is a Python script in `scripts/`, beside `docs_index.py`, run by `docs-che
   1. *Implementation detail, resolved.* The `commands.rs` doctest: Phase 2 recommended one call
      through `CommandExecutor`, but `execute` needs a hand-built `CommandArguments` and `Context`;
      the doctest registers a command and evaluates it under a `tokio` runtime (Phase 3, Example 1).
-  2. *Implementation detail.* The `@packageDocumentation` block must be the first comment of
-     the generated `.d.ts`. wasm-bindgen writes custom sections before the declarations; Step 5
-     generates the file to confirm, and Phase 5 records the result.
+  2. *Implementation detail, resolved.* The `@packageDocumentation` block must be the first
+     comment of the generated `.d.ts`. Confirmed at Step 5: wasm-bindgen writes it right after its
+     two `/* … */` lines, and TypeDoc 0.28 renders it as the module page (Phase 5, Validation).
   3. *Proposed resolution.* The rustdoc job starts with the four clean crates; `liquers-core` and
      `liquers-records` join when `RUSTDOC-STORE-SUBMODULE-LINKS-UNRESOLVED` merges (spin-off,
      Step 9). Assumed acceptable: the alternative, waiting for the fix, delays nothing else.

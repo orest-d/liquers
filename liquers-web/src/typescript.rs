@@ -36,10 +36,10 @@ const LIQUERS_PACKAGE_DOC: &'static str = r##"
  *
  * # Main components
  * - {@link init} and {@link evaluate} — the global environment, and a query run against it;
- *   {@link get_asset} resolves with the asset (value, status and metadata) instead.
- * - {@link register_command} and {@link register_commands} — a function with a
+ *   {@link getAsset} resolves with the asset (value, status and metadata) instead.
+ * - {@link registerCommand} and {@link registerCommands} — a function with a
  *   {@link LiquersCommandSpec} becomes a command.
- * - {@link LiquersEnvironment} — the environment behind `init()`: stores, recipes, shutdown.
+ * - {@link Environment} — the environment behind `init()`: stores, recipes, shutdown.
  * - {@link LiquersError} — what a rejected Promise carries.
  *
  * # Where it is used
