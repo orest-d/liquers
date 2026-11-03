@@ -159,6 +159,20 @@ impl UIValueExtension for Value {
                 ui.label("Key:");
                 display_styled_query(ui, value.clone());
             }
+            // A pipeline with a query form shows as that query; otherwise as its YAML.
+            Self::Base(SimpleValue::Pipeline { value }) => {
+                ui.label("Pipeline:");
+                match value.to_query_text() {
+                    Ok(text) => {
+                        ui.label(RichText::new(text).monospace());
+                    }
+                    Err(_) => {
+                        let yaml = serde_yaml::to_string(value)
+                            .unwrap_or_else(|e| format!("<not displayable: {e}>"));
+                        ui.label(RichText::new(yaml).monospace());
+                    }
+                }
+            }
         }
     }
 }

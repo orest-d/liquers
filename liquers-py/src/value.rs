@@ -317,6 +317,13 @@ fn simple_to_py(py: Python<'_>, value: &SimpleValue) -> Result<Py<PyAny>, Error>
         ),
         SimpleValue::Query { value } => into_py(py, crate::query::Query(value.clone()), "query"),
         SimpleValue::Key { value } => into_py(py, crate::query::Key(value.clone()), "key"),
+        // No Python class yet: a pipeline crosses as its serialized form, a dict.
+        SimpleValue::Pipeline { value } => {
+            simple_to_py(
+                py,
+                &<SimpleValue as liquers_core::value::ValueInterface>::try_from_json_value(&value.to_json())?,
+            )
+        }
     }
 }
 

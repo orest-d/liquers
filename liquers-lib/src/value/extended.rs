@@ -397,6 +397,17 @@ impl<BaseValue: ValueInterface + Default, Ext: ValueExtension> ValueInterface
         CombinedValue::Base(BaseValue::from_recipe(recipe))
     }
 
+    fn try_into_pipeline(&self) -> Result<liquers_core::pipeline::Pipeline, Error> {
+        match self {
+            CombinedValue::Base(base) => base.try_into_pipeline(),
+            CombinedValue::Extended(_) => Err(Error::conversion_error(self.type_name(), "Pipeline")),
+        }
+    }
+
+    fn from_pipeline(pipeline: liquers_core::pipeline::Pipeline) -> Self {
+        CombinedValue::Base(BaseValue::from_pipeline(pipeline))
+    }
+
     fn from_command_metadata(command_metadata: CommandMetadata) -> Self {
         CombinedValue::Base(BaseValue::from_command_metadata(command_metadata))
     }

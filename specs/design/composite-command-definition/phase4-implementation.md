@@ -24,7 +24,7 @@ Exhaustive matches that new variants reach outside `liquers-core`:
 - [x] Step 1: Token predicates, `check_encodable`, template and web consumers (02032d7)
 - [x] Step 2: Pipeline types and serde (ac40db9)
 - [x] Step 3: Query and recipe conversions, representability, canonical form (9ae38ad)
-- [ ] Step 4: Registry snapshot and editors
+- [x] Step 4: Registry snapshot and editors (3d2b629)
 - [ ] Step 5: `Value::Pipeline`
 - [ ] Step 6: Pipeline parameter values and defaults
 - [ ] Step 7: Extract `PlanAssembly`
@@ -244,3 +244,9 @@ Decisions made while implementing, none of which changes an approved contract:
   resolve yet is written as it stands (its own `ns`, positional parameters only), so
   `q.action("sort")?.ns("pl")` works and `query()` never fails. `PipelineEditor::for_definition`
   is the editor for a pipeline command's body; only it accepts placeholders and the input state.
+- `Pipeline::to_query_text` is the public text form a value writes as `txt` (no registry, each
+  action as it stands); core `Value` and `SimpleValue` both use it. `SimpleValue` gained a
+  `Pipeline` variant of its own, mirroring core arm for arm, with a `yaml` write and read for it;
+  `CombinedValue` delegates to the base. egui and the web HTML view show the query text, or the
+  YAML when there is none. `liquers-py` has no `Pipeline` class yet: a pipeline crosses to Python
+  as its serialized form, a dict or list.

@@ -362,6 +362,20 @@ impl Pipeline {
     pub fn from_query_text(text: &str) -> Result<Pipeline, Error> {
         Pipeline::try_from(&parse_query(text)?)
     }
+
+    /// The pipeline's text form as a value writes it (format `txt`): the query it converts to
+    /// with no registry, each action written as it stands. A pipeline with no query form (a
+    /// placeholder, a structured value) is a serialization error.
+    pub fn to_query_text(&self) -> Result<String, Error> {
+        self.to_query_lenient(&CommandMetadataRegistry::new())
+            .map(|q| q.encode())
+            .map_err(|e| {
+                Error::from_error(
+                    crate::error::ErrorType::SerializationError,
+                    format!("This pipeline has no query text: {}", e.message),
+                )
+            })
+    }
 }
 
 // ---------------------------------------------------------------------------------------------
