@@ -1,9 +1,10 @@
 [package]
 name = "liquers-docs"
-version = "0.1.0"
+version.workspace = true
 edition = "2021"
 rust-version.workspace = true
 description = "Builds the Liquers user guides: expands chapter templates and writes mdBook and Pandoc sources"
+license.workspace = true
 
 [lib]
 path = "src/lib.rs"
