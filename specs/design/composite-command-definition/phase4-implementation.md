@@ -21,9 +21,9 @@ Exhaustive matches that new variants reach outside `liquers-core`:
 
 ## Progress
 
-- [ ] Step 1: Token predicates, `check_encodable`, template and web consumers
-- [ ] Step 2: Pipeline types and serde
-- [ ] Step 3: Query and recipe conversions, representability, canonical form
+- [x] Step 1: Token predicates, `check_encodable`, template and web consumers (02032d7)
+- [x] Step 2: Pipeline types and serde (ac40db9)
+- [x] Step 3: Query and recipe conversions, representability, canonical form (9ae38ad)
 - [ ] Step 4: Registry snapshot and editors
 - [ ] Step 5: `Value::Pipeline`
 - [ ] Step 6: Pipeline parameter values and defaults
@@ -212,3 +212,27 @@ only some steps land, the unshipped remainder becomes an issue (§5.6), named in
 - [ ] User and review comments answered
 - [ ] Documentation checkable against implemented and tested behaviour
 - [ ] Main merged again before Phase 5 (the maintainer's request, 2026-11-03)
+
+## Implementation Notes
+
+Decisions made while implementing, none of which changes an approved contract:
+
+- `Query::check_encodable` compares **encodings**: the parsed text must encode back to the same
+  text. A structural comparison refused every query written with the resource shorthand
+  (`a/b/-/c`), whose header is absent where its encoding (`-R/a/b/-/c`) has an empty one.
+- `liquers-web`'s `encode_param` now returns `String`, and `encodeParam` no longer throws. The
+  JavaScript reference and guide still say it throws; corrected in Phase 5.
+- A serialized element may carry `pos`; a positioned text element uses the long form
+  `{text: "…", pos: …}`. A literal object whose only key is a source tag is written inside
+  `{value: …}`; `{placeholder: name}` alone is always a placeholder.
+- `Recipe::to_pipeline` takes the registry: an override replaces a positional parameter of the
+  same argument, as a recipe override does, which N4 would otherwise refuse.
+- Namespace placement runs separately in each run of actions between `q`s, so an `ns` never moves
+  in front of a `q` and the quoted prefix is unchanged. The step-3 `ns` for an action in the root
+  namespace is written `ns-root`.
+- A first segment is written without a header only when it is the query's only segment;
+  otherwise `a/b/-/c` would read back as a resource shorthand.
+- The corpus is `liquers-core/tests/fixtures/query_corpus.txt`. Two of its queries are refused,
+  each for a stated reason: a header level, and `q` with a parameter.
+- The per-rule tests are one table-driven test, `not_representable_each_rule`, with an assertion
+  per rule id.
