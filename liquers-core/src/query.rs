@@ -2398,6 +2398,111 @@ impl CwdCursor {
 
 #[allow(dead_code)]
 impl Query {
+    /// Checks that this query survives encoding: `parse_query(&self.encode())` gives it back.
+    ///
+    /// A parsed query always passes. A query assembled in code may not: an action name with a
+    /// space, a key segment with `/`, a filename without a `.`. The error names the **first**
+    /// offending token, in query order, and carries its position when it has one. Links are
+    /// checked recursively. String action parameters are never a reason, because
+    /// [`encode_token`] escapes any string.
+    ///
+    /// ```
+    /// use liquers_core::query::{ActionRequest, Query, QuerySegment, TransformQuerySegment};
+    /// use liquers_core::parse::parse_query;
+    ///
+    /// assert!(parse_query("-R/data/x.csv/-/to_text")?.check_encodable().is_ok());
+    /// let mut q = Query::new();
+    /// q.segments.push(QuerySegment::Transform(TransformQuerySegment {
+    ///     query: vec![ActionRequest::new("to text".to_owned())],
+    ///     ..Default::default()
+    /// }));
+    /// assert!(q.check_encodable().is_err());
+    /// # Ok::<(), liquers_core::error::Error>(())
+    /// ```
+    pub fn check_encodable(&self) -> Result<(), Error> {
+        use crate::escape::{
+            is_filename, is_header_value, is_identifier, is_identifier_char, is_realm_name,
+            is_resource_name,
+        };
+        let bad = |value: &str, class: &str, position: &Position| {
+            let error = Error::invalid_token(value, class).with_query(self);
+            if position.is_unknown() {
+                error
+            } else {
+                error.with_position(position)
+            }
+        };
+        for segment in self.segments.iter() {
+            let header = match segment {
+                QuerySegment::Resource(r) => r.header.as_ref(),
+                QuerySegment::Transform(t) => t.header.as_ref(),
+            };
+            if let Some(header) = header {
+                let name_ok = if header.resource {
+                    header.name.chars().all(is_identifier_char)
+                } else {
+                    is_realm_name(&header.name)
+                };
+                if !name_ok {
+                    return Err(bad(&header.name, "a segment header name", &header.position));
+                }
+                if !header.resource && header.name.is_empty() && !header.parameters.is_empty() {
+                    return Err(bad(
+                        &header.encode(),
+                        "a segment header (header parameters need a name)",
+                        &header.position,
+                    ));
+                }
+                for parameter in header.parameters.iter() {
+                    if !is_header_value(&parameter.value) {
+                        return Err(bad(
+                            &parameter.value,
+                            "a segment header parameter",
+                            &parameter.position,
+                        ));
+                    }
+                }
+            }
+            match segment {
+                QuerySegment::Resource(r) => {
+                    for name in r.key.0.iter() {
+                        if !is_resource_name(&name.name) {
+                            return Err(bad(&name.name, "a key segment", &name.position));
+                        }
+                    }
+                }
+                QuerySegment::Transform(t) => {
+                    for action in t.query.iter() {
+                        if !is_identifier(&action.name) {
+                            return Err(bad(&action.name, "an action name", &action.position));
+                        }
+                        for parameter in action.parameters.iter() {
+                            match parameter {
+                                ActionParameter::String(_, _) => {}
+                                ActionParameter::Link(link, _) => link.check_encodable()?,
+                            }
+                        }
+                    }
+                    if let Some(filename) = &t.filename {
+                        if !is_filename(&filename.name) {
+                            return Err(bad(&filename.name, "a filename", &filename.position));
+                        }
+                    }
+                }
+            }
+        }
+        let encoded = self.encode();
+        match crate::parse::parse_query(&encoded) {
+            Ok(parsed) if parsed == *self => Ok(()),
+            Ok(_) => Err(bad(&encoded, "a query (it parses back differently)", &Position::unknown())),
+            Err(e) => Err(bad(
+                &encoded,
+                &format!("a query (it does not parse back: {})", e.message),
+                &Position::unknown(),
+            )),
+        }
+    }
+
     /// Creates an empty query.
     pub fn new() -> Query {
         Query {
@@ -2998,6 +3103,73 @@ mod tests {
     use crate::parse::{self, parse_key, parse_query};
 
     use super::*;
+
+    /// AC-33 — a parsed query is encodable; a hand-built one names its first bad token.
+    #[test]
+    fn check_encodable_names_first_bad_token() -> Result<(), Error> {
+        for text in [
+            "-R/data/x.csv/-/to_text",
+            "a-1/b-~X~-R/k/-/c~E/out.txt",
+            "/-R-meta/x/y",
+            "-R/a/-ns-x/b/c.txt",
+            "",
+        ] {
+            parse_query(text)?.check_encodable()?;
+        }
+
+        let action = |name: &str| ActionRequest::new(name.to_owned());
+        let transform = |actions: Vec<ActionRequest>, filename: Option<&str>| {
+            QuerySegment::Transform(TransformQuerySegment {
+                header: None,
+                query: actions,
+                filename: filename.map(|f| ResourceName::new(f.to_owned())),
+            })
+        };
+        let first_bad = |q: Query| match q.check_encodable() {
+            Ok(()) => String::new(),
+            Err(e) => {
+                assert_eq!(e.error_type, ErrorType::ParameterError);
+                e.message.clone()
+            }
+        };
+
+        let mut q = Query::new();
+        q.segments.push(transform(vec![action("ok"), action("bad name"), action("2x")], None));
+        assert!(first_bad(q).contains("'bad name' is not valid as an action name"));
+
+        let mut q = Query::new();
+        q.segments.push(QuerySegment::Resource(ResourceQuerySegment {
+            header: None,
+            key: Key(vec![ResourceName::new("data".to_owned()), ResourceName::new("my file".to_owned())]),
+        }));
+        assert!(first_bad(q).contains("'my file' is not valid as a key segment"));
+
+        let mut q = Query::new();
+        q.segments.push(transform(vec![action("a")], Some("report")));
+        assert!(first_bad(q).contains("'report' is not valid as a filename"));
+
+        // A bad token inside a link is reported too.
+        let mut inner = Query::new();
+        inner.segments.push(transform(vec![action("x y")], None));
+        let mut outer = Query::new();
+        outer.segments.push(transform(
+            vec![action("a").with_parameters(vec![ActionParameter::new_link(inner)])],
+            None,
+        ));
+        assert!(first_bad(outer).contains("'x y' is not valid as an action name"));
+
+        // Any string parameter is encodable, including the empty one (AC-36).
+        let mut q = Query::new();
+        q.segments.push(transform(
+            vec![action("a").with_parameters(vec![
+                ActionParameter::new_string(String::new()),
+                ActionParameter::new_string("a/b-c ~X~".to_owned()),
+            ])],
+            None,
+        ));
+        q.check_encodable()?;
+        Ok(())
+    }
 
     /// Every reserved action name is exactly one planner instruction, and every instruction
     /// predicate is reached by one of them.

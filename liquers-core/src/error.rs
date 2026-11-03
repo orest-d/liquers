@@ -393,6 +393,17 @@ impl Error {
             ),
         )
     }
+    /// A token is not valid where it stands: `class` names what was expected there (an action
+    /// name, a key segment, a filename…).
+    ///
+    /// Raised by [`crate::query::Query::check_encodable`] and by the pipeline editors, before a
+    /// query that would not parse back is ever encoded.
+    pub fn invalid_token(value: &str, class: &str) -> Self {
+        Error::new(
+            ErrorType::ParameterError,
+            format!("'{}' is not valid as {}", value, class),
+        )
+    }
     /// Notes that the failing action was reached through `alias`.
     ///
     /// The interpreter calls this when an aliased action fails, so the message names the command
