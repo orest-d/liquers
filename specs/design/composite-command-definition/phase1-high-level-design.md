@@ -374,6 +374,10 @@ and `liquers-validate` (existing `cli` feature). No new dependency.
     and the editors; `PYTHON_INTEGRATION.md` and the JavaScript guide refer to it;
   - tooling: `CLAUDE.md` §Validating queries and the `liquers-validate` skill (pipelines, conversions);
   - web API: later, in `WEB-API-CANNOT-RUN-PIPELINES-OR-RECIPE-ENDPOINTS`.
+- **User-guide chapters** (`docs/guides/{rust,python,web}/`): Phase 5 reviews the chapters
+  `docs_index.py chapters-for` lists for these documents, and adds the pipeline documents to the
+  `sources:` of the query, commands, assets, values and glossary chapters (Phase 2 §Documentation
+  Architecture).
 
 ## Open Questions
 

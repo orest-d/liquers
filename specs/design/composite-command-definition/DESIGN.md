@@ -8,7 +8,7 @@ phase: architecture
 area: [core/commands, core/plan, core/assets, core/query, core/validate, web]
 issues: [COMMAND-CANNOT-BE-DEFINED-AS-A-COMMAND-SEQUENCE, QUERY-BUILDER-TOOLING, RECIPE-OVERRIDE-ONLY-LAST-ACTION]
 merged: 2026-11-02
-affects_docs: [reference/PIPELINES.md, guides/PIPELINE_GUIDE.md, reference/PROJECT_OVERVIEW.md, reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md, reference/COMMAND_ALIASES.md, reference/COMMAND_DECLARATION.md, reference/RECIPES_AND_PLANS.md, reference/TEMPLATE_LANGUAGE.md, guides/COMMAND_REGISTRATION_GUIDE.md, guides/COMMAND_DESIGN_GUIDE.md, guides/QUERY_ESCAPING_GUIDE.md]
+affects_docs: [reference/PIPELINES.md, guides/PIPELINE_GUIDE.md, reference/PROJECT_OVERVIEW.md, reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md, reference/COMMAND_ALIASES.md, reference/COMMAND_DECLARATION.md, reference/RECIPES_AND_PLANS.md, reference/TEMPLATE_LANGUAGE.md, guides/COMMAND_REGISTRATION_GUIDE.md, guides/COMMAND_DESIGN_GUIDE.md, guides/QUERY_ESCAPING_GUIDE.md, reference/VALUE_TYPE_SYSTEM.md, guides/TYPE_SYSTEM_GUIDE.md, reference/REALMS.md, guides/LANGUAGE-INTEGRATION_GUIDE.md]
 created: 2026-11-01
 ---
 # Pipelines

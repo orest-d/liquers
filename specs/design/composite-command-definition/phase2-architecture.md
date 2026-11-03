@@ -546,6 +546,29 @@ lives in whatever namespace it is registered under.
 Each `reference/` and `guides/` change gets a History row and a `reviewed:` bump. `specs/README.md`
 links the design until `PIPELINES.md` exists.
 
+**User-guide chapters** (rule added on main on 2026-11-01: `specs/guides/USER_DOCS_EDITING_GUIDE.md`
+§7, `liquers-project` Phase 5). `python3 scripts/docs_index.py chapters-for <affects_docs>` lists
+25 chapters today. They are the same ten chapters in each of the three guides (`rust`, `python`,
+`web`), minus `python/02-installing`, `python/15-troubleshooting`, `web/02-installing`,
+`web/10-templates` and `web/15-troubleshooting`, which do not cite these sources:
+
+| Chapters | Planned in Phase 5 |
+|---|---|
+| `03-queries`, `a-query-syntax` | add `reference/PIPELINES.md` to `sources:`; a pipeline is the structured form of a query; `QueryEditor`; segment names are realms |
+| `05-commands` | add `reference/PIPELINES.md` and `guides/PIPELINE_GUIDE.md` to `sources:`; the pipeline command, as an alias with placeholders |
+| `07-assets` | recipe pipelines that run before the query |
+| `04-values` | `Value::Pipeline` |
+| `c-glossary` | *pipeline*, *pipeline command*, *representable*, *placeholder* |
+| `01-introduction`, `02-installing`, `10-templates`, `15-troubleshooting` | reviewed only: their sources change in ways they do not describe |
+
+All 25 are `status: outline` at HEAD, and the procedure reviews only chapters past `outline`.
+Phase 5 runs `chapters-for` again, because chapters may have advanced by then. It reviews or fixes
+each chapter past `outline`, giving it a new `reviewed:` date and a row in its guide's `HISTORY.md`,
+or marks it `CHECK:` and files an issue. Each `sources:` addition above is made whatever the
+chapter's status, so that later reviews pick it up. The Python and web chapters say that pipelines
+are not yet available there (`PIPELINES-NOT-IN-LANGUAGE-BINDINGS`). `cargo run -p liquers-docs --
+check` must pass.
+
 ## Risks
 
 | Assessment | Finding |
