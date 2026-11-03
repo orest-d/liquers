@@ -1,7 +1,13 @@
 # Phase 2: Solution & Architecture — Pipelines
 
-Rewritten on 2026-11-03 for the Phase 1 approved that day, and revised the same evening after the maintainer's first Phase 2 review: `PipelinePlanBuilder` (renamed) plans everything, with `PlanBuilder` delegation as a switch; positions on every element and argument; the chained `ActionEditor`; `ParameterValue::Input` replacing the level-indexed `State`. That Phase 1 merges the query builder
+Rewritten on 2026-11-03 for the Phase 1 approved that day. That Phase 1 merges the query builder
 (AC-25–AC-38) and adds realm scopes and `Value::Pipeline` (AC-39, AC-40). It also settles Q20–Q30.
+Revised the same evening after the maintainer's first Phase 2 review:
+- `PipelinePlanBuilder` (renamed) plans everything, and delegating to `PlanBuilder` is a switch;
+- every element and argument has a position;
+- `ActionEditor` methods chain;
+- `ParameterValue::Input` replaces the level-indexed `State`.
+
 This rewrite replaces the draft of 2026-11-01. Supporting analyses:
 [`pipeline-structure-and-sources.md`](./pipeline-structure-and-sources.md) (struct, realms,
 state elements),
