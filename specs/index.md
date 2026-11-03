@@ -8,9 +8,9 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 213
+Total rows: 212
 - P2: 60
-- P3: 153
+- P3: 152
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -112,12 +112,11 @@ Total rows: 213
 | [`PY-ADD-PYTHON-COMMAND-STILL-DECLARES-PYCALL-ALIASES`](issues/PY-ADD-PYTHON-COMMAND-STILL-DECLARES-PYCALL-ALIASES.md) | issue | CommandMetadataRegistry.add_python_command is still public and declares aliases of a pycall command that does not exist | draft |  |  | P3 | S | py |  | 2026-10-27 |
 | [`QUERY-SYNTAX-HAS-NO-INCLUDABLE-SECTION`](issues/QUERY-SYNTAX-HAS-NO-INCLUDABLE-SECTION.md) | issue | Query Language section of PROJECT_OVERVIEW cannot be included in the user guides | draft |  |  | P3 | S | docs |  | 2026-11-01 |
 | [`RECIPE-MISSING-RECIPE-IS-A-GENERAL-ERROR`](issues/RECIPE-MISSING-RECIPE-IS-A-GENERAL-ERROR.md) | issue | Asking a recipe provider for a recipe it does not have raises a General error, not KeyNotFound | draft |  |  | P3 | S | core/assets;core/error |  | 2026-11-01 |
-| [`RUSTDOC-STORE-SUBMODULE-LINKS-UNRESOLVED`](issues/RUSTDOC-STORE-SUBMODULE-LINKS-UNRESOLVED.md) | issue | Intra-doc links in the store submodules and value.rs do not resolve | draft |  |  | P3 | S | docs;core/store;core/value;records |  | 2026-11-01 |
+| [`RUSTDOC-PRIVATE-INTRA-DOC-LINKS-RECUR`](issues/RUSTDOC-PRIVATE-INTRA-DOC-LINKS-RECUR.md) | issue | Public rustdoc in liquers-core and liquers-records links private items again | draft |  |  | P3 | S | docs;core/plan;core/assets;records |  | 2026-11-03 |
 | [`RUSTDOC-WASM-CRATE-NOT-MERGED-INTO-API-TREE`](issues/RUSTDOC-WASM-CRATE-NOT-MERGED-INTO-API-TREE.md) | issue | liquers-web's Rust API page does not link the other crates and is missing from the API search | draft |  |  | P3 | S | web;docs |  | 2026-11-02 |
 | [`TEMPLATE-DIAGNOSTICS-CHECK-COMMANDS-A-Q-QUOTES`](issues/TEMPLATE-DIAGNOSTICS-CHECK-COMMANDS-A-Q-QUOTES.md) | issue | Template diagnostics report unknown commands in a query part that a later q quotes, which the planner never resolves | draft |  |  | P3 | S | core/query;lib/commands |  | 2026-10-26 |
 | [`VALIDATE-PHASE-COMPACT-SIZE-IGNORES-SOURCE-COMPLEXITY`](issues/VALIDATE-PHASE-COMPACT-SIZE-IGNORES-SOURCE-COMPLEXITY.md) | issue | validate_phase.py checks every compact design against the M size limit | draft |  |  | P3 | S | docs;build |  | 2026-10-27 |
 | [`VALIDATE-PHASE-PHASE1-SIZE-COUNTS-EXCLUDED-SECTIONS`](issues/VALIDATE-PHASE-PHASE1-SIZE-COUNTS-EXCLUDED-SECTIONS.md) | issue | validate_phase.py counts the problem example and readiness section against Phase 1's size limit | draft |  |  | P3 | S | docs |  | 2026-10-31 |
-| [`WEB-DOCS-SCRIPT-RELATIVE-OUT-PATH-LANDS-IN-WORK-DIR`](issues/WEB-DOCS-SCRIPT-RELATIVE-OUT-PATH-LANDS-IN-WORK-DIR.md) | issue | build-liquers-web-docs.sh --out with a relative path writes inside its work directory and then reports no index.html | draft |  |  | P3 | S | web;docs;build |  | 2026-11-03 |
 | [`WEB-HAS-NO-TEMPLATE-COMMANDS`](issues/WEB-HAS-NO-TEMPLATE-COMMANDS.md) | feature | The browser environment has no template commands | draft |  |  | P3 | S | web |  | 2026-10-25 |
 | [`WEB-IMPORTED-COMMAND-RECEIVES-NO-CONTEXT`](issues/WEB-IMPORTED-COMMAND-RECEIVES-NO-CONTEXT.md) | issue | A JavaScript command bound to imported metadata cannot receive the context | draft |  |  | P3 | S | web |  | 2026-10-31 |
 | [`WEB-JS-STORE-BYTES-WITHOUT-METADATA-READ-AS-BINARY`](issues/WEB-JS-STORE-BYTES-WITHOUT-METADATA-READ-AS-BINARY.md) | issue | A page store returning data without metadata may read a .txt key as bytes, not text | draft |  |  | P3 | S | web;core/store |  | 2026-10-31 |

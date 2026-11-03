@@ -39,9 +39,8 @@ jobs:
         run: bash scripts/check-build-matrix.sh
 
   # Intra-doc links must resolve (specs/guides/API_DOCUMENTATION_GUIDE.md §5, §10). Only the crates
-  # that are clean and need no optional native library are listed; liquers-core and
-  # liquers-records join when RUSTDOC-STORE-SUBMODULE-LINKS-UNRESOLVED is fixed, liquers-lib and
-  # the crates built on it once liquers-lib's links are clean.
+  # that are clean and need no optional native library are listed; liquers-lib and the crates built
+  # on it join once liquers-lib's links are clean.
   rustdoc:
     runs-on: ubuntu-latest
     env:
@@ -51,4 +50,4 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: rustdoc with broken intra-doc links denied
-        run: cargo doc --no-deps -p liquers-template -p liquers-store -p liquers-mcp -p liquers-markdown
+        run: cargo doc --no-deps -p liquers-core -p liquers-records -p liquers-template -p liquers-store -p liquers-mcp -p liquers-markdown

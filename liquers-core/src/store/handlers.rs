@@ -1,6 +1,6 @@
 //! The built-in handlers of the `store_config` realm (`specs/design/store-adapters/`, Phase 2 §4
 //! catalogue): `defaults`, `set`, `require`, `media_type`, `file_facts`, `content_hash` and
-//! `updated`, plus `infer` (`specs/design/storage-none-computed-values/`). Each is a [`CommandMetadata`] built next to its [`StepBuilder`] and registered by
+//! `updated`, plus `infer` (`specs/design/storage-none-computed-values/`). Each is a [`CommandMetadata`] built next to its [`StepBuilder`](super::realm::StepBuilder) and registered by
 //! [`register_builtin_handlers`].
 //!
 //! A handler shapes a [`MetadataRecord`] in one stage of a mount's `metadata` section

@@ -118,12 +118,10 @@ Remaining, each with an issue:
 - `MODULE-DOCS-DO-NOT-FOLLOW-THE-API-DOC-RULES` — the 730 warnings; when it closes, the checker's
   warnings become errors (`--strict` in `docs-check.yml`).
 - `RUSTDOC-STORE-SUBMODULE-LINKS-UNRESOLVED` — spun off to the child session
-  `session_01Dx1JCYavM4zMRMrJXoe9fX`, branch `claude/rustdoc-intra-doc-links` (mechanism A). At
-  the time of writing it is blocked on a Bash permission: it wants to port a `docs-site` venv fix
-  from PR #245 into its branch so that CI can pass, which is outside the spin-off's scope and the
-  owner's call. When it merges, `liquers-core` and `liquers-records` join the `rustdoc` job.
+  `session_01Dx1JCYavM4zMRMrJXoe9fX` (mechanism A), merged as PR #253 on 2026-11-03; closed.
+  `liquers-core` and `liquers-records` are in the `rustdoc` job since that merge.
 - `WEB-DOCS-SCRIPT-RELATIVE-OUT-PATH-LANDS-IN-WORK-DIR` — spun off to the child session
-  `session_01Dx1JCXwrQASFHmQncNRcRx`, branch `claude/web-docs-relative-out` (mechanism A).
+  `session_01Dx1JCXwrQASFHmQncNRcRx` (mechanism A), merged as PR #255 on 2026-11-03; closed.
 
 ## Validation
 
@@ -139,7 +137,7 @@ Runs on 2026-11-03, on `claude/funny-noether-o4vjv7`:
 | `python3 scripts/docs_index.py --check` | 0 errors |
 | `cargo test -p liquers-core --doc` | 24 passed, 7 ignored (the new `commands` doctest among the passed) |
 | `RUSTDOCFLAGS="-D rustdoc::broken_intra_doc_links" cargo doc --no-deps -p liquers-core` | 26 unresolved, none in `commands.rs` (unchanged; the spin-off's job) |
-| the `rustdoc` job's command (`-template -store -mcp -markdown`) | exit 0 |
+| the `rustdoc` job's command (`-core -records -template -store -mcp -markdown`, after PR #253 merged) | exit 0 |
 | `bash scripts/test-liquers-py.sh` | 411 passed, 23 skipped, 1 xpassed; the docstring doctest 1 passed; 38 Rust tests passed |
 | `cargo check -p liquers-web --target wasm32-unknown-unknown` | exit 0 |
 | `liquers-web/scripts/check-stubs.sh --build` | all stub and package checks passed; the generated `liquers_web.d.ts` opens with the `@packageDocumentation` block, after wasm-bindgen's two `/* … */` lines |
