@@ -259,3 +259,7 @@ Decisions made while implementing, none of which changes an approved contract:
   `ResolvedParameterValues`, `Plan` and `PlanBuilder`).
 - `liquers-mcp` checks a pipeline argument against a tool's allow list through its query form
   and refuses one that has none, since its actions could not otherwise be checked.
+- `PlanAssembly` holds the registry, the plan and the three flags; `uncached_by` lives in the
+  plan already, so it moved with it. The flag helpers, `check_parameters_for_volatile_links`,
+  `apply_command_flags`, the step push and the closing of a plan (`finish`) are its methods.
+  The plan tests that reached into the builder's fields read them through `builder.asm`.
