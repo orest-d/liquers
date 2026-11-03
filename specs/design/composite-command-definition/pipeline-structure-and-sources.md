@@ -13,13 +13,16 @@ Today a query's segment header has a **name**, a **level** and **parameters**
   segment's name (`RECIPES_AND_PLANS.md` §Planner instructions). Under this design both are
   realms. The current planner can run only one realm (`CORE-MULTI-REALM-INTERPRETER`). It keeps
   its warning for a resource name it cannot honour, but the pipeline records that realm.
-- **The level is reserved for a tree structure in a query** (the maintainer, 2026-11-03), for
-  example nicer argument passing. A deeper segment is a **child branch** of the segment above it,
-  and each header starts a new branch, so `-/a/--/b/--/c/---/d/--e` is the tree a → {b, c → d,
-  e}, read as the paths `a/b`, `a/c/d` and `a/e`. Nothing interprets it today. A command could, by
-  receiving the quoted query (`…/q/eval_nested`) and walking it. **Out of scope:** the pipeline
-  does not model levels. Converting a query with any level other than `-` is refused, naming the
-  segment, and a future design that gives levels a use decides how a pipeline represents the tree.
+- **The level is reserved for a nested structure in a query** (the maintainer, 2026-11-03), for
+  example nicer argument passing. Levels alone are meant to give queries an **s-expression-like**
+  structure. A deeper segment nests inside the one above it, so `-/a/--/b/--/c/---/d/--e` reads as
+  `(a (b (c d) e))`. That is one interpretation. The same tree could also be read as the paths
+  `a/b`, `a/c/d` and `a/e`, for example by a command that receives the quoted query
+  (`…/q/eval_nested`). **Header parameters** could then give a nested segment a special meaning,
+  much as keywords (`:foo`) do in Scheme. Nothing interprets levels today. **Out of scope:** the
+  pipeline does not model levels. Converting a query with any level other than `-` is refused,
+  naming the segment. A future design that gives levels a use decides how a pipeline represents the
+  nesting: plausibly a nested pipeline element, which is how the 2026-11-03 draft first mapped it.
 - **Header parameters**: a resource header takes one instruction (`-R-meta/…`), and a second one
   is `TooManyParameters`. A transform header's parameters have no meaning yet. They are carried as
   they are.
