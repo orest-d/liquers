@@ -54,6 +54,12 @@ Only file one when the owner explicitly asks for it.
 Template, field vocabularies and the full procedure: `specs/DOCS_STRUCTURE_GUIDE.md` §4.8. Filing
 needs no network, no account and no permission — record what you found and carry on.
 
+**API docs.** A module's documentation — rustdoc `//!`, a Python module docstring, the JavaScript
+`@packageDocumentation` — follows `specs/guides/API_DOCUMENTATION_GUIDE.md`: purpose, main
+components, where it is used, related concepts, an executed example. Bring the module doc of any
+module you touch up to it, and run `python3 scripts/check_api_docs.py <file>` before pushing; a
+design names the modules whose docs change in Phase 1 (`- API docs:`).
+
 **User guides.** `docs/guides/{rust,python,web}/` holds three book-like guides for people *using*
 Liquers, with the same chapters in each. They are hand-edited, written *from* `specs/` (each
 chapter's `sources:`) and published to GitHub Pages by `.github/workflows/docs-site.yml`; nothing

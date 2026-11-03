@@ -140,6 +140,10 @@ explain why. Link to reference/guide documents for detail.>
 ### Existing Documents Reviewed or Updated
 <Authoritative `affects_docs` set, review result, and History/reviewed updates>
 
+### Module Docs
+<Each module doc the design created or changed, reviewed against `API_DOCUMENTATION_GUIDE.md` §3,
+and the output of `scripts/check_api_docs.py` for those files; or `None`>
+
 ### User-Guide Chapters
 <Output of `docs_index.py chapters-for`, and for each chapter: reviewed, fixed, or marked `CHECK:`
 with an issue; or `None`>
@@ -180,6 +184,8 @@ deferred remainder must have an issue rather than a partial design status.>
 - [ ] Guides provide actionable, repeatable instructions without relying on the design
 - [ ] `affects_docs` is authoritative and every listed document was reviewed against implemented code
 - [ ] Every reviewed document has matching `reviewed:` and newest History dates
+- [ ] Every module doc the design touched follows `API_DOCUMENTATION_GUIDE.md` §3 and
+  `scripts/check_api_docs.py` reports nothing for it
 - [ ] Every chapter `docs_index.py chapters-for` lists for `affects_docs` was reviewed, fixed or
   marked `CHECK:` with an issue; `liquers-docs check` passes
 - [ ] `specs/README.md` and other relevant links point to the highest-stage current document
