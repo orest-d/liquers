@@ -100,7 +100,7 @@ pub struct Pipeline {
     pub filename: Option<String>,               // top level only (P2)
 }
 
-pub struct Located<T> {                         // T plus where it came from (AC-31a)
+pub struct Located<T> {                         // T plus where it came from (AC-41)
     pub item: T,                                // serialized flat: `{action: …, pos: …}`
     pub pos: Option<Position>,                  // absent when written by hand or edited
 }
@@ -156,7 +156,8 @@ plan made from a pipeline reports the same positions as one made from its query.
 argument without a position (written by hand, or edited) plans with `Position::unknown()`.
 Equality and the canonical form ignore positions.
 
-Deserialization is custom. An element is told apart by its single key, and an unknown key is an
+Deserialization is custom. A bare list is a `Pipeline` with only `elements`, which is the usual
+form of a pipeline command's body. An element is told apart by its single key, and an unknown key is an
 error naming the key and the element index. A bare string is `Text`. `read` accepts the header
 instructions' short spellings and writes the long ones. `serde_json` is built with
 `float_roundtrip`. NaN and ±infinity use the non-finite token convention of `value.rs`
@@ -205,7 +206,7 @@ to a pipeline that converts back to the same query.
 pub struct PipelineEditor {
     pipeline: Pipeline,
     cmr: Arc<CommandMetadataRegistry>,
-    origin: Option<Query>,                     // the query it was opened from (AC-31a)
+    origin: Option<Query>,                     // the query it was opened from (AC-41)
 }
 impl PipelineEditor {
     pub fn new(cmr: Arc<CommandMetadataRegistry>) -> Self;
@@ -282,7 +283,7 @@ The checks are:
 
 `QueryEditor` adds representability. An error in an edit carries `pos` and the query. For an
 element changed since the editor was opened, the editor first re-encodes and re-parses the query to
-get a fresh position, and attaches that query (AC-31a).
+get a fresh position, and attaches that query (AC-41).
 
 **Registry ownership.** `CommandRegistry` owns its `CommandMetadataRegistry` by value. The editors
 need an `Arc`. Environments gain `fn command_metadata_snapshot(&self) -> Arc<CommandMetadataRegistry>`.

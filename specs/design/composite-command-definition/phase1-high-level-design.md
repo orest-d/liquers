@@ -15,6 +15,31 @@ back to a query whenever it is *representable*. A `PipelineEditor` edits pipelin
 `QueryEditor` over it is the validating query builder that code assembling queries from data
 needs, instead of concatenating text.
 
+## Design Readiness
+
+Decision log under the pre-approval of 2026-11-03 ("proceed all"), reviewed after Phase 4.
+
+- **Readiness:** `ready`
+- **Automatic fixing:** `not-eligible`. The design is `XL`, spans six crates and changes planning.
+- **Leading issue:** None.
+- **Explanation:** Q1–Q30 are decided (§Open Questions). Phases 3 and 4 raised no new question
+  that changes how the system is used. The safety net for the riskiest change, planning, is the
+  dual-mode equality test, and `Delegate` stays the default until it passes.
+- **Open questions:** None. Taken as explicit assumptions under the pre-approval, each as
+  recommended in Phase 2 §Decisions for the gate:
+  - **Proposed resolution, accepted - planning:** `PipelinePlanBuilder` for every plan, with
+    `PlanningMode::{Delegate, Native}` (gate decision 1, the maintainer's direction).
+  - **Proposed resolution, accepted - pipeline commands in a plan:** a nested
+    `Step::PipelineCommand`, not flattened steps (gate decision 2).
+  - **Proposed resolution, accepted - registry snapshot:** a cached `Arc<CommandMetadataRegistry>`,
+    replaced on registration (gate decision 3).
+  - **Proposed resolution, accepted - floats:** `serde_json` with `float_roundtrip`, workspace-wide
+    (gate decision 4).
+  - **Proposed resolution, accepted - tooling:** `liquers-validate --build` with `R:` / `A:` / `P:`
+    prefixes replaces `liquers-encode` (gate decision 5).
+  - **Implementation detail - slicing:** the five slices of gate decision 6 refined into the 13
+    steps of Phase 4.
+
 ## Terminology
 
 - **Pipeline**: a struct (revised 2026-11-03) holding a **realm** (the segment header name, for
@@ -79,14 +104,14 @@ a query, the pipeline command's pipeline, then the query again. It returns the s
 query, cached under its own query like any command's result.
 
 As a **recipe**, the list goes to `is_in`, which is not the last action. That is impossible today,
-because overrides reach only the last action (the recipe's exact shape is decided in Phase 2):
+because overrides reach only the last action. With a recipe pipeline, which runs before the query
+(Q26), it is possible:
 
 ```yaml
-- query: -R/data/sales.csv/-/ns-pl/from_csv
-  pipeline:
-  - { action: is_in, ns: pl, arguments: { column: { value: region }, values: { value: [EU, US] } } }
-  - { query: ns-pl/sort-amount-f/head-10 }
-  - { filename: eu.csv }
+- pipeline:
+  - "-R/data/sales.csv/-/ns-pl/from_csv"
+  - { action: is_in, ns: pl, arguments: { column: region, values: [EU, US] } }
+  query: ns-pl/sort-amount-f/head-10/eu.csv
 ```
 
 ## Scope and Acceptance Criteria
@@ -172,7 +197,7 @@ Conversion, representability and editing (merged scope, 2026-11-02):
 - **AC-31** Editing a pipeline
   WHEN a `PipelineEditor` appends, inserts, replaces, moves or removes an element, sets or removes an argument or namespace of an action, or sets the realm of a (nested) pipeline
   THEN the edit is applied, or it is refused and the pipeline is unchanged. The refusal names the element, the argument and the reason: an invalid token (a key segment `my file.csv`), an unknown command or namespace, an unknown, `injected` or duplicated argument, a value of the wrong type, an undeclared placeholder, or (in `QueryEditor`) a representability rule
-- **AC-31a** Errors point into the query
+- **AC-41** Errors point into the query
   WHEN a pipeline came from a query, and an edit, a conversion or planning fails at one of its elements
   THEN the error carries the element's `Position` (kept from the parse; ignored by equality and the canonical form) and, from `QueryEditor`, the original query (`Error::with_query`). After edits, the editor re-encodes and re-parses to obtain positions in the current query, and attaches that query instead
 - **AC-32** The query editor keeps a query
@@ -520,7 +545,7 @@ Updated after the maintainer's answers of 2026-11-03; overview of the structures
   E3–E8). State elements have one meaning each, with placeholders as operands (AC-5 revised). AC-10
   is restated as plan identity for representable pipelines, and AC-24 is merged into it. AC-18 has
   new `ParameterValue` variants, including `DefaultPipeline`, and a default may be a pipeline
-  (`CommandParameterValue::Pipeline`). AC-31 lists every error kind, and AC-31a adds query positions.
+  (`CommandParameterValue::Pipeline`). AC-31 lists every error kind, and AC-41 adds query positions.
   AC-15 is either-or. AC-39 makes `Value::Pipeline` a value like `Value::Query`. The language
   integration guide specifies pipeline support, and `PIPELINES-NOT-IN-LANGUAGE-BINDINGS` is filed
   for implementing it. Questions 26–30 added. Analysis:
