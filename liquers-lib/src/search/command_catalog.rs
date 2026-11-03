@@ -48,6 +48,7 @@ fn default_text(default: &CommandParameterValue) -> Option<String> {
             Some(serde_json::to_string(value).unwrap_or_else(|_| format!("{value:?}")))
         }
         CommandParameterValue::Query(query) => Some(format!("query \"{}\"", query.encode())),
+        CommandParameterValue::Pipeline(pipeline) => Some(format!("pipeline {}", pipeline.to_json())),
         CommandParameterValue::None => None,
     }
 }

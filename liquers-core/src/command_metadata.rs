@@ -354,11 +354,15 @@ impl Default for ArgumentGUIInfo {
 /// defined in the CommandMetadata.
 /// In Plan building phase, the CommandParameterValue is used to fill the default values
 /// where needed when creating the ResolvedParameterValues for an Action.
-/// CommandParameterValue can be a JSON Value, a Query or None.
+/// CommandParameterValue can be a JSON Value, a Query, a Pipeline or None.
 #[derive(Serialize, Debug, Clone, PartialEq, Default)]
 pub enum CommandParameterValue {
     Value(Value),
     Query(Query),
+    /// A pipeline default, written `{pipeline: …}`: tagged, because a bare list reads as a value.
+    /// Planned as `ParameterValue::DefaultPipeline`, or as a link when it has a query form.
+    #[serde(rename = "pipeline")]
+    Pipeline(crate::pipeline::Pipeline),
     #[default]
     None,
 }
@@ -374,6 +378,7 @@ pub enum CommandParameterValue {
 /// |---|---|
 /// | `!Value 2` / `{"Value": 2}` | `Value(2)` |
 /// | `!Query "a/b"` / `{"Query": …}` | `Query(…)` |
+/// | `!pipeline […]` / `{"pipeline": …}` | `Pipeline(…)` (also tagged `Pipeline`) |
 /// | `None` (the bare string) | `None` — the absent-default marker the exporter writes |
 /// | `2`, `"hello"`, `true`, `[…]` | `Value(…)` |
 /// | `null` | `Value(Null)`, preserving what the JavaScript parser did with a null default |
@@ -394,7 +399,7 @@ impl<'de> serde::de::Visitor<'de> for CommandParameterValueVisitor {
     fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
         formatter.write_str(
             "a default value: a scalar, an array, the string \"None\", or a tagged \
-             `Value`/`Query`",
+             `Value`/`Query`/`pipeline`",
         )
     }
 
@@ -449,10 +454,13 @@ impl<'de> serde::de::Visitor<'de> for CommandParameterValueVisitor {
         let parsed = match key.as_str() {
             "Value" => CommandParameterValue::Value(map.next_value::<Value>()?),
             "Query" => CommandParameterValue::Query(map.next_value::<Query>()?),
+            "pipeline" | "Pipeline" => {
+                CommandParameterValue::Pipeline(map.next_value::<crate::pipeline::Pipeline>()?)
+            }
             other => {
                 return Err(serde::de::Error::custom(format!(
-                    "a default value must be a scalar, an array, or a tagged `Value`/`Query`, \
-                     found an object keyed {other:?}"
+                    "a default value must be a scalar, an array, or a tagged \
+                     `Value`/`Query`/`pipeline`, found an object keyed {other:?}"
                 )))
             }
         };
@@ -472,6 +480,9 @@ impl<'de> serde::de::Visitor<'de> for CommandParameterValueVisitor {
         match tag.as_str() {
             "Value" => Ok(CommandParameterValue::Value(variant.newtype_variant()?)),
             "Query" => Ok(CommandParameterValue::Query(variant.newtype_variant()?)),
+            "pipeline" | "Pipeline" => {
+                Ok(CommandParameterValue::Pipeline(variant.newtype_variant()?))
+            }
             "None" => {
                 variant.unit_variant()?;
                 Ok(CommandParameterValue::None)
@@ -749,6 +760,25 @@ impl ArgumentInfo {
     pub fn with_default_link(mut self, query: Query) -> Self {
         self.default = CommandParameterValue::Query(query);
         self
+    }
+    /// Sets a pipeline default (`{pipeline: …}`). It is planned as a link when it has a query
+    /// form, and as a nested plan otherwise. A default is not a definition, so a placeholder or
+    /// the input state is refused.
+    pub fn with_default_pipeline(mut self, pipeline: crate::pipeline::Pipeline) -> Result<Self, Error> {
+        if let Some(name) = pipeline.placeholders().into_iter().next() {
+            return Err(Error::invalid_pipeline(format!(
+                "the default of argument '{}' cannot hold the placeholder '{name}'",
+                self.name
+            )));
+        }
+        if pipeline.uses_input_state() {
+            return Err(Error::invalid_pipeline(format!(
+                "the default of argument '{}' cannot read the input state",
+                self.name
+            )));
+        }
+        self.default = CommandParameterValue::Pipeline(pipeline);
+        Ok(self)
     }
     pub fn true_by_default(mut self) -> Self {
         self = self.with_type(ArgumentType::Boolean);

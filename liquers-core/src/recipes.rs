@@ -324,6 +324,14 @@ impl Recipe {
                         return Err(not_in_last_action("Argument", name, &query));
                     }
                 }
+                ConvertedOverride::Pipeline(pipeline, note) => {
+                    if let Some(note) = note {
+                        plan.init_warning(note);
+                    }
+                    if !(plan.override_pipeline(name, pipeline)) {
+                        return Err(not_in_last_action("Argument", name, &query));
+                    }
+                }
             }
         }
         let mut link_names: Vec<&String> = self.links.keys().collect();
@@ -1903,6 +1911,7 @@ impl<E: Environment> AsyncRecipeProvider<E> for RecipeProviderChain<E> {
 enum ConvertedOverride {
     Value(Value, Option<String>),
     Link(Query, Option<String>),
+    Pipeline(crate::pipeline::Pipeline, Option<String>),
 }
 
 fn not_in_last_action(what: &str, name: &str, query: &Query) -> Error {
@@ -1997,6 +2006,11 @@ impl ConvertedOverride {
                 argument_type_name(&arg.argument_type),
                 &format!("argument '{}': a link alias inside a variadic override", arg.name),
             )),
+            ConvertedOverride::Pipeline(_, _) => Err(Error::conversion_error_with_message(
+                "pipeline",
+                argument_type_name(&arg.argument_type),
+                &format!("argument '{}': a pipeline alias inside a variadic override", arg.name),
+            )),
         }
     }
 }
@@ -2081,6 +2095,13 @@ fn convert_scalar(arg: &ArgumentInfo, value: &Value) -> Result<ConvertedOverride
                         q.encode()
                     );
                     Ok(ConvertedOverride::Link(q, Some(note)))
+                }
+                CommandParameterValue::Pipeline(p) => {
+                    let note = format!(
+                        "Argument '{}': enum alias '{}' expanded to a pipeline",
+                        arg.name, s
+                    );
+                    Ok(ConvertedOverride::Pipeline(p, Some(note)))
                 }
                 CommandParameterValue::None => Ok(ConvertedOverride::Value(value.clone(), None)),
             },

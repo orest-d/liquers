@@ -485,6 +485,15 @@ pub enum ParameterValue {
     MultipleParameters(String, Vec<ParameterValue>),
     /// Parameter supplied by the command execution context rather than query text.
     Injected(String),
+    /// A nested pipeline given as the argument, with no query form (AC-18). A pipeline that has
+    /// one is planned as a `ParameterLink` instead.
+    ParameterPipeline(String, crate::pipeline::Pipeline, Position),
+    /// A pipeline override supplied by a recipe.
+    OverridePipeline(String, crate::pipeline::Pipeline),
+    /// A pipeline default from the command metadata (`CommandParameterValue::Pipeline`).
+    DefaultPipeline(String, crate::pipeline::Pipeline),
+    /// The input state of the innermost pipeline command (`{state: true}`, AC-4).
+    InputState(String),
     /// Intermediate state representing an unresolved parameter.
     None,
 }
@@ -513,6 +522,14 @@ impl Display for ParameterValue {
             ParameterValue::Injected(name) => write!(f, "injected {}", name),
             ParameterValue::None => write!(f, "None"),
             ParameterValue::Placeholder(name) => write!(f, "placeholder {name}"),
+            ParameterValue::ParameterPipeline(name, p, _) => write!(f, "pipeline {name}: {}", p.to_json()),
+            ParameterValue::OverridePipeline(name, p) => {
+                write!(f, "override pipeline {name}: {}", p.to_json())
+            }
+            ParameterValue::DefaultPipeline(name, p) => {
+                write!(f, "default pipeline {name}: {}", p.to_json())
+            }
+            ParameterValue::InputState(name) => write!(f, "input state {name}"),
         }
     }
 }
@@ -606,6 +623,9 @@ impl ParameterValue {
                 CommandParameterValue::Query(q) => {
                     values.push(ParameterValue::DefaultLink(arginfo.name.clone(), q.clone()))
                 }
+                CommandParameterValue::Pipeline(p) => {
+                    values.push(ParameterValue::DefaultPipeline(arginfo.name.clone(), p.clone()))
+                }
                 CommandParameterValue::None => (),
             }
             ParameterValue::MultipleParameters(arginfo.name.clone(), values)
@@ -616,6 +636,9 @@ impl ParameterValue {
                 }
                 CommandParameterValue::Query(q) => {
                     ParameterValue::DefaultLink(arginfo.name.clone(), q.clone())
+                }
+                CommandParameterValue::Pipeline(p) => {
+                    ParameterValue::DefaultPipeline(arginfo.name.clone(), p.clone())
                 }
                 CommandParameterValue::None => {
                     if arginfo.injected {
@@ -638,6 +661,9 @@ impl ParameterValue {
             } // TODO: pass name
             CommandParameterValue::Query(q) => {
                 ParameterValue::DefaultLink(name.to_owned(), q.clone())
+            }
+            CommandParameterValue::Pipeline(p) => {
+                ParameterValue::DefaultPipeline(name.to_owned(), p.clone())
             }
             CommandParameterValue::None => ParameterValue::None,
         }
@@ -814,6 +840,11 @@ impl ParameterValue {
                     q.clone(),
                     pos.to_owned(),
                 )),
+                CommandParameterValue::Pipeline(p) => Ok(ParameterValue::ParameterPipeline(
+                    arginfo.name.clone(),
+                    p.clone(),
+                    pos.to_owned(),
+                )),
                 CommandParameterValue::None => {
                     if e.others_allowed {
                         Self::parse_other_enum_value(&arginfo.name, s, &e.value_type, pos)
@@ -919,6 +950,10 @@ impl ParameterValue {
                                 ))
                                 .with_position(pos))
                             }
+                            ParameterValue::ParameterPipeline(_, _, _)
+                            | ParameterValue::OverridePipeline(_, _)
+                            | ParameterValue::DefaultPipeline(_, _)
+                            | ParameterValue::InputState(_) => values.push(pv),
                         }
                     }
                     ActionParameter::Link(q, pos) => {
@@ -1011,6 +1046,10 @@ impl ParameterValue {
             ParameterValue::Injected(name) => Some(name.clone()),
             ParameterValue::Placeholder(name) => Some(name.clone()),
             ParameterValue::MultipleParameters(name, _) => Some(name.clone()),
+            ParameterValue::ParameterPipeline(name, _, _)
+            | ParameterValue::OverridePipeline(name, _)
+            | ParameterValue::DefaultPipeline(name, _)
+            | ParameterValue::InputState(name) => Some(name.clone()),
             ParameterValue::None => None,
         }
     }
@@ -1048,6 +1087,7 @@ impl ParameterValue {
             ParameterValue::ParameterValue(_, _, pos) => pos.clone(),
             ParameterValue::ParameterLink(_, _, pos) => pos.clone(),
             ParameterValue::EnumLink(_, _, pos) => pos.clone(),
+            ParameterValue::ParameterPipeline(_, _, pos) => pos.clone(),
             _ => Position::unknown(),
         }
     }
@@ -1116,7 +1156,13 @@ impl ParameterValue {
             | ParameterValue::OverrideValue(_, _)
             | ParameterValue::Placeholder(_)
             | ParameterValue::Injected(_)
+            | ParameterValue::InputState(_)
             | ParameterValue::None => {}
+            // A pipeline's own resources and links are resolved when it is planned, against the
+            // working directory of the step that reads it.
+            ParameterValue::ParameterPipeline(_, _, _)
+            | ParameterValue::OverridePipeline(_, _)
+            | ParameterValue::DefaultPipeline(_, _) => {}
         }
     }
 }
@@ -1276,6 +1322,28 @@ impl ResolvedParameterValues {
                         return true;
                     }
                     *pv = ParameterValue::OverrideLink(n.clone(), query.clone());
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// Overrides the named parameter with a pipeline, as [`ResolvedParameterValues::override_link`]
+    /// does with a link. Returns `false` when no overridable parameter has that name.
+    pub fn override_pipeline(&mut self, name: &str, pipeline: crate::pipeline::Pipeline) -> bool {
+        for pv in &mut self.0 {
+            if let Some(n) = pv.name() {
+                if n == name {
+                    if pv.is_injected() {
+                        return false;
+                    }
+                    let replacement = ParameterValue::OverridePipeline(n.clone(), pipeline);
+                    *pv = if pv.is_multiple() {
+                        ParameterValue::MultipleParameters(n.clone(), vec![replacement])
+                    } else {
+                        replacement
+                    };
                     return true;
                 }
             }
@@ -2026,6 +2094,13 @@ impl<'c> PlanBuilder<'c> {
     /// Returns `false` when the last action has no matching overridable parameter.
     pub fn override_link(&mut self, name: &str, query: Query) -> bool {
         self.plan.override_link(name, query)
+    }
+
+    /// Applies a pipeline override to the last action built so far.
+    ///
+    /// Returns `false` when the last action has no matching overridable parameter.
+    pub fn override_pipeline(&mut self, name: &str, pipeline: crate::pipeline::Pipeline) -> bool {
+        self.plan.override_pipeline(name, pipeline)
     }
 }
 
@@ -2795,6 +2870,17 @@ impl Plan {
         false
     }
 
+    /// Overrides the named parameter on the last action step with a pipeline, as
+    /// [`Plan::override_link`] does with a link.
+    pub fn override_pipeline(&mut self, name: &str, pipeline: crate::pipeline::Pipeline) -> bool {
+        if let Some(i) = self.last_action_index() {
+            if let Step::Action { parameters, .. } = &mut self.steps[i] {
+                return parameters.override_pipeline(name, pipeline);
+            }
+        }
+        false
+    }
+
     /// Finds a split point whose suffix contains at most one action plus context modifiers.
     pub fn split_index(&self) -> usize {
         for i in (0..self.steps.len()).rev() {
@@ -2954,7 +3040,13 @@ fn collect_parameter_dependencies(
         | ParameterValue::OverrideValue(_, _)
         | ParameterValue::Placeholder(_)
         | ParameterValue::Injected(_)
+        | ParameterValue::InputState(_)
         | ParameterValue::None => {}
+        // The dependencies of a pipeline argument are those of its own plan, recorded when it is
+        // planned.
+        ParameterValue::ParameterPipeline(_, _, _)
+        | ParameterValue::OverridePipeline(_, _)
+        | ParameterValue::DefaultPipeline(_, _) => {}
     }
 }
 

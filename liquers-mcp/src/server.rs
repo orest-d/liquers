@@ -208,6 +208,10 @@ impl ToolRegistry {
                     let default = match &argument.default {
                         CommandParameterValue::Value(v) => format!("`{v}`"),
                         CommandParameterValue::Query(q) => format!("link `{}`", q.encode()),
+                        CommandParameterValue::Pipeline(p) => match p.to_query_text() {
+                            Ok(text) => format!("pipeline `{text}`"),
+                            Err(_) => "pipeline".to_string(),
+                        },
                         CommandParameterValue::None => String::new(),
                     };
                     let mut kind = type_name(&argument.argument_type);
@@ -341,7 +345,9 @@ fn build_tool(
     for argument in &command.arguments {
         let relative_link = match &argument.default {
             CommandParameterValue::Query(link) => link.has_relative_operand(),
-            CommandParameterValue::Value(_) | CommandParameterValue::None => false,
+            CommandParameterValue::Value(_)
+            | CommandParameterValue::Pipeline(_)
+            | CommandParameterValue::None => false,
         };
         if argument.injected || relative_link {
             hidden.insert(argument.name.clone());
@@ -534,6 +540,17 @@ fn check_parameter(
         | ParameterValue::ParameterLink(_, query, _)
         | ParameterValue::OverrideLink(_, query)
         | ParameterValue::EnumLink(_, query, _) => check_query(query, allow, cmr),
+        // A pipeline is checked through its query form; one without a query form cannot be
+        // checked against the allow list, so it is refused.
+        ParameterValue::ParameterPipeline(name, pipeline, _)
+        | ParameterValue::OverridePipeline(name, pipeline)
+        | ParameterValue::DefaultPipeline(name, pipeline) => match pipeline.to_query_with(cmr) {
+            Ok(query) => check_query(&query, allow, cmr),
+            Err(e) => Err(Error::configuration_error(format!(
+                "argument '{name}' is a pipeline with no query form, which a tool cannot check: {}",
+                e.message
+            ))),
+        },
         ParameterValue::MultipleParameters(_, items) => {
             for item in items {
                 check_parameter(item, allow, cmr)?;
@@ -545,6 +562,7 @@ fn check_parameter(
         | ParameterValue::OverrideValue(_, _)
         | ParameterValue::Placeholder(_)
         | ParameterValue::Injected(_)
+        | ParameterValue::InputState(_)
         | ParameterValue::None => Ok(()),
     }
 }

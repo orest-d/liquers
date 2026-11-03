@@ -250,3 +250,12 @@ Decisions made while implementing, none of which changes an approved contract:
   `CombinedValue` delegates to the base. egui and the web HTML view show the query text, or the
   YAML when there is none. `liquers-py` has no `Pipeline` class yet: a pipeline crosses to Python
   as its serialized form, a dict or list.
+- `CommandParameterValue::Pipeline` serializes as `{pipeline: …}` (YAML `!pipeline`) and reads the
+  `Pipeline` tag too. `ArgumentInfo::with_default_pipeline` refuses a placeholder or the input
+  state, since a default is not a definition. `ParameterValue::from_arginfo` has no registry, so
+  it always gives `DefaultPipeline`; turning a representable one into `DefaultLink` is the
+  pipeline planner's job (Step 8). An enum alias may expand to a pipeline: a parameter gives
+  `ParameterPipeline`, a recipe override `OverridePipeline` (new `override_pipeline` on
+  `ResolvedParameterValues`, `Plan` and `PlanBuilder`).
+- `liquers-mcp` checks a pipeline argument against a tool's allow list through its query form
+  and refuses one that has none, since its actions could not otherwise be checked.

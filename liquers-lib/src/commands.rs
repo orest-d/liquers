@@ -103,6 +103,10 @@ fn default_value_display(v: &CommandParameterValue) -> String {
             serde_json::to_string(val).unwrap_or_else(|_| format!("{:?}", val))
         }
         CommandParameterValue::Query(q) => format!("`{}`", q.encode()),
+        CommandParameterValue::Pipeline(p) => match p.to_query_text() {
+            Ok(text) => format!("pipeline `{text}`"),
+            Err(_) => "pipeline".to_string(),
+        },
         CommandParameterValue::None => "\u{2014}".to_string(), // em-dash
     }
 }

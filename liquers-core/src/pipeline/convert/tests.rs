@@ -606,3 +606,87 @@ fn recipe_to_pipeline_concatenates() -> Result<(), Error> {
     );
     Ok(())
 }
+
+/// AC-18 — a link-like parameter has a pipeline; a value does not.
+#[test]
+fn parameter_value_to_pipeline() -> Result<(), Error> {
+    use crate::plan::ParameterValue as P;
+    use crate::query::Position;
+    let q = parse_query("-R/data/x.csv/-/head-5")?;
+    let from_query = Pipeline::try_from(&q)?;
+    for p in [
+        P::DefaultLink("a".into(), q.clone()),
+        P::ParameterLink("a".into(), q.clone(), Position::unknown()),
+        P::OverrideLink("a".into(), q.clone()),
+        P::EnumLink("a".into(), q.clone(), Position::unknown()),
+    ] {
+        assert_eq!(Pipeline::try_from(&p)?, from_query, "{p}");
+    }
+    let nested = Pipeline::from_json(&json!([{"value": [1, 2]}, {"action": "sum"}]))?;
+    for p in [
+        P::ParameterPipeline("a".into(), nested.clone(), Position::unknown()),
+        P::OverridePipeline("a".into(), nested.clone()),
+        P::DefaultPipeline("a".into(), nested.clone()),
+    ] {
+        assert_eq!(Pipeline::try_from(&p)?, nested, "{p}");
+    }
+    for p in [
+        P::DefaultValue("a".into(), json!(1)),
+        P::ParameterValue("a".into(), json!("x"), Position::unknown()),
+        P::OverrideValue("a".into(), json!(true)),
+        P::Placeholder("a".into()),
+        P::Injected("a".into()),
+        P::InputState("a".into()),
+        P::MultipleParameters("a".into(), vec![]),
+        P::None,
+    ] {
+        let err = Pipeline::try_from(&p).expect_err("not link-like");
+        assert!(err.message.contains("only a link or a pipeline"), "{}", err.message);
+    }
+    Ok(())
+}
+
+/// AC-21 — a pipeline default survives the registry's JSON and YAML forms, written tagged.
+#[test]
+fn registry_export_round_trip() -> Result<(), Box<dyn std::error::Error>> {
+    use crate::command_metadata::CommandParameterValue;
+    use crate::plan::ParameterValue;
+    let nested = Pipeline::from_json(&json!([{"value": {"region": ["EU"]}}, {"action": "keys"}]))?;
+    let mut meta = CommandMetadata::new("report");
+    meta.arguments.push(ArgumentInfo::any_argument("source").with_default_pipeline(nested.clone())?);
+    let mut cmr = CommandMetadataRegistry::new();
+    cmr.add_command(&meta);
+
+    let text = serde_json::to_string(&cmr)?;
+    assert!(text.contains(r#""default":{"pipeline":"#), "{text}");
+    let back: CommandMetadataRegistry = serde_json::from_str(&text)?;
+    assert_eq!(back.commands[0].arguments, cmr.commands[0].arguments);
+    let text = serde_yaml::to_string(&cmr)?;
+    let back: CommandMetadataRegistry = serde_yaml::from_str(&text)?;
+    assert_eq!(back.commands[0].arguments, cmr.commands[0].arguments, "{text}");
+
+    // The hand-written map form and the capitalised tag read the same.
+    for written in [json!({"pipeline": nested.to_json()}), json!({"Pipeline": nested.to_json()})] {
+        let cpv: CommandParameterValue = serde_json::from_value(written)?;
+        assert_eq!(cpv, CommandParameterValue::Pipeline(nested.clone()));
+    }
+    // A bare list stays a value.
+    let cpv: CommandParameterValue = serde_json::from_value(json!([1, 2]))?;
+    assert_eq!(cpv, CommandParameterValue::Value(json!([1, 2])));
+
+    // Planned as `DefaultPipeline`.
+    match ParameterValue::from_arginfo(&meta.arguments[0]) {
+        ParameterValue::DefaultPipeline(name, p) => {
+            assert_eq!(name, "source");
+            assert_eq!(p, nested);
+        }
+        other => panic!("expected a default pipeline, got {other}"),
+    }
+
+    // A default is not a definition: placeholders and the input state are refused.
+    let with_placeholder = Pipeline::from_json(&json!([{"value": {"placeholder": "n"}}]))?;
+    assert!(ArgumentInfo::any_argument("x").with_default_pipeline(with_placeholder).is_err());
+    let with_state = Pipeline::from_json(&json!([{"action": "f", "arguments": {"s": {"state": true}}}]))?;
+    assert!(ArgumentInfo::any_argument("x").with_default_pipeline(with_state).is_err());
+    Ok(())
+}

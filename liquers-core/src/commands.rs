@@ -181,6 +181,10 @@ impl<E: Environment> CommandArguments<E> {
             | ParameterValue::EnumLink(_, _, _)
             | ParameterValue::Placeholder(_)
             | ParameterValue::Injected(_)
+            | ParameterValue::ParameterPipeline(_, _, _)
+            | ParameterValue::OverridePipeline(_, _)
+            | ParameterValue::DefaultPipeline(_, _)
+            | ParameterValue::InputState(_)
             | ParameterValue::None => Err(Error::general_error(format!(
                 "Argument #{} '{}' is declared as multiple, but was not resolved as a parameter list",
                 i + 1,
@@ -214,6 +218,15 @@ impl<E: Environment> CommandArguments<E> {
                 i + 1,
                 name,
                 query.encode()
+            ))
+            .with_position(&element.position())),
+            ParameterValue::ParameterPipeline(_, _, _)
+            | ParameterValue::OverridePipeline(_, _)
+            | ParameterValue::DefaultPipeline(_, _)
+            | ParameterValue::InputState(_) => Err(Error::general_error(format!(
+                "Unresolved pipeline or input state in multiple argument #{} '{}'",
+                i + 1,
+                name
             ))
             .with_position(&element.position())),
             ParameterValue::MultipleParameters(_, _) => Err(Error::unexpected_error(format!(

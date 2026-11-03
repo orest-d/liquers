@@ -357,6 +357,36 @@ impl TryFrom<Query> for Pipeline {
     }
 }
 
+/// The pipeline of a link-like parameter (AC-18): a link converts syntactically, a pipeline
+/// variant is cloned. A value, a placeholder, an injected argument, the input state or a list is
+/// refused, since none of them names something to evaluate.
+impl TryFrom<&crate::plan::ParameterValue> for Pipeline {
+    type Error = Error;
+    fn try_from(parameter: &crate::plan::ParameterValue) -> Result<Self, Self::Error> {
+        use crate::plan::ParameterValue as P;
+        match parameter {
+            P::DefaultLink(_, q) | P::ParameterLink(_, q, _) | P::OverrideLink(_, q) | P::EnumLink(_, q, _) => {
+                Pipeline::try_from(q)
+            }
+            P::ParameterPipeline(_, p, _) | P::OverridePipeline(_, p) | P::DefaultPipeline(_, p) => {
+                Ok(p.clone())
+            }
+            P::DefaultValue(_, _)
+            | P::ParameterValue(_, _, _)
+            | P::OverrideValue(_, _)
+            | P::Placeholder(_)
+            | P::MultipleParameters(_, _)
+            | P::Injected(_)
+            | P::InputState(_)
+            | P::None => Err(Error::conversion_error_with_message(
+                parameter.to_string(),
+                "Pipeline",
+                "only a link or a pipeline parameter has a pipeline",
+            )),
+        }
+    }
+}
+
 impl Pipeline {
     /// Parses `text` as a query and converts it.
     pub fn from_query_text(text: &str) -> Result<Pipeline, Error> {
@@ -1007,6 +1037,17 @@ pub(crate) fn encode_arguments(
             CommandParameterValue::Query(q) => {
                 gap.push(ActionParameter::Link(q.clone(), Position::unknown()))
             }
+            CommandParameterValue::Pipeline(p) => match p.to_query_with(cmr) {
+                Ok(q) => gap.push(ActionParameter::Link(q, Position::unknown())),
+                Err(_) => {
+                    return Err(not_representable(
+                        "N2",
+                        &path.argument(ArgRef::Name(slot.name.clone())),
+                        epos,
+                        "the skipped argument's default is a pipeline with no query form",
+                    ))
+                }
+            },
             CommandParameterValue::None => {
                 return Err(not_representable(
                     "N3",

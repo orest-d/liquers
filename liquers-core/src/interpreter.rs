@@ -232,6 +232,10 @@ fn collect_parameter_dependency_queries(
         | ParameterValue::OverrideValue(_, _)
         | ParameterValue::Placeholder(_)
         | ParameterValue::Injected(_)
+        | ParameterValue::ParameterPipeline(_, _, _)
+        | ParameterValue::OverridePipeline(_, _)
+        | ParameterValue::DefaultPipeline(_, _)
+        | ParameterValue::InputState(_)
         | ParameterValue::None => {}
     }
 }
@@ -634,6 +638,10 @@ fn materialize_nested_parameter<'a, E: Environment>(
             | ParameterValue::OverrideValue(_, _)
             | ParameterValue::Placeholder(_)
             | ParameterValue::Injected(_)
+            | ParameterValue::ParameterPipeline(_, _, _)
+            | ParameterValue::OverridePipeline(_, _)
+            | ParameterValue::DefaultPipeline(_, _)
+            | ParameterValue::InputState(_)
             | ParameterValue::None => Ok(parameter.clone()),
         }
     })
@@ -645,13 +653,17 @@ fn attach_parameter_link_context(error: Error, parameter: &ParameterValue, query
             error.with_query(query)
         }
         ParameterValue::ParameterLink(_, _, position)
-        | ParameterValue::EnumLink(_, _, position) => error.with_position(position),
+        | ParameterValue::EnumLink(_, _, position)
+        | ParameterValue::ParameterPipeline(_, _, position) => error.with_position(position),
         ParameterValue::DefaultValue(_, _)
         | ParameterValue::ParameterValue(_, _, _)
         | ParameterValue::OverrideValue(_, _)
         | ParameterValue::MultipleParameters(_, _)
         | ParameterValue::Placeholder(_)
         | ParameterValue::Injected(_)
+        | ParameterValue::OverridePipeline(_, _)
+        | ParameterValue::DefaultPipeline(_, _)
+        | ParameterValue::InputState(_)
         | ParameterValue::None => error,
     }
 }

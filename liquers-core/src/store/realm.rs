@@ -673,6 +673,14 @@ fn check_literals(
             ParameterValue::Injected(name) => Err(format!(
                 "parameter '{name}' is injected, which is not supported"
             )),
+            ParameterValue::ParameterPipeline(name, _, _)
+            | ParameterValue::OverridePipeline(name, _)
+            | ParameterValue::DefaultPipeline(name, _) => Err(format!(
+                "parameter '{name}' is a pipeline; only literals are allowed"
+            )),
+            ParameterValue::InputState(name) => Err(format!(
+                "parameter '{name}' is the input state; only literals are allowed"
+            )),
             ParameterValue::None => Err("a parameter is unresolved".to_string()),
         }
     }
@@ -795,6 +803,10 @@ pub fn string_parameter(parameters: &ResolvedParameterValues, name: &str) -> Res
             | ParameterValue::EnumLink(_, _, _)
             | ParameterValue::MultipleParameters(_, _)
             | ParameterValue::Injected(_)
+            | ParameterValue::ParameterPipeline(_, _, _)
+            | ParameterValue::OverridePipeline(_, _)
+            | ParameterValue::DefaultPipeline(_, _)
+            | ParameterValue::InputState(_)
             | ParameterValue::None => {}
         }
     }
@@ -829,6 +841,10 @@ pub fn string_list_parameter(
                         | ParameterValue::EnumLink(_, _, _)
                         | ParameterValue::MultipleParameters(_, _)
                         | ParameterValue::Injected(_)
+                        | ParameterValue::ParameterPipeline(_, _, _)
+                        | ParameterValue::OverridePipeline(_, _)
+                        | ParameterValue::DefaultPipeline(_, _)
+                        | ParameterValue::InputState(_)
                         | ParameterValue::None => {
                             return Err(Error::configuration_error(format!(
                                 "parameter '{name}' has an element that is not a literal"
