@@ -28,7 +28,8 @@ that does not apply is skipped, not padded.
   `specs/reference/VISION.md`.
 - [ ] The design serves a use case or vision point in `specs/reference/VISION.md` and crosses no
   non-goal; a conflict is a finding to raise, not a reason to edit that document.
-- [ ] Documentation intent answers all four: reference, guide, other documents, documents to update.
+- [ ] Documentation intent answers all five: reference, guide, other documents, documents to update,
+  API docs (the modules whose module doc is created or changed, or `none` with the reason).
 
 ## Phase 2: architecture
 
@@ -45,7 +46,8 @@ that does not apply is skipped, not padded.
 - [ ] Command signatures follow `specs/guides/COMMAND_REGISTRATION_GUIDE.md`; in particular, an
   argument that depends on location is a default link (`query "-R-key/."`), never read from
   `Context` or inferred from the input.
-- [ ] Documentation architecture gives exact paths and changes, and the proposed `affects_docs`.
+- [ ] Documentation architecture gives exact paths and changes, the module docs that change (which
+  of the five parts of `API_DOCUMENTATION_GUIDE.md` §3), and the proposed `affects_docs`.
 - [ ] The risk table is filled in, with no category left empty without a reason.
 
 ## Phase 3: examples and tests
@@ -78,6 +80,8 @@ find.
 - [ ] Entry criteria met: implementation validated, every comment answered; every Phase 4 progress
   item ticked, or its remainder filed as an issue.
 - [ ] The summary separates requested, implemented, omitted and added scope, and fits in 1-3 pages.
+- [ ] Every module doc the design touched follows `API_DOCUMENTATION_GUIDE.md` §3, and
+  `scripts/check_api_docs.py` reports nothing for those files; both are recorded under *Module Docs*.
 - [ ] Every document in `affects_docs` reviewed against the code and tests, with a History row and a
   `reviewed:` bump (§9.2).
 - [ ] Planned reference and guide documents exist; `specs/README.md` links to them.

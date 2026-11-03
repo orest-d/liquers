@@ -21,6 +21,63 @@
 
 use wasm_bindgen::prelude::*;
 
+/// The module doc of the generated `liquers_web.d.ts`, per
+/// `specs/guides/API_DOCUMENTATION_GUIDE.md` §9: wasm-bindgen writes custom sections at the top
+/// of the file, and TypeDoc takes the first `@packageDocumentation` comment of its entry file as
+/// the module page. Keep this section before every other one in this file.
+#[wasm_bindgen(typescript_custom_section)]
+const LIQUERS_PACKAGE_DOC: &'static str = r##"
+/**
+ * Liquers in the browser: queries evaluated in a page, commands written in JavaScript.
+ *
+ * A page imports the module, awaits `init()`, and evaluates queries as Promises. Commands are
+ * plain JavaScript functions registered with a declaration object; values cross the boundary as
+ * JavaScript values.
+ *
+ * # Main components
+ * - {@link init} and {@link evaluate} — the global environment, and a query run against it;
+ *   {@link get_asset} resolves with the asset (value, status and metadata) instead.
+ * - {@link register_command} and {@link register_commands} — a function with a
+ *   {@link LiquersCommandSpec} becomes a command.
+ * - {@link LiquersEnvironment} — the environment behind `init()`: stores, recipes, shutdown.
+ * - {@link LiquersError} — what a rejected Promise carries.
+ *
+ * # Where it is used
+ * - The examples of the JavaScript guide, run under Node by `scripts/test-guide-examples.sh`.
+ * - The quick start page, `examples-web/quickstart/`.
+ * - The browser tests in `tests/e2e/` (Playwright).
+ *
+ * Every conformance suite under `tests/` exercises it under Node.
+ *
+ * # Related concepts
+ * - The Rust crate `liquers_web` implements this module; its rustdoc page is the contributor's
+ *   view, this page the page author's.
+ * - *Liquers for the Web* (`guides/web/` on the documentation site) is the book-like guide; this
+ *   reference lists what the module exports.
+ * - The native command libraries of Liquers (Polars, images, templates) are not in the browser
+ *   build; a page registers its own commands.
+ *
+ * # Examples
+ * The first example of `specs/guides/JAVASCRIPT_GUIDE.md` §3 *A first query*, which
+ * `scripts/test-guide-examples.sh` runs:
+ *
+ * @example
+ * ```js
+ * import init, * as liquers from "./liquers_web.js";
+ *
+ * await init();
+ * await liquers.init();
+ * const listing = await liquers.evaluate("commands_doc");   // Markdown: every command you can use
+ * assert(listing.startsWith("# Commands"));
+ * ```
+ *
+ * Longer examples: the guide's chapters on commands, values, errors, stores and UI; the
+ * conformance suites under `tests/` of the `liquers-web` crate, one file per group.
+ *
+ * @packageDocumentation
+ */
+"##;
+
 #[wasm_bindgen(typescript_custom_section)]
 const LIQUERS_TYPES: &'static str = r#"
 /** The type of a command argument, as declared in a command specification. */

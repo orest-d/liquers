@@ -18,17 +18,21 @@ one paragraph), `# Main components` (`CommandRegistry`, `CommandExecutor`, `Comm
 `register_command!` as the usual entry), `# Where it is used` (the interpreter, `liquers-lib`'s
 `commands.rs`, `image/`, `records/`, and "every test that builds an environment"), `# Related
 concepts` (`command_metadata`: describes without running; `recipes`: a query per key, of which a
-command is one step; `plan`: the resolved steps), `# Examples`. The doctest, eight visible lines:
+command is one step; `plan`: the resolved steps), `# Examples`. The doctest, ten visible lines
+(`register_command!` needs `Context` in scope and a `CommandEnvironment` alias, shown rather than
+hidden because a reader copying the example needs them; `to_ref` builds the asset manager, which
+spawns a task, so it runs inside the runtime):
 
 ```rust
-use liquers_core::{context::SimpleEnvironment, error::Error, interpreter::evaluate};
-use liquers_core::{state::State, value::Value};
+use liquers_core::context::{Context, Environment, SimpleEnvironment};
+use liquers_core::{error::Error, interpreter::evaluate, state::State, value::Value};
 use liquers_macro::register_command;
+type CommandEnvironment = SimpleEnvironment<Value>; // the macro's name for the environment
 fn hello(_state: &State<Value>) -> Result<Value, Error> { Ok(Value::from("Hello, world!")) }
 let mut env = SimpleEnvironment::<Value>::new();
 let cr = &mut env.command_registry;
 register_command!(cr, fn hello(state) -> result)?;
-let state = tokio::runtime::Runtime::new()?.block_on(evaluate(env.to_ref(), "hello", None))?;
+let state = tokio::runtime::Runtime::new()?.block_on(async { evaluate(env.to_ref(), "hello", None).await })?;
 assert_eq!(state.try_into_string()?, "Hello, world!");
 ```
 

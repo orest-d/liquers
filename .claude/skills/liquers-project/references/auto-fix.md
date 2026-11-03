@@ -13,7 +13,7 @@ An item is **eligible** when *all* of these hold:
 2. **Kind of work:** one of
    - a bug fix that restores documented or plainly intended behaviour,
    - new or corrected unit or integration tests,
-   - a documentation fix (`specs/`, doc comments, README, skills),
+   - a documentation fix (`specs/`, doc comments and module docs, README, skills),
    - a tooling fix (`scripts/`, CI configuration, build settings, skill scripts).
 3. **No new structure:** no new trait, and no new struct, enum, `ExtValue` variant or other data
    structure. Private helper functions are fine.

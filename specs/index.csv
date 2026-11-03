@@ -999,6 +999,7 @@ VALUE_TYPE_SYSTEM,reference,Value Type System,current,local,,,,,,core/value;lib/
 VISION,reference,Liquers Vision and Strategy,current,local,,,,,,docs,,,,,2026-10-15,,specs/reference/VISION.md
 WEB_API_SPECIFICATION,reference,Liquers Web API Specification,current,local,,,,,,axum;web,,,,,2026-10-27,,specs/reference/WEB_API_SPECIFICATION.md
 AGENT_MEMORY_MIGRATION_GUIDE,guide,Agent Memory Migration Guide,current,local,,,,,,lib/commands;docs,,,,,2026-10-19,,specs/guides/AGENT_MEMORY_MIGRATION_GUIDE.md
+API_DOCUMENTATION_GUIDE,guide,API Documentation Guide,current,local,,,,,,docs,,,,,2026-11-03,,specs/guides/API_DOCUMENTATION_GUIDE.md
 ASSET_MANAGER_IMPLEMENTATION_GUIDE,guide,Asset Manager Implementation Guide,current,local,,,,,,core/assets,,,,,2026-10-22,,specs/guides/ASSET_MANAGER_IMPLEMENTATION_GUIDE.md
 autonomous_bulk_design,guide,Autonomous Bulk Design Procedure,current,local,,,,,,docs;build,,,,,2026-10-08,,specs/guides/autonomous_bulk_design.md
 autonomous_issue_fixing,guide,Autonomous Issue Fixing Procedure,current,local,,,,,,docs;build,,,,,2026-10-08,,specs/guides/autonomous_issue_fixing.md
@@ -1008,7 +1009,7 @@ DEPENDENCY_CONSISTENCY_GUIDE,guide,Dependency Consistency Guide,current,local,,,
 ENVIRONMENT_CONSTRUCTION_GUIDE,guide,Building and Configuring an Environment,current,local,,,,,,core/context;core/assets;core/store,,,,,2026-11-01,,specs/guides/ENVIRONMENT_CONSTRUCTION_GUIDE.md
 GITHUB_ACTIONS_GUIDE,guide,GitHub Actions Guide,current,local,,,,,,build;docs,,,,,2026-11-03,,specs/guides/GITHUB_ACTIONS_GUIDE.md
 JAVASCRIPT_GUIDE,guide,Using Liquers from JavaScript in the browser,current,local,,,,,,web,,,,,2026-10-31,,specs/guides/JAVASCRIPT_GUIDE.md
-LANGUAGE-INTEGRATION_GUIDE,guide,Language Integration Guide,current,local,,,,,,web;py;core/commands;core/plan;core/assets;core/store;core/value;lib/commands,,,,,2026-11-01,,specs/guides/LANGUAGE-INTEGRATION_GUIDE.md
+LANGUAGE-INTEGRATION_GUIDE,guide,Language Integration Guide,current,local,,,,,,web;py;core/commands;core/plan;core/assets;core/store;core/value;lib/commands,,,,,2026-11-03,,specs/guides/LANGUAGE-INTEGRATION_GUIDE.md
 PYTHON_GUIDE,guide,Using Liquers from Python,current,local,,,,,,py,,,,,2026-11-02,,specs/guides/PYTHON_GUIDE.md
 QUERY_ESCAPING_GUIDE,guide,Query Escaping Guide,current,local,,,,,,core/query,,,,,2026-10-07,,specs/guides/QUERY_ESCAPING_GUIDE.md
 RECORD_STREAM_GUIDE,guide,Record Stream Guide,current,local,,,,,,records;lib/value,,,,,2026-10-30,,specs/guides/RECORD_STREAM_GUIDE.md
