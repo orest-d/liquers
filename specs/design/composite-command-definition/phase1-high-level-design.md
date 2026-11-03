@@ -168,7 +168,7 @@ Conversion, representability and editing (merged scope, 2026-11-02):
   THEN the error names the first offending element and argument and the rule it breaks (§Representability rules, by rule id), and nothing else is converted
 - **AC-30** Every recipe is a pipeline
   WHEN a recipe is converted (`Recipe::to_pipeline`)
-  THEN its query with its `arguments` and `links` (as named arguments of the last action), or its `pipeline`, together with its `cwd`, filename and `volatile`, become one pipeline that plans as `Recipe::to_plan` does. Where `expires`, `stored` and `cached` go is Q27 (recommended: an optional `asset` block on a top-level pipeline); `title` and `description` stay on the recipe
+  THEN its `pipeline` followed by its query, with `arguments` and `links` as named arguments of the query's last action, together with its `cwd`, filename and `volatile`, become one pipeline that plans as `Recipe::to_plan` does. `title`, `description` and the asset declarations stay on the recipe (Q27, Q30)
 - **AC-31** Editing a pipeline
   WHEN a `PipelineEditor` appends, inserts, replaces, moves or removes an element, sets or removes an argument or namespace of an action, or sets the realm of a (nested) pipeline
   THEN the edit is applied, or it is refused and the pipeline is unchanged. The refusal names the element, the argument and the reason: an invalid token (a key segment `my file.csv`), an unknown command or namespace, an unknown, `injected` or duplicated argument, a value of the wrong type, an undeclared placeholder, or (in `QueryEditor`) a representability rule
@@ -200,8 +200,8 @@ Conversion, representability and editing (merged scope, 2026-11-02):
 Recipes (b):
 
 - **AC-15** Recipe pipeline
-  WHEN a recipe has a `pipeline` instead of a `query`
-  THEN it plans and runs as that pipeline, with literal values for any step's arguments, so a list, map or long text can reach an action other than the last. A recipe has either a query (with its optional `arguments` and `links`) or a pipeline, never both, and never `arguments` or `links` with a pipeline. Recommended: this is enforced by the type (`RecipeBody`, Q26), and every existing `recipes.yaml` reads and writes unchanged
+  WHEN a recipe has a `pipeline`, alone or together with a `query`
+  THEN the pipeline runs first and the query continues from its state, so a value or a parameterised read can initialise the input and a list, map or long text can reach any step. It is an error when the pipeline has a placeholder, when it has a filename while a query is present, when the query starts with a resource (it would discard the pipeline's state), or when `arguments` or `links` (which still override the query's last action) appear without a query. Every existing recipe is unchanged. Structure and alternatives: [`recipe-and-pipeline-structures.md`](./recipe-and-pipeline-structures.md) (Q26)
 
 Pipelines as values and realms (review of 2026-11-03):
 
@@ -449,26 +449,29 @@ Opened by the scope change of 2026-11-02 and reviewed by the maintainer the same
 Opened by the maintainer's review of 2026-11-03, analysed in
 [`pipeline-structure-and-sources.md`](./pipeline-structure-and-sources.md):
 
-- **Q26 — the recipe's shape (§5).** Recommended: an enum,
-  `RecipeBody::{Query { query, arguments, links }, Pipeline(Pipeline)}`, serialized flattened so
-  every existing file is unchanged; it enforces "query or pipeline" and "no `arguments`/`links`
-  with a pipeline" in the type. Cost: about 30 `Recipe { … }` literals and `liquers-py`'s recipe
-  access change. Alternatives: a runtime check on one struct (no API break), or a pipeline-only
-  recipe (one representation, but lossy write-back).
-- **Q27 — asset declarations in the pipeline (§4).** `filename` and `volatile` belong to the
-  pipeline (they already have a query spelling). For `expires`, `stored` and `cached`,
-  recommended: an optional `asset` block allowed only on a top-level pipeline, so a standalone
-  pipeline (a web request, a file) can say how its result is kept; `title` and `description` stay
-  on the recipe and the command. Alternative: all declarations stay on the recipe.
-- **Q28 — state elements (§2).** Recommended: one element per meaning (`value`, `resource` with
-  `read`, `key_value`, `cwd`, `evaluate`, `query_value`, `quote`), with placeholders only as
-  operands, and `{query}` renamed `{steps}` because it splices text rather than evaluating it.
-- **Q29 — a non-representable nested pipeline's identity (§3).** Recommended: it is evaluated as
-  a nested plan with its dependencies recorded, but has no asset of its own and is not cached
-  separately. Alternative: identify it by a hash of its canonical JSON, a second identity scheme
-  beside queries.
-- **Q30 — title and description on the pipeline struct (§1).** Recommended: no; they duplicate the
-  recipe's and the command's, and mean nothing on a nested pipeline.
+Updated after the maintainer's answers of 2026-11-03; overview of the structures in
+[`recipe-and-pipeline-structures.md`](./recipe-and-pipeline-structures.md):
+
+- **Q26 — the recipe's shape (open, recommendation).** The maintainer proposed extending the
+  classic recipe: an optional `pipeline` that runs before the optional `query`, with `arguments`
+  and `links` still on the query's last action. Evaluated as option A and recommended, with a
+  dead-pipeline check (a query starting with a resource would discard the pipeline's state).
+  Compared with an enum body (B), a recipe trait (C, deferred until a second recipe kind exists)
+  and a hierarchy of structures (D).
+- **Q27 — asset declarations (open, recommendation).** The asset block is agreed. Recommended: it
+  lives, with `title` and `description`, on the **recipe**, not the pipeline. The hierarchy is:
+  steps (a pipeline command's body) ⊂ `Pipeline` (query-equivalent) ⊂ `Recipe` (asset
+  definition). A standalone pipeline that needs declarations is sent as a recipe with only a
+  `pipeline`.
+- **Q28 — state elements (mostly agreed; naming open).** The named splice element (`{query}` /
+  `{steps}`) is dropped. A bare string in an element list is query text, inlined. `evaluate` keeps
+  its name: the query or pipeline runs as its own cached asset and its result becomes the state.
+  An inlined query continues from the current state as part of this pipeline.
+- **Q29 — non-representable nested pipelines (decided 2026-11-03).** They can be evaluated but not
+  managed by the asset manager, because they have no query to act as an asset key, so they are not
+  cached on their own. Inside a keyed recipe they are managed and cached through the key. This is
+  the price of a pipeline's extra expressiveness.
+- **Q30 — title and description (open, recommendation):** on the recipe, not the pipeline (see Q27).
 
 ## Scope Changes
 
@@ -504,6 +507,7 @@ Opened by the maintainer's review of 2026-11-03, analysed in
   follow-up issues were filed, to be designed right after this one:
   `MANIFEST-TEMPLATE-BATCH-ONLY-AT-THE-END-OF-THE-QUERY` and
   `RECIPES-CANNOT-DESCRIBE-A-SELF-CONTAINED-ASSET-TREE`.
+- **2026-11-03, maintainer review 8.** Q29 decided. For Q26 the maintainer proposed a recipe with a pipeline that runs before its query. For Q27 and Q30 the maintainer proposed a hierarchy of structures, or a recipe trait. These are analysed in `recipe-and-pipeline-structures.md`, and AC-15 and AC-30 now follow the recommendation.
 - **2026-11-03, maintainer review 7.** A resource segment's name is its realm too; segments of the same realm form one pipeline; the header level is reserved for an s-expression-like nesting of queries (`-/a/--/b/--/c/---/d/--e` as `(a (b (c d) e))`, with header parameters possibly acting like Scheme keywords) and is out of scope: any level other than `-` is refused (AC-40, P3, P4).
 - **2026-11-03, maintainer review 6.** The pipeline is a struct scoped to one realm, with an
   optional filename; realms nest, and consecutive segments of one realm merge (AC-40, rules P2–P4,

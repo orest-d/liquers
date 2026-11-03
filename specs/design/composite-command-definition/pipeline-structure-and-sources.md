@@ -1,5 +1,7 @@
 # Pipeline structure, state sources and recipe shape
 
+> §4–5 are superseded by [`recipe-and-pipeline-structures.md`](./recipe-and-pipeline-structures.md) (2026-11-03), and the `{steps}` element of §2 by its §3.
+
 Analysis for the maintainer's review of 2026-11-03. It supports Phase 1 questions Q26–Q30. Each
 section ends with a recommendation; the decisions themselves are recorded in Phase 1.
 
