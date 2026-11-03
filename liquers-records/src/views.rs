@@ -20,7 +20,7 @@ use crate::buffer::{AlignedBuffer, Bitmap, Buffer};
 use crate::column::{offset_from_len, Column, FieldValue};
 use crate::schema::{FieldSchema, FieldType, RecordSchema};
 
-/// A column projection over `base`, built by [`select_columns`](RecordView::select_columns) —
+/// A column projection over `base`, built by [`RecordView`]`::select_columns` —
 /// see phase2-architecture.md §"Building views" ("Column selection always keeps the key
 /// columns"). Row identity is untouched by a projection, so every position- and
 /// provenance-dependent accessor passes straight through to `base`.
