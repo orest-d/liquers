@@ -5,7 +5,8 @@
 //! them, so the pipeline's write strategy commits the data and the metadata together. Built:
 //! [`NativeStorage`] (the backend's own record, today's behaviour), [`PerEntryStorage`] (one object
 //! per key, in one of four layouts), [`GroupedStorage`] (one JSON map per folder) and
-//! [`NoStorage`]; [`MemoryCentralStorage`] is a test implementation of central storage.
+//! [`NoStorage`]; `MemoryCentralStorage` (feature `store-conformance`, and tests) is a test
+//! implementation of central storage.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
