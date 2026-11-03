@@ -5,7 +5,7 @@
 - [x] Implementation is finished and validated — commit `a1ce5f1` and the follow-ups on
   `claude/funny-noether-o4vjv7`; the checks under *Validation*
 - [x] All user comments are answered or incorporated — Phase 1 `proceed` (2026-11-01), Phase 2
-  amended and pre-approved with `proceed all` (2026-11-03); no further comments
+  amended and pre-approved with `proceed all` (2026-11-03); Phase 5 approved with the merge
 - [x] All review comments are answered or incorporated — each phase reviewed by the author
   against `review-checklist.md` and `validate_phase.py`
 - [x] Documentation is consistent with the implemented and tested behavior
