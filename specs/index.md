@@ -9,13 +9,14 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
 Total rows: 212
-- P2: 60
-- P3: 152
+- P2: 61
+- P3: 151
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
 | [`FOREIGN-VALUE-HAS-NO-DATA-NODE`](issues/FOREIGN-VALUE-HAS-NO-DATA-NODE.md) | issue | A retained foreign value is always opaque to data-node consumers | draft | ready | not-eligible | P2 | S | lib/value | [design](design/foreign-value-data-node/DESIGN.md) | 2026-10-25 |
 | [`YAML-SCHEMA-FILE-CANNOT-BE-LINKED-AS-SCHEMA-TEXT`](issues/YAML-SCHEMA-FILE-CANNOT-BE-LINKED-AS-SCHEMA-TEXT.md) | issue | A plain .yaml schema file cannot be linked into to_record's schema argument | draft | needs-decision | not-eligible | P2 | S | records;lib/value | [design](design/schema-argument-structured-link/DESIGN.md) | 2026-10-20 |
+| [`UPSTREAM-COMMAND-VOLATILITY-INVISIBLE-TO-DEPENDENCY-WALK`](issues/UPSTREAM-COMMAND-VOLATILITY-INVISIBLE-TO-DEPENDENCY-WALK.md) | issue | A recipe preview misses volatility its upstream inherits from a volatile command | draft |  |  | P2 | S | core/plan |  | 2026-11-03 |
 | [`WEB-COMMAND-LOOKUP-IGNORES-NAMESPACE`](issues/WEB-COMMAND-LOOKUP-IGNORES-NAMESPACE.md) | issue | describeCommand and unregisterCommand take a bare name, so namespaced commands cannot be addressed | draft |  |  | P2 | S | web |  | 2026-10-26 |
 | [`WEB-DESCRIBE-COMMAND-SHAPE-DIFFERS-FROM-DECLARATION`](issues/WEB-DESCRIBE-COMMAND-SHAPE-DIFFERS-FROM-DECLARATION.md) | issue | describeCommand returns raw CommandMetadata JSON, not the LiquersCommandInfo shape the .d.ts declares | draft |  |  | P2 | S | web |  | 2026-10-26 |
 | [`WEB-JS-STORE-WITH-ONLY-GET-CANNOT-BE-QUERIED`](issues/WEB-JS-STORE-WITH-ONLY-GET-CANNOT-BE-QUERIED.md) | issue | A page-implemented store with only get, documented as enough, fails every -R/ query | draft |  |  | P2 | S | web |  | 2026-10-26 |
@@ -76,7 +77,6 @@ Total rows: 212
 | [`NO-QUERY-AWARE-MARKDOWN-PARSER`](issues/NO-QUERY-AWARE-MARKDOWN-PARSER.md) | feature | Liquers has no Markdown parser that knows queries and templates and can edit and render a document | draft |  |  | P2 | XL | lib/commands;records |  | 2026-10-31 |
 | [`LIB-BUILD-EMITS-UNUSED-AND-UNHANDLED-RESULT-WARNINGS`](issues/LIB-BUILD-EMITS-UNUSED-AND-UNHANDLED-RESULT-WARNINGS.md) | issue | A default liquers-lib build emits about 50 warnings, some for discarded Results | draft | ready | not-eligible | P3 | S | lib/commands;build | [design](design/lib-build-warning-cleanup/DESIGN.md) | 2026-10-11 |
 | [`POLARS-DATAFRAME-IPC-NOT-SERIALIZABLE`](issues/POLARS-DATAFRAME-IPC-NOT-SERIALIZABLE.md) | issue | A polars DataFrame cannot be written or read as Arrow IPC although polars is built with ipc | draft | ready | not-eligible | P3 | S | lib/polars | [design](design/polars-dataframe-ipc/DESIGN.md) | 2026-10-18 |
-| [`RECIPE-PLAN-ANALYSIS-RUNS-OUTSIDE-PLAN-BUILDING`](issues/RECIPE-PLAN-ANALYSIS-RUNS-OUTSIDE-PLAN-BUILDING.md) | issue | Recipe plan analysis runs outside plan building | draft | ready | not-eligible | P3 | S | core/plan;core/assets | [design](design/recipe-preview-shares-plan-analysis/DESIGN.md) | 2026-08-26 |
 | [`COMBINED-VALUE-DATA-NODE-COPIES-BASE-VALUE`](issues/COMBINED-VALUE-DATA-NODE-COPIES-BASE-VALUE.md) | issue | A base value is copied whole to become a data node | draft | needs-decision | not-eligible | P3 | S | lib/value | [design](design/combined-value-shared-data-node/DESIGN.md) | 2026-10-17 |
 | [`CWD-DEFAULT-LINK-WARNS-WITHOUT-WORKING-DIRECTORY`](issues/CWD-DEFAULT-LINK-WARNS-WITHOUT-WORKING-DIRECTORY.md) | issue | The recommended cwd default link warns on every evaluation without a working directory | draft | needs-decision | not-eligible | P3 | S | core/query | [design](design/cwd-default-link-silent-root/DESIGN.md) | 2026-10-17 |
 | [`DEPENDENCY-ANALYSIS-USES-CALLER-CWD-FOR-A-CWD-LESS-RECIPE`](issues/DEPENDENCY-ANALYSIS-USES-CALLER-CWD-FOR-A-CWD-LESS-RECIPE.md) | issue | Dependency analysis resolves a cwd-less recipe against its caller's cursor, but its run resolves against the root | draft | needs-decision | not-eligible | P3 | S | core/plan | [design](design/cwd-less-recipe-analysed-at-root/DESIGN.md) | 2026-10-13 |
