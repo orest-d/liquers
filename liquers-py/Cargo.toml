@@ -1,8 +1,9 @@
 [package]
 name = "liquers-py"
-version = "0.1.0"
+version.workspace = true
 edition = "2021"
 rust-version.workspace = true
+license.workspace = true
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [lib]
@@ -19,6 +20,9 @@ liquers-core={path="../liquers-core"}
 liquers-lib = { path = "../liquers-lib", default-features = false, features = ["image-support", "polars", "records", "records-ipc", "records-parquet", "templates"] }
 # Linked because the liquers-lib command macros expand into this crate and name these crates.
 liquers-macro = { path = "../liquers-macro" }
+# The record traits the `lq.RecordView` / `lq.RecordSource` wrappers read through, and the IPC
+# format the Arrow exits go through (`src/records/`). Already in the graph through liquers-lib.
+liquers-records = { path = "../liquers-records", features = ["ipc"] }
 # Already in the graph through liquers-lib; named here for its store factory chain (memory,
 # filesystem, then the OpenDAL types), which a configured `lq.Environment(config=…)` builds with.
 liquers-store = { path = "../liquers-store" }
@@ -54,3 +58,10 @@ extension-module=["pyo3/extension-module"]
 # registrations hold, so `RUNTIME05` can assert their release deterministically rather than through
 # garbage-collector timing. `scripts/test-liquers-py.sh` builds with it; a wheel never does.
 debug-handles=[]
+
+# The stable-ABI wheel (`cp314-abi3`), one wheel for CPython 3.14 and every later GIL-enabled
+# release. Only the release workflow's abi3 jobs pass it; the free-threaded wheels (`cp314t`,
+# `cp315t`) are version-specific, since the free-threaded stable ABI (abi3t) does not import yet
+# (`PY-ABI3T-WHEEL-NOT-USED`). 3.14 is the floor because the buffer protocol the record columns
+# lend needs the limited API of 3.11 or newer, and wheels start at 3.14 (Orest, 2026-11-01).
+abi3=["pyo3/abi3-py314"]

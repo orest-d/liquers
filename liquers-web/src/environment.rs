@@ -890,6 +890,14 @@ impl LiquersEnvironment {
         describe_metadata(meta, &key).map_err(liquers_error_to_js)
     }
 
+    /// The Liquers version this environment was built with (`"0.1.0"`): the workspace version,
+    /// the same for every Liquers crate and every environment. A constant, so reading it never
+    /// builds or touches the environment. `version()` gives the longer crate-and-core form.
+    #[wasm_bindgen(getter, js_name = liquersVersion)]
+    pub fn liquers_version(&self) -> String {
+        liquers_core::VERSION.to_string()
+    }
+
     /// The names of every command registered on this environment.
     #[wasm_bindgen(js_name = commandNames)]
     pub fn command_names(&self) -> Vec<JsValue> {

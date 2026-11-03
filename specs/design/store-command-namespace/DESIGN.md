@@ -155,9 +155,9 @@ namespace with writes (unsafe in an allow-list); key as a `String` argument for 
 `Key`; `-R-key/` is the documented way to pass one, guide §"Passing the working directory");
 `put-<key>-<text>` with inline data (`ns-mem/write` covers documents).
 
-Known-issue preflight: `CORE-SESSION-AND-KEY-ACL` (P2) not blocking (Q2);
-`JS-STORE-RESOURCE-NOT-FOUND-WITHOUT-A-RECIPE` (P2) affects `get` exactly as `-R/` — no
-workaround here. Namespaces: new `store`, `store_write`; existing `mem` untouched.
+Known-issue preflight: `CORE-SESSION-AND-KEY-ACL` (P2) not blocking (Q2).
+(`JS-STORE-RESOURCE-NOT-FOUND-WITHOUT-A-RECIPE`, listed here when this was written, was closed by
+PR #166 on 2026-10-21.) Namespaces: new `store`, `store_write`; existing `mem` untouched.
 
 ### Changes
 

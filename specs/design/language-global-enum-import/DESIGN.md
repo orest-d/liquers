@@ -13,6 +13,14 @@ created: 2026-10-27
 ---
 # JavaScript and Python register the global enums their commands refer to
 
+**Review 2026-11-01.** Orest decided the placement of new registration calls: an `Environment` method, refused with `not_supported` on an
+explicit `new Environment()` instance rather than acting on the singleton
+(`WEB-EXPLICIT-ENVIRONMENT-CONFIGURES-THE-SINGLETON`), until instances can be configured. So the JavaScript dedicated call is an
+`Environment` method, not the module-level `liquers.registerGlobalEnum` of Phase 1 question 1. Under
+the batch-API rule (`registerCommands`), it should also accept several enums at once, for example a
+map in the document's `global_enums` form. Still blocked on `global-enum-registration`
+(`command_metadata.rs` still has `// TODO: support global enums`).
+
 Bulk design, 2026-10-27: Phases 1-4 written, not approved, nothing implemented.
 
 ## Phase 1: High-Level Design

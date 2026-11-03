@@ -3,10 +3,8 @@ id: PY-RECORD-VALUES-TO-PYTHON
 kind: design
 title: A record view evaluated from Python arrives as a pyarrow Table
 form: compact
-status: in_review
-phase: implementation
-readiness: needs-decision
-autofix: not-eligible
+status: superseded
+superseded_by: liquers-py-records
 area: [py, records]
 issues: [PY-RECORD-VALUES-CANNOT-CROSS-TO-PYTHON]
 created: 2026-10-27
@@ -15,6 +13,13 @@ created: 2026-10-27
 
 Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-27: Phases 1-4 written, not
 approved, nothing implemented.
+
+**Superseded 2026-11-01** by [`liquers-py-records`](../liquers-py-records/DESIGN.md), merged by
+Orest's decision on its Phase 1 question 1: a record view reaches Python as an `lq.RecordView`
+wrapper, not as a `pyarrow.Table`. What moved: the issue `PY-RECORD-VALUES-CANNOT-CROSS-TO-PYTHON`;
+the IPC transport (now behind `.to_arrow()`); AC-6 (a state reports `RecordView`, now
+`liquers-py-records` AC-1). What was dropped: AC-4 (a source is now a wrapper, not refused) and
+AC-5 (pyarrow is needed only for the Arrow exits).
 
 ## Phase 1: High-Level Design
 

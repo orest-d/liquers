@@ -3,7 +3,7 @@ title: JavaScript Integration
 kind: reference
 audience: both
 area: [web, core/value, core/error, core/store, lib/value]
-reviewed: 2026-10-31
+reviewed: 2026-11-01
 ---
 # JavaScript Integration
 
@@ -123,6 +123,7 @@ rebuilt. Of its methods:
 | `store()` | the singleton's store | this instance's store, which is none |
 | `configureStore(config)`, `registerStoreObject(name, obj)` | the singleton | **also the singleton** (`WEB-EXPLICIT-ENVIRONMENT-CONFIGURES-THE-SINGLETON`) |
 | `registerCommand(spec)` | refused, `not_supported` | refused, `not_supported` |
+| `liquersVersion` (getter) | `liquers_core::VERSION`, the workspace version (`Environment::liquers_version`) | the same |
 
 Commands are registered through the module-level functions, which act on the singleton. An instance
 is for evaluating against the built-in set, chiefly in tests.
@@ -143,7 +144,7 @@ is for evaluating against the built-in set, chiefly in tests.
 | `describeCommand(name)` | the metadata of the root-namespace command `name`, or `null` |
 | `opaque(x)` | a `Value` retaining `x` by identity (§5) |
 | `encodeParam(text)` | `text` escaped as one query parameter; throws for a character the grammar cannot represent |
-| `version()` | `"liquers-web <v> (liquers-core <v>)"`, from Cargo |
+| `version()` | `"liquers-web <v> (liquers-core <v>)"`, from Cargo; every crate shares the workspace version, so both are the same |
 
 There is no synchronous evaluation entry point, deliberately (`ASYNCQ06`, `ASYNCQ07`).
 
@@ -588,6 +589,7 @@ Every retained page function (definitions, cleanups, renderers) is counted in
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-01 | §3: the `liquersVersion` getter on `Environment`; `version()` reports the one workspace version twice. | `design/liquers-py-package/` (phase-5) |
 | 2026-10-31 | §10 "Elements and renderers": `defineElement`, `undefineElement`, `element`, `mountRenderer`, `dispatchEvent`; `DelegatedElement`; `UIElement.kind`/`props`. `UIDEF` removed from Limitations. | design `web-ui-define` |
 | 2026-10-31 | §10 "User interface": `mountUI`, `UIMount`, `UISubscription`, `UIElement`; the payload is `SimpleUIPayload` and `lui` is built in; §10 Limitations becomes §11. | design `web-ui-use` |
 | 2026-10-31 | §2, §4: a JavaScript command receives a `Context` (`info`, `warning`, `error`, `evaluate`, `isCancelled`, `element`); `conventions: { context: false }` opts out. Limitation removed. | design `js-command-context` |

@@ -150,52 +150,6 @@ fn expand_basic_timestamp(id: &str) -> Cow<'_, str> {
     }
 }
 
-/// The chunk id at `index` in `chunks` — direct addressing for [`rowid`]'s "opens only that
-/// chunk". For `ChunkList::Unbounded`, only the already-computed prefix (the explicit chunks, in
-/// `ManifestSource`'s case) can be addressed this way; a template-generated chunk beyond it is
-/// reported as not yet discovered rather than walked, per `ChunkList::Unbounded`'s own contract
-/// ("a walk ends at the first short chunk").
-fn chunk_id_at(chunks: ChunkList<'_>, index: usize) -> Result<liquers_records::ChunkId, Error> {
-    match chunks {
-        ChunkList::Known(ids) => ids.get(index).cloned().ok_or_else(|| {
-            Error::general_error(format!(
-                "ns-rec/rowid: chunk {index} out of range (0..{})",
-                ids.len()
-            ))
-        }),
-        ChunkList::Unbounded { computed } => computed.get(index).cloned().ok_or_else(|| {
-            Error::general_error(format!(
-                "ns-rec/rowid: chunk {index} is not yet known for this source (only {} chunk(s) \
-                 discovered so far); ns-rec/materialize or ns-rec/rec_id walk further into it",
-                computed.len()
-            ))
-        }),
-    }
-}
-
-/// [`rowid`]'s fallback when a source has no manifest (so its chunk ids are not resolvable
-/// queries — `InMemorySource`'s placeholder ids, in particular): the only way left to reach a
-/// chunk's view is `RecordSource::stream`, walked up to — and no further than — `chunk_index`.
-async fn walk_to_chunk(
-    source: Arc<dyn RecordSource>,
-    resolver: Arc<dyn ChunkResolver>,
-    chunk_index: usize,
-) -> Result<Arc<dyn RecordView>, Error> {
-    use futures::StreamExt;
-    let mut stream = source.stream(resolver).await?;
-    let mut index = 0usize;
-    while let Some(view) = stream.next().await {
-        let view = view?;
-        if index == chunk_index {
-            return Ok(view);
-        }
-        index += 1;
-    }
-    Err(Error::general_error(format!(
-        "ns-rec/rowid: chunk {chunk_index} out of range (only {index} chunk(s) in this source)"
-    )))
-}
-
 /// The JSON value `ns-rec/from_json` reads: a JSON value taken as-is, text/bytes parsed as JSON,
 /// or a key resolved (recording the dependency) and read again — the same input shapes
 /// `to_record`/`to_record_source` accept, restricted to what can become JSON.
@@ -390,24 +344,14 @@ pub async fn rowid<E: Environment<Value = Value>>(
         let source = value.as_record_source()?;
         let resolver: Arc<dyn ChunkResolver> = Arc::new(ContextResolver::new(context.clone()));
         let chunk_index = non_negative_usize(chunk, "chunk")?;
-        let view = if source.manifest().is_some() {
-            // A manifest's chunk ids are genuinely resolvable queries/keys (`ManifestSource`'s
-            // `describe_chunk`), so the addressed chunk is fetched directly — no other chunk is
-            // opened.
-            // The same conversion and `uniform_schema` check a traversal applies, and the chunk
-            // placed at its index; its row number stays unknown, as for any chunk read on its own.
-            let chunk_id = chunk_id_at(source.chunks(), chunk_index)?;
-            let descriptor = source.describe_chunk(&chunk_id, resolver.as_ref()).await?;
-            let chunk_value = resolver.evaluate(descriptor.query.clone()).await?;
-            let view = view_from_chunk_value(chunk_value, source.schema().as_deref())?;
-            place_chunk(view, chunk_index as u64, Some(chunk_id), None)
-        } else {
-            // No manifest: this source's chunk ids are not resolvable queries (e.g.
-            // `InMemorySource`'s placeholder ids, which `RecordSource::stream` documents as never
-            // going through a `ChunkResolver`). `stream()` is then the only way to reach a chunk's
-            // view, so walk it up to — and no further than — the addressed chunk.
-            walk_to_chunk(source, resolver, chunk_index).await?
-        };
+        // Through a manifest only the addressed chunk is read, the way a traversal reads it; any
+        // other source is walked up to it (`liquers_records::read_chunk`).
+        let view = liquers_records::read_chunk(source, resolver, chunk_index)
+            .await
+            .map_err(|mut error| {
+                error.message = format!("ns-rec/rowid: {}", error.message);
+                error
+            })?;
         let row_index = non_negative_usize(row, "row")?;
         let row_view = view.row(row_index)?;
         let batch = row_view.materialize()?;

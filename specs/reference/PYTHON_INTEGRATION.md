@@ -16,7 +16,10 @@ records the choices made here and why. The conformance matrix, by feature ID, is
 `liquers-py/README.md`; the designs are [`design/liquers-py/`](../design/liquers-py/DESIGN.md) and,
 for async and free-threading, [`design/liquers-py-async/`](../design/liquers-py-async/DESIGN.md);
 for stores and recipe providers, [`design/liquers-py-store/`](../design/liquers-py-store/DESIGN.md)
-and [`design/liquers-py-recipes/`](../design/liquers-py-recipes/DESIGN.md).
+and [`design/liquers-py-recipes/`](../design/liquers-py-recipes/DESIGN.md); for records, packaging
+and type declarations, [`design/liquers-py-records/`](../design/liquers-py-records/DESIGN.md),
+[`design/liquers-py-package/`](../design/liquers-py-package/DESIGN.md) and
+[`design/liquers-py-stubs/`](../design/liquers-py-stubs/DESIGN.md).
 
 ## 1. Layout
 
@@ -35,13 +38,17 @@ The package's own modules:
 | `_commands.py` | The decorators, and declaration stage 1 (§4). |
 | `_errors.py` | `LiquersError` and one subclass per `ErrorType`, generated at import (§6). |
 | `_factories.py` | `_declare`: a store or recipe provider factory's declaration from its signature (§9, §10). |
+| `_records.py` | The pyarrow side of the record classes: IPC bytes to and from Arrow, normalization, pandas and polars (§11). |
+| `_extras.py` | `require()` and the table of extras (§12). |
+| `__init__.pyi`, `_native.pyi`, `py.typed` | The type declarations (§13). A class added to `src/lib.rs` is declared here too. |
 
 Cargo features: `extension-module` (default) leaves the Python symbols to the loading interpreter,
 which a wheel needs and a Rust test binary cannot link with, so Rust tests run with
 `--no-default-features`. `debug-handles` is test-only: it adds `Environment.live_handle_count()`
 and the `test_panic` command. `liquers-lib` is linked with `image-support`, `polars`, `records`,
-`records-ipc`, `records-parquet` and `templates`; `egui` is not linked, since a Python process has
-no egui event loop.
+`records-ipc`, `records-parquet` and `templates`, and `liquers-records` with `ipc`; `egui` is not
+linked, since a Python process has no egui event loop. `abi3` (off by default) builds against
+CPython's limited API from 3.14 (`pyo3/abi3-py314`), for the `cp314-abi3` wheel (§12).
 
 Every class reports `__module__ == "liquers"`, so type names in messages and default reprs read
 `liquers.X`, not `liquers._native.X`. The classes cannot be pickled.
@@ -64,7 +71,8 @@ frozen; the others hold their own copy of the value.
 | `ErrorType`, `Error` | `liquers_core::error`; `Error` is a data object, not the exception (§6) |
 | `Environment`, `Issue` | the environment handle (§3) and one `IssueReport` finding |
 | `Context`, `AssetRef` | a command's context and an asset reference, each watching its environment's shut flag |
-| `State` | a snapshot of a value, converted to Python, and a copy of its metadata |
+| `State` | a snapshot of a value, converted to Python, and a copy of its metadata; `record_view()` gives the record view behind it, or `None` |
+| `RecordView`, `RecordColumn`, `RecordBuffer`, `RecordSchema`, `FieldSchema`, `FieldType`, `KeyRole`, `ChunkOrigin`, `RecordSource`, `RecordStream`, `RecordChunk` | `liquers_records` views, sources and schema types (§11) |
 
 `Plan.to_json` / `to_yaml` and `Plan.from_json` / `from_yaml` round-trip within one version
 only: a serialized plan is an inspection format, not a stable schema (`RECIPES_AND_PLANS.md`
@@ -265,6 +273,8 @@ with no Liquers equivalent is a `PyObjectValue` inside `ExtValue::Foreign`.
 | `dict` | `Object`, if every key is a `str` and every value converts structurally |
 | `polars.DataFrame` (recognised by type name) | `ExtValue::PolarsDataFrame`, copied through Parquet |
 | `PIL.Image.Image` (only when `PIL.Image` is already imported) | `ExtValue::Image`, copied through PNG |
+| `lq.RecordView`, `lq.RecordSource` | `ExtValue::RecordView`, `ExtValue::RecordSource`: the same `Arc` (§11) |
+| `pyarrow.Table`, `pyarrow.RecordBatch` (recognised by type name) | `ExtValue::RecordView`, copied through Arrow IPC (§11) |
 | anything else | permissive: `ExtValue::Foreign(PyObjectValue)`; strict: `ConversionError` naming the type |
 
 A container that contains itself raises `ConversionError`; shared, non-cyclic references are
@@ -276,8 +286,9 @@ through to the last row and is kept whole.
 `list` of `lq.AssetInfo`). A `PyObjectValue` returns the retained object itself, so identity is
 kept; a foreign value of another runtime raises `ConversionError` naming that runtime. A DataFrame
 is rebuilt with `polars.read_parquet` and an image with `PIL.Image.open`, raising
-`ConversionError` when the library is missing. Every other extended variant (records, UI values)
-raises `ConversionError` with its type identifier.
+`ConversionError` when the library is missing. A record view becomes `lq.RecordView` (or, with
+exactly one row and one field, that cell's scalar) and a record source `lq.RecordSource` (§11).
+Every other extended variant (UI values) raises `ConversionError` with its type identifier.
 
 **The opaque type.** `PyObjectValue` has the type identifier `py.Object` and the `type_name`
 `module.QualName` of the object's class. It holds a `Py<PyAny>`, which is `Send + Sync`; dropping
@@ -449,7 +460,9 @@ protect.
   name has a docstring (`tests/test_DOCS_docstrings.py` keeps it so); `Metadata` exposes its fields as methods where `State` and
 `AssetRef` use properties (`PY-METADATA-FIELDS-ARE-METHODS`); `repr` of several classes is Rust's debug format
   (`PY-REPRS-SHOW-RUST-DEBUG-FORMAT`).
-- No Pyodide target, no type stubs, no published wheel.
+- No Pyodide target. Wheels cover CPython 3.14+ only, and other platforms build from source (§12).
+- Records: Python cannot implement a view or a source, and every exit to Arrow, pandas or polars
+  copies (§11).
 
 ## 9. Stores
 
@@ -554,10 +567,204 @@ expires=None)` builds a recipe; every field is a settable property.
 own environment from `recipe_opt`. Every Python provider is asked for every key it could own, so
 `recipe_opt` should answer `None` quickly for keys outside its folder.
 
+## 11. Records
+
+Record views and sources (`specs/reference/RECORD_STREAMS.md`) cross into Python as wrappers
+around the same `Arc`s, with no copy. The classes are in `liquers-py/src/records/`; every one is
+frozen, so they are safe on a free-threaded interpreter without locks.
+
+| Class | Wraps | Members |
+|---|---|---|
+| `RecordView` | `Arc<dyn RecordView>` | `schema`, `chunk_id` (`lq.Key`, `lq.Query` or `None`), `origins`, `len()`, `num_columns`, `column(name or index)`, `columns()`, `value(row, col)`, `select_columns(*cols)`, `slice(offset, length)` (clamped), `row(i)` (a one-row `RecordView`), `cell(row, col)`, `item()`, `to_list()` (row dicts), `to_dict()` (column lists); `from_records`, `from_dict`, `from_arrow`, `from_pandas`, `from_polars`; `to_arrow`, `to_pandas`, `to_polars` |
+| `RecordColumn` | one `ColumnMut` | `name`, `type`, `null_count`, `dim`, `len()`, `[i]` (negative indices), `to_list()`, `validity` / `offsets` / `data` (each an `lq.RecordBuffer` or `None`); the buffer protocol for fixed-width columns |
+| `RecordBuffer` | one part of a column | `format`, `len()`, the buffer protocol |
+| `RecordSchema`, `FieldSchema`, `FieldType`, `KeyRole`, `ChunkOrigin` | the schema types | `FieldSchema(type, *, name=None, key=None, label=None, description="", nullable=True)`; `RecordSchema(fields, *, type_identifier=None)` with `fields`, `names`, `type_identifier`, `field(name)` (`KeyError`), `to_dict()`; `ChunkOrigin.to_dict()`; `KeyRole.Data` is Rust's `KeyRole::None`, so `to_dict()` reports it as `"key": "None"` |
+| `RecordSource` | `Arc<dyn RecordSource>` and where it reads from | `schema`, `bounded`, `manifest` (a dict or `None`), `chunks()`, `chunk(i)` / `chunk_async(i)`, `materialize(max_rows=1_000_000)` / `materialize_async`, `iter(source)` and `aiter(source)` |
+| `RecordStream` | one traversal | `next(stream)` and `await anext(stream)` (or `for` / `async for`), one chunk per step |
+| `RecordChunk` | one entry of `chunks()` | `index`, `kind` (`"query"`, `"key"` or `"memory"`), `query`, `evaluable` |
+
+**Crossing.** `ExtValue::RecordView` reaches Python as `lq.RecordView`, except a view of exactly one
+row and one field, which reaches it as that cell's scalar (`liquers_lib::value::record_view_is_single_cell`,
+the rule `try_into_json_value` already follows). `ExtValue::RecordSource` reaches it as
+`lq.RecordSource`. Either wrapper returned from a command, or passed as an argument, enters Liquers
+as the same `Arc`. A `pyarrow.Table` or `pyarrow.RecordBatch` (recognised by type name) enters as a
+record view through `from_arrow`.
+
+**Cells.** `bool`, `int`, `float`, `str`, `bytes`; a date is `datetime.date`, a timestamp a
+timezone-aware `datetime.datetime` in UTC (microseconds), a vector a `list` of `float`, a null
+`None`. A date is built with `date.fromordinal`, since the limited API has no `PyDate`.
+
+**Building from Python data.** `from_records(rows, *, fields=None)` takes an iterable of dicts and
+`from_dict(columns, *, fields=None)` a dict of equal-length iterables. Without `fields`, each
+field's type is inferred from its non-null cells: one Python type gives its field type (`bool`
+before `int`), `int` with `float` widens to `Float`, any other mix raises `ConversionError` naming
+the field and row, and an all-null field is `Text`. `fields=` is a dict from field name to an
+`lq.FieldType`, its lowercase name or an `lq.FieldSchema`, or an `lq.RecordSchema`:
+- a declared type casts every cell, losslessly or not at all: numbers between the numeric types
+  when exact, text parsed as the type, anything to text (through the CSV cell formatter), a date
+  to a timestamp at midnight UTC and a midnight timestamp to a date;
+- a declared field the data does not have is a column of nulls;
+- with a `RecordSchema`, a key the schema does not name is an error, and the schema's order wins;
+- a null in an `Id` field or in a not-nullable field is refused.
+
+A field's label defaults to its name with `_` replaced by spaces.
+
+**Arrow, pandas and polars.** Every route copies, through bytes (`liquers-py/src/records/arrow.rs`,
+`python/liquers/_records.py`):
+- `to_arrow()` writes the view as Arrow IPC (`liquers-records`' writer, with the interpreter lock
+  released) and reads it with pyarrow. The table's schema metadata carries `liquers.schema` (roles
+  and labels), and `liquers.chunk_id` and `liquers.origins` as JSON (the chunk id in serde form,
+  the key's segments). `to_pandas()` is `to_arrow().to_pandas()`; `to_polars()` is
+  `polars.read_ipc` of the same bytes. Only `to_arrow` keeps the metadata.
+- `from_arrow(table)` first normalizes, in Python, the columns liquers' IPC reader does not take,
+  when no value is lost: large and view strings and binaries, integers narrower than 64 bits,
+  `float16` and `float32`, dictionary encoding, `date64`, timestamps of another unit (refused when
+  a value would change), and fixed-size float lists (to `float32` vectors). Anything else (a
+  nested list, a struct, a decimal) is a `ConversionError` naming the column. `from_pandas` goes
+  through `pyarrow.Table.from_pandas` without the index; a pandas integer column with a missing
+  value arrives as `Float` unless `fields=` declares it.
+- `from_polars(df)` crosses as Parquet and through the polars bridge
+  (`liquers_lib::records::polars`), so it needs no pyarrow; a dtype the bridge cannot carry is a
+  `ConversionError`.
+
+A missing package raises `ConversionError` naming the extra that provides it (§12).
+
+**Buffers.** A fixed-width column (`Int`, `UInt`, `Float`, `Date`, `Timestamp`, `Vector`) lends
+its values through the buffer protocol: `memoryview(column)` or `numpy.asarray(column)`, with the
+formats `q`, `Q`, `d`, `i`, `q` and a 2-D `f` of shape `(rows, dim)`. The parts are lent the same
+way: `validity` and a `Bool` column's `data` are bitmaps (`B`), `offsets` are `i`, a `Text` or
+`Binary` column's `data` is `B`. Every buffer is read-only: a writable request raises
+`BufferError` (a writer such as `struct.pack_into` reports it as `TypeError`), and a column of `Bool`, `Text` or `Binary` has no buffer of its own. A buffer keeps
+its column alive, so it outlives the view it came from, and the data never moves.
+
+**Where a source reads its chunks** (`liquers-py/src/records/resolver.rs`). Each wrapper of a
+source carries a `SourceOrigin`: the environment, held weakly, its shut flag, and, inside a
+command, the command's `Context`. `PyChunkResolver` reads through the context while it is valid,
+so a chunk read inside a command becomes a dependency of the asset being computed
+(`ContextResolver`), and through the environment afterwards (`EnvResolver`). A source therefore
+outlives its command. It never keeps an environment alive: once the environment is dropped, or
+after `shutdown()`, every read raises the shut-down `GeneralError`, and a source converted with no
+environment in reach (`Scope::detached`) raises `GeneralError` saying it has none. A view already
+read keeps working.
+
+**Traversal.** `iter(source)` and `aiter(source)` open a `RecordStream` that reads one chunk per
+step, so a manifest of a thousand chunks evaluates one per `next(stream)`. `chunk(i)` reads only chunk
+`i` (`liquers_records::read_chunk`); `chunks()` lists the chunks without evaluating any.
+`materialize(max_rows)` concatenates every chunk into one view and refuses a source with more rows.
+A step taken while another step of the same stream is still running raises `GeneralError`
+("another step of this record stream…"). A shutdown while a step waits ends that step with
+`CancelledError`. The synchronous reads (`next(stream)`, `chunk`, `materialize`) follow the
+blocking-call rule of §7: on a liquers loop thread they raise `RuntimeError` naming what to use
+instead (`await anext(stream)` or `async for`, `chunk_async`, `materialize_async`). The
+conversions (`to_arrow`, `to_pandas`, `to_polars`) wait for nothing on the loop and are allowed.
+
+**Open problems.**
+- Python cannot implement the view or source traits, so a Python object cannot be a lazy source
+  (`RECORDS11` is `NA`; `liquers-py-records` Decision 4).
+- A command that returns raw CSV bytes cannot be a manifest chunk: bytes serialize only as `bin`
+  or text (`BYTES-VALUE-HAS-NO-NAMED-DATA-FORMAT`). A chunk command returns a view instead.
+- Every exit to Arrow, pandas or polars copies; only the column buffers are lent.
+
+## 12. Packaging
+
+**Version and license.** The workspace states both once (`[workspace.package]`: `version =
+"0.1.0"`, `license = "AGPL-3.0-or-later"`), and every crate inherits them. `liquers_core::VERSION`
+reads the version at compile time; `Environment::liquers_version()` (a provided trait method)
+reports it, `Environment.liquers_version` in Python and `liquersVersion` in JavaScript return it,
+and `lq.__version__` is its PEP 440 form (`-alpha.N` becomes `aN`, `-beta.N` `bN`, `-rc.N`
+`rcN`). `__version__` stays out of `__all__` (`OBJECT08`).
+
+**Wheels.** Fifteen per release, all built with `--profile wheel` (release, stripped, thin LTO, one
+codegen unit) and the crate's default features:
+
+| Platform | Runner | Builds |
+|---|---|---|
+| Linux x86_64, aarch64 | `ubuntu-24.04`, `ubuntu-24.04-arm`, in the manylinux_2_28 container | `cp314-abi3` (`--features abi3`, PyO3's `abi3-py314`), `cp314t`, `cp315t` |
+| macOS arm64 | `macos-15` | the same three |
+| Windows x86_64, arm64 | `windows-2025`, `windows-11-arm` (on arm64, LLVM's `clang-cl` for `aws-lc-sys` and `ring`) | the same three |
+
+Everything else installs from the sdist, which needs Rust 1.95 and a C compiler: CPython
+3.10-3.13, PyPy 3.11+, macOS x86_64, musllinux. `abi3t` is not used: the wheel maturin builds for
+it does not import (`PY-ABI3T-WHEEL-NOT-USED`). The Linux abi3 wheel measured 30.9 MB compressed.
+
+**Extras and `require`.** `[project.optional-dependencies]` declares `polars`, `images` (pillow),
+`arrow` (pyarrow), `pandas` (pyarrow and pandas) and `all`. A package with no wheel for a platform
+is excluded by an environment marker where a marker can name the platform (pyarrow on Windows
+arm64), so that install builds nothing from source. No marker names a free-threaded interpreter, so
+`[polars]` and `[all]` there would make pip build polars' runtime from its sdist; the guide says to
+leave them out. `lq.require(extra)` (`python/liquers/_extras.py`) imports the extra's modules first,
+so a module that is importable is used whatever its origin. A missing one raises
+`ModuleNotFoundError` saying the extra is not available on this platform when the platform has no
+wheel for it, and otherwise naming the `pip install 'liquers-py[extra]'` that fixes it; an unknown
+extra is a `ValueError`. `require("all")` skips an extra with no wheel here whose module is missing.
+
+**Native requirements.** A wheel links only system libraries: TLS is rustls with `aws-lc-rs`
+built in (`AWS_LC_SYS_USE_SYSTEM=0`), and nothing is grafted. `scripts/check-wheel.py` checks each
+wheel against `liquers-py/packaging/allowed-libraries.toml` (the manylinux_2_28 policy, macOS's
+system paths, Windows' system DLLs and VC runtime) and refuses one over 90 MB. The wheel carries
+`THIRD-PARTY-NOTICES.html`, generated by `cargo about` from the resolved lock at release time and
+not committed.
+
+**The release pipeline** (`.github/workflows/liquers-py-release.yml`). On a `liquers-py-v*` tag:
+`lock` (one `Cargo.lock`; `scripts/check-workspace-metadata.py` checks the tag against the
+workspace version and every crate's inherited version and license), `notices`, `sdist`, the
+fifteen `wheels`, `dist` (exactly the expected set), `test` (each wheel installed in a fresh venv
+on its own runner, running `liquers-py/tests/package/`), `test-sdist` (the sdist built from source on
+Linux and imported), then `github-release`, `testpypi` (whose
+uploaded files are compared with the built ones), and `pypi`. Publishing uses trusted publishing,
+and the `pypi` job waits for the protected `pypi` environment's reviewer: **a release reaches PyPI
+only when Orest approves it.** A manual run, or a pull request changing the workflow, builds and
+tests everything and publishes nothing. `liquers-py-package.yml` builds and tests the Linux x86_64
+abi3 wheel on pull requests that touch packaging.
+
+**Cutting a release.** Raise `[workspace.package] version`, commit, push a tag
+`liquers-py-v<version>`, and approve the `pypi` environment once TestPyPI holds the same files.
+A release can be yanked on PyPI but never replaced.
+
+**Open problems.** Source-only platforms (macOS x86_64, musllinux, PyPy); polars has no
+free-threaded wheel; the 90 MB margin under PyPI's limit; the manual PyPI approval;
+`requires-python` cannot express a different floor for wheels and the sdist; abi3t.
+
+## 13. Type declarations
+
+The package is typed (`py.typed`). `liquers/__init__.pyi` declares every native class under its
+runtime home `liquers`, the module functions, the decorators and the generated error classes;
+`liquers/_native.pyi` re-exports those names, so a checker following `liquers._native` sees the
+same declarations. The six pure-Python modules carry inline annotations.
+
+- **Values are `Any`**: a query's result, `State.value`, a command's inputs and outputs.
+- **Third-party types are `Any`** too, with a comment naming the runtime type (`to_arrow() -> Any
+  # pyarrow.Table`): pyarrow ships no type information, so a precise type would be *Unknown* under
+  pyright strict. The stubs import no third-party runtime package; `ParamSpec`, `Self` and
+  `TypeAlias` come from `typing_extensions`, which every checker bundles, so the stubs also serve
+  a checker targeting Python 3.10.
+- **The decorators keep the function's signature**: `command` and `first_command` are overloaded,
+  bare (`Callable[_P, _R] -> Callable[_P, _R]`) and with options (returning a decorator protocol),
+  on the module and on `Environment`; an `async def` command stays a coroutine function.
+- Every awaitable is `Awaitable[T]`; `Query | str` and `Key | str` parameters accept both forms;
+  every native class is `@final`; the PyO3 enums are classes whose members are class attributes
+  of their own type; settable properties have setters. `Query.segments` returns the stub-only
+  `_QuerySegment`, since `_native` does not export that class
+  (`PY-QUERY-SEGMENT-CLASS-NOT-REGISTERED`).
+
+**The checks** (`liquers-py/tests/test_STUBS_declarations.py`, on CPython 3.14 with the GIL only,
+with `mypy==2.4.1` and `pyright[nodejs]==1.1.414` pinned in `scripts/test-liquers-py.sh`):
+`stubtest liquers` with `tests/typing/stubtest-allowlist.txt` (only `debug-handles` names, each
+with a reason; an unused entry fails); a comparison of `dir(liquers._native)` and of the generated
+error classes, bases included, with the stubs; `mypy -p liquers` under `--strict`; and the samples
+in `tests/typing/`, `good/` passing and `bad/` failing on exactly the marked lines, under both
+mypy `--strict` and pyright `strict`. A change to the package's surface updates the stubs in the
+same change.
+
+**Open problems.** The stubs are written by hand and kept honest by the checks rather than
+generated; values are `Any`, so a checker cannot follow a value through a query; generating the
+declarations from the PyO3 signatures can be revisited when PyO3's own stub generation matures.
+
 ## History
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-01 | §11 Records (classes, crossing, building with `fields=`, Arrow/pandas/polars routes, buffers, where a source reads, traversal and its blocking-call messages), §12 Packaging (version, wheels, extras and `require`'s import-first rule, native requirements, the release pipeline and its approval), §13 Type declarations; §1, §2, §5 and §8 updated: records cross to Python, type stubs exist and release wheels are built. | `design/liquers-py-records/`, `design/liquers-py-package/`, `design/liquers-py-stubs/` (phase-5) |
 | 2026-11-01 | §9 Stores and §10 Recipe providers written in Python (registration, protocol, threads, `lq.Store`, `env.recipes`); §1-§3 and §8 updated; the Python recipe provider limitation is lifted. | `design/liquers-py-store/`, `design/liquers-py-recipes/` (phase-5) |
 | 2026-10-31 | §8: CI runs the Python suite on CPython 3.10, 3.14 and 3.14t; the supported floor is 3.10. §7: interpreter exit cancels the running Python commands and waits for them; §8 names the case it cannot cover. | design `language-binding-tests-in-ci` |
 | 2026-10-30 | §3: `config.recipes` accepts every value (`default`, `trivial`, a list of entries); the constructor no longer refuses a non-default `recipes`. Known limitations: the recipe-provider limitation now names a Python-written provider only. | design `recipe-provider-chain-config` |
