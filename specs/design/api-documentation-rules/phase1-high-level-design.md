@@ -189,3 +189,12 @@ check is a Python script in `scripts/`, beside `docs_index.py`, run by `docs-che
 - `liquers-core/src/store/pipeline.rs` (PR #231): the nearest existing module doc to the target.
 - `DOCS_STRUCTURE_GUIDE.md` §9.6; `LANGUAGE-INTEGRATION_GUIDE.md` §DOCS;
   `reference/api/API_DOCS_GAP_ANALYSIS.md`.
+
+## Scope Changes
+
+- 2026-11-03: AC-6 (the user documentation folder) and open questions 4 and 6 were delivered and
+  decided by [`user-documentation-guides`](../user-documentation-guides/DESIGN.md), as the
+  2026-11-01 amendment foresaw: `docs/` holds the home page and three guides, the built site
+  holds every API reference, and the guides stay in `specs/` as the basis of the public chapters.
+  This design no longer touches `docs/`; Phase 5 records AC-6 as met there. The `docs/` tree
+  sketched in the problem example is superseded by `docs/README.md`.

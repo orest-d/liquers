@@ -1,34 +1,39 @@
-# Phase 2: Solution & Architecture — API documentation rules and the user documentation folder
+# Phase 2: Solution & Architecture — API documentation rules
 
 ## Overview
 
 One internal guide, `specs/guides/API_DOCUMENTATION_GUIDE.md`, defines the module doc with fixed
-headings in every language. A standard-library Python script, `scripts/check_api_docs.py`, reports
-modules that miss them. A rustdoc lint job fails on broken intra-doc links. The `liquers-project`
-templates, checklist and `validate_phase.py` ask for API docs in Phases 1, 2, 4 and 5. `docs/` is
-created with its sources, homepage and API landing pages. Three modules, one per language, are
-rewritten as the worked examples.
+headings in every language; `scripts/check_api_docs.py` reports modules that miss them; a rustdoc
+job fails on broken intra-doc links; the `liquers-project` skill asks for API docs in Phases 1, 2,
+4 and 5; three modules, one per language, are the worked examples.
 
-Rejected: putting the rules in `DOCS_STRUCTURE_GUIDE.md` (it governs `specs/`, not code); one
-guide per language (three copies of the same rules drift); `#![warn(missing_docs)]` alone (it
-checks that a doc exists, not what it says, and it warns on every item, not only on entry points).
-It may still be added to crate roots later.
+Rejected: the rules in `DOCS_STRUCTURE_GUIDE.md` (it governs `specs/`, not code); one guide per
+language (three copies drift); `#![warn(missing_docs)]` alone (it checks that a doc exists, not
+what it says, on every item rather than the entry points).
 
-**Assumptions taken at the Phase 1 gate** (`proceed` on 2026-11-01, questions not answered). These
-are the recommended answers, open to change at this gate:
-Q1 fixed headings; Q2 GitHub links pinned to `main`; Q3 relative links into the combined rustdoc
-output; Q4 sources in `docs/`, built site in `target/docs-site/`; Q5 a missing section warns and a
-broken link fails. Q6 is **revised**, see Risks: the guides stay in `specs/` for now. Each language
-gets a short getting-started page instead.
+**Amended 2026-11-03.** The user documentation folder (request item 4, AC-6) was delivered by
+[`user-documentation-guides`](../user-documentation-guides/DESIGN.md): `docs/` holds the home
+page, three guides and a theme; the site build (`scripts/build-docs.sh`, `docs-site.yml`) renders
+the API reference of every crate, the Python package and the JavaScript module into the deployed
+site only, each linked from `docs/index.md` (`liquers-docs check` fails on a missing crate). This
+design adds **nothing under `docs/`**: its original `docs/` tree is dropped, and Phase 1's
+questions 4 and 6 are closed by that design. The other Phase 1 gate assumptions stand:
+Q1 fixed headings; Q2 GitHub links pinned to `main` for examples and tests; Q3 relative links into
+the combined rustdoc tree, which the site's `api/rust/` now is; Q5 a missing section warns, a
+broken link fails.
 
 ## Known-Issue Preflight
 
+At `d8bb375`, `RUSTDOCFLAGS="-D rustdoc::broken_intra_doc_links" cargo doc --no-deps` reports 26
+unresolved links in `liquers-core` and 3 in `liquers-records`; `-template`, `-store`, `-mcp`,
+`-markdown` and `-docs` are clean.
+
 | Issue | Status | Priority | Impact on this design | Fix first? | Blocking? | Action |
 |---|---|---|---|---|---|---|
-| `RUSTDOC-STORE-SUBMODULE-LINKS-UNRESOLVED` | draft | P3 | 26 broken intra-doc links in `liquers-core`; the lint job would fail on them | yes | blocks Step 6 only | Fix in its own PR (`S`, looks eligible for automatic fixing) before Step 6 |
-| `PY-API-REFERENCE-NOT-GENERATED` | draft, needs-decision | P2 | Nothing to place under `api/python/` yet | no | no | `api/python/index.md` says the reference is not built yet |
-| `WEB-API-REFERENCE-NOT-GENERATED` | draft | P3 | The same for `api/javascript/` | no | no | Same |
+| `RUSTDOC-STORE-SUBMODULE-LINKS-UNRESOLVED` | draft | P3 | 29 broken links (core, records); the lint job would fail on them | yes | blocks the rustdoc job only | Fix in its own PR (`S`, eligible for automatic fixing) before that step; the job starts with the clean crates either way |
 | `MODULE-DOCS-DO-NOT-FOLLOW-THE-API-DOC-RULES` | draft | P3 | The check's warning list starts long (85 files have no `//!`) | no | no | The follow-up; the warning becomes a failure when it closes |
+| `WEB-API-REFERENCE-NOT-GENERATED` | draft | P3 | None: the TypeDoc reference now builds; only its per-export check is missing | no | no | Narrow the issue to that check when it is next touched |
+| `RUSTDOC-WASM-CRATE-NOT-MERGED-INTO-API-TREE` | draft | P3 | `liquers-web`'s rustdoc is copied into the tree, so Q3's relative links from it work | no | no | None |
 
 ## Interfaces
 
@@ -46,9 +51,9 @@ No Rust API changes.
                        and where more are found
 ```
 
-A module needs all five parts when it is public and declares more than one public item.
-Otherwise the purpose alone is enough. Extra sections (`# Errors`, `# Feature flags`, or a topic
-like `pipeline.rs`'s `# Who runs the handlers`) go after `# Related concepts`.
+All five parts when the module is public and declares more than one public item; otherwise the
+purpose alone. Extra sections (`# Errors`, `# Feature flags`, `# Target`) go after
+`# Related concepts`. `liquers-docs/src/lib.rs` already has this shape; the guide formalizes it.
 
 **`scripts/check_api_docs.py`** (Python 3.10+, standard library only, like `docs_index.py`):
 
@@ -57,111 +62,79 @@ check_api_docs.py [--crate NAME]… [--strict] [--format text|json] [PATH]…
 exit 0: no errors (warnings allowed) · 1: an error, or a warning under --strict · 2: usage
 ```
 
-- **Rust:** it walks each crate from `src/lib.rs` through `mod` declarations. A module is public
-  when every declaration on its path is `pub mod`. It reads the inner `//!` lines.
-- **Python:** it reads the module docstrings of `liquers-py/python/liquers/*.py` with `ast`.
-- **JavaScript:** it reads the `//!` of `liquers-web/src/lib.rs` and the `@packageDocumentation`
-  block in `typescript.rs`.
-- **Warnings:** no doc; a missing heading or headings out of order; more than 5 links under
-  `# Where it is used` or more than 5 example links; no example, or an example outside 3-10
-  lines (Rust `# ` hidden lines are not counted).
-- **Errors:** a link `https://github.com/orest-d/liquers/blob/main/<path>` whose `<path>` does
-  not exist locally.
+- **Sources:** Rust: each crate from `src/lib.rs` through its `mod` declarations, a module being
+  public when every declaration on its path is `pub mod`; the inner `//!` lines. Python: the
+  module docstrings of `liquers-py/python/liquers/*.py`, read with `ast`. JavaScript: the `//!`
+  of `liquers-web/src/lib.rs` and the `@packageDocumentation` block in `typescript.rs`.
+- **Warnings:** no doc; a heading missing or out of order; more than 5 links under `# Where it
+  is used` or more than 5 example links; no example, or one outside 3-10 lines (Rust `# ` hidden
+  lines not counted). **Errors:** a `github.com/orest-d/liquers/blob/main/<path>` link whose
+  `<path>` does not exist locally.
 
 ## Integration Points
 
-- `specs/guides/API_DOCUMENTATION_GUIDE.md` (new). Its sections:
-  1. Audience.
-  2. Terms: crate, module or package; struct, enum or trait versus class, `Enum`, `Protocol`,
-     class and interface; function; method.
-  3. The module doc, its five parts and their limits.
-  4. Entry-point item docs.
-  5. Links: in-crate, cross-crate, examples, `specs/`.
-  6. Examples: executed, and which are not.
-  7. Rust (`//!`, intra-doc links, doctest attributes `no_run`, `ignore` with a reason,
-     `compile_fail`).
-  8. Python: PyO3 `///` becomes `__doc__`, the package docstring, `>>>` examples run by pytest.
-  9. JavaScript: `///` becomes JSDoc in the `.d.ts`, `@packageDocumentation`, `@example`, and
-     what wasm-bindgen drops.
-  10. Checking.
-  11. When to write it: the design phases.
-- **Worked examples:**
-  - `liquers-core/src/commands.rs` gets a `//!`, with a doctest that registers and runs one
-    command.
-  - `liquers-py/python/liquers/__init__.py` gets the five parts in its docstring, and
-    `scripts/test-liquers-py.sh` adds `pytest --doctest-modules python/liquers/__init__.py`.
-  - `liquers-web/src/lib.rs` gets a `//!`, and `typescript.rs` gets a `typescript_custom_section`
-    with `@packageDocumentation`. Its `@example` repeats a `JAVASCRIPT_GUIDE.md` example that
-    `test-guide-examples.sh` already runs, and names that example.
-- **`liquers-project` skill:**
-  - `phase1-template.md`: an `- API docs:` line under Documentation Intent, naming the modules whose module doc
-    is created or changed, or `none` with the reason.
-  - `phase2-template.md`: Documentation Architecture lists each module and the parts that change.
-  - `phase4-template.md`: Documentation Updates names the module docs and the check run.
-  - `phase5-documentation.md`: records each module doc reviewed against the guide, and the
-    check's output for those files.
-  - `compact-design-template.md`: the same four.
-  - `review-checklist.md`: one item each for Phases 1, 2 and 5.
-  - `auto-fix.md` rule 2: module docs count as documentation.
-  - `SKILL.md`: the phases table.
-  - `validate_phase.py`: in Phase 1, Documentation Intent needs an `API docs:` line when
-    `DESIGN.md` `created:` is on or after the date this lands, so existing designs still pass. Its
-    tests are in `test_validate_phase.py`.
-- **`docs/`** (new):
-  - `README.md`: layout and rules.
-  - `site.yaml`: title, guides folder, packages per language with their built paths.
-  - `index.md`: homepage.
-  - `getting-started/{rust,python,javascript}.md`: each one page, its example copied from a named
-    test that runs it.
-  - `guides/index.md`.
-  - `concepts/index.md` and `reference/index.md`: stubs that say what will go there.
-  - `api/index.md` and `api/{rust,python,javascript}/index.md`.
-  - `templates/page.html`.
-  - `assets/site.css`.
-  - The Mustache in these files uses only `ns-template` and the `ns-docs` commands from
-    `documentation-site-tool`. Until that design lands, the files are plain Markdown and no build
-    exists.
-- **`scripts/docs_index.py`:** check 9 (dead links) also scans `docs/**/*.md`. The new check 18
-  refuses a relative link from `docs/` into `specs/`. Tests are in `test_docs_index.py`.
-- **CI:**
-  - `docs-check.yml` gains `check_api_docs.py`, warnings only, and the `docs/**` and `**/*.rs`
-    paths.
-  - A new `rustdoc` job runs `RUSTDOCFLAGS="-D rustdoc::broken_intra_doc_links" cargo doc
-    --no-deps` for `liquers-core`, `-template`, `-records`, `-store`, `-mcp`. Those build without
-    optional native libraries. `liquers-lib` follows once its links are clean.
+- `specs/guides/API_DOCUMENTATION_GUIDE.md` (new): audience; terms (crate, module or package;
+  struct, enum or trait versus class, `Enum`, `Protocol`, interface; function; method); the five
+  parts and their limits; entry-point item docs; links (in-crate, cross-crate through the site's
+  `api/rust/` tree, examples and tests on GitHub, `specs/`); executed examples; a Rust, a Python
+  and a JavaScript section (`//!` and doctest attributes; PyO3 `///` as `__doc__` and `>>>`
+  examples under pytest; `///` as JSDoc in the `.d.ts`, `@packageDocumentation`, `@example`);
+  checking; when to write it: the design phases.
+- **Worked examples (AC-3):**
+  - `liquers-core/src/commands.rs` gets a `//!` with a doctest that registers and runs one command.
+  - `liquers-py/python/liquers/__init__.py` gets the five parts in its docstring;
+    `scripts/test-liquers-py.sh` adds `pytest --doctest-modules liquers-py/python/liquers/__init__.py`.
+  - `liquers-web/src/lib.rs` gets the five parts, keeping `# Target` and `# Architecture` after
+    them; `typescript.rs` gets a `typescript_custom_section` with `@packageDocumentation`, whose
+    `@example` names and repeats a `JAVASCRIPT_GUIDE.md` example `test-guide-examples.sh` runs.
+- **`liquers-project` skill:** `phase1-template.md` adds an `- API docs:` line under
+  Documentation Intent (modules whose module doc is created or changed, or `none` with the
+  reason); `phase2-template.md` lists each module and the parts that change; `phase4-template.md`
+  names the module docs and the check run; `phase5-documentation.md` records each module doc
+  reviewed against the guide and the check's output; `compact-design-template.md` the same four;
+  `review-checklist.md` one item for Phases 1, 2 and 5 each; `auto-fix.md` rule 2; `SKILL.md`'s
+  phases table. `validate_phase.py` requires the line when `DESIGN.md` `created:` is on or after
+  the landing date (as `TEMPLATE_REWRITE`); tests in `test_validate_phase.py`.
+- **CI:** `docs-check.yml` gains a `check_api_docs.py` step (warnings only) and the
+  `liquers-*/src/**` and `liquers-py/python/**` paths. `build-matrix.yml`, already run on
+  `liquers-*/**`, gains a `rustdoc` job: `RUSTDOCFLAGS="-D rustdoc::broken_intra_doc_links"
+  cargo doc --no-deps` for `liquers-template`, `-store`, `-mcp` and `-markdown` at once (no
+  optional native library, no `liquers-lib`); `-core` and `-records` after the link fix; `-lib`
+  and `-docs` once `-lib`'s links are clean. `docs_index.py` is unchanged: checks 18 and 19
+  already cover `docs/`.
 
 ## Error Handling
 
-No library code changes, so no `Error` constructors are involved. The scripts report problems as
-`path:line: warning|error: message` on stdout in text mode (`docs_index.py`'s form), or as a JSON
-list, and exit as above.
+No library code changes, so no `Error` constructors. The script reports
+`path:line: warning|error: message` on stdout (`docs_index.py`'s form) or a JSON list, and exits
+as above.
 
 ## Relevant Commands
 
-None. `ns-docs` belongs to `documentation-site-tool`.
+None.
 
 ## Documentation Architecture
 
 | Path | Kind | Audience | Area | Change |
 |---|---|---|---|---|
 | `guides/API_DOCUMENTATION_GUIDE.md` | guide | internal | docs | new |
-| `DOCS_STRUCTURE_GUIDE.md` | contract | internal | docs | §2 `docs/` exists; §7.2 check 18; §9.6 rewritten (what `docs/` holds, built site location); §10 rows; History |
-| `guides/LANGUAGE-INTEGRATION_GUIDE.md` | guide | internal | docs | §DOCS: module docs follow the guide; `DOCS04` output goes under `api/<language>/`; the user guide moves to `docs/guides/` when it moves; History |
-| `CLAUDE.md` | — | — | docs | Structure lists `docs/`; Documentation points to the guide for any module doc |
-| `liquers-py/README.md`, `liquers-web/README.md` | — | user | py, web | one line naming the guide |
-| `docs/README.md` | — | internal | docs | new |
-| `specs/README.md` | map | internal | docs | the guide under "When to use what"; generated blocks |
+| `DOCS_STRUCTURE_GUIDE.md` | contract | internal | docs | §9.3: a landing design reviews the module docs it touches against the guide; §10 row; History |
+| `guides/LANGUAGE-INTEGRATION_GUIDE.md` | guide | internal | docs | §DOCS: module docs follow the guide, `DOCS04` names it; History |
+| `CLAUDE.md` | — | — | docs | Documentation section points to the guide for any module doc |
+| `liquers-py/README.md`, `liquers-web/README.md` | — | user | py, web | the `DOCS` row names the guide |
+| `specs/README.md` | map | internal | docs | "When to use what" row; capability line to built; generated blocks |
 
+API docs: `liquers_core::commands`, the `liquers` package, `liquers_web` (above).
 Proposed `affects_docs`: `guides/LANGUAGE-INTEGRATION_GUIDE.md`, `DOCS_STRUCTURE_GUIDE.md`.
 
 ## Risks
 
 | Assessment | Finding |
 |---|---|
-| Files likely to change | About 25: the guide, 9 skill files, 2 scripts and their tests, 2 workflows, ~14 new `docs/` files, 3 module docs, 4 specs documents |
-| Crates and workflows affected | Doc comments in `liquers-core`, `liquers-web`; `liquers-py` package docstring and test script; `docs-check.yml`, a new rustdoc job |
-| Existing tests likely to change | `test_validate_phase.py`, `test_docs_index.py` (new cases); none in Rust |
-| New validation | The doctest in `commands.rs`, the Python doctest, the check script and its tests, check 18, the rustdoc job |
-| Compatibility / data / concurrency / performance / security | None at runtime. `validate_phase.py`'s new rule is date-gated, so existing designs keep passing |
-| Recovery | Revert per step. The warnings never fail CI, and the rustdoc job can be removed alone |
-| Certainty and open questions | High for the rules and the process. **Q6 revised:** moving `PYTHON_GUIDE.md` and `JAVASCRIPT_GUIDE.md` means rewriting 17 links into `specs/reference/` (check 18 forbids them) and paths in `liquers-py/tests/test_GUIDE_examples.py`, `liquers-web/scripts/test-guide-examples.sh`, `run-guide-examples.mjs` and 7 `liquers-py/src` files. The guides also lean on their contract references, which are internal. Moving them belongs with moving those references, so it is a separate issue, `USER-GUIDES-LIVE-IN-SPECS`. |
+| Files likely to change | About 22: the guide, 9 skill files, the script and its test, 2 workflows, `test-liquers-py.sh`, 4 source files, 6 specs and README documents |
+| Crates and workflows affected | Doc comments in `liquers-core`, `liquers-web`; the `liquers-py` package docstring; `docs-check.yml`, `build-matrix.yml`, `liquers-py-tests.yml` through the test script |
+| Existing tests likely to change | `test_validate_phase.py` (new cases); none in Rust |
+| New validation | The `commands.rs` doctest, the Python doctest, `check_api_docs.py` and its tests, the rustdoc job |
+| Compatibility / data / concurrency / performance / security | None at runtime. The `validate_phase.py` rule is date-gated, so existing designs keep passing. `@packageDocumentation` must be the first comment of the `.d.ts`; wasm-bindgen emits custom sections first, confirmed at Phase 3 |
+| Recovery | Revert per step. The warnings never fail CI; the rustdoc job can be removed alone |
+| Certainty and open questions | High. One decision left: whether the `commands.rs` doctest builds a whole environment (8-10 lines) or shows registration and one call through `CommandExecutor`; recommended the latter, with `async_hellow_world.rs` linked for the whole flow |
