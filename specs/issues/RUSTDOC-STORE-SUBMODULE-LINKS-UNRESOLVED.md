@@ -2,7 +2,7 @@
 id: RUSTDOC-STORE-SUBMODULE-LINKS-UNRESOLVED
 kind: issue
 title: Intra-doc links in the store submodules and value.rs do not resolve
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [docs, core/store, core/value]
@@ -37,3 +37,33 @@ docs job.
 
 Found while writing the pipeline docs for GitHub #230 (design `store-config-handlers-usage-docs`),
 whose new links had to be written as `crate::store::…` paths to resolve.
+
+## Resolution
+
+Closed by the PR from branch `claude/rustdoc-intra-doc-links`. Both commands exit 0 with
+`RUSTDOCFLAGS="-D rustdoc::broken_intra_doc_links"`; doc comments only, no code or public item changed.
+
+The hypothesis held, and it explains `value.rs` too: rustdoc decides the scope of a module's links
+from its *first* doc fragment. An outer `///` first makes the whole combined block resolve in the
+parent. The `store` submodules had an outer `///` on each `pub mod` line in `store.rs` plus their
+own `//!`; `json_f64` in `value.rs` is an inline module documented only by an outer `///`, and its
+eight links (`to_number`, `to_json`, `from_json`, `NAN`, `INFINITY`, `NEG_INFINITY`, `serialize`,
+`deserialize`) name its own items — they are string tokens, not `f64` constants.
+
+- `liquers-core/src/store.rs`: the outer `///` on the seven `mod` lines removed; every submodule
+  already carries equivalent `//!` docs, so nothing is lost from the rendered pages.
+- `liquers-core/src/value.rs`: the `json_f64` docs moved inside the module as `//!`.
+- Two links the scope change exposed: `MemoryCentralStorage` in `storage.rs` exists only with the
+  `store-conformance` feature (or in tests), so the default doc build has no item to link; it is
+  now a code span naming the feature. `StepBuilder` in `handlers.rs` is not imported there and now
+  carries a `super::realm::` path. In `realm.rs`, the `crate::store::realm::` targets that the
+  parent-scope resolution had forced are dropped, since they became redundant.
+- `liquers-records/src/buffer.rs`: the `[COLUMNAR]` citation (the Arrow Columnar Format, as in
+  `specs/design/record-streams/phase2-architecture.md`) given a reference-style link target in both
+  doc blocks that use it.
+- `liquers-records/src/views.rs`: `select_columns` is an inherent method of `dyn RecordView`, which
+  an intra-doc path cannot name; the doc now links the trait and keeps the method as code.
+
+The CI docs job itself is the parent design's (`api-documentation-rules`, GitHub #232). The
+`private_intra_doc_links` warnings seen in the same run are filed as
+`RUSTDOC-PRIVATE-INTRA-DOC-LINKS-RECUR`.
