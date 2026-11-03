@@ -134,7 +134,7 @@ The pipeline form, everywhere:
   THEN the positional ones fill slots first and the named ones the rest; omitted ones take their defaults; an unknown or `injected` name, or a name for a slot already filled positionally, is a `ParameterError`
 - **AC-18** Nested pipeline as an argument
   WHEN an argument's source is `{pipeline: …}`
-  THEN a representable nested pipeline plans exactly as the link with its query (`Evaluate`, a shared asset). One that is not representable plans as new `ParameterValue` variants (`ParameterPipeline`, `OverridePipeline`) and is evaluated as a nested plan with its dependencies recorded but no asset of its own (Q29). `TryFrom<&ParameterValue> for Pipeline` gives the pipeline of any link-like parameter and refuses a value
+  THEN a representable nested pipeline plans exactly as the link with its query (`Evaluate`, a shared asset). One that is not representable plans as new `ParameterValue` variants (`ParameterPipeline`, `OverridePipeline`, `DefaultPipeline`) and is evaluated as a nested plan with its dependencies recorded but no asset of its own (Q29). `TryFrom<&ParameterValue> for Pipeline` gives the pipeline of any link-like parameter and refuses a value. A command's declared default may be a pipeline: `CommandParameterValue::Pipeline`, written `{pipeline: …}` (tagged, since a bare list already reads as a value), planned as `DefaultPipeline`, or as `DefaultLink` when representable; the registry export and `ArgumentInfo` checks accept it, and the `register_command!` default syntax gains no new form (decided 2026-11-03)
 - **AC-19** Variadic arguments
   WHEN a variadic argument gets a list, a `{multiple: […]}` of sources, or a placeholder bound to a list among literal elements
   THEN it receives one element per entry, with the list spliced in place; a list for a non-variadic slot, unless its type is `any`, is a `ParameterError`
@@ -508,7 +508,8 @@ Opened by the maintainer's review of 2026-11-03, analysed in
   optional filename; realms nest, and consecutive segments of one realm merge (AC-40, rules P2–P4,
   E3–E8). State elements have one meaning each, with placeholders as operands (AC-5 revised). AC-10
   is restated as plan identity for representable pipelines, and AC-24 is merged into it. AC-18 has
-  new `ParameterValue` variants. AC-31 lists every error kind, and AC-31a adds query positions.
+  new `ParameterValue` variants, including `DefaultPipeline`, and a default may be a pipeline
+  (`CommandParameterValue::Pipeline`). AC-31 lists every error kind, and AC-31a adds query positions.
   AC-15 is either-or. AC-39 makes `Value::Pipeline` a value like `Value::Query`. The language
   integration guide specifies pipeline support, and `PIPELINES-NOT-IN-LANGUAGE-BINDINGS` is filed
   for implementing it. Questions 26–30 added. Analysis:

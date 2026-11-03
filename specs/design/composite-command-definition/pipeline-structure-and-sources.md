@@ -107,7 +107,7 @@ representable has no query, so it cannot be identified as a link. Its plan needs
 
 - `ParameterPipeline(name, Pipeline, Position)` for a pipeline given in an action;
 - `OverridePipeline(name, Pipeline)` for one given by an override;
-- `DefaultPipeline(name, Pipeline)`, if command defaults may be pipelines later (Phase 2 decides).
+- `DefaultPipeline(name, Pipeline)` for a command default that is a pipeline: `CommandParameterValue` gains a `Pipeline` variant, written `{pipeline: …}` (decided by the maintainer, 2026-11-03). A representable default plans as `DefaultLink`, as a query default does today.
 
 `TryFrom<&ParameterValue> for Pipeline` returns the pipeline of every link-like variant: a link's
 query becomes a pipeline, and a pipeline variant returns its pipeline. It refuses a value. Editors
