@@ -15,8 +15,8 @@ created: 2026-10-20
 
 > **Complete on 2026-11-03**: implemented in #249.
 
-Bulk design (`specs/guides/autonomous_bulk_design.md`): Phases 1-4 written, not approved, nothing
-implemented.
+Bulk design (`specs/guides/autonomous_bulk_design.md`): Phases 1-4 written; implemented on
+2026-11-03.
 
 ## Phase 1: High-Level Design
 
