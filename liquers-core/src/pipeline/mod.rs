@@ -40,6 +40,9 @@ use serde_json::{Map, Value as Json};
 use crate::error::Error;
 use crate::query::Position;
 
+mod convert;
+pub use convert::{ArgRef, ElementPath};
+
 /// A value together with where it came from.
 ///
 /// `pos` is set when the value was converted from a parsed query, and absent when it was written

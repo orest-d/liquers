@@ -401,6 +401,22 @@ impl Error {
             format!("Invalid pipeline: {}", message.into()),
         )
     }
+    /// A pipeline cannot be written as a query: `rule` is the representability rule that fails
+    /// (P1–P4, E1–E8, S1–S7, N1–N4; `specs/reference/PIPELINES.md`), `path` names the element
+    /// and argument.
+    pub fn not_representable(rule: &str, path: impl Display, detail: &str) -> Self {
+        Error::new(
+            ErrorType::ParameterError,
+            format!("Pipeline is not representable as a query ({rule}) at {path}: {detail}"),
+        )
+    }
+    /// An argument of `command` is unknown, injected, given twice or otherwise misused.
+    pub fn invalid_argument(command: &str, argument: &str, problem: &str) -> Self {
+        Error::new(
+            ErrorType::ParameterError,
+            format!("Argument '{argument}' of '{command}': {problem}"),
+        )
+    }
     /// A token is not valid where it stands: `class` names what was expected there (an action
     /// name, a key segment, a filename…).
     ///

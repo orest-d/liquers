@@ -2398,7 +2398,8 @@ impl CwdCursor {
 
 #[allow(dead_code)]
 impl Query {
-    /// Checks that this query survives encoding: `parse_query(&self.encode())` gives it back.
+    /// Checks that this query survives encoding: `parse_query(&self.encode())` gives back a query
+    /// with the same encoding.
     ///
     /// A parsed query always passes. A query assembled in code may not: an action name with a
     /// space, a key segment with `/`, a filename without a `.`. The error names the **first**
@@ -2491,9 +2492,13 @@ impl Query {
                 }
             }
         }
+        // The text must parse and encode back to itself. Comparing text rather than structure
+        // accepts the one structural difference that carries no meaning: a resource segment
+        // written in shorthand (`a/b/-/c`) has no header, and its encoding (`-R/a/b/-/c`) parses
+        // with an empty one.
         let encoded = self.encode();
         match crate::parse::parse_query(&encoded) {
-            Ok(parsed) if parsed == *self => Ok(()),
+            Ok(parsed) if parsed.encode() == encoded => Ok(()),
             Ok(_) => Err(bad(&encoded, "a query (it parses back differently)", &Position::unknown())),
             Err(e) => Err(bad(
                 &encoded,
