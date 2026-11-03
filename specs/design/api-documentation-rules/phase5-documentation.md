@@ -122,8 +122,8 @@ Remaining, each with an issue:
   the time of writing it is blocked on a Bash permission: it wants to port a `docs-site` venv fix
   from PR #245 into its branch so that CI can pass, which is outside the spin-off's scope and the
   owner's call. When it merges, `liquers-core` and `liquers-records` join the `rustdoc` job.
-- `WEB-DOCS-SCRIPT-RELATIVE-OUT-PATH-LANDS-IN-WORK-DIR` — spun off to a second child session
-  (mechanism A); its id is in the closing summary.
+- `WEB-DOCS-SCRIPT-RELATIVE-OUT-PATH-LANDS-IN-WORK-DIR` — spun off to the child session
+  `session_01Dx1JCXwrQASFHmQncNRcRx`, branch `claude/web-docs-relative-out` (mechanism A).
 
 ## Validation
 
