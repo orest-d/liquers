@@ -39,8 +39,12 @@ if [ -n "${VIRTUAL_ENV:-}" ]; then
     echo "==> using the active environment $VIRTUAL_ENV" >&2
 else
     venv="$repo_root/target/liquers-py-docs-venv"
-    if [ ! -x "$venv/bin/python" ]; then
+    # Check for the activate script, not only the interpreter: CI restores target/ from a cache
+    # that keeps the venv's bin/python link but prunes other files, which left a venv with no
+    # activate script.
+    if [ ! -x "$venv/bin/python" ] || [ ! -f "$venv/bin/activate" ]; then
         echo "==> creating virtual environment at $venv" >&2
+        rm -rf "$venv"
         "${PYTHON:-python3}" -m venv "$venv"
     fi
     # shellcheck disable=SC1091
