@@ -3,49 +3,77 @@
 Analysis for the maintainer's review of 2026-11-03. It supports Phase 1 questions Q26–Q30. Each
 section ends with a recommendation; the decisions themselves are recorded in Phase 1.
 
-## 1. The pipeline is a struct, scoped to one realm
+## 1. The pipeline is a struct, scoped to one realm and one depth
 
 Today a query's segment header has a **name**, a **level** and **parameters**
-(`liquers-core/src/query.rs`, `SegmentHeader`):
+(`liquers-core/src/query.rs`, `SegmentHeader`). The maintainer set their meaning on 2026-11-03:
 
-- A transform segment's name is its realm. Every action in the segment is looked up there.
-- A resource segment's name is reserved: it is warned about and ignored
-  (`RECIPES_AND_PLANS.md` §Planner instructions). It is meant to become the realm too.
-- Header parameters: a resource header takes one instruction (`-R-meta/…`), and a second one is
-  `TooManyParameters`. A transform header's parameters have no meaning yet.
-- `level` is stored and encoded, but it is reserved and not interpreted.
-
-The 2026-11-02 draft put `realm` on each action element. Making the realm a property of the
-**pipeline** matches the query better, and prepares for multi-realm execution
-(`CORE-MULTI-REALM-INTERPRETER`):
+- **The name is the realm, for resource and transform segments alike.** Today the planner looks
+  up a transform segment's actions in its realm, and it warns about and ignores a resource
+  segment's name (`RECIPES_AND_PLANS.md` §Planner instructions). Under this design both are
+  realms. The current planner can run only one realm (`CORE-MULTI-REALM-INTERPRETER`). It keeps
+  its warning for a resource name it cannot honour, but the pipeline records that realm.
+- **The level is nesting depth, like indentation in Python.** `-` is depth 1 and `--` is depth 2.
+  (`SegmentHeader.level` counts the *extra* hyphens, so it stores 0 and 1.) A deeper segment opens
+  a nested pipeline inside the current one, and a shallower one closes it. Depth may grow by one at
+  a time, as indentation does. **Out of scope:** this design documents the mapping, but a depth
+  other than 1 is refused when converting and planning, as today's planner does not interpret it.
+- **Header parameters**: a resource header takes one instruction (`-R-meta/…`), and a second one
+  is `TooManyParameters`. A transform header's parameters have no meaning yet. They are carried as
+  they are.
 
 ```rust
 pub struct Pipeline {
-    pub realm: String,                  // "" = the default realm; the segment header name
-    pub header: HeaderExtras,           // level and header parameters, carried as they are
+    pub realm: String,                  // the segment header name; "" = the default realm
+    pub depth: usize,                   // 1 for `-`; nested blocks are one deeper (out of scope: only 1)
+    pub header_parameters: Vec<String>, // carried as they are
     pub rooted: bool,                   // a leading `/`
     pub elements: Vec<PipelineElement>,
     pub filename: Option<String>,       // the result's name and format: last by construction
 }
 ```
 
-- A change of realm is a nested pipeline used as an element:
-  `PipelineElement::Pipeline(Pipeline)`. It runs on the current state, in its own realm.
-- Converting from a query: consecutive segments with the same header name, resource or transform,
-  add to the same pipeline. A segment with a different name opens a nested pipeline.
-  `-R/a.csv/-/f/-x/g/h/-/k` becomes `{realm: "", elements: [resource a.csv, f, {realm: x,
-  elements: [g, h]}, k]}`.
-- Converting to a query: each run of elements becomes a segment named by its pipeline's realm. A
-  resource opens a resource segment, and the next action opens a transform segment with the same
-  name.
-- `filename` as a field removes rule P2: the filename is last because there is nowhere else to put
-  it. A nested pipeline with a filename is not representable, because a query has one filename and
-  it ends the query.
-- The resource header name becomes the enclosing pipeline's realm. The planner keeps ignoring it,
-  with its warning, until multi-realm support gives it meaning. That planner change is out of scope.
+A nested pipeline is an element, `PipelineElement::Pipeline(Pipeline)`. It runs on the current
+state, in its own realm. Each pipeline stores its own depth, which removes any ambiguity: a nested
+pipeline at its parent's depth is a **realm change**; one deeper is a **block**.
 
-This could be implemented now. The realm already selects the lookup realm for actions, so tests
-can cover nesting, merging and splitting of segments today.
+**From a query.** Read the segments left to right, keeping a stack of open pipelines:
+
+1. The top-level pipeline takes the realm and depth of the first segment.
+2. A segment with the same depth and the same realm as the current pipeline adds to it. This holds
+   whether the segment is a resource or a transform, so `-Rc/file.txt/-c/show` is **one**
+   pipeline in realm `c`.
+3. A segment with the same depth and another realm opens a nested pipeline in that realm, at that
+   depth, as an element of the outermost pipeline open at that depth (the one that took this depth
+   first), so realm changes are siblings, never nested in each other. So
+   `-R/file.txt/-c/show` is `{realm: "", elements: [resource file.txt, {realm: c, elements:
+   [show]}]}`: fetch `file.txt` in the default realm (the server) and pass it to realm `c` (say,
+   the browser) to show it. A later segment back in realm `""` resumes the outer pipeline:
+   `-R/f.txt/-c/show/-/log` is `[resource f.txt, {c: [show]}, log]`.
+   The alternative the maintainer mentioned is a realm-less container holding two sibling
+   pipeline elements, `[{"": [resource f.txt]}, {c: [show]}]`. It is symmetric, but it needs a
+   pipeline with no realm, and the common one-realm query would gain a needless wrapper.
+   Recommended: the first-segment rule above.
+4. A segment one level deeper opens a nested pipeline, a block, at that depth, in its own realm.
+   Following segments at that depth and realm add to it, so `-/a/--/b/--/c` is
+   `[a, {depth 2: [b, c]}]`.
+5. A shallower segment closes the open pipelines down to its depth, then applies rules 2–3.
+
+**To a query.** Each pipeline writes its elements as segments named by its realm, with as many
+hyphens as its depth. A nested pipeline at the same depth is written as segments of its own realm,
+then the parent's realm resumes in a new segment. A nested pipeline one deeper is written with one
+more hyphen. A nested pipeline with the same realm *and* depth as its parent adds nothing, so the
+canonical form inlines it.
+
+**`filename`** as a field removes rule P2: the filename is last because there is nowhere else to
+put it. A nested pipeline with a filename is not representable, because a query has one filename
+and it ends the query.
+
+**What can be built now.** Realms already select the lookup realm for actions, so tests can cover
+merging, nesting and splitting by realm today. Depth stays limited to 1 until a design gives
+blocks their meaning (open question for the maintainer: is a block simply run on the state, so
+that `-/a/--/b/--/c` computes what `-/a/b/c` computes, or does it mean something more, such as an
+argument of `a`, as the notation `a(b, c)` suggests?).
 
 **Should the struct carry title and description?** For a pipeline command they duplicate
 `CommandMetadata`'s `label` and `doc`. For a recipe they duplicate the recipe's own. For a nested

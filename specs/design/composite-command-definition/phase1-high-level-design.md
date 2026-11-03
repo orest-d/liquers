@@ -17,8 +17,9 @@ needs, instead of concatenating text.
 
 ## Terminology
 
-- **Pipeline**: a struct (revised 2026-11-03) holding a **realm** (the segment header name), the
-  header's reserved level and parameters, `rooted`, an ordered list of **pipeline elements** and
+- **Pipeline**: a struct (revised 2026-11-03) holding a **realm** (the segment header name, for
+  resource and transform segments alike), a **depth** (the header's hyphens; only 1 is in scope),
+  the header parameters, `rooted`, an ordered list of **pipeline elements** and
   an optional **filename**. It is serialized as JSON, YAML or TOML. An element is one of:
   - an action (`{action, ns?, parameters?, arguments?}`);
   - an element that sets the state (`value`, `resource` with a `read`, `key_value`, `cwd`,
@@ -208,9 +209,9 @@ Pipelines as values and realms (review of 2026-11-03):
 - **AC-39** A pipeline is a value
   WHEN a pipeline is a command's result or input, stored, or read back
   THEN it is `Value::Pipeline`, with its own `TypeInfo` (`Pipeline`, type name `pipeline`, formats `json`, `yaml`, and query text when representable), and `ValueInterface::try_into_pipeline` / `from_pipeline` with default implementations, so it has the same support as `Value::Query` and no existing value type breaks; a query value converts to a pipeline
-- **AC-40** Realms are pipeline scopes
-  WHEN a query has segments with header names (realms), resource or transform
-  THEN consecutive segments with the same name form one pipeline with that `realm`, a segment with another name becomes a nested pipeline element, and converting back writes each pipeline as segments with its realm as the header name. Header level and parameters are carried as they are. The planner looks every action up in its pipeline's realm; a resource header name stays ignored, with its warning, until multi-realm support (`CORE-MULTI-REALM-INTERPRETER`)
+- **AC-40** Realms and depth are pipeline scopes
+  WHEN a query has segments with header names (realms), resource or transform alike, and depths (`-`, `--`, …)
+  THEN consecutive segments with the same realm and depth form one pipeline (`-Rc/file.txt/-c/show` is one pipeline in realm `c`); a segment at the same depth with another realm becomes a nested pipeline element in that realm (`-R/file.txt/-c/show` reads `file.txt` in the default realm and passes it to a nested pipeline in realm `c`); and converting back writes each pipeline as segments named by its realm. The mapping for depth (a deeper segment opens a nested block, like indentation: `-/a/--/b/--/c` is `[a, [b, c]]`) is documented, but a depth other than 1 is refused (out of scope). Header parameters are carried as they are. The planner looks every action up in its pipeline's realm; a realm the single-realm interpreter cannot honour keeps today's warning until `CORE-MULTI-REALM-INTERPRETER`. Rules: [`pipeline-structure-and-sources.md`](./pipeline-structure-and-sources.md) §1
 Retired:
 
 - ~~**AC-22**~~ commands defined by `recipes.yaml` entries: recipes define assets, not commands (2026-11-01). Commands with pipelines are defined in the command metadata.
@@ -245,8 +246,8 @@ never a reason: `encode_token` escapes any string.
 |---|---|
 | P1 | No `value` or `evaluate` element: a literal value or a query result as the current state has no query spelling. |
 | P2 | Only the top-level pipeline has a `filename` (a query has one, and it ends the query); it is a filename. |
-| P3 | `rooted` (a leading `/`), and the header's level and parameters, are carried as they are. |
-| P4 | The realm is a realm name (or empty). A nested pipeline element writes its run of segments with its own realm as the header name, then the enclosing realm resumes in a new segment (AC-40). |
+| P3 | `rooted` (a leading `/`) and the header parameters are carried as they are. |
+| P4 | The realm is a realm name (or empty), and the depth is 1. A nested pipeline at its parent's depth writes its segments with its own realm as the header name, then the enclosing realm resumes in a new segment; one with the parent's realm and depth is inlined (AC-40). |
 
 **Elements**
 
@@ -504,6 +505,7 @@ Opened by the maintainer's review of 2026-11-03, analysed in
   follow-up issues were filed, to be designed right after this one:
   `MANIFEST-TEMPLATE-BATCH-ONLY-AT-THE-END-OF-THE-QUERY` and
   `RECIPES-CANNOT-DESCRIBE-A-SELF-CONTAINED-ASSET-TREE`.
+- **2026-11-03, maintainer review 7.** A resource segment's name is its realm too; segments of the same realm and depth form one pipeline; the header level is a nesting depth (indentation), documented but limited to 1 (AC-40, P3, P4).
 - **2026-11-03, maintainer review 6.** The pipeline is a struct scoped to one realm, with an
   optional filename; realms nest, and consecutive segments of one realm merge (AC-40, rules P2–P4,
   E3–E8). State elements have one meaning each, with placeholders as operands (AC-5 revised). AC-10
