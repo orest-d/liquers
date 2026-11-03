@@ -6,7 +6,7 @@ Revised the same evening after the maintainer's first Phase 2 review:
 - `PipelinePlanBuilder` (renamed) plans everything, and delegating to `PlanBuilder` is a switch;
 - every element and argument has a position;
 - `ActionEditor` methods chain;
-- `ParameterValue::Input` replaces the level-indexed `State`.
+- `ParameterValue::InputState` replaces the level-indexed `State`.
 
 This rewrite replaces the draft of 2026-11-01. Supporting analyses:
 [`pipeline-structure-and-sources.md`](./pipeline-structure-and-sources.md) (struct, realms,
@@ -361,7 +361,7 @@ pub enum ParameterValue {
     ParameterPipeline(String, Pipeline, Position),    // AC-18
     OverridePipeline(String, Pipeline),
     DefaultPipeline(String, Pipeline),
-    Input(String),                                    // the innermost pipeline command's input (AC-4)
+    InputState(String),                               // the innermost pipeline command's input (AC-4)
 }
 ```
 
@@ -375,7 +375,7 @@ pub enum ParameterValue {
 The interpreter:
 - `UseValue` returns its value.
 - `PipelineCommand` runs its body through `apply_plan_state` on its input, which it pushes on a
-  single frame, its input, which `ParameterValue::Input` reads. The frame is lexically scoped:
+  single frame, its input, which `ParameterValue::InputState` reads. The frame is lexically scoped:
   a nested pipeline command's arguments, `{state}` included, are resolved by the outer step
   before the inner body runs. So a body only ever reads its own command's input, and no level
   index is needed.
@@ -445,7 +445,7 @@ and 2.
 
 **Pipeline command expansion** happens in either builder's action arm:
 - The call is resolved against the command's own arguments, so errors name the pipeline command.
-- The resolved arguments become bindings (`Value`, `Link`, `Pipeline`, `Input`). A placeholder
+- The resolved arguments become bindings (`Value`, `Link`, `Pipeline`, `InputState`). A placeholder
   bound to the caller's `{state}` refers to the caller's input. It is resolved by the
   `PipelineCommand` step in the caller's frame and passed in as an ordinary argument value.
 - The body is built with a child `PipelinePlanBuilder`, keeping an expansion stack. A
