@@ -3,8 +3,8 @@ id: ROOT-LISTING-DEPENDENCY-KEY-SPELLING
 kind: design
 title: The root directory listing dependency has one spelling, the query's
 form: compact
-status: in_review
-phase: implementation
+status: complete
+gh_pr: [246]
 readiness: ready
 autofix: not-eligible
 area: [core/assets]
@@ -13,8 +13,10 @@ created: 2026-10-17
 ---
 # The root directory listing dependency has one spelling, the query's
 
+> **Complete on 2026-11-03**: implemented in #246.
+
 Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-17 backlog compaction. Phases 1-4
-are written but not approved, and nothing is implemented.
+written; implemented on 2026-11-03.
 
 ## Phase 1: High-Level Design
 
@@ -132,15 +134,19 @@ Run: `cargo test -p liquers-core --lib metadata::tests` and
 
 ### Steps
 
-- [ ] 1. Failing tests above; `grep -rn '"-R-dir/"' liquers-core liquers-lib` for literal
+- [x] 1. Failing tests above; `grep -rn '"-R-dir/"' liquers-core liquers-lib` for literal
   asserts — commands above (AC-1, AC-2, AC-3 fail)
-- [ ] 2. `liquers-core/src/metadata.rs` `from_dir_key`, `From<&Key>`, `canonical` — unit tests pass
-- [ ] 3. `liquers-core/src/dependencies.rs` `load_from_records`, `track_asset` — integration tests
+- [x] 2. `liquers-core/src/metadata.rs` `from_dir_key`, `From<&Key>`, `canonical` — unit tests pass
+- [x] 3. `liquers-core/src/dependencies.rs` `load_from_records`, `track_asset` — integration tests
   pass. Rollback: revert steps 2-3 together.
-- [ ] 4. `DEPENDENCIES_STATUS.md` line, History row, `reviewed:`; close the issue —
+- [x] 4. `DEPENDENCIES_STATUS.md` line, History row, `reviewed:`; close the issue —
   `python3 scripts/docs_index.py --check`
 
 ### Validation
 
 `cargo test -p liquers-core --lib --tests`; `cargo test -p liquers-lib --lib --tests` (search
 catalog over the root). Final diff review.
+
+### Implementation notes (2026-11-03)
+
+- No test asserted the literal `-R-dir/`. `canonical` is applied where records enter the graph, not in `Deserialize`, as Phase 2 chose.
