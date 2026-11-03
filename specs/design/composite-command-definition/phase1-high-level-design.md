@@ -315,7 +315,8 @@ equality.
   check; `PipelineEditor` and the `QueryEditor` wrapper over it; the pipeline planner.
 - Commands: `CommandDefinition::Pipeline`, registration, validation and export in the metadata
   registry.
-- Plans: the existing `PlanBuilder` is kept for queries; the pipeline planner takes queries and
+- Plans: the pipeline planner (`PipelinePlanBuilder`) plans every query and pipeline; the existing
+  `PlanBuilder` is kept behind a planning mode until it can retire (Phase 2); the planner takes queries and
   pipeline elements in one plan and expands pipeline commands; new `Step::UseValue`; the
   interpreter supplies `{state: true}`.
 - Assets / recipes: `Recipe` gains `pipeline`, with literal values only (AC-15), and
@@ -399,7 +400,7 @@ arguments).
 Deferred to Phase 2 by the maintainer (2026-11-01):
 
 - **Builder** (`pipeline-and-plan.md` §1, Q15 accepted in principle). Keep the existing
-  `PlanBuilder` and add a pipeline builder (`PipelineBuilder`, `Pipeline::to_plan`). Phase 2 decides
+  `PlanBuilder` and add a pipeline builder (`PipelinePlanBuilder`, `Pipeline::to_plan`). Phase 2 decides
   how the two share code and how a query and a pipeline combine in one plan.
 - **Recipe syntax** (Q16). A recipe pipeline stays compatible with the existing recipe syntax; the
   exact shape and the filename rule are decided in Phase 2.

@@ -1,6 +1,6 @@
 # Phase 2: Solution & Architecture — Pipelines
 
-Rewritten on 2026-11-03 for the Phase 1 approved that day. That Phase 1 merges the query builder
+Rewritten on 2026-11-03 for the Phase 1 approved that day, and revised the same evening after the maintainer's first Phase 2 review: `PipelinePlanBuilder` (renamed) plans everything, with `PlanBuilder` delegation as a switch; positions on every element and argument; the chained `ActionEditor`; `ParameterValue::Input` replacing the level-indexed `State`. That Phase 1 merges the query builder
 (AC-25–AC-38) and adds realm scopes and `Value::Pipeline` (AC-39, AC-40). It also settles Q20–Q30.
 This rewrite replaces the draft of 2026-11-01. Supporting analyses:
 [`pipeline-structure-and-sources.md`](./pipeline-structure-and-sources.md) (struct, realms,
@@ -21,7 +21,7 @@ and nested pipelines. Everything lives in the new module **`liquers_core::pipeli
 | `pipeline/mod.rs` | `Pipeline`, `PipelineElement`, `ActionElement`, `Source`, `Operand`, `Read`; serde; `bind`, `placeholders` |
 | `pipeline/convert.rs` | `TryFrom<&Query> for Pipeline`, `to_query_with`, `Recipe::to_pipeline`, representability (`NotRepresentable`), the canonical form, namespace placement |
 | `pipeline/editor.rs` | `PipelineEditor`, `ActionEditor`, `QueryEditor` |
-| `pipeline/plan.rs` | `PipelineBuilder` (`Pipeline::to_plan`), sharing the crate-private `PlanAssembly` with `PlanBuilder` |
+| `pipeline/plan.rs` | `PipelinePlanBuilder` (`Pipeline::to_plan`), sharing the crate-private `PlanAssembly` with `PlanBuilder` |
 
 The structures form the hierarchy decided for Q27 and Q30:
 
@@ -30,21 +30,29 @@ The structures form the hierarchy decided for Q27 and Q30:
 - **`Recipe`**, the definition of an asset: an optional pipeline that runs before an optional
   query, plus `arguments`, `links`, `cwd`, title, description and the asset declarations (Q26).
 
-Planning keeps the existing **`PlanBuilder`** for queries. The new **`PipelineBuilder`** plans a
-pipeline as follows:
+Planning goes through the new **`PipelinePlanBuilder`** (named so it is not confused with the
+editors: it builds a plan, not a pipeline). It is meant to **replace `PlanBuilder`** in the end
+(revised 2026-11-03):
 
-- A **representable** pipeline, or a representable run of elements, is converted to its query and
-  handed to `PlanBuilder` on the shared assembly. Its plan is therefore the query's plan, step for
-  step, prefixes included (AC-10).
-- Everything else goes through `PipelineBuilder`'s own code: structured values, named arguments
-  without a registry order, state elements with no query spelling, placeholders and nested
-  pipelines.
+- **Every plan entry point** plans through `PipelinePlanBuilder`. A query is first converted with
+  `TryFrom<&Query>`, which keeps every position. This covers `make_plan`, recipes, aliases,
+  pipeline commands and `liquers-validate`.
+- **Delegation is a switch, not the design.** In `PlanningMode::Delegate`, a representable run is
+  converted to its query and handed to the existing `PlanBuilder` on the shared assembly. In
+  `PlanningMode::Native`, `PipelinePlanBuilder` plans every element itself.
+- **Both modes stay available.** A test plans every query of the parser corpus and every test
+  query both ways and requires equal plans (AC-10). The default is `Delegate` until that test is
+  green on the whole corpus, then `Native`. Going back is a one-line change. When `Native` has been
+  the default for a release, `PlanBuilder` retires (`PLAN-BUILDER-DUPLICATES-PIPELINE-PLANNING`,
+  filed with this revision).
+- What has no query spelling always goes through the native code: structured values, named
+  arguments, state elements, placeholders and nested pipelines.
 - A **pipeline command** (`CommandDefinition::Pipeline`) expands into a nested
   `Step::PipelineCommand` from either builder.
 - A value becomes the current state through the new `Step::UseValue`.
 
 **Rejected alternatives:**
-- Replacing `PlanBuilder` (the maintainer kept it).
+- Removing `PlanBuilder` at once. It is kept behind `PlanningMode::Delegate` until the native path is proven equal.
 - Flattening a pipeline command into the caller's plan: `{state}` and `cut_predecessor` would need
   runtime markers.
 - A pipeline over core `Value` (Q25 chose `serde_json::Value`).
@@ -86,7 +94,14 @@ pub struct Pipeline {
     pub filename: Option<String>,               // top level only (P2)
 }
 
-pub enum PipelineElement {
+pub struct Located<T> {                         // T plus where it came from (AC-31a)
+    pub item: T,                                // serialized flat: `{action: …, pos: …}`
+    pub pos: Option<Position>,                  // absent when written by hand or edited
+}
+pub type PipelineElement = Located<ElementKind>;
+pub type Argument = Located<Source>;            // a bare scalar is still `{value: …}` with no pos
+
+pub enum ElementKind {
     Text(String),                               // a bare string: query text, inlined (Q28)
     Action(ActionElement),                      // {action, ns?, parameters?, arguments?}
     Value(Operand<serde_json::Value>),          // {value: …}                 → UseValue
@@ -107,10 +122,8 @@ pub enum QueryOrPipeline { Query(String), Pipeline(Pipeline) }
 pub struct ActionElement {
     pub action: String,
     pub ns: Option<Namespaces>,                 // a string or a list
-    pub parameters: Vec<Source>,                // positional, consumed first
-    pub arguments: BTreeMap<String, Source>,    // by name
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub pos: Option<Position>,                  // from a parsed query (AC-31a)
+    pub parameters: Vec<Argument>,              // positional, consumed first
+    pub arguments: BTreeMap<String, Argument>,  // by name
 }
 
 pub enum Source {                               // externally tagged; a bare scalar or array = Value
@@ -129,6 +142,13 @@ impl Pipeline {
     pub fn to_query_with(&self, cmr: &CommandMetadataRegistry) -> Result<Query, Error>;  // NotRepresentable
 }
 ```
+
+**Positions.** `TryFrom<&Query>` keeps the position of every element and every parameter, which
+the parser already records (`ActionRequest`, `ActionParameter`, segment headers). The planner
+copies them into `Step::Action::position` and `ParameterValue::ParameterValue(…, Position)`, so a
+plan made from a pipeline reports the same positions as one made from its query. An element or
+argument without a position (written by hand, or edited) plans with `Position::unknown()`.
+Equality and the canonical form ignore positions.
 
 Deserialization is custom. An element is told apart by its single key, and an unknown key is an
 error naming the key and the element index. A bare string is `Text`. `read` accepts the header
@@ -195,8 +215,9 @@ impl PipelineEditor {
     pub fn set_filename(&mut self, name: Option<&str>) -> Result<&mut Self, Error>;
     // shortcuts
     pub fn resource(&mut self, key: &str, read: Read) -> Result<&mut Self, Error>;
-    pub fn action(&mut self, name: &str, params: impl IntoIterator<Item = Source>) -> Result<&mut Self, Error>;
+    pub fn action(&mut self, name: &str) -> Result<ActionEditor<'_>, Error>;    // appends, returns its editor
     pub fn edit_action(&mut self, at: usize) -> Result<ActionEditor<'_>, Error>;
+    pub fn default_ns(&mut self, ns: Option<Namespaces>) -> &mut Self;          // for later `action` calls
     // registry access (AC-37)
     pub fn command_metadata(&self, at: usize) -> Result<&CommandMetadata, Error>;
     pub fn command_key(&self, at: usize) -> Result<CommandKey, Error>;
@@ -207,10 +228,17 @@ impl PipelineEditor {
 }
 pub struct ActionEditor<'a> { /* borrows the editor and one action */ }
 impl ActionEditor<'_> {
-    pub fn set(&mut self, arg: ArgRef, s: Source) -> Result<&mut Self, Error>;   // ArgRef: name or position
-    pub fn unset(&mut self, arg: ArgRef) -> Result<&mut Self, Error>;
-    pub fn set_ns(&mut self, ns: Option<Namespaces>) -> Result<&mut Self, Error>;
+    pub fn ns(&mut self, ns: impl Into<Namespaces>) -> Result<&mut Self, Error>;
+    pub fn set(&mut self, arg: impl Into<ArgRef>, v: impl Into<serde_json::Value>) -> Result<&mut Self, Error>;
+    pub fn placeholder(&mut self, arg: impl Into<ArgRef>, name: &str) -> Result<&mut Self, Error>;
+    pub fn link(&mut self, arg: impl Into<ArgRef>, query: &str) -> Result<&mut Self, Error>;
+    pub fn pipeline(&mut self, arg: impl Into<ArgRef>, p: Pipeline) -> Result<&mut Self, Error>;
+    pub fn state(&mut self, arg: impl Into<ArgRef>) -> Result<&mut Self, Error>;
+    pub fn push(&mut self, v: impl Into<serde_json::Value>) -> Result<&mut Self, Error>; // next positional
+    pub fn unset(&mut self, arg: impl Into<ArgRef>) -> Result<&mut Self, Error>;
     pub fn rename(&mut self, action: &str) -> Result<&mut Self, Error>;
+    pub fn metadata(&self) -> Result<&CommandMetadata, Error>;           // AC-37, for this action
+    pub fn argument_info(&self, arg: impl Into<ArgRef>) -> Result<&ArgumentInfo, Error>;
 }
 pub struct QueryEditor(PipelineEditor);
 impl QueryEditor {
@@ -220,6 +248,22 @@ impl QueryEditor {
     // every PipelineEditor edit, each applied to a copy and kept only if `to_query_with` succeeds
 }
 ```
+
+The chain the maintainer asked for works as written, because `action` returns an
+`ActionEditor` borrowing the editor, and each of its methods returns `Result<&mut Self, Error>`:
+
+```rust
+editor.action("new_action")?.ns("myns")?.set("a", 1)?.placeholder("b", "bplaceholder")?
+      .link("c", "-R/text.txt")?;
+```
+
+**Namespaces and realms.** The realm is the pipeline's, shared by all of its actions. A nested
+pipeline element changes it. `ns` is per action. `action(name)` checks only that `name` is an
+identifier and appends the action with the editor's `default_ns`. The command is looked up when it
+is first needed: by `ns`, which re-resolves it; by `set`, `placeholder`, `link` and the other
+argument methods; and by `metadata`. So `.ns("myns")` can follow `.action(…)` even when the
+default namespaces do not contain the command. An action left unresolved is reported by
+`query()`, `to_plan` and `validate()`.
 
 Every edit validates before it applies, and a refused edit leaves the editor unchanged (AC-31).
 The checks are:
@@ -311,7 +355,7 @@ pub enum ParameterValue {
     ParameterPipeline(String, Pipeline, Position),    // AC-18
     OverridePipeline(String, Pipeline),
     DefaultPipeline(String, Pipeline),
-    State(String, u16),                               // input of the enclosing pipeline command at `level`
+    Input(String),                                    // the innermost pipeline command's input (AC-4)
 }
 ```
 
@@ -325,7 +369,10 @@ pub enum ParameterValue {
 The interpreter:
 - `UseValue` returns its value.
 - `PipelineCommand` runs its body through `apply_plan_state` on its input, which it pushes on a
-  per-evaluation frame stack that `State(_, level)` reads.
+  single frame, its input, which `ParameterValue::Input` reads. The frame is lexically scoped:
+  a nested pipeline command's arguments, `{state}` included, are resolved by the outer step
+  before the inner body runs. So a body only ever reads its own command's input, and no level
+  index is needed.
 - A pipeline argument is planned with `Pipeline::to_plan`:
   - when it is representable, it becomes `Evaluate(query)`, a shared asset;
   - otherwise it runs as a nested plan with an empty state. Its dependencies are recorded, but it
@@ -371,11 +418,13 @@ and 2.
 
 ## Planning a pipeline
 
-`PipelineBuilder::build` walks the elements, keeping a stack of realms:
+`PipelinePlanBuilder::build` walks the elements, keeping a stack of realms:
 
-1. **A representable run** of elements is converted with `to_query_with` and given to
-   `PlanBuilder::process_query` on the shared assembly, prefixed by the running prefix query. Its
-   steps and prefixes are then the query's (AC-10). `Text` elements are parsed and join the run.
+1. **A representable run of elements.** In `Delegate` mode it is converted with `to_query_with`
+   and given to `PlanBuilder::process_query` on the shared assembly, prefixed by the running
+   prefix query. In `Native` mode its elements are planned one by one, below. Either way, its
+   steps and prefixes are the query's (AC-10, checked by the dual-mode test). `Text` elements are
+   parsed into elements, with their positions, and join the run.
 2. **`Action`** that is not representable: the command is looked up in the pipeline's realm, through
    the element's `ns`, then the default chain (AC-7). The positional part goes through
    `ResolvedParameterValues::from_action`, with placeholders allowed. Named arguments and
@@ -390,8 +439,10 @@ and 2.
 
 **Pipeline command expansion** happens in either builder's action arm:
 - The call is resolved against the command's own arguments, so errors name the pipeline command.
-- The resolved arguments become bindings (`Value`, `Link`, `Pipeline`, `State(level)`).
-- The body is built with a child `PipelineBuilder` at `level + 1`, keeping an expansion stack. A
+- The resolved arguments become bindings (`Value`, `Link`, `Pipeline`, `Input`). A placeholder
+  bound to the caller's `{state}` refers to the caller's input. It is resolved by the
+  `PipelineCommand` step in the caller's frame and passed in as an ordinary argument value.
+- The body is built with a child `PipelinePlanBuilder`, keeping an expansion stack. A
   repeated key, or a depth over 16, is `Error::pipeline_cycle`.
 - Volatility, payload and expiration fold into the caller, as for an alias, and the builder
   pushes `Step::PipelineCommand`.
@@ -426,7 +477,7 @@ is declared `multiple`.
   - `commands.rs` (`register_pipeline`, registry snapshot);
   - `plan.rs` (`PlanAssembly`, new `Step` and `ParameterValue` variants, the `Pipeline` arm, cut
     and dependency scan);
-  - `interpreter.rs` (new steps, the frame stack, pipeline arguments);
+  - `interpreter.rs` (new steps, the input frame, pipeline arguments);
   - `recipes.rs` (`pipeline`, rules, filename);
   - `value.rs` (`Value::Pipeline`, `TypeInfo`, `ValueInterface` defaults);
   - `error.rs` (constructors);
@@ -499,12 +550,13 @@ links the design until `PIPELINES.md` exists.
 | Compatibility | no query, recipe or plan changes meaning. Serialized plans and registry exports gain variants. `serde_json` gains `float_roundtrip`, which changes float parsing everywhere it is used, towards exactness |
 | Concurrency | the registry snapshot is immutable; editors are single-owner |
 | Security | a pipeline value is never re-lexed into query text, so it cannot add steps |
-| Certainty | high for delegation and conversions. The `{state}` frame stack and the snapshot invalidation are new, and Phase 3 must prove both |
+| Certainty | high for delegation and conversions. The input frame and the snapshot invalidation are new, and so is the native planning of every query element, which the dual-mode test checks, and Phase 3 must prove both |
 
 ## Decisions for the gate
 
-1. **Representable runs delegate to `PlanBuilder`.** Recommended, because AC-10 then holds by
-   construction.
+1. **`PipelinePlanBuilder` for every plan, with `PlanningMode::{Delegate, Native}`**, a dual-mode
+   equality test, and `Delegate` as the default until that test passes on the whole corpus.
+   `PlanBuilder` then retires. Recommended (maintainer's direction, 2026-11-03).
 2. **Nested `Step::PipelineCommand`** rather than flattened steps. Recommended.
 3. **Registry snapshot**: `Arc<CommandMetadataRegistry>`, cached and replaced on registration.
    Recommended. The alternative, moving the registry into an `Arc` inside `CommandRegistry`, would
