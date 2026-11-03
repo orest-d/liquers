@@ -2,7 +2,7 @@
 id: POLARS-BRIDGE-TRUNCATES-SUB-MICROSECOND-DATETIMES
 kind: issue
 title: The polars bridge silently drops sub-microsecond precision from a nanosecond Datetime column
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [records, lib/polars]
@@ -42,3 +42,13 @@ a bug fix restoring the plainly intended behaviour (no silent loss, as the Arrow
 already refuses), no new structure or interface, one crate (`liquers-lib`). Of the two expected
 behaviours, refusing is the one consistent with the Arrow path, and is the fix to make. To be fixed
 in its own spin-off PR.
+
+## Resolution
+
+2026-11-01, in its own spin-off PR (branch `claude/polars-sub-microsecond-datetimes`): the
+`FieldType::Timestamp` arm of `append_series_values` first calls `refuse_sub_microsecond_values`,
+which refuses a `Datetime(Nanoseconds)` series holding any value with a sub-microsecond part. The
+`ConversionError` names the column and the first such row. Whole-microsecond nanosecond values,
+and every millisecond or microsecond series, convert as before. Evidence: the unit tests
+`bridge_refuses_sub_microsecond_datetimes_naming_column_and_row` and
+`bridge_converts_whole_microsecond_nanosecond_datetimes` in `liquers-lib/src/records/polars.rs`.

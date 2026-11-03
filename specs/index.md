@@ -8,9 +8,9 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 205
+Total rows: 204
 - P2: 60
-- P3: 145
+- P3: 144
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -105,7 +105,6 @@ Total rows: 205
 | [`DROPPED-RECIPE-RESULT-LEAVES-AN-EMPTY-DATA-FILE`](issues/DROPPED-RECIPE-RESULT-LEAVES-AN-EMPTY-DATA-FILE.md) | issue | Removing a computed value with a stored record leaves an empty data file at its key | draft |  |  | P3 | S | core/assets;core/store |  | 2026-10-27 |
 | [`LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT`](issues/LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT.md) | issue | Language exception class and stack are lost in transport | accepted |  |  | P3 | S | web |  | 2026-08-08 |
 | [`PLAN-DEFAULT-LINK-PROMOTION-USES-THE-QUERYS-LAST-NS`](issues/PLAN-DEFAULT-LINK-PROMOTION-USES-THE-QUERYS-LAST-NS.md) | issue | Relative default links are promoted using the query's last ns, not each action's own | draft |  |  | P3 | S | core/plan |  | 2026-11-01 |
-| [`POLARS-BRIDGE-TRUNCATES-SUB-MICROSECOND-DATETIMES`](issues/POLARS-BRIDGE-TRUNCATES-SUB-MICROSECOND-DATETIMES.md) | issue | The polars bridge silently drops sub-microsecond precision from a nanosecond Datetime column | draft |  |  | P3 | S | records;lib/polars |  | 2026-11-01 |
 | [`PY-ABI3T-WHEEL-NOT-USED`](issues/PY-ABI3T-WHEEL-NOT-USED.md) | issue | liquers-py builds a cp315t wheel because the abi3t wheel does not import | draft |  |  | P3 | S | py;build |  | 2026-11-01 |
 | [`PY-ADD-PYTHON-COMMAND-STILL-DECLARES-PYCALL-ALIASES`](issues/PY-ADD-PYTHON-COMMAND-STILL-DECLARES-PYCALL-ALIASES.md) | issue | CommandMetadataRegistry.add_python_command is still public and declares aliases of a pycall command that does not exist | draft |  |  | P3 | S | py |  | 2026-10-27 |
 | [`RECIPE-MISSING-RECIPE-IS-A-GENERAL-ERROR`](issues/RECIPE-MISSING-RECIPE-IS-A-GENERAL-ERROR.md) | issue | Asking a recipe provider for a recipe it does not have raises a General error, not KeyNotFound | draft |  |  | P3 | S | core/assets;core/error |  | 2026-11-01 |
