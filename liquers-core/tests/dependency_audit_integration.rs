@@ -915,6 +915,40 @@ async fn adding_a_file_expires_the_index() -> TestResult {
     Ok(())
 }
 
+/// The root listing has one dependency key, `-R-dir` (the query's encoding): an index over the
+/// store root is expired by a write at the root, with that key as the root of the cascade.
+/// `design/root-listing-dependency-key-spelling/`, AC-2.
+#[tokio::test]
+async fn root_write_expires_a_dependent_of_the_root_listing_query() -> TestResult {
+    let mut rl = RecipeList::new();
+    rl.add_recipe(Recipe::new(
+        "-R-dir/-/index_files/index.txt".to_string(),
+        "Root index".into(),
+        "lists the store root".into(),
+    )?);
+    let yaml = serde_yaml::to_string(&rl)
+        .map_err(|e| Error::general_error(format!("recipes.yaml: {e}")))?;
+    let store = provenance_store(false).await?;
+    store
+        .set(&parse_key("idx/recipes.yaml")?, yaml.as_bytes(), &Metadata::new())
+        .await?;
+    let calls = Arc::new(AtomicUsize::new(0));
+    let envref = index_env(Box::new(store), calls.clone());
+    evaluate_index(&envref, "idx").await?;
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+
+    put(&envref, "new.txt", b"fresh").await?;
+
+    let metadata = envref.get_async_store().get_metadata(&index_key("idx")?).await?;
+    assert_eq!(metadata.status(), Status::Expired);
+    let Some(ExpiryReason::Cascaded { root, .. }) = metadata.expiry_reason() else {
+        panic!("expected a cascaded reason, got {:?}", metadata.expiry_reason());
+    };
+    assert_eq!(root, DependencyKey::from(&parse_query("-R-dir")?));
+    assert_eq!(root.as_str(), "-R-dir");
+    Ok(())
+}
+
 /// Pitfall 8: a folder gains a file while nothing is running. After a restart nothing holds the
 /// listing version, the index is served as stored, and an audit finds the gap.
 #[tokio::test]
