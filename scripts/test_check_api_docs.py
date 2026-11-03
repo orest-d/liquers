@@ -251,6 +251,59 @@ class PythonAndJavaScriptTests(unittest.TestCase):
             self.assertEqual(cad.check_doc(cad.javascript_doc(ts), root)[0].message, "no @packageDocumentation block")
 
 
+    def test_javascript_example_ends_at_its_closing_fence(self):
+        """Links and prose after the fenced `@example` are not example lines (Codex review of
+        PR #254): a three-line example followed by six links warns about the links, not the
+        length, and a ten-line example followed by a sentence is within the limit."""
+        def block(code_lines, trailer):
+            code = "\n".join(f" * {line}" for line in code_lines)
+            return textwrap.dedent(
+                f"""\
+                #[wasm_bindgen(typescript_custom_section)]
+                const DOC: &'static str = r##"
+                /**
+                 * P.
+                 *
+                 * # Main components
+                 * - a
+                 *
+                 * # Where it is used
+                 * - b
+                 *
+                 * # Related concepts
+                 * - c
+                 *
+                 * # Examples
+                 * @example
+                 * ```js
+                {code}
+                 * ```
+                 *
+                {trailer}
+                 * @packageDocumentation
+                 */
+                "##;
+                """
+            )
+
+        links = "\n".join(
+            f" * - [t{i}](https://github.com/orest-d/liquers/blob/main/liquers-foo/src/lib.rs) — t." for i in range(6)
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            make_repo(root, "//! Crate.\n")
+            ts = root / "liquers-web" / "src" / "typescript.rs"
+            ts.parent.mkdir(parents=True)
+            ts.write_text(block(["a();", "b();", "c();"], links), encoding="utf-8")
+            messages = [f.message for f in cad.check_doc(cad.javascript_doc(ts), root)]
+            self.assertEqual(messages, ["more than 5 example links under `# Examples`"])
+            ts.write_text(block([f"l{i}();" for i in range(10)], " * More are under `tests/`."), encoding="utf-8")
+            self.assertEqual(cad.check_doc(cad.javascript_doc(ts), root), [])
+            ts.write_text(block([f"l{i}();" for i in range(11)], " * More are under `tests/`."), encoding="utf-8")
+            messages = [f.message for f in cad.check_doc(cad.javascript_doc(ts), root)]
+            self.assertEqual(messages, ["the example has 11 visible lines; 3-10 expected"])
+
+
 class RepositoryTests(unittest.TestCase):
     ROOT = Path(__file__).resolve().parent.parent
 

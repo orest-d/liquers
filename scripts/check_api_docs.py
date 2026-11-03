@@ -249,18 +249,33 @@ def example_blocks(body: list[str], language: str) -> list[tuple[int, int]]:
                 i += 1
         return blocks
     if language == "javascript":
+        # An `@example` holds either a fenced block (the example ends at its closing fence, so the
+        # links and prose after it are not code) or bare lines up to the next blank line or tag.
         i = 0
         while i < len(body):
-            if body[i].strip().startswith("@example"):
+            if not body[i].strip().startswith("@example"):
                 i += 1
-                count = 0
-                while i < len(body) and not body[i].strip().startswith("@"):
-                    if body[i].strip() and not FENCE.match(body[i]):
-                        count += 1
+                continue
+            i += 1
+            while i < len(body) and not body[i].strip():
+                i += 1
+            count = 0
+            opened = FENCE.match(body[i]) if i < len(body) else None
+            if opened:
+                fence = (opened.group(1)[0], len(opened.group(1)))
+                i += 1
+                while i < len(body):
+                    match = FENCE.match(body[i])
                     i += 1
-                blocks.append((count, i))
+                    if match and match.group(1)[0] == fence[0] and len(match.group(1)) >= fence[1] and not match.group(2).strip():
+                        break
+                    if body[i - 1].strip():
+                        count += 1
             else:
-                i += 1
+                while i < len(body) and body[i].strip() and not body[i].strip().startswith("@"):
+                    count += 1
+                    i += 1
+            blocks.append((count, i))
         return blocks
     fence: tuple[str, int] | None = None
     count = 0
