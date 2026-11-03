@@ -26,8 +26,8 @@ Decided on 2026-11-01: no placeholders in query text; the web API part moved to
 **Scope extended on 2026-11-02.** The query builder (`QUERY-BUILDER-TOOLING`, design
 `query-builder`, now superseded) is merged in: the pipeline converts to and from a query, lives in
 its own module, and is edited through `PipelineEditor`, with `QueryEditor` as a wrapper that keeps
-it convertible to a query. Phase 1 is back in review for the extension (AC-25–AC-36, questions
-20–25). The Phase 2 draft predates it and is revised after re-approval.
+it convertible to a query. Phase 1 is back in review for the extension (AC-25–AC-40, questions
+20–30; review 6 on 2026-11-03). The Phase 2 draft predates it and is revised after re-approval.
 
 ## Phase Status
 
@@ -42,5 +42,6 @@ it convertible to a query. Phase 1 is back in review for the extension (AC-25–
 - [Phase 1](./phase1-high-level-design.md)
 - [Phase 2](./phase2-architecture.md) — draft of 2026-11-01, before the scope extension
 - Superseded and merged: [query-builder](../query-builder/DESIGN.md) (2026-11-02)
+- [Pipeline structure, state sources and recipe shape](./pipeline-structure-and-sources.md) — realm-scoped struct, state elements, nested pipelines, declarations, recipe shape, `Value::Pipeline` (review 6, 2026-11-03)
 - [Pipelines, plans and recipes](./pipeline-and-plan.md) — pipeline vs plan, recipe order, lists, positional arguments (review 3, 2026-11-01)
 - [Notation and integration analysis](./notation-and-integration.md) — syntax, pipeline notation, variadics, payload, recipes and web API (review of 2026-11-01)

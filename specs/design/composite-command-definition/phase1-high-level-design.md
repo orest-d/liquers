@@ -17,11 +17,18 @@ needs, instead of concatenating text.
 
 ## Terminology
 
-- **Pipeline**: an ordered list of **pipeline elements**, serialized as JSON, YAML or TOML. An
-  element is an action (`{action, ns?, realm?, arguments}`), a resource read (`{resource, mode?}`),
-  embedded query text (`{query}`), a value that becomes the current state (`{value}` or
-  `{placeholder}`, planned as `Step::UseValue`), or a filename. Full shape:
-  [`notation-and-integration.md`](./notation-and-integration.md) §2.
+- **Pipeline**: a struct (revised 2026-11-03) holding a **realm** (the segment header name), the
+  header's reserved level and parameters, `rooted`, an ordered list of **pipeline elements** and
+  an optional **filename**. It is serialized as JSON, YAML or TOML. An element is one of:
+  - an action (`{action, ns?, parameters?, arguments?}`);
+  - an element that sets the state (`value`, `resource` with a `read`, `key_value`, `cwd`,
+    `evaluate`, `query_value`, `quote`), each with exactly one meaning;
+  - spliced query text (`{steps}`);
+  - `volatile`;
+  - a nested pipeline in another realm.
+
+  Shape and reasons: [`pipeline-structure-and-sources.md`](./pipeline-structure-and-sources.md)
+  §1–2.
 - **Source**: what an action argument is given, by name: `{value: …}` (any JSON), `{placeholder:
   name}`, `{link: "<query>"}`, `{pipeline: […]}` (a nested pipeline evaluated as a link), `{state:
   true}` (the input state of the enclosing pipeline command), or `{multiple: […]}` (elements of a variadic
@@ -98,36 +105,36 @@ Pipeline commands in the registry (a):
 - **AC-4** Input state as an argument
   WHEN a step argument's source is `{state: true}`
   THEN that argument receives the pipeline command's input state
-- **AC-5** A value as the current state
-  WHEN a pipeline element is `{value: …}` or `{placeholder: name}`
-  THEN the following step receives that value as its state (`Step::UseValue`); a pipeline command whose first element is one of these is a source command (`state_argument: None`)
+- **AC-5** Values, keys and queries as the current state
+  WHEN a pipeline element sets the state (`value`; `resource` with `read` asset, binary, metadata, recipe, directory, stored, stored_metadata or stored_directory; `key_value`; `evaluate`; `query_value`; `quote`)
+  THEN it plans as exactly one step (`UseValue`, `GetAsset*`, `GetResource*`, `UseKeyValue`, `Evaluate` or a nested plan, `UseQueryValue`), whatever the type of its operand. A placeholder is an operand of one of these elements, never an element itself, and its declared argument type must fit the element (a key, a query or link, or any value). A pipeline command whose first element sets the state is a source command (`state_argument: None`). Analysis: [`pipeline-structure-and-sources.md`](./pipeline-structure-and-sources.md) §2
 - **AC-6** Registration validation
   WHEN a pipeline command is registered or deserialized, and a placeholder is not a declared argument, an argument is `injected`, or an argument name is not an argument of its step's command
   THEN each problem is an `Issue::CommandRegistry` in the registry's `IssueReport` (`CommandMetadata::check`); an error-severity issue refuses registration and nothing is registered; an argument that no placeholder uses is a warning
 - **AC-7** Hygiene and nesting
   WHEN a pipeline command's steps name commands
-  THEN they resolve through each element's own `ns` and `realm`, else the default namespaces, never the caller's `ns`; a pipeline may call aliases and pipeline commands, and a cycle is a planning error naming the cycle
+  THEN they resolve through each element's own `ns` and the realm of the pipeline that contains it, else the default namespaces, never the caller's `ns`; a pipeline may call aliases and pipeline commands, and a cycle is a planning error naming the cycle
 - **AC-8** Caching, dependencies and errors
   WHEN a pipeline command's result is computed
   THEN it is cached under the calling query; the pipeline command's metadata is a dependency, so editing its pipeline invalidates the result; the steps' volatility, payload requirement and expiration apply; and an error in a step names the pipeline command and the step
 
 The pipeline form, everywhere:
 
-- **AC-10** Text-form identity
-  WHEN a pipeline is text-form
-  THEN its plan, including each step's prefix query, equals the plan of its equivalent query, so its prefixes are shared with direct queries
+- **AC-10** A representable pipeline plans as its query
+  WHEN a pipeline is representable (it converts to a query, §Representability rules), or was converted from a query
+  THEN its plan equals the plan of that query step for step, including each action's prefix query, so its intermediate results are the same assets as the query's and are shared with it
 - **AC-11** Placeholders only in command definitions
   WHEN a pipeline that is not a command's definition (a recipe's pipeline, or one planned on its own) contains a placeholder
   THEN planning fails with an unresolved-placeholder error naming it; inside a definition, every placeholder is a declared argument, so it always has a value, a default or an `ArgumentMissing` error (AC-3)
 - **AC-16** Queries and pipelines combine in one plan
-  WHEN a query calls a pipeline command and continues after it, or a pipeline contains `{query: …}` elements, or a recipe has a query and a pipeline
+  WHEN a query calls a pipeline command and continues after it, or a pipeline contains `{steps: "<query>"}` elements that splice query text
   THEN the planner processes query actions and pipeline elements into one plan, in order, each receiving the previous one's state
 - **AC-17** Positional and named arguments
   WHEN an action element gives `parameters` (positional, the last ones filling a variadic) and/or `arguments` (by name, in any order, leaving some out)
   THEN the positional ones fill slots first and the named ones the rest; omitted ones take their defaults; an unknown or `injected` name, or a name for a slot already filled positionally, is a `ParameterError`
 - **AC-18** Nested pipeline as an argument
-  WHEN an argument's source is `{pipeline: […]}`
-  THEN it is evaluated like a link and recorded as a dependency; a text-form nested pipeline is exactly the link with its query
+  WHEN an argument's source is `{pipeline: …}`
+  THEN a representable nested pipeline plans exactly as the link with its query (`Evaluate`, a shared asset). One that is not representable plans as new `ParameterValue` variants (`ParameterPipeline`, `OverridePipeline`) and is evaluated as a nested plan with its dependencies recorded but no asset of its own (Q29). `TryFrom<&ParameterValue> for Pipeline` gives the pipeline of any link-like parameter and refuses a value
 - **AC-19** Variadic arguments
   WHEN a variadic argument gets a list, a `{multiple: […]}` of sources, or a placeholder bound to a list among literal elements
   THEN it receives one element per entry, with the list spliced in place; a list for a non-variadic slot, unless its type is `any`, is a `ParameterError`
@@ -136,14 +143,11 @@ The pipeline form, everywhere:
   THEN the arguments are injected from the caller's context and the pipeline command is `payload: required`, exactly as for a direct call
 - **AC-21** Round trip and validation
   WHEN a pipeline command or a pipeline is serialized (registry export, YAML, JSON) and read back, or given to `liquers-validate`
-  THEN it is unchanged, and the validator plans it, reporting its text form when it has one
+  THEN it is unchanged, and the validator plans it, reporting its query when it is representable
 
 - **AC-23** A list for a single argument
   WHEN a list (`Value::Array`) is given to a non-variadic argument
-  THEN an `any` argument receives the whole array, and a scalar-typed argument is a `ConversionError`; the pipeline is not text-form from that step on
-- **AC-24** Pipelines express queries
-  WHEN any query is converted to a pipeline (`Query::to_pipeline`, syntactic) and planned
-  THEN the plan equals the query's plan, and converting the pipeline back gives the same query
+  THEN an `any` argument receives the whole array, and a scalar-typed argument is a `ConversionError`; the pipeline is not representable (S4)
 
 Conversion, representability and editing (merged scope, 2026-11-02):
 
@@ -164,10 +168,13 @@ Conversion, representability and editing (merged scope, 2026-11-02):
   THEN the error names the first offending element and argument and the rule it breaks (§Representability rules, by rule id), and nothing else is converted
 - **AC-30** Every recipe is a pipeline
   WHEN a recipe is converted (`Recipe::to_pipeline`)
-  THEN its query, its `pipeline`, its `arguments` and `links` (as named arguments of the last action), its `cwd` and its `volatile` become one pipeline that plans as `Recipe::to_plan` does; its asset declarations (`title`, `description`, `expires`, `stored`, `cached`) stay on the recipe
+  THEN its query with its `arguments` and `links` (as named arguments of the last action), or its `pipeline`, together with its `cwd`, filename and `volatile`, become one pipeline that plans as `Recipe::to_plan` does. Where `expires`, `stored` and `cached` go is Q27 (recommended: an optional `asset` block on a top-level pipeline); `title` and `description` stay on the recipe
 - **AC-31** Editing a pipeline
-  WHEN a `PipelineEditor` appends, inserts, replaces, moves or removes an element, or sets or removes an argument, namespace or realm of an action
-  THEN the edit is applied, or it is refused with a `ParameterError` naming the value and its position kind (for example a key segment `my file.csv`), and the pipeline is unchanged
+  WHEN a `PipelineEditor` appends, inserts, replaces, moves or removes an element, sets or removes an argument or namespace of an action, or sets the realm of a (nested) pipeline
+  THEN the edit is applied, or it is refused and the pipeline is unchanged. The refusal names the element, the argument and the reason: an invalid token (a key segment `my file.csv`), an unknown command or namespace, an unknown, `injected` or duplicated argument, a value of the wrong type, an undeclared placeholder, or (in `QueryEditor`) a representability rule
+- **AC-31a** Errors point into the query
+  WHEN a pipeline came from a query, and an edit, a conversion or planning fails at one of its elements
+  THEN the error carries the element's `Position` (kept from the parse; ignored by equality and the canonical form) and, from `QueryEditor`, the original query (`Error::with_query`). After edits, the editor re-encodes and re-parses to obtain positions in the current query, and attaches that query instead
 - **AC-32** The query editor keeps a query
   WHEN a `QueryEditor` is asked for an edit that would make its pipeline non-representable (a list for a single argument, a placeholder, a value as state)
   THEN it refuses the edit with the representability reason and stays unchanged; `QueryEditor::query()` and `Query::from(&query_editor)` always succeed
@@ -193,16 +200,28 @@ Conversion, representability and editing (merged scope, 2026-11-02):
 Recipes (b):
 
 - **AC-15** Recipe pipeline
-  WHEN a recipe has a `pipeline`, in a form compatible with today's recipe syntax (exact shape: Phase 2)
-  THEN it plans and runs as that pipeline, with literal values for any step's arguments, so a list, map or long text can reach an action other than the last; every existing recipe is unchanged
+  WHEN a recipe has a `pipeline` instead of a `query`
+  THEN it plans and runs as that pipeline, with literal values for any step's arguments, so a list, map or long text can reach an action other than the last. A recipe has either a query (with its optional `arguments` and `links`) or a pipeline, never both, and never `arguments` or `links` with a pipeline. Recommended: this is enforced by the type (`RecipeBody`, Q26), and every existing `recipes.yaml` reads and writes unchanged
+
+Pipelines as values and realms (review of 2026-11-03):
+
+- **AC-39** A pipeline is a value
+  WHEN a pipeline is a command's result or input, stored, or read back
+  THEN it is `Value::Pipeline`, with its own `TypeInfo` (`Pipeline`, type name `pipeline`, formats `json`, `yaml`, and query text when representable), and `ValueInterface::try_into_pipeline` / `from_pipeline` with default implementations, so it has the same support as `Value::Query` and no existing value type breaks; a query value converts to a pipeline
+- **AC-40** Realms are pipeline scopes
+  WHEN a query has segments with header names (realms), resource or transform
+  THEN consecutive segments with the same name form one pipeline with that `realm`, a segment with another name becomes a nested pipeline element, and converting back writes each pipeline as segments with its realm as the header name. Header level and parameters are carried as they are. The planner looks every action up in its pipeline's realm; a resource header name stays ignored, with its warning, until multi-realm support (`CORE-MULTI-REALM-INTERPRETER`)
 Retired:
 
 - ~~**AC-22**~~ commands defined by `recipes.yaml` entries: recipes define assets, not commands (2026-11-01). Commands with pipelines are defined in the command metadata.
+- ~~**AC-24**~~ pipelines express queries: merged into AC-10 and AC-25 (2026-11-03).
 - ~~**AC-9**~~ placeholders in recipe query text: query text has no placeholders (2026-11-01), so AC-15 replaces it.
 - ~~**AC-12**, **AC-13**, **AC-14**~~ web API binding, request values as the start state, managed text forms: moved to [`WEB-API-CANNOT-RUN-PIPELINES-OR-RECIPE-ENDPOINTS`](../../issues/WEB-API-CANNOT-RUN-PIPELINES-OR-RECIPE-ENDPOINTS.md) (scope split, 2026-11-01).
 
-Non-goals: Python and JavaScript wrappers for the editors (`QUERY-BUILDER-NOT-IN-BINDINGS`,
-`design/query-builder-in-bindings/`, which moves from `QueryBuilder` to `QueryEditor`); placeholder
+Non-goals: implementing pipelines in the Python and JavaScript bindings (`PIPELINES-NOT-IN-LANGUAGE-BINDINGS`, and for the
+editors `QUERY-BUILDER-NOT-IN-BINDINGS` / `design/query-builder-in-bindings/`, which moves from
+`QueryBuilder` to `QueryEditor`). What a binding must support is specified here, in
+`LANGUAGE-INTEGRATION_GUIDE.md`; placeholder
 syntax in query text (no change to query encoding); web API routes,
 endpoint recipes, MCP serving and payload sources (the follow-up issue above); an `injected`
 pipeline command argument; replacing `CommandDefinition::Alias`; Python and JavaScript registration
@@ -214,7 +233,7 @@ any command.
 
 ## Representability rules
 
-A pipeline is **representable** when every rule below holds. `Query::try_from(&pipeline)` checks
+A pipeline is **representable** when every rule below holds. `pipeline.to_query_with(&cmr)` checks
 them in element order, and the first rule that fails is the error (AC-29): `NotRepresentable` with
 the element index, the argument (by position or name) and the rule id. Token classes are those of
 DOC_02 §Lexical forms, tested by the shared `escape` predicates (AC-34). String parameters are
@@ -224,9 +243,10 @@ never a reason: `encode_token` escapes any string.
 
 | Id | Rule |
 |---|---|
-| P1 | No `value` or `placeholder` element: a value as the current state has no query spelling. |
-| P2 | A `filename` element is last (also a validity rule for every pipeline). |
-| P3 | `rooted` (a leading `/`) and an explicit resource-segment header name are carried as they are. |
+| P1 | No `value` or `evaluate` element: a literal value or a query result as the current state has no query spelling. |
+| P2 | Only the top-level pipeline has a `filename` (a query has one, and it ends the query); it is a filename. |
+| P3 | `rooted` (a leading `/`), and the header's level and parameters, are carried as they are. |
+| P4 | The realm is a realm name (or empty). A nested pipeline element writes its run of segments with its own realm as the header name, then the enclosing realm resumes in a new segment (AC-40). |
 
 **Elements**
 
@@ -234,12 +254,12 @@ never a reason: `encode_token` escapes any string.
 |---|---|---|---|
 | E1 | `action` | `name-p1-p2` | `action` is an identifier and not `ns`, `q` or `v`; every source obeys S1–S7 |
 | E2 | `action` with `ns` | `ns-a-b/name-…`, placed by the ns placement rule below | each namespace is an identifier |
-| E3 | `action` with `realm` | a new segment `-realm/name-…` | `realm` is a realm name |
-| E4 | `resource` | `-R/a/b` or `-R-mode/a/b` | every key segment is a resource name; `mode` is a header value |
-| E5 | `cwd`, `key` | `-R-cwd/…`, `-R-key/…` | as E4 |
-| E6 | `query` | its text, spliced at a segment boundary | it parses and obeys these rules after splicing |
+| E3 | nested `pipeline` | its segments, header named by its realm | it obeys these rules itself |
+| E4 | `resource` with `read` | `-R/a/b` or `-R-<read>/a/b`, header named by the pipeline's realm | every key segment is a resource name; the operand is a key, not a placeholder |
+| E5 | `key_value`, `cwd` | `-R-key/…`, `-R-cwd/…` | as E4 |
+| E6 | `steps` | its text, spliced at a segment boundary | it parses and obeys these rules after splicing |
 | E7 | `quote`, `volatile` | `q`, `v` | always |
-| E8 | `filename` | the last token | it is a filename |
+| E8 | `query_value` | `<query>/q` | it is the first element and its query is representable |
 
 **Sources of an action argument**
 
@@ -280,11 +300,13 @@ but follows an `ns` gets an `ns` restating the defaults' first match only if it 
 resolve wrongly.
 
 **Guarantees.** `Pipeline::try_from(&query)` produces only representable elements (rooted flag,
-resources, header instructions, `ns`/`q`/`v`, actions with positional scalar and link sources,
-filename), so AC-28 holds by construction and `QueryEditor` preserves it by checking each edit
+realms and header extras, resources with their `read`, `ns`/`q`/`v`, actions with positional
+scalar and link sources, filename), so AC-28 holds by construction and `QueryEditor` preserves it by checking each edit
 against these rules. The canonical form (Q21) normalizes only what has one spelling in a query:
 N2's names, the namespace placement above, S1's scalars for an `any` or `text` argument, empty
-segments and source positions.
+segments, the split into segments (consecutive segments of one realm merge, AC-40) and the
+short spellings of header instructions (`b` → `binary`). Positions are kept but are not part of
+equality.
 
 ## Core Interactions
 
@@ -320,7 +342,7 @@ every integration. The pipeline gets its own module, `liquers-core/src/pipeline/
 | `plan.rs` | the pipeline planner (`Pipeline::to_plan`), sharing assembly code with `PlanBuilder` |
 
 Also touched: `command_metadata.rs`, `commands.rs`, `plan.rs`, `interpreter.rs`, `recipes.rs`,
-`escape.rs`, `parse.rs` (the shared predicates only; the grammar and the encoding are unchanged),
+`value.rs` (`Value::Pipeline`, AC-39), `escape.rs`, `parse.rs` (the shared predicates only; the grammar and the encoding are unchanged),
 and `liquers-validate` (existing `cli` feature). No new dependency.
 
 ## Documentation Intent
@@ -343,6 +365,12 @@ and `liquers-validate` (existing `cli` feature). No new dependency.
   - plan and recipes: `RECIPES_AND_PLANS.md` (recipe `pipeline`, mixed planning, `Step::UseValue`)
     and `PROJECT_OVERVIEW.md` §Recipes;
   - templates: `TEMPLATE_LANGUAGE.md` (the shared predicates);
+  - values and realms: `VALUE_TYPE_SYSTEM.md` and `guides/TYPE_SYSTEM_GUIDE.md` (`Value::Pipeline`),
+    `REALMS.md` (a pipeline is a realm scope; nesting);
+  - language integration: `guides/LANGUAGE-INTEGRATION_GUIDE.md` gains a §Pipelines that specifies
+    what a binding must support: a pipeline passed and returned as a native JSON-like object,
+    `Value::Pipeline` in the value bridge, evaluating a pipeline, registering a pipeline command,
+    and the editors; `PYTHON_INTEGRATION.md` and the JavaScript guide refer to it;
   - tooling: `CLAUDE.md` §Validating queries and the `liquers-validate` skill (pipelines, conversions);
   - web API: later, in `WEB-API-CANNOT-RUN-PIPELINES-OR-RECIPE-ENDPOINTS`.
 
@@ -418,6 +446,30 @@ Opened by the scope change of 2026-11-02 and reviewed by the maintainer the same
   - Rejected: A, the core `Value` (ties the pipeline to it, and its non-JSON variants would need
     their own serde rules); C, text only (loses the type).
 
+Opened by the maintainer's review of 2026-11-03, analysed in
+[`pipeline-structure-and-sources.md`](./pipeline-structure-and-sources.md):
+
+- **Q26 — the recipe's shape (§5).** Recommended: an enum,
+  `RecipeBody::{Query { query, arguments, links }, Pipeline(Pipeline)}`, serialized flattened so
+  every existing file is unchanged; it enforces "query or pipeline" and "no `arguments`/`links`
+  with a pipeline" in the type. Cost: about 30 `Recipe { … }` literals and `liquers-py`'s recipe
+  access change. Alternatives: a runtime check on one struct (no API break), or a pipeline-only
+  recipe (one representation, but lossy write-back).
+- **Q27 — asset declarations in the pipeline (§4).** `filename` and `volatile` belong to the
+  pipeline (they already have a query spelling). For `expires`, `stored` and `cached`,
+  recommended: an optional `asset` block allowed only on a top-level pipeline, so a standalone
+  pipeline (a web request, a file) can say how its result is kept; `title` and `description` stay
+  on the recipe and the command. Alternative: all declarations stay on the recipe.
+- **Q28 — state elements (§2).** Recommended: one element per meaning (`value`, `resource` with
+  `read`, `key_value`, `cwd`, `evaluate`, `query_value`, `quote`), with placeholders only as
+  operands, and `{query}` renamed `{steps}` because it splices text rather than evaluating it.
+- **Q29 — a non-representable nested pipeline's identity (§3).** Recommended: it is evaluated as
+  a nested plan with its dependencies recorded, but has no asset of its own and is not cached
+  separately. Alternative: identify it by a hash of its canonical JSON, a second identity scheme
+  beside queries.
+- **Q30 — title and description on the pipeline struct (§1).** Recommended: no; they duplicate the
+  recipe's and the command's, and mean nothing on a nested pipeline.
+
 ## Scope Changes
 
 - **2026-11-01, maintainer review 1.** Added the pipeline notation, declarations, variadics,
@@ -452,6 +504,15 @@ Opened by the scope change of 2026-11-02 and reviewed by the maintainer the same
   follow-up issues were filed, to be designed right after this one:
   `MANIFEST-TEMPLATE-BATCH-ONLY-AT-THE-END-OF-THE-QUERY` and
   `RECIPES-CANNOT-DESCRIBE-A-SELF-CONTAINED-ASSET-TREE`.
+- **2026-11-03, maintainer review 6.** The pipeline is a struct scoped to one realm, with an
+  optional filename; realms nest, and consecutive segments of one realm merge (AC-40, rules P2–P4,
+  E3–E8). State elements have one meaning each, with placeholders as operands (AC-5 revised). AC-10
+  is restated as plan identity for representable pipelines, and AC-24 is merged into it. AC-18 has
+  new `ParameterValue` variants. AC-31 lists every error kind, and AC-31a adds query positions.
+  AC-15 is either-or. AC-39 makes `Value::Pipeline` a value like `Value::Query`. The language
+  integration guide specifies pipeline support, and `PIPELINES-NOT-IN-LANGUAGE-BINDINGS` is filed
+  for implementing it. Questions 26–30 added. Analysis:
+  `pipeline-structure-and-sources.md`.
 
 ## Design Dependencies
 
@@ -462,6 +523,9 @@ Opened by the scope change of 2026-11-02 and reviewed by the maintainer the same
 - `WEB-API-CANNOT-RUN-PIPELINES-OR-RECIPE-ENDPOINTS` — **required-by**: the web follow-up builds on the pipeline types.
 - `MANIFEST-TEMPLATE-BATCH-ONLY-AT-THE-END-OF-THE-QUERY` — **required-by**: manifest templates as pipelines, through `Pipeline::bind` (AC-38); designed right after this one.
 - `RECIPES-CANNOT-DESCRIBE-A-SELF-CONTAINED-ASSET-TREE` — **required-by**: recipe trees reference nodes through recipe pipelines and edit them with a `TreeEditor` on `PipelineEditor`; designed right after this one.
+- `PIPELINES-NOT-IN-LANGUAGE-BINDINGS` — **required-by**: the Python and JavaScript implementation of what the language integration guide specifies.
+- `CORE-MULTI-REALM-INTERPRETER` — **prepares**: pipelines are realm scopes (AC-40); giving the resource header name meaning is left to it.
+- `multi-realm-dispatch` (in review) — **overlaps**: it dispatches a query's realm to another environment; a realm-scoped nested pipeline is the unit it would dispatch.
 - `query-builder` — **superseded by this design** (2026-11-02); its reasoning and Phase 1 decisions are adopted.
 - `query-builder-in-bindings` — **required-by**: exposing the builder in Python and JavaScript now targets `QueryEditor`.
 - `parameter-entity-escaping` (complete) — **origin** of the query-builder part: it made `encode_token` total.
