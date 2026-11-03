@@ -3,8 +3,8 @@ id: SERDE-DERIVE-FEATURE-DECLARED
 kind: design
 title: Every crate that uses serde's derive macros declares where they come from
 form: compact
-status: in_review
-phase: implementation
+status: complete
+gh_pr: [245]
 readiness: ready
 autofix: not-eligible
 area: [build, lib/ui, axum]
@@ -13,8 +13,9 @@ created: 2026-10-20
 ---
 # Every crate that uses serde's derive macros declares where they come from
 
-Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-20. Phases 1-4 are written but not
-approved, and nothing is implemented.
+> **Complete on 2026-11-03**: implemented in #245.
+
+Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-20. Phases 1-4 written; implemented on 2026-11-03.
 
 ## Phase 1: High-Level Design
 
@@ -144,14 +145,18 @@ No new test: the property is in the manifests and the dependency graph.
 
 ### Steps
 
-- [ ] 1. `liquers-lib/Cargo.toml` — `derive` on, `serde_derive` removed — `cargo check -p liquers-lib --no-default-features` and the AC-1 `cargo tree`
-- [ ] 2. `liquers-axum/Cargo.toml` — same — `cargo check -p liquers-axum` and the AC-2 `cargo tree`
-- [ ] 3. `liquers-store/Cargo.toml` — remove `serde`, `serde_derive`, the stale comment — `cargo check -p liquers-store` (default and `--no-default-features --features async_store`)
-- [ ] 4. `liquers-core/Cargo.toml`, `liquers-py/Cargo.toml` — explanatory comment — the AC-3 greps
-- [ ] 5. `bash scripts/check-build-matrix.sh`, `cargo test -p liquers-lib --lib --tests` — AC-4
-- [ ] 6. Close the issue with a resolution note (complexity S) — `python3 scripts/docs_index.py --check`
+- [x] 1. `liquers-lib/Cargo.toml` — `derive` on, `serde_derive` removed — `cargo check -p liquers-lib --no-default-features` and the AC-1 `cargo tree`
+- [x] 2. `liquers-axum/Cargo.toml` — same — `cargo check -p liquers-axum` and the AC-2 `cargo tree`
+- [x] 3. `liquers-store/Cargo.toml` — remove `serde`, `serde_derive`, the stale comment — `cargo check -p liquers-store` (default and `--no-default-features --features async_store`)
+- [x] 4. `liquers-core/Cargo.toml`, `liquers-py/Cargo.toml` — explanatory comment — the AC-3 greps
+- [x] 5. `bash scripts/check-build-matrix.sh`, `cargo test -p liquers-lib --lib --tests` — AC-4
+- [x] 6. Close the issue with a resolution note (complexity S) — `python3 scripts/docs_index.py --check`
 
 ### Validation
 
 The full matrix (every feature set resolves separately). Diff review: manifests and `Cargo.lock`
 only.
+
+### Implementation notes (2026-11-03)
+
+- `Cargo.lock` is not tracked, so the change is the five manifests only. The full matrix ran in CI.

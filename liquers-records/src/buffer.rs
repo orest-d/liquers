@@ -6,6 +6,8 @@
 //! alignment and recommends 64, so a consumer can use aligned SIMD loads without a special case at
 //! the tail, and so an export through the Arrow C Data Interface hands over a pointer rather than a
 //! converted copy. Buffers are `Arc`-shared and immutable once built, so cloning one is cheap.
+//!
+//! [COLUMNAR]: https://arrow.apache.org/docs/format/Columnar.html
 
 use std::marker::PhantomData;
 use std::sync::Arc;
@@ -414,6 +416,8 @@ impl Bitmap {
     /// buffer layout ([COLUMNAR] *Validity bitmaps*). Mirrors [`AlignedBuffer::as_bytes`]; used by
     /// the Arrow IPC writer (`formats/ipc.rs`) to hand off a validity or `Bool` values buffer
     /// without reconstructing it bit by bit.
+    ///
+    /// [COLUMNAR]: https://arrow.apache.org/docs/format/Columnar.html
     pub fn as_bytes(&self) -> &[u8] {
         self.bits.as_bytes()
     }
