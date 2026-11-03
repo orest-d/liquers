@@ -8,8 +8,8 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 213
-- P2: 61
+Total rows: 214
+- P2: 62
 - P3: 152
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
@@ -17,6 +17,7 @@ Total rows: 213
 | [`FOREIGN-VALUE-HAS-NO-DATA-NODE`](issues/FOREIGN-VALUE-HAS-NO-DATA-NODE.md) | issue | A retained foreign value is always opaque to data-node consumers | draft | ready | not-eligible | P2 | S | lib/value | [design](design/foreign-value-data-node/DESIGN.md) | 2026-10-25 |
 | [`WORKSPACE-SERDE-DERIVE-UNDECLARED`](issues/WORKSPACE-SERDE-DERIVE-UNDECLARED.md) | issue | Three crates use serde derive macros without declaring the `derive` feature | accepted | ready | not-eligible | P2 | S | build;core/value;lib/ui;axum | [design](design/serde-derive-feature-declared/DESIGN.md) | 2026-08-09 |
 | [`YAML-SCHEMA-FILE-CANNOT-BE-LINKED-AS-SCHEMA-TEXT`](issues/YAML-SCHEMA-FILE-CANNOT-BE-LINKED-AS-SCHEMA-TEXT.md) | issue | A plain .yaml schema file cannot be linked into to_record's schema argument | draft | needs-decision | not-eligible | P2 | S | records;lib/value | [design](design/schema-argument-structured-link/DESIGN.md) | 2026-10-20 |
+| [`UPSTREAM-COMMAND-VOLATILITY-INVISIBLE-TO-DEPENDENCY-WALK`](issues/UPSTREAM-COMMAND-VOLATILITY-INVISIBLE-TO-DEPENDENCY-WALK.md) | issue | A recipe preview misses volatility its upstream inherits from a volatile command | draft |  |  | P2 | S | core/plan |  | 2026-11-03 |
 | [`WEB-COMMAND-LOOKUP-IGNORES-NAMESPACE`](issues/WEB-COMMAND-LOOKUP-IGNORES-NAMESPACE.md) | issue | describeCommand and unregisterCommand take a bare name, so namespaced commands cannot be addressed | draft |  |  | P2 | S | web |  | 2026-10-26 |
 | [`WEB-DESCRIBE-COMMAND-SHAPE-DIFFERS-FROM-DECLARATION`](issues/WEB-DESCRIBE-COMMAND-SHAPE-DIFFERS-FROM-DECLARATION.md) | issue | describeCommand returns raw CommandMetadata JSON, not the LiquersCommandInfo shape the .d.ts declares | draft |  |  | P2 | S | web |  | 2026-10-26 |
 | [`WEB-JS-STORE-WITH-ONLY-GET-CANNOT-BE-QUERIED`](issues/WEB-JS-STORE-WITH-ONLY-GET-CANNOT-BE-QUERIED.md) | issue | A page-implemented store with only get, documented as enough, fails every -R/ query | draft |  |  | P2 | S | web |  | 2026-10-26 |
