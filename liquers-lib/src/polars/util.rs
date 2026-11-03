@@ -12,7 +12,7 @@ use std::sync::Arc;
 /// 1. Direct conversion if value is already a PolarsDataFrame
 /// 2. Deserialization from Text or Bytes based on metadata data_format
 ///
-/// Supported formats: csv aliases and parquet.
+/// Supported formats: csv aliases, parquet, and Arrow IPC (`ipc`, `feather`, `arrow_ipc`, `arrow`).
 pub fn try_to_polars_dataframe<V: ValueInterface + ExtValueInterface>(
     state: &State<V>,
 ) -> Result<Arc<DataFrame>, Error> {
@@ -45,7 +45,13 @@ pub fn try_to_polars_dataframe<V: ValueInterface + ExtValueInterface>(
     }
 
     let mut format = state.metadata.get_data_format();
-    let source_bytes = if let Ok(text) = value.try_into_string() {
+    // A binary format's bytes are taken as they are: the text conversion below is lossy UTF-8
+    // for bytes, which would corrupt a stored Parquet or IPC file.
+    let binary = !format.is_empty()
+        && super::serde::parse_polars_data_format(&format).is_ok_and(|f| f.is_binary());
+    let source_bytes = if binary {
+        value.try_into_bytes()?
+    } else if let Ok(text) = value.try_into_string() {
         if format.is_empty() {
             format = "csv".to_string();
         }

@@ -581,7 +581,8 @@ impl ValueExtension for ExtValue {
         ];
         #[cfg(feature = "polars")]
         descriptions.push(
-            // Only what `serialize_dataframe_to_writer` actually implements. `json` and `ndjson`
+            // Only what `serialize_dataframe_to_writer` actually implements: csv, parquet and Arrow
+            // IPC (four spellings). `json` and `ndjson`
             // parse into a `PolarsDataFormat` but both codecs return "not implemented yet"
             // (`polars/serde.rs`), so advertising them would be a false capability: `set_binary`
             // would accept bytes that cannot be materialized, and `set_state` would store metadata
@@ -589,7 +590,16 @@ impl ValueExtension for ExtValue {
             TypeInfo::new("polars.DataFrame")
                 .with_type_name("polars_dataframe")
                 .with_defaults("csv", "csv", "text/csv", "data.csv")
-                .with_data_formats(["csv", "csv:comma", "csv_comma", "parquet"]),
+                .with_data_formats([
+                    "csv",
+                    "csv:comma",
+                    "csv_comma",
+                    "parquet",
+                    "ipc",
+                    "feather",
+                    "arrow_ipc",
+                    "arrow",
+                ]),
         );
         #[cfg(feature = "egui")]
         {
