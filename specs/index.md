@@ -8,9 +8,9 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 211
+Total rows: 210
 - P2: 60
-- P3: 151
+- P3: 150
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -74,7 +74,6 @@ Total rows: 211
 | [`NO-RELATIONAL-DATABASE-ACCESS-LAYER`](issues/NO-RELATIONAL-DATABASE-ACCESS-LAYER.md) | feature | No access layer from Liquers into relational databases | draft | phase2-blocked | not-eligible | P2 | XL | lib/value;lib/commands;store/backends | [phase1](design/relational-database-access/phase1-high-level-design.md)  [phase2](design/relational-database-access/phase2-architecture.md)  | 2026-09-20 |
 | [`REMOTE-ASSET-MANAGER-AND-SYSTEM-API`](issues/REMOTE-ASSET-MANAGER-AND-SYSTEM-API.md) | feature | A client environment cannot delegate evaluation to a server's asset manager | draft | phase2-blocked | not-eligible | P2 | XL | axum;core/assets;web | [phase1](design/remote-asset-manager/phase1-high-level-design.md)  [phase2](design/remote-asset-manager/phase2-architecture.md)  | 2026-10-20 |
 | [`NO-QUERY-AWARE-MARKDOWN-PARSER`](issues/NO-QUERY-AWARE-MARKDOWN-PARSER.md) | feature | Liquers has no Markdown parser that knows queries and templates and can edit and render a document | draft |  |  | P2 | XL | lib/commands;records |  | 2026-10-31 |
-| [`LIB-BUILD-EMITS-UNUSED-AND-UNHANDLED-RESULT-WARNINGS`](issues/LIB-BUILD-EMITS-UNUSED-AND-UNHANDLED-RESULT-WARNINGS.md) | issue | A default liquers-lib build emits about 50 warnings, some for discarded Results | draft | ready | not-eligible | P3 | S | lib/commands;build | [design](design/lib-build-warning-cleanup/DESIGN.md) | 2026-10-11 |
 | [`POLARS-DATAFRAME-IPC-NOT-SERIALIZABLE`](issues/POLARS-DATAFRAME-IPC-NOT-SERIALIZABLE.md) | issue | A polars DataFrame cannot be written or read as Arrow IPC although polars is built with ipc | draft | ready | not-eligible | P3 | S | lib/polars | [design](design/polars-dataframe-ipc/DESIGN.md) | 2026-10-18 |
 | [`COMBINED-VALUE-DATA-NODE-COPIES-BASE-VALUE`](issues/COMBINED-VALUE-DATA-NODE-COPIES-BASE-VALUE.md) | issue | A base value is copied whole to become a data node | draft | needs-decision | not-eligible | P3 | S | lib/value | [design](design/combined-value-shared-data-node/DESIGN.md) | 2026-10-17 |
 | [`CWD-DEFAULT-LINK-WARNS-WITHOUT-WORKING-DIRECTORY`](issues/CWD-DEFAULT-LINK-WARNS-WITHOUT-WORKING-DIRECTORY.md) | issue | The recommended cwd default link warns on every evaluation without a working directory | draft | needs-decision | not-eligible | P3 | S | core/query | [design](design/cwd-default-link-silent-root/DESIGN.md) | 2026-10-17 |

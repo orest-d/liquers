@@ -11,7 +11,7 @@ pub mod serde;
 pub mod sorting;
 pub mod util;
 
-use crate::{environment::CommandRegistryAccess, value::Value};
+use crate::value::Value;
 use liquers_core::error::Error;
 
 /// Register all polars commands via macro.

@@ -3,8 +3,8 @@ id: LIB-BUILD-WARNING-CLEANUP
 kind: design
 title: A default liquers-lib build is warning-free, and the three suspicious warnings are fixed
 form: compact
-status: in_review
-phase: implementation
+status: complete
+gh_pr: [248]
 readiness: ready
 autofix: not-eligible
 area: [lib/commands, build]
@@ -13,8 +13,10 @@ created: 2026-10-17
 ---
 # A default liquers-lib build is warning-free, and the three suspicious warnings are fixed
 
+> **Complete on 2026-11-03**: implemented in #248.
+
 Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-17 backlog compaction. Phases 1-4
-are written but not approved, and nothing is implemented.
+written; implemented on 2026-11-03.
 
 ## Phase 1: High-Level Design
 
@@ -124,14 +126,24 @@ the version change, as intended. Certainty: high for 1-3; medium for 4 until the
 
 ### Steps
 
-- [ ] 1. `egui/dataframe.rs` `sorted_frame` + sort before `columns` — `cargo test -p liquers-lib --lib egui::dataframe`
-- [ ] 2. `image/geometric.rs` `thumb` uses `resize` with `filter` — `cargo test -p liquers-lib --lib image::geometric`
-- [ ] 3. `?` on the four log calls — `cargo test -p liquers-lib --lib --tests`
-- [ ] 4. Unused imports removed or gated — `cargo build -p liquers-lib` shows no warning; `bash scripts/check-build-matrix.sh`
-- [ ] 5. Regenerate `specs/command_registry.yaml`, CHANGELOG line — `cargo test -p liquers-lib --test registry_export`
-- [ ] 6. Close the issue — `python3 scripts/docs_index.py --check`
+- [x] 1. `egui/dataframe.rs` `sorted_frame` + sort before `columns` — `cargo test -p liquers-lib --lib egui::dataframe`
+- [x] 2. `image/geometric.rs` `thumb` uses `resize` with `filter` — `cargo test -p liquers-lib --lib image::geometric`
+- [x] 3. `?` on the four log calls — `cargo test -p liquers-lib --lib --tests`
+- [x] 4. Unused imports removed or gated — `cargo build -p liquers-lib` shows no warning; `bash scripts/check-build-matrix.sh`
+- [x] 5. Regenerate `specs/command_registry.yaml`, CHANGELOG line — `cargo test -p liquers-lib --test registry_export`
+- [x] 6. Close the issue — `python3 scripts/docs_index.py --check`
 
 ### Validation
 
 `cargo test -p liquers-lib --lib --tests`; the build matrix. Rollback: revert per step; step 4 is
 independent of 1-3.
+
+### Implementation notes (2026-11-03)
+
+- `cargo fix` removed imports the lib build does not use but test modules did (`Arc` in
+  `ui/app_state.rs`, `ExtValueInterface` in `image/info.rs`, `RecordSource` in
+  `records/commands.rs`); each moved into its test module.
+- Two warnings not listed in Phase 1 were fixed too: the unused `AppState::with_element`
+  (removed) and the never-read `DeliveryOutcome::Delivered` payload (now a unit variant).
+- Warnings in test targets (e.g. `environment.rs` tests, `tests/foreign_value_registration.rs`)
+  are outside AC-4 and were left.

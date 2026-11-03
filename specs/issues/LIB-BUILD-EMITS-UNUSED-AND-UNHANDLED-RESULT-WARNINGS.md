@@ -2,7 +2,7 @@
 id: LIB-BUILD-EMITS-UNUSED-AND-UNHANDLED-RESULT-WARNINGS
 kind: issue
 title: A default liquers-lib build emits about 50 warnings, some for discarded Results
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [lib/commands, build]
@@ -48,3 +48,7 @@ behaviour they appear to lose, and fixed or explained.
 
 While regenerating `specs/command_registry.yaml` for `design/store-and-asset-search/` Phase 4 Step
 13. Not fixed there: none of the sites is in the search code.
+
+## Resolution
+
+Closed 2026-11-03 by design `lib-build-warning-cleanup`, PR #248. Default `liquers-lib` builds are warning-free; the unsorted table, the ignored thumbnail filter and the four dropped log results are fixed.
