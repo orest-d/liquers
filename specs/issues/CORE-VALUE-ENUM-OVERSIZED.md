@@ -2,7 +2,7 @@
 id: CORE-VALUE-ENUM-OVERSIZED
 kind: issue
 title: Every Value occupies over 700 bytes because three variants are stored unboxed
-status: draft
+status: closed
 priority: P2
 complexity: M
 area: [core/value, lib/value]
@@ -89,3 +89,7 @@ problem.
 Measured on 2026-08-18 during `value-type-system` Phase 2, while deciding what discipline should
 govern what a value variant may hold. The user raised the concern; the numbers above are from a
 `size_of` probe against HEAD, not an estimate.
+
+## Resolution
+
+Closed 2026-11-03 by design `core-value-enum-oversized`, PR #252. Core `Value` and `SimpleValue` hold their four large payloads behind `Arc`; both are at most 32 bytes (from 752), with tests guarding the bound.

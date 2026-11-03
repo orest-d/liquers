@@ -3,8 +3,8 @@ id: CORE-VALUE-ENUM-OVERSIZED-DESIGN
 kind: design
 title: Put the large Value variants behind Arc
 form: compact
-status: in_review
-phase: implementation
+status: complete
+gh_pr: [252]
 readiness: ready
 autofix: not-eligible
 area: [core/value, lib/value]
@@ -13,8 +13,9 @@ created: 2026-10-12
 ---
 # Put the large Value variants behind Arc
 
-Bulk design (`specs/guides/autonomous_bulk_design.md`). Phases 1-4 are written but not approved, and
-nothing is implemented.
+> **Complete on 2026-11-03**: implemented in #252.
+
+Bulk design (`specs/guides/autonomous_bulk_design.md`). Phases 1-4 written; implemented on 2026-11-03.
 
 ## Phase 1: High-Level Design
 
@@ -238,11 +239,11 @@ Run: `cargo test -p liquers-core --lib value::tests` and `cargo test -p liquers-
 
 ### Steps
 
-- [ ] 1. `liquers-core/Cargo.toml`, `liquers-lib/Cargo.toml` — enable serde `rc` — `cargo check -p liquers-core`. Rollback: revert the line.
-- [ ] 2. `liquers-core/src/value.rs` `Value` and `impl ValueInterface for Value` — `Arc` the four variants, wrap in `from_*`, clone out in `try_into_command_metadata` and `try_into_query`, fix `tests::sample_values`; add the four core tests — `CARGO_INCREMENTAL=0 cargo test -p liquers-core --lib --tests`. Rollback: revert the file; nothing else depends on it yet.
-- [ ] 3. `liquers-lib/src/value/simple.rs` `SimpleValue` — same change, plus the `query` and three `json` readers, `tests::sample` and the parity fixtures; add the two lib tests — `CARGO_INCREMENTAL=0 cargo test -p liquers-lib --lib --tests`. Depends on 1.
-- [ ] 4. Bindings — confirm no edit is needed — `cargo check -p liquers-py` (prefix `PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1` on CPython 3.13+) and, after `cargo clean`, `cargo test -p liquers-web --target wasm32-unknown-unknown --features debug-handles`. Rollback: if either needs an edit, AC-5 is broken; revisit decision 3 before patching.
-- [ ] 5. `specs/reference/VALUE_TYPE_SYSTEM.md` §"What a value variant may hold" — replace the 704-byte sentence with the 32-byte guard; History row and `reviewed:` bump. Close `CORE-VALUE-ENUM-OVERSIZED` with a resolution note — `python3 scripts/docs_index.py --check`.
+- [x] 1. `liquers-core/Cargo.toml`, `liquers-lib/Cargo.toml` — enable serde `rc` — `cargo check -p liquers-core`. Rollback: revert the line.
+- [x] 2. `liquers-core/src/value.rs` `Value` and `impl ValueInterface for Value` — `Arc` the four variants, wrap in `from_*`, clone out in `try_into_command_metadata` and `try_into_query`, fix `tests::sample_values`; add the four core tests — `CARGO_INCREMENTAL=0 cargo test -p liquers-core --lib --tests`. Rollback: revert the file; nothing else depends on it yet.
+- [x] 3. `liquers-lib/src/value/simple.rs` `SimpleValue` — same change, plus the `query` and three `json` readers, `tests::sample` and the parity fixtures; add the two lib tests — `CARGO_INCREMENTAL=0 cargo test -p liquers-lib --lib --tests`. Depends on 1.
+- [x] 4. Bindings — confirm no edit is needed — `cargo check -p liquers-py` (prefix `PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1` on CPython 3.13+) and, after `cargo clean`, `cargo test -p liquers-web --target wasm32-unknown-unknown --features debug-handles`. Rollback: if either needs an edit, AC-5 is broken; revisit decision 3 before patching.
+- [x] 5. `specs/reference/VALUE_TYPE_SYSTEM.md` §"What a value variant may hold" — replace the 704-byte sentence with the 32-byte guard; History row and `reviewed:` bump. Close `CORE-VALUE-ENUM-OVERSIZED` with a resolution note — `python3 scripts/docs_index.py --check`.
 
 ### Validation
 
@@ -250,3 +251,12 @@ Run: `cargo test -p liquers-core --lib value::tests` and `cargo test -p liquers-
 wasm32); `cargo test -p liquers-lib --test registry_export` (no command changes, must stay green);
 `cargo fmt --check`; a diff review for stray probes, `println!`, and edits outside the files above.
 No generated file changes.
+
+### Implementation notes (2026-11-03)
+
+- The blast radius was larger than Consolidated Findings said: `liquers-py/src/value.rs` builds and
+  reads `SimpleValue::{Metadata, Recipe, CommandMetadata, Query}` directly from its pyclass
+  wrappers (eight sites), and `liquers-web/tests/value_bridge_VALUE.rs` builds a `Query` value.
+  Each wraps or unwraps the `Arc`; no trait signature changed, so decision 3 stands.
+- `SimpleValue`'s `json` form of a `Query` is the tagged enum, not the bare query, as before this
+  change; the lib test checks `Query` through `txt`.
