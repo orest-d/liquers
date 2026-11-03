@@ -27,7 +27,7 @@ Exhaustive matches that new variants reach outside `liquers-core`:
 - [x] Step 4: Registry snapshot and editors (3d2b629)
 - [x] Step 5: `Value::Pipeline` (ee77920)
 - [x] Step 6: Pipeline parameter values and defaults (25ef515)
-- [ ] Step 7: Extract `PlanAssembly`
+- [x] Step 7: Extract `PlanAssembly` (7bceb74)
 - [ ] Step 8: `PipelinePlanBuilder` in `Delegate` mode, `Step::UseValue`, entry points
 - [ ] Step 9: `Native` mode and the dual-mode corpus test
 - [ ] Step 10: Recipe pipelines
