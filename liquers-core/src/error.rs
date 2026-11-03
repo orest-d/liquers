@@ -393,6 +393,14 @@ impl Error {
             ),
         )
     }
+    /// A pipeline is malformed: an unknown element key, a missing field, an unbound placeholder.
+    /// `message` says which element and why.
+    pub fn invalid_pipeline(message: impl Into<String>) -> Self {
+        Error::new(
+            ErrorType::ParameterError,
+            format!("Invalid pipeline: {}", message.into()),
+        )
+    }
     /// A token is not valid where it stands: `class` names what was expected there (an action
     /// name, a key segment, a filename…).
     ///

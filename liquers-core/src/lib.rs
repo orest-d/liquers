@@ -146,6 +146,7 @@ pub mod maybe_send;
 pub mod media_type;
 pub mod metadata;
 pub mod parse;
+pub mod pipeline;
 pub mod plan;
 pub mod query;
 pub mod recipes;
