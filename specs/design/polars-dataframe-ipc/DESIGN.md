@@ -3,8 +3,8 @@ id: POLARS-DATAFRAME-IPC
 kind: design
 title: A polars DataFrame is written and read as Arrow IPC
 form: compact
-status: in_review
-phase: implementation
+status: complete
+gh_pr: [249]
 readiness: ready
 autofix: not-eligible
 area: [lib/polars, lib/value]
@@ -12,6 +12,8 @@ issues: [POLARS-DATAFRAME-IPC-NOT-SERIALIZABLE]
 created: 2026-10-20
 ---
 # A polars DataFrame is written and read as Arrow IPC
+
+> **Complete on 2026-11-03**: implemented in #249.
 
 Bulk design (`specs/guides/autonomous_bulk_design.md`): Phases 1-4 written, not approved, nothing
 implemented.
@@ -187,13 +189,20 @@ Run: `CARGO_INCREMENTAL=0 cargo test -p liquers-lib --lib polars::serde`,
 
 ### Steps
 
-- [ ] 1. `liquers-lib/src/polars/serde.rs` — `arrow` alias, IPC arms, the two unit tests — `cargo test -p liquers-lib --lib polars::serde`. Rollback: revert the commit.
-- [ ] 2. `liquers-lib/src/value/mod.rs` `ExtValue::type_descriptions` — declare the four spellings, update the comment; `liquers-lib/src/polars/util.rs` doc comment — `cargo test -p liquers-lib --test value_type_system`. Depends on 1.
-- [ ] 3. `liquers-lib/tests/polars_value_serde.rs`, `liquers-lib/tests/records_ipc_polars.rs` — the four integration tests — `cargo test -p liquers-lib --test polars_value_serde --test records_ipc_polars`. Depends on 2.
-- [ ] 4. `specs/reference/POLARS_COMMAND_LIBRARY.md` "Supported formats" list, History row, `reviewed:`; close `POLARS-DATAFRAME-IPC-NOT-SERIALIZABLE` with a resolution naming the tests — `python3 scripts/docs_index.py --check`.
+- [x] 1. `liquers-lib/src/polars/serde.rs` — `arrow` alias, IPC arms, the two unit tests — `cargo test -p liquers-lib --lib polars::serde`. Rollback: revert the commit.
+- [x] 2. `liquers-lib/src/value/mod.rs` `ExtValue::type_descriptions` — declare the four spellings, update the comment; `liquers-lib/src/polars/util.rs` doc comment — `cargo test -p liquers-lib --test value_type_system`. Depends on 1.
+- [x] 3. `liquers-lib/tests/polars_value_serde.rs`, `liquers-lib/tests/records_ipc_polars.rs` — the four integration tests — `cargo test -p liquers-lib --test polars_value_serde --test records_ipc_polars`. Depends on 2.
+- [x] 4. `specs/reference/POLARS_COMMAND_LIBRARY.md` "Supported formats" list, History row, `reviewed:`; close `POLARS-DATAFRAME-IPC-NOT-SERIALIZABLE` with a resolution naming the tests — `python3 scripts/docs_index.py --check`.
 
 ### Validation
 
 `CARGO_INCREMENTAL=0 cargo test -p liquers-lib --lib --tests`;
 `cargo test -p liquers-lib --no-default-features --features polars --lib --tests`; diff review:
 only the three source files, two test files, the reference, the issue and the index.
+
+### Implementation notes (2026-11-03)
+
+- AC-3's test found that `try_to_polars_dataframe` sent a stored binary file through
+  `try_into_string` (lossy UTF-8 for bytes), corrupting `.feather` and `.parquet` alike. A binary
+  format's bytes now bypass it (`PolarsDataFormat::is_binary`), and the test runs for both
+  formats.
