@@ -855,6 +855,22 @@ fn index_env(store: Box<dyn AsyncStore>, calls: Arc<AtomicUsize>) -> EnvRef<Test
     env.to_ref()
 }
 
+/// As [`index_env`], built over a shared store with the given audit policy, so a second
+/// environment over the same store stands for a restart.
+fn index_env_over(
+    store: Arc<dyn AsyncStore>,
+    calls: Arc<AtomicUsize>,
+    policy: DependencyAuditPolicy,
+) -> Result<EnvRef<TestEnv>, Error> {
+    let mut builder = EnvironmentBuilder::<Value, (), Queued>::new()
+        .with_asset_manager_options(AssetManagerOptions::default().with_dependency_audit(policy))
+        .with_async_store(store)
+        .with_recipe_provider(Arc::new(DefaultRecipeProvider::new()));
+    register_provenance_commands(&mut builder.command_registry);
+    common::manager_scenarios::register_index_files(&mut builder.command_registry, calls);
+    builder.build()
+}
+
 fn index_key(home: &str) -> Result<Key, Error> {
     parse_key(&format!("{home}/index.txt"))
 }
@@ -946,6 +962,61 @@ async fn root_write_expires_a_dependent_of_the_root_listing_query() -> TestResul
     };
     assert_eq!(root, DependencyKey::from(&parse_query("-R-dir")?));
     assert_eq!(root.as_str(), "-R-dir");
+    Ok(())
+}
+
+/// A record written under the old spelling `-R-dir/` still links its value to the root listing
+/// after a restart: loading it under `on_load` registers the listing's version under `-R-dir`,
+/// the key a root write refreshes, so the write expires it. Codex review of #246.
+#[tokio::test]
+async fn old_root_listing_spelling_in_a_stored_record_cascades_after_restart() -> TestResult {
+    let mut rl = RecipeList::new();
+    rl.add_recipe(Recipe::new(
+        "-R-dir/-/index_files/index.txt".to_string(),
+        "Root index".into(),
+        "lists the store root".into(),
+    )?);
+    let yaml = serde_yaml::to_string(&rl)
+        .map_err(|e| Error::general_error(format!("recipes.yaml: {e}")))?;
+    let store: Arc<dyn AsyncStore> = Arc::new(provenance_store(false).await?);
+    store
+        .set(&parse_key("idx/recipes.yaml")?, yaml.as_bytes(), &Metadata::new())
+        .await?;
+    let first = index_env_over(store.clone(), Arc::new(AtomicUsize::new(0)), DependencyAuditPolicy::Explicit)?;
+    evaluate_index(&first, "idx").await?;
+    drop(first);
+
+    // Rewrite the stored record the way an older build spelled the root listing.
+    let key = index_key("idx")?;
+    let mut metadata = store.get_metadata(&key).await?;
+    let records: Vec<DependencyRecord> = metadata
+        .get_dependencies()
+        .iter()
+        .map(|record| {
+            if record.key.as_str() == "-R-dir" {
+                DependencyRecord::new(DependencyKey::new("-R-dir/"), record.version)
+            } else {
+                record.clone()
+            }
+        })
+        .collect();
+    assert!(
+        records.iter().any(|record| record.key.as_str() == "-R-dir/"),
+        "precondition: the index recorded the root listing: {records:?}"
+    );
+    metadata.set_dependencies(records)?;
+    store.set_metadata(&key, &metadata).await?;
+
+    let calls = Arc::new(AtomicUsize::new(0));
+    let second = index_env_over(store.clone(), calls.clone(), DependencyAuditPolicy::OnLoad)?;
+    let index = within(second.evaluate("-R/idx/index.txt")).await?;
+    let _ = within(index.get()).await?;
+    assert_eq!(index.status().await, Status::Ready, "precondition: served as stored");
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+
+    put(&second, "new.txt", b"fresh").await?;
+    assert_eq!(index.status().await, Status::Expired, "live index");
+    assert_eq!(stored_status(&second, &key).await?, Status::Expired, "stored index");
     Ok(())
 }
 
