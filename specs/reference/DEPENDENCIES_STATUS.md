@@ -3,7 +3,7 @@ title: Status::Dependencies Specification
 kind: reference
 audience: internal
 area: [core/assets]
-reviewed: 2026-10-27
+reviewed: 2026-11-03
 ---
 # Dependencies Status Specification
 
@@ -168,8 +168,10 @@ fails fast with `Error::dependency_cycle`. That is pinned by
   dependents served from the store carry edges recording the old one, the write still expires
   every dependent whose edge does not record exactly the written version. Rewriting the version
   the map already holds expires nothing.
-- **A folder listing is a versioned dependency.** `-R-dir/<dir>` (`GetAssetDirectory`) has, as its
-  version, the content hash of its sorted, length-prefixed names (`listing_version`) — membership
+- **A folder listing is a versioned dependency.** `-R-dir/<dir>` (`GetAssetDirectory`) — for the
+  store root `-R-dir`, the encoding of that query, so a listing recorded from a query and one built
+  from a key are the same node (likewise `-R` for the root key); a stored record spelled `-R-dir/`
+  or `-R/` is mapped to that spelling when `load_from_records` loads it — has, as its version, the content hash of its sorted, length-prefixed names (`listing_version`) — membership
   only, so rewriting an existing member does not change it (the member's own key cascades). The
   step builds its value and its version from the same `listdir` read. After registering the
   version it reads the listing again (up to three reads in all): a write that landed before the
@@ -656,6 +658,7 @@ priming cannot see (`INLINE-MANAGER-DYNAMIC-DEPENDENCY-CHAIN-NESTS`).
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-03 | Folder-listing bullet: the root listing's dependency key is `-R-dir` (the root key's `-R`), and old `-R-dir/` / `-R/` records are mapped to it on load. | `design/root-listing-dependency-key-spelling/` |
 | 2026-10-27 | Stale-at-birth: a dependency recorded through `Context::add_dependency` is compared with the map at completion and again once the edges exist. | `design/runtime-dependency-record-superseded-check/` |
 | 2026-10-27 | An uncached keyed write re-checks its recorded inputs and expires the stored copy when one was superseded during the run. | `design/uncached-write-back-rechecks-dependency-versions/` |
 | 2026-10-18 | §Current contract, folder-listing bullet, and glossary: `refresh_listing_version` climbs to the ancestors whose membership a write that creates or empties a folder changed. | `design/new-folder-write-ancestor-listing-refresh/` |

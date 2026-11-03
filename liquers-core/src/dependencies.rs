@@ -610,7 +610,7 @@ impl<E: Environment> DependencyManager<E> {
         } else {
             // Query asset: register as dependent_asset on each dependency
             for dep_record in &deps {
-                self.add_dependent_asset(&dep_record.key, weak_ref.clone())
+                self.add_dependent_asset(&dep_record.key.clone().canonical(), weak_ref.clone())
                     .await;
             }
         }
@@ -1321,8 +1321,10 @@ impl<E: Environment> DependencyManager<E> {
     ) -> ExpiredDependents<E> {
         let mut expired = ExpiredDependents::new();
         for record in records {
+            // Records written before the root spellings were fixed may say `-R-dir/` or `-R/`.
+            let dependency = record.key.clone().canonical();
             match self
-                .add_dependency(dependent, &record.key, record.version)
+                .add_dependency(dependent, &dependency, record.version)
                 .await
             {
                 Ok(e) => expired.absorb(e),
@@ -2160,6 +2162,23 @@ mod tests {
         // Expire child → parent should also expire
         let expired = dm.expire(&child).await;
         assert!(expired.contains_key(&parent));
+    }
+
+    /// A record written before the root spellings were fixed (`-R-dir/`) joins the canonical
+    /// `-R-dir` node, so expiring the root listing reaches its dependent.
+    #[tokio::test]
+    async fn load_from_records_canonicalizes_old_root_listing_spelling() {
+        let dm = DependencyManager::<TestEnv>::new();
+        let index = DependencyKey::new("-R/idx/index.txt");
+        let root = DependencyKey::from_dir_key(&Key::new());
+        dm.register_version(&index, Version::new(1)).await;
+        dm.register_version(&root, Version::new(2)).await;
+
+        let records = vec![DependencyRecord::new(DependencyKey::new("-R-dir/"), Version::new(2))];
+        dm.load_from_records(&index, &records).await;
+
+        let expired = dm.expire(&root).await;
+        assert!(expired.contains_key(&index));
     }
 
     #[tokio::test]
