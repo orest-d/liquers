@@ -3,7 +3,7 @@ title: Language Integration Guide
 kind: guide
 audience: internal
 area: [web, py, core/commands, core/plan, core/assets, core/store, core/value, lib/commands]
-reviewed: 2026-11-01
+reviewed: 2026-11-03
 ---
 # Liquers Language Integration Guide
 
@@ -965,7 +965,11 @@ Two directions, and a selected `DATANODE` includes the first:
 1. **Inbound — an adapter.** A Rust `DataNode` implemented over a *language value*: a Python
    `dict`/`list`/`tuple`, a JavaScript object/`Array`/`Map`, a Starlark `dict`/`list`/`struct`.
    This is how a native structure becomes template data (`TEMPLATE`) with no copy, and how a
-   retained *opaque language value* stops being opaque to core.
+   retained *opaque language value* stops being opaque to core: the integration overrides
+   `ForeignValue::data_node(self: Arc<Self>) -> AnyNode` (`liquers-lib/src/value/foreign.rs`),
+   which `ExtValue::Foreign`'s `data_node` delegates to. The receiver is an `Arc`, so the adapter
+   owns the payload. Without an override the node is the JSON snapshot when
+   `try_into_json_value` succeeds, and opaque otherwise.
 2. **Outbound — a view.** A *language*-visible read-only wrapper over a Liquers value's `AnyNode`,
    so a *language command* can read one field of a record view or a polars frame without
    converting the frame. Optional within the feature; mark `DATANODE11` `NA` with a reversing
@@ -3944,6 +3948,7 @@ def test_DOCS04_every_public_name_is_documented():
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-03 | §DATANODE, inbound: the hook an integration overrides for a retained value, `ForeignValue::data_node`, and its default. | `design/foreign-value-data-node/` |
 | 2026-11-01 | §DOCS: an integration's users get a guide in `docs/guides/<language>/`, parallel to the others and written from the contract reference and topic guide, which stay in `specs/`; the design question asks which chapters a milestone drafts. | `design/user-documentation-guides/` (phase-5) |
 | 2026-11-01 | §RECORDS: what `liquers-py` does (wrappers, buffers, Arrow/pandas/polars exits, scope, traversal, dispositions). Appendix A `PACKAGE04` uses the environment's version. §6 Python: records, packaging and type declarations, and what cost time (abi3t, extras without wheels, PyO3's `module=`, stubtest and pyright). | `design/liquers-py-records/`, `design/liquers-py-package/`, `design/liquers-py-stubs/` (phase-5) |
 | 2026-11-01 | §PACKAGE: the repository no longer links OpenSSL (TLS is `rustls`); the vendoring sentence says so. | `OPENSSL-BUILD-REQUIREMENT-IS-STALE` |
