@@ -1,9 +1,7 @@
-use crate::environment::CommandRegistryAccess;
-use crate::value::{simple::SimpleValue, ExtValueInterface, Value};
+use crate::value::{simple::SimpleValue, Value};
 use liquers_core::{
-    commands::CommandRegistry, context::Context, error::Error, state::State, value::ValueInterface,
+    context::Context, error::Error, state::State,
 };
-use liquers_macro::register_command;
 use std::collections::BTreeMap;
 
 use super::util::try_to_polars_dataframe;

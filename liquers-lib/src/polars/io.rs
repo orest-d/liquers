@@ -1,9 +1,7 @@
-use crate::environment::CommandRegistryAccess;
 use crate::value::{ExtValueInterface, Value};
 use liquers_core::{
-    commands::CommandRegistry, context::Context, error::Error, state::State, value::ValueInterface,
+    context::Context, error::Error, state::State, value::ValueInterface,
 };
-use liquers_macro::register_command;
 use std::io::Cursor;
 
 use super::serde::{deserialize_dataframe_from_reader, serialize_dataframe_to_writer};

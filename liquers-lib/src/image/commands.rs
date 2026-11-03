@@ -2,7 +2,6 @@ use crate::environment::CommandRegistryAccess;
 use crate::environment::DefaultEnvironment;
 use crate::value::Value;
 use liquers_core::{context::Context, error::Error};
-use liquers_macro::register_command;
 
 /// Register all image commands via macro.
 ///

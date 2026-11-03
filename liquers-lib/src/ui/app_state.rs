@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
@@ -38,11 +37,6 @@ impl NodeData {
             source,
             element: None,
         }
-    }
-
-    pub fn with_element(mut self, element: Box<dyn UIElement>) -> Self {
-        self.element = Some(element);
-        self
     }
 }
 
@@ -850,6 +844,7 @@ impl<'de> Deserialize<'de> for DirectAppState {
 mod tests {
     use super::*;
     use crate::ui::element::Placeholder;
+    use std::sync::Arc;
 
     // ── CRUD ──────────────────────────────────────────────────────────────
 
