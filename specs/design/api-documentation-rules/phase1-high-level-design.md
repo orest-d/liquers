@@ -172,6 +172,27 @@ check is a Python script in `scripts/`, beside `docs_index.py`, run by `docs-che
    real content; the other user-audience guides follow one by one. Alternative: ship the
    structure empty and move later.
 
+## Design Readiness
+
+- **Readiness:** `ready`
+- **Automatic fixing:** `not-eligible` — `complexity: L`, touching the skill, CI, four crates'
+  docs and the specs (auto-fix.md rules 1 and 6).
+- **Leading issue:** None.
+- **Explanation:** Phases 2-4 are reviewed; the only questions left are implementation details
+  with evidence-backed answers, logged here under the pre-approval of 2026-11-03.
+- **Open questions:**
+  1. *Implementation detail, resolved.* The `commands.rs` doctest: Phase 2 recommended one call
+     through `CommandExecutor`, but `execute` needs a hand-built `CommandArguments` and `Context`;
+     the doctest registers a command and evaluates it under a `tokio` runtime (Phase 3, Example 1).
+  2. *Implementation detail.* The `@packageDocumentation` block must be the first comment of
+     the generated `.d.ts`. wasm-bindgen writes custom sections before the declarations; Step 5
+     generates the file to confirm, and Phase 5 records the result.
+  3. *Proposed resolution.* The rustdoc job starts with the four clean crates; `liquers-core` and
+     `liquers-records` join when `RUSTDOC-STORE-SUBMODULE-LINKS-UNRESOLVED` merges (spin-off,
+     Step 9). Assumed acceptable: the alternative, waiting for the fix, delays nothing else.
+  4. *Proposed resolution.* `check_api_docs.py` warnings never fail CI until
+     `MODULE-DOCS-DO-NOT-FOLLOW-THE-API-DOC-RULES` closes (Phase 1 question 5, unchanged).
+
 ## Design Dependencies
 
 - `documentation-site-tool` — **required-by**: builds the site from the `docs/` sources defined

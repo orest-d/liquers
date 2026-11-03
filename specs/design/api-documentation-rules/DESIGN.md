@@ -3,8 +3,10 @@ id: API-DOCUMENTATION-RULES
 kind: design
 title: Rules for API documentation, in the design process, and a home for user documentation
 workflow: liquers-project
-status: in_review
-phase: architecture
+status: approved
+phase: implementation
+readiness: ready
+autofix: not-eligible
 area: [docs]
 issues: [API-DOCS-HAVE-NO-CONTENT-RULES]
 affects_docs: [guides/LANGUAGE-INTEGRATION_GUIDE.md, DOCS_STRUCTURE_GUIDE.md]
@@ -12,8 +14,9 @@ created: 2026-11-01
 ---
 # Rules for API documentation, in the design process, and a home for user documentation
 
-GitHub #232, requested 2026-11-01. Phase 1 approved (`proceed`, 2026-11-01). Phase 2 amended on
-2026-11-03 and awaiting its gate; nothing implemented.
+GitHub #232, requested 2026-11-01. Phase 1 approved (`proceed`, 2026-11-01). Phase 2 amended and
+approved on 2026-11-03. **Pre-approved after Phase 2 on 2026-11-03** (`proceed all`): Phases 3 and
+4 are reviewed, the decision log is in Phase 1's Design Readiness, and implementation follows.
 
 **2026-11-03 amendment (applied in Phase 2 and Phase 1's scope changes):** the user documentation
 folder, the site and every API reference were delivered by

@@ -137,4 +137,4 @@ Proposed `affects_docs`: `guides/LANGUAGE-INTEGRATION_GUIDE.md`, `DOCS_STRUCTURE
 | New validation | The `commands.rs` doctest, the Python doctest, `check_api_docs.py` and its tests, the rustdoc job |
 | Compatibility / data / concurrency / performance / security | None at runtime. The `validate_phase.py` rule is date-gated, so existing designs keep passing. `@packageDocumentation` must be the first comment of the `.d.ts`; wasm-bindgen emits custom sections first, confirmed at Phase 3 |
 | Recovery | Revert per step. The warnings never fail CI; the rustdoc job can be removed alone |
-| Certainty and open questions | High. One decision left: whether the `commands.rs` doctest builds a whole environment (8-10 lines) or shows registration and one call through `CommandExecutor`; recommended the latter, with `async_hellow_world.rs` linked for the whole flow |
+| Certainty and open questions | High. The `commands.rs` doctest registers one command and evaluates it under a `tokio` runtime (eight visible lines; Phase 3, Example 1): calling `CommandExecutor::execute` directly would need a hand-built `CommandArguments` and `Context` |
