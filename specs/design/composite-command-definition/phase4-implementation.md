@@ -30,7 +30,7 @@ Exhaustive matches that new variants reach outside `liquers-core`:
 - [x] Step 7: Extract `PlanAssembly` (7bceb74)
 - [x] Step 8: `PipelinePlanBuilder` in `Delegate` mode, `Step::UseValue`, entry points (70bce02)
 - [x] Step 9: `Native` mode and the dual-mode corpus test (33acfdc)
-- [x] Step 10: Recipe pipelines
+- [x] Step 10: Recipe pipelines (399b6a5)
 - [ ] Step 11: Pipeline commands
 - [ ] Step 12: `liquers-validate` pipeline support
 - [ ] Step 13: Cross-crate arms, registry export, polars integration test, build matrix
