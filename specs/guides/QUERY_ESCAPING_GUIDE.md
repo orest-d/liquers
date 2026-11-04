@@ -3,7 +3,7 @@ title: Query Escaping Guide
 kind: guide
 audience: both
 area: [core/query]
-reviewed: 2026-10-07
+reviewed: 2026-11-04
 ---
 # Getting arbitrary text into a query
 
@@ -17,8 +17,23 @@ which is normative.
 
 ## Escaping a value programmatically
 
-**Do not build query text by hand, and do not write an escaper in your host language.** Build the
-query and call `encode()`:
+**Do not build query text by hand, and do not write an escaper in your host language.**
+
+**First choice: `QueryEditor`.** It builds the whole query, not just one parameter: it escapes every
+value, checks resource names, action names and filenames as it goes, resolves names against the
+command registry, and refuses a bad edit without changing anything
+([`PIPELINE_GUIDE.md`](PIPELINE_GUIDE.md) §3):
+
+```rust
+let mut q = QueryEditor::new(envref.command_metadata_snapshot());
+q.action("filter")?.push("12:30")?;
+assert_eq!(q.query().encode(), "filter-12~ncolon~30");
+```
+
+**On a shell**, `liquers-validate --build A:filter 'P:12:30'` prints the escaped query; no value
+needs shell or Liquers escaping (`R:` for a resource key, `A:` for an action, `P:` for a parameter).
+
+**Without a registry**, build the query and call `encode()`:
 
 ```rust
 use liquers_core::query::{ActionParameter, ActionRequest};
@@ -192,5 +207,6 @@ and the property tests in [`escape/tests.rs`](../../liquers-core/src/escape/test
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-04 | `QueryEditor` first, then `liquers-validate --build`, then `encode()`. | phase-5, `design/composite-command-definition/` |
 | 2026-10-07 | Example row: an ISO date argument, `2026-09-27` → `2026~09~27`. | `design/rec-id-iso-date-parsing/` |
 | 2026-08-14 | Created alongside the numeric and named entity mechanism. | PARAMETER-ESCAPING-INCOMPLETE |

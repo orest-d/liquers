@@ -3,7 +3,7 @@ title: Query Language Reference
 kind: reference
 audience: internal
 area: [core/query]
-reviewed: 2026-10-27
+reviewed: 2026-11-04
 ---
 # DOC-02: Query Language, Keys, and Actions
 
@@ -382,7 +382,8 @@ refusal belongs to the store layer, not to the language. Executable evidence:
   segment, in a query with any number of segments (`-R/a/-/upper/-x/upper` looks the
   second `upper` up in realm `x`). See [`REALMS.md`](../REALMS.md).
 - A resource header name is currently ignored during plan building and produces a
-  plan warning.
+  plan warning. Converted to a pipeline, either kind of header name becomes the
+  pipeline's `realm`, and converts back unchanged ([`PIPELINES.md`](../PIPELINES.md)).
 - A resource header takes at most one parameter, its instruction (none means
   `GetAsset`). A second one is a `TooManyParameters` error.
 
@@ -439,6 +440,15 @@ point — and `encode` escapes `~`, so a value that *looks* like a link stays a 
 and re-parses as one. `parse(encode(p)) == p` holds for every programmatically built
 parameter. See `specs/design/parameter-entity-escaping/`.
 
+**Build queries with `QueryEditor`, and check a hand-built one with `check_encodable`.**
+`Query::check_encodable` refuses a query whose encoding does not parse back to the same
+encoding, naming the token class that failed (`escape::is_identifier`,
+`is_realm_name`, `is_resource_name`, `is_header_value`, `is_filename`).
+`liquers_core::pipeline::QueryEditor` builds a query through checked edits: every token
+is checked as it is set, values are escaped, names are resolved against a command
+registry snapshot, and a refused edit changes nothing. A query also converts to a
+**pipeline**, its structured form, and back; see [`PIPELINES.md`](../PIPELINES.md).
+
 ## Prioritized remaining improvements
 
 The P0 reference gap is closed, but implementation/API issues constrain what the
@@ -448,7 +458,7 @@ documentation can promise.
 |---:|---|---|---|---|
 | ~~P1~~ | ~~Realm behavior is limited~~ — resolved: every action is looked up in its own segment's realm ([`REALMS.md`](../REALMS.md)); multi-realm execution is `CORE-MULTI-REALM-INTERPRETER` | — | — | — |
 | ~~P1~~ | ~~Resource selector error text does not list valid selectors~~ — resolved: the `NotSupported` message lists them | — | — | — |
-| P1 | Public constructors allow non-round-trippable values | Medium | High | Add validated constructors or clearly named unchecked constructors |
+| P1 | Public constructors allow non-round-trippable values (mitigated: `check_encodable` detects them and `QueryEditor` cannot build them) | Medium | Medium | Add validated constructors or clearly named unchecked constructors |
 | ~~P2~~ | ~~`v` parameters are silently ignored~~ — resolved: `v` rejects parameters with a positioned error, like `q` | — | — | — |
 | P2 | Some query helpers return owned clones where borrowing could be clearer | Low | Medium | Consider borrowed accessors in a later API review |
 
@@ -518,6 +528,7 @@ Completed on 2026-07-26:
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-04 | Header names become a pipeline's realm; `check_encodable` and `QueryEditor` for programmatic construction; the P1 constructor gap is mitigated. | phase-5, `design/composite-command-definition/` |
 | 2026-10-27 | §Lexical forms: realm and resource-header names; non-ASCII characters in identifiers, filenames and headers are parse errors (they were read by their low byte). | design `query-token-classes-ascii` |
 | 2026-10-27 | §Planner instructions: `ns`, `q` and `v` cannot be command names. | design `reserved-instruction-command-names` |
 | 2026-10-20 | §Planner instructions reduced to what an instruction is and one line per instruction, linking to `RECIPES_AND_PLANS.md` (promoted from DOC-08), which now owns their semantics. §Headers: a resource header takes at most one parameter. §Headers: corrected two stale claims — a transform header sets the realm in multi-segment queries too, and a second resource-header parameter is an error, not a warning; removed the "Realm scope" limitation and struck the two resolved P1 rows. | DOC-08 promotion |
