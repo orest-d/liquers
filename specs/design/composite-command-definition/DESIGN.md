@@ -3,12 +3,11 @@ id: COMPOSITE-COMMAND-DEFINITION
 kind: design
 title: Pipelines - pipeline commands, recipe pipelines and the pipeline as query builder and editor
 workflow: liquers-project
-status: in_review
-phase: documentation
+status: complete
 area: [core/commands, core/plan, core/assets, core/query, core/validate, web]
 issues: [COMMAND-CANNOT-BE-DEFINED-AS-A-COMMAND-SEQUENCE, QUERY-BUILDER-TOOLING, RECIPE-OVERRIDE-ONLY-LAST-ACTION]
 merged: 2026-11-02
-affects_docs: [reference/PIPELINES.md, guides/PIPELINE_GUIDE.md, reference/PROJECT_OVERVIEW.md, reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md, reference/COMMAND_ALIASES.md, reference/COMMAND_DECLARATION.md, reference/RECIPES_AND_PLANS.md, reference/TEMPLATE_LANGUAGE.md, guides/COMMAND_REGISTRATION_GUIDE.md, guides/COMMAND_DESIGN_GUIDE.md, guides/QUERY_ESCAPING_GUIDE.md, reference/VALUE_TYPE_SYSTEM.md, guides/TYPE_SYSTEM_GUIDE.md, reference/REALMS.md, guides/LANGUAGE-INTEGRATION_GUIDE.md]
+affects_docs: [reference/PIPELINES.md, guides/PIPELINE_GUIDE.md, reference/PROJECT_OVERVIEW.md, reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md, reference/COMMAND_ALIASES.md, reference/COMMAND_DECLARATION.md, reference/RECIPES_AND_PLANS.md, reference/TEMPLATE_LANGUAGE.md, guides/COMMAND_REGISTRATION_GUIDE.md, guides/COMMAND_DESIGN_GUIDE.md, guides/QUERY_ESCAPING_GUIDE.md, reference/VALUE_TYPE_SYSTEM.md, guides/TYPE_SYSTEM_GUIDE.md, reference/REALMS.md, guides/LANGUAGE-INTEGRATION_GUIDE.md, reference/JAVASCRIPT_INTEGRATION.md, guides/JAVASCRIPT_GUIDE.md]
 created: 2026-11-01
 readiness: ready
 autofix: not-eligible
@@ -39,7 +38,7 @@ open questions. Main is merged again before Phase 5.
 - [x] Phase 2: Architecture (approved 2026-11-03, with pre-approval of the rest)
 - [x] Phase 3: Examples and Tests (2026-11-03, pre-approved)
 - [x] Phase 4: Implementation Plan (2026-11-03, pre-approved; implemented, Steps 1–13)
-- [ ] Phase 5: Documentation (written 2026-11-04; awaiting `proceed`)
+- [x] Phase 5: Documentation (approved 2026-11-04)
 
 ## Links
 
