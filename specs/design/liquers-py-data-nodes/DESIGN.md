@@ -4,7 +4,7 @@ kind: design
 title: "Data nodes in liquers-py: Python data read in place, and Liquers values read field by field"
 workflow: liquers-project
 status: approved
-phase: architecture
+phase: implementation
 readiness: needs-decision
 autofix: not-eligible
 area: [py, lib/value]

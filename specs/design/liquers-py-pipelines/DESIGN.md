@@ -4,7 +4,7 @@ kind: design
 title: "Pipelines in liquers-py: evaluate, convert, edit and register pipelines from Python"
 workflow: liquers-project
 status: approved
-phase: architecture
+phase: implementation
 readiness: needs-decision
 autofix: not-eligible
 area: [py]
