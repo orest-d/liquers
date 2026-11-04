@@ -6,7 +6,7 @@ status: draft
 priority: P2
 complexity: L
 area: [py, web]
-design:
+design: liquers-py-pipelines
 created: 2026-11-03
 github:
 ---
