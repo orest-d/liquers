@@ -3,8 +3,8 @@ id: FOREIGN-VALUE-DATA-NODE
 kind: design
 title: A foreign value can answer as a data node through a ForeignValue hook
 form: compact
-status: in_review
-phase: implementation
+status: complete
+gh_pr: [250]
 readiness: ready
 autofix: not-eligible
 area: [lib/value]
@@ -13,8 +13,10 @@ created: 2026-10-26
 ---
 # A foreign value can answer as a data node through a ForeignValue hook
 
-Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-26: Phases 1-4 written, not
-approved, nothing implemented.
+> **Complete on 2026-11-03**: implemented in #250.
+
+Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-26: Phases 1-4 written; implemented on
+2026-11-03.
 
 ## Phase 1: High-Level Design
 
@@ -180,12 +182,18 @@ Run: `cargo test -p liquers-lib --lib value::foreign`.
 
 ### Steps
 
-- [ ] 1. `liquers-lib/src/value/foreign.rs` — `ForeignValue::data_node` with the default, module doc line — `cargo test -p liquers-lib --lib value::foreign`.
-- [ ] 2. `liquers-lib/src/value/mod.rs` — `Foreign` arm of `data_node` delegates; doc comment — same command. Depends on 1.
-- [ ] 3. `foreign.rs` `mod tests` — `Mapped`, the JSON-only mock, the four tests; update `foreign_data_node_is_still_opaque` if present — `cargo test -p liquers-lib --lib value::foreign`. Rollback for 1-3: revert.
-- [ ] 4. `specs/guides/LANGUAGE-INTEGRATION_GUIDE.md` §`DATANODE` — name the hook (History row, `reviewed:`); close `FOREIGN-VALUE-HAS-NO-DATA-NODE` with a resolution note — `python3 scripts/docs_index.py --check`.
+- [x] 1. `liquers-lib/src/value/foreign.rs` — `ForeignValue::data_node` with the default, module doc line — `cargo test -p liquers-lib --lib value::foreign`.
+- [x] 2. `liquers-lib/src/value/mod.rs` — `Foreign` arm of `data_node` delegates; doc comment — same command. Depends on 1.
+- [x] 3. `foreign.rs` `mod tests` — `Mapped`, the JSON-only mock, the four tests; update `foreign_data_node_is_still_opaque` if present — `cargo test -p liquers-lib --lib value::foreign`. Rollback for 1-3: revert.
+- [x] 4. `specs/guides/LANGUAGE-INTEGRATION_GUIDE.md` §`DATANODE` — name the hook (History row, `reviewed:`); close `FOREIGN-VALUE-HAS-NO-DATA-NODE` with a resolution note — `python3 scripts/docs_index.py --check`.
 
 ### Validation
 
 `cargo test -p liquers-lib --lib --tests`; `bash scripts/check-build-matrix.sh`;
 `cargo check -p liquers-py`; diff review: only the named files.
+
+### Implementation notes (2026-11-03)
+
+- `foreign-value-text-json-delegation` had landed first, so its `foreign_data_node_is_still_opaque`
+  (which used the JSON-faithful mock) is replaced by this design's AC-2/AC-3 tests, as Phase 1
+  anticipated.

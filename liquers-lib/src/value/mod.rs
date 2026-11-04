@@ -539,8 +539,9 @@ impl ValueExtension for ExtValue {
     }
 
     /// Record views and polars frames read in place, a row at a time; a record source streams only
-    /// through a `Context` (`template::ContextHost::node_of`), so here it is opaque. Everything
-    /// else is its JSON snapshot.
+    /// through a `Context` (`template::ContextHost::node_of`), so here it is opaque. A foreign
+    /// value answers through its integration's `ForeignValue::data_node` hook. Images and UI
+    /// elements are opaque.
     fn data_node(value: Arc<Self>) -> liquers_core::data_node::AnyNode {
         use liquers_core::data_node::AnyNode;
         match value.as_ref() {
@@ -556,9 +557,8 @@ impl ValueExtension for ExtValue {
             }
             #[cfg(feature = "egui")]
             ExtValue::UiCommand { .. } | ExtValue::Widget { .. } => AnyNode::opaque(),
-            ExtValue::Image { .. } | ExtValue::UIElement { .. } | ExtValue::Foreign { .. } => {
-                AnyNode::opaque()
-            }
+            ExtValue::Foreign { value } => value.clone().data_node(),
+            ExtValue::Image { .. } | ExtValue::UIElement { .. } => AnyNode::opaque(),
         }
     }
 
