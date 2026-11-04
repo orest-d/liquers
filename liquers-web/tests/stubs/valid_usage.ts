@@ -211,6 +211,27 @@ async function main(): Promise<void> {
   void errorType;
   void errorQuery;
 
+  // Pipelines: plain objects, evaluated, converted, edited, and registered as a command.
+  const pipeline: liquers.LiquersPipeline = [{ action: 'hello' }, { action: 'shout' }];
+  const shouted: unknown = await liquers.evaluatePipeline(pipeline);
+  void shouted;
+  const text: string = liquers.pipelineToQuery(pipeline);
+  const back: liquers.LiquersPipeline = liquers.queryToPipeline(text);
+  void back;
+  liquers.registerCommand({
+    name: 'repeat_twice',
+    pipeline: { elements: [{ action: 'repeat', arguments: { count: { placeholder: 'n' } } }] },
+    arguments: [{ name: 'n', default: 2 }],
+  });
+  const editor = new liquers.PipelineEditor(pipeline);
+  const at: number = editor.action('repeat');
+  editor.set(at, 'count', 3);
+  const edited: liquers.LiquersPipeline = editor.pipeline();
+  void edited;
+  const edited_query: string = new liquers.QueryEditor('hello').query();
+  void edited_query;
+  editor.free();
+
   // Parameter encoding, and the module-level odds and ends.
   const param: string = liquers.encodeParam('two words');
   const ready: boolean = liquers.isInitialized();

@@ -1290,7 +1290,10 @@ so how does it reach a JSON slot?
 
 **Issues and patterns.** Keep the JSON form as the bridge: it is the serialized contract, and it
 already round-trips floats exactly. Do not reimplement representability or escaping in the
-*language*; call the Rust conversion. No binding implements this feature yet
+*language*; call the Rust conversion. `liquers-web` implements it
+([`design/web-pipelines/`](../design/web-pipelines/DESIGN.md): a pipeline is a plain object, the
+editors are wrapped, and a pipeline command is a declaration with `pipeline` in place of `run`);
+`liquers-py` does not yet
 ([`PIPELINES-NOT-IN-LANGUAGE-BINDINGS`](../issues/PIPELINES-NOT-IN-LANGUAGE-BINDINGS.md)).
 
 **Meaningful tests:** `PIPELINE01` evaluating a pipeline equals evaluating its query;
@@ -3990,6 +3993,7 @@ def test_DOCS04_every_public_name_is_documented():
 | Date | Change | Source |
 |---|---|---|
 | 2026-11-04 | New feature `PIPELINE` (overview row, soft dependency, §5 section with tests `PIPELINE01`–`05`); no binding implements it yet. | phase-5, `design/composite-command-definition/` |
+| 2026-11-04 | §PIPELINE: `liquers-web` implements the feature. | design `web-pipelines` |
 | 2026-11-03 | §DOCS: the package's module doc follows `API_DOCUMENTATION_GUIDE.md` §3; `DOCS04` checks it. | `design/api-documentation-rules/` |
 | 2026-11-01 | §DOCS: an integration's users get a guide in `docs/guides/<language>/`, parallel to the others and written from the contract reference and topic guide, which stay in `specs/`; the design question asks which chapters a milestone drafts. | `design/user-documentation-guides/` (phase-5) |
 | 2026-11-01 | §RECORDS: what `liquers-py` does (wrappers, buffers, Arrow/pandas/polars exits, scope, traversal, dispositions). Appendix A `PACKAGE04` uses the environment's version. §6 Python: records, packaging and type declarations, and what cost time (abi3t, extras without wheels, PyO3's `module=`, stubtest and pyright). | `design/liquers-py-records/`, `design/liquers-py-package/`, `design/liquers-py-stubs/` (phase-5) |
