@@ -147,8 +147,8 @@ Phase 1 and the follow-ups above, each of which is an issue. Nothing remains in 
 
 - `cargo test -p liquers-core --all-features`, `-p liquers-lib --lib --tests`, `-p liquers-mcp`,
   `-p liquers-records --lib --tests` after the merge of main: all pass.
-- `bash scripts/check-build-matrix.sh`: RESULT_MATRIX.
-- liquers-web Node loop (`--features debug-handles`, and with `records`): RESULT_WEB.
-- `cargo test -p liquers-core --doc` (module doc examples): RESULT_DOC.
+- `bash scripts/check-build-matrix.sh`: all 49 configurations OK.
+- liquers-web Node loop (`--features debug-handles`, and with `records`): all suites pass, with and without `records`.
+- `cargo test -p liquers-core --doc` (module doc examples): 29 passed, 0 failed.
 - `python3 scripts/check_api_docs.py` on the five pipeline and validate modules: 0 warnings.
 - `cargo run -p liquers-docs -- check`: 0 errors. `python3 scripts/docs_index.py --check`: 0 errors.

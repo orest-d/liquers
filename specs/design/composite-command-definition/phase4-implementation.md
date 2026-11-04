@@ -33,7 +33,7 @@ Exhaustive matches that new variants reach outside `liquers-core`:
 - [x] Step 10: Recipe pipelines (399b6a5)
 - [x] Step 11: Pipeline commands (22b0382)
 - [x] Step 12: `liquers-validate` pipeline support (5598eb7)
-- [ ] Step 13: Cross-crate arms, registry export, polars integration test, build matrix
+- [x] Step 13: Cross-crate arms, registry export, polars integration test, build matrix (d8d8533; matrix 49/49, liquers-web Node loop green)
 
 ## Implementation Steps
 
