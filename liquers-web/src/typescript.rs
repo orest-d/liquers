@@ -173,9 +173,80 @@ export type LiquersCommandImplementations = Record<string, LiquersCommandImpleme
  */
 export type LiquersCommandBatch =
   | LiquersCommandSpec
+  | LiquersPipelineCommandSpec
   | Omit<LiquersCommandSpec, "run"> & { run?: LiquersCommandSpec["run"] }
-  | Array<LiquersCommandSpec | (Omit<LiquersCommandSpec, "run"> & { run?: LiquersCommandSpec["run"] })>
+  | Array<
+      | LiquersCommandSpec
+      | LiquersPipelineCommandSpec
+      | (Omit<LiquersCommandSpec, "run"> & { run?: LiquersCommandSpec["run"] })
+    >
   | string;
+
+/**
+ * Where an action argument's value comes from, in a pipeline's JSON form. A bare JSON value (or
+ * `{ value }`) is a literal; the other forms are tagged objects.
+ */
+export type LiquersPipelineSource =
+  | string | number | boolean | null | LiquersPipelineSource[]
+  | { value: unknown }
+  | { placeholder: string }
+  | { link: string }
+  | { pipeline: LiquersPipeline }
+  | { state: true }
+  | { [key: string]: unknown };
+
+/** One element of a pipeline: an action, a value, a resource read, or query text. */
+export type LiquersPipelineElement =
+  | string
+  | {
+      action: string;
+      /** A namespace or a list; absent for the default namespaces. */
+      ns?: string | string[];
+      /** Positional arguments, consumed first. */
+      parameters?: LiquersPipelineSource[];
+      /** Arguments by name. */
+      arguments?: Record<string, LiquersPipelineSource>;
+    }
+  | { value: unknown }
+  | { resource: string; read?: string }
+  | { key_value: string }
+  | { cwd: string }
+  | { evaluate: string | LiquersPipeline }
+  | { query_value: unknown }
+  | { quote: true }
+  | { volatile: true }
+  | { pipeline: LiquersPipeline; realm?: string };
+
+/**
+ * A pipeline: the structured form of a query, as plain objects. An array is shorthand for
+ * `{ elements }`. `queryToPipeline` and `PipelineEditor.pipeline()` return the object form.
+ */
+export type LiquersPipeline =
+  | LiquersPipelineElement[]
+  | {
+      elements: LiquersPipelineElement[];
+      realm?: string;
+      header_parameters?: string[];
+      rooted?: boolean;
+      filename?: string;
+    };
+
+/**
+ * A pipeline command's declaration: `pipeline` in place of `run`. A call runs the pipeline on
+ * its input, with the declared `arguments` bound to its `{ placeholder }` sources. There is no
+ * function, so `state` and `async` do not apply, and arguments are never inferred.
+ */
+export interface LiquersPipelineCommandSpec {
+  name: string;
+  pipeline: LiquersPipeline;
+  /** The arguments its placeholders take. An omitted `type` is taken from the slot it fills. */
+  arguments?: LiquersArgument[];
+  namespace?: string;
+  realm?: string;
+  label?: string;
+  doc?: string;
+  volatile?: boolean;
+}
 
 /** One finding of a command validation report. */
 export interface LiquersIssue {
@@ -526,8 +597,9 @@ export interface LiquersRecordChunk {
 
 #[wasm_bindgen]
 extern "C" {
-    /// A command declaration object. Typed as `LiquersCommandSpec` in the generated `.d.ts`.
-    #[wasm_bindgen(typescript_type = "LiquersCommandSpec")]
+    /// A command declaration object. Typed as `LiquersCommandSpec` (or, for a pipeline command,
+    /// `LiquersPipelineCommandSpec`) in the generated `.d.ts`.
+    #[wasm_bindgen(typescript_type = "LiquersCommandSpec | LiquersPipelineCommandSpec")]
     pub type JsCommandSpecObject;
 
     /// A batch of commands: declarations or a serialized registry.

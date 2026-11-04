@@ -17,6 +17,36 @@
 //! `liquers_lib::environment::DefaultEnvironment` is generic over the value type and already
 //! selects the inline asset manager on `wasm32`, so it is used directly. See
 //! `specs/design/liquers-web/phase2-architecture.md`.
+//!
+//! # Main components
+//!
+//! - [`LiquersEnvironment`] (`Environment`) — the singleton (`Environment.global()`) or an
+//!   explicit instance (`new Environment()`), with `evaluate`, `evaluatePipeline` and the rest.
+//! - [`init_global`], [`shared_env`], [`with_global`], [`reset_global`] — the singleton's lifecycle.
+//! - [`register_commands_on`] / [`validate_commands_on`] — batch registration and its report.
+//! - [`current_metadata_registry`] — the singleton's command metadata, read without sharing it.
+//!
+//! # Where it is used
+//!
+//! The module-level functions in `lib.rs`, the editors in `crate::pipeline`, and every
+//! conformance suite (`tests/environment_ENVIRON.rs` first).
+//!
+//! # Related concepts
+//!
+//! `liquers_lib::environment::DefaultEnvironment` is the environment; `crate::store::builder`
+//! builds its store from a configuration. The contract is `specs/reference/JAVASCRIPT_INTEGRATION.md`
+//! §3.
+//!
+//! # Examples
+//!
+//! `tests/environment_ENVIRON.rs` (Node); the crate does not build natively, so there is no
+//! doctest:
+//!
+//! ```text
+//! init_global()?;
+//! register_command_on(&declaration)?;
+//! let value = crate::eval::evaluate_query(shared_env()?, parse_query("hello")?).await?;
+//! ```
 
 use std::cell::RefCell;
 
@@ -164,13 +194,37 @@ pub fn validate_commands_on(input: &JsValue, impls: &JsValue) -> IssueReport {
 /// Intake plus the registry check. The registry holds only the batch: the check is per command, so
 /// adding the commands already registered would change nothing but repeat their own findings in
 /// every report.
+///
+/// A pipeline command is the exception: its steps name commands outside the batch, so it is
+/// checked against the environment's registry with the whole batch added
+/// ([`checking_registry`]), after its argument types are completed from the slots they fill.
 fn validate_batch(input: &JsValue, impls: &JsValue) -> (Vec<Accepted>, IssueReport) {
     let (accepted, mut report) = read_batch(input, impls);
     let mut batch = CommandMetadataRegistry::new();
-    for command in &accepted {
+    for command in accepted.iter().filter(|c| !c.spec.is_pipeline()) {
         batch.add_command(&command.spec.metadata);
     }
     report.append(batch.check());
+
+    if accepted.iter().any(|c| c.spec.is_pipeline()) {
+        match checking_registry() {
+            Ok(mut context) => {
+                for command in &accepted {
+                    context.add_command(&command.spec.metadata);
+                }
+                for command in accepted.iter().filter(|c| c.spec.is_pipeline()) {
+                    let mut metadata = command.spec.metadata.clone();
+                    context.complete_pipeline_command(&mut metadata);
+                    report.append(metadata.check());
+                    report.append(context.check_pipeline_command(&metadata));
+                }
+            }
+            Err(e) => report.extend([liquers_core::issue_report::Issue::generic(
+                liquers_core::issue_report::IssueSeverity::Error,
+                format!("Pipeline commands could not be checked: {}", e.message),
+            )]),
+        }
+    }
     (accepted, report)
 }
 
@@ -210,6 +264,11 @@ pub fn register_commands_on(input: &JsValue, impls: &JsValue) -> Result<IssueRep
     if accepted.is_empty() {
         return Ok(report);
     }
+    // Function commands first: a pipeline command's steps may name a function command of the same
+    // batch, and registration completes its argument types from the registry as it then stands.
+    // Stable, so pipeline commands keep their order among themselves.
+    let mut accepted = accepted;
+    accepted.sort_by_key(|command| command.spec.is_pipeline());
 
     let replaced: Vec<(String, Replaced)> = accepted
         .iter()
@@ -661,6 +720,36 @@ pub fn with_global() -> Result<EnvRef<WebEnvironment>, Error> {
     })
 }
 
+/// The singleton's command metadata, without sharing the environment.
+///
+/// [`shared_env`] would share a pending environment, after which every registration rebuilds; a
+/// caller that only reads metadata (the pipeline conversions and editors, `crate::pipeline`) must
+/// not cause that. Reads the pending environment's registry while there is one, the shared one's
+/// snapshot otherwise, and fails with `NotAvailable` before `init()`.
+pub fn current_metadata_registry() -> Result<std::sync::Arc<CommandMetadataRegistry>, Error> {
+    let pending = PENDING_ENV.with(|cell| {
+        cell.borrow()
+            .as_ref()
+            .map(|env| std::sync::Arc::new(env.command_registry.command_metadata_registry.clone()))
+    });
+    if let Some(registry) = pending {
+        return Ok(registry);
+    }
+    Ok(with_global()?.command_metadata_snapshot())
+}
+
+/// The registry a batch's pipeline commands are checked against: the singleton's when it exists,
+/// otherwise a fresh environment's built-in set, so `validateCommands` stays usable before
+/// `init()` (it is documented as pure).
+fn checking_registry() -> Result<CommandMetadataRegistry, Error> {
+    match current_metadata_registry() {
+        Ok(registry) => Ok((*registry).clone()),
+        Err(_) => Ok(new_environment()?
+            .command_registry
+            .command_metadata_registry),
+    }
+}
+
 /// Whether the singleton has been initialized.
 pub fn is_initialized() -> bool {
     GLOBAL_ENV.with(|cell| cell.borrow().is_some())
@@ -823,6 +912,56 @@ impl LiquersEnvironment {
         }
     }
 
+    /// Evaluates a pipeline on **this** environment, returning a `Promise`; see the module-level
+    /// `evaluatePipeline`.
+    #[wasm_bindgen(js_name = evaluatePipeline)]
+    pub fn evaluate_pipeline(
+        &self,
+        #[wasm_bindgen(unchecked_param_type = "LiquersPipeline")] pipeline: JsValue,
+    ) -> js_sys::Promise {
+        match self.resolve() {
+            Ok(envref) => crate::pipeline::evaluate_pipeline_to_promise(envref, &pipeline),
+            Err(e) => js_sys::Promise::reject(&liquers_error_to_js(e)),
+        }
+    }
+
+    /// The query text of a pipeline, with named arguments placed by this environment's commands.
+    #[wasm_bindgen(js_name = pipelineToQuery)]
+    pub fn pipeline_to_query(
+        &self,
+        #[wasm_bindgen(unchecked_param_type = "LiquersPipeline")] pipeline: JsValue,
+    ) -> Result<String, JsValue> {
+        self.metadata_snapshot()
+            .and_then(|cmr| crate::pipeline::pipeline_to_query(&pipeline, &cmr))
+            .map_err(liquers_error_to_js)
+    }
+
+    /// A `PipelineEditor` checked against this environment's commands: empty, or over
+    /// `pipeline`.
+    #[wasm_bindgen(js_name = pipelineEditor)]
+    pub fn pipeline_editor(
+        &self,
+        #[wasm_bindgen(unchecked_optional_param_type = "LiquersPipeline")] pipeline: Option<
+            JsValue,
+        >,
+    ) -> Result<crate::pipeline::LiquersPipelineEditor, JsValue> {
+        let pipeline = pipeline.unwrap_or(JsValue::UNDEFINED);
+        self.metadata_snapshot()
+            .and_then(|cmr| crate::pipeline::LiquersPipelineEditor::open(&pipeline, cmr))
+            .map_err(liquers_error_to_js)
+    }
+
+    /// A `QueryEditor` checked against this environment's commands: empty, or over `query`.
+    #[wasm_bindgen(js_name = queryEditor)]
+    pub fn query_editor(
+        &self,
+        query: Option<String>,
+    ) -> Result<crate::pipeline::LiquersQueryEditor, JsValue> {
+        self.metadata_snapshot()
+            .and_then(|cmr| crate::pipeline::LiquersQueryEditor::open(query.as_deref(), cmr))
+            .map_err(liquers_error_to_js)
+    }
+
     /// Mounts a Liquers UI into a DOM element on **this** environment; see the module-level
     /// `mountUI`. On the singleton, the mount follows a rebuilt environment.
     #[wasm_bindgen(js_name = mountUI, unchecked_return_type = "Promise<UIMount>")]
@@ -836,11 +975,11 @@ impl LiquersEnvironment {
             Ok(envref) => envref,
             Err(e) => return js_sys::Promise::reject(&liquers_error_to_js(e)),
         };
-        let current: Option<Box<dyn FnMut() -> Option<EnvRef<WebEnvironment>>>> =
-            match &self.handle {
-                EnvHandle::Global => Some(Box::new(|| shared_env().ok())),
-                EnvHandle::Explicit(_) => None,
-            };
+        let current: Option<Box<dyn FnMut() -> Option<EnvRef<WebEnvironment>>>> = match &self.handle
+        {
+            EnvHandle::Global => Some(Box::new(|| shared_env().ok())),
+            EnvHandle::Explicit(_) => None,
+        };
         wasm_bindgen_futures::future_to_promise(async move {
             crate::ui::mount_ui_with(container, options, envref, current)
                 .await
@@ -945,6 +1084,16 @@ impl LiquersEnvironment {
         match &self.handle {
             EnvHandle::Global => shared_env(),
             EnvHandle::Explicit(envref) => Ok(envref.clone()),
+        }
+    }
+
+    /// This environment's command metadata, for reading only. For the singleton this does not
+    /// share a pending environment ([`current_metadata_registry`]), so a page that only converts
+    /// or edits pipelines does not turn its later registrations into rebuilds.
+    pub fn metadata_snapshot(&self) -> Result<std::sync::Arc<CommandMetadataRegistry>, Error> {
+        match &self.handle {
+            EnvHandle::Global => current_metadata_registry(),
+            EnvHandle::Explicit(envref) => Ok(envref.command_metadata_snapshot()),
         }
     }
 

@@ -2,11 +2,11 @@
 id: WEB-CANNOT-USE-PIPELINES
 kind: feature
 title: JavaScript cannot pass, evaluate or register pipelines
-status: draft
+status: closed
 priority: P2
 complexity: L
 area: [web]
-design:
+design: web-pipelines
 created: 2026-11-04
 github:
 ---
@@ -37,3 +37,8 @@ needed (`L`).
 
 Split from `PIPELINES-NOT-IN-LANGUAGE-BINDINGS` on 2026-11-04, when `liquers-py-pipelines` took
 its Python half.
+
+## Resolution
+
+2026-11-04: done by design `web-pipelines` (PR #256), which was written against
+`PIPELINES-NOT-IN-LANGUAGE-BINDINGS` before that issue was split; it now points here.

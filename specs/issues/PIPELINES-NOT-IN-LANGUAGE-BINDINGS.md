@@ -2,7 +2,7 @@
 id: PIPELINES-NOT-IN-LANGUAGE-BINDINGS
 kind: feature
 title: Python cannot pass, evaluate or register pipelines
-status: draft
+status: in_progress
 priority: P2
 complexity: L
 area: [py]
@@ -44,6 +44,14 @@ Design: `liquers-py-pipelines`.
 
 The maintainer's review of `composite-command-definition` on 2026-11-03 ("the language integration
 guide should specify the pipeline support").
+
+## Progress
+
+2026-11-04: the `liquers-web` half is done by design `web-pipelines` (PR #256): pipelines as plain
+objects, `evaluatePipeline`, the two conversions, wrapped editors, and pipeline commands through
+`registerCommands`. `liquers-py` remains; the web design's answers to the guide's four questions
+(native structure, wrapped editors, `ParameterError`, JSON-only placeholder values) are a
+reasonable default for it.
 
 **Scope split, 2026-11-04.** Narrowed to Python by `liquers-py-pipelines` (Phase 1). The
 JavaScript half is `WEB-CANNOT-USE-PIPELINES`.

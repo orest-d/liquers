@@ -14,4 +14,5 @@ TBD: 3.1 Running a query: `liquers.evaluate`; promises and errors.
 SOURCE: guides/JAVASCRIPT_GUIDE.md §6
 TBD: 3.2 Building a query in code: escaping argument values.
 SOURCE: guides/QUERY_ESCAPING_GUIDE.md
-TBD: Pipelines: the structured (JSON/YAML) form of a query; `QueryEditor` to build queries safely. Not yet available in this binding.
+TBD: Pipelines: the structured (JSON/YAML) form of a query, as plain objects; `evaluatePipeline`, `queryToPipeline` / `pipelineToQuery`, `QueryEditor` to build queries safely.
+SOURCE: guides/JAVASCRIPT_GUIDE.md §6 Pipelines
