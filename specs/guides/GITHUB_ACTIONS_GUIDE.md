@@ -15,8 +15,8 @@ workflow is described here in the pull request that adds it.
 
 | Workflow | Runs on | Does | Permissions and secrets |
 |---|---|---|---|
-| `build-matrix.yml` | PRs and `main` pushes touching a crate, `Cargo.toml`, `.cargo/` or the script | `scripts/check-build-matrix.sh`: every feature configuration, library and test targets, and wasm32 | read only; none |
-| `docs-check.yml` | PRs and `main` pushes touching `specs/`, `docs/`, the index scripts or the skill scripts | `docs_index.py --check`, the unit tests of `docs_index.py` and of the `liquers-project` skill scripts | read only; none |
+| `build-matrix.yml` | PRs and `main` pushes touching a crate, `Cargo.toml`, `.cargo/` or the script | `scripts/check-build-matrix.sh`: every feature configuration, library and test targets, and wasm32; a `rustdoc` job that denies broken intra-doc links on the clean crates (`API_DOCUMENTATION_GUIDE.md` §10) | read only; none |
+| `docs-check.yml` | PRs and `main` pushes touching `specs/`, `docs/`, a crate's `src/`, `liquers-py/python/`, the index and API-doc scripts or the skill scripts | `docs_index.py --check`, `check_api_docs.py` (module docs against `API_DOCUMENTATION_GUIDE.md` §3, warnings only), and the unit tests of both scripts and of the `liquers-project` skill scripts | read only; none |
 | `liquers-py-package.yml` | PRs touching `liquers-py` packaging or sources, the packaging scripts or either py workflow | builds the Linux x86_64 abi3 wheel as the release does, checks it, runs the installed-wheel tests; publishes nothing | read only; none |
 | `liquers-py-release.yml` | `liquers-py-v*` tags; PRs changing the workflow; manual | builds, checks and tests the sdist and fifteen wheels; on a tag publishes to a GitHub release, TestPyPI, then PyPI after the `pypi` environment's approval | release: `contents: write`; publish: `id-token: write` (trusted publishing), environments `testpypi`, `pypi`; no secrets |
 | `liquers-py-tests.yml` | PRs and `main` pushes touching a crate `liquers-py` builds from | `scripts/test-liquers-py.sh` on CPython 3.10, 3.14 and free-threaded 3.14t | read only; none |
@@ -103,6 +103,7 @@ npm is not implemented yet; it gets a design and a section here when it is.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-03 | §1: `build-matrix.yml`'s `rustdoc` job; `docs-check.yml` runs `check_api_docs.py` and triggers on source files. | `design/api-documentation-rules/` |
 | 2026-11-03 | §1: `liquers-py-package.yml` and `liquers-py-release.yml`, merged from `main`; §4 PyPI points to them. | merge of `design/liquers-py-package` |
 | 2026-11-02 | §1, §2: the site carries every API reference (all crates, Python, JavaScript); its layout, the new setup steps and the home-page link check. | `design/user-documentation-guides` (phase-4 addendum) |
 | 2026-11-01 | Created: the five workflows, `docs-site.yml` and its Pages setup, adding a workflow, reserved publishing sections. | `design/user-documentation-guides` (phase-5) |

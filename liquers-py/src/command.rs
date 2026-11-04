@@ -385,6 +385,10 @@ fn prepare_call<'py>(
             | ParameterValue::EnumLink(_, _, _)
             | ParameterValue::Placeholder(_)
             | ParameterValue::Injected(_)
+            | ParameterValue::ParameterPipeline(_, _, _)
+            | ParameterValue::OverridePipeline(_, _)
+            | ParameterValue::DefaultPipeline(_, _)
+            | ParameterValue::InputState(_) | ParameterValue::FrameArgument(_, _)
             | ParameterValue::None => {
                 positional.push(value_to_py(py, &arguments.get_value(i, "argument")?, &scope)?);
             }

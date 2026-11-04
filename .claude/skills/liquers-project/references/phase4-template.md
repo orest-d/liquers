@@ -31,7 +31,8 @@ signature a step depends on before writing it. File: `phase4-implementation.md`.
 <Whole-change rollback, and what happens when only some steps landed.>
 
 ## Documentation Updates
-<Documents to create or update (from Phase 2's documentation architecture), regenerated files
+<Documents to create or update (from Phase 2's documentation architecture), the module docs and
+the checks of `API_DOCUMENTATION_GUIDE.md` §10 to run on them, regenerated files
 (`specs/index.csv`, `specs/command_registry.yaml`), History rows and `reviewed:` bumps.>
 
 ## Phase 5 Entry Criteria

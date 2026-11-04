@@ -3,7 +3,7 @@ title: Command Aliases
 kind: reference
 audience: internal
 area: [core/commands, core/plan]
-reviewed: 2026-10-20
+reviewed: 2026-11-04
 ---
 # Command Aliases
 
@@ -23,8 +23,14 @@ The how-to is in [`guides/COMMAND_REGISTRATION_GUIDE.md`](../guides/COMMAND_REGI
 pub enum CommandDefinition {
     Registered,
     Alias { command: CommandKey, head_parameters: Vec<CommandParameterValue> },
+    Pipeline { pipeline: Pipeline },
 }
 ```
+
+`Pipeline` is the other command with no implementation: a **pipeline command**, a sequence of
+commands whose arguments are the pipeline's placeholders. Where an alias fixes leading arguments of
+one command, a pipeline command can chain several, bind arguments by name, and pass structured
+values; it is described in [`PIPELINES.md`](PIPELINES.md) §4, not here.
 
 In YAML (`specs/command_registry.yaml`):
 
@@ -83,7 +89,7 @@ same rules as one built by `CommandRegistry::register_alias`.
 | Rule | Error (`ErrorType`) |
 |---|---|
 | The target is registered | `Error::alias_target_not_registered` (`ActionNotRegistered`) |
-| The target is not an alias, and is not the alias itself | `Error::alias_chain_not_supported` (`NotSupported`) |
+| The target is not an alias or a pipeline command, and is not the alias itself | `Error::alias_chain_not_supported` (`NotSupported`) |
 | `head_parameters.len()` ≤ the target's argument count | `Error::invalid_alias` (`ParameterError`) |
 | No head fills an injected or a `multiple` target argument | `Error::invalid_alias` (`ParameterError`) |
 
@@ -133,6 +139,7 @@ arguments) would still be `ActionOrigin::Alias`: its rules live in the alias's m
 
 - [`COMMAND_DECLARATION.md`](COMMAND_DECLARATION.md) §4.1 — `definition` as a declarable key.
 - [`POLARS_COMMAND_LIBRARY.md`](POLARS_COMMAND_LIBRARY.md) — `pl/head`.
+- [`PIPELINES.md`](PIPELINES.md) §4 — pipeline commands; a pipeline body may call aliases.
 - [`RECIPES_AND_PLANS.md`](RECIPES_AND_PLANS.md) — plan steps.
 - Design: [`design/command-alias-contract/`](../design/command-alias-contract/).
 
@@ -140,6 +147,7 @@ arguments) would still be `ActionOrigin::Alias`: its rules live in the alias's m
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-04 | `CommandDefinition::Pipeline`; an alias cannot target a pipeline command. | phase-5, `design/composite-command-definition/` |
 | 2026-10-20 | Links to `reference/api/DOC_08_RECIPES_PLANS.md` follow its promotion to `reference/RECIPES_AND_PLANS.md`. | DOC-08 promotion |
 | 2026-10-17 | A head parameter may be a link, evaluated as a dependency; template commands (`pack/open_issues` → `template/render`) as the example. | `design/liquers-mustache/` |
 | 2026-10-13 | `rec/records_schema` is an alias of `rec/schema`; registered aliases listed in §1. | `design/record-filter-commands/` |

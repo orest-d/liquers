@@ -14,15 +14,15 @@
 //!
 //! # Where the compiled chains run
 //!
-//! Only in [`MetadataPipelineStore`](crate::store::MetadataPipelineStore), which holds one [`CompiledChain`](crate::store::realm::CompiledChain) per stage and runs it
+//! Only in [`MetadataPipelineStore`](crate::store::MetadataPipelineStore), which holds one [`CompiledChain`] per stage and runs it
 //! around a data backend's data-only methods. No store implements handlers, and nothing calls
-//! [`CompiledChain::run`](crate::store::realm::CompiledChain::run) outside the pipeline except tests. The pipeline is built automatically by
+//! [`CompiledChain::run`] outside the pipeline except tests. The pipeline is built automatically by
 //! [`crate::store_factory::StoreRouterBuilder`] for each mount with a non-empty `metadata` section
 //! (and by `EnvironmentBuilder` with a store configuration, which uses that builder); see the
 //! [`pipeline`](crate::store::pipeline) module for the call path, the cases with no pipeline, the stores that can
 //! be wrapped, and a runnable example.
 //!
-//! The usual sources of the registry and the functions are [`StoreConfigFunctions::builtin`](crate::store::realm::StoreConfigFunctions::builtin) and,
+//! The usual sources of the registry and the functions are [`StoreConfigFunctions::builtin`] and,
 //! in an environment, `CommandRegistry::store_config` beside `command_metadata_registry`.
 
 use crate::command_metadata::{CommandKey, CommandMetadata, CommandMetadataRegistry};
@@ -462,8 +462,10 @@ impl StoreConfigFunctions {
                 | Step::GetResourceDirectory(_)
                 | Step::Evaluate(_)
                 | Step::UseQueryValue(_)
+                | Step::UseValue(_)
                 | Step::Filename(_)
                 | Step::Plan(_)
+                | Step::PipelineCommand { .. }
                 | Step::SetCwd(_)
                 | Step::UseKeyValue(_) => {
                     return Err(context.refuse_step(step));
@@ -562,6 +564,7 @@ impl StoreConfigFunctions {
                 Step::Warning(message) => out.push(message_step(LogEntryKind::Warning, message)),
                 Step::Error(message) => out.push(message_step(LogEntryKind::Error, message)),
                 Step::Plan(nested) => self.compile_plan(nested, stage, context, out)?,
+                Step::PipelineCommand { .. } => return Err(context.refuse_step(step)),
                 Step::SetCwd(_) => {
                     return Err(
                         context.error("sets a working directory, which is not supported", None)
@@ -577,6 +580,7 @@ impl StoreConfigFunctions {
                 | Step::GetResourceDirectory(_)
                 | Step::Evaluate(_)
                 | Step::UseQueryValue(_)
+                | Step::UseValue(_)
                 | Step::Filename(_)
                 | Step::UseKeyValue(_) => return Err(context.refuse_step(step)),
             }
@@ -617,10 +621,12 @@ impl CompileContext<'_> {
             | Step::GetAssetRecipe(_)
             | Step::GetAssetDirectory(_)
             | Step::Evaluate(_)
-            | Step::UseQueryValue(_) => "a step that needs the asset layer",
+            | Step::UseQueryValue(_)
+            | Step::UseValue(_) => "a step that needs the asset layer",
             Step::Filename(_) => "an output filename",
             Step::SetCwd(_) => "a working directory",
             Step::Plan(_) => "a nested plan",
+            Step::PipelineCommand { .. } => "a pipeline command",
             Step::Action { .. } | Step::Info(_) | Step::Warning(_) | Step::Error(_) => "a step",
         };
         self.error(&format!("contains {what}"), None)
@@ -672,6 +678,14 @@ fn check_literals(
             ParameterValue::Placeholder(name) => Err(format!("parameter '{name}' is missing")),
             ParameterValue::Injected(name) => Err(format!(
                 "parameter '{name}' is injected, which is not supported"
+            )),
+            ParameterValue::ParameterPipeline(name, _, _)
+            | ParameterValue::OverridePipeline(name, _)
+            | ParameterValue::DefaultPipeline(name, _) => Err(format!(
+                "parameter '{name}' is a pipeline; only literals are allowed"
+            )),
+            ParameterValue::InputState(name) | ParameterValue::FrameArgument(name, _) => Err(format!(
+                "parameter '{name}' is the input state; only literals are allowed"
             )),
             ParameterValue::None => Err("a parameter is unresolved".to_string()),
         }
@@ -795,6 +809,10 @@ pub fn string_parameter(parameters: &ResolvedParameterValues, name: &str) -> Res
             | ParameterValue::EnumLink(_, _, _)
             | ParameterValue::MultipleParameters(_, _)
             | ParameterValue::Injected(_)
+            | ParameterValue::ParameterPipeline(_, _, _)
+            | ParameterValue::OverridePipeline(_, _)
+            | ParameterValue::DefaultPipeline(_, _)
+            | ParameterValue::InputState(_) | ParameterValue::FrameArgument(_, _)
             | ParameterValue::None => {}
         }
     }
@@ -829,6 +847,10 @@ pub fn string_list_parameter(
                         | ParameterValue::EnumLink(_, _, _)
                         | ParameterValue::MultipleParameters(_, _)
                         | ParameterValue::Injected(_)
+                        | ParameterValue::ParameterPipeline(_, _, _)
+                        | ParameterValue::OverridePipeline(_, _)
+                        | ParameterValue::DefaultPipeline(_, _)
+                        | ParameterValue::InputState(_) | ParameterValue::FrameArgument(_, _)
                         | ParameterValue::None => {
                             return Err(Error::configuration_error(format!(
                                 "parameter '{name}' has an element that is not a literal"

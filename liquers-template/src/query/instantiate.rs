@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use liquers_core::command_metadata::CommandMetadataRegistry;
 use liquers_core::data_node::{AnyNode, NodeKind, Scalar};
 use liquers_core::error::Error;
-use liquers_core::escape::is_resource_name_char;
+use liquers_core::escape;
 use liquers_core::query::{ActionParameter, Query, QuerySegment};
 
 use crate::name::{kind_name, resolve, Resolved};
@@ -61,41 +61,19 @@ impl Place {
     }
 }
 
-fn is_identifier(text: &str) -> bool {
-    let mut chars = text.chars();
-    match chars.next() {
-        Some(c) if c.is_ascii_alphabetic() || c == '_' => {}
-        Some(_) | None => return false,
-    }
-    chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
-}
-
+// The token classes are liquers-core's, so a template accepts exactly what the parser reads back
+// (AC-34 of `composite-command-definition`). A key segment additionally refuses `.` and `..`: a
+// filled value must not climb out of the folder the template names.
 fn is_key_segment(text: &str) -> bool {
-    let mut chars = text.chars();
-    match chars.next() {
-        Some(c) if is_resource_name_char(c) => {}
-        Some(_) | None => return false,
-    }
-    text != "." && text != ".." && chars.all(|c| is_resource_name_char(c) || c == '-')
-}
-
-fn is_filename(text: &str) -> bool {
-    let Some((stem, extension)) = text.split_once('.') else {
-        return false;
-    };
-    stem.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
-        && !extension.is_empty()
-        && extension
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.' || c == '-')
+    text != "." && text != ".." && escape::is_resource_name(text)
 }
 
 fn valid(place: Place, text: &str) -> bool {
     match place {
         Place::Parameter => true,
-        Place::Namespace | Place::ActionName => is_identifier(text),
+        Place::Namespace | Place::ActionName => escape::is_identifier(text),
         Place::KeySegment => is_key_segment(text),
-        Place::Filename => is_filename(text),
+        Place::Filename => escape::is_filename(text),
     }
 }
 
@@ -392,6 +370,18 @@ mod tests {
     fn fill(template: &str, data: serde_json::Value) -> Result<Instantiated, Error> {
         let t = parse_query_template(template)?;
         futures::executor::block_on(t.instantiate(&stack(data), &cmr()))
+    }
+
+    /// AC-34 of `composite-command-definition`: the validators are liquers-core's predicates.
+    #[test]
+    fn validators_use_core_predicates() {
+        for text in ["a", "1a", "a b", "from_csv", "a.b", "x.txt", "data.tar.gz", ".", "..", "a-b", ""] {
+            assert_eq!(valid(Place::ActionName, text), escape::is_identifier(text), "{text:?}");
+            assert_eq!(valid(Place::Namespace, text), escape::is_identifier(text), "{text:?}");
+            assert_eq!(valid(Place::Filename, text), escape::is_filename(text), "{text:?}");
+            let key = escape::is_resource_name(text) && text != "." && text != "..";
+            assert_eq!(valid(Place::KeySegment, text), key, "{text:?}");
+        }
     }
 
     #[test]

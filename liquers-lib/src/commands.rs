@@ -8,7 +8,6 @@ use liquers_core::{
     state::State,
     value::ValueInterface,
 };
-use liquers_macro::register_command;
 
 use crate::{
     environment::{CommandRegistryAccess, DefaultEnvironment},
@@ -63,19 +62,19 @@ pub fn from_yaml<E: Environment<Value = Value>>(
     let x = value.as_ref();
     match x {
         Value::Base(SimpleValue::Text { value }) => {
-            context.info("Parsing yaml string");
+            context.info("Parsing yaml string")?;
             let v: SimpleValue = serde_yaml::from_str(&value)
                 .map_err(|e| Error::general_error(format!("Error parsing yaml string: {e}")))?;
             Ok(Value::new_base(v))
         }
         Value::Base(SimpleValue::Bytes { value: b }) => {
-            context.info("Parsing yaml bytes");
+            context.info("Parsing yaml bytes")?;
             let v: SimpleValue = serde_yaml::from_slice(b)
                 .map_err(|e| Error::general_error(format!("Error parsing yaml bytes: {e}")))?;
             Ok(Value::new_base(v))
         }
         _ => {
-            context.info("Keeping original value unchanged");
+            context.info("Keeping original value unchanged")?;
             Ok(x.clone())
         }
     }
@@ -103,6 +102,10 @@ fn default_value_display(v: &CommandParameterValue) -> String {
             serde_json::to_string(val).unwrap_or_else(|_| format!("{:?}", val))
         }
         CommandParameterValue::Query(q) => format!("`{}`", q.encode()),
+        CommandParameterValue::Pipeline(p) => match p.to_query_text() {
+            Ok(text) => format!("pipeline `{text}`"),
+            Err(_) => "pipeline".to_string(),
+        },
         CommandParameterValue::None => "\u{2014}".to_string(), // em-dash
     }
 }
@@ -174,6 +177,9 @@ pub fn commands_doc<E: Environment>(
                         &command.namespace
                     };
                     let _ = writeln!(md, "Alias for `{}/{}`\n", alias_ns, command.name);
+                }
+                CommandDefinition::Pipeline { pipeline } => {
+                    let _ = writeln!(md, "Pipeline command: `{}`\n", pipeline.to_json());
                 }
             }
 

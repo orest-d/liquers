@@ -12,14 +12,42 @@
 //! something wrong (an unparseable `cwd`, a malformed registry). Conflating the two would force
 //! callers to tell "your query is wrong" from "the validator is broken" by reading message text.
 //!
-//! ```no_run
+//! # Main components
+//!
+//! - [`validate_query`], [`validate_recipes`] and [`validate_pipeline`] — one input each.
+//! - [`ValidationRegistryBuilder`] — the command registry to validate against, from files.
+//! - [`build_report`] and [`ValidationReport`] — the envelope `liquers-validate` prints.
+//! - [`pipeline_from_build_args`] and [`with_pipeline_form`] — `--build` and `--emit pipeline`.
+//!
+//! # Where it is used
+//!
+//! - The `liquers-validate` binary (`liquers-core/src/bin/liquers_validate.rs`, feature `cli`).
+//! - `liquers-docs` and `liquers-web`'s command import, which read registry and metadata files
+//!   with [`from_json_or_yaml`].
+//! - `liquers-lib`'s `registry_export` test, which checks the exported registry.
+//!
+//! Also the `liquers-validate` skill, which wraps the binary.
+//!
+//! # Related concepts
+//!
+//! - [`crate::plan::PlanBuilder`] and [`crate::pipeline::PipelinePlanBuilder`] build the plans;
+//!   this module only reports on them, and never runs one.
+//! - [`crate::command_metadata::CommandMetadataRegistry`] is the registry itself; the builder
+//!   here only assembles one from files and records where each command came from.
+//!
+//! # Examples
+//!
+//! ```
 //! use liquers_core::validate::{validate_query, ValidationLevel, ValidationRegistryBuilder};
 //!
-//! let (registry, provenance) = ValidationRegistryBuilder::new().build();
+//! let (registry, _provenance) = ValidationRegistryBuilder::new().build();
 //! let result = validate_query("-R/data/report.txt/-/to_text", 0, ValidationLevel::Parse, &registry);
 //! assert!(result.error.is_none());
-//! let _ = provenance;
+//! assert_eq!(result.encoded.as_deref(), Some("-R/data/report.txt/-/to_text"));
 //! ```
+//!
+//! More: [`validate_pipelines.rs`](https://github.com/orest-d/liquers/blob/main/liquers-core/tests/validate_pipelines.rs)
+//! (pipelines, `--build`, `--emit query`), and `CLAUDE.md` §Validating queries.
 
 pub mod registry;
 pub mod report;
@@ -35,6 +63,7 @@ use crate::error::Error;
 use crate::parse::{parse_key, parse_query};
 use crate::plan::PlanBuilder;
 use crate::query::Query;
+use crate::pipeline::{ElementKind, Located, Operand, Pipeline, Read, Source};
 use crate::recipes::{Recipe, RecipeList};
 
 /// Validate a single query string.
@@ -98,6 +127,18 @@ pub fn validate_recipe(
     if !recipe.title.is_empty() {
         result.title = Some(recipe.title.clone());
     }
+    if recipe.pipeline.is_some() {
+        match recipe.to_pipeline(cmr) {
+            Ok(pipeline) => result.pipeline = Some(pipeline.to_json()),
+            Err(e) => {
+                return ValidationResult {
+                    status: ValidationStatus::Error,
+                    error: Some(e),
+                    ..result
+                }
+            }
+        }
+    }
 
     if level == ValidationLevel::Parse {
         return result;
@@ -140,6 +181,114 @@ pub fn validate_recipe(
             ..result
         },
     }
+}
+
+/// Validate a pipeline (AC-35).
+///
+/// The pipeline is planned as [`Pipeline::to_plan`] plans it. Its query form, when it has one,
+/// is `encoded` and `query`; one without is a warning naming the representability rule, or an
+/// error when `require_query` is set (`--emit query`). At [`ValidationLevel::Parse`] the query
+/// form is written without a registry, so typed values are not checked.
+pub fn validate_pipeline(
+    pipeline: &Pipeline,
+    source: String,
+    index: usize,
+    level: ValidationLevel,
+    require_query: bool,
+    cmr: &CommandMetadataRegistry,
+) -> ValidationResult {
+    let mut result = ValidationResult::new(index, source);
+    result.pipeline = Some(pipeline.to_json());
+    let query_form = match level {
+        ValidationLevel::Parse => pipeline.to_query_text().and_then(|text| parse_query(&text)),
+        ValidationLevel::Plan => pipeline.to_query_with(cmr),
+    };
+    match query_form {
+        Ok(query) => {
+            result.encoded = Some(query.encode());
+            result.query = Some(query);
+        }
+        Err(e) if require_query => return ValidationResult::failed(index, result.source, e),
+        Err(e) => {
+            result.status = ValidationStatus::Warning;
+            result.warnings.push(ValidationWarning::new(
+                WarningSource::NotRepresentable,
+                e.message.clone(),
+            ));
+        }
+    }
+    match level {
+        ValidationLevel::Parse => result,
+        ValidationLevel::Plan => match pipeline.to_plan(cmr) {
+            Ok(plan) => result.with_plan(plan),
+            Err(e) => ValidationResult {
+                status: ValidationStatus::Error,
+                error: Some(e),
+                ..result
+            },
+        },
+    }
+}
+
+/// Adds the pipeline form of a result's query, when it has a query and no pipeline yet
+/// (`--emit pipeline`). A query always converts (AC-25); a failure is reported as the result's
+/// error.
+pub fn with_pipeline_form(mut result: ValidationResult) -> ValidationResult {
+    if result.pipeline.is_some() {
+        return result;
+    }
+    if let Some(query) = &result.query {
+        match Pipeline::try_from(query) {
+            Ok(pipeline) => result.pipeline = Some(pipeline.to_json()),
+            Err(e) => {
+                result.status = ValidationStatus::Error;
+                result.error = Some(e);
+            }
+        }
+    }
+    result
+}
+
+/// The pipeline spelled by shell arguments (`--build`, the former `liquers-encode`): `R:<key>`
+/// reads a resource, `A:<name>` starts an action and `P:<value>` adds a parameter to the action
+/// before it. Each value is taken as it is, so nothing needs escaping in the shell; the query
+/// form escapes it.
+pub fn pipeline_from_build_args(args: &[String]) -> Result<Pipeline, Error> {
+    let mut elements: Vec<crate::pipeline::PipelineElement> = Vec::new();
+    for arg in args {
+        let (kind, value) = arg.split_once(':').ok_or_else(|| {
+            Error::general_error(format!(
+                "--build argument '{arg}' has no prefix; use R:<key>, A:<name> or P:<value>"
+            ))
+        })?;
+        match kind {
+            "R" => elements.push(Located::new(ElementKind::Resource {
+                resource: Operand::Literal(value.to_owned()),
+                read: Read::Asset,
+            })),
+            "A" => elements.push(Located::new(ElementKind::Action(
+                crate::pipeline::ActionElement::new(value),
+            ))),
+            "P" => match elements.last_mut().map(|e| &mut e.item) {
+                Some(ElementKind::Action(action)) => action
+                    .parameters
+                    .push(Located::new(Source::Value(serde_json::Value::String(
+                        value.to_owned(),
+                    )))),
+                Some(_) | None => {
+                    return Err(Error::general_error(format!(
+                        "--build parameter '{value}' does not follow an action (A:<name>)"
+                    )))
+                }
+            },
+            other => {
+                return Err(Error::general_error(format!(
+                    "--build prefix '{other}:' is unknown; use R:<key>, A:<name> or P:<value>"
+                )))
+            }
+        }
+    }
+    Ok(Pipeline::new(elements))
 }
 
 /// Validate every recipe in a list, in order.

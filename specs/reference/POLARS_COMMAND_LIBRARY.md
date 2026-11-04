@@ -3,7 +3,7 @@ title: Polars Command Library Specification
 kind: reference
 audience: internal
 area: [lib/polars]
-reviewed: 2026-10-14
+reviewed: 2026-11-03
 ---
 # Polars Command Library Specification
 
@@ -374,12 +374,18 @@ The `try_to_polars_dataframe` utility function is the foundation of the entire c
      - For Bytes: wrap in cursor and parse
    - `"parquet"`: Parse as Parquet using `polars::io::ParquetReader`
      - Requires Bytes value
+   - `"ipc"`, `"feather"`, `"arrow_ipc"`, `"arrow"`: Parse as an Arrow IPC file (Feather v2) using
+     `polars::io::IpcReader`; written with `IpcWriter`, uncompressed. Requires Bytes value.
+     polars' default compatibility level writes strings as `Utf8View`, which pyarrow ≥ 15 and
+     polars read; older Arrow readers may not.
+   - A binary format's bytes (Parquet, IPC) are taken as they are, never through the text
+     conversion, which is lossy UTF-8 for bytes.
    - `"json"` (future): Parse as JSON
    - Other formats: Return error with helpful message
 
    **Error handling**:
    - If value is not DataFrame, Text, or Bytes: `"Cannot convert {type} to DataFrame"`
-   - If format is unknown: `"Unsupported data format '{format}' for DataFrame conversion. Supported: csv, parquet"`
+   - If format is unknown: `"Unsupported data format '{format}' for DataFrame conversion. Supported: csv, parquet, ipc"`
    - If deserialization fails: `"Failed to parse {format} as DataFrame: {error}"`
 
    **Example implementation skeleton**:
@@ -903,6 +909,7 @@ To minimize dependencies and enable incremental testing:
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-03 | §Inputs, supported formats: Arrow IPC under four spellings, read and written, and declared by `polars.DataFrame`'s `TypeInfo`; binary formats bypass the text conversion. Only this section was checked against the code. | `design/polars-dataframe-ipc/` |
 | 2026-10-14 | §Inputs, runtime: lazy commands collect through `collect_on_any_runtime`, so `ns-pl` works on a current-thread runtime. | `POLARS-COLLECT-PANICS-ON-CURRENT-THREAD-RUNTIME` |
 | 2026-10-13 | Inputs (record views accepted, sources refused) and runtime note; polars-first conventions table with pandas; `sort` takes `ascending: bool`, `nulls_last` and is stable; implemented string predicates (`starts_with`, `ends_with`, `contains`, case-insensitive by default), `is_in`, `is_null`, `is_not_null` replace the planned `startswith` / `isnull` / `notnull`; counts are `i64`. Only these sections were checked against the code. | `design/record-filter-commands/` |
 | 2026-10-10 | `head` is an alias of `slice` (`offset = 0`) rather than its own implementation; the implementation-pattern example uses `tail`, which still is one. Only the slicing rows were checked against the code. | phase-5, `design/command-alias-contract/` |

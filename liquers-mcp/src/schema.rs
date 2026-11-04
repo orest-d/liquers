@@ -74,7 +74,9 @@ fn is_required(argument: &ArgumentInfo) -> bool {
         return false;
     }
     match &argument.default {
-        CommandParameterValue::Value(_) | CommandParameterValue::Query(_) => false,
+        CommandParameterValue::Value(_)
+        | CommandParameterValue::Query(_)
+        | CommandParameterValue::Pipeline(_) => false,
         CommandParameterValue::None => true,
     }
 }

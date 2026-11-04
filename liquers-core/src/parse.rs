@@ -305,28 +305,12 @@ impl<'a> From<Span<'a>> for Position {
     }
 }
 
-// Token classes of the query grammar. All are ASCII: a `char` is tested as itself, never through
-// its low byte (`c as u8` read `Ł`, U+0141, as `A`).
-
-#[inline]
-fn is_identifier_start(c: char) -> bool {
-    c.is_ascii_alphabetic() || c == '_'
-}
-
-#[inline]
-fn is_identifier_char(c: char) -> bool {
-    c.is_ascii_alphanumeric() || c == '_'
-}
-
-#[inline]
-fn is_filename_suffix_char(c: char) -> bool {
-    is_identifier_char(c) || c == '.' || c == '-'
-}
-
-#[inline]
-fn is_header_value_char(c: char) -> bool {
-    is_identifier_char(c) || c == '.'
-}
+// Token classes of the query grammar live in `crate::escape`, shared with the encodability check,
+// the pipeline editors and `liquers-template`.
+use crate::escape::{
+    is_filename_suffix_char, is_header_value_char, is_identifier_char,
+    is_identifier_start_char as is_identifier_start,
+};
 
 fn identifier(text: Span) -> IResult<Span, String> {
     let (text, a) = take_while1(is_identifier_start)(text)?;

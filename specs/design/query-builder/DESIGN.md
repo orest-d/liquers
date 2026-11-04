@@ -2,20 +2,32 @@
 id: QUERY-BUILDER
 kind: design
 title: A validating query builder in liquers-core, and a liquers-encode command line tool
-status: in_review
-phase: implementation
-readiness: needs-decision
-autofix: not-eligible
+status: superseded
 area: [core/query, core/validate, web]
 issues: [QUERY-BUILDER-TOOLING]
 affects_docs: [specs/guides/QUERY_ESCAPING_GUIDE.md, specs/reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md, specs/reference/PROJECT_OVERVIEW.md, specs/reference/TEMPLATE_LANGUAGE.md]
 created: 2026-10-21
+superseded_by: composite-command-definition
 ---
 # A validating query builder in liquers-core, and a liquers-encode command line tool
 
 Bulk design (`specs/guides/autonomous_bulk_design.md`): Phases 1-4 written on 2026-10-21 for a
 first slice (core library API, CLI, the `liquers-template` and `liquers-web` consumers), not
 approved, nothing implemented. Exposing the builder in Python and JavaScript is a follow-up.
+
+**Superseded on 2026-11-02** by `design/composite-command-definition/`, at the maintainer's
+request: pipelines overlap queries and plans, so the query builder becomes the pipeline's
+`QueryEditor`. What moved where:
+
+- `QueryBuilder` → `QueryEditor`, a thin wrapper over `PipelineEditor` that refuses every edit
+  leaving the pipeline without a query form.
+- The token predicates in `escape.rs`, `Query::check_encodable`, the explicit `-/` header, the
+  `liquers-encode` CLI (folded into `liquers-validate`, Q24), the shared predicates in `liquers-template`, and the empty `encodeParam`
+  → the same, in that design's Phase 1 (AC-31 to AC-36).
+- `QUERY-BUILDER-TOOLING` is now one of that design's sources.
+
+This folder is kept for its reasoning (Phase 1 readiness, open questions 1–3), which the merged
+design adopts.
 
 ## Phase Status
 

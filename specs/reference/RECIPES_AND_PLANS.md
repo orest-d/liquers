@@ -3,7 +3,7 @@ title: Recipes and Plans Reference
 kind: reference
 audience: internal
 area: [core/plan, core/query, core/assets, core/context]
-reviewed: 2026-11-01
+reviewed: 2026-11-04
 ---
 # Recipes and Plans
 
@@ -75,6 +75,7 @@ derived from them remain fallible.
 | Field | Operational meaning |
 |---|---|
 | `query` | Query compiled into a plan |
+| `pipeline` | Optional. A pipeline that runs before `query`; the query continues from its state, and alone it is the recipe (§Recipe pipelines below) |
 | `title`, `description` | Human-facing recipe metadata |
 | `arguments` | JSON-value overrides by parameter name |
 | `links` | Query-link overrides by parameter name |
@@ -96,7 +97,8 @@ recipes:
     cached: result
 ```
 
-`Recipe::to_plan` enables placeholders, builds the query, and applies overrides to the last action
+`Recipe::to_plan` enables placeholders, builds the query (with `PipelinePlanBuilder`, which plans a
+query exactly as `PlanBuilder` does), and applies overrides to the last action
 step only, in **sorted name order** (so warnings and the first reported error do not depend on
 `HashMap` order). Each name must be an argument of the command the query named for that action
 (`Plan::last_action_command`): for an alias, the alias's own arguments — its head slots carry the
@@ -113,7 +115,8 @@ naming the argument, the given and the expected type goes to `init_steps`, from 
 the asset's log. A `null` is accepted only for the optional types. One that does not convert is a
 `ConversionError`. An enum alias string expands to its value (a query alternative becomes a link
 override, with a `Step::Warning`); a non-string value, or a string that is no alias, passes
-unchanged, and inside a `multiple` argument a link alias is a `ConversionError`. A `multiple`
+unchanged, and inside a `multiple` argument a link alias is a `ConversionError`. An alias whose value
+is a pipeline becomes a pipeline override (`ParameterValue::OverridePipeline`), the same way. A `multiple`
 argument converts element-wise. `any`, `none` and global-enum arguments take any value unchanged.
 Because an override patches that action, its recorded prefix query (`Step::Action::query`) no
 longer describes what runs and is cleared; earlier actions keep theirs.
@@ -126,6 +129,25 @@ requiring an evaluation payload ("Recipe for key '…' requires an evaluation pa
 recipes cannot receive one…"): keys are a payload boundary (§Finalization and expiration). The
 asset manager and the dependency walk use it; `apply_recipe` then rebuilds the plan with plain
 `to_plan`.
+
+### Recipe pipelines
+
+A recipe may carry a `pipeline` ([`PIPELINES.md`](PIPELINES.md) §5), which lets a recipe pass a
+list, a map or any structured value to an action other than the last: the pipeline holds those
+actions and the `query` continues from its state. `Recipe::combined_pipeline` joins the two and
+`to_plan` plans the result with `PipelinePlanBuilder`; it refuses a placeholder or `{state: true}`
+in the pipeline, a query that starts with a resource, a filename in both parts, and `arguments` /
+`links` without a query. Overrides still apply to the query's last action. A recipe with a
+pipeline has no `key()`, and its filename (hence `data_format`) is the query's, or the pipeline's
+when there is no query. A recipe without a pipeline plans exactly as before.
+
+```yaml
+recipes:
+  - pipeline:
+      - "-R/data/sales.csv/-/ns-pl/from_csv"
+      - {action: is_in, ns: pl, arguments: {column: region, values: [EU, US]}}
+    query: ns-pl/sort-amount-f/head-10/eu.csv
+```
 
 `Recipe::data_format` is the query's filename extension, `None` without a filename, and
 `Recipe::get_asset_info` declares exactly that. An unnamed query therefore declares **no** format:
@@ -194,7 +216,13 @@ refreshes; a provider that caches directory-derived state drops it for `dir` and
 
 Provider and parsing failures can otherwise remain errors. `get_asset_info` describes a
 recipe-backed asset and planning diagnostics; it does not prove that an evaluated or persisted value
-exists.
+exists. Its plan-derived flags (`is_volatile`, `expires`) and the built-in providers' `recipe_plan`
+come from one function, `interpreter::make_recipe_plan`: the recipe's plan for the key
+(`to_plan_for_key`), analysed as `make_plan` analyses a query, with no entry CWD (a keyed asset's
+run starts with none; the recipe's `cwd` is its `SetCwd` step). An analysis error, a cycle for one,
+is returned as `Err`; `get_asset_info` reports it as `is_error` with its message.
+`Recipe::plan_with_dependencies` is the same function, public so a provider outside
+`liquers-core` (a Python one) builds the same plan.
 
 `TrivialRecipeProvider` contains no recipes. `DefaultRecipeProvider` uses this logical layout:
 
@@ -280,6 +308,10 @@ not the same as an environment constructor's unconfigured chain, which is per as
 ## Planning contract
 
 `PlanBuilder::new` borrows a `CommandMetadataRegistry` and rejects placeholders.
+`pipeline::PipelinePlanBuilder` is the planner for pipelines and the entry point `make_plan`,
+`Recipe::to_plan` and `Pipeline::to_plan` use; for a query it gives the same plan as
+`PlanBuilder`, step for step and position for position (`plans_are_equal_in_both_modes`). What it
+adds for pipelines, including pipeline commands, is in [`PIPELINES.md`](PIPELINES.md) §3–§4.
 
 | Builder setting | Effect |
 |---|---|
@@ -727,6 +759,14 @@ and frozen with the same cursor as `predecessor`; an alias keeps the name as wri
 hand-built step and for the action a recipe override patches. Omitted from the serialized plan when
 `None`, so plans written before the field existed load unchanged.
 
+Pipelines add two steps and five parameter values ([`PIPELINES.md`](PIPELINES.md) §6):
+`Step::UseValue(json)` makes a JSON value the state; `Step::PipelineCommand { realm, ns, name,
+position, parameters, query, plan }` runs a pipeline command's expanded body (`plan`) in a
+pipeline frame. `ParameterValue::ParameterPipeline` / `OverridePipeline` / `DefaultPipeline` pass
+a pipeline with no query form, evaluated as a nested plan (not cached); `InputState` and
+`FrameArgument` read a pipeline command's input state and frame arguments. Freezing, dependency
+analysis and `action_queries` descend into a `PipelineCommand`'s plan.
+
 `apply_plan` does not execute `init_steps`; it appends them to the evaluating asset's log once,
 before the first step (and before the payload check), without a save of their own.
 `Plan::to_metadata_record` and `Metadata::from_plan` project them the same way for callers building
@@ -865,13 +905,13 @@ not otherwise enforce this distinction.
 - Complete recipe application is a convention: `to_plan`, `finalize_plan`, setting the expiration and
   `apply_plan` must be sequenced by each environment —
   [`PLAN-EXPIRATION-REACHES-THE-CONTEXT-ONLY-THROUGH-APPLY-RECIPE`](../issues/PLAN-EXPIRATION-REACHES-THE-CONTEXT-ONLY-THROUGH-APPLY-RECIPE.md).
-- Provider plan APIs (`recipe_plan`; `Recipe::plan_with_dependencies`, the plan with dependency
-  analysis that the built-in providers' `recipe_plan` and `get_asset_info` build, public so a
-  provider outside `liquers-core` — a Python one — builds the same; `make_plan`, `finalize_plan`)
-  perform different subsets of analysis —
-  [`RECIPE-PLAN-ANALYSIS-RUNS-OUTSIDE-PLAN-BUILDING`](../issues/RECIPE-PLAN-ANALYSIS-RUNS-OUTSIDE-PLAN-BUILDING.md).
-- Recipe overrides reach only the last action —
-  [`RECIPE-OVERRIDE-ONLY-LAST-ACTION`](../issues/RECIPE-OVERRIDE-ONLY-LAST-ACTION.md).
+- A recipe preview can report an asset non-volatile when its upstream runs a volatile command
+  (the run finds it volatile) —
+  [`UPSTREAM-COMMAND-VOLATILITY-INVISIBLE-TO-DEPENDENCY-WALK`](../issues/UPSTREAM-COMMAND-VOLATILITY-INVISIBLE-TO-DEPENDENCY-WALK.md).
+- Recipe overrides reach only the last action; an earlier action's structured argument goes in the
+  recipe's `pipeline` instead (`RECIPE-OVERRIDE-ONLY-LAST-ACTION`, closed). Overrides of a query
+  whose last action is a pipeline command are not applied —
+  [`RECIPE-OVERRIDES-MISS-A-FINAL-PIPELINE-COMMAND`](../issues/RECIPE-OVERRIDES-MISS-A-FINAL-PIPELINE-COMMAND.md).
 - The recipe circular-dependency fields are never set or read —
   [`RECIPE-CIRCULAR-DEPENDENCY-FIELDS-ARE-DEAD`](../issues/RECIPE-CIRCULAR-DEPENDENCY-FIELDS-ARE-DEAD.md).
 - `DefaultRecipeProvider` skips a recipe with no valid filename in listings without a diagnostic —
@@ -889,11 +929,16 @@ not otherwise enforce this distinction.
   `special_instructions_enforce_their_own_arity`, `find_dependencies_nested_plan_propagates_cwd`.
 - `liquers-core/src/environment_builder.rs`: `default_options_cut_predecessors`.
 - [`liquers-core/tests/recipe_cwd_resolution.rs`](../../liquers-core/tests/recipe_cwd_resolution.rs).
+- [`liquers-core/tests/recipe_pipelines.rs`](../../liquers-core/tests/recipe_pipelines.rs) (recipe
+  pipelines) and [`pipeline_planning.rs`](../../liquers-core/tests/pipeline_planning.rs)
+  (`Step::UseValue`, pipeline parameters, `PipelinePlanBuilder`).
 
 ## History
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-04 | `Recipe::pipeline` and §Recipe pipelines; `PipelinePlanBuilder` as the planning entry point; `Step::UseValue`, `Step::PipelineCommand` and the pipeline parameter values; pipeline enum aliases in overrides; the last-action limitation closed by recipe pipelines. | phase-5, `design/composite-command-definition/` |
+| 2026-11-03 | `get_asset_info` and `recipe_plan` build and analyse through `make_recipe_plan`, which returns an analysis error as `Err`; the "different subsets of analysis" limitation is resolved, and a command-volatile upstream limitation is filed. | `design/recipe-preview-shares-plan-analysis/` |
 | 2026-11-01 | §Planner instructions, `ns`: the lookup is a first-match chain, `ns` first then `default_namespaces`, which an environment may configure (`default_namespaces:`); `append_action` keeps generated queries portable. | `design/plan-default-namespaces/` |
 | 2026-11-01 | Known limitations: the plan `create_plan_with_init_metadata` builds is exposed as the public `Recipe::plan_with_dependencies`, used by providers outside the crate. | `design/liquers-py-recipes/` (phase-5) |
 | 2026-10-30 | §Composing providers rewritten for `design/recipe-provider-chain-config/`: every environment holds a chain built from a `recipes:` list; every member is asked (any `Err` fails, two owners is a `ConfigurationError` naming both); named members; entry types, factories and `resolve_recipes`; the manifest provider no longer reads `recipes.yaml`; `with_appended_recipe_entry`. §Selecting a provider by name: `RecipeProviderChoice` converts into `RecipesConfig`, and the closed set with no registration hook is replaced by entry types any crate can declare. | phase-5 (`design/recipe-provider-chain-config/`) |

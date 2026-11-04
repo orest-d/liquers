@@ -19,6 +19,10 @@
 //! Supertrait transitivity carries those bounds to the trait object, so `Arc<dyn ForeignValue>` is
 //! `Send + Sync` on native and the variant needs no target gate.
 //!
+//! Templates and store handlers read a foreign value through [`ForeignValue::data_node`], which an
+//! integration overrides with an adapter reading the language value in place (the `DATANODE`
+//! feature of `specs/guides/LANGUAGE-INTEGRATION_GUIDE.md`).
+//!
 //! See `specs/design/liquers-web/phase2-architecture.md`, "Where the foreign value lives".
 
 use liquers_core::error::{Error, ErrorType};
@@ -100,6 +104,20 @@ pub trait ForeignValue:
     /// JSON conversion, if the language can provide a faithful one. Refuses by default.
     fn try_into_json_value(&self) -> Result<serde_json::Value, Error> {
         Err(Error::conversion_error(self.identifier().as_ref(), "JSON"))
+    }
+
+    /// This value as a data node, for templates and store handlers.
+    ///
+    /// Override with an adapter that reads the language value in place; the receiver is an `Arc`,
+    /// so the node can own the payload and outlive the `Value` it came from. The default is the
+    /// JSON snapshot when [`ForeignValue::try_into_json_value`] succeeds, and an opaque node
+    /// otherwise — the default `ValueExtension::data_node` gives every other value without a node
+    /// of its own. See `specs/design/foreign-value-data-node/`.
+    fn data_node(self: std::sync::Arc<Self>) -> liquers_core::data_node::AnyNode {
+        match self.try_into_json_value() {
+            Ok(json) => liquers_core::data_node::AnyNode::from_json(json),
+            Err(_) => liquers_core::data_node::AnyNode::opaque(),
+        }
     }
 
     /// Byte serialization. Bytes plus a media type are the only sanctioned path across a store,
@@ -323,16 +341,94 @@ mod tests {
         }
     }
 
-    /// AC-4: the data node does not consult the JSON form yet (`foreign-value-data-node`).
+    /// A foreign value whose integration answers as a data node with its own adapter.
+    #[derive(Debug)]
+    struct Mapped {
+        name: String,
+    }
+
+    impl ForeignValue for Mapped {
+        fn origin(&self) -> &'static str {
+            "mock"
+        }
+        fn as_any(&self) -> &dyn core::any::Any {
+            self
+        }
+        fn identifier(&self) -> Cow<'static, str> {
+            "mock.Mapped".into()
+        }
+        fn type_name(&self) -> Cow<'static, str> {
+            "MockMapped".into()
+        }
+        fn default_extension(&self) -> Cow<'static, str> {
+            "json".into()
+        }
+        fn default_filename(&self) -> Cow<'static, str> {
+            "value.json".into()
+        }
+        fn default_media_type(&self) -> Cow<'static, str> {
+            "application/json".into()
+        }
+        fn data_node(self: std::sync::Arc<Self>) -> liquers_core::data_node::AnyNode {
+            liquers_core::data_node::AnyNode::from_json(serde_json::json!({"name": self.name}))
+        }
+    }
+
+    /// The text of field `name` of a map node.
+    fn field_text(node: &liquers_core::data_node::AnyNode, name: &str) -> Option<String> {
+        let node = node.as_sync().ok()?;
+        let field = node.get(name)?;
+        let text = field.node().scalar()?.to_text().into_owned();
+        Some(text)
+    }
+
+    /// `foreign-value-data-node` AC-1: an overridden hook is reached through `Value::data_node`.
     #[test]
-    fn foreign_data_node_is_still_opaque() {
+    fn foreign_data_node_hook_is_delegated() {
         use liquers_core::data_node::NodeKind;
         use liquers_core::value::ValueInterface;
+        let value = std::sync::Arc::new(foreign(std::sync::Arc::new(Mapped {
+            name: "Ada".to_string(),
+        })));
+        let node = crate::value::Value::data_node(value);
+        assert_eq!(node.kind(), NodeKind::Map);
+        assert_eq!(field_text(&node, "name").as_deref(), Some("Ada"));
+    }
+
+    /// AC-2: without an override, a value with a faithful JSON form answers with its snapshot,
+    /// both directly and through `Value`.
+    #[test]
+    fn foreign_data_node_defaults_to_json_snapshot() {
+        use liquers_core::data_node::NodeKind;
+        use liquers_core::value::ValueInterface;
+        let direct: std::sync::Arc<dyn ForeignValue> = std::sync::Arc::new(Faithful);
+        let node = direct.data_node();
+        assert_eq!(node.kind(), NodeKind::Map);
+        assert_eq!(field_text(&node, "x").as_deref(), Some("1"));
+
         let value = std::sync::Arc::new(foreign(std::sync::Arc::new(Faithful)));
-        assert_eq!(
-            crate::value::Value::data_node(value).kind(),
-            NodeKind::Opaque
-        );
+        assert_eq!(crate::value::Value::data_node(value).kind(), NodeKind::Map);
+    }
+
+    /// AC-3: a value with neither hook stays opaque, as `JsOpaque` and `PyObjectValue` do.
+    #[test]
+    fn foreign_data_node_defaults_to_opaque() {
+        use liquers_core::data_node::NodeKind;
+        use liquers_core::value::ValueInterface;
+        let value = std::sync::Arc::new(foreign(std::sync::Arc::new(Opaque)));
+        assert_eq!(crate::value::Value::data_node(value).kind(), NodeKind::Opaque);
+    }
+
+    /// AC-4: the node still answers after the `Value` it came from is dropped.
+    #[test]
+    fn foreign_data_node_owns_its_payload() {
+        use liquers_core::value::ValueInterface;
+        let value = std::sync::Arc::new(foreign(std::sync::Arc::new(Mapped {
+            name: "Ada".to_string(),
+        })));
+        let node = crate::value::Value::data_node(value.clone());
+        drop(value);
+        assert_eq!(field_text(&node, "name").as_deref(), Some("Ada"));
     }
 
     /// `fvt3.1` — the default derives from the value's own methods and declares no formats.

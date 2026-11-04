@@ -3,13 +3,9 @@
 //! Supports menu bars, configurable layouts (horizontal, vertical, grid, tabs, windows),
 //! and keyboard shortcuts. Children are created by init queries and arranged by layout.
 
-use liquers_core::context::Context;
 use liquers_core::error::Error;
 use liquers_core::recipes::Recipe;
-use liquers_core::state::State;
-use liquers_core::value::Value;
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 
 use crate::ui::app_state::AppState;
 use crate::ui::element::{UIElement, UpdateMessage, UpdateResponse};
@@ -467,7 +463,7 @@ impl UIElement for UISpecElement {
             }
             LayoutSpec::Grid { rows, columns } => {
                 let num_children = child_handles.len();
-                let (actual_rows, actual_columns) = match (rows, columns) {
+                let (_actual_rows, actual_columns) = match (rows, columns) {
                     (0, 0) => {
                         let r = (num_children as f64).sqrt().floor() as usize;
                         let r = r.max(1);

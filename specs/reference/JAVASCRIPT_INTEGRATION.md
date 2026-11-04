@@ -3,7 +3,7 @@ title: JavaScript Integration
 kind: reference
 audience: both
 area: [web, core/value, core/error, core/store, lib/value]
-reviewed: 2026-11-02
+reviewed: 2026-11-04
 ---
 # JavaScript Integration
 
@@ -70,6 +70,7 @@ through `typescript_type` extern types, so there is one generated file and nothi
 | `RecordBatch`, `RecordSource`, `RecordStream` | record views and sources | §9, `records` only |
 | `UIMount`, `UISubscription` | a mounted `liquers-lib` web UI and a status subscription | §10 |
 | `UIElement` | `Arc<dyn liquers_lib::ui::UIElement>` | §10; `typeName`, `title`, `renderHtml()`; `kind`, `props` for a page-defined element |
+| `PipelineEditor`, `QueryEditor` | `liquers_core::pipeline::{PipelineEditor, QueryEditor}` over a metadata snapshot | §4 "Pipelines"; a pipeline itself is a plain object, not a class |
 
 `Query.equals` and `Key.equals` compare canonical encodings, since every wrapper is its own handle
 and `===` would compare handles; a key's `encode()` is therefore usable as a `Map` key. `Query.parse`
@@ -143,7 +144,7 @@ is for evaluating against the built-in set, chiefly in tests.
 | `unregisterCommand(name)` | removes JavaScript commands named `name`; returns whether any was removed |
 | `describeCommand(name)` | the metadata of the root-namespace command `name`, or `null` |
 | `opaque(x)` | a `Value` retaining `x` by identity (§5) |
-| `encodeParam(text)` | `text` escaped as one query parameter; throws for a character the grammar cannot represent |
+| `encodeParam(text)` | `text` escaped as one query parameter; never throws: every string is representable (`encode_token`) |
 | `version()` | `"liquers-web <v> (liquers-core <v>)"`, from Cargo; every crate shares the workspace version, so both are the same |
 
 There is no synchronous evaluation entry point, deliberately (`ASYNCQ06`, `ASYNCQ07`).
@@ -250,6 +251,50 @@ its slot when the call ends, on every path, and every member then throws a `Liqu
 context is valid only during the call. A command bound to imported metadata (`registerCommands`
 with a registry document) receives no context, because imported metadata has no `registration`
 record (`WEB-IMPORTED-COMMAND-RECEIVES-NO-CONTEXT`).
+
+**Pipeline commands** (`PIPELINE04`). A declaration with `pipeline` in place of `run` is a pipeline
+command (`CommandDefinition::Pipeline`). Stage 1 reads `pipeline` through `pipeline_from_js`
+(§Pipelines below) and removes it from the document, refuses `run`, `state` or `async` beside it,
+and never infers arguments; after `build` it sets the definition, and drops `state_argument` when
+the body's first element sets the state, as `CommandRegistry::register_pipeline` does. Imported
+metadata whose `definition` is `!Pipeline` needs no implementation, and one given for it is an
+error. `validate_batch` checks function commands as a batch-only registry, as before, but a
+pipeline command against the singleton's registry (a fresh environment's before `init()`) with the
+whole batch added: `complete_pipeline_command`, then `CommandMetadata::check` and
+`check_pipeline_command`, so an unknown step or an undeclared placeholder refuses the batch.
+`register_commands_on` registers a batch's function commands before its pipeline commands (a stable
+sort), and `register_js_command` registers a pipeline command as metadata only: completed against
+the registry as it stands, any earlier executor under its key removed, no check repeated, so a
+rebuild's replay cannot fail where validation passed.
+
+### Pipelines
+
+`src/pipeline.rs`, `PIPELINE01`–`05`. A pipeline crosses as its JSON form, the same object
+`Pipeline::to_json` writes and `Pipeline::from_json` reads (an object with `elements`, or a bare
+array); there is no pipeline class. Inbound, `bridge::js_value_to_json` applies the value bridge's
+structural rules (an integral number inside ±2^53 is a JSON integer; a `Map`, a class instance or
+an opaque value is a `ConversionError`), and a string is refused rather than parsed. Outbound,
+`bridge::json_to_js` writes plain objects, which is also how a command's `Value::Pipeline` result
+reaches a page.
+
+| Export | Does |
+|---|---|
+| `evaluatePipeline(p)`, `Environment.evaluatePipeline(p)` | `interpreter::evaluate_pipeline` on the singleton (shared on first use, as `evaluate`) or the instance; result converted in that environment; rejects with a `LiquersError` |
+| `pipelineToQuery(p)`, `Environment.pipelineToQuery(p)` | `to_query_with(cmr)`; a pipeline with no query form throws `parameter_error` with core's `not_representable` message, which names the rule |
+| `queryToPipeline(text)` | `Pipeline::from_query_text`; needs no environment |
+| `PipelineEditor`, `QueryEditor` (`new …()` or `Environment.pipelineEditor()` / `queryEditor()`) | wrap core's `PipelineEditor` / `QueryEditor` over a metadata snapshot |
+
+The singleton's metadata is read with `environment::current_metadata_registry`, which reads a
+pending environment's registry without sharing it, so converting or editing does not turn later
+registrations into rebuilds. The editor classes share one method set (`editor_methods!` over the
+`Editing` trait): `length`, `pipeline()`, `query()`, `validate()`, `push`/`insert`/`replace`
+(an element in JSON form, read through `Pipeline::from_json`), `remove`, `moveTo`, `setRealm`,
+`setFilename`, `resource(key, read?)`, `action(name, ns?)` returning the action's index, and
+`set`, `pushParameter`, `link`, `unset`, `setNamespace`, `unsetArguments` taking that index. Core
+looks an action's command up lazily so that `.ns(…)` can follow `action(…)`; `action` here takes
+the namespaces with the call, so it checks that the command resolves and removes the appended
+element when it does not. Placeholders are not offered: core refuses them outside a command
+definition, and `PipelineEditor::for_definition` is not wrapped (`WEB-PIPELINE-EDITOR-HAS-NO-DEFINITION-MODE`).
 
 ## 5. Values
 
@@ -563,6 +608,10 @@ Every retained page function (definitions, cleanups, renderers) is counted in
   not started).
 - A command bound to imported metadata receives no context
   (`WEB-IMPORTED-COMMAND-RECEIVES-NO-CONTEXT`).
+- A page cannot pass a pipeline *as a value*: an object becomes a map value, never a
+  `Value::Pipeline` (`WEB-PAGE-CANNOT-PASS-A-PIPELINE-VALUE`); and the editors have no
+  command-definition mode, so placeholders are written in the object form
+  (`WEB-PIPELINE-EDITOR-HAS-NO-DEFINITION-MODE`).
 - Cancellation is inert (`WEB-CANCELLATION-INERT`).
 - Commands cannot be registered on a `new Environment()`, and its store methods configure the
   singleton (`POST-INIT-COMMAND-REGISTRATION`, `WEB-EXPLICIT-ENVIRONMENT-CONFIGURES-THE-SINGLETON`).
@@ -592,6 +641,8 @@ Every retained page function (definitions, cleanups, renderers) is counted in
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-04 | `encodeParam` never throws (it returns `String` since the pipelines work). | phase-5, `design/composite-command-definition/` |
+| 2026-11-04 | §2, §4 pipeline commands; new "Pipelines" section (`evaluatePipeline`, conversions, editors); two limitations. | design `web-pipelines` |
 | 2026-11-02 | Known limitations: the generated API reference (TypeDoc) exists; the documentation-coverage check is still missing. | `WEB-API-REFERENCE-NOT-GENERATED` (partial) |
 | 2026-11-01 | §3: the `liquersVersion` getter on `Environment`; `version()` reports the one workspace version twice. | `design/liquers-py-package/` (phase-5) |
 | 2026-10-31 | §10 "Elements and renderers": `defineElement`, `undefineElement`, `element`, `mountRenderer`, `dispatchEvent`; `DelegatedElement`; `UIElement.kind`/`props`. `UIDEF` removed from Limitations. | design `web-ui-define` |
