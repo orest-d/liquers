@@ -1100,3 +1100,62 @@ pub fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(data_node, m)?)?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn node(py: Python<'_>, code: &str) -> Result<PyNode, Box<dyn std::error::Error>> {
+        let object = py.eval(&std::ffi::CString::new(code)?, None, None)?;
+        Ok(node_of(py, &object))
+    }
+
+    #[test]
+    fn kinds_and_missing_keys() -> Result<(), Box<dyn std::error::Error>> {
+        Python::initialize();
+        Python::attach(|py| -> Result<(), Box<dyn std::error::Error>> {
+            let root = node(py, "{'a': [1, {'b': 'x'}], 'c': None, 'd': b'raw'}")?;
+            assert_eq!(root.kind(), NodeKind::Map);
+            let a = root.get("a").ok_or("a missing")?;
+            let a = a.node();
+            assert_eq!(a.kind(), NodeKind::List);
+            assert_eq!(a.len(), Some(2));
+            assert_eq!(root.get("c").ok_or("c missing")?.node().kind(), NodeKind::Null);
+            assert_eq!(root.get("d").ok_or("d missing")?.node().kind(), NodeKind::Opaque);
+            assert!(root.get("missing").is_none());
+            let keys: Vec<String> = root.keys().map(|k| k.to_string()).collect();
+            assert_eq!(keys, ["a", "c", "d"]);
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn integer_and_nan_edges() -> Result<(), Box<dyn std::error::Error>> {
+        Python::initialize();
+        Python::attach(|py| -> Result<(), Box<dyn std::error::Error>> {
+            assert_eq!(node(py, "2**63 - 1")?.kind(), NodeKind::Integer);
+            for code in ["2**63", "2**64"] {
+                let big = node(py, code)?;
+                assert_eq!(big.kind(), NodeKind::Opaque);
+                assert!(big.to_json().is_err());
+            }
+            let nan = node(py, "float('nan')")?;
+            assert_eq!(nan.kind(), NodeKind::Float);
+            assert!(nan.to_json().is_err());
+            Ok(())
+        })
+    }
+
+    #[test]
+    fn a_cycle_navigates_and_refuses_json() -> Result<(), Box<dyn std::error::Error>> {
+        Python::initialize();
+        Python::attach(|py| -> Result<(), Box<dyn std::error::Error>> {
+            let cyclic = py.eval(c"(lambda d: (d.__setitem__('self', d), d)[1])({})", None, None)?;
+            let root = node_of(py, &cyclic);
+            let inner = root.get("self").ok_or("self missing")?;
+            assert_eq!(inner.node().kind(), NodeKind::Map);
+            assert!(root.to_json().is_err());
+            Ok(())
+        })
+    }
+}
