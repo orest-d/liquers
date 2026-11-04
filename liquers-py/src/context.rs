@@ -19,7 +19,8 @@ use crate::aio::{awaitable, check_blocking_call, Shut, ToPy};
 use crate::environment::{block_on, PyEnvironment};
 use crate::error::{error_to_pyerr, PyFailure};
 use crate::records::Scope;
-use crate::value::value_to_py;
+use crate::template::{build_request, rendered_to_py, Arguments, Call};
+use crate::value::{value_to_py, ConversionMode};
 
 /// The execution context of a running Python command.
 #[pyclass(frozen, name = "Context", module = "liquers")]
@@ -27,6 +28,10 @@ pub struct Context {
     inner: Arc<Mutex<Option<CoreContext<PyEnvironment>>>>,
     /// The environment's shut signal, so a nested wait ends when it is shut down.
     shut: Arc<Shut>,
+    /// How a value this context converts (a render's `state`) is converted: the registering
+    /// environment's setting.
+    conversion: ConversionMode,
+    pickle: bool,
 }
 
 impl Context {
@@ -34,7 +39,16 @@ impl Context {
         Context {
             inner: Arc::new(Mutex::new(Some(context))),
             shut,
+            conversion: ConversionMode::Permissive,
+            pickle: false,
         }
+    }
+
+    /// The same context, converting as `conversion` and `pickle` say.
+    pub fn with_conversion(mut self, conversion: ConversionMode, pickle: bool) -> Self {
+        self.conversion = conversion;
+        self.pickle = pickle;
+        self
     }
 
     /// Another handle on the same context; invalidating one invalidates both.
@@ -42,6 +56,8 @@ impl Context {
         Context {
             inner: self.inner.clone(),
             shut: self.shut.clone(),
+            conversion: self.conversion,
+            pickle: self.pickle,
         }
     }
 
@@ -75,6 +91,38 @@ impl Context {
     /// The scope a value this command receives is converted in.
     pub(crate) fn scope(&self, envref: &liquers_core::context::EnvRef<PyEnvironment>) -> Scope {
         Scope::command(self, envref, self.shut.clone())
+    }
+
+    /// A render in this context, waited on like `evaluate`.
+    fn render_sync(&self, py: Python<'_>, call: Call, arguments: Arguments<'_, '_>, full: bool) -> PyResult<Py<PyAny>> {
+        check_blocking_call(py, call.name())?;
+        let request = build_request(py, call, arguments, self.conversion, self.pickle)?;
+        let context = self.get().map_err(|e| error_to_pyerr(py, &e))?;
+        let rendered = block_on(py, &self.shut, liquers_lib::template::render_in_context(context, request))
+            .map_err(|e| e.into_pyerr(py))?;
+        rendered_to_py(py, rendered, full)
+    }
+
+    /// The awaitable form of [`Self::render_sync`].
+    fn render_awaitable<'py>(
+        &self,
+        py: Python<'py>,
+        call: Call,
+        arguments: Arguments<'_, 'py>,
+        full: bool,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        crate::runtime::runtime().map_err(|e| error_to_pyerr(py, &e))?;
+        let request = build_request(py, call, arguments, self.conversion, self.pickle)?;
+        let context = self.get().map_err(|e| error_to_pyerr(py, &e))?;
+        awaitable(
+            py,
+            &self.shut,
+            async move {
+                let rendered = liquers_lib::template::render_in_context(context, request).await?;
+                Ok((Some(rendered), full))
+            },
+            ToPy::Rendered,
+        )
     }
 
     fn get(&self) -> Result<CoreContext<PyEnvironment>, Error> {
@@ -141,6 +189,90 @@ impl Context {
             },
             ToPy::Value,
         )
+    }
+
+    /// Renders `template` over `state` (the context, `{{.}}`) and `data` (names looked up above
+    /// it), in this command's context: its query tags are dependencies of the command, and the
+    /// errors a recovering `errors` mode handles are warnings in the command's log. Returns the
+    /// text, or with `full=True` an `lq.RenderResult` with the warnings too.
+    ///
+    /// `template` is the text (`str`) or a link (`lq.Query`, `lq.Key`); relative keys resolve
+    /// against `cwd` (an `lq.Key`, default the root). `html=True` escapes substituted text.
+    #[pyo3(signature = (template, state=None, data=None, *, errors="strict", cwd=None, html=false, full=false))]
+    #[allow(clippy::too_many_arguments)]
+    fn render(
+        &self,
+        py: Python<'_>,
+        template: &Bound<'_, PyAny>,
+        state: Option<&Bound<'_, PyAny>>,
+        data: Option<&Bound<'_, PyAny>>,
+        errors: &str,
+        cwd: Option<&Bound<'_, PyAny>>,
+        html: bool,
+        full: bool,
+    ) -> PyResult<Py<PyAny>> {
+        let arguments = Arguments { template, state, data, errors, cwd, html };
+        self.render_sync(py, Call::Render, arguments, full)
+    }
+
+    /// Expands `template` over `data` (the context, `{{.}}`), as `render` does with no state.
+    #[pyo3(signature = (template, data=None, *, errors="strict", cwd=None, html=false, full=false))]
+    #[allow(clippy::too_many_arguments)]
+    fn expand(
+        &self,
+        py: Python<'_>,
+        template: &Bound<'_, PyAny>,
+        data: Option<&Bound<'_, PyAny>>,
+        errors: &str,
+        cwd: Option<&Bound<'_, PyAny>>,
+        html: bool,
+        full: bool,
+    ) -> PyResult<Py<PyAny>> {
+        let arguments = Arguments { template, state: None, data, errors, cwd, html };
+        self.render_sync(py, Call::Expand, arguments, full)
+    }
+
+    /// Awaitable `render`, for `async def` commands.
+    #[pyo3(signature = (template, state=None, data=None, *, errors="strict", cwd=None, html=false, full=false))]
+    #[allow(clippy::too_many_arguments)]
+    fn render_async<'py>(
+        &self,
+        py: Python<'py>,
+        template: &Bound<'py, PyAny>,
+        state: Option<&Bound<'py, PyAny>>,
+        data: Option<&Bound<'py, PyAny>>,
+        errors: &str,
+        cwd: Option<&Bound<'py, PyAny>>,
+        html: bool,
+        full: bool,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let arguments = Arguments { template, state, data, errors, cwd, html };
+        self.render_awaitable(py, Call::Render, arguments, full)
+    }
+
+    /// Awaitable `expand`, for `async def` commands.
+    #[pyo3(signature = (template, data=None, *, errors="strict", cwd=None, html=false, full=false))]
+    #[allow(clippy::too_many_arguments)]
+    fn expand_async<'py>(
+        &self,
+        py: Python<'py>,
+        template: &Bound<'py, PyAny>,
+        data: Option<&Bound<'py, PyAny>>,
+        errors: &str,
+        cwd: Option<&Bound<'py, PyAny>>,
+        html: bool,
+        full: bool,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let arguments = Arguments { template, state: None, data, errors, cwd, html };
+        self.render_awaitable(py, Call::Expand, arguments, full)
+    }
+
+    /// Every problem in template `text`, as `lq.Diagnostic`s, checked against the commands this
+    /// environment has; nothing is evaluated.
+    fn validate_template(&self, py: Python<'_>, text: &str) -> PyResult<Vec<crate::template::Diagnostic>> {
+        let context = self.get().map_err(|e| error_to_pyerr(py, &e))?;
+        let envref = context.get_envref();
+        Ok(crate::template::validate(text, envref.get_command_metadata_registry()))
     }
 
     /// Adds an info entry to the asset's log.

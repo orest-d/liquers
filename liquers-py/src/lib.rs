@@ -24,6 +24,8 @@ pub mod recipe_provider;
 pub mod recipes;
 pub mod closure;
 pub mod data_node;
+pub mod declared;
+pub mod template;
 pub mod records;
 pub mod runtime;
 pub mod store;
@@ -59,6 +61,8 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<QuerySource>()?;
     m.add_function(wrap_pyfunction!(crate::parse::parse, m)?)?;
     m.add_function(wrap_pyfunction!(crate::parse::parse_key, m)?)?;
+    m.add_class::<crate::query::Link>()?;
+    m.add_function(wrap_pyfunction!(crate::query::link, m)?)?;
 
     m.add_class::<crate::command_metadata::EnumArgumentType>()?;
     m.add_class::<crate::command_metadata::EnumArgument>()?;
@@ -106,6 +110,7 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<crate::asset::AssetRef>()?;
     crate::records::register(m)?;
     crate::data_node::register(m)?;
+    crate::template::register(m)?;
 
     // The Liquers version, in the form Python packaging uses (PEP 440); `liquers.__version__`.
     m.add("__version__", pep440(liquers_core::VERSION))?;

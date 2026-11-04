@@ -1,3 +1,35 @@
+//! Command metadata from Python: `lq.CommandMetadata`, its arguments, presets and definition, and
+//! the registry that holds them.
+//!
+//! Each class wraps the `liquers_core::command_metadata` type it is named after. Metadata read from
+//! an environment (`env.command_metadata(name)`) is a copy; changing it changes nothing there.
+//!
+//! # Main components
+//!
+//! - [`CommandMetadata`], [`ArgumentInfo`], [`CommandKey`], [`CommandPreset`].
+//! - [`CommandDefinition`]: how a command is implemented, read through `kind`, `alias_of`,
+//!   `head_parameters` and `pipeline` (a template command is an alias of `template/render`).
+//! - [`CommandMetadataRegistry`]: a set of metadata, serializable as JSON or YAML.
+//!
+//! # Where it is used
+//!
+//! - `Environment.command_metadata`, `import_metadata`, and the decorators' declaration pipeline
+//!   (`command.rs`).
+//!
+//! # Related concepts
+//!
+//! - `specs/reference/REGISTER_COMMAND_FSD.md`, `specs/reference/COMMAND_DECLARATION.md`.
+//!
+//! # Examples
+//!
+//! ```python
+//! env.template_command("greeting", template="-R/templates/greet.md")
+//! definition = env.command_metadata("greeting").definition
+//! assert definition.kind == "alias" and definition.alias_of.name == "render"
+//! ```
+//!
+//! Executed in `liquers-py/tests/test_COMMAND_*.py` and `test_TEMPLATE_commands.py`.
+
 use std::{
     collections::hash_map::DefaultHasher,
     hash::{Hash, Hasher},
@@ -337,6 +369,27 @@ impl ArgumentInfo {
     }
 }
 
+/// A head parameter or default as Python: `None`, a link as an `lq.Query`, a value as its JSON
+/// form, a pipeline as its serialized form.
+fn parameter_value_to_py(
+    py: Python<'_>,
+    parameter: &liquers_core::command_metadata::CommandParameterValue,
+) -> PyResult<Py<PyAny>> {
+    use liquers_core::command_metadata::CommandParameterValue;
+    match parameter {
+        CommandParameterValue::None => Ok(py.None()),
+        CommandParameterValue::Query(query) => Ok(Py::new(py, crate::query::Query(query.clone()))?.into_any()),
+        CommandParameterValue::Value(value) => {
+            let text = serde_json::to_string(value).map_err(serialization_pyerr)?;
+            Ok(py.import("json")?.call_method1("loads", (text,))?.unbind())
+        }
+        CommandParameterValue::Pipeline(pipeline) => {
+            let text = serde_json::to_string(pipeline).map_err(serialization_pyerr)?;
+            Ok(py.import("json")?.call_method1("loads", (text,))?.unbind())
+        }
+    }
+}
+
 /// How a command is implemented: registered code, or an alias of another command.
 ///
 /// Part of `CommandMetadata`.
@@ -350,6 +403,55 @@ impl CommandDefinition {
     #[staticmethod]
     pub fn registered() -> Self {
         Self(liquers_core::command_metadata::CommandDefinition::Registered)
+    }
+
+    /// How the command is implemented: `"registered"` (code), `"alias"` (another command with
+    /// head parameters fixed: a template command is one) or `"pipeline"`.
+    #[getter]
+    pub fn kind(&self) -> &'static str {
+        use liquers_core::command_metadata::CommandDefinition as Core;
+        match &self.0 {
+            Core::Registered => "registered",
+            Core::Alias { .. } => "alias",
+            Core::Pipeline { .. } => "pipeline",
+        }
+    }
+
+    /// The command an alias calls, or `None`.
+    #[getter]
+    pub fn alias_of(&self) -> Option<CommandKey> {
+        use liquers_core::command_metadata::CommandDefinition as Core;
+        match &self.0 {
+            Core::Alias { command, .. } => Some(CommandKey(command.clone())),
+            Core::Registered | Core::Pipeline { .. } => None,
+        }
+    }
+
+    /// The parameters an alias fixes ahead of the call's arguments, as Python values (a link is
+    /// an `lq.Query`); empty for any other command.
+    #[getter]
+    pub fn head_parameters(&self, py: Python<'_>) -> PyResult<Vec<Py<PyAny>>> {
+        use liquers_core::command_metadata::CommandDefinition as Core;
+        match &self.0 {
+            Core::Alias { head_parameters, .. } => head_parameters
+                .iter()
+                .map(|parameter| parameter_value_to_py(py, parameter))
+                .collect(),
+            Core::Registered | Core::Pipeline { .. } => Ok(Vec::new()),
+        }
+    }
+
+    /// A pipeline command's body as its serialized form (a list), or `None`.
+    #[getter]
+    pub fn pipeline(&self, py: Python<'_>) -> PyResult<Option<Py<PyAny>>> {
+        use liquers_core::command_metadata::CommandDefinition as Core;
+        match &self.0 {
+            Core::Pipeline { pipeline } => {
+                let text = serde_json::to_string(pipeline).map_err(serialization_pyerr)?;
+                Ok(Some(py.import("json")?.call_method1("loads", (text,))?.unbind()))
+            }
+            Core::Registered | Core::Alias { .. } => Ok(None),
+        }
     }
 
     /// The command definition serialized as JSON.
@@ -524,6 +626,12 @@ impl CommandMetadata {
     #[getter]
     fn arguments(&self) -> Vec<ArgumentInfo> {
         self.0.arguments.iter().cloned().map(ArgumentInfo).collect()
+    }
+
+    /// How the command is implemented, as an `lq.CommandDefinition`.
+    #[getter]
+    fn definition(&self) -> CommandDefinition {
+        CommandDefinition(self.0.definition.clone())
     }
 
     /// True for an async command.

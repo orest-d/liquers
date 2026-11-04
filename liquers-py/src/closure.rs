@@ -11,11 +11,13 @@
 //!
 //! - [`awaitable_run`]: an `asyncio` awaitable of a run (`DataNode.get_async` on an
 //!   environment's view; the async template renders).
+//! - [`wait_for_run`]: the blocking wait for a run, with the GIL released (`Environment.render`
+//!   and `expand`). An interrupt or a shutdown cancels the asset, then waits for the run to settle.
 //!
 //! # Where it is used
 //!
 //! - `data_node.rs`: each async read of an `env.data_node(state)` view is one run.
-//! - `liquers-py-templates`: `Environment.render_async` / `expand_async`.
+//! - `environment.rs`: `Environment.render` / `expand` and their `_async` forms.
 //!
 //! # Related concepts
 //!
@@ -34,9 +36,9 @@ use liquers_core::assets::AssetRef as CoreAssetRef;
 use liquers_core::error::Error;
 use pyo3::prelude::*;
 
-use crate::aio::{Shut, ToPy};
-use crate::environment::PyEnvironment;
-use crate::error::error_to_pyerr;
+use crate::aio::{Shut, ToPy, STOP_GRACE};
+use crate::environment::{block_on, PyEnvironment};
+use crate::error::{error_to_pyerr, PyFailure};
 use crate::runtime::runtime;
 
 /// An awaitable of a closure asset's run. The run is spawned on the liquers-py runtime and always
@@ -66,12 +68,47 @@ pub(crate) fn awaitable_run<'py, T: Send + 'static>(
         guard.0 = None;
         let result = match joined {
             Ok(result) => result,
-            Err(e) => Err(Error::unexpected_error(format!(
-                "a liquers closure run ended abnormally: {e}"
-            ))),
+            Err(e) => Err(ended_abnormally(e)),
         };
         Ok(wrap(result))
     })
+}
+
+/// Waits for `run`, spawned as its own task on the liquers-py runtime, with the GIL released
+/// (`block_on`). On an interrupt (`KeyboardInterrupt` from a signal handler) or a shutdown it cancels
+/// `asset` and waits for the task to settle, up to [`STOP_GRACE`] and with signals deferred, then
+/// raises: dropping a run is not cancelling it (`ad-hoc-closure-asset`).
+pub(crate) fn wait_for_run<T: Send + 'static>(
+    py: Python<'_>,
+    shut: &Arc<Shut>,
+    asset: CoreAssetRef<PyEnvironment>,
+    run: impl Future<Output = Result<Option<T>, Error>> + Send + 'static,
+) -> Result<Option<T>, PyFailure> {
+    let runtime = runtime()?;
+    let mut task = runtime.spawn(run);
+    let waited = block_on(py, shut, async {
+        Ok(match (&mut task).await {
+            Ok(result) => result,
+            Err(e) => Err(ended_abnormally(e)),
+        })
+    });
+    match waited {
+        Ok(result) => Ok(result?),
+        Err(failure) => {
+            // No signal is checked here: a second interrupt waits until the run has settled.
+            py.detach(|| {
+                runtime.block_on(async {
+                    let _ = asset.cancel().await;
+                    let _ = tokio::time::timeout(STOP_GRACE, &mut task).await;
+                })
+            });
+            Err(failure)
+        }
+    }
+}
+
+fn ended_abnormally(e: tokio::task::JoinError) -> Error {
+    Error::unexpected_error(format!("a liquers closure run ended abnormally: {e}"))
 }
 
 /// Cancels a run's asset when the awaitable is cancelled (its future dropped before the run

@@ -30,6 +30,37 @@
 //! Ctrl-C raises `KeyboardInterrupt` in a waiting `evaluate`, and it checks the handle's shut
 //! flag, so a wait outstanding when `shutdown()` is called raises `CancelledError` instead of
 //! hanging on an asset manager that no longer runs. Leaving a wait does not cancel the asset.
+//!
+//! # Main components
+//!
+//! - [`Environment`] (`lq.Environment`): evaluation, the store, command registration, renders
+//!   (`render`, `expand`, `validate_template`, `template_command`), data nodes, shutdown.
+//! - [`EnvCell`]: the retained declarations, the lazy build and the rebuild.
+//! - [`block_on`]: the sliced, GIL-free wait every blocking call uses.
+//!
+//! # Where it is used
+//!
+//! - Every Python entry point that needs an environment: `lq.Environment`, the default
+//!   environment of `python/liquers/_env.py`, and the factories of `store/` and
+//!   `recipe_provider.rs`.
+//!
+//! # Related concepts
+//!
+//! - `command.rs` and `declared.rs`: the commands the declarations hold.
+//! - `template.rs`, `closure.rs`: the top-level render and its wait.
+//! - `specs/reference/PYTHON_INTEGRATION.md` §3.
+//!
+//! # Examples
+//!
+//! ```python
+//! env = lq.Environment()
+//! env.store_set("templates/greet.md", "Hello, {{.}}!")
+//! env.template_command("greeting", template="-R/templates/greet.md")
+//! assert env.render(lq.parse("-R/templates/greet.md"), state="Ann") == "Hello, Ann!"
+//! env.shutdown()
+//! ```
+//!
+//! Executed in `liquers-py/tests/test_ENVIRON_*.py` and `test_TEMPLATE_*.py`.
 
 use std::num::NonZeroUsize;
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
@@ -91,6 +122,9 @@ struct Declarations {
     specs: Vec<PyCommandSpec>,
     /// Keys `unregister` removed, applied after the built-ins so a built-in stays removed.
     unregistered: Vec<CommandKey>,
+    /// Commands defined by declaration (template commands), in registration order; at most one
+    /// per key, and never a key a Python command has.
+    declared: Vec<crate::declared::DeclaredCommand>,
     /// Command metadata from `import_metadata`, applied last, so it can describe any command.
     imported: Vec<CommandMetadata>,
     /// Python store types, in registration order (`register_store_factory`).
@@ -125,6 +159,7 @@ impl EnvCell {
                 retired: Vec::new(),
                 specs: Vec::new(),
                 unregistered: Vec::new(),
+                declared: Vec::new(),
                 imported: Vec::new(),
                 store_types: Vec::new(),
                 recipe_types: Vec::new(),
@@ -200,6 +235,9 @@ impl EnvCell {
         }
         for spec in &declarations.specs {
             register_py_command(&mut builder.command_registry, spec)?;
+        }
+        for declared in &declarations.declared {
+            declared.apply(&mut builder.command_registry)?;
         }
         let issues = apply_imported(&mut builder.command_registry, &declarations.imported);
         Ok((builder, issues))
@@ -301,6 +339,8 @@ impl EnvCell {
         refuse_if_shut(&declarations)?;
         let replaced = if declarations.specs.iter().any(|s| s.key == spec.key) {
             Replaced::Python
+        } else if declarations.declared.iter().any(|d| d.key() == &spec.key) {
+            Replaced::Declared
         } else if !declarations.unregistered.contains(&spec.key)
             && builtin_keys()?.contains(&spec.key)
         {
@@ -309,6 +349,7 @@ impl EnvCell {
             Replaced::Nothing
         };
         take_specs(&mut declarations.specs, &spec.key, &mut removed);
+        declarations.declared.retain(|d| d.key() != &spec.key);
         declarations.unregistered.retain(|k| k != &spec.key);
         declarations.specs.push(spec);
         retire(&mut declarations)?;
@@ -324,7 +365,9 @@ impl EnvCell {
         let mut declarations = self.lock(py)?;
         refuse_if_shut(&declarations)?;
         take_specs(&mut declarations.specs, &key, &mut taken);
-        let removed = if !taken.is_empty() {
+        let declared_before = declarations.declared.len();
+        declarations.declared.retain(|d| d.key() != &key);
+        let removed = if !taken.is_empty() || declarations.declared.len() != declared_before {
             true
         } else if !declarations.unregistered.contains(&key) && builtin_keys()?.contains(&key) {
             declarations.unregistered.push(key);
@@ -336,6 +379,45 @@ impl EnvCell {
             retire(&mut declarations)?;
         }
         Ok(removed)
+    }
+
+    /// Declares a command (a template command), replacing any command under its key. The next
+    /// build is tried first: an error raises and leaves every declaration as it was.
+    pub(crate) fn declare(&self, py: Python<'_>, command: crate::declared::DeclaredCommand) -> Result<Replaced, Error> {
+        let key = command.key().clone();
+        let mut removed: Vec<PyCommandSpec> = Vec::new();
+        let mut declarations = self.lock(py)?;
+        refuse_if_shut(&declarations)?;
+        let replaced = if declarations.specs.iter().any(|s| s.key == key) {
+            Replaced::Python
+        } else if declarations.declared.iter().any(|d| d.key() == &key) {
+            Replaced::Declared
+        } else if !declarations.unregistered.contains(&key) && builtin_keys()?.contains(&key) {
+            Replaced::Builtin
+        } else {
+            Replaced::Nothing
+        };
+        let previous = declarations.declared.clone();
+        declarations.declared.retain(|d| d.key() != &key);
+        declarations.declared.push(command);
+        // A declared command is applied after the Python ones and replaces one with its key, so
+        // the trial needs no change to `specs`.
+        let trial = (|| {
+            let (mut builder, mut issues) = self.configured_builder(&declarations)?;
+            issues.append(builder.validate().clone());
+            match issues.short_summary("Command metadata") {
+                Some(summary) => Err(Error::configuration_error(summary)),
+                None => Ok(()),
+            }
+        })();
+        if let Err(error) = trial {
+            declarations.declared = previous;
+            return Err(error);
+        }
+        take_specs(&mut declarations.specs, &key, &mut removed);
+        declarations.unregistered.retain(|k| k != &key);
+        retire(&mut declarations)?;
+        Ok(replaced)
     }
 
     pub fn import_metadata(&self, py: Python<'_>, commands: Vec<CommandMetadata>) -> Result<(), Error> {
@@ -561,10 +643,27 @@ pub fn to_query(query: &Bound<'_, PyAny>) -> Result<liquers_core::query::Query, 
 pub(crate) fn py_to_json(py: Python<'_>, object: &Bound<'_, PyAny>) -> Result<serde_json::Value, Error> {
     let text = py
         .import("json")
-        .and_then(|json| json.call_method1("dumps", (object,)))
+        .and_then(|json| {
+            let options = PyDict::new(py);
+            options.set_item("default", wrap_pyfunction!(json_default, py)?)?;
+            json.call_method("dumps", (object,), Some(&options))
+        })
         .and_then(|dumped| dumped.extract::<String>().map_err(PyErr::from))
         .map_err(|e| pyerr_to_error(py, &e))?;
     serde_json::from_str(&text).map_err(|e| Error::general_error(format!("invalid declaration: {e}")))
+}
+
+/// `json.dumps`'s `default=` for the declaration documents: an `lq.Link` default becomes
+/// `{"Query": …}`; anything else is refused as `json` refuses it.
+#[pyfunction]
+fn json_default(object: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
+    match object.cast::<crate::query::Link>() {
+        Ok(link) => link.call_method0("_declaration").map(Bound::unbind),
+        Err(_) => Err(pyo3::exceptions::PyTypeError::new_err(format!(
+            "Object of type {} is not JSON serializable",
+            object.get_type().name().map(|n| n.to_string()).unwrap_or_else(|_| "?".to_string())
+        ))),
+    }
 }
 
 /// One validation finding.
@@ -655,6 +754,51 @@ pub fn block_on<T: Send>(
 }
 
 impl Environment {
+    /// A top-level render: a closure asset, waited on with the GIL released.
+    fn render_top(
+        &self,
+        py: Python<'_>,
+        call: crate::template::Call,
+        arguments: crate::template::Arguments<'_, '_>,
+        full: bool,
+    ) -> PyResult<Py<PyAny>> {
+        check_blocking_call(py, call.name())?;
+        let request = crate::template::build_request(py, call, arguments, self.cell.conversion, self.cell.pickle)?;
+        let render = (|| {
+            let envref = self.cell.envref(py)?;
+            liquers_lib::template::render_top_level(&envref, request)
+        })()
+        .map_err(|e| error_to_pyerr(py, &e))?;
+        let asset = render.asset().clone();
+        let outcome = crate::closure::wait_for_run(py, &self.cell.shut, asset, render.run())
+            .map_err(|e| e.into_pyerr(py))?;
+        let rendered = outcome
+            .ok_or_else(crate::template::not_started)
+            .map_err(|e| error_to_pyerr(py, &e))?;
+        crate::template::rendered_to_py(py, rendered, full)
+    }
+
+    /// The awaitable form of [`Self::render_top`].
+    fn render_top_async<'py>(
+        &self,
+        py: Python<'py>,
+        call: crate::template::Call,
+        arguments: crate::template::Arguments<'_, 'py>,
+        full: bool,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let request = crate::template::build_request(py, call, arguments, self.cell.conversion, self.cell.pickle)?;
+        let render = (|| {
+            runtime()?;
+            let envref = self.cell.envref(py)?;
+            liquers_lib::template::render_top_level(&envref, request)
+        })()
+        .map_err(|e| error_to_pyerr(py, &e))?;
+        let asset = render.asset().clone();
+        crate::closure::awaitable_run(py, &self.cell.shut, asset, render.run(), move |result| {
+            ToPy::Rendered(result.map(|rendered| (rendered, full)))
+        })
+    }
+
     /// The parsed query and the built environment an `_async` method needs, so that a bad query
     /// or a shut environment raises at call time.
     fn query_and_envref(
@@ -687,6 +831,126 @@ impl Environment {
 
 #[pymethods]
 impl Environment {
+    /// Renders `template` over `state` (the context, `{{.}}`) and `data` (names looked up above
+    /// it) at the top level. The render runs as an asset of its own, as a command would: its query
+    /// tags are its dependencies and the errors a recovering `errors` mode handles are warnings in
+    /// its log. Returns the text, or with `full=True` an `lq.RenderResult` with the warnings too.
+    ///
+    /// `template` is the text (`str`) or a link (`lq.Query`, `lq.Key`); relative keys resolve
+    /// against `cwd` (an `lq.Key`, default the root). `html=True` escapes substituted text.
+    /// `state` is an `lq.State` or any value; `data` reads in place and must be a mapping.
+    #[pyo3(signature = (template, state=None, data=None, *, errors="strict", cwd=None, html=false, full=false))]
+    #[allow(clippy::too_many_arguments)]
+    fn render(
+        &self,
+        py: Python<'_>,
+        template: &Bound<'_, PyAny>,
+        state: Option<&Bound<'_, PyAny>>,
+        data: Option<&Bound<'_, PyAny>>,
+        errors: &str,
+        cwd: Option<&Bound<'_, PyAny>>,
+        html: bool,
+        full: bool,
+    ) -> PyResult<Py<PyAny>> {
+        let arguments = crate::template::Arguments { template, state, data, errors, cwd, html };
+        self.render_top(py, crate::template::Call::Render, arguments, full)
+    }
+
+    /// Expands `template` over `data` (the context, `{{.}}`), as `render` does with no state.
+    #[pyo3(signature = (template, data=None, *, errors="strict", cwd=None, html=false, full=false))]
+    #[allow(clippy::too_many_arguments)]
+    fn expand(
+        &self,
+        py: Python<'_>,
+        template: &Bound<'_, PyAny>,
+        data: Option<&Bound<'_, PyAny>>,
+        errors: &str,
+        cwd: Option<&Bound<'_, PyAny>>,
+        html: bool,
+        full: bool,
+    ) -> PyResult<Py<PyAny>> {
+        let arguments = crate::template::Arguments { template, state: None, data, errors, cwd, html };
+        self.render_top(py, crate::template::Call::Expand, arguments, full)
+    }
+
+    /// Awaitable `render`. Cancelling the awaiting task cancels the render's asset.
+    #[pyo3(signature = (template, state=None, data=None, *, errors="strict", cwd=None, html=false, full=false))]
+    #[allow(clippy::too_many_arguments)]
+    fn render_async<'py>(
+        &self,
+        py: Python<'py>,
+        template: &Bound<'py, PyAny>,
+        state: Option<&Bound<'py, PyAny>>,
+        data: Option<&Bound<'py, PyAny>>,
+        errors: &str,
+        cwd: Option<&Bound<'py, PyAny>>,
+        html: bool,
+        full: bool,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let arguments = crate::template::Arguments { template, state, data, errors, cwd, html };
+        self.render_top_async(py, crate::template::Call::Render, arguments, full)
+    }
+
+    /// Awaitable `expand`. Cancelling the awaiting task cancels the render's asset.
+    #[pyo3(signature = (template, data=None, *, errors="strict", cwd=None, html=false, full=false))]
+    #[allow(clippy::too_many_arguments)]
+    fn expand_async<'py>(
+        &self,
+        py: Python<'py>,
+        template: &Bound<'py, PyAny>,
+        data: Option<&Bound<'py, PyAny>>,
+        errors: &str,
+        cwd: Option<&Bound<'py, PyAny>>,
+        html: bool,
+        full: bool,
+    ) -> PyResult<Bound<'py, PyAny>> {
+        let arguments = crate::template::Arguments { template, state: None, data, errors, cwd, html };
+        self.render_top_async(py, crate::template::Call::Expand, arguments, full)
+    }
+
+    /// Declares a template command `name`: an alias of `ns-template/render` whose template is the
+    /// link `template` (a query `str`, an `lq.Query`, or an `lq.Key` read as `-R/<key>`; never
+    /// template text). It needs no function, survives every rebuild, and takes the render's
+    /// arguments: `data`, `errors` and `cwd` (default the folder of the input's key). The last
+    /// registration under a name wins, whether a Python command or a declared one; a declaration
+    /// that would not build raises and changes nothing.
+    #[pyo3(signature = (name, template, *, namespace="", label=None, doc=None, filename=None))]
+    #[allow(clippy::too_many_arguments)]
+    fn template_command(
+        &self,
+        py: Python<'_>,
+        name: &str,
+        template: &Bound<'_, PyAny>,
+        namespace: &str,
+        label: Option<String>,
+        doc: Option<String>,
+        filename: Option<String>,
+    ) -> PyResult<()> {
+        let link = if let Ok(key) = template.cast::<crate::query::Key>() {
+            liquers_core::query::Query::from(&key.borrow().0)
+        } else {
+            to_query(template).map_err(|e| match template.cast::<PyString>() {
+                Ok(_) => error_to_pyerr(py, &e),
+                Err(_) => pyo3::exceptions::PyTypeError::new_err(
+                    "a template command's template must be a link: a query str, an lq.Query or an lq.Key",
+                ),
+            })?
+        };
+        let overrides = crate::declared::Overrides { label, doc, filename };
+        let command = crate::declared::template_command(CommandKey::new("", namespace, name), link, overrides);
+        self.cell
+            .declare(py, command)
+            .map(|_replaced| ())
+            .map_err(|e| error_to_pyerr(py, &e))
+    }
+
+    /// Every problem in template `text`, as `lq.Diagnostic`s, checked against this environment's
+    /// commands; nothing is evaluated. (`validate()` checks the command registry itself.)
+    fn validate_template(&self, py: Python<'_>, text: &str) -> PyResult<Vec<crate::template::Diagnostic>> {
+        let envref = self.cell.envref(py).map_err(|e| error_to_pyerr(py, &e))?;
+        Ok(crate::template::validate(text, envref.get_command_metadata_registry()))
+    }
+
     /// `x` as a data node read at the top level of this environment: an `lq.State` whose value
     /// needs a context (a record source, a directory listing) is read asynchronously, each read in
     /// its own ad-hoc asset; anything else is read as `lq.data_node(x)`.

@@ -110,6 +110,11 @@ from liquers._native import (
     NodeKind,
     DataNode,
     data_node,
+    # Templates
+    RenderResult,
+    Diagnostic,
+    Link,
+    link,
     StoreArgumentInfo,
     Store,
     # Records
@@ -190,6 +195,10 @@ __all__ = [
     "NodeKind",
     "DataNode",
     "data_node",
+    "RenderResult",
+    "Diagnostic",
+    "Link",
+    "link",
     "StoreArgumentInfo",
     "Store",
     "FieldType",
