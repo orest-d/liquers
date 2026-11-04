@@ -6,6 +6,35 @@
 //!
 //! **No `RefCell` borrow and no manager guard may be held across the call into JavaScript.**
 //! Arguments are converted to owned Rust values first, then JavaScript is entered.
+//!
+//! # Main components
+//!
+//! - [`register_js_command`] — registers a parsed declaration: an async command owning `run`, or,
+//!   for a pipeline command, its metadata only.
+//! - [`call_js_command`] — one call: state and arguments converted, the context inserted, `run`
+//!   applied, a returned Promise awaited.
+//! - [`CallableSpec`] — the retained function and how to call it.
+//!
+//! # Where it is used
+//!
+//! `crate::environment` registers every accepted declaration through [`register_js_command`],
+//! on first registration and on every rebuild's replay.
+//!
+//! # Related concepts
+//!
+//! `crate::command::spec` parses the declaration; `crate::command::context` is the `Context` a
+//! command receives; `crate::bridge` converts the values.
+//!
+//! # Examples
+//!
+//! `tests/commands_COMMAND.rs` and `tests/async_commands_ASYNCCMD.rs` (Node); the crate does not
+//! build natively, so there is no doctest:
+//!
+//! ```text
+//! let mut env = crate::environment::new_environment()?;
+//! let spec = JsCommandSpec::parse(&declaration)?;      // { name, run, … } from the page
+//! register_js_command(&mut env.command_registry, spec)?;
+//! ```
 
 use std::cell::RefCell;
 use std::collections::HashSet;
@@ -120,6 +149,10 @@ where
         }
     });
 
+    let Some(run) = run else {
+        return register_pipeline_metadata(registry, key, metadata);
+    };
+
     let shared = Rc::new(CallableSpec::new(
         run,
         state_mode,
@@ -136,6 +169,28 @@ where
 
     // Replace the metadata built by `register_async_command` (which is a bare key-derived stub)
     // with the parsed declaration, so `describeCommand` reports what the author actually wrote.
+    registry.command_metadata_registry.add_command(&metadata);
+    Ok(())
+}
+
+/// Registers a pipeline command: metadata only, as `CommandRegistry::register_pipeline` does,
+/// since the planner expands a call into the body's steps and their executors run.
+///
+/// Argument types the declaration left as `any` are completed from the slots their placeholders
+/// fill. The definition is **not** checked here: `registerCommands` checked it with its whole
+/// batch before anything was registered, and a rebuild replays what was accepted then. Checking
+/// again would make replay depend on order, which validation does not.
+fn register_pipeline_metadata<E: Environment>(
+    registry: &mut CommandRegistry<E>,
+    key: CommandKey,
+    mut metadata: liquers_core::command_metadata::CommandMetadata,
+) -> Result<(), Error> {
+    registry
+        .command_metadata_registry
+        .complete_pipeline_command(&mut metadata);
+    // Drops an executor a function command of the same key left behind; the planner would
+    // otherwise still find it.
+    registry.unregister(key);
     registry.command_metadata_registry.add_command(&metadata);
     Ok(())
 }

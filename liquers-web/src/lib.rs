@@ -11,6 +11,9 @@
 //!   declaration in [`typescript`]'s `LiquersCommandSpec`, becomes a command.
 //! - [`value`] — the value bridge between `JsValue` and the Liquers value, [`JsValueBridge`].
 //! - [`store`] — stores a page can mount: `localStorage`, `fetch`, a JavaScript object.
+//! - [`pipeline`] — pipelines as plain objects: [`evaluate_pipeline`], the conversions
+//!   [`pipeline_to_query`] / [`query_to_pipeline`], and the `PipelineEditor` / `QueryEditor`
+//!   classes. A pipeline *command* is a declaration with `pipeline` in place of `run`.
 //!
 //! # Where it is used
 //! - The examples of `specs/guides/JAVASCRIPT_GUIDE.md`, run under Node by
@@ -91,6 +94,7 @@ pub mod environment;
 pub mod error;
 pub mod eval;
 pub mod objects;
+pub mod pipeline;
 #[cfg(feature = "records")]
 pub mod records;
 pub mod store;
@@ -105,6 +109,7 @@ pub use encode::encode_param;
 pub use environment::{version, LiquersEnvironment, WebEnvironment};
 pub use error::LiquersError;
 pub use objects::{LiquersKey, LiquersQuery};
+pub use pipeline::{LiquersPipelineEditor, LiquersQueryEditor};
 pub use ui::{LiquersUIElement, LiquersUIMount, LiquersUISubscription};
 pub use ui_define::{define_element, element, undefine_element, JsElementDelegate};
 pub use value::{JsOpaque, ORIGIN_JAVASCRIPT};
@@ -336,6 +341,35 @@ fn refused_batch_to_js(refused: environment::RefusedBatch) -> JsValue {
 ///
 /// Returns `false` for an unknown command rather than throwing, so teardown paths need no
 /// existence check.
+/// Evaluates a pipeline (its JSON form: an object with `elements`, or an array of elements) on
+/// the global environment, as [`evaluate`] evaluates a query.
+#[wasm_bindgen(js_name = evaluatePipeline)]
+pub fn evaluate_pipeline(
+    #[wasm_bindgen(unchecked_param_type = "LiquersPipeline")] pipeline: JsValue,
+) -> js_sys::Promise {
+    match environment::shared_env() {
+        Ok(envref) => pipeline::evaluate_pipeline_to_promise(envref, &pipeline),
+        Err(e) => js_sys::Promise::reject(&error::liquers_error_to_js(e)),
+    }
+}
+
+/// The query text of a pipeline, with named arguments placed by the global environment's
+/// commands. Throws a `parameter_error` naming the rule when the pipeline has no query form.
+#[wasm_bindgen(js_name = pipelineToQuery)]
+pub fn pipeline_to_query(
+    #[wasm_bindgen(unchecked_param_type = "LiquersPipeline")] pipeline: JsValue,
+) -> Result<String, JsValue> {
+    environment::current_metadata_registry()
+        .and_then(|cmr| pipeline::pipeline_to_query(&pipeline, &cmr))
+        .map_err(error::liquers_error_to_js)
+}
+
+/// A query as a pipeline: plain objects. Needs no environment.
+#[wasm_bindgen(js_name = queryToPipeline, unchecked_return_type = "LiquersPipeline")]
+pub fn query_to_pipeline(query: &str) -> Result<JsValue, JsValue> {
+    pipeline::query_to_pipeline(query).map_err(error::liquers_error_to_js)
+}
+
 #[wasm_bindgen(js_name = unregisterCommand)]
 pub fn unregister_command(name: &str) -> Result<bool, JsValue> {
     environment::unregister_command_on(name).map_err(error::liquers_error_to_js)

@@ -319,7 +319,7 @@ updated by the change that moves it.
 | `RECIPE` | not started (deferred) | — | — |
 | `DATANODE` | not started | — | no JavaScript object is adapted as a `DataNode` yet; `TEMPLATE` uses one (a soft dependency) to render page data in place. The core hook it needs for an opaque `JsOpaque` is design `foreign-value-data-node` (in review) |
 | `TEMPLATE` | not started | — | the browser build has no `ns-template` commands (`WEB-HAS-NO-TEMPLATE-COMMANDS`); the in-command half needs only those, since `COMMAND07` already gives a command its `Context` |
-| `PIPELINE` | not started | — | nothing in `PIPELINE01`–`05` is reachable from a page (`PIPELINES-NOT-IN-LANGUAGE-BINDINGS`). A command's `Value::Pipeline` result already arrives as its JSON object; nothing turns a page's object into a pipeline, evaluates one, edits one or registers a pipeline command |
+| `PIPELINE` | complete | 01–05 in `tests/pipeline_PIPELINE.rs` (Node) | a pipeline is a plain object; `evaluatePipeline`, `pipelineToQuery`, `queryToPipeline`, `PipelineEditor`, `QueryEditor`, and a declaration with `pipeline` in place of `run`. A page cannot pass a pipeline *as a value* (`WEB-PAGE-CANNOT-PASS-A-PIPELINE-VALUE`); the editors have no definition mode (`WEB-PIPELINE-EDITOR-HAS-NO-DEFINITION-MODE`) |
 | `MODULE`, `POLYGLOT`, `WEBSERV`, `WEBAPI` | `NA` for the shipped milestone | — | — |
 
 **`RECORDS03` is `NA`**: there is no Arrow route out of the browser build; it becomes required if an

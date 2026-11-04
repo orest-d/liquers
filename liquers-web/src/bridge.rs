@@ -13,6 +13,36 @@
 //! Most third-party JavaScript types need none of this. A value that only passes *through* Liquers
 //! from one JavaScript command to another is carried opaquely by
 //! [`crate::value::JsOpaque`] — no custom value type, and no O(size) conversion.
+//!
+//! # Main components
+//!
+//! - [`JsValueBridge`] — what a value type implements to cross to JavaScript.
+//! - [`js_to_value`] / [`value_to_js`] (and [`value_to_js_in`]) — the two directions.
+//! - [`ConversionPolicy`] — whether an unrecognised JavaScript value is an error or kept opaque.
+//! - [`serialize_to_js`] — the one serializer, maps as plain objects.
+//!
+//! # Where it is used
+//!
+//! Evaluation results (`crate::eval`), command arguments and results (`crate::command::adapter`),
+//! pipelines and their argument values (`crate::pipeline`, through `js_value_to_json`), and every
+//! wrapper class that hands a value back.
+//!
+//! # Related concepts
+//!
+//! `crate::default_value` implements the bridge for `liquers_lib::value::Value`;
+//! `crate::value::JsOpaque` is the opaque carrier. The contract is
+//! `specs/reference/JAVASCRIPT_INTEGRATION.md` §5.
+//!
+//! # Examples
+//!
+//! `tests/value_bridge_VALUE.rs` (Node) holds the mapping table; the crate does not build
+//! natively, so there is no doctest:
+//!
+//! ```text
+//! let three = JsValue::from(3.0);
+//! let v: Value = js_to_value(&three, ConversionPolicy::Structural)?;  // an integer, not 3.0
+//! let js = value_to_js(&v)?;                                           // the number 3
+//! ```
 
 use liquers_core::error::{Error, ErrorType};
 use liquers_core::value::ValueInterface;
@@ -301,6 +331,14 @@ fn is_plain_object(js: &JsValue) -> bool {
 /// limitation:** a `Uint8Array` *nested* inside an array or object is refused with
 /// `ConversionError`, because JSON has no byte type and degrading it to an array of numbers would
 /// lose the distinction `VALUE04` preserves. Top-level bytes are preserved exactly.
+/// Converts a JavaScript value to JSON by the value bridge's structural rules: integral numbers
+/// inside ±2^53 become JSON integers, plain objects and arrays recurse, and anything else (a `Map`,
+/// a class instance, an opaque value) is refused with `ConversionError`. Used where the target is
+/// JSON rather than the value type: pipelines and their argument values (`crate::pipeline`).
+pub(crate) fn js_value_to_json(js: &JsValue) -> Result<serde_json::Value, Error> {
+    js_to_json(js, 0, "$")
+}
+
 fn js_to_json(js: &JsValue, depth: usize, path: &str) -> Result<serde_json::Value, Error> {
     if depth > MAX_DEPTH {
         return Err(Error::from_error(
