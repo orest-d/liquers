@@ -22,6 +22,7 @@ pub mod pycall;
 pub mod query;
 pub mod recipe_provider;
 pub mod recipes;
+pub mod closure;
 pub mod data_node;
 pub mod records;
 pub mod runtime;

@@ -687,6 +687,21 @@ impl Environment {
 
 #[pymethods]
 impl Environment {
+    /// `x` as a data node read at the top level of this environment: an `lq.State` whose value
+    /// needs a context (a record source, a directory listing) is read asynchronously, each read in
+    /// its own ad-hoc asset; anything else is read as `lq.data_node(x)`.
+    fn data_node(&self, py: Python<'_>, x: &Bound<'_, PyAny>) -> PyResult<crate::data_node::DataNodeView> {
+        if let Ok(state) = x.cast::<crate::asset::State>() {
+            let envref = self.cell.envref(py).map_err(|e| error_to_pyerr(py, &e))?;
+            return Ok(crate::data_node::DataNodeView::of_env(
+                state.get().core().clone(),
+                &envref,
+                self.cell.shut.clone(),
+            ));
+        }
+        Ok(crate::data_node::data_node(py, x))
+    }
+
     #[new]
     #[pyo3(signature = (*, config=None, conversion="permissive", pickle=false, async_loops=1, job_capacity=None))]
     fn new(

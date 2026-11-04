@@ -91,3 +91,22 @@ def test_reentrant_getitem_completes(env):
     thread.start()
     thread.join(5)
     assert not thread.is_alive() and result["v"] == "hello"
+
+
+def test_large_render_cost(env):
+    """A measurement, not an assertion: a 10 000-entry dict rendered with `{{#items}}` (recorded
+    in the design's Learning Log)."""
+    import sys
+    import time
+
+    env.store_set("templates/items.md", "{{#items}}{{name}},{{/items}}")
+
+    @env.first_command
+    def many() -> object:
+        return {"items": [{"name": f"n{i}"} for i in range(10_000)]}
+
+    start = time.perf_counter()
+    text = env.evaluate("many/ns-template/render-~X~-R/templates/items.md~E")
+    elapsed = time.perf_counter() - start
+    assert text.count(",") == 10_000
+    print(f"10 000-entry render: {elapsed:.3f} s", file=sys.stderr)

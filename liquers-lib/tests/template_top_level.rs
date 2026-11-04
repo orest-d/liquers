@@ -270,3 +270,39 @@ async fn top10_cancel_during_a_query_tag() -> Res {
     assert_eq!(asset.status().await, Status::Cancelled);
     Ok(())
 }
+
+/// `context_node_kind` names the kind `ContextHost::node_of` gives (liquers-py-data-nodes Step 5).
+#[tokio::test]
+async fn context_node_kind_agrees_with_node_of() -> Res {
+    use liquers_core::metadata::AssetInfo;
+    use liquers_lib::template::host::context_node_kind;
+    use liquers_lib::template::ContextHost;
+    use liquers_lib::value::simple::SimpleValue;
+
+    let envref = fixture().await?;
+    let mut entry = AssetInfo::default();
+    entry.key = Some(parse_key("templates/greet.md")?);
+    let listing = Value::new_base(SimpleValue::AssetInfo { value: vec![entry] });
+    let values = vec![listing, Value::from("text"), Value::from(3)];
+    let closure = envref.get_asset_manager().closure_asset("kinds")?;
+    let agreed = closure
+        .run(
+            move |context| async move {
+                let host = ContextHost::new(context, Key::new());
+                let mut agreed = Vec::new();
+                for value in values {
+                    let expected = context_node_kind(&value);
+                    let node = host.node_of(&State::new().with_data(value.clone()));
+                    let own = Value::data_node(std::sync::Arc::new(value)).kind();
+                    agreed.push(node.kind() == expected.unwrap_or(own));
+                    agreed.push(expected.is_some() == matches!(node, AnyNode::Async(_)));
+                }
+                Ok((Value::none(), agreed))
+            },
+            None,
+        )
+        .await?
+        .ok_or("not run")?;
+    assert!(agreed.iter().all(|a| *a), "{agreed:?}");
+    Ok(())
+}

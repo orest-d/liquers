@@ -14,11 +14,17 @@
 //! - [`PyNode`]: the `DataNode` over a live Python object; every lookup attaches to the
 //!   interpreter, on a runtime worker through `block_in_place`.
 //! - The hook: `PyObjectValue`'s `ForeignValue::data_node` (`value.rs`) returns a `PyNode`.
+//! - [`DataNodeView`] (`lq.DataNode`): the outbound view, a root and a path. The root is a plain
+//!   node (`lq.data_node(x)`), a state read through a running command's context
+//!   (`context.data_node(state)`), or a state read at the top level of an environment
+//!   (`env.data_node(state)`, each async read one closure asset). A node that needs a context
+//!   (a folder, a record source) is read with the `_async` members; the sync ones raise
+//!   `NotSupportedError` there.
 //!
 //! # Where it is used
 //!
 //! - `ns-template/render` and `expand` over a retained Python value (through `Value::data_node`).
-//! - `lq.data_node(x)` and the view classes of this module's Python half.
+//! - `lq.data_node(x)`, `Context.data_node`, `Environment.data_node`, `State.data_node`.
 //! - `liquers-py/tests/test_DATANODE_*.py`.
 //!
 //! # Related concepts
@@ -36,9 +42,12 @@
 //! ```python
 //! node = lq.data_node({"name": "Ann", "when": datetime.datetime.now()})
 //! assert node["name"].scalar == "Ann" and node["when"].kind == lq.NodeKind.Opaque
+//! folder = env.data_node(env.evaluate_state("-R-dir/data"))
+//! entry = await folder.get_async("sales.csv")     # one closure asset
 //! ```
 //!
-//! More: `test_DATANODE_protocols.py` (opt-in), `test_DATANODE_render.py` (templates).
+//! More: `test_DATANODE_protocols.py` (opt-in), `test_DATANODE_render.py` (templates),
+//! `test_DATANODE_views.py` (async views).
 
 use std::borrow::Cow;
 use std::collections::HashSet;
@@ -46,6 +55,7 @@ use std::sync::Arc;
 
 use liquers_core::data_node::{AnyNode, DataNode, KeyIter, NodeIter, NodeKind, NodeRef, Scalar};
 use liquers_core::error::Error;
+use liquers_core::state::State as CoreState;
 use liquers_core::value::ValueInterface;
 use liquers_lib::value::ExtValueInterface;
 use pyo3::exceptions::{PyIndexError, PyKeyError};
@@ -543,18 +553,33 @@ enum Step {
 
 /// What a view reads from.
 enum Root {
-    /// A node: `lq.data_node(x)`, `State.data_node()`.
+    /// A node: `lq.data_node(x)`, `State.data_node()`, and every view whose node holds no context.
     Node(AnyNode),
+    /// A value that needs a command's context (a folder, a record source): `context.data_node`.
+    /// Valid while the command runs.
+    Command {
+        state: CoreState<Value>,
+        context: crate::context::Context,
+    },
+    /// The same at the top level: `env.data_node`. Each read runs in a closure asset.
+    Env {
+        state: CoreState<Value>,
+        env: std::sync::Weak<crate::environment::PyEnvironment>,
+        shut: Arc<crate::aio::Shut>,
+    },
 }
 
 /// A view of data, read field by field without converting it: `lq.data_node(x)`.
 ///
 /// The view is live: each read looks the data up again, so a `dict` changed between two reads
-/// shows the change. Children are views too.
+/// shows the change. Children are views too. Data that is read on demand (a store folder, a record
+/// source) is read with the `_async` members; the sync ones raise `NotSupportedError` for it.
 #[pyclass(frozen, name = "DataNode", module = "liquers")]
 pub struct DataNodeView {
     root: Arc<Root>,
     path: Arc<[Step]>,
+    /// The kind, known without a read: a view reached through an await, or a context root.
+    kind: Option<NodeKind>,
 }
 
 /// Walks `path` from `node` and calls `f` on the node reached; `None` when a step is missing.
@@ -587,6 +612,108 @@ fn scalar_to_py(py: Python<'_>, scalar: Scalar<'_>) -> PyResult<Py<PyAny>> {
     }
 }
 
+fn async_only() -> Error {
+    Error::not_supported(
+        "this data is read asynchronously: use the `_async` form (`get_async`, `scalar_async`, \
+         `len_async`, `to_json_async`)"
+            .to_string(),
+    )
+}
+
+fn gone(path: &[Step]) -> Error {
+    Error::general_error(format!("the data at {path:?} is no longer there"))
+}
+
+/// An async read.
+enum Op {
+    Get(Step),
+    Scalar,
+    Len,
+    ToJson,
+}
+
+/// What an async read gives.
+enum Outcome {
+    /// `Get`: the child, owned, or `None` when missing; `SameRoot` when it is reached through a
+    /// sync node and is read from the same root.
+    Child(Option<AnyNode>),
+    SameRoot(bool, Option<NodeKind>),
+    Scalar(Option<Scalar<'static>>),
+    Len(Option<usize>),
+    Json(serde_json::Value),
+}
+
+fn sync_op(node: &dyn DataNode, path: &[Step], op: &Op) -> Result<Outcome, Error> {
+    let answer = with_node(node, path, &mut |node| -> Result<Outcome, Error> {
+        Ok(match op {
+            Op::Get(step) => {
+                let child = match step {
+                    Step::Key(name) => node.get(name),
+                    Step::Index(i) => node.index(*i),
+                };
+                let kind = child.as_ref().map(|c| c.node().kind());
+                Outcome::SameRoot(child.is_some(), kind)
+            }
+            Op::Scalar => Outcome::Scalar(node.scalar().map(Scalar::into_owned)),
+            Op::Len => Outcome::Len(node.len()),
+            Op::ToJson => Outcome::Json(node.to_json()?),
+        })
+    });
+    answer.unwrap_or_else(|| Err(gone(path)))
+}
+
+/// Applies `op` to the node `path` names under `node`, awaiting where the data is async.
+async fn async_op(node: AnyNode, path: &[Step], op: &Op) -> Result<Outcome, Error> {
+    let mut node = node;
+    for (i, step) in path.iter().enumerate() {
+        node = match node {
+            AnyNode::Sync(sync) => return sync_op(sync.as_ref(), &path[i..], op),
+            AnyNode::Async(a) => match step {
+                Step::Key(name) => a.get(name).await?,
+                Step::Index(j) => a.index(*j).await?,
+            }
+            .ok_or_else(|| gone(path))?,
+        };
+    }
+    match node {
+        AnyNode::Sync(sync) => sync_op(sync.as_ref(), &[], op),
+        AnyNode::Async(a) => Ok(match op {
+            Op::Get(Step::Key(name)) => Outcome::Child(a.get(name).await?),
+            Op::Get(Step::Index(j)) => Outcome::Child(a.index(*j).await?),
+            Op::Scalar => Outcome::Scalar(a.scalar().await?),
+            Op::Len => Outcome::Len(a.len().await?),
+            Op::ToJson => Outcome::Json(a.to_json().await?),
+        }),
+    }
+}
+
+/// An awaited read, converted to Python on the caller's loop.
+pub(crate) enum NodeAnswer {
+    View(Option<DataNodeView>),
+    Scalar(Option<Scalar<'static>>),
+    Len(Option<usize>),
+    Json(serde_json::Value),
+}
+
+impl NodeAnswer {
+    pub(crate) fn into_py(self, py: Python<'_>) -> Result<Py<PyAny>, Error> {
+        use pyo3::IntoPyObjectExt;
+        let converted = match self {
+            NodeAnswer::View(Some(view)) => view.into_py_any(py),
+            NodeAnswer::View(None) | NodeAnswer::Scalar(None) => Ok(py.None()),
+            NodeAnswer::Scalar(Some(scalar)) => scalar_to_py(py, scalar),
+            NodeAnswer::Len(Some(n)) => n.into_py_any(py),
+            NodeAnswer::Len(None) => {
+                return Err(Error::general_error(
+                    "only a list data node has a length".to_string(),
+                ))
+            }
+            NodeAnswer::Json(json) => crate::store::json_to_py(py, &json),
+        };
+        converted.map_err(|e| crate::error::pyerr_to_error(py, &e))
+    }
+}
+
 impl DataNodeView {
     /// A view of a Liquers value's own node (a retained Python object reads through the hook).
     pub(crate) fn of_value(value: Arc<Value>) -> Self {
@@ -594,39 +721,70 @@ impl DataNodeView {
     }
 
     pub(crate) fn of_node(node: AnyNode) -> Self {
+        let kind = match &node {
+            AnyNode::Async(a) => Some(a.kind()),
+            AnyNode::Sync(_) => None,
+        };
         DataNodeView {
             root: Arc::new(Root::Node(node)),
             path: Arc::from(Vec::new()),
+            kind,
         }
     }
 
-    fn child(&self, step: Step) -> Self {
+    /// A view of `state` read in a command's context: a value that needs none is a plain node.
+    pub(crate) fn of_command(state: CoreState<Value>, context: crate::context::Context) -> Self {
+        match liquers_lib::template::host::context_node_kind(state.data_unchecked()) {
+            None => Self::of_value(state.data_unchecked().clone()),
+            Some(kind) => DataNodeView {
+                root: Arc::new(Root::Command { state, context }),
+                path: Arc::from(Vec::new()),
+                kind: Some(kind),
+            },
+        }
+    }
+
+    /// A view of `state` read at the top level of `envref`.
+    pub(crate) fn of_env(
+        state: CoreState<Value>,
+        envref: &liquers_core::context::EnvRef<crate::environment::PyEnvironment>,
+        shut: Arc<crate::aio::Shut>,
+    ) -> Self {
+        match liquers_lib::template::host::context_node_kind(state.data_unchecked()) {
+            None => Self::of_value(state.data_unchecked().clone()),
+            Some(kind) => DataNodeView {
+                root: Arc::new(Root::Env {
+                    state,
+                    env: Arc::downgrade(&envref.0),
+                    shut,
+                }),
+                path: Arc::from(Vec::new()),
+                kind: Some(kind),
+            },
+        }
+    }
+
+    fn child(&self, step: Step, kind: Option<NodeKind>) -> Self {
         let mut path = self.path.to_vec();
         path.push(step);
         DataNodeView {
             root: self.root.clone(),
             path: Arc::from(path),
+            kind,
         }
     }
 
     /// Runs `f` on the node this view names. `NotSupportedError` for data read asynchronously,
     /// `KeyError` when the node is gone.
     fn read<R>(&self, py: Python<'_>, mut f: impl FnMut(&dyn DataNode) -> R) -> PyResult<R> {
-        let root = match self.root.as_ref() {
-            Root::Node(node) => node,
+        let node = match self.root.as_ref() {
+            Root::Node(AnyNode::Sync(node)) => node,
+            Root::Node(AnyNode::Async(_)) | Root::Command { .. } | Root::Env { .. } => {
+                return Err(crate::error::error_to_pyerr(py, &async_only()))
+            }
         };
-        let node = root.as_sync().map_err(|_| {
-            crate::error::error_to_pyerr(
-                py,
-                &Error::not_supported(
-                    "this data is read asynchronously: use the `_async` form (`get_async`, \
-                     `scalar_async`, `len_async`, `to_json_async`)"
-                        .to_string(),
-                ),
-            )
-        })?;
         // The caller is attached already; each lookup attaches again, which is reentrant.
-        with_node(node, &self.path, &mut f)
+        with_node(node.as_ref(), &self.path, &mut f)
             .ok_or_else(|| PyKeyError::new_err(format!("{:?} is no longer there", self.path)))
     }
 
@@ -646,11 +804,147 @@ impl DataNodeView {
 
     /// The child at `step`, when it exists.
     fn existing_child(&self, py: Python<'_>, step: Step) -> PyResult<Option<Self>> {
-        let exists = self.read(py, |node| match &step {
-            Step::Key(name) => node.get(name).is_some(),
-            Step::Index(i) => node.index(*i).is_some(),
+        let found = self.read(py, |node| {
+            let child = match &step {
+                Step::Key(name) => node.get(name),
+                Step::Index(i) => node.index(*i),
+            };
+            child.is_some()
         })?;
-        Ok(exists.then(|| self.child(step)))
+        Ok(found.then(|| self.child(step, None)))
+    }
+
+    /// The view an async `get` gives for `outcome`.
+    fn child_view(root: &Arc<Root>, path: &[Step], step: Step, outcome: Outcome) -> Option<Self> {
+        let extend = |kind| {
+            let mut longer = path.to_vec();
+            longer.push(step.clone());
+            DataNodeView {
+                root: root.clone(),
+                path: Arc::from(longer),
+                kind,
+            }
+        };
+        match outcome {
+            Outcome::Child(None) | Outcome::SameRoot(false, _) => None,
+            Outcome::SameRoot(true, kind) => Some(extend(kind)),
+            // A sync node holds no context, so it reads on its own from now on.
+            Outcome::Child(Some(node @ AnyNode::Sync(_))) => Some(Self::of_node(node)),
+            Outcome::Child(Some(AnyNode::Async(a))) => match root.as_ref() {
+                Root::Node(_) => Some(Self::of_node(AnyNode::Async(a))),
+                // Read again from the root, so the command's validity and the run's asset apply.
+                Root::Command { .. } | Root::Env { .. } => Some(extend(Some(a.kind()))),
+            },
+            Outcome::Scalar(_) | Outcome::Len(_) | Outcome::Json(_) => None,
+        }
+    }
+
+    /// An awaitable of `op` on this view's node.
+    fn awaitable<'py>(&self, py: Python<'py>, op: Op) -> PyResult<Bound<'py, PyAny>> {
+        let root = self.root.clone();
+        let path = self.path.clone();
+        let finish = move |outcome: Outcome, root: &Arc<Root>, path: &[Step], op: Op| -> NodeAnswer {
+            match op {
+                Op::Get(step) => NodeAnswer::View(Self::child_view(root, path, step, outcome)),
+                Op::Scalar | Op::Len | Op::ToJson => match outcome {
+                    Outcome::Scalar(s) => NodeAnswer::Scalar(s),
+                    Outcome::Len(n) => NodeAnswer::Len(n),
+                    Outcome::Json(j) => NodeAnswer::Json(j),
+                    Outcome::Child(_) | Outcome::SameRoot(..) => NodeAnswer::View(None),
+                },
+            }
+        };
+        let matched = self.root.clone();
+        match matched.as_ref() {
+            Root::Node(node) => {
+                let node = node.clone();
+                let shut = Arc::new(crate::aio::Shut::default());
+                crate::aio::awaitable(
+                    py,
+                    &shut,
+                    async move {
+                        let outcome = async_op(node, &path, &op).await?;
+                        Ok(finish(outcome, &root, &path, op))
+                    },
+                    ToPyNode::wrap,
+                )
+            }
+            Root::Command { state, context } => {
+                let core = context.core().ok_or_else(|| {
+                    crate::error::error_to_pyerr(
+                        py,
+                        &Error::general_error(
+                            "this data node belongs to a command that has returned".to_string(),
+                        ),
+                    )
+                })?;
+                let state = state.clone();
+                crate::aio::awaitable(
+                    py,
+                    &context.shut(),
+                    async move {
+                        let host = liquers_lib::template::ContextHost::new(
+                            core,
+                            liquers_core::query::Key::new(),
+                        );
+                        let node = host.node_of(&state);
+                        drop(host);
+                        let outcome = async_op(node, &path, &op).await?;
+                        Ok(finish(outcome, &root, &path, op))
+                    },
+                    ToPyNode::wrap,
+                )
+            }
+            Root::Env { state, env, shut } => {
+                let envref = env
+                    .upgrade()
+                    .map(liquers_core::context::EnvRef)
+                    .ok_or_else(|| {
+                        crate::error::error_to_pyerr(py, &crate::environment::shut_down_error())
+                    })?;
+                if shut.is_set() {
+                    return Err(crate::error::error_to_pyerr(
+                        py,
+                        &crate::environment::shut_down_error(),
+                    ));
+                }
+                use liquers_core::assets::AssetManager;
+                let closure = envref
+                    .get_asset_manager()
+                    .closure_asset("data node read")
+                    .map_err(|e| crate::error::error_to_pyerr(py, &e))?;
+                let asset = closure.asset().clone();
+                let state = state.clone();
+                let run = closure.run(
+                    move |context| async move {
+                        let host = liquers_lib::template::ContextHost::new(
+                            context,
+                            liquers_core::query::Key::new(),
+                        );
+                        let node = host.node_of(&state);
+                        drop(host);
+                        let outcome = async_op(node, &path, &op).await?;
+                        Ok((Value::none(), finish(outcome, &root, &path, op)))
+                    },
+                    None,
+                );
+                crate::closure::awaitable_run(py, shut, asset, run, |result| {
+                    crate::aio::ToPy::Node(match result {
+                        Ok(Some(answer)) => Ok(answer),
+                        Ok(None) => Err(Error::cancelled("the data node read was cancelled".to_string())),
+                        Err(e) => Err(e),
+                    })
+                })
+            }
+        }
+    }
+}
+
+/// `ToPy::Node` as the `fn` `aio::awaitable` takes.
+struct ToPyNode;
+impl ToPyNode {
+    fn wrap(result: Result<NodeAnswer, Error>) -> crate::aio::ToPy {
+        crate::aio::ToPy::Node(result)
     }
 }
 
@@ -669,6 +963,9 @@ impl DataNodeView {
     /// The node's kind, an `lq.NodeKind`.
     #[getter]
     fn kind(&self, py: Python<'_>) -> PyResult<PyNodeKind> {
+        if let Some(kind) = self.kind {
+            return Ok(PyNodeKind::from(kind));
+        }
         self.read(py, |node| PyNodeKind::from(node.kind()))
     }
 
@@ -733,7 +1030,7 @@ impl DataNodeView {
                     None => self.read(py, |node| node.items().count())?,
                 };
                 (0..count)
-                    .map(|i| self.child(Step::Index(i)))
+                    .map(|i| self.child(Step::Index(i), None))
                     .collect::<Vec<_>>()
                     .into_py_any(py)?
             }
@@ -765,9 +1062,32 @@ impl DataNodeView {
         crate::store::json_to_py(py, &json)
     }
 
+    /// Awaitable `get`: the field or item as a view, or `None` when missing. Reads data that is
+    /// read on demand (a store folder, a record source); at the top level each read runs in an
+    /// asset of its own.
+    fn get_async<'py>(&self, py: Python<'py>, key: &Bound<'_, PyAny>) -> PyResult<Bound<'py, PyAny>> {
+        let step = Self::step_of(key)?;
+        self.awaitable(py, Op::Get(step))
+    }
+
+    /// Awaitable `scalar`.
+    fn scalar_async<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        self.awaitable(py, Op::Scalar)
+    }
+
+    /// Awaitable `len()`.
+    fn len_async<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        self.awaitable(py, Op::Len)
+    }
+
+    /// Awaitable `to_json()`.
+    fn to_json_async<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        self.awaitable(py, Op::ToJson)
+    }
+
     fn __repr__(&self, py: Python<'_>) -> String {
-        match self.read(py, |node| node.kind()) {
-            Ok(kind) => format!("DataNode({:?})", PyNodeKind::from(kind)),
+        match self.kind(py) {
+            Ok(kind) => format!("DataNode({kind:?})"),
             Err(_) => "DataNode(?)".to_string(),
         }
     }

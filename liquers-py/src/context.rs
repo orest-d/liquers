@@ -59,6 +59,11 @@ impl Context {
         self.core().is_some()
     }
 
+    /// The environment's shut signal.
+    pub(crate) fn shut(&self) -> Arc<Shut> {
+        self.shut.clone()
+    }
+
     /// The core context while it is valid.
     pub(crate) fn core(&self) -> Option<CoreContext<PyEnvironment>> {
         match self.inner.lock() {
@@ -88,6 +93,19 @@ impl Context {
 
 #[pymethods]
 impl Context {
+    /// `x` as a data node read in this command's context: an `lq.State` whose value needs the
+    /// context (a record source, a directory listing) is read asynchronously through it, with the
+    /// `_async` members, while the command runs; anything else is read as `lq.data_node(x)`.
+    fn data_node(&self, py: Python<'_>, x: &Bound<'_, PyAny>) -> crate::data_node::DataNodeView {
+        if let Ok(state) = x.cast::<crate::asset::State>() {
+            return crate::data_node::DataNodeView::of_command(
+                state.get().core().clone(),
+                self.clone_handle(),
+            );
+        }
+        crate::data_node::data_node(py, x)
+    }
+
     /// Evaluates a query as a dependency of the current asset and returns its value.
     fn evaluate(&self, py: Python<'_>, query: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
         check_blocking_call(py, "evaluate")?;
