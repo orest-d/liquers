@@ -28,7 +28,7 @@ Exhaustive matches that new variants reach outside `liquers-core`:
 - [x] Step 5: `Value::Pipeline` (ee77920)
 - [x] Step 6: Pipeline parameter values and defaults (25ef515)
 - [x] Step 7: Extract `PlanAssembly` (7bceb74)
-- [ ] Step 8: `PipelinePlanBuilder` in `Delegate` mode, `Step::UseValue`, entry points
+- [x] Step 8: `PipelinePlanBuilder` in `Delegate` mode, `Step::UseValue`, entry points (70bce02)
 - [ ] Step 9: `Native` mode and the dual-mode corpus test
 - [ ] Step 10: Recipe pipelines
 - [ ] Step 11: Pipeline commands
