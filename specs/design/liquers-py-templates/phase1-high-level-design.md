@@ -30,7 +30,8 @@ function: the `TEMPLATE` feature of `LANGUAGE-INTEGRATION_GUIDE.md` (`TEMPLATE_L
      asset's `Context` (`AD-HOC-ASSET-CANNOT-RUN-A-CLOSURE`, filed with this decision; its own
      design and PR, landed first). So two frames work at the top level, the `data` `dict` is read
      in place through the adapter, and the template text never travels inside a query.
-     liquers-py cancels the asset when a wait is interrupted. `template-render-in-env` is then
+     The primitive returns the asset handle before it runs, so liquers-py cancels the asset when a
+     wait is interrupted and waits until it settles. `template-render-in-env` is then
      replaced by a thin helper over the primitive (`render_top_level(envref, template, frames,
      options)` in `liquers-lib`), which that design's Scope Change records. Rejected: the ad-hoc
      `apply` of `ns-template/render` (one frame only, the data converted to a `Value`), and a
@@ -75,10 +76,10 @@ function: the `TEMPLATE` feature of `LANGUAGE-INTEGRATION_GUIDE.md` (`TEMPLATE_L
 
 ## Decisions
 
-Orest, 2026-11-04, at the Phase 1 gate, on question 1 (the two-frame limit at the top level),
-quoted: "why would template work only in commands - if the environment is available, it should be
-possible outside the commands too?" Taken as Decision 1: a core primitive gives the top level the
-same render as a command. Landing order data nodes, templates, pipelines: "ok".
+1. Orest, 2026-11-04, at the Phase 1 gate, on question 1 (the two-frame limit at the top level):
+   "why would template work only in commands - if the environment is available, it should be
+   possible outside the commands too?" A core primitive gives the top level the same render as a
+   command. Landing order data nodes, templates, pipelines: "ok".
 
 ## Problem Example
 
@@ -156,7 +157,7 @@ Commands: aliases and link defaults. Assets: an ad-hoc asset at the top level, t
 
 `liquers-py`: `src/template.rs` new; `environment.rs`, `context.rs`, `command.rs`,
 `command_metadata.rs`, `_commands.py`, the stubs. The closure primitive (`liquers-core`) and
-`render_top_level` (`liquers-lib`) land first, in their own PR (Decision 1).
+`render_top_level` (`liquers-lib`) land first, each in its own PR (Decision 1).
 
 ## Documentation Intent
 
@@ -173,7 +174,8 @@ Commands: aliases and link defaults. Assets: an ad-hoc asset at the top level, t
 
 - `AD-HOC-ASSET-CANNOT-RUN-A-CLOSURE` and `template-render-in-env` /
   `TEMPLATE-TOP-LEVEL-RENDER-HAS-NO-HOST`: **requires** (Decision 1). The primitive needs a design
-  of its own (`L`); `template-render-in-env` is re-based on it. Both land first, in their own PR.
+  of its own (`L`); `template-render-in-env` is re-based on it (its Scope Change of 2026-11-04).
+  Each lands first, in its own PR.
 - `liquers-py-data-nodes`: **requires** (lands first), so `data` is read in place. Without it,
   `expand` would convert `data`, and one unconvertible member would blank the whole `dict`.
 - `liquers-py-pipelines`: **overlaps**. Both add the declaration slot and the

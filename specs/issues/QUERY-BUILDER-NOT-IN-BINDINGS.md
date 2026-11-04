@@ -13,43 +13,31 @@ github:
 
 ## Problem
 
-`design/query-builder/` adds `liquers_core::query_builder::QueryBuilder` and
-`Query::check_encodable`, but only for Rust. A Python or JavaScript caller can escape a single
-parameter (`ActionRequest.from_arguments` in `liquers-py`, `encodeParam` in `liquers-web`). It still
-has to assemble resource segments, the `-/` transform header, action names and filenames as text,
-with no validation of those raw-emitted tokens.
+`liquers-core` has `QueryEditor` and `PipelineEditor` (`liquers-core/src/pipeline/editor.rs`),
+which check every edit against the command registry. `liquers-web` exposes neither: a JavaScript
+caller escapes one parameter at a time (`encodeParam`, `liquers-web/src/encode.rs`) and assembles
+resource segments, the `-/` header, action names and filenames as text, with no validation.
 
-## Problem Example
-
-```python
-# today: assembled as text; a name containing "/" or "-" silently changes the query's meaning
-q = "-R/" + folder + "/" + name + "/-/" + "ns-rec/eq-region-" + lq.ActionRequest.from_arguments(...)
-# wanted: lq.QueryBuilder().resource(folder, name).action("eq", "region", "EU", ns="ns-rec").build()
-#         -> a Query, or a ParameterError naming the token that cannot be encoded
-```
-
-Re-checked at HEAD (2026-10-26): `design/query-builder/` is `in_review` and unimplemented (no
-`query_builder` module in `liquers-core`), so this waits for it.
+**Example.** `"-R/" + folder + "/" + name + "/-/ns-rec/eq-region-" + value` with `name =
+"my file.csv"` gives text that does not parse, and a forgotten `-/` turns the actions into key
+segments silently. Expected: an editor whose steps are checked, and a refused step throwing a
+`LiquersError` of type `parameter_error` naming the token.
 
 ## Impact
 
-Language integrations are the callers the original issue (`QUERY-BUILDER-TOOLING`) named first.
-Until they get the builder, they keep their own string assembly, which is the drift the core builder
-exists to remove.
+JavaScript code that builds queries keeps its own string assembly, the drift the core editors
+exist to remove. Workaround: careful text assembly.
 
 ## Expected behaviour
 
-A `QueryBuilder` class in `liquers-py` and an equivalent object in `liquers-web`, each a thin
-wrapper over the core builder that returns a `Query` (or its text) and maps a core
-`ParameterError` to the language's error class. No escaping or validation logic of their own.
+A JavaScript wrapper over `QueryEditor` / `PipelineEditor` with no escaping or validation logic of
+its own (design `query-builder-in-bindings`, to be re-based; the Python precedent is
+`liquers-py-pipelines` question 2).
 
 ## Discovery
 
-Split off on 2026-10-21 by the bulk design of `QUERY-BUILDER-TOOLING`, whose first slice is
-deliberately the core API, the `liquers-encode` CLI and the two existing consumers. Depends on
-`design/query-builder/` landing first.
-
-**Scope split, 2026-11-04.** Narrowed to JavaScript. The core `QueryBuilder` this issue names was
-replaced by `QueryEditor` / `PipelineEditor` (`composite-command-definition`); the JavaScript
-wrapper should target those. The Python half is `PY-HAS-NO-VALIDATING-QUERY-EDITOR`, implemented by
-`liquers-py-pipelines` (Orest at its Phase 1 gate: "agreed").
+Split off on 2026-10-21 by the bulk design of `QUERY-BUILDER-TOOLING`. Narrowed to JavaScript on
+2026-11-04: the core `QueryBuilder` it first named was replaced by `QueryEditor` /
+`PipelineEditor` (`composite-command-definition`), and the Python half is
+`PY-HAS-NO-VALIDATING-QUERY-EDITOR`, implemented by `liquers-py-pipelines` (Orest at its Phase 1
+gate: "agreed").

@@ -11,7 +11,8 @@ three lookups, not a copy. Let Python read one field of a Liquers value without 
 
 ## Design Readiness
 
-- **Readiness:** `ready` (Orest decided question 2 at the gate; the rest are proposed resolutions)
+- **Readiness:** `needs-decision` until Phases 2-4 are written and reviewed; no user decision is
+  open (Orest decided question 2 at the gate; the rest are proposed resolutions)
 - **Automatic fixing:** `not-eligible`: an `L` feature with new public Python classes.
 - **Leading issue:** question 1's two deviations from the guide. Source issue
   `PY-STRUCTURES-ARE-OPAQUE-TO-DATA-NODE-READERS` (P2 L, filed with this design).
@@ -31,8 +32,8 @@ three lookups, not a copy. Let Python read one field of a Liquers value without 
      - **An integer above `i64::MAX`.** VALUE refuses it with `ConversionError`, but a `DataNode`
        lookup cannot fail. So its node is `Opaque`, and `to_json` raises that same
        `ConversionError`. This is a stated deviation from the guide's "the same conversion error",
-       which no infallible lookup can meet. Alternative: `Scalar::UInt` up to `u64::MAX`, which
-       would make the node accept what VALUE refuses.
+       which no infallible lookup can meet. Alternative: answer with the existing `Scalar::UInt` up
+       to `u64::MAX`, a policy choice that makes the node accept what VALUE refuses.
      - **A non-`str` key.** It is not visible through `get` or `keys`. `to_json` raises
        `ConversionError` naming the key.
   2. **Decided (Decision 1): standard types, and classes that opt in to their protocols**
@@ -63,24 +64,31 @@ three lookups, not a copy. Let Python read one field of a Liquers value without 
      such as a long synchronous command. So each lookup runs under `tokio::task::block_in_place`,
      as liquers-py's codecs already do, and `keys` reads every key in one hold. A node wraps one
      Python object, whose type never changes, so its `kind` is stable; only the contents are live.
-     `__liquers_data__` raising makes that node `Opaque`, which the docs state, because `DataNode`
-     has no error channel. On free-threaded builds a `dict` read is atomic per lookup. The cost
+     The opt-in number protocols (`__index__`, `__float__`) are called once when the node is
+     built and the scalar is cached, so a later raise cannot leave an `Integer` with no scalar.
+     The method form of `__liquers_data__` is also called once, at build time, so its result is a
+     snapshot, not a live view. A raise in either makes that node `Opaque`, which the docs state,
+     because `DataNode` has no error channel. On free-threaded builds a `dict` read is atomic per lookup. The cost
      per lookup is measured on a large render in Phase 3.
   6. **Proposed resolution: the outbound view** (guide question 6). Yes: `lq.data_node(x)` returns an
      `lq.DataNode` for a Python value (the adapter) or for an `lq.State` (its value's node,
      `Value::data_node`, always synchronous). It holds the root `AnyNode` plus a path and
      re-resolves on each access. It offers `kind` (`lq.NodeKind`), `scalar`, `[key]` / `[i]`,
      `get`, `keys()`, `len`, iteration and `to_json()`. Async nodes (a store folder, a record
-     source) need a context (`ContextHost::node_of`): `context.data_node(state)` inside a command,
-     and at the top level `env.data_node(state)`, which reads them inside an ad-hoc asset through
-     the core primitive of `liquers-py-templates` Decision 1 (`AD-HOC-ASSET-CANNOT-RUN-A-CLOSURE`).
-     They are read with `await node.get_async(…)`, and a sync accessor on one raises
+     source) need a context, because `ContextHost::node_of` puts one inside them.
+     `context.data_node(state)` inside a command uses the command's context; that view is valid
+     only while the command runs, and raises `GeneralError` after, like `lq.Context` itself. At the
+     top level, `env.data_node(state)` keeps the `State` plus a path, never a node holding a
+     context: each async read runs a fresh ad-hoc asset through the core primitive of
+     `liquers-py-templates` Decision 1 (`AD-HOC-ASSET-CANNOT-RUN-A-CLOSURE`), builds the node in
+     it, and walks the path, so its log, dependencies and cancellation stay inside a live asset.
+     Async nodes are read with `await node.get_async(…)`, and a sync accessor on one raises
      `lq.NotSupportedError` (DATANODE11). `lq.data_node(state)`, with no environment, keeps
      `Value::data_node`, where a record source is `Opaque`, as in Rust.
 
 ## Decisions
 
-Orest, 2026-11-04, at the Phase 1 gate, on question 2, quoted: "data nodes should be supported for
+1. Orest, 2026-11-04, at the Phase 1 gate, on question 2, quoted: "data nodes should be supported for
 standard python types + for classes supporting suitable protocols (e.g. getitem, len...). I'd say
 classes should be able to opt out rather than opt in." After the trade-offs (an opt-out runs code of
 every object with a `__getitem__`): "ok, I agree with opt in - that is better". Taken as Decision 1
@@ -133,9 +141,6 @@ the render returns `"Ann"`: `PyObjectValue` answers through the adapter, `name` 
 - **AC-8** A retained value reads in place
   WHEN the problem example's query is evaluated, with an opted-in mapping class, and with a dataclass that defines `__liquers_data__()`
   THEN all three renders give `"Ann"` (DATANODE08)
-- **AC-13** Opted-in protocols read as data
-  WHEN opted-in classes with sequence and number protocols are read, and an opted-in mapping whose `__getitem__` raises
-  THEN they are a `List`, an `Integer` and a `Float`, and the raising entry is `Opaque` (Decision 1)
 - **AC-9** The view is live
   WHEN a `dict` is changed between two lookups through one node
   THEN the second lookup shows the new value (DATANODE09)
@@ -149,6 +154,9 @@ the render returns `"Ann"`: `PyObjectValue` answers through the adapter, `name` 
   WHEN a command calls `context.data_node(folder_state)`, and a script calls `env.data_node(folder_state)`, each using a sync accessor, then awaiting `get_async("table.csv")`
   THEN each sync accessor raises `lq.NotSupportedError`, and each await returns that entry's node (DATANODE11)
 
+- **AC-13** Opted-in protocols read as data
+  WHEN opted-in classes with sequence and number protocols are read, and an opted-in mapping whose `__getitem__` raises
+  THEN they are a `List`, an `Integer` and a `Float`, and the raising entry is `Opaque` (Decision 1)
 Non-goals: Python-implemented `AsyncDataNode`; writing through a node; patching third-party types
 to opt in; changing structural conversion.
 

@@ -39,8 +39,9 @@ matrix has no `TEMPLATE` row.
 ## Expected behaviour
 
 The guide's §TEMPLATE, tests `TEMPLATE01`–`11`, recorded in the conformance matrix. The top-level
-render needs a core helper (`TEMPLATE-TOP-LEVEL-RENDER-HAS-NO-HOST`, design `template-render-in-env`)
-or an equivalent.
+render runs as a command's render does, inside an ad-hoc asset that runs a closure
+(`AD-HOC-ASSET-CANNOT-RUN-A-CLOSURE`), through the helper of `template-render-in-env`
+(`liquers-py-templates` Decision 1).
 
 ## Discovery
 

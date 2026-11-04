@@ -4,7 +4,7 @@ kind: design
 title: One Rust function renders a template at the top level inside an ad-hoc asset
 form: compact
 status: in_review
-phase: implementation
+phase: high-level
 readiness: needs-decision
 autofix: not-eligible
 area: [lib/commands]
@@ -16,6 +16,10 @@ created: 2026-10-26
 Bulk design (`specs/guides/autonomous_bulk_design.md`), 2026-10-26: Phases 1-4 written, not
 approved, nothing implemented. Readiness `needs-decision`: the function's public shape, and leaving
 out two-frame top-level `render`, are proposed resolutions.
+
+**Returned to Phase 1 on 2026-11-04** (Scope Changes below): re-based on a core primitive that runs
+a closure as an ad-hoc asset, so the top level renders with frames, as a command does. Phases 2-4
+below describe the superseded `render_in_env` route until they are rewritten.
 
 ## Phase 1: High-Level Design
 
@@ -125,8 +129,24 @@ themselves (bindings call this function in their own designs); `liquers-web`
   `ContextHost`, which this design uses unchanged.
 - `FOREIGN-VALUE-HAS-NO-DATA-NODE` (issue, no design): **overlaps**. Until it is fixed, a Python
   object passed as a foreign state renders as an opaque node. The two can land in either order.
-- No binding design yet offers top-level `render`/`expand` (`liquers-py-async`, PR #181, does
-  not touch templates). A future one is **required-by** and calls this function.
+- `AD-HOC-ASSET-CANNOT-RUN-A-CLOSURE` (issue, no design yet): **requires** (scope change of
+  2026-11-04).
+- `liquers-py-templates`: **required-by**. It calls the helper for `env.render` / `expand`.
+
+### Scope Changes
+
+- **2026-11-04** — re-based on `AD-HOC-ASSET-CANNOT-RUN-A-CLOSURE`. Orest, at the Phase 1 gate of
+  `liquers-py-templates`: "why would template work only in commands - if the environment is
+  available, it should be possible outside the commands too?" This settles open question 2: two
+  frames at the top level are required, so the ad-hoc `apply` of `ns-template/render` (one frame,
+  the data converted to a `Value`, the text encoded into a query) no longer fits. The function
+  becomes `render_top_level(envref, template, frames, options)`: it runs `ContextHost` and
+  `liquers_template::render` inside a closure ad-hoc asset, with the frames given directly, which
+  is the issue's original frames signature. The rejected alternative "a core primitive that runs a
+  closure as an ad-hoc asset" becomes the chosen route. AC-1 to AC-9 keep their meaning; AC-2's
+  query comparison and AC-9's "no asset is created" are re-read against the new route when Phase 1
+  is revised. Size: the helper stays `M`; the primitive is a separate `L` design. Returns to
+  Phase 1 (`phase: high-level`); readiness stays `needs-decision`.
 
 ## Phase 2: Architecture
 

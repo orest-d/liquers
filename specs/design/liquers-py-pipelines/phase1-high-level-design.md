@@ -11,7 +11,8 @@ plan, with [`liquers-py-templates`](../liquers-py-templates/DESIGN.md) and
 
 ## Design Readiness
 
-- **Readiness:** `ready` (Orest decided questions 1, 2, 5 and 6 at the gate)
+- **Readiness:** `needs-decision` until Phases 2-4 are written and reviewed; no user decision is
+  open (Orest decided questions 1, 2, 5 and 6 at the gate)
 - **Automatic fixing:** `not-eligible`: an `L` feature with new public Python classes.
 - **Leading issue:** none open. Source issue
   `PIPELINES-NOT-IN-LANGUAGE-BINDINGS` (P2 L), narrowed to Python; its JavaScript half is
@@ -42,7 +43,7 @@ plan, with [`liquers-py-templates`](../liquers-py-templates/DESIGN.md) and
      (`action("is_in", ns="pl")`) runs on a clone of the editor (it is `Clone`) and is committed
      only when every step succeeds. The alternative is building a native structure and
      converting it. That gives no per-step checks and no `ArgumentInfo` for an editor UI. This
-     answers `QUERY-BUILDER-NOT-IN-BINDINGS` for Python. Its design `query-builder-in-bindings`
+     answers `PY-HAS-NO-VALIDATING-QUERY-EDITOR`. The older design `query-builder-in-bindings`
      targets a `QueryBuilder` that no longer exists in `liquers-core`, so see question 6.
   3. **Proposed resolution: the not-representable error.** `to_query` raises
      `lq.ParameterError`, carrying the core message, which names the rule and the path
@@ -62,12 +63,10 @@ plan, with [`liquers-py-templates`](../liquers-py-templates/DESIGN.md) and
      non-representable one raises `NotSupported`, because `Context` has no `evaluate_pipeline`.
      That gap is filed as a core issue in Phase 2 unless Phase 2 adds the method.
   6. **Decided (Decision 1): `query-builder-in-bindings`.** Two designs cannot own one issue
-     (§5.1.1). Done at the gate: split `QUERY-BUILDER-NOT-IN-BINDINGS` at this gate. Its Python half,
-     `PY-HAS-NO-VALIDATING-QUERY-EDITOR` (the editors of question 2), joins this design, recorded as
-     `merged:`. `query-builder-in-bindings` takes a
-     Scope Change that narrows it to `liquers-web` and re-bases it on `QueryEditor`.
-     Alternative: a maintainer merge of the whole design into this one, `superseded` as a whole,
-     with its JavaScript half filed as a `WEB-…` issue.
+     (§5.1.1), so `QUERY-BUILDER-NOT-IN-BINDINGS` was split at the gate. Its Python half,
+     `PY-HAS-NO-VALIDATING-QUERY-EDITOR` (the editors of question 2), joined this design
+     (`merged:`, Scope Changes below). `query-builder-in-bindings` took a Scope Change narrowing it
+     to `liquers-web`, to be re-based on `QueryEditor`.
   7. **Proposed resolution: declared pipeline commands.** `env.pipeline_command(name, body,
      arguments=[…], namespace=…, label=…, doc=…)` goes into a new slot of the retained
      declarations (`Declarations` in `liquers-py/src/environment.rs`). The slot is applied after
@@ -82,6 +81,14 @@ plan, with [`liquers-py-templates`](../liquers-py-templates/DESIGN.md) and
 
 1. Orest, 2026-11-04, at the Phase 1 gate, on questions 1, 2, 5 and 6 as recommended: "agreed".
    Landing order data nodes, templates, pipelines: "ok".
+
+## Scope Changes
+
+- **2026-11-04** — `PY-HAS-NO-VALIDATING-QUERY-EDITOR` merged in (issue-triage case 2: the editors
+  of question 2 are exactly that issue's Python half, split from `QUERY-BUILDER-NOT-IN-BINDINGS`).
+  Example: building `-R/data/sales.csv/-/ns-pl/is_in-region-EU-US` step by step, a misspelt
+  argument refused with the editor unchanged. Covered by AC-7 and AC-8; no new criterion; size
+  stays `L`. Phases: 1. Approved: Orest at the Phase 1 gate ("agreed").
 
 ## Problem Example
 
@@ -168,7 +175,8 @@ the editor classes, new `Environment` and `Context` members.
 ## Design Dependencies
 
 - `composite-command-definition` (complete): **requires**. It provides every core API used here.
-- `QUERY-BUILDER-NOT-IN-BINDINGS` / `query-builder-in-bindings`: **overlaps** (question 6).
+- `PY-HAS-NO-VALIDATING-QUERY-EDITOR`: merged source (Scope Changes). `QUERY-BUILDER-NOT-IN-BINDINGS`
+  / `query-builder-in-bindings` is now its JavaScript counterpart; no dependency either way.
 - `liquers-py-templates`: **overlaps**. Both add the declaration slot and the
   `lq.CommandDefinition` accessors (question 7); whichever lands first adds them.
 - `liquers-py-data-nodes`: no dependency.

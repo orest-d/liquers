@@ -1,10 +1,10 @@
 ---
 id: QUERY-BUILDER-IN-BINDINGS
 kind: design
-title: Python and JavaScript expose the core query builder
+title: JavaScript exposes the core query editors
 form: compact
 status: in_review
-phase: implementation
+phase: high-level
 readiness: needs-decision
 autofix: not-eligible
 area: [web, core/query]
@@ -125,7 +125,9 @@ sources).
   to `liquers-py-pipelines` (issue `PY-HAS-NO-VALIDATING-QUERY-EDITOR`), approved by Orest at that
   design's Phase 1 gate. Before implementation this design must be re-based on `QueryEditor`; every
   Python criterion and step below is void. Readiness stays `needs-decision`. Phases: all, at the
-  next revision.
+  next revision. **Open design question — scope approval:** whether the narrowed design returns
+  to Phase 1 for a rewrite over `QueryEditor` (recommended) or is closed and re-designed from
+  `QUERY-BUILDER-NOT-IN-BINDINGS` when `liquers-web` work starts. `phase` is set to `high-level`.
 
 ## Phase 2: Architecture
 

@@ -18,7 +18,7 @@ The `TEMPLATE` feature for liquers-py: milestone M6 of the liquers-py plan, toge
 [`liquers-py-data-nodes`](../liquers-py-data-nodes/DESIGN.md) and
 [`liquers-py-pipelines`](../liquers-py-pipelines/DESIGN.md). Full form (`L`). Requires a core
 primitive that runs a closure as an ad-hoc asset (`AD-HOC-ASSET-CANNOT-RUN-A-CLOSURE`) and
-`template-render-in-env` re-based on it (Phase 1 Decision 1), in their own PR first.
+`template-render-in-env` re-based on it (Phase 1 Decision 1), each in its own PR first.
 
 Phase 1 written and reviewed twice on 2026-11-04. At the gate Orest decided question 1 (the top level
 renders as a command does); revised, reviewed again, and waiting at the Phase 1 gate.
