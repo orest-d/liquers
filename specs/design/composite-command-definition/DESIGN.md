@@ -4,7 +4,7 @@ kind: design
 title: Pipelines - pipeline commands, recipe pipelines and the pipeline as query builder and editor
 workflow: liquers-project
 status: in_review
-phase: implementation
+phase: documentation
 area: [core/commands, core/plan, core/assets, core/query, core/validate, web]
 issues: [COMMAND-CANNOT-BE-DEFINED-AS-A-COMMAND-SEQUENCE, QUERY-BUILDER-TOOLING, RECIPE-OVERRIDE-ONLY-LAST-ACTION]
 merged: 2026-11-02
@@ -38,8 +38,8 @@ open questions. Main is merged again before Phase 5.
 - [x] Phase 1: High-Level Design (approved 2026-11-01; reopened 2026-11-02; approved again 2026-11-03)
 - [x] Phase 2: Architecture (approved 2026-11-03, with pre-approval of the rest)
 - [x] Phase 3: Examples and Tests (2026-11-03, pre-approved)
-- [x] Phase 4: Implementation Plan (2026-11-03, pre-approved; implementation in progress)
-- [ ] Phase 5: Documentation
+- [x] Phase 4: Implementation Plan (2026-11-03, pre-approved; implemented, Steps 1–13)
+- [ ] Phase 5: Documentation (written 2026-11-04; awaiting `proceed`)
 
 ## Links
 
@@ -47,6 +47,7 @@ open questions. Main is merged again before Phase 5.
 - [Phase 2](./phase2-architecture.md)
 - [Phase 3](./phase3-examples.md)
 - [Phase 4](./phase4-implementation.md)
+- [Phase 5](./phase5-documentation.md)
 - Superseded and merged: [query-builder](../query-builder/DESIGN.md) (2026-11-02)
 - [Recipes and pipelines: which structure holds what](./recipe-and-pipeline-structures.md) — recipe options A–D, the structure hierarchy, splice vs evaluate (review 8, 2026-11-03)
 - [Pipeline structure, state sources and recipe shape](./pipeline-structure-and-sources.md) — realm-scoped struct, state elements, nested pipelines, declarations, recipe shape, `Value::Pipeline` (review 6, 2026-11-03)

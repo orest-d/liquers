@@ -12,14 +12,42 @@
 //! something wrong (an unparseable `cwd`, a malformed registry). Conflating the two would force
 //! callers to tell "your query is wrong" from "the validator is broken" by reading message text.
 //!
-//! ```no_run
+//! # Main components
+//!
+//! - [`validate_query`], [`validate_recipes`] and [`validate_pipeline`] — one input each.
+//! - [`ValidationRegistryBuilder`] — the command registry to validate against, from files.
+//! - [`build_report`] and [`ValidationReport`] — the envelope `liquers-validate` prints.
+//! - [`pipeline_from_build_args`] and [`with_pipeline_form`] — `--build` and `--emit pipeline`.
+//!
+//! # Where it is used
+//!
+//! - The `liquers-validate` binary (`liquers-core/src/bin/liquers_validate.rs`, feature `cli`).
+//! - `liquers-docs` and `liquers-web`'s command import, which read registry and metadata files
+//!   with [`from_json_or_yaml`].
+//! - `liquers-lib`'s `registry_export` test, which checks the exported registry.
+//!
+//! Also the `liquers-validate` skill, which wraps the binary.
+//!
+//! # Related concepts
+//!
+//! - [`crate::plan::PlanBuilder`] and [`crate::pipeline::PipelinePlanBuilder`] build the plans;
+//!   this module only reports on them, and never runs one.
+//! - [`crate::command_metadata::CommandMetadataRegistry`] is the registry itself; the builder
+//!   here only assembles one from files and records where each command came from.
+//!
+//! # Examples
+//!
+//! ```
 //! use liquers_core::validate::{validate_query, ValidationLevel, ValidationRegistryBuilder};
 //!
-//! let (registry, provenance) = ValidationRegistryBuilder::new().build();
+//! let (registry, _provenance) = ValidationRegistryBuilder::new().build();
 //! let result = validate_query("-R/data/report.txt/-/to_text", 0, ValidationLevel::Parse, &registry);
 //! assert!(result.error.is_none());
-//! let _ = provenance;
+//! assert_eq!(result.encoded.as_deref(), Some("-R/data/report.txt/-/to_text"));
 //! ```
+//!
+//! More: [`validate_pipelines.rs`](https://github.com/orest-d/liquers/blob/main/liquers-core/tests/validate_pipelines.rs)
+//! (pipelines, `--build`, `--emit query`), and `CLAUDE.md` §Validating queries.
 
 pub mod registry;
 pub mod report;

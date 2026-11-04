@@ -5,14 +5,36 @@
 //! query text inlined in place. Any argument of an action can be a literal value of any JSON
 //! shape, a placeholder, a link, a nested pipeline or the input state ([`Source`]).
 //!
-//! Pipelines are used in three places:
-//! - a **pipeline command**'s definition (`CommandDefinition::Pipeline`), whose placeholders are
-//!   the command's arguments;
-//! - a **recipe**'s `pipeline`, which runs before the recipe's query;
-//! - code that builds or edits queries, through the editors.
+//! Pipelines are used in three places: a **pipeline command**'s definition
+//! (`CommandDefinition::Pipeline`), whose placeholders are the command's arguments; a
+//! **recipe**'s `pipeline`, which runs before the recipe's query; and code that builds or edits
+//! queries, through the editors. Every query converts to a pipeline; a pipeline converts back to a
+//! query when it is *representable* (`specs/reference/PIPELINES.md`).
 //!
-//! Every query converts to a pipeline; a pipeline converts back to a query when it is
-//! *representable* (`specs/reference/PIPELINES.md`, design `composite-command-definition`).
+//! # Main components
+//!
+//! - [`Pipeline`] — the pipeline: realm, elements, filename; [`Pipeline::from_json`] reads one.
+//! - [`ElementKind`] and [`Source`] — what an element is, and where an argument comes from.
+//! - [`Pipeline::to_query_with`] and `Pipeline::try_from(&Query)` — the conversions.
+//! - [`QueryEditor`] and [`PipelineEditor`] — checked, registry-aware editing.
+//! - [`PipelinePlanBuilder`] — plans queries and pipelines; [`Pipeline::to_plan`] is its shortcut.
+//!
+//! # Where it is used
+//!
+//! - [`crate::recipes::Recipe::to_plan`] plans every recipe, with or without a pipeline.
+//! - [`crate::interpreter::make_plan`] and [`crate::interpreter::evaluate_pipeline`].
+//! - [`crate::command_metadata::CommandDefinition::Pipeline`], expanded by the planner and run by
+//!   the interpreter in a [`crate::context::PipelineFrame`].
+//!
+//! Also `liquers-validate` (`--pipeline`, `--build`, `--emit`), `Value::Pipeline` in
+//! `crate::value`, and liquers-py's `Recipe.pipeline`.
+//!
+//! # Related concepts
+//!
+//! - [`crate::query::Query`] — the text form; a pipeline can say everything a query can, and more.
+//! - [`crate::plan::Plan`] — what a pipeline plans into; a plan is executable, a pipeline is not.
+//! - [`crate::command_metadata::CommandDefinition::Alias`] — the other command with no
+//!   implementation: it fixes leading arguments of one command, a pipeline command chains several.
 //!
 //! # Serialized form
 //!
@@ -31,6 +53,23 @@
 //! is a bare scalar, array or object (a literal value), or an object with exactly one of the keys
 //! `value`, `placeholder`, `link`, `pipeline`, `state` or `multiple` (plus an optional `pos`). A
 //! literal object that has that shape is written inside `{value: …}`.
+//!
+//! # Examples
+//!
+//! ```
+//! use liquers_core::{command_metadata::CommandMetadataRegistry, pipeline::Pipeline};
+//! let p = Pipeline::from_json(&serde_json::json!([{"resource": "data/x.txt"}, {"action": "upper"}]))?;
+//! assert_eq!(p.to_query_text()?, "-R/data/x.txt/-/upper");
+//! assert!(Pipeline::from_json(&serde_json::json!([{"value": {"a": 1}}]))?
+//!     .to_query_with(&CommandMetadataRegistry::new()).is_err()); // P1: a value has no query form
+//! # Ok::<(), liquers_core::error::Error>(())
+//! ```
+//!
+//! More: `liquers-core/tests/pipeline_planning.rs` (planning against the long query),
+//! [`pipeline_commands.rs`](https://github.com/orest-d/liquers/blob/main/liquers-core/tests/pipeline_commands.rs)
+//! (pipeline commands),
+//! [`recipe_pipelines.rs`](https://github.com/orest-d/liquers/blob/main/liquers-core/tests/recipe_pipelines.rs)
+//! (recipe pipelines), and `specs/guides/PIPELINE_GUIDE.md`.
 
 use std::collections::{BTreeMap, BTreeSet};
 

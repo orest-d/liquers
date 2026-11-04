@@ -1,7 +1,7 @@
 ---
 title: Commands
 status: outline
-sources: [guides/COMMAND_REGISTRATION_GUIDE.md, guides/COMMAND_DESIGN_GUIDE.md, reference/COMMAND_DECLARATION.md, reference/REGISTER_COMMAND_FSD.md]
+sources: [guides/COMMAND_REGISTRATION_GUIDE.md, guides/COMMAND_DESIGN_GUIDE.md, reference/COMMAND_DECLARATION.md, reference/REGISTER_COMMAND_FSD.md, reference/PIPELINES.md, guides/PIPELINE_GUIDE.md]
 reviewed:
 ---
 # 5. Commands
@@ -19,3 +19,4 @@ SOURCE: guides/COMMAND_REGISTRATION_GUIDE.md
 TBD: 5.5 Designing a good command: naming, arguments, what to cache.
 SOURCE: guides/COMMAND_DESIGN_GUIDE.md
 EDITOR: keep the sections of 5 parallel across the three guides; the defaulting rules may be included from reference/COMMAND_DECLARATION.md once it has a link-free section for them.
+TBD: Pipeline commands: a command defined as a sequence of other commands, with placeholders as arguments.

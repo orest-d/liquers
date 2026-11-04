@@ -208,10 +208,10 @@ only some steps land, the unshipped remainder becomes an issue (§5.6), named in
 
 ## Phase 5 Entry Criteria
 
-- [ ] Implementation finished and validated, or the remainder filed as issues
-- [ ] User and review comments answered
-- [ ] Documentation checkable against implemented and tested behaviour
-- [ ] Main merged again before Phase 5 (the maintainer's request, 2026-11-03)
+- [x] Implementation finished and validated, or the remainder filed as issues
+- [x] User and review comments answered
+- [x] Documentation checkable against implemented and tested behaviour
+- [x] Main merged again before Phase 5 (the maintainer's request, 2026-11-03)
 
 ## Implementation Notes
 

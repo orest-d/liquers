@@ -2,7 +2,7 @@
 id: COMMAND-CANNOT-BE-DEFINED-AS-A-COMMAND-SEQUENCE
 kind: feature
 title: A command cannot be defined as a sequence of other commands with placeholders
-status: draft
+status: closed
 priority: P2
 complexity: XL
 area: [core/commands, core/plan, core/assets, core/query, core/validate]
@@ -77,3 +77,7 @@ API part (point 3 above) to `WEB-API-CANNOT-RUN-PIPELINES-OR-RECIPE-ENDPOINTS`.
 
 On 2026-11-02 the scope grew to the pipeline as a query builder and editor: `QUERY-BUILDER-TOOLING`
 and its design were merged in, which makes the work `XL`.
+
+## Resolution
+
+Implemented by `specs/design/composite-command-definition/` (PR #238): `CommandDefinition::Pipeline` and `CommandRegistry::register_pipeline` define a command as a pipeline whose placeholders are its arguments; it plans as one `Step::PipelineCommand` and runs in a pipeline frame. Evidence: `liquers-core/tests/pipeline_commands.rs` (12 tests) and `liquers-lib/tests/pipeline_polars.rs` `top_in_matches_long_query`. Contract: `specs/reference/PIPELINES.md` §4; how-to: `specs/guides/PIPELINE_GUIDE.md` §4. The web API part is `WEB-API-CANNOT-RUN-PIPELINES-OR-RECIPE-ENDPOINTS`; bindings are `PIPELINES-NOT-IN-LANGUAGE-BINDINGS`.

@@ -3,7 +3,7 @@ title: Using Liquers from JavaScript in the browser
 kind: guide
 audience: user
 area: [web]
-reviewed: 2026-10-31
+reviewed: 2026-11-04
 ---
 # Using Liquers from JavaScript in the browser
 
@@ -193,8 +193,8 @@ minifier renames parameters, which changes only how the arguments are labelled. 
 whenever a type or a default matters.
 
 An argument containing `-`, `/` or a space is written with an escape: `~_` for `-`, `~/` for `/`,
-`~.` for a space, `~~` for `~`. `liquers.encodeParam(text)` does it for you, and throws for a
-character the query language cannot carry, such as a non-ASCII letter:
+`~.` for a space, `~~` for `~`. `liquers.encodeParam(text)` does it for you, for any string, non-ASCII letters included
+(it never throws):
 
 ```js
 import init, * as liquers from "./liquers_web.js";
@@ -899,3 +899,4 @@ What you will notice; the complete list, with the tracking issues, is
 | 2026-10-31 | §5 "The context": a command receives an execution context; the limitation is removed. | design `js-command-context` |
 | 2026-10-31 | §11 "Showing a Liquers UI" (`mountUI`, `UIElement`); §11–12 renumbered to §12–13. | design `web-ui-use` |
 | 2026-10-31 | §11 "Define an element" and "Render the tree yourself" (`defineElement`, `element`, `mountRenderer`). | design `web-ui-define` |
+| 2026-11-04 | `encodeParam` never throws. | phase-5, `design/composite-command-definition/` |

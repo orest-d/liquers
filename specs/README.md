@@ -65,7 +65,7 @@ encoding, and the interpreter that turns a plan into asset evaluation.
 - **Excess action parameters rejected** — built → [`design/excess-action-parameters-error/`](design/excess-action-parameters-error/) *(rule documented in [`reference/PROJECT_OVERVIEW.md`](reference/PROJECT_OVERVIEW.md) §Query Language)*
 - **Variadic command arguments (`multiple`)** — documented → [`reference/REGISTER_COMMAND_FSD.md`](reference/REGISTER_COMMAND_FSD.md) §Variadic Parameters *(how-to in [`guides/COMMAND_REGISTRATION_GUIDE.md`](guides/COMMAND_REGISTRATION_GUIDE.md); design in [`design/variadic-arguments-declaration/`](design/variadic-arguments-declaration/))* *(empty elements: [`design/variadic-empty-element-conversion/`](design/variadic-empty-element-conversion/))*
 - **Default namespaces searched after a query's `ns` (`default_namespaces:` in the environment configuration)** — documented → [`reference/RECIPES_AND_PLANS.md`](reference/RECIPES_AND_PLANS.md) §Planner instructions *(configuration key in [`reference/ENVIRONMENT_CONFIG.md`](reference/ENVIRONMENT_CONFIG.md); design in [`design/plan-default-namespaces/`](design/plan-default-namespaces/); per-realm chains: [`issues/COMMAND-REGISTRY-NOT-ORGANIZED-BY-REALM.md`](issues/COMMAND-REGISTRY-NOT-ORGANIZED-BY-REALM.md))*
-- **Programmatic query builder** — planned → [`issues/QUERY-BUILDER-TOOLING.md`](issues/QUERY-BUILDER-TOOLING.md)
+- **Programmatic query builder (`QueryEditor`, `liquers-validate --build`)** — documented → [`guides/PIPELINE_GUIDE.md`](guides/PIPELINE_GUIDE.md) §3 *(contract in [`reference/PIPELINES.md`](reference/PIPELINES.md) §8)*
 - **Realms: what a realm is, a foreign realm that is addressable but not executable (`store_config`)** — documented → [`reference/REALMS.md`](reference/REALMS.md) *(design in [`design/store-adapters/`](design/store-adapters/))*
 - **Multi-realm dispatch** — planned → [`issues/CORE-MULTI-REALM-INTERPRETER.md`](issues/CORE-MULTI-REALM-INTERPRETER.md)
 
@@ -147,7 +147,7 @@ serves both. Solve them together.
 - **Enum parameters** — designing → [`design/register-command-enum/`](design/register-command-enum/)
 - **Query-aware templates (`liquers-template`: Mustache with query tags, parametrized queries, template commands)** — built → [`reference/TEMPLATE_LANGUAGE.md`](reference/TEMPLATE_LANGUAGE.md) *(how to: [`guides/TEMPLATE_GUIDE.md`](guides/TEMPLATE_GUIDE.md); design in [`design/liquers-mustache/`](design/liquers-mustache/))*
 - **Command aliases** — documented → [`reference/COMMAND_ALIASES.md`](reference/COMMAND_ALIASES.md) *(when to use one: [`guides/COMMAND_DESIGN_GUIDE.md`](guides/COMMAND_DESIGN_GUIDE.md) §Aliases; design in [`design/command-alias-contract/`](design/command-alias-contract/))*
-- **Pipelines (sequences of commands as one command; structured pipelines in recipes; the pipeline as query builder and editor)** — designing → [`design/composite-command-definition/`](design/composite-command-definition/)
+- **Pipelines (sequences of commands as one command; structured pipelines in recipes; the pipeline as query builder and editor)** — documented → [`reference/PIPELINES.md`](reference/PIPELINES.md) *(how to: [`guides/PIPELINE_GUIDE.md`](guides/PIPELINE_GUIDE.md); design in [`design/composite-command-definition/`](design/composite-command-definition/))*
 - **Language-neutral command declaration** — documented → [`reference/COMMAND_DECLARATION.md`](reference/COMMAND_DECLARATION.md)
 - **Command metadata enhancements** — planned → [`issues/COMMAND-METADATA-ENHANCEMENTS.md`](issues/COMMAND-METADATA-ENHANCEMENTS.md)
 - **Macro query validation and hints** — planned → [`issues/MACRO-QUERY-VALIDATION-AND-HINTS.md`](issues/MACRO-QUERY-VALIDATION-AND-HINTS.md)
@@ -330,7 +330,6 @@ deliberately folded behind a broader line.
 <!-- BEGIN generated: unplaced -->
 - `guides/TYPE_SYSTEM_GUIDE.md`
 - `reference/CONFORMANCE_TERMS.md`
-- `reference/PIPELINES.md`
 - `reference/api/API_DOCS_GAP_ANALYSIS.md`
 - design `access-policy-at-entry-points`
 - design `agent-command-proposal`
@@ -640,7 +639,6 @@ deliberately folded behind a broader line.
 - feature `ASSET-MANAGER-CANNOT-BE-SYNCHRONIZED-WITH-THE-STORE`
 - feature `ASSET-REGISTRATION-OWNERSHIP-CONTRACT`
 - feature `ASSETS-API-ADMIN-OPERATIONS`
-- feature `COMMAND-CANNOT-BE-DEFINED-AS-A-COMMAND-SEQUENCE`
 - feature `COMMAND-COMPOSITE-VARIADIC-ARGUMENTS`
 - feature `COMMAND-ENUM-ALTERNATIVES-CANNOT-BE-COMPUTED`
 - feature `COMMAND-INPUT-OUTPUT-TYPES-ARE-UNDECLARED`
@@ -728,6 +726,7 @@ deliberately folded behind a broader line.
 - [`GITHUB_ACTIONS_GUIDE.md`](guides/GITHUB_ACTIONS_GUIDE.md) — What each workflow in `.github/workflows/` does, when it runs, what it needs, and how to add one.
 - [`JAVASCRIPT_GUIDE.md`](guides/JAVASCRIPT_GUIDE.md) — How to use Liquers from a web page with `liquers-web`: build the WebAssembly module, load it,
 - [`LANGUAGE-INTEGRATION_GUIDE.md`](guides/LANGUAGE-INTEGRATION_GUIDE.md) — Status: Draft
+- [`PIPELINE_GUIDE.md`](guides/PIPELINE_GUIDE.md) — How to build, convert, edit and validate pipelines, how to define a pipeline command, and how to
 - [`PYTHON_GUIDE.md`](guides/PYTHON_GUIDE.md) — How to use Liquers from Python with the `liquers` package: build it, configure an environment,
 - [`QUERY_ESCAPING_GUIDE.md`](guides/QUERY_ESCAPING_GUIDE.md) — A Liquers query is text with structure: `/` separates path segments, `-` separates action
 - [`RECORD_STREAM_GUIDE.md`](guides/RECORD_STREAM_GUIDE.md) — How to produce records from a new source: a command that returns a table, a manifest that stitches

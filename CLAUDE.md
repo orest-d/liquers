@@ -479,6 +479,10 @@ against the real command set with no setup. Useful variations:
 | An environment with `default_namespaces:` configured | `--default-namespace pl` (repeatable) |
 | A design that *changes* an existing signature | `--registry-file specs/command_registry.yaml --registry-file <proposal>.yaml --allow-overwrite` |
 | A whole `recipes.yaml` | `--recipes recipes.yaml --cwd <folder>` |
+| A pipeline (JSON or YAML file, or `-` for stdin) | `--pipeline p.yaml` |
+| Build a query from shell arguments, no escaping | `--build R:data/x.csv A:filter 'P:12:30'` |
+| Require a query form (a pipeline without one fails) | `--emit query` |
+| Show each input as a pipeline | `--emit pipeline` |
 | Many queries | positional list, or `--query-file -` (one per line, `#` comments skipped) |
 | Less output | `--detail summary` |
 

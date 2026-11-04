@@ -96,6 +96,11 @@ defaults to plan level with no arguments.
 | Namespaced not-yet-written command | `--command 'ns/name'` or `--command 'realm/ns/name'` |
 | Proposal that *changes* an existing signature | `--registry-file specs/command_registry.yaml --registry-file proposal.yaml --allow-overwrite` |
 | A whole `recipes.yaml` | `--recipes recipes.yaml --cwd <folder>` |
+| A pipeline (JSON or YAML file, or `-` for stdin) | `--pipeline p.yaml` |
+| Build a query from shell arguments, no escaping | `--build R:data/x.csv A:filter 'P:12:30'` |
+| Require a query form (a pipeline without one fails) | `--emit query` |
+| Show each input as a pipeline | `--emit pipeline` |
+| Keep the plan in summary output | `--emit plan --detail summary` |
 | Many queries | list them positionally, or `--query-file <file>` / `--query-file -` for stdin |
 | Just pass/fail in a script | discard stdout; read the exit code and the `ERROR`/`WARNING` lines on stderr |
 

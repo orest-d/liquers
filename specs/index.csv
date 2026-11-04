@@ -61,7 +61,7 @@ COMBINED-VALUE-DEFAULT-EXTENSION-NOT-DELEGATED,issue,"CombinedValue::default_ext
 COMBINED-VALUE-DISCRIMINATION,feature,Deserialization cannot discriminate base from extended values,closed,local,,ready,eligible,P2,M,core/value;lib/value,,,,combined-value-identifier-dispatch,,2026-08-08,specs/issues/COMBINED-VALUE-DISCRIMINATION.md
 COMMAND-ALIAS-DEFINITION-UNTESTED,issue,"CommandDefinition::Alias has no test and no user, and its head-parameter semantics are unexercised",closed,local,,,,P2,L,core/plan;core/commands,,,,command-alias-contract,,2026-08-29,specs/issues/COMMAND-ALIAS-DEFINITION-UNTESTED.md
 COMMAND-CACHE-FLAG-IS-DECLARED-BUT-NEVER-READ,issue,"CommandMetadata.cache is declared, documented and exported, but nothing reads it",closed,local,,ready,not-eligible,P3,S,core/commands;macro,,,,command-cache-flag,,2026-09-19,specs/issues/COMMAND-CACHE-FLAG-IS-DECLARED-BUT-NEVER-READ.md
-COMMAND-CANNOT-BE-DEFINED-AS-A-COMMAND-SEQUENCE,feature,A command cannot be defined as a sequence of other commands with placeholders,draft,local,,ready,not-eligible,P2,XL,core/commands;core/plan;core/assets;core/query;core/validate,237,,,composite-command-definition,,2026-11-01,specs/issues/COMMAND-CANNOT-BE-DEFINED-AS-A-COMMAND-SEQUENCE.md
+COMMAND-CANNOT-BE-DEFINED-AS-A-COMMAND-SEQUENCE,feature,A command cannot be defined as a sequence of other commands with placeholders,closed,local,,ready,not-eligible,P2,XL,core/commands;core/plan;core/assets;core/query;core/validate,237,,,composite-command-definition,,2026-11-01,specs/issues/COMMAND-CANNOT-BE-DEFINED-AS-A-COMMAND-SEQUENCE.md
 COMMAND-CANNOT-BE-RUN-WITH-A-RESTRICTED-CONTEXT,feature,A command cannot be run with a restricted context,draft,local,,needs-decision,not-eligible,P2,M,core/context;core/commands,,,,pure-command-context,,2026-09-17,specs/issues/COMMAND-CANNOT-BE-RUN-WITH-A-RESTRICTED-CONTEXT.md
 COMMAND-COMPOSITE-VARIADIC-ARGUMENTS,feature,A variadic argument cannot carry composite elements such as pairs or tuples,draft,local,,needs-decision,not-eligible,P3,L,core/commands;macro;lib/ui,,,,composite-variadic-arguments,,2026-08-25,specs/issues/COMMAND-COMPOSITE-VARIADIC-ARGUMENTS.md
 COMMAND-CONTEXT-PARAM-ORDER,issue,"The context parameter must come last, as a workaround",closed,local,,,,P2,M,core/commands;macro,,,,context-param-order,,2026-08-08,specs/issues/COMMAND-CONTEXT-PARAM-ORDER.md
@@ -331,7 +331,7 @@ QUERY-ABSOLUTE-FIELD-NAME-AMBIGUOUS,issue,"Query::absolute names a leading slash
 QUERY-API-ARGUMENTS-ONLY-IN-QUERY-PATH,feature,Query API arguments cannot be passed as JSON or URL parameters,closed,local,,ready,not-eligible,P2,L,axum,,,,axum-query-named-arguments,,2026-10-10,specs/issues/QUERY-API-ARGUMENTS-ONLY-IN-QUERY-PATH.md
 QUERY-AST-DISCARDS-ENTITIES,issue,"Parsed entities are decoded away, so the AST cannot show them",draft,local,,needs-decision,not-eligible,P3,S,core/query,,,,styled-query-entity-tokens,,2026-08-14,specs/issues/QUERY-AST-DISCARDS-ENTITIES.md
 QUERY-BUILDER-NOT-IN-BINDINGS,feature,Python and JavaScript have no validating query builder,draft,local,,needs-decision,not-eligible,P3,M,py;web,,,,query-builder-in-bindings,,2026-10-21,specs/issues/QUERY-BUILDER-NOT-IN-BINDINGS.md
-QUERY-BUILDER-TOOLING,issue,No programmatic builder for constructing queries,accepted,local,,ready,not-eligible,P2,L,core/query;core/validate,,,,composite-command-definition,,2026-08-08,specs/issues/QUERY-BUILDER-TOOLING.md
+QUERY-BUILDER-TOOLING,issue,No programmatic builder for constructing queries,closed,local,,ready,not-eligible,P2,L,core/query;core/validate,,,,composite-command-definition,,2026-08-08,specs/issues/QUERY-BUILDER-TOOLING.md
 QUERY-CANNOT-CHOOSE-A-DATA-FORMAT,feature,A query cannot choose a data format or a format refinement except through a filename,draft,local,,needs-decision,not-eligible,P2,M,lib/commands;core/value,,,,query-data-format-command,,2026-10-20,specs/issues/QUERY-CANNOT-CHOOSE-A-DATA-FORMAT.md
 QUERY-CANNOT-MARK-CACHED-INTERMEDIATES,feature,A query cannot mark which of its intermediates are worth caching,draft,local,,needs-decision,not-eligible,P3,M,core/plan;core/assets;core/query,,,,query-cache-directives,,2026-10-10,specs/issues/QUERY-CANNOT-MARK-CACHED-INTERMEDIATES.md
 QUERY-DOCS-CLAIM-LINK-PARAMETERS-DO-NOT-PARSE,issue,"query.rs module docs say link parameters do not parse, but they do",closed,local,,,,P3,S,core/query;docs,,,,,,2026-10-13,specs/issues/QUERY-DOCS-CLAIM-LINK-PARAMETERS-DO-NOT-PARSE.md
@@ -348,7 +348,7 @@ RECIPE-DEPENDENCY-KEY-IS-NEVER-VERSIONED,issue,"Editing a recipe does not expire
 RECIPE-LIST-SET-CWD-MUTATES-BEFORE-FAILING,issue,RecipeList::set_cwd mutates part of the list before failing,closed,local,,ready,eligible,P3,S,core/assets,,,,recipe-list-set-cwd-validation,,2026-10-20,specs/issues/RECIPE-LIST-SET-CWD-MUTATES-BEFORE-FAILING.md
 RECIPE-MISSING-RECIPE-IS-A-GENERAL-ERROR,issue,"Asking a recipe provider for a recipe it does not have raises a General error, not KeyNotFound",draft,local,,,,P3,S,core/assets;core/error,,,,,,2026-11-01,specs/issues/RECIPE-MISSING-RECIPE-IS-A-GENERAL-ERROR.md
 RECIPE-ONLY-FOLDER-NAMES-HIDE-A-CREATED-FOLDER-FROM-ITS-PARENT,issue,A recipe provider that lists names in a folder with no stored file can leave the parent listing stale after a write,draft,local,,needs-decision,not-eligible,P3,S,core/assets,,,,recipe-folder-names-listing-contract,,2026-10-18,specs/issues/RECIPE-ONLY-FOLDER-NAMES-HIDE-A-CREATED-FOLDER-FROM-ITS-PARENT.md
-RECIPE-OVERRIDE-ONLY-LAST-ACTION,issue,Argument overrides can target only the last action of a query,draft,local,,ready,not-eligible,P3,M,core/plan,,,,composite-command-definition,,2026-10-17,specs/issues/RECIPE-OVERRIDE-ONLY-LAST-ACTION.md
+RECIPE-OVERRIDE-ONLY-LAST-ACTION,issue,Argument overrides can target only the last action of a query,closed,local,,ready,not-eligible,P3,M,core/plan,,,,composite-command-definition,,2026-10-17,specs/issues/RECIPE-OVERRIDE-ONLY-LAST-ACTION.md
 RECIPE-OVERRIDES-MISS-A-FINAL-PIPELINE-COMMAND,issue,Recipe argument and link overrides do not reach a pipeline command that is the query's last action,draft,local,,,,P3,S,core/plan,,,,composite-command-definition,,2026-11-04,specs/issues/RECIPE-OVERRIDES-MISS-A-FINAL-PIPELINE-COMMAND.md
 RECIPE-PLAN-ANALYSIS-RUNS-OUTSIDE-PLAN-BUILDING,issue,Recipe plan analysis runs outside plan building,closed,local,,ready,not-eligible,P3,S,core/plan;core/assets,,,,recipe-preview-shares-plan-analysis,,2026-08-26,specs/issues/RECIPE-PLAN-ANALYSIS-RUNS-OUTSIDE-PLAN-BUILDING.md
 RECIPE-PROVIDER-BY-NAME,feature,"Recipe providers cannot be selected by name, so a configuration document cannot choose one",closed,local,,,,P0,S,core/assets;web,,,,recipe-provider-selection,,2026-08-27,specs/issues/RECIPE-PROVIDER-BY-NAME.md
@@ -614,7 +614,7 @@ ACTIVE-09,design,Design for REGISTRY-IMPL-VERSION-DRIFT-UNDETECTED,complete,loca
 COVERED-09,design,Coverage record for COMMAND-REGISTRY-ISSUE-NAMESPACE-NAME-SWAPPED,complete,local,,covered,not-eligible,P3,S,core/commands,,,,command-registry-issue-fields-coverage,,2026-09-03,specs/design/command-registry-issue-fields-coverage/DESIGN.md
 COMMAND-REGISTRY-ISSUE-FIELDS,design,Preserve command registry issue identity fields,complete,local,,,,P3,S,core/commands,,,,command-registry-issue-fields,,2026-08-31,specs/design/command-registry-issue-fields/DESIGN.md
 COMMAND-SPECIALIZATION-BY-INPUT-TYPE,design,A generic command dispatches to the variant that accepts its input's type,in_review,local,implementation,needs-decision,not-eligible,P3,L,core/commands;core/plan;lib/commands,,,,command-specialization-by-input-type,,2026-10-26,specs/design/command-specialization-by-input-type/DESIGN.md
-COMPOSITE-COMMAND-DEFINITION,design,"Pipelines - pipeline commands, recipe pipelines and the pipeline as query builder and editor",in_review,local,implementation,ready,not-eligible,P2,XL,core/commands;core/plan;core/assets;core/query;core/validate;web,237,,,composite-command-definition,,2026-11-01,specs/design/composite-command-definition/DESIGN.md
+COMPOSITE-COMMAND-DEFINITION,design,"Pipelines - pipeline commands, recipe pipelines and the pipeline as query builder and editor",in_review,local,documentation,ready,not-eligible,P2,XL,core/commands;core/plan;core/assets;core/query;core/validate;web,237,,,composite-command-definition,,2026-11-01,specs/design/composite-command-definition/DESIGN.md
 COMPOSITE-VARIADIC-ARGUMENTS,design,Variadic arguments with tuple elements,in_review,local,implementation,needs-decision,not-eligible,P3,L,core/commands;macro;core/plan,,,,composite-variadic-arguments,,2026-10-20,specs/design/composite-variadic-arguments/DESIGN.md
 COMPUTED-ENUM-ALTERNATIVES,design,Enum alternatives computed at run time by a registered provider,in_review,local,implementation,needs-decision,not-eligible,P3,L,core/commands;core/plan,,,,computed-enum-alternatives,,2026-10-26,specs/design/computed-enum-alternatives/DESIGN.md
 CONFIGURATION-ERROR-KIND,design,Classify semantic configuration failures,complete,local,,ready,not-eligible,P3,S,core/error;store/config,,117,,configuration-error-kind,,2026-08-31,specs/design/configuration-error-kind/DESIGN.md
@@ -980,36 +980,36 @@ WP2-TERMINAL-OUTCOME,design,Asset terminal outcome contract,complete,local,,,,,,
 AGENT_MEMORY_SERVICE,reference,Agent Memory Service,current,local,,,,,,lib/commands;mcp,,,,,2026-11-01,,specs/reference/AGENT_MEMORY_SERVICE.md
 API_DOCS_GAP_ANALYSIS,reference,API Documentation Gap Analysis,current,local,,,,,,docs,,,,,2026-11-02,,specs/reference/api/API_DOCS_GAP_ANALYSIS.md
 DOC_01_ARCHITECTURE_REFERENCE,reference,Architecture Reference,current,local,,,,,,core/query;core/plan;core/assets,,,,,2026-08-09,,specs/reference/api/DOC_01_ARCHITECTURE_REFERENCE.md
-DOC_02_QUERY_LANGUAGE_REFERENCE,reference,Query Language Reference,current,local,,,,,,core/query,,,,,2026-10-27,,specs/reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md
+DOC_02_QUERY_LANGUAGE_REFERENCE,reference,Query Language Reference,current,local,,,,,,core/query,,,,,2026-11-04,,specs/reference/api/DOC_02_QUERY_LANGUAGE_REFERENCE.md
 DOC_03_ASSETS_EXECUTION_LIFECYCLE,reference,Assets and Execution Lifecycle Reference,current,local,,,,,,core/assets,,,,,2026-10-27,,specs/reference/api/DOC_03_ASSETS_EXECUTION_LIFECYCLE.md
 DOC_04_ENVIRONMENT_CONTEXT_EVALUATION,reference,"Environment, Context and Evaluation Reference",current,local,,,,,,core/context;core/plan,,,,,2026-10-22,,specs/reference/api/DOC_04_ENVIRONMENT_CONTEXT_EVALUATION.md
 ASSET_LIFECYCLE,reference,Asset Evaluation — Flows and Public Surface,current,local,,,,,,core/assets,,,,,2026-10-27,,specs/reference/ASSET_LIFECYCLE.md
 ASSET_SET_OPERATION,reference,Asset Set Operation Specification,current,local,,,,,,core/assets,,,,,2026-10-27,,specs/reference/ASSET_SET_OPERATION.md
 ASSETS,reference,Assets Specification,current,local,,,,,,core/assets,,,,,2026-10-27,,specs/reference/ASSETS.md
-COMMAND_ALIASES,reference,Command Aliases,current,local,,,,,,core/commands;core/plan,,,,,2026-10-20,,specs/reference/COMMAND_ALIASES.md
-COMMAND_DECLARATION,reference,Command Declaration Format,current,local,,,,,,core/commands;web;py,,,,,2026-10-18,,specs/reference/COMMAND_DECLARATION.md
+COMMAND_ALIASES,reference,Command Aliases,current,local,,,,,,core/commands;core/plan,,,,,2026-11-04,,specs/reference/COMMAND_ALIASES.md
+COMMAND_DECLARATION,reference,Command Declaration Format,current,local,,,,,,core/commands;web;py,,,,,2026-11-04,,specs/reference/COMMAND_DECLARATION.md
 CONFORMANCE_TERMS,reference,Conformance Terms,current,local,,,,,,docs,,,,,2026-09-02,,specs/reference/CONFORMANCE_TERMS.md
 DEPENDENCIES_STATUS,reference,Status::Dependencies Specification,current,local,,,,,,core/assets,,,,,2026-11-03,,specs/reference/DEPENDENCIES_STATUS.md
 ENVIRONMENT_CONFIG,reference,Environment Configuration,current,local,,,,,,core/context;core/store;core/assets,,,,,2026-11-01,,specs/reference/ENVIRONMENT_CONFIG.md
 IMAGE_COMMAND_LIBRARY,reference,Image Command Library Specification,current,local,,,,,,lib/image,,,,,2026-11-03,,specs/reference/IMAGE_COMMAND_LIBRARY.md
-JAVASCRIPT_INTEGRATION,reference,JavaScript Integration,current,local,,,,,,web;core/value;core/error;core/store;lib/value,,,,,2026-11-02,,specs/reference/JAVASCRIPT_INTEGRATION.md
+JAVASCRIPT_INTEGRATION,reference,JavaScript Integration,current,local,,,,,,web;core/value;core/error;core/store;lib/value,,,,,2026-11-04,,specs/reference/JAVASCRIPT_INTEGRATION.md
 MARKDOWN,reference,Markdown Navigation,current,local,,,,,,lib/commands;records,,,,,2026-11-01,,specs/reference/MARKDOWN.md
 PAYLOAD_GUIDE,reference,Payload Specification and Usage,current,local,,,,,,core/context;core/commands,,,,,2026-10-17,,specs/reference/PAYLOAD_GUIDE.md
 PIPELINES,reference,Pipelines,current,local,,,,,,core/commands;core/plan;core/query;core/validate,,,,,2026-11-04,,specs/reference/PIPELINES.md
 POLARS_COMMAND_LIBRARY,reference,Polars Command Library Specification,current,local,,,,,,lib/polars,,,,,2026-11-03,,specs/reference/POLARS_COMMAND_LIBRARY.md
 POSITIONING,reference,Positioning and Marketing Plan (draft),current,local,,,,,,docs,,,,,2026-10-15,,specs/reference/POSITIONING.md
-PROJECT_OVERVIEW,reference,Liquers Project Overview,current,local,,,,,,core/query;core/plan;core/assets;core/store;core/value,,,,,2026-11-01,,specs/reference/PROJECT_OVERVIEW.md
+PROJECT_OVERVIEW,reference,Liquers Project Overview,current,local,,,,,,core/query;core/plan;core/assets;core/store;core/value,,,,,2026-11-04,,specs/reference/PROJECT_OVERVIEW.md
 PYTHON_INTEGRATION,reference,Python Integration,current,local,,,,,,py;core/value;core/error;lib/value;core/store;store/config;core/assets,,,,,2026-11-02,,specs/reference/PYTHON_INTEGRATION.md
-REALMS,reference,Realms,current,local,,,,,,core/plan;core/commands;store/config,,,,,2026-10-16,,specs/reference/REALMS.md
-RECIPES_AND_PLANS,reference,Recipes and Plans Reference,current,local,,,,,,core/plan;core/query;core/assets;core/context,,,,,2026-11-03,,specs/reference/RECIPES_AND_PLANS.md
+REALMS,reference,Realms,current,local,,,,,,core/plan;core/commands;store/config,,,,,2026-11-04,,specs/reference/REALMS.md
+RECIPES_AND_PLANS,reference,Recipes and Plans Reference,current,local,,,,,,core/plan;core/query;core/assets;core/context,,,,,2026-11-04,,specs/reference/RECIPES_AND_PLANS.md
 RECORD_STREAMS,reference,Record Streams,current,local,,,,,,records;lib/value;lib/commands;web,,,,,2026-11-01,,specs/reference/RECORD_STREAMS.md
 REGISTER_COMMAND_FSD,reference,register_command! Macro Functional Specification,current,local,,,,,,macro;core/commands,,,,,2026-10-20,,specs/reference/REGISTER_COMMAND_FSD.md
 SEARCH,reference,Search,current,local,,,,,,records;lib/commands,,,,,2026-10-17,,specs/reference/SEARCH.md
 STORE_CONFIG_FSD,reference,Store Configuration Functional Specification,current,local,,,,,,store/config,,,,,2026-11-01,,specs/reference/STORE_CONFIG_FSD.md
 STORE_SEMANTICS,reference,Store Behavioural Semantics,current,local,,,,,,core/store;store/backends;web,,,,,2026-10-27,,specs/reference/STORE_SEMANTICS.md
-TEMPLATE_LANGUAGE,reference,Template Language,current,local,,,,,,core/query;lib/commands,,,,,2026-10-17,,specs/reference/TEMPLATE_LANGUAGE.md
+TEMPLATE_LANGUAGE,reference,Template Language,current,local,,,,,,core/query;lib/commands,,,,,2026-11-04,,specs/reference/TEMPLATE_LANGUAGE.md
 UI_INTERFACE_FSD,reference,UI Interface Specification,current,local,,,,,,lib/ui,,,,,2026-10-30,,specs/reference/UI_INTERFACE_FSD.md
-VALUE_TYPE_SYSTEM,reference,Value Type System,current,local,,,,,,core/value;lib/value,,,,,2026-10-27,,specs/reference/VALUE_TYPE_SYSTEM.md
+VALUE_TYPE_SYSTEM,reference,Value Type System,current,local,,,,,,core/value;lib/value,,,,,2026-11-04,,specs/reference/VALUE_TYPE_SYSTEM.md
 VISION,reference,Liquers Vision and Strategy,current,local,,,,,,docs,,,,,2026-10-15,,specs/reference/VISION.md
 WEB_API_SPECIFICATION,reference,Liquers Web API Specification,current,local,,,,,,axum;web,,,,,2026-10-27,,specs/reference/WEB_API_SPECIFICATION.md
 AGENT_MEMORY_MIGRATION_GUIDE,guide,Agent Memory Migration Guide,current,local,,,,,,lib/commands;docs,,,,,2026-10-19,,specs/guides/AGENT_MEMORY_MIGRATION_GUIDE.md
@@ -1017,15 +1017,16 @@ API_DOCUMENTATION_GUIDE,guide,API Documentation Guide,current,local,,,,,,docs,,,
 ASSET_MANAGER_IMPLEMENTATION_GUIDE,guide,Asset Manager Implementation Guide,current,local,,,,,,core/assets,,,,,2026-10-22,,specs/guides/ASSET_MANAGER_IMPLEMENTATION_GUIDE.md
 autonomous_bulk_design,guide,Autonomous Bulk Design Procedure,current,local,,,,,,docs;build,,,,,2026-10-08,,specs/guides/autonomous_bulk_design.md
 autonomous_issue_fixing,guide,Autonomous Issue Fixing Procedure,current,local,,,,,,docs;build,,,,,2026-10-08,,specs/guides/autonomous_issue_fixing.md
-COMMAND_DESIGN_GUIDE,guide,Command Design Guide,current,local,,,,,,core/commands,,,,,2026-10-27,,specs/guides/COMMAND_DESIGN_GUIDE.md
-COMMAND_REGISTRATION_GUIDE,guide,Command Registration Guide,current,local,,,,,,core/commands;macro,,,,,2026-10-20,,specs/guides/COMMAND_REGISTRATION_GUIDE.md
+COMMAND_DESIGN_GUIDE,guide,Command Design Guide,current,local,,,,,,core/commands,,,,,2026-11-04,,specs/guides/COMMAND_DESIGN_GUIDE.md
+COMMAND_REGISTRATION_GUIDE,guide,Command Registration Guide,current,local,,,,,,core/commands;macro,,,,,2026-11-04,,specs/guides/COMMAND_REGISTRATION_GUIDE.md
 DEPENDENCY_CONSISTENCY_GUIDE,guide,Dependency Consistency Guide,current,local,,,,,,core/assets,,,,,2026-10-08,,specs/guides/DEPENDENCY_CONSISTENCY_GUIDE.md
 ENVIRONMENT_CONSTRUCTION_GUIDE,guide,Building and Configuring an Environment,current,local,,,,,,core/context;core/assets;core/store,,,,,2026-11-01,,specs/guides/ENVIRONMENT_CONSTRUCTION_GUIDE.md
 GITHUB_ACTIONS_GUIDE,guide,GitHub Actions Guide,current,local,,,,,,build;docs,,,,,2026-11-03,,specs/guides/GITHUB_ACTIONS_GUIDE.md
-JAVASCRIPT_GUIDE,guide,Using Liquers from JavaScript in the browser,current,local,,,,,,web,,,,,2026-10-31,,specs/guides/JAVASCRIPT_GUIDE.md
-LANGUAGE-INTEGRATION_GUIDE,guide,Language Integration Guide,current,local,,,,,,web;py;core/commands;core/plan;core/assets;core/store;core/value;lib/commands,,,,,2026-11-03,,specs/guides/LANGUAGE-INTEGRATION_GUIDE.md
+JAVASCRIPT_GUIDE,guide,Using Liquers from JavaScript in the browser,current,local,,,,,,web,,,,,2026-11-04,,specs/guides/JAVASCRIPT_GUIDE.md
+LANGUAGE-INTEGRATION_GUIDE,guide,Language Integration Guide,current,local,,,,,,web;py;core/commands;core/plan;core/assets;core/store;core/value;lib/commands,,,,,2026-11-04,,specs/guides/LANGUAGE-INTEGRATION_GUIDE.md
+PIPELINE_GUIDE,guide,Pipeline Guide,current,local,,,,,,core/commands;core/plan;core/query;core/validate,,,,,2026-11-04,,specs/guides/PIPELINE_GUIDE.md
 PYTHON_GUIDE,guide,Using Liquers from Python,current,local,,,,,,py,,,,,2026-11-02,,specs/guides/PYTHON_GUIDE.md
-QUERY_ESCAPING_GUIDE,guide,Query Escaping Guide,current,local,,,,,,core/query,,,,,2026-10-07,,specs/guides/QUERY_ESCAPING_GUIDE.md
+QUERY_ESCAPING_GUIDE,guide,Query Escaping Guide,current,local,,,,,,core/query,,,,,2026-11-04,,specs/guides/QUERY_ESCAPING_GUIDE.md
 RECORD_STREAM_GUIDE,guide,Record Stream Guide,current,local,,,,,,records;lib/value,,,,,2026-10-30,,specs/guides/RECORD_STREAM_GUIDE.md
 SEARCH_GUIDE,guide,Search Guide,current,local,,,,,,lib/commands;records,,,,,2026-10-17,,specs/guides/SEARCH_GUIDE.md
 SERIALIZATION_GUIDE,guide,Choosing a Serialization Format,current,local,,,,,,core/value;lib/value,,,,,2026-10-13,,specs/guides/SERIALIZATION_GUIDE.md
@@ -1033,7 +1034,7 @@ STORE_CONFIG_GUIDE,guide,Store Configuration Guide,current,local,,,,,,store/conf
 STORE_FACTORY_GUIDE,guide,Store Factory Guide,current,local,,,,,,core/store;store/config,,,,,2026-10-16,,specs/guides/STORE_FACTORY_GUIDE.md
 STORE_IMPLEMENTATION_GUIDE,guide,Store Implementation Guide,current,local,,,,,,core/store;store/backends;web,,,,,2026-11-01,,specs/guides/STORE_IMPLEMENTATION_GUIDE.md
 TEMPLATE_GUIDE,guide,Template Guide,current,local,,,,,,core/query;lib/commands,,,,,2026-10-17,,specs/guides/TEMPLATE_GUIDE.md
-TYPE_SYSTEM_GUIDE,guide,Adding and Typing Value Types,current,local,,,,,,core/value;lib/value,,,,,2026-10-27,,specs/guides/TYPE_SYSTEM_GUIDE.md
+TYPE_SYSTEM_GUIDE,guide,Adding and Typing Value Types,current,local,,,,,,core/value;lib/value,,,,,2026-11-04,,specs/guides/TYPE_SYSTEM_GUIDE.md
 UNITTEST_GUIDE,guide,Unit Testing Guide,current,local,,,,,,build;core/assets,,,,,2026-10-20,,specs/guides/UNITTEST_GUIDE.md
 USER_DOCS_EDITING_GUIDE,guide,User Documentation Editing Guide,current,local,,,,,,docs,,,,,2026-11-02,,specs/guides/USER_DOCS_EDITING_GUIDE.md
 WEB_API_GUIDE,guide,Web API Guide,current,local,,,,,,axum;web,,,,,2026-10-16,,specs/guides/WEB_API_GUIDE.md
