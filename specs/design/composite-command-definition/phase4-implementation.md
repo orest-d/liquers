@@ -32,7 +32,7 @@ Exhaustive matches that new variants reach outside `liquers-core`:
 - [x] Step 9: `Native` mode and the dual-mode corpus test (33acfdc)
 - [x] Step 10: Recipe pipelines (399b6a5)
 - [x] Step 11: Pipeline commands (22b0382)
-- [x] Step 12: `liquers-validate` pipeline support
+- [x] Step 12: `liquers-validate` pipeline support (5598eb7)
 - [ ] Step 13: Cross-crate arms, registry export, polars integration test, build matrix
 
 ## Implementation Steps
