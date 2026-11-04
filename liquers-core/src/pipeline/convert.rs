@@ -20,15 +20,15 @@ use crate::error::Error;
 use crate::escape::{is_filename, is_header_value, is_identifier, is_realm_name, is_resource_name};
 use crate::parse::{parse_key, parse_query};
 use crate::query::{
-    ActionParameter, ActionRequest, Key, Position, Query, QuerySegment, ResourceName,
-    ResourceQuerySegment, SegmentHeader, TransformQuerySegment, HeaderParameter,
-    NS_INSTRUCTION, Q_INSTRUCTION, V_INSTRUCTION,
+    ActionParameter, ActionRequest, HeaderParameter, Key, Position, Query, QuerySegment,
+    ResourceName, ResourceQuerySegment, SegmentHeader, TransformQuerySegment, NS_INSTRUCTION,
+    Q_INSTRUCTION, V_INSTRUCTION,
 };
 use crate::recipes::Recipe;
 
 use super::{
-    ActionElement, ElementKind, Located, Namespaces, Operand, Pipeline,
-    PipelineElement, QueryOrPipeline, Read, Source,
+    ActionElement, ElementKind, Located, Namespaces, Operand, Pipeline, PipelineElement,
+    QueryOrPipeline, Read, Source,
 };
 
 /// An argument of an action element: by position (0-based) or by name.
@@ -118,7 +118,12 @@ impl fmt::Display for ElementPath {
     }
 }
 
-fn not_representable(rule: &str, path: &ElementPath, pos: &Option<Position>, detail: &str) -> Error {
+fn not_representable(
+    rule: &str,
+    path: &ElementPath,
+    pos: &Option<Position>,
+    detail: &str,
+) -> Error {
     let e = Error::not_representable(rule, path, detail);
     match pos {
         Some(pos) => e.with_position(pos),
@@ -182,11 +187,12 @@ impl TryFrom<&Query> for Pipeline {
                     && !(top.elements.is_empty() && top.header_parameters.is_empty())
                 {
                     // Header parameters that cannot be the pipeline's own: a nested pipeline.
-                    top.elements.push(Located::new(ElementKind::Pipeline(Pipeline {
-                        realm: realm.clone(),
-                        header_parameters: transform_header_parameters.clone(),
-                        ..Default::default()
-                    })));
+                    top.elements
+                        .push(Located::new(ElementKind::Pipeline(Pipeline {
+                            realm: realm.clone(),
+                            header_parameters: transform_header_parameters.clone(),
+                            ..Default::default()
+                        })));
                     current = Some(top.elements.len() - 1);
                 } else if !transform_header_parameters.is_empty() {
                     top.header_parameters = transform_header_parameters.clone();
@@ -220,7 +226,9 @@ impl TryFrom<&Query> for Pipeline {
                             header_parameters: transform_header_parameters.clone(),
                             ..Default::default()
                         }),
-                        &header.map(|h| h.position.clone()).unwrap_or_else(Position::unknown),
+                        &header
+                            .map(|h| h.position.clone())
+                            .unwrap_or_else(Position::unknown),
                     ));
                     current = Some(top.elements.len() - 1);
                 }
@@ -239,7 +247,10 @@ impl TryFrom<&Query> for Pipeline {
                                     &excess.position,
                                 ));
                             }
-                            (h.parameters.first().map(|p| p.value.clone()), h.position.clone())
+                            (
+                                h.parameters.first().map(|p| p.value.clone()),
+                                h.position.clone(),
+                            )
                         }
                         None => (None, r.position()),
                     };
@@ -365,12 +376,13 @@ impl TryFrom<&crate::plan::ParameterValue> for Pipeline {
     fn try_from(parameter: &crate::plan::ParameterValue) -> Result<Self, Self::Error> {
         use crate::plan::ParameterValue as P;
         match parameter {
-            P::DefaultLink(_, q) | P::ParameterLink(_, q, _) | P::OverrideLink(_, q) | P::EnumLink(_, q, _) => {
-                Pipeline::try_from(q)
-            }
-            P::ParameterPipeline(_, p, _) | P::OverridePipeline(_, p) | P::DefaultPipeline(_, p) => {
-                Ok(p.clone())
-            }
+            P::DefaultLink(_, q)
+            | P::ParameterLink(_, q, _)
+            | P::OverrideLink(_, q)
+            | P::EnumLink(_, q, _) => Pipeline::try_from(q),
+            P::ParameterPipeline(_, p, _)
+            | P::OverridePipeline(_, p)
+            | P::DefaultPipeline(_, p) => Ok(p.clone()),
             P::DefaultValue(_, _)
             | P::ParameterValue(_, _, _)
             | P::OverrideValue(_, _)
@@ -431,13 +443,11 @@ pub(crate) fn typed_scalar(text: &str, argument_type: &ArgumentType) -> Json {
             .and_then(serde_json::Number::from_f64)
             .map(Json::Number)
             .unwrap_or_else(text_value),
-        ArgumentType::Boolean | ArgumentType::BooleanOption => {
-            match text.to_lowercase().as_str() {
-                "true" | "t" | "yes" | "y" | "1" => Json::Bool(true),
-                "false" | "f" | "no" | "n" | "0" => Json::Bool(false),
-                _ => text_value(),
-            }
-        }
+        ArgumentType::Boolean | ArgumentType::BooleanOption => match text.to_lowercase().as_str() {
+            "true" | "t" | "yes" | "y" | "1" => Json::Bool(true),
+            "false" | "f" | "no" | "n" | "0" => Json::Bool(false),
+            _ => text_value(),
+        },
         ArgumentType::String
         | ArgumentType::Enum(_)
         | ArgumentType::GlobalEnum(_)
@@ -461,7 +471,11 @@ pub(crate) fn resolve_action(
     let namespaces = cmr.lookup_namespaces(&explicit);
     cmr.find_command_in_namespaces(realm, &namespaces, &action.action)
         .ok_or_else(|| {
-            Error::action_not_registered(&ActionRequest::new(action.action.clone()), realm, &namespaces)
+            Error::action_not_registered(
+                &ActionRequest::new(action.action.clone()),
+                realm,
+                &namespaces,
+            )
         })
 }
 
@@ -622,7 +636,8 @@ impl Flattener {
         }
         let realm = p.realm.as_str();
         let count = p.elements.len();
-        let at_start = |index: usize, this: &Flattener| is_top && index == 0 && this.items.is_empty();
+        let at_start =
+            |index: usize, this: &Flattener| is_top && index == 0 && this.items.is_empty();
         for (index, element) in p.elements.iter().enumerate() {
             let epath = path.element(index);
             let pos = element.pos.clone();
@@ -865,8 +880,8 @@ fn single_parameter(
             )),
         },
         Source::Link(text) => {
-            let q = parse_query(text)
-                .map_err(|e| not_representable("S5", path, epos, &e.message))?;
+            let q =
+                parse_query(text).map_err(|e| not_representable("S5", path, epos, &e.message))?;
             q.check_encodable()
                 .map_err(|e| not_representable("S5", path, epos, &e.message))?;
             Ok(ActionParameter::Link(q, pos.clone()))
@@ -1071,7 +1086,10 @@ pub(crate) fn encode_arguments(
 }
 
 /// Rejects named arguments that are unknown, injected, or also given by position (N4).
-pub(crate) fn check_argument_names(action: &ActionElement, md: &CommandMetadata) -> Result<(), Error> {
+pub(crate) fn check_argument_names(
+    action: &ActionElement,
+    md: &CommandMetadata,
+) -> Result<(), Error> {
     let slots = positional_arguments(md);
     let variadic_at = slots.iter().position(|s| s.multiple);
     for name in action.arguments.keys() {
@@ -1274,7 +1292,8 @@ fn write_transform(
                 element, pos, path, ..
             } => {
                 if !is_identifier(&element.action)
-                    || [NS_INSTRUCTION, Q_INSTRUCTION, V_INSTRUCTION].contains(&element.action.as_str())
+                    || [NS_INSTRUCTION, Q_INSTRUCTION, V_INSTRUCTION]
+                        .contains(&element.action.as_str())
                 {
                     return Err(not_representable(
                         "E1",
@@ -1325,7 +1344,11 @@ fn write_transform(
     let resolves = |explicit: &[String], index: usize| -> bool {
         match (&t.items[index], &targets[index]) {
             (Flat::Action { element, .. }, Some((key, _))) => cmr
-                .find_command_in_namespaces(&t.realm, &cmr.lookup_namespaces(explicit), &element.action)
+                .find_command_in_namespaces(
+                    &t.realm,
+                    &cmr.lookup_namespaces(explicit),
+                    &element.action,
+                )
                 .map(|md| &md.key() == key)
                 .unwrap_or(false),
             // An unresolved action (lenient mode) needs exactly its own `ns`, if it names one.
@@ -1378,11 +1401,13 @@ fn write_transform(
                             },
                             _,
                         ) => ns.0.clone(),
-                        (Flat::Action { .. }, Some((key, _))) => vec![if key.namespace.is_empty() {
-                            "root".to_owned()
-                        } else {
-                            key.namespace.clone()
-                        }],
+                        (Flat::Action { .. }, Some((key, _))) => {
+                            vec![if key.namespace.is_empty() {
+                                "root".to_owned()
+                            } else {
+                                key.namespace.clone()
+                            }]
+                        }
                         (Flat::Action { .. }, None)
                         | (Flat::Instruction { .. }, _)
                         | (Flat::Resource { .. }, _) => vec![],
@@ -1405,10 +1430,7 @@ fn write_transform(
             if let Some((_, names)) = next_placement.next() {
                 out.push(
                     ActionRequest::new(NS_INSTRUCTION.to_owned()).with_parameters(
-                        names
-                            .into_iter()
-                            .map(ActionParameter::new_string)
-                            .collect(),
+                        names.into_iter().map(ActionParameter::new_string).collect(),
                     ),
                 );
             }
@@ -1438,7 +1460,13 @@ fn write_transform(
                     .iter()
                     .enumerate()
                     .map(|(i, p)| {
-                        single_parameter(&p.item, &p.position(), cmr, &path.argument(ArgRef::Position(i)), pos)
+                        single_parameter(
+                            &p.item,
+                            &p.position(),
+                            cmr,
+                            &path.argument(ArgRef::Position(i)),
+                            pos,
+                        )
                     })
                     .collect::<Result<Vec<_>, _>>()?;
                 out.push(ActionRequest {
@@ -1469,20 +1497,31 @@ impl Recipe {
     /// it, which is why the registry is needed. The filename comes from the query. `title`,
     /// `description` and the asset declarations stay on the recipe.
     pub fn to_pipeline(&self, cmr: &CommandMetadataRegistry) -> Result<Pipeline, Error> {
-        let query = self.get_query()?;
-        let mut pipeline = Pipeline::try_from(&query)?;
+        let mut pipeline = match self.combined_pipeline()? {
+            Some(combined) => combined,
+            None => Pipeline::try_from(&self.get_query()?)?,
+        };
         if !self.arguments.is_empty() || !self.links.is_empty() {
             let (realm, action) = last_action_mut(&mut pipeline).ok_or_else(|| {
-                Error::invalid_pipeline("recipe arguments or links need a query that ends with an action")
+                Error::invalid_pipeline(
+                    "recipe arguments or links need a query that ends with an action",
+                )
             })?;
             let md = resolve_action(cmr, &realm, action)?;
-            let slots: Vec<String> = positional_arguments(&md).iter().map(|a| a.name.clone()).collect();
+            let slots: Vec<String> = positional_arguments(&md)
+                .iter()
+                .map(|a| a.name.clone())
+                .collect();
             let mut overrides: Vec<(String, Source)> = self
                 .arguments
                 .iter()
                 .map(|(k, v)| (k.clone(), Source::Value(v.clone())))
                 .collect();
-            overrides.extend(self.links.iter().map(|(k, v)| (k.clone(), Source::Link(v.clone()))));
+            overrides.extend(
+                self.links
+                    .iter()
+                    .map(|(k, v)| (k.clone(), Source::Link(v.clone()))),
+            );
             overrides.sort_by(|a, b| a.0.cmp(&b.0));
             for (name, source) in overrides {
                 match slots.iter().position(|s| s == &name) {
@@ -1498,7 +1537,9 @@ impl Recipe {
         }
         let mut prefix: Vec<PipelineElement> = Vec::new();
         if let Some(cwd) = &self.cwd {
-            prefix.push(Located::new(ElementKind::Cwd(Operand::Literal(cwd.clone()))));
+            prefix.push(Located::new(ElementKind::Cwd(Operand::Literal(
+                cwd.clone(),
+            ))));
         }
         if self.volatile {
             prefix.push(Located::new(ElementKind::Volatile));

@@ -20,8 +20,8 @@ use crate::command_metadata::{
 use crate::error::Error;
 use crate::parse::{parse_key, parse_query};
 use crate::plan::{
-    ActionOrigin, ParameterValue, Plan, PlanAssembly, PlanBuilder, ResolvedParameterValues,
-    Step, VolatilitySource,
+    ActionOrigin, ParameterValue, Plan, PlanAssembly, PlanBuilder, ResolvedParameterValues, Step,
+    VolatilitySource,
 };
 use crate::query::{ActionRequest, Position, Query};
 use crate::recipes::{convert_scalar, ConvertedOverride};
@@ -112,6 +112,7 @@ impl<'c> PipelinePlanBuilder<'c> {
                     prefixes: unit_prefixes(query),
                     next: 0,
                     last_unit_steps: 0,
+                    quoted: quoted_prefix(query),
                 };
                 self.native_elements(
                     &mut asm,
@@ -121,7 +122,7 @@ impl<'c> PipelinePlanBuilder<'c> {
                     &mut state,
                 )?;
                 if let Some(filename) = &pipeline.filename {
-                    asm.push(Step::Filename(filename_step(filename)?));
+                    asm.push(Step::Filename(query_filename_step(filename, query)?));
                 }
                 if let Some(p) = recorded_predecessor(query) {
                     asm.plan.predecessor =
@@ -228,10 +229,11 @@ impl<'c> PipelinePlanBuilder<'c> {
                     prefixes: unit_prefixes(query),
                     next: 0,
                     last_unit_steps: 0,
+                    quoted: quoted_prefix(query),
                 };
                 self.native_elements(asm, &run.realm, &run.elements, &top, &mut state)?;
                 if let Some(filename) = &run.filename {
-                    asm.push(Step::Filename(filename_step(filename)?));
+                    asm.push(Step::Filename(query_filename_step(filename, query)?));
                 }
             }
         }
@@ -266,7 +268,13 @@ impl<'c> PipelinePlanBuilder<'c> {
             Some(q) => {
                 asm.plan.steps.truncate(base);
                 // Quoted actions are not resolved: the quote is their text, whatever they name.
-                let quoted = wrap(elements[..q].to_vec()).to_query_lenient(self.cmr)?;
+                let mut quoted = wrap(elements[..q].to_vec()).to_query_lenient(self.cmr)?;
+                // The quote as the query wrote it, when it is the same query, keeps positions.
+                if let Some(original) = &state.quoted {
+                    if original.encode() == quoted.encode() {
+                        quoted = original.clone();
+                    }
+                }
                 if !quoted.is_empty() {
                     asm.push(Step::UseQueryValue(quoted));
                 }
@@ -323,6 +331,36 @@ impl<'c> PipelinePlanBuilder<'c> {
                     let parsed = Pipeline::try_from(&parse_query(text)?)?;
                     self.plan_elements(asm, realm, &parsed.elements, false)?;
                 }
+                ElementKind::Resource { .. } | ElementKind::KeyValue(_) | ElementKind::Cwd(_)
+                    if positioned_key(unit_prefix.as_ref()).is_some() =>
+                {
+                    if !realm.is_empty() {
+                        asm.plan
+                            .init_warning(format!("Resource header name is ignored: '{realm}'"));
+                    }
+                    // The key as the query wrote it, so its segments keep their positions.
+                    if let Some(key) = positioned_key(unit_prefix.as_ref()) {
+                        match &element.item {
+                            ElementKind::Resource { read, .. } => {
+                                asm.push(read_step(*read, key));
+                                asm.plan.uncached_by = None;
+                            }
+                            ElementKind::KeyValue(_) => {
+                                asm.push(Step::UseKeyValue(key));
+                                asm.plan.uncached_by = None;
+                            }
+                            ElementKind::Cwd(_) => asm.push(Step::SetCwd(key)),
+                            ElementKind::Text(_)
+                            | ElementKind::Action(_)
+                            | ElementKind::Value(_)
+                            | ElementKind::Evaluate(_)
+                            | ElementKind::QueryValue(_)
+                            | ElementKind::Quote
+                            | ElementKind::Volatile
+                            | ElementKind::Pipeline(_) => {}
+                        }
+                    }
+                }
                 ElementKind::Quote => {}
                 ElementKind::Value(_)
                 | ElementKind::Resource { .. }
@@ -333,7 +371,9 @@ impl<'c> PipelinePlanBuilder<'c> {
                 | ElementKind::Volatile => {
                     let reads_resource = matches!(
                         element.item,
-                        ElementKind::Resource { .. } | ElementKind::KeyValue(_) | ElementKind::Cwd(_)
+                        ElementKind::Resource { .. }
+                            | ElementKind::KeyValue(_)
+                            | ElementKind::Cwd(_)
                     );
                     if reads_resource && !realm.is_empty() {
                         // As the query planner: a resource segment's header name is not a realm.
@@ -378,7 +418,10 @@ impl<'c> PipelinePlanBuilder<'c> {
                 Ok(())
             }
             ElementKind::KeyValue(operand) => {
-                asm.push(Step::UseKeyValue(parse_key(literal(operand, "key_value")?)?));
+                asm.push(Step::UseKeyValue(parse_key(literal(
+                    operand,
+                    "key_value",
+                )?)?));
                 asm.plan.uncached_by = None;
                 Ok(())
             }
@@ -414,7 +457,10 @@ impl<'c> PipelinePlanBuilder<'c> {
             )
             .with_position(&position)),
             ElementKind::Volatile => {
-                asm.mark_volatile("Volatile due to instruction 'v'", VolatilitySource::Positional);
+                asm.mark_volatile(
+                    "Volatile due to instruction 'v'",
+                    VolatilitySource::Positional,
+                );
                 Ok(())
             }
             // A nested pipeline names its realm; an empty one is the root realm.
@@ -460,11 +506,21 @@ impl<'c> PipelinePlanBuilder<'c> {
         let explicit = action.ns.as_ref().map(|n| n.0.clone()).unwrap_or_default();
         let namespaces = self.cmr.lookup_namespaces(&explicit);
         let textual = query_parameters(action);
-        let request = ActionRequest {
+        // The action as the query wrote it, so its parameters keep their positions.
+        let written = prefix.as_ref().and_then(last_action).filter(|written| {
+            written.name == action.action
+                && textual.as_ref().is_some_and(|t| {
+                    t.len() == written.parameters.len()
+                        && t.iter()
+                            .zip(&written.parameters)
+                            .all(|(a, b)| a.encode() == b.encode())
+                })
+        });
+        let request = written.unwrap_or_else(|| ActionRequest {
             name: action.action.clone(),
             parameters: textual.clone().unwrap_or_default(),
             position: position.clone(),
-        };
+        });
         let allow = textual.is_none() || self.allow_placeholders;
         let metadata = self
             .cmr
@@ -505,7 +561,9 @@ impl<'c> PipelinePlanBuilder<'c> {
                         allow,
                     )?,
                     command.clone(),
-                    ActionOrigin::Alias { command: key.clone() },
+                    ActionOrigin::Alias {
+                        command: key.clone(),
+                    },
                 )
             }
         };
@@ -522,8 +580,9 @@ impl<'c> PipelinePlanBuilder<'c> {
             for (i, parameter) in parameters.0.iter().enumerate() {
                 match parameter {
                     ParameterValue::Placeholder(name) => {
-                        return Err(Error::missing_argument(i, name, position)
-                            .with_command_key(&key));
+                        return Err(
+                            Error::missing_argument(i, name, position).with_command_key(&key)
+                        );
                     }
                     ParameterValue::None => {
                         let name = metadata
@@ -531,8 +590,9 @@ impl<'c> PipelinePlanBuilder<'c> {
                             .get(i)
                             .map(|a| a.name.clone())
                             .unwrap_or_default();
-                        return Err(Error::missing_argument(i, &name, position)
-                            .with_command_key(&key));
+                        return Err(
+                            Error::missing_argument(i, &name, position).with_command_key(&key)
+                        );
                     }
                     ParameterValue::DefaultValue(_, _)
                     | ParameterValue::DefaultLink(_, _)
@@ -601,7 +661,10 @@ impl<'c> PipelinePlanBuilder<'c> {
                     }
                 }
             }
-            return Ok(ParameterValue::MultipleParameters(argument.name.clone(), values));
+            return Ok(ParameterValue::MultipleParameters(
+                argument.name.clone(),
+                values,
+            ));
         }
         match sources {
             [source] => self.single_value(asm, argument, source, position),
@@ -680,6 +743,32 @@ impl<'c> PipelinePlanBuilder<'c> {
 }
 
 /// The resource name of a pipeline's `filename`, checked as a query filename is (P2).
+/// The last action of `prefix` when its last segment is a transform ending in one.
+fn last_action(prefix: &Query) -> Option<ActionRequest> {
+    match prefix.segments.last()? {
+        crate::query::QuerySegment::Transform(tqs) if tqs.filename.is_none() => {
+            tqs.query.last().cloned()
+        }
+        crate::query::QuerySegment::Transform(_) | crate::query::QuerySegment::Resource(_) => None,
+    }
+}
+
+/// The key of `prefix`'s last segment when that segment is a resource, as parsed.
+fn positioned_key(prefix: Option<&Query>) -> Option<crate::query::Key> {
+    match prefix?.segments.last()? {
+        crate::query::QuerySegment::Resource(rqs) => Some(rqs.key.clone()),
+        crate::query::QuerySegment::Transform(_) => None,
+    }
+}
+
+/// The filename step for `filename`, at its position in `query` when the query names it.
+fn query_filename_step(filename: &str, query: &Query) -> Result<crate::query::ResourceName, Error> {
+    match query.filename() {
+        Some(named) if named.name == filename => Ok(named),
+        Some(_) | None => filename_step(filename),
+    }
+}
+
 fn filename_step(filename: &str) -> Result<crate::query::ResourceName, Error> {
     if !crate::escape::is_filename(filename) {
         return Err(Error::invalid_token(filename, "filename"));
@@ -718,6 +807,35 @@ struct NativeState {
     next: usize,
     /// The number of steps planned before the last unit.
     last_unit_steps: usize,
+    /// What the query's last `q` quotes, as parsed (without the `q` and the filename).
+    quoted: Option<Query>,
+}
+
+/// What the last `q` of `query` quotes: the prefix before it, without a filename.
+fn quoted_prefix(query: &Query) -> Option<Query> {
+    use crate::query::QuerySegment;
+    let mut current = query.clone();
+    loop {
+        if current.is_q() {
+            let mut segments = current.segments.clone();
+            if let Some(QuerySegment::Transform(mut tqs)) = segments.pop() {
+                tqs.query.pop();
+                tqs.filename = None;
+                if !tqs.is_empty() {
+                    segments.push(QuerySegment::Transform(tqs));
+                }
+            }
+            return Some(Query {
+                segments,
+                rooted: current.rooted,
+                source: current.source.clone(),
+            });
+        }
+        match current.predecessor() {
+            (Some(p), Some(_)) => current = p,
+            (Some(_), None) | (None, Some(_)) | (None, None) => return None,
+        }
+    }
 }
 
 /// Whether a query's last segment ends in an action that is a unit of the plan (not `ns`).
@@ -814,8 +932,12 @@ fn query_parameters(action: &ActionElement) -> Option<Vec<crate::query::ActionPa
         .map(|p| {
             let pos = p.pos.clone().unwrap_or_else(Position::unknown);
             match &p.item {
-                Source::Value(Json::String(text)) => Some(ActionParameter::String(text.clone(), pos)),
-                Source::Link(text) => parse_query(text).ok().map(|q| ActionParameter::Link(q, pos)),
+                Source::Value(Json::String(text)) => {
+                    Some(ActionParameter::String(text.clone(), pos))
+                }
+                Source::Link(text) => parse_query(text)
+                    .ok()
+                    .map(|q| ActionParameter::Link(q, pos)),
                 Source::Value(_)
                 | Source::Placeholder(_)
                 | Source::Pipeline(_)
@@ -853,7 +975,11 @@ fn assign_arguments<'m>(
             let rest: Vec<_> = parameters.by_ref().collect();
             if !rest.is_empty() {
                 let pos = rest[0].pos.clone().unwrap_or_else(|| position.clone());
-                assigned.push((slot, rest.into_iter().map(|a| a.item.clone()).collect(), pos));
+                assigned.push((
+                    slot,
+                    rest.into_iter().map(|a| a.item.clone()).collect(),
+                    pos,
+                ));
             }
             break;
         }

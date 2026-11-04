@@ -22,26 +22,35 @@ fn plans_are_equal_in_both_modes() {
         let Ok(canonical) = pipeline.to_query_with(cmr) else {
             continue;
         };
-        let d = delegate.plan_query(&canonical);
-        let n = native.plan_query(&canonical);
-        compared += 1;
-        match (d, n) {
-            (Ok(d), Ok(n)) => {
-                let (d, n) = (plan_json(&d), plan_json(&n));
-                if d != n {
-                    failures.push(format!(
-                        "{text} ({}):\n    delegate {d}\n    native   {n}",
-                        canonical.encode()
-                    ));
+        // The parsed query too: its plan carries the positions the text gave it.
+        let parsed = crate::parse::parse_query(text).ok();
+        for canonical in std::iter::once(canonical).chain(parsed) {
+            let d = delegate.plan_query(&canonical);
+            let n = native.plan_query(&canonical);
+            compared += 1;
+            match (d, n) {
+                (Ok(d), Ok(n)) => {
+                    let (d, n) = (plan_json(&d), plan_json(&n));
+                    if d != n {
+                        failures.push(format!(
+                            "{text} ({}):\n    delegate {d}\n    native   {n}",
+                            canonical.encode()
+                        ));
+                    }
+                }
+                (Err(d), Err(n)) => {
+                    if d.error_type != n.error_type {
+                        failures.push(format!(
+                            "{text}: errors differ: {} / {}",
+                            d.message, n.message
+                        ));
+                    }
+                }
+                (Ok(_), Err(n)) => failures.push(format!("{text}: native fails: {}", n.message)),
+                (Err(d), Ok(_)) => {
+                    failures.push(format!("{text}: only delegate fails: {}", d.message))
                 }
             }
-            (Err(d), Err(n)) => {
-                if d.error_type != n.error_type {
-                    failures.push(format!("{text}: errors differ: {} / {}", d.message, n.message));
-                }
-            }
-            (Ok(_), Err(n)) => failures.push(format!("{text}: native fails: {}", n.message)),
-            (Err(d), Ok(_)) => failures.push(format!("{text}: only delegate fails: {}", d.message)),
         }
     }
     assert!(compared > 100, "only {compared} corpus queries compared");
@@ -52,4 +61,3 @@ fn plans_are_equal_in_both_modes() {
         failures.join("\n  ")
     );
 }
-

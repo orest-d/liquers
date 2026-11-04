@@ -30,7 +30,7 @@ Exhaustive matches that new variants reach outside `liquers-core`:
 - [x] Step 7: Extract `PlanAssembly` (7bceb74)
 - [x] Step 8: `PipelinePlanBuilder` in `Delegate` mode, `Step::UseValue`, entry points (70bce02)
 - [x] Step 9: `Native` mode and the dual-mode corpus test (33acfdc)
-- [ ] Step 10: Recipe pipelines
+- [x] Step 10: Recipe pipelines
 - [ ] Step 11: Pipeline commands
 - [ ] Step 12: `liquers-validate` pipeline support
 - [ ] Step 13: Cross-crate arms, registry export, polars integration test, build matrix
@@ -295,3 +295,19 @@ Decisions made while implementing, none of which changes an approved contract:
   predecessor, flags, diagnostics) of every corpus query in canonical form: 145 of 145 equal,
   plus the alias queries of `tests/command_alias.rs`. The default is now `Native`; the whole
   `liquers-core` and `liquers-lib` suites pass with it.
+
+### Step 10 notes
+- `Recipe::pipeline` is optional and skipped when absent, so an existing recipe serializes and
+  plans exactly as before (`existing_recipes_unchanged` compares its plan with `PlanBuilder`'s).
+  `combined_pipeline` appends the query's pipeline to it and refuses a placeholder (AC-11), a
+  query that starts with a resource (its state would be discarded), a filename in both parts,
+  and `arguments` / `links` without a query (they override the query's last action).
+- A recipe with a pipeline has no `key()` and is not a pure query; its filename is the query's,
+  or the pipeline's when there is no query. `Recipe::to_pipeline` returns the combined pipeline.
+- Python reads the field as `Recipe.pipeline`, a dict or `None`.
+- `existing_recipes_unchanged` exposed what the dual-mode test missed: `Native` mode planned
+  resource keys, `key` / `cwd` keys, quoted prefixes and action parameters from the pipeline,
+  which carries no positions inside literals, so their positions differed from the query
+  planner's. They are now taken from the query's own prefixes when they are the same query. The
+  dual-mode test now also plans every corpus query as parsed, not only in canonical form, so
+  positions are compared: 290 of 290 equal.

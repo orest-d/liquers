@@ -6,8 +6,8 @@ use serde_json::json;
 
 use super::super::*;
 use crate::command_metadata::{ArgumentInfo, CommandMetadata, CommandMetadataRegistry};
-use crate::parse::parse_query;
 use crate::error::Error;
+use crate::parse::parse_query;
 use crate::query::Query;
 use crate::recipes::Recipe;
 use serde_json::Value as Json;
@@ -26,9 +26,17 @@ fn collect_commands(p: &Pipeline, out: &mut BTreeSet<(String, String, String)>) 
     for e in p.elements.iter() {
         match &e.item {
             ElementKind::Action(a) => {
-                let ns = a.ns.as_ref().and_then(|n| n.0.first().cloned()).unwrap_or_default();
+                let ns =
+                    a.ns.as_ref()
+                        .and_then(|n| n.0.first().cloned())
+                        .unwrap_or_default();
                 out.insert((p.realm.clone(), ns, a.action.clone()));
-                for s in a.parameters.iter().map(|p| &p.item).chain(a.arguments.values().map(|a| &a.item)) {
+                for s in a
+                    .parameters
+                    .iter()
+                    .map(|p| &p.item)
+                    .chain(a.arguments.values().map(|a| &a.item))
+                {
                     if let Source::Link(text) = s {
                         if let Ok(inner) = Pipeline::from_query_text(text) {
                             collect_commands(&inner, out);
@@ -77,16 +85,27 @@ pub(crate) fn converted_corpus() -> Corpus {
     let mut failures = Vec::new();
     for text in corpus() {
         let q = parse_query(&text).unwrap_or_else(|e| panic!("{text}: {}", e.message));
-        match (Pipeline::try_from(&q), REFUSED.iter().find(|(t, _)| *t == text)) {
+        match (
+            Pipeline::try_from(&q),
+            REFUSED.iter().find(|(t, _)| *t == text),
+        ) {
             (Ok(p), None) => entries.push((text, q, p)),
             (Err(e), Some((_, reason))) => {
-                assert!(e.message.contains(reason), "{text}: refused for another reason: {}", e.message)
+                assert!(
+                    e.message.contains(reason),
+                    "{text}: refused for another reason: {}",
+                    e.message
+                )
             }
             (Ok(_), Some(_)) => failures.push(format!("{text}: expected a refusal")),
             (Err(e), None) => failures.push(format!("{text}: {}", e.message)),
         }
     }
-    assert!(failures.is_empty(), "failures:\n  {}", failures.join("\n  "));
+    assert!(
+        failures.is_empty(),
+        "failures:\n  {}",
+        failures.join("\n  ")
+    );
     let pipelines: Vec<Pipeline> = entries.iter().map(|(_, _, p)| p.clone()).collect();
     Corpus {
         cmr: permissive_registry(&pipelines),
@@ -98,7 +117,10 @@ pub(crate) fn converted_corpus() -> Corpus {
 #[test]
 fn every_corpus_query_converts() {
     let corpus = converted_corpus();
-    assert!(corpus.entries.len() > 100, "the corpus is the parser's 147 queries");
+    assert!(
+        corpus.entries.len() > 100,
+        "the corpus is the parser's 147 queries"
+    );
 }
 
 /// AC-28 — every pipeline that came from a query converts back.
@@ -111,7 +133,11 @@ fn query_origin_pipeline_converts_back() {
             failures.push(format!("{text}: {}", e.message));
         }
     }
-    assert!(failures.is_empty(), "failures:\n  {}", failures.join("\n  "));
+    assert!(
+        failures.is_empty(),
+        "failures:\n  {}",
+        failures.join("\n  ")
+    );
 }
 
 /// AC-27 — the canonical form is a fixed point, as query and as pipeline.
@@ -159,7 +185,9 @@ fn round_trip_gives_canonical_form() -> Result<(), Error> {
     // A query already in canonical form comes back as the same text.
     for (text, q, p) in corpus.entries.iter() {
         let once = p.to_query_with(&corpus.cmr)?;
-        let canonical_text = Pipeline::try_from(&once)?.to_query_with(&corpus.cmr)?.encode();
+        let canonical_text = Pipeline::try_from(&once)?
+            .to_query_with(&corpus.cmr)?
+            .encode();
         if q.encode() == canonical_text {
             assert_eq!(once.encode(), q.encode(), "{text}");
         }
@@ -212,11 +240,34 @@ fn typed_registry() -> CommandMetadataRegistry {
             ArgumentInfo::string_argument("b").with_default("x"),
         ],
     );
-    add("", "", "req", vec![ArgumentInfo::string_argument("a"), ArgumentInfo::string_argument("b")]);
-    add("", "", "head", vec![ArgumentInfo::integer_argument("n", false).with_default(10)]);
-    add("", "pl", "head", vec![ArgumentInfo::integer_argument("n", false).with_default(5)]);
+    add(
+        "",
+        "",
+        "req",
+        vec![
+            ArgumentInfo::string_argument("a"),
+            ArgumentInfo::string_argument("b"),
+        ],
+    );
+    add(
+        "",
+        "",
+        "head",
+        vec![ArgumentInfo::integer_argument("n", false).with_default(10)],
+    );
+    add(
+        "",
+        "pl",
+        "head",
+        vec![ArgumentInfo::integer_argument("n", false).with_default(5)],
+    );
     add("", "pl", "from_csv", vec![]);
-    add("", "img", "head", vec![ArgumentInfo::integer_argument("n", false)]);
+    add(
+        "",
+        "img",
+        "head",
+        vec![ArgumentInfo::integer_argument("n", false)],
+    );
     add("", "img", "blur", vec![]);
     add("c", "", "show", vec![]);
     add("c", "", "join", vec![ArgumentInfo::any_argument("other")]);
@@ -317,10 +368,17 @@ fn namespace_placement_three_steps() -> Result<(), Error> {
         Ok(Pipeline::new(elements).to_query_with(&cmr)?.encode())
     };
     // 1. No ns.
-    assert_eq!(encode(vec![with_ns("text", None), with_ns("head", None)])?, "text/head");
+    assert_eq!(
+        encode(vec![with_ns("text", None), with_ns("head", None)])?,
+        "text/head"
+    );
     // 2. One ns at the start, in order of first use.
     assert_eq!(
-        encode(vec![with_ns("from_csv", Some("pl")), with_ns("blur", Some("img")), with_ns("text", None)])?,
+        encode(vec![
+            with_ns("from_csv", Some("pl")),
+            with_ns("blur", Some("img")),
+            with_ns("text", None)
+        ])?,
         "ns-pl-img/from_csv/blur/text"
     );
     // 3. `head` exists in root, pl and img: after `ns-pl`, a root `head` needs its own `ns`.
@@ -363,7 +421,9 @@ fn realm_segments_merge_and_nest() -> Result<(), Error> {
     // A nested pipeline in its parent's realm is inlined.
     let p = Pipeline::new(vec![
         act(action("text")),
-        el(ElementKind::Pipeline(Pipeline::new(vec![act(action("head"))]))),
+        el(ElementKind::Pipeline(Pipeline::new(vec![act(action(
+            "head",
+        ))]))),
     ]);
     assert_eq!(p.to_query_with(&cmr)?.encode(), "text/head");
     Ok(())
@@ -390,9 +450,14 @@ fn not_representable_each_rule() -> Result<(), Error> {
         );
     };
     // P1
-    refused(Pipeline::new(vec![el(ElementKind::Value(Operand::Literal(json!(1))))]), "P1");
     refused(
-        Pipeline::new(vec![el(ElementKind::Evaluate(Operand::Literal(QueryOrPipeline::Query("text".into()))))]),
+        Pipeline::new(vec![el(ElementKind::Value(Operand::Literal(json!(1))))]),
+        "P1",
+    );
+    refused(
+        Pipeline::new(vec![el(ElementKind::Evaluate(Operand::Literal(
+            QueryOrPipeline::Query("text".into()),
+        )))]),
         "P1",
     );
     // P2
@@ -466,33 +531,62 @@ fn not_representable_each_rule() -> Result<(), Error> {
         "E4",
     );
     // E5
-    refused(Pipeline::new(vec![el(ElementKind::Cwd(Operand::Placeholder("d".into())))]), "E5");
+    refused(
+        Pipeline::new(vec![el(ElementKind::Cwd(Operand::Placeholder("d".into())))]),
+        "E5",
+    );
     // E6
-    refused(Pipeline::new(vec![act(action("text")), el(ElementKind::Text("/head".into()))]), "E6");
-    refused(Pipeline::new(vec![el(ElementKind::Text("a b".into()))]), "E6");
+    refused(
+        Pipeline::new(vec![
+            act(action("text")),
+            el(ElementKind::Text("/head".into())),
+        ]),
+        "E6",
+    );
+    refused(
+        Pipeline::new(vec![el(ElementKind::Text("a b".into()))]),
+        "E6",
+    );
     // E7: always.
-    let p = Pipeline::new(vec![act(action("text")), el(ElementKind::Quote), el(ElementKind::Volatile)]);
+    let p = Pipeline::new(vec![
+        act(action("text")),
+        el(ElementKind::Quote),
+        el(ElementKind::Volatile),
+    ]);
     assert_eq!(p.to_query_with(&cmr)?.encode(), "text/q/v");
     // E8
     refused(
         Pipeline::new(vec![
             act(action("text")),
-            el(ElementKind::QueryValue(Operand::Literal(QueryOrPipeline::Query("head".into())))),
+            el(ElementKind::QueryValue(Operand::Literal(
+                QueryOrPipeline::Query("head".into()),
+            ))),
         ]),
         "E8",
     );
-    let p = Pipeline::new(vec![el(ElementKind::QueryValue(Operand::Literal(QueryOrPipeline::Query(
-        "text/head".into(),
-    ))))]);
+    let p = Pipeline::new(vec![el(ElementKind::QueryValue(Operand::Literal(
+        QueryOrPipeline::Query("text/head".into()),
+    )))]);
     assert_eq!(p.to_query_with(&cmr)?.encode(), "text/head/q");
     // S1: always.
     let mut a = action("pick");
-    a.parameters = vec![arg(json!("a")), arg(json!(2)), arg(json!(1.5)), arg(json!(false))];
-    assert_eq!(Pipeline::new(vec![act(a)]).to_query_with(&cmr)?.encode(), "pick-a-2-1.5-false");
+    a.parameters = vec![
+        arg(json!("a")),
+        arg(json!(2)),
+        arg(json!(1.5)),
+        arg(json!(false)),
+    ];
+    assert_eq!(
+        Pipeline::new(vec![act(a)]).to_query_with(&cmr)?.encode(),
+        "pick-a-2-1.5-false"
+    );
     // S2: a list only for the variadic argument.
     let mut a = action("tag");
     a.parameters = vec![arg(json!("p")), arg(json!(["x", "y"]))];
-    assert_eq!(Pipeline::new(vec![act(a)]).to_query_with(&cmr)?.encode(), "tag-p-x-y");
+    assert_eq!(
+        Pipeline::new(vec![act(a)]).to_query_with(&cmr)?.encode(),
+        "tag-p-x-y"
+    );
     let mut a = action("tag");
     a.parameters = vec![arg(json!("p")), arg(json!([["nested"]]))];
     refused(Pipeline::new(vec![act(a)]), "S2");
@@ -501,11 +595,20 @@ fn not_representable_each_rule() -> Result<(), Error> {
     a.parameters.push(arg(json!("p")));
     a.arguments.insert(
         "items".into(),
-        Located::new(Source::Multiple(vec![Source::Value(json!("a")), Source::Link("text".into())])),
+        Located::new(Source::Multiple(vec![
+            Source::Value(json!("a")),
+            Source::Link("text".into()),
+        ])),
     );
-    assert_eq!(Pipeline::new(vec![act(a)]).to_query_with(&cmr)?.encode(), "tag-p-a-~X~text~E");
+    assert_eq!(
+        Pipeline::new(vec![act(a)]).to_query_with(&cmr)?.encode(),
+        "tag-p-a-~X~text~E"
+    );
     let mut a = action("join");
-    a.parameters.push(Located::new(Source::Multiple(vec![Source::Value(json!("a"))])));
+    a.parameters
+        .push(Located::new(Source::Multiple(vec![Source::Value(json!(
+            "a"
+        ))])));
     refused(Pipeline::new(vec![act(a)]), "S3");
     // S4
     for v in [json!(null), json!({"a": 1}), json!([1, 2])] {
@@ -519,13 +622,20 @@ fn not_representable_each_rule() -> Result<(), Error> {
     refused(Pipeline::new(vec![act(a)]), "S5");
     // S6
     let mut a = action("join");
-    a.parameters.push(Located::new(Source::Pipeline(Pipeline::new(vec![el(ElementKind::Value(
-        Operand::Literal(json!(1)),
-    ))]))));
+    a.parameters
+        .push(Located::new(Source::Pipeline(Pipeline::new(vec![el(
+            ElementKind::Value(Operand::Literal(json!(1))),
+        )]))));
     refused(Pipeline::new(vec![act(a)]), "S6");
     let mut a = action("join");
-    a.parameters.push(Located::new(Source::Pipeline(Pipeline::new(vec![act(action("text"))]))));
-    assert_eq!(Pipeline::new(vec![act(a)]).to_query_with(&cmr)?.encode(), "join-~X~text~E");
+    a.parameters
+        .push(Located::new(Source::Pipeline(Pipeline::new(vec![act(
+            action("text"),
+        )]))));
+    assert_eq!(
+        Pipeline::new(vec![act(a)]).to_query_with(&cmr)?.encode(),
+        "join-~X~text~E"
+    );
     // S7
     for s in [Source::Placeholder("x".into()), Source::State(true)] {
         let mut a = action("join");
@@ -533,7 +643,9 @@ fn not_representable_each_rule() -> Result<(), Error> {
         refused(Pipeline::new(vec![act(a)]), "S7");
     }
     // N1: an unknown command cannot be written.
-    let err = Pipeline::new(vec![act(action("nowhere"))]).to_query_with(&cmr).expect_err("N1");
+    let err = Pipeline::new(vec![act(action("nowhere"))])
+        .to_query_with(&cmr)
+        .expect_err("N1");
     assert!(err.message.contains("not registered"), "{}", err.message);
     // N3: a gap at a required argument.
     let mut a = action("req");
@@ -543,12 +655,20 @@ fn not_representable_each_rule() -> Result<(), Error> {
     let mut a = action("req");
     a.parameters.push(arg(json!("x")));
     a.arguments.insert("a".into(), arg(json!("y")));
-    let err = Pipeline::new(vec![act(a)]).to_query_with(&cmr).expect_err("N4");
-    assert!(err.message.contains("both by position and by name"), "{}", err.message);
+    let err = Pipeline::new(vec![act(a)])
+        .to_query_with(&cmr)
+        .expect_err("N4");
+    assert!(
+        err.message.contains("both by position and by name"),
+        "{}",
+        err.message
+    );
     // Unknown and injected arguments.
     let mut a = action("inj");
     a.arguments.insert("env".into(), arg(json!(1)));
-    let err = Pipeline::new(vec![act(a)]).to_query_with(&cmr).expect_err("injected");
+    let err = Pipeline::new(vec![act(a)])
+        .to_query_with(&cmr)
+        .expect_err("injected");
     assert!(err.message.contains("injected"), "{}", err.message);
     Ok(())
 }
@@ -563,17 +683,23 @@ fn not_representable_names_the_path() {
         column: 8,
     };
     let mut inner = action("join");
-    inner.arguments.insert("other".into(), Located::new(Source::State(true)));
+    inner
+        .arguments
+        .insert("other".into(), Located::new(Source::State(true)));
     let p = Pipeline::new(vec![
         act(action("text")),
         el(ElementKind::Pipeline(Pipeline {
             realm: "c".into(),
-            ..Pipeline::new(vec![act(action("show")), Located::at(ElementKind::Action(inner), &pos)])
+            ..Pipeline::new(vec![
+                act(action("show")),
+                Located::at(ElementKind::Action(inner), &pos),
+            ])
         })),
     ]);
     let err = p.to_query_with(&cmr).expect_err("S7");
     assert!(
-        err.message.contains("nested pipeline 1, element 1, argument 'other'"),
+        err.message
+            .contains("nested pipeline 1, element 1, argument 'other'"),
         "{}",
         err.message
     );
@@ -592,7 +718,10 @@ fn recipe_to_pipeline_concatenates() -> Result<(), Error> {
     recipe.volatile = true;
     let p = recipe.to_pipeline(&cmr)?;
     assert_eq!(p.filename.as_deref(), Some("out.txt"));
-    assert_eq!(p.elements[0].item, ElementKind::Cwd(Operand::Literal("data".into())));
+    assert_eq!(
+        p.elements[0].item,
+        ElementKind::Cwd(Operand::Literal("data".into()))
+    );
     assert_eq!(p.elements[1].item, ElementKind::Volatile);
     let ElementKind::Action(pick) = &p.elements[3].item else {
         panic!("not an action");
@@ -641,7 +770,11 @@ fn parameter_value_to_pipeline() -> Result<(), Error> {
         P::None,
     ] {
         let err = Pipeline::try_from(&p).expect_err("not link-like");
-        assert!(err.message.contains("only a link or a pipeline"), "{}", err.message);
+        assert!(
+            err.message.contains("only a link or a pipeline"),
+            "{}",
+            err.message
+        );
     }
     Ok(())
 }
@@ -653,7 +786,8 @@ fn registry_export_round_trip() -> Result<(), Box<dyn std::error::Error>> {
     use crate::plan::ParameterValue;
     let nested = Pipeline::from_json(&json!([{"value": {"region": ["EU"]}}, {"action": "keys"}]))?;
     let mut meta = CommandMetadata::new("report");
-    meta.arguments.push(ArgumentInfo::any_argument("source").with_default_pipeline(nested.clone())?);
+    meta.arguments
+        .push(ArgumentInfo::any_argument("source").with_default_pipeline(nested.clone())?);
     let mut cmr = CommandMetadataRegistry::new();
     cmr.add_command(&meta);
 
@@ -663,10 +797,16 @@ fn registry_export_round_trip() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(back.commands[0].arguments, cmr.commands[0].arguments);
     let text = serde_yaml::to_string(&cmr)?;
     let back: CommandMetadataRegistry = serde_yaml::from_str(&text)?;
-    assert_eq!(back.commands[0].arguments, cmr.commands[0].arguments, "{text}");
+    assert_eq!(
+        back.commands[0].arguments, cmr.commands[0].arguments,
+        "{text}"
+    );
 
     // The hand-written map form and the capitalised tag read the same.
-    for written in [json!({"pipeline": nested.to_json()}), json!({"Pipeline": nested.to_json()})] {
+    for written in [
+        json!({"pipeline": nested.to_json()}),
+        json!({"Pipeline": nested.to_json()}),
+    ] {
         let cpv: CommandParameterValue = serde_json::from_value(written)?;
         assert_eq!(cpv, CommandParameterValue::Pipeline(nested.clone()));
     }
@@ -685,8 +825,13 @@ fn registry_export_round_trip() -> Result<(), Box<dyn std::error::Error>> {
 
     // A default is not a definition: placeholders and the input state are refused.
     let with_placeholder = Pipeline::from_json(&json!([{"value": {"placeholder": "n"}}]))?;
-    assert!(ArgumentInfo::any_argument("x").with_default_pipeline(with_placeholder).is_err());
-    let with_state = Pipeline::from_json(&json!([{"action": "f", "arguments": {"s": {"state": true}}}]))?;
-    assert!(ArgumentInfo::any_argument("x").with_default_pipeline(with_state).is_err());
+    assert!(ArgumentInfo::any_argument("x")
+        .with_default_pipeline(with_placeholder)
+        .is_err());
+    let with_state =
+        Pipeline::from_json(&json!([{"action": "f", "arguments": {"s": {"state": true}}}]))?;
+    assert!(ArgumentInfo::any_argument("x")
+        .with_default_pipeline(with_state)
+        .is_err());
     Ok(())
 }
