@@ -74,6 +74,8 @@ pub enum WarningSource {
     StepError,
     /// A [`Step::Warning`] in `steps` or `init_steps`.
     StepWarning,
+    /// A pipeline that plans but has no query form; the message names the rule.
+    NotRepresentable,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
@@ -129,6 +131,10 @@ pub struct ValidationResult {
     pub status: ValidationStatus,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub query: Option<Query>,
+    /// The input as a pipeline (its serialized form): set for a pipeline input, a recipe with a
+    /// `pipeline`, and any input when the pipeline form is asked for (`--emit pipeline`).
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub pipeline: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub plan: Option<Plan>,
     /// Storage key the recipe result would land under (`Recipe::store_to_key`).
@@ -153,6 +159,7 @@ impl ValidationResult {
             recipe_check: None,
             status: ValidationStatus::Ok,
             query: None,
+            pipeline: None,
             plan: None,
             key: None,
             error: None,
@@ -171,7 +178,7 @@ impl ValidationResult {
 
     /// Attach a plan and derive the status from the diagnostics it carries.
     pub fn with_plan(mut self, plan: Plan) -> Self {
-        self.warnings = collect_warnings(&plan);
+        self.warnings.extend(collect_warnings(&plan));
         if !self.warnings.is_empty() {
             self.status = ValidationStatus::Warning;
         }
@@ -246,6 +253,7 @@ impl ValidationReport {
                                 WarningSource::PlanError => "Plan contains error:",
                                 WarningSource::StepError => "Plan step error:",
                                 WarningSource::StepWarning => "Plan step warning:",
+                                WarningSource::NotRepresentable => "No query form:",
                             },
                             warning.message
                         ));
@@ -341,7 +349,9 @@ fn collect_step_warnings(
         | Step::GetResourceDirectory(_)
         | Step::Evaluate(_)
         | Step::UseQueryValue(_)
+        | Step::UseValue(_)
         | Step::Action { .. }
+        | Step::PipelineCommand { .. }
         | Step::Filename(_)
         | Step::Info(_)
         | Step::SetCwd(_)

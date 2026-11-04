@@ -249,6 +249,10 @@ impl<E: Environment> CommandArguments<E> {
             | ParameterValue::EnumLink(_, _, _)
             | ParameterValue::Placeholder(_)
             | ParameterValue::Injected(_)
+            | ParameterValue::ParameterPipeline(_, _, _)
+            | ParameterValue::OverridePipeline(_, _)
+            | ParameterValue::DefaultPipeline(_, _)
+            | ParameterValue::InputState(_) | ParameterValue::FrameArgument(_, _)
             | ParameterValue::None => Err(Error::general_error(format!(
                 "Argument #{} '{}' is declared as multiple, but was not resolved as a parameter list",
                 i + 1,
@@ -282,6 +286,15 @@ impl<E: Environment> CommandArguments<E> {
                 i + 1,
                 name,
                 query.encode()
+            ))
+            .with_position(&element.position())),
+            ParameterValue::ParameterPipeline(_, _, _)
+            | ParameterValue::OverridePipeline(_, _)
+            | ParameterValue::DefaultPipeline(_, _)
+            | ParameterValue::InputState(_) | ParameterValue::FrameArgument(_, _) => Err(Error::general_error(format!(
+                "Unresolved pipeline or input state in multiple argument #{} '{}'",
+                i + 1,
+                name
             ))
             .with_position(&element.position())),
             ParameterValue::MultipleParameters(_, _) => Err(Error::unexpected_error(format!(
@@ -805,7 +818,8 @@ impl<E: Environment> CommandRegistry<E> {
             command_metadata::CommandDefinition::Alias {
                 head_parameters, ..
             } => head_parameters.len(),
-            command_metadata::CommandDefinition::Registered => 0,
+            command_metadata::CommandDefinition::Registered
+            | command_metadata::CommandDefinition::Pipeline { .. } => 0,
         };
         let remaining = target_metadata
             .arguments
@@ -845,6 +859,58 @@ impl<E: Environment> CommandRegistry<E> {
         self.command_metadata_registry
             .get_mut(alias)
             .ok_or_else(|| Error::unexpected_error("alias metadata was not stored".to_string()))
+    }
+
+    /// Registers a pipeline command: a call runs `pipeline` on its input, with `arguments`
+    /// bound to its placeholders (`specs/reference/PIPELINES.md`).
+    ///
+    /// Only metadata is registered: the planner expands a call into the body's steps, whose
+    /// commands' executors run. An argument's omitted type is taken from the slot its
+    /// placeholder fills, and a step that needs a payload makes the command need one. The command
+    /// is a source command (no state argument) when the body's first element sets the state.
+    /// The definition is checked as [`CommandMetadata::check`] and
+    /// [`CommandMetadataRegistry::check_pipeline_command`] check it; an error refuses
+    /// registration and nothing changes. A later registration under the same key replaces an
+    /// earlier one, as for [`Self::register_command`].
+    pub fn register_pipeline(
+        &mut self,
+        key: CommandKey,
+        pipeline: crate::pipeline::Pipeline,
+        arguments: Vec<command_metadata::ArgumentInfo>,
+    ) -> Result<&mut CommandMetadata, Error> {
+        let mut metadata = CommandMetadata::from_key(key.clone());
+        if pipeline.first_sets_state() {
+            metadata.state_argument = None;
+        }
+        metadata.arguments = arguments;
+        metadata.definition = command_metadata::CommandDefinition::Pipeline { pipeline };
+        self.command_metadata_registry
+            .complete_pipeline_command(&mut metadata);
+        let mut report = metadata.check();
+        report.append(
+            self.command_metadata_registry
+                .check_pipeline_command(&metadata),
+        );
+        if report.has_errors() {
+            let messages: Vec<String> = report
+                .issues()
+                .iter()
+                .filter(|issue| issue.is_error())
+                .map(|issue| issue.message().to_string())
+                .collect();
+            return Err(Error::invalid_pipeline(format!(
+                "pipeline command '{}' is not registered: {}",
+                key,
+                messages.join("; ")
+            )));
+        }
+        self.unregister(key.clone());
+        self.command_metadata_registry.add_command(&metadata);
+        self.command_metadata_registry
+            .get_mut(key)
+            .ok_or_else(|| {
+                Error::unexpected_error("pipeline command metadata was not stored".to_string())
+            })
     }
 
     /// Removes a command's sync executor, async executor and metadata.

@@ -3,7 +3,7 @@ title: Command Registration Guide
 kind: guide
 audience: internal
 area: [core/commands, macro]
-reviewed: 2026-10-20
+reviewed: 2026-11-04
 ---
 # Command Registration Guide
 
@@ -755,6 +755,35 @@ and its test are in [`TEMPLATE_GUIDE.md`](TEMPLATE_GUIDE.md) §3.
 
 An alias registered in a group exported to `specs/command_registry.yaml` appears there with
 `definition: !Alias`; regenerate the file as for any signature change.
+
+### Registering a pipeline command
+
+When a command is a *sequence* of other commands, or needs to bind arguments by name or pass
+structured values, register a **pipeline command** instead of an alias or a Rust function. Its
+body is a pipeline; each `{placeholder: name}` in it is one of the command's arguments, declared as
+an `ArgumentInfo` with its default:
+
+```rust
+let mut n = ArgumentInfo::any_argument("n").with_type(ArgumentType::Integer);
+n.default = CommandParameterValue::Value(json!(10));
+cr.register_pipeline(
+    CommandKey::new("", "sales", "top"),
+    Pipeline::from_json(&json!([
+        {"action": "from_csv", "ns": "pl"},
+        {"action": "sort", "ns": "pl", "arguments": {"column": "amount", "ascending": false}},
+        {"action": "head", "ns": "pl", "arguments": {"n": {"placeholder": "n"}}}
+    ]))?,
+    vec![n],
+)?;
+```
+
+Registration checks the body against the registry (every placeholder declared, every step
+resolvable, no cycle, no injected argument declared) and refuses it on an error. `ns-sales/top-3`
+then runs the three steps; errors inside end with `(in pipeline command 'sales/top')`. In
+`specs/command_registry.yaml` it appears with `definition: !Pipeline`. The full procedure, with
+`{state: true}`, variadic arguments and testing, is
+[`PIPELINE_GUIDE.md`](PIPELINE_GUIDE.md) §4; the contract is
+[`reference/PIPELINES.md`](../reference/PIPELINES.md) §4.
 ---
 
 ## 3. Generic Environment Commands (Library Commands)
@@ -1078,6 +1107,7 @@ only) action is that command ([`AGENT_MEMORY_SERVICE.md`](../reference/AGENT_MEM
 - `CLAUDE.md` - "Common Tasks > Adding a Command" section
 - `liquers-core/src/commands.rs` - CommandRegistry implementation and tests
 - `liquers-lib/src/commands.rs` - Example command library
+- [`PIPELINE_GUIDE.md`](PIPELINE_GUIDE.md) - Pipeline commands: commands defined as a sequence of other commands
 - [`RECORD_STREAM_GUIDE.md`](RECORD_STREAM_GUIDE.md) - Writing a command that produces or consumes records (a `RecordView` or `RecordSource`): the record-producing walkthrough lives there and is not repeated here
 
 ### Example Projects
@@ -1092,6 +1122,7 @@ only) action is that command ([`AGENT_MEMORY_SERVICE.md`](../reference/AGENT_MEM
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-04 | New §Registering a pipeline command. | phase-5, `design/composite-command-definition/` |
 | 2026-10-20 | Links to `reference/api/DOC_08_RECIPES_PLANS.md` follow its promotion to `reference/RECIPES_AND_PLANS.md`. | DOC-08 promotion |
 | 2026-10-19 | §5 *Commands served as MCP tools*: one command per tool, state as a structurally filled key argument, relative defaults hidden, notes beside the value, read-only allow-lists. | `design/agent-memory-mvp/` Phase 5 |
 | 2026-10-17 | §*Registering an alias*: a head may be a link (`CommandParameterValue::Query`), `ArgumentInfo::with_default_link`, and template commands as aliases of `template/render`. | `design/liquers-mustache/` |

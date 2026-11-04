@@ -3,7 +3,7 @@ title: Adding and Typing Value Types
 kind: guide
 audience: both
 area: [core/value, lib/value]
-reviewed: 2026-10-27
+reviewed: 2026-11-04
 ---
 
 # Adding and Typing Value Types
@@ -107,6 +107,18 @@ let env = DefaultEnvironment::<Value>::new_with_type_registry(types);
 The registry is frozen once the environment exists. Extend `from_value_type`; starting from
 `TypeRegistry::new()` discards every type the build already had. Full procedure:
 `specs/guides/LANGUAGE-INTEGRATION_GUIDE.md` §VALUE.
+
+## A core variant mirrored in `liquers-lib`: `Pipeline`
+
+`Value::Pipeline` was added to core `Value` and mirrored as `SimpleValue::Pipeline`, the path any
+new core variant takes: the variant in both enums, `from_pipeline` / `try_into_pipeline` on
+`ValueInterface` (with defaults that go through a query, JSON or text, so value types without the
+variant still compile and still work), a `TypeInfo`
+in core's `type_descriptions()` with the formats it writes (`json`, `yaml`, `yml`, `txt`), the
+`ExtValue` delegation in `liquers-lib/src/value/extended.rs`, and an arm in every exhaustive match
+over `SimpleValue` (`liquers-lib/src/value/data_node.rs`, the egui viewer, liquers-py's value
+bridge). `scripts/check-build-matrix.sh` finds a missed arm. The contract is
+`reference/VALUE_TYPE_SYSTEM.md` §Registered identifiers.
 
 ## A gated variant, worked: `RecordView` and `RecordSource`
 
@@ -252,6 +264,7 @@ It resolves at compile time and cannot drift from the registration.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-04 | §A core variant mirrored in `liquers-lib`: `Pipeline`. | phase-5, `design/composite-command-definition/` |
 | 2026-10-27 | §Naming a type in Rust code: `TypeIdentifiedIn` has no implementations yet; the example is the intended form, with the interim way to obtain an identifier. | `design/type-identified-in-docs/` |
 | 2026-10-13 | §Choosing a data format: formats differ in fidelity. A type writing floats to JSON uses `json_f64`; see `SERIALIZATION_GUIDE.md`. | phase-5, `design/value-to-json-non-finite-float/` |
 | 2026-10-09 | §4 Describe it: the `TypeInfo` also routes reading — an extension identifier is read by the extension only, and an undeclared one is offered to the base value first. | phase-5, `design/combined-value-identifier-dispatch/` |

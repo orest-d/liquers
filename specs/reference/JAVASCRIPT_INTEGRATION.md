@@ -3,7 +3,7 @@ title: JavaScript Integration
 kind: reference
 audience: both
 area: [web, core/value, core/error, core/store, lib/value]
-reviewed: 2026-11-02
+reviewed: 2026-11-04
 ---
 # JavaScript Integration
 
@@ -143,7 +143,7 @@ is for evaluating against the built-in set, chiefly in tests.
 | `unregisterCommand(name)` | removes JavaScript commands named `name`; returns whether any was removed |
 | `describeCommand(name)` | the metadata of the root-namespace command `name`, or `null` |
 | `opaque(x)` | a `Value` retaining `x` by identity (§5) |
-| `encodeParam(text)` | `text` escaped as one query parameter; throws for a character the grammar cannot represent |
+| `encodeParam(text)` | `text` escaped as one query parameter; never throws: every string is representable (`encode_token`) |
 | `version()` | `"liquers-web <v> (liquers-core <v>)"`, from Cargo; every crate shares the workspace version, so both are the same |
 
 There is no synchronous evaluation entry point, deliberately (`ASYNCQ06`, `ASYNCQ07`).
@@ -592,6 +592,7 @@ Every retained page function (definitions, cleanups, renderers) is counted in
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-04 | `encodeParam` never throws (it returns `String` since the pipelines work). | phase-5, `design/composite-command-definition/` |
 | 2026-11-02 | Known limitations: the generated API reference (TypeDoc) exists; the documentation-coverage check is still missing. | `WEB-API-REFERENCE-NOT-GENERATED` (partial) |
 | 2026-11-01 | §3: the `liquersVersion` getter on `Environment`; `version()` reports the one workspace version twice. | `design/liquers-py-package/` (phase-5) |
 | 2026-10-31 | §10 "Elements and renderers": `defineElement`, `undefineElement`, `element`, `mountRenderer`, `dispatchEvent`; `DelegatedElement`; `UIElement.kind`/`props`. `UIDEF` removed from Limitations. | design `web-ui-define` |

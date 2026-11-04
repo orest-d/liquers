@@ -268,17 +268,15 @@ pub fn get_asset(query: &str) -> typescript::AssetPromise {
 
 /// Encodes a string for use as a query parameter.
 ///
-/// Throws a `LiquersError` when the value contains a character the query grammar cannot represent
-/// — a lone colon, most punctuation, or any non-ASCII character. **Throwing is deliberate**: the
-/// core encoder passes those through unchanged and produces text that fails to parse later,
-/// somewhere else. See [`encode`] for the full limitation and the issue tracking its removal.
+/// Never throws: every string is representable, the empty string included (it is the empty
+/// token). See [`encode`].
 ///
 /// ```javascript
 /// const q = `data/filter-${liquers.encodeParam(userInput)}`;
 /// ```
 #[wasm_bindgen(js_name = encodeParam)]
-pub fn encode_param_js(text: &str) -> Result<String, JsValue> {
-    encode::encode_param(text).map_err(error::liquers_error_to_js)
+pub fn encode_param_js(text: &str) -> String {
+    encode::encode_param(text)
 }
 
 /// Registers a JavaScript command on the global environment.

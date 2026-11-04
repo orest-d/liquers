@@ -3,7 +3,7 @@ title: Command Design Guide
 kind: guide
 audience: internal
 area: [core/commands]
-reviewed: 2026-10-27
+reviewed: 2026-11-04
 ---
 # Command Design Guide
 
@@ -151,9 +151,9 @@ exact contract is [`reference/COMMAND_ALIASES.md`](../reference/COMMAND_ALIASES.
 - **The behaviour differs, not only the arguments.** `rec/head` materializes its rows into a batch;
   `rec/slice` returns a view over the source. That is a different command, so `rec/head` is
   implemented, not aliased.
-- **The target's arguments would need reordering, dropping or computing.** An alias passes the
-  heads, then its own arguments, in order. Argument mapping is a later design; until then, write a
-  small command.
+- **The target's arguments would need reordering, dropping or binding by name, or the command is
+  several steps.** An alias passes the heads, then its own arguments, in order, to one command. Use
+  a **pipeline command** instead (next section).
 - **The target is itself an alias.** Aliases do not chain; point the new alias at the implementing
   command.
 
@@ -169,6 +169,20 @@ exact contract is [`reference/COMMAND_ALIASES.md`](../reference/COMMAND_ALIASES.
 - **Caching follows the alias.** Results depend on the alias's metadata as well as the target's, so
   changing the alias's head or arguments recomputes them. Turning an existing command into an alias
   recomputes its cached results once.
+
+### Alias, pipeline command or Rust
+
+| The command | Design it as |
+|---|---|
+| is one other command with leading arguments fixed | an alias |
+| is a fixed sequence of other commands, or binds arguments by name, or passes a list or map | a pipeline command ([`PIPELINE_GUIDE.md`](PIPELINE_GUIDE.md) §4) |
+| assembles text from other queries | a template command (an alias of `template/render`) |
+| computes, branches, or needs its own state or I/O | Rust (or a language binding's function) |
+
+A pipeline command shares an alias's consequences above: its arguments are its public interface,
+the steps' behaviour flags (volatility, payload, expiration) fold into it, errors name it
+(*"(in pipeline command 'sales/top')"*) and editing its body recomputes cached results. Unlike an
+alias, its result is cached only as a whole: nothing inside the body is kept as an intermediate.
 
 ## Outputs not worth keeping: `cached: false`
 
@@ -203,6 +217,7 @@ output is not worth keeping*.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-04 | §Aliases: alias, pipeline command or Rust. | phase-5, `design/composite-command-definition/` |
 | 2026-10-27 | §Sync versus async: a command's `Ok` return commits the run until the next step that can suspend. | `design/cancel-point-of-no-return/` (`CANCEL-CAN-OVERTAKE-A-RETURNED-COMMAND`) |
 | 2026-10-18 | "When to design a command as an alias", *A bridge*: `liquers-py` no longer aliases a `pycall` command; it registers a closure per Python function. | `design/liquers-py/` (phase-5) |
 | 2026-10-17 | Added: a command does not declare `volatile` for the volatility of the queries it reads; `Context::set_volatile`. | `design/runtime-volatility` |

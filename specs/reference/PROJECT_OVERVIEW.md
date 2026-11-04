@@ -3,7 +3,7 @@ title: Liquers Project Overview
 kind: reference
 audience: internal
 area: [core/query, core/plan, core/assets, core/store, core/value]
-reviewed: 2026-11-01
+reviewed: 2026-11-04
 ---
 # Liquers Project Overview
 
@@ -130,6 +130,7 @@ which also depends on `liquers-lib` (features `mem`, `markdown`) and `liquers-st
 | `plan.rs` | ~200 | Execution plan representation |
 | `recipes.rs` | ~200 | Recipe definitions (queries + metadata + overrides) |
 | `parse.rs` | ~400 | nom-based query parser |
+| `pipeline/` | ~6400 | Pipelines: the structured form of a query, conversions, editors, `PipelinePlanBuilder` (`specs/reference/PIPELINES.md`) |
 | `error.rs` | ~300 | Error types and handling |
 | `dependencies.rs` | ~150 | Version tracking for cache invalidation |
 
@@ -207,6 +208,13 @@ parameter but selects a different kind of parameter. See `liquers_core::parse` f
 syntax, the nesting bounds, and why the resource/transform shorthand is rejected
 inside a link.
 
+**Pipelines** are the structured, serializable (JSON/YAML) form of a query. Every query converts
+to a pipeline, and a pipeline converts back when it is *representable*. A pipeline can carry what
+query text cannot: any JSON value as an argument, named arguments, nested pipelines, placeholders,
+and a value that becomes the state. The planner mixes queries and pipeline elements in one plan.
+Code that builds queries uses `QueryEditor` rather than formatting text. See
+[`PIPELINES.md`](PIPELINES.md).
+
 ### 2. Three-Layer Value Encapsulation
 
 ```
@@ -257,6 +265,11 @@ inside a link.
 
 **Registration**: Via `#[register_command]` proc-macro (liquers-macro) or manually via the registration API, see `liquers-core/src/commands.rs`, `CommandRegistry::register_command` method.
 
+**Pipeline Commands**: A command defined by a pipeline whose placeholders are its arguments
+(`CommandDefinition::Pipeline`, `CommandRegistry::register_pipeline`). Calling it runs the body
+on the input with the arguments bound; it plans as one `Step::PipelineCommand` and caches under
+the calling query ([`PIPELINES.md`](PIPELINES.md) §4).
+
 **First Commands**: Commands that generate data without requiring input (e.g., database queries, datetime). Currently, commands that ignore their input effectively act as first commands. Better support in command metadata may be added.
 
 **Volatile Commands**: Commands that may produce different output each time (e.g., `datetime`, random generators). A query becomes volatile if it contains a volatile command or volatile resource. Volatile queries are re-executed on each request rather than cached.
@@ -268,10 +281,13 @@ Recipes generalize queries by adding:
 2. **Hierarchical storage**: recipes may reside in key structure (via AsyncRecipeProvider), enabling on-demand resource creation
 3. **Parameter overrides**: convenience for long arguments (e.g., SQL scripts)
 4. **Complex ad-hoc queries**: JSON API representation
+5. **A pipeline**: `pipeline` runs before `query` and can pass structured values to any step
+   ([`PIPELINES.md`](PIPELINES.md) §5)
 
 ```rust
 pub struct Recipe {
     pub query: String,              // Base query
+    pub pipeline: Option<Pipeline>, // Runs before the query
     pub title: String,
     pub description: String,
     pub arguments: HashMap<String, Value>,  // Overrides
@@ -517,7 +533,9 @@ project's purpose, intended uses and per-crate strategy. This document describes
   Resource names, action names, header names and values, and filenames are
   emitted raw, so a programmatically constructed value in one of *those*
   positions can still break the encode/parse round-trip. Not reachable from
-  parsed input. String action parameters are no longer part of this caveat:
+  parsed input. `Query::check_encodable` detects such a query, and `QueryEditor`
+  refuses to build one (`escape::is_identifier`, `is_resource_name`, … check each
+  token class). String action parameters are no longer part of this caveat:
   `encode_token` escapes every character the grammar cannot carry, including
   `~`, so `parse(encode(p)) == p` holds for any parameter value.
 - Query parsing is exponential in link nesting depth, currently contained by a
@@ -537,6 +555,7 @@ project's purpose, intended uses and per-crate strategy. This document describes
 - [Query language spec](https://raw.githubusercontent.com/orest-d/liquer/refs/heads/master/docs/query.md)
 - [Store Config FSD](./STORE_CONFIG_FSD.md)
 - [Realms](./REALMS.md)
+- [Pipelines](./PIPELINES.md)
 - [Store Configuration Guide](../guides/STORE_CONFIG_GUIDE.md)
 
 ### Key Source Files
@@ -556,6 +575,8 @@ project's purpose, intended uses and per-crate strategy. This document describes
 | **Key** | Path-like identifier for stored resources |
 | **Segment** | Part of a query, prefixed with `-R` (resource) or `-` (transform) |
 | **Action** | Single command with parameters in a transformation |
+| **Pipeline** | Structured (JSON/YAML) form of a query; may hold values a query cannot |
+| **Pipeline command** | A command defined by a pipeline whose placeholders are its arguments |
 | **State** | Value + Metadata (immutable, shareable) |
 | **Asset** | Managed resource with lifecycle (may not exist yet) |
 | **Recipe** | Query + metadata + parameter overrides |
@@ -580,6 +601,7 @@ project's purpose, intended uses and per-crate strategy. This document describes
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-04 | Pipelines: the `pipeline/` module, pipelines in §Query Language, pipeline commands in §Command System, `Recipe::pipeline`, the raw-emission caveat now checked by `check_encodable` / `QueryEditor`, glossary. | phase-5, `design/composite-command-definition/` |
 | 2026-11-01 | One workspace version and license; `Environment::liquers_version`; what `liquers-py` provides (its wheels built, none published yet). | `design/liquers-py-package/`, `design/liquers-py-records/` (phase-5) |
 | 2026-11-01 | Added `liquers-markdown` to the crate structure and the dependency flow, and the `markdown` feature (`ns-md`). | `design/markdown-navigation/` |
 | 2026-10-30 | §Recipes: every environment's recipe provider is a chain configured as a list; every member is asked. | design `recipe-provider-chain-config` |

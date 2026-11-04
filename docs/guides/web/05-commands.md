@@ -1,7 +1,7 @@
 ---
 title: Commands
 status: outline
-sources: [guides/JAVASCRIPT_GUIDE.md, guides/COMMAND_REGISTRATION_GUIDE.md, reference/COMMAND_DECLARATION.md]
+sources: [guides/JAVASCRIPT_GUIDE.md, guides/COMMAND_REGISTRATION_GUIDE.md, reference/COMMAND_DECLARATION.md, reference/PIPELINES.md, guides/PIPELINE_GUIDE.md]
 reviewed:
 ---
 # 5. Commands
@@ -17,3 +17,4 @@ SOURCE: guides/JAVASCRIPT_GUIDE.md §5
 TBD: 5.4 The context: logging, progress, evaluating other queries.
 SOURCE: guides/JAVASCRIPT_GUIDE.md §5
 EDITOR: keep the sections of 5 parallel across the three guides; the defaulting rules may be included from reference/COMMAND_DECLARATION.md once it has a link-free section for them.
+TBD: Pipeline commands: a command defined as a sequence of other commands, with placeholders as arguments. Not yet available in this binding.

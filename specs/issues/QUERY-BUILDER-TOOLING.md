@@ -2,11 +2,11 @@
 id: QUERY-BUILDER-TOOLING
 kind: issue
 title: No programmatic builder for constructing queries
-status: accepted
+status: closed
 priority: P2
 complexity: L
 area: [core/query, core/validate]
-design: query-builder
+design: composite-command-definition
 created: 2026-08-08
 github:
 ---
@@ -81,3 +81,14 @@ fetches a file named `to_text`.
 
 Designed in `design/query-builder/` (first slice: core builder, `Query::check_encodable`,
 `liquers-encode`, shared token predicates); binding classes become a follow-up issue.
+
+## Design
+
+Designed first in `specs/design/query-builder/` (2026-10-21). That design was merged into
+`specs/design/composite-command-definition/` on 2026-11-02, at the maintainer's request: the builder
+becomes the pipeline's `QueryEditor`, a wrapper over `PipelineEditor` that refuses edits leaving it
+without a query form.
+
+## Resolution
+
+Implemented by `specs/design/composite-command-definition/` (PR #238): `liquers_core::pipeline::QueryEditor` builds a query through checked, registry-aware edits (a refused edit changes nothing, `query()` always succeeds), over `PipelineEditor`; `Query::check_encodable` checks a hand-built query; `liquers-validate --build` builds one from shell arguments. Evidence: the editor tests in `liquers-core/src/pipeline/editor.rs` and `liquers-core/tests/validate_pipelines.rs`. Reference: `specs/reference/PIPELINES.md` §8.
