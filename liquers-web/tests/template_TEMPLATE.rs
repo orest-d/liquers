@@ -370,4 +370,14 @@ async fn template11_relative_partial_resolves_against_cwd() {
     ))
     .await, "render with a string cwd");
     assert_eq!(text(&rendered), "Header body");
+
+    // A relative template link resolves against the same `cwd`.
+    let rendered = ok(JsFuture::from(liquers_web::render(
+        query("-R/./page.md"),
+        None,
+        None,
+        Some(js(r#"{ cwd: "templates" }"#)),
+    ))
+    .await, "render a relative link");
+    assert_eq!(text(&rendered), "Header body");
 }

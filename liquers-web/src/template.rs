@@ -152,11 +152,16 @@ fn data_not_a_map(kind: &str) -> Error {
 async fn template_text<E: Environment<Value = Value>>(
     context: &Context<E>,
     source: &TemplateSource,
+    cwd: &Key,
 ) -> Result<String, Error> {
     match source {
         TemplateSource::Text(text) => Ok(text.clone()),
         TemplateSource::Link(query) => {
-            let state = context.get_dependency_state(query).await?;
+            // Resolved against `cwd` as `ContextHost` resolves a partial: a dependency must be
+            // absolute.
+            let state = context
+                .get_dependency_state(&query.to_absolute(cwd))
+                .await?;
             state.error_result()?;
             state.try_into_string()
         }
@@ -186,7 +191,7 @@ async fn render_collecting<E: Environment<Value = Value>>(
     options: &TemplateOptions,
 ) -> Result<Rendered, Error> {
     let errors = ErrorMode::parse(&options.errors)?;
-    let text = template_text(context, source).await?;
+    let text = template_text(context, source, &options.cwd).await?;
     let parsed = parse_template(&text, TemplateSyntax::Mustache)?;
     let host = CollectingHost {
         inner: ContextHost::new(context.clone(), options.cwd.clone()),
@@ -276,7 +281,8 @@ pub async fn validate<E: Environment<Value = Value>>(
     context: &Context<E>,
     source: &TemplateSource,
 ) -> Result<JsValue, Error> {
-    let text = template_text(context, source).await?;
+    // `validate` takes no `cwd`: a relative link resolves against the root.
+    let text = template_text(context, source, &Key::new()).await?;
     let envref = context.get_envref();
     let diagnostics = validate_template(
         &text,

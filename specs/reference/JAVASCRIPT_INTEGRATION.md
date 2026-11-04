@@ -341,7 +341,7 @@ definition, and `PipelineEditor::for_definition` is not wrapped (`WEB-PIPELINE-E
 - **Options** `{ errors, html, cwd, full }`, any other key `parameter_error`. `errors` is read by
   `ErrorMode::parse` (`strict`, the default, throws; `expand`, `expand_html`, `expand_md`,
   `silent` recover); `html` (default `false`) is `RenderOptions::html_escape`, never derived from
-  a filename; `cwd` is a key string or a `Key` and defaults to the root; `full` (top level only;
+  a filename; `cwd` is a key string or a `Key`, defaults to the root, and resolves a relative template link as well as relative partials and keys; `full` (top level only;
   refused in a command) resolves to `{ text, warnings }`.
 - **Where it runs.** In a command, through that command's `Context`: `ContextHost` makes every
   query tag and partial a dependency of the command's result, and a recovered error is a warning in
