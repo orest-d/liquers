@@ -81,6 +81,7 @@ plan, with [`liquers-py-templates`](../liquers-py-templates/DESIGN.md) and
 
 1. Orest, 2026-11-04, at the Phase 1 gate, on questions 1, 2, 5 and 6 as recommended: "agreed".
    Landing order data nodes, templates, pipelines: "ok".
+2. Orest, 2026-11-04: "proceed all": Phases 2-5 pre-approved; no decision was open.
 
 ## Scope Changes
 

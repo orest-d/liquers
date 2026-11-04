@@ -3,7 +3,7 @@ id: LIQUERS-PY-TEMPLATES
 kind: design
 title: "Templates in liquers-py: template commands and rendering from scripts and commands"
 workflow: liquers-project
-status: in_review
+status: approved
 phase: high-level
 readiness: needs-decision
 autofix: not-eligible
@@ -21,7 +21,10 @@ primitive that runs a closure as an ad-hoc asset (`AD-HOC-ASSET-CANNOT-RUN-A-CLO
 `template-render-in-env` re-based on it (Phase 1 Decision 1), each in its own PR first.
 
 Phase 1 written and reviewed twice on 2026-11-04. At the gate Orest decided question 1 (the top level
-renders as a command does); revised, reviewed again, and waiting at the Phase 1 gate.
+renders as a command does); revised, reviewed again, and approved with `proceed all`; question 8 taken as recommended (Decision 2).
+
+**Pre-approved after Phase 1 on 2026-11-04** (Orest: "proceed all", given at the Phase 1 gate, earlier than the skill's Phase 2 offer, and covering Phases 2-5): Phases 2-4, the implementation and Phase 5 run without gates; reviews still run, user decisions go to the Phase 1 decision log, and work stops before implementation only if one of them needs Orest.
+
 
 ## Phases
 

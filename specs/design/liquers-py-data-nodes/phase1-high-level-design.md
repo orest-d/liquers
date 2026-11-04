@@ -94,6 +94,7 @@ classes should be able to opt out rather than opt in." After the trade-offs (an 
 every object with a `__getitem__`): "ok, I agree with opt in - that is better". Taken as Decision 1
 (question 2): standard types, and classes that opt in to their protocols. Landing
 order data nodes, templates, pipelines: "ok".
+2. Orest, 2026-11-04: "proceed all": Phases 2-5 pre-approved; no decision was open.
 
 ## Problem Example
 

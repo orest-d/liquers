@@ -3,7 +3,7 @@ id: LIQUERS-PY-DATA-NODES
 kind: design
 title: "Data nodes in liquers-py: Python data read in place, and Liquers values read field by field"
 workflow: liquers-project
-status: in_review
+status: approved
 phase: high-level
 readiness: needs-decision
 autofix: not-eligible
@@ -21,7 +21,10 @@ Requires the core hook of `foreign-value-data-node` and the closure primitive of
 `AD-HOC-ASSET-CANNOT-RUN-A-CLOSURE` (for `env.data_node`), each in its own PR first.
 
 Phase 1 written and reviewed twice on 2026-11-04. At the gate Orest decided question 2 (opt-in);
-revised and waiting at the Phase 1 gate.
+revised, and approved with `proceed all`.
+
+**Pre-approved after Phase 1 on 2026-11-04** (Orest: "proceed all", given at the Phase 1 gate, earlier than the skill's Phase 2 offer, and covering Phases 2-5): Phases 2-4, the implementation and Phase 5 run without gates; reviews still run, user decisions go to the Phase 1 decision log, and work stops before implementation only if one of them needs Orest.
+
 
 ## Phases
 

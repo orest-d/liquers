@@ -4,9 +4,9 @@ kind: feature
 title: The asset manager cannot run Rust code as an ad-hoc asset, only a recipe
 status: draft
 priority: P2
-complexity: L
+complexity: M
 area: [core/assets, core/context]
-design:
+design: ad-hoc-closure-asset
 created: 2026-11-04
 github:
 ---

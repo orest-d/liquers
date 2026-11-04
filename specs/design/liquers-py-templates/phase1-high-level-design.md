@@ -11,9 +11,10 @@ function: the `TEMPLATE` feature of `LANGUAGE-INTEGRATION_GUIDE.md` (`TEMPLATE_L
 
 ## Design Readiness
 
-- **Readiness:** `needs-decision` (question 8)
+- **Readiness:** `needs-decision` until Phases 2-4 are written and reviewed; no user decision is
+  open (question 8 taken as recommended under `proceed all`, Decision 2)
 - **Automatic fixing:** `not-eligible`: an `L` feature with new public Python API.
-- **Leading issue:** question 8, link defaults. Source issue `PY-CANNOT-RENDER-TEMPLATES`
+- **Leading issue:** link defaults (question 8, Decision 2). Source issue `PY-CANNOT-RENDER-TEMPLATES`
   (P2 L, filed with this design).
 - **Explanation:** the in-command half needs nothing new in Rust. `ContextHost::new(context, cwd)`
   and `liquers_template::render` are what the `ns-template/render` command uses. The top-level half
@@ -64,7 +65,7 @@ function: the `TEMPLATE` feature of `LANGUAGE-INTEGRATION_GUIDE.md` (`TEMPLATE_L
      each build. `lq.CommandDefinition` gains read-only accessors, specified once for both M6
      designs: `kind` (`"registered"`, `"alias"` or `"pipeline"`), `alias_of`, `head_parameters`
      and `pipeline` (an `lq.Pipeline`). Inspection therefore shows that there is no callable.
-  8. **Open design: link defaults on Python commands** (`cwd` inside a command, TEMPLATE11).
+  8. **Decided (Decision 2): link defaults on Python commands** (`cwd` inside a command, TEMPLATE11).
      Recommended: here, because TEMPLATE11 needs it. A default `lq.link("-R-key/.")` declares a
      default link argument: `cwd: lq.Key = lq.link("-R-key/.")`. Today `_baseline` in
      `_commands.py` accepts only scalar defaults. Link values are already resolved at execution
@@ -80,6 +81,10 @@ function: the `TEMPLATE` feature of `LANGUAGE-INTEGRATION_GUIDE.md` (`TEMPLATE_L
    "why would template work only in commands - if the environment is available, it should be
    possible outside the commands too?" A core primitive gives the top level the same render as a
    command. Landing order data nodes, templates, pipelines: "ok".
+2. Orest, 2026-11-04: "proceed all", with question 8 still open. Taken as recommended and logged as
+   an assumption, which Orest can still reverse before implementation: `lq.link` lands in this
+   design. The core closure primitive (`AD-HOC-ASSET-CANNOT-RUN-A-CLOSURE`) gets its own design
+   folder, `ad-hoc-closure-asset`, and its own PR, landing first.
 
 ## Problem Example
 

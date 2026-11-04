@@ -333,6 +333,7 @@ deliberately folded behind a broader line.
 - `reference/CONFORMANCE_TERMS.md`
 - `reference/api/API_DOCS_GAP_ANALYSIS.md`
 - design `access-policy-at-entry-points`
+- design `ad-hoc-closure-asset`
 - design `agent-command-proposal`
 - design `argument-gui-info-default`
 - design `asset-event-kinds`
