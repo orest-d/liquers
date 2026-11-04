@@ -317,6 +317,9 @@ updated by the change that moves it.
 | `UIUSE` | complete | 01–10 in `tests/ui_browser_UIUSE.rs` (`browser-tests`), 02, 07, 08 also in `tests/ui_UIUSE.rs` (Node); `tests/e2e/ui.spec.ts` | `mountUI` / `UIMount`; the page does not repaint while a query awaits (`WEB-UI-FREEZES-WHILE-A-QUERY-AWAITS`); `UIUSE05` needs `--features debug-handles` |
 | `UIDEF` | complete | 01, 02, 05, 06 in `tests/ui_define_UIDEF.rs` (Node); 03, 04, 06b, 07, 08 in `tests/ui_browser_UIDEF.rs` (`browser-tests`); native `ui::widgets::delegated_element` tests | `defineElement`, `element`, `mountRenderer`; `UIDEF04` is claimed for the web backend only (egui shows a label); `UIDEF06` needs `--features debug-handles` |
 | `RECIPE` | not started (deferred) | — | — |
+| `DATANODE` | not started | — | no JavaScript object is adapted as a `DataNode` yet; `TEMPLATE` uses one (a soft dependency) to render page data in place. The core hook it needs for an opaque `JsOpaque` is design `foreign-value-data-node` (in review) |
+| `TEMPLATE` | not started | — | the browser build has no `ns-template` commands (`WEB-HAS-NO-TEMPLATE-COMMANDS`); the in-command half needs only those, since `COMMAND07` already gives a command its `Context` |
+| `PIPELINE` | not started | — | nothing in `PIPELINE01`–`05` is reachable from a page (`PIPELINES-NOT-IN-LANGUAGE-BINDINGS`). A command's `Value::Pipeline` result already arrives as its JSON object; nothing turns a page's object into a pipeline, evaluates one, edits one or registers a pipeline command |
 | `MODULE`, `POLYGLOT`, `WEBSERV`, `WEBAPI` | `NA` for the shipped milestone | — | — |
 
 **`RECORDS03` is `NA`**: there is no Arrow route out of the browser build; it becomes required if an

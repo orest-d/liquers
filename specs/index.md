@@ -8,9 +8,9 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 214
+Total rows: 215
 - P2: 63
-- P3: 151
+- P3: 152
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -105,6 +105,7 @@ Total rows: 214
 | [`DROPPED-RECIPE-RESULT-LEAVES-AN-EMPTY-DATA-FILE`](issues/DROPPED-RECIPE-RESULT-LEAVES-AN-EMPTY-DATA-FILE.md) | issue | Removing a computed value with a stored record leaves an empty data file at its key | draft |  |  | P3 | S | core/assets;core/store |  | 2026-10-27 |
 | [`GUIDE-SECTION-ANCHORS-DIFFER-BETWEEN-RENDERERS`](issues/GUIDE-SECTION-ANCHORS-DIFFER-BETWEEN-RENDERERS.md) | issue | Section links between chapters break in the EPUB and PDF | draft |  |  | P3 | S | docs |  | 2026-11-01 |
 | [`LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT`](issues/LANGUAGE-EXCEPTION-FIELDS-LOST-IN-TRANSPORT.md) | issue | Language exception class and stack are lost in transport | accepted |  |  | P3 | S | web |  | 2026-08-08 |
+| [`LANGUAGE-GUIDE-PIPELINE-COVERAGE-INCOMPLETE`](issues/LANGUAGE-GUIDE-PIPELINE-COVERAGE-INCOMPLETE.md) | issue | The Language Integration Guide's PIPELINE feature is missing from the profiles, the value bridge and the reference tests | draft |  |  | P3 | S | docs |  | 2026-11-04 |
 | [`LIQUERS-DOCS-DUPLICATES-MARKDOWN-PARSING`](issues/LIQUERS-DOCS-DUPLICATES-MARKDOWN-PARSING.md) | issue | liquers-docs parses Markdown with its own helpers instead of liquers-markdown | draft |  |  | P3 | S | docs |  | 2026-11-01 |
 | [`PIPELINE-COMMAND-OPERAND-TYPES-UNCHECKED`](issues/PIPELINE-COMMAND-OPERAND-TYPES-UNCHECKED.md) | issue | A pipeline command's placeholder operand types and GUI info are not checked or inferred | draft |  |  | P3 | S | core/commands | [notation](design/composite-command-definition/notation-and-integration.md)  [phase1](design/composite-command-definition/phase1-high-level-design.md)  [phase2](design/composite-command-definition/phase2-architecture.md)  [phase3](design/composite-command-definition/phase3-examples.md)  [phase4](design/composite-command-definition/phase4-implementation.md)  [phase5](design/composite-command-definition/phase5-documentation.md)  [pipeline](design/composite-command-definition/pipeline-and-plan.md)  [pipeline](design/composite-command-definition/pipeline-structure-and-sources.md)  [recipe](design/composite-command-definition/recipe-and-pipeline-structures.md)  | 2026-11-04 |
 | [`PLAN-DEFAULT-LINK-PROMOTION-USES-THE-QUERYS-LAST-NS`](issues/PLAN-DEFAULT-LINK-PROMOTION-USES-THE-QUERYS-LAST-NS.md) | issue | Relative default links are promoted using the query's last ns, not each action's own | draft |  |  | P3 | S | core/plan |  | 2026-11-01 |
