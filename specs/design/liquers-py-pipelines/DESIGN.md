@@ -7,7 +7,7 @@ status: approved
 phase: architecture
 readiness: needs-decision
 autofix: not-eligible
-area: [py, core/commands]
+area: [py]
 issues: [PIPELINES-NOT-IN-LANGUAGE-BINDINGS, PY-HAS-NO-VALIDATING-QUERY-EDITOR]
 merged: 2026-11-04
 affects_docs: [specs/reference/PYTHON_INTEGRATION.md, specs/guides/PYTHON_GUIDE.md, specs/guides/LANGUAGE-INTEGRATION_GUIDE.md, liquers-py/README.md, specs/README.md, specs/reference/PIPELINES.md, specs/guides/PIPELINE_GUIDE.md]

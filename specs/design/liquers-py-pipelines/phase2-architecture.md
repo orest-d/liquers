@@ -33,11 +33,15 @@ Rejected:
 
 | Issue | Status | Priority | Impact on this design | Fix first? | Blocking? | Action |
 |---|---|---|---|---|---|---|
-| `RECIPE-OVERRIDES-MISS-A-FINAL-PIPELINE-COMMAND` | draft | P2 | A recipe override of a Python pipeline command at the end of a query is missed | No | No | Inherited from core; documented in §Pipelines |
+| `RECIPE-OVERRIDES-MISS-A-FINAL-PIPELINE-COMMAND` | draft | P3 | A recipe override of a Python pipeline command at the end of a query is missed | No | No | Inherited from core; documented in §Pipelines |
 | `PIPELINE-COMMAND-OPERAND-TYPES-UNCHECKED` | draft | P3 | A placeholder's type in `pipeline_command(arguments=…)` is not checked | No | No | Inherited; `ArgumentInfo` given by the user is taken as is |
 | `PLAN-BUILDER-DUPLICATES-PIPELINE-PLANNING` | draft | P3 | None (planning is core's) | No | No | — |
-| `PY-HAS-NO-VALIDATING-QUERY-EDITOR` | draft | P2 | Implemented here (merged) | — | — | Closed in Phase 5 |
+| `PY-HAS-NO-VALIDATING-QUERY-EDITOR` | draft | P3 | Implemented here (merged) | — | — | Closed in Phase 5 |
 | `PY-REPRS-SHOW-RUST-DEBUG-FORMAT` | draft | P3 | New classes need reprs | No | No | `Pipeline([…])` as `to_list()`'s repr |
+| `PY-CANNOT-RENDER-TEMPLATES` (design `liquers-py-templates`) | draft | P2 | The declaration slot, `declare`, `CommandDefinition` accessors | Yes (lands first) | No: a prerequisite, ordered first | Lands before this design |
+| `PY-STRUCTURES-ARE-OPAQUE-TO-DATA-NODE-READERS` (design `liquers-py-data-nodes`) | draft | P2 | `closure.rs` | Yes (lands first) | No: a prerequisite, ordered first | Lands before this design |
+| `PY-COMMAND-DECORATOR-CANNOT-SET-REALM` | draft | P3 | A pipeline command has no realm parameter | No | No | Realm `""`, as decorators; that issue adds it to both |
+| `PY-METADATA-FIELDS-ARE-METHODS` | draft | P3 | New members | No | No | Fields are properties (`pipeline`, `index`), operations methods |
 
 Command namespaces: none added. A pipeline command lands in the namespace its declaration names;
 the tests use `pl` (polars) steps as the problem example does.
@@ -176,15 +180,28 @@ None added. A pipeline command is user-declared; its body names existing command
 | `liquers-py/README.md`, `specs/README.md` | readme, map | all | PIPELINE row; status |
 | `docs/guides/python/` chapters | user guide | Python users | per `docs_index.py chapters-for` (Phase 5) |
 
-Module docs: `pipeline.rs` (new), `value.rs`, `environment.rs`, `context.rs`, `recipes.rs`,
-`command_metadata.rs`, `closure.rs`.
+Module docs (`API_DOCUMENTATION_GUIDE.md` §3 parts): `pipeline.rs` (new) all five; `value.rs`
+main components (the `Pipeline` mapping); `environment.rs`, `context.rs` main components and
+example (pipelines accepted by `evaluate`, editors, `pipeline_command`); `recipes.rs`,
+`command_metadata.rs`, `closure.rs` main components.
+
+`affects_docs` (unchanged from Phase 1): `PYTHON_INTEGRATION.md`, `PYTHON_GUIDE.md`,
+`LANGUAGE-INTEGRATION_GUIDE.md`, `liquers-py/README.md`, `specs/README.md`, `PIPELINES.md`,
+`PIPELINE_GUIDE.md`. `specs/README.md` links: the M6 entry gains `PYTHON_INTEGRATION.md`
+§Pipelines and the guide chapter when built.
 
 ## Risks
 
-| Risk | Mitigation |
+| Assessment | Finding |
 |---|---|
-| A pipeline-only recipe through `apply_queued` plans differently from `evaluate_pipeline` (the cwd) | Both plan with `PipelinePlanBuilder`; AC-1 compares against the query; a relative-key pipeline is a Phase 3 edge case |
-| `apply_queued` takes a job-queue slot | Top level only, where `evaluate` takes one too; inside a command `apply_ad_hoc` takes none |
-| Changing a pipeline value from `dict` to `lq.Pipeline` | No release exists (question 1); the M5 tests that read a pipeline as a `dict` are updated |
-| An editor snapshot is stale after a new command | Documented; `env.query_editor()` again takes a fresh one |
-| Decision 3 refines an agreed answer | Logged in the Phase 1 decision log for Orest at the pre-implementation stop |
+| Files likely to change | `liquers-py/src/{pipeline,value,environment,context,recipes,command_metadata,closure,lib}.rs`, the stubs, `__init__.py` |
+| Crates and workflows affected | `liquers-py` only (`bash scripts/test-liquers-py.sh`, CI on 3.10 / 3.14 / 3.14t) |
+| Existing tests likely to change | Tests reading a pipeline value or `Recipe.pipeline` as a `dict` (`test_VALUE_value_bridge.py`, `test_RECIPE_*.py`) now get `lq.Pipeline`; `ArgumentInfo.default` of a pipeline default likewise |
+| New validation | `test_PIPELINE_*.py`; stubtest over the new names |
+| Compatibility | A pipeline value changes from `dict` to `lq.Pipeline`; no release exists (question 1) |
+| Planning | A pipeline-only recipe through `apply_queued` plans with `PipelinePlanBuilder` like `evaluate_pipeline`; AC-1 compares against the query; a relative-key pipeline is a Phase 3 edge case |
+| Job queue | `apply_queued` takes a slot at the top level only, as `evaluate` does; inside a command `apply_ad_hoc` takes none |
+| Editor snapshot | Stale after a new command; documented; a new `env.query_editor()` takes a fresh one |
+| Decisions | Decision 3 refines an agreed answer; logged in the decision log and Scope Changes, reported with the pre-implementation summary, no stop |
+| Recovery | Revert the PR; no stored format changes (a stored `Value::Pipeline` is unchanged) |
+| Certainty | High; the core API is complete and tested (`composite-command-definition`) |

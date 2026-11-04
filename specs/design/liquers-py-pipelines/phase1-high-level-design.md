@@ -12,7 +12,8 @@ plan, with [`liquers-py-templates`](../liquers-py-templates/DESIGN.md) and
 ## Design Readiness
 
 - **Readiness:** `needs-decision` until Phases 2-4 are written and reviewed; no user decision is
-  open (Orest decided questions 1, 2, 5 and 6 at the gate)
+  open (Orest decided questions 1, 2, 5 and 6 at the gate; Decision 3, a refinement logged as an
+  assumption, needs no stop and is reported with the pre-implementation summary)
 - **Automatic fixing:** `not-eligible`: an `L` feature with new public Python classes.
 - **Leading issue:** none open. Source issue
   `PIPELINES-NOT-IN-LANGUAGE-BINDINGS` (P2 L), narrowed to Python; its JavaScript half is
@@ -54,21 +55,23 @@ plan, with [`liquers-py-templates`](../liquers-py-templates/DESIGN.md) and
      raises `ConversionError` when the pipeline is built, naming its path. That needs a walker of
      its own: `py_to_simple` returns `None` for an unconvertible object and tracks no path. A
      `py.Object` never reaches a JSON slot. To pass one, a link or a nested pipeline supplies it.
-  5. **Decided (Decision 1): entry points.** Taken as recommended: `evaluate`, `evaluate_state` and their `_async`
-     forms accept a pipeline as well as a query. A `str` stays a query. They run
-     `interpreter::evaluate_pipeline` in a temporary asset, which is never cached, as the core
-     does. `get_asset` stays query-only, because a pipeline has no asset key; the caller converts
-     to a query for a cached asset. Inside a command, `context.evaluate(pipeline)` accepts only a
-     representable pipeline and evaluates its query, so the dependency is recorded. A
-     non-representable one raises `NotSupported`, because `Context` has no `evaluate_pipeline` (refined in Phase 2: Decision 3).
-     That gap is filed as a core issue in Phase 2 unless Phase 2 adds the method.
+  5. **Decided (Decision 1), refined by Decision 3: entry points.** `evaluate`, `evaluate_state`
+     and their `_async` forms accept a pipeline as well as a query. A `str` stays a query. A
+     pipeline is evaluated as an ad-hoc recipe holding only that pipeline, which is never cached:
+     `apply_queued` at the top level, so the wait can cancel the asset. `get_asset` stays
+     query-only, because a pipeline has no asset key; the caller converts to a query for a cached
+     asset. Inside a command, `context.evaluate(pipeline)` evaluates a representable pipeline as
+     its query, so the dependency and the cache are the query's, and any other through
+     `Context::apply_ad_hoc`, whose dependencies are passed on. (Decision 1 had named
+     `interpreter::evaluate_pipeline` and `NotSupported` for a non-representable pipeline in a
+     command; Decision 3 replaced both, so no core issue is needed.)
   6. **Decided (Decision 1): `query-builder-in-bindings`.** Two designs cannot own one issue
      (§5.1.1), so `QUERY-BUILDER-NOT-IN-BINDINGS` was split at the gate. Its Python half,
      `PY-HAS-NO-VALIDATING-QUERY-EDITOR` (the editors of question 2), joined this design
      (`merged:`, Scope Changes below). `query-builder-in-bindings` took a Scope Change narrowing it
      to `liquers-web`, to be re-based on `QueryEditor`.
   7. **Proposed resolution: declared pipeline commands.** `env.pipeline_command(name, body,
-     arguments=[…], namespace=…, label=…, doc=…)` goes into a new slot of the retained
+     arguments=[…], namespace=…, label=…, doc=…, filename=…)` goes into a new slot of the retained
      declarations (`Declarations` in `liquers-py/src/environment.rs`). The slot is applied after
      the Python commands and before imported metadata, so a rebuild keeps it. It is shared with
      the template commands of `liquers-py-templates`, and whichever design lands first adds it.
@@ -96,6 +99,12 @@ plan, with [`liquers-py-templates`](../liquers-py-templates/DESIGN.md) and
   Example: building `-R/data/sales.csv/-/ns-pl/is_in-region-EU-US` step by step, a misspelt
   argument refused with the editor unchanged. Covered by AC-7 and AC-8; no new criterion; size
   stays `L`. Phases: 1. Approved: Orest at the Phase 1 gate ("agreed").
+
+- **2026-11-04** — Decision 3 (Phase 2): evaluating a non-representable pipeline inside a command
+  moves from non-goal to scope, through `Context::apply_ad_hoc` with a pipeline-only recipe. Example:
+  `context.evaluate([{"value": 1}])` returns `1` instead of raising `NotSupported`. Covered by AC-1
+  (its Phase 3 test `test_non_representable_in_a_command`); no new criterion; size stays `L`.
+  Phases: 1, 2. Approved: under the pre-approval (Decision 2), logged as an assumption.
 
 ## Problem Example
 
@@ -151,13 +160,12 @@ YAML file that the core reads. **After** `frame` equals
   WHEN a pipeline is built with a `datetime` as a literal argument
   THEN it raises `lq.ConversionError` naming the path of the value
 
-Non-goals: pipelines in `liquers-web`; a new core planning mode; evaluating a non-representable
-pipeline inside a command (question 5); placeholders in query text; typed `lq.PipelineElement`
+Non-goals: pipelines in `liquers-web`; a new core planning mode; placeholders in query text; typed `lq.PipelineElement`
 classes (elements stay JSON-shaped `dict`s).
 
 ## Core Interactions
 
-Query and Plan: conversions, `evaluate_pipeline`. Commands: `register_pipeline`, kept by a new
+Query and Plan: conversions, pipeline-only recipes (`apply_queued`, `apply_ad_hoc`). Commands: `register_pipeline`, kept by a new
 declaration slot (question 7). Value types: `Value::Pipeline` both ways. Bindings: `lq.Pipeline`,
 the editor classes, new `Environment` and `Context` members.
 
@@ -165,7 +173,7 @@ the editor classes, new `Environment` and `Context` members.
 
 `liquers-py` only: a new `src/pipeline.rs` (class, editors, question 4's walker); changes to
 `environment.rs`, `context.rs`, `value.rs`, `recipes.rs`, `command_metadata.rs`, the stubs and
-`__init__.py`. A `Context::evaluate_pipeline`, if Phase 2 adds it, is a `liquers-core` PR of its own.
+`__init__.py`.
 
 ## Documentation Intent
 
@@ -184,9 +192,11 @@ the editor classes, new `Environment` and `Context` members.
 - `composite-command-definition` (complete): **requires**. It provides every core API used here.
 - `PY-HAS-NO-VALIDATING-QUERY-EDITOR`: merged source (Scope Changes). `QUERY-BUILDER-NOT-IN-BINDINGS`
   / `query-builder-in-bindings` is now its JavaScript counterpart; no dependency either way.
-- `liquers-py-templates`: **overlaps**. Both add the declaration slot and the
-  `lq.CommandDefinition` accessors (question 7); whichever lands first adds them.
-- `liquers-py-data-nodes`: no dependency.
+- `liquers-py-templates`: **requires** (lands first, order of Decision 1). It adds the declaration
+  slot, `EnvCell::declare` and the `lq.CommandDefinition` accessors (question 7); this design adds
+  the `Pipeline` arm and `CommandDefinition.pipeline`.
+- `liquers-py-data-nodes`: **requires** (lands first): `liquers-py/src/closure.rs`, whose wait
+  helpers this design extends with `wait_for_asset`.
 
 ## References
 

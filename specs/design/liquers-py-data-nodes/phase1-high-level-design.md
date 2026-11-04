@@ -96,6 +96,15 @@ every object with a `__getitem__`): "ok, I agree with opt in - that is better". 
 order data nodes, templates, pipelines: "ok".
 2. Orest, 2026-11-04: "proceed all": Phases 2-5 pre-approved; no decision was open.
 
+## Scope Changes
+
+- **2026-11-04** — Phase 2, under the pre-approval: two changes AC-11 and AC-12 need.
+  (1) `lq.State` converts its value on first access, so `lq.data_node(state)` of a polars frame never
+  imports polars; a conversion error now raises at `state.value`, not at `evaluate_state`
+  (`evaluate` is unchanged). (2) `liquers-lib/src/template/host.rs` gains `context_node_kind`, the
+  kind `ContextHost::node_of` gives a value that needs a context, shipped in this design's PR. No new
+  criterion; size stays `L`. Phases: 1, 2. Approved: under the pre-approval (Decision 2).
+
 ## Problem Example
 
 ```python
@@ -169,8 +178,9 @@ handlers) read Python data through the adapter. Bindings: `lq.data_node`, `lq.Da
 
 ## Crate Placement
 
-`liquers-py`: `src/data_node.rs` new (adapter, view); `value.rs`, `asset.rs`, `context.rs`,
-`environment.rs`, the stubs. The core hook and primitive land first, in their own PRs.
+`liquers-py`: `src/data_node.rs` and `src/closure.rs` new (adapter, view, the awaitable closure
+run); `value.rs`, `asset.rs` (lazy `State`), `context.rs`, `environment.rs`, the stubs.
+`liquers-lib`: `template/host.rs` `context_node_kind` (Scope Changes). The core hook and primitive land first, in their own PRs.
 
 ## Documentation Intent
 
@@ -178,11 +188,11 @@ handlers) read Python data through the adapter. Bindings: `lq.data_node`, `lq.Da
   cycles, the lock).
 - Guide: a "Data nodes" section in `PYTHON_GUIDE.md` (what a template sees of your data), which
   the templates chapter links to.
-- Other documents: the `liquers-py/README.md` row; `LANGUAGE-INTEGRATION_GUIDE.md` §DATANODE and
+- Other documents: `TEMPLATE_GUIDE.md` (Python data is read in place); the `liquers-py/README.md` row; `LANGUAGE-INTEGRATION_GUIDE.md` §DATANODE and
   §6 Python; `specs/README.md`.
 - Documents to update: `PYTHON_INTEGRATION.md` §5; the chapters `docs_index.py chapters-for` lists.
-- API docs: module docs of `liquers-py/src/data_node.rs` (new), `value.rs`, `asset.rs`,
-  `context.rs`, `environment.rs`; docstrings on every new Python name.
+- API docs: module docs of `liquers-py/src/data_node.rs` and `closure.rs` (new), `value.rs`, `asset.rs`,
+  `context.rs`, `environment.rs`, `liquers-lib/src/template/host.rs`; docstrings on every new Python name.
 
 ## Design Dependencies
 

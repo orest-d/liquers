@@ -12,7 +12,8 @@ function: the `TEMPLATE` feature of `LANGUAGE-INTEGRATION_GUIDE.md` (`TEMPLATE_L
 ## Design Readiness
 
 - **Readiness:** `needs-decision` until Phases 2-4 are written and reviewed; no user decision is
-  open (question 8 taken as recommended under `proceed all`, Decision 2)
+  open (question 8 taken as recommended under `proceed all`, Decision 2, an assumption reported
+  with the pre-implementation summary; no stop is needed)
 - **Automatic fixing:** `not-eligible`: an `L` feature with new public Python API.
 - **Leading issue:** link defaults (question 8, Decision 2). Source issue `PY-CANNOT-RENDER-TEMPLATES`
   (P2 L, filed with this design).
@@ -33,8 +34,7 @@ function: the `TEMPLATE` feature of `LANGUAGE-INTEGRATION_GUIDE.md` (`TEMPLATE_L
      in place through the adapter, and the template text never travels inside a query.
      The primitive returns the asset handle before it runs, so liquers-py cancels the asset when a
      wait is interrupted and waits until it settles. `template-render-in-env` is then
-     replaced by a thin helper over the primitive (`render_top_level(envref, template, frames,
-     options)` in `liquers-lib`), which that design's Scope Change records. Rejected: the ad-hoc
+     replaced by a thin helper over the primitive (`render_top_level(&envref, request)` in `liquers-lib`), which that design's Scope Change records. Rejected: the ad-hoc
      `apply` of `ns-template/render` (one frame only, the data converted to a `Value`), and a
      context built on a temporary asset (it runs outside `run`: no status transitions, and on wasm
      no service loop processes its messages).
@@ -58,11 +58,12 @@ function: the `TEMPLATE` feature of `LANGUAGE-INTEGRATION_GUIDE.md` (`TEMPLATE_L
      command and `context.render` inside a command can differ for a `.html` result, and the docs
      say so.
   7. **Proposed resolution: template commands** (guide question 8). `env.template_command(name,
-     template=…, namespace=…, label=…, doc=…)` registers the alias of `template/render` with the
+     template=…, namespace=…, label=…, doc=…, filename=…)` registers the alias of `template/render` with the
      link as head, and arguments `data`, `errors` and `cwd` (default link `-R-key/.`). It goes
      through the new declaration slot (above), so a rebuild keeps it. A registration error raises
-     at the call: the alias is checked against the current registry at once, and applied again at
-     each build. `lq.CommandDefinition` gains read-only accessors, specified once for both M6
+     at the call: the alias is checked at once against the registry the next build will have (all
+     current declarations plus this one), and applied again at each build (Phase 2 refinement;
+     the first wording said "the current registry"). `lq.CommandDefinition` gains read-only accessors, specified once for both M6
      designs: `kind` (`"registered"`, `"alias"` or `"pipeline"`), `alias_of`, `head_parameters`
      and `pipeline` (an `lq.Pipeline`). Inspection therefore shows that there is no callable.
   8. **Decided (Decision 2): link defaults on Python commands** (`cwd` inside a command, TEMPLATE11).

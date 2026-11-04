@@ -27,11 +27,14 @@ Rejected:
 
 | Issue | Status | Priority | Impact on this design | Fix first? | Blocking? | Action |
 |---|---|---|---|---|---|---|
-| `FOREIGN-VALUE-HAS-NO-DATA-NODE` (design `foreign-value-data-node`) | draft, design ready | P2 | The hook `PyObjectValue` overrides | Yes | Yes | Implemented in its own PR, #250 (open, `claude/project-thread-bz06gt-foreign-data-node`); merged before this design's PR |
-| `AD-HOC-ASSET-CANNOT-RUN-A-CLOSURE` (design `ad-hoc-closure-asset`) | draft, design approved | P2 | `env.data_node` async reads | Yes | Yes, for AC-12 only | Own PR first |
+| `FOREIGN-VALUE-HAS-NO-DATA-NODE` (design `foreign-value-data-node`) | in review, implemented | P2 | The hook `PyObjectValue` overrides | Yes (lands first) | No: a prerequisite ordered before this design, not a defect it works around | Its own PR, #250 (open); merged before this design's PR |
+| `AD-HOC-ASSET-CANNOT-RUN-A-CLOSURE` (design `ad-hoc-closure-asset`) | draft, design approved | P2 | `env.data_node` async reads (AC-12) | Yes (lands first) | No: a prerequisite, ordered first | Its own PR, before this design's |
 | `COMBINED-VALUE-DATA-NODE-COPIES-BASE-VALUE` | draft | P3 | `lq.data_node(state)` of a large base value copies it once | No | No | Documented cost |
 | `TEMPLATE-NON-SCALAR-HAS-NO-TEXT-FORM` | draft | P3 | An `lq.Query` / `lq.Key` member renders as JSON | No | No | Phase 1 overlap; unchanged here |
 | `PY-REPRS-SHOW-RUST-DEBUG-FORMAT` | draft | P3 | New classes need reprs | No | No | `DataNode(Map)`, `NodeKind.Map` |
+| `PY-METADATA-FIELDS-ARE-METHODS` | draft | P3 | Property or method for new members | No | No | Fields are properties (`kind`, `scalar`), operations methods (`keys()`, `to_json()`), as `State` |
+| `PY-EXIT-WITH-UNCANCELLABLE-COMMAND-CRASHES-BEFORE-3-14` | draft | P3 | An `Env` read running at exit | No | No | The read is an asset cancelled at shutdown like any other |
+| `ASYNC-DATA-NODE-HAS-NO-KEYS` (filed with this phase) | draft | P3 | No `keys_async` on a view | No | No | `keys()` of an async map raises `NotSupportedError`; filed |
 
 Command namespaces: none (no command is added; the `ns-template` commands read Python data
 through the hook).
@@ -106,7 +109,8 @@ Python members: `kind`; `scalar` (`None` for a non-scalar; `Scalar::UInt` gives 
 `node[key]` / `node[i]` (`KeyError` / `IndexError`); `get(key_or_index, default=None)`; `keys()`;
 `len(node)` (`TypeError` for a scalar); iteration (child views of a list, the keys of a map);
 `bool(node)` (`is_truthy`); `to_json()` (through `store::json_to_py`); `get_async`, `scalar_async`,
-`len_async`, `keys_async`, `to_json_async`; `__repr__` `DataNode(Map)`.
+`len_async`, `to_json_async`; `__repr__` `DataNode(Map)`. There is no `keys_async`: core's
+`AsyncDataNode` has no `keys` (`ASYNC-DATA-NODE-HAS-NO-KEYS`, filed with this phase).
 
 - **Resolution.** A sync accessor resolves the root (below), walks the path with
   `AnyNode::as_sync` and `DataNode::get` / `index`, and raises `lq.NotSupportedError` at the first
@@ -118,7 +122,8 @@ Python members: `kind`; `scalar` (`None` for a non-scalar; `Scalar::UInt` gives 
   (`crate::context::Context::core`). `Env`: synchronously `Value::data_node(value)` when
   `liquers_lib::template::host::context_node_kind(&value)` is `None`, else the root is async;
   asynchronously, every read runs one closure asset whose body builds
-  `ContextHost::node_of(&state)` in the asset's context and walks the path there. A sync result
+  `ContextHost::node_of(&state)` in the asset's context, walks the path there, and returns
+  `(Value::none(), result)`, so the asset ends `Ready` holding none. A sync result
   comes back as a `Root::Node` view (a sync node holds no context: only `FolderNode` and
   `RecordSourceNode` do), an async one as an `Env` view with the longer path.
 - **Entry points.** `lq.data_node(x)`: an `lq.State` gives `Root::Node(Value::data_node(core))`,
@@ -127,21 +132,20 @@ Python members: `kind`; `scalar` (`None` for a non-scalar; `Scalar::UInt` gives 
   `lq.State` (the `Command` / `Env` root). Sync, never blocking: only an `Env` async read waits,
   and it is an awaitable.
 
-**The closure runner** (`liquers-py/src/closure.rs`, new, shared with `liquers-py-templates`):
+**The closure run** (`liquers-py/src/closure.rs`, new; `liquers-py-templates` adds its sync wait):
 
 ```rust
-/// Waits for `run`, a closure asset's run (`ClosureAsset::run`, `TopLevelRender::run`), spawned
-/// on the liquers-py runtime, with the GIL released (`block_on`). On an interrupt or shutdown it
-/// cancels `asset`, waits for the spawned run to settle, then raises: dropping a run is not
-/// cancelling it (`ad-hoc-closure-asset`).
-pub(crate) fn wait_for_run<T: Send + 'static>(py: Python<'_>, shut: &Arc<Shut>,
+/// An awaitable of a closure asset's run (`ClosureAsset::run`). The run is spawned as its own task
+/// on the liquers-py runtime, so it always runs to its end (dropping a run is not cancelling it,
+/// `ad-hoc-closure-asset`). The awaitable waits for the task; on shutdown it cancels `asset` and
+/// then waits for the task. Cancelling the awaitable ends only the wait (the M3 rule).
+pub(crate) fn awaitable_run<'py, T: Send + 'static>(py: Python<'py>, shut: &Arc<Shut>,
     asset: AssetRef<PyEnvironment>,
-    run: impl Future<Output = Result<Option<T>, Error>> + Send + 'static)
-    -> Result<Option<T>, PyFailure>;
+    run: impl Future<Output = Result<Option<T>, Error>> + Send + 'static,
+    wrap: fn(Result<Option<T>, Error>) -> ToPy) -> PyResult<Bound<'py, PyAny>>;
 ```
 
-The async forms pass the run to `aio::awaitable`, which already spawns it; cancelling the
-awaitable ends only the wait and the asset runs to its end (the M3 rule).
+`aio::awaitable` is not used for a run: its `select!` against `shut` drops the future.
 
 **State** (`liquers-py/src/asset.rs`). `State` keeps `core: CoreState<Value>` and `scope: Scope`;
 `value` converts on first access into a `pyo3::sync::PyOnceLock<Py<PyAny>>` and raises the
@@ -159,11 +163,12 @@ new methods.
 ## Integration Points
 
 - `liquers-py/src/data_node.rs` (new): `PyNode`, `node_of`, `NodeKind`, `DataNode`, `data_node`.
-- `liquers-py/src/closure.rs` (new): `wait_for_run`.
+- `liquers-py/src/closure.rs` (new): `awaitable_run`.
 - `liquers-py/src/value.rs`: the `data_node` hook; `attach_off_worker` and the integer
   `ConversionError` constructor made `pub(crate)`.
 - `liquers-py/src/asset.rs`: lazy `State`; `data_node()`. Call sites of `State::from_core`
-  (`environment.rs` `evaluate_state`, `aio.rs` `ToPy::State`, `command.rs` line ~357) drop the `?`
+  (`environment.rs` `evaluate_state`, `asset.rs` `AssetRef::get_state`, `aio.rs` `ToPy::State`,
+  `command.rs` `prepare_call`) drop the `?`
   on conversion.
 - `liquers-py/src/context.rs`, `environment.rs`: `data_node`.
 - `liquers-py/src/lib.rs`: register the classes and `data_node`.
@@ -200,15 +205,32 @@ hook, unchanged (`liquers-lib/src/template/commands.rs` `data_node`).
 | `specs/README.md` | map | all | design status |
 | `docs/guides/python/` chapters | user guide | Python users | per `docs_index.py chapters-for` (Phase 5) |
 
-Module docs: `data_node.rs` and `closure.rs` (new); `value.rs`, `asset.rs`, `context.rs`,
-`environment.rs` (their lists of members); `liquers-lib/src/template/host.rs`.
+Module docs (`API_DOCUMENTATION_GUIDE.md` §3 parts):
+
+| Module | Parts that change |
+|---|---|
+| `liquers-py/src/data_node.rs`, `closure.rs` (new) | all five |
+| `value.rs` | main components (the hook), related concepts |
+| `asset.rs` | main components (lazy `State.value`, `data_node()`), example |
+| `context.rs`, `environment.rs` | main components (`data_node`) |
+| `liquers-lib/src/template/host.rs` | main components (`context_node_kind`) |
+
+`affects_docs` (unchanged from Phase 1): `PYTHON_INTEGRATION.md`, `PYTHON_GUIDE.md`,
+`LANGUAGE-INTEGRATION_GUIDE.md`, `liquers-py/README.md`, `specs/README.md`, `TEMPLATE_GUIDE.md`.
+`specs/README.md` links: the M6 entry gains `PYTHON_INTEGRATION.md` §Data nodes and
+`PYTHON_GUIDE.md` "Data nodes" when built.
 
 ## Risks
 
-| Risk | Mitigation |
+| Assessment | Finding |
 |---|---|
-| Lazy `State.value` moves a conversion error from `evaluate_state` to `.value` | Stated in §5 and the History row; a test pins it; `evaluate` is unchanged (it converts at once) |
-| `block_in_place` per lookup is slow on a large render | Measured in Phase 3 (a 10 000-entry render); `keys` takes one hold |
-| An opted-in `__getitem__` re-entering Liquers mid-render | Allowed: every liquers-py wait releases the lock (Phase 1 question 5); a test renders from a `__getitem__` that evaluates a query |
-| A sync node holding a context breaks the `Env` result rule | Today only `FolderNode` and `RecordSourceNode` hold one, and both are async; `context_node_kind` names them, and a new one changes it there |
-| `PyOnceLock` in a frozen class on free-threaded builds | `PyOnceLock` is thread-safe; the 3.14t suite runs the tests |
+| Files likely to change | `liquers-py/src/{data_node,closure,value,asset,context,environment,lib}.rs`, the stubs, `__init__.py`; `liquers-lib/src/template/host.rs` |
+| Crates and workflows affected | `liquers-py` (`bash scripts/test-liquers-py.sh`, CI on 3.10 / 3.14 / 3.14t); `liquers-lib` feature `templates` |
+| Existing tests likely to change | A test expecting `evaluate_state` or `get_state` to raise a conversion error (e.g. a polars frame without the `polars` package in `test_VALUE_value_bridge.py`) now gets the error from `.value`; checked in step 4 of Phase 4 |
+| New validation | `test_DATANODE_*.py`; `context_node_kind_agrees_with_node_of` |
+| Compatibility | Lazy `State.value` moves a conversion error from `evaluate_state` to `.value` (Scope Changes); `evaluate` is unchanged. No release exists |
+| Concurrency | Each lookup takes the GIL under `block_in_place`; an opted-in `__getitem__` may re-enter Liquers, safe because every liquers-py wait releases the GIL (a test renders from such a `__getitem__`); `PyOnceLock` is thread-safe on 3.14t |
+| Performance | One GIL take per lookup; measured on a 10 000-entry render in Phase 3; `keys` takes one hold |
+| Data invariant | A sync node holds no context (only `FolderNode` and `RecordSourceNode` do, both async); `context_node_kind` keeps the list in one place |
+| Recovery | Revert the PR; the hook falls back to the core default (JSON snapshot, else opaque) |
+| Certainty | High for the adapter; medium for the `Env` view (it depends on `ad-hoc-closure-asset` as designed) |

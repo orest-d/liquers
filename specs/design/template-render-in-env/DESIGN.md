@@ -3,6 +3,7 @@ id: TEMPLATE-RENDER-IN-ENV
 kind: design
 title: One Rust function renders a template with frames, inside a command or at the top level
 form: compact
+workflow: liquers-project
 status: approved
 phase: implementation
 readiness: ready
