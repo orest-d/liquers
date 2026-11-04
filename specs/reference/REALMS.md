@@ -3,7 +3,7 @@ title: Realms
 kind: reference
 audience: internal
 area: [core/plan, core/commands, store/config]
-reviewed: 2026-10-16
+reviewed: 2026-11-04
 ---
 # Realms
 
@@ -117,6 +117,16 @@ its shape. The filled query's `encode()` is what error messages quote and what `
 should be given. **The validator does not fill the realm.** A headerless spec given to it plans in
 realm `""` and fails with "not registered".
 
+### Pipelines as realm scopes
+
+A [pipeline](PIPELINES.md) carries one realm (`Pipeline::realm`, the segment header name), and
+every action in it is looked up there, as in a segment. A nested pipeline element is a realm
+change: its own realm, or the root realm when empty. Converting a query to a pipeline keeps each
+segment's header name as a realm, resource segments included; the planner still ignores a resource
+header name, with the warning "Resource header name is ignored". A pipeline command's body is
+planned in the command's realm, and its elements resolve through their own `ns` and the default
+namespaces of that realm, never the caller's.
+
 ### Which plan steps a realm accepts
 
 The planner can produce any `Step`. A foreign realm's consumer decides which ones mean anything to
@@ -129,7 +139,8 @@ it, and refuses the rest. `StoreConfigFunctions::compile_plan` matches `Step` ex
 | `Plan` | compiled in place |
 | `SetCwd` | refused |
 | `GetResource`, `GetResourceMetadata`, `GetResourceDirectory`, `UseKeyValue` | refused: "a resource segment, which is not supported in store configuration yet" |
-| `GetAsset*`, `Evaluate`, `UseQueryValue` | refused: they need the asset layer |
+| `GetAsset*`, `Evaluate`, `UseQueryValue`, `UseValue` | refused: they need the asset layer |
+| `PipelineCommand` | refused: "a pipeline command" |
 | `Filename` | refused |
 
 The planner emits its own diagnostics into `Plan::init_steps`. The compiler compiles those before
@@ -198,5 +209,6 @@ The planner, the exporter and `liquers-validate` use the full `commands` list. T
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-04 | §Pipelines as realm scopes; `store_config` refuses `UseValue` and `PipelineCommand`. | phase-5, `design/composite-command-definition/` |
 | 2026-10-16 | The not-registered error names each `CommandKey` tried, in its `Display` form. | `design/store-adapters/` phase-5 review |
 | 2026-10-15 | Created by store-adapters: realms as a `CommandKey` component, the planner applying a segment's realm to every action, execution, the foreign-realm questions with `store_config` as the worked case, overviews via `executable_commands()`. | `design/store-adapters/` phase-5 |

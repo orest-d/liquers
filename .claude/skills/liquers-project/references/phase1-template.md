@@ -37,6 +37,7 @@ UI, bindings. Omit the ones it does not touch.>
 - Guide: <new / extend <path> / none — why>
 - Other documents: <list or none>
 - Documents to update: <paths or none>
+- API docs: <the modules whose module doc is created or changed, or none — why; `specs/guides/API_DOCUMENTATION_GUIDE.md` §3>
 
 ## Open Questions
 1. <Question, with a recommended answer when there is one.>

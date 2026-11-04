@@ -3,7 +3,7 @@ title: Value Type System
 kind: reference
 audience: internal
 area: [core/value, lib/value]
-reviewed: 2026-11-03
+reviewed: 2026-11-04
 ---
 
 # Value Type System
@@ -74,7 +74,12 @@ rename of stored data. **When unsure, prefix.**
 Core (`liquers-core::value::Value`, mirrored by `liquers-lib`'s `SimpleValue`):
 
 `None`, `Bool`, `I32`, `I64`, `F64`, `Text`, `Array`, `Object`, `Bytes`, `Metadata`, `AssetInfo`,
-`Recipe`, `CommandMetadata`, `Query`, `Key`.
+`Recipe`, `CommandMetadata`, `Query`, `Key`, `Pipeline`.
+
+`Pipeline` (`Value::Pipeline`, `SimpleValue::Pipeline`; `ExtValue` delegates to it) holds a
+[pipeline](PIPELINES.md) as `Query` holds a query: type name `pipeline`, default `pipeline.json`,
+written as `json`, `yaml`/`yml`, or `txt` (its query text, only when it needs no registry to be
+written). `ValueInterface::try_into_pipeline` reads a pipeline, a query, or JSON or YAML text.
 
 Library (`liquers-lib::value::ExtValue`): `Image`, `UIElement`, `polars.DataFrame` (feature
 `polars`), `egui.Command` and `egui.Widget` (feature `egui`), `RecordView` and `RecordSource`
@@ -318,7 +323,7 @@ never the identity.
 
 A `Value` is `Clone` by contract and is cloned freely, so a variant's payload must be **O(1) to
 clone**: a small inline type, or `Arc<T>`. `ExtValue` follows this, and so do core's `Value` and
-`SimpleValue`: `Metadata`, `Recipe`, `CommandMetadata` and `Query` hold `Arc<T>`, so each enum
+`SimpleValue`: `Metadata`, `Recipe`, `CommandMetadata`, `Query` and `Pipeline` hold `Arc<T>`, so each enum
 (and the lib `Value`) is at most 32 bytes, guarded by `value_is_at_most_32_bytes`
 (`liquers-core/src/value.rs`) and `simple_and_lib_values_are_at_most_32_bytes`
 (`liquers-lib/src/value/simple.rs`). The `ValueInterface` constructors and accessors still take and
@@ -395,7 +400,7 @@ in the registered type's `TypeInfo::default_data_format`, the same format the wr
 
 **Core `Value` reads `json` by its identifier.** Because core `Value` is untagged in JSON, every
 core identifier (`None`, `Bool`, `I32`, `I64`, `F64`, `Text`, `Array`, `Object`, `Bytes`,
-`Metadata`, `AssetInfo`, `Recipe`, `CommandMetadata`, `Query`, `Key`) is read as that variant's
+`Metadata`, `AssetInfo`, `Recipe`, `CommandMetadata`, `Query`, `Key`, `Pipeline`) is read as that variant's
 payload, and a payload of another shape is a `SerializationError` naming the identifier. Only an
 empty or foreign identifier is read by the JSON's shape.
 
@@ -439,6 +444,8 @@ degrades on read.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-04 | §What a value variant may hold: `Pipeline` joins the payloads behind `Arc`, keeping `Value` and `SimpleValue` at 32 bytes. | `design/core-value-enum-oversized/` |
+| 2026-11-04 | `Pipeline` identifier (`Value::Pipeline`), its formats and `try_into_pipeline`. | phase-5, `design/composite-command-definition/` |
 | 2026-11-03 | §What a value variant may hold: core `Value` and `SimpleValue` keep their four large payloads behind `Arc` and are at most 32 bytes (was 752). | `design/core-value-enum-oversized/` |
 | 2026-10-27 | §Reading: core `Value` reads every core identifier in `json` as its own variant; only an empty or foreign identifier is read by shape. | `design/core-value-json-identifier-dispatch/` (`CORE-VALUE-JSON-READ-IGNORES-STRUCTURED-IDENTIFIERS`) |
 | 2026-10-27 | §Rust types and identifiers: no value type implements `TypeIdentifiedIn` yet; only the blanket impls exist. | `design/type-identified-in-docs/` |

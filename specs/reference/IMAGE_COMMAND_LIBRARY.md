@@ -3,7 +3,7 @@ title: Image Command Library Specification
 kind: reference
 audience: internal
 area: [lib/image]
-reviewed: 2026-03-02
+reviewed: 2026-11-03
 ---
 # Image Command Library Specification
 
@@ -302,7 +302,7 @@ liquers-lib/src/image/
 |---------|-----------|-------------|----------------------------|-------|
 | `resize` | `width-height-[method]` | Resize to exact dimensions in pixels (method: nearest, triangle, catmullrom, gaussian, lanczos3; default: lanczos3) | `DynamicImage::resize_exact()` with filter | 1 |
 | `resize_by` | `percent-[method]` | Resize by percentage (uniform scaling, e.g., 50 = half size, 200 = double; method: same as resize; default: lanczos3) | Calculate dimensions, then `DynamicImage::resize_exact()` | 1 |
-| `thumb` | `width-height` | Resize preserving aspect ratio (fit within bounds) | `DynamicImage::thumbnail()` | 1 |
+| `thumb` | `width-height-method` | Resize preserving aspect ratio (fit within bounds), resampled with `method` | `DynamicImage::resize()` | 1 |
 | `crop` | `x-y-width-height` | Crop to rectangle | `DynamicImage::crop()` | 1 |
 | `rot90` | *(none)* | Rotate 90° clockwise | `DynamicImage::rotate90()` | 1 |
 | `rot180` | *(none)* | Rotate 180° | `DynamicImage::rotate180()` | 1 |
@@ -1461,4 +1461,5 @@ pub mod image;
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-03 | `thumb` row: implemented with `DynamicImage::resize`, so its `method` filter applies (it was ignored). Only this row was checked against the code. | `design/lib-build-warning-cleanup/` |
 | 2026-03-02 | Present at repository import; content unchanged since. Not reviewed against the implementation. | migration |

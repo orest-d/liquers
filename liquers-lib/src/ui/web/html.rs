@@ -95,6 +95,10 @@ fn simple_to_html(simple: &SimpleValue) -> String {
             }
         }
         SimpleValue::Recipe { .. } => labelled("recipe", "Recipe"),
+        SimpleValue::Pipeline { value } => match value.to_query_text() {
+            Ok(text) => labelled("pipeline", &text),
+            Err(_) => labelled("pipeline", "Pipeline"),
+        },
         SimpleValue::CommandMetadata { .. } => labelled("command-metadata", "Command Metadata"),
         SimpleValue::Query { value } => labelled("query", &value.encode()),
         SimpleValue::Key { value } => labelled("key", &value.encode()),

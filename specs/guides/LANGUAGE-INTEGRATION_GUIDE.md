@@ -3,7 +3,7 @@ title: Language Integration Guide
 kind: guide
 audience: internal
 area: [web, py, core/commands, core/plan, core/assets, core/store, core/value, lib/commands]
-reviewed: 2026-11-01
+reviewed: 2026-11-04
 ---
 # Liquers Language Integration Guide
 
@@ -216,6 +216,7 @@ This risk concentrates where a section did **not** warn about difficulty. The th
 | `ASYNCCMD` | Async language commands | Optional | `COMMAND`, `ASYNCQ`, `RUNTIME` |
 | `DATANODE` | Language data as `DataNode` | Optional | `VALUE`, `ERROR`, `RUNTIME`, `ASYNCQ` (soft) |
 | `TEMPLATE` | Templates: template commands and programmatic rendering | Optional | `ENVIRON`, `EVAL`, `VALUE`, `ERROR`, `RUNTIME`, `COMMAND` (soft), `DATANODE` (soft), `ASYNCQ` (soft) |
+| `PIPELINE` | Pipelines: evaluate, convert and edit pipelines, register pipeline commands | Optional | `ENVIRON`, `EVAL`, `VALUE`, `ERROR`, `COMMAND` (soft) |
 | `STORE` | Language-defined async store | Optional | `OBJECT`, `ENVIRON`, `ERROR`, `RUNTIME` |
 | `RECIPE` | Language-defined recipe provider | Optional | `OBJECT`, `ENVIRON`, `EVAL`, `ERROR`, `RUNTIME` |
 | `MODULE` | Load language modules from the store | Optional | `ENVIRON`, `ERROR`, `RUNTIME`, `ASYNCQ` (soft), `STORE` (soft) |
@@ -243,6 +244,7 @@ Dependencies are *hard* unless marked `(soft)`. The soft cases are those where L
 - `DATANODE` → `ASYNCQ`: only the outbound view of an *async* node needs awaitables. Without `ASYNCQ`, the design must state that such a node is refused, not blocked on.
 - `TEMPLATE` → `COMMAND`: needed to declare template commands and to render from inside a *language command*. Without it, the design offers top-level rendering only and states that template commands are registered from Rust.
 - `TEMPLATE` → `DATANODE`: lets a native structure be template data in place. Without it, data is structurally converted to the *value type* first, and the design must state the cost and what conversion refuses (§DATANODE explains why that is more than a copy).
+- `PIPELINE` → `COMMAND`: a pipeline command has no callable, so it can be registered from the *language* without `COMMAND`; `COMMAND` is needed only when a body calls *language commands*, which it then does like any query.
 - `TEMPLATE` → `ASYNCQ`: a render evaluates queries, so in a *host* where `ASYNCQ` is Profile (the browser) the programmatic render is awaitable. Without `ASYNCQ`, the design must state how a render waits, as for `EVAL`.
 
 Recommended minimum profiles:
@@ -965,7 +967,11 @@ Two directions, and a selected `DATANODE` includes the first:
 1. **Inbound — an adapter.** A Rust `DataNode` implemented over a *language value*: a Python
    `dict`/`list`/`tuple`, a JavaScript object/`Array`/`Map`, a Starlark `dict`/`list`/`struct`.
    This is how a native structure becomes template data (`TEMPLATE`) with no copy, and how a
-   retained *opaque language value* stops being opaque to core.
+   retained *opaque language value* stops being opaque to core: the integration overrides
+   `ForeignValue::data_node(self: Arc<Self>) -> AnyNode` (`liquers-lib/src/value/foreign.rs`),
+   which `ExtValue::Foreign`'s `data_node` delegates to. The receiver is an `Arc`, so the adapter
+   owns the payload. Without an override the node is the JSON snapshot when
+   `try_into_json_value` succeeds, and opaque otherwise.
 2. **Outbound — a view.** A *language*-visible read-only wrapper over a Liquers value's `AnyNode`,
    so a *language command* can read one field of a record view or a polars frame without
    converting the frame. Optional within the feature; mark `DATANODE11` `NA` with a reversing
@@ -1258,6 +1264,47 @@ argument.
 def test_TEMPLATE04_top_level_expand_over_a_dict(env):
     assert env.expand("{{name}} has {{$ number-42}}", data={"name": "Ann"}) == "Ann has 42"
 ```
+
+### PIPELINE — Pipelines
+
+**Contract.** Make [pipelines](../reference/PIPELINES.md) usable from the *language*: a pipeline is
+the structured form of a query, written as a native list or map of elements, and the *language*
+can evaluate one, convert between it and a query, edit it with the same checks as Rust's
+`PipelineEditor` / `QueryEditor`, and register a pipeline command
+(`CommandDefinition::Pipeline`).
+
+**Objects/API to map or implement:**
+
+- `Pipeline` ↔ native structure, through its JSON form (`Pipeline::from_json` / `to_json`), so
+  argument values keep their JSON type
+- Evaluation: `interpreter::evaluate_pipeline` on the environment handle, with the same result and
+  error conversion as `EVAL`
+- Conversion: `Pipeline::try_from(&Query)`, `to_query_with(&cmr)`, and the not-representable error
+  (`ParameterError`, naming the rule) as a *language* error
+- Editors over `EnvRef::command_metadata_snapshot`, refusing an edit without changing anything
+- Registration: `CommandRegistry::register_pipeline(key, pipeline, arguments)`, or a declaration
+  with `definition: Pipeline` over the shared declaration format
+- Read-only exposure that already exists: `Recipe.pipeline` (liquers-py returns it as a dict) and
+  `CommandParameterValue::Pipeline` defaults in command metadata
+
+**The design must answer:** Is a pipeline a dedicated *language* type, or the native structure
+only? Are the editors wrapped, or is building a native structure and converting it enough? How is a
+not-representable error surfaced? May a *language* placeholder value be a *language* object, and if
+so how does it reach a JSON slot?
+
+**Issues and patterns.** Keep the JSON form as the bridge: it is the serialized contract, and it
+already round-trips floats exactly. Do not reimplement representability or escaping in the
+*language*; call the Rust conversion. `liquers-web` implements it
+([`design/web-pipelines/`](../design/web-pipelines/DESIGN.md): a pipeline is a plain object, the
+editors are wrapped, and a pipeline command is a declaration with `pipeline` in place of `run`);
+`liquers-py` does not yet
+([`PIPELINES-NOT-IN-LANGUAGE-BINDINGS`](../issues/PIPELINES-NOT-IN-LANGUAGE-BINDINGS.md)).
+
+**Meaningful tests:** `PIPELINE01` evaluating a pipeline equals evaluating its query;
+`PIPELINE02` a structured argument (a map) reaches an `any` argument whole; `PIPELINE03` a
+non-representable pipeline raises an error naming the rule; `PIPELINE04` a pipeline command
+registered from the *language* plans and runs as the long query; `PIPELINE05` a refused edit leaves
+the pipeline unchanged.
 
 ### Service adapters — two rules that apply to all of them
 
@@ -1877,7 +1924,10 @@ with the artifact (`PACKAGE`) and on the documentation site.
   network, credentials) is marked in the guide, with the reason, so the exclusions are visible
 - **A generated API reference** in the language's standard form — docstrings with pdoc or Sphinx for
   Python, TypeDoc over the declarations for JavaScript — and a check that every public name carries
-  documentation
+  documentation. The package's module doc (the package docstring, the `@packageDocumentation`
+  comment) follows [`API_DOCUMENTATION_GUIDE.md`](API_DOCUMENTATION_GUIDE.md) §3: purpose, main
+  components, where it is used, related concepts, an executed example; its §8 and §9 say where each
+  part is written for Python and JavaScript
 - **Links**: the *integration*'s `README.md` and this guide's §6 entry for the *language* point at
   the contract reference and the user guide; the guide links the reference for exact rules, and the
   reference links the guide for usage
@@ -1925,7 +1975,9 @@ environment, commands, values, errors, the runtime model and limitations; `DOCS0
 exists and covers installing, a first query, configuring an environment, registering a command,
 running a query, values, errors and testing, with an example for each; `DOCS03` every user-guide
 example runs against the built artifact, and every example that does not is marked with its reason;
-`DOCS04` the generated API reference builds, and every public name has documentation; `DOCS05` the
+`DOCS04` the generated API reference builds, every public name has documentation, and the package's
+module doc has the five parts of `API_DOCUMENTATION_GUIDE.md` §3 (`scripts/check_api_docs.py`
+reports nothing for it); `DOCS05` the
 user guide links `COMMAND_DECLARATION.md` for declaration semantics rather than restating its rules,
 and its declaration examples show only what differs from the defaults; `DOCS06` every feature marked
 `NA`, `NS` or `BLOCKED` and every listed limitation is stated as unavailable in the user guide and named
@@ -3944,6 +3996,10 @@ def test_DOCS04_every_public_name_is_documented():
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-04 | New feature `PIPELINE` (overview row, soft dependency, §5 section with tests `PIPELINE01`–`05`); no binding implements it yet. | phase-5, `design/composite-command-definition/` |
+| 2026-11-04 | §PIPELINE: `liquers-web` implements the feature. | design `web-pipelines` |
+| 2026-11-03 | §DATANODE, inbound: the hook an integration overrides for a retained value, `ForeignValue::data_node`, and its default. | `design/foreign-value-data-node/` |
+| 2026-11-03 | §DOCS: the package's module doc follows `API_DOCUMENTATION_GUIDE.md` §3; `DOCS04` checks it. | `design/api-documentation-rules/` |
 | 2026-11-01 | §DOCS: an integration's users get a guide in `docs/guides/<language>/`, parallel to the others and written from the contract reference and topic guide, which stay in `specs/`; the design question asks which chapters a milestone drafts. | `design/user-documentation-guides/` (phase-5) |
 | 2026-11-01 | §RECORDS: what `liquers-py` does (wrappers, buffers, Arrow/pandas/polars exits, scope, traversal, dispositions). Appendix A `PACKAGE04` uses the environment's version. §6 Python: records, packaging and type declarations, and what cost time (abi3t, extras without wheels, PyO3's `module=`, stubtest and pyright). | `design/liquers-py-records/`, `design/liquers-py-package/`, `design/liquers-py-stubs/` (phase-5) |
 | 2026-11-01 | §PACKAGE: the repository no longer links OpenSSL (TLS is `rustls`); the vendoring sentence says so. | `OPENSSL-BUILD-REQUIREMENT-IS-STALE` |

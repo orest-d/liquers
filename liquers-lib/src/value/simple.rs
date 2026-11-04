@@ -64,6 +64,10 @@ pub enum SimpleValue {
     Key {
         value: Key,
     },
+    /// A pipeline: the structured form of a query (`liquers_core::pipeline`).
+    Pipeline {
+        value: Arc<liquers_core::pipeline::Pipeline>,
+    },
 }
 impl Default for SimpleValue {
     fn default() -> Self {
@@ -181,6 +185,7 @@ impl ValueInterface for SimpleValue {
             SimpleValue::Metadata { value: _ } => "Metadata".into(),
             SimpleValue::AssetInfo { value: _ } => "AssetInfo".into(),
             SimpleValue::Recipe { value: _ } => "Recipe".into(),
+            SimpleValue::Pipeline { value: _ } => "Pipeline".into(),
             SimpleValue::CommandMetadata { value: _ } => "CommandMetadata".into(),
             SimpleValue::Query { value: _ } => "Query".into(),
             SimpleValue::Key { value: _ } => "Key".into(),
@@ -201,6 +206,7 @@ impl ValueInterface for SimpleValue {
             SimpleValue::Metadata { value: _ } => "metadata".into(),
             SimpleValue::AssetInfo { value: _ } => "asset_info".into(),
             SimpleValue::Recipe { value: _ } => "recipe".into(),
+            SimpleValue::Pipeline { value: _ } => "pipeline".into(),
             SimpleValue::CommandMetadata { value: _ } => "command_metadata".into(),
             SimpleValue::Query { value: _ } => "query".into(),
             SimpleValue::Key { value: _ } => "key".into(),
@@ -221,6 +227,7 @@ impl ValueInterface for SimpleValue {
             SimpleValue::Metadata { value: _ } => "json".into(),
             SimpleValue::AssetInfo { value: _ } => "json".into(),
             SimpleValue::Recipe { value: _ } => "json".into(),
+            SimpleValue::Pipeline { value: _ } => "json".into(),
             SimpleValue::CommandMetadata { value: _ } => "json".into(),
             SimpleValue::Query { value: _ } => "txt".into(),
             SimpleValue::Key { value: _ } => "txt".into(),
@@ -241,6 +248,7 @@ impl ValueInterface for SimpleValue {
             SimpleValue::Metadata { value: _ } => "metadata.json".into(),
             SimpleValue::AssetInfo { value: _ } => "asset_info.json".into(),
             SimpleValue::Recipe { value: _ } => "recipe.json".into(),
+            SimpleValue::Pipeline { value: _ } => "pipeline.json".into(),
             SimpleValue::CommandMetadata { value: _ } => "command_metadata.json".into(),
             SimpleValue::Query { value: _ } => "query.txt".into(),
             SimpleValue::Key { value: _ } => "key.txt".into(),
@@ -261,6 +269,7 @@ impl ValueInterface for SimpleValue {
             SimpleValue::Metadata { value: _ } => "application/json".into(),
             SimpleValue::AssetInfo { value: _ } => "application/json".into(),
             SimpleValue::Recipe { value: _ } => "application/json".into(),
+            SimpleValue::Pipeline { value: _ } => "application/json".into(),
             SimpleValue::CommandMetadata { value: _ } => "application/json".into(),
             SimpleValue::Query { value: _ } => "text/plain".into(),
             SimpleValue::Key { value: _ } => "text/plain".into(),
@@ -392,6 +401,41 @@ impl ValueInterface for SimpleValue {
 
     fn from_recipe(recipe: liquers_core::recipes::Recipe) -> Self {
         SimpleValue::Recipe { value: Arc::new(recipe) }
+    }
+
+    fn try_into_pipeline(&self) -> Result<liquers_core::pipeline::Pipeline, Error> {
+        match self {
+            SimpleValue::Pipeline { value } => Ok(value.as_ref().clone()),
+            SimpleValue::Query { value } => liquers_core::pipeline::Pipeline::try_from(value.as_ref()),
+            SimpleValue::Array { .. } | SimpleValue::Object { .. } => {
+                liquers_core::pipeline::Pipeline::from_json(&self.try_into_json_value()?)
+            }
+            SimpleValue::Text { value } => {
+                if let Ok(query) = liquers_core::parse::parse_query(value) {
+                    return liquers_core::pipeline::Pipeline::try_from(&query);
+                }
+                serde_json::from_str(value)
+                    .or_else(|_| serde_yaml::from_str(value))
+                    .map_err(|e| {
+                        Error::conversion_error_with_message("text", "Pipeline", &e.to_string())
+                    })
+            }
+            SimpleValue::None {}
+            | SimpleValue::Bool { .. }
+            | SimpleValue::I32 { .. }
+            | SimpleValue::I64 { .. }
+            | SimpleValue::F64 { .. }
+            | SimpleValue::Bytes { .. }
+            | SimpleValue::Metadata { .. }
+            | SimpleValue::AssetInfo { .. }
+            | SimpleValue::Recipe { .. }
+            | SimpleValue::CommandMetadata { .. }
+            | SimpleValue::Key { .. } => Err(Error::conversion_error(self.identifier(), "Pipeline")),
+        }
+    }
+
+    fn from_pipeline(pipeline: liquers_core::pipeline::Pipeline) -> Self {
+        SimpleValue::Pipeline { value: Arc::new(pipeline) }
     }
 
     fn from_command_metadata(command_metadata: CommandMetadata) -> Self {
@@ -579,6 +623,9 @@ impl DefaultValueSerializer for SimpleValue {
                 SimpleValue::Bytes { value: x } => Ok(x.clone()),
                 SimpleValue::Query { value: x } => Ok(x.encode().into_bytes()),
                 SimpleValue::Key { value: x } => Ok(x.encode().into_bytes()),
+                SimpleValue::Pipeline { value: p } => p
+                    .to_query_text()
+                    .map(String::into_bytes),
                 // The final refusal is kept where core has one, so the two matches stay
                 // structurally identical: the structured variants have no text form.
                 _ => Err(Error::from_error(
@@ -596,6 +643,15 @@ impl DefaultValueSerializer for SimpleValue {
                 _ => Err(Error::from_error(
                     ErrorType::SerializationError,
                     format!("Serialization to bytes not supported by {}", self.type_name()),
+                )),
+            },
+            "yaml" | "yml" => match self {
+                SimpleValue::Pipeline { value } => serde_yaml::to_string(value)
+                    .map(String::into_bytes)
+                    .map_err(|e| Error::from_error(ErrorType::SerializationError, e)),
+                _ => Err(Error::from_error(
+                    ErrorType::SerializationError,
+                    format!("Serialization to yaml not supported by {}", self.type_name()),
                 )),
             },
             // A separate arm: only `Text` is markdown, as in `liquers_core::value::Value`.
@@ -664,6 +720,8 @@ impl DefaultValueSerializer for SimpleValue {
                         format!("Failed to serialize recipe to JSON: {}", e),
                     )
                 }),
+                SimpleValue::Pipeline { value } => serde_json::to_vec(value)
+                    .map_err(|e| Error::from_error(ErrorType::SerializationError, e)),
                 SimpleValue::CommandMetadata { value } => serde_json::to_vec(value).map_err(|e| {
                     Error::new(
                         ErrorType::SerializationError,
@@ -692,6 +750,8 @@ impl DefaultValueSerializer for SimpleValue {
                     "Query" => liquers_core::parse::parse_query(&s)
                         .map(|value| SimpleValue::Query { value: Arc::new(value) }),
                     "Key" => liquers_core::parse::parse_key(&s).map(|value| SimpleValue::Key { value }),
+                    "Pipeline" => liquers_core::pipeline::Pipeline::from_query_text(&s)
+                        .map(|value| SimpleValue::Pipeline { value: Arc::new(value) }),
                     // Written raw; reading it as text would lose every byte that is not UTF-8.
                     "Bytes" => Ok(SimpleValue::Bytes { value: b.to_vec() }),
                     // Scalars are parsed as core `Value` parses them; text that does not parse
@@ -772,6 +832,9 @@ impl DefaultValueSerializer for SimpleValue {
                 "Recipe" => serde_json::from_slice::<Recipe>(b)
                     .map(|value| SimpleValue::Recipe { value: Arc::new(value) })
                     .map_err(|e| Error::from_error(ErrorType::ParseError, e)),
+                "Pipeline" => serde_json::from_slice::<liquers_core::pipeline::Pipeline>(b)
+                    .map(|value| SimpleValue::Pipeline { value: Arc::new(value) })
+                    .map_err(|e| Error::from_error(ErrorType::ParseError, e)),
                 "CommandMetadata" => serde_json::from_slice::<CommandMetadata>(b)
                     .map(|value| SimpleValue::CommandMetadata { value: Arc::new(value) })
                     .map_err(|e| Error::from_error(ErrorType::ParseError, e)),
@@ -783,6 +846,9 @@ impl DefaultValueSerializer for SimpleValue {
                 }
                 _ => Self::from_plain_json(b),
             },
+            "yaml" | "yml" if type_identifier == "Pipeline" => serde_yaml::from_slice(b)
+                .map(|value| SimpleValue::Pipeline { value: Arc::new(value) })
+                .map_err(|e| Error::from_error(ErrorType::SerializationError, e)),
             "yaml" | "yml" => {
                 let json_value: serde_json::Value = serde_yaml::from_slice(b)
                     .map_err(|e| Error::from_error(ErrorType::ParseError, e))?;
@@ -1187,6 +1253,9 @@ mod tests {
             "Metadata" => SimpleValue::Metadata { value: Arc::new(MetadataRecord::new()) },
             "AssetInfo" => SimpleValue::AssetInfo { value: vec![AssetInfo::new()] },
             "Recipe" => SimpleValue::Recipe { value: Arc::new(Recipe::default()) },
+            "Pipeline" => SimpleValue::Pipeline {
+                value: Arc::new(liquers_core::pipeline::Pipeline::from_query_text("-R/a/b.csv/-/x-1/y").ok()?),
+            },
             "CommandMetadata" => SimpleValue::CommandMetadata { value: Arc::new(CommandMetadata::default()) },
             "Query" => SimpleValue::Query { value: Arc::new(liquers_core::parse::parse_query("a/b").ok()?) },
             "Key" => SimpleValue::Key { value: liquers_core::parse::parse_key("a/b").ok()? },

@@ -2,7 +2,7 @@
 id: FOREIGN-VALUE-HAS-NO-DATA-NODE
 kind: issue
 title: A retained foreign value is always opaque to data-node consumers
-status: draft
+status: closed
 priority: P2
 complexity: S
 area: [lib/value]
@@ -54,3 +54,7 @@ foreign value returning a map node proves the delegation. Related, same shape:
 
 Writing the `DATANODE` section of the language integration guide (2026-10-25), reading the
 `Foreign` arm of `ExtValue::data_node`.
+
+## Resolution
+
+Closed 2026-11-03 by design `foreign-value-data-node`, PR #250. A foreign value answers through the new `ForeignValue::data_node` hook; the default is the JSON snapshot, else opaque.

@@ -1,7 +1,7 @@
 ---
 title: Values, state and metadata
 status: outline
-sources: [reference/VALUE_TYPE_SYSTEM.md, guides/TYPE_SYSTEM_GUIDE.md]
+sources: [reference/VALUE_TYPE_SYSTEM.md, guides/TYPE_SYSTEM_GUIDE.md, reference/PIPELINES.md]
 reviewed:
 ---
 # 4. Values, state and metadata
@@ -15,3 +15,4 @@ SOURCE: reference/VALUE_TYPE_SYSTEM.md
 TBD: 4.3 Metadata: type, log, status, dependencies.
 TBD: 4.4 Adding a value type: the four steps; the type registry.
 SOURCE: guides/TYPE_SYSTEM_GUIDE.md
+TBD: `Pipeline` values.

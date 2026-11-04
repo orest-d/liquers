@@ -11,7 +11,7 @@
 
 use std::collections::HashSet;
 
-use liquers_core::command_metadata::{CommandKey, CommandMetadata};
+use liquers_core::command_metadata::{CommandDefinition, CommandKey, CommandMetadata};
 use liquers_core::issue_report::{Issue, IssueReport, IssueSeverity};
 use wasm_bindgen::prelude::*;
 
@@ -34,7 +34,12 @@ impl Retained {
         match self {
             Retained::Declaration(spec) => JsCommandSpec::parse(spec),
             Retained::Metadata(metadata, implementation) => {
-                JsCommandSpec::from_metadata(metadata.clone(), implementation).map_err(|issue| {
+                let spec = if is_pipeline_metadata(metadata) {
+                    JsCommandSpec::from_pipeline_metadata(metadata.clone())
+                } else {
+                    JsCommandSpec::from_metadata(metadata.clone(), implementation)
+                };
+                spec.map_err(|issue| {
                     liquers_core::error::Error::from_error(
                         liquers_core::error::ErrorType::ParameterError,
                         issue.message().to_string(),
@@ -52,6 +57,14 @@ impl Retained {
                 .and_then(|v| v.as_string()),
             Retained::Metadata(metadata, _) => Some(metadata.name.clone()),
         }
+    }
+}
+
+/// Whether imported metadata defines a pipeline command, which needs no implementation.
+fn is_pipeline_metadata(metadata: &CommandMetadata) -> bool {
+    match metadata.definition {
+        CommandDefinition::Pipeline { .. } => true,
+        CommandDefinition::Registered | CommandDefinition::Alias { .. } => false,
     }
 }
 
@@ -132,6 +145,30 @@ fn read_registry(text: &str, impls: &JsValue, report: &mut IssueReport) -> Vec<A
     for metadata in registry.commands {
         named.insert(metadata.name.clone());
         let implementation = snapshot_implementation(&property(impls, &metadata.name));
+        if is_pipeline_metadata(&metadata) {
+            // A pipeline command is its definition; a function given for it would never run.
+            if !(implementation.is_undefined() || implementation.is_null()) {
+                report.extend([Issue::command_registry(
+                    IssueSeverity::Error,
+                    &metadata.realm,
+                    &metadata.namespace,
+                    &metadata.name,
+                    format!(
+                        "Command {:?} is a pipeline command and takes no implementation",
+                        metadata.name
+                    ),
+                )]);
+                continue;
+            }
+            match JsCommandSpec::from_pipeline_metadata(metadata.clone()) {
+                Ok(spec) => accepted.push(Accepted {
+                    spec,
+                    retained: Retained::Metadata(metadata, JsValue::UNDEFINED),
+                }),
+                Err(issue) => report.extend([issue]),
+            }
+            continue;
+        }
         if implementation.is_undefined() || implementation.is_null() {
             report.extend([Issue::command_registry(
                 IssueSeverity::Error,

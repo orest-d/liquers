@@ -1,9 +1,7 @@
-use crate::environment::CommandRegistryAccess;
 use crate::value::{ExtValueInterface, Value};
 use liquers_core::{
-    commands::CommandRegistry, context::Context, error::Error, state::State, value::ValueInterface,
+    context::Context, error::Error, state::State,
 };
-use liquers_macro::register_command;
 use polars::prelude::*;
 
 use super::util::{

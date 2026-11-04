@@ -4,6 +4,57 @@
 //! `specs/guides/LANGUAGE-INTEGRATION_GUIDE.md`. A page constructs an environment, evaluates queries as
 //! `Promise`s, and registers commands written in JavaScript.
 //!
+//! # Main components
+//! - [`init`] and [`evaluate`] — the global environment, and a query run against it; both return
+//!   a `Promise`. [`get_asset`] resolves with the asset (value, status and metadata) instead.
+//! - [`register_command`] and [`register_commands`] — a JavaScript function, with the
+//!   declaration in [`typescript`]'s `LiquersCommandSpec`, becomes a command.
+//! - [`value`] — the value bridge between `JsValue` and the Liquers value, [`JsValueBridge`].
+//! - [`store`] — stores a page can mount: `localStorage`, `fetch`, a JavaScript object.
+//! - [`pipeline`] — pipelines as plain objects: [`evaluate_pipeline`], the conversions
+//!   [`pipeline_to_query`] / [`query_to_pipeline`], and the `PipelineEditor` / `QueryEditor`
+//!   classes. A pipeline *command* is a declaration with `pipeline` in place of `run`.
+//!
+//! # Where it is used
+//! - The examples of `specs/guides/JAVASCRIPT_GUIDE.md`, run under Node by
+//!   [`scripts/test-guide-examples.sh`](https://github.com/orest-d/liquers/blob/main/liquers-web/scripts/test-guide-examples.sh).
+//! - The quick start page,
+//!   [`examples-web/quickstart/`](https://github.com/orest-d/liquers/blob/main/liquers-web/examples-web/quickstart).
+//! - The browser tests in
+//!   [`tests/e2e/`](https://github.com/orest-d/liquers/blob/main/liquers-web/tests/e2e) (Playwright).
+//!
+//! Every conformance suite under `tests/` (`commands_COMMAND.rs`, `eval_EVAL.rs`, …) exercises
+//! it under Node.
+//!
+//! # Related concepts
+//! - `liquers_lib::environment::DefaultEnvironment` is the environment this crate configures;
+//!   nothing here replaces the executor or the asset manager.
+//! - The generated `liquers_web.d.ts` and its TypeDoc reference are the JavaScript user's view of
+//!   this crate; this page is the Rust view, for contributors.
+//! - `liquers_py` is the other language integration, built on the same guide for a native host.
+//!
+//! # Examples
+//! The crate builds only for `wasm32`, so this is not a doctest; it is the first example of
+//! `JAVASCRIPT_GUIDE.md` §3, which `test-guide-examples.sh` runs:
+//!
+//! ```text
+//! import init, * as liquers from "./liquers_web.js";
+//! await init();
+//! await liquers.init();
+//! const listing = await liquers.evaluate("commands_doc");   // Markdown: every command you can use
+//! assert(listing.startsWith("# Commands"));
+//! ```
+//!
+//! Longer examples:
+//! - [`specs/guides/JAVASCRIPT_GUIDE.md`](https://github.com/orest-d/liquers/blob/main/specs/guides/JAVASCRIPT_GUIDE.md)
+//!   — building, a first query, commands, values, errors, stores and UI, with an example for each.
+//! - [`tests/commands_COMMAND.rs`](https://github.com/orest-d/liquers/blob/main/liquers-web/tests/commands_COMMAND.rs)
+//!   — every form of a JavaScript command declaration.
+//! - [`tests/store_js_STORE.rs`](https://github.com/orest-d/liquers/blob/main/liquers-web/tests/store_js_STORE.rs)
+//!   — a store written in JavaScript.
+//!
+//! More are under `tests/`, one file per conformance group.
+//!
 //! # Target
 //!
 //! **This crate only functions on `wasm32`.** `JsValue` is `!Send`/`!Sync` on every target, and on
@@ -43,6 +94,7 @@ pub mod environment;
 pub mod error;
 pub mod eval;
 pub mod objects;
+pub mod pipeline;
 #[cfg(feature = "records")]
 pub mod records;
 pub mod store;
@@ -57,6 +109,7 @@ pub use encode::encode_param;
 pub use environment::{version, LiquersEnvironment, WebEnvironment};
 pub use error::LiquersError;
 pub use objects::{LiquersKey, LiquersQuery};
+pub use pipeline::{LiquersPipelineEditor, LiquersQueryEditor};
 pub use ui::{LiquersUIElement, LiquersUIMount, LiquersUISubscription};
 pub use ui_define::{define_element, element, undefine_element, JsElementDelegate};
 pub use value::{JsOpaque, ORIGIN_JAVASCRIPT};
@@ -220,17 +273,15 @@ pub fn get_asset(query: &str) -> typescript::AssetPromise {
 
 /// Encodes a string for use as a query parameter.
 ///
-/// Throws a `LiquersError` when the value contains a character the query grammar cannot represent
-/// — a lone colon, most punctuation, or any non-ASCII character. **Throwing is deliberate**: the
-/// core encoder passes those through unchanged and produces text that fails to parse later,
-/// somewhere else. See [`encode`] for the full limitation and the issue tracking its removal.
+/// Never throws: every string is representable, the empty string included (it is the empty
+/// token). See [`encode`].
 ///
 /// ```javascript
 /// const q = `data/filter-${liquers.encodeParam(userInput)}`;
 /// ```
 #[wasm_bindgen(js_name = encodeParam)]
-pub fn encode_param_js(text: &str) -> Result<String, JsValue> {
-    encode::encode_param(text).map_err(error::liquers_error_to_js)
+pub fn encode_param_js(text: &str) -> String {
+    encode::encode_param(text)
 }
 
 /// Registers a JavaScript command on the global environment.
@@ -290,6 +341,35 @@ fn refused_batch_to_js(refused: environment::RefusedBatch) -> JsValue {
 ///
 /// Returns `false` for an unknown command rather than throwing, so teardown paths need no
 /// existence check.
+/// Evaluates a pipeline (its JSON form: an object with `elements`, or an array of elements) on
+/// the global environment, as [`evaluate`] evaluates a query.
+#[wasm_bindgen(js_name = evaluatePipeline)]
+pub fn evaluate_pipeline(
+    #[wasm_bindgen(unchecked_param_type = "LiquersPipeline")] pipeline: JsValue,
+) -> js_sys::Promise {
+    match environment::shared_env() {
+        Ok(envref) => pipeline::evaluate_pipeline_to_promise(envref, &pipeline),
+        Err(e) => js_sys::Promise::reject(&error::liquers_error_to_js(e)),
+    }
+}
+
+/// The query text of a pipeline, with named arguments placed by the global environment's
+/// commands. Throws a `parameter_error` naming the rule when the pipeline has no query form.
+#[wasm_bindgen(js_name = pipelineToQuery)]
+pub fn pipeline_to_query(
+    #[wasm_bindgen(unchecked_param_type = "LiquersPipeline")] pipeline: JsValue,
+) -> Result<String, JsValue> {
+    environment::current_metadata_registry()
+        .and_then(|cmr| pipeline::pipeline_to_query(&pipeline, &cmr))
+        .map_err(error::liquers_error_to_js)
+}
+
+/// A query as a pipeline: plain objects. Needs no environment.
+#[wasm_bindgen(js_name = queryToPipeline, unchecked_return_type = "LiquersPipeline")]
+pub fn query_to_pipeline(query: &str) -> Result<JsValue, JsValue> {
+    pipeline::query_to_pipeline(query).map_err(error::liquers_error_to_js)
+}
+
 #[wasm_bindgen(js_name = unregisterCommand)]
 pub fn unregister_command(name: &str) -> Result<bool, JsValue> {
     environment::unregister_command_on(name).map_err(error::liquers_error_to_js)

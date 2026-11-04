@@ -1086,6 +1086,15 @@ The `documentation` phase records the authoritative `affects_docs` set and perfo
 An older design that voluntarily adds Phase 5 should follow the same review discipline, but older
 designs remain governed by their approved four-phase or simplified contract.
 
+- **The obligation covers API documentation.** A module doc — rustdoc `//!`, a Python module
+  docstring, the JavaScript `@packageDocumentation` — is documentation in the sense of this
+  section, with its content rules in [`guides/API_DOCUMENTATION_GUIDE.md`](guides/API_DOCUMENTATION_GUIDE.md).
+  Phase 1 names the modules whose module doc the design creates or changes (`- API docs:`;
+  `validate_phase.py` refuses a Phase 1 without the line for designs created from 2026-11-03),
+  Phase 2 plans them, and Phase 5 records their review under *Module Docs*, with
+  `scripts/check_api_docs.py` reporting nothing for those files. Module docs carry no front-matter
+  and no History; the commit is their record.
+
 ### 9.4 Trigger 2 — the quarterly fallback
 
 Every `reference/` and `guides/` document is reviewed **at least once every 92 days**. This catches
@@ -1161,6 +1170,7 @@ Rules:
 | A description of how the system works now | `reference/` | §9.1 — and a `## History` |
 | Instructions for doing a task in this repo | `guides/` | §9.1 — and a `## History` |
 | Documentation for people *using* Liquers | a chapter of `docs/guides/<guide>/` | `title`, `status`, `sources`, `reviewed` — `guides/USER_DOCS_EDITING_GUIDE.md` |
+| What a module is for, where it is used and an example | the module doc in the source (`//!`, docstring, `@packageDocumentation`) | none — `guides/API_DOCUMENTATION_GUIDE.md` §3 |
 | A review, audit or status report, true on a date | `archive/YYYY-MM-DD-*.md` | none |
 | Anything that will be regenerated | mark it `# GENERATED`, add a `--check` | none |
 
@@ -1175,6 +1185,7 @@ neither.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-03 | §9.3: the review obligation covers module docs (`guides/API_DOCUMENTATION_GUIDE.md`); Phase 1's `- API docs:` line, Phase 5's *Module Docs*. §10: where a module doc goes. | `design/api-documentation-rules/` |
 | 2026-11-01 | §2, §3: `docs/` exists (home page, user guides, `liquers-docs`). §4.2: kind `chapter`. §7.2: checks 18-20 (no `docs/` link into `specs/`, chapter rules, workflow coverage). §9.6 rewritten: user guides are written from `specs/` and include from it; chapters are reviewed like `specs/` documents. §10: where a user-facing chapter goes. | `design/user-documentation-guides/` (phase-5) |
 | 2026-10-21 | §4.6: front-matter is YAML; when to double-quote a value. §7.2 check 17: unquoted values YAML would misread are refused, quoted values are unquoted on reading. | `SPECS-FRONT-MATTER-IS-NOT-VALID-YAML`, `design/front-matter-yaml-agreement/` |
 | 2026-10-19 | §3: area `mcp` for `liquers-mcp` and `liquers-agent`. §4.8.1: filing through the agent memory's `memory_new`. | `design/agent-memory-mvp/` Phase 5 |

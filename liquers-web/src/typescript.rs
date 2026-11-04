@@ -21,6 +21,63 @@
 
 use wasm_bindgen::prelude::*;
 
+/// The module doc of the generated `liquers_web.d.ts`, per
+/// `specs/guides/API_DOCUMENTATION_GUIDE.md` §9: wasm-bindgen writes custom sections at the top
+/// of the file, and TypeDoc takes the first `@packageDocumentation` comment of its entry file as
+/// the module page. Keep this section before every other one in this file.
+#[wasm_bindgen(typescript_custom_section)]
+const LIQUERS_PACKAGE_DOC: &'static str = r##"
+/**
+ * Liquers in the browser: queries evaluated in a page, commands written in JavaScript.
+ *
+ * A page imports the module, awaits `init()`, and evaluates queries as Promises. Commands are
+ * plain JavaScript functions registered with a declaration object; values cross the boundary as
+ * JavaScript values.
+ *
+ * # Main components
+ * - {@link init} and {@link evaluate} — the global environment, and a query run against it;
+ *   {@link getAsset} resolves with the asset (value, status and metadata) instead.
+ * - {@link registerCommand} and {@link registerCommands} — a function with a
+ *   {@link LiquersCommandSpec} becomes a command.
+ * - {@link Environment} — the environment behind `init()`: stores, recipes, shutdown.
+ * - {@link LiquersError} — what a rejected Promise carries.
+ *
+ * # Where it is used
+ * - The examples of the JavaScript guide, run under Node by `scripts/test-guide-examples.sh`.
+ * - The quick start page, `examples-web/quickstart/`.
+ * - The browser tests in `tests/e2e/` (Playwright).
+ *
+ * Every conformance suite under `tests/` exercises it under Node.
+ *
+ * # Related concepts
+ * - The Rust crate `liquers_web` implements this module; its rustdoc page is the contributor's
+ *   view, this page the page author's.
+ * - *Liquers for the Web* (`guides/web/` on the documentation site) is the book-like guide; this
+ *   reference lists what the module exports.
+ * - The native command libraries of Liquers (Polars, images, templates) are not in the browser
+ *   build; a page registers its own commands.
+ *
+ * # Examples
+ * The first example of `specs/guides/JAVASCRIPT_GUIDE.md` §3 *A first query*, which
+ * `scripts/test-guide-examples.sh` runs:
+ *
+ * @example
+ * ```js
+ * import init, * as liquers from "./liquers_web.js";
+ *
+ * await init();
+ * await liquers.init();
+ * const listing = await liquers.evaluate("commands_doc");   // Markdown: every command you can use
+ * assert(listing.startsWith("# Commands"));
+ * ```
+ *
+ * Longer examples: the guide's chapters on commands, values, errors, stores and UI; the
+ * conformance suites under `tests/` of the `liquers-web` crate, one file per group.
+ *
+ * @packageDocumentation
+ */
+"##;
+
 #[wasm_bindgen(typescript_custom_section)]
 const LIQUERS_TYPES: &'static str = r#"
 /** The type of a command argument, as declared in a command specification. */
@@ -116,9 +173,80 @@ export type LiquersCommandImplementations = Record<string, LiquersCommandImpleme
  */
 export type LiquersCommandBatch =
   | LiquersCommandSpec
+  | LiquersPipelineCommandSpec
   | Omit<LiquersCommandSpec, "run"> & { run?: LiquersCommandSpec["run"] }
-  | Array<LiquersCommandSpec | (Omit<LiquersCommandSpec, "run"> & { run?: LiquersCommandSpec["run"] })>
+  | Array<
+      | LiquersCommandSpec
+      | LiquersPipelineCommandSpec
+      | (Omit<LiquersCommandSpec, "run"> & { run?: LiquersCommandSpec["run"] })
+    >
   | string;
+
+/**
+ * Where an action argument's value comes from, in a pipeline's JSON form. A bare JSON value (or
+ * `{ value }`) is a literal; the other forms are tagged objects.
+ */
+export type LiquersPipelineSource =
+  | string | number | boolean | null | LiquersPipelineSource[]
+  | { value: unknown }
+  | { placeholder: string }
+  | { link: string }
+  | { pipeline: LiquersPipeline }
+  | { state: true }
+  | { [key: string]: unknown };
+
+/** One element of a pipeline: an action, a value, a resource read, or query text. */
+export type LiquersPipelineElement =
+  | string
+  | {
+      action: string;
+      /** A namespace or a list; absent for the default namespaces. */
+      ns?: string | string[];
+      /** Positional arguments, consumed first. */
+      parameters?: LiquersPipelineSource[];
+      /** Arguments by name. */
+      arguments?: Record<string, LiquersPipelineSource>;
+    }
+  | { value: unknown }
+  | { resource: string; read?: string }
+  | { key_value: string }
+  | { cwd: string }
+  | { evaluate: string | LiquersPipeline }
+  | { query_value: unknown }
+  | { quote: true }
+  | { volatile: true }
+  | { pipeline: LiquersPipeline; realm?: string };
+
+/**
+ * A pipeline: the structured form of a query, as plain objects. An array is shorthand for
+ * `{ elements }`. `queryToPipeline` and `PipelineEditor.pipeline()` return the object form.
+ */
+export type LiquersPipeline =
+  | LiquersPipelineElement[]
+  | {
+      elements: LiquersPipelineElement[];
+      realm?: string;
+      header_parameters?: string[];
+      rooted?: boolean;
+      filename?: string;
+    };
+
+/**
+ * A pipeline command's declaration: `pipeline` in place of `run`. A call runs the pipeline on
+ * its input, with the declared `arguments` bound to its `{ placeholder }` sources. There is no
+ * function, so `state` and `async` do not apply, and arguments are never inferred.
+ */
+export interface LiquersPipelineCommandSpec {
+  name: string;
+  pipeline: LiquersPipeline;
+  /** The arguments its placeholders take. An omitted `type` is taken from the slot it fills. */
+  arguments?: LiquersArgument[];
+  namespace?: string;
+  realm?: string;
+  label?: string;
+  doc?: string;
+  volatile?: boolean;
+}
 
 /** One finding of a command validation report. */
 export interface LiquersIssue {
@@ -469,8 +597,9 @@ export interface LiquersRecordChunk {
 
 #[wasm_bindgen]
 extern "C" {
-    /// A command declaration object. Typed as `LiquersCommandSpec` in the generated `.d.ts`.
-    #[wasm_bindgen(typescript_type = "LiquersCommandSpec")]
+    /// A command declaration object. Typed as `LiquersCommandSpec` (or, for a pipeline command,
+    /// `LiquersPipelineCommandSpec`) in the generated `.d.ts`.
+    #[wasm_bindgen(typescript_type = "LiquersCommandSpec | LiquersPipelineCommandSpec")]
     pub type JsCommandSpecObject;
 
     /// A batch of commands: declarations or a serialized registry.

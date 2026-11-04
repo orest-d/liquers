@@ -284,7 +284,7 @@ impl ArgumentInfo {
     }
 
     /// The default as a Python value: `None` when there is none, the query's text for a default
-    /// link.
+    /// link, and the serialized form (a list or dict) for a default pipeline.
     #[getter]
     fn default(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         use liquers_core::command_metadata::CommandParameterValue;
@@ -295,6 +295,10 @@ impl ArgumentInfo {
             }
             CommandParameterValue::Value(value) => {
                 let text = serde_json::to_string(value).map_err(serialization_pyerr)?;
+                Ok(py.import("json")?.call_method1("loads", (text,))?.unbind())
+            }
+            CommandParameterValue::Pipeline(pipeline) => {
+                let text = serde_json::to_string(pipeline).map_err(serialization_pyerr)?;
                 Ok(py.import("json")?.call_method1("loads", (text,))?.unbind())
             }
         }

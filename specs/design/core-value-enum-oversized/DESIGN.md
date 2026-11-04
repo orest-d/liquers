@@ -260,3 +260,6 @@ No generated file changes.
   Each wraps or unwraps the `Arc`; no trait signature changed, so decision 3 stands.
 - `SimpleValue`'s `json` form of a `Query` is the tagged enum, not the bare query, as before this
   change; the lib test checks `Query` through `txt`.
+- `Pipeline` (added on main by `composite-command-definition` while this was open) is boxed the
+  same way in `Value` and `SimpleValue`; without it the enums grew past 32 bytes again and
+  `value_is_at_most_32_bytes` failed. `try_into_pipeline` clones out of the `Arc`.

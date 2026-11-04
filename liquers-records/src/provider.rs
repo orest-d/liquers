@@ -237,6 +237,7 @@ fn template_chunk_recipe(manifest: &ManifestSpec, folder: &Key, query: Query) ->
         volatile: manifest.volatile,
         has_circular_dependencies: false,
         circular_dependency_key: None,
+        pipeline: None,
         expires: manifest.expires.clone(),
         stored: Some(manifest.stored),
         cached: Some(manifest.cached.into()),

@@ -313,10 +313,13 @@ updated by the change that moves it.
 | `STORE` (all three directions) | complete | 01–17 by ID; 08 is the conformance suite; 13 native | `STORE18` is `NA`, see below |
 | `STUBS` | complete | 01–07 | — |
 | `PACKAGE` | complete | 01–05, 07 | `06` is `NA`: no optional extra |
-| `DOCS` | partial | 03 by `scripts/test-guide-examples.sh`; 01, 02, 05–07 reviewed; the API reference by `scripts/build-liquers-web-docs.sh` (TypeDoc, published at <https://orest-d.github.io/liquers/api/js/index.html>) | `04` half done: nothing checks that every export has a doc comment (`WEB-API-REFERENCE-NOT-GENERATED`) |
+| `DOCS` | partial | 03 by `scripts/test-guide-examples.sh`; 01, 02, 05–07 reviewed; the API reference by `scripts/build-liquers-web-docs.sh` (TypeDoc, published at <https://orest-d.github.io/liquers/api/js/index.html>); the module doc (`@packageDocumentation` in `src/typescript.rs`) follows `specs/guides/API_DOCUMENTATION_GUIDE.md` §9 | `04` half done: nothing checks that every export has a doc comment (`WEB-API-REFERENCE-NOT-GENERATED`) |
 | `UIUSE` | complete | 01–10 in `tests/ui_browser_UIUSE.rs` (`browser-tests`), 02, 07, 08 also in `tests/ui_UIUSE.rs` (Node); `tests/e2e/ui.spec.ts` | `mountUI` / `UIMount`; the page does not repaint while a query awaits (`WEB-UI-FREEZES-WHILE-A-QUERY-AWAITS`); `UIUSE05` needs `--features debug-handles` |
 | `UIDEF` | complete | 01, 02, 05, 06 in `tests/ui_define_UIDEF.rs` (Node); 03, 04, 06b, 07, 08 in `tests/ui_browser_UIDEF.rs` (`browser-tests`); native `ui::widgets::delegated_element` tests | `defineElement`, `element`, `mountRenderer`; `UIDEF04` is claimed for the web backend only (egui shows a label); `UIDEF06` needs `--features debug-handles` |
 | `RECIPE` | not started (deferred) | — | — |
+| `DATANODE` | not started | — | no JavaScript object is adapted as a `DataNode` yet; `TEMPLATE` uses one (a soft dependency) to render page data in place. The core hook it needs for an opaque `JsOpaque` is design `foreign-value-data-node` (in review) |
+| `TEMPLATE` | not started | — | the browser build has no `ns-template` commands (`WEB-HAS-NO-TEMPLATE-COMMANDS`); the in-command half needs only those, since `COMMAND07` already gives a command its `Context` |
+| `PIPELINE` | complete | 01–05 in `tests/pipeline_PIPELINE.rs` (Node) | a pipeline is a plain object; `evaluatePipeline`, `pipelineToQuery`, `queryToPipeline`, `PipelineEditor`, `QueryEditor`, and a declaration with `pipeline` in place of `run`. A page cannot pass a pipeline *as a value* (`WEB-PAGE-CANNOT-PASS-A-PIPELINE-VALUE`); the editors have no definition mode (`WEB-PIPELINE-EDITOR-HAS-NO-DEFINITION-MODE`) |
 | `MODULE`, `POLYGLOT`, `WEBSERV`, `WEBAPI` | `NA` for the shipped milestone | — | — |
 
 **`RECORDS03` is `NA`**: there is no Arrow route out of the browser build; it becomes required if an

@@ -38,22 +38,26 @@ pub enum Value {
     CommandMetadata(std::sync::Arc<CommandMetadata>),
     Query(std::sync::Arc<crate::query::Query>),
     Key(crate::query::Key),
+    /// A pipeline: the structured form of a query (`crate::pipeline`).
+    Pipeline(std::sync::Arc<crate::pipeline::Pipeline>),
 }
 
-/// How Liquers writes an `f64` to JSON, which has no representation for NaN or ±infinity.
-///
-/// Two conversions, used in different places:
-/// - [`to_number`] is strict: a non-finite float is a `ConversionError`. `try_into_json_value`
-///   uses it, because a `serde_json::Value` cannot hold the float and any stand-in (`null`, a
-///   string) would bind as a different value.
-/// - [`to_json`] / [`from_json`] are lossless: a non-finite float is written as one of the strings
-///   [`NAN`], [`INFINITY`], [`NEG_INFINITY`] (the protobuf JSON mapping's tokens), and reading also
-///   accepts `null` as NaN. The JSON byte path uses them wherever the value is known to be a float.
-///
-/// [`serialize`] / [`deserialize`] make this a serde `with`-module for a field that is always a
-/// float: `#[serde(with = "liquers_core::value::json_f64")]`. Do not put it on a variant of an
-/// untagged enum — a token would read back as text. See `specs/guides/SERIALIZATION_GUIDE.md`.
 pub mod json_f64 {
+    //! How Liquers writes an `f64` to JSON, which has no representation for NaN or ±infinity.
+    //!
+    //! Two conversions, used in different places:
+    //! - [`to_number`] is strict: a non-finite float is a `ConversionError`. `try_into_json_value`
+    //!   uses it, because a `serde_json::Value` cannot hold the float and any stand-in (`null`, a
+    //!   string) would bind as a different value.
+    //! - [`to_json`] / [`from_json`] are lossless: a non-finite float is written as one of the
+    //!   strings [`NAN`], [`INFINITY`], [`NEG_INFINITY`] (the protobuf JSON mapping's tokens), and
+    //!   reading also accepts `null` as NaN. The JSON byte path uses them wherever the value is
+    //!   known to be a float.
+    //!
+    //! [`serialize`] / [`deserialize`] make this a serde `with`-module for a field that is always a
+    //! float: `#[serde(with = "liquers_core::value::json_f64")]`. Do not put it on a variant of an
+    //! untagged enum — a token would read back as text. See `specs/guides/SERIALIZATION_GUIDE.md`.
+
     use crate::error::{Error, ErrorType};
 
     pub const NAN: &str = "NaN";
@@ -196,6 +200,28 @@ pub trait ValueInterface:
 
     /// From key
     fn from_key(key: &crate::query::Key) -> Self;
+
+    /// Try to get a pipeline out: a pipeline, a query (converted syntactically), or JSON or
+    /// YAML text of a pipeline.
+    ///
+    /// The default goes through [`ValueInterface::try_into_query`] and then the text, so a value
+    /// type without a pipeline variant still supports it.
+    fn try_into_pipeline(&self) -> Result<crate::pipeline::Pipeline, Error> {
+        if let Ok(query) = self.try_into_query() {
+            return crate::pipeline::Pipeline::try_from(&query);
+        }
+        let text = self.try_into_string()?;
+        serde_json::from_str(&text)
+            .or_else(|_| serde_yaml::from_str(&text))
+            .map_err(|e| Error::conversion_error_with_message("text", "Pipeline", &e.to_string()))
+    }
+
+    /// From pipeline. The default is the pipeline's JSON form, for value types without a
+    /// pipeline variant.
+    fn from_pipeline(pipeline: crate::pipeline::Pipeline) -> Self {
+        let json = pipeline.to_json();
+        Self::try_from_json_value(&json).unwrap_or_else(|_| Self::from_string(json.to_string()))
+    }
 
     /// From integer
     fn from_i32(n: i32) -> Self;
@@ -536,6 +562,7 @@ impl ValueInterface for Value {
             Value::Recipe(recipe) => serde_json::to_value(recipe).map_err(|e| {
                 Error::conversion_error_with_message("recipe", "json value", &e.to_string())
             }),
+            Value::Pipeline(p) => Ok(p.to_json()),
             _ => Err(Error::conversion_error(self.identifier(), "JSON value")),
         }
     }
@@ -624,6 +651,12 @@ impl ValueInterface for Value {
                 .with_type_name("key")
                 .with_defaults("txt", "txt", "text/plain", "key.txt")
                 .with_data_formats(TEXTUAL),
+            // `txt` is the pipeline's query text, written only when it needs no registry to be
+            // written (no named arguments, nothing a query cannot say).
+            TypeInfo::new("Pipeline")
+                .with_type_name("pipeline")
+                .with_defaults("json", "json", "application/json", "pipeline.json")
+                .with_data_formats(["json", "yaml", "yml", "txt"]),
         ]
     }
 
@@ -651,6 +684,7 @@ impl ValueInterface for Value {
             Value::CommandMetadata(_) => "CommandMetadata".into(),
             Value::Query(_) => "Query".into(),
             Value::Key(_) => "Key".into(),
+            Value::Pipeline(_) => "Pipeline".into(),
         }
     }
 
@@ -671,6 +705,7 @@ impl ValueInterface for Value {
             Value::CommandMetadata(_) => "command_metadata".into(),
             Value::Query(_) => "query".into(),
             Value::Key(_) => "key".into(),
+            Value::Pipeline(_) => "pipeline".into(),
         }
     }
 
@@ -691,6 +726,7 @@ impl ValueInterface for Value {
             Value::CommandMetadata(_) => "json".into(),
             Value::Query(_) => "txt".into(),
             Value::Key(_) => "txt".into(),
+            Value::Pipeline(_) => "json".into(),
         }
     }
 
@@ -711,6 +747,7 @@ impl ValueInterface for Value {
             Value::CommandMetadata(_) => "command_metadata.json".into(),
             Value::Query(_) => "query.txt".into(),
             Value::Key(_) => "key.txt".into(),
+            Value::Pipeline(_) => "pipeline.json".into(),
         }
     }
 
@@ -731,6 +768,7 @@ impl ValueInterface for Value {
             Value::CommandMetadata(_) => "application/json".into(),
             Value::Query(_) => "text/plain".into(),
             Value::Key(_) => "text/plain".into(),
+            Value::Pipeline(_) => "application/json".into(),
         }
     }
 
@@ -869,6 +907,41 @@ impl ValueInterface for Value {
 
     fn from_key(key: &crate::query::Key) -> Self {
         Value::Key(key.clone())
+    }
+
+    fn try_into_pipeline(&self) -> Result<crate::pipeline::Pipeline, Error> {
+        match self {
+            Value::Pipeline(p) => Ok(p.as_ref().clone()),
+            Value::Query(q) => crate::pipeline::Pipeline::try_from(q.as_ref()),
+            Value::Array(_) | Value::Object(_) => {
+                crate::pipeline::Pipeline::from_json(&self.try_into_json_value()?)
+            }
+            Value::Text(text) => {
+                if let Ok(query) = crate::parse::parse_query(text) {
+                    return crate::pipeline::Pipeline::try_from(&query);
+                }
+                serde_json::from_str(text)
+                    .or_else(|_| serde_yaml::from_str(text))
+                    .map_err(|e| {
+                        Error::conversion_error_with_message("text", "Pipeline", &e.to_string())
+                    })
+            }
+            Value::None
+            | Value::Bool(_)
+            | Value::I32(_)
+            | Value::I64(_)
+            | Value::F64(_)
+            | Value::Bytes(_)
+            | Value::Metadata(_)
+            | Value::AssetInfo(_)
+            | Value::Recipe(_)
+            | Value::CommandMetadata(_)
+            | Value::Key(_) => Err(Error::conversion_error(self.identifier(), "Pipeline")),
+        }
+    }
+
+    fn from_pipeline(pipeline: crate::pipeline::Pipeline) -> Self {
+        Value::Pipeline(std::sync::Arc::new(pipeline))
     }
 }
 
@@ -1172,6 +1245,7 @@ impl DefaultValueSerializer for Value {
                 Value::Bytes(x) => Ok(x.clone()), // TODO: handle bytes better - this is only to test rs
                 Value::Query(x) => Ok(x.encode().as_bytes().to_vec()), // TODO: not for languages
                 Value::Key(x) => Ok(x.encode().as_bytes().to_vec()), // TODO: not for languages
+                Value::Pipeline(p) => p.to_query_text().map(String::into_bytes),
                 _ => Err(Error::new(
                     ErrorType::SerializationError,
                     format!(
@@ -1188,6 +1262,15 @@ impl DefaultValueSerializer for Value {
                 _ => Err(Error::from_error(
                     ErrorType::SerializationError,
                     format!("Serialization to md not supported by {}", self.type_name()),
+                )),
+            },
+            "yaml" | "yml" => match self {
+                Value::Pipeline(p) => serde_yaml::to_string(p)
+                    .map(String::into_bytes)
+                    .map_err(|e| Error::from_error(ErrorType::SerializationError, e)),
+                _ => Err(Error::from_error(
+                    ErrorType::SerializationError,
+                    format!("Serialization to yaml not supported by {}", self.type_name()),
                 )),
             },
             "bytes" | "b" | "bin" => match self {
@@ -1253,6 +1336,7 @@ impl DefaultValueSerializer for Value {
                 "CommandMetadata" => json_payload(b, type_identifier).map(Value::CommandMetadata),
                 "Query" => json_payload(b, type_identifier).map(Value::Query),
                 "Key" => json_payload(b, type_identifier).map(Value::Key),
+                "Pipeline" => json_payload(b, type_identifier).map(|p| Value::Pipeline(std::sync::Arc::new(p))),
                 _ => serde_json::from_slice(b).map_err(|e| {
                     Error::from_error(
                         ErrorType::SerializationError,
@@ -1279,6 +1363,7 @@ impl DefaultValueSerializer for Value {
                     "Query" => crate::parse::parse_query(&s)
                         .map(|query| Value::Query(std::sync::Arc::new(query))),
                     "Key" => crate::parse::parse_key(&s).map(Value::Key),
+                    "Pipeline" => crate::pipeline::Pipeline::from_query_text(&s).map(|p| Value::Pipeline(std::sync::Arc::new(p))),
                     _ => Err(Error::new(
                         ErrorType::SerializationError,
                         format!(
@@ -1288,6 +1373,15 @@ impl DefaultValueSerializer for Value {
                     )),
                 }
             }
+            "yaml" | "yml" => match type_identifier {
+                "Pipeline" => serde_yaml::from_slice(b)
+                    .map(|p| Value::Pipeline(std::sync::Arc::new(p)))
+                    .map_err(|e| Error::from_error(ErrorType::SerializationError, e)),
+                _ => Err(Error::from_error(
+                    ErrorType::SerializationError,
+                    format!("Deserialization from yaml not supported for {type_identifier}"),
+                )),
+            },
             "bytes" | "b" | "bin" => Ok(Value::Bytes(b.to_vec())),
             _ => Err(Error::new(
                 ErrorType::SerializationError,
@@ -1618,8 +1712,9 @@ mod tests {
                 String::new(),
             )?)),
             Value::CommandMetadata(std::sync::Arc::new(CommandMetadata::new("test"))),
-            Value::Query(std::sync::Arc::new(query)),
+            Value::Query(std::sync::Arc::new(query.clone())),
             Value::Key(crate::parse::parse_key("data/x.csv")?),
+            Value::Pipeline(std::sync::Arc::new(crate::pipeline::Pipeline::try_from(&query)?)),
         ];
         for value in values {
             let identifier = value.identifier();
@@ -1708,6 +1803,41 @@ mod tests {
         Ok(())
     }
 
+    /// AC-39 — a pipeline is a value with its own type, formats and conversions.
+    #[test]
+    fn pipeline_value_type_info_and_conversions() -> Result<(), Box<dyn std::error::Error>> {
+        use crate::pipeline::Pipeline;
+        let query = crate::parse::parse_query("-R/data/x.csv/-/ns-pl/head-5/out.csv")?;
+        let pipeline = Pipeline::try_from(&query)?;
+        let value = Value::from_pipeline(pipeline.clone());
+        assert_eq!(value.identifier(), "Pipeline");
+        assert_eq!(value.type_name(), "pipeline");
+        assert_eq!(value.default_filename(), "pipeline.json");
+        let info = Value::type_descriptions()
+            .into_iter()
+            .find(|t| t.type_identifier == "Pipeline")
+            .ok_or("no TypeInfo")?;
+        for format in ["json", "yaml", "txt"] {
+            assert!(info.supported_data_formats.iter().any(|f| f == format), "{format}");
+            let bytes = value.as_bytes(format)?;
+            let back: Value = DefaultValueSerializer::deserialize_from_bytes(&bytes, "Pipeline", format)?;
+            assert_eq!(back, value, "{format}");
+        }
+        assert_eq!(value.as_bytes("txt")?, b"-R/data/x.csv/-/ns-pl/head-5/out.csv".to_vec());
+        // Conversions in: a query value, query text, JSON text, YAML text.
+        assert_eq!(Value::Query(std::sync::Arc::new(query.clone())).try_into_pipeline()?, pipeline);
+        assert_eq!(Value::Text(query.encode()).try_into_pipeline()?, pipeline);
+        let json_text = serde_json::to_string(&pipeline)?;
+        assert_eq!(Value::Text(json_text).try_into_pipeline()?, pipeline);
+        let yaml_text = serde_yaml::to_string(&pipeline)?;
+        assert_eq!(Value::Text(yaml_text).try_into_pipeline()?, pipeline);
+        assert!(Value::I32(1).try_into_pipeline().is_err());
+        // A pipeline with a value as state has no query text.
+        let not_text: Pipeline = serde_json::from_str(r#"[{"value": 1}]"#)?;
+        assert!(Value::Pipeline(std::sync::Arc::new(not_text)).as_bytes("txt").is_err());
+        Ok(())
+    }
+
     /// One value per `Value` variant. A new variant makes this fail to compile, which is the
     /// point: the description list must grow with the enum.
     fn sample_values() -> Vec<Value> {
@@ -1727,6 +1857,7 @@ mod tests {
             Value::CommandMetadata(std::sync::Arc::new(CommandMetadata::new("test"))),
             Value::Query(std::sync::Arc::new(crate::query::Query::new())),
             Value::Key(crate::query::Key::new()),
+            Value::Pipeline(std::sync::Arc::new(crate::pipeline::Pipeline::default())),
         ]
     }
 

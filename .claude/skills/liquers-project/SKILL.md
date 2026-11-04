@@ -55,11 +55,11 @@ changed signatures, never existing code. A design that cannot fit is two designs
 
 | # | `phase:` | Purpose | Must contain | Apply |
 |---|---|---|---|---|
-| 1 | `high-level` | What and why | Purpose; problem example; acceptance scenarios (`AC-<n>`, WHEN/THEN); systems touched; crate placement; documentation intent; open questions | Overlap triage first |
-| 2 | `architecture` | How | Chosen solution and rejected alternatives; known-issue preflight; new and changed interfaces; integration points; errors; sync/async; commands; documentation architecture; risks | `rust-best-practices` |
+| 1 | `high-level` | What and why | Purpose; problem example; acceptance scenarios (`AC-<n>`, WHEN/THEN); systems touched; crate placement; documentation intent, with its `API docs:` line; open questions | Overlap triage first |
+| 2 | `architecture` | How | Chosen solution and rejected alternatives; known-issue preflight; new and changed interfaces; integration points; errors; sync/async; commands; documentation architecture, module docs included; risks | `rust-best-practices` |
 | 3 | `examples` | Proof | Overview table; primary and secondary example; edge and error cases; test plan with exact test names, each citing its scenarios | `liquers-unittest`, `liquers-validate` |
 | 4 | `implementation` | Steps | Progress checklist; ordered steps with files, symbols, validation command and rollback; testing plan; documentation updates | `rust-best-practices` |
-| 5 | `documentation` | Record | What was built versus approved; documents created and reviewed; issues closed and filed; learning | — |
+| 5 | `documentation` | Record | What was built versus approved; documents and module docs created and reviewed; issues closed and filed; learning | — |
 
 Phase-specific rules:
 
@@ -85,7 +85,8 @@ Phase-specific rules:
   answered, normally in the same PR before merge. Write the summary
   ([`references/phase5-documentation.md`](references/phase5-documentation.md)); create the planned
   reference and guide documents; review every document in `affects_docs` against the implemented
-  behaviour (`DOCS_STRUCTURE_GUIDE.md` §9); update `specs/README.md` links; set every completed issue
+  behaviour (`DOCS_STRUCTURE_GUIDE.md` §9) and every module doc the design touched against
+  `specs/guides/API_DOCUMENTATION_GUIDE.md` §3; update `specs/README.md` links; set every completed issue
   to `closed` / `closed_not_planned` with a resolution note (§4.3); list every problem discovered
   during the work with its triage and spin-off outcome. After approval set `status: complete` and
   remove `phase`.

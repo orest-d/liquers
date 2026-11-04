@@ -393,12 +393,65 @@ impl Error {
             ),
         )
     }
+    /// A pipeline is malformed: an unknown element key, a missing field, an unbound placeholder.
+    /// `message` says which element and why.
+    pub fn invalid_pipeline(message: impl Into<String>) -> Self {
+        Error::new(
+            ErrorType::ParameterError,
+            format!("Invalid pipeline: {}", message.into()),
+        )
+    }
+    /// A pipeline cannot be written as a query: `rule` is the representability rule that fails
+    /// (P1–P4, E1–E8, S1–S7, N1–N4; `specs/reference/PIPELINES.md`), `path` names the element
+    /// and argument.
+    pub fn not_representable(rule: &str, path: impl Display, detail: &str) -> Self {
+        Error::new(
+            ErrorType::ParameterError,
+            format!("Pipeline is not representable as a query ({rule}) at {path}: {detail}"),
+        )
+    }
+    /// An argument of `command` is unknown, injected, given twice or otherwise misused.
+    pub fn invalid_argument(command: &str, argument: &str, problem: &str) -> Self {
+        Error::new(
+            ErrorType::ParameterError,
+            format!("Argument '{argument}' of '{command}': {problem}"),
+        )
+    }
+    /// A token is not valid where it stands: `class` names what was expected there (an action
+    /// name, a key segment, a filename…).
+    ///
+    /// Raised by [`crate::query::Query::check_encodable`] and by the pipeline editors, before a
+    /// query that would not parse back is ever encoded.
+    pub fn invalid_token(value: &str, class: &str) -> Self {
+        Error::new(
+            ErrorType::ParameterError,
+            format!("'{}' is not valid as {}", value, class),
+        )
+    }
     /// Notes that the failing action was reached through `alias`.
     ///
     /// The interpreter calls this when an aliased action fails, so the message names the command
     /// the user wrote as well as the command that ran. Applying it twice has no further effect.
     pub fn with_alias(mut self, alias: &CommandKey) -> Self {
         let suffix = format!(" (via alias '{}')", command_label(alias));
+        if !self.message.ends_with(&suffix) {
+            self.message.push_str(&suffix);
+        }
+        self
+    }
+    /// A pipeline command reached itself through its body (directly or through another), or
+    /// expansion went deeper than the limit; `chain` is the commands in expansion order.
+    pub fn pipeline_cycle(chain: &[CommandKey]) -> Self {
+        let names: Vec<String> = chain.iter().map(command_label).collect();
+        Error::new(
+            ErrorType::ParameterError,
+            format!("Pipeline command cycle: {}", names.join(" -> ")),
+        )
+    }
+    /// Names the pipeline command whose body failed, like [`Self::with_alias`] for an alias.
+    /// Applying it twice for the same command has no further effect.
+    pub fn with_pipeline(mut self, command: &CommandKey) -> Self {
+        let suffix = format!(" (in pipeline command '{}')", command_label(command));
         if !self.message.ends_with(&suffix) {
             self.message.push_str(&suffix);
         }

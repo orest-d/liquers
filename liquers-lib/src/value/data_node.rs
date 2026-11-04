@@ -27,6 +27,7 @@ impl DataNode for SimpleValue {
             SimpleValue::Object { .. }
             | SimpleValue::Metadata { .. }
             | SimpleValue::Recipe { .. }
+            | SimpleValue::Pipeline { .. }
             | SimpleValue::CommandMetadata { .. } => NodeKind::Map,
             SimpleValue::Bytes { .. } => NodeKind::Opaque,
         }
@@ -47,6 +48,7 @@ impl DataNode for SimpleValue {
             | SimpleValue::Metadata { .. }
             | SimpleValue::AssetInfo { .. }
             | SimpleValue::Recipe { .. }
+            | SimpleValue::Pipeline { .. }
             | SimpleValue::CommandMetadata { .. } => None,
         }
     }
@@ -57,6 +59,7 @@ impl DataNode for SimpleValue {
             }
             SimpleValue::Metadata { value } => value.get(name),
             SimpleValue::Recipe { value } => snapshot_field(value, name),
+            SimpleValue::Pipeline { value } => snapshot_field(value, name),
             SimpleValue::CommandMetadata { value } => snapshot_field(value, name),
             SimpleValue::None {}
             | SimpleValue::Bool { .. }
@@ -85,6 +88,7 @@ impl DataNode for SimpleValue {
             | SimpleValue::Bytes { .. }
             | SimpleValue::Metadata { .. }
             | SimpleValue::Recipe { .. }
+            | SimpleValue::Pipeline { .. }
             | SimpleValue::CommandMetadata { .. }
             | SimpleValue::Query { .. }
             | SimpleValue::Key { .. } => None,
@@ -111,6 +115,7 @@ impl DataNode for SimpleValue {
             | SimpleValue::Bytes { .. }
             | SimpleValue::Metadata { .. }
             | SimpleValue::Recipe { .. }
+            | SimpleValue::Pipeline { .. }
             | SimpleValue::CommandMetadata { .. }
             | SimpleValue::Query { .. }
             | SimpleValue::Key { .. } => Box::new(std::iter::empty()),
@@ -123,6 +128,7 @@ impl DataNode for SimpleValue {
             }
             SimpleValue::Metadata { value } => value.keys(),
             SimpleValue::Recipe { value } => snapshot_keys(value),
+            SimpleValue::Pipeline { value } => snapshot_keys(value),
             SimpleValue::CommandMetadata { value } => snapshot_keys(value),
             SimpleValue::None {}
             | SimpleValue::Bool { .. }
@@ -153,6 +159,7 @@ impl DataNode for SimpleValue {
             | SimpleValue::Metadata { .. }
             | SimpleValue::AssetInfo { .. }
             | SimpleValue::Recipe { .. }
+            | SimpleValue::Pipeline { .. }
             | SimpleValue::CommandMetadata { .. }
             | SimpleValue::Query { .. }
             | SimpleValue::Key { .. } => self.items().nth(i),
@@ -162,6 +169,7 @@ impl DataNode for SimpleValue {
         match self {
             SimpleValue::Query { value } => Ok(serde_json::Value::String(value.encode())),
             SimpleValue::Key { value } => Ok(serde_json::Value::String(value.encode())),
+            SimpleValue::Pipeline { value } => Ok(value.to_json()),
             SimpleValue::None {}
             | SimpleValue::Bool { .. }
             | SimpleValue::I32 { .. }

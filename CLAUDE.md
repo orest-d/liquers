@@ -54,6 +54,12 @@ Only file one when the owner explicitly asks for it.
 Template, field vocabularies and the full procedure: `specs/DOCS_STRUCTURE_GUIDE.md` §4.8. Filing
 needs no network, no account and no permission — record what you found and carry on.
 
+**API docs.** A module's documentation — rustdoc `//!`, a Python module docstring, the JavaScript
+`@packageDocumentation` — follows `specs/guides/API_DOCUMENTATION_GUIDE.md`: purpose, main
+components, where it is used, related concepts, an executed example. Bring the module doc of any
+module you touch up to it, and run `python3 scripts/check_api_docs.py <file>` before pushing; a
+design names the modules whose docs change in Phase 1 (`- API docs:`).
+
 **User guides.** `docs/guides/{rust,python,web}/` holds three book-like guides for people *using*
 Liquers, with the same chapters in each. They are hand-edited, written *from* `specs/` (each
 chapter's `sources:`) and published to GitHub Pages by `.github/workflows/docs-site.yml`; nothing
@@ -473,6 +479,10 @@ against the real command set with no setup. Useful variations:
 | An environment with `default_namespaces:` configured | `--default-namespace pl` (repeatable) |
 | A design that *changes* an existing signature | `--registry-file specs/command_registry.yaml --registry-file <proposal>.yaml --allow-overwrite` |
 | A whole `recipes.yaml` | `--recipes recipes.yaml --cwd <folder>` |
+| A pipeline (JSON or YAML file, or `-` for stdin) | `--pipeline p.yaml` |
+| Build a query from shell arguments, no escaping | `--build R:data/x.csv A:filter 'P:12:30'` |
+| Require a query form (a pipeline without one fails) | `--emit query` |
+| Show each input as a pipeline | `--emit pipeline` |
 | Many queries | positional list, or `--query-file -` (one per line, `#` comments skipped) |
 | Less output | `--detail summary` |
 

@@ -3,7 +3,7 @@ title: Using Liquers from JavaScript in the browser
 kind: guide
 audience: user
 area: [web]
-reviewed: 2026-10-31
+reviewed: 2026-11-04
 ---
 # Using Liquers from JavaScript in the browser
 
@@ -193,8 +193,8 @@ minifier renames parameters, which changes only how the arguments are labelled. 
 whenever a type or a default matters.
 
 An argument containing `-`, `/` or a space is written with an escape: `~_` for `-`, `~/` for `/`,
-`~.` for a space, `~~` for `~`. `liquers.encodeParam(text)` does it for you, and throws for a
-character the query language cannot carry, such as a non-ASCII letter:
+`~.` for a space, `~~` for `~`. `liquers.encodeParam(text)` does it for you, for any string, non-ASCII letters included
+(it never throws):
 
 ```js
 import init, * as liquers from "./liquers_web.js";
@@ -486,6 +486,92 @@ const query = liquers.Query.parse("hello/repeat-3/triple.txt");
 assert.strictEqual(query.filename, "triple.txt");
 assert.throws(() => liquers.Query.parse("hello/repeat-~"), (e) => e.errorType === "parse_error");
 ```
+
+### Pipelines
+
+A pipeline is the structured form of a query: a plain object (or an array of its elements) with one
+entry per step, where an argument can be any JSON value, a map included
+([`reference/PIPELINES.md`](../reference/PIPELINES.md)). `evaluatePipeline` runs one as
+`evaluate` runs a query; `queryToPipeline` and `pipelineToQuery` convert between the two forms:
+
+```js
+import init, * as liquers from "./liquers_web.js";
+
+await init();
+await liquers.init();
+liquers.registerCommand({ name: "greet", arguments: [{ name: "who", type: "string" }], run: (who) => `hi ${who}` });
+liquers.registerCommand({ name: "shout", state: "text", run: (text) => text.toUpperCase() });
+
+const pipeline = [{ action: "greet", arguments: { who: "Ada" } }, { action: "shout" }];
+assert.strictEqual(await liquers.evaluatePipeline(pipeline), "HI ADA");
+assert.strictEqual(liquers.pipelineToQuery(pipeline), "greet-Ada/shout");
+const [step] = liquers.queryToPipeline("greet-Ada").elements;
+assert.strictEqual(step.action, "greet");
+assert.strictEqual(step.parameters[0].value, "Ada");
+assert.deepStrictEqual(step.pos, { offset: 0, line: 1, column: 1 });
+```
+
+A pipeline converted from a query carries each element's and argument's position in the query
+(`pos`), so an argument appears as `{ value, pos }`; a pipeline written by hand needs neither, and
+positions never change what a pipeline means.
+
+A pipeline whose arguments a query cannot spell (a map, say) still evaluates, but
+`pipelineToQuery` throws a `parameter_error` naming the rule that fails. A value that has no JSON
+form (a `Map`, a class instance, `liquers.opaque(x)`) is refused with a `conversion_error`.
+
+**A pipeline command** is a declaration with `pipeline` in place of `run`. Its arguments fill the
+pipeline's `{ placeholder }` sources, and a call runs as the long query would:
+
+```js
+import init, * as liquers from "./liquers_web.js";
+
+await init();
+await liquers.init();
+liquers.registerCommands([
+  {
+    name: "loud_greet",
+    pipeline: [{ action: "greet", parameters: [{ placeholder: "who" }] }, { action: "shout" }],
+    arguments: [{ name: "who", default: "world" }],
+  },
+  { name: "greet", arguments: [{ name: "who", type: "string" }], run: (who) => `hi ${who}` },
+  { name: "shout", state: "text", run: (text) => text.toUpperCase() },
+]);
+
+assert.strictEqual(await liquers.evaluate("loud_greet-Ada"), await liquers.evaluate("greet-Ada/shout"));
+assert.strictEqual(await liquers.evaluate("loud_greet"), "HI WORLD");
+```
+
+It has no function, so `run`, `state` and `async` are refused beside `pipeline`. An argument's
+omitted type is taken from the step argument it fills. The batch is checked whole before anything is
+registered: an unknown step command or an undeclared placeholder is in the report. Function commands
+of a batch are registered before its pipeline commands, so the order inside a batch does not matter.
+Imported metadata can carry one too (`definition: !Pipeline { pipeline: … }`), with no
+implementation.
+
+**Editing.** `new liquers.PipelineEditor(pipeline?)` and `new liquers.QueryEditor(query?)` edit
+through the global environment's commands (`environment.pipelineEditor()` / `queryEditor()` for
+another). Every edit is checked, and a refused edit throws and changes nothing; `QueryEditor` also
+refuses any edit that would leave no query form, so its `query()` never throws:
+
+```js
+import init, * as liquers from "./liquers_web.js";
+
+await init();
+await liquers.init();
+liquers.registerCommand({ name: "greet", arguments: [{ name: "who", type: "string" }], run: (who) => `hi ${who}` });
+
+const editor = new liquers.QueryEditor();
+const at = editor.action("greet");                 // the action's index
+editor.set(at, "who", "Ada");
+assert.throws(() => editor.set(at, "whom", "Ada"));          // no such argument
+assert.throws(() => editor.set(at, "who", { a: 1 }));        // a map has no query form
+assert.strictEqual(editor.query(), "greet-Ada");
+editor.free();
+```
+
+The editors take an element's index rather than returning a sub-editor: `set`, `pushParameter`,
+`link`, `unset` and `setNamespace` edit the action at that index. Placeholders are refused in an
+editor; write them in the object form of a pipeline command's body.
 
 ## 7. Values
 
@@ -899,3 +985,5 @@ What you will notice; the complete list, with the tracking issues, is
 | 2026-10-31 | §5 "The context": a command receives an execution context; the limitation is removed. | design `js-command-context` |
 | 2026-10-31 | §11 "Showing a Liquers UI" (`mountUI`, `UIElement`); §11–12 renumbered to §12–13. | design `web-ui-use` |
 | 2026-10-31 | §11 "Define an element" and "Render the tree yourself" (`defineElement`, `element`, `mountRenderer`). | design `web-ui-define` |
+| 2026-11-04 | `encodeParam` never throws. | phase-5, `design/composite-command-definition/` |
+| 2026-11-04 | §6 "Pipelines": `evaluatePipeline`, `pipelineToQuery`, `queryToPipeline`, pipeline commands, `PipelineEditor` / `QueryEditor`. | design `web-pipelines` |

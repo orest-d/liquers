@@ -13,8 +13,51 @@
 //! });
 //! ```
 //!
+//! # Main components
+//!
+//! - [`JsCommandSpec`] — a parsed declaration: key, metadata, state mode, and the `run` function
+//!   (`None` for a pipeline command); [`JsCommandSpec::check`] reports everything that refuses one.
+//! - [`StateMode`] and [`IsAsync`] — how `run` receives its state and whether its result is awaited.
+//! - [`RESERVED_NAMESPACE`] — `web`, refused to JavaScript.
+//!
+//! # Where it is used
+//!
+//! `crate::command::import` reads batches through it; [`crate::command::register_js_command`]
+//! registers what it accepts; a rebuild replays declarations through [`JsCommandSpec::parse`].
+//!
+//! # Related concepts
+//!
+//! `liquers_core::command_declaration::CommandDeclaration` runs stages 2–5 of the shared
+//! declaration pipeline (`specs/reference/COMMAND_DECLARATION.md`); this module is stage 1, the
+//! JavaScript-specific part. `crate::pipeline` reads a declaration's `pipeline`.
+//!
+//! # Examples
+//!
+//! The declarations above, and every test in `tests/commands_DECLARATION.rs` (Node). The crate
+//! does not build natively, so there is no doctest:
+//!
+//! ```text
+//! liquers.registerCommand({
+//!   name: "repeat", state: "text", run: (t, n) => t.repeat(n),
+//!   arguments: [{ name: "n", type: "int", default: 2 }],
+//! });
+//! ```
+//!
 //! Only `name` and `run` are required; everything else has a meaningful default, so the minimal
 //! declaration stays one line (`COMMAND09`).
+//!
+//! A **pipeline command** (`PIPELINE04`) has a `pipeline` instead of `run`: a pipeline in its JSON
+//! form (`specs/reference/PIPELINES.md`), whose placeholders are bound to the declared
+//! `arguments`. It has no function, so `run`, `state` and `async` are refused beside it, and its
+//! arguments are never inferred:
+//!
+//! ```javascript
+//! liquers.registerCommand({
+//!   name: "greet_twice",
+//!   pipeline: [{ action: "greet", parameters: [{ placeholder: "who" }] }, { action: "twice" }],
+//!   arguments: [{ name: "who", default: "world" }],
+//! });
+//! ```
 
 use liquers_core::command_declaration::CommandDeclaration;
 use liquers_core::command_metadata::{ArgumentInfo, CommandKey, CommandMetadata};
@@ -83,7 +126,8 @@ pub struct JsCommandSpec {
     pub metadata: CommandMetadata,
     pub state_mode: StateMode,
     pub is_async: IsAsync,
-    pub run: js_sys::Function,
+    /// The implementation; `None` for a pipeline command, whose body is `metadata.definition`.
+    pub run: Option<js_sys::Function>,
     /// Whether the argument list was inferred rather than declared. Reported by
     /// `describeCommand` so inference is never invisible (`COMMAND05`).
     pub arguments_inferred: bool,
@@ -110,7 +154,9 @@ fn without_run(spec: &JsValue) -> Result<js_sys::Object, Error> {
     let source = js_sys::Object::from(spec.clone());
     let copy = js_sys::Object::new();
     for key in js_sys::Object::keys(&source).iter() {
-        if key.as_string().as_deref() == Some("run") {
+        // `pipeline` is read by `check_inner` itself; the shared declaration format has no field
+        // for it.
+        if matches!(key.as_string().as_deref(), Some("run") | Some("pipeline")) {
             continue;
         }
         let value = js_sys::Reflect::get(&source, &key).map_err(|_| {
@@ -145,6 +191,11 @@ fn one_issue(issue: Issue) -> IssueReport {
 }
 
 impl JsCommandSpec {
+    /// Whether this is a pipeline command: registered as metadata only, with no function.
+    pub fn is_pipeline(&self) -> bool {
+        self.run.is_none()
+    }
+
     /// Parses a declaration object, refusing it with one compact error.
     ///
     /// The error's message is [`Self::check`]'s report summarised by
@@ -213,10 +264,36 @@ impl JsCommandSpec {
         let (realm, namespace) = (text_field("realm"), text_field("namespace"));
         let refuse = |message: String| one_issue(command_issue(&realm, &namespace, &name, message));
 
-        let run = reflect_get(spec, "run")
-            .filter(|v| v.is_function())
-            .ok_or_else(|| refuse(format!("Command {name:?} must have a `run` function")))?;
-        let run: js_sys::Function = run.unchecked_into();
+        let pipeline = match reflect_get(spec, "pipeline") {
+            Some(body) => {
+                for field in ["run", "state", "async"] {
+                    if reflect_get(spec, field).is_some() {
+                        return Err(refuse(format!(
+                            "Command {name:?} has a `pipeline`, so it takes no `{field}`: a \
+                             pipeline command has no function"
+                        )));
+                    }
+                }
+                Some(
+                    crate::pipeline::pipeline_from_js(&body)
+                        .map_err(|e| refuse(format!("Command {name:?}: {}", e.message)))?,
+                )
+            }
+            None => None,
+        };
+        let run: Option<js_sys::Function> = match &pipeline {
+            Some(_) => None,
+            None => Some(
+                reflect_get(spec, "run")
+                    .filter(|v| v.is_function())
+                    .ok_or_else(|| {
+                        refuse(format!(
+                            "Command {name:?} must have a `run` function or a `pipeline`"
+                        ))
+                    })?
+                    .unchecked_into(),
+            ),
+        };
 
         let declaration_object = without_run(spec).map_err(|e| refuse(e.message.clone()))?;
         let mut document: serde_json::Value =
@@ -252,7 +329,7 @@ impl JsCommandSpec {
             None => IsAsync::Auto,
         };
 
-        let arguments_inferred = document.get("arguments").is_none();
+        let arguments_inferred = run.is_some() && document.get("arguments").is_none();
         let context_convention = context_convention_enabled(&document);
         prepare_javascript_document(&mut document, &name, context_convention);
 
@@ -276,9 +353,21 @@ impl JsCommandSpec {
         let mut metadata = declaration.build().map_err(|e| refuse(e.message.clone()))?;
         metadata.module = "javascript".to_string();
 
-        if arguments_inferred {
+        if let Some(pipeline) = pipeline {
+            // As `CommandRegistry::register_pipeline`: a body whose first element sets the state is
+            // a source command. The context is a function's concern; a pipeline's steps get their
+            // own.
+            if pipeline.first_sets_state() {
+                metadata.state_argument = None;
+            }
+            metadata.definition =
+                liquers_core::command_metadata::CommandDefinition::Pipeline { pipeline };
+            context_position = None;
+        }
+
+        if let (true, Some(run)) = (arguments_inferred, run.as_ref()) {
             let inferred =
-                infer_arguments(&run, state_mode, &name).map_err(|e| refuse(e.message.clone()))?;
+                infer_arguments(run, state_mode, &name).map_err(|e| refuse(e.message.clone()))?;
             for (position, argument) in inferred.into_iter().enumerate() {
                 if context_convention && argument.name == "context" && context_position.is_none() {
                     // An inferred parameter's index already counts the state.
@@ -298,6 +387,28 @@ impl JsCommandSpec {
             run,
             arguments_inferred,
             context_position,
+        })
+    }
+
+    /// Accepts imported metadata whose definition is a pipeline: it needs no implementation.
+    pub fn from_pipeline_metadata(mut metadata: CommandMetadata) -> Result<JsCommandSpec, Issue> {
+        if metadata.namespace == RESERVED_NAMESPACE {
+            return Err(command_issue(
+                &metadata.realm,
+                &metadata.namespace,
+                &metadata.name,
+                reserved_namespace_message(),
+            ));
+        }
+        metadata.module = "javascript".to_string();
+        Ok(JsCommandSpec {
+            key: metadata.key(),
+            metadata,
+            state_mode: StateMode::None,
+            is_async: IsAsync::Auto,
+            run: None,
+            arguments_inferred: false,
+            context_position: None,
         })
     }
 
@@ -354,7 +465,7 @@ impl JsCommandSpec {
             metadata,
             state_mode,
             is_async,
-            run: run.unchecked_into(),
+            run: Some(run.unchecked_into()),
             arguments_inferred: false,
             // Imported metadata carries no `registration` record, and its argument list is what
             // the planner binds, so the context is never inserted into an imported command.
