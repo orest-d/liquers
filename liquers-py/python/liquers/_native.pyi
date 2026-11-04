@@ -53,6 +53,9 @@ from liquers import ResourceName as ResourceName
 from liquers import ResourceQuerySegment as ResourceQuerySegment
 from liquers import SegmentHeader as SegmentHeader
 from liquers import State as State
+from liquers import NodeKind as NodeKind
+from liquers import DataNode as DataNode
+from liquers import data_node as data_node
 from liquers import Status as Status
 from liquers import Step as Step
 from liquers import Store as Store
@@ -114,6 +117,9 @@ __all__ = [
     "Issue",
     "Context",
     "State",
+    "NodeKind",
+    "DataNode",
+    "data_node",
     "AssetRef",
     "FieldType",
     "KeyRole",
