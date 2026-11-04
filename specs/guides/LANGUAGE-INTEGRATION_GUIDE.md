@@ -3,7 +3,7 @@ title: Language Integration Guide
 kind: guide
 audience: internal
 area: [web, py, core/commands, core/plan, core/assets, core/store, core/value, lib/commands]
-reviewed: 2026-11-01
+reviewed: 2026-11-03
 ---
 # Liquers Language Integration Guide
 
@@ -1877,7 +1877,10 @@ with the artifact (`PACKAGE`) and on the documentation site.
   network, credentials) is marked in the guide, with the reason, so the exclusions are visible
 - **A generated API reference** in the language's standard form — docstrings with pdoc or Sphinx for
   Python, TypeDoc over the declarations for JavaScript — and a check that every public name carries
-  documentation
+  documentation. The package's module doc (the package docstring, the `@packageDocumentation`
+  comment) follows [`API_DOCUMENTATION_GUIDE.md`](API_DOCUMENTATION_GUIDE.md) §3: purpose, main
+  components, where it is used, related concepts, an executed example; its §8 and §9 say where each
+  part is written for Python and JavaScript
 - **Links**: the *integration*'s `README.md` and this guide's §6 entry for the *language* point at
   the contract reference and the user guide; the guide links the reference for exact rules, and the
   reference links the guide for usage
@@ -1925,7 +1928,9 @@ environment, commands, values, errors, the runtime model and limitations; `DOCS0
 exists and covers installing, a first query, configuring an environment, registering a command,
 running a query, values, errors and testing, with an example for each; `DOCS03` every user-guide
 example runs against the built artifact, and every example that does not is marked with its reason;
-`DOCS04` the generated API reference builds, and every public name has documentation; `DOCS05` the
+`DOCS04` the generated API reference builds, every public name has documentation, and the package's
+module doc has the five parts of `API_DOCUMENTATION_GUIDE.md` §3 (`scripts/check_api_docs.py`
+reports nothing for it); `DOCS05` the
 user guide links `COMMAND_DECLARATION.md` for declaration semantics rather than restating its rules,
 and its declaration examples show only what differs from the defaults; `DOCS06` every feature marked
 `NA`, `NS` or `BLOCKED` and every listed limitation is stated as unavailable in the user guide and named
@@ -3944,6 +3949,7 @@ def test_DOCS04_every_public_name_is_documented():
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-03 | §DOCS: the package's module doc follows `API_DOCUMENTATION_GUIDE.md` §3; `DOCS04` checks it. | `design/api-documentation-rules/` |
 | 2026-11-01 | §DOCS: an integration's users get a guide in `docs/guides/<language>/`, parallel to the others and written from the contract reference and topic guide, which stay in `specs/`; the design question asks which chapters a milestone drafts. | `design/user-documentation-guides/` (phase-5) |
 | 2026-11-01 | §RECORDS: what `liquers-py` does (wrappers, buffers, Arrow/pandas/polars exits, scope, traversal, dispositions). Appendix A `PACKAGE04` uses the environment's version. §6 Python: records, packaging and type declarations, and what cost time (abi3t, extras without wheels, PyO3's `module=`, stubtest and pyright). | `design/liquers-py-records/`, `design/liquers-py-package/`, `design/liquers-py-stubs/` (phase-5) |
 | 2026-11-01 | §PACKAGE: the repository no longer links OpenSSL (TLS is `rustls`); the vendoring sentence says so. | `OPENSSL-BUILD-REQUIREMENT-IS-STALE` |

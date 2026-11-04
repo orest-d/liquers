@@ -172,6 +172,27 @@ check is a Python script in `scripts/`, beside `docs_index.py`, run by `docs-che
    real content; the other user-audience guides follow one by one. Alternative: ship the
    structure empty and move later.
 
+## Design Readiness
+
+- **Readiness:** `ready`
+- **Automatic fixing:** `not-eligible` — `complexity: L`, touching the skill, CI, four crates'
+  docs and the specs (auto-fix.md rules 1 and 6).
+- **Leading issue:** None.
+- **Explanation:** Phases 2-4 are reviewed; the only questions left are implementation details
+  with evidence-backed answers, logged here under the pre-approval of 2026-11-03.
+- **Open questions:**
+  1. *Implementation detail, resolved.* The `commands.rs` doctest: Phase 2 recommended one call
+     through `CommandExecutor`, but `execute` needs a hand-built `CommandArguments` and `Context`;
+     the doctest registers a command and evaluates it under a `tokio` runtime (Phase 3, Example 1).
+  2. *Implementation detail, resolved.* The `@packageDocumentation` block must be the first
+     comment of the generated `.d.ts`. Confirmed at Step 5: wasm-bindgen writes it right after its
+     two `/* … */` lines, and TypeDoc 0.28 renders it as the module page (Phase 5, Validation).
+  3. *Proposed resolution.* The rustdoc job starts with the four clean crates; `liquers-core` and
+     `liquers-records` join when `RUSTDOC-STORE-SUBMODULE-LINKS-UNRESOLVED` merges (spin-off,
+     Step 9). Assumed acceptable: the alternative, waiting for the fix, delays nothing else.
+  4. *Proposed resolution.* `check_api_docs.py` warnings never fail CI until
+     `MODULE-DOCS-DO-NOT-FOLLOW-THE-API-DOC-RULES` closes (Phase 1 question 5, unchanged).
+
 ## Design Dependencies
 
 - `documentation-site-tool` — **required-by**: builds the site from the `docs/` sources defined
@@ -189,3 +210,12 @@ check is a Python script in `scripts/`, beside `docs_index.py`, run by `docs-che
 - `liquers-core/src/store/pipeline.rs` (PR #231): the nearest existing module doc to the target.
 - `DOCS_STRUCTURE_GUIDE.md` §9.6; `LANGUAGE-INTEGRATION_GUIDE.md` §DOCS;
   `reference/api/API_DOCS_GAP_ANALYSIS.md`.
+
+## Scope Changes
+
+- 2026-11-03: AC-6 (the user documentation folder) and open questions 4 and 6 were delivered and
+  decided by [`user-documentation-guides`](../user-documentation-guides/DESIGN.md), as the
+  2026-11-01 amendment foresaw: `docs/` holds the home page and three guides, the built site
+  holds every API reference, and the guides stay in `specs/` as the basis of the public chapters.
+  This design no longer touches `docs/`; Phase 5 records AC-6 as met there. The `docs/` tree
+  sketched in the problem example is superseded by `docs/README.md`.

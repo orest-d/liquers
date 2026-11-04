@@ -2,7 +2,7 @@
 id: RECIPE-PLAN-ANALYSIS-RUNS-OUTSIDE-PLAN-BUILDING
 kind: issue
 title: Recipe plan analysis runs outside plan building
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [core/plan, core/assets]
@@ -93,3 +93,7 @@ Re-checked at HEAD 18732dd:
 What remains is the duplicated, misleadingly named build-and-analyse sequence with its TODO markers,
 and no test that the preview's flags equal the evaluated asset's. Complexity re-sized from M to S.
 Designed in `design/recipe-preview-shares-plan-analysis/`.
+
+## Resolution
+
+Closed 2026-11-03 by design `recipe-preview-shares-plan-analysis`, PR #247. Of the three defects, only the duplicate build-and-analyse path remained (the discarded result was already mitigated by `plan.error`; the CWD and freeze differences did not reproduce); it is replaced by `interpreter::make_recipe_plan`.

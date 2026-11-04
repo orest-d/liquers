@@ -37,3 +37,17 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Run the feature/target build matrix
         run: bash scripts/check-build-matrix.sh
+
+  # Intra-doc links must resolve (specs/guides/API_DOCUMENTATION_GUIDE.md §5, §10). Only the crates
+  # that are clean and need no optional native library are listed; liquers-lib and the crates built
+  # on it join once liquers-lib's links are clean.
+  rustdoc:
+    runs-on: ubuntu-latest
+    env:
+      RUSTDOCFLAGS: -D rustdoc::broken_intra_doc_links
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: rustdoc with broken intra-doc links denied
+        run: cargo doc --no-deps -p liquers-core -p liquers-records -p liquers-template -p liquers-store -p liquers-mcp -p liquers-markdown

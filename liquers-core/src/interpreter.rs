@@ -188,6 +188,24 @@ pub async fn make_plan<E: Environment, Q: TryToQuery>(
     make_plan_with_cwd(envref, query, None).await
 }
 
+/// The plan of the keyed recipe `recipe` for `key`, analysed as [`make_plan`] analyses a query:
+/// built with [`Recipe::to_plan_for_key`] and passed through the same dependency analysis, whose
+/// error is returned as `Err`. There is no entry CWD, because a keyed asset's run starts with
+/// none; the recipe's own `cwd` reaches the plan as its `SetCwd` step.
+///
+/// This is how a recipe's plan is made outside evaluation — `DefaultRecipeProvider::recipe_plan`
+/// and `get_asset_info`'s flags — so a preview and the evaluated asset agree.
+/// See `specs/design/recipe-preview-shares-plan-analysis/`.
+pub(crate) async fn make_recipe_plan<E: Environment>(
+    envref: EnvRef<E>,
+    recipe: &Recipe,
+    key: &Key,
+) -> Result<Plan, Error> {
+    let mut plan = recipe.to_plan_for_key(envref.get_command_metadata_registry(), key)?;
+    analyze_plan_dependencies(envref, &mut plan, None).await?;
+    Ok(plan)
+}
+
 async fn make_plan_with_cwd<E: Environment, Q: TryToQuery>(
     envref: EnvRef<E>,
     query: Q,

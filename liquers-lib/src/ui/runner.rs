@@ -47,8 +47,8 @@ const MAX_PENDING_EVENTS: usize = 1024;
 enum DeliveryOutcome {
     /// The element no longer exists — the caller stops monitoring it.
     Missing,
-    /// Delivered; carries the element's own repaint verdict.
-    Delivered(UpdateResponse),
+    /// Delivered; the element's own repaint verdict has already been recorded as a change.
+    Delivered,
 }
 
 /// Centralized message processing and non-blocking evaluation runner.
@@ -514,14 +514,14 @@ where
                 )
                 .await;
                 match outcome {
-                    DeliveryOutcome::Delivered(_) => self.record(Some(handle), status, error),
+                    DeliveryOutcome::Delivered => self.record(Some(handle), status, error),
                     DeliveryOutcome::Missing => {}
                 }
 
                 // 5. Store in monitoring map (replaces existing if any).
                 //    If the element doesn't exist, don't start monitoring.
                 match outcome {
-                    DeliveryOutcome::Delivered(_) => {
+                    DeliveryOutcome::Delivered => {
                         self.monitoring.insert(
                             handle,
                             MonitoredAsset {
@@ -550,7 +550,7 @@ where
                 )
                 .await;
                 match outcome {
-                    DeliveryOutcome::Delivered(_) => {
+                    DeliveryOutcome::Delivered => {
                         self.record(Some(handle), Status::Error, error)
                     }
                     DeliveryOutcome::Missing => {}
@@ -586,7 +586,7 @@ where
                 )
                 .await;
                 match outcome {
-                    DeliveryOutcome::Delivered(_) => delivered.push((*handle, status, error)),
+                    DeliveryOutcome::Delivered => delivered.push((*handle, status, error)),
                     DeliveryOutcome::Missing => to_remove.push(*handle),
                 }
             } else {
@@ -677,7 +677,7 @@ where
             }
         }
 
-        DeliveryOutcome::Delivered(response)
+        DeliveryOutcome::Delivered
     }
 
     /// Check the status of a specific element.

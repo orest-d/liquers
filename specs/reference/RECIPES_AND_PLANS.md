@@ -3,7 +3,7 @@ title: Recipes and Plans Reference
 kind: reference
 audience: internal
 area: [core/plan, core/query, core/assets, core/context]
-reviewed: 2026-11-01
+reviewed: 2026-11-03
 ---
 # Recipes and Plans
 
@@ -194,7 +194,13 @@ refreshes; a provider that caches directory-derived state drops it for `dir` and
 
 Provider and parsing failures can otherwise remain errors. `get_asset_info` describes a
 recipe-backed asset and planning diagnostics; it does not prove that an evaluated or persisted value
-exists.
+exists. Its plan-derived flags (`is_volatile`, `expires`) and the built-in providers' `recipe_plan`
+come from one function, `interpreter::make_recipe_plan`: the recipe's plan for the key
+(`to_plan_for_key`), analysed as `make_plan` analyses a query, with no entry CWD (a keyed asset's
+run starts with none; the recipe's `cwd` is its `SetCwd` step). An analysis error, a cycle for one,
+is returned as `Err`; `get_asset_info` reports it as `is_error` with its message.
+`Recipe::plan_with_dependencies` is the same function, public so a provider outside
+`liquers-core` (a Python one) builds the same plan.
 
 `TrivialRecipeProvider` contains no recipes. `DefaultRecipeProvider` uses this logical layout:
 
@@ -865,11 +871,9 @@ not otherwise enforce this distinction.
 - Complete recipe application is a convention: `to_plan`, `finalize_plan`, setting the expiration and
   `apply_plan` must be sequenced by each environment —
   [`PLAN-EXPIRATION-REACHES-THE-CONTEXT-ONLY-THROUGH-APPLY-RECIPE`](../issues/PLAN-EXPIRATION-REACHES-THE-CONTEXT-ONLY-THROUGH-APPLY-RECIPE.md).
-- Provider plan APIs (`recipe_plan`; `Recipe::plan_with_dependencies`, the plan with dependency
-  analysis that the built-in providers' `recipe_plan` and `get_asset_info` build, public so a
-  provider outside `liquers-core` — a Python one — builds the same; `make_plan`, `finalize_plan`)
-  perform different subsets of analysis —
-  [`RECIPE-PLAN-ANALYSIS-RUNS-OUTSIDE-PLAN-BUILDING`](../issues/RECIPE-PLAN-ANALYSIS-RUNS-OUTSIDE-PLAN-BUILDING.md).
+- A recipe preview can report an asset non-volatile when its upstream runs a volatile command
+  (the run finds it volatile) —
+  [`UPSTREAM-COMMAND-VOLATILITY-INVISIBLE-TO-DEPENDENCY-WALK`](../issues/UPSTREAM-COMMAND-VOLATILITY-INVISIBLE-TO-DEPENDENCY-WALK.md).
 - Recipe overrides reach only the last action —
   [`RECIPE-OVERRIDE-ONLY-LAST-ACTION`](../issues/RECIPE-OVERRIDE-ONLY-LAST-ACTION.md).
 - The recipe circular-dependency fields are never set or read —
@@ -894,6 +898,7 @@ not otherwise enforce this distinction.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-03 | `get_asset_info` and `recipe_plan` build and analyse through `make_recipe_plan`, which returns an analysis error as `Err`; the "different subsets of analysis" limitation is resolved, and a command-volatile upstream limitation is filed. | `design/recipe-preview-shares-plan-analysis/` |
 | 2026-11-01 | §Planner instructions, `ns`: the lookup is a first-match chain, `ns` first then `default_namespaces`, which an environment may configure (`default_namespaces:`); `append_action` keeps generated queries portable. | `design/plan-default-namespaces/` |
 | 2026-11-01 | Known limitations: the plan `create_plan_with_init_metadata` builds is exposed as the public `Recipe::plan_with_dependencies`, used by providers outside the crate. | `design/liquers-py-recipes/` (phase-5) |
 | 2026-10-30 | §Composing providers rewritten for `design/recipe-provider-chain-config/`: every environment holds a chain built from a `recipes:` list; every member is asked (any `Err` fails, two owners is a `ConfigurationError` naming both); named members; entry types, factories and `resolve_recipes`; the manifest provider no longer reads `recipes.yaml`; `with_appended_recipe_entry`. §Selecting a provider by name: `RecipeProviderChoice` converts into `RecipesConfig`, and the closed set with no registration hook is replaced by entry types any crate can declare. | phase-5 (`design/recipe-provider-chain-config/`) |

@@ -2,7 +2,7 @@
 id: ROOT-LISTING-DEPENDENCY-KEY-HAS-TWO-SPELLINGS
 kind: issue
 title: The root directory listing dependency has two spellings, so a dependent that recorded one is never expired
-status: draft
+status: closed
 priority: P3
 complexity: S
 area: [core/assets]
@@ -52,3 +52,7 @@ Prototyping `design/search-read-dependencies` (2026-10-17): with the listing rea
 `Context::get_dependency_state(-R-dir)`, a root catalog stayed stale after a write at the root while
 `-R-dir/specs/issues` invalidated correctly. Related, closed:
 `DIRECTORY-LISTING-DEPENDENCY-IS-NEVER-REGISTERED-OR-CHECKED`, whose fix did not consider the root.
+
+## Resolution
+
+Closed 2026-11-03 by design `root-listing-dependency-key-spelling`, PR #246. The root listing is `-R-dir` and the root key `-R`; old spellings are canonicalized on load.
