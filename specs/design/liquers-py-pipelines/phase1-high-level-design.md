@@ -16,7 +16,7 @@ plan, with [`liquers-py-templates`](../liquers-py-templates/DESIGN.md) and
 - **Automatic fixing:** `not-eligible`: an `L` feature with new public Python classes.
 - **Leading issue:** none open. Source issue
   `PIPELINES-NOT-IN-LANGUAGE-BINDINGS` (P2 L), narrowed to Python; its JavaScript half is
-  `WEB-CANNOT-USE-PIPELINES`, filed with this design.
+  `WEB-CANNOT-USE-PIPELINES`, filed with this design and since closed by `web-pipelines`.
 - **Explanation:** the core API exists and is tested (`composite-command-definition`, complete):
   `Pipeline` with serde, `try_from(&Query)` and `to_query_with`, `interpreter::evaluate_pipeline`,
   `CommandRegistry::register_pipeline`, and `PipelineEditor` / `QueryEditor`. This design adds the

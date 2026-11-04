@@ -8,8 +8,8 @@ then implementation readiness and automatic-fix eligibility. `--check` verifies 
 > Merge-conflict recovery: keep either generated version while resolving the merge, then
 > run `python scripts/docs_index.py` after the merge and commit the regenerated `index.md`.
 
-Total rows: 223
-- P2: 66
+Total rows: 222
+- P2: 65
 - P3: 157
 
 | Issue | Kind | Title | Status | Readiness | Auto-fix | Priority | Complexity | Area | Design | Created |
@@ -71,7 +71,6 @@ Total rows: 223
 | [`EXTENDED-FAST-TRACK`](issues/EXTENDED-FAST-TRACK.md) | feature | A cheap query waits behind long-running jobs, because commands cannot be classified for scheduling | accepted | phase2-blocked | not-eligible | P2 | L | core/assets | [phase1](design/command-execution-class/phase1-high-level-design.md)  [phase2](design/command-execution-class/phase2-architecture.md)  | 2026-08-08 |
 | [`CORE-ONE-JOB-QUEUE-FOR-ALL-COMMANDS`](issues/CORE-ONE-JOB-QUEUE-FOR-ALL-COMMANDS.md) | issue | Every queued command shares one job queue, so commands cannot be placed by their cost | draft |  |  | P2 | L | core/assets |  | 2026-10-26 |
 | [`WEB-API-CANNOT-RUN-PIPELINES-OR-RECIPE-ENDPOINTS`](issues/WEB-API-CANNOT-RUN-PIPELINES-OR-RECIPE-ENDPOINTS.md) | feature | The web API cannot run a pipeline or recipe document, nor serve recipes as typed endpoints | draft |  |  | P2 | L | axum;core/assets;core/context;mcp |  | 2026-11-01 |
-| [`WEB-CANNOT-USE-PIPELINES`](issues/WEB-CANNOT-USE-PIPELINES.md) | feature | JavaScript cannot pass, evaluate or register pipelines | draft |  |  | P2 | L | web |  | 2026-11-04 |
 | [`WEB-UI-FREEZES-WHILE-A-QUERY-AWAITS`](issues/WEB-UI-FREEZES-WHILE-A-QUERY-AWAITS.md) | issue | The browser UI stops updating while any of its queries awaits a Promise | draft |  |  | P2 | L | lib/ui;core/assets;web |  | 2026-10-30 |
 | [`EXTERNAL-INDEX-HAS-NO-RECONCILIATION-CONTRACT`](issues/EXTERNAL-INDEX-HAS-NO-RECONCILIATION-CONTRACT.md) | feature | An external index, vector store or SQL mirror cannot be kept in sync with a record source | draft | needs-decision | not-eligible | P2 | XL | records;core/assets;lib/commands | [phase1](design/external-index-reconciliation/phase1-high-level-design.md)  [phase2](design/external-index-reconciliation/phase2-architecture.md)  [phase3](design/external-index-reconciliation/phase3-examples.md)  [phase4](design/external-index-reconciliation/phase4-implementation.md)  | 2026-10-21 |
 | [`NO-REMOTE-STORE-OR-ASSET-MANAGER`](issues/NO-REMOTE-STORE-OR-ASSET-MANAGER.md) | feature | A client environment cannot use a server's store or asset manager as its own | draft | needs-decision | not-eligible | P2 | XL | axum;web;core/assets;core/store | [phase1](design/remote-store-and-asset-manager/phase1-high-level-design.md)  [phase2](design/remote-store-and-asset-manager/phase2-architecture.md)  [phase3](design/remote-store-and-asset-manager/phase3-examples.md)  [phase4](design/remote-store-and-asset-manager/phase4-implementation.md)  | 2026-09-27 |
