@@ -279,6 +279,7 @@ drop, focus, pointer) are `issues/UI-EVENTS-HAVE-NO-POINTER-DRAG-OR-CHANGE-KINDS
 - **Python stores and recipe providers (stores and recipe providers written in Python, registered as store types and recipe provider types, `env.store`, `env.recipes`)** — built → [`reference/PYTHON_INTEGRATION.md`](reference/PYTHON_INTEGRATION.md) §9 and §10, [`guides/PYTHON_GUIDE.md`](guides/PYTHON_GUIDE.md) §4 A store written in Python and §6 Recipe providers written in Python; designs [`design/liquers-py-store/`](design/liquers-py-store/), [`design/liquers-py-recipes/`](design/liquers-py-recipes/)
 - **Python records, type declarations and release wheels (M5: `lq.RecordView` / `RecordSource`, `.pyi` checked by stubtest, wheels from GitHub Actions)** — built (first PyPI release pending, `PY-NO-PUBLISHED-WHEELS`) → [`reference/PYTHON_INTEGRATION.md`](reference/PYTHON_INTEGRATION.md) §11 Records, §12 Packaging and §13 Type declarations, [`guides/PYTHON_GUIDE.md`](guides/PYTHON_GUIDE.md) §1 Installing, §7 Records and §9 Type checking, [`reference/RECORD_STREAMS.md`](reference/RECORD_STREAMS.md) §Arrow IPC (`liquers.origins`) and `read_chunk`; release workflow `.github/workflows/liquers-py-release.yml`; designs [`design/liquers-py-records/`](design/liquers-py-records/), [`design/liquers-py-stubs/`](design/liquers-py-stubs/), [`design/liquers-py-package/`](design/liquers-py-package/)
 - **Language-binding tests in CI (liquers-py on 3.10, 3.14, 3.14t; liquers-web under Node)** — built → `.github/workflows/liquers-py-tests.yml`, `.github/workflows/liquers-web-tests.yml`; [`reference/PYTHON_INTEGRATION.md`](reference/PYTHON_INTEGRATION.md) §8; design [`design/language-binding-tests-in-ci/`](design/language-binding-tests-in-ci/)
+- **Python pipelines, templates and data nodes (M6: evaluate, convert, edit and register pipelines; `env.render` / `expand`, template commands; `dict`s read in place as data nodes)** — designing → [`design/liquers-py-pipelines/`](design/liquers-py-pipelines/), [`design/liquers-py-templates/`](design/liquers-py-templates/), [`design/liquers-py-data-nodes/`](design/liquers-py-data-nodes/) *(core prerequisites, approved, each its own PR first: [`design/ad-hoc-closure-asset/`](design/ad-hoc-closure-asset/), [`design/template-render-in-env/`](design/template-render-in-env/), [`design/foreign-value-data-node/`](design/foreign-value-data-node/))*
 - **`repr` of `Key`, `Expires` and `ExpirationTime` evaluates back (`Key('data/a.txt')`)** — built → `liquers-py/src/query.rs` `quoted`; design [`design/py-encoded-reprs/`](design/py-encoded-reprs/) *(`Query` and the other classes: [`design/py-python-style-reprs/`](design/py-python-style-reprs/))*
 - **Executor-agnostic core** — planned → [`issues/CORE-TOKIO-REMOVAL.md`](issues/CORE-TOKIO-REMOVAL.md)
 - **Browser stores (localStorage, fetch, JS, routing)** — built → [`design/liquers-web-store/`](design/liquers-web-store/) *(conformance gaps closed: [`design/web-store-conformance-tests/`](design/web-store-conformance-tests/))*
@@ -422,7 +423,6 @@ deliberately folded behind a broader line.
 - design `external-manager-evaluation-session-sharing`
 - design `external-manager-replacement-surface`
 - design `finished-asset-progress-contract`
-- design `foreign-value-data-node`
 - design `foreign-value-text-json-delegation`
 - design `foreign-value-type-registration`
 - design `front-matter-yaml-agreement`
@@ -592,7 +592,6 @@ deliberately folded behind a broader line.
 - design `template-diagnostics-namespace-scope`
 - design `template-editor-ui`
 - design `template-non-scalar-text-form`
-- design `template-render-in-env`
 - design `template-syntax-highlighter`
 - design `temporary-asset-never-run-leak`
 - design `temporary-asset-unique-id`
@@ -632,6 +631,7 @@ deliberately folded behind a broader line.
 - design `web-records-single-cell-scalar`
 - design `web-value04-bytes-identifier`
 - design `workspace-rustfmt-check`
+- feature `AD-HOC-ASSET-CANNOT-RUN-A-CLOSURE`
 - feature `AGENT-CANNOT-PROPOSE-A-COMMAND`
 - feature `AGENT-MEMORY-HAS-NO-INDEXES-OR-CONTEXT-PACKS`
 - feature `AGENT-MEMORY-HAS-NO-MIGRATE-COMMAND`
@@ -669,8 +669,11 @@ deliberately folded behind a broader line.
 - feature `NO-TEMPLATE-EDITOR-UI`
 - feature `NO-WRITE-PATH-FROM-RECORDS-INTO-A-RELATIONAL-DATABASE`
 - feature `PIPELINES-NOT-IN-LANGUAGE-BINDINGS`
+- feature `PY-CANNOT-RENDER-TEMPLATES`
 - feature `PY-COMMAND-DECORATOR-CANNOT-DECLARE-ARGUMENT-METADATA`
 - feature `PY-COMMAND-DECORATOR-CANNOT-SET-REALM`
+- feature `PY-HAS-NO-VALIDATING-QUERY-EDITOR`
+- feature `PY-STRUCTURES-ARE-OPAQUE-TO-DATA-NODE-READERS`
 - feature `QUERY-BUILDER-NOT-IN-BINDINGS`
 - feature `QUERY-CANNOT-CHOOSE-A-DATA-FORMAT`
 - feature `QUERY-CANNOT-MARK-CACHED-INTERMEDIATES`
@@ -709,6 +712,7 @@ deliberately folded behind a broader line.
 - feature `VALUE-TYPE-DEFINITION-MACRO`
 - feature `WEB-API-CANNOT-RUN-PIPELINES-OR-RECIPE-ENDPOINTS`
 - feature `WEB-API-REFERENCE-NOT-GENERATED`
+- feature `WEB-CANNOT-USE-PIPELINES`
 - feature `WEB-HAS-NO-READ-WRITE-REMOTE-STORE`
 - feature `WEB-HAS-NO-TEMPLATE-COMMANDS`
 - feature `WEB-PAGE-CANNOT-PASS-A-PIPELINE-VALUE`

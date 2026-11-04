@@ -1,19 +1,22 @@
 ---
 id: QUERY-BUILDER-IN-BINDINGS
 kind: design
-title: Python and JavaScript expose the core query builder
+title: JavaScript exposes the core query editors
 form: compact
 status: in_review
-phase: implementation
+phase: high-level
 readiness: needs-decision
 autofix: not-eligible
-area: [py, web, core/query]
+area: [web, core/query]
 issues: [QUERY-BUILDER-NOT-IN-BINDINGS]
 created: 2026-10-27
 ---
 # Python and JavaScript expose the core query builder
 
 Bulk design, 2026-10-27: Phases 1-4 written, not approved, nothing implemented.
+
+**Narrowed to JavaScript on 2026-11-04** (Scope Changes below). Its Python parts are stale until a
+revision removes them.
 
 ## Phase 1: High-Level Design
 
@@ -114,6 +117,17 @@ sources).
   list that guide. This design updates the paragraph and adds the conformance test `OBJECT10`.
 - Python's `ActionRequest.from_arguments` leaves the action name unchecked; `action_request` is the
   checked path. `from_arguments` stays as it is (changing it would be a second interface change).
+
+### Scope Changes
+
+- **2026-11-04** — narrowed to `liquers-web`. The core `QueryBuilder` this design wraps was replaced
+  by `QueryEditor` / `PipelineEditor` (`composite-command-definition`), and the Python half moved
+  to `liquers-py-pipelines` (issue `PY-HAS-NO-VALIDATING-QUERY-EDITOR`), approved by Orest at that
+  design's Phase 1 gate. Before implementation this design must be re-based on `QueryEditor`; every
+  Python criterion and step below is void. Readiness stays `needs-decision`. Phases: all, at the
+  next revision. **Open design question — scope approval:** whether the narrowed design returns
+  to Phase 1 for a rewrite over `QueryEditor` (recommended) or is closed and re-designed from
+  `QUERY-BUILDER-NOT-IN-BINDINGS` when `liquers-web` work starts. `phase` is set to `high-level`.
 
 ## Phase 2: Architecture
 
