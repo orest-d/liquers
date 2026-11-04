@@ -142,7 +142,8 @@ Python members: `kind`; `scalar` (`None` for a non-scalar; `Scalar::UInt` gives 
 /// An awaitable of a closure asset's run (`ClosureAsset::run`). The run is spawned as its own task
 /// on the liquers-py runtime, so it always runs to its end (dropping a run is not cancelling it,
 /// `ad-hoc-closure-asset`). The awaitable waits for the task; on shutdown it cancels `asset` and
-/// then waits for the task. Cancelling the awaitable ends only the wait (the M3 rule).
+/// then waits for the task. Cancelling the awaitable cancels `asset` too: it is private to the
+/// call, so nobody else waits for it; a shared asset the run waited for is not cancelled (M3 rule).
 pub(crate) fn awaitable_run<'py, T: Send + 'static>(py: Python<'py>, shut: &Arc<Shut>,
     asset: AssetRef<PyEnvironment>,
     run: impl Future<Output = Result<Option<T>, Error>> + Send + 'static,
