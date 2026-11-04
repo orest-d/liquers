@@ -27,7 +27,7 @@ Rejected:
 
 | Issue | Status | Priority | Impact on this design | Fix first? | Blocking? | Action |
 |---|---|---|---|---|---|---|
-| `FOREIGN-VALUE-HAS-NO-DATA-NODE` (design `foreign-value-data-node`) | draft, design ready | P2 | The hook `PyObjectValue` overrides | Yes | Yes | Own PR first (step 1 of Phase 4) |
+| `FOREIGN-VALUE-HAS-NO-DATA-NODE` (design `foreign-value-data-node`) | draft, design ready | P2 | The hook `PyObjectValue` overrides | Yes | Yes | Implemented in its own PR, #250 (open, `claude/project-thread-bz06gt-foreign-data-node`); merged before this design's PR |
 | `AD-HOC-ASSET-CANNOT-RUN-A-CLOSURE` (design `ad-hoc-closure-asset`) | draft, design approved | P2 | `env.data_node` async reads | Yes | Yes, for AC-12 only | Own PR first |
 | `COMBINED-VALUE-DATA-NODE-COPIES-BASE-VALUE` | draft | P3 | `lq.data_node(state)` of a large base value copies it once | No | No | Documented cost |
 | `TEMPLATE-NON-SCALAR-HAS-NO-TEXT-FORM` | draft | P3 | An `lq.Query` / `lq.Key` member renders as JSON | No | No | Phase 1 overlap; unchanged here |

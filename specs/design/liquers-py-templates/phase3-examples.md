@@ -1,27 +1,101 @@
 # Phase 3: Examples & Use-cases — liquers-py-templates
 
 ## Overview Table
-| # | Kind | Name | Shows / checks | Scenarios |
-|---|---|---|---|---|
-| 1 | Example | <primary scenario> | | AC-1 |
-| 2 | Test | `<crate>::<module>::tests::<test_name>` | | AC-1, AC-2 |
 
-## Example 1: <primary scenario>
-<Context in two sentences; the steps through the components; the core code only (no incidental
-setup); the expected result. Medium complexity, defaults unless a non-default is the point.>
+| # | Kind | Name | Scenarios |
+|---|---|---|---|
+| 1 | Example | Expand and render from a script | AC-1, AC-2, AC-12 |
+| 2 | Example | A template command and a render inside a command | AC-4, AC-6, AC-11 |
+| 3 | Test | `liquers-py/tests/test_TEMPLATE_top_level.py` | AC-1, AC-2, AC-7, AC-8, AC-12, AC-13 |
+| 4 | Test | `liquers-py/tests/test_TEMPLATE_commands.py` | AC-3, AC-4, AC-5, AC-6, AC-10, AC-11, AC-13 |
+| 5 | Test | `liquers-py/tests/test_TEMPLATE_validate.py` | AC-9 |
 
-## Example 2: <secondary scenario>
-<What it adds beyond Example 1; show only the delta.>
+**Validated queries** (`liquers-validate --command hello --command number --command report
+--command greeting --command page --command outer --command inner --command tick`; all `Ok`, each
+`encoded` equal to its source):
+1. `hello/ns-template/render-~X~-R/templates/greet.md~E`
+2. `-R/templates/greet.md/-/ns-template/validate`
+3. `hello/greeting`, `hello/greeting/page.html`
+4. `number-42`, `report/out.txt`, `outer`
+5. `-R-cwd/templates/-/page`
+
+Test commands, declared by the tests: `hello` (source, returns `"hello"`), `number(n)` (source,
+returns `n`), `tick` (counts its calls), `report`, `page`, `inner`, `outer`.
+Store fixture: `templates/greet.md` = `Hello, {{.}}!`, `templates/header.md` = `Header`,
+`templates/page.md` = `{{> ./header.md}} body`, `d/count.txt`.
+
+## Example 1: expand and render from a script
+
+Each call builds a `RenderRequest` and runs it in a closure asset, waiting with the GIL released.
+
+```python
+import liquers as lq
+env = lq.Environment()
+# … the fixture and `number` …
+assert env.expand("{{name}} has {{$ number-42}}", data={"name": "Ann"}) == "Ann has 42"  # AC-1
+greet = lq.parse_query("-R/templates/greet.md")
+assert env.render(greet, state="hello") == \
+    env.evaluate("hello/ns-template/render-~X~-R/templates/greet.md~E")                # AC-2
+assert env.render("{{a}}{{b}}", state={"a": 1}, data={"b": 2}) == "12"                  # AC-12
+r = env.expand("ok\n{{$ missing_command}}", errors="silent", full=True)                  # AC-7
+assert r.text == "ok\n" and len(r.warnings) == 1 and r.warnings[0].position.line == 2
+```
+
+## Example 2: a template command, and a render inside a command
+
+```python
+env.template_command("greeting", template="-R/templates/greet.md")       # no function (AC-4)
+assert env.evaluate("hello/greeting") == "Hello, hello!"
+d = env.command_metadata("greeting").definition
+assert d.kind == "alias" and d.alias_of.name == "render" and d.head_parameters[0] == greet
+
+@env.command
+def page(context, cwd: lq.Key = lq.link("-R-key/.")) -> str:             # AC-11
+    return context.render(lq.parse_query("-R/templates/page.md"), cwd=cwd)
+assert env.evaluate("-R-cwd/templates/-/page") == "Header body"
+assert env.render(lq.parse_query("-R/templates/page.md"),
+                  cwd=lq.parse_key("templates")) == "Header body"
+```
+
+`report` renders `{{$ -R/d/count.txt}}` with `context.render`; after `d/count.txt` is rewritten,
+`report/out.txt` gives the new count, because the query tag was a dependency of `report` (AC-6).
 
 ## Edge and Error Cases
-<Only those Phase 2's risks make relevant: errors, empty or large input, concurrency, serialization
-round-trip, persistence, bindings, feature flags. Symptom → expected behaviour → test.>
+
+| Symptom | Expected | Test |
+|---|---|---|
+| `strict` render with a failing tag on line 2 | `lq.LiquersError` with position line 2, column 1 | `test_strict_raises_with_position` |
+| Text that does not parse | raises before any asset; no asset in `env` | `test_parse_error_raises_early` |
+| `data=[1, 2]` | `TypeError` | `test_data_must_be_a_mapping` |
+| `{{v}}` with `"<b>"`, `html=True` and without; `hello/greeting/page.html` | `&lt;b&gt;`, `<b>`; the command escapes | `test_escaping_is_explicit` |
+| `outer` expands `[{{$ inner}}]`, `inner` expands `{{x}}`, under 5 s | `[in]` | `test_nested_python_renders` |
+| A sync `render` inside an `async def` command | raises as `evaluate` does | `test_sync_form_in_async_command_raises` |
+| A render rewritten after `template_command` redeclares `greeting` | the new alias wins, at once and after a rebuild | `test_template_command_survives_rebuild` |
+| `template_command` with a template link to a non-text value | the evaluation raises `lq.ConversionError` | `test_template_link_must_be_text` |
+| `KeyboardInterrupt` during a top-level render whose tag waits | the closure asset ends `Cancelled` | `test_interrupt_cancels_the_render` |
+| `declare` cost | measured, recorded in the Learning Log | `test_declare_cost` |
 
 ## Test Plan
-- Unit: `<file>` — `<test_name>` (AC-1): <what it asserts>
-- Integration: `<tests/file.rs>` — `<test_name>` (AC-2): <what it asserts>
-- Command to run: `<cargo test ...>`
+
+- `test_TEMPLATE_top_level.py`: `test_expand_over_a_dict` (AC-1);
+  `test_calls_match_the_commands` (AC-2); `test_strict_raises_with_position`,
+  `test_recovering_modes_warn` (AC-7); `test_escaping_is_explicit` (AC-8);
+  `test_two_frames_at_top_level` (AC-12); `test_async_forms_agree` (AC-13);
+  `test_parse_error_raises_early`, `test_data_must_be_a_mapping`,
+  `test_interrupt_cancels_the_render` (AC-12).
+- `test_TEMPLATE_commands.py`: `test_builtin_commands` (AC-3);
+  `test_template_command_needs_no_function`, `test_template_command_survives_rebuild` (AC-4);
+  `test_editing_the_template_invalidates` (AC-5); `test_in_command_render_records_dependencies`
+  (AC-6, AC-13 with `render_async`); `test_nested_python_renders` (AC-10);
+  `test_link_default_cwd` (AC-11); `test_sync_form_in_async_command_raises` (AC-13);
+  `test_template_link_must_be_text` (AC-4); `test_declare_cost` (AC-4).
+- `test_TEMPLATE_validate.py`: `test_validation_runs_nothing` (AC-9): `tick` never runs, one
+  `lq.Diagnostic` with severity, message, line and column.
+- Run: `bash scripts/test-liquers-py.sh`.
 
 ## Learning Log
-<Guide-worthy workflows and snippets (with the test or example that proves them), corrected
-assumptions, surprises. Phase 5 draws on this.>
+
+- A Python render and the `ns-template/render` command share `render_in_context`, so AC-2 tests the
+  argument mapping, not two renderers.
+- A link default is just a `{"Query": …}` default in the declaration document; the interpreter
+  already resolves it, so `lq.link` needs no change in the call path.
