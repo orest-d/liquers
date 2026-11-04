@@ -96,6 +96,10 @@ metadata is a dependency too. The arguments after the head line up with `render`
 `template_command_alias_renders` and `template_command_invalidates_on_template_edit` in
 `liquers-lib/tests/template_commands.rs`.
 
+From Python the same declaration is one call, `env.template_command("open_issues",
+template="-R/templates/open_issues.md", label="Open issues")`, kept across rebuilds of the
+environment (`PYTHON_GUIDE.md` §Templates).
+
 Write a template command rather than a Rust one when the result is text assembled from other
 queries; write Rust when it computes.
 
@@ -156,6 +160,7 @@ stack, query templates, hosts and error modes are shared.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-04 | §3: the Python form of a template command (`env.template_command`). | `design/liquers-py-templates/` |
 | 2026-11-04 | §5: a retained language object reads in place through `ForeignValue::data_node` (liquers-py). | `design/liquers-py-data-nodes/` |
 | 2026-11-04 | §4: `render_in_context` and `render_top_level` with frames given directly. | `design/template-render-in-env/` |
 | 2026-10-17 | Volatility advice relaxed: a volatile query in a template makes the render volatile by itself. | `design/runtime-volatility` |

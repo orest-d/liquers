@@ -217,6 +217,10 @@ an ordinary query, so `dir: Key = query "-R-key/./config"` yields
 recipe. Freezing resolves the relative part against the entry CWD before the link is
 evaluated (see [`RECIPES_AND_PLANS.md`](../reference/RECIPES_AND_PLANS.md#freezing), "Freezing").
 
+From Python, a default link is `lq.link(query)`:
+`def where_am_i(state, dir: lq.Key = lq.link("-R-key/."), context=None)` declares the same
+default (`PYTHON_GUIDE.md` §Templates). A plain string default stays a value.
+
 Three properties follow, and they are the reason to prefer this over ambient state:
 
 - **Explicit.** The dependency appears in the plan and in the asset's dependency
@@ -1122,6 +1126,7 @@ only) action is that command ([`AGENT_MEMORY_SERVICE.md`](../reference/AGENT_MEM
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-04 | Default links from Python: `lq.link(query)`. | `design/liquers-py-templates/` |
 | 2026-11-04 | New §Registering a pipeline command. | phase-5, `design/composite-command-definition/` |
 | 2026-10-20 | Links to `reference/api/DOC_08_RECIPES_PLANS.md` follow its promotion to `reference/RECIPES_AND_PLANS.md`. | DOC-08 promotion |
 | 2026-10-19 | §5 *Commands served as MCP tools*: one command per tool, state as a structurally filled key argument, relative defaults hidden, notes beside the value, read-only allow-lists. | `design/agent-memory-mvp/` Phase 5 |

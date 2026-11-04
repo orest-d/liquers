@@ -77,7 +77,9 @@ The public names, by purpose:
 | Running queries | `Environment`, `default_environment`, `evaluate`, `AssetRef`, `State` |
 | Tables | `RecordView`, `RecordColumn`, `RecordBuffer`, `RecordSchema`, `FieldSchema`, `FieldType`, `KeyRole`, `ChunkOrigin`, `RecordSource`, `RecordStream`, `RecordChunk` |
 | The package | `require`, `__version__` |
-| Writing commands | `command`, `first_command`, `Context` |
+| Writing commands | `command`, `first_command`, `Context`, `link` |
+| Templates | `Environment.render` / `expand` / `template_command`, `RenderResult`, `Diagnostic` |
+| Reading data in place | `data_node`, `DataNode`, `NodeKind` |
 | Errors | `LiquersError`, `KeyNotFoundError`, `ExecutionError`, … (one per `ErrorType`), `ErrorType` |
 | Results' metadata | `Metadata`, `MetadataRecord`, `AssetInfo`, `Status`, `LogEntry`, `LogEntryKind`, `Version` |
 | The query language | `parse`, `parse_key`, `Query`, `Key`, `ActionRequest`, `ActionParameter`, the segment classes, `Position` |
@@ -729,6 +731,72 @@ canonical text. `env.validate()` lists the problems the registered commands and 
 would cause, as `lq.Issue` objects, without building the environment. It does not check the store
 configuration, which only the first use does.
 
+### Templates
+
+Liquers templates are Mustache with query tags: `{{name}}` reads data, `{{$ query}}` evaluates a
+query, `{{> key}}` includes another template (`TEMPLATE_GUIDE.md`). Render one from a script, or
+make a command of it.
+
+```python
+import liquers as lq
+
+env = lq.Environment()
+
+@env.first_command
+def number(n: int) -> int:
+    return n
+
+env.store_set("templates/greet.md", "Hello, {{.}}!")
+assert env.expand("{{name}} has {{$ number-42}}", data={"name": "Ann"}) == "Ann has 42"
+greet = lq.parse("-R/templates/greet.md")                       # a link to the template
+assert env.render(greet, state="Ann") == "Hello, Ann!"           # state is {{.}}
+assert env.render("{{a}}{{b}}", state={"a": 1}, data={"b": 2}) == "12"
+
+result = env.expand("ok\n{{$ missing}}", errors="silent", full=True)
+assert result.text == "ok\n" and result.warnings[0].position.line == 2
+assert env.validate_template("{{$ missing}}")[0].severity == "error"   # nothing runs
+
+env.template_command("greeting", template="-R/templates/greet.md")     # no function needed
+assert env.evaluate("number-7/greeting") == "Hello, 7!"
+env.shutdown()
+```
+
+`template` is the text (a `str`) or a link (an `lq.Query`, or an `lq.Key`). `render` puts `state`
+at the bottom (`{{.}}`) and `data` above it as names; `expand` takes `data` as the context. `data`
+is read in place, so a `dict` holding a `datetime` still renders its other fields. `errors`
+chooses what a failing tag does: `"strict"` raises, with the tag's position; `"expand"`,
+`"expand_html"`, `"expand_md"` write the error in its place; `"silent"` drops it. Every recovered
+error is a warning, returned with `full=True`. `html=True` escapes substituted text; a call never
+escapes on its own, while a template command does when its result is `.html`.
+
+At the top level a render runs as an asset of its own, so Ctrl-C cancels it. Inside a command,
+`context.render` and `context.expand` run in the command's context: the queries the template
+evaluates become the command's dependencies, so its result is recomputed when they change. In an
+`async def` command use `render_async` / `expand_async`.
+
+A template command is kept across every change to the environment; registering a Python command
+under the same name replaces it, and the other way round. `env.command_metadata("greeting")
+.definition.kind` is `"alias"`.
+
+Relative keys in a template resolve against `cwd`. Inside a command, take the command's own folder
+as a default link argument with `lq.link`:
+
+```python
+import liquers as lq
+
+env = lq.Environment()
+env.store_set("templates/header.md", "Header")
+env.store_set("templates/page.md", "{{> ./header.md}} body")
+
+@env.command
+def page(state, cwd: lq.Key = lq.link("-R-key/."), context=None) -> str:
+    return context.render(lq.parse("-R/templates/page.md"), cwd=cwd)
+
+assert env.evaluate("-R-cwd/templates/-/page") == "Header body"
+assert env.render(lq.parse("-R/templates/page.md"), cwd=lq.parse_key("templates")) == "Header body"
+env.shutdown()
+```
+
 ## 7. Values
 
 Values cross between Python and Liquers by kind:
@@ -1072,6 +1140,7 @@ What you will notice; the complete list, with the tracking issues, is
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-04 | §6 Templates: `render`, `expand`, `validate_template`, `template_command`, `lq.link`; §2 the new names. | `design/liquers-py-templates/` |
 | 2026-11-04 | §7 Reading data field by field: `lq.data_node`, the `__liquers_data__` opt-in, states read in place, async folder reads. | `design/liquers-py-data-nodes/` |
 | 2026-11-02 | The generated API reference: where it is published and how to build it. | design `py-api-reference` |
 | 2026-11-01 | §1 Installing: from source until the first release, then pip; the extras and where they install nothing; §7 Records (views, `fields=`, buffers, pyarrow/pandas/polars, sources); §9 Type checking; §10 updated. | `design/liquers-py-records/`, `design/liquers-py-package/`, `design/liquers-py-stubs/` (phase-5) |

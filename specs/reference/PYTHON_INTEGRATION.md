@@ -20,7 +20,8 @@ and [`design/liquers-py-recipes/`](../design/liquers-py-recipes/DESIGN.md); for 
 and type declarations, [`design/liquers-py-records/`](../design/liquers-py-records/DESIGN.md),
 [`design/liquers-py-package/`](../design/liquers-py-package/DESIGN.md) and
 [`design/liquers-py-stubs/`](../design/liquers-py-stubs/DESIGN.md); for data nodes,
-[`design/liquers-py-data-nodes/`](../design/liquers-py-data-nodes/DESIGN.md).
+[`design/liquers-py-data-nodes/`](../design/liquers-py-data-nodes/DESIGN.md); for templates,
+[`design/liquers-py-templates/`](../design/liquers-py-templates/DESIGN.md).
 
 ## 1. Layout
 
@@ -74,6 +75,7 @@ frozen; the others hold their own copy of the value.
 | `Context`, `AssetRef` | a command's context and an asset reference, each watching its environment's shut flag |
 | `State` | a snapshot of a value and a copy of its metadata; `value` converts to Python on first access (§5), `record_view()` gives the record view behind it, or `None`, and `data_node()` reads it in place (§14) |
 | `NodeKind`, `DataNode`, `data_node` | a data node's kind, a view of one, and the function making a view (§14) |
+| `RenderResult`, `Diagnostic`, `Link`, `link` | a render's text with its warnings, a template problem, and a default link argument (§15) |
 | `RecordView`, `RecordColumn`, `RecordBuffer`, `RecordSchema`, `FieldSchema`, `FieldType`, `KeyRole`, `ChunkOrigin`, `RecordSource`, `RecordStream`, `RecordChunk` | `liquers_records` views, sources and schema types (§11) |
 
 `Plan.to_json` / `to_yaml` and `Plan.from_json` / `from_yaml` round-trip within one version
@@ -163,6 +165,8 @@ under a lock.
 | `validate()` | the issues the next build would meet, as `lq.Issue` |
 | `evaluate_async(query)`, `evaluate_state_async(query)`, `get_asset_async(query)`, `store_set_async(key, data)` | the same, awaitable (§7) |
 | `data_node(x)` | `x` as an `lq.DataNode` read at the top level; a folder or record source state reads with `_async` (§14) |
+| `render(template, state=None, data=None, …)`, `expand(template, data=None, …)`, their `_async` forms, `validate_template(text)` | templates at the top level (§15) |
+| `template_command(name, template, …)` | declares a template command (§15) |
 | `shutdown()` | stops the environment |
 | `live_handle_count()` | static, `debug-handles` only: Python callables held by every environment's registrations |
 
@@ -255,7 +259,8 @@ log. An `error` entry also fails the evaluation: the command keeps running, and 
 the query raises `ExecutionError` with the first such message, whatever the command returned
 (`Context::error` in core). `is_cancelled()` reads the asset's cancellation flag.
 `evaluate_async(query)` is the awaitable `evaluate`, for `async def` commands. `data_node(x)` gives `x` as an
-`lq.DataNode`, a state read through this context (§14).
+`lq.DataNode`, a state read through this context (§14). `render`, `expand`, their `_async` forms
+and `validate_template` render in the command's context (§15).
 
 ## 5. Values
 
@@ -826,10 +831,64 @@ shared asset the read was waiting for (a file it reads) is not cancelled (§7).
 **Open problems.** `ASYNC-DATA-NODE-HAS-NO-KEYS`. A 10 000-entry `dict` rendered with a section
 takes about 0.2 s in a debug build, one GIL hold per lookup.
 
+## 15. Templates
+
+The `ns-template` commands are in the built-in set (`builtins.rs`). On top of them, `template.rs`
+adds programmatic rendering on two receivers with one signature, and `declared.rs` template
+commands.
+
+**Calls.** `render(template, state=None, data=None, *, errors="strict", cwd=None, html=False,
+full=False)` and `expand(template, data=None, …)` on `Environment` and on `Context`, each with an
+`_async` form; `validate_template(text)` on both.
+
+| Argument | Meaning |
+|---|---|
+| `template` | a `str` is the text; an `lq.Query` is a link; an `lq.Key` is the link `-R/<key>`. Anything else: `TypeError` |
+| `state` (`render`) | the bottom frame (`{{.}}`, `_meta`): an `lq.State` as it is, any other value converted (refused by `conversion="strict"`: `TypeError`) |
+| `data` | read in place (§14), must read as a map (`TypeError` otherwise); `render` puts it above `state` as names, `expand` makes it the context |
+| `errors` | `ErrorMode::parse`: `strict`, `expand`, `expand_html`, `expand_md`, `silent`; another word raises `GeneralError` |
+| `cwd` | an `lq.Key` relative keys resolve against (queries, partials, the link); `None` is the root |
+| `html` | escape substituted text. A call never infers it; a command does, from its result's extension |
+| `full` | return an `lq.RenderResult` (`text`, `warnings`) instead of the text |
+
+A top-level call runs `render_top_level`: a closure asset titled `template render`
+(`ASSETS.md` §Closure assets), so its tags are dependencies of an asset and recovered errors are
+warnings in that asset's log as well as in the result. Text that does not parse raises before the
+asset exists. The sync wait is `closure.rs` `wait_for_run`: the run is a task of its own; Ctrl-C or
+`shutdown()` cancels the asset and waits up to `STOP_GRACE` for the run to settle, without checking
+signals again, then raises `KeyboardInterrupt` or `CancelledError`. The async form is
+`awaitable_run` (§14); cancelling the awaiting task cancels the render. A render cancelled before
+it started raises `CancelledError`. Inside a command, the call runs `render_in_context` with the
+command's own context, so its tags are the command's dependencies; it waits like `evaluate`, and
+the sync form raises in an `async def` command.
+
+**Template commands.** `template_command(name, template, *, namespace="", label=None, doc=None,
+filename=None)` declares an alias of `template/render` whose head is the link `template` (a query
+`str`, an `lq.Query`, or an `lq.Key`; never text), with the target's remaining arguments `data`,
+`errors` and `cwd` (default `-R-key/.`). It is kept in the handle's declarations (`declared`) and
+applied at every build after the Python commands, so a rebuild keeps it. The last registration
+under a key wins, Python or declared, and the decorator warns `replaces a declared command`;
+`unregister` removes one. `declare` first builds a trial registry and runs its validation, so a
+declaration that would not build raises and changes nothing (about 20 ms per call in a debug build).
+`CommandMetadata.definition` reads it back: `kind` (`registered`, `alias`, `pipeline`),
+`alias_of`, `head_parameters` (a link as an `lq.Query`), `pipeline`.
+
+**Default links.** `lq.link(query)` as a parameter default declares a default link, the value of
+`query` when the argument is not written: `cwd: lq.Key = lq.link("-R-key/.")`. The decorator keeps
+the `lq.Link` in the declaration document, and `py_to_json` writes it as `{"Query": …}`, which the
+declaration pipeline reads as `CommandParameterValue::Query`. A string default stays a value.
+
+**Open problems.** A command made by the older `pycall` route reports `kind == "alias"` with a
+target that is not registered (`PY-ADD-PYTHON-COMMAND-STILL-DECLARES-PYCALL-ALIASES`); a declared
+command has no realm, as decorated ones have none (`PY-COMMAND-DECORATOR-CANNOT-SET-REALM`);
+`validate_template` may report a command quoted inside a `q` instruction
+(`TEMPLATE-DIAGNOSTICS-CHECK-COMMANDS-A-Q-QUOTES`).
+
 ## History
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-04 | §15 Templates (the calls on both receivers, the top-level closure asset and its waits, template commands as declarations, `lq.link`, `CommandDefinition` accessors); §2, §3 and §4 list the new names. | `design/liquers-py-templates/` |
 | 2026-11-04 | §14 Data nodes (Python data read in place, `lq.DataNode` views and their roots, async reads); §5 `State.value` converts on first access; §2 and §3 list the new names. | `design/liquers-py-data-nodes/` |
 | 2026-11-02 | §8: the generated API reference exists (pdoc, published on the documentation site); the limitation is lifted. | design `py-api-reference` |
 | 2026-11-01 | §11 Records (classes, crossing, building with `fields=`, Arrow/pandas/polars routes, buffers, where a source reads, traversal and its blocking-call messages), §12 Packaging (version, wheels, extras and `require`'s import-first rule, native requirements, the release pipeline and its approval), §13 Type declarations; §1, §2, §5 and §8 updated: records cross to Python, type stubs exist and release wheels are built. | `design/liquers-py-records/`, `design/liquers-py-package/`, `design/liquers-py-stubs/` (phase-5) |
