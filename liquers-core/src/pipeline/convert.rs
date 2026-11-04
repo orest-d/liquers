@@ -1533,4 +1533,4 @@ fn last_action_mut(p: &mut Pipeline) -> Option<(String, &mut ActionElement)> {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

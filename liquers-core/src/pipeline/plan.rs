@@ -41,7 +41,7 @@ pub enum PlanningMode {
 
 /// The mode every entry point uses. `Delegate` until the dual-mode test is green on the whole
 /// corpus; switching is this one line.
-pub const DEFAULT_PLANNING_MODE: PlanningMode = PlanningMode::Delegate;
+pub const DEFAULT_PLANNING_MODE: PlanningMode = PlanningMode::Native;
 
 /// Builds a [`Plan`] from a query or a pipeline (`specs/design/composite-command-definition/`).
 #[derive(Debug, Clone)]
@@ -103,9 +103,30 @@ impl<'c> PipelinePlanBuilder<'c> {
             PlanningMode::Native => {
                 let pipeline = Pipeline::try_from(query)?;
                 let mut asm = PlanAssembly::new(self.cmr);
-                self.plan_elements(&mut asm, &pipeline.realm, &pipeline.elements, true)?;
+                let top = |elements: Vec<PipelineElement>| Pipeline {
+                    elements,
+                    filename: None,
+                    ..pipeline.clone()
+                };
+                let mut state = NativeState {
+                    prefixes: unit_prefixes(query),
+                    next: 0,
+                    last_unit_steps: 0,
+                };
+                self.native_elements(
+                    &mut asm,
+                    &pipeline.realm,
+                    &pipeline.elements,
+                    &top,
+                    &mut state,
+                )?;
                 if let Some(filename) = &pipeline.filename {
                     asm.push(Step::Filename(filename_step(filename)?));
+                }
+                if let Some(p) = recorded_predecessor(query) {
+                    asm.plan.predecessor =
+                        Some(crate::plan::promote_relative_default_links(&p, self.cmr)?);
+                    asm.plan.predecessor_steps = state.last_unit_steps;
                 }
                 asm.finish(query.clone())
             }
@@ -156,12 +177,10 @@ impl<'c> PipelinePlanBuilder<'c> {
         let mut prefix_open = open_prefix;
         let mut i = 0;
         while i < elements.len() {
-            if self.mode == PlanningMode::Delegate {
-                if let Some((end, query)) = self.longest_run(realm, &elements[i..]) {
-                    self.plan_run(asm, &query, prefix_open)?;
-                    i += end;
-                    continue;
-                }
+            if let Some((end, query)) = self.longest_run(realm, &elements[i..]) {
+                self.plan_run(asm, &query, prefix_open)?;
+                i += end;
+                continue;
             }
             self.plan_element(asm, realm, &elements[i])?;
             prefix_open = false;
@@ -181,7 +200,7 @@ impl<'c> PipelinePlanBuilder<'c> {
         })
     }
 
-    /// Plans a representable run with the query planner. After an element that has no query
+    /// Plans a representable run as a query (with the query planner in `Delegate` mode). After an element that has no query
     /// form, a run's prefixes do not name what ran, so its actions record no query.
     fn plan_run(
         &self,
@@ -190,14 +209,138 @@ impl<'c> PipelinePlanBuilder<'c> {
         prefix_open: bool,
     ) -> Result<(), Error> {
         let before = asm.plan.steps.len();
-        let taken = std::mem::replace(asm, PlanAssembly::new(self.cmr));
-        let (returned, result) = PlanBuilder::process_on(taken, query, self.allow_placeholders);
-        *asm = returned;
-        result?;
+        match self.mode {
+            PlanningMode::Delegate => {
+                let taken = std::mem::replace(asm, PlanAssembly::new(self.cmr));
+                let (returned, result) =
+                    PlanBuilder::process_on(taken, query, self.allow_placeholders);
+                *asm = returned;
+                result?;
+            }
+            PlanningMode::Native => {
+                let run = Pipeline::try_from(query)?;
+                let top = |elements: Vec<PipelineElement>| Pipeline {
+                    elements,
+                    filename: None,
+                    ..run.clone()
+                };
+                let mut state = NativeState {
+                    prefixes: unit_prefixes(query),
+                    next: 0,
+                    last_unit_steps: 0,
+                };
+                self.native_elements(asm, &run.realm, &run.elements, &top, &mut state)?;
+                if let Some(filename) = &run.filename {
+                    asm.push(Step::Filename(filename_step(filename)?));
+                }
+            }
+        }
         if !prefix_open {
             for step in asm.plan.steps[before..].iter_mut() {
                 if let Step::Action { query, .. } = step {
                     *query = None;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Plans the elements of a representable pipeline natively, as the query planner plans its
+    /// query (`Native` mode). `wrap` turns a prefix of `elements` into the whole pipeline up to
+    /// it, so every action records the prefix query it completes and the last one records its
+    /// predecessor, as [`PlanBuilder`] does.
+    fn native_elements(
+        &self,
+        asm: &mut PlanAssembly<'c>,
+        realm: &str,
+        elements: &[PipelineElement],
+        wrap: &dyn Fn(Vec<PipelineElement>) -> Pipeline,
+        state: &mut NativeState,
+    ) -> Result<(), Error> {
+        let prefix_of = |end: usize| -> Result<Query, Error> {
+            wrap(elements[..end].to_vec()).to_query_with(self.cmr)
+        };
+        // A `q` quotes everything before it: those elements never run (the last `q` wins).
+        let base = asm.plan.steps.len();
+        let start = match elements.iter().rposition(|e| e.item == ElementKind::Quote) {
+            Some(q) => {
+                asm.plan.steps.truncate(base);
+                // Quoted actions are not resolved: the quote is their text, whatever they name.
+                let quoted = wrap(elements[..q].to_vec()).to_query_lenient(self.cmr)?;
+                if !quoted.is_empty() {
+                    asm.push(Step::UseQueryValue(quoted));
+                }
+                asm.plan.uncached_by = None;
+                q + 1
+            }
+            None => 0,
+        };
+        for i in start..elements.len() {
+            let element = &elements[i];
+            let position = element.pos.clone().unwrap_or_else(Position::unknown);
+            let is_unit = matches!(
+                element.item,
+                ElementKind::Action(_)
+                    | ElementKind::Volatile
+                    | ElementKind::Resource { .. }
+                    | ElementKind::KeyValue(_)
+                    | ElementKind::Cwd(_)
+            );
+            let unit_prefix = if is_unit {
+                state.last_unit_steps = asm.plan.steps.len();
+                state.next += 1;
+                state.prefixes.get(state.next - 1).cloned()
+            } else {
+                None
+            };
+            match &element.item {
+                ElementKind::Action(action) => {
+                    let prefix = match unit_prefix {
+                        Some(prefix) => prefix,
+                        None => prefix_of(i + 1)?,
+                    };
+                    let prefix = crate::plan::promote_relative_default_links(&prefix, self.cmr)?;
+                    self.plan_action_with_prefix(asm, realm, action, &position, Some(prefix))?;
+                }
+                ElementKind::Pipeline(nested) => {
+                    let nested_realm = nested.realm.clone();
+                    let head: Vec<PipelineElement> = elements[..i].to_vec();
+                    let shell = nested.clone();
+                    let inner = move |els: Vec<PipelineElement>| {
+                        let mut all = head.clone();
+                        all.push(crate::pipeline::Located {
+                            item: ElementKind::Pipeline(Pipeline {
+                                elements: els,
+                                ..shell.clone()
+                            }),
+                            pos: None,
+                        });
+                        wrap(all)
+                    };
+                    self.native_elements(asm, &nested_realm, &nested.elements, &inner, state)?;
+                }
+                ElementKind::Text(text) => {
+                    let parsed = Pipeline::try_from(&parse_query(text)?)?;
+                    self.plan_elements(asm, realm, &parsed.elements, false)?;
+                }
+                ElementKind::Quote => {}
+                ElementKind::Value(_)
+                | ElementKind::Resource { .. }
+                | ElementKind::KeyValue(_)
+                | ElementKind::Cwd(_)
+                | ElementKind::Evaluate(_)
+                | ElementKind::QueryValue(_)
+                | ElementKind::Volatile => {
+                    let reads_resource = matches!(
+                        element.item,
+                        ElementKind::Resource { .. } | ElementKind::KeyValue(_) | ElementKind::Cwd(_)
+                    );
+                    if reads_resource && !realm.is_empty() {
+                        // As the query planner: a resource segment's header name is not a realm.
+                        asm.plan
+                            .init_warning(format!("Resource header name is ignored: '{realm}'"));
+                    }
+                    self.plan_element(asm, realm, element)?
                 }
             }
         }
@@ -274,14 +417,10 @@ impl<'c> PipelinePlanBuilder<'c> {
                 asm.mark_volatile("Volatile due to instruction 'v'", VolatilitySource::Positional);
                 Ok(())
             }
+            // A nested pipeline names its realm; an empty one is the root realm.
             ElementKind::Pipeline(nested) => {
                 let nested = self.bound(nested)?;
-                let nested_realm = if nested.realm.is_empty() {
-                    realm.to_owned()
-                } else {
-                    nested.realm.clone()
-                };
-                self.plan_elements(asm, &nested_realm, &nested.elements, false)
+                self.plan_elements(asm, &nested.realm, &nested.elements, false)
             }
         }
     }
@@ -304,13 +443,29 @@ impl<'c> PipelinePlanBuilder<'c> {
         action: &ActionElement,
         position: &Position,
     ) -> Result<(), Error> {
+        self.plan_action_with_prefix(asm, realm, action, position, None)
+    }
+
+    /// [`Self::plan_action`], recording `prefix` as the query the action completes. An action
+    /// whose arguments are all positional text or links is resolved exactly as the query planner
+    /// resolves it; any other goes through the argument assignment below.
+    fn plan_action_with_prefix(
+        &self,
+        asm: &mut PlanAssembly<'c>,
+        realm: &str,
+        action: &ActionElement,
+        position: &Position,
+        prefix: Option<Query>,
+    ) -> Result<(), Error> {
         let explicit = action.ns.as_ref().map(|n| n.0.clone()).unwrap_or_default();
         let namespaces = self.cmr.lookup_namespaces(&explicit);
+        let textual = query_parameters(action);
         let request = ActionRequest {
             name: action.action.clone(),
-            parameters: Vec::new(),
+            parameters: textual.clone().unwrap_or_default(),
             position: position.clone(),
         };
+        let allow = textual.is_none() || self.allow_placeholders;
         let metadata = self
             .cmr
             .find_command_in_namespaces(realm, &namespaces, &action.action)
@@ -326,7 +481,7 @@ impl<'c> PipelinePlanBuilder<'c> {
 
         let (mut parameters, step_key, origin) = match &metadata.definition {
             CommandDefinition::Registered => (
-                ResolvedParameterValues::from_action(&request, &metadata, true)?,
+                ResolvedParameterValues::from_action(&request, &metadata, allow)?,
                 key.clone(),
                 ActionOrigin::Direct,
             ),
@@ -347,7 +502,7 @@ impl<'c> PipelinePlanBuilder<'c> {
                         &metadata,
                         &target,
                         head_parameters,
-                        true,
+                        allow,
                     )?,
                     command.clone(),
                     ActionOrigin::Alias { command: key.clone() },
@@ -355,7 +510,11 @@ impl<'c> PipelinePlanBuilder<'c> {
             }
         };
 
-        for (argument, sources, pos) in assign_arguments(&metadata, action, position)? {
+        let assigned = match textual {
+            Some(_) => Vec::new(),
+            None => assign_arguments(&metadata, action, position)?,
+        };
+        for (argument, sources, pos) in assigned {
             let value = self.argument_value(asm, argument, &sources, &pos)?;
             set_parameter(&mut parameters, &argument.name, value);
         }
@@ -399,7 +558,7 @@ impl<'c> PipelinePlanBuilder<'c> {
             position: position.clone(),
             parameters,
             origin,
-            query: None,
+            query: prefix,
         });
         Ok(())
     }
@@ -550,6 +709,121 @@ fn literal<'a, T>(operand: &'a Operand<T>, what: &str) -> Result<&'a T, Error> {
             "placeholder '{name}' in a {what} element outside a pipeline command definition"
         ))),
     }
+}
+
+/// What native planning carries across nested pipelines.
+struct NativeState {
+    /// The prefix query of each unit (action, `v`, resource segment), in order.
+    prefixes: Vec<Query>,
+    next: usize,
+    /// The number of steps planned before the last unit.
+    last_unit_steps: usize,
+}
+
+/// Whether a query's last segment ends in an action that is a unit of the plan (not `ns`).
+fn remainder_is_unit(remainder: &Option<crate::query::QuerySegment>) -> Option<bool> {
+    use crate::query::QuerySegment;
+    match remainder {
+        Some(QuerySegment::Resource(_)) => Some(true),
+        Some(QuerySegment::Transform(t)) => match t.action() {
+            Some(a) => Some(!a.is_ns()),
+            None => Some(false),
+        },
+        None => None,
+    }
+}
+
+/// The prefix query of each unit of `query`, in order: the query cut after that unit, as the
+/// query planner's recursion sees it.
+fn unit_prefixes(query: &Query) -> Vec<Query> {
+    let mut out = Vec::new();
+    let mut current = query.clone();
+    loop {
+        if current.is_empty() || current.is_ns() || current.is_q() {
+            break;
+        }
+        if current.resource_query().is_some() {
+            out.push(current.clone());
+            break;
+        }
+        if let Some(transform) = current.transform_query() {
+            if let Some(action) = transform.action() {
+                if !action.is_ns() {
+                    out.push(current.clone());
+                }
+                break;
+            }
+            if transform.is_filename() {
+                break;
+            }
+        }
+        let (p, r) = current.predecessor();
+        match remainder_is_unit(&r) {
+            Some(true) => out.push(current.clone()),
+            Some(false) => {}
+            None => break,
+        }
+        match p {
+            Some(p) => current = p,
+            None => break,
+        }
+    }
+    out.reverse();
+    out
+}
+
+/// The predecessor the query planner records for `query`: the outermost split whose remainder
+/// is an action or a resource segment, unless its prefix is empty or ends with `q`.
+fn recorded_predecessor(query: &Query) -> Option<Query> {
+    if query.is_empty() || query.is_ns() || query.is_q() || query.resource_query().is_some() {
+        return None;
+    }
+    if let Some(transform) = query.transform_query() {
+        if transform.action().is_some() || transform.is_filename() {
+            return None;
+        }
+    }
+    let (p, r) = query.predecessor();
+    let p = p.filter(|p| !p.is_empty())?;
+    if p.is_q() {
+        return None;
+    }
+    match remainder_is_unit(&r) {
+        Some(true) => Some(p),
+        Some(false) => {
+            // An `ns` remainder still counts as an action for the record.
+            match &r {
+                Some(crate::query::QuerySegment::Transform(t)) if t.action().is_some() => Some(p),
+                _ => recorded_predecessor(&p),
+            }
+        }
+        None => None,
+    }
+}
+
+/// An action's parameters as query parameters, when it has only positional text and links:
+/// such an action is resolved exactly as the query planner resolves it.
+fn query_parameters(action: &ActionElement) -> Option<Vec<crate::query::ActionParameter>> {
+    use crate::query::ActionParameter;
+    if !action.arguments.is_empty() {
+        return None;
+    }
+    action
+        .parameters
+        .iter()
+        .map(|p| {
+            let pos = p.pos.clone().unwrap_or_else(Position::unknown);
+            match &p.item {
+                Source::Value(Json::String(text)) => Some(ActionParameter::String(text.clone(), pos)),
+                Source::Link(text) => parse_query(text).ok().map(|q| ActionParameter::Link(q, pos)),
+                Source::Value(_)
+                | Source::Placeholder(_)
+                | Source::Pipeline(_)
+                | Source::State(_)
+                | Source::Multiple(_) => None,
+            }
+        })
+        .collect()
 }
 
 /// Replaces the parameter named `name`.

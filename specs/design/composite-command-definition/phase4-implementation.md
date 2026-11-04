@@ -282,3 +282,16 @@ Decisions made while implementing, none of which changes an approved contract:
   The remaining `PlanBuilder::new` callers (link sub-plans, the boundary cut, realm and store
   configuration, MCP, axum, Python) plan queries and keep the query planner directly, which is
   what `Delegate` mode does anyway.
+- `Native` mode plans a representable pipeline element by element. An action with only
+  positional text and links is resolved through `from_action` exactly as the query planner
+  resolves it. The prefix query of each unit (action, `v`, resource segment) and the recorded
+  predecessor are derived from the query by the planner's own split (`Query::predecessor`), so
+  they match its recursion; a `q` plans the quoted prefix as `UseQueryValue` (written leniently,
+  so quoted actions need not resolve), and the elements before it are not planned. A resource
+  read in a realm segment keeps the query planner's "header name is ignored" warning.
+- A nested pipeline element's realm is its own, and an empty realm is the root realm (the
+  conversion nests a pipeline only to change realm).
+- The dual-mode test compares the serialized plans (steps, parameters, positions, prefixes,
+  predecessor, flags, diagnostics) of every corpus query in canonical form: 145 of 145 equal,
+  plus the alias queries of `tests/command_alias.rs`. The default is now `Native`; the whole
+  `liquers-core` and `liquers-lib` suites pass with it.

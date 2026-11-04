@@ -66,13 +66,13 @@ const REFUSED: [(&str, &str); 2] = [
     ("command1-arg/q-invalid", "Too many parameters"),
 ];
 
-struct Corpus {
-    cmr: CommandMetadataRegistry,
+pub(crate) struct Corpus {
+    pub(crate) cmr: CommandMetadataRegistry,
     /// (text, parsed query, pipeline)
-    entries: Vec<(String, Query, Pipeline)>,
+    pub(crate) entries: Vec<(String, Query, Pipeline)>,
 }
 
-fn converted_corpus() -> Corpus {
+pub(crate) fn converted_corpus() -> Corpus {
     let mut entries = Vec::new();
     let mut failures = Vec::new();
     for text in corpus() {

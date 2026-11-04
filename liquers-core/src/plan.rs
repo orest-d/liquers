@@ -102,7 +102,7 @@ fn unconfigured_namespaces() -> Vec<String> {
 ///
 /// Promoting keeps the link relative; freezing resolves it afterwards, like any other operand. The
 /// result is built as an AST rather than by concatenating text, per `QUERY-BUILDER-TOOLING`.
-fn promote_relative_default_links(
+pub(crate) fn promote_relative_default_links(
     query: &Query,
     cmr: &CommandMetadataRegistry,
 ) -> Result<Query, Error> {
