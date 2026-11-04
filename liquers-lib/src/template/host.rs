@@ -11,7 +11,7 @@ use liquers_core::data_node::{
     AnyNode, AsyncDataNode, DataNode, KeyIter, NodeIter, NodeKind, NodeRef, NodeStream, Scalar,
 };
 use liquers_core::error::Error;
-use liquers_core::metadata::MetadataRecord;
+use liquers_core::metadata::{LogEntry, MetadataRecord};
 use liquers_core::query::{Key, Query};
 use liquers_core::recipes::Recipe;
 use liquers_core::state::State;
@@ -26,11 +26,12 @@ use crate::value::{SimpleValue, Value};
 /// (`Context::get_dependency_state`), cached and shared; one with an apply input or a parameter
 /// override is evaluated ad hoc (`Context::apply_ad_hoc`), and its own dependencies are passed on.
 /// Relative keys, in queries and partials, resolve against `cwd`. A recovered error is logged as a
-/// warning of the command.
+/// warning of the command, with its template position, and kept for [`Self::take_warnings`].
 pub struct ContextHost<E: Environment<Value = Value>> {
     context: Context<E>,
     envref: EnvRef<E>,
     cwd: Key,
+    warnings: std::sync::Mutex<Vec<LogEntry>>,
 }
 
 impl<E: Environment<Value = Value>> ContextHost<E> {
@@ -40,6 +41,16 @@ impl<E: Environment<Value = Value>> ContextHost<E> {
             context,
             envref,
             cwd,
+            warnings: std::sync::Mutex::new(Vec::new()),
+        }
+    }
+
+    /// The warnings logged so far (one per recovered error, with its position), taken out.
+    pub fn take_warnings(&self) -> Vec<LogEntry> {
+        match self.warnings.lock() {
+            Ok(mut warnings) => std::mem::take(&mut *warnings),
+            // A panic while a warning was being pushed: what was kept is still the list.
+            Err(poisoned) => std::mem::take(&mut *poisoned.into_inner()),
         }
     }
 
@@ -242,7 +253,12 @@ impl<E: Environment<Value = Value>> TemplateHost for ContextHost<E> {
     }
 
     fn warn(&self, error: &Error) {
+        let entry = LogEntry::warning(error.to_string()).with_position(error.position.clone());
         // Logging a warning fails only when the asset is gone, and then there is no log to keep.
-        let _ = self.context.warning(&error.to_string());
+        let _ = self.context.add_log_entry(entry.clone());
+        match self.warnings.lock() {
+            Ok(mut warnings) => warnings.push(entry),
+            Err(poisoned) => poisoned.into_inner().push(entry),
+        }
     }
 }

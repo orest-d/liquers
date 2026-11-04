@@ -3,7 +3,7 @@ title: Template Guide
 kind: guide
 audience: internal
 area: [core/query, lib/commands]
-reviewed: 2026-10-17
+reviewed: 2026-11-04
 ---
 # Template Guide
 
@@ -111,9 +111,28 @@ stack.push(AnyNode::from_json(serde_json::json!({"name": "world"})), FrameKind::
 let text = render(&template, stack, &MapHost::new(), &RenderOptions::default()).await?;
 ```
 
-`MapHost` holds partials and refuses queries. Inside a command use `template::ContextHost::new(context,
-cwd)`, which evaluates queries through the command's `Context` (as `render` does). Another host
-implements `TemplateHost`: `evaluate`, `partial`, `command_registry` (to name overrides) and `warn`.
+`MapHost` holds partials and refuses queries. With an environment, use the Liquers host through
+one function, inside a command or at the top level of a program:
+
+```rust
+use liquers_lib::template::{render_in_context, render_top_level, ErrorMode, FrameData, FrameKind,
+    RenderRequest, TemplateSource};
+
+let request = RenderRequest {
+    template: TemplateSource::Link(parse_query("-R/templates/page.md")?),
+    frames: vec![(FrameData::State(state), FrameKind::Data)],
+    errors: ErrorMode::Strict, cwd: parse_key("templates")?, html_escape: false,
+};
+// In a command: let rendered = render_in_context(context, request).await?;
+let render = render_top_level(&envref, request)?;   // a closure asset; parse errors fail here
+let asset = render.asset().clone();                 // to cancel it
+let rendered = render.run().await?;                 // Some(Rendered { text, warnings })
+```
+
+Both evaluate queries through a `Context` (`template::ContextHost`), so query tags are
+dependencies, recovered errors come back as positioned warnings, and the `ns-template` commands give
+the same text. Another host implements `TemplateHost`: `evaluate`, `partial`, `command_registry`
+(to name overrides) and `warn`.
 
 ## 5. Making a value readable by templates
 
@@ -135,6 +154,7 @@ stack, query templates, hosts and error modes are shared.
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-04 | §4: `render_in_context` and `render_top_level` with frames given directly. | `design/template-render-in-env/` |
 | 2026-10-17 | Volatility advice relaxed: a volatile query in a template makes the render volatile by itself. | `design/runtime-volatility` |
 | 2026-10-17 | Corrected the volatility advice: `v` goes before the render action; a trailing `/v` serves the cached render. | `RUNTIME-VOLATILE-DEPENDENCY-DOES-NOT-MAKE-PARENT-VOLATILE` |
 | 2026-10-17 | Created: writing and validating templates, `render` and `expand`, template commands, rendering from Rust, data nodes, adding a syntax. | `design/liquers-mustache/` |

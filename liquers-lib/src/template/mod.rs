@@ -9,5 +9,10 @@ pub use liquers_template::*;
 pub mod commands;
 pub mod folder;
 pub mod host;
+pub mod top_level;
 
 pub use host::ContextHost;
+pub use top_level::{
+    render_in_context, render_top_level, FrameData, RenderRequest, Rendered, TemplateSource,
+    TopLevelRender,
+};

@@ -1037,7 +1037,7 @@ SERIALIZATION_GUIDE,guide,Choosing a Serialization Format,current,local,,,,,,cor
 STORE_CONFIG_GUIDE,guide,Store Configuration Guide,current,local,,,,,,store/config;core/store,,,,,2026-11-01,,specs/guides/STORE_CONFIG_GUIDE.md
 STORE_FACTORY_GUIDE,guide,Store Factory Guide,current,local,,,,,,core/store;store/config,,,,,2026-10-16,,specs/guides/STORE_FACTORY_GUIDE.md
 STORE_IMPLEMENTATION_GUIDE,guide,Store Implementation Guide,current,local,,,,,,core/store;store/backends;web,,,,,2026-11-01,,specs/guides/STORE_IMPLEMENTATION_GUIDE.md
-TEMPLATE_GUIDE,guide,Template Guide,current,local,,,,,,core/query;lib/commands,,,,,2026-10-17,,specs/guides/TEMPLATE_GUIDE.md
+TEMPLATE_GUIDE,guide,Template Guide,current,local,,,,,,core/query;lib/commands,,,,,2026-11-04,,specs/guides/TEMPLATE_GUIDE.md
 TYPE_SYSTEM_GUIDE,guide,Adding and Typing Value Types,current,local,,,,,,core/value;lib/value,,,,,2026-11-04,,specs/guides/TYPE_SYSTEM_GUIDE.md
 UNITTEST_GUIDE,guide,Unit Testing Guide,current,local,,,,,,build;core/assets,,,,,2026-10-20,,specs/guides/UNITTEST_GUIDE.md
 USER_DOCS_EDITING_GUIDE,guide,User Documentation Editing Guide,current,local,,,,,,docs,,,,,2026-11-02,,specs/guides/USER_DOCS_EDITING_GUIDE.md
