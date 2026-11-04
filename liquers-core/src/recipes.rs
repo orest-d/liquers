@@ -1908,7 +1908,7 @@ impl<E: Environment> AsyncRecipeProvider<E> for RecipeProviderChain<E> {
 
 /// An override value converted to its argument's type: a value, or a link (an enum alias whose
 /// alternative is a query). The note, when present, becomes a planning warning.
-enum ConvertedOverride {
+pub(crate) enum ConvertedOverride {
     Value(Value, Option<String>),
     Link(Query, Option<String>),
     Pipeline(crate::pipeline::Pipeline, Option<String>),
@@ -2015,7 +2015,7 @@ impl ConvertedOverride {
     }
 }
 
-fn convert_scalar(arg: &ArgumentInfo, value: &Value) -> Result<ConvertedOverride, Error> {
+pub(crate) fn convert_scalar(arg: &ArgumentInfo, value: &Value) -> Result<ConvertedOverride, Error> {
     let expected = argument_type_name(&arg.argument_type);
     let refuse = || {
         Error::conversion_error_with_message(

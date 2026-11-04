@@ -11,7 +11,7 @@ use crate::{
     error::Error,
     metadata::{DependencyRecord, LogEntry, Metadata, Version},
     plan::{
-        analyze_plan_dependencies, analyze_plan_dependencies_at, ParameterValue, Plan, PlanBuilder,
+        analyze_plan_dependencies, analyze_plan_dependencies_at, ParameterValue, Plan,
         ResolvedParameterValues, Step,
     },
     query::{CwdCursor, Key, Query, TryToQuery, RELATIVE_WITHOUT_CWD_WARNING},
@@ -195,10 +195,9 @@ async fn make_plan_with_cwd<E: Environment, Q: TryToQuery>(
 ) -> Result<Plan, Error> {
     let rquery = query.try_to_query();
     let cmr = envref.get_command_metadata_registry();
-    let mut pb = PlanBuilder::new(rquery?, cmr);
 
     // Phase 1: Build plan, check commands and 'v' instruction
-    let mut plan = pb.build()?;
+    let mut plan = crate::pipeline::PipelinePlanBuilder::new(cmr).plan_query(&rquery?)?;
 
     // Phase 2: Analyse asset dependencies: direct dependencies, volatility and expiration
     analyze_plan_dependencies(envref, &mut plan, initial_cwd).await?;
@@ -327,6 +326,7 @@ fn schedule_plan_dependencies_from<'a, E: Environment>(
                 | Step::GetResourceMetadata(_)
                 | Step::GetResourceDirectory(_)
                 | Step::UseQueryValue(_)
+                | Step::UseValue(_)
                 | Step::UseKeyValue(_)
                 | Step::Filename(_)
                 | Step::Info(_)
@@ -369,6 +369,7 @@ fn resolve_absolute_query_resource_step(step: Step) -> Step {
         Step::UseKeyValue(key) => Step::UseKeyValue(resolve(key)),
         Step::Evaluate(query) => Step::Evaluate(query),
         Step::UseQueryValue(query) => Step::UseQueryValue(query),
+        Step::UseValue(value) => Step::UseValue(value),
         Step::Action {
             realm,
             ns,
@@ -522,6 +523,7 @@ fn step_can_suspend(step: &Step) -> bool {
         | Step::SetCwd(_)
         | Step::Filename(_)
         | Step::UseQueryValue(_)
+        | Step::UseValue(_)
         | Step::UseKeyValue(_)
         | Step::Plan(_) => false,
     }
@@ -562,6 +564,7 @@ async fn log_init_steps<E: Environment>(plan: &Plan, context: &Context<E>) -> Re
             | Step::GetResourceDirectory(_)
             | Step::Evaluate(_)
             | Step::UseQueryValue(_)
+            | Step::UseValue(_)
             | Step::Action { .. }
             | Step::Filename(_)
             | Step::Plan(_)
@@ -597,6 +600,36 @@ fn materialize_link_json<'a, E: Environment>(
     })
 }
 
+/// Evaluates a pipeline argument (AC-18, Q29). One with a query form is a link: a shared asset,
+/// evaluated as a dependency. One without runs as a nested plan from an empty state; it has no
+/// asset of its own and is not cached.
+fn evaluate_pipeline_argument<'a, E: Environment>(
+    context: &'a Context<E>,
+    pipeline: &'a crate::pipeline::Pipeline,
+) -> crate::maybe_send::BoxFuture<'a, Result<Arc<E::Value>, Error>> {
+    Box::pin(async move {
+        let envref = context.get_envref();
+        let cmr = envref.get_command_metadata_registry();
+        match pipeline.to_query_with(cmr) {
+            Ok(query) => {
+                let resolved = context.resolve_query_from_cwd(&query)?;
+                context.get_dependency_state(&resolved).await?.value()
+            }
+            Err(_) => {
+                let plan = pipeline.to_plan(cmr)?;
+                apply_plan(plan, State::new(), context.clone(), envref.clone()).await
+            }
+        }
+    })
+}
+
+/// The input state is read inside a pipeline command only; anywhere else it has no value.
+fn input_state_unavailable(name: &str) -> Error {
+    Error::invalid_pipeline(format!(
+        "argument '{name}' reads the input state, which only a pipeline command has"
+    ))
+}
+
 fn materialize_nested_parameter<'a, E: Environment>(
     context: &'a Context<E>,
     parameter: &'a ParameterValue,
@@ -623,6 +656,25 @@ fn materialize_nested_parameter<'a, E: Environment>(
                 materialize_link_json(context, query, Some(position)).await?,
                 position.clone(),
             )),
+            ParameterValue::ParameterPipeline(name, pipeline, position) => {
+                Ok(ParameterValue::ParameterValue(
+                    name.clone(),
+                    evaluate_pipeline_argument(context, pipeline)
+                        .await
+                        .map_err(|e| e.with_position(position))?
+                        .try_into_json_value()?,
+                    position.clone(),
+                ))
+            }
+            ParameterValue::OverridePipeline(name, pipeline) => Ok(ParameterValue::OverrideValue(
+                name.clone(),
+                evaluate_pipeline_argument(context, pipeline).await?.try_into_json_value()?,
+            )),
+            ParameterValue::DefaultPipeline(name, pipeline) => Ok(ParameterValue::DefaultValue(
+                name.clone(),
+                evaluate_pipeline_argument(context, pipeline).await?.try_into_json_value()?,
+            )),
+            ParameterValue::InputState(name) => Err(input_state_unavailable(name)),
             ParameterValue::MultipleParameters(name, values) => {
                 let mut materialized = Vec::with_capacity(values.len());
                 for value in values {
@@ -638,10 +690,6 @@ fn materialize_nested_parameter<'a, E: Environment>(
             | ParameterValue::OverrideValue(_, _)
             | ParameterValue::Placeholder(_)
             | ParameterValue::Injected(_)
-            | ParameterValue::ParameterPipeline(_, _, _)
-            | ParameterValue::OverridePipeline(_, _)
-            | ParameterValue::DefaultPipeline(_, _)
-            | ParameterValue::InputState(_)
             | ParameterValue::None => Ok(parameter.clone()),
         }
     })
@@ -772,6 +820,10 @@ pub fn do_step<E: Environment>(
             Ok(Arc::new(value))
         }
         .maybe_boxed(),
+        Step::UseValue(json) => async move {
+            Ok(Arc::new(<E::Value as ValueInterface>::try_from_json_value(&json)?))
+        }
+        .maybe_boxed(),
         Step::Action {
             realm,
             ns,
@@ -805,6 +857,13 @@ pub fn do_step<E: Environment>(
                             attach_parameter_link_context(error, param, &arg_query)
                         })?,
                     );
+                } else if let Some(pipeline) = param.pipeline() {
+                    let value = evaluate_pipeline_argument(&context, pipeline)
+                        .await
+                        .map_err(|error| error.with_position(&param.position()))?;
+                    arguments.set_value(i, value);
+                } else if let ParameterValue::InputState(name) = param {
+                    return Err(input_state_unavailable(name).with_position(&position));
                 }
             }
             let ce = envref.get_command_executor();
@@ -1096,6 +1155,7 @@ pub(crate) fn do_step_state<E: Environment>(
         | Step::GetResourceMetadata(_)
         | Step::GetAssetRecipe(_)
         | Step::UseQueryValue(_)
+        | Step::UseValue(_)
         | Step::UseKeyValue(_) => async move {
             let value = do_step(step, input, context.clone(), envref).await?;
             let metadata = prefix_metadata(&context, None).await?;
@@ -1130,6 +1190,33 @@ pub fn evaluate<E: Environment, Q: TryToQuery>(
         let input_state = State::<<E as Environment>::Value>::new();
         let res = apply_plan(plan, input_state, context.clone(), envref).await?;
         // As `AssetRef::compute` does: a volatile dependency makes the result volatile.
+        context.check_resolved_volatility().await?;
+        let observed_deps = context.take_pending_dependencies().await;
+        let mut metadata = context.get_metadata().await?;
+        metadata.merge_dependencies(observed_deps);
+        Ok(State::new()
+            .with_data((*res).clone())
+            .with_metadata(metadata.into()))
+    }
+    .maybe_boxed()
+}
+
+/// Evaluates a pipeline, as [`evaluate`] evaluates a query: planned with
+/// [`Pipeline::to_plan`](crate::pipeline::Pipeline::to_plan), its dependencies analysed, and
+/// applied to an empty state in a temporary asset.
+pub fn evaluate_pipeline<E: Environment>(
+    envref: EnvRef<E>,
+    pipeline: &crate::pipeline::Pipeline,
+    cwd_key: Option<Key>,
+) -> crate::maybe_send::BoxFuture<'static, Result<State<E::Value>, Error>> {
+    let pipeline = pipeline.clone();
+    async move {
+        let mut plan = pipeline.to_plan(envref.get_command_metadata_registry())?;
+        analyze_plan_dependencies(envref.clone(), &mut plan, cwd_key.clone()).await?;
+        let assetref = AssetRef::new_temporary(envref.clone());
+        let context = Context::new(assetref, plan.is_volatile).await;
+        context.set_cwd_key(cwd_key);
+        let res = apply_plan(plan, State::new(), context.clone(), envref).await?;
         context.check_resolved_volatility().await?;
         let observed_deps = context.take_pending_dependencies().await;
         let mut metadata = context.get_metadata().await?;
@@ -1307,6 +1394,7 @@ impl<E: Environment> RequiresPayload<E> for Step {
             Step::GetResourceDirectory(_) => Ok(PayloadRequirement::None),
             Step::Evaluate(query) => query.requires_payload(env).await,
             Step::UseQueryValue(_) => Ok(PayloadRequirement::None),
+            Step::UseValue(_) => Ok(PayloadRequirement::None),
             Step::Filename(_) => Ok(PayloadRequirement::None),
             Step::Info(_) => Ok(PayloadRequirement::None),
             Step::Warning(_) => Ok(PayloadRequirement::None),
@@ -1352,7 +1440,7 @@ mod tests {
             })?;
         let envref = env.to_ref();
         let mut plan =
-            PlanBuilder::new(parse_query("probe")?, envref.get_command_metadata_registry())
+            crate::plan::PlanBuilder::new(parse_query("probe")?, envref.get_command_metadata_registry())
                 .build()?;
         let diagnostics = [
             Step::Info("before".to_owned()),
@@ -1434,7 +1522,7 @@ mod tests {
         env.with_recipe_provider(Box::new(crate::recipes::DefaultRecipeProvider::new()));
         let envref = env.to_ref();
 
-        let mut plan = PlanBuilder::new(
+        let mut plan = crate::plan::PlanBuilder::new(
             parse_query("-R/vol.txt/-/upper/lower")?,
             envref.get_command_metadata_registry(),
         )

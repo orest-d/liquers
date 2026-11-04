@@ -341,6 +341,7 @@ fn collect_step_warnings(
         | Step::GetResourceDirectory(_)
         | Step::Evaluate(_)
         | Step::UseQueryValue(_)
+        | Step::UseValue(_)
         | Step::Action { .. }
         | Step::Filename(_)
         | Step::Info(_)

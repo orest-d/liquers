@@ -462,6 +462,7 @@ impl StoreConfigFunctions {
                 | Step::GetResourceDirectory(_)
                 | Step::Evaluate(_)
                 | Step::UseQueryValue(_)
+                | Step::UseValue(_)
                 | Step::Filename(_)
                 | Step::Plan(_)
                 | Step::SetCwd(_)
@@ -577,6 +578,7 @@ impl StoreConfigFunctions {
                 | Step::GetResourceDirectory(_)
                 | Step::Evaluate(_)
                 | Step::UseQueryValue(_)
+                | Step::UseValue(_)
                 | Step::Filename(_)
                 | Step::UseKeyValue(_) => return Err(context.refuse_step(step)),
             }
@@ -617,7 +619,8 @@ impl CompileContext<'_> {
             | Step::GetAssetRecipe(_)
             | Step::GetAssetDirectory(_)
             | Step::Evaluate(_)
-            | Step::UseQueryValue(_) => "a step that needs the asset layer",
+            | Step::UseQueryValue(_)
+            | Step::UseValue(_) => "a step that needs the asset layer",
             Step::Filename(_) => "an output filename",
             Step::SetCwd(_) => "a working directory",
             Step::Plan(_) => "a nested plan",

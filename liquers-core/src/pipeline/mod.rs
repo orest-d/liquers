@@ -42,7 +42,9 @@ use crate::query::Position;
 
 mod convert;
 mod editor;
+mod plan;
 pub use convert::{ArgRef, ElementPath};
+pub use plan::{PipelinePlanBuilder, PlanningMode, DEFAULT_PLANNING_MODE};
 pub use editor::{ActionEditor, PipelineEditor, QueryEditor};
 
 /// A value together with where it came from.
@@ -437,12 +439,20 @@ impl Pipeline {
                         Error::invalid_pipeline(format!("placeholder '{name}' is not bound"))
                     }),
                 Source::Pipeline(p) => Ok(Source::Pipeline(p.bind(values)?)),
-                Source::Multiple(items) => Ok(Source::Multiple(
-                    items
-                        .iter()
-                        .map(|s| source(s, values))
-                        .collect::<Result<_, _>>()?,
-                )),
+                // A placeholder bound to an array is spliced in place (V4); a scalar binding, or
+                // an array written literally, is one element.
+                Source::Multiple(items) => {
+                    let mut bound = Vec::with_capacity(items.len());
+                    for item in items {
+                        match (item, source(item, values)?) {
+                            (Source::Placeholder(_), Source::Value(Json::Array(entries))) => {
+                                bound.extend(entries.into_iter().map(Source::Value))
+                            }
+                            (_, other) => bound.push(other),
+                        }
+                    }
+                    Ok(Source::Multiple(bound))
+                }
                 Source::Value(_) | Source::Link(_) | Source::State(_) => Ok(s.clone()),
             }
         }

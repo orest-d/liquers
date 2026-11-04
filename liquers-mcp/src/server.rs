@@ -517,7 +517,8 @@ pub fn check_allowed(
             | Step::Warning(_)
             | Step::Error(_)
             | Step::SetCwd(_)
-            | Step::UseKeyValue(_) => {}
+            | Step::UseKeyValue(_)
+            | Step::UseValue(_) => {}
         }
     }
     Ok(())
@@ -540,16 +541,12 @@ fn check_parameter(
         | ParameterValue::ParameterLink(_, query, _)
         | ParameterValue::OverrideLink(_, query)
         | ParameterValue::EnumLink(_, query, _) => check_query(query, allow, cmr),
-        // A pipeline is checked through its query form; one without a query form cannot be
-        // checked against the allow list, so it is refused.
-        ParameterValue::ParameterPipeline(name, pipeline, _)
-        | ParameterValue::OverridePipeline(name, pipeline)
-        | ParameterValue::DefaultPipeline(name, pipeline) => match pipeline.to_query_with(cmr) {
+        // A pipeline is checked through its query form, or else through its own plan.
+        ParameterValue::ParameterPipeline(_, pipeline, _)
+        | ParameterValue::OverridePipeline(_, pipeline)
+        | ParameterValue::DefaultPipeline(_, pipeline) => match pipeline.to_query_with(cmr) {
             Ok(query) => check_query(&query, allow, cmr),
-            Err(e) => Err(Error::configuration_error(format!(
-                "argument '{name}' is a pipeline with no query form, which a tool cannot check: {}",
-                e.message
-            ))),
+            Err(_) => check_allowed(&pipeline.to_plan(cmr)?, allow, cmr),
         },
         ParameterValue::MultipleParameters(_, items) => {
             for item in items {

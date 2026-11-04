@@ -257,9 +257,28 @@ Decisions made while implementing, none of which changes an approved contract:
   pipeline planner's job (Step 8). An enum alias may expand to a pipeline: a parameter gives
   `ParameterPipeline`, a recipe override `OverridePipeline` (new `override_pipeline` on
   `ResolvedParameterValues`, `Plan` and `PlanBuilder`).
-- `liquers-mcp` checks a pipeline argument against a tool's allow list through its query form
-  and refuses one that has none, since its actions could not otherwise be checked.
+- `liquers-mcp` checks a pipeline argument against a tool's allow list through its query form,
+  or else through the plan of the pipeline itself.
 - `PlanAssembly` holds the registry, the plan and the three flags; `uncached_by` lives in the
   plan already, so it moved with it. The flag helpers, `check_parameters_for_volatile_links`,
   `apply_command_flags`, the step push and the closing of a plan (`finish`) are its methods.
   The plan tests that reached into the builder's fields read them through `builder.asm`.
+- `Step::UseValue` holds JSON, converted to the environment's value when the step runs
+  (`try_from_json_value`), so the step stays serializable with the rest of the plan.
+- In `Delegate` mode a query is planned by `PlanBuilder` unchanged, and so is a pipeline that has
+  a query form. Otherwise the pipeline is split into the longest representable runs; each run
+  goes to `PlanBuilder::process_on` on the shared assembly, and only the first run records
+  prefix queries. Such a plan has no query and no predecessor, so nothing is cut out of it.
+- A non-representable action is planned natively: its arguments are assigned by position, then
+  by name (V1, V2), converted with the recipe override conversion (`convert_scalar`, made
+  crate-visible), and written as `ParameterValue`/`ParameterLink`/`ParameterPipeline`, keeping
+  each argument's position. A placeholder bound to an array inside `{multiple}` is spliced by
+  `Pipeline::bind` (V4).
+- An evaluated pipeline with no query form is a `Step::Plan` starting with `UseValue(null)`, so
+  it starts from an empty state as `Evaluate` does. A pipeline argument is evaluated by the
+  interpreter: as a dependency when it has a query form, else as a nested plan. The input state
+  outside a pipeline command is an error until Step 11 adds the frame.
+- `make_plan` plans through `PipelinePlanBuilder`; so does the new `interpreter::evaluate_pipeline`.
+  The remaining `PlanBuilder::new` callers (link sub-plans, the boundary cut, realm and store
+  configuration, MCP, axum, Python) plan queries and keep the query planner directly, which is
+  what `Delegate` mode does anyway.

@@ -294,6 +294,9 @@ pub enum Step {
     Evaluate(Query),
     /// Use a query itself as the current value instead of evaluating it.
     UseQueryValue(Query),
+    /// Use a value as the current state: a pipeline's `{value: …}` element (JSON, converted to
+    /// the environment's value when the step runs).
+    UseValue(Value),
     /// Invoke a resolved command with resolved parameters.
     Action {
         /// Command realm selected by the query.
@@ -352,6 +355,7 @@ impl Step {
             | Step::GetResourceDirectory(_)
             | Step::Evaluate(_)
             | Step::UseQueryValue(_)
+            | Step::UseValue(_)
             | Step::Action { .. }
             | Step::Filename(_)
             | Step::Plan(_)
@@ -394,6 +398,7 @@ impl Step {
             Step::GetResourceDirectory(_key) => false,
             Step::Evaluate(_) => false,
             Step::UseQueryValue(_) => false,
+            Step::UseValue(_) => false,
             Step::Action { .. } => false,
             Step::Filename(_resource_name) => true,
             Step::Info(_) => true,
@@ -1060,6 +1065,26 @@ impl ParameterValue {
             ParameterValue::ParameterValue(_, v, _) => Some(v.clone()),
             ParameterValue::OverrideValue(_, v) => Some(v.clone()),
             _ => None,
+        }
+    }
+    /// The contained pipeline, when this is a pipeline variant.
+    pub fn pipeline(&self) -> Option<&crate::pipeline::Pipeline> {
+        match self {
+            ParameterValue::ParameterPipeline(_, p, _)
+            | ParameterValue::OverridePipeline(_, p)
+            | ParameterValue::DefaultPipeline(_, p) => Some(p),
+            ParameterValue::DefaultValue(_, _)
+            | ParameterValue::DefaultLink(_, _)
+            | ParameterValue::ParameterValue(_, _, _)
+            | ParameterValue::ParameterLink(_, _, _)
+            | ParameterValue::OverrideValue(_, _)
+            | ParameterValue::OverrideLink(_, _)
+            | ParameterValue::Placeholder(_)
+            | ParameterValue::EnumLink(_, _, _)
+            | ParameterValue::MultipleParameters(_, _)
+            | ParameterValue::Injected(_)
+            | ParameterValue::InputState(_)
+            | ParameterValue::None => None,
         }
     }
     /// Returns a clone of the contained query, when this is a link variant.
@@ -2091,6 +2116,23 @@ impl<'c> PlanBuilder<'c> {
         Ok(())
     }
 
+    /// Plans `query` onto `asm`, as [`PlanBuilder::build`] plans onto its own assembly; the
+    /// pipeline planner hands a representable run to the query planner this way. The assembly
+    /// is returned whatever the outcome.
+    pub(crate) fn process_on(
+        asm: PlanAssembly<'c>,
+        query: &Query,
+        allow_placeholders: bool,
+    ) -> (PlanAssembly<'c>, Result<(), Error>) {
+        let mut builder = PlanBuilder {
+            query: query.clone(),
+            allow_placeholders,
+            asm,
+        };
+        let result = builder.process_query(query);
+        (builder.asm, result)
+    }
+
     /// Applies a value override to the last action built so far.
     ///
     /// Returns `false` when the last action has no matching overridable parameter.
@@ -2441,7 +2483,11 @@ impl Plan {
                 Step::Plan(nested) => {
                     nested.freeze_cwd_with(step_cursor)?;
                 }
-                Step::Filename(_) | Step::Info(_) | Step::Warning(_) | Step::Error(_) => {}
+                Step::Filename(_)
+                | Step::Info(_)
+                | Step::Warning(_)
+                | Step::Error(_)
+                | Step::UseValue(_) => {}
             }
         }
         Ok(())
@@ -2622,6 +2668,7 @@ impl Plan {
                 | Step::GetResourceDirectory(_) => reads += 1,
                 Step::Evaluate(_)
                 | Step::UseQueryValue(_)
+                | Step::UseValue(_)
                 | Step::UseKeyValue(_)
                 | Step::Action { .. }
                 | Step::Filename(_)
@@ -2766,6 +2813,7 @@ impl Plan {
                 | Step::GetResourceDirectory(_)
                 | Step::Evaluate(_)
                 | Step::UseQueryValue(_)
+                | Step::UseValue(_)
                 | Step::Action { .. }
                 | Step::Filename(_)
                 | Step::Plan(_)
@@ -2809,6 +2857,7 @@ impl Plan {
                 | Step::GetResourceDirectory(_)
                 | Step::Evaluate(_)
                 | Step::UseQueryValue(_)
+                | Step::UseValue(_)
                 | Step::Action { .. }
                 | Step::Filename(_)
                 | Step::Plan(_)
@@ -3578,6 +3627,7 @@ impl<E: Environment> DependencyWalk<E> {
                 | Step::GetResourceDirectory(_)
                 | Step::UseKeyValue(_)
                 | Step::UseQueryValue(_)
+                | Step::UseValue(_)
                 | Step::Filename(_)
                 | Step::Info(_)
                 | Step::Warning(_)
@@ -6032,6 +6082,7 @@ mod tests {
                 | Step::SetCwd(key) => key,
                 Step::Evaluate(_)
                 | Step::UseQueryValue(_)
+                | Step::UseValue(_)
                 | Step::Action { .. }
                 | Step::Plan(_)
                 | Step::Filename(_)
@@ -7273,6 +7324,7 @@ mod tests {
                 | Step::GetAssetDirectory(_)
                 | Step::Evaluate(_)
                 | Step::UseQueryValue(_)
+                | Step::UseValue(_)
                 | Step::Filename(_)
                 | Step::Info(_)
                 | Step::Warning(_)
