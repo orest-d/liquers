@@ -21,7 +21,7 @@ plan, with [`liquers-py-pipelines`](../liquers-py-pipelines/DESIGN.md).
   node. That hook is `foreign-value-data-node`, a small and ready core design that lands first in
   its own PR.
 - **Open questions** (the guide's six; 1 and 3–6 have proposed resolutions):
-  1. **Open design: the mapping** (question 1). `None` → `Null`; `bool` → `Bool`, tested
+  1. **Open design: the mapping** (guide question 1). `None` → `Null`; `bool` → `Bool`, tested
      before `int`; `int` → `Integer` within `i64`; `float` → `Float`, and a non-finite one fails
      `to_json`; `str` → `Text`; `bytes` and `bytearray` → `Opaque`, never `Text`; `dict` → `Map`
      in insertion order; `list` and `tuple` → `List`, with random access. Liquers wrappers that
@@ -37,20 +37,20 @@ plan, with [`liquers-py-pipelines`](../liquers-py-pipelines/DESIGN.md).
        would make the node accept what VALUE refuses.
      - **A non-`str` key.** It is not visible through `get` or `keys`. `to_json` raises
        `ConversionError` naming the key.
-  2. **Open design: which other objects read as maps** (question 2). Recommended: an opt-in
+  2. **Open design: which other objects read as maps** (guide question 2). Recommended: an opt-in
      protocol. A class defines `__liquers_data__(self)`, returning a `dict`, `list` or scalar,
      which is called once when its node is built. This runs Python code, and the docs say so.
      Nothing else runs code: `dict`, `list` and `tuple`, subclasses included, are read through
      their data (`PyDict` / `PyList` access, never `__getitem__`, properties or `__getattr__`)
      (DATANODE07). Alternative: also read dataclasses and named tuples automatically from their
      fields.
-  3. **Proposed resolution: live view** (question 3). Each lookup reads the structure as it is at
+  3. **Proposed resolution: live view** (guide question 3). Each lookup reads the structure as it is at
      that moment, so a mutation mid-render shows (DATANODE09). A caller who needs consistency
      passes a copy, and the docs say so.
-  4. **Proposed resolution: cycles** (question 4). Navigation is lazy, so a cyclic structure is
+  4. **Proposed resolution: cycles** (guide question 4). Navigation is lazy, so a cyclic structure is
      navigable to any finite depth. `to_json` tracks object identities on its path and raises
      `ConversionError` on a cycle, never `RecursionError` (DATANODE06).
-  5. **Proposed resolution: threads and the lock** (question 5). The adapter holds `Py<PyAny>` and
+  5. **Proposed resolution: threads and the lock** (guide question 5). The adapter holds `Py<PyAny>` and
      takes the interpreter lock for each lookup (`Python::attach`), on whatever worker polls the
      reader. This is safe because every liquers-py wait releases the lock (DATANODE10). Waiting for
      the lock on a worker is a blocking wait in async code, bounded by the longest hold of the GIL,
@@ -60,7 +60,7 @@ plan, with [`liquers-py-pipelines`](../liquers-py-pipelines/DESIGN.md).
      `__liquers_data__` raising makes that node `Opaque`, which the docs state, because `DataNode`
      has no error channel. On free-threaded builds a `dict` read is atomic per lookup. The cost
      per lookup is measured on a large render in Phase 3.
-  6. **Proposed resolution: the outbound view** (question 6). Yes: `lq.data_node(x)` returns an
+  6. **Proposed resolution: the outbound view** (guide question 6). Yes: `lq.data_node(x)` returns an
      `lq.DataNode` for a Python value (the adapter) or for an `lq.State` (its value's node,
      `Value::data_node`, always synchronous). It holds the root `AnyNode` plus a path and
      re-resolves on each access. It offers `kind` (`lq.NodeKind`), `scalar`, `[key]` / `[i]`,

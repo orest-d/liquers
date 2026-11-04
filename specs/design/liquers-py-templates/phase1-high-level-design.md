@@ -20,7 +20,7 @@ function: the `TEMPLATE` feature of `LANGUAGE-INTEGRATION_GUIDE.md` (`TEMPLATE_L
   needs an asset to render in, and that is the open choice. Template commands are aliases
   (`CommandRegistry::register_alias`). The retained declarations (`Declarations` in
   `liquers-py/src/environment.rs`) have no slot for them yet, nor for pipeline commands. The first
-  M6 design to land adds one slot for both (question 7).
+  M6 design to land adds one slot for both (open question 7).
 - **Open questions:**
   1. **Open design: the top-level route** (guide question 4). Recommended: the guide's route,
      an ad-hoc `apply` of `ns-template/render` through `render_in_env(envref, template, state, …)`
@@ -38,26 +38,26 @@ function: the `TEMPLATE` feature of `LANGUAGE-INTEGRATION_GUIDE.md` (`TEMPLATE_L
      - A context built on a temporary asset (`AssetRef::new_temporary` and `Context::new`). This
        is rejected, as `template-render-in-env` rejects it: it runs outside `run`, with no status
        transitions, and on wasm no service loop processes its messages.
-  2. **Proposed resolution: template as text or link** (question 2). A `str` is template text. An
+  2. **Proposed resolution: template as text or link** (guide question 2). A `str` is template text. An
      `lq.Query` is a link to the template, read as a dependency. An `lq.Key` means `-R/<key>`.
      Nothing is guessed from the string's content.
-  3. **Proposed resolution: frames** (question 3). Exactly the commands' layout, as in the guide's
+  3. **Proposed resolution: frames** (guide question 3). Exactly the commands' layout, as in the guide's
      table. `render(template, state=None, data=None)` puts the state at the bottom (`Data`) and `data`
      on top (`Names`). `expand(template, data=None)` uses `data` alone (`Data`). `data` is a
      mapping or `None`. `state` is any Python value, converted by the value bridge, or an `lq.State`.
-  4. **Proposed resolution: receivers** (question 1). The same `render` / `expand` / `validate`
-     signatures on `Environment` and on `Context`, with `_async` forms (question 7). Sync forms
+  4. **Proposed resolution: receivers** (guide question 1). The same `render` / `expand` / `validate`
+     signatures on `Environment` and on `Context`, with `_async` forms (guide question 7). Sync forms
      wait like `evaluate`, with the GIL released. `async def` commands use the `_async` forms, and
      the sync forms raise there, as `context.evaluate` does.
-  5. **Proposed resolution: warnings at the top level** (question 5). The call returns the text.
+  5. **Proposed resolution: warnings at the top level** (guide question 5). The call returns the text.
      `full=True` returns an `lq.RenderResult` with `text` and `warnings` (`lq.LogEntry` list,
      positions kept). Inside a command, recovered errors also go to the command's log.
-  6. **Proposed resolution: HTML escaping** (question 6). An explicit `html=False` keyword, never
+  6. **Proposed resolution: HTML escaping** (guide question 6). An explicit `html=False` keyword, never
      derived from the template's key. This deliberately differs from the commands, which escape when
      the result's filename is `.html` (`liquers-lib/src/template/commands.rs`). So a template
      command and `context.render` inside a command can differ for a `.html` result, and the docs
      say so.
-  7. **Proposed resolution: template commands** (question 8). `env.template_command(name,
+  7. **Proposed resolution: template commands** (guide question 8). `env.template_command(name,
      template=…, namespace=…, label=…, doc=…)` registers the alias of `template/render` with the
      link as head, and arguments `data`, `errors` and `cwd` (default link `-R-key/.`). It goes
      through the new declaration slot (above), so a rebuild keeps it. A registration error raises
