@@ -113,3 +113,13 @@ binds the remaining parameters `EU`, `US`, spliced into `values` by `{"multiple"
   harness, at the top level (`apply_queued`) and in a command (`Context::apply_ad_hoc`).
 - The editors' clone-then-commit gives Python atomic multi-step calls for free, because the core
   editors are `Clone`.
+- Implementation corrections. A relative key starts with `./` or `../` (`ResourceName::is_cwd` /
+  `is_parent`), so the relative-key cases use `./x.csv`, not `x.csv`; and the top-level case reads
+  under a `cwd` element (`[{"cwd": "data"}, {"resource": "./x.txt"}]` against
+  `-R-cwd/data/-R/./x.txt`). With no working directory the query form fails on `./recipes.yaml`
+  while the pipeline resolves against the root: filed as
+  `TOP-LEVEL-RELATIVE-RESOURCE-QUERY-LOOKS-UP-A-RELATIVE-RECIPES-KEY`.
+- `to_query` writes the canonical query: a namespace moves to the front
+  (`hello/ns-template/render-…` becomes `ns-template/hello/render-…`), so `test_round_trip` checks
+  that the canonical form is stable rather than equal to every source. The S7 case is a
+  placeholder argument (`{"placeholder": "n"}`).

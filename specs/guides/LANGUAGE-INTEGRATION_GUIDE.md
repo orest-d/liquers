@@ -1284,8 +1284,8 @@ can evaluate one, convert between it and a query, edit it with the same checks a
 - Editors over `EnvRef::command_metadata_snapshot`, refusing an edit without changing anything
 - Registration: `CommandRegistry::register_pipeline(key, pipeline, arguments)`, or a declaration
   with `definition: Pipeline` over the shared declaration format
-- Read-only exposure that already exists: `Recipe.pipeline` (liquers-py returns it as a dict) and
-  `CommandParameterValue::Pipeline` defaults in command metadata
+- Read-only exposure: `Recipe.pipeline` and `CommandParameterValue::Pipeline` defaults in command
+  metadata, as the *language*'s pipeline type
 
 **The design must answer:** Is a pipeline a dedicated *language* type, or the native structure
 only? Are the editors wrapped, or is building a native structure and converting it enough? How is a
@@ -1296,9 +1296,10 @@ so how does it reach a JSON slot?
 already round-trips floats exactly. Do not reimplement representability or escaping in the
 *language*; call the Rust conversion. `liquers-web` implements it
 ([`design/web-pipelines/`](../design/web-pipelines/DESIGN.md): a pipeline is a plain object, the
-editors are wrapped, and a pipeline command is a declaration with `pipeline` in place of `run`);
-`liquers-py` does not yet
-([`PIPELINES-NOT-IN-LANGUAGE-BINDINGS`](../issues/PIPELINES-NOT-IN-LANGUAGE-BINDINGS.md)).
+editors are wrapped, and a pipeline command is a declaration with `pipeline` in place of `run`), and
+so does `liquers-py` ([`design/liquers-py-pipelines/`](../design/liquers-py-pipelines/DESIGN.md):
+an `lq.Pipeline` class beside plain lists and dicts, wrapped editors, `pipeline_command` as a
+declaration; §6 Python).
 
 **Meaningful tests:** `PIPELINE01` evaluating a pipeline equals evaluating its query;
 `PIPELINE02` a structured argument (a map) reaches an `any` argument whole; `PIPELINE03` a
@@ -2142,6 +2143,16 @@ settled on, and the list after them is what cost time. Its contract is
   serialized into the declaration document as `{"Query": …}`, which the shared pipeline already
   reads: no new pipeline stage. The validation method is `validate_template`, because
   `Environment.validate()` already means the registry check.
+- **Pipelines** (`specs/design/liquers-py-pipelines/`). A pipeline is an `lq.Pipeline` or a plain
+  list or dict in the JSON form; every Python value bound for a JSON slot goes through one walker
+  that refuses what JSON cannot hold and names its path, so no conversion rule is duplicated. A
+  top-level pipeline evaluates as a pipeline-only recipe (`apply_queued`), not through
+  `evaluate_pipeline`, so it gets an asset, a job-queue slot and Ctrl-C cancellation like a query;
+  inside a command a representable pipeline is its query (shared cache and dependency) and any
+  other goes through `Context::apply_ad_hoc`, after liquers-py's own relative-key check, because
+  core checks only the recipe's query. The core editors are `Clone`, so each Python call edits a
+  clone and commits it on success: a two-step call is atomic for free. Pipeline commands reuse the
+  template commands' declaration slot.
 - **Data nodes** (`specs/design/liquers-py-data-nodes/`). Inbound, `PyObjectValue` overrides
   `ForeignValue::data_node` with a `PyNode` over the live object, so a `dict` that conversion
   keeps as `py.Object` (one `datetime`, one `int` key) renders in place. Exact `dict`, `list` and
@@ -4012,6 +4023,7 @@ def test_DOCS04_every_public_name_is_documented():
 
 | Date | Change | Source |
 |---|---|---|
+| 2026-11-04 | §PIPELINE: `liquers-py` implements the feature; §6 Python: *Pipelines* (the JSON walker, `apply_queued` at the top level and `apply_ad_hoc` in a command, editors committed from a clone, declared pipeline commands). | `design/liquers-py-pipelines/` |
 | 2026-11-04 | §6 Python: *Templates* (two receivers, the top-level closure asset and its wait, template commands as declarations, `lq.link`); `TEMPLATE` is implemented by `liquers-py`. | `design/liquers-py-templates/` |
 | 2026-11-04 | §6 Python: *Data nodes* (the inbound adapter and opt-in, the lock per lookup, the outbound view and its roots, lazy `State.value`); `DATANODE` is implemented by `liquers-py`. | `design/liquers-py-data-nodes/` |
 | 2026-11-04 | New feature `PIPELINE` (overview row, soft dependency, §5 section with tests `PIPELINE01`–`05`); no binding implements it yet. | phase-5, `design/composite-command-definition/` |
