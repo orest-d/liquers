@@ -5,7 +5,7 @@ title: "Pipelines in liquers-py: evaluate, convert, edit and register pipelines 
 workflow: liquers-project
 status: approved
 phase: implementation
-readiness: needs-decision
+readiness: ready
 autofix: not-eligible
 area: [py]
 issues: [PIPELINES-NOT-IN-LANGUAGE-BINDINGS, PY-HAS-NO-VALIDATING-QUERY-EDITOR]

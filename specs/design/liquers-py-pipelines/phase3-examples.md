@@ -23,6 +23,7 @@ Fixture: `data/sales.csv` with columns `region`, `amount` and rows in `EU`, `US`
 ## Example 1: evaluate and convert a pipeline
 
 ```python
+import pytest
 import liquers as lq
 env = lq.Environment()
 env.store_set("data/sales.csv", b"region,amount\nEU,1\nUS,2\nASIA,3\n")
@@ -77,7 +78,7 @@ binds the remaining parameters `EU`, `US`, spliced into `values` by `{"multiple"
 | A `datetime` literal; a `dict` containing itself; `2**64` | `lq.ConversionError` naming the path | `test_only_json_in_json_slots` |
 | A body with an undeclared placeholder; a step command that does not exist | the typed error; no `top_in` | `test_bad_pipeline_command_is_refused` |
 | A multi-step `action(…, ns=…)` whose second step fails | editor unchanged | `test_refused_edit_changes_nothing` |
-| `make` returns `lq.Pipeline(top)`; `env.evaluate("make")`; `env.evaluate_state("make").metadata.type_identifier()`; `env.recipes` over a recipe with `pipeline:`; a default set with `env.import_metadata` (`default: {pipeline: …}`) | an equal `lq.Pipeline` back; `"Pipeline"`; `Recipe.pipeline` and `ArgumentInfo.default` are `lq.Pipeline` | `test_pipeline_values_keep_their_type` |
+| `make` returns `lq.Pipeline(top)`; `env.evaluate("make")`; `env.evaluate_state("make").metadata.type_identifier()`; `env.recipes().recipe(key)` over a recipe with `pipeline:`; a default set with `env.import_metadata` (`default: {pipeline: …}`) | an equal `lq.Pipeline` back; `"Pipeline"`; `Recipe.pipeline` and `ArgumentInfo.default` are `lq.Pipeline` | `test_pipeline_values_keep_their_type` |
 | A top-level pipeline with a relative key (`[{"resource": "x.csv"}]` under `-R-cwd/data/`) | planned as its query is | `test_relative_key_pipeline` |
 | Inside a command, `context.evaluate([{"value": 1}, {"resource": "x.csv"}])` | `lq.NotSupportedError` naming the relative key (`CONTEXT-APPLY-AD-HOC-SKIPS-RELATIVE-PIPELINE-KEYS`) | `test_relative_key_in_a_command_is_refused` |
 | `KeyboardInterrupt` during `env.evaluate(top)` whose step runs the conftest `slow` | the asset ends `Cancelled`; `slow` saw `context.is_cancelled()` | `test_interrupt_cancels_the_pipeline` |

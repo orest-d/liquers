@@ -41,9 +41,11 @@ Every new Python name is exported with a docstring and declared in the stubs.
 - Rollback: revert the commit (the `dict` form returns).
 
 ### Step 3: top-level evaluation
-- Files / symbols: `environment.rs` `Evaluable`, `to_evaluable`, `pipeline_recipe`, `evaluate`,
-  `evaluate_state`, `evaluate_async`, `evaluate_state_async`, `get_asset` (refusal);
-  `closure.rs` `wait_for_asset`.
+- Files / symbols: `environment.rs` `Evaluable`, `to_evaluable`, `pipeline_recipe` (all new),
+  `evaluate`, `evaluate_state`, `evaluate_async`, `evaluate_state_async`, `get_asset` (refusal);
+  `closure.rs` `wait_for_asset` (new).
+- Setup check: `cargo run -p liquers-core --features cli --bin liquers-validate -- --pipeline
+  <Example 1 as YAML>` gives `Ok` and the problem query as `encoded`.
 - Change: `apply_queued(pipeline_recipe(p), State::new())`, then `get`; an interrupted sync wait
   cancels the asset.
 - Depends on: Steps 1-2.
@@ -55,7 +57,7 @@ Every new Python name is exported with a docstring and declared in the stubs.
 
 ### Step 4: in-command evaluation
 - Files / symbols: `context.rs` `evaluate`, `evaluate_async`; `pipeline.rs`
-  `pipeline_has_relative_key`.
+  `pipeline_has_relative_key` (new).
 - Change: representable → its query; otherwise `apply_ad_hoc`, after the relative-key check.
 - Depends on: Step 3.
 - Proof: `test_PIPELINE_evaluate.py::test_non_representable_in_a_command`, and
@@ -63,8 +65,9 @@ Every new Python name is exported with a docstring and declared in the stubs.
 - Rollback: refuse non-representable pipelines with `NotSupported` (Phase 1's first answer).
 
 ### Step 5: editors
-- Files / symbols: `pipeline.rs` `PipelineEditor`, `QueryEditor`, `ActionEditor`, `Owner`;
-  `environment.rs` `pipeline_editor`, `query_editor`.
+- Files / symbols: `pipeline.rs` `PipelineEditor`, `QueryEditor`, `ActionEditor`, `Owner` (all
+  new); `environment.rs` `pipeline_editor`, `query_editor` (new); `aio.rs` `lock_py_attached`
+  (new, factored out of the private `lock` there, so `aio.rs` and the editors share it).
 - Change: convert arguments, then `lock_py_attached`, clone, edit, commit.
 - Depends on: Step 1 (parallel with Steps 2-4).
 - Proof: `test_PIPELINE_editors.py` (all four tests, among them `test_stale_action_editor` and
@@ -72,21 +75,23 @@ Every new Python name is exported with a docstring and declared in the stubs.
 - Rollback: remove the classes.
 
 ### Step 6: pipeline commands
-- Files / symbols: `environment.rs` `DeclaredCommand::Pipeline`, its arm in `configured_builder`
+- Files / symbols: `environment.rs` `DeclaredCommand::Pipeline` (new variant of the
+  `liquers-py-templates` enum), its arm in `configured_builder`
   and `declare`, `Environment.pipeline_command`; `command_metadata.rs` `CommandDefinition.pipeline`.
 - Depends on: Step 1; `liquers-py-templates` merged.
 - Proof: `test_PIPELINE_commands.py` (both tests, the first also after a rebuild).
-- Rollback: remove the arm.
+- Rollback: revert the step's commit (variant, arm, `pipeline_command`, the getter).
 
 ### Step 7: records and docs
 - Files / symbols: `liquers-py/README.md` PIPELINE row; the documents below; module docs.
-- Proof: `check_api_docs.py` on each touched module; `docs_index.py --check`.
+- Depends on: Steps 1-6.
+- Proof: `python3 scripts/check_api_docs.py` on each touched module; `python3 scripts/docs_index.py --check`.
+- Rollback: documentation only.
 
 ## Testing Plan
 
 Each step's proof as it lands; at the end `bash scripts/test-liquers-py.sh` (CI: 3.10, 3.14,
-3.14t). The pipeline in Example 1 is checked with `liquers-validate --pipeline` in the test setup
-notes. No Rust crate outside `liquers-py` changes.
+3.14t). No Rust crate outside `liquers-py` changes.
 
 ## Rollback Plan
 

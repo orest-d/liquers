@@ -11,8 +11,8 @@ three lookups, not a copy. Let Python read one field of a Liquers value without 
 
 ## Design Readiness
 
-- **Readiness:** `needs-decision` until Phases 2-4 are written and reviewed; no user decision is
-  open (Orest decided question 2 at the gate; the rest are proposed resolutions)
+- **Readiness:** `ready`: Phases 2-4 written and reviewed (2026-11-04); no user decision is open (Orest decided question 2 at the gate; the rest are
+  proposed resolutions)
 - **Automatic fixing:** `not-eligible`: an `L` feature with new public Python classes.
 - **Leading issue:** question 1's two deviations from the guide. Source issue
   `PY-STRUCTURES-ARE-OPAQUE-TO-DATA-NODE-READERS` (P2 L, filed with this design).
@@ -199,8 +199,12 @@ run); `value.rs`, `asset.rs` (lazy `State`), `context.rs`, `environment.rs`, the
 - `foreign-value-data-node` / `FOREIGN-VALUE-HAS-NO-DATA-NODE`: **requires** (own PR first), so a
   retained value inside a query reads in place (AC-8).
 - `AD-HOC-ASSET-CANNOT-RUN-A-CLOSURE`: **requires** for `env.data_node` (AC-12); own PR first.
+- `template-render-in-env`: **overlaps**: both change `inner_node_of` in
+  `liquers-lib/src/template/host.rs`; it lands first and this design rebases on it.
 - `liquers-py-templates`: **required-by**. It lands next and reads its `data` frames through this
   adapter.
+- `liquers-py-pipelines`: **required-by**: it extends `liquers-py/src/closure.rs` with
+  `wait_for_asset`.
 - `template-non-scalar-text-form`: **overlaps** (text form of `Query` and `Key` nodes).
 
 ## References

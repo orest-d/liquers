@@ -4,8 +4,9 @@
 
 M6 lands in this order, each in its own PR: `foreign-value-data-node` (PR #250, open),
 `ad-hoc-closure-asset`, `template-render-in-env`, then this design, then `liquers-py-templates`,
-then `liquers-py-pipelines`. This design's PR is cut from `main` after the first two have merged
-(it does not need `template-render-in-env`). Inside it:
+then `liquers-py-pipelines`. This design's PR is cut from `main` after the first three have merged:
+it needs only the first two, but Step 5 edits `inner_node_of` in `liquers-lib/src/template/host.rs`,
+which `template-render-in-env` also changes, so this design rebases on it. Inside it:
 1. The adapter and the hook, testable through `lq.data_node` and the existing template commands.
 2. Lazy `State`, which changes where a conversion error surfaces; the existing suite shows what
    moves.
@@ -30,14 +31,16 @@ and stubtest check every exported name.
 
 ### Step 1: `PyNode` and `node_of`
 - Files / symbols: `liquers-py/src/data_node.rs` (new) `PyNode`, `Shape`, `node_of`, `impl DataNode
-  for PyNode`; `liquers-py/src/value.rs` `attach_off_worker` and the out-of-range integer error
-  made `pub(crate)` (one constructor shared with `py_to_simple`); `lib.rs` `mod data_node`.
+  for PyNode`; `liquers-py/src/value.rs` `attach_off_worker` made `pub(crate)`, and the out-of-range
+  integer error, inline in `py_to_simple` today, factored into `int_out_of_range_error` (new), shared
+  by both; `lib.rs` `mod data_node`.
 - Change: the classification table and the standard-type lookups of Phase 2; `to_json` with the
   identity set.
 - Depends on: none.
-- Proof: Rust unit tests in `data_node.rs` `tests` (attach to an embedded interpreter, as the
-  existing `value.rs` tests do) for kinds, missing keys, the integer and NaN edges and a cycle;
-  `cargo test -p liquers-py --lib data_node`.
+- Proof: step-local Rust unit tests in `data_node.rs` `tests` (attach to an embedded interpreter,
+  as the existing `value.rs` tests do) for kinds, missing keys, the integer and NaN edges and a
+  cycle; `cargo test -p liquers-py --no-default-features --features debug-handles --lib data_node`
+  (the form `scripts/test-liquers-py.sh` uses, since `extension-module` does not link a test).
 - Rollback: delete the module.
 
 ### Step 2: the hook
@@ -45,7 +48,7 @@ and stubtest check every exported name.
 - Change: `fn data_node(self: Arc<Self>) -> AnyNode`, building `node_of` under `attach_off_worker`.
 - Depends on: Step 1; PR #250 merged.
 - Proof: `test_DATANODE_render.py::test_retained_value_renders_in_place` (plain `dict` variant),
-  `test_worker_lookup_does_not_deadlock`, `test_reentrant_getitem_completes`.
+  `test_worker_lookup_does_not_deadlock`.
 - Rollback: remove the method; the core default answers again.
 
 ### Step 3: opt-in protocols
@@ -53,8 +56,9 @@ and stubtest check every exported name.
   `ProtocolList`, protocol scalars.
 - Change: type-level lookup of `__liquers_data__`; `True` and method forms; raising entries opaque.
 - Depends on: Step 1.
-- Proof: `test_DATANODE_protocols.py` (all four tests) and the two other variants of
-  `test_retained_value_renders_in_place`.
+- Proof: `test_DATANODE_protocols.py` (all), the two other variants of
+  `test_retained_value_renders_in_place`, `test_reentrant_getitem_completes` (it needs an opted-in
+  `__getitem__`) and `test_large_render_cost` (timing recorded).
 - Rollback: the branch returns `Opaque`.
 
 ### Step 4: lazy `lq.State`
@@ -82,17 +86,21 @@ and stubtest check every exported name.
 - Change: the members of Phase 2; `Command` root built with `clone_handle()`.
 - Depends on: Steps 1, 4, 5.
 - Proof: `test_DATANODE_mapping.py` (all), `test_DATANODE_views.py::test_frame_cell_without_conversion`,
-  `test_command_view_expires`, `test_async_nodes_in_a_command`.
+  `test_command_view_expires`, `test_state_value_is_lazy`.
 - Rollback: remove the classes; the hook stays.
 
 ### Step 7: `awaitable_run` and the `Env` root
 - Files / symbols: `liquers-py/src/closure.rs` (new) `awaitable_run`; `data_node.rs`
   `Root::Env`, the `_async` members; `environment.rs` `Environment.data_node`; `aio.rs` a
   `ToPy::Node` variant for an awaited view.
-- Change: each `Env` async read is one `closure_asset("data node read")` run.
+- Change: the `_async` members of every root; each `Env` async read is one
+  `closure_asset("data node read")` run.
 - Depends on: Step 6; `ad-hoc-closure-asset` merged.
-- Proof: `test_DATANODE_views.py::test_async_nodes_at_top_level`; a shutdown-during-read case in
-  the same file (`test_env_read_cancelled_at_shutdown`: the asset ends `Cancelled`).
+- Proof: `test_DATANODE_views.py::test_async_nodes_in_a_command` (the `Command` root's `_async`
+  members land here), `test_async_nodes_at_top_level`, `test_env_view_after_shutdown`,
+  `test_env_read_cancelled_at_shutdown` (shutdown during a read: `lq.CancelledError`, the asset
+  ends `Cancelled`),
+  `test_cancelled_await_cancels_the_read`.
 - Rollback: `Environment.data_node` without async reads (sync accessors only).
 
 ### Step 8: records and docs

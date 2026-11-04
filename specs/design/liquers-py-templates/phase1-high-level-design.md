@@ -11,9 +11,8 @@ function: the `TEMPLATE` feature of `LANGUAGE-INTEGRATION_GUIDE.md` (`TEMPLATE_L
 
 ## Design Readiness
 
-- **Readiness:** `needs-decision` until Phases 2-4 are written and reviewed; no user decision is
-  open (question 8 taken as recommended under `proceed all`, Decision 2, an assumption reported
-  with the pre-implementation summary; no stop is needed)
+- **Readiness:** `ready`: Phases 2-4 written and reviewed (2026-11-04); no user decision is open (question 8 taken as recommended under `proceed all`,
+  Decision 2, an assumption reported with the pre-implementation summary)
 - **Automatic fixing:** `not-eligible`: an `L` feature with new public Python API.
 - **Leading issue:** link defaults (question 8, Decision 2). Source issue `PY-CANNOT-RENDER-TEMPLATES`
   (P2 L, filed with this design).
@@ -97,7 +96,7 @@ env.expand("{{name}} has {{$ number-42}}", data={"name": "Ann"})
 
 @env.command
 def report(context) -> str:
-    return context.render(lq.parse_query("-R/templates/count.md"))   # "{{$ -R/d/count.txt}}"
+    return context.render(lq.parse("-R/templates/count.md"))   # "{{$ -R/d/count.txt}}"
 ```
 
 **Today** `env.expand` raises `AttributeError`, and `lq.Context` has no `render`. A script must
@@ -114,7 +113,7 @@ source command returning its argument). The queries validate with those commands
   WHEN `env.expand("{{name}} has {{$ number-42}}", data={"name": "Ann"})` is called
   THEN it returns `"Ann has 42"`, and the query tag ran through an asset (TEMPLATE04)
 - **AC-2** The call matches the command
-  WHEN `env.render(lq.parse_query("-R/templates/greet.md"), state="hello")` and `env.expand(text)` are compared with the equivalent `ns-template/render` and `ns-template/expand` queries
+  WHEN `env.render(lq.parse("-R/templates/greet.md"), state="hello")` and `env.expand(text)` are compared with the equivalent `ns-template/render` and `ns-template/expand` queries
   THEN each pair gives the same text (TEMPLATE05)
 - **AC-3** The built-in commands work
   WHEN `hello/ns-template/render-~X~-R/templates/greet.md~E` and `-R/templates/greet.md/-/ns-template/validate` are evaluated
@@ -161,8 +160,8 @@ Commands: aliases and link defaults. Assets: an ad-hoc asset at the top level, t
 
 ## Crate Placement
 
-`liquers-py`: `src/template.rs` new; `environment.rs`, `context.rs`, `command.rs`,
-`command_metadata.rs`, `_commands.py`, the stubs. The closure primitive (`liquers-core`) and
+`liquers-py`: `src/template.rs` new; `closure.rs` (`wait_for_run`), `environment.rs`, `context.rs`,
+`query.rs` (`Link`), `aio.rs`, `command_metadata.rs`, `_commands.py`, the stubs. The closure primitive (`liquers-core`) and
 `render_top_level` (`liquers-lib`) land first, each in its own PR (Decision 1).
 
 ## Documentation Intent
@@ -184,8 +183,8 @@ Commands: aliases and link defaults. Assets: an ad-hoc asset at the top level, t
   Each lands first, in its own PR.
 - `liquers-py-data-nodes`: **requires** (lands first), so `data` is read in place. Without it,
   `expand` would convert `data`, and one unconvertible member would blank the whole `dict`.
-- `liquers-py-pipelines`: **overlaps**. Both add the declaration slot and the
-  `lq.CommandDefinition` accessors (question 7); whichever lands first adds them.
+- `liquers-py-pipelines`: **required-by** (lands next). This design adds the declaration slot and
+  the `lq.CommandDefinition` accessors (question 7); pipelines adds the `Pipeline` arm.
 - `py-command-decorator-declaration-keywords`: **overlaps** (question 8).
 
 ## References

@@ -5,7 +5,7 @@ title: "Data nodes in liquers-py: Python data read in place, and Liquers values 
 workflow: liquers-project
 status: approved
 phase: implementation
-readiness: needs-decision
+readiness: ready
 autofix: not-eligible
 area: [py, lib/value]
 issues: [PY-STRUCTURES-ARE-OPAQUE-TO-DATA-NODE-READERS]

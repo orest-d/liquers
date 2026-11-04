@@ -91,7 +91,8 @@ pub(crate) fn node_of(py: Python<'_>, object: &Bound<'_, PyAny>) -> PyNode;
 `attach_off_worker`. Sync, as the hook is.
 
 **The view** (`data_node.rs`). Python-facing; the sync accessors are sync, the `_async` ones return
-awaitables (`aio::awaitable`).
+awaitables: a `Node` or `Command` root's lookup future through `aio::awaitable` (a lookup, not a
+run), an `Env` root's read through `closure::awaitable_run`; both wrap the node as `ToPy::Node`.
 
 ```rust
 #[pyclass(frozen, eq, eq_int, name = "NodeKind", module = "liquers")]
@@ -145,7 +146,8 @@ Python members: `kind`; `scalar` (`None` for a non-scalar; `Scalar::UInt` gives 
 pub(crate) fn awaitable_run<'py, T: Send + 'static>(py: Python<'py>, shut: &Arc<Shut>,
     asset: AssetRef<PyEnvironment>,
     run: impl Future<Output = Result<Option<T>, Error>> + Send + 'static,
-    wrap: fn(Result<Option<T>, Error>) -> ToPy) -> PyResult<Bound<'py, PyAny>>;
+    wrap: impl FnOnce(Result<Option<T>, Error>) -> ToPy + Send + 'static)
+    -> PyResult<Bound<'py, PyAny>>;
 ```
 
 `aio::awaitable` is not used for a run: its `select!` against `shut` drops the future.
@@ -167,8 +169,9 @@ new methods.
 
 - `liquers-py/src/data_node.rs` (new): `PyNode`, `node_of`, `NodeKind`, `DataNode`, `data_node`.
 - `liquers-py/src/closure.rs` (new): `awaitable_run`.
-- `liquers-py/src/value.rs`: the `data_node` hook; `attach_off_worker` and the integer
-  `ConversionError` constructor made `pub(crate)`.
+- `liquers-py/src/value.rs`: the `data_node` hook; `attach_off_worker` made `pub(crate)`; the
+  out-of-range integer `ConversionError`, inline today, factored into `int_out_of_range_error`.
+- `liquers-py/src/aio.rs`: `ToPy::Node`, an awaited view.
 - `liquers-py/src/asset.rs`: lazy `State`; `data_node()`. Call sites of `State::from_core`
   (`environment.rs` `evaluate_state`, `asset.rs` `AssetRef::get_state`, `aio.rs` `ToPy::State`,
   `command.rs` `prepare_call`) are unchanged: only where a conversion error surfaces moves.
@@ -185,7 +188,8 @@ new methods.
 | `to_json` on a cycle, a non-`str` key, an out-of-range `int`, a non-finite `float`, an opaque member | `Error::conversion_error_with_message` → `lq.ConversionError` |
 | A sync accessor reaching an async node | `Error::not_supported` → `lq.NotSupportedError` |
 | A command view used after the command returned | `Error::general_error` (as `lq.Context`) |
-| An `Env` view after shutdown or with the environment gone | `shut_down_error()` |
+| An `Env` view read after shutdown or with the environment gone | `shut_down_error()` (`lq.GeneralError`) |
+| An `Env` read in progress when the environment shuts down | the asset is cancelled; `lq.CancelledError` |
 | `node[k]` missing, `node[i]` out of range, `len` of a scalar | Python `KeyError`, `IndexError`, `TypeError` |
 | A raise in an opted-in protocol | none: that node is `Opaque` (no error channel in `DataNode`) |
 | `state.value` that cannot be converted | the conversion's error, now at access |
@@ -226,7 +230,7 @@ Module docs (`API_DOCUMENTATION_GUIDE.md` §3 parts):
 
 | Assessment | Finding |
 |---|---|
-| Files likely to change | `liquers-py/src/{data_node,closure,value,asset,context,environment,lib}.rs`, the stubs, `__init__.py`; `liquers-lib/src/template/host.rs` |
+| Files likely to change | `liquers-py/src/{data_node,closure,value,asset,aio,context,environment,lib}.rs`, the stubs, `__init__.py`; `liquers-lib/src/template/host.rs` |
 | Crates and workflows affected | `liquers-py` (`bash scripts/test-liquers-py.sh`, CI on 3.10 / 3.14 / 3.14t); `liquers-lib` feature `templates` |
 | Existing tests likely to change | A test expecting `evaluate_state` or `get_state` to raise a conversion error (e.g. a polars frame without the `polars` package in `test_VALUE_value_bridge.py`) now gets the error from `.value`; checked in step 4 of Phase 4 |
 | New validation | `test_DATANODE_*.py`; `context_node_kind_agrees_with_node_of` |

@@ -38,7 +38,7 @@ import liquers as lq
 env = lq.Environment()
 # … the fixture and `number` …
 assert env.expand("{{name}} has {{$ number-42}}", data={"name": "Ann"}) == "Ann has 42"  # AC-1
-greet = lq.parse_query("-R/templates/greet.md")
+greet = lq.parse("-R/templates/greet.md")
 assert env.render(greet, state="hello") == \
     env.evaluate("hello/ns-template/render-~X~-R/templates/greet.md~E")                # AC-2
 assert env.render("{{a}}{{b}}", state={"a": 1}, data={"b": 2}) == "12"                  # AC-12
@@ -56,9 +56,9 @@ assert d.kind == "alias" and d.alias_of.name == "render" and d.head_parameters[0
 
 @env.command
 def page(state, cwd: lq.Key = lq.link("-R-key/."), context=None) -> str:    # AC-11
-    return context.render(lq.parse_query("-R/templates/page.md"), cwd=cwd)
+    return context.render(lq.parse("-R/templates/page.md"), cwd=cwd)
 assert env.evaluate("-R-cwd/templates/-/page") == "Header body"
-assert env.render(lq.parse_query("-R/templates/page.md"),
+assert env.render(lq.parse("-R/templates/page.md"),
                   cwd=lq.parse_key("templates")) == "Header body"
 ```
 
@@ -106,7 +106,7 @@ assert env.render(lq.parse_query("-R/templates/page.md"),
   `test_declared_and_python_commands_replace_each_other`, `test_unregister_declared`, `test_failed_declare_changes_nothing`.
 - `test_TEMPLATE_validate.py`: `test_validation_runs_nothing` (AC-9): `env.validate_template`;
   `tick` never runs, one
-  `lq.Diagnostic` with severity, message, line and column.
+  `lq.Diagnostic` with severity, message and a position (line, column).
 - Run: `bash scripts/test-liquers-py.sh`.
 
 ## Learning Log

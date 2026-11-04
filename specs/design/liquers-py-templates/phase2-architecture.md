@@ -55,7 +55,7 @@ Environment.template_command(name, template, *, namespace="", label=None, doc=No
                              filename=None) -> None
 lq.link(query) -> Link                         # a default link argument
 class RenderResult: text: str; warnings: list[LogEntry]
-class Diagnostic: severity: str; message: str; line: int; column: int
+class Diagnostic: severity: str; message: str; position: Position   # as LogEntry.position
 CommandMetadata.definition -> CommandDefinition                        # new getter
 CommandDefinition.kind / alias_of / head_parameters / pipeline        # read-only
 ```
@@ -84,7 +84,7 @@ fn frames(py: Python<'_>, state: Option<&Bound<'_, PyAny>>, data: Option<&Bound<
   raises `lq.CancelledError`, as the cancellation error of a mid-run cancel does (its type is
   `Cancelled`). After an interrupt, `wait_for_run` waits for the run to settle with signals
   deferred, bounded by `STOP_GRACE`, so a second Ctrl-C cannot leave it unsettled. Async: `closure::awaitable_run(py, shut, asset, render.run(),
-  ToPy::Rendered…)` (`liquers-py-data-nodes`), never `aio::awaitable`, whose `select!` against
+  move |r| ToPy::Rendered(r.map(|o| (o, full))))` (`liquers-py-data-nodes`), never `aio::awaitable`, whose `select!` against
   shutdown would drop the run.
 - `closure.rs` gains the sync wait this design is the first user of:
 

@@ -93,7 +93,8 @@ Inside a command, `folder_keys(state: lq.State, context)` does the same with
 | `__liquers_data__`, `__index__` or `__float__` raising | that node `Opaque`; `to_json()` raises with the Python error as cause | `test_raising_protocols_are_opaque` |
 | An `IntEnum` member; an `OrderedDict` | `Integer`; `Opaque` (exact types only) | `test_exact_types_only` |
 | `to_json()` of a `dict` with an `int` key | `ConversionError` naming the key | `test_to_json_names_a_non_str_key` |
-| An `Env` view read after `env.shutdown()` | `lq.CancelledError`; the read's closure asset ends `Cancelled` | `test_env_read_cancelled_at_shutdown` |
+| An `Env` view read after `env.shutdown()` | `lq.GeneralError` (shut down); no asset | `test_env_view_after_shutdown` |
+| `env.shutdown()` while an `Env` read waits on a slow step | `lq.CancelledError`; the read's closure asset ends `Cancelled` | `test_env_read_cancelled_at_shutdown` |
 | The asyncio task awaiting `get_async` cancelled | `asyncio.CancelledError` in the task; the closure asset ends `Cancelled` | `test_cancelled_await_cancels_the_read` |
 | `state.value` of an unconvertible state | raises at `.value`, not at `evaluate_state` | `test_state_value_is_lazy` |
 | 10 000-entry `dict` rendered with `{{#items}}` | timed and recorded in the Learning Log (no assertion) | `test_large_render_cost` |
@@ -122,7 +123,7 @@ Inside a command, `folder_keys(state: lq.State, context)` does the same with
 - `test_DATANODE_views.py`: `test_frame_cell_without_conversion` (AC-11, run in a subprocess so
   `sys.modules` starts clean); `test_state_value_is_lazy` (AC-11);
   `test_async_nodes_in_a_command` and `test_async_nodes_at_top_level` (AC-12); edge cases, no AC:
-  `test_command_view_expires`, `test_env_read_cancelled_at_shutdown`,
+  `test_command_view_expires`, `test_env_view_after_shutdown`, `test_env_read_cancelled_at_shutdown`,
   `test_cancelled_await_cancels_the_read`.
 - Rust, `liquers-lib/src/template/host.rs` `tests`: `context_node_kind_agrees_with_node_of`
   (AC-12): for a directory listing, a record source and a text value, the kind it returns is the

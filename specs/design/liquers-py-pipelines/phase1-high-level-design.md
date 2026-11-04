@@ -11,9 +11,8 @@ plan, with [`liquers-py-templates`](../liquers-py-templates/DESIGN.md) and
 
 ## Design Readiness
 
-- **Readiness:** `needs-decision` until Phases 2-4 are written and reviewed; no user decision is
-  open (Orest decided questions 1, 2, 5 and 6 at the gate; Decision 3, a refinement logged as an
-  assumption, needs no stop and is reported with the pre-implementation summary)
+- **Readiness:** `ready`: Phases 2-4 written and reviewed (2026-11-04); no user decision is open (Orest decided questions 1, 2, 5 and 6 at the gate;
+  Decision 3, a refinement logged as an assumption, is reported with the pre-implementation summary)
 - **Automatic fixing:** `not-eligible`: an `L` feature with new public Python classes.
 - **Leading issue:** none open. Source issue
   `PIPELINES-NOT-IN-LANGUAGE-BINDINGS` (P2 L), narrowed to Python; its JavaScript half is
@@ -53,7 +52,7 @@ plan, with [`liquers-py-templates`](../liquers-py-templates/DESIGN.md) and
      must be JSON-compatible (`None`, `bool`, `int` within `VALUE`'s range, `float`, `str`, and
      `list` / `dict` with `str` keys). NaN and ±inf become the reference's strings. Anything else
      raises `ConversionError` when the pipeline is built, naming its path. That needs a walker of
-     its own: `py_to_simple` returns `None` for an unconvertible object and tracks no path. A
+     its own (`json_slot`, Phase 2): `py_to_simple` returns `None` for an unconvertible object and tracks no path. A
      `py.Object` never reaches a JSON slot. To pass one, a link or a nested pipeline supplies it.
   5. **Decided (Decision 1), refined by Decision 3: entry points.** `evaluate`, `evaluate_state`
      and their `_async` forms accept a pipeline as well as a query. A `str` stays a query. A
@@ -74,8 +73,8 @@ plan, with [`liquers-py-templates`](../liquers-py-templates/DESIGN.md) and
      arguments=[…], namespace=…, label=…, doc=…, filename=…)` goes into a new slot of the retained
      declarations (`Declarations` in `liquers-py/src/environment.rs`). The slot is applied after
      the Python commands and before imported metadata, so a rebuild keeps it. It is shared with
-     the template commands of `liquers-py-templates`, and whichever design lands first adds it.
-     The call checks at once against the registry as currently declared and raises on an error,
+     the template commands of `liquers-py-templates`, which lands first and adds it.
+     The call checks at once against the next build's registry and raises on an error,
      so a pipeline command is declared after the Python commands its body calls (documented).
      `lq.CommandDefinition` gains `kind`, `alias_of`, `head_parameters` and `pipeline`, specified
      once for both designs.
@@ -154,7 +153,7 @@ YAML file that the core reads. **After** `frame` equals
   WHEN an action is added with `editor.action("is_in", ns="pl")`
   THEN the editor returns its `CommandMetadata` and the `ArgumentInfo` of `column` and `values`, and `unset_arguments` lists what is still missing
 - **AC-9** Pipeline values keep their type across the boundary
-  WHEN a query's result is `Value::Pipeline`, a Python command returns an `lq.Pipeline`, a recipe with a `pipeline` is read through `env.recipes`, and a command's metadata has a pipeline default
+  WHEN a query's result is `Value::Pipeline`, a Python command returns an `lq.Pipeline`, a recipe with a `pipeline` is read through `env.recipes().recipe(key)`, and a command's metadata has a pipeline default
   THEN Python receives `lq.Pipeline` in the first, third and fourth cases, and the second result's state reports type `Pipeline`
 - **AC-10** Only JSON reaches a JSON slot
   WHEN a pipeline is built with a `datetime` as a literal argument
@@ -172,7 +171,7 @@ the editor classes, new `Environment` and `Context` members.
 ## Crate Placement
 
 `liquers-py` only: a new `src/pipeline.rs` (class, editors, question 4's walker); changes to
-`environment.rs`, `context.rs`, `value.rs`, `recipes.rs`, `command_metadata.rs`, the stubs and
+`closure.rs` (`wait_for_asset`), `environment.rs`, `context.rs`, `value.rs`, `recipes.rs`, `command_metadata.rs`, the stubs and
 `__init__.py`.
 
 ## Documentation Intent

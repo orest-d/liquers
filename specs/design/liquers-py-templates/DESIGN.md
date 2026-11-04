@@ -5,7 +5,7 @@ title: "Templates in liquers-py: template commands and rendering from scripts an
 workflow: liquers-project
 status: approved
 phase: implementation
-readiness: needs-decision
+readiness: ready
 autofix: not-eligible
 area: [py, lib/commands]
 issues: [PY-CANNOT-RENDER-TEMPLATES]
@@ -18,7 +18,8 @@ The `TEMPLATE` feature for liquers-py: milestone M6 of the liquers-py plan, toge
 [`liquers-py-data-nodes`](../liquers-py-data-nodes/DESIGN.md) and
 [`liquers-py-pipelines`](../liquers-py-pipelines/DESIGN.md). Full form (`L`). Requires a core
 primitive that runs a closure as an ad-hoc asset (`AD-HOC-ASSET-CANNOT-RUN-A-CLOSURE`) and
-`template-render-in-env` re-based on it (Phase 1 Decision 1), each in its own PR first.
+`template-render-in-env` re-based on it (Phase 1 Decision 1), each in its own PR first, and
+`liquers-py-data-nodes`, which lands before it.
 
 Phase 1 written and reviewed twice on 2026-11-04. At the gate Orest decided question 1 (the top level
 renders as a command does); revised, reviewed again, and approved with `proceed all`; question 8 taken as recommended (Decision 2).
